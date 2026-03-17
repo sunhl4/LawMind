@@ -37,9 +37,22 @@ fi
 mkdir -p "$(dirname "$INSTALL_DIR")"
 if [ -d "$INSTALL_DIR/.git" ]; then
   echo "[LawMind Installer] updating existing checkout..."
+  if [ -n "$(git -C "$INSTALL_DIR" status --porcelain)" ]; then
+    echo "[LawMind Installer] stashing local changes for pull..."
+    git -C "$INSTALL_DIR" stash push -u -m "LawMind installer: temporary stash"
+    DID_STASH=1
+  else
+    DID_STASH=0
+  fi
   git -C "$INSTALL_DIR" fetch origin "$REPO_BRANCH"
   git -C "$INSTALL_DIR" checkout "$REPO_BRANCH"
   git -C "$INSTALL_DIR" pull --rebase origin "$REPO_BRANCH"
+  if [ "$DID_STASH" = "1" ]; then
+    echo "[LawMind Installer] restoring stashed changes..."
+    if ! git -C "$INSTALL_DIR" stash pop; then
+      echo "[LawMind Installer] warning: stash pop had conflicts; resolve with 'cd $INSTALL_DIR && git stash list'"
+    fi
+  fi
 else
   echo "[LawMind Installer] cloning repo..."
   git clone --branch "$REPO_BRANCH" "$REPO_URL" "$INSTALL_DIR"
