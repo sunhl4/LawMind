@@ -29,6 +29,13 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  # Only run Docker build/push in the upstream repo; skip in forks to avoid permission/runner failures.
+  guard-upstream:
+    if: github.repository == 'openclaw/openclaw'
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "Running in upstream repo"
+
   validate_manual_backfill:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
@@ -67,7 +74,7 @@ jobs:
   # DO NOT MOVE IT BACK TO BLACKSMITH WITHOUT RE-VALIDATING TAG BUILDS AND BACKFILLS.
   # Build amd64 images (default + slim share the build stage cache)
   build-amd64:
-    needs: [approve_manual_backfill]
+    needs: [approve_manual_backfill, guard-upstream]
     if: ${{ always() && (github.event_name != 'workflow_dispatch' || needs.approve_manual_backfill.result == 'success') }}
     # WARNING: DO NOT REVERT THIS TO A BLACKSMITH RUNNER WITHOUT RE-VALIDATING TAG BACKFILLS.
     runs-on: ubuntu-24.04
@@ -180,7 +187,7 @@ jobs:
 
   # Build arm64 images (default + slim share the build stage cache)
   build-arm64:
-    needs: [approve_manual_backfill]
+    needs: [approve_manual_backfill, guard-upstream]
     if: ${{ always() && (github.event_name != 'workflow_dispatch' || needs.approve_manual_backfill.result == 'success') }}
     # WARNING: DO NOT REVERT THIS TO A BLACKSMITH RUNNER WITHOUT RE-VALIDATING TAG BACKFILLS.
     runs-on: ubuntu-24.04-arm
@@ -293,7 +300,7 @@ jobs:
 
   # Create multi-platform manifests
   create-manifest:
-    needs: [approve_manual_backfill, build-amd64, build-arm64]
+    needs: [approve_manual_backfill, guard-upstream, build-amd64, build-arm64]
     if: ${{ always() && needs.build-amd64.result == 'success' && needs.build-arm64.result == 'success' && (github.event_name != 'workflow_dispatch' || needs.approve_manual_backfill.result == 'success') }}
     # WARNING: DO NOT REVERT THIS TO A BLACKSMITH RUNNER WITHOUT RE-VALIDATING TAG BACKFILLS.
     runs-on: ubuntu-24.04

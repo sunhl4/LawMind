@@ -10,8 +10,15 @@ import {
   createWorkspaceAdapter,
 } from "../src/lawmind/index.js";
 import { reviewDraftInCli } from "../src/lawmind/review/cli.js";
+import { loadLawMindEnv } from "./lawmind-env-loader.js";
+
+function parseFailOnEmptyClaims(argv: string[]): boolean {
+  return argv.some((a) => a === "--fail-on-empty-claims" || a === "--fail-empty-claims");
+}
 
 async function main() {
+  const failOnEmptyClaims = parseFailOnEmptyClaims(process.argv.slice(2));
+  const loaded = loadLawMindEnv();
   const workspaceDir = path.resolve(process.cwd(), "workspace");
   const interactiveReview =
     (process.env.LAWMIND_INTERACTIVE_REVIEW ?? "").trim().toLowerCase() === "1";
@@ -57,6 +64,13 @@ async function main() {
   });
 
   const bundle = await engine.research(intent);
+
+  if (useRealModel && failOnEmptyClaims && bundle.claims.length === 0) {
+    throw new Error(
+      "[LawMind] --fail-on-empty-claims: real model returned no claims. Pipeline failed.",
+    );
+  }
+
   const draft = engine.draft(intent, bundle, { title: "LawMind Smoke 律师函草稿" });
 
   if (interactiveReview) {
@@ -64,11 +78,17 @@ async function main() {
     if (!reviewed.ok) {
       throw new Error(`草稿未通过审核: ${reviewed.reason}`);
     }
+    await engine.review(reviewed.draft, {
+      actorId: reviewed.draft.reviewedBy,
+      status: reviewed.draft.reviewStatus,
+    });
   } else {
     // smoke 流程默认自动通过
-    draft.reviewStatus = "approved";
-    draft.reviewedBy = "lawyer:smoke";
-    draft.reviewedAt = new Date().toISOString();
+    await engine.review(draft, {
+      actorId: "lawyer:smoke",
+      status: "approved",
+      note: "smoke auto approval",
+    });
   }
 
   const rendered = await engine.render(draft);
@@ -77,11 +97,15 @@ async function main() {
   }
 
   console.log("[LawMind] Smoke success.");
+  console.log(`env-file=${loaded.path} (${loaded.loaded ? "loaded" : "not found"})`);
   console.log(`mode=${useRealModel ? "real-model" : "mock-model"}`);
   console.log(`review=${interactiveReview ? "interactive" : "auto-smoke"}`);
   console.log(`intent: ${intent.kind}, risk=${intent.riskLevel}`);
   console.log(`sources=${bundle.sources.length}, claims=${bundle.claims.length}`);
   console.log(`output=${rendered.outputPath}`);
+  if (failOnEmptyClaims) {
+    console.log("fail-on-empty-claims: passed (claims > 0 or mock mode)");
+  }
 }
 
 main().catch((err) => {

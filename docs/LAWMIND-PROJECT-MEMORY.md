@@ -12,6 +12,30 @@
 
 ---
 
+## 0) 会话恢复规则（重要）
+
+下次登录继续开发 LawMind 时，优先按以下顺序恢复上下文：
+
+1. 先读本文件，确认北极星、当前阶段、已完成项、下一步。
+2. 再看 `GOALS.md`，确认阶段 checklist 是否已同步。
+3. 再看 `src/lawmind/index.ts`，确认当前主链路是否有新的状态机/接口。
+4. 再看 `workspace/` 下的长期状态文件：
+   - `workspace/MEMORY.md`
+   - `workspace/LAWYER_PROFILE.md`
+   - `workspace/tasks/*.json`
+   - `workspace/audit/*.jsonl`
+   - `workspace/cases/<matter-id>/CASE.md`
+5. 若要继续当前技术实现，优先看最近新增的测试文件，测试即行为边界。
+
+### 断点续做约定
+
+- **项目记忆真相源**：本文件 + `GOALS.md`
+- **运行状态真相源**：`workspace/tasks/*.json` + `workspace/audit/*.jsonl`
+- **案件上下文真相源**：`workspace/cases/<matter-id>/CASE.md`
+- **行为回归边界**：`src/lawmind/**/*.test.ts`
+
+---
+
 ## 1) 北极星目标
 
 在 OpenClaw 经验基础上，构建律师行业可落地的 LawMind：
@@ -37,11 +61,11 @@
 - [x] 核心类型：`TaskIntent`、`ResearchBundle`、`ArtifactDraft`、`AuditEvent`
 - [x] 五层骨架：Router / Memory / Retrieval / Artifacts / Audit
 - [x] `docx` 依赖引入（Word 渲染）
-- [~] 通用模型检索适配器接入（已支持 OpenAI-compatible，待绑定生产模型参数）
-- [~] 法律模型检索适配器接入（已支持 OpenAI-compatible，待绑定生产模型参数）
+- [x] 通用/法律模型检索适配器接入（OpenAI-compatible + 环境变量预设）
 - [x] Reasoning 层（bundle -> draft）串主入口
 - [x] Word 模板目录与默认模板
 - [x] 端到端 smoke 流程脚本
+- [x] 正式测试用例（Router / Reasoning 单测 + Engine 集成测，colocated `*.test.ts`）
 - [~] 人工审核交互（CLI 版已完成，待 UI 版）
 
 ---
@@ -59,11 +83,18 @@
 - `src/lawmind/artifacts/render-docx.ts`
 - `src/lawmind/audit/index.ts`
 - `src/lawmind/index.ts`
+- `src/lawmind/router/index.test.ts`
+- `src/lawmind/reasoning/index.test.ts`
+- `src/lawmind/index.test.ts`
+- `src/lawmind/memory/index.test.ts`
+- `src/lawmind/tasks/index.ts`
 
 ### 已落地记忆文件
 
 - `workspace/MEMORY.md`
 - `workspace/LAWYER_PROFILE.md`
+- `workspace/tasks/*.json`
+- `workspace/cases/<matter-id>/CASE.md`
 - `workspace/templates/word/*.md`
 - `workspace/templates/ppt/client-brief-default.md`
 
@@ -85,6 +116,7 @@
 - 通用模型与法律模型输出冲突时的合并策略仍需明确定义。
 - 模板体系尚未规范版本管理（模板升级可能影响历史产物一致性）。
 - 审核流程目前是接口约束，尚无交互界面。
+- 任务确认 UI 尚未正式化，当前以状态文件 + CLI/脚本流转为主。
 
 ### 阻塞
 
@@ -94,11 +126,17 @@
 
 ## 6) 下一步（优先级）
 
-1. 完成 Reasoning 层并接入引擎。
-2. 把 OpenAI-compatible 适配器接入真实模型参数（baseUrl / key / model）。
-3. 建立 `workspace/templates/word/` 默认模板。
-4. 提供一个可运行的最小示例脚本（模拟律师确认流程）。
-5. 在 `GOALS.md` 同步打勾当前已完成项。
+1. 人工审核正式 UI（当前为 CLI + `engine.review()` + `workspace/tasks/*.json`）。
+2. 模板版本管理（升级时保持历史产物一致）。
+3. 任务确认正式入口（让 `task.confirmed` 不只存在于审计语义里）。
+4. 案件级记忆写回机制（目前已能自动初始化与读取，尚未写回）。
+5. 在 `GOALS.md` 保持与 M1 清单同步。
+
+### 当前连续开发抓手
+
+- 若继续做审核台：优先围绕 `ArtifactDraft`、`reviewDraftInCli()`、`engine.review()`。
+- 若继续做案件工作台：优先围绕 `matterId`、`ensureCaseWorkspace()`、`CASE.md`。
+- 若继续做状态面板：优先围绕 `workspace/tasks/*.json` 与 `readTaskRecord()`。
 
 ---
 
@@ -121,3 +159,12 @@
 - 新增 CLI 审核交互模块：`src/lawmind/review/cli.ts`。
 - 新增模型适配说明文档：`docs/LAWMIND-MODEL-ADAPTERS.md`。
 - 新增环境模板：`.env.lawmind.example`，支持一键切换真实模型接入。
+- 新增环境自检脚本：`scripts/lawmind-env-check.ts`（命令：`npm run lawmind:env:check`）。
+- 新增 `.env.lawmind` 自动加载：`scripts/lawmind-env-loader.ts`（env-check/smoke 自动读取）。
+- 新增快速初始化脚本：`scripts/lawmind-quick-setup.ts`（命令：`npm run lawmind:setup`）。
+- 生产就绪开关：`lawmind:env:check --strict`（general+legal 未就绪则 exit 1）；`lawmind:smoke --fail-on-empty-claims`（real 模式下空结论即失败）。
+- 正式测试：`src/lawmind/router/index.test.ts`、`reasoning/index.test.ts`、`index.test.ts`（Router/Reasoning 单测 + Engine 集成测，mock 适配器）。
+- 新增案件级记忆骨架：`ensureCaseWorkspace()` 自动创建 `workspace/cases/<matter-id>/CASE.md`。
+- 新增持久化任务状态：`workspace/tasks/<taskId>.json`，覆盖 researched / drafted / reviewed / rendered 等状态，便于下次登录继续工作。
+- `createLawMindEngine()` 新增 `review()` / `getTaskState()`，主链路开始从“瞬时调用”走向“可恢复工作流”。
+- 新增 `src/lawmind/memory/index.test.ts`，补齐案件记忆初始化与加载测试。
