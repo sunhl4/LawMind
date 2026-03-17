@@ -127,6 +127,8 @@ Windows PowerShell：
 iwr https://raw.githubusercontent.com/openclaw/openclaw/main/scripts/install-lawmind.ps1 -UseBasicParsing | iex
 ```
 
+**安装后的日常使用**请参见 [LawMind 使用手册](docs/LAWMIND-USER-MANUAL.md)（配置、Agent、案件、审核、运维命令与常见问题）。
+
 ## 7) 交付检查清单
 
 - [ ] `npm run lawmind:acceptance -- --strict-env` 成功

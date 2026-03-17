@@ -70,8 +70,20 @@ async function main() {
   const bundle = await engine.research(intent);
 
   if (useRealModel && failOnEmptyClaims && bundle.claims.length === 0) {
+    console.error("[LawMind] Diagnostic (real model, 0 claims):");
+    console.error(
+      `  sources=${bundle.sources.length}, riskFlags=${bundle.riskFlags.length}, missingItems=${bundle.missingItems.length}`,
+    );
+    if (bundle.riskFlags.length > 0) {
+      console.error("  riskFlags:", bundle.riskFlags.slice(0, 5).join(" | "));
+    }
+    if (bundle.missingItems.length > 0) {
+      console.error("  missingItems:", bundle.missingItems.slice(0, 5).join(" | "));
+    }
     throw new Error(
-      "[LawMind] --fail-on-empty-claims: real model returned no claims. Pipeline failed.",
+      "[LawMind] --fail-on-empty-claims: real model returned no claims. " +
+        "Check .env.lawmind (npm run lawmind:env:check), model connectivity, and that the model returns JSON with a non-empty 'claims' array. " +
+        "Run without --fail-on-empty-claims to complete the pipeline and inspect riskFlags.",
     );
   }
 
