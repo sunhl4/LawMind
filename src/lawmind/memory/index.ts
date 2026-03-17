@@ -24,6 +24,8 @@ export type MemoryContext = {
   general: string;
   /** LAWYER_PROFILE.md 内容 */
   profile: string;
+  /** 案件级记忆（若指定 matterId） */
+  caseMemory: string;
   /** 今天的日志 */
   todayLog: string;
   /** 昨天的日志 */
@@ -50,6 +52,115 @@ function dailyLogPath(workspaceDir: string, date: Date): string {
   return path.join(workspaceDir, "memory", `${yyyy}-${mm}-${dd}.md`);
 }
 
+export function caseFilePath(workspaceDir: string, matterId: string): string {
+  return path.join(workspaceDir, "cases", matterId, "CASE.md");
+}
+
+function defaultCaseTemplate(matterId: string): string {
+  return `# 案件档案：${matterId}
+
+## 1. 基本信息
+
+- matterId: ${matterId}
+- 案由:
+- 当前阶段:
+- 负责人:
+
+## 2. 当事人
+
+- 甲方:
+- 乙方:
+- 其他相关方:
+
+## 3. 事实摘要
+
+- 
+
+## 4. 核心争点
+
+- 
+
+## 5. 证据与材料清单
+
+- 
+
+## 6. 当前任务目标
+
+- 
+
+## 7. 风险与待确认事项
+
+- 
+
+## 8. 工作进展记录
+
+- 
+
+## 9. 生成产物
+
+- 
+`;
+}
+
+function timestampLabel(): string {
+  return new Date().toISOString().replace("T", " ").slice(0, 19);
+}
+
+type SectionWriteMode = "append" | "merge";
+
+function normalizeEntry(value: string): string {
+  return value
+    .replace(/^-\s*\[[^\]]+\]\s*/, "")
+    .replace(/^-\s*/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractSectionEntries(sectionBody: string): string[] {
+  return sectionBody
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("-"))
+    .map(normalizeEntry)
+    .filter(Boolean);
+}
+
+function writeMarkdownBulletToSection(
+  content: string,
+  heading: string,
+  bullet: string,
+  opts: { mode: SectionWriteMode; timestamped: boolean },
+): string {
+  const entry = opts.timestamped ? `- [${timestampLabel()}] ${bullet}` : `- ${bullet}`;
+  const headingPattern = new RegExp(`^${heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m");
+  const match = headingPattern.exec(content);
+
+  if (!match || match.index < 0) {
+    return `${content.trimEnd()}\n\n${heading}\n\n${entry}\n`;
+  }
+
+  const insertStart = match.index + match[0].length;
+  const afterHeading = content.slice(insertStart);
+  const nextHeadingIndex = afterHeading.search(/\n##\s+\d+\./);
+  const sectionEnd = nextHeadingIndex >= 0 ? insertStart + nextHeadingIndex + 1 : content.length;
+  const sectionBody = content.slice(insertStart, sectionEnd);
+  const trimmedBody = sectionBody.replace(/\s+$/g, "");
+  const normalizedBullet = normalizeEntry(bullet);
+
+  if (opts.mode === "merge") {
+    const existingEntries = new Set(extractSectionEntries(sectionBody));
+    if (existingEntries.has(normalizedBullet)) {
+      return content;
+    }
+  }
+
+  if (trimmedBody === "" || trimmedBody === "\n-" || trimmedBody === "\n- ") {
+    return `${content.slice(0, insertStart)}\n\n${entry}\n${content.slice(sectionEnd)}`;
+  }
+
+  return `${content.slice(0, sectionEnd).trimEnd()}\n${entry}\n${content.slice(sectionEnd)}`;
+}
+
 // ─────────────────────────────────────────────
 // 加载双记忆
 // ─────────────────────────────────────────────
@@ -58,19 +169,117 @@ function dailyLogPath(workspaceDir: string, date: Date): string {
  * 加载任务所需的记忆上下文。
  * 每次任务启动时调用一次，结果传入 Retrieval 和 Reasoning 层。
  */
-export async function loadMemoryContext(workspaceDir: string): Promise<MemoryContext> {
+export async function loadMemoryContext(
+  workspaceDir: string,
+  opts: { matterId?: string } = {},
+): Promise<MemoryContext> {
   const today = new Date();
   const yesterday = new Date(today);
   yesterday.setDate(today.getDate() - 1);
+  const caseMemoryPromise = opts.matterId
+    ? readSafe(caseFilePath(workspaceDir, opts.matterId))
+    : "";
 
-  const [general, profile, todayLog, yesterdayLog] = await Promise.all([
+  const [general, profile, caseMemory, todayLog, yesterdayLog] = await Promise.all([
     readSafe(path.join(workspaceDir, "MEMORY.md")),
     readSafe(path.join(workspaceDir, "LAWYER_PROFILE.md")),
+    caseMemoryPromise,
     readSafe(dailyLogPath(workspaceDir, today)),
     readSafe(dailyLogPath(workspaceDir, yesterday)),
   ]);
 
-  return { general, profile, todayLog, yesterdayLog };
+  return { general, profile, caseMemory, todayLog, yesterdayLog };
+}
+
+/**
+ * 为指定案件初始化工作目录与 CASE.md。
+ * 仅在缺失时创建，已有内容不覆盖。
+ */
+export async function ensureCaseWorkspace(workspaceDir: string, matterId: string): Promise<string> {
+  const filePath = caseFilePath(workspaceDir, matterId);
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  const exists = await fs
+    .access(filePath)
+    .then(() => true)
+    .catch(() => false);
+
+  if (!exists) {
+    await fs.writeFile(filePath, defaultCaseTemplate(matterId), "utf8");
+  }
+
+  return filePath;
+}
+
+/**
+ * 向 CASE.md 的指定章节追加 bullet 记录。
+ * 若章节不存在则自动补建，便于逐步演进案件工作台。
+ */
+export async function appendCaseSectionBullet(
+  workspaceDir: string,
+  matterId: string,
+  heading: string,
+  bullet: string,
+  opts: { mode?: SectionWriteMode; timestamped?: boolean } = {},
+): Promise<void> {
+  const filePath = await ensureCaseWorkspace(workspaceDir, matterId);
+  const current = await readSafe(filePath);
+  const next = writeMarkdownBulletToSection(current, heading, bullet, {
+    mode: opts.mode ?? "append",
+    timestamped: opts.timestamped ?? true,
+  });
+  await fs.writeFile(filePath, next, "utf8");
+}
+
+export async function appendCaseTaskGoal(
+  workspaceDir: string,
+  matterId: string,
+  bullet: string,
+): Promise<void> {
+  await appendCaseSectionBullet(workspaceDir, matterId, "## 6. 当前任务目标", bullet, {
+    mode: "merge",
+    timestamped: false,
+  });
+}
+
+export async function appendCaseCoreIssue(
+  workspaceDir: string,
+  matterId: string,
+  bullet: string,
+): Promise<void> {
+  await appendCaseSectionBullet(workspaceDir, matterId, "## 4. 核心争点", bullet, {
+    mode: "merge",
+    timestamped: false,
+  });
+}
+
+export async function appendCaseRiskNote(
+  workspaceDir: string,
+  matterId: string,
+  bullet: string,
+): Promise<void> {
+  await appendCaseSectionBullet(workspaceDir, matterId, "## 7. 风险与待确认事项", bullet, {
+    mode: "merge",
+    timestamped: false,
+  });
+}
+
+export async function appendCaseProgress(
+  workspaceDir: string,
+  matterId: string,
+  bullet: string,
+): Promise<void> {
+  await appendCaseSectionBullet(workspaceDir, matterId, "## 8. 工作进展记录", bullet);
+}
+
+export async function appendCaseArtifact(
+  workspaceDir: string,
+  matterId: string,
+  bullet: string,
+): Promise<void> {
+  await appendCaseSectionBullet(workspaceDir, matterId, "## 9. 生成产物", bullet, {
+    mode: "merge",
+    timestamped: false,
+  });
 }
 
 // ─────────────────────────────────────────────

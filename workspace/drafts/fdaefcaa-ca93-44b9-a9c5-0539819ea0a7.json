@@ -1,0 +1,32 @@
+{
+  "taskId": "fdaefcaa-ca93-44b9-a9c5-0539819ea0a7",
+  "title": "LawMind Smoke 律师函草稿",
+  "output": "docx",
+  "templateId": "word/demand-letter-default",
+  "summary": "共检索 0 条来源，整理 0 条结论，风险提示 1 条，待补充事项 1 条。",
+  "audience": "客户",
+  "sections": [
+    {
+      "heading": "检索结论摘要",
+      "body": "共检索 0 条来源，整理 0 条结论，风险提示 1 条，待补充事项 1 条。"
+    },
+    {
+      "heading": "检索结果",
+      "body": "当前未检索到可引用结论，请补充检索来源后重试。"
+    },
+    {
+      "heading": "风险提示",
+      "body": "- 模型调用异常: TypeError: fetch failed"
+    },
+    {
+      "heading": "待补充事项",
+      "body": "- 模型调用失败，请稍后重试"
+    }
+  ],
+  "reviewNotes": ["smoke auto approval"],
+  "reviewStatus": "approved",
+  "createdAt": "2026-03-17T10:01:16.691Z",
+  "reviewedBy": "lawyer:smoke",
+  "reviewedAt": "2026-03-17T10:01:16.692Z",
+  "outputPath": "/Users/shl/nvidia/openclaw/workspace/artifacts/LawMind_Smoke_律师函草稿_fdaefcaa.docx"
+}

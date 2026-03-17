@@ -43,11 +43,11 @@
 - [x] 建立双记忆模板：`workspace/MEMORY.md` / `workspace/LAWYER_PROFILE.md`
 - [x] 核心数据结构：`TaskIntent` / `ResearchBundle` / `ArtifactDraft` / `AuditEvent`
 - [x] 代码骨架：`src/lawmind/` 五大模块（Router / Memory / Retrieval / Artifacts / Audit）
-- [~] 接入通用大模型（Retrieval adapter，已支持 OpenAI-compatible，待填生产参数）
-- [~] 接入法律专用模型（Retrieval adapter，已支持 OpenAI-compatible，待填生产参数）
+- [x] 接入通用大模型（Retrieval adapter，OpenAI-compatible + 环境变量预设）
+- [x] 接入法律专用模型（Retrieval adapter，同上）
 - [x] Word 模板文件（`workspace/templates/word/`）
 - [~] 人工审核 UI / CLI 交互（已实现 CLI 版本，待补正式界面）
-- [~] 完整端到端测试（已完成 smoke 脚本，待补正式测试用例）
+- [x] 完整端到端测试（smoke 脚本 + Router/Reasoning/Engine 正式测试用例）
 
 ### 第二期 — 扩展与深化
 

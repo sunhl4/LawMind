@@ -1,0 +1,13 @@
+{
+  "taskId": "dc7b0c66-3016-4be6-8e52-4948679b7501",
+  "kind": "analyze.contract",
+  "summary": "任务类型：合同审查。原始指令：「请整理合同审查意见并生成律师函草稿」",
+  "output": "docx",
+  "riskLevel": "medium",
+  "requiresConfirmation": false,
+  "audience": "客户",
+  "templateId": "word/demand-letter-default",
+  "status": "researched",
+  "createdAt": "2026-03-17T10:00:51.264Z",
+  "updatedAt": "2026-03-17T10:00:51.301Z"
+}

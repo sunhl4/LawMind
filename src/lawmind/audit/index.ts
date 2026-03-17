@@ -80,3 +80,22 @@ export async function readAuditLog(auditDir: string, date?: string): Promise<Aud
     .filter(Boolean)
     .map((line) => JSON.parse(line) as AuditEvent);
 }
+
+export async function readAllAuditLogs(auditDir: string): Promise<AuditEvent[]> {
+  const files = await fs
+    .readdir(auditDir)
+    .then((entries) => entries.filter((name) => name.endsWith(".jsonl")).sort())
+    .catch(() => [] as string[]);
+
+  const batches = await Promise.all(
+    files.map(async (name) => {
+      const content = await fs.readFile(path.join(auditDir, name), "utf8").catch(() => "");
+      return content
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as AuditEvent);
+    }),
+  );
+
+  return batches.flat().toSorted((a, b) => a.timestamp.localeCompare(b.timestamp));
+}

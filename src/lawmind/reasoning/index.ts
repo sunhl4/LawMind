@@ -130,6 +130,7 @@ export function buildDraft(params: BuildDraftParams): ArtifactDraft {
 
   return {
     taskId: intent.taskId,
+    matterId: intent.matterId,
     title,
     output: intent.output === "pptx" ? "pptx" : intent.output === "markdown" ? "markdown" : "docx",
     templateId,

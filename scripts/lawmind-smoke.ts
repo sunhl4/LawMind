@@ -62,6 +62,10 @@ async function main() {
     audience: "客户",
     templateId: "word/demand-letter-default",
   });
+  await engine.confirm(intent.taskId, {
+    actorId: "lawyer:smoke",
+    note: "smoke task confirmed",
+  });
 
   const bundle = await engine.research(intent);
 

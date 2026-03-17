@@ -132,6 +132,8 @@ export type ReviewStatus = "pending" | "approved" | "rejected" | "modified";
 /** 文书草稿 — 由推理层生成，渲染前须律师审核 */
 export type ArtifactDraft = {
   taskId: string;
+  /** 关联案件 ID（若存在） */
+  matterId?: string;
   /** 文书标题 */
   title: string;
   /** 交付物格式 */
@@ -158,7 +160,96 @@ export type ArtifactDraft = {
 };
 
 // ─────────────────────────────────────────────
-// 4. 审计事件 — 每个任务关键步骤都应生成一条
+// 4. TaskRecord — 持久化任务状态（便于断点续做）
+// ─────────────────────────────────────────────
+
+/** 任务生命周期状态 */
+export type TaskLifecycleStatus =
+  | "created"
+  | "confirmed"
+  | "researching"
+  | "researched"
+  | "drafted"
+  | "reviewed"
+  | "rejected"
+  | "rendered";
+
+/** 持久化任务记录 — 用于会话恢复、状态展示、审计串联 */
+export type TaskRecord = {
+  taskId: string;
+  kind: TaskKind;
+  summary: string;
+  output: TaskIntent["output"];
+  riskLevel: RiskLevel;
+  requiresConfirmation: boolean;
+  audience?: string;
+  matterId?: string;
+  templateId?: string;
+  title?: string;
+  draftPath?: string;
+  status: TaskLifecycleStatus;
+  reviewStatus?: ReviewStatus;
+  outputPath?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+// ─────────────────────────────────────────────
+// 5. MatterIndex — 案件级索引层（供工作台 / 审核台读取）
+// ─────────────────────────────────────────────
+
+export type MatterIndex = {
+  matterId: string;
+  caseFilePath: string;
+  caseMemory: string;
+  coreIssues: string[];
+  taskGoals: string[];
+  riskNotes: string[];
+  progressEntries: string[];
+  artifacts: string[];
+  tasks: TaskRecord[];
+  drafts: ArtifactDraft[];
+  auditEvents: AuditEvent[];
+  openTasks: TaskRecord[];
+  renderedTasks: TaskRecord[];
+  latestUpdatedAt?: string;
+};
+
+export type MatterOverview = {
+  matterId: string;
+  latestUpdatedAt?: string;
+  openTaskCount: number;
+  renderedTaskCount: number;
+  riskCount: number;
+  artifactCount: number;
+  topIssue?: string;
+  topRisk?: string;
+};
+
+export type MatterSummary = {
+  headline: string;
+  statusLine: string;
+  keyRisks: string[];
+  nextActions: string[];
+  recentActivity: string[];
+};
+
+export type MatterSearchHit = {
+  section:
+    | "coreIssues"
+    | "taskGoals"
+    | "riskNotes"
+    | "progressEntries"
+    | "artifacts"
+    | "tasks"
+    | "drafts"
+    | "auditEvents";
+  text: string;
+  taskId?: string;
+};
+
+// ─────────────────────────────────────────────
+// 6. 审计事件 — 每个任务关键步骤都应生成一条
 // ─────────────────────────────────────────────
 
 export type AuditEventKind =
@@ -170,7 +261,9 @@ export type AuditEventKind =
   | "draft.created"
   | "draft.reviewed"
   | "artifact.rendered"
-  | "artifact.sent";
+  | "artifact.sent"
+  | "tool_call"
+  | "agent_turn";
 
 /** 审计事件 */
 export type AuditEvent = {
