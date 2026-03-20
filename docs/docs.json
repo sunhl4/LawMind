@@ -1346,6 +1346,10 @@
                 ]
               },
               {
+                "group": "GitHub",
+                "pages": ["github/index"]
+              },
+              {
                 "group": "Project",
                 "pages": ["reference/credits"]
               },
