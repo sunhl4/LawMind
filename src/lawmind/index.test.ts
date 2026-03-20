@@ -133,6 +133,31 @@ describe("LawMind Engine", () => {
     expect(result.error).toContain("未通过审核");
   });
 
+  it("render writes pptx when draft.output is pptx", async () => {
+    const mockGeneral = createGeneralModelAdapter(async () => ({
+      claims: [{ text: "客户汇报要点。", confidence: 0.88 }],
+      sources: [{ title: "内部材料", citation: "工作区" }],
+    }));
+    const engine = createLawMindEngine({
+      workspaceDir,
+      adapters: [createWorkspaceAdapter(workspaceDir), mockGeneral],
+    });
+
+    const intent = engine.plan("为客户准备案件进展PPT汇报", { matterId: "matter-ppt" });
+    expect(intent.output).toBe("pptx");
+    await engine.confirm(intent.taskId, { actorId: "lawyer:test" });
+    const bundle = await engine.research(intent);
+    const draft = engine.draft(intent, bundle, { title: "PPT 集成测试草稿" });
+    expect(draft.output).toBe("pptx");
+    await engine.review(draft, { actorId: "lawyer:test", status: "approved" });
+    const result = await engine.render(draft);
+
+    expect(result.ok).toBe(true);
+    expect(result.outputPath).toMatch(/\.pptx$/);
+    const renderedState = engine.getTaskState(intent.taskId);
+    expect(renderedState?.status).toBe("rendered");
+  });
+
   it("render persists final output path after approved review", async () => {
     const mockLegal = createLegalModelAdapter(async () => ({
       claims: [{ text: "应核对合同解除条款。", confidence: 0.91 }],

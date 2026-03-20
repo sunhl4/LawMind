@@ -9,7 +9,7 @@
  * 扩展方式：
  *   - 新文书类型：在 templates/ 目录增加 Markdown 模板，
  *     实现对应 TemplateRenderer，注册到 RENDERER_MAP 即可。
- *   - PPT 渲染：第二阶段新增 pptx renderer，主流程不变。
+ *   - PPT 渲染：见 render-pptx.ts（引擎按 draft.output 分发）。
  *
  * 依赖：
  *   - docx  (npm i docx)  — Word 生成

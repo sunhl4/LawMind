@@ -51,7 +51,7 @@
 
 ### 第二期 — 扩展与深化
 
-- [ ] PPT 渲染（`render-pptx.ts`）
+- [x] PPT 渲染（`render-pptx.ts`，引擎按 `draft.output === "pptx"` 分发）
 - [ ] 案件级记忆：`workspace/cases/<matter-id>/CASE.md`
 - [ ] 律师偏好自动学习（反馈闭环写回 `LAWYER_PROFILE.md`）
 - [ ] 更细粒度法律文书模板库

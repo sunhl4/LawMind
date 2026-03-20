@@ -1,7 +1,17 @@
+/**
+ * LawMind 客户演示 — 无需交互，一条命令跑完全流程。
+ *
+ *   npm run lawmind:demo              → 合同审查 + 法律备忘录（.docx）
+ *   npm run lawmind:demo -- --ppt     → 案件进展汇报（.pptx）
+ */
+
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createLegalToolRegistry } from "../src/lawmind/agent/tools/legal-tools.js";
 import type { AgentContext } from "../src/lawmind/agent/types.js";
+
+const args = process.argv.slice(2);
+const pptMode = args.includes("--ppt");
 
 async function main() {
   const workspaceDir = path.resolve(process.cwd(), "workspace");
@@ -25,14 +35,19 @@ async function main() {
     matterId: "demo-matter-001",
   };
 
-  const instruction = "请整理合同审查意见并生成法律备忘录，重点标注风险与待确认事项。";
+  const instruction = pptMode
+    ? "请为客户准备本案进展汇报用的PPT幻灯片，突出风险点、已完成工作与下一步建议。"
+    : "请整理合同审查意见并生成法律备忘录，重点标注风险与待确认事项。";
+  const title = pptMode ? "客户案件进展汇报" : "客户合同审查备忘录";
+
+  console.log(`[LawMind Demo] 模式：${pptMode ? "PPT（.pptx）" : "法律备忘录（.docx）"}`);
   console.log("[LawMind Demo] 使用内置指令（无需输入）：");
   console.log(`  ${instruction}\n`);
 
   const result = await workflowTool.execute(
     {
       instruction,
-      title: "客户合同审查备忘录",
+      title,
       audience: "客户",
       matter_id: "demo-matter-001",
       auto_approve: true,
@@ -60,7 +75,11 @@ async function main() {
     console.log("");
     console.log("生成结果位置：");
     console.log(`  ${data.outputPath}`);
-    console.log("  (可用 Word 或 open 命令打开)");
+    console.log(
+      data.outputPath?.endsWith(".pptx")
+        ? "  (可用 PowerPoint / Keynote 或 open 命令打开)"
+        : "  (可用 Word 或 open 命令打开)",
+    );
   } else {
     console.log(
       "(无 outputPath；若 status=awaiting_lawyer_review，请用 npm run lawmind:agent 审批后渲染)",

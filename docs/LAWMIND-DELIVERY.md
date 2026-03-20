@@ -74,11 +74,14 @@ npm run lawmind:acceptance -- --strict-env
 
 ```bash
 npm run lawmind:demo
+# 一键生成 PPT：
+npm run lawmind:demo -- --ppt
 ```
 
 演示内容：
 
 - 触发 `execute_workflow` 一键流程；
+- 默认：合同审查 + 法律备忘录（`.docx`）；加 `--ppt`：案件进展汇报（`.pptx`）；
 - 输出任务状态、步骤、交付路径；
 - 形成可演示的“接单 -> 干活 -> 交付”闭环。
 

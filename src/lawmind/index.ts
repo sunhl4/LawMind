@@ -24,6 +24,7 @@
 
 import path from "node:path";
 import { renderDocx } from "./artifacts/render-docx.js";
+import { renderPptx } from "./artifacts/render-pptx.js";
 import { emit } from "./audit/index.js";
 import {
   buildMatterIndex,
@@ -334,7 +335,15 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
         detail: `模板：${draft.templateId}，格式：${draft.output}`,
       });
 
-      const result = await renderDocx(draft, outputDir);
+      const result =
+        draft.output === "pptx"
+          ? await renderPptx(draft, outputDir)
+          : draft.output === "docx"
+            ? await renderDocx(draft, outputDir)
+            : {
+                ok: false,
+                error: `当前不支持渲染格式：${draft.output}（仅支持 docx / pptx）。`,
+              };
 
       if (result.ok && result.outputPath) {
         draft.outputPath = result.outputPath;

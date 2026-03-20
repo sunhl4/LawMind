@@ -140,9 +140,11 @@ npm run lawmind:smoke -- --fail-on-empty-claims
 
 ```bash
 npm run lawmind:demo
+# 一键生成 PPT：
+npm run lawmind:demo -- --ppt
 ```
 
-Demo 使用内置指令（合同审查 + 法律备忘录），无需输入；结束后会在终端打印**生成结果位置**（如 `workspace/artifacts/客户合同审查备忘录_xxx.docx`），可用 Word 或 `open <路径>` 打开。
+Demo 使用内置指令，无需输入：默认「合同审查 + 法律备忘录」→ `.docx`；加 `--ppt` 为「案件进展汇报」→ `.pptx`。结束后终端会打印**生成结果位置**（如 `workspace/artifacts/...docx` 或 `.pptx`），可用 Word / PowerPoint 或 `open <路径>` 打开。
 
 ---
 
@@ -157,7 +159,7 @@ Demo 使用内置指令（合同审查 + 法律备忘录），无需输入；结
 | `workspace/cases/<matterId>/CASE.md` | 案件上下文与进展                                          |
 | `workspace/tasks/*.json`             | 任务状态（researched / drafted / reviewed / rendered 等） |
 | `workspace/drafts/*.json`            | 草稿与审核状态                                            |
-| `workspace/artifacts/`               | 渲染产出（如 Word）                                       |
+| `workspace/artifacts/`               | 渲染产出（Word / PPT）                                    |
 | `workspace/audit/*.jsonl`            | 审计事件                                                  |
 | `workspace/memory/YYYY-MM-DD.md`     | 按日记忆（若有）                                          |
 
