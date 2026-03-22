@@ -376,3 +376,28 @@
   - 仓库源统一为 `https://github.com/sunhl4/LawMind.git`。
   - 一键安装脚本默认从该 GitHub 仓库拉取（支持 `LAWMIND_REPO_BRANCH`）。
   - `LAWMIND-DELIVERY.md` 已补充 raw GitHub 远程安装命令（macOS/Linux + Windows）。
+
+### 2026-03-22
+
+- 🎨 **桌面端 UI 精细化重设计（v0.2 → v0.3）**：
+  - **收敛式重设计**：从"功能堆砌"转向"克制专业"，深色暖铜色调（`#1a1917` + `#b79a67`），PingFang SC 中文优先排版。
+  - **消息区改版**：AI 消息无气泡直排（内容即布局，无边框无背景），用户消息保留轻量灰底。消息间距加大，Markdown 排版独立渲染（标题/列表/粗体/行内代码/分隔线，零依赖）。
+  - **列表密度优化**：任务/历史列表去掉卡片化边框和背景，改为透明底 + 左侧 hover 指示线，更像文件列表。
+  - **空态引导精简**：场景卡改为纯文字（无图标），空态标题简洁化（"有什么可以帮您？"），hint 文案更内敛。
+  - **快捷操作 Chip 栏**：起草律师函/合同审查/法规检索/起草诉状/案例查询，一键插入到输入框。
+  - **消息复制按钮**：hover 显示，点击后 2 秒显示"已复制"确认态。
+  - **相对时间工具**：刚刚/N 分钟前/今天 HH:mm/昨天/M月D日。
+  - **法律状态标签**：任务状态映射为律师可读标签（已完成/处理中/处理失败/待处理/草稿/对话）。
+- ⚙️ **统一设置面板**：
+  - 侧边栏极简化：品牌栏 + SVG 齿轮按钮 + 助手 `<select>` + 项目药丸 + 折叠工作记录。
+  - 齿轮触发全屏设置模态，三区：助手管理（新建/编辑/删除/统计）、模型与检索（状态/API 配置向导/检索模式切换）、工作区与项目（路径显示/切换/关闭）。
+  - 移除侧边栏中原有的助手卡片、配置块、项目块等大面积设置 UI。
+- 📁 **项目目录选择器**：
+  - `electron/main.mjs` 新增 `lawmind:pick-project` IPC handler（Electron `dialog.showOpenDialog`）。
+  - `electron/preload.cjs` 暴露 `pickProject()` 到渲染进程。
+  - `global.d.ts` 新增 `pickProject` 类型声明。
+  - 前端 `projectDir` state + `send()` 中传入 `projectDir` 字段到 `/api/chat`。
+  - 侧边栏项目药丸（文件夹 SVG + 目录名）和主区域顶栏项目名显示。
+- 📂 **工作记录折叠**：侧边栏"工作记录"默认收起，点击标题栏展开；标题栏显示记录总数 badge，箭头旋转指示状态。
+- 🔍 **按助手过滤记录**：`filteredTasks` 和 `filteredHistory` 按当前 `selectedAssistantId` 过滤，切换助手时自动更新可见记录。
+- 📝 **文档同步更新**：`LAWMIND-PROJECT-MEMORY.md`、`LAWMIND-ARCHITECTURE.md`、`LAWMIND-USER-MANUAL.md`、`workspace/memory/2026-03-22.md` 全面更新，确保下次开发会话可恢复完整上下文。

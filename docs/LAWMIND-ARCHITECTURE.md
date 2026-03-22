@@ -322,14 +322,79 @@ LawMind 的核心不是“自动执行更多”，而是“在正确的地方停
 
 ---
 
+## 十一b、桌面应用架构（M3 Electron）
+
+### 整体结构
+
+桌面端采用 Electron + Vite + React 架构，分为三层：
+
+```text
+Electron 主进程 (main.mjs)
+  ├── 启动本地 API 子进程 (lawmind-local-server)
+  ├── IPC 桥接 (preload.cjs → contextBridge)
+  └── 原生能力 (文件对话框、shell.openExternal 等)
+
+本地 API 子进程 (lawmind-local-server.ts)
+  ├── /api/chat — Agent 对话（POST，支持 projectDir / assistantId）
+  ├── /api/tasks — 任务列表
+  ├── /api/history — 历史与交付记录
+  ├── /api/assistants — 助手 CRUD
+  ├── /api/assistant-presets — 岗位预设列表
+  ├── /api/health — 环境与连接状态
+  └── /api/artifact — 产物下载
+
+渲染进程 (App.tsx + styles.css)
+  ├── 对话视图（消息列表 + Markdown 渲染 + Chip 栏）
+  ├── 设置面板（模态：助手 / 模型检索 / 工作区项目）
+  ├── 侧边栏（助手选择器 / 项目药丸 / 折叠工作记录）
+  └── 配置向导（首次启动 API Key 设置流）
+```
+
+### UI 设计系统
+
+所有视觉 token 定义在 `styles.css` 的 `:root` 中：
+
+- **色彩**：深色暖调底色（`--c-bg` `#1a1917`），暖铜 accent（`--c-accent` `#b79a67`），浅文字（`--c-text` `#e8e4dd`）
+- **排版**：PingFang SC / -apple-system 中文优先，正文 14px，行高 1.7
+- **圆角/阴影/间距**：token 化（`--r-sm` / `--r-md` / `--r-lg`，`--shadow-card` / `--shadow-float`）
+
+### 设置面板架构
+
+设置由齿轮图标（`lm-gear-btn`）触发，打开 `lm-settings-panel` 模态，分三个区：
+
+1. **助手管理**：当前助手详情、新建/编辑/删除、使用统计
+2. **模型与检索**：模型状态、检索策略切换（统一/双模型）、API 配置向导入口
+3. **工作区与项目**：工作区路径、项目目录选择/关闭
+
+### 项目目录（IPC 流）
+
+```text
+渲染进程 pickProject()
+  → preload.cjs ipcRenderer.invoke("lawmind:pick-project")
+  → main.mjs dialog.showOpenDialog({ properties: ["openDirectory"] })
+  → 返回 { ok, path } → 渲染进程设置 projectDir state
+  → POST /api/chat body 中携带 projectDir 字段
+```
+
+### 工作记录折叠与助手过滤
+
+- 侧边栏工作记录区域默认折叠（`recordsExpanded` state），标题栏点击切换展开，显示记录总数 badge。
+- 任务和历史列表按 `selectedAssistantId` 过滤（`filteredTasks`、`filteredHistory` useMemo），切换助手时自动更新。
+
+---
+
 ## 十二、后续扩展方向
 
-第二阶段：
+第二阶段（已完成/进行中）：
 
-- `cases/<matter-id>` 案件级记忆
-- PPT 生成
-- 律师偏好学习
-- 更细粒度模板体系
+- [x] `cases/<matter-id>` 案件级记忆
+- [x] PPT 生成
+- [x] Agent 智能体架构（M2）
+- [x] 桌面应用（Electron，M3）
+- [ ] 项目目录文件读取与索引
+- [ ] 案件面板 UI
+- [ ] 律师偏好学习（per-assistant 记忆进化）
+- [ ] 更细粒度模板体系
 
 第三阶段：
 
