@@ -31,6 +31,9 @@ export type LawMindAgent = {
     opts?: {
       sessionId?: string;
       matterId?: string;
+      assistantId?: string;
+      /** 本轮是否允许 web_search（覆盖 AgentConfig） */
+      allowWebSearch?: boolean;
     },
   ) => Promise<{
     reply: string;
@@ -61,13 +64,25 @@ export type LawMindAgent = {
 };
 
 export function createLawMindAgent(config: AgentConfig): LawMindAgent {
-  const registry = createLegalToolRegistry();
-  const actorId = config.actorId ?? "lawyer";
+  const actorId =
+    config.actorId ?? (config.assistantId ? `assistant:${config.assistantId}` : "lawyer");
+
+  const defaultRegistry = () =>
+    createLegalToolRegistry({ allowWebSearch: config.allowWebSearch === true });
 
   return {
     async chat(instruction, opts) {
+      const mergedConfig: AgentConfig = {
+        ...config,
+        actorId,
+        assistantId: opts?.assistantId ?? config.assistantId,
+        allowWebSearch: opts?.allowWebSearch ?? config.allowWebSearch,
+      };
+      const registry = createLegalToolRegistry({
+        allowWebSearch: mergedConfig.allowWebSearch === true,
+      });
       const result = await runTurn({
-        config: { ...config, actorId },
+        config: mergedConfig,
         registry,
         sessionId: opts?.sessionId,
         instruction,
@@ -86,6 +101,7 @@ export function createLawMindAgent(config: AgentConfig): LawMindAgent {
         workspaceDir: config.workspaceDir,
         matterId: opts?.matterId,
         actorId,
+        assistantId: config.assistantId,
       });
     },
 
@@ -102,7 +118,7 @@ export function createLawMindAgent(config: AgentConfig): LawMindAgent {
     },
 
     listTools() {
-      return registry.listDefinitions();
+      return defaultRegistry().listDefinitions();
     },
 
     getConfig() {
@@ -110,7 +126,7 @@ export function createLawMindAgent(config: AgentConfig): LawMindAgent {
     },
 
     getRegistry() {
-      return registry;
+      return defaultRegistry();
     },
   };
 }

@@ -1,0 +1,28 @@
+import { describe, expect, it } from "vitest";
+import {
+  ASSISTANT_PRESETS,
+  getAssistantPreset,
+  listAssistantPresets,
+} from "./assistant-presets.js";
+
+describe("assistant-presets", () => {
+  it("has unique ids", () => {
+    const ids = ASSISTANT_PRESETS.map((p) => p.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("each preset has non-empty promptSection", () => {
+    for (const p of ASSISTANT_PRESETS) {
+      expect(p.promptSection.trim().length).toBeGreaterThan(10);
+      expect(p.displayName.trim().length).toBeGreaterThan(0);
+    }
+  });
+
+  it("getAssistantPreset returns undefined for unknown", () => {
+    expect(getAssistantPreset("nope")).toBeUndefined();
+  });
+
+  it("listAssistantPresets matches ASSISTANT_PRESETS length", () => {
+    expect(listAssistantPresets().length).toBe(ASSISTANT_PRESETS.length);
+  });
+});

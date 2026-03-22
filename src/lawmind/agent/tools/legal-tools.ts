@@ -36,6 +36,7 @@ import {
 import { listTaskRecords } from "../../tasks/index.js";
 import type { AgentTool } from "../types.js";
 import { engineTools } from "./engine-tools.js";
+import { lawMindWebSearchTool } from "./lawmind-web-search.js";
 import { ToolRegistry } from "./registry.js";
 
 async function readSafe(filePath: string): Promise<string> {
@@ -108,6 +109,240 @@ const searchWorkspace: AgentTool = {
     return {
       ok: true,
       data: { query: params.query, results: results.slice(0, 30), total: results.length },
+    };
+  },
+};
+
+const STATUTE_LINE =
+  /《[^》]+》|法典|法律适用|第\s*[零一二三四五六七八九十百千0-9]+条|法规|条例|司法解释|刑法|民法|行政诉讼法|公司法|劳动合同法/i;
+
+const searchStatute: AgentTool = {
+  definition: {
+    name: "search_statute",
+    description:
+      "在工作区记忆与案件摘要中检索与法律法规、条文编号相关的内容（启发式：法条、法规名称等）。不替代正式法规库。",
+    category: "search",
+    parameters: {
+      query: { type: "string", description: "关键词（如法律名称、条款主题）", required: true },
+      matter_id: { type: "string", description: "可选：限定某案件的 CASE 与索引" },
+    },
+  },
+  async execute(params, ctx) {
+    const query = ((params.query as string) ?? "").trim().toLowerCase();
+    if (!query) {
+      return { ok: false, error: "query 不能为空" };
+    }
+    const matterId = (params.matter_id as string | undefined) || ctx.matterId;
+    const results: Array<{ source: string; snippet: string }> = [];
+
+    const pushIfStatute = (source: string, line: string) => {
+      const t = line.trim();
+      if (!t) {
+        return;
+      }
+      const hitQuery = t.toLowerCase().includes(query);
+      const hitStatute = STATUTE_LINE.test(t);
+      if (!hitQuery && !hitStatute) {
+        return;
+      }
+      results.push({ source, snippet: t.slice(0, 240) });
+    };
+
+    if (matterId) {
+      const index = await buildMatterIndex(ctx.workspaceDir, matterId);
+      for (const line of index.caseMemory.split("\n")) {
+        pushIfStatute(`CASE:${matterId}`, line);
+      }
+      for (const arr of [
+        index.coreIssues,
+        index.taskGoals,
+        index.riskNotes,
+        index.progressEntries,
+      ] as const) {
+        for (const entry of arr) {
+          for (const line of entry.split("\n")) {
+            pushIfStatute(`index:${matterId}`, line);
+          }
+        }
+      }
+    } else {
+      const memory = await loadMemoryContext(ctx.workspaceDir, { matterId: ctx.matterId });
+      for (const [source, content] of Object.entries({
+        "MEMORY.md": memory.general,
+        "LAWYER_PROFILE.md": memory.profile,
+        "today-log": memory.todayLog,
+      })) {
+        if (!content) {
+          continue;
+        }
+        for (const line of content.split("\n")) {
+          pushIfStatute(source, line);
+        }
+      }
+    }
+
+    return {
+      ok: true,
+      data: {
+        query: params.query,
+        matterId: matterId ?? null,
+        hits: results.slice(0, 25),
+        total: results.length,
+        note: "结果为工作区启发式检索，引用前请核对官方法规文本。",
+      },
+    };
+  },
+};
+
+const CASE_LINE =
+  /案号|判决书|裁定书|人民法院|高院|中院|最高人民法院|仲裁委|\(\s*20\d{2}\s*\)|民终|民初|刑终|执异|行诉/i;
+
+const searchCaseLaw: AgentTool = {
+  definition: {
+    name: "search_case_law",
+    description:
+      "在工作区案件摘要与记忆中检索裁判文书、案号、法院名称等案例线索（启发式）。不替代裁判文书网等专业库。",
+    category: "search",
+    parameters: {
+      query: {
+        type: "string",
+        description: "关键词（案号片段、对方名称、法院名等）",
+        required: true,
+      },
+      matter_id: { type: "string", description: "可选：限定案件" },
+    },
+  },
+  async execute(params, ctx) {
+    const query = ((params.query as string) ?? "").trim().toLowerCase();
+    if (!query) {
+      return { ok: false, error: "query 不能为空" };
+    }
+    const matterId = (params.matter_id as string | undefined) || ctx.matterId;
+    const results: Array<{ source: string; snippet: string }> = [];
+
+    const pushIfCase = (source: string, line: string) => {
+      const t = line.trim();
+      if (!t) {
+        return;
+      }
+      const hitQuery = t.toLowerCase().includes(query);
+      const hitCase = CASE_LINE.test(t);
+      if (!hitQuery && !hitCase) {
+        return;
+      }
+      results.push({ source, snippet: t.slice(0, 240) });
+    };
+
+    if (matterId) {
+      const index = await buildMatterIndex(ctx.workspaceDir, matterId);
+      for (const line of index.caseMemory.split("\n")) {
+        pushIfCase(`CASE:${matterId}`, line);
+      }
+      for (const draft of index.drafts) {
+        const blob = `${draft.title}\n${draft.sections.map((s) => s.body).join("\n")}`;
+        for (const line of blob.split("\n")) {
+          pushIfCase(`draft:${draft.taskId}`, line);
+        }
+      }
+    } else {
+      const ids = await listMatterIds(ctx.workspaceDir);
+      for (const mid of ids.slice(0, 20)) {
+        const index = await buildMatterIndex(ctx.workspaceDir, mid);
+        for (const line of index.caseMemory.split("\n")) {
+          pushIfCase(`CASE:${mid}`, line);
+        }
+      }
+    }
+
+    return {
+      ok: true,
+      data: {
+        query: params.query,
+        matterId: matterId ?? null,
+        hits: results.slice(0, 25),
+        total: results.length,
+        note: "结果为工作区线索汇总，正式引用请核实原始裁判文书。",
+      },
+    };
+  },
+};
+
+const checkConflictOfInterest: AgentTool = {
+  definition: {
+    name: "check_conflict_of_interest",
+    description:
+      "根据当事人/实体名称在工作区已有案件中做字符串命中筛查，提示可能的多案并存或利益冲突风险（需律师最终判断）。",
+    category: "matter",
+    parameters: {
+      parties: {
+        type: "string",
+        description: "待核查的当事人或实体名称，逗号/顿号分隔",
+        required: true,
+      },
+    },
+  },
+  async execute(params, ctx) {
+    const raw = (params.parties as string) ?? "";
+    const parties = raw
+      .split(/[,，、;；]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length >= 2);
+    if (parties.length === 0) {
+      return { ok: false, error: "请提供至少 2 个字符以上的当事人名称。" };
+    }
+
+    const ids = await listMatterIds(ctx.workspaceDir);
+    const partyToMatters = new Map<string, string[]>();
+
+    for (const party of parties) {
+      const hits: string[] = [];
+      const pl = party.toLowerCase();
+      for (const matterId of ids) {
+        const index = await buildMatterIndex(ctx.workspaceDir, matterId);
+        const blob = [
+          index.caseMemory,
+          ...index.coreIssues,
+          ...index.taskGoals,
+          ...index.riskNotes,
+          ...index.progressEntries,
+        ]
+          .join("\n")
+          .toLowerCase();
+        if (blob.includes(pl)) {
+          hits.push(matterId);
+        }
+      }
+      const memory = await loadMemoryContext(ctx.workspaceDir, {});
+      const memBlob = [memory.general, memory.profile].join("\n").toLowerCase();
+      if (memBlob.includes(pl)) {
+        hits.push("(workspace-memory)");
+      }
+      if (hits.length > 0) {
+        partyToMatters.set(party, [...new Set(hits)]);
+      }
+    }
+
+    const flags: string[] = [];
+    for (const [party, matters] of partyToMatters) {
+      if (matters.length > 1) {
+        flags.push(
+          `「${party}」在多个来源中出现：${matters.join("、")} — 请核对是否构成利益冲突。`,
+        );
+      }
+    }
+
+    return {
+      ok: true,
+      data: {
+        parties,
+        matches: Object.fromEntries(partyToMatters),
+        conflictFlags: flags,
+        matterScanned: ids.length,
+        note:
+          flags.length === 0
+            ? "未发现明显的跨案件同名命中，但仍需结合所知客户关系人工确认。"
+            : "发现跨来源命中，建议按事务所利益冲突规程复核。",
+      },
     };
   },
 };
@@ -414,15 +649,18 @@ const getAuditTrail: AgentTool = {
 // Registry Builder
 // ─────────────────────────────────────────────
 
-export function createLegalToolRegistry(): ToolRegistry {
+export function createLegalToolRegistry(opts?: { allowWebSearch?: boolean }): ToolRegistry {
   const registry = new ToolRegistry();
   const tools: AgentTool[] = [
     // 信息检索
     searchMatter,
     searchWorkspace,
+    searchStatute,
+    searchCaseLaw,
     // 案件管理
     getMatterSummary,
     listMatters,
+    checkConflictOfInterest,
     readCaseFile,
     addCaseNote,
     // 文件操作
@@ -432,9 +670,13 @@ export function createLegalToolRegistry(): ToolRegistry {
     listTasks,
     listAllDrafts,
     getAuditTrail,
-    // Engine 桥接 — agent 的"双手"
-    ...engineTools,
   ];
+
+  if (opts?.allowWebSearch) {
+    tools.push(lawMindWebSearchTool);
+  }
+
+  tools.push(...engineTools);
 
   for (const tool of tools) {
     registry.register(tool);

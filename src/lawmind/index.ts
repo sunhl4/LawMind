@@ -43,9 +43,9 @@ import {
   ensureCaseWorkspace,
   loadMemoryContext,
 } from "./memory/index.js";
-import { buildDraft } from "./reasoning/index.js";
+import { buildDraft, buildDraftAsync } from "./reasoning/index.js";
 import { retrieve, type RetrievalAdapter } from "./retrieval/index.js";
-import { route, type RouteInput } from "./router/index.js";
+import { route, routeAsync, type RouteInput } from "./router/index.js";
 import {
   ensureTaskRecord,
   readTaskRecord,
@@ -75,6 +75,8 @@ export type LawMindEngineConfig = {
   outputDir?: string;
   /** 检索适配器列表，按优先级排序 */
   adapters: RetrievalAdapter[];
+  /** 多助手：写入任务记录归因 */
+  assistantId?: string;
 };
 
 // ─────────────────────────────────────────────
@@ -84,6 +86,8 @@ export type LawMindEngineConfig = {
 export type LawMindEngine = {
   /** 步骤 1：解析指令，生成任务意图（供律师确认） */
   plan: (instruction: string, opts?: Omit<RouteInput, "instruction">) => TaskIntent;
+  /** 步骤 1（异步）：可选模型路由（LAWMIND_ROUTER_MODE=model） */
+  planAsync: (instruction: string, opts?: Omit<RouteInput, "instruction">) => Promise<TaskIntent>;
   /** 步骤 1.5：律师确认任务后才允许进入高风险检索 */
   confirm: (taskId: string, opts?: { actorId?: string; note?: string }) => Promise<TaskRecord>;
   /** 步骤 2：执行检索（律师确认后调用） */
@@ -94,6 +98,12 @@ export type LawMindEngine = {
     bundle: ResearchBundle,
     opts?: { title?: string; templateId?: string },
   ) => ArtifactDraft;
+  /** 步骤 3（异步）：可选模型推理（LAWMIND_REASONING_MODE=model） */
+  draftAsync: (
+    intent: TaskIntent,
+    bundle: ResearchBundle,
+    opts?: { title?: string; templateId?: string },
+  ) => Promise<ArtifactDraft>;
   /** 步骤 4：记录律师审核结果并写入任务状态 */
   review: (
     draft: ArtifactDraft,
@@ -117,29 +127,65 @@ export type LawMindEngine = {
 
 export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine {
   const { workspaceDir, adapters } = config;
+  const assistantId = config.assistantId;
   const outputDir = config.outputDir ?? path.join(workspaceDir, "artifacts");
   const auditDir = path.join(workspaceDir, "audit");
+
+  function commitPlannedIntent(intent: TaskIntent) {
+    const { created } = ensureTaskRecord(workspaceDir, intent, { assistantId });
+    if (created) {
+      void emit(auditDir, {
+        taskId: intent.taskId,
+        kind: "task.created",
+        actor: "system",
+        detail: intent.summary,
+      });
+    }
+    if (intent.matterId) {
+      void ensureCaseWorkspace(workspaceDir, intent.matterId);
+    }
+    void appendTodayLog(
+      workspaceDir,
+      `## 任务计划\n- ID: ${intent.taskId}\n- 类型: ${intent.kind}\n- 摘要: ${intent.summary}\n- 案件: ${intent.matterId ?? "无"}`,
+    );
+  }
+
+  function persistDraftPipeline(draft: ArtifactDraft) {
+    void appendTodayLog(
+      workspaceDir,
+      `## 草稿生成\n- 模板: ${draft.templateId}\n- 输出: ${draft.output}`,
+    );
+    void emit(auditDir, {
+      taskId: draft.taskId,
+      kind: "draft.created",
+      actor: "system",
+      detail: `模板：${draft.templateId}，格式：${draft.output}`,
+    });
+    const storedDraftPath = persistDraft(workspaceDir, draft);
+    syncDraftToTaskRecord(workspaceDir, draft, "drafted");
+    updateTaskRecord(workspaceDir, draft.taskId, {
+      title: draft.title,
+      draftPath: storedDraftPath,
+    });
+    if (draft.matterId) {
+      void appendCaseProgress(
+        workspaceDir,
+        draft.matterId,
+        `任务 ${draft.taskId} 已生成草稿：${draft.title}（模板 ${draft.templateId}）。`,
+      );
+    }
+  }
 
   return {
     plan(instruction, opts = {}) {
       const intent = route({ instruction, ...opts });
-      const { created } = ensureTaskRecord(workspaceDir, intent);
-      if (created) {
-        void emit(auditDir, {
-          taskId: intent.taskId,
-          kind: "task.created",
-          actor: "system",
-          detail: intent.summary,
-        });
-      }
-      if (intent.matterId) {
-        void ensureCaseWorkspace(workspaceDir, intent.matterId);
-      }
-      // 同步写日志（fire-and-forget，不阻塞返回）
-      void appendTodayLog(
-        workspaceDir,
-        `## 任务计划\n- ID: ${intent.taskId}\n- 类型: ${intent.kind}\n- 摘要: ${intent.summary}\n- 案件: ${intent.matterId ?? "无"}`,
-      );
+      commitPlannedIntent(intent);
+      return intent;
+    },
+
+    async planAsync(instruction, opts = {}) {
+      const intent = await routeAsync({ instruction, ...opts });
+      commitPlannedIntent(intent);
       return intent;
     },
 
@@ -179,7 +225,7 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
           `任务 ${intent.taskId}: ${intent.summary}`,
         );
       }
-      ensureTaskRecord(workspaceDir, intent);
+      ensureTaskRecord(workspaceDir, intent, { assistantId });
       const current = readTaskRecord(workspaceDir, intent.taskId);
       if (intent.requiresConfirmation && current?.status !== "confirmed") {
         throw new Error(`任务 ${intent.taskId} 需要先确认后再执行检索。`);
@@ -251,29 +297,18 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
         title: opts.title,
         templateId: opts.templateId,
       });
-      void appendTodayLog(
-        workspaceDir,
-        `## 草稿生成\n- 模板: ${draft.templateId}\n- 输出: ${draft.output}`,
-      );
-      void emit(auditDir, {
-        taskId: draft.taskId,
-        kind: "draft.created",
-        actor: "system",
-        detail: `模板：${draft.templateId}，格式：${draft.output}`,
+      persistDraftPipeline(draft);
+      return draft;
+    },
+
+    async draftAsync(intent, bundle, opts = {}) {
+      const draft = await buildDraftAsync({
+        intent,
+        bundle,
+        title: opts.title,
+        templateId: opts.templateId,
       });
-      const storedDraftPath = persistDraft(workspaceDir, draft);
-      syncDraftToTaskRecord(workspaceDir, draft, "drafted");
-      updateTaskRecord(workspaceDir, draft.taskId, {
-        title: draft.title,
-        draftPath: storedDraftPath,
-      });
-      if (draft.matterId) {
-        void appendCaseProgress(
-          workspaceDir,
-          draft.matterId,
-          `任务 ${draft.taskId} 已生成草稿：${draft.title}（模板 ${draft.templateId}）。`,
-        );
-      }
+      persistDraftPipeline(draft);
       return draft;
     },
 
@@ -416,7 +451,7 @@ export type {
   ResearchBundle,
   TaskIntent,
 } from "./types.js";
-export { route } from "./router/index.js";
+export { route, routeAsync } from "./router/index.js";
 export {
   buildMatterIndex,
   buildMatterOverview,
@@ -436,7 +471,12 @@ export {
   createPartnerLegalAdapterFromEnv,
 } from "./retrieval/providers.js";
 export { readAllAuditLogs, readAuditLog } from "./audit/index.js";
-export { listTaskRecords, readTaskRecord } from "./tasks/index.js";
+export {
+  deriveInstructionTitle,
+  listTaskRecords,
+  persistAgentInstructionTask,
+  readTaskRecord,
+} from "./tasks/index.js";
 export { listDrafts, readDraft } from "./drafts/index.js";
 
 // Agent — 自主推理循环（第二代架构）

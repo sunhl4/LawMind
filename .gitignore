@@ -25,6 +25,11 @@ packages/dashboard-next/out/
 # Mise configuration files
 mise.toml
 
+# LawMind desktop (electron-builder output)
+apps/lawmind-desktop/release/
+apps/lawmind-desktop/server/dist/
+apps/lawmind-desktop/resources/node-runtime/*/
+
 # Android build artifacts
 apps/android/.gradle/
 apps/android/app/build/

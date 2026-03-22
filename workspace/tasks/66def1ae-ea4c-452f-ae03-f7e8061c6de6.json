@@ -1,0 +1,18 @@
+{
+  "taskId": "66def1ae-ea4c-452f-ae03-f7e8061c6de6",
+  "kind": "draft.ppt",
+  "summary": "任务类型：生成PPT 汇报。原始指令：「请为客户准备本案进展汇报用的PPT幻灯片，突出风险点、已完成工作与下一步建议。」",
+  "output": "pptx",
+  "riskLevel": "high",
+  "requiresConfirmation": true,
+  "audience": "客户",
+  "matterId": "demo-matter-001",
+  "status": "rendered",
+  "createdAt": "2026-03-20T10:04:22.250Z",
+  "updatedAt": "2026-03-20T10:04:22.271Z",
+  "templateId": "ppt/client-brief-default",
+  "reviewStatus": "approved",
+  "title": "客户案件进展汇报",
+  "draftPath": "/Users/shl/nvidia/openclaw/workspace/drafts/66def1ae-ea4c-452f-ae03-f7e8061c6de6.json",
+  "outputPath": "/Users/shl/nvidia/openclaw/workspace/artifacts/客户案件进展汇报_66def1ae.pptx"
+}

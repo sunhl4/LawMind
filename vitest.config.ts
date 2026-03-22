@@ -36,6 +36,7 @@ export default defineConfig({
     include: [
       "src/**/*.test.ts",
       "extensions/**/*.test.ts",
+      "apps/lawmind-desktop/server/**/*.test.ts",
       "test/**/*.test.ts",
       "ui/src/ui/app-chat.test.ts",
       "ui/src/ui/views/agents-utils.test.ts",

@@ -255,4 +255,27 @@ describe("System Prompt", () => {
     expect(prompt).toContain("m-001");
     expect(prompt).toContain("合同纠纷案件");
   });
+
+  it("includes role section when roleDirective is set", () => {
+    const prompt = buildSystemPrompt({
+      availableTools: [],
+      roleTitle: "合同审查",
+      roleIntroduction: "侧重交易文件",
+      roleDirective: "输出区分必须修改与建议优化。",
+    });
+
+    expect(prompt).toContain("当前岗位与职责");
+    expect(prompt).toContain("合同审查");
+    expect(prompt).toContain("侧重交易文件");
+    expect(prompt).toContain("必须修改与建议优化");
+  });
+
+  it("mentions web_search when allowWebSearch is true", () => {
+    const prompt = buildSystemPrompt({
+      availableTools: [],
+      allowWebSearch: true,
+    });
+    expect(prompt).toContain("联网检索");
+    expect(prompt).toContain("web_search");
+  });
 });

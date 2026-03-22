@@ -1,0 +1,12 @@
+{
+  "taskId": "35772546-aa8b-4a69-9033-575f7ff6ccc2",
+  "kind": "analyze.contract",
+  "summary": "任务类型：合同审查。原始指令：「基于 qwen3.5-plus 模型的训练知识，整理 CSDDD（欧盟企业可持续发展尽职调查指令）的完整法规内容，包括：…」",
+  "output": "docx",
+  "riskLevel": "medium",
+  "requiresConfirmation": false,
+  "audience": "内部",
+  "status": "researched",
+  "createdAt": "2026-03-20T10:23:15.716Z",
+  "updatedAt": "2026-03-20T10:23:15.720Z"
+}

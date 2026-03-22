@@ -18,6 +18,7 @@
 import { randomUUID } from "node:crypto";
 import { emit } from "../audit/index.js";
 import { loadMemoryContext } from "../memory/index.js";
+import { persistAgentInstructionTask } from "../tasks/index.js";
 import {
   appendTurn,
   compactHistory,
@@ -42,6 +43,7 @@ const DEFAULT_MAX_HISTORY_MESSAGES = 50;
 /** 模型单次调用超时（起草等任务可能较慢，60s 减少 aborted） */
 const DEFAULT_MODEL_TIMEOUT_MS = 60000;
 const DEFAULT_MODEL_MAX_RETRIES = 2;
+/** Used only when `AgentConfig.toolExecutionTimeoutMs` is unset (CLI/desktop should set via env). */
 const DEFAULT_TOOL_TIMEOUT_MS = 30000;
 
 type ChatCompletionMessage = {
@@ -168,7 +170,19 @@ export async function runTurn(opts: {
   // 1. 加载或创建 session
   let session = opts.sessionId ? loadSession(config.workspaceDir, opts.sessionId) : undefined;
   if (!session) {
-    session = createSession({ workspaceDir: config.workspaceDir, matterId, actorId });
+    session = createSession({
+      workspaceDir: config.workspaceDir,
+      matterId,
+      actorId,
+      assistantId: config.assistantId,
+    });
+  } else {
+    if (config.assistantId && session.assistantId && session.assistantId !== config.assistantId) {
+      throw new Error("session_assistant_mismatch");
+    }
+    if (!session.assistantId && config.assistantId) {
+      session.assistantId = config.assistantId;
+    }
   }
 
   if (matterId && !session.matterId) {
@@ -178,11 +192,15 @@ export async function runTurn(opts: {
   const turnId = randomUUID();
   const startedAt = new Date().toISOString();
 
+  const resolvedAssistantId = config.assistantId ?? session.assistantId;
+
   const ctx: AgentContext = {
     workspaceDir: config.workspaceDir,
     sessionId: session.sessionId,
     matterId: session.matterId,
     actorId,
+    assistantId: resolvedAssistantId,
+    allowWebSearch: config.allowWebSearch === true,
   };
 
   // 2. 构建 system prompt
@@ -193,6 +211,10 @@ export async function runTurn(opts: {
     todayLog: memory.todayLog,
     availableTools: registry.listDefinitions(),
     matterId: session.matterId,
+    roleTitle: config.roleTitle,
+    roleIntroduction: config.roleIntroduction,
+    roleDirective: config.roleDirective,
+    allowWebSearch: config.allowWebSearch === true,
   });
 
   // 3. 确保 system message 在对话历史头部
@@ -375,6 +397,20 @@ export async function runTurn(opts: {
 
   saveSession(config.workspaceDir, session);
   appendTurn(config.workspaceDir, turn);
+
+  if (turn.status !== "error") {
+    try {
+      persistAgentInstructionTask(config.workspaceDir, {
+        taskId: turn.turnId,
+        instruction: turn.instruction,
+        sessionId: session.sessionId,
+        matterId: session.matterId,
+        assistantId: resolvedAssistantId,
+      });
+    } catch {
+      /* ignore disk errors; chat result still returned */
+    }
+  }
 
   void emit(`${config.workspaceDir}/audit`, {
     kind: "agent_turn",

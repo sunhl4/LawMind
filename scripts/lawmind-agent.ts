@@ -17,6 +17,15 @@ import { loadLawMindEnv } from "./lawmind-env-loader.js";
 
 loadLawMindEnv();
 
+function parsePositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) {
+    return fallback;
+  }
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
 const args = process.argv.slice(2);
 
 function getArg(name: string): string | undefined {
@@ -37,6 +46,8 @@ const listSessionsMode = hasFlag("list-sessions");
 
 // 从环境变量读取模型配置（与 .env.lawmind 中 LAWMIND_QWEN_* 一致，无需重复配置）
 const defaultBaseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+const modelTimeoutMs = parsePositiveIntEnv("LAWMIND_AGENT_TIMEOUT_MS", 60000);
+const toolTimeoutMs = parsePositiveIntEnv("LAWMIND_TOOL_TIMEOUT_MS", modelTimeoutMs);
 const modelConfig = {
   provider: "openai-compatible" as const,
   baseUrl:
@@ -56,9 +67,7 @@ const modelConfig = {
     "qwen-plus",
   maxTokens: 4096,
   temperature: 0.3,
-  timeoutMs: process.env.LAWMIND_AGENT_TIMEOUT_MS
-    ? Number(process.env.LAWMIND_AGENT_TIMEOUT_MS)
-    : 60000,
+  timeoutMs: modelTimeoutMs,
 };
 
 if (!modelConfig.apiKey) {
@@ -79,6 +88,7 @@ const config: AgentConfig = {
   model: modelConfig,
   maxToolCalls: 15,
   maxHistoryMessages: 50,
+  toolExecutionTimeoutMs: toolTimeoutMs,
   actorId: "lawyer",
 };
 

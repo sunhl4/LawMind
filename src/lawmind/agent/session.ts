@@ -33,11 +33,13 @@ export function createSession(opts: {
   workspaceDir: string;
   matterId?: string;
   actorId: string;
+  assistantId?: string;
 }): AgentSession {
   const session: AgentSession = {
     sessionId: randomUUID(),
     matterId: opts.matterId,
     actorId: opts.actorId,
+    assistantId: opts.assistantId,
     turns: [],
     conversationHistory: [],
     createdAt: new Date().toISOString(),

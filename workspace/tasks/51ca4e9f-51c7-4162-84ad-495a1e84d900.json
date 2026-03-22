@@ -1,0 +1,12 @@
+{
+  "taskId": "51ca4e9f-51c7-4162-84ad-495a1e84d900",
+  "kind": "analyze.contract",
+  "summary": "任务类型：合同审查。原始指令：「基于欧盟 CSDDD（企业可持续发展尽职调查指令）的公开信息，生成一份汽车行业合规分析文档，包括：1) CSDDD 的核…」",
+  "output": "docx",
+  "riskLevel": "medium",
+  "requiresConfirmation": false,
+  "audience": "内部",
+  "status": "researched",
+  "createdAt": "2026-03-20T10:13:16.573Z",
+  "updatedAt": "2026-03-20T10:13:16.575Z"
+}

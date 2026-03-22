@@ -102,9 +102,28 @@
 - [x] 客户向导 + 运维命令（`lawmind:onboard`、`lawmind:ops`、交付手册）
 - [x] Windows/macOS 一键安装脚本（`scripts/install-lawmind.sh`、`scripts/install-lawmind.ps1`）
 - [x] 完整验收与演示脚本（`lawmind:acceptance`、`lawmind:demo`）
-- [ ] 模型驱动的 Router（替代关键词规则路由）
-- [ ] 模型驱动的 Reasoning（替代规则化 buildDraft）
-- [ ] 更多法律工具（法条检索、案例库、利益冲突检测）
+- [x] 模型驱动的 Router（`LAWMIND_ROUTER_MODE=model`，`routeAsync` / `planAsync`）
+- [x] 模型驱动的 Reasoning（`LAWMIND_REASONING_MODE=model`，`buildDraftAsync` / `draftAsync`）
+- [x] 更多法律工具（`search_statute`、`search_case_law`、`check_conflict_of_interest`）
+
+---
+
+## 2c) 当前里程碑（M3）
+
+**里程碑名称**：桌面应用（Electron，Windows + macOS）  
+**状态**：进行中（v0.1 开发态可运行）  
+**开始时间**：2026-03-21
+
+### M3 目标清单
+
+- [x] Monorepo 工作区纳入 `apps/lawmind-desktop`（Electron + Vite + React）
+- [x] 本机 HTTP 服务 `127.0.0.1`：`/api/chat`、`/api/tasks`、`/api/sessions`、`/api/matters`、`/api/history`、`/api/artifact`、`/api/health`
+- [x] 桌面默认数据目录：`Electron userData` 下 `LawMind/workspace` 与 `LawMind/.env.lawmind`
+- [x] 渲染进程：对话 + 任务列表 + 历史与交付摘要
+- [x] `pnpm lawmind:desktop`（根目录脚本）
+- [x] `electron-builder`：`dist:electron` = `bundle:server`（`lawmind-local-server.cjs`）+ `vendor:node`（官方 Node 打进 `resources/node-runtime/`）+ `build:renderer`；**最终用户无需单独安装 Node**（可用 `LAWMIND_NODE_BIN` 覆盖）
+- [x] 绿色 / 便携分发：**macOS `zip`**（解压 `.app`）、**Windows `portable`**，与 `dmg` / `nsis` 并存
+- [x] 首次启动配置向导（Electron 内：API Key、Base URL、模型、可选工作区目录；写入 `userData/LawMind/.env.lawmind` 与 `desktop-config.json`）
 
 ---
 
@@ -139,7 +158,7 @@
 - `src/lawmind/agent/runtime.ts` — Agent 推理循环
 - `src/lawmind/agent/index.ts` — Agent 模块入口
 
-**测试（7 个文件，47 个测试）**
+**测试（LawMind `src/lawmind/**/\*.test.ts`，含 Router/Reasoning 模型路径单测与 Engine-Bridge 集成测）\*\*
 
 - `src/lawmind/router/index.test.ts`
 - `src/lawmind/reasoning/index.test.ts`
@@ -149,6 +168,10 @@
 - `src/lawmind/agent/index.test.ts`
 - `src/lawmind/agent/tools/engine-tools.test.ts`
 - `src/lawmind/agent/runtime.test.ts`
+
+**M3 桌面壳**
+
+- `apps/lawmind-desktop/` — Electron 应用 + 本地 API 子进程 + React UI（见 `apps/lawmind-desktop/README.md`）
 
 **脚本（交付/运维）**
 
@@ -192,7 +215,7 @@
 
 - 通用模型与法律模型输出冲突时的合并策略仍需明确定义。
 - 模板体系尚未规范版本管理（模板升级可能影响历史产物一致性）。
-- 审核流程目前已有最小 CLI 审核台，但尚无正式图形界面。
+- 审核流程目前已有最小 CLI 审核台；桌面端为 Electron 内对话 + 列表，**正式**审核台与工作台仍可扩展。
 - 任务确认已有正式入口 `engine.confirm()`，但仍以状态文件 + CLI/脚本流转为主。
 - 案件记忆已支持结构化归并、索引层、摘要和搜索，但当前仍是 CLI/规则化视图，尚未接入正式 UI。
 
@@ -207,9 +230,9 @@
 ### M2 Agent 继续深化（已完成核心闭环，以下为增强项）
 
 1. ~~**Agent-Engine 统一调度**~~ ✅ — 已通过 engine-tools.ts 实现。Agent 通过 execute_workflow 等 5 个桥接工具调用 engine 全管线能力。
-2. **模型驱动的路由** — 替换关键词规则路由，用 LLM 解析指令意图。
-3. **模型驱动的推理** — 替换规则化 buildDraft，用 LLM 组织草稿结构和内容。
-4. **更多法律工具** — 法条数据库检索、案例库检索、利益冲突检测、截止日提醒等。
+2. ~~**模型驱动的路由**~~ — `routeAsync` + `LAWMIND_ROUTER_MODE=model`（凭据不足时回落关键词 `route`）。
+3. ~~**模型驱动的推理**~~ — `buildDraftAsync` + `LAWMIND_REASONING_MODE=model`（模型失败时回落 `buildDraft`）。
+4. ~~**更多法律工具（首期）**~~ — `search_statute`、`search_case_law`、`check_conflict_of_interest`（工作区启发式，不替代正式法规库/裁判文书网）。
 5. **Agent 多轮测试** — 用 mock LLM 测试 agent 的完整推理循环，验证工具调度、审批流程、session 恢复。
 6. **真实模型端到端验证** — 配置 Qwen/DeepSeek API key，测试 agent 完整对话流程。
 7. **客户试运行（Pilot）** — 选 2-3 个真实法律任务场景进行连续一周试跑，收集失败样本并闭环。
@@ -217,7 +240,7 @@
 ### 基础设施
 
 7. 模板版本管理（升级时保持历史产物一致）。
-8. 正式 Web UI（案件工作台 / 审核台 / 对话界面）。
+8. 正式 Web UI / 桌面工作台（案件工作台 / 审核台 / 对话界面）——已部分由 **M3 Electron** 覆盖对话与任务历史，余下深度工作台迭代。
 9. 在 `GOALS.md` 保持与 M1/M2 清单同步。
 
 ### 当前连续开发抓手

@@ -85,7 +85,59 @@ npm run lawmind:demo -- --ppt
 - 输出任务状态、步骤、交付路径；
 - 形成可演示的“接单 -> 干活 -> 交付”闭环。
 
-## 6) 一键安装脚本（Windows/macOS）
+## 6) 桌面应用（Electron）
+
+### 6.1 开发机运行
+
+在**已克隆**本仓库且已 `pnpm install` 的机器上：
+
+```bash
+pnpm lawmind:desktop
+```
+
+说明：
+
+- 详见 [apps/lawmind-desktop/README.md](../apps/lawmind-desktop/README.md)；
+- 本地 API 仅监听 `127.0.0.1`；
+- 默认写入 `Electron userData` 下的 `LawMind/workspace` 与 `LawMind/.env.lawmind`（与仓库内 `workspace/` 相独立）；
+- 开发态仍需要本机 **Node 22+** 与 monorepo 根（`tsx` 启动 `lawmind-local-server.ts`）。
+
+### 6.2 打包与「解压即用」产物
+
+在 **与目标系统一致** 的构建机上执行（每种平台单独打一次包）：
+
+```bash
+cd apps/lawmind-desktop && pnpm run dist:electron
+```
+
+该流程会依次：**esbuild 打包本地 API**、**下载官方 Node 二进制至 `resources/node-runtime/`（仅当前平台/架构）**、构建前端、`electron-builder` 出产物。
+
+产出（在 `apps/lawmind-desktop/release/`，具体文件名随版本变化）：
+
+- **macOS**：`dmg` 安装包 + **`zip`**（解压后得到 `LawMind.app`，可直接双击；适合绿色分发）；
+- **Windows**：`nsis` 安装包 + **`portable`** 绿色版（单文件可执行，或由 builder 配置决定的可搬运形态）。
+
+**最终用户**：安装版或解压版均**不要求**单独安装 Node；应用内已携带与本包架构匹配的 Node，用于启动 `lawmind-local-server.cjs`。高级场景仍可用环境变量 `LAWMIND_NODE_BIN` 指定其他 Node 路径。
+
+### 6.3 macOS 代码签名与公证（对外分发）
+
+当前仓库内 `electron-builder` 的 mac 配置可能为 `identity: null`（未签名）。未签名的 `.app` / `zip` 在客户机上可能被 Gatekeeper 拦截。
+
+若需对公网用户分发：
+
+1. 为 **Electron 应用** 与 **内嵌的 `node` 二进制**（路径：`LawMind.app/Contents/Resources/node-runtime/<platform-arch>/bin/node`）使用同一开发者证书签名（与现有 OpenClaw / LawMind 发布流程对齐）。
+2. 对 `.app` 做 **notarytool 公证**（Apple 要求）。
+3. 在交付手册中写明：若暂为测试包，用户可在「系统设置 - 隐私与安全性」中允许运行，或使用「右键 - 打开」首次放行。
+
+（内部发布细节以仓库内 `docs/platforms/mac/` 下签名与发布相关文档为准。）
+
+### 6.4 构建注意
+
+若 pnpm 忽略 electron 构建脚本，需执行 `pnpm approve-builds` 并允许 `electron`。
+
+Node 版本可通过环境变量覆盖：`LAWMIND_DESKTOP_NODE_VERSION`（默认与脚本内一致，需与 `esbuild` 的 `target=node22` 大版本协调）。
+
+## 7) 一键安装脚本（Windows/macOS）
 
 当前仓库内置安装脚本：
 
@@ -132,7 +184,7 @@ iwr https://raw.githubusercontent.com/openclaw/openclaw/main/scripts/install-law
 
 **安装后的日常使用**请参见 [LawMind 使用手册](docs/LAWMIND-USER-MANUAL.md)（配置、Agent、案件、审核、运维命令与常见问题）。
 
-## 7) 交付检查清单
+## 8) 交付检查清单
 
 - [ ] `npm run lawmind:acceptance -- --strict-env` 成功
 - [ ] `npm run lawmind:ops -- doctor --deep` 成功

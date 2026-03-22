@@ -1,0 +1,68 @@
+{
+  "name": "lawmind-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "LawMind desktop app (Electron) — chat, tasks, and delivery history",
+  "main": "electron/main.mjs",
+  "scripts": {
+    "dev": "concurrently -k -s first \"vite dev --port 5174\" \"wait-on http-get://127.0.0.1:5174 && electron electron/main.mjs\"",
+    "build:renderer": "vite build",
+    "bundle:server": "pnpm -w lawmind:bundle:desktop-server",
+    "vendor:node": "pnpm -w lawmind:vendor:desktop-node",
+    "preview": "vite preview --port 5174",
+    "typecheck": "tsc --noEmit",
+    "dist:electron": "pnpm bundle:server && pnpm vendor:node && pnpm build:renderer && electron-builder"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "electron": "^34.3.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.9.3",
+    "vite": "^6.0.11",
+    "wait-on": "^8.0.1"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "build": {
+    "appId": "ai.lawmind.desktop",
+    "productName": "LawMind",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "dist/**/*",
+      "!**/*.map"
+    ],
+    "extraResources": [
+      {
+        "from": "server/dist",
+        "to": "lawmind-server",
+        "filter": ["**/*.cjs"]
+      },
+      {
+        "from": "resources/node-runtime",
+        "to": "node-runtime",
+        "filter": ["**/*"]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": ["dmg", "zip"],
+      "identity": null
+    },
+    "win": {
+      "target": ["nsis", "portable"]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

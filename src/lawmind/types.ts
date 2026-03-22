@@ -25,6 +25,7 @@ export type TaskKind =
   | "draft.ppt" // 生成 PPT 汇报（第二阶段）
   | "summarize.case" // 案件摘要
   | "analyze.contract" // 合同审查
+  | "agent.instruction" // Agent 对话单轮用户指令（非路由生成）
   | "unknown"; // 路由失败，需要人工介入
 
 /** 文书风险等级 */
@@ -172,7 +173,8 @@ export type TaskLifecycleStatus =
   | "drafted"
   | "reviewed"
   | "rejected"
-  | "rendered";
+  | "rendered"
+  | "completed"; // Agent 对话回合等已结束（无引擎交付物）
 
 /** 持久化任务记录 — 用于会话恢复、状态展示、审计串联 */
 export type TaskRecord = {
@@ -192,6 +194,12 @@ export type TaskRecord = {
   outputPath?: string;
   createdAt: string;
   updatedAt: string;
+  /** 多助手：创建任务时的助手 ID（可选） */
+  assistantId?: string;
+  /** Agent 会话 ID（对话指令类任务） */
+  sessionId?: string;
+  /** 与 Agent turn 对齐的回合 ID（通常与 taskId 相同） */
+  sourceTurnId?: string;
 };
 
 // ─────────────────────────────────────────────

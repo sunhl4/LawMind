@@ -61,6 +61,10 @@ export type AgentContext = {
   sessionId: string;
   matterId?: string;
   actorId: string;
+  /** 多助手档案 ID（若有） */
+  assistantId?: string;
+  /** 本轮是否允许调用 web_search 等联网工具 */
+  allowWebSearch?: boolean;
   /** 当前案件的索引快照（按需加载） */
   matterIndex?: MatterIndex;
 };
@@ -118,6 +122,8 @@ export type AgentSession = {
   sessionId: string;
   matterId?: string;
   actorId: string;
+  /** 桌面多助手：关联的助手 ID（旧会话可能无此字段） */
+  assistantId?: string;
   turns: AgentTurn[];
   /** 对话历史（发送给模型的精简版） */
   conversationHistory: AgentMessage[];
@@ -152,4 +158,14 @@ export type AgentConfig = {
   /** 是否允许跳过 requiresApproval 工具门禁 */
   allowDangerousToolsWithoutApproval?: boolean;
   actorId?: string;
+  /** 多助手：助手档案 ID，与 actorId `assistant:<id>` 对应 */
+  assistantId?: string;
+  /** 岗位展示名 */
+  roleTitle?: string;
+  /** 助手简介，注入 system prompt */
+  roleIntroduction?: string;
+  /** 预设 + 用户自定义合并后的岗位指令 */
+  roleDirective?: string;
+  /** 是否注册并允许使用联网检索工具（web_search，Brave API） */
+  allowWebSearch?: boolean;
 };

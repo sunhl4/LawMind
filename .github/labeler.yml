@@ -314,3 +314,11 @@
   - changed-files:
       - any-glob-to-any-file:
           - "extensions/xiaomi/**"
+lawmind:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/lawmind/**"
+          - "scripts/lawmind*.ts"
+          - "scripts/install-lawmind.*"
+          - "docs/LAWMIND*.md"
+          - "apps/lawmind-desktop/**"

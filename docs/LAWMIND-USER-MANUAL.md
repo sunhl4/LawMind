@@ -32,6 +32,39 @@ npm run lawmind:smoke -- --fail-on-empty-claims
 
 ---
 
+## 1b) 桌面应用（Electron）
+
+### 开发模式（仓库克隆）
+
+从 **本仓库根目录**（需已 `pnpm install`）启动：
+
+```bash
+pnpm lawmind:desktop
+```
+
+- 对话、任务列表与交付摘要在应用内查看；数据默认在 **Electron 用户数据目录**下的 `LawMind/workspace` 与 `LawMind/.env.lawmind`（与你在安装目录里用的 `workspace/` 不是同一路径）。
+- **开发模式下**（`pnpm lawmind:desktop`）：本地服务会先加载 **仓库根目录**的 `.env.lawmind`（与命令行一致），再加载用户目录下的 `LawMind/.env.lawmind`；**后者覆盖前者**。若命令行正常而桌面报 **401 / invalid API key**，多半是向导在用户目录里写错了 Key——请打开该文件核对，或删掉其中的 `LAWMIND_*` / `QWEN_*` 行后重启桌面，让它回落到仓库配置。可在浏览器开发者工具 Network 里查看 `GET /api/health` 返回的 `envHint`（各 env 文件是否存在，**不含**密钥明文）。
+- 配置模型 Key：应用内 **配置向导**，或编辑上述用户目录 `.env.lawmind`，变量与 **2) 配置 `.env.lawmind`** 一节相同。
+- **检索模式**：侧栏可选 **统一模型**（通用与法律检索共用向导里的 API）或 **通用 + 法律专用**（引擎检索：通用仍用 `LAWMIND_AGENT_*` / `LAWMIND_QWEN_*`，法律专线需在 `.env.lawmind` 配置 `LAWMIND_CHATLAW_*`、`LAWMIND_LAWGPT_*` 或 `LAWMIND_PARTNER_LEGAL_*`；未配置法律端点时自动回退为通用模型）。切换模式会重启本地 API，并注入 `LAWMIND_RETRIEVAL_MODE`。`GET /api/health` 中的 `dualLegalConfigured` 表示是否检测到法律端点。
+- **多助手与岗位**：侧栏可 **新建 / 编辑** 多个助手，填写简介并选择**内置岗位预设**（亦可补充自定义岗位说明）；系统会注入到对话的 system prompt。助手档案与 `LawMind/assistants.json`、使用统计 `LawMind/assistant-stats.json` 同目录（与 `desktop-config.json` 同级）。对话请求 `POST /api/chat` 可带 `assistantId`；管理接口：`GET/POST/PATCH/DELETE /api/assistants`、`GET /api/assistant-presets`。任务 JSON 中可含 `assistantId` 字段，便于按助手查看工作产出。默认助手 ID 为 `default`，不可删除。
+- **联网检索（可选）**：主界面可勾选「允许联网检索」；勾选后本轮对话会注册 `web_search` 工具（Brave Search API）。在 `.env.lawmind` 中配置 `LAWMIND_WEB_SEARCH_API_KEY` 或 `BRAVE_API_KEY`（与 OpenClaw Brave 配置兼容）。未勾选时仅使用工作区与本地检索工具，不会调用联网搜索。`GET /api/health` 返回 `webSearchApiKeyConfigured` 表示是否检测到上述密钥。开发与选型层面的说明见 [LawMind 联网检索路径](/LAWMIND-NETWORK-OPTIONS)。
+- **超时**：模型单次请求默认 **120 秒**（`LAWMIND_AGENT_TIMEOUT_MS`，可改）。**单次工具执行**（如整条工作流）默认与模型超时**一致**（`LAWMIND_TOOL_TIMEOUT_MS`，未设置时跟随模型超时），避免长任务在 30 秒工具上限处失败；更长合同流水线可单独调大 `LAWMIND_TOOL_TIMEOUT_MS`。
+- **任务与历史**：每轮成功完成的对话会在工作区 `tasks/` 下写入一条 **对话指令**（`agent.instruction`）任务，含短标题与完整指令；侧栏「任务 / 历史与交付」可 **搜索**、按 **时间范围** 筛选，并点开查看详情与 **会话 ID**（与引擎工作流产生的任务并存）。
+- 开发要求：本机 **Node 22+**、`tsx` 随 monorepo；若 Electron 未正确安装，在仓库根执行 `pnpm approve-builds` 并允许 `electron`。
+
+### 安装包 / 绿色版（解压或安装后即用）
+
+从交付方获取 **`dist:electron` 打出的产物**（详见客户交付手册 <https://docs.openclaw.ai/LAWMIND-DELIVERY> 第 6 节）：
+
+- **macOS**：可用 **`zip`** 解压出 `LawMind.app`，双击运行；也可用 `dmg` 安装。
+- **Windows**：可用 **`portable`** 绿色版，或 `nsis` 安装程序。
+
+此类包内已包含 **Node 运行时**（用于本地 API），**无需**再在电脑上单独安装 Node。若你自行用未签名 macOS 包，首次打开可能被系统拦截，可尝试右键「打开」或按系统提示在安全设置中允许。
+
+仓库说明：`apps/lawmind-desktop/README.md`。
+
+---
+
 ## 2) 配置 `.env.lawmind`
 
 所有 LawMind 命令都会自动加载项目根目录下的 `.env.lawmind`，无需手动 `source`。
@@ -42,7 +75,8 @@ npm run lawmind:smoke -- --fail-on-empty-claims
 **Agent 对话（`npm run lawmind:agent`）：**
 
 - Agent 会优先读取 `LAWMIND_QWEN_API_KEY`、`LAWMIND_QWEN_MODEL`（与 smoke/demo 共用），无需再配 `LAWMIND_AGENT_*`。
-- 若出现 **This operation was aborted**：多为模型响应超时（如起草合同等任务较慢）。默认已改为 60 秒；仍超时可设 `LAWMIND_AGENT_TIMEOUT_MS=120000`（2 分钟）。
+- 若出现 **This operation was aborted**：多为模型 HTTP 超时（如起草合同等任务较慢）。CLI 默认 **60 秒**，可设 `LAWMIND_AGENT_TIMEOUT_MS=120000`（2 分钟）或更大。
+- 若工具报错含 **`timed out after ...ms`**：为**单次工具**执行超时（默认与 `LAWMIND_AGENT_TIMEOUT_MS` 一致；未单独设置时桌面与 CLI 均不再固定为 30 秒）。仍不够可设 `LAWMIND_TOOL_TIMEOUT_MS=180000`（3 分钟）等。
 - 若出现 **Model API error 404**：
   1. **必须在安装目录下运行**：`cd ~/.lawmind/openclaw` 后再执行 `npm run lawmind:agent`，否则不会加载该目录下的 `.env.lawmind`。
   2. 启动时会有 `[LawMind Agent] model=xxx baseUrl=xxx cwd=xxx`，请确认 **model** 和 **cwd** 是否符合预期（cwd 应为安装目录）。

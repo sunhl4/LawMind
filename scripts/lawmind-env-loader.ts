@@ -14,15 +14,24 @@ export type LoadedEnvFile = {
  * running from the install dir (e.g. ~/.lawmind/openclaw) always uses
  * the configured keys/URLs instead of stale shell exports (e.g. 127.0.0.1).
  */
-export function loadLawMindEnv(cwd = process.cwd()): LoadedEnvFile {
-  const envPath = path.resolve(cwd, ".env.lawmind");
+export type LoadLawMindEnvOptions = {
+  /** When false, do not overwrite variables already set in `process.env`. Default true. */
+  override?: boolean;
+};
+
+export function loadLawMindEnv(
+  cwd = process.cwd(),
+  envFilePath?: string,
+  options?: LoadLawMindEnvOptions,
+): LoadedEnvFile {
+  const envPath = envFilePath ? path.resolve(envFilePath) : path.resolve(cwd, ".env.lawmind");
   if (!fs.existsSync(envPath)) {
     return { path: envPath, loaded: false };
   }
 
   dotenv.config({
     path: envPath,
-    override: true,
+    override: options?.override ?? true,
   });
   return { path: envPath, loaded: true };
 }

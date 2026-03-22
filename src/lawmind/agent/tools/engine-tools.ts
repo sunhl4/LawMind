@@ -15,6 +15,10 @@ import { createLawMindEngine, type LawMindEngineConfig } from "../../index.js";
 import { createWorkspaceAdapter } from "../../retrieval/index.js";
 import type { RetrievalAdapter } from "../../retrieval/index.js";
 import { createOpenAICompatibleAdapters } from "../../retrieval/openai-compatible.js";
+import {
+  createOpenSourceLegalAdaptersFromEnv,
+  createPartnerLegalAdapterFromEnv,
+} from "../../retrieval/providers.js";
 import type { AgentContext, AgentTool } from "../types.js";
 
 const MAX_INSTRUCTION_LENGTH = 4000;
@@ -55,27 +59,91 @@ function resolveMatterId(raw: unknown, fallback?: string): string | undefined {
 }
 
 /**
+ * 通用模型连接信息（与桌面 `buildAgentConfig` / 向导写入的变量对齐）。
+ */
+function resolveGeneralOpenAICompatibleFromEnv(): {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+} | null {
+  const baseUrl =
+    process.env.LAWMIND_AGENT_BASE_URL?.trim() ||
+    process.env.QWEN_BASE_URL?.trim() ||
+    process.env.LAWMIND_QWEN_BASE_URL?.trim();
+  const apiKey =
+    process.env.LAWMIND_AGENT_API_KEY?.trim() ||
+    process.env.QWEN_API_KEY?.trim() ||
+    process.env.LAWMIND_QWEN_API_KEY?.trim();
+  const model =
+    process.env.LAWMIND_AGENT_MODEL?.trim() ||
+    process.env.QWEN_MODEL?.trim() ||
+    process.env.LAWMIND_QWEN_MODEL?.trim();
+
+  if (baseUrl && apiKey && model) {
+    return { baseUrl, apiKey, model };
+  }
+
+  const qwenKey = process.env.LAWMIND_QWEN_API_KEY?.trim();
+  const qwenModel = process.env.LAWMIND_QWEN_MODEL?.trim();
+  if (qwenKey && qwenModel) {
+    return {
+      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      apiKey: qwenKey,
+      model: qwenModel,
+    };
+  }
+
+  return null;
+}
+
+/**
  * 根据环境变量创建 retrieval adapters。
- * 优先使用 LAWMIND_AGENT_ 前缀的变量，回退到 QWEN_ / DEEPSEEK_ 等。
+ * - 默认 `LAWMIND_RETRIEVAL_MODE=single`：通用与法律检索共用同一 OpenAI-compatible 端点。
+ * - `dual`：通用用 LAWMIND_AGENT_* / QWEN_*，法律用 CHATLAW / LAWGPT / PARTNER 等（见 providers.ts）；未配置法律端点时回退为通用模型做法务检索。
  */
 function buildAdaptersFromEnv(workspaceDir: string): RetrievalAdapter[] {
   const adapters: RetrievalAdapter[] = [createWorkspaceAdapter(workspaceDir)];
 
-  const baseUrl = process.env.LAWMIND_AGENT_BASE_URL || process.env.QWEN_BASE_URL;
-  const apiKey = process.env.LAWMIND_AGENT_API_KEY || process.env.QWEN_API_KEY;
-  const model = process.env.LAWMIND_AGENT_MODEL || process.env.QWEN_MODEL;
+  const modeRaw = (process.env.LAWMIND_RETRIEVAL_MODE ?? "single").trim().toLowerCase();
+  const mode = modeRaw === "dual" ? "dual" : "single";
 
-  if (baseUrl && apiKey && model) {
-    const modelAdapters = createOpenAICompatibleAdapters({
-      baseUrl,
-      apiKey,
-      generalModel: model,
-      legalModel: model,
-    });
-    adapters.push(...modelAdapters);
+  const generalCfg = resolveGeneralOpenAICompatibleFromEnv();
+  if (!generalCfg) {
+    return adapters;
+  }
+
+  if (mode === "single") {
+    adapters.push(
+      ...createOpenAICompatibleAdapters({
+        general: generalCfg,
+        legal: generalCfg,
+      }),
+    );
+    return adapters;
+  }
+
+  adapters.push(...createOpenAICompatibleAdapters({ general: generalCfg }));
+
+  const legalFromEnv = [
+    ...createOpenSourceLegalAdaptersFromEnv(),
+    ...createPartnerLegalAdapterFromEnv(),
+  ];
+  if (legalFromEnv.length > 0) {
+    adapters.push(...legalFromEnv);
+  } else {
+    adapters.push(...createOpenAICompatibleAdapters({ legal: generalCfg }));
   }
 
   return adapters;
+}
+
+/**
+ * 仅用于测试：根据当前 `process.env` 构造引擎检索适配器列表。
+ */
+export function buildLawMindRetrievalAdaptersFromEnvForTest(
+  workspaceDir: string,
+): RetrievalAdapter[] {
+  return buildAdaptersFromEnv(workspaceDir);
 }
 
 function getEngine(ctx: AgentContext) {
@@ -83,6 +151,7 @@ function getEngine(ctx: AgentContext) {
   const config: LawMindEngineConfig = {
     workspaceDir: ctx.workspaceDir,
     adapters,
+    assistantId: ctx.assistantId,
   };
   return createLawMindEngine(config);
 }
@@ -113,7 +182,7 @@ export const planTask: AgentTool = {
       );
       const audience = asOptionalString(params.audience, "audience", MAX_AUDIENCE_LENGTH);
       const matterId = resolveMatterId(params.matter_id, ctx.matterId);
-      const intent = engine.plan(instruction, {
+      const intent = await engine.planAsync(instruction, {
         audience,
         matterId,
       });
@@ -166,7 +235,7 @@ export const researchTask: AgentTool = {
       );
       const audience = asOptionalString(params.audience, "audience", MAX_AUDIENCE_LENGTH);
       const matterId = resolveMatterId(params.matter_id, ctx.matterId);
-      const intent = engine.plan(instruction, {
+      const intent = await engine.planAsync(instruction, {
         audience,
         matterId,
       });
@@ -243,7 +312,7 @@ export const draftDocument: AgentTool = {
       const title = asOptionalString(params.title, "title", MAX_TITLE_LENGTH);
       const audience = asOptionalString(params.audience, "audience", MAX_AUDIENCE_LENGTH);
       const matterId = resolveMatterId(params.matter_id, ctx.matterId);
-      const intent = engine.plan(instruction, {
+      const intent = await engine.planAsync(instruction, {
         audience,
         matterId,
       });
@@ -259,7 +328,7 @@ export const draftDocument: AgentTool = {
           error: "检索返回空结果，无法生成可靠草稿。请补充信息后重试。",
         };
       }
-      const draft = engine.draft(intent, bundle, {
+      const draft = await engine.draftAsync(intent, bundle, {
         title,
       });
 
@@ -383,7 +452,7 @@ export const executeWorkflow: AgentTool = {
       const forceRender = params.force_render === true;
       // Step 1: Plan
       steps.push("正在解析指令...");
-      const intent = engine.plan(instruction, {
+      const intent = await engine.planAsync(instruction, {
         audience,
         matterId,
       });
@@ -414,7 +483,7 @@ export const executeWorkflow: AgentTool = {
 
       // Step 4: Draft
       steps.push("正在生成文书草稿...");
-      const draft = engine.draft(intent, bundle, {
+      const draft = await engine.draftAsync(intent, bundle, {
         title,
       });
       steps.push(`草稿生成完成：《${draft.title}》，共 ${draft.sections.length} 个章节`);

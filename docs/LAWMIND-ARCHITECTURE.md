@@ -108,6 +108,30 @@ workspace/
 
 第二阶段再按案件引入 `cases/<matter-id>/CASE.md`。
 
+### 5. 与「多助手 / 岗位」的关系（实现现状与长期方向）
+
+**已实现（工作区级，所有助手共享）**
+
+- `MEMORY.md`：**通用**长期记忆（工作流规则、写作规范、风险红线等）。
+- `LAWYER_PROFILE.md`：**律师个人**偏好与习惯（风格、措辞、引用习惯等）；提供 `appendLawyerProfile()` 仅向该文件**追加**条目，便于偏好缓慢积累。
+- 有 `matterId` 时额外加载 `cases/<matter-id>/CASE.md` 作为案件记忆。
+
+**岗位助手（`assistants.json`）当前角色**
+
+- 助手档案保存的是**静态配置**：显示名、简介、岗位预设、自定义岗位说明等，经 `buildSystemPrompt()` 注入为「当前岗位与职责」区块。
+- **没有**为每个 `assistantId` 单独维护一份 Markdown 记忆文件；「专职工作方式」主要来自预设 + 用户写的说明，**不会**自动分文件进化。
+
+**代码中的注入差异（避免误解「两个记忆是否都进主对话 system prompt」）**
+
+- **Agent 主对话**（`runTurn`）：system prompt 中显式拼接的是 **`LAWYER_PROFILE.md` 全文**（以及岗位说明、案件 CASE、今日日志片段等）；`MEMORY.md` **不**整段拼进同一条 system 字符串。
+- **`MEMORY.md` 仍会被加载**：用于检索管线（例如 `ModelRetrievalInput.memory.general`）、引擎桥接、以及 `search_workspace` 等工具对 `MEMORY.md` / `LAWYER_PROFILE.md` 的聚合搜索，模型通过工具与检索间接使用通用记忆。
+- 若希望「通用规则」也像偏好一样**每条对话必显式出现**，需要另行调整 prompt 组装策略（当前架构刻意区分：偏好更贴近人设，通用更偏可检索知识）。
+
+**长期需求（偏好进化 + 岗位专职记忆）——尚未作为独立子系统落地**
+
+- 产品愿景中的「按助手维护记忆、随交互进化」需要额外设计，例如：`assistants/<assistantId>/PROFILE.md` 或与 `LAWYER_PROFILE.md` 分节约定、以及写入时机与合并策略；**当前仓库未实现 per-assistant 记忆文件**。
+- 演进期可继续用工作区两级文档 + 会话持久化（`sessions/*.json` / `*.turns.jsonl`）承载大部分「记得我说过什么」；分助手长期记忆可作为后续里程碑单独立项。
+
 ---
 
 ## 五、Instruction Router

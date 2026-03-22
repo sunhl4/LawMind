@@ -234,5 +234,13 @@
   {
     "source": "env var",
     "target": "环境变量"
+  },
+  {
+    "source": "GitHub: local workflow",
+    "target": "GitHub：本地工作流"
+  },
+  {
+    "source": "Updating",
+    "target": "更新"
   }
 ]

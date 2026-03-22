@@ -14,6 +14,14 @@ export type SystemPromptContext = {
   todayLog?: string;
   availableTools: ToolDefinition[];
   matterId?: string;
+  /** 岗位标题（如「合同审查」） */
+  roleTitle?: string;
+  /** 助手自我介绍 */
+  roleIntroduction?: string;
+  /** 岗位工作方式（预设 + 用户说明） */
+  roleDirective?: string;
+  /** 是否已开启联网检索（web_search） */
+  allowWebSearch?: boolean;
 };
 
 export function buildSystemPrompt(ctx: SystemPromptContext): string {
@@ -46,6 +54,24 @@ export function buildSystemPrompt(ctx: SystemPromptContext): string {
 3. **律师审批是终点**：你负责干活，律师负责审批。高风险产出（律师函、起诉状、对外文件）必须律师批准后才算完成。
 4. **全程可追溯**：每个动作都记录在审计日志中，每个结论都可追溯至来源。
 5. **风险前置**：发现风险时立即标记，不要等到最后才说。`);
+
+  if (ctx.roleTitle || ctx.roleIntroduction || ctx.roleDirective) {
+    const introBlock = ctx.roleIntroduction?.trim()
+      ? `\n\n**助手简介**：\n${ctx.roleIntroduction.trim()}`
+      : "";
+    const directiveBlock = ctx.roleDirective?.trim() ? `\n\n${ctx.roleDirective.trim()}` : "";
+    sections.push(`## 当前岗位与职责
+
+**岗位**：${ctx.roleTitle?.trim() || "法律助理"}${introBlock}${directiveBlock}
+
+请在本对话中始终按上述岗位定位行事；与全局 LawMind 原则冲突时，仍以准确性与合规为先。`);
+  }
+
+  if (ctx.allowWebSearch) {
+    sections.push(`## 联网检索
+
+当前对话已**允许**使用 \`web_search\` 从互联网获取公开网页摘要（需环境已配置 Brave Search API）。请在工作区与本地检索不足时再使用；引用时标注来源，并提示不确定性。未开启联网时请勿调用 \`web_search\`。`);
+  }
 
   if (ctx.lawyerName || ctx.lawyerProfile) {
     sections.push(`## 当前律师

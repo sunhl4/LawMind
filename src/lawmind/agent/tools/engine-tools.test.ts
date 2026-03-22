@@ -1,8 +1,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentContext } from "../types.js";
+import { buildLawMindRetrievalAdaptersFromEnvForTest } from "./engine-tools.js";
 import { createLegalToolRegistry } from "./legal-tools.js";
 
 function tmpWorkspace(): string {
@@ -22,6 +23,37 @@ function makeCtx(ws: string, matterId?: string): AgentContext {
   };
 }
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+describe("retrieval mode adapters", () => {
+  it("single mode uses one OpenAI-compatible stack for general and legal", () => {
+    vi.stubEnv("LAWMIND_RETRIEVAL_MODE", "single");
+    vi.stubEnv("LAWMIND_AGENT_BASE_URL", "https://api.example/v1");
+    vi.stubEnv("LAWMIND_AGENT_API_KEY", "k");
+    vi.stubEnv("LAWMIND_AGENT_MODEL", "m");
+    const ws = tmpWorkspace();
+    const adapters = buildLawMindRetrievalAdaptersFromEnvForTest(ws);
+    const names = adapters.map((a) => a.name);
+    expect(names).toContain("model-general");
+    expect(names).toContain("model-legal");
+  });
+
+  it("dual mode with ChatLaw exposes model-legal-chatlaw", () => {
+    vi.stubEnv("LAWMIND_RETRIEVAL_MODE", "dual");
+    vi.stubEnv("LAWMIND_AGENT_BASE_URL", "https://api.example/v1");
+    vi.stubEnv("LAWMIND_AGENT_API_KEY", "k");
+    vi.stubEnv("LAWMIND_AGENT_MODEL", "m");
+    vi.stubEnv("LAWMIND_CHATLAW_BASE_URL", "http://127.0.0.1:8999/v1");
+    vi.stubEnv("LAWMIND_CHATLAW_MODEL", "law-chatlaw");
+    const ws = tmpWorkspace();
+    const adapters = buildLawMindRetrievalAdaptersFromEnvForTest(ws);
+    expect(adapters.some((a) => a.name === "model-general")).toBe(true);
+    expect(adapters.some((a) => a.name === "model-legal-chatlaw")).toBe(true);
+  });
+});
+
 describe("Engine-Bridge Tools", () => {
   it("registry contains all engine tools", () => {
     const registry = createLegalToolRegistry();
@@ -34,9 +66,9 @@ describe("Engine-Bridge Tools", () => {
     expect(names).toContain("execute_workflow");
   });
 
-  it("total tool count is 16 (11 legal + 5 engine)", () => {
+  it("total tool count is 19 (14 legal + 5 engine)", () => {
     const registry = createLegalToolRegistry();
-    expect(registry.size()).toBe(16);
+    expect(registry.size()).toBe(19);
   });
 });
 
@@ -93,15 +125,16 @@ describe("plan_task", () => {
 });
 
 describe("execute_workflow", () => {
-  it("executes complete workflow for low-risk task", async () => {
+  it("renders docx when force_render is set (medium-risk draft path)", async () => {
     const ws = tmpWorkspace();
     const registry = createLegalToolRegistry();
     const tool = registry.get("execute_workflow")!;
 
     const result = await tool.execute(
       {
-        instruction: "检索关于公司法的最新规定",
+        instruction: "请审查这份合同的主要条款并列出风险点",
         matter_id: "m-workflow-test",
+        force_render: true,
       },
       makeCtx(ws, "m-workflow-test"),
     );
