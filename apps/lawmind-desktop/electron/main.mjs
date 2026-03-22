@@ -325,6 +325,17 @@ function registerIpcHandlers() {
     };
   });
 
+  ipcMain.handle("lawmind:pick-project", async () => {
+    const res = await dialog.showOpenDialog({
+      title: "选择项目目录",
+      properties: ["openDirectory"],
+    });
+    if (res.canceled || res.filePaths.length === 0) {
+      return { ok: false };
+    }
+    return { ok: true, path: res.filePaths[0] };
+  });
+
   ipcMain.handle("lawmind:open-external", (_evt, url) => {
     if (typeof url === "string" && url.startsWith("http")) {
       void shell.openExternal(url);

@@ -124,6 +124,27 @@
 - [x] `electron-builder`：`dist:electron` = `bundle:server`（`lawmind-local-server.cjs`）+ `vendor:node`（官方 Node 打进 `resources/node-runtime/`）+ `build:renderer`；**最终用户无需单独安装 Node**（可用 `LAWMIND_NODE_BIN` 覆盖）
 - [x] 绿色 / 便携分发：**macOS `zip`**（解压 `.app`）、**Windows `portable`**，与 `dmg` / `nsis` 并存
 - [x] 首次启动配置向导（Electron 内：API Key、Base URL、模型、可选工作区目录；写入 `userData/LawMind/.env.lawmind` 与 `desktop-config.json`）
+- [x] **UI 精细化重设计**（v0.2）：深色专业风格，暖铜色调，面向律师工作习惯优化
+  - [x] 设计系统重构：深色暖调色板（#b79a67 铜色 accent）、PingFang SC 中文排版、圆角/阴影/渐变等 token 化
+  - [x] 消息区改为无气泡直排（类 Claude/ChatGPT 风格），用户消息保留轻量边框
+  - [x] 自定义 Markdown 渲染（标题/列表/粗体/行内代码/分隔线），AI 消息排版可读性优化
+  - [x] 快捷操作 Chip 栏（起草律师函/合同审查/法规检索/起草诉状/案例查询）
+  - [x] 空态引导场景卡（纯文字，起草/检索/审查三类模板 prompt）
+  - [x] 消息复制按钮（hover 显示，2s 确认态）
+  - [x] 相对时间显示（刚刚/N 分钟前/今天 HH:mm/昨天/M月D日）
+  - [x] 法律状态标签映射（已完成/处理中/处理失败/待处理/草稿/对话）
+  - [x] 列表密度优化：无边框透明底，hover 仅显示左侧指示线
+- [x] **统一设置面板**（v0.3）：齿轮图标触发模态设置，侧边栏极简化
+  - [x] 侧边栏仅保留品牌栏 + 齿轮按钮 + 助手选择器 + 项目药丸 + 折叠工作记录
+  - [x] 设置面板三个分区：助手管理、模型与检索、工作区与项目
+  - [x] SVG 齿轮图标（16×16，CSS-only stroke，无外部依赖）
+- [x] **项目目录选择器**：支持选择本机目录作为项目上下文，类似 Cursor "打开文件夹"
+  - [x] Electron IPC `lawmind:pick-project` + preload bridge
+  - [x] 侧边栏项目药丸（文件夹 SVG 图标 + 目录名）
+  - [x] 主区域顶栏显示当前项目名
+  - [x] 项目路径随 `POST /api/chat` 一起发送到后端（`projectDir` 字段）
+- [x] **工作记录折叠/展开**：默认收起，点击标题展开，显示记录总数 badge
+- [x] **按助手过滤记录**：任务和交付列表按当前选中助手的 `assistantId` 过滤
 
 ---
 
@@ -172,6 +193,13 @@
 **M3 桌面壳**
 
 - `apps/lawmind-desktop/` — Electron 应用 + 本地 API 子进程 + React UI（见 `apps/lawmind-desktop/README.md`）
+  - `electron/main.mjs` — Electron 主进程（IPC: `lawmind:pick-project`、`lawmind:open-external`、`lawmind:show-file` 等）
+  - `electron/preload.cjs` — contextBridge 预加载脚本（暴露 `lawmindDesktop.*` 给渲染进程）
+  - `server/lawmind-local-server.ts` — 本地 HTTP API（`/api/chat`、`/api/tasks`、`/api/history`、`/api/assistants` 等）
+  - `server/safe-task-id.ts` + `.test.ts` — 安全 taskId 生成工具
+  - `src/renderer/App.tsx` — 主 React 组件（对话/设置面板/助手管理/项目选择/工作记录折叠）
+  - `src/renderer/styles.css` — 完整样式系统（深色暖铜 token、设置面板、消息排版、列表密度）
+  - `src/renderer/global.d.ts` — TypeScript 全局声明（`Window.lawmindDesktop` 类型）
 
 **脚本（交付/运维）**
 
@@ -206,6 +234,9 @@
 4. **交付策略**：先 Word 后 PPT，先可控再自动化。
 5. **Agent 路线**：从管线式引擎（M1）升级为 LLM 驱动的自主推理循环（M2）。Agent 有自己的 tool system、session management、system prompt，能自主决定使用哪些工具、以什么顺序、何时请求人工审批。借鉴 OpenClaw agent 架构但完全面向法律场景。
 6. **双入口**：保留 M1 管线式 `createLawMindEngine()`（确定性强、可测试），同时新增 M2 Agent 式 `createLawMindAgent()`（灵活、自主推理），两者共享底层能力。
+7. **桌面 UI 设计路线**：深色暖调专业风格（`#1a1917` 底色 + `#b79a67` 铜色 accent），面向律师工作习惯而非通用 SaaS 风格。消息区采用无气泡直排（AI 回复内容即布局，无边框无背景），Markdown 零依赖自渲染。
+8. **设置集中化**：所有配置（助手管理、模型与检索切换、工作区与项目路径）统一进齿轮图标触发的设置面板，侧边栏保持极简（仅品牌/助手选择器/项目药丸/折叠工作记录）。
+9. **项目目录**：桌面端支持通过 Electron 原生对话框选择本机目录作为"项目"，项目路径随对话请求发送到后端（`projectDir` 字段），为后续项目级文件访问和上下文注入打基础。
 
 ---
 
@@ -215,9 +246,10 @@
 
 - 通用模型与法律模型输出冲突时的合并策略仍需明确定义。
 - 模板体系尚未规范版本管理（模板升级可能影响历史产物一致性）。
-- 审核流程目前已有最小 CLI 审核台；桌面端为 Electron 内对话 + 列表，**正式**审核台与工作台仍可扩展。
-- 任务确认已有正式入口 `engine.confirm()`，但仍以状态文件 + CLI/脚本流转为主。
-- 案件记忆已支持结构化归并、索引层、摘要和搜索，但当前仍是 CLI/规则化视图，尚未接入正式 UI。
+- 审核流程目前已有最小 CLI 审核台；桌面端已有对话 + 任务列表 + 设置面板，**深度**审核台与案件工作台仍可扩展。
+- 案件记忆已支持结构化归并、索引层、摘要和搜索，桌面端目前通过对话交互访问，尚未有专门的案件面板 UI。
+- 项目目录功能已打通 Electron IPC，但后端尚未实现项目文件读取/索引；当前 `projectDir` 仅作为上下文标记传入对话。
+- 按助手过滤记录依赖 `historyItem.assistantId` 字段，历史数据可能无此字段（回退为不过滤）。
 
 ### 阻塞
 
@@ -237,19 +269,25 @@
 6. **真实模型端到端验证** — 配置 Qwen/DeepSeek API key，测试 agent 完整对话流程。
 7. **客户试运行（Pilot）** — 选 2-3 个真实法律任务场景进行连续一周试跑，收集失败样本并闭环。
 
+### M3 桌面端继续深化
+
+8. **项目文件访问**：后端读取 `projectDir` 下的文件，提供文件列表/内容预览 API，让 Agent 可基于项目文件回答问题。
+9. **案件面板 UI**：桌面端内建案件工作台（案件列表、案件详情、时间线、产物浏览），复用 `engine.getMatterIndex()` / `getMatterSummary()`。
+10. **审核台 UI**：桌面端内建草稿审核界面（approve/reject/modify），替代当前仅对话式审核。
+11. **per-assistant 记忆文件**：按助手维护 `assistants/<assistantId>/PROFILE.md`，随交互自动沉淀岗位偏好。
+
 ### 基础设施
 
-7. 模板版本管理（升级时保持历史产物一致）。
-8. 正式 Web UI / 桌面工作台（案件工作台 / 审核台 / 对话界面）——已部分由 **M3 Electron** 覆盖对话与任务历史，余下深度工作台迭代。
-9. 在 `GOALS.md` 保持与 M1/M2 清单同步。
+12. 模板版本管理（升级时保持历史产物一致）。
+13. 在 `GOALS.md` 保持与 M1/M2/M3 清单同步。
 
 ### 当前连续开发抓手
 
 - 若继续做 Agent 增强：优先围绕 `engine-tools.ts` 添加更多桥接工具。
-- 若继续做模型路由：修改 `src/lawmind/router/index.ts`，用 LLM 替换关键词匹配。
-- 若继续做模型推理：修改 `src/lawmind/reasoning/index.ts`，用 LLM 替换规则化 buildDraft。
-- 若继续做 Agent 多轮测试：创建 mock LLM server，测试 `runTurn` 的完整循环（指令 → 工具调用 → 结果回传 → 最终回答）。
-- 若继续做 Web UI：以 agent 的 `chat` API 为后端，构建对话界面 + 案件面板。
+- 若继续做桌面端 UI：修改 `apps/lawmind-desktop/src/renderer/App.tsx` 和 `styles.css`，全部样式 token 已在 `:root` 中定义。
+- 若继续做项目文件访问：在 `lawmind-local-server.ts` 添加 `/api/project/files` 等端点，前端从设置面板或侧边栏项目药丸进入。
+- 若继续做案件面板：新建 `CasePanel.tsx` 组件，调用 `/api/matters` + `/api/history` 接口。
+- 若继续做 Agent 多轮测试：创建 mock LLM server，测试 `runTurn` 的完整循环。
 
 ---
 

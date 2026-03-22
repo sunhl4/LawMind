@@ -16,6 +16,7 @@ declare global {
         nodeExecutable: string;
       }>;
       pickWorkspace: () => Promise<{ ok: boolean; path?: string }>;
+      pickProject: () => Promise<{ ok: boolean; path?: string }>;
       saveSetup: (payload: {
         apiKey: string;
         baseUrl?: string;

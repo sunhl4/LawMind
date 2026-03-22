@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import type { ArtifactDraft, TaskRecord } from "../../../../src/lawmind/types.ts";
 
 function resolveWorkspacePath(workspaceDir: string, rel: string): string {
@@ -29,6 +30,175 @@ function formatLocaleDateTime(iso: string): string {
   } catch {
     return iso;
   }
+}
+
+function formatRelativeTime(iso: string): string {
+  try {
+    const d = new Date(iso);
+    if (!Number.isFinite(d.getTime())) {
+      return iso;
+    }
+    const diff = Date.now() - d.getTime();
+    if (diff < 60_000) {
+      return "刚刚";
+    }
+    if (diff < 3_600_000) {
+      return `${Math.floor(diff / 60_000)} 分钟前`;
+    }
+    const pad2 = (n: number) => String(n).padStart(2, "0");
+    const hhmm = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (d >= today) {
+      return `今天 ${hhmm}`;
+    }
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (d >= yesterday) {
+      return `昨天 ${hhmm}`;
+    }
+    return `${d.getMonth() + 1}月${d.getDate()}日`;
+  } catch {
+    return iso;
+  }
+}
+
+function legalStatusLabel(status: string | undefined, kind?: string): string {
+  if (kind === "agent.instruction") {
+    return "对话";
+  }
+  const normalized = (status ?? "").toLowerCase();
+  if (normalized === "done" || normalized === "completed") {
+    return "已完成";
+  }
+  if (normalized === "running" || normalized === "processing") {
+    return "处理中";
+  }
+  if (normalized === "error" || normalized === "failed") {
+    return "处理失败";
+  }
+  if (normalized === "pending") {
+    return "待处理";
+  }
+  if (normalized === "draft") {
+    return "草稿";
+  }
+  if (normalized === "task") {
+    return "任务";
+  }
+  return status ?? "任务";
+}
+
+function renderInlineLegalMarkdown(text: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const tokenRe = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = tokenRe.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index));
+    }
+    const token = match[0];
+    if (token.startsWith("**")) {
+      nodes.push(<strong key={`strong-${match.index}`}>{token.slice(2, -2)}</strong>);
+    } else {
+      nodes.push(
+        <code key={`code-${match.index}`} className="lm-md-code">
+          {token.slice(1, -1)}
+        </code>,
+      );
+    }
+    lastIndex = match.index + token.length;
+  }
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+  return nodes;
+}
+
+function renderLegalMarkdown(text: string): ReactNode {
+  const lines = text.split("\n");
+  const blocks: ReactNode[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index] ?? "";
+    const trimmed = line.trim();
+
+    if (trimmed === "") {
+      blocks.push(<div key={`space-${index}`} className="lm-md-space" />);
+      index += 1;
+      continue;
+    }
+
+    if (/^---+$/.test(trimmed)) {
+      blocks.push(<hr key={`hr-${index}`} className="lm-md-hr" />);
+      index += 1;
+      continue;
+    }
+
+    const h2 = /^##\s+(.+)$/.exec(line);
+    if (h2) {
+      blocks.push(
+        <div key={`h2-${index}`} className="lm-md-h2">
+          {renderInlineLegalMarkdown(h2[1])}
+        </div>,
+      );
+      index += 1;
+      continue;
+    }
+
+    const bullet = /^-\s+(.+)$/.exec(line);
+    if (bullet) {
+      const items: ReactNode[] = [];
+      while (index < lines.length) {
+        const bulletMatch = /^-\s+(.+)$/.exec(lines[index] ?? "");
+        if (!bulletMatch) {
+          break;
+        }
+        items.push(
+          <li key={`ul-item-${index}`}>{renderInlineLegalMarkdown(bulletMatch[1])}</li>,
+        );
+        index += 1;
+      }
+      blocks.push(
+        <ul key={`ul-${index}`} className="lm-md-list">
+          {items}
+        </ul>,
+      );
+      continue;
+    }
+
+    const ordered = /^\d+\.\s+(.+)$/.exec(line);
+    if (ordered) {
+      const items: ReactNode[] = [];
+      while (index < lines.length) {
+        const orderedMatch = /^\d+\.\s+(.+)$/.exec(lines[index] ?? "");
+        if (!orderedMatch) {
+          break;
+        }
+        items.push(
+          <li key={`ol-item-${index}`}>{renderInlineLegalMarkdown(orderedMatch[1])}</li>,
+        );
+        index += 1;
+      }
+      blocks.push(
+        <ol key={`ol-${index}`} className="lm-md-list lm-md-ol">
+          {items}
+        </ol>,
+      );
+      continue;
+    }
+
+    blocks.push(
+      <div key={`p-${index}`} className="lm-md-p">
+        {renderInlineLegalMarkdown(line)}
+      </div>,
+    );
+    index += 1;
+  }
+
+  return <>{blocks}</>;
 }
 
 type TimeRangeFilter = "all" | "today" | "7d" | "30d";
@@ -81,6 +251,7 @@ type HistoryItem = {
   outputPath?: string;
   matterId?: string;
   taskRecordKind?: string;
+  assistantId?: string;
 };
 
 type ChatMsg = { role: "user" | "assistant"; text: string };
@@ -106,6 +277,32 @@ type AssistantRow = {
 type PresetRow = { id: string; displayName: string; promptSection: string };
 
 const DEFAULT_ASSISTANT_ID = "default";
+
+const QUICK_ACTIONS: Array<{ label: string; prompt: string }> = [
+  { label: "起草律师函", prompt: "请帮我起草一封律师函，就以下事项发出法律警告：\n\n" },
+  { label: "合同审查", prompt: "请对以下合同进行风险审查，逐条标注重点风险点：\n\n" },
+  { label: "法规检索", prompt: "请检索以下法律问题的相关法规、司法解释和典型判例：\n\n" },
+  { label: "起草诉状", prompt: "请帮我起草民事起诉状，案情简述如下：\n\n" },
+  { label: "案例查询", prompt: "请查找与以下纠纷类似的典型判例及裁判要旨：\n\n" },
+];
+
+const SCENARIO_CARDS: Array<{ title: string; description: string; prompt: string }> = [
+  {
+    title: "起草文书",
+    description: "律师函、诉状、公函",
+    prompt: "请帮我起草一份律师函，核心事实与诉求如下：\n\n",
+  },
+  {
+    title: "法规检索",
+    description: "条文、判例、政策文件",
+    prompt: "请检索以下法律问题的相关法规、司法解释与裁判要旨：\n\n",
+  },
+  {
+    title: "合同审查",
+    description: "逐条标注风险与建议",
+    prompt: "请对以下合同进行逐条审查，并列出关键风险点与修改建议：\n\n",
+  },
+];
 
 export function App() {
   const [config, setConfig] = useState<AppConfig | null>(null);
@@ -158,8 +355,28 @@ export function App() {
   const [detailDraft, setDetailDraft] = useState<ArtifactDraft | null>(null);
   const [contextTaskId, setContextTaskId] = useState<string | null>(null);
   const [contextMatterId, setContextMatterId] = useState<string | null>(null);
+  const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null);
+  const [projectDir, setProjectDir] = useState<string | null>(null);
+  const [recordsExpanded, setRecordsExpanded] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const currentMessages = messagesByAssistant[selectedAssistantId] ?? [];
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) {
+      return;
+    }
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }, [input]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [currentMessages]);
 
   const canUseFilesystemBridge = Boolean(
     config && !config.workspaceDir.trim().startsWith("("),
@@ -277,7 +494,11 @@ export function App() {
   const filteredTasks = useMemo(() => {
     const q = taskListQuery.trim().toLowerCase();
     const start = rangeStartMs(listTimeRange);
+    const aid = selectedAssistantId;
     return tasks.filter((t) => {
+      if (t.assistantId && t.assistantId !== aid) {
+        return false;
+      }
       if (start !== null) {
         const u = Date.parse(t.updatedAt);
         if (!Number.isFinite(u) || u < start) {
@@ -290,12 +511,16 @@ export function App() {
       const hay = [t.taskId, t.title ?? "", t.summary, t.kind ?? ""].join(" ").toLowerCase();
       return hay.includes(q);
     });
-  }, [tasks, taskListQuery, listTimeRange]);
+  }, [tasks, taskListQuery, listTimeRange, selectedAssistantId]);
 
   const filteredHistory = useMemo(() => {
     const q = taskListQuery.trim().toLowerCase();
     const start = rangeStartMs(listTimeRange);
+    const aid = selectedAssistantId;
     return history.filter((h) => {
+      if (h.assistantId && h.assistantId !== aid) {
+        return false;
+      }
       if (start !== null) {
         const u = Date.parse(h.updatedAt);
         if (!Number.isFinite(u) || u < start) {
@@ -308,7 +533,7 @@ export function App() {
       const hay = [h.id, h.label, h.kind, h.taskRecordKind ?? ""].join(" ").toLowerCase();
       return hay.includes(q);
     });
-  }, [history, taskListQuery, listTimeRange]);
+  }, [history, taskListQuery, listTimeRange, selectedAssistantId]);
 
   const refreshAssistants = useCallback(async () => {
     if (!config) {
@@ -512,6 +737,17 @@ export function App() {
     }
   };
 
+  const pickProject = async () => {
+    const bridge = window.lawmindDesktop;
+    if (!bridge?.pickProject) {
+      return;
+    }
+    const r = await bridge.pickProject();
+    if (r.ok && r.path) {
+      setProjectDir(r.path);
+    }
+  };
+
   const send = async () => {
     const text = input.trim();
     if (!text || !config || loading) {
@@ -535,6 +771,7 @@ export function App() {
           assistantId: aid,
           allowWebSearch,
           ...(contextMatterId ? { matterId: contextMatterId } : {}),
+          ...(projectDir ? { projectDir } : {}),
         }),
       });
       const j = (await r.json()) as {
@@ -668,6 +905,51 @@ export function App() {
       setError(e instanceof Error ? e.message : String(e));
     }
   };
+
+  const copyMessage = useCallback(async (text: string, index: number) => {
+    await navigator.clipboard.writeText(text);
+    setCopiedMessageIndex(index);
+    window.setTimeout(() => {
+      setCopiedMessageIndex((prev) => (prev === index ? null : prev));
+    }, 2000);
+  }, []);
+
+  function taskBadgeClass(status: string, kind?: string): string {
+    if (kind === "agent.instruction") {
+      return "lm-badge lm-badge-chat";
+    }
+    const normalized = status.toLowerCase();
+    if (normalized === "done" || normalized === "completed") {
+      return "lm-badge lm-badge-done";
+    }
+    if (normalized === "running" || normalized === "processing") {
+      return "lm-badge lm-badge-running";
+    }
+    if (normalized === "error" || normalized === "failed") {
+      return "lm-badge lm-badge-error";
+    }
+    return "lm-badge";
+  }
+
+  function historyBadgeClass(kind: string, taskRecordKind?: string, status?: string): string {
+    if (kind === "draft") {
+      return "lm-badge lm-badge-draft";
+    }
+    if (taskRecordKind === "agent.instruction") {
+      return "lm-badge lm-badge-chat";
+    }
+    if (status) {
+      return taskBadgeClass(status);
+    }
+    return "lm-badge";
+  }
+
+  const selectedAssistant = assistants.find((a) => a.assistantId === selectedAssistantId);
+  const selectedAssistantStats = selectedAssistant?.stats;
+  const workspaceLabel =
+    config?.workspaceDir.split(/[\\/]/).filter(Boolean).pop() ?? "默认工作区";
+  const retrievalLabel = config?.retrievalMode === "dual" ? "通用 + 法律" : "统一模型";
+  const currentMatterLabel = contextMatterId ?? detailTask?.matterId ?? detailDraft?.matterId ?? null;
 
   return (
     <div className="lm-shell">
@@ -993,14 +1275,203 @@ export function App() {
           </div>
         </div>
       )}
+      {showSettings && (
+        <div className="lm-wizard-backdrop" role="dialog" aria-modal="true" aria-label="设置">
+          <div className="lm-wizard lm-settings-panel">
+            <div className="lm-settings-header">
+              <h2>设置</h2>
+              <button
+                type="button"
+                className="lm-settings-close"
+                onClick={() => setShowSettings(false)}
+                aria-label="关闭设置"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="lm-settings-section">
+              <div className="lm-settings-section-title">助手</div>
+              <div className="lm-settings-group">
+                <div className="lm-settings-row">
+                  <span className="lm-settings-key">当前助手</span>
+                  <select
+                    className="lm-asst-select"
+                    value={selectedAssistantId}
+                    onChange={(e) => setSelectedAssistantId(e.target.value)}
+                  >
+                    {assistants.map((a) => (
+                      <option key={a.assistantId} value={a.assistantId}>
+                        {a.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {selectedAssistant && (
+                  <div className="lm-settings-row">
+                    <span className="lm-settings-key">岗位</span>
+                    <span className="lm-settings-val">
+                      {selectedAssistant.customRoleTitle || selectedAssistant.presetKey || "通用法律助理"}
+                    </span>
+                  </div>
+                )}
+                {selectedAssistantStats && (
+                  <div className="lm-settings-row">
+                    <span className="lm-settings-key">统计</span>
+                    <span className="lm-settings-val">
+                      {selectedAssistantStats.turnCount} 轮对话 · {selectedAssistantStats.sessionCount} 会话
+                    </span>
+                  </div>
+                )}
+                <div className="lm-settings-actions">
+                  <button type="button" className="lm-btn lm-btn-secondary lm-btn-sm" onClick={openNewAssistant}>
+                    新建助手
+                  </button>
+                  <button type="button" className="lm-btn lm-btn-secondary lm-btn-sm" onClick={openEditAssistant}>
+                    编辑
+                  </button>
+                  {selectedAssistantId !== DEFAULT_ASSISTANT_ID && (
+                    <button
+                      type="button"
+                      className="lm-btn lm-btn-secondary lm-btn-sm"
+                      onClick={() => void removeAssistant()}
+                    >
+                      删除
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {config && (
+              <div className="lm-settings-section">
+                <div className="lm-settings-section-title">模型与检索</div>
+                <div className="lm-settings-group">
+                  <div className="lm-settings-row">
+                    <span className="lm-settings-key">模型状态</span>
+                    <span className={health?.modelConfigured ? "lm-dot lm-dot-ok" : "lm-dot lm-dot-warn"}>
+                      {health?.modelConfigured ? "已配置" : "待配置"}
+                    </span>
+                  </div>
+                  <div className="lm-settings-row">
+                    <span className="lm-settings-key">检索策略</span>
+                    <span className="lm-settings-val">{retrievalLabel}</span>
+                  </div>
+                  <div className="lm-retrieval-block">
+                    <label className="lm-radio-row">
+                      <input
+                        type="radio"
+                        name="retrieval-mode"
+                        checked={config.retrievalMode === "single"}
+                        disabled={retrievalSaving}
+                        onChange={() => void applyRetrievalMode("single")}
+                      />
+                      <span>统一模型</span>
+                    </label>
+                    <label className="lm-radio-row">
+                      <input
+                        type="radio"
+                        name="retrieval-mode"
+                        checked={config.retrievalMode === "dual"}
+                        disabled={retrievalSaving}
+                        onChange={() => void applyRetrievalMode("dual")}
+                      />
+                      <span>通用 + 法律专用</span>
+                    </label>
+                    {config.retrievalMode === "dual" && health?.dualLegalConfigured === false && (
+                      <div className="lm-meta">法律专用端点未配置，当前仍会回退到通用模型。</div>
+                    )}
+                    {retrievalSaving && <div className="lm-meta">正在切换并重启服务…</div>}
+                  </div>
+                  <div className="lm-settings-actions">
+                    <button
+                      type="button"
+                      className="lm-btn lm-btn-secondary lm-btn-sm"
+                      onClick={() => {
+                        setWizRetrievalMode(config.retrievalMode);
+                        setShowWizard(true);
+                        setShowSettings(false);
+                      }}
+                    >
+                      API 配置向导
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {config && (
+              <div className="lm-settings-section">
+                <div className="lm-settings-section-title">工作区与项目</div>
+                <div className="lm-settings-group">
+                  <div className="lm-settings-row">
+                    <span className="lm-settings-key">工作区</span>
+                    <span className="lm-settings-val" title={config.workspaceDir}>
+                      {workspaceLabel}
+                    </span>
+                  </div>
+                  <div className="lm-settings-row">
+                    <span className="lm-settings-key">项目目录</span>
+                    {projectDir ? (
+                      <span className="lm-settings-val lm-project-path" title={projectDir}>
+                        {projectDir.split(/[\\/]/).filter(Boolean).pop()}
+                      </span>
+                    ) : (
+                      <span className="lm-settings-val lm-project-none">未选择</span>
+                    )}
+                  </div>
+                  {projectDir && (
+                    <div className="lm-project-full-path">{projectDir}</div>
+                  )}
+                  <div className="lm-settings-actions">
+                    <button
+                      type="button"
+                      className="lm-btn lm-btn-secondary lm-btn-sm"
+                      onClick={() => void pickProject()}
+                    >
+                      {projectDir ? "切换项目" : "打开项目目录"}
+                    </button>
+                    {projectDir && (
+                      <button
+                        type="button"
+                        className="lm-btn lm-btn-secondary lm-btn-sm"
+                        onClick={() => setProjectDir(null)}
+                      >
+                        关闭项目
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       <aside className="lm-side">
-        <div className="lm-header">LawMind</div>
-        {config && assistants.length > 0 && (
-          <div className="lm-meta" style={{ marginBottom: 12 }}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>助手</div>
-            <label className="lm-field" style={{ marginBottom: 8 }}>
-              <span>当前助手</span>
+        <div className="lm-brand">
+          <div className="lm-logo-mark">L</div>
+          <div className="lm-brand-copy">
+            <div className="lm-brand-title">LawMind</div>
+            <div className="lm-brand-subtitle">Legal Workbench</div>
+          </div>
+          <button
+            type="button"
+            className="lm-gear-btn"
+            onClick={() => setShowSettings(true)}
+            aria-label="设置"
+            title="设置"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M6.5.75h3l.3 1.77a5.5 5.5 0 0 1 1.28.74l1.72-.58 1.5 2.6-1.42 1.19a5.6 5.6 0 0 1 0 1.06l1.42 1.19-1.5 2.6-1.72-.58a5.5 5.5 0 0 1-1.28.74l-.3 1.77h-3l-.3-1.77a5.5 5.5 0 0 1-1.28-.74l-1.72.58-1.5-2.6 1.42-1.19a5.6 5.6 0 0 1 0-1.06L1.7 5.28l1.5-2.6 1.72.58a5.5 5.5 0 0 1 1.28-.74L6.5.75Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+              <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.2"/>
+            </svg>
+          </button>
+        </div>
+        <div className="lm-side-scroll">
+          {config && assistants.length > 1 && (
+            <div className="lm-side-asst-row">
               <select
+                className="lm-asst-select"
                 value={selectedAssistantId}
                 onChange={(e) => setSelectedAssistantId(e.target.value)}
               >
@@ -1010,247 +1481,218 @@ export function App() {
                   </option>
                 ))}
               </select>
-            </label>
-            {(() => {
-              const cur = assistants.find((a) => a.assistantId === selectedAssistantId);
-              const st = cur?.stats;
-              return (
-                <div className="lm-meta" style={{ marginBottom: 8 }}>
-                  {cur?.presetKey && <div>岗位预设: {cur.presetKey}</div>}
-                  {st && (
-                    <>
-                      <div>对话轮次: {st.turnCount}</div>
-                      <div>会话数: {st.sessionCount}</div>
-                      {st.lastUsedAt && <div>最近使用: {st.lastUsedAt}</div>}
-                    </>
-                  )}
-                </div>
-              );
-            })()}
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              <button type="button" className="lm-btn lm-btn-secondary" onClick={openNewAssistant}>
-                新建助手
-              </button>
-              <button type="button" className="lm-btn lm-btn-secondary" onClick={openEditAssistant}>
-                编辑
-              </button>
-              {selectedAssistantId !== DEFAULT_ASSISTANT_ID && (
-                <button type="button" className="lm-btn lm-btn-secondary" onClick={() => void removeAssistant()}>
-                  删除
+            </div>
+          )}
+
+          {projectDir && (
+            <div className="lm-side-project-pill" title={projectDir}>
+              <span className="lm-side-project-icon">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                  <path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h3.88a1.5 1.5 0 0 1 1.06.44l.62.62a1.5 1.5 0 0 0 1.06.44H12.5A1.5 1.5 0 0 1 14 5v7.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12.5v-9Z" stroke="currentColor" strokeWidth="1.2"/>
+                </svg>
+              </span>
+              <span className="lm-side-project-name">
+                {projectDir.split(/[\\/]/).filter(Boolean).pop()}
+              </span>
+            </div>
+          )}
+
+          <button
+            type="button"
+            className="lm-section-toggle"
+            onClick={() => setRecordsExpanded((v) => !v)}
+            aria-expanded={recordsExpanded}
+          >
+            <span className={`lm-section-arrow ${recordsExpanded ? "lm-section-arrow-open" : ""}`}>
+              ›
+            </span>
+            <span className="lm-section-label">
+              工作记录
+              <span className="lm-section-count">
+                {filteredTasks.length + filteredHistory.length}
+              </span>
+            </span>
+          </button>
+          {recordsExpanded && (
+            <div className="lm-records-body">
+              <div className="lm-sidebar-filters">
+                <input
+                  type="search"
+                  className="lm-sidebar-search"
+                  placeholder="搜索任务、交付物或案件…"
+                  value={taskListQuery}
+                  onChange={(e) => setTaskListQuery(e.target.value)}
+                  aria-label="搜索任务与历史"
+                />
+                <select
+                  className="lm-sidebar-range"
+                  value={listTimeRange}
+                  onChange={(e) => setListTimeRange(e.target.value as TimeRangeFilter)}
+                  aria-label="时间范围"
+                >
+                  <option value="all">全部</option>
+                  <option value="today">今天</option>
+                  <option value="7d">7天</option>
+                  <option value="30d">30天</option>
+                </select>
+              </div>
+              <div className="lm-tabs">
+                <button
+                  type="button"
+                  className={`lm-tab ${sideTab === "tasks" ? "active" : ""}`}
+                  onClick={() => setSideTab("tasks")}
+                >
+                  任务
                 </button>
+                <button
+                  type="button"
+                  className={`lm-tab ${sideTab === "history" ? "active" : ""}`}
+                  onClick={() => setSideTab("history")}
+                >
+                  交付
+                </button>
+              </div>
+              {sideTab === "tasks" && (
+                <ul className="lm-list">
+                  {filteredTasks.length === 0 && <li className="lm-list-empty">暂无任务记录</li>}
+                  {filteredTasks.map((t) => {
+                    const headline = (t.title?.trim() ? t.title : t.summary).slice(0, 100);
+                    return (
+                      <li
+                        key={t.taskId}
+                        className="lm-list-clickable"
+                        tabIndex={0}
+                        onClick={() => void openDetail("task", t.taskId)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            void openDetail("task", t.taskId);
+                          }
+                        }}
+                      >
+                        <div className="lm-list-row">
+                          <span className={taskBadgeClass(t.status, t.kind)}>
+                            {legalStatusLabel(t.status, t.kind)}
+                          </span>
+                          <span className="lm-list-title">{headline}</span>
+                          {t.matterId && <span className="lm-matter-badge">{t.matterId}</span>}
+                        </div>
+                        <div className="lm-list-time">{formatRelativeTime(t.updatedAt)}</div>
+                        {t.outputPath && <div className="lm-list-path">{t.outputPath}</div>}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {sideTab === "history" && (
+                <ul className="lm-list">
+                  {filteredHistory.length === 0 && <li className="lm-list-empty">暂无历史</li>}
+                  {filteredHistory.map((h) => (
+                    <li
+                      key={`${h.kind}-${h.id}`}
+                      className="lm-list-clickable"
+                      tabIndex={0}
+                      onClick={() => void openDetail(h.kind, h.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          void openDetail(h.kind, h.id);
+                        }
+                      }}
+                    >
+                      <div className="lm-list-row">
+                        <span className={historyBadgeClass(h.kind, h.taskRecordKind, h.status)}>
+                          {legalStatusLabel(h.status ?? h.kind, h.taskRecordKind)}
+                        </span>
+                        <span className="lm-list-title">{h.label}</span>
+                        {h.matterId && <span className="lm-matter-badge">{h.matterId}</span>}
+                      </div>
+                      <div className="lm-list-time">{formatRelativeTime(h.updatedAt)}</div>
+                      {h.outputPath && <div className="lm-list-path">{h.outputPath}</div>}
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
-          </div>
-        )}
-        {config && (
-          <div className="lm-meta">
-            Workspace: {config.workspaceDir}
-            <br />
-            配置: {config.envFilePath}
-            <br />
-            {health && (
-              <>
-                模型:{" "}
-                {health.modelConfigured ? (
-                  <span style={{ color: "var(--ok)" }}>已配置</span>
-                ) : (
-                  <span style={{ color: "var(--warn)" }}>
-                    未配置 API Key（请编辑 .env.lawmind）
-                  </span>
-                )}
-                <div style={{ marginTop: 10 }}>
-                  <div className="lm-meta" style={{ marginBottom: 6 }}>
-                    检索模式: {config.retrievalMode === "dual" ? "通用 + 法律" : "统一模型"}
-                    {config.retrievalMode === "dual" && health.dualLegalConfigured === false && (
-                      <span style={{ color: "var(--warn)" }}>
-                        {" "}
-                        （尚未检测到法律专用端点，法务检索将用通用模型）
-                      </span>
-                    )}
-                  </div>
-                  <label style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
-                    <input
-                      type="radio"
-                      name="retrieval-mode"
-                      checked={config.retrievalMode === "single"}
-                      disabled={retrievalSaving}
-                      onChange={() => void applyRetrievalMode("single")}
-                    />
-                    <span>统一模型</span>
-                  </label>
-                  <label style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8 }}>
-                    <input
-                      type="radio"
-                      name="retrieval-mode"
-                      checked={config.retrievalMode === "dual"}
-                      disabled={retrievalSaving}
-                      onChange={() => void applyRetrievalMode("dual")}
-                    />
-                    <span>通用 + 法律（需 .env 法律变量）</span>
-                  </label>
-                  {retrievalSaving && <div className="lm-meta">正在切换并重启服务…</div>}
-                </div>
-                <div style={{ marginTop: 8 }}>
-                  <button
-                    type="button"
-                    className="lm-tab active"
-                    onClick={() => {
-                      setWizRetrievalMode(config.retrievalMode);
-                      setShowWizard(true);
-                    }}
-                  >
-                    配置向导…
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-        <div className="lm-sidebar-filters">
-          <input
-            type="search"
-            className="lm-sidebar-search"
-            placeholder="搜索标题、指令、ID…"
-            value={taskListQuery}
-            onChange={(e) => setTaskListQuery(e.target.value)}
-            aria-label="搜索任务与历史"
-          />
-          <select
-            className="lm-sidebar-range"
-            value={listTimeRange}
-            onChange={(e) => setListTimeRange(e.target.value as TimeRangeFilter)}
-            aria-label="时间范围"
-          >
-            <option value="all">全部时间</option>
-            <option value="today">今天</option>
-            <option value="7d">7 天</option>
-            <option value="30d">30 天</option>
-          </select>
+          )}
         </div>
-        <div className="lm-tabs">
-          <button
-            type="button"
-            className={`lm-tab ${sideTab === "tasks" ? "active" : ""}`}
-            onClick={() => setSideTab("tasks")}
-          >
-            任务
-          </button>
-          <button
-            type="button"
-            className={`lm-tab ${sideTab === "history" ? "active" : ""}`}
-            onClick={() => setSideTab("history")}
-          >
-            历史与交付
-          </button>
-        </div>
-        {sideTab === "tasks" && (
-          <ul className="lm-list">
-            {filteredTasks.length === 0 && <li>暂无任务记录</li>}
-            {filteredTasks.map((t) => {
-              const headline = (t.title?.trim() ? t.title : t.summary).slice(0, 100);
-              const badge =
-                t.kind === "agent.instruction" ? "对话" : t.status;
-              return (
-                <li
-                  key={t.taskId}
-                  className="lm-list-clickable"
-                  tabIndex={0}
-                  onClick={() => void openDetail("task", t.taskId)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      void openDetail("task", t.taskId);
-                    }
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                    <span className="lm-badge">{badge}</span>
-                    <span style={{ fontWeight: 600 }}>{headline}</span>
-                  </div>
-                  <div className="lm-meta" style={{ marginTop: 4 }}>
-                    {formatLocaleDateTime(t.updatedAt)}
-                  </div>
-                  {t.outputPath && (
-                    <div className="lm-meta" style={{ marginTop: 6 }}>
-                      交付: {t.outputPath}
-                    </div>
-                  )}
-                  {t.assistantId && (
-                    <div className="lm-meta" style={{ marginTop: 4 }}>
-                      助手: {t.assistantId}
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-        {sideTab === "history" && (
-          <ul className="lm-list">
-            {filteredHistory.length === 0 && <li>暂无历史</li>}
-            {filteredHistory.map((h) => (
-              <li
-                key={`${h.kind}-${h.id}`}
-                className="lm-list-clickable"
-                tabIndex={0}
-                onClick={() => void openDetail(h.kind, h.id)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    void openDetail(h.kind, h.id);
-                  }
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                  <span className="lm-badge">{h.kind}</span>
-                  {h.kind === "task" && h.taskRecordKind === "agent.instruction" && (
-                    <span className="lm-badge">对话</span>
-                  )}
-                  <span style={{ fontWeight: 600 }}>{h.label}</span>
-                </div>
-                {h.status && h.kind === "draft" && (
-                  <span className="lm-badge" style={{ marginLeft: 4 }}>
-                    {h.status}
-                  </span>
-                )}
-                <div className="lm-meta" style={{ marginTop: 4 }}>
-                  {formatLocaleDateTime(h.updatedAt)}
-                </div>
-                {h.outputPath && (
-                  <div className="lm-meta" style={{ marginTop: 6 }}>
-                    {h.outputPath}
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
       </aside>
       <main className="lm-main">
-        <div className="lm-header">
-          AI 助理
-          {assistants.find((a) => a.assistantId === selectedAssistantId)?.displayName && (
-            <span className="lm-meta" style={{ marginLeft: 8 }}>
-              — {assistants.find((a) => a.assistantId === selectedAssistantId)?.displayName}
-            </span>
+        <div className="lm-main-header">
+          <div>
+            <div className="lm-main-eyebrow">法律工作台</div>
+            <div className="lm-main-title">{selectedAssistant?.displayName ?? "LawMind"}</div>
+            <div className="lm-main-subtitle">
+              {selectedAssistant?.introduction?.trim() || "起草文书、法规检索、合同审查与案件跟进。"}
+            </div>
+          </div>
+          <div className="lm-header-spacer" />
+          {projectDir && (
+            <div className="lm-header-meta lm-header-project" title={projectDir}>
+              {projectDir.split(/[\\/]/).filter(Boolean).pop()}
+            </div>
           )}
+          {currentMatterLabel && <div className="lm-header-meta">案件 {currentMatterLabel}</div>}
         </div>
         <div className="lm-messages">
-          {currentMessages.length === 0 && (
-            <div className="lm-meta">
-              输入法律工作指令（如起草文书、合同审查、检索）。任务与交付物会出现在左侧。
+          {currentMessages.length === 0 ? (
+            <div className="lm-messages-empty">
+              <div className="lm-messages-empty-icon">L</div>
+              <div className="lm-messages-empty-title">有什么可以帮您？</div>
+              <div className="lm-messages-empty-hint">
+                描述您的需求，我来协助起草、检索或分析。
+              </div>
+              <div className="lm-scenario-cards">
+                {SCENARIO_CARDS.map((card) => (
+                  <button
+                    key={card.title}
+                    type="button"
+                    className="lm-scenario-card"
+                    onClick={() => {
+                      setInput(card.prompt);
+                      textareaRef.current?.focus();
+                    }}
+                  >
+                    <span className="lm-scenario-title">{card.title}</span>
+                    <span className="lm-scenario-hint">{card.description}</span>
+                  </button>
+                ))}
+              </div>
             </div>
+          ) : (
+            currentMessages.map((msg, i) => (
+              <div
+                key={`${i}-${msg.role}`}
+                className={`lm-msg-row ${msg.role === "user" ? "lm-msg-row-user" : ""}`}
+              >
+                <div
+                  className={`lm-msg-avatar ${
+                    msg.role === "user" ? "lm-msg-avatar-user" : "lm-msg-avatar-ai"
+                  }`}
+                >
+                  {msg.role === "user" ? "我" : "LM"}
+                </div>
+                <div className={`lm-msg-wrap ${msg.role === "user" ? "lm-msg-wrap-user" : ""}`}>
+                  <div className={`lm-msg ${msg.role === "user" ? "lm-msg-user" : "lm-msg-ai"}`}>
+                    {msg.role === "assistant" ? renderLegalMarkdown(msg.text) : msg.text}
+                  </div>
+                  {msg.role === "assistant" && (
+                    <button
+                      type="button"
+                      className="lm-msg-copy-btn"
+                      onClick={() => void copyMessage(msg.text, i)}
+                    >
+                      {copiedMessageIndex === i ? "已复制 ✓" : "复制"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))
           )}
-          {currentMessages.map((msg, i) => (
-            <div
-              key={`${i}-${msg.role}`}
-              className={`lm-msg ${msg.role === "user" ? "lm-msg-user" : "lm-msg-ai"}`}
-            >
-              {msg.text}
-            </div>
-          ))}
+          <div ref={messagesEndRef} />
         </div>
         <div className="lm-compose">
+          {error && <div className="lm-error">{error}</div>}
           {contextTaskId && (
             <div className="lm-context-banner">
               <span>
@@ -1274,27 +1716,27 @@ export function App() {
               </button>
             </div>
           )}
-          <label className="lm-web-toggle" title="勾选后本轮对话注册 web_search 工具（Brave Search API），与聊天模型配置独立">
-            <input
-              type="checkbox"
-              checked={allowWebSearch}
-              onChange={(e) => setAllowWebSearch(e.target.checked)}
-            />
-            <span>
-              允许联网检索（<code>web_search</code>，Brave Search API）
-              {health && health.webSearchApiKeyConfigured === false && (
-                <span style={{ color: "var(--warn)" }}>
-                  {" "}
-                  — 未检测到 <code>LAWMIND_WEB_SEARCH_API_KEY</code> / <code>BRAVE_API_KEY</code>
-                </span>
-              )}
-            </span>
-          </label>
-          <div className="lm-compose-row">
+          <div className="lm-chip-row">
+            {QUICK_ACTIONS.map((action) => (
+              <button
+                key={action.label}
+                type="button"
+                className="lm-chip"
+                onClick={() => {
+                  setInput(action.prompt);
+                  textareaRef.current?.focus();
+                }}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+          <div className="lm-compose-box">
             <textarea
+              ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="向 LawMind 下达任务…"
+              placeholder="描述您的法律需求…"
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                   e.preventDefault();
@@ -1302,12 +1744,37 @@ export function App() {
                 }
               }}
             />
-            <button type="button" className="lm-btn" disabled={loading} onClick={() => void send()}>
-              {loading ? "处理中…" : "发送"}
-            </button>
+            <div className="lm-compose-footer">
+              <label
+                className="lm-web-toggle"
+                title="勾选后本轮对话注册 web_search 工具（Brave Search API），与聊天模型配置独立"
+              >
+                <input
+                  type="checkbox"
+                  checked={allowWebSearch}
+                  onChange={(e) => setAllowWebSearch(e.target.checked)}
+                />
+                <span>
+                  联网检索
+                  {health && health.webSearchApiKeyConfigured === false && (
+                    <span style={{ color: "var(--warn)" }}> — 未配置 API Key</span>
+                  )}
+                </span>
+              </label>
+              <div className="lm-compose-actions">
+                <span className="lm-send-hint">⌘↵</span>
+                <button
+                  type="button"
+                  className="lm-btn"
+                  disabled={loading || !input.trim()}
+                  onClick={() => void send()}
+                >
+                  {loading ? "处理中…" : "发送"}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
-        {error && <div className="lm-error">{error}</div>}
       </main>
     </div>
   );
