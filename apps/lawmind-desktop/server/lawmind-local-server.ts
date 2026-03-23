@@ -38,6 +38,13 @@ import {
   createOpenSourceLegalAdaptersFromEnv,
   createPartnerLegalAdapterFromEnv,
 } from "../../../src/lawmind/retrieval/providers.js";
+import {
+  listDelegations,
+  readCollaborationEvents,
+  restoreDelegationsFromDisk,
+  getDelegation,
+  cancelDelegation,
+} from "../../../src/lawmind/agent/collaboration/index.js";
 import type { TaskRecord } from "../../../src/lawmind/types.js";
 
 const HOST = "127.0.0.1";
@@ -132,6 +139,8 @@ function buildAgentConfig(workspaceDir: string): { config: AgentConfig; error?: 
     };
   }
 
+  const enableCollaboration = process.env.LAWMIND_ENABLE_COLLABORATION?.trim().toLowerCase() !== "false";
+
   return {
     config: {
       workspaceDir,
@@ -140,6 +149,7 @@ function buildAgentConfig(workspaceDir: string): { config: AgentConfig; error?: 
       maxHistoryMessages: 50,
       toolExecutionTimeoutMs: toolTimeoutMs,
       actorId: "lawyer",
+      enableCollaboration,
     },
   };
 }
@@ -250,6 +260,8 @@ async function main() {
   }
   loadLawMindEnv(envDir, envFile);
 
+  restoreDelegationsFromDisk(workspaceDir);
+
   const server = http.createServer(async (req, res) => {
     const origin = req.headers.origin;
     const c = corsHeaders(typeof origin === "string" ? origin : undefined);
@@ -306,6 +318,7 @@ async function main() {
           matterId?: string;
           assistantId?: string;
           allowWebSearch?: boolean;
+          enableCollaboration?: boolean;
         };
         const message = typeof body.message === "string" ? body.message.trim() : "";
         if (!message) {
@@ -345,6 +358,7 @@ async function main() {
 
         const role = buildRoleDirectiveFromProfile(profile);
         const allowWebSearch = body.allowWebSearch === true;
+        const enableCollaboration = body.enableCollaboration !== false && built.config.enableCollaboration !== false;
         const config: AgentConfig = {
           ...built.config,
           actorId: `assistant:${profile.assistantId}`,
@@ -353,6 +367,7 @@ async function main() {
           roleIntroduction: role.roleIntroduction,
           roleDirective: role.roleDirective,
           allowWebSearch,
+          enableCollaboration,
         };
 
         const agent = createLawMindAgent(config);
@@ -595,6 +610,85 @@ async function main() {
           ...c,
         });
         res.end(buf);
+        return;
+      }
+
+      // ── Collaboration endpoints ──
+
+      if (pathname === "/api/delegations" && req.method === "GET") {
+        const statusFilter = url.searchParams.get("status") ?? undefined;
+        const assistantFilter = url.searchParams.get("assistantId") ?? undefined;
+        const records = listDelegations({
+          fromAssistantId: assistantFilter || undefined,
+          status: statusFilter as "pending" | "running" | "completed" | "failed" | undefined,
+        });
+        sendJson(
+          res,
+          200,
+          {
+            ok: true,
+            delegations: records.slice(0, 100).map((r) => ({
+              delegationId: r.delegationId,
+              fromAssistant: r.fromAssistantId,
+              toAssistant: r.toAssistantId,
+              task: r.task.slice(0, 200),
+              status: r.status,
+              priority: r.priority,
+              result: r.result?.slice(0, 300),
+              error: r.error,
+              startedAt: r.startedAt,
+              completedAt: r.completedAt,
+            })),
+            total: records.length,
+          },
+          c,
+        );
+        return;
+      }
+
+      {
+        const delegationDetail = pathname.match(/^\/api\/delegations\/([^/]+)$/);
+        if (delegationDetail && req.method === "GET") {
+          const id = decodeURIComponent(delegationDetail[1] ?? "");
+          const record = getDelegation(id);
+          if (!record) {
+            sendJson(res, 404, { ok: false, error: "delegation not found" }, c);
+            return;
+          }
+          sendJson(res, 200, { ok: true, delegation: record }, c);
+          return;
+        }
+        if (delegationDetail && req.method === "DELETE") {
+          const id = decodeURIComponent(delegationDetail[1] ?? "");
+          const record = cancelDelegation(workspaceDir, id);
+          if (!record) {
+            sendJson(res, 404, { ok: false, error: "delegation not found" }, c);
+            return;
+          }
+          sendJson(res, 200, { ok: true, delegation: record }, c);
+          return;
+        }
+      }
+
+      if (pathname === "/api/collaboration-events" && req.method === "GET") {
+        const since = url.searchParams.get("since") ?? undefined;
+        let events = readCollaborationEvents(workspaceDir);
+        if (since) {
+          const sinceMs = Date.parse(since);
+          if (Number.isFinite(sinceMs)) {
+            events = events.filter((e) => Date.parse(e.timestamp) >= sinceMs);
+          }
+        }
+        sendJson(
+          res,
+          200,
+          {
+            ok: true,
+            events: events.slice(-200),
+            total: events.length,
+          },
+          c,
+        );
         return;
       }
 

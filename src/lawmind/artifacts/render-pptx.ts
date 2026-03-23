@@ -118,20 +118,17 @@ export async function renderPptx(draft: ArtifactDraft, outputDir: string): Promi
       bold: true,
       color: "1a1a1a",
     });
-    slide.addText(
-      draft.reviewNotes.map((n) => `• ${n}`).join("\n"),
-      {
-        x: 0.5,
-        y: 1.1,
-        w: 9,
-        h: 5.8,
-        fontSize: 12,
-        italic: true,
-        color: "333333",
-        valign: "top",
-        wrap: true,
-      },
-    );
+    slide.addText(draft.reviewNotes.map((n) => `• ${n}`).join("\n"), {
+      x: 0.5,
+      y: 1.1,
+      w: 9,
+      h: 5.8,
+      fontSize: 12,
+      italic: true,
+      color: "333333",
+      valign: "top",
+      wrap: true,
+    });
   }
 
   await fs.mkdir(outputDir, { recursive: true });

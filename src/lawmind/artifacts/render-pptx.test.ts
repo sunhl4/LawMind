@@ -2,8 +2,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { renderPptx } from "./render-pptx.js";
 import type { ArtifactDraft } from "../types.js";
+import { renderPptx } from "./render-pptx.js";
 
 function minimalDraft(overrides: Partial<ArtifactDraft> = {}): ArtifactDraft {
   return {

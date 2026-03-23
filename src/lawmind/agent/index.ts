@@ -8,6 +8,12 @@
  *   - tool registry
  */
 
+import {
+  listDelegations,
+  readCollaborationEvents,
+  restoreDelegationsFromDisk,
+} from "./collaboration/index.js";
+import type { DelegationRecord, CollaborationEvent } from "./collaboration/types.js";
 import { runTurn } from "./runtime.js";
 import { createSession, listSessions, loadSession, loadTurns, saveSession } from "./session.js";
 import { ToolRegistry, createLegalToolRegistry } from "./tools/index.js";
@@ -61,6 +67,12 @@ export type LawMindAgent = {
 
   /** 获取 tool registry（高级用法：注册自定义工具） */
   getRegistry: () => ToolRegistry;
+
+  /** 列出委派任务（助手间协作） */
+  listDelegations: (opts?: { status?: string }) => DelegationRecord[];
+
+  /** 读取协作审计事件 */
+  getCollaborationEvents: () => CollaborationEvent[];
 };
 
 export function createLawMindAgent(config: AgentConfig): LawMindAgent {
@@ -68,7 +80,15 @@ export function createLawMindAgent(config: AgentConfig): LawMindAgent {
     config.actorId ?? (config.assistantId ? `assistant:${config.assistantId}` : "lawyer");
 
   const defaultRegistry = () =>
-    createLegalToolRegistry({ allowWebSearch: config.allowWebSearch === true });
+    createLegalToolRegistry({
+      allowWebSearch: config.allowWebSearch === true,
+      enableCollaboration: config.enableCollaboration === true,
+      baseConfig: config.enableCollaboration ? config : undefined,
+    });
+
+  if (config.enableCollaboration) {
+    restoreDelegationsFromDisk(config.workspaceDir);
+  }
 
   return {
     async chat(instruction, opts) {
@@ -80,6 +100,8 @@ export function createLawMindAgent(config: AgentConfig): LawMindAgent {
       };
       const registry = createLegalToolRegistry({
         allowWebSearch: mergedConfig.allowWebSearch === true,
+        enableCollaboration: mergedConfig.enableCollaboration === true,
+        baseConfig: mergedConfig.enableCollaboration ? mergedConfig : undefined,
       });
       const result = await runTurn({
         config: mergedConfig,
@@ -128,6 +150,17 @@ export function createLawMindAgent(config: AgentConfig): LawMindAgent {
     getRegistry() {
       return defaultRegistry();
     },
+
+    listDelegations(opts) {
+      return listDelegations({
+        fromAssistantId: config.assistantId,
+        status: opts?.status as "pending" | "running" | "completed" | "failed" | undefined,
+      });
+    },
+
+    getCollaborationEvents() {
+      return readCollaborationEvents(config.workspaceDir);
+    },
   };
 }
 
@@ -160,3 +193,45 @@ export {
   compactHistory,
 } from "./session.js";
 export { buildSystemPrompt } from "./system-prompt.js";
+
+// Collaboration (inter-assistant communication)
+export {
+  DEFAULT_COLLABORATION_POLICY,
+  sendAndWait,
+  fireAndForget,
+  wrapUntrustedResult,
+  buildCollaborationMessage,
+  registerDelegation,
+  listDelegations,
+  getDelegation,
+  restoreDelegationsFromDisk,
+  emitCollaborationEvent,
+  readCollaborationEvents,
+  loadCollaborationContext,
+  saveCollaborationArtifact,
+  buildCollaborationSummary,
+} from "./collaboration/index.js";
+export type {
+  CollaborationMessage,
+  CollaborationEvent,
+  CollaborationPolicy,
+  DelegationRecord,
+  ReviewType,
+  ReviewFeedback,
+  CollaborationContext,
+} from "./collaboration/index.js";
+
+// Orchestrator (multi-assistant workflow)
+export {
+  executeWorkflow,
+  buildWorkflowReport,
+  parseAndBuildWorkflow,
+  parseDirectiveHeuristic,
+  buildWorkflowFromDirective,
+} from "./orchestrator/index.js";
+export type {
+  CollaborationWorkflow,
+  WorkflowStep,
+  WorkflowStatus,
+  ParsedDirective,
+} from "./orchestrator/index.js";

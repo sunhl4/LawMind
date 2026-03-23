@@ -16,6 +16,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { loadAssistantProfiles, buildRoleDirectiveFromProfile } from "../assistants/store.js";
 import { emit } from "../audit/index.js";
 import { loadMemoryContext } from "../memory/index.js";
 import { persistAgentInstructionTask } from "../tasks/index.js";
@@ -201,10 +202,24 @@ export async function runTurn(opts: {
     actorId,
     assistantId: resolvedAssistantId,
     allowWebSearch: config.allowWebSearch === true,
+    collaborationEnabled: config.enableCollaboration === true,
   };
 
   // 2. 构建 system prompt
   const memory = await loadMemoryContext(config.workspaceDir, { matterId: session.matterId });
+
+  let peerAssistants: Array<{ id: string; displayName: string; roleTitle: string }> | undefined;
+  if (config.enableCollaboration) {
+    const lawMindRoot = config.workspaceDir.replace(/[\\/]workspace$/, "") || config.workspaceDir;
+    const allProfiles = loadAssistantProfiles(lawMindRoot);
+    peerAssistants = allProfiles
+      .filter((p) => p.assistantId !== resolvedAssistantId)
+      .map((p) => {
+        const role = buildRoleDirectiveFromProfile(p);
+        return { id: p.assistantId, displayName: p.displayName, roleTitle: role.roleTitle };
+      });
+  }
+
   const systemPrompt = buildSystemPrompt({
     lawyerProfile: memory.profile,
     matterContext: memory.caseMemory,
@@ -215,6 +230,8 @@ export async function runTurn(opts: {
     roleIntroduction: config.roleIntroduction,
     roleDirective: config.roleDirective,
     allowWebSearch: config.allowWebSearch === true,
+    collaborationEnabled: config.enableCollaboration === true,
+    peerAssistants,
   });
 
   // 3. 确保 system message 在对话历史头部
@@ -339,7 +356,8 @@ export async function runTurn(opts: {
 
       void emit(`${config.workspaceDir}/audit`, {
         kind: "tool_call",
-        actor: actorId,
+        actor: "model",
+        actorId,
         detail: `tool=${toolName} ok=${result.ok}${result.error ? ` error=${result.error}` : ""}`,
         taskId: turn.turnId,
       });
@@ -414,7 +432,8 @@ export async function runTurn(opts: {
 
   void emit(`${config.workspaceDir}/audit`, {
     kind: "agent_turn",
-    actor: actorId,
+    actor: "model",
+    actorId,
     detail: `turn=${turn.turnId} tools=${turn.toolCallsExecuted} status=${turn.status}`,
     taskId: turn.turnId,
   });

@@ -28,7 +28,7 @@ export type ToolParameterSchema = {
 export type ToolDefinition = {
   name: string;
   description: string;
-  category: "search" | "analyze" | "draft" | "matter" | "review" | "system";
+  category: "search" | "analyze" | "draft" | "matter" | "review" | "system" | "collaboration";
   parameters: Record<string, ToolParameterSchema>;
   requiresApproval?: boolean;
   riskLevel?: RiskLevel;
@@ -67,6 +67,10 @@ export type AgentContext = {
   allowWebSearch?: boolean;
   /** 当前案件的索引快照（按需加载） */
   matterIndex?: MatterIndex;
+  /** 是否启用助手间协作工具（delegate_task, consult_assistant 等） */
+  collaborationEnabled?: boolean;
+  /** 当前委派嵌套深度（防止递归失控） */
+  collaborationDepth?: number;
 };
 
 // ─────────────────────────────────────────────
@@ -168,4 +172,6 @@ export type AgentConfig = {
   roleDirective?: string;
   /** 是否注册并允许使用联网检索工具（web_search，Brave API） */
   allowWebSearch?: boolean;
+  /** 是否注册助手间协作工具（delegate_task, consult_assistant 等） */
+  enableCollaboration?: boolean;
 };

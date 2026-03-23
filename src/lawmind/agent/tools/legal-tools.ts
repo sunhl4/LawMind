@@ -34,7 +34,15 @@ import {
   loadMemoryContext,
 } from "../../memory/index.js";
 import { listTaskRecords } from "../../tasks/index.js";
-import type { AgentTool } from "../types.js";
+import type { AgentConfig, AgentTool } from "../types.js";
+import {
+  createDelegateTaskTool,
+  createConsultAssistantTool,
+  createNotifyAssistantTool,
+  createRequestReviewTool,
+  listDelegationsTool,
+  getDelegationResultTool,
+} from "./collaboration-tools.js";
 import { engineTools } from "./engine-tools.js";
 import { lawMindWebSearchTool } from "./lawmind-web-search.js";
 import { ToolRegistry } from "./registry.js";
@@ -649,7 +657,12 @@ const getAuditTrail: AgentTool = {
 // Registry Builder
 // ─────────────────────────────────────────────
 
-export function createLegalToolRegistry(opts?: { allowWebSearch?: boolean }): ToolRegistry {
+export function createLegalToolRegistry(opts?: {
+  allowWebSearch?: boolean;
+  enableCollaboration?: boolean;
+  baseConfig?: AgentConfig;
+  collaborationDepth?: number;
+}): ToolRegistry {
   const registry = new ToolRegistry();
   const tools: AgentTool[] = [
     // 信息检索
@@ -674,6 +687,20 @@ export function createLegalToolRegistry(opts?: { allowWebSearch?: boolean }): To
 
   if (opts?.allowWebSearch) {
     tools.push(lawMindWebSearchTool);
+  }
+
+  if (opts?.enableCollaboration && opts.baseConfig) {
+    tools.push(
+      createDelegateTaskTool({
+        baseConfig: opts.baseConfig,
+        currentDepth: opts.collaborationDepth ?? 0,
+      }),
+      createConsultAssistantTool({ baseConfig: opts.baseConfig }),
+      createNotifyAssistantTool({ baseConfig: opts.baseConfig }),
+      createRequestReviewTool({ baseConfig: opts.baseConfig }),
+      listDelegationsTool,
+      getDelegationResultTool,
+    );
   }
 
   tools.push(...engineTools);

@@ -256,6 +256,29 @@ type HistoryItem = {
 
 type ChatMsg = { role: "user" | "assistant"; text: string };
 
+type DelegationRow = {
+  delegationId: string;
+  fromAssistant: string;
+  toAssistant: string;
+  task: string;
+  status: string;
+  priority: string;
+  result?: string;
+  error?: string;
+  startedAt: string;
+  completedAt?: string;
+};
+
+type CollabEvent = {
+  eventId: string;
+  kind: string;
+  fromAssistantId: string;
+  toAssistantId: string;
+  matterId?: string;
+  detail?: string;
+  timestamp: string;
+};
+
 type AssistantStats = {
   lastUsedAt: string;
   turnCount: number;
@@ -359,6 +382,10 @@ export function App() {
   const [projectDir, setProjectDir] = useState<string | null>(null);
   const [recordsExpanded, setRecordsExpanded] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [collabExpanded, setCollabExpanded] = useState(false);
+  const [delegations, setDelegations] = useState<DelegationRow[]>([]);
+  const [collabEvents, setCollabEvents] = useState<CollabEvent[]>([]);
+  const [collabTab, setCollabTab] = useState<"delegations" | "timeline">("delegations");
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -535,6 +562,26 @@ export function App() {
     });
   }, [history, taskListQuery, listTimeRange, selectedAssistantId]);
 
+  const refreshCollaboration = useCallback(async () => {
+    if (!config) {
+      return;
+    }
+    try {
+      const [dr, er] = await Promise.all([
+        fetch(`${config.apiBase}/api/delegations`).then((r) => r.json()),
+        fetch(`${config.apiBase}/api/collaboration-events`).then((r) => r.json()),
+      ]);
+      if (dr.ok && Array.isArray(dr.delegations)) {
+        setDelegations(dr.delegations);
+      }
+      if (er.ok && Array.isArray(er.events)) {
+        setCollabEvents(er.events.slice(-50));
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [config]);
+
   const refreshAssistants = useCallback(async () => {
     if (!config) {
       return;
@@ -620,11 +667,12 @@ export function App() {
         }
         await refreshLists();
         await refreshAssistants();
+        await refreshCollaboration();
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
     })();
-  }, [config, refreshLists, refreshAssistants]);
+  }, [config, refreshLists, refreshAssistants, refreshCollaboration]);
 
   const applyRetrievalMode = async (mode: "single" | "dual") => {
     const bridge = window.lawmindDesktop;
@@ -793,6 +841,7 @@ export function App() {
       }));
       await refreshLists();
       await refreshAssistants();
+      await refreshCollaboration();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setMessagesByAssistant((prev) => ({
@@ -1513,6 +1562,109 @@ export function App() {
               </span>
             </span>
           </button>
+          <button
+            type="button"
+            className="lm-section-toggle"
+            onClick={() => setCollabExpanded((v) => !v)}
+            aria-expanded={collabExpanded}
+          >
+            <span className={`lm-section-arrow ${collabExpanded ? "lm-section-arrow-open" : ""}`}>
+              ›
+            </span>
+            <span className="lm-section-label">
+              助手协作
+              <span className="lm-section-count">
+                {delegations.filter((d) => d.status === "running" || d.status === "pending").length}
+              </span>
+            </span>
+          </button>
+          {collabExpanded && (
+            <div className="lm-records-body">
+              <div className="lm-tabs">
+                <button
+                  type="button"
+                  className={`lm-tab ${collabTab === "delegations" ? "active" : ""}`}
+                  onClick={() => setCollabTab("delegations")}
+                >
+                  委派任务
+                </button>
+                <button
+                  type="button"
+                  className={`lm-tab ${collabTab === "timeline" ? "active" : ""}`}
+                  onClick={() => setCollabTab("timeline")}
+                >
+                  协作动态
+                </button>
+              </div>
+              {collabTab === "delegations" && (
+                <ul className="lm-list">
+                  {delegations.length === 0 && (
+                    <li className="lm-list-empty">暂无委派任务</li>
+                  )}
+                  {delegations.map((d) => (
+                    <li key={d.delegationId} className="lm-list-clickable" tabIndex={0}>
+                      <div className="lm-list-row">
+                        <span className={`lm-badge ${
+                          d.status === "completed" ? "lm-badge-done" :
+                          d.status === "running" ? "lm-badge-running" :
+                          d.status === "failed" || d.status === "timeout" ? "lm-badge-error" :
+                          ""
+                        }`}>
+                          {d.status === "completed" ? "已完成" :
+                           d.status === "running" ? "进行中" :
+                           d.status === "failed" ? "失败" :
+                           d.status === "timeout" ? "超时" :
+                           d.status === "pending" ? "等待中" :
+                           d.status === "cancelled" ? "已取消" : d.status}
+                        </span>
+                        <span className="lm-list-title">{d.task.slice(0, 80)}</span>
+                      </div>
+                      <div className="lm-list-time">
+                        {d.fromAssistant} → {d.toAssistant}
+                        {" · "}
+                        {formatRelativeTime(d.startedAt)}
+                      </div>
+                      {d.error && (
+                        <div className="lm-list-path" style={{ color: "var(--danger, #e74c3c)" }}>
+                          {d.error}
+                        </div>
+                      )}
+                      {d.result && (
+                        <div className="lm-list-path">
+                          {d.result.slice(0, 100)}{d.result.length > 100 ? "…" : ""}
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {collabTab === "timeline" && (
+                <ul className="lm-list">
+                  {collabEvents.length === 0 && (
+                    <li className="lm-list-empty">暂无协作动态</li>
+                  )}
+                  {[...collabEvents].toReversed().slice(0, 30).map((e) => (
+                    <li key={e.eventId}>
+                      <div className="lm-list-row">
+                        <span className="lm-badge">
+                          {e.kind.split(".").pop()}
+                        </span>
+                        <span className="lm-list-title">
+                          {e.fromAssistantId} → {e.toAssistantId}
+                        </span>
+                      </div>
+                      <div className="lm-list-time">
+                        {e.detail?.slice(0, 80)}
+                        {" · "}
+                        {formatRelativeTime(e.timestamp)}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
           {recordsExpanded && (
             <div className="lm-records-body">
               <div className="lm-sidebar-filters">
