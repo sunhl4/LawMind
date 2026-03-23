@@ -1369,3 +1369,455 @@ body {
   padding: 2px 6px;
   border-radius: 4px;
 }
+
+/* ── File workbench ─────────────────────────────────────────── */
+.lm-files-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  position: relative;
+}
+
+.lm-files-explorer {
+  border-right: 1px solid var(--border);
+  padding: 8px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lm-files-explorer::-webkit-scrollbar { width: 3px; }
+.lm-files-explorer::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 2px; }
+
+.lm-files-editor {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 12px 12px;
+  gap: 6px;
+}
+
+.lm-fs-section {
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+
+.lm-fs-root-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  cursor: context-menu;
+  user-select: none;
+}
+
+.lm-fs-root-path {
+  flex: 1;
+  font-size: 10px;
+  color: var(--muted);
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lm-fs-root-add {
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-xs);
+  flex-shrink: 0;
+}
+.lm-fs-root-add:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+
+.lm-fs-node {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font);
+  font-size: 12px;
+  padding: 4px 6px 4px 8px;
+  border-radius: var(--r-xs);
+  cursor: pointer;
+  text-align: left;
+  min-width: 0;
+}
+.lm-fs-node:hover { background: rgba(255,255,255,0.04); color: var(--text); }
+.lm-fs-node.active { background: var(--accent-dim); color: var(--accent); }
+.lm-fs-node.protected { opacity: 0.9; }
+.lm-fs-node.protected .lm-fs-name { font-weight: 500; }
+
+.lm-fs-arrow {
+  width: 11px;
+  flex-shrink: 0;
+  display: inline-flex;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 10px;
+  transition: transform var(--t) var(--ease);
+}
+.lm-fs-arrow.open { transform: rotate(90deg); }
+
+.lm-fs-icon { flex-shrink: 0; font-size: 13px; }
+.lm-fs-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.lm-fs-lock { flex-shrink: 0; font-size: 10px; opacity: 0.6; }
+
+.lm-fs-inline-input {
+  padding: 3px 8px;
+}
+.lm-fs-inline-input input {
+  width: 100%;
+  background: var(--surface-2);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-size: 12px;
+  font-family: var(--font);
+  padding: 4px 8px;
+  outline: none;
+}
+
+/* ── File tabs ─────────────────────────────────────────────── */
+.lm-file-tabs {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  min-height: 34px;
+  align-items: flex-end;
+}
+.lm-file-tabs::-webkit-scrollbar { height: 2px; }
+.lm-file-tabs::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); }
+
+.lm-file-tab {
+  border: 1px solid var(--border);
+  border-bottom: none;
+  background: var(--surface);
+  color: var(--muted);
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+  padding: 5px 10px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 180px;
+  transition: all var(--t) var(--ease);
+}
+.lm-file-tab:hover { color: var(--text-2); background: var(--surface-2); }
+.lm-file-tab.active {
+  color: var(--text);
+  background: var(--bg);
+  border-color: var(--border-md);
+  border-bottom-color: var(--bg);
+  margin-bottom: -1px;
+  z-index: 1;
+}
+.lm-file-tab-close {
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 0 2px;
+  line-height: 1;
+}
+.lm-file-tab-close:hover { color: var(--error); background: rgba(240,101,101,0.1); }
+
+/* ── Editor pane ───────────────────────────────────────────── */
+.lm-editor-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-md);
+  border-radius: 0 var(--r) var(--r) var(--r);
+  background: var(--surface);
+}
+
+.lm-editor-header {
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.lm-editor-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.lm-editor-root-badge {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 20px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid var(--accent-border);
+  flex-shrink: 0;
+}
+
+.lm-editor-path {
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lm-editor-textarea {
+  flex: 1;
+  min-height: 0;
+  resize: none;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  padding: 14px 16px;
+  tab-size: 2;
+}
+
+.lm-editor-statusbar {
+  padding: 4px 12px;
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.lm-editor-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--muted);
+  text-align: center;
+  padding: 40px 20px;
+}
+
+/* ── Recent files ──────────────────────────────────────────── */
+.lm-recent-files {
+  padding-top: 8px;
+}
+
+/* ── Quick open trigger button (sidebar) ───────────────────── */
+.lm-quickopen-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface);
+  color: var(--muted);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--t) var(--ease);
+  text-align: left;
+}
+.lm-quickopen-trigger:hover { border-color: var(--border-md); color: var(--text-2); background: var(--surface-2); }
+.lm-quickopen-trigger span:nth-child(2) { flex: 1; }
+.lm-quickopen-trigger kbd {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: var(--r-xs);
+  border: 1px solid var(--border);
+  background: var(--surface-3);
+  color: var(--muted);
+  font-family: var(--mono);
+}
+
+/* ── Quick Open floating modal ─────────────────────────────── */
+.lm-quickopen-modal {
+  width: min(600px, 90vw);
+  background: var(--surface-2);
+  border: 1px solid var(--border-md);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.lm-quickopen-inputrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.lm-quickopen-magnifier { font-size: 15px; flex-shrink: 0; }
+
+.lm-quickopen-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+}
+.lm-quickopen-input::placeholder { color: var(--muted); }
+
+.lm-quickopen-esc {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-3);
+  color: var(--muted);
+  font-family: var(--mono);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.lm-quickopen-list {
+  max-height: 380px;
+  overflow-y: auto;
+}
+.lm-quickopen-list::-webkit-scrollbar { width: 3px; }
+.lm-quickopen-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.07); border-radius: 2px; }
+
+.lm-quickopen-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  cursor: pointer;
+  transition: background var(--t) var(--ease);
+}
+.lm-quickopen-item:hover,
+.lm-quickopen-item.active { background: rgba(255, 255, 255, 0.05); }
+.lm-quickopen-item.active { border-left: 2px solid var(--accent); padding-left: 12px; }
+
+.lm-quickopen-item-icon { font-size: 14px; flex-shrink: 0; }
+
+.lm-quickopen-item-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.lm-quickopen-item-name {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lm-quickopen-item-path {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lm-quickopen-item-root {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 20px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid var(--accent-border);
+  flex-shrink: 0;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.lm-quickopen-empty {
+  padding: 28px 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.lm-quickopen-footer {
+  display: flex;
+  gap: 16px;
+  padding: 7px 14px;
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--surface);
+}
+
+/* ── Context menu ──────────────────────────────────────────── */
+.lm-context-menu {
+  position: fixed;
+  z-index: 2000;
+  background: var(--surface-2);
+  border: 1px solid var(--border-md);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-lg);
+  min-width: 160px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+
+.lm-context-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: var(--r-sm);
+  text-align: left;
+  white-space: nowrap;
+  transition: all var(--t) var(--ease);
+}
+.lm-context-menu button:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+.lm-context-menu button.danger { color: var(--error); }
+.lm-context-menu button.danger:hover { background: var(--error-dim); }
+
+.lm-context-menu-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 3px 4px;
+}

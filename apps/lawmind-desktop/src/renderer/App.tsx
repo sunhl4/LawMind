@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { ArtifactDraft, TaskRecord } from "../../../../src/lawmind/types.ts";
+import { FileWorkbench } from "./FileWorkbench";
 
 function resolveWorkspacePath(workspaceDir: string, rel: string): string {
   const r = rel.replace(/\\/g, "/").replace(/^\//, "");
@@ -222,6 +223,7 @@ function rangeStartMs(range: TimeRangeFilter): number | null {
 type AppConfig = {
   apiBase: string;
   workspaceDir: string;
+  projectDir: string | null;
   envFilePath: string;
   retrievalMode: "single" | "dual";
 };
@@ -328,6 +330,7 @@ const SCENARIO_CARDS: Array<{ title: string; description: string; prompt: string
 ];
 
 export function App() {
+  const [mainView, setMainView] = useState<"chat" | "files">("chat");
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [health, setHealth] = useState<{
     modelConfigured: boolean;
@@ -379,7 +382,6 @@ export function App() {
   const [contextTaskId, setContextTaskId] = useState<string | null>(null);
   const [contextMatterId, setContextMatterId] = useState<string | null>(null);
   const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null);
-  const [projectDir, setProjectDir] = useState<string | null>(null);
   const [recordsExpanded, setRecordsExpanded] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [collabExpanded, setCollabExpanded] = useState(false);
@@ -625,6 +627,7 @@ export function App() {
         setConfig({
           apiBase: c.apiBase,
           workspaceDir: c.workspaceDir,
+          projectDir: c.projectDir ?? null,
           envFilePath: c.envFilePath,
           retrievalMode: rm,
         });
@@ -636,6 +639,7 @@ export function App() {
         setConfig({
           apiBase: devApi.replace(/\/$/, ""),
           workspaceDir: "(browser dev — use Electron for full config)",
+          projectDir: null,
           envFilePath: "",
           retrievalMode: "single",
         });
@@ -731,6 +735,7 @@ export function App() {
         setConfig({
           apiBase: res.apiBase,
           workspaceDir: res.workspaceDir,
+          projectDir: config?.projectDir ?? null,
           envFilePath: res.envFilePath,
           retrievalMode: rm,
         });
@@ -787,12 +792,17 @@ export function App() {
 
   const pickProject = async () => {
     const bridge = window.lawmindDesktop;
-    if (!bridge?.pickProject) {
+    if (!bridge?.pickProject || !bridge.setProjectDir || !config) {
       return;
     }
     const r = await bridge.pickProject();
     if (r.ok && r.path) {
-      setProjectDir(r.path);
+      const setRes = await bridge.setProjectDir(r.path);
+      if (!setRes.ok) {
+        setError(setRes.error || "设置项目目录失败");
+        return;
+      }
+      setConfig({ ...config, projectDir: setRes.projectDir ?? null });
     }
   };
 
@@ -995,6 +1005,7 @@ export function App() {
 
   const selectedAssistant = assistants.find((a) => a.assistantId === selectedAssistantId);
   const selectedAssistantStats = selectedAssistant?.stats;
+  const projectDir = config?.projectDir ?? null;
   const workspaceLabel =
     config?.workspaceDir.split(/[\\/]/).filter(Boolean).pop() ?? "默认工作区";
   const retrievalLabel = config?.retrievalMode === "dual" ? "通用 + 法律" : "统一模型";
@@ -1484,7 +1495,20 @@ export function App() {
                       <button
                         type="button"
                         className="lm-btn lm-btn-secondary lm-btn-sm"
-                        onClick={() => setProjectDir(null)}
+                        onClick={() => {
+                          void (async () => {
+                            const bridge = window.lawmindDesktop;
+                            if (!bridge?.setProjectDir || !config) {
+                              return;
+                            }
+                            const res = await bridge.setProjectDir(null);
+                            if (!res.ok) {
+                              setError(res.error || "关闭项目失败");
+                              return;
+                            }
+                            setConfig({ ...config, projectDir: null });
+                          })();
+                        }}
                       >
                         关闭项目
                       </button>
@@ -1643,7 +1667,7 @@ export function App() {
                   {collabEvents.length === 0 && (
                     <li className="lm-list-empty">暂无协作动态</li>
                   )}
-                  {[...collabEvents].toReversed().slice(0, 30).map((e) => (
+                  {[...collabEvents].toReversed().slice(0, 30).map((e: CollabEvent) => (
                     <li key={e.eventId}>
                       <div className="lm-list-row">
                         <span className="lm-badge">
@@ -1779,6 +1803,22 @@ export function App() {
             </div>
           </div>
           <div className="lm-header-spacer" />
+          <div className="lm-tabs" style={{ marginBottom: 0, minWidth: 170 }}>
+            <button
+              type="button"
+              className={`lm-tab ${mainView === "chat" ? "active" : ""}`}
+              onClick={() => setMainView("chat")}
+            >
+              对话
+            </button>
+            <button
+              type="button"
+              className={`lm-tab ${mainView === "files" ? "active" : ""}`}
+              onClick={() => setMainView("files")}
+            >
+              文件
+            </button>
+          </div>
           {projectDir && (
             <div className="lm-header-meta lm-header-project" title={projectDir}>
               {projectDir.split(/[\\/]/).filter(Boolean).pop()}
@@ -1786,6 +1826,14 @@ export function App() {
           )}
           {currentMatterLabel && <div className="lm-header-meta">案件 {currentMatterLabel}</div>}
         </div>
+        {mainView === "files" ? (
+          <FileWorkbench
+            workspaceDir={config?.workspaceDir ?? ""}
+            projectDir={projectDir}
+            canUseFilesystemBridge={canUseFilesystemBridge}
+          />
+        ) : (
+          <>
         <div className="lm-messages">
           {currentMessages.length === 0 ? (
             <div className="lm-messages-empty">
@@ -1927,6 +1975,8 @@ export function App() {
             </div>
           </div>
         </div>
+          </>
+        )}
       </main>
     </div>
   );

@@ -48,6 +48,7 @@ import {
 import type { TaskRecord } from "../../../src/lawmind/types.js";
 
 const HOST = "127.0.0.1";
+const MAX_TEXT_READ_BYTES = 1_000_000;
 
 function corsHeaders(origin: string | undefined): Record<string, string> {
   const allow =
@@ -174,6 +175,60 @@ function safeArtifactPath(workspaceDir: string, rel: string): string | null {
     return null;
   }
   return full;
+}
+
+function normalizeRelPath(p: string): string {
+  return String(p || "")
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "");
+}
+
+function resolveFsRoots(workspaceDir: string): { workspace: string; project?: string } {
+  const roots: { workspace: string; project?: string } = { workspace: workspaceDir };
+  const project = process.env.LAWMIND_PROJECT_DIR?.trim();
+  if (project) {
+    roots.project = path.resolve(project);
+  }
+  return roots;
+}
+
+function resolveFsPath(
+  roots: { workspace: string; project?: string },
+  rootKey: string,
+  relPath: string,
+): { root: string; full: string; rel: string } {
+  if (rootKey !== "workspace" && rootKey !== "project") {
+    throw new Error("invalid root");
+  }
+  const root = rootKey === "workspace" ? roots.workspace : roots.project;
+  if (!root) {
+    throw new Error("root not available");
+  }
+  const rel = normalizeRelPath(relPath);
+  if (rel.includes("..")) {
+    throw new Error("path traversal is not allowed");
+  }
+  const full = path.resolve(root, rel);
+  const rootAbs = path.resolve(root);
+  if (full !== rootAbs && !full.startsWith(rootAbs + path.sep)) {
+    throw new Error("path escapes root");
+  }
+  const real = fs.existsSync(full) ? fs.realpathSync(full) : null;
+  if (real && real !== rootAbs && !real.startsWith(rootAbs + path.sep)) {
+    throw new Error("symlink escapes root");
+  }
+  return { root: rootAbs, full, rel };
+}
+
+function isLikelyBinary(buffer: Buffer): boolean {
+  const sample = buffer.subarray(0, Math.min(buffer.length, 4096));
+  for (const byte of sample) {
+    if (byte === 0) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function taskToSummary(t: TaskRecord) {
@@ -610,6 +665,120 @@ async function main() {
           ...c,
         });
         res.end(buf);
+        return;
+      }
+
+      if (pathname === "/api/fs/tree" && req.method === "GET") {
+        const roots = resolveFsRoots(workspaceDir);
+        const root = url.searchParams.get("root") ?? "workspace";
+        const relPath = url.searchParams.get("path") ?? "";
+        const { full, rel } = resolveFsPath(roots, root, relPath);
+        const stat = fs.statSync(full);
+        if (!stat.isDirectory()) {
+          sendJson(res, 400, { ok: false, error: "path is not directory" }, c);
+          return;
+        }
+        const entries = fs
+          .readdirSync(full, { withFileTypes: true })
+          .map((entry) => {
+            const childRel = normalizeRelPath(path.join(rel, entry.name));
+            const childAbs = path.join(full, entry.name);
+            const childStat = fs.statSync(childAbs);
+            return {
+              name: entry.name,
+              path: childRel,
+              kind: entry.isDirectory() ? "directory" : "file",
+              size: entry.isDirectory() ? undefined : childStat.size,
+              mtimeMs: childStat.mtimeMs,
+            };
+          })
+          .toSorted((a, b) => {
+            if (a.kind !== b.kind) {
+              return a.kind === "directory" ? -1 : 1;
+            }
+            return a.name.localeCompare(b.name);
+          });
+        sendJson(res, 200, { ok: true, entries }, c);
+        return;
+      }
+
+      if (pathname === "/api/fs/read" && req.method === "GET") {
+        const roots = resolveFsRoots(workspaceDir);
+        const root = url.searchParams.get("root") ?? "workspace";
+        const relPath = url.searchParams.get("path") ?? "";
+        const { full } = resolveFsPath(roots, root, relPath);
+        const stat = fs.statSync(full);
+        if (!stat.isFile()) {
+          sendJson(res, 400, { ok: false, error: "path is not file" }, c);
+          return;
+        }
+        if (stat.size > MAX_TEXT_READ_BYTES) {
+          sendJson(res, 413, { ok: false, error: "file too large" }, c);
+          return;
+        }
+        const buf = fs.readFileSync(full);
+        if (isLikelyBinary(buf)) {
+          sendJson(res, 415, { ok: false, error: "binary file is not supported" }, c);
+          return;
+        }
+        sendJson(
+          res,
+          200,
+          {
+            ok: true,
+            content: buf.toString("utf8"),
+            size: stat.size,
+            mtimeMs: stat.mtimeMs,
+          },
+          c,
+        );
+        return;
+      }
+
+      if (pathname === "/api/fs/write" && req.method === "POST") {
+        const body = (await readJsonBody(req)) as {
+          root?: string;
+          path?: string;
+          content?: string;
+          expectedMtimeMs?: number;
+        };
+        const roots = resolveFsRoots(workspaceDir);
+        const root = body.root ?? "workspace";
+        const relPath = body.path ?? "";
+        const content = typeof body.content === "string" ? body.content : "";
+        const expectedMtimeMs =
+          typeof body.expectedMtimeMs === "number" ? body.expectedMtimeMs : undefined;
+        const { full } = resolveFsPath(roots, root, relPath);
+
+        let priorMtime: number | undefined;
+        if (fs.existsSync(full)) {
+          const stat = fs.statSync(full);
+          if (!stat.isFile()) {
+            sendJson(res, 400, { ok: false, error: "path is not file" }, c);
+            return;
+          }
+          priorMtime = stat.mtimeMs;
+          if (expectedMtimeMs !== undefined && Math.abs(stat.mtimeMs - expectedMtimeMs) > 1) {
+            sendJson(
+              res,
+              409,
+              { ok: false, conflict: true, error: "file was modified externally", mtimeMs: stat.mtimeMs },
+              c,
+            );
+            return;
+          }
+        } else {
+          fs.mkdirSync(path.dirname(full), { recursive: true });
+        }
+
+        fs.writeFileSync(full, content, "utf8");
+        const next = fs.statSync(full);
+        sendJson(
+          res,
+          200,
+          { ok: true, mtimeMs: next.mtimeMs, size: next.size, previousMtimeMs: priorMtime },
+          c,
+        );
         return;
       }
 
