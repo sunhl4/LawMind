@@ -197,3 +197,7 @@ export function searchMatterIndex(index: MatterIndex, query: string): MatterSear
 
   return hits;
 }
+
+export { isValidMatterId, parseOptionalMatterId, MATTER_ID_PATTERN } from "./matter-id.js";
+export { createMatterIfAbsent } from "./matter-create.js";
+export type { CreateMatterResult } from "./matter-create.js";

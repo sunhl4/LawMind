@@ -12,9 +12,12 @@
     "vendor:node": "pnpm -w lawmind:vendor:desktop-node",
     "preview": "vite preview --port 5174",
     "typecheck": "tsc --noEmit",
-    "dist:electron": "pnpm bundle:server && pnpm vendor:node && pnpm build:renderer && electron-builder"
+    "dist:electron": "pnpm bundle:server && pnpm vendor:node && pnpm build:renderer && electron-builder",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium"
   },
   "devDependencies": {
+    "@playwright/test": "1.58.2",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
     "@vitejs/plugin-react": "^4.3.4",

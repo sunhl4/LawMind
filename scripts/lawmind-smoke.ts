@@ -99,7 +99,7 @@ async function main() {
   const draft = engine.draft(intent, bundle, { title: "LawMind Smoke 律师函草稿" });
 
   if (interactiveReview) {
-    const reviewed = await reviewDraftInCli(draft);
+    const reviewed = await reviewDraftInCli(draft, { workspaceDir });
     if (!reviewed.ok) {
       throw new Error(`草稿未通过审核: ${reviewed.reason}`);
     }

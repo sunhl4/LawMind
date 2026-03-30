@@ -39,7 +39,7 @@ export function listDrafts(workspaceDir: string): ArtifactDraft[] {
     const dir = draftsDir(workspaceDir);
     const files = fs
       .readdirSync(dir)
-      .filter((name) => name.endsWith(".json"))
+      .filter((name) => name.endsWith(".json") && !name.endsWith(".research.json"))
       .toSorted();
     return files
       .map((name) => {
@@ -56,3 +56,15 @@ export function listDrafts(workspaceDir: string): ArtifactDraft[] {
     return [];
   }
 }
+
+export {
+  validateDraftCitationsAgainstBundle,
+  type CitationIntegrityResult,
+  type DraftCitationIntegrityView,
+} from "./citation-integrity.js";
+export {
+  persistResearchSnapshot,
+  readResearchSnapshot,
+  researchSnapshotPath,
+} from "./research-snapshot.js";
+export { resolveDraftCitationIntegrity } from "./citation-resolve.js";

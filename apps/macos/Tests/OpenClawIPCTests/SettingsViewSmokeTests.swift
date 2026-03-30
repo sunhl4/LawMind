@@ -104,6 +104,11 @@ struct SettingsViewSmokeTests {
         GeneralSettings.exerciseForTesting()
     }
 
+    @Test func `agent workbench settings builds body`() {
+        let view = AgentWorkbenchSettings()
+        _ = view.body
+    }
+
     @Test func `sessions settings builds body`() {
         let view = SessionsSettings(rows: SessionRow.previewRows, isPreview: true)
         _ = view.body

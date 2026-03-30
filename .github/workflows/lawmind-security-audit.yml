@@ -1,0 +1,36 @@
+# Non-blocking: dependency audit + LawMind SBOM fingerprint. Does not gate merges.
+name: LawMind security audit
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  lawmind-audit:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: pnpm audit
+        run: pnpm audit --audit-level=moderate
+
+      - name: LawMind SBOM (fingerprint + CycloneDX)
+        run: pnpm lawmind:sbom

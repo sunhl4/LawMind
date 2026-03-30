@@ -15,6 +15,8 @@ struct GeneralSettings: View {
     @State private var gatewayStatus: GatewayEnvironmentStatus = .checking
     @State private var remoteStatus: RemoteStatus = .idle
     @State private var showRemoteAdvanced = false
+    @State private var agentWorkspaceSummary = ""
+    @State private var projectRootSummary = ""
     private let isPreview = ProcessInfo.processInfo.isPreview
     private var isNixMode: Bool {
         ProcessInfo.processInfo.isNixMode
@@ -34,6 +36,8 @@ struct GeneralSettings: View {
                         binding: self.activeBinding)
 
                     self.connectionSection
+
+                    self.agentWorkbenchEntryCard
 
                     Divider()
 
@@ -87,6 +91,7 @@ struct GeneralSettings: View {
         .onAppear {
             guard !self.isPreview else { return }
             self.refreshGatewayStatus()
+            self.refreshAgentWorkbenchSummary()
         }
         .onChange(of: self.state.canvasEnabled) { _, enabled in
             if !enabled {
@@ -428,6 +433,38 @@ struct GeneralSettings: View {
         .cornerRadius(10)
     }
 
+    private var agentWorkbenchEntryCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Agent Workbench")
+                .font(.callout.weight(.semibold))
+            Text("Configure workspace switching, file context shortcuts, and legal document templates.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if !self.agentWorkspaceSummary.isEmpty {
+                Text("Workspace: \(self.agentWorkspaceSummary)")
+                    .font(.caption.monospaced())
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundStyle(.secondary)
+            }
+            if !self.projectRootSummary.isEmpty {
+                Text("Working directory: \(self.projectRootSummary)")
+                    .font(.caption.monospaced())
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundStyle(.secondary)
+            }
+            Button("Open Agent Workbench settings") {
+                SettingsTabRouter.request(.agentWorkbench)
+                NotificationCenter.default.post(name: .openclawSelectSettingsTab, object: SettingsTab.agentWorkbench)
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(12)
+        .background(Color.gray.opacity(0.08))
+        .cornerRadius(10)
+    }
+
     private func refreshGatewayStatus() {
         Task {
             let status = await Task.detached(priority: .utility) {
@@ -520,6 +557,13 @@ struct GeneralSettings: View {
         .padding(12)
         .background(Color.gray.opacity(0.08))
         .cornerRadius(10)
+    }
+
+    private func refreshAgentWorkbenchSummary() {
+        let defaultWorkspace = OpenClawConfigFile.agentWorkspace()
+        let resolved = AgentWorkspace.resolveWorkspaceURL(from: defaultWorkspace)
+        self.agentWorkspaceSummary = AgentWorkspace.displayPath(for: resolved)
+        self.projectRootSummary = CommandResolver.projectRootPath()
     }
 }
 

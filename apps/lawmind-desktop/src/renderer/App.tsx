@@ -2,6 +2,23 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { ArtifactDraft, TaskRecord } from "../../../../src/lawmind/types.ts";
 import { FileWorkbench } from "./FileWorkbench";
+import { MatterWorkbench } from "./MatterWorkbench";
+import { ReviewWorkbench } from "./ReviewWorkbench";
+import { HelpPanel } from "./HelpPanel";
+import { LawmindSettingsAssistants } from "./LawmindSettingsAssistants";
+import { LawmindSettingsCollaboration, type CollabSummaryState } from "./LawmindSettingsCollaboration";
+import { LawmindSettingsDisclaimer } from "./LawmindSettingsDisclaimer";
+import { LawmindSettingsModelRetrieval } from "./LawmindSettingsModelRetrieval";
+import { LawmindApiSetupWizard } from "./LawmindApiSetupWizard";
+import { LawmindCitationBanner } from "./LawmindCitationBanner";
+import { LawmindTaskCheckpoints } from "./LawmindTaskCheckpoints";
+import { LawmindSettingsOnboarding } from "./LawmindSettingsOnboarding";
+import { LawmindSettingsWorkspace } from "./LawmindSettingsWorkspace";
+import type { AssistantRow } from "./lawmind-settings-models.ts";
+import type { DraftCitationIntegrityView } from "../../../../src/lawmind/drafts/citation-integrity.ts";
+import type { TaskCheckpoint } from "../../../../src/lawmind/tasks/checkpoints.ts";
+import { chatErrorUserText, type ApiErrorJson } from "./api-client";
+import { DEFAULT_ASSISTANT_ID } from "../../../../src/lawmind/assistants/store.ts";
 
 function resolveWorkspacePath(workspaceDir: string, rel: string): string {
   const r = rel.replace(/\\/g, "/").replace(/^\//, "");
@@ -281,27 +298,7 @@ type CollabEvent = {
   timestamp: string;
 };
 
-type AssistantStats = {
-  lastUsedAt: string;
-  turnCount: number;
-  sessionCount: number;
-};
-
-type AssistantRow = {
-  assistantId: string;
-  displayName: string;
-  introduction: string;
-  presetKey?: string;
-  customRoleTitle?: string;
-  customRoleInstructions?: string;
-  createdAt: string;
-  updatedAt: string;
-  stats?: AssistantStats;
-};
-
 type PresetRow = { id: string; displayName: string; promptSection: string };
-
-const DEFAULT_ASSISTANT_ID = "default";
 
 const QUICK_ACTIONS: Array<{ label: string; prompt: string }> = [
   { label: "起草律师函", prompt: "请帮我起草一封律师函，就以下事项发出法律警告：\n\n" },
@@ -330,7 +327,7 @@ const SCENARIO_CARDS: Array<{ title: string; description: string; prompt: string
 ];
 
 export function App() {
-  const [mainView, setMainView] = useState<"chat" | "files">("chat");
+  const [mainView, setMainView] = useState<"chat" | "files" | "matters" | "review">("chat");
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [health, setHealth] = useState<{
     modelConfigured: boolean;
@@ -379,11 +376,17 @@ export function App() {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailTask, setDetailTask] = useState<TaskRecord | null>(null);
   const [detailDraft, setDetailDraft] = useState<ArtifactDraft | null>(null);
+  const [detailCitationIntegrity, setDetailCitationIntegrity] = useState<
+    DraftCitationIntegrityView | null
+  >(null);
+  const [detailCheckpoints, setDetailCheckpoints] = useState<TaskCheckpoint[] | null>(null);
   const [contextTaskId, setContextTaskId] = useState<string | null>(null);
   const [contextMatterId, setContextMatterId] = useState<string | null>(null);
   const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null);
   const [recordsExpanded, setRecordsExpanded] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const [collabSummarySettings, setCollabSummarySettings] = useState<CollabSummaryState>(undefined);
   const [collabExpanded, setCollabExpanded] = useState(false);
   const [delegations, setDelegations] = useState<DelegationRow[]>([]);
   const [collabEvents, setCollabEvents] = useState<CollabEvent[]>([]);
@@ -423,6 +426,8 @@ export function App() {
       setDetailError(null);
       setDetailTask(null);
       setDetailDraft(null);
+      setDetailCitationIntegrity(null);
+      setDetailCheckpoints(null);
       try {
         const rel =
           kind === "task"
@@ -434,14 +439,18 @@ export function App() {
           error?: string;
           task?: TaskRecord;
           draft?: ArtifactDraft;
+          citationIntegrity?: DraftCitationIntegrityView;
+          checkpoints?: TaskCheckpoint[];
         };
         if (!r.ok || !j.ok) {
           throw new Error(j.error || `HTTP ${r.status}`);
         }
         if (kind === "task" && j.task) {
           setDetailTask(j.task);
+          setDetailCheckpoints(Array.isArray(j.checkpoints) ? j.checkpoints : null);
         } else if (kind === "draft" && j.draft) {
           setDetailDraft(j.draft);
+          setDetailCitationIntegrity(j.citationIntegrity ?? null);
         } else {
           throw new Error("empty response");
         }
@@ -460,6 +469,8 @@ export function App() {
     setDetailId(null);
     setDetailTask(null);
     setDetailDraft(null);
+    setDetailCitationIntegrity(null);
+    setDetailCheckpoints(null);
     setDetailError(null);
     setDetailLoading(false);
   };
@@ -635,10 +646,10 @@ export function App() {
         return;
       }
       const devApi = (import.meta.env.VITE_LAWMIND_DEV_API as string | undefined)?.trim();
-      if (import.meta.env.DEV && devApi) {
+      if (devApi) {
         setConfig({
           apiBase: devApi.replace(/\/$/, ""),
-          workspaceDir: "(browser dev — use Electron for full config)",
+          workspaceDir: "(browser dev / E2E — use Electron for full config)",
           projectDir: null,
           envFilePath: "",
           retrievalMode: "single",
@@ -677,6 +688,44 @@ export function App() {
       }
     })();
   }, [config, refreshLists, refreshAssistants, refreshCollaboration]);
+
+  useEffect(() => {
+    if (!showSettings || !config) {
+      return;
+    }
+    let cancelled = false;
+    setCollabSummarySettings(undefined);
+    void (async () => {
+      try {
+        const r = await fetch(`${config.apiBase}/api/collaboration/summary`);
+        const j = (await r.json()) as {
+          ok?: boolean;
+          collaborationEnabled?: boolean;
+          collaborationHint?: string;
+          delegationCount?: number;
+        };
+        if (cancelled) {
+          return;
+        }
+        if (!j.ok) {
+          setCollabSummarySettings(null);
+          return;
+        }
+        setCollabSummarySettings({
+          collaborationEnabled: Boolean(j.collaborationEnabled),
+          collaborationHint: typeof j.collaborationHint === "string" ? j.collaborationHint : undefined,
+          delegationCount: Number.isFinite(j.delegationCount) ? Number(j.delegationCount) : 0,
+        });
+      } catch {
+        if (!cancelled) {
+          setCollabSummarySettings(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showSettings, config]);
 
   const applyRetrievalMode = async (mode: "single" | "dual") => {
     const bridge = window.lawmindDesktop;
@@ -834,13 +883,15 @@ export function App() {
       });
       const j = (await r.json()) as {
         ok?: boolean;
+        code?: string;
+        message?: string;
         error?: string;
         detail?: string;
         sessionId?: string;
         reply?: string;
       };
-      if (!r.ok || !j.ok) {
-        throw new Error(j.detail || j.error || `HTTP ${r.status}`);
+      if (!r.ok || j.ok === false) {
+        throw new Error(chatErrorUserText(r.status, j as ApiErrorJson));
       }
       if (j.sessionId) {
         setSessionByAssistant((prev) => ({ ...prev, [aid]: j.sessionId }));
@@ -1014,99 +1065,22 @@ export function App() {
   return (
     <div className="lm-shell">
       {showWizard && (
-        <div className="lm-wizard-backdrop" role="dialog" aria-modal="true" aria-label="LawMind 首次配置">
-          <div className="lm-wizard">
-            <h2>欢迎使用 LawMind</h2>
-            <p className="lm-meta">请配置模型 API（写入用户目录下的 .env.lawmind），可选自定义工作区路径。</p>
-            <label className="lm-field">
-              <span>API Key</span>
-              <input
-                type="password"
-                autoComplete="off"
-                value={wizApiKey}
-                onChange={(e) => setWizApiKey(e.target.value)}
-                placeholder="LAWMIND / Qwen 等"
-              />
-            </label>
-            <label className="lm-field">
-              <span>Base URL（可选）</span>
-              <input
-                type="text"
-                value={wizBaseUrl}
-                onChange={(e) => setWizBaseUrl(e.target.value)}
-                placeholder="OpenAI-compatible /v1"
-              />
-            </label>
-            <label className="lm-field">
-              <span>模型名（可选）</span>
-              <input
-                type="text"
-                value={wizModel}
-                onChange={(e) => setWizModel(e.target.value)}
-              />
-            </label>
-            <label className="lm-field">
-              <span>工作区目录（可选）</span>
-              <div className="lm-wizard-row">
-                <input
-                  type="text"
-                  readOnly
-                  value={wizWorkspace}
-                  placeholder="默认：用户数据/LawMind/workspace"
-                />
-                <button type="button" className="lm-btn lm-btn-secondary" onClick={() => void pickWs()}>
-                  浏览…
-                </button>
-              </div>
-            </label>
-            <fieldset className="lm-field" style={{ border: "none", padding: 0, margin: 0 }}>
-              <legend className="lm-meta" style={{ marginBottom: 8 }}>
-                检索策略（引擎工具 research / 工作流）
-              </legend>
-              <label style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
-                <input
-                  type="radio"
-                  name="wiz-retrieval"
-                  checked={wizRetrievalMode === "single"}
-                  onChange={() => setWizRetrievalMode("single")}
-                />
-                <span>统一模型 — 通用与法律检索用同一套 API</span>
-              </label>
-              <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                <input
-                  type="radio"
-                  name="wiz-retrieval"
-                  checked={wizRetrievalMode === "dual"}
-                  onChange={() => setWizRetrievalMode("dual")}
-                />
-                <span>
-                  通用 + 法律专用 — 通用用上方 Key；法律检索需在{" "}
-                  <code>.env.lawmind</code> 配置{" "}
-                  <code>LAWMIND_CHATLAW_*</code> / <code>LAWMIND_LAWGPT_*</code> 等（未配时仍回退为通用模型）。
-                </span>
-              </label>
-            </fieldset>
-            {wizError && <div className="lm-error">{wizError}</div>}
-            <div className="lm-wizard-actions">
-              <button
-                type="button"
-                className="lm-btn lm-btn-secondary"
-                onClick={() => setShowWizard(false)}
-                disabled={wizBusy}
-              >
-                稍后
-              </button>
-              <button
-                type="button"
-                className="lm-btn"
-                disabled={wizBusy || !wizApiKey.trim()}
-                onClick={() => void runWizardSave()}
-              >
-                {wizBusy ? "保存中…" : "保存并重启服务"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <LawmindApiSetupWizard
+          wizApiKey={wizApiKey}
+          setWizApiKey={setWizApiKey}
+          wizBaseUrl={wizBaseUrl}
+          setWizBaseUrl={setWizBaseUrl}
+          wizModel={wizModel}
+          setWizModel={setWizModel}
+          wizWorkspace={wizWorkspace}
+          wizRetrievalMode={wizRetrievalMode}
+          setWizRetrievalMode={setWizRetrievalMode}
+          wizError={wizError}
+          wizBusy={wizBusy}
+          onPickWorkspace={() => void pickWs()}
+          onCancel={() => setShowWizard(false)}
+          onSave={() => void runWizardSave()}
+        />
       )}
       {detailOpen && (
         <div className="lm-wizard-backdrop" role="dialog" aria-modal="true" aria-label="任务或草稿详情">
@@ -1173,10 +1147,12 @@ export function App() {
                   <span>更新时间</span>
                   {formatLocaleDateTime(detailTask.updatedAt)}
                 </div>
+                <LawmindTaskCheckpoints checkpoints={detailCheckpoints} />
               </div>
             )}
             {!detailLoading && detailDraft && (
               <div className="lm-detail-body">
+                <LawmindCitationBanner view={detailCitationIntegrity} />
                 <div className="lm-detail-kv">
                   <span>标题</span>
                   {detailDraft.title}
@@ -1335,6 +1311,7 @@ export function App() {
           </div>
         </div>
       )}
+      {showHelp && <HelpPanel onClose={() => setShowHelp(false)} />}
       {showSettings && (
         <div className="lm-wizard-backdrop" role="dialog" aria-modal="true" aria-label="设置">
           <div className="lm-wizard lm-settings-panel">
@@ -1350,173 +1327,67 @@ export function App() {
               </button>
             </div>
 
-            <div className="lm-settings-section">
-              <div className="lm-settings-section-title">助手</div>
-              <div className="lm-settings-group">
-                <div className="lm-settings-row">
-                  <span className="lm-settings-key">当前助手</span>
-                  <select
-                    className="lm-asst-select"
-                    value={selectedAssistantId}
-                    onChange={(e) => setSelectedAssistantId(e.target.value)}
-                  >
-                    {assistants.map((a) => (
-                      <option key={a.assistantId} value={a.assistantId}>
-                        {a.displayName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {selectedAssistant && (
-                  <div className="lm-settings-row">
-                    <span className="lm-settings-key">岗位</span>
-                    <span className="lm-settings-val">
-                      {selectedAssistant.customRoleTitle || selectedAssistant.presetKey || "通用法律助理"}
-                    </span>
-                  </div>
-                )}
-                {selectedAssistantStats && (
-                  <div className="lm-settings-row">
-                    <span className="lm-settings-key">统计</span>
-                    <span className="lm-settings-val">
-                      {selectedAssistantStats.turnCount} 轮对话 · {selectedAssistantStats.sessionCount} 会话
-                    </span>
-                  </div>
-                )}
-                <div className="lm-settings-actions">
-                  <button type="button" className="lm-btn lm-btn-secondary lm-btn-sm" onClick={openNewAssistant}>
-                    新建助手
-                  </button>
-                  <button type="button" className="lm-btn lm-btn-secondary lm-btn-sm" onClick={openEditAssistant}>
-                    编辑
-                  </button>
-                  {selectedAssistantId !== DEFAULT_ASSISTANT_ID && (
-                    <button
-                      type="button"
-                      className="lm-btn lm-btn-secondary lm-btn-sm"
-                      onClick={() => void removeAssistant()}
-                    >
-                      删除
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
+            {config && <LawmindSettingsOnboarding health={health} projectDir={projectDir} />}
+
+            {config && <LawmindSettingsCollaboration collabSummarySettings={collabSummarySettings} />}
+
+            <LawmindSettingsAssistants
+              assistants={assistants}
+              selectedAssistantId={selectedAssistantId}
+              onSelectAssistantId={setSelectedAssistantId}
+              selectedAssistant={selectedAssistant}
+              selectedAssistantStats={selectedAssistantStats}
+              onOpenNew={openNewAssistant}
+              onOpenEdit={openEditAssistant}
+              onRemove={() => void removeAssistant()}
+            />
 
             {config && (
-              <div className="lm-settings-section">
-                <div className="lm-settings-section-title">模型与检索</div>
-                <div className="lm-settings-group">
-                  <div className="lm-settings-row">
-                    <span className="lm-settings-key">模型状态</span>
-                    <span className={health?.modelConfigured ? "lm-dot lm-dot-ok" : "lm-dot lm-dot-warn"}>
-                      {health?.modelConfigured ? "已配置" : "待配置"}
-                    </span>
-                  </div>
-                  <div className="lm-settings-row">
-                    <span className="lm-settings-key">检索策略</span>
-                    <span className="lm-settings-val">{retrievalLabel}</span>
-                  </div>
-                  <div className="lm-retrieval-block">
-                    <label className="lm-radio-row">
-                      <input
-                        type="radio"
-                        name="retrieval-mode"
-                        checked={config.retrievalMode === "single"}
-                        disabled={retrievalSaving}
-                        onChange={() => void applyRetrievalMode("single")}
-                      />
-                      <span>统一模型</span>
-                    </label>
-                    <label className="lm-radio-row">
-                      <input
-                        type="radio"
-                        name="retrieval-mode"
-                        checked={config.retrievalMode === "dual"}
-                        disabled={retrievalSaving}
-                        onChange={() => void applyRetrievalMode("dual")}
-                      />
-                      <span>通用 + 法律专用</span>
-                    </label>
-                    {config.retrievalMode === "dual" && health?.dualLegalConfigured === false && (
-                      <div className="lm-meta">法律专用端点未配置，当前仍会回退到通用模型。</div>
-                    )}
-                    {retrievalSaving && <div className="lm-meta">正在切换并重启服务…</div>}
-                  </div>
-                  <div className="lm-settings-actions">
-                    <button
-                      type="button"
-                      className="lm-btn lm-btn-secondary lm-btn-sm"
-                      onClick={() => {
-                        setWizRetrievalMode(config.retrievalMode);
-                        setShowWizard(true);
-                        setShowSettings(false);
-                      }}
-                    >
-                      API 配置向导
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <LawmindSettingsModelRetrieval
+                config={{
+                  workspaceDir: config.workspaceDir,
+                  projectDir: config.projectDir,
+                  retrievalMode: config.retrievalMode,
+                }}
+                health={health}
+                retrievalLabel={retrievalLabel}
+                retrievalSaving={retrievalSaving}
+                applyRetrievalMode={applyRetrievalMode}
+                onOpenApiWizard={() => {
+                  setWizRetrievalMode(config.retrievalMode);
+                  setShowWizard(true);
+                  setShowSettings(false);
+                }}
+              />
             )}
 
             {config && (
-              <div className="lm-settings-section">
-                <div className="lm-settings-section-title">工作区与项目</div>
-                <div className="lm-settings-group">
-                  <div className="lm-settings-row">
-                    <span className="lm-settings-key">工作区</span>
-                    <span className="lm-settings-val" title={config.workspaceDir}>
-                      {workspaceLabel}
-                    </span>
-                  </div>
-                  <div className="lm-settings-row">
-                    <span className="lm-settings-key">项目目录</span>
-                    {projectDir ? (
-                      <span className="lm-settings-val lm-project-path" title={projectDir}>
-                        {projectDir.split(/[\\/]/).filter(Boolean).pop()}
-                      </span>
-                    ) : (
-                      <span className="lm-settings-val lm-project-none">未选择</span>
-                    )}
-                  </div>
-                  {projectDir && (
-                    <div className="lm-project-full-path">{projectDir}</div>
-                  )}
-                  <div className="lm-settings-actions">
-                    <button
-                      type="button"
-                      className="lm-btn lm-btn-secondary lm-btn-sm"
-                      onClick={() => void pickProject()}
-                    >
-                      {projectDir ? "切换项目" : "打开项目目录"}
-                    </button>
-                    {projectDir && (
-                      <button
-                        type="button"
-                        className="lm-btn lm-btn-secondary lm-btn-sm"
-                        onClick={() => {
-                          void (async () => {
-                            const bridge = window.lawmindDesktop;
-                            if (!bridge?.setProjectDir || !config) {
-                              return;
-                            }
-                            const res = await bridge.setProjectDir(null);
-                            if (!res.ok) {
-                              setError(res.error || "关闭项目失败");
-                              return;
-                            }
-                            setConfig({ ...config, projectDir: null });
-                          })();
-                        }}
-                      >
-                        关闭项目
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
+              <LawmindSettingsWorkspace
+                config={{
+                  workspaceDir: config.workspaceDir,
+                  projectDir: config.projectDir,
+                  retrievalMode: config.retrievalMode,
+                }}
+                workspaceLabel={workspaceLabel}
+                projectDir={projectDir}
+                onPickProject={() => void pickProject()}
+                onClearProject={() => {
+                  void (async () => {
+                    const bridge = window.lawmindDesktop;
+                    if (!bridge?.setProjectDir || !config) {
+                      return;
+                    }
+                    const res = await bridge.setProjectDir(null);
+                    if (!res.ok) {
+                      setError(res.error || "关闭项目失败");
+                      return;
+                    }
+                    setConfig({ ...config, projectDir: null });
+                  })();
+                }}
+              />
             )}
+            <LawmindSettingsDisclaimer />
           </div>
         </div>
       )}
@@ -1527,6 +1398,15 @@ export function App() {
             <div className="lm-brand-title">LawMind</div>
             <div className="lm-brand-subtitle">Legal Workbench</div>
           </div>
+          <button
+            type="button"
+            className="lm-gear-btn"
+            onClick={() => setShowHelp(true)}
+            aria-label="帮助"
+            title="帮助"
+          >
+            ?
+          </button>
           <button
             type="button"
             className="lm-gear-btn"
@@ -1803,7 +1683,7 @@ export function App() {
             </div>
           </div>
           <div className="lm-header-spacer" />
-          <div className="lm-tabs" style={{ marginBottom: 0, minWidth: 170 }}>
+          <div className="lm-tabs lm-main-nav-tabs" style={{ marginBottom: 0, minWidth: 280 }}>
             <button
               type="button"
               className={`lm-tab ${mainView === "chat" ? "active" : ""}`}
@@ -1817,6 +1697,20 @@ export function App() {
               onClick={() => setMainView("files")}
             >
               文件
+            </button>
+            <button
+              type="button"
+              className={`lm-tab ${mainView === "matters" ? "active" : ""}`}
+              onClick={() => setMainView("matters")}
+            >
+              案件
+            </button>
+            <button
+              type="button"
+              className={`lm-tab ${mainView === "review" ? "active" : ""}`}
+              onClick={() => setMainView("review")}
+            >
+              审核
             </button>
           </div>
           {projectDir && (
@@ -1832,6 +1726,25 @@ export function App() {
             projectDir={projectDir}
             canUseFilesystemBridge={canUseFilesystemBridge}
           />
+        ) : mainView === "matters" && config ? (
+          <div className="lm-main-workbench">
+            <MatterWorkbench
+              apiBase={config.apiBase}
+              onUseInChat={(matterId) => {
+                setContextMatterId(matterId);
+                setMainView("chat");
+              }}
+            />
+          </div>
+        ) : mainView === "review" && config ? (
+          <div className="lm-main-workbench">
+            <ReviewWorkbench
+              apiBase={config.apiBase}
+              assistantId={selectedAssistantId}
+              onShowArtifact={(relPath) => openOutputInFolder(relPath)}
+              onRecordsChanged={() => void refreshLists()}
+            />
+          </div>
         ) : (
           <>
         <div className="lm-messages">

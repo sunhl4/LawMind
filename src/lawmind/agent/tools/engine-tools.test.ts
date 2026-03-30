@@ -64,11 +64,13 @@ describe("Engine-Bridge Tools", () => {
     expect(names).toContain("draft_document");
     expect(names).toContain("render_document");
     expect(names).toContain("execute_workflow");
+    expect(names).toContain("register_template");
+    expect(names).toContain("list_templates");
   });
 
-  it("total tool count is 19 (14 legal + 5 engine)", () => {
+  it("total tool count is 22 (15 legal + 7 engine)", () => {
     const registry = createLegalToolRegistry();
-    expect(registry.size()).toBe(19);
+    expect(registry.size()).toBe(22);
   });
 });
 
@@ -238,6 +240,26 @@ describe("draft_document", () => {
     expect(data.reviewStatus).toBe("pending");
   });
 
+  it("accepts explicit template_id", async () => {
+    const ws = tmpWorkspace();
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("draft_document")!;
+
+    const result = await tool.execute(
+      {
+        instruction: "请整理合同审查意见",
+        title: "合同审查意见书",
+        matter_id: "m-draft-template",
+        template_id: "word/contract-default",
+      },
+      makeCtx(ws, "m-draft-template"),
+    );
+
+    expect(result.ok).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.templateId).toBe("word/contract-default");
+  });
+
   it("rejects empty instruction", async () => {
     const ws = tmpWorkspace();
     const registry = createLegalToolRegistry();
@@ -252,5 +274,34 @@ describe("draft_document", () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain("instruction 不能为空");
+  });
+});
+
+describe("template tools", () => {
+  it("registers and lists uploaded templates", async () => {
+    const ws = tmpWorkspace();
+    const sourcePath = path.join(ws, "firm-template.docx");
+    fs.writeFileSync(sourcePath, "fake-docx", "utf8");
+    const registry = createLegalToolRegistry();
+    const registerTool = registry.get("register_template")!;
+    const listTool = registry.get("list_templates")!;
+
+    const registerResult = await registerTool.execute(
+      {
+        id: "upload/firm-template",
+        format: "docx",
+        label: "Firm Template",
+        source_path: sourcePath,
+        placeholder_map_json: '{"case_title":"title"}',
+      },
+      makeCtx(ws),
+    );
+    expect(registerResult.ok).toBe(true);
+
+    const listResult = await listTool.execute({}, makeCtx(ws));
+    expect(listResult.ok).toBe(true);
+    const data = listResult.data as Record<string, unknown>;
+    expect((data.builtIn as unknown[]).length).toBeGreaterThanOrEqual(3);
+    expect((data.uploaded as Array<{ id: string }>)[0]?.id).toBe("upload/firm-template");
   });
 });

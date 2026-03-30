@@ -467,7 +467,7 @@ function registerIpcHandlers() {
     return { ok: true, path: res.filePaths[0] };
   });
 
-  ipcMain.handle("lawmind:set-project-dir", (_evt, nextPath) => {
+  ipcMain.handle("lawmind:set-project-dir", async (_evt, nextPath) => {
     const paths = lawMindPaths();
     fs.mkdirSync(paths.lawMindRoot, { recursive: true });
     let prev = {};
@@ -493,6 +493,16 @@ function registerIpcHandlers() {
     };
     fs.writeFileSync(paths.configPath, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
     projectDir = projectAbs;
+    // Restart local API so LAWMIND_PROJECT_DIR and /api/fs/* match File Workbench.
+    try {
+      await restartBackendInternal();
+    } catch (e) {
+      return {
+        ok: false,
+        error: e instanceof Error ? e.message : String(e),
+        projectDir,
+      };
+    }
     return { ok: true, projectDir };
   });
 

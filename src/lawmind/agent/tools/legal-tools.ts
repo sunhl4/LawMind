@@ -13,6 +13,7 @@
  *   system   — 读取配置、查看状态
  */
 
+import { readdirSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { readAllAuditLogs } from "../../audit/index.js";
@@ -55,6 +56,110 @@ async function readSafe(filePath: string): Promise<string> {
   }
 }
 
+function normalizeRelPath(p: string): string {
+  return String(p || "")
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "");
+}
+
+const PROJECT_TEXT_EXT = new Set([
+  ".md",
+  ".txt",
+  ".json",
+  ".csv",
+  ".tsx",
+  ".ts",
+  ".jsx",
+  ".js",
+  ".vue",
+  ".html",
+  ".css",
+  ".yml",
+  ".yaml",
+  ".xml",
+]);
+
+const MAX_PROJECT_TEXT_FILES = 72;
+const MAX_PROJECT_FILE_SCAN_BYTES = 200_000;
+
+/** Bounded scan of user project dir (desktop "project" root). */
+function listProjectTextFiles(projectRoot: string): string[] {
+  const rootAbs = path.resolve(projectRoot);
+  const out: string[] = [];
+  const walk = (dir: string, depth: number) => {
+    if (out.length >= MAX_PROJECT_TEXT_FILES || depth > 8) {
+      return;
+    }
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (out.length >= MAX_PROJECT_TEXT_FILES) {
+        return;
+      }
+      const name = e.name;
+      if (
+        name === "node_modules" ||
+        name === ".git" ||
+        name === "dist" ||
+        name === "build" ||
+        name === ".next" ||
+        name === "coverage"
+      ) {
+        continue;
+      }
+      const full = path.join(dir, name);
+      if (e.isDirectory()) {
+        walk(full, depth + 1);
+      } else {
+        const ext = path.extname(name).toLowerCase();
+        if (PROJECT_TEXT_EXT.has(ext)) {
+          out.push(full);
+        }
+      }
+    }
+  };
+  walk(rootAbs, 0);
+  return out;
+}
+
+async function searchProjectTextFiles(
+  projectRoot: string,
+  query: string,
+): Promise<Array<{ source: string; snippet: string }>> {
+  const q = query.toLowerCase();
+  const results: Array<{ source: string; snippet: string }> = [];
+  const rootAbs = path.resolve(projectRoot);
+  const files = listProjectTextFiles(rootAbs);
+  for (const file of files) {
+    let st: Awaited<ReturnType<typeof fs.stat>>;
+    try {
+      st = await fs.stat(file);
+    } catch {
+      continue;
+    }
+    if (!st.isFile() || st.size > MAX_PROJECT_FILE_SCAN_BYTES) {
+      continue;
+    }
+    const content = await readSafe(file);
+    const rel = path.relative(rootAbs, file).replace(/\\/g, "/");
+    const lines = content.split("\n");
+    for (const line of lines) {
+      if (line.toLowerCase().includes(q)) {
+        results.push({ source: `project:${rel}`, snippet: line.trim().slice(0, 220) });
+        if (results.length >= 45) {
+          return results;
+        }
+      }
+    }
+  }
+  return results;
+}
+
 // ─────────────────────────────────────────────
 // Search Tools
 // ─────────────────────────────────────────────
@@ -86,7 +191,8 @@ const searchMatter: AgentTool = {
 const searchWorkspace: AgentTool = {
   definition: {
     name: "search_workspace",
-    description: "搜索工作区文件内容（MEMORY.md、LAWYER_PROFILE.md、案件档案等）。",
+    description:
+      "搜索 LawMind 工作区记忆（MEMORY.md、LAWYER_PROFILE.md、案件档案等）。若用户关联了桌面「项目目录」，会**额外**扫描该项目内有限数量的文本文件（有界检索）。",
     category: "search",
     parameters: {
       query: { type: "string", description: "搜索关键词", required: true },
@@ -114,9 +220,83 @@ const searchWorkspace: AgentTool = {
       }
     }
 
+    let projectHits: Array<{ source: string; snippet: string }> = [];
+    if (ctx.projectDir?.trim()) {
+      try {
+        projectHits = await searchProjectTextFiles(ctx.projectDir.trim(), params.query as string);
+      } catch {
+        projectHits = [];
+      }
+    }
+
+    const merged = [...results, ...projectHits].slice(0, 60);
+
     return {
       ok: true,
-      data: { query: params.query, results: results.slice(0, 30), total: results.length },
+      data: {
+        query: params.query,
+        results: merged,
+        total: merged.length,
+        projectScanned: Boolean(ctx.projectDir?.trim()),
+      },
+    };
+  },
+};
+
+const readProjectFile: AgentTool = {
+  definition: {
+    name: "read_project_file",
+    description:
+      "读取律师在桌面端关联的「项目目录」下的文本文件（相对路径）。用于合同、证据清单、说明等本地材料；未关联项目时不可用。",
+    category: "search",
+    parameters: {
+      relative_path: {
+        type: "string",
+        description: '相对项目根的路径，如 "合同/补充协议.md" 或 "notes.txt"',
+        required: true,
+      },
+    },
+  },
+  async execute(params, ctx) {
+    const root = ctx.projectDir?.trim();
+    if (!root) {
+      return {
+        ok: false,
+        error: "未关联项目目录：请在 LawMind 桌面端选择项目文件夹后再试。",
+      };
+    }
+    const rel = normalizeRelPath(params.relative_path as string);
+    if (!rel || rel.includes("..")) {
+      return { ok: false, error: "非法路径" };
+    }
+    const full = path.resolve(root, rel);
+    const rootAbs = path.resolve(root);
+    if (full !== rootAbs && !full.startsWith(rootAbs + path.sep)) {
+      return { ok: false, error: "路径越界" };
+    }
+    const st = await fs.stat(full).catch(() => null);
+    if (!st?.isFile()) {
+      return { ok: false, error: "文件不存在或不是普通文件" };
+    }
+    const maxBytes = 1_000_000;
+    if (st.size > maxBytes) {
+      return { ok: false, error: `文件过大（>${maxBytes} bytes）` };
+    }
+    const buf = await fs.readFile(full);
+    for (let i = 0; i < Math.min(buf.length, 4096); i++) {
+      if (buf[i] === 0) {
+        return { ok: false, error: "二进制文件不支持" };
+      }
+    }
+    const text = buf.toString("utf8");
+    return {
+      ok: true,
+      data: {
+        path: rel,
+        content: text.slice(0, 500_000),
+        size: st.size,
+        truncated: text.length > 500_000,
+      },
     };
   },
 };
@@ -668,6 +848,7 @@ export function createLegalToolRegistry(opts?: {
     // 信息检索
     searchMatter,
     searchWorkspace,
+    readProjectFile,
     searchStatute,
     searchCaseLaw,
     // 案件管理

@@ -83,6 +83,7 @@ describe("Legal Tool Registry", () => {
 
     expect(names).toContain("search_matter");
     expect(names).toContain("search_workspace");
+    expect(names).toContain("read_project_file");
     expect(names).toContain("get_matter_summary");
     expect(names).toContain("list_matters");
     expect(names).toContain("read_case_file");
@@ -138,6 +139,32 @@ describe("Legal Tool Registry", () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain("工作区外");
+  });
+
+  it("read_project_file requires projectDir", async () => {
+    const ws = tmpDir();
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("read_project_file")!;
+    const result = await tool.execute(
+      { relative_path: "a.md" },
+      { workspaceDir: ws, sessionId: "s", actorId: "a" },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/项目目录/);
+  });
+
+  it("read_project_file reads under projectDir", async () => {
+    const ws = tmpDir();
+    const proj = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-proj-"));
+    fs.writeFileSync(path.join(proj, "note.txt"), "hello project", "utf8");
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("read_project_file")!;
+    const result = await tool.execute(
+      { relative_path: "note.txt" },
+      { workspaceDir: ws, sessionId: "s", actorId: "a", projectDir: proj },
+    );
+    expect(result.ok).toBe(true);
+    expect((result.data as { content: string }).content).toContain("hello project");
   });
 });
 
@@ -277,5 +304,18 @@ describe("System Prompt", () => {
     });
     expect(prompt).toContain("联网检索");
     expect(prompt).toContain("web_search");
+  });
+
+  it("includes assistant profile and project dir when set", () => {
+    const prompt = buildSystemPrompt({
+      availableTools: [],
+      assistantProfileMarkdown: "岗位偏好：使用表格列风险。",
+      projectDirectoryHint: "/tmp/client-matter",
+    });
+    expect(prompt).toContain("本助手专属偏好");
+    expect(prompt).toContain("岗位偏好：使用表格列风险");
+    expect(prompt).toContain("当前项目目录");
+    expect(prompt).toContain("/tmp/client-matter");
+    expect(prompt).toContain("read_project_file");
   });
 });

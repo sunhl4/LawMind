@@ -46,22 +46,29 @@
 - [x] 接入通用大模型（Retrieval adapter，OpenAI-compatible + 环境变量预设）
 - [x] 接入法律专用模型（Retrieval adapter，同上）
 - [x] Word 模板文件（`workspace/templates/word/`）
-- [~] 人工审核 UI / CLI 交互（已实现 CLI 版本，待补正式界面）
+- [x] 人工审核 UI / CLI 交互（CLI + LawMind 桌面「审核」页：草稿列表、签批、渲染交付物）
 - [x] 完整端到端测试（smoke 脚本 + Router/Reasoning/Engine 正式测试用例）
+
+### LawMind Phase A（可审计交付底座，与顶尖产品路线对齐）
+
+- [x] 引擎黄金路径单测：`matter` → 草稿 → `review` → `render(docx)` → 审计含 `draft.reviewed` / `artifact.rendered`（`src/lawmind/integration/phase-a-golden-engine.test.ts`）
+- [x] 审计 Markdown 导出：`buildAuditExportMarkdown` + 按 `matterId` / `taskId` / 时间筛选（`src/lawmind/audit/index.ts`，桌面 `GET /api/audit/export`）
+- [x] PROFILE 分段解析：`listAssistantProfileSections` + `GET /api/assistants/<id>/profile-sections`
+- [x] 体检字段扩展：`GET /api/health` 含 `lawMindRoot`、`doctor.*`（`apps/lawmind-desktop/server/lawmind-health-payload.ts`）
 
 ### 第二期 — 扩展与深化
 
 - [x] PPT 渲染（`render-pptx.ts`，引擎按 `draft.output === "pptx"` 分发）
-- [ ] 案件级记忆：`workspace/cases/<matter-id>/CASE.md`
-- [ ] 律师偏好自动学习（反馈闭环写回 `LAWYER_PROFILE.md`）
-- [ ] 更细粒度法律文书模板库
+- [x] 案件级记忆：`workspace/cases/<matter-id>/CASE.md`（`loadMemoryContext` / `ensureCaseWorkspace` / 引擎与 Agent 工具；见 `src/lawmind/memory/index.test.ts`）
+- [x] 律师偏好显式学习：`appendLawyerProfileLearning`、`buildLawyerProfileReviewLearningLine`、审核台勾选写入「八、个人积累」、`POST /api/lawyer-profile/learning`
+- [x] 文书模板分类：`BuiltInTemplateCategory` + `GET /api/templates/built-in`（contracts / litigation / client / internal）
 
 ### 第三期 — 商业化与合规
 
-- [ ] 多律师协作支持
-- [ ] 私有化部署方案
-- [ ] 合规报表与审计链增强
-- [ ] 法律技能市场 + 签名机制
+- [x] 多律师协作支持（委派注册表 + `collaboration-audit.jsonl` + `GET /api/collaboration/summary`）
+- [x] 私有化部署方案（检查清单：[LawMind 私有化部署](/LAWMIND-PRIVATE-DEPLOY)）
+- [x] 合规报表与审计链增强（`buildComplianceAuditMarkdown`、`GET /api/audit/export?compliance=true`）
+- [x] 法律模板/技能包本地签名校验（`verifyLawMindBundleManifest`，[LawMind 包清单](/LAWMIND-BUNDLES)；非远程市场）
 
 ---
 
@@ -88,6 +95,7 @@
 - **LawMind 决策文档**：[docs/LAWMIND-DECISION.md](docs/LAWMIND-DECISION.md)
 - **LawMind 架构文档**：[docs/LAWMIND-ARCHITECTURE.md](docs/LAWMIND-ARCHITECTURE.md)
 - **LawMind 工程记忆（规划与进度）**：[docs/LAWMIND-PROJECT-MEMORY.md](docs/LAWMIND-PROJECT-MEMORY.md)
+- **LawMind 商业化支撑包（索引）**：[docs/LAWMIND-DELIVERY.md](docs/LAWMIND-DELIVERY.md)（§10 备份/升级）、[docs/LAWMIND-SECURITY-CHECKLIST.md](docs/LAWMIND-SECURITY-CHECKLIST.md)、[docs/LAWMIND-CUSTOMER-OVERVIEW.md](docs/LAWMIND-CUSTOMER-OVERVIEW.md)
 - **LawMind 模型适配说明**：[docs/LAWMIND-MODEL-ADAPTERS.md](docs/LAWMIND-MODEL-ADAPTERS.md)
 - 项目概览与开发：[README.md](README.md)
 - 贡献指南：[CONTRIBUTING.md](CONTRIBUTING.md)

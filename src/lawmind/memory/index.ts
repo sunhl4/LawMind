@@ -313,3 +313,9 @@ export async function appendLawyerProfile(workspaceDir: string, note: string): P
   const entry = `\n- [${timestamp}] ${note}`;
   await fs.appendFile(profilePath, entry, "utf8");
 }
+
+export {
+  appendLawyerProfileLearning,
+  buildLawyerProfileReviewLearningLine,
+  ensureLawyerProfileSkeleton,
+} from "./lawyer-profile-learning.js";

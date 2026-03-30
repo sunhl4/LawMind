@@ -23,8 +23,8 @@
  */
 
 import path from "node:path";
-import { renderDocx } from "./artifacts/render-docx.js";
-import { renderPptx } from "./artifacts/render-pptx.js";
+import { renderDocxWithOptions } from "./artifacts/render-docx.js";
+import { renderPptxWithOptions } from "./artifacts/render-pptx.js";
 import { emit } from "./audit/index.js";
 import {
   buildMatterIndex,
@@ -32,7 +32,13 @@ import {
   searchMatterIndex,
   summarizeMatterIndex,
 } from "./cases/index.js";
-import { persistDraft, readDraft } from "./drafts/index.js";
+import {
+  persistDraft,
+  persistResearchSnapshot,
+  readDraft,
+  resolveDraftCitationIntegrity,
+} from "./drafts/index.js";
+import { resolveDefaultEngineLawyerActorId } from "./engine-actor.js";
 import {
   appendCaseArtifact,
   appendCaseCoreIssue,
@@ -52,6 +58,7 @@ import {
   syncDraftToTaskRecord,
   updateTaskRecord,
 } from "./tasks/index.js";
+import { resolveTemplateForDraft } from "./templates/index.js";
 import type {
   ArtifactDraft,
   MatterIndex,
@@ -150,7 +157,7 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
     );
   }
 
-  function persistDraftPipeline(draft: ArtifactDraft) {
+  function persistDraftPipeline(draft: ArtifactDraft, bundle: ResearchBundle) {
     void appendTodayLog(
       workspaceDir,
       `## 草稿生成\n- 模板: ${draft.templateId}\n- 输出: ${draft.output}`,
@@ -161,6 +168,7 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
       actor: "system",
       detail: `模板：${draft.templateId}，格式：${draft.output}`,
     });
+    persistResearchSnapshot(workspaceDir, bundle);
     const storedDraftPath = persistDraft(workspaceDir, draft);
     syncDraftToTaskRecord(workspaceDir, draft, "drafted");
     updateTaskRecord(workspaceDir, draft.taskId, {
@@ -195,16 +203,17 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
         throw new Error(`任务不存在，无法确认：${taskId}`);
       }
 
+      const confirmActor = opts.actorId ?? resolveDefaultEngineLawyerActorId();
       await emit(auditDir, {
         taskId,
         kind: "task.confirmed",
         actor: "lawyer",
-        actorId: opts.actorId ?? "lawyer:system",
+        actorId: confirmActor,
         detail: opts.note ?? "任务已确认，可进入执行阶段。",
       });
       await appendTodayLog(
         workspaceDir,
-        `## 任务确认\n- 任务: ${taskId}\n- 审核人: ${opts.actorId ?? "lawyer:system"}`,
+        `## 任务确认\n- 任务: ${taskId}\n- 审核人: ${confirmActor}`,
       );
       if (record.matterId) {
         await appendCaseProgress(
@@ -297,7 +306,7 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
         title: opts.title,
         templateId: opts.templateId,
       });
-      persistDraftPipeline(draft);
+      persistDraftPipeline(draft, bundle);
       return draft;
     },
 
@@ -308,17 +317,30 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
         title: opts.title,
         templateId: opts.templateId,
       });
-      persistDraftPipeline(draft);
+      persistDraftPipeline(draft, bundle);
       return draft;
     },
 
     async review(draft, opts = {}) {
       const status = opts.status ?? "approved";
       draft.reviewStatus = status;
-      draft.reviewedBy = opts.actorId ?? draft.reviewedBy ?? "lawyer:system";
+      draft.reviewedBy = opts.actorId ?? draft.reviewedBy ?? resolveDefaultEngineLawyerActorId();
       draft.reviewedAt = draft.reviewedAt ?? new Date().toISOString();
       if (opts.note) {
         draft.reviewNotes.push(opts.note);
+      }
+
+      const citationView = resolveDraftCitationIntegrity(workspaceDir, draft);
+      if (citationView.checked && !citationView.ok) {
+        await emit(auditDir, {
+          taskId: draft.taskId,
+          kind: "draft.citation_integrity",
+          actor: "system",
+          detail: `${JSON.stringify({
+            missingSourceIds: citationView.missingSourceIds,
+            sectionsWithIssues: citationView.sectionsWithIssues,
+          })} 审核时引用与检索 bundle 不一致（非阻塞，已记录）`,
+        });
       }
 
       await emit(auditDir, {
@@ -363,18 +385,26 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
         };
       }
 
+      const templateResolution = await resolveTemplateForDraft({ workspaceDir, draft });
+
       await emit(auditDir, {
         taskId: draft.taskId,
         kind: "artifact.rendered",
         actor: "system",
-        detail: `模板：${draft.templateId}，格式：${draft.output}`,
+        detail: `模板：${templateResolution.resolvedId}（请求：${templateResolution.requestedId}，来源：${templateResolution.source}），格式：${draft.output}`,
       });
 
       const result =
         draft.output === "pptx"
-          ? await renderPptx(draft, outputDir)
+          ? await renderPptxWithOptions(draft, outputDir, {
+              templateVariant: templateResolution.variant,
+              uploadedTemplate: templateResolution.uploaded,
+            })
           : draft.output === "docx"
-            ? await renderDocx(draft, outputDir)
+            ? await renderDocxWithOptions(draft, outputDir, {
+                templateVariant: templateResolution.variant,
+                uploadedTemplate: templateResolution.uploaded,
+              })
             : {
                 ok: false,
                 error: `当前不支持渲染格式：${draft.output}（仅支持 docx / pptx）。`,
@@ -387,7 +417,7 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
           taskId: draft.taskId,
           kind: "artifact.rendered",
           actor: "system",
-          detail: `输出路径：${result.outputPath}`,
+          detail: `输出路径：${result.outputPath}${templateResolution.fallbackReason ? `；回退原因：${templateResolution.fallbackReason}` : ""}`,
         });
         syncDraftToTaskRecord(workspaceDir, draft, "rendered");
         updateTaskRecord(workspaceDir, draft.taskId, {
@@ -455,12 +485,22 @@ export { route, routeAsync } from "./router/index.js";
 export {
   buildMatterIndex,
   buildMatterOverview,
+  createMatterIfAbsent,
   listMatterIds,
   listMatterOverviews,
   searchMatterIndex,
   summarizeMatterIndex,
+  isValidMatterId,
+  parseOptionalMatterId,
 } from "./cases/index.js";
-export { ensureCaseWorkspace, loadMemoryContext } from "./memory/index.js";
+export type { CreateMatterResult } from "./cases/index.js";
+export {
+  appendLawyerProfileLearning,
+  buildLawyerProfileReviewLearningLine,
+  ensureCaseWorkspace,
+  ensureLawyerProfileSkeleton,
+  loadMemoryContext,
+} from "./memory/index.js";
 export { createWorkspaceAdapter } from "./retrieval/index.js";
 export { createGeneralModelAdapter, createLegalModelAdapter } from "./retrieval/model-adapters.js";
 export { createOpenAICompatibleAdapters } from "./retrieval/openai-compatible.js";
@@ -470,14 +510,45 @@ export {
   createLexEdgeAdapterFromEnv,
   createPartnerLegalAdapterFromEnv,
 } from "./retrieval/providers.js";
-export { readAllAuditLogs, readAuditLog } from "./audit/index.js";
+export {
+  readAllAuditLogs,
+  readAuditLog,
+  buildAuditExportMarkdown,
+  buildComplianceAuditMarkdown,
+  filterAuditEventsForExport,
+  formatAuditExportMarkdown,
+  type AuditExportFilters,
+} from "./audit/index.js";
 export {
   deriveInstructionTitle,
+  listTaskCheckpoints,
   listTaskRecords,
   persistAgentInstructionTask,
   readTaskRecord,
+  type TaskCheckpoint,
 } from "./tasks/index.js";
-export { listDrafts, readDraft } from "./drafts/index.js";
+export {
+  listDrafts,
+  readDraft,
+  resolveDraftCitationIntegrity,
+  validateDraftCitationsAgainstBundle,
+  type CitationIntegrityResult,
+  type DraftCitationIntegrityView,
+} from "./drafts/index.js";
+export {
+  listBuiltInTemplates,
+  listUploadedTemplates,
+  registerUploadedTemplate,
+  resolveTemplateForDraft,
+  setUploadedTemplateEnabled,
+  type BuiltInTemplateCategory,
+} from "./templates/index.js";
+export {
+  parseLawMindBundleManifest,
+  verifyLawMindBundleManifest,
+  type LawMindBundleEntryRole,
+  type LawMindBundleManifest,
+} from "./skills/index.js";
 
 // Agent — 自主推理循环（第二代架构）
 export { createLawMindAgent } from "./agent/index.js";
@@ -490,3 +561,12 @@ export type {
   AgentTool,
   AgentContext,
 } from "./agent/types.js";
+export {
+  readAssistantProfileMarkdown,
+  appendAssistantProfileMarkdown,
+  assistantProfilePath,
+  buildReviewProfileLine,
+  listAssistantProfileSections,
+  type AssistantProfileSectionMeta,
+} from "./assistants/profile-md.js";
+export { resolveDefaultEngineLawyerActorId } from "./engine-actor.js";

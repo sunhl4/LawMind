@@ -32,7 +32,18 @@ Or from this directory:
 pnpm dev
 ```
 
-This starts Vite on port **5174** and Electron. Use the **Electron** window only; opening `http://127.0.0.1:5174` in a normal browser shows “Preload bridge missing” (no `contextBridge`). Optional: create `.env.development.local` in `apps/lawmind-desktop` with `VITE_LAWMIND_DEV_API=http://127.0.0.1:<lawmind-server-port>` if you need to tweak the UI in a browser while the local server runs elsewhere.
+This starts Vite on port **5174** and Electron. Use the **Electron** window only; opening `http://127.0.0.1:5174` in a normal browser shows “Preload bridge missing” (no `contextBridge`). Optional: create `.env.development.local` in `apps/lawmind-desktop` with `VITE_LAWMIND_DEV_API=http://127.0.0.1:<lawmind-server-port>` to point the UI at a running LawMind API when the Electron preload bridge is absent (browser dev or Playwright E2E).
+
+### E2E (Playwright)
+
+From repo root (after `pnpm install`):
+
+```bash
+pnpm --filter lawmind-desktop test:e2e:install   # once: Chromium for Playwright
+pnpm lawmind:desktop:e2e
+```
+
+This starts a tiny mock API plus Vite dev with `VITE_LAWMIND_DEV_API` and runs `apps/lawmind-desktop/e2e/*.spec.ts`.
 
 The main process resolves the monorepo root (must contain `openclaw` `package.json`). Override with:
 

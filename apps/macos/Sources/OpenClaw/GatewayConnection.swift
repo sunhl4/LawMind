@@ -44,6 +44,13 @@ struct GatewayAgentInvocation {
     var idempotencyKey: String = UUID().uuidString
 }
 
+struct GatewayAgentSendAck {
+    let ok: Bool
+    let error: String?
+    let runId: String?
+    let status: String?
+}
+
 /// Single, shared Gateway websocket connection for the whole app.
 ///
 /// This owns exactly one `GatewayChannelActor` and reuses it across all callers
@@ -482,8 +489,15 @@ extension GatewayConnection {
     }
 
     func sendAgent(_ invocation: GatewayAgentInvocation) async -> (ok: Bool, error: String?) {
+        let ack = await self.sendAgentWithAck(invocation)
+        return (ack.ok, ack.error)
+    }
+
+    func sendAgentWithAck(_ invocation: GatewayAgentInvocation) async -> GatewayAgentSendAck {
         let trimmed = invocation.message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return (false, "message empty") }
+        guard !trimmed.isEmpty else {
+            return GatewayAgentSendAck(ok: false, error: "message empty", runId: nil, status: nil)
+        }
         let sessionKey = self.canonicalizeSessionKey(invocation.sessionKey)
 
         var params: [String: AnyCodable] = [
@@ -500,10 +514,17 @@ extension GatewayConnection {
         }
 
         do {
-            try await self.requestVoid(method: .agent, params: params)
-            return (true, nil)
+            let data = try await self.requestRaw(method: .agent, params: params)
+            if let decoded = try? self.decoder.decode(OpenClawChatSendResponse.self, from: data) {
+                return GatewayAgentSendAck(
+                    ok: true,
+                    error: nil,
+                    runId: decoded.runId,
+                    status: decoded.status)
+            }
+            return GatewayAgentSendAck(ok: true, error: nil, runId: nil, status: nil)
         } catch {
-            return (false, error.localizedDescription)
+            return GatewayAgentSendAck(ok: false, error: error.localizedDescription, runId: nil, status: nil)
         }
     }
 

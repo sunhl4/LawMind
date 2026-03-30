@@ -1,0 +1,35 @@
+# Manual only: Playwright smoke for LawMind renderer + mock API (no Electron).
+# Requires Chromium download; not run on every PR to avoid CI noise/flake.
+name: LawMind desktop E2E
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lawmind-desktop-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm --filter lawmind-desktop exec playwright install chromium --with-deps
+
+      - name: E2E smoke
+        run: pnpm lawmind:desktop:e2e

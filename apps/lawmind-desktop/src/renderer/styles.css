@@ -669,6 +669,14 @@ body {
   overflow: hidden;
 }
 
+.lm-main-workbench {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 /* ── Main header ───────────────────────────────────────────── */
 .lm-main-header {
   display: flex;
@@ -1012,6 +1020,47 @@ body {
 }
 
 /* ── Modal backdrop ────────────────────────────────────────── */
+.lm-help-panel {
+  max-width: 420px;
+}
+
+.lm-help-links {
+  margin: 12px 0 0;
+  padding-left: 1.2em;
+  color: var(--text-2);
+  line-height: 1.7;
+}
+
+.lm-help-links a {
+  color: var(--accent);
+}
+
+.lm-onboarding-checklist .lm-settings-row {
+  align-items: center;
+}
+
+.lm-onboarding-hint {
+  margin-top: 8px;
+  font-size: 11px;
+}
+
+.lm-disclaimer {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-top: 12px;
+}
+
+.lm-disclaimer a {
+  color: var(--accent);
+}
+
+.lm-settings-disclaimer {
+  padding: 12px 20px 16px;
+  margin: 0;
+  border-top: 1px solid var(--border);
+}
+
 .lm-wizard-backdrop {
   position: fixed;
   inset: 0;
@@ -1820,4 +1869,431 @@ body {
   height: 1px;
   background: var(--border);
   margin: 3px 4px;
+}
+
+/* ── Matter + Review workbenches ───────────────────────────── */
+.lm-workbench {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) 1fr;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.lm-workbench-list {
+  border-right: 1px solid var(--border);
+  background: var(--side-bg);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.lm-workbench-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  gap: 8px;
+}
+
+.lm-workbench-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lm-workbench-list-header h2 {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.lm-btn-small {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+.lm-workbench-empty,
+.lm-workbench-placeholder {
+  padding: 20px 14px;
+  line-height: 1.6;
+}
+
+.lm-workbench-matter-list,
+.lm-workbench-draft-list {
+  list-style: none;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.lm-matter-row,
+.lm-draft-row {
+  width: 100%;
+  text-align: left;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  font-family: var(--font);
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: background var(--t) var(--ease);
+}
+
+.lm-matter-row:hover,
+.lm-draft-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+}
+
+.lm-matter-row.active,
+.lm-draft-row.active {
+  background: var(--accent-dim);
+  border-left-color: var(--accent);
+  color: var(--text);
+}
+
+.lm-matter-id {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.lm-matter-meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.lm-draft-title {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.lm-workbench-main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.lm-workbench-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.lm-workbench-title-block h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.lm-matter-headline {
+  color: var(--text-2);
+  margin-bottom: 4px;
+  line-height: 1.5;
+}
+
+.lm-workbench-tabs {
+  padding: 0 20px;
+  flex-shrink: 0;
+}
+
+.lm-workbench-panel {
+  padding: 16px 20px;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.lm-workbench-panel h3 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.lm-bullet-list {
+  list-style: disc;
+  padding-left: 1.2em;
+  color: var(--text-2);
+  line-height: 1.6;
+}
+
+.lm-case-md {
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 12px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.lm-case-search {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.lm-case-search input {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+}
+
+.lm-search-hits {
+  list-style: none;
+  margin-bottom: 16px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.lm-search-hits li {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.lm-search-hit-section {
+  display: inline-block;
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
+.lm-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+@media (max-width: 900px) {
+  .lm-two-col { grid-template-columns: 1fr; }
+}
+
+.lm-audit-list {
+  list-style: none;
+}
+
+.lm-audit-list li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.lm-audit-kind {
+  font-family: var(--mono);
+  color: var(--accent);
+  margin-right: 8px;
+}
+
+.lm-audit-time {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.lm-audit-detail {
+  margin-top: 4px;
+  color: var(--text-2);
+}
+
+.lm-review-filters {
+  display: flex;
+  gap: 4px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.lm-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.lm-review-profile-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 0 20px 12px;
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+
+.lm-review-profile-toggle input {
+  margin-top: 3px;
+}
+
+.lm-review-profile-toggle code {
+  font-size: 10px;
+  color: var(--accent);
+}
+
+.lm-modal-matter-create {
+  max-width: 440px;
+}
+
+.lm-review-note {
+  padding: 0 20px 12px;
+}
+
+.lm-review-note textarea {
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font);
+  resize: vertical;
+}
+
+.lm-review-msg {
+  padding: 0 20px;
+  color: var(--ok);
+}
+
+.lm-draft-preview {
+  padding: 0 20px 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.lm-draft-section {
+  margin-bottom: 20px;
+}
+
+.lm-draft-section h4 {
+  font-size: 14px;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+
+.lm-draft-body {
+  color: var(--text-2);
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.lm-draft-status-pending { color: var(--warn); }
+.lm-draft-status-approved { color: var(--ok); }
+.lm-draft-status-rejected { color: var(--error); }
+.lm-draft-status-modified { color: var(--info); }
+
+.lm-btn-accent {
+  background: linear-gradient(135deg, rgba(183, 154, 103, 0.25), rgba(183, 154, 103, 0.12));
+  border: 1px solid var(--accent-border);
+  color: var(--accent);
+}
+
+.lm-btn-accent:hover:not(:disabled) {
+  background: rgba(183, 154, 103, 0.22);
+  color: var(--accent-hover);
+}
+
+/* Citation integrity (draft vs research bundle) */
+.lm-citation-ok {
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--ok-dim);
+  color: var(--ok);
+  margin-bottom: 12px;
+}
+
+.lm-citation-skip {
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+
+.lm-citation-warn {
+  padding: 12px 14px;
+  border-radius: var(--r-sm);
+  margin-bottom: 12px;
+}
+
+.lm-citation-warn-list {
+  margin: 8px 0 0;
+  padding-left: 1.2rem;
+  color: var(--text-2);
+}
+
+/* Task checkpoints (derived from TaskRecord.status) */
+.lm-checkpoints {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.lm-checkpoints-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.lm-checkpoint-reached {
+  color: var(--ok);
+}
+
+.lm-checkpoint-pending {
+  color: var(--muted);
+}
+
+/* Matter workbench: per-draft citation integrity (vs research snapshot) */
+.lm-matter-cit {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--r-xs);
+  vertical-align: middle;
+}
+
+.lm-matter-cit-ok {
+  color: var(--ok);
+  background: var(--ok-dim);
+  border: 1px solid rgba(45, 212, 160, 0.25);
+}
+
+.lm-matter-cit-skip {
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.lm-matter-cit-warn {
+  color: var(--warn);
+  background: var(--warn-dim);
+  border: 1px solid rgba(245, 166, 35, 0.35);
 }

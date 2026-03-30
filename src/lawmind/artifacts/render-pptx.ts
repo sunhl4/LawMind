@@ -7,10 +7,16 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import PptxGenJS from "pptxgenjs";
+import type { UploadedTemplateRecord } from "../templates/index.js";
 import type { ArtifactDraft, ArtifactSection } from "../types.js";
 import type { RenderResult } from "./render-docx.js";
 
 type PptxPresentation = InstanceType<typeof PptxGenJS>;
+
+export type RenderPptxOptions = {
+  templateVariant?: string;
+  uploadedTemplate?: UploadedTemplateRecord;
+};
 
 function addSectionSlide(pptx: PptxPresentation, section: ArtifactSection): void {
   const slide = pptx.addSlide();
@@ -59,6 +65,60 @@ function addSectionSlide(pptx: PptxPresentation, section: ArtifactSection): void
  * 渲染前会检查 reviewStatus。
  */
 export async function renderPptx(draft: ArtifactDraft, outputDir: string): Promise<RenderResult> {
+  return renderPptxWithOptions(draft, outputDir, {});
+}
+
+function resolveDeckStyle(variant: string): {
+  accent: string;
+  subtitle: string;
+  footerLabel: string;
+} {
+  if (variant === "hearingStrategy") {
+    return {
+      accent: "3b4cca",
+      subtitle: "Hearing Strategy",
+      footerLabel: "Template: Hearing Strategy",
+    };
+  }
+  if (variant === "evidenceTimeline") {
+    return {
+      accent: "7a4f15",
+      subtitle: "Evidence Timeline",
+      footerLabel: "Template: Evidence Timeline",
+    };
+  }
+  if (variant === "uploadedMapped") {
+    return {
+      accent: "1f7a6e",
+      subtitle: "Uploaded Template Mapping",
+      footerLabel: "Template: Uploaded",
+    };
+  }
+  return {
+    accent: "1a1a1a",
+    subtitle: "Client Brief",
+    footerLabel: "Template: Client Brief",
+  };
+}
+
+function uploadedTemplateNotes(uploaded: UploadedTemplateRecord | undefined): string {
+  if (!uploaded) {
+    return "";
+  }
+  const mappings = Object.entries(uploaded.placeholderMap).map(
+    ([placeholder, source]) => `{{${placeholder}}} -> ${source}`,
+  );
+  if (mappings.length === 0) {
+    return `Uploaded template: ${uploaded.label} v${uploaded.version}`;
+  }
+  return [`Uploaded template: ${uploaded.label} v${uploaded.version}`, ...mappings].join("\n");
+}
+
+export async function renderPptxWithOptions(
+  draft: ArtifactDraft,
+  outputDir: string,
+  options: RenderPptxOptions,
+): Promise<RenderResult> {
   if (draft.reviewStatus !== "approved") {
     return {
       ok: false,
@@ -66,6 +126,7 @@ export async function renderPptx(draft: ArtifactDraft, outputDir: string): Promi
     };
   }
 
+  const style = resolveDeckStyle(options.templateVariant ?? "clientBrief");
   const pptx = new PptxGenJS();
   pptx.layout = "LAYOUT_16x9";
   pptx.author = "LawMind";
@@ -78,7 +139,15 @@ export async function renderPptx(draft: ArtifactDraft, outputDir: string): Promi
     h: 1.2,
     fontSize: 32,
     bold: true,
-    color: "1a1a1a",
+    color: style.accent,
+  });
+  titleSlide.addText(style.subtitle, {
+    x: 0.6,
+    y: 0.9,
+    w: 8.8,
+    h: 0.4,
+    fontSize: 14,
+    color: "666666",
   });
   if (draft.summary.trim()) {
     titleSlide.addText(draft.summary, {
@@ -102,6 +171,27 @@ export async function renderPptx(draft: ArtifactDraft, outputDir: string): Promi
       color: "666666",
     });
   }
+  const uploadedNotes = uploadedTemplateNotes(options.uploadedTemplate);
+  if (uploadedNotes) {
+    titleSlide.addText(uploadedNotes, {
+      x: 6.1,
+      y: 5.6,
+      w: 3.2,
+      h: 1.5,
+      fontSize: 10,
+      color: "444444",
+      valign: "top",
+      wrap: true,
+    });
+  }
+  titleSlide.addText(style.footerLabel, {
+    x: 0.6,
+    y: 7.1,
+    w: 4.5,
+    h: 0.3,
+    fontSize: 10,
+    color: "888888",
+  });
 
   for (const section of draft.sections) {
     addSectionSlide(pptx, section);

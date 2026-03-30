@@ -12,6 +12,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { listTaskRecords } from "../tasks/index.js";
 import type { AuditEvent, AuditEventKind } from "../types.js";
 
 // ─────────────────────────────────────────────
@@ -98,4 +99,165 @@ export async function readAllAuditLogs(auditDir: string): Promise<AuditEvent[]> 
   );
 
   return batches.flat().toSorted((a, b) => a.timestamp.localeCompare(b.timestamp));
+}
+
+// ─────────────────────────────────────────────
+// 可导出报告（Phase A：按案件 / 任务筛选，Markdown）
+// ─────────────────────────────────────────────
+
+export type AuditExportFilters = {
+  matterId?: string;
+  taskId?: string;
+  /** ISO 8601：保留 timestamp >= since */
+  since?: string;
+  /** ISO 8601：保留 timestamp <= until */
+  until?: string;
+  /** 超出时保留时间最近的若干条（默认 2000） */
+  maxEvents?: number;
+};
+
+/**
+ * 在内存中筛选审计事件（可单测，不读盘）。
+ * - 同时指定 taskId 与 matterId 时，以 taskId 为准。
+ * - 按 matterId 筛选时，用当前 workspace 下任务记录的 matterId 映射到 taskId。
+ */
+export function filterAuditEventsForExport(
+  events: AuditEvent[],
+  workspaceDir: string,
+  filters: AuditExportFilters,
+): AuditEvent[] {
+  let out = [...events];
+  const tid = filters.taskId?.trim();
+  const mid = filters.matterId?.trim();
+  if (tid) {
+    out = out.filter((e) => e.taskId === tid);
+  } else if (mid) {
+    const taskIds = new Set(
+      listTaskRecords(workspaceDir)
+        .filter((t) => t.matterId === mid)
+        .map((t) => t.taskId),
+    );
+    out = out.filter((e) => taskIds.has(e.taskId));
+  }
+  const since = filters.since?.trim();
+  if (since) {
+    out = out.filter((e) => e.timestamp >= since);
+  }
+  const until = filters.until?.trim();
+  if (until) {
+    out = out.filter((e) => e.timestamp <= until);
+  }
+  out = out.toSorted((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const max = filters.maxEvents ?? 2000;
+  if (out.length > max) {
+    out = out.slice(-max);
+  }
+  return out;
+}
+
+function escapeMdCell(s: string): string {
+  return s.replace(/\|/g, "\\|").replace(/\r\n/g, "\n").replace(/\n/g, "<br>");
+}
+
+/**
+ * 将筛选后的事件格式化为 Markdown（便于存档、打印、发给 IT）。
+ */
+export function formatAuditExportMarkdown(
+  workspaceDir: string,
+  events: AuditEvent[],
+  filters: AuditExportFilters,
+): string {
+  const lines: string[] = [
+    "# LawMind audit export",
+    "",
+    `- **Generated:** ${new Date().toISOString()}`,
+    `- **Workspace:** \`${workspaceDir}\``,
+    `- **Event count:** ${events.length}`,
+  ];
+  if (filters.matterId) {
+    lines.push(`- **Filter matterId:** \`${filters.matterId}\``);
+  }
+  if (filters.taskId) {
+    lines.push(`- **Filter taskId:** \`${filters.taskId}\``);
+  }
+  if (filters.since) {
+    lines.push(`- **Since:** \`${filters.since}\``);
+  }
+  if (filters.until) {
+    lines.push(`- **Until:** \`${filters.until}\``);
+  }
+  lines.push(
+    "",
+    "| timestamp | kind | actor | taskId | detail |",
+    "| --- | --- | --- | --- | --- |",
+  );
+  for (const e of events) {
+    const actor = e.actor + (e.actorId?.trim() ? ` (${escapeMdCell(e.actorId.trim())})` : "");
+    lines.push(
+      `| ${e.timestamp} | ${e.kind} | ${actor} | ${e.taskId} | ${escapeMdCell(e.detail ?? "")} |`,
+    );
+  }
+  return lines.join("\n");
+}
+
+/**
+ * 读取 workspace `audit/` 下全部 JSONL，筛选后输出 Markdown。
+ */
+export async function buildAuditExportMarkdown(
+  workspaceDir: string,
+  filters: AuditExportFilters = {},
+): Promise<string> {
+  const auditDir = path.join(workspaceDir, "audit");
+  const all = await readAllAuditLogs(auditDir);
+  const filtered = filterAuditEventsForExport(all, workspaceDir, filters);
+  return formatAuditExportMarkdown(workspaceDir, filtered, filters);
+}
+
+function countAuditKinds(events: AuditEvent[]): Record<string, number> {
+  const m: Record<string, number> = {};
+  for (const e of events) {
+    m[e.kind] = (m[e.kind] ?? 0) + 1;
+  }
+  return m;
+}
+
+/**
+ * 合规向审计摘要：在标准导出前增加事件统计与免责声明（仍为非法律意见）。
+ */
+export async function buildComplianceAuditMarkdown(
+  workspaceDir: string,
+  filters: AuditExportFilters = {},
+): Promise<string> {
+  const auditDir = path.join(workspaceDir, "audit");
+  const all = await readAllAuditLogs(auditDir);
+  const filtered = filterAuditEventsForExport(all, workspaceDir, filters);
+  const counts = countAuditKinds(filtered);
+  const countsLines = Object.keys(counts)
+    .toSorted((a, b) => a.localeCompare(b))
+    .map((k) => `- \`${k}\`: ${counts[k]}`);
+  const cover = [
+    "# LawMind compliance-oriented audit summary",
+    "",
+    "_This report is informational only. It does not constitute legal advice, certification, or a guarantee of completeness._",
+    "",
+    `- **Generated:** ${new Date().toISOString()}`,
+    `- **Workspace:** \`${workspaceDir}\``,
+    `- **Events included:** ${filtered.length}`,
+    "",
+    "## Filters",
+    "",
+    `- matterId: ${filters.matterId ?? "_none_"}`,
+    `- taskId: ${filters.taskId ?? "_none_"}`,
+    `- since: ${filters.since ?? "_none_"}`,
+    `- until: ${filters.until ?? "_none_"}`,
+    "",
+    "## Event counts by kind",
+    "",
+    ...(countsLines.length ? countsLines : ["_None_"]),
+    "",
+    "---",
+    "",
+  ].join("\n");
+  const body = formatAuditExportMarkdown(workspaceDir, filtered, filters);
+  return `${cover}\n${body}`;
 }

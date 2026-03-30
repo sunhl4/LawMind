@@ -127,10 +127,11 @@ workspace/
 - **`MEMORY.md` 仍会被加载**：用于检索管线（例如 `ModelRetrievalInput.memory.general`）、引擎桥接、以及 `search_workspace` 等工具对 `MEMORY.md` / `LAWYER_PROFILE.md` 的聚合搜索，模型通过工具与检索间接使用通用记忆。
 - 若希望「通用规则」也像偏好一样**每条对话必显式出现**，需要另行调整 prompt 组装策略（当前架构刻意区分：偏好更贴近人设，通用更偏可检索知识）。
 
-**长期需求（偏好进化 + 岗位专职记忆）——尚未作为独立子系统落地**
+**长期需求（偏好进化 + 岗位专职记忆）——部分落地**
 
-- 产品愿景中的「按助手维护记忆、随交互进化」需要额外设计，例如：`assistants/<assistantId>/PROFILE.md` 或与 `LAWYER_PROFILE.md` 分节约定、以及写入时机与合并策略；**当前仓库未实现 per-assistant 记忆文件**。
-- 演进期可继续用工作区两级文档 + 会话持久化（`sessions/*.json` / `*.turns.jsonl`）承载大部分「记得我说过什么」；分助手长期记忆可作为后续里程碑单独立项。
+- **已实现**：`assistants/<assistantId>/PROFILE.md`（位于 LawMind 根目录，与 `assistants.json` 同级父目录下的 `assistants/` 文件夹）。Agent `runTurn` 会将其全文并入 system prompt（与 `LAWYER_PROFILE.md` 并存）。提供 `appendAssistantProfileMarkdown()` 供后续「显式采纳」写入。
+- **待产品化**：桌面 UI 一键「写入偏好」、与审核通过联动、合并冲突策略。
+- 演进期仍配合工作区 `LAWYER_PROFILE.md` + 会话持久化使用。
 
 ---
 
@@ -338,6 +339,13 @@ Electron 主进程 (main.mjs)
   ├── /api/chat — Agent 对话（POST，支持 projectDir / assistantId）
   ├── /api/tasks — 任务列表
   ├── /api/history — 历史与交付记录
+  ├── /api/matters/overviews — 案件总览列表
+  ├── /api/matters/detail?matterId= — 案件详情（摘要、CASE、任务、草稿、审计）
+  ├── /api/matters/search?matterId=&q= — 案件内搜索
+  ├── /api/drafts — 草稿列表（GET）
+  ├── /api/drafts/:taskId — 单份草稿（GET）
+  ├── /api/drafts/:taskId/review — 审核签批（POST）
+  ├── /api/drafts/:taskId/render — 渲染交付物（POST，须已通过审核）
   ├── /api/assistants — 助手 CRUD
   ├── /api/assistant-presets — 岗位预设列表
   ├── /api/health — 环境与连接状态
@@ -345,6 +353,9 @@ Electron 主进程 (main.mjs)
 
 渲染进程 (App.tsx + styles.css)
   ├── 对话视图（消息列表 + Markdown 渲染 + Chip 栏）
+  ├── 文件工作台（FileWorkbench）
+  ├── 案件工作台（MatterWorkbench：案件列表、CASE、任务/草稿、审计）
+  ├── 审核台（ReviewWorkbench：草稿审阅、签批、渲染）
   ├── 设置面板（模态：助手 / 模型检索 / 工作区项目）
   ├── 侧边栏（助手选择器 / 项目药丸 / 折叠工作记录）
   └── 配置向导（首次启动 API Key 设置流）
@@ -391,9 +402,10 @@ Electron 主进程 (main.mjs)
 - [x] PPT 生成
 - [x] Agent 智能体架构（M2）
 - [x] 桌面应用（Electron，M3）
-- [ ] 项目目录文件读取与索引
-- [ ] 案件面板 UI
-- [ ] 律师偏好学习（per-assistant 记忆进化）
+- [x] 项目目录注入 Agent（`read_project_file` / `search_workspace` 扩展）与桌面项目切换后重启 API
+- [x] 案件面板 UI（MatterWorkbench）
+- [x] 审核台 UI（ReviewWorkbench）
+- [ ] 律师偏好学习（per-assistant 记忆进化，UI 显式写入 PROFILE）
 - [ ] 更细粒度模板体系
 
 第三阶段：

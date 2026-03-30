@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import type { ArtifactDraft } from "../types.js";
-import { renderPptx } from "./render-pptx.js";
+import { renderPptx, renderPptxWithOptions } from "./render-pptx.js";
 
 function minimalDraft(overrides: Partial<ArtifactDraft> = {}): ArtifactDraft {
   return {
@@ -48,5 +48,26 @@ describe("renderPptx", () => {
     expect(result.outputPath).toMatch(/\.pptx$/);
     const stat = await fs.stat(result.outputPath!);
     expect(stat.size).toBeGreaterThan(2000);
+  });
+
+  it("supports uploaded template variant options", async () => {
+    const draft = minimalDraft();
+    const result = await renderPptxWithOptions(draft, tmpDir, {
+      templateVariant: "uploadedMapped",
+      uploadedTemplate: {
+        id: "upload/client-brief-custom",
+        format: "pptx",
+        label: "Client Brief Custom",
+        sourcePath: "/tmp/client-brief-custom.pptx",
+        version: 1,
+        enabled: true,
+        placeholderMap: {
+          case_title: "title",
+        },
+        uploadedAt: new Date().toISOString(),
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.outputPath).toMatch(/\.pptx$/);
   });
 });

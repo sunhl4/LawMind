@@ -82,7 +82,7 @@ pnpm lawmind:desktop
 
 #### 联网检索（可选）
 
-主界面可勾选「允许联网检索」；勾选后本轮对话会注册 `web_search` 工具（Brave Search API）。在 `.env.lawmind` 中配置 `LAWMIND_WEB_SEARCH_API_KEY` 或 `BRAVE_API_KEY`（与 OpenClaw Brave 配置兼容）。未勾选时仅使用工作区与本地检索工具，不会调用联网搜索。`GET /api/health` 返回 `webSearchApiKeyConfigured` 表示是否检测到上述密钥。开发与选型层面的说明见 [LawMind 联网检索路径](/LAWMIND-NETWORK-OPTIONS)。
+主界面可勾选「允许联网检索」；勾选后本轮对话会注册 `web_search` 工具（Brave Search API）。在 `.env.lawmind` 中配置 `LAWMIND_WEB_SEARCH_API_KEY` 或 `BRAVE_API_KEY`（与 OpenClaw Brave 配置兼容）。未勾选时仅使用工作区与本地检索工具，不会调用联网搜索。`GET /api/health` 返回 `webSearchApiKeyConfigured` 表示是否检测到上述密钥。若工作区策略文件将 **`allowWebSearch` 设为 `false`**，服务器会**强制关闭**联网检索（即使 UI 勾选）。开发与选型层面的说明见 [LawMind 联网检索路径](/LAWMIND-NETWORK-OPTIONS)。
 
 #### 超时
 
@@ -91,6 +91,81 @@ pnpm lawmind:desktop
 #### 任务与历史
 
 每轮成功完成的对话会在工作区 `tasks/` 下写入一条 **对话指令**（`agent.instruction`）任务，含短标题与完整指令；侧栏工作记录区（默认折叠，点击标题栏展开）可 **搜索**、按 **时间范围** 筛选，并点开查看详情与 **会话 ID**（与引擎工作流产生的任务并存）。
+
+#### 案件 ID、新建案件与审核记入档案
+
+**案件 ID（`matterId`）规则**（与引擎 `matter_id`、CLI `--matter` 一致）：
+
+- 必须以 **字母或数字** 开头，总长 **2–128** 个字符；
+- 后续字符仅可为 **字母、数字、英文点 `.`、下划线 `_`、连字符 `-`**；
+- 示例合法：`matter-2026-001`、`client_a.v2`；非法示例：`-x`、空字符串、`../escape`。
+
+**`POST /api/matters/create`**（桌面「新建案件」调用）
+
+- 请求体 JSON：`{ "matterId": "<id>" }`（必填，trim 后不能为空）。
+- 成功 **200**：`{ "ok": true, "matterId", "caseFilePath", "created" }`。`created` 为 `true` 表示本次首次创建 `cases/<matterId>/CASE.md`；已存在则幂等，不覆盖正文。
+- 失败 **400**：`matterId required`（未提供或全空白）、或 `invalid matter id`（格式不合法）。
+
+**`GET /api/matters/detail`**（桌面「案件详情」）
+
+- 查询参数：**`matterId`**（必填；格式校验与上文一致，非法时 **400**）。
+- 成功 **200**：JSON 含案件索引、任务、草稿列表等；另含 **`draftCitationIntegrity`**：以草稿的 **`taskId`** 为键的对象，值为该草稿的**引用完整性**视图（例如是否缺少 `*.research.json` 快照、是否有待核对引用），供 UI 在任务列表中的草稿行旁展示状态标识。无对应草稿的键可省略。
+
+**`POST /api/chat` 与 `matterId`**
+
+- 请求体可带可选字段 **`matterId`**（字符串）。省略或传 `""` 表示本轮**不**关联案件。
+- 若传入非空字符串且**不符合**上述规则，接口返回 **400**，`error` 为 **`invalid matter id`**（与 `GET /api/matters/detail` 等查询参数校验一致）。
+
+**`POST /api/drafts/<taskId>/review` 与记入助手档案**
+
+- 除 `status`（`approved` / `rejected` / `modified`）与可选 `note` 外，可传：
+  - **`appendToProfile`**：为 `true` 时，在审核成功后把一条摘要行追加到 **`assistants/<assistantId>/PROFILE.md`**（与 [LawMind 项目与记忆](/LAWMIND-PROJECT-MEMORY) 中的 per-assistant 档案一致）。
+  - **`profileAssistantId`**：可选；指定写入哪个助手的档案，默认 `default`。桌面「审核」页勾选「记入本助手档案」时，与当前选中的助手 ID 对齐。
+- 审核主流程（更新草稿状态）成功后再写档案；若 **PROFILE 写入失败**，返回 **500**，响应中含 **`profileAppendFailed: true`** 以及 `draft`（已更新后的草稿），便于客户端提示「状态已保存，档案未写入」。
+- **`appendToLawyerProfile`**：为 `true` 时，将本条审核学习摘要写入工作区 **`LAWYER_PROFILE.md`** 的 **「八、个人积累」**（与助手级 `PROFILE.md` 区分）。写入失败时 **500**，含 **`lawyerProfileAppendFailed: true`** 与已更新的 `draft`。桌面「审核」页可单独勾选。
+
+#### 体检（Health）与审计导出
+
+**`GET /api/health`** 除原有 `workspaceDir`、`modelConfigured`、`retrievalMode` 等外，另返回：
+
+- **`lawMindRoot`**：助手配置所在目录（`assistants.json`、各助手 `PROFILE.md` 同级的 LawMind 根路径）。
+- **`doctor`**：`auditJsonlFileCount`（`workspace/audit` 下 `.jsonl` 文件数）、`taskCount`、`draftCount`、**`researchSnapshotCount`**（`drafts/` 下 `*.research.json` 数量）、`nodeVersion`、**`openclawPackageVersion`**（开发态若设置 `LAWMIND_REPO_ROOT` 指向 monorepo 根，可读 `package.json` 版本；安装包内可能为 `null`）。
+- **`policy`**：若工作区根存在 `lawmind.policy.json` 且解析成功，则 `loaded: true` 并含 `path`、`applied`（已生效的策略键）及文件中的声明字段；否则 `loaded: false`。详见 [LawMind policy file](/LAWMIND-POLICY-FILE)。
+
+便于 IT 或律师截图自检：**工作区路径、模型是否配置、审计文件是否在增长**。
+
+**`GET /api/audit/export`**（Markdown 正文，`Content-Type: text/markdown`）
+
+- 查询参数（均可选）：**`matterId`**、**`taskId`**、**`since`**、**`until`**（ISO 8601）。`matterId` 非法时 **400**。
+- **`compliance=true`**（或 `compliance=1`）：输出 **合规向摘要**（含免责声明、按 `kind` 聚合计数 + 完整事件表），仍为非法律意见，供内控归档。审计中若存在 **`draft.citation_integrity`** 事件（引用完整性检查、**非阻断**），会与其他 `kind` 一并计入并出现在事件表中；其时间顺序通常早于同任务的 **`draft.reviewed`**。
+- 同时传 `taskId` 与 `matterId` 时以 **`taskId`** 为准。
+- 按 `matterId` 过滤时，依据当前工作区 **`tasks/*.json`** 中的 `matterId` 与审计事件里的 `taskId` 关联。
+- 响应为一段 Markdown 报告（含表头与事件表），可保存为 `.md` 备查。
+
+**`GET /api/templates/built-in`**
+
+- 返回内置文书模板列表（含 **`category`**：`contracts` / `litigation` / `client` / `internal`，便于 UI 分组）。
+
+**`GET /api/collaboration/summary`**
+
+- 返回 **`collaborationEnabled`**（环境 `LAWMIND_ENABLE_COLLABORATION` 未设为 `false` 时为开启）、**`delegationCount`**、近期 **`delegations`**，以及 **`collaboration-audit.jsonl`** 中最近若干条事件（若存在）。无委派时 **`delegationCount` 为 0** 属正常空态。集成边界见 [LawMind integrations](/LAWMIND-INTEGRATIONS)。
+
+**`POST /api/lawyer-profile/learning`**
+
+- 请求体：`{ "note": "…", "source": "manual" | "review" }`（`note` 必填）。向 **`LAWYER_PROFILE.md`**「八、个人积累」追加一条显式学习记录（默认 `source` 按 `review` 处理）。
+
+**`GET /api/assistants/<assistantId>/profile-sections`**
+
+- 返回 JSON：`{ ok, assistantId, sections }`。每个 **`sections[]`** 项含 **`stamp`**（区块时间标题）、**`body`**、**`sourceHint`**（`review` 表示正文含「草稿审核」句式，否则 `unknown`），用于展示「档案里最近写了什么、是否来自审核台」。
+
+**开发侧回归（与本节功能对应）**
+
+```bash
+pnpm test -- src/lawmind/audit/export-report.test.ts src/lawmind/assistants/profile-md.test.ts \
+  src/lawmind/integration/phase-a-golden-engine.test.ts \
+  src/lawmind/memory/lawyer-profile-learning.test.ts src/lawmind/skills/bundle-manifest.test.ts \
+  apps/lawmind-desktop/server/lawmind-health-payload.test.ts --run
+```
 
 #### 开发要求
 
@@ -284,7 +359,8 @@ pnpm install
 
 ## 7) 相关文档
 
-- **客户交付与验收**：`docs/LAWMIND-DELIVERY.md`（交付清单、验收命令、演示）
-- **产品与架构**：`docs/LAWMIND-VISION.md`、`docs/LAWMIND-PROJECT-MEMORY.md`
+- **客户交付与验收**：[LawMind 交付](/LAWMIND-DELIVERY)（交付清单、验收命令、演示）
+- **产品与架构**：[LawMind 愿景](/LAWMIND-VISION)、[LawMind 项目与记忆](/LAWMIND-PROJECT-MEMORY)
+- **私有化与包校验**：[LawMind 私有化部署](/LAWMIND-PRIVATE-DEPLOY)、[LawMind 包清单与校验](/LAWMIND-BUNDLES)
 
-本文档与 `scripts/install-lawmind.sh`、`LAWMIND-DELIVERY.md` 保持同步；新增或变更用户可见命令时请一并更新本使用手册。
+本文档与 `scripts/install-lawmind.sh`、`LAWMIND-DELIVERY.md` 保持同步；新增或变更用户可见命令、桌面本地 API（如 `matters/create`、聊天 `matterId`、审核 `appendToProfile`）时请一并更新本使用手册。

@@ -18,6 +18,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Document, Packer, Paragraph, HeadingLevel, TextRun } from "docx";
+import type { UploadedTemplateRecord } from "../templates/index.js";
 import type { ArtifactDraft, ArtifactSection } from "../types.js";
 
 // ─────────────────────────────────────────────
@@ -28,6 +29,11 @@ export type RenderResult = {
   ok: boolean;
   outputPath?: string;
   error?: string;
+};
+
+export type RenderDocxOptions = {
+  templateVariant?: string;
+  uploadedTemplate?: UploadedTemplateRecord;
 };
 
 // ─────────────────────────────────────────────
@@ -81,12 +87,54 @@ function buildWordSection(section: ArtifactSection): Paragraph[] {
  * 渲染前会检查 reviewStatus，若未审核通过则直接返回错误。
  */
 export async function renderDocx(draft: ArtifactDraft, outputDir: string): Promise<RenderResult> {
+  return renderDocxWithOptions(draft, outputDir, {});
+}
+
+function buildVariantIntro(variant: string): string[] {
+  if (variant === "contractReview") {
+    return ["模板：合同审查意见", "该文书按合同风险识别与修改建议结构输出。"];
+  }
+  if (variant === "demandLetter") {
+    return ["模板：律师函", "该文书强调主张、期限要求和后续法律保留。"];
+  }
+  if (variant === "uploadedMapped") {
+    return ["模板：用户上传模板", "已按占位符映射策略生成内容。"];
+  }
+  return ["模板：法律备忘录", "该文书按背景、分析与建议结构输出。"];
+}
+
+function renderUploadedTemplateMap(
+  uploaded: UploadedTemplateRecord | undefined,
+  draft: ArtifactDraft,
+): string[] {
+  if (!uploaded) {
+    return [];
+  }
+  const lines = Object.entries(uploaded.placeholderMap).map(([placeholder, source]) => {
+    const value = source === "title" ? draft.title : source === "summary" ? draft.summary : source;
+    return `{{${placeholder}}} => ${value}`;
+  });
+  if (lines.length === 0) {
+    return [`上传模板：${uploaded.label} v${uploaded.version}`];
+  }
+  return [`上传模板：${uploaded.label} v${uploaded.version}`, ...lines];
+}
+
+export async function renderDocxWithOptions(
+  draft: ArtifactDraft,
+  outputDir: string,
+  options: RenderDocxOptions,
+): Promise<RenderResult> {
   if (draft.reviewStatus !== "approved") {
     return {
       ok: false,
       error: `文书未通过审核（当前状态：${draft.reviewStatus}），不能渲染。请律师确认后再执行。`,
     };
   }
+
+  const variant = options.templateVariant ?? "legalMemo";
+  const variantIntro = buildVariantIntro(variant);
+  const uploadedMappings = renderUploadedTemplateMap(options.uploadedTemplate, draft);
 
   const allParagraphs: Paragraph[] = [
     // 文书标题
@@ -102,6 +150,18 @@ export async function renderDocx(draft: ArtifactDraft, outputDir: string): Promi
     new Paragraph({
       children: [new TextRun({ text: draft.summary })],
     }),
+    ...variantIntro.map(
+      (line) =>
+        new Paragraph({
+          children: [new TextRun({ text: line, italics: true })],
+        }),
+    ),
+    ...uploadedMappings.map(
+      (line) =>
+        new Paragraph({
+          children: [new TextRun({ text: line })],
+        }),
+    ),
   ];
 
   // 正文章节

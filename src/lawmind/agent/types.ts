@@ -63,6 +63,11 @@ export type AgentContext = {
   actorId: string;
   /** 多助手档案 ID（若有） */
   assistantId?: string;
+  /**
+   * 桌面端「项目目录」：用户选中的本机文件夹，用于 read_project_file / search_workspace 扩展检索。
+   * 与 LawMind workspace 分离；路径必须在服务端校验后注入。
+   */
+  projectDir?: string;
   /** 本轮是否允许调用 web_search 等联网工具 */
   allowWebSearch?: boolean;
   /** 当前案件的索引快照（按需加载） */
@@ -174,4 +179,9 @@ export type AgentConfig = {
   allowWebSearch?: boolean;
   /** 是否注册助手间协作工具（delegate_task, consult_assistant 等） */
   enableCollaboration?: boolean;
+  /**
+   * 可选：当前会话关联的「项目目录」（本机路径），与 Electron 侧 projectDir 对齐。
+   * 供工具检索项目内文本文件；不设则仅搜索 LawMind workspace 记忆文件。
+   */
+  projectDir?: string;
 };

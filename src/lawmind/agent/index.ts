@@ -38,6 +38,8 @@ export type LawMindAgent = {
       sessionId?: string;
       matterId?: string;
       assistantId?: string;
+      /** 桌面端选中的项目目录（本机绝对路径） */
+      projectDir?: string;
       /** 本轮是否允许 web_search（覆盖 AgentConfig） */
       allowWebSearch?: boolean;
     },
@@ -109,6 +111,7 @@ export function createLawMindAgent(config: AgentConfig): LawMindAgent {
         sessionId: opts?.sessionId,
         instruction,
         matterId: opts?.matterId,
+        projectDir: opts?.projectDir,
       });
 
       return {

@@ -16,7 +16,12 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { loadAssistantProfiles, buildRoleDirectiveFromProfile } from "../assistants/store.js";
+import { readAssistantProfileMarkdown } from "../assistants/profile-md.js";
+import {
+  loadAssistantProfiles,
+  buildRoleDirectiveFromProfile,
+  resolveLawMindRoot,
+} from "../assistants/store.js";
 import { emit } from "../audit/index.js";
 import { loadMemoryContext } from "../memory/index.js";
 import { persistAgentInstructionTask } from "../tasks/index.js";
@@ -160,8 +165,11 @@ export async function runTurn(opts: {
   sessionId?: string;
   instruction: string;
   matterId?: string;
+  /** 桌面端项目目录；与会话同轮生效，供工具检索项目内文件 */
+  projectDir?: string;
 }): Promise<{ turn: AgentTurn; reply: string; sessionId: string }> {
   const { config, registry, instruction, matterId } = opts;
+  const projectDirResolved = (opts.projectDir ?? config.projectDir)?.trim() || undefined;
   const maxToolCalls = config.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS;
   const maxHistory = config.maxHistoryMessages ?? DEFAULT_MAX_HISTORY_MESSAGES;
   const toolTimeoutMs = config.toolExecutionTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
@@ -201,12 +209,23 @@ export async function runTurn(opts: {
     matterId: session.matterId,
     actorId,
     assistantId: resolvedAssistantId,
+    projectDir: projectDirResolved,
     allowWebSearch: config.allowWebSearch === true,
     collaborationEnabled: config.enableCollaboration === true,
   };
 
   // 2. 构建 system prompt
   const memory = await loadMemoryContext(config.workspaceDir, { matterId: session.matterId });
+
+  let assistantProfileMarkdown = "";
+  if (resolvedAssistantId) {
+    try {
+      const lawMindRoot = resolveLawMindRoot(config.workspaceDir);
+      assistantProfileMarkdown = readAssistantProfileMarkdown(lawMindRoot, resolvedAssistantId);
+    } catch {
+      assistantProfileMarkdown = "";
+    }
+  }
 
   let peerAssistants: Array<{ id: string; displayName: string; roleTitle: string }> | undefined;
   if (config.enableCollaboration) {
@@ -222,6 +241,7 @@ export async function runTurn(opts: {
 
   const systemPrompt = buildSystemPrompt({
     lawyerProfile: memory.profile,
+    assistantProfileMarkdown: assistantProfileMarkdown || undefined,
     matterContext: memory.caseMemory,
     todayLog: memory.todayLog,
     availableTools: registry.listDefinitions(),
@@ -232,6 +252,7 @@ export async function runTurn(opts: {
     allowWebSearch: config.allowWebSearch === true,
     collaborationEnabled: config.enableCollaboration === true,
     peerAssistants,
+    projectDirectoryHint: projectDirResolved,
   });
 
   // 3. 确保 system message 在对话历史头部
@@ -354,11 +375,18 @@ export async function runTurn(opts: {
         }
       }
 
+      const auditPayload = {
+        tool: toolName,
+        ok: result.ok,
+        matterId: session.matterId ?? null,
+        assistantId: session.assistantId ?? null,
+        error: result.error ?? null,
+      };
       void emit(`${config.workspaceDir}/audit`, {
         kind: "tool_call",
         actor: "model",
         actorId,
-        detail: `tool=${toolName} ok=${result.ok}${result.error ? ` error=${result.error}` : ""}`,
+        detail: `${JSON.stringify(auditPayload)} | tool=${toolName} ok=${result.ok}${result.error ? ` error=${result.error}` : ""}`,
         taskId: turn.turnId,
       });
 

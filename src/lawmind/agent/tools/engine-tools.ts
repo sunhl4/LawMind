@@ -11,6 +11,7 @@
  * 这是让 agent 从"只会查看"变成"能干活、能交付"的关键层。
  */
 
+import { validateDraftCitationsAgainstBundle } from "../../drafts/index.js";
 import { createLawMindEngine, type LawMindEngineConfig } from "../../index.js";
 import { createWorkspaceAdapter } from "../../retrieval/index.js";
 import type { RetrievalAdapter } from "../../retrieval/index.js";
@@ -19,12 +20,20 @@ import {
   createOpenSourceLegalAdaptersFromEnv,
   createPartnerLegalAdapterFromEnv,
 } from "../../retrieval/providers.js";
+import {
+  listBuiltInTemplates,
+  listUploadedTemplates,
+  registerUploadedTemplate,
+  setUploadedTemplateEnabled,
+} from "../../templates/index.js";
 import type { AgentContext, AgentTool } from "../types.js";
 
 const MAX_INSTRUCTION_LENGTH = 4000;
 const MAX_TITLE_LENGTH = 200;
 const MAX_AUDIENCE_LENGTH = 100;
+const MAX_TEMPLATE_ID_LENGTH = 96;
 const MATTER_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{1,127}$/;
+const TEMPLATE_ID_RE = /^(word|ppt|upload)\/[a-zA-Z0-9][a-zA-Z0-9._-]{1,95}$/;
 
 function asNonEmptyString(value: unknown, field: string, maxLength: number): string {
   if (typeof value !== "string") {
@@ -54,6 +63,17 @@ function resolveMatterId(raw: unknown, fallback?: string): string | undefined {
   }
   if (!MATTER_ID_RE.test(candidate)) {
     throw new Error("matter_id 格式不合法，只允许字母/数字/._-");
+  }
+  return candidate;
+}
+
+function resolveTemplateId(raw: unknown): string | undefined {
+  const candidate = asOptionalString(raw, "template_id", MAX_TEMPLATE_ID_LENGTH);
+  if (!candidate) {
+    return undefined;
+  }
+  if (!TEMPLATE_ID_RE.test(candidate)) {
+    throw new Error("template_id 格式不合法，示例：word/legal-memo-default 或 upload/firm-brief");
   }
   return candidate;
 }
@@ -292,13 +312,18 @@ export const draftDocument: AgentTool = {
   definition: {
     name: "draft_document",
     description:
-      "基于检索结果生成文书草稿。会产出结构化的文书（包含标题、章节、引用等），并自动持久化到工作区。",
+      "基于检索结果生成文书草稿。会产出结构化的文书（包含标题、章节、引用等），并自动持久化到工作区。返回 data.citationIntegrity：将草稿章节 citations 与检索 bundle 来源 ID 对照（ok / missingSourceIds / sectionsWithIssues）。",
     category: "draft",
     parameters: {
       instruction: { type: "string", description: "原始工作指令", required: true },
       title: { type: "string", description: "文书标题（可选，自动推断）" },
       audience: { type: "string", description: "目标受众" },
       matter_id: { type: "string", description: "案件 ID" },
+      template_id: {
+        type: "string",
+        description:
+          "模板 ID（如 word/legal-memo-default、ppt/client-brief-default、upload/firm-brief）",
+      },
     },
   },
   async execute(params, ctx) {
@@ -312,6 +337,7 @@ export const draftDocument: AgentTool = {
       const title = asOptionalString(params.title, "title", MAX_TITLE_LENGTH);
       const audience = asOptionalString(params.audience, "audience", MAX_AUDIENCE_LENGTH);
       const matterId = resolveMatterId(params.matter_id, ctx.matterId);
+      const templateId = resolveTemplateId(params.template_id);
       const intent = await engine.planAsync(instruction, {
         audience,
         matterId,
@@ -330,6 +356,7 @@ export const draftDocument: AgentTool = {
       }
       const draft = await engine.draftAsync(intent, bundle, {
         title,
+        templateId,
       });
 
       return {
@@ -419,13 +446,18 @@ export const executeWorkflow: AgentTool = {
   definition: {
     name: "execute_workflow",
     description:
-      "自主执行完整的法律工作流程：解析指令 → 检索法规和案例 → 生成文书草稿 → 自动审核（低风险）或标记等待律师审批（高风险）。这是最核心的工具——收到律师指令后调用它来完成整个任务。",
+      "自主执行完整的法律工作流程：解析指令 → 检索法规和案例 → 生成文书草稿 → 自动审核（低风险）或标记等待律师审批（高风险）。这是最核心的工具——收到律师指令后调用它来完成整个任务。返回 data.citationIntegrity（草稿引用与检索 bundle 对照）；若有缺失 ID，steps 中会含中文提示。",
     category: "draft",
     parameters: {
       instruction: { type: "string", description: "律师的工作指令", required: true },
       title: { type: "string", description: "文书标题（可选）" },
       audience: { type: "string", description: "目标受众（内部/客户/对方/法院）" },
       matter_id: { type: "string", description: "关联案件 ID" },
+      template_id: {
+        type: "string",
+        description:
+          "模板 ID（如 word/legal-memo-default、ppt/client-brief-default、upload/firm-brief）",
+      },
       auto_approve: {
         type: "boolean",
         description: "低风险任务是否自动批准草稿（默认 true）。高风险任务始终需要律师审批。",
@@ -448,6 +480,7 @@ export const executeWorkflow: AgentTool = {
       const title = asOptionalString(params.title, "title", MAX_TITLE_LENGTH);
       const audience = asOptionalString(params.audience, "audience", MAX_AUDIENCE_LENGTH);
       const matterId = resolveMatterId(params.matter_id, ctx.matterId);
+      const templateId = resolveTemplateId(params.template_id);
       const autoApprove = params.auto_approve !== false;
       const forceRender = params.force_render === true;
       // Step 1: Plan
@@ -485,8 +518,15 @@ export const executeWorkflow: AgentTool = {
       steps.push("正在生成文书草稿...");
       const draft = await engine.draftAsync(intent, bundle, {
         title,
+        templateId,
       });
       steps.push(`草稿生成完成：《${draft.title}》，共 ${draft.sections.length} 个章节`);
+      const citationIntegrity = validateDraftCitationsAgainstBundle(draft, bundle);
+      if (!citationIntegrity.ok) {
+        steps.push(
+          `引用校验：有 ${citationIntegrity.missingSourceIds.length} 个来源 ID 不在本次检索结果中（${citationIntegrity.missingSourceIds.join(", ")}），请人工核对。`,
+        );
+      }
 
       // Step 5: Auto-review or mark for approval (or force_render for demo)
       let finalStatus = "awaiting_review";
@@ -535,6 +575,7 @@ export const executeWorkflow: AgentTool = {
           sourcesCount: bundle.sources.length,
           outputPath: draft.outputPath,
           steps,
+          citationIntegrity,
         },
       };
     } catch (err) {
@@ -542,6 +583,111 @@ export const executeWorkflow: AgentTool = {
         ok: false,
         error: `工作流执行失败: ${err instanceof Error ? err.message : String(err)}`,
         data: { stepsCompleted: steps },
+      };
+    }
+  },
+};
+
+export const registerTemplate: AgentTool = {
+  definition: {
+    name: "register_template",
+    description:
+      "注册用户上传的 Word/PPT 模板，支持占位符映射、版本递增、启用状态管理。用于律所模板库维护。",
+    category: "system",
+    parameters: {
+      id: { type: "string", description: "模板 ID，必须以 upload/ 开头", required: true },
+      format: { type: "string", description: "模板格式：docx 或 pptx", required: true },
+      label: { type: "string", description: "模板显示名称", required: true },
+      source_path: { type: "string", description: "模板文件本地路径", required: true },
+      enabled: { type: "boolean", description: "是否启用模板（默认 true）" },
+      placeholder_map_json: {
+        type: "string",
+        description: '占位符映射 JSON 字符串，例如 {"case_title":"title"}',
+      },
+    },
+    requiresApproval: true,
+    riskLevel: "medium",
+  },
+  async execute(params, ctx) {
+    try {
+      const id = asNonEmptyString(params.id, "id", MAX_TEMPLATE_ID_LENGTH);
+      const label = asNonEmptyString(params.label, "label", 100);
+      const sourcePath = asNonEmptyString(params.source_path, "source_path", 1000);
+      const formatRaw = asNonEmptyString(params.format, "format", 8).toLowerCase();
+      if (formatRaw !== "docx" && formatRaw !== "pptx") {
+        throw new Error("format 必须为 docx 或 pptx");
+      }
+      let placeholderMap: Record<string, string> = {};
+      if (typeof params.placeholder_map_json === "string" && params.placeholder_map_json.trim()) {
+        const parsed = JSON.parse(params.placeholder_map_json) as unknown;
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          throw new Error("placeholder_map_json 必须是对象 JSON");
+        }
+        placeholderMap = Object.fromEntries(
+          Object.entries(parsed).map(([k, v]) => [k, String(v ?? "")]),
+        );
+      }
+      const record = await registerUploadedTemplate({
+        workspaceDir: ctx.workspaceDir,
+        id,
+        format: formatRaw,
+        label,
+        sourcePath,
+        enabled: params.enabled !== false,
+        placeholderMap,
+      });
+      return {
+        ok: true,
+        data: {
+          id: record.id,
+          format: record.format,
+          label: record.label,
+          version: record.version,
+          enabled: record.enabled,
+          uploadedAt: record.uploadedAt,
+        },
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        error: `模板注册失败: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  },
+};
+
+export const listTemplates: AgentTool = {
+  definition: {
+    name: "list_templates",
+    description: "查看内置模板和已上传模板，支持更新上传模板启用状态。用于任务前检查模板是否可用。",
+    category: "system",
+    parameters: {
+      set_enabled_for_id: { type: "string", description: "可选：要变更启用状态的上传模板 ID" },
+      enabled: { type: "boolean", description: "配合 set_enabled_for_id 使用" },
+    },
+  },
+  async execute(params, ctx) {
+    try {
+      if (typeof params.set_enabled_for_id === "string" && typeof params.enabled === "boolean") {
+        await setUploadedTemplateEnabled({
+          workspaceDir: ctx.workspaceDir,
+          id: params.set_enabled_for_id.trim(),
+          enabled: params.enabled,
+        });
+      }
+      const builtIn = listBuiltInTemplates();
+      const uploaded = await listUploadedTemplates(ctx.workspaceDir);
+      return {
+        ok: true,
+        data: {
+          builtIn,
+          uploaded,
+        },
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        error: `读取模板失败: ${err instanceof Error ? err.message : String(err)}`,
       };
     }
   },
@@ -556,4 +702,6 @@ export const engineTools: AgentTool[] = [
   draftDocument,
   renderDocument,
   executeWorkflow,
+  registerTemplate,
+  listTemplates,
 ];

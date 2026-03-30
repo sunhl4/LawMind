@@ -6,6 +6,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { readAllAuditLogs } from "./audit/index.js";
 import {
   createLawMindEngine,
   createGeneralModelAdapter,
@@ -76,6 +77,10 @@ describe("LawMind Engine", () => {
     expect(draftedState?.templateId).toBe("word/demand-letter-default");
     expect(draftedState?.draftPath).toContain(`${intent.taskId}.json`);
 
+    const researchSnap = path.join(workspaceDir, "drafts", `${intent.taskId}.research.json`);
+    const snapRaw = await fs.readFile(researchSnap, "utf8");
+    expect(JSON.parse(snapRaw).taskId).toBe(intent.taskId);
+
     await engine.review(draft, { actorId: "lawyer:test", status: "approved" });
     const reviewedState = engine.getTaskState(intent.taskId);
     expect(reviewedState?.status).toBe("reviewed");
@@ -90,6 +95,37 @@ describe("LawMind Engine", () => {
     expect(caseContent).toContain("检索完成");
     expect(caseContent).toContain("草稿审核完成：approved");
     expect(caseContent).toContain("来源模型");
+  });
+
+  it("emits draft.citation_integrity when review sees citations missing from bundle", async () => {
+    const mockLegal = createLegalModelAdapter(async () => ({
+      claims: [{ text: "结论。", sourceIds: ["s-ok"], confidence: 0.9, model: "legal" }],
+      sources: [{ id: "s-ok", title: "规则", kind: "statute" }],
+    }));
+    const engine = createLawMindEngine({
+      workspaceDir,
+      adapters: [createWorkspaceAdapter(workspaceDir), mockLegal],
+    });
+    const intent = engine.plan("请整理合同审查意见并生成律师函草稿", {
+      audience: "客户",
+      matterId: "matter-cite-audit",
+      templateId: "word/demand-letter-default",
+    });
+    const bundle = await engine.research(intent);
+    engine.draft(intent, bundle, { title: "Citation audit draft" });
+    const draftPath = path.join(workspaceDir, "drafts", `${intent.taskId}.json`);
+    const dj = JSON.parse(await fs.readFile(draftPath, "utf8")) as {
+      sections: Array<{ heading: string; body: string; citations?: string[] }>;
+    };
+    dj.sections = [{ heading: "H", body: "x", citations: ["s-ok", "ghost"] }];
+    await fs.writeFile(draftPath, JSON.stringify(dj, null, 2));
+    const loaded = engine.getDraft(intent.taskId);
+    expect(loaded).toBeDefined();
+    await engine.review(loaded!, { actorId: "lawyer:test", status: "approved" });
+    const auditDir = path.join(workspaceDir, "audit");
+    const events = await readAllAuditLogs(auditDir);
+    expect(events.some((e) => e.kind === "draft.citation_integrity")).toBe(true);
+    expect(events.filter((e) => e.kind === "draft.reviewed").length).toBeGreaterThanOrEqual(1);
   });
 
   it("blocks high-risk research until task is confirmed", async () => {
@@ -185,5 +221,36 @@ describe("LawMind Engine", () => {
     );
     expect(caseContent).toContain("## 9. 生成产物");
     expect(caseContent).toContain(String(result.outputPath));
+  });
+
+  it("falls back to built-in template when requested template is unknown", async () => {
+    const mockGeneral = createGeneralModelAdapter(async () => ({
+      claims: [{ text: "应整理证据目录。", confidence: 0.88 }],
+      sources: [{ title: "证据清单", citation: "workspace" }],
+    }));
+    const engine = createLawMindEngine({
+      workspaceDir,
+      adapters: [createWorkspaceAdapter(workspaceDir), mockGeneral],
+    });
+
+    const intent = engine.plan("生成客户汇报文书", {
+      matterId: "matter-fallback",
+      templateId: "upload/nonexistent-template",
+    });
+    await engine.confirm(intent.taskId, { actorId: "lawyer:test" });
+    const bundle = await engine.research(intent);
+    const draft = engine.draft(intent, bundle, {
+      templateId: "upload/nonexistent-template",
+      title: "Fallback Template Test",
+    });
+    await engine.review(draft, { actorId: "lawyer:test", status: "approved" });
+    const result = await engine.render(draft);
+
+    expect(result.ok).toBe(true);
+    const auditDir = path.join(workspaceDir, "audit");
+    const auditFiles = await fs.readdir(auditDir);
+    const latestAudit = path.join(auditDir, auditFiles.toSorted()[auditFiles.length - 1]);
+    const auditContent = await fs.readFile(latestAudit, "utf8");
+    expect(auditContent).toContain("回退原因");
   });
 });

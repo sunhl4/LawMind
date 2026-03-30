@@ -271,10 +271,10 @@
 
 ### M3 桌面端继续深化
 
-8. **项目文件访问**：后端读取 `projectDir` 下的文件，提供文件列表/内容预览 API，让 Agent 可基于项目文件回答问题。
-9. **案件面板 UI**：桌面端内建案件工作台（案件列表、案件详情、时间线、产物浏览），复用 `engine.getMatterIndex()` / `getMatterSummary()`。
-10. **审核台 UI**：桌面端内建草稿审核界面（approve/reject/modify），替代当前仅对话式审核。
-11. **per-assistant 记忆文件**：按助手维护 `assistants/<assistantId>/PROFILE.md`，随交互自动沉淀岗位偏好。
+8. ~~**项目文件访问**~~ ✅ — Agent 侧：`/api/chat` 传入的 `projectDir` 经校验后注入 `AgentContext`；`search_workspace` 扩展扫描项目内有限文本文件；新增工具 `read_project_file`。桌面 `/api/fs/*` 仍依赖 `LAWMIND_PROJECT_DIR`；切换项目目录后 **Electron 会重启本地 API** 以保持 FS 与 Agent 一致。
+9. ~~**案件面板 UI**~~ ✅ — 桌面主区新增「案件」页：`MatterWorkbench.tsx`；API `GET /api/matters/overviews`、`GET /api/matters/detail?matterId=`、`GET /api/matters/search?matterId=&q=`；支持概览 / CASE 档案 / 任务与草稿 / 审计时间线；「在对话中关联本案」写入会话 matter 上下文。
+10. ~~**审核台 UI**~~ ✅ — 桌面主区新增「审核」页：`ReviewWorkbench.tsx`；API `GET /api/drafts`、`POST /api/drafts/:taskId/review`、`POST /api/drafts/:taskId/render`（经 `createLawMindEngine`）；列表筛选待审核/全部；通过、驳回、需修改、备注、批准后渲染交付物。
+11. ~~**per-assistant 记忆文件**~~ ✅（基础）— `assistants/<assistantId>/PROFILE.md` 由 runtime 加载进 system prompt；`appendAssistantProfileMarkdown()` 可供后续「显式采纳」；**待**：桌面 UI 写入入口与审核联动。
 
 ### 基础设施
 
@@ -401,3 +401,17 @@
 - 📂 **工作记录折叠**：侧边栏"工作记录"默认收起，点击标题栏展开；标题栏显示记录总数 badge，箭头旋转指示状态。
 - 🔍 **按助手过滤记录**：`filteredTasks` 和 `filteredHistory` 按当前 `selectedAssistantId` 过滤，切换助手时自动更新可见记录。
 - 📝 **文档同步更新**：`LAWMIND-PROJECT-MEMORY.md`、`LAWMIND-ARCHITECTURE.md`、`LAWMIND-USER-MANUAL.md`、`workspace/memory/2026-03-22.md` 全面更新，确保下次开发会话可恢复完整上下文。
+
+### 2026-03-29
+
+- **GOALS 第二、三期（可交付子集）闭环**：律师档案显式学习（`LAWYER_PROFILE.md` 第八节）、内置模板 **category**、合规审计导出（`compliance=true`）、协作摘要 API、包清单 SHA-256 校验（`src/lawmind/skills/`）、私有化与包文档（`LAWMIND-PRIVATE-DEPLOY`、`LAWMIND-BUNDLES`）。`GOALS.md` 对应项已勾选。
+- **回归**：`src/lawmind/**/*.test.ts` 增至覆盖上述模块；`pnpm lawmind:bundle:desktop-server` 通过。
+- **商业化支撑包（仓库内）** — 草案与工程物已落盘（正式合同/渗透仍需体系外流程）：
+  - **体验**：桌面本地 API 错误码、`HelpPanel`、设置内入门进度、`api-client` 解析与测试。
+  - **法务/数据**：`docs/legal/*`、`LAWMIND-DATA-PROCESSING`、`LAWMIND-DELIVERY` 法务包与第 10 节备份/升级。
+  - **安全**：`pnpm lawmind:sbom`、`LAWMIND-SECURITY-CHECKLIST`、`.github/workflows/lawmind-security-audit.yml`（非阻塞）。
+  - **运维**：`scripts/lawmind-backup.sh`、`LAWMIND-POLICY-FILE` + `docs/examples/lawmind.policy.json.sample`。
+  - **协作与归因**：`LAWMIND_DESKTOP_ACTOR_ID`、`LAWMIND-ACTOR-ATTRIBUTION`、`LAWMIND-INTEGRATIONS`、协作摘要 API 与设置页状态。
+  - **交付与支持**：`LAWMIND-CUSTOMER-ACCEPTANCE`、`LAWMIND-SUPPORT-RUNBOOK`、`LAWMIND-CUSTOMER-OVERVIEW`；Mintlify **LawMind** 导航组见 `docs/docs.json`。
+- 索引：<https://docs.openclaw.ai/LAWMIND-DELIVERY>、<https://docs.openclaw.ai/LAWMIND-SECURITY-CHECKLIST>、<https://docs.openclaw.ai/LAWMIND-CUSTOMER-OVERVIEW>。
+- **工程加固（持续）**：本地 API 拆分为 `lawmind-server-helpers.ts` + `lawmind-server-dispatch.ts`；`lawmind.policy.json` 运行时加载并影响 `/api/chat` 与 health；工具审计 `detail` 前缀 JSON；`pnpm lawmind:sbom` 尝试生成 CycloneDX；设置页拆为 `LawmindSettings*` 子组件；M1 引擎默认 `actorId` 经 `LAWMIND_ENGINE_ACTOR_ID` / `LAWMIND_DESKTOP_ACTOR_ID`（`engine-actor.ts`）；`pnpm lawmind:desktop:http-smoke` 探活本地 HTTP。

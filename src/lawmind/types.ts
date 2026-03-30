@@ -267,6 +267,7 @@ export type AuditEventKind =
   | "research.started"
   | "research.completed"
   | "draft.created"
+  | "draft.citation_integrity"
   | "draft.reviewed"
   | "artifact.rendered"
   | "artifact.sent"
@@ -279,6 +280,7 @@ export type AuditEvent = {
   taskId: string;
   kind: AuditEventKind;
   actor: "system" | "lawyer" | "model";
+  /** Optional operator identity, e.g. `lawyer:desktop` or `lawyer:<firm-id>` (see LAWMIND-ACTOR-ATTRIBUTION). */
   actorId?: string;
   detail?: string;
   timestamp: string;

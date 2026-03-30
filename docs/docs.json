@@ -1354,6 +1354,29 @@
                 "pages": ["reference/credits"]
               },
               {
+                "group": "LawMind",
+                "pages": [
+                  "LAWMIND-ACTOR-ATTRIBUTION",
+                  "LAWMIND-CUSTOMER-ACCEPTANCE",
+                  "LAWMIND-CUSTOMER-OVERVIEW",
+                  "LAWMIND-DATA-PROCESSING",
+                  "LAWMIND-DELIVERY",
+                  "LAWMIND-INTEGRATIONS",
+                  "LAWMIND-POLICY-FILE",
+                  "LAWMIND-PRIVATE-DEPLOY",
+                  "LAWMIND-PROJECT-MEMORY",
+                  "LAWMIND-SECURITY-CHECKLIST",
+                  "LAWMIND-SUPPORT-RUNBOOK",
+                  "LAWMIND-USER-MANUAL",
+                  "lawmind/agent-workbench-memory",
+                  "lawmind/citation-and-matter-detail-memory",
+                  "lawmind/task-checkpoints",
+                  "legal/dpa-outline",
+                  "legal/privacy-policy",
+                  "legal/terms-of-service"
+                ]
+              },
+              {
                 "group": "Release policy",
                 "pages": ["reference/RELEASING", "reference/test"]
               },

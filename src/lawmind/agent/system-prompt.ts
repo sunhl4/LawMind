@@ -10,6 +10,8 @@ import type { ToolDefinition } from "./types.js";
 export type SystemPromptContext = {
   lawyerName?: string;
   lawyerProfile?: string;
+  /** 工作区 LAWYER_PROFILE.md 之外的 per-assistant 偏好（assistants/<id>/PROFILE.md） */
+  assistantProfileMarkdown?: string;
   matterContext?: string;
   todayLog?: string;
   availableTools: ToolDefinition[];
@@ -26,6 +28,8 @@ export type SystemPromptContext = {
   collaborationEnabled?: boolean;
   /** 可协作的其他助手列表 */
   peerAssistants?: Array<{ id: string; displayName: string; roleTitle: string }>;
+  /** 桌面端打开的项目目录（仅提示模型，工具 read_project_file / search_workspace 会使用） */
+  projectDirectoryHint?: string;
 };
 
 export function buildSystemPrompt(ctx: SystemPromptContext): string {
@@ -114,6 +118,25 @@ ${peerList}
 
 ${ctx.lawyerName ? `**${ctx.lawyerName}**` : ""}
 ${ctx.lawyerProfile ? `\n${ctx.lawyerProfile}` : ""}`);
+  }
+
+  const ap = ctx.assistantProfileMarkdown?.trim();
+  if (ap) {
+    sections.push(`## 本助手专属偏好（assistants/<id>/PROFILE.md）
+
+以下内容为当前助手岗位的长期偏好与习惯，与全局律师档案并存；冲突时以**准确性、合规与律师明示指令**为准。
+
+${ap}`);
+  }
+
+  const proj = ctx.projectDirectoryHint?.trim();
+  if (proj) {
+    sections.push(`## 当前项目目录
+
+律师在桌面端为本次对话关联了本机项目目录：
+\`${proj}\`
+
+请使用 \`search_workspace\`（会包含该项目内有限文本文件）与 \`read_project_file\` 阅读具体文件。不要臆测未读文件的内容。`);
   }
 
   if (ctx.matterId && ctx.matterContext) {

@@ -28,6 +28,10 @@ struct SettingsRootView: View {
                     .tabItem { Label("General", systemImage: "gearshape") }
                     .tag(SettingsTab.general)
 
+                AgentWorkbenchSettings()
+                    .tabItem { Label("Agent Workbench", systemImage: "person.crop.rectangle.stack") }
+                    .tag(SettingsTab.agentWorkbench)
+
                 ChannelsSettings()
                     .tabItem { Label("Channels", systemImage: "link") }
                     .tag(SettingsTab.channels)
@@ -172,12 +176,13 @@ struct SettingsRootView: View {
 }
 
 enum SettingsTab: CaseIterable {
-    case general, channels, skills, sessions, cron, config, instances, voiceWake, permissions, debug, about
+    case general, agentWorkbench, channels, skills, sessions, cron, config, instances, voiceWake, permissions, debug, about
     static let windowWidth: CGFloat = 824 // wider
     static let windowHeight: CGFloat = 790 // +10% (more room)
     var title: String {
         switch self {
         case .general: "General"
+        case .agentWorkbench: "Agent Workbench"
         case .channels: "Channels"
         case .skills: "Skills"
         case .sessions: "Sessions"
@@ -194,6 +199,7 @@ enum SettingsTab: CaseIterable {
     var systemImage: String {
         switch self {
         case .general: "gearshape"
+        case .agentWorkbench: "person.crop.rectangle.stack"
         case .channels: "link"
         case .skills: "sparkles"
         case .sessions: "clock.arrow.circlepath"
