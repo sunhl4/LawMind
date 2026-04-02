@@ -25,6 +25,8 @@
 import path from "node:path";
 import { renderDocxWithOptions } from "./artifacts/render-docx.js";
 import { renderPptxWithOptions } from "./artifacts/render-pptx.js";
+import { appendAssistantProfileMarkdown, buildReviewProfileLine } from "./assistants/profile-md.js";
+import { getAssistantById, resolveLawMindRoot } from "./assistants/store.js";
 import { emit } from "./audit/index.js";
 import {
   buildMatterIndex,
@@ -34,28 +36,49 @@ import {
 } from "./cases/index.js";
 import {
   persistDraft,
+  persistReasoningSnapshot,
   persistResearchSnapshot,
   readDraft,
+  readReasoningSnapshot,
+  readResearchSnapshot,
   resolveDraftCitationIntegrity,
 } from "./drafts/index.js";
 import { resolveDefaultEngineLawyerActorId } from "./engine-actor.js";
+import { writeQualityDashboardJson } from "./evaluation/export-json.js";
+import { promoteGoldenExample } from "./evaluation/golden.js";
+import {
+  computeCitationValidityRate,
+  computeIssueCoverageRate,
+  computeRiskRecallRate,
+} from "./evaluation/metrics.js";
+import { persistQualityRecord } from "./evaluation/quality.js";
+import { applyReviewLabelsMemoryWrites } from "./learning/apply-review-labels.js";
+import { enqueueLearningSuggestion } from "./learning/suggestion-queue.js";
 import {
   appendCaseArtifact,
   appendCaseCoreIssue,
   appendCaseProgress,
   appendCaseRiskNote,
   appendCaseTaskGoal,
+  appendClausePlaybookLearning,
   appendTodayLog,
+  buildClausePlaybookReviewLine,
   ensureCaseWorkspace,
   loadMemoryContext,
+  reviewLabelsTriggerPlaybook,
 } from "./memory/index.js";
-import { buildDraft, buildDraftAsync } from "./reasoning/index.js";
+import {
+  appendLawyerProfileLearning,
+  buildLawyerProfileReviewLearningLine,
+} from "./memory/lawyer-profile-learning.js";
+import { buildDraft, buildDraftAsync, buildLegalReasoningGraph } from "./reasoning/index.js";
 import { retrieve, type RetrievalAdapter } from "./retrieval/index.js";
 import { route, routeAsync, type RouteInput } from "./router/index.js";
 import {
   ensureTaskRecord,
   readTaskRecord,
   syncDraftToTaskRecord,
+  taskIntentFromRecord,
   updateTaskRecord,
 } from "./tasks/index.js";
 import { resolveTemplateForDraft } from "./templates/index.js";
@@ -65,7 +88,9 @@ import type {
   MatterOverview,
   MatterSearchHit,
   MatterSummary,
+  QualityRecord,
   ResearchBundle,
+  ReviewLabel,
   ReviewStatus,
   TaskIntent,
   TaskRecord,
@@ -111,11 +136,28 @@ export type LawMindEngine = {
     bundle: ResearchBundle,
     opts?: { title?: string; templateId?: string },
   ) => Promise<ArtifactDraft>;
-  /** 步骤 4：记录律师审核结果并写入任务状态 */
+  /** 步骤 4：记录律师审核结果并写入任务状态
+   * 2.0：支持 labels（结构化审核标签），若含 labels 则自动写回律师/助手 PROFILE。
+   */
   review: (
     draft: ArtifactDraft,
-    opts?: { actorId?: string; status?: Exclude<ReviewStatus, "pending">; note?: string },
+    opts?: {
+      actorId?: string;
+      status?: Exclude<ReviewStatus, "pending">;
+      note?: string;
+      /** 2.0：结构化审核标签，驱动质量学习飞轮 */
+      labels?: ReviewLabel[];
+      /** 为 true 时标签只入学习队列，不立即写回 PROFILE / Playbook（稍后 adopt） */
+      deferMemoryWrites?: boolean;
+      /** 桌面审核台传入时用于助手 PROFILE 写回；覆盖引擎 config.assistantId */
+      assistantId?: string;
+    },
   ) => Promise<ArtifactDraft>;
+  /** 步骤 4b（2.0）：计算并持久化当前任务的质量快照 */
+  recordQuality: (
+    taskId: string,
+    opts?: { labels?: ReviewLabel[]; latencyMs?: number },
+  ) => Promise<QualityRecord | undefined>;
   /** 步骤 5：渲染文书（律师审核草稿后调用，draft.reviewStatus 须为 approved） */
   render: (draft: ArtifactDraft) => Promise<{ ok: boolean; outputPath?: string; error?: string }>;
   /** 读取持久化任务状态 */
@@ -169,6 +211,12 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
       detail: `模板：${draft.templateId}，格式：${draft.output}`,
     });
     persistResearchSnapshot(workspaceDir, bundle);
+    const tr = readTaskRecord(workspaceDir, draft.taskId);
+    if (tr) {
+      const intent = taskIntentFromRecord(tr, draft);
+      const graph = buildLegalReasoningGraph({ intent, bundle });
+      persistReasoningSnapshot(workspaceDir, graph);
+    }
     const storedDraftPath = persistDraft(workspaceDir, draft);
     syncDraftToTaskRecord(workspaceDir, draft, "drafted");
     updateTaskRecord(workspaceDir, draft.taskId, {
@@ -330,6 +378,9 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
         draft.reviewNotes.push(opts.note);
       }
 
+      const labels = opts.labels ?? [];
+      const labelAssistantId = opts.assistantId ?? assistantId;
+
       const citationView = resolveDraftCitationIntegrity(workspaceDir, draft);
       if (citationView.checked && !citationView.ok) {
         await emit(auditDir, {
@@ -350,6 +401,54 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
         actorId: draft.reviewedBy,
         detail: `审核状态：${status}${opts.note ? `；备注：${opts.note}` : ""}`,
       });
+
+      // 2.0：若携带结构化标签，写入学习记录并更新记忆文件
+      if (labels.length > 0) {
+        await emit(auditDir, {
+          taskId: draft.taskId,
+          kind: "draft.review_labeled",
+          actor: "lawyer",
+          actorId: draft.reviewedBy,
+          detail: JSON.stringify({ labels, note: opts.note }),
+        });
+
+        const defer = opts.deferMemoryWrites === true;
+        if (defer) {
+          await enqueueLearningSuggestion(workspaceDir, auditDir, {
+            taskId: draft.taskId,
+            matterId: draft.matterId,
+            reviewStatus: status,
+            note: opts.note,
+            labels,
+            assistantId: labelAssistantId,
+          });
+        } else {
+          await applyReviewLabelsMemoryWrites(workspaceDir, auditDir, draft, {
+            status,
+            note: opts.note,
+            labels,
+            assistantId: labelAssistantId,
+          });
+        }
+      }
+
+      if (labels.includes("quality.good_example") && opts.deferMemoryWrites !== true) {
+        try {
+          const promoted = await promoteGoldenExample(workspaceDir, draft.taskId);
+          if (promoted?.created) {
+            await emit(auditDir, {
+              taskId: draft.taskId,
+              kind: "golden.example_promoted",
+              actor: "lawyer",
+              actorId: draft.reviewedBy,
+              detail: `golden/${draft.taskId}.golden.json`,
+            });
+          }
+        } catch {
+          // 磁盘失败不阻断审核
+        }
+      }
+
       const storedDraftPath = persistDraft(workspaceDir, draft);
       syncDraftToTaskRecord(workspaceDir, draft, status === "rejected" ? "rejected" : "reviewed");
       updateTaskRecord(workspaceDir, draft.taskId, {
@@ -358,7 +457,7 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
       });
       await appendTodayLog(
         workspaceDir,
-        `## 草稿审核\n- 任务: ${draft.taskId}\n- 状态: ${status}\n- 审核人: ${draft.reviewedBy}`,
+        `## 草稿审核\n- 任务: ${draft.taskId}\n- 状态: ${status}\n- 审核人: ${draft.reviewedBy}${labels.length > 0 ? `\n- 标签: ${labels.join(", ")}` : ""}`,
       );
       if (draft.matterId) {
         await appendCaseProgress(
@@ -377,6 +476,76 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
       return draft;
     },
 
+    async recordQuality(taskId, opts = {}) {
+      const taskRecord = readTaskRecord(workspaceDir, taskId);
+      if (!taskRecord) {
+        return undefined;
+      }
+      const draft = readDraft(workspaceDir, taskId);
+      if (!draft) {
+        return undefined;
+      }
+      const labels = opts.labels ?? [];
+      const bundle = readResearchSnapshot(workspaceDir, taskId);
+      const graph = readReasoningSnapshot(workspaceDir, taskId);
+      let citationValidityRate: number | null = null;
+      let issueCoverageRate: number | null = null;
+      let riskRecallRate: number | null = null;
+      if (bundle) {
+        citationValidityRate = computeCitationValidityRate(draft, bundle);
+        riskRecallRate = computeRiskRecallRate(draft, bundle);
+      }
+      if (graph) {
+        issueCoverageRate = computeIssueCoverageRate(draft, graph);
+      }
+      let presetKey: string | undefined;
+      if (taskRecord.assistantId) {
+        try {
+          const lawMindRoot = resolveLawMindRoot(workspaceDir);
+          const prof = getAssistantById(lawMindRoot, taskRecord.assistantId);
+          presetKey = prof?.presetKey;
+        } catch {
+          presetKey = undefined;
+        }
+      }
+      const record: QualityRecord = {
+        taskId,
+        taskKind: taskRecord.kind,
+        templateId: taskRecord.templateId,
+        assistantId: taskRecord.assistantId,
+        matterId: taskRecord.matterId,
+        citationValidityRate,
+        issueCoverageRate,
+        riskRecallRate,
+        firstPassApproved: draft.reviewStatus === "approved" && draft.reviewNotes.length === 0,
+        reviewStatus: draft.reviewStatus,
+        reviewLabels: labels,
+        isGoldenExample: labels.includes("quality.good_example"),
+        latencyMs: opts.latencyMs,
+        presetKey,
+        createdAt: new Date().toISOString(),
+      };
+      persistQualityRecord(workspaceDir, record);
+      await emit(auditDir, {
+        taskId,
+        kind: "quality.snapshot",
+        actor: "system",
+        detail: JSON.stringify({
+          citationValidityRate,
+          issueCoverageRate,
+          riskRecallRate,
+          firstPassApproved: record.firstPassApproved,
+          presetKey,
+        }),
+      });
+      try {
+        await writeQualityDashboardJson(workspaceDir);
+      } catch {
+        // Aggregate JSON export must not block quality recording
+      }
+      return record;
+    },
+
     async render(draft) {
       if (draft.reviewStatus !== "approved") {
         return {
@@ -386,13 +555,6 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
       }
 
       const templateResolution = await resolveTemplateForDraft({ workspaceDir, draft });
-
-      await emit(auditDir, {
-        taskId: draft.taskId,
-        kind: "artifact.rendered",
-        actor: "system",
-        detail: `模板：${templateResolution.resolvedId}（请求：${templateResolution.requestedId}，来源：${templateResolution.source}），格式：${draft.output}`,
-      });
 
       const result =
         draft.output === "pptx"
@@ -413,11 +575,14 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
       if (result.ok && result.outputPath) {
         draft.outputPath = result.outputPath;
         const storedDraftPath = persistDraft(workspaceDir, draft);
+        const fallbackTail = templateResolution.fallbackReason
+          ? `；回退原因：${templateResolution.fallbackReason}`
+          : "";
         await emit(auditDir, {
           taskId: draft.taskId,
           kind: "artifact.rendered",
           actor: "system",
-          detail: `输出路径：${result.outputPath}${templateResolution.fallbackReason ? `；回退原因：${templateResolution.fallbackReason}` : ""}`,
+          detail: `模板：${templateResolution.resolvedId}（请求：${templateResolution.requestedId}，来源：${templateResolution.source}）；格式：${draft.output}；输出路径：${result.outputPath}${fallbackTail}`,
         });
         syncDraftToTaskRecord(workspaceDir, draft, "rendered");
         updateTaskRecord(workspaceDir, draft.taskId, {
@@ -438,6 +603,15 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
             `${draft.title} -> ${result.outputPath}`,
           );
         }
+      } else if (!result.ok) {
+        // Render was attempted (draft was approved) but the renderer returned an error.
+        // Emit a distinct kind so auditors can distinguish "never attempted" from "attempted and failed".
+        await emit(auditDir, {
+          taskId: draft.taskId,
+          kind: "artifact.render_failed",
+          actor: "system",
+          detail: `格式：${draft.output}；模板：${templateResolution.resolvedId}；错误：${result.error ?? "unknown"}`,
+        });
       }
 
       return result;
@@ -474,11 +648,16 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
 // 重导出核心类型，方便外部直接从入口引用
 export type {
   ArtifactDraft,
+  BenchmarkResult,
+  BenchmarkTask,
+  LegalReasoningGraph,
   MatterIndex,
   MatterOverview,
   MatterSearchHit,
   MatterSummary,
+  QualityRecord,
   ResearchBundle,
+  ReviewLabel,
   TaskIntent,
 } from "./types.js";
 export { route, routeAsync } from "./router/index.js";
@@ -498,6 +677,10 @@ export {
   appendLawyerProfileLearning,
   buildLawyerProfileReviewLearningLine,
   ensureCaseWorkspace,
+  ensureClientProfile,
+  ensureFirmProfile,
+  clausePlaybookPath,
+  courtAndOpponentProfilePath,
   ensureLawyerProfileSkeleton,
   loadMemoryContext,
 } from "./memory/index.js";
@@ -525,6 +708,7 @@ export {
   listTaskRecords,
   persistAgentInstructionTask,
   readTaskRecord,
+  taskIntentFromRecord,
   type TaskCheckpoint,
 } from "./tasks/index.js";
 export {
@@ -569,4 +753,93 @@ export {
   listAssistantProfileSections,
   type AssistantProfileSectionMeta,
 } from "./assistants/profile-md.js";
-export { resolveDefaultEngineLawyerActorId } from "./engine-actor.js";
+export {
+  buildDraft,
+  buildDraftAsync,
+  buildLegalReasoningGraph,
+  parseLegalReasoningGraphMeta,
+  serializeLegalReasoningGraph,
+  type BuildDraftParams,
+  type BuildLegalGraphParams,
+} from "./reasoning/index.js";
+export {
+  buildBenchmarkReportMarkdown,
+  benchmarkPassesThreshold,
+  buildQualityDashboardMarkdown,
+  buildQualityReportMarkdown,
+  computeCitationValidityRate,
+  computeIssueCoverageRate,
+  computeRiskRecallRate,
+  listGoldenTaskIds,
+  listQualityRecords,
+  persistQualityRecord,
+  promoteGoldenExample,
+  readQualityRecord,
+  runBenchmarks,
+  writeQualityDashboardJson,
+  BUILTIN_BENCHMARK_TASKS,
+} from "./evaluation/index.js";
+export type { QualityDashboardJsonPayload } from "./evaluation/index.js";
+export type {
+  GoldenExampleEntry,
+  GoldenPromoteResult,
+  LawMindEngineForBenchmark,
+} from "./evaluation/index.js";
+export {
+  buildGovernanceReportMarkdown,
+  evaluateBenchmarkGate,
+  readWorkspacePolicyFile,
+  workspacePolicyPath,
+  type BenchmarkGateResult,
+  type LawMindEdition,
+  type LawMindWorkspacePolicy,
+} from "./policy/index.js";
+export { buildAcceptancePackMarkdown } from "./delivery/acceptance-pack.js";
+export {
+  adoptLearningSuggestion,
+  dismissLearningSuggestion,
+  enqueueLearningSuggestion,
+  listLearningSuggestions,
+  type LearningSuggestionRecord,
+} from "./learning/suggestion-queue.js";
+export { applyReviewLabelsMemoryWrites } from "./learning/apply-review-labels.js";
+export {
+  appendClausePlaybookLearning,
+  buildClausePlaybookReviewLine,
+  buildAgentMemorySourceReport,
+  CLAUSE_PLAYBOOK_RELATIVE,
+  PLAYBOOK_REVIEW_SECTION,
+  reviewLabelsTriggerPlaybook,
+  type MemorySourceLayer,
+} from "./memory/index.js";
+export { ALL_REVIEW_LABELS, parseReviewLabels } from "./review-labels.js";
+export {
+  getAssistantPreset,
+  listAssistantPresets,
+  taskRiskExceedsPresetCeiling,
+  type AssistantPresetDefinition,
+} from "./agent/assistant-presets.js";
+export {
+  buildDeliverableFromDraft,
+  buildApprovalRequestsFromMatterIndex,
+  buildMatterFromIndex,
+  buildMatterReadModelFromIndex,
+  buildQueueItemsFromMatterIndex,
+  type ApprovalRequest,
+  type Deadline,
+  type Deliverable,
+  type DeliverableKind,
+  type Matter,
+  type MatterReadModel,
+  type MatterStatus,
+  type MemoryNode,
+  type QueueKind,
+  type WorkQueueItem,
+} from "./core/contracts.js";
+export {
+  getMatterCockpitSummary,
+  getMatterReadModel,
+  listMatterCockpitOverviews,
+  listMatterReadModels,
+} from "./application/services/matter-service.js";
+export { listApprovalRequests, listWorkQueueItems } from "./application/services/queue-service.js";

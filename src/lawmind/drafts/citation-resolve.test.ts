@@ -26,7 +26,9 @@ describe("resolveDraftCitationIntegrity", () => {
     };
     const r = resolveDraftCitationIntegrity(ws, draft);
     expect(r.checked).toBe(false);
-    expect(r.reason).toBe("no_research_snapshot");
+    if (!r.checked) {
+      expect(r.reason).toBe("no_research_snapshot");
+    }
   });
 
   it("validates when snapshot exists", () => {

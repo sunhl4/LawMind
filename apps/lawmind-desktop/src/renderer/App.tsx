@@ -18,7 +18,9 @@ import type { AssistantRow } from "./lawmind-settings-models.ts";
 import type { DraftCitationIntegrityView } from "../../../../src/lawmind/drafts/citation-integrity.ts";
 import type { TaskCheckpoint } from "../../../../src/lawmind/tasks/checkpoints.ts";
 import { chatErrorUserText, type ApiErrorJson } from "./api-client";
-import { DEFAULT_ASSISTANT_ID } from "../../../../src/lawmind/assistants/store.ts";
+import { DEFAULT_ASSISTANT_ID } from "../../../../src/lawmind/assistants/constants.ts";
+import type { MemorySourceLayer } from "../../../../src/lawmind/memory/index.ts";
+import { LawmindMemorySourcesPanel } from "./LawmindMemorySourcesPanel";
 
 function resolveWorkspacePath(workspaceDir: string, rel: string): string {
   const r = rel.replace(/\\/g, "/").replace(/^\//, "");
@@ -273,7 +275,14 @@ type HistoryItem = {
   assistantId?: string;
 };
 
-type ChatMsg = { role: "user" | "assistant"; text: string };
+type ChatMsg = {
+  role: "user" | "assistant";
+  text: string;
+  /** 助手回复附带的记忆层来源（与 /api/chat 一致） */
+  memorySources?: MemorySourceLayer[];
+  /** 本轮工具调用顺序（与 /api/chat 的 toolCallSequence 一致，一步一条） */
+  toolCallSequence?: string[];
+};
 
 type DelegationRow = {
   delegationId: string;
@@ -328,6 +337,11 @@ const SCENARIO_CARDS: Array<{ title: string; description: string; prompt: string
 
 export function App() {
   const [mainView, setMainView] = useState<"chat" | "files" | "matters" | "review">("chat");
+  const [reviewFocusTaskId, setReviewFocusTaskId] = useState<string | null>(null);
+  const [reviewFocusMatterId, setReviewFocusMatterId] = useState<string | null>(null);
+  const [reviewFocusStatus, setReviewFocusStatus] = useState<ArtifactDraft["reviewStatus"] | "all">("all");
+  const [reviewFocusListMode, setReviewFocusListMode] = useState<"pending" | "all">("pending");
+  const [matterRefreshVersion, setMatterRefreshVersion] = useState(0);
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [health, setHealth] = useState<{
     modelConfigured: boolean;
@@ -889,6 +903,8 @@ export function App() {
         detail?: string;
         sessionId?: string;
         reply?: string;
+        memorySources?: MemorySourceLayer[];
+        toolCallSequence?: string[];
       };
       if (!r.ok || j.ok === false) {
         throw new Error(chatErrorUserText(r.status, j as ApiErrorJson));
@@ -896,9 +912,22 @@ export function App() {
       if (j.sessionId) {
         setSessionByAssistant((prev) => ({ ...prev, [aid]: j.sessionId }));
       }
+      const mem = Array.isArray(j.memorySources) ? j.memorySources : undefined;
+      const rawSeq = Array.isArray(j.toolCallSequence) ? j.toolCallSequence : [];
+      const toolCallSequence = rawSeq.filter(
+        (x): x is string => typeof x === "string" && x.trim().length > 0,
+      );
       setMessagesByAssistant((prev) => ({
         ...prev,
-        [aid]: [...(prev[aid] ?? []), { role: "assistant", text: j.reply || "(empty)" }],
+        [aid]: [
+          ...(prev[aid] ?? []),
+          {
+            role: "assistant",
+            text: j.reply || "(empty)",
+            ...(mem && mem.length > 0 ? { memorySources: mem } : {}),
+            ...(toolCallSequence.length > 0 ? { toolCallSequence } : {}),
+          },
+        ],
       }));
       await refreshLists();
       await refreshAssistants();
@@ -1730,9 +1759,21 @@ export function App() {
           <div className="lm-main-workbench">
             <MatterWorkbench
               apiBase={config.apiBase}
+              refreshVersion={matterRefreshVersion}
+              assistantId={selectedAssistantId}
               onUseInChat={(matterId) => {
                 setContextMatterId(matterId);
                 setMainView("chat");
+              }}
+              onOpenReview={({ taskId, matterId, statusFilter = "all", listMode = "all" }) => {
+                setReviewFocusTaskId(taskId);
+                setReviewFocusMatterId(matterId ?? null);
+                setReviewFocusStatus(statusFilter);
+                setReviewFocusListMode(listMode);
+                if (matterId) {
+                  setContextMatterId(matterId);
+                }
+                setMainView("review");
               }}
             />
           </div>
@@ -1741,8 +1782,15 @@ export function App() {
             <ReviewWorkbench
               apiBase={config.apiBase}
               assistantId={selectedAssistantId}
+              initialTaskId={reviewFocusTaskId}
+              initialMatterId={reviewFocusMatterId}
+              initialStatusFilter={reviewFocusStatus}
+              initialListMode={reviewFocusListMode}
               onShowArtifact={(relPath) => openOutputInFolder(relPath)}
-              onRecordsChanged={() => void refreshLists()}
+              onRecordsChanged={() => {
+                setMatterRefreshVersion((v) => v + 1);
+                void refreshLists();
+              }}
             />
           </div>
         ) : (
@@ -1775,7 +1823,7 @@ export function App() {
           ) : (
             currentMessages.map((msg, i) => (
               <div
-                key={`${i}-${msg.role}`}
+                key={`${selectedAssistantId}-msg-${i}`}
                 className={`lm-msg-row ${msg.role === "user" ? "lm-msg-row-user" : ""}`}
               >
                 <div
@@ -1798,6 +1846,15 @@ export function App() {
                       {copiedMessageIndex === i ? "已复制 ✓" : "复制"}
                     </button>
                   )}
+                  {msg.role === "assistant" &&
+                    (((msg.memorySources?.length ?? 0) > 0 ||
+                      (msg.toolCallSequence?.length ?? 0) > 0) && (
+                      <LawmindMemorySourcesPanel
+                        layers={msg.memorySources ?? []}
+                        toolCallSequence={msg.toolCallSequence}
+                        variant="chat"
+                      />
+                    ))}
                 </div>
               </div>
             ))

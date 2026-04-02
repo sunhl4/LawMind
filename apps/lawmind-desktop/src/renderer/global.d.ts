@@ -98,4 +98,5 @@ declare global {
   }
 }
 
-
+/** Marks this file as a module so `declare global` merges onto `Window`. */
+export type LawmindDesktopGlobalStub = undefined;

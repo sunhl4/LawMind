@@ -3,6 +3,7 @@ import {
   ASSISTANT_PRESETS,
   getAssistantPreset,
   listAssistantPresets,
+  taskRiskExceedsPresetCeiling,
 } from "./assistant-presets.js";
 
 describe("assistant-presets", () => {
@@ -24,5 +25,19 @@ describe("assistant-presets", () => {
 
   it("listAssistantPresets matches ASSISTANT_PRESETS length", () => {
     expect(listAssistantPresets().length).toBe(ASSISTANT_PRESETS.length);
+  });
+
+  it("each preset has riskCeiling and non-empty acceptanceChecklist", () => {
+    for (const p of ASSISTANT_PRESETS) {
+      expect(["low", "medium", "high"]).toContain(p.riskCeiling);
+      expect(p.acceptanceChecklist.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("taskRiskExceedsPresetCeiling compares risk levels", () => {
+    const client = getAssistantPreset("client_memo");
+    expect(client).toBeDefined();
+    expect(taskRiskExceedsPresetCeiling("high", client)).toBe(true);
+    expect(taskRiskExceedsPresetCeiling("low", client)).toBe(false);
   });
 });

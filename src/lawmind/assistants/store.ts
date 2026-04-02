@@ -6,9 +6,8 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { getAssistantPreset } from "../agent/assistant-presets.js";
+import { DEFAULT_ASSISTANT_ID } from "./constants.js";
 import type { AssistantProfile, AssistantStatsEntry, AssistantStatsFile } from "./types.js";
-
-const DEFAULT_ASSISTANT_ID = "default";
 
 export function resolveLawMindRoot(workspaceDir: string, envFile?: string): string {
   const raw = envFile?.trim();

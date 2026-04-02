@@ -121,6 +121,7 @@ describe("buildComplianceAuditMarkdown", () => {
     fs.writeFileSync(path.join(auditDir, "2026-03-29.jsonl"), `${lines.join("\n")}\n`, "utf8");
     const md = await buildComplianceAuditMarkdown(ws, {});
     expect(md).toContain("compliance-oriented");
+    expect(md).toContain("Export schema version:** 2");
     expect(md).toContain("`draft.reviewed`");
     expect(md).toContain("`draft.citation_integrity`");
     expect(md).toContain("`artifact.rendered`");

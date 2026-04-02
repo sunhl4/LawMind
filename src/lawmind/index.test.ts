@@ -167,6 +167,12 @@ describe("LawMind Engine", () => {
     const result = await engine.render(draft);
     expect(result.ok).toBe(false);
     expect(result.error).toContain("未通过审核");
+
+    const auditDir = path.join(workspaceDir, "audit");
+    const auditEvents = await readAllAuditLogs(auditDir);
+    expect(
+      auditEvents.filter((e) => e.taskId === intent.taskId && e.kind === "artifact.rendered"),
+    ).toEqual([]);
   });
 
   it("render writes pptx when draft.output is pptx", async () => {
@@ -252,5 +258,61 @@ describe("LawMind Engine", () => {
     const latestAudit = path.join(auditDir, auditFiles.toSorted()[auditFiles.length - 1]);
     const auditContent = await fs.readFile(latestAudit, "utf8");
     expect(auditContent).toContain("回退原因");
+  });
+
+  it("review with playbook trigger labels appends CLAUSE_PLAYBOOK and emits memory.playbook_updated", async () => {
+    const mockLegal = createLegalModelAdapter(async () => ({
+      claims: [{ text: "结论。", confidence: 0.9 }],
+      sources: [{ title: "规则", citation: "r" }],
+    }));
+    const engine = createLawMindEngine({
+      workspaceDir,
+      adapters: [createWorkspaceAdapter(workspaceDir), mockLegal],
+    });
+    const intent = engine.plan("请整理合同审查意见并生成律师函草稿", {
+      audience: "客户",
+      matterId: "matter-playbook",
+      templateId: "word/demand-letter-default",
+    });
+    const bundle = await engine.research(intent);
+    const draft = engine.draft(intent, bundle, { title: "Playbook integration" });
+    await engine.review(draft, {
+      actorId: "lawyer:test",
+      status: "approved",
+      labels: ["citation.incomplete"],
+      note: "add refs",
+    });
+    const pb = path.join(workspaceDir, "playbooks", "CLAUSE_PLAYBOOK.md");
+    const pbContent = await fs.readFile(pb, "utf8");
+    expect(pbContent).toContain("## 6. LawMind 审核学习（自动摘要）");
+    expect(pbContent).toContain("citation.incomplete");
+    const auditDir = path.join(workspaceDir, "audit");
+    const events = await readAllAuditLogs(auditDir);
+    expect(events.some((e) => e.kind === "memory.playbook_updated")).toBe(true);
+  });
+
+  it("recordQuality writes quality/dashboard.json aggregate", async () => {
+    const mockLegal = createLegalModelAdapter(async () => ({
+      claims: [{ text: "结论。", confidence: 0.9 }],
+      sources: [{ title: "规则", citation: "r" }],
+    }));
+    const engine = createLawMindEngine({
+      workspaceDir,
+      adapters: [createWorkspaceAdapter(workspaceDir), mockLegal],
+    });
+    const intent = engine.plan("请整理合同审查意见并生成律师函草稿", {
+      audience: "客户",
+      matterId: "matter-dash-json",
+      templateId: "word/demand-letter-default",
+    });
+    const bundle = await engine.research(intent);
+    const draft = engine.draft(intent, bundle, { title: "Dashboard JSON test" });
+    await engine.review(draft, { actorId: "lawyer:test", status: "approved" });
+    await engine.recordQuality(intent.taskId, { labels: ["quality.good_example"] });
+    const dashPath = path.join(workspaceDir, "quality", "dashboard.json");
+    const raw = await fs.readFile(dashPath, "utf8");
+    const dash = JSON.parse(raw) as { recordCount: number; records: Array<{ taskId: string }> };
+    expect(dash.recordCount).toBeGreaterThanOrEqual(1);
+    expect(dash.records.some((r) => r.taskId === intent.taskId)).toBe(true);
   });
 });

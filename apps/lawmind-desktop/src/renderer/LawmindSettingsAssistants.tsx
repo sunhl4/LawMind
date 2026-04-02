@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { DEFAULT_ASSISTANT_ID } from "../../../../src/lawmind/assistants/store.ts";
+import { DEFAULT_ASSISTANT_ID } from "../../../../src/lawmind/assistants/constants.ts";
 import type { AssistantRow } from "./lawmind-settings-models.ts";
 
 type Props = {

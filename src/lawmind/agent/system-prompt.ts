@@ -5,6 +5,7 @@
  * system prompt 是动态构建的，根据当前案件、律师 profile、可用工具生成。
  */
 
+import type { RiskLevel } from "../types.js";
 import type { ToolDefinition } from "./types.js";
 
 export type SystemPromptContext = {
@@ -30,6 +31,10 @@ export type SystemPromptContext = {
   peerAssistants?: Array<{ id: string; displayName: string; roleTitle: string }>;
   /** 桌面端打开的项目目录（仅提示模型，工具 read_project_file / search_workspace 会使用） */
   projectDirectoryHint?: string;
+  /** Phase B：岗位风险上限（高于任务风险时须强调律师确认） */
+  roleRiskCeiling?: RiskLevel;
+  /** Phase B：岗位交付自检清单 */
+  roleAcceptanceChecklist?: string[];
 };
 
 export function buildSystemPrompt(ctx: SystemPromptContext): string {
@@ -63,14 +68,27 @@ export function buildSystemPrompt(ctx: SystemPromptContext): string {
 4. **全程可追溯**：每个动作都记录在审计日志中，每个结论都可追溯至来源。
 5. **风险前置**：发现风险时立即标记，不要等到最后才说。`);
 
-  if (ctx.roleTitle || ctx.roleIntroduction || ctx.roleDirective) {
+  if (
+    ctx.roleTitle ||
+    ctx.roleIntroduction ||
+    ctx.roleDirective ||
+    ctx.roleRiskCeiling ||
+    (ctx.roleAcceptanceChecklist && ctx.roleAcceptanceChecklist.length > 0)
+  ) {
     const introBlock = ctx.roleIntroduction?.trim()
       ? `\n\n**助手简介**：\n${ctx.roleIntroduction.trim()}`
       : "";
     const directiveBlock = ctx.roleDirective?.trim() ? `\n\n${ctx.roleDirective.trim()}` : "";
+    const riskBlock = ctx.roleRiskCeiling
+      ? `\n\n**岗位风险上限**：${ctx.roleRiskCeiling}。当任务或工作流路由为高于该等级的风险时，必须在答复中明确提示律师确认后再对外交付或渲染。`
+      : "";
+    const checklistBlock =
+      ctx.roleAcceptanceChecklist && ctx.roleAcceptanceChecklist.length > 0
+        ? `\n\n**交付前自检清单**（逐项核对并在最终答复中体现已覆盖项）：\n${ctx.roleAcceptanceChecklist.map((line, i) => `${i + 1}. ${line}`).join("\n")}`
+        : "";
     sections.push(`## 当前岗位与职责
 
-**岗位**：${ctx.roleTitle?.trim() || "法律助理"}${introBlock}${directiveBlock}
+**岗位**：${ctx.roleTitle?.trim() || "法律助理"}${introBlock}${directiveBlock}${riskBlock}${checklistBlock}
 
 请在本对话中始终按上述岗位定位行事；与全局 LawMind 原则冲突时，仍以准确性与合规为先。`);
   }

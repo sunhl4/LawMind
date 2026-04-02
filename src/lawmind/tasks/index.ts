@@ -134,6 +134,7 @@ export const MAX_AGENT_INSTRUCTION_SUMMARY_CHARS = 4000;
  * Short display title from user instruction (deterministic, no LLM).
  */
 export { listTaskCheckpoints, type TaskCheckpoint } from "./checkpoints.js";
+export { taskIntentFromRecord } from "./task-intent.js";
 
 export function deriveInstructionTitle(instruction: string, maxLen = 56): string {
   const collapsed = instruction

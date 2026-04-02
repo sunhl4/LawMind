@@ -1356,6 +1356,7 @@
               {
                 "group": "LawMind",
                 "pages": [
+                  "LAWMIND-2.0-STRATEGY",
                   "LAWMIND-ACTOR-ATTRIBUTION",
                   "LAWMIND-CUSTOMER-ACCEPTANCE",
                   "LAWMIND-CUSTOMER-OVERVIEW",
@@ -1370,6 +1371,14 @@
                   "LAWMIND-USER-MANUAL",
                   "lawmind/agent-workbench-memory",
                   "lawmind/citation-and-matter-detail-memory",
+                  "lawmind/compliance-audit-trail",
+                  "lawmind/engineering-status",
+                  "lawmind/legal-reasoning-graph",
+                  "lawmind/quality-and-benchmarks",
+                  "lawmind/refactor-blueprint",
+                  "lawmind/refactor-implementation-plan",
+                  "lawmind/phase-c-governance",
+                  "lawmind/phase-d-operability",
                   "lawmind/task-checkpoints",
                   "legal/dpa-outline",
                   "legal/privacy-policy",

@@ -79,5 +79,20 @@ describe("Phase A golden engine path", () => {
     const kinds = new Set(events.map((e) => e.kind));
     expect(kinds.has("draft.reviewed")).toBe(true);
     expect(kinds.has("artifact.rendered")).toBe(true);
+
+    const forTask = events.filter((e) => e.taskId === taskId);
+    const reviewedAt = forTask.find((e) => e.kind === "draft.reviewed")?.timestamp;
+    const rendered = forTask.filter((e) => e.kind === "artifact.rendered");
+    expect(reviewedAt).toBeDefined();
+    expect(rendered.length).toBe(1);
+    const renderedEvent = rendered[0];
+    expect(renderedEvent).toBeDefined();
+    if (!renderedEvent || !reviewedAt) {
+      throw new Error("expected reviewed and rendered audit events");
+    }
+    expect(renderedEvent.timestamp.localeCompare(reviewedAt)).toBeGreaterThanOrEqual(0);
+    expect(renderedEvent.detail).toContain("模板：");
+    expect(renderedEvent.detail).toContain("输出路径：");
+    expect(renderedEvent.detail).toContain(renderResult.outputPath!);
   });
 });

@@ -11,7 +11,21 @@ import type { UploadedTemplateRecord } from "../templates/index.js";
 import type { ArtifactDraft, ArtifactSection } from "../types.js";
 import type { RenderResult } from "./render-docx.js";
 
-type PptxPresentation = InstanceType<typeof PptxGenJS>;
+/**
+ * pptxgenjs typings + NodeNext treat the default export as non-constructable; at runtime it is a class.
+ * We keep a narrow surface for this file so `new` and slide APIs stay typechecked.
+ */
+type PptxTextOpts = Record<string, string | number | boolean | undefined>;
+type PptxSlide = {
+  addText: (text: string | unknown[], options?: PptxTextOpts) => unknown;
+};
+type PptxPresentation = {
+  layout: string;
+  author: string;
+  addSlide: () => PptxSlide;
+  writeFile: (opts: { fileName: string }) => Promise<string | void>;
+};
+type PptxConstructor = new () => PptxPresentation;
 
 export type RenderPptxOptions = {
   templateVariant?: string;
@@ -127,7 +141,7 @@ export async function renderPptxWithOptions(
   }
 
   const style = resolveDeckStyle(options.templateVariant ?? "clientBrief");
-  const pptx = new PptxGenJS();
+  const pptx = new (PptxGenJS as unknown as PptxConstructor)();
   pptx.layout = "LAYOUT_16x9";
   pptx.author = "LawMind";
 

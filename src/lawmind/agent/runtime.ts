@@ -18,6 +18,7 @@
 import { randomUUID } from "node:crypto";
 import { readAssistantProfileMarkdown } from "../assistants/profile-md.js";
 import {
+  getAssistantById,
   loadAssistantProfiles,
   buildRoleDirectiveFromProfile,
   resolveLawMindRoot,
@@ -25,6 +26,7 @@ import {
 import { emit } from "../audit/index.js";
 import { loadMemoryContext } from "../memory/index.js";
 import { persistAgentInstructionTask } from "../tasks/index.js";
+import { getAssistantPreset } from "./assistant-presets.js";
 import {
   appendTurn,
   compactHistory,
@@ -218,10 +220,13 @@ export async function runTurn(opts: {
   const memory = await loadMemoryContext(config.workspaceDir, { matterId: session.matterId });
 
   let assistantProfileMarkdown = "";
+  let presetForTools: ReturnType<typeof getAssistantPreset> | undefined;
   if (resolvedAssistantId) {
     try {
       const lawMindRoot = resolveLawMindRoot(config.workspaceDir);
       assistantProfileMarkdown = readAssistantProfileMarkdown(lawMindRoot, resolvedAssistantId);
+      const prof = getAssistantById(lawMindRoot, resolvedAssistantId);
+      presetForTools = getAssistantPreset(prof?.presetKey);
     } catch {
       assistantProfileMarkdown = "";
     }
@@ -249,6 +254,8 @@ export async function runTurn(opts: {
     roleTitle: config.roleTitle,
     roleIntroduction: config.roleIntroduction,
     roleDirective: config.roleDirective,
+    roleRiskCeiling: presetForTools?.riskCeiling,
+    roleAcceptanceChecklist: presetForTools?.acceptanceChecklist,
     allowWebSearch: config.allowWebSearch === true,
     collaborationEnabled: config.enableCollaboration === true,
     peerAssistants,
@@ -280,7 +287,11 @@ export async function runTurn(opts: {
   // 压缩历史
   session.conversationHistory = compactHistory(session.conversationHistory, maxHistory);
 
-  const openAITools = registry.toOpenAITools();
+  const allowNames = presetForTools?.allowedToolNames;
+  const openAITools =
+    allowNames && allowNames.length > 0
+      ? registry.toOpenAITools().filter((t) => allowNames.includes(t.function.name))
+      : registry.toOpenAITools();
   const turn: AgentTurn = {
     turnId,
     sessionId: session.sessionId,

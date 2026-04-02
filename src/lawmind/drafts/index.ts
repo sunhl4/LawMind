@@ -39,7 +39,12 @@ export function listDrafts(workspaceDir: string): ArtifactDraft[] {
     const dir = draftsDir(workspaceDir);
     const files = fs
       .readdirSync(dir)
-      .filter((name) => name.endsWith(".json") && !name.endsWith(".research.json"))
+      .filter(
+        (name) =>
+          name.endsWith(".json") &&
+          !name.endsWith(".research.json") &&
+          !name.endsWith(".reasoning.json"),
+      )
       .toSorted();
     return files
       .map((name) => {
@@ -67,4 +72,9 @@ export {
   readResearchSnapshot,
   researchSnapshotPath,
 } from "./research-snapshot.js";
+export {
+  persistReasoningSnapshot,
+  readReasoningSnapshot,
+  reasoningSnapshotPath,
+} from "./reasoning-snapshot.js";
 export { resolveDraftCitationIntegrity } from "./citation-resolve.js";

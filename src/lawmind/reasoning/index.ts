@@ -8,3 +8,9 @@
 
 export { buildDraft, type BuildDraftParams } from "./keyword-draft.js";
 export { buildDraftAsync, buildDraftWithModel, isModelReasoningEnabled } from "./model-draft.js";
+export {
+  buildLegalReasoningGraph,
+  parseLegalReasoningGraphMeta,
+  serializeLegalReasoningGraph,
+  type BuildLegalGraphParams,
+} from "./legal-graph.js";

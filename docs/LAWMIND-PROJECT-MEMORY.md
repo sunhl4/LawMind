@@ -26,9 +26,14 @@
    - `workspace/drafts/*.json`
    - `workspace/audit/*.jsonl`
    - `workspace/cases/<matter-id>/CASE.md`
+   - `workspace/playbooks/CLAUSE_PLAYBOOK.md`（条款与审核学习）
+   - `workspace/quality/*.quality.json` 与 `workspace/quality/dashboard.json`（质量快照与聚合导出）
+   - `workspace/exports/acceptance-pack.md`（`pnpm lawmind:ops acceptance-pack` 生成）
    - `workspace/sessions/*.json` + `*.turns.jsonl`（Agent 对话）
-5. 若要继续当前技术实现，优先看最近新增的测试文件，测试即行为边界。
-6. 理解两套入口：
+5. 再看 `docs/lawmind/refactor-blueprint.md`，确认当前重构北极星、目标分层、迁移路径与 UI 信息架构。
+6. 再看 `docs/lawmind/refactor-implementation-plan.md`，确认实施级数据模型、目录迁移策略、以及首批 PR 切分。
+7. 若要继续当前技术实现，优先看最近新增的测试文件，测试即行为边界。
+8. 理解两套入口：
    - `createLawMindEngine()` — M1 管线式，确定性强，步骤固定。
    - `createLawMindAgent()` — M2 Agent 式，LLM 驱动，自主推理。
 
@@ -274,7 +279,7 @@
 8. ~~**项目文件访问**~~ ✅ — Agent 侧：`/api/chat` 传入的 `projectDir` 经校验后注入 `AgentContext`；`search_workspace` 扩展扫描项目内有限文本文件；新增工具 `read_project_file`。桌面 `/api/fs/*` 仍依赖 `LAWMIND_PROJECT_DIR`；切换项目目录后 **Electron 会重启本地 API** 以保持 FS 与 Agent 一致。
 9. ~~**案件面板 UI**~~ ✅ — 桌面主区新增「案件」页：`MatterWorkbench.tsx`；API `GET /api/matters/overviews`、`GET /api/matters/detail?matterId=`、`GET /api/matters/search?matterId=&q=`；支持概览 / CASE 档案 / 任务与草稿 / 审计时间线；「在对话中关联本案」写入会话 matter 上下文。
 10. ~~**审核台 UI**~~ ✅ — 桌面主区新增「审核」页：`ReviewWorkbench.tsx`；API `GET /api/drafts`、`POST /api/drafts/:taskId/review`、`POST /api/drafts/:taskId/render`（经 `createLawMindEngine`）；列表筛选待审核/全部；通过、驳回、需修改、备注、批准后渲染交付物。
-11. ~~**per-assistant 记忆文件**~~ ✅（基础）— `assistants/<assistantId>/PROFILE.md` 由 runtime 加载进 system prompt；`appendAssistantProfileMarkdown()` 可供后续「显式采纳」；**待**：桌面 UI 写入入口与审核联动。
+11. ~~**per-assistant 记忆文件**~~ ✅ — `assistants/<assistantId>/PROFILE.md` 已由 runtime 加载进 system prompt；桌面端“认知升级建议”现已支持直接写入当前助手档案，并在案件认知页回看持久采纳历史。
 
 ### 基础设施
 
@@ -291,7 +296,140 @@
 
 ---
 
-## 7) 更新日志
+## 7) LawMind 2.0 战略升级记忆
+
+### 新的北极星
+
+LawMind 下一阶段不再只是“法律 AI 工作台”，而要逐步成为**法律生产操作系统**：
+
+- 能记住律所、律师、客户、案件、条款层面的长期知识
+- 能按律师工作逻辑组织推理，而不只是生成流畅文本
+- 能把每次审核转化为可复用的质量学习
+- 能被客户购买、验收、治理、审计和持续支持
+
+### 新的四条主线
+
+1. **认知记忆主线**
+   从 `MEMORY.md` + `LAWYER_PROFILE.md` + `CASE.md` 扩展为 firm / lawyer / client / matter / clause / opponent 多层记忆体系，但仍保持 Markdown 真相源。
+2. **法律推理主线**
+   在 `ResearchBundle` 和 `ArtifactDraft` 之间增加结构化推理层，沉淀争点树、论证矩阵、权威冲突、待确认事项。
+3. **质量学习主线**
+   将审核动作转化为结构化反馈和可统计信号，驱动模板、岗位助手、律师偏好持续优化。
+4. **商业化主线**
+   将交付、私有化、评测、验收、支持从“附属文档”升级为产品组成部分，支撑 `Solo Edition`、`Firm Edition`、`Private Deploy` 等分层打包。
+
+### 新的优先级
+
+#### P0
+
+- 完成“显式学习”闭环：审核台写回 `LAWYER_PROFILE.md`、`assistants/<assistantId>/PROFILE.md`，并开始沉淀 clause / playbook 级经验。
+- 为审核结果增加结构化标签，而不只是 `approved` / `rejected` / `modified`。
+
+#### P1
+
+- 引入结构化法律推理对象（例如 `LegalReasoningGraph`）。
+- 将争点覆盖、引用可靠度、风险提示充分度变成可见字段和可回归边界。
+
+#### P2
+
+- 建立 LawMind 任务评测板：任务完成率、引用正确率、一次通过率、人工改动率、风险召回率。
+- 建立黄金案例集，按合同审查、法律备忘录、律师函、诉讼策略、客户汇报等场景回归。
+
+#### P3
+
+- 岗位化助手编制：合同审查、法律检索、诉讼策略、客户沟通、合规审计、交付质检。
+- 将岗位职责、模板偏好、工具边界、风险阈值绑定到助手配置与学习记忆。
+
+### 2.0 之后的结构性升级方向
+
+在 2.0 现有主线上，下一阶段不应只是继续增加工具和聊天能力，而应逐步把 LawMind 重构为 **matter-centered legal production system**。当前统一参考文档为：
+
+- `docs/lawmind/refactor-blueprint.md`
+
+该蓝图的关键判断如下：
+
+1. **主对象从 session/chat 转向 matter**
+   - matter 应成为案件状态、交付物、审批、风险、期限、开放问题和协作的主索引。
+   - session 保留，但降级为交互入口和运行时状态。
+2. **运行时状态与法律业务状态分离**
+   - 将 transcript、tool calls、临时推理与 matter / deliverable / approval / deadline 这些业务对象显式区分。
+3. **从工具调用升级为工作编排**
+   - 增加 blocked / pending review / pending approval / waiting on client / need evidence 等工作队列对象。
+   - 让系统能判断“下一步该谁做、为什么卡住、是否应升级给律师”。
+4. **从 assistant profile 升级为岗位编制**
+   - 将助手逐步重构为 intake、research、evidence、drafting、review、client communication、compliance 等有明确职责和风险边界的数字岗位。
+5. **Workbench 从聊天优先升级为案件驾驶舱**
+   - 重点视图转向：matter cockpit、review queue、memory inspector、reasoning board、quality cockpit、role board。
+
+### 结构性升级的建议分层
+
+为避免现有 `src/lawmind/` 继续横向膨胀，后续重构建议围绕四层推进：
+
+- `lawmind-core`
+  - 领域对象和状态机：matter、deliverable、approval、deadline、risk、reasoning graph、memory node。
+- `lawmind-runtime`
+  - agent loop、tools、hooks、delegation、prompt/context shaping、runtime event stream。
+- `lawmind-governance`
+  - policy、audit、review labels、benchmark gate、quality scoreboard、acceptance/compliance export。
+- `lawmind-workbench`
+  - 桌面与未来多端界面层，只消费应用服务，不直接承载核心编排逻辑。
+
+### 近期重构优先级（蓝图版）
+
+在不推翻 M1/M2/M3 的前提下，近期最值得做的 5 件事：
+
+1. 固化 matter-centered 核心契约，并逐步用于 engine / desktop API / review pipeline。
+2. 将 `LegalReasoningGraph` 从“已有功能”升级为高风险起草的强制检查点。
+3. 为岗位化助手绑定可用工具、记忆范围、风险上限、默认模板和升级规则。
+4. 将 review / approval / waiting-on-client / need-evidence 变成显式工作队列对象。
+5. 重做桌面首页信息架构，让案件、审批、风险和期限优先于聊天窗口。
+
+### 实施级切分（当前采用）
+
+统一实施参考：
+
+- `docs/lawmind/refactor-implementation-plan.md`
+
+当前约定的首批重构切分如下：
+
+1. **PR 1：Matter core contracts and adapters**（已开始，基础代码已落地）
+   - 新增 matter / deliverable / approval / deadline / work queue / memory node 领域合同。
+   - 保持 `TaskIntent` / `ResearchBundle` / `ArtifactDraft` / `TaskRecord` 兼容，并通过 adapter 映射。
+   - 引入 `MatterService`、`DeliverableService` 等 application service 雏形。
+2. **PR 2：Queue and approval layer**（基础读模型已落地）
+   - 将 `need_lawyer_review`、`need_client_input`、`need_evidence` 等显式建模。
+   - 将 approval 从 draft 附带状态升级为独立对象。
+3. **PR 3：Matter cockpit desktop baseline**（baseline 已落地，开始补操作入口）
+   - 桌面端开始从 chat-first 迁移到 matter-first。
+   - 默认展示 next actions、deadlines、blocked items、deliverables、open approvals。
+   - 在 cockpit 内补齐 review / approval 的跳转动作，把案件态直接接到审核台。
+
+### 关键实施原则
+
+- 先加 contracts 和 services，再动桌面 UI。
+- 先把 business state 和 runtime state 分开，再谈进一步 agent 能力增强。
+- Markdown 记忆真相源不变，新增的是派生 read model / memory graph，而不是替代现有 truth source。
+- 重构过程优先“适配 + 迁移”，避免大爆炸式目录迁移。
+
+### 对当前实现的解释
+
+当前 M1/M2/M3 并没有走错路，反而给 2.0 提供了正确底座：
+
+- M1 提供了可审计的管线主链路
+- M2 提供了可自主工作的 Agent 层
+- M3 提供了可被律师真正使用和购买的桌面工作台
+
+因此 2.0 不是推翻重来，而是在现有契约之上增加“更像律师团队”的认知层、推理层、质量层和商业层。
+
+### Phase D（可运维与客户交付物）— 已落地
+
+- **条款 Playbook 学习**：审核带特定结构化标签时，向 `playbooks/CLAUSE_PLAYBOOK.md` 第六节追加时间戳行，审计 `memory.playbook_updated`（见 [Phase D operability](/lawmind/phase-d-operability)）。
+- **质量 JSON**：每次 `recordQuality` 后自动刷新 `quality/dashboard.json`；也可手动 `pnpm lawmind:ops export-dashboard`。
+- **验收包 Markdown**：`buildAcceptancePackMarkdown`；CLI 写入 `exports/acceptance-pack.md`：`pnpm lawmind:ops acceptance-pack`。
+
+---
+
+## 8) 更新日志
 
 ### 2026-03-17
 
@@ -415,3 +553,78 @@
   - **交付与支持**：`LAWMIND-CUSTOMER-ACCEPTANCE`、`LAWMIND-SUPPORT-RUNBOOK`、`LAWMIND-CUSTOMER-OVERVIEW`；Mintlify **LawMind** 导航组见 `docs/docs.json`。
 - 索引：<https://docs.openclaw.ai/LAWMIND-DELIVERY>、<https://docs.openclaw.ai/LAWMIND-SECURITY-CHECKLIST>、<https://docs.openclaw.ai/LAWMIND-CUSTOMER-OVERVIEW>。
 - **工程加固（持续）**：本地 API 拆分为 `lawmind-server-helpers.ts` + `lawmind-server-dispatch.ts`；`lawmind.policy.json` 运行时加载并影响 `/api/chat` 与 health；工具审计 `detail` 前缀 JSON；`pnpm lawmind:sbom` 尝试生成 CycloneDX；设置页拆为 `LawmindSettings*` 子组件；M1 引擎默认 `actorId` 经 `LAWMIND_ENGINE_ACTOR_ID` / `LAWMIND_DESKTOP_ACTOR_ID`（`engine-actor.ts`）；`pnpm lawmind:desktop:http-smoke` 探活本地 HTTP。
+
+### 2026-04-01
+
+- 新增 `LAWMIND-2.0-STRATEGY.md`，将 LawMind 的下一阶段目标明确为“法律生产操作系统”，而不是仅增强聊天能力。
+- 在工程记忆中补充 LawMind 2.0 四条主线：认知记忆、法律推理、质量学习、商业化分层。
+- 将后续优先级重新聚焦到显式学习闭环、结构化法律推理、质量评测板、岗位化助手编制。
+- 新增 `docs/lawmind/refactor-blueprint.md`，把后 2.0 阶段的结构性重构方向固化为可持续参考文档：matter-centered 架构、四层子系统拆分、工作队列、岗位编制、Workbench 案件驾驶舱。
+- 会话恢复规则新增对 `docs/lawmind/refactor-blueprint.md` 的优先阅读要求，确保后续继续开发不会只沿着 chat/tool 层局部优化。
+- 新增 `docs/lawmind/refactor-implementation-plan.md`，把蓝图继续细化为实施级方案：目标 contracts、当前类型到新模型的映射、目标目录结构、以及前三个重构 PR 的切分与验收标准。
+- PR 1 基础层已开始落地：
+  - 新增 `src/lawmind/core/contracts.ts`，定义 `Matter`、`Deliverable`、`ApprovalRequest`、`Deadline`、`WorkQueueItem`、`MemoryNode` 和 `MatterReadModel`。
+  - 新增兼容 adapter：`buildMatterFromIndex()`、`buildDeliverableFromDraft()`、`buildMatterReadModelFromIndex()`，先从现有 `MatterIndex` / `ArtifactDraft` / `TaskRecord` 生成新读模型。
+  - 新增 `src/lawmind/application/services/matter-service.ts`，提供 matter-centered read model 查询入口。
+  - 新增测试：`src/lawmind/core/contracts.test.ts`、`src/lawmind/application/services/matter-service.test.ts`。
+  - 验证：新增测试通过，`pnpm tsgo` 通过；单独带跑 `src/lawmind/cases/index.test.ts` 时出现目录清理竞态，暂判断为既有测试波动，未作为本次改动回归失败依据。
+- PR 2 基础层已落地：
+  - 在 `src/lawmind/core/contracts.ts` 增加 `buildApprovalRequestsFromMatterIndex()` 和 `buildQueueItemsFromMatterIndex()`，从现有 `TaskRecord` / `ArtifactDraft` / `MatterIndex` 推导 approval 与 queue。
+  - `MatterReadModel` 现已带 `approvalRequests` 与 `queueItems`，为 matter cockpit 提供可直接消费的操作态数据。
+  - 新增 `src/lawmind/application/services/queue-service.ts`，提供 `listApprovalRequests()` 与 `listWorkQueueItems()`。
+  - 桌面本地 API 已增加 `/api/approvals`、`/api/queues`，并在 `/api/matters/detail` 中附带 `approvalRequests` 与 `queueItems`。
+  - 新增测试：`src/lawmind/application/services/queue-service.test.ts`，并扩展 `src/lawmind/core/contracts.test.ts` 覆盖 approval / queue 推导。
+  - 验证：`pnpm test -- src/lawmind/core/contracts.test.ts src/lawmind/application/services/matter-service.test.ts src/lawmind/application/services/queue-service.test.ts` 通过；`pnpm tsgo` 通过。
+- PR 3 baseline 已开始落地：
+  - `apps/lawmind-desktop/src/renderer/MatterWorkbench.tsx` 的概览页已从简单摘要升级为 cockpit baseline。
+  - 当前概览页已显式展示：`summary.nextActions`、`queueItems`、`approvalRequests`、`drafts`（交付物状态）以及关键风险、近期进展。
+  - 新增 cockpit 样式：`lm-matter-cockpit-grid`、`lm-matter-cockpit-card`、`lm-matter-ops-list`、`lm-matter-pill*`，使案件概览更接近“案件驾驶舱”而非纯档案阅读器。
+  - matter detail 现已能把 queue/approval 数据实际消费到桌面 UI，而不只是后端返回。
+  - 案件 cockpit 已新增“去审核”操作：可从 `queueItems`、`approvalRequests`、`drafts` 直接切到 `ReviewWorkbench`，并预选相关草稿，形成“案件发现阻塞 -> 进入审核处理”的工作流。
+  - `App.tsx` 已承担 `MatterWorkbench -> ReviewWorkbench` 的轻导航状态，`ReviewWorkbench.tsx` 支持 `initialTaskId` 作为外部聚焦入口。
+  - 案件概览顶部已新增审核状态条：显式汇总“待审核草稿 / 需修改返回 / 可渲染交付 / 高风险审批”四类操作态，并提供一键进入对应草稿的动作入口。
+  - 案件概览已增加“当前处理视角”控制条：支持按 `待审核 / 待修改 / 可交付 / 高风险` 过滤 `queueItems`、`approvalRequests`、`drafts`，并支持按优先级 / 最近更新 / 标题排序。
+  - 桌面端新增案件级“认知”页签：从当前案件中选一份代表性草稿，直接复用 `/api/drafts/:taskId` 返回的 `memorySources` 与 `reasoningMarkdown`，展示这个案件当前受哪些记忆层与推理结构驱动。
+  - `MatterWorkbench -> ReviewWorkbench` 的跳转已从“只带 taskId”升级为“带 taskId + matter scope + status scope + list mode”，案件页当前的操作视角现在可以较完整地传递到审核台。
+  - `ReviewWorkbench` 已新增案件范围与状态筛选，可按单一 `matterId` 和审核状态查看草稿，不再只是全局待审核/全部两档。
+  - “认知”页已补成案件级摘要板：会采样当前案件几份关键草稿，聚合出推理快照覆盖、唯一记忆层覆盖、已注入 prompt 的记忆层数量，以及高频记忆层 / 草稿推理覆盖列表。
+  - “认知”页现已开始暴露案件级风险信号：显式显示缺推理快照草稿数、引用待核/无快照草稿数、高频但未注入 prompt 的记忆层数，以及采样草稿的时间跨度。
+  - 审核动作现已回传 `matterRefreshVersion` 到桌面主应用；案件页会在后续重新进入或保持挂载时主动刷新案件列表、详情与认知板，不再只刷新侧栏任务记录。
+  - “认知”页的记忆层已开始分层显示：区分 `已注入核心记忆`、`检索候选真相源`、`缺失但应存在的层`，并单列持续缺失的记忆层，帮助律师判断是 prompt 不足还是底层知识文件不完整。
+  - 案件概览已新增 `Blocked By` 解释区：不再只展示 queue item，而是把阻塞归因为 `审核链路阻塞 / 材料与事实阻塞 / 策略尚未定型 / 交付动作未完成` 等律师可直接理解的原因，并附带当前最关键的阻塞项。
+  - `Blocked By` 解释区现已附带“建议下一步”，把阻塞原因直接映射成下一动作（例如先补证据、先走审核、先补策略、先执行渲染），开始从解释层走向执行层。
+  - “认知”页已开始给出核心记忆升级建议：针对高频但未注入的记忆层，提示应提升为律师级、律所级、案件策略级或 playbook 级核心记忆，减少每次重复检索。
+  - `Blocked By` 建议现已支持点击动作：遇到审核/交付阻塞时可直接跳审核台，遇到策略/证据阻塞时可直接切到 `CASE` 档案，开始把建议转成界面内可执行操作。
+  - “认知”页的升级建议现已支持一键写入 `LAWYER_PROFILE.md` 或当前助手 `assistants/<assistantId>/PROFILE.md`；桌面本地 API 新增 `/api/assistants/profile/learning` 用于安全追加助手级长期记忆。
+  - 认知升级建议写入现已带来源追踪：会把 `matterId` 与当前观察草稿（标题 + taskId）一起写入长期记忆，避免后续只看到抽象建议而不知道来源案件。
+  - `Blocked By -> CASE` 的跳转现已带上下文焦点：进入 `CASE` 档案时会展示“从哪类阻塞跳来”的提示，并可一键按预置关键词定位相关内容，减少律师在档案中重新找入口的成本。
+  - “认知”页现已增加当前会话内的“已采纳建议”列表：律师能直接看到哪些升级建议已经写入律师档案或助手档案，以及对应案件、草稿与采纳时间。
+  - `CASE` 焦点提示已升级为区块级定位：当阻塞来源明确对应“核心争点 / 风险与待确认 / 生成产物 / CASE.md”时，切入 `CASE` 页会自动滚动到相应区块，不再只停留在搜索词层面。
+  - “认知”页现已开始读取持久化采纳历史：桌面端会从 `LAWYER_PROFILE.md` 与当前助手 `PROFILE.md` 中解析认知升级建议条目，并按当前案件过滤显示，不再只依赖本次会话内存状态。
+  - `CASE` 焦点提示现已支持就地写回：律师可直接把当前阻塞建议写入案件档案对应 section（如核心争点 / 风险与待确认 / 生成产物 / 当前任务目标），形成“阻塞发现 -> 档案修补”的最小闭环。
+  - “认知”页的持久采纳历史已进一步结构化：开始显示律师档案 / 助手档案采纳数量、总采纳量，以及“重复采纳”信号，用于判断哪些建议已经开始跨回合复用。
+  - `CASE` 焦点提示现已附带可编辑的建议草稿框：律师可先调整系统生成的案件说明，再决定是否写回对应档案 section，而不必只能直接写入固定 bullet。
+  - “认知”页已开始展示更明确的复用证据：对重复采纳的建议，会标注其关联案件列表，帮助律师判断该建议是否已从单案经验演化为跨案件规则。
+  - `CASE` 焦点提示现已支持多版本建议草稿（保守版 / 标准版 / 强化版），让律师可按当前风险与沟通策略快速切换表达方式，再写入案件档案。
+  - “认知”页的复用证据已加入时间维度：除关联案件外，还会显示最近一次采纳时间，并在摘要卡上展示最近采纳时间与覆盖案件数，帮助律师判断某条规则是“历史遗留”还是“近期仍在活跃复用”。
+  - `CASE` 焦点提示区已补充版本口径说明，且多版本建议已稳定适配核心争点 / 风险提示 / 交付物说明 / 当前任务目标四类 section，产品完成度已达到可先停、等待真实律师使用反馈的阶段。
+  - 为了让后续交互收敛建立在真实使用证据上，桌面端现已新增 `/api/matters/interaction`，会把案件工作台里的关键律师动作写回既有 audit 体系，而不是另造一套埋点日志。
+  - 当前已记录的关键律师动作包括：从案件页进入审核台、采纳认知升级建议写入律师/助手档案、以及把 `CASE` 焦点建议写回案件档案；这些动作会以 `ui.matter_action` 出现在案件审计时间线里。
+  - 案件概览现已增加“最近律师动作”区块，能直接看到最近几次关键人工动作，为下一轮基于真实使用轨迹做交互收敛提供最小可行证据面。
+  - 案件概览进一步新增“律师行为摘要”区块：不只显示最近几条动作，还会汇总当前案件的进入审核次数、补 CASE 次数、记忆沉淀次数、最近动作时间、最常进入的界面入口，以及重复触发的主题。
+  - 这使得产品迭代可以开始从“主观猜测哪里不好用”转向“根据案件内真实人工操作轨迹判断当前主工作面到底在审核、档案修补还是认知沉淀”，为下一步交互收敛提供更高信噪比输入。
+  - 案件概览现已继续上探一层到“交互收敛建议”：系统会根据律师行为摘要自动判断当前案件更像是“审核往返过多 / CASE 已成为推进主入口 / 高频经验值得前置沉淀”，并给出相应的一键入口动作。
+  - 这意味着 LawMind 的驾驶舱不再只是展示现状，而开始尝试解释“为什么律师会反复去同一个地方”，并把这种模式直接转成产品层面的下一步建议。
+  - 案件概览现已再上探一层到“产品改造建议”：系统会把同一案件里的重复操作继续翻译成对工作台自身的改造方向，例如“把审核决策前置到概览”“为 CASE 补录增加结构化表单”“把认知升级做成快捷采纳通道”。
+  - 这意味着 LawMind 开始具备一个更像产品经理的能力：不仅知道律师下一步该去哪，还能根据真实案件轨迹反推“下一版 UI 最应该改哪里”。
+  - 案件概览现已继续把产品改造建议拆成“产品实验清单”：每条实验项都会明确写出假设、验证方式、当前信号和优先级，而不只是给出抽象方向。
+  - 这让 LawMind 的驾驶舱从“会提改造方向”继续升级为“会提出可验证的产品实验”，开始形成更接近持续产品迭代的内循环。
+  - 案件概览现已新增“跨案件实验累积板”：后端会聚合全工作区案件里的 `ui.matter_action`，判断哪些改造方向已经在多个案件中重复出现，不再只是单案内的局部信号。
+  - 这让 LawMind 开始从“单案自我观察”迈向“跨案件自我进化”，也让产品改造决策更接近真正的共性需求排序，而不只是本案体验优化。
+  - 案件概览现已在“跨案件实验累积板”之上继续生成“Roadmap 候选池”：系统会按覆盖案件数、累计信号次数、当前案件是否也命中该模式，对候选方向做粗粒度排序。
+  - 当前候选池已开始区分“现在做 / 下一波 / 后续观察”三种节奏，并为每条候选项补充排序理由，使 LawMind 不只会发现模式，还开始尝试形成更接近产品路线图的优先级判断。
+  - `Roadmap 候选池` 现已进一步升级成“路线图决策卡”：每条候选方向除了分数和节奏，还会补充预期收益、主要风险、建议 owner，以及“已验证 / 正在成形 / 继续观察”的成熟度判断。
+  - 这意味着 LawMind 在这一轮已经从“记录律师动作”一路推进到“能基于跨案件行为信号给出接近产品排期语言的决策建议”，当前这条自我进化链路已形成一个相对完整的闭环。
+  - 2026-04-02 调试记录：桌面端出现白屏并非 `MatterWorkbench` 渲染逻辑本身导致，而是 renderer 从 `src/lawmind/assistants/store.ts` 直接导入 `DEFAULT_ASSISTANT_ID`，把 `node:crypto` 连带打进浏览器 bundle，触发 `Module "node:crypto" has been externalized for browser compatibility` 并使根组件完全无法挂载。
+  - 修复方式：把 `DEFAULT_ASSISTANT_ID` 抽到浏览器安全的 `src/lawmind/assistants/constants.ts`，让 `App.tsx` 与 `LawmindSettingsAssistants.tsx` 改为引用该常量文件；同时清理遗留的 `vite --mode e2e` 进程，避免其长期占用 `5174` 干扰 `pnpm lawmind:desktop`。
+  - 验证：`pnpm tsgo` 通过；`pnpm exec tsc -p apps/lawmind-desktop/tsconfig.json --noEmit` 通过。

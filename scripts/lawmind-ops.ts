@@ -3,24 +3,29 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { listSessions } from "../src/lawmind/agent/session.js";
 import { listMatterIds } from "../src/lawmind/cases/index.js";
+import { buildAcceptancePackMarkdown } from "../src/lawmind/delivery/acceptance-pack.js";
 import { listDrafts } from "../src/lawmind/drafts/index.js";
+import { writeQualityDashboardJson } from "../src/lawmind/evaluation/export-json.js";
 import { listTaskRecords } from "../src/lawmind/tasks/index.js";
 
-type Command = "status" | "doctor";
+type Command = "status" | "doctor" | "export-dashboard" | "acceptance-pack";
 
 function parseArgs(argv: string[]): { command: Command; workspaceDir: string; deep: boolean } {
-  const command = (argv[0] as Command | undefined) ?? "status";
   let workspaceDir = path.resolve(process.cwd(), "workspace");
   let deep = false;
-  for (let i = 1; i < argv.length; i += 1) {
+  const positionals: string[] = [];
+  for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--workspace" && argv[i + 1]) {
       workspaceDir = path.resolve(process.cwd(), argv[i + 1]);
       i += 1;
     } else if (arg === "--deep") {
       deep = true;
+    } else if (!arg.startsWith("-")) {
+      positionals.push(arg);
     }
   }
+  const command = (positionals[0] as Command | undefined) ?? "status";
   return { command, workspaceDir, deep };
 }
 
@@ -131,10 +136,47 @@ async function doctor(workspaceDir: string, deep: boolean): Promise<number> {
   return exitCode;
 }
 
+async function exportDashboard(workspaceDir: string): Promise<void> {
+  const out = await writeQualityDashboardJson(workspaceDir);
+  console.log(`Wrote ${out}`);
+}
+
+async function acceptancePack(workspaceDir: string): Promise<void> {
+  const md = await buildAcceptancePackMarkdown(workspaceDir);
+  const outDir = path.join(workspaceDir, "exports");
+  await fs.mkdir(outDir, { recursive: true });
+  const outPath = path.join(outDir, "acceptance-pack.md");
+  await fs.writeFile(outPath, md, "utf8");
+  console.log(`Wrote ${outPath}`);
+}
+
+const KNOWN_COMMANDS: ReadonlySet<Command> = new Set([
+  "status",
+  "doctor",
+  "export-dashboard",
+  "acceptance-pack",
+]);
+
 async function main() {
-  const opts = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  const opts = parseArgs(argv);
+  if (!KNOWN_COMMANDS.has(opts.command)) {
+    console.error(
+      `Unknown command: ${opts.command}. Use: status | doctor | export-dashboard | acceptance-pack`,
+    );
+    process.exitCode = 1;
+    return;
+  }
   if (opts.command === "status") {
     await status(opts.workspaceDir);
+    return;
+  }
+  if (opts.command === "export-dashboard") {
+    await exportDashboard(opts.workspaceDir);
+    return;
+  }
+  if (opts.command === "acceptance-pack") {
+    await acceptancePack(opts.workspaceDir);
     return;
   }
   const exitCode = await doctor(opts.workspaceDir, opts.deep);

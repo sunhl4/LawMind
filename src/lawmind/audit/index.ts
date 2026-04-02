@@ -170,8 +170,11 @@ export function formatAuditExportMarkdown(
   const lines: string[] = [
     "# LawMind audit export",
     "",
+    "<!-- LawMind audit export format: 2 -->",
+    "",
     `- **Generated:** ${new Date().toISOString()}`,
     `- **Workspace:** \`${workspaceDir}\``,
+    `- **Export schema version:** 2`,
     `- **Event count:** ${events.length}`,
   ];
   if (filters.matterId) {
@@ -238,10 +241,13 @@ export async function buildComplianceAuditMarkdown(
   const cover = [
     "# LawMind compliance-oriented audit summary",
     "",
+    "<!-- LawMind audit export format: 2 -->",
+    "",
     "_This report is informational only. It does not constitute legal advice, certification, or a guarantee of completeness._",
     "",
     `- **Generated:** ${new Date().toISOString()}`,
     `- **Workspace:** \`${workspaceDir}\``,
+    `- **Export schema version:** 2`,
     `- **Events included:** ${filtered.length}`,
     "",
     "## Filters",
