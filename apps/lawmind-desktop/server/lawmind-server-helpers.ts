@@ -12,6 +12,35 @@ import type { TaskRecord } from "../../../src/lawmind/types.js";
 
 export const LAWMIND_LOCAL_HOST = "127.0.0.1";
 export const MAX_TEXT_READ_BYTES = 1_000_000;
+export const MAX_JSON_BODY_BYTES = 256_000;
+
+type LawMindHttpErrorCode = "body_too_large" | "invalid_json";
+
+export type LawMindHttpError = Error & {
+  code: LawMindHttpErrorCode;
+  status: number;
+};
+
+function createLawMindHttpError(
+  code: LawMindHttpErrorCode,
+  status: number,
+  message: string,
+): LawMindHttpError {
+  const error = new Error(message) as LawMindHttpError;
+  error.code = code;
+  error.status = status;
+  return error;
+}
+
+export function isLawMindHttpError(error: unknown): error is LawMindHttpError {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    "status" in error &&
+    typeof (error as LawMindHttpError).code === "string" &&
+    typeof (error as LawMindHttpError).status === "number"
+  );
+}
 
 /** Desktop operator identity for audit/review (see docs/LAWMIND-ACTOR-ATTRIBUTION). */
 export function resolveDesktopActorId(): string {
@@ -43,7 +72,16 @@ export function corsHeaders(origin: string | undefined): Record<string, string> 
 export function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (c) => chunks.push(c));
+    let totalBytes = 0;
+    req.on("data", (c: Buffer) => {
+      totalBytes += c.length;
+      if (totalBytes > MAX_JSON_BODY_BYTES) {
+        reject(createLawMindHttpError("body_too_large", 413, "request body too large"));
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
     req.on("end", () => {
       try {
         const raw = Buffer.concat(chunks).toString("utf8");
@@ -53,6 +91,10 @@ export function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
         }
         resolve(JSON.parse(raw) as unknown);
       } catch (e) {
+        if (e instanceof SyntaxError) {
+          reject(createLawMindHttpError("invalid_json", 400, "invalid json body"));
+          return;
+        }
         reject(e);
       }
     });

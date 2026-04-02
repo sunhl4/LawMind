@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { userMessageFromApiError } from "./api-client.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { apiGetJson, apiSendJson, ApiRequestError, userMessageFromApiError } from "./api-client.js";
 
 describe("api-client", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("prefers message and appends hint for missing_api_key", () => {
     const t = userMessageFromApiError(503, {
       code: "missing_api_key",
@@ -14,5 +18,38 @@ describe("api-client", () => {
   it("handles 401 with key wording", () => {
     const t = userMessageFromApiError(401, { message: "Unauthorized" });
     expect(t).toContain("API Key");
+  });
+
+  it("apiGetJson returns parsed json body", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, value: 3 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await expect(apiGetJson<{ ok: boolean; value: number }>("http://127.0.0.1:1234", "/api/test")).resolves.toEqual({
+      ok: true,
+      value: 3,
+    });
+  });
+
+  it("apiSendJson throws ApiRequestError with parsed body", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ code: "invalid_json", message: "invalid json body" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await expect(
+      apiSendJson("http://127.0.0.1:1234", "/api/test", "POST", { hello: "world" }),
+    ).rejects.toMatchObject<ApiRequestError>({
+      name: "ApiRequestError",
+      status: 400,
+      body: {
+        code: "invalid_json",
+      },
+    });
   });
 });

@@ -10,6 +10,7 @@ import type { ApprovalRequest, WorkQueueItem } from "../../../../src/lawmind/cor
 import type { MemorySourceLayer } from "../../../../src/lawmind/memory/index.ts";
 import { LawmindMemorySourcesPanel } from "./LawmindMemorySourcesPanel";
 import { LawmindReasoningCollapsible } from "./LawmindReasoningCollapsible";
+import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 
 type MatterSearchHit = {
   section: string;
@@ -1399,14 +1400,17 @@ export function MatterWorkbench(props: Props) {
     setLoadingList(true);
     setListError(null);
     try {
-      const r = await fetch(`${apiBase}/api/matters/overviews`);
-      const j = (await r.json()) as { ok?: boolean; overviews?: MatterOverview[] };
-      if (!j.ok || !Array.isArray(j.overviews)) {
-        throw new Error("加载案件列表失败");
+      const j = await apiGetJson<{ ok?: boolean; overviews?: MatterOverview[] }>(
+        apiBase,
+        "/api/matters/overviews",
+      );
+      if (j.ok && Array.isArray(j.overviews)) {
+        setOverviews(j.overviews);
+        return;
       }
-      setOverviews(j.overviews);
+      throw new Error("加载案件列表失败");
     } catch (e) {
-      setListError(e instanceof Error ? e.message : String(e));
+      setListError(errorMessage(e, "加载案件列表失败"));
     } finally {
       setLoadingList(false);
     }
@@ -1423,10 +1427,7 @@ export function MatterWorkbench(props: Props) {
       setSearchHits([]);
       setSearchQ("");
       try {
-        const r = await fetch(
-          `${apiBase}/api/matters/detail?matterId=${encodeURIComponent(matterId)}`,
-        );
-        const j = (await r.json()) as {
+        const j = await apiGetJson<{
           ok?: boolean;
           error?: string;
           summary?: MatterSummary;
@@ -1443,8 +1444,8 @@ export function MatterWorkbench(props: Props) {
           queueItems?: WorkQueueItem[];
           draftCitationIntegrity?: Record<string, DraftCitationIntegrityView>;
           auditEvents?: AuditEventRow[];
-        };
-        if (!r.ok || !j.ok) {
+        }>(apiBase, `/api/matters/detail?matterId=${encodeURIComponent(matterId)}`);
+        if (!j.ok) {
           throw new Error(j.error ?? "加载案件详情失败");
         }
         setSummary(j.summary ?? null);
@@ -1466,7 +1467,7 @@ export function MatterWorkbench(props: Props) {
         );
         setAuditEvents(j.auditEvents ?? []);
       } catch (e) {
-        setDetailError(e instanceof Error ? e.message : String(e));
+        setDetailError(errorMessage(e, "加载案件详情失败"));
       } finally {
         setDetailLoading(false);
       }
@@ -1486,9 +1487,12 @@ export function MatterWorkbench(props: Props) {
       if (assistantId) {
         params.set("assistantId", assistantId);
       }
-      const r = await fetch(`${apiBase}/api/memory/adoptions?${params.toString()}`);
-      const j = (await r.json()) as { ok?: boolean; items?: PersistentAdoptionItem[] };
-      if (!r.ok || !j.ok || !Array.isArray(j.items)) {
+      const q = params.toString();
+      const j = await apiGetJson<{ ok?: boolean; items?: PersistentAdoptionItem[] }>(
+        apiBase,
+        `/api/memory/adoptions${q ? `?${q}` : ""}`,
+      );
+      if (!j.ok || !Array.isArray(j.items)) {
         return;
       }
       const items = j.items
@@ -1516,12 +1520,11 @@ export function MatterWorkbench(props: Props) {
 
   async function loadCrossExperimentRollup() {
     try {
-      const r = await fetch(`${apiBase}/api/matters/interaction-rollup`);
-      const j = (await r.json()) as {
+      const j = await apiGetJson<{
         ok?: boolean;
         items?: MatterCrossExperimentRollupItem[];
-      };
-      if (!r.ok || !j.ok || !Array.isArray(j.items)) {
+      }>(apiBase, "/api/matters/interaction-rollup");
+      if (!j.ok || !Array.isArray(j.items)) {
         return;
       }
       setCrossExperimentRollup(j.items);
@@ -1822,10 +1825,10 @@ export function MatterWorkbench(props: Props) {
     }
     setSearchBusy(true);
     try {
-      const r = await fetch(
-        `${apiBase}/api/matters/search?matterId=${encodeURIComponent(selectedId)}&q=${encodeURIComponent(searchQ.trim())}`,
+      const j = await apiGetJson<{ ok?: boolean; hits?: MatterSearchHit[] }>(
+        apiBase,
+        `/api/matters/search?matterId=${encodeURIComponent(selectedId)}&q=${encodeURIComponent(searchQ.trim())}`,
       );
-      const j = (await r.json()) as { ok?: boolean; hits?: MatterSearchHit[] };
       if (j.ok && Array.isArray(j.hits)) {
         setSearchHits(j.hits);
       }
@@ -1838,13 +1841,11 @@ export function MatterWorkbench(props: Props) {
     setCreateBusy(true);
     setCreateErr(null);
     try {
-      const r = await fetch(`${apiBase}/api/matters/create`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ matterId: newMatterId.trim() }),
-      });
-      const j = (await r.json()) as { ok?: boolean; error?: string; matterId?: string };
-      if (!r.ok || !j.ok) {
+      const j = await apiSendJson<
+        { ok?: boolean; error?: string; matterId?: string },
+        { matterId: string }
+      >(apiBase, "/api/matters/create", "POST", { matterId: newMatterId.trim() });
+      if (!j.ok) {
         throw new Error(j.error ?? "创建失败");
       }
       setShowCreate(false);
@@ -1855,7 +1856,7 @@ export function MatterWorkbench(props: Props) {
         setPanelTab("overview");
       }
     } catch (e) {
-      setCreateErr(e instanceof Error ? e.message : String(e));
+      setCreateErr(errorMessage(e, "创建失败"));
     } finally {
       setCreateBusy(false);
     }

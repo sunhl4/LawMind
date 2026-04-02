@@ -12,6 +12,7 @@ import type { LearningSuggestionRecord } from "../../../../src/lawmind/learning/
 import { LawmindCitationBanner } from "./LawmindCitationBanner";
 import { LawmindMemorySourcesPanel } from "./LawmindMemorySourcesPanel";
 import { LawmindReasoningCollapsible } from "./LawmindReasoningCollapsible";
+import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 
 type Props = {
   apiBase: string;
@@ -29,6 +30,16 @@ type Props = {
   onShowArtifact?: (outputPath: string) => void;
   /** 审核或渲染成功后刷新侧栏任务列表 */
   onRecordsChanged?: () => void;
+};
+
+type ReviewSubmitBody = {
+  status: "approved" | "rejected" | "modified";
+  note?: string;
+  appendToProfile: boolean;
+  appendToLawyerProfile: boolean;
+  profileAssistantId: string;
+  labels?: string[];
+  deferMemoryWrites?: true;
 };
 
 function renderInlineSections(draft: ArtifactDraft): ReactNode {
@@ -90,8 +101,10 @@ export function ReviewWorkbench(props: Props) {
 
   const loadLearningQueue = useCallback(async () => {
     try {
-      const r = await fetch(`${apiBase}/api/learning/suggestions`);
-      const j = (await r.json()) as { ok?: boolean; suggestions?: LearningSuggestionRecord[] };
+      const j = await apiGetJson<{ ok?: boolean; suggestions?: LearningSuggestionRecord[] }>(
+        apiBase,
+        "/api/learning/suggestions",
+      );
       if (j.ok && Array.isArray(j.suggestions)) {
         setLearningQueue(j.suggestions);
       }
@@ -108,14 +121,14 @@ export function ReviewWorkbench(props: Props) {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch(`${apiBase}/api/drafts`);
-      const j = (await r.json()) as { ok?: boolean; drafts?: ArtifactDraft[] };
-      if (!j.ok || !Array.isArray(j.drafts)) {
-        throw new Error("加载草稿列表失败");
+      const j = await apiGetJson<{ ok?: boolean; drafts?: ArtifactDraft[] }>(apiBase, "/api/drafts");
+      if (j.ok && Array.isArray(j.drafts)) {
+        setDrafts(j.drafts);
+        return;
       }
-      setDrafts(j.drafts);
+      throw new Error("加载草稿列表失败");
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorMessage(e, "加载草稿列表失败"));
     } finally {
       setLoading(false);
     }
@@ -141,15 +154,14 @@ export function ReviewWorkbench(props: Props) {
       setCitationIntegrity(null);
       setActionMsg(null);
       try {
-        const r = await fetch(`${apiBase}/api/drafts/${encodeURIComponent(taskId)}`);
-        const j = (await r.json()) as {
+        const j = await apiGetJson<{
           ok?: boolean;
           draft?: ArtifactDraft;
           citationIntegrity?: DraftCitationIntegrityView;
           reasoningMarkdown?: string | null;
           memorySources?: MemorySourceLayer[];
-        };
-        if (!r.ok || !j.ok || !j.draft) {
+        }>(apiBase, `/api/drafts/${encodeURIComponent(taskId)}`);
+        if (!j.ok || !j.draft) {
           throw new Error("加载草稿失败");
         }
         setDetail(j.draft);
@@ -157,7 +169,7 @@ export function ReviewWorkbench(props: Props) {
         setReasoningMarkdown(typeof j.reasoningMarkdown === "string" ? j.reasoningMarkdown : null);
         setMemorySources(Array.isArray(j.memorySources) ? j.memorySources : null);
       } catch (e) {
-        setActionMsg(e instanceof Error ? e.message : String(e));
+        setActionMsg(errorMessage(e, "加载草稿失败"));
       } finally {
         setDetailLoading(false);
       }
@@ -199,32 +211,31 @@ export function ReviewWorkbench(props: Props) {
     setActionMsg(null);
     try {
       const labels = Array.from(selectedLabels);
-      const r = await fetch(`${apiBase}/api/drafts/${encodeURIComponent(selectedTaskId)}/review`, {
-        method: "POST",
-        body: JSON.stringify({
-          status,
-          note: note.trim() || undefined,
-          appendToProfile: deferMemoryWrites ? false : appendToProfile,
-          appendToLawyerProfile: deferMemoryWrites ? false : appendToLawyerProfile,
-          profileAssistantId: assistantId,
-          ...(labels.length > 0 ? { labels } : {}),
-          ...(deferMemoryWrites ? { deferMemoryWrites: true } : {}),
-        }),
+      const j = await apiSendJson<
+        {
+          ok?: boolean;
+          error?: string;
+          draft?: ArtifactDraft;
+          citationIntegrity?: DraftCitationIntegrityView;
+          profileAppendFailed?: boolean;
+          lawyerProfileAppendFailed?: boolean;
+        },
+        ReviewSubmitBody
+      >(apiBase, `/api/drafts/${encodeURIComponent(selectedTaskId)}/review`, "POST", {
+        status,
+        note: note.trim() || undefined,
+        appendToProfile: deferMemoryWrites ? false : appendToProfile,
+        appendToLawyerProfile: deferMemoryWrites ? false : appendToLawyerProfile,
+        profileAssistantId: assistantId,
+        ...(labels.length > 0 ? { labels } : {}),
+        ...(deferMemoryWrites ? { deferMemoryWrites: true } : {}),
       });
-      const j = (await r.json()) as {
-        ok?: boolean;
-        error?: string;
-        draft?: ArtifactDraft;
-        citationIntegrity?: DraftCitationIntegrityView;
-      };
-      if (!r.ok || !j.ok) {
-        const extra =
-          (j as { profileAppendFailed?: boolean; lawyerProfileAppendFailed?: boolean })
-            .lawyerProfileAppendFailed
-            ? "（律师档案未写入，草稿状态已保存）"
-            : (j as { profileAppendFailed?: boolean }).profileAppendFailed
-              ? "（助手档案未写入，草稿状态已保存）"
-              : "";
+      if (!j.ok) {
+        const extra = j.lawyerProfileAppendFailed
+          ? "（律师档案未写入，草稿状态已保存）"
+          : j.profileAppendFailed
+            ? "（助手档案未写入，草稿状态已保存）"
+            : "";
         throw new Error((j.error ?? "审核失败") + extra);
       }
       setNote("");
@@ -239,7 +250,7 @@ export function ReviewWorkbench(props: Props) {
       }
       onRecordsChanged?.();
     } catch (e) {
-      setActionMsg(e instanceof Error ? e.message : String(e));
+      setActionMsg(errorMessage(e, "审核失败"));
     } finally {
       setActionBusy(false);
     }
@@ -248,17 +259,18 @@ export function ReviewWorkbench(props: Props) {
   const adoptSuggestion = async (id: string) => {
     setLearningBusy(id);
     try {
-      const r = await fetch(`${apiBase}/api/learning/suggestions/${encodeURIComponent(id)}/adopt`, {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
-      const j = (await r.json()) as { ok?: boolean; error?: string };
-      if (!r.ok || !j.ok) {
+      const j = await apiSendJson<{ ok?: boolean; error?: string }, Record<string, never>>(
+        apiBase,
+        `/api/learning/suggestions/${encodeURIComponent(id)}/adopt`,
+        "POST",
+        {},
+      );
+      if (!j.ok) {
         throw new Error(j.error ?? "采纳失败");
       }
       await loadLearningQueue();
     } catch (e) {
-      setActionMsg(e instanceof Error ? e.message : String(e));
+      setActionMsg(errorMessage(e, "采纳失败"));
     } finally {
       setLearningBusy(null);
     }
@@ -267,17 +279,18 @@ export function ReviewWorkbench(props: Props) {
   const dismissSuggestion = async (id: string) => {
     setLearningBusy(id);
     try {
-      const r = await fetch(`${apiBase}/api/learning/suggestions/${encodeURIComponent(id)}/dismiss`, {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
-      const j = (await r.json()) as { ok?: boolean; error?: string };
-      if (!r.ok || !j.ok) {
+      const j = await apiSendJson<{ ok?: boolean; error?: string }, Record<string, never>>(
+        apiBase,
+        `/api/learning/suggestions/${encodeURIComponent(id)}/dismiss`,
+        "POST",
+        {},
+      );
+      if (!j.ok) {
         throw new Error(j.error ?? "忽略失败");
       }
       await loadLearningQueue();
     } catch (e) {
-      setActionMsg(e instanceof Error ? e.message : String(e));
+      setActionMsg(errorMessage(e, "忽略失败"));
     } finally {
       setLearningBusy(null);
     }
@@ -290,16 +303,15 @@ export function ReviewWorkbench(props: Props) {
     setActionBusy(true);
     setActionMsg(null);
     try {
-      const r = await fetch(`${apiBase}/api/drafts/${encodeURIComponent(selectedTaskId)}/render`, {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
-      const j = (await r.json()) as {
-        ok?: boolean;
-        error?: string;
-        outputPath?: string;
-      };
-      if (!r.ok || !j.ok) {
+      const j = await apiSendJson<
+        {
+          ok?: boolean;
+          error?: string;
+          outputPath?: string;
+        },
+        Record<string, never>
+      >(apiBase, `/api/drafts/${encodeURIComponent(selectedTaskId)}/render`, "POST", {});
+      if (!j.ok) {
         throw new Error(j.error ?? "渲染失败");
       }
       setActionMsg(`已生成：${j.outputPath ?? ""}`);
@@ -309,7 +321,7 @@ export function ReviewWorkbench(props: Props) {
       }
       onRecordsChanged?.();
     } catch (e) {
-      setActionMsg(e instanceof Error ? e.message : String(e));
+      setActionMsg(errorMessage(e, "渲染失败"));
     } finally {
       setActionBusy(false);
     }

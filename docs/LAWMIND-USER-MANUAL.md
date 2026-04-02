@@ -6,6 +6,8 @@
 curl -fsSL https://raw.githubusercontent.com/sunhl4/LawMind/main/scripts/install-lawmind.sh | bash
 ```
 
+若你需要改用其他仓库源，请在执行前设置 `LAWMIND_REPO_URL`；默认值与 `scripts/install-lawmind.sh` 保持一致。
+
 ---
 
 ## 1) 安装完成后第一步
@@ -429,7 +431,7 @@ Agent 会话数据在 `workspace/` 下由引擎维护（如 sessions）。
 若安装目录已是 git 仓库，再次执行**同一安装命令**会执行拉取与更新：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/openclaw/openclaw/main/scripts/install-lawmind.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sunhl4/LawMind/main/scripts/install-lawmind.sh | bash
 ```
 
 脚本会检测 `~/.lawmind/openclaw` 下已有 `.git`，执行 `git fetch` / `checkout` / `pull`，然后 `pnpm install` 和 onboard。也可在安装目录内手动：

@@ -110,6 +110,29 @@ function pickPort() {
   });
 }
 
+async function waitForLocalServerReady(port, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = null;
+  while (Date.now() < deadline) {
+    if (serverProcess?.exitCode !== null) {
+      throw new Error("LawMind local server exited before becoming ready");
+    }
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/health`);
+      if (res.ok) {
+        return;
+      }
+      lastError = new Error(`Health check returned HTTP ${res.status}`);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  throw new Error(
+    `Timed out waiting for LawMind local server to start${lastError ? `: ${lastError.message}` : ""}`,
+  );
+}
+
 let serverProcess = null;
 let apiPort = 0;
 let workspaceDir = "";
@@ -287,7 +310,9 @@ function startLocalServer(repoRoot, wsDir, envPath, retrievalMode, projectPath) 
           }
         });
 
-        setTimeout(() => resolve(port), bundled ? 200 : 600);
+        waitForLocalServerReady(port)
+          .then(() => resolve(port))
+          .catch(reject);
       })
       .catch(reject);
   });
