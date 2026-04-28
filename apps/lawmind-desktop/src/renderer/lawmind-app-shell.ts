@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ArtifactDraft } from "../../../../src/lawmind/types.ts";
 import { createAssistantDraft, deleteAssistant, saveAssistantDraft, type AssistantEditorDraft } from "./lawmind-assistant-editor";
 import { appendChatMessage, removeAssistantChatState, sendChatTurn, type ChatMsg } from "./lawmind-chat";
@@ -14,6 +14,56 @@ import {
 } from "./lawmind-app-bootstrap";
 import { useLawmindDetailDomain, useLawmindRecordsDomain } from "./lawmind-app-shell-domains";
 import { DEFAULT_ASSISTANT_ID } from "../../../../src/lawmind/assistants/constants.ts";
+
+const MAX_FILE_CHAT_CONTEXT = 8;
+
+export type FileChatContextItem = {
+  id: string;
+  root: "workspace" | "project";
+  relPath: string;
+  kind: "file" | "directory";
+};
+
+export function formatFileChatContextPill(
+  it: FileChatContextItem,
+  maxPath = 24,
+): { shortLabel: string; title: string } {
+  const scope = it.root === "workspace" ? "工作区" : "项目";
+  const kind = it.kind === "directory" ? "目录" : "文件";
+  const path = it.relPath.trim() || scope;
+  const title = `${scope} ${kind}：${it.relPath || "（根）"}`;
+  const ellipsize = (s: string) => (s.length <= maxPath ? s : `…${s.slice(-(maxPath - 1))}`);
+  return { shortLabel: `${kind === "目录" ? "📁" : "📄"} ${ellipsize(path)}`, title };
+}
+
+function makeFileContextItemId(
+  p: Pick<FileChatContextItem, "root" | "relPath" | "kind">,
+): string {
+  return `${p.root}|${p.kind}|${encodeURIComponent(p.relPath)}`;
+}
+
+function buildFileContextMessagePrefix(items: FileChatContextItem[]): string {
+  if (items.length === 0) {
+    return "";
+  }
+  const lines = items.map((it) => {
+    const scope = it.root === "workspace" ? "工作区" : "项目";
+    const p = it.relPath || "（工作区/项目根，谨慎操作）";
+    if (it.root === "workspace") {
+      const hint =
+        it.kind === "directory"
+          ? "请先在目录中定位要读的文件，用 analyze_document 读工作区相对路径。"
+          : "请用 analyze_document 读取以下工作区相对路径。";
+      return `- [${scope} · ${it.kind === "directory" ? "目录" : "文件"}] \`${p}\` — ${hint}`;
+    }
+    const hint =
+      it.kind === "directory"
+        ? "对项目内文件用 read_project_file(相对项目根的路径) 逐份阅读；目录下请先列举再选读。"
+        : "请用 read_project_file 读取。";
+    return `- [${scope} · ${it.kind === "directory" ? "目录" : "文件"}] \`${p}\` — ${hint}`;
+  });
+  return `【用户在 LawMind 文件页将下列路径标为“本回合重点”】\n${lines.join("\n")}\n\n`;
+}
 
 export type LawmindHealthState = {
   modelConfigured: boolean;
@@ -73,6 +123,9 @@ export function useLawmindAppShell() {
   const [error, setError] = useState<string | null>(null);
   const [contextTaskId, setContextTaskId] = useState<string | null>(null);
   const [contextMatterId, setContextMatterId] = useState<string | null>(null);
+  const [fileChatContextItems, setFileChatContextItems] = useState<FileChatContextItem[]>([]);
+  const fileChatContextRef = useRef<FileChatContextItem[]>([]);
+  fileChatContextRef.current = fileChatContextItems;
   const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null);
   const [recordsExpanded, setRecordsExpanded] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -105,6 +158,7 @@ export function useLawmindAppShell() {
     detailDraft,
     detailCitationIntegrity,
     detailCheckpoints,
+    detailExecutionPlan,
   } = detailDomain.state;
   const { openDetail, closeDetail } = detailDomain.actions;
 
@@ -272,6 +326,31 @@ export function useLawmindAppShell() {
     }
   }, [config]);
 
+  const addFileToChatContext = useCallback(
+    (payload: Pick<FileChatContextItem, "root" | "relPath" | "kind">) => {
+      const prev = fileChatContextRef.current;
+      const id = makeFileContextItemId(payload);
+      if (prev.some((x) => x.id === id)) {
+        return;
+      }
+      if (prev.length >= MAX_FILE_CHAT_CONTEXT) {
+        setError(`最多同时引用 ${MAX_FILE_CHAT_CONTEXT} 个路径，请先在对话区移除部分。`);
+        return;
+      }
+      setError(null);
+      setFileChatContextItems([...prev, { id, ...payload }]);
+    },
+    [],
+  );
+
+  const removeFileChatContextItem = useCallback((id: string) => {
+    setFileChatContextItems((previous) => previous.filter((x) => x.id !== id));
+  }, []);
+
+  const clearFileChatContext = useCallback(() => {
+    setFileChatContextItems([]);
+  }, []);
+
   const clearProject = useCallback(async () => {
     const result = await clearProjectDirectory({
       config,
@@ -286,59 +365,68 @@ export function useLawmindAppShell() {
     }
   }, [config]);
 
-  const send = useCallback(async () => {
-    const text = input.trim();
-    if (!text || !config || loading) {
-      return;
-    }
-    const assistantId = selectedAssistantId;
-    setError(null);
-    setInput("");
-    setMessagesByAssistant((previous) =>
-      appendChatMessage(previous, assistantId, { role: "user", text }),
-    );
-    setLoading(true);
-    try {
-      const result = await sendChatTurn({
-        apiBase: config.apiBase,
-        message: text,
-        sessionId: sessionByAssistant[assistantId],
-        assistantId,
-        allowWebSearch,
-        matterId: contextMatterId,
-        projectDir,
-      });
-      if (result.sessionId) {
-        setSessionByAssistant((previous) => ({ ...previous, [assistantId]: result.sessionId }));
+  const sendChatMessage = useCallback(
+    async (rawText: string) => {
+      const text = rawText.trim();
+      if (!text || !config || loading) {
+        return;
       }
+      const prefix = buildFileContextMessagePrefix(fileChatContextItems);
+      const messageForApi = prefix ? `${prefix}${text}` : text;
+      const assistantId = selectedAssistantId;
+      setError(null);
+      setInput("");
       setMessagesByAssistant((previous) =>
-        appendChatMessage(previous, assistantId, result.assistantMessage),
+        appendChatMessage(previous, assistantId, { role: "user", text }),
       );
-      await refreshLists();
-      await refreshAssistants();
-      await refreshCollaboration();
-    } catch (cause) {
-      const message = errorMessage(cause, "发送失败");
-      setError(message);
-      setMessagesByAssistant((previous) =>
-        appendChatMessage(previous, assistantId, { role: "assistant", text: `错误: ${message}` }),
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [
-    allowWebSearch,
-    config,
-    contextMatterId,
-    input,
-    loading,
-    projectDir,
-    refreshAssistants,
-    refreshCollaboration,
-    refreshLists,
-    selectedAssistantId,
-    sessionByAssistant,
-  ]);
+      setLoading(true);
+      try {
+        const result = await sendChatTurn({
+          apiBase: config.apiBase,
+          message: messageForApi,
+          sessionId: sessionByAssistant[assistantId],
+          assistantId,
+          allowWebSearch,
+          matterId: contextMatterId,
+          projectDir,
+        });
+        if (result.sessionId) {
+          setSessionByAssistant((previous) => ({ ...previous, [assistantId]: result.sessionId }));
+        }
+        setMessagesByAssistant((previous) =>
+          appendChatMessage(previous, assistantId, result.assistantMessage),
+        );
+        await refreshLists();
+        await refreshAssistants();
+        await refreshCollaboration();
+      } catch (cause) {
+        const message = errorMessage(cause, "发送失败");
+        setError(message);
+        setMessagesByAssistant((previous) =>
+          appendChatMessage(previous, assistantId, { role: "assistant", text: `错误: ${message}` }),
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [
+      allowWebSearch,
+      config,
+      contextMatterId,
+      fileChatContextItems,
+      loading,
+      projectDir,
+      refreshAssistants,
+      refreshCollaboration,
+      refreshLists,
+      selectedAssistantId,
+      sessionByAssistant,
+    ],
+  );
+
+  const send = useCallback(async () => {
+    await sendChatMessage(input);
+  }, [input, sendChatMessage]);
 
   const openNewAssistant = useCallback(() => {
     setEditingAssistantId(null);
@@ -473,8 +561,10 @@ export function useLawmindAppShell() {
       detailDraft,
       detailCitationIntegrity,
       detailCheckpoints,
+      detailExecutionPlan,
       contextTaskId,
       contextMatterId,
+      fileChatContextItems,
       copiedMessageIndex,
       recordsExpanded,
       showSettings,
@@ -535,6 +625,7 @@ export function useLawmindAppShell() {
       pickProject,
       clearProject,
       send,
+      sendChatMessage,
       openNewAssistant,
       openEditAssistant,
       saveAssistant,
@@ -542,6 +633,9 @@ export function useLawmindAppShell() {
       copyMessage,
       openApiWizard,
       clearContext,
+      addFileToChatContext,
+      removeFileChatContextItem,
+      clearFileChatContext,
     },
   };
 }

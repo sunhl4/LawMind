@@ -1,4 +1,4 @@
-# Pre-commit hooks for openclaw
+# Pre-commit hooks for LawMind
 # Install: prek install
 # Run manually: prek run --all-files
 #
@@ -62,7 +62,7 @@ repos:
           - --exclude-lines
           - 'export CUSTOM_API_K[E]Y="your-key"'
           - --exclude-lines
-          - 'grep -q ''N[O]DE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache'' ~/.bashrc \|\| cat >> ~/.bashrc <<''EOF'''
+          - 'grep -q ''N[O]DE_COMPILE_CACHE=/var/tmp/lawmind-compile-cache'' ~/.bashrc \|\| cat >> ~/.bashrc <<''EOF'''
           - --exclude-lines
           - 'env: \{ MISTRAL_API_K[E]Y: "sk-\.\.\." \},'
           - --exclude-lines
@@ -127,7 +127,7 @@ repos:
       # oxlint --type-aware src test
       - id: oxlint
         name: oxlint
-        entry: scripts/pre-commit/run-node-tool.sh oxlint --type-aware src test
+        entry: scripts/pre-commit/run-node-tool.sh oxlint --type-aware src test scripts/lawmind
         language: system
         pass_filenames: false
         types_or: [javascript, jsx, ts, tsx]
@@ -135,23 +135,8 @@ repos:
       # oxfmt --check src test
       - id: oxfmt
         name: oxfmt
-        entry: scripts/pre-commit/run-node-tool.sh oxfmt --check src test
+        entry: scripts/pre-commit/run-node-tool.sh oxfmt --check src test scripts/lawmind
         language: system
         pass_filenames: false
         types_or: [javascript, jsx, ts, tsx]
 
-      # swiftlint (same as CI)
-      - id: swiftlint
-        name: swiftlint
-        entry: swiftlint --config .swiftlint.yml
-        language: system
-        pass_filenames: false
-        types: [swift]
-
-      # swiftformat --lint (same as CI)
-      - id: swiftformat
-        name: swiftformat
-        entry: swiftformat --lint apps/macos/Sources --config .swiftformat
-        language: system
-        pass_filenames: false
-        types: [swift]

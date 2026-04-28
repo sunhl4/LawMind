@@ -10,12 +10,29 @@ import type { ApprovalRequest, WorkQueueItem } from "../../../../src/lawmind/cor
 import type { MemorySourceLayer } from "../../../../src/lawmind/memory/index.ts";
 import { LawmindMemorySourcesPanel } from "./LawmindMemorySourcesPanel";
 import { LawmindReasoningCollapsible } from "./LawmindReasoningCollapsible";
-import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
+import { apiGetJson, apiSendJson, errorMessage, messageFromOkFalseBody } from "./api-client";
+import { LM_PANE_MAX_WIDTH_PX, LM_PANE_MIN_WIDTH_PX } from "./lawmind-panel-layout";
+import { usePaneResizePx } from "./use-pane-resize";
+import { useEdition } from "./use-edition";
 
 type MatterSearchHit = {
   section: string;
   text: string;
   taskId?: string;
+};
+
+type AcceptanceSummaryItem = {
+  taskId: string;
+  matterId: string | null;
+  title: string;
+  deliverableType: string | null;
+  reviewStatus: ArtifactDraft["reviewStatus"];
+  ready: boolean;
+  placeholderCount: number;
+  blockerCount: number;
+  warningCount: number;
+  hasSpec: boolean;
+  outputPath: string | null;
 };
 
 type AuditEventRow = { kind?: string; detail?: string; timestamp?: string; taskId?: string };
@@ -174,6 +191,9 @@ type Props = {
   apiBase: string;
   refreshVersion?: number;
   assistantId?: string;
+  /** 从审核台返回时由外壳一次性传入，用于恢复左侧选中的案件 */
+  focusMatterId?: string | null;
+  onFocusMatterIdApplied?: () => void;
   /** 在对话中带上案件 ID（matter 参数） */
   onUseInChat?: (matterId: string) => void;
   /** 打开审核台并预选相关草稿 */
@@ -210,6 +230,38 @@ function DraftCitationBadge(props: { cit: DraftCitationIntegrityView | undefined
       title={`以下 ID 不在检索 bundle：${cit.missingSourceIds.join(", ")}`}
     >
       引用待核
+    </span>
+  );
+}
+
+function DraftAcceptanceBadge(props: { acc: AcceptanceSummaryItem | undefined }): ReactNode {
+  const { acc } = props;
+  if (!acc) {
+    return null;
+  }
+  if (!acc.hasSpec) {
+    return (
+      <span className="lm-acc-badge lm-acc-badge--none" title="该草稿未关联 DeliverableSpec">
+        无门禁
+      </span>
+    );
+  }
+  if (acc.ready) {
+    return (
+      <span
+        className="lm-acc-badge lm-acc-badge--ok"
+        title={`通过验收门禁（占位符 ${acc.placeholderCount}）`}
+      >
+        ✓ 验收通过
+      </span>
+    );
+  }
+  const tip =
+    `阻断 ${acc.blockerCount} · 警告 ${acc.warningCount}` +
+    (acc.placeholderCount > 0 ? ` · 占位符 ${acc.placeholderCount}` : "");
+  return (
+    <span className="lm-acc-badge lm-acc-badge--err" title={tip}>
+      ✗ 待修复
     </span>
   );
 }
@@ -266,6 +318,12 @@ function reviewStatusLabel(status: ArtifactDraft["reviewStatus"]): string {
 function auditKindLabel(kind?: string): string {
   if (kind === "ui.matter_action") {
     return "律师动作";
+  }
+  if (kind === "ui.firstrun_wizard_completed") {
+    return "首跑向导完成";
+  }
+  if (kind === "ui.firstrun_acceptance_ready") {
+    return "首跑验收就绪";
   }
   return kind ?? "audit";
 }
@@ -459,7 +517,11 @@ function buildCaseFocusDraft(context: CaseFocusContext, variant: CaseDraftVarian
 }
 
 export function MatterWorkbench(props: Props) {
-  const { apiBase, refreshVersion = 0, assistantId, onUseInChat, onOpenReview } = props;
+  const { apiBase, refreshVersion = 0, assistantId, focusMatterId, onFocusMatterIdApplied, onUseInChat, onOpenReview } = props;
+  const editionInfo = useEdition(apiBase);
+  const showCrossMatterRoadmap = !editionInfo.loading && editionInfo.features.crossMatterRoadmap;
+  const showWorkspaceAcceptanceDashboard =
+    !editionInfo.loading && editionInfo.features.crossMatterAcceptanceDashboard;
   const [overviews, setOverviews] = useState<MatterOverview[]>([]);
   const [loadingList, setLoadingList] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
@@ -482,6 +544,7 @@ export function MatterWorkbench(props: Props) {
   const [draftCitationByTask, setDraftCitationByTask] = useState<
     Record<string, DraftCitationIntegrityView>
   >({});
+  const [acceptanceByTask, setAcceptanceByTask] = useState<Record<string, AcceptanceSummaryItem>>({});
   const [auditEvents, setAuditEvents] = useState<AuditEventRow[]>([]);
   const [opsFocus, setOpsFocus] = useState<OperationsFocus>("all");
   const [opsSort, setOpsSort] = useState<OperationsSort>("priority");
@@ -511,6 +574,13 @@ export function MatterWorkbench(props: Props) {
   const [cognitionActionBusy, setCognitionActionBusy] = useState<string | null>(null);
   const [cognitionActionMsg, setCognitionActionMsg] = useState<string | null>(null);
   const [crossExperimentRollup, setCrossExperimentRollup] = useState<MatterCrossExperimentRollupItem[]>([]);
+  const [workspaceAcceptance, setWorkspaceAcceptance] = useState<{
+    count: number;
+    readyCount: number;
+    blockedCount: number;
+    items: AcceptanceSummaryItem[];
+  } | null>(null);
+  const [workspaceAcceptanceErr, setWorkspaceAcceptanceErr] = useState<string | null>(null);
   const [adoptedSuggestions, setAdoptedSuggestions] = useState<AdoptedSuggestionRecord[]>([]);
   const [persistentAdoptions, setPersistentAdoptions] = useState<AdoptedSuggestionRecord[]>([]);
   const hasHandledRefreshRef = useRef(false);
@@ -518,6 +588,13 @@ export function MatterWorkbench(props: Props) {
   const riskNotesRef = useRef<HTMLHeadingElement | null>(null);
   const artifactsRef = useRef<HTMLHeadingElement | null>(null);
   const caseMdRef = useRef<HTMLHeadingElement | null>(null);
+
+  const { width: workbenchListWidth, onResizePointerDown: onMatterListResize } = usePaneResizePx({
+    storageKey: "lawmind.ui.matterWorkbenchListWidth",
+    defaultWidth: 260,
+    min: LM_PANE_MIN_WIDTH_PX,
+    max: LM_PANE_MAX_WIDTH_PX,
+  });
 
   const pendingDrafts = drafts.filter((draft) => draft.reviewStatus === "pending");
   const modifiedDrafts = drafts.filter((draft) => draft.reviewStatus === "modified");
@@ -692,7 +769,7 @@ export function MatterWorkbench(props: Props) {
       total: interactions.length,
       latestAt: interactions
         .map((item) => item.event.timestamp)
-        .filter(Boolean)
+        .filter((t): t is string => typeof t === "string" && t.length > 0)
         .toSorted((a, b) => a.localeCompare(b))
         .at(-1),
       reviewOpenCount,
@@ -1255,20 +1332,18 @@ export function MatterWorkbench(props: Props) {
     setCognitionActionBusy(busyKey);
     setCognitionActionMsg(null);
     try {
-      const endpoint =
-        target === "lawyer" ? `${apiBase}/api/lawyer-profile/learning` : `${apiBase}/api/assistants/profile/learning`;
-      const body =
+      const path =
+        target === "lawyer" ? "/api/lawyer-profile/learning" : "/api/assistants/profile/learning";
+      const requestBody =
         target === "lawyer"
-          ? { note, source: "manual" }
+          ? { note, source: "manual" as const }
           : { assistantId: assistantId ?? "default", note };
-      const r = await fetch(endpoint, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const j = (await r.json()) as { ok?: boolean; error?: string };
-      if (!r.ok || !j.ok) {
-        throw new Error(j.error ?? "写入失败");
+      const j = await apiSendJson<
+        { ok?: boolean; error?: string; message?: string },
+        { note: string; source?: string; assistantId?: string }
+      >(apiBase, path, "POST", requestBody);
+      if (!j.ok) {
+        throw new Error(messageFromOkFalseBody(j, "写入失败"));
       }
       setCognitionActionMsg(
         target === "lawyer" ? "已写入律师档案。后续案件将可复用该升级建议。" : "已写入当前助手档案。",
@@ -1296,7 +1371,7 @@ export function MatterWorkbench(props: Props) {
       );
       void loadPersistentAdoptions();
     } catch (e) {
-      setCognitionActionMsg(e instanceof Error ? e.message : String(e));
+      setCognitionActionMsg(errorMessage(e, "写入失败"));
     } finally {
       setCognitionActionBusy(null);
     }
@@ -1310,18 +1385,16 @@ export function MatterWorkbench(props: Props) {
     setCaseActionMsg(null);
     try {
       const note = caseDraftNote.trim() || `${caseFocusContext.title}：${caseFocusContext.hint}`;
-      const r = await fetch(`${apiBase}/api/matters/case-note`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          matterId: selectedId,
-          section: sectionWriteTarget(caseFocusContext.section),
-          note,
-        }),
+      const j = await apiSendJson<
+        { ok?: boolean; error?: string; message?: string },
+        { matterId: string; section: string; note: string }
+      >(apiBase, "/api/matters/case-note", "POST", {
+        matterId: selectedId,
+        section: sectionWriteTarget(caseFocusContext.section),
+        note,
       });
-      const j = (await r.json()) as { ok?: boolean; error?: string };
-      if (!r.ok || !j.ok) {
-        throw new Error(j.error ?? "写入案件档案失败");
+      if (!j.ok) {
+        throw new Error(messageFromOkFalseBody(j, "写入案件档案失败"));
       }
       await logMatterInteraction({
         action: "write_case_note",
@@ -1408,7 +1481,7 @@ export function MatterWorkbench(props: Props) {
         setOverviews(j.overviews);
         return;
       }
-      throw new Error("加载案件列表失败");
+      throw new Error(messageFromOkFalseBody(j, "加载案件列表失败"));
     } catch (e) {
       setListError(errorMessage(e, "加载案件列表失败"));
     } finally {
@@ -1419,6 +1492,15 @@ export function MatterWorkbench(props: Props) {
   useEffect(() => {
     void loadList();
   }, [loadList]);
+
+  useEffect(() => {
+    const id = focusMatterId?.trim();
+    if (!id) {
+      return;
+    }
+    setSelectedId(id);
+    onFocusMatterIdApplied?.();
+  }, [focusMatterId]);
 
   const loadDetail = useCallback(
     async (matterId: string) => {
@@ -1446,7 +1528,7 @@ export function MatterWorkbench(props: Props) {
           auditEvents?: AuditEventRow[];
         }>(apiBase, `/api/matters/detail?matterId=${encodeURIComponent(matterId)}`);
         if (!j.ok) {
-          throw new Error(j.error ?? "加载案件详情失败");
+          throw new Error(messageFromOkFalseBody(j, "加载案件详情失败"));
         }
         setSummary(j.summary ?? null);
         setOverview(j.overview ?? null);
@@ -1466,6 +1548,25 @@ export function MatterWorkbench(props: Props) {
             : {},
         );
         setAuditEvents(j.auditEvents ?? []);
+
+        // 并行抓取按案件聚合的 DFA 验收快照；失败不阻断详情渲染。
+        try {
+          const accept = await apiGetJson<{
+            ok?: boolean;
+            items?: AcceptanceSummaryItem[];
+          }>(apiBase, `/api/acceptance-summary?matterId=${encodeURIComponent(matterId)}`);
+          if (accept.ok && Array.isArray(accept.items)) {
+            const next: Record<string, AcceptanceSummaryItem> = {};
+            for (const item of accept.items) {
+              next[item.taskId] = item;
+            }
+            setAcceptanceByTask(next);
+          } else {
+            setAcceptanceByTask({});
+          }
+        } catch {
+          setAcceptanceByTask({});
+        }
       } catch (e) {
         setDetailError(errorMessage(e, "加载案件详情失败"));
       } finally {
@@ -1533,6 +1634,31 @@ export function MatterWorkbench(props: Props) {
     }
   }
 
+  async function loadWorkspaceAcceptanceSummary() {
+    setWorkspaceAcceptanceErr(null);
+    try {
+      const j = await apiGetJson<{
+        ok?: boolean;
+        count?: number;
+        readyCount?: number;
+        blockedCount?: number;
+        items?: AcceptanceSummaryItem[];
+      }>(apiBase, "/api/acceptance-summary");
+      if (!j.ok || !Array.isArray(j.items)) {
+        throw new Error(messageFromOkFalseBody(j, "加载工作区验收概览失败"));
+      }
+      setWorkspaceAcceptance({
+        count: j.count ?? j.items.length,
+        readyCount: j.readyCount ?? 0,
+        blockedCount: j.blockedCount ?? 0,
+        items: j.items,
+      });
+    } catch (e) {
+      setWorkspaceAcceptanceErr(errorMessage(e, "加载工作区验收概览失败"));
+      setWorkspaceAcceptance(null);
+    }
+  }
+
   useEffect(() => {
     setCaseFocusContext(null);
   }, [selectedId]);
@@ -1548,8 +1674,21 @@ export function MatterWorkbench(props: Props) {
   }, [apiBase, assistantId, selectedId]);
 
   useEffect(() => {
+    if (!showCrossMatterRoadmap) {
+      setCrossExperimentRollup([]);
+      return;
+    }
     void loadCrossExperimentRollup();
-  }, [apiBase, refreshVersion]);
+  }, [apiBase, refreshVersion, showCrossMatterRoadmap]);
+
+  useEffect(() => {
+    if (!showWorkspaceAcceptanceDashboard) {
+      setWorkspaceAcceptance(null);
+      setWorkspaceAcceptanceErr(null);
+      return;
+    }
+    void loadWorkspaceAcceptanceSummary();
+  }, [apiBase, refreshVersion, showWorkspaceAcceptanceDashboard]);
 
   useEffect(() => {
     if (panelTab !== "case" || !caseFocusContext?.section) {
@@ -1631,15 +1770,14 @@ export function MatterWorkbench(props: Props) {
 
   const fetchDraftCognition = useCallback(
     async (taskId: string) => {
-      const r = await fetch(`${apiBase}/api/drafts/${encodeURIComponent(taskId)}`);
-      const j = (await r.json()) as {
+      const j = await apiGetJson<{
         ok?: boolean;
         reasoningMarkdown?: string | null;
         memorySources?: MemorySourceLayer[];
         error?: string;
-      };
-      if (!r.ok || !j.ok) {
-        throw new Error(j.error ?? "加载认知面板失败");
+      }>(apiBase, `/api/drafts/${encodeURIComponent(taskId)}`);
+      if (!j.ok) {
+        throw new Error(messageFromOkFalseBody(j, "加载认知面板失败"));
       }
       return {
         reasoningMarkdown: typeof j.reasoningMarkdown === "string" ? j.reasoningMarkdown : null,
@@ -1660,7 +1798,7 @@ export function MatterWorkbench(props: Props) {
       } catch (e) {
         setCognitionReasoningMarkdown(null);
         setCognitionMemorySources([]);
-        setCognitionError(e instanceof Error ? e.message : String(e));
+        setCognitionError(errorMessage(e, "加载认知面板失败"));
       } finally {
         setCognitionLoading(false);
       }
@@ -1846,7 +1984,7 @@ export function MatterWorkbench(props: Props) {
         { matterId: string }
       >(apiBase, "/api/matters/create", "POST", { matterId: newMatterId.trim() });
       if (!j.ok) {
-        throw new Error(j.error ?? "创建失败");
+        throw new Error(messageFromOkFalseBody(j, "创建案件失败"));
       }
       setShowCreate(false);
       setNewMatterId("");
@@ -1882,7 +2020,11 @@ export function MatterWorkbench(props: Props) {
                 autoComplete="off"
               />
             </label>
-            {createErr && <div className="lm-error">{createErr}</div>}
+            {createErr ? (
+              <div className="lm-callout lm-callout-danger" role="alert">
+                <p className="lm-callout-body">{createErr}</p>
+              </div>
+            ) : null}
             <div className="lm-wizard-actions">
               <button
                 type="button"
@@ -1905,7 +2047,10 @@ export function MatterWorkbench(props: Props) {
         </div>
       )}
       <div className="lm-workbench lm-matter-workbench">
-      <div className="lm-workbench-list">
+      <div
+        className="lm-workbench-list"
+        style={{ width: workbenchListWidth, flexShrink: 0 }}
+      >
         <div className="lm-workbench-list-header">
           <h2>案件</h2>
           <div className="lm-workbench-list-actions">
@@ -1926,7 +2071,11 @@ export function MatterWorkbench(props: Props) {
           </div>
         </div>
         {loadingList && <div className="lm-meta">加载中…</div>}
-        {listError && <div className="lm-error">{listError}</div>}
+        {listError ? (
+          <div className="lm-callout lm-callout-danger" role="alert">
+            <p className="lm-callout-body">{listError}</p>
+          </div>
+        ) : null}
         {!loadingList && overviews.length === 0 && (
           <div className="lm-meta lm-workbench-empty">
             暂无案件。在对话中完成带 matterId 的任务后，将在此聚合显示。
@@ -1954,10 +2103,23 @@ export function MatterWorkbench(props: Props) {
         </ul>
       </div>
 
+      <div
+        className="lm-split-handle lm-split-handle-vertical"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="调整案件列表宽度"
+        title="拖动调整列表宽度"
+        onPointerDown={onMatterListResize}
+      />
+
       <div className="lm-workbench-main">
         {!selectedId && <div className="lm-meta lm-workbench-placeholder">选择左侧案件查看档案与进度</div>}
         {selectedId && detailLoading && <div className="lm-meta">加载案件详情…</div>}
-        {selectedId && detailError && <div className="lm-error">{detailError}</div>}
+        {selectedId && detailError ? (
+          <div className="lm-callout lm-callout-danger" role="alert">
+            <p className="lm-callout-body">{detailError}</p>
+          </div>
+        ) : null}
         {selectedId && !detailLoading && !detailError && summary && (
           <>
             <div className="lm-workbench-toolbar">
@@ -1972,6 +2134,10 @@ export function MatterWorkbench(props: Props) {
                 </button>
               )}
             </div>
+
+            <p className="lm-matter-clientid-hint lm-meta">
+              在 CASE 档案里填好<strong>客户简称</strong>，助手会优先用该客户名下的长期档案；不填则可能用工作区总档案。
+            </p>
 
             <div className="lm-tabs lm-workbench-tabs">
               <button
@@ -2013,6 +2179,74 @@ export function MatterWorkbench(props: Props) {
 
             {panelTab === "overview" && (
               <div className="lm-workbench-panel">
+                {showWorkspaceAcceptanceDashboard ? (
+                  <section className="lm-matter-cockpit-card lm-matter-workspace-acceptance-card">
+                    <h3>工作区交付就绪概览</h3>
+                    <p className="lm-meta">
+                      当前工作区全部草稿的验收门禁汇总（与左侧所选案件无关，便于一眼看全所就绪情况）。
+                    </p>
+                    {workspaceAcceptanceErr ? (
+                      <div className="lm-callout lm-callout-danger" role="alert">
+                        <p className="lm-callout-body">{workspaceAcceptanceErr}</p>
+                      </div>
+                    ) : null}
+                    {!workspaceAcceptance && !workspaceAcceptanceErr ? (
+                      <p className="lm-meta">加载中…</p>
+                    ) : null}
+                    {workspaceAcceptance ? (
+                      <>
+                        <div className="lm-matter-roadmap-summary-grid">
+                          <div className="lm-matter-roadmap-summary-card">
+                            <span className="lm-meta">草稿总数</span>
+                            <strong>{workspaceAcceptance.count}</strong>
+                          </div>
+                          <div className="lm-matter-roadmap-summary-card">
+                            <span className="lm-meta">验收通过</span>
+                            <strong>{workspaceAcceptance.readyCount}</strong>
+                          </div>
+                          <div className="lm-matter-roadmap-summary-card">
+                            <span className="lm-meta">尚有关阻断</span>
+                            <strong>{workspaceAcceptance.blockedCount}</strong>
+                          </div>
+                        </div>
+                        {workspaceAcceptance.items.length === 0 ? (
+                          <p className="lm-meta">暂无草稿。</p>
+                        ) : (
+                          <ul className="lm-matter-ops-list">
+                            {workspaceAcceptance.items.slice(0, 8).map((item) => (
+                              <li key={item.taskId}>
+                                <div className="lm-matter-ops-title">
+                                  <span>{item.title}</span>
+                                  <DraftAcceptanceBadge acc={item} />
+                                </div>
+                                <div className="lm-matter-ops-meta">
+                                  任务 {item.taskId}
+                                  {item.matterId ? ` · 案件 ${item.matterId}` : ""}
+                                </div>
+                                <div className="lm-matter-ops-actions lm-matter-convergence-actions">
+                                  <button
+                                    type="button"
+                                    className="lm-btn lm-btn-secondary lm-btn-small"
+                                    disabled={!onOpenReview}
+                                    onClick={() =>
+                                      openReviewFromMatter(item.taskId, {
+                                        matterId: item.matterId ?? selectedId ?? undefined,
+                                        sourceSurface: "workspace-acceptance",
+                                        sourceLabel: "工作区验收概览",
+                                      })
+                                    }
+                                  >
+                                    去审核
+                                  </button>
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </>
+                    ) : null}
+                  </section>
+                ) : null}
                 <section className="lm-matter-cockpit-summary">
                   {reviewSummaryCards.map((card) => (
                     <div key={card.key} className={`lm-matter-summary-card lm-matter-summary-card-${card.tone}`}>
@@ -2198,6 +2432,8 @@ export function MatterWorkbench(props: Props) {
                   )}
                 </section>
 
+                {showCrossMatterRoadmap ? (
+                <>
                 <section className="lm-matter-cockpit-card lm-matter-convergence-card">
                   <h3>交互收敛建议</h3>
                   {convergenceSuggestions.length === 0 ? (
@@ -2444,6 +2680,8 @@ export function MatterWorkbench(props: Props) {
                     </>
                   )}
                 </section>
+                </>
+                ) : null}
 
                 <section className="lm-matter-cockpit-card">
                   <h3>最近律师动作</h3>
@@ -2771,13 +3009,48 @@ export function MatterWorkbench(props: Props) {
                 </div>
                 <div>
                   <h3>草稿</h3>
-                  <ul className="lm-bullet-list">
-                    {drafts.map((d) => (
-                      <li key={d.taskId}>
-                        {d.title} — <em>{d.reviewStatus}</em>{" "}
-                        <DraftCitationBadge cit={draftCitationByTask[d.taskId]} />
-                      </li>
-                    ))}
+                  <ul className="lm-bullet-list lm-matter-draft-list">
+                    {drafts.map((d) => {
+                      const acc = acceptanceByTask[d.taskId];
+                      const dataReady = acc && acc.hasSpec ? (acc.ready ? "true" : "false") : undefined;
+                      return (
+                        <li
+                          key={d.taskId}
+                          className="lm-matter-draft-row"
+                          data-ready={dataReady}
+                        >
+                          <div className="lm-matter-draft-title">
+                            <span>{d.title}</span>
+                            <em className="lm-matter-draft-status">{d.reviewStatus}</em>
+                            <DraftCitationBadge cit={draftCitationByTask[d.taskId]} />
+                            <DraftAcceptanceBadge acc={acc} />
+                          </div>
+                          {(acc?.placeholderCount ?? 0) > 0 || (acc?.blockerCount ?? 0) > 0 ? (
+                            <div className="lm-meta lm-matter-draft-hint">
+                              {acc?.blockerCount ? `阻断项 ${acc.blockerCount} ` : ""}
+                              {acc?.warningCount ? `· 警告 ${acc.warningCount} ` : ""}
+                              {acc?.placeholderCount ? `· 待补占位符 ${acc.placeholderCount}` : ""}
+                            </div>
+                          ) : null}
+                          {onOpenReview && (
+                            <button
+                              type="button"
+                              className="lm-btn lm-btn-secondary lm-btn-small lm-matter-draft-action"
+                              onClick={() =>
+                                onOpenReview({
+                                  taskId: d.taskId,
+                                  matterId: d.matterId ?? selectedId ?? undefined,
+                                  statusFilter: "all",
+                                  listMode: "all",
+                                })
+                              }
+                            >
+                              去审核
+                            </button>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
               </div>
@@ -2835,7 +3108,11 @@ export function MatterWorkbench(props: Props) {
                   </div>
 
                   {cognitionBoardLoading ? <div className="lm-meta">汇总案件认知摘要…</div> : null}
-                  {cognitionBoardError ? <div className="lm-error">{cognitionBoardError}</div> : null}
+                  {cognitionBoardError ? (
+                    <div className="lm-callout lm-callout-danger" role="alert">
+                      <p className="lm-callout-body">{cognitionBoardError}</p>
+                    </div>
+                  ) : null}
                   {cognitionBoard ? (
                     <div className="lm-matter-cognition-board">
                       <div className="lm-matter-summary-card lm-matter-summary-card-neutral">
@@ -3164,7 +3441,11 @@ export function MatterWorkbench(props: Props) {
                     </div>
                   )}
 
-                  {cognitionError && <div className="lm-error">{cognitionError}</div>}
+                  {cognitionError ? (
+                    <div className="lm-callout lm-callout-danger" role="alert">
+                      <p className="lm-callout-body">{cognitionError}</p>
+                    </div>
+                  ) : null}
                   {cognitionLoading ? <div className="lm-meta">加载认知面板…</div> : null}
                   {!cognitionLoading && !cognitionDraft ? (
                     <div className="lm-meta">当前案件还没有足够的草稿可供观察。</div>

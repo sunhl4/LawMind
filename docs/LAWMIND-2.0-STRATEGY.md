@@ -29,7 +29,7 @@ LawMind should not compete as a generic "chat with documents" product. It should
 
 ## 3. Core differentiation
 
-OpenClaw proved that agentic software can be useful. LawMind wins by solving the legal-sector gaps that generic agents leave open:
+General-purpose agent stacks proved that agentic software can be useful. LawMind wins by solving the legal-sector gaps that generic agents leave open:
 
 - **Lawyer trust model**: LawMind is built around approval gates, audit events, and explicit risk surfacing.
 - **Legal reasoning structure**: LawMind should work through issues, authorities, arguments, and evidence, not only produce fluent text.

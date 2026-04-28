@@ -16,11 +16,12 @@
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
-import { loadLawMindEnv } from "../../../scripts/lawmind-env-loader.js";
+import { loadLawMindEnv } from "../../../scripts/lawmind/lawmind-env-loader.js";
 import { restoreDelegationsFromDisk } from "../../../src/lawmind/agent/collaboration/index.js";
 import { loadAndApplyLawMindPolicy } from "./lawmind-policy.js";
 import { LAWMIND_LOCAL_HOST } from "./lawmind-server-helpers.js";
 import { lawmindHandleHttpRequest } from "./lawmind-server-dispatch.js";
+import { loadJobsFromDiskOnStartup } from "./lawmind-server-jobs.js";
 
 async function main() {
   const workspaceDir = process.env.LAWMIND_WORKSPACE_DIR?.trim();
@@ -56,6 +57,7 @@ async function main() {
   const policy = loadAndApplyLawMindPolicy(workspaceDir);
 
   restoreDelegationsFromDisk(workspaceDir);
+  loadJobsFromDiskOnStartup(workspaceDir);
 
   const ctx = { workspaceDir, envFile, userEnvPath, policy };
 

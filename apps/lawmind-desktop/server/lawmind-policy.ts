@@ -6,6 +6,11 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { listEditions } from "../../../src/lawmind/policy/edition.js";
+import type { LawMindEdition } from "../../../src/lawmind/policy/workspace-policy.js";
+
+export type { LawMindEdition };
+
 export type LawMindPolicyFile = {
   schemaVersion: number;
   /** When false, the desktop API forces web search off regardless of client toggle. */
@@ -14,6 +19,14 @@ export type LawMindPolicyFile = {
   retrievalMode?: string;
   /** When false, sets LAWMIND_ENABLE_COLLABORATION=false. */
   enableCollaboration?: boolean;
+  /** Product edition (see `src/lawmind/policy/edition.ts`); also read via `LAWMIND_EDITION` env. */
+  edition?: LawMindEdition;
+  /** Injected into Agent system prompt (see `resolveAgentMandatoryRulesForPrompt`). */
+  agentMandatoryRules?: string;
+  /** Relative path under workspace; file content overrides inline when readable. */
+  agentMandatoryRulesPath?: string;
+  /** Overrides env `LAWMIND_AGENT_MAX_TOOL_CALLS` for Agent `runTurn` when set (clamped server-side). */
+  agentMaxToolCallsPerTurn?: number;
 };
 
 export type LawMindPolicyState =
@@ -80,6 +93,12 @@ export function applyLawMindPolicyToEnv(policy: LawMindPolicyFile): string[] {
   if (policy.enableCollaboration === false) {
     process.env.LAWMIND_ENABLE_COLLABORATION = "false";
     applied.push("enableCollaboration");
+  }
+  // Align env with `resolveEdition` policy path so subprocesses and tools see the same edition.
+  const validEditions = new Set<string>(listEditions());
+  if (policy.edition && validEditions.has(policy.edition)) {
+    process.env.LAWMIND_EDITION = policy.edition;
+    applied.push("edition");
   }
   return applied;
 }

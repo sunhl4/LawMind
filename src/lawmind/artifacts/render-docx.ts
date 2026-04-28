@@ -6,20 +6,31 @@
  *   - 不包含任何检索或推理逻辑
  *   - 渲染前必须确认 draft.reviewStatus === "approved"
  *
- * 扩展方式：
- *   - 新文书类型：在 templates/ 目录增加 Markdown 模板，
- *     实现对应 TemplateRenderer，注册到 RENDERER_MAP 即可。
- *   - PPT 渲染：见 render-pptx.ts（引擎按 draft.output 分发）。
+ * 版式：见 docx-legal-typography.ts（律所/合同类常见 Black 体、标题黑体、正文宋体、边距与行距）
  *
- * 依赖：
- *   - docx  (npm i docx)  — Word 生成
+ * 依赖：docx (npm)
  */
 
 import fs from "node:fs/promises";
 import path from "node:path";
-import { Document, Packer, Paragraph, HeadingLevel, TextRun } from "docx";
+import { Document, Packer, Paragraph } from "docx";
+import { fillDocxTemplateWithValues } from "../templates/docx-template-fill.js";
+import { buildPlaceholderValueMap } from "../templates/draft-template-values.js";
 import type { UploadedTemplateRecord } from "../templates/index.js";
 import type { ArtifactDraft, ArtifactSection } from "../types.js";
+import {
+  bodyLinesToParagraphs,
+  defaultSectionPageProps,
+  deliverableTypeHint,
+  formatDraftMetaLine,
+  paragraphBodyFirstIndent,
+  paragraphCitationBlock,
+  paragraphDocumentTitle,
+  paragraphHeading1,
+  paragraphHeading2,
+  paragraphMetaCenter,
+  paragraphReviewNoteItem,
+} from "./docx-legal-typography.js";
 
 // ─────────────────────────────────────────────
 // 类型
@@ -43,39 +54,11 @@ export type RenderDocxOptions = {
 function buildWordSection(section: ArtifactSection): Paragraph[] {
   const paragraphs: Paragraph[] = [];
 
-  // 章节标题
-  paragraphs.push(
-    new Paragraph({
-      text: section.heading,
-      heading: HeadingLevel.HEADING_2,
-    }),
-  );
+  paragraphs.push(paragraphHeading2(section.heading));
+  paragraphs.push(...bodyLinesToParagraphs(section.body));
 
-  // 正文（简单按换行拆分，后续可扩展 Markdown 解析）
-  for (const line of section.body.split("\n")) {
-    if (line.trim() === "") {
-      continue;
-    }
-    paragraphs.push(
-      new Paragraph({
-        children: [new TextRun({ text: line.trim() })],
-      }),
-    );
-  }
-
-  // 引用来源标注
   if (section.citations && section.citations.length > 0) {
-    paragraphs.push(
-      new Paragraph({
-        children: [
-          new TextRun({
-            text: `【来源：${section.citations.join("、")}】`,
-            italics: true,
-            size: 18,
-          }),
-        ],
-      }),
-    );
+    paragraphs.push(paragraphCitationBlock(`【来源引用：${section.citations.join("、")}】`));
   }
 
   return paragraphs;
@@ -90,34 +73,22 @@ export async function renderDocx(draft: ArtifactDraft, outputDir: string): Promi
   return renderDocxWithOptions(draft, outputDir, {});
 }
 
-function buildVariantIntro(variant: string): string[] {
+function resolveSummaryHeading(variant: string): string {
   if (variant === "contractReview") {
-    return ["模板：合同审查意见", "该文书按合同风险识别与修改建议结构输出。"];
+    return "审查结论";
   }
   if (variant === "demandLetter") {
-    return ["模板：律师函", "该文书强调主张、期限要求和后续法律保留。"];
+    return "核心主张";
   }
-  if (variant === "uploadedMapped") {
-    return ["模板：用户上传模板", "已按占位符映射策略生成内容。"];
-  }
-  return ["模板：法律备忘录", "该文书按背景、分析与建议结构输出。"];
+  return "摘要";
 }
 
-function renderUploadedTemplateMap(
-  uploaded: UploadedTemplateRecord | undefined,
-  draft: ArtifactDraft,
-): string[] {
-  if (!uploaded) {
-    return [];
+function summaryToParagraphs(text: string): Paragraph[] {
+  const t = text.trim();
+  if (!t) {
+    return [paragraphBodyFirstIndent("（无）")];
   }
-  const lines = Object.entries(uploaded.placeholderMap).map(([placeholder, source]) => {
-    const value = source === "title" ? draft.title : source === "summary" ? draft.summary : source;
-    return `{{${placeholder}}} => ${value}`;
-  });
-  if (lines.length === 0) {
-    return [`上传模板：${uploaded.label} v${uploaded.version}`];
-  }
-  return [`上传模板：${uploaded.label} v${uploaded.version}`, ...lines];
+  return bodyLinesToParagraphs(t);
 }
 
 export async function renderDocxWithOptions(
@@ -132,57 +103,60 @@ export async function renderDocxWithOptions(
     };
   }
 
+  if (options.templateVariant === "uploadedMapped" && options.uploadedTemplate?.format === "docx") {
+    const up = options.uploadedTemplate;
+    try {
+      await fs.access(up.sourcePath);
+    } catch {
+      return {
+        ok: false,
+        error: "上传的 Word 模板文件不存在或不可读。请在设置中重新登记或恢复模板文件。",
+      };
+    }
+    const values = buildPlaceholderValueMap(draft, up.placeholderMap);
+    const safeTitle = draft.title.replace(/[^a-zA-Z0-9\u4e00-\u9fa5_-]/g, "_");
+    const filename = `${safeTitle}_${draft.taskId.slice(0, 8)}.docx`;
+    const outputPath = path.join(outputDir, filename);
+    try {
+      await fillDocxTemplateWithValues({ sourcePath: up.sourcePath, outputPath, values });
+    } catch (e) {
+      return {
+        ok: false,
+        error: e instanceof Error ? e.message : String(e),
+      };
+    }
+    return { ok: true, outputPath };
+  }
+
   const variant = options.templateVariant ?? "legalMemo";
-  const variantIntro = buildVariantIntro(variant);
-  const uploadedMappings = renderUploadedTemplateMap(options.uploadedTemplate, draft);
+  const summaryHeading = resolveSummaryHeading(variant);
 
   const allParagraphs: Paragraph[] = [
-    // 文书标题
-    new Paragraph({
-      text: draft.title,
-      heading: HeadingLevel.TITLE,
-    }),
-    // 执行摘要
-    new Paragraph({
-      text: "摘要",
-      heading: HeadingLevel.HEADING_1,
-    }),
-    new Paragraph({
-      children: [new TextRun({ text: draft.summary })],
-    }),
-    ...variantIntro.map(
-      (line) =>
-        new Paragraph({
-          children: [new TextRun({ text: line, italics: true })],
-        }),
-    ),
-    ...uploadedMappings.map(
-      (line) =>
-        new Paragraph({
-          children: [new TextRun({ text: line })],
-        }),
-    ),
+    paragraphDocumentTitle(draft.title),
+    paragraphMetaCenter(deliverableTypeHint(draft.deliverableType)),
+    paragraphMetaCenter(formatDraftMetaLine(draft.createdAt, draft.matterId)),
+    paragraphHeading1(summaryHeading),
+    ...summaryToParagraphs(draft.summary),
   ];
 
-  // 正文章节
   for (const section of draft.sections) {
     allParagraphs.push(...buildWordSection(section));
   }
 
-  // 审阅备注（如有）
   if (draft.reviewNotes.length > 0) {
-    allParagraphs.push(new Paragraph({ text: "审阅备注", heading: HeadingLevel.HEADING_1 }));
+    allParagraphs.push(paragraphHeading1("审阅备注"));
     for (const note of draft.reviewNotes) {
-      allParagraphs.push(
-        new Paragraph({
-          children: [new TextRun({ text: `• ${note}`, italics: true })],
-        }),
-      );
+      allParagraphs.push(paragraphReviewNoteItem(note));
     }
   }
 
   const doc = new Document({
-    sections: [{ properties: {}, children: allParagraphs }],
+    sections: [
+      {
+        properties: defaultSectionPageProps(),
+        children: allParagraphs,
+      },
+    ],
   });
 
   await fs.mkdir(outputDir, { recursive: true });

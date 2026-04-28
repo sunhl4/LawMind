@@ -1,9 +1,0 @@
-{
-  "schemaVersion": 1,
-  "description": "Sample LawMind policy file for firm IT review (draft).",
-  "allowWebSearch": false,
-  "retrievalMode": "auto",
-  "edition": "firm",
-  "benchmarkGateMinScore": 0.7,
-  "auditExportCadenceHint": "P7D"
-}

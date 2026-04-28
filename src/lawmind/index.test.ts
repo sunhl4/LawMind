@@ -7,12 +7,15 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { readAllAuditLogs } from "./audit/index.js";
+import { persistDraft } from "./drafts/index.js";
 import {
   createLawMindEngine,
   createGeneralModelAdapter,
   createLegalModelAdapter,
   createWorkspaceAdapter,
 } from "./index.js";
+import { ensureTaskRecord } from "./tasks/index.js";
+import type { ArtifactDraft, TaskIntent } from "./types.js";
 
 describe("LawMind Engine", () => {
   let workspaceDir: string;
@@ -48,14 +51,15 @@ describe("LawMind Engine", () => {
       templateId: "word/demand-letter-default",
     });
 
-    expect(intent.kind).toBe("analyze.contract");
+    expect(intent.kind).toBe("draft.word");
     expect(intent.taskId).toBeDefined();
-    expect(intent.riskLevel).toBe("medium");
+    expect(intent.riskLevel).toBe("high");
 
+    await engine.confirm(intent.taskId, { actorId: "lawyer:test" });
     const bundle = await engine.research(intent);
 
     expect(bundle.sources.length).toBeGreaterThanOrEqual(0);
-    // analyze.contract 只触发 legal 适配器，general 不支持；至少 1 条结论
+    // 检索管线在 mock 下至少产出 1 条结论
     expect(bundle.claims.length).toBeGreaterThanOrEqual(1);
     expect(bundle.taskId).toBe(intent.taskId);
     const researchingState = engine.getTaskState(intent.taskId);
@@ -69,7 +73,8 @@ describe("LawMind Engine", () => {
     expect(draft.reviewStatus).toBe("pending");
     expect(draft.title).toBe("Integration Test 律师函草稿");
     expect(draft.sections.length).toBeGreaterThanOrEqual(1);
-    expect(draft.sections[0].heading).toBe("检索结论摘要");
+    expect(draft.sections[0].heading).toBe("抬头");
+    expect(draft.sections.map((s) => s.heading)).toContain("事实背景");
     expect(engine.getDraft(intent.taskId)?.title).toBe("Integration Test 律师函草稿");
 
     const draftedState = engine.getTaskState(intent.taskId);
@@ -97,6 +102,47 @@ describe("LawMind Engine", () => {
     expect(caseContent).toContain("来源模型");
   });
 
+  it("reopenDraftReview resets non-pending review to pending", async () => {
+    await fs.writeFile(path.join(workspaceDir, "MEMORY.md"), "# Memory\n", "utf8");
+    const taskId = "reopen-engine-task";
+    const now = new Date().toISOString();
+    const intent: TaskIntent = {
+      taskId,
+      kind: "analyze.contract",
+      output: "docx",
+      instruction: "test reopen",
+      summary: "x",
+      riskLevel: "low",
+      models: ["legal"],
+      requiresConfirmation: false,
+      createdAt: now,
+      matterId: "m-reopen",
+      templateId: "word/contract-default",
+    };
+    ensureTaskRecord(workspaceDir, intent);
+    const d: ArtifactDraft = {
+      taskId,
+      matterId: "m-reopen",
+      title: "T",
+      output: "docx",
+      templateId: "word/contract-default",
+      summary: "s",
+      sections: [{ heading: "正文", body: "b" }],
+      reviewNotes: [],
+      reviewStatus: "modified",
+      createdAt: now,
+    };
+    persistDraft(workspaceDir, d);
+    const engine = createLawMindEngine({
+      workspaceDir,
+      adapters: [createWorkspaceAdapter(workspaceDir)],
+    });
+    const reopened = await engine.reopenDraftReview(taskId, { actorId: "lawyer:reopen" });
+    expect(reopened?.reviewStatus).toBe("pending");
+    expect(engine.getTaskState(taskId)?.reviewStatus).toBe("pending");
+    expect(engine.getTaskState(taskId)?.status).toBe("drafted");
+  });
+
   it("emits draft.citation_integrity when review sees citations missing from bundle", async () => {
     const mockLegal = createLegalModelAdapter(async () => ({
       claims: [{ text: "结论。", sourceIds: ["s-ok"], confidence: 0.9, model: "legal" }],
@@ -111,6 +157,7 @@ describe("LawMind Engine", () => {
       matterId: "matter-cite-audit",
       templateId: "word/demand-letter-default",
     });
+    await engine.confirm(intent.taskId, { actorId: "lawyer:test" });
     const bundle = await engine.research(intent);
     engine.draft(intent, bundle, { title: "Citation audit draft" });
     const draftPath = path.join(workspaceDir, "drafts", `${intent.taskId}.json`);
@@ -274,6 +321,7 @@ describe("LawMind Engine", () => {
       matterId: "matter-playbook",
       templateId: "word/demand-letter-default",
     });
+    await engine.confirm(intent.taskId, { actorId: "lawyer:test" });
     const bundle = await engine.research(intent);
     const draft = engine.draft(intent, bundle, { title: "Playbook integration" });
     await engine.review(draft, {
@@ -305,6 +353,7 @@ describe("LawMind Engine", () => {
       matterId: "matter-dash-json",
       templateId: "word/demand-letter-default",
     });
+    await engine.confirm(intent.taskId, { actorId: "lawyer:test" });
     const bundle = await engine.research(intent);
     const draft = engine.draft(intent, bundle, { title: "Dashboard JSON test" });
     await engine.review(draft, { actorId: "lawyer:test", status: "approved" });

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { Document, Packer, Paragraph, TextRun } from "docx";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ArtifactDraft } from "../types.js";
 import { renderDocxWithOptions } from "./render-docx.js";
@@ -40,13 +41,26 @@ describe("renderDocxWithOptions", () => {
   });
 
   it("renders with uploaded template mapping metadata", async () => {
+    const templatePath = path.join(outputDir, "firm-brief-template.docx");
+    const templateDoc = new Document({
+      sections: [
+        {
+          children: [
+            new Paragraph({ children: [new TextRun("{{case_title}}")] }),
+            new Paragraph({ children: [new TextRun("{{case_summary}}")] }),
+          ],
+        },
+      ],
+    });
+    await fs.writeFile(templatePath, Buffer.from(await Packer.toBuffer(templateDoc)));
+
     const result = await renderDocxWithOptions(makeDraft(), outputDir, {
       templateVariant: "uploadedMapped",
       uploadedTemplate: {
         id: "upload/firm-brief",
         format: "docx",
         label: "Firm Brief",
-        sourcePath: "/tmp/firm-brief.docx",
+        sourcePath: templatePath,
         version: 2,
         enabled: true,
         placeholderMap: {

@@ -68,16 +68,28 @@ export async function handleAssistantRoutes({
       sendJson(res, 400, { ok: false, error: "invalid assistant id" }, c);
       return true;
     }
-    const assistant = upsertAssistant(lawMindRoot, {
-      assistantId,
-      displayName: typeof body.displayName === "string" ? body.displayName : undefined,
-      introduction: typeof body.introduction === "string" ? body.introduction : undefined,
-      presetKey: typeof body.presetKey === "string" ? body.presetKey : undefined,
-      customRoleTitle: typeof body.customRoleTitle === "string" ? body.customRoleTitle : undefined,
-      customRoleInstructions:
-        typeof body.customRoleInstructions === "string" ? body.customRoleInstructions : undefined,
-    });
-    sendJson(res, 200, { ok: true, assistant }, c);
+    try {
+      const assistant = upsertAssistant(lawMindRoot, {
+        assistantId,
+        displayName: typeof body.displayName === "string" ? body.displayName : undefined,
+        introduction: typeof body.introduction === "string" ? body.introduction : undefined,
+        presetKey: typeof body.presetKey === "string" ? body.presetKey : undefined,
+        customRoleTitle: typeof body.customRoleTitle === "string" ? body.customRoleTitle : undefined,
+        customRoleInstructions:
+          typeof body.customRoleInstructions === "string" ? body.customRoleInstructions : undefined,
+        orgRole: body.orgRole as import("../../../src/lawmind/assistants/types.js").AssistantOrgRole | undefined,
+        reportsToAssistantId:
+          typeof body.reportsToAssistantId === "string" ? body.reportsToAssistantId : undefined,
+        peerReviewDefaultAssistantId:
+          typeof body.peerReviewDefaultAssistantId === "string"
+            ? body.peerReviewDefaultAssistantId
+            : undefined,
+      });
+      sendJson(res, 200, { ok: true, assistant }, c);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      sendJson(res, 400, { ok: false, error: msg }, c);
+    }
     return true;
   }
 
@@ -91,16 +103,28 @@ export async function handleAssistantRoutes({
         return true;
       }
       const body = (await readJsonBody(req)) as Record<string, unknown>;
-      const assistant = upsertAssistant(lawMindRoot, {
-        assistantId: id,
-        displayName: typeof body.displayName === "string" ? body.displayName : undefined,
-        introduction: typeof body.introduction === "string" ? body.introduction : undefined,
-        presetKey: typeof body.presetKey === "string" ? body.presetKey : undefined,
-        customRoleTitle: typeof body.customRoleTitle === "string" ? body.customRoleTitle : undefined,
-        customRoleInstructions:
-          typeof body.customRoleInstructions === "string" ? body.customRoleInstructions : undefined,
-      });
-      sendJson(res, 200, { ok: true, assistant }, c);
+      try {
+        const assistant = upsertAssistant(lawMindRoot, {
+          assistantId: id,
+          displayName: typeof body.displayName === "string" ? body.displayName : undefined,
+          introduction: typeof body.introduction === "string" ? body.introduction : undefined,
+          presetKey: typeof body.presetKey === "string" ? body.presetKey : undefined,
+          customRoleTitle: typeof body.customRoleTitle === "string" ? body.customRoleTitle : undefined,
+          customRoleInstructions:
+            typeof body.customRoleInstructions === "string" ? body.customRoleInstructions : undefined,
+          orgRole: body.orgRole as import("../../../src/lawmind/assistants/types.js").AssistantOrgRole | undefined,
+          reportsToAssistantId:
+            typeof body.reportsToAssistantId === "string" ? body.reportsToAssistantId : undefined,
+          peerReviewDefaultAssistantId:
+            typeof body.peerReviewDefaultAssistantId === "string"
+              ? body.peerReviewDefaultAssistantId
+              : undefined,
+        });
+        sendJson(res, 200, { ok: true, assistant }, c);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        sendJson(res, 400, { ok: false, error: msg }, c);
+      }
       return true;
     }
     if (assistantPath && req.method === "DELETE") {

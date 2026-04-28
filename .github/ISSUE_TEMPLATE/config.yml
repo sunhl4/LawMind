@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Onboarding
-    url: https://discord.gg/clawd
-    about: "New to OpenClaw? Join Discord for setup guidance in #help."
-  - name: Support
-    url: https://discord.gg/clawd
-    about: "Get help from the OpenClaw community on Discord in #help."
+  - name: User manual
+    url: https://docs.lawmind.ai/LAWMIND-USER-MANUAL
+    about: Read the LawMind user manual (desktop-first workflow).
+  - name: Security
+    url: https://github.com/lawmind/lawmind/blob/main/SECURITY.md
+    about: Report security issues per SECURITY.md (do not file public security issues as regular bugs).

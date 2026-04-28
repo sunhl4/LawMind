@@ -10,6 +10,7 @@ export type {
 } from "./types.js";
 
 export { executeWorkflow, buildWorkflowReport } from "./executor.js";
+export type { ExecuteWorkflowOptions, WorkflowRunProgress } from "./executor.js";
 
 export {
   parseDirectiveHeuristic,

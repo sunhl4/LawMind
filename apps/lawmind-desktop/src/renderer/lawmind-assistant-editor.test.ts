@@ -28,6 +28,9 @@ describe("lawmind-assistant-editor", () => {
       presetKey: "litigation",
       customRoleTitle: "首席诉讼助理",
       customRoleInstructions: "先列争点再写文书",
+      orgRole: "",
+      reportsToAssistantId: "",
+      peerReviewDefaultAssistantId: "",
     });
   });
 
@@ -49,6 +52,9 @@ describe("lawmind-assistant-editor", () => {
           presetKey: "litigation",
           customRoleTitle: "",
           customRoleInstructions: "",
+          orgRole: "",
+          reportsToAssistantId: "",
+          peerReviewDefaultAssistantId: "",
         },
       }),
     ).resolves.toMatchObject({

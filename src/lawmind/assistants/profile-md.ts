@@ -34,13 +34,54 @@ export function readAssistantProfileMarkdown(lawMindRoot: string, assistantId: s
   }
 }
 
-/** Append a dated entry (explicit lawyer-controlled evolution path). */
 /** 审核台写入 PROFILE 的单行摘要（可测）。 */
 export function buildReviewProfileLine(taskId: string, status: string, note?: string): string {
   const n = note?.trim();
   return n
     ? `草稿审核（任务 ${taskId}，${status}）：${n}`
     : `草稿审核（任务 ${taskId}，${status}）。`;
+}
+
+function taskIdFromAssistantReviewEntry(entry: string): string | undefined {
+  const m = /任务\s+([a-zA-Z0-9._-]+)/.exec(entry);
+  return m?.[1];
+}
+
+/**
+ * Append a dated entry (explicit lawyer-controlled evolution path).
+ * 同一 taskId 的「草稿审核」学习行若已存在则跳过。
+ */
+export function appendAssistantProfileMarkdown(
+  lawMindRoot: string,
+  assistantId: string,
+  entry: string,
+): { skipped: boolean } {
+  const dir = assistantProfileDir(lawMindRoot, assistantId);
+  fs.mkdirSync(dir, { recursive: true });
+  const p = assistantProfilePath(lawMindRoot, assistantId);
+  const line = entry.trim();
+  if (!line) {
+    return { skipped: true };
+  }
+  const tid = taskIdFromAssistantReviewEntry(line);
+  if (tid && line.includes("草稿审核")) {
+    const existing = readAssistantProfileMarkdown(lawMindRoot, assistantId);
+    if (existing.includes(`任务 ${tid}`) && existing.includes("草稿审核")) {
+      return { skipped: true };
+    }
+  }
+  const stamp = new Date().toISOString();
+  const block = `\n\n---\n\n## ${stamp}\n\n${line}\n`;
+  if (fs.existsSync(p)) {
+    fs.appendFileSync(p, block, "utf8");
+  } else {
+    fs.writeFileSync(
+      p,
+      `# 助手偏好档案\n\n> 本文件由 LawMind 按助手维护，可与工作区 \`LAWYER_PROFILE.md\` 并存；显式追加更安全。\n${block}`,
+      "utf8",
+    );
+  }
+  return { skipped: false };
 }
 
 /** 分段元数据：便于 UI 展示「最近写入来源」（审核台 / 其他）。 */
@@ -87,29 +128,4 @@ export function listAssistantProfileSections(
     out.push({ stamp, body, sourceHint });
   }
   return out;
-}
-
-export function appendAssistantProfileMarkdown(
-  lawMindRoot: string,
-  assistantId: string,
-  entry: string,
-): void {
-  const dir = assistantProfileDir(lawMindRoot, assistantId);
-  fs.mkdirSync(dir, { recursive: true });
-  const p = assistantProfilePath(lawMindRoot, assistantId);
-  const line = entry.trim();
-  if (!line) {
-    return;
-  }
-  const stamp = new Date().toISOString();
-  const block = `\n\n---\n\n## ${stamp}\n\n${line}\n`;
-  if (fs.existsSync(p)) {
-    fs.appendFileSync(p, block, "utf8");
-  } else {
-    fs.writeFileSync(
-      p,
-      `# 助手偏好档案\n\n> 本文件由 LawMind 按助手维护，可与工作区 \`LAWYER_PROFILE.md\` 并存；显式追加更安全。\n${block}`,
-      "utf8",
-    );
-  }
 }

@@ -1,7 +1,13 @@
 import { createLawMindAgent } from "../../../src/lawmind/agent/index.js";
 import type { AgentConfig, AgentTurn } from "../../../src/lawmind/agent/types.js";
-import { buildAgentMemorySourceReport } from "../../../src/lawmind/memory/index.js";
+import {
+  buildAgentMemorySourceReport,
+  loadMemoryContext,
+  toEngineClientMemorySnapshot,
+} from "../../../src/lawmind/memory/index.js";
 import { parseOptionalMatterId } from "../../../src/lawmind/cases/index.js";
+import { resolveEdition } from "../../../src/lawmind/policy/edition.js";
+import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspace-policy.js";
 import { deriveInstructionTitle } from "../../../src/lawmind/tasks/index.js";
 import {
   buildRoleDirectiveFromProfile,
@@ -46,7 +52,7 @@ export async function handleChatRoute({
     return false;
   }
 
-  const { workspaceDir, envFile } = ctx;
+  const { workspaceDir, envFile, policy: policyState } = ctx;
   const body = (await readJsonBody(req)) as {
     message?: string;
     sessionId?: string;
@@ -55,6 +61,8 @@ export async function handleChatRoute({
     allowWebSearch?: boolean;
     enableCollaboration?: boolean;
     projectDir?: string;
+    /** 请求在 JSON 体中附带引擎路由/推理模式等调试摘要（Solo 默认关闭，见下方 edition 判断）。 */
+    includeTurnDiagnostics?: boolean;
   };
   const message = typeof body.message === "string" ? body.message.trim() : "";
   if (!message) {
@@ -141,28 +149,44 @@ export async function handleChatRoute({
       newSession: !hadSession,
       turn: true,
     });
+    const engineMem =
+      result.memoryContext ??
+      (await loadMemoryContext(workspaceDir, { matterId: matterIdForChat }));
     const memorySources = await buildAgentMemorySourceReport(workspaceDir, {
       matterId: matterIdForChat,
       assistantId: profile.assistantId,
       lawMindRoot,
+      engineMemory: toEngineClientMemorySnapshot(engineMem),
     });
-    sendJson(
-      res,
-      200,
-      {
-        ok: true,
-        reply: result.reply,
-        sessionId: result.sessionId,
-        assistantId: profile.assistantId,
-        toolCalls: result.turn.toolCallsExecuted,
-        toolCallSequence: toolCallSequenceFromTurn(result.turn),
-        status: result.turn.status,
-        taskId: result.turn.turnId,
-        taskTitle: deriveInstructionTitle(message),
-        memorySources,
-      },
-      c,
-    );
+    const policyForEdition: LawMindWorkspacePolicy | null = policyState.loaded
+      ? (policyState.policy as LawMindWorkspacePolicy)
+      : null;
+    const edition = resolveEdition({ policy: policyForEdition });
+    const showRuntimeHints =
+      body.includeTurnDiagnostics === true ||
+      edition.edition === "firm" ||
+      edition.edition === "private_deploy";
+    const payload: Record<string, unknown> = {
+      ok: true,
+      reply: result.reply,
+      sessionId: result.sessionId,
+      assistantId: profile.assistantId,
+      toolCalls: result.turn.toolCallsExecuted,
+      toolCallSequence: toolCallSequenceFromTurn(result.turn),
+      status: result.turn.status,
+      clarificationQuestions: result.turn.clarificationQuestions,
+      taskId: result.turn.turnId,
+      taskTitle: deriveInstructionTitle(message),
+      memorySources,
+    };
+    if (showRuntimeHints) {
+      payload.runtimeHints = {
+        lawmindRouterMode: (process.env.LAWMIND_ROUTER_MODE ?? "").trim() || "keyword",
+        lawmindReasoningMode: (process.env.LAWMIND_REASONING_MODE ?? "").trim() || "off",
+        toolCallsExecuted: result.turn.toolCallsExecuted,
+      };
+    }
+    sendJson(res, 200, payload, c);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg === "session_assistant_mismatch") {

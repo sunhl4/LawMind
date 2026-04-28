@@ -1,472 +1,324 @@
-# LawMind 使用手册
+# LawMind 使用手册（完整版）
 
-本文档面向**一键安装后的日常使用**，随功能与脚本变更持续维护。若你尚未安装，请先执行：
+本文档面向**正式交付后的律师与运维**，覆盖 **桌面应用（主路径）** 与可选的命令行/Git 工作流。功能随版本迭代，请以随版本发布的说明为准。
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/sunhl4/LawMind/main/scripts/install-lawmind.sh | bash
-```
-
-若你需要改用其他仓库源，请在执行前设置 `LAWMIND_REPO_URL`；默认值与 `scripts/install-lawmind.sh` 保持一致。
+**重要声明**：LawMind 输出为**辅助草稿与研判材料**，**不构成法律意见**。对外提交、签署或送达前，须由执业律师完成复核与定稿。数据处理边界见 [LawMind 数据处理说明](/LAWMIND-DATA-PROCESSING)。
 
 ---
 
-## 1) 安装完成后第一步
+## 目录
 
-一键安装会：
+1. [产品定位与重要声明](#1-产品定位与重要声明)
+2. [桌面版快速上手（推荐路径）](#2-桌面版快速上手推荐路径)
+3. [推荐工作流：从接案到可交付件](#3-推荐工作流从接案到可交付件)
+4. [设置、多助手与版本](#4-设置多助手与版本)
+5. [文件、材料与对话上下文](#5-文件材料与对话上下文)
+6. [联网检索与策略](#6-联网检索与策略)
+7. [案件工作台与各面板](#7-案件工作台与各面板)
+8. [技术附录：案件 ID 与本地 API 要点](#8-技术附录案件-id-与本地-api-要点)
+9. [命令行与 Git 安装（可选）](#9-命令行与-git-安装可选)
+10. [配置 `.env.lawmind`](#10-配置-envlawmind)
+11. [日常使用命令（安装目录下）](#11-日常使用命令安装目录下)
+12. [工作区目录说明](#12-工作区目录说明)
+13. [更新 LawMind](#13-更新-lawmind)
+14. [常见问题](#14-常见问题)
+15. [相关文档索引](#15-相关文档索引)
+16. [离线阅读与打印（PDF）](#16-离线阅读与打印pdf)
 
-- 将 LawMind 克隆到 **`~/.lawmind/openclaw`**（可通过环境变量 `LAWMIND_INSTALL_DIR` 自定义）
-- 执行 `pnpm install`、onboard（生成 `workspace/` 与 `.env.lawmind` 模板）、环境检查
+---
 
-**进入安装目录并确认环境：**
+## 1. 产品定位与重要声明
+
+**LawMind** 是面向律师的 **本机优先（local-first）工作台风**：在受控工作区内完成任务拆解、检索与草稿、**人工审核**与 **Word/PPT 等交付**，并保留可导出的审计线索。
+
+- **我们不是**泛用聊天框或 Word 替代品，而是 **「任务 + 材料 + 审核 + 交件」** 闭环工具。
+- **您的材料默认留在本机工作区**；大模型由您配置的 API 提供，适用您的采购与合规安排。
+
+一页英文客户概览：[LawMind customer overview](/LAWMIND-CUSTOMER-OVERVIEW)。
+
+---
+
+## 2. 桌面版快速上手（推荐路径）
+
+### 2.1 获取与安装
+
+| 方式           | 说明                                                                                                                                                                              |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **智能下载页** | 浏览器打开 [桌面下载页](https://cdn.jsdelivr.net/gh/lawmind/lawmind@main/apps/lawmind-desktop/download/index.html)（按系统高亮推荐包）；企业 fork 可在 URL 加 `?repo=组织/仓库`。 |
+| **安装说明**   | 图文步骤见仓库 [`apps/lawmind-desktop/INSTALL.md`](https://github.com/lawmind/lawmind/blob/main/apps/lawmind-desktop/INSTALL.md)。                                                |
+| **交付包**     | 自 [LawMind 客户交付](/LAWMIND-DELIVERY) 或供应商处获取对应 **Windows / macOS / Linux** 的 `exe` / `dmg` / `zip` / `AppImage` 等。                                                |
+
+**打包版无需单独安装 Node.js**：安装包内含运行本地 API 所需的 Node 运行时。
+
+- **macOS** 未签名测试包：首次可 **右键 → 打开**；广泛分发需 **签名与公证**（见交付清单）。
+- **Windows** 遇 SmartScreen：建议使用 **Authenticode 签名** 的安装包（见交付文档）。
+
+### 2.2 首次启动
+
+1. 完成 **API 配置向导**（模型 Key、可选 Base URL、模型名、工作区路径等）。配置写入本机用户目录下的 LawMind 数据区（含 `.env.lawmind` 与 `desktop-config.json`）。
+2. 开发模式（`pnpm lawmind:desktop`）下：本地服务会合并 **仓库根目录** 与 **用户目录** 的环境配置，**后者覆盖前者**；若命令行正常而桌面报 **401 / API Key 无效**，请优先核对用户目录 `.env.lawmind`。
+3. （可选）跟随 **首次引导**：选择角色与模板、创建首个案件与首条提示，见 [Deliverable-First 与首跑](/LAWMIND-DELIVERABLE-FIRST) 中 P5 说明。
+
+### 2.3 主界面：四大模块
+
+桌面端为 **左侧边栏 + 右侧主工作台**（详见 [桌面端 UI 约定](/LAWMIND-DESKTOP-UI)）。
+
+| 模块     | 用途（律师可这样理解）                                                                                           |
+| -------- | ---------------------------------------------------------------------------------------------------------------- |
+| **对话** | 与当前选中的 **智能体** 自然语言协作；可附带「本回合重点材料」（顶栏引用标签）。                                 |
+| **文件** | 浏览、编辑工作区/项目内文本，并把文件标为对话上下文；详见 [文件页与上下文](/LAWMIND-DESKTOP-FILES-AND-CONTEXT)。 |
+| **案件** | **案件驾驶舱**：本案材料、任务、草稿、CASE 档案与进度摘要。                                                      |
+| **审核** | **对外交付前的律师把关**：批准 / 退回 / 修改、引用完整性、**验收门禁**、可选导出验收包。                         |
+
+**侧边栏**：帮助「?」、设置齿轮、文件树、助手切换、项目药丸、可折叠的工作记录（按助手过滤）。
+
+### 2.4 交付、验收门禁与审核台
+
+- **Deliverable-First**：每一类交付物有可执行的 **规格与验收清单**；渲染前可触发 **验收门禁**（validator），避免「未完稿就导出」。产品化说明见 [Deliverable-First 架构](/LAWMIND-DELIVERABLE-FIRST)。
+- **审核台**可勾选将学习摘要写入 **助手档案**（`PROFILE.md`）或 **律师档案**（`LAWYER_PROFILE.md`）指定章节；失败时接口会区分「草稿状态已更新 / 档案未写入」。
+
+### 2.5 更新与支持
+
+- **应用内更新**：菜单 **帮助 → 检查更新**；设置中 **应用更新**。依赖 **GitHub Release** 与 `electron-builder` 生成的 `latest*.yml`（发布检查单见 `apps/lawmind-desktop/RELEASE-CHECKLIST.md`）。企业可设置 **`LAWMIND_SKIP_AUTO_UPDATE=1`** 关闭自动检查。
+- **下载页**：**帮助 → 下载安装包** 或智能下载页。
+- **排障**：律师向常见问题见本文 [§14](#14-常见问题)；运维见 [Support runbook](/LAWMIND-SUPPORT-RUNBOOK)。
+
+---
+
+## 3. 推荐工作流：从接案到可交付件
+
+1. **建案件**：在案件模块创建符合规则的 `matterId`（格式见 [§8](#8-技术附录案件-id-与本地-api-要点)），将材料放入工作区或关联项目目录。
+2. **对话下指令**：在对话中说明交付物类型、事实与立场；在文件页把关键证据/合同标为本轮上下文。
+3. **跟任务与草稿**：在案件或侧栏查看任务；草稿成熟后进入 **审核**。
+4. **审核通过再渲染**：对对外文件执行 **审核通过** 后再导出 Word 等；关注 **引用完整性** 与 **验收清单**。
+5. **沉淀（可选）**：审核时勾选写入档案，便于下个案子复用风格与禁忌。
+
+---
+
+## 4. 设置、多助手与版本
+
+打开 **设置**（齿轮图标）：
+
+1. **就绪 / 首次引导**：API 与路径就绪情况。
+2. **协作与多智能体**：后台委派与流程（受环境与策略控制）；详见 [集成与边界](/LAWMIND-INTEGRATIONS)。
+3. **智能体（助手）**：新建/编辑/删除助手、岗位预设、使用统计；对话请求带 `assistantId`。默认助手 `default` 不可删。侧栏工作记录按当前助手过滤。
+4. **模型与检索**：**统一模型** 或 **通用 + 法律专用**；法律端点未配置时回退通用。`GET /api/health` 中 `dualLegalConfigured` 等字段可自检。
+5. **工作区与项目**：工作区目录、项目目录；项目路径会随对话请求传给后端。
+6. **模板 / 版本与交付物**：文书模板、**Edition（solo/firm/private）** 可见功能；详见 [Deliverable-First](/LAWMIND-DELIVERABLE-FIRST) 与策略文件 [policy file](/LAWMIND-POLICY-FILE)。
+7. **应用更新**：版本号、检查更新、打开下载页（见 §2.5）。
+
+**超时**：模型默认约 **120s**（`LAWMIND_AGENT_TIMEOUT_MS`）；工具超时默认跟随，可单独调大 `LAWMIND_TOOL_TIMEOUT_MS`（见 §10）。
+
+---
+
+## 5. 文件、材料与对话上下文
+
+「文件」页用于浏览、编辑文本，以及把路径标为 **本轮对话重点材料**。多文件可多次添加；上限与注意点见 [桌面端：文件页、对话引用](/LAWMIND-DESKTOP-FILES-AND-CONTEXT)。
+
+澄清类问题可能在输入区上方显示 **待澄清提示条**（[UI 约定](/LAWMIND-DESKTOP-UI) §4.1）。
+
+---
+
+## 6. 联网检索与策略
+
+- 主界面可勾选 **允许联网检索**（需配置 `LAWMIND_WEB_SEARCH_API_KEY` 或 `BRAVE_API_KEY`）。未勾选时仅用工作区与本地检索工具。
+- 工作区 **`lawmind.policy.json`** 可将 `allowWebSearch` 设为 `false`，服务器将**强制关闭**联网检索（即使 UI 勾选）。健康检查中的 `policy` 字段可确认是否加载。
+
+选型说明：[LawMind 联网检索路径](/LAWMIND-NETWORK-OPTIONS)。
+
+---
+
+## 7. 案件工作台与各面板
+
+可把 **案件工作台** 理解为「本案驾驶舱」：左边是本案材料、任务、草稿、CASE 与审计；右边是根据您最近操作生成的 **进度摘要与下一步建议**。
+
+下列区块按 **从事实到判断** 阅读（**不是法律结论**，不替代您的专业判断）：
+
+1. **最近律师动作**：如进入审核、写回 CASE、沉淀记忆等事实记录。
+2. **律师行为摘要**：在审核/CASE/记忆等面上的集中程度，帮助回答「主工作面在哪」。
+3. **交互收敛建议**：**本案下一步** 操作建议（入口级）。
+4. **产品改造建议**：从重复操作中抽象出的 **体验改进方向**（给产品/技术沟通用）。
+5. **产品实验清单**：可验证的实验假设与信号。
+6. **跨案件实验累积板**：多案件重复模式，区分偶发与共性问题。
+7. **Roadmap 候选池 / 路线图决策卡**：更接近排期语言的归纳（非必须细读）。
+
+**易误解点**：这些区块**不是监控律师**，而是减少重复路径；**不自动替您决定**是否批准对外文书。
+
+**若看起来不准**：常见于样本少、尚未使用审核/CASE 等入口；继续使用后会逐步稳定。
+
+**案件 ID（`matterId`）**：须以 **字母或数字** 开头，总长 **2–128**，仅含字母数字与 `.` `_` `-`。示例合法：`matter-2026-001`；非法：`-x`、`../escape`。桌面「新建案件」与 `POST /api/matters/create` 使用同一规则。
+
+---
+
+## 8. 技术附录：案件 ID 与本地 API 要点
+
+以下供 **运维、集成与进阶用户** 自查（桌面本地 API 默认仅监听 **127.0.0.1**）。
+
+### 8.1 案件与草稿接口（节选）
+
+- **`POST /api/matters/create`**：体 `{"matterId":"…"}`；成功返回 `caseFilePath`、`created`。幂等。
+- **`GET /api/matters/detail`**：查询 `matterId`；含任务、草稿列表与 **`draftCitationIntegrity`**（引用完整性视图）。
+- **`POST /api/chat`**：可选 `matterId`；非法 ID 返回 **400** `invalid matter id`。
+- **`POST /api/drafts/<taskId>/review`**：审核；可选 `appendToProfile`、`profileAssistantId`、`appendToLawyerProfile`。档案写入失败时返回 **500** 及 `profileAppendFailed` / `lawyerProfileAppendFailed` 等标志。
+
+### 8.2 健康与审计
+
+- **`GET /api/health`**：含 `workspaceDir`、`modelConfigured`、`retrievalMode`、`lawMindRoot`、`doctor`（审计文件数、任务/草稿/研究快照计数等）、**`policy`**（是否加载 `lawmind.policy.json`）。
+- **`GET /api/audit/export`**：Markdown 审计导出；支持 `compliance=true`、时间范围与 `matterId` / `taskId` 过滤。
+
+### 8.3 其他
+
+- **`GET /api/templates/built-in`**：内置模板列表（含 `category`）。
+- **`GET /api/collaboration/summary`**：协作开关与委派摘要。
+- **`POST /api/lawyer-profile/learning`**：向 `LAWYER_PROFILE.md` 追加学习记录。
+- **`GET /api/assistants/<id>/profile-sections`**：档案段落展示用。
+
+开发回归可参考仓库内 `lawmind-health-payload`、`export-report` 等测试。
+
+---
+
+## 9. 命令行与 Git 安装（可选）
+
+> **说明**：若贵司交付包提供 **独立一键安装脚本**（历史上有基于其他 Git 宿主的脚本），请以 **交付方书面文档** 中的仓库与命令为准。以下以 **本仓库（LawMind 桌面与引擎同源）** 为例。
+
+从源码安装目录（示例为 `~/.lawmind/checkout`，可用 `LAWMIND_INSTALL_DIR` 自定义）：
 
 ```bash
-cd ~/.lawmind/openclaw
+cd ~/.lawmind/checkout
+pnpm install
 npm run lawmind:env:check
 ```
 
-若有报错，请先完成 **2) 配置 `.env.lawmind`**，再继续。
-
-**建议首次自检（可选）：**
-
-```bash
-npm run lawmind:smoke -- --fail-on-empty-claims
-```
-
----
-
-## 1b) 桌面应用（Electron）
-
-### 开发模式（仓库克隆）
-
-从 **本仓库根目录**（需已 `pnpm install`）启动：
+桌面**开发**（需在仓库根已 `pnpm install`）：
 
 ```bash
 pnpm lawmind:desktop
 ```
 
-- 对话、任务列表与交付摘要在应用内查看；数据默认在 **Electron 用户数据目录**下的 `LawMind/workspace` 与 `LawMind/.env.lawmind`（与你在安装目录里用的 `workspace/` 不是同一路径）。
-- **开发模式下**（`pnpm lawmind:desktop`）：本地服务会先加载 **仓库根目录**的 `.env.lawmind`（与命令行一致），再加载用户目录下的 `LawMind/.env.lawmind`；**后者覆盖前者**。若命令行正常而桌面报 **401 / invalid API key**，多半是向导在用户目录里写错了 Key——请打开该文件核对，或删掉其中的 `LAWMIND_*` / `QWEN_*` 行后重启桌面，让它回落到仓库配置。可在浏览器开发者工具 Network 里查看 `GET /api/health` 返回的 `envHint`（各 env 文件是否存在，**不含**密钥明文）。
-
-#### 界面概览
-
-桌面端采用**深色暖铜色调**专业风格，左侧边栏 + 右侧对话区两栏布局：
-
-- **侧边栏**（左）：品牌栏（含齿轮设置按钮）→ 助手选择器 → 项目药丸 → 可折叠工作记录（任务/历史列表）。
-- **主区域**（右）：对话消息流 + 快捷操作 Chip 栏 + 输入框。消息采用无气泡直排风格（AI 回复无边框无背景，内容即布局）。
-
-#### 设置面板（齿轮图标）
-
-点击侧边栏品牌栏的**齿轮图标**打开设置面板，包含三个分区：
-
-1. **助手管理**：查看当前助手详情、切换助手、新建/编辑/删除助手、查看使用统计。
-2. **模型与检索**：查看模型连接状态、切换检索策略（统一模型 / 通用+法律专用）、打开 API 配置向导。
-3. **工作区与项目**：查看工作区路径、选择/关闭项目目录。
-
-#### 项目目录
-
-- 点击设置面板中的「切换项目」或侧边栏项目药丸，可通过**系统文件对话框**选择本机目录作为当前项目。
-- 选中后，项目路径随每次对话请求发送到后端（`projectDir` 字段），后续版本将支持基于项目文件的检索与上下文注入。
-- 侧边栏和主区域顶栏均会显示当前项目目录名。
-
-#### 配置模型 Key
-
-应用内 **配置向导**（设置面板 → 模型与检索 → API 配置向导），或编辑用户目录 `.env.lawmind`，变量与 **2) 配置 `.env.lawmind`** 一节相同。
-
-#### 检索模式
-
-设置面板中可选 **统一模型**（通用与法律检索共用向导里的 API）或 **通用 + 法律专用**（引擎检索：通用仍用 `LAWMIND_AGENT_*` / `LAWMIND_QWEN_*`，法律专线需在 `.env.lawmind` 配置 `LAWMIND_CHATLAW_*`、`LAWMIND_LAWGPT_*` 或 `LAWMIND_PARTNER_LEGAL_*`；未配置法律端点时自动回退为通用模型）。切换模式会重启本地 API，并注入 `LAWMIND_RETRIEVAL_MODE`。`GET /api/health` 中的 `dualLegalConfigured` 表示是否检测到法律端点。
-
-#### 多助手与岗位
-
-设置面板中可 **新建 / 编辑** 多个助手，填写简介并选择**内置岗位预设**（亦可补充自定义岗位说明）；系统会注入到对话的 system prompt。助手档案与 `LawMind/assistants.json`、使用统计 `LawMind/assistant-stats.json` 同目录（与 `desktop-config.json` 同级）。对话请求 `POST /api/chat` 可带 `assistantId`；管理接口：`GET/POST/PATCH/DELETE /api/assistants`、`GET /api/assistant-presets`。任务 JSON 中可含 `assistantId` 字段，便于按助手查看工作产出。默认助手 ID 为 `default`，不可删除。
-
-**按助手过滤工作记录**：侧边栏的工作记录（任务/历史列表）会自动按当前选中的助手过滤，切换助手时列表同步更新，只显示该助手相关的记录。
-
-#### 联网检索（可选）
-
-主界面可勾选「允许联网检索」；勾选后本轮对话会注册 `web_search` 工具（Brave Search API）。在 `.env.lawmind` 中配置 `LAWMIND_WEB_SEARCH_API_KEY` 或 `BRAVE_API_KEY`（与 OpenClaw Brave 配置兼容）。未勾选时仅使用工作区与本地检索工具，不会调用联网搜索。`GET /api/health` 返回 `webSearchApiKeyConfigured` 表示是否检测到上述密钥。若工作区策略文件将 **`allowWebSearch` 设为 `false`**，服务器会**强制关闭**联网检索（即使 UI 勾选）。开发与选型层面的说明见 [LawMind 联网检索路径](/LAWMIND-NETWORK-OPTIONS)。
-
-#### 超时
-
-模型单次请求默认 **120 秒**（`LAWMIND_AGENT_TIMEOUT_MS`，可改）。**单次工具执行**（如整条工作流）默认与模型超时**一致**（`LAWMIND_TOOL_TIMEOUT_MS`，未设置时跟随模型超时），避免长任务在 30 秒工具上限处失败；更长合同流水线可单独调大 `LAWMIND_TOOL_TIMEOUT_MS`。
-
-#### 任务与历史
-
-每轮成功完成的对话会在工作区 `tasks/` 下写入一条 **对话指令**（`agent.instruction`）任务，含短标题与完整指令；侧栏工作记录区（默认折叠，点击标题栏展开）可 **搜索**、按 **时间范围** 筛选，并点开查看详情与 **会话 ID**（与引擎工作流产生的任务并存）。
-
-#### 案件工作台怎么理解
-
-如果你不是技术人员，可以把 **案件工作台** 理解成一个“案件驾驶舱”:
-
-- 左边是这个案件本身的材料、任务、草稿、CASE 档案和审计记录。
-- 右边是系统根据你最近的真实使用动作，帮你总结“你现在主要在忙什么”“下一步最值得点哪里”“产品哪里还不顺手”。
-
-这部分不是让律师去研究算法，而是帮助你更快判断：
-
-1. 当前案件卡住在哪里。
-2. 你最近主要在审核、补 CASE，还是沉淀经验。
-3. 系统给出的下一步建议，是“案件建议”还是“产品建议”。
-
-#### 如何阅读案件工作台里的新面板
-
-下面这些区块都在案件概览附近出现。它们虽然名字不同，但可以按“从事实到判断”的顺序来理解：
-
-1. **最近律师动作**
-   这里展示最近几次关键人工动作，例如进入审核台、把建议写回 `CASE.md`、把经验写入律师档案或助手档案。
-   这是最原始的事实层，适合回答“我刚刚都做了什么”。
-
-2. **律师行为摘要**
-   这里会把前面的动作做简单汇总，例如：
-   - 进入审核台多少次
-   - 补 CASE 多少次
-   - 记忆沉淀多少次
-   - 最近主要在哪个界面来回切换
-     适合回答“这个案件当前的主工作面到底在哪里”。
-
-3. **交互收敛建议**
-   这是给当前律师的下一步建议。
-   例如系统发现你一直在审核台和案件页之间来回切换，它就可能提示你优先回到审核焦点；如果发现你不断补写 CASE，它可能直接引导你进入 CASE 对应 section。
-   简单理解：这是“本案下一步怎么走”。
-
-4. **产品改造建议**
-   这不是让律师立刻去做的动作，而是系统根据本案重复操作，反推“LawMind 以后应该把哪里做得更顺手”。
-   例如：
-   - 把审核决策前置到概览
-   - 为 CASE 补录增加结构化表单
-   - 把认知升级做成快捷采纳通道
-     简单理解：这是“系统自己哪里还可以改进”。
-
-5. **产品实验清单**
-   这里会把“产品改造建议”进一步拆成更容易验证的实验项，并写清楚：
-   - 假设是什么
-   - 应该怎么验证
-   - 当前已经出现了什么信号
-   - 优先级高不高
-     如果你要和技术团队沟通，这一层会比只说“感觉这里不好用”更容易讨论。
-
-6. **跨案件实验累积板**
-   这一层不只看当前案件，而是看整个工作区里多个案件有没有出现类似模式。
-   如果同一个问题在多个案件中反复出现，就说明它更可能是“共性问题”，而不是这个案件的偶发现象。
-
-7. **Roadmap 候选池 / 路线图决策卡**
-   这是目前最上层的判断。
-   系统会把多个案件里反复出现的模式，压缩成更接近产品排期语言的候选项，并补充：
-   - 现在做 / 下一波 / 后续观察
-   - 已验证 / 正在成形 / 继续观察
-   - 预期收益
-   - 主要风险
-   - 建议 owner
-     对律师来说，不需要把它理解成“技术计划表”，只需要把它看成：系统已经能分辨哪些问题只是偶发，哪些问题已经值得优先解决。
-
-#### 这些区块最容易被误解的地方
-
-- **它们不是法律结论。**  
-  这些区块描述的是你的工作路径和系统改进方向，不是法律意见本身。
-
-- **它们不是自动替你做决定。**  
-  系统只会给出建议和入口，是否采纳、是否写入档案、是否进入审核，仍然由律师决定。
-
-- **它们不是“监控律师”，而是帮助减少重复劳动。**  
-  系统记录的是与案件推进直接相关的关键动作，目的是让后续入口更贴近你的真实工作习惯。
-
-#### 律师最实用的阅读顺序
-
-如果你第一次使用这些区块，建议按下面顺序看：
-
-1. 先看 **最近律师动作**，确认系统记录的事实有没有明显偏差。
-2. 再看 **律师行为摘要**，确认系统对“主工作面”的判断是不是符合你的直觉。
-3. 然后看 **交互收敛建议**，决定是否直接点击进入下一步。
-4. 如果你在和产品/技术团队讨论体验问题，再继续看 **产品改造建议**、**产品实验清单** 和 **路线图决策卡**。
-
-#### 什么时候这些区块最有价值
-
-以下几种情况尤其有帮助：
-
-- 同一案件已经来回处理了多轮，感觉入口越来越分散。
-- 你总觉得自己在重复补 CASE、重复进审核台，但说不清问题在哪里。
-- 你希望把“经验”沉淀成长期规则，而不是每次都重新解释一遍。
-- 你需要向技术团队说明“不是功能缺失，而是路径不顺”。
-
-#### 如果看起来不准确怎么办
-
-这几类判断都依赖真实交互记录，因此在以下情况下可能暂时不够稳定：
-
-- 当前案件刚开始，动作样本还很少。
-- 你还没有实际点过审核、CASE 写回、记忆采纳这些入口。
-- 不同案件工作方式差别很大，跨案件信号还没形成共性。
-
-遇到这种情况，不代表系统坏了，更常见的是“证据还不够”。继续真实使用几轮后，这些判断会逐步变得更可信。
-
-#### 案件 ID、新建案件与审核记入档案
-
-**案件 ID（`matterId`）规则**（与引擎 `matter_id`、CLI `--matter` 一致）：
-
-- 必须以 **字母或数字** 开头，总长 **2–128** 个字符；
-- 后续字符仅可为 **字母、数字、英文点 `.`、下划线 `_`、连字符 `-`**；
-- 示例合法：`matter-2026-001`、`client_a.v2`；非法示例：`-x`、空字符串、`../escape`。
-
-**`POST /api/matters/create`**（桌面「新建案件」调用）
-
-- 请求体 JSON：`{ "matterId": "<id>" }`（必填，trim 后不能为空）。
-- 成功 **200**：`{ "ok": true, "matterId", "caseFilePath", "created" }`。`created` 为 `true` 表示本次首次创建 `cases/<matterId>/CASE.md`；已存在则幂等，不覆盖正文。
-- 失败 **400**：`matterId required`（未提供或全空白）、或 `invalid matter id`（格式不合法）。
-
-**`GET /api/matters/detail`**（桌面「案件详情」）
-
-- 查询参数：**`matterId`**（必填；格式校验与上文一致，非法时 **400**）。
-- 成功 **200**：JSON 含案件索引、任务、草稿列表等；另含 **`draftCitationIntegrity`**：以草稿的 **`taskId`** 为键的对象，值为该草稿的**引用完整性**视图（例如是否缺少 `*.research.json` 快照、是否有待核对引用），供 UI 在任务列表中的草稿行旁展示状态标识。无对应草稿的键可省略。
-
-**`POST /api/chat` 与 `matterId`**
-
-- 请求体可带可选字段 **`matterId`**（字符串）。省略或传 `""` 表示本轮**不**关联案件。
-- 若传入非空字符串且**不符合**上述规则，接口返回 **400**，`error` 为 **`invalid matter id`**（与 `GET /api/matters/detail` 等查询参数校验一致）。
-
-**`POST /api/drafts/<taskId>/review` 与记入助手档案**
-
-- 除 `status`（`approved` / `rejected` / `modified`）与可选 `note` 外，可传：
-  - **`appendToProfile`**：为 `true` 时，在审核成功后把一条摘要行追加到 **`assistants/<assistantId>/PROFILE.md`**（与 [LawMind 项目与记忆](/LAWMIND-PROJECT-MEMORY) 中的 per-assistant 档案一致）。
-  - **`profileAssistantId`**：可选；指定写入哪个助手的档案，默认 `default`。桌面「审核」页勾选「记入本助手档案」时，与当前选中的助手 ID 对齐。
-- 审核主流程（更新草稿状态）成功后再写档案；若 **PROFILE 写入失败**，返回 **500**，响应中含 **`profileAppendFailed: true`** 以及 `draft`（已更新后的草稿），便于客户端提示「状态已保存，档案未写入」。
-- **`appendToLawyerProfile`**：为 `true` 时，将本条审核学习摘要写入工作区 **`LAWYER_PROFILE.md`** 的 **「八、个人积累」**（与助手级 `PROFILE.md` 区分）。写入失败时 **500**，含 **`lawyerProfileAppendFailed: true`** 与已更新的 `draft`。桌面「审核」页可单独勾选。
-
-#### 体检（Health）与审计导出
-
-**`GET /api/health`** 除原有 `workspaceDir`、`modelConfigured`、`retrievalMode` 等外，另返回：
-
-- **`lawMindRoot`**：助手配置所在目录（`assistants.json`、各助手 `PROFILE.md` 同级的 LawMind 根路径）。
-- **`doctor`**：`auditJsonlFileCount`（`workspace/audit` 下 `.jsonl` 文件数）、`taskCount`、`draftCount`、**`researchSnapshotCount`**（`drafts/` 下 `*.research.json` 数量）、`nodeVersion`、**`openclawPackageVersion`**（开发态若设置 `LAWMIND_REPO_ROOT` 指向 monorepo 根，可读 `package.json` 版本；安装包内可能为 `null`）。
-- **`policy`**：若工作区根存在 `lawmind.policy.json` 且解析成功，则 `loaded: true` 并含 `path`、`applied`（已生效的策略键）及文件中的声明字段；否则 `loaded: false`。详见 [LawMind policy file](/LAWMIND-POLICY-FILE)。
-
-便于 IT 或律师截图自检：**工作区路径、模型是否配置、审计文件是否在增长**。
-
-**`GET /api/audit/export`**（Markdown 正文，`Content-Type: text/markdown`）
-
-- 查询参数（均可选）：**`matterId`**、**`taskId`**、**`since`**、**`until`**（ISO 8601）。`matterId` 非法时 **400**。
-- **`compliance=true`**（或 `compliance=1`）：输出 **合规向摘要**（含免责声明、按 `kind` 聚合计数 + 完整事件表），仍为非法律意见，供内控归档。审计中若存在 **`draft.citation_integrity`** 事件（引用完整性检查、**非阻断**），会与其他 `kind` 一并计入并出现在事件表中；其时间顺序通常早于同任务的 **`draft.reviewed`**。
-- **`artifact.rendered`**：**仅在**草稿已 **approved** 且渲染成功并产生输出路径后写入 **一条** 事件；`detail` 中含解析后的模板信息、格式与磁盘路径（内控解读见 [LawMind compliance audit trail](/lawmind/compliance-audit-trail)）。
-- 同时传 `taskId` 与 `matterId` 时以 **`taskId`** 为准。
-- 按 `matterId` 过滤时，依据当前工作区 **`tasks/*.json`** 中的 `matterId` 与审计事件里的 `taskId` 关联。
-- 响应为一段 Markdown 报告（含表头与事件表），可保存为 `.md` 备查。
-
-**`GET /api/templates/built-in`**
-
-- 返回内置文书模板列表（含 **`category`**：`contracts` / `litigation` / `client` / `internal`，便于 UI 分组）。
-
-**`GET /api/collaboration/summary`**
-
-- 返回 **`collaborationEnabled`**（环境 `LAWMIND_ENABLE_COLLABORATION` 未设为 `false` 时为开启）、**`delegationCount`**、近期 **`delegations`**，以及 **`collaboration-audit.jsonl`** 中最近若干条事件（若存在）。无委派时 **`delegationCount` 为 0** 属正常空态。集成边界见 [LawMind integrations](/LAWMIND-INTEGRATIONS)。
-
-**`POST /api/lawyer-profile/learning`**
-
-- 请求体：`{ "note": "…", "source": "manual" | "review" }`（`note` 必填）。向 **`LAWYER_PROFILE.md`**「八、个人积累」追加一条显式学习记录（默认 `source` 按 `review` 处理）。
-
-**`GET /api/assistants/<assistantId>/profile-sections`**
-
-- 返回 JSON：`{ ok, assistantId, sections }`。每个 **`sections[]`** 项含 **`stamp`**（区块时间标题）、**`body`**、**`sourceHint`**（`review` 表示正文含「草稿审核」句式，否则 `unknown`），用于展示「档案里最近写了什么、是否来自审核台」。
-
-**开发侧回归（与本节功能对应）**
+打包桌面应用（在对应 OS 上构建，与 CI 一致）：
 
 ```bash
-pnpm test -- src/lawmind/audit/export-report.test.ts src/lawmind/assistants/profile-md.test.ts \
-  src/lawmind/integration/phase-a-golden-engine.test.ts \
-  src/lawmind/memory/lawyer-profile-learning.test.ts src/lawmind/skills/bundle-manifest.test.ts \
-  apps/lawmind-desktop/server/lawmind-health-payload.test.ts --run
+pnpm lawmind:desktop:dist
 ```
 
-#### 开发要求
-
-本机 **Node 22+**、`tsx` 随 monorepo；若 Electron 未正确安装，在仓库根执行 `pnpm approve-builds` 并允许 `electron`。
-
-### 安装包 / 绿色版（解压或安装后即用）
-
-从交付方获取 **`dist:electron` 打出的产物**（详见客户交付手册 <https://docs.openclaw.ai/LAWMIND-DELIVERY> 第 6 节）：
-
-- **macOS**：可用 **`zip`** 解压出 `LawMind.app`，双击运行；也可用 `dmg` 安装。
-- **Windows**：可用 **`portable`** 绿色版，或 `nsis` 安装程序。
-
-此类包内已包含 **Node 运行时**（用于本地 API），**无需**再在电脑上单独安装 Node。若你自行用未签名 macOS 包，首次打开可能被系统拦截，可尝试右键「打开」或按系统提示在安全设置中允许。
-
-仓库说明：`apps/lawmind-desktop/README.md`。
-
----
-
-## 2) 配置 `.env.lawmind`
-
-所有 LawMind 命令都会自动加载项目根目录下的 `.env.lawmind`，无需手动 `source`。
-
-- 安装时 onboard 会生成 `.env.lawmind`（或从 `.env.lawmind.example` 复制）。
-- 按你使用的预设填写 API Key、Base URL、模型名等；未填时 `lawmind:env:check` 会提示缺失项。
-
-**Agent 对话（`npm run lawmind:agent`）：**
-
-- Agent 会优先读取 `LAWMIND_QWEN_API_KEY`、`LAWMIND_QWEN_MODEL`（与 smoke/demo 共用），无需再配 `LAWMIND_AGENT_*`。
-- 若出现 **This operation was aborted**：多为模型 HTTP 超时（如起草合同等任务较慢）。CLI 默认 **60 秒**，可设 `LAWMIND_AGENT_TIMEOUT_MS=120000`（2 分钟）或更大。
-- 若工具报错含 **`timed out after ...ms`**：为**单次工具**执行超时（默认与 `LAWMIND_AGENT_TIMEOUT_MS` 一致；未单独设置时桌面与 CLI 均不再固定为 30 秒）。仍不够可设 `LAWMIND_TOOL_TIMEOUT_MS=180000`（3 分钟）等。
-- 若出现 **Model API error 404**：
-  1. **必须在安装目录下运行**：`cd ~/.lawmind/openclaw` 后再执行 `npm run lawmind:agent`，否则不会加载该目录下的 `.env.lawmind`。
-  2. 启动时会有 `[LawMind Agent] model=xxx baseUrl=xxx cwd=xxx`，请确认 **model** 和 **cwd** 是否符合预期（cwd 应为安装目录）。
-  3. 若 model 正确仍 404，可尝试改为 DashScope 文档中列出的其他 ID（如 `qwen-plus`、`qwen-turbo`），或用 `curl -sS "https://dashscope.aliyuncs.com/compatible-mode/v1/models" -H "Authorization: Bearer $LAWMIND_QWEN_API_KEY"` 查看当前可用模型列表，使用返回的 `id` 作为 `LAWMIND_AGENT_MODEL` / `LAWMIND_QWEN_MODEL`。
-
-**预设说明：**
-
-- **qwen-only**（一键安装默认）：无本地法律模型时，通用与法律检索均走 Qwen。只需填写 `LAWMIND_QWEN_API_KEY`、`LAWMIND_QWEN_MODEL`，并将 `LAWMIND_CHATLAW_API_KEY` 设为与 Qwen 相同的 Key，即可通过 `lawmind:env:check --strict` 和 `lawmind:smoke --fail-on-empty-claims`。
-- **qwen-chatlaw**：需本地 ChatLaw 服务（如 `http://127.0.0.1:8000/v1`），并配置 `LAWMIND_CHATLAW_*`。
-- 其他预设（deepseek-lawgpt、general-lexedge、general-partner）需对应变量，详见 `npm run lawmind:env:check` 输出。
-
-**从 qwen-only 改用本地法律模型：**
-
-- **方式一（推荐）**：直接编辑 `.env.lawmind`，把法律模型相关变量改为本地服务即可，例如：
-  - `LAWMIND_CHATLAW_BASE_URL=http://127.0.0.1:8000/v1`
-  - `LAWMIND_CHATLAW_API_KEY=local`（若本地无需 key 可填 `local`）
-  - `LAWMIND_CHATLAW_MODEL=chatlaw`（与本地服务实际模型名一致）
-- **方式二**：重新生成模板（会覆盖现有 `.env.lawmind`，注意备份已填的 Key）：
-  - `npm run lawmind:onboard -- --preset qwen-chatlaw --yes --skip-smoke`
-  - 然后按提示补全 `LAWMIND_QWEN_*` 与 `LAWMIND_CHATLAW_*`。
-
-切换后执行 `npm run lawmind:env:check` 确认，再跑 `npm run lawmind:smoke -- --fail-on-empty-claims` 验证。
-
----
-
-## 3) 日常使用命令（均在安装目录下执行）
-
-以下命令均需在 **`~/.lawmind/openclaw`**（或你的 `LAWMIND_INSTALL_DIR`）下执行。
-
-### 3.1 智能助理（Agent）
+若为 **git 仓库**更新：
 
 ```bash
-npm run lawmind:agent
-```
-
-- 交互式对话，可查案件、查任务、写文书、看审计等。
-- 恢复历史对话：`npm run lawmind:agent -- --session <sessionId>`
-- 关联案件：`npm run lawmind:agent -- --matter <matterId>`
-- 单次指令（非交互）：`npm run lawmind:agent -- --message "请列出当前所有案件"`
-- 列出历史会话：`npm run lawmind:agent -- --list-sessions`
-
-### 3.2 案件与任务
-
-**查看案件列表：**
-
-```bash
-npm run lawmind:case
-```
-
-**查看某一案件详情与检索：**
-
-```bash
-npm run lawmind:case -- --matter <matterId>
-npm run lawmind:case -- --matter <matterId> --search <query>
-```
-
-### 3.3 任务审核（草稿审批）
-
-```bash
-npm run lawmind:review
-```
-
-- 按提示对草稿执行：approve / reject / modified / render / skip。
-- 指定任务：`npm run lawmind:review -- --task <taskId>`
-
-### 3.4 运维与健康
-
-**状态面板（matter / task / draft / session 数量与分布）：**
-
-```bash
-npm run lawmind:ops -- status
-```
-
-**健康检查：**
-
-```bash
-npm run lawmind:ops -- doctor
-```
-
-**深度检查（含 smoke）：**
-
-```bash
-npm run lawmind:ops -- doctor --deep
-```
-
-### 3.5 烟雾测试与演示
-
-**烟雾测试：**
-
-```bash
-npm run lawmind:smoke -- --fail-on-empty-claims
-```
-
-**客户演示（一键流程接单→执行→交付）：**
-
-```bash
-npm run lawmind:demo
-# 一键生成 PPT：
-npm run lawmind:demo -- --ppt
-```
-
-Demo 使用内置指令，无需输入：默认「合同审查 + 法律备忘录」→ `.docx`；加 `--ppt` 为「案件进展汇报」→ `.pptx`。结束后终端会打印**生成结果位置**（如 `workspace/artifacts/...docx` 或 `.pptx`），可用 Word / PowerPoint 或 `open <路径>` 打开。
-
----
-
-## 4) 工作区目录说明（workspace）
-
-安装目录下的 `workspace/` 为运行数据与产出目录，建议不要手动乱改，便于备份与排查。
-
-| 路径                                 | 说明                                                      |
-| ------------------------------------ | --------------------------------------------------------- |
-| `workspace/MEMORY.md`                | 运行日志与日常上下文                                      |
-| `workspace/LAWYER_PROFILE.md`        | 律师画像/偏好                                             |
-| `workspace/cases/<matterId>/CASE.md` | 案件上下文与进展                                          |
-| `workspace/tasks/*.json`             | 任务状态（researched / drafted / reviewed / rendered 等） |
-| `workspace/drafts/*.json`            | 草稿与审核状态                                            |
-| `workspace/artifacts/`               | 渲染产出（Word / PPT）                                    |
-| `workspace/audit/*.jsonl`            | 审计事件                                                  |
-| `workspace/memory/YYYY-MM-DD.md`     | 按日记忆（若有）                                          |
-
-Agent 会话数据在 `workspace/` 下由引擎维护（如 sessions）。
-
----
-
-## 5) 更新安装
-
-若安装目录已是 git 仓库，再次执行**同一安装命令**会执行拉取与更新：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/sunhl4/LawMind/main/scripts/install-lawmind.sh | bash
-```
-
-脚本会检测 `~/.lawmind/openclaw` 下已有 `.git`，执行 `git fetch` / `checkout` / `pull`，然后 `pnpm install` 和 onboard。也可在安装目录内手动：
-
-```bash
-cd ~/.lawmind/openclaw
+cd <安装目录>
 git pull --rebase origin main
 pnpm install
 ```
 
----
-
-## 6) 常见问题
-
-- **命令找不到 / 报错找不到模块**  
-  确认当前目录为安装目录（`~/.lawmind/openclaw`），且已执行过 `pnpm install`。
-
-- **Agent 报未设置 API Key**  
-  在安装目录下编辑 `.env.lawmind`，填写 `LAWMIND_AGENT_*` 或 `QWEN_*` 等变量，保存后重试。
-
-- **env check 报缺少某服务变量**  
-  按提示补全对应预设所需的环境变量；参考 `.env.lawmind.example` 或交付文档中的预设说明。
-
-- **smoke 报 `real model returned no claims`**  
-  表示检索阶段使用的真实模型返回了 0 条结论。请查看报错上方的 Diagnostic 输出（`riskFlags` / `missingItems`）。常见原因：模型返回非 JSON、HTTP 鉴权失败、或返回的 JSON 中 `claims` 为空/格式不符合要求。处理：运行 `npm run lawmind:env:check` 确认检索用变量（如 ChatLaw/LawGPT/Qwen 等）正确；或先不加 `--fail-on-empty-claims` 跑通流程后再排查模型输出格式。
-
-- **想改安装目录**  
-  安装前设置：`export LAWMIND_INSTALL_DIR=/your/path`，再执行一键安装。
+（勿将不可信的 `curl | bash` 用于生产环境，除非已完成贵司安全审批。）
 
 ---
 
-## 7) 相关文档
+## 10. 配置 `.env.lawmind`
 
-- **客户交付与验收**：[LawMind 交付](/LAWMIND-DELIVERY)（交付清单、验收命令、演示）
-- **产品与架构**：[LawMind 愿景](/LAWMIND-VISION)、[LawMind 项目与记忆](/LAWMIND-PROJECT-MEMORY)
-- **私有化与包校验**：[LawMind 私有化部署](/LAWMIND-PRIVATE-DEPLOY)、[LawMind 包清单与校验](/LAWMIND-BUNDLES)
+LawMind 会自动加载 **项目/工作区** 使用的 `.env.lawmind`。一键 onboard 会生成模板；桌面向导也会写入用户目录副本。
 
-本文档与 `scripts/install-lawmind.sh`、`LAWMIND-DELIVERY.md` 保持同步；新增或变更用户可见命令、桌面本地 API（如 `matters/create`、聊天 `matterId`、审核 `appendToProfile`）时请一并更新本使用手册。
+**Agent / 对话模型**：
+
+- 常见：`LAWMIND_QWEN_API_KEY`、`LAWMIND_QWEN_MODEL`；与 `LAWMIND_AGENT_*` 对齐方式见环境检查输出。
+- **超时 / 中止**：慢任务可调大 `LAWMIND_AGENT_TIMEOUT_MS`、**`LAWMIND_TOOL_TIMEOUT_MS`**。
+- **404 / model 不存在**：确认在安装目录执行、cwd 正确；用服务商 API 列出可用模型 ID。
+
+**预设**：`qwen-only`、`qwen-chatlaw`、deepseek-lawgpt 等所需变量见 `lawmind:env:check` 与示例 `.env.lawmind.example`。切换到本地法律服务时，配置 `LAWMIND_CHATLAW_*` 等并重新自检。
+
+---
+
+## 11. 日常使用命令（安装目录下）
+
+在 **克隆后的 monorepo 根目录**（或使用交付方约定的命令前缀）执行：
+
+| 用途            | 命令                                                               |
+| --------------- | ------------------------------------------------------------------ |
+| 智能助理        | `pnpm lawmind:agent`（或 `npm run lawmind:agent`，以交付文档为准） |
+| 案件列表/详情   | `pnpm lawmind:case` / `pnpm lawmind:case -- --matter <id>`         |
+| 草稿审核（CLI） | `pnpm lawmind:review`                                              |
+| 运维状态/体检   | `pnpm lawmind:ops -- status` / `doctor` / `doctor --deep`          |
+| 烟雾测试        | `pnpm lawmind:smoke -- --fail-on-empty-claims`                     |
+| 客户演示        | `pnpm lawmind:demo`（`--ppt` 生成演示 PPT）                        |
+
+具体脚本名以仓库 `package.json` 为准（部分文档写作 `npm run` 等价）。
+
+---
+
+## 12. 工作区目录说明
+
+`workspace/` 为运行数据与产出目录，建议定期备份，勿手工删改关键 JSON/任务文件。
+
+| 路径                                 | 说明                |
+| ------------------------------------ | ------------------- |
+| `workspace/MEMORY.md`                | 运行日志与上下文    |
+| `workspace/LAWYER_PROFILE.md`        | 律师画像与偏好      |
+| `workspace/cases/<matterId>/CASE.md` | 案件档案            |
+| `workspace/tasks/*.json`             | 任务状态            |
+| `workspace/drafts/*.json`            | 草稿与审核状态      |
+| `workspace/artifacts/`               | Word/PPT 等渲染产出 |
+| `workspace/audit/*.jsonl`            | 审计事件            |
+| `workspace/memory/`                  | 按日记忆（若有）    |
+
+助手档案：`LawMind/assistants.json`、各助手 `PROFILE.md`（路径随桌面 `lawMindRoot` 配置，健康检查可见）。
+
+---
+
+## 13. 更新 LawMind
+
+| 形态           | 方式                                                                      |
+| -------------- | ------------------------------------------------------------------------- |
+| **桌面打包版** | 应用内更新 + **帮助 → 下载安装包**；Release 须带 `latest*.yml` 与二进制。 |
+| **Git 克隆**   | `git pull` + `pnpm install`（见 §9）。                                    |
+
+---
+
+## 14. 常见问题
+
+| 现象                                       | 处理方向                                                                            |
+| ------------------------------------------ | ----------------------------------------------------------------------------------- |
+| **401 / API Key 无效**                     | 核对 `.env.lawmind`；桌面用户核对 **用户目录** 与 **仓库根** 两处合并规则（§2.2）。 |
+| **命令找不到 / 模块缺失**                  | 确认在 monorepo 根目录且已 `pnpm install`。                                         |
+| **模型超时 / aborted**                     | 调大 `LAWMIND_AGENT_TIMEOUT_MS`、`LAWMIND_TOOL_TIMEOUT_MS`。                        |
+| **工具超时**                               | 同上；长流水线单独调 `LAWMIND_TOOL_TIMEOUT_MS`。                                    |
+| **smoke 报 real model returned no claims** | 查看 Diagnostic；检查检索侧模型与 JSON；可先去掉 `--fail-on-empty-claims` 跑通。    |
+| **无法加载发布页 / 更新**                  | 检查网络与 GitHub Release；私有环境用手动安装包或内网镜像。                         |
+| **闸门 / 审核 422**                        | 草稿未满足交付物规范或验收清单；按审核台提示补全后再导出。                          |
+
+备份脚本参考：`scripts/lawmind/lawmind-backup.sh`（设置 `LAWMIND_WORKSPACE_DIR`）。
+
+---
+
+## 15. 相关文档索引
+
+| 文档                                                   | 用途                           |
+| ------------------------------------------------------ | ------------------------------ |
+| [客户交付](/LAWMIND-DELIVERY)                          | 交付清单、验收、演示、升级回滚 |
+| [Deliverable-First](/LAWMIND-DELIVERABLE-FIRST)        | 交付物规格、门禁、产品化状态   |
+| [愿景与边界](/LAWMIND-VISION)                          | 产品方向                       |
+| [项目与记忆](/LAWMIND-PROJECT-MEMORY)                  | MEMORY、档案、CASE             |
+| [桌面端 UI](/LAWMIND-DESKTOP-UI)                       | 布局、组件、可访问性约定       |
+| [桌面文件与上下文](/LAWMIND-DESKTOP-FILES-AND-CONTEXT) | 文件页、引用、上限             |
+| [数据处理](/LAWMIND-DATA-PROCESSING)                   | 隐私与子处理者                 |
+| [集成与边界](/LAWMIND-INTEGRATIONS)                    | 与 DMS/计费的关系              |
+| [私有化部署](/LAWMIND-PRIVATE-DEPLOY)                  | 企业内网                       |
+| [Support runbook](/LAWMIND-SUPPORT-RUNBOOK)            | 运维排障                       |
+| [客户一页概览](/LAWMIND-CUSTOMER-OVERVIEW)             | 英文对外口径                   |
+
+本文档应与 `apps/lawmind-desktop/INSTALL.md`、`RELEASE-CHECKLIST.md` 及本地 API 变更同步维护。
+
+---
+
+## 16. 离线阅读与打印（PDF）
+
+商业交付时，客户常需要 **可存档、可内部分发** 的静态副本，可按任选其一：
+
+| 方式                 | 做法                                                                                                                                                                                                                                                                                                           |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **浏览器打印为 PDF** | 用浏览器打开在线手册（如 `https://docs.lawmind.ai/LAWMIND-USER-MANUAL`），使用 **打印 → 另存为 PDF**。若排版偏淡，可在打印对话框中勾选 **背景图形**（各浏览器名称可能为「背景」「背景颜色与图像」）。                                                                                                          |
+| **从源码生成**       | 克隆仓库后打开 `docs/LAWMIND-USER-MANUAL.md`；可用任意 Markdown 编辑器阅读；若已安装 [Pandoc](https://pandoc.org/)，可在仓库根执行：`pandoc docs/LAWMIND-USER-MANUAL.md -o LawMind-使用手册.pdf`（具体样式可通过 `--pdf-engine`、模板等按贵司规范调整）。                                                      |
+| **VitePress 文档站** | 仓库内 `apps/lawmind-docs` 为基于 **VitePress** 的独立站点（与 Vue / Vite 生态一致的主流选型）。本地执行 `pnpm lawmind:docs:dev`，构建执行 `pnpm lawmind:docs:build`；内容由脚本从 `docs/LAWMIND-*.md` 同步，部署静态文件目录为 `apps/lawmind-docs/docs/.vitepress/dist`。详见 `apps/lawmind-docs/README.md`。 |
+| **内网镜像**         | 将 `docs/LAWMIND-USER-MANUAL.md` 或与文档站同步的构建产物放到 **仅内网可访问** 的 HTTPS 站点，打印步骤与上表相同。                                                                                                                                                                                             |
+
+在线版本随发版更新；**PDF 宜在每次大版本发版时重新导出**并在文件名或封面标注版本号与日期，避免旧稿与产品不一致。
+
+https://docs.lawmind.ai/LAWMIND-USER-MANUAL

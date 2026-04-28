@@ -72,6 +72,7 @@ describe("filterAuditEventsForExport by matterId", () => {
       taskId: "task-m1",
       kind: "draft.word",
       output: "docx",
+      instruction: "生成测试文书",
       summary: "s",
       riskLevel: "low",
       models: ["general"],

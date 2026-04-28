@@ -1,5 +1,11 @@
 /// <reference types="vite/client" />
 
+interface ImportMetaEnv {
+  readonly VITE_LAWMIND_DOCS_BASE?: string;
+  readonly VITE_LAWMIND_GITHUB_BLOB_BASE?: string;
+  readonly VITE_LAWMIND_DOWNLOAD_PAGE_URL?: string;
+}
+
 declare global {
   interface Window {
     lawmindDesktop?: {
@@ -15,7 +21,23 @@ declare global {
         bundledServer: boolean;
         nodeRuntimeKey: string | null;
         nodeExecutable: string;
+        appVersion: string;
+        downloadPageUrl: string;
       }>;
+      checkForUpdates: () => Promise<{ ok: boolean }>;
+      showNotification: (payload: {
+        title?: string;
+        body?: string;
+        /** When true, clicking the OS notification focuses the app and opens settings (see onNotificationClick). */
+        openSettingsOnClick?: boolean;
+        /** When true, focuses the app and opens the review workbench (see onNotificationClick `open_review`). */
+        openReviewOnClick?: boolean;
+        reviewTaskId?: string;
+        reviewMatterId?: string;
+      }) => Promise<{ ok: boolean; error?: string }>;
+      onNotificationClick: (
+        handler: (payload: { reason?: string; reviewTaskId?: string; reviewMatterId?: string }) => void,
+      ) => () => void;
       pickWorkspace: () => Promise<{ ok: boolean; path?: string }>;
       pickProject: () => Promise<{ ok: boolean; path?: string }>;
       setProjectDir: (projectDir: string | null) => Promise<{
@@ -45,6 +67,10 @@ declare global {
       }>;
       openExternal: (url: string) => Promise<void>;
       showItemInFolder: (fullPath: string) => Promise<{ ok: boolean; error?: string }>;
+      openWithSystem: (payload: {
+        root: "workspace" | "project";
+        path: string;
+      }) => Promise<{ ok: boolean; error?: string }>;
       fsList: (payload: {
         root: "workspace" | "project";
         path?: string;
@@ -94,6 +120,16 @@ declare global {
         root: "workspace" | "project";
         path: string;
       }) => Promise<{ ok: boolean; error?: string }>;
+      fsCopy: (payload: {
+        root: "workspace" | "project";
+        fromPath: string;
+        toPath: string;
+      }) => Promise<{ ok: boolean; error?: string }>;
+      saveTextFileDialog: (payload: {
+        content: string;
+        defaultName?: string;
+      }) => Promise<{ ok: boolean; canceled?: boolean; filePath?: string; error?: string }>;
+      onFileMenu: (handler: (payload: { action?: string }) => void) => () => void;
     };
   }
 }

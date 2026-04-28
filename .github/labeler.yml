@@ -318,7 +318,7 @@ lawmind:
   - changed-files:
       - any-glob-to-any-file:
           - "src/lawmind/**"
-          - "scripts/lawmind*.ts"
+          - "scripts/lawmind/**/*.ts"
           - "scripts/install-lawmind.*"
           - "docs/LAWMIND*.md"
           - "apps/lawmind-desktop/**"

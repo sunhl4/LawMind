@@ -7,12 +7,12 @@
  *   - Session 是持久对话上下文，支持断点续做
  *   - Policy 决定哪些动作需要人工批准
  *
- * 与 OpenClaw 的关系：
- *   借鉴 OpenClaw 的 agent loop + tool dispatch 模式，
+ * 与 reference agent stack 的关系：
+ *   借鉴 reference agent stack 的 agent loop + tool dispatch 模式，
  *   但 tool 定义、policy 规则、system prompt 完全面向法律场景。
  */
 
-import type { RiskLevel, MatterIndex } from "../types.js";
+import type { ClarificationQuestion, RiskLevel, MatterIndex } from "../types.js";
 
 // ─────────────────────────────────────────────
 // 1. Tool System
@@ -76,6 +76,13 @@ export type AgentContext = {
   collaborationEnabled?: boolean;
   /** 当前委派嵌套深度（防止递归失控） */
   collaborationDepth?: number;
+  /**
+   * 本轮内已有工具返回 clarificationQuestions 且尚未结束 turn 时为 true；
+   * research_task / draft_document / execute_workflow / render_document 应拒绝执行。
+   */
+  clarificationBlockingHeavyTools?: boolean;
+  /** 与 `AgentConfig.strictDangerousToolApproval` 对齐，供工具层读取 */
+  strictDangerousToolApproval?: boolean;
 };
 
 // ─────────────────────────────────────────────
@@ -108,7 +115,12 @@ export type AgentMessage = {
 // 4. Agent Turn — 一次完整的推理-执行循环
 // ─────────────────────────────────────────────
 
-export type AgentTurnStatus = "running" | "completed" | "awaiting_approval" | "error";
+export type AgentTurnStatus =
+  | "running"
+  | "completed"
+  | "awaiting_approval"
+  | "awaiting_clarification"
+  | "error";
 
 export type AgentTurn = {
   turnId: string;
@@ -117,6 +129,7 @@ export type AgentTurn = {
   messages: AgentMessage[];
   toolCallsExecuted: number;
   status: AgentTurnStatus;
+  clarificationQuestions?: ClarificationQuestion[];
   result?: string;
   error?: string;
   startedAt: string;
@@ -138,6 +151,11 @@ export type AgentSession = {
   conversationHistory: AgentMessage[];
   createdAt: string;
   updatedAt: string;
+  /**
+   * 上一轮 turn 以 awaiting_clarification 结束时写入；下一则用户 instruction 到达时清除，
+   * 以便同一轮内可继续调用重型工具。
+   */
+  pendingClarificationKeys?: string[];
 };
 
 // ─────────────────────────────────────────────
@@ -166,6 +184,11 @@ export type AgentConfig = {
   toolExecutionTimeoutMs?: number;
   /** 是否允许跳过 requiresApproval 工具门禁 */
   allowDangerousToolsWithoutApproval?: boolean;
+  /**
+   * Firm / private_deploy：危险工具与扩展清单（如 execute_workflow）一律要求 `__approved`，
+   * 即使 `allowDangerousToolsWithoutApproval` 为 true。
+   */
+  strictDangerousToolApproval?: boolean;
   actorId?: string;
   /** 多助手：助手档案 ID，与 actorId `assistant:<id>` 对应 */
   assistantId?: string;

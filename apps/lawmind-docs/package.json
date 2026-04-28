@@ -1,0 +1,16 @@
+{
+  "name": "lawmind-docs",
+  "private": true,
+  "type": "module",
+  "description": "LawMind documentation site (VitePress) — synced from docs/LAWMIND-*.md",
+  "scripts": {
+    "sync": "node ./scripts/sync-docs.mjs",
+    "dev": "pnpm run sync && vitepress dev docs",
+    "build": "pnpm run sync && vitepress build docs",
+    "preview": "vitepress preview docs"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.3",
+    "vue": "^3.5.13"
+  }
+}

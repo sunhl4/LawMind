@@ -4,7 +4,11 @@ import path from "node:path";
 import {
   isValidMatterId,
 } from "../../../src/lawmind/cases/index.js";
-import { buildAgentMemorySourceReport } from "../../../src/lawmind/memory/index.js";
+import {
+  buildAgentMemorySourceReport,
+  loadMemoryContext,
+  toEngineClientMemorySnapshot,
+} from "../../../src/lawmind/memory/index.js";
 import { listAssistantProfileSections } from "../../../src/lawmind/assistants/profile-md.js";
 import { buildAuditExportMarkdown, buildComplianceAuditMarkdown } from "../../../src/lawmind/audit/index.js";
 import { listBuiltInTemplates } from "../../../src/lawmind/templates/index.js";
@@ -13,11 +17,16 @@ import { sendJsonError } from "./lawmind-api-error.js";
 import { handleChatRoute } from "./lawmind-server-route-chat.js";
 import { handleAssistantRoutes } from "./lawmind-server-route-assistants.js";
 import { handleCollaborationRoutes } from "./lawmind-server-route-collaboration.js";
+import { handleJobRoutes } from "./lawmind-server-route-jobs.js";
 import { handleFilesystemRoute } from "./lawmind-server-route-fs.js";
 import { handleHealthRoute } from "./lawmind-server-route-health.js";
 import { handleMatterRoutes } from "./lawmind-server-route-matters.js";
+import { handleAcceptanceRoutes } from "./lawmind-server-route-acceptance.js";
+import { handleOnboardingRoutes } from "./lawmind-server-route-onboarding.js";
 import { handleRecordRoutes } from "./lawmind-server-route-records.js";
 import { handleReviewRoute } from "./lawmind-server-route-review.js";
+import { handleSourceRoutes } from "./lawmind-server-route-sources.js";
+import { handleTemplateRoutes } from "./lawmind-server-route-templates.js";
 import type { LawmindDispatchContext } from "./lawmind-server-route-types.js";
 import {
   LAWMIND_LOCAL_HOST,
@@ -76,6 +85,18 @@ export async function lawmindHandleHttpRequest(
         return;
       }
 
+      if (await handleTemplateRoutes({ ctx, req, res, url, pathname, c })) {
+        return;
+      }
+
+      if (await handleAcceptanceRoutes({ ctx, req, res, url, pathname, c })) {
+        return;
+      }
+
+      if (await handleSourceRoutes({ ctx, req, res, url, pathname, c })) {
+        return;
+      }
+
       if (await handleReviewRoute({ ctx, req, res, url, pathname, c })) {
         return;
       }
@@ -92,7 +113,15 @@ export async function lawmindHandleHttpRequest(
         return;
       }
 
+      if (await handleOnboardingRoutes({ ctx, req, res, url, pathname, c })) {
+        return;
+      }
+
       if (await handleRecordRoutes({ ctx, req, res, url, pathname, c })) {
+        return;
+      }
+
+      if (handleJobRoutes({ ctx, req, res, url, pathname, c })) {
         return;
       }
 
@@ -131,10 +160,12 @@ export async function lawmindHandleHttpRequest(
         const matterId = url.searchParams.get("matterId")?.trim() || undefined;
         const assistantId = url.searchParams.get("assistantId")?.trim() || undefined;
         const lawMindRoot = resolveLawMindRoot(workspaceDir, envFile);
+        const engineMem = await loadMemoryContext(workspaceDir, { matterId });
         const memorySources = await buildAgentMemorySourceReport(workspaceDir, {
           matterId,
           assistantId,
           lawMindRoot,
+          engineMemory: toEngineClientMemorySnapshot(engineMem),
         });
         sendJson(res, 200, { ok: true, memorySources }, c);
         return;

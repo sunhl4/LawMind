@@ -4,9 +4,19 @@
 
 import { randomUUID } from "node:crypto";
 import type { TaskIntent, TaskKind, RiskLevel } from "../types.js";
+import { enrichIntentWithDeliverableMeta } from "./deliverable-meta.js";
 
 const TASK_KIND_PATTERNS: Array<{ pattern: RegExp; kind: TaskKind }> = [
-  { pattern: /合同|协议|条款|审查|review/i, kind: "analyze.contract" },
+  {
+    pattern:
+      /(起草|拟定|拟写|撰写|生成|制作|输出).*(合同|协议|补充协议|保密协议|授权书|条款)|(合同|协议).*(起草|拟定|拟写|撰写|生成|制作|输出)/i,
+    kind: "draft.word",
+  },
+  {
+    pattern: /合同审查|审查.*(合同|协议|条款)|审阅.*(合同|协议|条款)|条款审查|review/i,
+    kind: "analyze.contract",
+  },
+  { pattern: /合同|协议|条款/i, kind: "analyze.contract" },
   { pattern: /法律意见|法规|法条|类案|裁判|司法解释/i, kind: "research.legal" },
   { pattern: /律师函|催款|通知函|警告信|demand/i, kind: "draft.word" },
   { pattern: /摘要|案情|案件概述|summarize/i, kind: "summarize.case" },
@@ -73,10 +83,11 @@ export function route(input: RouteInput): TaskIntent {
 
   const summary = buildSummary({ kind, instruction, output });
 
-  return {
+  return enrichIntentWithDeliverableMeta({
     taskId: randomUUID(),
     kind,
     output,
+    instruction,
     summary,
     audience,
     matterId,
@@ -85,7 +96,7 @@ export function route(input: RouteInput): TaskIntent {
     models,
     requiresConfirmation,
     createdAt: new Date().toISOString(),
-  };
+  });
 }
 
 function buildSummary(params: {

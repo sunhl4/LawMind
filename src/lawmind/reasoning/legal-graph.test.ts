@@ -61,6 +61,7 @@ function makeIntent(overrides: Partial<TaskIntent> = {}): TaskIntent {
     taskId: "task-001",
     kind: "analyze.contract",
     output: "docx",
+    instruction: "请审查合同违约金条款",
     summary: "合同违约金条款审查",
     riskLevel: "medium",
     models: ["legal"],

@@ -37,6 +37,7 @@ describe("Phase A golden engine path", () => {
       taskId,
       kind: "draft.word",
       output: "docx",
+      instruction: "生成测试用法律备忘录",
       summary: "Phase A golden path",
       riskLevel: "low",
       models: ["general"],

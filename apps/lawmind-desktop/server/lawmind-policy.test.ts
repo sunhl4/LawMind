@@ -14,11 +14,13 @@ describe("lawmind-policy", () => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lm-pol-"));
     delete process.env.LAWMIND_POLICY_FORCE_NO_WEB_SEARCH;
     delete process.env.LAWMIND_RETRIEVAL_MODE;
+    delete process.env.LAWMIND_EDITION;
     process.env.LAWMIND_ENABLE_COLLABORATION = "true";
   });
   afterEach(() => {
     delete process.env.LAWMIND_POLICY_FORCE_NO_WEB_SEARCH;
     delete process.env.LAWMIND_RETRIEVAL_MODE;
+    delete process.env.LAWMIND_EDITION;
     delete process.env.LAWMIND_ENABLE_COLLABORATION;
     fs.rmSync(tmp, { recursive: true, force: true });
   });
@@ -54,6 +56,15 @@ describe("lawmind-policy", () => {
     expect(process.env.LAWMIND_POLICY_FORCE_NO_WEB_SEARCH).toBe("1");
     expect(process.env.LAWMIND_RETRIEVAL_MODE).toBe("single");
     expect(process.env.LAWMIND_ENABLE_COLLABORATION).toBe("false");
+  });
+
+  it("applyLawMindPolicyToEnv sets LAWMIND_EDITION when policy edition is valid", () => {
+    const applied = applyLawMindPolicyToEnv({
+      schemaVersion: 1,
+      edition: "firm",
+    });
+    expect(applied).toContain("edition");
+    expect(process.env.LAWMIND_EDITION).toBe("firm");
   });
 
   it("loadAndApplyLawMindPolicy integrates", () => {

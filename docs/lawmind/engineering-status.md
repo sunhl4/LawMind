@@ -9,7 +9,7 @@ This page links [LawMind 2.0 strategy](/LAWMIND-2.0-STRATEGY) to **what exists i
 
 ## Typecheck and desktop app
 
-- **Root TypeScript**: the OpenClaw repo uses `pnpm tsgo` with `ES2023` libs. LawMind code under `src/lawmind/` is included in that check.
+- **Root TypeScript**: the reference multi-channel stack repo uses `pnpm tsgo` with `ES2023` libs. LawMind code under `src/lawmind/` is included in that check.
 - **LawMind Desktop** (`apps/lawmind-desktop/`): `tsconfig.json` uses **ES2023** + `allowImportingTsExtensions` so renderer imports that reference `src/lawmind/**/*.ts` match Vite and strict checking.
 - **Window bridge**: `apps/lawmind-desktop/src/renderer/global.d.ts` augments `Window` with `lawmindDesktop` (the file is a module via `export {}` so augmentation applies reliably).
 

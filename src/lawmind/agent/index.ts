@@ -8,6 +8,7 @@
  *   - tool registry
  */
 
+import type { MemoryContext } from "../memory/index.js";
 import {
   listDelegations,
   readCollaborationEvents,
@@ -47,6 +48,7 @@ export type LawMindAgent = {
     reply: string;
     sessionId: string;
     turn: AgentTurn;
+    memoryContext: MemoryContext;
   }>;
 
   /** 创建新对话 */
@@ -118,6 +120,7 @@ export function createLawMindAgent(config: AgentConfig): LawMindAgent {
         reply: result.reply,
         sessionId: result.sessionId,
         turn: result.turn,
+        memoryContext: result.memoryContext,
       };
     },
 
@@ -237,4 +240,6 @@ export type {
   WorkflowStep,
   WorkflowStatus,
   ParsedDirective,
+  ExecuteWorkflowOptions,
+  WorkflowRunProgress,
 } from "./orchestrator/index.js";

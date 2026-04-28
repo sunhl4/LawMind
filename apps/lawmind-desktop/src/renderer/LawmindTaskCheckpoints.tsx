@@ -12,7 +12,7 @@ export function LawmindTaskCheckpoints(props: Props): ReactNode {
   }
   return (
     <div className="lm-checkpoints" aria-label="任务进度">
-      <div className="lm-meta" style={{ marginBottom: 6 }}>
+      <div className="lm-meta lm-checkpoints-intro">
         流程节点（由任务状态推导）
       </div>
       <ol className="lm-checkpoints-list">

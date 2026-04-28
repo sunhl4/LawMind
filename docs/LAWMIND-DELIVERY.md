@@ -125,7 +125,7 @@ cd apps/lawmind-desktop && pnpm run dist:electron
 
 若需对公网用户分发：
 
-1. 为 **Electron 应用** 与 **内嵌的 `node` 二进制**（路径：`LawMind.app/Contents/Resources/node-runtime/<platform-arch>/bin/node`）使用同一开发者证书签名（与现有 OpenClaw / LawMind 发布流程对齐）。
+1. 为 **Electron 应用** 与 **内嵌的 `node` 二进制**（路径：`LawMind.app/Contents/Resources/node-runtime/<platform-arch>/bin/node`）使用同一开发者证书签名（与 LawMind 发布流程对齐）。
 2. 对 `.app` 做 **notarytool 公证**（Apple 要求）。
 3. 在交付手册中写明：若暂为测试包，用户可在「系统设置 - 隐私与安全性」中允许运行，或使用「右键 - 打开」首次放行。
 
@@ -168,18 +168,18 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install-lawmind.ps1
 
 ### 从 GitHub 远程一键安装（推荐）
 
-安装脚本托管在 openclaw 仓库，执行后会克隆 LawMind 到本地。
+安装脚本托管在本仓库，执行后会克隆 LawMind 到本地。
 
 macOS/Linux：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/openclaw/openclaw/main/scripts/install-lawmind.sh | bash
+curl -fsSL https://raw.githubusercontent.com/lawmind/lawmind/main/scripts/install-lawmind.sh | bash
 ```
 
 Windows PowerShell：
 
 ```powershell
-iwr https://raw.githubusercontent.com/openclaw/openclaw/main/scripts/install-lawmind.ps1 -UseBasicParsing | iex
+iwr https://raw.githubusercontent.com/lawmind/lawmind/main/scripts/install-lawmind.ps1 -UseBasicParsing | iex
 ```
 
 **安装后的日常使用**请参见 [LawMind 使用手册](docs/LAWMIND-USER-MANUAL.md)（配置、Agent、案件、审核、运维命令与常见问题）。
@@ -208,15 +208,15 @@ iwr https://raw.githubusercontent.com/openclaw/openclaw/main/scripts/install-law
 
 公开文档入口：
 
-- https://docs.openclaw.ai/legal/terms-of-service
-- https://docs.openclaw.ai/legal/privacy-policy
-- https://docs.openclaw.ai/LAWMIND-DATA-PROCESSING
+- https://docs.lawmind.ai/legal/terms-of-service
+- https://docs.lawmind.ai/legal/privacy-policy
+- https://docs.lawmind.ai/LAWMIND-DATA-PROCESSING
 
 ## 10) 备份、升级与回滚
 
 ### 备份
 
-- 使用仓库内 `scripts/lawmind-backup.sh`，设置环境变量 **`LAWMIND_WORKSPACE_DIR`** 指向客户 **workspace** 目录（详见脚本注释）。默认排除 workspace 根目录下的 `.env` / `.env.lawmind`；若确需打包密钥（不推荐），可设 **`LAWMIND_BACKUP_INCLUDE_ENV=1`**，并务必加密归档、按所内流程轮换密钥。
+- 使用仓库内 `scripts/lawmind/lawmind-backup.sh`，设置环境变量 **`LAWMIND_WORKSPACE_DIR`** 指向客户 **workspace** 目录（详见脚本注释）。默认排除 workspace 根目录下的 `.env` / `.env.lawmind`；若确需打包密钥（不推荐），可设 **`LAWMIND_BACKUP_INCLUDE_ENV=1`**，并务必加密归档、按所内流程轮换密钥。
 - 路径说明与目录布局见 [LawMind 私有化部署](/LAWMIND-PRIVATE-DEPLOY)。
 
 ### 升级
@@ -228,6 +228,6 @@ iwr https://raw.githubusercontent.com/openclaw/openclaw/main/scripts/install-law
 
 - 用保留的旧版安装包重装；若数据结构有变，从**备份**恢复 workspace。先在 workspace **副本**上验证回滚步骤。
 
-https://docs.openclaw.ai/LAWMIND-DELIVERY  
-https://docs.openclaw.ai/LAWMIND-PRIVATE-DEPLOY  
-https://docs.openclaw.ai/LAWMIND-SECURITY-CHECKLIST
+https://docs.lawmind.ai/LAWMIND-DELIVERY  
+https://docs.lawmind.ai/LAWMIND-PRIVATE-DEPLOY  
+https://docs.lawmind.ai/LAWMIND-SECURITY-CHECKLIST

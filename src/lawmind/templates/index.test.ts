@@ -104,7 +104,8 @@ describe("template registry", () => {
       id: uploaded.id,
       enabled: true,
     });
-    await fs.rm(sourcePath, { force: true });
+    // 登记时文件已复制到 lawmind/templates/stored/；使模板「缺失」应删除库存路径而非原路径。
+    await fs.rm(uploaded.sourcePath, { force: true });
     const missingResolved = await resolveTemplateForDraft({
       workspaceDir,
       draft: buildDraft({ templateId: uploaded.id }),

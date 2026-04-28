@@ -10,7 +10,7 @@ Internal and partner support teams can use this runbook alongside [LawMind deliv
 ## Information to collect
 
 1. **App version** (desktop About or packaged build id).
-2. **OpenClaw / monorepo version** if CLI is in use (`package.json` version or `openclaw --version` when relevant).
+2. **Engine / monorepo `package.json` version** when debugging from source or CLI helpers.
 3. **OS** and architecture.
 4. **Workspace path pattern** (never paste full client matter names if policy forbids).
 5. **Symptom**: crash, failed task, model error, blank UI, etc.
@@ -18,7 +18,7 @@ Internal and partner support teams can use this runbook alongside [LawMind deliv
 ## Logs
 
 - **LawMind workspace**: `workspace/audit/*.jsonl`, recent `tasks/*.json`, `sessions/` if agent-related.
-- **OpenClaw macOS host logs** (when debugging OpenClaw menubar gateway): use `./scripts/clawlog.sh` from the OpenClaw repo on a developer machine; LawMind desktop logs are primarily application and local-server output—capture **console** from devtools or vendor logging if enabled.
+- **LawMind desktop**: Electron **Console** (View → Toggle Developer Tools), plus local HTTP server logs if you run the unpacked server outside the shell.
 
 Do **not** ask customers to paste **full API keys**. Use masked values or confirm presence only.
 
@@ -48,8 +48,8 @@ See [LawMind delivery](/LAWMIND-DELIVERY) **upgrade and rollback** section. Pres
 
 ## Backup
 
-- Script: `scripts/lawmind-backup.sh` with `LAWMIND_WORKSPACE_DIR` set.
+- Script: `scripts/lawmind/lawmind-backup.sh` with `LAWMIND_WORKSPACE_DIR` set.
 
-https://docs.openclaw.ai/LAWMIND-SUPPORT-RUNBOOK  
-https://docs.openclaw.ai/LAWMIND-DELIVERY  
-https://docs.openclaw.ai/LAWMIND-PRIVATE-DEPLOY
+https://docs.lawmind.ai/LAWMIND-SUPPORT-RUNBOOK  
+https://docs.lawmind.ai/LAWMIND-DELIVERY  
+https://docs.lawmind.ai/LAWMIND-PRIVATE-DEPLOY

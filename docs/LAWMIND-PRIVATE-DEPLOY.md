@@ -12,7 +12,7 @@
 
 1. **Node**：打包后的桌面应用已内置 Node；源码开发需 Node 22+。
 2. **模型与检索**：在目标环境预填 `LAWMIND_*` / `LAWMIND_CHATLAW_*` 等变量；运行 `GET /api/health` 确认 `modelConfigured`、`retrievalMode`、`doctor` 统计合理。
-3. **备份**：定期备份整个 `LawMind` 用户数据目录（含 `workspace/`、`assistants.json`、`.env.lawmind`）。可用仓库脚本 `scripts/lawmind-backup.sh`（设置 `LAWMIND_WORKSPACE_DIR`）打包 workspace；密钥排除策略见脚本注释。
+3. **备份**：定期备份整个 `LawMind` 用户数据目录（含 `workspace/`、`assistants.json`、`.env.lawmind`）。可用仓库脚本 `scripts/lawmind/lawmind-backup.sh`（设置 `LAWMIND_WORKSPACE_DIR`）打包 workspace；密钥排除策略见脚本注释。
 4. **更新**：通过官方安装包或受控渠道升级；升级后复核 `pnpm lawmind:bundle:desktop-server` 对应产物或安装器说明。
 
 ## 3. 网络与合规
@@ -34,7 +34,7 @@
 
 与本文档相关的公开文档入口：
 
-- https://docs.openclaw.ai/LAWMIND-PRIVATE-DEPLOY
-- https://docs.openclaw.ai/LAWMIND-DELIVERY
-- https://docs.openclaw.ai/LAWMIND-USER-MANUAL
-- https://docs.openclaw.ai/LAWMIND-BUNDLES
+- https://docs.lawmind.ai/LAWMIND-PRIVATE-DEPLOY
+- https://docs.lawmind.ai/LAWMIND-DELIVERY
+- https://docs.lawmind.ai/LAWMIND-USER-MANUAL
+- https://docs.lawmind.ai/LAWMIND-BUNDLES

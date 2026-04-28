@@ -34,6 +34,6 @@ See the repository sample at `docs/examples/lawmind.policy.json.sample` (copy an
 - [LawMind private deploy](/LAWMIND-PRIVATE-DEPLOY)
 - [LawMind delivery](/LAWMIND-DELIVERY)
 
-https://docs.openclaw.ai/LAWMIND-POLICY-FILE  
-https://docs.openclaw.ai/LAWMIND-PRIVATE-DEPLOY  
-https://docs.openclaw.ai/LAWMIND-DELIVERY
+https://docs.lawmind.ai/LAWMIND-POLICY-FILE  
+https://docs.lawmind.ai/LAWMIND-PRIVATE-DEPLOY  
+https://docs.lawmind.ai/LAWMIND-DELIVERY

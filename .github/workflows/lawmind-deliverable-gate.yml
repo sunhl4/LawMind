@@ -1,0 +1,60 @@
+# Acceptance Gate (Deliverable-First Architecture) — runs lawmind:gate --strict
+# on a fixture workspace whenever LawMind core / deliverables / drafts code changes.
+#
+# Goal: prevent placeholder-laden or incomplete sample drafts from being merged
+# into committed example workspaces. Production drafts are validated at runtime;
+# this CI lane only protects committed fixtures.
+name: LawMind deliverable gate
+
+on:
+  pull_request:
+    paths:
+      - "src/lawmind/deliverables/**"
+      - "src/lawmind/drafts/**"
+      - "src/lawmind/types.ts"
+      - "src/lawmind/router/deliverable-meta.ts"
+      - "scripts/lawmind/lawmind-deliverable-check.ts"
+      - "fixtures/lawmind-workspace/**"
+      - ".github/workflows/lawmind-deliverable-gate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: List built-in deliverable specs
+        run: pnpm lawmind:gate -- --specs
+
+      # Strict scan for committed fixture workspaces (if any). Skipped when no fixtures exist.
+      - name: Acceptance gate on fixtures workspace (if present)
+        run: |
+          set -eu
+          if [ -d fixtures/lawmind-workspace/tasks ]; then
+            echo "Running acceptance gate against fixtures/lawmind-workspace"
+            pnpm lawmind:gate -- --workspace fixtures/lawmind-workspace --all --strict
+          else
+            echo "No fixtures/lawmind-workspace/tasks directory found; skipping strict scan."
+          fi
+
+      # Always-on contract test for the gate itself.
+      - name: Run gate unit tests
+        run: pnpm test -- src/lawmind/deliverables/ src/lawmind/policy/edition.test.ts apps/lawmind-desktop/server/lawmind-server-route-acceptance.test.ts

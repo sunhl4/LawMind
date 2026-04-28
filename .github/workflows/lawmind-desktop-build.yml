@@ -1,0 +1,56 @@
+# Build LawMind Desktop installable artifacts per OS (Electron + bundled Node + local API).
+# Run manually or on tag push lawmind-desktop-v* to attach consistent release binaries.
+name: LawMind desktop build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "lawmind-desktop-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lawmind-desktop-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: mac
+          - os: windows-latest
+            label: win
+          - os: ubuntu-latest
+            label: linux
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Package desktop app
+        run: pnpm lawmind:desktop:dist
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: lawmind-desktop-${{ matrix.label }}
+          path: apps/lawmind-desktop/release/*
+          if-no-files-found: error

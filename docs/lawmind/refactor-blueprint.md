@@ -45,9 +45,9 @@ Claude Code's strongest lesson is not prompt quality. It is harness quality:
 - context is loaded progressively,
 - specialist agents are often safer than one generalist agent.
 
-### What OpenClaw teaches
+### What reference multi-channel stack teaches
 
-OpenClaw's strongest reusable ideas for LawMind are:
+reference multi-channel stack's strongest reusable ideas for LawMind are:
 
 - serialized session execution,
 - explicit session and transcript persistence,
@@ -514,6 +514,6 @@ If work starts now, the highest-leverage near-term refactor tasks are:
 
 ## Final position
 
-OpenClaw demonstrates how to build a robust agent platform. Claude Code demonstrates how to build a governed, extensible agent harness. LawMind should build on both, but its real opportunity is narrower and stronger:
+reference multi-channel stack demonstrates how to build a robust agent platform. Claude Code demonstrates how to build a governed, extensible agent harness. LawMind should build on both, but its real opportunity is narrower and stronger:
 
 **be the software system that helps legal teams run matters, not only generate legal text.**

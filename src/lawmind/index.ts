@@ -35,6 +35,11 @@ import {
   summarizeMatterIndex,
 } from "./cases/index.js";
 import {
+  loadWorkspaceDeliverableSpecs,
+  registerExtraDeliverableSpecs,
+  type WorkspaceSpecWarning,
+} from "./deliverables/index.js";
+import {
   persistDraft,
   persistReasoningSnapshot,
   persistResearchSnapshot,
@@ -96,6 +101,26 @@ import type {
   TaskRecord,
 } from "./types.js";
 
+// 把工作区交付物规范解析中的 warnings 写入审计日志（best-effort）。
+// 放在此处方便 engine bootstrap 直接调用，无需额外文件。
+async function emitWorkspaceSpecWarnings(
+  auditDir: string,
+  warnings: WorkspaceSpecWarning[],
+): Promise<void> {
+  for (const w of warnings) {
+    try {
+      await emit(auditDir, {
+        taskId: "system",
+        kind: "deliverable.spec.invalid",
+        actor: "system",
+        detail: `${w.file}: ${w.message}`,
+      });
+    } catch {
+      // 审计日志写入失败不应影响 engine 启动。
+    }
+  }
+}
+
 // ─────────────────────────────────────────────
 // 引擎配置
 // ─────────────────────────────────────────────
@@ -153,13 +178,24 @@ export type LawMindEngine = {
       assistantId?: string;
     },
   ) => Promise<ArtifactDraft>;
+  /**
+   * 将非「待审核」的草稿恢复为待审核，便于落实修改意见后再次签批，或误操作后重审。
+   * 已「待审核」的草稿会原样返回。
+   */
+  reopenDraftReview: (
+    taskId: string,
+    opts?: { actorId?: string },
+  ) => Promise<ArtifactDraft | undefined>;
   /** 步骤 4b（2.0）：计算并持久化当前任务的质量快照 */
   recordQuality: (
     taskId: string,
     opts?: { labels?: ReviewLabel[]; latencyMs?: number },
   ) => Promise<QualityRecord | undefined>;
   /** 步骤 5：渲染文书（律师审核草稿后调用，draft.reviewStatus 须为 approved） */
-  render: (draft: ArtifactDraft) => Promise<{ ok: boolean; outputPath?: string; error?: string }>;
+  render: (
+    draft: ArtifactDraft,
+    opts?: { templateIdOverride?: string },
+  ) => Promise<{ ok: boolean; outputPath?: string; error?: string }>;
   /** 读取持久化任务状态 */
   getTaskState: (taskId: string) => TaskRecord | undefined;
   /** 读取持久化草稿 */
@@ -179,6 +215,16 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
   const assistantId = config.assistantId;
   const outputDir = config.outputDir ?? path.join(workspaceDir, "artifacts");
   const auditDir = path.join(workspaceDir, "audit");
+
+  // 加载工作区私有交付物规范（事务所定制）；解析失败的文件以 warning 形式
+  // 写入审计日志，但不阻断 engine 启动 —— 一个坏 JSON 不应让事务所离线。
+  const workspaceSpecs = loadWorkspaceDeliverableSpecs(workspaceDir);
+  if (workspaceSpecs.specs.length > 0) {
+    registerExtraDeliverableSpecs(workspaceSpecs.specs);
+  }
+  if (workspaceSpecs.warnings.length > 0) {
+    void emitWorkspaceSpecWarnings(auditDir, workspaceSpecs.warnings);
+  }
 
   function commitPlannedIntent(intent: TaskIntent) {
     const { created } = ensureTaskRecord(workspaceDir, intent, { assistantId });
@@ -476,6 +522,46 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
       return draft;
     },
 
+    async reopenDraftReview(taskId, opts = {}) {
+      const draft = readDraft(workspaceDir, taskId);
+      if (!draft) {
+        return undefined;
+      }
+      if (draft.reviewStatus === "pending") {
+        return draft;
+      }
+      const previous = draft.reviewStatus;
+      draft.reviewStatus = "pending";
+      draft.reviewedBy = undefined;
+      draft.reviewedAt = undefined;
+      const actor = opts.actorId ?? resolveDefaultEngineLawyerActorId();
+      await emit(auditDir, {
+        taskId,
+        kind: "draft.review_reopened",
+        actor: "lawyer",
+        actorId: actor,
+        detail: `自 ${previous} 恢复为待审核`,
+      });
+      const storedDraftPath = persistDraft(workspaceDir, draft);
+      syncDraftToTaskRecord(workspaceDir, draft, "drafted");
+      updateTaskRecord(workspaceDir, taskId, {
+        title: draft.title,
+        draftPath: storedDraftPath,
+      });
+      await appendTodayLog(
+        workspaceDir,
+        `## 恢复待审核\n- 任务: ${taskId}\n- 自状态: ${previous}\n- 操作人: ${actor}`,
+      );
+      if (draft.matterId) {
+        await appendCaseProgress(
+          workspaceDir,
+          draft.matterId,
+          `任务 ${taskId} 已恢复为待审核，可再次签批。`,
+        );
+      }
+      return draft;
+    },
+
     async recordQuality(taskId, opts = {}) {
       const taskRecord = readTaskRecord(workspaceDir, taskId);
       if (!taskRecord) {
@@ -546,7 +632,7 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
       return record;
     },
 
-    async render(draft) {
+    async render(draft, opts) {
       if (draft.reviewStatus !== "approved") {
         return {
           ok: false,
@@ -554,7 +640,14 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
         };
       }
 
-      const templateResolution = await resolveTemplateForDraft({ workspaceDir, draft });
+      const override = opts?.templateIdOverride?.trim();
+      const effectiveDraft =
+        override !== undefined && override.length > 0 ? { ...draft, templateId: override } : draft;
+
+      const templateResolution = await resolveTemplateForDraft({
+        workspaceDir,
+        draft: effectiveDraft,
+      });
 
       const result =
         draft.output === "pptx"
@@ -574,6 +667,9 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
 
       if (result.ok && result.outputPath) {
         draft.outputPath = result.outputPath;
+        if (override !== undefined && override.length > 0) {
+          draft.templateId = override;
+        }
         const storedDraftPath = persistDraft(workspaceDir, draft);
         const fallbackTail = templateResolution.fallbackReason
           ? `；回退原因：${templateResolution.fallbackReason}`
@@ -676,11 +772,13 @@ export type { CreateMatterResult } from "./cases/index.js";
 export {
   appendLawyerProfileLearning,
   buildLawyerProfileReviewLearningLine,
+  clientProfileFilePath,
   ensureCaseWorkspace,
   ensureClientProfile,
   ensureFirmProfile,
   clausePlaybookPath,
   courtAndOpponentProfilePath,
+  extractClientIdFromCaseMarkdown,
   ensureLawyerProfileSkeleton,
   loadMemoryContext,
 } from "./memory/index.js";
@@ -703,12 +801,14 @@ export {
   type AuditExportFilters,
 } from "./audit/index.js";
 export {
+  deriveExecutionPlanSteps,
   deriveInstructionTitle,
   listTaskCheckpoints,
   listTaskRecords,
   persistAgentInstructionTask,
   readTaskRecord,
   taskIntentFromRecord,
+  taskIntentFromRecordOnly,
   type TaskCheckpoint,
 } from "./tasks/index.js";
 export {
@@ -786,13 +886,23 @@ export type {
   LawMindEngineForBenchmark,
 } from "./evaluation/index.js";
 export {
+  AGENT_MANDATORY_RULES_MAX_CHARS,
   buildGovernanceReportMarkdown,
+  EDITION_FEATURES,
+  EDITION_LABELS,
   evaluateBenchmarkGate,
+  isFeatureEnabled,
+  listEditions,
   readWorkspacePolicyFile,
+  resolveAgentMandatoryRulesForPrompt,
+  resolveEdition,
   workspacePolicyPath,
   type BenchmarkGateResult,
+  type EditionContext,
+  type EditionFeatureKey,
   type LawMindEdition,
   type LawMindWorkspacePolicy,
+  type ResolvedAgentMandatoryRules,
 } from "./policy/index.js";
 export { buildAcceptancePackMarkdown } from "./delivery/acceptance-pack.js";
 export {
@@ -810,6 +920,8 @@ export {
   CLAUSE_PLAYBOOK_RELATIVE,
   PLAYBOOK_REVIEW_SECTION,
   reviewLabelsTriggerPlaybook,
+  toEngineClientMemorySnapshot,
+  type EngineClientMemorySnapshot,
   type MemorySourceLayer,
 } from "./memory/index.js";
 export { ALL_REVIEW_LABELS, parseReviewLabels } from "./review-labels.js";
@@ -843,3 +955,19 @@ export {
   listMatterReadModels,
 } from "./application/services/matter-service.js";
 export { listApprovalRequests, listWorkQueueItems } from "./application/services/queue-service.js";
+
+// Deliverable-First Architecture — spec registry + acceptance gate
+export {
+  BUILT_IN_DELIVERABLE_SPECS,
+  getDeliverableSpec,
+  isDraftReadyForRender,
+  listDeliverableSpecs,
+  validateDraftAgainstSpec,
+  type AcceptanceCheck,
+  type AcceptanceReport,
+  type DeliverableSpec,
+  type PlaceholderRule,
+  type RequiredSection,
+  type ValidateDraftFn,
+  type ValidateDraftOptions,
+} from "./deliverables/index.js";

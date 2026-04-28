@@ -9,6 +9,7 @@ import {
   type OpenAiJsonClientConfig,
 } from "../llm/openai-json.js";
 import type { RiskLevel, TaskIntent, TaskKind } from "../types.js";
+import { enrichIntentWithDeliverableMeta } from "./deliverable-meta.js";
 import type { RouteInput } from "./keyword-route.js";
 import { route } from "./keyword-route.js";
 
@@ -169,10 +170,11 @@ export async function routeWithModel(
       ? parsed.summary.trim()
       : buildSummaryFallback({ kind, instruction: input.instruction, output });
 
-  return {
+  return enrichIntentWithDeliverableMeta({
     taskId: randomUUID(),
     kind,
     output,
+    instruction: input.instruction,
     summary,
     audience: input.audience,
     matterId: input.matterId,
@@ -181,7 +183,7 @@ export async function routeWithModel(
     models: models.length > 0 ? models : inferModels(kind),
     requiresConfirmation,
     createdAt: new Date().toISOString(),
-  };
+  });
 }
 
 /**

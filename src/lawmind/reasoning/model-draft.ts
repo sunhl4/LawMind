@@ -107,9 +107,15 @@ export async function buildDraftWithModel(
   }
 
   const ruleSections = base.sections;
-  const riskIdx = ruleSections.findIndex((s) => s.heading === "风险提示");
-  const missingIdx = ruleSections.findIndex((s) => s.heading === "待补充事项");
-  const conflictIdx = ruleSections.findIndex((s) => s.heading === "冲突结论（需律师裁定）");
+  const riskIdx = ruleSections.findIndex(
+    (s) => s.heading === "风险提示" || s.heading === "主要风险提示",
+  );
+  const missingIdx = ruleSections.findIndex(
+    (s) => s.heading === "待补充事项" || s.heading === "待确认事项",
+  );
+  const conflictIdx = ruleSections.findIndex(
+    (s) => s.heading === "冲突结论（需律师裁定）" || s.heading === "冲突意见（需律师裁定）",
+  );
 
   const tail: ArtifactSection[] = [];
   if (riskIdx >= 0) {

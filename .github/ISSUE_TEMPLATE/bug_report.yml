@@ -24,7 +24,7 @@ body:
     attributes:
       label: Summary
       description: One-sentence statement of what is broken.
-      placeholder: After upgrading to <version>, <channel> behavior regressed from <prior version>.
+      placeholder: After upgrading to <version>, chat / task / export regressed from <prior version>.
     validations:
       required: true
   - type: textarea
@@ -33,9 +33,9 @@ body:
       label: Steps to reproduce
       description: Provide the shortest deterministic repro path.
       placeholder: |
-        1. Configure channel X.
-        2. Send message Y.
-        3. Run command Z.
+        1. Open LawMind desktop; pick workspace.
+        2. Create matter / task with instruction X.
+        3. Observe error Y.
     validations:
       required: true
   - type: textarea
@@ -43,7 +43,7 @@ body:
     attributes:
       label: Expected behavior
       description: What should happen if the bug does not exist.
-      placeholder: Agent posts a reply in the same thread.
+      placeholder: Draft appears in review workbench; local server returns 200 from /api/chat.
     validations:
       required: true
   - type: textarea
@@ -51,15 +51,15 @@ body:
     attributes:
       label: Actual behavior
       description: What happened instead, including user-visible errors.
-      placeholder: No reply is posted; gateway logs "reply target not found".
+      placeholder: No assistant reply; DevTools console or local server log shows error "...". 
     validations:
       required: true
   - type: input
     id: version
     attributes:
-      label: OpenClaw version
-      description: Exact version/build tested.
-      placeholder: <version such as 2026.2.17>
+      label: LawMind version
+      description: Desktop app version (menu → About) or workspace `package.json` version when running from source.
+      placeholder: e.g. 0.1.0 / git sha
     validations:
       required: true
   - type: input
@@ -74,8 +74,8 @@ body:
     id: install_method
     attributes:
       label: Install method
-      description: How OpenClaw was installed or launched.
-      placeholder: npm global / pnpm dev / docker / mac app
+      description: Packaged .dmg/.exe, or dev (`pnpm lawmind:desktop`).
+      placeholder: packaged dmg / pnpm dev
   - type: input
     id: model
     attributes:
@@ -87,26 +87,23 @@ body:
   - type: input
     id: provider_chain
     attributes:
-      label: Provider / routing chain
-      description: Effective request path through gateways, proxies, providers, or model routers.
-      placeholder: openclaw -> cloudflare-ai-gateway -> minimax
-    validations:
-      required: true
+      label: Model routing (optional)
+      description: How the chat model is reached (OpenAI-compatible base URL, proxy, or router). Redact secrets.
+      placeholder: base URL → provider
   - type: input
     id: config_location
     attributes:
       label: Config file / key location
       description: Optional. Relevant config source or key path if this bug depends on overrides or custom provider setup. Redact secrets.
-      placeholder: ~/.openclaw/openclaw.json ; models.providers.cloudflare-ai-gateway.baseUrl ; ~/.openclaw/agents/<agentId>/agent/models.json
+      placeholder: ~/Library/Application Support/LawMind/LawMind/.env.lawmind ; LAWMIND_REPO_ROOT when using dev shell
   - type: textarea
     id: provider_setup_details
     attributes:
       label: Additional provider/model setup details
       description: Optional. Include redacted routing details, per-agent overrides, auth-profile interactions, env/config context, or anything else needed to explain the effective provider/model setup. Do not include API keys, tokens, or passwords.
       placeholder: |
-        Default route is openclaw -> cloudflare-ai-gateway -> minimax.
-        Previous setup was openclaw -> cloudflare-ai-gateway -> openrouter -> minimax.
-        Relevant config lives in ~/.openclaw/openclaw.json under models.providers.minimax and models.providers.cloudflare-ai-gateway.
+        Example: base URL is https://api.example.com/v1; model id is gpt-4o.
+        Relevant env is in LawMind userData `.env.lawmind` (path redacted).
   - type: textarea
     id: logs
     attributes:
@@ -125,10 +122,10 @@ body:
         - Frequency (always/intermittent/edge case)
         - Consequence (missed messages, failed onboarding, extra cost, etc.)
       placeholder: |
-        Affected: Telegram group users on <version>
-        Severity: High (blocks replies)
+        Affected: LawMind desktop on macOS 15
+        Severity: blocks drafting workflow
         Frequency: 100% repro
-        Consequence: Agents cannot respond in threads
+        Consequence: local server returns 500 on /api/chat
   - type: textarea
     id: additional_information
     attributes:

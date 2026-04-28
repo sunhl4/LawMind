@@ -1,5 +1,10 @@
 import path from "node:path";
-import { buildAgentMemorySourceReport } from "../../../src/lawmind/memory/index.js";
+import { validateDraftAgainstSpec } from "../../../src/lawmind/deliverables/index.js";
+import {
+  buildAgentMemorySourceReport,
+  loadMemoryContext,
+  toEngineClientMemorySnapshot,
+} from "../../../src/lawmind/memory/index.js";
 import {
   adoptLearningSuggestion,
   dismissLearningSuggestion,
@@ -19,12 +24,14 @@ import {
   readReasoningSnapshot,
   resolveDraftCitationIntegrity,
 } from "../../../src/lawmind/drafts/index.js";
+import { maybeEmitFirstrunAcceptanceReady } from "../../../src/lawmind/onboarding/firstrun-state.js";
 import { serializeLegalReasoningGraph } from "../../../src/lawmind/reasoning/index.js";
 import { parseReviewLabels } from "../../../src/lawmind/review-labels.js";
-import { listTaskCheckpoints, readTaskRecord } from "../../../src/lawmind/tasks/index.js";
+import { deriveExecutionPlanSteps, listTaskCheckpoints, readTaskRecord } from "../../../src/lawmind/tasks/index.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import {
   getLawMindEngine,
+  isLawMindHttpError,
   readJsonBody,
   resolveDesktopActorId,
   sendJson,
@@ -88,20 +95,25 @@ export async function handleReviewRoute({
   }
 
   if (pathname === "/api/lawyer-profile/learning" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as { note?: string; source?: string };
+    const body = (await readJsonBody(req)) as { note?: string; source?: string; taskId?: string };
     const note = typeof body.note === "string" ? body.note.trim() : "";
     if (!note) {
       sendJson(res, 400, { ok: false, error: "note required" }, c);
       return true;
     }
     const src = body.source?.trim().toLowerCase() === "manual" ? "manual" : "review";
+    const auditTaskId =
+      typeof body.taskId === "string" && body.taskId.trim() ? body.taskId.trim() : undefined;
     try {
-      await appendLawyerProfileLearning(workspaceDir, note, src);
+      const r = await appendLawyerProfileLearning(workspaceDir, note, src, {
+        auditDir: path.join(workspaceDir, "audit"),
+        auditTaskId,
+      });
+      sendJson(res, 200, { ok: true, skipped: r.skipped }, c);
     } catch (e) {
       sendJson(res, 500, { ok: false, error: e instanceof Error ? e.message : String(e) }, c);
       return true;
     }
-    sendJson(res, 200, { ok: true }, c);
     return true;
   }
 
@@ -145,7 +157,17 @@ export async function handleReviewRoute({
         sendJson(res, 404, { ok: false, error: "not found" }, c);
         return true;
       }
-      sendJson(res, 200, { ok: true, task: rec, checkpoints: listTaskCheckpoints(rec) }, c);
+      sendJson(
+        res,
+        200,
+        {
+          ok: true,
+          task: rec,
+          checkpoints: listTaskCheckpoints(rec),
+          executionPlan: deriveExecutionPlanSteps(rec),
+        },
+        c,
+      );
       return true;
     }
   }
@@ -197,11 +219,14 @@ export async function handleReviewRoute({
         ...(labels ? { labels } : {}),
         ...(deferQueue ? { deferMemoryWrites: true } : {}),
       });
+      let profileLearningSkipped = false;
+      let lawyerProfileLearningSkipped = false;
       if (body.appendToProfile === true && !deferQueue) {
         const note = typeof body.note === "string" ? body.note : undefined;
         const line = buildReviewProfileLine(raw, st, note);
         try {
-          appendAssistantProfileMarkdown(lawMindRootForReview, profileAssistantForEngine, line);
+          const ar = appendAssistantProfileMarkdown(lawMindRootForReview, profileAssistantForEngine, line);
+          profileLearningSkipped = ar.skipped;
         } catch (e) {
           sendJson(res, 500, {
             ok: false,
@@ -216,7 +241,11 @@ export async function handleReviewRoute({
         const note = typeof body.note === "string" ? body.note : undefined;
         const line = buildLawyerProfileReviewLearningLine(raw, st, note);
         try {
-          await appendLawyerProfileLearning(workspaceDir, line, "review");
+          const lr = await appendLawyerProfileLearning(workspaceDir, line, "review", {
+            auditDir: path.join(workspaceDir, "audit"),
+            auditTaskId: raw,
+          });
+          lawyerProfileLearningSkipped = lr.skipped;
         } catch (e) {
           sendJson(res, 500, {
             ok: false,
@@ -234,6 +263,8 @@ export async function handleReviewRoute({
           ok: true,
           draft: updated,
           citationIntegrity: resolveDraftCitationIntegrity(workspaceDir, updated),
+          profileLearningSkipped,
+          lawyerProfileLearningSkipped,
         },
         c,
       );
@@ -252,12 +283,50 @@ export async function handleReviewRoute({
         sendJson(res, 404, { ok: false, error: "not found" }, c);
         return true;
       }
+      let templateIdOverride: string | undefined;
+      try {
+        const body = (await readJsonBody(req)) as { templateId?: unknown };
+        if (typeof body?.templateId === "string") {
+          const t = body.templateId.trim();
+          if (t) {
+            templateIdOverride = t;
+          }
+        }
+      } catch (e) {
+        const status = isLawMindHttpError(e) ? e.status : 400;
+        const msg = e instanceof Error ? e.message : String(e);
+        sendJson(res, status, { ok: false, error: msg }, c);
+        return true;
+      }
+      // Acceptance Gate (Deliverable-First Architecture).
+      // Default = strict (block render if not ready). Caller may opt out via ?strict=false.
+      const strictParam = url.searchParams.get("strict")?.trim().toLowerCase();
+      const strict = strictParam !== "false" && strictParam !== "0";
+      if (strict) {
+        const acceptance = validateDraftAgainstSpec(draft);
+        if (!acceptance.ready) {
+          sendJson(
+            res,
+            422,
+            {
+              ok: false,
+              error: "acceptance_gate_blocked",
+              message:
+                "草稿未通过验收门禁，存在阻塞项；请补齐缺失章节或回答待确认问题，或使用 ?strict=false 临时绕过（不推荐）。",
+              acceptance,
+            },
+            c,
+          );
+          return true;
+        }
+      }
       const engine = getLawMindEngine(workspaceDir);
-      const result = await engine.render(draft);
+      const result = await engine.render(draft, { templateIdOverride });
       const refreshed = readDraft(workspaceDir, raw);
       const citationIntegrity = refreshed
         ? resolveDraftCitationIntegrity(workspaceDir, refreshed)
         : undefined;
+      const acceptanceAfter = refreshed ? validateDraftAgainstSpec(refreshed) : undefined;
       sendJson(
         res,
         result.ok ? 200 : 400,
@@ -265,6 +334,35 @@ export async function handleReviewRoute({
           ok: result.ok,
           ...result,
           ...(citationIntegrity ? { citationIntegrity } : {}),
+          ...(acceptanceAfter ? { acceptance: acceptanceAfter } : {}),
+        },
+        c,
+      );
+      return true;
+    }
+
+    const draftReopenMatch = pathname.match(/^\/api\/drafts\/([^/]+)\/reopen-review$/);
+    if (draftReopenMatch && req.method === "POST") {
+      const raw = decodeURIComponent(draftReopenMatch[1] ?? "");
+      if (!isSafeTaskIdSegment(raw)) {
+        sendJson(res, 400, { ok: false, error: "invalid task id" }, c);
+        return true;
+      }
+      const engine = getLawMindEngine(workspaceDir);
+      const updated = await engine.reopenDraftReview(raw, { actorId: resolveDesktopActorId() });
+      if (!updated) {
+        sendJson(res, 404, { ok: false, error: "not found" }, c);
+        return true;
+      }
+      const acceptance = validateDraftAgainstSpec(updated);
+      sendJson(
+        res,
+        200,
+        {
+          ok: true,
+          draft: updated,
+          citationIntegrity: resolveDraftCitationIntegrity(workspaceDir, updated),
+          acceptance,
         },
         c,
       );
@@ -288,11 +386,22 @@ export async function handleReviewRoute({
       const reasoningMarkdown = graph ? serializeLegalReasoningGraph(graph) : null;
       const taskRec = readTaskRecord(workspaceDir, raw);
       const lawMindRoot = resolveLawMindRoot(workspaceDir, envFile);
+      const engineMem = await loadMemoryContext(workspaceDir, { matterId: draft.matterId });
       const memorySources = await buildAgentMemorySourceReport(workspaceDir, {
         matterId: draft.matterId,
         assistantId: taskRec?.assistantId,
         lawMindRoot,
+        engineMemory: toEngineClientMemorySnapshot(engineMem),
       });
+      const acceptance = validateDraftAgainstSpec(draft);
+      const auditDir = path.join(workspaceDir, "audit");
+      await maybeEmitFirstrunAcceptanceReady(
+        workspaceDir,
+        draft,
+        acceptance.ready,
+        auditDir,
+        resolveDesktopActorId(),
+      );
       sendJson(
         res,
         200,
@@ -302,6 +411,7 @@ export async function handleReviewRoute({
           citationIntegrity,
           reasoningMarkdown,
           memorySources,
+          acceptance,
         },
         c,
       );

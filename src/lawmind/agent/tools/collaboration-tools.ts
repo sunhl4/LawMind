@@ -7,7 +7,7 @@
  *   - notify_assistant: Send info to another assistant (fire-and-forget)
  *   - request_review: Ask another assistant to review work (sync)
  *
- * Inspired by OpenClaw's sessions_send / sessions_spawn tools.
+ * Inspired by reference stack's sessions_send / sessions_spawn tools.
  */
 
 import { randomUUID } from "node:crypto";

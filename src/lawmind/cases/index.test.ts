@@ -47,6 +47,7 @@ describe("LawMind Matter Index", () => {
       matterId: "matter-900",
       templateId: "word/legal-memo-default",
     });
+    await engine.confirm(intent.taskId, { actorId: "lawyer:test" });
     const bundle = await engine.research(intent);
     const draft = engine.draft(intent, bundle, { title: "案件 900 法律意见" });
     await engine.review(draft, { actorId: "lawyer:test", status: "approved" });

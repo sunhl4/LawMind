@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { lawmindDocUrl } from "./lawmind-public-urls.js";
 
 type RetrievalMode = "single" | "dual";
 
@@ -44,7 +45,10 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
     <div className="lm-wizard-backdrop" role="dialog" aria-modal="true" aria-label="LawMind 首次配置">
       <div className="lm-wizard">
         <h2>欢迎使用 LawMind</h2>
-        <p className="lm-meta">请配置模型 API（写入用户目录下的 .env.lawmind），可选自定义工作区路径。</p>
+        <p className="lm-wizard-lead lm-settings-hint">
+          请配置模型 API（写入用户目录下的 <code className="lm-md-code">.env.lawmind</code>
+          ），可选自定义工作区路径。
+        </p>
         <label className="lm-field">
           <span>API Key</span>
           <input
@@ -77,11 +81,9 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
             </button>
           </div>
         </label>
-        <fieldset className="lm-field" style={{ border: "none", padding: 0, margin: 0 }}>
-          <legend className="lm-meta" style={{ marginBottom: 8 }}>
-            检索策略（引擎工具 research / 工作流）
-          </legend>
-          <label style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+        <fieldset className="lm-field lm-field-reset">
+          <legend className="lm-meta">检索策略（引擎工具 research / 工作流）</legend>
+          <label className="lm-field-radio lm-field-radio-row">
             <input
               type="radio"
               name="wiz-retrieval"
@@ -90,7 +92,7 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
             />
             <span>统一模型 — 通用与法律检索用同一套 API</span>
           </label>
-          <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+          <label className="lm-field-radio">
             <input
               type="radio"
               name="wiz-retrieval"
@@ -103,14 +105,20 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
             </span>
           </label>
         </fieldset>
-        {wizError && <div className="lm-error">{wizError}</div>}
-        <p className="lm-disclaimer">
-          LawMind 输出为辅助草稿，不构成法律意见；专业判断与对外交付由律师负责。详见文档{" "}
-          <a href="https://docs.openclaw.ai/legal/terms-of-service" target="_blank" rel="noreferrer noopener">
-            条款草案
-          </a>
-          。
-        </p>
+        {wizError ? (
+          <div className="lm-callout lm-callout-danger" role="alert">
+            <p className="lm-callout-body">{wizError}</p>
+          </div>
+        ) : null}
+        <div className="lm-callout lm-callout-muted" role="note">
+          <p className="lm-callout-body">
+            LawMind 输出为辅助草稿，不构成法律意见；专业判断与对外交付由律师负责。详见文档{" "}
+            <a href={lawmindDocUrl("legal/terms-of-service")} target="_blank" rel="noreferrer noopener">
+              条款草案
+            </a>
+            。
+          </p>
+        </div>
         <div className="lm-wizard-actions">
           <button type="button" className="lm-btn lm-btn-secondary" onClick={onCancel} disabled={wizBusy}>
             稍后

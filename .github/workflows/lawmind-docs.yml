@@ -1,0 +1,43 @@
+# Verify LawMind VitePress site builds (content synced from docs/LAWMIND-*.md).
+name: LawMind docs
+
+on:
+  pull_request:
+    paths:
+      - "apps/lawmind-docs/**"
+      - "docs/LAWMIND-*.md"
+      - "docs/lawmind/**"
+      - "pnpm-lock.yaml"
+      - "package.json"
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/lawmind-docs/**"
+      - "docs/LAWMIND-*.md"
+      - "docs/lawmind/**"
+      - "pnpm-lock.yaml"
+      - "package.json"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build LawMind docs
+        run: pnpm lawmind:docs:build

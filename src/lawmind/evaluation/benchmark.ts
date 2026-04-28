@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 /**
  * LawMind 评测体系 — Benchmark 运行与评分
  *
@@ -11,7 +12,6 @@
  *   2. 调用 runBenchmark() 传入引擎实例，获取 BenchmarkResult
  *   3. 调用 buildBenchmarkReportMarkdown() 生成人可读报告
  */
-
 import type {
   ArtifactDraft,
   BenchmarkResult,
@@ -125,7 +125,7 @@ async function runSingleBenchmark(
   task: BenchmarkTask,
   modelHint?: string,
 ): Promise<BenchmarkResult> {
-  const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const runId = `run-${randomUUID()}`;
   const ranAt = new Date().toISOString();
   const startMs = Date.now();
 

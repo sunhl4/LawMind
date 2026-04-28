@@ -1,8 +1,13 @@
-import type { ArtifactDraft, TaskRecord } from "../../../../src/lawmind/types.ts";
+import type {
+  ArtifactDraft,
+  TaskExecutionPlanStep,
+  TaskRecord,
+} from "../../../../src/lawmind/types.ts";
 import type { DraftCitationIntegrityView } from "../../../../src/lawmind/drafts/citation-integrity.ts";
 import type { TaskCheckpoint } from "../../../../src/lawmind/tasks/checkpoints.ts";
 import { LawmindCitationBanner } from "./LawmindCitationBanner";
 import { LawmindTaskCheckpoints } from "./LawmindTaskCheckpoints";
+import { messageFromOkFalseBody, readJsonFromResponse, userMessageFromApiError } from "./api-client";
 
 export type DetailKind = "task" | "draft" | null;
 
@@ -15,19 +20,25 @@ export async function loadAppDetail(
   draft?: ArtifactDraft;
   citationIntegrity?: DraftCitationIntegrityView;
   checkpoints?: TaskCheckpoint[];
+  executionPlan?: TaskExecutionPlanStep[];
 }> {
   const rel = kind === "task" ? `/api/tasks/${encodeURIComponent(id)}` : `/api/drafts/${encodeURIComponent(id)}`;
   const response = await fetch(`${apiBase}${rel}`);
-  const json = (await response.json()) as {
+  const json = await readJsonFromResponse<{
     ok?: boolean;
     error?: string;
+    message?: string;
     task?: TaskRecord;
     draft?: ArtifactDraft;
     citationIntegrity?: DraftCitationIntegrityView;
     checkpoints?: TaskCheckpoint[];
-  };
-  if (!response.ok || !json.ok) {
-    throw new Error(json.error || "加载详情失败");
+    executionPlan?: TaskExecutionPlanStep[];
+  }>(response);
+  if (!response.ok) {
+    throw new Error(userMessageFromApiError(response.status, json));
+  }
+  if (!json.ok) {
+    throw new Error(messageFromOkFalseBody(json, "加载详情失败"));
   }
   return json;
 }
@@ -42,7 +53,9 @@ type Props = {
   detailDraft: ArtifactDraft | null;
   detailCitationIntegrity: DraftCitationIntegrityView | null;
   detailCheckpoints: TaskCheckpoint[] | null;
+  detailExecutionPlan: TaskExecutionPlanStep[] | null;
   canUseFilesystemBridge: boolean;
+  apiBase?: string;
   onClose: () => void;
   onPreviewArtifact: (outputPath?: string) => void;
   onOpenOutputInFolder: (outputPath?: string) => void;
@@ -62,7 +75,9 @@ export function LawmindDetailDialog(props: Props) {
     detailDraft,
     detailCitationIntegrity,
     detailCheckpoints,
+    detailExecutionPlan,
     canUseFilesystemBridge,
+    apiBase,
     onClose,
     onPreviewArtifact,
     onOpenOutputInFolder,
@@ -81,18 +96,22 @@ export function LawmindDetailDialog(props: Props) {
 
   return (
     <div className="lm-wizard-backdrop" role="dialog" aria-modal="true" aria-label="任务或草稿详情">
-      <div className="lm-wizard" style={{ maxWidth: 560 }}>
+      <div className="lm-wizard lm-wizard--detail">
         <h2>
           {detailKind === "task" ? "任务详情" : "草稿详情"}
           {detailId ? (
-            <span className="lm-meta" style={{ marginLeft: 8 }}>
+            <span className="lm-meta lm-wizard-title-sub">
               {" "}
               - {detailId}
             </span>
           ) : null}
         </h2>
         {detailLoading && <div className="lm-meta">加载中…</div>}
-        {detailError && <div className="lm-error">{detailError}</div>}
+        {detailError ? (
+          <div className="lm-callout lm-callout-danger" role="alert">
+            <p className="lm-callout-body">{detailError}</p>
+          </div>
+        ) : null}
         {!detailLoading && detailTask && (
           <div className="lm-detail-body">
             {detailTask.title && (
@@ -145,12 +164,31 @@ export function LawmindDetailDialog(props: Props) {
               <span>更新时间</span>
               {formatLocaleDateTime(detailTask.updatedAt)}
             </div>
+            {detailExecutionPlan && detailExecutionPlan.length > 0 && (
+              <div className="lm-detail-kv lm-detail-kv--block">
+                <span>执行步骤</span>
+                <ul className="lm-detail-plan">
+                  {detailExecutionPlan.map((s) => (
+                    <li key={s.id}>
+                      <span className={`lm-detail-plan-status lm-detail-plan-status--${s.status}`}>
+                        {s.status === "done" ? "✓" : s.status === "skipped" ? "—" : "○"}
+                      </span>{" "}
+                      {s.label}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <LawmindTaskCheckpoints checkpoints={detailCheckpoints} />
           </div>
         )}
         {!detailLoading && detailDraft && (
           <div className="lm-detail-body">
-            <LawmindCitationBanner view={detailCitationIntegrity} />
+            <LawmindCitationBanner
+              view={detailCitationIntegrity}
+              apiBase={apiBase}
+              taskId={detailDraft.taskId}
+            />
             <div className="lm-detail-kv">
               <span>标题</span>
               {detailDraft.title}
@@ -177,7 +215,7 @@ export function LawmindDetailDialog(props: Props) {
             </div>
           </div>
         )}
-        <div className="lm-wizard-actions" style={{ flexWrap: "wrap", gap: 8 }}>
+        <div className="lm-wizard-actions lm-wizard-actions--wrap">
           {showPreview && (
             <button type="button" className="lm-btn lm-btn-secondary" onClick={() => onPreviewArtifact(outputPath)}>
               预览交付物

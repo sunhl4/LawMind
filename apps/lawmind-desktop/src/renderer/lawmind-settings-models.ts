@@ -1,5 +1,7 @@
 /** Shared types for LawMind desktop settings sub-panels. */
 
+export type AssistantOrgRole = "lead" | "member" | "intern";
+
 export type AssistantStats = {
   lastUsedAt: string;
   turnCount: number;
@@ -13,6 +15,9 @@ export type AssistantRow = {
   presetKey?: string;
   customRoleTitle?: string;
   customRoleInstructions?: string;
+  orgRole?: AssistantOrgRole;
+  reportsToAssistantId?: string;
+  peerReviewDefaultAssistantId?: string;
   createdAt: string;
   updatedAt: string;
   stats?: AssistantStats;

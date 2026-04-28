@@ -30,7 +30,7 @@
 
 ---
 
-- https://docs.openclaw.ai/LAWMIND-DATA-PROCESSING
-- https://docs.openclaw.ai/LAWMIND-PRIVATE-DEPLOY
-- https://docs.openclaw.ai/legal/terms-of-service
-- https://docs.openclaw.ai/legal/privacy-policy
+- https://docs.lawmind.ai/LAWMIND-DATA-PROCESSING
+- https://docs.lawmind.ai/LAWMIND-PRIVATE-DEPLOY
+- https://docs.lawmind.ai/legal/terms-of-service
+- https://docs.lawmind.ai/legal/privacy-policy

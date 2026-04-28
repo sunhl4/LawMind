@@ -9,6 +9,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { ArtifactDraft, TaskIntent, TaskLifecycleStatus, TaskRecord } from "../types.js";
+import {
+  buildInitialExecutionPlan,
+  buildInitialExecutionPlanFromRecord,
+} from "./execution-plan.js";
 
 function tasksDir(workspaceDir: string): string {
   return path.join(workspaceDir, "tasks");
@@ -63,6 +67,16 @@ export function ensureTaskRecord(
 ): { record: TaskRecord; created: boolean } {
   const existing = readTaskRecord(workspaceDir, intent.taskId);
   if (existing) {
+    if (!existing.executionPlan?.length) {
+      return {
+        record: persistTaskRecord(workspaceDir, {
+          ...existing,
+          executionPlan: buildInitialExecutionPlanFromRecord(existing),
+          updatedAt: new Date().toISOString(),
+        }),
+        created: false,
+      };
+    }
     if (opts?.assistantId && !existing.assistantId) {
       return {
         record: persistTaskRecord(workspaceDir, {
@@ -79,6 +93,7 @@ export function ensureTaskRecord(
   const record: TaskRecord = {
     taskId: intent.taskId,
     kind: intent.kind,
+    instruction: intent.instruction,
     summary: intent.summary,
     output: intent.output,
     riskLevel: intent.riskLevel,
@@ -86,9 +101,13 @@ export function ensureTaskRecord(
     audience: intent.audience,
     matterId: intent.matterId,
     templateId: intent.templateId,
+    deliverableType: intent.deliverableType,
+    acceptanceCriteria: intent.acceptanceCriteria,
+    clarificationQuestions: intent.clarificationQuestions,
     status: "created",
     createdAt: intent.createdAt,
     updatedAt: intent.createdAt,
+    executionPlan: buildInitialExecutionPlan(intent),
     ...(opts?.assistantId ? { assistantId: opts.assistantId } : {}),
   };
 
@@ -134,7 +153,12 @@ export const MAX_AGENT_INSTRUCTION_SUMMARY_CHARS = 4000;
  * Short display title from user instruction (deterministic, no LLM).
  */
 export { listTaskCheckpoints, type TaskCheckpoint } from "./checkpoints.js";
-export { taskIntentFromRecord } from "./task-intent.js";
+export {
+  buildInitialExecutionPlan,
+  buildInitialExecutionPlanFromRecord,
+  deriveExecutionPlanSteps,
+} from "./execution-plan.js";
+export { taskIntentFromRecord, taskIntentFromRecordOnly } from "./task-intent.js";
 
 export function deriveInstructionTitle(instruction: string, maxLen = 56): string {
   const collapsed = instruction
@@ -177,6 +201,7 @@ export function persistAgentInstructionTask(
   const record: TaskRecord = {
     taskId: params.taskId,
     kind: "agent.instruction",
+    instruction: raw,
     summary,
     output: "none",
     riskLevel: "low",
@@ -189,6 +214,18 @@ export function persistAgentInstructionTask(
     assistantId: params.assistantId,
     sessionId: params.sessionId,
     sourceTurnId: params.taskId,
+    executionPlan: buildInitialExecutionPlan({
+      taskId: params.taskId,
+      kind: "agent.instruction",
+      output: "none",
+      instruction: raw,
+      summary,
+      riskLevel: "low",
+      requiresConfirmation: false,
+      createdAt: now,
+      models: [],
+      matterId: params.matterId,
+    }),
   };
 
   return persistTaskRecord(workspaceDir, record);

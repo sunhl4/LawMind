@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { ArtifactDraft } from "../types.js";
+import { scanDocxPlaceholders } from "./docx-template-fill.js";
+import { suggestPlaceholderFieldPaths } from "./draft-template-values.js";
 
 export type TemplateFormat = "docx" | "pptx";
 
@@ -195,15 +197,29 @@ export async function registerUploadedTemplate(input: {
 
   await fs.access(sourcePath);
 
-  const placeholderMap = normalizePlaceholderMap(input.placeholderMap ?? {});
+  let placeholderMap = normalizePlaceholderMap(input.placeholderMap ?? {});
+  if (Object.keys(placeholderMap).length === 0 && input.format === "docx") {
+    try {
+      const names = await scanDocxPlaceholders(sourcePath);
+      placeholderMap = normalizePlaceholderMap(suggestPlaceholderFieldPaths(names));
+    } catch {
+      placeholderMap = {};
+    }
+  }
   const registry = await readRegistry(input.workspaceDir);
   const existing = registry.templates.find((item) => item.id === id);
   const nextVersion = (existing?.version ?? 0) + 1;
+  const storedDir = path.join(input.workspaceDir, "lawmind", "templates", "stored");
+  await fs.mkdir(storedDir, { recursive: true });
+  const safeName = id.replace(/\//g, "_");
+  const destPath = path.join(storedDir, `${safeName}_v${nextVersion}${ext}`);
+  await fs.copyFile(sourcePath, destPath);
+
   const next: UploadedTemplateRecord = {
     id,
     format: input.format,
     label,
-    sourcePath,
+    sourcePath: destPath,
     version: nextVersion,
     enabled: input.enabled ?? true,
     placeholderMap,
@@ -238,6 +254,27 @@ export async function listUploadedTemplates(
 ): Promise<UploadedTemplateRecord[]> {
   const registry = await readRegistry(workspaceDir);
   return [...registry.templates].toSorted((a, b) => a.id.localeCompare(b.id));
+}
+
+/** 从登记册删除上传模板并尝试删除已存储的模板文件。 */
+export async function removeUploadedTemplate(input: {
+  workspaceDir: string;
+  id: string;
+}): Promise<boolean> {
+  const registry = await readRegistry(input.workspaceDir);
+  const rec = registry.templates.find((item) => item.id === input.id);
+  if (!rec) {
+    return false;
+  }
+  try {
+    await fs.unlink(rec.sourcePath);
+  } catch {
+    // 文件已不存在时仍移登记
+  }
+  await writeRegistry(input.workspaceDir, {
+    templates: registry.templates.filter((item) => item.id !== input.id),
+  });
+  return true;
 }
 
 export async function resolveTemplateForDraft(input: {

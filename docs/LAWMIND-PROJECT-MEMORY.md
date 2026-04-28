@@ -14,6 +14,8 @@
 
 ## 0) 会话恢复规则（重要）
 
+**最小恢复集（时间紧时）**：读本文件 → `GOALS.md` → 与当前任务直接相关的一个代码入口（例如改聊天则 `apps/lawmind-desktop/server/lawmind-server-route-chat.ts`，改 Agent 则 `src/lawmind/agent/runtime.ts`）。其余条目在需要时再展开。
+
 下次登录继续开发 LawMind 时，优先按以下顺序恢复上下文：
 
 1. 先读本文件，确认北极星、当前阶段、已完成项、下一步。
@@ -32,6 +34,9 @@
    - `workspace/sessions/*.json` + `*.turns.jsonl`（Agent 对话）
 5. 再看 `docs/lawmind/refactor-blueprint.md`，确认当前重构北极星、目标分层、迁移路径与 UI 信息架构。
 6. 再看 `docs/lawmind/refactor-implementation-plan.md`，确认实施级数据模型、目录迁移策略、以及首批 PR 切分。
+   6b. 若改**桌面壳 UI**：读 `docs/LAWMIND-DESKTOP-UI.md`（设计令牌、`lm-*` 约定、模态/向导防回归；与 DFA/澄清/引用的展示一致性）。若改**文件页、对话引用、帮助外链、菜单保存、本机用默认应用打开**，读 `docs/LAWMIND-DESKTOP-FILES-AND-CONTEXT.md` 并随行为变更更新之。
+   6b' **产品定位（律师交互台、非 Word、非纯聊天）**：[LawMind 愿景](/LAWMIND-VISION) **§6.2d**；桌面英文摘要见 `apps/lawmind-desktop/README.md` 首段 **Product intent**。
+   6c. 与 OpenClaw 关系与工程边界：读 [LawMind 与 OpenClaw 取长补短](/LAWMIND-OPENCLAW-LESSONS)（健康检查字段、行为时代号、协议版本、验收与启发式防半成品）。
 7. 若要继续当前技术实现，优先看最近新增的测试文件，测试即行为边界。
 8. 理解两套入口：
    - `createLawMindEngine()` — M1 管线式，确定性强，步骤固定。
@@ -56,6 +61,8 @@
 - 默认可确认
 - 默认可追责
 - 默认可扩展
+
+**产品形态**：不是「对话级」成功（轮次、时长），而是**任务级**成功——智能体像可靠助理一样**在理解充分时把指令执行到底并交付可验收成果**；若对范围、关键事实或交付口径**实质不确定**，须**先与律师澄清对齐再执行**，避免机械流程与误交付（与 [LawMind 愿景](/LAWMIND-VISION) §6.2b–6.2c、`src/lawmind/agent/system-prompt.ts` 一致）。
 
 第一阶段聚焦最小闭环：`指令 -> 检索 -> 结构化草稿 -> 审核 -> Word 输出 -> 审计`
 
@@ -150,6 +157,15 @@
   - [x] 项目路径随 `POST /api/chat` 一起发送到后端（`projectDir` 字段）
 - [x] **工作记录折叠/展开**：默认收起，点击标题展开，显示记录总数 badge
 - [x] **按助手过滤记录**：任务和交付列表按当前选中助手的 `assistantId` 过滤
+- [x] **桌面 UI 基线（2026-04）**：`styles.css` 模态/向导单一定义（修复 `overflow` 层叠导致长内容不可滚动）、语义色统一为 `--error` / `--warn`、关键内联样式收拢为 `lm-wizard--*` / `lm-btn-destructive` / `lm-text-*` 等；技术说明见 [LawMind 桌面端 UI 设计约定](/LAWMIND-DESKTOP-UI)
+- [x] **材料台、对话引用与系统协同（2026-04）**（[LawMind 愿景](/LAWMIND-VISION) §6.2d 对齐）
+  - [x] 左栏一体：`lm-side-stack` + `createPortal` 挂文件树/编辑器；**文件树与下方助手/在办**之间 **横向分割条** 可调高度（`usePaneResizeVerticalPx`，`localStorage` `lawmind.ui.sideFileTreeHeight`；`lawmind-panel-layout` 中 `LM_SIDE_FILE_TREE_*` 常量）
+  - [x] **在对话中引用**：`fileChatContextItems`（最多 8 条）+ 发送前 `buildFileContextMessagePrefix`；对话顶栏 `fileChatPills`；从文件页 `onAddToChatContext` 可切到对话
+  - [x] 帮助与外链：`setWindowOpenHandler` + `HelpPanel` / `openExternal`；**主菜单 File** `lawmind:file-menu`；保存/另存为走 `FileWorkbench` + IPC `saveTextFileDialog`；**菜单** `sendFileMenu` 用 `getFocusedWindow` 兜底；**保存** 按钮无未保存修改时仍可按（内部早退）
+  - [x] **Word/Office 文档**：不内嵌排版；`isOfficeLikePath` → 说明面板 + `lawmind:open-with-system`（`shell.openPath`）+ 访达/文件夹中显示 + 可加入对话引用
+  - [x] 技术文档真源：[LawMind 桌面端：文件页、对话引用、帮助与保存](/LAWMIND-DESKTOP-FILES-AND-CONTEXT)；`apps/lawmind-desktop/README.md` **Product intent**
+
+**下一 horizon（高智能化，与 M3 壳层衔接）**：与 [LawMind 2.0 strategy](/LAWMIND-2.0-STRATEGY) 及本文 **§7 LawMind 2.0 战略升级记忆** 对齐，在不过度扩 UI 的前提下，优先把**机构级记忆、结构化推理与验收/澄清、来源可追溯**做进同一产品心智；实现主战场在 `src/lawmind/` 与本地 API，桌面只负责**一致呈现与可发现入口**。
 
 ---
 
@@ -208,10 +224,10 @@
 
 **脚本（交付/运维）**
 
-- `scripts/lawmind-onboard.ts` — 客户首跑向导
-- `scripts/lawmind-ops.ts` — status/doctor 运维命令
-- `scripts/lawmind-demo.ts` — 客户演示脚本
-- `scripts/lawmind-acceptance.ts` — 全链路验收脚本
+- `scripts/lawmind/lawmind-onboard.ts` — 客户首跑向导
+- `scripts/lawmind/lawmind-ops.ts` — status/doctor 运维命令
+- `scripts/lawmind/lawmind-demo.ts` — 客户演示脚本
+- `scripts/lawmind/lawmind-acceptance.ts` — 全链路验收脚本
 - `scripts/install-lawmind.sh` — macOS/Linux 一键安装
 - `scripts/install-lawmind.ps1` — Windows 一键安装
 
@@ -229,6 +245,51 @@
 - `workspace/templates/word/*.md`
 - `workspace/templates/ppt/client-brief-default.md`
 
+### 设计备忘：OpenAI-compatible 检索的 `user` 块与律所级 FIRM（未实施，备后续）
+
+**状态**：**刻意不做**（截至本文写入时）；仅作技术备忘，供日后要增强「模型检索与律所政策对齐」时照此落地。
+
+**代码位置**：`src/lawmind/retrieval/openai-compatible.ts` 中 `buildMessages()` 拼出的 **user** 文本，会交给走 OpenAI-compatible 的 **通用 / 法律检索适配器**（与主对话的 system prompt 是**不同一次**模型调用）。
+
+**当前已随 `MemoryContext` 进入该 `user` 的字段**（见实现，勿与文件名一一硬编码混谈）：
+
+- `memory.general` — 对应工作区 `MEMORY.md`（文中标签为「通用长期记忆」）。
+- `memory.profile` — `LAWYER_PROFILE.md`（律师偏好）。
+- `memory.clientProfile` 及（间接）`memory.clientProfileClientId` 的解析结果 — 客户画像，与 `loadMemoryContext` 一致；另见 `createWorkspaceAdapter` 对客户画像的 `ResearchSource` 等。
+
+**当前未进入该 `user` 的字段**：
+
+- `memory.firmProfile` — 即 **`FIRM_PROFILE.md`（律所级规则与交付标准）**。
+
+**若未来把 `firmProfile` 也加入同一 `user` 的预期作用**：
+
+- 让**专门负责产出 ResearchBundle 检索结论**的模型在整理 claims / 风险项时，显式看到**组织层**约束，而不仅依赖任务摘要 + 个人偏好 + 客户画像，有利于与「本所统一交付底线、版式、禁忌」对齐。
+- Agent 主对话的 system prompt **通常不整段注入 FIRM 全文**（架构上 FIRM 更偏引擎/全局侧）；在检索支路补一块 `firmProfile`，可视为**不重复占用主对话 token、却补全检索那一下的上下文**的选项。
+
+**若实施时需权衡的代价**：
+
+- `user` 变长 → 检索调用 **费用、延迟、偶发截断** 上升。
+- 与 `general` / 其他段内容若存在重复，需考虑**去重、章节节选或「只传目录+红线条款」**等折中，再单独开任务。
+
+**落地提示（给未来的实现者）**：
+
+- 主要改动面：`buildMessages()` 中在合适位置（建议在「律师偏好」与「客户画像」之间或单独成段）增加 `memory.firmProfile || "(空)"` 及清晰中文段标题。
+- 上线前建议：`pnpm test` 中与 `retrieve` / mock 适配器相关的用例，以及**抽样**在真实/沙箱配置下看检索 JSON 是否更贴所里表述（无自动化黄金标准时以人工审一两例为准）。
+
+### 收束说明：客户画像 × 检索 × 桌面「记忆来源」（当前阶段可停）
+
+以下能力已**闭环到可交付、可回归**，除非产品改需求，**不必再为「同一主题」反复微优化**：
+
+- **引擎**：`loadMemoryContext` 客户画像解析规则；`MemoryContext.clientProfile` / `clientProfileClientId`；`toEngineClientMemorySnapshot()` 供 API 传给 `buildAgentMemorySourceReport`（避免重复字段名）。
+- **主对话**：`buildSystemPrompt` 注入客户画像段；行为代际见 `LAWMIND_AGENT_BEHAVIOR_EPOCH`。
+- **检索**：`openai-compatible` 的 `user` 含 `clientProfile`；`createWorkspaceAdapter` 在 `memory.clientProfile` 非空时追加 `ResearchSource`（`kind: workspace`）。
+- **桌面**：`/api/chat`、`/api/memory/sources`、`GET /api/drafts/:id` 等路径在构建 `memorySources` 时传入 `engineMemory`，表格「本回合」列 + 行高亮与 chip；`src/lawmind/retrieval/index.test.ts` 覆盖工作区适配器客户画像行为。
+
+**刻意留到以后的优化**（性价比或需产品拍板）：
+
+- **律所级 FIRM 进检索 `user`**：见上一小节；需要时单独 PR。
+- ~~**消除 `POST /api/chat` 对 `loadMemoryContext` 的第二次读取**~~：**已实施**（2026-04-27）——`runTurn` 返回本轮 `memoryContext`，`handleChatRoute` 复用以构建 `memorySources`；缺失时仍 fallback 再加载。
+
 ---
 
 ## 4) 决策记录（短）
@@ -242,6 +303,8 @@
 7. **桌面 UI 设计路线**：深色暖调专业风格（`#1a1917` 底色 + `#b79a67` 铜色 accent），面向律师工作习惯而非通用 SaaS 风格。消息区采用无气泡直排（AI 回复内容即布局，无边框无背景），Markdown 零依赖自渲染。
 8. **设置集中化**：所有配置（助手管理、模型与检索切换、工作区与项目路径）统一进齿轮图标触发的设置面板，侧边栏保持极简（仅品牌/助手选择器/项目药丸/折叠工作记录）。
 9. **项目目录**：桌面端支持通过 Electron 原生对话框选择本机目录作为"项目"，项目路径随对话请求发送到后端（`projectDir` 字段），为后续项目级文件访问和上下文注入打基础。
+10. **桌面壳 UI 令牌与类约定**：不引入未在 `:root` 声明的 CSS 变量；模态/向导样式避免重复块覆盖 `overflow`；新 destructive/状态色复用 `lm-text-error` 等见 [LawMind 桌面端 UI 设计约定](/LAWMIND-DESKTOP-UI)。
+11. **任务智能体 vs 对话产品**：成功标准是**可交付任务**而非聊天轮次；**实质不确定时先澄清再执行**（与 `system-prompt.ts` 原则 1、愿景 §6.2c 一致），与「每一步都问下一步」的机械体验明确区分。
 
 ---
 
@@ -289,7 +352,7 @@
 ### 当前连续开发抓手
 
 - 若继续做 Agent 增强：优先围绕 `engine-tools.ts` 添加更多桥接工具。
-- 若继续做桌面端 UI：修改 `apps/lawmind-desktop/src/renderer/App.tsx` 和 `styles.css`，全部样式 token 已在 `:root` 中定义。
+- 若继续做桌面端 UI：修改 `apps/lawmind-desktop/src/renderer/App.tsx` 与 `styles.css`；**约定与类名**见 [LawMind 桌面端 UI 设计约定](/LAWMIND-DESKTOP-UI)（`styles.css` 的 `:root` 为 token 真相源）。
 - 若继续做项目文件访问：在 `lawmind-local-server.ts` 添加 `/api/project/files` 等端点，前端从设置面板或侧边栏项目药丸进入。
 - 若继续做案件面板：新建 `CasePanel.tsx` 组件，调用 `/api/matters` + `/api/history` 接口。
 - 若继续做 Agent 多轮测试：创建 mock LLM server，测试 `runTurn` 的完整循环。
@@ -369,6 +432,7 @@ LawMind 下一阶段不再只是“法律 AI 工作台”，而要逐步成为**
   - 领域对象和状态机：matter、deliverable、approval、deadline、risk、reasoning graph、memory node。
 - `lawmind-runtime`
   - agent loop、tools、hooks、delegation、prompt/context shaping、runtime event stream。
+  - **桌面异步工作流 Job（当前）**：`lawmind/jobs` 持久化；HTTP `jobId` 经 `isSafeWorkflowJobId`；`GET /api/jobs/:id/stream`（SSE + 心跳）；协作设置层 EventSource + 轮询抖动 + 列表定期对齐（`LawmindSettingsCollaboration`）。
 - `lawmind-governance`
   - policy、audit、review labels、benchmark gate、quality scoreboard、acceptance/compliance export。
 - `lawmind-workbench`
@@ -431,6 +495,13 @@ LawMind 下一阶段不再只是“法律 AI 工作台”，而要逐步成为**
 
 ## 8) 更新日志
 
+### 2026-04-27
+
+- **文档**：`LAWMIND-VISION` 文首执行摘要；`LAWMIND-ARCHITECTURE` 补充 `MEMORY.md` 与红线预期、§12 与 per-assistant 落地状态、§11b `crossMatterRoadmap` 门禁说明；`LAWMIND-DELIVERABLE-FIRST` / `LAWMIND-OPENCLAW-LESSONS` 与本轮工程行为对齐。
+- **Agent**：`runTurn` / `agent.chat` 返回 `memoryContext`，桌面 `POST /api/chat` 不再重复 `loadMemoryContext`（有 fallback）。
+- **Edition**：新增 `crossMatterAcceptanceDashboard`（Firm / Private Deploy）；案件工作台顶部「工作区交付就绪概览」复用 `GET /api/acceptance-summary`。
+- **桌面**：`crossMatterRoadmap` 为 false 时隐藏五段产品观察深层 UI 且跳过 `interaction-rollup` 请求；来源预览 popover 增加「在系统浏览器打开」；首跑向导完成与首次验收就绪写入审计 `ui.firstrun_wizard_completed` / `ui.firstrun_acceptance_ready`（见 `src/lawmind/onboarding/firstrun-state.ts`、`POST /api/onboarding/firstrun-wizard`）。
+
 ### 2026-03-17
 
 - 新建 LawMind 文档体系：愿景、决策、架构。
@@ -440,7 +511,7 @@ LawMind 下一阶段不再只是“法律 AI 工作台”，而要逐步成为**
 - 新增 Reasoning 层并接入引擎 `draft()` 主流程。
 - 新增模型检索适配器工厂（general / legal）。
 - 新增 Word/PPT 默认模板目录与模板文件。
-- 新增 `scripts/lawmind-smoke.ts`，跑通最小闭环并生成 Word 产物。
+- 新增 `scripts/lawmind/lawmind-smoke.ts`，跑通最小闭环并生成 Word 产物。
 - 新增 OpenAI-compatible 检索适配器：`src/lawmind/retrieval/openai-compatible.ts`。
 - smoke 脚本支持真实模型模式（环境变量）与 mock 模式自动切换。
 - 新增 provider 预设：国内通用模型入口（Qwen/DeepSeek/GLM/Moonshot/SiliconFlow）。
@@ -448,9 +519,9 @@ LawMind 下一阶段不再只是“法律 AI 工作台”，而要逐步成为**
 - 新增 CLI 审核交互模块：`src/lawmind/review/cli.ts`。
 - 新增模型适配说明文档：`docs/LAWMIND-MODEL-ADAPTERS.md`。
 - 新增环境模板：`.env.lawmind.example`，支持一键切换真实模型接入。
-- 新增环境自检脚本：`scripts/lawmind-env-check.ts`（命令：`npm run lawmind:env:check`）。
-- 新增 `.env.lawmind` 自动加载：`scripts/lawmind-env-loader.ts`（env-check/smoke 自动读取）。
-- 新增快速初始化脚本：`scripts/lawmind-quick-setup.ts`（命令：`npm run lawmind:setup`）。
+- 新增环境自检脚本：`scripts/lawmind/lawmind-env-check.ts`（命令：`npm run lawmind:env:check`）。
+- 新增 `.env.lawmind` 自动加载：`scripts/lawmind/lawmind-env-loader.ts`（env-check/smoke 自动读取）。
+- 新增快速初始化脚本：`scripts/lawmind/lawmind-quick-setup.ts`（命令：`npm run lawmind:setup`）。
 - 生产就绪开关：`lawmind:env:check --strict`（general+legal 未就绪则 exit 1）；`lawmind:smoke --fail-on-empty-claims`（real 模式下空结论即失败）。
 - 正式测试：`src/lawmind/router/index.test.ts`、`reasoning/index.test.ts`、`index.test.ts`（Router/Reasoning 单测 + Engine 集成测，mock 适配器）。
 - 新增案件级记忆骨架：`ensureCaseWorkspace()` 自动创建 `workspace/cases/<matter-id>/CASE.md`。
@@ -465,7 +536,7 @@ LawMind 下一阶段不再只是“法律 AI 工作台”，而要逐步成为**
 - 案件记忆从 append-only 升级为结构化归并：`当前任务目标 / 核心争点 / 风险与待确认事项 / 生成产物` 改为去重合并，`工作进展记录` 保持时间线追加。
 - 检索完成后会把高价值 claims 自动沉淀到 `CASE.md` 的“核心争点”，为后续案件工作台打基础。
 - 新增案件索引层：`src/lawmind/cases/index.ts` 聚合 `CASE.md`、`tasks/*.json`、`drafts/*.json`、`audit/*.jsonl`，输出 `MatterIndex`。
-- 新增 `engine.getMatterIndex()` 与 `scripts/lawmind-case.ts`（命令：`npm run lawmind:case -- --matter <matterId>`），为案件工作台/审核台提供可直接消费的摘要对象。
+- 新增 `engine.getMatterIndex()` 与 `scripts/lawmind/lawmind-case.ts`（命令：`npm run lawmind:case -- --matter <matterId>`），为案件工作台/审核台提供可直接消费的摘要对象。
 - 新增 `readAllAuditLogs()`、`listDrafts()`，并补充 `src/lawmind/cases/index.test.ts` 覆盖案件索引聚合能力。
 - 案件视图增强：新增 `MatterOverview` / `MatterSummary` / `MatterSearchHit`，支持案件总览排序、案件摘要生成、案件内搜索。
 - `createLawMindEngine()` 新增 `listMatterOverviews()` / `getMatterSummary()` / `searchMatter()`，为后续 UI 工作台提供更高层接口。
@@ -478,7 +549,7 @@ LawMind 下一阶段不再只是“法律 AI 工作台”，而要逐步成为**
   - 新增 `src/lawmind/agent/session.ts`：会话持久化（JSON + JSONL turns）、对话压缩、LLM 消息格式转换。
   - 新增 `src/lawmind/agent/runtime.ts`：Agent 推理循环（callModel → parse tool calls → execute → loop → final answer），最大 15 次工具调用，自动审计。
   - 新增 `src/lawmind/agent/index.ts`：`createLawMindAgent()` 入口，暴露 chat/newSession/getSession/listSessions/getTurns/listTools API。
-  - 新增 `scripts/lawmind-agent.ts`：交互式 CLI（`pnpm lawmind:agent`），支持新建/恢复对话、关联案件、单次指令、历史列表。
+  - 新增 `scripts/lawmind/lawmind-agent.ts`：交互式 CLI（`pnpm lawmind:agent`），支持新建/恢复对话、关联案件、单次指令、历史列表。
   - 新增 15 个 Agent 测试：ToolRegistry（注册/去重/分类/OpenAI格式）、Legal Tools（执行/安全边界）、Session（创建/加载/排序/turns/压缩）、SystemPrompt（构建/上下文）。
   - `types.ts` 新增 AuditEventKind: `tool_call` / `agent_turn`。
   - `index.ts` 新增导出：`createLawMindAgent`、`LawMindAgent`、Agent 类型。
@@ -548,10 +619,10 @@ LawMind 下一阶段不再只是“法律 AI 工作台”，而要逐步成为**
   - **体验**：桌面本地 API 错误码、`HelpPanel`、设置内入门进度、`api-client` 解析与测试。
   - **法务/数据**：`docs/legal/*`、`LAWMIND-DATA-PROCESSING`、`LAWMIND-DELIVERY` 法务包与第 10 节备份/升级。
   - **安全**：`pnpm lawmind:sbom`、`LAWMIND-SECURITY-CHECKLIST`、`.github/workflows/lawmind-security-audit.yml`（非阻塞）。
-  - **运维**：`scripts/lawmind-backup.sh`、`LAWMIND-POLICY-FILE` + `docs/examples/lawmind.policy.json.sample`。
+  - **运维**：`scripts/lawmind/lawmind-backup.sh`、`LAWMIND-POLICY-FILE` + `docs/examples/lawmind.policy.json.sample`。
   - **协作与归因**：`LAWMIND_DESKTOP_ACTOR_ID`、`LAWMIND-ACTOR-ATTRIBUTION`、`LAWMIND-INTEGRATIONS`、协作摘要 API 与设置页状态。
   - **交付与支持**：`LAWMIND-CUSTOMER-ACCEPTANCE`、`LAWMIND-SUPPORT-RUNBOOK`、`LAWMIND-CUSTOMER-OVERVIEW`；Mintlify **LawMind** 导航组见 `docs/docs.json`。
-- 索引：<https://docs.openclaw.ai/LAWMIND-DELIVERY>、<https://docs.openclaw.ai/LAWMIND-SECURITY-CHECKLIST>、<https://docs.openclaw.ai/LAWMIND-CUSTOMER-OVERVIEW>。
+- 索引：<https://docs.lawmind.ai/LAWMIND-DELIVERY>、<https://docs.lawmind.ai/LAWMIND-SECURITY-CHECKLIST>、<https://docs.lawmind.ai/LAWMIND-CUSTOMER-OVERVIEW>。
 - **工程加固（持续）**：本地 API 拆分为 `lawmind-server-helpers.ts` + `lawmind-server-dispatch.ts`；`lawmind.policy.json` 运行时加载并影响 `/api/chat` 与 health；工具审计 `detail` 前缀 JSON；`pnpm lawmind:sbom` 尝试生成 CycloneDX；设置页拆为 `LawmindSettings*` 子组件；M1 引擎默认 `actorId` 经 `LAWMIND_ENGINE_ACTOR_ID` / `LAWMIND_DESKTOP_ACTOR_ID`（`engine-actor.ts`）；`pnpm lawmind:desktop:http-smoke` 探活本地 HTTP。
 
 ### 2026-04-01
@@ -628,3 +699,4 @@ LawMind 下一阶段不再只是“法律 AI 工作台”，而要逐步成为**
   - 2026-04-02 调试记录：桌面端出现白屏并非 `MatterWorkbench` 渲染逻辑本身导致，而是 renderer 从 `src/lawmind/assistants/store.ts` 直接导入 `DEFAULT_ASSISTANT_ID`，把 `node:crypto` 连带打进浏览器 bundle，触发 `Module "node:crypto" has been externalized for browser compatibility` 并使根组件完全无法挂载。
   - 修复方式：把 `DEFAULT_ASSISTANT_ID` 抽到浏览器安全的 `src/lawmind/assistants/constants.ts`，让 `App.tsx` 与 `LawmindSettingsAssistants.tsx` 改为引用该常量文件；同时清理遗留的 `vite --mode e2e` 进程，避免其长期占用 `5174` 干扰 `pnpm lawmind:desktop`。
   - 验证：`pnpm tsgo` 通过；`pnpm exec tsc -p apps/lawmind-desktop/tsconfig.json --noEmit` 通过。
+  - **Clarify–Execute 协议（Phase 5.1）**：当某轮工具返回 `clarificationQuestions` 后，同一会话轮次内 `AgentContext.clarificationBlockingHeavyTools` 为真，`research_task` / `draft_document` / `execute_workflow` / `render_document` 会拒绝执行，直到模型结束该 turn 且用户发送下一则 instruction（新 turn 开始时清除 `session.pendingClarificationKeys`）。上一轮若以 `awaiting_clarification` 结束，会把问题 key 写入 `session.pendingClarificationKeys` 便于恢复语义（下一则用户消息到达时仍先清除再跑，以免阻塞合法跟进）。

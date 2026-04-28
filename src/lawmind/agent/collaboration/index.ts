@@ -48,3 +48,11 @@ export {
 } from "./shared-memory.js";
 
 export type { CollaborationContext } from "./shared-memory.js";
+
+export {
+  listWorkspaceWorkflowTemplates,
+  readWorkspaceWorkflowTemplate,
+  instantiateCollaborationWorkflowFromTemplate,
+  type WorkspaceWorkflowTemplateFile,
+  type WorkspaceWorkflowTemplateListItem,
+} from "./workspace-workflow-templates.js";

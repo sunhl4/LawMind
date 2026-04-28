@@ -47,7 +47,10 @@ export async function applyReviewLabelsMemoryWrites(
   );
   const learningNote = noteParts.length > 0 ? noteParts.join(" ") : undefined;
   const learningLine = buildLawyerProfileReviewLearningLine(draft.taskId, status, learningNote);
-  await appendLawyerProfileLearning(workspaceDir, learningLine, "review").catch(() => {});
+  await appendLawyerProfileLearning(workspaceDir, learningLine, "review", {
+    auditDir,
+    auditTaskId: draft.taskId,
+  }).catch(() => {});
 
   if (assistantId) {
     const line = buildReviewProfileLine(draft.taskId, status, learningNote);

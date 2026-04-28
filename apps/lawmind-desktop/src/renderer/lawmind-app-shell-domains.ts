@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ArtifactDraft, TaskRecord } from "../../../../src/lawmind/types.ts";
+import type { ArtifactDraft, TaskExecutionPlanStep, TaskRecord } from "../../../../src/lawmind/types.ts";
 import type { DraftCitationIntegrityView } from "../../../../src/lawmind/drafts/citation-integrity.ts";
 import type { TaskCheckpoint } from "../../../../src/lawmind/tasks/checkpoints.ts";
 import { loadAppDetail } from "./lawmind-app-detail";
@@ -217,6 +217,7 @@ export function useLawmindDetailDomain(config: AppConfig | null) {
   const [detailDraft, setDetailDraft] = useState<ArtifactDraft | null>(null);
   const [detailCitationIntegrity, setDetailCitationIntegrity] = useState<DraftCitationIntegrityView | null>(null);
   const [detailCheckpoints, setDetailCheckpoints] = useState<TaskCheckpoint[] | null>(null);
+  const [detailExecutionPlan, setDetailExecutionPlan] = useState<TaskExecutionPlanStep[] | null>(null);
 
   const openDetail = useCallback(
     async (kind: "task" | "draft", id: string) => {
@@ -232,11 +233,13 @@ export function useLawmindDetailDomain(config: AppConfig | null) {
       setDetailDraft(null);
       setDetailCitationIntegrity(null);
       setDetailCheckpoints(null);
+      setDetailExecutionPlan(null);
       try {
         const detail = await loadAppDetail(config.apiBase, kind, id);
         if (kind === "task" && detail.task) {
           setDetailTask(detail.task);
           setDetailCheckpoints(Array.isArray(detail.checkpoints) ? detail.checkpoints : null);
+          setDetailExecutionPlan(Array.isArray(detail.executionPlan) ? detail.executionPlan : null);
         } else if (kind === "draft" && detail.draft) {
           setDetailDraft(detail.draft);
           setDetailCitationIntegrity(detail.citationIntegrity ?? null);
@@ -260,6 +263,7 @@ export function useLawmindDetailDomain(config: AppConfig | null) {
     setDetailDraft(null);
     setDetailCitationIntegrity(null);
     setDetailCheckpoints(null);
+    setDetailExecutionPlan(null);
     setDetailError(null);
     setDetailLoading(false);
   }, []);
@@ -275,6 +279,7 @@ export function useLawmindDetailDomain(config: AppConfig | null) {
       detailDraft,
       detailCitationIntegrity,
       detailCheckpoints,
+      detailExecutionPlan,
     },
     actions: {
       openDetail,

@@ -15,7 +15,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { loadMemoryContext } from "../../memory/index.js";
+import { loadMemoryContext, type MemoryContext } from "../../memory/index.js";
 import { readCollaborationEvents } from "./audit.js";
 import { listDelegations } from "./delegation-registry.js";
 import type { CollaborationEvent } from "./types.js";
@@ -34,13 +34,8 @@ function collaborationDir(workspaceDir: string, matterId?: string): string {
 // ─────────────────────────────────────────────
 
 export type CollaborationContext = {
-  /** General workspace memory (MEMORY.md, profile, case) */
-  baseMemory: {
-    general: string;
-    profile: string;
-    caseMemory: string;
-    todayLog: string;
-  };
+  /** Full `loadMemoryContext` snapshot (case, firm, client profile, logs, …) */
+  baseMemory: MemoryContext;
   /** Recent collaboration results relevant to this assistant/matter */
   recentCollaborations: Array<{
     fromAssistant: string;

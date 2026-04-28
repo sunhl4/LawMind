@@ -25,6 +25,15 @@ describe("LawMind Router", () => {
     expect(intent.requiresConfirmation).toBe(true);
   });
 
+  it("maps 起草合同 to draft.word instead of contract review", () => {
+    const intent = route({ instruction: "请起草一份租赁合同" });
+    expect(intent.kind).toBe("draft.word");
+    expect(intent.deliverableType).toBe("contract.rental");
+    expect(intent.output).toBe("docx");
+    expect(intent.riskLevel).toBe("high");
+    expect(intent.clarificationQuestions?.length).toBeGreaterThan(0);
+  });
+
   it("maps 法律意见/法条 to research.legal, legal model only", () => {
     const intent = route({ instruction: "查一下民法典相关法条和司法解释" });
     expect(intent.kind).toBe("research.legal");

@@ -1,4 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { LM_PANE_MAX_WIDTH_PX, LM_PANE_MIN_WIDTH_PX } from "./lawmind-panel-layout";
+import { usePaneResizePx } from "./use-pane-resize";
 
 type RootKey = "workspace" | "project";
 
@@ -43,10 +46,27 @@ type InlineInput = {
   onDone: (name: string) => Promise<void>;
 };
 
+type FsClip = {
+  op: "copy" | "cut";
+  root: RootKey;
+  relPaths: string[];
+};
+
+type FilePortalHosts = {
+  explorer: HTMLElement | null;
+  /** When set, drag handle lives between file tree and the next column (legacy three-column rail). */
+  split?: HTMLElement | null;
+  editor: HTMLElement | null;
+};
+
 type Props = {
   workspaceDir: string;
   projectDir: string | null;
   canUseFilesystemBridge: boolean;
+  /** 将路径加入对话引用（会切换到对话；发送时把路径说明一并给模型） */
+  onAddToChatContext?: (payload: { root: RootKey; relPath: string; kind: "file" | "directory" }) => void;
+  /** When set, 资源管理器 / 分割条 / 编辑器分别挂到这些节点（用于主壳最左侧文件栏 + 主区编辑器） */
+  portalHosts?: FilePortalHosts | null;
 };
 
 // Core workspace paths that require lawyer confirmation before delete/rename.
@@ -62,6 +82,12 @@ function isProtectedWorkspacePath(root: RootKey, relPath: string): string | null
   if (root !== "workspace") {return null;}
   const top = relPath.split("/")[0];
   return top ? (PROTECTED_WORKSPACE[top] ?? null) : null;
+}
+
+/** Word / Office / PDF：本工作台为纯文本编辑器，不内嵌富文本预览 */
+function isOfficeLikePath(relPath: string): boolean {
+  const low = relPath.toLowerCase();
+  return [".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".pdf"].some((s) => low.endsWith(s));
 }
 
 function keyOf(root: RootKey, dirPath: string): string {
@@ -84,6 +110,23 @@ function joinRelPath(a: string, b: string): string {
   if (!l) {return r;}
   if (!r) {return l;}
   return `${l}/${r}`;
+}
+
+function resolveRelForAbs(
+  workspaceDir: string,
+  projectDir: string | null,
+  absPath: string,
+): { root: RootKey; rel: string } | null {
+  const a = absPath.replace(/\\/g, "/");
+  const w = workspaceDir.replace(/\\/g, "/").replace(/\/$/, "");
+  const p = projectDir?.replace(/\\/g, "/").replace(/\/$/, "") ?? "";
+  if (w && (a === w || a.startsWith(`${w}/`))) {
+    return { root: "workspace", rel: a === w ? "" : a.slice(w.length + 1) };
+  }
+  if (p && (a === p || a.startsWith(`${p}/`))) {
+    return { root: "project", rel: a === p ? "" : a.slice(p.length + 1) };
+  }
+  return null;
 }
 
 function getFileIcon(name: string, kind: "file" | "directory", isOpen = false): string {
@@ -165,8 +208,7 @@ function QuickOpenModal({
 
   return (
     <div
-      className="lm-wizard-backdrop"
-      style={{ alignItems: "flex-start", paddingTop: "14vh" }}
+      className="lm-wizard-backdrop lm-wizard-backdrop--quickopen"
       onMouseDown={(e) => {
         // Close only when clicking the backdrop itself (not the modal)
         if (e.target === e.currentTarget) {onClose();}
@@ -230,7 +272,7 @@ function QuickOpenModal({
 
 // ── Main FileWorkbench ────────────────────────────────────────────────────────
 export function FileWorkbench(props: Props) {
-  const { workspaceDir, projectDir, canUseFilesystemBridge } = props;
+  const { workspaceDir, projectDir, canUseFilesystemBridge, onAddToChatContext, portalHosts } = props;
 
   const [childrenByDir, setChildrenByDir] = useState<Record<string, FsEntry[]>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -245,6 +287,16 @@ export function FileWorkbench(props: Props) {
   const [dangerInput, setDangerInput] = useState("");
   const [showQuickOpen, setShowQuickOpen] = useState(false);
   const [indexedFiles, setIndexedFiles] = useState<IndexedFile[]>([]);
+  const [fsClip, setFsClip] = useState<FsClip | null>(null);
+  const [officeBlock, setOfficeBlock] = useState<{ root: RootKey; relPath: string; name: string } | null>(null);
+
+  const { width: filesExplorerWidth, onResizePointerDown: onFilesExplorerResize } = usePaneResizePx({
+    storageKey: "lawmind.ui.filesExplorerWidth",
+    defaultWidth: 300,
+    min: LM_PANE_MIN_WIDTH_PX,
+    max: LM_PANE_MAX_WIDTH_PX,
+  });
+  const explorerInSidebar = Boolean(portalHosts?.explorer && portalHosts?.editor && !portalHosts?.split);
 
   const menuRef = useRef<HTMLDivElement>(null);
   const inlineInputRef = useRef<HTMLInputElement>(null);
@@ -317,6 +369,10 @@ export function FileWorkbench(props: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const saveActive = useCallback(async () => {
     if (!activeTab) {return;}
+    if (activeTab.content === activeTab.savedContent) {
+      setError(null);
+      return;
+    }
     setBusy(true);
     try {
       const res = await window.lawmindDesktop?.fsWrite({
@@ -340,6 +396,56 @@ export function FileWorkbench(props: Props) {
     }
   }, [activeTab]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const saveActiveAs = useCallback(async () => {
+    if (!activeTab) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await window.lawmindDesktop?.saveTextFileDialog({
+        content: activeTab.content,
+        defaultName: activeTab.name,
+      });
+      if (!res?.ok || res.canceled || !res.filePath) {
+        return;
+      }
+      const mapped = resolveRelForAbs(workspaceDir, projectDir, res.filePath);
+      if (mapped) {
+        const rd = await window.lawmindDesktop?.fsRead({ root: mapped.root, path: mapped.rel });
+        if (rd?.ok && typeof rd.mtimeMs === "number" && typeof rd.content === "string") {
+          const newId = `${mapped.root}:${mapped.rel}`;
+          setTabs((prev) =>
+            prev.map((t) =>
+              t.id === activeTab.id
+                ? {
+                    ...t,
+                    id: newId,
+                    root: mapped.root,
+                    path: mapped.rel,
+                    name: basename(mapped.rel) || t.name,
+                    content: rd.content!,
+                    savedContent: rd.content!,
+                    mtimeMs: rd.mtimeMs!,
+                  }
+                : t,
+            ),
+          );
+          setActiveTabId(newId);
+          setSelected({ root: mapped.root, path: mapped.rel, kind: "file" });
+        } else {
+          setError("另存为成功，但无法从工作区重新读取文件。");
+        }
+      } else {
+        setError(`已保存到工作区外：${res.filePath}（可继续在编辑器中编辑当前标签；保存仍指向原文件路径。）`);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [activeTab, workspaceDir, projectDir]);
+
   // ── Keyboard shortcuts ───────────────────────────────────────
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -347,7 +453,12 @@ export function FileWorkbench(props: Props) {
         e.preventDefault();
         setShowQuickOpen(true);
       }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        void saveActiveAs();
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s" && !e.shiftKey) {
         e.preventDefault();
         void saveActive();
       }
@@ -358,7 +469,22 @@ export function FileWorkbench(props: Props) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [saveActive]);
+  }, [saveActive, saveActiveAs]);
+
+  useEffect(() => {
+    const off = window.lawmindDesktop?.onFileMenu?.((payload) => {
+      const a = String(payload?.action ?? "");
+      if (a === "save") {
+        void saveActive();
+      }
+      if (a === "save-as") {
+        void saveActiveAs();
+      }
+    });
+    return () => {
+      off?.();
+    };
+  }, [saveActive, saveActiveAs]);
 
   const refreshDir = useCallback(async (root: RootKey, dirPath: string) => {
     try {
@@ -377,15 +503,35 @@ export function FileWorkbench(props: Props) {
   };
 
   const openFile = useCallback(async (root: RootKey, relPath: string) => {
+    if (isOfficeLikePath(relPath)) {
+      setOfficeBlock({ root, relPath, name: basename(relPath) });
+      setActiveTabId(null);
+      setSelected({ root, path: relPath, kind: "file" });
+      setError(null);
+      return;
+    }
     const tabId = `${root}:${relPath}`;
     const existing = tabs.find((t) => t.id === tabId);
-    if (existing) { setActiveTabId(existing.id); return; }
+    if (existing) {
+      setOfficeBlock(null);
+      setActiveTabId(existing.id);
+      return;
+    }
     setBusy(true);
     try {
       const res = await window.lawmindDesktop?.fsRead({ root, path: relPath });
       if (!res?.ok || typeof res.content !== "string" || typeof res.mtimeMs !== "number") {
-        throw new Error(res?.error ?? "文件读取失败");
+        const errText = res?.error ?? "文件读取失败";
+        if (errText.toLowerCase().includes("binary") && isOfficeLikePath(relPath)) {
+          setOfficeBlock({ root, relPath, name: basename(relPath) });
+          setActiveTabId(null);
+          setSelected({ root, path: relPath, kind: "file" });
+          setError(null);
+          return;
+        }
+        throw new Error(errText);
       }
+      setOfficeBlock(null);
       const tab: OpenFileTab = {
         id: tabId, root, path: relPath, name: basename(relPath),
         content: res.content, savedContent: res.content, mtimeMs: res.mtimeMs,
@@ -534,9 +680,72 @@ export function FileWorkbench(props: Props) {
     if (!canUseFilesystemBridge) {return;}
     const base = root === "workspace" ? workspaceDir : projectDir;
     if (!base) {return;}
-    const full = `${base.replace(/\/+$/, "")}/${relPath}`.replace(/\\/g, "/");
+    const full = relPath
+      ? `${base.replace(/\/+$/, "")}/${relPath}`.replace(/\\/g, "/")
+      : base.replace(/\\/g, "/");
     await window.lawmindDesktop?.showItemInFolder(full);
   };
+
+  const pasteInto = useCallback(
+    async (root: RootKey, parentDir: string) => {
+      if (!fsClip || fsClip.root !== root) {
+        setError("只能粘贴到同一根目录（工作区与项目之间不能混贴）。");
+        setContextMenu(null);
+        return;
+      }
+      setContextMenu(null);
+      setBusy(true);
+      try {
+        const sources = [...fsClip.relPaths];
+        for (const from of sources) {
+          const name = basename(from);
+          const toRel = joinRelPath(parentDir, name);
+          const res = await window.lawmindDesktop?.fsCopy({ root, fromPath: from, toPath: toRel });
+          if (!res?.ok) {
+            throw new Error(res?.error ?? "粘贴失败");
+          }
+        }
+        if (fsClip.op === "cut") {
+          for (const p of sources) {
+            const del = await window.lawmindDesktop?.fsDelete({ root, path: p });
+            if (!del?.ok) {
+              throw new Error(del?.error ?? "移动时删除源失败");
+            }
+          }
+          setFsClip(null);
+        }
+        await refreshDir(root, parentDir);
+        void refreshIndex();
+        setError(null);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [fsClip, refreshDir, refreshIndex],
+  );
+
+  const copyPath = (root: RootKey, relPath: string) => {
+    setContextMenu(null);
+    setFsClip({ op: "copy", root, relPaths: [relPath] });
+  };
+
+  const cutPath = (root: RootKey, relPath: string) => {
+    setContextMenu(null);
+    setFsClip({ op: "cut", root, relPaths: [relPath] });
+  };
+
+  useEffect(() => {
+    if (!contextMenu) {
+      return;
+    }
+    const h = () => {
+      setContextMenu(null);
+    };
+    window.addEventListener("click", h);
+    return () => window.removeEventListener("click", h);
+  }, [contextMenu]);
 
   // ── File tree render ─────────────────────────────────────────
   const renderTree = (root: RootKey, dirPath: string, level: number): ReactNode => {
@@ -684,11 +893,11 @@ export function FileWorkbench(props: Props) {
     if (confirmDialog.kind === "simple") {
       return (
         <div className="lm-wizard-backdrop" onClick={() => setConfirmDialog(null)}>
-          <div className="lm-wizard" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
-            <p style={{ marginBottom: 20, lineHeight: 1.7 }}>{confirmDialog.message}</p>
+          <div className="lm-wizard lm-wizard--confirm" onClick={(e) => e.stopPropagation()}>
+            <p className="lm-wizard-lead">{confirmDialog.message}</p>
             <div className="lm-wizard-actions">
               <button type="button" className="lm-btn lm-btn-secondary" onClick={() => setConfirmDialog(null)}>取消</button>
-              <button type="button" className="lm-btn" style={{ background: "var(--error)" }} onClick={confirmDialog.onConfirm}>确认</button>
+              <button type="button" className="lm-btn lm-btn-destructive" onClick={confirmDialog.onConfirm}>确认</button>
             </div>
           </div>
         </div>
@@ -698,23 +907,25 @@ export function FileWorkbench(props: Props) {
     const canConfirm = !requiredName || dangerInput.trim() === requiredName;
     return (
       <div className="lm-wizard-backdrop" onClick={() => setConfirmDialog(null)}>
-        <div className="lm-wizard" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
-          <h2 style={{ color: "var(--error)", fontSize: 15, marginBottom: 10 }}>{confirmDialog.title}</h2>
-          <p style={{ whiteSpace: "pre-line", color: "var(--text-2)", fontSize: 13, lineHeight: 1.7, marginBottom: 16 }}>{confirmDialog.body}</p>
+        <div className="lm-wizard lm-wizard--danger" onClick={(e) => e.stopPropagation()}>
+          <h2 className="lm-wizard-title-danger">{confirmDialog.title}</h2>
+          <p className="lm-wizard-body-pre">{confirmDialog.body}</p>
           {requiredName && (
-            <div className="lm-field" style={{ marginBottom: 16 }}>
+            <div className="lm-field lm-field--spaced lm-field-match-confirm">
               <input
                 type="text"
                 value={dangerInput}
                 placeholder={`输入"${requiredName}"确认`}
+                aria-invalid={!canConfirm}
+                autoComplete="off"
+                spellCheck={false}
                 onChange={(e) => setDangerInput(e.target.value)}
-                style={{ borderColor: canConfirm ? "var(--accent-border)" : "var(--error)" }}
               />
             </div>
           )}
           <div className="lm-wizard-actions">
             <button type="button" className="lm-btn lm-btn-secondary" onClick={() => setConfirmDialog(null)}>取消</button>
-            <button type="button" className="lm-btn" style={{ background: "var(--error)", opacity: canConfirm ? 1 : 0.4 }} disabled={!canConfirm} onClick={confirmDialog.onConfirm}>
+            <button type="button" className="lm-btn lm-btn-destructive" disabled={!canConfirm} onClick={confirmDialog.onConfirm}>
               {confirmDialog.confirmLabel}
             </button>
           </div>
@@ -728,12 +939,30 @@ export function FileWorkbench(props: Props) {
     if (!contextMenu) {return null;}
     const { x, y, root, path: ctxPath, kind } = contextMenu;
     const parentDir = kind === "directory" ? ctxPath : getDirname(ctxPath);
+    const canPasteHere = Boolean(fsClip && fsClip.root === root);
     return (
       <div ref={menuRef} className="lm-context-menu" style={{ top: y, left: x }} onContextMenu={(e) => e.preventDefault()}>
         <button type="button" onClick={() => startCreate(root, parentDir, "file")}>📄 新建文件</button>
         <button type="button" onClick={() => startCreate(root, parentDir, "folder")}>📁 新建文件夹</button>
-        {ctxPath && (
+        {canPasteHere ? (
+          <button type="button" onClick={() => void pasteInto(root, parentDir)}>📋 粘贴</button>
+        ) : null}
+        {ctxPath ? (
           <>
+            {onAddToChatContext ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onAddToChatContext({ root, relPath: ctxPath, kind });
+                  setContextMenu(null);
+                }}
+              >
+                💬 在对话中引用{kind === "directory" ? "（整目录）" : ""}
+              </button>
+            ) : null}
+            <div className="lm-context-menu-sep" />
+            <button type="button" onClick={() => copyPath(root, ctxPath)}>📎 复制</button>
+            <button type="button" onClick={() => cutPath(root, ctxPath)}>✂️ 剪切</button>
             <div className="lm-context-menu-sep" />
             <button type="button" onClick={() => startRename(root, ctxPath)}>✏️ 重命名</button>
             <button
@@ -744,7 +973,17 @@ export function FileWorkbench(props: Props) {
               🗑️ 删除{isProtectedWorkspacePath(root, ctxPath) ? " ⚠️" : ""}
             </button>
           </>
-        )}
+        ) : onAddToChatContext ? (
+          <button
+            type="button"
+            onClick={() => {
+              onAddToChatContext({ root, relPath: "", kind: "directory" });
+              setContextMenu(null);
+            }}
+          >
+            💬 在对话中引用{root === "workspace" ? "工作区" : "项目"}根目录
+          </button>
+        ) : null}
         <div className="lm-context-menu-sep" />
         <button type="button" onClick={() => void doShowInFolder(root, ctxPath)}>📂 在访达中显示</button>
         <button type="button" onClick={() => { setContextMenu(null); void refreshDir(root, ctxPath && kind === "file" ? getDirname(ctxPath) : ctxPath); }}>🔄 刷新</button>
@@ -764,43 +1003,69 @@ export function FileWorkbench(props: Props) {
   );
 
   // ── Render ───────────────────────────────────────────────────
-  return (
-    <div className="lm-files-layout" onClick={() => setContextMenu(null)}>
-      {/* ── Explorer sidebar ── */}
-      <aside className="lm-files-explorer" onClick={(e) => e.stopPropagation()}>
-        {/* Quick open button */}
-        <button
-          type="button"
-          className="lm-quickopen-trigger"
-          onClick={() => setShowQuickOpen(true)}
-        >
-          <span>🔍</span>
-          <span>快速打开文件…</span>
-          <kbd>⌘P</kbd>
-        </button>
+  const explorerAside = (
+    <aside
+      className={`lm-files-explorer ${portalHosts ? (explorerInSidebar ? "lm-file-explorer-embedded" : "lm-file-explorer-rail") : ""}`.trim()}
+      style={
+        explorerInSidebar
+          ? { width: "100%", minHeight: 0, flex: 1 }
+          : { width: filesExplorerWidth, flexShrink: 0 }
+      }
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        className="lm-quickopen-trigger"
+        onClick={() => setShowQuickOpen(true)}
+      >
+        <span>🔍</span>
+        <span>快速打开文件…</span>
+        <kbd>⌘P</kbd>
+      </button>
 
+      <div className="lm-fs-section">
+        {renderRootHeader("workspace", "工作区", workspaceDir)}
+        {renderTree("workspace", "", 0)}
+      </div>
+
+      {projectDir && (
         <div className="lm-fs-section">
-          {renderRootHeader("workspace", "工作区", workspaceDir)}
-          {renderTree("workspace", "", 0)}
+          {renderRootHeader("project", "项目目录", projectDir)}
+          {renderTree("project", "", 0)}
         </div>
+      )}
 
-        {projectDir && (
-          <div className="lm-fs-section">
-            {renderRootHeader("project", "项目目录", projectDir)}
-            {renderTree("project", "", 0)}
+      {error ? (
+        <div className="lm-callout lm-callout-danger lm-error--explorer" role="alert">
+          <p className="lm-callout-body">{error}</p>
+          <button type="button" className="lm-error-dismiss" aria-label="关闭错误提示" onClick={() => setError(null)}>
+            ×
+          </button>
+        </div>
+      ) : null}
+    </aside>
+  );
+
+  const splitBetweenExplorerAndRest = (
+    <div
+      className="lm-split-handle lm-split-handle-vertical lm-file-rail-split"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="调整资源管理器宽度"
+      title="拖动调整资源管理器宽度"
+      onPointerDown={onFilesExplorerResize}
+    />
+  );
+
+  const editorSection = (
+    <section className="lm-files-editor" onClick={(e) => e.stopPropagation()}>
+        {onAddToChatContext ? (
+          <div className="lm-file-page-intro" role="note">
+            <strong>本页是「材料浏览器」</strong>：在左侧点文件可编辑。需要让助手就某份材料、某个文件夹做事时，在文件或目录上
+            <strong> 右键 </strong>选「在对话中引用」或点下方「加入对话引用」，再切到「对话」说明需求。可
+            <strong> 多次添加 </strong>多个文件或目录（顶栏有列表，可单独移除，最多 8 条）。助手会按工具读取后回答。
           </div>
-        )}
-
-        {error && (
-          <div className="lm-error" style={{ marginTop: 8, fontSize: 11 }}>
-            {error}
-            <button type="button" style={{ marginLeft: 8, cursor: "pointer", border: "none", background: "none", color: "var(--error)" }} onClick={() => setError(null)}>×</button>
-          </div>
-        )}
-      </aside>
-
-      {/* ── Editor area ── */}
-      <section className="lm-files-editor" onClick={(e) => e.stopPropagation()}>
+        ) : null}
         <div className="lm-file-tabs">
           {tabs.map((tab) => {
             const dirty = tab.content !== tab.savedContent;
@@ -810,7 +1075,10 @@ export function FileWorkbench(props: Props) {
                 type="button"
                 className={`lm-file-tab ${activeTabId === tab.id ? "active" : ""}`}
                 title={`${tab.root}:${tab.path}`}
-                onClick={() => setActiveTabId(tab.id)}
+                onClick={() => {
+                  setOfficeBlock(null);
+                  setActiveTabId(tab.id);
+                }}
               >
                 <span className="lm-fs-icon">{getFileIcon(tab.name, "file")}</span>
                 <span>{tab.name}{dirty ? " ●" : ""}</span>
@@ -835,8 +1103,26 @@ export function FileWorkbench(props: Props) {
               </div>
               <div className="lm-compose-actions">
                 {activeDirty && <span className="lm-dot lm-dot-warn">未保存</span>}
-                <span className="lm-send-hint">⌘S</span>
-                <button type="button" className="lm-btn lm-btn-sm" disabled={busy || !activeDirty} onClick={() => void saveActive()}>保存</button>
+                <span className="lm-send-hint">⌘S 保存 · ⇧⌘S 另存为</span>
+                {onAddToChatContext && activeTab ? (
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-ghost lm-btn-sm"
+                    onClick={() => onAddToChatContext({ root: activeTab.root, relPath: activeTab.path, kind: "file" })}
+                  >
+                    加入对话引用
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-sm"
+                  disabled={busy || !activeTab}
+                  title={!activeDirty ? "无未保存修改时不会写入" : "保存到当前文件（⌘S）"}
+                  onClick={() => void saveActive()}
+                >
+                  保存
+                </button>
+                <button type="button" className="lm-btn lm-btn-secondary lm-btn-sm" disabled={busy || !activeTab} onClick={() => void saveActiveAs()}>另存为…</button>
               </div>
             </div>
             <textarea
@@ -849,22 +1135,70 @@ export function FileWorkbench(props: Props) {
               {activeTab.name} · {activeTab.content.split("\n").length} 行 · {activeTab.content.length} 字符
             </div>
           </div>
+        ) : officeBlock ? (
+          <div className="lm-editor-pane lm-office-doc-pane">
+            <div className="lm-editor-header">
+              <div className="lm-editor-breadcrumb">
+                <span className="lm-editor-root-badge">{officeBlock.root}</span>
+                <span className="lm-editor-path">{officeBlock.relPath || "(根)"}</span>
+              </div>
+            </div>
+            <div className="lm-office-doc-body">
+              <p className="lm-office-doc-title">{officeBlock.name}</p>
+              <p className="lm-office-doc-copy">
+                本页为纯文本材料编辑器，不支持 Word/Excel/PowerPoint/PDF 的版式与表格预览。请用本机已安装的 Office 或 WPS 等打开编辑。
+              </p>
+              <div className="lm-office-doc-actions">
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-sm"
+                  disabled={busy}
+                  onClick={async () => {
+                    setError(null);
+                    const r = await window.lawmindDesktop?.openWithSystem({
+                      root: officeBlock.root,
+                      path: officeBlock.relPath,
+                    });
+                    if (r && ! r.ok) {
+                      setError(r.error ?? "无法用系统应用打开该文件。");
+                    }
+                  }}
+                >
+                  用本机应用打开
+                </button>
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-secondary lm-btn-sm"
+                  onClick={() => void doShowInFolder(officeBlock.root, officeBlock.relPath)}
+                >
+                  在访达中显示
+                </button>
+                {onAddToChatContext ? (
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-ghost lm-btn-sm"
+                    onClick={() => onAddToChatContext({ root: officeBlock.root, relPath: officeBlock.relPath, kind: "file" })}
+                  >
+                    在对话中引用
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </div>
         ) : (
           <div className="lm-editor-empty">
             <div className="lm-messages-empty-icon">📂</div>
             <div className="lm-messages-empty-title">选择文件开始编辑</div>
-            <div className="lm-messages-empty-hint">在左侧文件树中点击文件，或按 ⌘P 快速搜索</div>
+            <div className="lm-messages-empty-hint">在左侧文件树中点击文件，或按 ⌘P 快速搜索。Word 文档会提示用系统应用打开。</div>
           </div>
         )}
       </section>
+  );
 
-      {/* ── Floating context menu ── */}
+  const floatingLayer = (
+    <>
       {renderContextMenu()}
-
-      {/* ── Confirm / danger dialogs ── */}
       {renderConfirmDialog()}
-
-      {/* ── Quick Open Modal ── */}
       {showQuickOpen && (
         <QuickOpenModal
           files={indexedFiles}
@@ -872,6 +1206,26 @@ export function FileWorkbench(props: Props) {
           onClose={() => setShowQuickOpen(false)}
         />
       )}
+    </>
+  );
+
+  if (portalHosts?.explorer && portalHosts.editor) {
+    return (
+      <>
+        {createPortal(explorerAside, portalHosts.explorer)}
+        {portalHosts.split ? createPortal(splitBetweenExplorerAndRest, portalHosts.split) : null}
+        {createPortal(editorSection, portalHosts.editor)}
+        {floatingLayer}
+      </>
+    );
+  }
+
+  return (
+    <div className="lm-files-layout">
+      {explorerAside}
+      {splitBetweenExplorerAndRest}
+      {editorSection}
+      {floatingLayer}
     </div>
   );
 }

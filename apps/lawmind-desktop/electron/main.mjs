@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, shell, Menu, Notification } from "electron";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
@@ -6,6 +6,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/** @type {import("electron").BrowserWindow | null} */
+let mainWindowRef = null;
 
 function resolveRepoRoot() {
   if (process.env.LAWMIND_REPO_ROOT) {
@@ -21,7 +24,7 @@ function validateRepoRoot(root) {
   }
   try {
     const name = JSON.parse(fs.readFileSync(pkg, "utf8")).name;
-    return name === "openclaw";
+    return name === "lawmind" || name === "openclaw";
   } catch {
     return false;
   }
@@ -141,6 +144,91 @@ let envFilePath = "";
 let lawMindRoot = "";
 let configPath = "";
 let serverStarted = false;
+
+/** Public download landing (browser). Override with env `LAWMIND_DOWNLOAD_PAGE_URL`. */
+const DEFAULT_LAWMIND_DOWNLOAD_PAGE_URL =
+  "https://cdn.jsdelivr.net/gh/lawmind/lawmind@main/apps/lawmind-desktop/download/index.html";
+
+function resolveLawmindDownloadPageUrl() {
+  const fromEnv = process.env.LAWMIND_DOWNLOAD_PAGE_URL?.trim();
+  return fromEnv || DEFAULT_LAWMIND_DOWNLOAD_PAGE_URL;
+}
+
+let autoUpdaterSingleton = null;
+
+async function loadAutoUpdater() {
+  if (!app.isPackaged) {
+    return null;
+  }
+  if (process.env.LAWMIND_SKIP_AUTO_UPDATE === "1") {
+    return null;
+  }
+  if (!autoUpdaterSingleton) {
+    const { autoUpdater } = await import("electron-updater");
+    autoUpdaterSingleton = autoUpdater;
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+  }
+  return autoUpdaterSingleton;
+}
+
+async function runAutoUpdateCheckWithNotify() {
+  try {
+    const autoUpdater = await loadAutoUpdater();
+    if (!autoUpdater) {
+      return;
+    }
+    await autoUpdater.checkForUpdatesAndNotify();
+  } catch (e) {
+    console.warn("[LawMind] auto-update:", e instanceof Error ? e.message : e);
+  }
+}
+
+async function checkUpdatesWithUi() {
+  if (!app.isPackaged) {
+    await dialog.showMessageBox({
+      type: "info",
+      title: "LawMind",
+      message: "当前为开发构建，请使用菜单「下载安装包」页面获取正式版本。",
+    });
+    return;
+  }
+  if (process.env.LAWMIND_SKIP_AUTO_UPDATE === "1") {
+    await dialog.showMessageBox({
+      type: "info",
+      title: "LawMind",
+      message: "已按环境变量关闭应用内更新，请联系管理员获取安装包。",
+    });
+    return;
+  }
+  try {
+    const autoUpdater = await loadAutoUpdater();
+    if (!autoUpdater) {
+      return;
+    }
+    const r = await autoUpdater.checkForUpdates();
+    if (r?.isUpdateAvailable) {
+      await dialog.showMessageBox({
+        type: "info",
+        title: "LawMind",
+        message: `发现新版本 ${r.updateInfo.version}。将自动下载；下载完成后会通知您，退出应用时可完成安装。`,
+      });
+      return;
+    }
+    await dialog.showMessageBox({
+      type: "info",
+      title: "LawMind",
+      message: "当前已是最新版本。",
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await dialog.showMessageBox({
+      type: "warning",
+      title: "LawMind",
+      message: `检查更新失败：${msg}`,
+    });
+  }
+}
 
 const MAX_TEXT_READ_BYTES = 1_000_000;
 
@@ -338,9 +426,9 @@ async function restartBackendInternal() {
     await dialog.showMessageBox({
       type: "error",
       title: "LawMind",
-      message: "Cannot find OpenClaw monorepo root.",
+      message: "Cannot find LawMind workspace root.",
       detail:
-        "Set LAWMIND_REPO_ROOT to the directory containing openclaw package.json, build the bundled server (pnpm lawmind:bundle:desktop-server), or install a packaged build that includes lawmind-server.",
+        "Set LAWMIND_REPO_ROOT to the directory containing the LawMind workspace package.json, build the bundled server (pnpm lawmind:bundle:desktop-server), or install a packaged build that includes lawmind-server.",
     });
     throw new Error("no repo root");
   }
@@ -377,7 +465,73 @@ function registerIpcHandlers() {
       bundledServer: Boolean(getBundledServerScript()),
       nodeRuntimeKey: app.isPackaged ? nodeRuntimeKey() : null,
       nodeExecutable: app.isPackaged ? resolveNodeExecutable() : "node",
+      appVersion: app.getVersion(),
+      downloadPageUrl: resolveLawmindDownloadPageUrl(),
     };
+  });
+
+  ipcMain.handle("lawmind:check-updates", async () => {
+    await checkUpdatesWithUi();
+    return { ok: true };
+  });
+
+  ipcMain.handle("lawmind:show-notification", (_evt, payload) => {
+    try {
+      const title =
+        typeof payload?.title === "string" && payload.title.trim()
+          ? payload.title.trim()
+          : "LawMind";
+      const body = typeof payload?.body === "string" ? payload.body : "";
+      if (!Notification.isSupported()) {
+        return { ok: false, error: "notifications_not_supported" };
+      }
+      const notification = new Notification({ title, body: body.slice(0, 512) });
+      const openSettingsOnClick = payload?.openSettingsOnClick === true;
+      const openReviewOnClick = payload?.openReviewOnClick === true;
+      const reviewTaskId =
+        typeof payload?.reviewTaskId === "string" ? payload.reviewTaskId.trim() : "";
+      const reviewMatterIdRaw = payload?.reviewMatterId;
+      const reviewMatterId =
+        typeof reviewMatterIdRaw === "string" && reviewMatterIdRaw.trim()
+          ? reviewMatterIdRaw.trim()
+          : null;
+      if (openSettingsOnClick) {
+        notification.on("click", () => {
+          const w = mainWindowRef ?? BrowserWindow.getAllWindows()[0];
+          if (w && !w.isDestroyed()) {
+            if (w.isMinimized()) {
+              w.restore();
+            }
+            w.show();
+            w.focus();
+            w.webContents.send("lawmind:notification-click", {
+              reason: "open_settings_collaboration",
+            });
+          }
+        });
+      } else if (openReviewOnClick) {
+        notification.on("click", () => {
+          const w = mainWindowRef ?? BrowserWindow.getAllWindows()[0];
+          if (w && !w.isDestroyed()) {
+            if (w.isMinimized()) {
+              w.restore();
+            }
+            w.show();
+            w.focus();
+            w.webContents.send("lawmind:notification-click", {
+              reason: "open_review",
+              reviewTaskId: reviewTaskId || undefined,
+              reviewMatterId: reviewMatterId ?? undefined,
+            });
+          }
+        });
+      }
+      notification.show();
+      return { ok: true };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: msg };
+    }
   });
 
   ipcMain.handle("lawmind:pick-workspace", async () => {
@@ -652,6 +806,52 @@ function registerIpcHandlers() {
     }
   });
 
+  /** Copy a file or directory within the same root (for paste in file tree). */
+  ipcMain.handle("lawmind:fs:copy", (_evt, payload) => {
+    try {
+      const root = payload?.root;
+      const fromPath = payload?.fromPath ?? "";
+      const toPath = payload?.toPath ?? "";
+      if (!fromPath || !toPath) {
+        return { ok: false, error: "fromPath and toPath are required" };
+      }
+      const { absPath: fromAbs } = resolveFsPath(root, fromPath, { mustExist: true, allowRoot: false });
+      const { absPath: toAbs } = resolveFsPath(root, toPath, { mustExist: false, allowRoot: false });
+      if (fs.existsSync(toAbs)) {
+        return { ok: false, error: "destination already exists" };
+      }
+      const st = fs.statSync(fromAbs);
+      if (st.isDirectory()) {
+        fs.cpSync(fromAbs, toAbs, { recursive: true });
+      } else {
+        fs.copyFileSync(fromAbs, toAbs);
+      }
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
+
+  /** Save text to a path chosen by the user (另存为). */
+  ipcMain.handle("lawmind:dialog:save-text-file", async (_evt, payload) => {
+    const content = typeof payload?.content === "string" ? payload.content : "";
+    const defaultName = typeof payload?.defaultName === "string" ? payload.defaultName : "未命名.txt";
+    const win = BrowserWindow.getFocusedWindow();
+    const res = await dialog.showSaveDialog(win ?? undefined, {
+      title: "另存为",
+      defaultPath: defaultName,
+      filters: [
+        { name: "Text & markup", extensions: ["txt", "md", "json", "ts", "tsx", "js", "css", "html"] },
+        { name: "All files", extensions: ["*"] },
+      ],
+    });
+    if (res.canceled || !res.filePath) {
+      return { ok: false, canceled: true };
+    }
+    fs.writeFileSync(res.filePath, content, "utf8");
+    return { ok: true, filePath: res.filePath };
+  });
+
   ipcMain.handle("lawmind:open-external", (_evt, url) => {
     if (typeof url === "string" && url.startsWith("http")) {
       void shell.openExternal(url);
@@ -669,6 +869,138 @@ function registerIpcHandlers() {
     shell.showItemInFolder(resolved);
     return { ok: true };
   });
+
+  /** 用系统默认应用打开工作区/项目内文件（如 Word 文档） */
+  ipcMain.handle("lawmind:open-with-system", async (_evt, payload) => {
+    try {
+      const root = payload?.root;
+      const relPath = payload?.path ?? "";
+      const { absPath } = resolveFsPath(root, relPath, { mustExist: true, allowRoot: false });
+      const err = await shell.openPath(absPath);
+      if (err) {
+        return { ok: false, error: err };
+      }
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
+}
+
+function setupApplicationMenu() {
+  const isMac = process.platform === "darwin";
+  const sendFileMenu = (action) => {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+    win?.webContents.send("lawmind:file-menu", { action });
+  };
+  const fileSubmenu = [
+    {
+      label: "Save",
+      accelerator: "CommandOrControl+S",
+      click: () => {
+        sendFileMenu("save");
+      },
+    },
+    {
+      label: "Save As…",
+      accelerator: "Shift+CommandOrControl+S",
+      click: () => {
+        sendFileMenu("save-as");
+      },
+    },
+  ];
+  const template = isMac
+    ? [
+        {
+          label: app.name,
+          submenu: [
+            { role: "about" },
+            { type: "separator" },
+            { role: "services" },
+            { type: "separator" },
+            { role: "hide" },
+            { role: "hideOthers" },
+            { role: "unhide" },
+            { type: "separator" },
+            { role: "quit" },
+          ],
+        },
+        { label: "File", submenu: fileSubmenu },
+        {
+          label: "Edit",
+          submenu: [
+            { role: "undo" },
+            { role: "redo" },
+            { type: "separator" },
+            { role: "cut" },
+            { role: "copy" },
+            { role: "paste" },
+          ],
+        },
+        {
+          label: "View",
+          submenu: [
+            { role: "reload" },
+            { role: "toggleDevTools" },
+            { type: "separator" },
+            { role: "resetZoom" },
+            { role: "zoomIn" },
+            { role: "zoomOut" },
+          ],
+        },
+        {
+          label: "帮助",
+          submenu: [
+            {
+              label: "检查更新…",
+              click: () => {
+                void checkUpdatesWithUi();
+              },
+            },
+            {
+              label: "下载安装包…",
+              click: () => {
+                void shell.openExternal(resolveLawmindDownloadPageUrl());
+              },
+            },
+          ],
+        },
+        { label: "Window", submenu: [{ role: "minimize" }, { role: "zoom" }, { type: "separator" }, { role: "front" }] },
+      ]
+    : [
+        { label: "File", submenu: [...fileSubmenu, { type: "separator" }, { role: "quit" }] },
+        {
+          label: "Edit",
+          submenu: [
+            { role: "undo" },
+            { role: "redo" },
+            { type: "separator" },
+            { role: "cut" },
+            { role: "copy" },
+            { role: "paste" },
+          ],
+        },
+        { label: "View", submenu: [{ role: "reload" }, { role: "toggleDevTools" }] },
+        {
+          label: "帮助",
+          submenu: [
+            {
+              label: "检查更新…",
+              click: () => {
+                void checkUpdatesWithUi();
+              },
+            },
+            {
+              label: "下载安装包…",
+              click: () => {
+                void shell.openExternal(resolveLawmindDownloadPageUrl());
+              },
+            },
+          ],
+        },
+        { label: "Window", submenu: [{ role: "minimize" }, { role: "close" }] },
+      ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 async function createWindow() {
@@ -678,6 +1010,7 @@ async function createWindow() {
     width: 1100,
     height: 780,
     title: "LawMind",
+    autoHideMenuBar: true,
     webPreferences: {
       // CommonJS preload is more reliable than .mjs across Electron versions.
       preload: path.join(__dirname, "preload.cjs"),
@@ -686,6 +1019,25 @@ async function createWindow() {
       // Dev (http://127.0.0.1:Vite): sandbox off avoids preload/contextBridge issues on some Electron+Vite setups. Packaged app uses file:// with sandbox on.
       sandbox: app.isPackaged,
     },
+  });
+
+  mainWindowRef = mainWindow;
+  mainWindow.on("closed", () => {
+    mainWindowRef = null;
+  });
+
+  // target=_blank / window.open to http(s) must open in the system browser, not an in-app window (often blank).
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      const u = new URL(url);
+      if (u.protocol === "http:" || u.protocol === "https:") {
+        void shell.openExternal(url);
+        return { action: "deny" };
+      }
+    } catch {
+      /* ignore bad URLs */
+    }
+    return { action: "deny" };
   });
 
   const devUrl = process.env.VITE_DEV_SERVER_URL || "http://127.0.0.1:5174";
@@ -700,7 +1052,11 @@ async function createWindow() {
 void app.whenReady().then(async () => {
   try {
     registerIpcHandlers();
+    setupApplicationMenu();
     await createWindow();
+    setTimeout(() => {
+      void runAutoUpdateCheckWithNotify();
+    }, 12_000);
   } catch {
     app.quit();
   }

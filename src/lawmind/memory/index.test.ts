@@ -14,6 +14,7 @@ import {
   appendCaseTaskGoal,
   caseFilePath,
   ensureCaseWorkspace,
+  extractClientIdFromCaseMarkdown,
   loadMemoryContext,
 } from "./index.js";
 
@@ -51,6 +52,63 @@ describe("LawMind Memory", () => {
     expect(memory.profile).toContain("Lawyer profile");
     expect(memory.caseMemory).toContain("matter-002");
     expect(memory.caseMemory).toContain("已有案件信息");
+    expect(memory.clientProfile).toBe("");
+  });
+
+  it("loadMemoryContext: prefers clients/<matterId> when CASE has no clientId", async () => {
+    await ensureCaseWorkspace(workspaceDir, "m-99");
+    const clientsDir = path.join(workspaceDir, "clients", "m-99");
+    await fs.mkdir(clientsDir, { recursive: true });
+    await fs.writeFile(path.join(clientsDir, "CLIENT_PROFILE.md"), "客户画像-按 matter", "utf8");
+
+    const m = await loadMemoryContext(workspaceDir, { matterId: "m-99" });
+    expect(m.clientProfile).toBe("客户画像-按 matter");
+    expect(m.clientProfileClientId).toBe("m-99");
+  });
+
+  it("loadMemoryContext: CASE clientId with clients/<id> wins over matterId folder", async () => {
+    const mid = "retainer-2024";
+    await ensureCaseWorkspace(workspaceDir, mid);
+    const casePath = caseFilePath(workspaceDir, mid);
+    await fs.writeFile(
+      casePath,
+      `# 案件\n## 1. 基本信息\n- clientId: long-term-client-01\n`,
+      "utf8",
+    );
+    await fs.mkdir(path.join(workspaceDir, "clients", "long-term-client-01"), { recursive: true });
+    await fs.writeFile(
+      path.join(workspaceDir, "clients", "long-term-client-01", "CLIENT_PROFILE.md"),
+      "常年客户A",
+      "utf8",
+    );
+    await fs.mkdir(path.join(workspaceDir, "clients", mid), { recursive: true });
+    await fs.writeFile(
+      path.join(workspaceDir, "clients", mid, "CLIENT_PROFILE.md"),
+      "不应被采用",
+      "utf8",
+    );
+
+    const m = await loadMemoryContext(workspaceDir, { matterId: mid });
+    expect(m.clientProfile).toBe("常年客户A");
+    expect(m.clientProfileClientId).toBe("long-term-client-01");
+  });
+
+  it("loadMemoryContext: falls back to root CLIENT_PROFILE when no scoped file", async () => {
+    await ensureCaseWorkspace(workspaceDir, "m-z");
+    await fs.writeFile(path.join(workspaceDir, "CLIENT_PROFILE.md"), "工作区默认客户", "utf8");
+    const m = await loadMemoryContext(workspaceDir, { matterId: "m-z" });
+    expect(m.clientProfile).toBe("工作区默认客户");
+    expect(m.clientProfileClientId).toBeUndefined();
+  });
+
+  it("extractClientIdFromCaseMarkdown reads common list markers", () => {
+    const md = `## 1. 基本信息
+- clientId: my-client-7
+- 案由: x
+`;
+    expect(extractClientIdFromCaseMarkdown(md)).toBe("my-client-7");
+    expect(extractClientIdFromCaseMarkdown("## 1\n- **客户ID**：`corp-abc`")).toBe("corp-abc");
+    expect(extractClientIdFromCaseMarkdown("- clientId: 可选\n")).toBeNull();
   });
 
   it("appends structured entries into CASE.md sections", async () => {

@@ -29,12 +29,14 @@
     "wait-on": "^8.0.1"
   },
   "dependencies": {
+    "electron-updater": "^6.8.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "build": {
     "appId": "ai.lawmind.desktop",
     "productName": "LawMind",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "release"
     },
@@ -47,25 +49,52 @@
       {
         "from": "server/dist",
         "to": "lawmind-server",
-        "filter": ["**/*.cjs"]
+        "filter": [
+          "**/*.cjs"
+        ]
       },
       {
         "from": "resources/node-runtime",
         "to": "node-runtime",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "mac": {
       "category": "public.app-category.productivity",
-      "target": ["dmg", "zip"],
-      "identity": null
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "identity": null,
+      "hardenedRuntime": false
     },
     "win": {
-      "target": ["nsis", "portable"]
+      "target": [
+        "nsis",
+        "portable",
+        "zip"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "tar.gz"
+      ],
+      "category": "Office",
+      "maintainer": "LawMind"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "lawmind",
+        "repo": "lawmind"
+      }
+    ]
   }
 }

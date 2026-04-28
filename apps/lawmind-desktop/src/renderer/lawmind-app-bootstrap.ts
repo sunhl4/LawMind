@@ -6,6 +6,7 @@ import {
   loadHealthPayload,
   loadRecordsPayload,
 } from "./lawmind-app-data";
+import { LAWMIND_DOWNLOAD_PAGE_URL } from "./lawmind-public-urls.js";
 
 export type AppConfig = {
   apiBase: string;
@@ -13,6 +14,10 @@ export type AppConfig = {
   projectDir: string | null;
   envFilePath: string;
   retrievalMode: "single" | "dual";
+  /** Present when loaded from Electron preload `getConfig`. */
+  packaged?: boolean;
+  appVersion?: string;
+  downloadPageUrl?: string;
 };
 
 function normalizeRetrievalMode(mode: string | null | undefined): "single" | "dual" {
@@ -29,6 +34,9 @@ export async function loadInitialAppConfig(): Promise<AppConfig> {
       projectDir: config.projectDir ?? null,
       envFilePath: config.envFilePath,
       retrievalMode: normalizeRetrievalMode(config.retrievalMode),
+      packaged: config.packaged,
+      appVersion: config.appVersion,
+      downloadPageUrl: config.downloadPageUrl,
     };
   }
   const devApi = (import.meta.env.VITE_LAWMIND_DEV_API as string | undefined)?.trim();
@@ -39,6 +47,9 @@ export async function loadInitialAppConfig(): Promise<AppConfig> {
       projectDir: null,
       envFilePath: "",
       retrievalMode: "single",
+      packaged: false,
+      appVersion: "dev",
+      downloadPageUrl: LAWMIND_DOWNLOAD_PAGE_URL,
     };
   }
   throw new Error(

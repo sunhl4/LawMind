@@ -11,6 +11,7 @@ function minimalIntent(overrides: Partial<TaskIntent> = {}): TaskIntent {
     taskId: "t-model-1",
     kind: "analyze.contract",
     output: "docx",
+    instruction: "请审查合同违约金条款",
     summary: "合同审查",
     riskLevel: "medium",
     models: ["general", "legal"],
@@ -46,7 +47,7 @@ describe("buildDraftAsync model reasoning", () => {
   it("uses rule buildDraft when reasoning mode off", async () => {
     delete process.env.LAWMIND_REASONING_MODE;
     const draft = await buildDraftAsync({ intent: minimalIntent(), bundle: minimalBundle() });
-    expect(draft.sections.some((s) => s.heading === "检索结论摘要")).toBe(true);
+    expect(draft.sections.some((s) => s.heading === "审查结论")).toBe(true);
   });
 
   it("merges model sections when LAWMIND_REASONING_MODE=model", async () => {
@@ -79,7 +80,7 @@ describe("buildDraftAsync model reasoning", () => {
     const draft = await buildDraftAsync({ intent: minimalIntent(), bundle: minimalBundle() });
     expect(draft.title).toBe("模型生成标题");
     expect(draft.sections.some((s) => s.heading === "一、结论")).toBe(true);
-    expect(draft.sections.some((s) => s.heading === "风险提示")).toBe(true);
+    expect(draft.sections.some((s) => s.heading === "主要风险提示")).toBe(true);
     expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThanOrEqual(1);
   });
 });

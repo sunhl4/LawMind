@@ -41,6 +41,7 @@ describe("LawMind matter service", () => {
       matterId: "matter-service-1",
       templateId: "word/legal-memo-default",
     });
+    await engine.confirm(intent.taskId, { actorId: "lawyer:test" });
     const bundle = await engine.research(intent);
     const draft = engine.draft(intent, bundle, { title: "案件服务层法律意见" });
 

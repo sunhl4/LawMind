@@ -33,6 +33,6 @@ Set **`LAWMIND_DESKTOP_ACTOR_ID`** in the environment that starts the desktop lo
 - [LawMind user manual](/LAWMIND-USER-MANUAL)
 - [LawMind integrations](/LAWMIND-INTEGRATIONS)
 
-https://docs.openclaw.ai/LAWMIND-ACTOR-ATTRIBUTION  
-https://docs.openclaw.ai/LAWMIND-USER-MANUAL  
-https://docs.openclaw.ai/LAWMIND-INTEGRATIONS
+https://docs.lawmind.ai/LAWMIND-ACTOR-ATTRIBUTION  
+https://docs.lawmind.ai/LAWMIND-USER-MANUAL  
+https://docs.lawmind.ai/LAWMIND-INTEGRATIONS

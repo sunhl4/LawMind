@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LawMind 下载</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f6f5f2;
+        --card: #fff;
+        --text: #1a1a1a;
+        --muted: #5c5c5c;
+        --accent: #1e5a8a;
+        --accent-soft: #e8f1f8;
+        --border: #d8d6d0;
+        --rec: #0d6b4d;
+        --rec-bg: #e6f5ef;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #141414;
+          --card: #1e1e1e;
+          --text: #f2f2f2;
+          --muted: #a8a8a8;
+          --accent: #6eb3e8;
+          --accent-soft: #1a2f42;
+          --border: #3a3a3a;
+          --rec: #5ed4a8;
+          --rec-bg: #12261f;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.5;
+      }
+      .wrap {
+        max-width: 860px;
+        margin: 0 auto;
+        padding: 2rem 1.25rem 3rem;
+      }
+      h1 {
+        font-size: 1.6rem;
+        font-weight: 650;
+        margin: 0 0 0.35rem;
+      }
+      .sub {
+        color: var(--muted);
+        font-size: 0.95rem;
+        margin: 0 0 1.25rem;
+      }
+      .banner {
+        background: var(--accent-soft);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 0.85rem 1rem;
+        margin-bottom: 1.25rem;
+        font-size: 0.9rem;
+      }
+      .banner strong {
+        color: var(--text);
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+        margin-bottom: 1.5rem;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.88rem;
+      }
+      th,
+      td {
+        padding: 0.65rem 0.85rem;
+        text-align: left;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+      }
+      th {
+        background: rgba(0, 0, 0, 0.03);
+        font-weight: 600;
+      }
+      tr:last-child td {
+        border-bottom: none;
+      }
+      tr.rec td {
+        background: var(--rec-bg);
+      }
+      tr.rec td:first-child::before {
+        content: "推荐 · ";
+        color: var(--rec);
+        font-weight: 600;
+      }
+      a.btn {
+        display: inline-block;
+        padding: 0.35rem 0.65rem;
+        border-radius: 6px;
+        background: var(--accent);
+        color: #fff !important;
+        text-decoration: none;
+        font-weight: 550;
+        font-size: 0.82rem;
+      }
+      a.btn:hover {
+        filter: brightness(1.08);
+      }
+      .muted {
+        color: var(--muted);
+        font-size: 0.82rem;
+      }
+      .err {
+        color: #b42318;
+        padding: 1rem;
+      }
+      footer {
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+      code {
+        font-size: 0.85em;
+        background: rgba(0, 0, 0, 0.06);
+        padding: 0.1em 0.35em;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>LawMind 桌面版下载</h1>
+      <p class="sub">
+        根据当前浏览器环境推测系统与架构，并高亮<strong>最可能适用</strong>的安装包；您仍可手动选择其他格式（如安装版 / 绿色版 / 压缩包）。
+      </p>
+      <div class="banner" id="detect-banner" hidden>
+        检测到您可能正在使用：<strong id="detect-label">—</strong>。若列表中「推荐」行与您电脑不符，请以系统信息为准或联系技术支持。
+      </div>
+      <div class="card">
+        <div id="status" class="muted" style="padding: 0.75rem 1rem">正在读取发布信息…</div>
+        <div id="table-wrap" hidden>
+          <table>
+            <thead>
+              <tr>
+                <th>说明</th>
+                <th>文件名</th>
+                <th>大小</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+        <div id="error" class="err" hidden></div>
+      </div>
+      <footer>
+        <p>
+          详细安装步骤见仓库内
+          <a href="https://github.com/lawmind/lawmind/blob/main/apps/lawmind-desktop/INSTALL.md" target="_blank" rel="noopener">INSTALL.md</a
+          >。私有构建可将本页托管到企业内网，并用 <code>?repo=组织名/仓库名</code> 指向您的 GitHub Release。
+        </p>
+      </footer>
+    </div>
+    <script>
+      (function () {
+        var params = new URLSearchParams(window.location.search);
+        var repo = params.get("repo") || "lawmind/lawmind";
+        var api = "https://api.github.com/repos/" + repo + "/releases/latest";
+
+        function formatBytes(n) {
+          if (typeof n !== "number" || !Number.isFinite(n)) return "—";
+          if (n < 1024) return n + " B";
+          if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+          return (n / (1024 * 1024)).toFixed(1) + " MB";
+        }
+
+        function detectClient() {
+          var ua = navigator.userAgent || "";
+          var platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+          var os = "unknown";
+          var arch = "x64";
+          if (/Win/i.test(platform) || /Windows/i.test(ua)) os = "win";
+          else if (/Mac/i.test(platform) || /Mac OS X/i.test(ua)) os = "mac";
+          else if (/Linux/i.test(platform) || /Linux/i.test(ua)) os = "linux";
+          var arm =
+            /aarch64|arm64|armv8/i.test(ua) ||
+            (navigator.userAgentData && navigator.userAgentData.arch === "arm");
+          if (arm) arch = "arm64";
+          if (os === "win" && /arm/i.test(ua)) arch = "arm64";
+          return { os: os, arch: arch, label: os + " · " + arch };
+        }
+
+        function classifyAsset(name) {
+          var lower = name.toLowerCase();
+          if (!/^lawmind/i.test(name) && !/lawmind/i.test(lower)) {
+            return null;
+          }
+          var row = { raw: name, kind: "", sort: 50 };
+          if (lower.endsWith(".dmg")) {
+            row.kind = "macOS 磁盘映像（拖拽安装）";
+            row.os = "mac";
+            row.sort = 12;
+            return row;
+          }
+          if (lower.endsWith(".appimage")) {
+            row.kind = "Linux AppImage";
+            row.os = "linux";
+            row.sort = 42;
+            return row;
+          }
+          if (lower.endsWith(".tar.gz") || lower.endsWith(".tgz")) {
+            row.kind = "Linux 解压即用（tar.gz）";
+            row.os = "linux";
+            row.sort = 43;
+            return row;
+          }
+          if (lower.endsWith(".zip")) {
+            row.kind = lower.indexOf("win") >= 0 || lower.indexOf("windows") >= 0 ? "Windows 压缩包（解压运行）" : "压缩包（请看清 mac / win）";
+            row.os = lower.indexOf("win") >= 0 ? "win" : lower.indexOf("mac") >= 0 || lower.indexOf("darwin") >= 0 ? "mac" : null;
+            row.sort = row.os === "win" ? 22 : row.os === "mac" ? 11 : 30;
+            return row;
+          }
+          if (lower.endsWith(".exe")) {
+            if (lower.indexOf("portable") >= 0) {
+              row.kind = "Windows 绿色版（portable）";
+              row.os = "win";
+              row.sort = 21;
+              return row;
+            }
+            row.kind = "Windows 安装程序";
+            row.os = "win";
+            row.sort = 20;
+            return row;
+          }
+          return { raw: name, kind: "其他", os: null, sort: 99 };
+        }
+
+        function archFromName(name) {
+          var lower = name.toLowerCase();
+          if (lower.indexOf("arm64") >= 0 || lower.indexOf("aarch64") >= 0) return "arm64";
+          if (lower.indexOf("x64") >= 0 || lower.indexOf("x86_64") >= 0 || lower.indexOf("win32-x64") >= 0)
+            return "x64";
+          return null;
+        }
+
+        function scoreForClient(row, client) {
+          if (!row || !row.os || row.os === "unknown") return 0;
+          if (row.os !== client.os) return 0;
+          var a = archFromName(row.raw);
+          if (!a) return 50;
+          if (a === client.arch) return 100;
+          if (client.os === "mac" && a === "x64" && client.arch === "arm64") return 40;
+          return 20;
+        }
+
+        var client = detectClient();
+        var banner = document.getElementById("detect-banner");
+        var detectLabel = document.getElementById("detect-label");
+        if (client.os !== "unknown") {
+          banner.hidden = false;
+          detectLabel.textContent = client.label;
+        }
+
+        fetch(api, { headers: { Accept: "application/vnd.github+json" } })
+          .then(function (r) {
+            if (!r.ok) throw new Error("GitHub API: HTTP " + r.status);
+            return r.json();
+          })
+          .then(function (data) {
+            document.getElementById("status").textContent =
+              "最新版本标签：" + (data.tag_name || "—") + "（仓库 " + repo + "）";
+            var assets = Array.isArray(data.assets) ? data.assets : [];
+            var rows = [];
+            for (var i = 0; i < assets.length; i++) {
+              var a = assets[i];
+              var info = classifyAsset(a.name || "");
+              if (!info) continue;
+              info.url = a.browser_download_url;
+              info.size = a.size;
+              rows.push(info);
+            }
+            rows.sort(function (x, y) {
+              return x.sort - y.sort || x.raw.localeCompare(y.raw);
+            });
+            if (rows.length === 0) {
+              document.getElementById("error").hidden = false;
+              document.getElementById("error").textContent =
+                "未在最新 Release 中找到 LawMind 相关安装包。请确认已上传构建产物或使用正确的 repo 参数。";
+              return;
+            }
+            var bestIdx = -1;
+            var bestScore = -1;
+            for (var j = 0; j < rows.length; j++) {
+              var sc = scoreForClient(rows[j], client);
+              if (sc > bestScore) {
+                bestScore = sc;
+                bestIdx = j;
+              }
+            }
+            var tbody = document.getElementById("rows");
+            tbody.innerHTML = "";
+            for (var k = 0; k < rows.length; k++) {
+              var row = rows[k];
+              var tr = document.createElement("tr");
+              if (k === bestIdx && bestScore >= 40) tr.className = "rec";
+              var td1 = document.createElement("td");
+              td1.textContent = row.kind;
+              var td2 = document.createElement("td");
+              td2.textContent = row.raw;
+              var td3 = document.createElement("td");
+              td3.textContent = formatBytes(row.size);
+              var td4 = document.createElement("td");
+              var link = document.createElement("a");
+              link.className = "btn";
+              link.href = row.url;
+              link.rel = "noopener";
+              link.textContent = "下载";
+              td4.appendChild(link);
+              tr.appendChild(td1);
+              tr.appendChild(td2);
+              tr.appendChild(td3);
+              tr.appendChild(td4);
+              tbody.appendChild(tr);
+            }
+            document.getElementById("table-wrap").hidden = false;
+          })
+          .catch(function (e) {
+            document.getElementById("status").textContent = "";
+            var err = document.getElementById("error");
+            err.hidden = false;
+            err.textContent =
+              "无法加载发布信息（" +
+              (e && e.message ? e.message : String(e)) +
+              "）。若为私有仓库，请使用可访问 Release 的下载渠道，或将本页与 JSON 镜像至内网。";
+          });
+      })();
+    </script>
+  </body>
+</html>

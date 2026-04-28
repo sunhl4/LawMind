@@ -55,6 +55,7 @@ describe("LawMind queue service", () => {
       matterId: "matter-queue-2",
       templateId: "word/legal-memo-default",
     });
+    await engine.confirm(intent.taskId, { actorId: "lawyer:test" });
     const bundle = await engine.research(intent);
     engine.draft(intent, bundle, { title: "待审核法律意见" });
 

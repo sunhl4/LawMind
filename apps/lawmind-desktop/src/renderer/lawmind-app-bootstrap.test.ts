@@ -32,8 +32,10 @@ describe("lawmind-app-bootstrap", () => {
         bundledServer: false,
         nodeRuntimeKey: null,
         nodeExecutable: "node",
+        appVersion: "0.0.0-test",
+        downloadPageUrl: "https://cdn.test/lawmind/download",
       }),
-    } as Window["lawmindDesktop"];
+    } as unknown as NonNullable<Window["lawmindDesktop"]>;
 
     await expect(loadInitialAppConfig()).resolves.toEqual({
       apiBase: "http://127.0.0.1:4312",
@@ -41,6 +43,9 @@ describe("lawmind-app-bootstrap", () => {
       projectDir: "/tmp/project",
       envFilePath: "/tmp/workspace/.env",
       retrievalMode: "dual",
+      packaged: false,
+      appVersion: "0.0.0-test",
+      downloadPageUrl: "https://cdn.test/lawmind/download",
     });
   });
 

@@ -1,5 +1,5 @@
 /**
- * LawMind 联网检索 — Brave Web Search API（轻量实现，与 OpenClaw web_search 能力对齐）
+ * LawMind 联网检索 — Brave Web Search API（轻量实现，与 reference agent stack web_search 能力对齐）
  *
  * 环境变量（任选其一）：
  * - LAWMIND_WEB_SEARCH_API_KEY

@@ -28,7 +28,7 @@ import {
   buildGovernanceReportMarkdown,
   runBenchmarks,
   BUILTIN_BENCHMARK_TASKS,
-} from "openclaw/lawmind";
+} from "lawmind";
 
 const policy = readWorkspacePolicyFile(workspaceDir);
 const results = await runBenchmarks(engine, BUILTIN_BENCHMARK_TASKS);
@@ -46,6 +46,6 @@ const md = await buildGovernanceReportMarkdown(workspaceDir);
 - [Quality and benchmarks](/lawmind/quality-and-benchmarks)
 - [LawMind 2.0 strategy](/LAWMIND-2.0-STRATEGY)
 
-https://docs.openclaw.ai/lawmind/phase-c-governance  
-https://docs.openclaw.ai/LAWMIND-POLICY-FILE  
-https://docs.openclaw.ai/LAWMIND-PRIVATE-DEPLOY
+https://docs.lawmind.ai/lawmind/phase-c-governance  
+https://docs.lawmind.ai/LAWMIND-POLICY-FILE  
+https://docs.lawmind.ai/LAWMIND-PRIVATE-DEPLOY

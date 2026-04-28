@@ -7,7 +7,63 @@ import fs from "node:fs";
 import path from "node:path";
 import { getAssistantPreset } from "../agent/assistant-presets.js";
 import { DEFAULT_ASSISTANT_ID } from "./constants.js";
-import type { AssistantProfile, AssistantStatsEntry, AssistantStatsFile } from "./types.js";
+import type {
+  AssistantOrgRole,
+  AssistantProfile,
+  AssistantStatsEntry,
+  AssistantStatsFile,
+} from "./types.js";
+
+function pickOrgRole(v: unknown): AssistantOrgRole | undefined {
+  if (v === undefined) {
+    return undefined;
+  }
+  if (v === null || v === "") {
+    return undefined;
+  }
+  if (v === "lead" || v === "member" || v === "intern") {
+    return v;
+  }
+  return undefined;
+}
+
+function mergeOrgFields(
+  base: AssistantProfile,
+  patch: Partial<AssistantProfile>,
+): Pick<AssistantProfile, "orgRole" | "reportsToAssistantId" | "peerReviewDefaultAssistantId"> {
+  const orgRole = patch.orgRole !== undefined ? pickOrgRole(patch.orgRole) : base.orgRole;
+  const reportsToAssistantId =
+    patch.reportsToAssistantId !== undefined
+      ? patch.reportsToAssistantId.trim() || undefined
+      : base.reportsToAssistantId;
+  const peerReviewDefaultAssistantId =
+    patch.peerReviewDefaultAssistantId !== undefined
+      ? patch.peerReviewDefaultAssistantId.trim() || undefined
+      : base.peerReviewDefaultAssistantId;
+  return { orgRole, reportsToAssistantId, peerReviewDefaultAssistantId };
+}
+
+export function validateAssistantOrgLinks(profiles: AssistantProfile[]): void {
+  const ids = new Set(profiles.map((p) => p.assistantId));
+  for (const p of profiles) {
+    if (p.reportsToAssistantId) {
+      if (p.reportsToAssistantId === p.assistantId) {
+        throw new Error("汇报对象不能是当前智能体自己");
+      }
+      if (!ids.has(p.reportsToAssistantId)) {
+        throw new Error("汇报对象智能体不存在，请先创建或刷新列表");
+      }
+    }
+    if (p.peerReviewDefaultAssistantId) {
+      if (p.peerReviewDefaultAssistantId === p.assistantId) {
+        throw new Error("互审默认对象不能是当前智能体自己");
+      }
+      if (!ids.has(p.peerReviewDefaultAssistantId)) {
+        throw new Error("互审默认对象智能体不存在");
+      }
+    }
+  }
+}
 
 export function resolveLawMindRoot(workspaceDir: string, envFile?: string): string {
   const raw = envFile?.trim();
@@ -97,6 +153,7 @@ export function upsertAssistant(
 
   if (idx >= 0) {
     const base = list[idx];
+    const org = mergeOrgFields(base, patch);
     const next: AssistantProfile = {
       ...base,
       displayName: patch.displayName !== undefined ? patch.displayName.trim() : base.displayName,
@@ -112,13 +169,28 @@ export function upsertAssistant(
         patch.customRoleInstructions !== undefined
           ? patch.customRoleInstructions.trim() || undefined
           : base.customRoleInstructions,
+      orgRole: org.orgRole,
+      reportsToAssistantId: org.reportsToAssistantId,
+      peerReviewDefaultAssistantId: org.peerReviewDefaultAssistantId,
       updatedAt: now,
     };
+    const nextList = list.map((a) => (a.assistantId === id ? next : a));
+    validateAssistantOrgLinks(nextList);
     list[idx] = next;
     saveAssistantProfiles(lawMindRoot, list);
     return next;
   }
 
+  const org = mergeOrgFields(
+    {
+      assistantId: id,
+      displayName: "",
+      introduction: "",
+      createdAt: now,
+      updatedAt: now,
+    } as AssistantProfile,
+    patch,
+  );
   const next: AssistantProfile = {
     assistantId: id,
     displayName: patch.displayName?.trim() || "新助手",
@@ -126,9 +198,14 @@ export function upsertAssistant(
     presetKey: patch.presetKey?.trim() || undefined,
     customRoleTitle: patch.customRoleTitle?.trim() || undefined,
     customRoleInstructions: patch.customRoleInstructions?.trim() || undefined,
+    orgRole: org.orgRole,
+    reportsToAssistantId: org.reportsToAssistantId,
+    peerReviewDefaultAssistantId: org.peerReviewDefaultAssistantId,
     createdAt: now,
     updatedAt: now,
   };
+  const nextList = [...list, next];
+  validateAssistantOrgLinks(nextList);
   list.push(next);
   saveAssistantProfiles(lawMindRoot, list);
   return next;

@@ -1,7 +1,7 @@
 /**
  * Inter-assistant collaboration types.
  *
- * Adapted from OpenClaw's agent-to-agent patterns:
+ * Adapted from reference stack's agent-to-agent patterns:
  *   - Session key hierarchy (src/routing/session-key.ts)
  *   - Subagent registry records (src/agents/subagent-registry.ts)
  *   - A2A policy / announce flow (src/agents/subagent-announce.ts)
@@ -56,7 +56,7 @@ export type DelegationRecord = {
   status: DelegationStatus;
   /** The session created on the target assistant for this delegation */
   targetSessionId?: string;
-  /** Frozen result text captured on completion (max 100KB, like OpenClaw's frozenResultText) */
+  /** Frozen result text captured on completion (max 100KB, like reference stack's frozenResultText) */
   result?: string;
   error?: string;
   /** Nesting depth — prevents runaway recursive delegation */

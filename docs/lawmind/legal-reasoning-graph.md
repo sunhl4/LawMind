@@ -31,7 +31,7 @@ ResearchBundle
 ## How to use it
 
 ```typescript
-import { buildLegalReasoningGraph, serializeLegalReasoningGraph } from "openclaw/lawmind";
+import { buildLegalReasoningGraph, serializeLegalReasoningGraph } from "lawmind";
 
 const graph = buildLegalReasoningGraph({ intent, bundle });
 
@@ -63,8 +63,8 @@ Two claims conflict when they share the same source ID but have a confidence gap
 Use `serializeLegalReasoningGraph()` to produce Markdown, then append it to the relevant `MATTER_STRATEGY.md` decision log:
 
 ```typescript
-import { appendMatterStrategyDecision } from "openclaw/lawmind";
-import { serializeLegalReasoningGraph } from "openclaw/lawmind";
+import { appendMatterStrategyDecision } from "lawmind";
+import { serializeLegalReasoningGraph } from "lawmind";
 
 const md = serializeLegalReasoningGraph(graph);
 await appendMatterStrategyDecision(workspaceDir, matterId, md);

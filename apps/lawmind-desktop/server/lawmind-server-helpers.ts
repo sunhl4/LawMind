@@ -8,6 +8,10 @@ import path from "node:path";
 import { createLawMindEngine } from "../../../src/lawmind/index.js";
 import { buildLawMindRetrievalAdaptersFromEnvForTest } from "../../../src/lawmind/agent/tools/engine-tools.js";
 import type { AgentConfig } from "../../../src/lawmind/agent/types.js";
+import { resolveEdition } from "../../../src/lawmind/policy/edition.js";
+import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspace-policy.js";
+import { resolveAgentMaxToolCallsPerTurn } from "../../../src/lawmind/policy/workspace-policy.js";
+import { readLawMindPolicyFile } from "./lawmind-policy.js";
 import type { TaskRecord } from "../../../src/lawmind/types.js";
 
 export const LAWMIND_LOCAL_HOST = "127.0.0.1";
@@ -160,16 +164,28 @@ export function buildAgentConfig(workspaceDir: string): { config: AgentConfig; e
   }
 
   const enableCollaboration = process.env.LAWMIND_ENABLE_COLLABORATION?.trim().toLowerCase() !== "false";
+  const maxToolCalls = resolveAgentMaxToolCallsPerTurn(workspaceDir);
+  const policyState = readLawMindPolicyFile(workspaceDir);
+  const policyForEdition: LawMindWorkspacePolicy | null = policyState.loaded
+    ? (policyState.policy as LawMindWorkspacePolicy)
+    : null;
+  const edition = resolveEdition({ policy: policyForEdition });
+  const allowDangerousRaw =
+    process.env.LAWMIND_ALLOW_DANGEROUS_TOOLS_WITHOUT_APPROVAL?.trim().toLowerCase() ?? "";
+  const allowDangerousToolsWithoutApproval =
+    allowDangerousRaw === "true" || allowDangerousRaw === "1";
 
   return {
     config: {
       workspaceDir,
       model: modelConfig,
-      maxToolCalls: 15,
+      maxToolCalls,
       maxHistoryMessages: 50,
       toolExecutionTimeoutMs: toolTimeoutMs,
       actorId,
       enableCollaboration,
+      allowDangerousToolsWithoutApproval,
+      strictDangerousToolApproval: edition.features.strictDangerousToolApproval,
     },
   };
 }

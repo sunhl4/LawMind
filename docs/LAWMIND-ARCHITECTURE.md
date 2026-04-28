@@ -2,6 +2,8 @@
 
 本文档定义 LawMind 的第一版系统架构，目标是：**先搭一个易扩展、可审计、面向律师工作的底座**，再在其上逐步增加功能。
 
+**阶段性用户画像**：**当前主战场是个人律师**（单人对工作区与案件负责）。架构与 edition 为**面向律所留口子**、保留扩展，但**不作为现阶段建设与推广主线**。**能力愿景**是同一套澄清—执行—交付骨架覆盖**律师日常广义工作面**（检索、多类文书、材料与交付等），而非仅限合同场景。
+
 ---
 
 ## 一、设计原则
@@ -126,11 +128,19 @@ workspace/
 - **Agent 主对话**（`runTurn`）：system prompt 中显式拼接的是 **`LAWYER_PROFILE.md` 全文**（以及岗位说明、案件 CASE、今日日志片段等）；`MEMORY.md` **不**整段拼进同一条 system 字符串。
 - **`MEMORY.md` 仍会被加载**：用于检索管线（例如 `ModelRetrievalInput.memory.general`）、引擎桥接、以及 `search_workspace` 等工具对 `MEMORY.md` / `LAWYER_PROFILE.md` 的聚合搜索，模型通过工具与检索间接使用通用记忆。
 - 若希望「通用规则」也像偏好一样**每条对话必显式出现**，需要另行调整 prompt 组装策略（当前架构刻意区分：偏好更贴近人设，通用更偏可检索知识）。
+- **「红线 / 所规必现」**：若律师期望某类规则在**每一轮主对话**中都像 `LAWYER_PROFILE` 一样不可绕过，仅靠写入 `MEMORY.md` 不足；需依赖检索与工具命中、或将关键规则纳入策略层 / prompt 显式段，而不是假设 `MEMORY.md` 已整段进入 Agent system。
+- **工作区强制规则（Phase 5.2）**：可在 `lawmind.policy.json` 中配置 `agentMandatoryRules`（内联短文本）或 `agentMandatoryRulesPath`（工作区内相对路径文件）；`resolveAgentMandatoryRulesForPrompt()` 解析后由 `buildSystemPrompt()` 在「核心原则」之后注入「工作区强制规则」段，与 `MEMORY.md` 检索解耦。
+
+**Clarify–Execute（Phase 5.1）**：工具返回待澄清问题后，同轮次内禁止并行调用 `research_task` / `draft_document` / `execute_workflow` / `render_document`；详见 `AgentContext.clarificationBlockingHeavyTools` 与工程记忆 `LAWMIND-PROJECT-MEMORY.md` 对应条。
+
+**多助手团队流（Phase 6.2）**：工作区可放置 `lawmind/workflows/<id>.json`，由桌面 `GET /api/collaboration/workflow-templates` 列出、`POST /api/collaboration/workflow-run` 驱动 `orchestrator/executeWorkflow`。与 Clarify–Execute 的关系：单助手对话仍受 `awaiting_clarification` 门禁；团队流在协作开启时按步骤委派各助手，**建议在启动前由律师完成范围对齐**，避免中途暂停难以自动合并。
+
+**异步团队工作流 Job（Phase 7.x）**：`async: true` 时返回 `jobId`，状态写入 `lawmind/jobs/<jobId>.json`（终态可复盘；进程重启时不恢复执行，非终态磁盘记录会标为 `interrupted_by_restart`）。`GET /api/jobs` 支持 `limit`、`since`（创建时间下界）及重复 `status` 过滤；`GET /api/jobs/:id` 返回详情。路径中的 **`jobId` 须为安全单段**（字母数字与 `._-`，不含 `/`、`..` 等），否则 **400 `invalid_job_id`**，避免与 `jobs/<id>.json` 拼路径时的异常输入。运行中 `executeWorkflow` 通过 `onProgress` 写 `progress` 字段并触发内存事件；**`GET /api/jobs/:id/stream`** 为 `text/event-stream`，首包为当前快照，后续随持久化推送 JSON（`data:` 行），并每 25s 发送 **SSE 注释心跳**（`: ping`）以降低反向代理空闲断开概率。`POST /api/jobs/:id/cancel` 在 `queued` 时直接终态，在 `running` 时置 `cancelRequested` 并由 `executeWorkflow({ shouldAbort })` 在**步骤批次之间**退出；当前实现不中止已发起的单次 `sendAndWait`。可选 `idempotencyKey` 在同一本地服务进程内合并重复提交。
 
 **长期需求（偏好进化 + 岗位专职记忆）——部分落地**
 
-- **已实现**：`assistants/<assistantId>/PROFILE.md`（位于 LawMind 根目录，与 `assistants.json` 同级父目录下的 `assistants/` 文件夹）。Agent `runTurn` 会将其全文并入 system prompt（与 `LAWYER_PROFILE.md` 并存）。提供 `appendAssistantProfileMarkdown()` 供后续「显式采纳」写入。
-- **待产品化**：桌面 UI 一键「写入偏好」、与审核通过联动、合并冲突策略。
+- **已实现**：`assistants/<assistantId>/PROFILE.md`（位于 LawMind 根目录，与 `assistants.json` 同级父目录下的 `assistants/` 文件夹）。Agent `runTurn` 会将其全文并入 system prompt（与 `LAWYER_PROFILE.md` 并存）。提供 `appendAssistantProfileMarkdown()` 供「显式采纳」写入。
+- **已部分产品化（与工程记忆对齐）**：桌面案件「认知」页支持将升级建议写入 `LAWYER_PROFILE.md` 与助手 `PROFILE.md`；审核与学习飞轮持续演进。**仍待加强**：与审核通过的全自动联动策略、多源写入合并冲突策略。
 - 演进期仍配合工作区 `LAWYER_PROFILE.md` + 会话持久化使用。
 
 ---
@@ -363,11 +373,12 @@ Electron 主进程 (main.mjs)
 
 ### UI 设计系统
 
-所有视觉 token 定义在 `styles.css` 的 `:root` 中：
+**单一真相源**：`apps/lawmind-desktop/src/renderer/styles.css` 中 `:root` 设计令牌 + `lm-*` 工具/组件类。详细约定、模态防回归说明与内联样式使用边界见 **[LawMind 桌面端 UI 设计约定](/LAWMIND-DESKTOP-UI)**。
 
-- **色彩**：深色暖调底色（`--c-bg` `#1a1917`），暖铜 accent（`--c-accent` `#b79a67`），浅文字（`--c-text` `#e8e4dd`）
-- **排版**：PingFang SC / -apple-system 中文优先，正文 14px，行高 1.7
-- **圆角/阴影/间距**：token 化（`--r-sm` / `--r-md` / `--r-lg`，`--shadow-card` / `--shadow-float`）
+- **色彩**：深色面（`--bg`、`--surface` 等）、暖铜主强调（`--accent` `#b79a67` 及 `--grad-brand`），正文与次级文字（`--text` / `--text-2` / `--muted`），**语义色** `ok` / `warn` / `error` / `info`（**错误态用 `--error`，不要发明 `--danger` 等未定义变量**）
+- **排版**：`--font`（PingFang SC / -apple-system 等），行高见 `--lh-*`
+- **圆角/阴影/间距**：`--r-xs`…`--r-2xl`，`--shadow-*`，`--space-1`…`--space-8`（4px 基网）
+- **模态**：`.lm-wizard-backdrop` + `.lm-wizard` 单一定义，尺寸用 `lm-wizard--confirm` / `lm-wizard--detail` 等修饰类；破坏性操作用 `lm-btn-destructive`
 
 ### 设置面板架构
 
@@ -510,6 +521,8 @@ ui.matter_action 原始动作
 
 因此，它更像一个“基于真实使用痕迹的产品观察层”，而不是全自动产品经理。
 
+**Edition 门禁（实现侧）**：其中偏「产品排期 / 路线图」的深层模块（交互收敛建议、产品改造建议、实验清单、跨案件累积板、Roadmap 候选池）在桌面端受 `edition.features.crossMatterRoadmap` 控制（Firm / Private Deploy 默认开启，Solo 隐藏且不请求跨案件 rollup）。律师办案向模块（Blocked By、下一步、审核态条等）各版本均保留。
+
 ---
 
 ## 十二、后续扩展方向
@@ -523,8 +536,8 @@ ui.matter_action 原始动作
 - [x] 项目目录注入 Agent（`read_project_file` / `search_workspace` 扩展）与桌面项目切换后重启 API
 - [x] 案件面板 UI（MatterWorkbench）
 - [x] 审核台 UI（ReviewWorkbench）
-- [ ] 律师偏好学习（per-assistant 记忆进化，UI 显式写入 PROFILE）
-- [ ] 更细粒度模板体系
+- [x] 律师偏好学习（per-assistant `PROFILE.md` + 桌面认知页显式写入等；与 [LawMind 工程记忆](/LAWMIND-PROJECT-MEMORY) M3 / 2.0 P0 对齐，持续迭代）
+- [ ] 更细粒度模板体系（含模板版本与历史产物一致性，见工程记忆风险项）
 
 第三阶段：
 

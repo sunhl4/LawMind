@@ -1,16 +1,21 @@
+import { LawmindSettingsAppUpdate } from "./LawmindSettingsAppUpdate";
 import { LawmindSettingsAssistants } from "./LawmindSettingsAssistants";
 import type { CollabSummaryState } from "./LawmindSettingsCollaboration";
 import { LawmindSettingsCollaboration } from "./LawmindSettingsCollaboration";
 import { LawmindSettingsDisclaimer } from "./LawmindSettingsDisclaimer";
+import { LawmindSettingsEdition } from "./LawmindSettingsEdition";
 import { LawmindSettingsModelRetrieval } from "./LawmindSettingsModelRetrieval";
 import { LawmindSettingsOnboarding } from "./LawmindSettingsOnboarding";
+import { LawmindSettingsTemplates } from "./LawmindSettingsTemplates";
 import { LawmindSettingsWorkspace } from "./LawmindSettingsWorkspace";
 import type { AppConfig } from "./lawmind-app-bootstrap";
 import type { AssistantRow } from "./lawmind-settings-models.ts";
 
+type SetProjectDirBridge = NonNullable<Window["lawmindDesktop"]>["setProjectDir"];
+
 export async function clearProjectDirectory(args: {
   config: AppConfig | null;
-  setProjectDir?: Window["lawmindDesktop"] extends { setProjectDir: infer T } ? T : never;
+  setProjectDir?: SetProjectDirBridge;
 }): Promise<{ projectDir?: string | null; error?: string }> {
   const { config, setProjectDir } = args;
   if (!config || !setProjectDir) {
@@ -93,10 +98,19 @@ export function LawmindSettingsDialog({
             ×
           </button>
         </div>
+        <p className="lm-meta lm-settings-lead">
+          本机律师工作台：可建<strong>多个智能体</strong>各管一摊事；复杂活可走「协作」里的多步流程。出具对外材料前，务必在顶部<strong>审核</strong>里通过把关。
+        </p>
 
         {config && <LawmindSettingsOnboarding health={health} projectDir={projectDir} />}
 
-        {config && <LawmindSettingsCollaboration collabSummarySettings={collabSummarySettings} />}
+        {config && (
+          <LawmindSettingsCollaboration
+            collabSummarySettings={collabSummarySettings}
+            apiBase={config.apiBase}
+            selectedAssistantId={selectedAssistantId}
+          />
+        )}
 
         <LawmindSettingsAssistants
           assistants={assistants}
@@ -137,6 +151,9 @@ export function LawmindSettingsDialog({
             onClearProject={() => void onClearProject()}
           />
         )}
+        {config && <LawmindSettingsTemplates apiBase={config.apiBase} />}
+        {config && <LawmindSettingsEdition apiBase={config.apiBase} />}
+        <LawmindSettingsAppUpdate config={config} />
         <LawmindSettingsDisclaimer />
       </div>
     </div>

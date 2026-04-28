@@ -2,10 +2,23 @@ import {
   cancelDelegation,
   getDelegation,
   listDelegations,
+  listWorkspaceWorkflowTemplates,
   readCollaborationEvents,
+  readWorkspaceWorkflowTemplate,
+  instantiateCollaborationWorkflowFromTemplate,
 } from "../../../src/lawmind/agent/collaboration/index.js";
+import {
+  buildWorkflowReport,
+  executeWorkflow as runCollaborationWorkflow,
+} from "../../../src/lawmind/agent/orchestrator/index.js";
+import { isValidMatterId } from "../../../src/lawmind/cases/index.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
-import { sendJson } from "./lawmind-server-helpers.js";
+import {
+  buildAgentConfig,
+  readJsonBody,
+  sendJson,
+} from "./lawmind-server-helpers.js";
+import { enqueueWorkflowRun } from "./lawmind-server-jobs.js";
 
 export async function handleCollaborationRoutes({
   ctx,
@@ -100,6 +113,110 @@ export async function handleCollaborationRoutes({
       sendJson(res, 200, { ok: true, delegation: record }, c);
       return true;
     }
+  }
+
+  if (pathname === "/api/collaboration/workflow-templates" && req.method === "GET") {
+    const templates = listWorkspaceWorkflowTemplates(workspaceDir);
+    sendJson(res, 200, { ok: true, templates }, c);
+    return true;
+  }
+
+  if (pathname === "/api/collaboration/workflow-run" && req.method === "POST") {
+    const collaborationEnabled =
+      process.env.LAWMIND_ENABLE_COLLABORATION?.trim().toLowerCase() !== "false";
+    if (!collaborationEnabled) {
+      sendJson(
+        res,
+        503,
+        {
+          ok: false,
+          code: "collaboration_disabled",
+          message: "多助手协作已关闭（LAWMIND_ENABLE_COLLABORATION=false），无法运行团队工作流。",
+        },
+        c,
+      );
+      return true;
+    }
+    const body = (await readJsonBody(req)) as {
+      templateId?: string;
+      matterId?: string;
+      assistantId?: string;
+      vars?: Record<string, string>;
+      async?: boolean;
+      idempotencyKey?: string;
+    };
+    const templateId = typeof body.templateId === "string" ? body.templateId.trim() : "";
+    if (!templateId) {
+      sendJson(res, 400, { ok: false, error: "templateId_required" }, c);
+      return true;
+    }
+    const matterRaw = typeof body.matterId === "string" ? body.matterId.trim() : "";
+    if (matterRaw && !isValidMatterId(matterRaw)) {
+      sendJson(res, 400, { ok: false, error: "invalid_matter_id" }, c);
+      return true;
+    }
+    const template = readWorkspaceWorkflowTemplate(workspaceDir, templateId);
+    if (!template) {
+      sendJson(res, 404, { ok: false, error: "template_not_found", templateId }, c);
+      return true;
+    }
+    const built = buildAgentConfig(workspaceDir);
+    if (built.error === "missing_api_key" || !built.config) {
+      sendJson(
+        res,
+        503,
+        { ok: false, error: "missing_api_key", message: "未配置模型 API，无法执行工作流。" },
+        c,
+      );
+      return true;
+    }
+    const assistantId = typeof body.assistantId === "string" ? body.assistantId.trim() : "";
+    const baseConfig = {
+      ...built.config,
+      ...(assistantId ? { assistantId, actorId: `assistant:${assistantId}` } : {}),
+    };
+    const workflow = instantiateCollaborationWorkflowFromTemplate(template, {
+      matterId: matterRaw || undefined,
+      createdBy: assistantId || baseConfig.assistantId || baseConfig.actorId,
+      vars: body.vars && typeof body.vars === "object" ? body.vars : undefined,
+    });
+    if (body.async === true) {
+      const idempotencyKey =
+        typeof body.idempotencyKey === "string" ? body.idempotencyKey : undefined;
+      const jobId = enqueueWorkflowRun(baseConfig, workflow, { idempotencyKey });
+      sendJson(res, 202, { ok: true, jobId, async: true }, c);
+      return true;
+    }
+    try {
+      const finished = await runCollaborationWorkflow(baseConfig, workflow);
+      const report = buildWorkflowReport(finished);
+      sendJson(
+        res,
+        200,
+        {
+          ok: true,
+          workflowId: finished.workflowId,
+          status: finished.status,
+          report,
+          steps: finished.steps.map((s) => ({
+            stepId: s.stepId,
+            assignee: s.assignee,
+            status: s.status,
+            error: s.error,
+          })),
+        },
+        c,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      sendJson(
+        res,
+        500,
+        { ok: false, error: "workflow_run_failed", message: msg, workflowId: workflow.workflowId },
+        c,
+      );
+    }
+    return true;
   }
 
   if (pathname === "/api/collaboration-events" && req.method === "GET") {

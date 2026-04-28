@@ -20,5 +20,5 @@ Treat those as **future** or **custom** integrations via export and IT-approved 
 
 Multi-assistant collaboration is described under **`GET /api/collaboration/summary`** in the [user manual](/LAWMIND-USER-MANUAL). It reflects in-app delegation and audit events, not external ticket systems.
 
-https://docs.openclaw.ai/LAWMIND-INTEGRATIONS  
-https://docs.openclaw.ai/LAWMIND-USER-MANUAL
+https://docs.lawmind.ai/LAWMIND-INTEGRATIONS  
+https://docs.lawmind.ai/LAWMIND-USER-MANUAL

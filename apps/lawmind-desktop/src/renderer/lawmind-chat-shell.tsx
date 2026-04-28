@@ -1,6 +1,21 @@
 import type { RefObject, ReactNode } from "react";
+import { useEffect, useState } from "react";
+import type { ClarificationQuestion } from "../../../../src/lawmind/types.ts";
 import { LawmindMemorySourcesPanel } from "./LawmindMemorySourcesPanel";
-import type { ChatMsg } from "./lawmind-chat";
+import { LawmindChatContextStrip } from "./LawmindChatContextStrip";
+import {
+  formatClarificationPromptSummary,
+  formatClarificationReply,
+  getPendingClarificationState,
+  lastAssistantRuntimeHints,
+  type ChatMsg,
+} from "./lawmind-chat";
+import {
+  LM_CHAT_COMPOSE_DEFAULT_HEIGHT_PX,
+  LM_CHAT_COMPOSE_MAX_HEIGHT_PX,
+  LM_CHAT_COMPOSE_MIN_HEIGHT_PX,
+} from "./lawmind-panel-layout";
+import { usePaneResizeVerticalPx } from "./use-pane-resize";
 
 const QUICK_ACTIONS: Array<{ label: string; prompt: string }> = [
   { label: "起草律师函", prompt: "请帮我起草一封律师函，就以下事项发出法律警告：\n\n" },
@@ -141,7 +156,119 @@ function renderLegalMarkdown(text: string): ReactNode {
 }
 
 export function hasChatDiagnostics(message: ChatMsg): boolean {
-  return (message.memorySources?.length ?? 0) > 0 || (message.toolCallSequence?.length ?? 0) > 0;
+  return (
+    (message.memorySources?.length ?? 0) > 0 ||
+    (message.toolCallSequence?.length ?? 0) > 0 ||
+    message.runtimeHints != null
+  );
+}
+
+function hasClarificationQuestions(message: ChatMsg): boolean {
+  return (message.clarificationQuestions?.length ?? 0) > 0;
+}
+
+function shouldShowClarifyCard(message: ChatMsg): boolean {
+  if (message.role !== "assistant") {
+    return false;
+  }
+  return hasClarificationQuestions(message) || message.status === "awaiting_clarification";
+}
+
+function LawmindClarificationForm({
+  formKey,
+  questions,
+  loading,
+  onApplyToInput,
+  onSend,
+}: {
+  formKey: string;
+  questions: ClarificationQuestion[];
+  loading: boolean;
+  onApplyToInput: (text: string) => void;
+  onSend: (text: string) => void | Promise<void>;
+}) {
+  const [answers, setAnswers] = useState<Record<string, string>>(() =>
+    Object.fromEntries(questions.map((q) => [q.key, ""])),
+  );
+
+  useEffect(() => {
+    setAnswers(Object.fromEntries(questions.map((q) => [q.key, ""])));
+  }, [formKey]);
+
+  const payload = formatClarificationReply(questions, answers);
+  const canSubmit = payload.length > 0;
+  const answeredCount = questions.filter(
+    (q) => (typeof answers[q.key] === "string" ? answers[q.key].trim() : "") !== "",
+  ).length;
+  const totalCount = questions.length;
+  const promptSummary = formatClarificationPromptSummary(questions);
+
+  return (
+    <>
+      {totalCount > 0 ? (
+        <p className="lm-clarify-form-progress" role="status" aria-label="填写进度">
+          已答 {answeredCount} / {totalCount} 项
+        </p>
+      ) : null}
+      <div className="lm-clarify-form-fields">
+        {questions.map((item) => (
+          <label key={item.key} className="lm-clarify-field">
+            <span className="lm-clarify-field-label">{item.question}</span>
+            {item.reason ? <span className="lm-clarify-field-reason">{item.reason}</span> : null}
+            <textarea
+              className="lm-clarify-field-input"
+              rows={2}
+              value={answers[item.key] ?? ""}
+              placeholder="在此输入…"
+              onChange={(e) => {
+                const v = e.target.value;
+                setAnswers((prev) => ({ ...prev, [item.key]: v }));
+              }}
+            />
+          </label>
+        ))}
+      </div>
+      <div className="lm-clarify-form-actions">
+        {promptSummary ? (
+          <button
+            type="button"
+            className="lm-btn lm-btn-ghost lm-clarify-btn"
+            disabled={loading}
+            title="只把问题列表放到下面大框，方便您用习惯的方式写"
+            onClick={() => onApplyToInput(promptSummary)}
+          >
+            只把问题列到下面
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="lm-btn lm-btn-secondary lm-clarify-btn"
+          disabled={!canSubmit || loading}
+          title={!canSubmit ? "请先填至少一项" : undefined}
+          onClick={() => onApplyToInput(payload)}
+        >
+          已填的放到下面
+        </button>
+        <button
+          type="button"
+          className="lm-btn lm-clarify-btn"
+          disabled={!canSubmit || loading}
+          title={!canSubmit ? "请先填至少一项" : undefined}
+          onClick={() => void onSend(payload)}
+        >
+          填好并发送
+        </button>
+        <button
+          type="button"
+          className="lm-btn lm-btn-ghost lm-clarify-btn"
+          disabled={loading}
+          onClick={() => setAnswers(Object.fromEntries(questions.map((q) => [q.key, ""])))}
+        >
+          清空
+        </button>
+      </div>
+    </>
+  );
 }
 
 type Props = {
@@ -162,7 +289,22 @@ type Props = {
   onSend: () => void | Promise<void>;
   onCopyMessage: (text: string, index: number) => void | Promise<void>;
   onApplyPrompt: (prompt: string) => void;
+  onSendClarificationMessage: (text: string) => void | Promise<void>;
   onClearContext: () => void;
+  composeCollapsed: boolean;
+  onToggleComposeCollapsed: () => void;
+  /** 当前助手显示名 */
+  assistantDisplayName: string;
+  /** 关联案件标题（可空） */
+  matterTitle: string | null;
+  /** 主输入区上挂的项目目录名 */
+  projectBasename: string | null;
+  onOpenSettings: () => void;
+  onGoToMatters: () => void;
+  /** 在「文件」页标记的、将拼入发送给模型的路径引用 */
+  fileChatPills: Array<{ id: string; shortLabel: string; title: string }>;
+  onRemoveFileChatPill: (id: string) => void;
+  onClearFileChatPills: () => void;
 };
 
 export function LawmindChatShell({
@@ -183,16 +325,83 @@ export function LawmindChatShell({
   onSend,
   onCopyMessage,
   onApplyPrompt,
+  onSendClarificationMessage,
   onClearContext,
+  composeCollapsed,
+  onToggleComposeCollapsed,
+  assistantDisplayName,
+  matterTitle,
+  projectBasename,
+  onOpenSettings,
+  onGoToMatters,
+  fileChatPills,
+  onRemoveFileChatPill,
+  onClearFileChatPills,
 }: Props) {
+  const { height: composeHeight, onResizePointerDown: onComposeResizePointerDown } = usePaneResizeVerticalPx({
+    storageKey: "lawmind.ui.chatComposeHeight",
+    defaultHeight: LM_CHAT_COMPOSE_DEFAULT_HEIGHT_PX,
+    min: LM_CHAT_COMPOSE_MIN_HEIGHT_PX,
+    max: LM_CHAT_COMPOSE_MAX_HEIGHT_PX,
+  });
+
+  const pendingClarify = getPendingClarificationState(currentMessages);
+
+  const scrollToClarifyCard = () => {
+    if (pendingClarify.assistantMessageIndex < 0) {
+      return;
+    }
+    const id = `lm-clarify-card-${pendingClarify.assistantMessageIndex}`;
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  };
+
+  const hasStripContext = Boolean(contextTaskId || contextMatterId);
+  const stripRuntimeHints = lastAssistantRuntimeHints(currentMessages);
   return (
-    <>
-      <div className="lm-messages">
+    <div className="lm-chat-workspace">
+      <LawmindChatContextStrip
+        assistantName={assistantDisplayName}
+        matterId={contextMatterId}
+        matterTitle={matterTitle}
+        projectBasename={projectBasename}
+        onOpenSettings={onOpenSettings}
+        onGoToMatters={onGoToMatters}
+        onClearContext={onClearContext}
+        hasContext={hasStripContext}
+        runtimeHints={stripRuntimeHints}
+      />
+      {fileChatPills.length > 0 ? (
+        <div className="lm-file-chat-context-bar" role="region" aria-label="本对话引用的文件与目录">
+          <span className="lm-file-chat-context-k">引用</span>
+          <div className="lm-file-chat-context-chips">
+            {fileChatPills.map((pill) => (
+              <button
+                key={pill.id}
+                type="button"
+                className="lm-file-chat-chip"
+                title={`${pill.title}（点击移除）`}
+                onClick={() => onRemoveFileChatPill(pill.id)}
+              >
+                {pill.shortLabel}
+                <span className="lm-file-chat-chip-x" aria-hidden>
+                  ×
+                </span>
+              </button>
+            ))}
+          </div>
+          <button type="button" className="lm-btn lm-btn-ghost lm-btn-small" onClick={onClearFileChatPills}>
+            清空引用
+          </button>
+        </div>
+      ) : null}
+      <div className="lm-messages" role="region" aria-label="对话消息">
         {currentMessages.length === 0 ? (
           <div className="lm-messages-empty">
             <div className="lm-messages-empty-icon">L</div>
-            <div className="lm-messages-empty-title">有什么可以帮您？</div>
-            <div className="lm-messages-empty-hint">描述您的需求，我来协助起草、检索或分析。</div>
+            <div className="lm-messages-empty-title">需要我做什么？</div>
+            <div className="lm-messages-empty-hint">
+              左侧可换<strong>智能体</strong>（不同分工在「设置」里建）。先<strong>关联案件</strong>、在「文件」里引用材料，再向下说明要办的事。复杂流程可到「设置 → 协作」跑多步工作流；<strong>对外交付前请走「审核」</strong>。
+            </div>
             <div className="lm-scenario-cards">
               {SCENARIO_CARDS.map((card) => (
                 <button
@@ -233,6 +442,35 @@ export function LawmindChatShell({
                     {copiedMessageIndex === index ? "已复制 ✓" : "复制"}
                   </button>
                 )}
+                {msg.role === "assistant" && shouldShowClarifyCard(msg) && (
+                  <div
+                    className="lm-clarify-card"
+                    id={`lm-clarify-card-${index}`}
+                    data-testid={index === pendingClarify.assistantMessageIndex ? "lm-clarify-card-active" : undefined}
+                  >
+                    <div className="lm-clarify-card-title">
+                      {msg.status === "awaiting_clarification" ? "还差这些信息" : "建议补充这些"}
+                    </div>
+                    <div className="lm-clarify-card-hint">
+                      {msg.status === "awaiting_clarification" && (msg.clarificationQuestions?.length ?? 0) === 0
+                        ? "请先在下框或底部输入里说明清楚，再点发送，我才能继续往下做。"
+                        : msg.status === "awaiting_clarification"
+                          ? "草稿已有；请把下面几项补全，填好后点「填好并发送」即可继续。"
+                          : "正稿已起草；请把下面几项补全，或改在大框里说明后发送。"}
+                    </div>
+                    {(msg.clarificationQuestions?.length ?? 0) > 0 ? (
+                      <LawmindClarificationForm
+                        formKey={`${selectedAssistantId}-${index}`}
+                        questions={msg.clarificationQuestions ?? []}
+                        loading={loading}
+                        onApplyToInput={onApplyPrompt}
+                        onSend={onSendClarificationMessage}
+                      />
+                    ) : (
+                      <p className="lm-clarify-card-fallback">请在下面输入里说明，再点「发送」继续。</p>
+                    )}
+                  </div>
+                )}
                 {msg.role === "assistant" && hasChatDiagnostics(msg) && (
                   <LawmindMemorySourcesPanel
                     layers={msg.memorySources ?? []}
@@ -247,82 +485,142 @@ export function LawmindChatShell({
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="lm-compose">
-        {error && <div className="lm-error">{error}</div>}
-        {contextTaskId && (
-          <div className="lm-context-banner">
-            <span>
-              当前上下文：任务 <strong>{contextTaskId}</strong>
-              {contextMatterId ? (
-                <>
-                  {" "}
-                  · 案件 <strong>{contextMatterId}</strong>
-                </>
-              ) : null}
-            </span>
-            <button type="button" className="lm-btn lm-btn-secondary" onClick={onClearContext}>
-              清除
-            </button>
-          </div>
-        )}
-
-        <div className="lm-chip-row">
-          {QUICK_ACTIONS.map((action) => (
-            <button
-              key={action.label}
-              type="button"
-              className="lm-chip"
-              onClick={() => onApplyPrompt(action.prompt)}
-            >
-              {action.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="lm-compose-box">
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => onInputChange(e.target.value)}
-            placeholder="描述您的法律需求…"
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                void onSend();
-              }
-            }}
+      {!composeCollapsed ? (
+        <>
+          <div
+            className="lm-split-handle lm-split-handle-horizontal"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="调整输入区高度"
+            title="拖动调整消息区与输入区比例"
+            onPointerDown={onComposeResizePointerDown}
           />
-          <div className="lm-compose-footer">
-            <label
-              className="lm-web-toggle"
-              title="勾选后本轮对话注册 web_search 工具（Brave Search API），与聊天模型配置独立"
-            >
-              <input
-                type="checkbox"
-                checked={allowWebSearch}
-                onChange={(e) => onAllowWebSearchChange(e.target.checked)}
+          <div
+            className="lm-compose lm-compose-resizable"
+            style={{
+              height: composeHeight,
+              flexShrink: 0,
+              minHeight: LM_CHAT_COMPOSE_MIN_HEIGHT_PX,
+              maxHeight: LM_CHAT_COMPOSE_MAX_HEIGHT_PX,
+            }}
+          >
+            {error ? (
+              <div className="lm-callout lm-callout-danger" role="alert">
+                <p className="lm-callout-body">{error}</p>
+              </div>
+            ) : null}
+            {pendingClarify.pending && (
+              <div className="lm-clarify-session-bar" role="status">
+                <span className="lm-clarify-session-bar-text">
+                  {pendingClarify.count > 0
+                    ? `请先补全下面 ${pendingClarify.count} 项，我才能继续。`
+                    : "请先就上面的待确认点说清，我才能继续。"}
+                </span>
+                <button type="button" className="lm-btn lm-btn-secondary lm-clarify-session-bar-jump" onClick={scrollToClarifyCard}>
+                  去填写处
+                </button>
+              </div>
+            )}
+            {contextTaskId && (
+              <div className="lm-context-banner">
+                <span>
+                  正在跟进的任务 <strong>{contextTaskId}</strong>
+                  {contextMatterId ? (
+                    <>
+                      {" "}
+                      · 案件 <strong>{contextMatterId}</strong>
+                    </>
+                  ) : null}
+                </span>
+                <button type="button" className="lm-btn lm-btn-secondary" onClick={onClearContext}>
+                  不跟这个了
+                </button>
+              </div>
+            )}
+
+            <div className="lm-chip-row">
+              {QUICK_ACTIONS.map((action) => (
+                <button
+                  key={action.label}
+                  type="button"
+                  className="lm-chip"
+                  onClick={() => onApplyPrompt(action.prompt)}
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="lm-compose-box">
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => onInputChange(e.target.value)}
+                placeholder="用平常说话的方式写即可…"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault();
+                    void onSend();
+                  }
+                }}
               />
-              <span>
-                联网检索
-                {webSearchApiKeyConfigured === false && (
-                  <span style={{ color: "var(--warn)" }}> {" - "}未配置 API Key</span>
-                )}
-              </span>
-            </label>
-            <div className="lm-compose-actions">
-              <span className="lm-send-hint">⌘↵</span>
-              <button
-                type="button"
-                className="lm-btn"
-                disabled={loading || !input.trim()}
-                onClick={() => void onSend()}
-              >
-                {loading ? "处理中…" : "发送"}
-              </button>
+              <div className="lm-compose-footer">
+                <label
+                  className="lm-web-toggle"
+                  title="勾选后需要时可上网查公开信息；未配置时此项不可用"
+                >
+                  <input
+                    type="checkbox"
+                    checked={allowWebSearch}
+                    onChange={(e) => onAllowWebSearchChange(e.target.checked)}
+                  />
+                  <span>
+                    需要时上网查
+                    {webSearchApiKeyConfigured === false && (
+                      <span className="lm-text-warn"> {" - "}未配置</span>
+                    )}
+                  </span>
+                </label>
+                <div className="lm-compose-actions">
+                  <span className="lm-send-hint">⌘↵</span>
+                  <button
+                    type="button"
+                    className="lm-btn"
+                    disabled={loading || !input.trim()}
+                    onClick={() => void onSend()}
+                  >
+                    {loading ? "处理中…" : "发送"}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
+        </>
+      ) : (
+        <div className="lm-compose-collapsed-bar">
+          {error ? (
+            <div className="lm-callout lm-callout-danger lm-compose-collapsed-error" role="alert">
+              <p className="lm-callout-body">{error}</p>
+            </div>
+          ) : null}
+          {pendingClarify.pending ? (
+            <div className="lm-clarify-session-bar lm-clarify-session-bar-collapsed" role="status">
+              <span>
+                {pendingClarify.count > 0
+                  ? `还差 ${pendingClarify.count} 项没填 — 点展开输入，或到上面填`
+                  : "还有事没对齐 — 先展开输入区，或到上面说清"}
+              </span>
+              <button type="button" className="lm-btn lm-btn-secondary lm-clarify-session-bar-jump" onClick={scrollToClarifyCard}>
+                去填
+              </button>
+            </div>
+          ) : null}
+          <button type="button" className="lm-compose-collapsed-expand" onClick={onToggleComposeCollapsed}>
+            展开输入区
+          </button>
+          <span className="lm-compose-collapsed-hint">已收起底部输入区</span>
         </div>
-      </div>
-    </>
+      )}
+    </div>
   );
 }

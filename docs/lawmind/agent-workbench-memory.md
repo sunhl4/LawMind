@@ -2,7 +2,7 @@
 
 ## Objective
 
-Build a desktop-first Agent Workbench for legal workflows that matches the usability and polish of successful commercial software while preserving OpenClaw's auditable execution model.
+Build a desktop-first Agent Workbench for legal workflows that matches the usability and polish of successful commercial software while preserving reference multi-channel stack's auditable execution model.
 
 ## Benchmark Standard
 
@@ -114,7 +114,7 @@ Build a desktop-first Agent Workbench for legal workflows that matches the usabi
 
 ### Decision C: Workspace controls split by responsibility
 
-- Global default lives in OpenClaw config (`agents.defaults.workspace`).
+- Global default lives in reference multi-channel stack config (`agents.defaults.workspace`).
 - Overrides and recents/favorites are managed by workbench-specific state for operator ergonomics.
 
 ### Decision D: Quality signals are first-class product data

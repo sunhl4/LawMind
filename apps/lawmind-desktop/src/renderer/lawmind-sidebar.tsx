@@ -80,7 +80,7 @@ export function LawmindSidebar({
       )}
 
       {projectDir && (
-        <div className="lm-side-project-pill" title={projectDir}>
+        <div className="lm-side-project-pill" title={`材料文件夹：${projectDir}`}>
           <span className="lm-side-project-icon">
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
               <path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h3.88a1.5 1.5 0 0 1 1.06.44l.62.62a1.5 1.5 0 0 0 1.06.44H12.5A1.5 1.5 0 0 1 14 5v7.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12.5v-9Z" stroke="currentColor" strokeWidth="1.2"/>
@@ -100,7 +100,7 @@ export function LawmindSidebar({
       >
         <span className={`lm-section-arrow ${recordsExpanded ? "lm-section-arrow-open" : ""}`}>›</span>
         <span className="lm-section-label">
-          工作记录
+          在办与记录
           <span className="lm-section-count">{filteredTasks.length + filteredHistory.length}</span>
         </span>
       </button>
@@ -112,11 +112,11 @@ export function LawmindSidebar({
         aria-expanded={collabExpanded}
       >
         <span className={`lm-section-arrow ${collabExpanded ? "lm-section-arrow-open" : ""}`}>›</span>
-        <span className="lm-section-label">
-          助手协作
+        <span className="lm-section-label" title="多智能体派活与后台流程进度">
+          协作
           <span className="lm-section-count">{countActiveDelegations(delegations)}</span>
         </span>
-        </button>
+      </button>
 
       {collabExpanded && (
         <div className="lm-records-body">
@@ -163,7 +163,7 @@ export function LawmindSidebar({
                     {formatRelativeTime(delegation.startedAt)}
                   </div>
                   {delegation.error && (
-                    <div className="lm-list-path" style={{ color: "var(--danger, #e74c3c)" }}>
+                    <div className="lm-list-path lm-text-error">
                       {delegation.error}
                     </div>
                   )}

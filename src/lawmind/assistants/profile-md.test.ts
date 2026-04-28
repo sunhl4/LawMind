@@ -47,6 +47,17 @@ describe("listAssistantProfileSections", () => {
   });
 });
 
+describe("appendAssistantProfileMarkdown dedupe", () => {
+  it("skips second append for same review taskId", () => {
+    const root = tmpLawMindRoot();
+    const line = buildReviewProfileLine("tid-asst-1", "approved", "x");
+    expect(appendAssistantProfileMarkdown(root, "a1", line).skipped).toBe(false);
+    expect(appendAssistantProfileMarkdown(root, "a1", line).skipped).toBe(true);
+    const text = readAssistantProfileMarkdown(root, "a1");
+    expect(text.match(/tid-asst-1/g)?.length).toBe(1);
+  });
+});
+
 describe("buildReviewProfileLine", () => {
   it("includes note when present", () => {
     expect(buildReviewProfileLine("t1", "approved", "  ok  ")).toBe(

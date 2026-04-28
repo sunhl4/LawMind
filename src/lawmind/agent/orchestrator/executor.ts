@@ -31,13 +31,15 @@ function emitWorkflowEvent(
   emitCollaborationEvent(workspaceDir, {
     eventId: randomUUID(),
     kind:
-      kind === "workflow.step_started"
-        ? "delegation.started"
-        : kind === "workflow.step_completed"
-          ? "delegation.completed"
-          : kind === "workflow.step_failed"
-            ? "delegation.failed"
-            : "delegation.created",
+      kind === "workflow.cancelled"
+        ? "delegation.cancelled"
+        : kind === "workflow.step_started"
+          ? "delegation.started"
+          : kind === "workflow.step_completed"
+            ? "delegation.completed"
+            : kind === "workflow.step_failed"
+              ? "delegation.failed"
+              : "delegation.created",
     fromAssistantId: workflow.createdBy,
     toAssistantId: stepId ? (workflow.steps.find((s) => s.stepId === stepId)?.assignee ?? "") : "",
     matterId: workflow.matterId,
@@ -92,11 +94,13 @@ async function executeStep(
   baseConfig: AgentConfig,
   workflow: CollaborationWorkflow,
   step: WorkflowStep,
+  options?: ExecuteWorkflowOptions,
 ): Promise<void> {
   step.status = "running";
   step.startedAt = new Date().toISOString();
 
   emitWorkflowEvent(baseConfig.workspaceDir, workflow, "workflow.step_started", step.stepId);
+  emitProgress(workflow, options);
 
   const contextFromDeps = gatherDependencyContext(workflow, step);
   const fullTask = `${step.task}${contextFromDeps}`;
@@ -145,6 +149,7 @@ async function executeStep(
     step.completedAt = new Date().toISOString();
     markDelegationCompleted(baseConfig.workspaceDir, delegation.delegationId, finalResult);
     emitWorkflowEvent(baseConfig.workspaceDir, workflow, "workflow.step_completed", step.stepId);
+    emitProgress(workflow, options);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     step.error = msg;
@@ -152,7 +157,41 @@ async function executeStep(
     step.completedAt = new Date().toISOString();
     markDelegationFailed(baseConfig.workspaceDir, delegation.delegationId, msg);
     emitWorkflowEvent(baseConfig.workspaceDir, workflow, "workflow.step_failed", step.stepId, msg);
+    emitProgress(workflow, options);
   }
+}
+
+/** Step counts for UIs / job records (reference-stack-style run observability). */
+export type WorkflowRunProgress = {
+  totalSteps: number;
+  completedSteps: number;
+  failedSteps: number;
+  runningStepIds: string[];
+};
+
+function computeWorkflowRunProgress(workflow: CollaborationWorkflow): WorkflowRunProgress {
+  const steps = workflow.steps;
+  return {
+    totalSteps: steps.length,
+    completedSteps: steps.filter((s) => s.status === "completed" || s.status === "skipped").length,
+    failedSteps: steps.filter((s) => s.status === "failed").length,
+    runningStepIds: steps.filter((s) => s.status === "running").map((s) => s.stepId),
+  };
+}
+
+/** Checked between step batches and while idle waiting; does not abort in-flight `sendAndWait`. */
+export type ExecuteWorkflowOptions = {
+  shouldAbort?: () => boolean;
+  /** Called when step statuses change (start/end of steps, and once at workflow start). */
+  onProgress?: (snapshot: WorkflowRunProgress) => void;
+};
+
+function abortRequested(options?: ExecuteWorkflowOptions): boolean {
+  return options?.shouldAbort?.() === true;
+}
+
+function emitProgress(workflow: CollaborationWorkflow, options?: ExecuteWorkflowOptions): void {
+  options?.onProgress?.(computeWorkflowRunProgress(workflow));
 }
 
 /**
@@ -164,17 +203,42 @@ async function executeStep(
 export async function executeWorkflow(
   baseConfig: AgentConfig,
   workflow: CollaborationWorkflow,
+  options?: ExecuteWorkflowOptions,
 ): Promise<CollaborationWorkflow> {
   workflow.status = "running";
   workflow.updatedAt = new Date().toISOString();
   emitWorkflowEvent(baseConfig.workspaceDir, workflow, "workflow.started");
+  emitProgress(workflow, options);
 
   let maxIterations = workflow.steps.length * 2;
 
   while (maxIterations-- > 0) {
+    if (abortRequested(options)) {
+      workflow.status = "cancelled";
+      emitWorkflowEvent(
+        baseConfig.workspaceDir,
+        workflow,
+        "workflow.cancelled",
+        undefined,
+        "aborted",
+      );
+      break;
+    }
+
     const readySteps = findReadySteps(workflow);
 
     if (readySteps.length === 0) {
+      if (abortRequested(options)) {
+        workflow.status = "cancelled";
+        emitWorkflowEvent(
+          baseConfig.workspaceDir,
+          workflow,
+          "workflow.cancelled",
+          undefined,
+          "aborted",
+        );
+        break;
+      }
       const hasRunning = workflow.steps.some((s) => s.status === "running");
       if (hasRunning) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -183,7 +247,26 @@ export async function executeWorkflow(
       break;
     }
 
-    await Promise.all(readySteps.map((step) => executeStep(baseConfig, workflow, step)));
+    await Promise.all(readySteps.map((step) => executeStep(baseConfig, workflow, step, options)));
+
+    if (abortRequested(options)) {
+      workflow.status = "cancelled";
+      emitWorkflowEvent(
+        baseConfig.workspaceDir,
+        workflow,
+        "workflow.cancelled",
+        undefined,
+        "aborted",
+      );
+      break;
+    }
+  }
+
+  workflow.completedAt = new Date().toISOString();
+  workflow.updatedAt = new Date().toISOString();
+
+  if (workflow.status === "cancelled") {
+    return workflow;
   }
 
   const allCompleted = workflow.steps.every(
@@ -198,9 +281,6 @@ export async function executeWorkflow(
     workflow.status = "failed";
     emitWorkflowEvent(baseConfig.workspaceDir, workflow, "workflow.failed");
   }
-
-  workflow.completedAt = new Date().toISOString();
-  workflow.updatedAt = new Date().toISOString();
 
   return workflow;
 }

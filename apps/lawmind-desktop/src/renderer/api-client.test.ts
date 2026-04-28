@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { apiGetJson, apiSendJson, ApiRequestError, userMessageFromApiError } from "./api-client.js";
+import { apiGetJson, apiSendJson, messageFromOkFalseBody, userMessageFromApiError } from "./api-client.js";
 
 describe("api-client", () => {
   afterEach(() => {
@@ -34,6 +34,36 @@ describe("api-client", () => {
     });
   });
 
+  it("messageFromOkFalseBody joins message, error, and validation detail array", () => {
+    const t = messageFromOkFalseBody(
+      {
+        message: "Bad input",
+        detail: [
+          { loc: ["body", "matterId"], msg: "too short" },
+          { loc: ["query", "x"], msg: "invalid" },
+        ],
+      },
+      "fallback",
+    );
+    expect(t).toContain("Bad input");
+    expect(t).toContain("body.matterId: too short");
+    expect(t).toContain("query.x: invalid");
+  });
+
+  it("apiGetJson throws with snippet when body is HTML", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("<html><title>502</title></html>", {
+        status: 502,
+        headers: { "content-type": "text/html" },
+      }),
+    );
+
+    await expect(apiGetJson("http://127.0.0.1:1234", "/api/test")).rejects.toMatchObject({
+      name: "ApiRequestError",
+      status: 502,
+    });
+  });
+
   it("apiSendJson throws ApiRequestError with parsed body", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ code: "invalid_json", message: "invalid json body" }), {
@@ -44,7 +74,7 @@ describe("api-client", () => {
 
     await expect(
       apiSendJson("http://127.0.0.1:1234", "/api/test", "POST", { hello: "world" }),
-    ).rejects.toMatchObject<ApiRequestError>({
+    ).rejects.toMatchObject({
       name: "ApiRequestError",
       status: 400,
       body: {

@@ -132,7 +132,7 @@ export function createWorkspaceAdapter(workspaceDir: string): RetrievalAdapter {
   return {
     name: "workspace",
     supports: () => true, // 对所有任务类型生效
-    async retrieve({ intent }) {
+    async retrieve({ intent, memory }) {
       const sources: ResearchSource[] = [];
       const riskFlags: string[] = [];
       const missingItems: string[] = [];
@@ -151,6 +151,20 @@ export function createWorkspaceAdapter(workspaceDir: string): RetrievalAdapter {
           } else {
             missingItems.push(`案件 ${intent.matterId} 暂无 CASE.md，请补充案件背景。`);
           }
+        }
+        const cp = memory.clientProfile?.trim();
+        if (cp) {
+          const url = memory.clientProfileClientId
+            ? path.join(workspaceDir, "clients", memory.clientProfileClientId, "CLIENT_PROFILE.md")
+            : path.join(workspaceDir, "CLIENT_PROFILE.md");
+          sources.push({
+            id: randomUUID(),
+            title: memory.clientProfileClientId
+              ? `客户画像：${memory.clientProfileClientId}`
+              : "客户画像（工作区根目录）",
+            kind: "workspace",
+            url,
+          });
         }
       } catch {
         riskFlags.push("工作区检索时出现异常，请检查文件路径。");

@@ -10,7 +10,7 @@ import {
   loadTurns,
   compactHistory,
 } from "./session.js";
-import { buildSystemPrompt } from "./system-prompt.js";
+import { buildSystemPrompt, LAWMIND_AGENT_BEHAVIOR_EPOCH } from "./system-prompt.js";
 import { createLegalToolRegistry } from "./tools/legal-tools.js";
 import { ToolRegistry } from "./tools/registry.js";
 import type { AgentMessage, AgentTurn } from "./types.js";
@@ -306,6 +306,15 @@ describe("System Prompt", () => {
     expect(prompt).toContain("web_search");
   });
 
+  it("includes workspace mandatory rules when agentMandatoryRules is set", () => {
+    const prompt = buildSystemPrompt({
+      availableTools: [],
+      agentMandatoryRules: "不得向客户承诺胜诉。",
+    });
+    expect(prompt).toContain("工作区强制规则");
+    expect(prompt).toContain("不得向客户承诺胜诉");
+  });
+
   it("includes assistant profile and project dir when set", () => {
     const prompt = buildSystemPrompt({
       availableTools: [],
@@ -317,5 +326,9 @@ describe("System Prompt", () => {
     expect(prompt).toContain("当前项目目录");
     expect(prompt).toContain("/tmp/client-matter");
     expect(prompt).toContain("read_project_file");
+  });
+
+  it("exports a stable lawmind behavior epoch for health and support", () => {
+    expect(LAWMIND_AGENT_BEHAVIOR_EPOCH).toMatch(/^\d{4}-\d{2}-/);
   });
 });

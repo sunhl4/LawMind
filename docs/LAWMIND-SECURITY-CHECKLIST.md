@@ -1,13 +1,13 @@
 # LawMind security checklist (engineering)
 
-This page lists **technical** security and compliance artifacts for LawMind and how they relate to OpenClaw [SECURITY.md](https://github.com/openclaw/openclaw/blob/main/SECURITY.md) on GitHub. It does **not** replace a formal penetration test, SOC 2 report, or legal review.
+This page lists **technical** security and compliance artifacts for LawMind. See [SECURITY.md](https://github.com/lawmind/lawmind/blob/main/SECURITY.md) for vulnerability reporting. It does **not** replace a formal penetration test, SOC 2 report, or legal review.
 
 ## Trust boundaries (LawMind desktop)
 
 - **Local HTTP API** binds to **loopback only** (`127.0.0.1`). It is not exposed to the LAN by default.
 - **Secrets** live in the desktop-managed **`.env.lawmind`** (or paths documented in [LawMind private deploy](/LAWMIND-PRIVATE-DEPLOY)). Do not paste full API keys into support tickets.
 - **Workspace data** (tasks, drafts, audit JSONL) stays under the configured **workspace directory** on disk.
-- **Telemetry**: LawMind does not add product telemetry beyond what the upstream stack may do; confirm your deployment policy for any hosted model provider.
+- **Telemetry**: LawMind does not ship product telemetry in the desktop shell beyond what you configure with third-party model providers.
 
 ## Audit and logs
 
@@ -25,16 +25,16 @@ This page lists **technical** security and compliance artifacts for LawMind and 
 
 ## Vulnerability response
 
-Report suspected vulnerabilities in OpenClaw core or apps per [SECURITY.md](https://github.com/openclaw/openclaw/blob/main/SECURITY.md). For LawMind-specific deployment questions, start from this checklist and [LawMind private deploy](/LAWMIND-PRIVATE-DEPLOY).
+Report suspected vulnerabilities per [SECURITY.md](https://github.com/lawmind/lawmind/blob/main/SECURITY.md). For LawMind-specific deployment questions, start from this checklist and [LawMind private deploy](/LAWMIND-PRIVATE-DEPLOY).
 
 ## References
 
 - [LawMind data processing](/LAWMIND-DATA-PROCESSING)
 - [LawMind delivery](/LAWMIND-DELIVERY)
-- [SECURITY.md on GitHub](https://github.com/openclaw/openclaw/blob/main/SECURITY.md)
+- [SECURITY.md on GitHub](https://github.com/lawmind/lawmind/blob/main/SECURITY.md)
 
-https://docs.openclaw.ai/LAWMIND-SECURITY-CHECKLIST  
-https://docs.openclaw.ai/LAWMIND-DATA-PROCESSING  
-https://docs.openclaw.ai/LAWMIND-DELIVERY  
-https://docs.openclaw.ai/LAWMIND-PRIVATE-DEPLOY  
-https://github.com/openclaw/openclaw/blob/main/SECURITY.md
+https://docs.lawmind.ai/LAWMIND-SECURITY-CHECKLIST  
+https://docs.lawmind.ai/LAWMIND-DATA-PROCESSING  
+https://docs.lawmind.ai/LAWMIND-DELIVERY  
+https://docs.lawmind.ai/LAWMIND-PRIVATE-DEPLOY  
+https://github.com/lawmind/lawmind/blob/main/SECURITY.md

@@ -65,7 +65,7 @@ Records are stored in `workspace/quality/<taskId>.quality.json`.
 Query all records:
 
 ```typescript
-import { listQualityRecords, buildQualityReportMarkdown } from "openclaw/lawmind";
+import { listQualityRecords, buildQualityReportMarkdown } from "lawmind";
 
 const records = await listQualityRecords(workspaceDir);
 const report = await buildQualityReportMarkdown(workspaceDir);
@@ -92,7 +92,7 @@ import {
   BUILTIN_BENCHMARK_TASKS,
   benchmarkPassesThreshold,
   buildBenchmarkReportMarkdown,
-} from "openclaw/lawmind";
+} from "lawmind";
 
 const engine = createLawMindEngine({ workspaceDir, adapters });
 const results = await runBenchmarks(engine, BUILTIN_BENCHMARK_TASKS);

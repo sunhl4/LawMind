@@ -39,6 +39,29 @@ export type TaskKind =
 /** 文书风险等级 */
 export type RiskLevel = "low" | "medium" | "high";
 
+/**
+ * 交付物类型（用于把"做事"改成"交付成品"）。
+ *
+ * 内置常量提供编辑器自动补全；同时通过 `(string & {})` 允许工作区自定义
+ * `lawmind/deliverables/*.json` 注册的私有类型（例如 `contract.employment`、
+ * `litigation.complaint`），以支持事务所差异化交付规范。
+ */
+export type DeliverableType =
+  | "contract.review"
+  | "contract.rental"
+  | "contract.general"
+  | "letter.demand"
+  | "document.general"
+  // eslint-disable-next-line @typescript-eslint/ban-types -- 保留 IDE 内置类型自动补全的同时允许工作区扩展类型。
+  | (string & {});
+
+/** 信息不足时用于向律师追问的关键问题 */
+export type ClarificationQuestion = {
+  key: string;
+  question: string;
+  reason?: string;
+};
+
 /** 任务意图 — 由 Instruction Router 生成 */
 export type TaskIntent = {
   /** 唯一任务 ID（系统生成） */
@@ -47,6 +70,8 @@ export type TaskIntent = {
   kind: TaskKind;
   /** 最终交付物格式 */
   output: "markdown" | "docx" | "pptx" | "none";
+  /** 原始用户指令（供后续生成器按交付物类型细化） */
+  instruction: string;
   /** 任务摘要，用于向律师展示"我将做什么" */
   summary: string;
   /** 目标受众（律师内部 / 客户 / 对方律师 / 法院） */
@@ -55,6 +80,12 @@ export type TaskIntent = {
   matterId?: string;
   /** 使用的模板 ID（对应 templates/ 下的文件） */
   templateId?: string;
+  /** 交付物类型（合同、律师函、通用文书等） */
+  deliverableType?: DeliverableType;
+  /** 本任务的最低交付标准 */
+  acceptanceCriteria?: string[];
+  /** 完整交付前仍建议确认的关键信息 */
+  clarificationQuestions?: ClarificationQuestion[];
   /** 风险等级（影响是否必须人工确认） */
   riskLevel: RiskLevel;
   /** 需要的模型类型 */
@@ -149,6 +180,8 @@ export type ArtifactDraft = {
   output: "docx" | "pptx" | "markdown";
   /** 使用的模板 ID */
   templateId: string;
+  /** 交付物类型（用于渲染与后续校验） */
+  deliverableType?: DeliverableType;
   /** 执行摘要（用于律师快速判断是否准确） */
   summary: string;
   /** 目标受众 */
@@ -157,6 +190,10 @@ export type ArtifactDraft = {
   sections: ArtifactSection[];
   /** 审阅备注，律师可在此写修改意见 */
   reviewNotes: string[];
+  /** 当前草稿仍待律师补充/确认的信息 */
+  clarificationQuestions?: ClarificationQuestion[];
+  /** 草稿默认应满足的最低交付标准 */
+  acceptanceCriteria?: string[];
   /** 审核状态 */
   reviewStatus: ReviewStatus;
   /** 审核人（由律师确认时填写） */
@@ -184,10 +221,20 @@ export type TaskLifecycleStatus =
   | "rendered"
   | "completed"; // Agent 对话回合等已结束（无引擎交付物）
 
+export type TaskExecutionPlanStepStatus = "pending" | "done" | "skipped";
+
+/** 业务语义执行步骤（展示用）；进度仍以 `TaskRecord.status` 为源，由 `deriveExecutionPlanSteps` 对齐。 */
+export type TaskExecutionPlanStep = {
+  id: string;
+  label: string;
+  status: TaskExecutionPlanStepStatus;
+};
+
 /** 持久化任务记录 — 用于会话恢复、状态展示、审计串联 */
 export type TaskRecord = {
   taskId: string;
   kind: TaskKind;
+  instruction?: string;
   summary: string;
   output: TaskIntent["output"];
   riskLevel: RiskLevel;
@@ -195,6 +242,9 @@ export type TaskRecord = {
   audience?: string;
   matterId?: string;
   templateId?: string;
+  deliverableType?: DeliverableType;
+  acceptanceCriteria?: string[];
+  clarificationQuestions?: ClarificationQuestion[];
   title?: string;
   draftPath?: string;
   status: TaskLifecycleStatus;
@@ -208,6 +258,8 @@ export type TaskRecord = {
   sessionId?: string;
   /** 与 Agent turn 对齐的回合 ID（通常与 taskId 相同） */
   sourceTurnId?: string;
+  /** 创建时写入的步骤模板；各步 `status` 由 `deriveExecutionPlanSteps` 按 `status` 再算 */
+  executionPlan?: TaskExecutionPlanStep[];
 };
 
 // ─────────────────────────────────────────────
@@ -277,6 +329,7 @@ export type AuditEventKind =
   | "draft.created"
   | "draft.citation_integrity"
   | "draft.reviewed"
+  | "draft.review_reopened" // 由「恢复待审核」等操作将草稿重置于 pending
   | "draft.review_labeled" // 2.0：审核附加结构化标签
   | "artifact.rendered"
   | "artifact.render_failed"
@@ -290,6 +343,9 @@ export type AuditEventKind =
   | "learning.suggestion_adopted" // 2.0：学习建议已采纳写回
   | "learning.suggestion_dismissed" // 2.0：学习建议已忽略
   | "ui.matter_action" // 2.0：桌面端案件工作台关键律师动作
+  | "ui.firstrun_wizard_completed" // 桌面首跑向导完成（转化漏斗）
+  | "ui.firstrun_acceptance_ready" // 首跑关联案件下首次有草稿通过验收门禁
+  | "deliverable.spec.invalid" // 工作区私有交付物规范解析失败
   | "tool_call"
   | "agent_turn";
 

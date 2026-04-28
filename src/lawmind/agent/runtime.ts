@@ -9,13 +9,17 @@
  *   5. 重复 3-4 直到 LLM 给出最终回答
  *   6. 保存 session，记录审计
  *
- * 与 OpenClaw 的差异：
- *   - OpenClaw 基于 pi-agent-core / pi-coding-agent
+ * 与 reference agent stack 的差异：
+ *   - reference agent stack 基于 pi-agent-core / pi-coding-agent
  *   - LawMind 直接使用 OpenAI compatible API + 自建工具调度
  *   - 但设计理念相同：LLM 驱动的自主推理 + tool use
  */
 
 import { randomUUID } from "node:crypto";
+import {
+  formatCurrentAssistantOrgLine,
+  formatTeamOrgOverviewForPrompt,
+} from "../assistants/org-prompt.js";
 import { readAssistantProfileMarkdown } from "../assistants/profile-md.js";
 import {
   getAssistantById,
@@ -24,9 +28,15 @@ import {
   resolveLawMindRoot,
 } from "../assistants/store.js";
 import { emit } from "../audit/index.js";
-import { loadMemoryContext } from "../memory/index.js";
+import { loadMemoryContext, type MemoryContext } from "../memory/index.js";
+import {
+  readWorkspacePolicyFile,
+  resolveAgentMandatoryRulesForPrompt,
+} from "../policy/workspace-policy.js";
 import { persistAgentInstructionTask } from "../tasks/index.js";
+import type { ClarificationQuestion } from "../types.js";
 import { getAssistantPreset } from "./assistant-presets.js";
+import { toolRequiresExplicitApproval } from "./dangerous-tool-policy.js";
 import {
   appendTurn,
   compactHistory,
@@ -53,6 +63,42 @@ const DEFAULT_MODEL_TIMEOUT_MS = 60000;
 const DEFAULT_MODEL_MAX_RETRIES = 2;
 /** Used only when `AgentConfig.toolExecutionTimeoutMs` is unset (CLI/desktop should set via env). */
 const DEFAULT_TOOL_TIMEOUT_MS = 30000;
+
+function extractClarificationQuestions(result: {
+  ok: boolean;
+  data?: unknown;
+}): ClarificationQuestion[] {
+  if (!result.ok || !result.data || typeof result.data !== "object") {
+    return [];
+  }
+  const data = result.data as {
+    clarificationQuestions?: unknown;
+    deliveryReadiness?: unknown;
+  };
+  if (data.deliveryReadiness !== "draft_with_placeholders") {
+    return [];
+  }
+  if (!Array.isArray(data.clarificationQuestions)) {
+    return [];
+  }
+  return data.clarificationQuestions.filter(
+    (item): item is ClarificationQuestion =>
+      Boolean(item) &&
+      typeof item === "object" &&
+      typeof (item as { key?: unknown }).key === "string" &&
+      typeof (item as { question?: unknown }).question === "string",
+  );
+}
+
+function buildClarificationReply(
+  assistantReply: string,
+  questions: ClarificationQuestion[],
+  intro = "已生成可继续编辑的正式草稿，但要完成最终交付，还需要你补充以下关键信息：",
+): string {
+  const body = questions.map((item, index) => `${index + 1}. ${item.question}`).join("\n");
+  const prefix = assistantReply.trim();
+  return prefix ? `${prefix}\n\n${intro}\n${body}` : `${intro}\n${body}`;
+}
 
 type ChatCompletionMessage = {
   role: "assistant";
@@ -169,13 +215,14 @@ export async function runTurn(opts: {
   matterId?: string;
   /** 桌面端项目目录；与会话同轮生效，供工具检索项目内文件 */
   projectDir?: string;
-}): Promise<{ turn: AgentTurn; reply: string; sessionId: string }> {
+}): Promise<{ turn: AgentTurn; reply: string; sessionId: string; memoryContext: MemoryContext }> {
   const { config, registry, instruction, matterId } = opts;
   const projectDirResolved = (opts.projectDir ?? config.projectDir)?.trim() || undefined;
   const maxToolCalls = config.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS;
   const maxHistory = config.maxHistoryMessages ?? DEFAULT_MAX_HISTORY_MESSAGES;
   const toolTimeoutMs = config.toolExecutionTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
   const allowDangerousToolsWithoutApproval = config.allowDangerousToolsWithoutApproval ?? false;
+  const strictDangerousToolApproval = config.strictDangerousToolApproval === true;
   const actorId = config.actorId ?? "system";
 
   // 1. 加载或创建 session
@@ -200,6 +247,11 @@ export async function runTurn(opts: {
     session.matterId = matterId;
   }
 
+  // 新用户 instruction 视为对上一轮待澄清的回复：清除磁盘上的 pending，本轮内由工具结果重新设置 blocking。
+  if (session.pendingClarificationKeys?.length) {
+    delete session.pendingClarificationKeys;
+  }
+
   const turnId = randomUUID();
   const startedAt = new Date().toISOString();
 
@@ -214,6 +266,8 @@ export async function runTurn(opts: {
     projectDir: projectDirResolved,
     allowWebSearch: config.allowWebSearch === true,
     collaborationEnabled: config.enableCollaboration === true,
+    clarificationBlockingHeavyTools: false,
+    strictDangerousToolApproval,
   };
 
   // 2. 构建 system prompt
@@ -233,20 +287,37 @@ export async function runTurn(opts: {
   }
 
   let peerAssistants: Array<{ id: string; displayName: string; roleTitle: string }> | undefined;
-  if (config.enableCollaboration) {
-    const lawMindRoot = config.workspaceDir.replace(/[\\/]workspace$/, "") || config.workspaceDir;
+  let teamOrgOverview: string | undefined;
+  let assistantOrgLine: string | undefined;
+  try {
+    const lawMindRoot = resolveLawMindRoot(config.workspaceDir);
     const allProfiles = loadAssistantProfiles(lawMindRoot);
-    peerAssistants = allProfiles
-      .filter((p) => p.assistantId !== resolvedAssistantId)
-      .map((p) => {
-        const role = buildRoleDirectiveFromProfile(p);
-        return { id: p.assistantId, displayName: p.displayName, roleTitle: role.roleTitle };
-      });
+    teamOrgOverview = formatTeamOrgOverviewForPrompt(allProfiles);
+    if (resolvedAssistantId) {
+      const me = getAssistantById(lawMindRoot, resolvedAssistantId);
+      assistantOrgLine = formatCurrentAssistantOrgLine(me, allProfiles);
+    }
+    if (config.enableCollaboration) {
+      peerAssistants = allProfiles
+        .filter((p) => p.assistantId !== resolvedAssistantId)
+        .map((p) => {
+          const role = buildRoleDirectiveFromProfile(p);
+          return { id: p.assistantId, displayName: p.displayName, roleTitle: role.roleTitle };
+        });
+    }
+  } catch {
+    peerAssistants = undefined;
+    teamOrgOverview = undefined;
+    assistantOrgLine = undefined;
   }
+
+  const workspacePolicy = readWorkspacePolicyFile(config.workspaceDir);
+  const mandatoryRules = resolveAgentMandatoryRulesForPrompt(config.workspaceDir, workspacePolicy);
 
   const systemPrompt = buildSystemPrompt({
     lawyerProfile: memory.profile,
     assistantProfileMarkdown: assistantProfileMarkdown || undefined,
+    clientProfile: memory.clientProfile || undefined,
     matterContext: memory.caseMemory,
     todayLog: memory.todayLog,
     availableTools: registry.listDefinitions(),
@@ -260,6 +331,9 @@ export async function runTurn(opts: {
     collaborationEnabled: config.enableCollaboration === true,
     peerAssistants,
     projectDirectoryHint: projectDirResolved,
+    agentMandatoryRules: mandatoryRules.active ? mandatoryRules.text : undefined,
+    assistantOrgLine,
+    teamOrgOverview,
   });
 
   // 3. 确保 system message 在对话历史头部
@@ -305,6 +379,7 @@ export async function runTurn(opts: {
   // 5. 主循环：call model → execute tools → repeat
   let loopCount = 0;
   let finalReply = "";
+  let pendingClarificationQuestions: ClarificationQuestion[] = [];
 
   while (loopCount < maxToolCalls + 1) {
     loopCount++;
@@ -342,13 +417,24 @@ export async function runTurn(opts: {
 
     // 没有 tool calls → 最终回答
     if (!toolCalls || toolCalls.length === 0) {
-      finalReply = assistantMsg.content ?? "";
-      turn.status = "completed";
+      if (pendingClarificationQuestions.length > 0) {
+        finalReply = buildClarificationReply(
+          assistantMsg.content ?? "",
+          pendingClarificationQuestions,
+        );
+        turn.status = "awaiting_clarification";
+        turn.clarificationQuestions = pendingClarificationQuestions;
+      } else {
+        finalReply = assistantMsg.content ?? "";
+        turn.status = "completed";
+      }
       break;
     }
 
     // 执行 tool calls
     for (const tc of toolCalls) {
+      ctx.clarificationBlockingHeavyTools = pendingClarificationQuestions.length > 0;
+
       const toolName = tc.function.name;
       const toolArgs = safeParse(tc.function.arguments);
       const tool = registry.get(toolName);
@@ -361,8 +447,12 @@ export async function runTurn(opts: {
         if (validationError) {
           result = { ok: false, error: `Invalid arguments for ${toolName}: ${validationError}` };
         } else if (
-          tool.definition.requiresApproval &&
-          !allowDangerousToolsWithoutApproval &&
+          toolRequiresExplicitApproval({
+            toolName,
+            definition: tool.definition,
+            allowDangerousToolsWithoutApproval,
+            strictDangerousToolApproval,
+          }) &&
           toolArgs.__approved !== true
         ) {
           result = {
@@ -413,6 +503,11 @@ export async function runTurn(opts: {
       session.conversationHistory.push(toolResponseMsg);
       turn.messages.push(toolResponseMsg);
 
+      const clarificationQuestions = extractClarificationQuestions(result);
+      if (clarificationQuestions.length > 0) {
+        pendingClarificationQuestions = clarificationQuestions;
+      }
+
       if (result.pendingApproval) {
         turn.status = "awaiting_approval";
         finalReply = assistantMsg.content ?? `操作 ${toolName} 需要您的确认。`;
@@ -426,16 +521,41 @@ export async function runTurn(opts: {
 
     // 检查是否达到工具调用上限
     if (turn.toolCallsExecuted >= maxToolCalls) {
-      turn.status = "completed";
-      finalReply = assistantMsg.content ?? "已达到工具调用上限。";
+      if (pendingClarificationQuestions.length > 0) {
+        turn.status = "awaiting_clarification";
+        turn.clarificationQuestions = pendingClarificationQuestions;
+        finalReply = buildClarificationReply(
+          assistantMsg.content ?? "",
+          pendingClarificationQuestions,
+          "已生成带待补充项的正式草稿，但当前轮次已达到工具调用上限。为完成最终交付，请补充：",
+        );
+      } else {
+        turn.status = "completed";
+        finalReply = assistantMsg.content ?? "已达到工具调用上限。";
+      }
       break;
     }
   }
 
   turn.result = finalReply;
   turn.completedAt = new Date().toISOString();
+
   if (turn.status === "running") {
-    turn.status = "completed";
+    if (pendingClarificationQuestions.length > 0) {
+      turn.status = "awaiting_clarification";
+      turn.clarificationQuestions = pendingClarificationQuestions;
+      if (!turn.result?.trim()) {
+        turn.result = buildClarificationReply("", pendingClarificationQuestions);
+      }
+    } else {
+      turn.status = "completed";
+    }
+  }
+
+  if (turn.status === "awaiting_clarification" && turn.clarificationQuestions?.length) {
+    session.pendingClarificationKeys = turn.clarificationQuestions.map((q) => q.key);
+  } else {
+    delete session.pendingClarificationKeys;
   }
 
   // 6. 保存 session
@@ -477,7 +597,7 @@ export async function runTurn(opts: {
     taskId: turn.turnId,
   });
 
-  return { turn, reply: finalReply, sessionId: session.sessionId };
+  return { turn, reply: finalReply, sessionId: session.sessionId, memoryContext: memory };
 }
 
 function safeParse(json: string): Record<string, unknown> {

@@ -32,6 +32,6 @@ Use this checklist at **go-live** or **pilot exit**. Items mirror [LawMind deliv
 
 ---
 
-https://docs.openclaw.ai/LAWMIND-CUSTOMER-ACCEPTANCE  
-https://docs.openclaw.ai/LAWMIND-DELIVERY  
-https://docs.openclaw.ai/LAWMIND-DATA-PROCESSING
+https://docs.lawmind.ai/LAWMIND-CUSTOMER-ACCEPTANCE  
+https://docs.lawmind.ai/LAWMIND-DELIVERY  
+https://docs.lawmind.ai/LAWMIND-DATA-PROCESSING

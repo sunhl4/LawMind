@@ -11,6 +11,7 @@ function minimalIntent(overrides: Partial<TaskIntent> = {}): TaskIntent {
     taskId: "test-task-1",
     kind: "analyze.contract",
     output: "docx",
+    instruction: "请审查一份合同",
     summary: "合同审查",
     riskLevel: "medium",
     models: ["general", "legal"],
@@ -42,11 +43,11 @@ describe("LawMind Reasoning buildDraft", () => {
 
     expect(draft.reviewStatus).toBe("pending");
     expect(draft.taskId).toBe("test-task-1");
-    expect(draft.title).toBe("LawMind 法律文书草稿");
-    expect(draft.templateId).toBe("word/legal-memo-default");
+    expect(draft.title).toBe("合同审查意见书");
+    expect(draft.templateId).toBe("word/contract-default");
     expect(draft.output).toBe("docx");
     expect(draft.sections.length).toBeGreaterThanOrEqual(1);
-    expect(draft.sections[0].heading).toBe("检索结论摘要");
+    expect(draft.sections[0].heading).toBe("审查结论");
     expect(draft.sections[1].heading).toBe("检索结果");
     expect(draft.sections[1].body).toContain("未检索到可引用结论");
   });
@@ -80,7 +81,7 @@ describe("LawMind Reasoning buildDraft", () => {
     });
     const draft = buildDraft({ intent, bundle });
 
-    const claimSection = draft.sections.find((s) => s.heading === "要点 1");
+    const claimSection = draft.sections.find((s) => s.heading === "审查意见 1");
     expect(claimSection).toBeDefined();
     expect(claimSection!.body).toContain("违约金");
     expect(claimSection!.body).toContain("90%");
@@ -95,11 +96,11 @@ describe("LawMind Reasoning buildDraft", () => {
     });
     const draft = buildDraft({ intent, bundle });
 
-    const riskSection = draft.sections.find((s) => s.heading === "风险提示");
+    const riskSection = draft.sections.find((s) => s.heading === "主要风险提示");
     expect(riskSection).toBeDefined();
     expect(riskSection!.body).toContain("条款存在歧义");
 
-    const missingSection = draft.sections.find((s) => s.heading === "待补充事项");
+    const missingSection = draft.sections.find((s) => s.heading === "待确认事项");
     expect(missingSection).toBeDefined();
     expect(missingSection!.body).toContain("主体资质证明");
   });
@@ -115,7 +116,7 @@ describe("LawMind Reasoning buildDraft", () => {
     });
     const draft = buildDraft({ intent, bundle });
 
-    const conflictSection = draft.sections.find((s) => s.heading === "冲突结论（需律师裁定）");
+    const conflictSection = draft.sections.find((s) => s.heading === "冲突意见（需律师裁定）");
     expect(conflictSection).toBeDefined();
     expect(conflictSection!.body).toContain("冲突");
   });
@@ -128,5 +129,27 @@ describe("LawMind Reasoning buildDraft", () => {
     expect(draft.title).toBe("LawMind 客户汇报草稿");
     expect(draft.templateId).toBe("ppt/client-brief-default");
     expect(draft.output).toBe("pptx");
+  });
+
+  it("builds a full rental contract skeleton for deliverable-first word drafts", () => {
+    const intent = minimalIntent({
+      kind: "draft.word",
+      instruction: "请起草一份房屋租赁合同",
+      summary: "生成完整房屋租赁合同",
+      riskLevel: "high",
+      requiresConfirmation: true,
+      deliverableType: "contract.rental",
+      acceptanceCriteria: ["输出完整合同正文"],
+      clarificationQuestions: [
+        { key: "rent_and_deposit", question: "请补充租金和押金。", reason: "核心商务条款缺失" },
+      ],
+    });
+    const draft = buildDraft({ intent, bundle: minimalBundle() });
+
+    expect(draft.title).toBe("房屋租赁合同");
+    expect(draft.templateId).toBe("word/contract-default");
+    expect(draft.sections.some((s) => s.heading === "合同当事人")).toBe(true);
+    expect(draft.sections.some((s) => s.heading === "第三条 租金、押金及支付方式")).toBe(true);
+    expect(draft.clarificationQuestions?.[0]?.key).toBe("rent_and_deposit");
   });
 });

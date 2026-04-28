@@ -1,0 +1,16 @@
+# LawMind 工作区 — 运行期数据（勿提交到公开仓库）
+# 保留：模板、playbooks、示例案件骨架、通用 MEMORY 样例等由上层规则跟踪。
+
+/tasks/
+/drafts/
+/sessions/
+/artifacts/
+/audit/
+/memory/
+/delegations/
+/collaboration/
+/lawmind/jobs/
+/exports/
+/quality/
+/clients/
+.DS_Store

@@ -1,4 +1,4 @@
-import type { AssistantRow } from "./lawmind-settings-models.ts";
+import type { AssistantOrgRole, AssistantRow } from "./lawmind-settings-models.ts";
 import type { PresetRow } from "./lawmind-app-data";
 import { apiSendJson } from "./api-client";
 
@@ -8,17 +8,23 @@ export type AssistantEditorDraft = {
   presetKey: string;
   customRoleTitle: string;
   customRoleInstructions: string;
+  orgRole: AssistantOrgRole | "";
+  reportsToAssistantId: string;
+  peerReviewDefaultAssistantId: string;
 };
 
 const DEFAULT_PRESET_KEY = "general_default";
 
 function emptyDraft(presets: PresetRow[]): AssistantEditorDraft {
   return {
-    displayName: "新助手",
+    displayName: "新智能体",
     introduction: "",
     presetKey: presets[0]?.id ?? DEFAULT_PRESET_KEY,
     customRoleTitle: "",
     customRoleInstructions: "",
+    orgRole: "",
+    reportsToAssistantId: "",
+    peerReviewDefaultAssistantId: "",
   };
 }
 
@@ -34,6 +40,9 @@ export function createAssistantDraft(
       presetKey: assistant.presetKey ?? DEFAULT_PRESET_KEY,
       customRoleTitle: assistant.customRoleTitle ?? "",
       customRoleInstructions: assistant.customRoleInstructions ?? "",
+      orgRole: assistant.orgRole ?? "",
+      reportsToAssistantId: assistant.reportsToAssistantId ?? "",
+      peerReviewDefaultAssistantId: assistant.peerReviewDefaultAssistantId ?? "",
     };
   }
   return emptyDraft(presets);
@@ -58,6 +67,9 @@ export async function saveAssistantDraft(args: {
       presetKey?: string;
       customRoleTitle?: string;
       customRoleInstructions?: string;
+      orgRole?: string;
+      reportsToAssistantId?: string;
+      peerReviewDefaultAssistantId?: string;
     }
   >(apiBase, path, method, {
     displayName: draft.displayName.trim(),
@@ -65,6 +77,9 @@ export async function saveAssistantDraft(args: {
     presetKey: draft.presetKey.trim() || undefined,
     customRoleTitle: draft.customRoleTitle.trim() || undefined,
     customRoleInstructions: draft.customRoleInstructions.trim() || undefined,
+    orgRole: draft.orgRole || undefined,
+    reportsToAssistantId: draft.reportsToAssistantId.trim() || undefined,
+    peerReviewDefaultAssistantId: draft.peerReviewDefaultAssistantId.trim() || undefined,
   });
 }
 
@@ -84,6 +99,8 @@ type Props = {
   editingAssistantId: string | null;
   draft: AssistantEditorDraft;
   presets: PresetRow[];
+  /** 可选汇报 / 互审对象（不含当前正在编辑的智能体） */
+  assistantLinkOptions: Array<{ assistantId: string; displayName: string }>;
   busy: boolean;
   error: string | null;
   onChange: (draft: AssistantEditorDraft) => void;
@@ -96,6 +113,7 @@ export function LawmindAssistantEditorDialog({
   editingAssistantId,
   draft,
   presets,
+  assistantLinkOptions,
   busy,
   error,
   onChange,
@@ -110,10 +128,12 @@ export function LawmindAssistantEditorDialog({
     presets.length > 0 ? presets : [{ id: DEFAULT_PRESET_KEY, displayName: "通用法律助理" }];
 
   return (
-    <div className="lm-wizard-backdrop" role="dialog" aria-modal="true" aria-label="助手编辑">
+    <div className="lm-wizard-backdrop" role="dialog" aria-modal="true" aria-label="智能体编辑">
       <div className="lm-wizard">
-        <h2>{editingAssistantId === null ? "新建助手" : "编辑助手"}</h2>
-        <p className="lm-meta">设置名称、简介与岗位；岗位可套用内置预设并补充说明。</p>
+        <h2>{editingAssistantId === null ? "新建智能体" : "编辑智能体"}</h2>
+        <p className="lm-wizard-lead lm-settings-hint">
+          每个智能体可对应不同分工；日常在对话左侧切换。可配置<strong>虚拟组织架构</strong>（主办/协办与汇报线）及建议互审对象，便于多智能体协作与交叉复核。交付类产出仍须您到「审核」里通过后才宜对外。
+        </p>
         <label className="lm-field">
           <span>显示名称</span>
           <input
@@ -128,7 +148,7 @@ export function LawmindAssistantEditorDialog({
             rows={3}
             value={draft.introduction}
             onChange={(e) => onChange({ ...draft, introduction: e.target.value })}
-            placeholder="助手自我介绍，会写入系统提示"
+            placeholder="智能体如何自我介绍，会写入系统提示"
           />
         </label>
         <label className="lm-field">
@@ -162,7 +182,56 @@ export function LawmindAssistantEditorDialog({
             placeholder="工作方式、输出风格等"
           />
         </label>
-        {error && <div className="lm-error">{error}</div>}
+        <label className="lm-field">
+          <span>组织角色（虚拟团队，可选）</span>
+          <select
+            value={draft.orgRole}
+            onChange={(e) =>
+              onChange({
+                ...draft,
+                orgRole: e.target.value as AssistantEditorDraft["orgRole"],
+              })
+            }
+          >
+            <option value="">未设置</option>
+            <option value="lead">主办 / 牵头</option>
+            <option value="member">协办</option>
+            <option value="intern">实习 / 辅助</option>
+          </select>
+        </label>
+        <label className="lm-field">
+          <span>汇报对象（另一智能体，可选）</span>
+          <select
+            value={draft.reportsToAssistantId}
+            onChange={(e) => onChange({ ...draft, reportsToAssistantId: e.target.value })}
+          >
+            <option value="">无</option>
+            {assistantLinkOptions.map((a) => (
+              <option key={a.assistantId} value={a.assistantId}>
+                {a.displayName} ({a.assistantId})
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="lm-field">
+          <span>建议互审对象（可选）</span>
+          <select
+            value={draft.peerReviewDefaultAssistantId}
+            onChange={(e) => onChange({ ...draft, peerReviewDefaultAssistantId: e.target.value })}
+          >
+            <option value="">无</option>
+            {assistantLinkOptions.map((a) => (
+              <option key={`peer-${a.assistantId}`} value={a.assistantId}>
+                {a.displayName} ({a.assistantId})
+              </option>
+            ))}
+          </select>
+        </label>
+        {error ? (
+          <div className="lm-callout lm-callout-danger" role="alert">
+            <p className="lm-callout-body">{error}</p>
+          </div>
+        ) : null}
         <div className="lm-wizard-actions">
           <button type="button" className="lm-btn lm-btn-secondary" onClick={onClose} disabled={busy}>
             取消

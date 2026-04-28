@@ -6,7 +6,7 @@
  *   - Synchronous (consult/review): caller blocks until the target replies
  *   - Asynchronous (delegate/notify): fire-and-continue, result announced later
  *
- * Adapted from OpenClaw's fire-wait-read pattern (src/agents/tools/agent-step.ts)
+ * Adapted from reference stack's fire-wait-read pattern (src/agents/tools/agent-step.ts)
  * and subagent announce flow (src/agents/subagent-announce.ts).
  */
 
@@ -70,7 +70,7 @@ function resolveAssistantConfig(
 /**
  * Send a message to another assistant and wait for the reply (synchronous).
  *
- * This is the core "fire → run → read" cycle, analogous to OpenClaw's
+ * This is the core "fire → run → read" cycle, analogous to reference stack's
  * runAgentStep() in src/agents/tools/agent-step.ts.
  */
 export async function sendAndWait(params: {
@@ -116,7 +116,7 @@ export async function sendAndWait(params: {
  * Send a message to another assistant without waiting (asynchronous).
  *
  * Returns immediately with a delegationId and a completion promise
- * that resolves when the target finishes. Analogous to OpenClaw's
+ * that resolves when the target finishes. Analogous to reference stack's
  * spawnSubagentDirect() + registerSubagentRun() pattern.
  */
 export function fireAndForget(params: {

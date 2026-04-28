@@ -9,7 +9,8 @@
  *   3. FIRM_PROFILE.md  — 律所级规则（Phase B）
  *   4. playbooks/CLAUSE_PLAYBOOK.md、playbooks/COURT_AND_OPPONENT_PROFILE.md（Phase B）
  *   5. cases/<matterId>/CASE.md、MATTER_STRATEGY.md — 案件按需
- *   6. memory/YYYY-MM-DD.md（今天 / 昨天）— 日志
+ *   6. 客户画像 CLIENT_PROFILE：优先 CASE 中 clientId → clients/<id>/；否则 clients/<matterId>/；再否则根目录 CLIENT_PROFILE.md
+ *   7. memory/YYYY-MM-DD.md（今天 / 昨天）— 日志
  */
 
 import fs from "node:fs/promises";
@@ -38,6 +39,16 @@ export type MemoryContext = {
   clausePlaybook: string;
   /** Phase B：playbooks/COURT_AND_OPPONENT_PROFILE.md */
   courtAndOpponentProfile: string;
+  /**
+   * 客户画像：长期沟通风格、决策与付费习惯等（与单案事实区分）。
+   * 解析顺序见 `loadMemoryContext` 文件头；未命中则为空串。
+   */
+  clientProfile: string;
+  /**
+   * 当画像来自 `clients/<id>/CLIENT_PROFILE.md` 时的 id（含与 matterId 相同时的目录约定）。
+   * 根目录回退不设置，便于与「工作区级默认客户」区分。
+   */
+  clientProfileClientId?: string;
 };
 
 // ─────────────────────────────────────────────
@@ -74,6 +85,44 @@ export function clausePlaybookPath(workspaceDir: string): string {
 
 export function courtAndOpponentProfilePath(workspaceDir: string): string {
   return path.join(workspaceDir, "playbooks", "COURT_AND_OPPONENT_PROFILE.md");
+}
+
+export function clientProfileFilePath(workspaceDir: string, clientId: string): string {
+  return path.join(workspaceDir, "clients", clientId, "CLIENT_PROFILE.md");
+}
+
+/**
+ * 从案件档案中解析 `clientId`（供关联 `clients/<id>/CLIENT_PROFILE.md`）。
+ * 支持「`- clientId: x` / `- 客户ID：x`」等常见写法；忽略占位与空值。
+ */
+export function extractClientIdFromCaseMarkdown(md: string): string | null {
+  const lines = md.split(/\r?\n/).slice(0, 180);
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) {
+      continue;
+    }
+    const m1 = line.match(
+      /^(?:[-*]\s*)?(?:\*\*)?\s*(clientId|client_id|客户\s*ID|客户ID)(?:\*\*)?\s*[:：]\s*(.+)$/i,
+    );
+    const m2 = m1 ? null : line.match(/^clientId\s*[:：]\s*(.+)$/i);
+    const val = m1?.[2] ?? m2?.[1];
+    if (!val) {
+      continue;
+    }
+    const cleaned = val
+      .replace(/^[`"'「」\s]+|[`"'」\s]+$/g, "")
+      .replace(/^\s*\*+\s*|\s*\*+\s*$/g, "")
+      .trim();
+    if (!cleaned) {
+      continue;
+    }
+    if (/^(可选|待填|tbd|n\/?a|_|同上|同左)$/i.test(cleaned)) {
+      continue;
+    }
+    return cleaned;
+  }
+  return null;
 }
 
 function defaultMatterStrategyTemplate(matterId: string): string {
@@ -255,6 +304,7 @@ function defaultCaseTemplate(matterId: string): string {
 ## 1. 基本信息
 
 - matterId: ${matterId}
+- 客户 / clientId: _（与目录 clients/该id/ 下 CLIENT_PROFILE 对应；可与 matterId 同或单独指向常年客户主档案）_
 - 案由:
 - 当前阶段:
 - 负责人:
@@ -362,20 +412,25 @@ function writeMarkdownBulletToSection(
  * 加载任务所需的记忆上下文。
  * 每次任务启动时调用一次，结果传入 Retrieval 和 Reasoning 层。
  * 2.0：同时加载 FIRM_PROFILE.md 和 MATTER_STRATEGY.md（若存在）。
+ * 2.0+：客户画像 clientProfile — 有 matter 时按 CASE 中 clientId、否则 clients/与 matter 同 id/、再否则根目录，见文件头第 6 条。
  */
 export async function loadMemoryContext(
   workspaceDir: string,
   opts: { matterId?: string } = {},
 ): Promise<MemoryContext> {
+  const root = path.resolve(workspaceDir);
   const today = new Date();
   const yesterday = new Date(today);
   yesterday.setDate(today.getDate() - 1);
-  const caseMemoryPromise = opts.matterId
-    ? readSafe(caseFilePath(workspaceDir, opts.matterId))
-    : "";
-  const matterStrategyPromise = opts.matterId
-    ? readSafe(matterStrategyPath(workspaceDir, opts.matterId))
-    : "";
+  const matterId = opts.matterId?.trim();
+  const caseMemoryPromise = matterId ? readSafe(caseFilePath(root, matterId)) : Promise.resolve("");
+  const matterStrategyPromise = matterId
+    ? readSafe(matterStrategyPath(root, matterId))
+    : Promise.resolve("");
+
+  const clientByMatterPromise = matterId
+    ? readSafe(clientProfileFilePath(root, matterId))
+    : Promise.resolve("");
 
   const [
     general,
@@ -387,17 +442,51 @@ export async function loadMemoryContext(
     yesterdayLog,
     clausePlaybook,
     courtAndOpponentProfile,
+    clientByMatter,
+    rootClient,
   ] = await Promise.all([
-    readSafe(path.join(workspaceDir, "MEMORY.md")),
-    readSafe(path.join(workspaceDir, "LAWYER_PROFILE.md")),
-    readSafe(path.join(workspaceDir, "FIRM_PROFILE.md")),
+    readSafe(path.join(root, "MEMORY.md")),
+    readSafe(path.join(root, "LAWYER_PROFILE.md")),
+    readSafe(path.join(root, "FIRM_PROFILE.md")),
     caseMemoryPromise,
     matterStrategyPromise,
-    readSafe(dailyLogPath(workspaceDir, today)),
-    readSafe(dailyLogPath(workspaceDir, yesterday)),
-    readSafe(clausePlaybookPath(workspaceDir)),
-    readSafe(courtAndOpponentProfilePath(workspaceDir)),
+    readSafe(dailyLogPath(root, today)),
+    readSafe(dailyLogPath(root, yesterday)),
+    readSafe(clausePlaybookPath(root)),
+    readSafe(courtAndOpponentProfilePath(root)),
+    clientByMatterPromise,
+    readSafe(path.join(root, "CLIENT_PROFILE.md")),
   ]);
+
+  let clientProfile = "";
+  let clientProfileClientId: string | undefined = undefined;
+
+  if (matterId) {
+    const fromCase = extractClientIdFromCaseMarkdown(caseMemory);
+    let scoped = "";
+    let scopedId: string | undefined;
+    if (fromCase) {
+      const pathContent =
+        fromCase === matterId
+          ? clientByMatter
+          : await readSafe(clientProfileFilePath(root, fromCase));
+      if (pathContent.trim()) {
+        scoped = pathContent;
+        scopedId = fromCase;
+      }
+    }
+    if (scoped) {
+      clientProfile = scoped;
+      clientProfileClientId = scopedId;
+    } else if (clientByMatter.trim()) {
+      clientProfile = clientByMatter;
+      clientProfileClientId = matterId;
+    } else if (rootClient.trim()) {
+      clientProfile = rootClient;
+    }
+  } else if (rootClient.trim()) {
+    clientProfile = rootClient;
+  }
 
   return {
     general,
@@ -409,6 +498,8 @@ export async function loadMemoryContext(
     yesterdayLog,
     clausePlaybook,
     courtAndOpponentProfile,
+    clientProfile,
+    clientProfileClientId,
   };
 }
 
@@ -461,7 +552,7 @@ export async function ensureFirmProfile(workspaceDir: string): Promise<string> {
  * 确保 clients/<clientId>/CLIENT_PROFILE.md 存在，不存在则用模板初始化。
  */
 export async function ensureClientProfile(workspaceDir: string, clientId: string): Promise<string> {
-  const filePath = path.join(workspaceDir, "clients", clientId, "CLIENT_PROFILE.md");
+  const filePath = clientProfileFilePath(workspaceDir, clientId);
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   const exists = await fs
     .access(filePath)
@@ -598,7 +689,9 @@ export async function appendLawyerProfile(workspaceDir: string, note: string): P
 export {
   buildAgentMemorySourceReport,
   type BuildMemorySourceReportOpts,
+  type EngineClientMemorySnapshot,
   type MemorySourceLayer,
+  toEngineClientMemorySnapshot,
 } from "./memory-sources.js";
 export {
   appendLawyerProfileLearning,

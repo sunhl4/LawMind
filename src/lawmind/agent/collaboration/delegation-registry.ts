@@ -1,7 +1,7 @@
 /**
  * Delegation registry — tracks inter-assistant task delegations.
  *
- * Adapted from OpenClaw's subagent-registry.ts:
+ * Adapted from reference stack's subagent-registry.ts:
  *   - In-memory Map<delegationId, DelegationRecord> with disk persistence
  *   - Lifecycle tracking (created → running → completed/failed/timeout)
  *   - Depth limits to prevent runaway recursive delegation

@@ -27,6 +27,86 @@ function dailyLogRel(workspaceDir: string, d: Date): string {
   return path.join("memory", `${yyyy}-${mm}-${dd}.md`);
 }
 
+function relPosix(p: string): string {
+  return p.split(path.sep).join("/");
+}
+
+/**
+ * 按 `loadMemoryContext` 的客户解析规则，标记哪一条 client_profile* 行本回合与引擎一致，并可补充 CASE 外键对应的行。
+ */
+async function applyEngineClientProfileHighlights(
+  workspaceDir: string,
+  matterId: string | undefined,
+  rows: MemorySourceLayer[],
+  engine: EngineClientMemorySnapshot | undefined,
+): Promise<MemorySourceLayer[]> {
+  if (!engine?.clientProfile?.trim()) {
+    return rows.map((l) => ({ ...l, activeForEngine: false }));
+  }
+
+  const mid = matterId?.trim();
+  const cid = engine.clientProfileClientId;
+
+  type ActiveMode = { mode: "root" } | { mode: "matter" } | { mode: "resolved"; rel: string };
+  let kind: ActiveMode;
+  if (cid) {
+    if (mid && cid === mid) {
+      kind = { mode: "matter" };
+    } else {
+      kind = { mode: "resolved", rel: relPosix(path.join("clients", cid, "CLIENT_PROFILE.md")) };
+    }
+  } else {
+    kind = { mode: "root" };
+  }
+
+  const relNorm = (r: string) => relPosix(r);
+
+  const rowMatches = (l: MemorySourceLayer): boolean => {
+    const r = relNorm(l.relativePath);
+    if (kind.mode === "root") {
+      return l.id === "client_profile_root" && r === "CLIENT_PROFILE.md";
+    }
+    if (kind.mode === "matter" && mid) {
+      return (
+        l.id === "client_profile_matter" &&
+        r === relNorm(path.join("clients", mid, "CLIENT_PROFILE.md"))
+      );
+    }
+    if (kind.mode === "resolved") {
+      return r === kind.rel;
+    }
+    return false;
+  };
+
+  const marked = rows.map((l) => {
+    if (
+      l.id !== "client_profile_root" &&
+      l.id !== "client_profile_matter" &&
+      l.id !== "client_profile_resolved"
+    ) {
+      return { ...l, activeForEngine: false };
+    }
+    return { ...l, activeForEngine: rowMatches(l) };
+  });
+
+  if (kind.mode === "resolved" && !marked.some((l) => l.activeForEngine)) {
+    const abs = path.join(workspaceDir, ...kind.rel.split("/"));
+    const { exists, charCount } = await readLen(abs);
+    marked.push({
+      id: "client_profile_resolved",
+      label: "客户画像（CASE 指定的 clientId）",
+      relativePath: kind.rel,
+      exists,
+      charCount,
+      inAgentSystemPrompt: true,
+      activeForEngine: true,
+      hint: "本回合自 CASE 解析的 clientId；与提示词及检索 RAG 使用的客户画像一致",
+    });
+  }
+
+  return marked;
+}
+
 export type MemorySourceLayer = {
   /** 稳定 ID，供 UI */
   id: string;
@@ -40,7 +120,31 @@ export type MemorySourceLayer = {
   inAgentSystemPrompt: boolean;
   /** 补充说明 */
   hint?: string;
+  /**
+   * 与 `loadMemoryContext` 选中的**客户画像**源一致时置 true（同一份内容进入主对话提示与 RAG/检索管线）。
+   * 非客户行通常为 false/未设置。
+   */
+  activeForEngine?: boolean;
 };
+
+/** 与 `loadMemoryContext` 的客户画像字段同构，供标记「本回合生效」用 */
+export type EngineClientMemorySnapshot = {
+  clientProfile: string;
+  clientProfileClientId?: string;
+};
+
+/**
+ * 将 `loadMemoryContext` 的客户画像字段传给 `buildAgentMemorySourceReport`（单一点，避免 API 层重复键名）。
+ */
+export function toEngineClientMemorySnapshot(m: {
+  clientProfile: string;
+  clientProfileClientId?: string;
+}): EngineClientMemorySnapshot {
+  return {
+    clientProfile: m.clientProfile,
+    clientProfileClientId: m.clientProfileClientId,
+  };
+}
 
 export type BuildMemorySourceReportOpts = {
   matterId?: string;
@@ -48,6 +152,11 @@ export type BuildMemorySourceReportOpts = {
   assistantId?: string;
   /** 默认从 workspace 解析 LawMind 根目录 */
   lawMindRoot?: string;
+  /**
+   * 与 `loadMemoryContext` 同一客户画像快照，用于在表格中高亮本回合选中的 `CLIENT_PROFILE` 行。
+   * 不传入则各 `activeForEngine` 为 false（仍保留其余列）。
+   */
+  engineMemory?: EngineClientMemorySnapshot;
 };
 
 /**
@@ -100,6 +209,14 @@ export async function buildAgentMemorySourceReport(
       hint: "引擎与检索使用；当前 Agent prompt 未整段注入",
     },
     {
+      id: "client_profile_root",
+      label: "客户画像（根目录，可选）",
+      relativePath: "CLIENT_PROFILE.md",
+      abs: path.join(workspaceDir, "CLIENT_PROFILE.md"),
+      inAgentSystemPrompt: true,
+      hint: "子目录无匹配时作工作区级默认；主路径为 clients/<clientId>/CLIENT_PROFILE.md",
+    },
+    {
       id: "clause_playbook",
       label: "条款 Playbook",
       relativePath: path.join("playbooks", "CLAUSE_PLAYBOOK.md"),
@@ -134,12 +251,20 @@ export async function buildAgentMemorySourceReport(
   if (matterId) {
     base.push(
       {
+        id: "client_profile_matter",
+        label: "客户画像（与 matterId 同 id 的 clients/ 目录）",
+        relativePath: path.join("clients", matterId, "CLIENT_PROFILE.md"),
+        abs: path.join(workspaceDir, "clients", matterId, "CLIENT_PROFILE.md"),
+        inAgentSystemPrompt: true,
+        hint: "CASE 中写 clientId 时优先 `clients/<clientId>/`；与 matterId 相同时本文件与 CASE 行指向一致",
+      },
+      {
         id: "case_md",
         label: "案件档案 CASE",
         relativePath: path.join("cases", matterId, "CASE.md"),
         abs: path.join(workspaceDir, "cases", matterId, "CASE.md"),
         inAgentSystemPrompt: true,
-        hint: "作为「当前案件」上下文进入 system prompt",
+        hint: "作为「当前案件」上下文进入 system prompt；`clientId` 行可关联长年代理客户主档案",
       },
       {
         id: "matter_strategy",
@@ -179,5 +304,5 @@ export async function buildAgentMemorySourceReport(
       hint: row.hint,
     });
   }
-  return out;
+  return applyEngineClientProfileHighlights(workspaceDir, matterId, out, opts.engineMemory);
 }

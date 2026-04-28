@@ -42,5 +42,5 @@
 
 ---
 
-- https://docs.openclaw.ai/LAWMIND-BUNDLES
-- https://docs.openclaw.ai/LAWMIND-PRIVATE-DEPLOY
+- https://docs.lawmind.ai/LAWMIND-BUNDLES
+- https://docs.lawmind.ai/LAWMIND-PRIVATE-DEPLOY

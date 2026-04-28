@@ -107,6 +107,7 @@ describe("plan_task", () => {
     expect(result.ok).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.kind).toBe("draft.word");
+    expect(data.deliverableType).toBe("letter.demand");
     expect(data.riskLevel).toBe("high");
     expect(data.requiresConfirmation).toBe(true);
   });
@@ -123,6 +124,64 @@ describe("plan_task", () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain("matter_id 格式不合法");
+  });
+});
+
+describe("clarification pending guard", () => {
+  it("blocks execute_workflow when clarificationBlockingHeavyTools", async () => {
+    const ws = tmpWorkspace();
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("execute_workflow")!;
+    const ctx: AgentContext = {
+      ...makeCtx(ws, "m-clarify"),
+      clarificationBlockingHeavyTools: true,
+    };
+    const result = await tool.execute({ instruction: "请审查合同", matter_id: "m-clarify" }, ctx);
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("待澄清");
+  });
+
+  it("blocks draft_document when clarificationBlockingHeavyTools", async () => {
+    const ws = tmpWorkspace();
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("draft_document")!;
+    const ctx: AgentContext = { ...makeCtx(ws, "m-d"), clarificationBlockingHeavyTools: true };
+    const result = await tool.execute({ instruction: "请整理合同审查意见", matter_id: "m-d" }, ctx);
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("待澄清");
+  });
+
+  it("blocks research_task when clarificationBlockingHeavyTools", async () => {
+    const ws = tmpWorkspace();
+    const registry = createLegalToolRegistry();
+    const plan = registry.get("plan_task")!;
+    const planned = await plan.execute(
+      { instruction: "请审查合同", matter_id: "m-r" },
+      makeCtx(ws, "m-r"),
+    );
+    expect(planned.ok).toBe(true);
+    const taskId = (planned.data as { taskId: string }).taskId;
+    const research = registry.get("research_task")!;
+    const ctx: AgentContext = { ...makeCtx(ws, "m-r"), clarificationBlockingHeavyTools: true };
+    const result = await research.execute(
+      { task_id: taskId, instruction: "请审查合同", matter_id: "m-r" },
+      ctx,
+    );
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("待澄清");
+  });
+
+  it("blocks render_document when clarificationBlockingHeavyTools", async () => {
+    const ws = tmpWorkspace();
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("render_document")!;
+    const ctx: AgentContext = { ...makeCtx(ws, "m-ren"), clarificationBlockingHeavyTools: true };
+    const result = await tool.execute(
+      { task_id: "any-id", __approved: true } as Record<string, unknown>,
+      ctx,
+    );
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("待澄清");
   });
 });
 
@@ -203,6 +262,45 @@ describe("execute_workflow", () => {
       .map((line) => JSON.parse(line));
     expect(events.length).toBeGreaterThanOrEqual(3); // task.created, research.started, research.completed, ...
   });
+
+  it("rejects existing_task_id without restart_from", async () => {
+    const ws = tmpWorkspace();
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("execute_workflow")!;
+    const result = await tool.execute(
+      { instruction: "test", matter_id: "m-norestart", existing_task_id: "any-id" },
+      makeCtx(ws, "m-norestart"),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("restart_from");
+  });
+
+  it("resumes with existing_task_id and restart_from research", async () => {
+    const ws = tmpWorkspace();
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("execute_workflow")!;
+    const first = await tool.execute(
+      { instruction: "检索合同法基本原则", matter_id: "m-resume-wf", force_render: false },
+      makeCtx(ws, "m-resume-wf"),
+    );
+    expect(first.ok).toBe(true);
+    const tid = (first.data as { taskId: string }).taskId;
+    expect(tid).toBeTruthy();
+
+    const second = await tool.execute(
+      {
+        instruction: "检索合同法基本原则",
+        matter_id: "m-resume-wf",
+        existing_task_id: tid,
+        restart_from: "research",
+        force_render: true,
+      },
+      makeCtx(ws, "m-resume-wf"),
+    );
+    expect(second.ok).toBe(true);
+    const steps = (second.data as { steps: string[] }).steps;
+    expect(steps.some((s) => s.includes("续跑任务"))).toBe(true);
+  });
 });
 
 describe("render_document", () => {
@@ -215,6 +313,69 @@ describe("render_document", () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain("找不到");
+  });
+
+  it("uses the latest draft when task_id is omitted and can auto-approve before render", async () => {
+    const ws = tmpWorkspace();
+    const registry = createLegalToolRegistry();
+    const draftTool = registry.get("draft_document")!;
+    const renderTool = registry.get("render_document")!;
+
+    const draftResult = await draftTool.execute(
+      {
+        instruction: "请审查这份合同的违约责任条款",
+        matter_id: "m-render-latest",
+      },
+      makeCtx(ws, "m-render-latest"),
+    );
+    expect(draftResult.ok).toBe(true);
+
+    const result = await renderTool.execute(
+      {
+        approve: true,
+        approval_note: "同意导出 Word 正式稿",
+        // Smoke test exercises the auto-approve + render plumbing, not the Deliverable-First
+        // acceptance gate (which would block this auto-generated review draft for missing
+        // blocker sections — see src/lawmind/deliverables/registry.ts).
+        bypass_acceptance_gate: true,
+      },
+      makeCtx(ws, "m-render-latest"),
+    );
+
+    expect(result.ok).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.taskId).toBeTruthy();
+    expect(data.outputPath).toBeTruthy();
+    expect(String(data.outputPath)).toMatch(/\.docx$/);
+  });
+
+  it("blocks render when the Deliverable-First acceptance gate is unmet", async () => {
+    const ws = tmpWorkspace();
+    const registry = createLegalToolRegistry();
+    const draftTool = registry.get("draft_document")!;
+    const renderTool = registry.get("render_document")!;
+
+    const draftResult = await draftTool.execute(
+      {
+        instruction: "请审查这份合同的违约责任条款",
+        matter_id: "m-render-gated",
+      },
+      makeCtx(ws, "m-render-gated"),
+    );
+    expect(draftResult.ok).toBe(true);
+
+    const blocked = await renderTool.execute(
+      { approve: true, approval_note: "同意导出" },
+      makeCtx(ws, "m-render-gated"),
+    );
+
+    expect(blocked.ok).toBe(false);
+    expect((blocked as { pendingApproval?: boolean }).pendingApproval).toBe(true);
+    const detail = (blocked as { data?: Record<string, unknown> }).data ?? {};
+    expect(detail.acceptance).toBeTruthy();
+    const acceptance = detail.acceptance as { ready: boolean; blockerCount: number };
+    expect(acceptance.ready).toBe(false);
+    expect(acceptance.blockerCount).toBeGreaterThan(0);
   });
 });
 
@@ -258,6 +419,34 @@ describe("draft_document", () => {
     expect(result.ok).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.templateId).toBe("word/contract-default");
+  });
+
+  it("generates a full rental contract draft even when retrieval is sparse", async () => {
+    const ws = tmpWorkspace();
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("draft_document")!;
+
+    const result = await tool.execute(
+      {
+        instruction: "请起草一份房屋租赁合同",
+      },
+      makeCtx(ws),
+    );
+
+    expect(result.ok).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.title).toBe("房屋租赁合同");
+    expect(data.templateId).toBe("word/contract-default");
+    expect(data.deliverableType).toBe("contract.rental");
+    expect(data.deliveryReadiness).toBe("draft_with_placeholders");
+    expect(
+      (data.sections as Array<{ heading: string }>).some((s) => s.heading === "合同当事人"),
+    ).toBe(true);
+    expect(
+      (data.clarificationQuestions as Array<{ key: string }>).some(
+        (item) => item.key === "rent_and_deposit",
+      ),
+    ).toBe(true);
   });
 
   it("rejects empty instruction", async () => {

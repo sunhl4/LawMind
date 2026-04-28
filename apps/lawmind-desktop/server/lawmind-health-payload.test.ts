@@ -6,9 +6,11 @@ import { ensureTaskRecord } from "../../../src/lawmind/tasks/index.js";
 import type { TaskIntent } from "../../../src/lawmind/types.js";
 import {
   buildDoctorStats,
+  buildMemoryTruthSourceFlags,
   countAuditJsonlFiles,
+  countClientProfileFilesUnderClients,
   countResearchSnapshots,
-  tryReadOpenClawPackageVersion,
+  tryReadWorkspacePackageVersion,
 } from "./lawmind-health-payload.js";
 
 function tmpWs(): string {
@@ -72,12 +74,28 @@ describe("lawmind-health-payload", () => {
     expect(st.auditJsonlFileCount).toBe(0);
   });
 
-  it("tryReadOpenClawPackageVersion reads repo package.json", () => {
-    const v = tryReadOpenClawPackageVersion(path.join(import.meta.dirname, "../../.."));
+  it("tryReadWorkspacePackageVersion reads repo package.json", () => {
+    const v = tryReadWorkspacePackageVersion(path.join(import.meta.dirname, "../../.."));
     expect(v).toMatch(/^\d+\.\d+\.\d+/);
   });
 
-  it("tryReadOpenClawPackageVersion returns null for bad path", () => {
-    expect(tryReadOpenClawPackageVersion("/nonexistent-openclaw-root-xyz")).toBe(null);
+  it("tryReadWorkspacePackageVersion returns null for bad path", () => {
+    expect(tryReadWorkspacePackageVersion("/nonexistent-lawmind-repo-root-xyz")).toBe(null);
+  });
+
+  it("buildMemoryTruthSourceFlags reports root files and client profile counts", () => {
+    const ws = tmpWs();
+    fs.writeFileSync(path.join(ws, "MEMORY.md"), "m", "utf8");
+    fs.writeFileSync(path.join(ws, "FIRM_PROFILE.md"), "f", "utf8");
+    const clients = path.join(ws, "clients", "c1");
+    fs.mkdirSync(clients, { recursive: true });
+    fs.writeFileSync(path.join(clients, "CLIENT_PROFILE.md"), "p", "utf8");
+    const flags = buildMemoryTruthSourceFlags(ws);
+    expect(flags.memoryMd).toBe(true);
+    expect(flags.lawyerProfile).toBe(false);
+    expect(flags.firmProfile).toBe(true);
+    expect(flags.clientProfileRoot).toBe(false);
+    expect(flags.clientProfileFilesUnderClients).toBe(1);
+    expect(countClientProfileFilesUnderClients(ws)).toBe(1);
   });
 });
