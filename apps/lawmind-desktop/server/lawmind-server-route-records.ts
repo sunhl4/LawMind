@@ -1,13 +1,60 @@
-import { listSessions } from "../../../src/lawmind/agent/session.js";
+import { DEFAULT_ASSISTANT_ID } from "../../../src/lawmind/assistants/constants.js";
+import type { AgentSession } from "../../../src/lawmind/agent/types.js";
+import {
+  createSession,
+  deleteSession,
+  displayChatSessionTitle,
+  listSessions,
+  loadSession,
+  renameSession,
+  sessionHistoryToSimpleMessages,
+} from "../../../src/lawmind/agent/session.js";
 import { listDrafts } from "../../../src/lawmind/drafts/index.js";
 import { listTaskRecords } from "../../../src/lawmind/tasks/index.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import {
   filterTaskSummaries,
+  isLawMindHttpError,
   parseQueryTimeMs,
+  readJsonBody,
+  resolveDesktopActorId,
   sendJson,
   taskToSummary,
 } from "./lawmind-server-helpers.js";
+
+function sessionMatchesAssistantFilter(session: AgentSession, assistantId: string): boolean {
+  if (session.assistantId === assistantId) {
+    return true;
+  }
+  if (!session.assistantId && assistantId === DEFAULT_ASSISTANT_ID) {
+    return true;
+  }
+  return false;
+}
+
+function performSessionDelete(
+  workspaceDir: string,
+  sessionId: string,
+  assistantId: string,
+):
+  | { status: 200; payload: { ok: true; sessionId: string } }
+  | { status: 404; payload: { ok: false; code: string; message: string } }
+  | { status: 500; payload: { ok: false; code: string; message: string } } {
+  const session = loadSession(workspaceDir, sessionId);
+  if (!session) {
+    return { status: 404, payload: { ok: false, code: "not_found", message: "session not found" } };
+  }
+  if (!sessionMatchesAssistantFilter(session, assistantId)) {
+    return { status: 404, payload: { ok: false, code: "not_found", message: "session not found" } };
+  }
+  if (!deleteSession(workspaceDir, sessionId)) {
+    return {
+      status: 500,
+      payload: { ok: false, code: "delete_failed", message: "could not delete session files" },
+    };
+  }
+  return { status: 200, payload: { ok: true, sessionId } };
+}
 
 export async function handleRecordRoutes({
   ctx,
@@ -29,9 +76,159 @@ export async function handleRecordRoutes({
     return true;
   }
 
+  const sessionItemMatch = /^\/api\/sessions\/([^/]+)$/.exec(pathname);
+
+  if (pathname === "/api/sessions" && req.method === "POST") {
+    try {
+      const body = (await readJsonBody(req)) as {
+        assistantId?: unknown;
+        matterId?: unknown;
+        title?: unknown;
+      };
+      const assistantId =
+        typeof body.assistantId === "string" && body.assistantId.trim()
+          ? body.assistantId.trim()
+          : DEFAULT_ASSISTANT_ID;
+      const matterId =
+        typeof body.matterId === "string" && body.matterId.trim() ? body.matterId.trim() : undefined;
+      const title =
+        typeof body.title === "string" && body.title.trim() ? body.title.trim().slice(0, 200) : undefined;
+      const session = createSession({
+        workspaceDir,
+        matterId,
+        actorId: resolveDesktopActorId(),
+        assistantId,
+        title,
+      });
+      sendJson(
+        res,
+        200,
+        {
+          ok: true,
+          sessionId: session.sessionId,
+          title: displayChatSessionTitle(session),
+        },
+        c,
+      );
+    } catch (e) {
+      if (isLawMindHttpError(e)) {
+        sendJson(res, e.status, { ok: false, message: e.message }, c);
+      } else {
+        sendJson(res, 400, { ok: false, message: "invalid_request" }, c);
+      }
+    }
+    return true;
+  }
+
+  /** 与 DELETE 等价；桌面端用 POST 避免部分环境下 DELETE 预检失败（Failed to fetch）。 */
+  if (pathname === "/api/sessions/delete" && req.method === "POST") {
+    let body: { sessionId?: unknown; assistantId?: unknown };
+    try {
+      body = (await readJsonBody(req)) as { sessionId?: unknown; assistantId?: unknown };
+    } catch (e) {
+      if (isLawMindHttpError(e)) {
+        sendJson(res, e.status, { ok: false, message: e.message }, c);
+      } else {
+        sendJson(res, 400, { ok: false, message: "invalid_request" }, c);
+      }
+      return true;
+    }
+    const sessionId =
+      typeof body.sessionId === "string" && body.sessionId.trim() ? body.sessionId.trim() : "";
+    if (!sessionId) {
+      sendJson(res, 400, { ok: false, code: "session_id_required", message: "sessionId is required" }, c);
+      return true;
+    }
+    const assistantId =
+      typeof body.assistantId === "string" && body.assistantId.trim()
+        ? body.assistantId.trim()
+        : DEFAULT_ASSISTANT_ID;
+    const out = performSessionDelete(workspaceDir, sessionId, assistantId);
+    sendJson(res, out.status, out.payload, c);
+    return true;
+  }
+
+  if (sessionItemMatch && req.method === "GET") {
+    const sessionId = sessionItemMatch[1];
+    const assistantId = url.searchParams.get("assistantId")?.trim() || DEFAULT_ASSISTANT_ID;
+    const session = loadSession(workspaceDir, sessionId);
+    if (!session) {
+      sendJson(res, 404, { ok: false, code: "not_found", message: "session not found" }, c);
+      return true;
+    }
+    if (!sessionMatchesAssistantFilter(session, assistantId)) {
+      sendJson(res, 404, { ok: false, code: "not_found", message: "session not found" }, c);
+      return true;
+    }
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        sessionId: session.sessionId,
+        title: displayChatSessionTitle(session),
+        messages: sessionHistoryToSimpleMessages(session),
+      },
+      c,
+    );
+    return true;
+  }
+
+  if (sessionItemMatch && req.method === "PATCH") {
+    const sessionId = sessionItemMatch[1];
+    const assistantId = url.searchParams.get("assistantId")?.trim() || DEFAULT_ASSISTANT_ID;
+    let body: { title?: unknown };
+    try {
+      body = (await readJsonBody(req)) as { title?: unknown };
+    } catch (e) {
+      if (isLawMindHttpError(e)) {
+        sendJson(res, e.status, { ok: false, message: e.message }, c);
+      } else {
+        sendJson(res, 400, { ok: false, message: "invalid_request" }, c);
+      }
+      return true;
+    }
+    const nextTitle = typeof body.title === "string" ? body.title : "";
+    const session = loadSession(workspaceDir, sessionId);
+    if (!session) {
+      sendJson(res, 404, { ok: false, code: "not_found", message: "session not found" }, c);
+      return true;
+    }
+    if (!sessionMatchesAssistantFilter(session, assistantId)) {
+      sendJson(res, 404, { ok: false, code: "not_found", message: "session not found" }, c);
+      return true;
+    }
+    const updated = renameSession(workspaceDir, sessionId, nextTitle);
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        sessionId,
+        title: updated ? displayChatSessionTitle(updated) : displayChatSessionTitle(session),
+      },
+      c,
+    );
+    return true;
+  }
+
+  if (sessionItemMatch && req.method === "DELETE") {
+    const sessionId = sessionItemMatch[1];
+    const assistantId = url.searchParams.get("assistantId")?.trim() || DEFAULT_ASSISTANT_ID;
+    const out = performSessionDelete(workspaceDir, sessionId, assistantId);
+    sendJson(res, out.status, out.payload, c);
+    return true;
+  }
+
   if (pathname === "/api/sessions" && req.method === "GET") {
-    const sessions = listSessions(workspaceDir).map((session) => ({
+    const assistantFilter = url.searchParams.get("assistantId")?.trim();
+    let rows = listSessions(workspaceDir);
+    if (assistantFilter) {
+      rows = rows.filter((session) => sessionMatchesAssistantFilter(session, assistantFilter));
+    }
+    const sessions = rows.map((session) => ({
       sessionId: session.sessionId,
+      title: displayChatSessionTitle(session),
       matterId: session.matterId,
       assistantId: session.assistantId,
       createdAt: session.createdAt,

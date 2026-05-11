@@ -38,6 +38,7 @@ import { listTaskRecords } from "../../tasks/index.js";
 import type { AgentConfig, AgentTool } from "../types.js";
 import {
   createDelegateTaskTool,
+  createDelegateToRoleTool,
   createConsultAssistantTool,
   createNotifyAssistantTool,
   createRequestReviewTool,
@@ -873,6 +874,10 @@ export function createLegalToolRegistry(opts?: {
   if (opts?.enableCollaboration && opts.baseConfig) {
     tools.push(
       createDelegateTaskTool({
+        baseConfig: opts.baseConfig,
+        currentDepth: opts.collaborationDepth ?? 0,
+      }),
+      createDelegateToRoleTool({
         baseConfig: opts.baseConfig,
         currentDepth: opts.collaborationDepth ?? 0,
       }),

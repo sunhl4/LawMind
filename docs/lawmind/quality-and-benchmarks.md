@@ -23,7 +23,7 @@ When a lawyer reviews a draft, they can attach structured labels alongside the f
 await engine.review(draft, {
   status: "approved",
   note: "引用不足，已手动补充",
-  labels: ["citation.incomplete", "quality.good_example"],
+  labels: ["引用不完整", "质量范例"],
 });
 ```
 
@@ -35,22 +35,24 @@ Labels are written back to:
 
 ### Available labels
 
-| Label                         | Meaning                                                    |
-| ----------------------------- | ---------------------------------------------------------- |
-| `tone.too_strong`             | Tone too assertive; softer language advised                |
-| `tone.too_weak`               | Conclusion unclear; should be more direct                  |
-| `citation.incomplete`         | Missing or untraceable citations                           |
-| `citation.incorrect`          | Wrong statute or case number                               |
-| `issue.missing`               | Key legal issue not covered                                |
-| `issue.over_argued`           | Minor issue given disproportionate space                   |
-| `fact.ordering`               | Fact narrative order needs adjustment                      |
-| `fact.inaccurate`             | Factual description is incorrect                           |
-| `risk.calibration_high`       | Risk level overstated                                      |
-| `risk.calibration_low`        | Risk level understated (highest priority to learn from)    |
-| `risk.missing_flag`           | High-risk point was not flagged                            |
-| `audience.wrong_framing`      | Client-facing vs. internal framing confused                |
-| `structure.template_mismatch` | Wrong template chosen for this task type                   |
-| `quality.good_example`        | Draft is a golden example; promotes to benchmark candidate |
+Current product locale uses **Chinese string identifiers** (stored in quality JSON, audit detail, etc.). `parseReviewLabels` still accepts **legacy English slugs** (for example `citation.incomplete`) and normalizes them to the Chinese form.
+
+| Label（zh）  | Meaning                                                 |
+| ------------ | ------------------------------------------------------- |
+| 语气过强     | Tone too assertive; softer language advised             |
+| 语气过弱     | Conclusion unclear; should be more direct               |
+| 引用不完整   | Missing or untraceable citations                        |
+| 引用有误     | Wrong statute or case number                            |
+| 争点遗漏     | Key legal issue not covered                             |
+| 争点过度论证 | Minor issue given disproportionate space                |
+| 事实顺序不当 | Fact narrative order needs adjustment                   |
+| 事实不准确   | Factual description is incorrect                        |
+| 风险偏高     | Risk level overstated                                   |
+| 风险偏低     | Risk level understated (highest priority to learn from) |
+| 风险未标注   | High-risk point was not flagged                         |
+| 受众定位不当 | Client-facing vs. internal framing confused             |
+| 模板不匹配   | Wrong template chosen for this task type                |
+| 质量范例     | Golden example; promotes to benchmark candidate         |
 
 ## Quality records
 
@@ -122,7 +124,7 @@ The default pass threshold is **70%** (`benchmarkPassesThreshold(results, 0.7)`)
 
 - **`recordQuality`** fills `citationValidityRate`, `issueCoverageRate`, and `riskRecallRate` using the stored research snapshot (`drafts/<taskId>.research.json`), optional reasoning snapshot (`drafts/<taskId>.reasoning.json`), and `src/lawmind/evaluation/metrics.ts`.
 - **`buildQualityDashboardMarkdown`** aggregates snapshots by `taskKind`, `templateId`, and assistant `presetKey`.
-- **`quality.good_example`** on review runs **`promoteGoldenExample`**, writing `golden/<taskId>.golden.json` and appending `golden/golden.jsonl`. Audit: `golden.example_promoted`. Quality snapshots use audit kind `quality.snapshot`.
+- **`质量范例`** on review runs **`promoteGoldenExample`**, writing `golden/<taskId>.golden.json` and appending `golden/golden.jsonl`. Audit: `golden.example_promoted`. Quality snapshots use audit kind `quality.snapshot`.
 
 ## Source
 

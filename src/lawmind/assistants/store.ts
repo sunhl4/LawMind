@@ -161,6 +161,10 @@ export function upsertAssistant(
         patch.introduction !== undefined ? patch.introduction.trim() : base.introduction,
       presetKey:
         patch.presetKey !== undefined ? patch.presetKey.trim() || undefined : base.presetKey,
+      roleId:
+        patch.roleId !== undefined
+          ? patch.roleId.trim() || undefined
+          : (base.roleId ?? base.presetKey),
       customRoleTitle:
         patch.customRoleTitle !== undefined
           ? patch.customRoleTitle.trim() || undefined
@@ -196,6 +200,7 @@ export function upsertAssistant(
     displayName: patch.displayName?.trim() || "新助手",
     introduction: patch.introduction?.trim() || "",
     presetKey: patch.presetKey?.trim() || undefined,
+    roleId: patch.roleId?.trim() || patch.presetKey?.trim() || undefined,
     customRoleTitle: patch.customRoleTitle?.trim() || undefined,
     customRoleInstructions: patch.customRoleInstructions?.trim() || undefined,
     orgRole: org.orgRole,

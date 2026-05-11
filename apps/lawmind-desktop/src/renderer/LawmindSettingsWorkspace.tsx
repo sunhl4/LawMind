@@ -11,6 +11,7 @@ type Props = {
 
 export function LawmindSettingsWorkspace(props: Props): ReactNode {
   const { config, workspaceLabel, projectDir, onPickProject, onClearProject } = props;
+
   return (
     <div className="lm-settings-section">
       <div className="lm-settings-section-title">工作区与项目</div>

@@ -1,3 +1,4 @@
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { MemorySourceLayer } from "../../../../src/lawmind/memory/index.ts";
 import type { ClarificationQuestion } from "../../../../src/lawmind/types.ts";
 import { chatErrorUserText, readJsonFromResponse, type ApiErrorJson } from "./api-client";
@@ -9,6 +10,30 @@ export type ChatRuntimeHints = {
   lawmindReasoningMode: string;
   toolCallsExecuted: number;
 };
+
+/**
+ * 主输入框：Enter 发送，Shift+Enter 换行。IME 正在组字时不发送。
+ */
+export function handleEnterSendShiftNewline(
+  e: ReactKeyboardEvent<HTMLTextAreaElement>,
+  onSend: () => void | Promise<void>,
+): void {
+  if (e.key !== "Enter") {
+    return;
+  }
+  if (e.shiftKey) {
+    return;
+  }
+  const ne = e.nativeEvent;
+  if (ne.isComposing) {
+    return;
+  }
+  if ("keyCode" in ne && (ne).keyCode === 229) {
+    return;
+  }
+  e.preventDefault();
+  void onSend();
+}
 
 export type ChatMsg = {
   role: "user" | "assistant";
@@ -91,6 +116,14 @@ type SendChatTurnArgs = {
   allowWebSearch: boolean;
   matterId?: string | null;
   projectDir?: string | null;
+  /** 与 shell 中 fileChatContextItems 一致，供服务端校验已钉选路径 */
+  contextPins?: Array<{ root: "workspace" | "project"; relPath: string; kind: "file" | "directory" }>;
+  /** 关联任务/草稿时的 taskId */
+  linkedTaskId?: string | null;
+  /** 输入框原文（无文件/学习前缀），用于自动会话标题 */
+  sessionTitleHint?: string;
+  /** 中止后 `fetch` 会以 `AbortError` 拒绝 */
+  signal?: AbortSignal;
 };
 
 type ChatResponse = {
@@ -108,6 +141,31 @@ type ChatResponse = {
   runtimeHints?: unknown;
 };
 
+/** `fetch` 被 `AbortController.abort()` 取消时抛出的错误 */
+export function isFetchAbortError(e: unknown): boolean {
+  if (e instanceof DOMException && e.name === "AbortError") {
+    return true;
+  }
+  return e instanceof Error && e.name === "AbortError";
+}
+
+/** 若当前助手最后一条用户消息正文与 `expectedUserText` 一致则移除（用于中止发送后恢复可编辑） */
+export function dropTrailingUserMessageIfText(
+  messagesByAssistant: Record<string, ChatMsg[]>,
+  assistantId: string,
+  expectedUserText: string,
+): Record<string, ChatMsg[]> {
+  const list = messagesByAssistant[assistantId] ?? [];
+  const last = list[list.length - 1];
+  if (!last || last.role !== "user" || last.text !== expectedUserText) {
+    return messagesByAssistant;
+  }
+  return {
+    ...messagesByAssistant,
+    [assistantId]: list.slice(0, -1),
+  };
+}
+
 export async function sendChatTurn(args: SendChatTurnArgs): Promise<{
   sessionId?: string;
   assistantMessage: ChatMsg;
@@ -116,6 +174,7 @@ export async function sendChatTurn(args: SendChatTurnArgs): Promise<{
   const response = await fetch(`${args.apiBase}/api/chat`, {
     method: "POST",
     headers: { "content-type": "application/json" },
+    signal: args.signal,
     body: JSON.stringify({
       message: args.message,
       sessionId: args.sessionId,
@@ -123,10 +182,16 @@ export async function sendChatTurn(args: SendChatTurnArgs): Promise<{
       allowWebSearch: args.allowWebSearch,
       ...(args.matterId ? { matterId: args.matterId } : {}),
       ...(args.projectDir ? { projectDir: args.projectDir } : {}),
+      ...(args.contextPins && args.contextPins.length > 0 ? { contextPins: args.contextPins } : {}),
+      ...(args.linkedTaskId ? { linkedTaskId: args.linkedTaskId } : {}),
+      ...(args.sessionTitleHint?.trim() ? { sessionTitleHint: args.sessionTitleHint.trim() } : {}),
       ...(includeTurnDiagnostics ? { includeTurnDiagnostics: true } : {}),
     }),
   });
   const body = await readJsonFromResponse<ChatResponse>(response);
+  if (args.signal?.aborted) {
+    throw new DOMException("The user aborted a request.", "AbortError");
+  }
   if (!response.ok || body.ok === false) {
     throw new Error(chatErrorUserText(response.status, body as ApiErrorJson));
   }

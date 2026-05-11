@@ -51,6 +51,7 @@ export type DeliverableType =
   | "contract.rental"
   | "contract.general"
   | "letter.demand"
+  | "litigation.outline"
   | "document.general"
   // eslint-disable-next-line @typescript-eslint/ban-types -- 保留 IDE 内置类型自动补全的同时允许工作区扩展类型。
   | (string & {});
@@ -169,6 +170,17 @@ export type ArtifactSection = {
 /** 审核状态 */
 export type ReviewStatus = "pending" | "approved" | "rejected" | "modified";
 
+/**
+ * 当草稿在审核台被「通过」时，自动写入 `learning/contract-revisions/` 所需的路径（均相对工作区根）。
+ * 由 Agent/工具写入 `drafts/<taskId>.json`，律师仍只使用既有审核台，无需单独合同 UI。
+ */
+export type ContractRevisionCapture = {
+  initialRelativePath: string;
+  revisedRelativePath: string;
+  stableDocumentKey?: string;
+  keyModifications?: string[];
+};
+
 /** 文书草稿 — 由推理层生成，渲染前须律师审核 */
 export type ArtifactDraft = {
   taskId: string;
@@ -180,6 +192,15 @@ export type ArtifactDraft = {
   output: "docx" | "pptx" | "markdown";
   /** 使用的模板 ID */
   templateId: string;
+  /**
+   * 渲染时解析到的模板 pin（内置/上传版本/回退），用于审计与复现；未渲染前可为空。
+   * 格式见 `templateResolvedPin()`（`src/lawmind/templates/index.ts`）。
+   */
+  templateVersion?: string;
+  /**
+   * 引擎管线是否已写入 `drafts/<taskId>.reasoning.json` 侧车（LegalReasoningGraph）。
+   */
+  hasLegalReasoningSnapshot?: boolean;
   /** 交付物类型（用于渲染与后续校验） */
   deliverableType?: DeliverableType;
   /** 执行摘要（用于律师快速判断是否准确） */
@@ -203,6 +224,10 @@ export type ArtifactDraft = {
   /** 最终产物路径（渲染完成后填写） */
   outputPath?: string;
   createdAt: string;
+  /** 若存在，在审核「通过」后由服务端写入合同修订积累包，然后清除 */
+  contractRevisionCapture?: ContractRevisionCapture;
+  /** 已通过 `contractRevisionCapture` 写入积累包后的 `revisionId`，防止重复落盘 */
+  contractRevisionAccumulatedId?: string;
 };
 
 // ─────────────────────────────────────────────
@@ -242,6 +267,8 @@ export type TaskRecord = {
   audience?: string;
   matterId?: string;
   templateId?: string;
+  /** 与 `ArtifactDraft.templateVersion` 对齐，最后一次已知模板解析 pin */
+  templateVersion?: string;
   deliverableType?: DeliverableType;
   acceptanceCriteria?: string[];
   clarificationQuestions?: ClarificationQuestion[];
@@ -285,6 +312,8 @@ export type MatterIndex = {
 
 export type MatterOverview = {
   matterId: string;
+  /** 侧栏/列表展示名（来自 CASE §1，无则同 matterId） */
+  displayName: string;
   latestUpdatedAt?: string;
   openTaskCount: number;
   renderedTaskCount: number;
@@ -331,6 +360,8 @@ export type AuditEventKind =
   | "draft.reviewed"
   | "draft.review_reopened" // 由「恢复待审核」等操作将草稿重置于 pending
   | "draft.review_labeled" // 2.0：审核附加结构化标签
+  | "draft.revision_dispatched" // 审核台「提交给助手」后台修订已排队
+  | "draft.revision_agent_failed" // 后台修订助手执行失败
   | "artifact.rendered"
   | "artifact.render_failed"
   | "artifact.sent"
@@ -342,7 +373,8 @@ export type AuditEventKind =
   | "learning.suggestion_queued" // 2.0：审核学习先入队
   | "learning.suggestion_adopted" // 2.0：学习建议已采纳写回
   | "learning.suggestion_dismissed" // 2.0：学习建议已忽略
-  | "ui.matter_action" // 2.0：桌面端案件工作台关键律师动作
+  | "ui.matter_action" // 2.0：桌面端案件工作台关键律师动作（计划季末 sunset，由 ux.matter_action 取代）
+  | "ux.matter_action" // W10：与 ui.matter_action 双写，过渡期由 insights 模块统一消费
   | "ui.firstrun_wizard_completed" // 桌面首跑向导完成（转化漏斗）
   | "ui.firstrun_acceptance_ready" // 首跑关联案件下首次有草稿通过验收门禁
   | "deliverable.spec.invalid" // 工作区私有交付物规范解析失败
@@ -366,26 +398,26 @@ export type AuditEvent = {
 // ─────────────────────────────────────────────
 
 /**
- * 审核标签枚举。
+ * 审核标签枚举（本版产品为中文标识；后续可再提供英文 UI/别名映射）。
  * 律师在审核草稿时可以附加一组标签，
  * 系统将这些标签写回律师/助手记忆文件，
  * 并用于计算质量指标。
  */
 export type ReviewLabel =
-  | "tone.too_strong" // 语气过强，建议保守表述
-  | "tone.too_weak" // 语气过弱，可以更明确结论
-  | "citation.incomplete" // 引用不足或无法回溯
-  | "citation.incorrect" // 引用有误（法条号/案号错误）
-  | "issue.missing" // 关键争点未覆盖
-  | "issue.over_argued" // 次要争点占篇幅过多
-  | "fact.ordering" // 事实叙述顺序需调整
-  | "fact.inaccurate" // 事实描述不准确
-  | "risk.calibration_high" // 风险等级标注偏高
-  | "risk.calibration_low" // 风险等级标注偏低（最危险，要优先学习）
-  | "risk.missing_flag" // 高风险点未被标出
-  | "audience.wrong_framing" // 受众定位有误（客户稿与内部稿混淆）
-  | "structure.template_mismatch" // 使用的模板不符合本类任务
-  | "quality.good_example"; // 此草稿可作为黄金样本
+  | "语气过强" // 建议保守表述
+  | "语气过弱" // 可更明确结论
+  | "引用不完整" // 引用不足或无法回溯
+  | "引用有误" // 法条号/案号等错误
+  | "争点遗漏" // 关键争点未覆盖
+  | "争点过度论证" // 次要争点占篇幅过多
+  | "事实顺序不当" // 事实叙述顺序需调整
+  | "事实不准确" // 事实描述有误
+  | "风险偏高" // 风险等级标注偏高
+  | "风险偏低" // 风险等级标注偏低（最危险，要优先学习）
+  | "风险未标注" // 高风险点未被标出
+  | "受众定位不当" // 客户稿与内部稿等 framing 混淆
+  | "模板不匹配" // 所选模板不符合本类任务
+  | "质量范例"; // 可作为黄金样本
 
 /** 单条审核学习记录，附加到审核事件上 */
 export type ReviewLearningRecord = {

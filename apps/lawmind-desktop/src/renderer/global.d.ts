@@ -32,11 +32,20 @@ declare global {
         openSettingsOnClick?: boolean;
         /** When true, focuses the app and opens the review workbench (see onNotificationClick `open_review`). */
         openReviewOnClick?: boolean;
+        /** When true, focuses the app and switches to工作台对话（见 onNotificationClick `open_workspace_chat`）。 */
+        openChatOnClick?: boolean;
+        /** 与 `openChatOnClick` 配合：切到该助手对话（若存在）。 */
+        chatAssistantId?: string;
         reviewTaskId?: string;
         reviewMatterId?: string;
       }) => Promise<{ ok: boolean; error?: string }>;
       onNotificationClick: (
-        handler: (payload: { reason?: string; reviewTaskId?: string; reviewMatterId?: string }) => void,
+        handler: (payload: {
+          reason?: string;
+          reviewTaskId?: string;
+          reviewMatterId?: string;
+          chatAssistantId?: string;
+        }) => void,
       ) => () => void;
       pickWorkspace: () => Promise<{ ok: boolean; path?: string }>;
       pickProject: () => Promise<{ ok: boolean; path?: string }>;
@@ -129,6 +138,19 @@ declare global {
         content: string;
         defaultName?: string;
       }) => Promise<{ ok: boolean; canceled?: boolean; filePath?: string; error?: string }>;
+      openFilesDialog: (payload?: {
+        title?: string;
+        multi?: boolean;
+        /** macOS/Linux：同一对话框可选文件与文件夹；Windows：先选类型再打开对应对话框 */
+        allowDirectories?: boolean;
+        filters?: Array<{ name: string; extensions: string[] }>;
+      }) => Promise<{
+        ok: boolean;
+        canceled?: boolean;
+        filePaths?: string[];
+        pathKinds?: Array<"file" | "directory">;
+        error?: string;
+      }>;
       onFileMenu: (handler: (payload: { action?: string }) => void) => () => void;
     };
   }

@@ -1,11 +1,12 @@
 import { LawmindSettingsAppUpdate } from "./LawmindSettingsAppUpdate";
 import { LawmindSettingsAssistants } from "./LawmindSettingsAssistants";
 import type { CollabSummaryState } from "./LawmindSettingsCollaboration";
-import { LawmindSettingsCollaboration } from "./LawmindSettingsCollaboration";
+import { LawmindSettingsCollaborationBrief } from "./LawmindSettingsCollaboration";
 import { LawmindSettingsDisclaimer } from "./LawmindSettingsDisclaimer";
 import { LawmindSettingsEdition } from "./LawmindSettingsEdition";
 import { LawmindSettingsModelRetrieval } from "./LawmindSettingsModelRetrieval";
 import { LawmindSettingsOnboarding } from "./LawmindSettingsOnboarding";
+import { LawmindSettingsRoles } from "./LawmindSettingsRoles";
 import { LawmindSettingsTemplates } from "./LawmindSettingsTemplates";
 import { LawmindSettingsWorkspace } from "./LawmindSettingsWorkspace";
 import type { AppConfig } from "./lawmind-app-bootstrap";
@@ -55,6 +56,7 @@ type Props = {
   onOpenApiWizard: () => void;
   onPickProject: () => void | Promise<void>;
   onClearProject: () => void | Promise<void>;
+  onOpenCollaborationPage: () => void;
 };
 
 export function LawmindSettingsDialog({
@@ -79,6 +81,7 @@ export function LawmindSettingsDialog({
   onOpenApiWizard,
   onPickProject,
   onClearProject,
+  onOpenCollaborationPage,
 }: Props) {
   if (!open) {
     return null;
@@ -99,16 +102,18 @@ export function LawmindSettingsDialog({
           </button>
         </div>
         <p className="lm-meta lm-settings-lead">
-          本机律师工作台：可建<strong>多个智能体</strong>各管一摊事；复杂活可走「协作」里的多步流程。出具对外材料前，务必在顶部<strong>审核</strong>里通过把关。
+          本机律师工作台：可建<strong>多个智能体</strong>各管一摊事；多步团队流程与后台任务在顶部<strong>协作</strong>页运行与查看。出具对外材料前，务必在顶部<strong>审核</strong>里通过把关。
         </p>
 
         {config && <LawmindSettingsOnboarding health={health} projectDir={projectDir} />}
 
         {config && (
-          <LawmindSettingsCollaboration
+          <LawmindSettingsCollaborationBrief
             collabSummarySettings={collabSummarySettings}
-            apiBase={config.apiBase}
-            selectedAssistantId={selectedAssistantId}
+            onOpenCollaborationPage={() => {
+              onClose();
+              onOpenCollaborationPage();
+            }}
           />
         )}
 
@@ -151,6 +156,7 @@ export function LawmindSettingsDialog({
             onClearProject={() => void onClearProject()}
           />
         )}
+        {config && <LawmindSettingsRoles apiBase={config.apiBase} />}
         {config && <LawmindSettingsTemplates apiBase={config.apiBase} />}
         {config && <LawmindSettingsEdition apiBase={config.apiBase} />}
         <LawmindSettingsAppUpdate config={config} />

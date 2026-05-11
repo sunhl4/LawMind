@@ -66,11 +66,14 @@ describe("Engine-Bridge Tools", () => {
     expect(names).toContain("execute_workflow");
     expect(names).toContain("register_template");
     expect(names).toContain("list_templates");
+    expect(names).toContain("open_work_queue_item");
+    expect(names).toContain("request_approval");
+    expect(names).toContain("record_deadline");
   });
 
-  it("total tool count is 22 (15 legal + 7 engine)", () => {
+  it("total tool count is 25 (15 legal + 10 engine)", () => {
     const registry = createLegalToolRegistry();
-    expect(registry.size()).toBe(22);
+    expect(registry.size()).toBe(25);
   });
 });
 

@@ -30,6 +30,39 @@ LawMind 分为五个核心模块：
 
 `用户指令 -> 路由分类 -> 记忆加载 -> 检索 -> 结构化整理 -> 人工审核 -> 文书渲染 -> 审计记录`
 
+### Matter-centered 写侧 与 Role 编制（2026-Q3 起）
+
+在前述五层之上，2026 年第三季度的架构升级又叠加了三条横向骨架（详见
+`.cursor/plans/lawmind-3-month-refactor_abc3d086.plan.md` 与
+`docs/LAWMIND-PROJECT-MEMORY.md` §8）：
+
+- **Matter 写侧 application services**：`src/lawmind/application/services/`
+  下 `matter-write / deliverable / approval / queue-write / deadline` 五个
+  service 把案件、交付物、审批、待办、节点等域对象的状态翻转显式化；持久化由
+  `src/lawmind/adapters/matter-storage/` 落到
+  `workspace/matters/<id>/{matter.json, deliverables/*.json, approvals.jsonl,
+queue.jsonl, deadlines.jsonl}` 这一组 JSON / JSONL 真相源（与原 Markdown 双轨
+  并存，read 侧优先 JSON，缺失回退 `MatterIndex`）。
+- **Role 一等对象 + ToolPolicy pipeline**：`src/lawmind/core/role.ts` 把 6 个
+  assistant preset 升级为 Role（mission / allowedToolNames /
+  allowedDeliverableTypes / memoryScope / riskCeiling / reviewChecklist），
+  并由 `src/lawmind/runtime/tool-pipeline.ts` 的 `roleAllowlistMiddleware`
+  与 `engine/drafting.ts` 的 `roleAllowsDeliverable()` 共同强制；委派经
+  `delegate_to_role` 工具与 `ApprovalRequest.targetRole` 字段实现"角色到角色"
+  的工作流。
+- **Memory Adoption + Reasoning Gate + Insights**：所有 Markdown 写入收敛
+  到 `src/lawmind/memory/adoption-service.ts`（pending / adopted /
+  auto_adopted / dismissed 四态，桌面 `MemoryInspector` 统一审阅）；高风险
+  deliverable 的渲染通过 `DeliverableSpec.reasoningGate` + `reasoning-validator`
+  在 strict 模式下与 acceptance gate 共同把守；产品观察事件用
+  `ux.matter_action` 与 `ui.matter_action` 双写，`policy.productInsightsCollection`
+  控制采集开关，纯函数 `src/lawmind/insights/` 与
+  `apps/lawmind-desktop/src/renderer/insights/` 把展示与计算解耦。
+
+季末验收脚本 `pnpm lawmind:acceptance` 会调用 `pnpm lawmind:quarterly-demo`
+（`scripts/lawmind/lawmind-quarterly-demo.ts`）跑完上述新链路，并以
+`src/lawmind/integration/quarterly-acceptance.test.ts` 作为回归网关。
+
 ---
 
 ## 三、目录与工作区约定
@@ -352,9 +385,10 @@ Electron 主进程 (main.mjs)
   ├── /api/matters/overviews — 案件总览列表
   ├── /api/matters/detail?matterId= — 案件详情（摘要、CASE、任务、草稿、审计）
   ├── /api/matters/search?matterId=&q= — 案件内搜索
+  ├── /api/matters/team-meeting?matterId= — 案件「会议室」共享时间线（`limit` / `skipFromEnd`，响应含 `total`）
   ├── /api/drafts — 草稿列表（GET）
   ├── /api/drafts/:taskId — 单份草稿（GET）
-  ├── /api/drafts/:taskId/review — 审核签批（POST）
+  ├── /api/drafts/:taskId/review — 审核签批（POST）；`approved` 后若草稿含 `contractRevisionCapture` 则异步写入合同修订积累包并回写 `contractRevisionAccumulatedId`（见 `contract-revision-on-review-approved.ts`、[LAWMIND-CONTRACT-REVISION-ACCUMULATION](/LAWMIND-CONTRACT-REVISION-ACCUMULATION)）
   ├── /api/drafts/:taskId/render — 渲染交付物（POST，须已通过审核）
   ├── /api/assistants — 助手 CRUD
   ├── /api/assistant-presets — 岗位预设列表
@@ -364,7 +398,7 @@ Electron 主进程 (main.mjs)
 渲染进程 (App.tsx + styles.css)
   ├── 对话视图（消息列表 + Markdown 渲染 + Chip 栏）
   ├── 文件工作台（FileWorkbench）
-  ├── 案件工作台（MatterWorkbench：案件列表、CASE、任务/草稿、审计）
+  ├── 案件工作台（MatterWorkbench：案件列表、CASE、任务/草稿、审计、会议室时间线）
   ├── 审核台（ReviewWorkbench：草稿审阅、签批、渲染）
   ├── 设置面板（模态：助手 / 模型检索 / 工作区项目）
   ├── 侧边栏（助手选择器 / 项目药丸 / 折叠工作记录）

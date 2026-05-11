@@ -35,6 +35,24 @@ export type PlaceholderRule = {
   mustResolveBeforeRender: boolean;
 };
 
+/**
+ * W9 — 推理门禁（reasoning gate）配置。
+ *
+ * 当 spec 标注 `reasoningGate.required = true` 时，render 在 strict 模式下
+ * 必须同时通过 acceptance + reasoning 双门禁。reasoning gate 通过校验
+ * `reasoningGraph`（IRAC issues / authorities）满足律所要求。
+ */
+export type ReasoningGateSpec = {
+  /** 是否必须通过 reasoning gate（默认 false） */
+  required: boolean;
+  /** 至少包含的 IRAC 争点数（默认 1） */
+  minIssues?: number;
+  /** 必须解决权威冲突（authorityConflicts.unresolved 必须为空，默认 false） */
+  mustResolveAuthorityConflicts?: boolean;
+  /** 至少包含的事实数（用于禁止"空中楼阁"的草稿，默认 0） */
+  minFacts?: number;
+};
+
 /** 交付物规范 */
 export type DeliverableSpec = {
   /** 交付物类型（与 TaskIntent.deliverableType 对齐） */
@@ -57,6 +75,31 @@ export type DeliverableSpec = {
   placeholderRule: PlaceholderRule;
   /** 默认补充信息问题（信息不足时统一从这里取） */
   defaultClarificationQuestions: ClarificationQuestion[];
+  /** W9：推理门禁（可选，默认不强制） */
+  reasoningGate?: ReasoningGateSpec;
+};
+
+// ─────────────────────────────────────────────
+// W9 - Reasoning Gate Report
+// ─────────────────────────────────────────────
+
+export type ReasoningCheck = {
+  key: string;
+  label: string;
+  passed: boolean;
+  severity: "blocker" | "warning";
+  hint?: string;
+};
+
+export type ReasoningReport = {
+  taskId: string;
+  deliverableType?: DeliverableType;
+  ready: boolean;
+  required: boolean;
+  checks: ReasoningCheck[];
+  blockerCount: number;
+  warningCount: number;
+  generatedAt: string;
 };
 
 /** 单项验收检查结果 */

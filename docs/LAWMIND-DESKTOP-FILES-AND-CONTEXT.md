@@ -74,6 +74,10 @@ LawMind 桌面壳**不是**内嵌 Word/通用富文本套件，**也不是**以�
 - **多个文件/多个目录**：通过多次 **「在对话中引用」** 或 **「加入对话引用」** 累积，顶栏中可见列表。
 - **暂不支持** 树内 Shift 多选一次性添加（可后续迭代）；当前模型与 8 条上限已能覆盖「挑几份材料一起问」的常见场景。
 
+### 3.6 合同修订积累索引前缀（可选）
+
+与 [合同修订积累](/LAWMIND-CONTRACT-REVISION-ACCUMULATION) 对齐：若工作区存在 `workspace/lawmind/desk-settings.json` 且配置了 `contractBatchRelativeDir`，则在本机 **发送** 对话时，渲染层可能于**发往模型的正文前**拼接一段「合同修订积累索引」说明（引用整目录或路径落在该目录下时触发；逻辑见 `lawmind-contract-chat-context.ts`、`lawmind-app-shell.ts`）。**不在**设置页或文件树提供该目录的 UI 编辑入口，避免与审核台、交付流程叠床架屋；配置方式见积累文档中的 desk-settings 小节。
+
 ---
 
 ## 4) 帮助：问号面板与官方文档
@@ -101,16 +105,16 @@ LawMind 桌面壳**不是**内嵌 Word/通用富文本套件，**也不是**以�
 
 ## 6) 维护者：实现清单
 
-| 能力                               | 关键文件 / 说明                                                                                                                                                                                                   |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 左栏 + 主区 + FileWorkbench 挂载   | `App.tsx`：`lm-side-stack` + `ref` 宿主；`FileWorkbench` 使用 `createPortal` 将树/编辑挂入宿主                                                                                                                    |
-| 左栏文件树高度拖动                 | `App.tsx`：`usePaneResizeVerticalPx`（`lawmind.ui.sideFileTreeHeight`）；`lm-split-handle-horizontal` 位于 `lm-side-files-host` 与 `LawmindSidebar` 之间；常量 `LM_SIDE_FILE_TREE_*` 在 `lawmind-panel-layout.ts` |
-| 对话引用 state / 发送前缀          | `lawmind-app-shell.ts`：`FileChatContextItem`、`addFileToChatContext`、`buildFileContextMessagePrefix`、`sendChatMessage`                                                                                         |
-| 文件树右键与编辑器「加入对话引用」 | `FileWorkbench.tsx`：上下文菜单、`onAddToChatContext`；文件页顶栏说明文案                                                                                                                                         |
-| 对话顶栏「引用」条                 | `lawmind-chat-shell.tsx`：`fileChatPills`；样式 `styles.css` 中 `.lm-file-chat-context-*`                                                                                                                         |
-| 帮助外链                           | `HelpPanel.tsx`、`main.mjs` 中 `setWindowOpenHandler` + `lawmind:open-external`                                                                                                                                   |
-| 主菜单保存                         | `main.mjs` 中 `setupApplicationMenu`、`sendFileMenu`；`FileWorkbench` 中 `onFileMenu` 订阅                                                                                                                        |
-| Office/Word 不内嵌                 | `FileWorkbench.tsx`：`isOfficeLikePath`、`officeBlock` 说明面板；`main.mjs` IPC `lawmind:open-with-system`（`shell.openPath`）；`preload.cjs`：`openWithSystem`                                                   |
+| 能力                               | 关键文件 / 说明                                                                                                                                                                                                       |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 左栏 + 主区 + FileWorkbench 挂载   | `App.tsx`：`lm-side-stack` + `ref` 宿主；`FileWorkbench` 使用 `createPortal` 将树/编辑挂入宿主                                                                                                                        |
+| 左栏文件树高度拖动                 | `App.tsx`：`usePaneResizeVerticalPx`（`lawmind.ui.sideFileTreeHeight`）；`lm-split-handle-horizontal` 位于 `lm-side-files-host` 与 `LawmindSidebar` 之间；常量 `LM_SIDE_FILE_TREE_*` 在 `lawmind-panel-layout.ts`     |
+| 对话引用 state / 发送前缀          | `lawmind-app-shell.ts`：`FileChatContextItem`、`addFileToChatContext`、`buildFileContextMessagePrefix`、`sendChatMessage`；可选合同修订索引见 `shouldAttachContractRevisionIndex`、`lawmind-contract-chat-context.ts` |
+| 文件树右键与编辑器「加入对话引用」 | `FileWorkbench.tsx`：上下文菜单、`onAddToChatContext`；文件页顶栏说明文案                                                                                                                                             |
+| 对话顶栏「引用」条                 | `lawmind-chat-shell.tsx`：`fileChatPills`；样式 `styles.css` 中 `.lm-file-chat-context-*`                                                                                                                             |
+| 帮助外链                           | `HelpPanel.tsx`、`main.mjs` 中 `setWindowOpenHandler` + `lawmind:open-external`                                                                                                                                       |
+| 主菜单保存                         | `main.mjs` 中 `setupApplicationMenu`、`sendFileMenu`；`FileWorkbench` 中 `onFileMenu` 订阅                                                                                                                            |
+| Office/Word 不内嵌                 | `FileWorkbench.tsx`：`isOfficeLikePath`、`officeBlock` 说明面板；`main.mjs` IPC `lawmind:open-with-system`（`shell.openPath`）；`preload.cjs`：`openWithSystem`                                                       |
 
 **类型与 API**：`global.d.ts` 中为 `openExternal`、`openWithSystem`、`onFileMenu`、`fsCopy`、`saveTextFileDialog` 等声明了 `Window` 上的 `lawmindDesktop`。
 
@@ -155,6 +159,7 @@ LawMind 桌面壳**不是**内嵌 Word/通用富文本套件，**也不是**以�
 | 日期 / 阶段 | 摘要                                                                                                                                                                                                                         |
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 2026-04     | 本页与 M3 清单对齐：左栏材料台、对话引用、帮助外开、菜单保存、`open-with-system`、产品 §6.2d 与 README **Product intent**；工程侧见 [LawMind 工程记忆](/LAWMIND-PROJECT-MEMORY) M3 小节中 **「材料台、对话引用与系统协同」** |
+| 2026-04-27  | §3.6：合同修订积累索引前缀与 **desk-settings 无 UI** 决策；主入库路径为审核通过 + 草稿 `contractRevisionCapture`（见 [LAWMIND-CONTRACT-REVISION-ACCUMULATION](/LAWMIND-CONTRACT-REVISION-ACCUMULATION)）                     |
 
 **后续可迭代（未承诺排期）**：文件树多选后批量加入对话引用；更细的主区布局拖动（若仍反馈「对话区/文件区」需同屏可调，可再评是否增加主区内部 split，当前为顶栏切页）。
 

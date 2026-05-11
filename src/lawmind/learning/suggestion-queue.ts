@@ -91,6 +91,21 @@ export async function enqueueLearningSuggestion(
     actor: "lawyer",
     detail: JSON.stringify({ suggestionId: rec.id, labels: input.labels }),
   });
+  // W5：镜像写入 MemoryAdoptionService，让 Inspector 在统一界面看到 review-label 待采纳。
+  try {
+    const { suggestMemoryAdoption } = await import("../memory/adoption-service.js");
+    await suggestMemoryAdoption(workspaceDir, auditDir, {
+      scope: "lawyer",
+      kind: "review_label",
+      payload: JSON.stringify({ labels: input.labels, note: input.note ?? null }),
+      targetId: input.matterId,
+      sourceTaskId: input.taskId,
+      origin: "lawyer",
+      note: input.note,
+    });
+  } catch {
+    // best-effort
+  }
   return rec;
 }
 

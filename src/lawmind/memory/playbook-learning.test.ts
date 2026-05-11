@@ -18,30 +18,26 @@ describe("playbook-learning", () => {
   });
 
   it("reviewLabelsTriggerPlaybook matches trigger labels only", () => {
-    expect(reviewLabelsTriggerPlaybook(["citation.incomplete"])).toBe(true);
-    expect(reviewLabelsTriggerPlaybook(["tone.too_strong"])).toBe(false);
-    expect(reviewLabelsTriggerPlaybook(["tone.too_strong", "issue.missing"])).toBe(true);
+    expect(reviewLabelsTriggerPlaybook(["引用不完整"])).toBe(true);
+    expect(reviewLabelsTriggerPlaybook(["语气过强"])).toBe(false);
+    expect(reviewLabelsTriggerPlaybook(["语气过强", "争点遗漏"])).toBe(true);
   });
 
   it("buildClausePlaybookReviewLine filters to trigger labels", () => {
-    const line = buildClausePlaybookReviewLine(
-      "t-1",
-      ["citation.incomplete", "tone.too_strong"],
-      "fix refs",
-    );
+    const line = buildClausePlaybookReviewLine("t-1", ["引用不完整", "语气过强"], "fix refs");
     expect(line).toContain("t-1");
-    expect(line).toContain("citation.incomplete");
-    expect(line).not.toContain("tone.too_strong");
+    expect(line).toContain("引用不完整");
+    expect(line).not.toContain("语气过强");
     expect(line).toContain("fix refs");
   });
 
   it("appendClausePlaybookLearning creates file and section with bullet", async () => {
     tmp = await fs.mkdtemp(path.join(os.tmpdir(), "lawmind-playbook-"));
-    await appendClausePlaybookLearning(tmp, "任务 x；labels=citation.incomplete");
+    await appendClausePlaybookLearning(tmp, "任务 x；labels=引用不完整");
     const raw = await fs.readFile(path.join(tmp, "playbooks", "CLAUSE_PLAYBOOK.md"), "utf8");
     expect(raw).toContain("## 6. LawMind 审核学习（自动摘要）");
     expect(raw).toContain("- [");
-    expect(raw).toContain("citation.incomplete");
+    expect(raw).toContain("引用不完整");
   });
 
   it("appendClausePlaybookLearning inserts into existing section 6", async () => {

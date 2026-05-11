@@ -5,7 +5,15 @@ import {
   loadMemoryContext,
   toEngineClientMemorySnapshot,
 } from "../../../src/lawmind/memory/index.js";
-import { parseOptionalMatterId } from "../../../src/lawmind/cases/index.js";
+import {
+  appendTeamMeetingLinesSync,
+  createTeamMeetingAssistantLine,
+  createTeamMeetingUserLine,
+  formatTeamMeetingTranscriptPrefix,
+  parseOptionalMatterId,
+  readTeamMeetingTail,
+  TEAM_MEETING_TAIL_LIMIT_DEFAULT,
+} from "../../../src/lawmind/cases/index.js";
 import { resolveEdition } from "../../../src/lawmind/policy/edition.js";
 import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspace-policy.js";
 import { deriveInstructionTitle } from "../../../src/lawmind/tasks/index.js";
@@ -63,6 +71,16 @@ export async function handleChatRoute({
     projectDir?: string;
     /** 请求在 JSON 体中附带引擎路由/推理模式等调试摘要（Solo 默认关闭，见下方 edition 判断）。 */
     includeTurnDiagnostics?: boolean;
+    /** 文件页「本回合重点」结构化列表（与 message 前缀一致；可选） */
+    contextPins?: unknown;
+    /** 工作台关联的草稿/任务 ID（可选） */
+    linkedTaskId?: string;
+    /** 案件工作台「团队会议室」：注入纪要并写回 team-meeting.jsonl */
+    meetingMode?: boolean;
+    /** 随每轮请求注入用户指令（**不**写入 team-meeting.jsonl 用户行） */
+    meetingAgenda?: string;
+    /** 自动会话标题：输入框原文（与 message 中带前缀的完整正文区分） */
+    sessionTitleHint?: string;
   };
   const message = typeof body.message === "string" ? body.message.trim() : "";
   if (!message) {
@@ -134,16 +152,49 @@ export async function handleChatRoute({
     return true;
   }
 
+  const meetingMode = body.meetingMode === true;
+  if (meetingMode && !matterIdForChat) {
+    sendJsonError(
+      res,
+      400,
+      "meeting_matter_required",
+      "团队会议室须关联本案（matterId）。请先选中案件再发言。",
+      c,
+    );
+    return true;
+  }
+
   const agent = createLawMindAgent(config);
   const hadSession = Boolean(body.sessionId?.trim());
   const projectDirForAgent = safeOptionalProjectDir(body.projectDir);
+
+  let instructionForAgent = message;
+  if (meetingMode && matterIdForChat) {
+    const tail = readTeamMeetingTail(workspaceDir, matterIdForChat, TEAM_MEETING_TAIL_LIMIT_DEFAULT);
+    const prefix = formatTeamMeetingTranscriptPrefix(tail);
+    let core = prefix
+      ? `${prefix}\n\n---\n\n【本会发言主题】\n${message}`
+      : `【本会发言主题】\n${message}`;
+    const meetingAgenda = typeof body.meetingAgenda === "string" ? body.meetingAgenda.trim() : "";
+    if (meetingAgenda) {
+      core = `【会议议程（律师备忘）】\n${meetingAgenda}\n\n---\n\n${core}`;
+    }
+    instructionForAgent = core;
+  }
+
   try {
-    const result = await agent.chat(message, {
+    const sessionTitleHint =
+      typeof body.sessionTitleHint === "string" && body.sessionTitleHint.trim()
+        ? body.sessionTitleHint.trim()
+        : undefined;
+    const result = await agent.chat(instructionForAgent, {
       sessionId: body.sessionId,
       matterId: matterIdForChat,
       assistantId: profile.assistantId,
       allowWebSearch,
       projectDir: projectDirForAgent,
+      teamMeetingMode: meetingMode,
+      sessionTitleHint,
     });
     bumpAssistantStats(lawMindRoot, profile.assistantId, {
       newSession: !hadSession,
@@ -185,6 +236,18 @@ export async function handleChatRoute({
         lawmindReasoningMode: (process.env.LAWMIND_REASONING_MODE ?? "").trim() || "off",
         toolCallsExecuted: result.turn.toolCallsExecuted,
       };
+    }
+    if (meetingMode && matterIdForChat) {
+      appendTeamMeetingLinesSync(workspaceDir, matterIdForChat, [
+        createTeamMeetingUserLine(message),
+        createTeamMeetingAssistantLine({
+          text: result.reply,
+          assistantId: profile.assistantId,
+          displayName: profile.displayName,
+          taskId: result.turn.turnId,
+          sessionId: result.sessionId,
+        }),
+      ]);
     }
     sendJson(res, 200, payload, c);
   } catch (err) {

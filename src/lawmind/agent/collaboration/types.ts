@@ -52,6 +52,11 @@ export type DelegationRecord = {
   toAssistantId: string;
   task: string;
   matterId?: string;
+  /**
+   * 发起委派时律师所在的主对话 session（桌面端当前助手会话）。
+   * 用于委派结束后把结果写回会话并在 UI 轮询中插入「自动回传」气泡。
+   */
+  parentSessionId?: string;
   priority: "normal" | "high" | "low";
   status: DelegationStatus;
   /** The session created on the target assistant for this delegation */

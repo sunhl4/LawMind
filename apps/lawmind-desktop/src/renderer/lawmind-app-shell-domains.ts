@@ -17,7 +17,7 @@ import {
 } from "./lawmind-app-data";
 import { DEFAULT_ASSISTANT_ID } from "../../../../src/lawmind/assistants/constants.ts";
 import type { AssistantRow } from "./lawmind-settings-models.ts";
-import type { TimeRangeFilter } from "./lawmind-sidebar";
+import type { TimeRangeFilter } from "./lawmind-time-range";
 
 function rangeStartMs(range: TimeRangeFilter): number | null {
   if (range === "all") {
@@ -45,17 +45,20 @@ export function selectStableAssistantId(
   return assistants[0]?.assistantId ?? DEFAULT_ASSISTANT_ID;
 }
 
+/** @param assistantScope 为 null 时不按助手过滤（在办整页跨助手负荷） */
 export function filterTasksForSidebar(
   tasks: TaskRow[],
   query: string,
   range: TimeRangeFilter,
-  assistantId: string,
+  assistantScope: string | null,
 ): TaskRow[] {
   const normalizedQuery = query.trim().toLowerCase();
   const start = rangeStartMs(range);
   return tasks.filter((task) => {
-    if (task.assistantId && task.assistantId !== assistantId) {
-      return false;
+    if (assistantScope !== null) {
+      if (task.assistantId && task.assistantId !== assistantScope) {
+        return false;
+      }
     }
     if (start !== null) {
       const updatedAt = Date.parse(task.updatedAt);
@@ -66,24 +69,27 @@ export function filterTasksForSidebar(
     if (!normalizedQuery) {
       return true;
     }
-    const haystack = [task.taskId, task.title ?? "", task.summary, task.kind ?? ""]
+    const haystack = [task.taskId, task.title ?? "", task.summary, task.kind ?? "", task.matterId ?? ""]
       .join(" ")
       .toLowerCase();
     return haystack.includes(normalizedQuery);
   });
 }
 
+/** @param assistantScope 为 null 时不按助手过滤（在办整页跨助手负荷） */
 export function filterHistoryForSidebar(
   history: HistoryItem[],
   query: string,
   range: TimeRangeFilter,
-  assistantId: string,
+  assistantScope: string | null,
 ): HistoryItem[] {
   const normalizedQuery = query.trim().toLowerCase();
   const start = rangeStartMs(range);
   return history.filter((item) => {
-    if (item.assistantId && item.assistantId !== assistantId) {
-      return false;
+    if (assistantScope !== null) {
+      if (item.assistantId && item.assistantId !== assistantScope) {
+        return false;
+      }
     }
     if (start !== null) {
       const updatedAt = Date.parse(item.updatedAt);
@@ -94,7 +100,7 @@ export function filterHistoryForSidebar(
     if (!normalizedQuery) {
       return true;
     }
-    const haystack = [item.id, item.label, item.kind, item.taskRecordKind ?? ""]
+    const haystack = [item.id, item.label, item.kind, item.taskRecordKind ?? "", item.matterId ?? ""]
       .join(" ")
       .toLowerCase();
     return haystack.includes(normalizedQuery);

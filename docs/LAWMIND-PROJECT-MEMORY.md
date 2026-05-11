@@ -1,6 +1,8 @@
-# LawMind 工程记忆（规划与进度）
+# LawMind 工程开发记忆（规划与进度）
 
-本文件是 **LawMind 工程实施记忆**，用于持续记录：
+本文件是 **LawMind 工程开发记忆**：给 **研发/续作** 用，记录路线、进度、代码落地与断点恢复顺序。**不是**终端律师的操作手册；律师怎么用软件见 **[LawMind 使用手册](/LAWMIND-USER-MANUAL)**。
+
+用于持续记录：
 
 - 路线决策
 - 当前阶段目标
@@ -9,6 +11,17 @@
 - 下一步动作
 
 目标是避免后续开发“只记得局部，不记得全局”。
+
+---
+
+## 0a) 两类「记忆」别混用（重要）
+
+| 名称               | 是什么                                                       | 给谁看                                                       | 典型位置                                                                                                      |
+| ------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| **工程开发记忆**   | 仓库里的实施与决策记录，保证工程续作顺利                     | 开发者                                                       | **本文**、`GOALS.md`、架构/契约类 `docs/LAWMIND-*.md`（按需）                                                 |
+| **软件内律师记忆** | 每个律师工作区里由产品持久化的文本与数据，供助手检索与个性化 | 律师（产出物）；开发者仅在理解**格式、路径、加载逻辑**时查阅 | 默认 **`workspace/MEMORY.md`**、**`workspace/LAWYER_PROFILE.md`** 等；加载见 `src/lawmind/memory/` 与使用手册 |
+
+**约定**：写工程记忆条目时，以 **代码、`GOALS`、本文件** 为准；**不要把**某个本机 `workspace/` 里律师写下的 `MEMORY.md` 正文当成工程决策来源。联调时看的 `workspace/*` 只是**样例数据形态**，不是「工程记忆文档」本身。
 
 ---
 
@@ -21,20 +34,23 @@
 1. 先读本文件，确认北极星、当前阶段、已完成项、下一步。
 2. 再看 `GOALS.md`，确认阶段 checklist 是否已同步。
 3. 再看 `src/lawmind/index.ts`，确认当前主链路是否有新的状态机/接口。
-4. 再看 `workspace/` 下的长期状态文件：
+4. 若需理解 **本机工作区数据长什么样**（律师侧产品落盘、联调样例），再看 `workspace/` 下常见路径（**非**工程叙事正文，见 §0a）：
    - `workspace/MEMORY.md`
    - `workspace/LAWYER_PROFILE.md`
    - `workspace/tasks/*.json`
    - `workspace/drafts/*.json`
    - `workspace/audit/*.jsonl`
    - `workspace/cases/<matter-id>/CASE.md`
+   - `workspace/cases/<matter-id>/team-meeting.jsonl`（案件「会议室」时间线；见 [LAWMIND-COLLABORATION-UI-API-MAP](/LAWMIND-COLLABORATION-UI-API-MAP) §5）
    - `workspace/playbooks/CLAUSE_PLAYBOOK.md`（条款与审核学习）
    - `workspace/quality/*.quality.json` 与 `workspace/quality/dashboard.json`（质量快照与聚合导出）
    - `workspace/exports/acceptance-pack.md`（`pnpm lawmind:ops acceptance-pack` 生成）
    - `workspace/sessions/*.json` + `*.turns.jsonl`（Agent 对话）
+   - `workspace/learning/contract-revisions/`（合同修订积累包；主路径见 [LAWMIND-CONTRACT-REVISION-ACCUMULATION](/LAWMIND-CONTRACT-REVISION-ACCUMULATION)）
+   - `workspace/lawmind/desk-settings.json`（可选：`contractBatchRelativeDir`，无设置 UI，见同上文档）
 5. 再看 `docs/lawmind/refactor-blueprint.md`，确认当前重构北极星、目标分层、迁移路径与 UI 信息架构。
 6. 再看 `docs/lawmind/refactor-implementation-plan.md`，确认实施级数据模型、目录迁移策略、以及首批 PR 切分。
-   6b. 若改**桌面壳 UI**：读 `docs/LAWMIND-DESKTOP-UI.md`（设计令牌、`lm-*` 约定、模态/向导防回归；与 DFA/澄清/引用的展示一致性）。若改**文件页、对话引用、帮助外链、菜单保存、本机用默认应用打开**，读 `docs/LAWMIND-DESKTOP-FILES-AND-CONTEXT.md` 并随行为变更更新之。
+   6b. 若改**桌面壳 UI**：读 `docs/LAWMIND-DESKTOP-UI.md`（设计令牌、`lm-*` 约定、模态/向导防回归；与 DFA/澄清/引用的展示一致性）。若改**文件页、对话引用、帮助外链、菜单保存、本机用默认应用打开**，读 `docs/LAWMIND-DESKTOP-FILES-AND-CONTEXT.md` 并随行为变更更新之。若改**合同修订积累 / 审核后入库 / desk-settings 前缀**，读 `docs/LAWMIND-CONTRACT-REVISION-ACCUMULATION.md`。
    6b' **产品定位（律师交互台、非 Word、非纯聊天）**：[LawMind 愿景](/LAWMIND-VISION) **§6.2d**；桌面英文摘要见 `apps/lawmind-desktop/README.md` 首段 **Product intent**。
    6c. 与 OpenClaw 关系与工程边界：读 [LawMind 与 OpenClaw 取长补短](/LAWMIND-OPENCLAW-LESSONS)（健康检查字段、行为时代号、协议版本、验收与启发式防半成品）。
 7. 若要继续当前技术实现，优先看最近新增的测试文件，测试即行为边界。
@@ -44,7 +60,8 @@
 
 ### 断点续做约定
 
-- **项目记忆真相源**：本文件 + `GOALS.md`
+- **工程开发记忆真相源**：本文件 + `GOALS.md`（≠ 律师的 `MEMORY.md`）
+- **律师工作区持久化记忆（产品数据）**：`workspace/MEMORY.md`、`workspace/LAWYER_PROFILE.md` 等 — 格式与用途见使用手册与 `loadMemoryContext`；**不是**工程进度记录
 - **运行状态真相源**：`workspace/tasks/*.json` + `workspace/audit/*.jsonl`
 - **草稿真相源**：`workspace/drafts/*.json`
 - **案件上下文真相源**：`workspace/cases/<matter-id>/CASE.md`
@@ -164,6 +181,13 @@
   - [x] 帮助与外链：`setWindowOpenHandler` + `HelpPanel` / `openExternal`；**主菜单 File** `lawmind:file-menu`；保存/另存为走 `FileWorkbench` + IPC `saveTextFileDialog`；**菜单** `sendFileMenu` 用 `getFocusedWindow` 兜底；**保存** 按钮无未保存修改时仍可按（内部早退）
   - [x] **Word/Office 文档**：不内嵌排版；`isOfficeLikePath` → 说明面板 + `lawmind:open-with-system`（`shell.openPath`）+ 访达/文件夹中显示 + 可加入对话引用
   - [x] 技术文档真源：[LawMind 桌面端：文件页、对话引用、帮助与保存](/LAWMIND-DESKTOP-FILES-AND-CONTEXT)；`apps/lawmind-desktop/README.md` **Product intent**
+- [x] **合同修订积累与 UI 克制（2026-04-27）**
+  - [x] **主路径**：交付草稿 `ArtifactDraft.contractRevisionCapture` + 审核台 `POST /api/drafts/:taskId/review`（`approved`）→ `applyContractRevisionAccumulationAfterApprovedReview` → `finalizeContractRevisionPack`，回写 `contractRevisionAccumulatedId`、清除 capture；失败仅 `contractRevisionAccumulationWarning` + 审计 `contract_revision_accumulation_failed`，不推翻审核成功
+  - [x] **类型**：`src/lawmind/types.ts`（`ContractRevisionCapture`、`contractRevisionAccumulatedId`）
+  - [x] **路由**：`apps/lawmind-desktop/server/lawmind-server-route-review.ts`；单测 `lawmind-server-route-review.test.ts`
+  - [x] **刻意简化 UI**：移除设置页「批量合同目录」表单与文件树「设为批量合同目录」右键；`desk-settings` 仍可通过 API / 手工 JSON 配置，壳层启动时 `GET desk-settings` 供对话可选附加修订索引前缀（`lawmind-app-shell.ts`）
+  - [x] **文档真源**：[LAWMIND-CONTRACT-REVISION-ACCUMULATION](/LAWMIND-CONTRACT-REVISION-ACCUMULATION)（主路径、desk-settings、与 `contract-review/drafts` 进阶 API 分工）
+- [x] **案件「会议室」与协作对照（既有能力索引）**：本案范围内多助手讨论线程；`MatterTeamMeetingPanel`、`GET /api/matters/team-meeting`、`POST /api/chat`（`meetingMode` / `meetingAgenda`）、`team-meeting.jsonl`；与顶栏 **协作**（委派 / 工作流）分工见 [LAWMIND-COLLABORATION-UI-API-MAP](/LAWMIND-COLLABORATION-UI-API-MAP) §5 与 [使用手册](/LAWMIND-USER-MANUAL) §7.1
 
 **下一 horizon（高智能化，与 M3 壳层衔接）**：与 [LawMind 2.0 strategy](/LAWMIND-2.0-STRATEGY) 及本文 **§7 LawMind 2.0 战略升级记忆** 对齐，在不过度扩 UI 的前提下，优先把**机构级记忆、结构化推理与验收/澄清、来源可追溯**做进同一产品心智；实现主战场在 `src/lawmind/` 与本地 API，桌面只负责**一致呈现与可发现入口**。
 
@@ -494,6 +518,62 @@ LawMind 下一阶段不再只是“法律 AI 工作台”，而要逐步成为**
 ---
 
 ## 8) 更新日志
+
+### 2026-05-02 — 3 个月架构改造收口（Q3 季末）
+
+> 12 周计划详见 `.cursor/plans/lawmind-3-month-refactor_abc3d086.plan.md`。所有
+> 改动均双轨过渡、单测覆盖；旧契约（`TaskRecord` / `ArtifactDraft` / `MatterIndex`
+> / `ui.matter_action`）保留可读可写至少一个季度。
+
+- **W1 引擎拆分**：`src/lawmind/index.ts`（997 行）拆为
+  `src/lawmind/engine/{factory,planning,researching,drafting,reviewing,rendering,queries,context,types,shared}.ts`；
+  `index.ts` 退化为 re-export barrel。
+- **W2 ToolPolicy pipeline**：新增 `src/lawmind/runtime/tool-pipeline.ts`，把
+  budget / roleAllowlist / approval / clarificationGate / argSchema / timeout /
+  audit / execute 八段中间件抽出；`runTurn` 主循环工具执行块缩到 < 30 行。
+- **W3 写侧 application services**：新增 `application/services/{matter-write,
+deliverable,approval,queue-write,deadline}-service.ts` 与 `adapters/matter-storage/`，
+  以 `workspace/matters/<id>/{matter.json,deliverables/*.json,approvals.jsonl,
+queue.jsonl,deadlines.jsonl}` 为新真相源；写入前走 zod 校验。
+- **W4 engine 接入 services**：plan/draft/review/render hot path 直接调
+  service；`engine-tools.ts` 增 `open_work_queue_item / request_approval /
+record_deadline`；read 侧 `/api/matters/detail` `/api/approvals` `/api/queues`
+  优先读 JSON，缺失时回退 `MatterIndex`。
+- **W5 MemoryAdoptionService**：所有 Markdown 记忆写入收敛到
+  `memory/adoption-service.ts`（`pending / adopted / auto_adopted / dismissed`
+  四态），覆盖 `firm / lawyer / client / matter / playbook / opponent / project /
+assistant` 八个 scope；append 用同步 IO 解决测试 race。
+- **W6 Memory Inspector**：新增 `MemoryInspector.tsx` 与
+  `/api/memory/adoption{,/suggest,/adopt,/dismiss}`；案件认知页"已采纳建议"区改
+  为消费此 service。
+- **W7 Role 一等对象**：新建 `core/role.ts`；6 个 assistant-presets 升级为
+  `Role`（`mission / allowedToolNames / allowedDeliverableTypes /
+memoryScope / riskCeiling / reviewChecklist`）；`ToolPolicy` 与
+  `engine/drafting.ts` 强约束 deliverable 类型；新增 `/api/roles` 与
+  `LawmindSettingsRoles.tsx`。`AssistantProfile.roleId` 默认从
+  `presetKey` 推导，季末后再 sunset。
+- **W8 delegate_to_role + targetRole**：orchestrator 支持
+  `WorkflowStep.assigneeRoleId`；新工具 `delegate_to_role` 自动选址；
+  `ApprovalRequest.targetRole` 入库 + `/api/approvals?targetRole=` 过滤；
+  `collaboration-tools.ts` 拆到 `tools/coordination/{delegate,handoff,meeting,
+utils}.ts`，旧文件保留为 barrel。
+- **W9 Reasoning Gate**：`DeliverableSpec.reasoningGate` 字段；
+  `deliverables/reasoning-validator.ts` 在 strict 模式与 acceptance gate 同时
+  执行；高风险内置 spec（demand letter / contract review / general contract /
+  litigation outline）默认开启；桌面 `LawmindAcceptanceGate` 同列展示。
+- **W10 Insights 解耦**：新建 `src/lawmind/insights/`（4 个纯函数 +
+  单测）；事件双写 `ui.matter_action` + `ux.matter_action`，policy
+  `productInsightsCollection` 控制采集；UI 抽到
+  `apps/lawmind-desktop/src/renderer/insights/`。
+- **W11 MatterWorkbench 拆分（seam 就位）**：在
+  `apps/lawmind-desktop/src/renderer/matter/` 落地 6 个视图占位
+  （cockpit / queue / memory inspector / reasoning board / quality cockpit /
+  role board）+ insights barrel；先在 `apps/lawmind-desktop/e2e/matter-cockpit.spec.ts`
+  锁定黄金路径，3826 行 `MatterWorkbench.tsx` 留待后续 PR 增量迁入。
+- **W12 验收 + 文档**：`pnpm lawmind:acceptance` 增加 `lawmind:quarterly-demo`
+  步骤（创建 matter → planned deliverable → 高风险 approval → 状态推进 →
+  reasoning gate 阻断 → memory adoption 入队 → JSON 真相源回读）；新增
+  `src/lawmind/integration/quarterly-acceptance.test.ts`；本节即文档同步。
 
 ### 2026-04-27
 

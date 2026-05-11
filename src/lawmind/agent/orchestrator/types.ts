@@ -16,6 +16,11 @@ export type WorkflowStep = {
   stepId: string;
   /** Which assistant handles this step */
   assignee: string;
+  /**
+   * W8：可选 — 按 Role 委派；当指定时，executor 优先按 roleId 解析候选助手，
+   * 解析失败再回退到 `assignee`。
+   */
+  assigneeRoleId?: string;
   /** Task description for the assignee */
   task: string;
   /** Steps that must complete before this one can start */

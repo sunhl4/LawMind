@@ -24,27 +24,30 @@ function run(command: string, args: string[]): void {
 
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
-  console.log("[Acceptance] Step 1/5: tests");
+  console.log("[Acceptance] Step 1/6: tests");
   run("pnpm", ["exec", "vitest", "run", "src/lawmind"]);
 
-  console.log("[Acceptance] Step 2/5: env check");
+  console.log("[Acceptance] Step 2/6: env check");
   const envArgs = ["run", "lawmind:env:check"];
   if (opts.strictEnv) {
     envArgs.push("--", "--strict");
   }
   run("pnpm", envArgs);
 
-  console.log("[Acceptance] Step 3/5: smoke");
+  console.log("[Acceptance] Step 3/6: smoke");
   const smokeArgs = ["run", "lawmind:smoke"];
   if (opts.strictEnv) {
     smokeArgs.push("--", "--fail-on-empty-claims");
   }
   run("pnpm", smokeArgs);
 
-  console.log("[Acceptance] Step 4/5: demo");
+  console.log("[Acceptance] Step 4/6: demo");
   run("pnpm", ["run", "lawmind:demo"]);
 
-  console.log("[Acceptance] Step 5/5: ops status");
+  console.log("[Acceptance] Step 5/6: quarterly demo (W3+W4+W5+W7+W9 端到端)");
+  run("pnpm", ["run", "lawmind:quarterly-demo"]);
+
+  console.log("[Acceptance] Step 6/6: ops status");
   run("pnpm", ["run", "lawmind:ops", "--", "status"]);
 
   console.log("\n✅ LawMind acceptance completed.");

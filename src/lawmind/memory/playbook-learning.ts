@@ -14,12 +14,12 @@ export const CLAUSE_PLAYBOOK_RELATIVE = "playbooks/CLAUSE_PLAYBOOK.md" as const;
 export const PLAYBOOK_REVIEW_SECTION = "## 6. LawMind 审核学习（自动摘要）";
 
 const TRIGGER_LABELS: ReadonlySet<ReviewLabel> = new Set([
-  "citation.incomplete",
-  "citation.incorrect",
-  "structure.template_mismatch",
-  "issue.missing",
-  "issue.over_argued",
-  "audience.wrong_framing",
+  "引用不完整",
+  "引用有误",
+  "模板不匹配",
+  "争点遗漏",
+  "争点过度论证",
+  "受众定位不当",
 ]);
 
 function timestampLabel(): string {

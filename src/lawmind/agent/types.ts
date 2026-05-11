@@ -142,6 +142,8 @@ export type AgentTurn = {
 
 export type AgentSession = {
   sessionId: string;
+  /** 对话标签（桌面多窗口）；缺省或空时 UI 显示为「New Chat」 */
+  title?: string;
   matterId?: string;
   actorId: string;
   /** 桌面多助手：关联的助手 ID（旧会话可能无此字段） */

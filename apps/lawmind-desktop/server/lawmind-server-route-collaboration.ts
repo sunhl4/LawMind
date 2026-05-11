@@ -2,11 +2,13 @@ import {
   cancelDelegation,
   getDelegation,
   listDelegations,
+  listDelegationFollowUpsForSession,
   listWorkspaceWorkflowTemplates,
   readCollaborationEvents,
   readWorkspaceWorkflowTemplate,
   instantiateCollaborationWorkflowFromTemplate,
 } from "../../../src/lawmind/agent/collaboration/index.js";
+import { loadSession } from "../../../src/lawmind/agent/session.js";
 import {
   buildWorkflowReport,
   executeWorkflow as runCollaborationWorkflow,
@@ -60,6 +62,46 @@ export async function handleCollaborationRoutes({
     return true;
   }
 
+  if (pathname === "/api/delegations/follow-up" && req.method === "GET") {
+    const sessionId = url.searchParams.get("sessionId")?.trim() ?? "";
+    const assistantId = url.searchParams.get("assistantId")?.trim() ?? "";
+    if (!sessionId || !assistantId) {
+      sendJson(res, 400, { ok: false, error: "sessionId_and_assistantId_required" }, c);
+      return true;
+    }
+    const session = loadSession(workspaceDir, sessionId);
+    if (!session) {
+      sendJson(res, 404, { ok: false, error: "session_not_found" }, c);
+      return true;
+    }
+    if (session.assistantId && session.assistantId !== assistantId) {
+      sendJson(res, 403, { ok: false, error: "session_assistant_mismatch" }, c);
+      return true;
+    }
+    const rows = listDelegationFollowUpsForSession({
+      parentSessionId: sessionId,
+      fromAssistantId: assistantId,
+    });
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        items: rows.map((r) => ({
+          delegationId: r.delegationId,
+          status: r.status,
+          toAssistant: r.toAssistantId,
+          task: r.task.slice(0, 500),
+          result: r.status === "completed" ? r.result?.slice(0, 24_000) : undefined,
+          error: r.error,
+          completedAt: r.completedAt,
+        })),
+      },
+      c,
+    );
+    return true;
+  }
+
   if (pathname === "/api/delegations" && req.method === "GET") {
     const statusFilter = url.searchParams.get("status") ?? undefined;
     const assistantFilter = url.searchParams.get("assistantId") ?? undefined;
@@ -76,6 +118,9 @@ export async function handleCollaborationRoutes({
           delegationId: record.delegationId,
           fromAssistant: record.fromAssistantId,
           toAssistant: record.toAssistantId,
+          matterId: record.matterId,
+          parentSessionId: record.parentSessionId,
+          targetSessionId: record.targetSessionId,
           task: record.task.slice(0, 200),
           status: record.status,
           priority: record.priority,

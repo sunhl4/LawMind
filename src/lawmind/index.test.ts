@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { readAllAuditLogs } from "./audit/index.js";
+import { shortTaskIdForDisplay } from "./cases/task-display.js";
 import { persistDraft } from "./drafts/index.js";
 import {
   createLawMindEngine,
@@ -96,7 +97,7 @@ describe("LawMind Engine", () => {
       "utf8",
     );
     expect(caseContent).toContain("任务目标");
-    expect(caseContent).toContain(intent.taskId);
+    expect(caseContent).toContain(shortTaskIdForDisplay(intent.taskId));
     expect(caseContent).toContain("检索完成");
     expect(caseContent).toContain("草稿审核完成：approved");
     expect(caseContent).toContain("来源模型");
@@ -327,13 +328,13 @@ describe("LawMind Engine", () => {
     await engine.review(draft, {
       actorId: "lawyer:test",
       status: "approved",
-      labels: ["citation.incomplete"],
+      labels: ["引用不完整"],
       note: "add refs",
     });
     const pb = path.join(workspaceDir, "playbooks", "CLAUSE_PLAYBOOK.md");
     const pbContent = await fs.readFile(pb, "utf8");
     expect(pbContent).toContain("## 6. LawMind 审核学习（自动摘要）");
-    expect(pbContent).toContain("citation.incomplete");
+    expect(pbContent).toContain("引用不完整");
     const auditDir = path.join(workspaceDir, "audit");
     const events = await readAllAuditLogs(auditDir);
     expect(events.some((e) => e.kind === "memory.playbook_updated")).toBe(true);
@@ -357,7 +358,7 @@ describe("LawMind Engine", () => {
     const bundle = await engine.research(intent);
     const draft = engine.draft(intent, bundle, { title: "Dashboard JSON test" });
     await engine.review(draft, { actorId: "lawyer:test", status: "approved" });
-    await engine.recordQuality(intent.taskId, { labels: ["quality.good_example"] });
+    await engine.recordQuality(intent.taskId, { labels: ["质量范例"] });
     const dashPath = path.join(workspaceDir, "quality", "dashboard.json");
     const raw = await fs.readFile(dashPath, "utf8");
     const dash = JSON.parse(raw) as { recordCount: number; records: Array<{ taskId: string }> };

@@ -22,6 +22,7 @@
     "lawmind:gate": "node --import tsx scripts/lawmind/lawmind-deliverable-check.ts",
     "lawmind:onboard": "node --import tsx scripts/lawmind/lawmind-onboard.ts",
     "lawmind:ops": "node --import tsx scripts/lawmind/lawmind-ops.ts",
+    "lawmind:quarterly-demo": "node --import tsx scripts/lawmind/lawmind-quarterly-demo.ts",
     "lawmind:review": "node --import tsx scripts/lawmind/lawmind-review.ts",
     "lawmind:sbom": "node scripts/lawmind/lawmind-sbom.mjs",
     "lawmind:sbom:cyclonedx": "sh -c 'cd apps/lawmind-desktop && pnpm dlx @cyclonedx/cyclonedx-npm@4.2.1 --ignore-npm-errors -o ../../dist/lawmind-sbom-cyclonedx-lawmind-desktop.json --spec-version 1.6'",

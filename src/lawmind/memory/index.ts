@@ -304,6 +304,7 @@ function defaultCaseTemplate(matterId: string): string {
 ## 1. 基本信息
 
 - matterId: ${matterId}
+- 案件名称（展示用）: _（侧栏显示；可与编号不同；新建时填写；导入未命名时可取自文件名）_
 - 客户 / clientId: _（与目录 clients/该id/ 下 CLIENT_PROFILE 对应；可与 matterId 同或单独指向常年客户主档案）_
 - 案由:
 - 当前阶段:
@@ -534,6 +535,32 @@ export async function ensureCaseWorkspace(workspaceDir: string, matterId: string
 }
 
 /**
+ * 写入 CASE.md §1「案件名称（展示用）」；侧栏/列表优先显示此名称，不改变 matterId。
+ */
+export async function upsertMatterDisplayName(
+  workspaceDir: string,
+  matterId: string,
+  displayName: string,
+): Promise<void> {
+  await ensureCaseWorkspace(workspaceDir, matterId);
+  const filePath = caseFilePath(workspaceDir, matterId);
+  let raw = await readSafe(filePath);
+  const lineBody = `案件名称（展示用）: ${displayName.replace(/\n/g, " ").trim()}`;
+  const line = `- ${lineBody}`;
+  if (/\n- 案件名称（展示用）[:：][^\n]*/.test(raw)) {
+    raw = raw.replace(/\n- 案件名称（展示用）[:：][^\n]*/g, `\n${line}`);
+  } else if (/\n- matterId:[^\n]+/.test(raw)) {
+    raw = raw.replace(/(\n- matterId:[^\n]+)/, `$1\n${line}`);
+  } else {
+    raw = writeMarkdownBulletToSection(raw, "## 1. 基本信息", lineBody, {
+      mode: "append",
+      timestamped: false,
+    });
+  }
+  await fs.writeFile(filePath, raw, "utf8");
+}
+
+/**
  * 确保 workspace 下存在 FIRM_PROFILE.md，不存在则用模板初始化。
  */
 export async function ensureFirmProfile(workspaceDir: string): Promise<string> {
@@ -611,6 +638,7 @@ export async function appendCaseTaskGoal(
     mode: "merge",
     timestamped: false,
   });
+  await recordCaseAutoAdoption(workspaceDir, matterId, "case.task_goal", bullet);
 }
 
 export async function appendCaseCoreIssue(
@@ -622,6 +650,7 @@ export async function appendCaseCoreIssue(
     mode: "merge",
     timestamped: false,
   });
+  await recordCaseAutoAdoption(workspaceDir, matterId, "case.core_issue", bullet);
 }
 
 export async function appendCaseRiskNote(
@@ -633,6 +662,7 @@ export async function appendCaseRiskNote(
     mode: "merge",
     timestamped: false,
   });
+  await recordCaseAutoAdoption(workspaceDir, matterId, "case.risk_note", bullet);
 }
 
 export async function appendCaseProgress(
@@ -641,6 +671,7 @@ export async function appendCaseProgress(
   bullet: string,
 ): Promise<void> {
   await appendCaseSectionBullet(workspaceDir, matterId, "## 8. 工作进展记录", bullet);
+  await recordCaseAutoAdoption(workspaceDir, matterId, "case.progress", bullet);
 }
 
 export async function appendCaseArtifact(
@@ -652,6 +683,36 @@ export async function appendCaseArtifact(
     mode: "merge",
     timestamped: false,
   });
+  await recordCaseAutoAdoption(workspaceDir, matterId, "case.artifact", bullet);
+}
+
+/**
+ * W5：把 case 自动写入也记入 MemoryAdoptionService（state=auto_adopted），
+ * 便于 Inspector 显示历史 + 律师撤回。失败不阻塞 markdown 写入。
+ */
+async function recordCaseAutoAdoption(
+  workspaceDir: string,
+  matterId: string,
+  kind: "case.task_goal" | "case.core_issue" | "case.risk_note" | "case.progress" | "case.artifact",
+  bullet: string,
+): Promise<void> {
+  try {
+    const { suggestMemoryAdoption } = await import("./adoption-service.js");
+    await suggestMemoryAdoption(
+      workspaceDir,
+      path.join(workspaceDir, "audit"),
+      {
+        scope: "matter",
+        kind,
+        targetId: matterId,
+        payload: bullet,
+        origin: "engine",
+      },
+      { autoAdopt: true },
+    );
+  } catch {
+    // best-effort
+  }
 }
 
 // ─────────────────────────────────────────────

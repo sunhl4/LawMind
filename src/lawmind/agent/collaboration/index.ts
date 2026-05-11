@@ -27,6 +27,7 @@ export {
   cancelDelegation,
   getDelegation,
   listDelegations,
+  listDelegationFollowUpsForSession,
   countActiveDelegations,
   validateDelegation,
   restoreDelegationsFromDisk,

@@ -31,10 +31,11 @@ async function main() {
 
     console.log("LawMind matters:");
     for (const item of overviews) {
+      const label = item.displayName?.trim() || item.matterId;
       console.log(
-        `- ${item.matterId} | open=${item.openTaskCount} rendered=${item.renderedTaskCount} risks=${item.riskCount} updated=${item.latestUpdatedAt ?? "n/a"}`,
+        `- ${label}${label !== item.matterId ? ` (${item.matterId})` : ""} · open=${item.openTaskCount} rendered=${item.renderedTaskCount} risks=${item.riskCount} updated=${item.latestUpdatedAt ?? "n/a"}`,
       );
-      if (item.topIssue) {
+      if (item.topIssue && label === item.matterId) {
         console.log(`  issue: ${item.topIssue}`);
       }
     }
@@ -51,7 +52,9 @@ async function main() {
     `tasks=${index.tasks.length}, open=${index.openTasks.length}, rendered=${index.renderedTasks.length}, drafts=${index.drafts.length}, auditEvents=${index.auditEvents.length}`,
   );
   console.log(`headline: ${summary.headline}`);
-  console.log(`status: ${summary.statusLine}`);
+  console.log(
+    `counts: 待办 ${index.openTasks.length} · 已交付 ${index.renderedTasks.length} · 风险 ${index.riskNotes.length} · 产出 ${index.artifacts.length}`,
+  );
 
   const printSection = (title: string, items: string[]) => {
     console.log(`\n## ${title}`);

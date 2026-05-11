@@ -1,28 +1,31 @@
-import { useEffect, useRef, useState } from "react";
-import { FileWorkbench } from "./FileWorkbench";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FileWorkbench, type FileWorkbenchCasesNodeActions } from "./FileWorkbench";
 import { MatterWorkbench } from "./MatterWorkbench";
 import { ReviewWorkbench } from "./ReviewWorkbench";
 import { HelpPanel } from "./HelpPanel";
 import { LawmindApiSetupWizard } from "./LawmindApiSetupWizard";
 import { LawmindAssistantEditorDialog } from "./lawmind-assistant-editor";
 import { formatFileChatContextPill, useLawmindAppShell } from "./lawmind-app-shell";
-import { LawmindChatShell } from "./lawmind-chat-shell";
+import { LawmindChatSessionTabs } from "./LawmindChatSessionTabs";
+import { LawmindChatMessagesColumn, LawmindChatComposeFooter } from "./lawmind-chat-shell";
 import { LawmindDetailDialog } from "./lawmind-app-detail";
 import { LawmindFirstRunDialog } from "./LawmindFirstRunDialog";
+import { LawmindCreateMatterDialog } from "./LawmindCreateMatterDialog";
+import { LawmindMatterRenameDialog, LawmindMatterDeleteDialog } from "./LawmindMatterRenameDeleteDialogs";
 import { LawmindSettingsDialog } from "./lawmind-settings-shell";
+import { LawmindCollaborationDesk, type CollaborationDeskTab } from "./LawmindCollaborationDesk";
+import { useLawmindRecordsDeskMatters, RECORDS_DESK_UNLINKED } from "./lawmind-records-desk-state";
 import { LawmindSidebar } from "./lawmind-sidebar";
 import { useEdition } from "./use-edition";
 import {
   LM_PANE_MAX_WIDTH_PX,
   LM_PANE_MIN_WIDTH_PX,
-  LM_SIDE_FILE_TREE_DEFAULT_HEIGHT_PX,
-  LM_SIDE_FILE_TREE_MAX_HEIGHT_PX,
-  LM_SIDE_FILE_TREE_MIN_HEIGHT_PX,
   readStoredBool,
   writeStoredBool,
 } from "./lawmind-panel-layout";
-import { usePaneResizePx, usePaneResizeVerticalPx } from "./use-pane-resize";
-import { apiGetJson } from "./api-client";
+import { usePaneResizePx } from "./use-pane-resize";
+import { apiGetJson, apiSendJson, errorMessage, messageFromOkFalseBody } from "./api-client";
+import { displayNameFromImportBasename, suggestMatterIdForImport } from "../../../../src/lawmind/cases/matter-label.ts";
 import { useLawyerReviewDesktopNotify } from "./lawmind-lawyer-review-notify";
 
 function resolveWorkspacePath(workspaceDir: string, rel: string): string {
@@ -167,7 +170,6 @@ export function App() {
     wizError,
     wizRetrievalMode,
     retrievalSaving,
-    allowWebSearch,
     sideTab,
     taskListQuery,
     listTimeRange,
@@ -207,6 +209,9 @@ export function App() {
     collabEvents,
     collabTab,
     currentMessages,
+    chatSessionList,
+    chatSessionsLoading,
+    activeChatSessionId,
   } = state;
 
   const {
@@ -221,17 +226,129 @@ export function App() {
     currentMatterLabel,
   } = derived;
 
+  const recordsDeskMatters = useLawmindRecordsDeskMatters({
+    enabled: mainView === "workspace" && Boolean(config),
+    apiBase: config?.apiBase ?? "",
+    matterRefreshVersion,
+    tasks,
+    history,
+  });
+  const [matterImportBusy, setMatterImportBusy] = useState(false);
+  const [matterCockpitOpen, setMatterCockpitOpen] = useState(false);
+  const [createMatterOpen, setCreateMatterOpen] = useState(false);
+  const [matterRenameOpen, setMatterRenameOpen] = useState<{ matterId: string; initialTitle: string } | null>(
+    null,
+  );
+  const [matterDeleteOpen, setMatterDeleteOpen] = useState<{ matterId: string; label: string } | null>(null);
+
+  useEffect(() => {
+    if (mainView !== "workspace") {
+      setMatterCockpitOpen(false);
+    }
+  }, [mainView]);
+
+  const matterLabelById = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const row of recordsDeskMatters.sidebarRowsAll) {
+      if (row.matterId) {
+        m[row.matterId] = row.title;
+      }
+    }
+    return m;
+  }, [recordsDeskMatters.sidebarRowsAll]);
+
+  const importMattersFromUserFiles = useCallback(async () => {
+    const api = config?.apiBase;
+    const desk = typeof window !== "undefined" ? window.lawmindDesktop : undefined;
+    const dlg = desk?.openFilesDialog;
+    if (!api?.trim()) {
+      void desk?.showNotification?.({
+        title: "LawMind",
+        body: "请先完成连接设置，确保本地 API 可用后再导入案件。",
+      });
+      return;
+    }
+    if (!dlg) {
+      void desk?.showNotification?.({
+        title: "LawMind",
+        body: "当前页面未注入桌面桥接，请使用 LawMind 桌面应用导入。",
+      });
+      return;
+    }
+    setMatterImportBusy(true);
+    try {
+      let r: Awaited<ReturnType<NonNullable<typeof dlg>>>;
+      try {
+        r = await dlg({
+          title: "所选每一文件或文件夹将各自创建一个案件（展示名取自名称）",
+          multi: true,
+          allowDirectories: true,
+        });
+      } catch (e) {
+        void desk?.showNotification?.({
+          title: "LawMind",
+          body: errorMessage(e, "无法打开文件选择"),
+        });
+        return;
+      }
+      if (!r.ok || !r.filePaths?.length || r.canceled) {
+        return;
+      }
+      let lastOkId: string | undefined;
+      for (let i = 0; i < r.filePaths.length; i++) {
+        const fp = r.filePaths[i];
+        const kind = r.pathKinds?.[i] ?? "file";
+        const displayName = displayNameFromImportBasename(fp, {
+          treatAsDirectory: kind === "directory",
+        });
+        const matterId = suggestMatterIdForImport(fp, i, {
+          treatAsDirectory: kind === "directory",
+        });
+        try {
+          const j = await apiSendJson<
+            { ok?: boolean; error?: string; matterId?: string },
+            { matterId: string; displayName?: string }
+          >(api, "/api/matters/create", "POST", { matterId, displayName });
+          if (j.ok && typeof j.matterId === "string") {
+            lastOkId = j.matterId;
+          }
+        } catch (e) {
+          console.warn(errorMessage(e, "导入案件"));
+        }
+      }
+      setMatterRefreshVersion((v) => v + 1);
+      if (lastOkId) {
+        recordsDeskMatters.setSelectedKey(lastOkId);
+      } else if (r.filePaths.length > 0) {
+        void desk?.showNotification?.({
+          title: "LawMind",
+          body: "未能创建案件（可能网络或服务异常）。请查看开发工具控制台或稍后重试。",
+        });
+      }
+    } finally {
+      setMatterImportBusy(false);
+    }
+  }, [config?.apiBase, recordsDeskMatters.setSelectedKey]);
+
   const [chatMatterHeadline, setChatMatterHeadline] = useState<string | null>(null);
-  /** 工作区资源管理器挂在左栏内（与助手 / 在办 同一列） */
+  /** 左栏：资源树 portal；主区：仅编辑器 */
   const [fileExplorerHost, setFileExplorerHost] = useState<HTMLDivElement | null>(null);
   const [fileEditorHost, setFileEditorHost] = useState<HTMLDivElement | null>(null);
   /** 从审核台点「返回案件」时一次性选中左侧案件，避免掉上下文 */
   const [focusMatterIdFromReview, setFocusMatterIdFromReview] = useState<string | null>(null);
   /** 从案件点「去复核」进入审核时为 true，点顶栏「审核」为 false，用于是否显示「返回案件」 */
   const [reviewLaunchedFromMatter, setReviewLaunchedFromMatter] = useState(false);
-  const projectBasename = projectDir
-    ? projectDir.split(/[\\/]/).filter(Boolean).pop() ?? null
-    : null;
+  /** 顶栏「协作」内分栏：状态一览 / 团队工作流 */
+  const [collaborationDeskTab, setCollaborationDeskTab] = useState<CollaborationDeskTab>("overview");
+
+  useEffect(() => {
+    const id = focusMatterIdFromReview?.trim();
+    if (!id) {
+      return;
+    }
+    recordsDeskMatters.setSelectedKey(id);
+    setFocusMatterIdFromReview(null);
+  }, [focusMatterIdFromReview, recordsDeskMatters.setSelectedKey]);
 
   useEffect(() => {
     if (!config?.apiBase || !contextMatterId?.trim()) {
@@ -263,7 +380,7 @@ export function App() {
     return () => {
       cancel = true;
     };
-  }, [config?.apiBase, contextMatterId]);
+  }, [config?.apiBase, contextMatterId, matterRefreshVersion]);
 
   const {
     setMainView,
@@ -277,7 +394,6 @@ export function App() {
     setWizBaseUrl,
     setWizModel,
     setWizRetrievalMode,
-    setAllowWebSearch,
     setSideTab,
     setTaskListQuery,
     setListTimeRange,
@@ -293,6 +409,7 @@ export function App() {
     setCollabExpanded,
     setCollabTab,
     refreshLists,
+    refreshCollaboration,
     openDetail,
     closeDetail,
     applyRetrievalMode,
@@ -301,6 +418,7 @@ export function App() {
     pickProject,
     clearProject,
     send,
+    abortChatSend,
     sendChatMessage,
     openNewAssistant,
     openEditAssistant,
@@ -312,7 +430,103 @@ export function App() {
     addFileToChatContext,
     removeFileChatContextItem,
     clearFileChatContext,
+    selectChatSession,
+    openDelegationTargetWorkspaceChat,
+    createNewChatSession,
+    renameChatSession,
+    deleteChatSession,
   } = actions;
+
+  const linkMatterToChat = useCallback(
+    (matterId: string) => {
+      setContextMatterId(matterId);
+      setMatterCockpitOpen(false);
+      setMainView("workspace");
+    },
+    [setContextMatterId, setMainView],
+  );
+
+  const setCaseSubdirRole = useCallback(
+    async (matterId: string, role: "matter" | "folder") => {
+      const api = config?.apiBase?.trim();
+      if (!api) {
+        return;
+      }
+      try {
+        const j = await apiSendJson<{ ok?: boolean; error?: string }, { matterId: string; role: string }>(
+          api,
+          "/api/matters/role",
+          "POST",
+          { matterId, role },
+        );
+        if (!j.ok) {
+          console.warn(messageFromOkFalseBody(j, "更新节点角色失败"));
+          return;
+        }
+        setMatterRefreshVersion((v) => v + 1);
+      } catch (e) {
+        console.warn(errorMessage(e, "更新节点角色失败"));
+      }
+    },
+    [config?.apiBase, setMatterRefreshVersion],
+  );
+
+  const workspaceCasesMenu = useMemo((): FileWorkbenchCasesNodeActions | null => {
+    if (!config?.apiBase?.trim()) {
+      return null;
+    }
+    return {
+      apiBase: config.apiBase,
+      workspaceDir: config.workspaceDir ?? null,
+      matterLabelById,
+      onOpenMatterCockpit: (matterId) => {
+        recordsDeskMatters.setSelectedKey(matterId);
+        setMatterCockpitOpen(true);
+      },
+      onLinkMatterToChat: linkMatterToChat,
+      onRequestRenameDisplayName: (mid, initialTitle) => {
+        setMatterRenameOpen({ matterId: mid, initialTitle });
+      },
+      onRequestDeleteMatter: (mid, label) => {
+        setMatterDeleteOpen({ matterId: mid, label });
+      },
+      onSetCaseSubdirRole: setCaseSubdirRole,
+      onNewMatter: () => setCreateMatterOpen(true),
+      onImportMatters: () => void importMattersFromUserFiles(),
+      onRefreshMatters: () => setMatterRefreshVersion((v) => v + 1),
+      importMattersBusy: matterImportBusy,
+      canImportMatters: Boolean(
+        typeof window !== "undefined" && window.lawmindDesktop?.openFilesDialog,
+      ),
+    };
+  }, [
+    config,
+    matterLabelById,
+    matterImportBusy,
+    importMattersFromUserFiles,
+    recordsDeskMatters.setSelectedKey,
+    linkMatterToChat,
+    setCaseSubdirRole,
+    setMatterRefreshVersion,
+    setCreateMatterOpen,
+  ]);
+
+  const fileWorkbenchMattersPickList = useMemo(() => {
+    const rows = recordsDeskMatters.sidebarRowsAll.filter(
+      (r) => Boolean(r.matterId) && r.key !== RECORDS_DESK_UNLINKED,
+    );
+    const seen = new Set<string>();
+    const out: Array<{ id: string; label: string }> = [];
+    for (const r of rows) {
+      const id = r.matterId as string;
+      if (seen.has(id)) {
+        continue;
+      }
+      seen.add(id);
+      out.push({ id, label: r.title });
+    }
+    return out;
+  }, [recordsDeskMatters.sidebarRowsAll]);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -329,12 +543,28 @@ export function App() {
         setReviewFocusListMode("pending");
         return;
       }
+      if (payload?.reason === "open_workspace_chat") {
+        setMainView("workspace");
+        const aid = payload.chatAssistantId?.trim();
+        if (aid && assistants.some((a) => a.assistantId === aid)) {
+          setSelectedAssistantId(aid);
+        }
+        requestAnimationFrame(() => {
+          document.querySelector<HTMLElement>('[aria-label="对话消息"]')?.scrollIntoView({
+            behavior: "smooth",
+            block: "end",
+          });
+        });
+        return;
+      }
       if (payload?.reason !== "open_settings_collaboration") {
         return;
       }
-      setShowSettings(true);
+      setShowSettings(false);
+      setCollaborationDeskTab("workflows");
+      setMainView("collaboration");
       requestAnimationFrame(() => {
-        document.getElementById("lawmind-settings-collaboration")?.scrollIntoView({
+        document.getElementById("lawmind-collaboration-hub")?.scrollIntoView({
           behavior: "smooth",
           block: "nearest",
         });
@@ -344,11 +574,14 @@ export function App() {
       unsub?.();
     };
   }, [
+    assistants,
     setMainView,
+    setCollaborationDeskTab,
     setReviewFocusListMode,
     setReviewFocusMatterId,
     setReviewFocusStatus,
     setReviewFocusTaskId,
+    setSelectedAssistantId,
     setShowSettings,
   ]);
 
@@ -361,36 +594,49 @@ export function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
     readStoredBool("lawmind.ui.sidebarCollapsed", false),
   );
-  const [composeCollapsed, setComposeCollapsed] = useState(() =>
-    readStoredBool("lawmind.ui.composeCollapsed", false),
-  );
 
   useEffect(() => {
     writeStoredBool("lawmind.ui.sidebarCollapsed", sidebarCollapsed);
   }, [sidebarCollapsed]);
-
-  useEffect(() => {
-    writeStoredBool("lawmind.ui.composeCollapsed", composeCollapsed);
-  }, [composeCollapsed]);
 
   const { width: sidebarWidth, onResizePointerDown: onSidebarResizePointerDown } = usePaneResizePx({
     storageKey: "lawmind.ui.sidebarWidth",
     defaultWidth: 282,
     min: LM_PANE_MIN_WIDTH_PX,
     max: LM_PANE_MAX_WIDTH_PX,
+    widthRole: "shellSidebar",
   });
 
-  const { height: sideFileTreeHeight, onResizePointerDown: onSideFileTreeResizePointerDown } =
-    usePaneResizeVerticalPx({
-      storageKey: "lawmind.ui.sideFileTreeHeight",
-      defaultHeight: LM_SIDE_FILE_TREE_DEFAULT_HEIGHT_PX,
-      min: LM_SIDE_FILE_TREE_MIN_HEIGHT_PX,
-      max: LM_SIDE_FILE_TREE_MAX_HEIGHT_PX,
-    });
+  const [wsShowEditor, setWsShowEditor] = useState(() => readStoredBool("lawmind.ui.wsPaneEditor", true));
+  const [wsShowChat, setWsShowChat] = useState(() => readStoredBool("lawmind.ui.wsPaneChat", true));
+
+  useEffect(() => {
+    writeStoredBool("lawmind.ui.wsPaneEditor", wsShowEditor);
+  }, [wsShowEditor]);
+  useEffect(() => {
+    writeStoredBool("lawmind.ui.wsPaneChat", wsShowChat);
+  }, [wsShowChat]);
+
+  const { width: wsChatColWidth, onResizePointerDown: onWsChatSplitResize } = usePaneResizePx({
+    storageKey: "lawmind.ui.wsChatColumnWidth",
+    defaultWidth: 380,
+    min: LM_PANE_MIN_WIDTH_PX,
+    max: LM_PANE_MAX_WIDTH_PX,
+  });
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [currentMessages]);
+
+  useEffect(() => {
+    if (mainView === "collaboration") {
+      setCollabExpanded(true);
+    }
+  }, [mainView, setCollabExpanded]);
+
+  /** 审核页也需左栏材料树；此前仅工作台挂载 FileWorkbench，导致切到审核后左栏被卸掉。 */
+  const showSidebarWorkbenchFiles =
+    canUseFilesystemBridge && (mainView === "workspace" || mainView === "review");
 
   const previewArtifact = (outputPath?: string) => {
     if (!config) {
@@ -504,9 +750,15 @@ export function App() {
         onOpenApiWizard={openApiWizard}
         onPickProject={() => void pickProject()}
         onClearProject={() => void clearProject()}
+        onOpenCollaborationPage={() => {
+          setCollaborationDeskTab("overview");
+          setMainView("collaboration");
+        }}
       />
       <aside
-        className={`lm-side ${sidebarCollapsed ? "lm-side-collapsed" : ""}`}
+        className={`lm-side ${sidebarCollapsed ? "lm-side-collapsed" : ""} ${
+          showSidebarWorkbenchFiles ? "lm-side-with-workbench-files" : ""
+        }`}
         style={{
           width: sidebarCollapsed ? 0 : sidebarWidth,
           flexShrink: 0,
@@ -542,28 +794,20 @@ export function App() {
             </svg>
           </button>
         </div>
+        {showSidebarWorkbenchFiles ? (
+          <div
+            ref={setFileExplorerHost}
+            className="lm-side-explorer-host"
+            aria-label="材料资源树"
+          />
+        ) : null}
         <div className="lm-side-stack">
-          {canUseFilesystemBridge && config?.workspaceDir ? (
-            <>
-              <div
-                className="lm-side-files-host"
-                ref={setFileExplorerHost}
-                style={{ height: sideFileTreeHeight, flex: "0 0 auto" }}
-              />
-              <div
-                className="lm-split-handle lm-split-handle-horizontal"
-                role="separator"
-                aria-orientation="horizontal"
-                aria-label="调整文件树与下方侧栏高度"
-                title="拖动调整文件区高度"
-                onPointerDown={onSideFileTreeResizePointerDown}
-              />
-            </>
-          ) : null}
           <LawmindSidebar
             projectDir={projectDir}
             assistants={assistants}
             selectedAssistantId={selectedAssistantId}
+            showAssistantSelector={false}
+            variant="project-only"
             recordsExpanded={recordsExpanded}
             collabExpanded={collabExpanded}
             collabTab={collabTab}
@@ -582,6 +826,7 @@ export function App() {
             onTaskListQueryChange={setTaskListQuery}
             onListTimeRangeChange={setListTimeRange}
             onOpenDetail={(kind, id) => void openDetail(kind, id)}
+            onOpenDelegationTargetChat={(d) => void openDelegationTargetWorkspaceChat(d)}
             formatRelativeTime={formatRelativeTime}
             legalStatusLabel={legalStatusLabel}
             taskBadgeClass={taskBadgeClass}
@@ -600,83 +845,48 @@ export function App() {
         />
       ) : null}
       <main className="lm-main">
-        <div className="lm-main-header">
+        <div className="lm-main-header lm-main-header-compact">
           <div className="lm-main-title-block">
-            <div className="lm-main-eyebrow">律师工作台</div>
-            <div className="lm-main-title">{selectedAssistant?.displayName ?? "LawMind"}</div>
-            <div className="lm-main-subtitle">
-              {selectedAssistant?.introduction?.trim() ||
-                "交办任务、查卷、起草与协作：像安排团队一样用多个智能体即可；出具对外稿件前请走审核把关。"}
+            <div className="lm-main-assistant-line">
+              {assistants.length > 1 ? (
+                <select
+                  className="lm-asst-select lm-main-asst-select"
+                  value={selectedAssistantId}
+                  aria-label="选择助手"
+                  onChange={(e) => setSelectedAssistantId(e.target.value)}
+                >
+                  {assistants.map((assistant) => (
+                    <option key={assistant.assistantId} value={assistant.assistantId}>
+                      {assistant.displayName}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="lm-main-assistant-name">
+                  {selectedAssistant?.displayName ?? "LawMind"}
+                </span>
+              )}
             </div>
-            {mainView === "chat" ? (
-              <p className="lm-main-microcopy">
-                顶栏四格：<strong>对话</strong>（交办当前智能体）· <strong>文件</strong>（材料）· <strong>案件</strong>（归档）·{" "}
-                <strong>审核</strong>（交付前必过）。需要多智能体按模板衔接时，到「设置 → 协作与多智能体流程」。
-              </p>
-            ) : null}
           </div>
-          <div className="lm-header-spacer" aria-hidden />
-          <div className="lm-panel-toggles" role="toolbar" aria-label="面板布局">
+          <nav className="lm-tabs lm-main-nav lm-main-nav-compact" aria-label="功能模块">
             <button
               type="button"
-              className={`lm-panel-toggle ${sidebarCollapsed ? "lm-panel-toggle-off" : ""}`}
-              title={sidebarCollapsed ? "显示左侧栏（任务与历史）" : "隐藏左侧栏"}
-              aria-pressed={!sidebarCollapsed}
-              onClick={() => setSidebarCollapsed((v) => !v)}
+              className={`lm-tab ${mainView === "workspace" ? "active" : ""}`}
+              aria-current={mainView === "workspace" ? "page" : undefined}
+              onClick={() => setMainView("workspace")}
             >
-              <span className="lm-panel-toggle-icon" aria-hidden>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <rect x="2" y="2" width="5" height="12" rx="1" stroke="currentColor" strokeWidth="1.2" />
-                  <rect x="9" y="2" width="5" height="12" rx="1" stroke="currentColor" strokeWidth="1.2" opacity="0.35" />
-                </svg>
-              </span>
-              <span className="lm-panel-toggle-label">左栏</span>
+              工作台
             </button>
             <button
               type="button"
-              className={`lm-panel-toggle ${composeCollapsed ? "lm-panel-toggle-off" : ""}`}
-              title={composeCollapsed ? "展开底部输入区" : "收起底部输入区"}
-              aria-pressed={!composeCollapsed}
-              disabled={mainView !== "chat"}
+              className={`lm-tab ${mainView === "collaboration" ? "active" : ""}`}
+              aria-current={mainView === "collaboration" ? "page" : undefined}
               onClick={() => {
-                if (mainView === "chat") {
-                  setComposeCollapsed((v) => !v);
-                }
+                setCollaborationDeskTab("overview");
+                setMainView("collaboration");
               }}
             >
-              <span className="lm-panel-toggle-icon" aria-hidden>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <rect x="2" y="2" width="12" height="5" rx="1" stroke="currentColor" strokeWidth="1.2" opacity="0.35" />
-                  <rect x="2" y="9" width="12" height="5" rx="1" stroke="currentColor" strokeWidth="1.2" />
-                </svg>
-              </span>
-              <span className="lm-panel-toggle-label">输入</span>
-            </button>
-          </div>
-          <nav className="lm-tabs lm-main-nav lm-main-nav-tabs" aria-label="工作台模块">
-            <button
-              type="button"
-              className={`lm-tab ${mainView === "chat" ? "active" : ""}`}
-              aria-current={mainView === "chat" ? "page" : undefined}
-              onClick={() => setMainView("chat")}
-            >
-              对话
-            </button>
-            <button
-              type="button"
-              className={`lm-tab ${mainView === "files" ? "active" : ""}`}
-              aria-current={mainView === "files" ? "page" : undefined}
-              onClick={() => setMainView("files")}
-            >
-              文件
-            </button>
-            <button
-              type="button"
-              className={`lm-tab ${mainView === "matters" ? "active" : ""}`}
-              aria-current={mainView === "matters" ? "page" : undefined}
-              onClick={() => setMainView("matters")}
-            >
-              案件
+              协作
             </button>
             <button
               type="button"
@@ -690,6 +900,52 @@ export function App() {
               审核
             </button>
           </nav>
+          <div className="lm-header-spacer" aria-hidden />
+          <div className="lm-panel-toggles" role="toolbar" aria-label="主区面板（工作台）">
+            <button
+              type="button"
+              className={`lm-panel-toggle ${sidebarCollapsed ? "lm-panel-toggle-off" : ""}`}
+              title={sidebarCollapsed ? "显示左侧栏（品牌与材料资源树）" : "隐藏左侧栏"}
+              aria-pressed={!sidebarCollapsed}
+              onClick={() => setSidebarCollapsed((v) => !v)}
+            >
+              <span className="lm-panel-toggle-icon" aria-hidden>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <rect x="2" y="2" width="5" height="12" rx="1" stroke="currentColor" strokeWidth="1.2" />
+                  <rect x="9" y="2" width="5" height="12" rx="1" stroke="currentColor" strokeWidth="1.2" opacity="0.35" />
+                </svg>
+              </span>
+              <span className="lm-panel-toggle-label">左栏</span>
+            </button>
+            <button
+              type="button"
+              className={`lm-panel-toggle ${!wsShowEditor ? "lm-panel-toggle-off" : ""}`}
+              title={wsShowEditor ? "隐藏编辑器" : "显示编辑器"}
+              aria-pressed={wsShowEditor}
+              disabled={!canUseFilesystemBridge || mainView !== "workspace"}
+              onClick={() => {
+                if (mainView === "workspace" && canUseFilesystemBridge) {
+                  setWsShowEditor((v) => !v);
+                }
+              }}
+            >
+              <span className="lm-panel-toggle-label">编辑</span>
+            </button>
+            <button
+              type="button"
+              className={`lm-panel-toggle ${!wsShowChat ? "lm-panel-toggle-off" : ""}`}
+              title={wsShowChat ? "隐藏对话区" : "显示对话区"}
+              aria-pressed={wsShowChat}
+              disabled={mainView !== "workspace"}
+              onClick={() => {
+                if (mainView === "workspace") {
+                  setWsShowChat((v) => !v);
+                }
+              }}
+            >
+              <span className="lm-panel-toggle-label">对话</span>
+            </button>
+          </div>
           {projectDir && (
             <div className="lm-header-meta lm-header-project" title={projectDir}>
               {projectDir.split(/[\\/]/).filter(Boolean).pop()}
@@ -706,125 +962,270 @@ export function App() {
           )}
         </div>
         <div className="lm-main-body">
-          {canUseFilesystemBridge ? (
-            <div
-              ref={setFileEditorHost}
-              className="lm-file-editor-host"
-              style={{
-                display: mainView === "files" ? "flex" : "none",
-                flexDirection: "column",
-                flex: 1,
-                minHeight: 0,
-                minWidth: 0,
-              }}
-              aria-hidden={mainView !== "files"}
-            />
-          ) : null}
-          {mainView === "matters" && config ? (
-          <div className="lm-main-workbench">
-            <MatterWorkbench
-              apiBase={config.apiBase}
-              refreshVersion={matterRefreshVersion}
-              assistantId={selectedAssistantId}
-              focusMatterId={focusMatterIdFromReview}
-              onFocusMatterIdApplied={() => setFocusMatterIdFromReview(null)}
-              onUseInChat={(matterId) => {
-                setContextMatterId(matterId);
-                setMainView("chat");
-              }}
-              onOpenReview={({ taskId, matterId, statusFilter = "all", listMode = "all" }) => {
-                setReviewLaunchedFromMatter(true);
-                setReviewFocusTaskId(taskId);
-                setReviewFocusMatterId(matterId ?? null);
-                setReviewFocusStatus(statusFilter);
-                setReviewFocusListMode(listMode);
-                if (matterId) {
-                  setContextMatterId(matterId);
-                }
-                setMainView("review");
-              }}
-            />
-          </div>
-        ) : mainView === "review" && config ? (
-          <div className="lm-main-workbench">
-            <ReviewWorkbench
-              apiBase={config.apiBase}
-              assistantId={selectedAssistantId}
-              initialTaskId={reviewFocusTaskId}
-              initialMatterId={reviewFocusMatterId}
-              initialStatusFilter={reviewFocusStatus}
-              initialListMode={reviewFocusListMode}
-              returnMatterId={reviewLaunchedFromMatter ? reviewFocusMatterId : null}
-              onReturnToMatter={() => {
-                if (reviewFocusMatterId) {
-                  setFocusMatterIdFromReview(reviewFocusMatterId);
-                }
-                setReviewLaunchedFromMatter(false);
-                setMainView("matters");
-              }}
-              onShowArtifact={(relPath) => openOutputInFolder(relPath)}
-              onRecordsChanged={() => {
-                setMatterRefreshVersion((v) => v + 1);
-                void refreshLists();
-              }}
-            />
-          </div>
-        ) : (
-          <LawmindChatShell
-            selectedAssistantId={selectedAssistantId}
-            currentMessages={currentMessages}
-            copiedMessageIndex={copiedMessageIndex}
-            input={input}
-            loading={loading}
-            error={error}
-            allowWebSearch={allowWebSearch}
-            webSearchApiKeyConfigured={health?.webSearchApiKeyConfigured}
-            contextTaskId={contextTaskId}
-            contextMatterId={contextMatterId}
-            textareaRef={textareaRef}
-            messagesEndRef={messagesEndRef}
-            onInputChange={setInput}
-            onAllowWebSearchChange={setAllowWebSearch}
-            onSend={() => void send()}
-            onCopyMessage={(text, index) => void copyMessage(text, index)}
-            onApplyPrompt={(prompt) => {
-              setInput(prompt);
-              textareaRef.current?.focus();
-            }}
-            onSendClarificationMessage={(text) => void sendChatMessage(text)}
-            onClearContext={clearContext}
-            composeCollapsed={composeCollapsed}
-            onToggleComposeCollapsed={() => setComposeCollapsed((v) => !v)}
-            assistantDisplayName={selectedAssistant?.displayName?.trim() || "未命名智能体"}
-            matterTitle={chatMatterHeadline}
-            projectBasename={projectBasename}
-            onOpenSettings={() => setShowSettings(true)}
-            onGoToMatters={() => setMainView("matters")}
-            fileChatPills={fileChatContextItems.map((it) => ({ id: it.id, ...formatFileChatContextPill(it) }))}
-            onRemoveFileChatPill={removeFileChatContextItem}
-            onClearFileChatPills={clearFileChatContext}
-          />
-        )}
+          {mainView === "workspace" && matterCockpitOpen && config ? (
+            <div className="lm-main-workbench">
+              <MatterWorkbench
+                apiBase={config.apiBase}
+                refreshVersion={matterRefreshVersion}
+                assistantId={selectedAssistantId}
+                matterListPlacement="app-sidebar"
+                selectedMatterKey={recordsDeskMatters.selectedKey}
+                shellTasks={tasks}
+                shellHistory={history}
+                onOpenShellDetail={(kind, id) => void openDetail(kind, id)}
+                formatShellRelativeTime={formatRelativeTime}
+                shellAssistantDisplayById={Object.fromEntries(
+                  assistants.map((a) => [a.assistantId, a.displayName]),
+                )}
+                shellLegalStatusLabel={legalStatusLabel}
+                shellTaskBadgeClass={taskBadgeClass}
+                shellHistoryBadgeClass={historyBadgeClass}
+                onMatterCreated={(matterId) => {
+                  setMatterRefreshVersion((v) => v + 1);
+                  recordsDeskMatters.setSelectedKey(matterId);
+                }}
+                workspaceDir={config.workspaceDir ?? null}
+                projectDir={projectDir}
+                onUseInChat={linkMatterToChat}
+                onOpenReview={({ taskId, matterId, statusFilter = "all", listMode = "all" }) => {
+                  setReviewLaunchedFromMatter(true);
+                  setReviewFocusTaskId(taskId);
+                  setReviewFocusMatterId(matterId ?? null);
+                  setReviewFocusStatus(statusFilter);
+                  setReviewFocusListMode(listMode);
+                  if (matterId) {
+                    setContextMatterId(matterId);
+                  }
+                  setMainView("review");
+                }}
+              />
+            </div>
+          ) : mainView === "review" && config ? (
+            <div className="lm-main-workbench">
+              <ReviewWorkbench
+                apiBase={config.apiBase}
+                assistantId={selectedAssistantId}
+                initialTaskId={reviewFocusTaskId}
+                initialMatterId={reviewFocusMatterId}
+                initialStatusFilter={reviewFocusStatus}
+                initialListMode={reviewFocusListMode}
+                returnMatterId={reviewLaunchedFromMatter ? reviewFocusMatterId : null}
+                onReturnToMatter={() => {
+                  if (reviewFocusMatterId) {
+                    setFocusMatterIdFromReview(reviewFocusMatterId);
+                  }
+                  setReviewLaunchedFromMatter(false);
+                  setMainView("workspace");
+                  setMatterCockpitOpen(true);
+                }}
+                onShowArtifact={(relPath) => openOutputInFolder(relPath)}
+                onRecordsChanged={() => {
+                  setMatterRefreshVersion((v) => v + 1);
+                  void refreshLists();
+                }}
+              />
+            </div>
+          ) : mainView === "collaboration" ? (
+            <div className="lm-main-workbench lm-desk-page lm-desk-page-collab">
+              <div className="lm-side-scroll lm-desk-page-scroll lm-collab-page-stack">
+                <LawmindCollaborationDesk
+                  config={config}
+                  collabSummarySettings={collabSummarySettings}
+                  selectedAssistantId={selectedAssistantId}
+                  delegations={delegations}
+                  collabEvents={collabEvents}
+                  collabTab={collabTab}
+                  onSelectCollabTab={setCollabTab}
+                  formatRelativeTime={formatRelativeTime}
+                  onRefreshCollaboration={refreshCollaboration}
+                  onOpenDelegationTargetChat={(d) => void openDelegationTargetWorkspaceChat(d)}
+                  deskTab={collaborationDeskTab}
+                  onDeskTabChange={setCollaborationDeskTab}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="lm-workspace-unified lm-cursor-workspace">
+              <div className="lm-cursor-panes-row">
+                {canUseFilesystemBridge ? (
+                  <div
+                    ref={setFileEditorHost}
+                    className="lm-cursor-pane-editor-host lm-file-editor-host"
+                    style={{
+                      display: wsShowEditor ? "flex" : "none",
+                      flexDirection: "column",
+                      flex: wsShowEditor ? "1 1 0%" : "0 0 0",
+                      minHeight: 0,
+                      minWidth: 0,
+                      overflow: "hidden",
+                    }}
+                  />
+                ) : null}
+                {canUseFilesystemBridge && wsShowEditor && wsShowChat ? (
+                  <div
+                    className="lm-split-handle lm-split-handle-vertical"
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="调整编辑器与对话区宽度"
+                    title="拖动调整对话区宽度"
+                    onPointerDown={onWsChatSplitResize}
+                  />
+                ) : null}
+                {wsShowChat ? (
+                  <div
+                    className="lm-cursor-chat-pane"
+                    style={{
+                      width:
+                        canUseFilesystemBridge && wsShowEditor ? wsChatColWidth : undefined,
+                      flex: !canUseFilesystemBridge || !wsShowEditor ? 1 : undefined,
+                      flexShrink: canUseFilesystemBridge && wsShowEditor ? 0 : undefined,
+                      minWidth: 0,
+                      minHeight: 0,
+                    }}
+                  >
+                    <div className="lm-chat-workspace lm-chat-workspace-messages-only">
+                      <LawmindChatSessionTabs
+                        sessions={chatSessionList.map((row) => ({
+                          sessionId: row.sessionId,
+                          title: row.title,
+                        }))}
+                        activeSessionId={activeChatSessionId}
+                        loading={chatSessionsLoading}
+                        busy={loading}
+                        onSelect={(id) => void selectChatSession(id)}
+                        onNewChat={() => void createNewChatSession()}
+                        onRename={(id, title) => void renameChatSession(id, title)}
+                        onDelete={(id) => void deleteChatSession(id)}
+                      />
+                      <LawmindChatMessagesColumn
+                        selectedAssistantId={selectedAssistantId}
+                        currentMessages={currentMessages}
+                        copiedMessageIndex={copiedMessageIndex}
+                        loading={loading}
+                        messagesEndRef={messagesEndRef}
+                        onCopyMessage={(text, index) => void copyMessage(text, index)}
+                        onApplyPrompt={(prompt) => {
+                          setInput(prompt);
+                          textareaRef.current?.focus();
+                        }}
+                        onSendClarificationMessage={(text) => void sendChatMessage(text)}
+                        fileChatPills={fileChatContextItems.map((it) => ({
+                          id: it.id,
+                          ...formatFileChatContextPill(it),
+                        }))}
+                        onRemoveFileChatPill={removeFileChatContextItem}
+                        onClearFileChatPills={clearFileChatContext}
+                      />
+                    </div>
+                    <LawmindChatComposeFooter
+                      currentMessages={currentMessages}
+                      input={input}
+                      loading={loading}
+                      error={error}
+                      contextTaskId={contextTaskId}
+                      contextMatterId={contextMatterId}
+                      matterTitle={chatMatterHeadline}
+                      textareaRef={textareaRef}
+                      onInputChange={setInput}
+                      onSend={() => void send()}
+                      onAbortChat={abortChatSend}
+                      onApplyPrompt={(prompt) => {
+                        setInput(prompt);
+                        textareaRef.current?.focus();
+                      }}
+                      onClearContext={clearContext}
+                      onOpenComposeSettings={() => setShowSettings(true)}
+                      composeModelConfigured={
+                        health?.modelConfigured === true
+                          ? true
+                          : health?.modelConfigured === false
+                            ? false
+                            : undefined
+                      }
+                    />
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          )}
         </div>
       </main>
-      {canUseFilesystemBridge &&
+      {showSidebarWorkbenchFiles &&
         config?.workspaceDir &&
-        fileExplorerHost &&
-        fileEditorHost && (
+        fileExplorerHost && (
           <FileWorkbench
             workspaceDir={config.workspaceDir}
             projectDir={projectDir}
             canUseFilesystemBridge
             onAddToChatContext={(payload) => {
               addFileToChatContext(payload);
-              setMainView("chat");
+              setMainView("workspace");
             }}
             portalHosts={{
               explorer: fileExplorerHost,
-              editor: fileEditorHost,
+              editor: fileEditorHost ?? null,
+              explorerLayout: "embedded",
             }}
+            mattersPickList={fileWorkbenchMattersPickList}
+            workspaceTreeRefreshKey={matterRefreshVersion}
+            workspaceExplorerToolbar={
+              <>
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-secondary lm-btn-small"
+                  disabled={!config.apiBase}
+                  title="打开案件工作台并筛选「未关联对话」案件"
+                  onClick={() => {
+                    recordsDeskMatters.setSelectedKey(RECORDS_DESK_UNLINKED);
+                    setMatterCockpitOpen(true);
+                  }}
+                >
+                  未关联
+                </button>
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-secondary lm-btn-small"
+                  disabled={!config.apiBase}
+                  title={matterCockpitOpen ? "关闭主区案件工作台，回到文件与对话" : "在主区打开案件工作台（驾驶舱）"}
+                  onClick={() => setMatterCockpitOpen((v) => !v)}
+                >
+                  {matterCockpitOpen ? "隐藏工作台" : "案件工作台"}
+                </button>
+              </>
+            }
+            casesNodeActions={workspaceCasesMenu}
           />
         )}
+      {config?.apiBase ? (
+        <>
+          <LawmindCreateMatterDialog
+            open={createMatterOpen}
+            apiBase={config.apiBase}
+            onClose={() => setCreateMatterOpen(false)}
+            onSuccess={(mid) => {
+              setMatterRefreshVersion((v) => v + 1);
+              recordsDeskMatters.setSelectedKey(mid);
+            }}
+          />
+          <LawmindMatterRenameDialog
+            open={matterRenameOpen}
+            apiBase={config.apiBase}
+            onClose={() => setMatterRenameOpen(null)}
+            onSuccess={() => setMatterRefreshVersion((v) => v + 1)}
+          />
+          <LawmindMatterDeleteDialog
+            open={matterDeleteOpen}
+            apiBase={config.apiBase}
+            onClose={() => setMatterDeleteOpen(null)}
+            onSuccess={(mid) => {
+              if (contextMatterId === mid) {
+                setContextMatterId(null);
+              }
+            }}
+            onListChanged={() => setMatterRefreshVersion((v) => v + 1)}
+          />
+        </>
+      ) : null}
     </div>
   );
 }

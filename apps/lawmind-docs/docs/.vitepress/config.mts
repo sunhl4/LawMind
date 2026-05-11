@@ -15,7 +15,6 @@ const product = [
   { text: "决策文档", link: "/LAWMIND-DECISION" },
   { text: "2.0 战略", link: "/LAWMIND-2.0-STRATEGY" },
   { text: "架构", link: "/LAWMIND-ARCHITECTURE" },
-  { text: "项目与记忆", link: "/LAWMIND-PROJECT-MEMORY" },
 ];
 
 const desktop = [
@@ -35,6 +34,7 @@ const ops = [
 ];
 
 const engineering = [
+  { text: "工程开发记忆（≠ 律师 MEMORY.md）", link: "/LAWMIND-PROJECT-MEMORY" },
   { text: "仓库目录结构", link: "/LAWMIND-REPO-LAYOUT" },
   { text: "Engineering status", link: "/lawmind/engineering-status" },
   { text: "Compliance audit trail", link: "/lawmind/compliance-audit-trail" },

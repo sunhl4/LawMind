@@ -34,6 +34,7 @@ When in doubt, prefer **tests and `pnpm tsgo`** over narrative completeness.
 
 ## Related docs
 
+- [Engine vs Agent entrypoints](/lawmind/engine-vs-agent) — `createLawMindEngine` vs `createLawMindAgent`
 - [LawMind 2.0 strategy](/LAWMIND-2.0-STRATEGY)
 - [LawMind architecture](/LAWMIND-ARCHITECTURE)
 - [LawMind user manual](/LAWMIND-USER-MANUAL)

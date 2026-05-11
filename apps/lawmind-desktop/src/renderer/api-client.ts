@@ -7,6 +7,8 @@ export type ApiErrorJson = {
   code?: string;
   message?: string;
   error?: string;
+  /** 服务端给出的可操作提示（如路由未匹配时的升级说明） */
+  hint?: string;
   reason?: string;
   description?: string;
   /** FastAPI / Nest 等可能返回字符串、对象或校验项数组 */
@@ -151,6 +153,9 @@ export function userMessageFromApiError(status: number, body: ApiErrorJson): str
   const detailStr = normalizeDetail(body.detail);
   if (detailStr) {
     push(detailStr);
+  }
+  if (typeof body.hint === "string" && body.hint.trim()) {
+    push(body.hint.trim());
   }
   const base = chunks.length > 0 ? chunks.join(" — ") : `请求失败（HTTP ${status}）`;
   const hint = code && CODE_HINTS[code] ? ` ${CODE_HINTS[code]}` : "";

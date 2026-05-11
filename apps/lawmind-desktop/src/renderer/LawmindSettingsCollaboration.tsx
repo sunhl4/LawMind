@@ -72,13 +72,17 @@ type Props = {
   /** 用于加载 / 运行工作区团队工作流模板 */
   apiBase?: string;
   selectedAssistantId?: string;
+  /** 顶栏「协作 → 团队工作流」分栏：省略首页级摘要与长说明，锚点落在运行区。 */
+  deskLayout?: "full" | "workflowsColumn";
 };
 
 /**
- * Settings panel block: collaboration toggle summary from GET /api/collaboration/summary.
+ * 顶栏「协作」主区：协作摘要、`GET /api/collaboration/summary` 状态、团队工作流模板与运行、近期 Job 等。
+ * 设置弹窗内请使用 {@link LawmindSettingsCollaborationBrief}。
  */
 export function LawmindSettingsCollaboration(props: Props): ReactNode {
-  const { collabSummarySettings, apiBase, selectedAssistantId = "" } = props;
+  const { collabSummarySettings, apiBase, selectedAssistantId = "", deskLayout = "full" } = props;
+  const workflowsOnly = deskLayout === "workflowsColumn";
   const [templates, setTemplates] = useState<WorkflowTemplateRow[] | null>(null);
   const [templatesError, setTemplatesError] = useState<string | null>(null);
   const [matterId, setMatterId] = useState("");
@@ -596,51 +600,80 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
   }, [templates, selectedTemplateId]);
 
   return (
-    <div className="lm-settings-section">
-      <div className="lm-settings-section-title">协作与多智能体流程</div>
+    <div
+      className={
+        workflowsOnly
+          ? "lm-collab-workflows-column"
+          : "lm-settings-section lm-collab-hub-in-page"
+      }
+      id={workflowsOnly ? undefined : "lawmind-collaboration-hub"}
+    >
+      {!workflowsOnly ? (
+        <div className="lm-settings-section-title">协作与多智能体流程</div>
+      ) : null}
       <div className="lm-settings-group lm-settings-surface">
         {collabSummarySettings === undefined ? (
-          <div className="lm-settings-loading" aria-busy="true" aria-label="加载协作状态">
+          <div
+            className="lm-settings-loading"
+            aria-busy="true"
+            aria-label="加载协作状态"
+            id={workflowsOnly ? "lawmind-collaboration-hub" : undefined}
+          >
             <div className="lm-shimmer lm-shimmer-line" />
             <div className="lm-shimmer lm-shimmer-line lm-shimmer-short" />
           </div>
         ) : collabSummarySettings === null ? (
-          <div className="lm-callout lm-callout-warn" role="status">
+          <div
+            className="lm-callout lm-callout-warn"
+            role="status"
+            id={workflowsOnly ? "lawmind-collaboration-hub" : undefined}
+          >
             <div className="lm-callout-title">无法连接到本地服务</div>
             <p className="lm-callout-body">请确认 LawMind 桌面后端已启动，再打开设置重试。</p>
           </div>
         ) : (
           <>
-            <div className="lm-settings-row">
-              <span className="lm-settings-key">多智能体协作</span>
-              <span
-                className={
-                  collabSummarySettings.collaborationEnabled
-                    ? "lm-pill lm-pill-success"
-                    : "lm-pill lm-pill-neutral"
-                }
-              >
-                {collabSummarySettings.collaborationEnabled ? "已开启" : "已关闭"}
-              </span>
-            </div>
-            <div className="lm-settings-row">
-              <span className="lm-settings-key">当前委派数</span>
-              <span className="lm-settings-val">{collabSummarySettings.delegationCount}</span>
-            </div>
-            {collabSummarySettings.collaborationHint ? (
-              <div className="lm-callout lm-callout-muted" role="note">
-                <p className="lm-callout-body">{collabSummarySettings.collaborationHint}</p>
-              </div>
+            {!workflowsOnly ? (
+              <>
+                <div className="lm-settings-row">
+                  <span className="lm-settings-key">多智能体协作</span>
+                  <span
+                    className={
+                      collabSummarySettings.collaborationEnabled
+                        ? "lm-pill lm-pill-success"
+                        : "lm-pill lm-pill-neutral"
+                    }
+                  >
+                    {collabSummarySettings.collaborationEnabled ? "已开启" : "已关闭"}
+                  </span>
+                </div>
+                <div className="lm-settings-row">
+                  <span className="lm-settings-key">当前委派数</span>
+                  <span className="lm-settings-val">{collabSummarySettings.delegationCount}</span>
+                </div>
+                {collabSummarySettings.collaborationHint ? (
+                  <div className="lm-callout lm-callout-muted" role="note">
+                    <p className="lm-callout-body">{collabSummarySettings.collaborationHint}</p>
+                  </div>
+                ) : null}
+                <p className="lm-settings-hint">
+                  在工作区放置流程模板{" "}
+                  <code className="lm-md-code">lawmind/workflows/*.json</code>
+                  ，按步骤把任务交给不同智能体执行，必要时可在流程里衔接、互检。在「设置 → 智能体」可为各助手配置虚拟组织角色与互审对象（主办/协办等）；智能体互审不能替代律师终审。初稿与终稿的对外效力仍以您为准：请务必在顶部「审核」通过后再渲染或发出。
+                </p>
+              </>
             ) : null}
-            <p className="lm-settings-hint">
-              在工作区放置流程模板{" "}
-              <code className="lm-md-code">lawmind/workflows/*.json</code>
-              ，按步骤把任务交给不同智能体执行，必要时可在流程里衔接、互检。在「设置 → 智能体」可为各助手配置虚拟组织角色与互审对象（主办/协办等）；智能体互审不能替代律师终审。初稿与终稿的对外效力仍以您为准：请务必在顶部「审核」通过后再渲染或发出。
-            </p>
+            {workflowsOnly && collabSummarySettings.collaborationEnabled && apiBase ? (
+              <p className="lm-settings-hint lm-collab-workflows-lead">
+                流程模板来自工作区{" "}
+                <code className="lm-md-code">lawmind/workflows/*.json</code>
+                。与「状态一览」中的委派、聊天交办并行，可按需选用。
+              </p>
+            ) : null}
             {collabSummarySettings.collaborationEnabled && apiBase ? (
               <div
-                id="lawmind-settings-collaboration"
                 className="lm-settings-subblock lm-collab-workflow-run"
+                id={workflowsOnly ? "lawmind-collaboration-hub" : undefined}
               >
                 <div className="lm-settings-subtitle">团队工作流（后台）</div>
                 <p className="lm-settings-hint lm-collab-lead">
@@ -665,7 +698,7 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
                     </p>
                     <code className="lm-collab-empty-code">workspace/lawmind/workflows/my-flow.json</code>
                     <p className="lm-collab-empty-body lm-collab-empty-tip">
-                      保存后回到此处，列表会自动加载。
+                      保存后回到本页（顶部「协作」），列表会自动加载。
                     </p>
                   </div>
                 ) : null}
@@ -837,11 +870,123 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
                   </div>
                 ) : null}
               </div>
+            ) : workflowsOnly ? (
+              <div
+                id="lawmind-collaboration-hub"
+                className="lm-callout lm-callout-warn"
+                role="status"
+              >
+                <p className="lm-callout-body">
+                  {!collabSummarySettings.collaborationEnabled
+                    ? "请先在「设置 → 智能体」中开启多助手协作，再回到本页运行团队工作流。"
+                    : "请先完成本地 API 连接。"}
+                </p>
+              </div>
             ) : null}
+            {!workflowsOnly ? (
+              <p className="lm-settings-hint">
+                集成与外部系统边界见{" "}
+                <a
+                  href={lawmindDocUrl("LAWMIND-INTEGRATIONS")}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                >
+                  官方说明
+                </a>
+                。
+              </p>
+            ) : (
+              <details className="lm-collab-desk-integrations">
+                <summary>集成与外部系统边界</summary>
+                <p className="lm-settings-hint lm-collab-desk-integrations-body">
+                  详见{" "}
+                  <a
+                    href={lawmindDocUrl("LAWMIND-INTEGRATIONS")}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                  >
+                    官方说明
+                  </a>
+                  。
+                </p>
+              </details>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+type BriefProps = {
+  collabSummarySettings: CollabSummaryState;
+  onOpenCollaborationPage: () => void;
+};
+
+/**
+ * 设置弹窗内的协作摘要与入口（完整工作流 UI 在顶部「协作」页）。
+ */
+export function LawmindSettingsCollaborationBrief(props: BriefProps): ReactNode {
+  const { collabSummarySettings, onOpenCollaborationPage } = props;
+
+  return (
+    <div className="lm-settings-section">
+      <div className="lm-settings-section-title">协作与多智能体流程</div>
+      <div className="lm-settings-group lm-settings-surface">
+        {collabSummarySettings === undefined ? (
+          <div className="lm-settings-loading" aria-busy="true" aria-label="加载协作状态">
+            <div className="lm-shimmer lm-shimmer-line" />
+            <div className="lm-shimmer lm-shimmer-line lm-shimmer-short" />
+          </div>
+        ) : collabSummarySettings === null ? (
+          <div className="lm-callout lm-callout-warn" role="status">
+            <div className="lm-callout-title">无法连接到本地服务</div>
+            <p className="lm-callout-body">请确认 LawMind 桌面后端已启动，再打开设置重试。</p>
+          </div>
+        ) : (
+          <>
+            <div className="lm-settings-row">
+              <span className="lm-settings-key">多智能体协作</span>
+              <span
+                className={
+                  collabSummarySettings.collaborationEnabled
+                    ? "lm-pill lm-pill-success"
+                    : "lm-pill lm-pill-neutral"
+                }
+              >
+                {collabSummarySettings.collaborationEnabled ? "已开启" : "已关闭"}
+              </span>
+            </div>
+            <div className="lm-settings-row">
+              <span className="lm-settings-key">当前委派数</span>
+              <span className="lm-settings-val">{collabSummarySettings.delegationCount}</span>
+            </div>
+            {collabSummarySettings.collaborationHint ? (
+              <div className="lm-callout lm-callout-muted" role="note">
+                <p className="lm-callout-body">{collabSummarySettings.collaborationHint}</p>
+              </div>
+            ) : null}
+            <p className="lm-settings-hint">
+              <strong>团队工作流、运行模板与近期后台任务</strong>
+              已迁至顶部导航「<strong>协作</strong>」页。在「智能体」中仍可配置岗位与互审关系。
+            </p>
+            <div className="lm-settings-actions">
+              <button
+                type="button"
+                className="lm-btn lm-btn-accent lm-btn-sm"
+                onClick={() => onOpenCollaborationPage()}
+              >
+                打开协作页
+              </button>
+            </div>
             <p className="lm-settings-hint">
               集成与外部系统边界见{" "}
               <a href={lawmindDocUrl("LAWMIND-INTEGRATIONS")} target="_blank" rel="noreferrer noopener">
                 官方说明
+              </a>
+              ；界面与 API 对照见文档{" "}
+              <a href={lawmindDocUrl("LAWMIND-COLLABORATION-UI-API-MAP")} target="_blank" rel="noreferrer noopener">
+                LAWMIND-COLLABORATION-UI-API-MAP
               </a>
               。
             </p>

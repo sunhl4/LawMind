@@ -61,14 +61,15 @@ export function getLawMindEngine(workspaceDir: string) {
 
 export function corsHeaders(origin: string | undefined): Record<string, string> {
   const allow =
+    origin === "null" ||
     origin?.startsWith("http://localhost:") ||
     origin?.startsWith("http://127.0.0.1:") ||
     origin?.startsWith("file://")
-      ? origin
+      ? origin ?? "null"
       : "http://127.0.0.1:5174";
   return {
     "access-control-allow-origin": allow,
-    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS",
     "access-control-allow-headers": "Content-Type",
   };
 }

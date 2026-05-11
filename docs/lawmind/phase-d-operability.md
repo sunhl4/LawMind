@@ -11,7 +11,7 @@ Phase D closes the loop between **review labels**, **workspace memory**, and **c
 
 When a draft review includes structured labels that indicate clause-level or structural issues, LawMind appends a timestamped line to `playbooks/CLAUSE_PLAYBOOK.md` under **§6 LawMind 审核学习（自动摘要）**.
 
-Trigger labels include: `citation.incomplete`, `citation.incorrect`, `structure.template_mismatch`, `issue.missing`, `issue.over_argued`, `audience.wrong_framing`.
+Trigger labels include (Chinese identifiers): 引用不完整, 引用有误, 模板不匹配, 争点遗漏, 争点过度论证, 受众定位不当. Legacy English slugs are still accepted by `parseReviewLabels`.
 
 Each append emits an audit event `memory.playbook_updated`. Do not put matter secrets in review notes; lines are meant to be de-identified patterns.
 

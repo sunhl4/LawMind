@@ -11,6 +11,12 @@
  * 这是让 agent 从"只会查看"变成"能干活、能交付"的关键层。
  */
 
+import { requestApproval } from "../../application/services/approval-service.js";
+import { recordDeadline } from "../../application/services/deadline-service.js";
+import {
+  openQueueItem,
+  transitionQueueItem,
+} from "../../application/services/queue-write-service.js";
 import { validateDraftAgainstSpec } from "../../deliverables/index.js";
 import { listDrafts, validateDraftCitationsAgainstBundle } from "../../drafts/index.js";
 import { createLawMindEngine, type LawMindEngineConfig } from "../../index.js";
@@ -861,6 +867,218 @@ export const listTemplates: AgentTool = {
   },
 };
 
+// ─────────────────────────────────────────────
+// W4 — open_work_queue_item / request_approval / record_deadline
+//   让 agent 显式驱动 matter-centered 写侧 service。
+// ─────────────────────────────────────────────
+
+const QUEUE_KIND_VALUES = [
+  "need_client_input",
+  "need_evidence",
+  "need_conflict_check",
+  "need_lawyer_review",
+  "need_partner_approval",
+  "ready_to_draft",
+  "ready_to_render",
+  "blocked_by_deadline",
+  "blocked_by_missing_strategy",
+] as const;
+
+const QUEUE_PRIORITY_VALUES = ["low", "normal", "high", "critical"] as const;
+const RISK_LEVEL_VALUES = ["low", "medium", "high"] as const;
+const DEADLINE_SEVERITY_VALUES = ["soft", "hard", "critical"] as const;
+
+function ensureMatterId(value: unknown, fallback: string | undefined): string {
+  const matterId = resolveMatterId(value, fallback);
+  if (!matterId) {
+    throw new Error("matter_id 缺失：请显式传入或在会话中设置 matterId。");
+  }
+  return matterId;
+}
+
+function asEnum<T extends string>(value: unknown, allowed: readonly T[], field: string): T {
+  if (typeof value !== "string") {
+    throw new Error(`${field} 必须是字符串`);
+  }
+  const trimmed = value.trim();
+  if (!allowed.includes(trimmed as T)) {
+    throw new Error(`${field} 必须是 ${allowed.join(" / ")}`);
+  }
+  return trimmed as T;
+}
+
+export const openWorkQueueItem: AgentTool = {
+  definition: {
+    name: "open_work_queue_item",
+    description:
+      "在 matter 工作队列里登记一条待办（如：待补证据、需合伙人审批、可起草、可渲染等）。落到 workspace/matters/<id>/queue.jsonl，作为案件进度的真相源。",
+    category: "system",
+    parameters: {
+      matter_id: { type: "string", description: "案件 ID（缺省时复用当前会话的 matterId）" },
+      kind: {
+        type: "string",
+        description: "队列条目类型",
+        enum: [...QUEUE_KIND_VALUES],
+        required: true,
+      },
+      title: { type: "string", description: "条目标题", required: true },
+      detail: { type: "string", description: "可选明细" },
+      priority: {
+        type: "string",
+        description: "优先级（默认 normal）",
+        enum: [...QUEUE_PRIORITY_VALUES],
+      },
+      related_task_id: { type: "string", description: "可选：关联 task ID" },
+      related_deliverable_id: { type: "string", description: "可选：关联 deliverable ID" },
+    },
+  },
+  async execute(params, ctx) {
+    try {
+      const matterId = ensureMatterId(params.matter_id, ctx.matterId);
+      const kind = asEnum(params.kind, QUEUE_KIND_VALUES, "kind");
+      const title = asNonEmptyString(params.title, "title", MAX_TITLE_LENGTH);
+      const detail = asOptionalString(params.detail, "detail", 4000);
+      const priority =
+        params.priority === undefined
+          ? undefined
+          : asEnum(params.priority, QUEUE_PRIORITY_VALUES, "priority");
+      const relatedTaskId = asOptionalString(params.related_task_id, "related_task_id", 128);
+      const relatedDeliverableId = asOptionalString(
+        params.related_deliverable_id,
+        "related_deliverable_id",
+        128,
+      );
+      const item = openQueueItem(ctx.workspaceDir, {
+        matterId,
+        kind,
+        title,
+        detail,
+        priority,
+        relatedTaskId,
+        relatedDeliverableId,
+      });
+      return {
+        ok: true,
+        data: {
+          queueItemId: item.queueItemId,
+          status: item.status,
+          priority: item.priority,
+        },
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        error: `登记队列条目失败: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  },
+};
+
+export const requestApprovalTool: AgentTool = {
+  definition: {
+    name: "request_approval",
+    description:
+      "向当前案件的审批队列追加一条 approval（如：需要合伙人复核、客户授权）。落到 workspace/matters/<id>/approvals.jsonl。",
+    category: "system",
+    parameters: {
+      matter_id: { type: "string", description: "案件 ID（缺省时复用当前会话的 matterId）" },
+      deliverable_id: { type: "string", description: "可选：关联 deliverable ID" },
+      target_role: { type: "string", description: "目标角色 ID（如 supervising-partner）" },
+      risk_level: {
+        type: "string",
+        description: "风险等级",
+        enum: [...RISK_LEVEL_VALUES],
+        required: true,
+      },
+      reason: { type: "string", description: "请求理由（必填）", required: true },
+    },
+  },
+  async execute(params, ctx) {
+    try {
+      const matterId = ensureMatterId(params.matter_id, ctx.matterId);
+      const riskLevel = asEnum(params.risk_level, RISK_LEVEL_VALUES, "risk_level");
+      const reason = asNonEmptyString(params.reason, "reason", 4000);
+      const targetRole = asOptionalString(params.target_role, "target_role", 96);
+      const deliverableId = asOptionalString(params.deliverable_id, "deliverable_id", 128);
+      const record = requestApproval(ctx.workspaceDir, {
+        matterId,
+        deliverableId,
+        requestedBy: ctx.actorId,
+        requestedRole: undefined,
+        targetRole,
+        reason,
+        riskLevel,
+      });
+      return {
+        ok: true,
+        data: {
+          approvalId: record.approvalId,
+          status: record.status,
+          targetRole: record.targetRole,
+        },
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        error: `请求审批失败: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  },
+};
+
+export const recordDeadlineTool: AgentTool = {
+  definition: {
+    name: "record_deadline",
+    description:
+      "记录案件 deadline（提交期限、出庭日、审批截止等），落到 workspace/matters/<id>/deadlines.jsonl。",
+    category: "system",
+    parameters: {
+      matter_id: { type: "string", description: "案件 ID（缺省时复用当前会话的 matterId）" },
+      title: { type: "string", description: "deadline 标题", required: true },
+      due_at: { type: "string", description: "ISO8601 时间戳", required: true },
+      severity: {
+        type: "string",
+        description: "严重等级",
+        enum: [...DEADLINE_SEVERITY_VALUES],
+      },
+      notes: { type: "string", description: "可选备注" },
+    },
+  },
+  async execute(params, ctx) {
+    try {
+      const matterId = ensureMatterId(params.matter_id, ctx.matterId);
+      const title = asNonEmptyString(params.title, "title", MAX_TITLE_LENGTH);
+      const dueAt = asNonEmptyString(params.due_at, "due_at", 64);
+      const severity =
+        params.severity === undefined
+          ? undefined
+          : asEnum(params.severity, DEADLINE_SEVERITY_VALUES, "severity");
+      const notes = asOptionalString(params.notes, "notes", 4000);
+      const record = recordDeadline(ctx.workspaceDir, {
+        matterId,
+        title,
+        dueAt,
+        severity,
+        notes,
+      });
+      return {
+        ok: true,
+        data: {
+          deadlineId: record.deadlineId,
+          severity: record.severity,
+        },
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        error: `记录 deadline 失败: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  },
+};
+
+void transitionQueueItem; // reserved for engine hot-path consumption
+
 /**
  * 注册所有 engine-bridge 工具到 registry
  */
@@ -872,4 +1090,7 @@ export const engineTools: AgentTool[] = [
   executeWorkflow,
   registerTemplate,
   listTemplates,
+  openWorkQueueItem,
+  requestApprovalTool,
+  recordDeadlineTool,
 ];

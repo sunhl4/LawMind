@@ -141,6 +141,7 @@ export function syncDraftToTaskRecord(
   return updateTaskRecord(workspaceDir, draft.taskId, {
     status,
     templateId: draft.templateId,
+    templateVersion: draft.templateVersion,
     reviewStatus: draft.reviewStatus,
     outputPath: draft.outputPath,
   });

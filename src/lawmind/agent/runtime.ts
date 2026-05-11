@@ -28,20 +28,26 @@ import {
   resolveLawMindRoot,
 } from "../assistants/store.js";
 import { emit } from "../audit/index.js";
+import { getRoleById } from "../core/role.js";
 import { loadMemoryContext, type MemoryContext } from "../memory/index.js";
 import {
   readWorkspacePolicyFile,
   resolveAgentMandatoryRulesForPrompt,
 } from "../policy/workspace-policy.js";
+import {
+  buildDefaultToolPipeline,
+  composeToolPipeline,
+  type ToolCallContext,
+} from "../runtime/tool-pipeline.js";
 import { persistAgentInstructionTask } from "../tasks/index.js";
 import type { ClarificationQuestion } from "../types.js";
 import { getAssistantPreset } from "./assistant-presets.js";
-import { toolRequiresExplicitApproval } from "./dangerous-tool-policy.js";
 import {
   appendTurn,
   compactHistory,
   createSession,
   loadSession,
+  maybeUpdateSessionTitleFromInstruction,
   saveSession,
   toModelMessages,
 } from "./session.js";
@@ -53,7 +59,6 @@ import type {
   AgentMessage,
   AgentModelConfig,
   AgentTurn,
-  ToolDefinition,
 } from "./types.js";
 
 const DEFAULT_MAX_TOOL_CALLS = 15;
@@ -212,11 +217,15 @@ export async function runTurn(opts: {
   registry: ToolRegistry;
   sessionId?: string;
   instruction: string;
+  /** 用于会话自动标题：输入框原文（不含前缀），优先于 instruction 取前几个字 */
+  sessionTitleHint?: string;
   matterId?: string;
   /** 桌面端项目目录；与会话同轮生效，供工具检索项目内文件 */
   projectDir?: string;
+  /** 案件工作台团队会议室：写入 system prompt 行为约束 */
+  teamMeetingMode?: boolean;
 }): Promise<{ turn: AgentTurn; reply: string; sessionId: string; memoryContext: MemoryContext }> {
-  const { config, registry, instruction, matterId } = opts;
+  const { config, registry, instruction, matterId, sessionTitleHint } = opts;
   const projectDirResolved = (opts.projectDir ?? config.projectDir)?.trim() || undefined;
   const maxToolCalls = config.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS;
   const maxHistory = config.maxHistoryMessages ?? DEFAULT_MAX_HISTORY_MESSAGES;
@@ -275,12 +284,15 @@ export async function runTurn(opts: {
 
   let assistantProfileMarkdown = "";
   let presetForTools: ReturnType<typeof getAssistantPreset> | undefined;
+  let roleForTools: ReturnType<typeof getRoleById> | undefined;
   if (resolvedAssistantId) {
     try {
       const lawMindRoot = resolveLawMindRoot(config.workspaceDir);
       assistantProfileMarkdown = readAssistantProfileMarkdown(lawMindRoot, resolvedAssistantId);
       const prof = getAssistantById(lawMindRoot, resolvedAssistantId);
       presetForTools = getAssistantPreset(prof?.presetKey);
+      // W7：优先用 Role；过渡期回退到 preset。
+      roleForTools = getRoleById(prof?.roleId ?? prof?.presetKey);
     } catch {
       assistantProfileMarkdown = "";
     }
@@ -334,6 +346,7 @@ export async function runTurn(opts: {
     agentMandatoryRules: mandatoryRules.active ? mandatoryRules.text : undefined,
     assistantOrgLine,
     teamOrgOverview,
+    teamMeetingMode: opts.teamMeetingMode === true,
   });
 
   // 3. 确保 system message 在对话历史头部
@@ -361,7 +374,8 @@ export async function runTurn(opts: {
   // 压缩历史
   session.conversationHistory = compactHistory(session.conversationHistory, maxHistory);
 
-  const allowNames = presetForTools?.allowedToolNames;
+  // W7：Role.allowedToolNames 优先；回退到 preset.allowedToolNames。
+  const allowNames = roleForTools?.allowedToolNames ?? presetForTools?.allowedToolNames;
   const openAITools =
     allowNames && allowNames.length > 0
       ? registry.toOpenAITools().filter((t) => allowNames.includes(t.function.name))
@@ -380,6 +394,8 @@ export async function runTurn(opts: {
   let loopCount = 0;
   let finalReply = "";
   let pendingClarificationQuestions: ClarificationQuestion[] = [];
+
+  const runToolPipeline = composeToolPipeline(buildDefaultToolPipeline());
 
   while (loopCount < maxToolCalls + 1) {
     loopCount++;
@@ -431,69 +447,37 @@ export async function runTurn(opts: {
       break;
     }
 
-    // 执行 tool calls
+    // 执行 tool calls — 通过 ToolPolicy pipeline（W2）
     for (const tc of toolCalls) {
       ctx.clarificationBlockingHeavyTools = pendingClarificationQuestions.length > 0;
+      turn.toolCallsExecuted++;
 
       const toolName = tc.function.name;
       const toolArgs = safeParse(tc.function.arguments);
-      const tool = registry.get(toolName);
-
-      let result: { ok: boolean; data?: unknown; error?: string; pendingApproval?: boolean };
-      if (!tool) {
-        result = { ok: false, error: `Unknown tool: ${toolName}` };
-      } else {
-        const validationError = validateToolArguments(tool.definition, toolArgs);
-        if (validationError) {
-          result = { ok: false, error: `Invalid arguments for ${toolName}: ${validationError}` };
-        } else if (
-          toolRequiresExplicitApproval({
-            toolName,
-            definition: tool.definition,
-            allowDangerousToolsWithoutApproval,
-            strictDangerousToolApproval,
-          }) &&
-          toolArgs.__approved !== true
-        ) {
-          result = {
-            ok: false,
-            error: `Tool ${toolName} requires lawyer approval. Retry with "__approved": true after explicit confirmation.`,
-            pendingApproval: true,
-          };
-        } else {
-          try {
-            result = await withTimeout(
-              tool.execute(toolArgs, ctx),
-              toolTimeoutMs,
-              `Tool ${toolName} timed out after ${toolTimeoutMs}ms`,
-            );
-          } catch (err) {
-            result = {
-              ok: false,
-              error: `Tool error: ${err instanceof Error ? err.message : String(err)}`,
-            };
-          }
-        }
-      }
-
-      const auditPayload = {
-        tool: toolName,
-        ok: result.ok,
-        matterId: session.matterId ?? null,
-        assistantId: session.assistantId ?? null,
-        error: result.error ?? null,
+      const callCtx: ToolCallContext = {
+        toolCallId: tc.id,
+        toolName,
+        args: toolArgs,
+        tool: registry.get(toolName),
+        ctx,
+        turn: { turnId: turn.turnId },
+        policy: {
+          usedToolCalls: turn.toolCallsExecuted,
+          maxToolCalls,
+          toolTimeoutMs,
+          strictDangerousToolApproval,
+          allowDangerousToolsWithoutApproval,
+          allowedToolNames: roleForTools?.allowedToolNames ?? presetForTools?.allowedToolNames,
+          roleId: roleForTools?.roleId,
+          riskCeiling: roleForTools?.riskCeiling ?? presetForTools?.riskCeiling,
+          actorId,
+          auditDir: `${config.workspaceDir}/audit`,
+          sessionMatterId: session.matterId,
+          sessionAssistantId: session.assistantId,
+        },
       };
-      void emit(`${config.workspaceDir}/audit`, {
-        kind: "tool_call",
-        actor: "model",
-        actorId,
-        detail: `${JSON.stringify(auditPayload)} | tool=${toolName} ok=${result.ok}${result.error ? ` error=${result.error}` : ""}`,
-        taskId: turn.turnId,
-      });
+      const result = await runToolPipeline(callCtx);
 
-      turn.toolCallsExecuted++;
-
-      // 将工具结果添加到对话
       const toolResponseMsg: AgentMessage = {
         role: "tool",
         content: JSON.stringify(result),
@@ -559,6 +543,8 @@ export async function runTurn(opts: {
   }
 
   // 6. 保存 session
+  maybeUpdateSessionTitleFromInstruction(session, turn.instruction, sessionTitleHint);
+
   session.turns.push({
     turnId: turn.turnId,
     sessionId: turn.sessionId,
@@ -608,64 +594,5 @@ function safeParse(json: string): Record<string, unknown> {
   }
 }
 
-function valueMatchesType(
-  value: unknown,
-  type: ToolDefinition["parameters"][string]["type"],
-): boolean {
-  if (type === "array") {
-    return Array.isArray(value);
-  }
-  if (type === "object") {
-    return value !== null && typeof value === "object" && !Array.isArray(value);
-  }
-  return typeof value === type;
-}
-
-export function validateToolArguments(
-  definition: ToolDefinition,
-  args: Record<string, unknown>,
-): string | undefined {
-  const unknownKeys = Object.keys(args).filter(
-    (key) =>
-      !Object.prototype.hasOwnProperty.call(definition.parameters, key) && key !== "__approved",
-  );
-  if (unknownKeys.length > 0) {
-    return `unknown keys: ${unknownKeys.join(", ")}`;
-  }
-
-  for (const [name, schema] of Object.entries(definition.parameters)) {
-    const value = args[name];
-    if (schema.required && value === undefined) {
-      return `missing required key "${name}"`;
-    }
-    if (value === undefined) {
-      continue;
-    }
-    if (!valueMatchesType(value, schema.type)) {
-      return `key "${name}" expects ${schema.type}`;
-    }
-    if (schema.enum) {
-      const str = typeof value === "string" ? value : JSON.stringify(value);
-      if (!schema.enum.includes(str)) {
-        return `key "${name}" must be one of: ${schema.enum.join(", ")}`;
-      }
-    }
-  }
-  return undefined;
-}
-
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timer) {
-      clearTimeout(timer);
-    }
-  }
-}
+// 兼容历史导入：W2 起 validateToolArguments 抽到 runtime-tool-validation.ts
+export { validateToolArguments } from "./runtime-tool-validation.js";

@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import {
   listApprovalRequests,
@@ -10,8 +11,14 @@ import {
   isValidMatterId,
   listMatterIds,
   listMatterOverviews,
+  readCaseSubdirRole,
+  readTeamMeetingWindow,
   searchMatterIndex,
   summarizeMatterIndex,
+  TEAM_MEETING_TAIL_LIMIT_CAP,
+  TEAM_MEETING_TAIL_LIMIT_DEFAULT,
+  writeCaseSubdirRole,
+  type CaseSubdirRole,
 } from "../../../src/lawmind/cases/index.js";
 import type { DraftCitationIntegrityView } from "../../../src/lawmind/drafts/index.js";
 import { resolveDraftCitationIntegrity } from "../../../src/lawmind/drafts/index.js";
@@ -21,10 +28,24 @@ import {
   appendCaseCoreIssue,
   appendCaseRiskNote,
   appendCaseTaskGoal,
+  upsertMatterDisplayName,
 } from "../../../src/lawmind/memory/index.js";
+import { isProductInsightsCollectionEnabled } from "../../../src/lawmind/policy/edition.js";
+import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspace-policy.js";
 import { listTaskRecords } from "../../../src/lawmind/tasks/index.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import { readJsonBody, resolveDesktopActorId, sendJson } from "./lawmind-server-helpers.js";
+
+/** 解析 `<workspace>/cases/<matterId>` 并防止穿越 `cases` 根目录。 */
+function resolvedMatterCaseDir(workspaceDir: string, matterId: string): string {
+  const casesRoot = path.resolve(workspaceDir, "cases");
+  const target = path.resolve(casesRoot, matterId);
+  const rel = path.relative(casesRoot, target);
+  if (rel.startsWith("..") || path.isAbsolute(rel) || rel === "") {
+    throw new Error("invalid matter path");
+  }
+  return target;
+}
 
 type MatterInteractionAction = "open_review" | "save_upgrade_suggestion" | "write_case_note";
 type MatterInteractionParsed = {
@@ -130,8 +151,16 @@ async function buildMatterInteractionRollup(workspaceDir: string): Promise<{
     { title: string; matterIds: Set<string>; totalEvents: number; latestAt?: string }
   >();
   for (const index of indexes) {
+    // W10：兼容新旧 kind；同 taskId+detail+timestamp 视为重复，仅取一条。
+    const seen = new Set<string>();
     const interactions = index.auditEvents
-      .filter((event) => event.kind === "ui.matter_action")
+      .filter((event) => event.kind === "ui.matter_action" || event.kind === "ux.matter_action")
+      .filter((event) => {
+        const sig = `${event.taskId ?? ""}|${event.timestamp ?? ""}|${event.detail ?? ""}`;
+        if (seen.has(sig)) {return false;}
+        seen.add(sig);
+        return true;
+      })
       .map((event) => ({ event, parsed: parseMatterInteractionDetail(event.detail) }));
     if (interactions.length === 0) {
       continue;
@@ -228,6 +257,33 @@ export async function handleMatterRoutes({
 }: LawmindRouteContext): Promise<boolean> {
   const { workspaceDir } = ctx;
 
+  if (pathname === "/api/matters/team-meeting" && req.method === "GET") {
+    const matterId = url.searchParams.get("matterId")?.trim() ?? "";
+    if (!isValidMatterId(matterId)) {
+      sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+      return true;
+    }
+    const limitRaw = url.searchParams.get("limit");
+    let limit = TEAM_MEETING_TAIL_LIMIT_DEFAULT;
+    if (limitRaw !== null && limitRaw !== "") {
+      const n = Number(limitRaw);
+      if (Number.isFinite(n)) {
+        limit = Math.min(Math.max(1, Math.floor(n)), TEAM_MEETING_TAIL_LIMIT_CAP);
+      }
+    }
+    const skipRaw = url.searchParams.get("skipFromEnd");
+    let skipFromEnd = 0;
+    if (skipRaw !== null && skipRaw !== "") {
+      const n = Number(skipRaw);
+      if (Number.isFinite(n)) {
+        skipFromEnd = Math.max(0, Math.floor(n));
+      }
+    }
+    const { lines, total } = readTeamMeetingWindow(workspaceDir, matterId, limit, skipFromEnd);
+    sendJson(res, 200, { ok: true, lines, total }, c);
+    return true;
+  }
+
   if (pathname === "/api/matters/case-note" && req.method === "POST") {
     const body = (await readJsonBody(req)) as {
       matterId?: string;
@@ -289,32 +345,54 @@ export async function handleMatterRoutes({
       sendJson(res, 400, { ok: false, error: "no task found for matter" }, c);
       return true;
     }
-    const event = await emit(path.join(workspaceDir, "audit"), {
+    const detail = describeMatterInteraction({
+      action: action as MatterInteractionAction,
+      surface: typeof body.surface === "string" ? body.surface : undefined,
+      label: typeof body.label === "string" ? body.label : undefined,
+      target:
+        body.target === "assistant" ? "assistant" : body.target === "lawyer" ? "lawyer" : undefined,
+      variant:
+        body.variant === "conservative" ||
+        body.variant === "assertive" ||
+        body.variant === "standard"
+          ? body.variant
+          : undefined,
+      section:
+        body.section === "artifact" ||
+        body.section === "core_issue" ||
+        body.section === "risk" ||
+        body.section === "task_goal"
+          ? body.section
+          : undefined,
+    });
+    const auditDir = path.join(workspaceDir, "audit");
+    const event = await emit(auditDir, {
       taskId: resolvedTaskId,
       kind: "ui.matter_action",
       actor: "lawyer",
       actorId: resolveDesktopActorId(),
-      detail: describeMatterInteraction({
-        action: action as MatterInteractionAction,
-        surface: typeof body.surface === "string" ? body.surface : undefined,
-        label: typeof body.label === "string" ? body.label : undefined,
-        target:
-          body.target === "assistant" ? "assistant" : body.target === "lawyer" ? "lawyer" : undefined,
-        variant:
-          body.variant === "conservative" ||
-          body.variant === "assertive" ||
-          body.variant === "standard"
-            ? body.variant
-            : undefined,
-        section:
-          body.section === "artifact" ||
-          body.section === "core_issue" ||
-          body.section === "risk" ||
-          body.section === "task_goal"
-            ? body.section
-            : undefined,
-      }),
+      detail,
     });
+    // W10：双写新 kind ux.matter_action（季末考虑 sunset 旧 kind）。
+    if (
+      isProductInsightsCollectionEnabled({
+        policy: ctx.policy.loaded
+          ? (ctx.policy.policy as unknown as LawMindWorkspacePolicy)
+          : null,
+      })
+    ) {
+      try {
+        await emit(auditDir, {
+          taskId: resolvedTaskId,
+          kind: "ux.matter_action",
+          actor: "lawyer",
+          actorId: resolveDesktopActorId(),
+          detail,
+        });
+      } catch {
+        /* dual-write best-effort */
+      }
+    }
     sendJson(res, 200, { ok: true, taskId: resolvedTaskId, event }, c);
     return true;
   }
@@ -331,20 +409,128 @@ export async function handleMatterRoutes({
     return true;
   }
 
-  if (pathname === "/api/matters/create" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as { matterId?: string };
+  if (pathname === "/api/matters/role" && req.method === "GET") {
+    const matterId = url.searchParams.get("matterId")?.trim() ?? "";
+    if (!matterId || !isValidMatterId(matterId)) {
+      sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+      return true;
+    }
+    const role = await readCaseSubdirRole(workspaceDir, matterId);
+    sendJson(res, 200, { ok: true, matterId, role }, c);
+    return true;
+  }
+
+  if (pathname === "/api/matters/role" && req.method === "POST") {
+    const body = (await readJsonBody(req)) as { matterId?: string; role?: string };
     const mid = typeof body.matterId === "string" ? body.matterId.trim() : "";
+    const roleRaw = typeof body.role === "string" ? body.role.trim().toLowerCase() : "";
+    if (!mid || !isValidMatterId(mid)) {
+      sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+      return true;
+    }
+    const role: CaseSubdirRole | null =
+      roleRaw === "matter" || roleRaw === "case"
+        ? "matter"
+        : roleRaw === "folder" || roleRaw === "storage"
+          ? "folder"
+          : null;
+    if (!role) {
+      sendJson(res, 400, { ok: false, error: "role must be matter or folder" }, c);
+      return true;
+    }
+    try {
+      if (role === "matter") {
+        await createMatterIfAbsent(workspaceDir, mid);
+      }
+      await writeCaseSubdirRole(workspaceDir, mid, role);
+      sendJson(res, 200, { ok: true, matterId: mid, role }, c);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      sendJson(res, 500, { ok: false, error: msg }, c);
+    }
+    return true;
+  }
+
+  if (pathname === "/api/matters/create" && req.method === "POST") {
+    const body = (await readJsonBody(req)) as { matterId?: string; displayName?: string };
+    const mid = typeof body.matterId === "string" ? body.matterId.trim() : "";
+    const displayName = typeof body.displayName === "string" ? body.displayName.trim() : "";
     if (!mid) {
       sendJson(res, 400, { ok: false, error: "matterId required" }, c);
       return true;
     }
     try {
-      const result = await createMatterIfAbsent(workspaceDir, mid);
+      const result = await createMatterIfAbsent(workspaceDir, mid, displayName ? { displayName } : undefined);
       sendJson(res, 200, { ok: true, ...result }, c);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       sendJson(res, 400, { ok: false, error: msg }, c);
     }
+    return true;
+  }
+
+  if (pathname === "/api/matters/display-name" && req.method === "POST") {
+    const body = (await readJsonBody(req)) as { matterId?: string; displayName?: string };
+    const mid = typeof body.matterId === "string" ? body.matterId.trim() : "";
+    const label = typeof body.displayName === "string" ? body.displayName.trim() : "";
+    if (!mid || !isValidMatterId(mid)) {
+      sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+      return true;
+    }
+    if (!label) {
+      sendJson(res, 400, { ok: false, error: "displayName required" }, c);
+      return true;
+    }
+    if (label.length > 200) {
+      sendJson(res, 400, { ok: false, error: "displayName too long" }, c);
+      return true;
+    }
+    try {
+      await upsertMatterDisplayName(workspaceDir, mid, label);
+      sendJson(res, 200, { ok: true, matterId: mid, displayName: label }, c);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      sendJson(res, 500, { ok: false, error: msg }, c);
+    }
+    return true;
+  }
+
+  if (pathname === "/api/matters/delete" && req.method === "POST") {
+    const body = (await readJsonBody(req)) as { matterId?: string };
+    const mid = typeof body.matterId === "string" ? body.matterId.trim() : "";
+    if (!mid || !isValidMatterId(mid)) {
+      sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+      return true;
+    }
+    let target: string;
+    try {
+      target = resolvedMatterCaseDir(workspaceDir, mid);
+    } catch {
+      sendJson(res, 400, { ok: false, error: "invalid matter path" }, c);
+      return true;
+    }
+    let existedOnDisk = false;
+    try {
+      await fs.access(target);
+      existedOnDisk = true;
+    } catch {
+      existedOnDisk = false;
+    }
+    if (existedOnDisk) {
+      try {
+        await fs.rm(target, { recursive: true, force: true });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        sendJson(res, 500, { ok: false, error: msg }, c);
+        return true;
+      }
+    }
+    sendJson(
+      res,
+      200,
+      { ok: true, matterId: mid, deletedFromDisk: existedOnDisk },
+      c,
+    );
     return true;
   }
 
@@ -406,7 +592,12 @@ export async function handleMatterRoutes({
       statusRaw === "needs_changes"
         ? statusRaw
         : undefined;
-    const approvals = await listApprovalRequests(workspaceDir, { matterId, status });
+    const targetRole = url.searchParams.get("targetRole")?.trim() || undefined;
+    const approvals = await listApprovalRequests(workspaceDir, {
+      matterId,
+      status,
+      targetRole,
+    });
     sendJson(res, 200, { ok: true, approvals }, c);
     return true;
   }

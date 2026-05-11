@@ -187,36 +187,16 @@ export function LawmindMemorySourcesPanel(props: Props) {
             role="region"
             aria-labelledby={`${panelId}-trigger`}
           >
-            <p className="lm-context-panel-hint">
-              {plain
-                ? "一般不必逐行看。需要核对时再看：哪些写进了给助手的总说明、本段话实际用到哪条客户信息。"
-                : "以下为工作区 Markdown 真相源。标记为「已注入提示」的内容已进入本助手 system prompt；「本回合」表示与当前引擎记忆（含客户画像源）选中的行一致，该内容会同步供模型检索 RAG 使用。其余可能通过检索或工具间接使用。"}
-            </p>
             <div className="lm-context-table-wrap lm-context-table-wrap--responsive">
               <table className="lm-context-table">
                 <thead>
                   <tr>
+                    <th scope="col">{plain ? "哪一类" : "来源"}</th>
+                    <th scope="col">{plain ? "位置" : "路径"}</th>
+                    <th scope="col">状态</th>
+                    <th scope="col">{plain ? "总说明" : "提示词"}</th>
                     <th
                       scope="col"
-                      title={plain ? "如：总所规则、某案件、某客户" : "在工作区中的逻辑角色，例如工作区级、案件级、客户级"}
-                    >
-                      {plain ? "哪一类" : "来源"}
-                    </th>
-                    <th scope="col" title={plain ? "在电脑工作区里的位置" : "相对工作区根的路径"}>
-                      {plain ? "位置" : "路径"}
-                    </th>
-                    <th scope="col" title={plain ? "文件是否在您电脑上" : "该文件在磁盘上是否存在"}>
-                      状态
-                    </th>
-                    <th
-                      scope="col"
-                      title={plain ? "是否整段放进了给助手的总说明" : "是否已整段进入本助手 system prompt"}
-                    >
-                      {plain ? "总说明" : "提示词"}
-                    </th>
-                    <th
-                      scope="col"
-                      title={plain ? "本段回答是否按这条客户资料来" : "与当轮引擎记忆（含 RAG 客户画像选行）是否一致"}
                     >
                       {plain ? "本段" : "本回合"}
                     </th>

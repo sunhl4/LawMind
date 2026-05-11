@@ -1,25 +1,37 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { clampComposeHeightPx, clampPaneWidthPx } from "./lawmind-panel-layout.js";
+import {
+  clampComposeHeightPx,
+  clampInnerSplitWidthPx,
+  clampSidebarWidthPx,
+} from "./lawmind-panel-layout.js";
+
+export type PaneWidthRole = "shellSidebar" | "innerSplit";
 
 export function readStoredPaneWidth(
   key: string,
   fallback: number,
   min: number,
   max: number,
+  options?: { widthRole?: PaneWidthRole },
 ): number {
+  const widthRole: PaneWidthRole = options?.widthRole ?? "innerSplit";
+  const clamp =
+    widthRole === "shellSidebar"
+      ? (w: number) => clampSidebarWidthPx(w, min, max)
+      : (w: number) => clampInnerSplitWidthPx(w, min, max);
   try {
     const raw = localStorage.getItem(key);
     if (!raw) {
-      return clampPaneWidthPx(fallback, min, max);
+      return clamp(fallback);
     }
     const n = Number(raw);
     if (!Number.isFinite(n)) {
-      return clampPaneWidthPx(fallback, min, max);
+      return clamp(fallback);
     }
-    return clampPaneWidthPx(n, min, max);
+    return clamp(n);
   } catch {
-    return clampPaneWidthPx(fallback, min, max);
+    return clamp(fallback);
   }
 }
 
@@ -49,6 +61,8 @@ type UsePaneResizePxOpts = {
   defaultWidth: number;
   min: number;
   max: number;
+  /** `shellSidebar`：应用左栏总宽；默认 `innerSplit`：主区内分栏（对话、案件/审核列表、材料轨等） */
+  widthRole?: PaneWidthRole;
 };
 
 /**
@@ -58,10 +72,25 @@ export function usePaneResizePx(opts: UsePaneResizePxOpts): {
   width: number;
   onResizePointerDown: (e: ReactPointerEvent) => void;
 } {
-  const { storageKey, defaultWidth, min, max } = opts;
-  const [width, setWidth] = useState(() =>
-    readStoredPaneWidth(storageKey, defaultWidth, min, max),
+  const { storageKey, defaultWidth, min, max, widthRole = "innerSplit" } = opts;
+  const clampW = useMemo(
+    () =>
+      widthRole === "shellSidebar"
+        ? (w: number) => clampSidebarWidthPx(w, min, max)
+        : (w: number) => clampInnerSplitWidthPx(w, min, max),
+    [widthRole, min, max],
   );
+  const [width, setWidth] = useState(() =>
+    readStoredPaneWidth(storageKey, defaultWidth, min, max, { widthRole }),
+  );
+
+  useEffect(() => {
+    const onResize = () => {
+      setWidth((prev) => clampW(prev));
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [clampW]);
 
   const onResizePointerDown = useCallback(
     (e: ReactPointerEvent) => {
@@ -76,7 +105,7 @@ export function usePaneResizePx(opts: UsePaneResizePxOpts): {
       let last = startW;
 
       const onMove = (ev: PointerEvent) => {
-        const next = clampPaneWidthPx(startW + (ev.clientX - startX), min, max);
+        const next = clampW(startW + (ev.clientX - startX));
         last = next;
         setWidth(next);
       };
@@ -86,7 +115,7 @@ export function usePaneResizePx(opts: UsePaneResizePxOpts): {
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         window.removeEventListener("pointercancel", onUp);
-        const next = clampPaneWidthPx(startW + (ev.clientX - startX), min, max);
+        const next = clampW(startW + (ev.clientX - startX));
         last = next;
         setWidth(next);
         try {
@@ -100,7 +129,7 @@ export function usePaneResizePx(opts: UsePaneResizePxOpts): {
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onUp);
     },
-    [max, min, storageKey, width],
+    [clampW, storageKey, width],
   );
 
   return { width, onResizePointerDown };
@@ -119,9 +148,18 @@ export function usePaneResizeVerticalPx(opts: UsePaneResizeVerticalPxOpts): {
   onResizePointerDown: (e: ReactPointerEvent) => void;
 } {
   const { storageKey, defaultHeight, min, max } = opts;
+  const clampH = useMemo(() => (h: number) => clampComposeHeightPx(h, min, max), [min, max]);
   const [height, setHeight] = useState(() =>
     readStoredPaneHeight(storageKey, defaultHeight, min, max),
   );
+
+  useEffect(() => {
+    const onResize = () => {
+      setHeight((prev) => clampH(prev));
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [clampH]);
 
   const onResizePointerDown = useCallback(
     (e: ReactPointerEvent) => {
@@ -136,7 +174,7 @@ export function usePaneResizeVerticalPx(opts: UsePaneResizeVerticalPxOpts): {
       let last = startH;
 
       const onMove = (ev: PointerEvent) => {
-        const next = clampComposeHeightPx(startH + (ev.clientY - startY), min, max);
+        const next = clampH(startH + (ev.clientY - startY));
         last = next;
         setHeight(next);
       };
@@ -146,7 +184,7 @@ export function usePaneResizeVerticalPx(opts: UsePaneResizeVerticalPxOpts): {
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         window.removeEventListener("pointercancel", onUp);
-        const next = clampComposeHeightPx(startH + (ev.clientY - startY), min, max);
+        const next = clampH(startH + (ev.clientY - startY));
         last = next;
         setHeight(next);
         try {
@@ -160,7 +198,7 @@ export function usePaneResizeVerticalPx(opts: UsePaneResizeVerticalPxOpts): {
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onUp);
     },
-    [max, min, storageKey, height],
+    [clampH, storageKey, height],
   );
 
   return { height, onResizePointerDown };

@@ -515,11 +515,35 @@ Shift the desktop app from chat-first navigation to matter-first navigation with
 
 ## Follow-up PR candidates
 
-After the first three PRs, the likely next slices are:
+The original three-PR slicing has been superseded by the **2026-Q3 12-week
+refactor** described in `.cursor/plans/lawmind-3-month-refactor_abc3d086.plan.md`,
+which lands these capabilities as twelve PR slices (W1–W12):
 
-- role-bound assistant capabilities and escalation rules,
-- memory graph derivation and adoption queue,
-- reasoning-required gates for high-risk deliverables,
+- W1 engine module split (`src/lawmind/engine/*`),
+- W2 ToolPolicy middleware pipeline (`src/lawmind/runtime/tool-pipeline.ts`),
+- W3 write-side application services + `workspace/matters/<id>/*.json{,l}`
+  truth source (`src/lawmind/application/services/*` +
+  `src/lawmind/adapters/matter-storage/*`),
+- W4 engine hot path wiring + new agent tools (`open_work_queue_item /
+request_approval / record_deadline`) + read-side adapters preferring JSON,
+- W5 unified `MemoryAdoptionService` (`src/lawmind/memory/adoption-service.ts`),
+- W6 `MemoryInspector.tsx` + `/api/memory/adoption` family,
+- W7 first-class `Role` (`src/lawmind/core/role.ts`) consumed by ToolPolicy and
+  `engine/drafting.ts`, plus `/api/roles` + `LawmindSettingsRoles.tsx`,
+- W8 `delegate_to_role` agent tool + `ApprovalRequest.targetRole` filter +
+  `tools/coordination/{delegate,handoff,meeting,utils}.ts` split,
+- W9 `DeliverableSpec.reasoningGate` + `reasoning-validator.ts` paired with
+  the acceptance gate in render strict mode,
+- W10 `src/lawmind/insights/` pure functions + `ux.matter_action` dual-write
+  with `productInsightsCollection` policy,
+- W11 `MatterWorkbench.tsx` six-view scaffolding under
+  `apps/lawmind-desktop/src/renderer/matter/` and golden-path e2e,
+- W12 acceptance harness expansion (`pnpm lawmind:quarterly-demo`) +
+  `src/lawmind/integration/quarterly-acceptance.test.ts` + ARCHITECTURE /
+  GOALS / PROJECT-MEMORY sync.
+
+Outside the scope of this 12-week plan but already on the radar:
+
 - quality cockpit and benchmark release gating,
 - event and hook bus for matter lifecycle automation.
 

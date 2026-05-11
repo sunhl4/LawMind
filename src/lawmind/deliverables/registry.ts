@@ -111,6 +111,13 @@ const GENERAL_CONTRACT_SPEC: DeliverableSpec = {
   ],
 };
 
+const REASONING_GATE_HIGH_RISK = {
+  required: true as const,
+  minIssues: 2,
+  mustResolveAuthorityConflicts: true,
+  minFacts: 2,
+};
+
 const DEMAND_LETTER_SPEC: DeliverableSpec = {
   type: "letter.demand",
   displayName: "律师函 / 催告函",
@@ -143,6 +150,7 @@ const DEMAND_LETTER_SPEC: DeliverableSpec = {
       reason: "律师函需要明确对象、主张和期限。",
     },
   ],
+  reasoningGate: REASONING_GATE_HIGH_RISK,
 };
 
 const CONTRACT_REVIEW_SPEC: DeliverableSpec = {
@@ -165,6 +173,58 @@ const CONTRACT_REVIEW_SPEC: DeliverableSpec = {
   ],
   placeholderRule: { pattern: PLACEHOLDER_PATTERN, mustResolveBeforeRender: false },
   defaultClarificationQuestions: [],
+  reasoningGate: REASONING_GATE_HIGH_RISK,
+};
+
+const LITIGATION_OUTLINE_SPEC: DeliverableSpec = {
+  type: "litigation.outline",
+  displayName: "诉讼策略提纲 / 起诉状骨架",
+  description: "用于诉讼/仲裁案件的策略提纲：核心争点、请求权基础、证据清单、对方抗辩与反驳。",
+  defaultTemplateId: "litigation-outline-default",
+  defaultOutput: "docx",
+  defaultRiskLevel: "high",
+  requiredSections: [
+    { headingKeywords: ["案情", "事实", "背景"], purpose: "案件事实", severity: "blocker" },
+    {
+      headingKeywords: ["争点", "焦点", "核心问题"],
+      purpose: "核心争点（IRAC）",
+      severity: "blocker",
+    },
+    {
+      headingKeywords: ["请求权", "请求", "诉讼请求"],
+      purpose: "请求权基础",
+      severity: "blocker",
+    },
+    {
+      headingKeywords: ["证据", "证明", "材料"],
+      purpose: "证据清单",
+      severity: "blocker",
+    },
+    {
+      headingKeywords: ["抗辩", "对方", "反驳"],
+      purpose: "对方抗辩与我方反驳",
+      severity: "warning",
+    },
+    {
+      headingKeywords: ["策略", "下一步", "计划"],
+      purpose: "下一步策略",
+      severity: "warning",
+    },
+  ],
+  acceptanceCriteria: [
+    "输出完整诉讼策略提纲。",
+    "至少包含案件事实、核心争点、请求权基础和证据清单。",
+    "每个争点都明确法条依据与待补强证据。",
+  ],
+  placeholderRule: { pattern: PLACEHOLDER_PATTERN, mustResolveBeforeRender: false },
+  defaultClarificationQuestions: [
+    {
+      key: "litigation_target",
+      question: "请补充原告/被告、案由与拟提交的法院；若暂无可先生成框架。",
+      reason: "诉讼策略需要明确诉讼主体与案由。",
+    },
+  ],
+  reasoningGate: REASONING_GATE_HIGH_RISK,
 };
 
 const GENERAL_DOCUMENT_SPEC: DeliverableSpec = {
@@ -192,6 +252,7 @@ export const BUILT_IN_DELIVERABLE_SPECS: readonly DeliverableSpec[] = Object.fre
   GENERAL_CONTRACT_SPEC,
   DEMAND_LETTER_SPEC,
   CONTRACT_REVIEW_SPEC,
+  LITIGATION_OUTLINE_SPEC,
   GENERAL_DOCUMENT_SPEC,
 ]);
 

@@ -43,7 +43,7 @@ describe("learning suggestion queue", () => {
     const rec = await enqueueLearningSuggestion(tmp, auditDir(), {
       taskId: draft.taskId,
       reviewStatus: "approved",
-      labels: ["tone.too_weak"],
+      labels: ["语气过弱"],
       assistantId: undefined,
     });
 
@@ -64,7 +64,7 @@ describe("learning suggestion queue", () => {
     const rec = await enqueueLearningSuggestion(tmp, auditDir(), {
       taskId: "nope",
       reviewStatus: "modified",
-      labels: ["issue.missing"],
+      labels: ["争点遗漏"],
     });
 
     const d = await dismissLearningSuggestion(tmp, auditDir(), rec.id);

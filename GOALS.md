@@ -88,10 +88,60 @@
 ### 第七期 — 异步任务、系统通知与 Edition 危险工具收紧
 
 - [x] **7.1 团队工作流异步任务**：`POST /api/collaboration/workflow-run` 支持 `async: true` → `202` + `jobId`；`GET /api/jobs/:id`、`GET /api/jobs?limit=&status=&since=`；**`GET /api/jobs/:id/stream`**（SSE + `onProgress` 推送 + 心跳）；`executeWorkflow` 可选 `onProgress` 写 job `progress`（`lawmind-server-jobs.ts`、路由接入 `lawmind-server-dispatch.ts`）
-- [x] **7.2 桌面完成通知**：Electron `Notification` + `lawmind:show-notification` IPC / preload；设置 → 协作「运行所选模板」**优先 EventSource、失败回退轮询**，终态时一次系统通知；**近期任务**对非当前 `queued`/`running` 任务**有限并发 SSE（默认 2 路）**刷新列表（`LawmindSettingsCollaboration.tsx`）
+- [x] **7.2 桌面完成通知**：Electron `Notification` + `lawmind:show-notification` IPC / preload；顶栏「协作」页「运行所选模板」**优先 EventSource、失败回退轮询**，终态时一次系统通知；**近期任务**对非当前 `queued`/`running` 任务**有限并发 SSE（默认 2 路）**刷新列表（`LawmindSettingsCollaboration.tsx`）
 - [x] **7.3 Edition 收紧危险工具**：`EDITION_FEATURES.strictDangerousToolApproval`（Firm / Private 开启）；`buildAgentConfig` 注入；`toolRequiresExplicitApproval` + `execute_workflow` 扩展清单；`LAWMIND_ALLOW_DANGEROUS_TOOLS_WITHOUT_APPROVAL` 在严格版下不绕过（`src/lawmind/agent/dangerous-tool-policy.ts`、`runtime.ts`）
 - [x] **7.4 进度脚注**：`LAWMIND-VISION.md` Phase 7 工程注
 - [x] **7.5 异步 Job 加固**：`workspace/lawmind/jobs/*.json` 持久化与进程重启时将非终态 job 标为 `interrupted_by_restart`；`POST /api/jobs/:id/cancel`（队列内立即取消，运行中在步骤批次间协作式中止，不中断单次 `sendAndWait`）；`idempotencyKey` 防重复提交；`executeWorkflow` 可选 `shouldAbort`；通知点击聚焦并滚动至设置协作区；协作面板取消按钮与通知不可用提示
+- [x] **7.6 合同修订积累主路径与文档同步**：审核通过后按草稿 `contractRevisionCapture` 写入 `learning/contract-revisions/`（`contract-revision-on-review-approved.ts`）；桌面不增加批量合同目录设置 UI（`desk-settings` 仍 API/手工 JSON + 启动时加载供可选对话前缀）；[LAWMIND-CONTRACT-REVISION-ACCUMULATION.md](docs/LAWMIND-CONTRACT-REVISION-ACCUMULATION.md)、[LAWMIND-PROJECT-MEMORY.md](docs/LAWMIND-PROJECT-MEMORY.md)、[LAWMIND-DESKTOP-FILES-AND-CONTEXT.md](docs/LAWMIND-DESKTOP-FILES-AND-CONTEXT.md)、[LAWMIND-ARCHITECTURE.md](docs/LAWMIND-ARCHITECTURE.md)、使用手册 §12 与 `GOALS` 本条对齐
+
+### 第八期 — Matter-centered 写侧 + Role 编制 + Reasoning Gate（2026-Q3）
+
+> 本期把 LawMind 从「派生只读 Matter」推进到「matter-centered 写侧 + 岗位化 +
+> 推理门禁 + 显式记忆采纳 + UI 收敛」。完整实施计划见
+> `.cursor/plans/lawmind-3-month-refactor_abc3d086.plan.md`，工程详记见
+> `docs/LAWMIND-PROJECT-MEMORY.md` §8 2026-05-02 节。
+
+- [x] **8.1 Engine + ToolPolicy pipeline 重构**：`src/lawmind/index.ts` 拆为
+      `engine/{factory,planning,researching,drafting,reviewing,rendering,queries,
+context,types,shared}.ts`；`runtime/tool-pipeline.ts` 八段中间件
+      （budget / roleAllowlist / approval / clarificationGate / argSchema / timeout /
+      audit / execute）替换 `runTurn` 内联逻辑（W1+W2）
+- [x] **8.2 Matter 写侧 + JSON 真相源**：`application/services/{matter-write,
+deliverable,approval,queue-write,deadline}-service.ts` + `adapters/matter-storage/`
+      落 `workspace/matters/<id>/{matter.json,deliverables/*.json,approvals.jsonl,
+queue.jsonl,deadlines.jsonl}`；engine hot path 全程双写；`/api/matters` /
+      `/api/approvals` / `/api/queues` 优先读 JSON，缺失回退 `MatterIndex`；agent
+      新增 `open_work_queue_item / request_approval / record_deadline`（W3+W4）
+- [x] **8.3 Memory Adoption Service + Inspector**：`memory/adoption-service.ts`
+      统一所有 Markdown 写入（pending / adopted / auto_adopted / dismissed 四态，
+      覆盖 firm / lawyer / client / matter / playbook / opponent / project /
+      assistant 八个 scope）；`MemoryInspector.tsx` + `/api/memory/adoption{,/suggest,
+/adopt,/dismiss}`；案件认知页消费 service（W5+W6）
+- [x] **8.4 Role 一等对象 + delegate_to_role + targetRole**：`core/role.ts`
+      把 6 个 preset 升级为 Role；ToolPolicy 与 `engine/drafting.ts` 强约束工具与
+      deliverable 类型；`/api/roles` + `LawmindSettingsRoles.tsx`；orchestrator
+      支持 `assigneeRoleId`，新增 `delegate_to_role` 工具与
+      `ApprovalRequest.targetRole` 入库 + 过滤；`collaboration-tools.ts` 拆到
+      `tools/coordination/{delegate,handoff,meeting,utils}.ts`（W7+W8）
+- [x] **8.5 Reasoning Gate**：`DeliverableSpec.reasoningGate` 字段 +
+      `deliverables/reasoning-validator.ts`；strict 模式下与 acceptance gate 并联
+      把守 render；高风险内置 spec（demand letter / contract review / general
+      contract / litigation outline）默认开启；桌面 `LawmindAcceptanceGate` 同列
+      展示 reasoning 报告（W9）
+- [x] **8.6 Insights 解耦 + ux.matter_action 双写**：`src/lawmind/insights/` 4
+      个 compute-\* 纯函数 + 单测；事件双写 `ui.matter_action` + `ux.matter_action`，
+      policy `productInsightsCollection` 控制采集；UI 抽到
+      `apps/lawmind-desktop/src/renderer/insights/`（W10）
+- [x] **8.7 MatterWorkbench 拆分 seam**：在
+      `apps/lawmind-desktop/src/renderer/matter/` 落地 6 个视图 + insights barrel；
+      `apps/lawmind-desktop/e2e/matter-cockpit.spec.ts` 锁定黄金路径；3826 行
+      `MatterWorkbench.tsx` 留待后续 PR 增量迁入（W11；季末 seam 完成）
+- [x] **8.8 季末验收 + 文档冻结**：`pnpm lawmind:acceptance` 接入
+      `pnpm lawmind:quarterly-demo`（`scripts/lawmind/lawmind-quarterly-demo.ts`）跑
+      matter → planned deliverable → 高风险 approval → 状态推进 → reasoning gate →
+      memory adoption → JSON 真相源回读 全链路；新增
+      `src/lawmind/integration/quarterly-acceptance.test.ts`；同步本节、
+      `LAWMIND-ARCHITECTURE.md` 二、新增段、`LAWMIND-PROJECT-MEMORY.md` §8（W12）
 
 ---
 
@@ -118,7 +168,7 @@
 - **LawMind 文档站（VitePress）**：[apps/lawmind-docs/README.md](apps/lawmind-docs/README.md)（`pnpm lawmind:docs:dev` / `lawmind:docs:build`）
 - **LawMind 使用手册**：[docs/LAWMIND-USER-MANUAL.md](docs/LAWMIND-USER-MANUAL.md)
 - **LawMind 桌面端 UI 约定**：[docs/LAWMIND-DESKTOP-UI.md](docs/LAWMIND-DESKTOP-UI.md)
-- **LawMind 工程记忆**：[docs/LAWMIND-PROJECT-MEMORY.md](docs/LAWMIND-PROJECT-MEMORY.md)
+- **LawMind 工程开发记忆**（研发续作，≠ 律师 `MEMORY.md`）：[docs/LAWMIND-PROJECT-MEMORY.md](docs/LAWMIND-PROJECT-MEMORY.md)
 - **与 OpenClaw 取长补短的工程约定**：[docs/LAWMIND-OPENCLAW-LESSONS.md](docs/LAWMIND-OPENCLAW-LESSONS.md)
 - **Deliverable-First**：[docs/LAWMIND-DELIVERABLE-FIRST.md](docs/LAWMIND-DELIVERABLE-FIRST.md)
 - **商业化与合规索引**：[docs/LAWMIND-DELIVERY.md](docs/LAWMIND-DELIVERY.md)、[docs/LAWMIND-SECURITY-CHECKLIST.md](docs/LAWMIND-SECURITY-CHECKLIST.md)、[docs/LAWMIND-CUSTOMER-OVERVIEW.md](docs/LAWMIND-CUSTOMER-OVERVIEW.md)
@@ -127,4 +177,4 @@
 
 ---
 
-_最后更新：可在此记录日期或由维护者按需更新。_
+_最后更新：2026-04-27（合同修订积累主路径文档与工程记忆同步）。_

@@ -1,5 +1,12 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { isValidMatterId } from "../../../../src/lawmind/cases/matter-id.ts";
+import { matterIdFromWorkspaceCasesRelPath, isWorkspaceCaseSubdirRootRelPath } from "./lawmind-cases-path";
+import {
+  filterExplorerEntries,
+  shouldShowExplorerDirectory,
+  shouldShowExplorerFile,
+} from "./lawmind-explorer-lawyer-view";
 import { LM_PANE_MAX_WIDTH_PX, LM_PANE_MIN_WIDTH_PX } from "./lawmind-panel-layout";
 import { usePaneResizePx } from "./use-pane-resize";
 
@@ -56,7 +63,28 @@ type FilePortalHosts = {
   explorer: HTMLElement | null;
   /** When set, drag handle lives between file tree and the next column (legacy three-column rail). */
   split?: HTMLElement | null;
-  editor: HTMLElement | null;
+  /** 主区为案件工作台时可缺省，仅保留侧栏材料树。 */
+  editor?: HTMLElement | null;
+  /** Rail = fixed-width tree column; embedded = stretch inside sidebar. Default: rail if split is set, else embedded. */
+  explorerLayout?: "rail" | "embedded";
+};
+
+export type FileWorkbenchCasesNodeActions = {
+  apiBase: string;
+  workspaceDir?: string | null;
+  matterLabelById?: Record<string, string>;
+  onOpenMatterCockpit: (matterId: string) => void;
+  onLinkMatterToChat?: (matterId: string) => void;
+  onRequestRenameDisplayName: (matterId: string, initialTitle: string) => void;
+  onRequestDeleteMatter: (matterId: string, label: string) => void;
+  onSetCaseSubdirRole?: (matterId: string, role: "matter" | "folder") => void | Promise<void>;
+  /** 在「案件目录」或磁盘路径为 `cases` 的目录上右键：新建/导入/刷新（与顶部工具条案件操作一致） */
+  onNewMatter?: () => void;
+  onImportMatters?: () => void;
+  onRefreshMatters?: () => void;
+  importMattersBusy?: boolean;
+  /** 桌面环境是否支持文件选择导入 */
+  canImportMatters?: boolean;
 };
 
 type Props = {
@@ -65,8 +93,16 @@ type Props = {
   canUseFilesystemBridge: boolean;
   /** 将路径加入对话引用（会切换到对话；发送时把路径说明一并给模型） */
   onAddToChatContext?: (payload: { root: RootKey; relPath: string; kind: "file" | "directory" }) => void;
-  /** When set, 资源管理器 / 分割条 / 编辑器分别挂到这些节点（用于主壳最左侧文件栏 + 主区编辑器） */
+  /** When set, 资源管理器 / 分割条 / 编辑器分别挂到这些节点（用于侧栏资源区 + 主区对话等布局） */
   portalHosts?: FilePortalHosts | null;
+  /** 工作区资源区顶部工具条（如未关联、案件工作台等） */
+  workspaceExplorerToolbar?: ReactNode;
+  /** `cases/<id>/` 下文件/目录的右键扩展（案件工作台、角色等） */
+  casesNodeActions?: FileWorkbenchCasesNodeActions | null;
+  /** 右键「加入案件」时可选目标（通常取自 records 案件列表，不含「未关联」） */
+  mattersPickList?: Array<{ id: string; label: string }> | null;
+  /** 与案件列表联动（如删除/新建案件后递增）：刷新工作区与 cases 树缓存，避免出现陈旧节点 */
+  workspaceTreeRefreshKey?: number;
 };
 
 // Core workspace paths that require lawyer confirmation before delete/rename.
@@ -79,9 +115,26 @@ const PROTECTED_WORKSPACE: Record<string, string> = {
 };
 
 function isProtectedWorkspacePath(root: RootKey, relPath: string): string | null {
-  if (root !== "workspace") {return null;}
-  const top = relPath.split("/")[0];
-  return top ? (PROTECTED_WORKSPACE[top] ?? null) : null;
+  if (root !== "workspace") {
+    return null;
+  }
+  const norm = relPath.replace(/^\/+/, "").replace(/\/+$/, "");
+  if (!norm) {
+    return null;
+  }
+  const parts = norm.split("/").filter(Boolean);
+  const top = parts[0];
+  if (!top) {
+    return null;
+  }
+  // 仅保护根级的 `cases` 容器目录；`cases/<卷宗>/…` 内材料按普通路径
+  if (top === "cases") {
+    return norm === "cases" ? PROTECTED_WORKSPACE.cases : null;
+  }
+  if (top === "assistants.json") {
+    return norm === "assistants.json" ? PROTECTED_WORKSPACE["assistants.json"] : null;
+  }
+  return PROTECTED_WORKSPACE[top] ?? null;
 }
 
 /** Word / Office / PDF：本工作台为纯文本编辑器，不内嵌富文本预览 */
@@ -110,6 +163,72 @@ function joinRelPath(a: string, b: string): string {
   if (!l) {return r;}
   if (!r) {return l;}
   return `${l}/${r}`;
+}
+
+function splitStemExt(name: string, kind: "file" | "directory"): { stem: string; ext: string } {
+  if (kind === "directory") {
+    return { stem: name, ext: "" };
+  }
+  const i = name.lastIndexOf(".");
+  if (i <= 0 || i === name.length - 1) {
+    return { stem: name, ext: "" };
+  }
+  return { stem: name.slice(0, i), ext: name.slice(i) };
+}
+
+/**
+ * `cases/...` → 第一层路径段 + 相对工作区根的目标相对路径（不含 `cases/<seg>/` 前缀）。
+ * 例如 `cases/mid/a/b` → `{ firstSeg: "mid", workspaceDestRel: "a/b" }`；
+ * `cases/mid` → `{ firstSeg: "mid", workspaceDestRel: "" }`。
+ */
+function parseCasesRelForWorkspaceMove(relPath: string): { firstSeg: string; workspaceDestRel: string } | null {
+  const norm = relPath.replace(/^\/+/, "");
+  if (!norm.startsWith("cases/")) {
+    return null;
+  }
+  const rest = norm.slice("cases/".length);
+  const parts = rest.split("/").filter(Boolean);
+  if (parts.length === 0) {
+    return null;
+  }
+  const firstSeg = parts[0];
+  const inner = parts.slice(1);
+  return { firstSeg, workspaceDestRel: inner.join("/") };
+}
+
+/** 在 `parentDir` 下为 `leaf` 分配不冲突的相对路径（含父级 mkdir）。 */
+async function allocateNonCollidingChildPath(
+  root: RootKey,
+  parentDir: string,
+  leaf: string,
+  kind: "file" | "directory",
+): Promise<string> {
+  if (parentDir) {
+    const mk = await window.lawmindDesktop?.fsMkdir({ root, path: parentDir });
+    if (mk && !mk.ok) {
+      throw new Error(mk.error ?? "无法创建目标目录");
+    }
+  }
+  const res = await window.lawmindDesktop?.fsList({ root, path: parentDir });
+  if (res && !res.ok) {
+    throw new Error(res.error ?? "无法列出目录");
+  }
+  const existing = new Set((res?.entries ?? []).map((e: FsEntry) => e.name));
+  const { stem, ext } = splitStemExt(leaf, kind);
+  let candidate = leaf;
+  let n = 0;
+  while (existing.has(candidate)) {
+    n++;
+    candidate = ext ? `${stem} (${n})${ext}` : `${stem} (${n})`;
+  }
+  return joinRelPath(parentDir, candidate);
+}
+
+async function allocateNonCollidingRelPath(root: RootKey, desiredRelPath: string, kind: "file" | "directory"): Promise<string> {
+  const parts = desiredRelPath.split("/").filter(Boolean);
+  const parent = parts.length <= 1 ? "" : parts.slice(0, -1).join("/");
+  const leaf = parts.length === 0 ? desiredRelPath : (parts[parts.length - 1] ?? desiredRelPath);
+  return allocateNonCollidingChildPath(root, parent, leaf, kind);
 }
 
 function resolveRelForAbs(
@@ -272,7 +391,17 @@ function QuickOpenModal({
 
 // ── Main FileWorkbench ────────────────────────────────────────────────────────
 export function FileWorkbench(props: Props) {
-  const { workspaceDir, projectDir, canUseFilesystemBridge, onAddToChatContext, portalHosts } = props;
+  const {
+    workspaceDir,
+    projectDir,
+    canUseFilesystemBridge,
+    onAddToChatContext,
+    portalHosts,
+    workspaceExplorerToolbar,
+    casesNodeActions,
+    mattersPickList,
+    workspaceTreeRefreshKey,
+  } = props;
 
   const [childrenByDir, setChildrenByDir] = useState<Record<string, FsEntry[]>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -289,6 +418,16 @@ export function FileWorkbench(props: Props) {
   const [indexedFiles, setIndexedFiles] = useState<IndexedFile[]>([]);
   const [fsClip, setFsClip] = useState<FsClip | null>(null);
   const [officeBlock, setOfficeBlock] = useState<{ root: RootKey; relPath: string; name: string } | null>(null);
+  /** 右键「加入案件」后选择目标案件 */
+  const [addToMatterPick, setAddToMatterPick] = useState<{ relPath: string; kind: "file" | "directory" } | null>(null);
+  /** 加入案件弹窗内手动输入的案件编号 */
+  const [addToMatterManualDraft, setAddToMatterManualDraft] = useState("");
+  /** 加入案件失败：显示在弹窗内（遮罩下侧栏错误条不易看见） */
+  const [addToMatterLastError, setAddToMatterLastError] = useState<string | null>(null);
+  /** 是否存在 `cases/`（用于案件目录区块提示） */
+  const [casesDirProbe, setCasesDirProbe] = useState<"unknown" | "ok" | "missing">("unknown");
+  const [workSectionOpen, setWorkSectionOpen] = useState(true);
+  const [casesSectionOpen, setCasesSectionOpen] = useState(true);
 
   const { width: filesExplorerWidth, onResizePointerDown: onFilesExplorerResize } = usePaneResizePx({
     storageKey: "lawmind.ui.filesExplorerWidth",
@@ -296,10 +435,17 @@ export function FileWorkbench(props: Props) {
     min: LM_PANE_MIN_WIDTH_PX,
     max: LM_PANE_MAX_WIDTH_PX,
   });
-  const explorerInSidebar = Boolean(portalHosts?.explorer && portalHosts?.editor && !portalHosts?.split);
+  const explorerUsesRailLayout = (() => {
+    const layout = portalHosts?.explorerLayout;
+    if (layout === "rail") {return true;}
+    if (layout === "embedded") {return false;}
+    return Boolean(portalHosts?.split);
+  })();
 
   const menuRef = useRef<HTMLDivElement>(null);
   const inlineInputRef = useRef<HTMLInputElement>(null);
+  /** 防止「加入案件」连点触发两次 rename */
+  const moveIntoMatterInFlightRef = useRef(false);
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
   const activeDirty = activeTab ? activeTab.content !== activeTab.savedContent : false;
@@ -326,44 +472,68 @@ export function FileWorkbench(props: Props) {
     const res = await window.lawmindDesktop?.fsList({ root, path: dirPath });
     if (!res?.ok || !res.entries) {throw new Error(res?.error ?? "目录读取失败");}
     setChildrenByDir((prev) => ({ ...prev, [keyOf(root, dirPath)]: res.entries ?? [] }));
+    if (root === "workspace" && dirPath === "cases") {
+      setCasesDirProbe("ok");
+    }
     return res.entries ?? [];
   }, []);
 
   // Recursively index all files for quick-open (depth-limited).
-  const indexRoot = useCallback(async (root: RootKey) => {
-    const collected: IndexedFile[] = [];
-    async function walk(dirPath: string, depth: number) {
-      if (depth > 5) {return;}
-      const res = await window.lawmindDesktop?.fsList({ root, path: dirPath });
-      if (!res?.ok || !res.entries) {return;}
-      setChildrenByDir((prev) => ({ ...prev, [keyOf(root, dirPath)]: res.entries ?? [] }));
-      const dirs: string[] = [];
-      for (const e of res.entries) {
-        if (e.kind === "file") {
-          collected.push({ root, path: e.path, name: e.name });
-        } else {
-          dirs.push(e.path);
+  const indexRoot = useCallback(
+    async (root: RootKey) => {
+      const collected: IndexedFile[] = [];
+      async function walk(dirPath: string, depth: number) {
+        if (depth > 5) {return;}
+        const res = await window.lawmindDesktop?.fsList({ root, path: dirPath });
+        if (!res?.ok || !res.entries) {return;}
+        setChildrenByDir((prev) => ({ ...prev, [keyOf(root, dirPath)]: res.entries ?? [] }));
+        const dirs: string[] = [];
+        for (const e of res.entries) {
+          if (e.kind === "file") {
+            if (shouldShowExplorerFile(root, e.path)) {
+              collected.push({ root, path: e.path, name: e.name });
+            }
+          } else if (shouldShowExplorerDirectory(root, e.path)) {
+            dirs.push(e.path);
+          }
         }
+        await Promise.all(dirs.map((d) => walk(d, depth + 1)));
       }
-      await Promise.all(dirs.map((d) => walk(d, depth + 1)));
-    }
-    await walk("", 0);
-    return collected;
-  }, []);
+      await walk("", 0);
+      return collected;
+    },
+    [],
+  );
 
   const refreshIndex = useCallback(async () => {
     try {
       const ws = (await indexRoot("workspace")) ?? [];
-      const proj = projectDir ? ((await indexRoot("project")) ?? []) : [];
-      setIndexedFiles([...ws, ...proj]);
+      setIndexedFiles(ws);
     } catch {
       // silently ignore indexing errors
     }
-  }, [indexRoot, projectDir]);
+  }, [indexRoot]);
 
   useEffect(() => {
     void refreshIndex();
   }, [refreshIndex]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        await loadDir("workspace", "");
+      } catch {
+        /* 工作区根不可用 */
+      }
+      try {
+        await loadDir("workspace", "cases");
+        setCasesDirProbe("ok");
+      } catch {
+        setCasesDirProbe("missing");
+      }
+      void refreshIndex();
+    })();
+  }, [loadDir, workspaceTreeRefreshKey, refreshIndex]);
 
   // ── Save ─────────────────────────────────────────────────────
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -623,6 +793,134 @@ export function FileWorkbench(props: Props) {
     );
   };
 
+  const moveWorkspaceItemIntoMatter = useCallback(
+    async (matterId: string, relPath: string, kind: "file" | "directory") => {
+      if (!canUseFilesystemBridge) {return;}
+      const mid = matterId.trim();
+      if (!isValidMatterId(mid)) {
+        setError("案件编号格式无效，请检查输入。");
+        setAddToMatterLastError("案件编号格式无效，请检查输入。");
+        return;
+      }
+      if (moveIntoMatterInFlightRef.current) {return;}
+      moveIntoMatterInFlightRef.current = true;
+      setContextMenu(null);
+      setBusy(true);
+      setError(null);
+      setAddToMatterLastError(null);
+      try {
+        const caseDir = joinRelPath("cases", mid);
+        const mk = await window.lawmindDesktop?.fsMkdir({ root: "workspace", path: caseDir });
+        if (mk && !mk.ok) {
+          throw new Error(mk.error ?? "无法创建案件目录");
+        }
+        const leaf = basename(relPath);
+        const desired = joinRelPath(caseDir, leaf);
+        const toPath = await allocateNonCollidingRelPath("workspace", desired, kind);
+        const res = await window.lawmindDesktop?.fsRename({
+          root: "workspace",
+          fromPath: relPath,
+          toPath,
+        });
+        if (!res?.ok) {
+          throw new Error(res?.error ?? "移动失败");
+        }
+        await refreshDir("workspace", getDirname(relPath));
+        await refreshDir("workspace", caseDir);
+        void refreshIndex();
+        const oldTabPrefix = `workspace:${relPath}`;
+        setTabs((prev) =>
+          prev.map((t) => {
+            if (t.path === relPath) {
+              return { ...t, id: `workspace:${toPath}`, path: toPath, name: basename(toPath) };
+            }
+            if (t.path.startsWith(`${relPath}/`)) {
+              const suffix = t.path.slice(relPath.length + 1);
+              const np = joinRelPath(toPath, suffix);
+              return { ...t, id: `workspace:${np}`, path: np, name: basename(np) };
+            }
+            return t;
+          }),
+        );
+        setActiveTabId((id) => (id === oldTabPrefix ? `workspace:${toPath}` : id));
+        setAddToMatterPick(null);
+        setAddToMatterManualDraft("");
+        setAddToMatterLastError(null);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setError(msg);
+        setAddToMatterLastError(msg);
+      } finally {
+        moveIntoMatterInFlightRef.current = false;
+        setBusy(false);
+      }
+    },
+    [canUseFilesystemBridge, refreshDir, refreshIndex],
+  );
+
+  const moveCaseItemToWorkspaceRoot = useCallback(
+    (relPath: string, kind: "file" | "directory") => {
+      if (!canUseFilesystemBridge) {return;}
+      setContextMenu(null);
+      const parsed = parseCasesRelForWorkspaceMove(relPath);
+      if (!parsed) {return;}
+      const { firstSeg, workspaceDestRel } = parsed;
+      const body =
+        workspaceDestRel === ""
+          ? `将卷宗文件夹「${firstSeg}」整体移到工作区根目录（磁盘文件保留，仅从 cases 下移出）。若名称冲突将自动追加序号。`
+          : `将「${workspaceDestRel}」移到工作区根目录下（保持相对路径结构）。重名时自动追加序号。`;
+      setConfirmDialog({
+        kind: "simple",
+        message: body,
+        onConfirm: () => {
+          setConfirmDialog(null);
+          void (async () => {
+            setBusy(true);
+            setError(null);
+            try {
+              const toPath =
+                workspaceDestRel === ""
+                  ? await allocateNonCollidingRelPath("workspace", firstSeg, "directory")
+                  : await allocateNonCollidingRelPath("workspace", workspaceDestRel, kind);
+              const res = await window.lawmindDesktop?.fsRename({
+                root: "workspace",
+                fromPath: relPath,
+                toPath,
+              });
+              if (!res?.ok) {
+                throw new Error(res?.error ?? "移动失败");
+              }
+              const destParent = getDirname(toPath);
+              await refreshDir("workspace", "cases");
+              await refreshDir("workspace", destParent || "");
+              void refreshIndex();
+              const oldTabPrefix = `workspace:${relPath}`;
+              setTabs((prev) =>
+                prev.map((t) => {
+                  if (t.path === relPath) {
+                    return { ...t, id: `workspace:${toPath}`, path: toPath, name: basename(toPath) };
+                  }
+                  if (t.path.startsWith(`${relPath}/`)) {
+                    const suffix = t.path.slice(relPath.length + 1);
+                    const np = joinRelPath(toPath, suffix);
+                    return { ...t, id: `workspace:${np}`, path: np, name: basename(np) };
+                  }
+                  return t;
+                }),
+              );
+              setActiveTabId((id) => (id === oldTabPrefix ? `workspace:${toPath}` : id));
+            } catch (e) {
+              setError(e instanceof Error ? e.message : String(e));
+            } finally {
+              setBusy(false);
+            }
+          })();
+        },
+      });
+    },
+    [canUseFilesystemBridge, refreshDir, refreshIndex],
+  );
+
   // ── Context-menu initiated actions ───────────────────────────
   const startCreate = (root: RootKey, parentDir: string, kind: "file" | "folder") => {
     setContextMenu(null);
@@ -698,8 +996,15 @@ export function FileWorkbench(props: Props) {
       try {
         const sources = [...fsClip.relPaths];
         for (const from of sources) {
-          const name = basename(from);
-          const toRel = joinRelPath(parentDir, name);
+          const fromName = basename(from);
+          const fromParent = getDirname(from);
+          const listFrom = await window.lawmindDesktop?.fsList({ root, path: fromParent });
+          if (!listFrom?.ok) {
+            throw new Error(listFrom?.error ?? "无法读取源目录");
+          }
+          const srcEntry = listFrom.entries?.find((e) => e.path === from);
+          const srcKind = srcEntry?.kind ?? "file";
+          const toRel = await allocateNonCollidingChildPath(root, parentDir, fromName, srcKind);
           const res = await window.lawmindDesktop?.fsCopy({ root, fromPath: from, toPath: toRel });
           if (!res?.ok) {
             throw new Error(res?.error ?? "粘贴失败");
@@ -748,9 +1053,16 @@ export function FileWorkbench(props: Props) {
   }, [contextMenu]);
 
   // ── File tree render ─────────────────────────────────────────
-  const renderTree = (root: RootKey, dirPath: string, level: number): ReactNode => {
+  /** 在某一父目录下按名称排除顶级项（用于「工作目录」树根不重复展示 `cases/`） */
+  type TreeOmit = { forParentDir: string; names: Set<string> };
+
+  const renderTree = (root: RootKey, dirPath: string, level: number, omit?: TreeOmit): ReactNode => {
     const k = keyOf(root, dirPath);
-    const entries = childrenByDir[k] ?? [];
+    const raw = childrenByDir[k] ?? [];
+    let entries = filterExplorerEntries(root, dirPath, raw);
+    if (omit && dirPath === omit.forParentDir) {
+      entries = entries.filter((e) => !omit.names.has(e.name));
+    }
     const pad = 8 + level * 14;
 
     const nodes: ReactNode[] = [];
@@ -805,22 +1117,54 @@ export function FileWorkbench(props: Props) {
       }
 
       if (entry.kind === "directory") {
+        const caseMidForTree =
+          root === "workspace" && isWorkspaceCaseSubdirRootRelPath(entry.path)
+            ? matterIdFromWorkspaceCasesRelPath(entry.path)
+            : null;
+        const caseDisplayHint =
+          caseMidForTree &&
+          casesNodeActions?.matterLabelById?.[caseMidForTree]?.trim() &&
+          casesNodeActions.matterLabelById[caseMidForTree] !== entry.name
+            ? casesNodeActions.matterLabelById[caseMidForTree].trim()
+            : null;
+        const treeTitle =
+          caseDisplayHint && !isProtected ? `${entry.name} — ${caseDisplayHint}` : isProtected ? "⚠️ 受保护目录" : entry.name;
         nodes.push(
           <div key={entry.path}>
             <button
               type="button"
               className={`lm-fs-node lm-fs-dir ${isSelected ? "active" : ""} ${isProtected ? "protected" : ""}`}
               style={{ paddingLeft: pad }}
-              title={isProtected ? "⚠️ 受保护目录" : entry.name}
+              title={treeTitle}
               onClick={() => { setSelected({ root, path: entry.path, kind: "directory" }); void toggleDir(root, entry.path); }}
+              onDoubleClick={(e) => {
+                if (
+                  root !== "workspace" ||
+                  !casesNodeActions ||
+                  !isWorkspaceCaseSubdirRootRelPath(entry.path)
+                ) {
+                  return;
+                }
+                e.preventDefault();
+                e.stopPropagation();
+                const mid = matterIdFromWorkspaceCasesRelPath(entry.path);
+                if (mid) {
+                  casesNodeActions.onOpenMatterCockpit(mid);
+                }
+              }}
               onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, root, path: entry.path, kind: "directory", isRoot: false }); }}
             >
               <span className={`lm-fs-arrow ${isOpen ? "open" : ""}`}>▸</span>
               <span className="lm-fs-icon">{getFileIcon(entry.name, "directory", isOpen)}</span>
               <span className="lm-fs-name">{entry.name}</span>
+              {caseDisplayHint ? (
+                <span className="lm-meta" style={{ marginLeft: 6, fontSize: "0.92em", opacity: 0.92 }}>
+                  {caseDisplayHint}
+                </span>
+              ) : null}
               {isProtected && <span className="lm-fs-lock">🔒</span>}
             </button>
-            {isOpen && renderTree(root, entry.path, level + 1)}
+            {isOpen && renderTree(root, entry.path, level + 1, omit)}
           </div>,
         );
       } else {
@@ -888,6 +1232,102 @@ export function FileWorkbench(props: Props) {
   };
 
   // ── Confirm dialogs ──────────────────────────────────────────
+  const renderAddToMatterPicker = () => {
+    if (!addToMatterPick) {
+      return null;
+    }
+    const leaf = basename(addToMatterPick.relPath);
+    const manualTrim = addToMatterManualDraft.trim();
+    const manualOk = isValidMatterId(manualTrim);
+    const openList = mattersPickList !== null && mattersPickList !== undefined && mattersPickList.length > 0;
+    return (
+      <div
+        className="lm-wizard-backdrop"
+        style={{ zIndex: 21_000 }}
+        role="dialog"
+        aria-modal="true"
+        aria-label="加入案件"
+        onClick={() => {
+          if (!busy) {
+            setAddToMatterPick(null);
+          }
+        }}
+      >
+        <div className="lm-wizard lm-wizard--detail" onClick={(e) => e.stopPropagation()}>
+          <h2>加入案件</h2>
+          <p className="lm-wizard-lead">
+            将「{leaf}」移入案件卷宗文件夹（<code className="lm-meta">cases/…/</code>）。重名时自动追加序号。
+          </p>
+          {openList ? (
+            <>
+              <p className="lm-wizard-lead" style={{ marginBottom: 10, fontSize: 13, opacity: 0.92 }}>从列表选择</p>
+              <div className="lm-matter-pick-list" style={{ maxHeight: "min(40vh, 240px)", overflow: "auto" }}>
+                {mattersPickList.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    className="lm-btn lm-btn-secondary"
+                    style={{ width: "100%", justifyContent: "flex-start", marginBottom: 8, textAlign: "left" }}
+                    disabled={busy}
+                    onClick={() => void moveWorkspaceItemIntoMatter(m.id, addToMatterPick.relPath, addToMatterPick.kind)}
+                  >
+                    <span style={{ fontWeight: 600, marginRight: 8 }}>{m.label}</span>
+                    <span className="lm-meta">{m.id}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : null}
+          <div className="lm-field lm-field--spaced" style={{ marginTop: openList ? 18 : 0 }}>
+            <label className="lm-field-label" htmlFor="lawmind-add-matter-manual-id">
+              {openList ? "或手动输入案件编号" : "输入案件编号"}
+            </label>
+            <input
+              id="lawmind-add-matter-manual-id"
+              type="text"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="字母或数字开头，如 Acme-2024-01"
+              value={addToMatterManualDraft}
+              onChange={(e) => {
+                setAddToMatterManualDraft(e.target.value);
+                setAddToMatterLastError(null);
+              }}
+            />
+            {manualTrim && !manualOk ? (
+              <p style={{ fontSize: 12, color: "var(--error)", marginTop: 8, lineHeight: 1.5 }}>
+                编号须 2–128 位：字母或数字开头，可含英文句点、下划线、连字符。
+              </p>
+            ) : null}
+          </div>
+          {addToMatterLastError ? (
+            <div className="lm-callout lm-callout-danger" role="alert" style={{ marginTop: 12 }}>
+              <p className="lm-callout-body">{addToMatterLastError}</p>
+            </div>
+          ) : null}
+          <div className="lm-wizard-actions">
+            <button
+              type="button"
+              className="lm-btn lm-btn-secondary"
+              disabled={busy}
+              onClick={() => setAddToMatterPick(null)}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className="lm-btn"
+              disabled={busy || !manualOk}
+              onClick={() => void moveWorkspaceItemIntoMatter(manualTrim, addToMatterPick.relPath, addToMatterPick.kind)}
+            >
+              用此编号移入
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderConfirmDialog = () => {
     if (!confirmDialog) {return null;}
     if (confirmDialog.kind === "simple") {
@@ -897,7 +1337,7 @@ export function FileWorkbench(props: Props) {
             <p className="lm-wizard-lead">{confirmDialog.message}</p>
             <div className="lm-wizard-actions">
               <button type="button" className="lm-btn lm-btn-secondary" onClick={() => setConfirmDialog(null)}>取消</button>
-              <button type="button" className="lm-btn lm-btn-destructive" onClick={confirmDialog.onConfirm}>确认</button>
+              <button type="button" className="lm-btn" onClick={confirmDialog.onConfirm}>确认</button>
             </div>
           </div>
         </div>
@@ -940,8 +1380,71 @@ export function FileWorkbench(props: Props) {
     const { x, y, root, path: ctxPath, kind } = contextMenu;
     const parentDir = kind === "directory" ? ctxPath : getDirname(ctxPath);
     const canPasteHere = Boolean(fsClip && fsClip.root === root);
+    const caseMid =
+      root === "workspace" && ctxPath && casesNodeActions
+        ? matterIdFromWorkspaceCasesRelPath(ctxPath)
+        : null;
+    const cn = casesNodeActions;
+    const isCasesRootContext =
+      root === "workspace" && kind === "directory" && ctxPath === "cases" && cn;
+    const caseMoveParsed =
+      root === "workspace" && ctxPath && ctxPath.startsWith("cases/") && ctxPath !== "cases"
+        ? parseCasesRelForWorkspaceMove(ctxPath)
+        : null;
+    const canOfferAddToMatter =
+      root === "workspace" &&
+      Boolean(ctxPath) &&
+      ctxPath !== "cases" &&
+      !ctxPath.startsWith("cases/");
+    const wsProtectedHint = ctxPath ? isProtectedWorkspacePath(root, ctxPath) : null;
     return (
       <div ref={menuRef} className="lm-context-menu" style={{ top: y, left: x }} onContextMenu={(e) => e.preventDefault()}>
+        {isCasesRootContext &&
+        (cn.onNewMatter || cn.onImportMatters || cn.onRefreshMatters) ? (
+          <>
+            {cn.onNewMatter ? (
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!cn.apiBase?.trim()}
+                onClick={() => {
+                  cn.onNewMatter!();
+                  setContextMenu(null);
+                }}
+              >
+                新建案件…
+              </button>
+            ) : null}
+            {cn.canImportMatters && cn.onImportMatters ? (
+              <button
+                type="button"
+                role="menuitem"
+                disabled={(cn.importMattersBusy ?? false) || !cn.apiBase?.trim()}
+                title="按文件或文件夹导入（每项一个案件；展示名取自名称）"
+                onClick={() => {
+                  cn.onImportMatters!();
+                  setContextMenu(null);
+                }}
+              >
+                {cn.importMattersBusy ? "导入中…" : "导入案件…"}
+              </button>
+            ) : null}
+            {cn.onRefreshMatters ? (
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!cn.apiBase?.trim()}
+                onClick={() => {
+                  cn.onRefreshMatters!();
+                  setContextMenu(null);
+                }}
+              >
+                刷新案件列表
+              </button>
+            ) : null}
+            <div className="lm-context-menu-sep" role="separator" />
+          </>
+        ) : null}
         <button type="button" onClick={() => startCreate(root, parentDir, "file")}>📄 新建文件</button>
         <button type="button" onClick={() => startCreate(root, parentDir, "folder")}>📁 新建文件夹</button>
         {canPasteHere ? (
@@ -960,17 +1463,145 @@ export function FileWorkbench(props: Props) {
                 💬 在对话中引用{kind === "directory" ? "（整目录）" : ""}
               </button>
             ) : null}
+            {canOfferAddToMatter ? (
+              <button
+                type="button"
+                disabled={busy}
+                title="将所选项移入 cases/案件编号/（可列表选或手动输入编号）"
+                onClick={() => {
+                  setAddToMatterManualDraft("");
+                  setAddToMatterLastError(null);
+                  setAddToMatterPick({ relPath: ctxPath, kind });
+                  setContextMenu(null);
+                }}
+              >
+                📥 加入案件…
+              </button>
+            ) : null}
+            {caseMid && cn ? (
+              <>
+                <div className="lm-context-menu-sep" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    cn.onOpenMatterCockpit(caseMid);
+                    setContextMenu(null);
+                  }}
+                >
+                  📋 打开案件工作台
+                </button>
+                {cn.onLinkMatterToChat ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      cn.onLinkMatterToChat!(caseMid);
+                      setContextMenu(null);
+                    }}
+                  >
+                    在对话中关联本案
+                  </button>
+                ) : null}
+                {cn.workspaceDir?.trim() &&
+                typeof window !== "undefined" &&
+                window.lawmindDesktop?.showItemInFolder ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const w = cn.workspaceDir!.replace(/[/\\]+$/, "");
+                      void window.lawmindDesktop?.showItemInFolder(`${w}/cases/${caseMid}`);
+                      setContextMenu(null);
+                    }}
+                  >
+                    打开案件文件夹
+                  </button>
+                ) : null}
+                {cn.apiBase?.trim() ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      cn.onRequestRenameDisplayName(caseMid, cn.matterLabelById?.[caseMid] ?? caseMid);
+                      setContextMenu(null);
+                    }}
+                  >
+                    重命名展示名称…
+                  </button>
+                ) : null}
+                {cn.onSetCaseSubdirRole ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void cn.onSetCaseSubdirRole!(caseMid, "matter");
+                        setContextMenu(null);
+                      }}
+                    >
+                      标记为正式案件
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void cn.onSetCaseSubdirRole!(caseMid, "folder");
+                        setContextMenu(null);
+                      }}
+                    >
+                      标记为资料夹
+                    </button>
+                  </>
+                ) : null}
+                {cn.apiBase?.trim() ? (
+                  <>
+                    <div className="lm-context-menu-sep" />
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={() => {
+                        cn.onRequestDeleteMatter(caseMid, cn.matterLabelById?.[caseMid] ?? caseMid);
+                        setContextMenu(null);
+                      }}
+                    >
+                      删除案件…
+                    </button>
+                  </>
+                ) : null}
+              </>
+            ) : null}
+            {caseMoveParsed ? (
+              <>
+                <div className="lm-context-menu-sep" role="separator" />
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => moveCaseItemToWorkspaceRoot(ctxPath, kind)}
+                >
+                  📤 移出案件目录…
+                </button>
+              </>
+            ) : null}
             <div className="lm-context-menu-sep" />
             <button type="button" onClick={() => copyPath(root, ctxPath)}>📎 复制</button>
-            <button type="button" onClick={() => cutPath(root, ctxPath)}>✂️ 剪切</button>
-            <div className="lm-context-menu-sep" />
-            <button type="button" onClick={() => startRename(root, ctxPath)}>✏️ 重命名</button>
             <button
               type="button"
-              className={isProtectedWorkspacePath(root, ctxPath) ? "danger" : ""}
+              disabled={Boolean(wsProtectedHint)}
+              title={wsProtectedHint ?? undefined}
+              onClick={() => cutPath(root, ctxPath)}
+            >
+              ✂️ 剪切
+            </button>
+            <div className="lm-context-menu-sep" />
+            <button
+              type="button"
+              disabled={Boolean(wsProtectedHint)}
+              title={wsProtectedHint ?? undefined}
+              onClick={() => startRename(root, ctxPath)}
+            >
+              ✏️ 重命名
+            </button>
+            <button
+              type="button"
+              className={wsProtectedHint ? "danger" : ""}
               onClick={() => requestDelete(root, ctxPath, kind)}
             >
-              🗑️ 删除{isProtectedWorkspacePath(root, ctxPath) ? " ⚠️" : ""}
+              🗑️ 删除{wsProtectedHint ? " ⚠️" : ""}
             </button>
           </>
         ) : onAddToChatContext ? (
@@ -981,7 +1612,7 @@ export function FileWorkbench(props: Props) {
               setContextMenu(null);
             }}
           >
-            💬 在对话中引用{root === "workspace" ? "工作区" : "项目"}根目录
+            💬 在对话中引用{root === "workspace" ? "材料" : "项目"}根目录
           </button>
         ) : null}
         <div className="lm-context-menu-sep" />
@@ -991,49 +1622,123 @@ export function FileWorkbench(props: Props) {
     );
   };
 
-  const renderRootHeader = (root: RootKey, label: string, subtitle: string) => (
-    <div
-      className="lm-fs-root-header"
-      onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, root, path: "", kind: "directory", isRoot: true }); }}
-    >
-      <span className="lm-section-label">{label}</span>
-      <span className="lm-fs-root-path" title={subtitle}>{subtitle.split(/[/\\]/).pop()}</span>
-      <button type="button" className="lm-fs-root-add" title="新建文件" onClick={() => startCreate(root, "", "file")}>＋</button>
+  const renderExplorerSectionHeader = (opts: {
+    label: string;
+    hint: string;
+    root: RootKey;
+    menuPath: string;
+    sectionOpen: boolean;
+    setSectionOpen: (v: boolean) => void;
+    onAddFile: () => void;
+    addTitle: string;
+  }) => (
+    <div className="lm-fs-dual-root-header">
+      <button
+        type="button"
+        className="lm-fs-dual-expander"
+        aria-expanded={opts.sectionOpen}
+        aria-label={`${opts.sectionOpen ? "折叠" : "展开"}${opts.label}`}
+        title={opts.sectionOpen ? "折叠" : "展开"}
+        onClick={() => opts.setSectionOpen(!opts.sectionOpen)}
+      >
+        <span className={`lm-fs-arrow ${opts.sectionOpen ? "open" : ""}`}>▸</span>
+      </button>
+      <div
+        className="lm-fs-dual-header-body"
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            opts.setSectionOpen(!opts.sectionOpen);
+          }
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setContextMenu({
+            x: e.clientX,
+            y: e.clientY,
+            root: opts.root,
+            path: opts.menuPath,
+            kind: "directory",
+            isRoot: opts.menuPath === "",
+          });
+        }}
+        onClick={() => opts.setSectionOpen(!opts.sectionOpen)}
+      >
+        <span className="lm-section-label">{opts.label}</span>
+        <span className="lm-fs-dual-hint">{opts.hint}</span>
+      </div>
+      <button type="button" className="lm-fs-root-add" title={opts.addTitle} onClick={() => opts.onAddFile()}>
+        ＋
+      </button>
     </div>
   );
 
   // ── Render ───────────────────────────────────────────────────
   const explorerAside = (
     <aside
-      className={`lm-files-explorer ${portalHosts ? (explorerInSidebar ? "lm-file-explorer-embedded" : "lm-file-explorer-rail") : ""}`.trim()}
+      className={`lm-files-explorer ${portalHosts ? (explorerUsesRailLayout ? "lm-file-explorer-rail" : "lm-file-explorer-embedded") : ""}`.trim()}
       style={
-        explorerInSidebar
-          ? { width: "100%", minHeight: 0, flex: 1 }
-          : { width: filesExplorerWidth, flexShrink: 0 }
+        explorerUsesRailLayout
+          ? { width: filesExplorerWidth, flexShrink: 0 }
+          : { width: "100%", minHeight: 0, flex: 1 }
       }
       onClick={(e) => e.stopPropagation()}
     >
+      {workspaceExplorerToolbar ? (
+        <div className="lm-fs-workspace-toolbar" role="toolbar" aria-label="工作台文件">
+          {workspaceExplorerToolbar}
+        </div>
+      ) : null}
       <button
         type="button"
         className="lm-quickopen-trigger"
         onClick={() => setShowQuickOpen(true)}
       >
         <span>🔍</span>
-        <span>快速打开文件…</span>
+        <span>在材料中搜索…</span>
         <kbd>⌘P</kbd>
       </button>
 
-      <div className="lm-fs-section">
-        {renderRootHeader("workspace", "工作区", workspaceDir)}
-        {renderTree("workspace", "", 0)}
+      <div className="lm-fs-section lm-fs-section-dual">
+        {renderExplorerSectionHeader({
+          label: "工作目录",
+          hint: "笔记、模板、通用材料等日常工作",
+          root: "workspace",
+          menuPath: "",
+          sectionOpen: workSectionOpen,
+          setSectionOpen: setWorkSectionOpen,
+          onAddFile: () => startCreate("workspace", "", "file"),
+          addTitle: "在工作区根目录新建文件",
+        })}
+        {workSectionOpen
+          ? renderTree("workspace", "", 0, { forParentDir: "", names: new Set(["cases"]) })
+          : null}
       </div>
 
-      {projectDir && (
-        <div className="lm-fs-section">
-          {renderRootHeader("project", "项目目录", projectDir)}
-          {renderTree("project", "", 0)}
-        </div>
-      )}
+      <div className="lm-fs-section lm-fs-section-dual">
+        {renderExplorerSectionHeader({
+          label: "案件目录",
+          hint: "cases · 个案卷宗（右键此处可新建 / 导入 / 刷新案件）",
+          root: "workspace",
+          menuPath: "cases",
+          sectionOpen: casesSectionOpen,
+          setSectionOpen: setCasesSectionOpen,
+          onAddFile: () => startCreate("workspace", "cases", "file"),
+          addTitle: "在 cases 下新建文件",
+        })}
+        {casesSectionOpen ? (
+          casesDirProbe === "missing" ? (
+            <p className="lm-fs-dual-empty">
+              尚未创建 <code className="lm-meta">cases</code> 目录。使用上方「新建」或「导入」案件后将自动出现；也可在访达中于工作区根下手动创建{" "}
+              <code className="lm-meta">cases</code> 文件夹。
+            </p>
+          ) : (
+            renderTree("workspace", "cases", 0)
+          )
+        ) : null}
+      </div>
 
       {error ? (
         <div className="lm-callout lm-callout-danger lm-error--explorer" role="alert">
@@ -1059,13 +1764,6 @@ export function FileWorkbench(props: Props) {
 
   const editorSection = (
     <section className="lm-files-editor" onClick={(e) => e.stopPropagation()}>
-        {onAddToChatContext ? (
-          <div className="lm-file-page-intro" role="note">
-            <strong>本页是「材料浏览器」</strong>：在左侧点文件可编辑。需要让助手就某份材料、某个文件夹做事时，在文件或目录上
-            <strong> 右键 </strong>选「在对话中引用」或点下方「加入对话引用」，再切到「对话」说明需求。可
-            <strong> 多次添加 </strong>多个文件或目录（顶栏有列表，可单独移除，最多 8 条）。助手会按工具读取后回答。
-          </div>
-        ) : null}
         <div className="lm-file-tabs">
           {tabs.map((tab) => {
             const dirty = tab.content !== tab.savedContent;
@@ -1189,7 +1887,7 @@ export function FileWorkbench(props: Props) {
           <div className="lm-editor-empty">
             <div className="lm-messages-empty-icon">📂</div>
             <div className="lm-messages-empty-title">选择文件开始编辑</div>
-            <div className="lm-messages-empty-hint">在左侧文件树中点击文件，或按 ⌘P 快速搜索。Word 文档会提示用系统应用打开。</div>
+            <div className="lm-messages-empty-hint">在左栏资源树中点击文件，或按 ⌘P 快速搜索。Word 文档会提示用系统应用打开。</div>
           </div>
         )}
       </section>
@@ -1199,6 +1897,7 @@ export function FileWorkbench(props: Props) {
     <>
       {renderContextMenu()}
       {renderConfirmDialog()}
+      {renderAddToMatterPicker()}
       {showQuickOpen && (
         <QuickOpenModal
           files={indexedFiles}
@@ -1209,12 +1908,12 @@ export function FileWorkbench(props: Props) {
     </>
   );
 
-  if (portalHosts?.explorer && portalHosts.editor) {
+  if (portalHosts?.explorer) {
     return (
       <>
         {createPortal(explorerAside, portalHosts.explorer)}
         {portalHosts.split ? createPortal(splitBetweenExplorerAndRest, portalHosts.split) : null}
-        {createPortal(editorSection, portalHosts.editor)}
+        {portalHosts.editor ? createPortal(editorSection, portalHosts.editor) : null}
         {floatingLayer}
       </>
     );

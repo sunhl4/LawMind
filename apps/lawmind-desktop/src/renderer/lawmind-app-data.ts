@@ -1,8 +1,10 @@
 import type { AssistantRow } from "./lawmind-settings-models.ts";
+import type { MatterOverview } from "../../../../src/lawmind/types.ts";
 import { apiGetJson } from "./api-client";
 
 export type HealthPayload = {
   ok?: boolean;
+  /** 主对话模型 API 是否已配置（来自 GET /api/health） */
   modelConfigured?: boolean;
   retrievalMode?: string;
   dualLegalConfigured?: boolean;
@@ -41,6 +43,11 @@ export type DelegationRow = {
   delegationId: string;
   fromAssistant: string;
   toAssistant: string;
+  /** 子助手承接委派的会话（可打开继续指导） */
+  targetSessionId?: string;
+  /** 发起委派时律师侧主会话 */
+  parentSessionId?: string;
+  matterId?: string;
   task: string;
   status: string;
   priority: string;
@@ -124,4 +131,16 @@ export async function loadCollaborationSummaryPayload(
   apiBase: string,
 ): Promise<CollaborationSummaryPayload> {
   return apiGetJson<CollaborationSummaryPayload>(apiBase, "/api/collaboration/summary");
+}
+
+export async function loadMatterOverviewsPayload(apiBase: string, cacheBustKey?: number): Promise<MatterOverview[]> {
+  const qs =
+    cacheBustKey !== undefined && Number.isFinite(cacheBustKey)
+      ? `?_=${encodeURIComponent(String(cacheBustKey))}`
+      : "";
+  const j = await apiGetJson<{ ok?: boolean; overviews?: MatterOverview[] }>(
+    apiBase,
+    `/api/matters/overviews${qs}`,
+  );
+  return j.ok && Array.isArray(j.overviews) ? j.overviews : [];
 }

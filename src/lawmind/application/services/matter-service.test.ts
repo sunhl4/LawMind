@@ -74,6 +74,6 @@ describe("LawMind matter service", () => {
 
     engine.plan("整理案件摘要", { matterId: "matter-summary" });
     const summary = await getMatterCockpitSummary(workspaceDir, "matter-summary");
-    expect(summary.statusLine).toContain("open=1");
+    expect(summary.statusLine).toBe("");
   });
 });

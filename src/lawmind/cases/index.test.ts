@@ -6,6 +6,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { shortTaskIdForDisplay } from "../cases/task-display.js";
 import {
   createLawMindEngine,
   createLegalModelAdapter,
@@ -60,7 +61,9 @@ describe("LawMind Matter Index", () => {
     expect(index.drafts.length).toBe(1);
     expect(index.auditEvents.length).toBeGreaterThanOrEqual(4);
     expect(index.coreIssues.some((item) => item.includes("违约责任"))).toBe(true);
-    expect(index.taskGoals.some((item) => item.includes(intent.taskId))).toBe(true);
+    expect(
+      index.taskGoals.some((item) => item.includes(shortTaskIdForDisplay(intent.taskId))),
+    ).toBe(true);
     expect(index.riskNotes.some((item) => item.includes("通知送达证据"))).toBe(true);
     expect(index.artifacts.some((item) => item.includes(".docx"))).toBe(true);
     expect(index.renderedTasks.length).toBe(1);
@@ -69,7 +72,7 @@ describe("LawMind Matter Index", () => {
 
     const summary = await engine.getMatterSummary("matter-900");
     expect(summary.headline).toContain("违约责任");
-    expect(summary.statusLine).toContain("rendered=1");
+    expect(summary.statusLine).toBe("");
     expect(summary.keyRisks.some((item) => item.includes("通知送达"))).toBe(true);
 
     const searchHits = await engine.searchMatter("matter-900", "通知");

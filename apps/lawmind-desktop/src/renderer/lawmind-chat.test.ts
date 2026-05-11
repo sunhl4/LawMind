@@ -2,9 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { LAWMIND_INCLUDE_TURN_DIAGNOSTICS_KEY } from "./lawmind-chat-diagnostics-pref.ts";
 import {
   appendChatMessage,
+  dropTrailingUserMessageIfText,
   formatClarificationPromptSummary,
   formatClarificationReply,
   getPendingClarificationState,
+  isFetchAbortError,
   lastAssistantRuntimeHints,
   removeAssistantChatState,
   sendChatTurn,
@@ -137,6 +139,84 @@ describe("lawmind-chat", () => {
     ).toBeNull();
   });
 
+  it("isFetchAbortError detects AbortError", () => {
+    expect(isFetchAbortError(new DOMException("aborted", "AbortError"))).toBe(true);
+    expect(isFetchAbortError(Object.assign(new Error("x"), { name: "AbortError" }))).toBe(true);
+    expect(isFetchAbortError(new Error("network"))).toBe(false);
+  });
+
+  it("dropTrailingUserMessageIfText removes last user row when text matches", () => {
+    const before = {
+      a: [
+        { role: "user" as const, text: "one" },
+        { role: "assistant" as const, text: "ok" },
+        { role: "user" as const, text: "two" },
+      ],
+    };
+    const after = dropTrailingUserMessageIfText(before, "a", "two");
+    expect(after.a).toEqual([
+      { role: "user", text: "one" },
+      { role: "assistant", text: "ok" },
+    ]);
+    expect(dropTrailingUserMessageIfText(before, "a", "wrong")).toBe(before);
+  });
+
+  it("sendChatTurn forwards AbortSignal to fetch", async () => {
+    const ac = new AbortController();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, reply: "ok" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.spyOn(globalThis, "fetch").mockImplementation(fetchMock as typeof fetch);
+    await sendChatTurn({
+      apiBase: "http://127.0.0.1:8",
+      message: "m",
+      assistantId: "a",
+      allowWebSearch: false,
+      signal: ac.signal,
+    });
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(init.signal).toBe(ac.signal);
+  });
+
+  it("sendChatTurn rejects when fetch is aborted", async () => {
+    const fetchMock = vi.fn().mockImplementation((_url, init) => {
+      return new Promise<Response>((_resolve, reject) => {
+        const signal = (init as RequestInit | undefined)?.signal;
+        if (!signal) {
+          reject(new Error("expected signal"));
+          return;
+        }
+        if (signal.aborted) {
+          reject(new DOMException("The user aborted a request.", "AbortError"));
+          return;
+        }
+        signal.addEventListener(
+          "abort",
+          () => {
+            reject(new DOMException("The user aborted a request.", "AbortError"));
+          },
+          { once: true },
+        );
+      });
+    });
+    vi.spyOn(globalThis, "fetch").mockImplementation(fetchMock as typeof fetch);
+    const ac = new AbortController();
+    const p = sendChatTurn({
+      apiBase: "http://127.0.0.1:8",
+      message: "m",
+      assistantId: "a",
+      allowWebSearch: false,
+      signal: ac.signal,
+    });
+    queueMicrotask(() => {
+      ac.abort();
+    });
+    await expect(p).rejects.toMatchObject({ name: "AbortError" });
+  });
+
   describe("sendChatTurn includeTurnDiagnostics", () => {
     afterEach(() => {
       vi.unstubAllGlobals();
@@ -160,6 +240,7 @@ describe("lawmind-chat", () => {
         message: "hi",
         assistantId: "a",
         allowWebSearch: false,
+        matterId: "m-scope",
       });
       const init = fetchMock.mock.calls[0][1] as RequestInit;
       const body = JSON.parse(init.body as string);
@@ -184,6 +265,7 @@ describe("lawmind-chat", () => {
         message: "hi",
         assistantId: "a",
         allowWebSearch: false,
+        matterId: "m-scope",
       });
       const init = fetchMock.mock.calls[0][1] as RequestInit;
       const body = JSON.parse(init.body as string);

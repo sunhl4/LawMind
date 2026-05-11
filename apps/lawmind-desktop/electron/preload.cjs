@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld("lawmindDesktop", {
   fsDelete: (payload) => ipcRenderer.invoke("lawmind:fs:delete", payload),
   fsCopy: (payload) => ipcRenderer.invoke("lawmind:fs:copy", payload),
   saveTextFileDialog: (payload) => ipcRenderer.invoke("lawmind:dialog:save-text-file", payload ?? {}),
+  openFilesDialog: (payload) => ipcRenderer.invoke("lawmind:dialog:open-files", payload ?? {}),
   onFileMenu: (handler) => {
     const channel = "lawmind:file-menu";
     const listener = (_evt, payload) => {

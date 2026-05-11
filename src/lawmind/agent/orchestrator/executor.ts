@@ -10,6 +10,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { getRoleById } from "../../core/role.js";
 import { emitCollaborationEvent } from "../collaboration/audit.js";
 import {
   registerDelegation,
@@ -18,8 +19,31 @@ import {
   markDelegationFailed,
 } from "../collaboration/delegation-registry.js";
 import { sendAndWait, wrapUntrustedResult } from "../collaboration/message-bus.js";
+import { findAssistantsByRole } from "../tools/coordination/utils.js";
 import type { AgentConfig } from "../types.js";
 import type { CollaborationWorkflow, WorkflowStep, WorkflowEvent } from "./types.js";
+
+/**
+ * W8：在派发前根据 step.assigneeRoleId 重新解析 assignee。
+ * 若 roleId 有效且工作区存在对应助手，则覆盖 step.assignee；否则保持原 assignee 字符串。
+ */
+function resolveStepAssigneeByRole(workspaceDir: string, step: WorkflowStep): void {
+  const roleId = step.assigneeRoleId?.trim();
+  if (!roleId) {
+    return;
+  }
+  const role = getRoleById(roleId);
+  if (!role) {
+    return;
+  }
+  const candidates = findAssistantsByRole(workspaceDir, role.roleId);
+  if (candidates.length === 0) {
+    return;
+  }
+  if (!step.assignee || !candidates.some((c) => c.assistantId === step.assignee)) {
+    step.assignee = candidates[0].assistantId;
+  }
+}
 
 function emitWorkflowEvent(
   workspaceDir: string,
@@ -96,6 +120,7 @@ async function executeStep(
   step: WorkflowStep,
   options?: ExecuteWorkflowOptions,
 ): Promise<void> {
+  resolveStepAssigneeByRole(baseConfig.workspaceDir, step);
   step.status = "running";
   step.startedAt = new Date().toISOString();
 

@@ -1,13 +1,12 @@
 name: lawmind-codeql-javascript-typescript
 
 paths:
-  - src
-  - extensions
-  - ui/src
-  - skills
+  - src/lawmind
+  - apps/lawmind-desktop/server
+  - apps/lawmind-desktop/electron
 
 paths-ignore:
-  - apps
+  - apps/lawmind-docs
   - dist
   - docs
   - "**/node_modules"

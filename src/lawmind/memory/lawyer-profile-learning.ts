@@ -51,6 +51,11 @@ function sectionEightHasManualCore(content: string, core: string): boolean {
 export type AppendLawyerProfileLearningOptions = {
   auditDir?: string;
   auditTaskId?: string;
+  /**
+   * 可选幂等键（建议 `manual`/API 写入使用）。若第八节已存在 `[idem:<key>]` 则跳过。
+   * 与按 taskId 的 review 去重互补。
+   */
+  idempotencyKey?: string;
 };
 
 /** 审核结论写入「个人积累」的单行摘要（可测）。 */
@@ -121,6 +126,11 @@ export async function appendLawyerProfileLearning(
     return { skipped: true };
   }
 
+  const idem = opts?.idempotencyKey?.trim();
+  if (idem && lawyerSectionEightSlice(content).includes(`[idem:${idem}]`)) {
+    return { skipped: true };
+  }
+
   if (source === "review") {
     const tid = taskIdFromLawyerProfileReviewBullet(core);
     if (tid && sectionEightHasLawyerReviewForTask(content, tid)) {
@@ -130,7 +140,8 @@ export async function appendLawyerProfileLearning(
     return { skipped: true };
   }
 
-  const line = `- [${stamp()}] [source:${source}] ${core}`;
+  const idemFrag = idem ? ` [idem:${idem}]` : "";
+  const line = `- [${stamp()}] [source:${source}]${idemFrag} ${core}`;
   if (!content.includes(SECTION_EIGHT)) {
     content = `${content.trimEnd()}\n\n${SECTION_EIGHT}\n\n${line}\n`;
     await fs.writeFile(p, content, "utf8");
@@ -173,4 +184,23 @@ async function maybeEmitLawyerProfileAudit(
     actor: "lawyer",
     detail: `LAWYER_PROFILE 八、个人积累 source=${source} hash=${hash}`,
   });
+  // W5：写入 MemoryAdoptionService 索引，便于 Inspector 列出 + 撤回。
+  try {
+    const workspaceDir = path.dirname(opts.auditDir);
+    const { suggestMemoryAdoption } = await import("./adoption-service.js");
+    await suggestMemoryAdoption(
+      workspaceDir,
+      opts.auditDir,
+      {
+        scope: "lawyer",
+        kind: "lawyer.profile_learning",
+        payload: line,
+        sourceTaskId: taskId,
+        origin: source === "review" ? "lawyer" : "external",
+      },
+      { autoAdopt: true },
+    );
+  } catch {
+    // best-effort
+  }
 }

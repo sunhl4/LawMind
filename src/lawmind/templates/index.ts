@@ -355,3 +355,24 @@ export async function resolveTemplateForDraft(input: {
     fallbackReason: "unknown template id",
   };
 }
+
+/**
+ * 模板解析的稳定 pin，写入草稿/任务与审计，便于交付复现与版本对照。
+ * - 上传模板：`{id}@{registry.version}`
+ * - 内置：`built-in:{resolvedId}`
+ * - 回退：`fallback:{resolvedId}|{简短原因}`
+ */
+export function templateResolvedPin(resolution: ResolvedTemplate): string {
+  if (resolution.source === "uploaded" && resolution.uploaded) {
+    return `${resolution.resolvedId}@${resolution.uploaded.version}`;
+  }
+  if (resolution.source === "built-in") {
+    return `built-in:${resolution.resolvedId}`;
+  }
+  const reason = resolution.fallbackReason
+    ? resolution.fallbackReason.replace(/\s+/g, " ").slice(0, 120)
+    : "";
+  return reason
+    ? `fallback:${resolution.resolvedId}|${reason}`
+    : `fallback:${resolution.resolvedId}`;
+}

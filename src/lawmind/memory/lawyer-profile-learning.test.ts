@@ -53,4 +53,21 @@ describe("lawyer-profile-learning", () => {
     const text = await fs.readFile(path.join(ws, "LAWYER_PROFILE.md"), "utf8");
     expect(text.match(/tid-dedupe-1/g)?.length).toBe(1);
   });
+
+  it("skips manual append when idempotencyKey already present in section eight", async () => {
+    ws = await fs.mkdtemp(path.join(os.tmpdir(), "lawmind-lp-idem-"));
+    await ensureLawyerProfileSkeleton(ws);
+    const r1 = await appendLawyerProfileLearning(ws, "first line", "manual", {
+      idempotencyKey: "key-a",
+    });
+    expect(r1.skipped).toBe(false);
+    const r2 = await appendLawyerProfileLearning(ws, "second try", "manual", {
+      idempotencyKey: "key-a",
+    });
+    expect(r2.skipped).toBe(true);
+    const text = await fs.readFile(path.join(ws, "LAWYER_PROFILE.md"), "utf8");
+    expect(text).toContain("[idem:key-a]");
+    expect(text).toContain("first line");
+    expect(text).not.toContain("second try");
+  });
 });

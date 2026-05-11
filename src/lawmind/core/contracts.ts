@@ -57,6 +57,8 @@ export type ApprovalRequest = {
   deliverableId?: string;
   requestedBy: string;
   requestedRole?: string;
+  /** W3 起预留；W8 起 delegateToRole / 桌面待审批列表按此过滤。 */
+  targetRole?: string;
   requestedAt: string;
   reason: string;
   riskLevel: "low" | "medium" | "high";

@@ -18,6 +18,14 @@ describe("createMatterIfAbsent", () => {
     expect(r2.created).toBe(false);
   });
 
+  it("writes display name into CASE.md when provided", async () => {
+    const ws = tmpWs();
+    const r = await createMatterIfAbsent(ws, "matter-dn", { displayName: "房屋租赁案" });
+    expect(r.created).toBe(true);
+    const raw = fs.readFileSync(r.caseFilePath, "utf8");
+    expect(raw).toContain("案件名称（展示用）: 房屋租赁案");
+  });
+
   it("throws on invalid matter id", async () => {
     const ws = tmpWs();
     await expect(createMatterIfAbsent(ws, "..")).rejects.toThrow(/invalid/);

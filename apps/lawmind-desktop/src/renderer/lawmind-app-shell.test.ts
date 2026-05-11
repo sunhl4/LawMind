@@ -62,6 +62,34 @@ describe("lawmind-app-shell", () => {
     ]);
   });
 
+  it("when assistant scope is null, task filter includes all assistants", () => {
+    expect(
+      filterTasksForSidebar(
+        [
+          {
+            taskId: "task-1",
+            title: "合同审查",
+            summary: "审查采购合同",
+            status: "done",
+            updatedAt: "2026-01-02T00:00:00.000Z",
+            assistantId: "assistant-a",
+          },
+          {
+            taskId: "task-2",
+            title: "诉讼分析",
+            summary: "分析争议焦点",
+            status: "running",
+            updatedAt: "2026-01-02T00:00:00.000Z",
+            assistantId: "assistant-b",
+          },
+        ],
+        "",
+        "all",
+        null,
+      ),
+    ).toHaveLength(2);
+  });
+
   it("filters history records by assistant and query", () => {
     expect(
       filterHistoryForSidebar(

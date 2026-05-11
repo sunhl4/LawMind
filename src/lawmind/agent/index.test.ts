@@ -175,6 +175,7 @@ describe("Session Management", () => {
 
     expect(session.sessionId).toBeTruthy();
     expect(session.matterId).toBe("m-001");
+    expect(session.title).toBe("New Chat");
 
     const loaded = loadSession(ws, session.sessionId);
     expect(loaded).toBeDefined();
@@ -326,6 +327,15 @@ describe("System Prompt", () => {
     expect(prompt).toContain("当前项目目录");
     expect(prompt).toContain("/tmp/client-matter");
     expect(prompt).toContain("read_project_file");
+  });
+
+  it("includes team meeting mode section when teamMeetingMode is true", () => {
+    const prompt = buildSystemPrompt({
+      availableTools: [],
+      teamMeetingMode: true,
+    });
+    expect(prompt).toContain("团队会议室模式");
+    expect(prompt).toContain("delegate_task");
   });
 
   it("exports a stable lawmind behavior epoch for health and support", () => {

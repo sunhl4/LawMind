@@ -11,6 +11,11 @@ import { listDrafts } from "../drafts/index.js";
 import { caseFilePath } from "../memory/index.js";
 import { listTaskRecords } from "../tasks/index.js";
 import type { MatterIndex, MatterOverview, MatterSearchHit, MatterSummary } from "../types.js";
+import {
+  formatTaskLineForNextActions,
+  resolveMatterHeadline,
+  resolveMatterSidebarLabel,
+} from "./matter-label.js";
 
 function uniq(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
@@ -101,6 +106,7 @@ function byLatestUpdatedDesc(a?: string, b?: string): number {
 export function buildMatterOverview(index: MatterIndex): MatterOverview {
   return {
     matterId: index.matterId,
+    displayName: resolveMatterSidebarLabel(index.caseMemory, index.matterId),
     latestUpdatedAt: index.latestUpdatedAt,
     openTaskCount: index.openTasks.length,
     renderedTaskCount: index.renderedTasks.length,
@@ -122,15 +128,18 @@ export async function listMatterOverviews(workspaceDir: string): Promise<MatterO
 }
 
 export function summarizeMatterIndex(index: MatterIndex): MatterSummary {
-  const headline =
-    index.coreIssues[0] ??
-    index.taskGoals[0] ??
-    `${index.matterId} 当前暂无核心争点，请先完成检索与草拟。`;
-  const statusLine = `open=${index.openTasks.length}, rendered=${index.renderedTasks.length}, risks=${index.riskNotes.length}, artifacts=${index.artifacts.length}`;
+  const headline = resolveMatterHeadline(index.caseMemory, index.matterId, index.coreIssues[0]);
+  const statusLine = "";
   const keyRisks = index.riskNotes.slice(0, 5);
   const nextActions =
     index.openTasks.length > 0
-      ? index.openTasks.slice(0, 5).map((task) => `${task.status}: ${task.summary}`)
+      ? index.openTasks.slice(0, 5).map((task) =>
+          formatTaskLineForNextActions({
+            status: task.status,
+            summary: task.summary,
+            title: task.title,
+          }),
+        )
       : index.taskGoals.slice(0, 5);
   const recentActivity = index.progressEntries.slice(-5).toReversed();
 
@@ -201,3 +210,25 @@ export function searchMatterIndex(index: MatterIndex, query: string): MatterSear
 export { isValidMatterId, parseOptionalMatterId, MATTER_ID_PATTERN } from "./matter-id.js";
 export { createMatterIfAbsent } from "./matter-create.js";
 export type { CreateMatterResult } from "./matter-create.js";
+export {
+  LAWMIND_CASE_SUBDIR_ROLE_FILE,
+  readCaseSubdirRole,
+  writeCaseSubdirRole,
+} from "./workspace-node-role.js";
+export type { CaseSubdirRole } from "./workspace-node-role.js";
+export {
+  appendTeamMeetingLinesSync,
+  createTeamMeetingAssistantLine,
+  createTeamMeetingSystemLine,
+  createTeamMeetingUserLine,
+  formatTeamMeetingTranscriptPrefix,
+  readTeamMeetingTail,
+  readTeamMeetingWindow,
+  readTeamMeetingLines,
+  teamMeetingFilePath,
+  TEAM_MEETING_MAX_LINE_TEXT,
+  TEAM_MEETING_TAIL_LIMIT_CAP,
+  TEAM_MEETING_TAIL_LIMIT_DEFAULT,
+  TEAM_MEETING_TRANSCRIPT_MAX_CHARS,
+} from "./team-meeting.js";
+export type { TeamMeetingLine, TeamMeetingLineKind } from "./team-meeting.js";

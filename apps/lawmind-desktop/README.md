@@ -104,8 +104,8 @@ Writes `userData/LawMind/.env.lawmind` and `desktop-config.json`, then restarts 
 
 ## Web search (optional)
 
-- UI checkbox **允许联网检索** sends `allowWebSearch: true` on `POST /api/chat` and registers the `web_search` tool (Brave).
-- Set `LAWMIND_WEB_SEARCH_API_KEY` or `BRAVE_API_KEY` in `LawMind/.env.lawmind`. Health reports `webSearchApiKeyConfigured`.
+- Main chat footer **检索** dropdown (`仅本地与案件记忆` vs `联网检索（Brave）`) sends `allowWebSearch: true` on `POST /api/chat` and registers the `web_search` tool when enabled.
+- Set `LAWMIND_WEB_SEARCH_API_KEY` or `BRAVE_API_KEY` in `LawMind/.env.lawmind`. Health reports `webSearchApiKeyConfigured`; when missing, the UI still allows choosing「联网」并可用「配置联网密钥」打开设置。
 
 ## Architecture
 

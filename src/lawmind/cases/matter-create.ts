@@ -4,7 +4,7 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
-import { caseFilePath, ensureCaseWorkspace } from "../memory/index.js";
+import { caseFilePath, ensureCaseWorkspace, upsertMatterDisplayName } from "../memory/index.js";
 import { isValidMatterId } from "./matter-id.js";
 
 export type CreateMatterResult = {
@@ -20,6 +20,7 @@ export type CreateMatterResult = {
 export async function createMatterIfAbsent(
   workspaceDir: string,
   matterId: string,
+  opts?: { displayName?: string },
 ): Promise<CreateMatterResult> {
   const id = matterId.trim();
   if (!isValidMatterId(id)) {
@@ -31,6 +32,10 @@ export async function createMatterIfAbsent(
     .then(() => true)
     .catch(() => false);
   await ensureCaseWorkspace(workspaceDir, id);
+  const dn = opts?.displayName?.trim();
+  if (dn) {
+    await upsertMatterDisplayName(workspaceDir, id, dn);
+  }
   return {
     matterId: id,
     caseFilePath: path.resolve(fp),

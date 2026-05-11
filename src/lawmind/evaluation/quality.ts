@@ -129,7 +129,7 @@ export async function buildQualityReportMarkdown(workspaceDir: string): Promise<
   lines.push("", "## 黄金样本列表", "");
   const goldenRecords = records.filter((r) => r.isGoldenExample);
   if (goldenRecords.length === 0) {
-    lines.push("暂无黄金样本（律师在审核时标记 `quality.good_example` 即可晋升）。");
+    lines.push("暂无黄金样本（律师在审核时勾选标签「质量范例」即可晋升）。");
   } else {
     lines.push("| 任务 ID | 类型 | 模板 | 审核时间 |");
     lines.push("|---------|------|------|----------|");

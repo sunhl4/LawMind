@@ -92,7 +92,7 @@ describe("Phase A golden engine path", () => {
       throw new Error("expected reviewed and rendered audit events");
     }
     expect(renderedEvent.timestamp.localeCompare(reviewedAt)).toBeGreaterThanOrEqual(0);
-    expect(renderedEvent.detail).toContain("模板：");
+    expect(renderedEvent.detail).toContain("模板 pin：");
     expect(renderedEvent.detail).toContain("输出路径：");
     expect(renderedEvent.detail).toContain(renderResult.outputPath!);
   });

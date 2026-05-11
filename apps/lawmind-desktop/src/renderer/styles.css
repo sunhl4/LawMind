@@ -60,10 +60,11 @@
   --r-xl: 16px;
   --r-2xl: 22px;
 
-  /* Typography */
-  --font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC",
-    "Microsoft YaHei", "Segoe UI", sans-serif;
-  --mono: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  /* Typography — 与国内主流商用软件一致：系统 UI 黑体栈（苹方 / 雅黑等） */
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC",
+    "Source Han Sans SC", ui-sans-serif, sans-serif;
+  --mono: "SF Mono", "Cascadia Code", ui-monospace, "Consolas", monospace;
 
   /* Spacing rhythm (4px base — Linear / Notion style) */
   --space-1: 4px;
@@ -135,7 +136,6 @@
 
 body {
   font-family: var(--font);
-  line-height: var(--lh-body);
   background:
     radial-gradient(1100px 600px at 78% -10%, rgba(199, 171, 121, 0.07), transparent 60%),
     radial-gradient(900px 500px at 8% 110%, rgba(108, 182, 177, 0.05), transparent 60%),
@@ -143,8 +143,8 @@ body {
     var(--bg);
   color: var(--text);
   height: 100vh;
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: 15px;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -155,6 +155,13 @@ body {
   height: 100%;
   min-height: 0;
   overflow: hidden;
+}
+
+code,
+kbd,
+samp {
+  font-family: var(--mono);
+  font-size: 0.92em;
 }
 
 /* ── App shell ─────────────────────────────────────────────── */
@@ -297,7 +304,7 @@ body {
 
 .lm-brand-subtitle {
   margin-top: 1px;
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
@@ -387,7 +394,7 @@ body {
 }
 
 .lm-section-label {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -398,7 +405,7 @@ body {
 }
 
 .lm-section-count {
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--muted);
   background: var(--surface);
@@ -413,6 +420,625 @@ body {
 
 .lm-records-body {
   padding-top: 4px;
+}
+
+/* ── 在办整页（desk）：商用信息架构 ─────────────────────────── */
+.lm-records--desk {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+  flex: 1;
+  padding-top: 0;
+}
+
+.lm-records-desk-header {
+  margin-bottom: var(--space-5);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border-md);
+}
+
+.lm-records-desk-title {
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: var(--text);
+  margin: 0 0 var(--space-2);
+  line-height: var(--lh-tight);
+}
+
+.lm-records-desk-subtitle {
+  margin: 0;
+  font-size: 13px;
+  line-height: var(--lh-body);
+  color: var(--text-2);
+  max-width: 42rem;
+}
+
+.lm-records-toolbar {
+  margin-bottom: 9px;
+}
+
+.lm-records-toolbar--desk {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.lm-records-toolbar-filters {
+  flex: 1;
+  min-width: min(100%, 280px);
+}
+
+.lm-records-toolbar-meta {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding-bottom: 2px;
+  white-space: nowrap;
+}
+
+.lm-records--desk .lm-sidebar-search {
+  font-size: 13px;
+  padding: 10px 14px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  border-color: var(--border-md);
+}
+
+.lm-records--desk .lm-sidebar-range {
+  font-size: 13px;
+  padding: 10px 12px;
+  min-width: 7.5rem;
+  background: var(--surface-2);
+  border-color: var(--border-md);
+  color: var(--text-2);
+}
+
+.lm-records-segmented {
+  margin-bottom: var(--space-4);
+  padding: 3px;
+  background: var(--surface-2);
+  border-color: var(--border-md);
+  border-radius: var(--r-sm);
+  gap: 3px;
+}
+
+.lm-records-segmented .lm-tab {
+  font-size: 13px;
+  font-weight: 600;
+  min-height: 36px;
+  letter-spacing: -0.01em;
+}
+
+.lm-records--desk .lm-list {
+  gap: var(--space-2);
+}
+
+.lm-records--desk .lm-list li {
+  padding: var(--space-3) var(--space-4);
+  padding-right: 36px;
+  border-radius: var(--r);
+  background: var(--surface);
+  border: 1px solid var(--border-md);
+  box-shadow: var(--shadow-xs);
+}
+
+.lm-records--desk .lm-list li::before {
+  display: none;
+}
+
+.lm-records--desk .lm-list li:hover {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.lm-records--desk .lm-list li:focus-visible {
+  outline: none;
+  border-color: var(--accent-border);
+  box-shadow: var(--shadow-sm), var(--ring-accent);
+}
+
+.lm-records--desk .lm-list-clickable {
+  position: relative;
+}
+
+.lm-records--desk .lm-list-clickable::after {
+  content: "";
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-top: -4px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: rotate(-45deg);
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.lm-records--desk .lm-list-row {
+  gap: var(--space-2);
+  align-items: flex-start;
+}
+
+.lm-records--desk .lm-list-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: var(--lh-snug);
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.lm-records--desk .lm-list-time {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: var(--space-2);
+}
+
+.lm-records--desk .lm-list-path {
+  font-size: 12px;
+  margin-top: 4px;
+  font-family: var(--mono);
+  color: var(--text-2);
+}
+
+.lm-records--desk .lm-badge {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+}
+
+.lm-records--desk .lm-matter-badge {
+  font-size: 11px;
+  max-width: 7rem;
+}
+
+.lm-records--desk li.lm-list-empty-desk {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  text-align: center;
+  padding: var(--space-8) var(--space-5);
+  background: var(--surface);
+  border: 1px dashed var(--border-md);
+  border-radius: var(--r);
+  cursor: default;
+}
+
+.lm-records--desk li.lm-list-empty-desk:hover {
+  background: var(--surface);
+  border-color: var(--border-md);
+  box-shadow: none;
+}
+
+.lm-records--desk li.lm-list-empty-desk:focus-visible {
+  box-shadow: none;
+}
+
+.lm-list-empty-title {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-2);
+  letter-spacing: -0.02em;
+}
+
+.lm-list-empty-hint {
+  display: block;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: var(--lh-body);
+  max-width: 20rem;
+}
+
+.lm-side-with-records-matters .lm-records-matter-sidebar-host {
+  flex: 1 1 0%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border);
+}
+
+.lm-side-with-records-matters .lm-side-stack > .lm-side-scroll {
+  flex: 0 0 auto;
+  min-height: 0;
+  max-height: 40%;
+}
+
+.lm-records-matter-sidebar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.lm-records-matter-sidebar-actions .lm-btn-small {
+  font-size: 11px;
+  padding: 4px 8px;
+}
+
+.lm-records-matter-sidebar-host {
+  background: var(--surface-2);
+}
+
+.lm-records-matter-sidebar-toolbar {
+  flex-shrink: 0;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.lm-records-matter-sidebar-toolbar .lm-records-matter-sidebar-actions {
+  justify-content: flex-start;
+}
+
+.lm-records-matter-sidebar-host .lm-matter-explorer-tree {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 6px 10px;
+}
+
+.lm-matter-tree-root {
+  margin-bottom: 2px;
+  font-weight: 600;
+}
+
+.lm-matter-tree-children {
+  list-style: none;
+  margin: 0;
+  padding: 2px 0 4px 8px;
+  border-left: 1px solid var(--border);
+  margin-left: 12px;
+}
+
+.lm-matter-tree-children li {
+  margin: 0 0 1px;
+}
+
+.lm-matter-tree-row {
+  align-items: flex-start;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.lm-matter-tree-arrow-spacer {
+  visibility: hidden;
+  width: 11px;
+  flex-shrink: 0;
+}
+
+.lm-matter-tree-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lm-matter-tree-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lm-matter-tree-sub {
+  font-size: 11px;
+  color: var(--text-2);
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.lm-matter-tree-time {
+  font-size: 10px;
+  color: var(--muted);
+  flex-shrink: 0;
+  align-self: flex-start;
+  margin-left: 4px;
+  max-width: 4.5rem;
+  text-align: right;
+}
+
+.lm-matter-context-menu {
+  min-width: 11rem;
+}
+
+/* 在办整页：主区仅详情（案件列表在左栏轨道） */
+.lm-desk-page-records-inner.lm-desk-page-scroll {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.lm-records-desk-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-4);
+  gap: var(--space-3);
+}
+
+.lm-records-desk-header--flush {
+  margin-bottom: 0;
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-md);
+}
+
+.lm-records-desk-main--solo {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-md);
+  border-radius: var(--r);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+}
+
+.lm-records-desk-detail-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.lm-records-desk-rail {
+  width: min(32vw, 320px);
+  min-width: 248px;
+  max-width: 380px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border-md);
+  background: var(--surface-2);
+  min-height: 0;
+}
+
+.lm-records-desk-rail-filters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.lm-records-desk-rail-filters .lm-sidebar-search {
+  font-size: 13px;
+}
+.lm-records-desk-rail-filters .lm-sidebar-range {
+  font-size: 13px;
+}
+
+.lm-records-desk-rail-error,
+.lm-records-desk-rail-loading {
+  padding: var(--space-2) var(--space-3);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lm-records-desk-rail-error {
+  color: var(--error);
+}
+
+.lm-records-desk-matter-list {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-2);
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.lm-records-desk-matter-item {
+  width: 100%;
+  text-align: left;
+  padding: var(--space-3) var(--space-3);
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+  font-family: var(--font);
+  margin-bottom: var(--space-1);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  transition:
+    background var(--t) var(--ease),
+    border-color var(--t) var(--ease);
+}
+
+.lm-records-desk-matter-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border);
+}
+
+.lm-records-desk-matter-item.active {
+  background: rgba(183, 154, 103, 0.14);
+  border-color: var(--accent-border);
+}
+
+.lm-records-desk-matter-title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  line-height: var(--lh-snug);
+}
+
+.lm-records-desk-matter-sub {
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: var(--lh-snug);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.lm-records-desk-matter-meta {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.lm-records-desk-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: var(--space-4);
+  background: var(--bg);
+}
+
+.lm-records-desk-item-toolbar {
+  margin-bottom: var(--space-3);
+}
+
+.lm-records-desk-detail-tabs {
+  margin-bottom: var(--space-4);
+}
+
+.lm-records-desk-empty-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-8);
+  color: var(--muted);
+  text-align: center;
+}
+
+.lm-records-desk-empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin: 0 0 var(--space-2);
+}
+
+.lm-records-desk-empty-hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: var(--lh-body);
+  max-width: 22rem;
+}
+
+.lm-records-desk-overview {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.lm-records-desk-overview-card {
+  background: var(--surface);
+  border: 1px solid var(--border-md);
+  border-radius: var(--r);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-xs);
+}
+
+.lm-records-desk-overview-headline {
+  margin: 0 0 var(--space-2);
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: var(--text);
+  line-height: var(--lh-tight);
+}
+
+.lm-records-desk-overview-status {
+  margin: 0 0 var(--space-4);
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: var(--lh-body);
+}
+
+.lm-records-desk-overview-section h3 {
+  margin: 0 0 var(--space-2);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.lm-records-desk-overview-section ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: var(--lh-body);
+}
+
+.lm-records-desk-overview-section + .lm-records-desk-overview-section {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+.lm-records-desk-overview-lead {
+  margin: 0;
+  font-size: 13px;
+  line-height: var(--lh-body);
+  color: var(--text-2);
+}
+
+.lm-records-desk-overview-muted {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.lm-records-desk-overview-loading,
+.lm-records-desk-overview-error {
+  padding: var(--space-6);
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.lm-records-desk-overview-error {
+  color: var(--error);
+}
+
+.lm-records-row-asst {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  margin-top: 4px;
+  letter-spacing: 0.02em;
 }
 
 /* ── Sidebar assistant selector (compact) ─────────────────── */
@@ -430,7 +1056,7 @@ body {
   border-radius: var(--r-sm);
   background: var(--accent-dim);
   border: 1px solid rgba(183, 154, 103, 0.14);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--accent);
   overflow: hidden;
@@ -482,7 +1108,7 @@ body {
   border-radius: var(--r-sm);
   color: var(--text);
   font-family: var(--font);
-  font-size: 11px;
+  font-size: 13px;
   padding: 5px 7px;
   cursor: pointer;
   transition: border-color var(--t) var(--ease);
@@ -492,7 +1118,8 @@ body {
 
 /* ── Settings panel ───────────────────────────────────────── */
 .lm-settings-panel {
-  max-width: 540px;
+  max-width: min(540px, calc(100vw - 24px));
+  width: 100%;
 }
 
 .lm-settings-header {
@@ -540,7 +1167,7 @@ body {
 }
 
 .lm-settings-section-title {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -603,7 +1230,7 @@ body {
 
 .lm-project-full-path {
   padding: 4px 0 0;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
   font-family: var(--mono);
   overflow: hidden;
@@ -616,7 +1243,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
 }
 
@@ -649,7 +1276,7 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-2);
   cursor: pointer;
   padding: 3px 0;
@@ -710,7 +1337,7 @@ body {
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text-2);
-  font-size: 11px;
+  font-size: 13px;
   font-family: var(--font);
   cursor: pointer;
   flex-shrink: 0;
@@ -825,23 +1452,56 @@ body {
 }
 
 .lm-list-time {
-  font-size: 10px;
-  color: var(--muted);
+  font-size: 13px;
+  color: var(--text-2);
   margin-top: 1px;
 }
 
+.lm-delegation-actions {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.lm-review-note-hint {
+  display: block;
+  margin: 4px 0 8px;
+  line-height: 1.45;
+}
+
+.lm-review-next-steps {
+  margin-top: 10px;
+}
+
+.lm-review-revision-dispatch {
+  margin-top: 10px;
+}
+
+.lm-review-revision-dispatch-note {
+  margin-top: 10px;
+}
+
+.lm-review-revision-dispatch-actions {
+  margin-top: 10px;
+}
+
+.lm-review-revision-dispatch-foot {
+  margin-top: 10px;
+}
+
 .lm-list-path {
-  font-size: 10px;
-  color: var(--muted);
+  font-size: 13px;
+  color: var(--text-2);
   margin-top: 1px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--mono);
+  font-family: var(--font);
 }
 
 .lm-list-asst {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
   margin-top: 1px;
 }
@@ -850,7 +1510,7 @@ body {
 .lm-badge {
   display: inline-flex;
   align-items: center;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.01em;
   padding: 1px 7px;
@@ -913,47 +1573,6 @@ body {
   overflow: hidden;
 }
 
-/* 对话顶栏：助手 / 案件 / 项目 + 可选「本轮」诊断条 */
-.lm-chat-context-head {
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--border);
-  background: rgba(0, 0, 0, 0.2);
-}
-
-.lm-chat-context-strip {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 12px;
-  padding: 8px 12px 10px;
-}
-
-.lm-chat-runtime-hints {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 6px;
-  padding: 0 12px 8px;
-  font-size: 10px;
-  line-height: 1.45;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.lm-chat-runtime-hints-k {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-2);
-}
-
-.lm-chat-runtime-hints-sep {
-  opacity: 0.45;
-  user-select: none;
-}
-
 /* Review workbench: self-check summary strip */
 .lm-review-self-check {
   flex-shrink: 0;
@@ -965,7 +1584,7 @@ body {
 }
 
 .lm-review-self-check-title {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1012,7 +1631,7 @@ body {
 
 .lm-review-self-check-hint {
   margin-top: 6px;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .lm-review-citation-anchor:empty {
@@ -1040,7 +1659,7 @@ body {
 }
 
 .lm-settings-hint {
-  font-size: 11px;
+  font-size: 13px;
   line-height: var(--lh-snug);
   color: var(--text-2);
   margin: 0 0 var(--space-2);
@@ -1068,7 +1687,7 @@ body {
   border-radius: var(--r-sm);
   padding: var(--space-2) var(--space-3);
   margin-bottom: var(--space-3);
-  font-size: 11px;
+  font-size: 13px;
   line-height: var(--lh-snug);
 }
 
@@ -1189,7 +1808,7 @@ body {
   align-items: center;
   padding: 1px 8px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.02em;
   line-height: 1.5;
@@ -1281,7 +1900,7 @@ body {
 }
 
 .lm-collab-empty-body {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-2);
   margin: 0 0 var(--space-2);
   line-height: var(--lh-snug);
@@ -1295,7 +1914,7 @@ body {
 .lm-collab-empty-code {
   display: block;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 12px;
   padding: var(--space-2);
   background: var(--surface-2);
   border-radius: var(--r-sm);
@@ -1306,7 +1925,7 @@ body {
 
 .lm-collab-details {
   margin-bottom: var(--space-3);
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-2);
 }
 
@@ -1360,7 +1979,7 @@ body {
 }
 
 .lm-collab-job-status-text {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-2);
   line-height: var(--lh-snug);
 }
@@ -1383,7 +2002,7 @@ body {
 .lm-collab-copy-hint {
   display: block;
   margin-top: var(--space-1);
-  font-size: 10px;
+  font-size: 12px;
   color: var(--ok);
 }
 
@@ -1431,12 +2050,12 @@ body {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
 }
 
 .lm-collab-recent-id {
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .lm-collab-recent-progress {
@@ -1452,7 +2071,7 @@ body {
 
 .lm-collab-recent-jobs-flag {
   color: var(--warn);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .lm-collab-report-wrap {
@@ -1460,7 +2079,7 @@ body {
 }
 
 .lm-collab-report-label {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -1473,7 +2092,7 @@ body {
   max-height: 220px;
   overflow: auto;
   padding: var(--space-3);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.35;
   border-radius: var(--r-sm);
   border: 1px solid var(--border-md);
@@ -1487,49 +2106,9 @@ body {
 
 .lm-field-tight span {
   display: block;
-  font-size: 11px;
+  font-size: 13px;
   margin-bottom: 4px;
   color: var(--text-2);
-}
-
-.lm-chat-context-strip-items {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.lm-chat-context-pill {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 8px;
-  max-width: min(100%, 420px);
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--text-2);
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.lm-chat-context-pill-k {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-  flex-shrink: 0;
-}
-
-.lm-chat-context-strip-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
 }
 
 /* 对话：从「文件」页引用的路径（发送时附加给模型） */
@@ -1545,7 +2124,7 @@ body {
 }
 
 .lm-file-chat-context-k {
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1569,7 +2148,7 @@ body {
   max-width: min(100%, 220px);
   padding: 3px 8px 3px 10px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.35;
   color: var(--text-2);
   border: 1px solid rgba(183, 154, 103, 0.35);
@@ -1666,6 +2245,85 @@ body {
   pointer-events: none;
 }
 
+/* 紧凑顶栏：单行标题 + 模块切换（类菜单栏） */
+.lm-main-header-compact {
+  align-items: center;
+  flex-wrap: nowrap;
+  row-gap: var(--space-2);
+  padding: var(--space-2) var(--space-5);
+}
+
+.lm-main-header-compact .lm-main-title-block {
+  flex: 0 1 auto;
+  max-width: min(340px, 40vw);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.lm-main-title-inline {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.25;
+  letter-spacing: -0.2px;
+}
+
+.lm-main-assistant-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+  margin-top: 2px;
+}
+
+.lm-main-assistant-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  flex-shrink: 0;
+}
+
+.lm-main-asst-select {
+  flex: 1;
+  min-width: 140px;
+  max-width: min(320px, 42vw);
+}
+
+.lm-main-assistant-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lm-main-nav-compact {
+  order: 0;
+  min-width: 0;
+  flex: 0 0 auto;
+  margin-bottom: 0;
+}
+
+.lm-main-header-compact .lm-main-nav-compact .lm-tab {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+@media (max-width: 1040px) {
+  .lm-main-header-compact {
+    flex-wrap: wrap;
+  }
+  .lm-main-nav-compact {
+    order: 4;
+    flex: 1 1 100%;
+  }
+}
+
 .lm-main-title-block {
   min-width: 0;
   flex: 1 1 200px;
@@ -1674,7 +2332,7 @@ body {
 
 .lm-main-eyebrow {
   display: block;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1735,13 +2393,13 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
+  padding: clamp(4px, 1.2vw, 6px) clamp(6px, 1.6vw, 10px);
   border-radius: var(--r-sm);
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.02);
   color: var(--text-2);
   font-family: var(--font);
-  font-size: 11px;
+  font-size: clamp(11px, 2.6vw, 13px);
   font-weight: 500;
   cursor: pointer;
   transition: border-color var(--t) var(--ease), color var(--t) var(--ease), background var(--t) var(--ease);
@@ -1778,7 +2436,38 @@ body {
   box-shadow: var(--focus-ring);
 }
 
-@media (max-width: 900px) {
+/* 顶栏：随窗口变窄收缩内边距、 Tab 字号，避免控件被肉眼「压成一条」 */
+@media (max-width: 1180px) {
+  .lm-main-header-compact .lm-main-title-block {
+    max-width: min(300px, 36vw);
+  }
+}
+
+@media (max-width: 1100px) {
+  .lm-main-header-compact {
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+  }
+}
+
+@media (max-width: 720px) {
+  .lm-main-header-compact {
+    padding-left: var(--space-3);
+    padding-right: var(--space-3);
+  }
+  .lm-main-header-compact .lm-main-nav-compact .lm-tab {
+    padding-left: clamp(4px, 1.4vw, 10px);
+    padding-right: clamp(4px, 1.4vw, 10px);
+    font-size: clamp(11px, 3vw, 13px);
+  }
+  .lm-main-header-compact .lm-main-asst-select {
+    min-width: 0;
+    flex: 1 1 72px;
+    max-width: min(300px, 48vw);
+  }
+}
+
+@media (max-width: 1024px) {
   .lm-panel-toggle-label {
     display: none;
   }
@@ -1795,14 +2484,18 @@ body {
   border-radius: 999px;
   color: var(--text-2);
   background: rgba(255, 255, 255, 0.03);
-  font-size: 11px;
+  font-size: clamp(11px, 2.4vw, 13px);
   white-space: nowrap;
+  min-width: 0;
+  max-width: min(200px, 30vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .lm-header-project {
   font-family: var(--mono);
-  font-size: 10px;
-  max-width: 180px;
+  font-size: 12px;
+  max-width: min(160px, 28vw);
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -1816,9 +2509,13 @@ body {
   gap: 6px;
   padding: 5px 11px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: clamp(11px, 2.4vw, 13px);
   border: 1px solid var(--border);
   transition: transform var(--t) var(--ease), box-shadow var(--t) var(--ease);
+  min-width: 0;
+  max-width: min(200px, 30vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .lm-edition-badge::before {
@@ -1962,7 +2659,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   flex-shrink: 0;
   margin-top: 1px;
@@ -2128,33 +2825,75 @@ body {
 }
 
 .lm-compose-collapsed-hint {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
 }
 
-.lm-compose-footer {
+/* 输入框下：模式/模型与发送同一行 */
+.lm-compose-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px 11px;
-  gap: 8px;
+  gap: 8px 12px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.12);
 }
 
-.lm-web-toggle {
+.lm-compose-toolbar-start {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.lm-compose-toolbar-end {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-2);
-  cursor: pointer;
-  user-select: none;
+  flex-shrink: 0;
 }
 
-.lm-web-toggle input[type="checkbox"] {
-  accent-color: var(--accent);
+.lm-compose-bar-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.lm-compose-bar-label {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+.lm-compose-select {
+  min-width: 0;
+  max-width: 200px;
+  padding: 5px 8px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.35;
   cursor: pointer;
-  width: 13px;
-  height: 13px;
+}
+
+.lm-compose-select:focus {
+  outline: none;
+  border-color: var(--accent-border);
+  box-shadow: var(--focus-ring);
+}
+
+.lm-compose-bar-config {
+  margin-left: auto;
 }
 
 .lm-compose-actions {
@@ -2164,7 +2903,7 @@ body {
 }
 
 .lm-send-hint {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
   user-select: none;
 }
@@ -2217,7 +2956,7 @@ body {
 .lm-clarify-session-bar-collapsed {
   width: 100%;
   margin-bottom: 6px;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 /* ── Buttons ───────────────────────────────────────────────── */
@@ -2325,7 +3064,7 @@ body {
   background: transparent;
   color: var(--text-2);
   padding: 5px 9px;
-  font-size: 11px;
+  font-size: 13px;
   border: 1px solid transparent;
   box-shadow: none;
 }
@@ -2341,7 +3080,7 @@ body {
 
 .lm-btn-sm {
   padding: 5px 10px;
-  font-size: 11px;
+  font-size: 13px;
   border-radius: var(--r-sm);
 }
 
@@ -2361,7 +3100,7 @@ body {
   justify-content: space-between;
   gap: var(--space-2);
   margin-top: var(--space-2);
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .lm-error--explorer > .lm-callout-body {
@@ -2394,9 +3133,9 @@ body {
 
 /* ── Meta (legacy compat) ──────────────────────────────────── */
 .lm-meta {
-  font-size: 11px;
-  color: var(--muted);
-  line-height: 1.5;
+  font-size: 14px;
+  color: var(--text-2);
+  line-height: 1.55;
 }
 
 /* ── Modal backdrop ────────────────────────────────────────── */
@@ -2417,7 +3156,7 @@ body {
 
 .lm-help-subhead {
   margin: 14px 0 0;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -2430,7 +3169,7 @@ body {
 
 .lm-main-microcopy {
   margin: 6px 0 0;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.45;
   color: var(--muted);
   max-width: 36em;
@@ -2442,7 +3181,7 @@ body {
 
 .lm-onboarding-hint {
   margin-top: 8px;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .lm-onboarding-checklist.lm-settings-surface .lm-settings-row:last-of-type {
@@ -2450,7 +3189,7 @@ body {
 }
 
 .lm-disclaimer {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
   line-height: 1.5;
   margin-top: 12px;
@@ -2479,7 +3218,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
+  padding: clamp(10px, 2.5vw, 16px);
   animation: lm-fade-in 200ms var(--ease-out);
 }
 
@@ -2492,6 +3231,7 @@ body {
 .lm-wizard {
   width: min(480px, 100%);
   max-height: 90vh;
+  max-height: min(90vh, calc(100dvh - 24px));
   overflow-x: clip;
   overflow-y: auto;
   position: relative;
@@ -2500,7 +3240,7 @@ body {
     linear-gradient(180deg, rgba(36, 42, 49, 0.98), rgba(23, 27, 33, 0.98));
   border: 1px solid var(--border-md);
   border-radius: var(--r-xl);
-  padding: 24px;
+  padding: clamp(14px, 3.2vw, 24px);
   box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
@@ -2640,7 +3380,7 @@ body {
 }
 
 .lm-field fieldset legend {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-2);
   padding: 0 6px;
@@ -2705,7 +3445,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 
 /* ── Detail panel ──────────────────────────────────────────── */
 .lm-detail-body {
-  font-size: 12px;
+  font-size: 14px;
   max-height: min(52vh, 420px);
   overflow-y: auto;
   background: var(--bg);
@@ -2729,11 +3469,11 @@ fieldset.lm-field-reset > legend.lm-meta {
 
 .lm-detail-kv > span {
   display: block;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0.02em;
+  color: var(--text-2);
   margin-bottom: 3px;
 }
 
@@ -2756,8 +3496,39 @@ fieldset.lm-field-reset > legend.lm-meta {
 .lm-detail-plan-status {
   display: inline-block;
   width: 1.25em;
-  font-size: 12px;
-  color: var(--muted);
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.lm-detail-tech {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.lm-detail-tech summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-2);
+  user-select: none;
+  list-style: none;
+}
+
+.lm-detail-tech summary::-webkit-details-marker {
+  display: none;
+}
+
+.lm-detail-tech .lm-detail-kv {
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+}
+
+.lm-detail-tech .lm-detail-kv:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
 }
 
 .lm-detail-plan-status--done {
@@ -2779,7 +3550,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 .lm-matter-badge {
   display: inline-flex;
   align-items: center;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
   padding: 1px 6px;
   border-radius: 4px;
@@ -2841,7 +3612,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 }
 
 .lm-scenario-hint {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
   line-height: 1.45;
 }
@@ -2863,7 +3634,7 @@ fieldset.lm-field-reset > legend.lm-meta {
   background: transparent;
   color: var(--muted);
   font-family: var(--font);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: all var(--t) var(--ease);
@@ -2897,7 +3668,7 @@ fieldset.lm-field-reset > legend.lm-meta {
   background: transparent;
   color: var(--muted);
   font-family: var(--font);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   transition: color var(--t) var(--ease);
@@ -2919,7 +3690,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 }
 
 .lm-clarify-card-title {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -2957,7 +3728,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 
 .lm-clarify-reason {
   margin-top: 2px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
 }
 
@@ -2982,7 +3753,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 }
 
 .lm-clarify-field-reason {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
 }
 
@@ -3061,7 +3832,7 @@ fieldset.lm-field-reset > legend.lm-meta {
   max-width: min(100%, 220px);
   padding: 3px 9px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
   line-height: 1.35;
   border: 1px solid var(--border);
@@ -3091,8 +3862,8 @@ fieldset.lm-field-reset > legend.lm-meta {
   align-items: center;
   gap: 6px;
   max-width: min(100%, 260px);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 9px;
+  font-family: var(--font);
+  font-size: 12px;
   color: var(--text-2);
   background: rgba(124, 92, 255, 0.08);
   border-color: rgba(124, 92, 255, 0.35);
@@ -3101,7 +3872,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 .lm-context-chip--plain-steps {
   max-width: min(100%, 200px);
   font-family: var(--font);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .lm-context-tool-steps {
@@ -3127,7 +3898,7 @@ fieldset.lm-field-reset > legend.lm-meta {
   height: 16px;
   padding: 0 4px;
   border-radius: 4px;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 700;
   font-family: var(--font);
   color: var(--accent);
@@ -3204,7 +3975,7 @@ fieldset.lm-field-reset > legend.lm-meta {
   align-items: center;
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--muted);
   background: rgba(255, 255, 255, 0.06);
@@ -3247,7 +4018,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 
 .lm-context-panel-hint {
   margin: 10px 0 8px;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.5;
   color: var(--muted);
 }
@@ -3260,7 +4031,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 
 .lm-context-missing-hint {
   margin: 10px 0 0;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.5;
   color: var(--muted);
 }
@@ -3283,7 +4054,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 }
 
 .lm-context-cell-sublabel {
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.4;
   color: var(--muted);
   display: -webkit-box;
@@ -3324,7 +4095,7 @@ fieldset.lm-field-reset > legend.lm-meta {
   .lm-context-table-wrap--responsive .lm-context-table td::before {
     content: attr(data-label);
     display: block;
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 600;
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -3336,7 +4107,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 .lm-context-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .lm-context-table th,
@@ -3348,7 +4119,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 }
 
 .lm-context-table thead th {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -3377,7 +4148,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 }
 
 .lm-context-path {
-  font-size: 10px;
+  font-size: 12px;
   word-break: break-all;
   color: var(--text-2);
 }
@@ -3387,7 +4158,7 @@ fieldset.lm-field-reset > legend.lm-meta {
   align-items: center;
   padding: 2px 8px;
   border-radius: var(--r-sm);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
 }
 
@@ -3498,7 +4269,264 @@ fieldset.lm-field-reset > legend.lm-meta {
   position: relative;
 }
 
-/* 左栏一体：品牌下 = 工作区文件树（可选）+ 在办 / 协作等 */
+/* 左栏工作台：上区资源树 + 编辑器（横排），下区在办等 */
+.lm-side-resources-row {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  flex: 0 0 auto;
+  min-height: 72px;
+  overflow: hidden;
+}
+
+.lm-side-resources-tree-host {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.lm-side-resources-editor-host {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.lm-workspace-chat-only {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Cursor 式工作台：左栏资源树 + 主区 编辑器 | 对话 */
+.lm-cursor-workspace {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.lm-cursor-panes-row {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  align-items: stretch;
+  overflow: hidden;
+}
+
+.lm-cursor-files-group {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+}
+
+.lm-cursor-pane-tree-host {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.lm-cursor-pane-editor-host {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.lm-cursor-chat-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.lm-desk-page .lm-desk-page-scroll {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-3) var(--space-4);
+}
+
+.lm-collab-page-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.lm-collab-hub-in-page.lm-settings-section {
+  margin-bottom: 0;
+}
+
+.lm-collab-readonly-block {
+  margin-top: var(--space-1);
+}
+
+.lm-collab-subsection-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 var(--space-2);
+}
+
+/* 顶栏「协作」：状态一览 / 团队工作流 */
+.lm-collab-desk {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.lm-collab-desk-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.lm-collab-desk-intro {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.lm-collab-desk-title {
+  font-size: 1.25rem;
+  font-weight: 650;
+  margin: 0 0 var(--space-1);
+}
+
+.lm-collab-desk-lead {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.lm-collab-desk-tabs {
+  flex: 0 0 auto;
+}
+
+.lm-collab-desk-overview,
+.lm-collab-desk-workflows {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.lm-collab-status-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+}
+
+.lm-collab-status-strip-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1 1 auto;
+}
+
+.lm-collab-status-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lm-collab-status-hint {
+  width: 100%;
+  margin: var(--space-1) 0 0;
+}
+
+.lm-collab-status-callout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.lm-collab-status-shimmer {
+  max-width: 240px;
+}
+
+.lm-collab-desk-panel-heading {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 var(--space-2);
+}
+
+.lm-collab-desk-panel-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.lm-collab-panel-desk {
+  flex: 1 1 0%;
+  min-height: 200px;
+  max-height: min(52vh, 480px);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg);
+}
+
+.lm-collab-workflows-lead {
+  margin-top: 0;
+}
+
+.lm-collab-desk-integrations {
+  margin-top: var(--space-3);
+}
+
+.lm-collab-desk-integrations-body {
+  margin: var(--space-2) 0 0;
+}
+
+@media (min-width: 960px) {
+  .lm-collab-panel-desk {
+    max-height: none;
+  }
+}
+
+.lm-tab-inline-count {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.75;
+}
+
+/* 左栏一体：品牌下 = 工作区资源（可选）+ 在办 / 协作等 */
 .lm-side-stack {
   flex: 1;
   min-height: 0;
@@ -3507,6 +4535,27 @@ fieldset.lm-field-reset > legend.lm-meta {
   overflow: hidden;
   position: relative;
   z-index: 1;
+}
+
+/* 工作台：品牌下为材料资源树（可拖左栏总宽），底部为项目胶囊等 */
+.lm-side-explorer-host {
+  flex: 1 1 0%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+  border-bottom: 1px solid var(--border);
+}
+
+.lm-side-with-workbench-files .lm-side-stack {
+  flex: 0 0 auto;
+}
+
+.lm-side-with-workbench-files .lm-side-stack > .lm-side-scroll {
+  flex: 0 0 auto;
+  min-height: 0;
 }
 
 .lm-side-files-host {
@@ -3565,10 +4614,243 @@ fieldset.lm-field-reset > legend.lm-meta {
 }
 
 .lm-main-body > .lm-main-workbench,
-.lm-main-body > .lm-chat-workspace {
+.lm-main-body > .lm-chat-workspace,
+.lm-main-body > .lm-workspace-unified {
   flex: 1;
   min-width: 0;
   min-height: 0;
+}
+
+/* 工作台：材料列 | 对话列；底部输入区全宽固定 */
+.lm-workspace-unified {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.lm-workspace-panes-row {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  align-items: stretch;
+  overflow: hidden;
+}
+
+.lm-ws-files-group {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+}
+
+.lm-ws-pane-chat {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.lm-ws-split-anchor {
+  flex-shrink: 0;
+  align-self: stretch;
+  min-height: 0;
+  position: relative;
+}
+
+/* 仅消息区（无底部主输入框时） */
+.lm-chat-workspace-messages-only {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.lm-chat-workspace-messages-only > *:not(.lm-messages) {
+  flex-shrink: 0;
+}
+
+.lm-chat-workspace-messages-only .lm-messages {
+  flex: 1;
+  min-height: 0;
+}
+
+.lm-chat-session-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  min-height: 38px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--bg-elevated, var(--bg));
+}
+
+.lm-chat-session-tabs-scroll {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 3px;
+  align-items: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding: 5px 0;
+}
+
+.lm-chat-session-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.lm-chat-session-tabs-hint {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+
+.lm-chat-session-tab-wrap {
+  display: inline-flex;
+  align-items: stretch;
+  flex-shrink: 0;
+  max-width: 236px;
+  border-radius: 9px;
+  background: transparent;
+  border: 1px solid transparent;
+  transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.lm-chat-session-tab-wrap:hover {
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.lm-chat-session-tab-wrap-active {
+  background: rgba(255, 255, 255, 0.075);
+  border-color: var(--accent-border);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.lm-chat-session-tab {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  padding: 6px 12px;
+  text-align: left;
+  border-radius: 9px;
+}
+
+.lm-chat-session-tab-wrap-active .lm-chat-session-tab {
+  color: var(--text);
+}
+
+.lm-chat-session-tab:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.lm-chat-session-tab-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lm-chat-session-tab-menu {
+  min-width: 132px;
+  padding: 4px 0;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated, var(--bg));
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+}
+
+.lm-chat-session-tab-menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lm-chat-session-tab-menu-item:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.lm-chat-session-tab-menu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.lm-chat-session-tab-menu-item-danger {
+  color: #e57373;
+}
+
+.lm-chat-session-tab-menu-item-danger:hover:not(:disabled) {
+  background: rgba(229, 115, 115, 0.12);
+  color: #ff8a80;
+}
+
+.lm-chat-session-tab-edit-wrap {
+  flex-shrink: 0;
+  padding: 2px 0;
+}
+
+.lm-chat-session-tab-new {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px dashed var(--accent-border);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.lm-chat-session-tab-new:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.lm-chat-session-tab-new:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.lm-chat-session-tab-input {
+  min-width: 140px;
+  max-width: 240px;
+  padding: 6px 10px;
+  font-size: 11.5px;
+  font-weight: 500;
+  border-radius: 9px;
+  border: 1px solid var(--accent-border);
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+  box-shadow: 0 0 0 1px var(--accent-dim);
 }
 
 .lm-files-explorer {
@@ -3596,22 +4878,6 @@ fieldset.lm-field-reset > legend.lm-meta {
   flex-direction: column;
   padding: 8px 12px 12px;
   gap: 6px;
-}
-
-.lm-file-page-intro {
-  font-size: 11.5px;
-  line-height: 1.55;
-  color: var(--text-2);
-  padding: 8px 10px;
-  border-radius: var(--r);
-  border: 1px solid var(--border);
-  background: rgba(0, 0, 0, 0.18);
-  flex-shrink: 0;
-}
-
-.lm-file-page-intro strong {
-  color: var(--text);
-  font-weight: 600;
 }
 
 .lm-office-doc-pane {
@@ -3667,7 +4933,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 
 .lm-fs-root-path {
   flex: 1;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
   font-family: var(--mono);
   overflow: hidden;
@@ -3718,14 +4984,14 @@ fieldset.lm-field-reset > legend.lm-meta {
   display: inline-flex;
   justify-content: center;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   transition: transform var(--t) var(--ease);
 }
 .lm-fs-arrow.open { transform: rotate(90deg); }
 
 .lm-fs-icon { flex-shrink: 0; font-size: 13px; }
 .lm-fs-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
-.lm-fs-lock { flex-shrink: 0; font-size: 10px; opacity: 0.6; }
+.lm-fs-lock { flex-shrink: 0; font-size: 12px; opacity: 0.6; }
 
 .lm-fs-inline-input {
   padding: 3px 8px;
@@ -3818,7 +5084,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 }
 
 .lm-editor-root-badge {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -3831,7 +5097,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 }
 
 .lm-editor-path {
-  font-size: 11px;
+  font-size: 13px;
   font-family: var(--mono);
   color: var(--text-2);
   overflow: hidden;
@@ -3859,7 +5125,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 .lm-editor-statusbar {
   padding: 4px 12px;
   border-top: 1px solid var(--border);
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
   flex-shrink: 0;
 }
@@ -3881,7 +5147,76 @@ fieldset.lm-field-reset > legend.lm-meta {
   padding-top: 8px;
 }
 
+.lm-fs-section-dual + .lm-fs-section-dual {
+  margin-top: 10px;
+}
+
+.lm-fs-dual-root-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px 0 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.lm-fs-dual-expander {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  padding: 2px 4px 0 0;
+  cursor: pointer;
+  color: var(--muted, inherit);
+  line-height: 1.2;
+}
+
+.lm-fs-dual-expander:hover {
+  color: var(--text-2, inherit);
+}
+
+.lm-fs-dual-header-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  cursor: pointer;
+  padding: 2px 0;
+  border-radius: var(--r-xs, 4px);
+}
+
+.lm-fs-dual-header-body:hover {
+  background: var(--surface-2, rgba(0, 0, 0, 0.04));
+}
+
+.lm-fs-dual-header-body .lm-section-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.lm-fs-dual-hint {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.35;
+  margin-top: 2px;
+}
+
+.lm-fs-dual-empty {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.45;
+  padding: 6px 4px 8px 22px;
+  margin: 0;
+}
+
 /* ── Quick open trigger button (sidebar) ───────────────────── */
+.lm-fs-workspace-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
 .lm-quickopen-trigger {
   display: flex;
   align-items: center;
@@ -3901,7 +5236,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 .lm-quickopen-trigger:hover { border-color: var(--border-md); color: var(--text-2); background: var(--surface-2); }
 .lm-quickopen-trigger span:nth-child(2) { flex: 1; }
 .lm-quickopen-trigger kbd {
-  font-size: 10px;
+  font-size: 12px;
   padding: 1px 5px;
   border-radius: var(--r-xs);
   border: 1px solid var(--border);
@@ -3944,7 +5279,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 .lm-quickopen-input::placeholder { color: var(--muted); }
 
 .lm-quickopen-esc {
-  font-size: 10px;
+  font-size: 12px;
   padding: 2px 7px;
   border-radius: var(--r-sm);
   border: 1px solid var(--border);
@@ -3994,7 +5329,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 }
 
 .lm-quickopen-item-path {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
   font-family: var(--mono);
   white-space: nowrap;
@@ -4003,7 +5338,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 }
 
 .lm-quickopen-item-root {
-  font-size: 10px;
+  font-size: 12px;
   padding: 1px 6px;
   border-radius: 20px;
   background: var(--accent-dim);
@@ -4026,7 +5361,7 @@ fieldset.lm-field-reset > legend.lm-meta {
   gap: 16px;
   padding: 7px 14px;
   border-top: 1px solid var(--border);
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
   background: var(--surface);
 }
@@ -4116,7 +5451,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 
 .lm-btn-small {
   padding: 4px 10px;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .lm-workbench-empty,
@@ -4172,7 +5507,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 }
 
 .lm-matter-meta {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
 }
 
@@ -4188,6 +5523,30 @@ fieldset.lm-field-reset > legend.lm-meta {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+}
+
+/* 极窄窗口：案件 / 审核 双列改上下堆叠，避免列表与详情同时被压成窄条 */
+@media (max-width: 700px) {
+  .lm-workbench {
+    flex-direction: column;
+  }
+  .lm-workbench > .lm-workbench-list {
+    width: 100% !important;
+    max-height: min(42vh, 320px);
+    flex-shrink: 0;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .lm-workbench > .lm-split-handle.lm-split-handle-vertical {
+    display: none;
+    width: 0;
+    height: 0;
+    margin: 0;
+    overflow: hidden;
+  }
+  .lm-workbench-main {
+    min-height: min(48vh, 520px);
+  }
 }
 
 /* 审核台右侧：整栏可滚，避免「仅正文区滚动」时备注/选项被顶出视口 */
@@ -4363,7 +5722,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 .lm-matter-history-title {
   margin: 10px 0 8px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -4595,7 +5954,7 @@ fieldset.lm-field-reset > legend.lm-meta {
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--surface-2);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
 }
@@ -4702,6 +6061,205 @@ fieldset.lm-field-reset > legend.lm-meta {
   gap: 14px;
 }
 
+.lm-matter-meeting-card h3 {
+  margin-top: 0;
+}
+
+.lm-matter-meeting {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lm-matter-meeting-intro {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+
+.lm-matter-meeting-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  width: 100%;
+}
+
+.lm-matter-meeting-refresh {
+  margin-left: auto;
+}
+
+.lm-matter-meeting-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.lm-matter-meeting-field select {
+  min-width: 160px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.lm-matter-meeting-label {
+  color: var(--muted);
+}
+
+.lm-matter-meeting-hint {
+  margin: 0;
+}
+
+.lm-matter-meeting-details {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.lm-matter-meeting-details summary {
+  cursor: pointer;
+  color: var(--text-2);
+  user-select: none;
+  padding: 4px 0;
+}
+
+.lm-matter-meeting-details-muted summary {
+  color: var(--muted);
+}
+
+.lm-matter-meeting-details-body {
+  margin: 8px 0 0;
+}
+
+.lm-matter-meeting-details .lm-matter-meeting-agenda {
+  margin-top: 8px;
+}
+
+.lm-matter-meeting-feed {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: min(420px, 50vh);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface);
+}
+
+.lm-matter-meeting-row {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.lm-matter-meeting-row:last-child {
+  border-bottom: none;
+}
+
+.lm-matter-meeting-row-system {
+  background: rgba(127, 127, 127, 0.06);
+}
+
+.lm-matter-meeting-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.lm-matter-meeting-author {
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.lm-matter-meeting-text {
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.lm-matter-meeting-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lm-matter-meeting-compose-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.lm-matter-meeting-kbd-hint {
+  font-size: 11px;
+}
+
+.lm-matter-meeting-agenda {
+  width: 100%;
+  min-height: 52px;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 10px 12px;
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.lm-matter-meeting-agenda::placeholder {
+  color: var(--muted);
+}
+
+.lm-matter-meeting-agenda:focus {
+  outline: none;
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 1px rgba(183, 154, 103, 0.2);
+}
+
+.lm-matter-meeting-load-earlier {
+  margin: 8px 0 4px;
+}
+
+.lm-matter-meeting-clarify {
+  margin-top: 4px;
+}
+
+.lm-matter-meeting-input {
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 10px 12px;
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.lm-matter-meeting-input::placeholder {
+  color: var(--muted);
+}
+
+.lm-matter-meeting-input:focus {
+  outline: none;
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 1px rgba(183, 154, 103, 0.2);
+}
+
 .lm-bullet-list {
   list-style: disc;
   padding-left: 1.2em;
@@ -4711,7 +6269,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 
 .lm-case-md {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.5;
   white-space: pre-wrap;
   background: var(--surface);
@@ -4786,7 +6344,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 
 .lm-search-hit-section {
   display: inline-block;
-  font-size: 10px;
+  font-size: 12px;
   text-transform: uppercase;
   color: var(--accent);
   margin-bottom: 4px;
@@ -4821,7 +6379,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 
 .lm-audit-time {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .lm-audit-detail {
@@ -4923,7 +6481,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 }
 
 .lm-settings-template-intro code {
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .lm-settings-template-warn {
@@ -4966,7 +6524,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 }
 
 .lm-settings-template-id {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--accent);
   max-width: 14rem;
   overflow: hidden;
@@ -5050,7 +6608,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 }
 
 .lm-review-profile-toggle code {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--accent);
 }
 
@@ -5076,7 +6634,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 
 .lm-review-note-hint {
   margin: 0 0 8px;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.45;
   color: var(--muted);
 }
@@ -5170,7 +6728,7 @@ fieldset.lm-field-reset > legend.lm-meta {
   padding: 4px 8px;
   border-radius: var(--r-sm);
   border: 1px solid var(--border);
-  font-size: 10px;
+  font-size: 12px;
   color: var(--text-2);
   cursor: pointer;
 }
@@ -5240,6 +6798,21 @@ fieldset.lm-field-reset > legend.lm-meta {
   margin-bottom: 12px;
 }
 
+.lm-opaque-id-chip {
+  display: inline-block;
+  max-width: 11em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  padding: 1px 7px;
+  border-radius: var(--r-xs);
+  font-size: 13px;
+  font-family: var(--font);
+  color: var(--text-2);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+}
+
 .lm-citation-warn {
   margin-bottom: 12px;
   text-align: left;
@@ -5274,7 +6847,7 @@ fieldset.lm-field-reset > legend.lm-meta {
   margin: 0;
   padding-left: 1.2rem;
   color: var(--text-2);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.6;
 }
 
@@ -5291,7 +6864,7 @@ fieldset.lm-field-reset > legend.lm-meta {
   display: inline-block;
   margin-left: 6px;
   padding: 1px 6px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   border-radius: var(--r-xs);
   vertical-align: middle;
@@ -5379,7 +6952,7 @@ fieldset.lm-field-reset > legend.lm-meta {
   border: 1px solid rgba(240, 101, 101, 0.4);
   border-radius: 4px;
   padding: 1px 6px;
-  font-size: 11px;
+  font-size: 13px;
 }
 .lm-badge-warning {
   background: rgba(245, 166, 35, 0.12);
@@ -5387,12 +6960,12 @@ fieldset.lm-field-reset > legend.lm-meta {
   border: 1px solid rgba(245, 166, 35, 0.35);
   border-radius: 4px;
   padding: 1px 6px;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 /* ── Edition & DeliverableSpec inspector ─────────────────────── */
 .lm-settings-subtitle {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-2);
   margin: 6px 0 6px;
@@ -5441,7 +7014,7 @@ fieldset.lm-field-reset > legend.lm-meta {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 800;
   flex-shrink: 0;
   background: rgba(255, 255, 255, 0.04);
@@ -5462,7 +7035,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 .lm-edition-spec-block-head {
   margin-bottom: 8px;
   font-weight: 700;
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted);
@@ -5501,7 +7074,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 
 .lm-edition-spec-type {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 12px;
   color: var(--accent);
   font-weight: 600;
   padding: 1px 7px;
@@ -5517,14 +7090,14 @@ fieldset.lm-field-reset > legend.lm-meta {
 
 .lm-edition-spec-desc {
   margin-top: 4px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-2);
   line-height: 1.5;
 }
 
 .lm-edition-spec-badge {
   margin-left: auto;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -5551,7 +7124,7 @@ fieldset.lm-field-reset > legend.lm-meta {
     linear-gradient(180deg, rgba(199, 171, 121, 0.04), transparent);
   border: 1px dashed var(--accent-border);
   color: var(--text-2);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.55;
 }
 
@@ -5617,7 +7190,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 
 .lm-matter-draft-status {
   font-style: normal;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-2);
   border: 1px solid var(--border);
@@ -5628,7 +7201,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 }
 
 .lm-matter-draft-hint {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
   display: inline-flex;
   align-items: center;
@@ -5645,7 +7218,7 @@ fieldset.lm-field-reset > legend.lm-meta {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   padding: 2px 8px;
   border-radius: 999px;
@@ -5684,7 +7257,7 @@ fieldset.lm-field-reset > legend.lm-meta {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1.4;
   padding: 2px 8px;
@@ -5763,7 +7336,7 @@ fieldset.lm-field-reset > legend.lm-meta {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--text-2);
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -5775,7 +7348,7 @@ fieldset.lm-field-reset > legend.lm-meta {
   color: var(--accent);
   border-radius: 999px;
   padding: 1px 8px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -5796,7 +7369,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 
 .lm-source-popover-cite {
   color: var(--text-2);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.5;
 }
 
@@ -5808,7 +7381,7 @@ fieldset.lm-field-reset > legend.lm-meta {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-2);
   line-height: 1.55;
 }
@@ -5834,7 +7407,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 .lm-source-popover-section-title {
   font-weight: 700;
   color: var(--text);
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -5849,7 +7422,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 .lm-source-popover-confidence {
   display: block;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   margin-top: 1px;
 }
 
@@ -5903,7 +7476,7 @@ fieldset.lm-field-reset > legend.lm-meta {
   display: flex;
   align-items: center;
   gap: 0;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
   font-weight: 600;
   letter-spacing: 0.03em;
@@ -5959,7 +7532,7 @@ fieldset.lm-field-reset > legend.lm-meta {
   width: auto;
   height: auto;
   border-radius: 0;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   line-height: 1;
   color: var(--ok);
@@ -6038,7 +7611,7 @@ fieldset.lm-field-reset > legend.lm-meta {
   border-radius: 50%;
   background: var(--grad-brand);
   color: #1a1410;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
   display: flex;
   align-items: center;
@@ -6066,7 +7639,7 @@ fieldset.lm-field-reset > legend.lm-meta {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
   font-family: var(--mono);
   letter-spacing: 0.02em;
@@ -6103,7 +7676,7 @@ fieldset.lm-field-reset > legend.lm-meta {
 }
 
 .lm-firstrun-confirm-row > span:first-child {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.07em;
@@ -6220,7 +7793,8 @@ button:focus-visible,
 }
 
 /* Compose actions: bigger tap target + brass glow on the send button */
-.lm-compose-actions .lm-btn {
+.lm-compose-actions .lm-btn,
+.lm-compose-toolbar-end .lm-btn {
   padding: 9px 18px;
   border-radius: 999px;
 }

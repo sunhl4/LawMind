@@ -10,8 +10,14 @@ export type AssistantProfile = {
   displayName: string;
   /** 助手简介，注入 system prompt */
   introduction: string;
-  /** 可选：内置岗位 id，见 assistant-presets */
+  /** 可选：内置岗位 id，见 assistant-presets（W7 起被 roleId 取代，过渡期保留） */
   presetKey?: string;
+  /**
+   * W7：一等岗位（Role）的 id；默认从 presetKey 推导（同名）。
+   * ToolPolicy / engine drafting 使用此字段消费 Role.allowedToolNames / riskCeiling /
+   * allowedDeliverableTypes。未来 presetKey 字段将在一个季度后下线。
+   */
+  roleId?: string;
   /** 自定义岗位标题（与预设并存时展示为副标题） */
   customRoleTitle?: string;
   /** 用户补充的岗位说明，与预设 prompt 拼接 */

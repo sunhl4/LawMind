@@ -137,21 +137,30 @@ export function fireAndForget(params: {
 
   const agent = createLawMindAgent(targetConfig);
 
+  const kindResolved = kind ?? "delegate";
+  const preSession = agent.newSession({
+    matterId,
+    title: `[协作] ${kindResolved} · ${fromAssistantId}`.slice(0, 200),
+  });
+  const targetSessionId = preSession.sessionId;
+
   const instruction = buildCollaborationInstruction({
-    kind: kind ?? "delegate",
+    kind: kindResolved,
     fromAssistantId,
     message,
   });
 
-  const completion = agent.chat(instruction, { matterId }).then((result) => ({
-    reply: result.reply,
-    turnId: result.turn.turnId,
-    sessionId: result.sessionId,
-  }));
+  const completion = agent
+    .chat(instruction, { matterId, sessionId: targetSessionId })
+    .then((result) => ({
+      reply: result.reply,
+      turnId: result.turn.turnId,
+      sessionId: result.sessionId,
+    }));
 
   return {
     delegationId,
-    targetSessionId: "",
+    targetSessionId,
     completion,
   };
 }

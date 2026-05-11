@@ -45,6 +45,14 @@ export type LawMindWorkspacePolicy = {
    * When set, must be a positive integer (clamped to 50 server-side).
    */
   agentMaxToolCallsPerTurn?: number;
+  /**
+   * W10：是否采集产品级洞察事件（ux.matter_action）。
+   *   - "off"：完全不写新 kind；现有 ui.matter_action 仍写。
+   *   - "local-only"（默认）：双写 ux.matter_action，仅本地存储。
+   *   - "synced"：双写并允许后续上传 / 跨案件聚合（当前语义与 local-only 一致，季末再决定）。
+   * Solo edition 默认 "local-only"。
+   */
+  productInsightsCollection?: "off" | "local-only" | "synced";
 };
 
 export type ResolvedAgentMandatoryRules = {

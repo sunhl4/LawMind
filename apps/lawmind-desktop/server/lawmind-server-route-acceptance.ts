@@ -23,9 +23,10 @@ import {
   listDeliverableSpecs,
   listExtraDeliverableSpecs,
   validateDraftAgainstSpec,
+  validateReasoningForDraft,
 } from "../../../src/lawmind/deliverables/index.js";
 import { buildDraftAcceptancePackMarkdown } from "../../../src/lawmind/delivery/draft-acceptance-pack.js";
-import { listDrafts, readDraft } from "../../../src/lawmind/drafts/index.js";
+import { listDrafts, readDraft, readReasoningSnapshot } from "../../../src/lawmind/drafts/index.js";
 import { resolveEdition } from "../../../src/lawmind/policy/index.js";
 import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/index.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
@@ -197,6 +198,8 @@ export async function handleAcceptanceRoutes({
     }
     const report = validateDraftAgainstSpec(draft);
     const spec = getDeliverableSpec(draft.deliverableType);
+    const graph = readReasoningSnapshot(workspaceDir, raw);
+    const reasoning = validateReasoningForDraft(draft, graph ?? undefined);
     sendJson(
       res,
       200,
@@ -204,6 +207,7 @@ export async function handleAcceptanceRoutes({
         ok: true,
         draft,
         acceptance: report,
+        reasoning,
         ...(spec
           ? {
               spec: {
@@ -211,6 +215,7 @@ export async function handleAcceptanceRoutes({
                 displayName: spec.displayName,
                 defaultOutput: spec.defaultOutput,
                 description: spec.description,
+                reasoningGate: spec.reasoningGate ?? null,
               },
             }
           : {}),

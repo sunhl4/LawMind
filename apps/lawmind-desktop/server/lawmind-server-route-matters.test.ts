@@ -1,7 +1,8 @@
 import type http from "node:http";
+import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { handleMatterRoutes } from "./lawmind-server-route-matters.js";
 import type { LawmindDispatchContext } from "./lawmind-server-route-types.js";
 
@@ -28,6 +29,33 @@ function createResponseCapture() {
     },
   };
 }
+
+function createJsonRequest(method: string, body?: unknown): http.IncomingMessage {
+  const req = {
+    method,
+    headers: {},
+  } as http.IncomingMessage;
+  Object.assign(req, {
+    on(event: string, handler: (...args: unknown[]) => void) {
+      if (event === "data" && body !== undefined) {
+        handler(Buffer.from(JSON.stringify(body)));
+      }
+      if (event === "end") {
+        handler();
+      }
+      return req;
+    },
+  });
+  return req;
+}
+
+let displayNameTestWs: string | null = null;
+afterEach(async () => {
+  if (displayNameTestWs) {
+    await fs.rm(displayNameTestWs, { recursive: true, force: true });
+    displayNameTestWs = null;
+  }
+});
 
 describe("lawmind-server-route-matters", () => {
   it("returns false for unrelated routes", async () => {
@@ -71,5 +99,312 @@ describe("lawmind-server-route-matters", () => {
 
     expect(capture.status).toBe(400);
     expect(capture.json()).toMatchObject({ ok: false, error: "invalid matter id" });
+  });
+
+  it("POST /api/matters/display-name writes 案件名称（展示用）", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matter-display-name-"));
+    displayNameTestWs = ws;
+    await fs.mkdir(path.join(ws, "cases", "matter-rename"), { recursive: true });
+    await fs.writeFile(
+      path.join(ws, "cases", "matter-rename", "CASE.md"),
+      "# x\n\n## 1. 基本信息\n\n- matterId: matter-rename\n",
+      "utf8",
+    );
+    const ctx: LawmindDispatchContext = {
+      workspaceDir: ws,
+      envFile: undefined,
+      userEnvPath: path.join(os.tmpdir(), "x.env"),
+      policy: { loaded: false },
+    };
+    const capture = createResponseCapture();
+    const handled = await handleMatterRoutes({
+      ctx,
+      req: createJsonRequest("POST", { matterId: "matter-rename", displayName: "新展示名" }),
+      res: capture.res,
+      url: new URL("http://127.0.0.1/api/matters/display-name"),
+      pathname: "/api/matters/display-name",
+      c: {},
+    });
+    expect(handled).toBe(true);
+    expect(capture.status).toBe(200);
+    expect(capture.json()).toMatchObject({ ok: true, displayName: "新展示名" });
+    const raw = await fs.readFile(path.join(ws, "cases", "matter-rename", "CASE.md"), "utf8");
+    expect(raw).toContain("案件名称（展示用）: 新展示名");
+  });
+
+  it("POST /api/matters/display-name creates CASE.md when only cases/<id>/ exists", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matter-display-name-empty-"));
+    try {
+      await fs.mkdir(path.join(ws, "cases", "matter-empty"), { recursive: true });
+      const ctx: LawmindDispatchContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const capture = createResponseCapture();
+      const handled = await handleMatterRoutes({
+        ctx,
+        req: createJsonRequest("POST", { matterId: "matter-empty", displayName: "房屋租赁" }),
+        res: capture.res,
+        url: new URL("http://127.0.0.1/api/matters/display-name"),
+        pathname: "/api/matters/display-name",
+        c: {},
+      });
+      expect(handled).toBe(true);
+      expect(capture.status).toBe(200);
+      expect(capture.json()).toMatchObject({ ok: true, displayName: "房屋租赁" });
+      const raw = await fs.readFile(path.join(ws, "cases", "matter-empty", "CASE.md"), "utf8");
+      expect(raw).toContain("案件名称（展示用）: 房屋租赁");
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("POST /api/matters/delete removes cases/<matterId>", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matter-delete-"));
+    try {
+      await fs.mkdir(path.join(ws, "cases", "matter-del"), { recursive: true });
+      await fs.writeFile(
+        path.join(ws, "cases", "matter-del", "CASE.md"),
+        "# x\n",
+        "utf8",
+      );
+      const ctx: LawmindDispatchContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const capture = createResponseCapture();
+      const handled = await handleMatterRoutes({
+        ctx,
+        req: createJsonRequest("POST", { matterId: "matter-del" }),
+        res: capture.res,
+        url: new URL("http://127.0.0.1/api/matters/delete"),
+        pathname: "/api/matters/delete",
+        c: {},
+      });
+      expect(handled).toBe(true);
+      expect(capture.status).toBe(200);
+      expect(capture.json()).toMatchObject({ ok: true, matterId: "matter-del", deletedFromDisk: true });
+      await expect(fs.access(path.join(ws, "cases", "matter-del"))).rejects.toBeDefined();
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("POST /api/matters/delete succeeds when cases/<matterId> is already absent (phantom row)", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matter-delete-missing-"));
+    try {
+      await fs.mkdir(path.join(ws, "cases"), { recursive: true });
+      const ctx: LawmindDispatchContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const capture = createResponseCapture();
+      const handled = await handleMatterRoutes({
+        ctx,
+        req: createJsonRequest("POST", { matterId: "YX-jqjnjb" }),
+        res: capture.res,
+        url: new URL("http://127.0.0.1/api/matters/delete"),
+        pathname: "/api/matters/delete",
+        c: {},
+      });
+      expect(handled).toBe(true);
+      expect(capture.status).toBe(200);
+      expect(capture.json()).toMatchObject({
+        ok: true,
+        matterId: "YX-jqjnjb",
+        deletedFromDisk: false,
+      });
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("GET /api/matters/role returns folder when no CASE.md", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matter-role-get-"));
+    try {
+      await fs.mkdir(path.join(ws, "cases", "role-get"), { recursive: true });
+      const ctx: LawmindDispatchContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const capture = createResponseCapture();
+      const handled = await handleMatterRoutes({
+        ctx,
+        req: { method: "GET" } as http.IncomingMessage,
+        res: capture.res,
+        url: new URL("http://127.0.0.1/api/matters/role?matterId=role-get"),
+        pathname: "/api/matters/role",
+        c: {},
+      });
+      expect(handled).toBe(true);
+      expect(capture.status).toBe(200);
+      expect(capture.json()).toMatchObject({ ok: true, matterId: "role-get", role: "folder" });
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("POST /api/matters/role folder writes .lawmind-role.txt", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matter-role-post-"));
+    try {
+      await fs.mkdir(path.join(ws, "cases", "role-post"), { recursive: true });
+      const ctx: LawmindDispatchContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const capture = createResponseCapture();
+      const handled = await handleMatterRoutes({
+        ctx,
+        req: createJsonRequest("POST", { matterId: "role-post", role: "folder" }),
+        res: capture.res,
+        url: new URL("http://127.0.0.1/api/matters/role"),
+        pathname: "/api/matters/role",
+        c: {},
+      });
+      expect(handled).toBe(true);
+      expect(capture.status).toBe(200);
+      expect(capture.json()).toMatchObject({ ok: true, matterId: "role-post", role: "folder" });
+      const raw = await fs.readFile(path.join(ws, "cases", "role-post", ".lawmind-role.txt"), "utf8");
+      expect(raw.trim().toLowerCase()).toBe("folder");
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("POST /api/matters/role matter creates CASE.md", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matter-role-matter-"));
+    try {
+      await fs.mkdir(path.join(ws, "cases", "role-matter"), { recursive: true });
+      const ctx: LawmindDispatchContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const capture = createResponseCapture();
+      const handled = await handleMatterRoutes({
+        ctx,
+        req: createJsonRequest("POST", { matterId: "role-matter", role: "matter" }),
+        res: capture.res,
+        url: new URL("http://127.0.0.1/api/matters/role"),
+        pathname: "/api/matters/role",
+        c: {},
+      });
+      expect(handled).toBe(true);
+      expect(capture.status).toBe(200);
+      expect(capture.json()).toMatchObject({ ok: true, matterId: "role-matter", role: "matter" });
+      await fs.access(path.join(ws, "cases", "role-matter", "CASE.md"));
+      const roleRaw = await fs.readFile(
+        path.join(ws, "cases", "role-matter", ".lawmind-role.txt"),
+        "utf8",
+      );
+      expect(roleRaw.trim().toLowerCase()).toBe("matter");
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("GET /api/matters/team-meeting rejects invalid matter id", async () => {
+    const ctx: LawmindRouteContext = {
+      workspaceDir: os.tmpdir(),
+      envFile: undefined,
+      userEnvPath: path.join(os.tmpdir(), "x.env"),
+      policy: { loaded: false },
+    };
+    const capture = createResponseCapture();
+    await handleMatterRoutes({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res: capture.res,
+      url: new URL("http://127.0.0.1/api/matters/team-meeting?matterId=../x"),
+      pathname: "/api/matters/team-meeting",
+      c: {},
+    });
+    expect(capture.status).toBe(400);
+  });
+
+  it("GET /api/matters/team-meeting returns lines tail", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-team-meeting-get-"));
+    try {
+      const matterId = "tm-get";
+      await fs.mkdir(path.join(ws, "cases", matterId), { recursive: true });
+      const fp = path.join(ws, "cases", matterId, "team-meeting.jsonl");
+      await fs.writeFile(
+        fp,
+        `${JSON.stringify({ id: "a", ts: "2026-01-01T00:00:00.000Z", kind: "user", text: "hi" })}\n`,
+        "utf8",
+      );
+      const ctx: LawmindRouteContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const capture = createResponseCapture();
+      await handleMatterRoutes({
+        ctx,
+        req: { method: "GET" } as http.IncomingMessage,
+        res: capture.res,
+        url: new URL(`http://127.0.0.1/api/matters/team-meeting?matterId=${matterId}`),
+        pathname: "/api/matters/team-meeting",
+        c: {},
+      });
+      expect(capture.status).toBe(200);
+      const j = capture.json();
+      expect(j.ok).toBe(true);
+      expect(Array.isArray(j.lines)).toBe(true);
+      expect(j.lines).toHaveLength(1);
+      expect(j.total).toBe(1);
+      expect(j.lines[0]).toMatchObject({ kind: "user", text: "hi" });
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("GET /api/matters/team-meeting supports skipFromEnd window", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-team-meeting-skip-"));
+    try {
+      const matterId = "tm-skip";
+      await fs.mkdir(path.join(ws, "cases", matterId), { recursive: true });
+      const fp = path.join(ws, "cases", matterId, "team-meeting.jsonl");
+      const rows = ["a", "b", "c"].map((t) =>
+        JSON.stringify({ id: t, ts: "2026-01-01T00:00:00.000Z", kind: "user", text: t }),
+      );
+      await fs.writeFile(fp, `${rows.join("\n")}\n`, "utf8");
+      const ctx: LawmindRouteContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const capture = createResponseCapture();
+      await handleMatterRoutes({
+        ctx,
+        req: { method: "GET" } as http.IncomingMessage,
+        res: capture.res,
+        url: new URL(
+          `http://127.0.0.1/api/matters/team-meeting?matterId=${matterId}&limit=2&skipFromEnd=1`,
+        ),
+        pathname: "/api/matters/team-meeting",
+        c: {},
+      });
+      expect(capture.status).toBe(200);
+      const j = capture.json();
+      expect(j.ok).toBe(true);
+      expect(j.total).toBe(3);
+      expect(j.lines.map((x: { text: string }) => x.text)).toEqual(["a", "b"]);
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true });
+    }
   });
 });

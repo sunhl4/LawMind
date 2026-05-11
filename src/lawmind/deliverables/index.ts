@@ -19,11 +19,15 @@ export {
 } from "./registry.js";
 export { isDraftReadyForRender, validateDraftAgainstSpec } from "./validator.js";
 export { countPlaceholderLikeMarkers, heuristicPlaceholderRatio } from "./draft-sanity.js";
+export { validateReasoningAgainstSpec, validateReasoningForDraft } from "./reasoning-validator.js";
 export type {
   AcceptanceCheck,
   AcceptanceReport,
   DeliverableSpec,
   PlaceholderRule,
+  ReasoningCheck,
+  ReasoningGateSpec,
+  ReasoningReport,
   RequiredSection,
   ValidateDraftFn,
   ValidateDraftOptions,

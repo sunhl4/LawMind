@@ -488,6 +488,9 @@ function registerIpcHandlers() {
       const notification = new Notification({ title, body: body.slice(0, 512) });
       const openSettingsOnClick = payload?.openSettingsOnClick === true;
       const openReviewOnClick = payload?.openReviewOnClick === true;
+      const openChatOnClick = payload?.openChatOnClick === true;
+      const chatAssistantId =
+        typeof payload?.chatAssistantId === "string" ? payload.chatAssistantId.trim() : "";
       const reviewTaskId =
         typeof payload?.reviewTaskId === "string" ? payload.reviewTaskId.trim() : "";
       const reviewMatterIdRaw = payload?.reviewMatterId;
@@ -522,6 +525,21 @@ function registerIpcHandlers() {
               reason: "open_review",
               reviewTaskId: reviewTaskId || undefined,
               reviewMatterId: reviewMatterId ?? undefined,
+            });
+          }
+        });
+      } else if (openChatOnClick) {
+        notification.on("click", () => {
+          const w = mainWindowRef ?? BrowserWindow.getAllWindows()[0];
+          if (w && !w.isDestroyed()) {
+            if (w.isMinimized()) {
+              w.restore();
+            }
+            w.show();
+            w.focus();
+            w.webContents.send("lawmind:notification-click", {
+              reason: "open_workspace_chat",
+              chatAssistantId: chatAssistantId || undefined,
             });
           }
         });
@@ -832,11 +850,91 @@ function registerIpcHandlers() {
     }
   });
 
+  /** 选择本地文件或文件夹（可选多选），用于「按路径导入案件」等。 */
+  ipcMain.handle("lawmind:dialog:open-files", async (evt, payload = {}) => {
+    const win =
+      BrowserWindow.fromWebContents(evt.sender) ??
+      mainWindowRef ??
+      BrowserWindow.getFocusedWindow();
+    const multi = payload?.multi !== false;
+    const allowDirectories = payload?.allowDirectories === true;
+    const title =
+      typeof payload?.title === "string" ? payload.title : allowDirectories ? "选择文件或文件夹" : "选择文件";
+    const filters = Array.isArray(payload?.filters)
+      ? payload.filters
+      : [
+          {
+            name: "Documents",
+            extensions: ["pdf", "doc", "docx", "md", "txt", "rtf"],
+          },
+          { name: "All", extensions: ["*"] },
+        ];
+
+    const platform = process.platform;
+    /** @type {import("electron").OpenDialogReturnValue} */
+    let res;
+
+    if (allowDirectories && (platform === "darwin" || platform === "linux")) {
+      const properties = multi ? ["openFile", "openDirectory", "multiSelections"] : ["openFile", "openDirectory"];
+      res = await dialog.showOpenDialog(win ?? undefined, {
+        title,
+        properties,
+        filters,
+      });
+    } else if (allowDirectories && platform === "win32") {
+      const choice = await dialog.showMessageBox(win ?? undefined, {
+        type: "question",
+        title: "导入案件",
+        message: "Windows 下需分别选择文件或文件夹。请选择本次导入方式。",
+        buttons: ["取消", "选择文件…", "选择文件夹…"],
+        defaultId: 1,
+        cancelId: 0,
+      });
+      if (choice.response === 0) {
+        return { ok: false, canceled: true };
+      }
+      if (choice.response === 1) {
+        res = await dialog.showOpenDialog(win ?? undefined, {
+          title: `${title}（文件）`,
+          properties: multi ? ["openFile", "multiSelections"] : ["openFile"],
+          filters,
+        });
+      } else {
+        res = await dialog.showOpenDialog(win ?? undefined, {
+          title: `${title}（文件夹）`,
+          properties: multi ? ["openDirectory", "multiSelections"] : ["openDirectory"],
+        });
+      }
+    } else {
+      res = await dialog.showOpenDialog(win ?? undefined, {
+        title,
+        properties: multi ? ["openFile", "multiSelections"] : ["openFile"],
+        filters,
+      });
+    }
+
+    if (res.canceled || !res.filePaths?.length) {
+      return { ok: false, canceled: true };
+    }
+    const pathKinds = res.filePaths.map((p) => {
+      try {
+        const st = fs.statSync(p);
+        return st.isDirectory() ? "directory" : "file";
+      } catch {
+        return "file";
+      }
+    });
+    return { ok: true, filePaths: res.filePaths, pathKinds };
+  });
+
   /** Save text to a path chosen by the user (另存为). */
-  ipcMain.handle("lawmind:dialog:save-text-file", async (_evt, payload) => {
+  ipcMain.handle("lawmind:dialog:save-text-file", async (evt, payload) => {
     const content = typeof payload?.content === "string" ? payload.content : "";
     const defaultName = typeof payload?.defaultName === "string" ? payload.defaultName : "未命名.txt";
-    const win = BrowserWindow.getFocusedWindow();
+    const win =
+      BrowserWindow.fromWebContents(evt.sender) ??
+      mainWindowRef ??
+      BrowserWindow.getFocusedWindow();
     const res = await dialog.showSaveDialog(win ?? undefined, {
       title: "另存为",
       defaultPath: defaultName,

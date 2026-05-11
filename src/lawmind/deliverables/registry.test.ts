@@ -18,6 +18,7 @@ describe("deliverables/registry", () => {
       "contract.general",
       "letter.demand",
       "contract.review",
+      "litigation.outline",
       "document.general",
     ]);
   });

@@ -27,6 +27,8 @@ export type LawMindPolicyFile = {
   agentMandatoryRulesPath?: string;
   /** Overrides env `LAWMIND_AGENT_MAX_TOOL_CALLS` for Agent `runTurn` when set (clamped server-side). */
   agentMaxToolCallsPerTurn?: number;
+  /** W10：是否采集产品级洞察事件（ux.matter_action）。 */
+  productInsightsCollection?: "off" | "local-only" | "synced";
 };
 
 export type LawMindPolicyState =

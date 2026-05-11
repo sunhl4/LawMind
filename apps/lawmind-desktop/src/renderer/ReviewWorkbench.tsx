@@ -2,7 +2,7 @@
  * 草稿审核台 — 列表、全文审阅、通过 / 驳回 / 备注、批准后渲染交付物。
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { ArtifactDraft } from "../../../../src/lawmind/types.ts";
 import type { AcceptanceReport } from "../../../../src/lawmind/deliverables/index.ts";
@@ -27,6 +27,7 @@ import {
 import { useEdition } from "./use-edition";
 import { LM_PANE_MAX_WIDTH_PX, LM_PANE_MIN_WIDTH_PX } from "./lawmind-panel-layout";
 import { usePaneResizePx } from "./use-pane-resize";
+import { internalIdsTitle, pathBasename } from "./display-ids";
 
 type Props = {
   apiBase: string;
@@ -161,6 +162,10 @@ export function ReviewWorkbench(props: Props) {
   const [acceptance, setAcceptance] = useState<AcceptanceReport | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [note, setNote] = useState("");
+  /** 「需修改」后：发给助手的补充说明，随 revision-job 提交 */
+  const [revisionDispatchNote, setRevisionDispatchNote] = useState("");
+  const [revisionDispatchBusy, setRevisionDispatchBusy] = useState(false);
+  const revisionPrefilledForTaskRef = useRef<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [, setReopenSubmitting] = useState(false);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
@@ -301,6 +306,23 @@ export function ReviewWorkbench(props: Props) {
     }
   }, [selectedTaskId, loadDetail]);
 
+  useEffect(() => {
+    if (!detail || detail.reviewStatus !== "modified") {
+      revisionPrefilledForTaskRef.current = null;
+      return;
+    }
+    if (revisionPrefilledForTaskRef.current === detail.taskId) {
+      return;
+    }
+    revisionPrefilledForTaskRef.current = detail.taskId;
+    const notes = detail.reviewNotes ?? [];
+    if (notes.length > 0) {
+      setRevisionDispatchNote(notes[notes.length - 1].trim());
+    } else {
+      setRevisionDispatchNote("");
+    }
+  }, [detail]);
+
   const templateOptions = useMemo(() => {
     if (!detail || !templateCatalog) {
       return [] as Array<{ id: string; label: string; kind: "built-in" | "uploaded" }>;
@@ -381,6 +403,8 @@ export function ReviewWorkbench(props: Props) {
         throw new Error(messageFromOkFalseBody(j, "恢复待审核失败"));
       }
       setActionMsg("已恢复为待审核。可再次使用通过 / 驳回 / 需修改；通过后可用「渲染交付物」。");
+      revisionPrefilledForTaskRef.current = null;
+      setRevisionDispatchNote("");
       await loadDrafts();
       if (j.draft) {
         setDetail(j.draft);
@@ -441,7 +465,16 @@ export function ReviewWorkbench(props: Props) {
       setNote("");
       setSelectedLabels(new Set());
       setDeferMemoryWrites(false);
-      let msg = status === "approved" ? "已通过审核。可点击「渲染交付物」生成文件。" : "已记录审核结果。";
+      let msg: string;
+      if (status === "approved") {
+        msg = "已通过审核。可点击「渲染交付物」生成文件。";
+      } else if (status === "modified") {
+        msg =
+          "已保存为「需修改」及签批备注。请在下方「发给助手的补充说明」中完善意见后，点击「提交给助手（后台执行）」派发修订；未点击则不会启动后台改稿。";
+      } else {
+        msg =
+          "已记录驳回。助手不会自动处理：请在主对话中说明后续如何办理或是否重做。";
+      }
       if (j.profileLearningSkipped || j.lawyerProfileLearningSkipped) {
         msg +=
           " 助手/律师档案中已有该任务对应的学习记录，本次未重复写入。";
@@ -500,6 +533,43 @@ export function ReviewWorkbench(props: Props) {
       setLearningBusy(null);
     }
   };
+
+  const submitRevisionJob = useCallback(async () => {
+    if (!selectedTaskId?.trim()) {
+      return;
+    }
+    if ((detail?.reviewStatus ?? "pending") !== "modified") {
+      return;
+    }
+    setRevisionDispatchBusy(true);
+    setActionMsg(null);
+    try {
+      const j = await apiSendJson<
+        {
+          ok?: boolean;
+          queued?: boolean;
+          sessionId?: string;
+          assistantId?: string;
+          error?: string;
+          message?: string;
+        },
+        { instruction?: string; assistantId?: string }
+      >(apiBase, `/api/drafts/${encodeURIComponent(selectedTaskId)}/revision-job`, "POST", {
+        instruction: revisionDispatchNote.trim() || undefined,
+        assistantId,
+      });
+      if (!j.ok) {
+        throw new Error(userMessageFromApiError(j as ApiErrorJson, messageFromOkFalseBody(j, "提交失败")));
+      }
+      setActionMsg(
+        "已提交后台修订：助手会在新开会话中处理。请到工作区切换到当前助手，在会话列表中打开最新「审核修订」会话，确认是否成功调用写盘工具；完成后回到本页刷新。若刷新后正文仍几乎不变，多半是工具未把 JSON 写回 drafts/（可在该会话里查看工具返回的错误）。",
+      );
+    } catch (e) {
+      setActionMsg(errorMessage(e, "提交后台修订失败"));
+    } finally {
+      setRevisionDispatchBusy(false);
+    }
+  }, [apiBase, assistantId, detail?.reviewStatus, revisionDispatchNote, selectedTaskId]);
 
   const submitRender = async () => {
     if (!selectedTaskId) {
@@ -609,9 +679,6 @@ export function ReviewWorkbench(props: Props) {
             刷新
           </button>
         </div>
-        <p className="lm-meta lm-review-workbench-intro">
-          落盘草稿在此<strong>由律师把关</strong>：通过 / 需修改 / 驳回；并满足验收门禁后，再用「渲染交付物」生成 Word 等。<strong>未经本页通过，不宜视为可对外交付。</strong>不在这里改聊天。
-        </p>
         <div className="lm-review-filters">
           <button
             type="button"
@@ -654,10 +721,6 @@ export function ReviewWorkbench(props: Props) {
         </div>
         {(matterFilter.trim() || statusFilter !== "all") && (
           <div className="lm-review-scope-hint">
-            <span className="lm-meta">
-              当前范围：{matterFilter.trim() ? `案件 ${matterFilter.trim()}` : "全部案件"} ·{" "}
-              {reviewStatusFilterLabel(statusFilter)}
-            </span>
             <button
               type="button"
               className="lm-btn lm-btn-secondary lm-btn-small"
@@ -666,7 +729,7 @@ export function ReviewWorkbench(props: Props) {
                 setStatusFilter("all");
               }}
             >
-              清空范围
+              重置筛选
             </button>
           </div>
         )}
@@ -697,7 +760,14 @@ export function ReviewWorkbench(props: Props) {
                 <span className={`lm-badge lm-draft-status-${d.reviewStatus ?? "pending"}`}>
                   {reviewStatusDisplayLabel(d.reviewStatus)}
                 </span>
-                {d.matterId && <span className="lm-matter-badge">{d.matterId}</span>}
+                {d.matterId ? (
+                  <span
+                    className="lm-matter-badge"
+                    title={internalIdsTitle([{ label: "案件编号", value: d.matterId }])}
+                  >
+                    关联案件
+                  </span>
+                ) : null}
               </button>
             </li>
           ))}
@@ -737,8 +807,11 @@ export function ReviewWorkbench(props: Props) {
                 <ul className="lm-review-learning-list">
                   {learningQueue.slice(0, 8).map((s) => (
                     <li key={s.id}>
-                      <span className="lm-meta">
-                        {s.taskId.slice(0, 8)}… · {s.labels.join(", ") || "（无标签）"}
+                      <span
+                        className="lm-meta"
+                        title={internalIdsTitle([{ label: "关联草稿任务", value: s.taskId }])}
+                      >
+                        {s.labels.join("、").trim() || "一条模型生成的升级建议"}
                       </span>
                       <button
                         type="button"
@@ -768,17 +841,104 @@ export function ReviewWorkbench(props: Props) {
               <LawmindMemorySourcesPanel layers={memorySources} variant="workbench" />
             ) : null}
             <LawmindAcceptanceGate report={acceptance} />
+            <label className="lm-review-note">
+              <span className="lm-review-note-title">审核备注（可选）</span>
+              <span className="lm-meta lm-review-note-hint">
+                备注与本次签批一并提交：请先写好备注，再点下方「通过」「驳回」或「需修改」。若已签批，需先点「恢复待审核」才能再次附带备注签批。
+              </span>
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="例如：须补充××条款依据、与当事人核实××事实后再定稿…"
+                rows={4}
+                disabled={actionBusy || (detail.reviewStatus ?? "pending") !== "pending"}
+                aria-disabled={actionBusy || (detail.reviewStatus ?? "pending") !== "pending"}
+              />
+            </label>
+
+            <label className="lm-review-profile-toggle">
+              <input
+                type="checkbox"
+                checked={deferMemoryWrites}
+                onChange={(e) => {
+                  setDeferMemoryWrites(e.target.checked);
+                  if (e.target.checked) {
+                    setAppendToProfile(false);
+                    setAppendToLawyerProfile(false);
+                  }
+                }}
+                disabled={actionBusy || (detail.reviewStatus ?? "pending") !== "pending"}
+              />
+              <span>学习队列（稍后采纳）</span>
+            </label>
+            <div className="lm-review-labels">
+              <span className="lm-review-labels-title">审核标签（可选，驱动质量学习）</span>
+              <div className="lm-review-labels-grid">
+                {ALL_REVIEW_LABELS.map((lb) => (
+                  <label key={lb} className="lm-review-label-chip">
+                    <input
+                      type="checkbox"
+                      checked={selectedLabels.has(lb)}
+                      disabled={actionBusy || (detail.reviewStatus ?? "pending") !== "pending"}
+                      onChange={() => {
+                        setSelectedLabels((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(lb)) {
+                            next.delete(lb);
+                          } else {
+                            next.add(lb);
+                          }
+                          return next;
+                        });
+                      }}
+                    />
+                    <span>{lb}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <label className="lm-review-profile-toggle">
+              <input
+                type="checkbox"
+                checked={appendToProfile}
+                disabled={deferMemoryWrites || actionBusy || (detail.reviewStatus ?? "pending") !== "pending"}
+                onChange={(e) => setAppendToProfile(e.target.checked)}
+              />
+              <span>
+                将本条审核摘要记入本助手档案（
+                <code>{`assistants/${assistantId}/PROFILE.md`}</code>）
+              </span>
+            </label>
+            <label className="lm-review-profile-toggle">
+              <input
+                type="checkbox"
+                checked={appendToLawyerProfile}
+                disabled={deferMemoryWrites || actionBusy || (detail.reviewStatus ?? "pending") !== "pending"}
+                onChange={(e) => setAppendToLawyerProfile(e.target.checked)}
+              />
+              <span>
+                将本条审核摘要记入工作区律师档案「八、个人积累」（<code>LAWYER_PROFILE.md</code>）
+              </span>
+            </label>
+
             <div className="lm-workbench-toolbar">
               <div>
                 <h2>{detail.title}</h2>
-                <p className="lm-meta">
-                  任务 {detail.taskId} · 输出 {detail.output} · 模板 {detail.templateId}
-                  {detail.matterId ? ` · 案件 ${detail.matterId}` : ""} · 签批{" "}
-                  {reviewStatusDisplayLabel(detail.reviewStatus)}
+                <p
+                  className="lm-meta"
+                  title={internalIdsTitle([
+                    { label: "任务编号", value: detail.taskId },
+                    { label: "案件编号", value: detail.matterId ?? undefined },
+                    { label: "模板编号", value: detail.templateId },
+                  ])}
+                >
+                  {detail.output ? `输出文件：${pathBasename(detail.output)}` : "输出路径待定"}
+                  {detail.templateId ? " · 已绑定交付模板" : ""}
+                  · 签批 {reviewStatusDisplayLabel(detail.reviewStatus)}
                 </p>
                 {(detail.reviewStatus ?? "pending") !== "pending" ? (
                   <p className="lm-meta lm-review-signoff-locked">
-                    本草稿已签批为「{reviewStatusDisplayLabel(detail.reviewStatus)}」：上方三个签批已锁定；「渲染交付物」仅在被标为「通过」后可用。若已按意见改好正文、或需重新签批，请点「恢复待审核」。
+                    状态「{reviewStatusDisplayLabel(detail.reviewStatus)}」：需重审时请先恢复为待审核。
                   </p>
                 ) : null}
                 {templateOptions.length > 0 ? (
@@ -879,87 +1039,71 @@ export function ReviewWorkbench(props: Props) {
               </div>
             </div>
 
+            {detail.reviewStatus === "modified" ? (
+              <div
+                className="lm-callout lm-callout-info lm-review-revision-dispatch"
+                role="region"
+                aria-label="交给助手后台修订"
+              >
+                <p className="lm-callout-title">交给助手后台修订</p>
+                <p className="lm-callout-body">
+                  签批为「需修改」后，正文不会自动变化。下方说明会与会话中已保存的审核备注一并发给助手；点击提交后由本机在**后台**新开一轮助手对话执行改稿（无需先切到工作区输入框）。
+                </p>
+                <p className="lm-meta">
+                  任务编号 <code>{detail.taskId}</code>
+                  {detail.matterId ? (
+                    <>
+                      {" "}
+                      · 案件 <code>{detail.matterId}</code>
+                    </>
+                  ) : null}
+                </p>
+                <label className="lm-review-note lm-review-revision-dispatch-note">
+                  <span className="lm-review-note-title">发给助手的补充说明（可选）</span>
+                  <textarea
+                    value={revisionDispatchNote}
+                    onChange={(e) => setRevisionDispatchNote(e.target.value)}
+                    placeholder="可在此写清希望助手如何改结构、补条款、调语气等；若不写，助手将主要依据签批阶段记入草稿的审核备注处理。"
+                    rows={5}
+                    disabled={revisionDispatchBusy || actionBusy}
+                  />
+                </label>
+                <div className="lm-review-revision-dispatch-actions">
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-accent"
+                    disabled={revisionDispatchBusy || actionBusy}
+                    onClick={() => void submitRevisionJob()}
+                  >
+                    {revisionDispatchBusy ? "提交中…" : "提交给助手（后台执行）"}
+                  </button>
+                </div>
+                <p className="lm-meta lm-review-revision-dispatch-foot">
+                  提交后请到工作区当前助手下打开会话列表中的「审核修订」新会话查看进度；改完后回到本页刷新草稿。若要重新使用签批按钮，请先「恢复待审核」。
+                </p>
+              </div>
+            ) : null}
+
+            {detail.reviewStatus === "rejected" ? (
+              <div
+                className="lm-callout lm-callout-info lm-review-next-steps"
+                role="region"
+                aria-label="签批后的下一步"
+              >
+                <p className="lm-callout-title">助手会不会自动改稿？</p>
+                <p className="lm-callout-body">
+                  不会。驳回后也不会自动删稿。若仍要交付，请在主对话中说明如何修改或重做；需要重新签批时，可先点「恢复待审核」。
+                  {detail.matterId ? <> 关联案件工作台可能出现「草稿待修订」类待办，便于跟进。</> : null}
+                </p>
+              </div>
+            ) : null}
+
             {actionMsg ? (
               <div className="lm-meta lm-review-msg" role="status" aria-live="polite">
                 {actionMsg}
               </div>
             ) : null}
 
-            <label className="lm-review-note">
-              <span className="lm-review-note-title">审核备注（可选）</span>
-              <p className="lm-review-note-hint">点「通过 / 需修改 / 驳回」时会一并提交；可在此写理由。</p>
-              <textarea
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="例如：须补充××条款依据、与当事人核实××事实后再定稿…"
-                rows={4}
-              />
-            </label>
-
-            <label className="lm-review-profile-toggle">
-              <input
-                type="checkbox"
-                checked={deferMemoryWrites}
-                onChange={(e) => {
-                  setDeferMemoryWrites(e.target.checked);
-                  if (e.target.checked) {
-                    setAppendToProfile(false);
-                    setAppendToLawyerProfile(false);
-                  }
-                }}
-              />
-              <span>
-                结构化标签先入<strong>学习队列</strong>（暂不写入 PROFILE / Playbook，稍后在上方队列点「采纳写回」）
-              </span>
-            </label>
-            <div className="lm-review-labels">
-              <span className="lm-review-labels-title">审核标签（可选，驱动质量学习）</span>
-              <div className="lm-review-labels-grid">
-                {ALL_REVIEW_LABELS.map((lb) => (
-                  <label key={lb} className="lm-review-label-chip">
-                    <input
-                      type="checkbox"
-                      checked={selectedLabels.has(lb)}
-                      onChange={() => {
-                        setSelectedLabels((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(lb)) {
-                            next.delete(lb);
-                          } else {
-                            next.add(lb);
-                          }
-                          return next;
-                        });
-                      }}
-                    />
-                    <span>{lb}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-            <label className="lm-review-profile-toggle">
-              <input
-                type="checkbox"
-                checked={appendToProfile}
-                disabled={deferMemoryWrites}
-                onChange={(e) => setAppendToProfile(e.target.checked)}
-              />
-              <span>
-                将本条审核摘要记入本助手档案（
-                <code>{`assistants/${assistantId}/PROFILE.md`}</code>）
-              </span>
-            </label>
-            <label className="lm-review-profile-toggle">
-              <input
-                type="checkbox"
-                checked={appendToLawyerProfile}
-                disabled={deferMemoryWrites}
-                onChange={(e) => setAppendToLawyerProfile(e.target.checked)}
-              />
-              <span>
-                将本条审核摘要记入工作区律师档案「八、个人积累」（<code>LAWYER_PROFILE.md</code>）
-              </span>
-            </label>
             {detail.outputPath && (
               <div className="lm-meta">
                 已有交付路径：{detail.outputPath}{" "}

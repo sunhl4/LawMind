@@ -123,3 +123,31 @@ export function isFeatureEnabled(
 export function listEditions(): ReadonlyArray<LawMindEdition> {
   return EDITION_VALUES;
 }
+
+/**
+ * W10：是否采集产品洞察事件（ux.matter_action）。
+ *
+ * 解析顺序：
+ *   1. policy.productInsightsCollection（"off" | "local-only" | "synced"）
+ *   2. 默认值：solo => "local-only"，firm/private_deploy => "synced"
+ *
+ * 当结果为 "off" 时调用方应跳过写入 ux.matter_action。
+ */
+export function resolveProductInsightsCollection(opts?: {
+  policy?: LawMindWorkspacePolicy | null;
+  env?: NodeJS.ProcessEnv;
+}): "off" | "local-only" | "synced" {
+  const explicit = opts?.policy?.productInsightsCollection;
+  if (explicit === "off" || explicit === "local-only" || explicit === "synced") {
+    return explicit;
+  }
+  const ctx = resolveEdition(opts);
+  return ctx.edition === "solo" ? "local-only" : "synced";
+}
+
+export function isProductInsightsCollectionEnabled(opts?: {
+  policy?: LawMindWorkspacePolicy | null;
+  env?: NodeJS.ProcessEnv;
+}): boolean {
+  return resolveProductInsightsCollection(opts) !== "off";
+}

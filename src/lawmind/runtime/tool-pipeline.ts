@@ -1,0 +1,271 @@
+/**
+ * Tool execution pipeline — 把 agent runtime 里散落的工具调用前置规则
+ * （budget / role allowlist / approval / clarification gate / argument schema /
+ * timeout / audit / execute）抽成可组合中间件。
+ *
+ * 设计：
+ *   - 每个中间件按 koa/expressjs 风格 `(call, next) => Promise<ToolCallResult>` 串联。
+ *   - 默认顺序由 `buildDefaultToolPipeline()` 给出；测试可替换任意一段。
+ *   - 中间件不会改变 `tool.execute(args, ctx)` 的最终返回类型（始终是 `ToolCallResult`）。
+ *
+ * 与历史 runtime.ts 行为对齐：
+ *   - argSchemaMiddleware 复用 `validateToolArguments`。
+ *   - approvalMiddleware 复用 `toolRequiresExplicitApproval` + `__approved` 字段。
+ *   - clarificationGateMiddleware 在 `ctx.clarificationBlockingHeavyTools` 为真时拒绝重型工具。
+ *   - budgetMiddleware 在调用前检查 `usedToolCalls >= maxToolCalls`。
+ *   - timeoutMiddleware 用 `Promise.race` 包装。
+ *   - auditMiddleware 在 next() 后写入审计（保证记录的是真实结果）。
+ */
+
+import { toolRequiresExplicitApproval } from "../agent/dangerous-tool-policy.js";
+import { validateToolArguments } from "../agent/runtime-tool-validation.js";
+import type { AgentContext, AgentTool, ToolCallResult, ToolDefinition } from "../agent/types.js";
+import { emit } from "../audit/index.js";
+
+/** 与重型管线工具相关的工具名（澄清未结时禁止并行）。 */
+const HEAVY_TOOL_NAMES = new Set<string>([
+  "research_task",
+  "draft_document",
+  "execute_workflow",
+  "render_document",
+]);
+
+export type ToolCallContext = {
+  /** 工具调用 ID（来自模型 tool_calls[i].id） */
+  toolCallId: string;
+  /** 工具名 */
+  toolName: string;
+  /** 已 parse 的参数（含可选 `__approved`） */
+  args: Record<string, unknown>;
+  /** 注册中心查询结果（可能为 undefined → unknown tool） */
+  tool: AgentTool | undefined;
+  /** Agent runtime 上下文 */
+  ctx: AgentContext;
+  /** 中间件配置（来自 AgentConfig） */
+  policy: ToolPolicyConfig;
+  /** 当前 turn 的诊断字段 */
+  turn: { turnId: string };
+};
+
+export type ToolPolicyConfig = {
+  /** 当前 turn 已经执行的工具调用次数（包含本次）；用于 budget 中间件 */
+  usedToolCalls: number;
+  /** 当前 turn 工具调用上限 */
+  maxToolCalls: number;
+  /** 单次工具执行超时（ms） */
+  toolTimeoutMs: number;
+  /** Edition：strict 模式下危险工具一律需要 `__approved` */
+  strictDangerousToolApproval: boolean;
+  /** 开发态：是否允许默认未标记 `requiresApproval` 的工具直接执行 */
+  allowDangerousToolsWithoutApproval: boolean;
+  /** Role allowlist；undefined 表示不限制 */
+  allowedToolNames?: string[];
+  /** W7：当前 Role.id（仅审计/诊断用，pipeline 通过 allowedToolNames + riskCeiling 决策） */
+  roleId?: string;
+  /** W7：Role.riskCeiling；高风险工具在此模型下默认要求审批 */
+  riskCeiling?: "low" | "medium" | "high";
+  /** 审计 actorId（写入 tool_call 事件） */
+  actorId: string;
+  /** 工作区 audit 目录，写入 tool_call 用 */
+  auditDir: string;
+  /** 关联的 sessionId / matterId / assistantId（仅审计 detail 用） */
+  sessionMatterId?: string;
+  sessionAssistantId?: string;
+};
+
+export type ToolMiddleware = (
+  call: ToolCallContext,
+  next: () => Promise<ToolCallResult>,
+) => Promise<ToolCallResult>;
+
+/** 把多段中间件按顺序合成一个 runner。 */
+export function composeToolPipeline(
+  middlewares: ToolMiddleware[],
+): (call: ToolCallContext) => Promise<ToolCallResult> {
+  return async function run(call) {
+    let i = -1;
+    async function dispatch(idx: number): Promise<ToolCallResult> {
+      if (idx <= i) {
+        throw new Error("next() called multiple times in same middleware");
+      }
+      i = idx;
+      const fn = middlewares[idx];
+      if (!fn) {
+        return { ok: false, error: "tool pipeline exhausted without execute middleware" };
+      }
+      return fn(call, () => dispatch(idx + 1));
+    }
+    return dispatch(0);
+  };
+}
+
+// ─────────────────────────────────────────────
+// 中间件实现
+// ─────────────────────────────────────────────
+
+/** 工具不存在 → 立即拒绝，跳过后续中间件。 */
+export const unknownToolMiddleware: ToolMiddleware = async (call, next) => {
+  if (!call.tool) {
+    return { ok: false, error: `Unknown tool: ${call.toolName}` };
+  }
+  return next();
+};
+
+/** 当前 turn 工具预算耗尽 → 立即拒绝。 */
+export const budgetMiddleware: ToolMiddleware = async (call, next) => {
+  if (call.policy.usedToolCalls > call.policy.maxToolCalls) {
+    return {
+      ok: false,
+      error: `Tool budget exhausted (used ${call.policy.usedToolCalls} > max ${call.policy.maxToolCalls})`,
+    };
+  }
+  return next();
+};
+
+/** Role / preset allowlist；不在白名单 → 拒绝。 */
+export const roleAllowlistMiddleware: ToolMiddleware = async (call, next) => {
+  const allow = call.policy.allowedToolNames;
+  if (allow && allow.length > 0 && !allow.includes(call.toolName)) {
+    return {
+      ok: false,
+      error: `Tool ${call.toolName} not allowed for current role.`,
+    };
+  }
+  return next();
+};
+
+/** Clarification gate：上一轮工具触发待澄清时，禁止并行重型管线工具。 */
+export const clarificationGateMiddleware: ToolMiddleware = async (call, next) => {
+  if (call.ctx.clarificationBlockingHeavyTools && HEAVY_TOOL_NAMES.has(call.toolName)) {
+    return {
+      ok: false,
+      error:
+        "仍有待澄清事项：请先请律师回答上一轮列出的问题后，再执行检索、起草、完整工作流或渲染。",
+    };
+  }
+  return next();
+};
+
+/** 危险工具未 `__approved` → 拒绝（带 pendingApproval=true）。 */
+export const approvalMiddleware: ToolMiddleware = async (call, next) => {
+  if (!call.tool) {
+    return next();
+  }
+  const requires = toolRequiresExplicitApproval({
+    toolName: call.toolName,
+    definition: call.tool.definition,
+    allowDangerousToolsWithoutApproval: call.policy.allowDangerousToolsWithoutApproval,
+    strictDangerousToolApproval: call.policy.strictDangerousToolApproval,
+  });
+  if (requires && call.args.__approved !== true) {
+    return {
+      ok: false,
+      error: `Tool ${call.toolName} requires lawyer approval. Retry with "__approved": true after explicit confirmation.`,
+      pendingApproval: true,
+    };
+  }
+  return next();
+};
+
+/** 参数 schema 校验。 */
+export const argSchemaMiddleware: ToolMiddleware = async (call, next) => {
+  if (!call.tool) {
+    return next();
+  }
+  const validationError = validateToolArguments(call.tool.definition, call.args);
+  if (validationError) {
+    return { ok: false, error: `Invalid arguments for ${call.toolName}: ${validationError}` };
+  }
+  return next();
+};
+
+/** 单次工具执行超时（默认包在 execute 外层）。 */
+export const timeoutMiddleware: ToolMiddleware = async (call, next) => {
+  return withTimeout(
+    next(),
+    call.policy.toolTimeoutMs,
+    `Tool ${call.toolName} timed out after ${call.policy.toolTimeoutMs}ms`,
+  );
+};
+
+/** 审计：next() 之后写一条 tool_call 事件（best-effort）。 */
+export const auditMiddleware: ToolMiddleware = async (call, next) => {
+  let result: ToolCallResult;
+  try {
+    result = await next();
+  } catch (err) {
+    result = {
+      ok: false,
+      error: `Tool error: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  const payload = {
+    tool: call.toolName,
+    ok: result.ok,
+    matterId: call.policy.sessionMatterId ?? null,
+    assistantId: call.policy.sessionAssistantId ?? null,
+    roleId: call.policy.roleId ?? null,
+    error: result.error ?? null,
+  };
+  void emit(call.policy.auditDir, {
+    kind: "tool_call",
+    actor: "model",
+    actorId: call.policy.actorId,
+    detail: `${JSON.stringify(payload)} | tool=${call.toolName} ok=${result.ok}${result.error ? ` error=${result.error}` : ""}`,
+    taskId: call.turn.turnId,
+  });
+  return result;
+};
+
+/** 终态：执行 tool.execute()。 */
+export const executeMiddleware: ToolMiddleware = async (call) => {
+  if (!call.tool) {
+    return { ok: false, error: `Unknown tool: ${call.toolName}` };
+  }
+  try {
+    return await call.tool.execute(call.args, call.ctx);
+  } catch (err) {
+    return {
+      ok: false,
+      error: `Tool error: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+};
+
+/** 默认中间件链。 */
+export function buildDefaultToolPipeline(): ToolMiddleware[] {
+  return [
+    unknownToolMiddleware,
+    budgetMiddleware,
+    roleAllowlistMiddleware,
+    clarificationGateMiddleware,
+    approvalMiddleware,
+    argSchemaMiddleware,
+    auditMiddleware,
+    timeoutMiddleware,
+    executeMiddleware,
+  ];
+}
+
+// ─────────────────────────────────────────────
+// 内部工具
+// ─────────────────────────────────────────────
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+/** 公共 ToolDefinition export，便于测试构造 stub。 */
+export type { ToolDefinition };

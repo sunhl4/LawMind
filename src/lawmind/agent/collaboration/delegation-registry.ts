@@ -56,6 +56,8 @@ export function registerDelegation(params: {
   priority?: "normal" | "high" | "low";
   depth?: number;
   targetSessionId?: string;
+  /** 律师主对话 session，委派结束后回写一条助手消息并供桌面轮询展示 */
+  parentSessionId?: string;
 }): DelegationRecord {
   const record: DelegationRecord = {
     delegationId: randomUUID(),
@@ -66,6 +68,7 @@ export function registerDelegation(params: {
     priority: params.priority ?? "normal",
     status: "pending",
     targetSessionId: params.targetSessionId,
+    parentSessionId: params.parentSessionId?.trim() || undefined,
     depth: params.depth ?? 0,
     startedAt: new Date().toISOString(),
   };
@@ -98,6 +101,7 @@ export function markDelegationCompleted(
   workspaceDir: string,
   delegationId: string,
   result: string,
+  targetSessionId?: string,
 ): DelegationRecord | undefined {
   const record = registry.get(delegationId);
   if (!record) {
@@ -105,6 +109,10 @@ export function markDelegationCompleted(
   }
   record.status = "completed";
   record.result = result.slice(0, MAX_FROZEN_RESULT_BYTES);
+  const sid = targetSessionId?.trim();
+  if (sid) {
+    record.targetSessionId = sid;
+  }
   record.completedAt = new Date().toISOString();
   persistRecord(workspaceDir, record);
   return record;
@@ -171,6 +179,7 @@ export function listDelegations(opts?: {
   toAssistantId?: string;
   status?: DelegationStatus;
   matterId?: string;
+  parentSessionId?: string;
 }): DelegationRecord[] {
   let records = [...registry.values()];
   if (opts?.fromAssistantId) {
@@ -185,7 +194,35 @@ export function listDelegations(opts?: {
   if (opts?.matterId) {
     records = records.filter((r) => r.matterId === opts.matterId);
   }
+  if (opts?.parentSessionId) {
+    records = records.filter((r) => r.parentSessionId === opts.parentSessionId);
+  }
   return records.toSorted((a, b) => b.startedAt.localeCompare(a.startedAt));
+}
+
+const TERMINAL_DELEGATION_STATUSES: DelegationStatus[] = new Set([
+  "completed",
+  "failed",
+  "timeout",
+]);
+
+/**
+ * 供桌面轮询：某主会话下已终态的委派（含完整 result / error），按完成时间倒序。
+ */
+export function listDelegationFollowUpsForSession(opts: {
+  parentSessionId: string;
+  fromAssistantId: string;
+}): DelegationRecord[] {
+  const sid = opts.parentSessionId.trim();
+  const aid = opts.fromAssistantId.trim();
+  if (!sid || !aid) {
+    return [];
+  }
+  return [...registry.values()]
+    .filter((r) => r.parentSessionId === sid)
+    .filter((r) => r.fromAssistantId === aid)
+    .filter((r) => TERMINAL_DELEGATION_STATUSES.has(r.status))
+    .toSorted((a, b) => (b.completedAt ?? b.startedAt).localeCompare(a.completedAt ?? a.startedAt));
 }
 
 export function countActiveDelegations(assistantId: string): number {

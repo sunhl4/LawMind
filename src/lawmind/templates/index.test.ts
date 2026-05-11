@@ -8,6 +8,7 @@ import {
   registerUploadedTemplate,
   resolveTemplateForDraft,
   setUploadedTemplateEnabled,
+  templateResolvedPin,
 } from "./index.js";
 
 function buildDraft(overrides: Partial<ArtifactDraft> = {}): ArtifactDraft {
@@ -50,6 +51,7 @@ describe("template registry", () => {
     });
     expect(resolved.source).toBe("built-in");
     expect(resolved.variant).toBe("contractReview");
+    expect(templateResolvedPin(resolved)).toBe("built-in:word/contract-default");
   });
 
   it("registers uploaded template and resolves to uploaded source", async () => {
@@ -74,6 +76,7 @@ describe("template registry", () => {
     });
     expect(resolved.source).toBe("uploaded");
     expect(resolved.uploaded?.placeholderMap.case_title).toBe("title");
+    expect(templateResolvedPin(resolved)).toBe(`${uploaded.id}@${uploaded.version}`);
   });
 
   it("falls back to built-in when uploaded template is disabled or missing", async () => {

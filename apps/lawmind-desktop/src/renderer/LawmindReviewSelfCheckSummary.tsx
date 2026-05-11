@@ -24,21 +24,21 @@ export function LawmindReviewSelfCheckSummary(props: Props): ReactNode {
   const { acceptance, citation, deliverableType } = props;
 
   const accLine = !acceptance
-    ? "验收：未跑门禁（无报告）"
+    ? "验收：—"
     : !acceptance.deliverableType
-      ? "验收：未声明交付类型（按通用放行）"
+      ? "验收：未声明类型"
       : acceptance.ready
-        ? `验收：已通过（${acceptance.deliverableType}）`
-        : `验收：未通过 · 阻塞 ${acceptance.blockerCount} · 提醒 ${acceptance.warningCount}`;
+        ? `验收：通过 · ${acceptance.deliverableType}`
+        : `验收：未过 · ${acceptance.blockerCount}/${acceptance.warningCount}`;
 
   const citeLine = !citation?.checked
-    ? "引用：未校验"
+    ? "引用：—"
     : citation.ok
-      ? "引用：与检索 bundle 一致"
-      : `引用：待核对 · 缺失来源 ${citation.missingSourceIds.length} 处`;
+      ? "引用：一致"
+      : `引用：待核 · ${citation.missingSourceIds.length}`;
 
   const dtype = acceptance?.deliverableType?.trim() || deliverableType?.trim() || "";
-  const typeLine = dtype ? `交付类型：${dtype}` : "交付类型：（草稿未标注）";
+  const typeLine = dtype ? `类型：${dtype}` : "类型：—";
 
   return (
     <div className="lm-review-self-check" role="region" aria-label="助理自检摘要">
@@ -58,7 +58,6 @@ export function LawmindReviewSelfCheckSummary(props: Props): ReactNode {
           {citeLine}
         </button>
       </div>
-      <div className="lm-meta lm-review-self-check-hint">点击行可跳转到下方门禁或引用条</div>
     </div>
   );
 }

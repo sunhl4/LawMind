@@ -43,6 +43,10 @@ export type LawMindAgent = {
       projectDir?: string;
       /** 本轮是否允许 web_search（覆盖 AgentConfig） */
       allowWebSearch?: boolean;
+      /** 团队会议室：收紧 system prompt 中的答复与协作约束 */
+      teamMeetingMode?: boolean;
+      /** 自动会话标题：输入框原文（不含前缀），用于取提问前几个字命名 */
+      sessionTitleHint?: string;
     },
   ) => Promise<{
     reply: string;
@@ -52,7 +56,7 @@ export type LawMindAgent = {
   }>;
 
   /** 创建新对话 */
-  newSession: (opts?: { matterId?: string }) => AgentSession;
+  newSession: (opts?: { matterId?: string; title?: string }) => AgentSession;
 
   /** 加载已有对话 */
   getSession: (sessionId: string) => AgentSession | undefined;
@@ -112,8 +116,10 @@ export function createLawMindAgent(config: AgentConfig): LawMindAgent {
         registry,
         sessionId: opts?.sessionId,
         instruction,
+        sessionTitleHint: opts?.sessionTitleHint,
         matterId: opts?.matterId,
         projectDir: opts?.projectDir,
+        teamMeetingMode: opts?.teamMeetingMode === true,
       });
 
       return {
@@ -130,6 +136,7 @@ export function createLawMindAgent(config: AgentConfig): LawMindAgent {
         matterId: opts?.matterId,
         actorId,
         assistantId: config.assistantId,
+        title: opts?.title,
       });
     },
 

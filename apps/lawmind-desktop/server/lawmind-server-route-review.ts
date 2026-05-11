@@ -14,7 +14,7 @@ import {
   appendAssistantProfileMarkdown,
   buildReviewProfileLine,
 } from "../../../src/lawmind/assistants/profile-md.js";
-import { resolveLawMindRoot, DEFAULT_ASSISTANT_ID } from "../../../src/lawmind/assistants/store.js";
+import { DEFAULT_ASSISTANT_ID, resolveLawMindRoot } from "../../../src/lawmind/assistants/store.js";
 import {
   appendLawyerProfileLearning,
   buildLawyerProfileReviewLearningLine,
@@ -24,6 +24,7 @@ import {
   readReasoningSnapshot,
   resolveDraftCitationIntegrity,
 } from "../../../src/lawmind/drafts/index.js";
+import { applyContractRevisionAccumulationAfterApprovedReview } from "../../../src/lawmind/learning/contract-revision-on-review-approved.js";
 import { maybeEmitFirstrunAcceptanceReady } from "../../../src/lawmind/onboarding/firstrun-state.js";
 import { serializeLegalReasoningGraph } from "../../../src/lawmind/reasoning/index.js";
 import { parseReviewLabels } from "../../../src/lawmind/review-labels.js";
@@ -211,7 +212,7 @@ export async function handleReviewRoute({
         return true;
       }
       const engine = getLawMindEngine(workspaceDir);
-      const updated = await engine.review(draft, {
+      let updated = await engine.review(draft, {
         status: st,
         note: typeof body.note === "string" ? body.note : undefined,
         actorId: resolveDesktopActorId(),
@@ -219,6 +220,18 @@ export async function handleReviewRoute({
         ...(labels ? { labels } : {}),
         ...(deferQueue ? { deferMemoryWrites: true } : {}),
       });
+      let contractRevisionAccumulatedId: string | undefined;
+      let contractRevisionAccumulationWarning: string | undefined;
+      if (st === "approved") {
+        const acc = await applyContractRevisionAccumulationAfterApprovedReview(
+          workspaceDir,
+          updated,
+          typeof body.note === "string" ? body.note : undefined,
+        );
+        updated = acc.draft;
+        contractRevisionAccumulatedId = acc.revisionId;
+        contractRevisionAccumulationWarning = acc.warning;
+      }
       let profileLearningSkipped = false;
       let lawyerProfileLearningSkipped = false;
       if (body.appendToProfile === true && !deferQueue) {
@@ -265,6 +278,10 @@ export async function handleReviewRoute({
           citationIntegrity: resolveDraftCitationIntegrity(workspaceDir, updated),
           profileLearningSkipped,
           lawyerProfileLearningSkipped,
+          ...(contractRevisionAccumulatedId ? { contractRevisionAccumulatedId } : {}),
+          ...(contractRevisionAccumulationWarning
+            ? { contractRevisionAccumulationWarning }
+            : {}),
         },
         c,
       );

@@ -2,7 +2,7 @@
  * 案件工作台 — 列表、摘要、CASE 档案、任务/草稿/审计时间线、案件内搜索。
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { DraftCitationIntegrityView } from "../../../../src/lawmind/drafts/citation-integrity.ts";
 import type { ArtifactDraft, MatterOverview, MatterSummary, TaskRecord } from "../../../../src/lawmind/types.ts";
@@ -14,6 +14,16 @@ import { apiGetJson, apiSendJson, errorMessage, messageFromOkFalseBody } from ".
 import { LM_PANE_MAX_WIDTH_PX, LM_PANE_MIN_WIDTH_PX } from "./lawmind-panel-layout";
 import { usePaneResizePx } from "./use-pane-resize";
 import { useEdition } from "./use-edition";
+import type { HistoryItem, TaskRow as ShellTaskRow } from "./lawmind-app-data";
+import { ellipsisText, internalIdsTitle, pathBasename } from "./display-ids";
+import { RECORDS_DESK_UNLINKED } from "./lawmind-records-desk-state";
+import { LawmindMatterContextMenu } from "./LawmindMatterContextMenu";
+import { LawmindCreateMatterDialog } from "./LawmindCreateMatterDialog";
+import { MatterTeamMeetingPanel } from "./MatterTeamMeetingPanel";
+
+export type MatterWorkbenchHandle = {
+  openCreateMatter: () => void;
+};
 
 type MatterSearchHit = {
   section: string;
@@ -203,6 +213,22 @@ type Props = {
     statusFilter?: ArtifactDraft["reviewStatus"] | "all";
     listMode?: "pending" | "all";
   }) => void;
+  /** workbench：列表在组件内；app-sidebar：列表在外壳左栏（与「工作台」材料树同轨） */
+  matterListPlacement?: "workbench" | "app-sidebar";
+  selectedMatterKey?: string | null;
+  shellTasks?: ShellTaskRow[];
+  shellHistory?: HistoryItem[];
+  onOpenShellDetail?: (kind: "task" | "draft", id: string) => void;
+  formatShellRelativeTime?: (iso: string) => string;
+  shellAssistantDisplayById?: Record<string, string>;
+  shellLegalStatusLabel?: (status: string | undefined, kind?: string) => string;
+  shellTaskBadgeClass?: (status: string, kind?: string) => string;
+  shellHistoryBadgeClass?: (kind: string, taskRecordKind?: string, status?: string) => string;
+  /** 工作区根目录；用于从案件列表打开 cases/&lt;id&gt; 文件夹 */
+  workspaceDir?: string | null;
+  /** 项目目录；会议室对话可选传给检索 */
+  projectDir?: string | null;
+  onMatterCreated?: (matterId: string) => void;
 };
 
 function DraftCitationBadge(props: { cit: DraftCitationIntegrityView | undefined }): ReactNode {
@@ -516,8 +542,29 @@ function buildCaseFocusDraft(context: CaseFocusContext, variant: CaseDraftVarian
   }\n- ${variant === "conservative" ? "当前已知风险边界：" : "补充完成后的下一步动作："}`;
 }
 
-export function MatterWorkbench(props: Props) {
-  const { apiBase, refreshVersion = 0, assistantId, focusMatterId, onFocusMatterIdApplied, onUseInChat, onOpenReview } = props;
+export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function MatterWorkbench(props, ref) {
+  const {
+    apiBase,
+    refreshVersion = 0,
+    assistantId,
+    focusMatterId,
+    onFocusMatterIdApplied,
+    onUseInChat,
+    onOpenReview,
+    matterListPlacement = "workbench",
+    selectedMatterKey: selectedMatterKeyProp = null,
+    shellTasks = [],
+    shellHistory = [],
+    onOpenShellDetail,
+    formatShellRelativeTime,
+    shellAssistantDisplayById = {},
+    shellLegalStatusLabel,
+    shellTaskBadgeClass,
+    shellHistoryBadgeClass,
+    onMatterCreated,
+    workspaceDir = null,
+    projectDir = null,
+  } = props;
   const editionInfo = useEdition(apiBase);
   const showCrossMatterRoadmap = !editionInfo.loading && editionInfo.features.crossMatterRoadmap;
   const showWorkspaceAcceptanceDashboard =
@@ -526,11 +573,11 @@ export function MatterWorkbench(props: Props) {
   const [loadingList, setLoadingList] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [internalSelectedId, setInternalSelectedId] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [summary, setSummary] = useState<MatterSummary | null>(null);
-  const [overview, setOverview] = useState<MatterOverview | null>(null);
+  const [, setOverview] = useState<MatterOverview | null>(null);
   const [caseMemory, setCaseMemory] = useState("");
   const [caseTruncated, setCaseTruncated] = useState(false);
   const [coreIssues, setCoreIssues] = useState<string[]>([]);
@@ -549,7 +596,9 @@ export function MatterWorkbench(props: Props) {
   const [opsFocus, setOpsFocus] = useState<OperationsFocus>("all");
   const [opsSort, setOpsSort] = useState<OperationsSort>("priority");
 
-  const [panelTab, setPanelTab] = useState<"overview" | "case" | "tasks" | "timeline" | "cognition">("overview");
+  const [panelTab, setPanelTab] = useState<
+    "overview" | "ledger" | "deliveries" | "case" | "tasks" | "timeline" | "cognition" | "meeting"
+  >("overview");
   const [searchQ, setSearchQ] = useState("");
   const [searchHits, setSearchHits] = useState<MatterSearchHit[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
@@ -560,9 +609,7 @@ export function MatterWorkbench(props: Props) {
   const [caseDraftNote, setCaseDraftNote] = useState("");
 
   const [showCreate, setShowCreate] = useState(false);
-  const [newMatterId, setNewMatterId] = useState("");
-  const [createBusy, setCreateBusy] = useState(false);
-  const [createErr, setCreateErr] = useState<string | null>(null);
+  const [matterListCtx, setMatterListCtx] = useState<{ x: number; y: number; matterId: string } | null>(null);
   const [cognitionTaskId, setCognitionTaskId] = useState<string | null>(null);
   const [cognitionLoading, setCognitionLoading] = useState(false);
   const [cognitionError, setCognitionError] = useState<string | null>(null);
@@ -584,10 +631,52 @@ export function MatterWorkbench(props: Props) {
   const [adoptedSuggestions, setAdoptedSuggestions] = useState<AdoptedSuggestionRecord[]>([]);
   const [persistentAdoptions, setPersistentAdoptions] = useState<AdoptedSuggestionRecord[]>([]);
   const hasHandledRefreshRef = useRef(false);
+  const prevSelectedMatterForCognitionRef = useRef<string | null>(null);
   const coreIssuesRef = useRef<HTMLHeadingElement | null>(null);
   const riskNotesRef = useRef<HTMLHeadingElement | null>(null);
   const artifactsRef = useRef<HTMLHeadingElement | null>(null);
   const caseMdRef = useRef<HTMLHeadingElement | null>(null);
+
+  const isAppSidebar = matterListPlacement === "app-sidebar";
+  const navKey = isAppSidebar ? selectedMatterKeyProp : internalSelectedId;
+  const matterId = navKey && navKey !== RECORDS_DESK_UNLINKED ? navKey : null;
+  const isUnlinkedBucket = isAppSidebar && selectedMatterKeyProp === RECORDS_DESK_UNLINKED;
+
+  useImperativeHandle(ref, () => ({
+    openCreateMatter: () => {
+      setShowCreate(true);
+    },
+  }));
+
+  const shellTasksScoped = useMemo(() => {
+    if (isUnlinkedBucket) {
+      return shellTasks.filter((t) => !t.matterId?.trim());
+    }
+    if (!matterId) {
+      return [];
+    }
+    return shellTasks.filter((t) => t.matterId?.trim() === matterId);
+  }, [shellTasks, matterId, isUnlinkedBucket]);
+
+  const shellHistoryScoped = useMemo(() => {
+    if (isUnlinkedBucket) {
+      return shellHistory.filter((h) => !h.matterId?.trim());
+    }
+    if (!matterId) {
+      return [];
+    }
+    return shellHistory.filter((h) => h.matterId?.trim() === matterId);
+  }, [shellHistory, matterId, isUnlinkedBucket]);
+
+  const showShellOps = Boolean(
+    onOpenShellDetail &&
+      formatShellRelativeTime &&
+      shellLegalStatusLabel &&
+      shellTaskBadgeClass &&
+      shellHistoryBadgeClass,
+  );
+
+  const prevNavKeyRef = useRef<string | null>(null);
 
   const { width: workbenchListWidth, onResizePointerDown: onMatterListResize } = usePaneResizePx({
     storageKey: "lawmind.ui.matterWorkbenchListWidth",
@@ -609,7 +698,10 @@ export function MatterWorkbench(props: Props) {
     drafts[0]?.taskId ??
     null;
   const cognitionBoardDrafts = useMemo(() => {
-    const ordered = [...pendingDrafts, ...modifiedDrafts, ...approvedDrafts, ...drafts];
+    const pending = drafts.filter((draft) => draft.reviewStatus === "pending");
+    const modified = drafts.filter((draft) => draft.reviewStatus === "modified");
+    const approved = drafts.filter((draft) => draft.reviewStatus === "approved");
+    const ordered = [...pending, ...modified, ...approved, ...drafts];
     const seen = new Set<string>();
     return ordered.filter((draft) => {
       if (seen.has(draft.taskId)) {
@@ -618,7 +710,19 @@ export function MatterWorkbench(props: Props) {
       seen.add(draft.taskId);
       return true;
     }).slice(0, 6);
-  }, [approvedDrafts, drafts, modifiedDrafts, pendingDrafts]);
+  }, [drafts]);
+
+  const cognitionBoardCitationFingerprint = useMemo(
+    () =>
+      cognitionBoardDrafts
+        .map((d) => {
+          const c = draftCitationByTask[d.taskId];
+          const ok = c && c.checked ? c.ok : false;
+          return `${d.taskId}:${Boolean(c?.checked)}:${Boolean(ok)}`;
+        })
+        .join("|"),
+    [cognitionBoardDrafts, draftCitationByTask],
+  );
 
   const filteredQueueItems = useMemo(() => {
     const filtered = queueItems.filter((item) => {
@@ -796,7 +900,7 @@ export function MatterWorkbench(props: Props) {
       variant?: CaseDraftVariant;
       section?: "core_issue" | "risk" | "artifact" | "task_goal";
     }) => {
-      if (!selectedId) {
+      if (!matterId) {
         return;
       }
       try {
@@ -804,7 +908,7 @@ export function MatterWorkbench(props: Props) {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            matterId: selectedId,
+            matterId: matterId,
             taskId: params.taskId,
             action: params.action,
             surface: params.surface,
@@ -826,7 +930,7 @@ export function MatterWorkbench(props: Props) {
         /* interaction evidence is best effort */
       }
     },
-    [apiBase, selectedId],
+    [apiBase, matterId],
   );
 
   const blockingExplanations = useMemo(() => {
@@ -1159,11 +1263,11 @@ export function MatterWorkbench(props: Props) {
         convergenceSuggestions.find((suggestion) => suggestion.key === item.key);
       return {
         ...item,
-        includesCurrentMatter: Boolean(selectedId && item.exampleMatterIds.includes(selectedId)),
+        includesCurrentMatter: Boolean(matterId && item.exampleMatterIds.includes(matterId)),
         localSuggestion,
       };
     });
-  }, [convergenceSuggestions, crossExperimentRollup, productAdaptationSuggestions, selectedId]);
+  }, [convergenceSuggestions, crossExperimentRollup, productAdaptationSuggestions, matterId]);
 
   const roadmapCandidates = useMemo<MatterRoadmapCandidate[]>(() => {
     return crossMatterExperimentBoard
@@ -1264,12 +1368,12 @@ export function MatterWorkbench(props: Props) {
       });
       onOpenReview({
         taskId,
-        matterId: overrides?.matterId ?? selectedId ?? undefined,
+        matterId: overrides?.matterId ?? matterId ?? undefined,
         statusFilter: overrides?.statusFilter ?? reviewTargetForFocus.statusFilter,
         listMode: overrides?.listMode ?? reviewTargetForFocus.listMode,
       });
     },
-    [logMatterInteraction, onOpenReview, reviewTargetForFocus, selectedId],
+    [logMatterInteraction, onOpenReview, reviewTargetForFocus, matterId],
   );
 
   const handleBlockingAction = useCallback(
@@ -1323,9 +1427,9 @@ export function MatterWorkbench(props: Props) {
     item: { label: string; recommendation: string; count: number },
   ) {
     const currentDraft = drafts.find((draft) => draft.taskId === cognitionTaskId) ?? null;
-    const sourceMatter = selectedId ? `来源案件 ${selectedId}` : "来源案件未知";
+    const sourceMatter = matterId ? `来源案件 ${matterId}` : "来源案件未知";
     const sourceDraft = currentDraft
-      ? `观察草稿 ${currentDraft.title}（任务 ${currentDraft.taskId}）`
+      ? `观察草稿《${currentDraft.title}》`
       : "观察草稿未知";
     const note = `${sourceMatter}；${sourceDraft}。认知升级建议：${item.label} 在当前案件关键草稿中命中 ${item.count} 次。${item.recommendation}`;
     const busyKey = `${target}:${item.label}`;
@@ -1361,7 +1465,7 @@ export function MatterWorkbench(props: Props) {
             key: `${target}:${item.label}:${Date.now()}`,
             target,
             label: item.label,
-            matterId: selectedId,
+            matterId: matterId,
             taskId: currentDraft?.taskId ?? null,
             draftTitle: currentDraft?.title ?? null,
             savedAt: new Date().toISOString(),
@@ -1378,7 +1482,7 @@ export function MatterWorkbench(props: Props) {
   }
 
   async function writeCaseFocusNote() {
-    if (!selectedId || !caseFocusContext) {
+    if (!matterId || !caseFocusContext) {
       return;
     }
     setCaseActionBusy(true);
@@ -1389,7 +1493,7 @@ export function MatterWorkbench(props: Props) {
         { ok?: boolean; error?: string; message?: string },
         { matterId: string; section: string; note: string }
       >(apiBase, "/api/matters/case-note", "POST", {
-        matterId: selectedId,
+        matterId: matterId,
         section: sectionWriteTarget(caseFocusContext.section),
         note,
       });
@@ -1404,7 +1508,7 @@ export function MatterWorkbench(props: Props) {
         section: sectionWriteTarget(caseFocusContext.section),
       });
       setCaseActionMsg("已写入案件档案。");
-      await loadDetail(selectedId);
+      await loadDetail(matterId);
     } catch (e) {
       setCaseActionMsg(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1475,7 +1579,7 @@ export function MatterWorkbench(props: Props) {
     try {
       const j = await apiGetJson<{ ok?: boolean; overviews?: MatterOverview[] }>(
         apiBase,
-        "/api/matters/overviews",
+        `/api/matters/overviews?_=${encodeURIComponent(String(refreshVersion))}`,
       );
       if (j.ok && Array.isArray(j.overviews)) {
         setOverviews(j.overviews);
@@ -1487,20 +1591,24 @@ export function MatterWorkbench(props: Props) {
     } finally {
       setLoadingList(false);
     }
-  }, [apiBase]);
+  }, [apiBase, refreshVersion]);
 
   useEffect(() => {
+    if (isAppSidebar) {
+      setLoadingList(false);
+      return;
+    }
     void loadList();
-  }, [loadList]);
+  }, [loadList, isAppSidebar]);
 
   useEffect(() => {
     const id = focusMatterId?.trim();
-    if (!id) {
+    if (!id || isAppSidebar) {
       return;
     }
-    setSelectedId(id);
+    setInternalSelectedId(id);
     onFocusMatterIdApplied?.();
-  }, [focusMatterId]);
+  }, [focusMatterId, isAppSidebar, onFocusMatterIdApplied]);
 
   const loadDetail = useCallback(
     async (matterId: string) => {
@@ -1577,10 +1685,10 @@ export function MatterWorkbench(props: Props) {
   );
 
   useEffect(() => {
-    if (selectedId) {
-      void loadDetail(selectedId);
+    if (matterId) {
+      void loadDetail(matterId);
     }
-  }, [selectedId, loadDetail]);
+  }, [matterId, loadDetail]);
 
   async function loadPersistentAdoptions() {
     try {
@@ -1661,7 +1769,7 @@ export function MatterWorkbench(props: Props) {
 
   useEffect(() => {
     setCaseFocusContext(null);
-  }, [selectedId]);
+  }, [matterId]);
 
   useEffect(() => {
     setCaseDraftVariant("standard");
@@ -1671,7 +1779,7 @@ export function MatterWorkbench(props: Props) {
 
   useEffect(() => {
     void loadPersistentAdoptions();
-  }, [apiBase, assistantId, selectedId]);
+  }, [apiBase, assistantId, matterId]);
 
   useEffect(() => {
     if (!showCrossMatterRoadmap) {
@@ -1706,13 +1814,13 @@ export function MatterWorkbench(props: Props) {
   }, [caseFocusContext, panelTab]);
 
   const adoptionHistoryInsight = useMemo<AdoptionHistoryInsight>(() => {
-    const scoped = selectedId
-      ? persistentAdoptions.filter((item) => item.matterId === selectedId)
+    const scoped = matterId
+      ? persistentAdoptions.filter((item) => item.matterId === matterId)
       : persistentAdoptions;
     const relevantLabels = new Set(scoped.map((item) => item.label));
     const counts = new Map<string, { count: number; matterIds: Set<string>; latestSavedAt?: string }>();
     for (const item of persistentAdoptions) {
-      if (selectedId && !relevantLabels.has(item.label)) {
+      if (matterId && !relevantLabels.has(item.label)) {
         continue;
       }
       const current = counts.get(item.label) ?? { count: 0, matterIds: new Set<string>(), latestSavedAt: undefined };
@@ -1742,15 +1850,15 @@ export function MatterWorkbench(props: Props) {
         .toSorted((a, b) => (b.count - a.count) || a.label.localeCompare(b.label, "zh-CN"))
         .slice(0, 5),
     };
-  }, [persistentAdoptions, selectedId]);
+  }, [persistentAdoptions, matterId]);
 
   const visiblePersistentAdoptions = useMemo(
     () =>
       persistentAdoptions
-        .filter((item) => !selectedId || item.matterId === selectedId)
+        .filter((item) => !matterId || item.matterId === matterId)
         .toSorted((a, b) => b.savedAt.localeCompare(a.savedAt))
         .slice(0, 8),
-    [persistentAdoptions, selectedId],
+    [persistentAdoptions, matterId],
   );
 
   useEffect(() => {
@@ -1758,15 +1866,42 @@ export function MatterWorkbench(props: Props) {
       hasHandledRefreshRef.current = true;
       return;
     }
-    void loadList();
-    if (selectedId) {
-      void loadDetail(selectedId);
+    if (!isAppSidebar) {
+      void loadList();
     }
-  }, [refreshVersion, loadDetail, loadList, selectedId]);
+    if (matterId) {
+      void loadDetail(matterId);
+    }
+  }, [refreshVersion, loadDetail, loadList, matterId, isAppSidebar]);
 
   useEffect(() => {
-    setCognitionTaskId(cognitionDefaultTaskId);
-  }, [cognitionDefaultTaskId, selectedId]);
+    if (matterId !== prevSelectedMatterForCognitionRef.current) {
+      prevSelectedMatterForCognitionRef.current = matterId ?? null;
+      setCognitionTaskId(cognitionDefaultTaskId);
+      return;
+    }
+    setCognitionTaskId((prev) => {
+      if (!prev) {
+        return cognitionDefaultTaskId;
+      }
+      if (!drafts.some((d) => d.taskId === prev)) {
+        return cognitionDefaultTaskId;
+      }
+      return prev;
+    });
+  }, [matterId, cognitionDefaultTaskId, drafts]);
+
+  useEffect(() => {
+    if (prevNavKeyRef.current === navKey) {
+      return;
+    }
+    prevNavKeyRef.current = navKey;
+    if (isUnlinkedBucket) {
+      setPanelTab("ledger");
+    } else if (navKey) {
+      setPanelTab("overview");
+    }
+  }, [navKey, isUnlinkedBucket]);
 
   const fetchDraftCognition = useCallback(
     async (taskId: string) => {
@@ -1953,19 +2088,19 @@ export function MatterWorkbench(props: Props) {
     return () => {
       cancelled = true;
     };
-  }, [cognitionBoardDrafts, draftCitationByTask, fetchDraftCognition]);
+  }, [cognitionBoardCitationFingerprint, cognitionBoardDrafts, fetchDraftCognition]);
 
   const cognitionDraft = drafts.find((draft) => draft.taskId === cognitionTaskId) ?? null;
 
   const runSearch = useCallback(async () => {
-    if (!selectedId || !searchQ.trim()) {
+    if (!matterId || !searchQ.trim()) {
       return;
     }
     setSearchBusy(true);
     try {
       const j = await apiGetJson<{ ok?: boolean; hits?: MatterSearchHit[] }>(
         apiBase,
-        `/api/matters/search?matterId=${encodeURIComponent(selectedId)}&q=${encodeURIComponent(searchQ.trim())}`,
+        `/api/matters/search?matterId=${encodeURIComponent(matterId)}&q=${encodeURIComponent(searchQ.trim())}`,
       );
       if (j.ok && Array.isArray(j.hits)) {
         setSearchHits(j.hits);
@@ -1973,84 +2108,33 @@ export function MatterWorkbench(props: Props) {
     } finally {
       setSearchBusy(false);
     }
-  }, [apiBase, selectedId, searchQ]);
-
-  const submitCreate = async () => {
-    setCreateBusy(true);
-    setCreateErr(null);
-    try {
-      const j = await apiSendJson<
-        { ok?: boolean; error?: string; matterId?: string },
-        { matterId: string }
-      >(apiBase, "/api/matters/create", "POST", { matterId: newMatterId.trim() });
-      if (!j.ok) {
-        throw new Error(messageFromOkFalseBody(j, "创建案件失败"));
-      }
-      setShowCreate(false);
-      setNewMatterId("");
-      await loadList();
-      if (j.matterId) {
-        setSelectedId(j.matterId);
-        setPanelTab("overview");
-      }
-    } catch (e) {
-      setCreateErr(errorMessage(e, "创建失败"));
-    } finally {
-      setCreateBusy(false);
-    }
-  };
+  }, [apiBase, matterId, searchQ]);
 
   return (
     <>
-      {showCreate && (
-        <div className="lm-wizard-backdrop" role="dialog" aria-modal="true" aria-label="新建案件">
-          <div className="lm-wizard lm-modal-matter-create">
-            <h2>新建案件</h2>
-            <p className="lm-meta">
-              案件 ID 须为字母或数字开头，2–128 字符，仅含字母、数字、英文点、下划线、连字符（与引擎{" "}
-              <code>matter_id</code> 一致）。
-            </p>
-            <label className="lm-field">
-              <span>matterId</span>
-              <input
-                type="text"
-                value={newMatterId}
-                onChange={(e) => setNewMatterId(e.target.value)}
-                placeholder="例如 matter-2026-001"
-                autoComplete="off"
-              />
-            </label>
-            {createErr ? (
-              <div className="lm-callout lm-callout-danger" role="alert">
-                <p className="lm-callout-body">{createErr}</p>
-              </div>
-            ) : null}
-            <div className="lm-wizard-actions">
-              <button
-                type="button"
-                className="lm-btn lm-btn-secondary"
-                disabled={createBusy}
-                onClick={() => setShowCreate(false)}
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                className="lm-btn"
-                disabled={createBusy || !newMatterId.trim()}
-                onClick={() => void submitCreate()}
-              >
-                {createBusy ? "创建中…" : "创建"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <LawmindCreateMatterDialog
+        open={showCreate}
+        apiBase={apiBase}
+        onClose={() => setShowCreate(false)}
+        onSuccess={(mid) => {
+          if (!isAppSidebar) {
+            void loadList();
+          }
+          if (isAppSidebar) {
+            onMatterCreated?.(mid);
+          } else {
+            setInternalSelectedId(mid);
+          }
+          setPanelTab("overview");
+        }}
+      />
       <div className="lm-workbench lm-matter-workbench">
-      <div
-        className="lm-workbench-list"
-        style={{ width: workbenchListWidth, flexShrink: 0 }}
-      >
+      {!isAppSidebar ? (
+        <>
+          <div
+            className="lm-workbench-list"
+            style={{ width: workbenchListWidth, flexShrink: 0 }}
+          >
         <div className="lm-workbench-list-header">
           <h2>案件</h2>
           <div className="lm-workbench-list-actions">
@@ -2058,8 +2142,6 @@ export function MatterWorkbench(props: Props) {
               type="button"
               className="lm-btn lm-btn-small"
               onClick={() => {
-                setCreateErr(null);
-                setNewMatterId("");
                 setShowCreate(true);
               }}
             >
@@ -2077,26 +2159,38 @@ export function MatterWorkbench(props: Props) {
           </div>
         ) : null}
         {!loadingList && overviews.length === 0 && (
-          <div className="lm-meta lm-workbench-empty">
-            暂无案件。在对话中完成带 matterId 的任务后，将在此聚合显示。
-          </div>
+          <div className="lm-meta lm-workbench-empty">暂无案件</div>
         )}
         <ul className="lm-workbench-matter-list">
           {overviews.map((o) => (
             <li key={o.matterId}>
               <button
                 type="button"
-                className={`lm-matter-row ${selectedId === o.matterId ? "active" : ""}`}
+                className={`lm-matter-row ${internalSelectedId === o.matterId ? "active" : ""}`}
+                title={`案件编号：${o.matterId}。右键可关联对话或打开文件夹。`}
                 onClick={() => {
-                  setSelectedId(o.matterId);
+                  setInternalSelectedId(o.matterId);
                   setPanelTab("overview");
                 }}
+                onContextMenu={(e) => {
+                  const canChat = Boolean(onUseInChat);
+                  const canFolder = Boolean(
+                    workspaceDir?.trim() && typeof window !== "undefined" && window.lawmindDesktop?.showItemInFolder,
+                  );
+                  if (!canChat && !canFolder) {
+                    return;
+                  }
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setMatterListCtx({ x: e.clientX, y: e.clientY, matterId: o.matterId });
+                }}
               >
-                <span className="lm-matter-id">{o.matterId}</span>
-                <span className="lm-matter-meta">
-                  待办 {o.openTaskCount} · 已交付 {o.renderedTaskCount}
-                  {o.topRisk ? ` · ${o.topRisk.slice(0, 42)}…` : ""}
+                <span className="lm-matter-id">
+                  {ellipsisText(o.displayName?.trim() || o.matterId, 46)}
                 </span>
+                {o.displayName?.trim() && o.displayName.trim() !== o.matterId ? (
+                  <span className="lm-matter-meta">{ellipsisText(o.matterId, 36)}</span>
+                ) : null}
               </button>
             </li>
           ))}
@@ -2111,33 +2205,155 @@ export function MatterWorkbench(props: Props) {
         title="拖动调整列表宽度"
         onPointerDown={onMatterListResize}
       />
+        </>
+      ) : null}
 
       <div className="lm-workbench-main">
-        {!selectedId && <div className="lm-meta lm-workbench-placeholder">选择左侧案件查看档案与进度</div>}
-        {selectedId && detailLoading && <div className="lm-meta">加载案件详情…</div>}
-        {selectedId && detailError ? (
+        {!navKey && (
+          <div className="lm-meta lm-workbench-placeholder">{isAppSidebar ? "在左栏选择案件" : "选择案件"}</div>
+        )}
+
+        {isUnlinkedBucket && showShellOps ? (
+          <>
+            <div className="lm-workbench-toolbar">
+              <div className="lm-workbench-title-block">
+                <h2>未关联案件</h2>
+                <p className="lm-meta">下列任务与交付尚未关联案件编号，建议在工作台中归入具体案件。</p>
+              </div>
+            </div>
+            <div className="lm-tabs lm-workbench-tabs">
+              <button
+                type="button"
+                className={`lm-tab ${panelTab === "ledger" ? "active" : ""}`}
+                onClick={() => setPanelTab("ledger")}
+              >
+                任务台帐
+              </button>
+              <button
+                type="button"
+                className={`lm-tab ${panelTab === "deliveries" ? "active" : ""}`}
+                onClick={() => setPanelTab("deliveries")}
+              >
+                交付记录
+              </button>
+            </div>
+            {panelTab === "ledger" && (
+              <div className="lm-workbench-panel lm-records--desk">
+                <ul className="lm-list">
+                  {shellTasksScoped.length === 0 ? (
+                    <li className="lm-list-empty lm-list-empty-desk">
+                      <span className="lm-list-empty-title">暂无任务</span>
+                    </li>
+                  ) : (
+                    shellTasksScoped.map((task) => {
+                      const headline = (task.title?.trim() ? task.title : task.summary).slice(0, 160);
+                      const asst =
+                        task.assistantId && shellAssistantDisplayById[task.assistantId]?.trim()
+                          ? shellAssistantDisplayById[task.assistantId]
+                          : null;
+                      return (
+                        <li
+                          key={task.taskId}
+                          className="lm-list-clickable"
+                          tabIndex={0}
+                          onClick={() =>  onOpenShellDetail?.("task", task.taskId)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                               onOpenShellDetail?.("task", task.taskId);
+                            }
+                          }}
+                        >
+                          <div className="lm-list-row">
+                            <span className={shellTaskBadgeClass?.(task.status, task.kind) ?? "lm-badge"}>
+                              {shellLegalStatusLabel?.(task.status, task.kind) ?? task.status}
+                            </span>
+                            <span className="lm-list-title">{headline}</span>
+                          </div>
+                          {asst ? <div className="lm-records-row-asst">经办助手 · {asst}</div> : null}
+                          <div className="lm-list-time">更新 · {formatShellRelativeTime?.(task.updatedAt)}</div>
+                          {task.outputPath ? (
+                            <div className="lm-list-path" title={task.outputPath}>
+                              {pathBasename(task.outputPath)}
+                            </div>
+                          ) : null}
+                        </li>
+                      );
+                    })
+                  )}
+                </ul>
+              </div>
+            )}
+            {panelTab === "deliveries" && (
+              <div className="lm-workbench-panel lm-records--desk">
+                <ul className="lm-list">
+                  {shellHistoryScoped.length === 0 ? (
+                    <li className="lm-list-empty lm-list-empty-desk">
+                      <span className="lm-list-empty-title">暂无交付记录</span>
+                    </li>
+                  ) : (
+                    shellHistoryScoped.map((item) => {
+                      const asst =
+                        item.assistantId && shellAssistantDisplayById[item.assistantId]?.trim()
+                          ? shellAssistantDisplayById[item.assistantId]
+                          : null;
+                      return (
+                        <li
+                          key={`${item.kind}-${item.id}`}
+                          className="lm-list-clickable"
+                          tabIndex={0}
+                          onClick={() =>  onOpenShellDetail?.(item.kind, item.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                               onOpenShellDetail?.(item.kind, item.id);
+                            }
+                          }}
+                        >
+                          <div className="lm-list-row">
+                            <span
+                              className={
+                                shellHistoryBadgeClass?.(item.kind, item.taskRecordKind, item.status) ?? "lm-badge"
+                              }
+                            >
+                              {shellLegalStatusLabel?.(item.status ?? item.kind, item.taskRecordKind) ??
+                                item.status ??
+                                item.kind}
+                            </span>
+                            <span className="lm-list-title">{item.label}</span>
+                          </div>
+                          {asst ? <div className="lm-records-row-asst">经办助手 · {asst}</div> : null}
+                          <div className="lm-list-time">更新 · {formatShellRelativeTime?.(item.updatedAt)}</div>
+                          {item.outputPath ? (
+                            <div className="lm-list-path" title={item.outputPath}>
+                              {pathBasename(item.outputPath)}
+                            </div>
+                          ) : null}
+                        </li>
+                      );
+                    })
+                  )}
+                </ul>
+              </div>
+            )}
+          </>
+        ) : null}
+
+        {matterId && detailLoading && <div className="lm-meta">加载案件详情…</div>}
+        {matterId && detailError ? (
           <div className="lm-callout lm-callout-danger" role="alert">
             <p className="lm-callout-body">{detailError}</p>
           </div>
         ) : null}
-        {selectedId && !detailLoading && !detailError && summary && (
+        {matterId && !detailLoading && !detailError && summary && (
           <>
-            <div className="lm-workbench-toolbar">
+              <div className="lm-workbench-toolbar">
               <div className="lm-workbench-title-block">
-                <h2>{selectedId}</h2>
-                <p className="lm-matter-headline">{summary.headline}</p>
-                <p className="lm-meta">{summary.statusLine}</p>
+                <h2 title={internalIdsTitle([{ label: "案件编号", value: matterId }])}>
+                  {summary.headline?.trim() ? ellipsisText(summary.headline, 72) : "案件工作台"}
+                </h2>
               </div>
-              {onUseInChat && (
-                <button type="button" className="lm-btn lm-btn-secondary" onClick={() => onUseInChat(selectedId)}>
-                  在对话中关联本案
-                </button>
-              )}
             </div>
-
-            <p className="lm-matter-clientid-hint lm-meta">
-              在 CASE 档案里填好<strong>客户简称</strong>，助手会优先用该客户名下的长期档案；不填则可能用工作区总档案。
-            </p>
 
             <div className="lm-tabs lm-workbench-tabs">
               <button
@@ -2147,6 +2363,24 @@ export function MatterWorkbench(props: Props) {
               >
                 概览
               </button>
+              {showShellOps ? (
+                <>
+                  <button
+                    type="button"
+                    className={`lm-tab ${panelTab === "ledger" ? "active" : ""}`}
+                    onClick={() => setPanelTab("ledger")}
+                  >
+                    任务台帐
+                  </button>
+                  <button
+                    type="button"
+                    className={`lm-tab ${panelTab === "deliveries" ? "active" : ""}`}
+                    onClick={() => setPanelTab("deliveries")}
+                  >
+                    交付记录
+                  </button>
+                </>
+              ) : null}
               <button
                 type="button"
                 className={`lm-tab ${panelTab === "case" ? "active" : ""}`}
@@ -2175,6 +2409,13 @@ export function MatterWorkbench(props: Props) {
               >
                 认知
               </button>
+              <button
+                type="button"
+                className={`lm-tab ${panelTab === "meeting" ? "active" : ""}`}
+                onClick={() => setPanelTab("meeting")}
+              >
+                会议室
+              </button>
             </div>
 
             {panelTab === "overview" && (
@@ -2182,9 +2423,6 @@ export function MatterWorkbench(props: Props) {
                 {showWorkspaceAcceptanceDashboard ? (
                   <section className="lm-matter-cockpit-card lm-matter-workspace-acceptance-card">
                     <h3>工作区交付就绪概览</h3>
-                    <p className="lm-meta">
-                      当前工作区全部草稿的验收门禁汇总（与左侧所选案件无关，便于一眼看全所就绪情况）。
-                    </p>
                     {workspaceAcceptanceErr ? (
                       <div className="lm-callout lm-callout-danger" role="alert">
                         <p className="lm-callout-body">{workspaceAcceptanceErr}</p>
@@ -2214,14 +2452,21 @@ export function MatterWorkbench(props: Props) {
                         ) : (
                           <ul className="lm-matter-ops-list">
                             {workspaceAcceptance.items.slice(0, 8).map((item) => (
-                              <li key={item.taskId}>
+                              <li
+                                key={item.taskId}
+                                title={internalIdsTitle([
+                                  { label: "任务编号", value: item.taskId },
+                                  { label: "案件编号", value: item.matterId ?? undefined },
+                                ])}
+                              >
                                 <div className="lm-matter-ops-title">
                                   <span>{item.title}</span>
                                   <DraftAcceptanceBadge acc={item} />
                                 </div>
                                 <div className="lm-matter-ops-meta">
-                                  任务 {item.taskId}
-                                  {item.matterId ? ` · 案件 ${item.matterId}` : ""}
+                                  {item.outputPath
+                                    ? `输出文件：${pathBasename(item.outputPath)}`
+                                    : "输出路径待填写"}
                                 </div>
                                 <div className="lm-matter-ops-actions lm-matter-convergence-actions">
                                   <button
@@ -2230,7 +2475,7 @@ export function MatterWorkbench(props: Props) {
                                     disabled={!onOpenReview}
                                     onClick={() =>
                                       openReviewFromMatter(item.taskId, {
-                                        matterId: item.matterId ?? selectedId ?? undefined,
+                                        matterId: item.matterId ?? matterId ?? undefined,
                                         sourceSurface: "workspace-acceptance",
                                         sourceLabel: "工作区验收概览",
                                       })
@@ -2254,7 +2499,6 @@ export function MatterWorkbench(props: Props) {
                         <span className="lm-matter-summary-title">{card.title}</span>
                         <span className="lm-matter-summary-count">{card.count}</span>
                       </div>
-                      <div className="lm-matter-summary-hint">{card.hint}</div>
                       <button
                         type="button"
                         className="lm-btn lm-btn-secondary lm-btn-small"
@@ -2280,7 +2524,6 @@ export function MatterWorkbench(props: Props) {
                   <div className="lm-matter-ops-focus-head">
                     <div>
                       <h3>当前处理视角</h3>
-                      <p className="lm-meta">按你当前关注的审核态筛选案件操作面板，并切换排序优先级。</p>
                     </div>
                     <div className="lm-matter-ops-focus-controls">
                       <label className="lm-field lm-matter-ops-field">
@@ -2314,7 +2557,7 @@ export function MatterWorkbench(props: Props) {
                 <section className="lm-matter-cockpit-card lm-matter-blocking-card">
                   <h3>Blocked By</h3>
                   {blockingExplanations.length === 0 ? (
-                    <p className="lm-meta">当前没有显式阻塞项，案件可继续推进。</p>
+                    <p className="lm-meta">无</p>
                   ) : (
                     <div className="lm-matter-blocking-grid">
                       {blockingExplanations.map((item) => (
@@ -2324,7 +2567,6 @@ export function MatterWorkbench(props: Props) {
                             <span className="lm-matter-summary-count">{item.count}</span>
                           </div>
                           <div className="lm-matter-summary-hint">{item.detail}</div>
-                          <div className="lm-matter-summary-reco">建议下一步：{item.nextAction}</div>
                           <button
                             type="button"
                             className="lm-btn lm-btn-secondary lm-btn-small"
@@ -2359,7 +2601,7 @@ export function MatterWorkbench(props: Props) {
                 <section className="lm-matter-cockpit-card lm-matter-behavior-card">
                   <h3>律师行为摘要</h3>
                   {matterInteractionSummary.total === 0 ? (
-                    <p className="lm-meta">当前案件还没有足够的人工动作记录，暂时无法判断主要工作重心。</p>
+                    <p className="lm-meta">暂无</p>
                   ) : (
                     <>
                       <div className="lm-matter-cognition-board lm-matter-adoption-board">
@@ -2368,17 +2610,11 @@ export function MatterWorkbench(props: Props) {
                             <span className="lm-matter-summary-title">总动作</span>
                             <span className="lm-matter-summary-count">{matterInteractionSummary.total}</span>
                           </div>
-                          <div className="lm-matter-summary-hint">
-                            当前案件已记录的关键律师动作总数。
-                          </div>
                         </div>
                         <div className="lm-matter-summary-card lm-matter-summary-card-warn">
                           <div className="lm-matter-summary-top">
                             <span className="lm-matter-summary-title">进入审核</span>
                             <span className="lm-matter-summary-count">{matterInteractionSummary.reviewOpenCount}</span>
-                          </div>
-                          <div className="lm-matter-summary-hint">
-                            律师从案件页切去审核台的次数，能反映草稿把关压力。
                           </div>
                         </div>
                         <div className="lm-matter-summary-card lm-matter-summary-card-info">
@@ -2386,30 +2622,20 @@ export function MatterWorkbench(props: Props) {
                             <span className="lm-matter-summary-title">补 CASE</span>
                             <span className="lm-matter-summary-count">{matterInteractionSummary.caseWriteCount}</span>
                           </div>
-                          <div className="lm-matter-summary-hint">
-                            把阻塞或判断写回案件档案的次数，反映档案修补活跃度。
-                          </div>
                         </div>
                         <div className="lm-matter-summary-card lm-matter-summary-card-success">
                           <div className="lm-matter-summary-top">
                             <span className="lm-matter-summary-title">沉淀记忆</span>
                             <span className="lm-matter-summary-count">{matterInteractionSummary.memorySaveCount}</span>
                           </div>
-                          <div className="lm-matter-summary-hint">
-                            认知升级建议被采纳写入长期记忆的次数。
-                          </div>
                         </div>
                       </div>
                       <div className="lm-matter-ops-meta">
-                        当前主重心：{matterInteractionSummary.dominantActionLabel}。
+                        {matterInteractionSummary.dominantActionLabel}
                         {matterInteractionSummary.latestAt
-                          ? ` 最近一次动作发生在 ${formatShortDateTime(matterInteractionSummary.latestAt)}。`
-                          : ""}
-                        {matterInteractionSummary.dominantSurface
-                          ? ` 最常进入的界面入口是 ${matterInteractionSurfaceLabel(matterInteractionSummary.dominantSurface.label)}（${matterInteractionSummary.dominantSurface.count} 次）。`
+                          ? ` · ${formatShortDateTime(matterInteractionSummary.latestAt)}`
                           : ""}
                       </div>
-                      <div className="lm-matter-ops-meta">{matterInteractionSummary.dominantActionHint}</div>
                       {matterInteractionSummary.topLabels.length > 0 ? (
                         <>
                           <div className="lm-meta lm-matter-history-title">重复动作主题</div>
@@ -2420,9 +2646,7 @@ export function MatterWorkbench(props: Props) {
                                   <span>{item.label}</span>
                                   <span className="lm-matter-pill">{item.count} 次</span>
                                 </div>
-                                <div className="lm-matter-ops-meta">
-                                  该主题在当前案件被多次触发，适合后续检查是否需要进一步收敛入口或模板。
-                                </div>
+                                <div className="lm-matter-ops-meta">{item.count} 次</div>
                               </li>
                             ))}
                           </ul>
@@ -2437,7 +2661,7 @@ export function MatterWorkbench(props: Props) {
                 <section className="lm-matter-cockpit-card lm-matter-convergence-card">
                   <h3>交互收敛建议</h3>
                   {convergenceSuggestions.length === 0 ? (
-                    <p className="lm-meta">当前案件还没有足够的交互轨迹来生成收敛建议。</p>
+                    <p className="lm-meta">暂无</p>
                   ) : (
                     <ul className="lm-matter-ops-list">
                       {convergenceSuggestions.map((item) => (
@@ -2473,11 +2697,8 @@ export function MatterWorkbench(props: Props) {
 
                 <section className="lm-matter-cockpit-card lm-matter-product-card">
                   <h3>产品改造建议</h3>
-                  <p className="lm-meta">
-                    这部分不是给当前律师的下一步，而是根据本案重复操作，反推 LawMind 下一版工作台最该被增强的入口。
-                  </p>
                   {productAdaptationSuggestions.length === 0 ? (
-                    <p className="lm-meta">当前案件还没有足够的模式信号来推导产品改造建议。</p>
+                    <p className="lm-meta">暂无</p>
                   ) : (
                     <ul className="lm-matter-ops-list">
                       {productAdaptationSuggestions.map((item) => (
@@ -2513,11 +2734,8 @@ export function MatterWorkbench(props: Props) {
 
                 <section className="lm-matter-cockpit-card lm-matter-experiment-card">
                   <h3>产品实验清单</h3>
-                  <p className="lm-meta">
-                    这部分把产品改造建议继续拆成更可验证的实验项，方便后续判断某个改造方向到底值不值得正式产品化。
-                  </p>
                   {productExperimentChecklist.length === 0 ? (
-                    <p className="lm-meta">当前案件还没有足够的模式信号来生成产品实验清单。</p>
+                    <p className="lm-meta">暂无</p>
                   ) : (
                     <ul className="lm-matter-ops-list">
                       {productExperimentChecklist.map((item) => (
@@ -2549,11 +2767,8 @@ export function MatterWorkbench(props: Props) {
 
                 <section className="lm-matter-cockpit-card lm-matter-cross-experiment-card">
                   <h3>跨案件实验累积板</h3>
-                  <p className="lm-meta">
-                    这部分聚合全工作区案件的重复交互模式，帮助判断某条改造方向是否已经不只是本案问题，而开始变成跨案件共性问题。
-                  </p>
                   {crossMatterExperimentBoard.length === 0 ? (
-                    <p className="lm-meta">当前工作区还没有足够的跨案件交互数据来形成实验累积板。</p>
+                    <p className="lm-meta">暂无</p>
                   ) : (
                     <ul className="lm-matter-ops-list">
                       {crossMatterExperimentBoard.map((item) => (
@@ -2564,12 +2779,9 @@ export function MatterWorkbench(props: Props) {
                               {item.matterCount} 案件 · {item.totalEvents} 次
                             </span>
                           </div>
-                          <div className="lm-matter-ops-meta">
-                            已在 {item.matterCount} 个案件中出现，最近一次信号时间为 {formatShortDateTime(item.latestAt)}。
-                          </div>
-                          <div className="lm-matter-ops-meta">
-                            示例案件：{item.exampleMatterIds.length > 0 ? item.exampleMatterIds.join(", ") : "暂无"}
-                            {item.includesCurrentMatter ? " · 当前案件已包含在累积信号中" : ""}
+                          <div className="lm-matter-ops-meta" title={item.exampleMatterIds.join("、")}>
+                            {item.matterCount} 案 · {formatShortDateTime(item.latestAt)}
+                            {item.includesCurrentMatter ? " · 含本案" : ""}
                           </div>
                           {item.localSuggestion ? (
                             <div className="lm-matter-ops-actions lm-matter-convergence-actions">
@@ -2594,11 +2806,8 @@ export function MatterWorkbench(props: Props) {
 
                 <section className="lm-matter-cockpit-card lm-matter-roadmap-card">
                   <h3>Roadmap 候选池</h3>
-                  <p className="lm-meta">
-                    这部分会把跨案件实验信号进一步压缩成更接近路线图排序的候选项，帮助判断哪些方向该现在做、哪些适合排到下一波。
-                  </p>
                   {roadmapCandidates.length === 0 ? (
-                    <p className="lm-meta">当前还没有足够的跨案件信号来生成路线图候选池。</p>
+                    <p className="lm-meta">暂无</p>
                   ) : (
                     <>
                       <div className="lm-matter-roadmap-summary-grid">
@@ -2686,7 +2895,7 @@ export function MatterWorkbench(props: Props) {
                 <section className="lm-matter-cockpit-card">
                   <h3>最近律师动作</h3>
                   {recentMatterInteractions.length === 0 ? (
-                    <p className="lm-meta">当前案件还没有记录到关键律师动作。</p>
+                    <p className="lm-meta">暂无</p>
                   ) : (
                     <ul className="lm-matter-ops-list">
                       {recentMatterInteractions.map((event, index) => (
@@ -2719,7 +2928,7 @@ export function MatterWorkbench(props: Props) {
                   <section className="lm-matter-cockpit-card">
                     <h3>工作队列</h3>
                     {filteredQueueItems.length === 0 ? (
-                      <p className="lm-meta">当前无显式阻塞或待办队列。</p>
+                      <p className="lm-meta">无</p>
                     ) : (
                       <ul className="lm-matter-ops-list">
                         {filteredQueueItems.slice(0, 8).map((item) => (
@@ -2761,7 +2970,7 @@ export function MatterWorkbench(props: Props) {
                   <section className="lm-matter-cockpit-card">
                     <h3>审批节点</h3>
                     {filteredApprovalRequests.length === 0 ? (
-                      <p className="lm-meta">当前无待跟踪审批。</p>
+                      <p className="lm-meta">无</p>
                     ) : (
                       <ul className="lm-matter-ops-list">
                         {filteredApprovalRequests.slice(0, 8).map((item) => (
@@ -2805,7 +3014,7 @@ export function MatterWorkbench(props: Props) {
                   <section className="lm-matter-cockpit-card">
                     <h3>交付物状态</h3>
                     {filteredDrafts.length === 0 ? (
-                      <p className="lm-meta">暂无草稿或交付物。</p>
+                      <p className="lm-meta">无</p>
                     ) : (
                       <ul className="lm-matter-ops-list">
                         {filteredDrafts.slice(0, 8).map((draft) => (
@@ -2866,12 +3075,6 @@ export function MatterWorkbench(props: Props) {
                     ))}
                   </ul>
                 </section>
-                {overview && (
-                  <section className="lm-meta lm-matter-cockpit-footnote">
-                    争点示例：{overview.topIssue ?? "—"} · 风险条数 {overview.riskCount} · 产物{" "}
-                    {overview.artifactCount} · 队列 {queueItems.length} · 审批 {approvalRequests.length}
-                  </section>
-                )}
               </div>
             )}
 
@@ -2882,7 +3085,6 @@ export function MatterWorkbench(props: Props) {
                     <div className="lm-case-focus-banner">
                       <div>
                         <strong>{caseFocusContext.title}</strong>
-                        <div className="lm-meta">{caseFocusContext.hint}</div>
                       </div>
                       <div className="lm-matter-ops-actions">
                         {caseFocusContext.query ? (
@@ -2931,16 +3133,13 @@ export function MatterWorkbench(props: Props) {
                         </button>
                       ))}
                     </div>
-                    <div className="lm-meta lm-case-draft-variant-help">
-                      保守版更适合先留边界，标准版用于日常记录，强化版适合推动明确结论或下一步动作。
-                    </div>
                     <label className="lm-field lm-case-focus-draft">
                       <span>建议草稿</span>
                       <textarea
                         value={caseDraftNote}
                         onChange={(e) => setCaseDraftNote(e.target.value)}
                         rows={4}
-                        placeholder="在此补充更完整的案件说明后再写入。"
+                        placeholder=""
                       />
                     </label>
                     {caseActionMsg ? <div className="lm-meta lm-matter-action-msg">{caseActionMsg}</div> : null}
@@ -2949,7 +3148,7 @@ export function MatterWorkbench(props: Props) {
                 <div className="lm-case-search">
                   <input
                     type="search"
-                    placeholder="在本案内搜索（争点、任务、草稿、审计）"
+                    placeholder="搜索"
                     value={searchQ}
                     onChange={(e) => setSearchQ(e.target.value)}
                     onKeyDown={(e) => {
@@ -3025,13 +3224,6 @@ export function MatterWorkbench(props: Props) {
                             <DraftCitationBadge cit={draftCitationByTask[d.taskId]} />
                             <DraftAcceptanceBadge acc={acc} />
                           </div>
-                          {(acc?.placeholderCount ?? 0) > 0 || (acc?.blockerCount ?? 0) > 0 ? (
-                            <div className="lm-meta lm-matter-draft-hint">
-                              {acc?.blockerCount ? `阻断项 ${acc.blockerCount} ` : ""}
-                              {acc?.warningCount ? `· 警告 ${acc.warningCount} ` : ""}
-                              {acc?.placeholderCount ? `· 待补占位符 ${acc.placeholderCount}` : ""}
-                            </div>
-                          ) : null}
                           {onOpenReview && (
                             <button
                               type="button"
@@ -3039,7 +3231,7 @@ export function MatterWorkbench(props: Props) {
                               onClick={() =>
                                 onOpenReview({
                                   taskId: d.taskId,
-                                  matterId: d.matterId ?? selectedId ?? undefined,
+                                  matterId: d.matterId ?? matterId ?? undefined,
                                   statusFilter: "all",
                                   listMode: "all",
                                 })
@@ -3082,10 +3274,7 @@ export function MatterWorkbench(props: Props) {
                 <section className="lm-matter-cockpit-card lm-matter-cognition-card">
                   <div className="lm-matter-cognition-head">
                     <div>
-                      <h3>当前案件认知面板</h3>
-                      <p className="lm-meta">
-                        选择一份最能代表当前案件状态的草稿，查看它受哪些记忆层驱动，以及对应的法律推理结构。
-                      </p>
+                      <h3>认知</h3>
                     </div>
                     <label className="lm-field lm-matter-cognition-select">
                       <span>观察草稿</span>
@@ -3107,7 +3296,7 @@ export function MatterWorkbench(props: Props) {
                     </label>
                   </div>
 
-                  {cognitionBoardLoading ? <div className="lm-meta">汇总案件认知摘要…</div> : null}
+                  {cognitionBoardLoading ? <div className="lm-meta">…</div> : null}
                   {cognitionBoardError ? (
                     <div className="lm-callout lm-callout-danger" role="alert">
                       <p className="lm-callout-body">{cognitionBoardError}</p>
@@ -3120,31 +3309,23 @@ export function MatterWorkbench(props: Props) {
                           <span className="lm-matter-summary-title">观察草稿</span>
                           <span className="lm-matter-summary-count">{cognitionBoard.observedDraftCount}</span>
                         </div>
-                        <div className="lm-matter-summary-hint">当前案件认知板已采样的关键草稿数。</div>
                       </div>
                       <div className="lm-matter-summary-card lm-matter-summary-card-info">
                         <div className="lm-matter-summary-top">
                           <span className="lm-matter-summary-title">推理快照</span>
                           <span className="lm-matter-summary-count">{cognitionBoard.reasoningDraftCount}</span>
                         </div>
-                        <div className="lm-matter-summary-hint">
-                          含 `LegalReasoningGraph` 快照的草稿数，缺失 {cognitionBoard.missingReasoningCount}。
-                        </div>
                       </div>
                       <div className="lm-matter-summary-card lm-matter-summary-card-warn">
                         <div className="lm-matter-summary-top">
-                          <span className="lm-matter-summary-title">记忆层覆盖</span>
+                          <span className="lm-matter-summary-title">记忆层</span>
                           <span className="lm-matter-summary-count">{cognitionBoard.uniqueMemoryLayerCount}</span>
                         </div>
-                        <div className="lm-matter-summary-hint">跨关键草稿累计命中的唯一记忆层数量。</div>
                       </div>
                       <div className="lm-matter-summary-card lm-matter-summary-card-success">
                         <div className="lm-matter-summary-top">
-                          <span className="lm-matter-summary-title">已注入提示</span>
+                          <span className="lm-matter-summary-title">已注入</span>
                           <span className="lm-matter-summary-count">{cognitionBoard.injectedMemoryLayerCount}</span>
-                        </div>
-                        <div className="lm-matter-summary-hint">
-                          已进入 system prompt 的核心记忆层数量，未注入高频层 {cognitionBoard.uncoveredFrequentLayerCount}。
                         </div>
                       </div>
                     </div>
@@ -3173,7 +3354,6 @@ export function MatterWorkbench(props: Props) {
                                 <span className="lm-matter-summary-title">{category.title}</span>
                                 <span className="lm-matter-summary-count">{category.count}</span>
                               </div>
-                              <div className="lm-matter-summary-hint">{category.hint}</div>
                             </div>
                           ))}
                         </div>
@@ -3185,20 +3365,18 @@ export function MatterWorkbench(props: Props) {
                                   <span>{layer.label}</span>
                                   <span className="lm-matter-pill">{layer.count} 次缺失</span>
                                 </div>
-                                <div className="lm-matter-ops-meta">
-                                  该记忆层在多份草稿认知路径中被期待，但对应文件当前并不存在。
-                                </div>
+                                <div className="lm-matter-ops-meta">预期文件缺失</div>
                               </li>
                             ))}
                           </ul>
                         ) : (
-                          <p className="lm-meta">当前关键草稿没有发现持续缺失的记忆层。</p>
+                          <p className="lm-meta">无</p>
                         )}
                       </section>
                       <section className="lm-matter-cockpit-card">
                         <h3>升级建议</h3>
                         {cognitionBoard.upgradeSuggestions.length === 0 ? (
-                          <p className="lm-meta">当前没有明显需要提升为核心记忆的高频候选层。</p>
+                          <p className="lm-meta">无</p>
                         ) : (
                           <ul className="lm-matter-ops-list">
                             {cognitionBoard.upgradeSuggestions.map((item) => (
@@ -3241,35 +3419,30 @@ export function MatterWorkbench(props: Props) {
                                 <span className="lm-matter-summary-title">持久记录</span>
                                 <span className="lm-matter-summary-count">{adoptionHistoryInsight.total}</span>
                               </div>
-                              <div className="lm-matter-summary-hint">当前案件可追溯的认知升级建议采纳次数。</div>
                             </div>
                             <div className="lm-matter-summary-card lm-matter-summary-card-info">
                               <div className="lm-matter-summary-top">
                                 <span className="lm-matter-summary-title">律师档案</span>
                                 <span className="lm-matter-summary-count">{adoptionHistoryInsight.lawyerCount}</span>
                               </div>
-                              <div className="lm-matter-summary-hint">沉淀进长期个人记忆的采纳条目。</div>
                             </div>
                             <div className="lm-matter-summary-card lm-matter-summary-card-success">
                               <div className="lm-matter-summary-top">
                                 <span className="lm-matter-summary-title">助手档案</span>
                                 <span className="lm-matter-summary-count">{adoptionHistoryInsight.assistantCount}</span>
                               </div>
-                              <div className="lm-matter-summary-hint">沉淀进当前助手行为记忆的采纳条目。</div>
                             </div>
                             <div className="lm-matter-summary-card lm-matter-summary-card-warn">
                               <div className="lm-matter-summary-top">
                                 <span className="lm-matter-summary-title">覆盖案件</span>
                                 <span className="lm-matter-summary-count">{adoptionHistoryInsight.crossMatterCount}</span>
                               </div>
-                              <div className="lm-matter-summary-hint">这些采纳记录已经分布到多少个不同案件。</div>
                             </div>
                             <div className="lm-matter-summary-card lm-matter-summary-card-warn">
                               <div className="lm-matter-summary-top">
                                 <span className="lm-matter-summary-title">重复采纳</span>
                                 <span className="lm-matter-summary-count">{adoptionHistoryInsight.repeatedLabels.length}</span>
                               </div>
-                              <div className="lm-matter-summary-hint">说明这些建议可能已经开始跨回合复用。</div>
                             </div>
                             <div className="lm-matter-summary-card lm-matter-summary-card-neutral">
                               <div className="lm-matter-summary-top">
@@ -3280,12 +3453,11 @@ export function MatterWorkbench(props: Props) {
                                     : "--"}
                                 </span>
                               </div>
-                              <div className="lm-matter-summary-hint">帮助判断这套认知升级规则最近是否仍在被复用。</div>
                             </div>
                           </div>
                         ) : null}
                         {visiblePersistentAdoptions.length === 0 && adoptedSuggestions.length === 0 ? (
-                          <p className="lm-meta">当前案件还没有可见的认知建议采纳记录。</p>
+                          <p className="lm-meta">无</p>
                         ) : (
                           <>
                             {adoptionHistoryInsight.repeatedLabels.length > 0 ? (
@@ -3298,11 +3470,13 @@ export function MatterWorkbench(props: Props) {
                                         <span>{item.label}</span>
                                         <span className="lm-matter-pill">{item.count} 次采纳</span>
                                       </div>
-                                      <div className="lm-matter-ops-meta">
-                                        这条建议已多次被采纳
-                                        {item.matterIds.length > 0 ? ` · 关联案件 ${item.matterIds.join(", ")}` : ""}
-                                        {item.latestSavedAt ? ` · 最近一次 ${formatShortDateTime(item.latestSavedAt)}` : ""}
-                                        ，说明它可能正在变成稳定的复用规则。
+                                      <div
+                                        className="lm-matter-ops-meta"
+                                        title={
+                                          item.matterIds.length > 0 ? item.matterIds.join("、") : undefined
+                                        }
+                                      >
+                                        {item.latestSavedAt ? formatShortDateTime(item.latestSavedAt) : "—"}
                                       </div>
                                     </li>
                                   ))}
@@ -3314,7 +3488,13 @@ export function MatterWorkbench(props: Props) {
                                 <div className="lm-meta lm-matter-history-title">持久历史</div>
                                 <ul className="lm-matter-ops-list">
                                   {visiblePersistentAdoptions.map((item) => (
-                                    <li key={item.key}>
+                                    <li
+                                      key={item.key}
+                                      title={internalIdsTitle([
+                                        { label: "案件编号", value: item.matterId ?? undefined },
+                                        { label: "任务编号", value: item.taskId ?? undefined },
+                                      ])}
+                                    >
                                       <div className="lm-matter-ops-title">
                                         <span>{item.label}</span>
                                         <span className="lm-matter-pill">
@@ -3322,9 +3502,8 @@ export function MatterWorkbench(props: Props) {
                                         </span>
                                       </div>
                                       <div className="lm-matter-ops-meta">
-                                        {item.matterId ? `案件 ${item.matterId}` : "案件未记录"}
-                                        {item.draftTitle ? ` · ${item.draftTitle}` : ""}
-                                        {item.taskId ? ` · task ${item.taskId}` : ""}
+                                        {item.matterId ? "已关联到案件工作台" : "案件未记录"}
+                                        {item.draftTitle ? ` · 草稿《${item.draftTitle}》` : ""}
                                       </div>
                                       <div className="lm-matter-ops-meta">采纳时间：{formatShortDateTime(item.savedAt)}</div>
                                     </li>
@@ -3337,7 +3516,13 @@ export function MatterWorkbench(props: Props) {
                                 <div className="lm-meta lm-matter-history-title">本次会话新增</div>
                                 <ul className="lm-matter-ops-list">
                                   {adoptedSuggestions.map((item) => (
-                                    <li key={item.key}>
+                                    <li
+                                      key={item.key}
+                                      title={internalIdsTitle([
+                                        { label: "案件编号", value: item.matterId ?? undefined },
+                                        { label: "任务编号", value: item.taskId ?? undefined },
+                                      ])}
+                                    >
                                       <div className="lm-matter-ops-title">
                                         <span>{item.label}</span>
                                         <span className="lm-matter-pill">
@@ -3345,9 +3530,8 @@ export function MatterWorkbench(props: Props) {
                                         </span>
                                       </div>
                                       <div className="lm-matter-ops-meta">
-                                        {item.matterId ? `案件 ${item.matterId}` : "案件未记录"}
-                                        {item.draftTitle ? ` · ${item.draftTitle}` : ""}
-                                        {item.taskId ? ` · task ${item.taskId}` : ""}
+                                        {item.matterId ? "已关联到案件工作台" : "案件未记录"}
+                                        {item.draftTitle ? ` · 草稿《${item.draftTitle}》` : ""}
                                       </div>
                                       <div className="lm-matter-ops-meta">采纳时间：{formatShortDateTime(item.savedAt)}</div>
                                     </li>
@@ -3361,7 +3545,7 @@ export function MatterWorkbench(props: Props) {
                       <section className="lm-matter-cockpit-card">
                         <h3>高频记忆层</h3>
                         {cognitionBoard.topMemoryLayers.length === 0 ? (
-                          <p className="lm-meta">暂无记忆来源数据。</p>
+                          <p className="lm-meta">无</p>
                         ) : (
                           <ul className="lm-matter-ops-list">
                             {cognitionBoard.topMemoryLayers.map((layer) => (
@@ -3384,7 +3568,10 @@ export function MatterWorkbench(props: Props) {
                         <h3>推理覆盖</h3>
                         <ul className="lm-matter-ops-list">
                           {cognitionBoard.draftCoverage.map((item) => (
-                            <li key={item.taskId}>
+                            <li
+                              key={item.taskId}
+                              title={internalIdsTitle([{ label: "任务编号", value: item.taskId }])}
+                            >
                               <div className="lm-matter-ops-title">
                                 <span>{item.title}</span>
                                 <div className="lm-matter-ops-actions">
@@ -3396,7 +3583,9 @@ export function MatterWorkbench(props: Props) {
                                   </span>
                                 </div>
                               </div>
-                              <div className="lm-matter-ops-meta">记忆层 {item.memoryLayerCount} · taskId {item.taskId}</div>
+                              <div className="lm-matter-ops-meta">
+                                记忆层 {item.memoryLayerCount} · 草稿创建 {formatShortDateTime(item.createdAt)}
+                              </div>
                               <div className="lm-matter-ops-meta">
                                 {item.hasReasoning ? "推理已留痕" : "推理缺快照"} ·{" "}
                                 {item.citationState === "ok"
@@ -3418,7 +3607,12 @@ export function MatterWorkbench(props: Props) {
                       <span className={`lm-matter-pill lm-matter-pill-status-${cognitionDraft.reviewStatus}`}>
                         {reviewStatusLabel(cognitionDraft.reviewStatus)}
                       </span>
-                      <span className="lm-meta">模板 {cognitionDraft.templateId}</span>
+                      <span
+                        className="lm-meta"
+                        title={cognitionDraft.templateId ? `模板编号：${cognitionDraft.templateId}` : undefined}
+                      >
+                        {cognitionDraft.templateId ? "已绑定交付模板" : "未指定模板"}
+                      </span>
                       <span className="lm-meta">创建于 {cognitionDraft.createdAt}</span>
                       <DraftCitationBadge cit={draftCitationByTask[cognitionDraft.taskId]} />
                       {onOpenReview ? (
@@ -3448,7 +3642,7 @@ export function MatterWorkbench(props: Props) {
                   ) : null}
                   {cognitionLoading ? <div className="lm-meta">加载认知面板…</div> : null}
                   {!cognitionLoading && !cognitionDraft ? (
-                    <div className="lm-meta">当前案件还没有足够的草稿可供观察。</div>
+                    <div className="lm-meta">无草稿</div>
                   ) : null}
                   {!cognitionLoading && cognitionDraft ? (
                     <div className="lm-matter-cognition-panels">
@@ -3467,7 +3661,7 @@ export function MatterWorkbench(props: Props) {
                       ) : (
                         <section className="lm-matter-cockpit-card">
                           <h3>当前案件推理板</h3>
-                          <p className="lm-meta">该草稿暂无可展示的推理快照。</p>
+                          <p className="lm-meta">无</p>
                         </section>
                       )}
                     </div>
@@ -3475,10 +3669,158 @@ export function MatterWorkbench(props: Props) {
                 </section>
               </div>
             )}
+
+            {panelTab === "meeting" && matterId ? (
+              <div className="lm-workbench-panel">
+                <section className="lm-matter-cockpit-card lm-matter-meeting-card">
+                  <h3>与助手讨论本案</h3>
+                  <MatterTeamMeetingPanel
+                    apiBase={apiBase}
+                    matterId={matterId}
+                    shellAssistantId={assistantId?.trim() ? assistantId : "default"}
+                    projectDir={projectDir}
+                  />
+                </section>
+              </div>
+            ) : null}
+
+            {showShellOps && panelTab === "ledger" && (
+              <div className="lm-workbench-panel lm-records--desk">
+                <ul className="lm-list">
+                  {shellTasksScoped.length === 0 ? (
+                    <li className="lm-list-empty lm-list-empty-desk">
+                      <span className="lm-list-empty-title">该案下暂无任务台帐记录</span>
+                    </li>
+                  ) : (
+                    shellTasksScoped.map((task) => {
+                      const headline = (task.title?.trim() ? task.title : task.summary).slice(0, 160);
+                      const asst =
+                        task.assistantId && shellAssistantDisplayById[task.assistantId]?.trim()
+                          ? shellAssistantDisplayById[task.assistantId]
+                          : null;
+                      return (
+                        <li
+                          key={task.taskId}
+                          className="lm-list-clickable"
+                          tabIndex={0}
+                          onClick={() =>  onOpenShellDetail?.("task", task.taskId)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                               onOpenShellDetail?.("task", task.taskId);
+                            }
+                          }}
+                        >
+                          <div className="lm-list-row">
+                            <span className={shellTaskBadgeClass?.(task.status, task.kind) ?? "lm-badge"}>
+                              {shellLegalStatusLabel?.(task.status, task.kind) ?? task.status}
+                            </span>
+                            <span className="lm-list-title">{headline}</span>
+                          </div>
+                          {asst ? <div className="lm-records-row-asst">经办助手 · {asst}</div> : null}
+                          <div className="lm-list-time">更新 · {formatShellRelativeTime?.(task.updatedAt)}</div>
+                          {task.outputPath ? (
+                            <div className="lm-list-path" title={task.outputPath}>
+                              {pathBasename(task.outputPath)}
+                            </div>
+                          ) : null}
+                        </li>
+                      );
+                    })
+                  )}
+                </ul>
+              </div>
+            )}
+
+            {showShellOps && panelTab === "deliveries" && (
+              <div className="lm-workbench-panel lm-records--desk">
+                <ul className="lm-list">
+                  {shellHistoryScoped.length === 0 ? (
+                    <li className="lm-list-empty lm-list-empty-desk">
+                      <span className="lm-list-empty-title">该案下暂无交付记录</span>
+                    </li>
+                  ) : (
+                    shellHistoryScoped.map((item) => {
+                      const asst =
+                        item.assistantId && shellAssistantDisplayById[item.assistantId]?.trim()
+                          ? shellAssistantDisplayById[item.assistantId]
+                          : null;
+                      return (
+                        <li
+                          key={`${item.kind}-${item.id}`}
+                          className="lm-list-clickable"
+                          tabIndex={0}
+                          onClick={() =>  onOpenShellDetail?.(item.kind, item.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                               onOpenShellDetail?.(item.kind, item.id);
+                            }
+                          }}
+                        >
+                          <div className="lm-list-row">
+                            <span
+                              className={
+                                shellHistoryBadgeClass?.(item.kind, item.taskRecordKind, item.status) ?? "lm-badge"
+                              }
+                            >
+                              {shellLegalStatusLabel?.(item.status ?? item.kind, item.taskRecordKind) ??
+                                item.status ??
+                                item.kind}
+                            </span>
+                            <span className="lm-list-title">{item.label}</span>
+                          </div>
+                          {asst ? <div className="lm-records-row-asst">经办助手 · {asst}</div> : null}
+                          <div className="lm-list-time">更新 · {formatShellRelativeTime?.(item.updatedAt)}</div>
+                          {item.outputPath ? (
+                            <div className="lm-list-path" title={item.outputPath}>
+                              {pathBasename(item.outputPath)}
+                            </div>
+                          ) : null}
+                        </li>
+                      );
+                    })
+                  )}
+                </ul>
+              </div>
+            )}
           </>
         )}
       </div>
     </div>
+    {matterListCtx && !isAppSidebar ? (
+      <LawmindMatterContextMenu
+        x={matterListCtx.x}
+        y={matterListCtx.y}
+        onClose={() => setMatterListCtx(null)}
+      >
+        {onUseInChat ? (
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              onUseInChat(matterListCtx.matterId);
+              setMatterListCtx(null);
+            }}
+          >
+            在对话中关联本案
+          </button>
+        ) : null}
+        {workspaceDir?.trim() && typeof window !== "undefined" && window.lawmindDesktop?.showItemInFolder ? (
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              const p = `${workspaceDir.replace(/[/\\]+$/, "")}/cases/${matterListCtx.matterId}`;
+              void window.lawmindDesktop?.showItemInFolder(p);
+              setMatterListCtx(null);
+            }}
+          >
+            打开案件文件夹
+          </button>
+        ) : null}
+      </LawmindMatterContextMenu>
+    ) : null}
     </>
   );
-}
+});

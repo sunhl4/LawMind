@@ -82,7 +82,7 @@ export async function applyReviewLabelsMemoryWrites(
     }
   }
 
-  if (labels.includes("quality.good_example")) {
+  if (labels.includes("质量范例")) {
     try {
       const promoted = await promoteGoldenExample(workspaceDir, draft.taskId);
       if (promoted?.created) {
