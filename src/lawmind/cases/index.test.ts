@@ -6,6 +6,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { removeTestWorkspaceDir } from "../../../test/lawmind-workspace-cleanup.js";
+import { drainMatterProjections } from "../application/services/matter-write-service.js";
 import { shortTaskIdForDisplay } from "../cases/task-display.js";
 import {
   createLawMindEngine,
@@ -26,7 +28,7 @@ describe("LawMind Matter Index", () => {
   });
 
   afterEach(async () => {
-    await fs.rm(workspaceDir, { recursive: true, force: true });
+    await removeTestWorkspaceDir(workspaceDir);
   });
 
   it("builds aggregated matter index from case, tasks, drafts and audit", async () => {
@@ -70,8 +72,9 @@ describe("LawMind Matter Index", () => {
     expect(index.openTasks.length).toBe(0);
     expect(index.latestUpdatedAt).toBeTruthy();
 
+    await drainMatterProjections();
     const summary = await engine.getMatterSummary("matter-900");
-    expect(summary.headline).toContain("违约责任");
+    expect(summary.headline).toContain("审查合同争议");
     expect(summary.statusLine).toBe("");
     expect(summary.keyRisks.some((item) => item.includes("通知送达"))).toBe(true);
 

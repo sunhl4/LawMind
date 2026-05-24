@@ -591,6 +591,15 @@ ui.matter_action 原始动作
 3. 先打通 Word 输出链路
 4. 保证每一步都有审计记录
 
+### 平台重构契约（Big-Bang 期间）
+
+为避免 ingest、执行状态、门禁与交付语义漂移，平台级重构阶段统一参照：
+
+- `docs/lawmind/LAWMIND-PLATFORM-CONTRACTS.md`
+- `src/lawmind/platform/contracts.ts`
+
+新字段优先做“兼容式补充”，避免直接破坏现有 API/UI 消费链。
+
 只要这几个基础契约稳住，后面新增功能都只是挂模块，而不是推倒重来。
 
 ---

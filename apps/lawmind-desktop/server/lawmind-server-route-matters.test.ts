@@ -407,4 +407,61 @@ describe("lawmind-server-route-matters", () => {
       await fs.rm(ws, { recursive: true, force: true });
     }
   });
+
+  it("GET /api/matters/review-matrix returns documents and cells", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-review-matrix-"));
+    try {
+      const matterId = "rm-1";
+      const taskId = "task-rm";
+      await fs.mkdir(path.join(ws, "drafts"), { recursive: true });
+      await fs.mkdir(path.join(ws, "tasks"), { recursive: true });
+      await fs.writeFile(
+        path.join(ws, "drafts", `${taskId}.json`),
+        JSON.stringify({
+          taskId,
+          matterId,
+          title: "合同",
+          sections: [{ heading: "违约", body: "违约赔偿条款。" }],
+          reviewStatus: "pending",
+        }),
+        "utf8",
+      );
+      await fs.writeFile(
+        path.join(ws, "tasks", `${taskId}.json`),
+        JSON.stringify({
+          taskId,
+          matterId,
+          kind: "agent.instruction",
+          status: "running",
+          summary: "合同",
+          createdAt: "2026-01-01",
+          updatedAt: "2026-01-01",
+        }),
+        "utf8",
+      );
+      const ctx: LawmindDispatchContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const capture = createResponseCapture();
+      await handleMatterRoutes({
+        ctx,
+        req: { method: "GET" } as http.IncomingMessage,
+        res: capture.res,
+        url: new URL(`http://127.0.0.1/api/matters/review-matrix?matterId=${matterId}`),
+        pathname: "/api/matters/review-matrix",
+        c: {},
+      });
+      expect(capture.status).toBe(200);
+      const j = capture.json();
+      expect(j.ok).toBe(true);
+      const matrix = j.matrix as { documents: unknown[]; cells: unknown[] };
+      expect(matrix.documents.length).toBeGreaterThan(0);
+      expect(matrix.cells.length).toBeGreaterThan(0);
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true });
+    }
+  });
 });

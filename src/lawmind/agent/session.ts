@@ -12,7 +12,8 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import type { AgentMessage, AgentSession, AgentTurn } from "./types.js";
+import { appendTranscriptLines } from "../adapters/session-transcript/index.js";
+import type { AgentMessage, AgentSession, AgentTurn, PersistedChatLiveTrace } from "./types.js";
 
 const SESSIONS_DIR = "sessions";
 const MAX_HISTORY_DEFAULT = 40;
@@ -183,6 +184,13 @@ export function saveSession(workspaceDir: string, session: AgentSession): void {
     JSON.stringify(session, null, 2),
     "utf8",
   );
+  const last = session.conversationHistory[session.conversationHistory.length - 1];
+  if (last) {
+    const transcriptOpts = session.collaborationDelegationId
+      ? { delegationId: session.collaborationDelegationId }
+      : undefined;
+    appendTranscriptLines(workspaceDir, session.sessionId, [last], transcriptOpts);
+  }
 }
 
 /** 删除会话磁盘文件（`<id>.json` 与 `<id>.turns.jsonl`）。至少删掉一个文件则返回 true。 */
@@ -245,19 +253,51 @@ export function maybeUpdateSessionTitleFromInstruction(
 }
 
 /** 将持久化历史映射为桌面气泡（仅 user / assistant 正文） */
-export function sessionHistoryToSimpleMessages(
-  session: AgentSession,
-): Array<{ role: "user" | "assistant"; text: string }> {
-  const out: Array<{ role: "user" | "assistant"; text: string }> = [];
+export function sessionHistoryToSimpleMessages(session: AgentSession): Array<{
+  role: "user" | "assistant";
+  text: string;
+  liveTrace?: { active: boolean; currentRound?: number; steps: PersistedChatLiveTrace["steps"] };
+  executionState?: AgentMessage["executionState"];
+  requiresAction?: AgentTurn["requiresAction"];
+}> {
+  const out: Array<{
+    role: "user" | "assistant";
+    text: string;
+    liveTrace?: { active: boolean; currentRound?: number; steps: PersistedChatLiveTrace["steps"] };
+    executionState?: AgentMessage["executionState"];
+    requiresAction?: AgentTurn["requiresAction"];
+  }> = [];
   for (const msg of session.conversationHistory) {
     if (msg.role !== "user" && msg.role !== "assistant") {
       continue;
     }
     const text = (msg.content ?? "").trim();
-    if (!text) {
+    if (!text && !msg.liveTrace?.steps?.length) {
       continue;
     }
-    out.push({ role: msg.role, text });
+    out.push({
+      role: msg.role,
+      text,
+      ...(msg.liveTrace
+        ? {
+            liveTrace: {
+              active: false,
+              currentRound: msg.liveTrace.currentRound,
+              steps: msg.liveTrace.steps,
+            },
+          }
+        : {}),
+      ...(msg.executionState ? { executionState: msg.executionState } : {}),
+    });
+  }
+  const pending = session.pendingRequiresAction;
+  if (pending?.length) {
+    for (let i = out.length - 1; i >= 0; i--) {
+      if (out[i]?.role === "assistant") {
+        out[i] = { ...out[i], requiresAction: pending };
+        break;
+      }
+    }
   }
   return out;
 }

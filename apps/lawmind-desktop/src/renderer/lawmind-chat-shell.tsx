@@ -1,8 +1,27 @@
 import type { RefObject, ReactNode } from "react";
-import { useState } from "react";
-import { LawmindClarificationForm } from "./LawmindClarificationForm";
-import { LawmindMemorySourcesPanel } from "./LawmindMemorySourcesPanel";
-import { getPendingClarificationState, handleEnterSendShiftNewline, type ChatMsg } from "./lawmind-chat";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { LawmindCommandPalette, type CommandPaletteAction } from "./LawmindCommandPalette";
+import { readComposeStash, writeComposeStash, type ComposePermissionMode } from "./lawmind-compose-prefs";
+import type { LawmindComposeExtras } from "./useLawmindComposeExtras";
+import { LawmindWorkflowSuggestBanner } from "./LawmindWorkflowSuggestBanner";
+import type { LawMindRequiresAction, LawMindRequiresActionDecision } from "./lawmind-requires-action";
+import { LawmindModelPicker } from "./LawmindModelPicker";
+import { LawmindChatHistorySearch } from "./LawmindChatHistorySearch";
+import { LawmindChatMessageRow } from "./LawmindChatMessageRow";
+import { LawmindChatMessagesVirtualList } from "./LawmindChatMessagesVirtualList";
+import { LawmindMsgCompactNotice } from "./LawmindMsgCompactNotice";
+import { LawmindMsgToolGroup } from "./LawmindMsgToolGroup";
+import {
+  getPendingClarificationState,
+  handleEnterSendShiftNewline,
+  type ChatMsg,
+} from "./lawmind-chat";
+import {
+  preprocessChatMessages,
+  readBriefOnlyPreference,
+  writeBriefOnlyPreference,
+  type RenderableChatItem,
+} from "./lawmind-message-preprocess";
 import {
   LM_CHAT_COMPOSE_DEFAULT_HEIGHT_PX,
   LM_CHAT_COMPOSE_MAX_HEIGHT_PX,
@@ -10,9 +29,7 @@ import {
 } from "./lawmind-panel-layout";
 import { usePaneResizeVerticalPx } from "./use-pane-resize";
 import { internalIdsTitle } from "./display-ids";
-
-/** 底部「模型」下拉：打开设置 */
-const COMPOSE_MODEL_OPEN_SETTINGS = "__lawmind_compose_settings__";
+import type { ModelCatalogEntry } from "./lawmind-models-api";
 
 const QUICK_ACTIONS: Array<{ label: string; prompt: string }> = [
   { label: "起草律师函", prompt: "请帮我起草一封律师函，就以下事项发出法律警告：\n\n" },
@@ -40,136 +57,7 @@ const SCENARIO_CARDS: Array<{ title: string; description: string; prompt: string
   },
 ];
 
-function renderInlineLegalMarkdown(text: string): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  const tokenRe = /(\*\*[^*]+\*\*|`[^`]+`)/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = tokenRe.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      nodes.push(text.slice(lastIndex, match.index));
-    }
-    const token = match[0];
-    if (token.startsWith("**")) {
-      nodes.push(<strong key={`strong-${match.index}`}>{token.slice(2, -2)}</strong>);
-    } else {
-      nodes.push(
-        <code key={`code-${match.index}`} className="lm-md-code">
-          {token.slice(1, -1)}
-        </code>,
-      );
-    }
-    lastIndex = match.index + token.length;
-  }
-  if (lastIndex < text.length) {
-    nodes.push(text.slice(lastIndex));
-  }
-  return nodes;
-}
-
-function renderLegalMarkdown(text: string): ReactNode {
-  const lines = text.split("\n");
-  const blocks: ReactNode[] = [];
-  let index = 0;
-
-  while (index < lines.length) {
-    const line = lines[index] ?? "";
-    const trimmed = line.trim();
-
-    if (trimmed === "") {
-      blocks.push(<div key={`space-${index}`} className="lm-md-space" />);
-      index += 1;
-      continue;
-    }
-
-    if (/^---+$/.test(trimmed)) {
-      blocks.push(<hr key={`hr-${index}`} className="lm-md-hr" />);
-      index += 1;
-      continue;
-    }
-
-    const h2 = /^##\s+(.+)$/.exec(line);
-    if (h2) {
-      blocks.push(
-        <div key={`h2-${index}`} className="lm-md-h2">
-          {renderInlineLegalMarkdown(h2[1])}
-        </div>,
-      );
-      index += 1;
-      continue;
-    }
-
-    const bullet = /^-\s+(.+)$/.exec(line);
-    if (bullet) {
-      const items: ReactNode[] = [];
-      while (index < lines.length) {
-        const bulletMatch = /^-\s+(.+)$/.exec(lines[index] ?? "");
-        if (!bulletMatch) {
-          break;
-        }
-        items.push(
-          <li key={`ul-item-${index}`}>{renderInlineLegalMarkdown(bulletMatch[1])}</li>,
-        );
-        index += 1;
-      }
-      blocks.push(
-        <ul key={`ul-${index}`} className="lm-md-list">
-          {items}
-        </ul>,
-      );
-      continue;
-    }
-
-    const ordered = /^\d+\.\s+(.+)$/.exec(line);
-    if (ordered) {
-      const items: ReactNode[] = [];
-      while (index < lines.length) {
-        const orderedMatch = /^\d+\.\s+(.+)$/.exec(lines[index] ?? "");
-        if (!orderedMatch) {
-          break;
-        }
-        items.push(
-          <li key={`ol-item-${index}`}>{renderInlineLegalMarkdown(orderedMatch[1])}</li>,
-        );
-        index += 1;
-      }
-      blocks.push(
-        <ol key={`ol-${index}`} className="lm-md-list lm-md-ol">
-          {items}
-        </ol>,
-      );
-      continue;
-    }
-
-    blocks.push(
-      <div key={`p-${index}`} className="lm-md-p">
-        {renderInlineLegalMarkdown(line)}
-      </div>,
-    );
-    index += 1;
-  }
-
-  return <>{blocks}</>;
-}
-
-export function hasChatDiagnostics(message: ChatMsg): boolean {
-  return (
-    (message.memorySources?.length ?? 0) > 0 ||
-    (message.toolCallSequence?.length ?? 0) > 0 ||
-    message.runtimeHints != null
-  );
-}
-
-function hasClarificationQuestions(message: ChatMsg): boolean {
-  return (message.clarificationQuestions?.length ?? 0) > 0;
-}
-
-function shouldShowClarifyCard(message: ChatMsg): boolean {
-  if (message.role !== "assistant") {
-    return false;
-  }
-  return hasClarificationQuestions(message) || message.status === "awaiting_clarification";
-}
+export { hasChatDiagnostics } from "./lawmind-chat";
 
 export type LawmindChatWorkspaceProps = {
   selectedAssistantId: string;
@@ -179,9 +67,12 @@ export type LawmindChatWorkspaceProps = {
   loading: boolean;
   error: string | null;
   allowWebSearch: boolean;
-  webSearchApiKeyConfigured?: boolean;
+  /** 工作区策略禁止联网时禁用联网下拉 */
+  webSearchPolicyBlocked?: boolean;
   contextTaskId: string | null;
   contextMatterId: string | null;
+  apiBase?: string;
+  onOpenReview?: () => void;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   messagesEndRef: RefObject<HTMLDivElement | null>;
   onInputChange: (value: string) => void;
@@ -196,13 +87,39 @@ export type LawmindChatWorkspaceProps = {
   /** 关联案件标题（可空） */
   matterTitle: string | null;
   /** 在「文件」页标记的、将拼入发送给模型的路径引用 */
-  fileChatPills: Array<{ id: string; shortLabel: string; title: string }>;
+  fileChatPills: Array<{ id: string; shortLabel: string; title: string; relPath?: string }>;
   onRemoveFileChatPill: (id: string) => void;
   onClearFileChatPills: () => void;
   /** 打开设置（模型/API、联网密钥等） */
   onOpenComposeSettings?: () => void;
+  /** 打开 API 配置向导（与 Cursor「注册」模型入口类似） */
+  onOpenApiWizard?: () => void;
   /** 主模型是否已在环境中配置；未加载 health 时可不传 */
   composeModelConfigured?: boolean;
+  modelCatalog?: ModelCatalogEntry[];
+  selectedModelId?: string;
+  onModelSelect?: (modelId: string) => void | Promise<void>;
+  /** `POST /api/models/test` 后的简短状态（成功/失败文案） */
+  composeModelHint?: string | null;
+  composeModelQuickTestBusy?: boolean;
+  onComposeModelQuickTest?: () => void | Promise<void>;
+  /** 打开「交给其他助手」对话框 */
+  onDelegateAssist?: () => void;
+  delegateAssistEnabled?: boolean;
+  chatSessionId?: string;
+  onResumeRequiresAction?: (
+    action: LawMindRequiresAction,
+    decision: LawMindRequiresActionDecision,
+    clarificationDraft?: Record<string, string>,
+    editedArgs?: Record<string, unknown>,
+  ) => void | Promise<void>;
+  queuedMessages?: string[];
+  cancelQueuedMessage?: (index: number) => void;
+  onOpenTaskDrawer?: () => void;
+  onOpenActionHub?: () => void;
+  onOpenMemoryInspector?: () => void;
+  composeExtras: LawmindComposeExtras;
+  streamCompactLabels?: string[];
 };
 
 export type LawmindChatMessagesColumnProps = Pick<
@@ -218,7 +135,17 @@ export type LawmindChatMessagesColumnProps = Pick<
   | "fileChatPills"
   | "onRemoveFileChatPill"
   | "onClearFileChatPills"
->;
+  | "contextTaskId"
+  | "apiBase"
+  | "onOpenReview"
+  | "onDelegateAssist"
+  | "delegateAssistEnabled"
+  | "chatSessionId"
+  | "onResumeRequiresAction"
+> & {
+  revisionBackgroundActive?: boolean;
+  streamCompactLabels?: string[];
+};
 
 export function LawmindChatMessagesColumn({
   selectedAssistantId,
@@ -232,11 +159,108 @@ export function LawmindChatMessagesColumn({
   fileChatPills,
   onRemoveFileChatPill,
   onClearFileChatPills,
+  contextTaskId,
+  apiBase: _apiBase,
+  onOpenReview,
+  onDelegateAssist,
+  delegateAssistEnabled: _delegateAssistEnabled,
+  chatSessionId: _chatSessionId,
+  onResumeRequiresAction,
+  revisionBackgroundActive,
+  streamCompactLabels = [],
 }: LawmindChatMessagesColumnProps) {
+  const [clarificationDraft, setClarificationDraft] = useState<Record<string, string>>({});
+  const [briefOnly, setBriefOnly] = useState(() => readBriefOnlyPreference());
+  const [searchHighlight, setSearchHighlight] = useState<Set<number> | null>(null);
   const pendingClarify = getPendingClarificationState(currentMessages);
+  const lastAssistantIndex = useMemo(() => {
+    for (let i = currentMessages.length - 1; i >= 0; i -= 1) {
+      if (currentMessages[i]?.role === "assistant") {
+        return i;
+      }
+    }
+    return -1;
+  }, [currentMessages]);
+
+  const renderableItems = useMemo(() => {
+    const base = preprocessChatMessages(currentMessages, {
+      briefOnly,
+      collapseSearch: true,
+      groupTools: true,
+    });
+    const notices: RenderableChatItem[] = streamCompactLabels.map((label, i) => ({
+      kind: "compact_notice" as const,
+      label,
+      sourceIndex: -1 - i,
+    }));
+    return notices.length > 0 ? [...notices, ...base] : base;
+  }, [currentMessages, briefOnly, streamCompactLabels]);
+
+  const onHighlightIndices = useCallback((indices: Set<number> | null) => {
+    setSearchHighlight(indices);
+  }, []);
+
+  const renderItem = (item: RenderableChatItem, listKey: string): ReactNode => {
+    if (item.kind === "compact_notice") {
+      return <LawmindMsgCompactNotice key={listKey} label={item.label} />;
+    }
+    if (item.kind === "tool_group") {
+      return (
+        <LawmindMsgToolGroup
+          key={listKey}
+          messages={item.messages}
+          sourceIndices={item.sourceIndices}
+          defaultCollapsed={item.collapsed}
+        />
+      );
+    }
+    const index = item.sourceIndex;
+    const dimmed = searchHighlight != null && !searchHighlight.has(index);
+    return (
+      <LawmindChatMessageRow
+        key={listKey}
+        msg={item.message}
+        index={index}
+        selectedAssistantId={selectedAssistantId}
+        lastAssistantIndex={lastAssistantIndex}
+        loading={loading}
+        copiedMessageIndex={copiedMessageIndex}
+        pendingClarify={pendingClarify}
+        contextTaskId={contextTaskId}
+        apiBase={apiBase}
+        chatSessionId={chatSessionId}
+        clarificationDraft={clarificationDraft}
+        onClarificationDraftChange={(key, value) =>
+          setClarificationDraft((d) => ({ ...d, [key]: value }))
+        }
+        onCopyMessage={onCopyMessage}
+        onDelegateAssist={onDelegateAssist}
+        delegateAssistEnabled={delegateAssistEnabled}
+        onResumeRequiresAction={onResumeRequiresAction}
+        onSendClarificationMessage={onSendClarificationMessage}
+        onApplyPrompt={onApplyPrompt}
+        onOpenReview={onOpenReview}
+        dimmed={dimmed}
+      />
+    );
+  };
 
   return (
     <>
+      {revisionBackgroundActive && contextTaskId?.trim() && onOpenReview ? (
+        <div className="lm-chat-revision-banner" role="status">
+          <span>正在后台修订草稿，执行过程见下方；完成后将自动回到审核台。</span>
+          <button type="button" className="lm-btn lm-btn-ghost lm-btn-small" onClick={onOpenReview}>
+            回审核台
+          </button>
+        </div>
+      ) : null}
+      {apiBase && fileChatPills.length > 0 ? (
+        <LawmindWorkflowSuggestBanner
+          apiBase={apiBase}
+          pinnedRelPaths={fileChatPills.map((p) => p.relPath ?? p.title)}
+        />
+      ) : null}
       {fileChatPills.length > 0 ? (
         <div className="lm-file-chat-context-bar" role="region" aria-label="本对话引用的文件与目录">
           <span className="lm-file-chat-context-k">引用</span>
@@ -261,12 +285,30 @@ export function LawmindChatMessagesColumn({
           </button>
         </div>
       ) : null}
+      <div className="lm-messages-toolbar">
+        <label className="lm-messages-brief-toggle">
+          <input
+            type="checkbox"
+            checked={briefOnly}
+            onChange={(e) => {
+              const next = e.target.checked;
+              setBriefOnly(next);
+              writeBriefOnlyPreference(next);
+            }}
+          />
+          仅看交付相关
+        </label>
+        <LawmindChatHistorySearch items={renderableItems} onHighlightIndices={onHighlightIndices} />
+      </div>
       <div className="lm-messages" role="region" aria-label="对话消息">
         {currentMessages.length === 0 ? (
           <div className="lm-messages-empty">
             <div className="lm-messages-empty-icon">L</div>
             <div className="lm-messages-empty-title">开始对话</div>
-            <div className="lm-scenario-cards">
+            <p className="lm-messages-empty-lead">
+              用自然语言交办任务；可从左侧 cases/ 选择案件，或在下方选择常见场景。
+            </p>
+            <div className="lm-scenario-cards lm-scenario-cards-compact">
               {SCENARIO_CARDS.map((card) => (
                 <button
                   key={card.title}
@@ -275,75 +317,24 @@ export function LawmindChatMessagesColumn({
                   onClick={() => onApplyPrompt(card.prompt)}
                 >
                   <span className="lm-scenario-title">{card.title}</span>
+                  <span className="lm-scenario-desc">{card.description}</span>
                 </button>
               ))}
             </div>
           </div>
         ) : (
-          currentMessages.map((msg, index) => (
-            <div
-              key={`${selectedAssistantId}-msg-${index}`}
-              className={`lm-msg-row ${msg.role === "user" ? "lm-msg-row-user" : ""}`}
-            >
-              <div
-                className={`lm-msg-avatar ${
-                  msg.role === "user" ? "lm-msg-avatar-user" : "lm-msg-avatar-ai"
-                }`}
-              >
-                {msg.role === "user" ? "我" : "LM"}
-              </div>
-              <div className={`lm-msg-wrap ${msg.role === "user" ? "lm-msg-wrap-user" : ""}`}>
-                <div className={`lm-msg ${msg.role === "user" ? "lm-msg-user" : "lm-msg-ai"}`}>
-                  {msg.role === "assistant" ? renderLegalMarkdown(msg.text) : msg.text}
-                </div>
-                {msg.role === "assistant" && (
-                  <button
-                    type="button"
-                    className="lm-msg-copy-btn"
-                    onClick={() => void onCopyMessage(msg.text, index)}
-                  >
-                    {copiedMessageIndex === index ? "已复制 ✓" : "复制"}
-                  </button>
-                )}
-                {msg.role === "assistant" && shouldShowClarifyCard(msg) && (
-                  <div
-                    className="lm-clarify-card"
-                    id={`lm-clarify-card-${index}`}
-                    data-testid={index === pendingClarify.assistantMessageIndex ? "lm-clarify-card-active" : undefined}
-                  >
-                    <div className="lm-clarify-card-title">
-                      {msg.status === "awaiting_clarification" ? "还差这些信息" : "建议补充这些"}
-                    </div>
-                    <div className="lm-clarify-card-hint">
-                      {msg.status === "awaiting_clarification" && (msg.clarificationQuestions?.length ?? 0) === 0
-                        ? "请补充说明后发送。"
-                        : msg.status === "awaiting_clarification"
-                          ? "请填毕下方各项。"
-                          : "可在大框说明后发送。"}
-                    </div>
-                    {(msg.clarificationQuestions?.length ?? 0) > 0 ? (
-                      <LawmindClarificationForm
-                        formKey={`${selectedAssistantId}-${index}`}
-                        questions={msg.clarificationQuestions ?? []}
-                        loading={loading}
-                        onApplyToInput={onApplyPrompt}
-                        onSend={onSendClarificationMessage}
-                      />
-                    ) : (
-                      <p className="lm-clarify-card-fallback">请在下方输入并发送。</p>
-                    )}
-                  </div>
-                )}
-                {msg.role === "assistant" && hasChatDiagnostics(msg) && (
-                  <LawmindMemorySourcesPanel
-                    layers={msg.memorySources ?? []}
-                    toolCallSequence={msg.toolCallSequence}
-                    variant="chat"
-                  />
-                )}
-              </div>
-            </div>
-          ))
+          <LawmindChatMessagesVirtualList
+            count={renderableItems.length}
+            enabled
+            endRef={messagesEndRef}
+          >
+            {(virtualIndex) =>
+              renderItem(
+                renderableItems[virtualIndex],
+                `${selectedAssistantId}-item-${virtualIndex}`,
+              )
+            }
+          </LawmindChatMessagesVirtualList>
         )}
         <div ref={messagesEndRef} />
       </div>
@@ -367,7 +358,27 @@ export function LawmindChatComposeFooter({
   onApplyPrompt,
   onClearContext,
   onOpenComposeSettings,
-  composeModelConfigured,
+  onOpenApiWizard,
+  modelCatalog = [],
+  selectedModelId = "",
+  onModelSelect,
+  composeModelHint,
+  composeModelQuickTestBusy,
+  onComposeModelQuickTest,
+  onDelegateAssist,
+  delegateAssistEnabled: _delegateAssistEnabled,
+  allowWebSearch,
+  webSearchPolicyBlocked,
+  onAllowWebSearchChange,
+  apiBase: _apiBase,
+  chatSessionId: _chatSessionId,
+  queuedMessages = [],
+  cancelQueuedMessage,
+  onOpenTaskDrawer,
+  onOpenActionHub,
+  onOpenMemoryInspector,
+  onOpenReview,
+  composeExtras,
 }: Pick<
   LawmindChatWorkspaceProps,
   | "currentMessages"
@@ -384,9 +395,138 @@ export function LawmindChatComposeFooter({
   | "onApplyPrompt"
   | "onClearContext"
   | "onOpenComposeSettings"
-  | "composeModelConfigured"
->) {
-  const [modelPick, setModelPick] = useState("default");
+  | "onOpenApiWizard"
+  | "modelCatalog"
+  | "selectedModelId"
+  | "onModelSelect"
+  | "composeModelHint"
+  | "composeModelQuickTestBusy"
+  | "onComposeModelQuickTest"
+  | "onDelegateAssist"
+  | "delegateAssistEnabled"
+  | "allowWebSearch"
+  | "webSearchPolicyBlocked"
+  | "onAllowWebSearchChange"
+  | "apiBase"
+  | "chatSessionId"
+  | "queuedMessages"
+  | "cancelQueuedMessage"
+  | "onOpenTaskDrawer"
+  | "onOpenActionHub"
+  | "onOpenMemoryInspector"
+  | "onOpenReview"
+> & {
+  composeExtras: LawmindComposeExtras;
+}) {
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [commandQuery, setCommandQuery] = useState("");
+  const [stashNotice, setStashNotice] = useState(false);
+  const extras = composeExtras;
+
+  useEffect(() => {
+    if (!loading) {
+      void extras.refreshContextBudget();
+    }
+  }, [loading, extras.refreshContextBudget]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCommandOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  useEffect(() => {
+    if (!input.trim() && contextMatterId) {
+      const stashed = readComposeStash(contextMatterId);
+      if (stashed.trim()) {
+        onInputChange(stashed);
+        setStashNotice(true);
+      }
+    }
+  }, [contextMatterId, input, onInputChange]);
+
+  const paletteActions: CommandPaletteAction[] = useMemo(
+    () => [
+      {
+        id: "doctor",
+        slash: "/doctor",
+        label: "系统体检",
+        run: () => onOpenComposeSettings?.(),
+      },
+      {
+        id: "review",
+        slash: "/review",
+        label: "审核台",
+        hint: "打开审核工作台",
+        run: () => onOpenReview?.(),
+      },
+      {
+        id: "tasks",
+        slash: "/tasks",
+        label: "任务抽屉",
+        run: () => onOpenTaskDrawer?.(),
+      },
+      {
+        id: "hub",
+        slash: "/hub",
+        label: "待处理中心",
+        run: () => onOpenActionHub?.(),
+      },
+      {
+        id: "memory",
+        slash: "/memory",
+        label: "记忆库",
+        run: () => onOpenMemoryInspector?.(),
+      },
+      {
+        id: "delegate",
+        slash: "/delegate",
+        label: "交给其他助手",
+        run: () => onDelegateAssist?.(),
+      },
+      {
+        id: "contract",
+        slash: "/contract",
+        label: "合同审查",
+        hint: "插入审查提示",
+        run: () =>
+          onApplyPrompt("请对以下合同进行逐条审查，并列出关键风险点与修改建议：\n\n"),
+      },
+      {
+        id: "letter",
+        slash: "/letter",
+        label: "起草律师函",
+        run: () => onApplyPrompt("请帮我起草一封律师函，就以下事项发出法律警告：\n\n"),
+      },
+      {
+        id: "statute",
+        slash: "/statute",
+        label: "法规检索",
+        run: () => onApplyPrompt("请检索以下法律问题的相关法规、司法解释与裁判要旨：\n\n"),
+      },
+      {
+        id: "config",
+        slash: "/config",
+        label: "设置",
+        run: () => onOpenComposeSettings?.(),
+      },
+    ],
+    [
+      onOpenComposeSettings,
+      onOpenTaskDrawer,
+      onOpenMemoryInspector,
+      onOpenReview,
+      onOpenActionHub,
+      onDelegateAssist,
+      onApplyPrompt,
+    ],
+  );
+
   const { height: composeHeight, onResizePointerDown: onComposeResizePointerDown } = usePaneResizeVerticalPx({
     storageKey: "lawmind.ui.chatComposeHeight",
     defaultHeight: LM_CHAT_COMPOSE_DEFAULT_HEIGHT_PX,
@@ -425,6 +565,13 @@ export function LawmindChatComposeFooter({
         {error ? (
           <div className="lm-callout lm-callout-danger" role="alert">
             <p className="lm-callout-body">{error}</p>
+          </div>
+        ) : null}
+        {(composeModelHint?.trim() || composeModelQuickTestBusy) ? (
+          <div className="lm-compose-model-hint" role="status">
+            {composeModelQuickTestBusy && !(composeModelHint ?? "").trim()
+              ? "正在测试模型连接…"
+              : (composeModelHint ?? "").trim()}
           </div>
         ) : null}
         {pendingClarify.pending && (
@@ -471,8 +618,42 @@ export function LawmindChatComposeFooter({
           </div>
         ) : null}
 
-        <div className="lm-chip-row">
-          {QUICK_ACTIONS.map((action) => (
+        {queuedMessages.length > 0 ? (
+          <div className="lm-compose-queue" role="status">
+            <span className="lm-meta">排队中 {queuedMessages.length} 条</span>
+            <ul>
+              {queuedMessages.map((q, i) => (
+                <li key={`q-${i}`}>
+                  <span>{q.slice(0, 80)}</span>
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-ghost lm-btn-small"
+                    onClick={() => cancelQueuedMessage?.(i)}
+                  >
+                    取消
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {stashNotice ? (
+          <div className="lm-compose-stash" role="status">
+            已恢复未发送草稿
+            <button type="button" className="lm-btn lm-btn-ghost lm-btn-small" onClick={() => setStashNotice(false)}>
+              知道了
+            </button>
+          </div>
+        ) : null}
+        {extras.contextBudget ? (
+          <div className="lm-compose-token-bar" role="status">
+            上下文约 {extras.contextBudget.used} / {extras.contextBudget.effectiveLimit} tokens
+            {extras.contextBudget.level === "warn" ? " · 接近上限" : ""}
+            {extras.contextBudget.level === "compact" ? " · 建议压缩" : ""}
+          </div>
+        ) : null}
+        <div className="lm-chip-row lm-chip-row-compose">
+          {QUICK_ACTIONS.slice(0, 4).map((action) => (
             <button
               key={action.label}
               type="button"
@@ -488,10 +669,21 @@ export function LawmindChatComposeFooter({
           <textarea
             ref={textareaRef}
             value={input}
-            onChange={(e) => onInputChange(e.target.value)}
-            placeholder="Enter 发送，Shift+Enter 换行"
+            onChange={(e) => {
+              onInputChange(e.target.value);
+              writeComposeStash(contextMatterId, e.target.value);
+            }}
+            placeholder="Enter 发送，Shift+Enter 换行；/ 或 ⌘K 打开命令"
             title="用平常说话的方式写即可"
-            onKeyDown={(e) => handleEnterSendShiftNewline(e, () => void onSend())}
+            onKeyDown={(e) => {
+              if (e.key === "/" && !input.trim()) {
+                e.preventDefault();
+                setCommandOpen(true);
+                setCommandQuery("/");
+                return;
+              }
+              handleEnterSendShiftNewline(e, () => void onSend());
+            }}
           />
           <div className="lm-compose-toolbar" aria-label="模式、模型与发送">
             <div className="lm-compose-toolbar-start">
@@ -504,31 +696,68 @@ export function LawmindChatComposeFooter({
                   </option>
                 </select>
               </label>
-              <label className="lm-compose-bar-field">
-                <span className="lm-compose-bar-label">模型</span>
+              <label className="lm-compose-bar-field lm-compose-permission-mode">
+                <span className="lm-compose-bar-label">权限</span>
                 <select
                   className="lm-compose-select"
-                  value={modelPick}
-                  aria-label="模型与 API"
-                  title="选择默认对话模型或打开设置"
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (v === COMPOSE_MODEL_OPEN_SETTINGS) {
-                      onOpenComposeSettings?.();
-                      setModelPick("default");
-                      return;
-                    }
-                    setModelPick(v);
-                  }}
+                  value={extras.permissionMode}
+                  aria-label="工具权限模式"
+                  disabled={loading}
+                  onChange={(e) =>
+                    extras.onPermissionModeChange(e.target.value as ComposePermissionMode)
+                  }
                 >
-                  <option value="default">
-                    {composeModelConfigured === false ? "默认模型（API 未配置）" : "默认对话模型"}
-                  </option>
-                  <option value={COMPOSE_MODEL_OPEN_SETTINGS}>模型与 API…</option>
+                  <option value="standard">标准</option>
+                  <option value="strict">严格</option>
+                  <option value="readonly">只读</option>
                 </select>
+              </label>
+              <label className="lm-compose-bar-field">
+                <span className="lm-compose-bar-label">联网</span>
+                <select
+                  className="lm-compose-select"
+                  value={allowWebSearch ? "web" : "local"}
+                  disabled={Boolean(webSearchPolicyBlocked) || loading}
+                  aria-label="联网工具"
+                  title={
+                    webSearchPolicyBlocked
+                      ? "工作区策略已禁止联网检索"
+                      : allowWebSearch
+                        ? "已开启：助手可调用 web_search（Brave）"
+                        : "关闭：仅使用工作区、案件记忆与本地工具"
+                  }
+                  onChange={(e) => onAllowWebSearchChange(e.target.value === "web")}
+                >
+                  <option value="local">仅本地</option>
+                  <option value="web">联网</option>
+                </select>
+              </label>
+              <label className="lm-compose-bar-field">
+                <span className="lm-compose-bar-label">模型</span>
+                <LawmindModelPicker
+                  catalog={modelCatalog}
+                  selectedModelId={selectedModelId}
+                  onSelect={(id) => onModelSelect?.(id)}
+                  onOpenSettings={onOpenComposeSettings}
+                  onOpenApiWizard={onOpenApiWizard}
+                  onTestCurrent={onComposeModelQuickTest}
+                  quickTestBusy={composeModelQuickTestBusy}
+                  disabled={loading}
+                  disabledTitle={loading ? "回复生成中，请稍后再切换模型" : undefined}
+                />
               </label>
             </div>
             <div className="lm-compose-toolbar-end">
+              {extras.pendingApprovalCount > 0 ? (
+                <button
+                  type="button"
+                  className="lm-compose-pending-badge"
+                  title="打开待办中心"
+                  onClick={() => onOpenActionHub?.()}
+                >
+                  待批准 {extras.pendingApprovalCount}
+                </button>
+              ) : null}
               {loading ? (
                 <button
                   type="button"
@@ -542,6 +771,7 @@ export function LawmindChatComposeFooter({
                   type="button"
                   className="lm-btn"
                   disabled={!input.trim()}
+                  title={!input.trim() ? "请输入内容后再发送" : undefined}
                   onClick={() => void onSend()}
                 >
                   发送
@@ -551,6 +781,16 @@ export function LawmindChatComposeFooter({
           </div>
         </div>
       </div>
+      <LawmindCommandPalette
+        open={commandOpen}
+        onClose={() => {
+          setCommandOpen(false);
+          setCommandQuery("");
+        }}
+        actions={paletteActions}
+        query={commandQuery}
+        onQueryChange={setCommandQuery}
+      />
     </>
   );
 }
@@ -560,6 +800,7 @@ export function LawmindChatShell(props: LawmindChatWorkspaceProps) {
     <div className="lm-chat-workspace">
       <LawmindChatMessagesColumn {...props} />
       <LawmindChatComposeFooter
+        composeExtras={props.composeExtras}
         currentMessages={props.currentMessages}
         input={props.input}
         loading={props.loading}
@@ -574,7 +815,26 @@ export function LawmindChatShell(props: LawmindChatWorkspaceProps) {
         onApplyPrompt={props.onApplyPrompt}
         onClearContext={props.onClearContext}
         onOpenComposeSettings={props.onOpenComposeSettings}
-        composeModelConfigured={props.composeModelConfigured}
+        onOpenApiWizard={props.onOpenApiWizard}
+        modelCatalog={props.modelCatalog}
+        selectedModelId={props.selectedModelId}
+        onModelSelect={props.onModelSelect}
+        composeModelHint={props.composeModelHint}
+        composeModelQuickTestBusy={props.composeModelQuickTestBusy}
+        onComposeModelQuickTest={props.onComposeModelQuickTest}
+        onDelegateAssist={props.onDelegateAssist}
+        delegateAssistEnabled={props.delegateAssistEnabled}
+        allowWebSearch={props.allowWebSearch}
+        webSearchPolicyBlocked={props.webSearchPolicyBlocked}
+        onAllowWebSearchChange={props.onAllowWebSearchChange}
+        apiBase={props.apiBase}
+        chatSessionId={props.chatSessionId}
+        queuedMessages={props.queuedMessages}
+        cancelQueuedMessage={props.cancelQueuedMessage}
+        onOpenTaskDrawer={props.onOpenTaskDrawer}
+        onOpenActionHub={props.onOpenActionHub}
+        onOpenMemoryInspector={props.onOpenMemoryInspector}
+        onOpenReview={props.onOpenReview}
       />
     </div>
   );

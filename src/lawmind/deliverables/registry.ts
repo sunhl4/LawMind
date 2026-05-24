@@ -227,6 +227,87 @@ const LITIGATION_OUTLINE_SPEC: DeliverableSpec = {
   reasoningGate: REASONING_GATE_HIGH_RISK,
 };
 
+const REPORT_ESG_SPEC: DeliverableSpec = {
+  type: "report.esg",
+  displayName: "ESG / 可持续发展报告",
+  description:
+    "环境、社会与治理（ESG）或可持续发展类报告；章节结构因披露框架而异，验收以建议项为主。",
+  defaultTemplateId: "report-esg-default",
+  defaultOutput: "docx",
+  defaultRiskLevel: "medium",
+  requiredSections: [
+    {
+      headingKeywords: ["概述", "摘要", "前言", "执行", "introduction", "overview"],
+      purpose: "报告概述",
+      severity: "warning",
+    },
+    {
+      headingKeywords: ["环境", "气候", "碳", "排放", "能源", "e ", "environmental"],
+      purpose: "环境（E）维度",
+      severity: "warning",
+    },
+    {
+      headingKeywords: ["社会", "员工", "供应链", "社区", "劳工", "s ", "social"],
+      purpose: "社会（S）维度",
+      severity: "warning",
+    },
+    {
+      headingKeywords: ["治理", "合规", "董事会", "内控", "g ", "governance"],
+      purpose: "治理（G）维度",
+      severity: "warning",
+    },
+    {
+      headingKeywords: ["指标", "数据", "绩效", "kpi", "披露"],
+      purpose: "关键指标与披露",
+      severity: "warning",
+    },
+    {
+      headingKeywords: ["结论", "展望", "建议", "下一步", "未来"],
+      purpose: "结论与展望",
+      severity: "warning",
+    },
+  ],
+  acceptanceCriteria: [
+    "输出可直接对外使用的报告正文，而非工作备忘录。",
+    "ESG 三维度（环境、社会、治理）宜有对应章节；框架差异大时以律师终稿为准。",
+    "数据与指标宜标注来源或统计口径；缺失处使用显式占位符。",
+  ],
+  placeholderRule: { pattern: PLACEHOLDER_PATTERN, mustResolveBeforeRender: false },
+  defaultClarificationQuestions: [],
+};
+
+const REPORT_GENERAL_SPEC: DeliverableSpec = {
+  type: "report.general",
+  displayName: "研究报告 / 专项报告",
+  description: "研究报告、白皮书、尽职调查等长文报告；结构因题材而异，验收以建议项为主。",
+  defaultTemplateId: "report-general-default",
+  defaultOutput: "docx",
+  defaultRiskLevel: "low",
+  requiredSections: [
+    {
+      headingKeywords: ["概述", "摘要", "背景", "前言"],
+      purpose: "背景与概述",
+      severity: "warning",
+    },
+    {
+      headingKeywords: ["分析", "发现", "论证", "讨论", "正文"],
+      purpose: "主体分析",
+      severity: "warning",
+    },
+    {
+      headingKeywords: ["结论", "建议", "展望", "总结"],
+      purpose: "结论与建议",
+      severity: "warning",
+    },
+  ],
+  acceptanceCriteria: [
+    "输出完整报告正文，结构清晰、可直接编辑。",
+    "若信息不足，先给出带占位符的正式框架。",
+  ],
+  placeholderRule: { pattern: PLACEHOLDER_PATTERN, mustResolveBeforeRender: false },
+  defaultClarificationQuestions: [],
+};
+
 const GENERAL_DOCUMENT_SPEC: DeliverableSpec = {
   type: "document.general",
   displayName: "通用法律文书",
@@ -236,7 +317,7 @@ const GENERAL_DOCUMENT_SPEC: DeliverableSpec = {
   defaultRiskLevel: "low",
   requiredSections: [
     { headingKeywords: ["概述", "背景", "事项"], purpose: "事项概述", severity: "warning" },
-    { headingKeywords: ["分析", "意见", "说明"], purpose: "正文/分析", severity: "blocker" },
+    { headingKeywords: ["分析", "意见", "说明"], purpose: "正文/分析", severity: "warning" },
     { headingKeywords: ["结论", "建议", "下一步"], purpose: "结论与建议", severity: "warning" },
   ],
   acceptanceCriteria: [
@@ -253,6 +334,8 @@ export const BUILT_IN_DELIVERABLE_SPECS: readonly DeliverableSpec[] = Object.fre
   DEMAND_LETTER_SPEC,
   CONTRACT_REVIEW_SPEC,
   LITIGATION_OUTLINE_SPEC,
+  REPORT_ESG_SPEC,
+  REPORT_GENERAL_SPEC,
   GENERAL_DOCUMENT_SPEC,
 ]);
 

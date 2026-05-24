@@ -52,6 +52,17 @@ declare global {
       setProjectDir: (projectDir: string | null) => Promise<{
         ok: boolean;
         projectDir?: string | null;
+        apiBase?: string;
+        error?: string;
+      }>;
+      readModelSettings: () => Promise<{
+        ok: boolean;
+        hasApiKey?: boolean;
+        keychainAvailable?: boolean;
+        keyStorage?: "keychain" | "env" | "env+keychain" | "none";
+        baseUrl?: string;
+        model?: string;
+        envFilePath?: string;
         error?: string;
       }>;
       saveSetup: (payload: {
@@ -62,10 +73,26 @@ declare global {
         retrievalMode?: "single" | "dual";
       }) => Promise<{
         ok: boolean;
+        verified?: boolean;
+        latencyMs?: number;
+        code?: string;
         apiBase?: string;
         workspaceDir?: string;
         envFilePath?: string;
         retrievalMode?: "single" | "dual";
+        keyStorage?: "keychain" | "env" | "env+keychain" | "none";
+        error?: string;
+      }>;
+      saveCustomModelKey: (payload: {
+        id: string;
+        apiKey: string;
+      }) => Promise<{ ok: boolean; error?: string }>;
+      deleteCustomModelKey: (payload: {
+        id: string;
+      }) => Promise<{ ok: boolean; removed?: boolean; error?: string }>;
+      keychainStatus: () => Promise<{
+        available: boolean;
+        count?: number;
         error?: string;
       }>;
       setRetrievalMode: (mode: "single" | "dual") => Promise<{

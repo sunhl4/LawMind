@@ -50,11 +50,11 @@ export function createConsultAssistantTool(opts: {
       const question = params.question as string;
       const contextStr = params.context as string | undefined;
 
-      const targetId = resolveAssistantId(ctx.workspaceDir, targetInput);
+      const targetId = resolveAssistantId(ctx.workspaceDir, targetInput, ctx.envFile);
       if (!targetId) {
         return {
           ok: false,
-          error: `找不到助手「${targetInput}」。可用助手：${listAvailableAssistantNames(ctx.workspaceDir)}`,
+          error: `找不到助手「${targetInput}」。可用助手：${listAvailableAssistantNames(ctx.workspaceDir, ctx.envFile)}`,
         };
       }
 
@@ -148,11 +148,11 @@ export function createRequestReviewTool(opts: {
       const content = params.content as string;
       const reviewType = params.review_type as ReviewType;
 
-      const targetId = resolveAssistantId(ctx.workspaceDir, targetInput);
+      const targetId = resolveAssistantId(ctx.workspaceDir, targetInput, ctx.envFile);
       if (!targetId) {
         return {
           ok: false,
-          error: `找不到助手「${targetInput}」。可用助手：${listAvailableAssistantNames(ctx.workspaceDir)}`,
+          error: `找不到助手「${targetInput}」。可用助手：${listAvailableAssistantNames(ctx.workspaceDir, ctx.envFile)}`,
         };
       }
 

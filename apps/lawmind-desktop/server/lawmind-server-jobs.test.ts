@@ -11,7 +11,10 @@ import {
   isSafeWorkflowJobId,
   listWorkflowJobs,
   loadJobsFromDiskOnStartup,
+  persistWorkflowJob,
+  processDueScheduledJobs,
   requestCancelWorkflowJob,
+  setWorkflowJobSchedulerContext,
   subscribeWorkflowJobUpdates,
 } from "./lawmind-server-jobs.js";
 
@@ -55,6 +58,15 @@ function stubConfig(workspaceDir: string): AgentConfig {
   };
 }
 
+/** Best-effort temp cleanup; avoids flaky ENOTEMPTY on macOS when audit writers race teardown. */
+function rmTmpWorkspaceQuietly(dir: string): void {
+  try {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 20 });
+  } catch {
+    // ignore — OS clears tmp eventually
+  }
+}
+
 afterEach(() => {
   clearWorkflowJobsForTests();
 });
@@ -66,6 +78,18 @@ describe("lawmind-server-jobs", () => {
     expect(isSafeWorkflowJobId("../etc/passwd")).toBe(false);
     expect(isSafeWorkflowJobId("a/b")).toBe(false);
     expect(isSafeWorkflowJobId("")).toBe(false);
+  });
+
+  it("enqueueWorkflowRun with scheduleRunAt stays scheduled until tick", async () => {
+    const ws = tmpWorkspace();
+    const wf = minimalWorkflow();
+    const runAt = new Date(Date.now() + 60_000).toISOString();
+    const jobId = enqueueWorkflowRun(stubConfig(ws), wf, { scheduleRunAt: runAt });
+    const rec = getWorkflowJob(jobId);
+    expect(rec?.status).toBe("scheduled");
+    expect(rec?.scheduledTrigger?.runAt).toBe(runAt);
+    expect(rec?.workflowSnapshot?.workflowId).toBe("wf-test");
+    rmTmpWorkspaceQuietly(ws);
   });
 
   it("enqueueWorkflowRun returns jobId and completes via injected runner", async () => {
@@ -83,7 +107,7 @@ describe("lawmind-server-jobs", () => {
     expect(done?.workspaceDir).toBe(path.resolve(ws));
     expect(done?.result?.report).toContain("协作工作流报告");
     expect(done?.result?.workflowId).toBe("wf-test");
-    fs.rmSync(ws, { recursive: true, force: true });
+    rmTmpWorkspaceQuietly(ws);
   });
 
   it("marks job failed when runner throws", async () => {
@@ -99,7 +123,7 @@ describe("lawmind-server-jobs", () => {
     const done = getWorkflowJob(jobId);
     expect(done?.status).toBe("failed");
     expect(done?.error).toBe("boom");
-    fs.rmSync(ws, { recursive: true, force: true });
+    rmTmpWorkspaceQuietly(ws);
   });
 
   it("marks job failed when workflow status is failed", async () => {
@@ -127,7 +151,7 @@ describe("lawmind-server-jobs", () => {
     expect(done?.status).toBe("failed");
     expect(done?.error).toBe("step err");
     expect(done?.result?.steps[0]?.error).toBe("step err");
-    fs.rmSync(ws, { recursive: true, force: true });
+    rmTmpWorkspaceQuietly(ws);
   });
 
   it("listWorkflowJobs returns recent jobs", async () => {
@@ -140,7 +164,7 @@ describe("lawmind-server-jobs", () => {
     });
     const listed = listWorkflowJobs(10);
     expect(listed.length).toBe(2);
-    fs.rmSync(ws, { recursive: true, force: true });
+    rmTmpWorkspaceQuietly(ws);
   });
 
   it("subscribeWorkflowJobUpdates receives snapshots as the job persists", async () => {
@@ -156,7 +180,7 @@ describe("lawmind-server-jobs", () => {
     expect(statuses.length).toBeGreaterThanOrEqual(2);
     expect(statuses.includes("completed")).toBe(true);
     unsub();
-    fs.rmSync(ws, { recursive: true, force: true });
+    rmTmpWorkspaceQuietly(ws);
   });
 
   it("requestCancelWorkflowJob cancels queued job before run starts", async () => {
@@ -175,7 +199,7 @@ describe("lawmind-server-jobs", () => {
     const done = getWorkflowJob(jobId);
     expect(done?.status).toBe("cancelled");
     expect(done?.error).toBe("cancelled_by_user");
-    fs.rmSync(ws, { recursive: true, force: true });
+    rmTmpWorkspaceQuietly(ws);
   });
 
   it("persists progress from onProgress and clears it when the job completes", async () => {
@@ -203,7 +227,7 @@ describe("lawmind-server-jobs", () => {
     const done = getWorkflowJob(jobId);
     expect(done?.status).toBe("completed");
     expect(done?.progress).toBeUndefined();
-    fs.rmSync(ws, { recursive: true, force: true });
+    rmTmpWorkspaceQuietly(ws);
   });
 
   it("reuses jobId for same idempotencyKey while job non-terminal", () => {
@@ -218,7 +242,49 @@ describe("lawmind-server-jobs", () => {
       run: async () => wf,
     });
     expect(a).toBe(b);
-    fs.rmSync(ws, { recursive: true, force: true });
+    rmTmpWorkspaceQuietly(ws);
+  });
+
+  it("processDueScheduledJobs runs due job with workflowSnapshot", async () => {
+    const ws = tmpWorkspace();
+    const wf = minimalWorkflow({ workflowId: "sched-fire" });
+    const future = new Date(Date.now() + 3_600_000).toISOString();
+    const jobId = enqueueWorkflowRun(stubConfig(ws), wf, {
+      scheduleRunAt: future,
+      run: async (_c, w) => w,
+    });
+    const rec = getWorkflowJob(jobId);
+    expect(rec?.workflowSnapshot?.workflowId).toBe("sched-fire");
+    const past = new Date(Date.now() - 60_000).toISOString();
+    rec!.scheduledTrigger = { runAt: past, source: "local_schedule" };
+    persistWorkflowJob(rec!);
+    setWorkflowJobSchedulerContext(() => stubConfig(ws));
+    const fired = processDueScheduledJobs(ws);
+    expect(fired).toBe(1);
+    await new Promise<void>((r) => setImmediate(r));
+    await new Promise<void>((r) => setImmediate(r));
+    const done = getWorkflowJob(jobId);
+    expect(done?.status).toBe("completed");
+    expect(done?.error).not.toBe("missing_workflow_snapshot");
+    rmTmpWorkspaceQuietly(ws);
+  });
+
+  it("processDueScheduledJobs fails when snapshot and template are missing", () => {
+    const ws = tmpWorkspace();
+    const wf = minimalWorkflow({ workflowId: "sched-miss" });
+    const future = new Date(Date.now() + 3_600_000).toISOString();
+    const jobId = enqueueWorkflowRun(stubConfig(ws), wf, { scheduleRunAt: future });
+    const rec = getWorkflowJob(jobId)!;
+    delete rec.workflowSnapshot;
+    rec.scheduledTrigger = { runAt: new Date(Date.now() - 60_000).toISOString(), source: "local_schedule" };
+    persistWorkflowJob(rec);
+    setWorkflowJobSchedulerContext(() => stubConfig(ws));
+    const fired = processDueScheduledJobs(ws);
+    expect(fired).toBe(0);
+    const failed = getWorkflowJob(jobId);
+    expect(failed?.status).toBe("failed");
+    expect(failed?.error).toBe("missing_workflow_snapshot");
+    rmTmpWorkspaceQuietly(ws);
   });
 
   it("loadJobsFromDiskOnStartup marks queued jobs as failed", () => {
@@ -242,7 +308,7 @@ describe("lawmind-server-jobs", () => {
     const rec = getWorkflowJob(jobId);
     expect(rec?.status).toBe("failed");
     expect(rec?.error).toBe("interrupted_by_restart");
-    fs.rmSync(ws, { recursive: true, force: true });
+    rmTmpWorkspaceQuietly(ws);
     clearWorkflowJobsForTests();
   });
 });

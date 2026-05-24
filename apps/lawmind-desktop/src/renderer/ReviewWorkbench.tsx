@@ -2,20 +2,43 @@
  * 草稿审核台 — 列表、全文审阅、通过 / 驳回 / 备注、批准后渲染交付物。
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import type { ArtifactDraft } from "../../../../src/lawmind/types.ts";
 import type { AcceptanceReport } from "../../../../src/lawmind/deliverables/index.ts";
 import type { DraftCitationIntegrityView } from "../../../../src/lawmind/drafts/citation-integrity.ts";
+import type { GateDecision, TaskExecutionState } from "../../../../src/lawmind/platform/contracts.ts";
+import { deriveReviewGateDecisions } from "../../../../src/lawmind/platform/review-gates.ts";
+import {
+  gateDecisionBadgeClass,
+  gateDecisionLabel,
+} from "./lawmind-gate-display";
 import { ALL_REVIEW_LABELS } from "../../../../src/lawmind/review-labels.ts";
 import type { MemorySourceLayer } from "../../../../src/lawmind/memory/index.ts";
 import type { LearningSuggestionRecord } from "../../../../src/lawmind/learning/suggestion-queue.ts";
 import { LawmindAcceptanceGate } from "./LawmindAcceptanceGate";
 import { LawmindCitationBanner } from "./LawmindCitationBanner";
+import { LawmindReviewDeliveryBar } from "./LawmindReviewDeliveryBar";
 import { LawmindReviewSelfCheckSummary } from "./LawmindReviewSelfCheckSummary";
-import { LawmindSourcePillList } from "./LawmindSourcePreview";
+import { LawmindDraftDocumentEditor } from "./LawmindDraftDocumentEditor";
+import { LawmindDraftDocumentPreview } from "./LawmindDraftDocumentPreview";
+import {
+  draftDocumentEditorValueFromDraft,
+  draftDocumentEditorValuesEqual,
+  draftDocumentEditorValueToPatch,
+  isDraftDocumentEditable,
+  type DraftDocumentEditorValue,
+} from "./lawmind-draft-document-editor";
+import { readAutoExportOnApprove } from "./lawmind-review-prefs";
+import { reviewStatusDisplayLabel } from "./lawmind-review-display";
 import { LawmindMemorySourcesPanel } from "./LawmindMemorySourcesPanel";
-import { LawmindReasoningCollapsible } from "./LawmindReasoningCollapsible";
 import {
   apiGetJson,
   apiSendJson,
@@ -25,7 +48,15 @@ import {
   type ApiErrorJson,
 } from "./api-client";
 import { useEdition } from "./use-edition";
-import { LM_PANE_MAX_WIDTH_PX, LM_PANE_MIN_WIDTH_PX } from "./lawmind-panel-layout";
+import { LM_PANE_MIN_WIDTH_PX } from "./lawmind-panel-layout";
+import {
+  hasVisibleReviewPaneAfter,
+  lastVisibleReviewPaneId,
+  type ReviewPaneId,
+  type ReviewPaneVisibility,
+} from "./lawmind-review-pane-prefs";
+import { LawmindReviewDraftPicker } from "./LawmindReviewDraftPicker";
+import { LawmindRedlinePanel } from "./LawmindRedlinePanel";
 import { usePaneResizePx } from "./use-pane-resize";
 import { internalIdsTitle, pathBasename } from "./display-ids";
 
@@ -49,6 +80,15 @@ type Props = {
   onShowArtifact?: (outputPath: string) => void;
   /** 审核或渲染成功后刷新侧栏任务列表 */
   onRecordsChanged?: () => void;
+  /** 跳转主对话并关联草稿（验收「去对话补充」） */
+  onGoToChat?: (opts: { taskId: string; matterId?: string; prompt?: string }) => void;
+  /** 后台修订任务已排队：跳转工作区并展示执行过程 */
+  onRevisionJobQueued?: (opts: { sessionId: string; assistantId: string; taskId: string }) => void;
+  /** 外部触发刷新（如后台修订完成并恢复待审核） */
+  externalRefreshToken?: number;
+  /** 四栏可见性（与顶栏分栏开关同步） */
+  paneVisibility: ReviewPaneVisibility;
+  _onToggleReviewPane: (id: ReviewPaneId) => void;
 };
 
 type ReviewSubmitBody = {
@@ -93,29 +133,7 @@ function triggerBrowserDownload(blob: Blob, filename: string): void {
   }
 }
 
-function renderInlineSections(draft: ArtifactDraft, apiBase?: string): ReactNode {
-  return draft.sections.map((s, i) => {
-    const citations = (s.citations ?? []).filter(Boolean);
-    return (
-      <section key={i} className="lm-draft-section">
-        <h4>{s.heading}</h4>
-        <div className="lm-draft-body">{s.body}</div>
-        {citations.length > 0 ? (
-          <div className="lm-draft-section-cites">
-            <span className="lm-meta">引用：</span>
-            <LawmindSourcePillList
-              apiBase={apiBase ?? ""}
-              taskId={draft.taskId}
-              sourceIds={citations}
-            />
-          </div>
-        ) : null}
-      </section>
-    );
-  });
-}
-
-function reviewStatusFilterLabel(status: ArtifactDraft["reviewStatus"] | "all"): string {
+function _reviewStatusFilterLabel(status: ArtifactDraft["reviewStatus"] | "all"): string {
   switch (status) {
     case "pending":
       return "待审核";
@@ -130,9 +148,28 @@ function reviewStatusFilterLabel(status: ArtifactDraft["reviewStatus"] | "all"):
   }
 }
 
-/** 列表/详情展示用；缺省视为待审核（旧草稿可能未写 reviewStatus） */
-function reviewStatusDisplayLabel(status: ArtifactDraft["reviewStatus"] | undefined): string {
-  return reviewStatusFilterLabel(status ?? "pending");
+function executionStateLabel(state: TaskExecutionState | null): string {
+  if (!state) {
+    return "未知";
+  }
+  const statusLabel: Record<TaskExecutionState["status"], string> = {
+    running: "进行中",
+    awaiting_approval: "待审批",
+    awaiting_clarification: "待澄清",
+    completed: "已完成",
+    failed: "失败",
+  };
+  const phaseLabel: Record<TaskExecutionState["phase"], string> = {
+    clarify: "澄清",
+    plan: "计划",
+    research: "研判",
+    draft: "起草",
+    approval: "审批",
+    render: "渲染",
+    complete: "完成",
+    error: "异常",
+  };
+  return `${phaseLabel[state.phase]} · ${statusLabel[state.status]}`;
 }
 
 export function ReviewWorkbench(props: Props) {
@@ -147,6 +184,11 @@ export function ReviewWorkbench(props: Props) {
     onReturnToMatter,
     onShowArtifact,
     onRecordsChanged,
+    onGoToChat,
+    onRevisionJobQueued,
+    externalRefreshToken = 0,
+    paneVisibility,
+    _onToggleReviewPane,
   } = props;
   const [drafts, setDrafts] = useState<ArtifactDraft[]>([]);
   const [loading, setLoading] = useState(true);
@@ -160,6 +202,8 @@ export function ReviewWorkbench(props: Props) {
   const [detail, setDetail] = useState<ArtifactDraft | null>(null);
   const [citationIntegrity, setCitationIntegrity] = useState<DraftCitationIntegrityView | null>(null);
   const [acceptance, setAcceptance] = useState<AcceptanceReport | null>(null);
+  const [executionState, setExecutionState] = useState<TaskExecutionState | null>(null);
+  const [gateDecisions, setGateDecisions] = useState<GateDecision[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [note, setNote] = useState("");
   /** 「需修改」后：发给助手的补充说明，随 revision-job 提交 */
@@ -173,11 +217,11 @@ export function ReviewWorkbench(props: Props) {
   const [appendToLawyerProfile, setAppendToLawyerProfile] = useState(false);
   const [selectedLabels, setSelectedLabels] = useState<Set<string>>(new Set());
   const [deferMemoryWrites, setDeferMemoryWrites] = useState(false);
-  const [reasoningMarkdown, setReasoningMarkdown] = useState<string | null>(null);
   const [memorySources, setMemorySources] = useState<MemorySourceLayer[] | null>(null);
   const [learningQueue, setLearningQueue] = useState<LearningSuggestionRecord[]>([]);
   const [learningBusy, setLearningBusy] = useState<string | null>(null);
   const [packBusy, setPackBusy] = useState(false);
+  const [lastExportPath, setLastExportPath] = useState<string | null>(null);
   /** 当前输出格式下可选的交付模板（内置 + 已启用上传） */
   const [templateCatalog, setTemplateCatalog] = useState<{
     builtIn: Array<{ id: string; format: string; label: string }>;
@@ -185,13 +229,24 @@ export function ReviewWorkbench(props: Props) {
   } | null>(null);
   /** 渲染时使用的 templateId，可与文书草稿上的默认模板不同 */
   const [renderTemplateId, setRenderTemplateId] = useState("");
+  const [editorValue, setEditorValue] = useState<DraftDocumentEditorValue | null>(null);
+  const [savedEditorValue, setSavedEditorValue] = useState<DraftDocumentEditorValue | null>(null);
+  const [editorSaving, setEditorSaving] = useState(false);
+  const [editorSaveError, setEditorSaveError] = useState<string | null>(null);
   const edition = useEdition(apiBase);
 
-  const { width: reviewListWidth, onResizePointerDown: onReviewListResize } = usePaneResizePx({
-    storageKey: "lawmind.ui.reviewWorkbenchListWidth",
-    defaultWidth: 280,
+  const { width: reviewMetaWidth, onResizePointerDown: onReviewMetaResize } = usePaneResizePx({
+    storageKey: "lawmind.ui.reviewWorkbenchMetaWidth",
+    defaultWidth: 272,
     min: LM_PANE_MIN_WIDTH_PX,
-    max: LM_PANE_MAX_WIDTH_PX,
+    max: 400,
+  });
+
+  const { width: reviewEditorWidth, onResizePointerDown: onReviewEditorResize } = usePaneResizePx({
+    storageKey: "lawmind.ui.reviewWorkbenchEditorWidth",
+    defaultWidth: 340,
+    min: LM_PANE_MIN_WIDTH_PX,
+    max: 480,
   });
 
   const loadLearningQueue = useCallback(async () => {
@@ -231,8 +286,10 @@ export function ReviewWorkbench(props: Props) {
     })();
   }, [apiBase]);
 
-  const loadDrafts = useCallback(async () => {
-    setLoading(true);
+  const loadDrafts = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const j = await apiGetJson<{ ok?: boolean; drafts?: ArtifactDraft[] }>(apiBase, "/api/drafts");
@@ -262,29 +319,43 @@ export function ReviewWorkbench(props: Props) {
   }, [initialTaskId, initialListMode, initialMatterId, initialStatusFilter]);
 
   const loadDetail = useCallback(
-    async (taskId: string) => {
+    async (taskId: string, opts?: { preserveContent?: boolean }) => {
       setDetailLoading(true);
-      setDetail(null);
-      setCitationIntegrity(null);
-      setAcceptance(null);
-      setActionMsg(null);
+      if (!opts?.preserveContent) {
+        setDetail(null);
+        setCitationIntegrity(null);
+        setAcceptance(null);
+        setExecutionState(null);
+        setGateDecisions([]);
+        setActionMsg(null);
+      }
       try {
         const j = await apiGetJson<{
           ok?: boolean;
           draft?: ArtifactDraft;
           citationIntegrity?: DraftCitationIntegrityView;
-          reasoningMarkdown?: string | null;
           memorySources?: MemorySourceLayer[];
           acceptance?: AcceptanceReport;
+          executionState?: TaskExecutionState;
+          gateDecisions?: GateDecision[];
         }>(apiBase, `/api/drafts/${encodeURIComponent(taskId)}`);
         if (!j.ok || !j.draft) {
           throw new Error(messageFromOkFalseBody(j, "加载草稿失败"));
         }
         setDetail(j.draft);
         setCitationIntegrity(j.citationIntegrity ?? null);
-        setReasoningMarkdown(typeof j.reasoningMarkdown === "string" ? j.reasoningMarkdown : null);
         setMemorySources(Array.isArray(j.memorySources) ? j.memorySources : null);
         setAcceptance(j.acceptance ?? null);
+        setExecutionState(j.executionState ?? null);
+        const gates =
+          Array.isArray(j.gateDecisions) && j.gateDecisions.length > 0
+            ? j.gateDecisions
+            : deriveReviewGateDecisions(j.draft, j.acceptance);
+        setGateDecisions(gates);
+        const nextEditor = draftDocumentEditorValueFromDraft(j.draft);
+        setEditorValue(nextEditor);
+        setSavedEditorValue(nextEditor);
+        setEditorSaveError(null);
       } catch (e) {
         setActionMsg(errorMessage(e, "加载草稿失败"));
       } finally {
@@ -295,16 +366,101 @@ export function ReviewWorkbench(props: Props) {
   );
 
   useEffect(() => {
+    if (!externalRefreshToken) {
+      return;
+    }
+    setFilter("pending");
+    setStatusFilter("pending");
+    revisionPrefilledForTaskRef.current = null;
+    setRevisionDispatchNote("");
+    void (async () => {
+      await loadDrafts({ silent: true });
+      const taskId = (initialTaskId ?? selectedTaskId)?.trim();
+      if (taskId) {
+        await loadDetail(taskId, { preserveContent: true });
+        setActionMsg("助手已完成修订，草稿已恢复为「待审核」。请在文档正文区查看并再次签批。");
+      }
+      onRecordsChanged?.();
+    })();
+  }, [externalRefreshToken, initialTaskId, loadDetail, loadDrafts, onRecordsChanged, selectedTaskId]);
+
+  useEffect(() => {
     if (selectedTaskId) {
       void loadDetail(selectedTaskId);
     } else {
       setDetail(null);
       setCitationIntegrity(null);
-      setReasoningMarkdown(null);
       setMemorySources(null);
       setAcceptance(null);
+      setExecutionState(null);
+      setGateDecisions([]);
     }
   }, [selectedTaskId, loadDetail]);
+
+  useEffect(() => {
+    if (!detail) {
+      setEditorValue(null);
+      setSavedEditorValue(null);
+      setEditorSaveError(null);
+      return;
+    }
+    const nextEditor = draftDocumentEditorValueFromDraft(detail);
+    setEditorValue(nextEditor);
+    setSavedEditorValue(nextEditor);
+    setEditorSaveError(null);
+  }, [detail]);
+
+  const editorDirty = useMemo(() => {
+    if (!editorValue || !savedEditorValue) {
+      return false;
+    }
+    return !draftDocumentEditorValuesEqual(editorValue, savedEditorValue);
+  }, [editorValue, savedEditorValue]);
+
+  const saveDraftContent = useCallback(async () => {
+    if (!selectedTaskId || !editorValue || !editorDirty) {
+      return;
+    }
+    setEditorSaving(true);
+    setEditorSaveError(null);
+    try {
+      const j = await apiSendJson<
+        {
+          ok?: boolean;
+          error?: string;
+          draft?: ArtifactDraft;
+          citationIntegrity?: DraftCitationIntegrityView;
+          acceptance?: AcceptanceReport;
+          executionState?: TaskExecutionState;
+          gateDecisions?: GateDecision[];
+        },
+        ReturnType<typeof draftDocumentEditorValueToPatch>
+      >(
+        apiBase,
+        `/api/drafts/${encodeURIComponent(selectedTaskId)}/content`,
+        "PATCH",
+        draftDocumentEditorValueToPatch(editorValue),
+      );
+      if (!j.ok || !j.draft) {
+        throw new Error(messageFromOkFalseBody(j, "保存正文失败"));
+      }
+      setDetail(j.draft);
+      setCitationIntegrity(j.citationIntegrity ?? null);
+      setAcceptance(j.acceptance ?? null);
+      setExecutionState(j.executionState ?? null);
+      setGateDecisions(Array.isArray(j.gateDecisions) ? j.gateDecisions : []);
+      const saved = draftDocumentEditorValueFromDraft(j.draft);
+      setEditorValue(saved);
+      setSavedEditorValue(saved);
+      setActionMsg("正文已保存。验收门禁已按最新内容重新计算。");
+      await loadDrafts({ silent: true });
+      onRecordsChanged?.();
+    } catch (e) {
+      setEditorSaveError(errorMessage(e, "保存正文失败"));
+    } finally {
+      setEditorSaving(false);
+    }
+  }, [apiBase, editorDirty, editorValue, loadDrafts, onRecordsChanged, selectedTaskId]);
 
   useEffect(() => {
     if (!detail || detail.reviewStatus !== "modified") {
@@ -396,6 +552,8 @@ export function ReviewWorkbench(props: Props) {
           draft?: ArtifactDraft;
           citationIntegrity?: DraftCitationIntegrityView;
           acceptance?: AcceptanceReport;
+          executionState?: TaskExecutionState;
+          gateDecisions?: GateDecision[];
         },
         Record<string, never>
       >(apiBase, `/api/drafts/${encodeURIComponent(selectedTaskId)}/reopen-review`, "POST", {});
@@ -410,6 +568,12 @@ export function ReviewWorkbench(props: Props) {
         setDetail(j.draft);
         setCitationIntegrity(j.citationIntegrity ?? null);
         setAcceptance(j.acceptance ?? null);
+        setExecutionState(j.executionState ?? null);
+        setGateDecisions(Array.isArray(j.gateDecisions) ? j.gateDecisions : []);
+        const nextEditor = draftDocumentEditorValueFromDraft(j.draft);
+        setEditorValue(nextEditor);
+        setSavedEditorValue(nextEditor);
+        setEditorSaveError(null);
       } else {
         void loadDetail(selectedTaskId);
       }
@@ -443,6 +607,8 @@ export function ReviewWorkbench(props: Props) {
           lawyerProfileAppendFailed?: boolean;
           profileLearningSkipped?: boolean;
           lawyerProfileLearningSkipped?: boolean;
+          executionState?: TaskExecutionState;
+          gateDecisions?: GateDecision[];
         },
         ReviewSubmitBody
       >(apiBase, `/api/drafts/${encodeURIComponent(selectedTaskId)}/review`, "POST", {
@@ -467,7 +633,7 @@ export function ReviewWorkbench(props: Props) {
       setDeferMemoryWrites(false);
       let msg: string;
       if (status === "approved") {
-        msg = "已通过审核。可点击「渲染交付物」生成文件。";
+        msg = "已通过签批。可点击下方「导出 Word」生成本地文件。";
       } else if (status === "modified") {
         msg =
           "已保存为「需修改」及签批备注。请在下方「发给助手的补充说明」中完善意见后，点击「提交给助手（后台执行）」派发修订；未点击则不会启动后台改稿。";
@@ -485,8 +651,24 @@ export function ReviewWorkbench(props: Props) {
       if (j.draft) {
         setDetail(j.draft);
         setCitationIntegrity(j.citationIntegrity ?? null);
+        setExecutionState(j.executionState ?? null);
+        setGateDecisions(Array.isArray(j.gateDecisions) ? j.gateDecisions : []);
       }
       onRecordsChanged?.();
+      if (status === "approved" && readAutoExportOnApprove()) {
+        const acc = acceptance;
+        const gateBlocked = acc?.deliverableType != null && acc && !acc.ready;
+        if (gateBlocked) {
+          const ok = window.confirm(
+            `已开启「通过后自动导出 Word」，但出稿检查仍有 ${acc?.blockerCount ?? 0} 项阻塞。\n\n仍要导出？`,
+          );
+          if (ok) {
+            await submitRender({ strict: false });
+          }
+        } else {
+          await submitRender({ strict: true });
+        }
+      }
     } catch (e) {
       setActionMsg(errorMessage(e, "审核失败"));
     } finally {
@@ -559,19 +741,33 @@ export function ReviewWorkbench(props: Props) {
         assistantId,
       });
       if (!j.ok) {
-        throw new Error(userMessageFromApiError(j as ApiErrorJson, messageFromOkFalseBody(j, "提交失败")));
+        throw new Error(messageFromOkFalseBody(j, "提交失败"));
       }
-      setActionMsg(
-        "已提交后台修订：助手会在新开会话中处理。请到工作区切换到当前助手，在会话列表中打开最新「审核修订」会话，确认是否成功调用写盘工具；完成后回到本页刷新。若刷新后正文仍几乎不变，多半是工具未把 JSON 写回 drafts/（可在该会话里查看工具返回的错误）。",
-      );
+      const queuedSessionId = typeof j.sessionId === "string" ? j.sessionId.trim() : "";
+      const queuedAssistantId =
+        typeof j.assistantId === "string" && j.assistantId.trim()
+          ? j.assistantId.trim()
+          : assistantId;
+      if (queuedSessionId && onRevisionJobQueued) {
+        onRevisionJobQueued({
+          sessionId: queuedSessionId,
+          assistantId: queuedAssistantId,
+          taskId: selectedTaskId,
+        });
+        setActionMsg("已提交后台修订，正在工作区对话中展示执行过程；完成后将自动回到审核台并恢复为待审核。");
+      } else {
+        setActionMsg(
+          "已提交后台修订：请到工作区切换到当前助手，在会话列表中打开最新「审核修订」会话查看进度；完成后回到本页刷新。",
+        );
+      }
     } catch (e) {
       setActionMsg(errorMessage(e, "提交后台修订失败"));
     } finally {
       setRevisionDispatchBusy(false);
     }
-  }, [apiBase, assistantId, detail?.reviewStatus, revisionDispatchNote, selectedTaskId]);
+  }, [apiBase, assistantId, detail?.reviewStatus, onRevisionJobQueued, revisionDispatchNote, selectedTaskId]);
 
-  const submitRender = async () => {
+  const submitRender = async (opts?: { strict?: boolean }) => {
     if (!selectedTaskId) {
       return;
     }
@@ -582,6 +778,8 @@ export function ReviewWorkbench(props: Props) {
       if (renderTemplateId.trim()) {
         renderBody.templateId = renderTemplateId.trim();
       }
+      const strictQs =
+        opts?.strict === false ? "?strict=false" : "";
       const j = await apiSendJson<
         {
           ok?: boolean;
@@ -589,9 +787,16 @@ export function ReviewWorkbench(props: Props) {
           message?: string;
           outputPath?: string;
           acceptance?: AcceptanceReport;
+          executionState?: TaskExecutionState;
+          gateDecisions?: GateDecision[];
         },
         { templateId?: string }
-      >(apiBase, `/api/drafts/${encodeURIComponent(selectedTaskId)}/render`, "POST", renderBody);
+      >(
+        apiBase,
+        `/api/drafts/${encodeURIComponent(selectedTaskId)}/render${strictQs}`,
+        "POST",
+        renderBody,
+      );
       if (!j.ok) {
         if (j.acceptance) {
           setAcceptance(j.acceptance);
@@ -601,7 +806,15 @@ export function ReviewWorkbench(props: Props) {
       if (j.acceptance) {
         setAcceptance(j.acceptance);
       }
-      setActionMsg(`已生成：${j.outputPath ?? ""}`);
+      if (j.executionState) {
+        setExecutionState(j.executionState);
+      }
+      if (Array.isArray(j.gateDecisions)) {
+        setGateDecisions(j.gateDecisions);
+      }
+      const out = j.outputPath?.trim() ?? "";
+      setLastExportPath(out || null);
+      setActionMsg(out ? `已生成 Word：${out}` : "已生成交付物");
       await loadDrafts();
       if (j.outputPath && onShowArtifact) {
         onShowArtifact(j.outputPath);
@@ -654,6 +867,42 @@ export function ReviewWorkbench(props: Props) {
   };
 
   const showMatterEntryBar = Boolean(returnMatterId?.trim() && onReturnToMatter);
+  const hasDetailPane = Boolean(selectedTaskId && !detailLoading && detail && editorValue);
+  const growReviewPaneId = useMemo(
+    () => lastVisibleReviewPaneId(paneVisibility),
+    [paneVisibility],
+  );
+
+  const reviewPaneLayoutStyle = (id: ReviewPaneId): CSSProperties => {
+    if (growReviewPaneId === id) {
+      return { flex: "1 1 0", minWidth: 0, minHeight: 0, width: "100%", maxWidth: "none" };
+    }
+    const widthPx = id === "meta" ? reviewMetaWidth : reviewEditorWidth;
+    return { flex: `0 0 ${widthPx}px`, width: widthPx, minWidth: 0, minHeight: 0 };
+  };
+
+  const reviewPaneClassName = (base: string, id: ReviewPaneId): string =>
+    growReviewPaneId === id ? `${base} lm-review-pane-grow` : base;
+
+  const renderReviewSplit = (
+    afterPane: ReviewPaneId,
+    onResize: (e: ReactPointerEvent) => void,
+    label: string,
+  ) => {
+    if (!hasVisibleReviewPaneAfter(afterPane, paneVisibility, hasDetailPane)) {
+      return null;
+    }
+    return (
+      <div
+        className="lm-split-handle lm-split-handle-vertical"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={label}
+        title={label}
+        onPointerDown={onResize}
+      />
+    );
+  };
 
   return (
     <div className="lm-review-workbench-root">
@@ -671,133 +920,79 @@ export function ReviewWorkbench(props: Props) {
           </button>
         </div>
       )}
-      <div className="lm-workbench lm-review-workbench">
-      <div className="lm-workbench-list" style={{ width: reviewListWidth, flexShrink: 0 }}>
-        <div className="lm-workbench-list-header">
-          <h2>草稿审核</h2>
-          <button type="button" className="lm-btn lm-btn-secondary lm-btn-small" onClick={() => void loadDrafts()}>
-            刷新
-          </button>
-        </div>
-        <div className="lm-review-filters">
-          <button
-            type="button"
-            className={`lm-tab ${filter === "pending" ? "active" : ""}`}
-            onClick={() => setFilter("pending")}
-          >
-            待审核
-          </button>
-          <button
-            type="button"
-            className={`lm-tab ${filter === "all" ? "active" : ""}`}
-            onClick={() => setFilter("all")}
-          >
-            全部
-          </button>
-        </div>
-        <div className="lm-review-scope">
-          <label className="lm-field lm-review-scope-field">
-            <span>状态</span>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as ArtifactDraft["reviewStatus"] | "all")}
-            >
-              <option value="all">全部状态</option>
-              <option value="pending">待审核</option>
-              <option value="modified">需修改</option>
-              <option value="approved">已通过</option>
-              <option value="rejected">已驳回</option>
-            </select>
-          </label>
-          <label className="lm-field lm-review-scope-field">
-            <span>案件范围</span>
-            <input
-              type="text"
-              value={matterFilter}
-              onChange={(e) => setMatterFilter(e.target.value)}
-              placeholder="全部案件"
-            />
-          </label>
-        </div>
-        {(matterFilter.trim() || statusFilter !== "all") && (
-          <div className="lm-review-scope-hint">
-            <button
-              type="button"
-              className="lm-btn lm-btn-secondary lm-btn-small"
-              onClick={() => {
-                setMatterFilter("");
-                setStatusFilter("all");
-              }}
-            >
-              重置筛选
-            </button>
-          </div>
-        )}
-        {loading && <div className="lm-meta">加载中…</div>}
-        {error ? (
-          <div className="lm-callout lm-callout-danger" role="alert">
-            <p className="lm-callout-body">{error}</p>
-          </div>
-        ) : null}
-        {!loading && filtered.length === 0 && (
-          <div className="lm-meta lm-workbench-empty">
-            {matterFilter.trim() || statusFilter !== "all"
-              ? "当前范围内暂无草稿。"
-              : filter === "pending"
-                ? "暂无待审核草稿。"
-                : "暂无草稿记录。"}
-          </div>
-        )}
-        <ul className="lm-workbench-draft-list">
-          {filtered.map((d) => (
-            <li key={d.taskId}>
-              <button
-                type="button"
-                className={`lm-draft-row ${selectedTaskId === d.taskId ? "active" : ""}`}
-                onClick={() => setSelectedTaskId(d.taskId)}
-              >
-                <span className="lm-draft-title">{d.title}</span>
-                <span className={`lm-badge lm-draft-status-${d.reviewStatus ?? "pending"}`}>
-                  {reviewStatusDisplayLabel(d.reviewStatus)}
-                </span>
-                {d.matterId ? (
-                  <span
-                    className="lm-matter-badge"
-                    title={internalIdsTitle([{ label: "案件编号", value: d.matterId }])}
-                  >
-                    关联案件
-                  </span>
-                ) : null}
-              </button>
-            </li>
-          ))}
-        </ul>
+      <div className="lm-review-pane-toolbar">
+        <LawmindReviewDraftPicker
+          drafts={drafts}
+          filtered={filtered}
+          selectedTaskId={selectedTaskId}
+          onSelectTaskId={setSelectedTaskId}
+          filter={filter}
+          onFilterChange={setFilter}
+          statusFilter={statusFilter}
+          onStatusFilterChange={setStatusFilter}
+          matterFilter={matterFilter}
+          onMatterFilterChange={setMatterFilter}
+          loading={loading}
+          error={error}
+          onRefresh={() => void loadDrafts()}
+        />
       </div>
-
-      <div
-        className="lm-split-handle lm-split-handle-vertical"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="调整草稿列表宽度"
-        title="拖动调整列表宽度"
-        onPointerDown={onReviewListResize}
-      />
-
-      <div className="lm-workbench-main lm-review-detail-main">
-        {!selectedTaskId && (
-          <div className="lm-meta lm-workbench-placeholder">选择左侧草稿进行审阅与签批</div>
-        )}
-        {selectedTaskId && detailLoading && <div className="lm-meta">加载草稿…</div>}
-        {selectedTaskId && !detailLoading && detail && (
-          <>
-            <LawmindReviewSelfCheckSummary
-              acceptance={acceptance}
-              citation={citationIntegrity}
-              deliverableType={detail.deliverableType}
-            />
+      <div className="lm-workbench lm-review-workbench">
+      {!selectedTaskId && !detailLoading && (
+        <div className="lm-review-detail-row lm-review-detail-empty">
+          <div className="lm-meta lm-workbench-placeholder">在上方选择草稿后开始审阅与签批</div>
+        </div>
+      )}
+      {selectedTaskId && detailLoading && (
+        <div className="lm-review-detail-row lm-review-detail-empty">
+          <div className="lm-meta">加载草稿…</div>
+        </div>
+      )}
+      {hasDetailPane && detail && editorValue && (
+        <div className="lm-review-detail-row">
+          {paneVisibility.meta ? (
+          <div
+            className={reviewPaneClassName("lm-review-meta-pane", "meta")}
+            style={reviewPaneLayoutStyle("meta")}
+          >
+            <div className="lm-review-meta-pane-scroll lm-review-scroll">
+            <div className="lm-review-self-check-sticky">
+              <LawmindReviewSelfCheckSummary
+                acceptance={acceptance}
+                citation={citationIntegrity}
+                deliverableType={detail.deliverableType}
+                gateDecisions={gateDecisions}
+              />
+            </div>
+            <div className="lm-callout lm-callout-muted" role="status" aria-live="polite">
+              <p className="lm-callout-title">执行状态看板</p>
+              <p className="lm-callout-body">
+                {executionStateLabel(executionState)}
+                {executionState?.detail ? ` · ${executionState.detail}` : ""}
+              </p>
+              {gateDecisions.length > 0 ? (
+                <div className="lm-review-gate-list">
+                  {gateDecisions.map((gate, idx) => (
+                    <span key={`${gate.gate}-${idx}`} className={gateDecisionBadgeClass(gate.decision)}>
+                      {gateDecisionLabel(gate.gate)}
+                      {gate.reason ? `：${gate.reason}` : ""}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
             <div id="lm-review-citation-banner">
               <LawmindCitationBanner view={citationIntegrity} apiBase={apiBase} taskId={selectedTaskId ?? undefined} />
             </div>
+            {selectedTaskId ? (
+              <LawmindRedlinePanel
+                apiBase={apiBase}
+                taskId={selectedTaskId}
+                onDraftUpdated={() => {
+                  void loadDetail(selectedTaskId);
+                }}
+              />
+            ) : null}
             {learningQueue.length > 0 && (
               <div className="lm-review-learning-queue">
                 <div className="lm-review-learning-queue-header">
@@ -834,28 +1029,23 @@ export function ReviewWorkbench(props: Props) {
                 </ul>
               </div>
             )}
-            {reasoningMarkdown ? (
-              <LawmindReasoningCollapsible markdown={reasoningMarkdown} variant="workbench" />
-            ) : null}
             {memorySources && memorySources.length > 0 ? (
               <LawmindMemorySourcesPanel layers={memorySources} variant="workbench" />
             ) : null}
-            <LawmindAcceptanceGate report={acceptance} />
-            <label className="lm-review-note">
-              <span className="lm-review-note-title">审核备注（可选）</span>
-              <span className="lm-meta lm-review-note-hint">
-                备注与本次签批一并提交：请先写好备注，再点下方「通过」「驳回」或「需修改」。若已签批，需先点「恢复待审核」才能再次附带备注签批。
-              </span>
-              <textarea
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="例如：须补充××条款依据、与当事人核实××事实后再定稿…"
-                rows={4}
-                disabled={actionBusy || (detail.reviewStatus ?? "pending") !== "pending"}
-                aria-disabled={actionBusy || (detail.reviewStatus ?? "pending") !== "pending"}
-              />
-            </label>
-
+            <LawmindAcceptanceGate
+              report={acceptance}
+              defaultCollapsed
+              onGoFillInChat={
+                onGoToChat && selectedTaskId
+                  ? (prompt) =>
+                      onGoToChat({
+                        taskId: selectedTaskId,
+                        matterId: detail.matterId,
+                        prompt,
+                      })
+                  : undefined
+              }
+            />
             <label className="lm-review-profile-toggle">
               <input
                 type="checkbox"
@@ -921,7 +1111,7 @@ export function ReviewWorkbench(props: Props) {
               </span>
             </label>
 
-            <div className="lm-workbench-toolbar">
+            <div className="lm-workbench-toolbar lm-review-doc-head">
               <div>
                 <h2>{detail.title}</h2>
                 <p
@@ -961,83 +1151,22 @@ export function ReviewWorkbench(props: Props) {
                   </label>
                 ) : null}
               </div>
-              <div className="lm-review-actions">
-                {(detail.reviewStatus ?? "pending") !== "pending" ? (
-                  <button
-                    type="button"
-                    className="lm-btn lm-btn-secondary"
-                    disabled={actionBusy}
-                    onClick={() => void submitReopenReview()}
-                  >
-                    恢复待审核
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-secondary"
-                  disabled={actionBusy || (detail.reviewStatus ?? "pending") !== "pending"}
-                  onClick={() => void submitReview("rejected")}
-                >
-                  驳回
-                </button>
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-secondary"
-                  disabled={actionBusy || (detail.reviewStatus ?? "pending") !== "pending"}
-                  onClick={() => void submitReview("modified")}
-                >
-                  需修改
-                </button>
-                <button
-                  type="button"
-                  className="lm-btn"
-                  disabled={actionBusy || (detail.reviewStatus ?? "pending") !== "pending"}
-                  onClick={() => void submitReview("approved")}
-                >
-                  通过
-                </button>
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-accent"
-                  disabled={
-                    actionBusy ||
-                    (detail.reviewStatus ?? "pending") !== "approved" ||
-                    (acceptance != null && acceptance.deliverableType != null && !acceptance.ready)
-                  }
-                  title={
-                    acceptance && acceptance.deliverableType && !acceptance.ready
-                      ? "草稿未通过验收门禁，请先补齐缺失项"
-                      : (detail.reviewStatus ?? "pending") !== "approved"
-                        ? `需先将签批标为「通过」后才能渲染（当前：${reviewStatusDisplayLabel(detail.reviewStatus)}）`
-                        : undefined
-                  }
-                  onClick={() => void submitRender()}
-                >
-                  渲染交付物
-                </button>
-                {edition.features.acceptancePackExport && (
-                  <button
-                    type="button"
-                    className="lm-btn lm-btn-secondary"
-                    disabled={
-                      packBusy ||
-                      (detail.reviewStatus ?? "pending") !== "approved" ||
-                      (acceptance != null && acceptance.deliverableType != null && !acceptance.ready)
-                    }
-                    title={
-                      acceptance && acceptance.deliverableType && !acceptance.ready
-                        ? "草稿未通过验收门禁，请先补齐缺失项"
-                        : (detail.reviewStatus ?? "pending") !== "approved"
-                          ? `需先「通过」后再下载（当前：${reviewStatusDisplayLabel(detail.reviewStatus)}）`
-                          : `下载验收交付包（${edition.label}）`
-                    }
-                    onClick={() => void downloadAcceptancePack()}
-                  >
-                    {packBusy ? "生成中…" : "下载验收交付包"}
-                  </button>
-                )}
-              </div>
             </div>
+            <LawmindReviewDeliveryBar
+              reviewStatus={detail.reviewStatus}
+              acceptance={acceptance}
+              actionBusy={actionBusy}
+              lastOutputPath={lastExportPath ?? detail.output ?? null}
+              onApprove={() => void submitReview("approved")}
+              onReject={() => void submitReview("rejected")}
+              onModify={() => void submitReview("modified")}
+              onReopen={() => void submitReopenReview()}
+              onExportWord={(opts) => void submitRender(opts)}
+              onShowInFolder={onShowArtifact}
+              packExportEnabled={edition.features.acceptancePackExport}
+              onDownloadPack={() => void downloadAcceptancePack()}
+              packBusy={packBusy}
+            />
 
             {detail.reviewStatus === "modified" ? (
               <div
@@ -1079,7 +1208,7 @@ export function ReviewWorkbench(props: Props) {
                   </button>
                 </div>
                 <p className="lm-meta lm-review-revision-dispatch-foot">
-                  提交后请到工作区当前助手下打开会话列表中的「审核修订」新会话查看进度；改完后回到本页刷新草稿。若要重新使用签批按钮，请先「恢复待审核」。
+                  提交后将自动打开工作区并在对话中展示执行过程；修订成功后会自动恢复为「待审核」并回到本页，无需手动刷新或点「恢复待审核」。
                 </p>
               </div>
             ) : null}
@@ -1104,7 +1233,7 @@ export function ReviewWorkbench(props: Props) {
               </div>
             ) : null}
 
-            {detail.outputPath && (
+            {detail.outputPath ? (
               <div className="lm-meta">
                 已有交付路径：{detail.outputPath}{" "}
                 {onShowArtifact && (
@@ -1113,12 +1242,78 @@ export function ReviewWorkbench(props: Props) {
                   </button>
                 )}
               </div>
-            )}
+            ) : null}
 
-            <div className="lm-draft-preview">{renderInlineSections(detail, apiBase)}</div>
-          </>
-        )}
-      </div>
+            <label className="lm-review-note">
+              <span className="lm-review-note-title">审核备注（可选）</span>
+              <span className="lm-meta lm-review-note-hint">
+                备注与本次签批一并提交：请先写好备注，再点上方「通过」「驳回」或「需修改」。若已签批，需先点「恢复待审核」才能再次附带备注签批。
+              </span>
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="例如：须补充××条款依据、与当事人核实××事实后再定稿…"
+                rows={4}
+                disabled={actionBusy || (detail.reviewStatus ?? "pending") !== "pending"}
+                aria-disabled={actionBusy || (detail.reviewStatus ?? "pending") !== "pending"}
+              />
+            </label>
+            </div>
+          </div>
+          ) : null}
+
+          {paneVisibility.meta
+            ? renderReviewSplit("meta", onReviewMetaResize, "调整签批区宽度")
+            : null}
+
+          {paneVisibility.editor ? (
+          <div
+            className={reviewPaneClassName("lm-review-editor-pane", "editor")}
+            style={reviewPaneLayoutStyle("editor")}
+          >
+            <LawmindDraftDocumentEditor
+              taskId={detail.taskId}
+              apiBase={apiBase}
+              value={editorValue}
+              onChange={setEditorValue}
+              editable={isDraftDocumentEditable(detail.reviewStatus)}
+              dirty={editorDirty}
+              saving={editorSaving}
+              saveError={editorSaveError}
+              onSave={() => void saveDraftContent()}
+              onRevert={() => {
+                if (savedEditorValue) {
+                  setEditorValue(savedEditorValue);
+                  setEditorSaveError(null);
+                }
+              }}
+              reviewStatus={detail.reviewStatus}
+            />
+          </div>
+          ) : null}
+
+          {paneVisibility.editor
+            ? renderReviewSplit("editor", onReviewEditorResize, "调整文档编辑区宽度")
+            : null}
+
+          {paneVisibility.preview ? (
+          <div
+            className={reviewPaneClassName("lm-review-preview-pane", "preview")}
+            style={reviewPaneLayoutStyle("preview")}
+          >
+            <LawmindDraftDocumentPreview
+              taskId={detail.taskId}
+              apiBase={apiBase}
+              value={editorValue}
+              outputPath={lastExportPath ?? detail.outputPath ?? null}
+              reviewStatusLabel={
+                editorDirty ? "预览（含未保存修改）" : reviewStatusDisplayLabel(detail.reviewStatus)
+              }
+            />
+          </div>
+          ) : null}
+        </div>
+      )}
     </div>
     </div>
   );

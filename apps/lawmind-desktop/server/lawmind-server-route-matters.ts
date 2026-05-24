@@ -23,6 +23,7 @@ import {
 import type { DraftCitationIntegrityView } from "../../../src/lawmind/drafts/index.js";
 import { resolveDraftCitationIntegrity } from "../../../src/lawmind/drafts/index.js";
 import { emit } from "../../../src/lawmind/audit/index.js";
+import { buildMatterReviewMatrix } from "../../../src/lawmind/matter/review-matrix.js";
 import {
   appendCaseArtifact,
   appendCaseCoreIssue,
@@ -32,6 +33,7 @@ import {
 } from "../../../src/lawmind/memory/index.js";
 import { isProductInsightsCollectionEnabled } from "../../../src/lawmind/policy/edition.js";
 import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspace-policy.js";
+import { buildMatterSessionTimeline } from "../../../src/lawmind/insights/session-timeline.js";
 import { listTaskRecords } from "../../../src/lawmind/tasks/index.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import { readJsonBody, resolveDesktopActorId, sendJson } from "./lawmind-server-helpers.js";
@@ -531,6 +533,30 @@ export async function handleMatterRoutes({
       { ok: true, matterId: mid, deletedFromDisk: existedOnDisk },
       c,
     );
+    return true;
+  }
+
+  if (pathname === "/api/matters/review-matrix" && req.method === "GET") {
+    const matterId = url.searchParams.get("matterId")?.trim() ?? "";
+    if (!isValidMatterId(matterId)) {
+      sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+      return true;
+    }
+    const matrix = buildMatterReviewMatrix(workspaceDir, matterId);
+    sendJson(res, 200, { ok: true, matrix }, c);
+    return true;
+  }
+
+  if (pathname === "/api/matters/session-timeline" && req.method === "GET") {
+    const matterId = url.searchParams.get("matterId")?.trim() ?? "";
+    if (!isValidMatterId(matterId)) {
+      sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+      return true;
+    }
+    const limitRaw = Number(url.searchParams.get("limit") ?? "40");
+    const limit = Number.isFinite(limitRaw) ? Math.min(100, Math.max(5, Math.floor(limitRaw))) : 40;
+    const entries = await buildMatterSessionTimeline(workspaceDir, matterId, limit);
+    sendJson(res, 200, { ok: true, matterId, entries }, c);
     return true;
   }
 

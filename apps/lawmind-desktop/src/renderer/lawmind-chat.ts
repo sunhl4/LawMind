@@ -1,8 +1,14 @@
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { MemorySourceLayer } from "../../../../src/lawmind/memory/index.ts";
 import type { ClarificationQuestion } from "../../../../src/lawmind/types.ts";
+import type { GateDecision, TaskExecutionState } from "../../../../src/lawmind/platform/contracts.ts";
+import type { LawMindRequiresAction } from "../../../../src/lawmind/platform/requires-action.ts";
+import { parseRequiresActionsFromResponse } from "./lawmind-requires-action";
+import { isAwaitingClarification } from "../../../../src/lawmind/platform/execution-state.ts";
 import { chatErrorUserText, readJsonFromResponse, type ApiErrorJson } from "./api-client";
 import { readIncludeTurnDiagnostics } from "./lawmind-chat-diagnostics-pref";
+import type { ChatLiveTrace } from "./lawmind-chat-trace-types.js";
+import type { ChatActivityBlock } from "./lawmind-chat-activity.js";
 
 /** Mirrors `GET /api/chat` `runtimeHints` when Firm/Private or `includeTurnDiagnostics`. */
 export type ChatRuntimeHints = {
@@ -44,6 +50,17 @@ export type ChatMsg = {
   toolCallSequence?: string[];
   /** Present on assistant messages when the server included turn diagnostics. */
   runtimeHints?: ChatRuntimeHints;
+  executionState?: TaskExecutionState;
+  gateDecisions?: GateDecision[];
+  /** Cursor 式活动流：模型原文 + 工具步骤交错 */
+  activity?: ChatActivityBlock[];
+  activityActive?: boolean;
+  /** Cursor 式执行轨迹（流式或后台任务轮询） — 兼容旧数据 */
+  liveTrace?: ChatLiveTrace;
+  /** 模型/API 不可用时的简短失败说明（不展示 Thought 轨迹） */
+  failureKind?: "model";
+  /** 律师待处理动作（澄清、工具批准等） */
+  requiresAction?: LawMindRequiresAction[];
 };
 
 export function parseRuntimeHintsFromResponse(raw: unknown): ChatRuntimeHints | undefined {
@@ -89,6 +106,14 @@ export function lastAssistantRuntimeHints(messages: ChatMsg[]): ChatRuntimeHints
   return null;
 }
 
+export function hasChatDiagnostics(message: ChatMsg): boolean {
+  return (
+    (message.memorySources?.length ?? 0) > 0 ||
+    (message.toolCallSequence?.length ?? 0) > 0 ||
+    message.runtimeHints != null
+  );
+}
+
 export function getPendingClarificationState(messages: ChatMsg[]): PendingClarificationState {
   if (messages.length === 0) {
     return { pending: false, count: 0, assistantMessageIndex: -1 };
@@ -99,21 +124,26 @@ export function getPendingClarificationState(messages: ChatMsg[]): PendingClarif
   }
   const qs = last.clarificationQuestions ?? [];
   const count = qs.length;
-  if (count > 0) {
+  if (
+    isAwaitingClarification(last.executionState, last.gateDecisions) ||
+    last.status === "awaiting_clarification"
+  ) {
     return { pending: true, count, assistantMessageIndex: messages.length - 1 };
   }
-  if (last.status === "awaiting_clarification") {
-    return { pending: true, count: 0, assistantMessageIndex: messages.length - 1 };
+  if (count > 0) {
+    return { pending: true, count, assistantMessageIndex: messages.length - 1 };
   }
   return { pending: false, count: 0, assistantMessageIndex: -1 };
 }
 
 type SendChatTurnArgs = {
   apiBase: string;
+  modelId?: string;
   message: string;
   sessionId?: string;
   assistantId: string;
   allowWebSearch: boolean;
+  permissionMode?: "standard" | "strict" | "readonly";
   matterId?: string | null;
   projectDir?: string | null;
   /** 与 shell 中 fileChatContextItems 一致，供服务端校验已钉选路径 */
@@ -135,9 +165,12 @@ type ChatResponse = {
   sessionId?: string;
   reply?: string;
   status?: string;
+  executionState?: TaskExecutionState;
+  gateDecisions?: GateDecision[];
   clarificationQuestions?: ClarificationQuestion[];
   memorySources?: MemorySourceLayer[];
   toolCallSequence?: string[];
+  toolCalls?: number;
   runtimeHints?: unknown;
 };
 
@@ -166,20 +199,62 @@ export function dropTrailingUserMessageIfText(
   };
 }
 
-export async function sendChatTurn(args: SendChatTurnArgs): Promise<{
-  sessionId?: string;
-  assistantMessage: ChatMsg;
-}> {
+export type StreamingChatCallbacks = {
+  onRoundStart?: (roundIndex: number) => void;
+  onToolCallStart?: (info: { toolCallId: string; toolName: string; roundIndex: number }) => void;
+  onToolCallEnd?: (info: {
+    toolCallId: string;
+    toolName: string;
+    roundIndex: number;
+    ok: boolean;
+    error?: string;
+  }) => void;
+  onToolProgress?: (info: {
+    toolCallId: string;
+    toolName: string;
+    roundIndex: number;
+    label: string;
+  }) => void;
+  onDelta?: (text: string) => void;
+  onTokenBudget?: (info: {
+    used: number;
+    effectiveLimit: number;
+    level: "ok" | "warn" | "compact";
+  }) => void;
+  onCompactBoundary?: (info: {
+    sessionSummaryPath?: string;
+    droppedMessageCount?: number;
+  }) => void;
+};
+
+/**
+ * Streaming variant of `sendChatTurn`. Uses SSE via `fetch` reader (EventSource
+ * does not support POST). Falls back to non-streaming `sendChatTurn` if the
+ * server response is not `text/event-stream`.
+ */
+
+function lawmindCoerceToolField(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+export async function sendChatTurnStream(
+  args: SendChatTurnArgs,
+  callbacks: StreamingChatCallbacks = {},
+): Promise<{ sessionId?: string; assistantMessage: ChatMsg }> {
   const includeTurnDiagnostics = readIncludeTurnDiagnostics();
   const response = await fetch(`${args.apiBase}/api/chat`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      accept: "text/event-stream",
+    },
     signal: args.signal,
     body: JSON.stringify({
       message: args.message,
+      ...(args.modelId ? { modelId: args.modelId } : {}),
       sessionId: args.sessionId,
       assistantId: args.assistantId,
       allowWebSearch: args.allowWebSearch,
+      ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
       ...(args.matterId ? { matterId: args.matterId } : {}),
       ...(args.projectDir ? { projectDir: args.projectDir } : {}),
       ...(args.contextPins && args.contextPins.length > 0 ? { contextPins: args.contextPins } : {}),
@@ -188,13 +263,164 @@ export async function sendChatTurn(args: SendChatTurnArgs): Promise<{
       ...(includeTurnDiagnostics ? { includeTurnDiagnostics: true } : {}),
     }),
   });
-  const body = await readJsonFromResponse<ChatResponse>(response);
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!response.ok || !contentType.includes("text/event-stream") || !response.body) {
+    const body = await readJsonFromResponse<ChatResponse>(response);
+    if (args.signal?.aborted) {
+      throw new DOMException("The user aborted a request.", "AbortError");
+    }
+    if (!response.ok || body.ok === false) {
+      throw new Error(chatErrorUserText(response.status, body as ApiErrorJson));
+    }
+    return buildChatTurnResult(body);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let payloadBody: ChatResponse | null = null;
+  const streamErrorCell: { current: { status: number; body: ApiErrorJson } | null } = { current: null };
+  let finishedDone = false;
+
+  const handleEvent = (name: string, data: string): void => {
+    try {
+      const parsed = JSON.parse(data) as Record<string, unknown>;
+      switch (name) {
+        case "round_start": {
+          const roundIndex =
+            typeof parsed.roundIndex === "number" ? parsed.roundIndex : 0;
+          callbacks.onRoundStart?.(roundIndex);
+          break;
+        }
+        case "tool_call_start": {
+          callbacks.onToolCallStart?.({
+            toolCallId: lawmindCoerceToolField(parsed.toolCallId),
+            toolName: lawmindCoerceToolField(parsed.toolName),
+            roundIndex: typeof parsed.roundIndex === "number" ? parsed.roundIndex : 0,
+          });
+          break;
+        }
+        case "tool_call_end": {
+          callbacks.onToolCallEnd?.({
+            toolCallId: lawmindCoerceToolField(parsed.toolCallId),
+            toolName: lawmindCoerceToolField(parsed.toolName),
+            roundIndex: typeof parsed.roundIndex === "number" ? parsed.roundIndex : 0,
+            ok: parsed.ok === true,
+            error: typeof parsed.error === "string" ? parsed.error : undefined,
+          });
+          break;
+        }
+        case "tool_progress": {
+          callbacks.onToolProgress?.({
+            toolCallId: lawmindCoerceToolField(parsed.toolCallId),
+            toolName: lawmindCoerceToolField(parsed.toolName),
+            roundIndex: typeof parsed.roundIndex === "number" ? parsed.roundIndex : 0,
+            label: typeof parsed.label === "string" ? parsed.label : "",
+          });
+          break;
+        }
+        case "delta": {
+          if (typeof parsed.text === "string") {
+            callbacks.onDelta?.(parsed.text);
+          }
+          break;
+        }
+        case "token_budget": {
+          if (
+            typeof parsed.used === "number" &&
+            typeof parsed.effectiveLimit === "number" &&
+            typeof parsed.level === "string"
+          ) {
+            callbacks.onTokenBudget?.({
+              used: parsed.used,
+              effectiveLimit: parsed.effectiveLimit,
+              level: parsed.level as "ok" | "warn" | "compact",
+            });
+          }
+          break;
+        }
+        case "compact_boundary": {
+          callbacks.onCompactBoundary?.({
+            sessionSummaryPath:
+              typeof parsed.sessionSummaryPath === "string"
+                ? parsed.sessionSummaryPath
+                : undefined,
+            droppedMessageCount:
+              typeof parsed.droppedMessageCount === "number"
+                ? parsed.droppedMessageCount
+                : undefined,
+          });
+          break;
+        }
+        case "payload": {
+          payloadBody = parsed as ChatResponse;
+          break;
+        }
+        case "error": {
+          streamErrorCell.current = {
+            status: typeof parsed.status === "number" ? parsed.status : 500,
+            body: parsed as ApiErrorJson,
+          };
+          break;
+        }
+        case "done": {
+          finishedDone = true;
+          break;
+        }
+        default:
+          break;
+      }
+    } catch {
+      /* skip malformed event */
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (value) {
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split(/\r?\n\r?\n/);
+      buffer = blocks.pop() ?? "";
+      for (const block of blocks) {
+        let eventName = "message";
+        const dataLines: string[] = [];
+        for (const line of block.split(/\r?\n/)) {
+          if (line.startsWith("event:")) {
+            eventName = line.slice(6).trim();
+          } else if (line.startsWith("data:")) {
+            dataLines.push(line.slice(5).replace(/^ /, ""));
+          }
+        }
+        if (dataLines.length > 0) {
+          handleEvent(eventName, dataLines.join("\n"));
+        }
+      }
+      if (finishedDone) {
+        break;
+      }
+    }
+    if (done) {
+      break;
+    }
+  }
+
   if (args.signal?.aborted) {
     throw new DOMException("The user aborted a request.", "AbortError");
   }
-  if (!response.ok || body.ok === false) {
-    throw new Error(chatErrorUserText(response.status, body as ApiErrorJson));
+  const streamErr = streamErrorCell.current;
+  if (streamErr) {
+    throw new Error(chatErrorUserText(streamErr.status, streamErr.body));
   }
+  if (!payloadBody) {
+    throw new Error("流式响应未返回最终内容。请重试或检查网络。");
+  }
+  return buildChatTurnResult(payloadBody);
+}
+
+function buildChatTurnResult(body: ChatResponse): {
+  sessionId?: string;
+  assistantMessage: ChatMsg;
+} {
   const memorySources = Array.isArray(body.memorySources) ? body.memorySources : undefined;
   const clarificationQuestions = Array.isArray(body.clarificationQuestions)
     ? body.clarificationQuestions.filter(
@@ -210,18 +436,64 @@ export async function sendChatTurn(args: SendChatTurnArgs): Promise<{
     (entry): entry is string => typeof entry === "string" && entry.trim().length > 0,
   );
   const runtimeHints = parseRuntimeHintsFromResponse(body.runtimeHints);
+  const requiresAction = parseRequiresActionsFromResponse(
+    (body as { requiresAction?: unknown }).requiresAction,
+  );
   return {
     sessionId: body.sessionId,
     assistantMessage: {
       role: "assistant",
-      text: body.reply || "(empty)",
+      text:
+        body.reply?.trim() ||
+        (body.status === "awaiting_approval"
+          ? "有操作等待您的确认，请查看审核台或继续对话。"
+          : body.toolCalls && body.toolCalls > 0
+            ? "本轮已执行工具但未返回文字说明，请查看上方工具状态或审核台草稿。"
+            : "本轮未返回可见回复，请重试或检查模型配置。"),
       ...(typeof body.status === "string" && body.status.trim() ? { status: body.status } : {}),
+      ...(body.executionState ? { executionState: body.executionState } : {}),
+      ...(Array.isArray(body.gateDecisions) ? { gateDecisions: body.gateDecisions } : {}),
       ...(clarificationQuestions.length > 0 ? { clarificationQuestions } : {}),
       ...(memorySources && memorySources.length > 0 ? { memorySources } : {}),
       ...(toolCallSequence.length > 0 ? { toolCallSequence } : {}),
       ...(runtimeHints ? { runtimeHints } : {}),
+      ...(requiresAction.length > 0 ? { requiresAction } : {}),
     },
   };
+}
+
+export async function sendChatTurn(args: SendChatTurnArgs): Promise<{
+  sessionId?: string;
+  assistantMessage: ChatMsg;
+}> {
+  const includeTurnDiagnostics = readIncludeTurnDiagnostics();
+  const response = await fetch(`${args.apiBase}/api/chat`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    signal: args.signal,
+    body: JSON.stringify({
+      message: args.message,
+      ...(args.modelId ? { modelId: args.modelId } : {}),
+      sessionId: args.sessionId,
+      assistantId: args.assistantId,
+      allowWebSearch: args.allowWebSearch,
+      ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
+      ...(args.matterId ? { matterId: args.matterId } : {}),
+      ...(args.projectDir ? { projectDir: args.projectDir } : {}),
+      ...(args.contextPins && args.contextPins.length > 0 ? { contextPins: args.contextPins } : {}),
+      ...(args.linkedTaskId ? { linkedTaskId: args.linkedTaskId } : {}),
+      ...(args.sessionTitleHint?.trim() ? { sessionTitleHint: args.sessionTitleHint.trim() } : {}),
+      ...(includeTurnDiagnostics ? { includeTurnDiagnostics: true } : {}),
+    }),
+  });
+  const body = await readJsonFromResponse<ChatResponse>(response);
+  if (args.signal?.aborted) {
+    throw new DOMException("The user aborted a request.", "AbortError");
+  }
+  if (!response.ok || body.ok === false) {
+    throw new Error(chatErrorUserText(response.status, body as ApiErrorJson));
+  }
+  return buildChatTurnResult(body);
 }
 
 /** Build a user message that carries structured answers to clarification prompts. */

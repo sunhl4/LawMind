@@ -3,9 +3,13 @@
  */
 
 import { listPendingApprovals, resolveApproval } from "../application/services/approval-service.js";
-import { transitionDeliverable } from "../application/services/deliverable-service.js";
+import {
+  linkDraftToDeliverable,
+  transitionDeliverable,
+} from "../application/services/deliverable-service.js";
 import {
   listQueueItemsForMatter,
+  openQueueItem,
   transitionQueueItem,
 } from "../application/services/queue-write-service.js";
 import { getAssistantById, resolveLawMindRoot } from "../assistants/store.js";
@@ -229,17 +233,44 @@ export async function reopenDraftReviewImpl(
     title: draft.title,
     draftPath: storedDraftPath,
   });
+  if (draft.matterId) {
+    try {
+      const tr = readTaskRecord(workspaceDir, taskId);
+      linkDraftToDeliverable(workspaceDir, draft, tr ?? undefined);
+      const hasOpenReviewQueue = listQueueItemsForMatter(workspaceDir, draft.matterId, {
+        status: "open",
+      }).some(
+        (q) =>
+          q.relatedTaskId === taskId &&
+          (q.kind === "need_lawyer_review" || q.kind === "need_partner_approval"),
+      );
+      if (!hasOpenReviewQueue) {
+        openQueueItem(workspaceDir, {
+          matterId: draft.matterId,
+          kind: "need_lawyer_review",
+          title: `草稿待审核：${draft.title}`,
+          relatedTaskId: taskId,
+          relatedDeliverableId: taskId,
+        });
+      }
+      await appendCaseProgress(
+        workspaceDir,
+        draft.matterId,
+        `${taskProgressPrefix(taskId)}已恢复为待审核，可再次签批。`,
+      );
+    } catch (err) {
+      await emit(auditDir, {
+        taskId,
+        kind: "matter.write_failed",
+        actor: "system",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
   await appendTodayLog(
     workspaceDir,
     `## 恢复待审核\n- 任务编号: ${shortTaskIdForDisplay(taskId)}\n- 自状态: ${previous}\n- 操作人: ${actor}`,
   );
-  if (draft.matterId) {
-    await appendCaseProgress(
-      workspaceDir,
-      draft.matterId,
-      `${taskProgressPrefix(taskId)}已恢复为待审核，可再次签批。`,
-    );
-  }
   return draft;
 }
 

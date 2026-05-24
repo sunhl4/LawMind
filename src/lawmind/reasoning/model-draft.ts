@@ -7,6 +7,7 @@ import {
   reasoningLlmConfigFromEnv,
   type OpenAiJsonClientConfig,
 } from "../llm/openai-json.js";
+import { resolveDraftReasoningLlmConfig } from "../models/draft-reasoning.js";
 import type { ArtifactDraft, ArtifactSection, ResearchBundle } from "../types.js";
 import { buildDraft, type BuildDraftParams } from "./keyword-draft.js";
 
@@ -68,6 +69,43 @@ export function isModelReasoningEnabled(): boolean {
   return reasoningLlmConfigFromEnv() !== null;
 }
 
+function draftSystemPrompt(intent: BuildDraftParams["intent"]): string {
+  const isEsg = intent.deliverableType === "report.esg";
+  const isReport = isEsg || intent.deliverableType === "report.general";
+  const lines = [
+    isEsg
+      ? "你是资深 ESG 与欧盟监管合规法律助理，将检索结果扩写为可直接审阅的 ESG 报告章节。"
+      : isReport
+        ? "你是法律助理，将检索结果扩写为可直接审阅的研究报告章节。"
+        : "你是法律助理，将检索结果整理为可审阅的文书章节。",
+    "必须基于给定要点与来源，不得编造未出现的法条、判例或统计数据；缺失数据处用【待补充：…】占位。",
+    "只输出 JSON，不要 markdown。",
+    "JSON schema:",
+    '{ "title": "string", "sections": [ { "heading": "string", "body": "string", "citations": ["可选来源编号"] } ] }',
+    "章节使用中文小标题；正文为完整段落（可含编号列表），不要只输出一句摘要。",
+  ];
+  if (isEsg) {
+    lines.push(
+      "ESG 报告须至少包含：执行摘要、报告背景与范围、监管框架、环境（E）、社会（S）、治理（G）、关键指标与披露建议、结论与下一步。",
+      "用户指令涉及欧盟/新能源汽车时，标题应体现该主题，勿使用泛称「法律文书草稿」。",
+    );
+  }
+  return lines.join("\n");
+}
+
+function draftUserPrompt(intent: BuildDraftParams["intent"], bundle: ResearchBundle): string {
+  return [
+    `交付类型: ${intent.deliverableType ?? "未指定"}`,
+    `任务类型: ${intent.kind}`,
+    `原始指令: ${intent.instruction}`,
+    `任务摘要: ${intent.summary}`,
+    `受众: ${intent.audience ?? "未指定"}`,
+    "",
+    "检索材料摘要:",
+    bundleDigest(bundle),
+  ].join("\n");
+}
+
 export async function buildDraftWithModel(
   params: BuildDraftParams,
   cfg: OpenAiJsonClientConfig,
@@ -75,26 +113,9 @@ export async function buildDraftWithModel(
   const { intent, bundle } = params;
   const base = buildDraft(params);
 
-  const system = [
-    "你是法律助理，将检索结果整理为可审阅的文书章节。必须基于给定要点，不得编造未出现的法条或判例。",
-    "只输出 JSON，不要 markdown。",
-    "JSON schema:",
-    '{ "title": "string", "sections": [ { "heading": "string", "body": "string", "citations": ["可选来源编号或引用"] } ] }',
-    "章节应用中文小标题；正文可包含列表；citations 尽量对应检索来源或 claim 编号。",
-  ].join("\n");
-
-  const user = [
-    `任务类型: ${intent.kind}`,
-    `任务摘要: ${intent.summary}`,
-    `受众: ${intent.audience ?? "未指定"}`,
-    "",
-    "检索材料摘要:",
-    bundleDigest(bundle),
-  ].join("\n");
-
   const parsed = await completeJsonObject<ModelSectionsJson>(cfg, [
-    { role: "system", content: system },
-    { role: "user", content: user },
+    { role: "system", content: draftSystemPrompt(intent) },
+    { role: "user", content: draftUserPrompt(intent, bundle) },
   ]);
 
   if (!parsed || !Array.isArray(parsed.sections) || parsed.sections.length === 0) {
@@ -107,46 +128,47 @@ export async function buildDraftWithModel(
   }
 
   const ruleSections = base.sections;
-  const riskIdx = ruleSections.findIndex(
-    (s) => s.heading === "风险提示" || s.heading === "主要风险提示",
-  );
-  const missingIdx = ruleSections.findIndex(
-    (s) => s.heading === "待补充事项" || s.heading === "待确认事项",
-  );
-  const conflictIdx = ruleSections.findIndex(
-    (s) => s.heading === "冲突结论（需律师裁定）" || s.heading === "冲突意见（需律师裁定）",
-  );
-
-  const tail: ArtifactSection[] = [];
-  if (riskIdx >= 0) {
-    tail.push(ruleSections[riskIdx]);
-  }
-  if (missingIdx >= 0) {
-    tail.push(ruleSections[missingIdx]);
-  }
-  if (conflictIdx >= 0) {
-    tail.push(ruleSections[conflictIdx]);
-  }
+  const tailHeadings = new Set([
+    "风险提示",
+    "主要风险提示",
+    "待补充事项",
+    "待确认事项",
+    "冲突结论（需律师裁定）",
+    "冲突意见（需律师裁定）",
+    "附录：检索来源",
+  ]);
+  const tail = ruleSections.filter((s) => tailHeadings.has(s.heading));
 
   const title =
     typeof parsed.title === "string" && parsed.title.trim() ? parsed.title.trim() : base.title;
 
+  const mergedSections =
+    intent.deliverableType === "report.esg" && modelSections.length >= 4
+      ? [
+          ...modelSections,
+          ...tail.filter((s) => !modelSections.some((m) => m.heading === s.heading)),
+        ]
+      : [...modelSections, ...tail];
+
   return {
     ...base,
     title,
-    sections: [...modelSections, ...tail],
+    sections: mergedSections,
     summary: base.summary,
   };
 }
 
 export async function buildDraftAsync(params: BuildDraftParams): Promise<ArtifactDraft> {
-  if (isModelReasoningEnabled()) {
-    const cfg = reasoningLlmConfigFromEnv();
-    if (cfg) {
-      const enhanced = await buildDraftWithModel(params, cfg);
-      if (enhanced) {
-        return enhanced;
-      }
+  let cfg: OpenAiJsonClientConfig | null = null;
+  if (params.lawMindRoot) {
+    cfg = resolveDraftReasoningLlmConfig(params.lawMindRoot);
+  } else if (isModelReasoningEnabled()) {
+    cfg = reasoningLlmConfigFromEnv();
+  }
+  if (cfg) {
+    const enhanced = await buildDraftWithModel(params, cfg);
+    if (enhanced) {
+      return enhanced;
     }
   }
   return buildDraft(params);

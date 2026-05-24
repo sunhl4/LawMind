@@ -102,4 +102,69 @@ describe("session title and history helpers", () => {
       { role: "assistant", text: "yo" },
     ]);
   });
+
+  it("sessionHistoryToSimpleMessages includes persisted liveTrace", () => {
+    const ws = tmpDir();
+    const s = createSession({ workspaceDir: ws, actorId: "a" });
+    s.conversationHistory.push(
+      { role: "user", content: "task", timestamp: new Date().toISOString() },
+      {
+        role: "assistant",
+        content: "done",
+        timestamp: new Date().toISOString(),
+        liveTrace: {
+          currentRound: 1,
+          steps: [{ id: "t1", kind: "tool", label: "执行工作流", status: "done" }],
+        },
+      },
+    );
+    const rows = sessionHistoryToSimpleMessages(s);
+    expect(rows[1]?.liveTrace?.active).toBe(false);
+    expect(rows[1]?.liveTrace?.steps[0]?.label).toBe("执行工作流");
+  });
+
+  it("sessionHistoryToSimpleMessages attaches pendingRequiresAction to last assistant", () => {
+    const ws = tmpDir();
+    const s = createSession({ workspaceDir: ws, actorId: "a" });
+    s.conversationHistory.push(
+      { role: "user", content: "go", timestamp: new Date().toISOString() },
+      { role: "assistant", content: "wait", timestamp: new Date().toISOString() },
+    );
+    s.pendingRequiresAction = [
+      {
+        id: "ra-1",
+        kind: "tool_approval",
+        threadId: "t1",
+        title: "approve",
+        summary: "s",
+        toolName: "execute_workflow",
+        toolArgs: {},
+        decisions: ["approve", "reject"],
+        createdAt: new Date().toISOString(),
+      },
+    ];
+    const rows = sessionHistoryToSimpleMessages(s);
+    expect(rows[1]?.requiresAction?.[0]?.id).toBe("ra-1");
+  });
+
+  it("sessionHistoryToSimpleMessages keeps trace-only assistant rows", () => {
+    const ws = tmpDir();
+    const s = createSession({ workspaceDir: ws, actorId: "a" });
+    s.conversationHistory.push(
+      { role: "user", content: "task", timestamp: new Date().toISOString() },
+      {
+        role: "assistant",
+        content: "",
+        timestamp: new Date().toISOString(),
+        liveTrace: {
+          currentRound: 1,
+          steps: [{ id: "t1", kind: "tool", label: "写回草稿", status: "running" }],
+        },
+      },
+    );
+    const rows = sessionHistoryToSimpleMessages(s);
+    expect(rows).toHaveLength(2);
+    expect(rows[1]?.text).toBe("");
+    expect(rows[1]?.liveTrace?.steps[0]?.label).toBe("写回草稿");
+  });
 });

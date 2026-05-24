@@ -18,6 +18,7 @@
  * 注意：放在独立文件里，挂在 dispatch 中即可。
  */
 
+import { acceptanceTopBlockers } from "../../../src/lawmind/platform/review-gates.js";
 import {
   getDeliverableSpec,
   listDeliverableSpecs,
@@ -102,6 +103,7 @@ export async function handleAcceptanceRoutes({
         placeholderCount: report.placeholderCount,
         blockerCount,
         warningCount,
+        topBlockers: acceptanceTopBlockers(report, 3),
         hasSpec: report.deliverableType != null,
         outputPath: draft.outputPath ?? null,
       };

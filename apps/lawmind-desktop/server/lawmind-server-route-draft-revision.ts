@@ -4,6 +4,7 @@
 
 import path from "node:path";
 import { createLawMindAgent } from "../../../src/lawmind/agent/index.js";
+import { finishLiveTurnProgress } from "../../../src/lawmind/agent/live-turn-progress.js";
 import type { AgentConfig } from "../../../src/lawmind/agent/types.js";
 import { emit } from "../../../src/lawmind/audit/index.js";
 import {
@@ -15,11 +16,17 @@ import {
   resolveLawMindRoot,
 } from "../../../src/lawmind/assistants/store.js";
 import { readDraft } from "../../../src/lawmind/drafts/index.js";
+import {
+  buildRevisionRetryInstruction,
+  draftRevisionWasPersisted,
+  snapshotDraftRevisionBaseline,
+} from "../../../src/lawmind/drafts/revision-persisted.js";
 import type { ArtifactDraft } from "../../../src/lawmind/types.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import { isWebSearchForcedOffByPolicy } from "./lawmind-policy.js";
 import {
   buildAgentConfig,
+  getLawMindEngine,
   readJsonBody,
   resolveDesktopActorId,
   safeOptionalProjectDir,
@@ -54,15 +61,16 @@ ${notesBlock}
 - 律师本次在审核台填写的**补充说明**（发给助手）：
 ${extraBlock}
 
-**必须落盘，禁止只改聊天文字：** 律师已在审核台点击「提交给助手」，等同于已授权你写回工作区。你必须用工具把批注落实进 **同一条** 草稿文件 \`drafts/${draft.taskId}.json\`，不能只写自然语言说明。
+**必须落盘，禁止只改聊天文字：** 律师已在审核台点击「提交给助手」，等同于已授权你写回工作区。你必须用工具把批注落实进 **同一条** 草稿（taskId \`${draft.taskId}\`），不能只写自然语言说明。
 
 **推荐步骤（缺一不可）：**
-1. 用 \`search_workspace\`（或工作区内等价只读工具）读取当前 \`drafts/${draft.taskId}.json\` 全文，弄清现有 JSON 结构（尤其 \`sections\`、\`summary\`、\`reviewStatus\` 等）。
-2. 在本地根据上文「审核备注 + 补充说明」**直接改 JSON 内容**（章节正文、标题等），保持合法 JSON；\`taskId\` 必须与文件名一致，**不要**改任务 ID。
-3. 使用 \`write_document\`，\`file_path\` 填 \`drafts/${draft.taskId}.json\`，\`content\` 为**完整**更新后的 JSON 文本（UTF-8）。本条为审核台后台修订通道，**无需**在参数里传 \`__approved\`。
-4. **禁止**再调用 \`draft_document\` / \`execute_workflow\` 去「重新生成一份新草稿」——会生成新 taskId，审核台仍打开旧稿，律师会看到「没变化」。
+1. 用 \`analyze_document\` 或 \`search_workspace\` 读取当前 \`drafts/${draft.taskId}.json\`，弄清现有结构（尤其 \`sections\`、\`summary\`）。
+2. 根据「审核备注 + 补充说明」扩展/修订各章节正文，**保持同一 taskId**。
+3. **优先**调用 \`update_draft\`：\`task_id\` 填 \`${draft.taskId}\`，传入更新后的 \`sections\`（每项含 heading、body，保留原有 citations 若仍适用）及必要的 \`summary\` / \`title\`。本条为审核台后台修订通道，**无需** \`__approved\`。
+4. 若你更熟悉整文件写回，也可用 \`write_document\`，**必须**同时提供 \`file_path\` = \`drafts/${draft.taskId}.json\` 与完整合法 JSON \`content\`（不可省略 file_path）。
+5. **禁止**调用 \`draft_document\` / \`execute_workflow\` 重新生成新草稿——会生成新 taskId，审核台仍打开旧稿，律师会看到「没变化」。
 
-完成后用简短条目列出你改了哪些章节/字段；若仍需律师在审核台重新签批，提醒其刷新本页或先「恢复待审核」后再审。`;
+完成后用简短条目列出你改了哪些章节/字段。系统会在你成功写回 \`drafts/${draft.taskId}.json\` 后**自动**将草稿恢复为「待审核」，律师无需再手动点「恢复待审核」。`;
   return core.slice(0, REVISION_INSTRUCTION_MAX);
 }
 
@@ -135,8 +143,13 @@ export async function handleDraftRevisionJobRoute({
     sendJson(res, 500, { ok: false, error: "no_assistant_profile" }, c);
     return true;
   }
-  const built = buildAgentConfig(workspaceDir);
-  if (built.error === "missing_api_key" || !built.config) {
+  const built = buildAgentConfig(workspaceDir, { envFile: ctx.envFile });
+  const missingAgentModel =
+    !built.config ||
+    built.error === "missing_api_key" ||
+    built.error === "missing_provider_api_key" ||
+    built.error === "missing_platform_api_key";
+  if (missingAgentModel) {
     sendJson(
       res,
       503,
@@ -194,18 +207,61 @@ export async function handleDraftRevisionJobRoute({
   const projectDirForAgent = safeOptionalProjectDir(body.projectDir);
   const bumpRoot = lawMindRoot;
   const bumpAssistantId = profile.assistantId;
+  const revisionBaseline = snapshotDraftRevisionBaseline(workspaceDir, raw);
   void (async () => {
+    const chatOpts = {
+      sessionId: preSession.sessionId,
+      matterId: matterIdForChat,
+      assistantId: profile.assistantId,
+      linkedTaskId: raw,
+      allowWebSearch,
+      projectDir: projectDirForAgent,
+      sessionTitleHint: `审核修订 ${raw.slice(0, 12)}`,
+      liveProgressSessionId: preSession.sessionId,
+    } as const;
     try {
-      await agent.chat(instruction, {
-        sessionId: preSession.sessionId,
-        matterId: matterIdForChat,
-        assistantId: profile.assistantId,
-        allowWebSearch,
-        projectDir: projectDirForAgent,
-        sessionTitleHint: `审核修订 ${raw.slice(0, 12)}`,
-      });
+      let result = await agent.chat(instruction, chatOpts);
+      let persisted = draftRevisionWasPersisted(
+        workspaceDir,
+        raw,
+        revisionBaseline,
+        result.turn,
+      );
+      if (!persisted) {
+        result = await agent.chat(buildRevisionRetryInstruction(raw), chatOpts);
+        persisted = draftRevisionWasPersisted(
+          workspaceDir,
+          raw,
+          revisionBaseline,
+          result.turn,
+        );
+      }
+      if (!persisted) {
+        finishLiveTurnProgress(preSession.sessionId, "failed");
+        throw new Error(
+          "revision_not_persisted: 助手未将修订写入 drafts 文件，请查看对话后重试或手动恢复待审核。",
+        );
+      }
       bumpAssistantStats(bumpRoot, bumpAssistantId, { newSession: true, turn: true });
+      const engine = getLawMindEngine(workspaceDir);
+      const reopened = await engine.reopenDraftReview(raw, {
+        actorId: `${desktopActor}|revision-agent`,
+      });
+      if (reopened) {
+        await emit(auditDir, {
+          taskId: raw,
+          kind: "draft.revision_completed",
+          actor: "system",
+          actorId: desktopActor,
+          detail: JSON.stringify({
+            assistantId: profile.assistantId,
+            sessionId: preSession.sessionId,
+            title: reopened.title,
+          }).slice(0, 4000),
+        });
+      }
     } catch (err) {
+      finishLiveTurnProgress(preSession.sessionId, "failed");
       const msg = err instanceof Error ? err.message : String(err);
       await emit(auditDir, {
         taskId: raw,

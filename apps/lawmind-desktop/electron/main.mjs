@@ -3,9 +3,71 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const requireCjs = createRequire(import.meta.url);
+const { probeModelInline } = requireCjs("./lawmind-model-probe.cjs");
+
+/** OS keychain wrapper (best-effort; falls back to plaintext when keytar absent). */
+let keyVault;
+try {
+  keyVault = requireCjs("./lawmind-key-vault.cjs");
+} catch (err) {
+  console.warn("[LawMind] keychain wrapper unavailable; falling back to plaintext env.", err);
+  keyVault = {
+    isAvailable: () => false,
+    saveSecret: async () => false,
+    readSecret: async () => null,
+    deleteSecret: async () => false,
+    listSecrets: async () => [],
+  };
+}
+
+/** Account names under the `ai.lawmind.desktop` keychain service. */
+const KEYCHAIN_ACCOUNTS = {
+  wizardApiKey: "wizard.default.apiKey",
+  webSearchApiKey: "wizard.webSearch.apiKey",
+  customApiKey: (modelId) => `custom.${String(modelId).replace(/^custom:/, "")}.apiKey`,
+};
+
+/**
+ * Resolve all known secrets to inject into the local server subprocess.
+ * Returns plain `{ ENV_NAME: value }` map (best-effort; never throws).
+ */
+async function collectSecretsForServerEnv(parsedEnvVars) {
+  const out = {};
+  if (!keyVault.isAvailable()) {
+    return out;
+  }
+  try {
+    const wizardKey = await keyVault.readSecret(KEYCHAIN_ACCOUNTS.wizardApiKey);
+    if (wizardKey) {
+      if (!parsedEnvVars.LAWMIND_AGENT_API_KEY) {out.LAWMIND_AGENT_API_KEY = wizardKey;}
+      if (!parsedEnvVars.LAWMIND_QWEN_API_KEY) {out.LAWMIND_QWEN_API_KEY = wizardKey;}
+    }
+    const webSearchKey = await keyVault.readSecret(KEYCHAIN_ACCOUNTS.webSearchApiKey);
+    if (webSearchKey) {
+      if (!parsedEnvVars.LAWMIND_WEB_SEARCH_API_KEY) {out.LAWMIND_WEB_SEARCH_API_KEY = webSearchKey;}
+      if (!parsedEnvVars.BRAVE_API_KEY) {out.BRAVE_API_KEY = webSearchKey;}
+    }
+    const all = await keyVault.listSecrets();
+    for (const entry of all) {
+      const m = /^custom\.([^.]+)\.apiKey$/.exec(entry.account);
+      if (!m) {continue;}
+      const uuid = m[1];
+      const value = await keyVault.readSecret(entry.account);
+      if (value) {
+        const envName = `LAWMIND_CUSTOM_${uuid.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase()}_API_KEY`;
+        out[envName] = value;
+      }
+    }
+  } catch (err) {
+    console.warn("[LawMind] keychain read failed; subprocess will run without injected secrets.", err);
+  }
+  return out;
+}
 
 /** @type {import("electron").BrowserWindow | null} */
 let mainWindowRef = null;
@@ -62,6 +124,64 @@ function lawMindPaths() {
     envFilePath,
     retrievalMode,
   };
+}
+
+/** Parse a `.env.lawmind` file body into a `{ KEY: VALUE }` map. */
+function parseEnvAssignmentsTopLevel(content) {
+  const out = {};
+  for (const line of String(content || "").split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t || t.startsWith("#")) {continue;}
+    const eq = t.indexOf("=");
+    if (eq <= 0) {continue;}
+    out[t.slice(0, eq).trim()] = t.slice(eq + 1);
+  }
+  return out;
+}
+
+/** Map wizard model name → desktop default model id (mirrors src/lawmind/models/catalog). */
+function defaultModelIdForWizardModel(modelName) {
+  const norm = String(modelName || "qwen-plus")
+    .trim()
+    .toLowerCase();
+  if (!norm) {
+    return "env:current";
+  }
+  const builtins = [
+    ["qwen-plus", "builtin:qwen-plus"],
+    ["qwen-turbo", "builtin:qwen-turbo"],
+    ["qwen-max", "builtin:qwen-max"],
+    ["qwen3.5-plus", "builtin:qwen3.5-plus"],
+    ["qwen-plus-latest", "builtin:qwen3.5-plus"],
+    ["gpt-4o", "builtin:gpt-4o"],
+    ["gpt-4o-mini", "builtin:gpt-4o-mini"],
+    ["deepseek-chat", "builtin:deepseek-chat"],
+    ["moonshot-v1-8k", "builtin:moonshot-v1-8k"],
+    ["glm-4-plus", "builtin:glm-4-plus"],
+  ];
+  for (const [name, id] of builtins) {
+    if (name === norm) {
+      return id;
+    }
+  }
+  return "env:current";
+}
+
+function writeWizardDefaultModelId(lawMindRoot, modelName) {
+  const modelsPath = path.join(lawMindRoot, "models.json");
+  let store = { schemaVersion: 1, customModels: [] };
+  try {
+    if (fs.existsSync(modelsPath)) {
+      const raw = JSON.parse(fs.readFileSync(modelsPath, "utf8"));
+      if (raw.schemaVersion === 1 && Array.isArray(raw.customModels)) {
+        store = raw;
+      }
+    }
+  } catch {
+    /* reset */
+  }
+  store.defaultModelId = defaultModelIdForWizardModel(modelName);
+  fs.writeFileSync(modelsPath, `${JSON.stringify(store, null, 2)}\n`, "utf8");
 }
 
 function getBundledServerScript() {
@@ -340,70 +460,136 @@ function listDirectoryEntries(rootKey, relPath = "") {
     });
 }
 
-function startLocalServer(repoRoot, wsDir, envPath, retrievalMode, projectPath) {
+async function startLocalServer(repoRoot, wsDir, envPath, retrievalMode, projectPath) {
+  const port = await pickPort();
+  apiPort = port;
+  const bundled = getBundledServerScript();
+  const cmd = resolveNodeExecutable();
+  let args;
+  let cwd = repoRoot;
+
+  if (bundled) {
+    args = [bundled];
+    cwd = path.dirname(bundled);
+  } else {
+    const serverScript = path.join(
+      repoRoot,
+      "apps",
+      "lawmind-desktop",
+      "server",
+      "lawmind-local-server.ts",
+    );
+    if (!fs.existsSync(serverScript)) {
+      throw new Error(`Server script not found: ${serverScript}`);
+    }
+    args = ["--import", "tsx", serverScript];
+  }
+
+  const parsedEnvVars = fs.existsSync(envPath)
+    ? parseEnvAssignmentsTopLevel(fs.readFileSync(envPath, "utf8"))
+    : {};
+  const injectedSecrets = await collectSecretsForServerEnv(parsedEnvVars);
+
+  const mode = retrievalMode === "dual" ? "dual" : "single";
   return new Promise((resolve, reject) => {
-    pickPort()
-      .then((port) => {
-        apiPort = port;
-        const bundled = getBundledServerScript();
-        const cmd = resolveNodeExecutable();
-        let args;
-        let cwd = repoRoot;
+    serverProcess = spawn(cmd, args, {
+      cwd,
+      env: {
+        ...process.env,
+        LAWMIND_WORKSPACE_DIR: wsDir,
+        LAWMIND_DESKTOP_PORT: String(port),
+        LAWMIND_ENV_FILE: envPath,
+        // Lets local server load the same `.env.lawmind` as CLI, then merge userData env on top.
+        LAWMIND_REPO_ROOT: repoRoot,
+        LAWMIND_RETRIEVAL_MODE: mode,
+        LAWMIND_PROJECT_DIR: projectPath || "",
+        ...injectedSecrets,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
 
-        if (bundled) {
-          args = [bundled];
-          cwd = path.dirname(bundled);
-        } else {
-          const serverScript = path.join(
-            repoRoot,
-            "apps",
-            "lawmind-desktop",
-            "server",
-            "lawmind-local-server.ts",
-          );
-          if (!fs.existsSync(serverScript)) {
-            reject(new Error(`Server script not found: ${serverScript}`));
-            return;
-          }
-          args = ["--import", "tsx", serverScript];
-        }
+    serverProcess.on("error", reject);
+    serverProcess.stderr?.on("data", (d) => {
+      process.stderr.write(d);
+    });
+    serverProcess.stdout?.on("data", (d) => {
+      process.stdout.write(d);
+    });
 
-        const mode = retrievalMode === "dual" ? "dual" : "single";
-        serverProcess = spawn(cmd, args, {
-          cwd,
-          env: {
-            ...process.env,
-            LAWMIND_WORKSPACE_DIR: wsDir,
-            LAWMIND_DESKTOP_PORT: String(port),
-            LAWMIND_ENV_FILE: envPath,
-            // Lets local server load the same `.env.lawmind` as CLI, then merge userData env on top.
-            LAWMIND_REPO_ROOT: repoRoot,
-            LAWMIND_RETRIEVAL_MODE: mode,
-            LAWMIND_PROJECT_DIR: projectPath || "",
-          },
-          stdio: ["ignore", "pipe", "pipe"],
-        });
+    serverProcess.once("exit", (code) => {
+      if (code !== 0 && code !== null) {
+        console.error(`[LawMind] local server exited with code ${code}`);
+      }
+    });
 
-        serverProcess.on("error", reject);
-        serverProcess.stderr?.on("data", (d) => {
-          process.stderr.write(d);
-        });
-        serverProcess.stdout?.on("data", (d) => {
-          process.stdout.write(d);
-        });
-
-        serverProcess.once("exit", (code) => {
-          if (code !== 0 && code !== null) {
-            console.error(`[LawMind] local server exited with code ${code}`);
-          }
-        });
-
-        waitForLocalServerReady(port)
-          .then(() => resolve(port))
-          .catch(reject);
-      })
+    waitForLocalServerReady(port)
+      .then(() => resolve(port))
       .catch(reject);
   });
+}
+
+/**
+ * One-time migration: copy plaintext keys from `.env.lawmind` into the OS keychain
+ * when keychain is empty. Keys remain in the env file so restarts do not require re-entry.
+ */
+async function maybeMigrateEnvKeysToKeychain(envFilePath) {
+  if (!keyVault.isAvailable()) {return;}
+  if (!fs.existsSync(envFilePath)) {return;}
+  let vars;
+  try {
+    vars = parseEnvAssignmentsTopLevel(fs.readFileSync(envFilePath, "utf8"));
+  } catch {
+    return;
+  }
+  const envKey = (vars.LAWMIND_AGENT_API_KEY || vars.LAWMIND_QWEN_API_KEY || "").trim();
+  if (!envKey) {return;}
+  try {
+    const existing = await keyVault.readSecret(KEYCHAIN_ACCOUNTS.wizardApiKey);
+    if (existing) {return;}
+    await keyVault.saveSecret(KEYCHAIN_ACCOUNTS.wizardApiKey, envKey);
+  } catch {
+    /* env file remains authoritative */
+  }
+}
+
+/** After local server restart, verify the saved profile via POST /api/models/test. */
+async function postLocalModelTest(modelId) {
+  const url = `http://127.0.0.1:${apiPort}/api/models/test`;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ modelId: modelId || "env:current" }),
+    });
+    const text = await res.text();
+    let body = {};
+    try {
+      body = text.trim() ? JSON.parse(text) : {};
+    } catch {
+      return {
+        ok: false,
+        code: "invalid_response",
+        error: `无法解析验证响应（HTTP ${res.status}）`,
+      };
+    }
+    if (res.ok && body.ok === true) {
+      return { ok: true, latencyMs: body.latencyMs, modelId: body.modelId };
+    }
+    return {
+      ok: false,
+      code: typeof body.code === "string" ? body.code : "model_api_error",
+      error:
+        typeof body.message === "string" && body.message.trim()
+          ? body.message.trim()
+          : `连接验证失败（HTTP ${res.status}）`,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      code: "model_network_error",
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 async function restartBackendInternal() {
@@ -419,6 +605,8 @@ async function restartBackendInternal() {
   projectDir = paths.projectDir ?? null;
   envFilePath = paths.envFilePath;
   fs.mkdirSync(workspaceDir, { recursive: true });
+
+  await maybeMigrateEnvKeysToKeychain(paths.envFilePath);
 
   const bundled = getBundledServerScript();
   const repoRoot = bundled ? path.dirname(bundled) : resolveRepoRoot();
@@ -563,21 +751,117 @@ function registerIpcHandlers() {
     return { ok: true, path: res.filePaths[0] };
   });
 
+  const parseEnvAssignments = parseEnvAssignmentsTopLevel;
+
+  function writeMergedLawmindEnv(envFilePath, assignments) {
+    const header = [
+      "# Generated by LawMind desktop setup wizard",
+      "# Other LAWMIND_* entries below are preserved when you re-save API settings.",
+    ];
+    const prev = fs.existsSync(envFilePath)
+      ? parseEnvAssignmentsTopLevel(fs.readFileSync(envFilePath, "utf8"))
+      : {};
+    const merged = { ...prev, ...assignments };
+    const body = [
+      ...header,
+      ...Object.entries(merged).map(([key, value]) => `${key}=${String(value)}`),
+      "",
+    ].join("\n");
+    fs.writeFileSync(envFilePath, body, "utf8");
+  }
+
+  function _writeLawmindEnvSubset(envFilePath, removeKeys) {
+    if (!fs.existsSync(envFilePath)) {return;}
+    const prev = parseEnvAssignmentsTopLevel(fs.readFileSync(envFilePath, "utf8"));
+    let changed = false;
+    for (const k of removeKeys) {
+      if (k in prev) {
+        delete prev[k];
+        changed = true;
+      }
+    }
+    if (!changed) {return;}
+    const header = [
+      "# Generated by LawMind desktop setup wizard",
+      "# Sensitive API keys are now stored in the OS keychain (`ai.lawmind.desktop` service).",
+    ];
+    const body = [
+      ...header,
+      ...Object.entries(prev).map(([key, value]) => `${key}=${String(value)}`),
+      "",
+    ].join("\n");
+    fs.writeFileSync(envFilePath, body, "utf8");
+  }
+
+  ipcMain.handle("lawmind:read-model-settings", async () => {
+    const paths = lawMindPaths();
+    const vars = fs.existsSync(paths.envFilePath)
+      ? parseEnvAssignments(fs.readFileSync(paths.envFilePath, "utf8"))
+      : {};
+    const envKey = (vars.LAWMIND_AGENT_API_KEY || vars.LAWMIND_QWEN_API_KEY || "").trim();
+    const envWebKey = (vars.LAWMIND_WEB_SEARCH_API_KEY || vars.BRAVE_API_KEY || "").trim();
+    let chainKey = "";
+    let chainWebKey = "";
+    if (keyVault.isAvailable()) {
+      try {
+        chainKey = (await keyVault.readSecret(KEYCHAIN_ACCOUNTS.wizardApiKey)) || "";
+        chainWebKey = (await keyVault.readSecret(KEYCHAIN_ACCOUNTS.webSearchApiKey)) || "";
+      } catch {
+        chainKey = "";
+        chainWebKey = "";
+      }
+    }
+    return {
+      ok: true,
+      hasApiKey: Boolean(envKey || chainKey),
+      hasWebSearchApiKey: Boolean(envWebKey || chainWebKey),
+      keychainAvailable: keyVault.isAvailable(),
+      keyStorage: chainKey ? "keychain" : envKey ? "env" : "none",
+      webSearchKeyStorage: chainWebKey ? "keychain" : envWebKey ? "env" : "none",
+      baseUrl:
+        (vars.LAWMIND_AGENT_BASE_URL || vars.LAWMIND_QWEN_BASE_URL || "").trim() ||
+        "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      model: (vars.LAWMIND_AGENT_MODEL || vars.LAWMIND_QWEN_MODEL || "qwen-plus").trim() || "qwen-plus",
+      envFilePath: paths.envFilePath,
+    };
+  });
+
   ipcMain.handle("lawmind:save-setup", async (_evt, payload) => {
     const apiKey = typeof payload?.apiKey === "string" ? payload.apiKey.trim() : "";
+    const webSearchApiKey =
+      typeof payload?.webSearchApiKey === "string" ? payload.webSearchApiKey.trim() : "";
     const baseUrl = typeof payload?.baseUrl === "string" ? payload.baseUrl.trim() : "";
     const model = typeof payload?.model === "string" ? payload.model.trim() : "";
     const pickWs = typeof payload?.workspaceDir === "string" ? payload.workspaceDir.trim() : "";
     const wantDual =
       payload?.retrievalMode === "dual" ||
       String(payload?.retrievalMode ?? "").toLowerCase() === "dual";
-
-    if (!apiKey) {
-      return { ok: false, error: "API Key 必填" };
-    }
+    const legalSameAsChat = payload?.legalRetrievalSameAsChat !== false;
 
     const paths = lawMindPaths();
     fs.mkdirSync(paths.lawMindRoot, { recursive: true });
+
+    const existingVars = fs.existsSync(paths.envFilePath)
+      ? parseEnvAssignments(fs.readFileSync(paths.envFilePath, "utf8"))
+      : {};
+    const envKey = (existingVars.LAWMIND_AGENT_API_KEY || existingVars.LAWMIND_QWEN_API_KEY || "").trim();
+    const envWebKey = (existingVars.LAWMIND_WEB_SEARCH_API_KEY || existingVars.BRAVE_API_KEY || "").trim();
+    let chainKey = "";
+    let chainWebKey = "";
+    if (keyVault.isAvailable()) {
+      try {
+        chainKey = (await keyVault.readSecret(KEYCHAIN_ACCOUNTS.wizardApiKey)) || "";
+        chainWebKey = (await keyVault.readSecret(KEYCHAIN_ACCOUNTS.webSearchApiKey)) || "";
+      } catch {
+        chainKey = "";
+        chainWebKey = "";
+      }
+    }
+    const effectiveKey = apiKey || chainKey || envKey;
+    const effectiveWebKey = webSearchApiKey || chainWebKey || envWebKey;
+    if (!effectiveKey) {
+      return { ok: false, error: "API Key 必填" };
+    }
 
     let prev = {};
     try {
@@ -600,31 +884,132 @@ function registerIpcHandlers() {
     const url =
       baseUrl || "https://dashscope.aliyuncs.com/compatible-mode/v1";
     const m = model || "qwen-plus";
-    const envBody = [
-      "# Generated by LawMind desktop setup wizard",
-      `LAWMIND_AGENT_BASE_URL=${url}`,
-      `LAWMIND_AGENT_API_KEY=${apiKey}`,
-      `LAWMIND_AGENT_MODEL=${m}`,
-      "# Mirrors for CLI / engine paths that read LAWMIND_QWEN_*",
-      `LAWMIND_QWEN_API_KEY=${apiKey}`,
-      `LAWMIND_QWEN_MODEL=${m}`,
-      "",
-    ].join("\n");
-    fs.writeFileSync(paths.envFilePath, envBody, "utf8");
+
+    const inlineProbe = await probeModelInline({
+      apiKey: effectiveKey,
+      baseUrl: url,
+      model: m,
+      timeoutMs: 60_000,
+    });
+    if (!inlineProbe.ok) {
+      return { ok: false, error: inlineProbe.error, code: inlineProbe.code, verified: false };
+    }
+
+    const envAssignments = {
+      LAWMIND_AGENT_BASE_URL: url,
+      LAWMIND_AGENT_API_KEY: effectiveKey,
+      LAWMIND_AGENT_MODEL: m,
+      LAWMIND_QWEN_BASE_URL: url,
+      LAWMIND_QWEN_API_KEY: effectiveKey,
+      LAWMIND_QWEN_MODEL: m,
+      LAWMIND_RETRIEVAL_MODE: retrievalMode,
+    };
+    if (effectiveWebKey) {
+      envAssignments.LAWMIND_WEB_SEARCH_API_KEY = effectiveWebKey;
+      envAssignments.BRAVE_API_KEY = effectiveWebKey;
+    }
+    if (wantDual && legalSameAsChat) {
+      envAssignments.LAWMIND_CHATLAW_BASE_URL = url;
+      envAssignments.LAWMIND_CHATLAW_API_KEY = effectiveKey;
+      envAssignments.LAWMIND_CHATLAW_MODEL = m;
+    }
+    writeMergedLawmindEnv(paths.envFilePath, envAssignments);
+
+    let keyStorage = "env";
+    if (keyVault.isAvailable()) {
+      try {
+        await keyVault.saveSecret(KEYCHAIN_ACCOUNTS.wizardApiKey, effectiveKey);
+        keyStorage = "env+keychain";
+        if (effectiveWebKey) {
+          await keyVault.saveSecret(KEYCHAIN_ACCOUNTS.webSearchApiKey, effectiveWebKey);
+        }
+      } catch {
+        keyStorage = "env";
+      }
+    }
+    writeWizardDefaultModelId(paths.lawMindRoot, m);
 
     try {
       await restartBackendInternal();
     } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: e instanceof Error ? e.message : String(e), verified: false };
+    }
+
+    const serverProbe = await postLocalModelTest("env:current");
+    if (!serverProbe.ok) {
+      return {
+        ok: false,
+        verified: false,
+        code: serverProbe.code,
+        error: `配置已写入 ${paths.envFilePath}，但本地服务验证失败：${serverProbe.error}`,
+        apiBase: `http://127.0.0.1:${apiPort}`,
+        envFilePath: paths.envFilePath,
+        keyStorage,
+      };
     }
 
     return {
       ok: true,
+      verified: true,
+      latencyMs: serverProbe.latencyMs ?? inlineProbe.latencyMs,
       apiBase: `http://127.0.0.1:${apiPort}`,
-      workspaceDir,
-      envFilePath,
+      workspaceDir: paths.workspaceDir,
+      envFilePath: paths.envFilePath,
       retrievalMode,
+      keyStorage,
+      webSearchApiKeyConfigured: Boolean(effectiveWebKey),
     };
+  });
+
+  ipcMain.handle("lawmind:save-custom-model-key", async (_evt, payload) => {
+    const id =
+      typeof payload?.id === "string" && payload.id.trim() ? payload.id.trim() : "";
+    const apiKey =
+      typeof payload?.apiKey === "string" ? payload.apiKey.trim() : "";
+    if (!id) {
+      return { ok: false, error: "model_id_required" };
+    }
+    if (!apiKey) {
+      return { ok: false, error: "api_key_required" };
+    }
+    if (!keyVault.isAvailable()) {
+      return { ok: false, error: "keychain_unavailable" };
+    }
+    try {
+      await keyVault.saveSecret(KEYCHAIN_ACCOUNTS.customApiKey(id), apiKey);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle("lawmind:delete-custom-model-key", async (_evt, payload) => {
+    const id =
+      typeof payload?.id === "string" && payload.id.trim() ? payload.id.trim() : "";
+    if (!id) {
+      return { ok: false, error: "model_id_required" };
+    }
+    if (!keyVault.isAvailable()) {
+      return { ok: true, removed: false };
+    }
+    try {
+      const removed = await keyVault.deleteSecret(KEYCHAIN_ACCOUNTS.customApiKey(id));
+      return { ok: true, removed };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle("lawmind:keychain-status", async () => {
+    if (!keyVault.isAvailable()) {
+      return { available: false, error: keyVault.lastError?.() };
+    }
+    try {
+      const all = await keyVault.listSecrets();
+      return { available: true, count: all.length };
+    } catch {
+      return { available: true, count: 0 };
+    }
   });
 
   ipcMain.handle("lawmind:set-retrieval-mode", async (_evt, mode) => {
@@ -700,7 +1085,7 @@ function registerIpcHandlers() {
         projectDir,
       };
     }
-    return { ok: true, projectDir };
+    return { ok: true, projectDir, apiBase: `http://127.0.0.1:${apiPort}` };
   });
 
   ipcMain.handle("lawmind:fs:list", (_evt, payload) => {
@@ -1139,11 +1524,16 @@ async function createWindow() {
   });
 
   const devUrl = process.env.VITE_DEV_SERVER_URL || "http://127.0.0.1:5174";
-  if (!app.isPackaged) {
+  const distIndex = path.join(__dirname, "..", "dist", "index.html");
+  const useDistInE2e =
+    process.env.LAWMIND_E2E === "1" && fs.existsSync(distIndex);
+  if (!app.isPackaged && !useDistInE2e) {
     await mainWindow.loadURL(devUrl);
-    mainWindow.webContents.openDevTools({ mode: "detach" });
+    if (process.env.LAWMIND_E2E !== "1") {
+      mainWindow.webContents.openDevTools({ mode: "detach" });
+    }
   } else {
-    await mainWindow.loadFile(path.join(__dirname, "..", "dist", "index.html"));
+    await mainWindow.loadFile(useDistInE2e ? distIndex : path.join(__dirname, "..", "dist", "index.html"));
   }
 }
 
@@ -1152,9 +1542,11 @@ void app.whenReady().then(async () => {
     registerIpcHandlers();
     setupApplicationMenu();
     await createWindow();
-    setTimeout(() => {
-      void runAutoUpdateCheckWithNotify();
-    }, 12_000);
+    if (process.env.LAWMIND_E2E !== "1" && process.env.LAWMIND_SKIP_AUTO_UPDATE !== "1") {
+      setTimeout(() => {
+        void runAutoUpdateCheckWithNotify();
+      }, 12_000);
+    }
   } catch {
     app.quit();
   }

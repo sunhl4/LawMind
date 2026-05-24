@@ -1,5 +1,17 @@
 import { isValidMatterId } from "../../../src/lawmind/cases/index.js";
-import { buildAuditExportMarkdown, buildComplianceAuditMarkdown } from "../../../src/lawmind/audit/index.js";
+import {
+  buildAuditExportMarkdown,
+  buildAuditReplayExport,
+  buildComplianceAuditMarkdown,
+  readAllAuditLogs,
+} from "../../../src/lawmind/audit/index.js";
+import {
+  summarizeAuditIntegrity,
+  type AuditEventWithIntegrity,
+} from "../../../src/lawmind/audit/hash-chain.js";
+import { isFeatureEnabled } from "../../../src/lawmind/policy/edition.js";
+import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspace-policy.js";
+import path from "node:path";
 import { sendJson } from "./lawmind-server-helpers.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 
@@ -29,6 +41,29 @@ export async function handleAuditExportRoute({
   }
   const complianceRaw = url.searchParams.get("compliance")?.trim().toLowerCase() ?? "";
   const useCompliance = complianceRaw === "1" || complianceRaw === "true";
+  const integrityRaw = url.searchParams.get("integrity")?.trim().toLowerCase() ?? "";
+  const useIntegrity = integrityRaw === "1" || integrityRaw === "true";
+  const replayRaw = url.searchParams.get("replay")?.trim().toLowerCase() ?? "";
+  const useReplay = replayRaw === "1" || replayRaw === "true";
+  if (useIntegrity) {
+    const policyForEdition: LawMindWorkspacePolicy | null = ctx.policy.loaded
+      ? (ctx.policy.policy as LawMindWorkspacePolicy)
+      : null;
+    if (!isFeatureEnabled("auditIntegrityExport", { policy: policyForEdition })) {
+      sendJson(res, 403, { ok: false, error: "audit_integrity_export_disabled" }, c);
+      return true;
+    }
+    const auditDir = path.join(workspaceDir, "audit");
+    const all = await readAllAuditLogs(auditDir);
+    const summary = summarizeAuditIntegrity(all as AuditEventWithIntegrity[]);
+    sendJson(res, 200, { ok: true, integrity: summary }, c);
+    return true;
+  }
+  if (useReplay) {
+    const replay = await buildAuditReplayExport(workspaceDir, { matterId, taskId, since, until });
+    sendJson(res, 200, { ok: true, replay }, c);
+    return true;
+  }
   const md = useCompliance
     ? await buildComplianceAuditMarkdown(workspaceDir, { matterId, taskId, since, until })
     : await buildAuditExportMarkdown(workspaceDir, { matterId, taskId, since, until });

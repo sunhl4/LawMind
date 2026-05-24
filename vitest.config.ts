@@ -19,6 +19,8 @@ export default defineConfig({
       "src/lawmind/**/*.test.ts",
       "apps/lawmind-desktop/server/**/*.test.ts",
       "apps/lawmind-desktop/src/**/*.test.ts",
+      "apps/lawmind-desktop/src/**/*.test.tsx",
+      "apps/lawmind-desktop/electron/**/*.test.ts",
     ],
     exclude: ["**/node_modules/**", "**/dist/**", "**/release/**"],
   },

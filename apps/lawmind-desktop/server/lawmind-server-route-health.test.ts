@@ -70,7 +70,13 @@ describe("lawmind-server-route-health", () => {
   it("returns health payload for GET /api/health", () => {
     const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-health-route-"));
     const userEnvPath = path.join(workspaceDir, ".env.lawmind");
-    fs.writeFileSync(userEnvPath, "LAWMIND_AGENT_MODEL=test-model\n", "utf8");
+    fs.writeFileSync(
+      userEnvPath,
+      "LAWMIND_AGENT_API_KEY=test-key\nLAWMIND_AGENT_MODEL=test-model\n",
+      "utf8",
+    );
+    process.env.LAWMIND_AGENT_API_KEY = "test-key";
+    process.env.LAWMIND_AGENT_MODEL = "test-model";
     const capture = createResponseCapture();
     const ctx: LawmindDispatchContext = {
       workspaceDir,
@@ -132,7 +138,13 @@ describe("lawmind-server-route-health", () => {
   it("reports agentMandatoryRulesActive when policy includes mandatory rules", () => {
     const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-health-mr-"));
     const userEnvPath = path.join(workspaceDir, ".env.lawmind");
-    fs.writeFileSync(userEnvPath, "LAWMIND_AGENT_MODEL=test-model\n", "utf8");
+    fs.writeFileSync(
+      userEnvPath,
+      "LAWMIND_AGENT_API_KEY=test-key\nLAWMIND_AGENT_MODEL=test-model\n",
+      "utf8",
+    );
+    process.env.LAWMIND_AGENT_API_KEY = "test-key";
+    process.env.LAWMIND_AGENT_MODEL = "test-model";
     const policy: LawMindPolicyFile = {
       schemaVersion: 1,
       agentMandatoryRules: "禁止对外承诺结果。",

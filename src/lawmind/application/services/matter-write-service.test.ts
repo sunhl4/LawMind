@@ -20,6 +20,8 @@ import {
   readQueueItems,
   loadDeliverable,
 } from "../../adapters/matter-storage/index.js";
+import { parseMatterDisplayNameFromCase } from "../../cases/matter-label.js";
+import { caseFilePath } from "../../memory/index.js";
 import type { ArtifactDraft } from "../../types.js";
 import { listPendingApprovals, requestApproval, resolveApproval } from "./approval-service.js";
 import { completeDeadline, recordDeadline } from "./deadline-service.js";
@@ -42,7 +44,15 @@ describe("Matter write services (W3)", () => {
     await fs.mkdir(path.join(workspaceDir, "audit"), { recursive: true });
   });
   afterEach(async () => {
-    await fs.rm(workspaceDir, { recursive: true, force: true });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    await fs.rm(workspaceDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  });
+
+  it("createMatterIfMissing schedules CASE.md projection", async () => {
+    createMatterIfMissing(workspaceDir, { matterId: "m-dual", title: "Dual Write" });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const raw = await fs.readFile(caseFilePath(workspaceDir, "m-dual"), "utf8");
+    expect(parseMatterDisplayNameFromCase(raw)).toBe("Dual Write");
   });
 
   it("createMatterIfMissing is idempotent and persists JSON truth source", () => {

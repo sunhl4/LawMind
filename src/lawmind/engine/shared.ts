@@ -19,7 +19,7 @@ import {
   persistReasoningSnapshot,
   persistResearchSnapshot,
 } from "../drafts/index.js";
-import { appendCaseProgress, appendTodayLog, ensureCaseWorkspace } from "../memory/index.js";
+import { appendCaseProgress, appendTodayLog } from "../memory/index.js";
 import { buildLegalReasoningGraph } from "../reasoning/index.js";
 import {
   ensureTaskRecord,
@@ -64,7 +64,6 @@ export function commitPlannedIntent(ctx: EngineContext, intent: TaskIntent): voi
     });
   }
   if (intent.matterId) {
-    void ensureCaseWorkspace(workspaceDir, intent.matterId);
     try {
       createMatterIfMissing(workspaceDir, {
         matterId: intent.matterId,

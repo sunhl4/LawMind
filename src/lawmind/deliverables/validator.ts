@@ -12,6 +12,7 @@
  */
 
 import type { ArtifactDraft, ArtifactSection } from "../types.js";
+import { inferDeliverableTypeForAcceptance } from "./draft-deliverable-infer.js";
 import { heuristicPlaceholderRatio } from "./draft-sanity.js";
 import { getDeliverableSpec } from "./registry.js";
 import type {
@@ -166,13 +167,14 @@ export const validateDraftAgainstSpec: ValidateDraftFn = (
   draft,
   opts: ValidateDraftOptions = {},
 ) => {
-  const spec = opts.spec ?? getDeliverableSpec(draft.deliverableType);
+  const effectiveType = opts.spec?.type ?? inferDeliverableTypeForAcceptance(draft);
+  const spec = opts.spec ?? getDeliverableSpec(effectiveType);
   const generatedAt = new Date().toISOString();
 
   if (!spec) {
     return {
       taskId: draft.taskId,
-      deliverableType: draft.deliverableType,
+      deliverableType: effectiveType ?? draft.deliverableType,
       ready: true,
       checks: [
         {
@@ -214,7 +216,7 @@ export const validateDraftAgainstSpec: ValidateDraftFn = (
 
   return {
     taskId: draft.taskId,
-    deliverableType: draft.deliverableType,
+    deliverableType: effectiveType ?? draft.deliverableType,
     ready: blockerCount === 0,
     checks,
     blockerCount,

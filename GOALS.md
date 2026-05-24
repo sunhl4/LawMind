@@ -143,6 +143,28 @@ queue.jsonl,deadlines.jsonl}`；engine hot path 全程双写；`/api/matters` /
       `src/lawmind/integration/quarterly-acceptance.test.ts`；同步本节、
       `LAWMIND-ARCHITECTURE.md` 二、新增段、`LAWMIND-PROJECT-MEMORY.md` §8（W12）
 
+### 第九期 UX 硬化（2026-05，90 天体验计划）
+
+- [x] **W1 就绪态**：`LawmindReadinessStrip` + `MODEL_NOT_CONFIGURED_USER_HINT` 文案统一 + 发送/向导一致
+- [x] **W2 首跑/向导**：首跑 bootstrap 可见错误；API 向导检索策略 `details` 折叠；律师向种子 prompt
+- [x] **W3 可读性**：`.lm-meta` 13px 基线；核心控件 `title`；设置「界面字号」`localStorage`
+- [x] **W4 E2E**：smoke 就绪条；`matter-cockpit` + `pnpm lawmind:desktop:e2e`；本节骨架
+- [x] **W5–6 审核/对话**：渲染门禁摘要；自检置顶；`LawmindChatDraftStatusBar` + 启发式单测
+- [x] **W7 Matter**：概览默认三卡 +「更多洞察」折叠；Plan 模式 `title` 路线图
+- [x] **W8 协作/模型**：协作文案瘦身；`byAssistantId` 模型记忆；委派 toast；工作流模型标签
+- [x] **W9–10 工作 IA**：`lm.ui.workTab.v1` 实验开关；工作子 Tab（对话/审核）+ 深链兼容
+- [x] **W11 状态收敛**：`matter/MatterOverviewExtras`；`statusLabel` + `GET /api/tasks/:id`
+- [x] **W12 黄金路径**：`e2e/golden-path.spec.ts`；律所版灰显；全量回归入口 `pnpm test`
+
+### 平台级 Big-Bang 重构（进行中）
+
+- [x] 冻结平台统一契约：`docs/lawmind/LAWMIND-PLATFORM-CONTRACTS.md` + `src/lawmind/platform/contracts.ts`
+- [x] Ingest Orchestration 收敛：`src/lawmind/platform/ingest-helpers.ts` + `analyze_document` / `read_project_file` 统一错误码
+- [x] Task Execution 状态机收敛：`src/lawmind/platform/execution-state.ts` + chat/jobs 响应 `executionState`
+- [x] Desktop API/UI 状态字段收敛：`getPendingClarificationState` 优先 `executionState`/`gateDecisions`；`GET /api/bootstrap`
+- [x] Strict 门禁升级：CI 接入 `lawmind:multitask:validate` + `pnpm lawmind:verify`（含 HTTP smoke）
+- [x] 切换与回退预案：`LAWMIND_PLATFORM_CONTRACTS_V1` + [LAWMIND-BIGBANG-CUTOVER-ROLLBACK.md](docs/lawmind/LAWMIND-BIGBANG-CUTOVER-ROLLBACK.md)
+
 ---
 
 ## 五、非目标与边界（简要）
@@ -175,6 +197,108 @@ queue.jsonl,deadlines.jsonl}`；engine hot path 全程双写；`/api/matters` /
 - **模型适配**：[docs/LAWMIND-MODEL-ADAPTERS.md](docs/LAWMIND-MODEL-ADAPTERS.md)
 - 仓库说明：[README.md](README.md) · 贡献：[CONTRIBUTING.md](CONTRIBUTING.md) · 安全：[SECURITY.md](SECURITY.md)
 
+### 参考项目 P0 落地（2026-05）
+
+> 依据 [docs/LAWMIND-REFERENCE-PROJECT-LESSONS.md](docs/LAWMIND-REFERENCE-PROJECT-LESSONS.md) 实施计划。
+
+- [x] **统一待处理动作**：`requiresAction` + `POST /api/chat/resume` + [LAWMIND-INTERRUPT-RESUME.md](docs/LAWMIND-INTERRUPT-RESUME.md)
+- [x] **待办中心**：`LawmindActionHub`、`GET /api/action-summary`、`POST /api/approvals/resolve`、聊天内 `LawmindRequiresActionCard`
+- [x] **工作流库**：`workspace/lawmind/workflows/` 种子模板 + `LawmindWorkflowLibrary`（协作页 / Matter 空状态）
+- [x] **任务看板**：`MatterTaskBoard` 聚合 tasks / queue / approvals / drafts
+- [x] **系统体检**：`buildWorkspaceStandardReport` + `LawmindSettingsDoctor` + [LAWMIND-WORKSPACE-STANDARD.md](docs/LAWMIND-WORKSPACE-STANDARD.md)
+- [x] **P1 信任**：`matterScopeMiddleware`、`buildWorkspaceSessionHealth`、MCP 路线图 [LAWMIND-INTEGRATIONS.md](docs/LAWMIND-INTEGRATIONS.md)
+
+### 参考项目 P1 落地（2026-05）
+
+> 第二期：体验收口 + 信任硬化 + 只读 MCP（见借鉴清单 P1）。
+
+- [x] **来源锚点**：`GET /api/sources/:id/preview` 段落 `anchorId` / `excerpt`；审核台与 `LawmindSourcePreview` 跳转高亮
+- [x] **律师责任声明**：`lawmind-attorney-disclaimer` 统一审核条、验收包导出、首跑文案
+- [x] **任务看板 Jobs**：`GET /api/jobs?matterId=` + `MatterTaskBoard` kind=`job`
+- [x] **工具批准编辑续跑**：`decision: edit` + `editedArgs`；`LawmindRequiresActionCard` JSON 编辑；E2E golden-path
+- [x] **工具治理页**：`GET /api/tools/registry` + `LawmindSettingsTools`
+- [x] **网络 allowlist**：`lawmind.policy.json` `networkAllowlist`；Brave 联网工具策略校验
+- [x] **审计 hash-chain**：`emit(..., integrityChain)` + `GET /api/audit/export?integrity=true`（Firm+）
+- [x] **工作流 schema**：`acceptancePackRequired` / `requiredSources`；库卡片标签；`gateHint` 轻提示
+- [x] **会话时间线**：`buildMatterSessionTimeline` + `GET /api/matters/session-timeline`
+- [x] **只读 MCP POC**：`pnpm lawmind:mcp:readonly` + [LAWMIND-INTEGRATIONS.md](docs/LAWMIND-INTEGRATIONS.md) 配置示例
+- [x] **首跑高级入口**：`LawmindFirstRunDialog` → 系统体检；用户手册「从工作流库启动任务」
+
+### 参考项目 P1+ 产品化（2026-05）
+
+> ProWorkBench / Ralph / AgentActa / Claude for Legal 借鉴清单续做。
+
+- [x] **集中批准队列**：`LawmindApprovalQueue` + `listPendingToolApprovals` + `GET /api/action-summary` 的 `toolApprovals`
+- [x] **高安全模式体检**：Doctor 展示 allowlist / 危险工具 / 审计 hash-chain 三项
+- [x] **审计链默认写入**：Firm/Private 下 `emit()` 默认 `integrityChain`（可 `integrityChain: false` 关闭）
+- [x] **队列 phase**：`WorkQueueItem.phase` + 任务看板 subtitle
+- [x] **会话健康增强**：工具待批准、活跃 jobs、队列阻塞信号
+- [x] **执行轨迹时间线**：`LawmindChatExecutionTrace` `mode=timeline`
+- [x] **连接器目录**：`docs/LAWMIND-INTEGRATIONS.md` connector catalog 表
+
+### 参考项目 P2 波次（2026-05，可借鉴 MVP）
+
+- [x] **审查矩阵**：`buildMatterReviewMatrix` + `GET /api/matters/review-matrix`；案件工作台「审查矩阵」标签
+- [x] **记忆真相源**：`LawmindMemoryTruthSources` 按 scope 分组 + `GET /api/memory/source-text` 只读预览；`MemoryInspector` 中文 scope 标签
+- [x] **来源标注**：`SourceAnnotation` + `GET/POST /api/sources/:id/annotations`；来源预览弹层 + 可选 `source.annotation` 记忆建议
+- [x] **Token 统计**：`model-usage` 本地账本 + `runTurn` 累计 `modelUsage`；`GET /api/health` `usageSummary`；设置页「本地使用统计」
+- [x] **Jobs 本地定时**：`scheduled` 状态 + `scheduleRunAt` + `processDueScheduledJobs` 30s tick；任务看板展示预约任务
+- [x] **桌面 UI 构建修复**：`requires-action` 改用 `crypto.randomUUID()`，避免 Vite 打包 `node:crypto` 导致白屏
+- [x] **MCP 扩展**：`list_source_annotations`、`get_review_matrix`、`get_draft_acceptance_pack`（`src/lawmind/mcp/readonly-tools.ts`）
+- [x] **业务领域岗位**：`practice-personas.ts`；工作流库筛选 + 设置页领域标签
+
+### 参考项目 P3 收口（2026-05，计划项全部落地）
+
+- [x] **内置命名工作流**：9 个种子模板（NDA、律师函、尽调审查表、客户邮件摘要等）+ `namedAgent` 字段
+- [x] **工作流自动播种**：`ensureBuiltinWorkflowSeeds`；桌面服务启动时写入缺失 JSON
+- [x] **DMS / PM 三阶段路线图**：`docs/LAWMIND-INTEGRATIONS.md` 扩展（M1–M3、产品矩阵、IT 检查清单）
+- [x] **用户手册**：内置工作流一览表 + `namedAgent` schema 说明
+
+### 参考项目 P4（2026-05，M2 连接器 POC + 定时工作流）
+
+- [x] **M2 只读连接器**：`src/lawmind/integrations/` + `GET /api/integrations` + `GET /api/integrations/:id/documents?matterId=`
+- [x] **filesystem 案件目录索引**：`cases/<matterId>/` 文件元数据；`lawmind/integrations.json` 配置样例
+- [x] **Doctor 集成状态**：`doctor.integrations` + `LawmindSettingsDoctor` 外部集成（M2）分组
+- [x] **案件本地文档索引 UI**：`MatterLocalDocIndex`（概览 Tab）
+- [x] **renewal-monitor 工作流**：内置模板 + `schedulable` + 工作流库「可预约执行」标签
+- [x] **单测稳定性**：`matter-write-service.test.ts` 临时目录 `rm` 重试
+
+### P1–P3 体验收口（2026-05，桌面可点可用）
+
+- [x] **对话草稿状态条**：`LawmindChatDraftStatusBar` 使用 `GET /api/drafts/:taskId`（非 `/review`）
+- [x] **记忆 Inspector**：案件工作台「认知」Tab 挂载 `MatterMemoryInspector`
+- [x] **Redline 基准稿**：`POST /api/drafts/:taskId/redline/baseline` + 审核台双按钮与空状态引导
+- [x] **FTS 冷启动提示**：案件搜索 `indexMissing` + 体检重建说明 + `.env.example` 注明 `LAWMIND_ALLOW_INDEX_REBUILD`
+- [x] **E2E 导航**：`e2e-helpers` 兼容默认顶栏与工作子导航
+- [x] **侧栏增强**：`project-only` 保留；cockpit 时案件快捷列表 + 底栏「待办中心」
+- [x] **W11 子面板**：`MatterReasoningBoard` / `MatterQualityCockpit` / `MatterRoleBoard` 挂载 + draft `reasoningReport`
+- [x] **整洁与文档**：删除孤儿 `LawmindChatActivityFeed`；DMS fixture 说明；用户手册「日流程自检」
+
+### 参考项目 P5 待启动（选型建议，未实施）
+
+> 验收 Phase 4 后择一开工；建议优先级（改动面 / 价值平衡）：
+
+1. [x] **MemoryInspector diff** — `buildAdoptionPreviewDiff` + `GET /api/memory/adoption/:id/preview-diff` + Inspector「预览变更」
+2. [x] **审计 replay JSON** — `buildAuditReplayExport` + `GET /api/audit/export?replay=true`
+3. [x] **SQLite FTS 只读索引** — `src/lawmind/indexing/` + `GET /api/search/workspace` + Doctor 重建
+4. [x] **Redline / tracked changes** — `redline-proposal` + 审核台 Accept/Reject（段落级 MVP，无 Word TC）
+5. [x] **真实 DMS OAuth** — iManage/SharePoint env 桩 + fixture + `cases/<matterId>/.lawmind-dms.json`
+
+### 第十期 — Claude Code 工程借鉴（P0–P2，2026-05）
+
+- [x] **P0 消息预处理**：`lawmind-message-preprocess.ts`、Brief 模式、工具组折叠、虚拟列表（>100 条）
+- [x] **P0 Compose**：发送队列、`permissionMode`、待批准徽章、stash、`/⌘K` 命令面板
+- [x] **P0 任务/批准 UI**：`LawmindTaskDrawer`、`LawmindToolApprovalDialog`（分模板）
+- [x] **P1 执行契约**：扩展 `RunTurnEvent`（`token_budget` / `compact_boundary`）
+- [x] **P1 Memory 召回**：`memory/relevant-recall.ts` + `runtime` 注入
+- [x] **P1 Compact**：`agent/compact.ts`、`context-budget.ts` + `GET/POST /api/sessions/:id/context-budget|compact`
+- [x] **P1 会话 Transcript**：`adapters/session-transcript/` + `POST /api/sessions/:id/resume`
+- [x] **P1 工具元数据/权限**：`permission-mode.ts`、`ToolDefinition.isConcurrencySafe`；`tool-concurrency.ts` + 单测
+- [x] **CLI**：`pnpm lawmind:doctor -- --json`
+- [x] **P2 子进程工具沙箱**：`tool-sandbox.ts`、`subprocessSandboxMiddleware`；`doctor.p2.toolSandbox`；设置页 Doctor P2 区块
+- [x] **P2 workflow snapshot**：`lawmind-server-jobs.ts` `workflowSnapshot` 入队/预约；`missing_workflow_snapshot` 兜底
+- [x] **P2 Team Memory 同步脚手架**：`team-memory-sync.ts`（Firm + opt-in + 密钥扫描；默认关闭）
+
 ---
 
-_最后更新：2026-04-27（合同修订积累主路径文档与工程记忆同步）。_
+_最后更新：2026-05-22（第十期 Claude Code 工程借鉴 P0–P2；批次 C 已落地）。_

@@ -18,6 +18,7 @@ import path from "node:path";
 import { readAllAuditLogs } from "../audit/index.js";
 import { validateDraftAgainstSpec } from "../deliverables/index.js";
 import { resolveDraftCitationIntegrity } from "../drafts/index.js";
+import { LAWMIND_ATTORNEY_DISCLAIMER_EXPORT_FOOTER } from "../legal/attorney-disclaimer.js";
 import type { ArtifactDraft, AuditEvent } from "../types.js";
 
 export type DraftAcceptancePackOptions = {
@@ -173,6 +174,8 @@ export async function buildDraftAcceptancePackMarkdown(
     `- [ ] 同意将本交付包随交付物提供给客户`,
     "",
     `_本验收包仅供律师及客户内部使用；不构成对法规、案例或第三方主张的独立法律意见。_`,
+    "",
+    LAWMIND_ATTORNEY_DISCLAIMER_EXPORT_FOOTER,
     "",
   ].join("\n");
 }

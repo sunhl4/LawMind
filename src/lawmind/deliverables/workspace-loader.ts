@@ -56,7 +56,10 @@ const RESERVED_BUILTIN_TYPES = new Set<string>([
   "contract.rental",
   "contract.general",
   "letter.demand",
+  "litigation.outline",
   "document.general",
+  "report.esg",
+  "report.general",
 ]);
 
 const VALID_OUTPUT = new Set(["docx", "pptx", "markdown"]);

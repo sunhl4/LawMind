@@ -33,6 +33,21 @@ const ops = [
   { text: "集成与边界", link: "/LAWMIND-INTEGRATIONS" },
 ];
 
+const platform = [
+  { text: "Platform Contracts", link: "/lawmind/LAWMIND-PLATFORM-CONTRACTS" },
+  { text: "Platform Proxy", link: "/lawmind/LAWMIND-PLATFORM-PROXY" },
+  { text: "Document Ingest", link: "/lawmind/LAWMIND-DOCUMENT-INGEST" },
+  { text: "Big-Bang Cutover", link: "/lawmind/LAWMIND-BIGBANG-CUTOVER-ROLLBACK" },
+  { text: "Collaboration UI/API", link: "/LAWMIND-COLLABORATION-UI-API-MAP" },
+];
+
+const multitask = [
+  { text: "Multitask Playbook", link: "/lawmind/LAWMIND-MULTITASK-PLAYBOOK" },
+  { text: "Baseline Validation", link: "/lawmind/LAWMIND-MULTITASK-BASELINE-VALIDATION" },
+  { text: "Check Matrix", link: "/lawmind/LAWMIND-MULTITASK-CHECK-MATRIX" },
+  { text: "Developer Workflow", link: "/lawmind/DEVELOPER-WORKFLOW" },
+];
+
 const engineering = [
   { text: "工程开发记忆（≠ 律师 MEMORY.md）", link: "/LAWMIND-PROJECT-MEMORY" },
   { text: "仓库目录结构", link: "/LAWMIND-REPO-LAYOUT" },
@@ -97,6 +112,16 @@ export default defineConfig({
         text: "运维与信任",
         collapsed: false,
         items: ops,
+      },
+      {
+        text: "平台契约",
+        collapsed: true,
+        items: platform,
+      },
+      {
+        text: "Multitask 与发布",
+        collapsed: true,
+        items: multitask,
       },
       {
         text: "工程笔记（lawmind/）",

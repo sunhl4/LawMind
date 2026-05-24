@@ -36,11 +36,11 @@ export function createNotifyAssistantTool(opts: { baseConfig: AgentConfig }): Ag
       const targetInput = params.target_assistant as string;
       const message = params.message as string;
 
-      const targetId = resolveAssistantId(ctx.workspaceDir, targetInput);
+      const targetId = resolveAssistantId(ctx.workspaceDir, targetInput, ctx.envFile);
       if (!targetId) {
         return {
           ok: false,
-          error: `找不到助手「${targetInput}」。可用助手：${listAvailableAssistantNames(ctx.workspaceDir)}`,
+          error: `找不到助手「${targetInput}」。可用助手：${listAvailableAssistantNames(ctx.workspaceDir, ctx.envFile)}`,
         };
       }
 

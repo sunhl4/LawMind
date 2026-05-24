@@ -6,6 +6,10 @@
  * - BRAVE_API_KEY（与主仓库 Brave 配置兼容）
  */
 
+import { resolveEdition } from "../../policy/edition.js";
+import { checkNetworkAllowlist, hostnameFromUrl } from "../../policy/network-allowlist.js";
+import { readWorkspacePolicyFile } from "../../policy/workspace-policy.js";
+import { friendlyModelErrorMessage } from "../model-error-message.js";
 import type { AgentTool } from "../types.js";
 
 const BRAVE_SEARCH_ENDPOINT = "https://api.search.brave.com/res/v1/web/search";
@@ -26,13 +30,31 @@ type BraveWebResponse = {
   web?: { results?: BraveWebResult[] };
 };
 
+export function assertBraveSearchNetworkAllowed(workspaceDir: string): string | null {
+  const policy = readWorkspacePolicyFile(workspaceDir);
+  const edition = resolveEdition({ policy }).edition;
+  const host = hostnameFromUrl(BRAVE_SEARCH_ENDPOINT);
+  if (!host) {
+    return "无法解析联网检索端点主机名。";
+  }
+  const check = checkNetworkAllowlist({ policy, edition, hostname: host });
+  return check.allowed ? null : (check.reason ?? "联网检索被工作区策略禁止。");
+}
+
 export async function lawMindBraveWebSearch(
   query: string,
   count: number,
+  workspaceDir?: string,
 ): Promise<Array<{ title: string; url: string; description: string }>> {
   const apiKey = resolveLawMindWebSearchApiKey();
   if (!apiKey) {
     throw new Error("missing web search API key");
+  }
+  if (workspaceDir?.trim()) {
+    const blocked = assertBraveSearchNetworkAllowed(workspaceDir.trim());
+    if (blocked) {
+      throw new Error(blocked);
+    }
   }
   const url = new URL(BRAVE_SEARCH_ENDPOINT);
   url.searchParams.set("q", query);
@@ -95,7 +117,7 @@ export const lawMindWebSearchTool: AgentTool = {
       typeof params.count === "number" && Number.isFinite(params.count) ? params.count : 5;
     const count = Math.min(10, Math.max(1, Math.floor(raw)));
     try {
-      const results = await lawMindBraveWebSearch(query, count);
+      const results = await lawMindBraveWebSearch(query, count, ctx.workspaceDir);
       return {
         ok: true,
         data: {
@@ -106,9 +128,12 @@ export const lawMindWebSearchTool: AgentTool = {
         },
       };
     } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err);
       return {
         ok: false,
-        error: `联网检索失败: ${err instanceof Error ? err.message : String(err)}`,
+        error: friendlyModelErrorMessage(
+          raw.startsWith("联网检索失败") ? raw : `联网检索失败: ${raw}`,
+        ),
       };
     }
   },

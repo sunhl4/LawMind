@@ -200,11 +200,7 @@ export function listDelegations(opts?: {
   return records.toSorted((a, b) => b.startedAt.localeCompare(a.startedAt));
 }
 
-const TERMINAL_DELEGATION_STATUSES: DelegationStatus[] = new Set([
-  "completed",
-  "failed",
-  "timeout",
-]);
+const TERMINAL_DELEGATION_STATUSES = new Set<DelegationStatus>(["completed", "failed", "timeout"]);
 
 /**
  * 供桌面轮询：某主会话下已终态的委派（含完整 result / error），按完成时间倒序。
@@ -223,6 +219,23 @@ export function listDelegationFollowUpsForSession(opts: {
     .filter((r) => r.fromAssistantId === aid)
     .filter((r) => TERMINAL_DELEGATION_STATUSES.has(r.status))
     .toSorted((a, b) => (b.completedAt ?? b.startedAt).localeCompare(a.completedAt ?? a.startedAt));
+}
+
+/** 供桌面轮询：某主会话下仍在执行的委派（含 targetSessionId）。 */
+export function listRunningDelegationsForSession(opts: {
+  parentSessionId: string;
+  fromAssistantId: string;
+}): DelegationRecord[] {
+  const sid = opts.parentSessionId.trim();
+  const aid = opts.fromAssistantId.trim();
+  if (!sid || !aid) {
+    return [];
+  }
+  return [...registry.values()]
+    .filter((r) => r.parentSessionId === sid)
+    .filter((r) => r.fromAssistantId === aid)
+    .filter((r) => r.status === "pending" || r.status === "running")
+    .toSorted((a, b) => b.startedAt.localeCompare(a.startedAt));
 }
 
 export function countActiveDelegations(assistantId: string): number {

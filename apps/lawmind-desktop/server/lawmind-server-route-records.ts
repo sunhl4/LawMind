@@ -10,7 +10,10 @@ import {
   sessionHistoryToSimpleMessages,
 } from "../../../src/lawmind/agent/session.js";
 import { listDrafts } from "../../../src/lawmind/drafts/index.js";
-import { listTaskRecords } from "../../../src/lawmind/tasks/index.js";
+import { listTaskRecords, readTaskRecord } from "../../../src/lawmind/tasks/index.js";
+import { taskRecordStatusLabel } from "../../../src/lawmind/tasks/status-label.js";
+import { getLiveTurnProgress } from "../../../src/lawmind/agent/live-turn-progress.js";
+import { isSafeTaskIdSegment } from "./safe-task-id.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import {
   filterTaskSummaries,
@@ -70,9 +73,49 @@ export async function handleRecordRoutes({
     const q = url.searchParams.get("q") ?? "";
     const since = parseQueryTimeMs(url.searchParams.get("since"));
     const until = parseQueryTimeMs(url.searchParams.get("until"));
-    const rows = listTaskRecords(workspaceDir).map(taskToSummary);
+    const rows = listTaskRecords(workspaceDir).map((t) => ({
+      ...taskToSummary(t),
+      statusLabel: taskRecordStatusLabel(t),
+    }));
     const tasks = filterTaskSummaries(rows, q, since, until);
     sendJson(res, 200, { ok: true, tasks }, c);
+    return true;
+  }
+
+  const taskItemMatch = /^\/api\/tasks\/([^/]+)$/.exec(pathname);
+  if (taskItemMatch && req.method === "GET") {
+    const taskId = taskItemMatch[1];
+    if (!isSafeTaskIdSegment(taskId)) {
+      sendJson(res, 400, { ok: false, code: "invalid_task_id", message: "invalid task id" }, c);
+      return true;
+    }
+    const record = readTaskRecord(workspaceDir, taskId);
+    if (!record) {
+      sendJson(res, 404, { ok: false, code: "not_found", message: "task not found" }, c);
+      return true;
+    }
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        task: { ...taskToSummary(record), statusLabel: taskRecordStatusLabel(record) },
+      },
+      c,
+    );
+    return true;
+  }
+
+  const sessionLiveMatch = /^\/api\/sessions\/([^/]+)\/live-turn$/.exec(pathname);
+  if (sessionLiveMatch && req.method === "GET") {
+    const sessionId = sessionLiveMatch[1];
+    const progress = getLiveTurnProgress(sessionId);
+    sendJson(
+      res,
+      200,
+      progress ? { ok: true, progress } : { ok: true, progress: null, status: "idle" },
+      c,
+    );
     return true;
   }
 
@@ -226,15 +269,25 @@ export async function handleRecordRoutes({
     if (assistantFilter) {
       rows = rows.filter((session) => sessionMatchesAssistantFilter(session, assistantFilter));
     }
-    const sessions = rows.map((session) => ({
-      sessionId: session.sessionId,
-      title: displayChatSessionTitle(session),
-      matterId: session.matterId,
-      assistantId: session.assistantId,
-      createdAt: session.createdAt,
-      updatedAt: session.updatedAt,
-      turnCount: session.turns.length,
-    }));
+    const sessions = rows.map((session) => {
+      const tail = [...session.conversationHistory]
+        .toReversed()
+        .find((m) => m.role === "user" || m.role === "assistant");
+      const preview =
+        typeof tail?.content === "string"
+          ? tail.content.replace(/\s+/g, " ").trim().slice(0, 120)
+          : "";
+      return {
+        sessionId: session.sessionId,
+        title: displayChatSessionTitle(session),
+        matterId: session.matterId,
+        assistantId: session.assistantId,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+        turnCount: session.turns.length,
+        lastPreview: preview || undefined,
+      };
+    });
     sendJson(res, 200, { ok: true, sessions }, c);
     return true;
   }

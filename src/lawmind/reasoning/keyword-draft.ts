@@ -3,12 +3,19 @@
  */
 
 import type { ArtifactDraft, ArtifactSection, ResearchBundle, TaskIntent } from "../types.js";
+import {
+  buildEsgReportSections,
+  buildGeneralReportSections,
+  inferEsgReportTitle,
+} from "./esg-report-draft.js";
 
 export type BuildDraftParams = {
   intent: TaskIntent;
   bundle: ResearchBundle;
   title?: string;
   templateId?: string;
+  /** LawMind data root for draft-with-model preference (desktop models.json). */
+  lawMindRoot?: string;
 };
 
 function sectionFromClaims(
@@ -115,6 +122,13 @@ function defaultDraftTitle(intent: TaskIntent): string {
   if (isContractReviewIntent(intent)) {
     return "合同审查意见书";
   }
+  if (intent.deliverableType === "report.esg") {
+    return inferEsgReportTitle(intent);
+  }
+  if (intent.deliverableType === "report.general") {
+    const trimmed = intent.summary?.trim();
+    return trimmed && trimmed.length <= 80 ? trimmed : "专项研究报告";
+  }
   return "LawMind 法律文书草稿";
 }
 
@@ -133,6 +147,9 @@ function defaultTemplateId(intent: TaskIntent): string {
   }
   if (isContractReviewIntent(intent)) {
     return "word/contract-default";
+  }
+  if (intent.deliverableType === "report.esg" || intent.deliverableType === "report.general") {
+    return "word/legal-memo-default";
   }
   return "word/legal-memo-default";
 }
@@ -333,6 +350,12 @@ function buildDeliverableSections(
   }
   if (intent.deliverableType === "letter.demand") {
     return buildDemandLetterSections(intent);
+  }
+  if (intent.deliverableType === "report.esg") {
+    return buildEsgReportSections(intent, bundle);
+  }
+  if (intent.deliverableType === "report.general") {
+    return buildGeneralReportSections(intent, bundle);
   }
   return [
     {

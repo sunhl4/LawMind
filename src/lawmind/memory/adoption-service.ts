@@ -49,6 +49,7 @@ export const MEMORY_ADOPTION_KINDS = [
   "opponent.note",
   "project.note",
   "review_label",
+  "source.annotation",
 ] as const;
 
 export type MemoryAdoptionKind = (typeof MEMORY_ADOPTION_KINDS)[number];

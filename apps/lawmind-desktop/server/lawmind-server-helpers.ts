@@ -8,11 +8,21 @@ import path from "node:path";
 import { createLawMindEngine } from "../../../src/lawmind/index.js";
 import { buildLawMindRetrievalAdaptersFromEnvForTest } from "../../../src/lawmind/agent/tools/engine-tools.js";
 import type { AgentConfig } from "../../../src/lawmind/agent/types.js";
+import { resolveLawMindRoot } from "../../../src/lawmind/assistants/store.js";
+import {
+  isAnyModelConfigured,
+  resolveAgentModelById,
+  resolveModelIdentityForPrompt,
+} from "../../../src/lawmind/models/index.js";
 import { resolveEdition } from "../../../src/lawmind/policy/edition.js";
 import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspace-policy.js";
 import { resolveAgentMaxToolCallsPerTurn } from "../../../src/lawmind/policy/workspace-policy.js";
 import { readLawMindPolicyFile } from "./lawmind-policy.js";
 import type { TaskRecord } from "../../../src/lawmind/types.js";
+import {
+  friendlyModelErrorMessage,
+  isModelProviderErrorMessage,
+} from "../../../src/lawmind/agent/model-error-message.js";
 
 export const LAWMIND_LOCAL_HOST = "127.0.0.1";
 export const MAX_TEXT_READ_BYTES = 1_000_000;
@@ -129,27 +139,62 @@ export function parsePositiveIntEnv(name: string, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
-export function buildAgentConfig(workspaceDir: string): { config: AgentConfig; error?: string } {
-  const defaultBaseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+export { friendlyModelErrorMessage, isModelProviderErrorMessage };
+
+export function resolveModelCallHttpError(err: unknown): {
+  status: number;
+  code: string;
+  message: string;
+} | null {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (!isModelProviderErrorMessage(msg)) {
+    return null;
+  }
+  const friendly = friendlyModelErrorMessage(msg);
+  if (
+    msg.includes("AbortError") ||
+    /aborted/i.test(msg) ||
+    /timed out/i.test(msg) ||
+    msg.startsWith("Model request timed out")
+  ) {
+    return {
+      status: 504,
+      code: "model_unavailable",
+      message: friendly,
+    };
+  }
+  if (msg.startsWith("Model network error") || /fetch failed/i.test(msg)) {
+    return {
+      status: 502,
+      code: "model_network_error",
+      message: friendly,
+    };
+  }
+  return {
+    status: 502,
+    code: "model_unavailable",
+    message: friendly,
+  };
+}
+
+export type BuildAgentConfigOptions = {
+  envFile?: string;
+  modelId?: string;
+};
+
+export function buildAgentConfig(
+  workspaceDir: string,
+  opts?: BuildAgentConfigOptions,
+): { config: AgentConfig; error?: string; modelId?: string } {
+  const lawMindRoot = resolveLawMindRoot(workspaceDir, opts?.envFile);
   const modelTimeoutMs = parsePositiveIntEnv("LAWMIND_AGENT_TIMEOUT_MS", 120000);
   const toolTimeoutMs = parsePositiveIntEnv("LAWMIND_TOOL_TIMEOUT_MS", modelTimeoutMs);
-  const modelConfig = {
+  const resolved = resolveAgentModelById(lawMindRoot, opts?.modelId);
+  const modelConfig = resolved.model ?? {
     provider: "openai-compatible" as const,
-    baseUrl:
-      process.env.LAWMIND_AGENT_BASE_URL ??
-      process.env.QWEN_BASE_URL ??
-      process.env.LAWMIND_QWEN_BASE_URL ??
-      defaultBaseUrl,
-    apiKey:
-      process.env.LAWMIND_AGENT_API_KEY ??
-      process.env.QWEN_API_KEY ??
-      process.env.LAWMIND_QWEN_API_KEY ??
-      "",
-    model:
-      process.env.LAWMIND_AGENT_MODEL ??
-      process.env.QWEN_MODEL ??
-      process.env.LAWMIND_QWEN_MODEL ??
-      "qwen-plus",
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    apiKey: "",
+    model: "qwen-plus",
     maxTokens: 4096,
     temperature: 0.3,
     timeoutMs: modelTimeoutMs,
@@ -158,9 +203,16 @@ export function buildAgentConfig(workspaceDir: string): { config: AgentConfig; e
   const actorId = resolveDesktopActorId();
 
   if (!modelConfig.apiKey) {
+    const err =
+      resolved.error === "missing_platform_api_key"
+        ? "missing_platform_api_key"
+        : resolved.error === "missing_provider_api_key"
+          ? "missing_provider_api_key"
+          : "missing_api_key";
     return {
       config: { workspaceDir, model: modelConfig, actorId },
-      error: "missing_api_key",
+      error: err,
+      modelId: resolved.resolvedModelId,
     };
   }
 
@@ -176,10 +228,17 @@ export function buildAgentConfig(workspaceDir: string): { config: AgentConfig; e
   const allowDangerousToolsWithoutApproval =
     allowDangerousRaw === "true" || allowDangerousRaw === "1";
 
+  const runtimeModel = resolveModelIdentityForPrompt(
+    lawMindRoot,
+    resolved.resolvedModelId,
+    modelConfig,
+  );
+
   return {
     config: {
       workspaceDir,
       model: modelConfig,
+      runtimeModel,
       maxToolCalls,
       maxHistoryMessages: 50,
       toolExecutionTimeoutMs: toolTimeoutMs,
@@ -188,7 +247,14 @@ export function buildAgentConfig(workspaceDir: string): { config: AgentConfig; e
       allowDangerousToolsWithoutApproval,
       strictDangerousToolApproval: edition.features.strictDangerousToolApproval,
     },
+    modelId: resolved.resolvedModelId,
   };
+}
+
+/** True when at least one built-in provider key or custom model key is available. */
+export function isDesktopModelConfigured(workspaceDir: string, envFile?: string): boolean {
+  const lawMindRoot = resolveLawMindRoot(workspaceDir, envFile);
+  return isAnyModelConfigured(lawMindRoot);
 }
 
 export function isUnderWorkspace(workspaceRoot: string, candidate: string): boolean {

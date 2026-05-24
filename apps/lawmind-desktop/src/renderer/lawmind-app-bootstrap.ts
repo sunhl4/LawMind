@@ -58,11 +58,31 @@ export async function loadInitialAppConfig(): Promise<AppConfig> {
 }
 
 export async function loadAppBootstrapSnapshot(apiBase: string) {
-  const [health, records, assistants, collaboration] = await Promise.all([
-    loadHealthPayload(apiBase),
+  const base = apiBase.replace(/\/$/, "");
+  const [bootstrapRes, records, collaboration] = await Promise.all([
+    fetch(`${base}/api/bootstrap`)
+      .then(async (res) => (res.ok ? ((await res.json()) as Record<string, unknown>) : null))
+      .catch(() => null),
     loadRecordsPayload(apiBase),
-    loadAssistantsPayload(apiBase),
     loadCollaborationPayload(apiBase),
+  ]);
+
+  if (bootstrapRes?.ok === true) {
+    return {
+      health: (bootstrapRes.health ?? {}) as Awaited<ReturnType<typeof loadHealthPayload>>,
+      records,
+      assistants: {
+        ok: true,
+        assistants: (bootstrapRes.assistants as Awaited<ReturnType<typeof loadAssistantsPayload>>["assistants"]) ?? [],
+        presets: (bootstrapRes.presets as Awaited<ReturnType<typeof loadAssistantsPayload>>["presets"]) ?? [],
+      },
+      collaboration,
+    };
+  }
+
+  const [health, assistants] = await Promise.all([
+    loadHealthPayload(apiBase),
+    loadAssistantsPayload(apiBase),
   ]);
   return {
     health,
@@ -82,5 +102,26 @@ export async function loadSettingsCollaborationState(apiBase: string): Promise<C
     collaborationHint:
       typeof payload.collaborationHint === "string" ? payload.collaborationHint : undefined,
     delegationCount: Number.isFinite(payload.delegationCount) ? Number(payload.delegationCount) : 0,
+  };
+}
+
+/** Re-read Electron `getConfig()` so renderer picks up a new local API port after backend restart. */
+export async function refreshLocalAppConfig(
+  previous?: AppConfig | null,
+): Promise<AppConfig | null> {
+  const bridge = window.lawmindDesktop;
+  if (!bridge?.getConfig) {
+    return previous ?? null;
+  }
+  const config = await bridge.getConfig();
+  return {
+    apiBase: config.apiBase,
+    workspaceDir: config.workspaceDir,
+    projectDir: config.projectDir ?? null,
+    envFilePath: config.envFilePath,
+    retrievalMode: normalizeRetrievalMode(config.retrievalMode),
+    packaged: config.packaged,
+    appVersion: config.appVersion,
+    downloadPageUrl: config.downloadPageUrl,
   };
 }

@@ -25,7 +25,22 @@ describe("workspace-workflow-templates", () => {
     );
 
     const list = listWorkspaceWorkflowTemplates(root);
-    expect(list).toEqual([{ id: "demo", name: "Demo flow", description: "test", stepCount: 1 }]);
+    expect(list).toEqual([
+      {
+        id: "demo",
+        name: "Demo flow",
+        description: "test",
+        stepCount: 1,
+        practiceArea: undefined,
+        deliverableType: undefined,
+        riskLevel: undefined,
+        audience: undefined,
+        starterPrompt: undefined,
+        acceptancePackRequired: false,
+        requiredSources: undefined,
+        schedulable: false,
+      },
+    ]);
 
     const t = readWorkspaceWorkflowTemplate(root, "demo");
     expect(t?.steps[0]?.task).toBe("Hello {{matterId}}");

@@ -103,9 +103,10 @@ async function main() {
     if (!reviewed.ok) {
       throw new Error(`草稿未通过审核: ${reviewed.reason}`);
     }
+    const reviewStatus = reviewed.draft.reviewStatus;
     await engine.review(reviewed.draft, {
       actorId: reviewed.draft.reviewedBy,
-      status: reviewed.draft.reviewStatus,
+      status: reviewStatus === "pending" ? "approved" : reviewStatus,
     });
   } else {
     // smoke 流程默认自动通过

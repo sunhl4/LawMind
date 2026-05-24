@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 import {
   createSession,
@@ -17,6 +18,73 @@ import type { AgentMessage, AgentTurn } from "./types.js";
 
 function tmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-agent-test-"));
+}
+
+function createSimplePdfWithText(filePath: string, text: string): void {
+  const escapePdfText = (value: string) =>
+    value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+  const streamText = `BT\n/F1 12 Tf\n72 720 Td\n(${escapePdfText(text)}) Tj\nET`;
+  const streamLen = Buffer.byteLength(streamText, "utf8");
+  const objects = [
+    "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+    "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n",
+    "4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n",
+    `5 0 obj\n<< /Length ${streamLen} >>\nstream\n${streamText}\nendstream\nendobj\n`,
+  ];
+  const header = "%PDF-1.4\n";
+  let body = "";
+  const offsets: number[] = [];
+  let cursor = Buffer.byteLength(header, "utf8");
+  for (const obj of objects) {
+    offsets.push(cursor);
+    body += obj;
+    cursor += Buffer.byteLength(obj, "utf8");
+  }
+  const xrefStart = cursor;
+  const xrefRows = offsets.map((off) => `${String(off).padStart(10, "0")} 00000 n `).join("\n");
+  const trailer = `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${xrefRows}\ntrailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF\n`;
+  fs.writeFileSync(filePath, header + body + trailer, "binary");
+}
+
+async function createSimpleDocxWithText(filePath: string, text: string): Promise<void> {
+  const zip = new JSZip();
+  zip.file(
+    "[Content_Types].xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`,
+  );
+  zip.file(
+    "_rels/.rels",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`,
+  );
+  zip.file(
+    "word/document.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p><w:r><w:t>${text}</w:t></w:r></w:p>
+  </w:body>
+</w:document>`,
+  );
+  const buffer = await zip.generateAsync({ type: "nodebuffer" });
+  fs.writeFileSync(filePath, buffer);
+}
+
+async function createSimpleXlsxWithCell(filePath: string, cellValue: string): Promise<void> {
+  const XLSX = await import("xlsx");
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([[cellValue], ["second-row"]]);
+  XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  fs.writeFileSync(filePath, buf);
 }
 
 describe("ToolRegistry", () => {
@@ -141,6 +209,86 @@ describe("Legal Tool Registry", () => {
     expect(result.error).toContain("工作区外");
   });
 
+  it("analyze_document reads PDF text in workspace", async () => {
+    const ws = tmpDir();
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("analyze_document")!;
+    const pdfPath = path.join(ws, "sample.pdf");
+    createSimplePdfWithText(pdfPath, "LawMind PDF Evidence");
+
+    const result = await tool.execute(
+      { file_path: "sample.pdf" },
+      { workspaceDir: ws, sessionId: "s", actorId: "a" },
+    );
+
+    expect(result.ok).toBe(true);
+    expect((result.data as { content: string }).content).toContain("LawMind PDF Evidence");
+  });
+
+  it("analyze_document reads DOCX text in workspace", async () => {
+    const ws = tmpDir();
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("analyze_document")!;
+    const docxPath = path.join(ws, "sample.docx");
+    await createSimpleDocxWithText(docxPath, "LawMind DOCX Evidence");
+
+    const result = await tool.execute(
+      { file_path: "sample.docx" },
+      { workspaceDir: ws, sessionId: "s", actorId: "a" },
+    );
+
+    expect(result.ok).toBe(true);
+    expect((result.data as { content: string }).content).toContain("LawMind DOCX Evidence");
+  });
+
+  it("analyze_document reads XLSX text in workspace", async () => {
+    const ws = tmpDir();
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("analyze_document")!;
+    const xlsxPath = path.join(ws, "sample.xlsx");
+    await createSimpleXlsxWithCell(xlsxPath, "LawMind XLSX Cell");
+
+    const result = await tool.execute(
+      { file_path: "sample.xlsx" },
+      { workspaceDir: ws, sessionId: "s", actorId: "a" },
+    );
+
+    expect(result.ok).toBe(true);
+    expect((result.data as { sourceType?: string }).sourceType).toBe("xlsx");
+    expect((result.data as { content: string }).content).toContain("LawMind XLSX Cell");
+  });
+
+  it("analyze_document rejects legacy .doc with clear message", async () => {
+    const ws = tmpDir();
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("analyze_document")!;
+    fs.writeFileSync(path.join(ws, "legacy.doc"), "placeholder", "utf8");
+
+    const result = await tool.execute(
+      { file_path: "legacy.doc" },
+      { workspaceDir: ws, sessionId: "s", actorId: "a" },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(String(result.error)).toContain("另存为");
+  });
+
+  it("read_project_file reads XLSX under projectDir", async () => {
+    const ws = tmpDir();
+    const proj = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-proj-xlsx-"));
+    const xlsxPath = path.join(proj, "book.xlsx");
+    await createSimpleXlsxWithCell(xlsxPath, "Project XLSX Summary");
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("read_project_file")!;
+    const result = await tool.execute(
+      { relative_path: "book.xlsx" },
+      { workspaceDir: ws, sessionId: "s", actorId: "a", projectDir: proj },
+    );
+    expect(result.ok).toBe(true);
+    expect((result.data as { sourceType?: string }).sourceType).toBe("xlsx");
+    expect((result.data as { content: string }).content).toContain("Project XLSX Summary");
+  });
+
   it("read_project_file requires projectDir", async () => {
     const ws = tmpDir();
     const registry = createLegalToolRegistry();
@@ -165,6 +313,36 @@ describe("Legal Tool Registry", () => {
     );
     expect(result.ok).toBe(true);
     expect((result.data as { content: string }).content).toContain("hello project");
+  });
+
+  it("read_project_file reads PDF under projectDir", async () => {
+    const ws = tmpDir();
+    const proj = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-proj-"));
+    const pdfPath = path.join(proj, "project-note.pdf");
+    createSimplePdfWithText(pdfPath, "Project PDF Summary");
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("read_project_file")!;
+    const result = await tool.execute(
+      { relative_path: "project-note.pdf" },
+      { workspaceDir: ws, sessionId: "s", actorId: "a", projectDir: proj },
+    );
+    expect(result.ok).toBe(true);
+    expect((result.data as { content: string }).content).toContain("Project PDF Summary");
+  });
+
+  it("read_project_file reads DOCX under projectDir", async () => {
+    const ws = tmpDir();
+    const proj = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-proj-"));
+    const docxPath = path.join(proj, "project-note.docx");
+    await createSimpleDocxWithText(docxPath, "Project DOCX Summary");
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("read_project_file")!;
+    const result = await tool.execute(
+      { relative_path: "project-note.docx" },
+      { workspaceDir: ws, sessionId: "s", actorId: "a", projectDir: proj },
+    );
+    expect(result.ok).toBe(true);
+    expect((result.data as { content: string }).content).toContain("Project DOCX Summary");
   });
 });
 
@@ -338,7 +516,41 @@ describe("System Prompt", () => {
     expect(prompt).toContain("delegate_task");
   });
 
+  it("includes linked draft task id when linkedTaskId is set", () => {
+    const prompt = buildSystemPrompt({
+      availableTools: [],
+      linkedTaskId: "task-draft-abc",
+    });
+    expect(prompt).toContain("工作台关联草稿");
+    expect(prompt).toContain("task-draft-abc");
+    expect(prompt).toContain("execute_workflow");
+  });
+
+  it("requires clear draft vs post-review delivery wording in system prompt", () => {
+    const prompt = buildSystemPrompt({ availableTools: [] });
+    expect(prompt).toContain("律师审核与交付闭环（对用户可见话术强制）");
+    expect(prompt).toContain("禁止的表述");
+    expect(prompt).toContain("EMS");
+  });
+
   it("exports a stable lawmind behavior epoch for health and support", () => {
     expect(LAWMIND_AGENT_BEHAVIOR_EPOCH).toMatch(/^\d{4}-\d{2}-/);
+  });
+
+  it("includes runtime model identity for honest model disclosure", () => {
+    const prompt = buildSystemPrompt({
+      availableTools: [],
+      runtimeModel: {
+        catalogLabel: "通义千问 Max",
+        providerLabel: "阿里云 DashScope / 通义",
+        upstreamModel: "qwen-max",
+        catalogId: "builtin:qwen-max",
+      },
+    });
+    expect(prompt).toContain("当前推理模型");
+    expect(prompt).toContain("通义千问 Max");
+    expect(prompt).toContain("`qwen-max`");
+    expect(prompt).toContain("不得");
+    expect(prompt).toContain("API Key");
   });
 });

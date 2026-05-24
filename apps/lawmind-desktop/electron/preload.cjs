@@ -17,7 +17,13 @@ contextBridge.exposeInMainWorld("lawmindDesktop", {
     };
   },
   pickWorkspace: () => ipcRenderer.invoke("lawmind:pick-workspace"),
+  readModelSettings: () => ipcRenderer.invoke("lawmind:read-model-settings"),
   saveSetup: (payload) => ipcRenderer.invoke("lawmind:save-setup", payload),
+  saveCustomModelKey: (payload) =>
+    ipcRenderer.invoke("lawmind:save-custom-model-key", payload ?? {}),
+  deleteCustomModelKey: (payload) =>
+    ipcRenderer.invoke("lawmind:delete-custom-model-key", payload ?? {}),
+  keychainStatus: () => ipcRenderer.invoke("lawmind:keychain-status"),
   setRetrievalMode: (mode) => ipcRenderer.invoke("lawmind:set-retrieval-mode", mode),
   pickProject: () => ipcRenderer.invoke("lawmind:pick-project"),
   setProjectDir: (projectDir) => ipcRenderer.invoke("lawmind:set-project-dir", projectDir),

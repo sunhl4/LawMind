@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import { lawmindDocUrl } from "./lawmind-public-urls.js";
+import { LAWMIND_ATTORNEY_DISCLAIMER_SHORT } from "./lawmind-attorney-disclaimer";
 
 const DISMISS_KEY = "lm.firstRun.dismissed";
 
@@ -45,11 +46,11 @@ type SpecSummary = {
 
 const STARTER_PROMPT_BY_ROLE: Record<Role["id"], (specName: string) => string> = {
   solo: (name) =>
-    `请帮我起草一份《${name}》草稿。请先列出必备要素清单，再生成可交付的初稿（中国大陆法）。完成后请走 DFA 验收门禁。`,
+    `请帮我起草一份《${name}》草稿。请先列出必备要素清单，再生成可交付的初稿（中国大陆法）。完成后请在「审核」中提交验收，并自查必备条款是否齐全。`,
   associate: (name) =>
-    `请按照所内通用范式生成一份《${name}》草稿。先给出关键风险与裁判倾向，再给出条款级初稿，并标注必须由合伙人确认的留白。`,
+    `请按照所内通用范式生成一份《${name}》草稿。先给出关键风险与裁判倾向，再给出条款级初稿，并标注必须由合伙人确认的留白。提交审核前请对照必备条款清单。`,
   partner: (name) =>
-    `请生成一份《${name}》全要素稿，作为合伙人复核样本。所有结论需附来源 ID，所有占位符以「【待补充:xxx】」标记，并在末尾给出 DFA 验收报告自查。`,
+    `请生成一份《${name}》全要素稿，作为合伙人复核样本。所有结论需附来源 ID，占位符以「【待补充:xxx】」标记；提交审核前请完成验收门禁自查。`,
 };
 
 type Props = {
@@ -60,6 +61,9 @@ type Props = {
   onClose: () => void;
   /** Called after the matter is created so the host can switch chat context. */
   onSeedReady: (params: { matterId: string; seedPrompt: string }) => void;
+  /** 可选：打开工作流库（协作页） */
+  onOpenWorkflowLibrary?: () => void;
+  onOpenAdvancedSettings?: () => void;
 };
 
 type Step = "role" | "spec" | "confirm";
@@ -72,7 +76,8 @@ function autoMatterIdFromRole(role: Role["id"]): string {
 }
 
 export function LawmindFirstRunDialog(props: Props): ReactNode {
-  const { apiBase, open, onClose, onSeedReady } = props;
+  const { apiBase, open, onClose, onSeedReady, onOpenWorkflowLibrary, onOpenAdvancedSettings } =
+    props;
 
   const [autoOpen, setAutoOpen] = useState(false);
   const [step, setStep] = useState<Step>("role");
@@ -82,6 +87,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
   const [chosenSpec, setChosenSpec] = useState<SpecSummary | null>(null);
   const [submitBusy, setSubmitBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
 
   // Auto-detect first-run: no dismiss sentinel + zero matters in workspace.
   useEffect(() => {
@@ -109,8 +115,10 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
         if (empty) {
           setAutoOpen(true);
         }
-      } catch {
-        // Swallow silently; the wizard is a nice-to-have, not a blocker.
+      } catch (e) {
+        if (!cancelled) {
+          setBootstrapError(errorMessage(e, "无法检查工作区案件列表，首跑引导可能无法自动打开。"));
+        }
       }
     })();
     return () => {
@@ -229,6 +237,21 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
             <li className={step === "confirm" ? "active" : ""}>3. 开始</li>
           </ol>
         </div>
+        {bootstrapError ? (
+          <div className="lm-callout lm-callout-warn" role="alert">
+            <p className="lm-callout-body">{bootstrapError}</p>
+            <button
+              type="button"
+              className="lm-btn lm-btn-secondary lm-btn-sm"
+              onClick={() => {
+                setBootstrapError(null);
+                setAutoOpen(true);
+              }}
+            >
+              重试检查
+            </button>
+          </div>
+        ) : null}
 
         {step === "role" ? (
           <div className="lm-firstrun-cards">
@@ -247,6 +270,16 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
               </button>
             ))}
           </div>
+        ) : null}
+
+        {step === "spec" && onOpenWorkflowLibrary ? (
+          <p className="lm-meta lm-firstrun-workflow-hint">
+            也可先浏览{" "}
+            <button type="button" className="lm-link-btn" onClick={onOpenWorkflowLibrary}>
+              工作流库
+            </button>
+            ，再选文书类型。
+          </p>
         ) : null}
 
         {step === "spec" ? (
@@ -308,7 +341,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
         <div className="lm-firstrun-footnote">
           <div className="lm-callout lm-callout-muted" role="note">
             <p className="lm-callout-body">
-              LawMind 生成内容为辅助草稿，不构成法律意见；对外交付前请复核。详见{" "}
+              {LAWMIND_ATTORNEY_DISCLAIMER_SHORT}详见{" "}
               <a href={lawmindDocUrl("LAWMIND-DATA-PROCESSING")} target="_blank" rel="noreferrer noopener">
                 数据处理说明
               </a>
@@ -328,6 +361,15 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
           <button type="button" className="lm-btn lm-btn-secondary" onClick={dismissForever}>
             不用了
           </button>
+          {onOpenAdvancedSettings ? (
+            <button
+              type="button"
+              className="lm-btn lm-btn-secondary lm-btn-sm"
+              onClick={onOpenAdvancedSettings}
+            >
+              IT / 高级设置
+            </button>
+          ) : null}
           <div className="lm-firstrun-spacer" />
           {step !== "role" ? (
             <button

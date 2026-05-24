@@ -1,5 +1,10 @@
 import { createLawMindAgent } from "../../../src/lawmind/agent/index.js";
-import type { AgentConfig, AgentTurn } from "../../../src/lawmind/agent/types.js";
+import { resumeTurn } from "../../../src/lawmind/agent/runtime-resume.js";
+import { createLegalToolRegistry } from "../../../src/lawmind/agent/tools/index.js";
+import type { ResumeRequiresActionInput } from "../../../src/lawmind/platform/requires-action.js";
+import type { RunTurnEvent } from "../../../src/lawmind/agent/index.js";
+import { parsePermissionMode } from "../../../src/lawmind/agent/permission-mode.js";
+import type { AgentConfig, AgentTurn, ToolCallResult } from "../../../src/lawmind/agent/types.js";
 import {
   buildAgentMemorySourceReport,
   loadMemoryContext,
@@ -32,21 +37,170 @@ import {
   buildAgentConfig,
   readJsonBody,
   resolveDesktopActorId,
+  resolveModelCallHttpError,
   safeOptionalProjectDir,
   sendJson,
 } from "./lawmind-server-helpers.js";
 
+/** 与 read_project_file / analyze_document 返回的 data.sourceType 对齐，供律师判断可信度 */
+const DOC_READ_SOURCE_LABELS: Record<string, string> = {
+  pdf: "PDF 文本层",
+  pdf_ocr: "PDF·OCR",
+  pdf_vision: "PDF·视觉",
+  docx: "Word",
+  xlsx: "Excel",
+  image_ocr: "图片·OCR",
+  image_vision: "图片·视觉",
+};
+
+const TOOLS_WITH_DOC_SOURCE_TYPE = new Set(["analyze_document", "read_project_file"]);
+const PLATFORM_CONTRACTS_V1 =
+  (process.env.LAWMIND_PLATFORM_CONTRACTS_V1 ?? "1").trim().toLowerCase() !== "0";
+
+const LINKED_TASK_ID_RE = /^[a-zA-Z0-9._-]{1,128}$/;
+
+function parseOptionalLinkedTaskId(raw: unknown): string | undefined {
+  if (raw === undefined || raw === null) {
+    return undefined;
+  }
+  if (typeof raw !== "string") {
+    throw new Error("invalid_linked_task_id");
+  }
+  const t = raw.trim();
+  if (!t) {
+    return undefined;
+  }
+  if (!LINKED_TASK_ID_RE.test(t)) {
+    throw new Error("invalid_linked_task_id");
+  }
+  return t;
+}
+
+function formatToolCallChip(toolName: string, result?: ToolCallResult): string {
+  if (!result?.ok || result.data === undefined || typeof result.data !== "object" || result.data === null) {
+    return toolName;
+  }
+  const st = (result.data as { sourceType?: unknown }).sourceType;
+  if (!TOOLS_WITH_DOC_SOURCE_TYPE.has(toolName) || typeof st !== "string" || !st.trim()) {
+    return toolName;
+  }
+  const label = DOC_READ_SOURCE_LABELS[st] ?? st;
+  return `${toolName}（${label}）`;
+}
+
 function toolCallSequenceFromTurn(turn: AgentTurn): string[] {
   const out: string[] = [];
-  for (const message of turn.messages) {
-    if (message.role !== "assistant" || !message.toolCalls?.length) {
+  for (let mi = 0; mi < turn.messages.length; mi++) {
+    const msg = turn.messages[mi];
+    if (msg.role !== "assistant" || !msg.toolCalls?.length) {
       continue;
     }
-    for (const toolCall of message.toolCalls) {
-      out.push(toolCall.name);
+    let scanFrom = mi + 1;
+    for (const tc of msg.toolCalls) {
+      let chip = tc.name;
+      for (let j = scanFrom; j < turn.messages.length; j++) {
+        const tm = turn.messages[j];
+        if (tm.role !== "tool" || !tm.toolCallResponses?.length) {
+          continue;
+        }
+        const resp = tm.toolCallResponses.find((r) => r.toolCallId === tc.id);
+        if (!resp) {
+          continue;
+        }
+        chip = formatToolCallChip(tc.name, resp.result);
+        scanFrom = j + 1;
+        break;
+      }
+      out.push(chip);
     }
   }
   return out;
+}
+
+async function handleChatResumeRoute({
+  ctx,
+  req,
+  res,
+  c,
+}: LawmindRouteContext): Promise<boolean> {
+  const body = (await readJsonBody(req)) as {
+    sessionId?: string;
+    actionId?: string;
+    decision?: string;
+    editedArgs?: Record<string, unknown>;
+    clarificationAnswers?: Record<string, string>;
+  };
+  const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
+  const actionId = typeof body.actionId === "string" ? body.actionId.trim() : "";
+  const decision = body.decision;
+  if (!sessionId || !actionId || !decision) {
+    sendJsonError(res, 400, "resume_fields_required", "缺少 sessionId、actionId 或 decision。", c);
+    return true;
+  }
+  if (
+    decision !== "approve" &&
+    decision !== "reject" &&
+    decision !== "edit" &&
+    decision !== "respond"
+  ) {
+    sendJsonError(res, 400, "invalid_decision", "decision 须为 approve、reject、edit 或 respond。", c);
+    return true;
+  }
+
+  const { workspaceDir, envFile } = ctx;
+  const built = buildAgentConfig(workspaceDir, { envFile });
+  if (built.error) {
+    sendJsonError(res, 503, built.error, "模型未配置，无法继续。", c);
+    return true;
+  }
+  const registry = createLegalToolRegistry({
+    allowWebSearch: built.config.allowWebSearch === true,
+    enableCollaboration: built.config.enableCollaboration === true,
+    baseConfig: built.config.enableCollaboration ? built.config : undefined,
+  });
+
+  const input: ResumeRequiresActionInput = {
+    sessionId,
+    actionId,
+    decision,
+    editedArgs: body.editedArgs,
+    clarificationAnswers: body.clarificationAnswers,
+    resolvedBy: resolveDesktopActorId(),
+  };
+
+  try {
+    const result = await resumeTurn(built.config, registry, input, { registry });
+    const payload: Record<string, unknown> = {
+      ok: true,
+      reply: result.reply,
+      sessionId: result.sessionId,
+      status: result.turn.status,
+      requiresAction: result.turn.requiresAction,
+      clarificationQuestions: result.turn.clarificationQuestions,
+      taskId: result.turn.turnId,
+    };
+    if (PLATFORM_CONTRACTS_V1) {
+      payload.executionState = result.turn.executionState;
+      payload.gateDecisions = result.turn.gateDecisions;
+    }
+    sendJson(res, 200, payload, c);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg === "session_not_found") {
+      sendJsonError(res, 404, "session_not_found", "会话不存在或已过期。", c);
+      return true;
+    }
+    if (msg === "action_not_found") {
+      sendJsonError(res, 404, "action_not_found", "待处理项不存在或已处理。", c);
+      return true;
+    }
+    if (msg === "unsupported_resume") {
+      sendJsonError(res, 400, "unsupported_resume", "当前待处理类型不支持该操作。", c);
+      return true;
+    }
+    throw err;
+  }
+  return true;
 }
 
 export async function handleChatRoute({
@@ -56,6 +210,9 @@ export async function handleChatRoute({
   res,
   c,
 }: LawmindRouteContext): Promise<boolean> {
+  if (pathname === "/api/chat/resume" && req.method === "POST") {
+    return handleChatResumeRoute({ ctx, req, res, c });
+  }
   if (!(pathname === "/api/chat" && req.method === "POST")) {
     return false;
   }
@@ -63,6 +220,8 @@ export async function handleChatRoute({
   const { workspaceDir, envFile, policy: policyState } = ctx;
   const body = (await readJsonBody(req)) as {
     message?: string;
+    /** Built-in `builtin:*` or custom `custom:*` model id from GET /api/models */
+    modelId?: string;
     sessionId?: string;
     matterId?: string;
     assistantId?: string;
@@ -81,6 +240,7 @@ export async function handleChatRoute({
     meetingAgenda?: string;
     /** 自动会话标题：输入框原文（与 message 中带前缀的完整正文区分） */
     sessionTitleHint?: string;
+    permissionMode?: string;
   };
   const message = typeof body.message === "string" ? body.message.trim() : "";
   if (!message) {
@@ -107,15 +267,20 @@ export async function handleChatRoute({
     return true;
   }
 
-  const built = buildAgentConfig(workspaceDir);
-  if (built.error === "missing_api_key") {
-    sendJsonError(
-      res,
-      503,
-      "missing_api_key",
-      "未配置模型 API Key。请在用户目录 LawMind/.env.lawmind 或设置向导中填写 LAWMIND_QWEN_API_KEY 等变量。",
-      c,
-    );
+  const requestModelId = typeof body.modelId === "string" ? body.modelId.trim() : undefined;
+  const built = buildAgentConfig(workspaceDir, { envFile, modelId: requestModelId });
+  if (
+    built.error === "missing_api_key" ||
+    built.error === "missing_provider_api_key" ||
+    built.error === "missing_platform_api_key"
+  ) {
+    const message =
+      built.error === "missing_platform_api_key"
+        ? "平台模型尚未开通或运维未注入平台 Key。请改用「我的模型 / API 向导」自备 Key，或联系管理员配置 LAWMIND_PLATFORM_*。"
+        : built.error === "missing_provider_api_key"
+          ? "当前模型所属服务商尚未配置 API Key。请在设置 → 模型与 API 中填写对应服务商密钥，或改用已配置的模型。"
+          : "未配置模型 API Key。请在设置 → API 配置向导中填写，或添加带 Key 的自定义模型。";
+    sendJsonError(res, 503, built.error, message, c);
     return true;
   }
 
@@ -127,6 +292,7 @@ export async function handleChatRoute({
   const enableCollaboration =
     body.enableCollaboration !== false && built.config.enableCollaboration !== false;
   const desktopActor = resolveDesktopActorId();
+  const permissionMode = parsePermissionMode(body.permissionMode);
   const config: AgentConfig = {
     ...built.config,
     actorId: `${desktopActor}|asst:${profile.assistantId}`,
@@ -134,8 +300,12 @@ export async function handleChatRoute({
     roleTitle: role.roleTitle,
     roleIntroduction: role.roleIntroduction,
     roleDirective: role.roleDirective,
-    allowWebSearch,
-    enableCollaboration,
+    allowWebSearch: permissionMode === "readonly" ? false : allowWebSearch,
+    enableCollaboration: permissionMode === "readonly" ? false : enableCollaboration,
+    permissionMode,
+    strictDangerousToolApproval:
+      permissionMode === "strict" || built.config.strictDangerousToolApproval === true,
+    envFile,
   };
 
   let matterIdForChat: string | undefined;
@@ -147,6 +317,20 @@ export async function handleChatRoute({
       400,
       "invalid_matter_id",
       "案件 ID 格式不正确。请清空关联案件或按规则修改后再试。",
+      c,
+    );
+    return true;
+  }
+
+  let linkedTaskIdForChat: string | undefined;
+  try {
+    linkedTaskIdForChat = parseOptionalLinkedTaskId(body.linkedTaskId);
+  } catch {
+    sendJsonError(
+      res,
+      400,
+      "invalid_linked_task_id",
+      "关联任务 ID 格式不正确。请清空工作台关联草稿或缩短后再试。",
       c,
     );
     return true;
@@ -182,11 +366,120 @@ export async function handleChatRoute({
     instructionForAgent = core;
   }
 
+  const wantsStream =
+    typeof req.headers.accept === "string" && req.headers.accept.includes("text/event-stream");
+
   try {
     const sessionTitleHint =
       typeof body.sessionTitleHint === "string" && body.sessionTitleHint.trim()
         ? body.sessionTitleHint.trim()
         : undefined;
+
+    let sseClosed = false;
+    let ssePingTimer: ReturnType<typeof setInterval> | null = null;
+    const sseWriteEvent = (event: string, data: unknown): void => {
+      if (sseClosed || res.writableEnded) {return;}
+      try {
+        res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      } catch {
+        sseClosed = true;
+      }
+    };
+    const sseEnd = (): void => {
+      if (sseClosed) {return;}
+      sseClosed = true;
+      if (ssePingTimer) {
+        clearInterval(ssePingTimer);
+        ssePingTimer = null;
+      }
+      if (!res.writableEnded) {
+        try {
+          res.end();
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+
+    if (wantsStream) {
+      res.writeHead(200, {
+        "content-type": "text/event-stream; charset=utf-8",
+        "cache-control": "no-cache, no-transform",
+        connection: "keep-alive",
+        ...c,
+      });
+      ssePingTimer = setInterval(() => {
+        if (!sseClosed && !res.writableEnded) {
+          try {
+            res.write(": ping\n\n");
+          } catch {
+            sseEnd();
+          }
+        }
+      }, 25_000);
+      req.on("close", () => {
+        sseEnd();
+      });
+    }
+
+    const onEvent: ((event: RunTurnEvent) => void) | undefined = wantsStream
+      ? (event) => {
+          switch (event.type) {
+            case "round_start":
+              sseWriteEvent("round_start", { roundIndex: event.roundIndex });
+              break;
+            case "tool_call_start":
+              sseWriteEvent("tool_call_start", {
+                roundIndex: event.roundIndex,
+                toolCallId: event.toolCallId,
+                toolName: event.toolName,
+              });
+              break;
+            case "tool_call_end":
+              sseWriteEvent("tool_call_end", {
+                roundIndex: event.roundIndex,
+                toolCallId: event.toolCallId,
+                toolName: event.toolName,
+                ok: event.ok,
+                error: event.error,
+              });
+              break;
+            case "tool_progress":
+              sseWriteEvent("tool_progress", {
+                roundIndex: event.roundIndex,
+                toolCallId: event.toolCallId,
+                toolName: event.toolName,
+                label: event.label,
+              });
+              break;
+            case "delta":
+              sseWriteEvent("delta", { roundIndex: event.roundIndex, text: event.text });
+              break;
+            case "clarification":
+              sseWriteEvent("clarification", { questions: event.questions });
+              break;
+            case "final":
+              sseWriteEvent("final_reply", { status: event.status, reply: event.reply });
+              break;
+            case "token_budget":
+              sseWriteEvent("token_budget", {
+                used: event.used,
+                effectiveLimit: event.effectiveLimit,
+                level: event.level,
+              });
+              break;
+            case "compact_boundary":
+              sseWriteEvent("compact_boundary", {
+                sessionSummaryPath: event.sessionSummaryPath,
+                droppedMessageCount: event.droppedMessageCount,
+              });
+              break;
+            default:
+              break;
+          }
+        }
+      : undefined;
+
     const result = await agent.chat(instructionForAgent, {
       sessionId: body.sessionId,
       matterId: matterIdForChat,
@@ -195,6 +488,8 @@ export async function handleChatRoute({
       projectDir: projectDirForAgent,
       teamMeetingMode: meetingMode,
       sessionTitleHint,
+      linkedTaskId: linkedTaskIdForChat,
+      onEvent,
     });
     bumpAssistantStats(lawMindRoot, profile.assistantId, {
       newSession: !hadSession,
@@ -221,6 +516,7 @@ export async function handleChatRoute({
       ok: true,
       reply: result.reply,
       sessionId: result.sessionId,
+      modelId: built.modelId,
       assistantId: profile.assistantId,
       toolCalls: result.turn.toolCallsExecuted,
       toolCallSequence: toolCallSequenceFromTurn(result.turn),
@@ -230,11 +526,22 @@ export async function handleChatRoute({
       taskTitle: deriveInstructionTitle(message),
       memorySources,
     };
+    if (PLATFORM_CONTRACTS_V1) {
+      payload.executionState = result.turn.executionState;
+      payload.gateDecisions = result.turn.gateDecisions;
+    }
+    if (result.turn.requiresAction?.length) {
+      payload.requiresAction = result.turn.requiresAction;
+    }
+    if (linkedTaskIdForChat) {
+      payload.linkedTaskId = linkedTaskIdForChat;
+    }
     if (showRuntimeHints) {
       payload.runtimeHints = {
         lawmindRouterMode: (process.env.LAWMIND_ROUTER_MODE ?? "").trim() || "keyword",
         lawmindReasoningMode: (process.env.LAWMIND_REASONING_MODE ?? "").trim() || "off",
         toolCallsExecuted: result.turn.toolCallsExecuted,
+        platformContractsV1: PLATFORM_CONTRACTS_V1,
       };
     }
     if (meetingMode && matterIdForChat) {
@@ -249,10 +556,37 @@ export async function handleChatRoute({
         }),
       ]);
     }
-    sendJson(res, 200, payload, c);
+    if (wantsStream) {
+      sseWriteEvent("payload", payload);
+      sseWriteEvent("done", { ok: true });
+      sseEnd();
+    } else {
+      sendJson(res, 200, payload, c);
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    const writeStreamError = (status: number, code: string, message: string): void => {
+      if (!res.writableEnded) {
+        try {
+          res.write(
+            `event: error\ndata: ${JSON.stringify({ ok: false, status, code, message })}\n\n`,
+          );
+          res.write(`event: done\ndata: ${JSON.stringify({ ok: false })}\n\n`);
+          res.end();
+        } catch {
+          /* ignore */
+        }
+      }
+    };
     if (msg === "session_assistant_mismatch") {
+      if (wantsStream && res.headersSent) {
+        writeStreamError(
+          409,
+          "session_assistant_mismatch",
+          "该会话属于其他助手，请新开对话或清空会话后重试。",
+        );
+        return true;
+      }
       sendJsonError(
         res,
         409,
@@ -260,6 +594,19 @@ export async function handleChatRoute({
         "该会话属于其他助手，请新开对话或清空会话后重试。",
         c,
       );
+      return true;
+    }
+    const modelErr = resolveModelCallHttpError(err);
+    if (modelErr) {
+      if (wantsStream && res.headersSent) {
+        writeStreamError(modelErr.status, modelErr.code, modelErr.message);
+        return true;
+      }
+      sendJsonError(res, modelErr.status, modelErr.code, modelErr.message, c);
+      return true;
+    }
+    if (wantsStream && res.headersSent) {
+      writeStreamError(500, "internal_error", msg);
       return true;
     }
     throw err;

@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { persistDraft, readDraft } from "../../../src/lawmind/drafts/index.js";
 import { ensureTaskRecord } from "../../../src/lawmind/tasks/index.js";
+import { LAWMIND_MODEL_PROVIDERS } from "../../../src/lawmind/models/providers.js";
 import type { ArtifactDraft, TaskIntent } from "../../../src/lawmind/types.js";
 import { handleDraftRevisionJobRoute } from "./lawmind-server-route-draft-revision.js";
 import { handleReviewRoute } from "./lawmind-server-route-review.js";
@@ -135,6 +136,52 @@ describe("lawmind-server-route-review", () => {
     expect(capture.json()).toMatchObject({ ok: false, error: "invalid assistant id" });
   });
 
+  it("GET /api/drafts/:id returns gateDecisions when draft omits summary", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-draft-no-summary-"));
+    tempDirs.push(workspaceDir);
+    const taskId = "draft-no-summary-1";
+    const now = new Date().toISOString();
+    const draft: ArtifactDraft = {
+      taskId,
+      title: "无摘要草稿",
+      output: "docx",
+      templateId: "word/legal-memo-default",
+      sections: [{ heading: "正文", body: "E2E body" }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: now,
+    };
+    persistDraft(workspaceDir, draft);
+
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+    const cap = createResponseCapture();
+    await expect(
+      handleReviewRoute({
+        ctx,
+        req: createJsonRequest("GET"),
+        res: cap.res,
+        url: new URL(`http://127.0.0.1/api/drafts/${taskId}`),
+        pathname: `/api/drafts/${taskId}`,
+        c: {},
+      }),
+    ).resolves.toBe(true);
+    expect(cap.status).toBe(200);
+    const body = cap.json() as {
+      ok: boolean;
+      draft?: ArtifactDraft;
+      gateDecisions?: Array<{ reason?: string }>;
+    };
+    expect(body.ok).toBe(true);
+    expect(body.draft?.taskId).toBe(taskId);
+    expect(Array.isArray(body.gateDecisions)).toBe(true);
+    expect(body.gateDecisions?.some((g) => /等待律师签批/.test(g.reason ?? ""))).toBe(true);
+  });
+
   it("reviews then renders a contract draft through desktop routes", async () => {
     const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-review-route-"));
     tempDirs.push(workspaceDir);
@@ -204,6 +251,8 @@ describe("lawmind-server-route-review", () => {
     expect(reviewCapture.json()).toMatchObject({
       ok: true,
       draft: { taskId, reviewStatus: "approved", templateId: "word/contract-default" },
+      executionState: { phase: expect.any(String), status: expect.any(String) },
+      gateDecisions: expect.any(Array),
     });
 
     const renderCapture = createResponseCapture();
@@ -221,6 +270,10 @@ describe("lawmind-server-route-review", () => {
     expect(renderCapture.status).toBe(200);
     const renderBody = renderCapture.json();
     expect(renderBody).toMatchObject({ ok: true });
+    expect(renderBody).toMatchObject({
+      executionState: { phase: expect.any(String), status: expect.any(String) },
+      gateDecisions: expect.any(Array),
+    });
     expect(String(renderBody.outputPath)).toMatch(/\.docx$/);
     expect(fs.existsSync(String(renderBody.outputPath))).toBe(true);
   });
@@ -359,6 +412,109 @@ describe("lawmind-server-route-review", () => {
     expect(body.draft.reviewStatus).toBe("pending");
     expect(body.draft.reviewedBy).toBeUndefined();
     expect(body.acceptance).toBeDefined();
+    expect(body).toMatchObject({
+      executionState: { phase: "approval", status: "awaiting_approval" },
+      gateDecisions: expect.any(Array),
+    });
+  });
+
+  it("PATCH /api/drafts/:id/content saves editable draft body while pending", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-draft-content-"));
+    tempDirs.push(workspaceDir);
+    fs.writeFileSync(path.join(workspaceDir, "MEMORY.md"), "# Memory\n", "utf8");
+    const taskId = "draft-content-task-1";
+    const now = new Date().toISOString();
+    const intent: TaskIntent = {
+      taskId,
+      kind: "analyze.contract",
+      output: "docx",
+      summary: "合同",
+      riskLevel: "low",
+      models: ["general", "legal"],
+      requiresConfirmation: false,
+      createdAt: now,
+      matterId: "m1",
+      templateId: "word/contract-default",
+    };
+    ensureTaskRecord(workspaceDir, intent);
+    const draft: ArtifactDraft = {
+      taskId,
+      matterId: "m1",
+      title: "房屋租赁合同",
+      output: "docx",
+      templateId: "word/legal-memo-default",
+      summary: "初稿摘要",
+      sections: [{ heading: "正文", body: "原文" }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: now,
+    };
+    persistDraft(workspaceDir, draft);
+
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+    const cap = createResponseCapture();
+    await expect(
+      handleReviewRoute({
+        ctx,
+        req: createJsonRequest("PATCH", {
+          title: "修订后的标题",
+          summary: "更新摘要",
+          sections: [{ heading: "正文", body: "律师已直接修改正文" }],
+        }),
+        res: cap.res,
+        url: new URL(`http://127.0.0.1/api/drafts/${taskId}/content`),
+        pathname: `/api/drafts/${taskId}/content`,
+        c: {},
+      }),
+    ).resolves.toBe(true);
+    expect(cap.status).toBe(200);
+    const body = cap.json() as { ok: boolean; draft: ArtifactDraft; acceptance: unknown };
+    expect(body.ok).toBe(true);
+    expect(body.draft.title).toBe("修订后的标题");
+    expect(body.draft.sections[0]?.body).toBe("律师已直接修改正文");
+    const stored = readDraft(workspaceDir, taskId);
+    expect(stored?.summary).toBe("更新摘要");
+    expect(body.acceptance).toBeDefined();
+  });
+
+  it("PATCH /api/drafts/:id/content rejects approved drafts", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-draft-content-ro-"));
+    tempDirs.push(workspaceDir);
+    const taskId = "draft-content-ro-1";
+    const now = new Date().toISOString();
+    persistDraft(workspaceDir, {
+      taskId,
+      title: "已通过",
+      output: "docx",
+      templateId: "word/legal-memo-default",
+      summary: "s",
+      sections: [{ heading: "正文", body: "x" }],
+      reviewNotes: [],
+      reviewStatus: "approved",
+      createdAt: now,
+    });
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+    const cap = createResponseCapture();
+    await handleReviewRoute({
+      ctx,
+      req: createJsonRequest("PATCH", { summary: "不应保存" }),
+      res: cap.res,
+      url: new URL(`http://127.0.0.1/api/drafts/${taskId}/content`),
+      pathname: `/api/drafts/${taskId}/content`,
+      c: {},
+    });
+    expect(cap.status).toBe(409);
+    expect((cap.json() as { error?: string }).error).toBe("draft_not_editable");
   });
 
   it("on approve, persists contract revision accumulation when draft has contractRevisionCapture", async () => {
@@ -545,9 +701,10 @@ describe("lawmind-server-route-review", () => {
     };
     persistDraft(workspaceDir, draft);
 
-    const lawMindRoot = path.join(workspaceDir, "..");
+    const envPath = path.join(workspaceDir, ".env.lawmind");
+    fs.writeFileSync(envPath, "", "utf8");
     fs.writeFileSync(
-      path.join(lawMindRoot, "assistants.json"),
+      path.join(workspaceDir, "assistants.json"),
       JSON.stringify([
         {
           assistantId: "default",
@@ -560,7 +717,19 @@ describe("lawmind-server-route-review", () => {
       "utf8",
     );
 
-    const keys = ["LAWMIND_AGENT_API_KEY", "QWEN_API_KEY", "LAWMIND_QWEN_API_KEY"] as const;
+    const PLATFORM_INFERENCE_KEYS = [
+      "LAWMIND_PLATFORM_ACCESS_TOKEN",
+      "LAWMIND_PLATFORM_API_TOKEN",
+      "LAWMIND_PLATFORM_PROVIDER_DASHSCOPE_API_KEY",
+      "LAWMIND_PLATFORM_QWEN_API_KEY",
+      "LAWMIND_PLATFORM_PROVIDER_OPENAI_API_KEY",
+      "LAWMIND_PLATFORM_PROVIDER_DEEPSEEK_API_KEY",
+      "LAWMIND_PLATFORM_PROVIDER_MOONSHOT_API_KEY",
+      "LAWMIND_PLATFORM_PROVIDER_ZHIPU_API_KEY",
+    ];
+    const keys = [
+      ...new Set<string>([...LAWMIND_MODEL_PROVIDERS.flatMap((p) => p.apiKeyEnvKeys), ...PLATFORM_INFERENCE_KEYS]),
+    ];
     const prev: Record<string, string | undefined> = {};
     for (const k of keys) {
       prev[k] = process.env[k];
@@ -569,8 +738,8 @@ describe("lawmind-server-route-review", () => {
     try {
       const ctx: LawmindDispatchContext = {
         workspaceDir,
-        envFile: undefined,
-        userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+        envFile: envPath,
+        userEnvPath: envPath,
         policy: { loaded: false },
       };
       const cap = createResponseCapture();
@@ -597,5 +766,65 @@ describe("lawmind-server-route-review", () => {
         }
       }
     }
+  });
+
+  it("POST /api/drafts/:id/render returns 422 when strict acceptance gate blocks", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-review-strict-"));
+    tempDirs.push(workspaceDir);
+    fs.writeFileSync(path.join(workspaceDir, "MEMORY.md"), "# Memory\n", "utf8");
+    fs.writeFileSync(path.join(workspaceDir, "LAWYER_PROFILE.md"), "# Lawyer Profile\n", "utf8");
+
+    const taskId = "strict-blocked-task";
+    const now = new Date().toISOString();
+    ensureTaskRecord(workspaceDir, {
+      taskId,
+      kind: "analyze.contract",
+      output: "docx",
+      summary: "合同",
+      riskLevel: "medium",
+      models: ["general"],
+      requiresConfirmation: false,
+      createdAt: now,
+      matterId: "m-strict",
+    } as TaskIntent);
+
+    persistDraft(workspaceDir, {
+      taskId,
+      matterId: "m-strict",
+      title: "不完整草稿",
+      output: "docx",
+      templateId: "contract-rental-default",
+      deliverableType: "contract.rental",
+      summary: "摘要",
+      sections: [{ heading: "一、合同主体", body: "仅有一节，缺其余章节。", citations: [] }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: now,
+    } as ArtifactDraft);
+
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+
+    const cap = createResponseCapture();
+    await expect(
+      handleReviewRoute({
+        ctx,
+        req: createJsonRequest("POST", {}),
+        res: cap.res,
+        url: new URL(`http://127.0.0.1/api/drafts/${taskId}/render`),
+        pathname: `/api/drafts/${taskId}/render`,
+        c: {},
+      }),
+    ).resolves.toBe(true);
+
+    expect(cap.status).toBe(422);
+    expect(cap.json()).toMatchObject({
+      ok: false,
+      error: "acceptance_gate_blocked",
+    });
   });
 });

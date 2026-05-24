@@ -33,6 +33,7 @@ import { openQueueItem, transitionQueueItem } from "../application/services/queu
 import { getRoleById, listRoles, roleAllowsDeliverable } from "../core/role.js";
 import { validateReasoningAgainstSpec } from "../deliverables/index.js";
 import { listMemorySuggestions, suggestMemoryAdoption } from "../memory/adoption-service.js";
+import { caseFilePath } from "../memory/index.js";
 
 function tmpWorkspace(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-q-acc-"));
@@ -47,10 +48,13 @@ describe("Quarterly acceptance (W3 + W4 + W5 + W7 + W9)", () => {
     }
   });
 
-  it("write services persist matter / deliverable / queue / approval", () => {
+  it("write services persist matter / deliverable / queue / approval", async () => {
     ws = tmpWorkspace();
+    fs.mkdirSync(path.join(ws, "audit"), { recursive: true });
     const matterId = "q-acc-1";
     createMatterIfMissing(ws, { matterId, title: "季末验收案件" });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(fs.existsSync(caseFilePath(ws, matterId))).toBe(true);
     const deliverable = createPlannedDeliverable(ws, {
       matterId,
       deliverableId: "d-1",

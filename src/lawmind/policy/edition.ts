@@ -38,6 +38,8 @@ export const EDITION_FEATURES = {
   collaborationSummary: { solo: false, firm: true, private_deploy: true },
   /** 合规审计导出（compliance=true） */
   complianceAuditExport: { solo: false, firm: false, private_deploy: true },
+  /** 审计 JSONL hash-chain 校验导出（integrity=true） */
+  auditIntegrityExport: { solo: false, firm: true, private_deploy: true },
   /** SBOM 与安全自检面板入口 */
   securitySbomPanel: { solo: false, firm: false, private_deploy: true },
   /** Quality dashboard JSON 自动导出 */

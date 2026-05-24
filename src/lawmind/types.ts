@@ -53,6 +53,8 @@ export type DeliverableType =
   | "letter.demand"
   | "litigation.outline"
   | "document.general"
+  | "report.esg"
+  | "report.general"
   // eslint-disable-next-line @typescript-eslint/ban-types -- 保留 IDE 内置类型自动补全的同时允许工作区扩展类型。
   | (string & {});
 
@@ -362,11 +364,21 @@ export type AuditEventKind =
   | "draft.review_labeled" // 2.0：审核附加结构化标签
   | "draft.revision_dispatched" // 审核台「提交给助手」后台修订已排队
   | "draft.revision_agent_failed" // 后台修订助手执行失败
+  | "draft.revision_completed" // 后台修订助手执行成功并已恢复待审核
+  | "draft.content_edited" // 审核台律师直接编辑正文并保存
   | "artifact.rendered"
   | "artifact.render_failed"
+  | "artifact.render_blocked"
   | "artifact.sent"
+  | "matter.spec.invalid"
+  | "matter.write_failed"
+  | "contract_revision_accumulation_failed"
   | "memory.profile_updated" // 2.0：律师/助手偏好写回
   | "memory.playbook_updated" // Phase D：条款 playbook 审核学习写回
+  | "memory.adoption_suggested" // W5：记忆建议已入队（待律师采纳）
+  | "memory.adoption_auto_adopted" // W5：高置信建议已自动落盘
+  | "memory.adoption_adopted" // W5：律师手动采纳记忆建议
+  | "memory.adoption_dismissed" // W5：律师忽略记忆建议
   | "quality.benchmark_run" // 2.0：评测任务执行记录
   | "quality.snapshot" // Phase B：任务质量指标快照已写入
   | "golden.example_promoted" // Phase B：草稿晋升为黄金样本
@@ -378,6 +390,7 @@ export type AuditEventKind =
   | "ui.firstrun_wizard_completed" // 桌面首跑向导完成（转化漏斗）
   | "ui.firstrun_acceptance_ready" // 首跑关联案件下首次有草稿通过验收门禁
   | "deliverable.spec.invalid" // 工作区私有交付物规范解析失败
+  | "platform.gate_snapshot" // 平台契约：executionState + gateDecisions 快照
   | "tool_call"
   | "agent_turn";
 

@@ -1,0 +1,421 @@
+import {
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import type { ModelCatalogEntry } from "./lawmind-models-api";
+import {
+  filterModelCatalog,
+  flattenGroupedCatalog,
+  formatVerifiedAt,
+  groupModelCatalog,
+  nextSelectableIndex,
+  providerIconKey,
+  providerIconLabel,
+  resolveComposeModelSelectValue,
+  type ProviderIconKey,
+} from "./lawmind-model-picker-utils";
+
+type Props = {
+  catalog: ModelCatalogEntry[];
+  selectedModelId: string;
+  onSelect: (modelId: string) => void | Promise<void>;
+  /** Opens settings dialog (model wizard / custom models). */
+  onOpenSettings?: () => void;
+  /** Opens the first-run / API wizard (Credential registration). */
+  onOpenApiWizard?: () => void;
+  /** Triggers `POST /api/models/test` for current selection. */
+  onTestCurrent?: () => void | Promise<void>;
+  /** Disables "Test connection" while the request runs. */
+  quickTestBusy?: boolean;
+  /** When true, the trigger button is rendered disabled (e.g. while streaming). */
+  disabled?: boolean;
+  /** Shown when `disabled` is true (hover tooltip). */
+  disabledTitle?: string;
+};
+
+function ProviderIcon({ kind }: { kind: ProviderIconKey }): ReactNode {
+  // Inline SVGs — colors come from CSS via currentColor where useful.
+  const common = {
+    width: 16,
+    height: 16,
+    viewBox: "0 0 16 16",
+    "aria-hidden": true,
+    focusable: false,
+  } as const;
+  switch (kind) {
+    case "openai":
+      return (
+        <svg {...common}>
+          <path
+            fill="currentColor"
+            d="M14 7.2c.4-1.2-.1-2.6-1.2-3.4-.4-1.4-1.7-2.3-3.2-2.2-.9-1-2.2-1.4-3.5-1-1.4.3-2.4 1.4-2.7 2.8-1.4.4-2.3 1.7-2.2 3.1.1.6.3 1.2.7 1.7-.4 1.2.1 2.6 1.2 3.4.4 1.4 1.7 2.3 3.2 2.2.9 1 2.2 1.4 3.5 1 1.4-.3 2.4-1.4 2.7-2.8 1.4-.4 2.3-1.7 2.2-3.1-.1-.6-.3-1.2-.7-1.7z"
+          />
+        </svg>
+      );
+    case "dashscope":
+      return (
+        <svg {...common}>
+          <path fill="currentColor" d="M3 3h4v4H3zM9 3h4v4H9zM3 9h4v4H3zM9 9h4v4H9z" />
+        </svg>
+      );
+    case "deepseek":
+      return (
+        <svg {...common}>
+          <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.5" />
+          <circle cx="8" cy="8" r="2.2" fill="currentColor" />
+        </svg>
+      );
+    case "moonshot":
+      return (
+        <svg {...common}>
+          <path fill="currentColor" d="M11 2a6 6 0 1 0 3 11 5 5 0 0 1-3-11z" />
+        </svg>
+      );
+    case "zhipu":
+      return (
+        <svg {...common}>
+          <path
+            fill="currentColor"
+            d="M8 1l3 3-3 3-3-3zM2 8l3-3 3 3-3 3zM14 8l-3 3-3-3 3-3zM8 15l-3-3 3-3 3 3z"
+          />
+        </svg>
+      );
+    case "platform":
+      return (
+        <svg {...common}>
+          <path
+            fill="currentColor"
+            d="M2 4h12v3H2zM2 9h12v3H2zM3 5.5h2v.5H3zM3 10.5h2v.5H3z"
+          />
+        </svg>
+      );
+    case "custom":
+    default:
+      return (
+        <svg {...common}>
+          <path
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            d="M3 8h10M8 3v10"
+          />
+        </svg>
+      );
+  }
+}
+
+function formatContextTokens(n: number | undefined): string | null {
+  if (!n || !Number.isFinite(n)) {return null;}
+  if (n >= 1000) {return `${Math.round(n / 1000)}K ctx`;}
+  return `${n} ctx`;
+}
+
+export function LawmindModelPicker(props: Props): ReactNode {
+  const {
+    catalog,
+    selectedModelId,
+    onSelect,
+    onOpenSettings,
+    onOpenApiWizard,
+    onTestCurrent,
+    quickTestBusy,
+    disabled,
+    disabledTitle,
+  } = props;
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [focusIndex, setFocusIndex] = useState(0);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const [position, setPosition] = useState<CSSProperties>({});
+
+  const effectiveSelectedId = resolveComposeModelSelectValue(catalog, selectedModelId);
+  const selectedEntry = catalog.find((m) => m.id === effectiveSelectedId);
+
+  const flat = useMemo(() => {
+    const filtered = filterModelCatalog(catalog, query);
+    return flattenGroupedCatalog(groupModelCatalog(filtered));
+  }, [catalog, query]);
+
+  useEffect(() => {
+    if (!open) {return;}
+    const onDocPointer = (event: MouseEvent): void => {
+      const target = event.target as Node | null;
+      if (!target) {return;}
+      if (triggerRef.current?.contains(target)) {return;}
+      if (popoverRef.current?.contains(target)) {return;}
+      setOpen(false);
+    };
+    const onKey = (event: globalThis.KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+    document.addEventListener("mousedown", onDocPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) {return;}
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) {return;}
+    const width = Math.max(320, rect.width);
+    const margin = 8;
+    const viewportH = window.innerHeight;
+    const estimatedHeight = 360;
+    const top =
+      rect.bottom + estimatedHeight + margin > viewportH
+        ? Math.max(margin, rect.top - estimatedHeight - margin)
+        : rect.bottom + margin;
+    const left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin));
+    setPosition({ position: "fixed", top, left, width, zIndex: 9000 });
+    setTimeout(() => searchRef.current?.focus(), 0);
+  }, [open, query, flat.length]);
+
+  useEffect(() => {
+    if (!open) {return;}
+    if (flat.length === 0) {
+      setFocusIndex(-1);
+      return;
+    }
+    const idx = flat.findIndex((entry) => entry.row.id === effectiveSelectedId);
+    setFocusIndex(idx >= 0 ? idx : 0);
+  }, [open, flat, effectiveSelectedId]);
+
+  const close = useCallback(() => setOpen(false), []);
+
+  const selectRow = useCallback(
+    (row: ModelCatalogEntry) => {
+      if (!row.configured) {
+        (onOpenApiWizard ?? onOpenSettings)?.();
+        close();
+        return;
+      }
+      void Promise.resolve(onSelect(row.id)).finally(() => {
+        close();
+      });
+    },
+    [close, onOpenApiWizard, onOpenSettings, onSelect],
+  );
+
+  const onKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "/" && document.activeElement !== searchRef.current) {
+        const ae = document.activeElement as HTMLElement | null;
+        if (ae?.tagName === "INPUT" || ae?.tagName === "TEXTAREA" || ae?.isContentEditable) {
+          return;
+        }
+        event.preventDefault();
+        queueMicrotask(() => searchRef.current?.focus());
+        return;
+      }
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setFocusIndex((prev) => nextSelectableIndex(flat, prev, 1));
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setFocusIndex((prev) => nextSelectableIndex(flat, prev, -1));
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        const target = flat[focusIndex]?.row;
+        if (target) {selectRow(target);}
+      }
+    },
+    [flat, focusIndex, selectRow],
+  );
+
+  const groups = useMemo(() => groupModelCatalog(filterModelCatalog(catalog, query)), [
+    catalog,
+    query,
+  ]);
+
+  let runningIndex = 0;
+  const renderRow = (row: ModelCatalogEntry): ReactNode => {
+    const index = runningIndex;
+    runningIndex += 1;
+    const isFocused = focusIndex === index;
+    const isSelected = row.id === effectiveSelectedId;
+    const iconKey = providerIconKey(row);
+    const ctx = formatContextTokens(row.contextTokens);
+    return (
+      <button
+        key={row.id}
+        type="button"
+        role="option"
+        aria-selected={isSelected}
+        className={`lm-model-picker-row ${isFocused ? "lm-model-picker-row-focused" : ""} ${
+          !row.configured ? "lm-model-picker-row-disabled" : ""
+        }`}
+        onMouseEnter={() => setFocusIndex(index)}
+        onClick={() => selectRow(row)}
+        title={row.configured ? row.description ?? row.label : "需要配置 API Key"}
+      >
+        <span
+          className={`lm-model-picker-icon lm-model-picker-icon-${iconKey}`}
+          aria-label={providerIconLabel(iconKey)}
+        >
+          <ProviderIcon kind={iconKey} />
+        </span>
+        <span className="lm-model-picker-main">
+          <span className="lm-model-picker-label">
+            {row.label}
+            {isSelected ? <span className="lm-model-picker-check">✓</span> : null}
+          </span>
+          <span className="lm-model-picker-meta">
+            {row.model}
+            {row.description ? ` · ${row.description}` : null}
+          </span>
+        </span>
+        <span className="lm-model-picker-side">
+          {ctx ? <span className="lm-model-picker-tag">{ctx}</span> : null}
+          {row.tags?.map((tag) => (
+            <span key={tag} className="lm-model-picker-tag">
+              {tag}
+            </span>
+          ))}
+          {row.verifiedAt ? (
+            <span
+              className="lm-model-picker-verified"
+              title={`最后验证 ${formatVerifiedAt(row.verifiedAt)}`}
+            >
+              ✓ 已验证
+              {typeof row.verifiedLatencyMs === "number" ? ` · ${row.verifiedLatencyMs}ms` : ""}
+            </span>
+          ) : row.configured ? (
+            <span className="lm-model-picker-unverified">未验证</span>
+          ) : (
+            <span className="lm-model-picker-need-key">需要 Key</span>
+          )}
+        </span>
+      </button>
+    );
+  };
+
+  const iconKeyForSelected = selectedEntry ? providerIconKey(selectedEntry) : "custom";
+
+  return (
+    <div className="lm-model-picker">
+      <button
+        ref={triggerRef}
+        type="button"
+        role="combobox"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="lm-model-picker-trigger"
+        disabled={disabled}
+        title={
+          disabled
+            ? (disabledTitle ?? (catalog.length === 0 ? "模型列表加载中" : "当前不可切换模型"))
+            : undefined
+        }
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span
+          className={`lm-model-picker-icon lm-model-picker-icon-${iconKeyForSelected}`}
+          aria-hidden
+        >
+          <ProviderIcon kind={iconKeyForSelected} />
+        </span>
+        <span className="lm-model-picker-trigger-label">
+          {selectedEntry?.label ?? "选择模型"}
+        </span>
+        {selectedEntry?.verifiedAt ? (
+          <span className="lm-model-picker-verified-dot" title="已验证" aria-hidden>
+            ✓
+          </span>
+        ) : null}
+        <span className="lm-model-picker-caret" aria-hidden>
+          ▾
+        </span>
+      </button>
+      {open ? (
+        <div
+          ref={popoverRef}
+          className="lm-model-picker-popover"
+          style={position}
+          role="listbox"
+          aria-label="选择模型"
+          onKeyDown={onKeyDown}
+        >
+          <div className="lm-model-picker-search-row">
+            <input
+              ref={searchRef}
+              className="lm-model-picker-search"
+              type="search"
+              placeholder="搜索模型 / 服务商 / 描述…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+          <div className="lm-model-picker-body">
+            {groups.length === 0 ? (
+              <div className="lm-model-picker-empty">无匹配模型</div>
+            ) : (
+              groups.map(([group, rows]) => (
+                <div key={group} className="lm-model-picker-group">
+                  <div className="lm-model-picker-group-title">{group}</div>
+                  {rows.map((row) => renderRow(row))}
+                </div>
+              ))
+            )}
+          </div>
+          <div className="lm-model-picker-footer">
+            {onTestCurrent ? (
+              <button
+                type="button"
+                className="lm-btn lm-btn-secondary lm-btn-sm"
+                disabled={Boolean(quickTestBusy)}
+                onClick={() => {
+                  void onTestCurrent();
+                }}
+              >
+                {quickTestBusy ? "测试中…" : "测试当前模型连接"}
+              </button>
+            ) : null}
+            {onOpenApiWizard ? (
+              <button
+                type="button"
+                className="lm-btn lm-btn-secondary lm-btn-sm"
+                onClick={() => {
+                  onOpenApiWizard();
+                  close();
+                }}
+              >
+                API 配置向导…
+              </button>
+            ) : null}
+            {onOpenSettings ? (
+              <button
+                type="button"
+                className="lm-btn lm-btn-sm"
+                onClick={() => {
+                  onOpenSettings();
+                  close();
+                }}
+              >
+                模型与 API 设置…
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}

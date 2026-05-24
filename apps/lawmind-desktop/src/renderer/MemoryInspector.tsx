@@ -11,6 +11,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { LawmindMemoryTruthSources } from "./LawmindMemoryTruthSources.js";
+import { memoryScopeLabel } from "./lawmind-memory-scope.js";
 
 const SCOPES = ["matter", "lawyer", "playbook", "client", "firm", "assistant", "opponent", "project"] as const;
 type Scope = (typeof SCOPES)[number];
@@ -28,6 +30,15 @@ type Suggestion = {
   origin: string;
   note?: string;
   resolvedAt?: string;
+};
+
+type DiffHunk = { type: "equal" | "add" | "remove"; lines: string[] };
+
+type PreviewDiff = {
+  targetPath: string;
+  beforeCharCount: number;
+  afterCharCount: number;
+  hunks: DiffHunk[];
 };
 
 type ApiOk<T> = { ok: true } & T;
@@ -68,12 +79,16 @@ type Props = {
   defaultScope?: Scope;
 };
 
-export default function MemoryInspector({ baseUrl, matterId, defaultScope }: Props): JSX.Element {
+export default function MemoryInspector({ baseUrl, matterId, defaultScope }: Props) {
   const [scope, setScope] = useState<Scope | undefined>(defaultScope);
   const [items, setItems] = useState<Suggestion[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [busyId, setBusyId] = useState<string | undefined>();
+  const [previewId, setPreviewId] = useState<string | undefined>();
+  const [previewDiff, setPreviewDiff] = useState<PreviewDiff | null>(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [previewErr, setPreviewErr] = useState<string | undefined>();
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -146,6 +161,64 @@ export default function MemoryInspector({ baseUrl, matterId, defaultScope }: Pro
     [onDismiss],
   );
 
+  const loadPreviewDiff = useCallback(
+    async (id: string) => {
+      if (previewId === id && previewDiff) {
+        setPreviewId(undefined);
+        setPreviewDiff(null);
+        setPreviewErr(undefined);
+        return;
+      }
+      setPreviewBusy(true);
+      setPreviewErr(undefined);
+      setPreviewId(id);
+      try {
+        const params = new URLSearchParams();
+        if (matterId) {
+          params.set("matterId", matterId);
+        }
+        const q = params.toString();
+        const res = await fetch(
+          `${baseUrl}/api/memory/adoption/${encodeURIComponent(id)}/preview-diff${q ? `?${q}` : ""}`,
+        );
+        const json = (await res.json()) as {
+          ok?: boolean;
+          error?: string;
+          hint?: string;
+          targetPath?: string;
+          beforeCharCount?: number;
+          afterCharCount?: number;
+          hunks?: DiffHunk[];
+        };
+        if (!json.ok || !json.targetPath || !json.hunks) {
+          setPreviewDiff(null);
+          setPreviewErr(json.hint ?? json.error ?? "无法加载变更预览");
+          return;
+        }
+        setPreviewDiff({
+          targetPath: json.targetPath,
+          beforeCharCount: json.beforeCharCount ?? 0,
+          afterCharCount: json.afterCharCount ?? 0,
+          hunks: json.hunks,
+        });
+      } catch (err) {
+        setPreviewDiff(null);
+        setPreviewErr(err instanceof Error ? err.message : String(err));
+      } finally {
+        setPreviewBusy(false);
+      }
+    },
+    [baseUrl, matterId, previewDiff, previewId],
+  );
+
+  const copySourceTaskId = useCallback(async (taskId: string) => {
+    try {
+      await navigator.clipboard.writeText(taskId);
+    } catch {
+      window.prompt("复制以下任务 ID：", taskId);
+    }
+  }, []);
+
   const grouped = useMemo(() => {
     const out: Record<string, Suggestion[]> = {};
     for (const item of items) {
@@ -157,11 +230,12 @@ export default function MemoryInspector({ baseUrl, matterId, defaultScope }: Pro
 
   return (
     <section className="memory-inspector" aria-label="记忆采纳建议">
+      <LawmindMemoryTruthSources apiBase={baseUrl} matterId={matterId} />
       <header className="memory-inspector__header">
         <h3>记忆采纳建议</h3>
         <div className="memory-inspector__filters">
           <label>
-            Scope:
+            范围:
             <select
               value={scope ?? ""}
               onChange={(e) => setScope((e.target.value || undefined) as Scope | undefined)}
@@ -169,7 +243,7 @@ export default function MemoryInspector({ baseUrl, matterId, defaultScope }: Pro
               <option value="">全部</option>
               {SCOPES.map((s) => (
                 <option key={s} value={s}>
-                  {s}
+                  {memoryScopeLabel(s)}
                 </option>
               ))}
             </select>
@@ -188,7 +262,7 @@ export default function MemoryInspector({ baseUrl, matterId, defaultScope }: Pro
       {Object.entries(grouped).map(([gscope, gitems]) => (
         <details key={gscope} open>
           <summary>
-            <strong>{gscope}</strong>（{gitems.length}）
+            <strong>{memoryScopeLabel(gscope)}</strong>（{gitems.length}）
           </summary>
           <ul className="memory-inspector__list">
             {gitems.map((item) => (
@@ -198,18 +272,73 @@ export default function MemoryInspector({ baseUrl, matterId, defaultScope }: Pro
                   {item.targetId ? (
                     <span className="memory-inspector__target">{item.targetId}</span>
                   ) : null}
+                  <span className="memory-inspector__meta" title={item.origin}>
+                    {item.createdAt ? <time dateTime={item.createdAt}>{item.createdAt}</time> : null}
+                    {item.origin ? (
+                      <>
+                        {item.createdAt ? " · " : null}
+                        <span>{item.origin}</span>
+                      </>
+                    ) : null}
+                  </span>
                   {item.sourceTaskId ? (
-                    <a
-                      className="memory-inspector__task-link"
-                      href={`#task/${item.sourceTaskId}`}
-                      title="跳转到来源任务"
-                    >
-                      来源任务
-                    </a>
+                    <>
+                      <a
+                        className="memory-inspector__task-link"
+                        href={`#task/${item.sourceTaskId}`}
+                        title="跳转到来源任务"
+                      >
+                        来源任务
+                      </a>
+                      <button
+                        type="button"
+                        className="memory-inspector__copy-id"
+                        title="复制来源任务 ID"
+                        onClick={() => void copySourceTaskId(item.sourceTaskId!)}
+                      >
+                        复制 ID
+                      </button>
+                    </>
                   ) : null}
                 </header>
                 <pre className="memory-inspector__payload">{item.payload}</pre>
+                {previewId === item.id && previewDiff ? (
+                  <div className="memory-inspector__diff" aria-label="变更预览">
+                    <p className="lm-meta">
+                      目标文件：<code>{previewDiff.targetPath}</code>（{previewDiff.beforeCharCount} →{" "}
+                      {previewDiff.afterCharCount} 字符，模拟采纳）
+                    </p>
+                    <pre className="memory-inspector__diff-body">
+                      {previewDiff.hunks.map((hunk, hi) => (
+                        <span key={hi} className={`lm-diff-${hunk.type}`}>
+                          {hunk.lines.map((line, li) => (
+                            <span key={li}>
+                              {hunk.type === "add" ? "+ " : hunk.type === "remove" ? "- " : "  "}
+                              {line}
+                              {"\n"}
+                            </span>
+                          ))}
+                        </span>
+                      ))}
+                    </pre>
+                  </div>
+                ) : null}
+                {previewId === item.id && previewErr ? (
+                  <p className="memory-inspector__error">{previewErr}</p>
+                ) : null}
                 <footer>
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-secondary lm-btn-sm"
+                    disabled={previewBusy && previewId === item.id}
+                    onClick={() => void loadPreviewDiff(item.id)}
+                  >
+                    {previewBusy && previewId === item.id
+                      ? "加载预览…"
+                      : previewId === item.id && previewDiff
+                        ? "收起预览"
+                        : "预览变更"}
+                  </button>
                   <button
                     type="button"
                     onClick={() => void onAdopt(item.id)}

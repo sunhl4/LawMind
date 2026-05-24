@@ -1,18 +1,8 @@
 import type { ReactNode } from "react";
 import { DEFAULT_ASSISTANT_ID } from "../../../../src/lawmind/assistants/constants.ts";
+import { PRACTICE_PERSONAS } from "../../../../src/lawmind/core/practice-personas.ts";
 import type { AssistantRow } from "./lawmind-settings-models.ts";
 
-function orgRoleLabel(role: AssistantRow["orgRole"]): string {
-  if (!role) {
-    return "";
-  }
-  const map: Record<NonNullable<AssistantRow["orgRole"]>, string> = {
-    lead: "主办/牵头",
-    member: "协办",
-    intern: "实习/辅助",
-  };
-  return map[role] ?? role;
-}
 type Props = {
   assistants: AssistantRow[];
   selectedAssistantId: string;
@@ -39,6 +29,18 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
   return (
     <div className="lm-settings-section">
       <div className="lm-settings-section-title">智能体</div>
+      <p className="lm-meta lm-settings-hint">
+        业务领域岗位（诉讼、商事、尽调、知产等）可在「快速新建」中选择对应模板；与工作流库领域标签一致。
+      </p>
+      <ul className="lm-practice-persona-chips" aria-label="业务领域岗位">
+        {PRACTICE_PERSONAS.map((p) => (
+          <li key={p.id}>
+            <span className="lm-tag" title={p.description}>
+              {p.label}
+            </span>
+          </li>
+        ))}
+      </ul>
       <div className="lm-settings-group lm-settings-surface">
         {empty ? (
           <div className="lm-settings-empty" role="status">
@@ -71,37 +73,6 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
                 </span>
               </div>
             )}
-            {selectedAssistant &&
-            (selectedAssistant.orgRole ||
-              (selectedAssistant.reportsToAssistantId ?? "").trim() ||
-              (selectedAssistant.peerReviewDefaultAssistantId ?? "").trim()) ? (
-              <div className="lm-settings-row">
-                <span className="lm-settings-key">虚拟组织</span>
-                <span className="lm-settings-val">
-                  {[
-                    orgRoleLabel(selectedAssistant.orgRole),
-                    (() => {
-                      const id = selectedAssistant.reportsToAssistantId?.trim();
-                      if (!id) {
-                        return null;
-                      }
-                      const name = assistants.find((a) => a.assistantId === id)?.displayName ?? id;
-                      return `汇报：${name}`;
-                    })(),
-                    (() => {
-                      const id = selectedAssistant.peerReviewDefaultAssistantId?.trim();
-                      if (!id) {
-                        return null;
-                      }
-                      const name = assistants.find((a) => a.assistantId === id)?.displayName ?? id;
-                      return `互审：${name}`;
-                    })(),
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </span>
-              </div>
-            ) : null}
             {selectedAssistantStats && (
               <div className="lm-settings-row">
                 <span className="lm-settings-key">统计</span>
@@ -114,7 +85,7 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
         )}
         <div className="lm-settings-actions">
           <button type="button" className="lm-btn lm-btn-accent lm-btn-sm" onClick={onOpenNew}>
-            新建智能体
+            快速新建
           </button>
           <button
             type="button"
@@ -122,7 +93,7 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
             onClick={onOpenEdit}
             disabled={empty}
           >
-            编辑
+            高级编辑
           </button>
           {selectedAssistantId !== DEFAULT_ASSISTANT_ID && (
             <button

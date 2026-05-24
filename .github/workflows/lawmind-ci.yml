@@ -1,4 +1,4 @@
-# Core LawMind checks: unit tests, desktop server bundle, renderer typecheck.
+# Core LawMind checks: unit tests, desktop server bundle, renderer typecheck, HTTP smoke.
 name: LawMind CI
 
 on:
@@ -16,6 +16,40 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Test (LawMind + desktop packages)
+        run: pnpm test
+
+      - name: Typecheck LawMind engine
+        run: pnpm typecheck
+
+      - name: Bundle local API (esbuild)
+        run: pnpm lawmind:bundle:desktop-server
+
+      - name: Typecheck LawMind desktop renderer
+        run: pnpm --filter lawmind-desktop typecheck
+
+      - name: Desktop HTTP smoke
+        run: pnpm lawmind:desktop:http-smoke
+
+  desktop-e2e-mock:
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -27,17 +61,45 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 22.16.0
           cache: pnpm
 
       - name: Install
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
-      - name: Test (LawMind + desktop packages)
-        run: pnpm test
+      - name: Install Playwright Chromium
+        run: pnpm --filter lawmind-desktop exec playwright install chromium --with-deps
 
-      - name: Bundle local API (esbuild)
-        run: pnpm lawmind:bundle:desktop-server
+      - name: Desktop E2E (mock API + Vite)
+        run: pnpm lawmind:desktop:e2e:pr
 
-      - name: Typecheck LawMind desktop renderer
-        run: pnpm --filter lawmind-desktop typecheck
+  multitask-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Multitask validate (non-strict)
+        run: pnpm lawmind:multitask:validate
+
+      - name: Upload multitask report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: multitask-validation-report
+          path: dist/lawmind/multitask-validation/
+          if-no-files-found: ignore

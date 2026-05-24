@@ -20,15 +20,38 @@ export type WorkspaceWorkflowTemplateStep = {
 export type WorkspaceWorkflowTemplateFile = {
   id: string;
   name: string;
+  /** Lawyer-facing agent name (Claude for Legal style), optional display label */
+  namedAgent?: string;
   description?: string;
   steps: WorkspaceWorkflowTemplateStep[];
+  practiceArea?: string;
+  deliverableType?: string;
+  riskLevel?: "low" | "medium" | "high";
+  audience?: "solo" | "firm";
+  starterPrompt?: string;
+  acceptancePackRequired?: boolean;
+  requiredSources?: string[];
+  schedulable?: boolean;
+  /** Glob patterns; desktop may suggest workflow when pinned paths match */
+  triggerPaths?: string[];
 };
 
 export type WorkspaceWorkflowTemplateListItem = {
   id: string;
   name: string;
+  namedAgent?: string;
   description: string;
   stepCount: number;
+  practiceArea?: string;
+  deliverableType?: string;
+  riskLevel?: "low" | "medium" | "high";
+  audience?: string;
+  starterPrompt?: string;
+  acceptancePackRequired?: boolean;
+  requiredSources?: string[];
+  schedulable?: boolean;
+  /** Glob paths; when pinned chat context matches, UI may suggest this workflow */
+  triggerPaths?: string[];
 };
 
 function workflowsDir(workspaceDir: string): string {
@@ -59,8 +82,29 @@ export function listWorkspaceWorkflowTemplates(
         out.push({
           id: parsed.id,
           name: parsed.name,
+          namedAgent: typeof parsed.namedAgent === "string" ? parsed.namedAgent : undefined,
           description: typeof parsed.description === "string" ? parsed.description : "",
           stepCount: parsed.steps.length,
+          practiceArea: typeof parsed.practiceArea === "string" ? parsed.practiceArea : undefined,
+          deliverableType:
+            typeof parsed.deliverableType === "string" ? parsed.deliverableType : undefined,
+          riskLevel:
+            parsed.riskLevel === "low" ||
+            parsed.riskLevel === "medium" ||
+            parsed.riskLevel === "high"
+              ? parsed.riskLevel
+              : undefined,
+          audience: typeof parsed.audience === "string" ? parsed.audience : undefined,
+          starterPrompt:
+            typeof parsed.starterPrompt === "string" ? parsed.starterPrompt : undefined,
+          acceptancePackRequired: parsed.acceptancePackRequired === true,
+          requiredSources: Array.isArray(parsed.requiredSources)
+            ? parsed.requiredSources.filter((x): x is string => typeof x === "string")
+            : undefined,
+          schedulable: parsed.schedulable === true,
+          triggerPaths: Array.isArray(parsed.triggerPaths)
+            ? parsed.triggerPaths.filter((x): x is string => typeof x === "string")
+            : undefined,
         });
       }
     } catch {

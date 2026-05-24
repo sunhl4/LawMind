@@ -15,7 +15,8 @@ import {
   restoreDelegationsFromDisk,
 } from "./collaboration/index.js";
 import type { DelegationRecord, CollaborationEvent } from "./collaboration/types.js";
-import { runTurn } from "./runtime.js";
+import { resumeTurn } from "./runtime-resume.js";
+import { runTurn, type RunTurnEvent } from "./runtime.js";
 import { createSession, listSessions, loadSession, loadTurns, saveSession } from "./session.js";
 import { ToolRegistry, createLegalToolRegistry } from "./tools/index.js";
 import type {
@@ -47,6 +48,12 @@ export type LawMindAgent = {
       teamMeetingMode?: boolean;
       /** 自动会话标题：输入框原文（不含前缀），用于取提问前几个字命名 */
       sessionTitleHint?: string;
+      /** 审核台/工作台关联的草稿 taskId，供引擎工具作隐式默认 */
+      linkedTaskId?: string;
+      /** 流式进度回调（最终轮 LLM 增量内容通过 `delta` 事件推送）。 */
+      onEvent?: (event: RunTurnEvent) => void;
+      /** 供后台任务轮询 GET /api/sessions/:id/live-turn */
+      liveProgressSessionId?: string;
     },
   ) => Promise<{
     reply: string;
@@ -118,8 +125,11 @@ export function createLawMindAgent(config: AgentConfig): LawMindAgent {
         instruction,
         sessionTitleHint: opts?.sessionTitleHint,
         matterId: opts?.matterId,
+        linkedTaskId: opts?.linkedTaskId,
         projectDir: opts?.projectDir,
         teamMeetingMode: opts?.teamMeetingMode === true,
+        onEvent: opts?.onEvent,
+        liveProgressSessionId: opts?.liveProgressSessionId,
       });
 
       return {
@@ -196,6 +206,8 @@ export type {
 
 export { ToolRegistry, createLegalToolRegistry } from "./tools/index.js";
 export { runTurn } from "./runtime.js";
+export { resumeTurn } from "./runtime-resume.js";
+export type { RunTurnEvent } from "./runtime.js";
 export {
   createSession,
   loadSession,

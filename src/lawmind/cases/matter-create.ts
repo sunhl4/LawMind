@@ -4,7 +4,8 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
-import { caseFilePath, ensureCaseWorkspace, upsertMatterDisplayName } from "../memory/index.js";
+import { ensureMatterWithProjection } from "../application/matter-dual-write.js";
+import { caseFilePath } from "../memory/index.js";
 import { isValidMatterId } from "./matter-id.js";
 
 export type CreateMatterResult = {
@@ -31,11 +32,11 @@ export async function createMatterIfAbsent(
     .access(fp)
     .then(() => true)
     .catch(() => false);
-  await ensureCaseWorkspace(workspaceDir, id);
   const dn = opts?.displayName?.trim();
-  if (dn) {
-    await upsertMatterDisplayName(workspaceDir, id, dn);
-  }
+  await ensureMatterWithProjection(workspaceDir, {
+    matterId: id,
+    ...(dn ? { title: dn } : {}),
+  });
   return {
     matterId: id,
     caseFilePath: path.resolve(fp),

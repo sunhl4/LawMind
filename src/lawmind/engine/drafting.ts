@@ -68,11 +68,13 @@ export async function draftAsyncImpl(
   opts: { title?: string; templateId?: string } = {},
 ): Promise<ArtifactDraft> {
   ensureRoleAllowsDraft(ctx, intent);
+  const lawMindRoot = resolveLawMindRoot(ctx.workspaceDir);
   const draft = await buildDraftAsync({
     intent,
     bundle,
     title: opts.title,
     templateId: opts.templateId,
+    lawMindRoot,
   });
   persistDraftPipeline(ctx, draft, bundle);
   return draft;

@@ -2,6 +2,11 @@
  * Parse LawMind local API error responses for display hints (chat retry guidance).
  */
 
+import {
+  friendlyModelErrorMessage,
+  isModelProviderErrorMessage,
+} from "../../../../src/lawmind/agent/model-error-message.ts";
+
 export type ApiErrorJson = {
   ok?: boolean;
   code?: string;
@@ -120,14 +125,24 @@ export function messageFromOkFalseBody(body: unknown, fallback: string): string 
   return fallback;
 }
 
+/** Shared copy for compose banner, readiness strip, and send-time errors. */
+export const MODEL_NOT_CONFIGURED_USER_HINT =
+  "请在设置中打开「API 配置向导」，或编辑用户目录下的 .env.lawmind 填写模型 API Key。";
+
 const CODE_HINTS: Record<string, string> = {
-  missing_api_key: "请在设置中打开「API 配置向导」，或编辑用户目录下的 .env.lawmind 填写模型 API Key。",
+  missing_api_key: MODEL_NOT_CONFIGURED_USER_HINT,
+  missing_provider_api_key:
+    "当前所选模型的服务商尚未配置 Key。请打开 API 配置向导填写对应服务商密钥，或添加自定义模型。",
   invalid_matter_id: "案件 ID 格式不正确。请使用字母或数字开头，2–128 字符，仅含字母、数字、点、下划线、连字符。",
   message_required: "请输入有效内容后再发送。",
   invalid_matter_id_chat: "当前关联的案件 ID 无效，请清空或更正后再试。",
   session_assistant_mismatch: "该会话属于其他助手，请新开对话或清空会话后重试。",
-  model_unavailable: "模型服务暂时不可用。请检查网络、API Key 与模型服务商状态。",
+  model_unavailable: "模型暂时不可用。请检查 API Key、账户状态与网络连接。",
+  model_network_error: "无法连接模型服务。请检查 Base URL、本机网络/代理，或在设置中测试模型连接。",
+  missing_platform_api_key: "平台模型未开通。请使用 API 配置向导自备 Key，或联系管理员配置平台模型。",
 };
+
+const MODEL_ERROR_CODES = new Set(["model_unavailable", "model_network_error"]);
 
 export function userMessageFromApiError(status: number, body: ApiErrorJson): string {
   const code = typeof body.code === "string" ? body.code : "";
@@ -157,18 +172,28 @@ export function userMessageFromApiError(status: number, body: ApiErrorJson): str
   if (typeof body.hint === "string" && body.hint.trim()) {
     push(body.hint.trim());
   }
-  const base = chunks.length > 0 ? chunks.join(" — ") : `请求失败（HTTP ${status}）`;
-  const hint = code && CODE_HINTS[code] ? ` ${CODE_HINTS[code]}` : "";
+  const joined = chunks.join(" — ");
+  if (MODEL_ERROR_CODES.has(code)) {
+    if (joined) {
+      return friendlyModelErrorMessage(joined);
+    }
+    return CODE_HINTS[code] ?? "模型暂时不可用。请检查 API Key、账户状态与网络连接。";
+  }
+  if (joined && isModelProviderErrorMessage(joined)) {
+    return friendlyModelErrorMessage(joined);
+  }
+  const base = joined || `请求失败（HTTP ${status}）`;
+  const hint = code && CODE_HINTS[code] ? CODE_HINTS[code] : "";
   if (status === 503 || status === 502) {
-    return `${base}${hint || " 请检查 API Key、网络与本地服务是否正常。"}`;
+    return hint || `${base} 请检查 API Key、网络与本地服务是否正常。`;
   }
   if (status === 401 || status === 403) {
     return `${base} 请检查 API Key 是否有效、是否过期。`;
   }
   if (status === 409 && code === "session_assistant_mismatch") {
-    return `${base}${hint}`;
+    return hint ? `${base} ${hint}` : base;
   }
-  return `${base}${hint}`;
+  return hint ? `${base} ${hint}` : base;
 }
 
 export function chatErrorUserText(status: number, body: ApiErrorJson): string {
@@ -231,11 +256,28 @@ export async function apiSendJson<TResponse, TBody>(
   return responseBody;
 }
 
+export function isModelFailureError(error: unknown): boolean {
+  if (error instanceof ApiRequestError) {
+    const code = typeof error.body?.code === "string" ? error.body.code : "";
+    if (MODEL_ERROR_CODES.has(code)) {
+      return true;
+    }
+    return isModelProviderErrorMessage(error.message);
+  }
+  if (error instanceof Error) {
+    return isModelProviderErrorMessage(error.message);
+  }
+  return false;
+}
+
 export function errorMessage(error: unknown, fallback: string): string {
   if (error instanceof ApiRequestError) {
     const msg = error.message.trim();
     if (!msg) {
       return fallback;
+    }
+    if (isModelFailureError(error)) {
+      return friendlyModelErrorMessage(msg);
     }
     if (error.status >= 400 && !msg.includes(`HTTP ${error.status}`) && !msg.includes(`无法解析 JSON`)) {
       return `[HTTP ${error.status}] ${msg}`;
@@ -243,7 +285,11 @@ export function errorMessage(error: unknown, fallback: string): string {
     return msg;
   }
   if (error instanceof Error && error.message.trim()) {
-    return error.message;
+    const msg = error.message.trim();
+    if (isModelProviderErrorMessage(msg)) {
+      return friendlyModelErrorMessage(msg);
+    }
+    return msg;
   }
   return fallback;
 }

@@ -53,6 +53,39 @@ export type LawMindWorkspacePolicy = {
    * Solo edition 默认 "local-only"。
    */
   productInsightsCollection?: "off" | "local-only" | "synced";
+  /**
+   * Allowed outbound hostnames for web search / statute search (cLawyer-style).
+   * Empty or omitted = no extra restriction beyond edition defaults.
+   */
+  networkAllowlist?: string[];
+  /** When true, web search tools require a non-empty networkAllowlist in firm/strict modes. */
+  networkAllowlistEnforced?: boolean;
+  /** Context window / auto-compact tuning (Claude Code–style defaults). */
+  context?: {
+    autoCompactBufferTokens?: number;
+    maxConsecutiveCompactFailures?: number;
+    summaryOutputTokenReserve?: number;
+  };
+  /** High-security desktop preset: disable web + auto memory adopt hints. */
+  highSecurityMode?: boolean;
+  /**
+   * P2：高风险工具在子进程内执行（POC）。也可用 `LAWMIND_TOOL_SANDBOX=1`。
+   * 默认关闭。
+   */
+  toolSandbox?: boolean;
+  /**
+   * P2：律所团队记忆云同步（opt-in，默认关闭）。仅 `edition: firm` 且 `enabled: true` 时生效。
+   */
+  teamMemorySync?: {
+    enabled?: boolean;
+    endpoint?: string;
+  };
+  /** Memory recall tuning (Claude Code–style small-file preference). */
+  memoryRecall?: {
+    /** Boost manifest entries under `smallFileMaxBytes` when ranking. */
+    preferSmallFiles?: boolean;
+    smallFileMaxBytes?: number;
+  };
 };
 
 export type ResolvedAgentMandatoryRules = {
@@ -168,6 +201,27 @@ export function readWorkspacePolicyFile(workspaceDir: string): LawMindWorkspaceP
 
 export function workspacePolicyPath(workspaceDir: string): string {
   return path.join(path.resolve(workspaceDir), POLICY_FILENAME);
+}
+
+/** Merge patch into `lawmind.policy.json` (creates file with schemaVersion 1 if missing). */
+export function mergeWorkspacePolicyFile(
+  workspaceDir: string,
+  patch: Partial<LawMindWorkspacePolicy>,
+): { ok: true; policy: LawMindWorkspacePolicy } | { ok: false; error: string } {
+  const abs = workspacePolicyPath(workspaceDir);
+  const existing = readWorkspacePolicyFile(workspaceDir) ?? { schemaVersion: 1 };
+  const merged: LawMindWorkspacePolicy = {
+    ...existing,
+    ...patch,
+    schemaVersion: existing.schemaVersion >= 1 ? existing.schemaVersion : 1,
+  };
+  try {
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
+    return { ok: true, policy: merged };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 const MAX_TOOL_CALLS_CAP = 50;

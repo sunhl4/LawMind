@@ -72,11 +72,11 @@ export function createDelegateTaskTool(opts: {
       const matterId = (params.matter_id as string) || ctx.matterId;
       const priority = (params.priority as "normal" | "high" | "low") || "normal";
 
-      const targetId = resolveAssistantId(ctx.workspaceDir, targetInput);
+      const targetId = resolveAssistantId(ctx.workspaceDir, targetInput, ctx.envFile);
       if (!targetId) {
         return {
           ok: false,
-          error: `找不到助手「${targetInput}」。可用助手：${listAvailableAssistantNames(ctx.workspaceDir)}`,
+          error: `找不到助手「${targetInput}」。可用助手：${listAvailableAssistantNames(ctx.workspaceDir, ctx.envFile)}`,
         };
       }
 
@@ -91,7 +91,7 @@ export function createDelegateTaskTool(opts: {
         return { ok: false, error: validationError };
       }
 
-      return runDelegation({
+      return startDelegation({
         baseConfig: opts.baseConfig,
         workspaceDir: ctx.workspaceDir,
         fromId,
@@ -175,7 +175,7 @@ export function createDelegateToRoleTool(opts: {
       if (!role) {
         return { ok: false, error: `未知 Role：${roleId}` };
       }
-      const candidates = findAssistantsByRole(ctx.workspaceDir, role.roleId);
+      const candidates = findAssistantsByRole(ctx.workspaceDir, role.roleId, ctx.envFile);
       if (candidates.length === 0) {
         return {
           ok: false,
@@ -195,7 +195,7 @@ export function createDelegateToRoleTool(opts: {
         return { ok: false, error: validationError };
       }
 
-      return runDelegation({
+      return startDelegation({
         baseConfig: opts.baseConfig,
         workspaceDir: ctx.workspaceDir,
         fromId,
@@ -211,8 +211,8 @@ export function createDelegateToRoleTool(opts: {
   };
 }
 
-/** 真正发起委派的内部函数（delegate_task 与 delegate_to_role 共享）。 */
-function runDelegation(args: {
+/** 真正发起委派（delegate_task、delegate_to_role、桌面 API 共用）。 */
+export function startDelegation(args: {
   baseConfig: AgentConfig;
   workspaceDir: string;
   fromId: string;

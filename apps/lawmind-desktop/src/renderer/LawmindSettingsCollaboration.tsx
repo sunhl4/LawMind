@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import { lawmindDocUrl } from "./lawmind-public-urls.js";
+import { LawmindWorkflowLibrary } from "./LawmindWorkflowLibrary";
+import type { GateDecision, TaskExecutionState } from "../../../../src/lawmind/platform/contracts.ts";
 
 export type CollabSummaryState =
   | undefined
@@ -10,6 +12,35 @@ export type CollabSummaryState =
       collaborationHint?: string;
       delegationCount: number;
     };
+
+function LocalServiceDisconnectCallout(props: {
+  onReconnect?: () => void | Promise<void>;
+  busy?: boolean;
+  id?: string;
+}): ReactNode {
+  const { onReconnect, busy = false, id } = props;
+  return (
+    <div className="lm-callout lm-callout-warn" role="status" id={id}>
+      <div className="lm-callout-title">无法连接到本地服务</div>
+      <p className="lm-callout-body">
+        请确认 LawMind 是通过「Electron 窗口」运行（不要用浏览器打开 Vite 页面）。若刚保存 API
+        配置或切换项目，本地端口可能已变更，请点击下方重新连接。
+      </p>
+      {onReconnect ? (
+        <div className="lm-settings-actions">
+          <button
+            type="button"
+            className="lm-btn lm-btn-secondary lm-btn-sm"
+            disabled={busy}
+            onClick={() => void onReconnect()}
+          >
+            {busy ? "连接中…" : "重新连接本地服务"}
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 type WorkflowTemplateRow = {
   id: string;
@@ -32,6 +63,8 @@ type WorkflowJobListItem = {
     runningStepIds: string[];
     updatedAt?: string;
   };
+  executionState?: TaskExecutionState;
+  gateDecisions?: GateDecision[];
 };
 
 /** 近期任务列表中，除「当前运行中」任务外，最多并发 SSE 路数（避免浏览器连接过多）。 */
@@ -74,6 +107,14 @@ type Props = {
   selectedAssistantId?: string;
   /** 顶栏「协作 → 团队工作流」分栏：省略首页级摘要与长说明，锚点落在运行区。 */
   deskLayout?: "full" | "workflowsColumn";
+  /**
+   * 与协作页顶部模型横条对齐：提交 `POST /api/collaboration/workflow-run` 时的 `modelId`。
+   * 未设置时沿用工作区默认模型解析。
+   */
+  workflowAgentModelId?: string;
+  workflowModelLabel?: string;
+  onReconnectLocalService?: () => void | Promise<void>;
+  localServiceReconnecting?: boolean;
 };
 
 /**
@@ -81,7 +122,16 @@ type Props = {
  * 设置弹窗内请使用 {@link LawmindSettingsCollaborationBrief}。
  */
 export function LawmindSettingsCollaboration(props: Props): ReactNode {
-  const { collabSummarySettings, apiBase, selectedAssistantId = "", deskLayout = "full" } = props;
+  const {
+    collabSummarySettings,
+    apiBase,
+    selectedAssistantId = "",
+    deskLayout = "full",
+    workflowAgentModelId = "",
+    workflowModelLabel,
+    onReconnectLocalService,
+    localServiceReconnecting = false,
+  } = props;
   const workflowsOnly = deskLayout === "workflowsColumn";
   const [templates, setTemplates] = useState<WorkflowTemplateRow[] | null>(null);
   const [templatesError, setTemplatesError] = useState<string | null>(null);
@@ -260,6 +310,8 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
                       error: job.error,
                       cancelRequested: job.cancelRequested,
                       progress: job.progress,
+                      executionState: job.executionState,
+                      gateDecisions: job.gateDecisions,
                     }
                   : row,
               );
@@ -347,6 +399,7 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
         selectedTemplateId.trim(),
         matterId.trim() || "-",
         selectedAssistantId.trim() || "-",
+        workflowAgentModelId.trim() || "-",
       ].join("|");
       const j = await apiSendJson<
         | { ok: true; jobId: string; async?: boolean }
@@ -356,6 +409,7 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
         templateId: selectedTemplateId.trim(),
         ...(matterId.trim() ? { matterId: matterId.trim() } : {}),
         ...(selectedAssistantId.trim() ? { assistantId: selectedAssistantId.trim() } : {}),
+        ...(workflowAgentModelId.trim() ? { modelId: workflowAgentModelId.trim() } : {}),
         async: true,
         idempotencyKey,
       });
@@ -576,7 +630,7 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
         setActiveProgress(null);
       }
     }
-  }, [apiBase, matterId, selectedAssistantId, selectedTemplateId]);
+  }, [apiBase, matterId, selectedAssistantId, selectedTemplateId, workflowAgentModelId]);
 
   const testSystemNotification = useCallback(() => {
     void window.lawmindDesktop?.showNotification?.({
@@ -623,14 +677,11 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
             <div className="lm-shimmer lm-shimmer-line lm-shimmer-short" />
           </div>
         ) : collabSummarySettings === null ? (
-          <div
-            className="lm-callout lm-callout-warn"
-            role="status"
+          <LocalServiceDisconnectCallout
             id={workflowsOnly ? "lawmind-collaboration-hub" : undefined}
-          >
-            <div className="lm-callout-title">无法连接到本地服务</div>
-            <p className="lm-callout-body">请确认 LawMind 桌面后端已启动，再打开设置重试。</p>
-          </div>
+            onReconnect={onReconnectLocalService}
+            busy={localServiceReconnecting}
+          />
         ) : (
           <>
             {!workflowsOnly ? (
@@ -667,7 +718,8 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
               <p className="lm-settings-hint lm-collab-workflows-lead">
                 流程模板来自工作区{" "}
                 <code className="lm-md-code">lawmind/workflows/*.json</code>
-                。与「状态一览」中的委派、聊天交办并行，可按需选用。
+                。与本页顶部「多任务共用模型」所选推理入口一致：<strong>下方「运行所选模板」会向服务器传入当前模型 ID</strong>
+                ，与主对话、委派打开的会话对齐；可按需与工作区内聊天交办并行。
               </p>
             ) : null}
             {collabSummarySettings.collaborationEnabled && apiBase ? (
@@ -675,10 +727,22 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
                 className="lm-settings-subblock lm-collab-workflow-run"
                 id={workflowsOnly ? "lawmind-collaboration-hub" : undefined}
               >
+                <div className="lm-settings-subtitle">工作流库</div>
+                <LawmindWorkflowLibrary
+                  apiBase={apiBase}
+                  matterId={matterId.trim() || undefined}
+                  onWorkflowStarted={() => void fetchRecentJobs()}
+                  compact={workflowsOnly}
+                />
                 <div className="lm-settings-subtitle">团队工作流（后台）</div>
                 <p className="lm-settings-hint lm-collab-lead">
-                  选一模板即按序自动执行；各步可对应不同智能体。完成后可收到通知并在此看汇总。与聊天里当面交办是两条线，可并行使用。
+                  选一模板即按序自动执行；各步可对应不同智能体；完成后可收到通知并在此查看汇总。
                 </p>
+                {workflowModelLabel ? (
+                  <p className="lm-meta lm-collab-workflow-model-label">
+                    当前工作流模型：<strong>{workflowModelLabel}</strong>
+                  </p>
+                ) : null}
                 {templatesError && (
                   <div className="lm-callout lm-callout-danger" role="alert">
                     <p className="lm-callout-body">{templatesError}</p>
@@ -849,6 +913,16 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
                             {new Date(r.createdAt).toLocaleString()}
                           </time>
                         </div>
+                        {r.executionState ? (
+                          <div className="lm-collab-recent-row-bottom">
+                            <span className="lm-meta">
+                              状态：{r.executionState.phase} / {r.executionState.status}
+                            </span>
+                            {r.gateDecisions?.[0]?.reason ? (
+                              <span className="lm-meta">{r.gateDecisions[0].reason}</span>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </li>
                     ))}
                   </ul>
@@ -921,13 +995,20 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
 type BriefProps = {
   collabSummarySettings: CollabSummaryState;
   onOpenCollaborationPage: () => void;
+  onReconnectLocalService?: () => void | Promise<void>;
+  localServiceReconnecting?: boolean;
 };
 
 /**
  * 设置弹窗内的协作摘要与入口（完整工作流 UI 在顶部「协作」页）。
  */
 export function LawmindSettingsCollaborationBrief(props: BriefProps): ReactNode {
-  const { collabSummarySettings, onOpenCollaborationPage } = props;
+  const {
+    collabSummarySettings,
+    onOpenCollaborationPage,
+    onReconnectLocalService,
+    localServiceReconnecting = false,
+  } = props;
 
   return (
     <div className="lm-settings-section">
@@ -939,10 +1020,10 @@ export function LawmindSettingsCollaborationBrief(props: BriefProps): ReactNode 
             <div className="lm-shimmer lm-shimmer-line lm-shimmer-short" />
           </div>
         ) : collabSummarySettings === null ? (
-          <div className="lm-callout lm-callout-warn" role="status">
-            <div className="lm-callout-title">无法连接到本地服务</div>
-            <p className="lm-callout-body">请确认 LawMind 桌面后端已启动，再打开设置重试。</p>
-          </div>
+          <LocalServiceDisconnectCallout
+            onReconnect={onReconnectLocalService}
+            busy={localServiceReconnecting}
+          />
         ) : (
           <>
             <div className="lm-settings-row">

@@ -13,6 +13,10 @@ export { computeBehaviorSummary } from "./compute-behavior-summary.js";
 export { computeConvergenceHints } from "./compute-convergence-hints.js";
 export { computeProductExperiments } from "./compute-product-experiments.js";
 export { computeRoadmapCards } from "./compute-roadmap-cards.js";
+export { buildWorkspaceSessionHealth } from "./session-health.js";
+export type { SessionHealthReport, SessionHealthSignal } from "./session-health.js";
+export { buildMatterSessionTimeline } from "./session-timeline.js";
+export type { SessionTimelineEntry } from "./session-timeline.js";
 export type {
   BehaviorSummary,
   ConvergenceHint,

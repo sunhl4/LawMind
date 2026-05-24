@@ -4,7 +4,12 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import {
+  SUBPROCESS_SANDBOX_TOOL_NAMES,
+  describeToolSandboxStatus,
+} from "../../../src/lawmind/agent/dangerous-tool-policy.js";
 import { listDrafts } from "../../../src/lawmind/drafts/index.js";
+import { evaluateTeamMemorySyncGate } from "../../../src/lawmind/memory/team-memory-sync.js";
 import { listTaskRecords } from "../../../src/lawmind/tasks/index.js";
 
 export function countAuditJsonlFiles(workspaceDir: string): number {
@@ -99,6 +104,137 @@ export function buildMemoryTruthSourceFlags(workspaceDir: string): MemoryTruthSo
 }
 
 /** 读取 monorepo 根 package.json 的 version（桌面 dev 传 LAWMIND_REPO_ROOT；打包后可能不可用）。 */
+export type WorkspaceStandardCheck = {
+  id: string;
+  label: string;
+  state: "ok" | "warn" | "missing";
+  hint: string;
+};
+
+export type WorkspaceStandardReport = {
+  ok: boolean;
+  checks: WorkspaceStandardCheck[];
+};
+
+export function buildWorkspaceStandardReport(workspaceDir: string): WorkspaceStandardReport {
+  const root = path.resolve(workspaceDir);
+  const checks: WorkspaceStandardCheck[] = [];
+
+  const fileCheck = (id: string, label: string, rel: string, hint: string): void => {
+    const p = path.join(root, rel);
+    let exists = false;
+    try {
+      exists = fs.existsSync(p) && fs.statSync(p).isFile();
+    } catch {
+      exists = false;
+    }
+    checks.push({
+      id,
+      label,
+      state: exists ? "ok" : "missing",
+      hint: exists ? "已就绪" : hint,
+    });
+  };
+
+  const dirHasJson = (rel: string): boolean => {
+    const d = path.join(root, rel);
+    try {
+      return (
+        fs.existsSync(d) &&
+        fs.statSync(d).isDirectory() &&
+        fs.readdirSync(d).some((n) => n.endsWith(".json"))
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  fileCheck("memory_md", "通用记忆 MEMORY.md", "MEMORY.md", "建议保留 workspace/MEMORY.md 作为长期规则。");
+  fileCheck(
+    "lawyer_profile",
+    "律师偏好 LAWYER_PROFILE.md",
+    "LAWYER_PROFILE.md",
+    "可在首跑向导中生成律师偏好文件。",
+  );
+
+  const policyPath = path.join(root, "lawmind", "policy.json");
+  let policyOk = false;
+  try {
+    policyOk = fs.existsSync(policyPath) && fs.statSync(policyPath).isFile();
+  } catch {
+    policyOk = false;
+  }
+  if (!policyOk) {
+    const alt = path.join(root, "lawmind.policy.json");
+    try {
+      policyOk = fs.existsSync(alt) && fs.statSync(alt).isFile();
+    } catch {
+      policyOk = false;
+    }
+  }
+  checks.push({
+    id: "policy",
+    label: "工作区策略",
+    state: policyOk ? "ok" : "warn",
+    hint: policyOk ? "已就绪" : "可选：添加 lawmind/policy.json 或 lawmind.policy.json。",
+  });
+
+  const wfOk = dirHasJson("lawmind/workflows");
+  checks.push({
+    id: "workflows",
+    label: "工作流模板",
+    state: wfOk ? "ok" : "warn",
+    hint: wfOk ? "已就绪" : "建议添加 lawmind/workflows/*.json（仓库已含示例）。",
+  });
+
+  const tplOk = (() => {
+    const d = path.join(root, "templates", "word");
+    try {
+      return fs.existsSync(d) && fs.statSync(d).isDirectory();
+    } catch {
+      return false;
+    }
+  })();
+  checks.push({
+    id: "word_templates",
+    label: "Word 模板目录",
+    state: tplOk ? "ok" : "warn",
+    hint: tplOk ? "已就绪" : "建议准备 templates/word/ 以便渲染 docx。",
+  });
+
+  const ok = checks.every((c) => c.state === "ok");
+  return { ok, checks };
+}
+
+export type P2DoctorReport = {
+  toolSandbox: {
+    enabled: boolean;
+    source: "env" | "policy" | "off";
+    sandboxedToolNames: string[];
+  };
+  teamMemorySync: {
+    allowed: boolean;
+    reason: string;
+  };
+};
+
+/** P2 Doctor: subprocess tool sandbox + firm-only team memory sync gate (no network). */
+export function buildP2DoctorReport(workspaceDir: string): P2DoctorReport {
+  const sandbox = describeToolSandboxStatus(workspaceDir);
+  const gate = evaluateTeamMemorySyncGate(workspaceDir);
+  return {
+    toolSandbox: {
+      enabled: sandbox.enabled,
+      source: sandbox.source,
+      sandboxedToolNames: [...SUBPROCESS_SANDBOX_TOOL_NAMES],
+    },
+    teamMemorySync: {
+      allowed: gate.allowed,
+      reason: gate.reason,
+    },
+  };
+}
+
 export function tryReadWorkspacePackageVersion(repoRoot: string | undefined): string | null {
   const raw = repoRoot?.trim();
   if (!raw) {

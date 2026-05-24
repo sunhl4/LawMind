@@ -449,3 +449,43 @@ describe("runTurn strict dangerous tool approval", () => {
     expect(result.reply).toContain("已完成");
   });
 });
+
+describe("runTurn model identity short-circuit", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("answers「你是什么模型」without calling the model API", async () => {
+    const workspaceDir = tmpWorkspace();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const registry = new ToolRegistry();
+    const config: AgentConfig = {
+      workspaceDir,
+      model: {
+        provider: "openai-compatible",
+        baseUrl: "https://example.com/v1",
+        apiKey: "sk-test",
+        model: "qwen-max",
+      },
+      runtimeModel: {
+        catalogLabel: "通义千问 Max",
+        providerLabel: "阿里云 DashScope / 通义",
+        upstreamModel: "qwen-max",
+        catalogId: "builtin:qwen-max",
+      },
+    };
+
+    const result = await runTurn({
+      config,
+      registry,
+      instruction: "你是什么模型",
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.reply).toContain("通义千问 Max");
+    expect(result.reply).toContain("`qwen-max`");
+    expect(result.reply).not.toContain("看不到配置");
+  });
+});

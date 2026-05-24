@@ -1,7 +1,9 @@
 import http from "node:http";
 import { sendJsonError } from "./lawmind-api-error.js";
 import { handleAuditExportRoute } from "./lawmind-server-route-audit-export.js";
+import { handleBootstrapRoute } from "./lawmind-server-route-bootstrap.js";
 import { handleChatRoute } from "./lawmind-server-route-chat.js";
+import { handleActionSummaryRoutes } from "./lawmind-server-route-action-summary.js";
 import { handleAssistantRoutes } from "./lawmind-server-route-assistants.js";
 import { handleCollaborationRoutes } from "./lawmind-server-route-collaboration.js";
 import { handleJobRoutes } from "./lawmind-server-route-jobs.js";
@@ -14,9 +16,16 @@ import { handleLearningContractRoutes } from "./lawmind-server-route-learning-co
 import { handleContractReviewRoutes } from "./lawmind-server-route-contract-review.js";
 import { handleDeskSettingsRoutes } from "./lawmind-server-route-desk-settings.js";
 import { handleRecordRoutes } from "./lawmind-server-route-records.js";
+import { handleSessionExtendedRoutes } from "./lawmind-server-route-sessions.js";
 import { handleDraftRevisionJobRoute } from "./lawmind-server-route-draft-revision.js";
 import { handleReviewRoute } from "./lawmind-server-route-review.js";
+import { handleRedlineRoutes } from "./lawmind-server-route-redline.js";
+import { handleSearchRoutes } from "./lawmind-server-route-search.js";
+import { handlePlatformRoutes } from "./lawmind-server-route-platform.js";
+import { handleModelsRoutes } from "./lawmind-server-route-models.js";
 import { handleSourceRoutes } from "./lawmind-server-route-sources.js";
+import { handleIntegrationsRoutes } from "./lawmind-server-route-integrations.js";
+import { handleToolsRegistryRoute } from "./lawmind-server-route-tools-registry.js";
 import { handleTemplateRoutes } from "./lawmind-server-route-templates.js";
 import type { LawmindDispatchContext } from "./lawmind-server-route-types.js";
 import {
@@ -26,6 +35,7 @@ import {
   sendJson,
 } from "./lawmind-server-helpers.js";
 import { handleMemoryAndTemplateRoutes } from "./lawmind-server-route-memory-templates.js";
+import { handleMemorySourceTextRoute } from "./lawmind-server-route-memory-preview.js";
 import { handleMemoryAdoptionRoutes } from "./lawmind-server-route-memory-adoption.js";
 import { handleRolesRoutes } from "./lawmind-server-route-roles.js";
 
@@ -51,6 +61,10 @@ export async function lawmindHandleHttpRequest(
         return;
       }
 
+      if (await handleBootstrapRoute({ ctx, req, res, url, pathname, c })) {
+        return;
+      }
+
       if (await handleTemplateRoutes({ ctx, req, res, url, pathname, c })) {
         return;
       }
@@ -63,7 +77,23 @@ export async function lawmindHandleHttpRequest(
         return;
       }
 
+      if (handleIntegrationsRoutes({ ctx, req, res, url, pathname, c })) {
+        return;
+      }
+
+      if (handleToolsRegistryRoute({ ctx, req, res, url, pathname, c })) {
+        return;
+      }
+
       if (await handleDraftRevisionJobRoute({ ctx, req, res, url, pathname, c })) {
+        return;
+      }
+
+      if (await handleRedlineRoutes({ ctx, req, res, url, pathname, c })) {
+        return;
+      }
+
+      if (await handleSearchRoutes({ ctx, req, res, url, pathname, c })) {
         return;
       }
 
@@ -71,7 +101,15 @@ export async function lawmindHandleHttpRequest(
         return;
       }
 
+      if (await handleModelsRoutes({ ctx, req, res, url, pathname, c })) {
+        return;
+      }
+
       if (await handleChatRoute({ ctx, req, res, url, pathname, c })) {
+        return;
+      }
+
+      if (await handleActionSummaryRoutes({ ctx, req, res, url, pathname, c })) {
         return;
       }
 
@@ -99,6 +137,10 @@ export async function lawmindHandleHttpRequest(
         return;
       }
 
+      if (await handleSessionExtendedRoutes({ ctx, req, res, url, pathname, c })) {
+        return;
+      }
+
       if (await handleRecordRoutes({ ctx, req, res, url, pathname, c })) {
         return;
       }
@@ -111,11 +153,19 @@ export async function lawmindHandleHttpRequest(
         return;
       }
 
+      if (await handlePlatformRoutes({ ctx, req, res, url, pathname, c })) {
+        return;
+      }
+
       if (await handleAuditExportRoute({ ctx, req, res, url, pathname, c })) {
         return;
       }
 
       if (await handleMemoryAndTemplateRoutes({ ctx, req, res, url, pathname, c })) {
+        return;
+      }
+
+      if (handleMemorySourceTextRoute({ ctx, req, res, url, pathname, c })) {
         return;
       }
 

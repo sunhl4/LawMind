@@ -78,3 +78,14 @@ export {
   reasoningSnapshotPath,
 } from "./reasoning-snapshot.js";
 export { resolveDraftCitationIntegrity } from "./citation-resolve.js";
+export {
+  generateRedlineProposal,
+  readRedlineProposal,
+  resolveRedlineHunk,
+  summarizeRedline,
+  writeRedlineProposal,
+  redlineProposalPath,
+  type RedlineProposal,
+  type RedlineHunk,
+  type RedlineHunkStatus,
+} from "./redline-proposal.js";

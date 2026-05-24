@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { gotoShell, installE2eBrowserPrefs } from "./e2e-helpers";
 
 /**
  * W11 黄金路径 e2e —— 在 MatterWorkbench 拆分前先冻结现有交互轮廓。
@@ -8,16 +9,16 @@ import { expect, test } from "@playwright/test";
  * 不破坏这些 selector。
  */
 test.describe("MatterWorkbench golden path", () => {
+  test.beforeEach(async ({ page }) => {
+    await installE2eBrowserPrefs(page);
+  });
+
   test("workbench shell renders with matter list placeholder", async ({ page }) => {
-    await page.goto("/", { waitUntil: "domcontentloaded" });
-    await expect(page.locator(".lm-shell")).toBeVisible({ timeout: 60_000 });
+    await gotoShell(page);
 
-    const matterTabButton = page.getByRole("button", { name: /工作台|Matter|案件/ }).first();
-    if (await matterTabButton.isVisible().catch(() => false)) {
-      await matterTabButton.click();
-    }
+    const matterTabButton = page.getByRole("navigation", { name: "功能模块" }).getByRole("button", { name: "对话" });
+    await matterTabButton.click();
 
-    // 案件列表（无案件时也会渲染空状态 / 创建按钮，应为可见容器）
     const listContainer = page
       .locator('[data-testid="lm-matter-list"], .lm-matter-list, .lm-matter-aside')
       .first();
@@ -27,10 +28,8 @@ test.describe("MatterWorkbench golden path", () => {
   });
 
   test("cockpit, queue, memory tabs are reachable when a matter is selected", async ({ page }) => {
-    await page.goto("/", { waitUntil: "domcontentloaded" });
-    await expect(page.locator(".lm-shell")).toBeVisible({ timeout: 60_000 });
+    await gotoShell(page);
 
-    // 跳过：当前测试环境通常没有预置案件，这里只验证 selectors 在文档结构里成立。
     const cockpitOrTabs = page.locator(
       '[data-testid="lm-matter-cockpit"], .lm-matter-cockpit, [data-testid="lm-matter-tabs"]',
     );

@@ -119,6 +119,33 @@ describe("deliverables/validator", () => {
     expect(report.ready).toBe(true);
   });
 
+  it("ESG report mis-tagged as rental stays export-ready (advisory sections only)", () => {
+    const draft = makeDraft({
+      deliverableType: "contract.rental",
+      title: "2025 ESG 可持续发展报告",
+      sections: [
+        { heading: "执行摘要", body: "本年度 ESG 工作概述…" },
+        { heading: "环境维度", body: "碳排放与能源…" },
+        { heading: "社会维度", body: "员工与社区…" },
+        { heading: "治理维度", body: "董事会与合规…" },
+      ],
+    });
+    const report = validateDraftAgainstSpec(draft);
+    expect(report.deliverableType).toBe("report.esg");
+    expect(report.ready).toBe(true);
+    expect(report.blockerCount).toBe(0);
+  });
+
+  it("document.general with only overview does not block export", () => {
+    const draft = makeDraft({
+      deliverableType: "document.general",
+      sections: [{ heading: "事项概述", body: "背景说明…" }],
+    });
+    const report = validateDraftAgainstSpec(draft);
+    expect(report.ready).toBe(true);
+    expect(report.blockerCount).toBe(0);
+  });
+
   it("adds a warning when body placeholder-density heuristic is high (long draft)", () => {
     const cell = `出租人${"·".repeat(30)} __FILL__ 承租人${"·".repeat(30)} __FILL2__ `;
     const longBody = Array.from({ length: 6 }, () => cell).join("\n\n");

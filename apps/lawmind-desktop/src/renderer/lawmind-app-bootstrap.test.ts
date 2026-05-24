@@ -51,50 +51,67 @@ describe("lawmind-app-bootstrap", () => {
 
   it("loads the app bootstrap snapshot", async () => {
     vi.stubGlobal("window", {} as Window);
-    vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ ok: true, modelConfigured: true, retrievalMode: "single" }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ ok: true, tasks: [{ taskId: "t1", summary: "s", status: "done", updatedAt: "2026-01-01" }] }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ ok: true, items: [{ kind: "task", id: "t1", label: "Task", updatedAt: "2026-01-01" }] }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            ok: true,
-            assistants: [{ assistantId: "default", displayName: "Default", introduction: "" }],
-            presets: [{ id: "p1", displayName: "Preset", promptSection: "..." }],
-          }),
-          {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ ok: true, delegations: [{ delegationId: "d1", fromAssistant: "a", toAssistant: "b", task: "t", status: "pending", priority: "high", startedAt: "2026-01-01" }] }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ ok: true, events: [{ eventId: "e1", kind: "delegated", fromAssistantId: "a", toAssistantId: "b", timestamp: "2026-01-01" }] }), {
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+
+      let body: Record<string, unknown>;
+      if (url.includes("/api/health")) {
+        body = { ok: true, modelConfigured: true, retrievalMode: "single" };
+      } else if (url.includes("/api/tasks")) {
+        body = { ok: true, tasks: [{ taskId: "t1", summary: "s", status: "done", updatedAt: "2026-01-01" }] };
+      } else if (url.includes("/api/history")) {
+        body = {
+          ok: true,
+          items: [{ kind: "task", id: "t1", label: "Task", updatedAt: "2026-01-01" }],
+        };
+      } else if (url.includes("/api/assistants")) {
+        body = {
+          ok: true,
+          assistants: [{ assistantId: "default", displayName: "Default", introduction: "" }],
+          presets: [{ id: "p1", displayName: "Preset", promptSection: "..." }],
+        };
+      } else if (url.includes("/api/delegations")) {
+        body = {
+          ok: true,
+          delegations: [
+            {
+              delegationId: "d1",
+              fromAssistant: "a",
+              toAssistant: "b",
+              task: "t",
+              status: "pending",
+              priority: "high",
+              startedAt: "2026-01-01",
+            },
+          ],
+        };
+      } else if (url.includes("/api/collaboration-events")) {
+        body = {
+          ok: true,
+          events: [
+            {
+              eventId: "e1",
+              kind: "delegated",
+              fromAssistantId: "a",
+              toAssistantId: "b",
+              timestamp: "2026-01-01",
+            },
+          ],
+        };
+      } else if (url.includes("/api/platform/gate-history")) {
+        body = { ok: true, items: [] };
+      } else {
+        return Promise.reject(new Error(`Unexpected fetch in bootstrap test: ${url}`));
+      }
+
+      return Promise.resolve(
+        new Response(JSON.stringify(body), {
           status: 200,
           headers: { "content-type": "application/json" },
         }),
       );
+    });
 
     await expect(loadAppBootstrapSnapshot("http://127.0.0.1:4312")).resolves.toMatchObject({
       health: { modelConfigured: true, retrievalMode: "single" },

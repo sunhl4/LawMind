@@ -13,13 +13,21 @@
 
 import { requestApproval } from "../../application/services/approval-service.js";
 import { recordDeadline } from "../../application/services/deadline-service.js";
+import { linkDraftToDeliverable } from "../../application/services/deliverable-service.js";
 import {
   openQueueItem,
   transitionQueueItem,
 } from "../../application/services/queue-write-service.js";
 import { validateDraftAgainstSpec } from "../../deliverables/index.js";
-import { listDrafts, validateDraftCitationsAgainstBundle } from "../../drafts/index.js";
-import { createLawMindEngine, type LawMindEngineConfig } from "../../index.js";
+import {
+  listDrafts,
+  persistDraft,
+  readDraft,
+  validateDraftCitationsAgainstBundle,
+} from "../../drafts/index.js";
+import { createLawMindEngine } from "../../engine/factory.js";
+import type { LawMindEngineConfig } from "../../engine/types.js";
+import { appendSessionSummary } from "../../memory/session-summary.js";
 import { createWorkspaceAdapter } from "../../retrieval/index.js";
 import type { RetrievalAdapter } from "../../retrieval/index.js";
 import { createOpenAICompatibleAdapters } from "../../retrieval/openai-compatible.js";
@@ -34,8 +42,9 @@ import {
   registerUploadedTemplate,
   setUploadedTemplateEnabled,
 } from "../../templates/index.js";
-import type { TaskIntent } from "../../types.js";
+import type { TaskIntent, ArtifactSection } from "../../types.js";
 import type { AgentContext, AgentTool, ToolCallResult } from "../types.js";
+import { formatRenderToolError, formatWorkflowRenderFailure } from "./render-tool-messages.js";
 
 const MAX_INSTRUCTION_LENGTH = 4000;
 const MAX_TITLE_LENGTH = 200;
@@ -93,8 +102,22 @@ function resolveLatestDraftTaskId(workspaceDir: string): string | undefined {
   return preferred?.taskId;
 }
 
+/** 未显式传 task_id 时：工作台关联草稿优先，否则最近草稿 */
+function resolveDefaultRenderTaskId(ctx: AgentContext, workspaceDir: string): string | undefined {
+  const linked = typeof ctx.linkedTaskId === "string" ? ctx.linkedTaskId.trim() : "";
+  if (linked && listDrafts(workspaceDir).some((d) => d.taskId === linked)) {
+    return linked;
+  }
+  return resolveLatestDraftTaskId(workspaceDir);
+}
+
 function canDraftWithoutResearch(intent: { kind: string; deliverableType?: string }): boolean {
   return intent.kind === "draft.word" && Boolean(intent.deliverableType);
+}
+
+function pushWorkflowProgress(ctx: AgentContext, steps: string[], message: string): void {
+  steps.push(message);
+  ctx.emitToolProgress?.(message);
 }
 
 /** 同一 turn 内已有工具返回 clarificationQuestions 时，阻止并行重型管线。 */
@@ -106,17 +129,38 @@ function blockHeavyPipelineIfClarificationPending(ctx: AgentContext): ToolCallRe
     ok: false,
     error:
       "仍有待澄清事项：请先请律师回答上一轮列出的问题后，再执行检索、起草、完整工作流或渲染。可直接在对话中补充要点。",
+    data: {
+      gateDecision: {
+        gate: "clarification_gate",
+        decision: "block",
+        reason: "clarification pending",
+      },
+    },
   };
 }
 
 /**
  * 通用模型连接信息（与桌面 `buildAgentConfig` / 向导写入的变量对齐）。
  */
+function parseRetrievalTimeoutMs(): number {
+  const raw =
+    process.env.LAWMIND_RETRIEVAL_TIMEOUT_MS?.trim() ||
+    process.env.LAWMIND_AGENT_TIMEOUT_MS?.trim() ||
+    "";
+  const n = Number(raw);
+  if (Number.isFinite(n) && n > 0) {
+    return Math.floor(n);
+  }
+  return 120_000;
+}
+
 function resolveGeneralOpenAICompatibleFromEnv(): {
   baseUrl: string;
   apiKey: string;
   model: string;
+  timeoutMs: number;
 } | null {
+  const timeoutMs = parseRetrievalTimeoutMs();
   const baseUrl =
     process.env.LAWMIND_AGENT_BASE_URL?.trim() ||
     process.env.QWEN_BASE_URL?.trim() ||
@@ -131,7 +175,7 @@ function resolveGeneralOpenAICompatibleFromEnv(): {
     process.env.LAWMIND_QWEN_MODEL?.trim();
 
   if (baseUrl && apiKey && model) {
-    return { baseUrl, apiKey, model };
+    return { baseUrl, apiKey, model, timeoutMs };
   }
 
   const qwenKey = process.env.LAWMIND_QWEN_API_KEY?.trim();
@@ -141,6 +185,7 @@ function resolveGeneralOpenAICompatibleFromEnv(): {
       baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
       apiKey: qwenKey,
       model: qwenModel,
+      timeoutMs,
     };
   }
 
@@ -310,6 +355,20 @@ export const researchTask: AgentTool = {
 
       const bundle = await engine.research(intent);
       if (bundle.claims.length === 0 && bundle.sources.length === 0) {
+        if (canDraftWithoutResearch(intent)) {
+          return {
+            ok: true,
+            data: {
+              taskId: intent.taskId,
+              sourcesCount: 0,
+              claimsCount: 0,
+              researchDegraded: true,
+              riskFlags: bundle.riskFlags,
+              missingItems: bundle.missingItems,
+              hint: "检索为空，但可继续 execute_workflow 或 draft_document 生成待审核草稿（含占位符）。",
+            },
+          };
+        }
         return {
           ok: false,
           error: "检索返回空结果（sources=0, claims=0）。请检查模型配置或补充案件资料后重试。",
@@ -338,6 +397,135 @@ export const researchTask: AgentTool = {
       };
     } catch (err) {
       return { ok: false, error: `检索失败: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  },
+};
+
+function resolveDraftTaskIdForUpdate(params: Record<string, unknown>, ctx: AgentContext): string {
+  const fromParam = typeof params.task_id === "string" ? params.task_id.trim() : "";
+  if (fromParam) {
+    return fromParam;
+  }
+  const linked = typeof ctx.linkedTaskId === "string" ? ctx.linkedTaskId.trim() : "";
+  if (linked) {
+    return linked;
+  }
+  throw new Error("task_id 必填；若从审核台修订进入，应已关联草稿 ID");
+}
+
+function parseDraftSectionsInput(value: unknown): ArtifactSection[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error("sections 必须是非空数组");
+  }
+  const sections: ArtifactSection[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") {
+      throw new Error("sections 项格式无效");
+    }
+    const record = item as Record<string, unknown>;
+    const heading = typeof record.heading === "string" ? record.heading.trim() : "";
+    const body = typeof record.body === "string" ? record.body : "";
+    if (!heading) {
+      throw new Error("sections 每项须含非空 heading");
+    }
+    const citations = Array.isArray(record.citations)
+      ? record.citations.filter(
+          (cite): cite is string => typeof cite === "string" && cite.trim().length > 0,
+        )
+      : undefined;
+    sections.push({
+      heading,
+      body,
+      ...(citations?.length ? { citations } : {}),
+    });
+  }
+  return sections;
+}
+
+// ─────────────────────────────────────────────
+// update_draft — 更新已有草稿正文（审核修订）
+// ─────────────────────────────────────────────
+
+export const updateDraft: AgentTool = {
+  definition: {
+    name: "update_draft",
+    description:
+      "更新工作区已有草稿的正文（title / summary / sections）。用于审核台「需修改」后的改稿：只更新同一条 drafts/<taskId>.json，不会新建 taskId。task_id 可省略（使用当前关联草稿）。",
+    category: "draft",
+    parameters: {
+      task_id: {
+        type: "string",
+        description: "草稿 taskId（与 drafts/<taskId>.json 一致）；省略时使用会话关联草稿",
+      },
+      title: { type: "string", description: "文书标题" },
+      summary: { type: "string", description: "执行摘要" },
+      sections: {
+        type: "array",
+        description: "正文章节数组；每项为 { heading: string, body: string, citations?: string[] }",
+      },
+    },
+    requiresApproval: true,
+    riskLevel: "medium",
+  },
+  async execute(params, ctx) {
+    try {
+      const taskId = resolveDraftTaskIdForUpdate(params, ctx);
+      const draft = readDraft(ctx.workspaceDir, taskId);
+      if (!draft) {
+        return { ok: false, error: `找不到草稿 ${taskId}（drafts/${taskId}.json）` };
+      }
+      const reviewStatus = draft.reviewStatus ?? "pending";
+      if (reviewStatus !== "pending" && reviewStatus !== "modified") {
+        return {
+          ok: false,
+          error: `草稿状态为「${reviewStatus}」，无法直接更新正文。请先恢复待审核。`,
+        };
+      }
+      const title = asOptionalString(params.title, "title", MAX_TITLE_LENGTH);
+      const summary =
+        params.summary !== undefined
+          ? asNonEmptyString(params.summary, "summary", 48_000)
+          : undefined;
+      const sections =
+        params.sections !== undefined ? parseDraftSectionsInput(params.sections) : undefined;
+      if (title === undefined && summary === undefined && sections === undefined) {
+        return { ok: false, error: "至少提供 title、summary 或 sections 之一" };
+      }
+      const next = {
+        ...draft,
+        ...(title !== undefined ? { title } : {}),
+        ...(summary !== undefined ? { summary } : {}),
+        ...(sections !== undefined ? { sections } : {}),
+      };
+      if (next.taskId !== taskId) {
+        return { ok: false, error: "taskId 不可变更" };
+      }
+      persistDraft(ctx.workspaceDir, next);
+      if (next.matterId) {
+        try {
+          const tr = readTaskRecord(ctx.workspaceDir, taskId);
+          linkDraftToDeliverable(ctx.workspaceDir, next, tr ?? undefined);
+        } catch {
+          // 写侧失败不阻断正文保存
+        }
+      }
+      const acceptance = validateDraftAgainstSpec(next);
+      return {
+        ok: true,
+        data: {
+          taskId: next.taskId,
+          title: next.title,
+          sectionsCount: next.sections.length,
+          reviewStatus: next.reviewStatus,
+          acceptanceReady: acceptance.ready,
+          draftPath: `drafts/${taskId}.json`,
+        },
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        error: `更新草稿失败: ${err instanceof Error ? err.message : String(err)}`,
+      };
     }
   },
 };
@@ -443,10 +631,13 @@ export const renderDocument: AgentTool = {
   definition: {
     name: "render_document",
     description:
-      "将草稿渲染为最终交付物（Word 文档等）。可指定 task_id；若省略，则默认使用最近一份草稿。若律师已在当前对话中明确同意导出，可传 approve=true 先批准再渲染。",
+      "将草稿渲染为最终交付物（Word 文档等）。可指定 task_id；若省略，则优先使用律师在桌面工作台为当前会话关联的草稿（linkedTaskId），否则回退到最近一份草稿。若律师已在当前对话中明确同意导出，可传 approve=true 先批准再渲染。",
     category: "draft",
     parameters: {
-      task_id: { type: "string", description: "任务 ID；不传时默认使用最近一份草稿" },
+      task_id: {
+        type: "string",
+        description: "任务 ID；不传时优先工作台关联草稿，否则为最近一份草稿",
+      },
       approve: { type: "boolean", description: "律师已明确同意导出时设为 true，先批准草稿再渲染" },
       approval_note: { type: "string", description: "审批备注（可选）" },
       bypass_acceptance_gate: {
@@ -467,11 +658,12 @@ export const renderDocument: AgentTool = {
       const engine = getEngine(ctx);
       const taskId =
         params.task_id === undefined
-          ? resolveLatestDraftTaskId(ctx.workspaceDir)
+          ? resolveDefaultRenderTaskId(ctx, ctx.workspaceDir)
           : asNonEmptyString(params.task_id, "task_id", 128);
       const approvalNote = asOptionalString(params.approval_note, "approval_note", 500);
       const shouldApprove = params.approve === true;
-      const bypassGate = params.bypass_acceptance_gate === true;
+      // 律师在对话中明确同意导出时，视为可跳过验收门禁（仍须过审核状态或 approve 批准）。
+      const bypassGate = params.bypass_acceptance_gate === true || shouldApprove;
       if (!taskId) {
         return {
           ok: false,
@@ -497,10 +689,19 @@ export const renderDocument: AgentTool = {
       }
 
       if (approvedDraft.reviewStatus !== "approved") {
+        const approvalErr = `草稿尚未通过审核（当前状态：${approvedDraft.reviewStatus}）。渲染 Word 前需要律师审批；若律师已明确同意导出，请使用 approve=true 重新调用。`;
         return {
           ok: false,
-          error: `草稿尚未通过审核（当前状态：${approvedDraft.reviewStatus}）。渲染最终文档前需要律师审批；若律师已明确同意导出，请使用 approve=true 重新调用。`,
+          error: formatRenderToolError(approvalErr),
           pendingApproval: true,
+          data: {
+            renderFailureCategory: "approval_required",
+            gateDecision: {
+              gate: "approval_gate",
+              decision: "awaiting_confirmation",
+              reason: `draft status=${approvedDraft.reviewStatus}`,
+            },
+          },
         };
       }
 
@@ -509,14 +710,21 @@ export const renderDocument: AgentTool = {
       // 当律师明确知情接受占位符时可传 bypass_acceptance_gate=true 走旁路。
       const acceptance = validateDraftAgainstSpec(approvedDraft);
       if (!acceptance.ready && !bypassGate) {
+        const gateErr = `草稿未通过验收门禁（blockers=${acceptance.blockerCount}, placeholders=${acceptance.placeholderCount}）。请先补齐缺失内容再渲染；若律师已确认接受占位符，可使用 bypass_acceptance_gate=true 或 approve=true 重新调用。`;
         return {
           ok: false,
-          error: `草稿未通过验收门禁（blockers=${acceptance.blockerCount}, placeholders=${acceptance.placeholderCount}）。请先补齐缺失内容再渲染；若律师已确认接受占位符，可使用 bypass_acceptance_gate=true 重新调用。`,
+          error: formatRenderToolError(gateErr),
           pendingApproval: true,
           data: {
             taskId: approvedDraft.taskId,
             title: approvedDraft.title,
             acceptance,
+            renderFailureCategory: "acceptance_gate",
+            gateDecision: {
+              gate: "acceptance_gate",
+              decision: "block",
+              reason: "acceptance not ready",
+            },
           },
         };
       }
@@ -530,13 +738,18 @@ export const renderDocument: AgentTool = {
             title: approvedDraft.title,
             outputPath: result.outputPath,
             acceptance,
-            message: `文书已渲染完成：${result.outputPath}`,
+            message: `文书已渲染完成（本地 Word 引擎）：${result.outputPath}`,
           },
         };
       }
-      return { ok: false, error: result.error ?? "渲染失败" };
+      return {
+        ok: false,
+        error: formatRenderToolError(result.error ?? "渲染失败"),
+        data: { renderFailureCategory: "render_engine" },
+      };
     } catch (err) {
-      return { ok: false, error: `渲染失败: ${err instanceof Error ? err.message : String(err)}` };
+      const msg = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: formatRenderToolError(`渲染失败: ${msg}`) };
     }
   },
 };
@@ -549,7 +762,7 @@ export const executeWorkflow: AgentTool = {
   definition: {
     name: "execute_workflow",
     description:
-      '自主执行完整的法律工作流程：解析指令 → 检索法规和案例 → 生成文书草稿 → 自动审核（低风险）或标记等待律师审批（高风险）。**在需求已对齐的前提下**，文书类任务应优先调用本工具而非只写摘要。若上次因检索为空等原因中断，可传 **existing_task_id** + **restart_from: "research"** 跳过重新规划、重试检索及后续步骤。返回 data.citationIntegrity；失败时 data 可能含 recoverable / existingTaskId。',
+      '自主执行完整的法律工作流程：解析指令 → 检索法规和案例 → 生成文书草稿 → 自动审核（低风险）或标记等待律师审批（高风险）。**在需求已对齐的前提下**，文书类任务应优先调用本工具而非只写摘要。若上次因检索为空等原因中断，可传 **existing_task_id** + **restart_from: "research"** 跳过重新规划、重试检索及后续步骤。注意：桌面「关联草稿」ID（linkedTaskId）**不会**自动替代 `existing_task_id`；若要续跑律师当前聚焦的那份任务，请把该任务的 **taskId 显式写入 existing_task_id**。单独渲染未传 `task_id` 时由 `render_document` 优先 linkedTaskId。返回 data.citationIntegrity；失败时 data 可能含 recoverable / existingTaskId。',
     category: "draft",
     parameters: {
       instruction: { type: "string", description: "律师的工作指令", required: true },
@@ -572,7 +785,7 @@ export const executeWorkflow: AgentTool = {
       existing_task_id: {
         type: "string",
         description:
-          "续跑：已有引擎任务 ID（workspace/tasks/<id>.json）。与 restart_from 联用可跳过重新 plan，直接重试检索及后续步骤（如上次检索为空或失败）。",
+          "续跑：已有引擎任务 ID（workspace/tasks/<id>.json）。与 restart_from 联用可跳过重新 plan，直接重试检索及后续步骤（如上次检索为空或失败）。若律师在桌面已打开某草稿且与系统提示中的「关联草稿 ID」一致，应将该 ID 填在此处；本工具不会从 linkedTaskId 隐式推断。",
       },
       restart_from: {
         type: "string",
@@ -635,17 +848,23 @@ export const executeWorkflow: AgentTool = {
         if (audience) {
           intent = { ...intent, audience };
         }
-        steps.push(
+        pushWorkflowProgress(
+          ctx,
+          steps,
           `续跑任务 ${existingTaskIdRaw}：已跳过重新规划，沿用已持久化意图（${intent.summary.slice(0, 80)}…）。`,
         );
       } else {
         // Step 1: Plan
-        steps.push("正在解析指令...");
+        pushWorkflowProgress(ctx, steps, "正在解析指令...");
         intent = await engine.planAsync(instruction, {
           audience,
           matterId,
         });
-        steps.push(`任务计划完成：${intent.summary}（风险：${intent.riskLevel}）`);
+        pushWorkflowProgress(
+          ctx,
+          steps,
+          `任务计划完成：${intent.summary}（风险：${intent.riskLevel}）`,
+        );
       }
 
       // Step 2: Confirm (if needed)
@@ -654,15 +873,21 @@ export const executeWorkflow: AgentTool = {
           actorId: ctx.actorId,
           note: "Agent 工作流自动确认",
         });
-        steps.push("高风险任务已确认，进入检索阶段");
+        pushWorkflowProgress(ctx, steps, "高风险任务已确认，进入检索阶段");
       }
 
       // Step 3: Research
-      steps.push("正在检索法规和案例...");
+      pushWorkflowProgress(ctx, steps, "正在检索法规和案例...");
       const bundle = await engine.research(intent);
+      let researchDegraded = false;
       if (bundle.claims.length === 0 && bundle.sources.length === 0) {
         if (canDraftWithoutResearch(intent)) {
-          steps.push("检索结果为空，但该任务属于完整文书起草，继续生成带待补充项的正式草稿。");
+          researchDegraded = true;
+          pushWorkflowProgress(
+            ctx,
+            steps,
+            "检索结果为空或检索适配器未返回来源，但该任务属于完整文书起草，继续生成带待补充项的正式草稿。",
+          );
         } else {
           return {
             ok: false,
@@ -677,20 +902,28 @@ export const executeWorkflow: AgentTool = {
           };
         }
       }
-      steps.push(
+      pushWorkflowProgress(
+        ctx,
+        steps,
         `检索完成：${bundle.sources.length} 条来源，${bundle.claims.length} 条结论，${bundle.riskFlags.length} 条风险标记`,
       );
 
       // Step 4: Draft
-      steps.push("正在生成文书草稿...");
+      pushWorkflowProgress(ctx, steps, "正在生成文书草稿...");
       const draft = await engine.draftAsync(intent, bundle, {
         title,
         templateId,
       });
-      steps.push(`草稿生成完成：《${draft.title}》，共 ${draft.sections.length} 个章节`);
+      pushWorkflowProgress(
+        ctx,
+        steps,
+        `草稿生成完成：《${draft.title}》，共 ${draft.sections.length} 个章节`,
+      );
       const citationIntegrity = validateDraftCitationsAgainstBundle(draft, bundle);
       if (!citationIntegrity.ok) {
-        steps.push(
+        pushWorkflowProgress(
+          ctx,
+          steps,
           `引用校验：有 ${citationIntegrity.missingSourceIds.length} 个来源 ID 不在本次检索结果中（${citationIntegrity.missingSourceIds.join(", ")}），请人工核对。`,
         );
       }
@@ -704,23 +937,58 @@ export const executeWorkflow: AgentTool = {
           status: "approved",
           note: forceRender ? "Demo 模式：自动批准并渲染。" : "低风险任务，Agent 自动审核通过。",
         });
-        steps.push(forceRender ? "Demo：已自动批准并渲染。" : "低风险任务，已自动审核通过。");
+        pushWorkflowProgress(
+          ctx,
+          steps,
+          forceRender ? "Demo：已自动批准并渲染。" : "低风险任务，已自动审核通过。",
+        );
 
         // Step 6: Render
-        steps.push("正在渲染最终文档...");
+        pushWorkflowProgress(ctx, steps, "正在渲染最终文档...");
         const result = await engine.render(draft);
         if (result.ok) {
           finalStatus = "delivered";
-          steps.push(`交付完成：${result.outputPath}`);
+          pushWorkflowProgress(ctx, steps, `交付完成（本地 Word）：${result.outputPath}`);
           draft.outputPath = result.outputPath;
         } else {
           finalStatus = "render_failed";
-          steps.push(`渲染失败：${result.error}`);
+          const renderErr = result.error ?? "渲染失败";
+          pushWorkflowProgress(ctx, steps, `Word 渲染失败：${renderErr}`);
+          pushWorkflowProgress(
+            ctx,
+            steps,
+            "提示：生成 .docx 不依赖模型 API。可调用 render_document（approve=true）重试，或在审核台批准后导出。",
+          );
+          return {
+            ok: false,
+            error: formatWorkflowRenderFailure(renderErr),
+            data: {
+              taskId: intent.taskId,
+              title: draft.title,
+              kind: intent.kind,
+              deliverableType: intent.deliverableType,
+              riskLevel: intent.riskLevel,
+              matterId: intent.matterId,
+              status: finalStatus,
+              sectionsCount: draft.sections.length,
+              outputPath: undefined,
+              steps,
+              renderFailureCategory: "render_engine",
+              hint: "草稿已生成但 Word 未导出。请用 render_document 重试，勿向用户声称模型 API 故障。",
+            },
+          };
         }
       } else {
         finalStatus = "awaiting_lawyer_review";
-        steps.push(
+        pushWorkflowProgress(
+          ctx,
+          steps,
           `⚠ ${intent.riskLevel === "high" ? "高" : "中"}风险任务，草稿已生成，等待律师审批后渲染。`,
+        );
+        pushWorkflowProgress(
+          ctx,
+          steps,
+          "若律师本条对话已要求 Word：请调用 render_document（task_id 见上，approve=true），或在桌面「审核」页签批准后导出。",
         );
       }
 
@@ -743,6 +1011,7 @@ export const executeWorkflow: AgentTool = {
           sourcesCount: bundle.sources.length,
           outputPath: draft.outputPath,
           steps,
+          researchDegraded,
           citationIntegrity,
           acceptanceCriteria: draft.acceptanceCriteria,
           clarificationQuestions: draft.clarificationQuestions,
@@ -1077,6 +1346,37 @@ export const recordDeadlineTool: AgentTool = {
   },
 };
 
+export const appendSessionSummaryTool: AgentTool = {
+  definition: {
+    name: "append_session_summary",
+    description:
+      "将会话要点追加写入 cases/<matter_id>/session-summary.md（仅该路径，供跨轮记忆）。",
+    category: "system",
+    parameters: {
+      matter_id: { type: "string", description: "案件 ID（缺省时复用当前会话 matterId）" },
+      summary: { type: "string", description: "Markdown 摘要片段", required: true },
+    },
+    isConcurrencySafe: false,
+    approvalTemplate: "readonly",
+  },
+  async execute(params, ctx) {
+    try {
+      const matterId = ensureMatterId(params.matter_id, ctx.matterId);
+      const summary = asNonEmptyString(params.summary, "summary", 12_000);
+      const out = appendSessionSummary(ctx.workspaceDir, matterId, summary);
+      if (!out.ok) {
+        return { ok: false, error: out.error };
+      }
+      return { ok: true, data: { matterId, path: `cases/${matterId}/session-summary.md` } };
+    } catch (err) {
+      return {
+        ok: false,
+        error: `写入会话摘要失败: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  },
+};
+
 void transitionQueueItem; // reserved for engine hot-path consumption
 
 /**
@@ -1085,6 +1385,7 @@ void transitionQueueItem; // reserved for engine hot-path consumption
 export const engineTools: AgentTool[] = [
   planTask,
   researchTask,
+  updateDraft,
   draftDocument,
   renderDocument,
   executeWorkflow,
@@ -1093,4 +1394,5 @@ export const engineTools: AgentTool[] = [
   openWorkQueueItem,
   requestApprovalTool,
   recordDeadlineTool,
+  appendSessionSummaryTool,
 ];

@@ -359,6 +359,18 @@ describe("lawmind-chat", () => {
       ).toEqual({ pending: true, count: 1, assistantMessageIndex: idx });
     });
 
+    it("is pending when executionState awaits clarification", () => {
+      expect(
+        getPendingClarificationState([
+          {
+            role: "assistant",
+            text: "a",
+            executionState: { phase: "clarify", status: "awaiting_clarification", recoverable: true },
+          },
+        ]),
+      ).toEqual({ pending: true, count: 0, assistantMessageIndex: 0 });
+    });
+
     it("is pending on awaiting_clarification without structured questions", () => {
       const idx = 0;
       expect(

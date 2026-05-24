@@ -11,6 +11,7 @@ import {
   loadRecordsPayload,
   type CollabEvent,
   type DelegationRow,
+  type GateHistoryItem,
   type HistoryItem,
   type PresetRow,
   type TaskRow,
@@ -120,6 +121,7 @@ export function useLawmindRecordsDomain(
   const [presets, setPresets] = useState<PresetRow[]>([]);
   const [delegations, setDelegations] = useState<DelegationRow[]>([]);
   const [collabEvents, setCollabEvents] = useState<CollabEvent[]>([]);
+  const [gateHistory, setGateHistory] = useState<GateHistoryItem[]>([]);
 
   const refreshLists = useCallback(async () => {
     if (!config) {
@@ -142,6 +144,7 @@ export function useLawmindRecordsDomain(
       const payload = await loadCollaborationPayload(config.apiBase);
       setDelegations(payload.delegations);
       setCollabEvents(payload.events.slice(-50));
+      setGateHistory(payload.gateHistory);
     } catch {
       // Ignore refresh failures for passive collaboration updates.
     }
@@ -168,6 +171,7 @@ export function useLawmindRecordsDomain(
       setPresets(snapshot.assistants.presets);
       setDelegations(snapshot.collaboration.delegations);
       setCollabEvents(snapshot.collaboration.events.slice(-50));
+      setGateHistory(snapshot.collaboration.gateHistory ?? []);
     },
     [],
   );
@@ -197,6 +201,7 @@ export function useLawmindRecordsDomain(
       presets,
       delegations,
       collabEvents,
+      gateHistory,
     },
     derived: {
       filteredTasks,

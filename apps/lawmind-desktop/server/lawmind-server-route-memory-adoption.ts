@@ -17,6 +17,7 @@ import {
   type MemoryAdoptionState,
   type MemoryScope,
 } from "../../../src/lawmind/memory/adoption-service.js";
+import { buildAdoptionPreviewDiff } from "../../../src/lawmind/memory/adoption-preview-diff.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import { readJsonBody, resolveDesktopActorId, sendJson } from "./lawmind-server-helpers.js";
 
@@ -60,6 +61,21 @@ export async function handleMemoryAdoptionRoutes({
 }: LawmindRouteContext): Promise<boolean> {
   const { workspaceDir } = ctx;
   const auditDir = `${workspaceDir}/audit`;
+
+  const previewDiffMatch = pathname.match(/^\/api\/memory\/adoption\/([^/]+)\/preview-diff$/);
+  if (previewDiffMatch && req.method === "GET") {
+    const id = decodeURIComponent(previewDiffMatch[1] ?? "");
+    const matterId = url.searchParams.get("matterId")?.trim() || undefined;
+    const result = await buildAdoptionPreviewDiff(workspaceDir, id, { matterId });
+    if (!result.ok) {
+      const status = result.error === "not_found" ? 404 : 400;
+      sendJson(res, status, result, c);
+      return true;
+    }
+    sendJson(res, 200, result, c);
+    return true;
+  }
+
   if (pathname === "/api/memory/adoption" && req.method === "GET") {
     const scope = asScope(url.searchParams.get("scope"));
     const state = asState(url.searchParams.get("state"));

@@ -14,8 +14,23 @@ import { LawmindCreateMatterDialog } from "./LawmindCreateMatterDialog";
 import { LawmindMatterRenameDialog, LawmindMatterDeleteDialog } from "./LawmindMatterRenameDeleteDialogs";
 import { LawmindSettingsDialog } from "./lawmind-settings-shell";
 import { LawmindCollaborationDesk, type CollaborationDeskTab } from "./LawmindCollaborationDesk";
+import { LawmindCollaborationSidebar } from "./LawmindCollaborationSidebar";
+import { LawmindDelegateAssistDialog } from "./LawmindDelegateAssistDialog";
+import { LawmindReadinessStrip } from "./LawmindReadinessStrip";
+import { LawmindActionHub, LawmindActionHubButton } from "./LawmindActionHub";
+import { LawmindTaskDrawer } from "./LawmindTaskDrawer";
+import { LawmindToolApprovalDialog } from "./LawmindToolApprovalDialog";
+import { LawmindSessionHistorySidebar } from "./LawmindSessionHistorySidebar";
+import {
+  loadActionSummary,
+  resumeChatAction,
+  parseRequiresActionsFromResponse,
+  formatClarificationResumeMessage,
+  type LawMindRequiresAction,
+  type LawMindRequiresActionDecision,
+} from "./lawmind-requires-action";
 import { useLawmindRecordsDeskMatters, RECORDS_DESK_UNLINKED } from "./lawmind-records-desk-state";
-import { LawmindSidebar } from "./lawmind-sidebar";
+import { LawmindMatterSidebarList } from "./LawmindMatterSidebarList";
 import { useEdition } from "./use-edition";
 import {
   LM_PANE_MAX_WIDTH_PX,
@@ -23,10 +38,19 @@ import {
   readStoredBool,
   writeStoredBool,
 } from "./lawmind-panel-layout";
+import {
+  countVisibleReviewPanes,
+  readReviewPaneVisibility,
+  writeReviewPaneVisibility,
+  type ReviewPaneId,
+} from "./lawmind-review-pane-prefs";
+import { LawmindReviewPaneToggles } from "./LawmindReviewPaneToggles";
+import { LawmindWorkspaceLayoutToggles } from "./LawmindWorkspaceLayoutToggles";
 import { usePaneResizePx } from "./use-pane-resize";
 import { apiGetJson, apiSendJson, errorMessage, messageFromOkFalseBody } from "./api-client";
 import { displayNameFromImportBasename, suggestMatterIdForImport } from "../../../../src/lawmind/cases/matter-label.ts";
 import { useLawyerReviewDesktopNotify } from "./lawmind-lawyer-review-notify";
+import { applyUiFontScale, readUiFontScale } from "./lawmind-ui-prefs";
 
 function resolveWorkspacePath(workspaceDir: string, rel: string): string {
   const r = rel.replace(/\\/g, "/").replace(/^\//, "");
@@ -146,6 +170,15 @@ function historyBadgeClass(kind: string, taskRecordKind?: string, status?: strin
 }
 
 export function App() {
+  const [_uiPrefsVersion, setUiPrefsVersion] = useState(0);
+  const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
+  const [toolApprovalDialogAction, setToolApprovalDialogAction] =
+    useState<LawMindRequiresAction | null>(null);
+
+  useEffect(() => {
+    applyUiFontScale(readUiFontScale());
+  }, []);
+
   const {
     state,
     derived,
@@ -161,8 +194,14 @@ export function App() {
     matterRefreshVersion,
     config,
     health,
+    modelCatalog,
+    modelProviders,
+    platformProviders,
+    platformMode,
+    selectedModelId,
     showWizard,
     wizApiKey,
+    wizHasExistingKey,
     wizBaseUrl,
     wizModel,
     wizWorkspace,
@@ -170,9 +209,11 @@ export function App() {
     wizError,
     wizRetrievalMode,
     retrievalSaving,
-    sideTab,
-    taskListQuery,
-    listTimeRange,
+    draftWithModelSaving,
+    allowWebSearch,
+    sideTab: _sideTab,
+    taskListQuery: _taskListQuery,
+    listTimeRange: _listTimeRange,
     tasks,
     history,
     assistants,
@@ -185,7 +226,11 @@ export function App() {
     asstError,
     input,
     loading,
+    setLoading,
     error,
+    setError,
+    composeModelHint,
+    composeModelQuickTestBusy,
     detailOpen,
     detailKind,
     detailId,
@@ -200,25 +245,52 @@ export function App() {
     contextMatterId,
     fileChatContextItems,
     copiedMessageIndex,
-    recordsExpanded,
+    recordsExpanded: _recordsExpanded,
     showSettings,
     showHelp,
     collabSummarySettings,
-    collabExpanded,
+    localServiceReconnecting,
+    collabExpanded: _collabExpanded,
     delegations,
     collabEvents,
+    gateHistory,
     collabTab,
     currentMessages,
+    messagesByAssistant: _messagesByAssistant,
+    setMessagesByAssistant,
+    sessionByAssistant,
     chatSessionList,
     chatSessionsLoading,
     activeChatSessionId,
+    revisionBackgroundActive,
+    reviewRefreshVersion,
+    composeExtras,
+    streamCompactLabels,
   } = state;
+
+  const assistantDisplayById = useMemo(
+    () => Object.fromEntries(assistants.map((a) => [a.assistantId, a.displayName])),
+    [assistants],
+  );
+
+  const delegateAssistEnabled =
+    assistants.filter((a) => a.assistantId !== selectedAssistantId).length > 0 &&
+    collabSummarySettings?.collaborationEnabled !== false;
+
+  const openDelegateAssist = useCallback(
+    (taskHint?: string) => {
+      const lastUser = [...currentMessages].toReversed().find((m) => m.role === "user");
+      setDelegateTaskDefault(taskHint?.trim() || lastUser?.text?.trim().slice(0, 500) || "");
+      setDelegateAssistOpen(true);
+    },
+    [currentMessages],
+  );
 
   const {
     canUseFilesystemBridge,
     projectDir,
     filteredTasks,
-    filteredHistory,
+    filteredHistory: _filteredHistory,
     selectedAssistant,
     selectedAssistantStats,
     workspaceLabel,
@@ -227,7 +299,7 @@ export function App() {
   } = derived;
 
   const recordsDeskMatters = useLawmindRecordsDeskMatters({
-    enabled: mainView === "workspace" && Boolean(config),
+    enabled: (mainView === "workspace" || mainView === "collaboration") && Boolean(config),
     apiBase: config?.apiBase ?? "",
     matterRefreshVersion,
     tasks,
@@ -240,6 +312,33 @@ export function App() {
     null,
   );
   const [matterDeleteOpen, setMatterDeleteOpen] = useState<{ matterId: string; label: string } | null>(null);
+  const [delegateAssistOpen, setDelegateAssistOpen] = useState(false);
+  const [delegateTaskDefault, setDelegateTaskDefault] = useState("");
+  const [showActionHub, setShowActionHub] = useState(false);
+  const [actionSummaryTotal, setActionSummaryTotal] = useState(0);
+  const [actionSummaryActiveJobs, setActionSummaryActiveJobs] = useState(0);
+
+  const refreshActionSummary = useCallback(async () => {
+    if (!config?.apiBase) {
+      return;
+    }
+    try {
+      const s = await loadActionSummary(config.apiBase, contextMatterId ?? undefined);
+      setActionSummaryTotal(s.total ?? 0);
+      setActionSummaryActiveJobs(s.activeJobs ?? 0);
+    } catch {
+      setActionSummaryTotal(0);
+    }
+  }, [config?.apiBase, contextMatterId]);
+
+  useEffect(() => {
+    void refreshActionSummary();
+  }, [refreshActionSummary, loading]);
+
+  const sessionRequiresActions = useMemo(() => {
+    const last = [...currentMessages].toReversed().find((m) => m.role === "assistant");
+    return last?.requiresAction ?? [];
+  }, [currentMessages]);
 
   useEffect(() => {
     if (mainView !== "workspace") {
@@ -394,25 +493,28 @@ export function App() {
     setWizBaseUrl,
     setWizModel,
     setWizRetrievalMode,
-    setSideTab,
-    setTaskListQuery,
-    setListTimeRange,
+    setAllowWebSearch,
+    setSideTab: _setSideTab,
+    setTaskListQuery: _setTaskListQuery,
+    setListTimeRange: _setListTimeRange,
     setSelectedAssistantId,
     setShowAssistantEditor,
     setAssistantDraft,
     setInput,
     setContextTaskId,
     setContextMatterId,
-    setRecordsExpanded,
+    setRecordsExpanded: _setRecordsExpanded,
     setShowSettings,
     setShowHelp,
-    setCollabExpanded,
+    setCollabExpanded: _setCollabExpanded,
     setCollabTab,
     refreshLists,
     refreshCollaboration,
     openDetail,
     closeDetail,
     applyRetrievalMode,
+    applyDraftWithModelEnabled,
+    reconnectLocalService,
     runWizardSave,
     pickWs,
     pickProject,
@@ -420,12 +522,18 @@ export function App() {
     send,
     abortChatSend,
     sendChatMessage,
+    queuedMessages,
+    cancelQueuedMessage,
+    setSessionByAssistant,
     openNewAssistant,
     openEditAssistant,
     saveAssistant,
     removeAssistant,
     copyMessage,
     openApiWizard,
+    composeModelQuickTest,
+    handleModelSelect,
+    refreshModelsCatalog,
     clearContext,
     addFileToChatContext,
     removeFileChatContextItem,
@@ -435,7 +543,84 @@ export function App() {
     createNewChatSession,
     renameChatSession,
     deleteChatSession,
+    watchBackgroundRevisionSession,
   } = actions;
+
+  const handleResumeRequiresAction = useCallback(
+    async (
+      action: LawMindRequiresAction,
+      decision: LawMindRequiresActionDecision,
+      clarificationDraft?: Record<string, string>,
+      editedArgs?: Record<string, unknown>,
+      opts?: { skipApprovalDialog?: boolean },
+    ) => {
+      if (
+        !opts?.skipApprovalDialog &&
+        decision === "approve" &&
+        action.kind === "tool_approval"
+      ) {
+        setToolApprovalDialogAction(action);
+        return;
+      }
+      if (!config?.apiBase) {
+        return;
+      }
+      const sid = sessionByAssistant[selectedAssistantId] ?? activeChatSessionId;
+      if (!sid) {
+        return;
+      }
+      if (action.kind === "clarification" && decision === "respond") {
+        const msg = formatClarificationResumeMessage(
+          clarificationDraft ?? {},
+          action.clarificationQuestions ?? [],
+        );
+        await sendChatMessage(msg);
+        void refreshActionSummary();
+        return;
+      }
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await resumeChatAction(config.apiBase, {
+          sessionId: sid,
+          actionId: action.id,
+          decision,
+          ...(editedArgs && decision === "edit" ? { editedArgs } : {}),
+        });
+        const requiresAction = parseRequiresActionsFromResponse(res.requiresAction);
+        setMessagesByAssistant((prev) => ({
+          ...prev,
+          [selectedAssistantId]: [
+            ...(prev[selectedAssistantId] ?? []),
+            {
+              role: "assistant",
+              text: res.reply?.trim() || "已处理您的确认。",
+              ...(res.status ? { status: res.status } : {}),
+              ...(requiresAction.length > 0 ? { requiresAction } : {}),
+            },
+          ],
+        }));
+        if (res.sessionId) {
+          setSessionByAssistant((prev) => ({ ...prev, [selectedAssistantId]: res.sessionId }));
+        }
+        void refreshActionSummary();
+      } catch (cause) {
+        setError(errorMessage(cause, "处理待办失败"));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [
+      config?.apiBase,
+      sessionByAssistant,
+      selectedAssistantId,
+      activeChatSessionId,
+      sendChatMessage,
+      setMessagesByAssistant,
+      setSessionByAssistant,
+      refreshActionSummary,
+    ],
+  );
 
   const linkMatterToChat = useCallback(
     (matterId: string) => {
@@ -530,8 +715,9 @@ export function App() {
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const edition = useEdition(config?.apiBase ?? "");
-
+  const _edition = useEdition(config?.apiBase ?? "");
+  const workflowModelLabel =
+    modelCatalog.find((m) => m.id === selectedModelId)?.label ?? selectedModelId;
   useEffect(() => {
     const unsub = window.lawmindDesktop?.onNotificationClick?.((payload) => {
       if (payload?.reason === "open_review") {
@@ -617,6 +803,22 @@ export function App() {
     writeStoredBool("lawmind.ui.wsPaneChat", wsShowChat);
   }, [wsShowChat]);
 
+  const [reviewPaneVisibility, setReviewPaneVisibility] = useState(readReviewPaneVisibility);
+
+  useEffect(() => {
+    writeReviewPaneVisibility(reviewPaneVisibility);
+  }, [reviewPaneVisibility]);
+
+  const toggleReviewPane = useCallback((id: ReviewPaneId) => {
+    setReviewPaneVisibility((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      if (countVisibleReviewPanes(next) === 0) {
+        return prev;
+      }
+      return next;
+    });
+  }, []);
+
   const { width: wsChatColWidth, onResizePointerDown: onWsChatSplitResize } = usePaneResizePx({
     storageKey: "lawmind.ui.wsChatColumnWidth",
     defaultWidth: 380,
@@ -628,15 +830,11 @@ export function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [currentMessages]);
 
-  useEffect(() => {
-    if (mainView === "collaboration") {
-      setCollabExpanded(true);
-    }
-  }, [mainView, setCollabExpanded]);
-
-  /** 审核页也需左栏材料树；此前仅工作台挂载 FileWorkbench，导致切到审核后左栏被卸掉。 */
+  /** 审核页不展示全局左栏（材料树 / 工作目录 / 案件目录），主区留给审核台。 */
+  const showAppSidebar = mainView !== "review";
   const showSidebarWorkbenchFiles =
-    canUseFilesystemBridge && (mainView === "workspace" || mainView === "review");
+    showAppSidebar && canUseFilesystemBridge && mainView === "workspace";
+  const showCollaborationSidebar = showAppSidebar && mainView === "collaboration" && !sidebarCollapsed;
 
   const previewArtifact = (outputPath?: string) => {
     if (!config) {
@@ -659,11 +857,12 @@ export function App() {
   };
 
   return (
-    <div className="lm-shell">
+    <div className={`lm-shell${mainView === "review" ? " lm-shell-review" : ""}`}>
       {showWizard && (
         <LawmindApiSetupWizard
           wizApiKey={wizApiKey}
           setWizApiKey={setWizApiKey}
+          wizHasExistingKey={wizHasExistingKey}
           wizBaseUrl={wizBaseUrl}
           setWizBaseUrl={setWizBaseUrl}
           wizModel={wizModel}
@@ -719,6 +918,23 @@ export function App() {
       {showHelp && <HelpPanel onClose={() => setShowHelp(false)} />}
       <LawmindFirstRunDialog
         apiBase={config?.apiBase ?? ""}
+        onOpenWorkflowLibrary={
+          config
+            ? () => {
+                setCollaborationDeskTab("workflows");
+                setMainView("collaboration");
+              }
+            : undefined
+        }
+        onOpenAdvancedSettings={() => {
+          setShowSettings(true);
+          requestAnimationFrame(() => {
+            document.getElementById("lawmind-settings-doctor")?.scrollIntoView({
+              behavior: "smooth",
+              block: "start",
+            });
+          });
+        }}
         onClose={() => {
           /* dismiss handled inside the dialog */
         }}
@@ -742,23 +958,40 @@ export function App() {
         selectedAssistantStats={selectedAssistantStats}
         retrievalLabel={retrievalLabel}
         retrievalSaving={retrievalSaving}
+        draftWithModelSaving={draftWithModelSaving}
         onClose={() => setShowSettings(false)}
         onOpenNewAssistant={openNewAssistant}
         onOpenEditAssistant={openEditAssistant}
         onRemoveAssistant={() => void removeAssistant()}
         onApplyRetrievalMode={applyRetrievalMode}
+        onApplyDraftWithModelEnabled={applyDraftWithModelEnabled}
+        onReconnectLocalService={reconnectLocalService}
+        localServiceReconnecting={localServiceReconnecting}
         onOpenApiWizard={openApiWizard}
+        modelProviders={modelProviders}
+        platformProviders={platformProviders}
+        platformMode={platformMode}
+        selectedModelId={selectedModelId}
+        customModels={modelCatalog.filter((m) => m.kind === "custom")}
+        modelCatalog={modelCatalog}
+        onModelsChanged={async () => {
+          if (config?.apiBase) {
+            await refreshModelsCatalog(config.apiBase);
+          }
+        }}
         onPickProject={() => void pickProject()}
         onClearProject={() => void clearProject()}
         onOpenCollaborationPage={() => {
           setCollaborationDeskTab("overview");
           setMainView("collaboration");
         }}
+        onPrefsChange={() => setUiPrefsVersion((v) => v + 1)}
       />
+      {showAppSidebar ? (
       <aside
         className={`lm-side ${sidebarCollapsed ? "lm-side-collapsed" : ""} ${
           showSidebarWorkbenchFiles ? "lm-side-with-workbench-files" : ""
-        }`}
+        }${showCollaborationSidebar ? " lm-side-with-collab-context" : ""}`}
         style={{
           width: sidebarCollapsed ? 0 : sidebarWidth,
           flexShrink: 0,
@@ -770,7 +1003,7 @@ export function App() {
           <div className="lm-logo-mark">L</div>
           <div className="lm-brand-copy">
             <div className="lm-brand-title">LawMind</div>
-            <div className="lm-brand-subtitle">Legal Workbench</div>
+            <div className="lm-brand-subtitle">法律工作台</div>
           </div>
           <button
             type="button"
@@ -801,40 +1034,57 @@ export function App() {
             aria-label="材料资源树"
           />
         ) : null}
-        <div className="lm-side-stack">
-          <LawmindSidebar
-            projectDir={projectDir}
-            assistants={assistants}
-            selectedAssistantId={selectedAssistantId}
-            showAssistantSelector={false}
-            variant="project-only"
-            recordsExpanded={recordsExpanded}
-            collabExpanded={collabExpanded}
-            collabTab={collabTab}
-            sideTab={sideTab}
-            taskListQuery={taskListQuery}
-            listTimeRange={listTimeRange}
-            filteredTasks={filteredTasks}
-            filteredHistory={filteredHistory}
+        {showCollaborationSidebar ? (
+          <LawmindCollaborationSidebar
+            actionSummaryTotal={actionSummaryTotal}
+            activeJobs={actionSummaryActiveJobs}
             delegations={delegations}
             collabEvents={collabEvents}
-            onSelectAssistantId={setSelectedAssistantId}
-            onToggleRecordsExpanded={() => setRecordsExpanded((value) => !value)}
-            onToggleCollabExpanded={() => setCollabExpanded((value) => !value)}
+            collabTab={collabTab}
             onSelectCollabTab={setCollabTab}
-            onSelectSideTab={setSideTab}
-            onTaskListQueryChange={setTaskListQuery}
-            onListTimeRangeChange={setListTimeRange}
-            onOpenDetail={(kind, id) => void openDetail(kind, id)}
-            onOpenDelegationTargetChat={(d) => void openDelegationTargetWorkspaceChat(d)}
+            filteredTasks={filteredTasks}
+            matterRows={recordsDeskMatters.sidebarRows}
+            selectedMatterKey={recordsDeskMatters.selectedKey}
+            onSelectMatter={(matterId) => {
+              recordsDeskMatters.setSelectedKey(matterId);
+              setContextMatterId(matterId);
+              setMatterCockpitOpen(true);
+              setMainView("workspace");
+            }}
             formatRelativeTime={formatRelativeTime}
             legalStatusLabel={legalStatusLabel}
             taskBadgeClass={taskBadgeClass}
-            historyBadgeClass={historyBadgeClass}
+            onOpenDetail={openDetail}
+            onOpenDelegationTargetChat={(d) => void openDelegationTargetWorkspaceChat(d)}
+            onOpenActionHub={() => setShowActionHub(true)}
+            onRefreshCollaboration={refreshCollaboration}
+            collaborationHint={collabSummarySettings?.collaborationHint}
           />
+        ) : null}
+        {matterCockpitOpen && mainView === "workspace" ? (
+          <LawmindMatterSidebarList
+            rows={recordsDeskMatters.sidebarRows}
+            selectedKey={recordsDeskMatters.selectedKey}
+            onSelect={(mid) => recordsDeskMatters.setSelectedKey(mid)}
+          />
+        ) : null}
+        <div className="lm-side-footer">
+          <button
+            type="button"
+            className="lm-btn lm-btn-secondary lm-btn-sm lm-side-action-hub-btn"
+            onClick={() => setShowActionHub(true)}
+          >
+            <span>待办中心</span>
+            {actionSummaryTotal > 0 ? (
+              <span className="lm-side-action-hub-badge" aria-label={`${actionSummaryTotal} 项待处理`}>
+                {actionSummaryTotal > 99 ? "99+" : actionSummaryTotal}
+              </span>
+            ) : null}
+          </button>
         </div>
       </aside>
-      {!sidebarCollapsed ? (
+      ) : null}
+      {showAppSidebar && !sidebarCollapsed ? (
         <div
           className="lm-split-handle lm-split-handle-vertical"
           role="separator"
@@ -844,11 +1094,14 @@ export function App() {
           onPointerDown={onSidebarResizePointerDown}
         />
       ) : null}
-      <main className="lm-main">
-        <div className="lm-main-header lm-main-header-compact">
-          <div className="lm-main-title-block">
-            <div className="lm-main-assistant-line">
-              {assistants.length > 1 ? (
+      <main className={`lm-main${mainView === "review" ? " lm-main-review" : ""}`}>
+        <div
+          className={`lm-main-header lm-main-header-compact${mainView === "review" ? " lm-main-header-review" : ""}`}
+        >
+          <div className="lm-main-header-row">
+          {assistants.length > 1 ? (
+            <div className="lm-main-title-block">
+              <div className="lm-main-assistant-line">
                 <select
                   className="lm-asst-select lm-main-asst-select"
                   value={selectedAssistantId}
@@ -861,13 +1114,18 @@ export function App() {
                     </option>
                   ))}
                 </select>
-              ) : (
-                <span className="lm-main-assistant-name">
-                  {selectedAssistant?.displayName ?? "LawMind"}
-                </span>
-              )}
+              </div>
             </div>
-          </div>
+          ) : null}
+          {mainView === "workspace" && matterCockpitOpen ? (
+            <button
+              type="button"
+              className="lm-btn lm-btn-ghost lm-btn-sm lm-exit-cockpit-btn"
+              onClick={() => setMatterCockpitOpen(false)}
+            >
+              返回对话
+            </button>
+          ) : null}
           <nav className="lm-tabs lm-main-nav lm-main-nav-compact" aria-label="功能模块">
             <button
               type="button"
@@ -875,7 +1133,7 @@ export function App() {
               aria-current={mainView === "workspace" ? "page" : undefined}
               onClick={() => setMainView("workspace")}
             >
-              工作台
+              对话
             </button>
             <button
               type="button"
@@ -900,67 +1158,115 @@ export function App() {
               审核
             </button>
           </nav>
+          {config?.apiBase ? (
+            <LawmindActionHubButton
+              total={actionSummaryTotal}
+              onClick={() => setShowActionHub(true)}
+            />
+          ) : null}
           <div className="lm-header-spacer" aria-hidden />
-          <div className="lm-panel-toggles" role="toolbar" aria-label="主区面板（工作台）">
-            <button
-              type="button"
-              className={`lm-panel-toggle ${sidebarCollapsed ? "lm-panel-toggle-off" : ""}`}
-              title={sidebarCollapsed ? "显示左侧栏（品牌与材料资源树）" : "隐藏左侧栏"}
-              aria-pressed={!sidebarCollapsed}
-              onClick={() => setSidebarCollapsed((v) => !v)}
-            >
-              <span className="lm-panel-toggle-icon" aria-hidden>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <rect x="2" y="2" width="5" height="12" rx="1" stroke="currentColor" strokeWidth="1.2" />
-                  <rect x="9" y="2" width="5" height="12" rx="1" stroke="currentColor" strokeWidth="1.2" opacity="0.35" />
-                </svg>
+          {(projectDir || currentMatterLabel) && !matterCockpitOpen ? (
+            <div className="lm-header-breadcrumb" title={projectDir ?? undefined}>
+              {projectDir ? (
+                <span className="lm-header-breadcrumb-seg">
+                  {projectDir.split(/[\\/]/).filter(Boolean).pop()}
+                </span>
+              ) : null}
+              {projectDir && currentMatterLabel ? (
+                <span className="lm-header-breadcrumb-sep" aria-hidden>
+                  /
+                </span>
+              ) : null}
+              {currentMatterLabel ? (
+                <span className="lm-header-breadcrumb-seg lm-header-breadcrumb-matter">
+                  {currentMatterLabel}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+          {matterCockpitOpen && currentMatterLabel ? (
+            <div className="lm-header-breadcrumb lm-header-breadcrumb-cockpit">
+              <span className="lm-header-breadcrumb-seg">案件工作台</span>
+              <span className="lm-header-breadcrumb-sep" aria-hidden>
+                /
               </span>
-              <span className="lm-panel-toggle-label">左栏</span>
-            </button>
+              <span className="lm-header-breadcrumb-seg lm-header-breadcrumb-matter">
+                {currentMatterLabel}
+              </span>
+            </div>
+          ) : null}
+          <div className="lm-main-header-right">
+            {mainView === "workspace" || mainView === "review" ? (
+              <div className="lm-main-header-layout-toggles" role="toolbar" aria-label="面板布局">
+                {mainView === "review" ? (
+                  <LawmindReviewPaneToggles
+                    visibility={reviewPaneVisibility}
+                    onToggle={toggleReviewPane}
+                    iconOnly
+                  />
+                ) : (
+                  <LawmindWorkspaceLayoutToggles
+                    sidebarCollapsed={sidebarCollapsed}
+                    wsShowEditor={wsShowEditor}
+                    wsShowChat={wsShowChat}
+                    canUseFilesystemBridge={canUseFilesystemBridge}
+                    matterCockpitOpen={matterCockpitOpen}
+                    onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
+                    onToggleEditor={() => {
+                      if (canUseFilesystemBridge && !matterCockpitOpen) {
+                        setWsShowEditor((v) => !v);
+                      }
+                    }}
+                    onToggleChat={() => {
+                      if (!matterCockpitOpen) {
+                        setWsShowChat((v) => !v);
+                      }
+                    }}
+                  />
+                )}
+              </div>
+            ) : null}
             <button
               type="button"
-              className={`lm-panel-toggle ${!wsShowEditor ? "lm-panel-toggle-off" : ""}`}
-              title={wsShowEditor ? "隐藏编辑器" : "显示编辑器"}
-              aria-pressed={wsShowEditor}
-              disabled={!canUseFilesystemBridge || mainView !== "workspace"}
-              onClick={() => {
-                if (mainView === "workspace" && canUseFilesystemBridge) {
-                  setWsShowEditor((v) => !v);
-                }
-              }}
+              className="lm-main-header-gear-btn"
+              onClick={() => setShowSettings(true)}
+              aria-label="设置"
+              title="设置"
             >
-              <span className="lm-panel-toggle-label">编辑</span>
-            </button>
-            <button
-              type="button"
-              className={`lm-panel-toggle ${!wsShowChat ? "lm-panel-toggle-off" : ""}`}
-              title={wsShowChat ? "隐藏对话区" : "显示对话区"}
-              aria-pressed={wsShowChat}
-              disabled={mainView !== "workspace"}
-              onClick={() => {
-                if (mainView === "workspace") {
-                  setWsShowChat((v) => !v);
-                }
-              }}
-            >
-              <span className="lm-panel-toggle-label">对话</span>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+                <path
+                  d="M6.5.75h3l.3 1.77a5.5 5.5 0 0 1 1.28.74l1.72-.58 1.5 2.6-1.42 1.19a5.6 5.6 0 0 1 0 1.06l1.42 1.19-1.5 2.6-1.72-.58a5.5 5.5 0 0 1-1.28.74l-.3 1.77h-3l-.3-1.77a5.5 5.5 0 0 1-1.28-.74l-1.72.58-1.5-2.6 1.42-1.19a5.6 5.6 0 0 1 0-1.06L1.7 5.28l1.5-2.6 1.72.58a5.5 5.5 0 0 1 1.28-.74L6.5.75Z"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                  strokeLinejoin="round"
+                />
+                <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.2" />
+              </svg>
             </button>
           </div>
-          {projectDir && (
-            <div className="lm-header-meta lm-header-project" title={projectDir}>
-              {projectDir.split(/[\\/]/).filter(Boolean).pop()}
-            </div>
-          )}
-          {currentMatterLabel && <div className="lm-header-meta">案件 {currentMatterLabel}</div>}
-          {!edition.loading && (
-            <div
-              className={`lm-header-meta lm-edition-badge lm-edition-${edition.edition}`}
-              title={`版本来源：${edition.source}`}
-            >
-              {edition.label}
-            </div>
-          )}
+          </div>
         </div>
+        {config?.apiBase && mainView !== "review" ? (
+          <LawmindReadinessStrip
+            health={health ?? undefined}
+            workspaceDir={config.workspaceDir}
+            apiReachable={!localServiceReconnecting}
+            modelCatalog={modelCatalog}
+            selectedModelId={selectedModelId}
+            onOpenApiWizard={openApiWizard}
+            onOpenSettings={() => setShowSettings(true)}
+            onOpenDoctor={() => {
+              setShowSettings(true);
+              requestAnimationFrame(() => {
+                document.getElementById("lawmind-settings-doctor")?.scrollIntoView({
+                  behavior: "smooth",
+                  block: "start",
+                });
+              });
+            }}
+            onVerifyModel={composeModelQuickTest}
+          />
+        ) : null}
         <div className="lm-main-body">
           {mainView === "workspace" && matterCockpitOpen && config ? (
             <div className="lm-main-workbench">
@@ -987,6 +1293,21 @@ export function App() {
                 workspaceDir={config.workspaceDir ?? null}
                 projectDir={projectDir}
                 onUseInChat={linkMatterToChat}
+                onOpenWorkflowLibrary={() => {
+                  setCollaborationDeskTab("workflows");
+                  setMainView("collaboration");
+                }}
+                onOpenChatSession={(sessionId, matterId) => {
+                  if (matterId?.trim()) {
+                    setContextMatterId(matterId.trim());
+                  }
+                  setMatterCockpitOpen(false);
+                  setSessionByAssistant((prev) => ({
+                    ...prev,
+                    [selectedAssistantId]: sessionId,
+                  }));
+                  setMainView("workspace");
+                }}
                 onOpenReview={({ taskId, matterId, statusFilter = "all", listMode = "all" }) => {
                   setReviewLaunchedFromMatter(true);
                   setReviewFocusTaskId(taskId);
@@ -1009,6 +1330,7 @@ export function App() {
                 initialMatterId={reviewFocusMatterId}
                 initialStatusFilter={reviewFocusStatus}
                 initialListMode={reviewFocusListMode}
+                externalRefreshToken={reviewRefreshVersion}
                 returnMatterId={reviewLaunchedFromMatter ? reviewFocusMatterId : null}
                 onReturnToMatter={() => {
                   if (reviewFocusMatterId) {
@@ -1023,6 +1345,22 @@ export function App() {
                   setMatterRefreshVersion((v) => v + 1);
                   void refreshLists();
                 }}
+                onGoToChat={({ taskId, matterId, prompt }) => {
+                  setContextTaskId(taskId);
+                  if (matterId?.trim()) {
+                    setContextMatterId(matterId.trim());
+                  }
+                  setMainView("workspace");
+                  if (prompt?.trim()) {
+                    setInput(prompt.trim());
+                    textareaRef.current?.focus();
+                  }
+                }}
+                onRevisionJobQueued={({ sessionId, assistantId, taskId }) => {
+                  void watchBackgroundRevisionSession({ sessionId, assistantId, taskId });
+                }}
+                paneVisibility={reviewPaneVisibility}
+                onToggleReviewPane={toggleReviewPane}
               />
             </div>
           ) : mainView === "collaboration" ? (
@@ -1034,13 +1372,37 @@ export function App() {
                   selectedAssistantId={selectedAssistantId}
                   delegations={delegations}
                   collabEvents={collabEvents}
-                  collabTab={collabTab}
-                  onSelectCollabTab={setCollabTab}
+                  gateHistory={gateHistory}
                   formatRelativeTime={formatRelativeTime}
                   onRefreshCollaboration={refreshCollaboration}
                   onOpenDelegationTargetChat={(d) => void openDelegationTargetWorkspaceChat(d)}
                   deskTab={collaborationDeskTab}
                   onDeskTabChange={setCollaborationDeskTab}
+                  composeModel={
+                    config?.apiBase
+                      ? {
+                          modelCatalog,
+                          selectedModelId,
+                          onModelSelect: handleModelSelect,
+                          onOpenComposeSettings: () => setShowSettings(true),
+                          onOpenApiWizard: openApiWizard,
+                          onComposeModelQuickTest: composeModelQuickTest,
+                          composeModelHint,
+                          composeModelQuickTestBusy,
+                          composeModelConfigured:
+                            health?.modelConfigured === true
+                              ? true
+                              : health?.modelConfigured === false
+                                ? false
+                                : undefined,
+                          chatLoading: loading,
+                        }
+                      : null
+                  }
+                  workflowModelLabel={workflowModelLabel}
+                  assistantDisplayById={assistantDisplayById}
+                  onReconnectLocalService={reconnectLocalService}
+                  localServiceReconnecting={localServiceReconnecting}
                 />
               </div>
             </div>
@@ -1075,10 +1437,12 @@ export function App() {
                   <div
                     className="lm-cursor-chat-pane"
                     style={{
+                      flex:
+                        canUseFilesystemBridge && wsShowEditor
+                          ? `0 0 ${wsChatColWidth}px`
+                          : "1 1 0",
                       width:
                         canUseFilesystemBridge && wsShowEditor ? wsChatColWidth : undefined,
-                      flex: !canUseFilesystemBridge || !wsShowEditor ? 1 : undefined,
-                      flexShrink: canUseFilesystemBridge && wsShowEditor ? 0 : undefined,
                       minWidth: 0,
                       minHeight: 0,
                     }}
@@ -1097,6 +1461,16 @@ export function App() {
                         onRename={(id, title) => void renameChatSession(id, title)}
                         onDelete={(id) => void deleteChatSession(id)}
                       />
+                      {config?.apiBase ? (
+                        <LawmindSessionHistorySidebar
+                          apiBase={config.apiBase}
+                          assistantId={selectedAssistantId}
+                          sessions={chatSessionList}
+                          activeSessionId={activeChatSessionId}
+                          busy={loading || chatSessionsLoading}
+                          onSelect={(id) => void selectChatSession(id)}
+                        />
+                      ) : null}
                       <LawmindChatMessagesColumn
                         selectedAssistantId={selectedAssistantId}
                         currentMessages={currentMessages}
@@ -1109,12 +1483,30 @@ export function App() {
                           textareaRef.current?.focus();
                         }}
                         onSendClarificationMessage={(text) => void sendChatMessage(text)}
+                        streamCompactLabels={streamCompactLabels}
                         fileChatPills={fileChatContextItems.map((it) => ({
                           id: it.id,
+                          relPath: it.relPath,
                           ...formatFileChatContextPill(it),
                         }))}
                         onRemoveFileChatPill={removeFileChatContextItem}
                         onClearFileChatPills={clearFileChatContext}
+                        contextTaskId={contextTaskId}
+                        apiBase={config?.apiBase}
+                        onOpenReview={() => {
+                          setReviewLaunchedFromMatter(false);
+                          setReviewFocusStatus("pending");
+                          setReviewFocusListMode("pending");
+                          setMainView("review");
+                          if (contextTaskId?.trim()) {
+                            setReviewFocusTaskId(contextTaskId.trim());
+                          }
+                        }}
+                        onDelegateAssist={() => openDelegateAssist()}
+                        delegateAssistEnabled={delegateAssistEnabled}
+                        revisionBackgroundActive={revisionBackgroundActive}
+                        chatSessionId={sessionByAssistant[selectedAssistantId] ?? activeChatSessionId}
+                        onResumeRequiresAction={handleResumeRequiresAction}
                       />
                     </div>
                     <LawmindChatComposeFooter
@@ -1135,13 +1527,35 @@ export function App() {
                       }}
                       onClearContext={clearContext}
                       onOpenComposeSettings={() => setShowSettings(true)}
-                      composeModelConfigured={
-                        health?.modelConfigured === true
-                          ? true
-                          : health?.modelConfigured === false
-                            ? false
-                            : undefined
-                      }
+                      onOpenApiWizard={openApiWizard}
+                      composeModelHint={composeModelHint}
+                      composeModelQuickTestBusy={composeModelQuickTestBusy}
+                      onComposeModelQuickTest={composeModelQuickTest}
+                      modelCatalog={modelCatalog}
+                      selectedModelId={selectedModelId}
+                      onModelSelect={handleModelSelect}
+                      onDelegateAssist={() => openDelegateAssist()}
+                      delegateAssistEnabled={delegateAssistEnabled}
+                      allowWebSearch={allowWebSearch}
+                      webSearchPolicyBlocked={health?.webSearchPolicyBlocked}
+                      onAllowWebSearchChange={setAllowWebSearch}
+                      apiBase={config?.apiBase}
+                      chatSessionId={sessionByAssistant[selectedAssistantId] ?? activeChatSessionId}
+                      queuedMessages={queuedMessages}
+                      cancelQueuedMessage={cancelQueuedMessage}
+                      onOpenTaskDrawer={() => setTaskDrawerOpen(true)}
+                      onOpenActionHub={() => setShowActionHub(true)}
+                      onOpenMemoryInspector={() => setShowSettings(true)}
+                      onOpenReview={() => {
+                        setReviewLaunchedFromMatter(false);
+                        setReviewFocusStatus("pending");
+                        setReviewFocusListMode("pending");
+                        setMainView("review");
+                        if (contextTaskId?.trim()) {
+                          setReviewFocusTaskId(contextTaskId.trim());
+                        }
+                      }}
+                      composeExtras={composeExtras}
                     />
                   </div>
                 ) : null}
@@ -1150,6 +1564,28 @@ export function App() {
           )}
         </div>
       </main>
+      {config?.apiBase ? (
+        <LawmindDelegateAssistDialog
+          open={delegateAssistOpen}
+          apiBase={config.apiBase}
+          fromAssistantId={selectedAssistantId}
+          parentSessionId={activeChatSessionId}
+          matterId={contextMatterId}
+          taskDefault={delegateTaskDefault}
+          assistants={assistants}
+          delegations={delegations}
+          modelCatalog={modelCatalog}
+          selectedModelId={selectedModelId}
+          onClose={() => setDelegateAssistOpen(false)}
+          onDelegated={({ toDisplayName }) => {
+            void refreshCollaboration();
+            void window.lawmindDesktop?.showNotification?.({
+              title: "LawMind · 委派已发起",
+              body: `已委派给「${toDisplayName}」，完成后会在本对话出现结果。`,
+            });
+          }}
+        />
+      ) : null}
       {showSidebarWorkbenchFiles &&
         config?.workspaceDir &&
         fileExplorerHost && (
@@ -1189,7 +1625,7 @@ export function App() {
                   title={matterCockpitOpen ? "关闭主区案件工作台，回到文件与对话" : "在主区打开案件工作台（驾驶舱）"}
                   onClick={() => setMatterCockpitOpen((v) => !v)}
                 >
-                  {matterCockpitOpen ? "隐藏工作台" : "案件工作台"}
+                  {matterCockpitOpen ? "关闭案件" : "案件"}
                 </button>
               </>
             }
@@ -1226,6 +1662,50 @@ export function App() {
           />
         </>
       ) : null}
+      {config?.apiBase ? (
+        <LawmindActionHub
+          apiBase={config.apiBase}
+          matterId={contextMatterId}
+          open={showActionHub}
+          onClose={() => setShowActionHub(false)}
+          onRefreshSummary={() => void refreshActionSummary()}
+          sessionRequiresActions={sessionRequiresActions}
+          sessionId={sessionByAssistant[selectedAssistantId] ?? activeChatSessionId}
+          onChatResumeComplete={() => void refreshActionSummary()}
+        />
+      ) : null}
+      {config?.apiBase ? (
+        <LawmindTaskDrawer
+          open={taskDrawerOpen}
+          onClose={() => setTaskDrawerOpen(false)}
+          apiBase={config.apiBase}
+          matterId={contextMatterId}
+        />
+      ) : null}
+      <LawmindToolApprovalDialog
+        open={toolApprovalDialogAction !== null}
+        action={toolApprovalDialogAction}
+        busy={loading}
+        onClose={() => setToolApprovalDialogAction(null)}
+        onReject={() => {
+          const action = toolApprovalDialogAction;
+          setToolApprovalDialogAction(null);
+          if (action) {
+            void handleResumeRequiresAction(action, "reject", undefined, undefined, {
+              skipApprovalDialog: true,
+            });
+          }
+        }}
+        onApprove={() => {
+          const action = toolApprovalDialogAction;
+          setToolApprovalDialogAction(null);
+          if (action) {
+            void handleResumeRequiresAction(action, "approve", undefined, undefined, {
+              skipApprovalDialog: true,
+            });
+          }
+        }}
+      />
     </div>
   );
 }

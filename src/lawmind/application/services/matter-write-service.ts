@@ -8,9 +8,39 @@
  */
 
 import path from "node:path";
+import { receiveMessageOnPort, MessageChannel } from "node:worker_threads";
 import { loadMatter, saveMatter, type MatterRecord } from "../../adapters/matter-storage/index.js";
 import { matterSchema } from "../../adapters/matter-storage/schemas.js";
 import { emit } from "../../audit/index.js";
+import { projectMatterToCaseMd } from "../matter-projection.js";
+
+const pendingMatterProjections = new Set<Promise<void>>();
+
+function awaitMatterProjectionInVitest(task: Promise<void>): void {
+  const { port1, port2 } = new MessageChannel();
+  void task.finally(() => {
+    port2.postMessage("done");
+  });
+  receiveMessageOnPort(port1);
+}
+
+function scheduleMatterProjection(workspaceDir: string, record: MatterRecord): void {
+  const task = projectMatterToCaseMd(workspaceDir, record)
+    .catch(() => {
+      // projection must not block business logic
+    })
+    .finally(() => {
+      pendingMatterProjections.delete(task);
+    });
+  pendingMatterProjections.add(task);
+  if (process.env.VITEST === "true") {
+    awaitMatterProjectionInVitest(task);
+  }
+}
+
+export async function drainMatterProjections(): Promise<void> {
+  await Promise.all(pendingMatterProjections);
+}
 
 function auditDir(workspaceDir: string): string {
   return path.join(workspaceDir, "audit");
@@ -44,10 +74,16 @@ export type MatterCreateInput = {
   clientId?: string;
 };
 
+type MatterCreateOptions = {
+  /** When false, caller will project CASE.md separately (avoids duplicate async work). */
+  projectCase?: boolean;
+};
+
 /** 创建 matter；若已存在直接返回（幂等）。 */
 export function createMatterIfMissing(
   workspaceDir: string,
   input: MatterCreateInput,
+  opts?: MatterCreateOptions,
 ): MatterRecord {
   const existing = loadMatter(workspaceDir, input.matterId);
   if (existing) {
@@ -76,7 +112,11 @@ export function createMatterIfMissing(
     void emitInvalid(workspaceDir, input.matterId, parsed.error.message);
     throw new Error(`Invalid matter draft for ${input.matterId}: ${parsed.error.message}`);
   }
-  return saveMatter(workspaceDir, parsed.data);
+  const saved = saveMatter(workspaceDir, parsed.data);
+  if (opts?.projectCase !== false) {
+    scheduleMatterProjection(workspaceDir, saved);
+  }
+  return saved;
 }
 
 export function updateMatterStatus(
@@ -88,7 +128,9 @@ export function updateMatterStatus(
   if (!existing) {
     return undefined;
   }
-  return saveMatter(workspaceDir, { ...existing, status, updatedAt: newTimestamp() });
+  const saved = saveMatter(workspaceDir, { ...existing, status, updatedAt: newTimestamp() });
+  scheduleMatterProjection(workspaceDir, saved);
+  return saved;
 }
 
 export function setMatterStrategy(
@@ -101,13 +143,15 @@ export function setMatterStrategy(
   if (!existing) {
     return undefined;
   }
-  return saveMatter(workspaceDir, {
+  const saved = saveMatter(workspaceDir, {
     ...existing,
     strategyStatus,
     nextActions: opts?.nextActions ?? existing.nextActions,
     openQuestionIds: opts?.openQuestionIds ?? existing.openQuestionIds,
     updatedAt: newTimestamp(),
   });
+  scheduleMatterProjection(workspaceDir, saved);
+  return saved;
 }
 
 export function attachDeliverableId(

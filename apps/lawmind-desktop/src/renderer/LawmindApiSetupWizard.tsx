@@ -6,6 +6,8 @@ type RetrievalMode = "single" | "dual";
 type Props = {
   wizApiKey: string;
   setWizApiKey: (v: string) => void;
+  /** When true, saving with an empty key field keeps the existing key on disk. */
+  wizHasExistingKey?: boolean;
   wizBaseUrl: string;
   setWizBaseUrl: (v: string) => void;
   wizModel: string;
@@ -27,6 +29,7 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
   const {
     wizApiKey,
     setWizApiKey,
+    wizHasExistingKey = false,
     wizBaseUrl,
     setWizBaseUrl,
     wizModel,
@@ -46,8 +49,9 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
       <div className="lm-wizard">
         <h2>欢迎使用 LawMind</h2>
         <p className="lm-wizard-lead lm-settings-hint">
-          请配置模型 API（写入用户目录下的 <code className="lm-md-code">.env.lawmind</code>
-          ），可选自定义工作区路径。
+          请配置模型 API。保存时会写入本机用户目录下的{" "}
+          <code className="lm-md-code">.env.lawmind</code>（下次打开无需重填），并<strong>真实调用</strong>
+          一次模型接口验证 Key 是否可用；验证通过后才算配置完成。
         </p>
         <label className="lm-field">
           <span>API Key</span>
@@ -56,7 +60,9 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
             autoComplete="off"
             value={wizApiKey}
             onChange={(e) => setWizApiKey(e.target.value)}
-            placeholder="LAWMIND / Qwen 等"
+            placeholder={
+              wizHasExistingKey ? "留空则保留已保存的 Key" : "LAWMIND / Qwen / DashScope 等"
+            }
           />
         </label>
         <label className="lm-field">
@@ -81,30 +87,35 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
             </button>
           </div>
         </label>
-        <fieldset className="lm-field lm-field-reset">
-          <legend className="lm-meta">检索策略（引擎工具 research / 工作流）</legend>
-          <label className="lm-field-radio lm-field-radio-row">
-            <input
-              type="radio"
-              name="wiz-retrieval"
-              checked={wizRetrievalMode === "single"}
-              onChange={() => setWizRetrievalMode("single")}
-            />
-            <span>统一模型 — 通用与法律检索用同一套 API</span>
-          </label>
-          <label className="lm-field-radio">
-            <input
-              type="radio"
-              name="wiz-retrieval"
-              checked={wizRetrievalMode === "dual"}
-              onChange={() => setWizRetrievalMode("dual")}
-            />
-            <span>
-              通用 + 法律专用 — 通用用上方 Key；法律检索需在 <code>.env.lawmind</code> 配置{" "}
-              <code>LAWMIND_CHATLAW_*</code> / <code>LAWMIND_LAWGPT_*</code> 等（未配时仍回退为通用模型）。
-            </span>
-          </label>
-        </fieldset>
+        <p className="lm-meta lm-settings-hint">
+          检索策略默认与上方模型共用同一套 API；如需法律专用检索，可在高级选项中切换。
+        </p>
+        <details className="lm-wizard-advanced">
+          <summary className="lm-meta">高级：检索策略（引擎 research / 工作流）</summary>
+          <fieldset className="lm-field lm-field-reset">
+            <label className="lm-field-radio lm-field-radio-row">
+              <input
+                type="radio"
+                name="wiz-retrieval"
+                checked={wizRetrievalMode === "single"}
+                onChange={() => setWizRetrievalMode("single")}
+              />
+              <span>统一模型 — 通用与法律检索用同一套 API</span>
+            </label>
+            <label className="lm-field-radio">
+              <input
+                type="radio"
+                name="wiz-retrieval"
+                checked={wizRetrievalMode === "dual"}
+                onChange={() => setWizRetrievalMode("dual")}
+              />
+              <span>
+                通用 + 法律专用 — 通用用上方 Key；法律检索需在 <code>.env.lawmind</code> 配置{" "}
+                <code>LAWMIND_CHATLAW_*</code> / <code>LAWMIND_LAWGPT_*</code> 等（未配时仍回退为通用模型）。
+              </span>
+            </label>
+          </fieldset>
+        </details>
         {wizError ? (
           <div className="lm-callout lm-callout-danger" role="alert">
             <p className="lm-callout-body">{wizError}</p>
@@ -126,10 +137,10 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
           <button
             type="button"
             className="lm-btn"
-            disabled={wizBusy || !wizApiKey.trim()}
+            disabled={wizBusy || (!wizApiKey.trim() && !wizHasExistingKey)}
             onClick={onSave}
           >
-            {wizBusy ? "保存中…" : "保存并重启服务"}
+            {wizBusy ? "验证并保存…" : "验证并保存"}
           </button>
         </div>
       </div>

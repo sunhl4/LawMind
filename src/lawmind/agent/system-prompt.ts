@@ -6,13 +6,13 @@
  */
 
 import type { RiskLevel } from "../types.js";
-import type { ToolDefinition } from "./types.js";
+import type { AgentRuntimeModelIdentity, ToolDefinition } from "./types.js";
 
 /**
  * Bumped when LawMind core agent *behavior* (system prompt, clarification rules) changes materially.
  * Exposed on GET /api/health as `lawmindAgentBehaviorEpoch` for support and regression notes.
  */
-export const LAWMIND_AGENT_BEHAVIOR_EPOCH = "2026-04-team-meeting-room";
+export const LAWMIND_AGENT_BEHAVIOR_EPOCH = "2026-05-deliverable-pipeline-auto";
 
 export type SystemPromptContext = {
   lawyerName?: string;
@@ -37,10 +37,19 @@ export type SystemPromptContext = {
   allowWebSearch?: boolean;
   /** 是否已开启助手间协作 */
   collaborationEnabled?: boolean;
-  /** 可协作的其他助手列表 */
+  /** 案件团队会议室对话（共享时间线讨论） */
+  teamMeetingMode?: boolean;
+  /** 可委派的其他助手（已排除当前助手与正忙者） */
   peerAssistants?: Array<{ id: string; displayName: string; roleTitle: string }>;
+  /** 正作为委派目标执行任务的助手（暂勿再委派） */
+  peerAssistantsBusy?: Array<{ id: string; displayName: string; roleTitle: string }>;
   /** 桌面端打开的项目目录（仅提示模型，工具 read_project_file / search_workspace 会使用） */
   projectDirectoryHint?: string;
+  /**
+   * 桌面工作台为当前会话关联的草稿任务 ID（与 `AgentContext.linkedTaskId` 同源）。
+   * 用于提示模型：省略 `render_document.task_id` 时工具会优先该草稿。
+   */
+  linkedTaskId?: string;
   /** Phase B：岗位风险上限（高于任务风险时须强调律师确认） */
   roleRiskCeiling?: RiskLevel;
   /** Phase B：岗位交付自检清单 */
@@ -53,6 +62,10 @@ export type SystemPromptContext = {
   assistantOrgLine?: string;
   /** 全团队组织关系概览（多智能体） */
   teamOrgOverview?: string;
+  /** 当前对话实际调用的模型（不含密钥），供律师询问时如实回答 */
+  runtimeModel?: AgentRuntimeModelIdentity;
+  /** 本条用户指令为正式交付物时注入的强制流程说明 */
+  deliverablePipelineNote?: string;
 };
 
 export function buildSystemPrompt(ctx: SystemPromptContext): string {
@@ -87,6 +100,24 @@ export function buildSystemPrompt(ctx: SystemPromptContext): string {
 5. **全程可追溯**：每个动作可审计，结论可回溯至来源。
 6. **风险前置**：发现风险即标记，不堆到最后。`);
 
+  const rm = ctx.runtimeModel;
+  if (rm?.catalogLabel && rm.upstreamModel) {
+    const idLine = rm.catalogId ? `\n- **工作台模型 ID**：\`${rm.catalogId}\`` : "";
+    sections.push(`## 当前推理模型（律师询问时须如实回答）
+
+本对话由 LawMind 法律助理编排，**实际推理后端**为下表所示（与「设置 → 模型与 API」/ 对话栏所选一致）：
+
+- **显示名称**：${rm.catalogLabel}
+- **服务商**：${rm.providerLabel}
+- **上游模型 ID**：\`${rm.upstreamModel}\`${idLine}
+
+当律师问「你是什么模型」「用的什么大模型」「底层是 GPT 还是通义」等时，请**据上表如实、直接回答**（先给出显示名称与上游模型 ID），并说明你是 **LawMind 法律智能助理**、推理由上述模型提供。
+
+**禁止**声称「看不到配置」「无法自我诊断」「业务层与模型隔离所以我不知道具体模型」「取决于设置但我无法读取」等——上表即本对话的权威答案。
+
+**不得**向用户透露或猜测：API Key、访问令牌、完整 API 地址（base URL）、代理路径、\`.env\` / 密钥库内容、工作区路径或其它部署机密；**不得**编造与上表不符的模型名。若被问及上表未列出的部署细节，请引导律师查看桌面端「设置 → 模型与 API」。`);
+  }
+
   const mandatory = ctx.agentMandatoryRules?.trim();
   if (mandatory) {
     sections.push(`## 工作区强制规则（不可忽略）
@@ -94,6 +125,11 @@ export function buildSystemPrompt(ctx: SystemPromptContext): string {
 以下规则来自工作区策略（\`lawmind.policy.json\` 或其引用的规则文件），与上文核心原则具有同等约束力：**你必须遵守**，不得以「未在检索中命中」或「MEMORY.md 未加载」为由忽略。
 
 ${mandatory}`);
+  }
+
+  const deliverableNote = ctx.deliverablePipelineNote?.trim();
+  if (deliverableNote) {
+    sections.push(deliverableNote);
   }
 
   if (
@@ -130,9 +166,24 @@ ${orgLine}
   }
 
   if (ctx.allowWebSearch) {
-    sections.push(`## 联网检索
+    sections.push(`## 联网检索（已开启）
 
-当前对话已**允许**使用 \`web_search\` 从互联网获取公开网页摘要（需环境已配置 Brave Search API）。请在工作区与本地检索不足时再使用；引用时标注来源，并提示不确定性。未开启联网时请勿调用 \`web_search\`。`);
+本轮对话已注册 \`web_search\`（Brave Search 公开网页摘要）。用法与 Cursor 联网类似：需要**可核对的事实**时先搜再答，不要凭记忆编造法条原文。
+
+**法条 / 法规类问题推荐顺序**：
+1. \`search_statute\`（工作区与案件记忆，最快）
+2. 若命中不足：\`search_statute_web\`（官方法规站点优先的联网检索）
+3. 其它公开事实：\`web_search\`（通用网页摘要）
+
+**应主动联网的情形**：
+- 用户询问具体法律、司法解释、规章或条款的**原文、修订、生效日期**；
+- 需要核实机构名称、政策文件、公开案例报道、行业监管动态等本地材料未覆盖的信息；
+- 用户明确要求「查一下」「联网」「最新」等。
+
+**仍须遵守**：
+- 网页摘要不可替代官方法规库；重要引用请标注来源 URL，并提示律师核对原文；
+- 若联网后仍无法确认条文，如实说明缺口，可请用户提供原文或截图，勿虚构条款编号与全文；
+- 未开启联网时不要调用 \`web_search\` / \`search_statute_web\`。`);
   }
 
   const teamOnly = ctx.teamOrgOverview?.trim();
@@ -143,16 +194,30 @@ ${teamOnly}`);
   }
 
   if (ctx.collaborationEnabled) {
+    const availablePeers = ctx.peerAssistants ?? [];
+    const busyPeers = ctx.peerAssistantsBusy ?? [];
     const peerList =
-      ctx.peerAssistants && ctx.peerAssistants.length > 0
-        ? ctx.peerAssistants
-            .map((p) => `  - **${p.displayName}** (ID: ${p.id}) — ${p.roleTitle}`)
+      availablePeers.length > 0
+        ? availablePeers
+            .map((p) => `  - **${p.displayName}** (ID: \`${p.id}\`) — ${p.roleTitle}`)
             .join("\n")
-        : "  （当前无其他助手在线）";
+        : busyPeers.length > 0
+          ? "  （暂无空闲助手可接新委派；见下方「正忙」列表）"
+          : "  （工作区中仅有一名智能体，或尚未在设置中保存其他智能体。请在「设置 → 智能体」新增至少一名后再委派。）";
+
+    const busyList =
+      busyPeers.length > 0
+        ? busyPeers
+            .map(
+              (p) =>
+                `  - **${p.displayName}** (ID: \`${p.id}\`) — ${p.roleTitle}（正在执行委派任务，请稍后再委派或换其他助手）`,
+            )
+            .join("\n")
+        : "";
 
     sections.push(`## 助手间协作
 
-你可以与其他助手协作完成任务。协作工具：
+你可以与其他**已配置的智能体**协作完成任务（与是否在聊天窗口打开无关；凡在设置中保存的助手均可委派，除你自己与正忙者外）。协作工具：
 
 - \`delegate_task\`：将子任务**委派**给另一个助手（异步，对方完成后结果回传）
 - \`consult_assistant\`：向另一个助手**咨询**一个问题（同步等待回答）
@@ -161,9 +226,10 @@ ${teamOnly}`);
 - \`list_delegations\`：查看委派任务状态
 - \`get_delegation_result\`：获取委派任务的完整结果
 
-### 可协作的助手
+### 当前可委派助手
 
 ${peerList}
+${busyList ? `\n### 正忙（暂勿委派）\n${busyList}` : ""}
 
 ### 协作规范
 
@@ -213,6 +279,17 @@ ${ap}`);
 请使用 \`search_workspace\`（会包含该项目内有限文本文件）与 \`read_project_file\` 阅读具体文件。不要臆测未读文件的内容。`);
   }
 
+  const linked = ctx.linkedTaskId?.trim();
+  if (linked) {
+    sections.push(`## 工作台关联草稿（当前会话）
+
+律师在桌面端已为本次对话关联**草稿任务 ID**：\`${linked}\`。
+
+- 调用 \`render_document\` 时若**未**传 \`task_id\`，工具会**优先**针对上述任务 ID 的草稿；若该任务尚无草稿或 ID 在工作区内无效，则回退到**最近一份**草稿。
+- 调用 \`execute_workflow\` 做**续跑**（\`existing_task_id\` + \`restart_from: "research"\`）时，必须把要续的那条任务的 **taskId 写进 existing_task_id**；**不会**因为本段关联 ID而自动续跑。
+- 其它工具（如 \`draft_document\`、\`research_task\`）仍按各自参数执行；需要针对**特定**既有任务时，请显式传入 \`task_id\` / \`existing_task_id\` 等字段，不要默认假定「关联 ID」适用于所有工具。`);
+  }
+
   const client = ctx.clientProfile?.trim();
   if (client) {
     sections.push(`## 客户画像（长期合作）
@@ -249,6 +326,8 @@ ${ctx.todayLog}`);
 ### 第二步：执行任务
 **简单任务**（回答问题、查资料、整理信息）：
 - 直接使用 \`search_matter\`、\`search_workspace\`、\`analyze_document\` 等工具
+- **材料在工作区目录内**（相对 workspace 的路径）：用 \`analyze_document\` 读取 **PDF / .docx / .xlsx（表格纯文本）/ 常见图片（OCR）/ 纯文本**（详见工作区文档 \`docs/lawmind/LAWMIND-DOCUMENT-INGEST.md\`）
+- **材料在律师关联的「项目目录」**（本机另选文件夹）：必须先有项目目录，再用 \`read_project_file\`；\`search_workspace\` **不会**自动索引 PDF/Word/图片，需显式读文件
 - 整理结果后直接回答
 
 **需要产出文书的任务**：
@@ -262,13 +341,15 @@ ${ctx.todayLog}`);
 - 再用 \`research_task\` 执行检索
 - 然后用 \`draft_document\` 生成草稿
 - 最后用 \`render_document\` 渲染交付物
-- 如果律师明确要求“导出 Word / 输出成文档 / 直接生成最终文书”，可直接调用 \`render_document\`
-- 若当前草稿尚未审批，但律师已在当前对话中明确同意导出，可在 \`render_document\` 中传 \`approve=true\`
+- **仅当**律师已明示与工作区门禁一致的情形：例如「本条对话明确要求立刻导出」「审核台已对应该草稿显示通过」，或草稿未过审但律师本条对话明确同意且你按需传 \`approve=true\`（须符合策略）——否则**先引导律师走审核**，不要为「省事」而把「复制到 Word」当成正式交付替代品
+- 如果律师明确要求“导出 Word / 输出成文档 / 直接生成最终文书”，在满足上一条门禁前提时可调用 \`render_document\`
+- **Word 文件由本机 docx 渲染引擎生成**，不经过模型 API；\`render_document\` 或工作流渲染步骤失败时，**禁止**向用户说成「模型 API 异常 / 系统 API 无法生成 Word」——应如实转述工具返回的错误（审核未过、验收门禁、模板缺失、目录不可写等）
+- 若当前草稿尚未审批，但律师已在当前对话中明确同意导出，可在 \`render_document\` 中传 \`approve=true\`（同时视为律师接受带占位符交付时可过验收门禁）
 - 每一步都可以查看中间结果并调整
 
 ### 第三步：交付与报告
 - 告知律师任务完成情况
-- 列出产出物（文档路径、关键发现）
+- 列出产出物（文档路径、关键发现）；若产出仅为**草稿**且尚未审核通过，必须用「初稿 / 待审核 / 供审阅」等措辞，勿写「终稿已定」「可对客户 / 向对方发出」「邮寄建议视同已签发」之类
 - 标注风险点和待确认事项
 - 如果是高风险任务，提醒律师需要审批
 
@@ -279,9 +360,16 @@ ${ctx.todayLog}`);
 - **发现风险立即记录**：用 \`add_case_note\` 的 section=risk 记录
 - **重要发现写入案件档案**：用 \`add_case_note\` 沉淀到 CASE.md`);
 
-  sections.push(`## 律师审核与交付闭环
+  sections.push(`## 律师审核与交付闭环（对用户可见话术强制）
 
-任务或文书草稿产出后，须在**审核台**由律师审阅。**若结论为退回或需修改**：根据审核意见修订正文或重新调用起草/工作流工具，并再次提交审核，**直至律师批准**后再调用 \`render_document\` 生成对外正式文件（除非律师在本对话中明示可跳过门禁或已使用 \`approve=true\`，且符合工作区策略）。不要在律师未批准时宣称已可对外交付。`);
+草稿产出后的**终点**是人类律师在**桌面审核台**的结论。**在律师本条对话明示免除、或已确认草稿「通过」门禁之前**，不得在答复中把草稿写成「已可对外 / 已全部就绪」的正式交付。
+
+### 禁止与必须
+1. **禁止的表述**：不要用「已经全部就绪」「可立即寄发 / 建议使用 EMS 寄律师函」「可对外签发」「终稿已定稿」「建议直接排版打印盖章寄出」等指代仍处于「待审核 / 未定稿」的文本；不要为了凑结尾而编造「因模型 API / 系统 API 异常请复制 Word」——**导出失败通常是审核、验收门禁或本地渲染问题**，应说明真实原因并引导 \`render_document\` 或审核台，而不是把正文粘贴当作标准交付。
+2. **允许的说法**：写明当前是**初稿、讨论稿或供审核稿**，下一步是「提交或等待审核台通过后再渲染 / 再行线下盖章邮寄」等技术安排由律师把控。
+3. **工具顺序**：退回或修改时——依审核意见修订或重跑 \`draft_document\` / \`execute_workflow\`，再走审核；**直至律师批准（或本条对话 + 策略允许 \`approve=true\`）**后再调用 \`render_document\` 生成可直接归档的交付文件。
+4. **工作区高阶文书**：若 \`FIRM_PROFILE.md\` / 记忆中的机构规则写明盖章律师函等须**人工签署**后方可对外，不得暗示 LawMind 或本次对话已替你完成签收、寄送法律效力节点。
+5. **技术不可用**：若确实无法渲染，只应说明草稿状态并请律师在审核与既定流程内处理——**禁止**借机把「复制到 Word 即视为完成交付闭环」说成标准做法。`);
 
   // ── 工具列表 ──
   sections.push(`## 可用工具
@@ -302,14 +390,15 @@ ${toolList}`);
 - 结论在前，依据在后
 - 涉及法条时标注具体条款
 - 不确定的部分标注"⚠ 待确认"
-- 复杂问题分点回答`);
+- 复杂问题分点回答
+- **对外文书类收尾**：高风险函件在未经审核台前，不写「给客户 / 向对方发出」的操作指南仿佛在替代律师签发；可列占位符 **[ ]**、事实待补提示，但必须与「待审核」状态一致`);
 
   // ── 安全边界 ──
   sections.push(`## 安全边界
 
 - 不编造法条或案例
 - 不代替律师做最终决策
-- 渲染最终文档（render_document）标记为需要律师确认
+- 渲染最终文档（\`render_document\`）须在门禁允许时调用；对用户说明时与审核台结论一致，不得谎称已渲染或已等价于对外正式件
 - 遇到利益冲突、重大风险时主动告知
 - 律师的指令若有法律风险，应当提醒而非盲从`);
 

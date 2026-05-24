@@ -14,10 +14,12 @@
     "typecheck": "tsc --noEmit",
     "dist:electron": "pnpm bundle:server && pnpm vendor:node && pnpm build:renderer && electron-builder",
     "test:e2e": "playwright test",
+    "test:e2e:electron": "playwright test --config playwright.electron.config.ts",
     "test:e2e:install": "playwright install chromium"
   },
   "devDependencies": {
     "@playwright/test": "1.58.2",
+    "playwright": "1.58.2",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
     "@vitejs/plugin-react": "^4.3.4",
@@ -29,7 +31,9 @@
     "wait-on": "^8.0.1"
   },
   "dependencies": {
+    "@tanstack/react-virtual": "^3.13.12",
     "electron-updater": "^6.8.3",
+    "keytar": "^7.9.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

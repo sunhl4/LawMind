@@ -17,6 +17,8 @@ import {
   clarificationGateMiddleware,
   composeToolPipeline,
   executeMiddleware,
+  subprocessSandboxMiddleware,
+  matterScopeMiddleware,
   roleAllowlistMiddleware,
   timeoutMiddleware,
   unknownToolMiddleware,
@@ -188,6 +190,44 @@ describe("tool-pipeline middlewares", () => {
     ).rejects.toThrow(/timed out/);
   });
 
+  it("subprocessSandboxMiddleware bypasses next when sandbox disabled", async () => {
+    let nextCalled = false;
+    const call = buildCall(workspaceDir, {
+      toolName: "render_document",
+      policyOverride: { toolSandboxEnabled: false },
+    });
+    const result = await subprocessSandboxMiddleware(call, async () => {
+      nextCalled = true;
+      return { ok: true, data: "inline" };
+    });
+    expect(nextCalled).toBe(true);
+    expect(result.data).toBe("inline");
+  });
+
+  it("subprocessSandboxMiddleware runs inline sandbox for high-risk tools when enabled", async () => {
+    const tool: AgentTool = {
+      definition: {
+        name: "add_case_note",
+        description: "note",
+        parameters: { note: { type: "string", required: true, description: "n" } },
+      },
+      execute: async () => ({ ok: false, error: "should not run in parent" }),
+    };
+    const call = buildCall(workspaceDir, {
+      tool,
+      toolName: "add_case_note",
+      args: { note: "test", matterId: "m1" },
+      policyOverride: { toolSandboxEnabled: true },
+    });
+    const result = await subprocessSandboxMiddleware(call, async () => ({
+      ok: false,
+      error: "next should not run",
+    }));
+    expect(result.sandboxed).toBe(true);
+    expect(result.ok).toBe(false);
+    expect(result.error).not.toBe("next should not run");
+  });
+
   it("executeMiddleware invokes tool.execute and returns its result", async () => {
     const tool: AgentTool = {
       definition: baseDef,
@@ -212,6 +252,37 @@ describe("tool-pipeline middlewares", () => {
     expect(result.error).toMatch(/Tool error.*boom/);
   });
 
+  it("matterScopeMiddleware blocks matter tools without matterId", async () => {
+    const tool: AgentTool = {
+      definition: { ...baseDef, name: "search_matter" },
+      execute: async () => ({ ok: true }),
+    };
+    const call = buildCall(workspaceDir, {
+      tool,
+      toolName: "search_matter",
+      args: { query: "x" },
+      ctxOverride: { matterId: undefined },
+    });
+    const result = await matterScopeMiddleware(call, async () => ({ ok: true }));
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/绑定案件/);
+  });
+
+  it("matterScopeMiddleware allows matter_id in args", async () => {
+    const tool: AgentTool = {
+      definition: { ...baseDef, name: "search_matter" },
+      execute: async () => ({ ok: true, data: "hit" }),
+    };
+    const call = buildCall(workspaceDir, {
+      tool,
+      toolName: "search_matter",
+      args: { query: "x", matter_id: "case-1" },
+      ctxOverride: { matterId: undefined },
+    });
+    const result = await matterScopeMiddleware(call, async () => ({ ok: true, data: "hit" }));
+    expect(result.ok).toBe(true);
+  });
+
   it("buildDefaultToolPipeline runs end-to-end happy path", async () => {
     const tool: AgentTool = {
       definition: baseDef,
@@ -222,5 +293,29 @@ describe("tool-pipeline middlewares", () => {
     const result = await run(call);
     expect(result.ok).toBe(true);
     expect(result.data).toBe("ok");
+  });
+
+  it("normalizes write_document path alias before schema validation", async () => {
+    const tool: AgentTool = {
+      definition: {
+        name: "write_document",
+        description: "write",
+        category: "draft",
+        parameters: {
+          file_path: { type: "string", description: "path", required: true },
+          content: { type: "string", description: "body", required: true },
+        },
+      },
+      execute: async (args) => ({ ok: true, data: args }),
+    };
+    const run = composeToolPipeline(buildDefaultToolPipeline());
+    const call = buildCall(workspaceDir, {
+      tool,
+      toolName: "write_document",
+      args: { path: "notes/x.md", content: "hello" },
+    });
+    const result = await run(call);
+    expect(result.ok).toBe(true);
+    expect((result.data as { file_path?: string }).file_path).toBe("notes/x.md");
   });
 });

@@ -15,6 +15,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { apiGetJson, errorMessage } from "./api-client";
+import { scrollToSourceAnchor } from "./lawmind-source-anchor";
+import { LawmindSourceAnnotations } from "./LawmindSourceAnnotations.js";
 
 /** API `kind` string; 常见值含 statute、regulation、case、court_view、book、internal、other 等。 */
 export type SourcePreviewKind = string;
@@ -37,7 +39,7 @@ export type SourcePreviewPayload = {
     model: "general" | "legal";
   }>;
   taskId: string;
-  sectionsCiting: Array<{ heading: string }>;
+  sectionsCiting: Array<{ heading: string; anchorId?: string; excerpt?: string }>;
 };
 
 type FetchState =
@@ -53,6 +55,7 @@ type Props = {
   taskId?: string;
   /** Optional override label (defaults to the source ID). */
   label?: string;
+  matterId?: string;
 };
 
 function kindLabel(kind: string): string {
@@ -79,7 +82,7 @@ function kindLabel(kind: string): string {
  * the popover's max-width. We rely on CSS to keep it readable on narrow panels.
  */
 export function LawmindSourcePill(props: Props): ReactNode {
-  const { apiBase, sourceId, taskId, label } = props;
+  const { apiBase, sourceId, taskId, label, matterId } = props;
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<FetchState>({ kind: "idle" });
   const cacheRef = useRef<SourcePreviewPayload | null>(null);
@@ -160,7 +163,9 @@ export function LawmindSourcePill(props: Props): ReactNode {
               <p className="lm-callout-body">{state.message}</p>
             </div>
           ) : null}
-          {state.kind === "ready" ? <SourcePopoverBody data={state.data} /> : null}
+          {state.kind === "ready" ? (
+            <SourcePopoverBody apiBase={apiBase} matterId={matterId} data={state.data} />
+          ) : null}
           {state.kind === "idle" ? <div className="lm-meta">悬停以加载详情</div> : null}
         </div>
       ) : null}
@@ -179,8 +184,12 @@ function openSourceInSystemBrowser(url: string): void {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
-function SourcePopoverBody(props: { data: SourcePreviewPayload }): ReactNode {
-  const { data } = props;
+function SourcePopoverBody(props: {
+  apiBase: string;
+  matterId?: string;
+  data: SourcePreviewPayload;
+}): ReactNode {
+  const { apiBase, matterId, data } = props;
   const { source, supportingClaims, sectionsCiting } = data;
   return (
     <div className="lm-source-popover-body">
@@ -219,9 +228,21 @@ function SourcePopoverBody(props: { data: SourcePreviewPayload }): ReactNode {
       {sectionsCiting.length > 0 ? (
         <div className="lm-source-popover-section">
           <div className="lm-source-popover-section-title">本草稿引用章节</div>
-          <ul>
+          <ul className="lm-source-popover-sections">
             {sectionsCiting.map((s) => (
-              <li key={s.heading}>「{s.heading}」</li>
+              <li key={s.anchorId ?? s.heading}>
+                <span>「{s.heading}」</span>
+                {s.excerpt ? <p className="lm-meta">{s.excerpt}</p> : null}
+                {s.anchorId ? (
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-secondary lm-btn-sm"
+                    onClick={() => scrollToSourceAnchor(s.anchorId!)}
+                  >
+                    跳转到正文
+                  </button>
+                ) : null}
+              </li>
             ))}
           </ul>
         </div>
@@ -241,6 +262,12 @@ function SourcePopoverBody(props: { data: SourcePreviewPayload }): ReactNode {
           </ul>
         </div>
       ) : null}
+      <LawmindSourceAnnotations
+        apiBase={apiBase}
+        sourceId={source.id}
+        taskId={data.taskId || undefined}
+        matterId={matterId}
+      />
     </div>
   );
 }

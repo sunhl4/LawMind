@@ -92,6 +92,10 @@ export const queueItemSchema = z.object({
   detail: z.string().optional(),
   relatedTaskId: z.string().optional(),
   relatedDeliverableId: z.string().optional(),
+  dependsOn: z.array(z.string()).optional(),
+  blockedBy: z.array(z.string()).optional(),
+  blockedReason: z.string().optional(),
+  phase: z.enum(["plan", "research", "draft", "review", "render"]).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

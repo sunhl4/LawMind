@@ -32,4 +32,10 @@ export type LawmindSettingsAppConfig = {
 export type LawmindSettingsHealth = {
   modelConfigured: boolean;
   dualLegalConfigured?: boolean;
+  webSearchApiKeyConfigured?: boolean;
+  webSearchPolicyBlocked?: boolean;
+  modelName?: string | null;
+  modelEnvFileExists?: boolean;
+  draftWithModelEnabled?: boolean;
+  draftWithModelActive?: boolean;
 } | null;

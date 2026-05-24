@@ -2,6 +2,13 @@ import type { AssistantRow } from "./lawmind-settings-models.ts";
 import type { MatterOverview } from "../../../../src/lawmind/types.ts";
 import { apiGetJson } from "./api-client";
 
+export type WorkspaceStandardCheck = {
+  id: string;
+  label: string;
+  state: "ok" | "warn" | "missing";
+  hint: string;
+};
+
 export type HealthPayload = {
   ok?: boolean;
   /** 主对话模型 API 是否已配置（来自 GET /api/health） */
@@ -9,6 +16,84 @@ export type HealthPayload = {
   retrievalMode?: string;
   dualLegalConfigured?: boolean;
   webSearchApiKeyConfigured?: boolean;
+  modelName?: string | null;
+  modelEnvFileExists?: boolean;
+  edition?: {
+    id?: string;
+    label?: string;
+    features?: {
+      strictDangerousToolApproval?: boolean;
+      auditIntegrityExport?: boolean;
+    };
+  };
+  policy?: {
+    networkAllowlist?: string[] | null;
+    networkAllowlistEnforced?: boolean | null;
+    loaded?: boolean;
+    allowWebSearch?: boolean | null;
+  };
+  usageSummary?: {
+    entries?: number;
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+    since?: string;
+    until?: string;
+  };
+  doctor?: {
+    taskCount?: number;
+    draftCount?: number;
+    auditJsonlFileCount?: number;
+    researchSnapshotCount?: number;
+    nodeVersion?: string;
+    lawmindPackageVersion?: string | null;
+    memoryTruthSources?: {
+      memoryMd?: boolean;
+      lawyerProfile?: boolean;
+      firmProfile?: boolean;
+      clientProfileRoot?: boolean;
+      clientProfileFilesUnderClients?: number;
+    };
+    workspaceStandard?: {
+      ok?: boolean;
+      checks?: WorkspaceStandardCheck[];
+    };
+    sessionHealth?: {
+      score?: number;
+      grade?: "good" | "attention" | "risk";
+      summary?: string;
+      signals?: Array<{ id: string; label: string; severity: string }>;
+    };
+    usageSummary?: HealthPayload["usageSummary"];
+    integrations?: {
+      connectors?: Array<{
+        id: string;
+        label: string;
+        phase: "M1" | "M2" | "M3";
+        status: "active" | "disabled" | "unconfigured";
+        hint?: string;
+      }>;
+    };
+    searchIndex?: {
+      ready?: boolean;
+      rowCount?: number;
+      auditRows?: number;
+      sessionRows?: number;
+      lastRebuildAt?: string;
+      truncated?: boolean;
+    };
+    p2?: {
+      toolSandbox?: {
+        enabled?: boolean;
+        source?: "env" | "policy" | "off";
+        sandboxedToolNames?: string[];
+      };
+      teamMemorySync?: {
+        allowed?: boolean;
+        reason?: string;
+      };
+    };
+  };
 };
 
 export type TaskRow = {
@@ -67,6 +152,25 @@ export type CollabEvent = {
   timestamp: string;
 };
 
+export type GateHistoryItem = {
+  eventId: string;
+  taskId: string;
+  timestamp: string;
+  actor: string;
+  actorId?: string;
+  source: string;
+  executionState?: {
+    phase: string;
+    status: string;
+    detail?: string;
+  };
+  gateDecisions: Array<{
+    gate: string;
+    decision: string;
+    reason?: string;
+  }>;
+};
+
 export type PresetRow = {
   id: string;
   displayName: string;
@@ -116,14 +220,17 @@ export async function loadAssistantsPayload(apiBase: string): Promise<{
 export async function loadCollaborationPayload(apiBase: string): Promise<{
   delegations: DelegationRow[];
   events: CollabEvent[];
+  gateHistory: GateHistoryItem[];
 }> {
-  const [dr, er] = await Promise.all([
+  const [dr, er, gh] = await Promise.all([
     apiGetJson<{ ok?: boolean; delegations?: DelegationRow[] }>(apiBase, "/api/delegations"),
     apiGetJson<{ ok?: boolean; events?: CollabEvent[] }>(apiBase, "/api/collaboration-events"),
+    apiGetJson<{ ok?: boolean; items?: GateHistoryItem[] }>(apiBase, "/api/platform/gate-history?limit=60"),
   ]);
   return {
     delegations: dr.ok && Array.isArray(dr.delegations) ? dr.delegations : [],
     events: er.ok && Array.isArray(er.events) ? er.events : [],
+    gateHistory: gh.ok && Array.isArray(gh.items) ? gh.items : [],
   };
 }
 

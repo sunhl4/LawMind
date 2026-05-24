@@ -196,7 +196,7 @@ async function main(): Promise<void> {
   if (args.json) {
     console.log(
       JSON.stringify(
-        reports.map(({ taskId, report }) => ({ taskId, ...report })),
+        reports.map(({ report, draft }) => ({ ...report, taskId: draft.taskId })),
         null,
         2,
       ),

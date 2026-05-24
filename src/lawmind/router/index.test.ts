@@ -34,6 +34,26 @@ describe("LawMind Router", () => {
     expect(intent.clarificationQuestions?.length).toBeGreaterThan(0);
   });
 
+  it("maps ESG report instructions to report.esg", () => {
+    const intent = route({ instruction: "起草一份 2025 年度 ESG 可持续发展报告" });
+    expect(intent.kind).toBe("draft.word");
+    expect(intent.deliverableType).toBe("report.esg");
+  });
+
+  it("maps EU new energy vehicle ESG report to report.esg", () => {
+    const intent = route({
+      instruction: "写一份详细的欧盟新能源汽车相关 ESG 报告",
+    });
+    expect(intent.kind).toBe("draft.word");
+    expect(intent.deliverableType).toBe("report.esg");
+  });
+
+  it("maps diligence report to report.general", () => {
+    const intent = route({ instruction: "撰写目标公司尽职调查报告初稿" });
+    expect(intent.kind).toBe("draft.word");
+    expect(intent.deliverableType).toBe("report.general");
+  });
+
   it("maps 法律意见/法条 to research.legal, legal model only", () => {
     const intent = route({ instruction: "查一下民法典相关法条和司法解释" });
     expect(intent.kind).toBe("research.legal");

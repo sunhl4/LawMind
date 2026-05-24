@@ -15,13 +15,22 @@
 
 import fs from "node:fs";
 import http from "node:http";
-import path from "node:path";
-import { loadLawMindEnv } from "../../../scripts/lawmind/lawmind-env-loader.js";
+import { bootstrapLawMindDesktopEnv } from "./lawmind-desktop-env-bootstrap.js";
 import { restoreDelegationsFromDisk } from "../../../src/lawmind/agent/collaboration/index.js";
+import { ensureBuiltinWorkflowSeeds } from "../../../src/lawmind/agent/collaboration/ensure-workflow-seeds.js";
 import { loadAndApplyLawMindPolicy } from "./lawmind-policy.js";
 import { LAWMIND_LOCAL_HOST } from "./lawmind-server-helpers.js";
 import { lawmindHandleHttpRequest } from "./lawmind-server-dispatch.js";
-import { loadJobsFromDiskOnStartup } from "./lawmind-server-jobs.js";
+import {
+  loadJobsFromDiskOnStartup,
+  processDueScheduledJobs,
+  setWorkflowJobSchedulerContext,
+} from "./lawmind-server-jobs.js";
+import { buildAgentConfig } from "./lawmind-server-helpers.js";
+import {
+  indexExists,
+  rebuildWorkspaceSearchIndex,
+} from "../../../src/lawmind/indexing/index.js";
 
 async function main() {
   const workspaceDir = process.env.LAWMIND_WORKSPACE_DIR?.trim();
@@ -41,23 +50,49 @@ async function main() {
   }
 
   fs.mkdirSync(workspaceDir, { recursive: true });
-
-  const envDir = path.dirname(workspaceDir);
-  const userEnvPath = envFile ? path.resolve(envFile) : path.resolve(envDir, ".env.lawmind");
-  const repoRootRaw = process.env.LAWMIND_REPO_ROOT?.trim();
-  if (repoRootRaw) {
-    const repoRootAbs = path.resolve(repoRootRaw);
-    const repoEnvPath = path.join(repoRootAbs, ".env.lawmind");
-    if (fs.existsSync(repoEnvPath)) {
-      loadLawMindEnv(repoRootAbs, undefined, { override: true });
-    }
+  const wfSeed = ensureBuiltinWorkflowSeeds(workspaceDir);
+  if (wfSeed.created.length > 0) {
+    console.error(
+      `[lawmind-local-server] seeded workflow templates: ${wfSeed.created.join(", ")}`,
+    );
   }
-  loadLawMindEnv(envDir, envFile);
+
+  const { userEnvPath } = bootstrapLawMindDesktopEnv({
+    workspaceDir,
+    envFile,
+    repoRoot: process.env.LAWMIND_REPO_ROOT,
+  });
+
+  // 桌面端默认开启全轮次 token 流式，便于对话区展示模型真实输出（Cursor 式）
+  if (!process.env.LAWMIND_STRICT_TOOL_STREAM?.trim()) {
+    process.env.LAWMIND_STRICT_TOOL_STREAM = "0";
+  }
 
   const policy = loadAndApplyLawMindPolicy(workspaceDir);
 
   restoreDelegationsFromDisk(workspaceDir);
   loadJobsFromDiskOnStartup(workspaceDir);
+
+  setWorkflowJobSchedulerContext((ws) => {
+    const built = buildAgentConfig(ws, { envFile });
+    return built.config ?? null;
+  });
+  const tickScheduled = () => {
+    try {
+      processDueScheduledJobs(workspaceDir);
+    } catch {
+      /* best-effort */
+    }
+  };
+  tickScheduled();
+  const scheduleTimer = setInterval(tickScheduled, 30_000);
+  scheduleTimer.unref?.();
+
+  if (!indexExists(workspaceDir)) {
+    void rebuildWorkspaceSearchIndex(workspaceDir).catch(() => {
+      /* best-effort background index */
+    });
+  }
 
   const ctx = { workspaceDir, envFile, userEnvPath, policy };
 

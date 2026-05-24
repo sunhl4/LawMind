@@ -50,6 +50,8 @@ afterEach(() => {
 
 describe("coordination/delegate", () => {
   it("findAssistantsByRole prefers roleId then falls back to presetKey", () => {
+    const ws = path.join(tmp, "workspace");
+    fs.mkdirSync(ws, { recursive: true });
     upsertAssistant(tmp, {
       assistantId: "a-1",
       displayName: "Alice",
@@ -62,7 +64,7 @@ describe("coordination/delegate", () => {
       introduction: "",
       roleId: "contract_review",
     });
-    const matches = findAssistantsByRole(tmp, "contract_review");
+    const matches = findAssistantsByRole(ws, "contract_review");
     // The roleId match should be preferred when present
     expect(matches.map((m) => m.assistantId)).toContain("a-2");
   });

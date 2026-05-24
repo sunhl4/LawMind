@@ -12,6 +12,8 @@
  *   但 tool 定义、policy 规则、system prompt 完全面向法律场景。
  */
 
+import type { GateDecision, TaskExecutionState } from "../platform/contracts.js";
+import type { LawMindRequiresAction } from "../platform/requires-action.js";
 import type { ClarificationQuestion, RiskLevel, MatterIndex } from "../types.js";
 
 // ─────────────────────────────────────────────
@@ -32,6 +34,9 @@ export type ToolDefinition = {
   parameters: Record<string, ToolParameterSchema>;
   requiresApproval?: boolean;
   riskLevel?: RiskLevel;
+  /** 可与同批只读工具并发执行 */
+  isConcurrencySafe?: boolean;
+  approvalTemplate?: "diff" | "readonly" | "acceptance" | "workflow" | "network" | "generic";
 };
 
 export type ToolCallResult = {
@@ -40,6 +45,8 @@ export type ToolCallResult = {
   error?: string;
   /** 该工具调用是否需要人工确认后才能生效 */
   pendingApproval?: boolean;
+  /** P2：是否在子进程沙箱中执行 */
+  sandboxed?: boolean;
 };
 
 export type ToolExecutor = (
@@ -70,10 +77,19 @@ export type AgentContext = {
   projectDir?: string;
   /** 本轮是否允许调用 web_search 等联网工具 */
   allowWebSearch?: boolean;
+  /** 桌面 compose 权限模式（只读/严格/标准） */
+  permissionMode?: "standard" | "strict" | "readonly";
+  /**
+   * 桌面工作台当前关联的草稿/任务 ID（可选）。
+   * 工具在未显式传入 `task_id` 时可将此作为隐式默认（例如 `render_document` 优先于「最近草稿」）。
+   */
+  linkedTaskId?: string;
   /** 当前案件的索引快照（按需加载） */
   matterIndex?: MatterIndex;
   /** 是否启用助手间协作工具（delegate_task, consult_assistant 等） */
   collaborationEnabled?: boolean;
+  /** 与桌面 local server 一致，解析 assistants.json 所在 LawMind 根目录 */
+  envFile?: string;
   /** 当前委派嵌套深度（防止递归失控） */
   collaborationDepth?: number;
   /**
@@ -83,6 +99,12 @@ export type AgentContext = {
   clarificationBlockingHeavyTools?: boolean;
   /** 与 `AgentConfig.strictDangerousToolApproval` 对齐，供工具层读取 */
   strictDangerousToolApproval?: boolean;
+  /** 长耗时工具（如 execute_workflow）向对话 SSE 推送子步骤 */
+  emitToolProgress?: (label: string) => void;
+  /** resumeTurn：下一笔同名工具调用自动视为已批准 */
+  preApproveToolName?: string;
+  /** Merged into the next call of `preApproveToolName` (lawyer-edited args). */
+  preApproveToolArgs?: Record<string, unknown>;
 };
 
 // ─────────────────────────────────────────────
@@ -109,6 +131,21 @@ export type AgentMessage = {
   toolCalls?: ToolCall[];
   toolCallResponses?: ToolCallResponse[];
   timestamp: string;
+  /** 持久化的执行轨迹（assistant 消息，供桌面 reload 后展示） */
+  liveTrace?: PersistedChatLiveTrace;
+  executionState?: TaskExecutionState;
+};
+
+/** 已完成 turn 的执行轨迹快照（不含 active 字段） */
+export type PersistedChatLiveTrace = {
+  currentRound?: number;
+  steps: Array<{
+    id: string;
+    kind: "round" | "tool" | "workflow";
+    label: string;
+    status: "running" | "done" | "failed";
+    detail?: string;
+  }>;
 };
 
 // ─────────────────────────────────────────────
@@ -130,8 +167,26 @@ export type AgentTurn = {
   toolCallsExecuted: number;
   status: AgentTurnStatus;
   clarificationQuestions?: ClarificationQuestion[];
+  /** Big-Bang: 执行状态机快照（供 API/UI 统一消费） */
+  executionState?: TaskExecutionState;
+  /** Big-Bang: 本轮门禁判定轨迹 */
+  gateDecisions?: GateDecision[];
+  /** 律师待处理动作（澄清、工具批准等） */
+  requiresAction?: LawMindRequiresAction[];
+  /** 中断时待批准的工具调用（用于 resume） */
+  pendingToolApproval?: {
+    toolName: string;
+    toolCallId: string;
+    toolArgs: Record<string, unknown>;
+  };
   result?: string;
   error?: string;
+  /** Provider token usage for this turn (when reported). */
+  modelUsage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
   startedAt: string;
   completedAt?: string;
 };
@@ -158,6 +213,14 @@ export type AgentSession = {
    * 以便同一轮内可继续调用重型工具。
    */
   pendingClarificationKeys?: string[];
+  /** 当前会话待 resume 的动作（与最后一轮 awaiting_* turn 对齐） */
+  pendingRequiresAction?: LawMindRequiresAction[];
+  /** 本轮/本会话已注入 prompt 的记忆文件路径（findRelevantMemories 去重） */
+  alreadySurfacedMemoryPaths?: string[];
+  /** 协作委派子会话：写入独立 transcript（`delegations/<id>.transcript.jsonl`） */
+  collaborationDelegationId?: string;
+  /** 上次自动写入 session-summary 时的 turn 数（用于节流） */
+  lastSessionSummaryTurnCount?: number;
 };
 
 // ─────────────────────────────────────────────
@@ -175,9 +238,22 @@ export type AgentModelConfig = {
   maxRetries?: number;
 };
 
+/** Non-secret model identity for system prompt (lawyer may ask「你是什么模型」). */
+export type AgentRuntimeModelIdentity = {
+  /** Label shown in desktop model picker / settings. */
+  catalogLabel: string;
+  /** Human-readable provider name (no API keys). */
+  providerLabel: string;
+  /** Upstream model id sent to chat/completions. */
+  upstreamModel: string;
+  catalogId?: string;
+};
+
 export type AgentConfig = {
   workspaceDir: string;
   model: AgentModelConfig;
+  /** Resolved model identity for honest「你是什么模型」answers (no secrets). */
+  runtimeModel?: AgentRuntimeModelIdentity;
   /** 最大单次 turn 的工具调用次数 */
   maxToolCalls?: number;
   /** 最大对话历史消息数（超过时压缩） */
@@ -202,8 +278,12 @@ export type AgentConfig = {
   roleDirective?: string;
   /** 是否注册并允许使用联网检索工具（web_search，Brave API） */
   allowWebSearch?: boolean;
+  /** 桌面 compose 权限模式 */
+  permissionMode?: "standard" | "strict" | "readonly";
   /** 是否注册助手间协作工具（delegate_task, consult_assistant 等） */
   enableCollaboration?: boolean;
+  /** 与桌面 local server 一致，用于解析 assistants.json 所在 LawMind 根目录 */
+  envFile?: string;
   /**
    * 可选：当前会话关联的「项目目录」（本机路径），与 Electron 侧 projectDir 对齐。
    * 供工具检索项目内文本文件；不设则仅搜索 LawMind workspace 记忆文件。

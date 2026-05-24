@@ -11,8 +11,13 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { loadAssistantProfiles, buildRoleDirectiveFromProfile } from "../../assistants/store.js";
+import {
+  buildRoleDirectiveFromProfile,
+  loadAssistantProfiles,
+  resolveLawMindRoot,
+} from "../../assistants/store.js";
 import { createLawMindAgent } from "../index.js";
+import { saveSession } from "../session.js";
 import type { AgentConfig } from "../types.js";
 import type { CollaborationMessage, CollaborationMessageKind } from "./types.js";
 
@@ -48,8 +53,7 @@ function resolveAssistantConfig(
   baseConfig: AgentConfig,
   targetAssistantId: string,
 ): AgentConfig | undefined {
-  const lawMindRoot =
-    baseConfig.workspaceDir.replace(/[\\/]workspace$/, "") || baseConfig.workspaceDir;
+  const lawMindRoot = resolveLawMindRoot(baseConfig.workspaceDir, baseConfig.envFile);
   const profiles = loadAssistantProfiles(lawMindRoot);
   const profile = profiles.find((p) => p.assistantId === targetAssistantId);
   if (!profile) {
@@ -142,6 +146,8 @@ export function fireAndForget(params: {
     matterId,
     title: `[协作] ${kindResolved} · ${fromAssistantId}`.slice(0, 200),
   });
+  preSession.collaborationDelegationId = delegationId;
+  saveSession(baseConfig.workspaceDir, preSession);
   const targetSessionId = preSession.sessionId;
 
   const instruction = buildCollaborationInstruction({
@@ -151,7 +157,11 @@ export function fireAndForget(params: {
   });
 
   const completion = agent
-    .chat(instruction, { matterId, sessionId: targetSessionId })
+    .chat(instruction, {
+      matterId,
+      sessionId: targetSessionId,
+      liveProgressSessionId: targetSessionId,
+    })
     .then((result) => ({
       reply: result.reply,
       turnId: result.turn.turnId,

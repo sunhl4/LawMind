@@ -25,7 +25,7 @@ If you received a **zip** (macOS `.app`) or **portable / installer** (Windows):
 
 - Clone the monorepo and `pnpm install` from the repo root.
 - **Node.js 22+** on `PATH` for **dev** (`tsx` + `lawmind-local-server.ts`).
-- If you see **Electron failed to install correctly** (pnpm v10 may skip `postinstall` until approved): from the **repo root** run `pnpm rebuild electron` (or `pnpm approve-builds` and allow `electron`, then `pnpm install` again). Root script: `pnpm rebuild:electron`.
+- If you see **Electron failed to install correctly** (pnpm v10 may skip `postinstall` until approved): from the **repo root** run `pnpm install` again (runs `postinstall` → `scripts/lawmind/lawmind-electron-rebuild.mjs`) or `pnpm approve-builds` and allow `electron`, then reinstall.
 
 ## Develop
 

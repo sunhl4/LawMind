@@ -8,8 +8,14 @@ import { LawmindSettingsModelRetrieval } from "./LawmindSettingsModelRetrieval";
 import { LawmindSettingsOnboarding } from "./LawmindSettingsOnboarding";
 import { LawmindSettingsRoles } from "./LawmindSettingsRoles";
 import { LawmindSettingsTemplates } from "./LawmindSettingsTemplates";
+import { LawmindSettingsAppearance } from "./LawmindSettingsAppearance";
+import { LawmindSettingsReviewPrefs } from "./LawmindSettingsReviewPrefs";
 import { LawmindSettingsWorkspace } from "./LawmindSettingsWorkspace";
+import { LawmindSettingsDoctor } from "./LawmindSettingsDoctor";
+import { LawmindSettingsTools } from "./LawmindSettingsTools";
+import { LawmindSettingsUsageStats } from "./LawmindSettingsUsageStats";
 import type { AppConfig } from "./lawmind-app-bootstrap";
+import type { ModelCatalogEntry, ProviderKeyStatus } from "./lawmind-models-api";
 import type { AssistantRow } from "./lawmind-settings-models.ts";
 
 type SetProjectDirBridge = NonNullable<Window["lawmindDesktop"]>["setProjectDir"];
@@ -17,7 +23,7 @@ type SetProjectDirBridge = NonNullable<Window["lawmindDesktop"]>["setProjectDir"
 export async function clearProjectDirectory(args: {
   config: AppConfig | null;
   setProjectDir?: SetProjectDirBridge;
-}): Promise<{ projectDir?: string | null; error?: string }> {
+}): Promise<{ projectDir?: string | null; apiBase?: string; error?: string }> {
   const { config, setProjectDir } = args;
   if (!config || !setProjectDir) {
     return {};
@@ -26,7 +32,10 @@ export async function clearProjectDirectory(args: {
   if (!response.ok) {
     return { error: response.error || "关闭项目失败" };
   }
-  return { projectDir: response.projectDir ?? null };
+  return {
+    projectDir: response.projectDir ?? null,
+    apiBase: typeof response.apiBase === "string" ? response.apiBase : undefined,
+  };
 }
 
 type Props = {
@@ -39,6 +48,10 @@ type Props = {
     retrievalMode?: string;
     dualLegalConfigured?: boolean;
     webSearchApiKeyConfigured?: boolean;
+    modelName?: string | null;
+    modelEnvFileExists?: boolean;
+    draftWithModelEnabled?: boolean;
+    draftWithModelActive?: boolean;
   } | null;
   collabSummarySettings: CollabSummaryState;
   assistants: AssistantRow[];
@@ -48,15 +61,27 @@ type Props = {
   selectedAssistantStats?: AssistantRow["stats"];
   retrievalLabel: string;
   retrievalSaving: boolean;
+  draftWithModelSaving?: boolean;
   onClose: () => void;
   onOpenNewAssistant: () => void;
   onOpenEditAssistant: () => void;
   onRemoveAssistant: () => void | Promise<void>;
   onApplyRetrievalMode: (mode: "single" | "dual") => void | Promise<void>;
+  onApplyDraftWithModelEnabled?: (enabled: boolean) => void | Promise<void>;
+  onReconnectLocalService?: () => void | Promise<void>;
+  localServiceReconnecting?: boolean;
   onOpenApiWizard: () => void;
+  modelProviders?: ProviderKeyStatus[];
+  platformProviders?: import("./lawmind-models-api").PlatformProviderKeyStatus[];
+  platformMode?: "proxy" | "platform_key" | "none";
+  selectedModelId?: string;
+  customModels?: ModelCatalogEntry[];
+  modelCatalog?: ModelCatalogEntry[];
+  onModelsChanged?: () => void | Promise<void>;
   onPickProject: () => void | Promise<void>;
   onClearProject: () => void | Promise<void>;
   onOpenCollaborationPage: () => void;
+  onPrefsChange?: () => void;
 };
 
 export function LawmindSettingsDialog({
@@ -73,15 +98,27 @@ export function LawmindSettingsDialog({
   selectedAssistantStats,
   retrievalLabel,
   retrievalSaving,
+  draftWithModelSaving = false,
   onClose,
   onOpenNewAssistant,
   onOpenEditAssistant,
   onRemoveAssistant,
   onApplyRetrievalMode,
+  onApplyDraftWithModelEnabled,
+  onReconnectLocalService,
+  localServiceReconnecting = false,
   onOpenApiWizard,
+  modelProviders,
+  platformProviders,
+  platformMode,
+  selectedModelId,
+    customModels,
+    modelCatalog = customModels,
+    onModelsChanged,
   onPickProject,
   onClearProject,
   onOpenCollaborationPage,
+  onPrefsChange,
 }: Props) {
   if (!open) {
     return null;
@@ -107,9 +144,35 @@ export function LawmindSettingsDialog({
 
         {config && <LawmindSettingsOnboarding health={health} projectDir={projectDir} />}
 
+        {config && <LawmindSettingsUsageStats apiBase={config.apiBase} />}
+
+        {config && (
+          <LawmindSettingsDoctor
+            health={null}
+            apiBase={config.apiBase}
+            onOpenApiWizard={onOpenApiWizard}
+            onOpenCollaborationPage={() => {
+              onClose();
+              onOpenCollaborationPage();
+            }}
+            onScrollToWorkspace={() => {
+              document.getElementById("lawmind-settings-workspace")?.scrollIntoView({
+                behavior: "smooth",
+                block: "start",
+              });
+            }}
+          />
+        )}
+
+        <LawmindSettingsAppearance onPrefsChange={onPrefsChange} />
+
+        <LawmindSettingsReviewPrefs />
+
         {config && (
           <LawmindSettingsCollaborationBrief
             collabSummarySettings={collabSummarySettings}
+            localServiceReconnecting={localServiceReconnecting}
+            onReconnectLocalService={onReconnectLocalService}
             onOpenCollaborationPage={() => {
               onClose();
               onOpenCollaborationPage();
@@ -136,9 +199,20 @@ export function LawmindSettingsDialog({
               retrievalMode: config.retrievalMode,
             }}
             health={health}
+            envFilePath={config.envFilePath}
             retrievalLabel={retrievalLabel}
             retrievalSaving={retrievalSaving}
+            draftWithModelSaving={draftWithModelSaving}
             applyRetrievalMode={onApplyRetrievalMode}
+            applyDraftWithModelEnabled={onApplyDraftWithModelEnabled}
+            apiBase={config.apiBase}
+            modelProviders={modelProviders}
+            platformProviders={platformProviders}
+            platformMode={platformMode}
+            selectedModelId={selectedModelId}
+            customModels={customModels}
+            modelCatalog={modelCatalog}
+            onModelsChanged={onModelsChanged}
             onOpenApiWizard={onOpenApiWizard}
           />
         )}
@@ -156,6 +230,7 @@ export function LawmindSettingsDialog({
             onClearProject={() => void onClearProject()}
           />
         )}
+        {config && <LawmindSettingsTools apiBase={config.apiBase} />}
         {config && <LawmindSettingsRoles apiBase={config.apiBase} />}
         {config && <LawmindSettingsTemplates apiBase={config.apiBase} />}
         {config && <LawmindSettingsEdition apiBase={config.apiBase} />}

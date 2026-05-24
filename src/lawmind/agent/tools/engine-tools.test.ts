@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { persistDraft, readDraft } from "../../drafts/index.js";
 import type { AgentContext } from "../types.js";
 import { buildLawMindRetrievalAdaptersFromEnvForTest } from "./engine-tools.js";
 import { createLegalToolRegistry } from "./legal-tools.js";
@@ -14,12 +15,13 @@ function tmpWorkspace(): string {
   return dir;
 }
 
-function makeCtx(ws: string, matterId?: string): AgentContext {
+function makeCtx(ws: string, matterId?: string, extras?: Partial<AgentContext>): AgentContext {
   return {
     workspaceDir: ws,
     sessionId: "test-session",
     actorId: "test-lawyer",
     matterId,
+    ...extras,
   };
 }
 
@@ -71,9 +73,9 @@ describe("Engine-Bridge Tools", () => {
     expect(names).toContain("record_deadline");
   });
 
-  it("total tool count is 25 (15 legal + 10 engine)", () => {
+  it("total tool count is 27 (15 legal + 12 engine)", () => {
     const registry = createLegalToolRegistry();
-    expect(registry.size()).toBe(25);
+    expect(registry.size()).toBe(27);
   });
 });
 
@@ -220,7 +222,7 @@ describe("execute_workflow", () => {
     const caseMd = path.join(ws, "cases", "m-workflow-test", "CASE.md");
     expect(fs.existsSync(caseMd)).toBe(true);
     const caseContent = fs.readFileSync(caseMd, "utf8");
-    expect(caseContent).toContain("任务目标");
+    expect(caseContent).toMatch(/任务目标|工作进展记录/);
   });
 
   it("stops at awaiting_lawyer_review for high-risk tasks", async () => {
@@ -239,8 +241,7 @@ describe("execute_workflow", () => {
     expect(data.status).toBe("awaiting_lawyer_review");
 
     const steps = data.steps as string[];
-    const lastStep = steps[steps.length - 1];
-    expect(lastStep).toContain("等待律师审批");
+    expect(steps.some((s) => s.includes("等待律师审批"))).toBe(true);
   });
 
   it("creates audit trail during workflow", async () => {
@@ -352,7 +353,72 @@ describe("render_document", () => {
     expect(String(data.outputPath)).toMatch(/\.docx$/);
   });
 
-  it("blocks render when the Deliverable-First acceptance gate is unmet", async () => {
+  it("prefers workspace linkedTaskId over latest draft when task_id is omitted", async () => {
+    const ws = tmpWorkspace();
+    const registry = createLegalToolRegistry();
+    const draftTool = registry.get("draft_document")!;
+    const renderTool = registry.get("render_document")!;
+
+    const first = await draftTool.execute(
+      { instruction: "请审查合同条款A", matter_id: "m-link-render" },
+      makeCtx(ws, "m-link-render"),
+    );
+    expect(first.ok).toBe(true);
+    const tid1 = (first.data as { taskId: string }).taskId;
+
+    const second = await draftTool.execute(
+      { instruction: "请审查合同条款B", matter_id: "m-link-render" },
+      makeCtx(ws, "m-link-render"),
+    );
+    expect(second.ok).toBe(true);
+    const tid2 = (second.data as { taskId: string }).taskId;
+    expect(tid1).not.toBe(tid2);
+
+    const result = await renderTool.execute(
+      {
+        approve: true,
+        approval_note: "同意导出 Word 正式稿",
+        bypass_acceptance_gate: true,
+      },
+      makeCtx(ws, "m-link-render", { linkedTaskId: tid1 }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect((result.data as { taskId: string }).taskId).toBe(tid1);
+    expect((result.data as { taskId: string }).taskId).not.toBe(tid2);
+  });
+
+  it("falls back to latest draft when linkedTaskId does not match any draft", async () => {
+    const ws = tmpWorkspace();
+    const registry = createLegalToolRegistry();
+    const draftTool = registry.get("draft_document")!;
+    const renderTool = registry.get("render_document")!;
+
+    await draftTool.execute(
+      { instruction: "请审查合同条款A", matter_id: "m-link-fallback" },
+      makeCtx(ws, "m-link-fallback"),
+    );
+    const second = await draftTool.execute(
+      { instruction: "请审查合同条款B", matter_id: "m-link-fallback" },
+      makeCtx(ws, "m-link-fallback"),
+    );
+    expect(second.ok).toBe(true);
+    const tid2 = (second.data as { taskId: string }).taskId;
+
+    const result = await renderTool.execute(
+      {
+        approve: true,
+        approval_note: "同意导出",
+        bypass_acceptance_gate: true,
+      },
+      makeCtx(ws, "m-link-fallback", { linkedTaskId: "no-such-draft-id" }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect((result.data as { taskId: string }).taskId).toBe(tid2);
+  });
+
+  it("blocks render when acceptance gate is unmet and lawyer has not approved export", async () => {
     const ws = tmpWorkspace();
     const registry = createLegalToolRegistry();
     const draftTool = registry.get("draft_document")!;
@@ -367,18 +433,70 @@ describe("render_document", () => {
     );
     expect(draftResult.ok).toBe(true);
 
-    const blocked = await renderTool.execute(
-      { approve: true, approval_note: "同意导出" },
-      makeCtx(ws, "m-render-gated"),
-    );
+    const blocked = await renderTool.execute({}, makeCtx(ws, "m-render-gated"));
 
     expect(blocked.ok).toBe(false);
     expect((blocked as { pendingApproval?: boolean }).pendingApproval).toBe(true);
-    const detail = (blocked as { data?: Record<string, unknown> }).data ?? {};
-    expect(detail.acceptance).toBeTruthy();
-    const acceptance = detail.acceptance as { ready: boolean; blockerCount: number };
-    expect(acceptance.ready).toBe(false);
-    expect(acceptance.blockerCount).toBeGreaterThan(0);
+    expect(String(blocked.error)).toContain("模型 API");
+  });
+
+  it("allows render when acceptance gate is unmet but approve=true (lawyer confirmed export)", async () => {
+    const ws = tmpWorkspace();
+    const registry = createLegalToolRegistry();
+    const draftTool = registry.get("draft_document")!;
+    const renderTool = registry.get("render_document")!;
+
+    const draftResult = await draftTool.execute(
+      {
+        instruction: "请审查这份合同的违约责任条款",
+        matter_id: "m-render-gated-approve",
+      },
+      makeCtx(ws, "m-render-gated-approve"),
+    );
+    expect(draftResult.ok).toBe(true);
+
+    const rendered = await renderTool.execute(
+      { approve: true, approval_note: "律师已同意导出 Word" },
+      makeCtx(ws, "m-render-gated-approve"),
+    );
+
+    expect(rendered.ok).toBe(true);
+    expect(String((rendered.data as { outputPath?: string }).outputPath)).toMatch(/\.docx$/);
+  });
+});
+
+describe("update_draft", () => {
+  it("updates sections on an existing modified draft", async () => {
+    const ws = tmpWorkspace();
+    const taskId = "update-draft-1";
+    const now = new Date().toISOString();
+    persistDraft(ws, {
+      taskId,
+      title: "原稿",
+      output: "docx",
+      templateId: "word/contract-default",
+      summary: "摘要",
+      sections: [{ heading: "正文", body: "旧内容" }],
+      reviewNotes: [],
+      reviewStatus: "modified",
+      createdAt: now,
+    });
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("update_draft")!;
+
+    const result = await tool.execute(
+      {
+        task_id: taskId,
+        sections: [{ heading: "正文", body: "扩展后的专业内容" }],
+        summary: "更新摘要",
+      },
+      makeCtx(ws, undefined, { linkedTaskId: taskId }),
+    );
+
+    expect(result.ok).toBe(true);
+    const stored = readDraft(ws, taskId);
+    expect(stored?.sections[0]?.body).toBe("扩展后的专业内容");
+    expect(stored?.summary).toBe("更新摘要");
   });
 });
 

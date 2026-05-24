@@ -29,6 +29,24 @@ function detectDeliverableType(kind: TaskKind, instruction: string): Deliverable
   if (/(律师函|催款函|通知函|告知函)/.test(instruction)) {
     return "letter.demand";
   }
+  if (/(ESG|可持续发展|环境.?社会.?治理|csr|碳中和|社会责任报告)/i.test(instruction)) {
+    return "report.esg";
+  }
+  if (
+    /(欧盟|EU\b|欧洲).{0,48}(新能源汽车|电动车|NEV|纯电动|动力电池|汽车)/i.test(instruction) &&
+    /(ESG|可持续|报告|披露|合规)/i.test(instruction)
+  ) {
+    return "report.esg";
+  }
+  if (/(新能源汽车|电动车|NEV).{0,32}(ESG|可持续|报告)/i.test(instruction)) {
+    return "report.esg";
+  }
+  if (
+    /(研究报告|分析报告|年度报告|白皮书|尽职调查报告|合规报告|专项报告)/.test(instruction) &&
+    !/(合同|协议|律师函|租赁)/.test(instruction)
+  ) {
+    return "report.general";
+  }
   if (/(合同|协议|补充协议|保密协议|授权书)/.test(instruction)) {
     return "contract.general";
   }
@@ -89,6 +107,16 @@ function acceptanceCriteriaFor(type: DeliverableType | undefined): string[] | un
       return [
         "输出正式审查意见，而不是仅罗列检索点。",
         "至少包含审查结论、主要风险、修改建议和待确认事项。",
+      ];
+    case "report.esg":
+      return [
+        "输出 ESG/可持续发展报告正文，覆盖环境、社会、治理等披露维度（按适用框架组织）。",
+        "指标与数据宜标注来源；缺失处使用显式占位符。",
+      ];
+    case "report.general":
+      return [
+        "输出完整研究报告/专项报告正文。",
+        "宜包含背景概述、主体分析与结论建议；信息不足时先给出可编辑框架。",
       ];
     case "document.general":
       return ["优先输出可直接交付的正式正文。", "若信息不足，先给出可编辑正式草稿并明确待补充项。"];

@@ -19,6 +19,10 @@ import {
   markDelegationFailed,
 } from "../collaboration/delegation-registry.js";
 import { sendAndWait, wrapUntrustedResult } from "../collaboration/message-bus.js";
+import {
+  appendMemoryBundleToTask,
+  type WorkflowMemoryBundleSnapshot,
+} from "../collaboration/workflow-memory-bundle.js";
 import { findAssistantsByRole } from "../tools/coordination/utils.js";
 import type { AgentConfig } from "../types.js";
 import type { CollaborationWorkflow, WorkflowStep, WorkflowEvent } from "./types.js";
@@ -128,7 +132,8 @@ async function executeStep(
   emitProgress(workflow, options);
 
   const contextFromDeps = gatherDependencyContext(workflow, step);
-  const fullTask = `${step.task}${contextFromDeps}`;
+  const taskWithMemory = appendMemoryBundleToTask(step.task, options?.memoryBundle, step.assignee);
+  const fullTask = `${taskWithMemory}${contextFromDeps}`;
 
   const delegation = registerDelegation({
     workspaceDir: baseConfig.workspaceDir,
@@ -209,6 +214,8 @@ export type ExecuteWorkflowOptions = {
   shouldAbort?: () => boolean;
   /** Called when step statuses change (start/end of steps, and once at workflow start). */
   onProgress?: (snapshot: WorkflowRunProgress) => void;
+  /** Enqueue-time assistant PROFILE excerpts for assignees (scheduled job distribution). */
+  memoryBundle?: WorkflowMemoryBundleSnapshot;
 };
 
 function abortRequested(options?: ExecuteWorkflowOptions): boolean {

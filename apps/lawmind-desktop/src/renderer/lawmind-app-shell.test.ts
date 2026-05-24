@@ -22,6 +22,11 @@ describe("lawmind-app-shell", () => {
       retrievalMode: "dual",
       dualLegalConfigured: true,
       webSearchApiKeyConfigured: false,
+      webSearchPolicyBlocked: false,
+      modelName: null,
+      modelEnvFileExists: false,
+      draftWithModelEnabled: false,
+      draftWithModelActive: false,
     });
   });
 

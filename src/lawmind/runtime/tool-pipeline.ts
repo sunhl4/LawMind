@@ -17,10 +17,15 @@
  *   - auditMiddleware 在 next() 后写入审计（保证记录的是真实结果）。
  */
 
-import { toolRequiresExplicitApproval } from "../agent/dangerous-tool-policy.js";
+import {
+  toolRequiresExplicitApproval,
+  toolRequiresSubprocessSandbox,
+} from "../agent/dangerous-tool-policy.js";
+import { normalizeToolCallArguments } from "../agent/runtime-tool-arg-normalize.js";
 import { validateToolArguments } from "../agent/runtime-tool-validation.js";
 import type { AgentContext, AgentTool, ToolCallResult, ToolDefinition } from "../agent/types.js";
 import { emit } from "../audit/index.js";
+import { runToolInSubprocessSandbox } from "./tool-sandbox.js";
 
 /** 与重型管线工具相关的工具名（澄清未结时禁止并行）。 */
 const HEAVY_TOOL_NAMES = new Set<string>([
@@ -64,6 +69,8 @@ export type ToolPolicyConfig = {
   roleId?: string;
   /** W7：Role.riskCeiling；高风险工具在此模型下默认要求审批 */
   riskCeiling?: "low" | "medium" | "high";
+  /** P2：高风险工具走子进程沙箱（policy `toolSandbox` 或 `LAWMIND_TOOL_SANDBOX=1`） */
+  toolSandboxEnabled?: boolean;
   /** 审计 actorId（写入 tool_call 事件） */
   actorId: string;
   /** 工作区 audit 目录，写入 tool_call 用 */
@@ -122,6 +129,29 @@ export const budgetMiddleware: ToolMiddleware = async (call, next) => {
   return next();
 };
 
+/** 需绑定案件的文件/检索工具；无 matterId（上下文或参数）时拒绝。 */
+export const MATTER_SCOPED_TOOL_NAMES = new Set<string>([
+  "search_matter",
+  "read_case_file",
+  "add_case_note",
+  "get_matter_summary",
+]);
+
+export const matterScopeMiddleware: ToolMiddleware = async (call, next) => {
+  if (!MATTER_SCOPED_TOOL_NAMES.has(call.toolName)) {
+    return next();
+  }
+  const fromArgs = typeof call.args.matter_id === "string" ? call.args.matter_id.trim() : "";
+  const matterId = fromArgs || call.ctx.matterId?.trim() || "";
+  if (!matterId) {
+    return {
+      ok: false,
+      error: "此工具需绑定案件：请在工作台选中案件，或在对话中指定案件后再继续。",
+    };
+  }
+  return next();
+};
+
 /** Role / preset allowlist；不在白名单 → 拒绝。 */
 export const roleAllowlistMiddleware: ToolMiddleware = async (call, next) => {
   const allow = call.policy.allowedToolNames;
@@ -164,6 +194,12 @@ export const approvalMiddleware: ToolMiddleware = async (call, next) => {
       pendingApproval: true,
     };
   }
+  return next();
+};
+
+/** 参数归一化（别名、linkedTaskId 缺省等），在校验前执行。 */
+export const argNormalizeMiddleware: ToolMiddleware = async (call, next) => {
+  normalizeToolCallArguments(call);
   return next();
 };
 
@@ -217,6 +253,18 @@ export const auditMiddleware: ToolMiddleware = async (call, next) => {
   return result;
 };
 
+/** P2：高风险工具在子进程执行（POC）；未启用时透传。 */
+export const subprocessSandboxMiddleware: ToolMiddleware = async (call, next) => {
+  if (
+    !call.policy.toolSandboxEnabled ||
+    !toolRequiresSubprocessSandbox(call.toolName) ||
+    !call.tool
+  ) {
+    return next();
+  }
+  return runToolInSubprocessSandbox(call);
+};
+
 /** 终态：执行 tool.execute()。 */
 export const executeMiddleware: ToolMiddleware = async (call) => {
   if (!call.tool) {
@@ -238,11 +286,14 @@ export function buildDefaultToolPipeline(): ToolMiddleware[] {
     unknownToolMiddleware,
     budgetMiddleware,
     roleAllowlistMiddleware,
+    matterScopeMiddleware,
     clarificationGateMiddleware,
     approvalMiddleware,
+    argNormalizeMiddleware,
     argSchemaMiddleware,
     auditMiddleware,
     timeoutMiddleware,
+    subprocessSandboxMiddleware,
     executeMiddleware,
   ];
 }

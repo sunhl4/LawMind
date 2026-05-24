@@ -32,14 +32,24 @@ import type {
   ResearchSource,
 } from "../../../src/lawmind/types.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
-import { sendJson } from "./lawmind-server-helpers.js";
+import { readJsonBody, sendJson } from "./lawmind-server-helpers.js";
+import {
+  createSourceAnnotation,
+  listSourceAnnotations,
+  SOURCE_ANNOTATION_KINDS,
+} from "../../../src/lawmind/sources/source-annotation.js";
 import { isSafeTaskIdSegment } from "./safe-task-id.js";
+import {
+  resolveSourceAnchorId,
+  sectionAnchorExcerpt,
+  type SourceSectionCiting,
+} from "./lawmind-source-anchor.js";
 
 type Hit = {
   source: ResearchSource;
   supportingClaims: ResearchClaim[];
   taskId: string;
-  sectionsCiting: Array<{ heading: string }>;
+  sectionsCiting: SourceSectionCiting[];
 };
 
 /**
@@ -57,15 +67,23 @@ function isSafeSourceId(raw: string): boolean {
   return true;
 }
 
-function sectionsCitingId(draft: ArtifactDraft | undefined, sourceId: string): Array<{ heading: string }> {
+function sectionsCitingId(
+  draft: ArtifactDraft | undefined,
+  sourceId: string,
+  taskId: string,
+): SourceSectionCiting[] {
   if (!draft) {
     return [];
   }
-  const out: Array<{ heading: string }> = [];
+  const out: SourceSectionCiting[] = [];
   for (const sec of draft.sections) {
     const cites = (sec.citations ?? []).map((c) => String(c).trim());
     if (cites.includes(sourceId)) {
-      out.push({ heading: sec.heading });
+      out.push({
+        heading: sec.heading,
+        anchorId: resolveSourceAnchorId(taskId, sec.heading),
+        excerpt: sectionAnchorExcerpt(sec.body),
+      });
     }
   }
   return out;
@@ -86,7 +104,7 @@ function findInBundle(
     source,
     supportingClaims,
     taskId,
-    sectionsCiting: sectionsCitingId(draft, sourceId),
+    sectionsCiting: sectionsCitingId(draft, sourceId, taskId),
   };
 }
 
@@ -127,8 +145,68 @@ export async function handleSourceRoutes({
   pathname,
   req,
   res,
+  url,
   c,
 }: LawmindRouteContext): Promise<boolean> {
+  const annotationsMatch = pathname.match(/^\/api\/sources\/([^/]+)\/annotations$/);
+  if (annotationsMatch) {
+    const rawId = decodeURIComponent(annotationsMatch[1] ?? "");
+    if (!isSafeSourceId(rawId)) {
+      sendJson(res, 400, { ok: false, error: "invalid source id" }, c);
+      return true;
+    }
+    const { workspaceDir } = ctx;
+    const taskId = url.searchParams.get("taskId")?.trim() || undefined;
+    const matterId = url.searchParams.get("matterId")?.trim() || undefined;
+
+    if (req.method === "GET") {
+      const items = listSourceAnnotations(workspaceDir, {
+        sourceId: rawId,
+        taskId,
+        matterId,
+      });
+      sendJson(res, 200, { ok: true, sourceId: rawId, items }, c);
+      return true;
+    }
+
+    if (req.method === "POST") {
+      const body = (await readJsonBody(req)) as Record<string, unknown>;
+      const comment = typeof body.comment === "string" ? body.comment.trim() : "";
+      if (!comment) {
+        sendJson(res, 400, { ok: false, error: "comment_required" }, c);
+        return true;
+      }
+      const kindRaw = typeof body.kind === "string" ? body.kind.trim() : "comment";
+      const kind = (SOURCE_ANNOTATION_KINDS as readonly string[]).includes(kindRaw)
+        ? (kindRaw as (typeof SOURCE_ANNOTATION_KINDS)[number])
+        : "comment";
+      const row = await createSourceAnnotation(workspaceDir, `${workspaceDir}/audit`, {
+        sourceId: rawId,
+        taskId: typeof body.taskId === "string" ? body.taskId : taskId,
+        matterId: typeof body.matterId === "string" ? body.matterId : matterId,
+        comment,
+        kind,
+        createdBy: typeof body.createdBy === "string" ? body.createdBy : "lawyer",
+        linkedDraftId: typeof body.linkedDraftId === "string" ? body.linkedDraftId : undefined,
+        createLearning: body.createLearning === true,
+        range:
+          body.range &&
+          typeof body.range === "object" &&
+          typeof (body.range as { start?: unknown }).start === "number" &&
+          typeof (body.range as { end?: unknown }).end === "number"
+            ? {
+                start: Math.max(0, Math.floor((body.range as { start: number }).start)),
+                end: Math.max(0, Math.floor((body.range as { end: number }).end)),
+              }
+            : undefined,
+      });
+      sendJson(res, 200, { ok: true, annotation: row }, c);
+      return true;
+    }
+
+    return false;
+  }
+
   if (req.method !== "GET") {
     return false;
   }
@@ -143,7 +221,6 @@ export async function handleSourceRoutes({
     return true;
   }
 
-  const url = new URL(req.url ?? "/", "http://localhost");
   const taskIdParam = url.searchParams.get("taskId")?.trim();
   const { workspaceDir } = ctx;
 

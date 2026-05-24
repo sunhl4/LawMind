@@ -19,6 +19,8 @@ describe("deliverables/registry", () => {
       "letter.demand",
       "contract.review",
       "litigation.outline",
+      "report.esg",
+      "report.general",
       "document.general",
     ]);
   });
@@ -37,9 +39,14 @@ describe("deliverables/registry", () => {
     expect(getDeliverableSpec("nonsense.kind")).toBeUndefined();
   });
 
-  it("each built-in spec has at least one blocker section", () => {
+  it("each built-in spec has blocker sections except advisory report types", () => {
+    const advisoryOnly = new Set(["report.esg", "report.general", "document.general"]);
     for (const spec of BUILT_IN_DELIVERABLE_SPECS) {
       const blockers = spec.requiredSections.filter((s) => s.severity === "blocker");
+      if (advisoryOnly.has(spec.type)) {
+        expect(blockers.length, `${spec.type} should be warning-only`).toBe(0);
+        continue;
+      }
       expect(blockers.length, `${spec.type} should declare blocker sections`).toBeGreaterThan(0);
     }
   });

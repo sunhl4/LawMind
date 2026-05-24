@@ -99,6 +99,11 @@ export type WorkQueueItem = {
   detail?: string;
   relatedTaskId?: string;
   relatedDeliverableId?: string;
+  dependsOn?: string[];
+  blockedBy?: string[];
+  blockedReason?: string;
+  /** Ralph-style phase label (plan / research / draft / review / render). */
+  phase?: "plan" | "research" | "draft" | "review" | "render";
   createdAt: string;
   updatedAt: string;
 };

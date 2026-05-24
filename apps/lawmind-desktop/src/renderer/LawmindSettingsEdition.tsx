@@ -116,7 +116,12 @@ export function LawmindSettingsEdition({ apiBase }: Props): ReactNode {
                 <span className="lm-edition-feature-mark" aria-hidden="true">
                   {enabled ? "✓" : "·"}
                 </span>
-                <span>{row.label}</span>
+                <span>
+                  {row.label}
+                  {!enabled ? (
+                    <span className="lm-meta lm-edition-feature-locked">（律所版能力）</span>
+                  ) : null}
+                </span>
               </li>
             );
           })}

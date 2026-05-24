@@ -20,6 +20,24 @@ describe("api-client", () => {
     expect(t).toContain("API Key");
   });
 
+  it("returns single friendly line for model_unavailable without duplicating hint", () => {
+    const friendly = "模型服务账户欠费或已停用。请到模型服务商控制台查看余额与账单。";
+    const t = userMessageFromApiError(502, {
+      code: "model_unavailable",
+      message: friendly,
+    });
+    expect(t).toBe(friendly);
+    expect(t).not.toContain("模型服务暂时不可用");
+  });
+
+  it("friendly-izes raw Model API error in body", () => {
+    const t = userMessageFromApiError(502, {
+      message: 'Model API error 400: {"error":{"code":"Arrearage"}}',
+    });
+    expect(t).toMatch(/欠费|账单|充值/);
+    expect(t).not.toContain("Model API error");
+  });
+
   it("apiGetJson returns parsed json body", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ ok: true, value: 3 }), {

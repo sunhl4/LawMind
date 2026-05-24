@@ -1,5 +1,5 @@
 import path from "node:path";
-import { validateDraftAgainstSpec } from "../../../src/lawmind/deliverables/index.js";
+import { validateDraftAgainstSpec, validateReasoningForDraft } from "../../../src/lawmind/deliverables/index.js";
 import {
   buildAgentMemorySourceReport,
   loadMemoryContext,
@@ -20,15 +20,26 @@ import {
   buildLawyerProfileReviewLearningLine,
 } from "../../../src/lawmind/memory/index.js";
 import {
+  persistDraft,
   readDraft,
   readReasoningSnapshot,
   resolveDraftCitationIntegrity,
 } from "../../../src/lawmind/drafts/index.js";
+import { linkDraftToDeliverable } from "../../../src/lawmind/application/services/deliverable-service.js";
+import { emit } from "../../../src/lawmind/audit/index.js";
+import type { ArtifactSection, ArtifactDraft } from "../../../src/lawmind/types.js";
 import { applyContractRevisionAccumulationAfterApprovedReview } from "../../../src/lawmind/learning/contract-revision-on-review-approved.js";
 import { maybeEmitFirstrunAcceptanceReady } from "../../../src/lawmind/onboarding/firstrun-state.js";
 import { serializeLegalReasoningGraph } from "../../../src/lawmind/reasoning/index.js";
 import { parseReviewLabels } from "../../../src/lawmind/review-labels.js";
-import { deriveExecutionPlanSteps, listTaskCheckpoints, readTaskRecord } from "../../../src/lawmind/tasks/index.js";
+import { deriveExecutionPlanSteps, listTaskCheckpoints, readTaskRecord, updateTaskRecord } from "../../../src/lawmind/tasks/index.js";
+import type { AcceptanceReport } from "../../../src/lawmind/deliverables/index.js";
+import type { TaskExecutionState } from "../../../src/lawmind/platform/contracts.js";
+import {
+  emitPlatformGateSnapshot,
+  type PlatformGateAuditSource,
+} from "../../../src/lawmind/platform/audit-gate.js";
+import { deriveReviewGateDecisions } from "../../../src/lawmind/platform/review-gates.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import {
   getLawMindEngine,
@@ -39,6 +50,139 @@ import {
 } from "./lawmind-server-helpers.js";
 import { isSafeAssistantIdSegment } from "./safe-assistant-id.js";
 import { isSafeTaskIdSegment } from "./safe-task-id.js";
+
+function deriveReviewExecutionState(
+  draft: ArtifactDraft,
+  acceptance?: AcceptanceReport,
+): TaskExecutionState {
+  const reviewStatus = draft.reviewStatus ?? "pending";
+  if (reviewStatus === "pending") {
+    return {
+      phase: "approval",
+      status: "awaiting_approval",
+      linkedTaskId: draft.taskId,
+      recoverable: true,
+      detail: "等待律师签批。",
+    };
+  }
+  if (reviewStatus === "modified") {
+    return {
+      phase: "clarify",
+      status: "awaiting_clarification",
+      linkedTaskId: draft.taskId,
+      recoverable: true,
+      detail: "草稿已标记为需修改，等待修订。",
+    };
+  }
+  if (reviewStatus === "rejected") {
+    return {
+      phase: "clarify",
+      status: "awaiting_clarification",
+      linkedTaskId: draft.taskId,
+      recoverable: true,
+      detail: "草稿已驳回，等待新指令。",
+    };
+  }
+  if (draft.outputPath) {
+    return {
+      phase: "complete",
+      status: "completed",
+      linkedTaskId: draft.taskId,
+      recoverable: false,
+      detail: "草稿已通过并完成交付物渲染。",
+    };
+  }
+  if (acceptance && !acceptance.ready) {
+    return {
+      phase: "approval",
+      status: "awaiting_approval",
+      linkedTaskId: draft.taskId,
+      recoverable: true,
+      detail: "验收门禁未通过，暂不可渲染。",
+    };
+  }
+  return {
+    phase: "render",
+    status: "running",
+    linkedTaskId: draft.taskId,
+    recoverable: true,
+    detail: "草稿已通过签批，可执行渲染交付。",
+  };
+}
+
+function parseDraftContentPatch(
+  body: unknown,
+):
+  | { ok: true; patch: { title?: string; summary?: string; sections?: ArtifactSection[] } }
+  | { ok: false; error: string } {
+  if (!body || typeof body !== "object") {
+    return { ok: false, error: "body required" };
+  }
+  const record = body as Record<string, unknown>;
+  const patch: { title?: string; summary?: string; sections?: ArtifactSection[] } = {};
+  if (record.title !== undefined) {
+    if (typeof record.title !== "string" || !record.title.trim()) {
+      return { ok: false, error: "title must be non-empty string" };
+    }
+    patch.title = record.title.trim();
+  }
+  if (record.summary !== undefined) {
+    if (typeof record.summary !== "string") {
+      return { ok: false, error: "summary must be string" };
+    }
+    patch.summary = record.summary;
+  }
+  if (record.sections !== undefined) {
+    if (!Array.isArray(record.sections) || record.sections.length === 0) {
+      return { ok: false, error: "sections must be non-empty array" };
+    }
+    const sections: ArtifactSection[] = [];
+    for (const item of record.sections) {
+      if (!item || typeof item !== "object") {
+        return { ok: false, error: "invalid section" };
+      }
+      const section = item as Record<string, unknown>;
+      const heading = typeof section.heading === "string" ? section.heading.trim() : "";
+      const bodyText = typeof section.body === "string" ? section.body : "";
+      if (!heading) {
+        return { ok: false, error: "section heading required" };
+      }
+      const citations = Array.isArray(section.citations)
+        ? section.citations.filter((cite): cite is string => typeof cite === "string" && cite.trim().length > 0)
+        : undefined;
+      sections.push({
+        heading,
+        body: bodyText,
+        ...(citations?.length ? { citations } : {}),
+      });
+    }
+    patch.sections = sections;
+  }
+  if (!patch.title && patch.summary === undefined && !patch.sections) {
+    return { ok: false, error: "no content fields" };
+  }
+  return { ok: true, patch };
+}
+
+async function auditReviewGateSnapshot(
+  workspaceDir: string,
+  draft: ArtifactDraft,
+  source: PlatformGateAuditSource,
+  acceptance?: AcceptanceReport,
+  actorId?: string,
+): Promise<void> {
+  const executionState = deriveReviewExecutionState(draft, acceptance);
+  const gateDecisions = deriveReviewGateDecisions(draft, acceptance);
+  await emitPlatformGateSnapshot(path.join(workspaceDir, "audit"), {
+    taskId: draft.taskId,
+    source,
+    actor: "lawyer",
+    actorId: actorId ?? resolveDesktopActorId(),
+    executionState,
+    gateDecisions,
+    context: { reviewStatus: draft.reviewStatus ?? "pending" },
+  });
+}
 
 export async function handleReviewRoute({
   ctx,
@@ -269,6 +413,7 @@ export async function handleReviewRoute({
           return true;
         }
       }
+      await auditReviewGateSnapshot(workspaceDir, updated, "review", undefined, updated.reviewedBy);
       sendJson(
         res,
         200,
@@ -276,6 +421,8 @@ export async function handleReviewRoute({
           ok: true,
           draft: updated,
           citationIntegrity: resolveDraftCitationIntegrity(workspaceDir, updated),
+          executionState: deriveReviewExecutionState(updated),
+          gateDecisions: deriveReviewGateDecisions(updated),
           profileLearningSkipped,
           lawyerProfileLearningSkipped,
           ...(contractRevisionAccumulatedId ? { contractRevisionAccumulatedId } : {}),
@@ -322,6 +469,9 @@ export async function handleReviewRoute({
       if (strict) {
         const acceptance = validateDraftAgainstSpec(draft);
         if (!acceptance.ready) {
+          const executionState = deriveReviewExecutionState(draft, acceptance);
+          const gateDecisions = deriveReviewGateDecisions(draft, acceptance);
+          await auditReviewGateSnapshot(workspaceDir, draft, "render_blocked", acceptance);
           sendJson(
             res,
             422,
@@ -331,6 +481,8 @@ export async function handleReviewRoute({
               message:
                 "草稿未通过验收门禁，存在阻塞项；请补齐缺失章节或回答待确认问题，或使用 ?strict=false 临时绕过（不推荐）。",
               acceptance,
+              executionState,
+              gateDecisions,
             },
             c,
           );
@@ -344,6 +496,11 @@ export async function handleReviewRoute({
         ? resolveDraftCitationIntegrity(workspaceDir, refreshed)
         : undefined;
       const acceptanceAfter = refreshed ? validateDraftAgainstSpec(refreshed) : undefined;
+      const executionState = refreshed ? deriveReviewExecutionState(refreshed, acceptanceAfter) : undefined;
+      const gateDecisions = refreshed ? deriveReviewGateDecisions(refreshed, acceptanceAfter) : undefined;
+      if (refreshed) {
+        await auditReviewGateSnapshot(workspaceDir, refreshed, "render", acceptanceAfter);
+      }
       sendJson(
         res,
         result.ok ? 200 : 400,
@@ -352,6 +509,8 @@ export async function handleReviewRoute({
           ...result,
           ...(citationIntegrity ? { citationIntegrity } : {}),
           ...(acceptanceAfter ? { acceptance: acceptanceAfter } : {}),
+          ...(executionState ? { executionState } : {}),
+          ...(gateDecisions ? { gateDecisions } : {}),
         },
         c,
       );
@@ -372,6 +531,9 @@ export async function handleReviewRoute({
         return true;
       }
       const acceptance = validateDraftAgainstSpec(updated);
+      const executionState = deriveReviewExecutionState(updated, acceptance);
+      const gateDecisions = deriveReviewGateDecisions(updated, acceptance);
+      await auditReviewGateSnapshot(workspaceDir, updated, "reopen_review", acceptance);
       sendJson(
         res,
         200,
@@ -380,6 +542,81 @@ export async function handleReviewRoute({
           draft: updated,
           citationIntegrity: resolveDraftCitationIntegrity(workspaceDir, updated),
           acceptance,
+          executionState,
+          gateDecisions,
+        },
+        c,
+      );
+      return true;
+    }
+
+    const draftContentMatch = pathname.match(/^\/api\/drafts\/([^/]+)\/content$/);
+    if (draftContentMatch && req.method === "PATCH") {
+      const raw = decodeURIComponent(draftContentMatch[1] ?? "");
+      if (!isSafeTaskIdSegment(raw)) {
+        sendJson(res, 400, { ok: false, error: "invalid task id" }, c);
+        return true;
+      }
+      const draft = readDraft(workspaceDir, raw);
+      if (!draft) {
+        sendJson(res, 404, { ok: false, error: "not found" }, c);
+        return true;
+      }
+      const reviewStatus = draft.reviewStatus ?? "pending";
+      if (reviewStatus !== "pending" && reviewStatus !== "modified") {
+        sendJson(res, 409, { ok: false, error: "draft_not_editable" }, c);
+        return true;
+      }
+      const parsed = parseDraftContentPatch(await readJsonBody(req));
+      if (!parsed.ok) {
+        sendJson(res, 400, { ok: false, error: parsed.error }, c);
+        return true;
+      }
+      const nextDraft: ArtifactDraft = {
+        ...draft,
+        ...(parsed.patch.title !== undefined ? { title: parsed.patch.title } : {}),
+        ...(parsed.patch.summary !== undefined ? { summary: parsed.patch.summary } : {}),
+        ...(parsed.patch.sections !== undefined ? { sections: parsed.patch.sections } : {}),
+      };
+      const actorId = resolveDesktopActorId();
+      const auditDir = path.join(workspaceDir, "audit");
+      await emit(auditDir, {
+        taskId: raw,
+        kind: "draft.content_edited",
+        actor: "lawyer",
+        actorId,
+        detail: JSON.stringify({
+          title: nextDraft.title,
+          sectionCount: nextDraft.sections.length,
+        }),
+      });
+      const storedDraftPath = persistDraft(workspaceDir, nextDraft);
+      updateTaskRecord(workspaceDir, raw, {
+        title: nextDraft.title,
+        draftPath: storedDraftPath,
+      });
+      if (nextDraft.matterId) {
+        try {
+          const tr = readTaskRecord(workspaceDir, raw);
+          linkDraftToDeliverable(workspaceDir, nextDraft, tr ?? undefined);
+        } catch {
+          // 写侧失败不阻断正文保存
+        }
+      }
+      const acceptance = validateDraftAgainstSpec(nextDraft);
+      const executionState = deriveReviewExecutionState(nextDraft, acceptance);
+      const gateDecisions = deriveReviewGateDecisions(nextDraft, acceptance);
+      await auditReviewGateSnapshot(workspaceDir, nextDraft, "review", acceptance, actorId);
+      sendJson(
+        res,
+        200,
+        {
+          ok: true,
+          draft: nextDraft,
+          citationIntegrity: resolveDraftCitationIntegrity(workspaceDir, nextDraft),
+          acceptance,
+          executionState,
+          gateDecisions,
         },
         c,
       );
@@ -411,6 +648,9 @@ export async function handleReviewRoute({
         engineMemory: toEngineClientMemorySnapshot(engineMem),
       });
       const acceptance = validateDraftAgainstSpec(draft);
+      const reasoningReport = validateReasoningForDraft(draft, graph ?? undefined);
+      const executionState = deriveReviewExecutionState(draft, acceptance);
+      const gateDecisions = deriveReviewGateDecisions(draft, acceptance);
       const auditDir = path.join(workspaceDir, "audit");
       await maybeEmitFirstrunAcceptanceReady(
         workspaceDir,
@@ -427,8 +667,11 @@ export async function handleReviewRoute({
           draft,
           citationIntegrity,
           reasoningMarkdown,
+          reasoningReport,
           memorySources,
           acceptance,
+          executionState,
+          gateDecisions,
         },
         c,
       );

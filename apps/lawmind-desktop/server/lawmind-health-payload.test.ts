@@ -7,6 +7,8 @@ import type { TaskIntent } from "../../../src/lawmind/types.js";
 import {
   buildDoctorStats,
   buildMemoryTruthSourceFlags,
+  buildP2DoctorReport,
+  buildWorkspaceStandardReport,
   countAuditJsonlFiles,
   countClientProfileFilesUnderClients,
   countResearchSnapshots,
@@ -83,6 +85,26 @@ describe("lawmind-health-payload", () => {
     expect(tryReadWorkspacePackageVersion("/nonexistent-lawmind-repo-root-xyz")).toBe(null);
   });
 
+  it("buildWorkspaceStandardReport flags missing memory and ok workflows", () => {
+    const ws = tmpWs();
+    const missing = buildWorkspaceStandardReport(ws);
+    expect(missing.ok).toBe(false);
+    expect(missing.checks.find((c) => c.id === "memory_md")?.state).toBe("missing");
+
+    fs.writeFileSync(path.join(ws, "MEMORY.md"), "m", "utf8");
+    fs.writeFileSync(path.join(ws, "LAWYER_PROFILE.md"), "p", "utf8");
+    const wfDir = path.join(ws, "lawmind", "workflows");
+    fs.mkdirSync(wfDir, { recursive: true });
+    fs.writeFileSync(path.join(wfDir, "sample.json"), "{}", "utf8");
+    const tplDir = path.join(ws, "templates", "word");
+    fs.mkdirSync(tplDir, { recursive: true });
+
+    const ok = buildWorkspaceStandardReport(ws);
+    expect(ok.checks.find((c) => c.id === "memory_md")?.state).toBe("ok");
+    expect(ok.checks.find((c) => c.id === "workflows")?.state).toBe("ok");
+    expect(ok.checks.find((c) => c.id === "word_templates")?.state).toBe("ok");
+  });
+
   it("buildMemoryTruthSourceFlags reports root files and client profile counts", () => {
     const ws = tmpWs();
     fs.writeFileSync(path.join(ws, "MEMORY.md"), "m", "utf8");
@@ -97,5 +119,15 @@ describe("lawmind-health-payload", () => {
     expect(flags.clientProfileRoot).toBe(false);
     expect(flags.clientProfileFilesUnderClients).toBe(1);
     expect(countClientProfileFilesUnderClients(ws)).toBe(1);
+  });
+
+  it("buildP2DoctorReport reports sandbox off and team sync disabled by default", () => {
+    const ws = tmpWs();
+    const p2 = buildP2DoctorReport(ws);
+    expect(p2.toolSandbox.enabled).toBe(false);
+    expect(p2.toolSandbox.source).toBe("off");
+    expect(p2.toolSandbox.sandboxedToolNames.length).toBeGreaterThan(0);
+    expect(p2.teamMemorySync.allowed).toBe(false);
+    expect(p2.teamMemorySync.reason).toBe("team_memory_sync_disabled");
   });
 });

@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { removeTestWorkspaceDir } from "../../../../test/lawmind-workspace-cleanup.js";
 import {
   createLawMindEngine,
   createLegalModelAdapter,
@@ -21,7 +22,7 @@ describe("LawMind queue service", () => {
   });
 
   afterEach(async () => {
-    await fs.rm(workspaceDir, { recursive: true, force: true });
+    await removeTestWorkspaceDir(workspaceDir);
   });
 
   it("lists pending approval requests for high-risk planned work", async () => {

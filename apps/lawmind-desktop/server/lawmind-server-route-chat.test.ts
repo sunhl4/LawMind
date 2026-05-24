@@ -44,6 +44,28 @@ function createResponseCapture() {
   };
 }
 
+/** Parse SSE blocks written via `event:` + `data:` (ignores `: ping` comment lines inside blocks). */
+function parseNamedSseEvents(chunks: string[]): Array<{ name: string; data: unknown }> {
+  const raw = chunks.filter((c) => c !== "__END__").join("");
+  const out: Array<{ name: string; data: unknown }> = [];
+  for (const block of raw.split("\n\n").filter((b) => b.trim().length > 0)) {
+    let ev = "";
+    const dataPieces: string[] = [];
+    for (const line of block.split("\n")) {
+      if (line.startsWith("event:")) {
+        ev = line.slice("event:".length).trim();
+      } else if (line.startsWith("data:")) {
+        dataPieces.push(line.slice("data:".length).trimStart());
+      }
+    }
+    if (dataPieces.length) {
+      const joined = dataPieces.join("");
+      out.push({ name: ev, data: JSON.parse(joined) });
+    }
+  }
+  return out;
+}
+
 describe("lawmind-server-route-chat", () => {
   beforeEach(() => {
     mockChat.mockReset();
@@ -147,6 +169,18 @@ describe("lawmind-server-route-chat", () => {
         messages: [],
         toolCallsExecuted: 1,
         status: "awaiting_clarification",
+        executionState: {
+          phase: "clarify",
+          status: "awaiting_clarification",
+          recoverable: true,
+        },
+        gateDecisions: [
+          {
+            gate: "clarification_gate",
+            decision: "awaiting_confirmation",
+            reason: "need lawyer input",
+          },
+        ],
         clarificationQuestions: [
           {
             key: "rent_and_deposit",
@@ -189,6 +223,16 @@ describe("lawmind-server-route-chat", () => {
     expect(capture.json()).toMatchObject({
       ok: true,
       status: "awaiting_clarification",
+      executionState: {
+        phase: "clarify",
+        status: "awaiting_clarification",
+      },
+      gateDecisions: [
+        {
+          gate: "clarification_gate",
+          decision: "awaiting_confirmation",
+        },
+      ],
       clarificationQuestions: [
         {
           key: "rent_and_deposit",
@@ -278,6 +322,130 @@ describe("lawmind-server-route-chat", () => {
     );
   });
 
+  it("includes sourceType in toolCallSequence for document reads", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-chat-seq-"));
+    fs.writeFileSync(path.join(workspaceDir, "MEMORY.md"), "# memory\n", "utf8");
+    fs.writeFileSync(path.join(workspaceDir, "LAWYER_PROFILE.md"), "# profile\n", "utf8");
+    const lawMindRoot = path.join(workspaceDir, "..");
+    fs.writeFileSync(
+      path.join(lawMindRoot, "assistants.json"),
+      JSON.stringify([
+        {
+          assistantId: "default",
+          displayName: "默认助手",
+          introduction: "测试助手",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ]),
+      "utf8",
+    );
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(os.tmpdir(), "x.env"),
+      policy: { loaded: false },
+    };
+    const iso = new Date().toISOString();
+    mockChat.mockResolvedValue({
+      reply: "ok",
+      sessionId: "sess-seq",
+      turn: {
+        turnId: "turn-seq",
+        sessionId: "sess-seq",
+        instruction: "hi",
+        messages: [
+          {
+            role: "assistant",
+            content: "",
+            timestamp: iso,
+            toolCalls: [{ id: "call_a", name: "read_project_file", arguments: {} }],
+          },
+          {
+            role: "tool",
+            content: "{}",
+            timestamp: iso,
+            toolCallResponses: [
+              {
+                toolCallId: "call_a",
+                name: "read_project_file",
+                result: { ok: true, data: { sourceType: "pdf_ocr", content: "x" } },
+              },
+            ],
+          },
+          {
+            role: "assistant",
+            content: "",
+            timestamp: iso,
+            toolCalls: [
+              { id: "call_b", name: "analyze_document", arguments: {} },
+              { id: "call_c", name: "search_cases", arguments: {} },
+            ],
+          },
+          {
+            role: "tool",
+            content: "{}",
+            timestamp: iso,
+            toolCallResponses: [
+              {
+                toolCallId: "call_b",
+                name: "analyze_document",
+                result: { ok: true, data: { sourceType: "image_vision", filePath: "/f" } },
+              },
+            ],
+          },
+          {
+            role: "tool",
+            content: "{}",
+            timestamp: iso,
+            toolCallResponses: [
+              {
+                toolCallId: "call_c",
+                name: "search_cases",
+                result: { ok: true, data: { hits: [] } },
+              },
+            ],
+          },
+        ],
+        toolCallsExecuted: 3,
+        status: "completed",
+        startedAt: iso,
+        completedAt: iso,
+      },
+    });
+    const req = {
+      method: "POST",
+      headers: {},
+    } as http.IncomingMessage;
+    Object.assign(req, {
+      on(event: string, handler: (...args: unknown[]) => void) {
+        if (event === "data") {
+          handler(Buffer.from(JSON.stringify({ message: "hello" })));
+        }
+        if (event === "end") {
+          handler();
+        }
+        return this;
+      },
+    });
+    const capture = createResponseCapture();
+    await handleChatRoute({
+      ctx,
+      req,
+      res: capture.res,
+      url: new URL("http://127.0.0.1/api/chat"),
+      pathname: "/api/chat",
+      c: {},
+    });
+    expect(capture.status).toBe(200);
+    expect(capture.json().toolCallSequence).toEqual([
+      "read_project_file（PDF·OCR）",
+      "analyze_document（图片·视觉）",
+      "search_cases",
+    ]);
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+  });
+
   it("allows unscoped chat by default", async () => {
     const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-chat-unscoped-"));
     fs.writeFileSync(path.join(workspaceDir, "MEMORY.md"), "# memory\n", "utf8");
@@ -343,6 +511,142 @@ describe("lawmind-server-route-chat", () => {
     expect(mockChat).toHaveBeenCalledTimes(1);
     expect(capture.status).toBe(200);
     expect(capture.json()).toMatchObject({ ok: true, reply: "hi" });
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+  });
+
+  it("forwards linkedTaskId to agent.chat and echoes in JSON when set", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-chat-linked-"));
+    fs.writeFileSync(path.join(workspaceDir, "MEMORY.md"), "# memory\n", "utf8");
+    fs.writeFileSync(path.join(workspaceDir, "LAWYER_PROFILE.md"), "# profile\n", "utf8");
+    const lawMindRoot = path.join(workspaceDir, "..");
+    fs.writeFileSync(
+      path.join(lawMindRoot, "assistants.json"),
+      JSON.stringify([
+        {
+          assistantId: "default",
+          displayName: "默认助手",
+          introduction: "测试助手",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ]),
+      "utf8",
+    );
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(os.tmpdir(), "x.env"),
+      policy: { loaded: false },
+    };
+    mockChat.mockResolvedValue({
+      reply: "ok",
+      sessionId: "sess-link",
+      turn: {
+        turnId: "turn-link",
+        sessionId: "sess-link",
+        instruction: "",
+        messages: [],
+        toolCallsExecuted: 0,
+        status: "completed",
+        startedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+      },
+    });
+    const req = {
+      method: "POST",
+      headers: {},
+    } as http.IncomingMessage;
+    Object.assign(req, {
+      on(event: string, handler: (...args: unknown[]) => void) {
+        if (event === "data") {
+          handler(
+            Buffer.from(
+              JSON.stringify({
+                message: "hello",
+                linkedTaskId: "abc-draft-01",
+              }),
+            ),
+          );
+        }
+        if (event === "end") {
+          handler();
+        }
+        return this;
+      },
+    });
+    const capture = createResponseCapture();
+    await handleChatRoute({
+      ctx,
+      req,
+      res: capture.res,
+      url: new URL("http://127.0.0.1/api/chat"),
+      pathname: "/api/chat",
+      c: {},
+    });
+    expect(capture.status).toBe(200);
+    expect(capture.json()).toMatchObject({ ok: true, linkedTaskId: "abc-draft-01" });
+    expect(mockChat.mock.calls[0][1]).toMatchObject({ linkedTaskId: "abc-draft-01" });
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+  });
+
+  it("rejects invalid linkedTaskId", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-chat-badlink-"));
+    fs.writeFileSync(path.join(workspaceDir, "MEMORY.md"), "# memory\n", "utf8");
+    fs.writeFileSync(path.join(workspaceDir, "LAWYER_PROFILE.md"), "# profile\n", "utf8");
+    const lawMindRoot = path.join(workspaceDir, "..");
+    fs.writeFileSync(
+      path.join(lawMindRoot, "assistants.json"),
+      JSON.stringify([
+        {
+          assistantId: "default",
+          displayName: "默认助手",
+          introduction: "测试助手",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ]),
+      "utf8",
+    );
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(os.tmpdir(), "x.env"),
+      policy: { loaded: false },
+    };
+    const req = {
+      method: "POST",
+      headers: {},
+    } as http.IncomingMessage;
+    Object.assign(req, {
+      on(event: string, handler: (...args: unknown[]) => void) {
+        if (event === "data") {
+          handler(
+            Buffer.from(
+              JSON.stringify({
+                message: "hello",
+                linkedTaskId: "has space",
+              }),
+            ),
+          );
+        }
+        if (event === "end") {
+          handler();
+        }
+        return this;
+      },
+    });
+    const capture = createResponseCapture();
+    await handleChatRoute({
+      ctx,
+      req,
+      res: capture.res,
+      url: new URL("http://127.0.0.1/api/chat"),
+      pathname: "/api/chat",
+      c: {},
+    });
+    expect(mockChat).not.toHaveBeenCalled();
+    expect(capture.status).toBe(400);
+    expect(capture.json()).toMatchObject({ ok: false, code: "invalid_linked_task_id" });
     fs.rmSync(workspaceDir, { recursive: true, force: true });
   });
 
@@ -581,5 +885,180 @@ describe("lawmind-server-route-chat", () => {
     const u = JSON.parse(raw[0]) as { text: string };
     expect(u.text).toBe("短指示");
     fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  describe("SSE /api/chat streaming", () => {
+    function sseResponseCapture(): {
+      res: http.ServerResponse;
+      chunks: string[];
+      get httpStatus(): number;
+    } {
+      let httpStatus = 0;
+      const chunks: string[] = [];
+      const res = {
+        writableEnded: false,
+        headersSent: false,
+        writeHead(code: number, _headers: Record<string, string>) {
+          httpStatus = code;
+          return res;
+        },
+        write(line: string) {
+          chunks.push(line);
+          return true;
+        },
+        end(fragment?: string) {
+          if (fragment) {chunks.push(fragment.toString());}
+          chunks.push("__END__");
+        },
+      } as unknown as http.ServerResponse;
+      return {
+        res,
+        chunks,
+        get httpStatus() {
+          return httpStatus;
+        },
+      };
+    }
+
+    function minimalWorkspaceDirs() {
+      const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-chat-sse-"));
+      fs.writeFileSync(path.join(workspaceDir, "MEMORY.md"), "# memory\n", "utf8");
+      fs.writeFileSync(path.join(workspaceDir, "LAWYER_PROFILE.md"), "# profile\n", "utf8");
+      const lawMindRoot = path.join(workspaceDir, "..");
+      fs.writeFileSync(
+        path.join(lawMindRoot, "assistants.json"),
+        JSON.stringify([
+          {
+            assistantId: "default",
+            displayName: "默认助手",
+            introduction: "测试助手",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        ]),
+        "utf8",
+      );
+      return { workspaceDir };
+    }
+
+    function streamReq(message: string): http.IncomingMessage {
+      const req = {
+        method: "POST",
+        headers: { accept: "text/event-stream" },
+      } as http.IncomingMessage;
+      Object.assign(req, {
+        on(event: string, handler?: (...args: unknown[]) => void) {
+          if (event === "data" && handler) {
+            handler(Buffer.from(JSON.stringify({ message })));
+          }
+          if (event === "end" && handler) {
+            handler();
+          }
+          if (event === "close") {
+            /* keep listeners registered; invoking close eagerly would sseEnd before agent.chat completes */
+          }
+          return req;
+        },
+      });
+      return req;
+    }
+
+    it("emits SSE event sequence ending with payload and done", async () => {
+      const { workspaceDir } = minimalWorkspaceDirs();
+      mockChat.mockImplementation(async (_instruction, opts) => {
+        expect(opts?.onEvent).toBeTypeOf("function");
+        opts?.onEvent?.({ type: "round_start", roundIndex: 1 });
+        opts?.onEvent?.({ type: "delta", roundIndex: 1, text: "partial" });
+        opts?.onEvent?.({ type: "final", status: "completed", reply: "full reply" });
+        return {
+          reply: "full reply",
+          sessionId: "sess-sse",
+          turn: {
+            turnId: "turn-sse",
+            sessionId: "sess-sse",
+            instruction: "",
+            messages: [],
+            toolCallsExecuted: 0,
+            status: "completed",
+            startedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+          },
+        };
+      });
+      const ctx: LawmindDispatchContext = {
+        workspaceDir,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const cap = sseResponseCapture();
+      await handleChatRoute({
+        ctx,
+        req: streamReq("hello stream"),
+        res: cap.res,
+        url: new URL("http://127.0.0.1/api/chat"),
+        pathname: "/api/chat",
+        c: {},
+      });
+      expect(cap.httpStatus).toBe(200);
+      const events = parseNamedSseEvents(cap.chunks).map((e) => e.name);
+      expect(events).toContain("round_start");
+      expect(events).toContain("delta");
+      expect(events).toContain("final_reply");
+      expect(events.some((n) => n === "payload")).toBe(true);
+      expect(events[events.length - 1]).toBe("done");
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    });
+
+    it("JSON Accept branch does not pass onEvent", async () => {
+      const { workspaceDir } = minimalWorkspaceDirs();
+      mockChat.mockResolvedValue({
+        reply: "json",
+        sessionId: "sess-j",
+        turn: {
+          turnId: "turn-j",
+          sessionId: "sess-j",
+          instruction: "",
+          messages: [],
+          toolCallsExecuted: 0,
+          status: "completed",
+          startedAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+        },
+      });
+      const ctx: LawmindDispatchContext = {
+        workspaceDir,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const req = {
+        method: "POST",
+        headers: { accept: "application/json" },
+      } as http.IncomingMessage;
+      Object.assign(req, {
+        on(event: string, handler: (...args: unknown[]) => void) {
+          if (event === "data") {
+            handler(Buffer.from(JSON.stringify({ message: "no sse" })));
+          }
+          if (event === "end") {
+            handler();
+          }
+          return req;
+        },
+      });
+      const capture = createResponseCapture();
+      await handleChatRoute({
+        ctx,
+        req,
+        res: capture.res,
+        url: new URL("http://127.0.0.1/api/chat"),
+        pathname: "/api/chat",
+        c: {},
+      });
+      expect(capture.status).toBe(200);
+      expect(mockChat.mock.calls[0][1]).toMatchObject({ onEvent: undefined });
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    });
   });
 });
