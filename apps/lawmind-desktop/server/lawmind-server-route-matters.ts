@@ -31,6 +31,8 @@ import {
   appendCaseTaskGoal,
   upsertMatterDisplayName,
 } from "../../../src/lawmind/memory/index.js";
+import { loadMatter, saveMatter } from "../../../src/lawmind/adapters/matter-storage/index.js";
+import { repairMatterProjections } from "../../../src/lawmind/application/matter-consistency.js";
 import { isProductInsightsCollectionEnabled } from "../../../src/lawmind/policy/edition.js";
 import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspace-policy.js";
 import { buildMatterSessionTimeline } from "../../../src/lawmind/insights/session-timeline.js";
@@ -489,7 +491,22 @@ export async function handleMatterRoutes({
     }
     try {
       await upsertMatterDisplayName(workspaceDir, mid, label);
+      const record = loadMatter(workspaceDir, mid);
+      if (record && record.title.trim() !== label) {
+        saveMatter(workspaceDir, { ...record, title: label });
+      }
       sendJson(res, 200, { ok: true, matterId: mid, displayName: label }, c);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      sendJson(res, 500, { ok: false, error: msg }, c);
+    }
+    return true;
+  }
+
+  if (pathname === "/api/matters/repair-projections" && req.method === "POST") {
+    try {
+      const repaired = await repairMatterProjections(workspaceDir);
+      sendJson(res, 200, { ok: true, repaired }, c);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       sendJson(res, 500, { ok: false, error: msg }, c);

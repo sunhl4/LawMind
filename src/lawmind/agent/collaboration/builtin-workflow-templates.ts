@@ -7,6 +7,72 @@ import type { WorkspaceWorkflowTemplateFile } from "./workspace-workflow-templat
 
 export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
   {
+    id: "training-ppt",
+    name: "培训 PPT",
+    namedAgent: "Training Deck Writer",
+    description: "把一个主题整理成培训课件大纲与 PPT 草稿，适合内部培训或客户分享。",
+    practiceArea: "client",
+    deliverableType: "ppt.training",
+    riskLevel: "low",
+    audience: "solo",
+    kind: "office",
+    starterPrompt:
+      "请帮我做一份培训 PPT。主题是：\n\n受众是：\n预计时长：\n希望风格：专业、清楚、适合律师讲解。\n\n请先给出目录和每页要点，再生成可导出的 PPT 草稿。",
+    steps: [
+      {
+        stepId: "deck",
+        assignee: "client_communicator",
+        task: "生成培训 PPT 大纲与页面要点",
+        dependsOn: [],
+        autoApprove: false,
+      },
+    ],
+  },
+  {
+    id: "office-research-report",
+    name: "研究报告 / 内部分享",
+    namedAgent: "Research Memo Writer",
+    description: "把一个法律或行业主题整理成结构化报告、内部分享或研究 memo。",
+    practiceArea: "compliance",
+    deliverableType: "document.report",
+    riskLevel: "medium",
+    audience: "solo",
+    kind: "office",
+    starterPrompt:
+      "请帮我写一份研究报告/内部分享材料。主题是：\n\n用途是：\n读者是：\n需要覆盖的重点：\n\n请先列提纲，再起草正文，语言要适合律师对外或内部使用。",
+    steps: [
+      {
+        stepId: "report",
+        assignee: "compliance_researcher",
+        task: "生成研究报告或内部分享材料",
+        dependsOn: [],
+        autoApprove: false,
+      },
+    ],
+  },
+  {
+    id: "speech-or-lecture-draft",
+    name: "讲稿 / 培训讲义",
+    namedAgent: "Lecture Draft Writer",
+    description: "起草讲话稿、课程讲义或活动发言材料，默认不绑定案件。",
+    practiceArea: "client",
+    deliverableType: "document.speech",
+    riskLevel: "low",
+    audience: "solo",
+    kind: "office",
+    starterPrompt:
+      "请帮我起草一份讲稿/培训讲义。主题是：\n\n场合是：\n听众是：\n时长约：\n语气要求：\n\n请先给结构，再写完整草稿。",
+    steps: [
+      {
+        stepId: "draft",
+        assignee: "client_communicator",
+        task: "起草讲稿或培训讲义",
+        dependsOn: [],
+        autoApprove: false,
+      },
+    ],
+  },
+  {
     id: "nda-triage",
     name: "保密协议初审",
     namedAgent: "NDA Triager",
@@ -15,6 +81,7 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
     deliverableType: "contract.review",
     riskLevel: "medium",
     audience: "solo",
+    kind: "matter",
     starterPrompt: "请对当前案件中的保密协议做初审：列出对己方不利条款、缺失定义与建议追问项。",
     acceptancePackRequired: true,
     requiredSources: ["NDA 文本"],
@@ -37,6 +104,7 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
     deliverableType: "contract.review",
     riskLevel: "medium",
     audience: "solo",
+    kind: "matter",
     starterPrompt: "请审查本案主合同，输出分章节审查意见与风险等级。",
     acceptancePackRequired: true,
     requiredSources: ["主合同"],
@@ -59,6 +127,7 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
     deliverableType: "contract.review",
     riskLevel: "medium",
     audience: "firm",
+    kind: "matter",
     starterPrompt: "请审查供应商协议：付款、交付、赔偿上限、知识产权与终止条款。",
     acceptancePackRequired: true,
     requiredSources: ["供应商协议"],
@@ -81,6 +150,7 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
     deliverableType: "letter.demand",
     riskLevel: "high",
     audience: "solo",
+    kind: "matter",
     starterPrompt: "请为本案起草律师函：先列出需律师确认的事实与诉求，再生成完整正文框架。",
     acceptancePackRequired: true,
     steps: [
@@ -102,6 +172,7 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
     deliverableType: "document.general",
     riskLevel: "low",
     audience: "solo",
+    kind: "matter",
     starterPrompt: "请整理本案时间线：每个节点注明来源、争议点与下一步动作建议。",
     steps: [
       {
@@ -122,6 +193,7 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
     deliverableType: "document.general",
     riskLevel: "low",
     audience: "solo",
+    kind: "matter",
     starterPrompt: "请根据现有材料编制证据索引：编号、来源、证明目的、待补强项。",
     steps: [
       {
@@ -142,6 +214,7 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
     deliverableType: "contract.review",
     riskLevel: "high",
     audience: "firm",
+    kind: "matter",
     starterPrompt: "请启动尽调审查：先列出材料清单，再按尽调问题列逐项标注风险与来源。",
     acceptancePackRequired: true,
     requiredSources: ["目标公司材料包"],
@@ -171,6 +244,7 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
     deliverableType: "document.general",
     riskLevel: "low",
     audience: "solo",
+    kind: "matter",
     starterPrompt: "请起草给客户的本案进展备忘录：已完成工作、当前风险、需客户确认事项与时间表。",
     steps: [
       {
@@ -191,6 +265,7 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
     deliverableType: "document.general",
     riskLevel: "medium",
     audience: "firm",
+    kind: "matter",
     starterPrompt: "请就本案监管问题做合规研究：规范层级、适用边界与结论清单。",
     steps: [
       {
@@ -212,6 +287,7 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
     deliverableType: "document.general",
     riskLevel: "low",
     audience: "solo",
+    kind: "matter",
     schedulable: true,
     starterPrompt:
       "请扫描本案主合同的到期日、自动续签、终止通知期，并起草给律师的续签/终止决策备忘。",

@@ -7,9 +7,11 @@ import {
   loadRecordsPayload,
 } from "./lawmind-app-data";
 import { LAWMIND_DOWNLOAD_PAGE_URL } from "./lawmind-public-urls.js";
+import { setLoopbackApiAuthToken } from "./lawmind-api-auth.ts";
 
 export type AppConfig = {
   apiBase: string;
+  apiAuthToken?: string;
   workspaceDir: string;
   projectDir: string | null;
   envFilePath: string;
@@ -28,8 +30,10 @@ export async function loadInitialAppConfig(): Promise<AppConfig> {
   const bridge = window.lawmindDesktop;
   if (bridge?.getConfig) {
     const config = await bridge.getConfig();
+    setLoopbackApiAuthToken(config.apiAuthToken);
     return {
       apiBase: config.apiBase,
+      apiAuthToken: config.apiAuthToken,
       workspaceDir: config.workspaceDir,
       projectDir: config.projectDir ?? null,
       envFilePath: config.envFilePath,
@@ -114,8 +118,10 @@ export async function refreshLocalAppConfig(
     return previous ?? null;
   }
   const config = await bridge.getConfig();
+  setLoopbackApiAuthToken(config.apiAuthToken);
   return {
     apiBase: config.apiBase,
+    apiAuthToken: config.apiAuthToken,
     workspaceDir: config.workspaceDir,
     projectDir: config.projectDir ?? null,
     envFilePath: config.envFilePath,

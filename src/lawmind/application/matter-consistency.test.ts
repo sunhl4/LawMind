@@ -5,6 +5,7 @@ import { loadMatter, saveMatter } from "../adapters/matter-storage/index.js";
 import { ensureCaseWorkspace } from "../memory/index.js";
 import { checkMatterConsistency } from "./matter-consistency.js";
 import { ensureMatterWithProjection } from "./matter-dual-write.js";
+import { createPlannedDeliverable, transitionDeliverable } from "./services/deliverable-service.js";
 
 describe("application/matter-consistency", () => {
   let workspaceDir: string;
@@ -24,6 +25,23 @@ describe("application/matter-consistency", () => {
     expect(issues.some((i) => i.matterId === "matter-x" && i.code === "missing_matter_json")).toBe(
       true,
     );
+  });
+
+  it("stays consistent after ensureMatterWithProjection and transitionDeliverable", async () => {
+    await ensureMatterWithProjection(workspaceDir, {
+      matterId: "matter-deliverable",
+      title: "交付物案件",
+    });
+    createPlannedDeliverable(workspaceDir, {
+      matterId: "matter-deliverable",
+      deliverableId: "del-1",
+      kind: "demand-letter",
+    });
+    transitionDeliverable(workspaceDir, "matter-deliverable", "del-1", "drafting");
+    const issues = await checkMatterConsistency(workspaceDir);
+    const forMatter = issues.filter((i) => i.matterId === "matter-deliverable");
+    expect(forMatter.some((i) => i.code === "missing_matter_json")).toBe(false);
+    expect(forMatter.some((i) => i.code === "title_drift")).toBe(false);
   });
 
   it("reports title_drift when CASE display name differs from JSON title", async () => {

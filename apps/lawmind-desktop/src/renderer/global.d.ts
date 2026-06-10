@@ -11,6 +11,7 @@ declare global {
     lawmindDesktop?: {
       getConfig: () => Promise<{
         apiBase: string;
+        apiAuthToken?: string;
         workspaceDir: string;
         projectDir: string | null;
         envFilePath: string;

@@ -55,6 +55,8 @@ export const DeliverableStatusSchema = z.enum([
   "pending_review",
   "approved",
   "rendered",
+  "delivered",
+  "learned",
   "blocked",
 ]);
 

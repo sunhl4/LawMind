@@ -80,6 +80,7 @@ async function main() {
     LAWMIND_REPO_ROOT: repoRoot,
     LAWMIND_WORKSPACE_DIR: workspaceDir,
     LAWMIND_DESKTOP_PORT: String(port),
+    LAWMIND_SKIP_API_AUTH: "1",
   };
 
   const server = spawn(

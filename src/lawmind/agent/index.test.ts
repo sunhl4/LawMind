@@ -79,12 +79,13 @@ async function createSimpleDocxWithText(filePath: string, text: string): Promise
 }
 
 async function createSimpleXlsxWithCell(filePath: string, cellValue: string): Promise<void> {
-  const XLSX = await import("xlsx");
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet([[cellValue], ["second-row"]]);
-  XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
-  fs.writeFileSync(filePath, buf);
+  const ExcelJS = await import("exceljs");
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("Sheet1");
+  ws.addRow([cellValue]);
+  ws.addRow(["second-row"]);
+  const buf = await wb.xlsx.writeBuffer();
+  fs.writeFileSync(filePath, Buffer.from(buf));
 }
 
 describe("ToolRegistry", () => {

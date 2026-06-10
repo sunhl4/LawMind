@@ -152,11 +152,11 @@ export function isKnownConnectorId(raw: string): raw is IntegrationConnectorId {
   return (INTEGRATION_CONNECTOR_IDS as readonly string[]).includes(raw);
 }
 
-export function listIntegrationDocuments(
+export async function listIntegrationDocuments(
   workspaceDir: string,
   connectorId: IntegrationConnectorId,
   matterId: string,
-): IntegrationDocumentsResult | IntegrationDocumentsError {
+): Promise<IntegrationDocumentsResult | IntegrationDocumentsError> {
   const scopeErr = assertMatterScope(workspaceDir, matterId);
   if (scopeErr) {
     return scopeErr;
@@ -192,7 +192,7 @@ export function listIntegrationDocuments(
 
   if (connectorId === "sharepoint") {
     const cfg = config.connectors.sharepoint;
-    const docs = listSharepointDocuments(workspaceDir, trimmed, cfg);
+    const docs = await listSharepointDocuments(workspaceDir, trimmed, cfg);
     if (Array.isArray(docs)) {
       return { ok: true, connectorId, matterId: trimmed, documents: docs };
     }

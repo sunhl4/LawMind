@@ -2,6 +2,8 @@
  * Parse LawMind local API error responses for display hints (chat retry guidance).
  */
 
+import { apiAuthHeaders } from "./lawmind-api-auth.ts";
+
 import {
   friendlyModelErrorMessage,
   isModelProviderErrorMessage,
@@ -222,7 +224,7 @@ export async function readJsonFromResponse<T>(response: Response): Promise<T & A
 }
 
 export async function apiGetJson<T>(apiBase: string, path: string): Promise<T> {
-  const response = await fetch(`${apiBase}${path}`);
+  const response = await fetch(`${apiBase}${path}`, { headers: apiAuthHeaders() });
   const body = await readJsonFromResponse<T>(response);
   if (!response.ok) {
     throw new ApiRequestError(
@@ -242,7 +244,7 @@ export async function apiSendJson<TResponse, TBody>(
 ): Promise<TResponse> {
   const response = await fetch(`${apiBase}${path}`, {
     method,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...apiAuthHeaders() },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const responseBody = await readJsonFromResponse<TResponse>(response);

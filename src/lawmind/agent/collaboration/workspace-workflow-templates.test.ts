@@ -6,6 +6,8 @@ import {
   listWorkspaceWorkflowTemplates,
   readWorkspaceWorkflowTemplate,
   instantiateCollaborationWorkflowFromTemplate,
+  resolveWorkflowTemplateKind,
+  workflowTemplateKindUiLabel,
 } from "./workspace-workflow-templates.js";
 
 describe("workspace-workflow-templates", () => {
@@ -19,6 +21,7 @@ describe("workspace-workflow-templates", () => {
         id: "demo",
         name: "Demo flow",
         description: "test",
+        kind: "office",
         steps: [{ stepId: "a", assignee: "asst1", task: "Hello {{matterId}}", dependsOn: [] }],
       }),
       "utf8",
@@ -39,6 +42,8 @@ describe("workspace-workflow-templates", () => {
         acceptancePackRequired: false,
         requiredSources: undefined,
         schedulable: false,
+        triggerPaths: undefined,
+        kind: "office",
       },
     ]);
 
@@ -56,5 +61,53 @@ describe("workspace-workflow-templates", () => {
   it("rejects path traversal in template id", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "lm-wf2-"));
     expect(readWorkspaceWorkflowTemplate(root, "../evil")).toBeUndefined();
+  });
+});
+
+describe("resolveWorkflowTemplateKind", () => {
+  it("prefers explicit kind when set", () => {
+    expect(
+      resolveWorkflowTemplateKind({
+        id: "contract-review",
+        name: "合同审查意见",
+        description: "审查主合同",
+        kind: "office",
+      }),
+    ).toBe("office");
+    expect(
+      resolveWorkflowTemplateKind({
+        id: "training-ppt",
+        name: "培训 PPT",
+        description: "培训课件",
+        kind: "matter",
+      }),
+    ).toBe("matter");
+  });
+
+  it("classifies office templates without explicit kind", () => {
+    expect(
+      resolveWorkflowTemplateKind({
+        id: "training-ppt",
+        name: "培训 PPT",
+        description: "把一个主题整理成培训课件",
+      }),
+    ).toBe("office");
+  });
+
+  it("classifies matter templates without explicit kind", () => {
+    expect(
+      resolveWorkflowTemplateKind({
+        id: "contract-review",
+        name: "合同审查意见",
+        description: "生成带章节结构的合同审查意见",
+      }),
+    ).toBe("matter");
+  });
+});
+
+describe("workflowTemplateKindUiLabel", () => {
+  it("maps kind to lawyer-facing labels", () => {
+    expect(workflowTemplateKindUiLabel("office")).toBe("写文稿/做材料");
+    expect(workflowTemplateKindUiLabel("matter")).toBe("案件工作");
   });
 });

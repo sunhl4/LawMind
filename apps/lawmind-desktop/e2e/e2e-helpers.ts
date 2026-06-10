@@ -2,6 +2,12 @@ import { expect, type Page } from "@playwright/test";
 
 export const E2E_FIRST_RUN_DISMISS_KEY = "lm.firstRun.dismissed";
 
+/** Mock LawMind API base (must match `LAWMIND_E2E_MOCK_PORT` in playwright webServer). */
+export function e2eMockApiBase(): string {
+  const port = process.env.LAWMIND_E2E_MOCK_PORT ?? "48888";
+  return `http://127.0.0.1:${port}`;
+}
+
 /** Skip auto-opening LawMind first-run wizard and reset UI prefs that break E2E layout. */
 export function installE2eBrowserPrefs(page: { addInitScript: Page["addInitScript"] }): Promise<void> {
   return page.addInitScript((firstRunKey) => {
@@ -76,6 +82,10 @@ export async function gotoShell(page: Page): Promise<void> {
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await expect(page.locator(".lm-shell")).toBeVisible({ timeout: 60_000 });
   await dismissBlockingDialogs(page);
+  await page
+    .waitForResponse((res) => res.url().includes("/api/models") && res.ok(), { timeout: 30_000 })
+    .catch(() => undefined);
+  await expect(page.locator(".lm-readiness-strip")).toHaveCount(0, { timeout: 30_000 });
 }
 
 /** Inline「批准并继续」会打开 ToolApprovalDialog；确认后才会 POST /api/chat/resume。 */
@@ -93,44 +103,85 @@ export async function approveToolViaDialog(page: Page): Promise<import("@playwri
 export async function openWorkspaceChat(page: Page): Promise<void> {
   await dismissBlockingDialogs(page);
   const mainNav = page.getByRole("navigation", { name: "功能模块" });
-  const chatTab = mainNav.getByRole("button", { name: "对话" });
+  const chatTab = mainNav.getByRole("button", { name: "写文稿" });
   await chatTab.click({ force: true });
   await expect(chatTab).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("region", { name: "对话消息" })).toBeVisible({ timeout: 30_000 });
 }
 
+async function leaveSettingsIfOpen(page: Page): Promise<void> {
+  const closeSettings = page.getByRole("button", { name: "关闭设置" });
+  if (await closeSettings.isVisible().catch(() => false)) {
+    await closeSettings.click({ force: true });
+  }
+  const backFromSettings = page.getByRole("button", { name: "← 返回" });
+  if (await backFromSettings.isVisible().catch(() => false)) {
+    await backFromSettings.click({ force: true });
+  }
+}
+
 export async function openReviewWorkbench(page: Page): Promise<void> {
   await dismissBlockingDialogs(page);
+  await leaveSettingsIfOpen(page);
   const mainNav = page.getByRole("navigation", { name: "功能模块" });
-  const reviewTab = mainNav.getByRole("button", { name: "审核" });
+  await expect(mainNav).toBeVisible({ timeout: 30_000 });
+  const reviewTab = mainNav.getByRole("button", { name: "审核导出" });
   await reviewTab.click({ force: true });
-  await expect(reviewTab).toHaveClass(/active/, { timeout: 15_000 });
+  await expect(reviewTab).toHaveAttribute("aria-current", "page", { timeout: 15_000 });
   await expect(page.getByRole("toolbar", { name: "审核台分栏" }).first()).toBeVisible({ timeout: 30_000 });
 }
 
-/** Pick first draft from the review toolbar and assert gate list shows blocking copy. */
+/** Open matter cockpit in browser E2E (no Electron filesystem bridge). */
+export async function openMatterCockpit(page: Page): Promise<void> {
+  await dismissBlockingDialogs(page);
+  const mainNav = page.getByRole("navigation", { name: "功能模块" });
+  await mainNav.getByRole("button", { name: "工作流" }).click({ force: true });
+  await page
+    .waitForResponse((res) => res.url().includes("/api/matters/overviews") && res.ok(), {
+      timeout: 30_000,
+    })
+    .catch(() => undefined);
+  const matterRow = page.locator(".lm-matter-sidebar-list-ul button").first();
+  await expect(matterRow).toBeVisible({ timeout: 30_000 });
+  await matterRow.click({ force: true });
+  await expect(
+    page.locator(".lm-matter-workbench, .lm-workbench-matter-list, [data-testid='lm-matter-cockpit']").first(),
+  ).toBeVisible({ timeout: 30_000 });
+}
+
+/** Open review tab, load mock draft detail, assert gate copy is visible. */
 export async function assertReviewGateList(page: Page): Promise<void> {
-  const draftSelect = page.getByRole("combobox", { name: "选择草稿" });
-  await expect(draftSelect).toBeVisible({ timeout: 30_000 });
-  const detailResponse = page
+  const detailWait = page.waitForResponse(
+    (res) =>
+      res.request().method() === "GET" &&
+      new URL(res.url()).pathname.endsWith('/api/drafts/e2e-draft-1') &&
+      res.ok(),
+    { timeout: 30_000 },
+  );
+  await openReviewWorkbench(page);
+  await page
     .waitForResponse(
-      (res) =>
-        res.request().method() === "GET" &&
-        /\/api\/drafts\/[^/]+$/.test(new URL(res.url()).pathname) &&
-        res.ok(),
-      { timeout: 8_000 },
+      (res) => {
+        const path = new URL(res.url()).pathname;
+        return res.request().method() === "GET" && path.endsWith("/api/drafts") && res.ok();
+      },
+      { timeout: 30_000 },
     )
-    .catch(() => null);
-  await draftSelect.selectOption({ index: 1 });
-  const detailRes = await detailResponse;
-  if (detailRes) {
-    const detailJson = (await detailRes.json()) as { gateDecisions?: Array<{ reason?: string }> };
-    expect(detailJson.gateDecisions?.some((g) => /等待律师签批|验收门禁/.test(g.reason ?? ""))).toBe(
-      true,
-    );
-  }
-  await expect(draftSelect).not.toHaveValue("", { timeout: 15_000 });
+    .catch(() => undefined);
+
+  const detailRes = await detailWait;
+  const detailJson = (await detailRes.json()) as { gateDecisions?: Array<{ reason?: string }> };
+  expect(
+    detailJson.gateDecisions?.some((g) => /等待律师签批|验收门禁|审批门禁/.test(g.reason ?? "")),
+  ).toBe(true);
+
   await ensureReviewMetaPaneVisible(page);
-  await expect(page.locator(".lm-review-gate-list").first()).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator(".lm-review-gate-list").first()).toContainText(/等待律师签批|验收门禁|审批门禁/);
+  await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench").first()).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(page.getByText("执行状态看板")).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(".lm-review-detail-row")).toContainText(
+    /等待律师签批|验收门禁|审批门禁/,
+    { timeout: 30_000 },
+  );
 }

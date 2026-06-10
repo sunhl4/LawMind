@@ -40,7 +40,7 @@ describe("lawmind-server-route-integrations", () => {
     }
   });
 
-  it("GET /api/integrations returns connector catalog", () => {
+  it("GET /api/integrations returns connector catalog", async () => {
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-route-integ-"));
     tempDirs.push(ws);
     const ctx: LawmindDispatchContext = {
@@ -50,7 +50,7 @@ describe("lawmind-server-route-integrations", () => {
       policy: { loaded: false },
     };
     const capture = createResponseCapture();
-    const handled = handleIntegrationsRoutes({
+    const handled = await handleIntegrationsRoutes({
       ctx,
       req: { method: "GET" } as http.IncomingMessage,
       res: capture.res,
@@ -66,7 +66,7 @@ describe("lawmind-server-route-integrations", () => {
     expect(connectors.some((c) => c.id === "filesystem")).toBe(true);
   });
 
-  it("GET documents requires matterId", () => {
+  it("GET documents requires matterId", async () => {
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-route-integ-"));
     tempDirs.push(ws);
     const ctx: LawmindDispatchContext = {
@@ -76,7 +76,7 @@ describe("lawmind-server-route-integrations", () => {
       policy: { loaded: false },
     };
     const capture = createResponseCapture();
-    handleIntegrationsRoutes({
+    await handleIntegrationsRoutes({
       ctx,
       req: { method: "GET" } as http.IncomingMessage,
       res: capture.res,
@@ -88,7 +88,7 @@ describe("lawmind-server-route-integrations", () => {
     expect(capture.json().error).toBe("matter_id_required");
   });
 
-  it("GET filesystem documents lists case files", () => {
+  it("GET filesystem documents lists case files", async () => {
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-route-integ-"));
     tempDirs.push(ws);
     createMatterIfMissing(ws, { matterId: "m-route-1", title: "Route" });
@@ -102,7 +102,7 @@ describe("lawmind-server-route-integrations", () => {
       policy: { loaded: false },
     };
     const capture = createResponseCapture();
-    handleIntegrationsRoutes({
+    await handleIntegrationsRoutes({
       ctx,
       req: { method: "GET" } as http.IncomingMessage,
       res: capture.res,

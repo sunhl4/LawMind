@@ -15,19 +15,22 @@ export function LawmindSettingsAppearance({ onPrefsChange }: Props): ReactNode {
   };
 
   return (
-    <section className="lm-settings-group lm-settings-surface">
-      <h3>界面</h3>
-      <p className="lm-settings-hint">调整界面字号，仅保存在本机。</p>
-      <label className="lm-field">
-        <span>界面字号</span>
-        <select
-          value={fontScale}
-          onChange={(e) => setFontScale(e.target.value === "comfortable" ? "comfortable" : "default")}
-        >
-          <option value="default">标准（14px 基线）</option>
-          <option value="comfortable">舒适（16px 基线）</option>
-        </select>
-      </label>
-    </section>
+    <div className="lm-settings-section">
+      <div className="lm-settings-group lm-settings-surface">
+        <div className="lm-settings-row">
+          <span className="lm-settings-key">界面字号</span>
+          <select
+            className="lm-settings-val-select"
+            value={fontScale}
+            aria-label="界面字号"
+            onChange={(e) => setFontScale(e.target.value === "comfortable" ? "comfortable" : "default")}
+          >
+            <option value="default">标准（14px 基线）</option>
+            <option value="comfortable">舒适（16px 基线）</option>
+          </select>
+        </div>
+        <p className="lm-settings-hint">调整界面字号，仅保存在本机。</p>
+      </div>
+    </div>
   );
 }

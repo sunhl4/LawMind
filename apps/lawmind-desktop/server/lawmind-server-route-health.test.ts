@@ -48,7 +48,7 @@ describe("lawmind-server-route-health", () => {
     }
   });
 
-  it("returns false for non-health routes", () => {
+  it("returns false for non-health routes", async () => {
     const capture = createResponseCapture();
     const ctx: LawmindDispatchContext = {
       workspaceDir: os.tmpdir(),
@@ -56,7 +56,7 @@ describe("lawmind-server-route-health", () => {
       userEnvPath: path.join(os.tmpdir(), "missing-env"),
       policy: { loaded: false },
     };
-    const handled = handleHealthRoute({
+    const handled = await handleHealthRoute({
       ctx,
       req: { method: "POST" } as http.IncomingMessage,
       res: capture.res,
@@ -67,7 +67,7 @@ describe("lawmind-server-route-health", () => {
     expect(handled).toBe(false);
   });
 
-  it("returns health payload for GET /api/health", () => {
+  it("returns health payload for GET /api/health", async () => {
     const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-health-route-"));
     const userEnvPath = path.join(workspaceDir, ".env.lawmind");
     fs.writeFileSync(
@@ -85,7 +85,7 @@ describe("lawmind-server-route-health", () => {
       policy: { loaded: false },
     };
 
-    const handled = handleHealthRoute({
+    const handled = await handleHealthRoute({
       ctx,
       req: { method: "GET" } as http.IncomingMessage,
       res: capture.res,
@@ -133,9 +133,12 @@ describe("lawmind-server-route-health", () => {
         clientProfileFilesUnderClients: 0,
       }),
     );
+    expect(doctor?.matterConsistency).toMatchObject({ ok: true, issueCount: 0 });
+    expect(doctor?.rateLimit).toBeNull();
+    expect(doctor?.skipApiAuthWarn).toBe(false);
   });
 
-  it("reports agentMandatoryRulesActive when policy includes mandatory rules", () => {
+  it("reports agentMandatoryRulesActive when policy includes mandatory rules", async () => {
     const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-health-mr-"));
     const userEnvPath = path.join(workspaceDir, ".env.lawmind");
     fs.writeFileSync(
@@ -157,7 +160,7 @@ describe("lawmind-server-route-health", () => {
       policy: { loaded: true, path: "/x", applied: [], policy },
     };
 
-    const handled = handleHealthRoute({
+    const handled = await handleHealthRoute({
       ctx,
       req: { method: "GET" } as http.IncomingMessage,
       res: capture.res,

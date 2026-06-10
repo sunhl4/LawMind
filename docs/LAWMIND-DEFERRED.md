@@ -4,7 +4,8 @@
 
 ## 文档与发布
 
-- [ ] **LawMind 文档站自动发布**：在 `apps/lawmind-docs`（VitePress）基础上，增加推送到 `main` 或 tag 时自动部署到 **GitHub Pages / Cloudflare Pages** 等工作流，并配置 `base`、自定义域名与缓存策略。本地验证命令：`pnpm lawmind:docs:build`，产出目录 `apps/lawmind-docs/docs/.vitepress/dist`。详见 [apps/lawmind-docs/README.md](../apps/lawmind-docs/README.md)。
+- [x] **LawMind 文档站 CI 构建**：`.github/workflows/lawmind-docs.yml` 在相关路径变更时执行 `pnpm lawmind:docs:build`；`.github/workflows/lawmind-nightly.yml` 纳入全量 `pnpm lawmind:verify`。
+- [ ] **LawMind 文档站自动发布到托管**：在已有 CI 构建基础上，增加推送到 `main` 或 tag 时自动部署到 **GitHub Pages / Cloudflare Pages** 等工作流，并配置 `base`、自定义域名与缓存策略。本地验证命令：`pnpm lawmind:docs:build`，产出目录 `apps/lawmind-docs/docs/.vitepress/dist`。详见 [apps/lawmind-docs/README.md](../apps/lawmind-docs/README.md)。
 
 ## 产品（可选增强）
 

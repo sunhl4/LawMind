@@ -354,7 +354,7 @@ export function buildModelCatalog(lawMindRoot: string): {
       model: m.model,
       baseUrl: m.baseUrl,
       configured,
-      providerKeyHint: configured ? undefined : prov.apiKeyEnvKeys[0],
+      providerKeyHint: configured ? undefined : _prov.apiKeyEnvKeys[0],
       contextTokens: m.contextTokens,
       tags: m.tags,
     });

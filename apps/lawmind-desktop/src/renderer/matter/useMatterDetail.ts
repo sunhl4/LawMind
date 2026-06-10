@@ -3,6 +3,7 @@ import type { DraftCitationIntegrityView } from "../../../../../src/lawmind/draf
 import type { ArtifactDraft, MatterOverview, MatterSummary, TaskRecord } from "../../../../../src/lawmind/types.ts";
 import type { ApprovalRequest, WorkQueueItem } from "../../../../../src/lawmind/core/contracts.ts";
 import { apiGetJson, errorMessage, messageFromOkFalseBody } from "../api-client";
+import { useMatterOverviewsQuery } from "../lawmind-query-hooks";
 import { RECORDS_DESK_UNLINKED } from "../lawmind-records-desk-state";
 import type { AcceptanceSummaryItem } from "./matter-acceptance-display";
 import type { AuditEventRow, MatterSearchHit, OperationsFocus, OperationsSort } from "./matter-interaction";
@@ -26,9 +27,15 @@ export function useMatterDetail(input: UseMatterDetailInput) {
     onFocusMatterIdApplied,
   } = input;
 
-  const [overviews, setOverviews] = useState<MatterOverview[]>([]);
-  const [loadingList, setLoadingList] = useState(true);
-  const [listError, setListError] = useState<string | null>(null);
+  const isAppSidebar = matterListPlacement === "app-sidebar";
+  const overviewsQuery = useMatterOverviewsQuery(apiBase, !isAppSidebar);
+  const overviews = overviewsQuery.data ?? [];
+  const loadingList = isAppSidebar ? false : overviewsQuery.isLoading;
+  const listError =
+    overviewsQuery.error && !isAppSidebar
+      ? errorMessage(overviewsQuery.error, "加载案件列表失败")
+      : null;
+
   const [internalSelectedId, setInternalSelectedId] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -55,29 +62,12 @@ export function useMatterDetail(input: UseMatterDetailInput) {
   const [searchHits, setSearchHits] = useState<MatterSearchHit[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
 
-  const isAppSidebar = matterListPlacement === "app-sidebar";
   const navKey = isAppSidebar ? selectedMatterKey : internalSelectedId;
   const matterId = navKey && navKey !== RECORDS_DESK_UNLINKED ? navKey : null;
 
   const loadList = useCallback(async () => {
-    setLoadingList(true);
-    setListError(null);
-    try {
-      const j = await apiGetJson<{ ok?: boolean; overviews?: MatterOverview[] }>(
-        apiBase,
-        `/api/matters/overviews?_=${encodeURIComponent(String(refreshVersion))}`,
-      );
-      if (j.ok && Array.isArray(j.overviews)) {
-        setOverviews(j.overviews);
-        return;
-      }
-      throw new Error(messageFromOkFalseBody(j, "加载案件列表失败"));
-    } catch (e) {
-      setListError(errorMessage(e, "加载案件列表失败"));
-    } finally {
-      setLoadingList(false);
-    }
-  }, [apiBase, refreshVersion]);
+    await overviewsQuery.refetch();
+  }, [overviewsQuery.refetch]);
 
   const loadDetail = useCallback(
     async (targetMatterId: string) => {
@@ -153,12 +143,11 @@ export function useMatterDetail(input: UseMatterDetailInput) {
   );
 
   useEffect(() => {
-    if (isAppSidebar) {
-      setLoadingList(false);
+    if (isAppSidebar || refreshVersion <= 0) {
       return;
     }
-    void loadList();
-  }, [loadList, isAppSidebar]);
+    void overviewsQuery.refetch();
+  }, [refreshVersion, isAppSidebar, overviewsQuery.refetch]);
 
   useEffect(() => {
     const id = focusMatterId?.trim();
@@ -177,7 +166,6 @@ export function useMatterDetail(input: UseMatterDetailInput) {
 
   return {
     overviews,
-    setOverviews,
     loadingList,
     listError,
     internalSelectedId,
@@ -215,4 +203,4 @@ export function useMatterDetail(input: UseMatterDetailInput) {
     loadList,
     loadDetail,
   };
-}
+};

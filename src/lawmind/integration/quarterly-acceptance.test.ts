@@ -83,6 +83,9 @@ describe("Quarterly acceptance (W3 + W4 + W5 + W7 + W9)", () => {
     expect(readQueueItems(ws, matterId).map((q) => q.queueItemId)).toContain(queueItem.queueItemId);
     expect(readApprovals(ws, matterId).map((a) => a.approvalId)).toContain(approval.approvalId);
 
+    transitionDeliverable(ws, matterId, deliverable.deliverableId, "drafting");
+    transitionDeliverable(ws, matterId, deliverable.deliverableId, "pending_review");
+    transitionDeliverable(ws, matterId, deliverable.deliverableId, "approved");
     const transitioned = transitionDeliverable(ws, matterId, deliverable.deliverableId, "rendered");
     expect(transitioned?.status).toBe("rendered");
     const queueClosed = transitionQueueItem(ws, matterId, queueItem.queueItemId, "resolved");

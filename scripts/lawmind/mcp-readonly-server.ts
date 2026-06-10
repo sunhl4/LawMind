@@ -21,11 +21,12 @@ import {
   mcpListSourceAnnotations,
 } from "../../src/lawmind/mcp/readonly-tools.js";
 
-const workspaceDir = process.env.LAWMIND_WORKSPACE_DIR?.trim();
-if (!workspaceDir) {
+const rawWorkspaceDir = process.env.LAWMIND_WORKSPACE_DIR?.trim();
+if (!rawWorkspaceDir) {
   process.stderr.write("LAWMIND_WORKSPACE_DIR is required\n");
   process.exit(1);
 }
+const workspaceDir: string = rawWorkspaceDir;
 
 type JsonRpcRequest = {
   jsonrpc: "2.0";

@@ -22,6 +22,11 @@ import { loadAndApplyLawMindPolicy } from "./lawmind-policy.js";
 import { LAWMIND_LOCAL_HOST } from "./lawmind-server-helpers.js";
 import { lawmindHandleHttpRequest } from "./lawmind-server-dispatch.js";
 import {
+  ensureLoopbackBearerToken,
+  initLoopbackBearerFromEnv,
+} from "./lawmind-local-api-auth.js";
+import { registerRateLimitBucket, TokenBucket } from "./lawmind-local-rate-limit.js";
+import {
   loadJobsFromDiskOnStartup,
   processDueScheduledJobs,
   setWorkflowJobSchedulerContext,
@@ -94,9 +99,21 @@ async function main() {
     });
   }
 
+  initLoopbackBearerFromEnv();
+  if (!process.env.LAWMIND_LOCAL_API_TOKEN?.trim()) {
+    ensureLoopbackBearerToken();
+  }
+
   const ctx = { workspaceDir, envFile, userEnvPath, policy };
+  const rateBucket = new TokenBucket({ rate: 100, capacity: 200 });
+  registerRateLimitBucket(rateBucket);
 
   const server = http.createServer((req, res) => {
+    if (!rateBucket.tryConsume(1)) {
+      res.writeHead(429, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error: "rate_limited" }));
+      return;
+    }
     void lawmindHandleHttpRequest(ctx, req, res);
   });
 

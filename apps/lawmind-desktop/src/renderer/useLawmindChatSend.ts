@@ -49,7 +49,7 @@ export type UseLawmindChatSendInput = {
   setError: Dispatch<SetStateAction<string | null>>;
   setInput: Dispatch<SetStateAction<string>>;
   setShowWizard: Dispatch<SetStateAction<boolean>>;
-  setShowSettings: Dispatch<SetStateAction<boolean>>;
+  setShowSettings: import("./lawmind-settings-shell").SetShowSettings;
   setComposeModelHint: Dispatch<SetStateAction<string | null>>;
   selectedAssistantId: string;
   selectedModelId: string;
@@ -141,7 +141,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       }
       if (picked && !picked.configured) {
         setError(`「${picked.label}」尚未配置 API Key。请打开 API 配置向导或添加自定义模型。`);
-        setShowSettings(true);
+        setShowSettings(true, "models");
         return;
       }
       if (health?.modelConfigured === true && !isSelectedModelVerified(modelCatalog, selectedModelId)) {

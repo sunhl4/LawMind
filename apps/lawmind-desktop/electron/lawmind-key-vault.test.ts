@@ -4,13 +4,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
-type KeytarLike = {
-  setPassword: (svc: string, account: string, value: string) => Promise<void>;
-  getPassword: (svc: string, account: string) => Promise<string | null>;
-  deletePassword: (svc: string, account: string) => Promise<boolean>;
-  findCredentials: (svc: string) => Promise<Array<{ account: string; password: string }>>;
-};
-
 type VaultModule = {
   isAvailable: () => boolean;
   saveSecret: (account: string, value: string) => Promise<boolean>;
@@ -31,7 +24,55 @@ const internal = Module as unknown as {
 const ORIG_RESOLVE = internal._resolveFilename;
 const ORIG_LOAD = internal._load;
 
-function withMockedKeytar(impl: KeytarLike | null, fn: (vault: VaultModule) => Promise<void>): Promise<void> {
+let encryptionAvailable = true;
+const encryptedStore = new Map<string, Buffer>();
+
+function mockSafeStorage() {
+  return {
+    isEncryptionAvailable: () => encryptionAvailable,
+    encryptString: (value: string) => {
+      if (!encryptionAvailable) {
+        throw new Error("encryption not available");
+      }
+      // Simple "encryption" for testing: reverse the string
+      return Buffer.from(value.split("").toReversed().join(""));
+    },
+    decryptString: (buffer: Buffer) => {
+      if (!encryptionAvailable) {
+        throw new Error("encryption not available");
+      }
+      // Reverse the "encryption"
+      return buffer.toString().split("").toReversed().join("");
+    },
+  };
+}
+
+function mockApp() {
+  return {
+    getPath: (name: string) => {
+      if (name === "userData") {
+        return "/tmp/lawmind-test-userData";
+      }
+      return "/tmp";
+    },
+  };
+}
+
+function mockFs() {
+  const files = new Map<string, string>();
+  return {
+    existsSync: (p: string) => files.has(p),
+    readFileSync: (p: string) => files.get(p) ?? "",
+    writeFileSync: (p: string, content: string) => {
+      files.set(p, content);
+    },
+    _files: files,
+  };
+}
+
+const fsMock = mockFs();
+
+function withMockedElectron(fn: (vault: VaultModule) => Promise<void>): Promise<void> {
   internal._resolveFilename = function (
     this: unknown,
     request: string,
@@ -39,17 +80,23 @@ function withMockedKeytar(impl: KeytarLike | null, fn: (vault: VaultModule) => P
     isMain: boolean,
     options?: unknown,
   ) {
-    if (request === "keytar") {
-      return "__lawmind_mock_keytar__";
+    if (request === "electron") {
+      return "__lawmind_mock_electron__";
+    }
+    if (request === "node:fs") {
+      return "__lawmind_mock_fs__";
     }
     return ORIG_RESOLVE.call(this, request, parent, isMain, options);
   };
   internal._load = function (this: unknown, request: string, parent: unknown, isMain: boolean) {
-    if (request === "keytar" || request === "__lawmind_mock_keytar__") {
-      if (!impl) {
-        throw new Error("not built for this ABI");
-      }
-      return impl;
+    if (request === "electron" || request === "__lawmind_mock_electron__") {
+      return {
+        app: mockApp(),
+        safeStorage: mockSafeStorage(),
+      };
+    }
+    if (request === "node:fs" || request === "__lawmind_mock_fs__") {
+      return fsMock;
     }
     return ORIG_LOAD.call(this, request, parent, isMain);
   };
@@ -58,6 +105,8 @@ function withMockedKeytar(impl: KeytarLike | null, fn: (vault: VaultModule) => P
   } catch {
     /* ignore */
   }
+  fsMock._files.clear();
+  encryptedStore.clear();
   const vault = nodeRequire(vaultPath) as VaultModule;
   return fn(vault);
 }
@@ -73,32 +122,17 @@ afterEach(() => {
 });
 
 describe("lawmind-key-vault.cjs", () => {
-  it("reports unavailable when keytar cannot be required", async () => {
-    await withMockedKeytar(null, async (vault) => {
+  it("reports unavailable when encryption is not available", async () => {
+    encryptionAvailable = false;
+    await withMockedElectron(async (vault) => {
       expect(vault.isAvailable()).toBe(false);
     });
+    encryptionAvailable = true;
   });
 
-  it("delegates set/get/delete to keytar", async () => {
-    const store = new Map<string, string>();
-    const impl: KeytarLike = {
-      setPassword: async (svc, account, value) => {
-        store.set(`${svc}|${account}`, value);
-      },
-      getPassword: async (svc, account) => store.get(`${svc}|${account}`) ?? null,
-      deletePassword: async (svc, account) => store.delete(`${svc}|${account}`),
-      findCredentials: async (svc) => {
-        const out: Array<{ account: string; password: string }> = [];
-        for (const key of store.keys()) {
-          if (key.startsWith(`${svc}|`)) {
-            const account = key.slice(svc.length + 1);
-            out.push({ account, password: store.get(key) ?? "" });
-          }
-        }
-        return out;
-      },
-    };
-    await withMockedKeytar(impl, async (vault) => {
+  it("encrypts and decrypts secrets via safeStorage", async () => {
+    encryptionAvailable = true;
+    await withMockedElectron(async (vault) => {
       expect(vault.isAvailable()).toBe(true);
       await vault.saveSecret("wizard.default.apiKey", "sk-123");
       expect(await vault.readSecret("wizard.default.apiKey")).toBe("sk-123");
@@ -111,20 +145,14 @@ describe("lawmind-key-vault.cjs", () => {
   });
 
   it("clears secret when saveSecret called with empty string", async () => {
-    const store = new Map<string, string>();
-    const impl: KeytarLike = {
-      setPassword: async (svc, account, value) => {
-        store.set(`${svc}|${account}`, value);
-      },
-      getPassword: async (svc, account) => store.get(`${svc}|${account}`) ?? null,
-      deletePassword: async (svc, account) => store.delete(`${svc}|${account}`),
-      findCredentials: async () => [],
-    };
-    await withMockedKeytar(impl, async (vault) => {
+    encryptionAvailable = true;
+    await withMockedElectron(async (vault) => {
       await vault.saveSecret("x", "y");
-      expect(store.size).toBe(1);
+      const list1 = await vault.listSecrets();
+      expect(list1).toHaveLength(1);
       await vault.saveSecret("x", "");
-      expect(store.size).toBe(0);
+      const list2 = await vault.listSecrets();
+      expect(list2).toHaveLength(0);
     });
   });
 });

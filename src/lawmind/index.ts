@@ -57,8 +57,10 @@ export {
   clausePlaybookPath,
   courtAndOpponentProfilePath,
   extractClientIdFromCaseMarkdown,
+  appendMatterStrategyDecision,
   ensureLawyerProfileSkeleton,
   loadMemoryContext,
+  matterStrategyPath,
   upsertMatterDisplayName,
 } from "./memory/index.js";
 export { createWorkspaceAdapter } from "./retrieval/index.js";
@@ -147,9 +149,11 @@ export {
   benchmarkPassesThreshold,
   buildQualityDashboardMarkdown,
   buildQualityReportMarkdown,
+  buildReleaseReadinessReportMarkdown,
   computeCitationValidityRate,
   computeIssueCoverageRate,
   computeRiskRecallRate,
+  listReplayFixtureCategories,
   listGoldenTaskIds,
   listQualityRecords,
   persistQualityRecord,
@@ -157,9 +161,17 @@ export {
   readQualityRecord,
   runBenchmarks,
   writeQualityDashboardJson,
+  flushQualityDashboard,
+  seedQualityAfterTask,
+  seedQualitySnapshot,
+  BUILTIN_LEGAL_REPLAY_FIXTURES,
   BUILTIN_BENCHMARK_TASKS,
 } from "./evaluation/index.js";
-export type { QualityDashboardJsonPayload } from "./evaluation/index.js";
+export type {
+  LegalReplayFixture,
+  QualityDashboardJsonPayload,
+  ReleaseReadinessInput,
+} from "./evaluation/index.js";
 export type {
   GoldenExampleEntry,
   GoldenPromoteResult,
@@ -215,6 +227,14 @@ export {
   type ContractReviewDraftV1,
 } from "./learning/contract-review-draft.js";
 export {
+  LAWMIND_Q1_GOLDEN_JOURNEYS,
+  buildGoldenJourneysMarkdown,
+  getGoldenJourney,
+  listGoldenJourneyIds,
+  type LawMindGoldenJourney,
+  type LawMindGoldenJourneyId,
+} from "./product/index.js";
+export {
   appendClausePlaybookLearning,
   buildClausePlaybookReviewLine,
   buildAgentMemorySourceReport,
@@ -236,6 +256,28 @@ export {
   taskRiskExceedsPresetCeiling,
   type AssistantPresetDefinition,
 } from "./agent/assistant-presets.js";
+export {
+  buildWorkflowPlaybookMarkdown,
+  buildWorkflowPlaybookSummary,
+  type WorkflowPlaybookSummary,
+} from "./agent/collaboration/playbook-summary.js";
+export {
+  buildContextPlan,
+  buildContextPlanMarkdown,
+  type ContextPlan,
+  type ContextPlanLayer,
+  type ContextPlanLayerId,
+} from "./runtime/context-plan.js";
+export {
+  DELIVERABLE_LIFECYCLE_STATUSES,
+  DELIVERABLE_LIFECYCLE_TRANSITIONS,
+  canTransitionDeliverable,
+  deliverableStatusLabel,
+  isDeliverableLifecycleStatus,
+  nextDeliverableStatuses,
+  type DeliverableLifecycleStatus,
+  type DeliverableLifecycleTransition,
+} from "./core/deliverable-lifecycle.js";
 export {
   buildDeliverableFromDraft,
   buildApprovalRequestsFromMatterIndex,

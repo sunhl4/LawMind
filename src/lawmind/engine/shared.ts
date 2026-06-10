@@ -15,9 +15,15 @@ import { taskProgressPrefix } from "../cases/task-display.js";
 import { buildDeliverableFromDraft } from "../core/contracts.js";
 import type { WorkspaceSpecWarning } from "../deliverables/index.js";
 import {
+  specRequiresReasoningGraphAtDraft,
+  validateReasoningGraphAtDraft,
+} from "../deliverables/reasoning-validator.js";
+import { getDeliverableSpec } from "../deliverables/registry.js";
+import {
   persistDraft,
   persistReasoningSnapshot,
   persistResearchSnapshot,
+  readReasoningSnapshot,
 } from "../drafts/index.js";
 import { appendCaseProgress, appendTodayLog } from "../memory/index.js";
 import { buildLegalReasoningGraph } from "../reasoning/index.js";
@@ -111,12 +117,46 @@ export function persistDraftPipeline(
   });
   persistResearchSnapshot(workspaceDir, bundle);
   const tr = readTaskRecord(workspaceDir, draft.taskId);
-  if (tr) {
-    const intent = taskIntentFromRecord(tr, draft);
-    const graph = buildLegalReasoningGraph({ intent, bundle });
+  const spec = getDeliverableSpec(draft.deliverableType);
+  const requiresGraph = specRequiresReasoningGraphAtDraft(spec);
+
+  let graph = readReasoningSnapshot(workspaceDir, draft.taskId);
+  if (!graph && (requiresGraph || tr)) {
+    const intent = tr
+      ? taskIntentFromRecord(tr, draft)
+      : {
+          taskId: draft.taskId,
+          kind: "draft.word" as const,
+          output: draft.output,
+          instruction: draft.summary,
+          summary: draft.summary,
+          riskLevel: spec?.defaultRiskLevel ?? ("medium" as const),
+          models: ["legal"],
+          requiresConfirmation: false,
+          createdAt: draft.createdAt,
+          matterId: draft.matterId,
+          templateId: draft.templateId,
+          deliverableType: draft.deliverableType,
+        };
+    graph = buildLegalReasoningGraph({ intent, bundle });
     persistReasoningSnapshot(workspaceDir, graph);
+  }
+  if (graph) {
     draft.hasLegalReasoningSnapshot = true;
   }
+
+  if (requiresGraph) {
+    const graphReport = validateReasoningGraphAtDraft(draft, workspaceDir, { spec });
+    if (!graphReport.ready) {
+      void emit(auditDir, {
+        taskId: draft.taskId,
+        kind: "draft.reasoning_graph_missing",
+        actor: "system",
+        detail: graphReport.hint ?? "LegalReasoningGraph snapshot missing at draft persist.",
+      });
+    }
+  }
+
   const storedDraftPath = persistDraft(workspaceDir, draft);
   syncDraftToTaskRecord(workspaceDir, draft, "drafted");
   updateTaskRecord(workspaceDir, draft.taskId, {

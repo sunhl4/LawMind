@@ -4,6 +4,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { readApprovals } from "../adapters/matter-storage/index.js";
 import { readAllAuditLogs } from "../audit/index.js";
 import { listTaskRecords } from "../tasks/index.js";
 
@@ -11,7 +12,7 @@ export type SessionTimelineEntry = {
   id: string;
   timestamp: string;
   label: string;
-  kind: "audit" | "session";
+  kind: "audit" | "session" | "approval" | "job";
   severity: "info" | "warn";
 };
 
@@ -66,5 +67,47 @@ export async function buildMatterSessionTimeline(
     // ignore
   }
 
+  for (const approval of readApprovals(workspaceDir, matterId)) {
+    entries.push({
+      id: approval.approvalId,
+      timestamp: approval.requestedAt,
+      label: `审批 ${approval.status} — ${approval.reason.slice(0, 60)}`,
+      kind: "approval",
+      severity: approval.status === "pending" ? "warn" : "info",
+    });
+  }
+
+  const jobsDir = path.join(root, "lawmind", "jobs");
+  try {
+    for (const name of fs.readdirSync(jobsDir)) {
+      if (!name.endsWith(".json")) {
+        continue;
+      }
+      const raw = fs.readFileSync(path.join(jobsDir, name), "utf8");
+      const job = JSON.parse(raw) as {
+        jobId?: string;
+        matterId?: string;
+        status?: string;
+        updatedAt?: string;
+        createdAt?: string;
+      };
+      if (job.matterId !== matterId) {
+        continue;
+      }
+      entries.push({
+        id: job.jobId ?? name,
+        timestamp: job.updatedAt ?? job.createdAt ?? new Date().toISOString(),
+        label: `任务 ${job.status ?? "unknown"}`,
+        kind: "job",
+        severity: job.status === "failed" || job.status === "cancelled" ? "warn" : "info",
+      });
+    }
+  } catch {
+    // ignore
+  }
+
   return entries.toSorted((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, limit);
 }
+
+/** Alias for Phase 12 unified matter timeline. */
+export const buildMatterUnifiedTimeline = buildMatterSessionTimeline;

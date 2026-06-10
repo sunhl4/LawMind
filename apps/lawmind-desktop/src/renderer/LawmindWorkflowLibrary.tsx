@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { PRACTICE_AREA_LABELS, PRACTICE_PERSONAS } from "../../../../src/lawmind/core/practice-personas.ts";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
+import {
+  sortWorkflowTemplatesForLawyer,
+  workflowTemplateKindLabel,
+} from "./lawmind-workflow-display";
+
+import type { WorkflowTemplateKind } from "../../../../src/lawmind/agent/collaboration/workspace-workflow-template-kind.ts";
 
 export type WorkflowTemplateItem = {
   id: string;
@@ -15,6 +21,7 @@ export type WorkflowTemplateItem = {
   acceptancePackRequired?: boolean;
   requiredSources?: string[];
   schedulable?: boolean;
+  kind?: WorkflowTemplateKind;
 };
 
 type Props = {
@@ -55,7 +62,7 @@ export function LawmindWorkflowLibrary(props: Props): ReactNode {
     const persona = practiceFilter
       ? PRACTICE_PERSONAS.find((p) => p.id === practiceFilter)
       : undefined;
-    return templates.filter((t) => {
+    const visible = templates.filter((t) => {
       if (practiceFilter) {
         const areaMatch = t.practiceArea === practiceFilter;
         const idMatch = persona?.suggestedWorkflowIds.includes(t.id);
@@ -72,7 +79,8 @@ export function LawmindWorkflowLibrary(props: Props): ReactNode {
         (t.deliverableType ?? "").toLowerCase().includes(q)
       );
     });
-  }, [templates, filter, practiceFilter]);
+    return sortWorkflowTemplatesForLawyer(visible, { preferOffice: !matterId?.trim() });
+  }, [templates, filter, practiceFilter, matterId]);
 
   const runWorkflow = async (id: string) => {
     if (!matterId?.trim()) {
@@ -97,11 +105,19 @@ export function LawmindWorkflowLibrary(props: Props): ReactNode {
 
   return (
     <section className={`lm-workflow-library${compact ? " lm-workflow-library-compact" : ""}`}>
+      <div className="lm-workflow-library-intro">
+        <strong>{matterId?.trim() ? "选择一件事开始办案" : "写文稿 / 做材料"}</strong>
+        <p className="lm-meta">
+          {matterId?.trim()
+            ? "优先选择一个常用场景，LawMind 会在后台处理来源、验收和审计。"
+            : "不需要先建案件。选择模板后会把清晰提示带入对话，你可以直接改要求、附材料、导出 Word 或 PPT。"}
+        </p>
+      </div>
       <div className="lm-workflow-library-toolbar">
         <input
           type="search"
           className="lm-input"
-          placeholder="搜索工作流…"
+          placeholder={matterId?.trim() ? "搜索案件工作…" : "搜索文稿、PPT、报告…"}
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           aria-label="搜索工作流"
@@ -112,7 +128,7 @@ export function LawmindWorkflowLibrary(props: Props): ReactNode {
           onChange={(e) => setPracticeFilter(e.target.value)}
           aria-label="业务领域"
         >
-          <option value="">全部领域</option>
+          <option value="">全部</option>
           {PRACTICE_PERSONAS.map((p) => (
             <option key={p.id} value={p.id}>
               {p.label}
@@ -129,29 +145,28 @@ export function LawmindWorkflowLibrary(props: Props): ReactNode {
           {filtered.map((t) => (
             <li key={t.id} className="lm-workflow-card">
               <h4>{t.name}</h4>
-              {t.namedAgent ? (
-                <p className="lm-meta lm-workflow-named-agent">岗位：{t.namedAgent}</p>
-              ) : null}
               <p className="lm-meta">{t.description}</p>
               <div className="lm-workflow-card-tags">
+                <span className="lm-tag">{workflowTemplateKindLabel(t)}</span>
                 {t.practiceArea ? (
                   <span className="lm-tag">{PRACTICE_LABELS[t.practiceArea] ?? t.practiceArea}</span>
                 ) : null}
-                {t.deliverableType ? <span className="lm-tag">{t.deliverableType}</span> : null}
-                {t.riskLevel ? <span className="lm-tag">{t.riskLevel}</span> : null}
                 {t.acceptancePackRequired ? (
                   <span className="lm-tag lm-tag-warn">需验收包</span>
                 ) : null}
-                {(t.requiredSources?.length ?? 0) > 0 ? (
-                  <span className="lm-tag">需来源 {t.requiredSources!.length}</span>
-                ) : null}
-                <span className="lm-tag">{t.stepCount} 步</span>
-                {t.schedulable ? (
-                  <span className="lm-tag" title="协作运行时可传 scheduleRunAt 预约执行">
-                    可预约执行
-                  </span>
-                ) : null}
               </div>
+              <details className="lm-workflow-card-details">
+                <summary>查看要求</summary>
+                <div className="lm-meta">
+                  {t.deliverableType ? <div>交付：{t.deliverableType}</div> : null}
+                  {t.riskLevel ? <div>风险：{t.riskLevel}</div> : null}
+                  {(t.requiredSources?.length ?? 0) > 0 ? (
+                    <div>建议材料：{t.requiredSources!.join("、")}</div>
+                  ) : null}
+                  {t.namedAgent ? <div>后台岗位：{t.namedAgent}</div> : null}
+                  <div>步骤：{t.stepCount}</div>
+                </div>
+              </details>
               <div className="lm-workflow-card-actions">
                 {t.starterPrompt && onApplyStarterPrompt ? (
                   <button
@@ -159,17 +174,19 @@ export function LawmindWorkflowLibrary(props: Props): ReactNode {
                     className="lm-btn lm-btn-secondary lm-btn-sm"
                     onClick={() => onApplyStarterPrompt(t.starterPrompt!)}
                   >
-                    带入对话
+                    {matterId?.trim() ? "先填入对话" : "开始写"}
                   </button>
                 ) : null}
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-sm"
-                  disabled={runningId === t.id}
-                  onClick={() => void runWorkflow(t.id)}
-                >
-                  {runningId === t.id ? "启动中…" : "在本案件运行"}
-                </button>
+                {matterId?.trim() ? (
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-sm"
+                    disabled={runningId === t.id}
+                    onClick={() => void runWorkflow(t.id)}
+                  >
+                    {runningId === t.id ? "启动中…" : "在本案件运行"}
+                  </button>
+                ) : null}
               </div>
             </li>
           ))}

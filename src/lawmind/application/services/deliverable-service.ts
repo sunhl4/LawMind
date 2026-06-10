@@ -14,6 +14,7 @@ import {
   type DeliverableRecord,
 } from "../../adapters/matter-storage/index.js";
 import { buildDeliverableFromDraft } from "../../core/contracts.js";
+import { canTransitionDeliverable } from "../../core/deliverable-lifecycle.js";
 import type { ArtifactDraft, ReviewStatus, TaskRecord } from "../../types.js";
 import { attachDeliverableId, createMatterIfMissing } from "./matter-write-service.js";
 
@@ -63,6 +64,9 @@ export function transitionDeliverable(
   const existing = loadDeliverable(workspaceDir, matterId, deliverableId);
   if (!existing) {
     return undefined;
+  }
+  if (!canTransitionDeliverable(existing.status, status)) {
+    throw new Error(`invalid deliverable transition: ${existing.status} -> ${status}`);
   }
   const next: DeliverableRecord = {
     ...existing,

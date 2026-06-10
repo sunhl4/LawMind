@@ -1,15 +1,11 @@
 import path from "node:path";
 import {
   createLawMindEngine,
-  createGeneralModelAdapter,
-  createLegalModelAdapter,
-  createOpenSourceLegalAdaptersFromEnv,
-  createLexEdgeAdapterFromEnv,
-  createDomesticGeneralAdaptersFromEnv,
-  createPartnerLegalAdapterFromEnv,
-  createWorkspaceAdapter,
+  flushQualityDashboard,
+  seedQualityAfterTask,
 } from "../../src/lawmind/index.js";
 import { reviewDraftInCli } from "../../src/lawmind/review/cli.js";
+import { buildLawMindCliAdapters } from "./lawmind-engine-adapters.js";
 import { loadLawMindEnv } from "./lawmind-env-loader.js";
 
 function parseFailOnEmptyClaims(argv: string[]): boolean {
@@ -23,40 +19,8 @@ async function main() {
   const interactiveReview =
     (process.env.LAWMIND_INTERACTIVE_REVIEW ?? "").trim().toLowerCase() === "1";
 
-  const mockGeneralAdapter = createGeneralModelAdapter(async () => ({
-    claims: [
-      {
-        text: "该事项需要先完成事实清单与证据清单，再形成正式法律意见。",
-        confidence: 0.82,
-      },
-    ],
-    sources: [{ title: "内部工作流规范", citation: "workspace/MEMORY.md" }],
-  }));
-
-  const mockLegalAdapter = createLegalModelAdapter(async () => ({
-    claims: [
-      {
-        text: "在作出最终法律意见前，应明确适用法律条款并核对最新修订版本。",
-        confidence: 0.9,
-      },
-    ],
-    sources: [{ title: "法律检索规则", citation: "通用法律工作流规则" }],
-    riskFlags: ["当前为 smoke 数据，需替换为真实检索来源。"],
-  }));
-
-  const realAdapters = [
-    ...createDomesticGeneralAdaptersFromEnv(),
-    ...createOpenSourceLegalAdaptersFromEnv(),
-    ...createLexEdgeAdapterFromEnv(),
-    ...createPartnerLegalAdapterFromEnv(),
-  ];
-  const useRealModel = realAdapters.length > 0;
-  const modelAdapters = useRealModel ? realAdapters : [mockGeneralAdapter, mockLegalAdapter];
-
-  const engine = createLawMindEngine({
-    workspaceDir,
-    adapters: [createWorkspaceAdapter(workspaceDir), ...modelAdapters],
-  });
+  const { adapters, useRealModel } = buildLawMindCliAdapters(workspaceDir);
+  const engine = createLawMindEngine({ workspaceDir, adapters });
 
   const intent = engine.plan("请整理合同审查意见并生成律师函草稿", {
     audience: "客户",
@@ -121,6 +85,9 @@ async function main() {
   if (!rendered.ok) {
     throw new Error(rendered.error ?? "LawMind smoke failed.");
   }
+
+  await seedQualityAfterTask(engine, workspaceDir, intent.taskId, ["质量范例"]);
+  await flushQualityDashboard(workspaceDir);
 
   console.log("[LawMind] Smoke success.");
   console.log(`env-file=${loaded.path} (${loaded.loaded ? "loaded" : "not found"})`);

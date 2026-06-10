@@ -2,7 +2,7 @@
  * Resume interrupted agent turns (tool approval, clarification).
  */
 
-import type { MemoryContext } from "../memory/index.js";
+import { loadMemoryContext, type MemoryContext } from "../memory/index.js";
 import { executionStateFromTurn } from "../platform/execution-state.js";
 import {
   formatClarificationResumeMessage,
@@ -101,7 +101,9 @@ export async function resumeTurn(
         turn,
         reply,
         sessionId: session.sessionId,
-        memoryContext: { layers: [] },
+        memoryContext: await loadMemoryContext(config.workspaceDir, {
+          matterId: session.matterId,
+        }),
       };
     }
 

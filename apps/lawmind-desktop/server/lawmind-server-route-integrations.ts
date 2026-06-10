@@ -13,14 +13,14 @@ import {
   listIntegrationDocuments,
 } from "../../../src/lawmind/integrations/index.js";
 
-export function handleIntegrationsRoutes({
+export async function handleIntegrationsRoutes({
   ctx,
   req,
   res,
   url,
   pathname,
   c,
-}: LawmindRouteContext): boolean {
+}: LawmindRouteContext): Promise<boolean> {
   if (req.method !== "GET") {
     return false;
   }
@@ -47,7 +47,7 @@ export function handleIntegrationsRoutes({
   }
 
   const matterId = url.searchParams.get("matterId") ?? "";
-  const result = listIntegrationDocuments(workspaceDir, connectorId, matterId);
+  const result = await listIntegrationDocuments(workspaceDir, connectorId, matterId);
   if (!result.ok) {
     const status =
       result.error === "matter_id_required" || result.error === "invalid_matter_id"

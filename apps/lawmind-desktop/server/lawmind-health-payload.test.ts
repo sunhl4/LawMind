@@ -8,6 +8,7 @@ import {
   buildDoctorStats,
   buildMemoryTruthSourceFlags,
   buildP2DoctorReport,
+  buildReasoningGraphCoverage,
   buildWorkspaceStandardReport,
   countAuditJsonlFiles,
   countClientProfileFilesUnderClients,
@@ -74,6 +75,68 @@ describe("lawmind-health-payload", () => {
     expect(st.researchSnapshotCount).toBe(1);
     expect(countResearchSnapshots(ws)).toBe(1);
     expect(st.auditJsonlFileCount).toBe(0);
+    expect(st.reasoningGraphCoverage.requiredDraftCount).toBe(0);
+    expect(st.reasoningGraphCoverage.ratio).toBe(null);
+  });
+
+  it("buildReasoningGraphCoverage tracks high-risk drafts with reasoning graph", () => {
+    const ws = tmpWs();
+    const now = new Date().toISOString();
+    const draftsDir = path.join(ws, "drafts");
+    fs.mkdirSync(draftsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(draftsDir, "t-high.json"),
+      JSON.stringify({
+        taskId: "t-high",
+        title: "Demand",
+        output: "docx",
+        templateId: "letter-demand-default",
+        deliverableType: "letter.demand",
+        summary: "s",
+        sections: [],
+        reviewNotes: [],
+        reviewStatus: "pending",
+        createdAt: now,
+        hasLegalReasoningSnapshot: true,
+      }),
+      "utf8",
+    );
+    fs.writeFileSync(
+      path.join(draftsDir, "t-missing.json"),
+      JSON.stringify({
+        taskId: "t-missing",
+        title: "Litigation",
+        output: "docx",
+        templateId: "litigation-outline-default",
+        deliverableType: "litigation.outline",
+        summary: "s",
+        sections: [],
+        reviewNotes: [],
+        reviewStatus: "pending",
+        createdAt: now,
+      }),
+      "utf8",
+    );
+    fs.writeFileSync(
+      path.join(draftsDir, "t-low.json"),
+      JSON.stringify({
+        taskId: "t-low",
+        title: "General",
+        output: "docx",
+        templateId: "document-general-default",
+        deliverableType: "document.general",
+        summary: "s",
+        sections: [],
+        reviewNotes: [],
+        reviewStatus: "pending",
+        createdAt: now,
+      }),
+      "utf8",
+    );
+    const cov = buildReasoningGraphCoverage(ws);
+    expect(cov.requiredDraftCount).toBe(2);
+    expect(cov.withSnapshotCount).toBe(1);
+    expect(cov.ratio).toBe(0.5);
   });
 
   it("tryReadWorkspacePackageVersion reads repo package.json", () => {

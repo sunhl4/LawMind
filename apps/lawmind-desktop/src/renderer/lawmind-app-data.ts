@@ -93,6 +93,16 @@ export type HealthPayload = {
         reason?: string;
       };
     };
+    matterConsistency?: {
+      ok?: boolean;
+      issueCount?: number;
+      issues?: Array<{ matterId: string; code: string; message: string }>;
+    };
+    reasoningGraphCoverage?: {
+      requiredDraftCount?: number;
+      withSnapshotCount?: number;
+      ratio?: number | null;
+    };
   };
 };
 

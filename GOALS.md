@@ -8,6 +8,7 @@
 ## 一、仓库定位
 
 - 本仓库为 **LawMind 单体代码库**：引擎 **`src/lawmind`**、桌面 **`apps/lawmind-desktop`**、文档站 **`apps/lawmind-docs`**。
+- 引擎模块与架构五层（Router / Memory / Retrieval / **Reasoning** / Artifact）及 Agent、Matter 写侧等扩展，见 **[docs/LAWMIND-ARCHITECTURE.md](docs/LAWMIND-ARCHITECTURE.md)** §二。
 - 不再包含 OpenClaw 网关、extensions 渠道树或移动/桌面伴侣应用目录。若需对照历史经验，见 **[docs/LAWMIND-OPENCLAW-LESSONS.md](docs/LAWMIND-OPENCLAW-LESSONS.md)**。
 
 ---
@@ -133,9 +134,8 @@ queue.jsonl,deadlines.jsonl}`；engine hot path 全程双写；`/api/matters` /
       policy `productInsightsCollection` 控制采集；UI 抽到
       `apps/lawmind-desktop/src/renderer/insights/`（W10）
 - [x] **8.7 MatterWorkbench 拆分 seam**：在
-      `apps/lawmind-desktop/src/renderer/matter/` 落地 6 个视图 + insights barrel；
-      `apps/lawmind-desktop/e2e/matter-cockpit.spec.ts` 锁定黄金路径；3826 行
-      `MatterWorkbench.tsx` 留待后续 PR 增量迁入（W11；季末 seam 完成）
+      `apps/lawmind-desktop/src/renderer/matter/` 落地多视图 + insights barrel + Timeline/ListPane；
+      `apps/lawmind-desktop/e2e/matter-cockpit.spec.ts` 锁定黄金路径；主文件 `MatterWorkbench.tsx` 约 2000 行（第十二期 W2 继续迁入 `matter/*`）
 - [x] **8.8 季末验收 + 文档冻结**：`pnpm lawmind:acceptance` 接入
       `pnpm lawmind:quarterly-demo`（`scripts/lawmind/lawmind-quarterly-demo.ts`）跑
       matter → planned deliverable → 高风险 approval → 状态推进 → reasoning gate →
@@ -156,7 +156,7 @@ queue.jsonl,deadlines.jsonl}`；engine hot path 全程双写；`/api/matters` /
 - [x] **W11 状态收敛**：`matter/MatterOverviewExtras`；`statusLabel` + `GET /api/tasks/:id`
 - [x] **W12 黄金路径**：`e2e/golden-path.spec.ts`；律所版灰显；全量回归入口 `pnpm test`
 
-### 平台级 Big-Bang 重构（进行中）
+### 平台级 Big-Bang 重构（已完成）
 
 - [x] 冻结平台统一契约：`docs/lawmind/LAWMIND-PLATFORM-CONTRACTS.md` + `src/lawmind/platform/contracts.ts`
 - [x] Ingest Orchestration 收敛：`src/lawmind/platform/ingest-helpers.ts` + `analyze_document` / `read_project_file` 统一错误码
@@ -299,6 +299,64 @@ queue.jsonl,deadlines.jsonl}`；engine hot path 全程双写；`/api/matters` /
 - [x] **P2 workflow snapshot**：`lawmind-server-jobs.ts` `workflowSnapshot` 入队/预约；`missing_workflow_snapshot` 兜底
 - [x] **P2 Team Memory 同步脚手架**：`team-memory-sync.ts`（Firm + opt-in + 密钥扫描；默认关闭）
 
+### 第十一期 — 卓越产品平台化（2026-05）
+
+- [x] **Q1 黄金旅程冻结**：`src/lawmind/product/golden-journeys.ts` 固化 matter production、contract review trust、role delegation memory 三条旅程，供发布报告复用。
+- [x] **工具治理元数据**：`src/lawmind/agent/tools/governance.ts` 为工具补齐风险、matter scope、运行模式、幂等性、重试性、审计和 sandbox 建议；`GET /api/tools/registry` 返回 governance。
+- [x] **ContextPlan**：`src/lawmind/runtime/context-plan.ts` 将 matter state、MATTER_STRATEGY、pending actions、transcript、memory recall、source anchors、role context 分层描述。
+- [x] **Deliverable lifecycle**：`src/lawmind/core/deliverable-lifecycle.ts` 固化 planned → drafting → pending_review → approved → rendered → delivered → learned，写侧 service 阻止跳过审核的 shortcut。
+- [x] **Workflow playbook 摘要**：`src/lawmind/agent/collaboration/playbook-summary.ts` 将 workflow 模板转成含来源要求、审批点、风险和验收包要求的 playbook 视图。
+- [x] **质量飞轮发布报告**：`src/lawmind/evaluation/replay-fixtures.ts` 内置 12 个真实任务回放样本；`release-report.ts` + `pnpm lawmind:release-readiness` 生成发布准备报告；`pnpm lawmind:verify` 接入报告输出。
+- [x] **路线文档**：`docs/LAWMIND-EXCELLENCE-ROADMAP.md` 记录本期落地口径与验收命令。
+
+### 第十二期 — 六维能力 ≥4.5（2026-Q2–Q3）
+
+> 目标：工程 review 六维（架构、法律贴合、可维护性、测试/发布证据、Harvey/Word 对标、开源借鉴）全部 **≥4.5**。  
+> 详细达标线与排期见 [LAWMIND-EXCELLENCE-ROADMAP.md](docs/LAWMIND-EXCELLENCE-ROADMAP.md) §六维能力 ≥4.5 升级计划。
+
+#### W1 — 测试/发布证据 + 法律场景可证（3.0 → 4.5）
+
+- [x] **Benchmark CLI**：`pnpm lawmind:benchmark` 跑 `BUILTIN_BENCHMARK_TASKS`；`lawmind:release-readiness` 默认并入结果；`LAWMIND_BENCHMARK_STRICT=1` 时 gate 失败 exit 1
+- [x] **Quality 灌数**：smoke/quarterly-demo 后写入 `workspace/quality/*.quality.json`；发布报告 Dashboard 非空
+- [x] **黄金旅程实证**：三条 `golden-journeys` 各 1 条 E2E 或 integration（matter-production / contract-review-trust / role-delegation-memory）
+- [x] **E2E 扩展**：`contract-review-trust.spec.ts` 纳入 `lawmind:desktop:e2e:pr`
+- [x] **Replay 结构测**：12 fixtures 中 ≥8 个非 LLM 结构断言单测
+
+#### W2 — 工程可维护性（3.5 → 4.5）
+
+- [x] **MatterWorkbench 拆分 seam**：`MatterTimelinePanel`、`MatterWorkbenchListPane`、`useMatterSessionTimeline`（主文件仍 >800 行，后续 PR 继续迁入 `matter/*`）
+- [x] **App.tsx** ≤1000 行（`lawmind-app-root.tsx` + `lawmind-app-utils.ts`）；**FileWorkbench** 拆 `file/*`，单文件 ≤1000 行
+- [x] **legal-tools** 拆 `tools/legal/*`，单文件 ≤600 行（`engine-tools` 拆分可单列 PR）
+- [x] **runtime.ts** 外提 `turn-orchestrator.ts` / `runtime-model-call.ts`（公开 API 仍自 `runtime.ts` 导出）
+- [x] **贡献约定**：单文件软上限写入 `CONTRIBUTING.md`
+
+#### W3 — 对标 Harvey/Word（3.0 → 4.5）
+
+- [x] **docx tracked changes**：`render-docx-tracked.ts` + `POST /api/drafts/:id/render-tracked`（officecli，失败回退 plain docx）
+- [x] **真 DMS OAuth**：SharePoint Graph（`sharepoint-graph.ts`）；iManage 保持 fixture
+- [x] **Matter 时间线**：一级 Tab「时间线」；`buildMatterSessionTimeline` 聚合 audit/approval/job
+- [x] **集成差距表**：`LAWMIND-INTEGRATIONS.md` Harvey/Spellbook 对照
+
+#### W4 — 架构守住 + 开源借鉴收口（≥4.5）
+
+- [x] **契约 CI**：`lawmind-platform-contracts-check.ts` 纳入 `lawmind:multitask:validate`
+- [x] **ContextPlan 集成测**：`context-plan.integration.test.ts`；`runtime.ts` 注入 ContextPlan markdown
+- [x] **REFERENCE 状态表**：`LAWMIND-REFERENCE-PROJECT-LESSONS.md` §落地状态矩阵
+- [x] **Queue dependsOn**：`queue-write-service` + 任务看板 subtitle
+- [x] **架构目录对齐**：`LAWMIND-ARCHITECTURE.md` §二 + `LAWMIND-PROJECT-MEMORY.md` 第十二期注记
+
+#### 第十二期合并验收
+
+```bash
+pnpm lawmind:verify
+LAWMIND_BENCHMARK_STRICT=1 pnpm lawmind:release-readiness -- --out dist/lawmind-release-readiness.md
+pnpm lawmind:desktop:e2e:pr
+pnpm lawmind:quarterly-demo
+```
+
+- [x] 发布报告：`Benchmark gate: pass`（mock 对齐模式）+ Quality Dashboard 可灌数
+- [x] `pnpm lawmind:verify` + `LAWMIND_BENCHMARK_STRICT=1 pnpm lawmind:release-readiness` + `pnpm lawmind:desktop:e2e:pr`（14/14）+ `pnpm lawmind:quarterly-demo`
+
 ---
 
-_最后更新：2026-05-22（第十期 Claude Code 工程借鉴 P0–P2；批次 C 已落地）。_
+_最后更新：2026-05-29（第十二期 W1/W3/W4 验收完成；W2 巨型文件拆分仍进行中，见上文未勾选项）。_

@@ -1,0 +1,20 @@
+{
+  "id": "matter-chronology",
+  "name": "案件时间线整理",
+  "namedAgent": "Chronology Builder",
+  "description": "按时间顺序整理关键事件、证据与待证事实（证据时间线）。",
+  "practiceArea": "litigation",
+  "deliverableType": "document.general",
+  "riskLevel": "low",
+  "audience": "solo",
+  "starterPrompt": "请整理本案时间线：每个节点注明来源、争议点与下一步动作建议。",
+  "steps": [
+    {
+      "stepId": "chronology",
+      "assignee": "case_analyst",
+      "task": "整理案件时间线与证据索引（matterId={{matterId}}）",
+      "dependsOn": [],
+      "autoApprove": true
+    }
+  ]
+}

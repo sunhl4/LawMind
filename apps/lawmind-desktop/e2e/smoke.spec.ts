@@ -24,6 +24,6 @@ test.describe("LawMind renderer smoke", () => {
 
   test("hides readiness strip when health reports model configured", async ({ page }) => {
     await gotoShell(page);
-    await expect(page.locator(".lm-readiness-strip")).toHaveCount(0, { timeout: 60_000 });
+    await expect(page.locator(".lm-readiness-strip")).toHaveCount(0, { timeout: 30_000 });
   });
 });

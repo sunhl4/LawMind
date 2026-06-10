@@ -62,12 +62,12 @@ export function LawmindCollaborationDesk(props: Props): ReactNode {
     <div className="lm-collab-desk">
       <header className="lm-collab-desk-header">
         <div className="lm-collab-desk-intro">
-          <h1 className="lm-collab-desk-title">协作</h1>
+          <h1 className="lm-collab-desk-title">工作流</h1>
           <p className="lm-collab-desk-lead">
-            查看进行中的委派与已完成结果；团队工作流在「团队工作流」分栏排队执行。
+            查看进行中的委派与已完成结果；后台多步流程在「团队工作流」分栏排队执行。
           </p>
         </div>
-        <nav className="lm-tabs lm-collab-desk-tabs" aria-label="协作分区">
+        <nav className="lm-tabs lm-collab-desk-tabs" aria-label="工作流分区">
           <button
             type="button"
             className={`lm-tab ${deskTab === "overview" ? "active" : ""}`}
@@ -109,11 +109,11 @@ export function LawmindCollaborationDesk(props: Props): ReactNode {
             onShowMore={() => setShowAdvanced(true)}
           />
           {showAdvanced ? (
-            <section className="lm-collab-desk-advanced" aria-label="协作动态与门禁历史">
-              <h2 className="lm-collab-desk-panel-heading">协作动态</h2>
+            <section className="lm-collab-desk-advanced" aria-label="委派动态与门禁历史">
+              <h2 className="lm-collab-desk-panel-heading">委派动态</h2>
               <ul className="lm-list lm-collab-events-compact">
                 {collabEvents.length === 0 ? (
-                  <li className="lm-list-empty">暂无协作动态</li>
+                  <li className="lm-list-empty">暂无委派动态</li>
                 ) : (
                   [...collabEvents].toReversed().slice(0, 15).map((event) => (
                     <li key={event.eventId}>
@@ -231,7 +231,7 @@ function LawmindCollaborationStatusStrip(props: {
 
   if (collabSummarySettings === undefined) {
     return (
-      <div className="lm-collab-status-strip" aria-busy="true" aria-label="加载协作状态">
+      <div className="lm-collab-status-strip" aria-busy="true" aria-label="加载工作流状态">
         <div className="lm-shimmer lm-shimmer-line lm-collab-status-shimmer" />
       </div>
     );
@@ -240,7 +240,7 @@ function LawmindCollaborationStatusStrip(props: {
   if (collabSummarySettings === null) {
     return (
       <div className="lm-callout lm-callout-warn" role="status">
-        <p className="lm-callout-body">无法加载协作摘要，请检查本地服务连接。</p>
+        <p className="lm-callout-body">无法加载工作流摘要，请检查本地服务连接。</p>
       </div>
     );
   }
@@ -249,7 +249,7 @@ function LawmindCollaborationStatusStrip(props: {
   return (
     <div className="lm-collab-status-strip" role="status">
       <span className={enabled ? "lm-pill lm-pill-success" : "lm-pill lm-pill-warn"}>
-        {enabled ? "协作已开启" : "协作已关闭"}
+        {enabled ? "多助手工作流已开启" : "多助手工作流已关闭"}
       </span>
       {activeDelegations > 0 ? (
         <span className="lm-pill lm-pill-info">进行中 {activeDelegations}</span>

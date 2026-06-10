@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { gotoShell, installE2eBrowserPrefs } from "./e2e-helpers";
+import { gotoShell, installE2eBrowserPrefs, openMatterCockpit } from "./e2e-helpers";
 
 /**
  * W11 黄金路径 e2e —— 在 MatterWorkbench 拆分前先冻结现有交互轮廓。
@@ -15,12 +15,12 @@ test.describe("MatterWorkbench golden path", () => {
 
   test("workbench shell renders with matter list placeholder", async ({ page }) => {
     await gotoShell(page);
-
-    const matterTabButton = page.getByRole("navigation", { name: "功能模块" }).getByRole("button", { name: "对话" });
-    await matterTabButton.click();
+    await openMatterCockpit(page);
 
     const listContainer = page
-      .locator('[data-testid="lm-matter-list"], .lm-matter-list, .lm-matter-aside')
+      .locator(
+        '[data-testid="lm-matter-list"], .lm-workbench-matter-list, .lm-matter-sidebar-list, .lm-matter-aside',
+      )
       .first();
     if (await listContainer.count()) {
       await expect(listContainer).toBeVisible({ timeout: 30_000 });
@@ -29,6 +29,7 @@ test.describe("MatterWorkbench golden path", () => {
 
   test("cockpit, queue, memory tabs are reachable when a matter is selected", async ({ page }) => {
     await gotoShell(page);
+    await openMatterCockpit(page);
 
     const cockpitOrTabs = page.locator(
       '[data-testid="lm-matter-cockpit"], .lm-matter-cockpit, [data-testid="lm-matter-tabs"]',

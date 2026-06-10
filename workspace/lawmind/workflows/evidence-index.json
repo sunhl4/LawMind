@@ -1,0 +1,20 @@
+{
+  "id": "evidence-index",
+  "name": "证据索引编制",
+  "namedAgent": "Evidence Indexer",
+  "description": "为案件卷宗建立证据目录与证明目的对照表。",
+  "practiceArea": "litigation",
+  "deliverableType": "document.general",
+  "riskLevel": "low",
+  "audience": "solo",
+  "starterPrompt": "请根据现有材料编制证据索引：编号、来源、证明目的、待补强项。",
+  "steps": [
+    {
+      "stepId": "index",
+      "assignee": "case_analyst",
+      "task": "编制证据索引表（matterId={{matterId}}）",
+      "dependsOn": [],
+      "autoApprove": true
+    }
+  ]
+}

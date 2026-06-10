@@ -24,6 +24,13 @@ LawMind’s desktop **local HTTP API** is intended to bind to **loopback** and t
 
 Product-facing security checklists and deployment notes: **`docs/LAWMIND-SECURITY-CHECKLIST.md`**, **`docs/LAWMIND-DATA-PROCESSING.md`**.
 
+## Hardening notes (local API)
+
+- **Loopback binding**: the desktop local server listens on `127.0.0.1` only; do not reverse-proxy it to the LAN without an explicit security review.
+- **Bearer token**: non-dev sessions require `Authorization: Bearer` on `/api/*` (see `lawmind-local-api-auth.ts`). `LAWMIND_SKIP_API_AUTH=1` is for dev/CI only; **packaged builds ignore it** and log a warning.
+- **Rate limiting**: token-bucket guard on the loopback server (`lawmind-local-rate-limit.ts`); stats exposed on `GET /api/health` → `doctor.rateLimit`.
+- **Secrets**: model and integration keys belong in the OS keychain / host env, not in the workspace git tree. Inspect `doctor.skipApiAuthWarn` and integration health before firm rollout.
+
 ## Bug bounty
 
 There is **no** formal bug bounty program. Responsible disclosure is still appreciated; fixes may be credited in release notes or advisories at maintainer discretion.

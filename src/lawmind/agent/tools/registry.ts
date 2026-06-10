@@ -20,6 +20,10 @@ export class ToolRegistry {
     return this.tools.get(name);
   }
 
+  listTools(): AgentTool[] {
+    return [...this.tools.values()];
+  }
+
   listDefinitions(): ToolDefinition[] {
     return [...this.tools.values()].map((tool) => tool.definition);
   }

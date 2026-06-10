@@ -167,10 +167,7 @@ function defineChecks(opts: Options): CheckDefinition[] {
       required: true,
       description: "Platform contracts document and type file exist",
       command: "node",
-      args: [
-        "-e",
-        "const fs=require('node:fs');const a='docs/lawmind/LAWMIND-PLATFORM-CONTRACTS.md';const b='src/lawmind/platform/contracts.ts';if(!fs.existsSync(a)||!fs.existsSync(b)){throw new Error('platform contracts missing')}console.log('[platform-contracts] ok')",
-      ],
+      args: ["--import", "tsx", "scripts/lawmind/lawmind-platform-contracts-check.ts"],
     },
     {
       id: "governance-guardrail",

@@ -39,6 +39,19 @@ pnpm lawmind:env:check -- --strict
 pnpm lawmind:desktop:e2e:electron   # weekly / release; needs bundle + renderer build
 ```
 
+## File size guidelines (Phase 12)
+
+Keep new code reviewable; split before adding large features:
+
+| Area                            | Soft max lines |
+| ------------------------------- | -------------- |
+| Desktop renderer components     | 800            |
+| Agent tool modules              | 600            |
+| Desktop server route files      | 500            |
+| Agent `runtime.ts` orchestrator | 900            |
+
+Existing oversized files are being split incrementally—do not grow them without a seam PR.
+
 ## Pull requests
 
 - Keep changes scoped; follow existing patterns in the files you touch.

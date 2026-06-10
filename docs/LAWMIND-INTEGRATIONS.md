@@ -34,6 +34,21 @@ Treat those as **phased** integrations below or **custom** IT projects via expor
 
 ---
 
+## 与 Harvey / Spellbook 对照（Phase 12）
+
+| 能力                  | Harvey 类企业台 | Spellbook / Word 插件 | LawMind（当前）                                                                                                         |
+| --------------------- | --------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| 来源锚点 / 点击回原文 | 强              | 中（编辑器内）        | 强（`source preview` + 矩阵）                                                                                           |
+| 审查矩阵 / 尽调表     | 强              | 弱                    | 中（`review-matrix` + Matter Tab）                                                                                      |
+| Word tracked changes  | 中              | 强                    | **已产品化**：审核台「导出带修订 Word」→ `POST /api/drafts/:id/render-tracked`（`officecli`；无 CLI 时回退 plain docx） |
+| DMS 只读索引          | 强（企业部署）  | 依赖 Office 生态      | SharePoint Graph `webUrl` 外链 + 本地 `cases/` 索引                                                                     |
+| 审计 / 本地部署       | 企业版          | 云插件为主            | 强（JSONL + hash-chain + 本地工作区）                                                                                   |
+| 任务闭环 / 验收门禁   | 中              | 弱                    | 强（DFA + acceptance pack）                                                                                             |
+
+LawMind 错位在**可审计的本地生产闭环**，而非复制 Harvey 的全栈企业栈或 Spellbook 的编辑器内体验。
+
+---
+
 ## 三阶段集成路线图
 
 ### 阶段 1 — 只读上下文（M1，当前主力）
@@ -73,10 +88,10 @@ Treat those as **phased** integrations below or **custom** IT projects via expor
 
 **M2.5 DMS OAuth 桩（Phase 5b）**：
 
-| 连接器     | 工作区配置             | Host 密钥（不进 workspace）        | 行为                                                                         |
-| ---------- | ---------------------- | ---------------------------------- | ---------------------------------------------------------------------------- |
-| iManage    | `baseUrl`, `clientId`  | `LAWMIND_IMANAGE_CLIENT_SECRET`    | 有密钥 → 只读列表（当前为结构化 fixture）；`LAWMIND_IMANAGE_FIXTURE=1` 供 CI |
-| SharePoint | `tenantId`, `clientId` | `LAWMIND_SHAREPOINT_CLIENT_SECRET` | 同上；`LAWMIND_SHAREPOINT_FIXTURE=1`                                         |
+| 连接器     | 工作区配置             | Host 密钥（不进 workspace）        | 行为                                                                                                    |
+| ---------- | ---------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| iManage    | `baseUrl`, `clientId`  | `LAWMIND_IMANAGE_CLIENT_SECRET`    | **Deliberate defer**：OAuth 桩 + fixture 供 CI；真 iManage REST 待 Firm 密钥与单连接器 E2E 后再默认启用 |
+| SharePoint | `tenantId`, `clientId` | `LAWMIND_SHAREPOINT_CLIENT_SECRET` | 同上；`LAWMIND_SHAREPOINT_FIXTURE=1`                                                                    |
 
 案件外部 ID 映射：`cases/<matterId>/.lawmind-dms.json`（`imanage.matterKey` / `sharepoint.siteId`）。真实 Graph/iManage REST 调用可在 Firm 环境替换 fixture 分支。
 
@@ -102,13 +117,13 @@ Treat those as **phased** integrations below or **custom** IT projects via expor
 
 ## DMS 连接器详细路线（按产品）
 
-| 产品               | M2 只读索引           | M3 门控回写                 | 备注                          |
-| ------------------ | --------------------- | --------------------------- | ----------------------------- |
-| **iManage**        | 文档列表 + 版本元数据 | 导出 .docx 至 matter 文件夹 | 需 Firm API 密钥在 host vault |
-| **NetDocuments**   | 同左                  | 验收包 PDF/Word 外链        | 常见 AmLaw 200                |
-| **OpenText eDOCS** | 同左                  | 任务完成标记                | 企业合规评审                  |
-| **Worldox**        | 文件夹映射            | 手动 sync                   | 中小所                        |
-| **SharePoint**     | Graph read-only       | 上传至 matter 库            | 可与 M365 邮件共用 tenant     |
+| 产品               | M2 只读索引           | M3 门控回写                 | 备注                                                                         |
+| ------------------ | --------------------- | --------------------------- | ---------------------------------------------------------------------------- |
+| **iManage**        | 文档列表 + 版本元数据 | 导出 .docx 至 matter 文件夹 | **Deliberate defer**（SharePoint Graph 优先）；需 Firm API 密钥在 host vault |
+| **NetDocuments**   | 同左                  | 验收包 PDF/Word 外链        | 常见 AmLaw 200                                                               |
+| **OpenText eDOCS** | 同左                  | 任务完成标记                | 企业合规评审                                                                 |
+| **Worldox**        | 文件夹映射            | 手动 sync                   | 中小所                                                                       |
+| **SharePoint**     | Graph read-only       | 上传至 matter 库            | 可与 M365 邮件共用 tenant                                                    |
 
 **实施原则**：LawMind 仍是**生产系统**；DMS 是归档与协作边界，不替代审核台与 acceptance gate。
 

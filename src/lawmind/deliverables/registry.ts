@@ -113,6 +113,7 @@ const GENERAL_CONTRACT_SPEC: DeliverableSpec = {
 
 const REASONING_GATE_HIGH_RISK = {
   required: true as const,
+  requiresReasoningGraphAtDraft: true as const,
   minIssues: 2,
   mustResolveAuthorityConflicts: true,
   minFacts: 2,

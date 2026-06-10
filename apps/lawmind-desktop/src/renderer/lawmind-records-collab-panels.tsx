@@ -211,7 +211,7 @@ export function LawmindCollabPanel({
           className={`lm-tab ${collabTab === "timeline" ? "active" : ""}`}
           onClick={() => onSelectCollabTab("timeline")}
         >
-          协作动态
+          委派动态
         </button>
       </div>
       {collabTab === "delegations" && (
@@ -258,7 +258,7 @@ export function LawmindCollabPanel({
       )}
       {collabTab === "timeline" && (
         <ul className="lm-list">
-          {collabEvents.length === 0 && <li className="lm-list-empty">暂无协作动态</li>}
+          {collabEvents.length === 0 && <li className="lm-list-empty">暂无委派动态</li>}
           {[...collabEvents].toReversed().slice(0, 30).map((event) => (
             <li key={event.eventId}>
               <div className="lm-list-row">

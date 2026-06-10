@@ -7,11 +7,11 @@ const PRIMARY_TABS: TabDef[] = [
   { id: "overview", label: "概览" },
   { id: "case", label: "档案" },
   { id: "tasks", label: "任务" },
+  { id: "timeline", label: "时间线" },
 ];
 
 const MORE_TABS: TabDef[] = [
   { id: "matrix", label: "审查矩阵" },
-  { id: "timeline", label: "审计" },
   { id: "cognition", label: "认知" },
   { id: "meeting", label: "会议室" },
 ];

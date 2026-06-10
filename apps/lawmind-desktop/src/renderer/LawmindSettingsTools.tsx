@@ -6,6 +6,12 @@ type ToolRow = {
   description: string;
   category: string;
   requiresApproval: boolean;
+  governance?: {
+    runtimeMode?: string;
+    matterScope?: string;
+    riskLevel?: string;
+    policyReason?: string;
+  };
 };
 
 type Props = {
@@ -18,6 +24,7 @@ export function LawmindSettingsTools(props: Props): ReactNode {
   const [error, setError] = useState<string | null>(null);
   const [highSecurityMode, setHighSecurityMode] = useState(false);
   const [policyBusy, setPolicyBusy] = useState(false);
+  const [showAdvancedTools, setShowAdvancedTools] = useState(false);
 
   useEffect(() => {
     if (!apiBase) {
@@ -56,8 +63,7 @@ export function LawmindSettingsTools(props: Props): ReactNode {
     <div className="lm-settings-section">
       <div className="lm-settings-section-title">工具治理</div>
       <p className="lm-meta">
-        只读展示本机 Agent 可调用的工具及是否需律师批准。策略锁定由版本（Firm/Private）与
-        lawmind.policy.json 控制。
+        个人律师日常只需要确认“是否启用高安全模式”。具体工具、MCP 和权限策略会在后台自动执行。
       </p>
       <div className="lm-settings-group lm-settings-surface">
         <div className="lm-settings-row">
@@ -76,23 +82,40 @@ export function LawmindSettingsTools(props: Props): ReactNode {
         </p>
       </div>
       {error ? <p className="lm-meta lm-callout-warn">{error}</p> : null}
-      {tools === null ? <p className="lm-meta">加载中…</p> : null}
-      {tools && tools.length > 0 ? (
+      <details
+        className="lm-settings-group lm-settings-surface"
+        open={showAdvancedTools}
+        onToggle={(event) => setShowAdvancedTools(event.currentTarget.open)}
+      >
+        <summary>高级：查看工具与权限细节</summary>
+        <p className="lm-meta">
+          这些信息主要用于排错和部署审查。普通写文稿、做案件时无需理解每个工具。
+        </p>
+        {tools === null ? <p className="lm-meta">加载中…</p> : null}
+        {tools && tools.length > 0 ? (
         <ul className="lm-tools-registry-list">
           {tools.map((t) => (
             <li key={t.name} className="lm-tools-registry-row">
               <strong>{t.name}</strong>
-              <span className="lm-meta">{t.category}</span>
+              <span className="lm-meta">
+                {t.category}
+                {t.governance?.riskLevel ? ` · 风险 ${t.governance.riskLevel}` : ""}
+                {t.governance?.matterScope === "required" ? " · 需案件" : ""}
+              </span>
               {t.requiresApproval ? (
                 <span className="lm-pill lm-pill-warn">需批准</span>
               ) : (
                 <span className="lm-pill lm-pill-neutral">常规</span>
               )}
               <p className="lm-meta">{t.description}</p>
+              {t.governance?.policyReason ? (
+                <p className="lm-meta">{t.governance.policyReason}</p>
+              ) : null}
             </li>
           ))}
         </ul>
-      ) : null}
+        ) : null}
+      </details>
     </div>
   );
 }

@@ -15,6 +15,7 @@ type Props = {
   onModify: () => void;
   onReopen: () => void;
   onExportWord: (opts?: { strict?: boolean }) => void;
+  onExportTrackedWord?: () => void;
   onShowInFolder?: (path: string) => void;
   packExportEnabled?: boolean;
   onDownloadPack?: () => void;
@@ -32,6 +33,7 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
     onModify,
     onReopen,
     onExportWord,
+    onExportTrackedWord,
     onShowInFolder,
     packExportEnabled,
     onDownloadPack,
@@ -134,6 +136,17 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
         >
           {primaryLabel}
         </button>
+        {onExportTrackedWord ? (
+          <button
+            type="button"
+            className="lm-review-toolbar-ghost"
+            disabled={actionBusy || !approved}
+            title="将 Redline 提案写入 Word 修订痕迹；需本机 officecli，否则回退为普通 docx"
+            onClick={() => onExportTrackedWord()}
+          >
+            {actionBusy ? "导出中…" : "导出带修订 Word"}
+          </button>
+        ) : null}
         {packExportEnabled && onDownloadPack ? (
           <button
             type="button"

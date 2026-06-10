@@ -69,8 +69,8 @@ export function LawmindCollaborationSidebar(props: Props): ReactNode {
   );
 
   return (
-    <div className="lm-collab-sidebar lm-side-scroll" aria-label="协作上下文">
-      <section className="lm-collab-sidebar-stats" aria-label="协作概览">
+    <div className="lm-collab-sidebar lm-side-scroll" aria-label="工作流上下文">
+      <section className="lm-collab-sidebar-stats" aria-label="工作流概览">
         <button
           type="button"
           className="lm-collab-sidebar-stat lm-collab-sidebar-stat-action"
@@ -114,7 +114,7 @@ export function LawmindCollaborationSidebar(props: Props): ReactNode {
               type="button"
               className="lm-btn lm-btn-ghost lm-btn-sm"
               onClick={() => void onRefreshCollaboration()}
-              aria-label="刷新协作数据"
+              aria-label="刷新工作流数据"
             >
               刷新
             </button>

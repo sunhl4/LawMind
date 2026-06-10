@@ -1,16 +1,62 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, Menu, Notification } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, shell, Menu, Notification, session } from "electron";
+import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { installLawmindContentSecurityPolicy } from "./session-config.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const requireCjs = createRequire(import.meta.url);
+
+// Optional local debug session (set LAWMIND_DEBUG_SESSION=1). Never enabled in packaged builds by default.
+const DEBUG_SESSION_ENABLED = Boolean(process.env.LAWMIND_DEBUG_SESSION);
+function resolveRepoRootForDebug() {
+  if (process.env.LAWMIND_REPO_ROOT) {
+    return path.resolve(process.env.LAWMIND_REPO_ROOT);
+  }
+  return path.resolve(__dirname, "..", "..", "..");
+}
+const DEBUG_LOG_PATH = DEBUG_SESSION_ENABLED
+  ? path.join(resolveRepoRootForDebug(), ".cursor", "debug-lawmind.log")
+  : "";
+function dbgLog(_location, _message, _data, _hypothesisId) {
+  if (!DEBUG_SESSION_ENABLED) {
+    return;
+  }
+  const payload = {
+    sessionId: process.env.LAWMIND_DEBUG_SESSION ?? "lawmind",
+    location: _location,
+    message: _message,
+    data: _data,
+    hypothesisId: _hypothesisId,
+    timestamp: Date.now(),
+  };
+  try {
+    fs.mkdirSync(path.dirname(DEBUG_LOG_PATH), { recursive: true });
+    fs.appendFileSync(DEBUG_LOG_PATH, `${JSON.stringify(payload)}\n`);
+  } catch {
+    /* ignore */
+  }
+}
+if (DEBUG_SESSION_ENABLED) {
+  process.on("uncaughtException", (err) => {
+    dbgLog("main.mjs:uncaughtException", "uncaughtException", {
+      name: err?.name,
+      message: err?.message,
+      stack: err?.stack?.slice(0, 500),
+    }, "H7");
+  });
+  process.on("unhandledRejection", (reason) => {
+    dbgLog("main.mjs:unhandledRejection", "unhandledRejection", { reason: String(reason) }, "H7");
+  });
+}
+
 const { probeModelInline } = requireCjs("./lawmind-model-probe.cjs");
 
-/** OS keychain wrapper (best-effort; falls back to plaintext when keytar absent). */
+/** OS keychain wrapper (best-effort; new secrets are refused when unavailable). */
 let keyVault;
 try {
   keyVault = requireCjs("./lawmind-key-vault.cjs");
@@ -42,17 +88,32 @@ async function collectSecretsForServerEnv(parsedEnvVars) {
     return out;
   }
   try {
+    // #region agent log
+    dbgLog("main.mjs:collectSecrets", "before read wizard", {}, "A");
+    // #endregion
     const wizardKey = await keyVault.readSecret(KEYCHAIN_ACCOUNTS.wizardApiKey);
+    // #region agent log
+    dbgLog("main.mjs:collectSecrets", "after read wizard", { hasWizard: Boolean(wizardKey) }, "A");
+    // #endregion
     if (wizardKey) {
       if (!parsedEnvVars.LAWMIND_AGENT_API_KEY) {out.LAWMIND_AGENT_API_KEY = wizardKey;}
       if (!parsedEnvVars.LAWMIND_QWEN_API_KEY) {out.LAWMIND_QWEN_API_KEY = wizardKey;}
     }
     const webSearchKey = await keyVault.readSecret(KEYCHAIN_ACCOUNTS.webSearchApiKey);
+    // #region agent log
+    dbgLog("main.mjs:collectSecrets", "after read webSearch", { hasWeb: Boolean(webSearchKey) }, "A");
+    // #endregion
     if (webSearchKey) {
       if (!parsedEnvVars.LAWMIND_WEB_SEARCH_API_KEY) {out.LAWMIND_WEB_SEARCH_API_KEY = webSearchKey;}
       if (!parsedEnvVars.BRAVE_API_KEY) {out.BRAVE_API_KEY = webSearchKey;}
     }
+  // #region agent log
+  dbgLog("main.mjs:collectSecrets", "before listSecrets", {}, "A");
+  // #endregion
     const all = await keyVault.listSecrets();
+  // #region agent log
+  dbgLog("main.mjs:collectSecrets", "after listSecrets", { count: all.length }, "A");
+  // #endregion
     for (const entry of all) {
       const m = /^custom\.([^.]+)\.apiKey$/.exec(entry.account);
       if (!m) {continue;}
@@ -241,7 +302,11 @@ async function waitForLocalServerReady(port, timeoutMs = 15000) {
       throw new Error("LawMind local server exited before becoming ready");
     }
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/api/health`);
+      const headers =
+        apiAuthToken.trim().length > 0
+          ? { authorization: `Bearer ${apiAuthToken}` }
+          : undefined;
+      const res = await fetch(`http://127.0.0.1:${port}/api/health`, { headers });
       if (res.ok) {
         return;
       }
@@ -258,6 +323,7 @@ async function waitForLocalServerReady(port, timeoutMs = 15000) {
 
 let serverProcess = null;
 let apiPort = 0;
+let apiAuthToken = "";
 let workspaceDir = "";
 let projectDir = null;
 let envFilePath = "";
@@ -463,6 +529,7 @@ function listDirectoryEntries(rootKey, relPath = "") {
 async function startLocalServer(repoRoot, wsDir, envPath, retrievalMode, projectPath) {
   const port = await pickPort();
   apiPort = port;
+  apiAuthToken = randomBytes(32).toString("hex");
   const bundled = getBundledServerScript();
   const cmd = resolveNodeExecutable();
   let args;
@@ -489,22 +556,36 @@ async function startLocalServer(repoRoot, wsDir, envPath, retrievalMode, project
     ? parseEnvAssignmentsTopLevel(fs.readFileSync(envPath, "utf8"))
     : {};
   const injectedSecrets = await collectSecretsForServerEnv(parsedEnvVars);
+  // #region agent log
+  dbgLog("main.mjs:startLocalServer", "secrets collected", { keyCount: Object.keys(injectedSecrets).length, keychainAvailable: keyVault.isAvailable() }, "A");
+  // #endregion
 
   const mode = retrievalMode === "dual" ? "dual" : "single";
+  if (app.isPackaged && process.env.LAWMIND_SKIP_API_AUTH === "1") {
+    console.warn(
+      "[LawMind] LAWMIND_SKIP_API_AUTH=1 is ignored in packaged builds; loopback API auth remains enabled.",
+    );
+  }
   return new Promise((resolve, reject) => {
+    const serverEnv = {
+      ...process.env,
+      LAWMIND_WORKSPACE_DIR: wsDir,
+      LAWMIND_DESKTOP_PORT: String(port),
+      LAWMIND_LOCAL_API_TOKEN: apiAuthToken,
+      LAWMIND_ENV_FILE: envPath,
+      // Lets local server load the same `.env.lawmind` as CLI, then merge userData env on top.
+      LAWMIND_REPO_ROOT: repoRoot,
+      LAWMIND_RETRIEVAL_MODE: mode,
+      LAWMIND_PROJECT_DIR: projectPath || "",
+      ...(app.isPackaged ? { LAWMIND_PACKAGED: "1" } : {}),
+      ...injectedSecrets,
+    };
+    if (app.isPackaged && serverEnv.LAWMIND_SKIP_API_AUTH === "1") {
+      delete serverEnv.LAWMIND_SKIP_API_AUTH;
+    }
     serverProcess = spawn(cmd, args, {
       cwd,
-      env: {
-        ...process.env,
-        LAWMIND_WORKSPACE_DIR: wsDir,
-        LAWMIND_DESKTOP_PORT: String(port),
-        LAWMIND_ENV_FILE: envPath,
-        // Lets local server load the same `.env.lawmind` as CLI, then merge userData env on top.
-        LAWMIND_REPO_ROOT: repoRoot,
-        LAWMIND_RETRIEVAL_MODE: mode,
-        LAWMIND_PROJECT_DIR: projectPath || "",
-        ...injectedSecrets,
-      },
+      env: serverEnv,
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -523,7 +604,12 @@ async function startLocalServer(repoRoot, wsDir, envPath, retrievalMode, project
     });
 
     waitForLocalServerReady(port)
-      .then(() => resolve(port))
+      .then(() => {
+        // #region agent log
+        dbgLog("main.mjs:startLocalServer", "local server ready", { port }, "E");
+        // #endregion
+        resolve(port);
+      })
       .catch(reject);
   });
 }
@@ -607,6 +693,9 @@ async function restartBackendInternal() {
   fs.mkdirSync(workspaceDir, { recursive: true });
 
   await maybeMigrateEnvKeysToKeychain(paths.envFilePath);
+  // #region agent log
+  dbgLog("main.mjs:restartBackendInternal", "after keychain migration", { keychainAvailable: keyVault.isAvailable() }, "A");
+  // #endregion
 
   const bundled = getBundledServerScript();
   const repoRoot = bundled ? path.dirname(bundled) : resolveRepoRoot();
@@ -643,6 +732,7 @@ function registerIpcHandlers() {
     const paths = lawMindPaths();
     return {
       apiBase: `http://127.0.0.1:${apiPort}`,
+      apiAuthToken,
       workspaceDir,
       projectDir,
       envFilePath,
@@ -862,6 +952,14 @@ function registerIpcHandlers() {
     if (!effectiveKey) {
       return { ok: false, error: "API Key 必填" };
     }
+    if (apiKey && !keyVault.isAvailable()) {
+      return {
+        ok: false,
+        error:
+          "系统加密存储不可用，无法安全保存新的 API Key。请启用操作系统密钥链，或先在 .env.lawmind 中手工配置后重启。",
+        code: "keychain_unavailable",
+      };
+    }
 
     let prev = {};
     try {
@@ -897,35 +995,60 @@ function registerIpcHandlers() {
 
     const envAssignments = {
       LAWMIND_AGENT_BASE_URL: url,
-      LAWMIND_AGENT_API_KEY: effectiveKey,
       LAWMIND_AGENT_MODEL: m,
       LAWMIND_QWEN_BASE_URL: url,
-      LAWMIND_QWEN_API_KEY: effectiveKey,
       LAWMIND_QWEN_MODEL: m,
       LAWMIND_RETRIEVAL_MODE: retrievalMode,
     };
-    if (effectiveWebKey) {
-      envAssignments.LAWMIND_WEB_SEARCH_API_KEY = effectiveWebKey;
-      envAssignments.BRAVE_API_KEY = effectiveWebKey;
-    }
     if (wantDual && legalSameAsChat) {
       envAssignments.LAWMIND_CHATLAW_BASE_URL = url;
-      envAssignments.LAWMIND_CHATLAW_API_KEY = effectiveKey;
       envAssignments.LAWMIND_CHATLAW_MODEL = m;
     }
-    writeMergedLawmindEnv(paths.envFilePath, envAssignments);
 
     let keyStorage = "env";
     if (keyVault.isAvailable()) {
       try {
-        await keyVault.saveSecret(KEYCHAIN_ACCOUNTS.wizardApiKey, effectiveKey);
-        keyStorage = "env+keychain";
-        if (effectiveWebKey) {
-          await keyVault.saveSecret(KEYCHAIN_ACCOUNTS.webSearchApiKey, effectiveWebKey);
+        const savedWizard = await keyVault.saveSecret(KEYCHAIN_ACCOUNTS.wizardApiKey, effectiveKey);
+        if (!savedWizard) {
+          return {
+            ok: false,
+            error: "密钥链写入失败，已取消保存以避免明文落盘。",
+            code: "keychain_write_failed",
+          };
         }
-      } catch {
-        keyStorage = "env";
+        keyStorage = "keychain";
+        if (effectiveWebKey) {
+          const savedWeb = await keyVault.saveSecret(
+            KEYCHAIN_ACCOUNTS.webSearchApiKey,
+            effectiveWebKey,
+          );
+          if (!savedWeb) {
+            return {
+              ok: false,
+              error: "联网搜索 API Key 写入密钥链失败，已取消保存。",
+              code: "keychain_write_failed",
+            };
+          }
+        }
+        writeMergedLawmindEnv(paths.envFilePath, envAssignments);
+      } catch (err) {
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+          code: "keychain_write_failed",
+        };
       }
+    } else {
+      envAssignments.LAWMIND_AGENT_API_KEY = effectiveKey;
+      envAssignments.LAWMIND_QWEN_API_KEY = effectiveKey;
+      if (effectiveWebKey) {
+        envAssignments.LAWMIND_WEB_SEARCH_API_KEY = effectiveWebKey;
+        envAssignments.BRAVE_API_KEY = effectiveWebKey;
+      }
+      if (wantDual && legalSameAsChat) {
+        envAssignments.LAWMIND_CHATLAW_API_KEY = effectiveKey;
+      }
+      writeMergedLawmindEnv(paths.envFilePath, envAssignments);
     }
     writeWizardDefaultModelId(paths.lawMindRoot, m);
 
@@ -1336,8 +1459,18 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle("lawmind:open-external", (_evt, url) => {
-    if (typeof url === "string" && url.startsWith("http")) {
-      void shell.openExternal(url);
+    if (typeof url !== "string") {
+      return { ok: false, error: "invalid_url" };
+    }
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        return { ok: false, error: "protocol_not_allowed" };
+      }
+      void shell.openExternal(parsed.toString());
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "invalid_url" };
     }
   });
 
@@ -1487,7 +1620,13 @@ function setupApplicationMenu() {
 }
 
 async function createWindow() {
+  // #region agent log
+  dbgLog("main.mjs:createWindow", "enter", {}, "B");
+  // #endregion
   await ensureBackend();
+  // #region agent log
+  dbgLog("main.mjs:createWindow", "after ensureBackend", { apiPort }, "E");
+  // #endregion
 
   const mainWindow = new BrowserWindow({
     width: 1100,
@@ -1503,6 +1642,12 @@ async function createWindow() {
       sandbox: app.isPackaged,
     },
   });
+
+  // #region agent log
+  dbgLog("main.mjs:createWindow", "BrowserWindow created", { sandbox: app.isPackaged }, "B");
+  // #endregion
+
+  installLawmindContentSecurityPolicy(session.defaultSession);
 
   mainWindowRef = mainWindow;
   mainWindow.on("closed", () => {
@@ -1528,9 +1673,21 @@ async function createWindow() {
   const useDistInE2e =
     process.env.LAWMIND_E2E === "1" && fs.existsSync(distIndex);
   if (!app.isPackaged && !useDistInE2e) {
+    // #region agent log
+    dbgLog("main.mjs:createWindow", "before loadURL", { devUrl }, "C");
+    // #endregion
     await mainWindow.loadURL(devUrl);
+    // #region agent log
+    dbgLog("main.mjs:createWindow", "after loadURL", {}, "C");
+    // #endregion
     if (process.env.LAWMIND_E2E !== "1") {
+      // #region agent log
+      dbgLog("main.mjs:createWindow", "before openDevTools", {}, "C");
+      // #endregion
       mainWindow.webContents.openDevTools({ mode: "detach" });
+      // #region agent log
+      dbgLog("main.mjs:createWindow", "after openDevTools", {}, "C");
+      // #endregion
     }
   } else {
     await mainWindow.loadFile(useDistInE2e ? distIndex : path.join(__dirname, "..", "dist", "index.html"));
@@ -1539,15 +1696,30 @@ async function createWindow() {
 
 void app.whenReady().then(async () => {
   try {
+    // #region agent log
+    dbgLog("main.mjs:whenReady", "start", { electronVersion: process.versions.electron }, "H0");
+    // #endregion
     registerIpcHandlers();
+    // #region agent log
+    dbgLog("main.mjs:whenReady", "after registerIpcHandlers", {}, "H0");
+    // #endregion
     setupApplicationMenu();
+    // #region agent log
+    dbgLog("main.mjs:whenReady", "after setupApplicationMenu", {}, "H0");
+    // #endregion
     await createWindow();
+    // #region agent log
+    dbgLog("main.mjs:whenReady", "createWindow complete", {}, "H0");
+    // #endregion
     if (process.env.LAWMIND_E2E !== "1" && process.env.LAWMIND_SKIP_AUTO_UPDATE !== "1") {
       setTimeout(() => {
         void runAutoUpdateCheckWithNotify();
       }, 12_000);
     }
-  } catch {
+  } catch (err) {
+    // #region agent log
+    dbgLog("main.mjs:whenReady", "startup failed", { message: err instanceof Error ? err.message : String(err) }, "H7");
+    // #endregion
     app.quit();
   }
 });

@@ -1,0 +1,20 @@
+{
+  "id": "client-update-memo",
+  "name": "客户邮件摘要",
+  "namedAgent": "Client Update Writer",
+  "description": "面向客户的进展说明与下一步安排（邮件/备忘录语气）。",
+  "practiceArea": "client",
+  "deliverableType": "document.general",
+  "riskLevel": "low",
+  "audience": "solo",
+  "starterPrompt": "请起草给客户的本案进展备忘录：已完成工作、当前风险、需客户确认事项与时间表。",
+  "steps": [
+    {
+      "stepId": "memo",
+      "assignee": "client_communicator",
+      "task": "起草客户进展备忘录（matterId={{matterId}}）",
+      "dependsOn": [],
+      "autoApprove": false
+    }
+  ]
+}

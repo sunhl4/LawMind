@@ -6,6 +6,14 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { CollaborationWorkflow, WorkflowStep } from "../orchestrator/types.js";
+import {
+  resolveWorkflowTemplateKind,
+  workflowTemplateKindUiLabel,
+  type WorkflowTemplateKind,
+} from "./workspace-workflow-template-kind.js";
+
+export type { WorkflowTemplateKind };
+export { resolveWorkflowTemplateKind, workflowTemplateKindUiLabel };
 
 export type WorkspaceWorkflowTemplateStep = {
   stepId: string;
@@ -34,6 +42,8 @@ export type WorkspaceWorkflowTemplateFile = {
   schedulable?: boolean;
   /** Glob patterns; desktop may suggest workflow when pinned paths match */
   triggerPaths?: string[];
+  /** Explicit UI category; when omitted, resolved via `resolveWorkflowTemplateKind`. */
+  kind?: WorkflowTemplateKind;
 };
 
 export type WorkspaceWorkflowTemplateListItem = {
@@ -52,6 +62,7 @@ export type WorkspaceWorkflowTemplateListItem = {
   schedulable?: boolean;
   /** Glob paths; when pinned chat context matches, UI may suggest this workflow */
   triggerPaths?: string[];
+  kind?: WorkflowTemplateKind;
 };
 
 function workflowsDir(workspaceDir: string): string {
@@ -105,6 +116,7 @@ export function listWorkspaceWorkflowTemplates(
           triggerPaths: Array.isArray(parsed.triggerPaths)
             ? parsed.triggerPaths.filter((x): x is string => typeof x === "string")
             : undefined,
+          kind: parsed.kind === "office" || parsed.kind === "matter" ? parsed.kind : undefined,
         });
       }
     } catch {

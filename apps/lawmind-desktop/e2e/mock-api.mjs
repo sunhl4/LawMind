@@ -140,7 +140,63 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (path === "/api/matters/overviews" && req.method === "GET") {
-    json(res, 200, { ok: true, overviews: [] });
+    json(res, 200, {
+      ok: true,
+      overviews: [
+        {
+          matterId: "e2e-matter-1",
+          title: "E2E 合同审查案件",
+          status: "active",
+          updatedAt: now,
+        },
+      ],
+    });
+    return;
+  }
+
+  if (path === "/api/matters/review-matrix" && req.method === "GET") {
+    const matterId = url.searchParams.get("matterId") ?? "e2e-matter-1";
+    json(res, 200, {
+      ok: true,
+      matrix: {
+        matterId,
+        questions: [
+          { id: "q-risk", label: "风险与责任", hint: "违约、赔偿" },
+        ],
+        documents: [
+          {
+            documentId: "doc-1",
+            title: "主服务协议",
+            taskId: "e2e-draft-1",
+            kind: "draft",
+          },
+        ],
+        cells: [
+          {
+            documentId: "doc-1",
+            questionId: "q-risk",
+            excerpt: "违约金条款需律师复核。",
+            status: "suggested",
+          },
+        ],
+      },
+    });
+    return;
+  }
+
+  if (path === "/api/matters/session-timeline" && req.method === "GET") {
+    json(res, 200, {
+      ok: true,
+      entries: [
+        {
+          id: "tl-1",
+          at: now,
+          kind: "audit",
+          title: "草稿进入待审核",
+          detail: "验收门禁已计算",
+        },
+      ],
+    });
     return;
   }
 
@@ -250,12 +306,26 @@ const server = http.createServer(async (req, res) => {
         {
           taskId: "e2e-draft-1",
           title: "E2E draft",
-          summary: "",
+          summary: "E2E summary",
+          output: "docx",
+          templateId: "review-contract-default",
           reviewStatus: "pending",
           matterId: "e2e-matter-1",
+          reviewNotes: [],
           sections: [{ heading: "摘要", body: "E2E body" }],
+          createdAt: now,
         },
       ],
+    });
+    return;
+  }
+
+  const renderTrackedMatch = /^\/api\/drafts\/([^/]+)\/render-tracked$/.exec(path);
+  if (renderTrackedMatch && req.method === "POST") {
+    json(res, 200, {
+      ok: true,
+      outputPath: "artifacts/e2e-tracked.docx",
+      mode: "officecli",
     });
     return;
   }
@@ -267,9 +337,26 @@ const server = http.createServer(async (req, res) => {
       draft: {
         taskId: draftMatch[1],
         title: "E2E draft",
-        summary: "",
+        summary: "E2E summary",
+        output: "docx",
+        templateId: "review-contract-default",
+        deliverableType: "contract.review",
         reviewStatus: "pending",
+        matterId: "e2e-matter-1",
+        reviewNotes: [],
         sections: [{ heading: "摘要", body: "E2E body" }],
+        createdAt: now,
+      },
+      acceptance: {
+        ready: false,
+        blockerCount: 1,
+        placeholderCount: 0,
+        deliverableType: "contract.review",
+      },
+      reasoningReport: {
+        required: true,
+        ready: false,
+        blockerCount: 1,
       },
       gateDecisions: [
         {
@@ -281,6 +368,11 @@ const server = http.createServer(async (req, res) => {
           gate: "acceptance_gate",
           decision: "block",
           reason: "验收门禁存在阻塞项。",
+        },
+        {
+          gate: "reasoning_gate",
+          decision: "block",
+          reason: "来源锚点待补齐。",
         },
       ],
       executionState: {

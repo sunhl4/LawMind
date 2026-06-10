@@ -435,6 +435,50 @@ export async function handleReviewRoute({
       return true;
     }
 
+    const draftRenderTrackedMatch = pathname.match(/^\/api\/drafts\/([^/]+)\/render-tracked$/);
+    if (draftRenderTrackedMatch && req.method === "POST") {
+      const raw = decodeURIComponent(draftRenderTrackedMatch[1] ?? "");
+      if (!isSafeTaskIdSegment(raw)) {
+        sendJson(res, 400, { ok: false, error: "invalid task id" }, c);
+        return true;
+      }
+      const draft = readDraft(workspaceDir, raw);
+      if (!draft) {
+        sendJson(res, 404, { ok: false, error: "not found" }, c);
+        return true;
+      }
+      const strictParam = url.searchParams.get("strict")?.trim().toLowerCase();
+      const strict = strictParam !== "false" && strictParam !== "0";
+      if (strict) {
+        const acceptance = validateDraftAgainstSpec(draft);
+        if (!acceptance.ready) {
+          sendJson(res, 422, { ok: false, error: "acceptance_gate_blocked", acceptance }, c);
+          return true;
+        }
+      }
+      const { readRedlineProposal } = await import("../../../src/lawmind/drafts/redline-proposal.js");
+      const { renderDocxWithTrackedChanges } = await import(
+        "../../../src/lawmind/artifacts/render-docx-tracked.js"
+      );
+      const proposal = readRedlineProposal(workspaceDir, raw);
+      const proposals = proposal?.hunks ?? [];
+      const outDir = path.join(workspaceDir, "artifacts");
+      const result = await renderDocxWithTrackedChanges({
+        draft,
+        outputDir: outDir,
+        proposals,
+      });
+      sendJson(
+        res,
+        result.ok ? 200 : 400,
+        result.ok
+          ? { ok: true, outputPath: result.outputPath, mode: result.mode }
+          : { ok: false, error: result.error, code: result.code },
+        c,
+      );
+      return true;
+    }
+
     const draftRenderMatch = pathname.match(/^\/api\/drafts\/([^/]+)\/render$/);
     if (draftRenderMatch && req.method === "POST") {
       const raw = decodeURIComponent(draftRenderMatch[1] ?? "");

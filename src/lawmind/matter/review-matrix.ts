@@ -131,7 +131,7 @@ export function buildMatterReviewMatrix(
         sourceId: src.id,
         kind: "source",
       });
-      const text = [src.title, src.citation, src.excerpt].filter(Boolean).join("\n");
+      const text = [src.title, src.citation, src.url].filter(Boolean).join("\n");
       textByDoc.set(docId, text);
     }
   }

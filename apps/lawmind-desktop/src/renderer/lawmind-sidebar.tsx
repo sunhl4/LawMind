@@ -126,8 +126,8 @@ export function LawmindSidebar({
             aria-expanded={collabExpanded}
           >
             <span className={`lm-section-arrow ${collabExpanded ? "lm-section-arrow-open" : ""}`}>›</span>
-            <span className="lm-section-label" title="多智能体派活与后台流程进度">
-              协作
+            <span className="lm-section-label" title="委派任务与后台工作流进度">
+              工作流
               <span className="lm-section-count">{countActiveDelegations(delegations)}</span>
             </span>
           </button>

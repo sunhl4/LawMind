@@ -1,6 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { Dispatch, SetStateAction } from "react";
+import { apiAuthHeaders } from "./lawmind-api-auth.ts";
 import { appendChatMessage, type ChatMsg } from "./lawmind-chat";
+import { useAppPolling } from "./useAppPolling.ts";
 import {
   activityFromLiveTrace,
 } from "./lawmind-chat-activity.js";
@@ -38,17 +40,13 @@ export function useLawmindCollaborationWatch(input: {
     }
   }, [selectedAssistantId, sessionByAssistant]);
 
-  useEffect(() => {
-    if (!apiBase) {
-      return undefined;
-    }
-    const assistantId = selectedAssistantId;
-    const sessionId = sessionByAssistant[assistantId]?.trim();
-    if (!sessionId) {
-      return undefined;
-    }
+  const assistantId = selectedAssistantId;
+  const sessionId = sessionByAssistant[assistantId]?.trim() ?? "";
 
-    const tick = async () => {
+  const tick = useCallback(async () => {
+    if (!apiBase || !sessionId) {
+      return;
+    }
       try {
         const delegationProgress = await fetchDelegationSessionProgress(
           apiBase,
@@ -113,7 +111,7 @@ export function useLawmindCollaborationWatch(input: {
         }
 
         const url = `${apiBase}/api/delegations/follow-up?sessionId=${encodeURIComponent(sessionId)}&assistantId=${encodeURIComponent(assistantId)}`;
-        const res = await fetch(url);
+        const res = await fetch(url, { headers: apiAuthHeaders() });
         if (!res.ok) {
           return;
         }
@@ -175,10 +173,17 @@ export function useLawmindCollaborationWatch(input: {
       } catch {
         /* ignore */
       }
-    };
+  }, [apiBase, sessionId, assistantId, assistants, setMessagesByAssistant]);
 
-    const interval = window.setInterval(() => void tick(), 3500);
-    void tick();
-    return () => window.clearInterval(interval);
-  }, [apiBase, selectedAssistantId, sessionByAssistant, assistants, setMessagesByAssistant]);
+  useAppPolling({
+    enabled: Boolean(apiBase && sessionId),
+    intervalMs: 3500,
+    onTick: () => void tick(),
+  });
+
+  useEffect(() => {
+    if (apiBase && sessionId) {
+      void tick();
+    }
+  }, [apiBase, sessionId, tick]);
 }

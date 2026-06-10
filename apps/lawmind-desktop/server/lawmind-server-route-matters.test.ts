@@ -132,6 +132,52 @@ describe("lawmind-server-route-matters", () => {
     expect(raw).toContain("案件名称（展示用）: 新展示名");
   });
 
+  it("POST /api/matters/repair-projections rebuilds CASE from JSON", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matter-repair-"));
+    const matterId = "matter-repair";
+    await fs.mkdir(path.join(ws, "cases", matterId), { recursive: true });
+    await fs.mkdir(path.join(ws, "matters", matterId), { recursive: true });
+    await fs.writeFile(
+      path.join(ws, "matters", matterId, "matter.json"),
+      JSON.stringify({
+        matterId,
+        title: "JSON 标题",
+        status: "active",
+        sensitivity: "normal",
+        strategyStatus: "missing",
+        openQuestionIds: [],
+        nextActions: [],
+        deadlineIds: [],
+        deliverableIds: [],
+        queueItemIds: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }),
+      "utf8",
+    );
+    const ctx: LawmindDispatchContext = {
+      workspaceDir: ws,
+      envFile: undefined,
+      userEnvPath: path.join(os.tmpdir(), "x.env"),
+      policy: { loaded: false },
+    };
+    const capture = createResponseCapture();
+    const handled = await handleMatterRoutes({
+      ctx,
+      req: createJsonRequest("POST", {}),
+      res: capture.res,
+      url: new URL("http://127.0.0.1/api/matters/repair-projections"),
+      pathname: "/api/matters/repair-projections",
+      c: {},
+    });
+    expect(handled).toBe(true);
+    expect(capture.status).toBe(200);
+    expect(capture.json()).toMatchObject({ ok: true, repaired: 1 });
+    const caseRaw = await fs.readFile(path.join(ws, "cases", matterId, "CASE.md"), "utf8");
+    expect(caseRaw).toContain("JSON 标题");
+    await fs.rm(ws, { recursive: true, force: true });
+  });
+
   it("POST /api/matters/display-name creates CASE.md when only cases/<id>/ exists", async () => {
     const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matter-display-name-empty-"));
     try {

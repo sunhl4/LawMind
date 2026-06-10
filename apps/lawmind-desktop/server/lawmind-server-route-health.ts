@@ -12,6 +12,7 @@ import { buildWorkspaceSessionHealth } from "../../../src/lawmind/insights/sessi
 import {
   buildDoctorStats,
   buildMemoryTruthSourceFlags,
+  buildMatterConsistencySummary,
   buildP2DoctorReport,
   buildWorkspaceStandardReport,
   tryReadWorkspacePackageVersion,
@@ -21,6 +22,8 @@ import {
   resolveAgentMaxToolCallsPerTurn,
 } from "../../../src/lawmind/policy/workspace-policy.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
+import { isLoopbackApiAuthSkipped } from "./lawmind-local-api-auth.js";
+import { getRateLimitStats } from "./lawmind-local-rate-limit.js";
 import { buildAgentConfig, isDesktopModelConfigured, sendJson } from "./lawmind-server-helpers.js";
 import { buildModelCatalog, resolveDraftReasoningLlmConfig, readDraftWithModelStoreFlag } from "../../../src/lawmind/models/index.js";
 import { LAWMIND_AGENT_BEHAVIOR_EPOCH } from "../../../src/lawmind/agent/system-prompt.js";
@@ -28,7 +31,7 @@ import { summarizeModelUsage } from "../../../src/lawmind/models/model-usage.js"
 import { buildIntegrationsHealthSummary } from "../../../src/lawmind/integrations/index.js";
 import { getSearchIndexStatus } from "../../../src/lawmind/indexing/index.js";
 
-export function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindRouteContext): boolean {
+export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindRouteContext): Promise<boolean> {
   if (!(pathname === "/api/health" && req.method === "GET")) {
     return false;
   }
@@ -60,6 +63,7 @@ export function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindRouteCo
   const draftWithModelEnabled = readDraftWithModelStoreFlag(lawMindRoot);
   const draftWithModelActive = resolveDraftReasoningLlmConfig(lawMindRoot) !== null;
   const usageSummary = summarizeModelUsage(workspaceDir, { sinceDays: 30 });
+  const matterConsistency = await buildMatterConsistencySummary(workspaceDir);
 
   sendJson(
     res,
@@ -118,6 +122,9 @@ export function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindRouteCo
           };
         })(),
         p2: buildP2DoctorReport(workspaceDir),
+        matterConsistency,
+        rateLimit: getRateLimitStats(),
+        skipApiAuthWarn: isLoopbackApiAuthSkipped(),
       },
       envHint: {
         userDataEnvPath: userEnvPath,

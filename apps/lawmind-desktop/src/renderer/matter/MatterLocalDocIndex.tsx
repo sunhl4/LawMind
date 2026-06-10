@@ -6,6 +6,7 @@ type DocRow = {
   relativePath: string;
   sizeBytes: number;
   modifiedAt: string;
+  webUrl?: string;
 };
 
 type Props = {
@@ -69,6 +70,14 @@ export function MatterLocalDocIndex(props: Props): ReactNode {
               <span className="lm-list-title">{d.relativePath}</span>
               <span className="lm-meta">
                 {(d.sizeBytes / 1024).toFixed(1)} KB · {d.modifiedAt.slice(0, 10)}
+                {d.webUrl?.trim() ? (
+                  <>
+                    {" · "}
+                    <a href={d.webUrl} target="_blank" rel="noopener noreferrer">
+                      在 SharePoint 打开
+                    </a>
+                  </>
+                ) : null}
               </span>
             </li>
           ))}

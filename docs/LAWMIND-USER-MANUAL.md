@@ -315,7 +315,10 @@
 | 审核决定     | 批准/退回/修改 | `POST /api/drafts/:taskId/review`；body 含 `status`、`note`、`appendToProfile`、`appendToLawyerProfile`、`profileAssistantId`、`labels`、`deferMemoryWrites` |
 | 重新打开审核 | 修正后再审     | `POST /api/drafts/:taskId/reopen-review`                                                                                                                     |
 | 渲染         | 导出 Word/PPT  | `POST /api/drafts/:taskId/render?strict=`（默认 strict；`false` 为显式弱化门禁，**不推荐**）                                                                 |
+| 带修订 Word  | 审核台按钮     | `POST /api/drafts/:taskId/render-tracked`：将 Redline 提案写入 Word 修订痕迹；需本机 **officecli**，未安装时回退为普通 docx 并提示                           |
 | 验收包       | 对外证明       | `GET /api/drafts/:taskId/acceptance-pack`（Markdown 或 `?format=json`）；受 Edition `acceptancePackExport` 控制（Solo 可能 **403**）                         |
+
+**Word 修订导出限制**：`render-tracked` 依赖主机已安装 `officecli` 且草稿具备 Redline 基准/提案；无 CLI 时仍会得到 docx 文件但不含原生修订痕迹。清洁版请用「导出 Word」（`/render` strict 路径）。
 
 **内置交付物类型（DeliverableSpec.type）**（工作区可追加自定义 spec，见 `workspace/lawmind/deliverables/*.json`）：
 
@@ -331,6 +334,19 @@
 注册表：`src/lawmind/deliverables/registry.ts`；校验：`validateDraftAgainstSpec`、`validateReasoningForDraft`。
 
 **字段级说明**：`AcceptanceReport` / `ReasoningReport` 各键、acceptance-pack 的 `format` 与 **403** 条件，见附录 [§36](#36-验收与推理报告-json-语义)。Edition 下各 **`features`** 布尔含义见 [§37](#37-edition-features-全量对照)。
+
+### 8.1 与 Harvey 式引用对照（简表）
+
+LawMind 不复制 Harvey 等企业云台的部署形态，但在**可核对来源**上对齐律师预期：
+
+| 能力           | Harvey 类企业台  | LawMind                                                           |
+| -------------- | ---------------- | ----------------------------------------------------------------- |
+| 段落级来源锚点 | 强（企业语料库） | 强：`source preview` + 审查矩阵 + acceptance pack                 |
+| 点击回原文     | 依赖 DMS / 语料  | 本机 `cases/` + 检索索引；SharePoint 外链（若已配置）             |
+| 对外交付证明   | 企业审计栈       | 本地 JSONL + hash-chain + 验收包导出                              |
+| Word 修订痕迹  | 常经 DMS / 插件  | 审核台 `render-tracked`（`officecli`；无 CLI 时 plain docx 回退） |
+
+**律师可读结论**：Harvey 优势在律所级语料与 DMS 一体部署；LawMind 优势在**本机闭环**——同一 matter 内从研判 → 审核门禁 → 带来源的可交付件，无需把案件材料默认上传第三方 SaaS。详见 [集成路线图](/LAWMIND-INTEGRATIONS#与-harvey--spellbook-对照phase-12)。
 
 ---
 

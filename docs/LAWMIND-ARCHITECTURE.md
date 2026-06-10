@@ -63,6 +63,27 @@ queue.jsonl, deadlines.jsonl}` 这一组 JSON / JSONL 真相源（与原 Markdow
 （`scripts/lawmind/lawmind-quarterly-demo.ts`）跑完上述新链路，并以
 `src/lawmind/integration/quarterly-acceptance.test.ts` 作为回归网关。
 
+### 卓越产品平台化（2026-Q2，第十一期）
+
+在既有 Matter / Role / Gate 骨架之上，第十一期把「功能已具备」推进为「平台可演进」：
+
+- **Q1 黄金旅程**：`src/lawmind/product/golden-journeys.ts` 冻结 matter production、contract review trust、role delegation memory 三条验收旅程。
+- **Runtime harness 元数据**：`src/lawmind/agent/tools/governance.ts` 为工具 registry 补齐风险、matter scope、运行模式、幂等/重试与审计说明；`GET /api/tools/registry` 返回 `governance`。
+- **ContextPlan**：`src/lawmind/runtime/context-plan.ts` 分层描述 matter state、MATTER_STRATEGY、pending actions、transcript、memory recall、source anchors、role context。
+- **Deliverable lifecycle**：`src/lawmind/core/deliverable-lifecycle.ts` 扩展至 planned → … → delivered → learned；写侧 `transitionDeliverable` 拒绝跳过 review 的 shortcut。
+- **Workflow playbook**：`src/lawmind/agent/collaboration/playbook-summary.ts` 将 workflow 模板摘要为来源要求、审批点与验收包要求。
+- **质量飞轮与发布报告**：`src/lawmind/evaluation/replay-fixtures.ts`（12 个回放样本）、`release-report.ts`、`pnpm lawmind:release-readiness`；`pnpm lawmind:verify` 写入 `dist/lawmind-release-readiness.md`。
+
+详见 [LAWMIND-EXCELLENCE-ROADMAP.md](LAWMIND-EXCELLENCE-ROADMAP.md)。
+
+### 第十二期工程对齐（2026-05-28）
+
+- **发布证据**：`scripts/lawmind/lawmind-benchmark.ts`、`lawmind-release-readiness.ts`（benchmark 灌数 + strict gate）。
+- **集成**：`src/lawmind/integrations/sharepoint-graph.ts`（Graph 只读）；`src/lawmind/artifacts/render-docx-tracked.ts`（officecli 修订轨）。
+- **可观测**：`src/lawmind/insights/session-timeline.ts` 扩展 approval/job；桌面 Matter「时间线」一级 Tab。
+- **Runtime**：`buildContextPlan` 注入 `agent/runtime.ts`；`scripts/lawmind/lawmind-platform-contracts-check.ts`。
+- **桌面 seam**：`matter/MatterTimelinePanel.tsx`、`MatterWorkbenchListPane.tsx`、`useMatterSessionTimeline.ts`。
+
 ---
 
 ## 三、目录与工作区约定
@@ -400,7 +421,7 @@ Electron 主进程 (main.mjs)
   ├── 文件工作台（FileWorkbench）
   ├── 案件工作台（MatterWorkbench：案件列表、CASE、任务/草稿、审计、会议室时间线）
   ├── 审核台（ReviewWorkbench：草稿审阅、签批、渲染）
-  ├── 设置面板（模态：助手 / 模型检索 / 工作区项目）
+  ├── 设置（主栏全页：侧栏分组导航 + 内容区；助手 / 模型检索 / 记忆库 / 工作区等）
   ├── 侧边栏（助手选择器 / 项目药丸 / 折叠工作记录）
   └── 配置向导（首次启动 API Key 设置流）
 ```
@@ -416,11 +437,12 @@ Electron 主进程 (main.mjs)
 
 ### 设置面板架构
 
-设置由齿轮图标（`lm-gear-btn`）触发，打开 `lm-settings-panel` 模态，分三个区：
+设置由顶栏齿轮（`lm-gear-btn`）触发，在主工作栏以 **全页** `LawmindSettingsPage`（`lm-settings-page`）展示，左侧分组导航 + 右侧内容区（非模态叠层）。主要分区包括：
 
-1. **助手管理**：当前助手详情、新建/编辑/删除、使用统计
-2. **模型与检索**：模型状态、检索策略切换（统一/双模型）、API 配置向导入口
-3. **工作区与项目**：工作区路径、项目目录选择/关闭
+1. **概览与体检**：就绪情况、用量、系统体检（含记忆真相源文件检查）
+2. **记忆库**：待采纳记忆建议队列（`MemoryInspector`）
+3. **智能体 / 模型与检索 / 工作区与项目** 等（见 `lawmind-settings-nav.ts`）
+4. **协作**：摘要与「打开协作页」入口（完整工作流在顶栏「协作」视图）
 
 ### 项目目录（IPC 流）
 

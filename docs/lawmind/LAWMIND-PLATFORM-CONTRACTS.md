@@ -68,3 +68,15 @@
 1. 先映射，不一次性重命名所有历史字段。
 2. 新增字段必须保持向后兼容（旧 UI/脚本不崩）。
 3. Strict 门禁最终以本契约字段是否完整作为判定依据之一。
+
+## 8. Health doctor 扩展字段（desktop `/api/health`）
+
+`doctor` 对象在桌面健康检查中扩展以下字段，供 Settings → Doctor 与 readiness strip 消费：
+
+| 字段                | 含义                                                                      |
+| ------------------- | ------------------------------------------------------------------------- |
+| `matterConsistency` | 案件投影与 `cases/` 目录一致性摘要（`ok`、`issueCount`、可选 `issues[]`） |
+| `rateLimit`         | 本地 API 速率限制统计；未启用时为 `null`                                  |
+| `skipApiAuthWarn`   | 开发/打包环境是否跳过 loopback API 鉴权（`true` 时在 Doctor 显示 WARN）   |
+
+实现：`apps/lawmind-desktop/server/lawmind-health-payload.ts`、`lawmind-server-route-health.ts`。

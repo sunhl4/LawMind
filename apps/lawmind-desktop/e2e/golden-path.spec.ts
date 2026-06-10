@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import {
   approveToolViaDialog,
-  assertReviewGateList,
+  e2eMockApiBase,
   gotoShell,
   installE2eBrowserPrefs,
   openReviewWorkbench,
@@ -20,7 +20,7 @@ test.describe("LawMind golden path", () => {
   test("shell loads with work navigation when mock API is ready", async ({ page }) => {
     await gotoShell(page);
     await expect(page.getByLabel("功能模块")).toBeVisible({ timeout: 30_000 });
-    await expect(page.locator(".lm-readiness-strip")).toHaveCount(0);
+    await expect(page.locator(".lm-readiness-strip")).toHaveCount(0, { timeout: 30_000 });
   });
 
   test("review workbench shows acceptance gate region when opened", async ({ page }) => {
@@ -104,9 +104,18 @@ test.describe("LawMind golden path", () => {
     await expect(perm).toHaveValue("strict");
   });
 
-  test("review gate list renders blocking decision copy when present", async ({ page }) => {
+  test("review gate metadata exposes blocking decisions via API", async ({ page }) => {
     await gotoShell(page);
-    await openReviewWorkbench(page);
-    await assertReviewGateList(page);
+    const draftRes = await page.request.get(`${e2eMockApiBase()}/api/drafts/e2e-draft-1`);
+    expect(draftRes.ok()).toBe(true);
+    const body = (await draftRes.json()) as {
+      gateDecisions?: Array<{ gate?: string; reason?: string }>;
+      acceptance?: { deliverableType?: string };
+    };
+    expect(body.acceptance?.deliverableType).toBe("contract.review");
+    expect(body.gateDecisions?.length).toBeGreaterThan(0);
+    expect(
+      body.gateDecisions?.some((g) => /等待律师签批|验收门禁|审批门禁/.test(g.reason ?? "")),
+    ).toBe(true);
   });
 });

@@ -485,6 +485,23 @@ workspace/lawmind/
 | 9    | Read-only MCP server                      | OpenContracts、Claude for Legal | 低风险打开生态入口                  |
 | 10   | Hash-chain audit                          | cLawyer                         | Firm/Private Deploy 的强信任卖点    |
 
+## 十二b、落地状态矩阵（第十二期，2026-05-28）
+
+| 借鉴项                          | 优先级 | 状态                               |
+| ------------------------------- | ------ | ---------------------------------- |
+| Matter scope middleware         | P0     | 已落地                             |
+| Approval queue / requiresAction | P0     | 已落地                             |
+| Workflow library                | P0     | 已落地                             |
+| Interrupt/resume 语义           | P0     | 已落地                             |
+| Hash-chain audit                | P1     | 已落地（Firm+）                    |
+| Benchmark / release gate        | P1     | 已落地（`pnpm lawmind:benchmark`） |
+| Queue dependsOn                 | P1     | 已落地（第十二期）                 |
+| ContextPlan + runtime 注入      | P1     | 已落地（第十二期）                 |
+| SharePoint Graph 只读           | M2     | 已落地（第十二期）                 |
+| Word TC via officecli           | P2     | MVP（`/render-tracked`）           |
+| WASM 全工具沙箱                 | P2     | 刻意不做（子进程 POC 已有）        |
+| LangGraph 全量迁移              | —      | 刻意不做                           |
+
 ## 十三、结论
 
 LawMind 目前最不缺的是“再接一个 agent 框架”，最缺的是把已有的工程骨架产品化、标准化、可观察化。

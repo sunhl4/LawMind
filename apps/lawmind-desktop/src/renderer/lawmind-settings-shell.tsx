@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { LawmindSettingsAppUpdate } from "./LawmindSettingsAppUpdate";
 import { LawmindSettingsAssistants } from "./LawmindSettingsAssistants";
 import type { CollabSummaryState } from "./LawmindSettingsCollaboration";
@@ -12,13 +13,42 @@ import { LawmindSettingsAppearance } from "./LawmindSettingsAppearance";
 import { LawmindSettingsReviewPrefs } from "./LawmindSettingsReviewPrefs";
 import { LawmindSettingsWorkspace } from "./LawmindSettingsWorkspace";
 import { LawmindSettingsDoctor } from "./LawmindSettingsDoctor";
+import { LawmindSettingsMemory } from "./LawmindSettingsMemory";
 import { LawmindSettingsTools } from "./LawmindSettingsTools";
 import { LawmindSettingsUsageStats } from "./LawmindSettingsUsageStats";
 import type { AppConfig } from "./lawmind-app-bootstrap";
+import type { HealthPayload } from "./lawmind-app-data";
 import type { ModelCatalogEntry, ProviderKeyStatus } from "./lawmind-models-api";
 import type { AssistantRow } from "./lawmind-settings-models.ts";
+import {
+  LAWMIND_SETTINGS_DEFAULT_SECTION,
+  type LawmindSettingsScrollAnchorId,
+  type LawmindSettingsSectionId,
+  filterSettingsNavGroups,
+  firstSettingsNavMatch,
+  readStoredSettingsSection,
+  settingsNavItem,
+  writeStoredSettingsSection,
+} from "./lawmind-settings-nav";
+
+export type {
+  LawmindSettingsScrollAnchorId,
+  LawmindSettingsSectionId,
+} from "./lawmind-settings-nav";
+export {
+  LAWMIND_SETTINGS_DEFAULT_SECTION,
+  LAWMIND_SETTINGS_SCROLL_ANCHORS,
+  lawmindSettingsSectionFromDomId,
+  readStoredSettingsSection,
+} from "./lawmind-settings-nav";
 
 type SetProjectDirBridge = NonNullable<Window["lawmindDesktop"]>["setProjectDir"];
+
+export type SetShowSettings = (
+  open: boolean | ((prev: boolean) => boolean),
+  sectionId?: LawmindSettingsSectionId,
+  scrollAnchorId?: LawmindSettingsScrollAnchorId,
+) => void;
 
 export async function clearProjectDirectory(args: {
   config: AppConfig | null;
@@ -40,6 +70,8 @@ export async function clearProjectDirectory(args: {
 
 type Props = {
   open: boolean;
+  initialSectionId?: LawmindSettingsSectionId;
+  scrollAnchorId?: LawmindSettingsScrollAnchorId;
   config: AppConfig | null;
   projectDir: string | null;
   workspaceLabel: string;
@@ -53,6 +85,8 @@ type Props = {
     draftWithModelEnabled?: boolean;
     draftWithModelActive?: boolean;
   } | null;
+  /** Full GET /api/health payload (doctor section); avoids redundant refetch when bootstrap already loaded it. */
+  healthPayload?: HealthPayload | null;
   collabSummarySettings: CollabSummaryState;
   assistants: AssistantRow[];
   selectedAssistantId: string;
@@ -84,12 +118,26 @@ type Props = {
   onPrefsChange?: () => void;
 };
 
-export function LawmindSettingsDialog({
+function LawmindSettingsContentHeader(props: { title: string; description: string }): ReactNode {
+  const { title, description } = props;
+  return (
+    <header className="lm-settings-content-header">
+      <h2 className="lm-settings-content-title">{title}</h2>
+      <p className="lm-settings-content-desc">{description}</p>
+    </header>
+  );
+}
+
+/** Full-page settings (main column), not a modal overlay. */
+export function LawmindSettingsPage({
   open,
+  initialSectionId = LAWMIND_SETTINGS_DEFAULT_SECTION,
+  scrollAnchorId,
   config,
   projectDir,
   workspaceLabel,
   health,
+  healthPayload = null,
   collabSummarySettings,
   assistants,
   selectedAssistantId,
@@ -112,74 +160,288 @@ export function LawmindSettingsDialog({
   platformProviders,
   platformMode,
   selectedModelId,
-    customModels,
-    modelCatalog = customModels,
-    onModelsChanged,
+  customModels,
+  modelCatalog = customModels,
+  onModelsChanged,
   onPickProject,
   onClearProject,
   onOpenCollaborationPage,
   onPrefsChange,
 }: Props) {
+  const [activeSectionId, setActiveSectionId] = useState<LawmindSettingsSectionId>(initialSectionId);
+  const [navQuery, setNavQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (open) {
+      setActiveSectionId(initialSectionId);
+      setNavQuery("");
+      requestAnimationFrame(() => searchRef.current?.focus());
+    }
+  }, [open, initialSectionId]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, onClose]);
+
+  useEffect(() => {
+    if (!open || !scrollAnchorId) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      document.getElementById(scrollAnchorId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [open, scrollAnchorId, activeSectionId]);
+
+  const filteredGroups = useMemo(() => filterSettingsNavGroups(navQuery), [navQuery]);
+  const activeMeta = settingsNavItem(activeSectionId);
+  const navSearching = navQuery.trim().length > 0;
+
   if (!open) {
     return null;
   }
 
+  const navigateToSection = (sectionId: LawmindSettingsSectionId) => {
+    setActiveSectionId(sectionId);
+    writeStoredSettingsSection(sectionId);
+  };
+
+  const sectionBody = renderSettingsSection({
+    activeSectionId,
+    config,
+    projectDir,
+    workspaceLabel,
+    health,
+    healthPayload,
+    collabSummarySettings,
+    assistants,
+    selectedAssistantId,
+    onSelectAssistantId,
+    selectedAssistant,
+    selectedAssistantStats,
+    retrievalLabel,
+    retrievalSaving,
+    draftWithModelSaving,
+    onClose,
+    onOpenNewAssistant,
+    onOpenEditAssistant,
+    onRemoveAssistant,
+    onApplyRetrievalMode,
+    onApplyDraftWithModelEnabled,
+    onReconnectLocalService,
+    localServiceReconnecting,
+    onOpenApiWizard,
+    modelProviders,
+    platformProviders,
+    platformMode,
+    selectedModelId,
+    customModels,
+    modelCatalog,
+    onModelsChanged,
+    onPickProject,
+    onClearProject,
+    onOpenCollaborationPage,
+    onPrefsChange,
+    navigateToSection,
+  });
+
   return (
-    <div className="lm-wizard-backdrop" role="dialog" aria-modal="true" aria-label="设置">
-      <div className="lm-wizard lm-settings-panel">
-        <div className="lm-settings-header">
-          <h2>设置</h2>
-          <button
-            type="button"
-            className="lm-settings-close"
-            onClick={onClose}
-            aria-label="关闭设置"
-          >
-            ×
-          </button>
+    <div className="lm-settings-page" role="region" aria-label="设置">
+      <div className="lm-settings-layout">
+        <aside className="lm-settings-sidebar" aria-label="设置分类">
+          <div className="lm-settings-nav-search">
+            <input
+              ref={searchRef}
+              type="search"
+              className="lm-settings-nav-search-input"
+              placeholder="搜索设置…（Enter 跳转）"
+              value={navQuery}
+              onChange={(e) => setNavQuery(e.target.value)}
+              aria-label="搜索设置项"
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") {
+                  return;
+                }
+                e.preventDefault();
+                const match = firstSettingsNavMatch(navQuery);
+                if (match) {
+                  navigateToSection(match);
+                  setNavQuery("");
+                }
+              }}
+            />
+          </div>
+          <nav className="lm-settings-nav" aria-label="设置分类列表">
+            {filteredGroups.length === 0 ? (
+              <p className="lm-meta lm-settings-nav-empty">无匹配项</p>
+            ) : (
+              filteredGroups.map((group) => (
+                <div key={group.id} className="lm-settings-nav-group">
+                  <div className="lm-settings-nav-group-label">{group.label}</div>
+                  {group.items.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={`lm-settings-nav-item${activeSectionId === item.id ? " is-active" : ""}`}
+                      aria-current={activeSectionId === item.id ? "page" : undefined}
+                      onClick={() => navigateToSection(item.id)}
+                    >
+                      <span className="lm-settings-nav-item-label">{item.label}</span>
+                      {navSearching ? (
+                        <span className="lm-settings-nav-item-hint">{item.description}</span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              ))
+            )}
+          </nav>
+          <footer className="lm-settings-sidebar-footer">
+            <span className="lm-settings-sidebar-version" title="LawMind 桌面版">
+              v{config?.appVersion?.trim() || "dev"}
+            </span>
+            <button
+              type="button"
+              className="lm-link-btn lm-settings-sidebar-about-link"
+              onClick={() => navigateToSection("app-update")}
+            >
+              更新
+            </button>
+          </footer>
+        </aside>
+        <div className="lm-settings-content">
+          <div className="lm-settings-content-inner">
+            {activeMeta ? (
+              <LawmindSettingsContentHeader
+                title={activeMeta.label}
+                description={activeMeta.description}
+              />
+            ) : null}
+            <div key={activeSectionId} className="lm-settings-content-body">
+              {sectionBody}
+            </div>
+          </div>
         </div>
-        <p className="lm-meta lm-settings-lead">
-          本机律师工作台：可建<strong>多个智能体</strong>各管一摊事；多步团队流程与后台任务在顶部<strong>协作</strong>页运行与查看。出具对外材料前，务必在顶部<strong>审核</strong>里通过把关。
-        </p>
+      </div>
+    </div>
+  );
+}
 
-        {config && <LawmindSettingsOnboarding health={health} projectDir={projectDir} />}
+/** @deprecated Use `LawmindSettingsPage`; kept for existing imports. */
+export const LawmindSettingsDialog = LawmindSettingsPage;
 
-        {config && <LawmindSettingsUsageStats apiBase={config.apiBase} />}
+type SectionRenderArgs = Omit<Props, "open" | "initialSectionId" | "scrollAnchorId"> & {
+  activeSectionId: LawmindSettingsSectionId;
+  navigateToSection: (sectionId: LawmindSettingsSectionId) => void;
+};
 
-        {config && (
-          <LawmindSettingsDoctor
-            health={null}
-            apiBase={config.apiBase}
-            onOpenApiWizard={onOpenApiWizard}
-            onOpenCollaborationPage={() => {
-              onClose();
-              onOpenCollaborationPage();
-            }}
-            onScrollToWorkspace={() => {
-              document.getElementById("lawmind-settings-workspace")?.scrollIntoView({
-                behavior: "smooth",
-                block: "start",
-              });
-            }}
-          />
-        )}
+function renderSettingsSection(args: SectionRenderArgs): ReactNode {
+  const {
+    activeSectionId,
+    config,
+    projectDir,
+    workspaceLabel,
+    health,
+    healthPayload = null,
+    collabSummarySettings,
+    assistants,
+    selectedAssistantId,
+    onSelectAssistantId,
+    selectedAssistant,
+    selectedAssistantStats,
+    retrievalLabel,
+    retrievalSaving,
+    draftWithModelSaving,
+    onClose,
+    onOpenNewAssistant,
+    onOpenEditAssistant,
+    onRemoveAssistant,
+    onApplyRetrievalMode,
+    onApplyDraftWithModelEnabled,
+    onReconnectLocalService,
+    localServiceReconnecting,
+    onOpenApiWizard,
+    modelProviders,
+    platformProviders,
+    platformMode,
+    selectedModelId,
+    customModels,
+    modelCatalog,
+    onModelsChanged,
+    onPickProject,
+    onClearProject,
+    onOpenCollaborationPage,
+    onPrefsChange,
+    navigateToSection,
+  } = args;
 
-        <LawmindSettingsAppearance onPrefsChange={onPrefsChange} />
+  const notReady = (
+    <p className="lm-meta lm-settings-empty">本地服务尚未就绪，请稍候或重启应用后再试。</p>
+  );
 
-        <LawmindSettingsReviewPrefs />
-
-        {config && (
-          <LawmindSettingsCollaborationBrief
-            collabSummarySettings={collabSummarySettings}
-            localServiceReconnecting={localServiceReconnecting}
-            onReconnectLocalService={onReconnectLocalService}
-            onOpenCollaborationPage={() => {
-              onClose();
-              onOpenCollaborationPage();
-            }}
-          />
-        )}
-
+  switch (activeSectionId) {
+    case "doctor":
+      return (
+        <>
+          {config ? (
+            <>
+              <LawmindSettingsOnboarding
+                health={health}
+                projectDir={projectDir}
+                onOpenApiWizard={onOpenApiWizard}
+                onNavigateToSection={navigateToSection}
+              />
+              <LawmindSettingsUsageStats apiBase={config.apiBase} />
+              <LawmindSettingsDoctor
+                health={healthPayload}
+                apiBase={config.apiBase}
+                onOpenApiWizard={onOpenApiWizard}
+                onOpenCollaborationPage={() => {
+                  onClose();
+                  onOpenCollaborationPage();
+                }}
+                onScrollToWorkspace={() => navigateToSection("workspace")}
+                onOpenMemorySection={() => navigateToSection("memory")}
+              />
+            </>
+          ) : (
+            notReady
+          )}
+        </>
+      );
+    case "appearance":
+      return <LawmindSettingsAppearance onPrefsChange={onPrefsChange} />;
+    case "review-prefs":
+      return <LawmindSettingsReviewPrefs />;
+    case "memory":
+      return config ? <LawmindSettingsMemory apiBase={config.apiBase} /> : notReady;
+    case "collaboration":
+      return config ? (
+        <LawmindSettingsCollaborationBrief
+          collabSummarySettings={collabSummarySettings}
+          localServiceReconnecting={localServiceReconnecting}
+          onReconnectLocalService={onReconnectLocalService}
+          onOpenCollaborationPage={() => {
+            onClose();
+            onOpenCollaborationPage();
+          }}
+        />
+      ) : (
+        notReady
+      );
+    case "assistants":
+      return (
         <LawmindSettingsAssistants
           assistants={assistants}
           selectedAssistantId={selectedAssistantId}
@@ -190,53 +452,64 @@ export function LawmindSettingsDialog({
           onOpenEdit={onOpenEditAssistant}
           onRemove={() => void onRemoveAssistant()}
         />
-
-        {config && (
-          <LawmindSettingsModelRetrieval
-            config={{
-              workspaceDir: config.workspaceDir,
-              projectDir: config.projectDir,
-              retrievalMode: config.retrievalMode,
-            }}
-            health={health}
-            envFilePath={config.envFilePath}
-            retrievalLabel={retrievalLabel}
-            retrievalSaving={retrievalSaving}
-            draftWithModelSaving={draftWithModelSaving}
-            applyRetrievalMode={onApplyRetrievalMode}
-            applyDraftWithModelEnabled={onApplyDraftWithModelEnabled}
-            apiBase={config.apiBase}
-            modelProviders={modelProviders}
-            platformProviders={platformProviders}
-            platformMode={platformMode}
-            selectedModelId={selectedModelId}
-            customModels={customModels}
-            modelCatalog={modelCatalog}
-            onModelsChanged={onModelsChanged}
-            onOpenApiWizard={onOpenApiWizard}
-          />
-        )}
-
-        {config && (
-          <LawmindSettingsWorkspace
-            config={{
-              workspaceDir: config.workspaceDir,
-              projectDir: config.projectDir,
-              retrievalMode: config.retrievalMode,
-            }}
-            workspaceLabel={workspaceLabel}
-            projectDir={projectDir}
-            onPickProject={() => void onPickProject()}
-            onClearProject={() => void onClearProject()}
-          />
-        )}
-        {config && <LawmindSettingsTools apiBase={config.apiBase} />}
-        {config && <LawmindSettingsRoles apiBase={config.apiBase} />}
-        {config && <LawmindSettingsTemplates apiBase={config.apiBase} />}
-        {config && <LawmindSettingsEdition apiBase={config.apiBase} />}
-        <LawmindSettingsAppUpdate config={config} />
-        <LawmindSettingsDisclaimer />
-      </div>
-    </div>
-  );
+      );
+    case "models":
+      return config ? (
+        <LawmindSettingsModelRetrieval
+          config={{
+            workspaceDir: config.workspaceDir,
+            projectDir: config.projectDir,
+            retrievalMode: config.retrievalMode,
+          }}
+          health={health}
+          envFilePath={config.envFilePath}
+          retrievalLabel={retrievalLabel}
+          retrievalSaving={retrievalSaving}
+          draftWithModelSaving={draftWithModelSaving}
+          applyRetrievalMode={onApplyRetrievalMode}
+          applyDraftWithModelEnabled={onApplyDraftWithModelEnabled}
+          apiBase={config.apiBase}
+          modelProviders={modelProviders}
+          platformProviders={platformProviders}
+          platformMode={platformMode}
+          selectedModelId={selectedModelId}
+          customModels={customModels}
+          modelCatalog={modelCatalog}
+          onModelsChanged={onModelsChanged}
+          onOpenApiWizard={onOpenApiWizard}
+        />
+      ) : (
+        notReady
+      );
+    case "workspace":
+      return config ? (
+        <LawmindSettingsWorkspace
+          config={{
+            workspaceDir: config.workspaceDir,
+            projectDir: config.projectDir,
+            retrievalMode: config.retrievalMode,
+          }}
+          workspaceLabel={workspaceLabel}
+          projectDir={projectDir}
+          onPickProject={() => void onPickProject()}
+          onClearProject={() => void onClearProject()}
+        />
+      ) : (
+        notReady
+      );
+    case "tools":
+      return config ? <LawmindSettingsTools apiBase={config.apiBase} /> : notReady;
+    case "roles":
+      return config ? <LawmindSettingsRoles apiBase={config.apiBase} /> : notReady;
+    case "templates":
+      return config ? <LawmindSettingsTemplates apiBase={config.apiBase} /> : notReady;
+    case "edition":
+      return config ? <LawmindSettingsEdition apiBase={config.apiBase} /> : notReady;
+    case "app-update":
+      return <LawmindSettingsAppUpdate config={config} />;
+    case "disclaimer":
+      return <LawmindSettingsDisclaimer />;
+    default:
+      return null;
+  }
 }

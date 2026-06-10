@@ -58,6 +58,21 @@
 - **逻辑**：`getPendingClarificationState`（`apps/lawmind-desktop/src/renderer/lawmind-chat.ts`）——仅当**当前对话最后一条**为 `assistant` 且（存在 `clarificationQuestions` 和/或 `status === "awaiting_clarification"`）时为 `pending`，避免历史轮次的澄清误报。
 - **UI**：展开输入区时在 `lm-compose` 顶栏显示琥珀色会话条 +「跳转到补充区域」；收起输入区时在折叠条显示简版并同样可跳转至消息内锚点 `#lm-clarify-card-${index}`。
 
+### 4.2) 输入区上下文与附件（Wave D）
+
+| 类名                                      | 用途                                       |
+| ----------------------------------------- | ------------------------------------------ |
+| `lm-compose-attachments`                  | 输入框上方上下文条（文件 + 案件 chip）     |
+| `lm-compose-chip` / `--file` / `--matter` | 附件 pill；案件用 `--matter`（信息色边框） |
+| `lm-compose-chip-remove`                  | chip 移除按钮（需 `aria-label`）           |
+| `lm-compose-attachments-scroll`           | 横向滚动容器（多 chip 时不撑破布局）       |
+| `lm-compose-context-picker*`              | `@` 上下文选择弹层（文件 / 案件 / 模板）   |
+| `lm-compose-template-gallery*`            | 「模板」按钮打开的 legal template 画廊     |
+| `lm-requires-action-strip`                | 输入区上方聚合待批准 + 待澄清条（E2）      |
+
+- **数据流**：文件选择写入 `fileChatContextItems` → 发送时 `contextPins` + `buildFileContextMessagePrefix`；案件选择更新 `contextMatterId` → 发送时 `matterId` 归因。
+- **实现**：`LawmindComposeAttachments.tsx`、`LawmindComposeContextPicker.tsx`、`LawmindComposeTemplateGallery.tsx`、`lawmind-compose-context.ts`。
+
 ---
 
 ## 5) 无障碍与聚焦

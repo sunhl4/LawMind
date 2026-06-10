@@ -146,6 +146,29 @@ describe("Matter write services (W3)", () => {
     expect(items[0].status).toBe("resolved");
   });
 
+  it("openQueueItem sets blockedReason when dependsOn is unresolved", () => {
+    const first = openQueueItem(workspaceDir, {
+      matterId: "m-6b",
+      kind: "need_lawyer_review",
+      title: "First",
+    });
+    const second = openQueueItem(workspaceDir, {
+      matterId: "m-6b",
+      kind: "need_lawyer_review",
+      title: "Second",
+      dependsOn: [first.queueItemId],
+    });
+    expect(second.blockedReason).toContain("等待前置待办");
+    transitionQueueItem(workspaceDir, "m-6b", first.queueItemId, "resolved");
+    const reopened = openQueueItem(workspaceDir, {
+      matterId: "m-6b",
+      kind: "need_lawyer_review",
+      title: "Third",
+      dependsOn: [first.queueItemId],
+    });
+    expect(reopened.blockedReason).toBeUndefined();
+  });
+
   it("recordDeadline + completeDeadline appends and updates JSONL", () => {
     const recorded = recordDeadline(workspaceDir, {
       matterId: "m-7",

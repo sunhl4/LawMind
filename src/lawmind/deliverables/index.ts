@@ -19,7 +19,12 @@ export {
 } from "./registry.js";
 export { isDraftReadyForRender, validateDraftAgainstSpec } from "./validator.js";
 export { countPlaceholderLikeMarkers, heuristicPlaceholderRatio } from "./draft-sanity.js";
-export { validateReasoningAgainstSpec, validateReasoningForDraft } from "./reasoning-validator.js";
+export {
+  specRequiresReasoningGraphAtDraft,
+  validateReasoningAgainstSpec,
+  validateReasoningForDraft,
+  validateReasoningGraphAtDraft,
+} from "./reasoning-validator.js";
 export type {
   AcceptanceCheck,
   AcceptanceReport,
@@ -32,5 +37,6 @@ export type {
   ValidateDraftFn,
   ValidateDraftOptions,
 } from "./types.js";
+export type { ReasoningGraphAtDraftReport } from "./reasoning-validator.js";
 export { loadWorkspaceDeliverableSpecs, parseDeliverableSpec } from "./workspace-loader.js";
 export type { WorkspaceSpecLoadResult, WorkspaceSpecWarning } from "./workspace-loader.js";

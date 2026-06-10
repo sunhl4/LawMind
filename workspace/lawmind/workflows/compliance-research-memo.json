@@ -1,0 +1,20 @@
+{
+  "id": "compliance-research-memo",
+  "name": "合规研究报告",
+  "namedAgent": "Regulatory Research Analyst",
+  "description": "针对监管问题检索规范层级并输出可复核合规备忘录。",
+  "practiceArea": "compliance",
+  "deliverableType": "document.general",
+  "riskLevel": "medium",
+  "audience": "firm",
+  "starterPrompt": "请就本案监管问题做合规研究：规范层级、适用边界与结论清单。",
+  "steps": [
+    {
+      "stepId": "research",
+      "assignee": "compliance_researcher",
+      "task": "合规检索与备忘录（matterId={{matterId}}）",
+      "dependsOn": [],
+      "autoApprove": false
+    }
+  ]
+}

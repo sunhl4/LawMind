@@ -62,7 +62,6 @@ export async function executeToolSandboxInline(
   payload: ToolSandboxPayload,
 ): Promise<ToolCallResult> {
   const registry = createLegalToolRegistry({
-    workspaceDir: payload.workspaceDir,
     allowWebSearch: payload.allowWebSearch === true,
     enableCollaboration: false,
   });

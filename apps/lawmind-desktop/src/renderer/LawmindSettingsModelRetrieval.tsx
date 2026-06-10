@@ -85,7 +85,7 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
 
   return (
     <div className="lm-settings-section">
-      <div className="lm-settings-section-title">模型与检索</div>
+      <div className="lm-settings-section-title lm-settings-section-title--duplicate">模型与检索</div>
       <div className="lm-settings-group lm-settings-surface">
         <div className="lm-settings-row">
           <span className="lm-settings-key">模型状态</span>

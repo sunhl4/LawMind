@@ -8,7 +8,10 @@ import {
   SUBPROCESS_SANDBOX_TOOL_NAMES,
   describeToolSandboxStatus,
 } from "../../../src/lawmind/agent/dangerous-tool-policy.js";
+import { getDeliverableSpec } from "../../../src/lawmind/deliverables/registry.js";
+import { specRequiresReasoningGraphAtDraft } from "../../../src/lawmind/deliverables/reasoning-validator.js";
 import { listDrafts } from "../../../src/lawmind/drafts/index.js";
+import { readReasoningSnapshot } from "../../../src/lawmind/drafts/reasoning-snapshot.js";
 import { evaluateTeamMemorySyncGate } from "../../../src/lawmind/memory/team-memory-sync.js";
 import { listTaskRecords } from "../../../src/lawmind/tasks/index.js";
 
@@ -31,11 +34,44 @@ export function countResearchSnapshots(workspaceDir: string): number {
   }
 }
 
+export type ReasoningGraphCoverage = {
+  /** 需要 reasoning graph 侧车的草稿总数 */
+  requiredDraftCount: number;
+  /** 已写入 reasoning graph 侧车的草稿数 */
+  withSnapshotCount: number;
+  /** withSnapshotCount / requiredDraftCount；无样本时为 null */
+  ratio: number | null;
+};
+
+/** P1-A：高风控（requiresReasoningGraphAtDraft）草稿的 reasoning graph 覆盖率。 */
+export function buildReasoningGraphCoverage(workspaceDir: string): ReasoningGraphCoverage {
+  const drafts = listDrafts(workspaceDir);
+  let requiredDraftCount = 0;
+  let withSnapshotCount = 0;
+  for (const draft of drafts) {
+    const spec = getDeliverableSpec(draft.deliverableType);
+    if (!specRequiresReasoningGraphAtDraft(spec)) {
+      continue;
+    }
+    requiredDraftCount += 1;
+    const graph = readReasoningSnapshot(workspaceDir, draft.taskId);
+    if (graph || draft.hasLegalReasoningSnapshot === true) {
+      withSnapshotCount += 1;
+    }
+  }
+  return {
+    requiredDraftCount,
+    withSnapshotCount,
+    ratio: requiredDraftCount === 0 ? null : withSnapshotCount / requiredDraftCount,
+  };
+}
+
 export type LawMindDoctorStats = {
   auditJsonlFileCount: number;
   researchSnapshotCount: number;
   taskCount: number;
   draftCount: number;
+  reasoningGraphCoverage: ReasoningGraphCoverage;
 };
 
 export function buildDoctorStats(workspaceDir: string): LawMindDoctorStats {
@@ -44,6 +80,7 @@ export function buildDoctorStats(workspaceDir: string): LawMindDoctorStats {
     researchSnapshotCount: countResearchSnapshots(workspaceDir),
     taskCount: listTaskRecords(workspaceDir).length,
     draftCount: listDrafts(workspaceDir).length,
+    reasoningGraphCoverage: buildReasoningGraphCoverage(workspaceDir),
   };
 }
 
@@ -247,4 +284,31 @@ export function tryReadWorkspacePackageVersion(repoRoot: string | undefined): st
   } catch {
     return null;
   }
+}
+
+export type MatterConsistencySummary = {
+  ok: boolean;
+  issueCount: number;
+  issues: Array<{ matterId: string; code: string; message: string }>;
+};
+
+const MATTER_CONSISTENCY_HEALTH_LIMIT = 12;
+
+/** Async matter JSON ↔ CASE.md summary for /api/health (capped issue list). */
+export async function buildMatterConsistencySummary(
+  workspaceDir: string,
+): Promise<MatterConsistencySummary> {
+  const { checkMatterConsistency } = await import(
+    "../../../src/lawmind/application/matter-consistency.js"
+  );
+  const all = await checkMatterConsistency(workspaceDir);
+  return {
+    ok: all.length === 0,
+    issueCount: all.length,
+    issues: all.slice(0, MATTER_CONSISTENCY_HEALTH_LIMIT).map((i) => ({
+      matterId: i.matterId,
+      code: i.code,
+      message: i.message,
+    })),
+  };
 }

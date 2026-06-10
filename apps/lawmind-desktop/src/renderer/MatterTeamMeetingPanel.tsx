@@ -337,7 +337,7 @@ export function MatterTeamMeetingPanel(props: Props): ReactNode {
       <details className="lm-matter-meeting-details lm-matter-meeting-details-muted">
         <summary>固定流程、备份在哪？</summary>
         <p className="lm-meta lm-matter-meeting-details-body">
-          重复性工作请用顶部<strong>协作 → 团队工作流</strong>。本页适合临时商量。
+          重复性工作请用顶部<strong>工作流 → 团队工作流</strong>。本页适合临时商量。
         </p>
         <p className="lm-meta lm-matter-meeting-details-body">
           记录文件（备份工作区时可一并带走）：{" "}

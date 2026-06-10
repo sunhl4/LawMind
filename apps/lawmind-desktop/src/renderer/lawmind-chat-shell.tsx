@@ -30,6 +30,17 @@ import {
 import { usePaneResizeVerticalPx } from "./use-pane-resize";
 import { internalIdsTitle } from "./display-ids";
 import type { ModelCatalogEntry } from "./lawmind-models-api";
+import { LawmindComposeAttachments } from "./LawmindComposeAttachments";
+import { LawmindComposeContextPicker } from "./LawmindComposeContextPicker";
+import { LawmindComposeTemplateGallery } from "./LawmindComposeTemplateGallery";
+import { LawmindRequiresActionStrip } from "./LawmindRequiresActionStrip";
+import type { FileChatContextItem } from "./lawmind-app-shell";
+import {
+  parseAtTrigger,
+  rememberFileContextPath,
+  removeAtTokenFromInput,
+  type ComposeContextMatterOption,
+} from "./lawmind-compose-context";
 
 const QUICK_ACTIONS: Array<{ label: string; prompt: string }> = [
   { label: "起草律师函", prompt: "请帮我起草一封律师函，就以下事项发出法律警告：\n\n" },
@@ -90,8 +101,16 @@ export type LawmindChatWorkspaceProps = {
   fileChatPills: Array<{ id: string; shortLabel: string; title: string; relPath?: string }>;
   onRemoveFileChatPill: (id: string) => void;
   onClearFileChatPills: () => void;
+  onAddFileToChatContext?: (payload: Pick<FileChatContextItem, "root" | "relPath" | "kind">) => void;
+  onContextMatterChange?: (matterId: string | null) => void;
+  composeMatterOptions?: ComposeContextMatterOption[];
+  fileChatContextItems?: FileChatContextItem[];
   /** 打开设置（模型/API、联网密钥等） */
   onOpenComposeSettings?: () => void;
+  /** 打开设置首页（上次所在分区或概览） */
+  onOpenSettings?: () => void;
+  /** 打开设置 → 概览与体检 */
+  onOpenDoctor?: () => void;
   /** 打开 API 配置向导（与 Cursor「注册」模型入口类似） */
   onOpenApiWizard?: () => void;
   /** 主模型是否已在环境中配置；未加载 health 时可不传 */
@@ -157,14 +176,14 @@ export function LawmindChatMessagesColumn({
   onApplyPrompt,
   onSendClarificationMessage,
   fileChatPills,
-  onRemoveFileChatPill,
-  onClearFileChatPills,
+  onRemoveFileChatPill: _onRemoveFileChatPill,
+  onClearFileChatPills: _onClearFileChatPills,
   contextTaskId,
-  apiBase: _apiBase,
+  apiBase,
   onOpenReview,
   onDelegateAssist,
-  delegateAssistEnabled: _delegateAssistEnabled,
-  chatSessionId: _chatSessionId,
+  delegateAssistEnabled,
+  chatSessionId,
   onResumeRequiresAction,
   revisionBackgroundActive,
   streamCompactLabels = [],
@@ -261,30 +280,6 @@ export function LawmindChatMessagesColumn({
           pinnedRelPaths={fileChatPills.map((p) => p.relPath ?? p.title)}
         />
       ) : null}
-      {fileChatPills.length > 0 ? (
-        <div className="lm-file-chat-context-bar" role="region" aria-label="本对话引用的文件与目录">
-          <span className="lm-file-chat-context-k">引用</span>
-          <div className="lm-file-chat-context-chips">
-            {fileChatPills.map((pill) => (
-              <button
-                key={pill.id}
-                type="button"
-                className="lm-file-chat-chip"
-                title={`${pill.title}（点击移除）`}
-                onClick={() => onRemoveFileChatPill(pill.id)}
-              >
-                {pill.shortLabel}
-                <span className="lm-file-chat-chip-x" aria-hidden>
-                  ×
-                </span>
-              </button>
-            ))}
-          </div>
-          <button type="button" className="lm-btn lm-btn-ghost lm-btn-small" onClick={onClearFileChatPills}>
-            清空引用
-          </button>
-        </div>
-      ) : null}
       <div className="lm-messages-toolbar">
         <label className="lm-messages-brief-toggle">
           <input
@@ -300,7 +295,13 @@ export function LawmindChatMessagesColumn({
         </label>
         <LawmindChatHistorySearch items={renderableItems} onHighlightIndices={onHighlightIndices} />
       </div>
-      <div className="lm-messages" role="region" aria-label="对话消息">
+      <div
+        className="lm-messages lm-chat-messages"
+        role="region"
+        aria-label="对话消息"
+        aria-live="polite"
+        aria-atomic="false"
+      >
         {currentMessages.length === 0 ? (
           <div className="lm-messages-empty">
             <div className="lm-messages-empty-icon">L</div>
@@ -358,6 +359,8 @@ export function LawmindChatComposeFooter({
   onApplyPrompt,
   onClearContext,
   onOpenComposeSettings,
+  onOpenSettings,
+  onOpenDoctor,
   onOpenApiWizard,
   modelCatalog = [],
   selectedModelId = "",
@@ -370,7 +373,7 @@ export function LawmindChatComposeFooter({
   allowWebSearch,
   webSearchPolicyBlocked,
   onAllowWebSearchChange,
-  apiBase: _apiBase,
+  apiBase,
   chatSessionId: _chatSessionId,
   queuedMessages = [],
   cancelQueuedMessage,
@@ -379,6 +382,13 @@ export function LawmindChatComposeFooter({
   onOpenMemoryInspector,
   onOpenReview,
   composeExtras,
+  fileChatPills = [],
+  onRemoveFileChatPill,
+  onClearFileChatPills,
+  onAddFileToChatContext,
+  onContextMatterChange,
+  composeMatterOptions = [],
+  fileChatContextItems = [],
 }: Pick<
   LawmindChatWorkspaceProps,
   | "currentMessages"
@@ -395,6 +405,8 @@ export function LawmindChatComposeFooter({
   | "onApplyPrompt"
   | "onClearContext"
   | "onOpenComposeSettings"
+  | "onOpenSettings"
+  | "onOpenDoctor"
   | "onOpenApiWizard"
   | "modelCatalog"
   | "selectedModelId"
@@ -415,12 +427,23 @@ export function LawmindChatComposeFooter({
   | "onOpenActionHub"
   | "onOpenMemoryInspector"
   | "onOpenReview"
+  | "fileChatPills"
+  | "onRemoveFileChatPill"
+  | "onClearFileChatPills"
+  | "onAddFileToChatContext"
+  | "onContextMatterChange"
+  | "composeMatterOptions"
+  | "fileChatContextItems"
 > & {
   composeExtras: LawmindComposeExtras;
 }) {
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const [stashNotice, setStashNotice] = useState(false);
+  const [contextPickerOpen, setContextPickerOpen] = useState(false);
+  const [contextPickerQuery, setContextPickerQuery] = useState("");
+  const [contextPickerAtIndex, setContextPickerAtIndex] = useState(0);
+  const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
   const extras = composeExtras;
 
   useEffect(() => {
@@ -456,7 +479,7 @@ export function LawmindChatComposeFooter({
         id: "doctor",
         slash: "/doctor",
         label: "系统体检",
-        run: () => onOpenComposeSettings?.(),
+        run: () => onOpenDoctor?.(),
       },
       {
         id: "review",
@@ -510,14 +533,23 @@ export function LawmindChatComposeFooter({
         run: () => onApplyPrompt("请检索以下法律问题的相关法规、司法解释与裁判要旨：\n\n"),
       },
       {
+        id: "templates",
+        slash: "/templates",
+        label: "法律模板",
+        hint: "从工作流模板带入提示",
+        run: () => setTemplateGalleryOpen(true),
+      },
+      {
         id: "config",
         slash: "/config",
         label: "设置",
-        run: () => onOpenComposeSettings?.(),
+        run: () => (onOpenSettings ?? onOpenComposeSettings)?.(),
       },
     ],
     [
       onOpenComposeSettings,
+      onOpenSettings,
+      onOpenDoctor,
       onOpenTaskDrawer,
       onOpenMemoryInspector,
       onOpenReview,
@@ -542,6 +574,94 @@ export function LawmindChatComposeFooter({
     const id = `lm-clarify-card-${pendingClarify.assistantMessageIndex}`;
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   };
+
+  const closeContextPicker = useCallback(() => {
+    setContextPickerOpen(false);
+    setContextPickerQuery("");
+    setContextPickerAtIndex(0);
+  }, []);
+
+  const openContextPickerAtCursor = useCallback(() => {
+    const el = textareaRef.current;
+    const cursor = el?.selectionStart ?? input.length;
+    setContextPickerAtIndex(cursor);
+    const trigger = parseAtTrigger(input, cursor);
+    setContextPickerQuery(trigger?.query ?? "");
+    setContextPickerOpen(true);
+  }, [input, textareaRef]);
+
+  const handleComposeInputChange = useCallback(
+    (value: string) => {
+      onInputChange(value);
+      writeComposeStash(contextMatterId, value);
+      const el = textareaRef.current;
+      const cursor = el?.selectionStart ?? value.length;
+      const trigger = parseAtTrigger(value, cursor);
+      if (trigger) {
+        setContextPickerAtIndex(trigger.startIndex);
+        setContextPickerQuery(trigger.query);
+        setContextPickerOpen(true);
+      } else if (contextPickerOpen && !value.includes("@")) {
+        closeContextPicker();
+      }
+    },
+    [onInputChange, contextMatterId, textareaRef, contextPickerOpen, closeContextPicker],
+  );
+
+  const finishContextPickerSelection = useCallback(() => {
+    const el = textareaRef.current;
+    const cursor = el?.selectionStart ?? input.length;
+    const start = contextPickerAtIndex;
+    const { nextInput, nextCursor } = removeAtTokenFromInput(input, start, cursor);
+    onInputChange(nextInput);
+    writeComposeStash(contextMatterId, nextInput);
+    window.requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(nextCursor, nextCursor);
+    });
+    closeContextPicker();
+  }, [
+    textareaRef,
+    input,
+    contextPickerAtIndex,
+    onInputChange,
+    contextMatterId,
+    closeContextPicker,
+  ]);
+
+  const handleSelectContextFile = useCallback(
+    (payload: Pick<FileChatContextItem, "root" | "relPath" | "kind">) => {
+      onAddFileToChatContext?.(payload);
+      rememberFileContextPath(payload);
+      finishContextPickerSelection();
+    },
+    [onAddFileToChatContext, finishContextPickerSelection],
+  );
+
+  const handleSelectContextMatter = useCallback(
+    (matterId: string) => {
+      onContextMatterChange?.(matterId);
+      finishContextPickerSelection();
+    },
+    [onContextMatterChange, finishContextPickerSelection],
+  );
+
+  const handleSelectContextTemplate = useCallback(
+    (template: { id: string; starterPrompt?: string }) => {
+      if (template.starterPrompt?.trim()) {
+        onApplyPrompt(template.starterPrompt.trim());
+      }
+      finishContextPickerSelection();
+    },
+    [onApplyPrompt, finishContextPickerSelection],
+  );
+
+  const clearMatterChip = useCallback(() => {
+    if (contextTaskId) {
+      return;
+    }
+    onContextMatterChange?.(null);
+  }, [contextTaskId, onContextMatterChange]);
 
   return (
     <>
@@ -574,6 +694,13 @@ export function LawmindChatComposeFooter({
               : (composeModelHint ?? "").trim()}
           </div>
         ) : null}
+        <LawmindRequiresActionStrip
+          pendingApprovalCount={extras.pendingApprovalCount}
+          clarificationPending={pendingClarify.pending}
+          clarificationCount={pendingClarify.count}
+          onOpenActionHub={onOpenActionHub}
+          onScrollToClarify={scrollToClarifyCard}
+        />
         {pendingClarify.pending && (
           <div className="lm-clarify-session-bar" role="status">
             <span className="lm-clarify-session-bar-text">
@@ -665,17 +792,27 @@ export function LawmindChatComposeFooter({
           ))}
         </div>
 
+        <LawmindComposeAttachments
+          filePills={fileChatPills}
+          contextMatterId={contextTaskId ? null : contextMatterId}
+          matterTitle={matterTitle}
+          onRemoveFilePill={onRemoveFileChatPill}
+          onClearFilePills={onClearFileChatPills}
+          onClearMatter={contextTaskId ? undefined : clearMatterChip}
+        />
+
         <div className="lm-compose-box">
           <textarea
             ref={textareaRef}
             value={input}
-            onChange={(e) => {
-              onInputChange(e.target.value);
-              writeComposeStash(contextMatterId, e.target.value);
-            }}
-            placeholder="Enter 发送，Shift+Enter 换行；/ 或 ⌘K 打开命令"
+            onChange={(e) => handleComposeInputChange(e.target.value)}
+            placeholder="Enter 发送，Shift+Enter 换行；@ 添加上下文，/ 或 ⌘K 打开命令"
             title="用平常说话的方式写即可"
             onKeyDown={(e) => {
+              if (contextPickerOpen && (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Enter")) {
+                e.preventDefault();
+                return;
+              }
               if (e.key === "/" && !input.trim()) {
                 e.preventDefault();
                 setCommandOpen(true);
@@ -748,6 +885,24 @@ export function LawmindChatComposeFooter({
               </label>
             </div>
             <div className="lm-compose-toolbar-end">
+              <button
+                type="button"
+                className="lm-btn lm-btn-ghost lm-btn-small"
+                title="添加上下文（@）"
+                aria-label="添加上下文"
+                onClick={openContextPickerAtCursor}
+              >
+                @
+              </button>
+              <button
+                type="button"
+                className="lm-btn lm-btn-ghost lm-btn-small"
+                title="写文稿 / 做材料"
+                aria-label="打开写文稿或做材料模板"
+                onClick={() => setTemplateGalleryOpen(true)}
+              >
+                写材料
+              </button>
               {extras.pendingApprovalCount > 0 ? (
                 <button
                   type="button"
@@ -781,6 +936,24 @@ export function LawmindChatComposeFooter({
           </div>
         </div>
       </div>
+      <LawmindComposeContextPicker
+        open={contextPickerOpen}
+        query={contextPickerQuery}
+        apiBase={apiBase}
+        contextMatterId={contextMatterId}
+        pinnedFiles={fileChatContextItems}
+        matters={composeMatterOptions}
+        onSelectFile={handleSelectContextFile}
+        onSelectMatter={handleSelectContextMatter}
+        onSelectTemplate={handleSelectContextTemplate}
+        onClose={closeContextPicker}
+      />
+      <LawmindComposeTemplateGallery
+        open={templateGalleryOpen}
+        apiBase={apiBase}
+        onClose={() => setTemplateGalleryOpen(false)}
+        onApplyStarterPrompt={onApplyPrompt}
+      />
       <LawmindCommandPalette
         open={commandOpen}
         onClose={() => {
@@ -815,6 +988,8 @@ export function LawmindChatShell(props: LawmindChatWorkspaceProps) {
         onApplyPrompt={props.onApplyPrompt}
         onClearContext={props.onClearContext}
         onOpenComposeSettings={props.onOpenComposeSettings}
+        onOpenSettings={props.onOpenSettings}
+        onOpenDoctor={props.onOpenDoctor}
         onOpenApiWizard={props.onOpenApiWizard}
         modelCatalog={props.modelCatalog}
         selectedModelId={props.selectedModelId}
@@ -835,6 +1010,13 @@ export function LawmindChatShell(props: LawmindChatWorkspaceProps) {
         onOpenActionHub={props.onOpenActionHub}
         onOpenMemoryInspector={props.onOpenMemoryInspector}
         onOpenReview={props.onOpenReview}
+        fileChatPills={props.fileChatPills}
+        onRemoveFileChatPill={props.onRemoveFileChatPill}
+        onClearFileChatPills={props.onClearFileChatPills}
+        onAddFileToChatContext={props.onAddFileToChatContext}
+        onContextMatterChange={props.onContextMatterChange}
+        composeMatterOptions={props.composeMatterOptions}
+        fileChatContextItems={props.fileChatContextItems}
       />
     </div>
   );

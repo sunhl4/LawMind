@@ -18,7 +18,7 @@ describe("integration-registry", () => {
     }
   });
 
-  it("lists filesystem documents under cases/<matterId>/", () => {
+  it("lists filesystem documents under cases/<matterId>/", async () => {
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-integ-"));
     dirs.push(ws);
     createMatterIfMissing(ws, { matterId: "matter-int-1", title: "Integ Test" });
@@ -27,7 +27,7 @@ describe("integration-registry", () => {
     fs.writeFileSync(path.join(caseDir, "contract.pdf"), "pdf-bytes");
     fs.writeFileSync(path.join(caseDir, ".lawmind-role.txt"), "matter");
 
-    const result = listIntegrationDocuments(ws, "filesystem", "matter-int-1");
+    const result = await listIntegrationDocuments(ws, "filesystem", "matter-int-1");
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.documents.length).toBe(1);
@@ -42,7 +42,7 @@ describe("integration-registry", () => {
     expect(err?.error).toBe("matter_id_required");
   });
 
-  it("stub DMS connector returns unconfigured when enabled without API", () => {
+  it("stub DMS connector returns unconfigured when enabled without API", async () => {
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-integ-"));
     dirs.push(ws);
     createMatterIfMissing(ws, { matterId: "matter-int-2", title: "DMS" });
@@ -51,7 +51,7 @@ describe("integration-registry", () => {
       path.join(ws, "lawmind", "integrations.json"),
       JSON.stringify({ connectors: { imanage: { enabled: true, baseUrl: "https://example" } } }),
     );
-    const result = listIntegrationDocuments(ws, "imanage", "matter-int-2");
+    const result = await listIntegrationDocuments(ws, "imanage", "matter-int-2");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toBe("connector_unconfigured");

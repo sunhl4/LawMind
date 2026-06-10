@@ -29,11 +29,42 @@ export type OpenQueueItemInput = {
   relatedTaskId?: string;
   relatedDeliverableId?: string;
   queueItemId?: string;
+  dependsOn?: string[];
+  blockedReason?: string;
 };
+
+function resolveQueueBlockedReason(
+  workspaceDir: string,
+  matterId: string,
+  dependsOn: string[] | undefined,
+  explicit?: string,
+): string | undefined {
+  if (explicit?.trim()) {
+    return explicit.trim();
+  }
+  if (!dependsOn?.length) {
+    return undefined;
+  }
+  const items = readQueueItems(workspaceDir, matterId);
+  const unresolved = dependsOn.filter((id) => {
+    const dep = items.find((q) => q.queueItemId === id);
+    return !dep || dep.status !== "resolved";
+  });
+  if (unresolved.length === 0) {
+    return undefined;
+  }
+  return `等待前置待办：${unresolved.join(", ")}`;
+}
 
 export function openQueueItem(workspaceDir: string, input: OpenQueueItemInput): QueueItemRecord {
   createMatterIfMissing(workspaceDir, { matterId: input.matterId });
   const now = newTimestamp();
+  const blockedReason = resolveQueueBlockedReason(
+    workspaceDir,
+    input.matterId,
+    input.dependsOn,
+    input.blockedReason,
+  );
   const record: QueueItemRecord = {
     queueItemId: input.queueItemId ?? randomUUID(),
     matterId: input.matterId,
@@ -44,6 +75,8 @@ export function openQueueItem(workspaceDir: string, input: OpenQueueItemInput): 
     detail: input.detail,
     relatedTaskId: input.relatedTaskId,
     relatedDeliverableId: input.relatedDeliverableId,
+    dependsOn: input.dependsOn,
+    blockedReason,
     createdAt: now,
     updatedAt: now,
   };

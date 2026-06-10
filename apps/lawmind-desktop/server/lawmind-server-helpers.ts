@@ -80,7 +80,7 @@ export function corsHeaders(origin: string | undefined): Record<string, string> 
   return {
     "access-control-allow-origin": allow,
     "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS",
-    "access-control-allow-headers": "Content-Type",
+    "access-control-allow-headers": "Content-Type, Authorization",
   };
 }
 

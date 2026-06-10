@@ -15,6 +15,7 @@ type Props = {
   onOpenApiWizard: () => void;
   onOpenCollaborationPage: () => void;
   onScrollToWorkspace?: () => void;
+  onOpenMemorySection?: () => void;
 };
 
 function checkRowClass(state: WorkspaceCheck["state"]): string {
@@ -40,14 +41,22 @@ function stateLabel(state: WorkspaceCheck["state"]): string {
 }
 
 export function LawmindSettingsDoctor(props: Props): ReactNode {
-  const { health: healthProp, apiBase, onOpenApiWizard, onOpenCollaborationPage, onScrollToWorkspace } =
-    props;
+  const {
+    health: healthProp,
+    apiBase,
+    onOpenApiWizard,
+    onOpenCollaborationPage,
+    onScrollToWorkspace,
+    onOpenMemorySection,
+  } = props;
   const [fetchedHealth, setFetchedHealth] = useState<HealthPayload | null>(null);
   const [rebuildBusy, setRebuildBusy] = useState(false);
   const [rebuildMsg, setRebuildMsg] = useState<string | null>(null);
+  const [matterRepairBusy, setMatterRepairBusy] = useState(false);
+  const [matterRepairMsg, setMatterRepairMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!apiBase) {
+    if (!apiBase || healthProp) {
       return;
     }
     let cancelled = false;
@@ -65,9 +74,9 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
     return () => {
       cancelled = true;
     };
-  }, [apiBase]);
+  }, [apiBase, healthProp]);
 
-  const health = fetchedHealth ?? healthProp;
+  const health = healthProp ?? fetchedHealth;
   const doctor = health?.doctor;
   const ws = doctor?.workspaceStandard;
   const mem = doctor?.memoryTruthSources;
@@ -75,6 +84,34 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
   const integrationConnectors = doctor?.integrations?.connectors ?? [];
   const searchIndex = doctor?.searchIndex;
   const p2 = doctor?.p2;
+  const matterConsistency = doctor?.matterConsistency;
+  const reasoningGraphCoverage = doctor?.reasoningGraphCoverage;
+
+  async function repairMatterProjections(): Promise<void> {
+    if (!apiBase) {
+      return;
+    }
+    setMatterRepairBusy(true);
+    setMatterRepairMsg(null);
+    try {
+      const j = (await apiSendJson(apiBase, "/api/matters/repair-projections", "POST", {})) as {
+        ok?: boolean;
+        repaired?: number;
+        error?: string;
+      };
+      if (j.ok) {
+        setMatterRepairMsg(`已从 matter.json 重建 ${j.repaired ?? 0} 个案件的 CASE.md 投影。`);
+        const h = await loadHealthPayload(apiBase);
+        setFetchedHealth(h);
+      } else {
+        setMatterRepairMsg(j.error ?? "修复失败");
+      }
+    } catch (e) {
+      setMatterRepairMsg(e instanceof Error ? e.message : "修复失败");
+    } finally {
+      setMatterRepairBusy(false);
+    }
+  }
 
   async function rebuildSearchIndex(): Promise<void> {
     if (!apiBase) {
@@ -163,8 +200,19 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
         ) : null}
       </div>
 
-      <div className="lm-settings-group lm-settings-surface">
-        <h4 className="lm-doctor-group-title">工作区与记忆</h4>
+      <div className="lm-settings-group lm-settings-surface" id="lawmind-settings-memory-truth">
+        <h4 className="lm-doctor-group-title">工作区与记忆真相源</h4>
+        <p className="lm-settings-hint">
+          检查 MEMORY.md、律师/律所档案等真相源文件是否就绪。待采纳的记忆建议请在设置 →{" "}
+          {onOpenMemorySection ? (
+            <button type="button" className="lm-link-btn" onClick={() => onOpenMemorySection()}>
+              记忆库
+            </button>
+          ) : (
+            "记忆库"
+          )}
+          中处理。
+        </p>
         {ws?.checks?.map((c) => (
           <div key={c.id} className={checkRowClass(c.state)}>
             <div className="lm-doctor-check-head">
@@ -360,6 +408,71 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
       ) : null}
 
       <div className="lm-settings-group lm-settings-surface">
+        <h4 className="lm-doctor-group-title">Legal Reasoning Graph 覆盖率</h4>
+        <p className="lm-meta lm-settings-doctor-lead">
+          高风控交付物（需 reasoning graph 侧车）的草稿中，已写入 reasoning snapshot 的比例。
+        </p>
+        <div className="lm-settings-row">
+          <span className="lm-settings-key">覆盖率</span>
+          <span
+            className={
+              reasoningGraphCoverage?.ratio === null || reasoningGraphCoverage?.ratio === undefined
+                ? "lm-pill lm-pill-neutral"
+                : (reasoningGraphCoverage.ratio ?? 0) >= 1
+                  ? "lm-pill lm-pill-success"
+                  : "lm-pill lm-pill-warn"
+            }
+          >
+            {reasoningGraphCoverage?.ratio === null || reasoningGraphCoverage?.ratio === undefined
+              ? "无样本"
+              : `${Math.round((reasoningGraphCoverage.ratio ?? 0) * 100)}%`}
+          </span>
+        </div>
+        <p className="lm-meta">
+          需侧车 {reasoningGraphCoverage?.requiredDraftCount ?? 0} 份 · 已写入{" "}
+          {reasoningGraphCoverage?.withSnapshotCount ?? 0} 份
+        </p>
+      </div>
+
+      <div className="lm-settings-group lm-settings-surface">
+        <h4 className="lm-doctor-group-title">案件数据一致性</h4>
+        <p className="lm-meta lm-settings-doctor-lead">
+          检查 <code>matters/&lt;id&gt;/matter.json</code> 与 <code>cases/&lt;id&gt;/CASE.md</code>{" "}
+          是否对齐（JSON 为真相源，CASE 为投影）。
+        </p>
+        <div className="lm-settings-row">
+          <span className="lm-settings-key">一致性</span>
+          <span
+            className={
+              matterConsistency?.ok !== false ? "lm-pill lm-pill-success" : "lm-pill lm-pill-warn"
+            }
+          >
+            {matterConsistency?.ok !== false
+              ? "正常"
+              : `${matterConsistency?.issueCount ?? 0} 项待处理`}
+          </span>
+        </div>
+        {(matterConsistency?.issues?.length ?? 0) > 0 ? (
+          <ul className="lm-meta lm-doctor-issue-list">
+            {matterConsistency!.issues!.map((issue) => (
+              <li key={`${issue.matterId}-${issue.code}`}>
+                <strong>{issue.matterId}</strong> [{issue.code}] {issue.message}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <button
+          type="button"
+          className="lm-btn lm-btn-secondary lm-btn-sm"
+          disabled={matterRepairBusy || !apiBase}
+          onClick={() => void repairMatterProjections()}
+        >
+          {matterRepairBusy ? "重建中…" : "从 JSON 重建 CASE.md"}
+        </button>
+        {matterRepairMsg ? <p className="lm-meta">{matterRepairMsg}</p> : null}
+      </div>
+
+      <div className="lm-settings-group lm-settings-surface">
         <h4 className="lm-doctor-group-title">本地搜索索引（FTS）</h4>
         <p className="lm-meta lm-settings-doctor-lead">
           只读索引库位于工作区 <code>lawmind/search-index.sqlite</code>，用于审计与会话全文检索。
@@ -427,7 +540,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
             <span>研究快照 {doctor.researchSnapshotCount ?? 0}</span>
           </div>
           <button type="button" className="lm-btn lm-btn-secondary lm-btn-sm" onClick={onOpenCollaborationPage}>
-            打开协作与工作流
+            打开工作流
           </button>
         </div>
       ) : null}

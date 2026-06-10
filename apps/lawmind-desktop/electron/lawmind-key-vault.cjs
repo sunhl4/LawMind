@@ -1,39 +1,67 @@
 "use strict";
 
 /**
- * LawMind keychain wrapper.
+ * LawMind keychain wrapper using Electron's safeStorage API.
  *
- * Wraps `keytar` so the Electron main process can store secrets in the OS
- * keychain (macOS Keychain, Windows Credential Manager, libsecret/gnome-keyring
- * on Linux). All operations are best-effort: if `keytar` cannot be required
- * (e.g. native module not rebuilt for current Electron ABI), `isAvailable()`
- * returns `false` and the caller falls back to plaintext `.env.lawmind`.
+ * Uses Electron's built-in safeStorage to encrypt secrets, which are then
+ * persisted to a JSON file in the app's userData directory. This replaces
+ * the deprecated `keytar` native module.
+ *
+ * All operations are best-effort: if safeStorage encryption is unavailable
+ * (rare, but possible on some Linux configurations), `isAvailable()` returns
+ * `false` and callers must refuse persisting new secrets (see main.mjs save-setup).
  *
  * Convention: secrets live under service `ai.lawmind.desktop` keyed by an
  * `account` string like `"wizard.default.apiKey"` or `"custom.<uuid>.apiKey"`.
  */
 
+const fs = require("node:fs");
+const path = require("node:path");
+const { app, safeStorage } = require("electron");
+
 const SERVICE = "ai.lawmind.desktop";
 
-let keytarLib = null;
+let storePath = null;
+let store = {};
 let initialized = false;
 let initError = null;
 
-function tryRequireKeytar() {
-  if (initialized) {return keytarLib;}
+function getStorePath() {
+  if (storePath) {return storePath;}
+  const userDataPath = app.getPath("userData");
+  storePath = path.join(userDataPath, "lawmind-secrets.json");
+  return storePath;
+}
+
+function loadStore() {
+  if (initialized) {return store;}
   initialized = true;
   try {
-    // eslint-disable-next-line global-require
-    keytarLib = require("keytar");
+    const filePath = getStorePath();
+    if (fs.existsSync(filePath)) {
+      const data = fs.readFileSync(filePath, "utf8");
+      store = JSON.parse(data);
+    }
   } catch (err) {
-    keytarLib = null;
     initError = err instanceof Error ? err.message : String(err);
+    store = {};
   }
-  return keytarLib;
+  return store;
+}
+
+function saveStore() {
+  try {
+    const filePath = getStorePath();
+    fs.writeFileSync(filePath, JSON.stringify(store, null, 2), "utf8");
+    return true;
+  } catch (err) {
+    initError = err instanceof Error ? err.message : String(err);
+    return false;
+  }
 }
 
 function isAvailable() {
-  return Boolean(tryRequireKeytar());
+  return safeStorage.isEncryptionAvailable();
 }
 
 function lastError() {
@@ -41,8 +69,7 @@ function lastError() {
 }
 
 async function saveSecret(account, value) {
-  const lib = tryRequireKeytar();
-  if (!lib) {return false;}
+  if (!isAvailable()) {return false;}
   const v = typeof value === "string" ? value : "";
   if (!account || typeof account !== "string") {
     throw new Error("account_required");
@@ -50,38 +77,53 @@ async function saveSecret(account, value) {
   if (!v) {
     return deleteSecret(account);
   }
-  await lib.setPassword(SERVICE, account, v);
-  return true;
+  try {
+    const encrypted = safeStorage.encryptString(v);
+    loadStore();
+    store[account] = encrypted.toString("base64");
+    return saveStore();
+  } catch (err) {
+    initError = err instanceof Error ? err.message : String(err);
+    return false;
+  }
 }
 
 async function readSecret(account) {
-  const lib = tryRequireKeytar();
-  if (!lib) {return null;}
+  if (!isAvailable()) {return null;}
   if (!account || typeof account !== "string") {return null;}
   try {
-    return await lib.getPassword(SERVICE, account);
-  } catch {
+    loadStore();
+    const encrypted = store[account];
+    if (!encrypted) {return null;}
+    const buffer = Buffer.from(encrypted, "base64");
+    return safeStorage.decryptString(buffer);
+  } catch (err) {
+    initError = err instanceof Error ? err.message : String(err);
     return null;
   }
 }
 
 async function deleteSecret(account) {
-  const lib = tryRequireKeytar();
-  if (!lib) {return false;}
   if (!account || typeof account !== "string") {return false;}
   try {
-    return await lib.deletePassword(SERVICE, account);
-  } catch {
+    loadStore();
+    if (!store[account]) {return false;}
+    delete store[account];
+    return saveStore();
+  } catch (err) {
+    initError = err instanceof Error ? err.message : String(err);
     return false;
   }
 }
 
 async function listSecrets() {
-  const lib = tryRequireKeytar();
-  if (!lib) {return [];}
+  if (!isAvailable()) {return [];}
   try {
-    const rows = await lib.findCredentials(SERVICE);
-    return rows.map((r) => ({ account: r.account, hasValue: Boolean(r.password) }));
+    loadStore();
+    return Object.keys(store).map((account) => ({
+      account,
+      hasValue: true,
+    }));
   } catch {
     return [];
   }

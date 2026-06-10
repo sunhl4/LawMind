@@ -73,7 +73,7 @@ export function LawmindCollabDelegationCards(props: Props): ReactNode {
       </article>
       {onShowMore ? (
         <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm lm-collab-more-btn" onClick={onShowMore}>
-          协作动态与门禁历史…
+          委派动态与门禁历史…
         </button>
       ) : null}
     </div>

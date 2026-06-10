@@ -2,103 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import { lawmindDocUrl } from "./lawmind-public-urls.js";
 import { LawmindWorkflowLibrary } from "./LawmindWorkflowLibrary";
-import type { GateDecision, TaskExecutionState } from "../../../../src/lawmind/platform/contracts.ts";
+import {
+  LocalServiceDisconnectCallout,
+  workflowJobStatusLabel,
+  workflowJobStatusPillClass,
+} from "./settings/collaboration/lawmind-collab-job-ui.js";
+import {
+  MAX_RECENT_JOB_SSE,
+  RECENT_JOBS_RECONCILE_MS,
+  type CollabSummaryState,
+  type WorkflowJobListItem,
+  type WorkflowTemplateRow,
+} from "./settings/collaboration/lawmind-collab-types.js";
 
-export type CollabSummaryState =
-  | undefined
-  | null
-  | {
-      collaborationEnabled: boolean;
-      collaborationHint?: string;
-      delegationCount: number;
-    };
-
-function LocalServiceDisconnectCallout(props: {
-  onReconnect?: () => void | Promise<void>;
-  busy?: boolean;
-  id?: string;
-}): ReactNode {
-  const { onReconnect, busy = false, id } = props;
-  return (
-    <div className="lm-callout lm-callout-warn" role="status" id={id}>
-      <div className="lm-callout-title">无法连接到本地服务</div>
-      <p className="lm-callout-body">
-        请确认 LawMind 是通过「Electron 窗口」运行（不要用浏览器打开 Vite 页面）。若刚保存 API
-        配置或切换项目，本地端口可能已变更，请点击下方重新连接。
-      </p>
-      {onReconnect ? (
-        <div className="lm-settings-actions">
-          <button
-            type="button"
-            className="lm-btn lm-btn-secondary lm-btn-sm"
-            disabled={busy}
-            onClick={() => void onReconnect()}
-          >
-            {busy ? "连接中…" : "重新连接本地服务"}
-          </button>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-type WorkflowTemplateRow = {
-  id: string;
-  name: string;
-  description: string;
-  stepCount: number;
-};
-
-type WorkflowJobListItem = {
-  jobId: string;
-  status: string;
-  workflowId: string;
-  createdAt: string;
-  error?: string;
-  cancelRequested?: boolean;
-  progress?: {
-    totalSteps: number;
-    completedSteps: number;
-    failedSteps: number;
-    runningStepIds: string[];
-    updatedAt?: string;
-  };
-  executionState?: TaskExecutionState;
-  gateDecisions?: GateDecision[];
-};
-
-/** 近期任务列表中，除「当前运行中」任务外，最多并发 SSE 路数（避免浏览器连接过多）。 */
-const MAX_RECENT_JOB_SSE = 2;
-/** 存在在途任务时低频次拉齐列表，作为 SSE 断线或未覆盖窗口的保险（类「最终一致」对齐）。 */
-const RECENT_JOBS_RECONCILE_MS = 72_000;
-
-function workflowJobStatusLabel(status: string): string {
-  const map: Record<string, string> = {
-    queued: "排队中",
-    running: "运行中",
-    completed: "已完成",
-    failed: "失败",
-    cancelled: "已取消",
-  };
-  return map[status] ?? status;
-}
-
-function workflowJobStatusPillClass(status: string): string {
-  switch (status) {
-    case "completed":
-      return "lm-pill lm-pill-success";
-    case "running":
-      return "lm-pill lm-pill-info";
-    case "queued":
-      return "lm-pill lm-pill-neutral";
-    case "failed":
-      return "lm-pill lm-pill-danger";
-    case "cancelled":
-      return "lm-pill lm-pill-warn";
-    default:
-      return "lm-pill lm-pill-neutral";
-  }
-}
+export type { CollabSummaryState } from "./settings/collaboration/lawmind-collab-types.js";
 
 type Props = {
   collabSummarySettings: CollabSummaryState;
@@ -762,7 +679,7 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
                     </p>
                     <code className="lm-collab-empty-code">workspace/lawmind/workflows/my-flow.json</code>
                     <p className="lm-collab-empty-body lm-collab-empty-tip">
-                      保存后回到本页（顶部「协作」），列表会自动加载。
+                      保存后回到本页（顶部「工作流」），列表会自动加载。
                     </p>
                   </div>
                 ) : null}
@@ -1048,8 +965,8 @@ export function LawmindSettingsCollaborationBrief(props: BriefProps): ReactNode 
               </div>
             ) : null}
             <p className="lm-settings-hint">
-              <strong>团队工作流、运行模板与近期后台任务</strong>
-              已迁至顶部导航「<strong>协作</strong>」页。在「智能体」中仍可配置岗位与互审关系。
+              本页仅显示协作开关与委派摘要。<strong>团队工作流、运行模板与近期后台任务</strong>
+              在顶部导航「<strong>工作流</strong>」页；岗位与互审关系在「智能体」中配置。
             </p>
             <div className="lm-settings-actions">
               <button
@@ -1057,7 +974,7 @@ export function LawmindSettingsCollaborationBrief(props: BriefProps): ReactNode 
                 className="lm-btn lm-btn-accent lm-btn-sm"
                 onClick={() => onOpenCollaborationPage()}
               >
-                打开协作页
+                打开工作流
               </button>
             </div>
             <p className="lm-settings-hint">

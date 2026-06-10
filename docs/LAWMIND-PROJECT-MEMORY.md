@@ -163,9 +163,9 @@
   - [x] 相对时间显示（刚刚/N 分钟前/今天 HH:mm/昨天/M月D日）
   - [x] 法律状态标签映射（已完成/处理中/处理失败/待处理/草稿/对话）
   - [x] 列表密度优化：无边框透明底，hover 仅显示左侧指示线
-- [x] **统一设置面板**（v0.3）：齿轮图标触发模态设置，侧边栏极简化
+- [x] **统一设置面板**（v0.3+）：顶栏齿轮打开主栏全页设置（`LawmindSettingsPage`），侧栏极简化
   - [x] 侧边栏仅保留品牌栏 + 齿轮按钮 + 助手选择器 + 项目药丸 + 折叠工作记录
-  - [x] 设置面板三个分区：助手管理、模型与检索、工作区与项目
+  - [x] 设置侧栏分组导航（概览与体检、记忆库、智能体、模型与检索、工作区等，见 `lawmind-settings-nav.ts`）
   - [x] SVG 齿轮图标（16×16，CSS-only stroke，无外部依赖）
 - [x] **项目目录选择器**：支持选择本机目录作为项目上下文，类似 Cursor "打开文件夹"
   - [x] Electron IPC `lawmind:pick-project` + preload bridge
@@ -519,6 +519,18 @@ LawMind 下一阶段不再只是“法律 AI 工作台”，而要逐步成为**
 
 ## 8) 更新日志
 
+### 2026-05-24 — 第十一期 卓越产品平台化（Q1 底座）
+
+> 路线与验收口径：`docs/LAWMIND-EXCELLENCE-ROADMAP.md`；`GOALS.md` 第十一期。
+
+- **黄金旅程**：`src/lawmind/product/golden-journeys.ts` 冻结三条 Q1 用户旅程与 acceptance criteria。
+- **工具治理**：`src/lawmind/agent/tools/governance.ts` + `GET /api/tools/registry` 的 `governance` 字段。
+- **ContextPlan**：`src/lawmind/runtime/context-plan.ts`（matter-first 上下文分层，供后续 UI/诊断接入）。
+- **Deliverable lifecycle**：`src/lawmind/core/deliverable-lifecycle.ts` 含 delivered/learned；写侧 transition 校验。
+- **Playbook 摘要**：`src/lawmind/agent/collaboration/playbook-summary.ts`。
+- **质量飞轮**：`evaluation/replay-fixtures.ts`（12 样本）、`release-report.ts`、`pnpm lawmind:release-readiness`；`pnpm lawmind:verify` 产出 `dist/lawmind-release-readiness.md`。
+- **类型修复**：`runtime-resume` 恢复 `loadMemoryContext`；`tool-sandbox` / `review-matrix` / `mcp-readonly-server` 对齐 strict TS。
+
 ### 2026-05-02 — 3 个月架构改造收口（Q3 季末）
 
 > 12 周计划详见 `.cursor/plans/lawmind-3-month-refactor_abc3d086.plan.md`。所有
@@ -679,7 +691,7 @@ utils}.ts`，旧文件保留为 barrel。
   - **法律状态标签**：任务状态映射为律师可读标签（已完成/处理中/处理失败/待处理/草稿/对话）。
 - ⚙️ **统一设置面板**：
   - 侧边栏极简化：品牌栏 + SVG 齿轮按钮 + 助手 `<select>` + 项目药丸 + 折叠工作记录。
-  - 齿轮触发全屏设置模态，三区：助手管理（新建/编辑/删除/统计）、模型与检索（状态/API 配置向导/检索模式切换）、工作区与项目（路径显示/切换/关闭）。
+  - 齿轮触发主栏全页设置（侧栏分组 + 内容区）：概览与体检、记忆库、智能体、模型与检索、工作区等（`lawmind-settings-nav.ts`）。
   - 移除侧边栏中原有的助手卡片、配置块、项目块等大面积设置 UI。
 - 📁 **项目目录选择器**：
   - `electron/main.mjs` 新增 `lawmind:pick-project` IPC handler（Electron `dialog.showOpenDialog`）。
@@ -780,3 +792,5 @@ utils}.ts`，旧文件保留为 barrel。
   - 修复方式：把 `DEFAULT_ASSISTANT_ID` 抽到浏览器安全的 `src/lawmind/assistants/constants.ts`，让 `App.tsx` 与 `LawmindSettingsAssistants.tsx` 改为引用该常量文件；同时清理遗留的 `vite --mode e2e` 进程，避免其长期占用 `5174` 干扰 `pnpm lawmind:desktop`。
   - 验证：`pnpm tsgo` 通过；`pnpm exec tsc -p apps/lawmind-desktop/tsconfig.json --noEmit` 通过。
   - **Clarify–Execute 协议（Phase 5.1）**：当某轮工具返回 `clarificationQuestions` 后，同一会话轮次内 `AgentContext.clarificationBlockingHeavyTools` 为真，`research_task` / `draft_document` / `execute_workflow` / `render_document` 会拒绝执行，直到模型结束该 turn 且用户发送下一则 instruction（新 turn 开始时清除 `session.pendingClarificationKeys`）。上一轮若以 `awaiting_clarification` 结束，会把问题 key 写入 `session.pendingClarificationKeys` 便于恢复语义（下一则用户消息到达时仍先清除再跑，以免阻塞合法跟进）。
+  - **P0 文档对齐（2026-06-02）**：GOALS Big-Bang 标题、MatterWorkbench 行数注记、`fixtures/lawmind-workspace` 供 deliverable-gate CI、`settings.spec` 纳入 `lawmind:desktop:e2e:pr`；Electron `LAWMIND_DEBUG_SESSION` 门控调试日志。
+  - **第十二期（2026-05-28）**：W1 发布证据链（`pnpm lawmind:benchmark`、`LAWMIND_BENCHMARK_STRICT`、`golden-journeys.test.ts`、`contract-review-trust` E2E）；W3 SharePoint Graph + officecli `render-tracked` + Matter 时间线一级 Tab；W4 ContextPlan 注入 runtime、platform contracts check、queue `dependsOn`；W2 已拆 `matter/MatterTimelinePanel` 等 seam，`MatterWorkbench.tsx` 仍待继续瘦身（见 `CONTRIBUTING.md` 行数约定）。

@@ -5,6 +5,7 @@
 import { readMatterDmsMapping } from "./dms-matter-map.js";
 import type { IntegrationConnectorConfigEntry } from "./integration-config.js";
 import type { IntegrationDocumentEntry, IntegrationDocumentsError } from "./integration-types.js";
+import { listSharePointDriveChildren } from "./sharepoint-graph.js";
 
 function sharepointFixtureDocuments(matterId: string): IntegrationDocumentEntry[] {
   const now = new Date().toISOString();
@@ -40,11 +41,11 @@ export function sharepointConnectorReady(cfg?: IntegrationConnectorConfigEntry):
   return { mode: "missing", hint: "配置 tenantId 与 client secret 后启用 Graph 只读列表。" };
 }
 
-export function listSharepointDocuments(
+export async function listSharepointDocuments(
   workspaceDir: string,
   matterId: string,
   cfg?: IntegrationConnectorConfigEntry,
-): IntegrationDocumentEntry[] | IntegrationDocumentsError {
+): Promise<IntegrationDocumentEntry[] | IntegrationDocumentsError> {
   const ready = sharepointConnectorReady(cfg);
   if (ready.mode === "missing") {
     return {
@@ -58,5 +59,24 @@ export function listSharepointDocuments(
   if (ready.mode === "fixture") {
     return sharepointFixtureDocuments(siteId);
   }
-  return sharepointFixtureDocuments(siteId);
+  const secret = process.env.LAWMIND_SHAREPOINT_CLIENT_SECRET?.trim();
+  const tenantId = cfg?.tenantId?.trim();
+  const clientId = cfg?.clientId?.trim();
+  if (!secret || !tenantId || !clientId) {
+    return {
+      ok: false,
+      error: "connector_unconfigured",
+      hint: "SharePoint Graph 需要 tenantId、clientId 与 LAWMIND_SHAREPOINT_CLIENT_SECRET。",
+    };
+  }
+  const graph = await listSharePointDriveChildren({
+    tenantId,
+    clientId,
+    clientSecret: secret,
+    siteId,
+  });
+  if (!graph.ok) {
+    return { ok: false, error: graph.error, hint: graph.hint };
+  }
+  return graph.documents;
 }

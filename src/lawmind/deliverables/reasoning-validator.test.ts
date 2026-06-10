@@ -1,6 +1,15 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
-import type { LegalReasoningGraph } from "../types.js";
-import { validateReasoningAgainstSpec } from "./reasoning-validator.js";
+import { persistReasoningSnapshot } from "../drafts/reasoning-snapshot.js";
+import type { ArtifactDraft, LegalReasoningGraph } from "../types.js";
+import {
+  specRequiresReasoningGraphAtDraft,
+  validateReasoningAgainstSpec,
+  validateReasoningGraphAtDraft,
+} from "./reasoning-validator.js";
+import { getDeliverableSpec } from "./registry.js";
 
 function buildGraph(overrides: Partial<LegalReasoningGraph> = {}): LegalReasoningGraph {
   return {
@@ -117,6 +126,87 @@ describe("reasoning-validator", () => {
   it("missing graph and required=false → soft warning, ready=true", () => {
     const report = validateReasoningAgainstSpec(undefined, "document.general");
     expect(report.required).toBe(false);
+    expect(report.ready).toBe(true);
+  });
+});
+
+describe("specRequiresReasoningGraphAtDraft", () => {
+  it("defaults to true when reasoningGate.required is true", () => {
+    expect(specRequiresReasoningGraphAtDraft(getDeliverableSpec("letter.demand"))).toBe(true);
+    expect(specRequiresReasoningGraphAtDraft(getDeliverableSpec("contract.review"))).toBe(true);
+  });
+
+  it("returns false when no reasoningGate", () => {
+    expect(specRequiresReasoningGraphAtDraft(getDeliverableSpec("document.general"))).toBe(false);
+  });
+
+  it("honors explicit requiresReasoningGraphAtDraft=false", () => {
+    const spec = {
+      ...getDeliverableSpec("letter.demand")!,
+      reasoningGate: {
+        required: true,
+        requiresReasoningGraphAtDraft: false,
+      },
+    };
+    expect(specRequiresReasoningGraphAtDraft(spec)).toBe(false);
+  });
+});
+
+describe("validateReasoningGraphAtDraft", () => {
+  function tmpWs(): string {
+    return fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-rg-draft-"));
+  }
+
+  function makeDraft(overrides: Partial<ArtifactDraft> = {}): ArtifactDraft {
+    return {
+      taskId: "t-rg",
+      title: "T",
+      output: "docx",
+      templateId: "letter-demand-default",
+      summary: "s",
+      sections: [],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: new Date().toISOString(),
+      deliverableType: "letter.demand",
+      ...overrides,
+    };
+  }
+
+  it("required spec with reasoning snapshot → ready", () => {
+    const ws = tmpWs();
+    const draft = makeDraft();
+    persistReasoningSnapshot(ws, buildGraph({ taskId: draft.taskId }));
+    const report = validateReasoningGraphAtDraft(draft, ws);
+    expect(report.required).toBe(true);
+    expect(report.hasSnapshot).toBe(true);
+    expect(report.ready).toBe(true);
+  });
+
+  it("required spec without snapshot → not ready", () => {
+    const ws = tmpWs();
+    const draft = makeDraft();
+    const report = validateReasoningGraphAtDraft(draft, ws);
+    expect(report.required).toBe(true);
+    expect(report.hasSnapshot).toBe(false);
+    expect(report.ready).toBe(false);
+    expect(report.hint).toMatch(/reasoning\.json/);
+  });
+
+  it("non-required spec without snapshot → ready", () => {
+    const ws = tmpWs();
+    const draft = makeDraft({ deliverableType: "document.general" });
+    const report = validateReasoningGraphAtDraft(draft, ws);
+    expect(report.required).toBe(false);
+    expect(report.ready).toBe(true);
+  });
+
+  it("accepts hasLegalReasoningSnapshot flag without file", () => {
+    const ws = tmpWs();
+    const draft = makeDraft({ hasLegalReasoningSnapshot: true });
+    const report = validateReasoningGraphAtDraft(draft, ws);
+    expect(report.required).toBe(true);
+    expect(report.hasSnapshot).toBe(true);
     expect(report.ready).toBe(true);
   });
 });

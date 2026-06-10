@@ -14,7 +14,7 @@ export function LawmindSettingsWorkspace(props: Props): ReactNode {
 
   return (
     <div className="lm-settings-section" id="lawmind-settings-workspace">
-      <div className="lm-settings-section-title">工作区与项目</div>
+      <div className="lm-settings-section-title lm-settings-section-title--duplicate">工作区与项目</div>
       <div className="lm-settings-group lm-settings-surface">
         <div className="lm-settings-row">
           <span className="lm-settings-key">工作区</span>

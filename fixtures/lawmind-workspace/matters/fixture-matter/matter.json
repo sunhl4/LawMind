@@ -1,0 +1,14 @@
+{
+  "matterId": "fixture-matter",
+  "title": "Fixture Matter",
+  "status": "intake",
+  "sensitivity": "normal",
+  "strategyStatus": "draft",
+  "openQuestionIds": [],
+  "nextActions": [],
+  "deadlineIds": [],
+  "deliverableIds": [],
+  "queueItemIds": [],
+  "createdAt": "2026-06-01T00:00:00.000Z",
+  "updatedAt": "2026-06-01T00:00:00.000Z"
+}

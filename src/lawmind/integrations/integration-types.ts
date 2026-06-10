@@ -33,6 +33,8 @@ export type IntegrationDocumentEntry = {
   sizeBytes: number;
   modifiedAt: string;
   source: IntegrationConnectorId;
+  /** SharePoint / DMS web URL when available (Graph `webUrl`). */
+  webUrl?: string;
 };
 
 export type IntegrationDocumentsResult = {
