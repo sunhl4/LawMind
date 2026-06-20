@@ -176,7 +176,11 @@ export function LawmindSettingsPage({
     if (open) {
       setActiveSectionId(initialSectionId);
       setNavQuery("");
-      requestAnimationFrame(() => searchRef.current?.focus());
+      requestAnimationFrame(() => {
+        const active = document.querySelector<HTMLElement>(".lm-settings-nav-item.is-active");
+        const first = document.querySelector<HTMLElement>(".lm-settings-nav-item");
+        (active ?? first)?.focus();
+      });
     }
   }, [open, initialSectionId]);
 
@@ -308,6 +312,14 @@ export function LawmindSettingsPage({
             )}
           </nav>
           <footer className="lm-settings-sidebar-footer">
+            <button
+              type="button"
+              className="lm-link-btn lm-settings-sidebar-close"
+              onClick={onClose}
+              aria-label="关闭设置并返回"
+            >
+              ← 返回工作台
+            </button>
             <span className="lm-settings-sidebar-version" title="LawMind 桌面版">
               v{config?.appVersion?.trim() || "dev"}
             </span>

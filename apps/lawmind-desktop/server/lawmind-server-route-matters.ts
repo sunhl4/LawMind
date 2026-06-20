@@ -37,8 +37,17 @@ import { isProductInsightsCollectionEnabled } from "../../../src/lawmind/policy/
 import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspace-policy.js";
 import { buildMatterSessionTimeline } from "../../../src/lawmind/insights/session-timeline.js";
 import { listTaskRecords } from "../../../src/lawmind/tasks/index.js";
+import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
+import {
+  matterCaseNoteRequestSchema,
+  matterCreatePostSchema,
+  matterDeletePostSchema,
+  matterDisplayNamePostSchema,
+  matterInteractionRequestSchema,
+  matterRolePostSchema,
+} from "./lawmind-api-schemas.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
-import { readJsonBody, resolveDesktopActorId, sendJson } from "./lawmind-server-helpers.js";
+import { resolveDesktopActorId, sendJson } from "./lawmind-server-helpers.js";
 
 /** 解析 `<workspace>/cases/<matterId>` 并防止穿越 `cases` 根目录。 */
 function resolvedMatterCaseDir(workspaceDir: string, matterId: string): string {
@@ -289,24 +298,19 @@ export async function handleMatterRoutes({
   }
 
   if (pathname === "/api/matters/case-note" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as {
-      matterId?: string;
-      section?: "core_issue" | "risk" | "artifact" | "task_goal";
-      note?: string;
-    };
-    const matterId = typeof body.matterId === "string" ? body.matterId.trim() : "";
-    const section = typeof body.section === "string" ? body.section.trim() : "";
-    const note = typeof body.note === "string" ? body.note.trim() : "";
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, matterCaseNoteRequestSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid request" }, c);
+        return true;
+      }
+      throw err;
+    }
+    const { matterId, section, note } = body;
     if (!isValidMatterId(matterId)) {
       sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
-      return true;
-    }
-    if (!note) {
-      sendJson(res, 400, { ok: false, error: "note required" }, c);
-      return true;
-    }
-    if (!["core_issue", "risk", "artifact", "task_goal"].includes(section)) {
-      sendJson(res, 400, { ok: false, error: "invalid section" }, c);
       return true;
     }
     if (section === "core_issue") {
@@ -323,25 +327,21 @@ export async function handleMatterRoutes({
   }
 
   if (pathname === "/api/matters/interaction" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as {
-      matterId?: string;
-      taskId?: string;
-      action?: MatterInteractionAction;
-      surface?: string;
-      label?: string;
-      target?: "lawyer" | "assistant";
-      variant?: "conservative" | "standard" | "assertive";
-      section?: "core_issue" | "risk" | "artifact" | "task_goal";
-    };
-    const matterId = typeof body.matterId === "string" ? body.matterId.trim() : "";
-    const taskId = typeof body.taskId === "string" ? body.taskId.trim() : "";
-    const action = typeof body.action === "string" ? body.action.trim() : "";
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, matterInteractionRequestSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid request" }, c);
+        return true;
+      }
+      throw err;
+    }
+    const matterId = body.matterId;
+    const taskId = body.taskId ?? "";
+    const action = body.action;
     if (!isValidMatterId(matterId)) {
       sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
-      return true;
-    }
-    if (!["open_review", "save_upgrade_suggestion", "write_case_note"].includes(action)) {
-      sendJson(res, 400, { ok: false, error: "invalid action" }, c);
       return true;
     }
     const resolvedTaskId = resolveMatterInteractionTaskId(workspaceDir, matterId, taskId);
@@ -351,23 +351,11 @@ export async function handleMatterRoutes({
     }
     const detail = describeMatterInteraction({
       action: action as MatterInteractionAction,
-      surface: typeof body.surface === "string" ? body.surface : undefined,
-      label: typeof body.label === "string" ? body.label : undefined,
-      target:
-        body.target === "assistant" ? "assistant" : body.target === "lawyer" ? "lawyer" : undefined,
-      variant:
-        body.variant === "conservative" ||
-        body.variant === "assertive" ||
-        body.variant === "standard"
-          ? body.variant
-          : undefined,
-      section:
-        body.section === "artifact" ||
-        body.section === "core_issue" ||
-        body.section === "risk" ||
-        body.section === "task_goal"
-          ? body.section
-          : undefined,
+      surface: body.surface,
+      label: body.label,
+      target: body.target,
+      variant: body.variant,
+      section: body.section,
     });
     const auditDir = path.join(workspaceDir, "audit");
     const event = await emit(auditDir, {
@@ -425,9 +413,18 @@ export async function handleMatterRoutes({
   }
 
   if (pathname === "/api/matters/role" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as { matterId?: string; role?: string };
-    const mid = typeof body.matterId === "string" ? body.matterId.trim() : "";
-    const roleRaw = typeof body.role === "string" ? body.role.trim().toLowerCase() : "";
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, matterRolePostSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid request" }, c);
+        return true;
+      }
+      throw err;
+    }
+    const mid = body.matterId;
+    const roleRaw = body.role.toLowerCase();
     if (!mid || !isValidMatterId(mid)) {
       sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
       return true;
@@ -456,13 +453,18 @@ export async function handleMatterRoutes({
   }
 
   if (pathname === "/api/matters/create" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as { matterId?: string; displayName?: string };
-    const mid = typeof body.matterId === "string" ? body.matterId.trim() : "";
-    const displayName = typeof body.displayName === "string" ? body.displayName.trim() : "";
-    if (!mid) {
-      sendJson(res, 400, { ok: false, error: "matterId required" }, c);
-      return true;
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, matterCreatePostSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "matterId required" }, c);
+        return true;
+      }
+      throw err;
     }
+    const mid = body.matterId;
+    const displayName = body.displayName ?? "";
     try {
       const result = await createMatterIfAbsent(workspaceDir, mid, displayName ? { displayName } : undefined);
       sendJson(res, 200, { ok: true, ...result }, c);
@@ -474,15 +476,20 @@ export async function handleMatterRoutes({
   }
 
   if (pathname === "/api/matters/display-name" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as { matterId?: string; displayName?: string };
-    const mid = typeof body.matterId === "string" ? body.matterId.trim() : "";
-    const label = typeof body.displayName === "string" ? body.displayName.trim() : "";
-    if (!mid || !isValidMatterId(mid)) {
-      sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
-      return true;
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, matterDisplayNamePostSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "displayName required" }, c);
+        return true;
+      }
+      throw err;
     }
-    if (!label) {
-      sendJson(res, 400, { ok: false, error: "displayName required" }, c);
+    const mid = body.matterId;
+    const label = body.displayName;
+    if (!isValidMatterId(mid)) {
+      sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
       return true;
     }
     if (label.length > 200) {
@@ -515,9 +522,18 @@ export async function handleMatterRoutes({
   }
 
   if (pathname === "/api/matters/delete" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as { matterId?: string };
-    const mid = typeof body.matterId === "string" ? body.matterId.trim() : "";
-    if (!mid || !isValidMatterId(mid)) {
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, matterDeletePostSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+        return true;
+      }
+      throw err;
+    }
+    const mid = body.matterId;
+    if (!isValidMatterId(mid)) {
       sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
       return true;
     }

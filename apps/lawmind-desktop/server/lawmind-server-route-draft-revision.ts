@@ -22,12 +22,13 @@ import {
   snapshotDraftRevisionBaseline,
 } from "../../../src/lawmind/drafts/revision-persisted.js";
 import type { ArtifactDraft } from "../../../src/lawmind/types.js";
+import { parseJsonBodyZod } from "./lawmind-api-parse.js";
+import { draftRevisionJobPostSchema } from "./lawmind-api-schemas.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import { isWebSearchForcedOffByPolicy } from "./lawmind-policy.js";
 import {
   buildAgentConfig,
   getLawMindEngine,
-  readJsonBody,
   resolveDesktopActorId,
   safeOptionalProjectDir,
   sendJson,
@@ -118,17 +119,9 @@ export async function handleDraftRevisionJobRoute({
     );
     return true;
   }
-  const body = (await readJsonBody(req)) as {
-    instruction?: string;
-    assistantId?: string;
-    projectDir?: unknown;
-  };
-  const supplementary =
-    typeof body.instruction === "string" ? body.instruction.trim().slice(0, 12_000) : "";
-  const assistantKey =
-    typeof body.assistantId === "string" && body.assistantId.trim()
-      ? body.assistantId.trim()
-      : DEFAULT_ASSISTANT_ID;
+  const body = await parseJsonBodyZod(req, draftRevisionJobPostSchema);
+  const supplementary = (body.instruction ?? "").slice(0, 12_000);
+  const assistantKey = body.assistantId?.trim() ? body.assistantId.trim() : DEFAULT_ASSISTANT_ID;
   if (!isSafeAssistantIdSegment(assistantKey)) {
     sendJson(res, 400, { ok: false, error: "invalid assistant id" }, c);
     return true;

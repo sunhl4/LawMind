@@ -7,8 +7,10 @@ import {
   resolveLawMindRoot,
   upsertAssistant,
 } from "../../../src/lawmind/assistants/store.js";
+import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
+import { assistantUpsertSchema } from "./lawmind-api-schemas.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
-import { readJsonBody, sendJson } from "./lawmind-server-helpers.js";
+import { sendJson } from "./lawmind-server-helpers.js";
 import { isSafeAssistantIdSegment } from "./safe-assistant-id.js";
 
 export async function handleAssistantRoutes({
@@ -62,8 +64,17 @@ export async function handleAssistantRoutes({
 
   if (pathname === "/api/assistants" && req.method === "POST") {
     const lawMindRoot = resolveLawMindRoot(workspaceDir, envFile);
-    const body = (await readJsonBody(req)) as Record<string, unknown>;
-    const assistantId = typeof body.assistantId === "string" ? body.assistantId : undefined;
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, assistantUpsertSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid request" }, c);
+        return true;
+      }
+      throw err;
+    }
+    const assistantId = body.assistantId;
     if (assistantId !== undefined && !isSafeAssistantIdSegment(assistantId)) {
       sendJson(res, 400, { ok: false, error: "invalid assistant id" }, c);
       return true;
@@ -71,19 +82,14 @@ export async function handleAssistantRoutes({
     try {
       const assistant = upsertAssistant(lawMindRoot, {
         assistantId,
-        displayName: typeof body.displayName === "string" ? body.displayName : undefined,
-        introduction: typeof body.introduction === "string" ? body.introduction : undefined,
-        presetKey: typeof body.presetKey === "string" ? body.presetKey : undefined,
-        customRoleTitle: typeof body.customRoleTitle === "string" ? body.customRoleTitle : undefined,
-        customRoleInstructions:
-          typeof body.customRoleInstructions === "string" ? body.customRoleInstructions : undefined,
-        orgRole: body.orgRole as import("../../../src/lawmind/assistants/types.js").AssistantOrgRole | undefined,
-        reportsToAssistantId:
-          typeof body.reportsToAssistantId === "string" ? body.reportsToAssistantId : undefined,
-        peerReviewDefaultAssistantId:
-          typeof body.peerReviewDefaultAssistantId === "string"
-            ? body.peerReviewDefaultAssistantId
-            : undefined,
+        displayName: body.displayName,
+        introduction: body.introduction,
+        presetKey: body.presetKey,
+        customRoleTitle: body.customRoleTitle,
+        customRoleInstructions: body.customRoleInstructions,
+        orgRole: body.orgRole,
+        reportsToAssistantId: body.reportsToAssistantId,
+        peerReviewDefaultAssistantId: body.peerReviewDefaultAssistantId,
       });
       sendJson(res, 200, { ok: true, assistant }, c);
     } catch (e) {
@@ -102,23 +108,27 @@ export async function handleAssistantRoutes({
         sendJson(res, 400, { ok: false, error: "invalid assistant id" }, c);
         return true;
       }
-      const body = (await readJsonBody(req)) as Record<string, unknown>;
+      let body;
+      try {
+        body = await parseJsonBodyZod(req, assistantUpsertSchema);
+      } catch (err) {
+        if (isInvalidRequestBodyError(err)) {
+          sendJson(res, 400, { ok: false, error: "invalid request" }, c);
+          return true;
+        }
+        throw err;
+      }
       try {
         const assistant = upsertAssistant(lawMindRoot, {
           assistantId: id,
-          displayName: typeof body.displayName === "string" ? body.displayName : undefined,
-          introduction: typeof body.introduction === "string" ? body.introduction : undefined,
-          presetKey: typeof body.presetKey === "string" ? body.presetKey : undefined,
-          customRoleTitle: typeof body.customRoleTitle === "string" ? body.customRoleTitle : undefined,
-          customRoleInstructions:
-            typeof body.customRoleInstructions === "string" ? body.customRoleInstructions : undefined,
-          orgRole: body.orgRole as import("../../../src/lawmind/assistants/types.js").AssistantOrgRole | undefined,
-          reportsToAssistantId:
-            typeof body.reportsToAssistantId === "string" ? body.reportsToAssistantId : undefined,
-          peerReviewDefaultAssistantId:
-            typeof body.peerReviewDefaultAssistantId === "string"
-              ? body.peerReviewDefaultAssistantId
-              : undefined,
+          displayName: body.displayName,
+          introduction: body.introduction,
+          presetKey: body.presetKey,
+          customRoleTitle: body.customRoleTitle,
+          customRoleInstructions: body.customRoleInstructions,
+          orgRole: body.orgRole,
+          reportsToAssistantId: body.reportsToAssistantId,
+          peerReviewDefaultAssistantId: body.peerReviewDefaultAssistantId,
         });
         sendJson(res, 200, { ok: true, assistant }, c);
       } catch (e) {

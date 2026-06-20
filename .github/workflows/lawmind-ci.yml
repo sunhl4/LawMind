@@ -45,11 +45,17 @@ jobs:
       - name: Typecheck LawMind desktop renderer
         run: pnpm --filter lawmind-desktop typecheck
 
+      - name: Renderer CSS sync markers and size gate
+        run: pnpm lawmind:check:renderer-css
+
       - name: Desktop HTTP smoke
         run: pnpm lawmind:desktop:http-smoke
 
       - name: Coverage
         run: pnpm test:coverage
+
+      - name: Coverage ratchet
+        run: node scripts/pre-commit/check-coverage-ratchet.mjs
 
       - name: Upload coverage
         if: always()

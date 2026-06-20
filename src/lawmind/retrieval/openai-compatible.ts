@@ -6,6 +6,7 @@
  * - 兼容 OpenAI 风格 /v1/chat/completions 接口
  */
 
+import { computeRetryDelayMs, isRetryableHttpFailure } from "../llm/http-retry.js";
 import type { RetrievalAdapter } from "./index.js";
 import { createGeneralModelAdapter, createLegalModelAdapter } from "./model-adapters.js";
 import type { ModelRetrievalInput, ModelRetrievalOutput } from "./model-adapters.js";
@@ -92,7 +93,9 @@ function safeJsonParse<T>(raw: string): T | null {
   }
 }
 
-async function callOpenAICompatible(
+const RETRIEVAL_MAX_RETRIES = 2;
+
+async function fetchOpenAICompatibleOnce(
   cfg: OpenAICompatibleClientConfig,
   input: ModelRetrievalInput,
   role: "general" | "legal",
@@ -119,6 +122,10 @@ async function callOpenAICompatible(
     });
 
     if (!res.ok) {
+      const err = new Error(`模型调用失败: HTTP ${res.status}`);
+      if (isRetryableHttpFailure(err, res.status)) {
+        throw err;
+      }
       return {
         claims: [],
         riskFlags: [`模型调用失败: HTTP ${res.status}`],
@@ -154,6 +161,9 @@ async function callOpenAICompatible(
       missingItems: parsed.missingItems ?? [],
     };
   } catch (err) {
+    if (isRetryableHttpFailure(err)) {
+      throw err;
+    }
     return {
       claims: [],
       riskFlags: [`模型调用异常: ${String(err)}`],
@@ -162,6 +172,36 @@ async function callOpenAICompatible(
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function callOpenAICompatible(
+  cfg: OpenAICompatibleClientConfig,
+  input: ModelRetrievalInput,
+  role: "general" | "legal",
+): Promise<ModelRetrievalOutput> {
+  let lastFailure: ModelRetrievalOutput | undefined;
+  for (let attempt = 0; attempt <= RETRIEVAL_MAX_RETRIES; attempt += 1) {
+    try {
+      return await fetchOpenAICompatibleOnce(cfg, input, role);
+    } catch (err) {
+      if (attempt >= RETRIEVAL_MAX_RETRIES || !isRetryableHttpFailure(err)) {
+        lastFailure = {
+          claims: [],
+          riskFlags: [`模型调用异常: ${String(err)}`],
+          missingItems: ["模型调用失败，请稍后重试"],
+        };
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, computeRetryDelayMs(attempt)));
+    }
+  }
+  return (
+    lastFailure ?? {
+      claims: [],
+      riskFlags: ["模型调用失败"],
+      missingItems: ["模型调用失败，请稍后重试"],
+    }
+  );
 }
 
 /**

@@ -18,7 +18,9 @@ import { readDraft, resolveDraftCitationIntegrity } from "../../../src/lawmind/d
 import { validateDraftAgainstSpec } from "../../../src/lawmind/deliverables/index.js";
 import { deriveReviewGateDecisions } from "../../../src/lawmind/platform/review-gates.js";
 import { isSafeTaskIdSegment } from "./safe-task-id.js";
-import { readJsonBody, sendJson } from "./lawmind-server-helpers.js";
+import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
+import { redlineHunkResolvePostSchema } from "./lawmind-api-schemas.js";
+import { sendJson } from "./lawmind-server-helpers.js";
 
 export async function handleRedlineRoutes({
   ctx,
@@ -38,12 +40,17 @@ export async function handleRedlineRoutes({
       sendJson(res, 400, { ok: false, error: "invalid_task_id" }, c);
       return true;
     }
-    const body = (await readJsonBody(req)) as { decision?: string };
-    const decision = body?.decision === "reject" ? "reject" : body?.decision === "accept" ? "accept" : null;
-    if (!decision) {
-      sendJson(res, 400, { ok: false, error: "invalid_decision" }, c);
-      return true;
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, redlineHunkResolvePostSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid_decision" }, c);
+        return true;
+      }
+      throw err;
     }
+    const decision = body.decision;
     const result = resolveRedlineHunk(workspaceDir, taskId, hunkId, decision);
     if (!result.ok) {
       const status = result.error === "hunk_not_found" || result.error === "redline_not_found" ? 404 : 409;

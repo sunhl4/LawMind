@@ -11,8 +11,10 @@ import {
   finalizeContractRevisionPack,
   listContractRevisionPacks,
 } from "../../../src/lawmind/learning/contract-revision-pack.js";
+import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
+import { learningContractFinalizePostSchema } from "./lawmind-api-schemas.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
-import { readJsonBody, sendJson } from "./lawmind-server-helpers.js";
+import { sendJson } from "./lawmind-server-helpers.js";
 
 export async function handleLearningContractRoutes({
   ctx,
@@ -36,27 +38,26 @@ export async function handleLearningContractRoutes({
     return false;
   }
 
-  const body = (await readJsonBody(req)) as {
-    initialPath?: string;
-    finalPath?: string;
-    keyModifications?: unknown;
-    title?: string;
-    requirementsSummary?: string;
-    matterId?: string;
-    assistantId?: string;
-    appendLawyerProfileBullet?: boolean;
-    stableDocumentKey?: string;
-    lawyerReviewNotes?: string;
-  };
-
-  const initialPath = typeof body.initialPath === "string" ? body.initialPath.trim() : "";
-  const finalPath = typeof body.finalPath === "string" ? body.finalPath.trim() : "";
-  if (!initialPath || !finalPath) {
-    sendJson(res, 400, { ok: false, code: "paths_required", message: "请提供 initialPath 与 finalPath（相对工作区或工作区下的绝对路径）。" }, c);
-    return true;
+  let body;
+  try {
+    body = await parseJsonBodyZod(req, learningContractFinalizePostSchema);
+  } catch (err) {
+    if (isInvalidRequestBodyError(err)) {
+      const msg = err.issues.join("; ");
+      if (msg.includes("initialPath") || msg.includes("finalPath")) {
+        sendJson(res, 400, { ok: false, code: "paths_required", message: "请提供 initialPath 与 finalPath（相对工作区或工作区下的绝对路径）。" }, c);
+        return true;
+      }
+      sendJson(res, 400, { ok: false, code: "invalid_request" }, c);
+      return true;
+    }
+    throw err;
   }
 
-  const matterRaw = typeof body.matterId === "string" ? body.matterId.trim() : "";
+  const initialPath = body.initialPath;
+  const finalPath = body.finalPath;
+
+  const matterRaw = body.matterId ?? "";
   if (matterRaw && !isValidMatterId(matterRaw)) {
     sendJson(res, 400, { ok: false, code: "invalid_matter_id", message: "案件 ID 格式不正确。" }, c);
     return true;
@@ -77,14 +78,14 @@ export async function handleLearningContractRoutes({
       initialSourcePath: initialPath,
       finalSourcePath: finalPath,
       keyModifications: keys,
-      title: typeof body.title === "string" ? body.title : undefined,
-      requirementsSummary: typeof body.requirementsSummary === "string" ? body.requirementsSummary : undefined,
+      title: body.title,
+      requirementsSummary: body.requirementsSummary,
       matterId: matterRaw || undefined,
-      assistantId: typeof body.assistantId === "string" ? body.assistantId : undefined,
+      assistantId: body.assistantId,
       appendLawyerProfileBullet: body.appendLawyerProfileBullet === true,
       auditDir: body.appendLawyerProfileBullet === true ? auditDir : undefined,
-      stableDocumentKey: typeof body.stableDocumentKey === "string" ? body.stableDocumentKey : undefined,
-      lawyerReviewNotes: typeof body.lawyerReviewNotes === "string" ? body.lawyerReviewNotes : undefined,
+      stableDocumentKey: body.stableDocumentKey,
+      lawyerReviewNotes: body.lawyerReviewNotes,
     });
     sendJson(
       res,

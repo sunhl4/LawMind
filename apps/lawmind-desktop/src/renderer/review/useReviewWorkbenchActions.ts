@@ -10,6 +10,8 @@ import {
   userMessageFromApiError,
   type ApiErrorJson,
 } from "../api-client";
+import type { DraftReviewPostRequest } from "../lawmind-api-request-types.ts";
+import { apiPostDraftReview } from "../lawmind-api-routes.ts";
 import { readAutoExportOnApprove } from "../lawmind-review-prefs";
 import {
   officecliMissingErrorMessage,
@@ -17,16 +19,6 @@ import {
   parseFilenameFromContentDisposition,
   triggerBrowserDownload,
 } from "./review-workbench-helpers";
-
-type ReviewSubmitBody = {
-  status: "approved" | "rejected" | "modified";
-  note?: string;
-  appendToProfile: boolean;
-  appendToLawyerProfile: boolean;
-  profileAssistantId: string;
-  labels?: string[];
-  deferMemoryWrites?: true;
-};
 
 export type UseReviewWorkbenchActionsParams = {
   apiBase: string;
@@ -235,21 +227,7 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
       setActionMsg(null);
       try {
         const labels = Array.from(selectedLabels);
-        const j = await apiSendJson<
-          {
-            ok?: boolean;
-            error?: string;
-            draft?: ArtifactDraft;
-            citationIntegrity?: DraftCitationIntegrityView;
-            profileAppendFailed?: boolean;
-            lawyerProfileAppendFailed?: boolean;
-            profileLearningSkipped?: boolean;
-            lawyerProfileLearningSkipped?: boolean;
-            executionState?: TaskExecutionState;
-            gateDecisions?: GateDecision[];
-          },
-          ReviewSubmitBody
-        >(apiBase, `/api/drafts/${encodeURIComponent(selectedTaskId)}/review`, "POST", {
+        const reviewBody: DraftReviewPostRequest = {
           status,
           note: note.trim() || undefined,
           appendToProfile: deferMemoryWrites ? false : appendToProfile,
@@ -257,7 +235,19 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
           profileAssistantId: assistantId,
           ...(labels.length > 0 ? { labels } : {}),
           ...(deferMemoryWrites ? { deferMemoryWrites: true } : {}),
-        });
+        };
+        const j = (await apiPostDraftReview(apiBase, selectedTaskId, reviewBody)) as {
+          ok?: boolean;
+          error?: string;
+          draft?: ArtifactDraft;
+          citationIntegrity?: DraftCitationIntegrityView;
+          profileAppendFailed?: boolean;
+          lawyerProfileAppendFailed?: boolean;
+          profileLearningSkipped?: boolean;
+          lawyerProfileLearningSkipped?: boolean;
+          executionState?: TaskExecutionState;
+          gateDecisions?: GateDecision[];
+        };
         if (!j.ok) {
           const extra = j.lawyerProfileAppendFailed
             ? "（律师档案未写入，草稿状态已保存）"

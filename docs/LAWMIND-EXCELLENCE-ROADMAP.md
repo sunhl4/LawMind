@@ -72,17 +72,17 @@ pnpm lawmind:release-readiness -- --out dist/lawmind-release-readiness.md
 - [x] 三条黄金旅程（`golden-journeys.ts`）各有一条 **E2E 或 integration** 用例：`matter-production`、`contract-review-trust`、`role-delegation-memory`。
 - [x] 内置 9 个工作流 JSON 全部具备 `deliverableType` + `acceptancePackRequired`（或文档化例外）；`LawmindWorkflowLibrary` 卡片展示 playbook 摘要字段。
 - [x] `BUILTIN_BENCHMARK_TASKS` 覆盖合同审查 / 律师函 / memo 三类，且 `expectsReviewGate` / `expectedKeywords` 与 DFA spec 一致。
-- [ ] 发布报告 `Benchmark gate: pass`（平均分 ≥80%）在**有模型配置**的 CI/夜间任务中至少跑通一次并归档 `dist/`（见 `lawmind-nightly.yml`）。
+- [x] 发布报告 `Benchmark gate: pass`（平均分 ≥80%）在**有模型配置**的 CI/夜间任务中至少跑通一次并归档 `dist/`（见 `lawmind-nightly.yml`）。
 
 ### 3. 工程可维护性（3.5 → ≥4.5）
 
 **4.5 达标线**
 
-- [ ] **Renderer**：`MatterWorkbench.tsx` ≤800 行（逻辑迁入 `matter/*`）；`App.tsx` ≤1000 行；`FileWorkbench.tsx` 拆出 `file/` 目录，单文件 ≤1000 行。
-- [ ] **Agent 工具**：`legal-tools.ts` / `engine-tools.ts` 拆为 `tools/legal/*.ts`、`tools/engine/*.ts` + `registry` 聚合，单文件 ≤600 行。
-- [ ] **Runtime**：`runtime.ts` 仅保留 loop + 编排，compact/recall/进度 ≥3 块已外提并有单测。
-- [ ] 贡献约定：`CONTRIBUTING.md` 或 `CLAUDE.md` 写明「单文件软上限 800 行（工具/registry 600）」；Oxlint 或 PR 模板提醒。
-- [ ] `pnpm test` 与 typecheck 在拆分 PR 序列中全程绿（允许 3–5 个递进 PR）。
+- [x] **Renderer**：`MatterWorkbench.tsx` ≤800 行（逻辑迁入 `matter/*`）；`App.tsx` ≤1000 行；`FileWorkbench.tsx` 拆出 `file/` 目录，单文件 ≤1000 行。
+- [x] **Agent 工具**：`legal-tools.ts` / `engine-tools.ts` 拆为 `tools/legal/*.ts`、`tools/engine/*.ts` + `registry` 聚合，单文件 ≤600 行。
+- [x] **Runtime**：`runtime.ts` 仅保留 loop + 编排，compact/recall/进度 ≥3 块已外提并有单测。
+- [x] 贡献约定：`CONTRIBUTING.md` 或 `CLAUDE.md` 写明「单文件软上限 800 行（工具/registry 600）」；Oxlint 或 PR 模板提醒。
+- [x] `pnpm test` 与 typecheck 在拆分 PR 序列中全程绿（允许 3–5 个递进 PR）。
 
 ### 4. 测试/发布证据（3.0 → ≥4.5）
 
@@ -98,21 +98,21 @@ pnpm lawmind:release-readiness -- --out dist/lawmind-release-readiness.md
 
 **4.5 达标线**（不要求 Harvey 级企业栈，要求「律师可感知对标」）
 
-- [ ] **来源信任**：审查矩阵 + source preview + acceptance pack 在同 matter E2E 可点通；用户手册一节「与 Harvey 式引用对照」。
-- [ ] **Word**：段落 redline 之外，增加 **docx 导出 tracked changes** MVP（`officecli` 或 `docx` 修订轨二选一，文档写明限制）；审核台「导出带修订 Word」按钮。
-- [ ] **DMS**：至少 **1 个** 真 OAuth 只读连接器（SharePoint **或** iManage 择一）脱离纯 fixture；`GET /api/integrations/:id/documents` E2E 或 integration 绿。
-- [ ] **可观测**：Matter 工作台默认或一级 Tab 展示 **会话时间线**（已有 API 收口 UI）；`insights` health 分在 Doctor 或 Matter 概览可见。
-- [ ] 集成路线图 `LAWMIND-INTEGRATIONS.md` 标注 M2 完成项与 Harvey/Spellbook 差距表（1 页）。
+- [x] **来源信任**：审查矩阵 + source preview + acceptance pack 在同 matter E2E 可点通；用户手册一节「与 Harvey 式引用对照」。
+- [x] **Word**：段落 redline 之外，增加 **docx 导出 tracked changes** MVP（`officecli` 或 `docx` 修订轨二选一，文档写明限制）；审核台「导出带修订 Word」按钮。
+- [x] **DMS**：至少 **1 个** 真 OAuth 只读连接器（SharePoint **或** iManage 择一）脱离纯 fixture；`GET /api/integrations/:id/documents` E2E 或 integration 绿。
+- [x] **可观测**：Matter 工作台默认或一级 Tab 展示 **会话时间线**（已有 API 收口 UI）；`insights` health 分在 Doctor 或 Matter 概览可见。
+- [x] 集成路线图 `LAWMIND-INTEGRATIONS.md` 标注 M2 完成项与 Harvey/Spellbook 差距表（1 页）。
 
 ### 6. 开源借鉴执行力（守住 ≥4.5）
 
 **4.5 达标线**
 
-- [ ] `LAWMIND-REFERENCE-PROJECT-LESSONS.md` 文末增加 **落地状态表**（P0/P1/P2 × 已落地/进行中/刻意不做），与 `GOALS` 第十二期勾选同步。
-- [ ] Ralph 借鉴：`queue.jsonl` 支持 `dependsOn` + `blockedReason`；任务看板展示阻塞原因。
-- [ ] AgentActa 借鉴：Matter 级 **统一时间线**（audit + jobs + approvals + turns 聚合），非仅 chat trace。
-- [ ] ProWorkBench 借鉴：工具治理页展示 `governance` 全字段 + Firm 锁定说明。
-- [ ] 刻意不做项文档化：WASM 全量沙箱、LangGraph 迁移、远程技能市场 — 避免 scope creep。
+- [x] `LAWMIND-REFERENCE-PROJECT-LESSONS.md` 文末增加 **落地状态表**（P0/P1/P2 × 已落地/进行中/刻意不做），与 `GOALS` 第十二期勾选同步。
+- [x] Ralph 借鉴：`queue.jsonl` 支持 `dependsOn` + `blockedReason`；任务看板展示阻塞原因。
+- [x] AgentActa 借鉴：Matter 级 **统一时间线**（audit + jobs + approvals + turns 聚合），非仅 chat trace。
+- [x] ProWorkBench 借鉴：工具治理页展示 `governance` 全字段 + Firm 锁定说明。
+- [x] 刻意不做项文档化：WASM 全量沙箱、LangGraph 迁移、远程技能市场 — 避免 scope creep。
 
 ---
 

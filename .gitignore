@@ -42,6 +42,7 @@ bun.lock
 bun.lockb
 
 # Tooling & agent local state
+.cursor/
 .claude/
 .agents/
 .agent/

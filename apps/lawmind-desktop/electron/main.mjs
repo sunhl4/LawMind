@@ -11,49 +11,6 @@ import { installLawmindContentSecurityPolicy } from "./session-config.mjs";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const requireCjs = createRequire(import.meta.url);
 
-// Optional local debug session (set LAWMIND_DEBUG_SESSION=1). Never enabled in packaged builds by default.
-const DEBUG_SESSION_ENABLED = Boolean(process.env.LAWMIND_DEBUG_SESSION);
-function resolveRepoRootForDebug() {
-  if (process.env.LAWMIND_REPO_ROOT) {
-    return path.resolve(process.env.LAWMIND_REPO_ROOT);
-  }
-  return path.resolve(__dirname, "..", "..", "..");
-}
-const DEBUG_LOG_PATH = DEBUG_SESSION_ENABLED
-  ? path.join(resolveRepoRootForDebug(), ".cursor", "debug-lawmind.log")
-  : "";
-function dbgLog(_location, _message, _data, _hypothesisId) {
-  if (!DEBUG_SESSION_ENABLED) {
-    return;
-  }
-  const payload = {
-    sessionId: process.env.LAWMIND_DEBUG_SESSION ?? "lawmind",
-    location: _location,
-    message: _message,
-    data: _data,
-    hypothesisId: _hypothesisId,
-    timestamp: Date.now(),
-  };
-  try {
-    fs.mkdirSync(path.dirname(DEBUG_LOG_PATH), { recursive: true });
-    fs.appendFileSync(DEBUG_LOG_PATH, `${JSON.stringify(payload)}\n`);
-  } catch {
-    /* ignore */
-  }
-}
-if (DEBUG_SESSION_ENABLED) {
-  process.on("uncaughtException", (err) => {
-    dbgLog("main.mjs:uncaughtException", "uncaughtException", {
-      name: err?.name,
-      message: err?.message,
-      stack: err?.stack?.slice(0, 500),
-    }, "H7");
-  });
-  process.on("unhandledRejection", (reason) => {
-    dbgLog("main.mjs:unhandledRejection", "unhandledRejection", { reason: String(reason) }, "H7");
-  });
-}
-
 const { probeModelInline } = requireCjs("./lawmind-model-probe.cjs");
 
 /** OS keychain wrapper (best-effort; new secrets are refused when unavailable). */
@@ -88,32 +45,17 @@ async function collectSecretsForServerEnv(parsedEnvVars) {
     return out;
   }
   try {
-    // #region agent log
-    dbgLog("main.mjs:collectSecrets", "before read wizard", {}, "A");
-    // #endregion
     const wizardKey = await keyVault.readSecret(KEYCHAIN_ACCOUNTS.wizardApiKey);
-    // #region agent log
-    dbgLog("main.mjs:collectSecrets", "after read wizard", { hasWizard: Boolean(wizardKey) }, "A");
-    // #endregion
     if (wizardKey) {
       if (!parsedEnvVars.LAWMIND_AGENT_API_KEY) {out.LAWMIND_AGENT_API_KEY = wizardKey;}
       if (!parsedEnvVars.LAWMIND_QWEN_API_KEY) {out.LAWMIND_QWEN_API_KEY = wizardKey;}
     }
     const webSearchKey = await keyVault.readSecret(KEYCHAIN_ACCOUNTS.webSearchApiKey);
-    // #region agent log
-    dbgLog("main.mjs:collectSecrets", "after read webSearch", { hasWeb: Boolean(webSearchKey) }, "A");
-    // #endregion
     if (webSearchKey) {
       if (!parsedEnvVars.LAWMIND_WEB_SEARCH_API_KEY) {out.LAWMIND_WEB_SEARCH_API_KEY = webSearchKey;}
       if (!parsedEnvVars.BRAVE_API_KEY) {out.BRAVE_API_KEY = webSearchKey;}
     }
-  // #region agent log
-  dbgLog("main.mjs:collectSecrets", "before listSecrets", {}, "A");
-  // #endregion
     const all = await keyVault.listSecrets();
-  // #region agent log
-  dbgLog("main.mjs:collectSecrets", "after listSecrets", { count: all.length }, "A");
-  // #endregion
     for (const entry of all) {
       const m = /^custom\.([^.]+)\.apiKey$/.exec(entry.account);
       if (!m) {continue;}
@@ -556,9 +498,6 @@ async function startLocalServer(repoRoot, wsDir, envPath, retrievalMode, project
     ? parseEnvAssignmentsTopLevel(fs.readFileSync(envPath, "utf8"))
     : {};
   const injectedSecrets = await collectSecretsForServerEnv(parsedEnvVars);
-  // #region agent log
-  dbgLog("main.mjs:startLocalServer", "secrets collected", { keyCount: Object.keys(injectedSecrets).length, keychainAvailable: keyVault.isAvailable() }, "A");
-  // #endregion
 
   const mode = retrievalMode === "dual" ? "dual" : "single";
   if (app.isPackaged && process.env.LAWMIND_SKIP_API_AUTH === "1") {
@@ -605,9 +544,6 @@ async function startLocalServer(repoRoot, wsDir, envPath, retrievalMode, project
 
     waitForLocalServerReady(port)
       .then(() => {
-        // #region agent log
-        dbgLog("main.mjs:startLocalServer", "local server ready", { port }, "E");
-        // #endregion
         resolve(port);
       })
       .catch(reject);
@@ -693,9 +629,6 @@ async function restartBackendInternal() {
   fs.mkdirSync(workspaceDir, { recursive: true });
 
   await maybeMigrateEnvKeysToKeychain(paths.envFilePath);
-  // #region agent log
-  dbgLog("main.mjs:restartBackendInternal", "after keychain migration", { keychainAvailable: keyVault.isAvailable() }, "A");
-  // #endregion
 
   const bundled = getBundledServerScript();
   const repoRoot = bundled ? path.dirname(bundled) : resolveRepoRoot();
@@ -1620,13 +1553,7 @@ function setupApplicationMenu() {
 }
 
 async function createWindow() {
-  // #region agent log
-  dbgLog("main.mjs:createWindow", "enter", {}, "B");
-  // #endregion
   await ensureBackend();
-  // #region agent log
-  dbgLog("main.mjs:createWindow", "after ensureBackend", { apiPort }, "E");
-  // #endregion
 
   const mainWindow = new BrowserWindow({
     width: 1100,
@@ -1643,11 +1570,7 @@ async function createWindow() {
     },
   });
 
-  // #region agent log
-  dbgLog("main.mjs:createWindow", "BrowserWindow created", { sandbox: app.isPackaged }, "B");
-  // #endregion
-
-  installLawmindContentSecurityPolicy(session.defaultSession);
+  installLawmindContentSecurityPolicy(session.defaultSession, { dev: !app.isPackaged });
 
   mainWindowRef = mainWindow;
   mainWindow.on("closed", () => {
@@ -1673,21 +1596,9 @@ async function createWindow() {
   const useDistInE2e =
     process.env.LAWMIND_E2E === "1" && fs.existsSync(distIndex);
   if (!app.isPackaged && !useDistInE2e) {
-    // #region agent log
-    dbgLog("main.mjs:createWindow", "before loadURL", { devUrl }, "C");
-    // #endregion
     await mainWindow.loadURL(devUrl);
-    // #region agent log
-    dbgLog("main.mjs:createWindow", "after loadURL", {}, "C");
-    // #endregion
     if (process.env.LAWMIND_E2E !== "1") {
-      // #region agent log
-      dbgLog("main.mjs:createWindow", "before openDevTools", {}, "C");
-      // #endregion
       mainWindow.webContents.openDevTools({ mode: "detach" });
-      // #region agent log
-      dbgLog("main.mjs:createWindow", "after openDevTools", {}, "C");
-      // #endregion
     }
   } else {
     await mainWindow.loadFile(useDistInE2e ? distIndex : path.join(__dirname, "..", "dist", "index.html"));
@@ -1696,30 +1607,15 @@ async function createWindow() {
 
 void app.whenReady().then(async () => {
   try {
-    // #region agent log
-    dbgLog("main.mjs:whenReady", "start", { electronVersion: process.versions.electron }, "H0");
-    // #endregion
     registerIpcHandlers();
-    // #region agent log
-    dbgLog("main.mjs:whenReady", "after registerIpcHandlers", {}, "H0");
-    // #endregion
     setupApplicationMenu();
-    // #region agent log
-    dbgLog("main.mjs:whenReady", "after setupApplicationMenu", {}, "H0");
-    // #endregion
     await createWindow();
-    // #region agent log
-    dbgLog("main.mjs:whenReady", "createWindow complete", {}, "H0");
-    // #endregion
     if (process.env.LAWMIND_E2E !== "1" && process.env.LAWMIND_SKIP_AUTO_UPDATE !== "1") {
       setTimeout(() => {
         void runAutoUpdateCheckWithNotify();
       }, 12_000);
     }
-  } catch (err) {
-    // #region agent log
-    dbgLog("main.mjs:whenReady", "startup failed", { message: err instanceof Error ? err.message : String(err) }, "H7");
-    // #endregion
+  } catch {
     app.quit();
   }
 });

@@ -5,7 +5,9 @@ import { LawmindChatSessionTabs } from "../LawmindChatSessionTabs";
 import { LawmindChatMessagesColumn, LawmindChatComposeFooter } from "../lawmind-chat-shell";
 import type { ChatMsg } from "../lawmind-chat";
 import { formatFileChatContextPill, type FileChatContextItem } from "../lawmind-file-chat-context";
+import { LawmindWorkspacePaneRecovery } from "./LawmindWorkspacePaneRecovery";
 import { LawmindSessionHistorySidebar } from "../LawmindSessionHistorySidebar";
+import { useLawmindChatSessionContext } from "./LawmindShellContexts";
 import type {
   LawMindRequiresAction,
   LawMindRequiresActionDecision,
@@ -17,11 +19,12 @@ export type LawmindWorkspaceMainPaneProps = {
   canUseFilesystemBridge: boolean;
   setFileEditorHost: (el: HTMLDivElement | null) => void;
   wsShowEditor: boolean;
+  onShowEditorPane: () => void;
   wsShowChat: boolean;
+  onShowChatPane: () => void;
   onWsChatSplitResize: (e: React.PointerEvent<HTMLDivElement>) => void;
   wsChatColWidth: number;
   chatSessionList: ChatSessionListEntry[];
-  activeChatSessionId: string | undefined;
   chatSessionsLoading: boolean;
   loading: boolean;
   onSelectChatSession: (id: string) => void | Promise<void>;
@@ -29,7 +32,6 @@ export type LawmindWorkspaceMainPaneProps = {
   onRenameChatSession: (id: string, title: string) => void | Promise<void>;
   onDeleteChatSession: (id: string) => void | Promise<void>;
   config: AppConfig | null;
-  selectedAssistantId: string;
   currentMessages: ChatMsg[];
   copiedMessageIndex: number | null;
   messagesEndRef: RefObject<HTMLDivElement | null>;
@@ -46,7 +48,6 @@ export type LawmindWorkspaceMainPaneProps = {
   onDelegateAssist: () => void;
   delegateAssistEnabled: boolean;
   revisionBackgroundActive: boolean;
-  sessionByAssistant: Record<string, string | undefined>;
   onResumeRequiresAction: (
     action: LawMindRequiresAction,
     decision: LawMindRequiresActionDecision,
@@ -65,6 +66,7 @@ export type LawmindWorkspaceMainPaneProps = {
   composeModelHint: string | null;
   composeModelQuickTestBusy: boolean;
   onComposeModelQuickTest: () => void | Promise<void>;
+  composeModelConfigured?: boolean;
   modelCatalog: ModelCatalogEntry[];
   selectedModelId: string;
   onModelSelect: (modelId: string) => void | Promise<void>;
@@ -76,17 +78,21 @@ export type LawmindWorkspaceMainPaneProps = {
   onOpenTaskDrawer: () => void;
   onOpenActionHub: () => void;
   composeExtras: LawmindComposeExtras;
+  onCreateMatter?: () => void;
+  onOpenWorkflowLibrary?: () => void;
+  showEmptyMatterGuide?: boolean;
 };
 
 function LawmindWorkspaceMainPaneImpl({
   canUseFilesystemBridge,
   setFileEditorHost,
   wsShowEditor,
+  onShowEditorPane,
   wsShowChat,
+  onShowChatPane,
   onWsChatSplitResize,
   wsChatColWidth,
   chatSessionList,
-  activeChatSessionId,
   chatSessionsLoading,
   loading,
   onSelectChatSession,
@@ -94,7 +100,6 @@ function LawmindWorkspaceMainPaneImpl({
   onRenameChatSession,
   onDeleteChatSession,
   config,
-  selectedAssistantId,
   currentMessages,
   copiedMessageIndex,
   messagesEndRef,
@@ -111,7 +116,6 @@ function LawmindWorkspaceMainPaneImpl({
   onDelegateAssist,
   delegateAssistEnabled,
   revisionBackgroundActive,
-  sessionByAssistant,
   onResumeRequiresAction,
   input,
   error,
@@ -125,6 +129,7 @@ function LawmindWorkspaceMainPaneImpl({
   composeModelHint,
   composeModelQuickTestBusy,
   onComposeModelQuickTest,
+  composeModelConfigured,
   modelCatalog,
   selectedModelId,
   onModelSelect,
@@ -136,17 +141,29 @@ function LawmindWorkspaceMainPaneImpl({
   onOpenTaskDrawer,
   onOpenActionHub,
   composeExtras,
+  onCreateMatter,
+  onOpenWorkflowLibrary,
+  showEmptyMatterGuide,
 }: LawmindWorkspaceMainPaneProps) {
-  const chatSessionId = sessionByAssistant[selectedAssistantId] ?? activeChatSessionId;
+  const { selectedAssistantId, activeChatSessionId } = useLawmindChatSessionContext();
+  const chatSessionId = activeChatSessionId;
   const fileChatPills = fileChatContextItems.map((it) => ({
     id: it.id,
     relPath: it.relPath,
     ...formatFileChatContextPill(it),
   }));
+  const bothWorkspacePanesHidden = !wsShowChat && (!canUseFilesystemBridge || !wsShowEditor);
 
   return (
     <div className="lm-workspace-unified lm-cursor-workspace">
       <div className="lm-cursor-panes-row">
+        {bothWorkspacePanesHidden ? (
+          <LawmindWorkspacePaneRecovery
+            canUseFilesystemBridge={canUseFilesystemBridge}
+            onShowChat={onShowChatPane}
+            onShowEditor={onShowEditorPane}
+          />
+        ) : null}
         {canUseFilesystemBridge ? (
           <div
             ref={setFileEditorHost}
@@ -233,6 +250,9 @@ function LawmindWorkspaceMainPaneImpl({
                 revisionBackgroundActive={revisionBackgroundActive}
                 chatSessionId={chatSessionId}
                 onResumeRequiresAction={onResumeRequiresAction}
+                onCreateMatter={onCreateMatter}
+                onOpenWorkflowLibrary={onOpenWorkflowLibrary}
+                showEmptyMatterGuide={showEmptyMatterGuide}
               />
             </div>
             <LawmindChatComposeFooter
@@ -257,6 +277,7 @@ function LawmindWorkspaceMainPaneImpl({
               composeModelHint={composeModelHint}
               composeModelQuickTestBusy={composeModelQuickTestBusy}
               onComposeModelQuickTest={onComposeModelQuickTest}
+              composeModelConfigured={composeModelConfigured}
               modelCatalog={modelCatalog}
               selectedModelId={selectedModelId}
               onModelSelect={onModelSelect}

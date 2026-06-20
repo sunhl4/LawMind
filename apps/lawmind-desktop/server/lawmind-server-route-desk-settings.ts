@@ -3,8 +3,10 @@
  */
 
 import { readDeskSettings, writeDeskSettings } from "../../../src/lawmind/learning/desk-settings.js";
+import { parseJsonBodyZod } from "./lawmind-api-parse.js";
+import { deskSettingsPostSchema } from "./lawmind-api-schemas.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
-import { readJsonBody, sendJson } from "./lawmind-server-helpers.js";
+import { sendJson } from "./lawmind-server-helpers.js";
 
 export async function handleDeskSettingsRoutes({
   pathname,
@@ -25,7 +27,7 @@ export async function handleDeskSettingsRoutes({
   }
 
   if (req.method === "POST") {
-    const body = (await readJsonBody(req)) as { contractBatchRelativeDir?: string | null };
+    const body = await parseJsonBodyZod(req, deskSettingsPostSchema);
     try {
       const settings = await writeDeskSettings(workspaceDir, {
         contractBatchRelativeDir: body.contractBatchRelativeDir,

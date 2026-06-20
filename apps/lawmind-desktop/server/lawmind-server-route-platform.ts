@@ -3,8 +3,10 @@ import {
   mergeWorkspacePolicyFile,
   readWorkspacePolicyFile,
 } from "../../../src/lawmind/policy/workspace-policy.js";
+import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
+import { workspacePolicyPatchSchema } from "./lawmind-api-schemas.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
-import { isLawMindHttpError, readJsonBody, sendJson } from "./lawmind-server-helpers.js";
+import { isLawMindHttpError, sendJson } from "./lawmind-server-helpers.js";
 
 export async function handlePlatformRoutes({
   ctx,
@@ -30,19 +32,17 @@ export async function handlePlatformRoutes({
   }
 
   if (pathname === "/api/policy/workspace" && req.method === "PATCH") {
-    let body: { highSecurityMode?: unknown };
+    let body;
     try {
-      body = (await readJsonBody(req)) as { highSecurityMode?: unknown };
+      body = await parseJsonBodyZod(req, workspacePolicyPatchSchema);
     } catch (e) {
       if (isLawMindHttpError(e)) {
         sendJson(res, e.status, { ok: false, message: e.message }, c);
+      } else if (isInvalidRequestBodyError(e)) {
+        sendJson(res, 400, { ok: false, message: "highSecurityMode must be boolean" }, c);
       } else {
         sendJson(res, 400, { ok: false, message: "invalid json" }, c);
       }
-      return true;
-    }
-    if (typeof body.highSecurityMode !== "boolean") {
-      sendJson(res, 400, { ok: false, message: "highSecurityMode must be boolean" }, c);
       return true;
     }
     const merged = mergeWorkspacePolicyFile(ctx.workspaceDir, {

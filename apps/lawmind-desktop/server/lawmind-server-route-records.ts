@@ -14,12 +14,17 @@ import { listTaskRecords, readTaskRecord } from "../../../src/lawmind/tasks/inde
 import { taskRecordStatusLabel } from "../../../src/lawmind/tasks/status-label.js";
 import { getLiveTurnProgress } from "../../../src/lawmind/agent/live-turn-progress.js";
 import { isSafeTaskIdSegment } from "./safe-task-id.js";
+import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
+import {
+  sessionCreatePostSchema,
+  sessionDeletePostSchema,
+  sessionPatchTitleSchema,
+} from "./lawmind-api-schemas.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import {
   filterTaskSummaries,
   isLawMindHttpError,
   parseQueryTimeMs,
-  readJsonBody,
   resolveDesktopActorId,
   sendJson,
   taskToSummary,
@@ -123,19 +128,10 @@ export async function handleRecordRoutes({
 
   if (pathname === "/api/sessions" && req.method === "POST") {
     try {
-      const body = (await readJsonBody(req)) as {
-        assistantId?: unknown;
-        matterId?: unknown;
-        title?: unknown;
-      };
-      const assistantId =
-        typeof body.assistantId === "string" && body.assistantId.trim()
-          ? body.assistantId.trim()
-          : DEFAULT_ASSISTANT_ID;
-      const matterId =
-        typeof body.matterId === "string" && body.matterId.trim() ? body.matterId.trim() : undefined;
-      const title =
-        typeof body.title === "string" && body.title.trim() ? body.title.trim().slice(0, 200) : undefined;
+      const body = await parseJsonBodyZod(req, sessionCreatePostSchema);
+      const assistantId = body.assistantId?.trim() || DEFAULT_ASSISTANT_ID;
+      const matterId = body.matterId?.trim() || undefined;
+      const title = body.title?.trim() ? body.title.trim().slice(0, 200) : undefined;
       const session = createSession({
         workspaceDir,
         matterId,
@@ -165,27 +161,21 @@ export async function handleRecordRoutes({
 
   /** 与 DELETE 等价；桌面端用 POST 避免部分环境下 DELETE 预检失败（Failed to fetch）。 */
   if (pathname === "/api/sessions/delete" && req.method === "POST") {
-    let body: { sessionId?: unknown; assistantId?: unknown };
+    let body;
     try {
-      body = (await readJsonBody(req)) as { sessionId?: unknown; assistantId?: unknown };
+      body = await parseJsonBodyZod(req, sessionDeletePostSchema);
     } catch (e) {
       if (isLawMindHttpError(e)) {
         sendJson(res, e.status, { ok: false, message: e.message }, c);
+      } else if (isInvalidRequestBodyError(e)) {
+        sendJson(res, 400, { ok: false, code: "session_id_required", message: "sessionId is required" }, c);
       } else {
         sendJson(res, 400, { ok: false, message: "invalid_request" }, c);
       }
       return true;
     }
-    const sessionId =
-      typeof body.sessionId === "string" && body.sessionId.trim() ? body.sessionId.trim() : "";
-    if (!sessionId) {
-      sendJson(res, 400, { ok: false, code: "session_id_required", message: "sessionId is required" }, c);
-      return true;
-    }
-    const assistantId =
-      typeof body.assistantId === "string" && body.assistantId.trim()
-        ? body.assistantId.trim()
-        : DEFAULT_ASSISTANT_ID;
+    const sessionId = body.sessionId;
+    const assistantId = body.assistantId?.trim() || DEFAULT_ASSISTANT_ID;
     const out = performSessionDelete(workspaceDir, sessionId, assistantId);
     sendJson(res, out.status, out.payload, c);
     return true;
@@ -220,9 +210,9 @@ export async function handleRecordRoutes({
   if (sessionItemMatch && req.method === "PATCH") {
     const sessionId = sessionItemMatch[1];
     const assistantId = url.searchParams.get("assistantId")?.trim() || DEFAULT_ASSISTANT_ID;
-    let body: { title?: unknown };
+    let body;
     try {
-      body = (await readJsonBody(req)) as { title?: unknown };
+      body = await parseJsonBodyZod(req, sessionPatchTitleSchema);
     } catch (e) {
       if (isLawMindHttpError(e)) {
         sendJson(res, e.status, { ok: false, message: e.message }, c);
@@ -231,7 +221,7 @@ export async function handleRecordRoutes({
       }
       return true;
     }
-    const nextTitle = typeof body.title === "string" ? body.title : "";
+    const nextTitle = body.title;
     const session = loadSession(workspaceDir, sessionId);
     if (!session) {
       sendJson(res, 404, { ok: false, code: "not_found", message: "session not found" }, c);

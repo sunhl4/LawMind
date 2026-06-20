@@ -6,7 +6,7 @@
   "description": "LawMind desktop app (Electron) — chat, tasks, and delivery history",
   "main": "electron/main.mjs",
   "scripts": {
-    "dev": "concurrently -k -s first \"vite dev --port 5174\" \"wait-on http-get://127.0.0.1:5174 && electron electron/main.mjs\"",
+    "dev": "node ../../scripts/lawmind/ensure-desktop-dev-port.mjs && concurrently -k -s first \"vite dev --port 5174\" \"wait-on http-get://127.0.0.1:5174 && electron electron/main.mjs\"",
     "build:renderer": "vite build",
     "bundle:server": "pnpm -w lawmind:bundle:desktop-server",
     "vendor:node": "pnpm -w lawmind:vendor:desktop-node",

@@ -20,10 +20,11 @@ import {
   executeWorkflow as runCollaborationWorkflow,
 } from "../../../src/lawmind/agent/orchestrator/index.js";
 import { isValidMatterId } from "../../../src/lawmind/cases/index.js";
+import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
+import { delegationCreateRequestSchema, workflowRunRequestSchema } from "./lawmind-api-schemas.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import {
   buildAgentConfig,
-  readJsonBody,
   resolveModelCallHttpError,
   sendJson,
 } from "./lawmind-server-helpers.js";
@@ -165,23 +166,20 @@ export async function handleCollaborationRoutes({
       );
       return true;
     }
-    const body = (await readJsonBody(req)) as {
-      fromAssistantId?: string;
-      toAssistantId?: string;
-      task?: string;
-      matterId?: string;
-      priority?: "normal" | "high" | "low";
-      parentSessionId?: string;
-      modelId?: string;
-    };
-    const fromRaw = typeof body.fromAssistantId === "string" ? body.fromAssistantId.trim() : "";
-    const toRaw = typeof body.toAssistantId === "string" ? body.toAssistantId.trim() : "";
-    const task = typeof body.task === "string" ? body.task.trim() : "";
-    if (!fromRaw || !toRaw || !task) {
-      sendJson(res, 400, { ok: false, error: "from_to_task_required" }, c);
-      return true;
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, delegationCreateRequestSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "from_to_task_required" }, c);
+        return true;
+      }
+      throw err;
     }
-    const requestModelRaw = typeof body.modelId === "string" ? body.modelId.trim() : "";
+    const fromRaw = body.fromAssistantId;
+    const toRaw = body.toAssistantId;
+    const task = body.task;
+    const requestModelRaw = body.modelId ?? "";
     const built = buildAgentConfig(workspaceDir, {
       envFile: ctx.envFile,
       ...(requestModelRaw ? { modelId: requestModelRaw } : {}),
@@ -220,11 +218,9 @@ export async function handleCollaborationRoutes({
       sendJson(res, 400, { ok: false, error: "delegation_rejected", message: validationError }, c);
       return true;
     }
-    const matterId = typeof body.matterId === "string" ? body.matterId.trim() : undefined;
-    const priority =
-      body.priority === "high" || body.priority === "low" ? body.priority : "normal";
-    const parentSessionId =
-      typeof body.parentSessionId === "string" ? body.parentSessionId.trim() : undefined;
+    const matterId = body.matterId?.trim() || undefined;
+    const priority = body.priority ?? "normal";
+    const parentSessionId = body.parentSessionId?.trim() || undefined;
     const result = startDelegation({
       baseConfig: { ...built.config, assistantId: fromId, actorId: `assistant:${fromId}` },
       workspaceDir,
@@ -331,22 +327,18 @@ export async function handleCollaborationRoutes({
       );
       return true;
     }
-    const body = (await readJsonBody(req)) as {
-      templateId?: string;
-      matterId?: string;
-      assistantId?: string;
-      /** 桌面模型目录 id，与 `/api/chat` 一致；缺省则用工作区默认模型 */
-      modelId?: string;
-      vars?: Record<string, string>;
-      async?: boolean;
-      idempotencyKey?: string;
-    };
-    const templateId = typeof body.templateId === "string" ? body.templateId.trim() : "";
-    if (!templateId) {
-      sendJson(res, 400, { ok: false, error: "templateId_required" }, c);
-      return true;
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, workflowRunRequestSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "templateId_required" }, c);
+        return true;
+      }
+      throw err;
     }
-    const matterRaw = typeof body.matterId === "string" ? body.matterId.trim() : "";
+    const templateId = body.templateId;
+    const matterRaw = body.matterId ?? "";
     if (matterRaw && !isValidMatterId(matterRaw)) {
       sendJson(res, 400, { ok: false, error: "invalid_matter_id" }, c);
       return true;
@@ -362,7 +354,7 @@ export async function handleCollaborationRoutes({
         : (template.requiredSources?.length ?? 0) > 0
           ? `本工作流建议绑定来源：${template.requiredSources!.join("、")}。`
           : undefined;
-    const requestModelRaw = typeof body.modelId === "string" ? body.modelId.trim() : "";
+    const requestModelRaw = body.modelId ?? "";
     const built = buildAgentConfig(workspaceDir, {
       envFile: ctx.envFile,
       ...(requestModelRaw ? { modelId: requestModelRaw } : {}),
@@ -387,7 +379,7 @@ export async function handleCollaborationRoutes({
       );
       return true;
     }
-    const assistantId = typeof body.assistantId === "string" ? body.assistantId.trim() : "";
+    const assistantId = body.assistantId ?? "";
     const baseConfig = {
       ...built.config,
       ...(assistantId ? { assistantId, actorId: `assistant:${assistantId}` } : {}),
@@ -395,23 +387,18 @@ export async function handleCollaborationRoutes({
     const workflow = instantiateCollaborationWorkflowFromTemplate(template, {
       matterId: matterRaw || undefined,
       createdBy: assistantId || baseConfig.assistantId || baseConfig.actorId,
-      vars: body.vars && typeof body.vars === "object" ? body.vars : undefined,
+      vars: body.vars,
     });
     if (body.async === true) {
-      const idempotencyKey =
-        typeof body.idempotencyKey === "string" ? body.idempotencyKey : undefined;
-      const scheduleRunAt =
-        typeof body.scheduleRunAt === "string" ? body.scheduleRunAt.trim() : undefined;
+      const idempotencyKey = body.idempotencyKey;
+      const scheduleRunAt = body.scheduleRunAt;
       const lawMindRoot = resolveLawMindRoot(workspaceDir, ctx.envFile);
       const memoryBundleSnapshot = collectWorkflowMemoryBundle(lawMindRoot, workflow);
       const jobId = enqueueWorkflowRun(baseConfig, workflow, {
         idempotencyKey,
         scheduleRunAt,
         templateId,
-        workflowVars:
-          body.vars && typeof body.vars === "object"
-            ? (body.vars)
-            : undefined,
+        workflowVars: body.vars,
         createdByAssistantId: assistantId || baseConfig.assistantId,
         memoryBundleSnapshot,
       });

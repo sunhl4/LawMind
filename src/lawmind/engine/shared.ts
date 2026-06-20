@@ -131,7 +131,7 @@ export function persistDraftPipeline(
           instruction: draft.summary,
           summary: draft.summary,
           riskLevel: spec?.defaultRiskLevel ?? ("medium" as const),
-          models: ["legal"],
+          models: ["legal" as const],
           requiresConfirmation: false,
           createdAt: draft.createdAt,
           matterId: draft.matterId,

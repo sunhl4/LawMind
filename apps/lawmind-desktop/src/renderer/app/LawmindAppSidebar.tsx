@@ -5,15 +5,20 @@ import { LawmindMatterSidebarList } from "../LawmindMatterSidebarList";
 import type { MatterSidebarRow } from "../lawmind-records-desk-state";
 import type { CollabSummaryState } from "../LawmindSettingsCollaboration";
 
+import { LawmindSideExplorerSkeleton } from "./LawmindSideExplorerSkeleton";
+
 export type LawmindAppSidebarProps = {
   showAppSidebar: boolean;
   sidebarCollapsed: boolean;
   sidebarWidth: number;
   showSidebarWorkbenchFiles: boolean;
+  showExplorerSkeleton: boolean;
   showCollaborationSidebar: boolean;
   onSidebarResizePointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
   onOpenHelp: () => void;
   onOpenSettings: () => void;
+  onCloseSettings: () => void;
+  settingsOpen: boolean;
   setFileExplorerHost: (el: HTMLDivElement | null) => void;
   actionSummaryTotal: number;
   actionSummaryActiveJobs: number;
@@ -43,10 +48,13 @@ function LawmindAppSidebarImpl({
   sidebarCollapsed,
   sidebarWidth,
   showSidebarWorkbenchFiles,
+  showExplorerSkeleton,
   showCollaborationSidebar,
   onSidebarResizePointerDown,
   onOpenHelp,
   onOpenSettings,
+  onCloseSettings,
+  settingsOpen,
   setFileExplorerHost,
   actionSummaryTotal,
   actionSummaryActiveJobs,
@@ -73,6 +81,21 @@ function LawmindAppSidebarImpl({
   if (!showAppSidebar) {
     return null;
   }
+
+  const showWorkspaceMatterList = mainView === "workspace" && !showCollaborationSidebar;
+
+  const matterListClassName = (() => {
+    if (!showWorkspaceMatterList) {
+      return undefined;
+    }
+    if (showSidebarWorkbenchFiles && !matterCockpitOpen) {
+      return "lm-matter-sidebar-list--stacked";
+    }
+    if (!showSidebarWorkbenchFiles && !matterCockpitOpen) {
+      return "lm-matter-sidebar-list--fill";
+    }
+    return undefined;
+  })();
 
   return (
     <>
@@ -104,10 +127,11 @@ function LawmindAppSidebarImpl({
           </button>
           <button
             type="button"
-            className="lm-gear-btn"
-            onClick={onOpenSettings}
-            aria-label="设置"
-            title="设置"
+            className={`lm-gear-btn${settingsOpen ? " is-active" : ""}`}
+            onClick={settingsOpen ? onCloseSettings : onOpenSettings}
+            aria-label={settingsOpen ? "关闭设置" : "设置"}
+            aria-pressed={settingsOpen}
+            title={settingsOpen ? "关闭设置" : "设置"}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path d="M6.5.75h3l.3 1.77a5.5 5.5 0 0 1 1.28.74l1.72-.58 1.5 2.6-1.42 1.19a5.6 5.6 0 0 1 0 1.06l1.42 1.19-1.5 2.6-1.72-.58a5.5 5.5 0 0 1-1.28.74l-.3 1.77h-3l-.3-1.77a5.5 5.5 0 0 1-1.28-.74l-1.72.58-1.5-2.6 1.42-1.19a5.6 5.6 0 0 1 0-1.06L1.7 5.28l1.5-2.6 1.72.58a5.5 5.5 0 0 1 1.28-.74L6.5.75Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
@@ -120,7 +144,9 @@ function LawmindAppSidebarImpl({
             ref={setFileExplorerHost}
             className="lm-side-explorer-host"
             aria-label="材料资源树"
-          />
+          >
+            {showExplorerSkeleton ? <LawmindSideExplorerSkeleton /> : null}
+          </div>
         ) : null}
         {showCollaborationSidebar ? (
           <LawmindCollaborationSidebar
@@ -144,11 +170,18 @@ function LawmindAppSidebarImpl({
             collaborationHint={collabSummarySettings?.collaborationHint}
           />
         ) : null}
-        {matterCockpitOpen && mainView === "workspace" ? (
+        {showWorkspaceMatterList ? (
           <LawmindMatterSidebarList
+            className={matterListClassName}
             rows={matterSidebarRows}
             selectedKey={selectedMatterKey}
-            onSelect={(mid) => onSelectMatterKey(mid)}
+            onSelect={(mid) => {
+              if (matterCockpitOpen) {
+                onSelectMatterKey(mid);
+              } else {
+                onSelectMatterForCockpit(mid);
+              }
+            }}
           />
         ) : null}
         <div className="lm-side-footer">

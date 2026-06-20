@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { AssistantOrgRole, AssistantRow } from "./lawmind-settings-models.ts";
 import type { PresetRow } from "./lawmind-app-data";
 import { apiSendJson } from "./api-client";
+import type { AssistantUpsertRequest } from "./lawmind-api-request-types.ts";
+import { apiPatchAssistant, apiPost } from "./lawmind-api-routes.ts";
 import {
   buildQuickCreateDraft,
   presetSummary,
@@ -60,24 +62,7 @@ export async function saveAssistantDraft(args: {
   draft: AssistantEditorDraft;
 }): Promise<{ assistant?: AssistantRow }> {
   const { apiBase, editingAssistantId, draft } = args;
-  const path =
-    editingAssistantId === null
-      ? "/api/assistants"
-      : `/api/assistants/${encodeURIComponent(editingAssistantId)}`;
-  const method = editingAssistantId === null ? "POST" : "PATCH";
-  return apiSendJson<
-    { ok?: boolean; error?: string; assistant?: AssistantRow },
-    {
-      displayName: string;
-      introduction: string;
-      presetKey?: string;
-      customRoleTitle?: string;
-      customRoleInstructions?: string;
-      orgRole?: string;
-      reportsToAssistantId?: string;
-      peerReviewDefaultAssistantId?: string;
-    }
-  >(apiBase, path, method, {
+  const body: AssistantUpsertRequest = {
     displayName: draft.displayName.trim(),
     introduction: draft.introduction.trim(),
     presetKey: draft.presetKey.trim() || undefined,
@@ -86,7 +71,19 @@ export async function saveAssistantDraft(args: {
     orgRole: draft.orgRole || undefined,
     reportsToAssistantId: draft.reportsToAssistantId.trim() || undefined,
     peerReviewDefaultAssistantId: draft.peerReviewDefaultAssistantId.trim() || undefined,
-  });
+  };
+  if (editingAssistantId === null) {
+    return apiPost(apiBase, "/api/assistants", body) as Promise<{
+      ok?: boolean;
+      error?: string;
+      assistant?: AssistantRow;
+    }>;
+  }
+  return apiPatchAssistant(apiBase, editingAssistantId, body) as Promise<{
+    ok?: boolean;
+    error?: string;
+    assistant?: AssistantRow;
+  }>;
 }
 
 export async function deleteAssistant(apiBase: string, assistantId: string): Promise<void> {

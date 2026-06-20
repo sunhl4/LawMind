@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
+import { apiGetJson, errorMessage } from "./api-client";
+import { apiPatch } from "./lawmind-api-routes.ts";
 
 type ToolRow = {
   name: string;
@@ -45,12 +46,7 @@ export function LawmindSettingsTools(props: Props): ReactNode {
     setPolicyBusy(true);
     try {
       const next = !highSecurityMode;
-      const r = await apiSendJson<{ ok?: boolean; highSecurityMode?: boolean }, { highSecurityMode: boolean }>(
-        apiBase,
-        "/api/policy/workspace",
-        "PATCH",
-        { highSecurityMode: next },
-      );
+      const r = await apiPatch(apiBase, "/api/policy/workspace", { highSecurityMode: next });
       setHighSecurityMode(r.highSecurityMode === true);
     } catch (e) {
       setError(errorMessage(e, "更新高安全模式失败"));

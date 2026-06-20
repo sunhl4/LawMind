@@ -8,15 +8,15 @@
 
 ## 1) 源文件
 
-| 区域                | 路径                                                                                                    |
-| ------------------- | ------------------------------------------------------------------------------------------------------- |
-| 设计令牌 + 全局样式 | `apps/lawmind-desktop/src/renderer/styles.css`（`:root` 与各 `lm-*` 类）                                |
-| 分栏与拖拽尺寸      | `apps/lawmind-desktop/src/renderer/lawmind-panel-layout.ts`、`use-pane-resize.ts`（若存在）             |
-| 主壳                | `App.tsx`、`lawmind-chat-shell.tsx`、`lawmind-sidebar.tsx`                                              |
-| 模态/向导           | `LawmindApiSetupWizard.tsx`、`LawmindFirstRunDialog.tsx`、`lawmind-settings-shell.tsx`、`HelpPanel.tsx` |
-| 业务工作台          | `MatterWorkbench.tsx`、`ReviewWorkbench.tsx`、`FileWorkbench.tsx`                                       |
-| Electron 主进程     | `apps/lawmind-desktop/electron/main.mjs`（窗口、菜单、`openExternal`、新窗口外开）                      |
-| Preload             | `apps/lawmind-desktop/electron/preload.cjs`                                                             |
+| 区域                | 路径                                                                                                                                                                   |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 设计令牌 + 全局样式 | `apps/lawmind-desktop/src/renderer/styles.css`；模块化源文件见 `styles/tokens.css`、`styles/*.css` 与 `styles/README.md`                                               |
+| 分栏与拖拽尺寸      | `apps/lawmind-desktop/src/renderer/lawmind-panel-layout.ts`、`use-pane-resize.ts`（若存在）                                                                            |
+| 主壳                | `lawmind-app-root.tsx`、`app/LawmindAppRootView.tsx`、`app/LawmindAppSidebar.tsx`、`app/LawmindAppHeader.tsx`、`lawmind-chat-shell.tsx`                                |
+| 模态/向导           | `app/LawmindAppOverlays.tsx`、`app/LawmindAppRootDialogs.tsx`、`LawmindApiSetupWizard.tsx`、`LawmindFirstRunDialog.tsx`、`lawmind-settings-shell.tsx`、`HelpPanel.tsx` |
+| 业务工作台          | `app/MatterView.tsx`、`ReviewWorkbench.tsx`、`FileWorkbench.tsx`、`app/LawmindFileWorkbenchHost.tsx`                                                                   |
+| Electron 主进程     | `apps/lawmind-desktop/electron/main.mjs`（窗口、菜单、`openExternal`、新窗口外开）                                                                                     |
+| Preload             | `apps/lawmind-desktop/electron/preload.cjs`                                                                                                                            |
 
 **原则**：语义色与间距优先用 **CSS 变量** 或 **已有 `lm-*` 类**；仅**运行时几何**（分栏宽度、菜单位置、树节点缩进等）使用内联 `style`。
 

@@ -21,12 +21,9 @@ import {
   draftDocumentEditorValueToPatch,
   type DraftDocumentEditorValue,
 } from "./lawmind-draft-document-editor";
-import {
-  apiGetJson,
-  apiSendJson,
-  errorMessage,
-  messageFromOkFalseBody,
-} from "./api-client";
+import { apiGetJson, errorMessage, messageFromOkFalseBody } from "./api-client";
+import type { DraftContentPatchBody } from "./lawmind-api-request-types.ts";
+import { apiPatchDraftContent } from "./lawmind-api-routes.ts";
 import { useEdition } from "./use-edition";
 import { LM_PANE_MIN_WIDTH_PX } from "./lawmind-panel-layout";
 import {
@@ -227,23 +224,19 @@ export function ReviewWorkbench(props: Props) {
     setEditorSaving(true);
     setEditorSaveError(null);
     try {
-      const j = await apiSendJson<
-        {
-          ok?: boolean;
-          error?: string;
-          draft?: ArtifactDraft;
-          citationIntegrity?: DraftCitationIntegrityView;
-          acceptance?: AcceptanceReport;
-          executionState?: TaskExecutionState;
-          gateDecisions?: GateDecision[];
-        },
-        ReturnType<typeof draftDocumentEditorValueToPatch>
-      >(
+      const j = (await apiPatchDraftContent(
         apiBase,
-        `/api/drafts/${encodeURIComponent(selectedTaskId)}/content`,
-        "PATCH",
-        draftDocumentEditorValueToPatch(editorValue),
-      );
+        selectedTaskId,
+        draftDocumentEditorValueToPatch(editorValue) as DraftContentPatchBody,
+      )) as {
+        ok?: boolean;
+        error?: string;
+        draft?: ArtifactDraft;
+        citationIntegrity?: DraftCitationIntegrityView;
+        acceptance?: AcceptanceReport;
+        executionState?: TaskExecutionState;
+        gateDecisions?: GateDecision[];
+      };
       if (!j.ok || !j.draft) {
         throw new Error(messageFromOkFalseBody(j, "保存正文失败"));
       }

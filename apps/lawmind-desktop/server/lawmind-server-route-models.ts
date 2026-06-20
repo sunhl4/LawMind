@@ -10,9 +10,16 @@ import {
   setDraftWithModelEnabled,
 } from "../../../src/lawmind/models/index.js";
 import { resolveLawMindRoot } from "../../../src/lawmind/assistants/store.js";
+import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
+import {
+  modelsCustomPostSchema,
+  modelsDefaultPatchSchema,
+  modelsDraftWithModelPatchSchema,
+  modelsTestRequestSchema,
+} from "./lawmind-api-schemas.js";
 import { sendJsonError } from "./lawmind-api-error.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
-import { readJsonBody, sendJson } from "./lawmind-server-helpers.js";
+import { sendJson } from "./lawmind-server-helpers.js";
 
 function lawMindRootFromCtx(ctx: LawmindRouteContext["ctx"]): string {
   return resolveLawMindRoot(ctx.workspaceDir, ctx.envFile);
@@ -47,10 +54,10 @@ export async function handleModelsRoutes({
   }
 
   if (pathname === "/api/models/test" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as { modelId?: string };
+    const body = await parseJsonBodyZod(req, modelsTestRequestSchema);
     const modelId =
-      typeof body.modelId === "string" && body.modelId.trim()
-        ? body.modelId.trim()
+      body.modelId && body.modelId.length > 0
+        ? body.modelId
         : buildModelCatalog(lawMindRoot).defaultModelId;
     const resolved = resolveAgentModelById(lawMindRoot, modelId);
     if (!resolved.model?.apiKey) {
@@ -108,12 +115,17 @@ export async function handleModelsRoutes({
   }
 
   if (pathname === "/api/models/default" && req.method === "PATCH") {
-    const body = (await readJsonBody(req)) as { modelId?: string };
-    const modelId = typeof body.modelId === "string" ? body.modelId.trim() : "";
-    if (!modelId) {
-      sendJsonError(res, 400, "model_id_required", "请选择要设为默认的模型。", c);
-      return true;
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, modelsDefaultPatchSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJsonError(res, 400, "model_id_required", "请选择要设为默认的模型。", c);
+        return true;
+      }
+      throw err;
     }
+    const modelId = body.modelId;
     const catalog = buildModelCatalog(lawMindRoot);
     const row = catalog.models.find((m) => m.id === modelId);
     if (!row) {
@@ -130,10 +142,15 @@ export async function handleModelsRoutes({
   }
 
   if (pathname === "/api/models/draft-with-model" && req.method === "PATCH") {
-    const body = (await readJsonBody(req)) as { enabled?: boolean };
-    if (typeof body.enabled !== "boolean") {
-      sendJsonError(res, 400, "enabled_required", "请指定是否开启起草阶段大模型。", c);
-      return true;
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, modelsDraftWithModelPatchSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJsonError(res, 400, "enabled_required", "请指定是否开启起草阶段大模型。", c);
+        return true;
+      }
+      throw err;
     }
     if (body.enabled) {
       const catalog = buildModelCatalog(lawMindRoot);
@@ -165,21 +182,14 @@ export async function handleModelsRoutes({
   }
 
   if (pathname === "/api/models/custom" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as {
-      label?: string;
-      baseUrl?: string;
-      model?: string;
-      apiKey?: string;
-      setAsDefault?: boolean;
-      keyStorage?: "keychain" | "env";
-    };
-    const rawApiKey = typeof body.apiKey === "string" ? body.apiKey : "";
+    const body = await parseJsonBodyZod(req, modelsCustomPostSchema);
+    const rawApiKey = body.apiKey ?? "";
     const allowKeyless = body.keyStorage === "keychain" || rawApiKey === "";
     try {
       const row = addCustomModel(lawMindRoot, {
-        label: typeof body.label === "string" ? body.label : "",
-        baseUrl: typeof body.baseUrl === "string" ? body.baseUrl : "",
-        model: typeof body.model === "string" ? body.model : "",
+        label: body.label ?? "",
+        baseUrl: body.baseUrl ?? "",
+        model: body.model ?? "",
         apiKey: rawApiKey,
         allowKeylessIfKeychain: allowKeyless,
       });

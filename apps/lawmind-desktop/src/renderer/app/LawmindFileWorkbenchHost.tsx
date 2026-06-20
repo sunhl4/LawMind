@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { FileWorkbench, type FileWorkbenchCasesNodeActions } from "../FileWorkbench";
 import type { RootKey } from "../file/file-workbench-types";
 
@@ -8,6 +8,7 @@ export type LawmindFileWorkbenchHostProps = {
   projectDir: string | null;
   fileExplorerHost: HTMLDivElement | null;
   fileEditorHost: HTMLDivElement | null;
+  onExplorerPortaled?: (portaled: boolean) => void;
   onAddToChatContext: (payload: { root: RootKey; relPath: string; kind: "file" | "directory" }) => void;
   mattersPickList: Array<{ id: string; label: string }>;
   workspaceTreeRefreshKey: number;
@@ -24,6 +25,7 @@ function LawmindFileWorkbenchHostImpl({
   projectDir,
   fileExplorerHost,
   fileEditorHost,
+  onExplorerPortaled,
   onAddToChatContext,
   mattersPickList,
   workspaceTreeRefreshKey,
@@ -33,6 +35,12 @@ function LawmindFileWorkbenchHostImpl({
   onToggleMatterCockpit,
   casesNodeActions,
 }: LawmindFileWorkbenchHostProps) {
+  useEffect(() => {
+    const portaled = Boolean(showSidebarWorkbenchFiles && fileExplorerHost);
+    onExplorerPortaled?.(portaled);
+    return () => onExplorerPortaled?.(false);
+  }, [showSidebarWorkbenchFiles, fileExplorerHost, onExplorerPortaled]);
+
   if (!showSidebarWorkbenchFiles || !fileExplorerHost) {
     return null;
   }

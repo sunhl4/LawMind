@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { LawmindModelPicker } from "./LawmindModelPicker";
+import { composeModelHintCalloutClass } from "./lawmind-compose-model-hint";
 import type { ModelCatalogEntry } from "./lawmind-models-api";
 
 export type LawmindCollabComposeModelProps = {
@@ -54,7 +55,14 @@ export function LawmindCollaborationComposeModelRail(props: LawmindCollabCompose
         </label>
       </div>
       {(composeModelHint?.trim() || composeModelQuickTestBusy) ? (
-        <div className="lm-compose-model-hint lm-collab-model-rail-hint" role="status">
+        <div
+          className={composeModelHintCalloutClass(
+            composeModelHint,
+            composeModelQuickTestBusy,
+            "lm-collab-model-rail-hint",
+          )}
+          role="status"
+        >
           {composeModelQuickTestBusy && !(composeModelHint ?? "").trim()
             ? "正在测试模型连接…"
             : (composeModelHint ?? "").trim()}

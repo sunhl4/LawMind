@@ -1,0 +1,10 @@
+{
+  "description": "Coverage ratchet floors (see scripts/pre-commit/check-coverage-ratchet.mjs). Update with --update after intentional coverage gains.",
+  "tolerancePct": 0.5,
+  "floors": {
+    "statements": 42.53,
+    "branches": 33.07,
+    "functions": 40.37,
+    "lines": 42.77
+  }
+}

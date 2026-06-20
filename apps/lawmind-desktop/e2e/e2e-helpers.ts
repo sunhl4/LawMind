@@ -12,6 +12,7 @@ export function e2eMockApiBase(): string {
 export function installE2eBrowserPrefs(page: { addInitScript: Page["addInitScript"] }): Promise<void> {
   return page.addInitScript((firstRunKey) => {
     localStorage.setItem(firstRunKey, "1");
+    localStorage.setItem("lawmind.ui.sidebarCollapsed", "0");
     const reviewPaneKeys = [
       "lawmind.ui.reviewPaneMeta",
       "lawmind.ui.reviewPaneEditor",
@@ -32,6 +33,7 @@ export function installE2eFirstRunDismiss(page: { addInitScript: Page["addInitSc
 export async function bootstrapE2ePage(page: Page): Promise<void> {
   await page.evaluate((firstRunKey) => {
     localStorage.setItem(firstRunKey, "1");
+    localStorage.setItem("lawmind.ui.sidebarCollapsed", "0");
     const reviewPaneKeys = [
       "lawmind.ui.reviewPaneMeta",
       "lawmind.ui.reviewPaneEditor",
@@ -82,10 +84,62 @@ export async function gotoShell(page: Page): Promise<void> {
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await expect(page.locator(".lm-shell")).toBeVisible({ timeout: 60_000 });
   await dismissBlockingDialogs(page);
-  await page
-    .waitForResponse((res) => res.url().includes("/api/models") && res.ok(), { timeout: 30_000 })
-    .catch(() => undefined);
+  await Promise.all([
+    page
+      .waitForResponse((res) => res.url().includes("/api/models") && res.ok(), { timeout: 30_000 })
+      .catch(() => undefined),
+    page
+      .waitForResponse((res) => res.url().includes("/api/bootstrap") && res.ok(), { timeout: 30_000 })
+      .catch(() => undefined),
+    page
+      .waitForResponse((res) => res.url().includes("/api/matters/overviews") && res.ok(), {
+        timeout: 30_000,
+      })
+      .catch(() => undefined),
+  ]);
   await expect(page.locator(".lm-readiness-strip")).toHaveCount(0, { timeout: 30_000 });
+  await expect(page.getByRole("navigation", { name: "功能模块" })).toBeVisible({ timeout: 30_000 });
+  // Wait for API-backed chrome (mock: actionSummary.total=1) — use header trigger to avoid sidebar ambiguity
+  await expect(page.locator(".lm-action-hub-trigger")).toBeVisible({ timeout: 60_000 });
+}
+
+async function leaveSettingsIfOpen(page: Page): Promise<void> {
+  const settingsRegion = page.getByRole("region", { name: "设置" });
+  if (await settingsRegion.isVisible().catch(() => false)) {
+    await page.keyboard.press("Escape");
+    await expect(settingsRegion).toHaveCount(0, { timeout: 15_000 });
+  }
+}
+
+export async function openReviewWorkbench(page: Page): Promise<void> {
+  await dismissBlockingDialogs(page);
+  await leaveSettingsIfOpen(page);
+
+  // Click the review tab using Playwright's native click
+  const reviewTab = page.locator('nav[aria-label="功能模块"] >> button:text-is("审核")');
+  await expect(reviewTab).toBeVisible({ timeout: 30_000 });
+  await reviewTab.click();
+
+  // Wait for either the review workbench OR workspace pane to still be present.
+  // If clicking worked, we should see .lm-review-workbench-root or .lm-main-workbench containing it.
+  await page.waitForFunction(
+    () => document.querySelector(".lm-review-workbench-root") !== null,
+    { timeout: 60_000 }
+  );
+}
+
+/** Open matter cockpit in browser E2E (no Electron filesystem bridge). */
+export async function openMatterCockpit(page: Page): Promise<void> {
+  await dismissBlockingDialogs(page);
+  const mainNav = page.getByRole("navigation", { name: "功能模块" });
+  await expect(mainNav).toBeVisible({ timeout: 30_000 });
+  const collabTab = mainNav.getByRole("button", { name: "协作", exact: true });
+  await collabTab.click({ force: true });
+  await expect(collabTab).toHaveAttribute("aria-current", "page", { timeout: 15_000 });
+  const matterRow = page.locator(".lm-matter-sidebar-list-ul button").first();
+  await expect(matterRow).toBeVisible({ timeout: 30_000 });
+  await matterRow.click({ force: true });
+  await expect(page.locator(".lm-matter-workbench").first()).toBeVisible({ timeout: 30_000 });
 }
 
 /** Inline「批准并继续」会打开 ToolApprovalDialog；确认后才会 POST /api/chat/resume。 */
@@ -103,50 +157,10 @@ export async function approveToolViaDialog(page: Page): Promise<import("@playwri
 export async function openWorkspaceChat(page: Page): Promise<void> {
   await dismissBlockingDialogs(page);
   const mainNav = page.getByRole("navigation", { name: "功能模块" });
-  const chatTab = mainNav.getByRole("button", { name: "写文稿" });
+  const chatTab = mainNav.getByRole("button", { name: "对话" });
   await chatTab.click({ force: true });
   await expect(chatTab).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("region", { name: "对话消息" })).toBeVisible({ timeout: 30_000 });
-}
-
-async function leaveSettingsIfOpen(page: Page): Promise<void> {
-  const closeSettings = page.getByRole("button", { name: "关闭设置" });
-  if (await closeSettings.isVisible().catch(() => false)) {
-    await closeSettings.click({ force: true });
-  }
-  const backFromSettings = page.getByRole("button", { name: "← 返回" });
-  if (await backFromSettings.isVisible().catch(() => false)) {
-    await backFromSettings.click({ force: true });
-  }
-}
-
-export async function openReviewWorkbench(page: Page): Promise<void> {
-  await dismissBlockingDialogs(page);
-  await leaveSettingsIfOpen(page);
-  const mainNav = page.getByRole("navigation", { name: "功能模块" });
-  await expect(mainNav).toBeVisible({ timeout: 30_000 });
-  const reviewTab = mainNav.getByRole("button", { name: "审核导出" });
-  await reviewTab.click({ force: true });
-  await expect(reviewTab).toHaveAttribute("aria-current", "page", { timeout: 15_000 });
-  await expect(page.getByRole("toolbar", { name: "审核台分栏" }).first()).toBeVisible({ timeout: 30_000 });
-}
-
-/** Open matter cockpit in browser E2E (no Electron filesystem bridge). */
-export async function openMatterCockpit(page: Page): Promise<void> {
-  await dismissBlockingDialogs(page);
-  const mainNav = page.getByRole("navigation", { name: "功能模块" });
-  await mainNav.getByRole("button", { name: "工作流" }).click({ force: true });
-  await page
-    .waitForResponse((res) => res.url().includes("/api/matters/overviews") && res.ok(), {
-      timeout: 30_000,
-    })
-    .catch(() => undefined);
-  const matterRow = page.locator(".lm-matter-sidebar-list-ul button").first();
-  await expect(matterRow).toBeVisible({ timeout: 30_000 });
-  await matterRow.click({ force: true });
-  await expect(
-    page.locator(".lm-matter-workbench, .lm-workbench-matter-list, [data-testid='lm-matter-cockpit']").first(),
-  ).toBeVisible({ timeout: 30_000 });
 }
 
 /** Open review tab, load mock draft detail, assert gate copy is visible. */

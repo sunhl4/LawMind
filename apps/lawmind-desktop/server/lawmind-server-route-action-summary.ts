@@ -8,9 +8,11 @@ import { resolveApproval } from "../../../src/lawmind/application/services/appro
 import { listApprovalRequests, listWorkQueueItems } from "../../../src/lawmind/application/services/queue-service.js";
 import { listWorkflowJobs } from "./lawmind-server-jobs.js";
 import { isValidMatterId } from "../../../src/lawmind/cases/matter-id.js";
+import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
+import { approvalResolvePostSchema } from "./lawmind-api-schemas.js";
 import { sendJsonError } from "./lawmind-api-error.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
-import { readJsonBody, resolveDesktopActorId, sendJson } from "./lawmind-server-helpers.js";
+import { resolveDesktopActorId, sendJson } from "./lawmind-server-helpers.js";
 
 function countChatRequiresActions(workspaceDir: string): number {
   let n = 0;
@@ -82,31 +84,32 @@ export async function handleActionSummaryRoutes({
   }
 
   if (pathname === "/api/approvals/resolve" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as {
-      matterId?: string;
-      approvalId?: string;
-      status?: string;
-      resolvedBy?: string;
-    };
-    const matterId = typeof body.matterId === "string" ? body.matterId.trim() : "";
-    const approvalId = typeof body.approvalId === "string" ? body.approvalId.trim() : "";
-    const statusRaw = typeof body.status === "string" ? body.status.trim() : "";
-    if (!isValidMatterId(matterId) || !approvalId) {
-      sendJsonError(res, 400, "invalid_fields", "缺少有效的 matterId 或 approvalId。", c);
-      return true;
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, approvalResolvePostSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        const issues = err.issues.join(" ");
+        if (issues.includes("status")) {
+          sendJsonError(
+            res,
+            400,
+            "invalid_status",
+            "status 须为 approved、rejected 或 needs_changes。",
+            c,
+          );
+          return true;
+        }
+        sendJsonError(res, 400, "invalid_fields", "缺少有效的 matterId 或 approvalId。", c);
+        return true;
+      }
+      throw err;
     }
-    if (
-      statusRaw !== "approved" &&
-      statusRaw !== "rejected" &&
-      statusRaw !== "needs_changes"
-    ) {
-      sendJsonError(
-        res,
-        400,
-        "invalid_status",
-        "status 须为 approved、rejected 或 needs_changes。",
-        c,
-      );
+    const matterId = body.matterId;
+    const approvalId = body.approvalId;
+    const statusRaw = body.status;
+    if (!isValidMatterId(matterId)) {
+      sendJsonError(res, 400, "invalid_fields", "缺少有效的 matterId 或 approvalId。", c);
       return true;
     }
     const resolvedBy =

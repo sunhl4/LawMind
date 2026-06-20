@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { PRACTICE_AREA_LABELS, PRACTICE_PERSONAS } from "../../../../src/lawmind/core/practice-personas.ts";
-import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
+import { apiGetJson, errorMessage } from "./api-client";
+import { apiPost } from "./lawmind-api-routes.ts";
+import type { WorkflowRunRequest } from "./lawmind-api-request-types.ts";
 import {
   sortWorkflowTemplatesForLawyer,
   workflowTemplateKindLabel,
@@ -90,11 +92,12 @@ export function LawmindWorkflowLibrary(props: Props): ReactNode {
     setRunningId(id);
     setError(null);
     try {
-      await apiSendJson(apiBase, "/api/collaboration/workflow-run", "POST", {
+      const runBody: WorkflowRunRequest = {
         templateId: id,
         matterId: matterId.trim(),
         async: true,
-      });
+      };
+      await apiPost(apiBase, "/api/collaboration/workflow-run", runBody);
       onWorkflowStarted?.();
     } catch (e) {
       setError(errorMessage(e, "启动工作流失败"));
@@ -143,11 +146,14 @@ export function LawmindWorkflowLibrary(props: Props): ReactNode {
       ) : (
         <ul className="lm-workflow-library-grid">
           {filtered.map((t) => (
-            <li key={t.id} className="lm-workflow-card">
+            <li key={t.id} className="lm-workflow-card lm-workflow-card-harvey">
               <h4>{t.name}</h4>
-              <p className="lm-meta">{t.description}</p>
+              <p className="lm-meta lm-workflow-card-lead">{t.description}</p>
               <div className="lm-workflow-card-tags">
                 <span className="lm-tag">{workflowTemplateKindLabel(t)}</span>
+                {t.deliverableType ? (
+                  <span className="lm-tag lm-tag-deliverable">{t.deliverableType}</span>
+                ) : null}
                 {t.practiceArea ? (
                   <span className="lm-tag">{PRACTICE_LABELS[t.practiceArea] ?? t.practiceArea}</span>
                 ) : null}

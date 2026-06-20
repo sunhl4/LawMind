@@ -359,4 +359,4 @@ pnpm lawmind:quarterly-demo
 
 ---
 
-_最后更新：2026-05-29（第十二期 W1/W3/W4 验收完成；W2 巨型文件拆分仍进行中，见上文未勾选项）。_
+_最后更新：2026-06-02（第十二期 W1–W4 验收完成；`lawmind-app-root` ≤800 行、Renderer 单测 ≥12、ReasoningGraph Doctor UI 已落地）。_

@@ -5,10 +5,12 @@ type Props = {
   rows: MatterSidebarRow[];
   selectedKey: string | null;
   onSelect: (matterId: string) => void;
+  /** e.g. `lm-matter-sidebar-list--fill` when this is the primary sidebar body. */
+  className?: string;
 };
 
 export function LawmindMatterSidebarList(props: Props): ReactNode {
-  const { rows, selectedKey, onSelect } = props;
+  const { rows, selectedKey, onSelect, className } = props;
   const [query, setQuery] = useState("");
 
   const matterRows = useMemo(() => {
@@ -26,7 +28,11 @@ export function LawmindMatterSidebarList(props: Props): ReactNode {
   }, [query, rows]);
 
   return (
-    <div className="lm-matter-sidebar-list" role="navigation" aria-label="案件快捷列表">
+    <div
+      className={`lm-matter-sidebar-list${className ? ` ${className}` : ""}`}
+      role="navigation"
+      aria-label="案件快捷列表"
+    >
       <div className="lm-matter-sidebar-list-head">
         <span className="lm-matter-sidebar-list-title">案件</span>
         <span className="lm-matter-sidebar-list-count">{matterRows.length}</span>

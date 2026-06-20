@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { apiSendJson, errorMessage, messageFromOkFalseBody } from "./api-client";
+import { errorMessage, messageFromOkFalseBody } from "./api-client";
+import { apiPost } from "./lawmind-api-routes.ts";
 
 export type LawmindCreateMatterDialogProps = {
   open: boolean;
@@ -43,10 +44,7 @@ export function LawmindCreateMatterDialog({
       if (dn) {
         payload.displayName = dn;
       }
-      const j = await apiSendJson<
-        { ok?: boolean; error?: string; matterId?: string },
-        typeof payload
-      >(base, "/api/matters/create", "POST", payload);
+      const j = await apiPost(base, "/api/matters/create", payload);
       if (!j.ok) {
         throw new Error(messageFromOkFalseBody(j, "创建案件失败"));
       }

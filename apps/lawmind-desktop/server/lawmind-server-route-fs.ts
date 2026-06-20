@@ -1,11 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
+import { parseJsonBodyZod } from "./lawmind-api-parse.js";
+import { fsWritePostSchema } from "./lawmind-api-schemas.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import {
   MAX_TEXT_READ_BYTES,
   isLikelyBinary,
   normalizeRelPath,
-  readJsonBody,
   resolveFsPath,
   resolveFsRoots,
   safeArtifactPath,
@@ -107,18 +108,12 @@ export async function handleFilesystemRoute({
   }
 
   if (pathname === "/api/fs/write" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as {
-      root?: string;
-      path?: string;
-      content?: string;
-      expectedMtimeMs?: number;
-    };
+    const body = await parseJsonBodyZod(req, fsWritePostSchema);
     const roots = resolveFsRoots(workspaceDir);
     const root = body.root ?? "workspace";
     const relPath = body.path ?? "";
-    const content = typeof body.content === "string" ? body.content : "";
-    const expectedMtimeMs =
-      typeof body.expectedMtimeMs === "number" ? body.expectedMtimeMs : undefined;
+    const content = body.content ?? "";
+    const expectedMtimeMs = body.expectedMtimeMs;
     const { full } = resolveFsPath(roots, root, relPath);
 
     let priorMtime: number | undefined;

@@ -30,12 +30,13 @@ import {
   loadAssistantProfiles,
   resolveLawMindRoot,
 } from "../../../src/lawmind/assistants/store.js";
+import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
+import { chatPostRequestSchema, chatResumeRequestSchema } from "./lawmind-api-schemas.js";
 import { sendJsonError } from "./lawmind-api-error.js";
 import { isWebSearchForcedOffByPolicy } from "./lawmind-policy.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import {
   buildAgentConfig,
-  readJsonBody,
   resolveDesktopActorId,
   resolveModelCallHttpError,
   safeOptionalProjectDir,
@@ -123,29 +124,22 @@ async function handleChatResumeRoute({
   res,
   c,
 }: LawmindRouteContext): Promise<boolean> {
-  const body = (await readJsonBody(req)) as {
-    sessionId?: string;
-    actionId?: string;
-    decision?: string;
-    editedArgs?: Record<string, unknown>;
-    clarificationAnswers?: Record<string, string>;
-  };
-  const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
-  const actionId = typeof body.actionId === "string" ? body.actionId.trim() : "";
-  const decision = body.decision;
-  if (!sessionId || !actionId || !decision) {
-    sendJsonError(res, 400, "resume_fields_required", "缺少 sessionId、actionId 或 decision。", c);
-    return true;
+  let body;
+  try {
+    body = await parseJsonBodyZod(req, chatResumeRequestSchema);
+  } catch (err) {
+    if (isInvalidRequestBodyError(err)) {
+      const issues = err.issues.join(" ");
+      if (issues.includes("decision")) {
+        sendJsonError(res, 400, "invalid_decision", "decision 须为 approve、reject、edit 或 respond。", c);
+        return true;
+      }
+      sendJsonError(res, 400, "resume_fields_required", "缺少 sessionId、actionId 或 decision。", c);
+      return true;
+    }
+    throw err;
   }
-  if (
-    decision !== "approve" &&
-    decision !== "reject" &&
-    decision !== "edit" &&
-    decision !== "respond"
-  ) {
-    sendJsonError(res, 400, "invalid_decision", "decision 须为 approve、reject、edit 或 respond。", c);
-    return true;
-  }
+  const { sessionId, actionId, decision } = body;
 
   const { workspaceDir, envFile } = ctx;
   const built = buildAgentConfig(workspaceDir, { envFile });
@@ -218,30 +212,16 @@ export async function handleChatRoute({
   }
 
   const { workspaceDir, envFile, policy: policyState } = ctx;
-  const body = (await readJsonBody(req)) as {
-    message?: string;
-    /** Built-in `builtin:*` or custom `custom:*` model id from GET /api/models */
-    modelId?: string;
-    sessionId?: string;
-    matterId?: string;
-    assistantId?: string;
-    allowWebSearch?: boolean;
-    enableCollaboration?: boolean;
-    projectDir?: string;
-    /** 请求在 JSON 体中附带引擎路由/推理模式等调试摘要（Solo 默认关闭，见下方 edition 判断）。 */
-    includeTurnDiagnostics?: boolean;
-    /** 文件页「本回合重点」结构化列表（与 message 前缀一致；可选） */
-    contextPins?: unknown;
-    /** 工作台关联的草稿/任务 ID（可选） */
-    linkedTaskId?: string;
-    /** 案件工作台「团队会议室」：注入纪要并写回 team-meeting.jsonl */
-    meetingMode?: boolean;
-    /** 随每轮请求注入用户指令（**不**写入 team-meeting.jsonl 用户行） */
-    meetingAgenda?: string;
-    /** 自动会话标题：输入框原文（与 message 中带前缀的完整正文区分） */
-    sessionTitleHint?: string;
-    permissionMode?: string;
-  };
+  let body;
+  try {
+    body = await parseJsonBodyZod(req, chatPostRequestSchema);
+  } catch (err) {
+    if (isInvalidRequestBodyError(err)) {
+      sendJsonError(res, 400, "invalid_request_body", err.message, c);
+      return true;
+    }
+    throw err;
+  }
   const message = typeof body.message === "string" ? body.message.trim() : "";
   if (!message) {
     sendJsonError(res, 400, "message_required", "请输入对话内容后再发送。", c);

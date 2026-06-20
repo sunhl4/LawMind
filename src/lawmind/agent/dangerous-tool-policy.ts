@@ -13,6 +13,8 @@ export const SUBPROCESS_SANDBOX_TOOL_NAMES = new Set<string>([
   "execute_workflow",
   "draft_document",
   "add_case_note",
+  "read_project_file",
+  "analyze_document",
 ]);
 
 export function toolRequiresSubprocessSandbox(toolName: string): boolean {

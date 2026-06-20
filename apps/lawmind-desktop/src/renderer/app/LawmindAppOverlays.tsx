@@ -2,10 +2,8 @@ import type { RefObject } from "react";
 import { HelpPanel } from "../HelpPanel";
 import { LawmindApiSetupWizard } from "../LawmindApiSetupWizard";
 import { LawmindAssistantEditorDialog, type AssistantEditorDraft } from "../lawmind-assistant-editor";
-import type { CollaborationDeskTab } from "../LawmindCollaborationDesk";
 import { LawmindDetailDialog, type DetailKind } from "../lawmind-app-detail";
 import type { AppConfig } from "../lawmind-app-bootstrap";
-import type { LawmindHealthState } from "../lawmind-app-shell";
 import { artifactApiRelFromOutput, formatLocaleDateTime } from "../lawmind-app-utils";
 import type {
   ArtifactDraft,
@@ -15,11 +13,8 @@ import type {
 import type { DraftCitationIntegrityView } from "../../../../../src/lawmind/drafts/citation-integrity.ts";
 import type { TaskCheckpoint } from "../../../../../src/lawmind/tasks/checkpoints.ts";
 import { LawmindFirstRunDialog } from "../LawmindFirstRunDialog";
-import { LawmindSettingsDialog } from "../lawmind-settings-shell";
-import type { CollabSummaryState } from "../LawmindSettingsCollaboration";
 import type { PresetRow } from "../lawmind-app-data";
 import type { AssistantRow } from "../lawmind-settings-models.ts";
-import type { ModelCatalogEntry, ProviderKeyStatus } from "../lawmind-models-api";
 
 export type LawmindAppOverlaysProps = {
   showWizard: boolean;
@@ -70,38 +65,7 @@ export type LawmindAppOverlaysProps = {
   onOpenAdvancedSettings: () => void;
   onFirstRunSeedReady: (opts: { matterId: string; seedPrompt: string }) => void;
   composeTextareaRef: RefObject<HTMLTextAreaElement | null>;
-  showSettings: boolean;
   config: AppConfig | null;
-  projectDir: string | null;
-  workspaceLabel: string;
-  health: LawmindHealthState;
-  collabSummarySettings: CollabSummaryState;
-  selectedAssistantId: string;
-  onSelectAssistantId: (assistantId: string) => void;
-  selectedAssistant: AssistantRow | undefined;
-  selectedAssistantStats: AssistantRow["stats"] | undefined;
-  retrievalLabel: string;
-  retrievalSaving: boolean;
-  draftWithModelSaving: boolean;
-  onCloseSettings: () => void;
-  onOpenNewAssistant: () => void;
-  onOpenEditAssistant: () => void;
-  onRemoveAssistant: () => void;
-  onApplyRetrievalMode: (mode: "single" | "dual") => void | Promise<void>;
-  onApplyDraftWithModelEnabled: (enabled: boolean) => void | Promise<void>;
-  onReconnectLocalService: () => void | Promise<void>;
-  localServiceReconnecting: boolean;
-  onOpenApiWizard: () => void;
-  modelProviders: ProviderKeyStatus[];
-  platformProviders: import("../lawmind-models-api").PlatformProviderKeyStatus[];
-  platformMode: "proxy" | "platform_key" | "none";
-  selectedModelId: string;
-  modelCatalog: ModelCatalogEntry[];
-  onModelsChanged: () => void | Promise<void>;
-  onPickProject: () => void;
-  onClearProject: () => void;
-  onOpenCollaborationPage: (tab: CollaborationDeskTab) => void;
-  onPrefsChange: () => void;
 };
 
 export function LawmindAppOverlays(props: LawmindAppOverlaysProps) {
@@ -154,38 +118,7 @@ export function LawmindAppOverlays(props: LawmindAppOverlaysProps) {
     onOpenAdvancedSettings,
     onFirstRunSeedReady,
     composeTextareaRef,
-    showSettings,
     config,
-    projectDir,
-    workspaceLabel,
-    health,
-    collabSummarySettings,
-    selectedAssistantId,
-    onSelectAssistantId,
-    selectedAssistant,
-    selectedAssistantStats,
-    retrievalLabel,
-    retrievalSaving,
-    draftWithModelSaving,
-    onCloseSettings,
-    onOpenNewAssistant,
-    onOpenEditAssistant,
-    onRemoveAssistant,
-    onApplyRetrievalMode,
-    onApplyDraftWithModelEnabled,
-    onReconnectLocalService,
-    localServiceReconnecting,
-    onOpenApiWizard,
-    modelProviders,
-    platformProviders,
-    platformMode,
-    selectedModelId,
-    modelCatalog,
-    onModelsChanged,
-    onPickProject,
-    onClearProject,
-    onOpenCollaborationPage,
-    onPrefsChange,
   } = props;
 
   return (
@@ -255,44 +188,6 @@ export function LawmindAppOverlays(props: LawmindAppOverlaysProps) {
           onFirstRunSeedReady({ matterId, seedPrompt });
           composeTextareaRef.current?.focus();
         }}
-      />
-      <LawmindSettingsDialog
-        open={showSettings}
-        config={config}
-        projectDir={projectDir}
-        workspaceLabel={workspaceLabel}
-        health={health}
-        collabSummarySettings={collabSummarySettings}
-        assistants={assistants}
-        selectedAssistantId={selectedAssistantId}
-        onSelectAssistantId={onSelectAssistantId}
-        selectedAssistant={selectedAssistant}
-        selectedAssistantStats={selectedAssistantStats}
-        retrievalLabel={retrievalLabel}
-        retrievalSaving={retrievalSaving}
-        draftWithModelSaving={draftWithModelSaving}
-        onClose={onCloseSettings}
-        onOpenNewAssistant={onOpenNewAssistant}
-        onOpenEditAssistant={onOpenEditAssistant}
-        onRemoveAssistant={() =>  onRemoveAssistant()}
-        onApplyRetrievalMode={onApplyRetrievalMode}
-        onApplyDraftWithModelEnabled={onApplyDraftWithModelEnabled}
-        onReconnectLocalService={onReconnectLocalService}
-        localServiceReconnecting={localServiceReconnecting}
-        onOpenApiWizard={onOpenApiWizard}
-        modelProviders={modelProviders}
-        platformProviders={platformProviders}
-        platformMode={platformMode}
-        selectedModelId={selectedModelId}
-        customModels={modelCatalog.filter((m) => m.kind === "custom")}
-        modelCatalog={modelCatalog}
-        onModelsChanged={async () => {
-          await onModelsChanged();
-        }}
-        onPickProject={() =>  onPickProject()}
-        onClearProject={() =>  onClearProject()}
-        onOpenCollaborationPage={() => onOpenCollaborationPage("overview")}
-        onPrefsChange={onPrefsChange}
       />
     </>
   );

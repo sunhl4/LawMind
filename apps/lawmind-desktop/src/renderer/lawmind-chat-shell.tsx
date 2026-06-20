@@ -34,6 +34,7 @@ import { LawmindComposeAttachments } from "./LawmindComposeAttachments";
 import { LawmindComposeContextPicker } from "./LawmindComposeContextPicker";
 import { LawmindComposeTemplateGallery } from "./LawmindComposeTemplateGallery";
 import { LawmindRequiresActionStrip } from "./LawmindRequiresActionStrip";
+import { composeModelHintCalloutClass } from "./lawmind-compose-model-hint";
 import type { FileChatContextItem } from "./lawmind-app-shell";
 import {
   parseAtTrigger,
@@ -164,6 +165,9 @@ export type LawmindChatMessagesColumnProps = Pick<
 > & {
   revisionBackgroundActive?: boolean;
   streamCompactLabels?: string[];
+  onCreateMatter?: () => void;
+  onOpenWorkflowLibrary?: () => void;
+  showEmptyMatterGuide?: boolean;
 };
 
 export function LawmindChatMessagesColumn({
@@ -187,6 +191,9 @@ export function LawmindChatMessagesColumn({
   onResumeRequiresAction,
   revisionBackgroundActive,
   streamCompactLabels = [],
+  onCreateMatter,
+  onOpenWorkflowLibrary,
+  showEmptyMatterGuide = false,
 }: LawmindChatMessagesColumnProps) {
   const [clarificationDraft, setClarificationDraft] = useState<Record<string, string>>({});
   const [briefOnly, setBriefOnly] = useState(() => readBriefOnlyPreference());
@@ -296,9 +303,11 @@ export function LawmindChatMessagesColumn({
         <LawmindChatHistorySearch items={renderableItems} onHighlightIndices={onHighlightIndices} />
       </div>
       <div
+        id="lawmind-chat-messages-panel"
         className="lm-messages lm-chat-messages"
         role="region"
         aria-label="对话消息"
+        aria-labelledby="lawmind-chat-session-tabs"
         aria-live="polite"
         aria-atomic="false"
       >
@@ -322,6 +331,20 @@ export function LawmindChatMessagesColumn({
                 </button>
               ))}
             </div>
+            {showEmptyMatterGuide && (onCreateMatter || onOpenWorkflowLibrary) ? (
+              <div className="lm-messages-empty-actions">
+                {onCreateMatter ? (
+                  <button type="button" className="lm-btn lm-btn-secondary lm-btn-sm" onClick={onCreateMatter}>
+                    新建案件
+                  </button>
+                ) : null}
+                {onOpenWorkflowLibrary ? (
+                  <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={onOpenWorkflowLibrary}>
+                    打开工作流库
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         ) : (
           <LawmindChatMessagesVirtualList
@@ -368,6 +391,7 @@ export function LawmindChatComposeFooter({
   composeModelHint,
   composeModelQuickTestBusy,
   onComposeModelQuickTest,
+  composeModelConfigured,
   onDelegateAssist,
   delegateAssistEnabled: _delegateAssistEnabled,
   allowWebSearch,
@@ -414,6 +438,7 @@ export function LawmindChatComposeFooter({
   | "composeModelHint"
   | "composeModelQuickTestBusy"
   | "onComposeModelQuickTest"
+  | "composeModelConfigured"
   | "onDelegateAssist"
   | "delegateAssistEnabled"
   | "allowWebSearch"
@@ -682,13 +707,38 @@ export function LawmindChatComposeFooter({
           maxHeight: LM_CHAT_COMPOSE_MAX_HEIGHT_PX,
         }}
       >
-        {error ? (
+        {error && !error.includes("Preload bridge") ? (
           <div className="lm-callout lm-callout-danger" role="alert">
             <p className="lm-callout-body">{error}</p>
           </div>
         ) : null}
+        {composeModelConfigured === false && apiBase && (onOpenApiWizard || onOpenComposeSettings) ? (
+          <div className="lm-callout lm-callout-warn lm-compose-model-warn" role="status">
+            <p className="lm-callout-body lm-compose-model-warn-text">
+              尚未配置可用的主模型 API，对话暂时无法发送。请先完成向导或添加自定义模型。
+            </p>
+            <div className="lm-compose-model-warn-actions">
+              {onOpenApiWizard ? (
+                <button type="button" className="lm-btn lm-btn-secondary lm-btn-small" onClick={() => onOpenApiWizard()}>
+                  API 配置向导…
+                </button>
+              ) : null}
+              {onOpenComposeSettings ? (
+                <button type="button" className="lm-btn lm-btn-small" onClick={() => onOpenComposeSettings()}>
+                  模型设置…
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
         {(composeModelHint?.trim() || composeModelQuickTestBusy) ? (
-          <div className="lm-compose-model-hint" role="status">
+          <div
+            className={composeModelHintCalloutClass(
+              composeModelHint,
+              composeModelQuickTestBusy ?? false,
+            )}
+            role="status"
+          >
             {composeModelQuickTestBusy && !(composeModelHint ?? "").trim()
               ? "正在测试模型连接…"
               : (composeModelHint ?? "").trim()}
@@ -805,6 +855,7 @@ export function LawmindChatComposeFooter({
           <textarea
             ref={textareaRef}
             value={input}
+            aria-label="消息输入"
             onChange={(e) => handleComposeInputChange(e.target.value)}
             placeholder="Enter 发送，Shift+Enter 换行；@ 添加上下文，/ 或 ⌘K 打开命令"
             title="用平常说话的方式写即可"
@@ -908,6 +959,7 @@ export function LawmindChatComposeFooter({
                   type="button"
                   className="lm-compose-pending-badge"
                   title="打开待办中心"
+                  aria-label={`打开待办中心，${extras.pendingApprovalCount} 项待批准`}
                   onClick={() => onOpenActionHub?.()}
                 >
                   待批准 {extras.pendingApprovalCount}
@@ -917,6 +969,7 @@ export function LawmindChatComposeFooter({
                 <button
                   type="button"
                   className="lm-btn lm-btn-secondary lm-chat-stop-btn"
+                  aria-label="停止生成"
                   onClick={() => onAbortChat?.()}
                 >
                   停止
@@ -926,6 +979,7 @@ export function LawmindChatComposeFooter({
                   type="button"
                   className="lm-btn"
                   disabled={!input.trim()}
+                  aria-label="发送消息"
                   title={!input.trim() ? "请输入内容后再发送" : undefined}
                   onClick={() => void onSend()}
                 >
@@ -997,6 +1051,7 @@ export function LawmindChatShell(props: LawmindChatWorkspaceProps) {
         composeModelHint={props.composeModelHint}
         composeModelQuickTestBusy={props.composeModelQuickTestBusy}
         onComposeModelQuickTest={props.onComposeModelQuickTest}
+        composeModelConfigured={props.composeModelConfigured}
         onDelegateAssist={props.onDelegateAssist}
         delegateAssistEnabled={props.delegateAssistEnabled}
         allowWebSearch={props.allowWebSearch}

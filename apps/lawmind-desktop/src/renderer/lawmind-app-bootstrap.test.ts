@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment jsdom
+ */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   loadAppBootstrapSnapshot,
@@ -8,6 +11,24 @@ import {
 describe("lawmind-app-bootstrap", () => {
   const getWindow = () => globalThis.window as Window;
 
+  function mockStorage(): Storage {
+    const map = new Map<string, string>();
+    return {
+      get length() {
+        return map.size;
+      },
+      clear: () => map.clear(),
+      getItem: (key) => map.get(key) ?? null,
+      key: (index) => [...map.keys()][index] ?? null,
+      removeItem: (key) => {
+        map.delete(key);
+      },
+      setItem: (key, value) => {
+        map.set(key, value);
+      },
+    };
+  }
+
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -15,6 +36,23 @@ describe("lawmind-app-bootstrap", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     delete getWindow().lawmindDesktop;
+  });
+
+  it("loads initial config from cached dev API when preload is absent", async () => {
+    vi.stubGlobal("window", {} as Window);
+    vi.stubGlobal("localStorage", mockStorage());
+    localStorage.setItem("lawmind.dev.apiBase", "http://127.0.0.1:4312");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await expect(loadInitialAppConfig()).resolves.toMatchObject({
+      apiBase: "http://127.0.0.1:4312",
+      workspaceDir: "(browser dev — use Electron for file access)",
+    });
   });
 
   it("loads initial config from the Electron bridge", async () => {

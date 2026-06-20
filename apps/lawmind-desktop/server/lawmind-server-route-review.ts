@@ -40,11 +40,22 @@ import {
   type PlatformGateAuditSource,
 } from "../../../src/lawmind/platform/audit-gate.js";
 import { deriveReviewGateDecisions } from "../../../src/lawmind/platform/review-gates.js";
+import {
+  isInvalidRequestBodyError,
+  parseJsonBodyZod,
+  type LawmindRequestParseError,
+} from "./lawmind-api-parse.js";
+import {
+  assistantProfileLearningPostSchema,
+  draftContentPatchBodySchema,
+  draftRenderPostSchema,
+  draftReviewPostSchema,
+  lawyerProfileLearningPostSchema,
+} from "./lawmind-api-schemas.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import {
   getLawMindEngine,
   isLawMindHttpError,
-  readJsonBody,
   resolveDesktopActorId,
   sendJson,
 } from "./lawmind-server-helpers.js";
@@ -110,58 +121,49 @@ function deriveReviewExecutionState(
   };
 }
 
-function parseDraftContentPatch(
-  body: unknown,
-):
-  | { ok: true; patch: { title?: string; summary?: string; sections?: ArtifactSection[] } }
-  | { ok: false; error: string } {
-  if (!body || typeof body !== "object") {
-    return { ok: false, error: "body required" };
+function mapDraftContentPatchError(err: LawmindRequestParseError): string {
+  const issue = err.issues[0] ?? "";
+  if (issue.includes("no content fields")) {
+    return "no content fields";
   }
-  const record = body as Record<string, unknown>;
+  if (issue.startsWith("title:")) {
+    return "title must be non-empty string";
+  }
+  if (issue.startsWith("summary:")) {
+    return "summary must be string";
+  }
+  if (issue.startsWith("sections:")) {
+    return "sections must be non-empty array";
+  }
+  if (issue.includes("heading")) {
+    return "section heading required";
+  }
+  if (issue.includes("sections")) {
+    return "invalid section";
+  }
+  return "body required";
+}
+
+function toDraftContentPatch(body: {
+  title?: string;
+  summary?: string;
+  sections?: Array<{ heading: string; body: string; citations?: string[] }>;
+}): { title?: string; summary?: string; sections?: ArtifactSection[] } {
   const patch: { title?: string; summary?: string; sections?: ArtifactSection[] } = {};
-  if (record.title !== undefined) {
-    if (typeof record.title !== "string" || !record.title.trim()) {
-      return { ok: false, error: "title must be non-empty string" };
-    }
-    patch.title = record.title.trim();
+  if (body.title !== undefined) {
+    patch.title = body.title;
   }
-  if (record.summary !== undefined) {
-    if (typeof record.summary !== "string") {
-      return { ok: false, error: "summary must be string" };
-    }
-    patch.summary = record.summary;
+  if (body.summary !== undefined) {
+    patch.summary = body.summary;
   }
-  if (record.sections !== undefined) {
-    if (!Array.isArray(record.sections) || record.sections.length === 0) {
-      return { ok: false, error: "sections must be non-empty array" };
-    }
-    const sections: ArtifactSection[] = [];
-    for (const item of record.sections) {
-      if (!item || typeof item !== "object") {
-        return { ok: false, error: "invalid section" };
-      }
-      const section = item as Record<string, unknown>;
-      const heading = typeof section.heading === "string" ? section.heading.trim() : "";
-      const bodyText = typeof section.body === "string" ? section.body : "";
-      if (!heading) {
-        return { ok: false, error: "section heading required" };
-      }
-      const citations = Array.isArray(section.citations)
-        ? section.citations.filter((cite): cite is string => typeof cite === "string" && cite.trim().length > 0)
-        : undefined;
-      sections.push({
-        heading,
-        body: bodyText,
-        ...(citations?.length ? { citations } : {}),
-      });
-    }
-    patch.sections = sections;
+  if (body.sections !== undefined) {
+    patch.sections = body.sections.map((section) => ({
+      heading: section.heading,
+      body: section.body,
+      ...(section.citations?.length ? { citations: section.citations } : {}),
+    }));
   }
-  if (!patch.title && patch.summary === undefined && !patch.sections) {
-    return { ok: false, error: "no content fields" };
-  }
-  return { ok: true, patch };
+  return patch;
 }
 
 async function auditReviewGateSnapshot(
@@ -240,15 +242,19 @@ export async function handleReviewRoute({
   }
 
   if (pathname === "/api/lawyer-profile/learning" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as { note?: string; source?: string; taskId?: string };
-    const note = typeof body.note === "string" ? body.note.trim() : "";
-    if (!note) {
-      sendJson(res, 400, { ok: false, error: "note required" }, c);
-      return true;
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, lawyerProfileLearningPostSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "note required" }, c);
+        return true;
+      }
+      throw err;
     }
+    const note = body.note;
     const src = body.source?.trim().toLowerCase() === "manual" ? "manual" : "review";
-    const auditTaskId =
-      typeof body.taskId === "string" && body.taskId.trim() ? body.taskId.trim() : undefined;
+    const auditTaskId = body.taskId?.trim() || undefined;
     try {
       const r = await appendLawyerProfileLearning(workspaceDir, note, src, {
         auditDir: path.join(workspaceDir, "audit"),
@@ -263,17 +269,18 @@ export async function handleReviewRoute({
   }
 
   if (pathname === "/api/assistants/profile/learning" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as { assistantId?: string; note?: string };
-    const assistantId = typeof body.assistantId === "string" ? body.assistantId.trim() : "";
-    const note = typeof body.note === "string" ? body.note.trim() : "";
-    if (!assistantId) {
-      sendJson(res, 400, { ok: false, error: "assistantId required" }, c);
-      return true;
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, assistantProfileLearningPostSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "assistantId required" }, c);
+        return true;
+      }
+      throw err;
     }
-    if (!note) {
-      sendJson(res, 400, { ok: false, error: "note required" }, c);
-      return true;
-    }
+    const assistantId = body.assistantId;
+    const note = body.note;
     if (!isSafeAssistantIdSegment(assistantId)) {
       sendJson(res, 400, { ok: false, error: "invalid assistant id" }, c);
       return true;
@@ -325,20 +332,17 @@ export async function handleReviewRoute({
         sendJson(res, 400, { ok: false, error: "invalid task id" }, c);
         return true;
       }
-      const body = (await readJsonBody(req)) as {
-        status?: string;
-        note?: string;
-        appendToProfile?: boolean;
-        appendToLawyerProfile?: boolean;
-        profileAssistantId?: string;
-        labels?: unknown;
-        deferMemoryWrites?: boolean;
-      };
-      const st = body.status?.trim().toLowerCase();
-      if (st !== "approved" && st !== "rejected" && st !== "modified") {
-        sendJson(res, 400, { ok: false, error: "status must be approved, rejected, or modified" }, c);
-        return true;
+      let body;
+      try {
+        body = await parseJsonBodyZod(req, draftReviewPostSchema);
+      } catch (err) {
+        if (isInvalidRequestBodyError(err)) {
+          sendJson(res, 400, { ok: false, error: "status must be approved, rejected, or modified" }, c);
+          return true;
+        }
+        throw err;
       }
+      const st = body.status;
       const draft = readDraft(workspaceDir, raw);
       if (!draft) {
         sendJson(res, 404, { ok: false, error: "not found" }, c);
@@ -347,10 +351,9 @@ export async function handleReviewRoute({
       const labels = parseReviewLabels(body.labels);
       const deferQueue = body.deferMemoryWrites === true;
       const lawMindRootForReview = resolveLawMindRoot(workspaceDir, envFile);
-      const profileAssistantForEngine =
-        typeof body.profileAssistantId === "string" && body.profileAssistantId.trim()
-          ? body.profileAssistantId.trim()
-          : DEFAULT_ASSISTANT_ID;
+      const profileAssistantForEngine = body.profileAssistantId?.trim()
+        ? body.profileAssistantId.trim()
+        : DEFAULT_ASSISTANT_ID;
       if (!isSafeAssistantIdSegment(profileAssistantForEngine)) {
         sendJson(res, 400, { ok: false, error: "invalid assistant id" }, c);
         return true;
@@ -358,7 +361,7 @@ export async function handleReviewRoute({
       const engine = getLawMindEngine(workspaceDir);
       let updated = await engine.review(draft, {
         status: st,
-        note: typeof body.note === "string" ? body.note : undefined,
+        note: body.note,
         actorId: resolveDesktopActorId(),
         assistantId: profileAssistantForEngine,
         ...(labels ? { labels } : {}),
@@ -493,14 +496,15 @@ export async function handleReviewRoute({
       }
       let templateIdOverride: string | undefined;
       try {
-        const body = (await readJsonBody(req)) as { templateId?: unknown };
-        if (typeof body?.templateId === "string") {
-          const t = body.templateId.trim();
-          if (t) {
-            templateIdOverride = t;
-          }
+        const body = await parseJsonBodyZod(req, draftRenderPostSchema);
+        if (body.templateId) {
+          templateIdOverride = body.templateId;
         }
       } catch (e) {
+        if (isInvalidRequestBodyError(e)) {
+          sendJson(res, 400, { ok: false, error: "invalid request" }, c);
+          return true;
+        }
         const status = isLawMindHttpError(e) ? e.status : 400;
         const msg = e instanceof Error ? e.message : String(e);
         sendJson(res, status, { ok: false, error: msg }, c);
@@ -611,16 +615,22 @@ export async function handleReviewRoute({
         sendJson(res, 409, { ok: false, error: "draft_not_editable" }, c);
         return true;
       }
-      const parsed = parseDraftContentPatch(await readJsonBody(req));
-      if (!parsed.ok) {
-        sendJson(res, 400, { ok: false, error: parsed.error }, c);
-        return true;
+      let patchBody;
+      try {
+        patchBody = await parseJsonBodyZod(req, draftContentPatchBodySchema);
+      } catch (err) {
+        if (isInvalidRequestBodyError(err)) {
+          sendJson(res, 400, { ok: false, error: mapDraftContentPatchError(err) }, c);
+          return true;
+        }
+        throw err;
       }
+      const patch = toDraftContentPatch(patchBody);
       const nextDraft: ArtifactDraft = {
         ...draft,
-        ...(parsed.patch.title !== undefined ? { title: parsed.patch.title } : {}),
-        ...(parsed.patch.summary !== undefined ? { summary: parsed.patch.summary } : {}),
-        ...(parsed.patch.sections !== undefined ? { sections: parsed.patch.sections } : {}),
+        ...(patch.title !== undefined ? { title: patch.title } : {}),
+        ...(patch.summary !== undefined ? { summary: patch.summary } : {}),
+        ...(patch.sections !== undefined ? { sections: patch.sections } : {}),
       };
       const actorId = resolveDesktopActorId();
       const auditDir = path.join(workspaceDir, "audit");

@@ -10,7 +10,9 @@ import {
 } from "../../../../src/lawmind/platform/requires-action.ts";
 
 export { formatClarificationResumeMessage };
-import { apiGetJson, apiSendJson } from "./api-client";
+import { apiGetJson } from "./api-client";
+import type { ApprovalResolvePostRequest, ChatResumeRequest } from "./lawmind-api-request-types.ts";
+import { apiPost } from "./lawmind-api-routes.ts";
 
 export type { LawMindRequiresAction, LawMindRequiresActionDecision };
 
@@ -68,13 +70,7 @@ export async function loadActionSummary(
 
 export async function resumeChatAction(
   apiBase: string,
-  body: {
-    sessionId: string;
-    actionId: string;
-    decision: LawMindRequiresActionDecision;
-    clarificationAnswers?: Record<string, string>;
-    editedArgs?: Record<string, unknown>;
-  },
+  body: ChatResumeRequest,
 ): Promise<{
   ok?: boolean;
   reply?: string;
@@ -82,18 +78,20 @@ export async function resumeChatAction(
   status?: string;
   requiresAction?: LawMindRequiresAction[];
 }> {
-  return apiSendJson(apiBase, "/api/chat/resume", "POST", body);
+  return apiPost(apiBase, "/api/chat/resume", body) as Promise<{
+    ok?: boolean;
+    reply?: string;
+    sessionId?: string;
+    status?: string;
+    requiresAction?: LawMindRequiresAction[];
+  }>;
 }
 
 export async function resolveMatterApproval(
   apiBase: string,
-  body: {
-    matterId: string;
-    approvalId: string;
-    status: "approved" | "rejected" | "needs_changes";
-  },
+  body: ApprovalResolvePostRequest,
 ): Promise<{ ok?: boolean }> {
-  return apiSendJson(apiBase, "/api/approvals/resolve", "POST", body);
+  return apiPost(apiBase, "/api/approvals/resolve", body);
 }
 
 export function buildClarificationAnswerMap(

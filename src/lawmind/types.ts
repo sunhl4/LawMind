@@ -366,6 +366,7 @@ export type AuditEventKind =
   | "draft.revision_agent_failed" // 后台修订助手执行失败
   | "draft.revision_completed" // 后台修订助手执行成功并已恢复待审核
   | "draft.content_edited" // 审核台律师直接编辑正文并保存
+  | "draft.reasoning_graph_missing" // 草稿落盘时缺少 LegalReasoningGraph 快照
   | "artifact.rendered"
   | "artifact.render_failed"
   | "artifact.render_blocked"

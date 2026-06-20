@@ -145,9 +145,13 @@ const server = http.createServer(async (req, res) => {
       overviews: [
         {
           matterId: "e2e-matter-1",
-          title: "E2E 合同审查案件",
-          status: "active",
-          updatedAt: now,
+          displayName: "E2E 合同审查案件",
+          latestUpdatedAt: now,
+          openTaskCount: 1,
+          renderedTaskCount: 0,
+          riskCount: 0,
+          artifactCount: 1,
+          topIssue: "待审核草稿",
         },
       ],
     });

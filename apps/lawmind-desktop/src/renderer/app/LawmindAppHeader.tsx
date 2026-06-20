@@ -33,6 +33,8 @@ export type LawmindAppHeaderProps = {
   reviewPaneVisibility: ReviewPaneVisibility;
   onToggleReviewPane: (id: ReviewPaneId) => void;
   onOpenSettings: () => void;
+  onCloseSettings: () => void;
+  settingsOpen: boolean;
   showReadinessStrip: boolean;
   health: HealthPayload | null | undefined;
   workspaceDir: string | undefined;
@@ -70,6 +72,8 @@ function LawmindAppHeaderImpl({
   reviewPaneVisibility,
   onToggleReviewPane,
   onOpenSettings,
+  onCloseSettings,
+  settingsOpen,
   showReadinessStrip,
   health,
   workspaceDir,
@@ -83,9 +87,45 @@ function LawmindAppHeaderImpl({
   return (
     <>
       <div
-        className={`lm-main-header lm-main-header-compact${mainView === "review" ? " lm-main-header-review" : ""}`}
+        className={`lm-main-header lm-main-header-compact${mainView === "review" ? " lm-main-header-review" : ""}${settingsOpen ? " lm-main-header-settings" : ""}`}
       >
         <div className="lm-main-header-row">
+          {settingsOpen ? (
+            <>
+              <button
+                type="button"
+                className="lm-btn lm-btn-ghost lm-btn-sm lm-settings-back-btn"
+                onClick={onCloseSettings}
+                aria-label="关闭设置并返回"
+              >
+                ← 返回
+              </button>
+              <h1 className="lm-main-settings-title">设置</h1>
+              <span className="lm-settings-esc-hint">Esc 关闭</span>
+              <div className="lm-header-spacer" aria-hidden />
+              <div className="lm-main-header-right">
+                <button
+                  type="button"
+                  className="lm-main-header-gear-btn lm-main-header-gear-btn-active"
+                  onClick={onCloseSettings}
+                  aria-label="关闭设置"
+                  aria-pressed
+                  title="关闭设置"
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+                    <path
+                      d="M6.5.75h3l.3 1.77a5.5 5.5 0 0 1 1.28.74l1.72-.58 1.5 2.6-1.42 1.19a5.6 5.6 0 0 1 0 1.06l1.42 1.19-1.5 2.6-1.72-.58a5.5 5.5 0 0 1-1.28.74l-.3 1.77h-3l-.3-1.77a5.5 5.5 0 0 1-1.28-.74l-1.72.58-1.5-2.6 1.42-1.19a5.6 5.6 0 0 1 0-1.06L1.7 5.28l1.5-2.6 1.72.58a5.5 5.5 0 0 1 1.28-.74L6.5.75Z"
+                      stroke="currentColor"
+                      strokeWidth="1.2"
+                      strokeLinejoin="round"
+                    />
+                    <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.2" />
+                  </svg>
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
           {assistants.length > 1 ? (
             <div className="lm-main-title-block">
               <div className="lm-main-assistant-line">
@@ -198,9 +238,10 @@ function LawmindAppHeaderImpl({
             ) : null}
             <button
               type="button"
-              className="lm-main-header-gear-btn"
+              className={`lm-main-header-gear-btn${settingsOpen ? " lm-main-header-gear-btn-active" : ""}`}
               onClick={onOpenSettings}
               aria-label="设置"
+              aria-pressed={settingsOpen}
               title="设置"
             >
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
@@ -214,6 +255,8 @@ function LawmindAppHeaderImpl({
               </svg>
             </button>
           </div>
+            </>
+          )}
         </div>
       </div>
       {showReadinessStrip && apiBase ? (

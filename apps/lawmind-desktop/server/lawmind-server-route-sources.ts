@@ -31,8 +31,10 @@ import type {
   ResearchClaim,
   ResearchSource,
 } from "../../../src/lawmind/types.js";
+import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
+import { sourceAnnotationPostSchema } from "./lawmind-api-schemas.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
-import { readJsonBody, sendJson } from "./lawmind-server-helpers.js";
+import { sendJson } from "./lawmind-server-helpers.js";
 import {
   createSourceAnnotation,
   listSourceAnnotations,
@@ -170,35 +172,36 @@ export async function handleSourceRoutes({
     }
 
     if (req.method === "POST") {
-      const body = (await readJsonBody(req)) as Record<string, unknown>;
-      const comment = typeof body.comment === "string" ? body.comment.trim() : "";
-      if (!comment) {
-        sendJson(res, 400, { ok: false, error: "comment_required" }, c);
-        return true;
+      let body;
+      try {
+        body = await parseJsonBodyZod(req, sourceAnnotationPostSchema);
+      } catch (err) {
+        if (isInvalidRequestBodyError(err)) {
+          sendJson(res, 400, { ok: false, error: "comment_required" }, c);
+          return true;
+        }
+        throw err;
       }
-      const kindRaw = typeof body.kind === "string" ? body.kind.trim() : "comment";
+      const comment = body.comment;
+      const kindRaw = body.kind?.trim() || "comment";
       const kind = (SOURCE_ANNOTATION_KINDS as readonly string[]).includes(kindRaw)
         ? (kindRaw as (typeof SOURCE_ANNOTATION_KINDS)[number])
         : "comment";
       const row = await createSourceAnnotation(workspaceDir, `${workspaceDir}/audit`, {
         sourceId: rawId,
-        taskId: typeof body.taskId === "string" ? body.taskId : taskId,
-        matterId: typeof body.matterId === "string" ? body.matterId : matterId,
+        taskId: body.taskId ?? taskId,
+        matterId: body.matterId ?? matterId,
         comment,
         kind,
-        createdBy: typeof body.createdBy === "string" ? body.createdBy : "lawyer",
-        linkedDraftId: typeof body.linkedDraftId === "string" ? body.linkedDraftId : undefined,
+        createdBy: body.createdBy ?? "lawyer",
+        linkedDraftId: body.linkedDraftId,
         createLearning: body.createLearning === true,
-        range:
-          body.range &&
-          typeof body.range === "object" &&
-          typeof (body.range as { start?: unknown }).start === "number" &&
-          typeof (body.range as { end?: unknown }).end === "number"
-            ? {
-                start: Math.max(0, Math.floor((body.range as { start: number }).start)),
-                end: Math.max(0, Math.floor((body.range as { end: number }).end)),
-              }
-            : undefined,
+        range: body.range
+          ? {
+              start: Math.max(0, Math.floor(body.range.start)),
+              end: Math.max(0, Math.floor(body.range.end)),
+            }
+          : undefined,
       });
       sendJson(res, 200, { ok: true, annotation: row }, c);
       return true;

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import { errorMessage } from "./api-client";
+import { apiAuthHeaders } from "./lawmind-api-auth.ts";
 import { fetchChatLiveTurnProgress } from "./lawmind-chat-trace.js";
 import type { AppConfig } from "./lawmind-app-bootstrap";
 import type { DelegationRow } from "./lawmind-app-data";
@@ -70,7 +71,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
       try {
         const listRes = await fetch(
           `${config.apiBase}/api/sessions?assistantId=${encodeURIComponent(assistantId)}`,
-          { signal },
+          { signal, headers: apiAuthHeaders() },
         );
         const listJ = (await listRes.json()) as {
           ok?: boolean;
@@ -101,7 +102,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         if (!sessionId) {
           const cr = await fetch(`${config.apiBase}/api/sessions`, {
             method: "POST",
-            headers: { "content-type": "application/json" },
+            headers: { "content-type": "application/json", ...apiAuthHeaders() },
             body: JSON.stringify({ assistantId }),
             signal,
           });
@@ -121,7 +122,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
           sessionId = cj.sessionId;
           const listRes2 = await fetch(
             `${config.apiBase}/api/sessions?assistantId=${encodeURIComponent(assistantId)}`,
-            { signal },
+            { signal, headers: apiAuthHeaders() },
           );
           const listJ2 = (await listRes2.json()) as {
             ok?: boolean;
@@ -228,6 +229,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
       try {
         const listRes = await fetch(
           `${config.apiBase}/api/sessions?assistantId=${encodeURIComponent(toId)}`,
+          { headers: apiAuthHeaders() },
         );
         const listJ = (await listRes.json()) as {
           ok?: boolean;
@@ -258,7 +260,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         if (!sessionId) {
           const cr = await fetch(`${config.apiBase}/api/sessions`, {
             method: "POST",
-            headers: { "content-type": "application/json" },
+            headers: { "content-type": "application/json", ...apiAuthHeaders() },
             body: JSON.stringify({ assistantId: toId }),
           });
           const cj = (await cr.json()) as { ok?: boolean; sessionId?: string; message?: string };
@@ -274,6 +276,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
           sessionId = cj.sessionId;
           const listRes2 = await fetch(
             `${config.apiBase}/api/sessions?assistantId=${encodeURIComponent(toId)}`,
+            { headers: apiAuthHeaders() },
           );
           const listJ2 = (await listRes2.json()) as {
             ok?: boolean;
@@ -348,7 +351,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
     try {
       const cr = await fetch(`${config.apiBase}/api/sessions`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...apiAuthHeaders() },
         body: JSON.stringify({ assistantId }),
       });
       const cj = (await cr.json()) as { ok?: boolean; sessionId?: string; message?: string };
@@ -380,7 +383,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         `${config.apiBase}/api/sessions/${encodeURIComponent(sessionId)}?assistantId=${encodeURIComponent(assistantId)}`,
         {
           method: "PATCH",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...apiAuthHeaders() },
           body: JSON.stringify({ title }),
         },
       );
@@ -416,7 +419,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
       try {
         const r = await fetch(`${config.apiBase}/api/sessions/delete`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...apiAuthHeaders() },
           body: JSON.stringify({ sessionId, assistantId }),
         });
         const j = (await r.json()) as { ok?: boolean; message?: string };
@@ -434,7 +437,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         if (list.length === 0) {
           const cr = await fetch(`${config.apiBase}/api/sessions`, {
             method: "POST",
-            headers: { "content-type": "application/json" },
+            headers: { "content-type": "application/json", ...apiAuthHeaders() },
             body: JSON.stringify({ assistantId }),
           });
           const cj = (await cr.json()) as { ok?: boolean; sessionId?: string; message?: string };

@@ -20,7 +20,7 @@ import {
 import { usePaneResizePx } from "./use-pane-resize";
 import { apiGetJson } from "./api-client";
 import { useLawyerReviewDesktopNotify } from "./lawmind-lawyer-review-notify";
-import { applyUiFontScale, readUiFontScale } from "./lawmind-ui-prefs";
+import { applyAllUiPrefs } from "./lawmind-ui-prefs";
 
 import { resolveWorkspacePath, artifactApiRelFromOutput } from "./lawmind-app-utils";
 import { useLawmindAppRootHandlers } from "./app/useLawmindAppRootHandlers";
@@ -35,7 +35,7 @@ export function LawmindAppRoot() {
     useState<LawMindRequiresAction | null>(null);
 
   useEffect(() => {
-    applyUiFontScale(readUiFontScale());
+    applyAllUiPrefs();
   }, []);
 
   const {
@@ -137,6 +137,7 @@ export function LawmindAppRoot() {
   const [chatMatterHeadline, setChatMatterHeadline] = useState<string | null>(null);
   /** 左栏：资源树 portal；主区：仅编辑器 */
   const [fileExplorerHost, setFileExplorerHost] = useState<HTMLDivElement | null>(null);
+  const [fileExplorerPortaled, setFileExplorerPortaled] = useState(false);
   const [fileEditorHost, setFileEditorHost] = useState<HTMLDivElement | null>(null);
   /** 从审核台点「返回案件」时一次性选中左侧案件，避免掉上下文 */
   const [focusMatterIdFromReview, setFocusMatterIdFromReview] = useState<string | null>(null);
@@ -346,6 +347,16 @@ export function LawmindAppRoot() {
     writeStoredBool("lawmind.ui.wsPaneChat", wsShowChat);
   }, [wsShowChat]);
 
+  useEffect(() => {
+    if (mainView !== "workspace" || matterCockpitOpen) {
+      return;
+    }
+    const editorVisible = canUseFilesystemBridge && wsShowEditor;
+    if (!wsShowChat && !editorVisible) {
+      setWsShowChat(true);
+    }
+  }, [mainView, matterCockpitOpen, canUseFilesystemBridge, wsShowEditor, wsShowChat, setWsShowChat]);
+
   const [reviewPaneVisibility, setReviewPaneVisibility] = useState(readReviewPaneVisibility);
 
   useEffect(() => {
@@ -429,6 +440,8 @@ export function LawmindAppRoot() {
     wsChatColWidth,
     fileExplorerHost,
     setFileExplorerHost,
+    fileExplorerPortaled,
+    setFileExplorerPortaled,
     fileEditorHost,
     setFileEditorHost,
     textareaRef,

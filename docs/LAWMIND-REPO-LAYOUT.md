@@ -46,6 +46,16 @@ pnpm lawmind:docs:build  # 构建静态站
 
 Git 克隆后的**父文件夹名称可以随意**（例如 `lawmind` 或仍名为历史目录）；工具链只认 **`package.json` 位于仓库根**与可选环境变量 **`LAWMIND_REPO_ROOT` 指向该根**。无需为「改名磁盘目录」而改代码。
 
+## 文档索引
+
+| 文档                                                                             | 说明                            |
+| -------------------------------------------------------------------------------- | ------------------------------- |
+| [LAWMIND-ARCHITECTURE.md](./LAWMIND-ARCHITECTURE.md)                             | 架构与模块边界                  |
+| [LAWMIND-DESKTOP-UI.md](./LAWMIND-DESKTOP-UI.md)                                 | 桌面 UI 与 renderer 拆分约定    |
+| [LAWMIND-EXCELLENCE-ROADMAP.md](./LAWMIND-EXCELLENCE-ROADMAP.md)                 | 第十二期优化路线                |
+| [LAWMIND-REFERENCE-PROJECT-LESSONS.md](./LAWMIND-REFERENCE-PROJECT-LESSONS.md)   | 借鉴项与落地状态矩阵            |
+| [lawmind/LAWMIND-PLATFORM-CONTRACTS.md](./lawmind/LAWMIND-PLATFORM-CONTRACTS.md) | 平台契约（health / rate limit） |
+
 ## CI 相关
 
 - **`fixtures/lawmind-workspace/`**（可选）：若存在 `fixtures/lawmind-workspace/tasks/`，交付门禁工作流会对该目录做严格扫描；无则跳过。

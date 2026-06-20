@@ -208,7 +208,8 @@ async function readXlsxPlainText(filePath: string): Promise<string> {
   const ExcelJS = await import("exceljs");
   const buffer = await fs.readFile(filePath);
   const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer);
+  const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+  await workbook.xlsx.load(arrayBuffer);
   const sheets = workbook.worksheets.slice(0, MAX_XLSX_SHEETS);
   const parts: string[] = [];
   for (const worksheet of sheets) {

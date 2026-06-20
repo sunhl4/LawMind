@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { apiGetJson, apiSendJson } from "./api-client";
+import { apiPostRedlineHunkResolve } from "./lawmind-api-routes.ts";
 
 type RedlineHunk = {
   hunkId: string;
@@ -92,12 +93,9 @@ export function LawmindRedlinePanel(props: Props): ReactNode {
     setBusy(true);
     setError(null);
     try {
-      const j = (await apiSendJson(
-        apiBase,
-        `/api/drafts/${encodeURIComponent(taskId)}/redline/hunks/${encodeURIComponent(hunkId)}/resolve`,
-        "POST",
-        { decision },
-      )) as { ok?: boolean; proposal?: RedlineProposal };
+      const j = (await apiPostRedlineHunkResolve(apiBase, taskId, hunkId, {
+        decision,
+      })) as { ok?: boolean; proposal?: RedlineProposal };
       if (j.ok && j.proposal) {
         setProposal(j.proposal);
         onDraftUpdated?.();

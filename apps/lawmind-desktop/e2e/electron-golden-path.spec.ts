@@ -103,4 +103,25 @@ test.describe("LawMind Electron golden path", () => {
       await electronApp.close();
     }
   });
+
+  test("file explorer mounts in sidebar with preload bridge", async () => {
+    const { userDataDir } = await prepareElectronE2EUserData();
+    const electronApp = await electron.launch({
+      args: [path.join(desktopRoot, "electron/main.mjs"), `--user-data-dir=${userDataDir}`],
+      cwd: desktopRoot,
+      env: { ...process.env, LAWMIND_E2E: "1", LAWMIND_SKIP_AUTO_UPDATE: "1" },
+      timeout: 120_000,
+    });
+
+    try {
+      const window = await electronApp.firstWindow();
+      await expect(window.locator(".lm-shell")).toBeVisible({ timeout: 120_000 });
+      await bootstrapE2ePage(window);
+      await expect(window.locator(".lm-files-explorer, .lm-side-explorer-host .lm-files-explorer").first()).toBeVisible({
+        timeout: 60_000,
+      });
+    } finally {
+      await electronApp.close();
+    }
+  });
 });

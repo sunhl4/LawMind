@@ -501,6 +501,8 @@ workspace/lawmind/
 | Word TC via officecli           | P2     | MVP（`/render-tracked`）           |
 | WASM 全工具沙箱                 | P2     | 刻意不做（子进程 POC 已有）        |
 | LangGraph 全量迁移              | —      | 刻意不做                           |
+| iManage OAuth 连接器            | M3     | 刻意不做（SharePoint 优先）        |
+| 远程 skill 市场                 | —      | 刻意不做                           |
 
 ## 十三、结论
 

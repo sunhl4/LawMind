@@ -1,0 +1,354 @@
+/* ── Modals, forms, wizard ── */
+/* ── Modal backdrop ────────────────────────────────────────── */
+.lm-help-panel {
+  max-width: 420px;
+}
+
+.lm-help-links {
+  margin: 12px 0 0;
+  padding-left: 1.2em;
+  color: var(--text-2);
+  line-height: 1.7;
+}
+
+.lm-help-links a {
+  color: var(--accent);
+}
+
+.lm-help-subhead {
+  margin: 14px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.lm-help-links-tight {
+  margin-top: 6px;
+}
+
+.lm-main-microcopy {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+  max-width: 36em;
+}
+
+.lm-onboarding-checklist .lm-settings-row {
+  align-items: center;
+}
+
+.lm-onboarding-hint {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.lm-onboarding-checklist.lm-settings-surface .lm-settings-row:last-of-type {
+  margin-bottom: 0;
+}
+
+.lm-disclaimer {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-top: 12px;
+}
+
+.lm-disclaimer a {
+  color: var(--accent);
+}
+
+.lm-settings-section--disclaimer {
+  margin-top: 8px;
+}
+
+.lm-settings-section--disclaimer .lm-callout {
+  margin-bottom: 0;
+}
+
+.lm-wizard-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background:
+    radial-gradient(80% 60% at 50% 30%, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.85));
+  -webkit-backdrop-filter: blur(10px) saturate(120%);
+          backdrop-filter: blur(10px) saturate(120%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(10px, 2.5vw, 16px);
+  animation: lm-fade-in 200ms var(--ease-out);
+}
+
+/* Quick-open palette: align with top safe area like Spotlight / VS Code */
+.lm-wizard-backdrop.lm-wizard-backdrop--quickopen {
+  align-items: flex-start;
+  padding-top: 14vh;
+}
+
+.lm-wizard {
+  width: min(480px, 100%);
+  max-height: 90vh;
+  max-height: min(90vh, calc(100dvh - 24px));
+  overflow-x: clip;
+  overflow-y: auto;
+  position: relative;
+  animation: lm-pop-in 240ms var(--ease-out);
+  background:
+    linear-gradient(180deg, rgba(36, 42, 49, 0.98), rgba(23, 27, 33, 0.98));
+  border: 1px solid var(--border-md);
+  border-radius: var(--r-xl);
+  padding: clamp(14px, 3.2vw, 24px);
+  box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* Narrow modals (confirm / danger flows) */
+.lm-wizard.lm-wizard--confirm {
+  width: min(400px, 100%);
+}
+
+.lm-wizard.lm-wizard--danger {
+  width: min(440px, 100%);
+}
+
+.lm-wizard.lm-wizard--detail {
+  width: min(560px, 100%);
+}
+
+.lm-wizard.lm-firstrun {
+  width: min(640px, 100%);
+}
+
+.lm-wizard-lead {
+  margin-bottom: 20px;
+  line-height: 1.7;
+}
+
+.lm-wizard-lead.lm-settings-hint {
+  margin-bottom: 14px;
+}
+
+.lm-wizard h2.lm-wizard-title-danger {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--error);
+  margin-bottom: 10px;
+  letter-spacing: -0.2px;
+}
+
+.lm-wizard-body-pre {
+  white-space: pre-line;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.7;
+  margin-bottom: 16px;
+}
+
+.lm-wizard::-webkit-scrollbar { width: 3px; }
+.lm-wizard::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+}
+
+.lm-wizard::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(199, 171, 121, 0.5), transparent);
+  pointer-events: none;
+}
+
+.lm-wizard h2 {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.3px;
+  margin-bottom: 4px;
+}
+
+.lm-wizard h2 .lm-wizard-title-sub {
+  margin-left: var(--space-2);
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.lm-wizard-subtitle {
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 20px;
+  line-height: 1.6;
+}
+
+/* ── Form fields ───────────────────────────────────────────── */
+.lm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+/* Support both <label> and <div> wrappers */
+.lm-field > span,
+.lm-field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  letter-spacing: -0.1px;
+}
+
+.lm-field input,
+.lm-field textarea,
+.lm-field select {
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 9px 11px;
+  font-family: var(--font);
+  font-size: 13px;
+  transition: border-color var(--t) var(--ease), box-shadow var(--t) var(--ease);
+  width: 100%;
+}
+
+.lm-field input:focus,
+.lm-field textarea:focus,
+.lm-field select:focus {
+  outline: none;
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.lm-field input::placeholder,
+.lm-field textarea::placeholder { color: var(--muted); }
+
+.lm-field textarea { resize: vertical; min-height: 70px; line-height: 1.55; }
+
+.lm-wizard-row { display: flex; gap: 8px; align-items: stretch; }
+.lm-wizard-row input { flex: 1; margin-bottom: 0; }
+
+/* ── Fieldset in wizard ────────────────────────────────────── */
+.lm-field fieldset {
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 12px 14px;
+  margin: 0;
+}
+
+.lm-field fieldset legend {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  padding: 0 6px;
+}
+
+.lm-field-radio {
+  display: flex;
+  gap: 7px;
+  align-items: flex-start;
+  margin-bottom: 7px;
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+
+.lm-field-radio:last-child { margin-bottom: 0; }
+.lm-field-radio input[type="radio"] { accent-color: var(--accent); margin-top: 2px; flex-shrink: 0; }
+
+/* Flat fieldset (wizard retrieval strategy, etc.) */
+fieldset.lm-field-reset {
+  border: none;
+  padding: 0;
+  margin: 0 0 14px;
+}
+
+fieldset.lm-field-reset > legend.lm-meta {
+  margin-bottom: var(--space-2);
+}
+
+.lm-field-radio-row {
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.lm-field--spaced {
+  margin-bottom: 16px;
+}
+
+/* Type-to-match delete confirmation */
+.lm-field-match-confirm input {
+  border-color: var(--accent-border);
+}
+
+.lm-field-match-confirm input[aria-invalid="true"] {
+  border-color: var(--error);
+  box-shadow: 0 0 0 3px var(--error-dim);
+}
+
+/* ── Wizard actions ────────────────────────────────────────── */
+.lm-wizard-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.lm-wizard-actions.lm-wizard-actions--wrap {
+  flex-wrap: wrap;
+}
+
+.lm-assistant-wizard-steps .done {
+  color: var(--ok);
+}
+.lm-assistant-template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.lm-assistant-template-card {
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+}
+.lm-assistant-template-card.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.lm-assistant-template-title {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.lm-delegate-peer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+.lm-delegate-peer-card {
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+}
+.lm-delegate-peer-card.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.lm-delegate-peer-busy {
+  opacity: 0.55;
+}

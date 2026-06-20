@@ -4,6 +4,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 
@@ -52,6 +53,8 @@ export function LawmindChatSessionTabs({
   onRename,
   onDelete,
 }: LawmindChatSessionTabsProps) {
+  const tabListId = "lawmind-chat-session-tabs";
+  const panelId = "lawmind-chat-messages-panel";
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -150,8 +153,35 @@ export function LawmindChatSessionTabs({
     [onSelect],
   );
 
+  const handleTabKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLButtonElement>, currentSessionId: string) => {
+      if (sessions.length <= 1) {
+        return;
+      }
+      const currentIndex = sessions.findIndex((item) => item.sessionId === currentSessionId);
+      if (currentIndex < 0) {
+        return;
+      }
+      if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+        event.preventDefault();
+        const step = event.key === "ArrowRight" ? 1 : -1;
+        const nextIndex = (currentIndex + step + sessions.length) % sessions.length;
+        void onSelect(sessions[nextIndex]?.sessionId ?? currentSessionId);
+      }
+      if (event.key === "Home") {
+        event.preventDefault();
+        void onSelect(sessions[0]?.sessionId ?? currentSessionId);
+      }
+      if (event.key === "End") {
+        event.preventDefault();
+        void onSelect(sessions[sessions.length - 1]?.sessionId ?? currentSessionId);
+      }
+    },
+    [onSelect, sessions],
+  );
+
   return (
-    <div className="lm-chat-session-tabs" role="tablist" aria-label="对话">
+    <div className="lm-chat-session-tabs" role="tablist" aria-label="对话" id={tabListId}>
       <div ref={scrollRef} className="lm-chat-session-tabs-scroll">
         {loading && sessions.length === 0 ? (
           <span className="lm-chat-session-tabs-hint">加载中…</span>
@@ -192,11 +222,16 @@ export function LawmindChatSessionTabs({
               <button
                 type="button"
                 role="tab"
+                id={`lawmind-chat-tab-${s.sessionId}`}
                 aria-selected={active}
+                aria-controls={panelId}
                 aria-haspopup="menu"
+                aria-label={`切换到对话：${s.title}`}
                 className="lm-chat-session-tab"
                 title={`${s.title} — 左键切换；右键可重命名或删除`}
                 disabled={Boolean(busy)}
+                tabIndex={active ? 0 : -1}
+                onKeyDown={(event) => handleTabKeyDown(event, s.sessionId)}
                 onClick={() => void onSelect(s.sessionId)}
               >
                 <span className="lm-chat-session-tab-label">{s.title}</span>

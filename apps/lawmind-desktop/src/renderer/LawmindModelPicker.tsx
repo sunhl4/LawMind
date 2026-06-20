@@ -4,6 +4,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -136,6 +137,7 @@ export function LawmindModelPicker(props: Props): ReactNode {
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const [position, setPosition] = useState<CSSProperties>({});
+  const listboxId = useId().replace(/:/g, "");
 
   const effectiveSelectedId = resolveComposeModelSelectValue(catalog, selectedModelId);
   const selectedEntry = catalog.find((m) => m.id === effectiveSelectedId);
@@ -212,7 +214,7 @@ export function LawmindModelPicker(props: Props): ReactNode {
   );
 
   const onKeyDown = useCallback(
-    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    (event: ReactKeyboardEvent<HTMLDivElement | HTMLInputElement>) => {
       if (event.key === "/" && document.activeElement !== searchRef.current) {
         const ae = document.activeElement as HTMLElement | null;
         if (ae?.tagName === "INPUT" || ae?.tagName === "TEXTAREA" || ae?.isContentEditable) {
@@ -259,6 +261,7 @@ export function LawmindModelPicker(props: Props): ReactNode {
         key={row.id}
         type="button"
         role="option"
+        id={`${listboxId}-opt-${row.id}`}
         aria-selected={isSelected}
         className={`lm-model-picker-row ${isFocused ? "lm-model-picker-row-focused" : ""} ${
           !row.configured ? "lm-model-picker-row-disabled" : ""
@@ -309,6 +312,10 @@ export function LawmindModelPicker(props: Props): ReactNode {
   };
 
   const iconKeyForSelected = selectedEntry ? providerIconKey(selectedEntry) : "custom";
+  const activeOptionId =
+    open && focusIndex >= 0 && flat[focusIndex]
+      ? `${listboxId}-opt-${flat[focusIndex].row.id}`
+      : undefined;
 
   return (
     <div className="lm-model-picker">
@@ -318,6 +325,8 @@ export function LawmindModelPicker(props: Props): ReactNode {
         role="combobox"
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-controls={open ? listboxId : undefined}
+        aria-activedescendant={activeOptionId}
         className="lm-model-picker-trigger"
         disabled={disabled}
         title={
@@ -351,6 +360,7 @@ export function LawmindModelPicker(props: Props): ReactNode {
           className="lm-model-picker-popover"
           style={position}
           role="listbox"
+          id={listboxId}
           aria-label="选择模型"
           onKeyDown={onKeyDown}
         >
@@ -362,6 +372,7 @@ export function LawmindModelPicker(props: Props): ReactNode {
               placeholder="搜索模型 / 服务商 / 描述…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={onKeyDown}
             />
           </div>
           <div className="lm-model-picker-body">

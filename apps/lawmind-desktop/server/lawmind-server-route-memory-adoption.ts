@@ -18,8 +18,13 @@ import {
   type MemoryScope,
 } from "../../../src/lawmind/memory/adoption-service.js";
 import { buildAdoptionPreviewDiff } from "../../../src/lawmind/memory/adoption-preview-diff.js";
+import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
+import {
+  memoryAdoptionIdSchema,
+  memoryAdoptionSuggestSchema,
+} from "./lawmind-api-schemas.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
-import { readJsonBody, resolveDesktopActorId, sendJson } from "./lawmind-server-helpers.js";
+import { resolveDesktopActorId, sendJson } from "./lawmind-server-helpers.js";
 
 const VALID_SCOPES: ReadonlyArray<MemoryScope> = [
   "firm",
@@ -90,22 +95,26 @@ export async function handleMemoryAdoptionRoutes({
   }
 
   if (pathname === "/api/memory/adoption/suggest" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as Record<string, unknown> | null;
-    if (!body || typeof body !== "object") {
-      sendJson(res, 400, { ok: false, error: "missing body" }, c);
-      return true;
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, memoryAdoptionSuggestSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        const msg = err.issues.join("; ");
+        if (msg.includes("scope")) {
+          sendJson(res, 400, { ok: false, error: "invalid scope" }, c);
+          return true;
+        }
+        if (msg.includes("kind") || msg.includes("payload")) {
+          sendJson(res, 400, { ok: false, error: "missing kind or payload" }, c);
+          return true;
+        }
+        sendJson(res, 400, { ok: false, error: "missing body" }, c);
+        return true;
+      }
+      throw err;
     }
-    const scope = asScope(typeof body.scope === "string" ? body.scope : null);
-    if (!scope) {
-      sendJson(res, 400, { ok: false, error: "invalid scope" }, c);
-      return true;
-    }
-    const kind = typeof body.kind === "string" ? body.kind : undefined;
-    const payload = typeof body.payload === "string" ? body.payload : undefined;
-    if (!kind || !payload) {
-      sendJson(res, 400, { ok: false, error: "missing kind or payload" }, c);
-      return true;
-    }
+    const scope = body.scope;
     try {
       const rec = await suggestMemoryAdoption(
         workspaceDir,
@@ -113,12 +122,12 @@ export async function handleMemoryAdoptionRoutes({
         {
           scope,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          kind: kind as any,
-          payload,
-          targetId: typeof body.targetId === "string" ? body.targetId : undefined,
-          sourceTaskId: typeof body.sourceTaskId === "string" ? body.sourceTaskId : undefined,
+          kind: body.kind as any,
+          payload: body.payload,
+          targetId: body.targetId,
+          sourceTaskId: body.sourceTaskId,
           origin: "lawyer",
-          note: typeof body.note === "string" ? body.note : undefined,
+          note: body.note,
         },
         { autoAdopt: body.autoAdopt === true },
       );
@@ -132,31 +141,41 @@ export async function handleMemoryAdoptionRoutes({
   }
 
   if (pathname === "/api/memory/adoption/adopt" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as Record<string, unknown> | null;
-    if (!body || typeof body.id !== "string") {
-      sendJson(res, 400, { ok: false, error: "missing id" }, c);
-      return true;
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, memoryAdoptionIdSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "missing id" }, c);
+        return true;
+      }
+      throw err;
     }
     const result = await adoptMemorySuggestion(workspaceDir, auditDir, body.id, () => {
       // Inspector adoption is informational by default — actual writeback paths are
       // already handled by their respective writers (case markdown, profile md).
     }, {
       actorId: resolveDesktopActorId(),
-      note: typeof body.note === "string" ? body.note : undefined,
+      note: body.note,
     });
     sendJson(res, result.ok ? 200 : 400, result, c);
     return true;
   }
 
   if (pathname === "/api/memory/adoption/dismiss" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as Record<string, unknown> | null;
-    if (!body || typeof body.id !== "string") {
-      sendJson(res, 400, { ok: false, error: "missing id" }, c);
-      return true;
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, memoryAdoptionIdSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "missing id" }, c);
+        return true;
+      }
+      throw err;
     }
     const result = await dismissMemorySuggestion(workspaceDir, auditDir, body.id, {
       actorId: resolveDesktopActorId(),
-      note: typeof body.note === "string" ? body.note : undefined,
+      note: body.note,
     });
     sendJson(res, result.ok ? 200 : 400, result, c);
     return true;
