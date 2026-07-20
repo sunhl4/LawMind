@@ -77,6 +77,8 @@ export type UseLawmindChatSendInput = {
     sessionSummaryPath?: string;
     droppedMessageCount?: number;
   }) => void;
+  /** After a turn finishes (success or failure) — e.g. refresh action-summary / sticky review. */
+  onTurnComplete?: () => void;
 };
 
 export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
@@ -109,6 +111,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
     refreshCollaboration,
     applyStreamTokenBudget,
     onStreamCompactBoundary,
+    onTurnComplete,
   } = opts;
 
   const chatAbortControllerRef = useRef<AbortController | null>(null);
@@ -154,7 +157,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       chatAbortControllerRef.current = ac;
       chatInFlightRef.current = { assistantId, userText: text };
       let learnPrefix = "";
-      if (shouldAttachContractRevisionIndex(fileChatContextItems, deskContractBatchDir || undefined)) {
+      if (shouldAttachContractRevisionIndex(fileChatContextItems, deskContractBatchDir || undefined, text)) {
         learnPrefix = await fetchContractRevisionIndexPrefix(config.apiBase, ac.signal);
       }
       let messageForApi = text;
@@ -311,7 +314,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
             text:
               useFinal
                 ? finalText
-                : activityText || placeholderText || finalText || "本轮未返回可见回复，请查看审核台或重试。",
+                : activityText || placeholderText || finalText || "本轮未返回可见回复，请查看文书台或重试。",
             activity: activityDone,
             activityActive: false,
             liveTrace: finalizeLiveTrace(prev?.liveTrace ?? createEmptyLiveTrace()),
@@ -388,6 +391,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
         chatAbortControllerRef.current = null;
         chatInFlightRef.current = null;
         setLoading(false);
+        onTurnComplete?.();
         const nextQueued = sendQueueRef.current.shift();
         setQueuedMessages([...sendQueueRef.current]);
         if (nextQueued?.trim()) {
@@ -415,6 +419,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       sessionByAssistant,
       applyStreamTokenBudget,
       onStreamCompactBoundary,
+      onTurnComplete,
     ],
   );
 

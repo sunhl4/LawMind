@@ -5,6 +5,16 @@ import {
   listWorkQueueItems,
 } from "../../../src/lawmind/application/services/queue-service.js";
 import {
+  listQueueItemsForMatter,
+  openQueueItem,
+  transitionQueueItem,
+} from "../../../src/lawmind/application/services/queue-write-service.js";
+import { updateMatterProfile } from "../../../src/lawmind/application/services/matter-write-service.js";
+import {
+  buildMatterProfileView,
+  parseMatterCaseProfileFields,
+} from "../../../src/lawmind/cases/matter-profile.js";
+import {
   buildMatterIndex,
   buildMatterOverview,
   createMatterIfAbsent,
@@ -22,7 +32,7 @@ import {
 } from "../../../src/lawmind/cases/index.js";
 import type { DraftCitationIntegrityView } from "../../../src/lawmind/drafts/index.js";
 import { resolveDraftCitationIntegrity } from "../../../src/lawmind/drafts/index.js";
-import { emit } from "../../../src/lawmind/audit/index.js";
+import { emit, readRecentAuditLogs } from "../../../src/lawmind/audit/index.js";
 import { buildMatterReviewMatrix } from "../../../src/lawmind/matter/review-matrix.js";
 import {
   appendCaseArtifact,
@@ -44,10 +54,38 @@ import {
   matterDeletePostSchema,
   matterDisplayNamePostSchema,
   matterInteractionRequestSchema,
+  matterProfilePostSchema,
   matterRolePostSchema,
 } from "./lawmind-api-schemas.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import { resolveDesktopActorId, sendJson } from "./lawmind-server-helpers.js";
+
+function matterGovernanceLabel(record: ReturnType<typeof loadMatter>): string {
+  if (!record) {
+    return "";
+  }
+  const status =
+    record.status === "intake"
+      ? "接洽中"
+      : record.status === "active"
+        ? "办理中"
+        : record.status === "under_review"
+          ? "审核中"
+          : record.status === "delivered"
+            ? "已交付"
+            : record.status === "closed"
+              ? "已结案"
+              : record.status === "waiting_on_client"
+                ? "等待客户"
+                : "等待团队";
+  const sensitivity =
+    record.sensitivity === "restricted"
+      ? "严格隔离"
+      : record.sensitivity === "high"
+        ? "高度敏感"
+        : "普通保密";
+  return `${status} · ${sensitivity}`;
+}
 
 /** 解析 `<workspace>/cases/<matterId>` 并防止穿越 `cases` 根目录。 */
 function resolvedMatterCaseDir(workspaceDir: string, matterId: string): string {
@@ -92,7 +130,7 @@ function describeMatterInteraction(params: {
   const surface = params.surface?.trim() || "matter-workbench";
   const label = params.label?.trim() || "未命名动作";
   if (params.action === "open_review") {
-    return `案件工作台动作：从 ${surface} 进入审核台；来源 ${label}。`;
+    return `案件工作台动作：从 ${surface} 进入文书台；来源 ${label}。`;
   }
   if (params.action === "save_upgrade_suggestion") {
     const targetLabel = params.target === "assistant" ? "助手档案" : "律师档案";
@@ -117,7 +155,7 @@ function describeMatterInteraction(params: {
 
 function parseMatterInteractionDetail(detail?: string): MatterInteractionParsed {
   const raw = detail?.trim() ?? "";
-  const reviewMatch = /^案件工作台动作：从 (.+?) 进入审核台；来源 (.+)。$/.exec(raw);
+  const reviewMatch = /^案件工作台动作：从 (.+?) 进入(?:审核台|文书台)；来源 (.+)。$/.exec(raw);
   if (reviewMatch) {
     return {
       action: "open_review",
@@ -158,15 +196,35 @@ async function buildMatterInteractionRollup(workspaceDir: string): Promise<{
   }>;
 }> {
   const matterIds = await listMatterIds(workspaceDir);
-  const indexes = await Promise.all(matterIds.map((matterId) => buildMatterIndex(workspaceDir, matterId)));
+  const taskToMatter = new Map(
+    listTaskRecords(workspaceDir)
+      .filter((t) => t.matterId)
+      .map((t) => [t.taskId, t.matterId as string]),
+  );
+  // 一次读近期 audit，再按 matter 分桶——避免 N× buildMatterIndex 全量扫盘
+  const recentAudit = await readRecentAuditLogs(`${workspaceDir}/audit`, {
+    maxDays: 180,
+    maxEvents: 20_000,
+  });
+  const byMatter = new Map<string, typeof recentAudit>();
+  for (const event of recentAudit) {
+    const mid = taskToMatter.get(event.taskId);
+    if (!mid) {
+      continue;
+    }
+    const list = byMatter.get(mid) ?? [];
+    list.push(event);
+    byMatter.set(mid, list);
+  }
   const buckets = new Map<
     string,
     { title: string; matterIds: Set<string>; totalEvents: number; latestAt?: string }
   >();
-  for (const index of indexes) {
+  for (const matterId of matterIds) {
+    const auditEvents = byMatter.get(matterId) ?? [];
     // W10：兼容新旧 kind；同 taskId+detail+timestamp 视为重复，仅取一条。
     const seen = new Set<string>();
-    const interactions = index.auditEvents
+    const interactions = auditEvents
       .filter((event) => event.kind === "ui.matter_action" || event.kind === "ux.matter_action")
       .filter((event) => {
         const sig = `${event.taskId ?? ""}|${event.timestamp ?? ""}|${event.detail ?? ""}`;
@@ -230,7 +288,7 @@ async function buildMatterInteractionRollup(workspaceDir: string): Promise<{
         totalEvents: 0,
         latestAt: undefined,
       };
-      current.matterIds.add(index.matterId);
+      current.matterIds.add(matterId);
       current.totalEvents += theme.totalEvents;
       const latest = interactions.map((item) => item.event.timestamp).filter(Boolean).toSorted().at(-1);
       if (latest && (!current.latestAt || latest > current.latestAt)) {
@@ -465,9 +523,114 @@ export async function handleMatterRoutes({
     }
     const mid = body.matterId;
     const displayName = body.displayName ?? "";
+    const conflictCheckConfirmed = body.conflictCheckConfirmed === true;
+    const engagementAccepted = body.engagementAccepted === true;
     try {
-      const result = await createMatterIfAbsent(workspaceDir, mid, displayName ? { displayName } : undefined);
-      sendJson(res, 200, { ok: true, ...result }, c);
+      const result = await createMatterIfAbsent(workspaceDir, mid, {
+        ...(displayName ? { displayName } : {}),
+        ...(body.clientId ? { clientId: body.clientId } : {}),
+        ...(body.sensitivity ? { sensitivity: body.sensitivity } : {}),
+        status: conflictCheckConfirmed && engagementAccepted ? "active" : "intake",
+      });
+      if (!conflictCheckConfirmed) {
+        const existing = await listWorkQueueItems(workspaceDir, {
+          matterId: mid,
+          kind: "need_conflict_check",
+          status: "open",
+        });
+        if (existing.length === 0) {
+          openQueueItem(workspaceDir, {
+            matterId: mid,
+            kind: "need_conflict_check",
+            title: "完成利益冲突检查",
+            detail: "在正式接受委托和处理客户材料前，确认客户及相关方不存在利益冲突。",
+            priority: "high",
+          });
+        }
+      }
+      sendJson(res, 200, {
+        ok: true,
+        ...result,
+        status: conflictCheckConfirmed && engagementAccepted ? "active" : "intake",
+        conflictCheckRequired: !conflictCheckConfirmed,
+      }, c);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      sendJson(res, 400, { ok: false, error: msg }, c);
+    }
+    return true;
+  }
+
+  if (pathname === "/api/matters/profile" && req.method === "POST") {
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, matterProfilePostSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid profile body" }, c);
+        return true;
+      }
+      throw err;
+    }
+    const mid = body.matterId;
+    if (!isValidMatterId(mid)) {
+      sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+      return true;
+    }
+    try {
+      const conflictOk = body.conflictCheckConfirmed === true;
+      const engagementOk = body.engagementAccepted === true;
+      let nextStatus = body.status;
+      if (conflictOk && engagementOk) {
+        nextStatus = "active";
+      }
+      const updated = await updateMatterProfile(workspaceDir, {
+        matterId: mid,
+        ...(body.title ? { title: body.title } : {}),
+        ...(body.clientId !== undefined ? { clientId: body.clientId } : {}),
+        ...(body.sensitivity ? { sensitivity: body.sensitivity } : {}),
+        ...(nextStatus ? { status: nextStatus } : {}),
+        ...(body.causeOfAction !== undefined ? { causeOfAction: body.causeOfAction } : {}),
+        ...(body.counterparty !== undefined ? { counterparty: body.counterparty } : {}),
+      });
+      if (!updated) {
+        sendJson(res, 404, { ok: false, error: "matter not found" }, c);
+        return true;
+      }
+      if (conflictOk) {
+        for (const item of listQueueItemsForMatter(workspaceDir, mid, {
+          kind: "need_conflict_check",
+          status: "open",
+        })) {
+          transitionQueueItem(workspaceDir, mid, item.queueItemId, "resolved");
+        }
+      } else if (body.conflictCheckConfirmed === false) {
+        const existing = listQueueItemsForMatter(workspaceDir, mid, {
+          kind: "need_conflict_check",
+          status: "open",
+        });
+        if (existing.length === 0) {
+          openQueueItem(workspaceDir, {
+            matterId: mid,
+            kind: "need_conflict_check",
+            title: "完成利益冲突检查",
+            detail: "在正式接受委托和处理客户材料前，确认客户及相关方不存在利益冲突。",
+            priority: "high",
+          });
+        }
+      }
+      const caseMemory = (await buildMatterIndex(workspaceDir, mid)).caseMemory;
+      const fromCase = parseMatterCaseProfileFields(caseMemory);
+      const profile = buildMatterProfileView({
+        matterId: updated.matterId,
+        title: updated.title,
+        clientId: updated.clientId ?? fromCase.clientIdFromCase,
+        sensitivity: updated.sensitivity,
+        status: updated.status,
+        causeOfAction: fromCase.causeOfAction,
+        counterparty: fromCase.counterparty,
+      });
+      sendJson(res, 200, { ok: true, profile, statusLine: matterGovernanceLabel(updated) }, c);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       sendJson(res, 400, { ok: false, error: msg }, c);
@@ -602,10 +765,26 @@ export async function handleMatterRoutes({
     const index = await buildMatterIndex(workspaceDir, matterId);
     const approvalRequests = await listApprovalRequests(workspaceDir, { matterId });
     const queueItems = await listWorkQueueItems(workspaceDir, { matterId });
-    const summary = summarizeMatterIndex(index);
+    const record = loadMatter(workspaceDir, matterId);
+    const summary = {
+      ...summarizeMatterIndex(index),
+      statusLine: matterGovernanceLabel(record),
+    };
     const overview = buildMatterOverview(index);
     const truncated = index.caseMemory.length > 120_000;
     const caseMemory = truncated ? `${index.caseMemory.slice(0, 120_000)}\n\n…[truncated]` : index.caseMemory;
+    const fromCase = parseMatterCaseProfileFields(index.caseMemory);
+    const profile = record
+      ? buildMatterProfileView({
+          matterId: record.matterId,
+          title: record.title,
+          clientId: record.clientId ?? fromCase.clientIdFromCase,
+          sensitivity: record.sensitivity,
+          status: record.status,
+          causeOfAction: fromCase.causeOfAction,
+          counterparty: fromCase.counterparty,
+        })
+      : null;
     const draftCitationIntegrity: Record<string, DraftCitationIntegrityView> = {};
     for (const draft of index.drafts) {
       draftCitationIntegrity[draft.taskId] = resolveDraftCitationIntegrity(workspaceDir, draft);
@@ -618,6 +797,7 @@ export async function handleMatterRoutes({
         matterId,
         summary,
         overview,
+        profile,
         caseMemory,
         caseMemoryTruncated: truncated,
         coreIssues: index.coreIssues,

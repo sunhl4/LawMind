@@ -2,10 +2,13 @@
  * Action summary + approval resolve routes.
  */
 
-import { listSessions } from "../../../src/lawmind/agent/session.js";
+import { displayChatSessionTitle, listSessions, saveSession } from "../../../src/lawmind/agent/session.js";
 import { listPendingToolApprovals } from "../../../src/lawmind/platform/pending-tool-approvals.js";
+import type { LawMindRequiresAction } from "../../../src/lawmind/platform/requires-action.js";
 import { resolveApproval } from "../../../src/lawmind/application/services/approval-service.js";
 import { listApprovalRequests, listWorkQueueItems } from "../../../src/lawmind/application/services/queue-service.js";
+import { listDrafts } from "../../../src/lawmind/drafts/index.js";
+import { listOpenAutomationInbox } from "../../../src/lawmind/platform/lawyer-automations.js";
 import { listWorkflowJobs } from "./lawmind-server-jobs.js";
 import { isValidMatterId } from "../../../src/lawmind/cases/matter-id.js";
 import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
@@ -14,12 +17,72 @@ import { sendJsonError } from "./lawmind-api-error.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import { resolveDesktopActorId, sendJson } from "./lawmind-server-helpers.js";
 
-function countChatRequiresActions(workspaceDir: string): number {
-  let n = 0;
-  for (const s of listSessions(workspaceDir)) {
-    n += s.pendingRequiresAction?.length ?? 0;
+export type ChatRequiresActionRow = {
+  sessionId: string;
+  title: string;
+  matterId?: string;
+  assistantId?: string;
+  actions: LawMindRequiresAction[];
+};
+
+/**
+ * Prefer session.pendingRequiresAction. If empty but the last turn still has
+ * requiresAction (stale clear), rehydrate so /api/chat/resume can find action ids.
+ */
+function resolveSessionChatActions(
+  workspaceDir: string,
+  session: ReturnType<typeof listSessions>[number],
+): LawMindRequiresAction[] {
+  const pending = session.pendingRequiresAction ?? [];
+  if (pending.length > 0) {
+    return pending.map((a) => ({
+      ...a,
+      sessionId: a.sessionId ?? session.sessionId,
+    }));
   }
-  return n;
+  const last = session.turns[session.turns.length - 1];
+  const fromTurn = last?.requiresAction ?? [];
+  if (fromTurn.length === 0) {
+    return [];
+  }
+  session.pendingRequiresAction = fromTurn;
+  try {
+    saveSession(workspaceDir, session);
+  } catch {
+    /* best-effort rehydrate */
+  }
+  return fromTurn.map((a) => ({
+    ...a,
+    sessionId: a.sessionId ?? session.sessionId,
+  }));
+}
+
+function listChatRequiresActions(
+  workspaceDir: string,
+  matterFilter?: string,
+): ChatRequiresActionRow[] {
+  const rows: ChatRequiresActionRow[] = [];
+  for (const s of listSessions(workspaceDir)) {
+    if (matterFilter && s.matterId !== matterFilter) {
+      continue;
+    }
+    const actions = resolveSessionChatActions(workspaceDir, s);
+    if (actions.length === 0) {
+      continue;
+    }
+    rows.push({
+      sessionId: s.sessionId,
+      title: displayChatSessionTitle(s),
+      matterId: s.matterId,
+      assistantId: s.assistantId,
+      actions,
+    });
+  }
+  return rows;
+}
+
+function countChatRequiresActions(rows: ChatRequiresActionRow[]): number {
+  return rows.reduce((n, row) => n + row.actions.length, 0);
 }
 
 export async function handleActionSummaryRoutes({
@@ -54,13 +117,23 @@ export async function handleActionSummaryRoutes({
     const toolApprovals = listPendingToolApprovals(workspaceDir, {
       matterId: matterFilter,
     });
-    const chatRequiresActionCount = countChatRequiresActions(workspaceDir);
-    const total =
+    const chatRequiresActions = listChatRequiresActions(workspaceDir, matterFilter);
+    const chatRequiresActionCount = countChatRequiresActions(chatRequiresActions);
+    const pendingReviewDrafts = listDrafts(workspaceDir).filter(
+      (draft) =>
+        (!matterFilter || draft.matterId === matterFilter) &&
+        (draft.reviewStatus === "pending" || draft.reviewStatus === "modified"),
+    );
+    const automationInbox = listOpenAutomationInbox(workspaceDir, matterFilter);
+    const requiresDecisionTotal =
       pendingApprovals.length +
       openQueueItems.length +
-      jobs.length +
-      toolApprovals.length +
-      chatRequiresActionCount;
+      chatRequiresActionCount +
+      pendingReviewDrafts.length +
+      automationInbox.length;
+    const total =
+      requiresDecisionTotal +
+      jobs.length;
 
     sendJson(
       res,
@@ -71,12 +144,24 @@ export async function handleActionSummaryRoutes({
         pendingApprovals: pendingApprovals.length,
         openQueueItems: openQueueItems.length,
         activeJobs: jobs.length,
+        requiresDecisionTotal,
+        pendingReviewCount: pendingReviewDrafts.length,
         chatRequiresActionCount,
         pendingToolApprovals: toolApprovals.length,
+        pendingAutomationCount: automationInbox.length,
         approvals: pendingApprovals.slice(0, 20),
         queueItems: openQueueItems.slice(0, 20),
         jobs: jobs.slice(0, 10),
+        pendingReviewDrafts: pendingReviewDrafts.slice(0, 20).map((draft) => ({
+          taskId: draft.taskId,
+          matterId: draft.matterId,
+          title: draft.title,
+          reviewStatus: draft.reviewStatus,
+          createdAt: draft.createdAt,
+        })),
         toolApprovals: toolApprovals.slice(0, 20),
+        chatRequiresActions: chatRequiresActions.slice(0, 30),
+        automationInbox: automationInbox.slice(0, 30),
       },
       c,
     );

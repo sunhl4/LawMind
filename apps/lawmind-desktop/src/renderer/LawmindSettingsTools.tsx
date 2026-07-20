@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { apiGetJson, errorMessage } from "./api-client";
+import { lawmindDocUrl } from "./lawmind-public-urls.js";
 import { apiPatch } from "./lawmind-api-routes.ts";
 
 type ToolRow = {
@@ -111,6 +112,20 @@ export function LawmindSettingsTools(props: Props): ReactNode {
           ))}
         </ul>
         ) : null}
+      </details>
+      <details className="lm-settings-group lm-settings-surface">
+        <summary>外部助手（MCP）</summary>
+        <p className="lm-meta">
+          可通过只读 MCP 将工作区诊断、案件与草稿查询暴露给 Cursor / Claude Desktop 等外部助手，默认不写入工作区。
+          启动命令：<code>pnpm lawmind:mcp:readonly</code>（stdio）。
+        </p>
+        <p className="lm-meta">
+          Headless npm SDK 尚未公开发布；集成边界与路线图见{" "}
+          <a href={lawmindDocUrl("LAWMIND-INTEGRATIONS")} target="_blank" rel="noreferrer noopener">
+            LAWMIND-INTEGRATIONS
+          </a>
+          。可复制粘贴的 MCP 配置片段在「系统体检」页。
+        </p>
       </details>
     </div>
   );

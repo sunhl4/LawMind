@@ -122,7 +122,7 @@ describe("lawmind-server-route-health", () => {
 
     const edition = payload.edition as { label?: string; features?: Record<string, boolean> };
     expect(typeof edition?.label).toBe("string");
-    expect(edition?.features?.acceptanceGateStrict).toBe(false);
+    expect(edition?.features?.acceptanceGateStrict).toBe(true);
     const doctor = payload.doctor as { memoryTruthSources?: Record<string, unknown> };
     expect(doctor?.memoryTruthSources).toEqual(
       expect.objectContaining({

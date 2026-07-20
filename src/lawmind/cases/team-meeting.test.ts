@@ -1,11 +1,13 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  ADHOC_MEETING_MATTER_ID,
   appendTeamMeetingLinesSync,
   createTeamMeetingUserLine,
   formatTeamMeetingTranscriptPrefix,
+  migrateLegacyAdhocTeamMeetingIfNeeded,
   readTeamMeetingTail,
   readTeamMeetingWindow,
   teamMeetingFilePath,
@@ -57,5 +59,27 @@ describe("team-meeting", () => {
     expect(prefix.length).toBeLessThanOrEqual(TEAM_MEETING_TRANSCRIPT_MAX_CHARS + 500);
     expect(prefix).toContain("用户");
     expect(prefix).toContain("second");
+  });
+
+  it("stores adhoc meetings under meetings/adhoc and migrates legacy cases path", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "lm-tm-adhoc-"));
+    const legacyDir = path.join(dir, "cases", ADHOC_MEETING_MATTER_ID);
+    mkdirSync(legacyDir, { recursive: true });
+    const legacyFile = path.join(legacyDir, "team-meeting.jsonl");
+    const legacyLine = createTeamMeetingUserLine("legacy-adhoc");
+    appendFileSync(legacyFile, `${JSON.stringify(legacyLine)}\n`, "utf8");
+
+    migrateLegacyAdhocTeamMeetingIfNeeded(dir);
+    const next = teamMeetingFilePath(dir, ADHOC_MEETING_MATTER_ID);
+    expect(next).toContain(`${path.sep}meetings${path.sep}adhoc${path.sep}`);
+    expect(readFileSync(next, "utf8")).toContain("legacy-adhoc");
+
+    appendTeamMeetingLinesSync(dir, ADHOC_MEETING_MATTER_ID, [
+      createTeamMeetingUserLine("new-adhoc"),
+    ]);
+    const tail = readTeamMeetingTail(dir, ADHOC_MEETING_MATTER_ID, 10);
+    expect(tail.map((r) => r.text)).toEqual(["legacy-adhoc", "new-adhoc"]);
+
+    rmSync(dir, { recursive: true, force: true });
   });
 });

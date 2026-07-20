@@ -1,5 +1,7 @@
 /**
- * Per-matter team meeting transcript (JSONL under cases/<matterId>/).
+ * Team meeting transcript (JSONL).
+ * Bound matters: `cases/<matterId>/team-meeting.jsonl`
+ * Ad-hoc (临时讨论): `meetings/adhoc/team-meeting.jsonl` (not a fake CASE matter)
  */
 
 import { randomUUID } from "node:crypto";
@@ -22,11 +24,17 @@ export type TeamMeetingLine = {
 };
 
 const TEAM_MEETING_FILENAME = "team-meeting.jsonl";
+/** Sentinel id kept for API compatibility; storage is under meetings/adhoc/. */
+export const ADHOC_MEETING_MATTER_ID = "临时讨论";
 export const TEAM_MEETING_MAX_LINE_TEXT = 48_000;
 export const TEAM_MEETING_TAIL_LIMIT_DEFAULT = 80;
 export const TEAM_MEETING_TAIL_LIMIT_CAP = 200;
 export const TEAM_MEETING_TRANSCRIPT_MAX_CHARS = 12_000;
 const TEAM_MEETING_READ_MAX_BYTES = 4 * 1024 * 1024;
+
+export function isAdhocMeetingMatterId(matterId: string | null | undefined): boolean {
+  return (matterId?.trim() ?? "") === ADHOC_MEETING_MATTER_ID;
+}
 
 function resolvedMatterCaseDir(workspaceDir: string, matterId: string): string {
   const casesRoot = path.resolve(workspaceDir, "cases");
@@ -38,11 +46,57 @@ function resolvedMatterCaseDir(workspaceDir: string, matterId: string): string {
   return target;
 }
 
-export function teamMeetingFilePath(workspaceDir: string, matterId: string): string {
+function resolvedAdhocMeetingDir(workspaceDir: string): string {
+  const meetingsRoot = path.resolve(workspaceDir, "meetings");
+  const target = path.resolve(meetingsRoot, "adhoc");
+  const rel = path.relative(meetingsRoot, target);
+  if (rel.startsWith("..") || path.isAbsolute(rel) || rel === "") {
+    throw new Error("invalid meeting path");
+  }
+  return target;
+}
+
+/** Directory that holds team-meeting.jsonl for this scope. */
+export function resolvedTeamMeetingDir(workspaceDir: string, matterId: string): string {
   if (!isValidMatterId(matterId)) {
     throw new Error("invalid matter id");
   }
-  return path.join(resolvedMatterCaseDir(workspaceDir, matterId), TEAM_MEETING_FILENAME);
+  if (isAdhocMeetingMatterId(matterId)) {
+    return resolvedAdhocMeetingDir(workspaceDir);
+  }
+  return resolvedMatterCaseDir(workspaceDir, matterId);
+}
+
+/**
+ * One-shot migrate legacy `cases/临时讨论/team-meeting.jsonl` → `meetings/adhoc/`.
+ * Best-effort; never throws to callers.
+ */
+export function migrateLegacyAdhocTeamMeetingIfNeeded(workspaceDir: string): void {
+  try {
+    const nextDir = resolvedAdhocMeetingDir(workspaceDir);
+    const nextPath = path.join(nextDir, TEAM_MEETING_FILENAME);
+    if (fs.existsSync(nextPath)) {
+      return;
+    }
+    const legacyPath = path.join(
+      resolvedMatterCaseDir(workspaceDir, ADHOC_MEETING_MATTER_ID),
+      TEAM_MEETING_FILENAME,
+    );
+    if (!fs.existsSync(legacyPath)) {
+      return;
+    }
+    fs.mkdirSync(nextDir, { recursive: true });
+    fs.renameSync(legacyPath, nextPath);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function teamMeetingFilePath(workspaceDir: string, matterId: string): string {
+  if (isAdhocMeetingMatterId(matterId)) {
+    migrateLegacyAdhocTeamMeetingIfNeeded(workspaceDir);
+  }
+  return path.join(resolvedTeamMeetingDir(workspaceDir, matterId), TEAM_MEETING_FILENAME);
 }
 
 function parseLine(raw: string): TeamMeetingLine | null {
@@ -149,7 +203,7 @@ export function formatTeamMeetingTranscriptPrefix(lines: TeamMeetingLine[]): str
       row.kind === "user"
         ? "用户"
         : row.kind === "system"
-          ? "系统"
+          ? "主持人"
           : row.displayName?.trim() || row.assistantId?.trim() || "助手";
     const line = `[${label}] ${row.text.trim()}`;
     const nextLen = line.length + (parts.length > 0 ? 1 : 0);
@@ -178,7 +232,10 @@ export function appendTeamMeetingLinesSync(
   if (rows.length === 0) {
     return;
   }
-  const dir = resolvedMatterCaseDir(workspaceDir, matterId);
+  if (isAdhocMeetingMatterId(matterId)) {
+    migrateLegacyAdhocTeamMeetingIfNeeded(workspaceDir);
+  }
+  const dir = resolvedTeamMeetingDir(workspaceDir, matterId);
   fs.mkdirSync(dir, { recursive: true });
   const filePath = path.join(dir, TEAM_MEETING_FILENAME);
   const chunk =

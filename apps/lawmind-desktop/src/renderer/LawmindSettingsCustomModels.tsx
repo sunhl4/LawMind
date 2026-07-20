@@ -26,6 +26,13 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
       setBusy(true);
       setError(null);
       try {
+        const trimmedModel = model.trim();
+        // Client-side guard: common mistake is pasting LawMind internal id or raw uuid into the upstream model field.
+        if (/^(custom|builtin|platform|env):/i.test(trimmedModel) || /^[0-9a-f-]{20,}$/i.test(trimmedModel)) {
+          setError("模型 ID 看起来像 LawMind 内部标识（custom:xxx 或一串 hex/uuid），请填写该 Base URL 实际接受的模型名称，例如 gpt-4o、qwen-plus 或你本地模型的名字。");
+          setBusy(false);
+          return;
+        }
         const trimmedKey = apiKey.trim();
         const desktop = window.lawmindDesktop;
         const keychainAvailable = Boolean(desktop?.saveCustomModelKey);
@@ -36,7 +43,7 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
             const added = await addCustomModel(apiBase, {
               label: label.trim(),
               baseUrl: baseUrl.trim(),
-              model: model.trim(),
+              model: trimmedModel,
               apiKey: trimmedKey,
               setAsDefault: true,
             });
@@ -53,7 +60,7 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
           await addCustomModel(apiBase, {
             label: label.trim(),
             baseUrl: baseUrl.trim(),
-            model: model.trim(),
+            model: trimmedModel,
             apiKey: trimmedKey,
             setAsDefault: true,
           });
@@ -96,6 +103,7 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
       <div className="lm-settings-subsection-title">自定义模型（自带 API Key）</div>
       <p className="lm-meta lm-settings-hint">
         与 Cursor 类似：内置模型使用各服务商在向导/env 中的 Key；此处可添加任意 OpenAI 兼容端点。
+        「模型 ID」请填写该端点实际接受的模型名称（会直接作为 chat/completions 的 model 参数发出），不要填 LawMind 内部 ID。
       </p>
       {customModels.length > 0 ? (
         <ul className="lm-custom-model-list">
@@ -132,8 +140,9 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
           <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
         </label>
         <label className="lm-field">
-          <span>模型 ID</span>
-          <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="gpt-4o" />
+          <span>模型 ID（上游实际模型名）</span>
+          <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="gpt-4o 或 qwen-plus" />
+          <span className="lm-meta" style={{ marginTop: 2 }}>必须是该 Base URL 认识的模型名称（会直接发给 /chat/completions 的 model 参数）。不要填 custom:xxx 之类的内部 ID。</span>
         </label>
         <label className="lm-field">
           <span>API Key</span>
@@ -149,7 +158,7 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
             <p className="lm-callout-body">{error}</p>
           </div>
         ) : null}
-        <button type="submit" className="lm-btn lm-btn-sm" disabled={busy || !label.trim() || !apiKey.trim()}>
+        <button type="submit" className="lm-btn lm-btn-sm" disabled={busy || !label.trim() || !model.trim() || !apiKey.trim()}>
           {busy ? "保存中…" : "添加并设为默认"}
         </button>
       </form>

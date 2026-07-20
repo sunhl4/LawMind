@@ -7,7 +7,7 @@ import {
   loadRecordsPayload,
 } from "./lawmind-app-data";
 import { LAWMIND_DOWNLOAD_PAGE_URL } from "./lawmind-public-urls.js";
-import { setLoopbackApiAuthToken } from "./lawmind-api-auth.ts";
+import { apiAuthHeaders, setLoopbackApiAuthToken } from "./lawmind-api-auth.ts";
 import { loadCachedDevAppConfig, persistDevAppConfig } from "./lawmind-dev-config-cache.ts";
 
 export type AppConfig = {
@@ -73,7 +73,7 @@ export async function loadInitialAppConfig(): Promise<AppConfig> {
 export async function loadAppBootstrapSnapshot(apiBase: string) {
   const base = apiBase.replace(/\/$/, "");
   const [bootstrapRes, records, collaboration] = await Promise.all([
-    fetch(`${base}/api/bootstrap`)
+    fetch(`${base}/api/bootstrap`, { headers: apiAuthHeaders() })
       .then(async (res) => (res.ok ? ((await res.json()) as Record<string, unknown>) : null))
       .catch(() => null),
     loadRecordsPayload(apiBase),

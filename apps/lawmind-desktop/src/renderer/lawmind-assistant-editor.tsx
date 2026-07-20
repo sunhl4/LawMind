@@ -25,7 +25,7 @@ const DEFAULT_PRESET_KEY = "general_default";
 
 function emptyDraft(presets: PresetRow[]): AssistantEditorDraft {
   return {
-    displayName: "新智能体",
+    displayName: "新助手",
     introduction: "",
     presetKey: presets[0]?.id ?? DEFAULT_PRESET_KEY,
     customRoleTitle: "",
@@ -143,7 +143,7 @@ function AssistantAdvancedFields(props: {
             <summary>虚拟团队（可选）</summary>
             <div className="lm-settings-advanced-body">
               <p className="lm-field-hint">
-                用于多智能体协作时的角色与互审关系；日常单助手对话可留空。
+                用于多助手协作时的角色与互审关系；日常单助手对话可留空。
               </p>
               <label className="lm-field">
                 <span>组织角色</span>
@@ -230,7 +230,7 @@ function AssistantQuickCreateWizard(props: {
   useEffect(() => {
     if (step === 2 && !displayName.trim()) {
       const preset = presetOptions.find((p) => p.id === presetKey);
-      setDisplayName(preset?.displayName ?? "新智能体");
+      setDisplayName(preset?.displayName ?? "新助手");
     }
   }, [step, presetKey, displayName, presetOptions]);
 
@@ -238,7 +238,7 @@ function AssistantQuickCreateWizard(props: {
 
   return (
     <div className="lm-wizard lm-assistant-quick-wizard">
-      <h2>新建智能体</h2>
+      <h2>新建助手</h2>
       <ol className="lm-assistant-wizard-steps" aria-label="新建步骤">
         <li className={step >= 1 ? "done" : ""}>① 选岗位模板</li>
         <li className={step >= 2 ? "done" : ""}>② 命名</li>
@@ -332,7 +332,7 @@ type Props = {
   editingAssistantId: string | null;
   draft: AssistantEditorDraft;
   presets: PresetRow[];
-  /** 可选汇报 / 互审对象（不含当前正在编辑的智能体） */
+  /** 可选汇报 / 互审对象（不含当前正在编辑的助手） */
   assistantLinkOptions: Array<{ assistantId: string; displayName: string }>;
   busy: boolean;
   error: string | null;
@@ -368,7 +368,7 @@ export function LawmindAssistantEditorDialog({
   };
 
   return (
-    <div className="lm-wizard-backdrop" role="dialog" aria-modal="true" aria-label="智能体编辑">
+    <div className="lm-wizard-backdrop" role="dialog" aria-modal="true" aria-label="助手编辑">
       {editingAssistantId === null ? (
         <AssistantQuickCreateWizard
           presets={presets}
@@ -379,7 +379,7 @@ export function LawmindAssistantEditorDialog({
         />
       ) : (
         <div className="lm-wizard">
-          <h2>编辑智能体</h2>
+          <h2>编辑助手</h2>
           <p className="lm-wizard-lead lm-settings-hint">改名称与简介即可；组织关系在「高级」中配置。</p>
           <label className="lm-field">
             <span>显示名称</span>

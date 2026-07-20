@@ -82,7 +82,7 @@ export function formatThoughtDurationLabel(seconds: number, streaming: boolean):
     return "思考中…";
   }
   if (seconds < 1) {
-    return "Thought briefly";
+    return "思考过程";
   }
-  return `Thought for ${seconds}s`;
+  return `思考约 ${seconds} 秒`;
 }

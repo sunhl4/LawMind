@@ -65,7 +65,19 @@
 
 ## 6. 桌面消费
 
-- 聊天：`LawmindRequiresActionCard` 渲染 `requiresAction`
-- 全局：`LawmindActionHub` 聚合 `/api/action-summary` 与 pending approvals
+- 聊天：`LawmindRequiresActionCard` 渲染 `requiresAction`（一点「批准并继续」即 `POST chat/resume`，无二次确认窗）
+- 全局入口：侧栏/顶栏 **待我拍板** → 主视图「在办」（`agents` desk / 舰队面板），汇总 `/api/action-summary` 与 pending；无独立 Action Hub 模态
+
+## 7. 审批收紧（律师少参与）
+
+默认**不在办件过程中**为草稿写入打断律师：
+
+| 工具                                                   | 是否要求工具批准       |
+| ------------------------------------------------------ | ---------------------- |
+| `write_document` / `update_draft` / `draft_document`   | 否（工作过程自动执行） |
+| `render_document` / `send_email` / `register_template` | 是（对外交付 / 外发）  |
+| `execute_workflow`                                     | 仅 firm/strict 模式    |
+
+对外交付仍走 **文书台签批 + acceptance**，与上述工具批准分离。
 
 https://docs.lawmind.ai/LAWMIND-INTERRUPT-RESUME

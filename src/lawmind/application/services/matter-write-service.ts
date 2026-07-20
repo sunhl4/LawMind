@@ -12,7 +12,7 @@ import { receiveMessageOnPort, MessageChannel } from "node:worker_threads";
 import { loadMatter, saveMatter, type MatterRecord } from "../../adapters/matter-storage/index.js";
 import { matterSchema } from "../../adapters/matter-storage/schemas.js";
 import { emit } from "../../audit/index.js";
-import { projectMatterToCaseMd } from "../matter-projection.js";
+import { projectMatterToCaseMd, upsertMatterCaseProfileBullets } from "../matter-projection.js";
 
 const pendingMatterProjections = new Set<Promise<void>>();
 
@@ -25,9 +25,21 @@ function awaitMatterProjectionInVitest(task: Promise<void>): void {
 }
 
 function scheduleMatterProjection(workspaceDir: string, record: MatterRecord): void {
+  const auditDir = path.join(workspaceDir, "audit");
   const task = projectMatterToCaseMd(workspaceDir, record)
-    .catch(() => {
-      // projection must not block business logic
+    .catch((err) => {
+      // projection must not block business logic — but surface silent drift via audit
+      void emit(auditDir, {
+        taskId: record.matterId,
+        kind: "matter.projection_failed",
+        actor: "system",
+        detail: JSON.stringify({
+          matterId: record.matterId,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      }).catch(() => {
+        /* ignore */
+      });
     })
     .finally(() => {
       pendingMatterProjections.delete(task);
@@ -116,6 +128,53 @@ export function createMatterIfMissing(
   if (opts?.projectCase !== false) {
     scheduleMatterProjection(workspaceDir, saved);
   }
+  return saved;
+}
+
+export type MatterProfileUpdateInput = {
+  matterId: string;
+  title?: string;
+  clientId?: string;
+  sensitivity?: MatterRecord["sensitivity"];
+  status?: MatterRecord["status"];
+  causeOfAction?: string;
+  counterparty?: string;
+};
+
+/**
+ * 事后补全案件档案（展示名、客户、密级、阶段、案由、对方）。
+ * 建案时只建文件夹；属性在此写入 JSON 真相源并投影到 CASE.md。
+ */
+export async function updateMatterProfile(
+  workspaceDir: string,
+  input: MatterProfileUpdateInput,
+): Promise<MatterRecord | undefined> {
+  const existing = loadMatter(workspaceDir, input.matterId);
+  if (!existing) {
+    return undefined;
+  }
+  const title = input.title?.trim() || existing.title;
+  const clientId =
+    input.clientId !== undefined ? input.clientId.trim() || undefined : existing.clientId;
+  const next: MatterRecord = {
+    ...existing,
+    title,
+    clientId,
+    sensitivity: input.sensitivity ?? existing.sensitivity,
+    status: input.status ?? existing.status,
+    updatedAt: newTimestamp(),
+  };
+  const parsed = matterSchema.safeParse(next);
+  if (!parsed.success) {
+    void emitInvalid(workspaceDir, input.matterId, parsed.error.message);
+    throw new Error(`Invalid matter profile for ${input.matterId}: ${parsed.error.message}`);
+  }
+  const saved = saveMatter(workspaceDir, parsed.data);
+  await projectMatterToCaseMd(workspaceDir, saved);
+  await upsertMatterCaseProfileBullets(workspaceDir, saved.matterId, {
+    causeOfAction: input.causeOfAction,
+    counterparty: input.counterparty,
+  });
   return saved;
 }
 

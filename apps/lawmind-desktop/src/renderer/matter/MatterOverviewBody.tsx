@@ -7,6 +7,13 @@ import { MatterQualityCockpit } from "./MatterQualityCockpit";
 import { type AcceptanceSummaryItem } from "./matter-acceptance-display";
 import { MatterLocalDocIndex } from "./MatterLocalDocIndex";
 import { MatterOverviewExtras } from "./MatterOverviewExtras";
+import { MatterProfileCard, type MatterProfilePayload } from "./MatterProfileCard";
+import {
+  InteractionConvergence,
+  LawyerActionFeed,
+  ProductExperiments,
+} from "../insights";
+import type { ConvergenceHint, InteractionEvent, ProductExperimentItem } from "../../../../../src/lawmind/insights/index.ts";
 import {
   MatterReviewQueuePanel,
   type ApprovalRow,
@@ -20,7 +27,7 @@ import {
   queueKindLabel,
   reviewStatusLabel,
 } from "./matter-display-labels.js";
-import { auditKindLabel } from "./matter-interaction";
+import { parseMatterInteractionEvent } from "./matter-interaction";
 import type {
   AdoptionHistoryInsight,
   AdoptedSuggestionRecord,
@@ -36,10 +43,48 @@ import type {
   OperationsSort,
 } from "./matter-interaction";
 
+function toConvergenceHint(item: MatterConvergenceSuggestion | MatterProductAdaptationSuggestion): ConvergenceHint {
+  return {
+    key: item.key,
+    title: item.title,
+    detail: item.detail,
+    actionLabel: item.actionLabel,
+    tone: item.tone,
+  };
+}
+
+function toExperimentItem(item: MatterProductExperimentItem): ProductExperimentItem {
+  return {
+    key: item.key,
+    title: item.title,
+    hypothesis: item.hypothesis,
+    validation: item.validation,
+    signal: item.signal,
+    priority: item.priority,
+  };
+}
+
+function toInteractionEvents(matterId: string, rows: AuditEventRow[]): InteractionEvent[] {
+  return rows.map((event) => {
+    const parsed = parseMatterInteractionEvent(event);
+    return {
+      kind: "ui.matter_action" as const,
+      matterId,
+      taskId: event.taskId ?? "",
+      timestamp: event.timestamp ?? "",
+      action: parsed.action,
+      surface: parsed.surface,
+      label: parsed.label ?? event.detail,
+    };
+  });
+}
+
 export type MatterOverviewBodyProps = {
   apiBase: string;
   matterId: string;
   summary: MatterSummary;
+  profile: MatterProfilePayload | null;
+  onProfileSaved?: (profile: MatterProfilePayload, statusLine?: string) => void;
   selectedOverview: MatterOverview | null;
   showWorkspaceAcceptanceDashboard: boolean;
   workspaceAcceptance: MatterWorkspaceAcceptance | null;
@@ -73,6 +118,12 @@ export type MatterOverviewBodyProps = {
       sourceLabel?: string;
     },
   ) => void;
+  /** 打开本案「会议室」讨论时间线 */
+  onOpenMeeting?: () => void;
+  /** 打开本案对话（绑定 matter 上下文） */
+  onUseInChat?: (matterId: string) => void;
+  /** 打开「在办」待我拍板焦点 */
+  onOpenNeedsDecisionDesk?: () => void;
   opsFocus: OperationsFocus;
   setOpsFocus: (v: OperationsFocus) => void;
   opsSort: OperationsSort;
@@ -127,6 +178,8 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
     apiBase,
     matterId,
     summary,
+    profile,
+    onProfileSaved,
     selectedOverview,
     showWorkspaceAcceptanceDashboard,
     workspaceAcceptance,
@@ -136,6 +189,9 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
     reviewSummaryCards,
     onOpenReview,
     openReviewFromMatter,
+    onOpenMeeting,
+    onUseInChat,
+    onOpenNeedsDecisionDesk,
     opsFocus,
     setOpsFocus,
     opsSort,
@@ -201,6 +257,9 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
             workspaceAcceptanceErr={workspaceAcceptanceErr}
           />
         ) : null}
+        {matterId && apiBase && profile ? (
+          <MatterProfileCard apiBase={apiBase} profile={profile} onSaved={onProfileSaved} />
+        ) : null}
         {matterId && apiBase ? <MatterLocalDocIndex apiBase={apiBase} matterId={matterId} /> : null}
         {matterId ? (
           <MatterQualityCockpit
@@ -211,6 +270,78 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
             acceptanceBlockedCount={acceptanceBlockedCount}
           />
         ) : null}
+        <section
+          className="lm-matter-decision-rail"
+          aria-label="本案下一步"
+          data-testid="lm-matter-decision-rail"
+        >
+          <div className="lm-matter-decision-rail-copy">
+            <strong>本案下一步</strong>
+            <span className="lm-meta">
+              {(() => {
+                const pending = reviewSummaryCards.find((c) => c.key === "pending-review")?.count ?? 0;
+                const approvals = approvalRequests.filter((a) => a.status === "pending").length;
+                if (pending > 0) {
+                  return `${pending} 份待审文书可签批`;
+                }
+                if (approvals > 0) {
+                  return `${approvals} 项案件审批待处理`;
+                }
+                if (summary.nextActions[0]?.trim()) {
+                  return summary.nextActions[0].trim();
+                }
+                return "无紧急待办 — 可在对话下达新任务";
+              })()}
+            </span>
+          </div>
+          <div className="lm-matter-decision-rail-actions">
+            {onUseInChat ? (
+              <button
+                type="button"
+                className="lm-btn lm-btn-sm"
+                data-testid="lm-matter-open-chat"
+                onClick={() => onUseInChat(matterId)}
+              >
+                打开本案对话
+              </button>
+            ) : null}
+            {onOpenNeedsDecisionDesk ? (
+              <button
+                type="button"
+                className="lm-btn lm-btn-secondary lm-btn-sm"
+                data-testid="lm-matter-open-needs-decision"
+                onClick={onOpenNeedsDecisionDesk}
+              >
+                待我拍板
+              </button>
+            ) : null}
+            {(() => {
+              const pendingCard = reviewSummaryCards.find(
+                (c) => c.key === "pending-review" && c.actionTaskId,
+              );
+              if (!pendingCard?.actionTaskId) {
+                return null;
+              }
+              return (
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-secondary lm-btn-sm"
+                  data-testid="lm-matter-open-primary-review"
+                  onClick={() =>
+                    openReviewFromMatter(pendingCard.actionTaskId!, {
+                      statusFilter: pendingCard.statusFilter,
+                      listMode: pendingCard.listMode,
+                      sourceSurface: "overview-decision-rail",
+                      sourceLabel: pendingCard.title,
+                    })
+                  }
+                >
+                  进入文书台
+                </button>
+              );
+            })()}
+          </div>
+        </section>
         <section className="lm-matter-cockpit-summary">
           {reviewSummaryCards.map((card) => (
             <div key={card.key} className={`lm-matter-summary-card lm-matter-summary-card-${card.tone}`}>
@@ -238,6 +369,19 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
             </div>
           ))}
         </section>
+        {onOpenMeeting ? (
+          <section className="lm-matter-cockpit-card lm-matter-meeting-entry">
+            <div className="lm-matter-ops-title">
+              <span>本案讨论时间线</span>
+              <button type="button" className="lm-btn lm-btn-secondary lm-btn-small" onClick={onOpenMeeting}>
+                打开会议室
+              </button>
+            </div>
+            <p className="lm-meta">
+              打开顶栏「会议室·办件 → 会议室」并绑定本案；也可开临时讨论。多位助手轮流发言，律师可开场或中途介入。
+            </p>
+          </section>
+        ) : null}
          <section className="lm-matter-cockpit-card lm-matter-ops-focus-card">
           <div className="lm-matter-ops-focus-head">
             <div>
@@ -316,7 +460,7 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
                 </div>
                 <div className="lm-matter-summary-card lm-matter-summary-card-warn">
                   <div className="lm-matter-summary-top">
-                    <span className="lm-matter-summary-title">进入审核</span>
+                    <span className="lm-matter-summary-title">进入文书台</span>
                     <span className="lm-matter-summary-count">{matterInteractionSummary.reviewOpenCount}</span>
                   </div>
                 </div>
@@ -362,107 +506,42 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
         <>
         <section className="lm-matter-cockpit-card lm-matter-convergence-card">
           <h3>交互收敛建议</h3>
-          {convergenceSuggestions.length === 0 ? (
-            <p className="lm-meta">暂无</p>
-          ) : (
-            <ul className="lm-matter-ops-list">
-              {convergenceSuggestions.map((item) => (
-                <li key={item.key}>
-                  <div className="lm-matter-ops-title">
-                    <span>{item.title}</span>
-                    <span className={`lm-matter-pill lm-matter-convergence-pill-${item.tone}`}>
-                      {item.tone === "warn"
-                        ? "优先处理"
-                        : item.tone === "success"
-                          ? "可沉淀"
-                          : item.tone === "info"
-                            ? "可收敛"
-                            : "继续观察"}
-                    </span>
-                  </div>
-                  <div className="lm-matter-ops-meta">{item.detail}</div>
-                  <div className="lm-matter-ops-actions lm-matter-convergence-actions">
-                    <button
-                      type="button"
-                      className="lm-btn lm-btn-secondary lm-btn-small"
-                      disabled={item.target.type === "none"}
-                      onClick={() => handleConvergenceSuggestion(item)}
-                    >
-                      {item.actionLabel}
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+          <InteractionConvergence
+            hints={convergenceSuggestions.map(toConvergenceHint)}
+            onAction={(hint) => {
+              const item = convergenceSuggestions.find((s) => s.key === hint.key);
+              if (item) {
+                handleConvergenceSuggestion(item);
+              }
+            }}
+          />
         </section>
          <section className="lm-matter-cockpit-card lm-matter-product-card">
           <h3>产品改造建议</h3>
-          {productAdaptationSuggestions.length === 0 ? (
-            <p className="lm-meta">暂无</p>
-          ) : (
-            <ul className="lm-matter-ops-list">
-              {productAdaptationSuggestions.map((item) => (
-                <li key={item.key}>
-                  <div className="lm-matter-ops-title">
-                    <span>{item.title}</span>
-                    <span className={`lm-matter-pill lm-matter-convergence-pill-${item.tone}`}>
-                      {item.tone === "warn"
-                        ? "应前置"
-                        : item.tone === "success"
-                          ? "应产品化"
-                          : item.tone === "info"
-                            ? "应结构化"
-                            : "待验证"}
-                    </span>
-                  </div>
-                  <div className="lm-matter-ops-meta">{item.detail}</div>
-                  <div className="lm-matter-ops-actions lm-matter-convergence-actions">
-                    <button
-                      type="button"
-                      className="lm-btn lm-btn-secondary lm-btn-small"
-                      disabled={item.target.type === "none"}
-                      onClick={() => handleConvergenceSuggestion(item)}
-                    >
-                      {item.actionLabel}
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+          <InteractionConvergence
+            hints={productAdaptationSuggestions.map(toConvergenceHint)}
+            onAction={(hint) => {
+              const item = productAdaptationSuggestions.find((s) => s.key === hint.key);
+              if (item) {
+                handleConvergenceSuggestion(item);
+              }
+            }}
+          />
         </section>
          <section className="lm-matter-cockpit-card lm-matter-experiment-card">
           <h3>产品实验清单</h3>
-          {productExperimentChecklist.length === 0 ? (
-            <p className="lm-meta">暂无</p>
-          ) : (
-            <ul className="lm-matter-ops-list">
-              {productExperimentChecklist.map((item) => (
-                <li key={item.key}>
-                  <div className="lm-matter-ops-title">
-                    <span>{item.title}</span>
-                    <span className={`lm-matter-pill lm-matter-experiment-pill-${item.priority}`}>
-                      {item.priority === "high" ? "高优先" : item.priority === "medium" ? "中优先" : "低优先"}
-                    </span>
-                  </div>
-                  <div className="lm-matter-ops-meta">假设：{item.hypothesis}</div>
-                  <div className="lm-matter-ops-meta">验证：{item.validation}</div>
-                  <div className="lm-matter-ops-meta">当前信号：{item.signal}</div>
-                  <div className="lm-matter-ops-actions lm-matter-convergence-actions">
-                    <button
-                      type="button"
-                      className="lm-btn lm-btn-secondary lm-btn-small"
-                      disabled={item.target.type === "none"}
-                      onClick={() => handleConvergenceSuggestion(item)}
-                    >
-                      {item.actionLabel}
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+          <ProductExperiments
+            items={productExperimentChecklist.map(toExperimentItem)}
+            actionLabelForItem={(it) =>
+              productExperimentChecklist.find((s) => s.key === it.key)?.actionLabel ?? "打开对应入口"
+            }
+            onAction={(it) => {
+              const item = productExperimentChecklist.find((s) => s.key === it.key);
+              if (item && item.target.type !== "none") {
+                handleConvergenceSuggestion(item);
+              }
+            }}
+          />
         </section>
          <section className="lm-matter-cockpit-card lm-matter-cross-experiment-card">
           <h3>跨案件实验累积板</h3>
@@ -589,34 +668,66 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
         </section>
         </>
         ) : null}
-         <section className="lm-matter-cockpit-card">
-          <h3>最近律师动作</h3>
-          {recentMatterInteractions.length === 0 ? (
-            <p className="lm-meta">暂无</p>
-          ) : (
-            <ul className="lm-matter-ops-list">
-              {recentMatterInteractions.map((event, index) => (
-                <li key={`${event.timestamp ?? "na"}:${index}`}>
-                  <div className="lm-matter-ops-title">
-                    <span>{auditKindLabel(event.kind)}</span>
-                    <span className="lm-matter-pill">{formatShortDateTime(event.timestamp)}</span>
-                  </div>
-                  <div className="lm-matter-ops-meta">{event.detail ?? "无明细"}</div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-         <div className="lm-matter-cockpit-grid">
+        {showCrossMatterRoadmap ? (
           <section className="lm-matter-cockpit-card">
+            <h3>最近律师动作</h3>
+            <LawyerActionFeed
+              events={toInteractionEvents(matterId, recentMatterInteractions)}
+              formatRelative={formatShortDateTime}
+            />
+          </section>
+        ) : null}
+         <div className="lm-matter-cockpit-grid">
+          <section className="lm-matter-cockpit-card" data-testid="lm-matter-next-actions">
             <h3>下一步</h3>
             {summary.nextActions.length === 0 ? (
               <p className="lm-meta">暂无</p>
             ) : (
-              <ul className="lm-bullet-list">
-                {summary.nextActions.map((x, i) => (
-                  <li key={i}>{x}</li>
-                ))}
+              <ul className="lm-bullet-list lm-matter-next-actions-list">
+                {summary.nextActions.map((x, i) => {
+                  const pendingCard = reviewSummaryCards.find(
+                    (c) => c.key === "pending-review" && c.actionTaskId,
+                  );
+                  const isReviewHint =
+                    i === 0 &&
+                    Boolean(pendingCard?.actionTaskId) &&
+                    /审|签批|文书|复核|验收/.test(x);
+                  const isChatHint =
+                    i === 0 &&
+                    Boolean(onUseInChat) &&
+                    !isReviewHint &&
+                    /对话|澄清|补充|下达|追问/.test(x);
+                  return (
+                    <li key={i}>
+                      <span>{x}</span>
+                      {isReviewHint && pendingCard?.actionTaskId ? (
+                        <button
+                          type="button"
+                          className="lm-btn lm-btn-ghost lm-btn-sm"
+                          onClick={() =>
+                            openReviewFromMatter(pendingCard.actionTaskId!, {
+                              statusFilter: pendingCard.statusFilter,
+                              listMode: pendingCard.listMode,
+                              sourceSurface: "overview-next-action",
+                              sourceLabel: x,
+                            })
+                          }
+                        >
+                          去文书台
+                        </button>
+                      ) : null}
+                      {isChatHint && onUseInChat ? (
+                        <button
+                          type="button"
+                          className="lm-btn lm-btn-ghost lm-btn-sm"
+                          onClick={() => onUseInChat(matterId)}
+                        >
+                          去对话
+                        </button>
+                      ) : null}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </section>
@@ -647,7 +758,7 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
                               })
                             }
                           >
-                            去审核
+                            进入文书台
                           </button>
                         ) : null}
                       </div>
@@ -693,7 +804,7 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
                               })
                             }
                           >
-                            去审核
+                            进入文书台
                           </button>
                         ) : null}
                       </div>
@@ -732,7 +843,7 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
                               })
                             }
                           >
-                            去审核
+                            进入文书台
                           </button>
                         ) : null}
                       </div>

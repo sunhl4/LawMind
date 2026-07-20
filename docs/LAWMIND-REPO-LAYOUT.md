@@ -4,16 +4,16 @@
 
 ## 顶层一览
 
-| 路径                    | 职责                                                                                                                                                                                        |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/lawmind/`          | **法律引擎**（任务、草稿、Agent、策略、模板、检索、审计等）。TypeScript ESM，`pnpm test` 覆盖此处与各桌面单测。                                                                             |
-| `apps/lawmind-desktop/` | **Electron 桌面**：`electron/` 主进程、`src/renderer/` 前端、`server/` 本地 HTTP API 源码；构建产物见各子目录 `.gitignore`。                                                                |
-| `apps/lawmind-docs/`    | **文档站**（VitePress）。开发/构建前会执行 `pnpm run sync`，把根目录 `docs/LAWMIND-*.md` 与 `docs/lawmind/` 复制进 `apps/lawmind-docs/docs/`（复制内容默认不单独提交，见根 `.gitignore`）。 |
-| `docs/`                 | **文档单一事实来源**：对外手册与工程笔记；改文稿请只编辑此树。`docs/examples/` 含策略文件样例。                                                                                             |
-| `scripts/`              | **CLI 与运维**：可执行入口集中在 **`scripts/lawmind/`**（`pnpm lawmind:*`）；**`scripts/pre-commit/`** 供 git hooks 使用。                                                                  |
-| `test/`                 | Vitest 全局 `setupFiles`（如 `lawmind-setup.ts`）。                                                                                                                                         |
-| `workspace/`            | **开发/演示用工作区盘面**：可提交 **模板、playbooks、示例 cases、通用 MEMORY 样例**；任务、草稿、会话、审计、产物等运行数据由 `workspace/.gitignore` 排除，勿推送到公开仓库。               |
-| `.github/`              | CI（`lawmind-*.yml`、CodeQL 等）与模板。                                                                                                                                                    |
+| 路径                    | 职责                                                                                                                                                                                                        |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/lawmind/`          | **法律引擎**（任务、草稿、Agent、策略、模板、检索、审计等）。TypeScript ESM，`pnpm test` 覆盖此处与各桌面单测。                                                                                             |
+| `apps/lawmind-desktop/` | **Electron 桌面**：`electron/` 主进程、`src/renderer/` 前端、`server/` 本地 HTTP API 源码；构建产物见各子目录 `.gitignore`。                                                                                |
+| `apps/lawmind-docs/`    | **文档站**（VitePress）。开发/构建前会执行 `pnpm run sync`，把根目录 `docs/LAWMIND-*.md` 与 `docs/lawmind/` 复制进 `apps/lawmind-docs/docs/`（复制内容默认不单独提交，见根 `.gitignore`）。                 |
+| `docs/`                 | **文档单一事实来源**：对外手册与工程笔记；改文稿请只编辑此树。`docs/examples/` 含策略文件样例。长期回看项见 **`LAWMIND-FUTURE-ISSUES.md`**；持久化/token 审查见 **`LAWMIND-PERSISTENCE-SCALE-REVIEW.md`**。 |
+| `scripts/`              | **CLI 与运维**：可执行入口集中在 **`scripts/lawmind/`**（`pnpm lawmind:*`）；**`scripts/pre-commit/`** 供 git hooks 使用。                                                                                  |
+| `test/`                 | Vitest 全局 `setupFiles`（如 `lawmind-setup.ts`）。                                                                                                                                                         |
+| `workspace/`            | **开发/演示用工作区盘面**：可提交 **模板、playbooks、示例 cases、通用 MEMORY 样例**；任务、草稿、会话、审计、产物等运行数据由 `workspace/.gitignore` 排除，勿推送到公开仓库。                               |
+| `.github/`              | CI（`lawmind-*.yml`、CodeQL 等）与模板。                                                                                                                                                                    |
 
 ## 引擎分层（`src/lawmind/`）
 
@@ -48,13 +48,15 @@ Git 克隆后的**父文件夹名称可以随意**（例如 `lawmind` 或仍名�
 
 ## 文档索引
 
-| 文档                                                                             | 说明                            |
-| -------------------------------------------------------------------------------- | ------------------------------- |
-| [LAWMIND-ARCHITECTURE.md](./LAWMIND-ARCHITECTURE.md)                             | 架构与模块边界                  |
-| [LAWMIND-DESKTOP-UI.md](./LAWMIND-DESKTOP-UI.md)                                 | 桌面 UI 与 renderer 拆分约定    |
-| [LAWMIND-EXCELLENCE-ROADMAP.md](./LAWMIND-EXCELLENCE-ROADMAP.md)                 | 第十二期优化路线                |
-| [LAWMIND-REFERENCE-PROJECT-LESSONS.md](./LAWMIND-REFERENCE-PROJECT-LESSONS.md)   | 借鉴项与落地状态矩阵            |
-| [lawmind/LAWMIND-PLATFORM-CONTRACTS.md](./lawmind/LAWMIND-PLATFORM-CONTRACTS.md) | 平台契约（health / rate limit） |
+| 文档                                                                             | 说明                                              |
+| -------------------------------------------------------------------------------- | ------------------------------------------------- |
+| [LAWMIND-ARCHITECTURE.md](./LAWMIND-ARCHITECTURE.md)                             | 架构与模块边界                                    |
+| [LAWMIND-DESKTOP-UI.md](./LAWMIND-DESKTOP-UI.md)                                 | 桌面 UI 与 renderer 拆分约定                      |
+| [LAWMIND-EXCELLENCE-ROADMAP.md](./LAWMIND-EXCELLENCE-ROADMAP.md)                 | 第十二期优化路线                                  |
+| [LAWMIND-REFERENCE-PROJECT-LESSONS.md](./LAWMIND-REFERENCE-PROJECT-LESSONS.md)   | 借鉴项与落地状态矩阵                              |
+| [LAWMIND-AGENT-SKILLS-OPTIMIZATION.md](./LAWMIND-AGENT-SKILLS-OPTIMIZATION.md)   | Agent Skills 生态调研与产品力优化史诗（持续更新） |
+| [LAWMIND-AGENT-SKILLS-EPIC-PLANS.md](./LAWMIND-AGENT-SKILLS-EPIC-PLANS.md)       | 十二史诗详细工作包与 UI 前后示意图（决策用）      |
+| [lawmind/LAWMIND-PLATFORM-CONTRACTS.md](./lawmind/LAWMIND-PLATFORM-CONTRACTS.md) | 平台契约（health / rate limit）                   |
 
 ## CI 相关
 

@@ -58,7 +58,7 @@ function LawmindChatExecutionTraceInner(props: Props): ReactNode {
     >
       <div className="lm-chat-trace-head">
         <div className="lm-chat-trace-title">
-          {isActive ? "思考中…" : "Thought briefly"}
+          {isActive ? "思考中…" : summary ? `已完成 · ${summary}` : "过程"}
           {isActive ? titleRound : null}
         </div>
         {canCollapse ? (
@@ -68,7 +68,7 @@ function LawmindChatExecutionTraceInner(props: Props): ReactNode {
             aria-expanded={expanded}
             onClick={() => setExpanded((v) => !v)}
           >
-            {expanded ? "Hide" : "Show"}
+            {expanded ? "收起" : "展开"}
           </button>
         ) : null}
       </div>

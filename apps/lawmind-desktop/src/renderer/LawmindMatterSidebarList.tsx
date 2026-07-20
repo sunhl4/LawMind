@@ -7,10 +7,12 @@ type Props = {
   onSelect: (matterId: string) => void;
   /** e.g. `lm-matter-sidebar-list--fill` when this is the primary sidebar body. */
   className?: string;
+  /** Opens create-matter dialog (no-FS / empty-list path). */
+  onCreateMatter?: () => void;
 };
 
 export function LawmindMatterSidebarList(props: Props): ReactNode {
-  const { rows, selectedKey, onSelect, className } = props;
+  const { rows, selectedKey, onSelect, className, onCreateMatter } = props;
   const [query, setQuery] = useState("");
 
   const matterRows = useMemo(() => {
@@ -36,6 +38,18 @@ export function LawmindMatterSidebarList(props: Props): ReactNode {
       <div className="lm-matter-sidebar-list-head">
         <span className="lm-matter-sidebar-list-title">案件</span>
         <span className="lm-matter-sidebar-list-count">{matterRows.length}</span>
+        {onCreateMatter ? (
+          <button
+            type="button"
+            className="lm-btn lm-btn-ghost lm-btn-sm lm-matter-sidebar-create"
+            data-testid="lm-matter-sidebar-create"
+            onClick={onCreateMatter}
+            title="新建案件"
+            aria-label="新建案件"
+          >
+            新建
+          </button>
+        ) : null}
       </div>
       <input
         type="search"
@@ -46,9 +60,25 @@ export function LawmindMatterSidebarList(props: Props): ReactNode {
         aria-label="筛选案件"
       />
       {matterRows.length === 0 ? (
-        <p className="lm-meta lm-matter-sidebar-empty">
-          {query.trim() ? "无匹配案件" : "暂无案件，请在 cases/ 目录新建或导入。"}
-        </p>
+        <div className="lm-matter-sidebar-empty-wrap">
+          <p className="lm-meta lm-matter-sidebar-empty">
+            {query.trim()
+              ? "无匹配案件"
+              : onCreateMatter
+                ? "暂无案件。点上方「新建」开始。"
+                : "暂无案件。打开顶部「案件工作台」新建，或在对话空态点「新建案件」。"}
+          </p>
+          {!query.trim() && onCreateMatter ? (
+            <button
+              type="button"
+              className="lm-btn lm-btn-secondary lm-btn-sm"
+              data-testid="lm-matter-sidebar-create-empty"
+              onClick={onCreateMatter}
+            >
+              新建案件
+            </button>
+          ) : null}
+        </div>
       ) : (
         <ul className="lm-matter-sidebar-list-ul">
           {matterRows.map((row) => (

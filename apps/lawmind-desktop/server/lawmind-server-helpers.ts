@@ -210,7 +210,12 @@ export function buildAgentConfig(
           ? "missing_provider_api_key"
           : "missing_api_key";
     return {
-      config: { workspaceDir, model: modelConfig, actorId },
+      config: {
+        workspaceDir,
+        model: modelConfig,
+        actorId,
+        ...(opts?.envFile ? { envFile: opts.envFile } : {}),
+      },
       error: err,
       modelId: resolved.resolvedModelId,
     };
@@ -246,6 +251,7 @@ export function buildAgentConfig(
       enableCollaboration,
       allowDangerousToolsWithoutApproval,
       strictDangerousToolApproval: edition.features.strictDangerousToolApproval,
+      ...(opts?.envFile ? { envFile: opts.envFile } : {}),
     },
     modelId: resolved.resolvedModelId,
   };
@@ -353,13 +359,20 @@ export function isLikelyBinary(buffer: Buffer): boolean {
 export function taskToSummary(t: TaskRecord) {
   return {
     taskId: t.taskId,
+    instruction: t.instruction,
     summary: t.summary,
     title: t.title,
     kind: t.kind,
     status: t.status,
     output: t.output,
     riskLevel: t.riskLevel,
+    requiresConfirmation: t.requiresConfirmation,
+    audience: t.audience,
     matterId: t.matterId,
+    deliverableType: t.deliverableType,
+    acceptanceCriteria: t.acceptanceCriteria,
+    reviewStatus: t.reviewStatus,
+    executionPlan: t.executionPlan,
     outputPath: t.outputPath,
     assistantId: t.assistantId,
     sessionId: t.sessionId,

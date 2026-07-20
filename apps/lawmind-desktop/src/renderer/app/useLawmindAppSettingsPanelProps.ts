@@ -1,10 +1,11 @@
 import { useMemo } from "react";
-import type { CollaborationDeskTab } from "../LawmindCollaborationDesk";
+import type { AgentsDeskTab } from "../lawmind-agents-desk";
 import type { AppConfig } from "../lawmind-app-bootstrap";
 import type { LawmindHealthState } from "../useLawmindAppBootstrapEffects";
 import type { CollabSummaryState } from "../LawmindSettingsCollaboration";
 import type { AssistantRow } from "../lawmind-settings-models.ts";
 import type { ModelCatalogEntry, ProviderKeyStatus } from "../lawmind-models-api";
+import type { LawmindMainView } from "../lawmind-main-view";
 import type {
   LawmindSettingsScrollAnchorId,
   LawmindSettingsSectionId,
@@ -44,8 +45,8 @@ export type UseLawmindAppSettingsPanelPropsInput = {
   refreshModelsCatalog: (apiBase: string) => void | Promise<void>;
   pickProject: () => void | Promise<void>;
   clearProject: () => void | Promise<void>;
-  setCollaborationDeskTab: (tab: CollaborationDeskTab) => void;
-  setMainView: (view: "workspace" | "collaboration" | "review") => void;
+  setAgentsDeskTab: (tab: AgentsDeskTab) => void;
+  setMainView: (view: LawmindMainView) => void;
   assistants: AssistantRow[];
   onPrefsChange: () => void;
 };
@@ -86,7 +87,7 @@ export function useLawmindAppSettingsPanelProps(
     refreshModelsCatalog,
     pickProject,
     clearProject,
-    setCollaborationDeskTab,
+    setAgentsDeskTab,
     setMainView,
     assistants,
     onPrefsChange,
@@ -133,8 +134,9 @@ export function useLawmindAppSettingsPanelProps(
       onPickProject: () => void pickProject(),
       onClearProject: () => void clearProject(),
       onOpenCollaborationPage: () => {
-        setCollaborationDeskTab("overview");
-        setMainView("collaboration");
+        setAgentsDeskTab("workflows");
+        setMainView("agents");
+        setShowSettings(false);
       },
       onPrefsChange,
     }),
@@ -172,7 +174,7 @@ export function useLawmindAppSettingsPanelProps(
       refreshModelsCatalog,
       pickProject,
       clearProject,
-      setCollaborationDeskTab,
+      setAgentsDeskTab,
       setMainView,
       onPrefsChange,
     ],

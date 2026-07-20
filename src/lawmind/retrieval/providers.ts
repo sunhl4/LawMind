@@ -131,10 +131,14 @@ export function createOpenSourceLegalAdaptersFromEnv(): RetrievalAdapter[] {
 }
 
 /**
- * LexEdge 适配入口（框架集成接口）。
+ * LexEdge **opt-in 集成占位**（stub），非桌面 agent 检索热路径。
  *
- * 假设 LexEdge 服务暴露一个 HTTP endpoint 返回与 ModelRetrievalOutput 同结构 JSON。
- * 可由后续团队按真实接口替换为更具体的 client。
+ * - 桌面引擎 `buildAdaptersFromEnv`（`engine-tool-shared.ts`）**不包含**本适配器。
+ * - 仅 CLI `scripts/lawmind/lawmind-engine-adapters.ts` 在 spread 时可能纳入。
+ * - 未设置 `LAWMIND_LEXEDGE_ENDPOINT` 时恒返回 `[]`（stub 态）。
+ *
+ * 假设 LexEdge 服务暴露 HTTP endpoint，返回与 `ModelRetrievalOutput` 同结构 JSON；
+ * 后续团队可按真实接口替换为更具体的 client。
  */
 export function createLexEdgeAdapterFromEnv(): RetrievalAdapter[] {
   const endpoint = env("LAWMIND_LEXEDGE_ENDPOINT");

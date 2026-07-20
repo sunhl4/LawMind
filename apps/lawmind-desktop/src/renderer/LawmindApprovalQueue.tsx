@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { ApprovalRequest } from "../../../../src/lawmind/core/contracts.ts";
+import { isValidMatterId } from "../../../../src/lawmind/cases/matter-id.ts";
 import { apiGetJson, errorMessage } from "./api-client";
 import { toolDisplayNameZh } from "../../../../src/lawmind/platform/requires-action.js";
 
@@ -18,11 +19,20 @@ export type ToolApprovalRow = {
   createdAt: string;
 };
 
+type PendingReviewDraft = {
+  taskId: string;
+  matterId?: string;
+  title: string;
+  reviewStatus: "pending" | "modified";
+  createdAt: string;
+};
+
 type SummaryResponse = {
   ok?: boolean;
   approvals?: ApprovalRequest[];
   toolApprovals?: ToolApprovalRow[];
   pendingToolApprovals?: number;
+  pendingReviewDrafts?: PendingReviewDraft[];
 };
 
 type Props = {
@@ -30,6 +40,8 @@ type Props = {
   matterId?: string | null;
   /** 打开对应对话以处理工具批准 */
   onOpenSession?: (sessionId: string, matterId?: string) => void;
+  /** 打开文书台签批指定草稿 */
+  onOpenReview?: (taskId: string, matterId?: string) => void;
   compact?: boolean;
 };
 
@@ -46,9 +58,10 @@ function summarizeArgs(args?: Record<string, unknown>): string {
 }
 
 export function LawmindApprovalQueue(props: Props): ReactNode {
-  const { apiBase, matterId, onOpenSession, compact = false } = props;
+  const { apiBase, matterId, onOpenSession, onOpenReview, compact = false } = props;
   const [rows, setRows] = useState<ToolApprovalRow[]>([]);
   const [matterApprovals, setMatterApprovals] = useState<ApprovalRequest[]>([]);
+  const [reviewDrafts, setReviewDrafts] = useState<PendingReviewDraft[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,10 +72,12 @@ export function LawmindApprovalQueue(props: Props): ReactNode {
     setLoading(true);
     setError(null);
     try {
-      const q = matterId?.trim() ? `?matterId=${encodeURIComponent(matterId.trim())}` : "";
+      const t = matterId?.trim() ?? "";
+      const q = t && isValidMatterId(t) ? `?matterId=${encodeURIComponent(t)}` : "";
       const s = await apiGetJson<SummaryResponse>(apiBase, `/api/action-summary${q}`);
       setRows(s.toolApprovals ?? []);
       setMatterApprovals((s.approvals ?? []).filter((a) => a.status === "pending"));
+      setReviewDrafts(s.pendingReviewDrafts ?? []);
     } catch (e) {
       setError(errorMessage(e, "无法加载批准队列"));
     } finally {
@@ -74,7 +89,7 @@ export function LawmindApprovalQueue(props: Props): ReactNode {
     void refresh();
   }, [refresh]);
 
-  const empty = rows.length === 0 && matterApprovals.length === 0;
+  const empty = rows.length === 0 && matterApprovals.length === 0 && reviewDrafts.length === 0;
 
   return (
     <section
@@ -90,7 +105,34 @@ export function LawmindApprovalQueue(props: Props): ReactNode {
       {loading ? <p className="lm-meta">加载中…</p> : null}
       {error ? <p className="lm-meta lm-callout-warn">{error}</p> : null}
       {empty && !loading ? (
-        <p className="lm-meta">暂无待批准的工具调用或案件审批。</p>
+        <p className="lm-meta">暂无待批准的工具调用、案件审批或待审文书。</p>
+      ) : null}
+
+      {reviewDrafts.length > 0 ? (
+        <div className="lm-approval-queue-block">
+          <h5 className="lm-meta">待审文书</h5>
+          <ul className="lm-approval-queue-list">
+            {reviewDrafts.map((d) => (
+              <li key={d.taskId} className="lm-approval-queue-row">
+                <div className="lm-approval-queue-row-head">
+                  <strong>{d.title?.trim() || d.taskId}</strong>
+                  <span className="lm-pill lm-pill-warn">
+                    {d.reviewStatus === "modified" ? "已修订" : "待审核"}
+                  </span>
+                </div>
+                {onOpenReview ? (
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-sm"
+                    onClick={() => onOpenReview(d.taskId, d.matterId)}
+                  >
+                    进入文书台
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
 
       {rows.length > 0 ? (
@@ -138,7 +180,7 @@ export function LawmindApprovalQueue(props: Props): ReactNode {
               </li>
             ))}
           </ul>
-          <p className="lm-meta">请在顶栏「待处理」或案件任务看板中签批。</p>
+          <p className="lm-meta">请在侧栏「待我拍板」或案件任务看板中签批。</p>
         </div>
       ) : null}
     </section>

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { LawmindAssignmentCommitmentCard } from "./LawmindAssignmentCommitmentCard";
 import { LawmindRequiresActionCard } from "./LawmindRequiresActionCard";
 import { LawmindChatDraftStatusBar } from "./LawmindChatDraftStatusBar";
 import type { LawMindRequiresAction, LawMindRequiresActionDecision } from "./lawmind-requires-action";
@@ -12,6 +13,7 @@ import { LawmindMsgAssistant } from "./LawmindMsgAssistant";
 import { LawmindMsgWorkflowApproval } from "./LawmindMsgWorkflowApproval";
 import { renderLegalMarkdown } from "./lawmind-chat-markdown";
 import { hasChatDiagnostics, type ChatMsg, type PendingClarificationState } from "./lawmind-chat";
+import { formatLawyerGateChip, parseLawyerGateMessage } from "./lawmind-gate-message";
 
 function hasClarificationQuestions(message: ChatMsg): boolean {
   return (message.clarificationQuestions?.length ?? 0) > 0;
@@ -48,7 +50,9 @@ export type LawmindChatMessageRowProps = {
   ) => void | Promise<void>;
   onSendClarificationMessage: (text: string) => void | Promise<void>;
   onApplyPrompt: (text: string) => void;
-  onOpenReview?: () => void;
+  onOpenReview?: (target?: { taskId?: string; matterId?: string }) => void;
+  /** Jump to「在办」needs-decision focus (侧栏待我拍板). */
+  onOpenNeedsDecisionDesk?: () => void;
   dimmed?: boolean;
 };
 
@@ -73,6 +77,7 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
     onSendClarificationMessage,
     onApplyPrompt,
     onOpenReview,
+    onOpenNeedsDecisionDesk,
     dimmed,
   } = props;
 
@@ -105,11 +110,22 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
             .join("\n\n")
             .trim()
         : "");
+  const linkedTaskId =
+    contextTaskId?.trim() || msg.executionState?.linkedTaskId?.trim() || undefined;
 
-  const workflowPending =
-    msg.role === "assistant" &&
-    (msg.requiresAction?.some((a) => a.kind === "tool_approval" && a.toolName === "execute_workflow") ??
-      false);
+  const workflowAction =
+    msg.role === "assistant"
+      ? msg.requiresAction?.find(
+          (a) => a.kind === "tool_approval" && a.toolName === "execute_workflow",
+        )
+      : undefined;
+  const workflowPending = Boolean(workflowAction);
+  const nonWorkflowRequiresActions =
+    msg.requiresAction?.filter(
+      (a) => !(a.kind === "tool_approval" && a.toolName === "execute_workflow"),
+    ) ?? [];
+  const gateMessage =
+    msg.role === "user" ? parseLawyerGateMessage(msg.text ?? "") : null;
 
   return (
     <div
@@ -122,7 +138,22 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
         {msg.role === "user" ? "我" : "LM"}
       </div>
       <div className={`lm-msg-wrap ${msg.role === "user" ? "lm-msg-wrap-user" : ""}`}>
-        {workflowPending ? <LawmindMsgWorkflowApproval /> : null}
+        {workflowPending ? (
+          <LawmindMsgWorkflowApproval
+            action={workflowAction}
+            busy={loading && index === lastAssistantIndex}
+            onApprove={
+              workflowAction && onResumeRequiresAction
+                ? () => void onResumeRequiresAction(workflowAction, "approve")
+                : undefined
+            }
+            onReject={
+              workflowAction && onResumeRequiresAction
+                ? () => void onResumeRequiresAction(workflowAction, "reject")
+                : undefined
+            }
+          />
+        ) : null}
         {showThoughtPanel ? (
           <div className="lm-msg lm-msg-ai lm-msg-thought">
             <LawmindChatThoughtPanel
@@ -144,7 +175,13 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
           </div>
         ) : null}
         {msg.role === "user" ? (
-          <div className="lm-msg lm-msg-user">{msg.text}</div>
+          gateMessage ? (
+            <div className="lm-msg lm-msg-gate" data-testid="lm-msg-gate" role="status">
+              {formatLawyerGateChip(gateMessage)}
+            </div>
+          ) : (
+            <div className="lm-msg lm-msg-user">{msg.text}</div>
+          )
         ) : showThoughtPanel ? (
           displayText ? (
             <LawmindMsgAssistant text={displayText} className="lm-msg-answer" />
@@ -172,23 +209,31 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
         )}
         {msg.role === "assistant" &&
         index === lastAssistantIndex &&
-        (msg.requiresAction?.length ?? 0) > 0 &&
+        nonWorkflowRequiresActions.length > 0 &&
         onResumeRequiresAction ? (
-          <LawmindRequiresActionCard
-            actions={msg.requiresAction ?? []}
-            sessionId={chatSessionId}
-            clarificationDraft={clarificationDraft}
-            onClarificationDraftChange={onClarificationDraftChange}
-            onApproveTool={(a) => void onResumeRequiresAction(a, "approve")}
-            onApproveToolEdit={(a, edited) =>
-              void onResumeRequiresAction(a, "edit", undefined, edited)
+          <div
+            id={`lm-clarify-card-${index}`}
+            data-testid={
+              index === pendingClarify.assistantMessageIndex ? "lm-clarify-card-active" : undefined
             }
-            onRejectTool={(a) => void onResumeRequiresAction(a, "reject")}
-            onRespondClarification={(a) =>
-              void onResumeRequiresAction(a, "respond", clarificationDraft)
-            }
-            busy={loading}
-          />
+          >
+            <LawmindRequiresActionCard
+              actions={nonWorkflowRequiresActions}
+              sessionId={chatSessionId}
+              clarificationDraft={clarificationDraft}
+              onClarificationDraftChange={onClarificationDraftChange}
+              onApproveTool={(a) => void onResumeRequiresAction(a, "approve")}
+              onApproveToolEdit={(a, edited) =>
+                void onResumeRequiresAction(a, "edit", undefined, edited)
+              }
+              onRejectTool={(a) => void onResumeRequiresAction(a, "reject")}
+              onRespondClarification={(a) =>
+                void onResumeRequiresAction(a, "respond", clarificationDraft)
+              }
+              onOpenNeedsDecisionDesk={onOpenNeedsDecisionDesk}
+              busy={loading}
+            />
+          </div>
         ) : null}
         {msg.role === "assistant" && shouldShowClarifyCard(msg) && !(msg.requiresAction?.length) && (
           <div
@@ -231,15 +276,23 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
         )}
         {msg.role === "assistant" &&
         index === lastAssistantIndex &&
-        contextTaskId?.trim() &&
+        linkedTaskId &&
         apiBase ? (
-          <LawmindChatDraftStatusBar
-            apiBase={apiBase}
-            linkedTaskId={contextTaskId}
-            assistantText={displayText}
-            gateDecisions={msg.gateDecisions}
-            onOpenReview={onOpenReview}
-          />
+          <>
+            <LawmindAssignmentCommitmentCard
+              apiBase={apiBase}
+              taskId={linkedTaskId}
+              onOpenReview={onOpenReview}
+              assistantReply={displayText}
+            />
+            <LawmindChatDraftStatusBar
+              apiBase={apiBase}
+              linkedTaskId={linkedTaskId}
+              assistantText={displayText}
+              gateDecisions={msg.gateDecisions}
+              onOpenReview={onOpenReview}
+            />
+          </>
         ) : null}
       </div>
     </div>

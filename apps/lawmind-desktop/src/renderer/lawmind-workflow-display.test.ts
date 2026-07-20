@@ -3,8 +3,9 @@ import {
   isOfficeWorkflowTemplate,
   sortWorkflowTemplatesForLawyer,
   workflowTemplateKindLabel,
+  workflowTemplateSearchHaystack,
 } from "./lawmind-workflow-display";
-import type { WorkflowTemplateItem } from "./LawmindWorkflowLibrary";
+import type { WorkflowTemplateItem } from "./lawmind-workflow-types";
 
 const officeTemplate: WorkflowTemplateItem = {
   id: "training-ppt",
@@ -12,6 +13,7 @@ const officeTemplate: WorkflowTemplateItem = {
   description: "培训课件",
   stepCount: 1,
   kind: "office",
+  deliverableType: "ppt.training",
 };
 
 const matterTemplate: WorkflowTemplateItem = {
@@ -28,6 +30,12 @@ describe("lawmind-workflow-display", () => {
     expect(workflowTemplateKindLabel(matterTemplate)).toBe("案件工作");
     expect(isOfficeWorkflowTemplate(officeTemplate)).toBe(true);
     expect(isOfficeWorkflowTemplate(matterTemplate)).toBe(false);
+  });
+
+  it("search haystack uses lawyer deliverable labels, not raw codes", () => {
+    const hay = workflowTemplateSearchHaystack(officeTemplate);
+    expect(hay).toContain("培训课件");
+    expect(hay).not.toContain("ppt.training");
   });
 
   it("sorts office templates first when preferOffice is true", () => {

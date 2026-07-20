@@ -69,6 +69,7 @@ export type TaskExecutionState = {
 export type GateDecision = {
   gate:
     | "clarification_gate"
+    | "intake_gate"
     | "dangerous_tool_gate"
     | "approval_gate"
     | "acceptance_gate"

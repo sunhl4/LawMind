@@ -68,6 +68,11 @@ export type SystemPromptContext = {
   deliverablePipelineNote?: string;
   /** Phase 12：可解释的上下文分层计划（ContextPlan markdown） */
   contextPlanMarkdown?: string;
+  /**
+   * 从律师档案「个人积累」提炼的可执行习惯提示（短列表）。
+   * 用于在全文 profile 之外显式要求「按习惯写」。
+   */
+  appliedPreferencesHint?: string;
 };
 
 export function buildSystemPrompt(ctx: SystemPromptContext): string {
@@ -267,6 +272,16 @@ ${busyList ? `\n### 正忙（暂勿委派）\n${busyList}` : ""}
 
 ${ctx.lawyerName ? `**${ctx.lawyerName}**` : ""}
 ${ctx.lawyerProfile ? `\n${ctx.lawyerProfile}` : ""}`);
+  }
+
+  const prefsHint = ctx.appliedPreferencesHint?.trim();
+  if (prefsHint) {
+    sections.push(`## 已按你的习惯（优先遵守）
+
+${prefsHint}
+
+起草与审查时必须体现上述习惯；若与本条律师明示指令冲突，以本条指令为准。
+回复末尾用一行写明：本轮已应用：<偏好 id 列表或短摘要>。`);
   }
 
   const ap = ctx.assistantProfileMarkdown?.trim();

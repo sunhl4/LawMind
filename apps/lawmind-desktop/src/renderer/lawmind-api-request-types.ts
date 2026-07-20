@@ -20,6 +20,7 @@ export type {
   MatterDeletePostRequest,
   MatterDisplayNamePostRequest,
   MatterInteractionRequest,
+  MatterProfilePostRequest,
   MatterRolePostRequest,
   ModelsCustomPostRequest,
   ModelsDefaultPatchRequest,

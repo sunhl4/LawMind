@@ -1,3 +1,16 @@
+.lm-check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.lm-check-row input {
+  margin-top: 2px;
+}
+
 /* ── Modals, forms, wizard ── */
 /* ── Modal backdrop ────────────────────────────────────────── */
 .lm-help-panel {

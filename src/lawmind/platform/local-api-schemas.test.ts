@@ -7,6 +7,7 @@ import {
   draftReviewPostSchema,
   memoryAdoptionSuggestSchema,
   matterCaseNoteRequestSchema,
+  matterCreatePostSchema,
   sessionCreatePostSchema,
   sourceAnnotationPostSchema,
   templateEnabledPostSchema,
@@ -45,6 +46,18 @@ describe("local-api-schemas", () => {
       matterId: "matter-1",
       section: "risk",
       note: "note text",
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("parses intake and confidentiality fields when creating a matter", () => {
+    const parsed = matterCreatePostSchema.safeParse({
+      matterId: "matter-intake-1",
+      displayName: "新客户接洽",
+      clientId: "client-1",
+      sensitivity: "restricted",
+      conflictCheckConfirmed: false,
+      engagementAccepted: false,
     });
     expect(parsed.success).toBe(true);
   });

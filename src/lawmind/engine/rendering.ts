@@ -5,6 +5,8 @@
  *   1. acceptance gate（章节/占位符/规范结构）— 已存在
  *   2. reasoning gate（IRAC 推理图谱）— W9 新增
  * 任一 blocker 未通过，render 拒绝并返回 reasoningReport 信息。
+ *
+ * citationGateStrict（Firm/Private）：有 research 快照时，缺失来源 ID 或长段未锚定引用禁止 render。
  */
 
 import { transitionDeliverable } from "../application/services/deliverable-service.js";
@@ -17,7 +19,12 @@ import {
   validateReasoningForDraft,
   type ReasoningReport,
 } from "../deliverables/index.js";
-import { persistDraft, readReasoningSnapshot } from "../drafts/index.js";
+import {
+  persistDraft,
+  readReasoningSnapshot,
+  resolveDraftCitationIntegrity,
+  type DraftCitationIntegrityView,
+} from "../drafts/index.js";
 import { appendCaseArtifact, appendCaseProgress, appendTodayLog } from "../memory/index.js";
 import { isFeatureEnabled } from "../policy/edition.js";
 import { syncDraftToTaskRecord, updateTaskRecord } from "../tasks/index.js";
@@ -25,16 +32,24 @@ import { resolveTemplateForDraft, templateResolvedPin } from "../templates/index
 import type { ArtifactDraft } from "../types.js";
 import type { EngineContext } from "./context.js";
 
+function citationGateBlocksRender(view: DraftCitationIntegrityView): boolean {
+  if (!view.checked) {
+    return false;
+  }
+  return !view.ok || view.unanchoredSections.length > 0;
+}
+
 export async function renderDraft(
   ctx: EngineContext,
   draft: ArtifactDraft,
-  opts?: { templateIdOverride?: string; strictGates?: boolean },
+  opts?: { templateIdOverride?: string; strictGates?: boolean; citationGateStrict?: boolean },
 ): Promise<{
   ok: boolean;
   outputPath?: string;
   error?: string;
   acceptanceReport?: ReturnType<typeof validateDraftAgainstSpec>;
   reasoningReport?: ReasoningReport;
+  citationIntegrity?: DraftCitationIntegrityView;
 }> {
   const { workspaceDir, outputDir, auditDir } = ctx;
 
@@ -64,6 +79,32 @@ export async function renderDraft(
           "渲染被双门禁拦截：acceptance / reasoning gate 未通过。请在桌面端 LawmindAcceptanceGate 视图查看具体未达成项。",
         acceptanceReport,
         reasoningReport,
+      };
+    }
+  }
+
+  const citationStrict = opts?.citationGateStrict ?? isFeatureEnabled("citationGateStrict");
+  if (citationStrict) {
+    const citationIntegrity = resolveDraftCitationIntegrity(workspaceDir, draft);
+    if (citationGateBlocksRender(citationIntegrity)) {
+      const missing =
+        citationIntegrity.checked && !citationIntegrity.ok
+          ? citationIntegrity.missingSourceIds.length
+          : 0;
+      const unanchored = citationIntegrity.checked
+        ? citationIntegrity.unanchoredSections.length
+        : 0;
+      await emit(auditDir, {
+        taskId: draft.taskId,
+        kind: "artifact.render_blocked",
+        actor: "system",
+        detail: `citationGateStrict: missingSourceIds=${missing}; unanchoredSections=${unanchored}`,
+      });
+      return {
+        ok: false,
+        error:
+          "渲染被引用完整性门禁拦截：存在缺失来源 ID 或长段未锚定引用。请在文书台核对 Citation Banner 后再导出。",
+        citationIntegrity,
       };
     }
   }

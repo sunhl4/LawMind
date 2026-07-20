@@ -350,7 +350,7 @@ export async function handleCollaborationRoutes({
     }
     const workflowGateHint =
       template.acceptancePackRequired === true
-        ? "本工作流模板标记为需验收包：对外交付前请完成审核台验收并导出 acceptance-pack。"
+        ? "本流程完成后需律师验收：对外发出前请在文书台审稿通过。"
         : (template.requiredSources?.length ?? 0) > 0
           ? `本工作流建议绑定来源：${template.requiredSources!.join("、")}。`
           : undefined;

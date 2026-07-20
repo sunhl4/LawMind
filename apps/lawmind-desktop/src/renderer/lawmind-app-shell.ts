@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import type { ArtifactDraft } from "../../../../src/lawmind/types.ts";
 import { createAssistantDraft, type AssistantEditorDraft } from "./lawmind-assistant-editor";
+import type { LawmindMainView } from "./lawmind-main-view";
 import {
   type LawmindSettingsScrollAnchorId,
   type LawmindSettingsSectionId,
@@ -41,7 +42,7 @@ export type { LawmindHealthState } from "./useLawmindAppBootstrapEffects";
 export { mapHealthState } from "./useLawmindAppBootstrapEffects";
 
 export function useLawmindAppShell() {
-  const [mainView, setMainView] = useState<"workspace" | "collaboration" | "review">("workspace");
+  const [mainView, setMainView] = useState<LawmindMainView>("workspace");
   const [reviewFocusTaskId, setReviewFocusTaskId] = useState<string | null>(null);
   const [reviewFocusMatterId, setReviewFocusMatterId] = useState<string | null>(null);
   const [reviewFocusStatus, setReviewFocusStatus] = useState<ArtifactDraft["reviewStatus"] | "all">("all");
@@ -120,7 +121,10 @@ export function useLawmindAppShell() {
     addFileToChatContext,
     removeFileChatContextItem,
     clearFileChatContext,
-  } = useFileChatContext(setError);
+  } = useFileChatContext(setError, {
+    assistantId: selectedAssistantId,
+    sessionId: sessionByAssistant[selectedAssistantId],
+  });
   const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null);
   const [recordsExpanded, setRecordsExpanded] = useState(false);
   const [showSettings, setShowSettingsState] = useState(false);
@@ -382,6 +386,9 @@ export function useLawmindAppShell() {
         [selectedAssistantId]: [...(prev[selectedAssistantId] ?? []), label],
       }));
       void composeExtras.refreshContextBudget();
+    },
+    onTurnComplete: () => {
+      void composeExtras.refreshPending();
     },
   });
   useLawmindCollaborationWatch({

@@ -168,6 +168,14 @@ export function useLawmindAppSetupActions(params: UseLawmindAppSetupActionsParam
       setShowWizard(false);
       setWizApiKey("");
       setWizHasExistingKey(true);
+      // After model setup: request first-run once (if not dismissed). Dialog opens when suppress lifts.
+      try {
+        if (typeof window !== "undefined" && !window.localStorage.getItem("lm.firstRun.dismissed")) {
+          window.sessionStorage.setItem("lm.firstRun.requestOpen", "1");
+        }
+      } catch {
+        /* ignore */
+      }
       const verifyNote =
         typeof response.latencyMs === "number"
           ? `模型已验证可用（${response.latencyMs} ms），配置已保存到本机。`

@@ -17,6 +17,7 @@ import { lawMindStatuteWebSearchTool } from "./lawmind-legal-web-search.js";
 import { lawMindWebSearchTool } from "./lawmind-web-search.js";
 import { listTasks, listAllDrafts, getAuditTrail } from "./legal/audit-tools.js";
 import { analyzeDocument, writeDocument } from "./legal/file-tools.js";
+import { sendEmail } from "./legal/mail-tools.js";
 import { getMatterSummary, listMatters, readCaseFile, addCaseNote } from "./legal/matter-tools.js";
 import {
   searchMatter,
@@ -51,6 +52,7 @@ export function createLegalToolRegistry(opts?: {
     // 文件操作
     analyzeDocument,
     writeDocument,
+    sendEmail,
     // 状态查看
     listTasks,
     listAllDrafts,

@@ -1,4 +1,5 @@
 import type { ChatLiveTrace, ChatTraceStep } from "./lawmind-chat-trace-types.js";
+import { apiAuthHeaders } from "./lawmind-api-auth.ts";
 
 export type { ChatLiveTrace, ChatTraceStep };
 export { liveTracesEqual } from "./lawmind-chat-trace-types.js";
@@ -11,6 +12,7 @@ export function humanToolLabel(toolName: string): string {
     update_draft: "更新草稿",
     render_document: "渲染 Word",
     write_document: "写回草稿",
+    send_email: "发送邮件",
     search_workspace: "检索工作区",
     read_project_file: "读取项目文件",
     delegate_task: "委派任务",
@@ -230,7 +232,7 @@ export async function fetchDelegationSessionProgress(
 }> {
   const r = await fetch(
     `${apiBase}/api/delegations/session-progress?sessionId=${encodeURIComponent(sessionId)}&assistantId=${encodeURIComponent(assistantId)}`,
-    { signal },
+    { signal, headers: apiAuthHeaders() },
   );
   const j = (await r.json()) as {
     ok?: boolean;
@@ -268,7 +270,7 @@ export async function fetchChatLiveTurnProgress(
 }> {
   const r = await fetch(
     `${apiBase}/api/sessions/${encodeURIComponent(sessionId)}/live-turn`,
-    { signal },
+    { signal, headers: apiAuthHeaders() },
   );
   const j = (await r.json()) as {
     ok?: boolean;

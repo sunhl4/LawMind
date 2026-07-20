@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ArtifactDraft } from "../../../../../src/lawmind/types.ts";
 import { apiGetJson, errorMessage } from "../api-client.js";
+import {
+  loadReviewMatrixNotes,
+  matrixCellKey,
+  saveReviewMatrixNotes,
+} from "./review-matrix-notes.js";
 
 type ReviewMatrixQuestion = { id: string; label: string; hint?: string };
 type ReviewMatrixDocument = {
@@ -34,11 +39,16 @@ type Props = {
   }) => void;
 };
 
+const PREVIEW_LEN = 72;
+
 export function MatterReviewMatrixPanel({ apiBase, matterId, onOpenReview }: Props) {
   const [matrix, setMatrix] = useState<MatterReviewMatrix | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [verified, setVerified] = useState<Record<string, boolean>>({});
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [notesReady, setNotesReady] = useState(false);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -64,16 +74,52 @@ export function MatterReviewMatrixPanel({ apiBase, matterId, onOpenReview }: Pro
     void reload();
   }, [reload]);
 
+  useEffect(() => {
+    setNotesReady(false);
+    const stored = loadReviewMatrixNotes(matterId);
+    setNotes(stored.notes);
+    setVerified(stored.verified);
+    setExpanded({});
+    setNotesReady(true);
+  }, [matterId]);
+
+  useEffect(() => {
+    if (!notesReady) {
+      return;
+    }
+    saveReviewMatrixNotes(matterId, { notes, verified });
+  }, [matterId, notes, verified, notesReady]);
+
   const cellMap = useMemo(() => {
     const m = new Map<string, ReviewMatrixCell>();
     for (const c of matrix?.cells ?? []) {
-      m.set(`${c.documentId}::${c.questionId}`, c);
+      m.set(matrixCellKey(c.documentId, c.questionId), c);
     }
     return m;
   }, [matrix?.cells]);
 
+  const gapSummary = useMemo(() => {
+    if (!matrix) {
+      return null;
+    }
+    let empty = 0;
+    let pending = 0;
+    let done = 0;
+    for (const c of matrix.cells) {
+      const key = matrixCellKey(c.documentId, c.questionId);
+      if (verified[key]) {
+        done += 1;
+      } else if (!c.excerpt) {
+        empty += 1;
+      } else {
+        pending += 1;
+      }
+    }
+    return { empty, pending, done, total: matrix.cells.length };
+  }, [matrix, verified]);
+
   if (loading) {
-    return <p>加载审查矩阵…</p>;
+    return <p className="lm-meta">加载审查矩阵…</p>;
   }
   if (err) {
     return <div className="lm-error">{err}</div>;
@@ -82,8 +128,8 @@ export function MatterReviewMatrixPanel({ apiBase, matterId, onOpenReview }: Pro
     return (
       <div className="lm-workbench-panel">
         <h3>审查矩阵</h3>
-        <p className="lm-hint">暂无草稿或研究来源。请先在本案件生成草稿或完成检索。</p>
-        <button type="button" onClick={() => void reload()}>
+        <p className="lm-hint">本案还没有可对照的材料。请先完善案件档案，或生成草稿后再来。</p>
+        <button type="button" className="lm-btn lm-btn-secondary lm-btn-sm" onClick={() => void reload()}>
           刷新
         </button>
       </div>
@@ -95,9 +141,15 @@ export function MatterReviewMatrixPanel({ apiBase, matterId, onOpenReview }: Pro
       <header className="lm-review-matrix__header">
         <h3>审查矩阵</h3>
         <p className="lm-hint">
-          行 = 草稿/来源/卷宗文件；列 = 尽调问题。摘录为启发式建议，需律师核实。
+          按问题对照本案材料。格子里是线索摘录，不是结论；请核实后批注，需要细审草稿时打开文书台。
         </p>
-        <button type="button" className="lm-btn-ghost" onClick={() => void reload()}>
+        {gapSummary ? (
+          <p className="lm-meta lm-review-matrix__summary" role="status">
+            待核实 {gapSummary.pending} · 未见提及 {gapSummary.empty}
+            {gapSummary.done > 0 ? ` · 已核实 ${gapSummary.done}` : ""}
+          </p>
+        ) : null}
+        <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => void reload()}>
           刷新
         </button>
       </header>
@@ -105,7 +157,7 @@ export function MatterReviewMatrixPanel({ apiBase, matterId, onOpenReview }: Pro
         <table className="lm-review-matrix__table">
           <thead>
             <tr>
-              <th className="lm-review-matrix__corner">文档 ↓ / 问题 →</th>
+              <th className="lm-review-matrix__corner">材料</th>
               {matrix.questions.map((q) => (
                 <th key={q.id} title={q.hint}>
                   {q.label}
@@ -117,41 +169,88 @@ export function MatterReviewMatrixPanel({ apiBase, matterId, onOpenReview }: Pro
             {matrix.documents.map((doc) => (
               <tr key={doc.documentId}>
                 <th className="lm-review-matrix__doc">
-                  <span>{doc.title}</span>
+                  <span className="lm-review-matrix__doc-title">{doc.title}</span>
                   <span className="lm-meta">
-                    {doc.kind === "draft" ? "草稿" : "来源"}
-                    {doc.taskId ? ` · ${doc.taskId}` : ""}
+                    {doc.kind === "draft" ? "草稿" : "材料"}
                   </span>
                   {doc.kind === "draft" && doc.taskId && onOpenReview ? (
                     <button
                       type="button"
-                      className="lm-btn-ghost"
+                      className="lm-btn lm-btn-ghost lm-btn-sm"
                       onClick={() => onOpenReview({ taskId: doc.taskId, matterId })}
                     >
-                      打开审核
+                      打开文书台
                     </button>
                   ) : null}
                 </th>
                 {matrix.questions.map((q) => {
-                  const cell = cellMap.get(`${doc.documentId}::${q.id}`);
-                  const noteKey = `${doc.documentId}::${q.id}`;
-                  const note = notes[noteKey] ?? "";
+                  const key = matrixCellKey(doc.documentId, q.id);
+                  const cell = cellMap.get(key);
+                  const note = notes[key] ?? "";
+                  const isVerified = Boolean(verified[key]);
+                  const excerpt = cell?.excerpt?.trim() ?? "";
+                  const isEmpty = !excerpt;
+                  const isOpen = Boolean(expanded[key]);
+                  const preview =
+                    excerpt.length > PREVIEW_LEN ? `${excerpt.slice(0, PREVIEW_LEN)}…` : excerpt;
+
                   return (
-                    <td key={q.id} className={cell?.status === "empty" ? "lm-review-matrix__empty" : undefined}>
-                      {cell?.excerpt ? (
-                        <p className="lm-review-matrix__excerpt" title="系统建议摘录">
-                          {cell.excerpt}
-                        </p>
+                    <td
+                      key={q.id}
+                      className={[
+                        "lm-review-matrix__cell",
+                        isEmpty ? "lm-review-matrix__empty" : "lm-review-matrix__suggested",
+                        isVerified ? "lm-review-matrix__verified" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                    >
+                      <div className="lm-review-matrix__cell-status">
+                        {isVerified ? (
+                          <span className="lm-review-matrix__pill lm-review-matrix__pill--ok">已核实</span>
+                        ) : isEmpty ? (
+                          <span className="lm-review-matrix__pill lm-review-matrix__pill--empty">未见</span>
+                        ) : (
+                          <span className="lm-review-matrix__pill lm-review-matrix__pill--pending">待核实</span>
+                        )}
+                      </div>
+                      {isEmpty ? (
+                        <p className="lm-review-matrix__empty-label">本材料未直接提到此类问题</p>
                       ) : (
-                        <span className="lm-meta">—</span>
+                        <>
+                          <p className="lm-review-matrix__excerpt" title="系统线索摘录">
+                            {isOpen ? excerpt : preview}
+                          </p>
+                          {excerpt.length > PREVIEW_LEN ? (
+                            <button
+                              type="button"
+                              className="lm-btn lm-btn-ghost lm-btn-sm lm-review-matrix__expand"
+                              onClick={() =>
+                                setExpanded((prev) => ({ ...prev, [key]: !prev[key] }))
+                              }
+                            >
+                              {isOpen ? "收起" : "展开"}
+                            </button>
+                          ) : null}
+                        </>
                       )}
+                      <label className="lm-review-matrix__verify">
+                        <input
+                          type="checkbox"
+                          checked={isVerified}
+                          onChange={(e) =>
+                            setVerified((prev) => ({ ...prev, [key]: e.target.checked }))
+                          }
+                        />
+                        <span>已核实</span>
+                      </label>
                       <textarea
                         className="lm-review-matrix__note"
                         rows={2}
                         placeholder="律师批注…"
                         value={note}
                         onChange={(e) =>
-                          setNotes((prev) => ({ ...prev, [noteKey]: e.target.value }))
+                          setNotes((prev) => ({ ...prev, [key]: e.target.value }))
                         }
                       />
                     </td>

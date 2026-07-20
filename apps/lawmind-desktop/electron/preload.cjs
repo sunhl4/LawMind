@@ -49,4 +49,5 @@ contextBridge.exposeInMainWorld("lawmindDesktop", {
       ipcRenderer.removeListener(channel, listener);
     };
   },
+  openAuxWindow: (payload) => ipcRenderer.invoke("lawmind:open-aux-window", payload ?? {}),
 });

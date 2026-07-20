@@ -48,6 +48,7 @@ const TOOL_DISPLAY_ZH: Record<string, string> = {
   draft_document: "起草文书",
   research_task: "检索任务",
   update_draft: "更新草稿",
+  send_email: "发送邮件",
   delegate_to_role: "委派给其他岗位",
   web_search: "联网检索",
 };

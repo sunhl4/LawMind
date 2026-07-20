@@ -6,6 +6,7 @@ import type { LawMindRequiresAction } from "../../../../src/lawmind/platform/req
 import { parseRequiresActionsFromResponse } from "./lawmind-requires-action";
 import { isAwaitingClarification } from "../../../../src/lawmind/platform/execution-state.ts";
 import { chatErrorUserText, readJsonFromResponse, type ApiErrorJson } from "./api-client";
+import { apiAuthHeaders } from "./lawmind-api-auth.ts";
 import { readIncludeTurnDiagnostics } from "./lawmind-chat-diagnostics-pref";
 import type { ChatLiveTrace } from "./lawmind-chat-trace-types.js";
 import type { ChatActivityBlock } from "./lawmind-chat-activity.js";
@@ -246,6 +247,7 @@ export async function sendChatTurnStream(
     headers: {
       "content-type": "application/json",
       accept: "text/event-stream",
+      ...apiAuthHeaders(),
     },
     signal: args.signal,
     body: JSON.stringify({
@@ -446,9 +448,9 @@ function buildChatTurnResult(body: ChatResponse): {
       text:
         body.reply?.trim() ||
         (body.status === "awaiting_approval"
-          ? "有操作等待您的确认，请查看审核台或继续对话。"
+          ? "有操作等待您的确认，请打开待我拍板或继续对话。"
           : body.toolCalls && body.toolCalls > 0
-            ? "本轮已执行工具但未返回文字说明，请查看上方工具状态或审核台草稿。"
+            ? "本轮已执行工具但未返回文字说明，请查看上方工具状态或文书台草稿。"
             : "本轮未返回可见回复，请重试或检查模型配置。"),
       ...(typeof body.status === "string" && body.status.trim() ? { status: body.status } : {}),
       ...(body.executionState ? { executionState: body.executionState } : {}),
@@ -469,7 +471,7 @@ export async function sendChatTurn(args: SendChatTurnArgs): Promise<{
   const includeTurnDiagnostics = readIncludeTurnDiagnostics();
   const response = await fetch(`${args.apiBase}/api/chat`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...apiAuthHeaders() },
     signal: args.signal,
     body: JSON.stringify({
       message: args.message,

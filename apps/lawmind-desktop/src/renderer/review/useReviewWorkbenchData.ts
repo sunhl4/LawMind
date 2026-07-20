@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ArtifactDraft } from "../../../../../src/lawmind/types.ts";
-import type { AcceptanceReport } from "../../../../../src/lawmind/deliverables/index.ts";
+import type {
+  AcceptanceReport,
+  ReasoningReport,
+} from "../../../../../src/lawmind/deliverables/index.ts";
 import type { DraftCitationIntegrityView } from "../../../../../src/lawmind/drafts/citation-integrity.ts";
 import type { GateDecision, TaskExecutionState } from "../../../../../src/lawmind/platform/contracts.ts";
 import { deriveReviewGateDecisions } from "../../../../../src/lawmind/platform/review-gates.ts";
@@ -62,6 +65,8 @@ export function useReviewWorkbenchData(params: UseReviewWorkbenchDataParams) {
   const citationIntegrity = detailQuery.data?.citationIntegrity ?? null;
   const memorySources = detailQuery.data?.memorySources ?? null;
   const acceptance = detailQuery.data?.acceptance ?? null;
+  const reasoningReport = detailQuery.data?.reasoningReport ?? null;
+  const reasoningMarkdown = detailQuery.data?.reasoningMarkdown ?? null;
   const executionState = detailQuery.data?.executionState ?? null;
 
   const gateDecisions = useMemo((): GateDecision[] => {
@@ -132,6 +137,8 @@ export function useReviewWorkbenchData(params: UseReviewWorkbenchDataParams) {
         draft?: ArtifactDraft;
         citationIntegrity?: DraftCitationIntegrityView;
         acceptance?: AcceptanceReport;
+        reasoningReport?: ReasoningReport;
+        reasoningMarkdown?: string | null;
         executionState?: TaskExecutionState;
         gateDecisions?: GateDecision[];
         memorySources?: MemorySourceLayer[];
@@ -148,6 +155,11 @@ export function useReviewWorkbenchData(params: UseReviewWorkbenchDataParams) {
         draft: j.draft,
         citationIntegrity: j.citationIntegrity ?? null,
         acceptance: j.acceptance ?? null,
+        reasoningReport: j.reasoningReport ?? null,
+        reasoningMarkdown:
+          typeof j.reasoningMarkdown === "string" && j.reasoningMarkdown.trim()
+            ? j.reasoningMarkdown
+            : null,
         executionState: j.executionState ?? null,
         gateDecisions: gates,
         memorySources: Array.isArray(j.memorySources) ? j.memorySources : null,
@@ -229,6 +241,8 @@ export function useReviewWorkbenchData(params: UseReviewWorkbenchDataParams) {
     citationIntegrity,
     memorySources,
     acceptance,
+    reasoningReport,
+    reasoningMarkdown,
     executionState,
     gateDecisions,
     detailLoading,

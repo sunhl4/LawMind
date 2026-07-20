@@ -5,6 +5,34 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LawmindAppHeader } from "./LawmindAppHeader";
+import type { EditionInfo } from "../use-edition";
+
+const editionState: { current: EditionInfo } = {
+  current: {
+    edition: "solo",
+    label: "独立律师版",
+    source: "default",
+    features: {
+      acceptanceGateStrict: true,
+      citationGateStrict: true,
+      crossMatterRoadmap: false,
+      crossMatterAcceptanceDashboard: false,
+      collaborationSummary: false,
+      complianceAuditExport: false,
+      auditIntegrityExport: false,
+      securitySbomPanel: false,
+      qualityDashboardJsonExport: false,
+      customDeliverableSpec: false,
+      acceptancePackExport: false,
+      strictDangerousToolApproval: false,
+    },
+    loading: false,
+  },
+};
+
+vi.mock("../use-edition", () => ({
+  useEdition: () => editionState.current,
+}));
 
 describe("LawmindAppHeader", () => {
   let host: HTMLDivElement;
@@ -14,6 +42,11 @@ describe("LawmindAppHeader", () => {
     host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
+    editionState.current = {
+      ...editionState.current,
+      edition: "solo",
+      features: { ...editionState.current.features, collaborationSummary: false },
+    };
   });
 
   afterEach(() => {
@@ -44,11 +77,9 @@ describe("LawmindAppHeader", () => {
           matterCockpitOpen={false}
           onExitMatterCockpit={vi.fn()}
           onSetMainView={vi.fn()}
-          onOpenCollaborationOverview={vi.fn()}
-          onOpenReviewTab={vi.fn()}
-          apiBase="http://127.0.0.1:8765"
+                    apiBase="http://127.0.0.1:8765"
           actionSummaryTotal={0}
-          onOpenActionHub={vi.fn()}
+          onOpenNeedsDecisionDesk={vi.fn()}
           projectDir={null}
           currentMatterLabel={null}
           sidebarCollapsed={false}
@@ -77,9 +108,122 @@ describe("LawmindAppHeader", () => {
       );
     });
     expect(host.querySelector('[aria-current="page"]')?.textContent).toContain("对话");
+    expect(host.textContent).toContain("在办");
+    expect(host.textContent).toContain("会议室·办件");
+    expect(host.querySelector('[data-testid="lm-tab-meeting"]')).toBeNull();
+    expect(host.querySelector('[data-testid="lm-tab-automations"]')).toBeNull();
+    expect(host.textContent).not.toContain("审核");
+    expect(host.querySelector('[data-testid="lm-tab-collaboration"]')).toBeNull();
   });
 
-  it("marks settings gear active when settingsOpen", async () => {
+  it("opens 会议室 and 自动办件 from 更多 menu", async () => {
+    const onSetMainView = vi.fn();
+    await act(async () => {
+      root.render(
+        <LawmindAppHeader
+          mainView="workspace"
+          assistants={[]}
+          selectedAssistantId="a1"
+          onSelectAssistantId={vi.fn()}
+          matterCockpitOpen={false}
+          onExitMatterCockpit={vi.fn()}
+          onSetMainView={onSetMainView}
+          apiBase="http://127.0.0.1:8765"
+          actionSummaryTotal={0}
+          onOpenNeedsDecisionDesk={vi.fn()}
+          projectDir={null}
+          currentMatterLabel={null}
+          sidebarCollapsed={false}
+          wsShowEditor
+          wsShowChat
+          canUseFilesystemBridge={false}
+          onToggleSidebar={vi.fn()}
+          onToggleEditor={vi.fn()}
+          onToggleChat={vi.fn()}
+          reviewPaneVisibility={{ meta: true, editor: true, preview: true }}
+          onToggleReviewPane={vi.fn()}
+          onOpenSettings={vi.fn()}
+          onCloseSettings={vi.fn()}
+          settingsOpen={false}
+          showReadinessStrip={false}
+          health={null}
+          workspaceDir="/tmp/ws"
+          localServiceReconnecting={false}
+          modelCatalog={[]}
+          selectedModelId="m1"
+          onOpenApiWizard={vi.fn()}
+          onOpenDoctor={vi.fn()}
+          onVerifyModel={vi.fn()}
+          composeModelQuickTestBusy={false}
+        />,
+      );
+    });
+    const more = host.querySelector('[data-testid="lm-nav-more"]') as HTMLButtonElement;
+    expect(more).toBeTruthy();
+    await act(async () => {
+      more.click();
+    });
+    expect(host.querySelector('[data-testid="lm-nav-more-menu"]')).toBeTruthy();
+    await act(async () => {
+      (host.querySelector('[data-testid="lm-tab-automations"]') as HTMLButtonElement).click();
+    });
+    expect(onSetMainView).toHaveBeenCalledWith("automations");
+  });
+
+  it("shows 案件 tab as current when matter cockpit is open", async () => {
+    const onExit = vi.fn();
+    await act(async () => {
+      root.render(
+        <LawmindAppHeader
+          mainView="workspace"
+          assistants={[]}
+          selectedAssistantId="a1"
+          onSelectAssistantId={vi.fn()}
+          matterCockpitOpen
+          onExitMatterCockpit={onExit}
+          onSetMainView={vi.fn()}
+                    apiBase="http://127.0.0.1:8765"
+          actionSummaryTotal={0}
+          onOpenNeedsDecisionDesk={vi.fn()}
+          projectDir={null}
+          currentMatterLabel="chen-ac"
+          sidebarCollapsed={false}
+          wsShowEditor
+          wsShowChat={false}
+          canUseFilesystemBridge={false}
+          onToggleSidebar={vi.fn()}
+          onToggleEditor={vi.fn()}
+          onToggleChat={vi.fn()}
+          reviewPaneVisibility={{ meta: true, editor: true, preview: true }}
+          onToggleReviewPane={vi.fn()}
+          onOpenSettings={vi.fn()}
+          onCloseSettings={vi.fn()}
+          settingsOpen={false}
+          showReadinessStrip={false}
+          health={null}
+          workspaceDir="/tmp/ws"
+          localServiceReconnecting={false}
+          modelCatalog={[]}
+          selectedModelId="m1"
+          onOpenApiWizard={vi.fn()}
+          onOpenDoctor={vi.fn()}
+          onVerifyModel={vi.fn()}
+          composeModelQuickTestBusy={false}
+        />,
+      );
+    });
+    expect(host.querySelector('[data-testid="lm-tab-matter"]')?.textContent).toContain("案件");
+    expect(host.querySelector('[aria-current="page"]')?.textContent).toContain("案件");
+    expect(host.querySelector('[data-testid="lm-tab-workspace"]')?.getAttribute("aria-current")).toBeNull();
+    expect(host.textContent).not.toContain("返回对话");
+
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[data-testid="lm-tab-workspace"]')?.click();
+    });
+    expect(onExit).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not show a separate 协作 tab (merged into 在办)", async () => {
     await act(async () => {
       root.render(
         <LawmindAppHeader
@@ -90,14 +234,58 @@ describe("LawmindAppHeader", () => {
           matterCockpitOpen={false}
           onExitMatterCockpit={vi.fn()}
           onSetMainView={vi.fn()}
-          onOpenCollaborationOverview={vi.fn()}
-          onOpenReviewTab={vi.fn()}
           apiBase="http://127.0.0.1:8765"
           actionSummaryTotal={0}
-          onOpenActionHub={vi.fn()}
+          onOpenNeedsDecisionDesk={vi.fn()}
           projectDir={null}
           currentMatterLabel={null}
           sidebarCollapsed={false}
+          wsShowEditor
+          wsShowChat
+          canUseFilesystemBridge={false}
+          onToggleSidebar={vi.fn()}
+          onToggleEditor={vi.fn()}
+          onToggleChat={vi.fn()}
+          reviewPaneVisibility={{ meta: true, editor: true, preview: true }}
+          onToggleReviewPane={vi.fn()}
+          onOpenSettings={vi.fn()}
+          onCloseSettings={vi.fn()}
+          settingsOpen={false}
+          showReadinessStrip={false}
+          health={null}
+          workspaceDir="/tmp/ws"
+          localServiceReconnecting={false}
+          modelCatalog={[]}
+          selectedModelId="m1"
+          onOpenApiWizard={vi.fn()}
+          onOpenDoctor={vi.fn()}
+          onVerifyModel={vi.fn()}
+          composeModelQuickTestBusy={false}
+        />,
+      );
+    });
+    expect(host.querySelector('[data-testid="lm-tab-collaboration"]')).toBeNull();
+    expect(host.querySelector('[data-testid="lm-tab-agents"]')?.textContent).toContain("在办");
+    expect(host.querySelector('[aria-label="功能模块"]')?.textContent).not.toContain("协作");
+  });
+
+  it("marks settings gear active when settingsOpen and sidebar unavailable", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindAppHeader
+          mainView="workspace"
+          assistants={[]}
+          selectedAssistantId="a1"
+          onSelectAssistantId={vi.fn()}
+          matterCockpitOpen={false}
+          onExitMatterCockpit={vi.fn()}
+          onSetMainView={vi.fn()}
+                    apiBase="http://127.0.0.1:8765"
+          actionSummaryTotal={0}
+          onOpenNeedsDecisionDesk={vi.fn()}
+          projectDir={null}
+          currentMatterLabel={null}
+          sidebarCollapsed
           wsShowEditor
           wsShowChat
           canUseFilesystemBridge={false}
@@ -126,6 +314,51 @@ describe("LawmindAppHeader", () => {
     expect(host.querySelector('.lm-main-header-gear-btn[aria-pressed="true"]')).not.toBeNull();
   });
 
+  it("omits header settings gear when sidebar is visible", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindAppHeader
+          mainView="workspace"
+          assistants={[]}
+          selectedAssistantId="a1"
+          onSelectAssistantId={vi.fn()}
+          matterCockpitOpen={false}
+          onExitMatterCockpit={vi.fn()}
+          onSetMainView={vi.fn()}
+                    apiBase="http://127.0.0.1:8765"
+          actionSummaryTotal={0}
+          onOpenNeedsDecisionDesk={vi.fn()}
+          projectDir={null}
+          currentMatterLabel={null}
+          sidebarCollapsed={false}
+          wsShowEditor
+          wsShowChat
+          canUseFilesystemBridge={false}
+          onToggleSidebar={vi.fn()}
+          onToggleEditor={vi.fn()}
+          onToggleChat={vi.fn()}
+          reviewPaneVisibility={{ meta: true, editor: true, preview: true }}
+          onToggleReviewPane={vi.fn()}
+          onOpenSettings={vi.fn()}
+          onCloseSettings={vi.fn()}
+          settingsOpen={false}
+          showReadinessStrip={false}
+          health={null}
+          workspaceDir="/tmp/ws"
+          localServiceReconnecting={false}
+          modelCatalog={[]}
+          selectedModelId="m1"
+          onOpenApiWizard={vi.fn()}
+          onOpenDoctor={vi.fn()}
+          onVerifyModel={vi.fn()}
+          composeModelQuickTestBusy={false}
+        />,
+      );
+    });
+    expect(host.querySelector(".lm-main-header-gear-btn")).toBeNull();
+    expect(host.querySelector('[aria-label="面板布局"]')).not.toBeNull();
+  });
+
   it("shows back button and calls onCloseSettings when settingsOpen", async () => {
     const onCloseSettings = vi.fn();
     await act(async () => {
@@ -138,11 +371,9 @@ describe("LawmindAppHeader", () => {
           matterCockpitOpen={false}
           onExitMatterCockpit={vi.fn()}
           onSetMainView={vi.fn()}
-          onOpenCollaborationOverview={vi.fn()}
-          onOpenReviewTab={vi.fn()}
-          apiBase="http://127.0.0.1:8765"
+                    apiBase="http://127.0.0.1:8765"
           actionSummaryTotal={0}
-          onOpenActionHub={vi.fn()}
+          onOpenNeedsDecisionDesk={vi.fn()}
           projectDir={null}
           currentMatterLabel={null}
           sidebarCollapsed={false}
@@ -176,5 +407,218 @@ describe("LawmindAppHeader", () => {
     backBtn?.click();
     expect(onCloseSettings).toHaveBeenCalledTimes(1);
     expect(host.querySelector(".lm-tabs")).toBeNull();
+  });
+
+  it("shows header 待我拍板 only when sidebar is collapsed or in review", async () => {
+    const base = {
+      assistants: [],
+      selectedAssistantId: "a1",
+      onSelectAssistantId: vi.fn(),
+      matterCockpitOpen: false,
+      onExitMatterCockpit: vi.fn(),
+      onSetMainView: vi.fn(),
+            apiBase: "http://127.0.0.1:8765",
+      actionSummaryTotal: 2,
+      onOpenNeedsDecisionDesk: vi.fn(),
+      projectDir: null as string | null,
+      currentMatterLabel: null as string | null,
+      wsShowEditor: true,
+      wsShowChat: true,
+      canUseFilesystemBridge: false,
+      onToggleSidebar: vi.fn(),
+      onToggleEditor: vi.fn(),
+      onToggleChat: vi.fn(),
+      reviewPaneVisibility: { meta: true, editor: true, preview: true },
+      onToggleReviewPane: vi.fn(),
+      onOpenSettings: vi.fn(),
+      onCloseSettings: vi.fn(),
+      settingsOpen: false,
+      showReadinessStrip: false,
+      health: null,
+      workspaceDir: "/tmp/ws",
+      localServiceReconnecting: false,
+      modelCatalog: [],
+      selectedModelId: "m1",
+      onOpenApiWizard: vi.fn(),
+      onOpenDoctor: vi.fn(),
+      onVerifyModel: vi.fn(),
+      composeModelQuickTestBusy: false,
+    };
+
+    await act(async () => {
+      root.render(
+        <LawmindAppHeader {...base} mainView="workspace" sidebarCollapsed={false} />,
+      );
+    });
+    expect(host.querySelector(".lm-needs-decision-trigger")).toBeNull();
+
+    await act(async () => {
+      root.render(
+        <LawmindAppHeader {...base} mainView="workspace" sidebarCollapsed />,
+      );
+    });
+    expect(host.querySelector(".lm-needs-decision-trigger")?.textContent).toContain("待我拍板");
+
+    await act(async () => {
+      root.render(
+        <LawmindAppHeader {...base} mainView="review" sidebarCollapsed={false} />,
+      );
+    });
+    expect(host.querySelector(".lm-needs-decision-trigger")?.textContent).toContain("待我拍板");
+  });
+
+  it("does not put decision badge on 在办 tab (inbox stays on 待我拍板)", async () => {
+    const base = {
+      assistants: [],
+      selectedAssistantId: "a1",
+      onSelectAssistantId: vi.fn(),
+      matterCockpitOpen: false,
+      onExitMatterCockpit: vi.fn(),
+      onSetMainView: vi.fn(),
+            apiBase: "http://127.0.0.1:8765",
+      actionSummaryTotal: 3,
+      onOpenNeedsDecisionDesk: vi.fn(),
+      projectDir: null as string | null,
+      currentMatterLabel: null as string | null,
+      wsShowEditor: true,
+      wsShowChat: true,
+      canUseFilesystemBridge: false,
+      onToggleSidebar: vi.fn(),
+      onToggleEditor: vi.fn(),
+      onToggleChat: vi.fn(),
+      reviewPaneVisibility: { meta: true, editor: true, preview: true },
+      onToggleReviewPane: vi.fn(),
+      onOpenSettings: vi.fn(),
+      onCloseSettings: vi.fn(),
+      settingsOpen: false,
+      showReadinessStrip: false,
+      health: null,
+      workspaceDir: "/tmp/ws",
+      localServiceReconnecting: false,
+      modelCatalog: [],
+      selectedModelId: "m1",
+      onOpenApiWizard: vi.fn(),
+      onOpenDoctor: vi.fn(),
+      onVerifyModel: vi.fn(),
+      composeModelQuickTestBusy: false,
+    };
+
+    await act(async () => {
+      root.render(
+        <LawmindAppHeader {...base} mainView="workspace" sidebarCollapsed={false} />,
+      );
+    });
+    const agentsTab = host.querySelector('[data-testid="lm-tab-agents"]');
+    expect(agentsTab?.textContent?.trim()).toBe("在办");
+    expect(agentsTab?.querySelector(".lm-tab-badge")).toBeNull();
+  });
+
+  it("shows weak matter chip when a case is linked", async () => {
+    const onOpenMatterCockpit = vi.fn();
+    await act(async () => {
+      root.render(
+        <LawmindAppHeader
+          mainView="workspace"
+          assistants={[
+            {
+              assistantId: "a1",
+              displayName: "助手 A",
+              introduction: "",
+              presetKey: "general_default",
+              createdAt: "",
+              updatedAt: "",
+              stats: { lastUsedAt: "", turnCount: 0, sessionCount: 0 },
+            },
+          ]}
+          selectedAssistantId="a1"
+          onSelectAssistantId={vi.fn()}
+          matterCockpitOpen={false}
+          onOpenMatterCockpit={onOpenMatterCockpit}
+          onExitMatterCockpit={vi.fn()}
+          onSetMainView={vi.fn()}
+                    apiBase="http://127.0.0.1:8765"
+          actionSummaryTotal={0}
+          onOpenNeedsDecisionDesk={vi.fn()}
+          projectDir="/tmp/ws"
+          currentMatterLabel="张三诉李四"
+          sidebarCollapsed={false}
+          wsShowEditor
+          wsShowChat
+          canUseFilesystemBridge={false}
+          onToggleSidebar={vi.fn()}
+          onToggleEditor={vi.fn()}
+          onToggleChat={vi.fn()}
+          reviewPaneVisibility={{ meta: true, editor: true, preview: true }}
+          onToggleReviewPane={vi.fn()}
+          onOpenSettings={vi.fn()}
+          onCloseSettings={vi.fn()}
+          settingsOpen={false}
+          showReadinessStrip={false}
+          health={null}
+          workspaceDir="/tmp/ws"
+          localServiceReconnecting={false}
+          modelCatalog={[]}
+          selectedModelId="m1"
+          onOpenApiWizard={vi.fn()}
+          onOpenDoctor={vi.fn()}
+          onVerifyModel={vi.fn()}
+          composeModelQuickTestBusy={false}
+        />,
+      );
+    });
+    expect(host.querySelector('select[aria-label="选择助手"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="功能模块"]')?.textContent).toContain("对话");
+    expect(host.querySelector('[aria-label="功能模块"]')?.textContent).toContain("在办");
+    expect(host.querySelector('[aria-label="功能模块"]')?.textContent).not.toContain("协作");
+    expect(host.querySelector('[aria-label="面板布局"]')).not.toBeNull();
+    const matterChip = host.querySelector('[data-testid="lm-open-matter-cockpit"]') as HTMLButtonElement | null;
+    expect(matterChip?.textContent).toContain("张三诉李四");
+    matterChip?.click();
+    expect(onOpenMatterCockpit).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not show create-matter chip when no matter is linked", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindAppHeader
+          mainView="workspace"
+          assistants={[]}
+          selectedAssistantId="a1"
+          onSelectAssistantId={vi.fn()}
+          matterCockpitOpen={false}
+          onExitMatterCockpit={vi.fn()}
+          onSetMainView={vi.fn()}
+                    apiBase="http://127.0.0.1:8765"
+          actionSummaryTotal={0}
+          onOpenNeedsDecisionDesk={vi.fn()}
+          projectDir={null}
+          currentMatterLabel={null}
+          sidebarCollapsed={false}
+          wsShowEditor
+          wsShowChat
+          canUseFilesystemBridge={false}
+          onToggleSidebar={vi.fn()}
+          onToggleEditor={vi.fn()}
+          onToggleChat={vi.fn()}
+          reviewPaneVisibility={{ meta: true, editor: true, preview: true }}
+          onToggleReviewPane={vi.fn()}
+          onOpenSettings={vi.fn()}
+          onCloseSettings={vi.fn()}
+          settingsOpen={false}
+          showReadinessStrip={false}
+          health={null}
+          workspaceDir="/tmp/ws"
+          localServiceReconnecting={false}
+          modelCatalog={[]}
+          selectedModelId="m1"
+          onOpenApiWizard={vi.fn()}
+          onOpenDoctor={vi.fn()}
+          onVerifyModel={vi.fn()}
+          composeModelQuickTestBusy={false}
+        />,
+      );
+    });
+    expect(host.querySelector('[data-testid="lm-header-create-matter"]')).toBeNull();
+    expect(host.querySelector('[data-testid="lm-open-matter-cockpit"]')).toBeNull();
   });
 });

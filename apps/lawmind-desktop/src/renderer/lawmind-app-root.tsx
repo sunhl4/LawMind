@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLawmindAppShell } from "./lawmind-app-shell";
-import type { CollaborationDeskTab } from "./LawmindCollaborationDesk";
-import { type LawMindRequiresAction } from "./lawmind-requires-action";
+import type { AgentsDeskTab } from "./lawmind-agents-desk";
 import { useActionSummaryQuery } from "./lawmind-query-hooks";
 import { useLawmindRecordsDeskMatters, RECORDS_DESK_UNLINKED } from "./lawmind-records-desk-state";
 import { useEdition } from "./use-edition";
@@ -23,6 +22,7 @@ import { useLawyerReviewDesktopNotify } from "./lawmind-lawyer-review-notify";
 import { applyAllUiPrefs } from "./lawmind-ui-prefs";
 
 import { resolveWorkspacePath, artifactApiRelFromOutput } from "./lawmind-app-utils";
+import { scheduleScrollChatMessagesToLatest } from "./lawmind-chat-scroll";
 import { useLawmindAppRootHandlers } from "./app/useLawmindAppRootHandlers";
 import { useLawmindAppRootLayout } from "./app/useLawmindAppRootLayout";
 import { LawmindAppRootView } from "./app/LawmindAppRootView";
@@ -31,8 +31,6 @@ import { LawmindAppRootView } from "./app/LawmindAppRootView";
 export function LawmindAppRoot() {
   const [_uiPrefsVersion, setUiPrefsVersion] = useState(0);
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
-  const [toolApprovalDialogAction, setToolApprovalDialogAction] =
-    useState<LawMindRequiresAction | null>(null);
 
   useEffect(() => {
     applyAllUiPrefs();
@@ -86,7 +84,8 @@ export function LawmindAppRoot() {
   const { canUseFilesystemBridge } = derived;
 
   const recordsDeskMatters = useLawmindRecordsDeskMatters({
-    enabled: (mainView === "workspace" || mainView === "collaboration") && Boolean(config),
+    enabled:
+      (mainView === "workspace" || mainView === "agents") && Boolean(config),
     apiBase: config?.apiBase ?? "",
     matterRefreshVersion,
     tasks,
@@ -95,19 +94,17 @@ export function LawmindAppRoot() {
   const [matterImportBusy, setMatterImportBusy] = useState(false);
   const [matterCockpitOpen, setMatterCockpitOpen] = useState(false);
   const [createMatterOpen, setCreateMatterOpen] = useState(false);
-  const [matterRenameOpen, setMatterRenameOpen] = useState<{ matterId: string; initialTitle: string } | null>(
-    null,
-  );
   const [matterDeleteOpen, setMatterDeleteOpen] = useState<{ matterId: string; label: string } | null>(null);
   const [delegateAssistOpen, setDelegateAssistOpen] = useState(false);
   const [delegateTaskDefault, setDelegateTaskDefault] = useState("");
-  const [showActionHub, setShowActionHub] = useState(false);
+  // Workspace-wide inbox for sidebar / header badges (not scoped to current matter).
   const actionSummaryQuery = useActionSummaryQuery(
     config?.apiBase ?? null,
-    contextMatterId,
+    null,
     Boolean(config?.apiBase),
   );
-  const actionSummaryTotal = actionSummaryQuery.data?.total ?? 0;
+  const actionSummaryTotal =
+    actionSummaryQuery.data?.requiresDecisionTotal ?? actionSummaryQuery.data?.total ?? 0;
   const actionSummaryActiveJobs = actionSummaryQuery.data?.activeJobs ?? 0;
   const refreshActionSummary = useCallback(async () => {
     await actionSummaryQuery.refetch();
@@ -139,12 +136,14 @@ export function LawmindAppRoot() {
   const [fileExplorerHost, setFileExplorerHost] = useState<HTMLDivElement | null>(null);
   const [fileExplorerPortaled, setFileExplorerPortaled] = useState(false);
   const [fileEditorHost, setFileEditorHost] = useState<HTMLDivElement | null>(null);
-  /** 从审核台点「返回案件」时一次性选中左侧案件，避免掉上下文 */
+  /** 从文书台点「返回案件」时一次性选中左侧案件，避免掉上下文 */
   const [focusMatterIdFromReview, setFocusMatterIdFromReview] = useState<string | null>(null);
   /** 从案件点「去复核」进入审核时为 true，点顶栏「审核」为 false，用于是否显示「返回案件」 */
   const [reviewLaunchedFromMatter, setReviewLaunchedFromMatter] = useState(false);
-  /** 顶栏「协作」内分栏：状态一览 / 团队工作流 */
-  const [collaborationDeskTab, setCollaborationDeskTab] = useState<CollaborationDeskTab>("overview");
+  /** 「在办」内分栏：进行中 / 交出去的活 / 按流程办 */
+  const [agentsDeskTab, setAgentsDeskTab] = useState<AgentsDeskTab>("active");
+  /** 「待我拍板」入口：在办列表仅显示 awaiting_* */
+  const [agentsNeedsDecisionFocus, setAgentsNeedsDecisionFocus] = useState(false);
 
   useEffect(() => {
     const id = focusMatterIdFromReview?.trim();
@@ -200,6 +199,7 @@ export function LawmindAppRoot() {
     setShowSettings,
     sendChatMessage,
     setSessionByAssistant,
+    createNewChatSession,
   } = actions;
 
   const {
@@ -207,6 +207,8 @@ export function LawmindAppRoot() {
     linkMatterToChat,
     workspaceCasesMenu,
     openReviewFromWorkspace,
+    handleSpawnPreset,
+    handleChatResumeComplete,
   } = useLawmindAppRootHandlers({
     config,
     selectedAssistantId,
@@ -224,7 +226,6 @@ export function LawmindAppRoot() {
     setMainView,
     setMatterCockpitOpen,
     setCreateMatterOpen,
-    setMatterRenameOpen,
     setMatterDeleteOpen,
     setReviewLaunchedFromMatter,
     setReviewFocusTaskId,
@@ -233,11 +234,11 @@ export function LawmindAppRoot() {
     setReviewFocusListMode,
     setLoading,
     setError,
-    setToolApprovalDialogAction,
     setMessagesByAssistant,
     setSessionByAssistant,
     sendChatMessage,
     refreshActionSummary,
+    createNewChatSession,
   });
 
   const fileWorkbenchMattersPickList = useMemo(() => {
@@ -279,20 +280,15 @@ export function LawmindAppRoot() {
         if (aid && assistants.some((a) => a.assistantId === aid)) {
           setSelectedAssistantId(aid);
         }
-        requestAnimationFrame(() => {
-          document.querySelector<HTMLElement>('[aria-label="对话消息"]')?.scrollIntoView({
-            behavior: "smooth",
-            block: "end",
-          });
-        });
+        scheduleScrollChatMessagesToLatest({ behavior: "smooth" });
         return;
       }
       if (payload?.reason !== "open_settings_collaboration") {
         return;
       }
       setShowSettings(false);
-      setCollaborationDeskTab("workflows");
-      setMainView("collaboration");
+      setAgentsDeskTab("workflows");
+      setMainView("agents");
       requestAnimationFrame(() => {
         document.getElementById("lawmind-collaboration-hub")?.scrollIntoView({
           behavior: "smooth",
@@ -306,7 +302,7 @@ export function LawmindAppRoot() {
   }, [
     assistants,
     setMainView,
-    setCollaborationDeskTab,
+    setAgentsDeskTab,
     setReviewFocusListMode,
     setReviewFocusMatterId,
     setReviewFocusStatus,
@@ -381,15 +377,14 @@ export function LawmindAppRoot() {
   });
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [currentMessages]);
+    // Jumping in from 在办 / 待我拍板 / notifications must land on latest turn, not task start.
+    return scheduleScrollChatMessagesToLatest({ behavior: "smooth" });
+  }, [currentMessages, activeChatSessionId]);
 
-  /** 审核页不展示全局左栏（材料树 / 工作目录 / 案件目录），主区留给审核台。 */
+  /** 文书台不展示全局左栏（材料树 / 工作目录 / 案件目录），主区留给签批工作台。 */
   const showAppSidebar = mainView !== "review";
   const showSidebarWorkbenchFiles =
     showAppSidebar && canUseFilesystemBridge && mainView === "workspace";
-  const showCollaborationSidebar = showAppSidebar && mainView === "collaboration" && !sidebarCollapsed;
-
   const previewArtifact = (outputPath?: string) => {
     if (!config) {
       return;
@@ -423,8 +418,10 @@ export function LawmindAppRoot() {
     setMatterCockpitOpen,
     reviewLaunchedFromMatter,
     setReviewLaunchedFromMatter,
-    collaborationDeskTab,
-    setCollaborationDeskTab,
+    agentsDeskTab,
+    setAgentsDeskTab,
+    agentsNeedsDecisionFocus,
+    setAgentsNeedsDecisionFocus,
     setFocusMatterIdFromReview,
     sidebarCollapsed,
     setSidebarCollapsed,
@@ -448,7 +445,6 @@ export function LawmindAppRoot() {
     messagesEndRef,
     showAppSidebar,
     showSidebarWorkbenchFiles,
-    showCollaborationSidebar,
     chatMatterHeadline,
     fileWorkbenchMattersPickList,
     workspaceCasesMenu,
@@ -459,21 +455,19 @@ export function LawmindAppRoot() {
     actionSummaryActiveJobs,
     refreshActionSummary,
     sessionRequiresActions,
+    onChatResumeComplete: handleChatResumeComplete,
+    onSpawnPreset: (preset) => {
+      void handleSpawnPreset(preset);
+    },
     delegateAssistOpen,
     setDelegateAssistOpen,
     delegateTaskDefault,
     createMatterOpen,
     setCreateMatterOpen,
-    matterRenameOpen,
-    setMatterRenameOpen,
     matterDeleteOpen,
     setMatterDeleteOpen,
-    showActionHub,
-    setShowActionHub,
     taskDrawerOpen,
     setTaskDrawerOpen,
-    toolApprovalDialogAction,
-    setToolApprovalDialogAction,
     setUiPrefsVersion,
   });
 

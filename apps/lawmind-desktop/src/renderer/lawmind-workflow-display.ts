@@ -3,7 +3,14 @@ import {
   workflowTemplateKindUiLabel,
   type WorkflowTemplateKind,
 } from "../../../../src/lawmind/agent/collaboration/workspace-workflow-template-kind.ts";
-import type { WorkflowTemplateItem } from "./LawmindWorkflowLibrary";
+import type { WorkflowTemplateItem } from "./lawmind-workflow-types";
+import { lawyerDeliverableTypeLabel } from "./lawmind-lawyer-labels";
+
+export {
+  lawyerAudienceLabel,
+  lawyerDeliverableTypeLabel,
+  lawyerRiskLevelLabel,
+} from "./lawmind-lawyer-labels";
 
 export function isOfficeWorkflowTemplate(template: WorkflowTemplateItem): boolean {
   return resolveWorkflowTemplateKind(template) === "office";
@@ -31,6 +38,19 @@ export function sortWorkflowTemplatesForLawyer(
     const riskRank = (risk?: string) => (risk === "high" ? 2 : risk === "medium" ? 1 : 0);
     return riskRank(a.riskLevel) - riskRank(b.riskLevel) || a.name.localeCompare(b.name);
   });
+}
+
+export function workflowTemplateSearchHaystack(template: WorkflowTemplateItem): string {
+  const deliverable = lawyerDeliverableTypeLabel(template.deliverableType) ?? "";
+  return [
+    template.name,
+    template.description,
+    workflowTemplateKindLabel(template),
+    deliverable,
+    template.practiceArea ?? "",
+  ]
+    .join(" ")
+    .toLowerCase();
 }
 
 export type { WorkflowTemplateKind };

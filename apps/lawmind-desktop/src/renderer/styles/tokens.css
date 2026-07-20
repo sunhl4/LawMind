@@ -147,8 +147,8 @@ html.lm-density-compact {
 }
 
 html.lm-density-compact .lm-main-header-compact {
-  padding-top: var(--space-1);
-  padding-bottom: var(--space-1);
+  padding-top: 1px;
+  padding-bottom: 1px;
 }
 
 html.lm-density-compact .lm-compose-toolbar {

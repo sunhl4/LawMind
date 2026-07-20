@@ -1,4 +1,4 @@
-import React, { type RefObject } from "react";
+import React, { useState, type RefObject } from "react";
 import type { AppConfig } from "../lawmind-app-bootstrap";
 import type { ChatSessionListEntry } from "../lawmind-chat-active-storage";
 import { LawmindChatSessionTabs } from "../LawmindChatSessionTabs";
@@ -14,6 +14,10 @@ import type {
 } from "../lawmind-requires-action";
 import type { ModelCatalogEntry } from "../lawmind-models-api";
 import type { LawmindComposeExtras } from "../useLawmindComposeExtras";
+import {
+  LawmindChatReviewSticky,
+  type ReviewOpenTarget,
+} from "../LawmindChatReviewSticky";
 
 export type LawmindWorkspaceMainPaneProps = {
   canUseFilesystemBridge: boolean;
@@ -41,10 +45,11 @@ export type LawmindWorkspaceMainPaneProps = {
   onSendClarificationMessage: (text: string) => void | Promise<void>;
   streamCompactLabels: string[];
   fileChatContextItems: FileChatContextItem[];
+  onAddFileToChatContext?: (payload: Pick<FileChatContextItem, "root" | "relPath" | "kind">) => void;
   onRemoveFileChatPill: (id: string) => void;
   onClearFileChatPills: () => void;
   contextTaskId: string | null;
-  onOpenReview: () => void;
+  onOpenReview: (target?: ReviewOpenTarget) => void;
   onDelegateAssist: () => void;
   delegateAssistEnabled: boolean;
   revisionBackgroundActive: boolean;
@@ -61,6 +66,7 @@ export type LawmindWorkspaceMainPaneProps = {
   onSend: () => void | Promise<void>;
   onAbortChat: () => void;
   onClearContext: () => void;
+  onContextMatterChange?: (matterId: string | null) => void;
   onOpenComposeSettings: () => void;
   onOpenApiWizard: () => void;
   composeModelHint: string | null;
@@ -76,11 +82,17 @@ export type LawmindWorkspaceMainPaneProps = {
   queuedMessages: string[];
   cancelQueuedMessage: (index: number) => void;
   onOpenTaskDrawer: () => void;
-  onOpenActionHub: () => void;
+  onOpenNeedsDecisionDesk?: () => void;
+  /** @deprecated Use onOpenNeedsDecisionDesk */
+  onOpenActionHub?: () => void;
   composeExtras: LawmindComposeExtras;
   onCreateMatter?: () => void;
+  onOpenAgentsWorkflows?: () => void;
+  /** @deprecated Use onOpenAgentsWorkflows */
   onOpenWorkflowLibrary?: () => void;
   showEmptyMatterGuide?: boolean;
+  /** When true, session list lives in the left rail — hide top tabs. */
+  chatSessionsInSidebar?: boolean;
 };
 
 function LawmindWorkspaceMainPaneImpl({
@@ -109,6 +121,7 @@ function LawmindWorkspaceMainPaneImpl({
   onSendClarificationMessage,
   streamCompactLabels,
   fileChatContextItems,
+  onAddFileToChatContext,
   onRemoveFileChatPill,
   onClearFileChatPills,
   contextTaskId,
@@ -124,6 +137,7 @@ function LawmindWorkspaceMainPaneImpl({
   onSend,
   onAbortChat,
   onClearContext,
+  onContextMatterChange,
   onOpenComposeSettings,
   onOpenApiWizard,
   composeModelHint,
@@ -139,14 +153,20 @@ function LawmindWorkspaceMainPaneImpl({
   queuedMessages,
   cancelQueuedMessage,
   onOpenTaskDrawer,
+  onOpenNeedsDecisionDesk,
   onOpenActionHub,
   composeExtras,
   onCreateMatter,
+  onOpenAgentsWorkflows,
   onOpenWorkflowLibrary,
   showEmptyMatterGuide,
+  chatSessionsInSidebar = false,
 }: LawmindWorkspaceMainPaneProps) {
   const { selectedAssistantId, activeChatSessionId } = useLawmindChatSessionContext();
   const chatSessionId = activeChatSessionId;
+  const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
+  const openNeedsDecisionDesk = onOpenNeedsDecisionDesk ?? onOpenActionHub;
+  const openAgentsWorkflows = onOpenAgentsWorkflows ?? onOpenWorkflowLibrary;
   const fileChatPills = fileChatContextItems.map((it) => ({
     id: it.id,
     relPath: it.relPath,
@@ -203,27 +223,32 @@ function LawmindWorkspaceMainPaneImpl({
             }}
           >
             <div className="lm-chat-workspace lm-chat-workspace-messages-only">
-              <LawmindChatSessionTabs
-                sessions={chatSessionList.map((row) => ({
-                  sessionId: row.sessionId,
-                  title: row.title,
-                }))}
-                activeSessionId={activeChatSessionId}
-                loading={chatSessionsLoading}
-                busy={loading}
-                onSelect={(id) => void onSelectChatSession(id)}
-                onNewChat={() => void onCreateNewChatSession()}
-                onRename={(id, title) => void onRenameChatSession(id, title)}
-                onDelete={(id) => void onDeleteChatSession(id)}
-              />
-              {config?.apiBase ? (
-                <LawmindSessionHistorySidebar
-                  apiBase={config.apiBase}
-                  assistantId={selectedAssistantId}
-                  sessions={chatSessionList}
+              {!chatSessionsInSidebar ? (
+                <LawmindChatSessionTabs
+                  sessions={chatSessionList.map((row) => ({
+                    sessionId: row.sessionId,
+                    title: row.title,
+                  }))}
                   activeSessionId={activeChatSessionId}
-                  busy={loading || chatSessionsLoading}
+                  loading={chatSessionsLoading}
+                  busy={loading}
                   onSelect={(id) => void onSelectChatSession(id)}
+                  onNewChat={() => void onCreateNewChatSession()}
+                  onRename={(id, title) => void onRenameChatSession(id, title)}
+                  onDelete={(id) => void onDeleteChatSession(id)}
+                  trailing={
+                    config?.apiBase ? (
+                      <LawmindSessionHistorySidebar
+                        compact
+                        apiBase={config.apiBase}
+                        assistantId={selectedAssistantId}
+                        sessions={chatSessionList}
+                        activeSessionId={activeChatSessionId}
+                        busy={loading || chatSessionsLoading}
+                        onSelect={(id) => void onSelectChatSession(id)}
+                      />
+                    ) : null
+                  }
                 />
               ) : null}
               <LawmindChatMessagesColumn
@@ -250,11 +275,17 @@ function LawmindWorkspaceMainPaneImpl({
                 revisionBackgroundActive={revisionBackgroundActive}
                 chatSessionId={chatSessionId}
                 onResumeRequiresAction={onResumeRequiresAction}
+                onOpenNeedsDecisionDesk={openNeedsDecisionDesk}
                 onCreateMatter={onCreateMatter}
-                onOpenWorkflowLibrary={onOpenWorkflowLibrary}
+                onOpenAgentsWorkflows={openAgentsWorkflows}
+                onOpenWriteMaterials={() => setTemplateGalleryOpen(true)}
                 showEmptyMatterGuide={showEmptyMatterGuide}
               />
             </div>
+            <LawmindChatReviewSticky
+              actionSummary={composeExtras.actionSummary}
+              onOpenReview={onOpenReview}
+            />
             <LawmindChatComposeFooter
               currentMessages={currentMessages}
               input={input}
@@ -271,7 +302,9 @@ function LawmindWorkspaceMainPaneImpl({
                 onInputChange(prompt);
                 textareaRef.current?.focus();
               }}
+              onDispatchJob={onSendClarificationMessage}
               onClearContext={onClearContext}
+              onContextMatterChange={onContextMatterChange}
               onOpenComposeSettings={onOpenComposeSettings}
               onOpenApiWizard={onOpenApiWizard}
               composeModelHint={composeModelHint}
@@ -291,13 +324,17 @@ function LawmindWorkspaceMainPaneImpl({
               queuedMessages={queuedMessages}
               cancelQueuedMessage={cancelQueuedMessage}
               onOpenTaskDrawer={onOpenTaskDrawer}
-              onOpenActionHub={onOpenActionHub}
+              onOpenNeedsDecisionDesk={openNeedsDecisionDesk}
               onOpenMemoryInspector={onOpenComposeSettings}
               onOpenReview={onOpenReview}
               composeExtras={composeExtras}
               fileChatPills={fileChatPills}
+              fileChatContextItems={fileChatContextItems}
+              onAddFileToChatContext={onAddFileToChatContext}
               onRemoveFileChatPill={onRemoveFileChatPill}
               onClearFileChatPills={onClearFileChatPills}
+              templateGalleryOpen={templateGalleryOpen}
+              onTemplateGalleryOpenChange={setTemplateGalleryOpen}
             />
           </div>
         ) : null}

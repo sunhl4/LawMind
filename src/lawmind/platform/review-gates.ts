@@ -44,6 +44,7 @@ export function deriveReviewGateDecisions(
 export function gateDecisionLabel(gate: GateDecision["gate"]): string {
   const labels: Record<GateDecision["gate"], string> = {
     clarification_gate: "澄清门禁",
+    intake_gate: "交办前问清",
     dangerous_tool_gate: "危险工具门禁",
     approval_gate: "审批门禁",
     acceptance_gate: "验收门禁",

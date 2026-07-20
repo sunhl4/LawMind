@@ -18,6 +18,8 @@ type Props = {
     action: LawMindRequiresAction,
     status: "approved" | "rejected",
   ) => void | Promise<void>;
+  /** Jump to「在办」needs-decision desk (single queue mental model). */
+  onOpenNeedsDecisionDesk?: () => void;
   busy?: boolean;
 };
 
@@ -73,20 +75,10 @@ function ToolApprovalActions(props: {
           rows={4}
           value={argsJson}
           onChange={(e) => setArgsJson(e.target.value)}
-          aria-label="工具参数 JSON"
+          aria-label="高级：调整执行参数"
         />
       ) : null}
       <div className="lm-requires-action-actions">
-        {!editing ? (
-          <button
-            type="button"
-            className="lm-btn lm-btn-secondary lm-btn-sm"
-            disabled={busy}
-            onClick={() => setEditing(true)}
-          >
-            修改参数
-          </button>
-        ) : null}
         <button
           type="button"
           className="lm-btn lm-btn-sm"
@@ -104,7 +96,7 @@ function ToolApprovalActions(props: {
             void onApproveTool?.(action);
           }}
         >
-          {editing ? "修改后批准" : "批准并继续"}
+          {editing ? "按修改批准" : "批准并继续"}
         </button>
         <button
           type="button"
@@ -114,6 +106,25 @@ function ToolApprovalActions(props: {
         >
           暂不执行
         </button>
+        {!editing ? (
+          <button
+            type="button"
+            className="lm-btn lm-btn-ghost lm-btn-sm"
+            disabled={busy}
+            onClick={() => setEditing(true)}
+          >
+            高级…
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="lm-btn lm-btn-ghost lm-btn-sm"
+            disabled={busy}
+            onClick={() => setEditing(false)}
+          >
+            取消高级
+          </button>
+        )}
       </div>
     </>
   );
@@ -129,6 +140,7 @@ export function LawmindRequiresActionCard(props: Props): ReactNode {
     onRejectTool,
     onRespondClarification,
     onResolveMatterApproval,
+    onOpenNeedsDecisionDesk,
     busy = false,
   } = props;
 
@@ -137,9 +149,9 @@ export function LawmindRequiresActionCard(props: Props): ReactNode {
   }
 
   return (
-    <div className="lm-requires-action-stack" role="region" aria-label="待您处理">
+    <div className="lm-requires-action-stack" role="region" aria-label="待您拍板">
       {actions.map((action) => (
-        <article key={action.id} className="lm-requires-action-card">
+        <article key={action.id} className="lm-requires-action-card" data-testid="lm-decision-card">
           <h4 className="lm-requires-action-title">{action.title}</h4>
           <p className="lm-meta lm-requires-action-summary">{action.summary}</p>
 
@@ -195,6 +207,18 @@ export function LawmindRequiresActionCard(props: Props): ReactNode {
           ) : null}
         </article>
       ))}
+      {onOpenNeedsDecisionDesk ? (
+        <p className="lm-meta lm-requires-action-desk-hint">
+          <button
+            type="button"
+            className="lm-link-btn"
+            data-testid="lm-decision-card-open-desk"
+            onClick={onOpenNeedsDecisionDesk}
+          >
+            也可在侧栏「待我拍板」集中处理
+          </button>
+        </p>
+      ) : null}
     </div>
   );
 }

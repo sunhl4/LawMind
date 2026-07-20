@@ -45,15 +45,23 @@ function performSessionDelete(
   sessionId: string,
   assistantId: string,
 ):
-  | { status: 200; payload: { ok: true; sessionId: string } }
+  | { status: 200; payload: { ok: true; sessionId: string; alreadyDeleted?: boolean } }
   | { status: 404; payload: { ok: false; code: string; message: string } }
   | { status: 500; payload: { ok: false; code: string; message: string } } {
   const session = loadSession(workspaceDir, sessionId);
+  // Idempotent: tab UI may retry after a successful delete if list refresh failed.
   if (!session) {
-    return { status: 404, payload: { ok: false, code: "not_found", message: "session not found" } };
+    return { status: 200, payload: { ok: true, sessionId, alreadyDeleted: true } };
   }
   if (!sessionMatchesAssistantFilter(session, assistantId)) {
-    return { status: 404, payload: { ok: false, code: "not_found", message: "session not found" } };
+    return {
+      status: 404,
+      payload: {
+        ok: false,
+        code: "session_assistant_mismatch",
+        message: "该会话属于其他助手，无法在此删除。请切换到对应助手后再试。",
+      },
+    };
   }
   if (!deleteSession(workspaceDir, sessionId)) {
     return {

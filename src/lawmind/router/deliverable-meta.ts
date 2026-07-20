@@ -125,6 +125,14 @@ function acceptanceCriteriaFor(type: DeliverableType | undefined): string[] | un
   }
 }
 
+function hasReviewFocus(text: string): boolean {
+  return /(重点|关注|条款|风险|竞业|对赌|违约|管辖|知识产权|付款|交付)/.test(text);
+}
+
+function hasLetterTarget(text: string): boolean {
+  return /(收函|致函|对方|债务人|违约方|公司|先生|女士|有限)/.test(text);
+}
+
 function clarificationQuestionsFor(
   type: DeliverableType | undefined,
   instruction: string,
@@ -132,24 +140,93 @@ function clarificationQuestionsFor(
   switch (type) {
     case "contract.rental":
       return buildRentalContractQuestions(instruction);
-    case "contract.general":
-      return [
-        {
+    case "contract.general": {
+      const questions: ClarificationQuestion[] = [];
+      if (!hasPartyInfo(instruction)) {
+        questions.push({
           key: "parties_and_subject",
-          question:
-            "如需精确成稿，请补充合同双方、标的与核心商务条款；若暂时没有，我会先生成带占位符的完整合同草案。",
+          question: "请补充合同双方名称/主体，以及合同标的（交易内容）。",
           reason: "完整合同需要主体与标的明确。",
-        },
-      ];
-    case "letter.demand":
+        });
+      }
+      if (!hasCurrency(instruction) && !/(价款|对价|报酬|费用|金额)/.test(instruction)) {
+        questions.push({
+          key: "commercial_terms",
+          question: "请补充核心商务条款（价款/对价、履行方式或期限）；暂缺则用【待补充】占位。",
+          reason: "商务条款是可交件合同的关键要素。",
+        });
+      }
+      return questions.length > 0 ? questions : undefined;
+    }
+    case "letter.demand": {
+      const questions: ClarificationQuestion[] = [];
+      if (!hasLetterTarget(instruction)) {
+        questions.push({
+          key: "addressee",
+          question: "请补充收函对象（对方名称/身份）。",
+          reason: "律师函必须明确收件人。",
+        });
+      }
+      if (!/(事实|违约|拖欠|未履行|主张|要求)/.test(instruction)) {
+        questions.push({
+          key: "claim_facts",
+          question: "请补充核心事实与主张（发生了什么、要求对方做什么）。",
+          reason: "主张与事实是函件正文骨架。",
+        });
+      }
+      if (!hasDuration(instruction) && !/(日内|期限|之前|截止)/.test(instruction)) {
+        questions.push({
+          key: "claim_deadline",
+          question: "请补充要求履行的期限（如「收到本函后 N 日内」）。",
+          reason: "履行期限影响函件可操作性。",
+        });
+      }
+      return questions.length > 0 ? questions : undefined;
+    }
+    case "contract.review": {
+      const questions: ClarificationQuestion[] = [];
+      if (instruction.length < 40 || !hasReviewFocus(instruction)) {
+        questions.push({
+          key: "review_focus",
+          question:
+            "请补充审查重点（例如付款、违约、管辖、知识产权、竞业等），以及己方立场（甲方/乙方/中立）。",
+          reason: "有重点才能少轮沟通、直接出可审意见。",
+        });
+      }
+      if (!/(合同|协议|文本|附件|材料)/.test(instruction)) {
+        questions.push({
+          key: "review_materials",
+          question: "请说明要审查的合同/材料在哪里（已引用文件、案件材料，或粘贴关键条款）。",
+          reason: "没有标的文本无法形成可核验审查意见。",
+        });
+      }
+      return questions.length > 0 ? questions : undefined;
+    }
+    case "report.esg":
+    case "report.general": {
+      if (/(主题|读者|用途|覆盖|框架|章节)/.test(instruction) && instruction.length >= 40) {
+        return undefined;
+      }
       return [
         {
-          key: "claim_deadline",
-          question:
-            "如需精确成稿，请补充收函对象、核心违约事实和要求履行期限；若暂时没有，我会先生成标准律师函框架。",
-          reason: "律师函需要明确对象、主张和期限。",
+          key: "report_brief",
+          question: "请补充报告主题、读者/用途，以及必须覆盖的重点章节或指标。",
+          reason: "先对齐口径再起草，可减少返工。",
         },
       ];
+    }
+    case "document.general": {
+      if (instruction.length >= 60) {
+        return undefined;
+      }
+      return [
+        {
+          key: "doc_purpose",
+          question: "请补充文书用途、读者对象，以及必须包含的要点。",
+          reason: "用途不清时容易写成无法验收的半成品。",
+        },
+      ];
+    }
     default:
       return undefined;
   }

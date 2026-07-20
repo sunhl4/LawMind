@@ -2,7 +2,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildMatterReviewMatrix } from "./review-matrix.js";
+import {
+  buildMatterReviewMatrix,
+  cleanReviewExcerpt,
+  excerptForQuestion,
+  humanizeMatrixDocumentTitle,
+} from "./review-matrix.js";
 
 describe("buildMatterReviewMatrix", () => {
   it("builds rows from draft and research sources", () => {
@@ -52,5 +57,28 @@ describe("buildMatterReviewMatrix", () => {
       (c) => c.questionId === "q-risk" && c.documentId.startsWith("draft:"),
     );
     expect(riskCell?.excerpt).toMatch(/违约|赔偿/);
+    expect(riskCell?.status).toBe("suggested");
+  });
+
+  it("does not fill unmatched columns with document head", () => {
+    const caseBody = [
+      "# 案件档案：sun",
+      "## 1. 基本信息",
+      "- 案件名称：sun",
+      "- 案由：待补充",
+      "## 2. 当事人",
+      "- 甲方：待补充",
+    ].join("\n");
+    expect(excerptForQuestion(caseBody, "q-parties")).toMatch(/当事人|甲方/);
+    expect(excerptForQuestion(caseBody, "q-ip")).toBe("");
+    expect(excerptForQuestion(caseBody, "q-governing")).toBe("");
+    expect(excerptForQuestion(caseBody, "q-misc")).toBe("");
+  });
+
+  it("humanizes case file titles and strips markdown noise", () => {
+    expect(humanizeMatrixDocumentTitle("CASE.md")).toBe("案件档案");
+    expect(humanizeMatrixDocumentTitle("MATTER_STRATEGY.md")).toBe("案件策略");
+    expect(cleanReviewExcerpt("## 标题\n- **加粗**\n---\n正文")).toContain("标题");
+    expect(cleanReviewExcerpt("## 标题\n- **加粗**\n---\n正文")).not.toMatch(/#|\*\*|---/);
   });
 });

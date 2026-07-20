@@ -27,32 +27,41 @@ async function upsertCaseBasicBullet(
   key: string,
   value: string,
 ): Promise<void> {
-  await ensureCaseWorkspace(workspaceDir, matterId);
-  const filePath = caseFilePath(workspaceDir, matterId);
-  let raw = await fs.readFile(filePath, "utf8").catch(() => "");
-  const lineBody = `${key}: ${value.replace(/\n/g, " ").trim()}`;
-  const line = `- ${lineBody}`;
-  const keyPattern = new RegExp(
-    `\\n- ${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[:：][^\\n]*`,
-    "g",
-  );
-  if (keyPattern.test(raw)) {
-    raw = raw.replace(keyPattern, `\n${line}`);
-  } else if (/\n- matterId:[^\n]+/.test(raw)) {
-    raw = raw.replace(/(\n- matterId:[^\n]+)/, `$1\n${line}`);
-  } else {
-    const heading = "## 1. 基本信息";
-    const headingPattern = new RegExp(`^${heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m");
-    const match = headingPattern.exec(raw);
-    if (match && match.index >= 0) {
-      const insertStart = match.index + match[0].length;
-      raw = `${raw.slice(0, insertStart)}\n\n${line}\n${raw.slice(insertStart)}`;
+  const { withCaseMdLock } = await import("../memory/case-md-lock.js");
+  await withCaseMdLock(workspaceDir, matterId, async () => {
+    await ensureCaseWorkspace(workspaceDir, matterId);
+    const filePath = caseFilePath(workspaceDir, matterId);
+    let raw = await fs.readFile(filePath, "utf8").catch(() => "");
+    const lineBody = `${key}: ${value.replace(/\n/g, " ").trim()}`;
+    const line = `- ${lineBody}`;
+    const keyPattern = new RegExp(
+      `\\n- ${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[:：][^\\n]*`,
+      "g",
+    );
+    if (keyPattern.test(raw)) {
+      raw = raw.replace(keyPattern, `\n${line}`);
+    } else if (/\n- matterId:[^\n]+/.test(raw)) {
+      raw = raw.replace(/(\n- matterId:[^\n]+)/, `$1\n${line}`);
     } else {
-      raw = `${raw.trimEnd()}\n\n${heading}\n\n${line}\n`;
+      const heading = "## 1. 基本信息";
+      const headingPattern = new RegExp(`^${heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m");
+      const match = headingPattern.exec(raw);
+      if (match && match.index >= 0) {
+        const insertStart = match.index + match[0].length;
+        raw = `${raw.slice(0, insertStart)}\n\n${line}\n${raw.slice(insertStart)}`;
+      } else {
+        raw = `${raw.trimEnd()}\n\n${heading}\n\n${line}\n`;
+      }
     }
-  }
-  await fs.writeFile(filePath, raw, "utf8");
+    await fs.writeFile(filePath, raw, "utf8");
+  });
 }
+
+const SENSITIVITY_LABELS: Record<MatterRecord["sensitivity"], string> = {
+  normal: "普通保密",
+  high: "高度敏感",
+  restricted: "严格隔离",
+};
 
 /** Project structured matter fields into CASE.md §1 (does not touch narrative sections). */
 export async function projectMatterToCaseMd(
@@ -67,4 +76,34 @@ export async function projectMatterToCaseMd(
     "当前阶段",
     matterStatusLabel(record.status),
   );
+  await upsertCaseBasicBullet(
+    workspaceDir,
+    record.matterId,
+    "密级",
+    SENSITIVITY_LABELS[record.sensitivity] ?? record.sensitivity,
+  );
+  if (record.clientId?.trim()) {
+    await upsertCaseBasicBullet(
+      workspaceDir,
+      record.matterId,
+      "客户 / clientId",
+      record.clientId.trim(),
+    );
+  }
+}
+
+/** Upsert optional CASE §1 narrative fields used by the matter profile form. */
+export async function upsertMatterCaseProfileBullets(
+  workspaceDir: string,
+  matterId: string,
+  fields: { causeOfAction?: string; counterparty?: string },
+): Promise<void> {
+  const cause = fields.causeOfAction?.trim();
+  if (cause) {
+    await upsertCaseBasicBullet(workspaceDir, matterId, "案由", cause);
+  }
+  const counterparty = fields.counterparty?.trim();
+  if (counterparty) {
+    await upsertCaseBasicBullet(workspaceDir, matterId, "对方当事人", counterparty);
+  }
 }

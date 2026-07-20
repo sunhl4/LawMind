@@ -15,6 +15,7 @@ import type {
   MatterCreatePostRequest,
   MatterDeletePostRequest,
   MatterDisplayNamePostRequest,
+  MatterProfilePostRequest,
   MatterRolePostRequest,
   ModelsDefaultPatchRequest,
   ModelsDraftWithModelPatchRequest,
@@ -79,6 +80,22 @@ export type LawmindApiPostRoutes = {
   "/api/matters/display-name": {
     body: MatterDisplayNamePostRequest;
     response: OkResponse;
+  };
+  "/api/matters/profile": {
+    body: MatterProfilePostRequest;
+    response: OkResponse & {
+      profile?: {
+        matterId: string;
+        title: string;
+        clientId?: string;
+        sensitivity: "normal" | "high" | "restricted";
+        status: string;
+        causeOfAction?: string;
+        counterparty?: string;
+        needsEnrichment: boolean;
+      };
+      statusLine?: string;
+    };
   };
   "/api/matters/role": {
     body: MatterRolePostRequest;

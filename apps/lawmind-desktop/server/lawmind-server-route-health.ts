@@ -13,7 +13,9 @@ import {
   buildDoctorStats,
   buildMemoryTruthSourceFlags,
   buildMatterConsistencySummary,
+  buildMultitaskObservabilitySummary,
   buildP2DoctorReport,
+  buildTaskDraftConsistencySummary,
   buildWorkspaceStandardReport,
   tryReadWorkspacePackageVersion,
 } from "./lawmind-health-payload.js";
@@ -64,6 +66,8 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
   const draftWithModelActive = resolveDraftReasoningLlmConfig(lawMindRoot) !== null;
   const usageSummary = summarizeModelUsage(workspaceDir, { sinceDays: 30 });
   const matterConsistency = await buildMatterConsistencySummary(workspaceDir);
+  const taskDraftConsistency = buildTaskDraftConsistencySummary(workspaceDir);
+  const multitaskObservability = buildMultitaskObservabilitySummary(workspaceDir);
 
   sendJson(
     res,
@@ -123,6 +127,8 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
         })(),
         p2: buildP2DoctorReport(workspaceDir),
         matterConsistency,
+        taskDraftConsistency,
+        multitaskObservability,
         rateLimit: getRateLimitStats(),
         skipApiAuthWarn: isLoopbackApiAuthSkipped(),
       },

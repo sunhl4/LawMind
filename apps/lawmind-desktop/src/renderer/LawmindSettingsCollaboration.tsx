@@ -1,6 +1,5 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { lawmindDocUrl } from "./lawmind-public-urls.js";
-import { LawmindWorkflowLibrary } from "./LawmindWorkflowLibrary";
 import {
   LocalServiceDisconnectCallout,
   workflowJobStatusLabel,
@@ -30,7 +29,7 @@ type Props = {
 };
 
 /**
- * 顶栏「协作」主区：协作摘要、`GET /api/collaboration/summary` 状态、团队工作流模板与运行、近期 Job 等。
+ * 「在办 → 按流程办」嵌入区：流程选择、执行与近期结果。
  * 设置弹窗内请使用 {@link LawmindSettingsCollaborationBrief}。
  */
 export function LawmindSettingsCollaboration(props: Props): ReactNode {
@@ -62,7 +61,6 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
     recentJobs,
     recentJobsError,
     copyHint,
-    fetchRecentJobs,
     cancelBackgroundJob,
     copyActiveJobId,
     runWorkflow,
@@ -76,13 +74,6 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
     workflowAgentModelId,
   });
 
-  const selectedTemplate = useMemo(() => {
-    if (!templates?.length || !selectedTemplateId) {
-      return undefined;
-    }
-    return templates.find((t) => t.id === selectedTemplateId);
-  }, [templates, selectedTemplateId]);
-
   return (
     <div
       className={
@@ -93,7 +84,7 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
       id={workflowsOnly ? undefined : "lawmind-collaboration-hub"}
     >
       {!workflowsOnly ? (
-        <div className="lm-settings-section-title">协作与多智能体流程</div>
+        <div className="lm-settings-section-title">协作与多助手流程</div>
       ) : null}
       <div className="lm-settings-group lm-settings-surface">
         {collabSummarySettings === undefined ? (
@@ -117,7 +108,7 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
             {!workflowsOnly ? (
               <>
                 <div className="lm-settings-row">
-                  <span className="lm-settings-key">多智能体协作</span>
+                  <span className="lm-settings-key">多助手协作</span>
                   <span
                     className={
                       collabSummarySettings.collaborationEnabled
@@ -138,39 +129,32 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
                   </div>
                 ) : null}
                 <p className="lm-settings-hint">
-                  在工作区放置流程模板{" "}
-                  <code className="lm-md-code">lawmind/workflows/*.json</code>
-                  ，按步骤把任务交给不同智能体执行，必要时可在流程里衔接、互检。在「设置 → 智能体」可为各助手配置虚拟组织角色与互审对象（主办/协办等）；智能体互审不能替代律师终审。初稿与终稿的对外效力仍以您为准：请务必在顶部「审核」通过后再渲染或发出。
+                  可按固定步骤把工作交给不同助手接力，必要时在流程里衔接、互检。助手互审不能替代律师终审；对外发出前请务必在「文书台」通过。
                 </p>
+                <details className="lm-settings-hint">
+                  <summary>管理员：如何配置流程</summary>
+                  <p>
+                    在工作区放入流程模板文件（如{" "}
+                    <code className="lm-md-code">lawmind/workflows/*.json</code>
+                    ），保存后回到本页即可选用。也可在「设置 → 助手与岗位」配置各助手的岗位与互审对象。
+                  </p>
+                </details>
               </>
-            ) : null}
-            {workflowsOnly && collabSummarySettings.collaborationEnabled && apiBase ? (
-              <p className="lm-settings-hint lm-collab-workflows-lead">
-                流程模板来自工作区{" "}
-                <code className="lm-md-code">lawmind/workflows/*.json</code>
-                。与本页顶部「多任务共用模型」所选推理入口一致：<strong>下方「运行所选模板」会向服务器传入当前模型 ID</strong>
-                ，与主对话、委派打开的会话对齐；可按需与工作区内聊天交办并行。
-              </p>
             ) : null}
             {collabSummarySettings.collaborationEnabled && apiBase ? (
               <div
                 className="lm-settings-subblock lm-collab-workflow-run"
                 id={workflowsOnly ? "lawmind-collaboration-hub" : undefined}
               >
-                <div className="lm-settings-subtitle">工作流库</div>
-                <LawmindWorkflowLibrary
-                  apiBase={apiBase}
-                  matterId={matterId.trim() || undefined}
-                  onWorkflowStarted={() => void fetchRecentJobs()}
-                  compact={workflowsOnly}
-                />
-                <div className="lm-settings-subtitle">团队工作流（后台）</div>
+                <div className="lm-settings-subtitle">
+                  {workflowsOnly ? "开始执行" : "按流程执行"}
+                </div>
                 <p className="lm-settings-hint lm-collab-lead">
-                  选一模板即按序自动执行；各步可对应不同智能体；完成后可收到通知并在此查看汇总。
+                  选好要办的事，点开始即可；完成后可在下方查看结果。
                 </p>
-                {workflowModelLabel ? (
+                {workflowModelLabel && !workflowsOnly ? (
                   <p className="lm-meta lm-collab-workflow-model-label">
-                    当前工作流模型：<strong>{workflowModelLabel}</strong>
+                    当前使用模型：<strong>{workflowModelLabel}</strong>
                   </p>
                 ) : null}
                 {templatesError && (
@@ -186,20 +170,26 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
                 ) : null}
                 {templates && templates.length === 0 && !templatesError ? (
                   <div className="lm-collab-empty">
-                    <div className="lm-collab-empty-title">暂无工作流模板</div>
+                    <div className="lm-collab-empty-title">还没有可用的流程</div>
                     <p className="lm-collab-empty-body">
-                      在项目中新建目录并放入 JSON，例如：
+                      请管理员或同事配置办案流程后，再回到本页选择执行。
                     </p>
-                    <code className="lm-collab-empty-code">workspace/lawmind/workflows/my-flow.json</code>
-                    <p className="lm-collab-empty-body lm-collab-empty-tip">
-                      保存后回到本页（顶部「工作流」），列表会自动加载。
-                    </p>
+                    {!workflowsOnly ? (
+                      <details className="lm-collab-empty-body lm-collab-empty-tip">
+                        <summary>管理员配置说明</summary>
+                        <p>在工作区放入流程模板文件，例如：</p>
+                        <code className="lm-collab-empty-code">
+                          workspace/lawmind/workflows/my-flow.json
+                        </code>
+                        <p>保存后回到本页，列表会自动加载。</p>
+                      </details>
+                    ) : null}
                   </div>
                 ) : null}
                 {templates && templates.length > 0 ? (
                   <>
                     <label className="lm-field lm-field-tight">
-                      <span>模板</span>
+                      <span>要办的事</span>
                       <select
                         value={selectedTemplateId}
                         onChange={(e) => setSelectedTemplateId(e.target.value)}
@@ -207,21 +197,18 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
                         <option value="">请选择…</option>
                         {templates.map((t) => (
                           <option key={t.id} value={t.id}>
-                            {t.name}（{t.stepCount} 步）
+                            {t.name}
                           </option>
                         ))}
                       </select>
                     </label>
-                    {selectedTemplate?.description ? (
-                      <p className="lm-settings-hint lm-collab-template-desc">{selectedTemplate.description}</p>
-                    ) : null}
                     <label className="lm-field lm-field-tight">
-                      <span>案件 ID（可选）</span>
+                      <span>关联案件（可选）</span>
                       <input
                         type="text"
                         value={matterId}
                         onChange={(e) => setMatterId(e.target.value)}
-                        placeholder="与案件工作区一致，如 matter-1"
+                        placeholder="填写案件名称或编号，便于材料归入该案"
                       />
                     </label>
                     <div className="lm-settings-actions lm-collab-actions">
@@ -231,7 +218,7 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
                         disabled={runBusy || !selectedTemplateId}
                         onClick={() => void runWorkflow()}
                       >
-                        {runBusy ? "运行中…" : "运行所选模板"}
+                        {runBusy ? "执行中…" : "开始执行"}
                       </button>
                       {runBusy && activeJobId ? (
                         <button
@@ -239,10 +226,10 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
                           className="lm-btn lm-btn-ghost lm-btn-sm"
                           onClick={() => void cancelBackgroundJob()}
                         >
-                          取消后台任务
+                          取消执行
                         </button>
                       ) : null}
-                      {window.lawmindDesktop?.showNotification ? (
+                      {!workflowsOnly && window.lawmindDesktop?.showNotification ? (
                         <button
                           type="button"
                           className="lm-btn lm-btn-ghost lm-btn-sm"
@@ -255,27 +242,29 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
                     {runBusy && activeJobId ? (
                       <div className="lm-collab-job-status" role="status" aria-live="polite">
                         <div className="lm-collab-job-status-row">
-                          {activeProgress && activeProgress.total > 0 ? (
+                          {workflowsOnly ? (
+                            <span className="lm-collab-job-status-text">正在办理，请稍候…</span>
+                          ) : activeProgress && activeProgress.total > 0 ? (
                             <span className="lm-collab-job-status-text">
-                              步骤 {activeProgress.completed}/{activeProgress.total}
+                              进度 {activeProgress.completed}/{activeProgress.total} 步
                               {activeProgress.running.length > 0
-                                ? ` · 执行中 ${activeProgress.running.join(", ")}`
+                                ? ` · 正在：${activeProgress.running.join("、")}`
                                 : ""}
                             </span>
                           ) : (
-                            <span className="lm-collab-job-status-text">
-                              已启动 · <code className="lm-md-code">{activeJobId}</code>
-                            </span>
+                            <span className="lm-collab-job-status-text">已开始执行，请稍候…</span>
                           )}
-                          <button
-                            type="button"
-                            className="lm-btn lm-btn-ghost lm-btn-sm"
-                            onClick={() => void copyActiveJobId()}
-                          >
-                            复制 ID
-                          </button>
+                          {!workflowsOnly ? (
+                            <button
+                              type="button"
+                              className="lm-btn lm-btn-ghost lm-btn-sm"
+                              onClick={() => void copyActiveJobId()}
+                            >
+                              复制 ID
+                            </button>
+                          ) : null}
                         </div>
-                        {activeProgress && activeProgress.total > 0 ? (
+                        {!workflowsOnly && activeProgress && activeProgress.total > 0 ? (
                           <div
                             className="lm-collab-progress-track"
                             role="progressbar"
@@ -296,43 +285,52 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
                     ) : null}
                   </>
                 ) : null}
-                <div className="lm-settings-subtitle">近期任务</div>
-                <details className="lm-collab-details">
-                  <summary>实时更新说明</summary>
-                  <p className="lm-collab-details-body">
-                    运行中条目会在列表内尽量用实时连接刷新进度；为保证可靠，也会定期与后台对账。
-                    当前最多并行 {MAX_RECENT_JOB_SSE} 路（不含你正在跑的这条任务）。
-                  </p>
-                </details>
+                <div className="lm-settings-subtitle">
+                  {workflowsOnly ? "最近执行" : "近期任务"}
+                </div>
+                {!workflowsOnly ? (
+                  <details className="lm-collab-details">
+                    <summary>实时更新说明</summary>
+                    <p className="lm-collab-details-body">
+                      运行中条目会在列表内尽量用实时连接刷新进度；为保证可靠，也会定期与后台对账。
+                      当前最多并行 {MAX_RECENT_JOB_SSE} 路（不含你正在跑的这条任务）。
+                    </p>
+                  </details>
+                ) : null}
                 {recentJobsError ? (
                   <div className="lm-callout lm-callout-danger" role="alert">
                     <p className="lm-callout-body">{recentJobsError}</p>
                   </div>
                 ) : null}
                 {recentJobs && recentJobs.length === 0 && !recentJobsError ? (
-                  <p className="lm-settings-hint">暂无后台任务记录；运行一次工作流后将显示在此处。</p>
+                  <p className="lm-settings-hint">
+                    {workflowsOnly
+                      ? "还没有执行记录。开始执行一套流程后，进度会出现在这里。"
+                      : "暂无后台任务记录；运行一次工作流后将显示在此处。"}
+                  </p>
                 ) : null}
                 {recentJobs && recentJobs.length > 0 ? (
                   <ul className="lm-collab-recent-jobs">
-                    {recentJobs.map((r) => (
+                    {recentJobs.map((r) => {
+                      const flowName =
+                        templates?.find((t) => t.id === r.workflowId)?.name ?? r.workflowId;
+                      return (
                       <li key={r.jobId} className="lm-collab-recent-row">
                         <div className="lm-collab-recent-row-top">
-                          <span className="lm-collab-recent-workflow" title={r.workflowId}>
-                            {r.workflowId}
+                          <span className="lm-collab-recent-workflow" title={flowName}>
+                            {flowName}
                           </span>
                           <span className={workflowJobStatusPillClass(r.status)}>
                             {workflowJobStatusLabel(r.status)}
                           </span>
                         </div>
                         <div className="lm-collab-recent-row-bottom">
-                          <code className="lm-md-code lm-collab-recent-id" title={r.jobId}>
-                            {r.jobId.slice(0, 8)}…
-                          </code>
                           {r.cancelRequested &&
                           (r.status === "queued" || r.status === "running") ? (
-                            <span className="lm-collab-recent-jobs-flag">已请求取消</span>
+                            <span className="lm-collab-recent-jobs-flag">正在取消…</span>
                           ) : null}
-                          {r.progress &&
+                          {!workflowsOnly &&
+                          r.progress &&
                           r.progress.totalSteps > 0 &&
                           (r.status === "queued" || r.status === "running") ? (
                             <span className="lm-collab-recent-progress">
@@ -343,18 +341,14 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
                             {new Date(r.createdAt).toLocaleString()}
                           </time>
                         </div>
-                        {r.executionState ? (
+                        {r.gateDecisions?.[0]?.reason ? (
                           <div className="lm-collab-recent-row-bottom">
-                            <span className="lm-meta">
-                              状态：{r.executionState.phase} / {r.executionState.status}
-                            </span>
-                            {r.gateDecisions?.[0]?.reason ? (
-                              <span className="lm-meta">{r.gateDecisions[0].reason}</span>
-                            ) : null}
+                            <span className="lm-meta">{r.gateDecisions[0].reason}</span>
                           </div>
                         ) : null}
                       </li>
-                    ))}
+                      );
+                    })}
                   </ul>
                 ) : null}
                 {cancelPendingMessage ? (
@@ -369,7 +363,9 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
                 ) : null}
                 {runResult ? (
                   <div className="lm-collab-report-wrap">
-                    <div className="lm-collab-report-label">运行输出</div>
+                    <div className="lm-collab-report-label">
+                      {workflowsOnly ? "执行摘要" : "运行输出"}
+                    </div>
                     <pre className="lm-collab-workflow-report">{runResult}</pre>
                   </div>
                 ) : null}
@@ -382,8 +378,8 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
               >
                 <p className="lm-callout-body">
                   {!collabSummarySettings.collaborationEnabled
-                    ? "请先在「设置 → 智能体」中开启多助手协作，再回到本页运行团队工作流。"
-                    : "请先完成本地 API 连接。"}
+                    ? "请先在「设置 → 助手与岗位」中开启多助手协作，再回到本页执行团队流程。"
+                    : "本地服务尚未就绪，请先完成连接后再执行流程。"}
                 </p>
               </div>
             ) : null}
@@ -399,22 +395,7 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
                 </a>
                 。
               </p>
-            ) : (
-              <details className="lm-collab-desk-integrations">
-                <summary>集成与外部系统边界</summary>
-                <p className="lm-settings-hint lm-collab-desk-integrations-body">
-                  详见{" "}
-                  <a
-                    href={lawmindDocUrl("LAWMIND-INTEGRATIONS")}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                  >
-                    官方说明
-                  </a>
-                  。
-                </p>
-              </details>
-            )}
+            ) : null}
           </>
         )}
       </div>
@@ -430,7 +411,7 @@ type BriefProps = {
 };
 
 /**
- * 设置弹窗内的协作摘要与入口（完整工作流 UI 在顶部「协作」页）。
+ * 设置弹窗内的协作摘要与入口（完整 UI 在顶部「在办」）。
  */
 export function LawmindSettingsCollaborationBrief(props: BriefProps): ReactNode {
   const {
@@ -442,7 +423,7 @@ export function LawmindSettingsCollaborationBrief(props: BriefProps): ReactNode 
 
   return (
     <div className="lm-settings-section">
-      <div className="lm-settings-section-title">协作与多智能体流程</div>
+      <div className="lm-settings-section-title">多助手交办</div>
       <div className="lm-settings-group lm-settings-surface">
         {collabSummarySettings === undefined ? (
           <div className="lm-settings-loading" aria-busy="true" aria-label="加载协作状态">
@@ -457,7 +438,7 @@ export function LawmindSettingsCollaborationBrief(props: BriefProps): ReactNode 
         ) : (
           <>
             <div className="lm-settings-row">
-              <span className="lm-settings-key">多智能体协作</span>
+              <span className="lm-settings-key">多助手协作</span>
               <span
                 className={
                   collabSummarySettings.collaborationEnabled
@@ -478,8 +459,7 @@ export function LawmindSettingsCollaborationBrief(props: BriefProps): ReactNode 
               </div>
             ) : null}
             <p className="lm-settings-hint">
-              本页仅显示协作开关与委派摘要。<strong>团队工作流、运行模板与近期后台任务</strong>
-              在顶部导航「<strong>工作流</strong>」页；岗位与互审关系在「智能体」中配置。
+              本页仅显示协作开关与委派摘要。进度与「按流程办」在顶部「在办」；新任务请在「对话」下达。岗位与互审关系在「助手与岗位」中配置。
             </p>
             <div className="lm-settings-actions">
               <button
@@ -487,7 +467,7 @@ export function LawmindSettingsCollaborationBrief(props: BriefProps): ReactNode 
                 className="lm-btn lm-btn-accent lm-btn-sm"
                 onClick={() => onOpenCollaborationPage()}
               >
-                打开工作流
+                在在办中打开按流程办
               </button>
             </div>
             <p className="lm-settings-hint">

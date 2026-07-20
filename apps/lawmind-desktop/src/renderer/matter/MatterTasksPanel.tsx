@@ -85,6 +85,12 @@ export function MatterTasksPanel(props: Props): ReactNode {
         apiBase={apiBase}
         matterId={matterId}
         onOpenSession={onOpenChatSession}
+        onOpenReview={
+          onOpenReview
+            ? (taskId, mid) =>
+                onOpenReview({ taskId, matterId: mid ?? matterId ?? undefined })
+            : undefined
+        }
         compact
       />
       {matterId ? <MatterRoleBoard matterId={matterId} rows={roleRows} /> : null}

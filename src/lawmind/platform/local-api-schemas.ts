@@ -115,6 +115,13 @@ export const chatPostRequestSchema = z.object({
   linkedTaskId: z.string().trim().optional(),
   meetingMode: z.boolean().optional(),
   meetingAgenda: z.string().optional(),
+  /**
+   * 会议室发言角色（仅 meetingMode）：
+   * - lawyer：律师发言（默认）→ 时间线记「您」
+   * - chair：主持人催办智能体互相对话 → 时间线记「主持人」系统条
+   * - conclude：请指定助手综合结论与工作计划 → 时间线记「主持人」系统条
+   */
+  meetingTurnKind: z.enum(["lawyer", "chair", "conclude"]).optional(),
   sessionTitleHint: z.string().optional(),
   permissionMode: z.string().optional(),
 });
@@ -131,6 +138,10 @@ export type MatterRolePostRequest = z.infer<typeof matterRolePostSchema>;
 export const matterCreatePostSchema = z.object({
   matterId: trimmedNonEmptyString,
   displayName: z.string().trim().optional(),
+  clientId: z.string().trim().optional(),
+  sensitivity: z.enum(["normal", "high", "restricted"]).optional(),
+  engagementAccepted: z.boolean().optional(),
+  conflictCheckConfirmed: z.boolean().optional(),
 });
 
 export type MatterCreatePostRequest = z.infer<typeof matterCreatePostSchema>;
@@ -141,6 +152,31 @@ export const matterDisplayNamePostSchema = z.object({
 });
 
 export type MatterDisplayNamePostRequest = z.infer<typeof matterDisplayNamePostSchema>;
+
+/** 案件工作台事后补全档案（建案时不强制填写）。 */
+export const matterProfilePostSchema = z.object({
+  matterId: trimmedNonEmptyString,
+  title: z.string().trim().min(1).max(200).optional(),
+  clientId: z.string().trim().max(128).optional(),
+  sensitivity: z.enum(["normal", "high", "restricted"]).optional(),
+  status: z
+    .enum([
+      "intake",
+      "active",
+      "waiting_on_client",
+      "waiting_on_firm",
+      "under_review",
+      "delivered",
+      "closed",
+    ])
+    .optional(),
+  causeOfAction: z.string().trim().max(200).optional(),
+  counterparty: z.string().trim().max(200).optional(),
+  conflictCheckConfirmed: z.boolean().optional(),
+  engagementAccepted: z.boolean().optional(),
+});
+
+export type MatterProfilePostRequest = z.infer<typeof matterProfilePostSchema>;
 
 export const matterDeletePostSchema = z.object({
   matterId: trimmedNonEmptyString,

@@ -9,7 +9,7 @@ test.describe("LawMind settings page", () => {
   test("opens settings, navigates via search, shows section, returns", async ({ page }) => {
     await gotoShell(page);
 
-    await page.getByRole("main").getByRole("button", { name: "设置" }).click({ timeout: 60_000 });
+    await page.getByRole("complementary").getByRole("button", { name: "设置" }).click({ timeout: 60_000 });
     await expect(page.getByRole("region", { name: "设置" })).toBeVisible();
     await expect(page.locator(".lm-main-header-settings")).toBeVisible();
     await expect(page.getByRole("heading", { name: "开始使用", level: 2 })).toBeVisible();
@@ -29,15 +29,16 @@ test.describe("LawMind settings page", () => {
       timeout: 15_000,
     });
 
-    await page.getByRole("button", { name: "关闭设置并返回" }).click();
+    await page.getByRole("button", { name: "关闭设置并返回" }).first().click();
     await expect(page.getByRole("region", { name: "设置" })).toHaveCount(0, { timeout: 15_000 });
-    await expect(page.getByRole("main").getByRole("button", { name: "设置" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "设置" })).toHaveCount(1);
+    await expect(page.getByRole("complementary").getByRole("button", { name: "设置" })).toBeVisible();
 
-    await page.getByRole("main").getByRole("button", { name: "设置" }).click({ timeout: 60_000 });
+    await page.getByRole("complementary").getByRole("button", { name: "设置" }).click({ timeout: 60_000 });
     await expect(page.getByRole("region", { name: "设置" })).toBeVisible();
 
     await page.keyboard.press("Escape");
     await expect(page.getByRole("region", { name: "设置" })).toHaveCount(0, { timeout: 15_000 });
-    await expect(page.getByRole("main").getByRole("button", { name: "设置" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "设置" })).toHaveCount(1);
   });
 });

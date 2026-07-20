@@ -6,6 +6,7 @@ export type LawmindFileWorkbenchHostProps = {
   showSidebarWorkbenchFiles: boolean;
   workspaceDir: string;
   projectDir: string | null;
+  onPickProject?: () => void | Promise<void>;
   fileExplorerHost: HTMLDivElement | null;
   fileEditorHost: HTMLDivElement | null;
   onExplorerPortaled?: (portaled: boolean) => void;
@@ -23,6 +24,7 @@ function LawmindFileWorkbenchHostImpl({
   showSidebarWorkbenchFiles,
   workspaceDir,
   projectDir,
+  onPickProject,
   fileExplorerHost,
   fileEditorHost,
   onExplorerPortaled,
@@ -49,6 +51,7 @@ function LawmindFileWorkbenchHostImpl({
     <FileWorkbench
       workspaceDir={workspaceDir}
       projectDir={projectDir}
+      onPickProject={onPickProject}
       canUseFilesystemBridge
       onAddToChatContext={onAddToChatContext}
       portalHosts={{

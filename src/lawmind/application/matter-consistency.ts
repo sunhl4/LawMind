@@ -1,5 +1,8 @@
 /**
  * Matter JSON ↔ CASE.md consistency checks (short-term dual-truth guard).
+ *
+ * JSON (`matter.json`) is the truth source; CASE.md §1 is the projection.
+ * Narrative CASE sections (争点/进度等) are not mirrored in JSON — not treated as drift.
  */
 
 import fs from "node:fs/promises";
@@ -8,13 +11,26 @@ import { matterJsonPath } from "../adapters/matter-storage/paths.js";
 import { listMatterIds } from "../cases/index.js";
 import { parseMatterDisplayNameFromCase } from "../cases/matter-label.js";
 import { caseFilePath } from "../memory/index.js";
-import { projectMatterToCaseMd } from "./matter-projection.js";
+import { matterStatusLabel, projectMatterToCaseMd } from "./matter-projection.js";
+
+export type MatterConsistencyIssueCode =
+  | "missing_case_md"
+  | "missing_matter_json"
+  | "both_missing"
+  | "title_drift"
+  | "status_drift";
 
 export type MatterConsistencyIssue = {
   matterId: string;
-  code: "missing_case_md" | "missing_matter_json" | "both_missing" | "title_drift";
+  code: MatterConsistencyIssueCode;
   message: string;
 };
+
+function parseCaseStatusLabel(caseRaw: string): string | undefined {
+  const m = /(?:^|\n)-\s*当前阶段[:：]\s*([^\n]+)/.exec(caseRaw);
+  const v = m?.[1]?.trim();
+  return v || undefined;
+}
 
 export async function checkMatterConsistency(
   workspaceDir: string,
@@ -64,12 +80,24 @@ export async function checkMatterConsistency(
             message: `CASE 展示名「${projectedTitle}」与 matter.json.title「${record.title}」不一致`,
           });
         }
+        const caseStatus = parseCaseStatusLabel(caseRaw);
+        const expectedStatus = matterStatusLabel(record.status);
+        if (caseStatus && caseStatus !== expectedStatus) {
+          issues.push({
+            matterId,
+            code: "status_drift",
+            message: `CASE「当前阶段：${caseStatus}」与 matter.json.status「${expectedStatus}」不一致`,
+          });
+        }
       }
     }
   }
 
   return issues;
 }
+
+/** Alias used by ops / docs — same as checkMatterConsistency. */
+export const checkMatterCaseConsistency = checkMatterConsistency;
 
 export async function repairMatterProjections(workspaceDir: string): Promise<number> {
   let repaired = 0;

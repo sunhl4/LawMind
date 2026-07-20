@@ -93,7 +93,7 @@ export function HelpPanel(props: Props): ReactNode {
       <div className="lm-wizard lm-help-panel">
         <h2>帮助</h2>
         <p className="lm-meta">
-          LawMind 是<strong>本机律师工作台</strong>：多助手分工、材料留在您电脑上。对外文书请在<strong>审核</strong>中把关并通过验收门禁后再交付。下方文档与在线《使用手册》一致；需 **PDF / 离线** 时打开手册第 16 节按步骤导出。
+          LawMind 是<strong>本机律师工作台</strong>：多助手分工、材料留在您电脑上。对外文书请在<strong>文书台</strong>中把关并通过验收门禁后再交付。下方文档与在线《使用手册》一致；需 **PDF / 离线** 时打开手册第 16 节按步骤导出。
         </p>
         <h3 className="lm-help-subhead">从这里开始</h3>
         {linkList(DOCS_START_HERE, false)}

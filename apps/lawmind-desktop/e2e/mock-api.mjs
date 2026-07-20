@@ -100,6 +100,31 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (path === "/api/policy/edition" && req.method === "GET") {
+    // Firm edition keeps multi-assistant features on for e2e (委派 / 按流程办 under「在办」).
+    json(res, 200, {
+      ok: true,
+      edition: "firm",
+      label: "律所版",
+      source: "default",
+      features: {
+        acceptanceGateStrict: true,
+        citationGateStrict: true,
+        crossMatterRoadmap: true,
+        crossMatterAcceptanceDashboard: true,
+        collaborationSummary: true,
+        complianceAuditExport: true,
+        auditIntegrityExport: true,
+        securitySbomPanel: false,
+        qualityDashboardJsonExport: true,
+        customDeliverableSpec: true,
+        acceptancePackExport: true,
+        strictDangerousToolApproval: true,
+      },
+    });
+    return;
+  }
+
   if (path === "/api/tasks" && req.method === "GET") {
     json(res, 200, { ok: true, tasks: [] });
     return;
@@ -130,6 +155,37 @@ const server = http.createServer(async (req, res) => {
       ok: true,
       collaborationEnabled: true,
       delegationCount: 0,
+    });
+    return;
+  }
+
+  if (path === "/api/collaboration/workflow-templates" && req.method === "GET") {
+    json(res, 200, {
+      ok: true,
+      templates: [
+        {
+          id: "contract-review",
+          name: "合同审查意见",
+          description: "生成带章节结构的合同审查意见",
+          stepCount: 1,
+          practiceArea: "commercial",
+          deliverableType: "contract.review",
+          riskLevel: "medium",
+          starterPrompt: "请审查本案主合同，输出分章节审查意见与风险等级。",
+          kind: "matter",
+        },
+        {
+          id: "training-ppt",
+          name: "培训 PPT",
+          description: "整理成培训课件",
+          stepCount: 1,
+          practiceArea: "client",
+          deliverableType: "ppt.training",
+          riskLevel: "low",
+          starterPrompt: "请帮我做一份培训 PPT。",
+          kind: "office",
+        },
+      ],
     });
     return;
   }
@@ -420,11 +476,22 @@ const server = http.createServer(async (req, res) => {
   if (path === "/api/action-summary" && req.method === "GET") {
     json(res, 200, {
       ok: true,
-      total: 1,
+      total: 2,
+      requiresDecisionTotal: 2,
       pendingApprovals: 0,
       openQueueItems: 0,
       activeJobs: 0,
       chatRequiresActionCount: 1,
+      pendingReviewCount: 1,
+      pendingReviewDrafts: [
+        {
+          taskId: "task-1",
+          matterId: "matter-1",
+          title: "测试法律意见书",
+          reviewStatus: "pending",
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
     });
     return;
   }
@@ -479,6 +546,133 @@ const server = http.createServer(async (req, res) => {
       health: healthPayload,
       assistants: [assistant],
       presets: [],
+    });
+    return;
+  }
+
+  if (path === "/api/agent-fleet" && req.method === "GET") {
+    json(res, 200, {
+      ok: true,
+      runs: [
+        {
+          id: "run-pending-review-1",
+          kind: "pending_review",
+          status: "awaiting_review",
+          title: "E2E 待签批草稿",
+          subtitle: "合同审查意见",
+          matterId: "e2e-matter-1",
+          assistantId: "default",
+          assigneeLabel: "默认助手",
+          sessionId,
+          taskId: "e2e-draft-1",
+          updatedAt: now,
+          createdAt: now,
+          priority: 10,
+        },
+        {
+          id: "run-chat-1",
+          kind: "chat",
+          status: "awaiting_approval",
+          title: "E2E 待批准对话",
+          matterId: "e2e-matter-1",
+          assistantId: "default",
+          sessionId,
+          actionId: "ra-tool-1",
+          toolName: "execute_workflow",
+          updatedAt: now,
+          createdAt: now,
+          priority: 20,
+        },
+      ],
+      specialization: {
+        default: {
+          assistantId: "default",
+          roleId: "general_default",
+          tasksReviewed: 3,
+          firstPassApprovals: 2,
+          materialRewrites: 1,
+          firstPassRate: 0.67,
+          lastUpdatedAt: now,
+        },
+      },
+      counts: {
+        total: 2,
+        active: 2,
+        awaitingAction: 2,
+        byKind: {
+          chat: 1,
+          delegation: 0,
+          workflow_job: 0,
+          queue_item: 0,
+          tool_approval: 0,
+          matter_approval: 0,
+          pending_review: 1,
+        },
+      },
+    });
+    return;
+  }
+
+  if (path === "/api/agent-presets" && req.method === "GET") {
+    json(res, 200, {
+      ok: true,
+      presets: [
+        {
+          id: "contract-reviewer",
+          title: "合同审查",
+          description: "E2E mock preset for contract review",
+          roleId: "contract_reviewer",
+          deliverableType: "contract.review",
+          riskLevel: "high",
+          starterPrompt: "请审查本合同并给出意见。",
+          sourcePath: "lawmind/agents/contract-reviewer.md",
+        },
+      ],
+    });
+    return;
+  }
+
+  const fleetTranscriptMatch = /^\/api\/sessions\/([^/]+)\/fleet-transcript$/.exec(path);
+  if (fleetTranscriptMatch && req.method === "GET") {
+    json(res, 200, {
+      ok: true,
+      sessionId: fleetTranscriptMatch[1],
+      title: "E2E fleet transcript",
+      matterId: "e2e-matter-1",
+      assistantId: "default",
+      updatedAt: now,
+      messages: [
+        { role: "user", content: "请审查合同" },
+        { role: "assistant", content: "草稿已就绪，请签批。" },
+      ],
+      pendingRequiresAction: e2eRequiresAction,
+    });
+    return;
+  }
+
+  const taskMatch = /^\/api\/tasks\/([^/]+)$/.exec(path);
+  if (taskMatch && req.method === "GET") {
+    json(res, 200, {
+      ok: true,
+      task: {
+        taskId: taskMatch[1],
+        title: "E2E 交办任务",
+        status: "drafted",
+        statusLabel: "已出稿待审",
+        matterId: "e2e-matter-1",
+        riskLevel: "high",
+        deliverableType: "contract.review",
+        audience: "client",
+        instruction: "审查供应商协议",
+        reviewStatus: "pending",
+        executionPlan: [
+          { id: "s1", label: "检索", status: "done" },
+          { id: "s2", label: "起草", status: "done" },
+          { id: "s3", label: "签批", status: "pending" },
+        ],
+        createdAt: now,
+        updatedAt: now,
+      },
     });
     return;
   }

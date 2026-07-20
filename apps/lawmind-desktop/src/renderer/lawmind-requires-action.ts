@@ -10,6 +10,7 @@ import {
 } from "../../../../src/lawmind/platform/requires-action.ts";
 
 export { formatClarificationResumeMessage };
+import { isValidMatterId } from "../../../../src/lawmind/cases/matter-id.ts";
 import { apiGetJson } from "./api-client";
 import type { ApprovalResolvePostRequest, ChatResumeRequest } from "./lawmind-api-request-types.ts";
 import { apiPost } from "./lawmind-api-routes.ts";
@@ -46,6 +47,10 @@ export type ActionSummaryPayload = {
   pendingApprovals?: number;
   openQueueItems?: number;
   activeJobs?: number;
+  /** Items that require a lawyer decision now (excludes merely-running jobs). */
+  requiresDecisionTotal?: number;
+  pendingReviewCount?: number;
+  pendingAutomationCount?: number;
   chatRequiresActionCount?: number;
   pendingToolApprovals?: number;
   toolApprovals?: Array<{
@@ -58,13 +63,41 @@ export type ActionSummaryPayload = {
     toolArgs?: Record<string, unknown>;
     createdAt: string;
   }>;
+  /** Workspace-wide pending chat interrupts (clarification / tool approval), not only active session. */
+  chatRequiresActions?: Array<{
+    sessionId: string;
+    title: string;
+    matterId?: string;
+    assistantId?: string;
+    actions: LawMindRequiresAction[];
+  }>;
+  pendingReviewDrafts?: Array<{
+    taskId: string;
+    matterId?: string;
+    title: string;
+    reviewStatus: "pending" | "modified";
+    createdAt: string;
+  }>;
+  automationInbox?: Array<{
+    id: string;
+    automationId: string;
+    matterId: string;
+    title: string;
+    summary: string;
+    status: string;
+    createdAt: string;
+    draftTaskId?: string;
+    jobId?: string;
+    pendingSend?: { to: string; subject: string; body: string };
+  }>;
 };
 
 export async function loadActionSummary(
   apiBase: string,
   matterId?: string,
 ): Promise<ActionSummaryPayload> {
-  const q = matterId?.trim() ? `?matterId=${encodeURIComponent(matterId.trim())}` : "";
+  const t = matterId?.trim() ?? "";
+  const q = t && isValidMatterId(t) ? `?matterId=${encodeURIComponent(t)}` : "";
   return apiGetJson<ActionSummaryPayload>(apiBase, `/api/action-summary${q}`);
 }
 

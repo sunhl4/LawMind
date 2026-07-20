@@ -70,6 +70,48 @@ describe("lawmind-server-route-records", () => {
     expect(fs.existsSync(path.join(ws, "sessions", `${session.sessionId}.json`))).toBe(false);
   });
 
+  it("POST /api/sessions/delete is idempotent when session is already gone", async () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-rec-del-idem-"));
+    let status = 0;
+    let raw = "";
+    const res = {
+      writeHead(s: number) {
+        status = s;
+      },
+      end(b: string) {
+        raw = b;
+      },
+    } as unknown as http.ServerResponse;
+    const { PassThrough } = await import("node:stream");
+    const stream = new PassThrough();
+    const req = stream as unknown as http.IncomingMessage;
+    req.method = "POST";
+    const missingId = "00000000-0000-4000-8000-000000000099";
+    const body = JSON.stringify({ sessionId: missingId, assistantId: "default" });
+    const p = handleRecordRoutes({
+      ctx: {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(ws, ".env"),
+        policy: { loaded: false },
+      } as LawmindDispatchContext,
+      req,
+      res,
+      url: new URL("http://127.0.0.1/api/sessions/delete"),
+      pathname: "/api/sessions/delete",
+      c: {},
+    });
+    stream.end(body, "utf8");
+    const handled = await p;
+    expect(handled).toBe(true);
+    expect(status).toBe(200);
+    expect(JSON.parse(raw)).toEqual({
+      ok: true,
+      sessionId: missingId,
+      alreadyDeleted: true,
+    });
+  });
+
   it("DELETE /api/sessions/:id removes session files", async () => {
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-rec-del-"));
     const session = createSession({

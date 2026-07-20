@@ -231,7 +231,7 @@ export const updateDraft: AgentTool = {
         description: "正文章节数组；每项为 { heading: string, body: string, citations?: string[] }",
       },
     },
-    requiresApproval: true,
+    // Draft revision during chat should not interrupt the lawyer; final delivery stays on 文书台.
     riskLevel: "medium",
   },
   async execute(params, ctx) {

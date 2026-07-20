@@ -7,7 +7,6 @@ import type { ArtifactDraft, MatterOverview, MatterSummary, TaskRecord } from ".
 import type { ApprovalRequest, WorkQueueItem } from "../../../../../src/lawmind/core/contracts.ts";
 import type { DraftCitationIntegrityView } from "../../../../../src/lawmind/drafts/citation-integrity.ts";
 import { ellipsisText, internalIdsTitle } from "../display-ids";
-import { MatterTeamMeetingPanel } from "../MatterTeamMeetingPanel";
 import type { HistoryItem, TaskRow as ShellTaskRow } from "../lawmind-app-data";
 import { MatterTasksPanel } from "./MatterTasksPanel";
 import { MatterReviewMatrixPanel } from "./MatterReviewMatrixPanel";
@@ -52,10 +51,19 @@ export type MatterWorkbenchMainPanelsProps = {
   projectDir?: string | null;
   panelTab: MatterPanelTab;
   onSelectPanelTab: (tab: MatterPanelTab) => void;
+  /** Jump to top-level「会议室」with this matter scoped. */
+  onOpenTopLevelMeeting?: (matterId: string) => void;
+  onUseInChat?: (matterId: string) => void;
+  onOpenNeedsDecisionDesk?: () => void;
   showShellOps: boolean;
   detailLoading: boolean;
   detailError: string | null;
   summary: MatterSummary | null;
+  profile: import("./MatterProfileCard").MatterProfilePayload | null;
+  onProfileSaved?: (
+    profile: import("./MatterProfileCard").MatterProfilePayload,
+    statusLine?: string,
+  ) => void;
   selectedOverview: MatterOverview | null;
   showWorkspaceAcceptanceDashboard: boolean;
   workspaceAcceptance: MatterWorkspaceAcceptance | null;
@@ -184,14 +192,17 @@ export function MatterWorkbenchMainPanels(props: MatterWorkbenchMainPanelsProps)
   const {
     apiBase,
     matterId,
-    assistantId,
-    projectDir,
     panelTab,
     onSelectPanelTab,
+    onOpenTopLevelMeeting,
+    onUseInChat,
+    onOpenNeedsDecisionDesk,
     showShellOps,
     detailLoading,
     detailError,
     summary,
+    profile,
+    onProfileSaved,
     selectedOverview,
     showWorkspaceAcceptanceDashboard,
     workspaceAcceptance,
@@ -375,6 +386,8 @@ export function MatterWorkbenchMainPanels(props: MatterWorkbenchMainPanelsProps)
           apiBase={apiBase}
           matterId={matterId}
           summary={summary}
+          profile={profile}
+          onProfileSaved={onProfileSaved}
           selectedOverview={selectedOverview}
           showWorkspaceAcceptanceDashboard={showWorkspaceAcceptanceDashboard}
           workspaceAcceptance={workspaceAcceptance}
@@ -384,6 +397,13 @@ export function MatterWorkbenchMainPanels(props: MatterWorkbenchMainPanelsProps)
           reviewSummaryCards={reviewSummaryCards}
           onOpenReview={onOpenReview}
           openReviewFromMatter={openReviewFromMatter}
+          onOpenMeeting={
+            matterId && onOpenTopLevelMeeting
+              ? () => onOpenTopLevelMeeting(matterId)
+              : undefined
+          }
+          onUseInChat={onUseInChat}
+          onOpenNeedsDecisionDesk={onOpenNeedsDecisionDesk}
           opsFocus={opsFocus}
           setOpsFocus={setOpsFocus}
           opsSort={opsSort}
@@ -498,20 +518,6 @@ export function MatterWorkbenchMainPanels(props: MatterWorkbenchMainPanelsProps)
           openReviewFromMatter={openReviewFromMatter}
         />
       )}
-
-      {panelTab === "meeting" && matterId ? (
-        <div className="lm-workbench-panel">
-          <section className="lm-matter-cockpit-card lm-matter-meeting-card">
-            <h3>与助手讨论本案</h3>
-            <MatterTeamMeetingPanel
-              apiBase={apiBase}
-              matterId={matterId}
-              shellAssistantId={assistantId?.trim() ? assistantId : "default"}
-              projectDir={projectDir}
-            />
-          </section>
-        </div>
-      ) : null}
 
       {showShellOps && panelTab === "ledger" && (
         <MatterShellRecordsPanel

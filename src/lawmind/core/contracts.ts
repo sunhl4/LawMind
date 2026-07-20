@@ -72,6 +72,12 @@ export type Deliverable = {
   templateId?: string;
   currentDraftTaskId?: string;
   currentReviewStatus?: ReviewStatus;
+  /** Human responsibility chain; optional for legacy records. */
+  ownerLawyerId?: string;
+  reviewerId?: string;
+  approvedBy?: string;
+  deliveredBy?: string;
+  deliveredAt?: string;
   blockingReasons: string[];
   createdAt: string;
   updatedAt: string;
@@ -189,6 +195,8 @@ export function buildDeliverableFromDraft(
     templateId: draft.templateId,
     currentDraftTaskId: draft.taskId,
     currentReviewStatus: draft.reviewStatus,
+    reviewerId: draft.reviewedBy,
+    approvedBy: draft.reviewStatus === "approved" ? draft.reviewedBy : undefined,
     blockingReasons,
     createdAt,
     updatedAt,

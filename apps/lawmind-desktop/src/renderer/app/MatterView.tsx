@@ -18,6 +18,8 @@ export type MatterViewProps = {
   onMatterCreated: (matterId: string) => void;
   onUseInChat: (matterId: string) => void;
   onOpenWorkflowLibrary: () => void;
+  onOpenTopLevelMeeting?: (matterId: string) => void;
+  onOpenNeedsDecisionDesk?: () => void;
   onOpenChatSession: (sessionId: string, matterId?: string) => void;
   onOpenReview: (target: {
     taskId: string;
@@ -52,6 +54,8 @@ function MatterViewImpl(props: MatterViewProps) {
         projectDir={props.projectDir}
         onUseInChat={props.onUseInChat}
         onOpenWorkflowLibrary={props.onOpenWorkflowLibrary}
+        onOpenTopLevelMeeting={props.onOpenTopLevelMeeting}
+        onOpenNeedsDecisionDesk={props.onOpenNeedsDecisionDesk}
         onOpenChatSession={props.onOpenChatSession}
         onOpenReview={props.onOpenReview}
       />

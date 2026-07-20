@@ -141,19 +141,20 @@ AcceptanceReport { ready, checks, placeholderCount }
 
 ### 6.1 三档对照表（与 `EDITION_FEATURES` 一致）
 
-| 特性                          | Solo | Firm | Private Deploy |
-| ----------------------------- | ---- | ---- | -------------- |
-| 内置 5 类 spec                | ✅   | ✅   | ✅             |
-| 自定义 spec（事务所私有合同） | ⬜   | ✅   | ✅             |
-| 验收门禁 strict 模式          | ⬜   | ✅   | ✅             |
-| 跨案件验收质量看板            | ⬜   | ✅   | ✅             |
-| 验收交付包导出（per-draft）   | ⬜   | ✅   | ✅             |
-| 合规审计导出                  | ⬜   | ⬜   | ✅             |
-| Quality dashboard JSON        | ⬜   | ✅   | ✅             |
-| 协作汇总                      | ⬜   | ✅   | ✅             |
-| Security SBOM panel           | ⬜   | ⬜   | ✅             |
+| 特性                            | Solo | Firm | Private Deploy |
+| ------------------------------- | ---- | ---- | -------------- |
+| 内置 5 类 spec                  | ✅   | ✅   | ✅             |
+| 自定义 spec（事务所私有合同）   | ⬜   | ✅   | ✅             |
+| 验收门禁 strict 模式            | ⬜   | ✅   | ✅             |
+| 引用完整性硬门禁（缺源/未锚定） | ⬜   | ✅   | ✅             |
+| 跨案件验收质量看板              | ⬜   | ✅   | ✅             |
+| 验收交付包导出（per-draft）     | ⬜   | ✅   | ✅             |
+| 合规审计导出                    | ⬜   | ⬜   | ✅             |
+| Quality dashboard JSON          | ⬜   | ✅   | ✅             |
+| 协作汇总                        | ⬜   | ✅   | ✅             |
+| Security SBOM panel             | ⬜   | ⬜   | ✅             |
 
-> 「跨案件验收质量看板」对应 `EDITION_FEATURES.crossMatterAcceptanceDashboard`。真实开关定义见 `src/lawmind/policy/edition.ts` 中的 `EDITION_FEATURES`。
+> 「跨案件验收质量看板」对应 `EDITION_FEATURES.crossMatterAcceptanceDashboard`；引用硬门禁对应 `citationGateStrict`（有 research 快照时缺源 ID 或长段未锚定禁止 render）。真实开关定义见 `src/lawmind/policy/edition.ts` 中的 `EDITION_FEATURES`。
 > 桌面端通过 `useEdition()` 钩子读取后做面板显隐。
 
 ### 6.2 自定义 DeliverableSpec — 事务所如何添加私有合同

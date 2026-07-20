@@ -75,6 +75,32 @@ describe("dangerous-tool-policy", () => {
     ).toBe(true);
   });
 
+  it("mid-work draft tools do not require approval by default", () => {
+    for (const toolName of ["write_document", "update_draft"] as const) {
+      const definition: ToolDefinition = {
+        ...defApproved,
+        name: toolName,
+        requiresApproval: false,
+      };
+      expect(
+        toolRequiresExplicitApproval({
+          toolName,
+          definition,
+          allowDangerousToolsWithoutApproval: false,
+          strictDangerousToolApproval: false,
+        }),
+      ).toBe(false);
+      expect(
+        toolRequiresExplicitApproval({
+          toolName,
+          definition,
+          allowDangerousToolsWithoutApproval: false,
+          strictDangerousToolApproval: true,
+        }),
+      ).toBe(false);
+    }
+  });
+
   it("strict: execute_workflow needs explicit approval without requiresApproval on definition", () => {
     const defExec: ToolDefinition = {
       name: "execute_workflow",

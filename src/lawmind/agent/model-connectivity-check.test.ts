@@ -5,7 +5,7 @@ import {
 } from "./model-connectivity-check.js";
 
 const IDENTITY = {
-  catalogLabel: "API 向导 · qwen3.6-plus",
+  catalogLabel: "主模型 · qwen3.6-plus",
   providerLabel: "OpenAI 兼容 API",
   upstreamModel: "qwen3.6-plus",
   catalogId: "env:current",

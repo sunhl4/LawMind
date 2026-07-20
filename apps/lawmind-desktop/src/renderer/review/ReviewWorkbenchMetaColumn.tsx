@@ -1,6 +1,9 @@
 import type { CSSProperties } from "react";
 import type { ArtifactDraft } from "../../../../../src/lawmind/types.ts";
-import type { AcceptanceReport } from "../../../../../src/lawmind/deliverables/index.ts";
+import type {
+  AcceptanceReport,
+  ReasoningReport,
+} from "../../../../../src/lawmind/deliverables/index.ts";
 import type { DraftCitationIntegrityView } from "../../../../../src/lawmind/drafts/citation-integrity.ts";
 import type { GateDecision, TaskExecutionState } from "../../../../../src/lawmind/platform/contracts.ts";
 import type { MemorySourceLayer } from "../../../../../src/lawmind/memory/index.ts";
@@ -12,6 +15,7 @@ import {
 import { ALL_REVIEW_LABELS } from "../../../../../src/lawmind/review-labels.ts";
 import { LawmindAcceptanceGate } from "../LawmindAcceptanceGate";
 import { LawmindCitationBanner } from "../LawmindCitationBanner";
+import { LawmindReasoningCollapsible } from "../LawmindReasoningCollapsible";
 import { LawmindReviewDeliveryBar } from "../LawmindReviewDeliveryBar";
 import { LawmindReviewSelfCheckSummary } from "../LawmindReviewSelfCheckSummary";
 import { LawmindMemorySourcesPanel } from "../LawmindMemorySourcesPanel";
@@ -26,7 +30,12 @@ export type ReviewWorkbenchMetaColumnProps = {
   detail: ArtifactDraft;
   selectedTaskId: string;
   acceptance: AcceptanceReport | null;
+  reasoningReport?: ReasoningReport | null;
+  /** Serialized LegalReasoningGraph markdown (read-only contention board). */
+  reasoningMarkdown?: string | null;
   citationIntegrity: DraftCitationIntegrityView | null;
+  /** Firm+ hard-blocks export on citation issues; Solo advisory. */
+  citationGateStrict?: boolean;
   gateDecisions: GateDecision[];
   executionState: TaskExecutionState | null;
   memorySources: MemorySourceLayer[] | null;
@@ -56,6 +65,8 @@ export type ReviewWorkbenchMetaColumnProps = {
   onExportWord: (opts?: { strict?: boolean }) => void;
   onExportTrackedWord: () => void;
   onShowArtifact?: (outputPath: string) => void;
+  /** Open exported docx with system Word/WPS when Electron bridge is available. */
+  onOpenWithSystem?: (outputPath: string) => void | Promise<void>;
   packExportEnabled: boolean;
   onDownloadPack: () => void;
   packBusy: boolean;
@@ -77,7 +88,10 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
     detail,
     selectedTaskId,
     acceptance,
+    reasoningReport = null,
+    reasoningMarkdown = null,
     citationIntegrity,
+    citationGateStrict,
     gateDecisions,
     executionState,
     memorySources,
@@ -107,6 +121,7 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
     onExportWord,
     onExportTrackedWord,
     onShowArtifact,
+    onOpenWithSystem,
     packExportEnabled,
     onDownloadPack,
     packBusy,
@@ -151,8 +166,26 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
             </div>
           ) : null}
         </div>
+        <div className="lm-callout lm-callout-muted" role="status">
+          <p className="lm-callout-title">责任与交付权限</p>
+          <p className="lm-callout-body">
+            产出 Agent：{assistantId || "未记录"} · 复核人：
+            {detail.reviewedBy?.trim() || "待执业律师确认"} · 对外交付：
+            {detail.reviewStatus === "approved"
+              ? `已由 ${detail.reviewedBy?.trim() || "律师"} 批准`
+              : "未授权"}
+          </p>
+          {detail.reviewStatus !== "approved" ? (
+            <p className="lm-meta">生成或渲染不等于批准；未完成律师签批前不得作为定稿对外发送。</p>
+          ) : null}
+        </div>
         <div id="lm-review-citation-banner">
-          <LawmindCitationBanner view={citationIntegrity} apiBase={apiBase} taskId={selectedTaskId} />
+          <LawmindCitationBanner
+            view={citationIntegrity}
+            apiBase={apiBase}
+            taskId={selectedTaskId}
+            citationGateStrict={citationGateStrict}
+          />
         </div>
         <LawmindRedlinePanel apiBase={apiBase} taskId={selectedTaskId} onDraftUpdated={onDraftUpdated} />
         {learningQueue.length > 0 && (
@@ -194,8 +227,22 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
         {memorySources && memorySources.length > 0 ? (
           <LawmindMemorySourcesPanel layers={memorySources} variant="workbench" />
         ) : null}
+        {reasoningMarkdown?.trim() ? (
+          <>
+            <LawmindReasoningCollapsible
+              markdown={reasoningMarkdown}
+              variant="workbench"
+              defaultOpen={false}
+              title="法律推理图（只读争点）"
+            />
+            <p className="lm-meta">
+              争点板只读；编辑请回对话修订或更新 CASE.md。可编辑争点 API 尚未开放。
+            </p>
+          </>
+        ) : null}
         <LawmindAcceptanceGate
           report={acceptance}
+          reasoning={reasoningReport}
           defaultCollapsed
           onGoFillInChat={
             onGoToChat
@@ -316,6 +363,7 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
           onExportWord={onExportWord}
           onExportTrackedWord={onExportTrackedWord}
           onShowInFolder={onShowArtifact}
+          onOpenWithSystem={onOpenWithSystem}
           packExportEnabled={packExportEnabled}
           onDownloadPack={onDownloadPack}
           packBusy={packBusy}

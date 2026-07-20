@@ -42,7 +42,7 @@ export function MatterTaskBoard(props: Props): ReactNode {
         <p className="lm-meta">暂无进行中的任务、待办或审批。</p>
         {onOpenWorkflowLibrary ? (
           <button type="button" className="lm-btn lm-btn-sm" onClick={onOpenWorkflowLibrary}>
-            从工作流库启动
+            按流程办
           </button>
         ) : null}
       </div>
@@ -69,7 +69,7 @@ export function MatterTaskBoard(props: Props): ReactNode {
                     onOpenReview({ taskId: row.draftTaskId!, matterId: undefined })
                   }
                 >
-                  去审核
+                  进入文书台
                 </button>
               ) : null}
             </div>

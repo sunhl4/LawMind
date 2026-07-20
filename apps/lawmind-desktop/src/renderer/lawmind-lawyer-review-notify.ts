@@ -72,7 +72,7 @@ export function useLawyerReviewDesktopNotify(args: {
           storageKey: `task:${task.taskId}`,
           sig,
           title: "LawMind · 任务待您审核",
-          body: `${task.title || task.summary || task.taskId}：请到「审核」处理。`,
+          body: `${task.title || task.summary || task.taskId}：请到「文书台」处理。`,
           reviewTaskId: task.taskId,
           reviewMatterId: task.matterId,
         });
@@ -91,7 +91,7 @@ export function useLawyerReviewDesktopNotify(args: {
           storageKey: `draft:${item.id}`,
           sig,
           title: "LawMind · 文书待审核",
-          body: `${item.label || item.id}：签批未完成，通过后可在审核台渲染交付物。`,
+          body: `${item.label || item.id}：签批未完成，通过后可在文书台渲染交付物。`,
           reviewTaskId: item.id,
           reviewMatterId: item.matterId,
         });

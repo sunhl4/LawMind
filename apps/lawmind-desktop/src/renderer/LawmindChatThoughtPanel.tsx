@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ChatActivityToolBlock } from "./lawmind-chat-activity.js";
 import {
   formatThoughtDurationLabel,
@@ -22,6 +22,17 @@ function toolStatusBadge(status: ChatActivityToolBlock["status"]): string | null
   return null;
 }
 
+function summarizeToolChips(tools: ChatActivityToolBlock[]): string {
+  const labels = tools.map((t) => t.label).filter(Boolean);
+  if (labels.length === 0) {
+    return "过程";
+  }
+  if (labels.length <= 2) {
+    return labels.join(" · ");
+  }
+  return `${labels.slice(0, 2).join(" · ")} 等 ${labels.length} 步`;
+}
+
 function LawmindChatThoughtPanelInner(props: Props): ReactNode {
   const { tools, reasoningMarkdown, streaming = false, renderMarkdown } = props;
   const hasTools = tools.length > 0;
@@ -29,8 +40,8 @@ function LawmindChatThoughtPanelInner(props: Props): ReactNode {
   const isActive = streaming;
   const canRest = !isActive && (hasTools || hasReasoning);
 
-  const [briefOpen, setBriefOpen] = useState(true);
-  const [detailOpen, setDetailOpen] = useState(isActive);
+  const [briefOpen, setBriefOpen] = useState(isActive);
+  const [detailOpen, setDetailOpen] = useState(false);
   const startedAtRef = useRef<number | null>(null);
   const [elapsedSec, setElapsedSec] = useState(0);
 
@@ -40,7 +51,7 @@ function LawmindChatThoughtPanelInner(props: Props): ReactNode {
         startedAtRef.current = Date.now();
       }
       setBriefOpen(true);
-      setDetailOpen(true);
+      setDetailOpen(false);
       const tick = window.setInterval(() => {
         if (startedAtRef.current != null) {
           setElapsedSec(Math.max(0, Math.floor((Date.now() - startedAtRef.current) / 1000)));
@@ -52,10 +63,13 @@ function LawmindChatThoughtPanelInner(props: Props): ReactNode {
       setElapsedSec(Math.max(0, Math.floor((Date.now() - startedAtRef.current) / 1000)));
       startedAtRef.current = null;
     }
+    // Done: collapse to chips by default (Cursor-style).
     setBriefOpen(false);
     setDetailOpen(false);
     return undefined;
   }, [isActive]);
+
+  const chipSummary = useMemo(() => summarizeToolChips(tools), [tools]);
 
   if (!hasTools && !hasReasoning) {
     return isActive ? (
@@ -65,14 +79,20 @@ function LawmindChatThoughtPanelInner(props: Props): ReactNode {
     ) : null;
   }
 
-  const detailTitle = hasReasoning
-    ? formatThoughtDurationLabel(elapsedSec, isActive)
-    : null;
+  const detailTitle = hasReasoning ? formatThoughtDurationLabel(elapsedSec, isActive) : null;
+  const toolsHeadLabel = isActive
+    ? hasTools
+      ? `进行中 · ${chipSummary}`
+      : "过程"
+    : hasTools
+      ? `已完成 · ${chipSummary}`
+      : "过程";
 
   return (
     <div
       className={`lm-chat-thought ${isActive ? "lm-chat-thought-active" : ""} ${canRest ? "lm-chat-thought-done" : ""}`}
       aria-live={isActive ? "polite" : "off"}
+      data-testid="lm-chat-thought-panel"
     >
       {hasTools ? (
         <section className="lm-chat-thought-section">
@@ -85,10 +105,20 @@ function LawmindChatThoughtPanelInner(props: Props): ReactNode {
             <span className={`lm-chat-thought-chevron ${briefOpen ? "is-open" : ""}`} aria-hidden>
               ›
             </span>
-            <span className="lm-chat-thought-head-label">
-              {isActive && !hasReasoning ? "Thought briefly" : "Thought briefly"}
-            </span>
+            <span className="lm-chat-thought-head-label">{toolsHeadLabel}</span>
           </button>
+          {!briefOpen && !isActive ? (
+            <div className="lm-chat-thought-chips" aria-hidden>
+              {tools.map((tool) => (
+                <span
+                  key={tool.id}
+                  className={`lm-chat-thought-chip lm-chat-thought-chip-${tool.status}`}
+                >
+                  {tool.label}
+                </span>
+              ))}
+            </div>
+          ) : null}
           {briefOpen ? (
             <ul className="lm-chat-thought-steps">
               {tools.map((tool) => {

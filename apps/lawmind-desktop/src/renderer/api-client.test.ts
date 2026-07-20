@@ -20,6 +20,15 @@ describe("api-client", () => {
     expect(t).toContain("API Key");
   });
 
+  it("maps invalid_api_token without blaming model API Key", () => {
+    const t = userMessageFromApiError(401, {
+      code: "invalid_api_token",
+      error: "unauthorized",
+    });
+    expect(t).toMatch(/本机服务鉴权|重启/);
+    expect(t).not.toMatch(/是否过期/);
+  });
+
   it("returns single friendly line for model_unavailable without duplicating hint", () => {
     const friendly = "模型服务账户欠费或已停用。请到模型服务商控制台查看余额与账单。";
     const t = userMessageFromApiError(502, {

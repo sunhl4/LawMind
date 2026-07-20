@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { apiSendJson, errorMessage } from "./api-client";
 import { countActiveDelegations } from "./lawmind-records-collab-panels";
 import type { CollabSummaryState } from "./LawmindSettingsCollaboration";
 import { LawmindSettingsCollaboration } from "./LawmindSettingsCollaboration";
@@ -9,8 +10,9 @@ import {
 } from "./LawmindCollaborationComposeModelRail";
 import { LawmindCollabDelegationCards } from "./LawmindCollabDelegationCards";
 import { isSelectedModelVerified } from "./lawmind-model-verify";
+import type { CollaborationDeskTab } from "./lawmind-agents-desk";
 
-export type CollaborationDeskTab = "overview" | "workflows";
+export type { CollaborationDeskTab } from "./lawmind-agents-desk";
 
 type Props = {
   config: { apiBase: string } | null;
@@ -29,6 +31,8 @@ type Props = {
   assistantDisplayById?: Record<string, string>;
   onReconnectLocalService?: () => void | Promise<void>;
   localServiceReconnecting?: boolean;
+  /** When true, chrome (title + tabs) is owned by「在办」parent. */
+  embedded?: boolean;
 };
 
 export function LawmindCollaborationDesk(props: Props): ReactNode {
@@ -49,50 +53,75 @@ export function LawmindCollaborationDesk(props: Props): ReactNode {
     assistantDisplayById,
     onReconnectLocalService,
     localServiceReconnecting = false,
+    embedded = false,
   } = props;
 
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [cancelBusyId, setCancelBusyId] = useState<string | null>(null);
+  const [cancelHint, setCancelHint] = useState<string | null>(null);
   const activeDel = countActiveDelegations(delegations);
 
   const modelVerified =
     composeModel?.composeModelConfigured === true &&
     isSelectedModelVerified(composeModel.modelCatalog, composeModel.selectedModelId);
 
-  return (
-    <div className="lm-collab-desk">
-      <header className="lm-collab-desk-header">
-        <div className="lm-collab-desk-intro">
-          <h1 className="lm-collab-desk-title">工作流</h1>
-          <p className="lm-collab-desk-lead">
-            查看进行中的委派与已完成结果；后台多步流程在「团队工作流」分栏排队执行。
-          </p>
-        </div>
-        <nav className="lm-tabs lm-collab-desk-tabs" aria-label="工作流分区">
-          <button
-            type="button"
-            className={`lm-tab ${deskTab === "overview" ? "active" : ""}`}
-            aria-current={deskTab === "overview" ? "true" : undefined}
-            onClick={() => onDeskTabChange("overview")}
-          >
-            状态一览
-            {activeDel > 0 ? (
-              <span className="lm-tab-inline-count" title="进行中的委派">
-                {activeDel}
-              </span>
-            ) : null}
-          </button>
-          <button
-            type="button"
-            className={`lm-tab ${deskTab === "workflows" ? "active" : ""}`}
-            aria-current={deskTab === "workflows" ? "true" : undefined}
-            onClick={() => onDeskTabChange("workflows")}
-          >
-            团队工作流
-          </button>
-        </nav>
-      </header>
+  const handleCancelDelegation = async (d: DelegationRow) => {
+    if (!config?.apiBase) {
+      setCancelHint("本地服务未就绪，无法撤销委派。");
+      return;
+    }
+    setCancelBusyId(d.delegationId);
+    setCancelHint(null);
+    try {
+      await apiSendJson(config.apiBase, `/api/delegations/${encodeURIComponent(d.delegationId)}`, "DELETE");
+      setCancelHint("已撤销委派。");
+      await onRefreshCollaboration();
+    } catch (e) {
+      setCancelHint(errorMessage(e, "撤销委派失败"));
+    } finally {
+      setCancelBusyId(null);
+    }
+  };
 
-      {composeModel && !modelVerified ? <LawmindCollaborationComposeModelRail {...composeModel} /> : null}
+  return (
+    <div className={`lm-collab-desk${embedded ? " lm-collab-desk-embedded" : ""}`}>
+      {!embedded ? (
+        <header className="lm-collab-desk-header">
+          <div className="lm-collab-desk-intro">
+            <h1 className="lm-collab-desk-title">交出去的活</h1>
+            <p className="lm-collab-desk-lead">
+              看交办办到哪一步、拿结果或撤销重派。请从顶部「在办」进入本页。
+            </p>
+          </div>
+          <nav className="lm-tabs lm-collab-desk-tabs" aria-label="在办分区">
+            <button
+              type="button"
+              className={`lm-tab ${deskTab === "overview" ? "active" : ""}`}
+              aria-current={deskTab === "overview" ? "true" : undefined}
+              onClick={() => onDeskTabChange("overview")}
+            >
+              交出去的活
+              {activeDel > 0 ? (
+                <span className="lm-tab-inline-count" title="进行中的交办">
+                  {activeDel}
+                </span>
+              ) : null}
+            </button>
+            <button
+              type="button"
+              className={`lm-tab ${deskTab === "workflows" ? "active" : ""}`}
+              aria-current={deskTab === "workflows" ? "true" : undefined}
+              onClick={() => onDeskTabChange("workflows")}
+            >
+              按流程办
+            </button>
+          </nav>
+        </header>
+      ) : null}
+
+      {!embedded && composeModel && !modelVerified ? (
+        <LawmindCollaborationComposeModelRail {...composeModel} />
+      ) : null}
 
       {deskTab === "overview" ? (
         <div className="lm-collab-desk-overview">
@@ -106,11 +135,18 @@ export function LawmindCollaborationDesk(props: Props): ReactNode {
             assistantDisplayById={assistantDisplayById}
             formatRelativeTime={formatRelativeTime}
             onOpenDelegationTargetChat={onOpenDelegationTargetChat}
+            onCancelDelegation={(d) => void handleCancelDelegation(d)}
+            cancelBusyId={cancelBusyId}
             onShowMore={() => setShowAdvanced(true)}
           />
+          {cancelHint ? (
+            <p className="lm-meta lm-collab-cancel-hint" role="status">
+              {cancelHint}
+            </p>
+          ) : null}
           {showAdvanced ? (
-            <section className="lm-collab-desk-advanced" aria-label="委派动态与门禁历史">
-              <h2 className="lm-collab-desk-panel-heading">委派动态</h2>
+            <section className="lm-collab-desk-advanced" aria-label="交办动态与审批记录">
+              <h2 className="lm-collab-desk-panel-heading">交办动态</h2>
               <ul className="lm-list lm-collab-events-compact">
                 {collabEvents.length === 0 ? (
                   <li className="lm-list-empty">暂无委派动态</li>
@@ -126,8 +162,11 @@ export function LawmindCollaborationDesk(props: Props): ReactNode {
                   ))
                 )}
               </ul>
-              <h2 className="lm-collab-desk-panel-heading">门禁历史</h2>
+              <h2 className="lm-collab-desk-panel-heading">审批与拦截记录</h2>
               <LawmindGateHistoryTimeline items={gateHistory} formatRelativeTime={formatRelativeTime} />
+              <p className="lm-meta lm-collab-meeting-hint">
+                案件或临时讨论请到「更多 → 会议室」；此处是跨会话交办与审批拦截的流水记录。
+              </p>
             </section>
           ) : null}
         </div>
@@ -146,7 +185,7 @@ export function LawmindCollaborationDesk(props: Props): ReactNode {
             />
           ) : (
             <div className="lm-callout lm-callout-warn lm-collab-desk-workflows-config" role="status">
-              <p className="lm-callout-body">请先完成本地 API 与项目连接，再运行团队工作流。</p>
+              <p className="lm-callout-body">请先完成本地 API 与项目连接，再按流程办理。</p>
             </div>
           )}
         </div>
@@ -159,10 +198,10 @@ function gateAuditSourceLabel(source: string): string {
   const map: Record<string, string> = {
     review: "审核签批",
     reopen_review: "恢复待审核",
-    render: "渲染交付",
-    render_blocked: "渲染被拦截",
-    workflow_job: "团队工作流",
-    agent_turn: "助手回合",
+    render: "生成正式稿",
+    render_blocked: "生成被拦下",
+    workflow_job: "团队流程",
+    agent_turn: "助手处理",
   };
   return map[source] ?? source;
 }
@@ -194,7 +233,7 @@ function LawmindGateHistoryTimeline(props: {
 }): ReactNode {
   const { items, formatRelativeTime } = props;
   if (items.length === 0) {
-    return <p className="lm-meta lm-collab-gate-history-empty">暂无门禁历史。</p>;
+    return <p className="lm-meta lm-collab-gate-history-empty">暂无审批与拦截记录。</p>;
   }
   return (
     <ul className="lm-list lm-collab-gate-history-list">
@@ -248,13 +287,15 @@ function LawmindCollaborationStatusStrip(props: {
   const enabled = collabSummarySettings.collaborationEnabled;
   return (
     <div className="lm-collab-status-strip" role="status">
-      <span className={enabled ? "lm-pill lm-pill-success" : "lm-pill lm-pill-warn"}>
-        {enabled ? "多助手工作流已开启" : "多助手工作流已关闭"}
-      </span>
+      {!enabled ? (
+        <span className="lm-pill lm-pill-warn" title="可在设置中开启多助手交办">
+          交办功能未开启
+        </span>
+      ) : null}
       {activeDelegations > 0 ? (
-        <span className="lm-pill lm-pill-info">进行中 {activeDelegations}</span>
+        <span className="lm-meta">进行中 {activeDelegations} 件</span>
       ) : (
-        <span className="lm-meta">当前无进行中的委派</span>
+        <span className="lm-meta">当前没有进行中的交办</span>
       )}
       <button type="button" className="lm-btn lm-btn-secondary lm-btn-sm" onClick={onRefresh}>
         刷新

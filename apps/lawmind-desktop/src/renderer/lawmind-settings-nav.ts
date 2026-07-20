@@ -71,20 +71,26 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
       {
         id: "review-prefs",
         label: "审核偏好",
-        description: "配置审核台签批后的导出与出稿方式。",
+        description: "配置文书台签批后的导出与出稿方式。",
         keywords: "review 审核 导出 word",
       },
       {
         id: "templates",
         label: "模板",
-        description: "管理常用 Word、PPT 和文稿模板。",
-        keywords: "templates 模板 docx word ppt 文稿",
+        description: "登记本所 Word（.docx）与 PPT（.pptx）交付模板。",
+        keywords: "templates 模板 docx word ppt pptx 文稿",
       },
       {
         id: "memory",
         label: "记忆库",
         description: "待采纳的记忆建议与采纳历史（与体检中的记忆真相源文件检查不同）。",
         keywords: "memory 记忆 采纳 adoption 建议",
+      },
+      {
+        id: "assistants",
+        label: "助手与岗位",
+        description: "配置多助手、岗位和对话切换。",
+        keywords: "assistant 智能体 岗位 persona 助手",
       },
     ],
   },
@@ -93,16 +99,10 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
     label: "高级",
     items: [
       {
-        id: "assistants",
-        label: "助手与岗位",
-        description: "配置多助手、岗位和对话切换。日常使用通常无需调整。",
-        keywords: "assistant 智能体 岗位 persona",
-      },
-      {
         id: "collaboration",
         label: "团队工作流",
-        description: "多智能体协作和后台工作流。Solo 默认可不使用。",
-        keywords: "collaboration 协作 工作流 delegation",
+        description: "多助手交办摘要；进度在「在办」查看。",
+        keywords: "collaboration 协作 在办 委派 delegation",
       },
       {
         id: "tools",
@@ -113,8 +113,8 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
       {
         id: "roles",
         label: "角色",
-        description: "工作区内智能体角色与权限配置。通常由模板自动选择。",
-        keywords: "roles 角色",
+        description: "工作区内助手角色与权限配置。通常由模板自动选择。",
+        keywords: "roles 角色 助手",
       },
       {
         id: "edition",

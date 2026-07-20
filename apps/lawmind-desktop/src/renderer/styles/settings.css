@@ -86,6 +86,32 @@
   gap: 12px;
 }
 
+.lm-settings-nav-group--collapsible {
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+
+.lm-settings-nav-group--collapsible > summary.lm-settings-nav-group-label {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.lm-settings-nav-group--collapsible > summary.lm-settings-nav-group-label::-webkit-details-marker {
+  display: none;
+}
+
+.lm-settings-nav-group--collapsible > summary.lm-settings-nav-group-label::after {
+  content: " ▾";
+  opacity: 0.55;
+  font-size: 11px;
+}
+
+.lm-settings-nav-group--collapsible:not([open]) > summary.lm-settings-nav-group-label::after {
+  content: " ▸";
+}
+
 .lm-settings-nav-group {
   display: flex;
   flex-direction: column;

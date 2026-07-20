@@ -7,6 +7,7 @@
  */
 
 import { computeRetryDelayMs, isRetryableHttpFailure } from "../llm/http-retry.js";
+import { PROMPT_WINDOW, truncateForPrompt } from "../memory/prompt-windows.js";
 import type { RetrievalAdapter } from "./index.js";
 import { createGeneralModelAdapter, createLegalModelAdapter } from "./model-adapters.js";
 import type { ModelRetrievalInput, ModelRetrievalOutput } from "./model-adapters.js";
@@ -55,19 +56,19 @@ function buildMessages(input: ModelRetrievalInput, role: "general" | "legal"): C
     `目标受众: ${input.intent.audience ?? "未指定"}`,
     "",
     "通用长期记忆:",
-    input.memory.general || "(空)",
+    truncateForPrompt(input.memory.general, PROMPT_WINDOW.retrievalMemoryChars) || "(空)",
     "",
     "律师偏好记忆:",
-    input.memory.profile || "(空)",
+    truncateForPrompt(input.memory.profile, PROMPT_WINDOW.retrievalMemoryChars) || "(空)",
     "",
     "客户画像（长期合作，与单案事实区分；供检索整理时把握沟通与机构习惯）:",
-    input.memory.clientProfile || "(空)",
+    truncateForPrompt(input.memory.clientProfile, PROMPT_WINDOW.retrievalMemoryChars) || "(空)",
     "",
     "最近日志（今天）:",
-    input.memory.todayLog || "(空)",
+    truncateForPrompt(input.memory.todayLog, PROMPT_WINDOW.dayLogChars) || "(空)",
     "",
     "最近日志（昨天）:",
-    input.memory.yesterdayLog || "(空)",
+    truncateForPrompt(input.memory.yesterdayLog, PROMPT_WINDOW.dayLogChars) || "(空)",
   ].join("\n");
 
   return [

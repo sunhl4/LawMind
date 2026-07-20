@@ -4,6 +4,7 @@ import {
   e2eMockApiBase,
   gotoShell,
   installE2eBrowserPrefs,
+  openComposeOptions,
   openReviewWorkbench,
   openWorkspaceChat,
 } from "./e2e-helpers";
@@ -119,6 +120,7 @@ test.describe("LawMind golden path", () => {
   test("compose permission mode select is available in workspace chat", async ({ page }) => {
     await gotoShell(page);
     await openWorkspaceChat(page);
+    await openComposeOptions(page);
     const perm = page.getByLabel("工具权限模式");
     await expect(perm).toBeVisible({ timeout: 15_000 });
     await perm.selectOption("strict");

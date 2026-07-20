@@ -373,6 +373,7 @@ export type AuditEventKind =
   | "artifact.sent"
   | "matter.spec.invalid"
   | "matter.write_failed"
+  | "matter.projection_failed" // JSON→CASE 投影失败（异步；Doctor 一致性可检出漂移）
   | "contract_revision_accumulation_failed"
   | "memory.profile_updated" // 2.0：律师/助手偏好写回
   | "memory.playbook_updated" // Phase D：条款 playbook 审核学习写回

@@ -33,9 +33,9 @@ export function shouldShowDraftStatusHint(input: {
     return { show: false, message: "" };
   }
 
-  const base = "本条对话关联的草稿尚未通过审核。请在「审核」中把关后再对外使用。";
+  const base = "本条对话关联的草稿尚未通过审核。请在「文书台」把关后再对外使用。";
   if (status === "modified") {
-    return { show: true, message: "草稿已标为需修改，请先在审核台处理后再继续对外使用。" };
+    return { show: true, message: "草稿已标为需修改，请先在文书台处理后再继续对外使用。" };
   }
   if (status === "rejected") {
     return { show: true, message: "草稿已被驳回，请修订后重新提交审核。" };
@@ -47,7 +47,7 @@ export function shouldShowDraftStatusHint(input: {
   if (heuristic) {
     return {
       show: true,
-      message: "助手表述可能过于乐观；关联草稿仍为待审核，请先在审核台确认。",
+      message: "助手表述可能过于乐观；关联草稿仍为待审核，请先在文书台确认。",
       heuristic: true,
     };
   }

@@ -1,6 +1,7 @@
 /** Matter, workspace, statute, case-law, and project file search tools. */
 import fs from "node:fs/promises";
 import path from "node:path";
+import { loadMatter } from "../../../adapters/matter-storage/index.js";
 import { buildMatterIndex, listMatterIds, searchMatterIndex } from "../../../cases/index.js";
 import { loadMemoryContext } from "../../../memory/index.js";
 import type { IngestSourceType, IngestStage } from "../../../platform/contracts.js";
@@ -62,7 +63,7 @@ export const searchWorkspace: AgentTool = {
   definition: {
     name: "search_workspace",
     description:
-      "搜索 LawMind 工作区记忆（MEMORY.md、LAWYER_PROFILE.md、案件档案等）。若用户关联了桌面「项目目录」，会**额外**扫描该项目内有限数量的**纯文本类**文件（如 .md/.txt/.ts；有界检索）；不包含 PDF/Word/图片，读此类文件请用 read_project_file。",
+      "搜索 LawMind 工作区通用记忆、律师偏好与当前案件档案。默认不跨案件读取；仅在管理员显式允许时扫描其他非受限案件。若用户关联了桌面「项目目录」，会额外扫描有限数量的纯文本文件。",
     category: "search",
     parameters: {
       query: { type: "string", description: "搜索关键词", required: true },
@@ -99,6 +100,37 @@ export const searchWorkspace: AgentTool = {
       }
     }
 
+    const crossMatterAllowed = process.env.LAWMIND_ALLOW_CROSS_MATTER_SEARCH === "1";
+    if (crossMatterAllowed) {
+      // Cross-matter CASE.md scan is opt-in and never reads restricted matters.
+      try {
+        const matterIds = await listMatterIds(ctx.workspaceDir);
+        for (const mid of matterIds.slice(0, 20)) {
+          if (ctx.matterId && mid === ctx.matterId) {
+            continue;
+          }
+          const record = loadMatter(ctx.workspaceDir, mid);
+          if (record?.sensitivity === "restricted") {
+            continue;
+          }
+          const index = await buildMatterIndex(ctx.workspaceDir, mid);
+          if (!index.caseMemory) {
+            continue;
+          }
+          for (const line of index.caseMemory.split("\n")) {
+            if (line.toLowerCase().includes(query)) {
+              results.push({
+                source: `CASE:${mid}`,
+                snippet: line.trim().slice(0, 200),
+              });
+            }
+          }
+        }
+      } catch {
+        // best-effort
+      }
+    }
+
     const merged = [...results, ...projectHits].slice(0, 60);
 
     return {
@@ -108,6 +140,7 @@ export const searchWorkspace: AgentTool = {
         results: merged,
         total: merged.length,
         projectScanned: Boolean(ctx.projectDir?.trim()),
+        crossMatterScanned: crossMatterAllowed,
       },
     };
   },
@@ -386,14 +419,24 @@ export const searchStatute: AgentTool = {
       }
     }
 
+    const hits = results.slice(0, 25);
+    const empty = hits.length === 0;
     return {
       ok: true,
       data: {
         query: params.query,
         matterId: matterId ?? null,
-        hits: results.slice(0, 25),
+        hits,
         total: results.length,
-        note: "结果为工作区启发式检索，引用前请核对官方法规文本。",
+        ...(empty
+          ? {
+              refusalRequired: true,
+              authority: "none" as const,
+              note: "未检索到相关法条线索。模型不得编造法规条文或条文编号；如可用，请改用 search_statute_web 或请律师提供权威文本。",
+            }
+          : {
+              note: "结果为工作区启发式检索，引用前请核对官方法规文本。",
+            }),
       },
     };
   },
@@ -459,14 +502,24 @@ export const searchCaseLaw: AgentTool = {
       }
     }
 
+    const hits = results.slice(0, 25);
+    const empty = hits.length === 0;
     return {
       ok: true,
       data: {
         query: params.query,
         matterId: matterId ?? null,
-        hits: results.slice(0, 25),
+        hits,
         total: results.length,
-        note: "结果为工作区线索汇总，正式引用请核实原始裁判文书。",
+        ...(empty
+          ? {
+              refusalRequired: true,
+              authority: "none" as const,
+              note: "未检索到相关案例线索。模型不得编造案号、裁判要旨或判决原文；请使用专业案例库或请律师提供权威文书，勿凭空杜撰。",
+            }
+          : {
+              note: "结果为工作区线索汇总，正式引用请核实原始裁判文书。",
+            }),
       },
     };
   },

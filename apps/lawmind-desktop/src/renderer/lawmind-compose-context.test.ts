@@ -52,4 +52,25 @@ describe("lawmind-compose-context", () => {
     expect(file?.kind === "file" && file.alreadyPinned).toBe(true);
     expect(matter?.kind === "matter" && matter.isCurrent).toBe(true);
   });
+
+  it("categories files-only omits matters and templates", () => {
+    const items = buildComposeContextPickerItems({
+      pinnedFiles: [],
+      recentFiles: [{ root: "workspace", relPath: "cases/demo/CASE.md", kind: "file" }],
+      matters: [{ matterId: "demo", displayName: "演示案件" }],
+      contextMatterId: "demo",
+      templates: [
+        {
+          id: "contract-review",
+          name: "合同审查",
+          description: "审查意见",
+          stepCount: 1,
+          starterPrompt: "请审查合同",
+        },
+      ],
+      categories: ["files"],
+    });
+    expect(items.every((i) => i.kind === "file")).toBe(true);
+    expect(items.some((i) => i.label.includes("CASE"))).toBe(true);
+  });
 });

@@ -177,7 +177,7 @@ export function parseMatterInteractionEvent(event: AuditEventRow): {
   label?: string;
 } {
   const detail = event.detail?.trim() ?? "";
-  const reviewMatch = /^案件工作台动作：从 (.+?) 进入审核台；来源 (.+)。$/.exec(detail);
+  const reviewMatch = /^案件工作台动作：从 (.+?) 进入(?:审核台|文书台)；来源 (.+)。$/.exec(detail);
   if (reviewMatch) {
     return {
       action: "open_review",
@@ -261,11 +261,11 @@ export function blockingNextAction(kind: WorkQueueItem["kind"]): string {
     case "need_conflict_check":
       return "先完成冲突检查并记录结果，避免后续工作无效。";
     case "need_lawyer_review":
-      return "先进入审核台完成律师审阅，再决定是否渲染交付。";
+      return "先进入文书台完成律师审阅，再决定是否渲染交付。";
     case "need_partner_approval":
       return "先提交高风险审批或请示上级，再继续执行。";
     case "ready_to_draft":
-      return "先根据审核意见修订草稿，再回到审核或交付动作。";
+      return "先根据审核意见修订草稿，再回到文书台或交付动作。";
     case "ready_to_render":
       return "已满足交付前置条件，下一步应执行渲染和发送。";
     case "blocked_by_deadline":

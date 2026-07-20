@@ -4,6 +4,7 @@ import { listDrafts } from "../../../drafts/index.js";
  */
 import { createLawMindEngine } from "../../../engine/factory.js";
 import type { LawMindEngineConfig } from "../../../engine/types.js";
+import { createAuthorityAdapterFromEnv } from "../../../retrieval/authority-adapter.js";
 import { createWorkspaceAdapter } from "../../../retrieval/index.js";
 import type { RetrievalAdapter } from "../../../retrieval/index.js";
 import { createOpenAICompatibleAdapters } from "../../../retrieval/openai-compatible.js";
@@ -175,7 +176,10 @@ export function resolveGeneralOpenAICompatibleFromEnv(): {
  * - `dual`：通用用 LAWMIND_AGENT_* / QWEN_*，法律用 CHATLAW / LAWGPT / PARTNER 等（见 providers.ts）；未配置法律端点时回退为通用模型做法务检索。
  */
 export function buildAdaptersFromEnv(workspaceDir: string): RetrievalAdapter[] {
-  const adapters: RetrievalAdapter[] = [createWorkspaceAdapter(workspaceDir)];
+  const adapters: RetrievalAdapter[] = [
+    createWorkspaceAdapter(workspaceDir),
+    createAuthorityAdapterFromEnv(),
+  ];
 
   const modeRaw = (process.env.LAWMIND_RETRIEVAL_MODE ?? "single").trim().toLowerCase();
   const mode = modeRaw === "dual" ? "dual" : "single";

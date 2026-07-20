@@ -21,7 +21,7 @@ export const DEFAULT_REVIEW_MATRIX_QUESTIONS: ReviewMatrixQuestion[] = [
   { id: "q-ip", label: "知识产权", hint: "归属、许可、侵权" },
   { id: "q-terminate", label: "解除与终止", hint: "触发条件、后果" },
   { id: "q-governing", label: "争议解决", hint: "管辖、法律适用" },
-  { id: "q-misc", label: "其他需律师确认", hint: "未覆盖事项" },
+  { id: "q-misc", label: "其他需律师确认", hint: "未覆盖事项，请直接批注" },
 ];
 
 export type ReviewMatrixDocument = {
@@ -47,29 +47,69 @@ export type MatterReviewMatrix = {
 };
 
 const QUESTION_KEYWORDS: Record<string, string[]> = {
-  "q-parties": ["当事人", "甲方", "乙方", "双方", "签署"],
-  "q-term": ["价款", "价格", "期限", "交付", "付款"],
-  "q-risk": ["违约", "赔偿", "责任", "损失", "免责"],
-  "q-ip": ["知识产权", "专利", "著作权", "许可"],
-  "q-terminate": ["解除", "终止", "到期"],
-  "q-governing": ["管辖", "仲裁", "争议", "适用法"],
+  "q-parties": ["当事人", "甲方", "乙方", "双方", "签署", "委托人", "原告", "被告", "对方"],
+  "q-term": ["价款", "价格", "期限", "交付", "付款", "标的", "报酬"],
+  "q-risk": ["违约", "赔偿", "责任", "损失", "免责", "风险"],
+  "q-ip": ["知识产权", "专利", "著作权", "许可", "商标"],
+  "q-terminate": ["解除", "终止", "到期", "解约"],
+  "q-governing": ["管辖", "仲裁", "争议解决", "适用法", "诉讼"],
 };
 
-function excerptForQuestion(text: string, questionId: string, maxLen = 220): string {
-  const body = text.replace(/\s+/g, " ").trim();
+/** Strip markdown noise so lawyers see prose, not source markup. */
+export function cleanReviewExcerpt(text: string): string {
+  return text
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/^\s*\d+\.\s+/gm, "")
+    .replace(/\*\*|__/g, "")
+    .replace(/`+/g, "")
+    .replace(/^---+$/gm, "")
+    .replace(/\|/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function humanizeMatrixDocumentTitle(raw: string): string {
+  const name = raw.trim();
+  const base = name.replace(/\.(md|txt|pdf)$/i, "");
+  const map: Record<string, string> = {
+    CASE: "案件档案",
+    MATTER_STRATEGY: "案件策略",
+    README: "说明",
+  };
+  if (map[base]) {
+    return map[base];
+  }
+  if (map[base.toUpperCase()]) {
+    return map[base.toUpperCase()];
+  }
+  return name.replace(/\.(md|txt|pdf)$/i, "") || name;
+}
+
+/**
+ * Keyword-hit excerpt only. No hit → empty (do not dump document head into every column).
+ */
+export function excerptForQuestion(text: string, questionId: string, maxLen = 160): string {
+  const body = cleanReviewExcerpt(text);
   if (!body) {
     return "";
   }
   const keys = QUESTION_KEYWORDS[questionId] ?? [];
+  if (keys.length === 0) {
+    return "";
+  }
   for (const kw of keys) {
     const idx = body.indexOf(kw);
     if (idx >= 0) {
-      const start = Math.max(0, idx - 40);
-      const slice = body.slice(start, start + maxLen);
-      return slice.length < body.length ? `${slice}…` : slice;
+      const start = Math.max(0, idx - 24);
+      const slice = cleanReviewExcerpt(body.slice(start, start + maxLen));
+      if (!slice) {
+        return "";
+      }
+      return slice.length < body.length - start || start > 0 ? `${slice}…` : slice;
     }
   }
-  return body.length > maxLen ? `${body.slice(0, maxLen)}…` : body;
+  return "";
 }
 
 function buildCells(
@@ -111,7 +151,7 @@ export function buildMatterReviewMatrix(
     const draftId = `draft:${task.taskId}`;
     documents.push({
       documentId: draftId,
-      title: draft.title?.trim() || task.taskId,
+      title: draft.title?.trim() || "未命名草稿",
       taskId: task.taskId,
       kind: "draft",
     });
@@ -126,7 +166,7 @@ export function buildMatterReviewMatrix(
       const docId = `source:${task.taskId}:${src.id}`;
       documents.push({
         documentId: docId,
-        title: src.title?.trim() || src.id,
+        title: humanizeMatrixDocumentTitle(src.title?.trim() || "检索来源"),
         taskId: task.taskId,
         sourceId: src.id,
         kind: "source",
@@ -144,7 +184,7 @@ export function buildMatterReviewMatrix(
       const docId = `file:${name}`;
       documents.push({
         documentId: docId,
-        title: name,
+        title: humanizeMatrixDocumentTitle(name),
         taskId: "",
         kind: "source",
       });

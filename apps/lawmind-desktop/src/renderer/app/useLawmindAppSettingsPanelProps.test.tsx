@@ -61,7 +61,7 @@ describe("useLawmindAppSettingsPanelProps", () => {
         refreshModelsCatalog: vi.fn(),
         pickProject: vi.fn(),
         clearProject: vi.fn(),
-        setCollaborationDeskTab: vi.fn(),
+        setAgentsDeskTab: vi.fn(),
         setMainView: vi.fn(),
         assistants: [],
         onPrefsChange: vi.fn(),

@@ -64,6 +64,7 @@ export {
   upsertMatterDisplayName,
 } from "./memory/index.js";
 export { createWorkspaceAdapter } from "./retrieval/index.js";
+export { createAuthorityAdapterFromEnv } from "./retrieval/authority-adapter.js";
 export { createGeneralModelAdapter, createLegalModelAdapter } from "./retrieval/model-adapters.js";
 export { createOpenAICompatibleAdapters } from "./retrieval/openai-compatible.js";
 export {

@@ -5,6 +5,8 @@ import {
   flattenGroupedCatalog,
   formatVerifiedAt,
   groupModelCatalog,
+  modelPickerDisplayName,
+  modelPickerGroupTitle,
   nextSelectableIndex,
   providerIconKey,
   resolveComposeModelSelectValue,
@@ -116,5 +118,28 @@ describe("formatVerifiedAt", () => {
     expect(formatVerifiedAt("2024-05-01T12:34:00.000Z")).toMatch(
       /\d{4}-\d{2}-\d{2} \d{2}:\d{2}/,
     );
+  });
+});
+
+describe("modelPickerDisplayName", () => {
+  it("prefers English model id", () => {
+    expect(modelPickerDisplayName(row({ label: "通义千问 Max", model: "qwen-max" }))).toBe(
+      "qwen-max",
+    );
+  });
+  it("maps env/current rows to Current when model missing", () => {
+    expect(modelPickerDisplayName(row({ id: "env:current", label: "主模型", model: "" }))).toBe(
+      "Current",
+    );
+  });
+});
+
+describe("modelPickerGroupTitle", () => {
+  it("maps Chinese API groups to English section titles", () => {
+    expect(modelPickerGroupTitle("平台模型")).toBe("Platform");
+    expect(modelPickerGroupTitle("当前配置")).toBe("Current");
+    expect(modelPickerGroupTitle("自定义模型")).toBe("Custom");
+    expect(modelPickerGroupTitle("通义千问")).toBe("Qwen");
+    expect(modelPickerGroupTitle("OpenAI")).toBe("OpenAI");
   });
 });

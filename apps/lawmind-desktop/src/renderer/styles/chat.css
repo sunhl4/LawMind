@@ -1,3 +1,116 @@
+.lm-assignment-commitment {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface-elevated, var(--side-bg));
+}
+
+.lm-assignment-commitment-head,
+.lm-assignment-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lm-assignment-commitment-head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.lm-assignment-prefs {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: var(--r);
+  background: rgba(183, 154, 103, 0.08);
+  border: 1px solid rgba(183, 154, 103, 0.25);
+}
+
+.lm-assignment-prefs ul {
+  margin: 6px 0 0;
+  padding-left: 1.1em;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.lm-assignment-prefs li + li {
+  margin-top: 2px;
+}
+
+.lm-assignment-prefs li {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.lm-assignment-applied-check {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lm-assignment-applied-check .lm-md-code {
+  margin-left: 4px;
+}
+
+.lm-assignment-kicker,
+.lm-assignment-status {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.lm-assignment-status {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.lm-assignment-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-top: 10px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.lm-assignment-instruction {
+  margin: 10px 0 0;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.lm-assignment-plan {
+  margin-top: 10px;
+}
+
+.lm-assignment-plan ol {
+  display: grid;
+  gap: 5px;
+  margin: 6px 0 0;
+  padding-left: 20px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.lm-assignment-plan li[data-status="done"],
+.lm-assignment-plan li[data-status="skipped"] {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.lm-assignment-actions {
+  margin-top: 10px;
+}
+
 /* ── Chat: messages, compose, context ── */
 /* Messages ↔ compose (vertical drag) */
 .lm-split-handle-horizontal {
@@ -532,6 +645,88 @@
   padding-left: 18px;
 }
 
+.lm-chat-thought-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-left: 18px;
+}
+
+.lm-chat-thought-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lm-chat-thought-chip-failed {
+  border-color: color-mix(in srgb, var(--error) 40%, var(--border));
+  color: var(--error);
+}
+
+.lm-chat-thought-chip-running {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  color: var(--accent);
+}
+
+.lm-msg-gate {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-end;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.lm-chat-review-sticky {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent-dim) 55%, var(--surface));
+  font-size: 13px;
+  color: var(--text);
+}
+
+.lm-chat-review-sticky-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.lm-chat-review-sticky-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.lm-chat-review-sticky-list .lm-link-btn {
+  font-size: 12px;
+}
+
 .lm-msg-activity {
   padding-top: 10px;
   padding-bottom: 10px;
@@ -654,14 +849,37 @@
 }
 
 /* ── Compose ───────────────────────────────────────────────── */
+/* Status / context chrome sits above the reserved input height. */
+.lm-compose-chrome {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 12px 0;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  box-sizing: border-box;
+}
+
+.lm-compose-chrome:empty {
+  display: none;
+}
+
 .lm-compose {
-  padding: 12px 28px 18px;
+  padding: 4px 12px 6px;
   border-top: 1px solid var(--border);
   background: var(--bg);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
+  box-sizing: border-box;
+}
+
+/* When chrome already drew the top border, avoid a double rule. */
+.lm-compose-chrome:not(:empty) + .lm-compose {
+  border-top: none;
+  padding-top: 2px;
 }
 
 .lm-compose-model-hint {
@@ -711,8 +929,9 @@
 }
 
 .lm-compose-toolbar {
-  flex-wrap: wrap;
-  row-gap: 6px;
+  flex-wrap: nowrap;
+  row-gap: 0;
+  flex-shrink: 0;
 }
 
 .lm-messages-empty-actions {
@@ -730,7 +949,8 @@
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.01));
   transition: border-color var(--t) var(--ease), box-shadow var(--t-md) var(--ease), transform var(--t) var(--ease);
-  overflow: hidden;
+  /* visible so + menu can open above the toolbar without being clipped */
+  overflow: visible;
   box-shadow: var(--shadow-xs), inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
@@ -748,16 +968,16 @@
 
 .lm-compose-box textarea {
   width: 100%;
-  min-height: 72px;
+  min-height: 36px;
   max-height: 200px;
   resize: none;
   border: none;
   background: transparent;
   color: var(--text);
-  padding: 13px 14px 8px;
+  padding: 6px 10px 4px;
   font-family: var(--font);
-  font-size: 14px;
-  line-height: 1.55;
+  font-size: 13px;
+  line-height: 1.45;
   display: block;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -767,18 +987,21 @@
 .lm-compose-box textarea::placeholder { color: var(--muted); }
 
 .lm-compose-resizable {
-  overflow: hidden;
+  /* visible: + options panel anchors above the toolbar */
+  overflow: visible;
+  /* Height is reserved for the input box only (chrome is outside). */
 }
 
 .lm-compose-resizable .lm-compose-box {
-  flex: 1;
-  min-height: 0;
+  flex: 1 1 auto;
+  min-height: 72px;
+  height: 100%;
   display: flex;
   flex-direction: column;
 }
 
 .lm-compose-resizable .lm-compose-box textarea {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 48px;
   max-height: none;
 }
@@ -825,31 +1048,154 @@
   color: var(--muted);
 }
 
-/* 输入框下：模式/模型与发送同一行 */
+/* 输入框下：模型 + 精简操作 + 发送（Cursor 式单行） */
 .lm-compose-toolbar {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
-  gap: 8px 12px;
-  padding: 8px 12px 10px;
+  gap: 6px;
+  padding: 3px 8px 5px;
   border-top: 1px solid var(--border);
   background: rgba(0, 0, 0, 0.12);
+  flex-shrink: 0;
 }
 
 .lm-compose-toolbar-start {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 8px 12px;
+  gap: 6px;
   min-width: 0;
-  flex: 1;
+  flex: 1 1 auto;
 }
 
 .lm-compose-toolbar-end {
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
+  gap: 8px;
   flex-shrink: 0;
+  margin-left: auto;
+}
+
+.lm-compose-options {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.lm-compose-plus-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color var(--t) var(--ease), background var(--t) var(--ease), color var(--t) var(--ease);
+}
+
+.lm-compose-plus-btn:hover {
+  border-color: var(--border-md);
+  color: var(--text);
+  background: var(--surface-2, var(--surface));
+}
+
+.lm-compose-plus-btn:focus-visible {
+  outline: none;
+  border-color: var(--accent-border);
+  box-shadow: var(--focus-ring);
+}
+
+.lm-compose-plus-btn[aria-expanded="true"] {
+  border-color: var(--accent-border);
+  color: var(--accent);
+  background: rgba(183, 154, 103, 0.12);
+}
+
+.lm-compose-options-panel {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 220px;
+  max-height: min(360px, 50vh);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-elevated, var(--surface));
+  box-shadow: var(--shadow-md, 0 8px 24px rgba(0, 0, 0, 0.35));
+}
+
+.lm-compose-options-panel[hidden] {
+  display: none !important;
+}
+
+.lm-compose-options-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 7px 8px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lm-compose-options-action:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.lm-compose-options-action-k {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.lm-compose-options-divider {
+  height: 1px;
+  margin: 2px 4px;
+  background: var(--border);
+}
+
+.lm-compose-options-panel .lm-compose-bar-field {
+  width: 100%;
+  justify-content: space-between;
+  padding: 2px 4px;
+}
+
+.lm-compose-options-panel .lm-compose-select {
+  max-width: 140px;
+}
+
+.lm-compose-bar-model {
+  max-width: min(100%, 280px);
 }
 
 .lm-compose-bar-field {
@@ -1109,19 +1455,23 @@
 
 .lm-messages-toolbar {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 8px 12px;
-  padding: 6px 12px;
+  gap: 8px;
+  padding: 0 10px;
+  min-height: 22px;
+  height: 22px;
   border-bottom: 1px solid var(--lm-border);
 }
 
 .lm-messages-brief-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  gap: 5px;
+  font-size: 11px;
+  line-height: 1;
   color: var(--lm-muted);
+  white-space: nowrap;
 }
 
 .lm-chat-history-search {
@@ -1214,23 +1564,15 @@
   color: var(--lm-muted);
 }
 
-.lm-compose-pending-badge {
-  font-size: 12px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--lm-warn, #d97706);
-  background: var(--lm-warn-bg);
-  cursor: pointer;
-}
-
 .lm-compose-attachments {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px 4px;
-  border-bottom: 1px solid var(--border);
-  background: rgba(183, 154, 103, 0.05);
+  padding: 4px 2px 2px;
+  border-bottom: none;
+  background: transparent;
   min-height: 0;
+  flex-shrink: 0;
 }
 
 .lm-compose-attachments-k {
@@ -1347,6 +1689,15 @@
   color: var(--muted);
 }
 
+.lm-compose-context-picker-search {
+  display: block;
+  margin: 0 0 10px;
+}
+
+.lm-compose-context-picker-search .lm-input {
+  width: 100%;
+}
+
 .lm-compose-context-picker-group-title {
   margin: 8px 0 4px;
   font-size: 11px;
@@ -1432,6 +1783,121 @@
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   background: rgba(0, 0, 0, 0.12);
+}
+
+.lm-compose-template-gallery-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.lm-job-intake {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.lm-job-intake-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lm-job-intake-head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.lm-job-intake-hint {
+  margin: 0;
+}
+
+.lm-job-intake-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: min(50vh, 420px);
+  overflow: auto;
+}
+
+.lm-job-intake-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.lm-job-intake-field abbr {
+  color: var(--danger, #c45);
+  text-decoration: none;
+  margin-left: 2px;
+}
+
+.lm-job-intake-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lm-workflow-journey-hint {
+  margin: 4px 0 0;
+  font-weight: 500;
+}
+
+.lm-wizard-recommended {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.lm-wizard-recommended-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lm-btn-selected {
+  border-color: var(--accent-border, #b79a67) !important;
+  background: rgba(183, 154, 103, 0.15) !important;
+}
+
+.lm-firstrun-prefs {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.lm-firstrun-pref-group {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.lm-firstrun-pref-group legend {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--muted);
+}
+
+.lm-firstrun-pref-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lm-firstrun-pref-options .lm-firstrun-card {
+  flex: 1 1 120px;
+  min-width: 100px;
+  text-align: center;
+  padding: 10px 12px;
 }
 /* ── Quick-action chips ────────────────────────────────────── */
 .lm-chip-row {

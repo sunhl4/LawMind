@@ -16,7 +16,7 @@ import {
   loadAssistantProfiles,
   resolveLawMindRoot,
 } from "../../assistants/store.js";
-import { createLawMindAgent } from "../index.js";
+import { createLawMindAgent } from "../agent-factory.js";
 import { saveSession } from "../session.js";
 import type { AgentConfig } from "../types.js";
 import type { CollaborationMessage, CollaborationMessageKind } from "./types.js";
@@ -90,7 +90,14 @@ export async function sendAndWait(params: {
 
   const targetConfig = resolveAssistantConfig(baseConfig, toAssistantId);
   if (!targetConfig) {
-    throw new Error(`Assistant not found: ${toAssistantId}`);
+    const root = resolveLawMindRoot(baseConfig.workspaceDir, baseConfig.envFile);
+    const names = loadAssistantProfiles(root)
+      .map((p) => p.displayName)
+      .join("、");
+    throw new Error(
+      `Assistant not found: ${toAssistantId}` +
+        (names ? `（当前可读助手：${names}；请确认桌面端助手配置与工作区路径一致）` : ""),
+    );
   }
 
   const agent = createLawMindAgent(targetConfig);
@@ -136,7 +143,14 @@ export function fireAndForget(params: {
 
   const targetConfig = resolveAssistantConfig(baseConfig, toAssistantId);
   if (!targetConfig) {
-    throw new Error(`Assistant not found: ${toAssistantId}`);
+    const root = resolveLawMindRoot(baseConfig.workspaceDir, baseConfig.envFile);
+    const names = loadAssistantProfiles(root)
+      .map((p) => p.displayName)
+      .join("、");
+    throw new Error(
+      `Assistant not found: ${toAssistantId}` +
+        (names ? `（当前可读助手：${names}；请确认桌面端助手配置与工作区路径一致）` : ""),
+    );
   }
 
   const agent = createLawMindAgent(targetConfig);

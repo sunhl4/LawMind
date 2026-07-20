@@ -57,4 +57,19 @@ describe("application/matter-consistency", () => {
       true,
     );
   });
+
+  it("reports status_drift when CASE 当前阶段 differs from JSON status", async () => {
+    await ensureMatterWithProjection(workspaceDir, {
+      matterId: "matter-status",
+      title: "状态案件",
+    });
+    const casePath = path.join(workspaceDir, "cases", "matter-status", "CASE.md");
+    let raw = await fs.readFile(casePath, "utf8");
+    raw = raw.replace(/当前阶段[:：][^\n]*/, "当前阶段: 已结案");
+    await fs.writeFile(casePath, raw, "utf8");
+    const issues = await checkMatterConsistency(workspaceDir);
+    expect(issues.some((i) => i.matterId === "matter-status" && i.code === "status_drift")).toBe(
+      true,
+    );
+  });
 });

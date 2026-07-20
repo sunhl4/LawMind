@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiGetJson } from "./api-client";
+import { useActionSummaryQuery } from "./lawmind-query-hooks";
 import {
   readComposePermissionMode,
   writeComposePermissionMode,
@@ -8,6 +9,11 @@ import {
 
 export type LawmindComposeExtras = ReturnType<typeof useLawmindComposeExtras>;
 
+/**
+ * Compose chrome extras. Action-summary is shared with the shell React Query
+ * cache (workspace-wide) so sticky review / badges stay in sync without a
+ * second 5s poller.
+ */
 export function useLawmindComposeExtras(opts: {
   apiBase?: string;
   sessionId?: string;
@@ -16,28 +22,21 @@ export function useLawmindComposeExtras(opts: {
   const [permissionMode, setPermissionMode] = useState<ComposePermissionMode>(() =>
     readComposePermissionMode(),
   );
-  const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
   const [contextBudget, setContextBudget] = useState<{
     used: number;
     effectiveLimit: number;
     level: string;
   } | null>(null);
 
+  // Workspace-wide summary (not scoped to compose matter) — sticky CTA needs all pending drafts.
+  const summaryQuery = useActionSummaryQuery(opts.apiBase ?? null, null, Boolean(opts.apiBase));
+  const actionSummary = summaryQuery.data ?? null;
+  const pendingApprovalCount =
+    actionSummary?.pendingToolApprovals ?? actionSummary?.toolApprovals?.length ?? 0;
+
   const refreshPending = useCallback(async () => {
-    if (!opts.apiBase) {
-      return;
-    }
-    const q = opts.matterId ? `?matterId=${encodeURIComponent(opts.matterId)}` : "";
-    try {
-      const s = await apiGetJson<{ ok: boolean; toolApprovals?: unknown[] }>(
-        opts.apiBase,
-        `/api/action-summary${q}`,
-      );
-      setPendingApprovalCount(s.toolApprovals?.length ?? 0);
-    } catch {
-      setPendingApprovalCount(0);
-    }
-  }, [opts.apiBase, opts.matterId]);
+    await summaryQuery.refetch();
+  }, [summaryQuery.refetch]);
 
   const refreshContextBudget = useCallback(async () => {
     if (!opts.apiBase || !opts.sessionId) {
@@ -56,12 +55,6 @@ export function useLawmindComposeExtras(opts: {
       setContextBudget(null);
     }
   }, [opts.apiBase, opts.sessionId]);
-
-  useEffect(() => {
-    void refreshPending();
-    const t = window.setInterval(() => void refreshPending(), 12_000);
-    return () => window.clearInterval(t);
-  }, [refreshPending]);
 
   useEffect(() => {
     void refreshContextBudget();
@@ -87,6 +80,7 @@ export function useLawmindComposeExtras(opts: {
     permissionMode,
     onPermissionModeChange,
     pendingApprovalCount,
+    actionSummary,
     refreshPending,
     contextBudget,
     refreshContextBudget,

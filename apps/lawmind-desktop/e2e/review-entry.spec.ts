@@ -1,0 +1,47 @@
+import { expect, test } from "@playwright/test";
+import { gotoShell, installE2eBrowserPrefs, openReviewWorkbench } from "./e2e-helpers";
+
+test.describe("文书台 / 待我拍板 决策落地", () => {
+  test.beforeEach(async ({ page }) => {
+    await installE2eBrowserPrefs(page);
+  });
+
+  test("在办 pending_review → 进入文书台可见签批区", async ({ page }) => {
+    await gotoShell(page);
+    await page.getByTestId("lm-tab-agents").click();
+    await expect(page.getByTestId("lm-agent-fleet-panel")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("lm-agent-fleet-card-pending_review")).toBeVisible({
+      timeout: 30_000,
+    });
+    await page.getByTestId("lm-agent-fleet-card-pending_review").click();
+    await page.getByRole("button", { name: "进入文书台", exact: true }).click();
+    await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench").first()).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(page.getByText(/文书台|签批|执行状态/)).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("侧栏待我拍板 opens needs-decision focus", async ({ page }) => {
+    await gotoShell(page);
+    const hub = page.getByTestId("lm-side-needs-decision").or(page.getByTestId("lm-side-action-hub"));
+    await expect(hub).toBeVisible({ timeout: 60_000 });
+    await hub.click();
+    await expect(page.getByTestId("lm-agents-desk")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("lm-agent-fleet-panel")).toHaveAttribute(
+      "data-needs-decision",
+      "true",
+      { timeout: 15_000 },
+    );
+    await expect(
+      page.getByTestId("lm-fleet-decision-focus-lead").or(page.getByTestId("lm-fleet-decision-empty")),
+    ).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("openReviewWorkbench helper still reaches workbench", async ({ page }) => {
+    await gotoShell(page);
+    await openReviewWorkbench(page);
+    await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench").first()).toBeVisible({
+      timeout: 30_000,
+    });
+  });
+});

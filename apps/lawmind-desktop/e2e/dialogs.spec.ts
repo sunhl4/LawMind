@@ -1,21 +1,28 @@
 import { expect, test } from "@playwright/test";
-import { gotoShell, installE2eBrowserPrefs, openMatterCockpit } from "./e2e-helpers";
+import { gotoShell, installE2eBrowserPrefs } from "./e2e-helpers";
 
 test.describe("LawMind dialogs", () => {
   test.beforeEach(async ({ page }) => {
     await installE2eBrowserPrefs(page);
   });
 
-  test("create matter dialog uses wizard backdrop", async ({ page }) => {
+  test("新建案件 creates a folder inline under 案件材料 (no create dialog)", async ({ page }) => {
     await gotoShell(page);
-    await openMatterCockpit(page);
-    const createBtn = page.getByRole("button", { name: /新建案件/i }).first();
-    await createBtn.click({ timeout: 60_000 });
-    const dialog = page.getByRole("dialog", { name: /新建案件|创建案件/i });
-    await expect(dialog).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator(".lm-wizard-backdrop")).toBeVisible();
-    await page.getByRole("button", { name: /取消|关闭/i }).first().click();
-    await expect(dialog).toHaveCount(0, { timeout: 15_000 });
+    const casesHeader = page
+      .locator(".lm-fs-section")
+      .filter({ hasText: "案件材料" })
+      .locator(".lm-fs-dual-header-body");
+    await expect(casesHeader).toBeVisible({ timeout: 30_000 });
+    await casesHeader.click({ button: "right" });
+    const newMatter = page.getByRole("menuitem", { name: /新建案件/ });
+    await expect(newMatter).toBeVisible({ timeout: 15_000 });
+    await newMatter.click();
+    const inline = page.locator(".lm-fs-inline-input input").first();
+    await expect(inline).toBeVisible({ timeout: 15_000 });
+    await expect(inline).toHaveAttribute("placeholder", /案件名/);
+    // Cancel without creating — Esc closes the inline field.
+    await inline.press("Escape");
+    await expect(page.getByRole("dialog", { name: /新建案件|创建案件/i })).toHaveCount(0);
   });
 
   test("first-run wizard can be dismissed without blocking shell", async ({ page }) => {

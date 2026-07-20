@@ -11,6 +11,8 @@ import { errorMessage, messageFromOkFalseBody } from "../api-client";
 import { apiPost } from "../lawmind-api-routes.ts";
 import { displayNameFromImportBasename, suggestMatterIdForImport } from "../../../../../src/lawmind/cases/matter-label.ts";
 import type { AppConfig } from "../lawmind-app-bootstrap";
+import type { LawmindMainView } from "../lawmind-main-view";
+import type { AgentPreset } from "../lawmind-agent-fleet-api";
 
 export type UseLawmindAppRootHandlersInput = {
   config: AppConfig | null;
@@ -29,10 +31,9 @@ export type UseLawmindAppRootHandlersInput = {
   setMatterRefreshVersion: React.Dispatch<React.SetStateAction<number>>;
   setContextMatterId: (id: string | null) => void;
   setContextTaskId: (id: string | null) => void;
-  setMainView: (view: "workspace" | "collaboration" | "review") => void;
+  setMainView: (view: LawmindMainView) => void;
   setMatterCockpitOpen: (open: boolean) => void;
   setCreateMatterOpen: (open: boolean) => void;
-  setMatterRenameOpen: (value: { matterId: string; initialTitle: string } | null) => void;
   setMatterDeleteOpen: (value: { matterId: string; label: string } | null) => void;
   setReviewLaunchedFromMatter: (v: boolean) => void;
   setReviewFocusTaskId: (id: string | null) => void;
@@ -41,13 +42,13 @@ export type UseLawmindAppRootHandlersInput = {
   setReviewFocusListMode: (m: "pending" | "all") => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
-  setToolApprovalDialogAction: (action: LawMindRequiresAction | null) => void;
   setMessagesByAssistant: React.Dispatch<
     React.SetStateAction<Record<string, import("../lawmind-chat").ChatMsg[]>>
   >;
   setSessionByAssistant: React.Dispatch<React.SetStateAction<Record<string, string | undefined>>>;
   sendChatMessage: (msg: string) => Promise<void>;
   refreshActionSummary: () => void | Promise<void>;
+  createNewChatSession: () => void | Promise<void>;
 };
 
 export function useLawmindAppRootHandlers(input: UseLawmindAppRootHandlersInput) {
@@ -65,20 +66,19 @@ export function useLawmindAppRootHandlers(input: UseLawmindAppRootHandlersInput)
     setContextMatterId,
     setMainView,
     setMatterCockpitOpen,
-    setCreateMatterOpen,
-    setMatterRenameOpen,
     setMatterDeleteOpen,
     setReviewLaunchedFromMatter,
     setReviewFocusStatus,
     setReviewFocusListMode,
     setReviewFocusTaskId,
+    setReviewFocusMatterId,
     setLoading,
     setError,
-    setToolApprovalDialogAction,
     setMessagesByAssistant,
     setSessionByAssistant,
     sendChatMessage,
     refreshActionSummary,
+    createNewChatSession,
   } = input;
 
   const handleResumeRequiresAction = useCallback(
@@ -87,12 +87,8 @@ export function useLawmindAppRootHandlers(input: UseLawmindAppRootHandlersInput)
       decision: LawMindRequiresActionDecision,
       clarificationDraft?: Record<string, string>,
       editedArgs?: Record<string, unknown>,
-      opts?: { skipApprovalDialog?: boolean },
     ) => {
-      if (!opts?.skipApprovalDialog && decision === "approve" && action.kind === "tool_approval") {
-        setToolApprovalDialogAction(action);
-        return;
-      }
+      // Single-step approve on the chat card.
       if (!config?.apiBase) {
         return;
       }
@@ -152,7 +148,6 @@ export function useLawmindAppRootHandlers(input: UseLawmindAppRootHandlersInput)
       setLoading,
       setMessagesByAssistant,
       setSessionByAssistant,
-      setToolApprovalDialogAction,
     ],
   );
 
@@ -268,14 +263,10 @@ export function useLawmindAppRootHandlers(input: UseLawmindAppRootHandlersInput)
         setMatterCockpitOpen(true);
       },
       onLinkMatterToChat: linkMatterToChat,
-      onRequestRenameDisplayName: (mid, initialTitle) => {
-        setMatterRenameOpen({ matterId: mid, initialTitle });
-      },
       onRequestDeleteMatter: (mid, label) => {
         setMatterDeleteOpen({ matterId: mid, label });
       },
       onSetCaseSubdirRole: setCaseSubdirRole,
-      onNewMatter: () => setCreateMatterOpen(true),
       onImportMatters: () => void importMattersFromUserFiles(),
       onRefreshMatters: () => setMatterRefreshVersion((v) => v + 1),
       importMattersBusy: matterImportBusy,
@@ -289,29 +280,61 @@ export function useLawmindAppRootHandlers(input: UseLawmindAppRootHandlersInput)
     matterLabelById,
     recordsDeskMatters.setSelectedKey,
     setCaseSubdirRole,
-    setCreateMatterOpen,
     setMatterCockpitOpen,
     setMatterDeleteOpen,
     setMatterRefreshVersion,
-    setMatterRenameOpen,
   ]);
 
-  const openReviewFromWorkspace = useCallback(() => {
-    setReviewLaunchedFromMatter(false);
-    setReviewFocusStatus("pending");
-    setReviewFocusListMode("pending");
-    setMainView("review");
-    if (contextTaskId?.trim()) {
-      setReviewFocusTaskId(contextTaskId.trim());
-    }
-  }, [
-    contextTaskId,
-    setMainView,
-    setReviewFocusListMode,
-    setReviewFocusStatus,
-    setReviewFocusTaskId,
-    setReviewLaunchedFromMatter,
-  ]);
+  const openReviewFromWorkspace = useCallback(
+    (target?: { taskId?: string; matterId?: string }) => {
+      setReviewLaunchedFromMatter(false);
+      setReviewFocusStatus("pending");
+      setReviewFocusListMode("pending");
+      const taskId = target?.taskId?.trim() || contextTaskId?.trim() || null;
+      const matterId = target?.matterId?.trim() || null;
+      setReviewFocusTaskId(taskId);
+      if (matterId) {
+        setReviewFocusMatterId(matterId);
+        setContextMatterId(matterId);
+      }
+      setMainView("review");
+    },
+    [
+      contextTaskId,
+      setContextMatterId,
+      setMainView,
+      setReviewFocusListMode,
+      setReviewFocusMatterId,
+      setReviewFocusStatus,
+      setReviewFocusTaskId,
+      setReviewLaunchedFromMatter,
+    ],
+  );
+
+  const handleSpawnPreset = useCallback(
+    async (preset: AgentPreset) => {
+      const prompt = preset.starterPrompt?.trim();
+      if (!prompt) {
+        return;
+      }
+      setMatterCockpitOpen(false);
+      setMainView("workspace");
+      await createNewChatSession();
+      await sendChatMessage(prompt);
+      void refreshActionSummary();
+    },
+    [
+      createNewChatSession,
+      refreshActionSummary,
+      sendChatMessage,
+      setMainView,
+      setMatterCockpitOpen,
+    ],
+  );
+
+  const handleChatResumeComplete = useCallback(async () => {
+    void refreshActionSummary();
+  }, [refreshActionSummary]);
 
   return {
     handleResumeRequiresAction,
@@ -319,5 +342,7 @@ export function useLawmindAppRootHandlers(input: UseLawmindAppRootHandlersInput)
     importMattersFromUserFiles,
     workspaceCasesMenu,
     openReviewFromWorkspace,
+    handleSpawnPreset,
+    handleChatResumeComplete,
   };
 }

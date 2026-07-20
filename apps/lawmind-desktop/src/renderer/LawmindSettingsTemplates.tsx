@@ -1,5 +1,6 @@
 /**
- * 交付模板（上传 .docx）：列表、登记、扫描预览。复杂逻辑在服务端与 lawmind 核心包中完成，这里只做最少操作。
+ * 交付模板（上传 .docx / .pptx）：列表、登记、扫描预览。
+ * 复杂逻辑在服务端与 lawmind 核心包中完成，这里只做最少操作。
  */
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
@@ -12,6 +13,8 @@ type UploadedRow = {
   enabled: boolean;
   version: number;
 };
+
+type TemplateFormat = "docx" | "pptx";
 
 type Props = {
   apiBase: string;
@@ -35,6 +38,10 @@ function templateFeedbackCalloutClass(message: string): string {
   return "lm-callout lm-callout-muted";
 }
 
+function inferFormatFromPath(rel: string): TemplateFormat {
+  return rel.toLowerCase().endsWith(".pptx") || rel.toLowerCase().endsWith(".ppt") ? "pptx" : "docx";
+}
+
 export function LawmindSettingsTemplates({ apiBase }: Props): ReactNode {
   const [uploaded, setUploaded] = useState<UploadedRow[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -44,6 +51,7 @@ export function LawmindSettingsTemplates({ apiBase }: Props): ReactNode {
   const [filePath, setFilePath] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [templateId, setTemplateId] = useState("");
+  const [format, setFormat] = useState<TemplateFormat>("docx");
   const [scanPreview, setScanPreview] = useState<string[] | null>(null);
 
   const refresh = useCallback(async () => {
@@ -70,6 +78,10 @@ export function LawmindSettingsTemplates({ apiBase }: Props): ReactNode {
   const onScan = async () => {
     if (!apiBase?.trim() || !filePath.trim()) {
       setHint("请填写相对路径（相对工作区根目录）");
+      return;
+    }
+    if (format === "pptx") {
+      setHint("PPT 模板暂不支持扫描 {{占位符}}；可直接登记，渲染时按内置字段填充。");
       return;
     }
     setBusy(true);
@@ -108,20 +120,21 @@ export function LawmindSettingsTemplates({ apiBase }: Props): ReactNode {
       return;
     }
     const id = templateId.trim() ? templateId.trim() : slugUploadIdFromLabel(name);
+    const resolvedFormat = format === "pptx" || inferFormatFromPath(rel) === "pptx" ? "pptx" : "docx";
     setBusy(true);
     setHint(null);
     try {
       const j = await apiSendJson<
         { ok?: boolean; error?: string; template?: { id: string; label: string } },
-        { id: string; label: string; path: string; format: "docx" }
+        { id: string; label: string; path: string; format: TemplateFormat }
       >(apiBase, "/api/templates/register", "POST", {
         id,
         label: name,
         path: rel,
-        format: "docx",
+        format: resolvedFormat,
       });
       if (j.ok) {
-        setHint(`已登记：${j.template?.label ?? name}`);
+        setHint(`已登记：${j.template?.label ?? name}（${resolvedFormat}）`);
         setFilePath("");
         setDisplayName("");
         setTemplateId("");
@@ -180,10 +193,11 @@ export function LawmindSettingsTemplates({ apiBase }: Props): ReactNode {
 
   return (
     <div className="lm-settings-section">
-      <div className="lm-settings-section-title">Word 交付模板</div>
+      <div className="lm-settings-section-title">交付模板</div>
       <p className="lm-settings-hint lm-settings-template-intro">
-        将本所 .docx 放在<strong>工作区</strong>内（可放在某项目下），在正文中用{" "}
-        <code>{"{{title}}"}</code>、<code>{"{{summary}}"}</code> 等作为占位（须连续输入）。审核通过后渲染时选用即可。
+        登记工作区内的 <strong>.docx</strong> 或 <strong>.pptx</strong>
+        （路径相对工作区根）。Word 可用 <code>{"{{title}}"}</code> 等占位符；PPT
+        登记后在文书台渲染时选用。内置文书类型也可直接导出 pptx（见「版本与文书类型」清单中的默认输出）。
       </p>
 
       <div className="lm-settings-group lm-settings-surface">
@@ -207,6 +221,7 @@ export function LawmindSettingsTemplates({ apiBase }: Props): ReactNode {
                 <code className="lm-settings-template-id" title={row.id}>
                   {row.id}
                 </code>
+                <span className="lm-meta">{row.format || "docx"}</span>
                 <span className="lm-meta">v{row.version}</span>
               </div>
               <div className="lm-settings-template-row-actions">
@@ -247,12 +262,25 @@ export function LawmindSettingsTemplates({ apiBase }: Props): ReactNode {
               className="lm-settings-template-input"
               value={filePath}
               onChange={(e) => {
-                setFilePath(e.target.value);
+                const next = e.target.value;
+                setFilePath(next);
                 setScanPreview(null);
+                setFormat(inferFormatFromPath(next));
               }}
               placeholder="例如 projects/某项目/templates/所函.docx"
               autoComplete="off"
             />
+          </label>
+          <label>
+            <span>格式</span>
+            <select
+              className="lm-settings-template-input"
+              value={format}
+              onChange={(e) => setFormat(e.target.value as TemplateFormat)}
+            >
+              <option value="docx">Word（.docx）</option>
+              <option value="pptx">演示文稿（.pptx）</option>
+            </select>
           </label>
           <label>
             <span>显示名称</span>
@@ -263,7 +291,7 @@ export function LawmindSettingsTemplates({ apiBase }: Props): ReactNode {
               onChange={(e) => {
                 setDisplayName(e.target.value);
               }}
-              placeholder="如：所函、办案备忘录"
+              placeholder="如：所函、办案备忘录、汇报 PPT"
             />
           </label>
           <label>
@@ -283,7 +311,8 @@ export function LawmindSettingsTemplates({ apiBase }: Props): ReactNode {
           <button
             type="button"
             className="lm-btn lm-btn-secondary lm-btn-sm"
-            disabled={busy}
+            disabled={busy || format === "pptx"}
+            title={format === "pptx" ? "PPT 暂不支持占位符扫描" : undefined}
             onClick={() => {
               void onScan();
             }}

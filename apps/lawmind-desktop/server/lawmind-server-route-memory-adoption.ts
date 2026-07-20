@@ -17,6 +17,7 @@ import {
   type MemoryAdoptionState,
   type MemoryScope,
 } from "../../../src/lawmind/memory/adoption-service.js";
+import { listPendingAdoptionsUnified } from "../../../src/lawmind/memory/unified-pending-adoptions.js";
 import { buildAdoptionPreviewDiff } from "../../../src/lawmind/memory/adoption-preview-diff.js";
 import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
 import {
@@ -85,12 +86,24 @@ export async function handleMemoryAdoptionRoutes({
     const scope = asScope(url.searchParams.get("scope"));
     const state = asState(url.searchParams.get("state"));
     const targetId = url.searchParams.get("matterId") ?? url.searchParams.get("targetId") ?? undefined;
+    const unified = url.searchParams.get("unified") !== "0";
+    if (unified && (!state || state === "pending")) {
+      let items = await listPendingAdoptionsUnified(workspaceDir);
+      if (scope) {
+        items = items.filter((i) => i.scope === scope);
+      }
+      if (targetId) {
+        items = items.filter((i) => i.targetId === targetId);
+      }
+      sendJson(res, 200, { ok: true, items, unified: true }, c);
+      return true;
+    }
     const items = await listMemorySuggestions(workspaceDir, {
       scope,
       state,
       targetId: targetId ?? undefined,
     });
-    sendJson(res, 200, { ok: true, items }, c);
+    sendJson(res, 200, { ok: true, items, unified: false }, c);
     return true;
   }
 

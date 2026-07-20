@@ -1,27 +1,27 @@
 import { useMemo } from "react";
 import type { HealthPayload } from "../lawmind-app-data";
+import type { LawmindMainView } from "../lawmind-main-view";
 import type { ModelCatalogEntry } from "../lawmind-models-api";
 import type { ReviewPaneId, ReviewPaneVisibility } from "../lawmind-review-pane-prefs";
 import type { AssistantRow } from "../lawmind-settings-models.ts";
 import type { SetShowSettings } from "../lawmind-settings-shell";
-import type { CollaborationDeskTab } from "../LawmindCollaborationDesk";
 import type { LawmindAppHeaderProps } from "./LawmindAppHeader";
 
 export type UseLawmindAppHeaderPropsInput = {
-  mainView: "workspace" | "collaboration" | "review";
+  mainView: LawmindMainView;
   assistants: AssistantRow[];
   selectedAssistantId: string;
   setSelectedAssistantId: (id: string) => void;
   matterCockpitOpen: boolean;
   setMatterCockpitOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  setMainView: (view: "workspace" | "collaboration" | "review") => void;
-  setCollaborationDeskTab: (tab: CollaborationDeskTab) => void;
-  setReviewLaunchedFromMatter: (v: boolean) => void;
+  setMainView: (view: LawmindMainView) => void;
   apiBase: string | undefined;
   actionSummaryTotal: number;
-  setShowActionHub: (open: boolean) => void;
+  setAgentsDeskTab?: (tab: import("../lawmind-agents-desk").AgentsDeskTab) => void;
+  setAgentsNeedsDecisionFocus?: (focus: boolean) => void;
   projectDir: string | null;
   currentMatterLabel: string | null;
+  contextMatterId?: string | null;
   sidebarCollapsed: boolean;
   setSidebarCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
   wsShowEditor: boolean;
@@ -52,13 +52,13 @@ export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): 
     matterCockpitOpen,
     setMatterCockpitOpen,
     setMainView,
-    setCollaborationDeskTab,
-    setReviewLaunchedFromMatter,
     apiBase,
     actionSummaryTotal,
-    setShowActionHub,
+    setAgentsDeskTab,
+    setAgentsNeedsDecisionFocus,
     projectDir,
     currentMatterLabel,
+    contextMatterId,
     sidebarCollapsed,
     setSidebarCollapsed,
     wsShowEditor,
@@ -89,17 +89,33 @@ export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): 
       matterCockpitOpen,
       onExitMatterCockpit: () => setMatterCockpitOpen(false),
       onSetMainView: setMainView,
-      onOpenCollaborationOverview: () => {
-        setCollaborationDeskTab("overview");
-        setMainView("collaboration");
-      },
-      onOpenReviewTab: () => {
-        setReviewLaunchedFromMatter(false);
-        setMainView("review");
-      },
+      onOpenMatterCockpit: contextMatterId?.trim()
+        ? () => {
+            setMatterCockpitOpen(true);
+            setMainView("workspace");
+          }
+        : undefined,
       apiBase,
       actionSummaryTotal,
-      onOpenActionHub: () => setShowActionHub(true),
+      onOpenNeedsDecisionDesk: () => {
+        setMatterCockpitOpen(false);
+        setAgentsNeedsDecisionFocus?.(true);
+        setAgentsDeskTab?.("active");
+        setMainView("agents");
+      },
+      onClearNeedsDecisionFocus: () => setAgentsNeedsDecisionFocus?.(false),
+      onOpenAgentsDesk: () => {
+        setMatterCockpitOpen(false);
+        setAgentsNeedsDecisionFocus?.(true);
+        setAgentsDeskTab?.("active");
+        setMainView("agents");
+      },
+      onOpenActionHub: () => {
+        setMatterCockpitOpen(false);
+        setAgentsNeedsDecisionFocus?.(true);
+        setAgentsDeskTab?.("active");
+        setMainView("agents");
+      },
       projectDir,
       currentMatterLabel,
       sidebarCollapsed,
@@ -122,7 +138,10 @@ export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): 
       onOpenSettings: () => setShowSettings(true),
       onCloseSettings: () => setShowSettings(false),
       settingsOpen: showSettings,
-      showReadinessStrip: Boolean(apiBase && mainView !== "review"),
+      // Only nag until the model is ready — configured Solo lawyers stay in chat chrome.
+      showReadinessStrip: Boolean(
+        apiBase && mainView !== "review" && health && health.modelConfigured !== true,
+      ),
       health,
       workspaceDir,
       localServiceReconnecting,
@@ -143,13 +162,13 @@ export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): 
       matterCockpitOpen,
       setMatterCockpitOpen,
       setMainView,
-      setCollaborationDeskTab,
-      setReviewLaunchedFromMatter,
       apiBase,
       actionSummaryTotal,
-      setShowActionHub,
+      setAgentsDeskTab,
+      setAgentsNeedsDecisionFocus,
       projectDir,
       currentMatterLabel,
+      contextMatterId,
       sidebarCollapsed,
       setSidebarCollapsed,
       wsShowEditor,

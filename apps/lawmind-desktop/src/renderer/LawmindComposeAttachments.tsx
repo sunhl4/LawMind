@@ -10,40 +10,73 @@ export type ComposeAttachmentFilePill = {
 type Props = {
   filePills: ComposeAttachmentFilePill[];
   contextMatterId: string | null;
+  /** When set, show a compact draft chip instead of a full-width banner. */
+  contextTaskId?: string | null;
   matterTitle?: string | null;
   onRemoveFilePill: (id: string) => void;
   onClearFilePills: () => void;
   onClearMatter?: () => void;
+  onClearTask?: () => void;
 };
 
 export function LawmindComposeAttachments(props: Props): ReactNode {
   const {
     filePills,
     contextMatterId,
+    contextTaskId = null,
     matterTitle,
     onRemoveFilePill,
     onClearFilePills,
     onClearMatter,
+    onClearTask,
   } = props;
 
-  if (filePills.length === 0 && !contextMatterId) {
+  const hasTask = Boolean(contextTaskId?.trim());
+  const hasMatter = Boolean(contextMatterId?.trim()) && !hasTask;
+
+  if (filePills.length === 0 && !hasMatter && !hasTask) {
     return null;
   }
+
+  const matterLabel = contextMatterId
+    ? matterComposeChipLabel(contextMatterId, matterTitle)
+    : matterTitle?.trim() || "本案";
 
   return (
     <div className="lm-compose-attachments" role="region" aria-label="本回合上下文">
       <span className="lm-compose-attachments-k">上下文</span>
       <div className="lm-compose-attachments-scroll">
-        {contextMatterId ? (
-          <span className="lm-compose-chip lm-compose-chip--matter" title={`案件：${contextMatterId}`}>
+        {hasTask && contextTaskId ? (
+          <span
+            className="lm-compose-chip lm-compose-chip--matter"
+            title={`已关联草稿 ${contextTaskId}${contextMatterId ? ` · 案件 ${contextMatterId}` : ""}`}
+          >
             <span className="lm-compose-chip-label">
-              📂 {matterComposeChipLabel(contextMatterId, matterTitle)}
+              📄 草稿{matterTitle?.trim() ? ` · ${matterLabel}` : ""}
             </span>
+            {onClearTask ? (
+              <button
+                type="button"
+                className="lm-compose-chip-remove"
+                aria-label="取消关联草稿"
+                onClick={onClearTask}
+              >
+                ×
+              </button>
+            ) : null}
+          </span>
+        ) : null}
+        {hasMatter && contextMatterId ? (
+          <span
+            className="lm-compose-chip lm-compose-chip--matter"
+            title={`当前对话已关联案件：${matterLabel}（${contextMatterId}）`}
+          >
+            <span className="lm-compose-chip-label">已关联案件 · {matterLabel}</span>
             {onClearMatter ? (
               <button
                 type="button"
                 className="lm-compose-chip-remove"
-                aria-label={`移除案件 ${matterComposeChipLabel(contextMatterId, matterTitle)}`}
+                aria-label={`取消关联案件 ${matterLabel}`}
                 onClick={onClearMatter}
               >
                 ×

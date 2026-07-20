@@ -11,17 +11,27 @@ import type {
 import type { ModelCatalogEntry } from "../lawmind-models-api";
 import type { ReviewPaneVisibility, ReviewPaneId } from "../lawmind-review-pane-prefs";
 import type { CollabSummaryState } from "../LawmindSettingsCollaboration";
-import type { CollaborationDeskTab } from "../LawmindCollaborationDesk";
+import type { AgentsDeskTab } from "../lawmind-agents-desk";
 import type { LawMindRequiresAction, LawMindRequiresActionDecision } from "../lawmind-requires-action";
 import type { ChatMsg } from "../lawmind-chat";
 import type { FileChatContextItem } from "../lawmind-file-chat-context";
 import type { LawmindComposeExtras } from "../useLawmindComposeExtras";
 import type { LawmindHealthState } from "../useLawmindAppBootstrapEffects";
-import { CollaborationView } from "./CollaborationView";
 import { MatterView } from "./MatterView";
 import { ReviewView } from "./ReviewView";
+import { AgentFleetView } from "./AgentFleetView";
+import { AutomationsView } from "./AutomationsView";
+import { MeetingView } from "./MeetingView";
 import { LawmindWorkspaceMainPane } from "./LawmindWorkspaceMainPane";
 import { LawmindWorkspaceBootstrapGate } from "./LawmindWorkspaceBootstrapGate";
+import { pickWorkspaceMainPaneProps } from "./pickWorkspaceMainPaneProps";
+import {
+  pickAgentFleetViewProps,
+  pickAutomationsViewProps,
+  pickMatterViewProps,
+  pickMeetingViewProps,
+  pickReviewViewProps,
+} from "./pickMainBodyBranchProps";
 import { useLawmindShellNavigationContext } from "./LawmindShellContexts";
 
 export type LawmindMainBodyContentProps = {
@@ -40,14 +50,20 @@ export type LawmindMainBodyContentProps = {
   historyBadgeClass: (kind: string, taskRecordKind?: string, status?: string) => string;
   onMatterCreated: (matterId: string) => void;
   onUseInChat: (matterId: string) => void;
-  onOpenWorkflowLibrary: () => void;
-  onOpenChatSession: (sessionId: string, matterId?: string) => void;
+  /** @deprecated Prefer onOpenAgentsWorkflows */
+  onOpenWorkflowLibrary?: () => void;
+  /** Open top-level meeting desk scoped to a matter (from matter cockpit). */
+  onOpenTopLevelMeeting?: (matterId: string) => void;
+  meetingMatterOptions?: Array<{ id: string; title: string }>;
+  onSelectMeetingMatterScope?: (matterId: string | null) => void;
+  onOpenChatSession: (sessionId: string, matterId?: string, assistantId?: string) => void;
   onOpenReviewFromMatter: (target: {
     taskId: string;
     matterId?: string;
     statusFilter?: ArtifactDraft["reviewStatus"] | "all";
     listMode?: "pending" | "all";
   }) => void;
+  onOpenReviewFromWorkItem: (taskId: string, matterId?: string) => void;
   reviewFocusTaskId: string | null;
   reviewFocusMatterId: string | null;
   reviewFocusStatus: ArtifactDraft["reviewStatus"] | "all";
@@ -67,8 +83,10 @@ export type LawmindMainBodyContentProps = {
   gateHistory: GateHistoryItem[];
   onRefreshCollaboration: () => void | Promise<void>;
   onOpenDelegationTargetChat: (d: DelegationRow) => void | Promise<void>;
-  collaborationDeskTab: CollaborationDeskTab;
-  onDeskTabChange: (tab: CollaborationDeskTab) => void;
+  agentsDeskTab: AgentsDeskTab;
+  onAgentsDeskTabChange: (tab: AgentsDeskTab) => void;
+  needsDecisionFocus?: boolean;
+  onClearNeedsDecisionFocus?: () => void;
   modelCatalog: ModelCatalogEntry[];
   selectedModelId: string;
   onModelSelect: (id: string) => void;
@@ -105,10 +123,11 @@ export type LawmindMainBodyContentProps = {
   onSendClarificationMessage: (msg: string) => void | Promise<void>;
   streamCompactLabels: string[];
   fileChatContextItems: FileChatContextItem[];
+  onAddFileToChatContext?: (payload: Pick<FileChatContextItem, "root" | "relPath" | "kind">) => void;
   onRemoveFileChatPill: (id: string) => void;
   onClearFileChatPills: () => void;
   contextTaskId: string | null;
-  onOpenReviewFromWorkspace: () => void;
+  onOpenReviewFromWorkspace: (target?: { taskId?: string; matterId?: string }) => void;
   onDelegateAssist: () => void;
   delegateAssistEnabled: boolean;
   revisionBackgroundActive: boolean;
@@ -117,7 +136,6 @@ export type LawmindMainBodyContentProps = {
     decision: LawMindRequiresActionDecision,
     clarificationDraft?: Record<string, string>,
     editedArgs?: Record<string, unknown>,
-    opts?: { skipApprovalDialog?: boolean },
   ) => void | Promise<void>;
   input: string;
   error: string | null;
@@ -126,269 +144,53 @@ export type LawmindMainBodyContentProps = {
   onSend: () => void | Promise<void>;
   onAbortChat: () => void;
   onClearContext: () => void;
+  onContextMatterChange?: (matterId: string | null) => void;
   allowWebSearch: boolean;
   onAllowWebSearchChange: (enabled: boolean) => void;
   queuedMessages: string[];
   cancelQueuedMessage: (index: number) => void;
   onOpenTaskDrawer: () => void;
-  onOpenActionHub: () => void;
+  onOpenNeedsDecisionDesk?: () => void;
+  /** @deprecated Use onOpenNeedsDecisionDesk */
+  onOpenActionHub?: () => void;
+  onOpenReviewFromAutomation?: (taskId: string, matterId?: string) => void;
+  onOpenAgentsWorkflows?: (matterId?: string) => void;
   composeExtras: LawmindComposeExtras;
   onCreateMatter?: () => void;
   showEmptyMatterGuide?: boolean;
+  /** Session switcher is in the left rail; hide top chat tabs. */
+  chatSessionsInSidebar?: boolean;
+  activeChatSessionId?: string;
+  sessionRequiresActions?: LawMindRequiresAction[];
+  onRefreshActionSummary?: () => void;
+  onChatResumeComplete?: () => void | Promise<void>;
+  onSpawnPreset?: (preset: import("../lawmind-agent-fleet-api").AgentPreset) => void;
 };
 
 export function LawmindMainBodyContent(props: LawmindMainBodyContentProps) {
   const { mainView, matterCockpitOpen } = useLawmindShellNavigationContext();
-  const {
-    config,
-    matterRefreshVersion,
-    selectedAssistantId,
-    selectedMatterKey,
-    tasks,
-    history,
-    projectDir,
-    assistantDisplayById,
-    onOpenShellDetail,
-    formatRelativeTime,
-    legalStatusLabel,
-    taskBadgeClass,
-    historyBadgeClass,
-    onMatterCreated,
-    onUseInChat,
-    onOpenWorkflowLibrary,
-    onOpenChatSession,
-    onOpenReviewFromMatter,
-    reviewFocusTaskId,
-    reviewFocusMatterId,
-    reviewFocusStatus,
-    reviewFocusListMode,
-    reviewRefreshVersion,
-    reviewLaunchedFromMatter,
-    reviewPaneVisibility,
-    onReturnToMatter,
-    onShowArtifact,
-    onRecordsChanged,
-    onGoToChat,
-    onRevisionJobQueued,
-    onToggleReviewPane,
-    collabSummarySettings,
-    delegations,
-    collabEvents,
-    gateHistory,
-    onRefreshCollaboration,
-    onOpenDelegationTargetChat,
-    collaborationDeskTab,
-    onDeskTabChange,
-    modelCatalog,
-    selectedModelId,
-    onModelSelect,
-    onOpenComposeSettings,
-    onOpenApiWizard,
-    composeModelHint,
-    composeModelQuickTestBusy,
-    onComposeModelQuickTest,
-    health,
-    loading,
-    workflowModelLabel,
-    onReconnectLocalService,
-    localServiceReconnecting,
-    canUseFilesystemBridge,
-    setFileEditorHost,
-    wsShowEditor,
-    onShowEditorPane,
-    wsShowChat,
-    onShowChatPane,
-    onWsChatSplitResize,
-    wsChatColWidth,
-    chatSessionList,
-    chatSessionsLoading,
-    onSelectChatSession,
-    onCreateNewChatSession,
-    onRenameChatSession,
-    onDeleteChatSession,
-    currentMessages,
-    copiedMessageIndex,
-    messagesEndRef,
-    onCopyMessage,
-    onInputChange,
-    textareaRef,
-    onSendClarificationMessage,
-    streamCompactLabels,
-    fileChatContextItems,
-    onRemoveFileChatPill,
-    onClearFileChatPills,
-    contextTaskId,
-    onOpenReviewFromWorkspace,
-    onDelegateAssist,
-    delegateAssistEnabled,
-    revisionBackgroundActive,
-    onResumeRequiresAction,
-    input,
-    error,
-    contextMatterId,
-    chatMatterHeadline,
-    onSend,
-    onAbortChat,
-    onClearContext,
-    allowWebSearch,
-    onAllowWebSearchChange,
-    queuedMessages,
-    cancelQueuedMessage,
-    onOpenTaskDrawer,
-    onOpenActionHub,
-    composeExtras,
-    onCreateMatter,
-    showEmptyMatterGuide,
-  } = props;
 
-  if (mainView === "workspace" && matterCockpitOpen && config) {
+  if (mainView === "workspace" && matterCockpitOpen && props.config) {
+    const matterProps = pickMatterViewProps(props);
+    return matterProps ? <MatterView {...matterProps} /> : null;
+  }
+  if (mainView === "meeting") {
+    return <MeetingView {...pickMeetingViewProps(props)} />;
+  }
+  if (mainView === "review" && props.config) {
+    const reviewProps = pickReviewViewProps(props);
+    return reviewProps ? <ReviewView {...reviewProps} /> : null;
+  }
+  if (mainView === "agents") {
+    return <AgentFleetView {...pickAgentFleetViewProps(props)} />;
+  }
+  if (mainView === "automations") {
+    return <AutomationsView {...pickAutomationsViewProps(props)} />;
+  }
+  if (mainView === "workspace" && !matterCockpitOpen && !props.config) {
     return (
-      <MatterView
-        apiBase={config.apiBase}
-        refreshVersion={matterRefreshVersion}
-        assistantId={selectedAssistantId}
-        selectedMatterKey={selectedMatterKey}
-        tasks={tasks}
-        history={history}
-        workspaceDir={config.workspaceDir ?? null}
-        projectDir={projectDir}
-        assistantDisplayById={assistantDisplayById}
-        onOpenShellDetail={onOpenShellDetail}
-        formatShellRelativeTime={formatRelativeTime}
-        legalStatusLabel={legalStatusLabel}
-        taskBadgeClass={taskBadgeClass}
-        historyBadgeClass={historyBadgeClass}
-        onMatterCreated={onMatterCreated}
-        onUseInChat={onUseInChat}
-        onOpenWorkflowLibrary={onOpenWorkflowLibrary}
-        onOpenChatSession={onOpenChatSession}
-        onOpenReview={onOpenReviewFromMatter}
-      />
+      <LawmindWorkspaceBootstrapGate error={props.error} onOpenApiWizard={props.onOpenApiWizard} />
     );
   }
-  if (mainView === "review" && config) {
-    return (
-      <ReviewView
-        apiBase={config.apiBase}
-        assistantId={selectedAssistantId}
-        initialTaskId={reviewFocusTaskId}
-        initialMatterId={reviewFocusMatterId}
-        initialStatusFilter={reviewFocusStatus}
-        initialListMode={reviewFocusListMode}
-        externalRefreshToken={reviewRefreshVersion}
-        returnMatterId={reviewLaunchedFromMatter ? reviewFocusMatterId : null}
-        paneVisibility={reviewPaneVisibility}
-        onReturnToMatter={onReturnToMatter}
-        onShowArtifact={onShowArtifact}
-        onRecordsChanged={onRecordsChanged}
-        onGoToChat={onGoToChat}
-        onRevisionJobQueued={onRevisionJobQueued}
-        onToggleReviewPane={onToggleReviewPane}
-      />
-    );
-  }
-  if (mainView === "collaboration") {
-    return (
-      <CollaborationView
-        config={config}
-        collabSummarySettings={collabSummarySettings}
-        selectedAssistantId={selectedAssistantId}
-        delegations={delegations}
-        collabEvents={collabEvents}
-        gateHistory={gateHistory}
-        formatRelativeTime={formatRelativeTime}
-        onRefreshCollaboration={onRefreshCollaboration}
-        onOpenDelegationTargetChat={onOpenDelegationTargetChat}
-        collaborationDeskTab={collaborationDeskTab}
-        onDeskTabChange={onDeskTabChange}
-        modelCatalog={modelCatalog}
-        selectedModelId={selectedModelId}
-        onModelSelect={onModelSelect}
-        onOpenComposeSettings={onOpenComposeSettings}
-        onOpenApiWizard={onOpenApiWizard}
-        composeModelHint={composeModelHint}
-        composeModelQuickTestBusy={composeModelQuickTestBusy}
-        onComposeModelQuickTest={onComposeModelQuickTest}
-        healthModelConfigured={
-          health?.modelConfigured === true ? true : health?.modelConfigured === false ? false : undefined
-        }
-        chatLoading={loading}
-        workflowModelLabel={workflowModelLabel}
-        assistantDisplayById={assistantDisplayById}
-        onReconnectLocalService={onReconnectLocalService}
-        localServiceReconnecting={localServiceReconnecting}
-      />
-    );
-  }
-  if (mainView === "workspace" && !matterCockpitOpen && !config) {
-    return (
-      <LawmindWorkspaceBootstrapGate error={error} onOpenApiWizard={onOpenApiWizard} />
-    );
-  }
-  return (
-    <LawmindWorkspaceMainPane
-      canUseFilesystemBridge={canUseFilesystemBridge}
-      setFileEditorHost={setFileEditorHost}
-      wsShowEditor={wsShowEditor}
-      onShowEditorPane={onShowEditorPane}
-      wsShowChat={wsShowChat}
-      onShowChatPane={onShowChatPane}
-      onWsChatSplitResize={onWsChatSplitResize}
-      wsChatColWidth={wsChatColWidth}
-      chatSessionList={chatSessionList}
-      chatSessionsLoading={chatSessionsLoading}
-      loading={loading}
-      onSelectChatSession={onSelectChatSession}
-      onCreateNewChatSession={onCreateNewChatSession}
-      onRenameChatSession={onRenameChatSession}
-      onDeleteChatSession={onDeleteChatSession}
-      config={config}
-      currentMessages={currentMessages}
-      copiedMessageIndex={copiedMessageIndex}
-      messagesEndRef={messagesEndRef}
-      onCopyMessage={onCopyMessage}
-      onInputChange={onInputChange}
-      textareaRef={textareaRef}
-      onSendClarificationMessage={onSendClarificationMessage}
-      streamCompactLabels={streamCompactLabels}
-      fileChatContextItems={fileChatContextItems}
-      onRemoveFileChatPill={onRemoveFileChatPill}
-      onClearFileChatPills={onClearFileChatPills}
-      contextTaskId={contextTaskId}
-      onOpenReview={onOpenReviewFromWorkspace}
-      onDelegateAssist={onDelegateAssist}
-      delegateAssistEnabled={delegateAssistEnabled}
-      revisionBackgroundActive={revisionBackgroundActive}
-      onResumeRequiresAction={onResumeRequiresAction}
-      input={input}
-      error={error}
-      contextMatterId={contextMatterId}
-      chatMatterHeadline={chatMatterHeadline}
-      onSend={onSend}
-      onAbortChat={onAbortChat}
-      onClearContext={onClearContext}
-      onOpenComposeSettings={onOpenComposeSettings}
-      onOpenApiWizard={onOpenApiWizard}
-      composeModelHint={composeModelHint}
-      composeModelQuickTestBusy={composeModelQuickTestBusy}
-      onComposeModelQuickTest={onComposeModelQuickTest}
-      composeModelConfigured={
-        health?.modelConfigured === true ? true : health?.modelConfigured === false ? false : undefined
-      }
-      modelCatalog={modelCatalog}
-      selectedModelId={selectedModelId}
-      onModelSelect={onModelSelect}
-      allowWebSearch={allowWebSearch}
-      webSearchPolicyBlocked={health?.webSearchPolicyBlocked}
-      onAllowWebSearchChange={onAllowWebSearchChange}
-      queuedMessages={queuedMessages}
-      cancelQueuedMessage={cancelQueuedMessage}
-      onOpenTaskDrawer={onOpenTaskDrawer}
-      onOpenActionHub={onOpenActionHub}
-      composeExtras={composeExtras}
-      onCreateMatter={onCreateMatter}
-      onOpenWorkflowLibrary={onOpenWorkflowLibrary}
-      showEmptyMatterGuide={showEmptyMatterGuide}
-    />
-  );
+  return <LawmindWorkspaceMainPane {...pickWorkspaceMainPaneProps(props)} />;
 }

@@ -37,4 +37,12 @@ describe("lawmind-settings-nav", () => {
     expect(firstSettingsNavMatch("模型")).toBe("models");
     expect(firstSettingsNavMatch("")).toBe("doctor");
   });
+
+  it("keeps assistants in 常规 (not buried under 高级)", () => {
+    const assistantsGroup = filterSettingsNavGroups("").find((g) =>
+      g.items.some((i) => i.id === "assistants"),
+    );
+    expect(assistantsGroup?.id).toBe("general");
+    expect(assistantsGroup?.items.map((i) => i.id)).not.toContain("collaboration");
+  });
 });

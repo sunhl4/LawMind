@@ -87,6 +87,25 @@ try {
         ddj.citationIntegrity?.checked,
       );
     }
+
+    const fleet = await fetch(`${root}/api/agent-fleet`);
+    const fleetJ = await fleet.json();
+    if (!fleet.ok || fleetJ.ok !== true || !Array.isArray(fleetJ.runs)) {
+      console.error("Deep smoke: /api/agent-fleet failed", fleet.status, fleetJ);
+      process.exit(1);
+    }
+    const presets = await fetch(`${root}/api/agent-presets`);
+    const presetsJ = await presets.json();
+    if (!presets.ok || presetsJ.ok !== true || !Array.isArray(presetsJ.presets)) {
+      console.error("Deep smoke: /api/agent-presets failed", presets.status, presetsJ);
+      process.exit(1);
+    }
+    console.log(
+      "deep ok agent-fleet runs=",
+      fleetJ.runs.length,
+      "presets=",
+      presetsJ.presets.length,
+    );
   }
 
   process.exit(0);

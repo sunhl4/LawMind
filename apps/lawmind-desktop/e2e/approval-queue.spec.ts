@@ -3,7 +3,9 @@ import {
   approveToolViaDialog,
   gotoShell,
   installE2eBrowserPrefs,
+  openComposeOptions,
   openWorkspaceChat,
+  rejectToolViaCard,
 } from "./e2e-helpers";
 
 /**
@@ -27,11 +29,22 @@ test.describe("LawMind approval queue", () => {
   test("strict permission mode blocks dangerous tools until lawyer approves", async ({ page }) => {
     await gotoShell(page);
     await openWorkspaceChat(page);
+    await openComposeOptions(page);
     const perm = page.getByLabel("工具权限模式");
     await perm.selectOption("strict");
     await expect(perm).toHaveValue("strict");
     await expect(page.getByRole("button", { name: /批准并继续/ })).toBeVisible({
       timeout: 15_000,
     });
+  });
+
+  test("reject tool resumes session without requiring another approval dialog", async ({ page }) => {
+    await gotoShell(page);
+    await openWorkspaceChat(page);
+    await expect(page.getByRole("button", { name: /暂不执行/ })).toBeVisible({ timeout: 15_000 });
+    const resumeRes = await rejectToolViaCard(page);
+    const resumeJson = (await resumeRes.json()) as { resumeEcho?: { decision?: string }; reply?: string };
+    expect(resumeJson.resumeEcho?.decision).toBe("reject");
+    await expect(page.getByText(/已按您的确认继续|暂不|继续/)).toBeVisible({ timeout: 15_000 });
   });
 });

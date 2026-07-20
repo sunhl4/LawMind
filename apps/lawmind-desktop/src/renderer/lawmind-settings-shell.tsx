@@ -30,6 +30,7 @@ import {
   settingsNavItem,
   writeStoredSettingsSection,
 } from "./lawmind-settings-nav";
+import { useEdition } from "./use-edition";
 
 export type {
   LawmindSettingsScrollAnchorId,
@@ -171,6 +172,8 @@ export function LawmindSettingsPage({
   const [activeSectionId, setActiveSectionId] = useState<LawmindSettingsSectionId>(initialSectionId);
   const [navQuery, setNavQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
+  const { edition } = useEdition(config?.apiBase ?? "");
+  const collapseAdvancedByDefault = edition === "solo";
 
   useEffect(() => {
     if (open) {
@@ -290,25 +293,45 @@ export function LawmindSettingsPage({
             {filteredGroups.length === 0 ? (
               <p className="lm-meta lm-settings-nav-empty">无匹配项</p>
             ) : (
-              filteredGroups.map((group) => (
-                <div key={group.id} className="lm-settings-nav-group">
-                  <div className="lm-settings-nav-group-label">{group.label}</div>
-                  {group.items.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      className={`lm-settings-nav-item${activeSectionId === item.id ? " is-active" : ""}`}
-                      aria-current={activeSectionId === item.id ? "page" : undefined}
-                      onClick={() => navigateToSection(item.id)}
+              filteredGroups.map((group) => {
+                const items = group.items.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`lm-settings-nav-item${activeSectionId === item.id ? " is-active" : ""}`}
+                    aria-current={activeSectionId === item.id ? "page" : undefined}
+                    data-testid={`lm-settings-nav-${item.id}`}
+                    onClick={() => navigateToSection(item.id)}
+                  >
+                    <span className="lm-settings-nav-item-label">{item.label}</span>
+                    {navSearching ? (
+                      <span className="lm-settings-nav-item-hint">{item.description}</span>
+                    ) : null}
+                  </button>
+                ));
+                const collapseAdvanced =
+                  group.id === "advanced" && collapseAdvancedByDefault && !navSearching;
+                if (collapseAdvanced) {
+                  const forceOpen = group.items.some((item) => item.id === activeSectionId);
+                  return (
+                    <details
+                      key={group.id}
+                      className="lm-settings-nav-group lm-settings-nav-group--collapsible"
+                      data-testid="lm-settings-nav-advanced"
+                      {...(forceOpen ? { open: true } : {})}
                     >
-                      <span className="lm-settings-nav-item-label">{item.label}</span>
-                      {navSearching ? (
-                        <span className="lm-settings-nav-item-hint">{item.description}</span>
-                      ) : null}
-                    </button>
-                  ))}
-                </div>
-              ))
+                      <summary className="lm-settings-nav-group-label">{group.label}</summary>
+                      {items}
+                    </details>
+                  );
+                }
+                return (
+                  <div key={group.id} className="lm-settings-nav-group" data-testid={`lm-settings-nav-group-${group.id}`}>
+                    <div className="lm-settings-nav-group-label">{group.label}</div>
+                    {items}
+                  </div>
+                );
+              })
             )}
           </nav>
           <footer className="lm-settings-sidebar-footer">

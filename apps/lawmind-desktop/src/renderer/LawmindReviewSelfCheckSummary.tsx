@@ -7,6 +7,7 @@ import type { AcceptanceReport } from "../../../../src/lawmind/deliverables/inde
 import type { DraftCitationIntegrityView } from "../../../../src/lawmind/drafts/citation-integrity.ts";
 import type { GateDecision } from "../../../../src/lawmind/platform/contracts.ts";
 import { listBlockingGateDecisions, scrollToFirstBlocker } from "./lawmind-gate-display";
+import { lawyerDeliverableTypeLabel } from "./lawmind-lawyer-labels";
 
 type Props = {
   acceptance: AcceptanceReport | null;
@@ -25,12 +26,16 @@ export function LawmindReviewSelfCheckSummary(props: Props): ReactNode {
   const blockingGates = listBlockingGateDecisions(gateDecisions);
   const firstGate = blockingGates[0];
 
+  const dtypeLabel =
+    lawyerDeliverableTypeLabel(acceptance?.deliverableType) ||
+    lawyerDeliverableTypeLabel(deliverableType);
+
   const accLine = !acceptance
     ? "验收：—"
     : !acceptance.deliverableType
       ? "验收：未声明类型"
       : acceptance.ready
-        ? `验收：通过 · ${acceptance.deliverableType}`
+        ? `验收：通过${dtypeLabel ? ` · ${dtypeLabel}` : ""}`
         : `验收：未过 · ${acceptance.blockerCount}/${acceptance.warningCount}`;
 
   const citeLine = !citation?.checked
@@ -39,8 +44,7 @@ export function LawmindReviewSelfCheckSummary(props: Props): ReactNode {
       ? "引用：一致"
       : `引用：待核 · ${citation.missingSourceIds.length}`;
 
-  const dtype = acceptance?.deliverableType?.trim() || deliverableType?.trim() || "";
-  const typeLine = dtype ? `类型：${dtype}` : "类型：—";
+  const typeLine = dtypeLabel ? `类型：${dtypeLabel}` : "类型：—";
 
   const gateLine = firstGate
     ? `${firstGate.reason ?? "交付门禁未通过"}（点击查看）`

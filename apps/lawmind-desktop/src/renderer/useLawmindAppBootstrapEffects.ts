@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { CollabSummaryState } from "./LawmindSettingsCollaboration";
 import { errorMessage } from "./api-client";
+import { apiAuthHeaders } from "./lawmind-api-auth.ts";
 import {
   loadAppBootstrapSnapshot,
   loadInitialAppConfig,
@@ -227,7 +228,9 @@ export function useLawmindAppBootstrapEffects(params: UseLawmindAppBootstrapEffe
       return;
     }
     try {
-      const r = await fetch(`${config.apiBase}/api/workspace/desk-settings`);
+      const r = await fetch(`${config.apiBase}/api/workspace/desk-settings`, {
+        headers: apiAuthHeaders(),
+      });
       if (!r.ok) {
         return;
       }

@@ -116,13 +116,27 @@ export async function readAuditLog(auditDir: string, date?: string): Promise<Aud
 }
 
 export async function readAllAuditLogs(auditDir: string): Promise<AuditEvent[]> {
+  return readRecentAuditLogs(auditDir, { maxDays: undefined, maxEvents: undefined });
+}
+
+/**
+ * 读取近期审计（按文件名日期倒序），避免多年工作区每次扫完全部 jsonl。
+ * maxDays 未设时读全部日期文件；maxEvents 未设时不截断条数。
+ */
+export async function readRecentAuditLogs(
+  auditDir: string,
+  opts?: { maxDays?: number; maxEvents?: number },
+): Promise<AuditEvent[]> {
   const files = await fs
     .readdir(auditDir)
     .then((entries) => entries.filter((name) => name.endsWith(".jsonl")).sort())
     .catch(() => [] as string[]);
 
+  const maxDays = opts?.maxDays;
+  const selected = typeof maxDays === "number" && maxDays > 0 ? files.slice(-maxDays) : files;
+
   const batches = await Promise.all(
-    files.map(async (name) => {
+    selected.map(async (name) => {
       const content = await fs.readFile(path.join(auditDir, name), "utf8").catch(() => "");
       return content
         .split("\n")
@@ -131,7 +145,12 @@ export async function readAllAuditLogs(auditDir: string): Promise<AuditEvent[]> 
     }),
   );
 
-  return batches.flat().toSorted((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const all = batches.flat().toSorted((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const maxEvents = opts?.maxEvents;
+  if (typeof maxEvents === "number" && maxEvents > 0 && all.length > maxEvents) {
+    return all.slice(-maxEvents);
+  }
+  return all;
 }
 
 // ─────────────────────────────────────────────

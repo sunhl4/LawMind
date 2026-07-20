@@ -17,6 +17,7 @@ type Props = {
   onExportWord: (opts?: { strict?: boolean }) => void;
   onExportTrackedWord?: () => void;
   onShowInFolder?: (path: string) => void;
+  onOpenWithSystem?: (path: string) => void | Promise<void>;
   packExportEnabled?: boolean;
   onDownloadPack?: () => void;
   packBusy?: boolean;
@@ -35,6 +36,7 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
     onExportWord,
     onExportTrackedWord,
     onShowInFolder,
+    onOpenWithSystem,
     packExportEnabled,
     onDownloadPack,
     packBusy,
@@ -163,7 +165,19 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
             className="lm-review-toolbar-ghost"
             onClick={() => onShowInFolder(lastOutputPath)}
           >
-            打开文件
+            在文件夹中显示
+          </button>
+        ) : null}
+        {lastOutputPath?.trim() &&
+        onOpenWithSystem &&
+        /\.docx?$/i.test(lastOutputPath) ? (
+          <button
+            type="button"
+            className="lm-review-toolbar-ghost"
+            title="用本机 Word / WPS 打开（不回写；改完需重新导入或手动覆盖）"
+            onClick={() => void onOpenWithSystem(lastOutputPath)}
+          >
+            用 Word 打开
           </button>
         ) : null}
       </div>

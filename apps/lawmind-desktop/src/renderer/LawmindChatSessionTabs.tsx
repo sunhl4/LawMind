@@ -6,6 +6,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
 } from "react";
 
 export type LawmindChatSessionTab = {
@@ -22,6 +23,8 @@ export type LawmindChatSessionTabsProps = {
   onNewChat: () => void | Promise<void>;
   onRename: (sessionId: string, title: string) => void | Promise<void>;
   onDelete: (sessionId: string) => void | Promise<void>;
+  /** Right-side tools (history, filters) — keeps one chrome row. */
+  trailing?: ReactNode;
 };
 
 type ContextMenuState = { x: number; y: number; sessionId: string; title: string };
@@ -29,8 +32,8 @@ type ContextMenuState = { x: number; y: number; sessionId: string; title: string
 function PlusIcon() {
   return (
     <svg
-      width="14"
-      height="14"
+      width="12"
+      height="12"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -52,6 +55,7 @@ export function LawmindChatSessionTabs({
   onNewChat,
   onRename,
   onDelete,
+  trailing,
 }: LawmindChatSessionTabsProps) {
   const tabListId = "lawmind-chat-session-tabs";
   const panelId = "lawmind-chat-messages-panel";
@@ -250,6 +254,8 @@ export function LawmindChatSessionTabs({
       >
         <PlusIcon />
       </button>
+
+      {trailing ? <div className="lm-chat-session-tabs-trailing">{trailing}</div> : null}
 
       {contextMenu ? (
         <div

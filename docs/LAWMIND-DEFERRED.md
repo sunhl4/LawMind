@@ -1,16 +1,39 @@
 # LawMind 暂缓 / 待办记录
 
-本页集中记录**已讨论但暂不实施**或**依赖外部决策**的事项，便于后续检索。实施时请从此处勾选或删除条目，并在对应 PR 中链接本文路径。
+本页为**短索引**。凡属「已识别、长期要回看」的问题，请优先写入并维护：
 
-## 文档与发布
+**→ [LAWMIND-FUTURE-ISSUES.md](./LAWMIND-FUTURE-ISSUES.md)（「未来问题」总册）**
 
-- [x] **LawMind 文档站 CI 构建**：`.github/workflows/lawmind-docs.yml` 在相关路径变更时执行 `pnpm lawmind:docs:build`；`.github/workflows/lawmind-nightly.yml` 纳入全量 `pnpm lawmind:verify`。
-- [ ] **LawMind 文档站自动发布到托管**：在已有 CI 构建基础上，增加推送到 `main` 或 tag 时自动部署到 **GitHub Pages / Cloudflare Pages** 等工作流，并配置 `base`、自定义域名与缓存策略。本地验证命令：`pnpm lawmind:docs:build`，产出目录 `apps/lawmind-docs/docs/.vitepress/dist`。详见 [apps/lawmind-docs/README.md](../apps/lawmind-docs/README.md)。
+持久化 / token / 扫盘专项审查：
 
-## 产品（可选增强）
+**→ [LAWMIND-PERSISTENCE-SCALE-REVIEW.md](./LAWMIND-PERSISTENCE-SCALE-REVIEW.md)**
 
-- [ ] **智能体层级强制策略**：当前已在档案中存储 `orgRole` / `reportsToAssistantId` 并注入 Prompt；若需在 `validateDelegation` 或 `lawmind.policy.json` 中**强制**「仅可向汇报对象委派」等规则，可在此处立项。
-- [ ] **互审轮次与版本**：`request_review` 与 workflow `reviewBy` 为单轮；多轮互审、留痕与 UI 时间线可后续扩展。
+---
+
+## 仍挂在本页的短项（未迁完时可留）
+
+### 文档与发布
+
+- [x] **LawMind 文档站 CI 构建**：`.github/workflows/lawmind-docs.yml`；nightly 纳入 `pnpm lawmind:verify`。
+- [ ] **LawMind 文档站自动发布到托管**：见 [FUTURE-ISSUES §3](./LAWMIND-FUTURE-ISSUES.md)。
+
+### 产品（可选增强）
+
+- [ ] **智能体层级强制策略** → FUTURE-ISSUES §3
+- [ ] **互审轮次与版本** → FUTURE-ISSUES §3
+
+### 半暴露 API（2026-07-19 Wave D：标 deferred，暂不铺完整 UI）
+
+下列能力引擎/HTTP 已有，桌面**不**作为一等入口；案件概览「工作队列」等若已展示读侧数据，仍属只读聚合，不等于完整队列台：
+
+| API / 能力                                      | 状态     | 说明                                        |
+| ----------------------------------------------- | -------- | ------------------------------------------- |
+| `GET /api/queues`                               | deferred | 写侧 JSONL 存在；完整队列台未做             |
+| `POST /api/sessions/:id/compact`                | deferred | 上下文预算条可读；无「整理上下文」按钮      |
+| `POST /api/memory/adoption/suggest`             | deferred | 采纳/忽略 UI 在记忆库；无主动 suggest       |
+| `POST /api/learning/contract-revision/finalize` | deferred | 列表/学习面板部分消费；finalize 无按钮      |
+| `GET /api/integrations` 目录                    | deferred | 案件 documents 子路径可用；连接器目录页未做 |
+| `GET /api/assistants/:id/profile-sections`      | deferred | 助手编辑未展示分段预览                      |
 
 ---
 

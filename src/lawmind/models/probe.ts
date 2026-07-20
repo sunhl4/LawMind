@@ -66,10 +66,11 @@ export async function probeAgentModel(config: AgentModelConfig): Promise<ModelPr
     const latencyMs = Date.now() - started;
     const text = await response.text();
     if (!response.ok) {
+      const attempted = `model="${config.model}" @ ${config.baseUrl}`;
       return {
         ok: false,
         code: "model_api_error",
-        error: `HTTP ${response.status}: ${text.slice(0, 280)}`,
+        error: `HTTP ${response.status} (${attempted}): ${text.slice(0, 280)}`,
       };
     }
     const bodyErr = parseProbeErrorBody(text);

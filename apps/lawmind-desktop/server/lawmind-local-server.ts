@@ -27,6 +27,7 @@ import {
 } from "./lawmind-local-api-auth.js";
 import { registerRateLimitBucket, TokenBucket } from "./lawmind-local-rate-limit.js";
 import {
+  enqueueWorkflowRun,
   loadJobsFromDiskOnStartup,
   processDueScheduledJobs,
   setWorkflowJobSchedulerContext,
@@ -36,6 +37,12 @@ import {
   indexExists,
   rebuildWorkspaceSearchIndex,
 } from "../../../src/lawmind/indexing/index.js";
+import { processDueLawyerAutomations } from "../../../src/lawmind/platform/lawyer-automations-runner.js";
+import {
+  instantiateCollaborationWorkflowFromTemplate,
+  readWorkspaceWorkflowTemplate,
+} from "../../../src/lawmind/agent/collaboration/workspace-workflow-templates.js";
+import { resolveLawMindRoot } from "../../../src/lawmind/assistants/store.js";
 
 async function main() {
   const workspaceDir = process.env.LAWMIND_WORKSPACE_DIR?.trim();
@@ -88,6 +95,45 @@ async function main() {
     } catch {
       /* best-effort */
     }
+    try {
+      const built = buildAgentConfig(workspaceDir, { envFile });
+      const config = built.config;
+      void processDueLawyerAutomations(workspaceDir, {
+        envFile,
+        lawMindRoot: resolveLawMindRoot(workspaceDir, envFile),
+        enqueueTemplate: ({ templateId, matterId, instruction, automationId }) => {
+          if (!config) {
+            return null;
+          }
+          ensureBuiltinWorkflowSeeds(workspaceDir);
+          const template = readWorkspaceWorkflowTemplate(workspaceDir, templateId);
+          if (!template) {
+            return null;
+          }
+          const workflow = instantiateCollaborationWorkflowFromTemplate(template, {
+            matterId,
+            createdBy: "lawyer_automation",
+            vars: instruction?.trim()
+              ? { instruction: instruction.trim(), automationId }
+              : { automationId },
+          });
+          return enqueueWorkflowRun(config, workflow, {
+            templateId,
+            workflowVars: instruction?.trim()
+              ? { instruction: instruction.trim(), automationId }
+              : { automationId },
+            idempotencyKey: `automation:${automationId}:${new Date().toISOString().slice(0, 13)}`,
+          });
+        },
+      }).catch((err) => {
+        console.error(
+          "[lawmind-local-server] automations tick failed:",
+          err instanceof Error ? err.message : err,
+        );
+      });
+    } catch {
+      /* best-effort */
+    }
   };
   tickScheduled();
   const scheduleTimer = setInterval(tickScheduled, 30_000);
@@ -121,5 +167,12 @@ async function main() {
     console.error(`[lawmind-local-server] http://${LAWMIND_LOCAL_HOST}:${port} workspace=${workspaceDir}`);
   });
 }
+
+process.on("uncaughtException", (err) => {
+  console.error("[lawmind-local-server] uncaughtException:", err);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[lawmind-local-server] unhandledRejection:", reason);
+});
 
 void main();

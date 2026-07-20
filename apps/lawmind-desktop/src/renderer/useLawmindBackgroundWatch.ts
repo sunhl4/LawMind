@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { errorMessage } from "./api-client";
 import type { ChatMsg } from "./lawmind-chat";
+import type { LawmindMainView } from "./lawmind-main-view";
 import {
   activityBlocksEqual,
   activityFromLiveTrace,
@@ -47,7 +48,7 @@ export type UseLawmindBackgroundWatchInput = {
       executionState?: ChatMsg["executionState"];
     },
   ) => Promise<void>;
-  setMainView: (v: "workspace" | "collaboration" | "review") => void;
+  setMainView: (v: LawmindMainView) => void;
   setSelectedAssistantId: (id: string) => void;
   setContextTaskId: (id: string | null) => void;
   setRevisionBackgroundActive: (v: boolean) => void;
@@ -347,7 +348,6 @@ export function useLawmindBackgroundWatch(input: UseLawmindBackgroundWatchInput)
             setReviewFocusListMode("pending");
             setReviewRefreshVersion((v) => v + 1);
             setMatterRefreshVersion((v) => v + 1);
-            setMainView("review");
           }
           try {
             const listRes2 = await fetch(
@@ -481,7 +481,7 @@ export function useLawmindBackgroundWatch(input: UseLawmindBackgroundWatchInput)
         ...opts,
         kind: "revision",
         hints: {
-          complete: "修订已完成，正在打开审核台…",
+          complete: "修订已完成，可进入文书台继续签批",
           failed: "后台修订未完成，请查看对话中的错误信息",
           timeout: "后台修订轮询超时，请手动刷新会话查看结果",
         },

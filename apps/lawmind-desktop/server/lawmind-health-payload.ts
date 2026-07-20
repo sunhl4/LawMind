@@ -13,6 +13,8 @@ import { specRequiresReasoningGraphAtDraft } from "../../../src/lawmind/delivera
 import { listDrafts } from "../../../src/lawmind/drafts/index.js";
 import { readReasoningSnapshot } from "../../../src/lawmind/drafts/reasoning-snapshot.js";
 import { evaluateTeamMemorySyncGate } from "../../../src/lawmind/memory/team-memory-sync.js";
+import { buildMultitaskObservabilityReport } from "../../../src/lawmind/ops/multitask-observability.js";
+import { checkTaskDraftConsistency } from "../../../src/lawmind/application/task-draft-consistency.js";
 import { listTaskRecords } from "../../../src/lawmind/tasks/index.js";
 
 export function countAuditJsonlFiles(workspaceDir: string): number {
@@ -292,6 +294,25 @@ export type MatterConsistencySummary = {
   issues: Array<{ matterId: string; code: string; message: string }>;
 };
 
+export type TaskDraftConsistencySummary = {
+  ok: boolean;
+  issueCount: number;
+  issues: Array<{ taskId: string; code: string; message: string }>;
+};
+
+export type MultitaskObservabilitySummary = {
+  windowDays: number;
+  jobsTotal: number;
+  jobsInWindow: number;
+  leadTimeP50Ms: number | null;
+  leadTimeP90Ms: number | null;
+  retryRate: number;
+  cancelRate: number;
+  failureRate: number;
+  conflictRate: number;
+  notes: string[];
+};
+
 const MATTER_CONSISTENCY_HEALTH_LIMIT = 12;
 
 /** Async matter JSON ↔ CASE.md summary for /api/health (capped issue list). */
@@ -310,5 +331,41 @@ export async function buildMatterConsistencySummary(
       code: i.code,
       message: i.message,
     })),
+  };
+}
+
+/** Sync task ↔ draft consistency for /api/health. */
+export function buildTaskDraftConsistencySummary(
+  workspaceDir: string,
+): TaskDraftConsistencySummary {
+  const all = checkTaskDraftConsistency(workspaceDir);
+  return {
+    ok: all.length === 0,
+    issueCount: all.length,
+    issues: all.slice(0, MATTER_CONSISTENCY_HEALTH_LIMIT).map((i) => ({
+      taskId: i.taskId,
+      code: i.code,
+      message: i.message,
+    })),
+  };
+}
+
+/** Jobs window metrics for Doctor (read-only). */
+export function buildMultitaskObservabilitySummary(
+  workspaceDir: string,
+  windowDays = 14,
+): MultitaskObservabilitySummary {
+  const report = buildMultitaskObservabilityReport({ workspaceDir, windowDays });
+  return {
+    windowDays: report.windowDays,
+    jobsTotal: report.sample.jobsTotal,
+    jobsInWindow: report.sample.jobsInWindow,
+    leadTimeP50Ms: report.metrics.leadTimeP50Ms,
+    leadTimeP90Ms: report.metrics.leadTimeP90Ms,
+    retryRate: report.metrics.retryRate,
+    cancelRate: report.metrics.cancelRate,
+    failureRate: report.metrics.failureRate,
+    conflictRate: report.metrics.conflictRate,
+    notes: report.notes.slice(0, 4),
   };
 }

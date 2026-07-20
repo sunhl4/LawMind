@@ -116,6 +116,43 @@ describe("lawmind custom-store", () => {
     ).toThrow(/custom_model_fields_required/);
   });
 
+  it("rejects internal LawMind ids as the upstream model name", () => {
+    lawMindRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-store-"));
+    expect(() =>
+      addCustomModel(lawMindRoot, {
+        label: "Bad",
+        baseUrl: "https://api.example/v1",
+        model: "custom:abc123",
+        apiKey: "sk-x",
+      }),
+    ).toThrow(/custom_model_invalid_model_name/);
+    expect(() =>
+      addCustomModel(lawMindRoot, {
+        label: "Bad2",
+        baseUrl: "https://api.example/v1",
+        model: "builtin:qwen-plus",
+        apiKey: "sk-x",
+      }),
+    ).toThrow(/custom_model_invalid_model_name/);
+    // bare uuid/hex from copy-paste of internal ids
+    expect(() =>
+      addCustomModel(lawMindRoot, {
+        label: "Bad3",
+        baseUrl: "https://api.example/v1",
+        model: "ad86ba2f4118803d2c216a708367",
+        apiKey: "sk-x",
+      }),
+    ).toThrow(/custom_model_invalid_model_name/);
+    expect(() =>
+      addCustomModel(lawMindRoot, {
+        label: "Bad4",
+        baseUrl: "https://api.example/v1",
+        model: "ad86ba2f-4118-803d-2c21-6a708367a1b2",
+        apiKey: "sk-x",
+      }),
+    ).toThrow(/custom_model_invalid_model_name/);
+  });
+
   it("persists draft-with-model preference", () => {
     lawMindRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-store-"));
     expect(readModelsStore(lawMindRoot).draftWithModelEnabled).toBeUndefined();

@@ -10,8 +10,14 @@ test.describe("LawMind workspace layout toggles", () => {
     await gotoShell(page);
     await openWorkspaceChat(page);
     const chatToggle = page.getByRole("button", { name: /隐藏对话区|显示对话区/i });
+    const editorToggle = page.getByRole("button", { name: /隐藏编辑区|显示编辑区/i });
     if (!(await chatToggle.isVisible().catch(() => false))) {
       test.skip();
+    }
+    // Browser E2E has no filesystem bridge: hiding chat would leave zero panes, so the shell
+    // immediately restores chat. Skip unless the editor pane can actually stay visible.
+    if (await editorToggle.isDisabled().catch(() => true)) {
+      test.skip(true, "filesystem bridge unavailable; chat cannot be hidden alone");
     }
     const pressedBefore = await chatToggle.getAttribute("aria-pressed");
     await chatToggle.click();
@@ -30,6 +36,9 @@ test.describe("LawMind workspace layout toggles", () => {
     }
     if (!(await editorToggle.isVisible().catch(() => false))) {
       test.skip();
+    }
+    if (await editorToggle.isDisabled().catch(() => true)) {
+      test.skip(true, "filesystem bridge unavailable; editor toggle disabled");
     }
     await chatToggle.click();
     await editorToggle.click();

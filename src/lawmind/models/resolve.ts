@@ -265,7 +265,7 @@ export function resolveModelIdentityForPrompt(
   if (id === ENV_CURRENT_MODEL_ID) {
     const upstream = agentModel.model.trim();
     return {
-      catalogLabel: upstream ? `API 向导 · ${upstream}` : "API 向导当前模型",
+      catalogLabel: upstream ? `主模型 · ${upstream}` : "主模型 · 已连接",
       providerLabel: "OpenAI 兼容 API",
       upstreamModel: upstream || agentModel.model,
       catalogId: id,
@@ -399,7 +399,7 @@ export function buildModelCatalog(lawMindRoot: string): {
       attachVerification({
         id: ENV_CURRENT_MODEL_ID,
         kind: "builtin",
-        label: `API 向导（${profile.model}）`,
+        label: `主模型（${profile.model}）`,
         description: "使用设置向导写入的模型名、Base URL 与 Key",
         group: "当前配置",
         provider: "dashscope",

@@ -136,6 +136,16 @@ export function addCustomModel(
   if (!apiKey && !input.allowKeylessIfKeychain) {
     throw new Error("custom_model_fields_required");
   }
+  // Guard against accidentally using a LawMind internal catalog id or a raw UUID as the upstream model name.
+  if (/^(custom|builtin|platform|env):/i.test(model)) {
+    throw new Error("custom_model_invalid_model_name");
+  }
+  // Catch bare UUIDs or long hex strings that are clearly not model names (e.g. from copy-paste of internal ids).
+  const hexOnly = /^[0-9a-f]+$/i;
+  const dashedUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if ((hexOnly.test(model) && model.length >= 20) || dashedUuid.test(model)) {
+    throw new Error("custom_model_invalid_model_name");
+  }
   const now = new Date().toISOString();
   const row: CustomModelRecord = {
     id: `custom:${randomUUID()}`,

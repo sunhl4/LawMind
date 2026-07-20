@@ -1,24 +1,32 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { apiGetJson, errorMessage } from "./api-client";
-import type { WorkflowTemplateItem } from "./LawmindWorkflowLibrary";
+import { LawmindJobIntakeForm } from "./LawmindJobIntakeForm";
+import type { WorkflowTemplateItem } from "./lawmind-workflow-types";
 import {
   sortWorkflowTemplatesForLawyer,
-  workflowTemplateKindLabel,
+  workflowTemplateSearchHaystack,
 } from "./lawmind-workflow-display";
 
 type Props = {
   open: boolean;
   apiBase?: string;
   onClose: () => void;
+  /** Fill composer only. */
   onApplyStarterPrompt: (prompt: string) => void;
+  /**
+   * Preferred path: structured intake → fill composer and send.
+   * Parent should set input then call send.
+   */
+  onDispatchJob?: (prompt: string) => void;
 };
 
 export function LawmindComposeTemplateGallery(props: Props): ReactNode {
-  const { open, apiBase, onClose, onApplyStarterPrompt } = props;
+  const { open, apiBase, onClose, onApplyStarterPrompt, onDispatchJob } = props;
   const [templates, setTemplates] = useState<WorkflowTemplateItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  const [intakeTemplate, setIntakeTemplate] = useState<WorkflowTemplateItem | null>(null);
 
   useEffect(() => {
     if (!open || !apiBase?.trim()) {
@@ -38,6 +46,7 @@ export function LawmindComposeTemplateGallery(props: Props): ReactNode {
   useEffect(() => {
     if (!open) {
       setFilter("");
+      setIntakeTemplate(null);
     }
   }, [open]);
 
@@ -48,24 +57,26 @@ export function LawmindComposeTemplateGallery(props: Props): ReactNode {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        onClose();
+        if (intakeTemplate) {
+          setIntakeTemplate(null);
+        } else {
+          onClose();
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open, onClose, intakeTemplate]);
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
     if (!q) {
-      return templates;
+      return sortWorkflowTemplatesForLawyer(templates, { preferOffice: true });
     }
-    return sortWorkflowTemplatesForLawyer(templates.filter(
-      (t) =>
-        t.name.toLowerCase().includes(q) ||
-        t.description.toLowerCase().includes(q) ||
-        (t.deliverableType ?? "").toLowerCase().includes(q),
-    ), { preferOffice: true });
+    return sortWorkflowTemplatesForLawyer(
+      templates.filter((t) => workflowTemplateSearchHaystack(t).includes(q)),
+      { preferOffice: true },
+    );
   }, [templates, filter]);
 
   if (!open) {
@@ -80,50 +91,89 @@ export function LawmindComposeTemplateGallery(props: Props): ReactNode {
         aria-label="写文稿或做材料"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="lm-compose-template-gallery-head">
-          <h3>写文稿 / 做材料</h3>
-          <button type="button" className="lm-btn lm-btn-ghost lm-btn-small" onClick={onClose}>
-            关闭
-          </button>
-        </header>
-        <input
-          type="search"
-          className="lm-input"
-          placeholder="搜索 PPT、报告、讲稿、合同审查…"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          aria-label="搜索模板"
-          autoFocus
-        />
-        {loading ? <p className="lm-meta">加载模板…</p> : null}
-        {error ? <p className="lm-error">{error}</p> : null}
-        {!loading && filtered.length === 0 ? (
-          <p className="lm-meta">暂无匹配模板。可在工作区 `lawmind/workflows/` 添加 JSON。</p>
+        {intakeTemplate ? (
+          <LawmindJobIntakeForm
+            template={intakeTemplate}
+            onCancel={() => setIntakeTemplate(null)}
+            onFillComposer={(prompt) => {
+              onApplyStarterPrompt(prompt);
+              onClose();
+            }}
+            onDispatch={
+              onDispatchJob
+                ? (prompt) => {
+                    onDispatchJob(prompt);
+                    onClose();
+                  }
+                : undefined
+            }
+          />
         ) : (
-          <ul className="lm-compose-template-gallery-list">
-            {filtered.map((t) => (
-              <li key={t.id} className="lm-compose-template-gallery-card">
-                <div>
-                  <strong>{t.name}</strong>
-                  <p className="lm-meta">{workflowTemplateKindLabel(t)} · {t.description}</p>
-                </div>
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-secondary lm-btn-small"
-                  disabled={!t.starterPrompt?.trim()}
-                  title={t.starterPrompt?.trim() ? "将提示填入输入框" : "该模板未配置 starterPrompt"}
-                  onClick={() => {
-                    if (t.starterPrompt?.trim()) {
-                      onApplyStarterPrompt(t.starterPrompt.trim());
-                      onClose();
-                    }
-                  }}
-                >
-                  带入对话
-                </button>
-              </li>
-            ))}
-          </ul>
+          <>
+            <header className="lm-compose-template-gallery-head">
+              <div>
+                <h3>写文稿 / 做材料</h3>
+                <p className="lm-meta">选任务后填几项关键信息即可交办，不必写提示词。</p>
+              </div>
+              <button type="button" className="lm-btn lm-btn-ghost lm-btn-small" onClick={onClose}>
+                关闭
+              </button>
+            </header>
+            <input
+              type="search"
+              className="lm-input"
+              placeholder="搜索 PPT、报告、讲稿、合同审查…"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              aria-label="搜索模板"
+              autoFocus
+            />
+            {loading ? <p className="lm-meta">加载模板…</p> : null}
+            {error ? <p className="lm-error">{error}</p> : null}
+            {!loading && filtered.length === 0 ? (
+              <p className="lm-meta">暂无匹配模板。请调整搜索，或请同事配置办案流程后再试。</p>
+            ) : (
+              <ul className="lm-compose-template-gallery-list">
+                {filtered.map((t) => (
+                  <li key={t.id} className="lm-compose-template-gallery-card">
+                    <div>
+                      <strong>{t.name}</strong>
+                      {t.description.trim() ? (
+                        <p className="lm-meta">{t.description}</p>
+                      ) : null}
+                    </div>
+                    <div className="lm-compose-template-gallery-actions">
+                      <button
+                        type="button"
+                        className="lm-btn lm-btn-small"
+                        onClick={() => setIntakeTemplate(t)}
+                      >
+                        填表交办
+                      </button>
+                      <button
+                        type="button"
+                        className="lm-btn lm-btn-secondary lm-btn-small"
+                        disabled={!t.starterPrompt?.trim()}
+                        title={
+                          t.starterPrompt?.trim()
+                            ? "把预设说明填入对话输入框"
+                            : "该流程暂未提供对话说明"
+                        }
+                        onClick={() => {
+                          if (t.starterPrompt?.trim()) {
+                            onApplyStarterPrompt(t.starterPrompt.trim());
+                            onClose();
+                          }
+                        }}
+                      >
+                        带入对话
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
         )}
       </div>
     </div>

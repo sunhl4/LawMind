@@ -12,9 +12,10 @@ import { LawmindAppSettingsPanel } from "./LawmindAppSettingsPanel";
 import { LawmindFileWorkbenchHost } from "./LawmindFileWorkbenchHost";
 import { LawmindModalHost } from "./LawmindModalHost";
 import { LawmindShellProviders } from "./LawmindShellContexts";
+import type { LawmindMainView } from "../lawmind-main-view";
 
 export type LawmindAppRootViewProps = {
-  mainView: "workspace" | "collaboration" | "review";
+  mainView: LawmindMainView;
   overlayProps: LawmindAppOverlaysProps;
   sidebarProps: LawmindAppSidebarProps;
   headerProps: LawmindAppHeaderProps;

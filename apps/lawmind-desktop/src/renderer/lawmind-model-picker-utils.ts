@@ -133,7 +133,7 @@ export function providerIconKey(row: ModelCatalogEntry): ProviderIconKey {
 export function providerIconLabel(key: ProviderIconKey): string {
   switch (key) {
     case "dashscope":
-      return "通义千问";
+      return "Qwen";
     case "openai":
       return "OpenAI";
     case "deepseek":
@@ -141,11 +141,55 @@ export function providerIconLabel(key: ProviderIconKey): string {
     case "moonshot":
       return "Moonshot";
     case "zhipu":
-      return "智谱";
+      return "Zhipu";
     case "platform":
-      return "LawMind 平台";
+      return "Platform";
     case "custom":
-      return "自定义";
+      return "Custom";
+  }
+}
+
+/**
+ * Cursor-style display name: prefer the English model id (`qwen-max`, `gpt-4o`).
+ */
+export function modelPickerDisplayName(
+  entry: Pick<ModelCatalogEntry, "label" | "model" | "id">,
+): string {
+  const model = entry.model?.trim();
+  if (model) {
+    return model;
+  }
+  const raw = entry.label?.trim() || "";
+  if (!raw || entry.id === "env:current" || /^API\s*向导/.test(raw) || raw.startsWith('主模型')) {
+    return "Current";
+  }
+  return raw;
+}
+
+/** @deprecated Prefer {@link modelPickerDisplayName}. */
+export function lawyerFacingModelLabel(
+  entry: Pick<ModelCatalogEntry, "label" | "model" | "id">,
+): string {
+  return modelPickerDisplayName(entry);
+}
+
+/** English section titles for catalog `group` values from the API. */
+export function modelPickerGroupTitle(group: string): string {
+  switch (group) {
+    case "平台模型":
+      return "Platform";
+    case "当前配置":
+      return "Current";
+    case "自定义模型":
+      return "Custom";
+    case "通义千问":
+      return "Qwen";
+    case "智谱":
+      return "Zhipu";
+    case "其他":
+      return "Other";
+    default:
+      return group;
   }
 }
 

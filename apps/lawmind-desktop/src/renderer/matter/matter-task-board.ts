@@ -1,5 +1,6 @@
 import type { ApprovalRequest, WorkQueueItem } from "../../../../../src/lawmind/core/contracts.ts";
 import type { ArtifactDraft, TaskRecord } from "../../../../../src/lawmind/types.ts";
+import { lawyerDeliverableTypeLabel } from "../lawmind-lawyer-labels";
 
 export type TaskBoardRowKind = "task" | "queue" | "approval" | "draft" | "job";
 
@@ -145,7 +146,7 @@ export function mergeTaskBoardRows(input: {
       id: `draft:${d.taskId}`,
       kind: "draft",
       title: d.title,
-      subtitle: d.deliverableType ?? d.output ?? "草稿",
+      subtitle: lawyerDeliverableTypeLabel(d.deliverableType) ?? d.output ?? "草稿",
       statusLabel: d.reviewStatus,
       sortKey: d.createdAt ?? "",
       priority: d.reviewStatus === "pending" ? 1 : 4,

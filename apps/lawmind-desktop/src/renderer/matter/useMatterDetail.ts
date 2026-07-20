@@ -6,6 +6,7 @@ import { apiGetJson, errorMessage, messageFromOkFalseBody } from "../api-client"
 import { useMatterOverviewsQuery } from "../lawmind-query-hooks";
 import { RECORDS_DESK_UNLINKED } from "../lawmind-records-desk-state";
 import type { AcceptanceSummaryItem } from "./matter-acceptance-display";
+import type { MatterProfilePayload } from "./MatterProfileCard";
 import type { AuditEventRow, MatterSearchHit, OperationsFocus, OperationsSort } from "./matter-interaction";
 
 export type UseMatterDetailInput = {
@@ -41,6 +42,7 @@ export function useMatterDetail(input: UseMatterDetailInput) {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [summary, setSummary] = useState<MatterSummary | null>(null);
   const [, setOverview] = useState<MatterOverview | null>(null);
+  const [profile, setProfile] = useState<MatterProfilePayload | null>(null);
   const [caseMemory, setCaseMemory] = useState("");
   const [caseTruncated, setCaseTruncated] = useState(false);
   const [coreIssues, setCoreIssues] = useState<string[]>([]);
@@ -93,12 +95,14 @@ export function useMatterDetail(input: UseMatterDetailInput) {
           queueItems?: WorkQueueItem[];
           draftCitationIntegrity?: Record<string, DraftCitationIntegrityView>;
           auditEvents?: AuditEventRow[];
+          profile?: MatterProfilePayload | null;
         }>(apiBase, `/api/matters/detail?matterId=${encodeURIComponent(targetMatterId)}`);
         if (!j.ok) {
           throw new Error(messageFromOkFalseBody(j, "加载案件详情失败"));
         }
         setSummary(j.summary ?? null);
         setOverview(j.overview ?? null);
+        setProfile(j.profile ?? null);
         setCaseMemory(j.caseMemory ?? "");
         setCaseTruncated(Boolean(j.caseMemoryTruncated));
         setCoreIssues(j.coreIssues ?? []);
@@ -135,6 +139,7 @@ export function useMatterDetail(input: UseMatterDetailInput) {
         }
       } catch (e) {
         setDetailError(errorMessage(e, "加载案件详情失败"));
+        setProfile(null);
       } finally {
         setDetailLoading(false);
       }
@@ -173,6 +178,8 @@ export function useMatterDetail(input: UseMatterDetailInput) {
     detailLoading,
     detailError,
     summary,
+    profile,
+    setProfile,
     caseMemory,
     caseTruncated,
     coreIssues,

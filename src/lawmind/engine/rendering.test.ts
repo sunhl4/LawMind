@@ -25,23 +25,44 @@ describe("engine/rendering", () => {
     await fs.rm(workspaceDir, { recursive: true, force: true });
   });
 
-  it("blocks render when draft is not approved", async () => {
+  it("blocks render when citationGateStrict and draft has missing source ids", async () => {
+    const { persistResearchSnapshot } = await import("../drafts/research-snapshot.js");
     const draft: ArtifactDraft = {
-      taskId: "task-render-block",
+      taskId: "task-cite-block",
       matterId: "matter-1",
-      title: "Blocked",
+      title: "Cite blocked",
       summary: "summary",
-      sections: [{ heading: "结论", body: "x", citations: [] }],
-      reviewStatus: "pending",
+      sections: [
+        {
+          heading: "结论",
+          body: "本合同违约金过高，建议调整。".repeat(8),
+          citations: ["ghost-source"],
+        },
+      ],
+      reviewStatus: "approved",
       reviewNotes: [],
       output: "docx",
       templateId: "word/contract-default",
       createdAt: new Date().toISOString(),
     };
     persistDraft(workspaceDir, draft);
+    persistResearchSnapshot(workspaceDir, {
+      taskId: draft.taskId,
+      query: "q",
+      sources: [{ id: "s1", title: "真实来源", kind: "statute" }],
+      claims: [],
+      riskFlags: [],
+      missingItems: [],
+      requiresReview: false,
+      completedAt: new Date().toISOString(),
+    });
     const ctx = buildEngineContext({ workspaceDir, adapters: [] });
-    const result = await renderDraft(ctx, draft, { strictGates: true });
+    const result = await renderDraft(ctx, draft, {
+      strictGates: false,
+      citationGateStrict: true,
+    });
     expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/未通过审核/);
+    expect(result.error).toMatch(/引用完整性/);
+    expect(result.citationIntegrity?.checked).toBe(true);
   });
 });

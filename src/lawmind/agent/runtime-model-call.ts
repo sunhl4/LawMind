@@ -236,11 +236,16 @@ async function callModelOnce(
   if (!response.ok) {
     clearTimeout(timer);
     const text = await response.text();
-    const hint =
-      response.status === 404
-        ? " 常见原因：模型名错误（如 qwen-max 需与 DashScope 一致）或 baseUrl 路径错误。请检查 .env.lawmind 中 LAWMIND_QWEN_MODEL / LAWMIND_AGENT_MODEL。"
-        : "";
-    throw new Error(`Model API error ${response.status}: ${text.slice(0, 300)}${hint}`);
+    const is404 = response.status === 404;
+    const attempted = `model="${config.model}" baseUrl=${config.baseUrl}`;
+    let hint = "";
+    if (is404) {
+      hint =
+        " 常见原因：模型名与端点不匹配（自定义模型请确认「模型 ID」填写的值正是该 Base URL 所支持的名称，不是 LawMind 内部的 custom:xxx；向导模型请确认 LAWMIND_AGENT_MODEL 与实际一致）。也可能是 Base URL 缺少 /v1 后缀、模型名大小写/后缀不符、或该 Key 无权限访问此模型。";
+    }
+    throw new Error(
+      `Model API error ${response.status} (${attempted}): ${text.slice(0, 300)}${hint}`,
+    );
   }
 
   if (!wantStream || !response.body) {

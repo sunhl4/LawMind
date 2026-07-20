@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { apiGetJson } from "./api-client";
+import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import type { LawMindRequiresAction } from "./lawmind-requires-action";
 
 type JobRow = {
@@ -37,7 +37,23 @@ export function LawmindTaskDrawer({
   const [jobs, setJobs] = useState<JobRow[]>([]);
   const [approvals, setApprovals] = useState<LawMindRequiresAction[]>([]);
   const [delegations, setDelegations] = useState<DelegationRow[]>([]);
+  const [cancelBusyId, setCancelBusyId] = useState<string | null>(null);
+  const [cancelHint, setCancelHint] = useState<string | null>(null);
   const jobEventSourcesRef = useRef<Map<string, EventSource>>(new Map());
+
+  const cancelDelegation = async (id: string) => {
+    setCancelBusyId(id);
+    setCancelHint(null);
+    try {
+      await apiSendJson(apiBase, `/api/delegations/${encodeURIComponent(id)}`, "DELETE");
+      setCancelHint("已撤销委派。");
+      await refresh();
+    } catch (e) {
+      setCancelHint(errorMessage(e, "撤销失败"));
+    } finally {
+      setCancelBusyId(null);
+    }
+  };
 
   const refresh = async (): Promise<void> => {
     const q = matterId ? `?matterId=${encodeURIComponent(matterId)}&limit=30` : "?limit=30";
@@ -229,9 +245,26 @@ export function LawmindTaskDrawer({
                     → {d.toAssistant}
                     {d.task ? ` · ${d.task.slice(0, 48)}` : ""}
                   </span>
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-ghost lm-btn-sm"
+                    disabled={cancelBusyId === d.delegationId}
+                    onClick={() => {
+                      if (window.confirm("确定撤销该委派？")) {
+                        void cancelDelegation(d.delegationId);
+                      }
+                    }}
+                  >
+                    {cancelBusyId === d.delegationId ? "撤销中…" : "撤销"}
+                  </button>
                 </li>
               ))
             )}
+            {cancelHint ? (
+              <li className="lm-meta" role="status">
+                {cancelHint}
+              </li>
+            ) : null}
           </ul>
         ) : null}
       </aside>

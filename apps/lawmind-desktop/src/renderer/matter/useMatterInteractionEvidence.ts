@@ -9,6 +9,7 @@ import {
   type MatterInteractionSummary,
   type MatterSearchHit,
 } from "./matter-interaction";
+import { apiAuthHeaders } from "../lawmind-api-auth.ts";
 import type { MatterPanelTab } from "./useMatterWorkbench";
 
 export function useMatterInteractionEvidence(input: {
@@ -85,7 +86,7 @@ export function useMatterInteractionEvidence(input: {
       dominantAction === "review" ? "审核往返最频繁" : dominantAction === "memory" ? "认知沉淀最活跃" : "CASE 补档最频繁";
     const dominantActionHint =
       dominantAction === "review"
-        ? "律师最近更多是在审核台和案件页之间来回切换，说明草稿把关仍是当前主工作面。"
+        ? "律师最近更多是在文书台和案件页之间来回切换，说明草稿把关仍是当前主工作面。"
         : dominantAction === "memory"
           ? "律师最近更常把高频经验沉淀进长期记忆，说明认知升级机制开始被实际使用。"
           : "律师最近更常把阻塞信息写回案件档案，说明 CASE 正在成为推进案件的实际操作面。";
@@ -126,7 +127,7 @@ export function useMatterInteractionEvidence(input: {
       try {
         const r = await fetch(`${apiBase}/api/matters/interaction`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...apiAuthHeaders() },
           body: JSON.stringify({
             matterId,
             taskId: params.taskId,
@@ -178,7 +179,7 @@ export function useMatterInteractionEvidence(input: {
           reviewBlockers[0]?.detail ?? "当前至少有草稿还在等待律师或上级确认，交付动作不应继续推进。",
         count: reviewBlockers.length,
         nextAction: blockingNextAction(reviewBlockers[0]?.kind ?? "need_lawyer_review"),
-        actionLabel: "去审核",
+        actionLabel: "进入文书台",
         actionTaskId: reviewBlockers[0]?.relatedTaskId,
       });
     }
@@ -237,7 +238,7 @@ export function useMatterInteractionEvidence(input: {
         detail: renderReady[0]?.detail ?? "已有审核通过的草稿，但最终渲染和交付动作尚未执行。",
         count: renderReady.length,
         nextAction: blockingNextAction(renderReady[0]?.kind ?? "ready_to_render"),
-        actionLabel: "去审核",
+        actionLabel: "进入文书台",
         actionTaskId: renderReady[0]?.relatedTaskId,
       });
     }
@@ -263,7 +264,7 @@ export function useMatterInteractionEvidence(input: {
         action: "open_review",
         taskId,
         surface: overrides?.sourceSurface ?? "overview",
-        label: overrides?.sourceLabel ?? "进入审核台",
+        label: overrides?.sourceLabel ?? "进入文书台",
       });
       onOpenReview({
         taskId,

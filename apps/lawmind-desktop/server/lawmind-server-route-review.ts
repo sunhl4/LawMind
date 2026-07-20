@@ -20,6 +20,16 @@ import {
   buildLawyerProfileReviewLearningLine,
 } from "../../../src/lawmind/memory/index.js";
 import {
+  clearExecutablePreference,
+  formatExecutablePreferencesHint,
+  loadExecutablePreferences,
+  writeExecutablePreference,
+} from "../../../src/lawmind/memory/executable-preferences.js";
+import {
+  extractAppliedPreferencesFromProfile,
+  formatAppliedPreferencesHint,
+} from "../../../src/lawmind/memory/applied-preferences.js";
+import {
   persistDraft,
   readDraft,
   readReasoningSnapshot,
@@ -241,6 +251,53 @@ export async function handleReviewRoute({
     }
   }
 
+  if (pathname === "/api/lawyer-profile/applied-preferences" && req.method === "GET") {
+    try {
+      const memory = await loadMemoryContext(workspaceDir);
+      const preferences = loadExecutablePreferences(workspaceDir, memory.profile ?? "", 8);
+      const legacy = extractAppliedPreferencesFromProfile(memory.profile ?? "", 5);
+      sendJson(
+        res,
+        200,
+        {
+          ok: true,
+          preferences,
+          legacyPreferences: legacy,
+          hint:
+            formatExecutablePreferencesHint(preferences) ??
+            formatAppliedPreferencesHint(legacy) ??
+            null,
+        },
+        c,
+      );
+    } catch (e) {
+      sendJson(res, 500, { ok: false, error: e instanceof Error ? e.message : String(e) }, c);
+    }
+    return true;
+  }
+
+  {
+    const clearPrefMatch = pathname.match(/^\/api\/lawyer-profile\/applied-preferences\/([^/]+)$/);
+    if (clearPrefMatch && req.method === "DELETE") {
+      const rawId = decodeURIComponent(clearPrefMatch[1] ?? "").trim();
+      if (!rawId || rawId.length > 120) {
+        sendJson(res, 400, { ok: false, error: "invalid preference id" }, c);
+        return true;
+      }
+      try {
+        const result = clearExecutablePreference(workspaceDir, rawId);
+        if (!result.ok) {
+          sendJson(res, 400, { ok: false, error: "cannot_clear_profile_preference" }, c);
+          return true;
+        }
+        sendJson(res, 200, { ok: true, cleared: result.cleared }, c);
+      } catch (e) {
+        sendJson(res, 500, { ok: false, error: e instanceof Error ? e.message : String(e) }, c);
+      }
+      return true;
+    }
+  }
+
   if (pathname === "/api/lawyer-profile/learning" && req.method === "POST") {
     let body;
     try {
@@ -260,6 +317,14 @@ export async function handleReviewRoute({
         auditDir: path.join(workspaceDir, "audit"),
         auditTaskId,
       });
+      try {
+        writeExecutablePreference(workspaceDir, {
+          text: note,
+          tags: src === "manual" ? ["cold_start"] : ["review"],
+        });
+      } catch {
+        /* JSON prefs optional */
+      }
       sendJson(res, 200, { ok: true, skipped: r.skipped }, c);
     } catch (e) {
       sendJson(res, 500, { ok: false, error: e instanceof Error ? e.message : String(e) }, c);

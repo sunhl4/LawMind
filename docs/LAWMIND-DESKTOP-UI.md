@@ -20,6 +20,17 @@
 
 **原则**：语义色与间距优先用 **CSS 变量** 或 **已有 `lm-*` 类**；仅**运行时几何**（分栏宽度、菜单位置、树节点缩进等）使用内联 `style`。
 
+### 1.1) 产品信息架构（2026-07-13，Wave A/B 2026-07-19 修订）
+
+- **默认入口**：`workspace` 对话式 Agent 交办窗；打开即可下达任务、引用材料和处理当前澄清。
+- **一级顶栏**：仅「对话」「在办」（条件出现：案件 chip / 文书台场景标签）。「会议室」「自动办件」在 Header「会议室·办件」菜单（`lm-nav-more`）。
+- **状态层**：`agents` 对用户显示为「在办」；汇总待决定、进行中、待签批，不作为冷启动首页。
+- **调度层**：`automations` 对用户显示为「自动办件」（定时/邮件触发）；从「会议室·办件」进入；与对话内「下达」区分。
+- **案件层**：案件是材料、任务、期限、交付物和保密等级的长期真相源。
+- **交付层**：`review` 对用户显示为「文书台」，不再是顶栏对等 Tab；由「进入文书台」场景按钮打开。
+- **决策队列**：侧栏底部「待我拍板」为唯一常驻入口；顶栏角标仅在侧栏折叠或文书台（无侧栏）时出现。实现为进入「在办」并开启 **needs-decision 焦点**（仅 `awaiting_*` 卡）；**无独立 Action Hub 模态**；不再在对话输入区挂「待你处理」条。
+- **禁止模式开关**：不增加 IDE/Agent 或默认首页设置；Solo/Firm 只渐进改变信息密度（Solo 设置「高级」默认折叠）。
+
 ---
 
 ## 2) 设计令牌（`:root` 摘要）
@@ -53,10 +64,10 @@
 - **详情标题旁 ID**：`lm-wizard-title-sub`
 - **向导底部操作区换行**：`lm-wizard-actions` + `lm-wizard-actions--wrap`
 
-### 4.1) 待澄清：会话条（`lm-clarify-session-bar`）
+### 4.1) 待澄清 / 待我拍板入口
 
 - **逻辑**：`getPendingClarificationState`（`apps/lawmind-desktop/src/renderer/lawmind-chat.ts`）——仅当**当前对话最后一条**为 `assistant` 且（存在 `clarificationQuestions` 和/或 `status === "awaiting_clarification"`）时为 `pending`，避免历史轮次的澄清误报。
-- **UI**：展开输入区时在 `lm-compose` 顶栏显示琥珀色会话条 +「跳转到补充区域」；收起输入区时在折叠条显示简版并同样可跳转至消息内锚点 `#lm-clarify-card-${index}`。
+- **UI**：侧栏「待我拍板」（及折叠侧栏时的顶栏角标）进入「在办」决策区；会话内澄清/批准卡片仍挂在消息流（锚点 `#lm-clarify-card-${index}`）。
 
 ### 4.2) 输入区上下文与附件（Wave D）
 
@@ -68,10 +79,10 @@
 | `lm-compose-attachments-scroll`           | 横向滚动容器（多 chip 时不撑破布局）       |
 | `lm-compose-context-picker*`              | `@` 上下文选择弹层（文件 / 案件 / 模板）   |
 | `lm-compose-template-gallery*`            | 「模板」按钮打开的 legal template 画廊     |
-| `lm-requires-action-strip`                | 输入区上方聚合待批准 + 待澄清条（E2）      |
 
 - **数据流**：文件选择写入 `fileChatContextItems` → 发送时 `contextPins` + `buildFileContextMessagePrefix`；案件选择更新 `contextMatterId` → 发送时 `matterId` 归因。
 - **实现**：`LawmindComposeAttachments.tsx`、`LawmindComposeContextPicker.tsx`、`LawmindComposeTemplateGallery.tsx`、`lawmind-compose-context.ts`。
+- **待决入口**：不在 compose 挂「待你处理」条；统一侧栏/顶栏「待我拍板」→ 在办 needs-decision 焦点。
 
 ---
 
@@ -105,6 +116,24 @@ UI 层约定：**同一语义只用同一套类名与色板**，这样在产品�
 ---
 
 ## 8) 变更清单（维护者备注）
+
+- **2026-07-12**：办案指挥台 `mainView === "agents"`（Header「指挥台」）；样式模块 `styles/agent-fleet.css`（经 `pnpm lawmind:sync:renderer-css` 打入 `styles.css`）；类名前缀 `lm-agent-fleet-*`。
+- **2026-07-13**：Header「指挥台」改为「在办」；待审草稿并入在办；审核从对等 Tab 降为「进入文书台」；修订完成不再自动跳页；聊天中新增「当前交办」承诺卡。
+- **2026-07-19（Wave A）**：顶栏「交办」改为「自动办件」；决策队列用户文案统一为「待我拍板」；主视图枚举去掉已删除的 `collaboration`，加入 `automations`。后去掉对话区重复的「待你处理」条，仅保留侧栏入口。
+- **2026-07-20（9.8 分轮）**：action-summary 共享 React Query（焦点/可见时 5s）；对话回合结束即时刷新；案件概览「本案下一步」轨；案件 job SSE；文书粘性深链。
+
+### 8.1) 半暴露 / 内部 API（诚实标注）
+
+下列能力有 HTTP/引擎支持，**本轮不铺独立设置页**，视为内部或实验，勿在销售叙事中写成「桌面已完整暴露」：
+
+- `GET /api/queues`（本案工作队列）
+- `POST …/sessions/:id/compact`（整理上下文）
+- memory adoption `suggest`、contract-revision `finalize`
+- `GET /api/integrations` 目录（documents 子路径除外）
+
+## 9) 主视图枚举
+
+`LawmindMainView`：`workspace`（默认对话）| `agents`（在办）| `meeting`（会议室，经「会议室·办件」）| `automations`（自动办件，经「会议室·办件」）| `review`（文书台深工具）— 见 `apps/lawmind-desktop/src/renderer/lawmind-main-view.ts`。协作能力已并入「在办」子 Tab（进行中 / 交出去的活 / 按流程办），不再是顶栏对等视图。
 
 在 `styles.css` 增加新 token 或新 `lm-*` 类时，请同步更新本文件与 [LawMind 架构](/LAWMIND-ARCHITECTURE) 中「UI 设计系统」小节的链接；若影响用户可见行为，评估是否更新 [LawMind 使用手册](/LAWMIND-USER-MANUAL) 的界面小节。若改动文件页/引用/帮助/保存/**本机默认应用打开**相关逻辑，请同步更新 [LawMind 桌面端：文件页、对话引用、帮助与保存](/LAWMIND-DESKTOP-FILES-AND-CONTEXT)（含 §0 产品边界、§9 维护记录）。产品句柄见 [LawMind 愿景](/LAWMIND-VISION) §6.2d。
 

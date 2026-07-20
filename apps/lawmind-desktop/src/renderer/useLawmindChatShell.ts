@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
+import { apiAuthHeaders } from "./lawmind-api-auth.ts";
 import type { ChatActivityBlock } from "./lawmind-chat-activity.js";
 import type { ChatLiveTrace } from "./lawmind-chat-trace.js";
 import type { ChatMsg } from "./lawmind-chat";
@@ -71,7 +72,7 @@ export function useLawmindChatShell(input: {
       }
       const r = await fetch(
         `${apiBase}/api/sessions/${encodeURIComponent(sessionId)}?assistantId=${encodeURIComponent(assistantId)}`,
-        { signal },
+        { signal, headers: apiAuthHeaders() },
       );
       const j = (await r.json()) as {
         ok?: boolean;
@@ -133,6 +134,7 @@ export function useLawmindChatShell(input: {
       }
       const r = await fetch(
         `${apiBase}/api/sessions?assistantId=${encodeURIComponent(assistantId)}`,
+        { headers: apiAuthHeaders() },
       );
       const j = (await r.json()) as {
         ok?: boolean;

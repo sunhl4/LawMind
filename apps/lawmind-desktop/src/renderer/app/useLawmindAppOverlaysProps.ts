@@ -1,10 +1,11 @@
 import { useMemo, type RefObject } from "react";
-import type { CollaborationDeskTab } from "../LawmindCollaborationDesk";
+import type { AgentsDeskTab } from "../lawmind-agents-desk";
 import type { AssistantEditorDraft } from "../lawmind-assistant-editor";
 import type { AppConfig } from "../lawmind-app-bootstrap";
 import type { PresetRow } from "../lawmind-app-data";
 import type { AssistantRow } from "../lawmind-settings-models.ts";
 import type { DetailKind } from "../lawmind-app-detail";
+import type { LawmindMainView } from "../lawmind-main-view";
 import type {
   ArtifactDraft,
   TaskExecutionPlanStep,
@@ -62,11 +63,13 @@ export type UseLawmindAppOverlaysPropsInput = {
   showHelp: boolean;
   setShowHelp: (open: boolean) => void;
   config: AppConfig | null;
-  setCollaborationDeskTab: (tab: CollaborationDeskTab) => void;
-  setMainView: (view: "workspace" | "collaboration" | "review") => void;
+  setAgentsDeskTab: (tab: AgentsDeskTab) => void;
+  setMainView: (view: LawmindMainView) => void;
   setShowSettings: SetShowSettings;
   setInput: (value: string) => void;
   composeTextareaRef: RefObject<HTMLTextAreaElement | null>;
+  /** Suppress FirstRun while API wizard is open or model is not configured. */
+  suppressFirstRunAutoOpen?: boolean;
 };
 
 export function useLawmindAppOverlaysProps(input: UseLawmindAppOverlaysPropsInput): LawmindAppOverlaysProps {
@@ -117,11 +120,12 @@ export function useLawmindAppOverlaysProps(input: UseLawmindAppOverlaysPropsInpu
     showHelp,
     setShowHelp,
     config,
-    setCollaborationDeskTab,
+    setAgentsDeskTab,
     setMainView,
     setShowSettings,
     setInput,
     composeTextareaRef,
+    suppressFirstRunAutoOpen = false,
   } = input;
 
   return useMemo(
@@ -176,8 +180,8 @@ export function useLawmindAppOverlaysProps(input: UseLawmindAppOverlaysPropsInpu
       onCloseHelp: () => setShowHelp(false),
       onOpenWorkflowLibrary: config
         ? () => {
-            setCollaborationDeskTab("workflows");
-            setMainView("collaboration");
+            setAgentsDeskTab("workflows");
+            setMainView("agents");
           }
         : undefined,
       onOpenAdvancedSettings: () => {
@@ -187,6 +191,7 @@ export function useLawmindAppOverlaysProps(input: UseLawmindAppOverlaysPropsInpu
         setContextMatterId(matterId);
         setInput(seedPrompt);
       },
+      suppressFirstRunAutoOpen,
       composeTextareaRef,
       config,
     }),
@@ -237,11 +242,12 @@ export function useLawmindAppOverlaysProps(input: UseLawmindAppOverlaysPropsInpu
       showHelp,
       setShowHelp,
       config,
-      setCollaborationDeskTab,
+      setAgentsDeskTab,
       setMainView,
       setShowSettings,
       setInput,
       composeTextareaRef,
+      suppressFirstRunAutoOpen,
     ],
   );
 }

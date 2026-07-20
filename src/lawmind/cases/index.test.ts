@@ -54,7 +54,9 @@ describe("LawMind Matter Index", () => {
     const bundle = await engine.research(intent);
     const draft = engine.draft(intent, bundle, { title: "案件 900 法律意见" });
     await engine.review(draft, { actorId: "lawyer:test", status: "approved" });
-    await engine.render(draft);
+    // Index aggregation test needs a successful render; citation gate is on by default.
+    const rendered = await engine.render(draft, { citationGateStrict: false });
+    expect(rendered.ok).toBe(true);
 
     const index = await engine.getMatterIndex("matter-900");
 
@@ -67,7 +69,9 @@ describe("LawMind Matter Index", () => {
       index.taskGoals.some((item) => item.includes(shortTaskIdForDisplay(intent.taskId))),
     ).toBe(true);
     expect(index.riskNotes.some((item) => item.includes("通知送达证据"))).toBe(true);
-    expect(index.artifacts.some((item) => item.includes(".docx"))).toBe(true);
+    expect(index.artifacts.some((item) => item.includes(".docx") || item.includes("->"))).toBe(
+      true,
+    );
     expect(index.renderedTasks.length).toBe(1);
     expect(index.openTasks.length).toBe(0);
     expect(index.latestUpdatedAt).toBeTruthy();

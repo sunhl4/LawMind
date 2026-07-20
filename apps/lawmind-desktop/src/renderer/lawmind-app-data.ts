@@ -39,6 +39,7 @@ export type HealthPayload = {
     totalTokens?: number;
     since?: string;
     until?: string;
+    byModel?: Array<{ model: string; entries: number; totalTokens: number }>;
   };
   doctor?: {
     taskCount?: number;
@@ -97,6 +98,23 @@ export type HealthPayload = {
       ok?: boolean;
       issueCount?: number;
       issues?: Array<{ matterId: string; code: string; message: string }>;
+    };
+    taskDraftConsistency?: {
+      ok?: boolean;
+      issueCount?: number;
+      issues?: Array<{ taskId: string; code: string; message: string }>;
+    };
+    multitaskObservability?: {
+      windowDays?: number;
+      jobsTotal?: number;
+      jobsInWindow?: number;
+      leadTimeP50Ms?: number | null;
+      leadTimeP90Ms?: number | null;
+      retryRate?: number;
+      cancelRate?: number;
+      failureRate?: number;
+      conflictRate?: number;
+      notes?: string[];
     };
     reasoningGraphCoverage?: {
       requiredDraftCount?: number;

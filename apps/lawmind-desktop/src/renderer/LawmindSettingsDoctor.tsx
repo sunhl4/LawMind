@@ -40,6 +40,13 @@ function stateLabel(state: WorkspaceCheck["state"]): string {
   }
 }
 
+function pct(rate: number | undefined): string {
+  if (rate == null || Number.isNaN(rate)) {
+    return "n/a";
+  }
+  return `${Math.round(rate * 1000) / 10}%`;
+}
+
 export function LawmindSettingsDoctor(props: Props): ReactNode {
   const {
     health: healthProp,
@@ -85,6 +92,8 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
   const searchIndex = doctor?.searchIndex;
   const p2 = doctor?.p2;
   const matterConsistency = doctor?.matterConsistency;
+  const taskDraftConsistency = doctor?.taskDraftConsistency;
+  const multitaskObservability = doctor?.multitaskObservability;
   const reasoningGraphCoverage = doctor?.reasoningGraphCoverage;
 
   async function repairMatterProjections(): Promise<void> {
@@ -473,6 +482,75 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
       </div>
 
       <div className="lm-settings-group lm-settings-surface">
+        <h4 className="lm-doctor-group-title">任务 / 草稿一致性</h4>
+        <p className="lm-meta lm-settings-doctor-lead">
+          只读检查 <code>tasks/*.json</code> 与 <code>drafts/*.json</code>{" "}
+          是否对齐（孤儿草稿、交付任务缺草稿）。
+        </p>
+        <div className="lm-settings-row">
+          <span className="lm-settings-key">一致性</span>
+          <span
+            className={
+              taskDraftConsistency?.ok !== false ? "lm-pill lm-pill-success" : "lm-pill lm-pill-warn"
+            }
+          >
+            {taskDraftConsistency?.ok !== false
+              ? "正常"
+              : `${taskDraftConsistency?.issueCount ?? 0} 项待处理`}
+          </span>
+        </div>
+        {(taskDraftConsistency?.issues?.length ?? 0) > 0 ? (
+          <ul className="lm-meta lm-doctor-issue-list">
+            {taskDraftConsistency!.issues!.map((issue) => (
+              <li key={`${issue.taskId}-${issue.code}`}>
+                <strong>{issue.taskId}</strong> [{issue.code}] {issue.message}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+
+      <div className="lm-settings-group lm-settings-surface">
+        <h4 className="lm-doctor-group-title">多任务 Jobs 观测（{multitaskObservability?.windowDays ?? 14} 天）</h4>
+        <p className="lm-meta lm-settings-doctor-lead">
+          读取 <code>lawmind/jobs/*.json</code> 与协作审计窗口，展示 lead time / 重试 / 取消 / 失败率（只读）。
+        </p>
+        <div className="lm-settings-row">
+          <span className="lm-settings-key">样本</span>
+          <span className="lm-meta">
+            窗口内 {multitaskObservability?.jobsInWindow ?? 0} / 总计{" "}
+            {multitaskObservability?.jobsTotal ?? 0}
+          </span>
+        </div>
+        <div className="lm-settings-row">
+          <span className="lm-settings-key">Lead time P50/P90</span>
+          <span className="lm-meta">
+            {multitaskObservability?.leadTimeP50Ms != null
+              ? `${Math.round(multitaskObservability.leadTimeP50Ms / 1000)}s`
+              : "n/a"}{" "}
+            /{" "}
+            {multitaskObservability?.leadTimeP90Ms != null
+              ? `${Math.round(multitaskObservability.leadTimeP90Ms / 1000)}s`
+              : "n/a"}
+          </span>
+        </div>
+        <div className="lm-settings-row">
+          <span className="lm-settings-key">重试 / 取消 / 失败</span>
+          <span className="lm-meta">
+            {pct(multitaskObservability?.retryRate)} · {pct(multitaskObservability?.cancelRate)} ·{" "}
+            {pct(multitaskObservability?.failureRate)}
+          </span>
+        </div>
+        {(multitaskObservability?.notes?.length ?? 0) > 0 ? (
+          <ul className="lm-meta lm-doctor-issue-list">
+            {multitaskObservability!.notes!.map((note) => (
+              <li key={note}>{note}</li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+
+      <div className="lm-settings-group lm-settings-surface">
         <h4 className="lm-doctor-group-title">本地搜索索引（FTS）</h4>
         <p className="lm-meta lm-settings-doctor-lead">
           只读索引库位于工作区 <code>lawmind/search-index.sqlite</code>，用于审计与会话全文检索。
@@ -540,7 +618,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
             <span>研究快照 {doctor.researchSnapshotCount ?? 0}</span>
           </div>
           <button type="button" className="lm-btn lm-btn-secondary lm-btn-sm" onClick={onOpenCollaborationPage}>
-            打开工作流
+            打开在办
           </button>
         </div>
       ) : null}

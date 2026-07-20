@@ -154,7 +154,7 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
         key: "review-loop",
         title: "审核入口仍是主工作面",
         detail:
-          "当前案件多次从驾驶舱跳去审核，说明律师还在围绕草稿把关来回切换。可以继续把关键审核决策前置到案件概览。",
+          "当前案件多次从驾驶舱进入文书台，说明律师还在围绕草稿把关来回切换。可以继续把关键审核决策前置到案件概览。",
         actionLabel: targetDraft ? "打开当前审核焦点" : "等待草稿",
         tone: "warn",
         target: targetDraft
@@ -236,7 +236,7 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
         key: "adapt-review-surface",
         title: "把审核决策前置到案件概览",
         detail:
-          "当前案件多次从驾驶舱跳去审核，说明概览页还缺少足够的审核上下文。下一版应把审核理由、修改标签和引用状态更早暴露出来。",
+          "当前案件多次从驾驶舱进入文书台，说明概览页还缺少足够的审核上下文。下一版应把审核理由、修改标签和引用状态更早暴露出来。",
         actionLabel: targetDraft ? "查看当前审核焦点" : "等待草稿",
         tone: "warn",
         target: targetDraft
@@ -321,7 +321,7 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
         items.push({
           key: "exp-review-context",
           title: "实验：把审核上下文前置到概览",
-          hypothesis: "如果在概览页提前暴露审核理由、引用状态和修改标签，律师进入审核台的往返次数会下降。",
+          hypothesis: "如果在概览页提前暴露审核理由、引用状态和修改标签，律师进入文书台的往返次数会下降。",
           validation: "观察后续同类案件里“进入审核”次数是否下降，以及是否减少从概览跳审核后的立即返回。",
           signal: `当前案件已出现 ${matterInteractionSummary.reviewOpenCount} 次进入审核动作。`,
           priority: "high",
@@ -410,7 +410,7 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
           item.matterCount >= 3 || item.totalEvents >= 8 ? "validated" : score >= 16 ? "emerging" : "watching";
         const rationale =
           item.key === "adapt-review-surface"
-            ? "多个案件都在重复把审核上下文留到审核台，说明概览层的信息前置价值最高。"
+            ? "多个案件都在重复把审核上下文留到文书台，说明概览层的信息前置价值最高。"
             : item.key === "adapt-case-form"
               ? "多个案件都在反复补 CASE 文本，说明结构化补录已经接近共性需求。"
               : item.key === "adapt-memory-fastlane"
@@ -418,7 +418,7 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
                 : "同一入口在多个案件中持续高频出现，说明默认展示顺序可能已经需要调整。";
         const owner =
           item.key === "adapt-review-surface"
-            ? "案件概览 / 审核流"
+            ? "案件概览 / 文书台"
             : item.key === "adapt-case-form"
               ? "CASE 档案层"
               : item.key === "adapt-memory-fastlane"
@@ -426,7 +426,7 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
                 : "工作台框架";
         const benefit =
           item.key === "adapt-review-surface"
-            ? "减少律师在概览与审核台之间的来回切换，把关键待审信号前置到主工作面。"
+            ? "减少律师在概览与文书台之间的来回切换，把关键待审信号前置到主工作面。"
             : item.key === "adapt-case-form"
               ? "把反复补录的案件说明转成结构化输入，降低自由文本维护成本。"
               : item.key === "adapt-memory-fastlane"

@@ -28,7 +28,7 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
   const empty = assistants.length === 0;
   return (
     <div className="lm-settings-section">
-      <div className="lm-settings-section-title lm-settings-section-title--duplicate">智能体</div>
+      <div className="lm-settings-section-title lm-settings-section-title--duplicate">助手</div>
       <p className="lm-meta lm-settings-hint">
         业务领域岗位（诉讼、商事、尽调、知产等）可在「快速新建」中选择对应模板；与工作流库领域标签一致。
       </p>
@@ -44,15 +44,15 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
       <div className="lm-settings-group lm-settings-surface">
         {empty ? (
           <div className="lm-settings-empty" role="status">
-            <div className="lm-collab-empty-title">还没有智能体</div>
+            <div className="lm-collab-empty-title">还没有助手</div>
             <p className="lm-collab-empty-body">
-              可按岗位建多个（例如研究 / 起草 / 复核）；对话里随时切换。复杂事项还可在「工作流」里跑多步后台流程，交付前仍由您在审核台把关。
+              可按岗位建多个（例如研究 / 起草 / 复核）；对话里随时切换。复杂事项还可在「工作流」里跑多步后台流程，交付前仍由您在文书台把关。
             </p>
           </div>
         ) : (
           <>
             <div className="lm-settings-row">
-              <span className="lm-settings-key">当前智能体</span>
+              <span className="lm-settings-key">当前助手</span>
               <select
                 className="lm-asst-select"
                 value={selectedAssistantId}

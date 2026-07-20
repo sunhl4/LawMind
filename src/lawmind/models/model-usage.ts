@@ -5,6 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, appendFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
+import { classifyModelWorkTier, modelWorkTierLabel, type ModelWorkTier } from "./model-tier.js";
 
 export type ModelUsageSnapshot = {
   promptTokens: number;
@@ -35,6 +36,14 @@ export type ModelUsageSummary = {
   since?: string;
   /** ISO date of newest included row */
   until?: string;
+  byModel?: Array<{ model: string; entries: number; totalTokens: number }>;
+  /** Heuristic Worker / Advisor / 通用 buckets (not billing). */
+  byTier?: Array<{
+    tier: ModelWorkTier;
+    label: string;
+    entries: number;
+    totalTokens: number;
+  }>;
 };
 
 function ledgerPath(workspaceDir: string): string {
@@ -111,15 +120,43 @@ export function summarizeModelUsage(
     completionTokens: 0,
     totalTokens: 0,
   };
+  const byModelMap = new Map<string, { entries: number; totalTokens: number }>();
+  const byTierMap = new Map<ModelWorkTier, { entries: number; totalTokens: number }>();
   for (const e of entries) {
     summary.promptTokens += e.promptTokens;
     summary.completionTokens += e.completionTokens;
     summary.totalTokens += e.totalTokens;
+    const model = e.model?.trim() || "unknown";
+    const row = byModelMap.get(model) ?? { entries: 0, totalTokens: 0 };
+    row.entries += 1;
+    row.totalTokens += e.totalTokens;
+    byModelMap.set(model, row);
+    const tier = classifyModelWorkTier(model);
+    const tierRow = byTierMap.get(tier) ?? { entries: 0, totalTokens: 0 };
+    tierRow.entries += 1;
+    tierRow.totalTokens += e.totalTokens;
+    byTierMap.set(tier, tierRow);
   }
   if (entries.length > 0) {
     const sorted = [...entries].toSorted((a, b) => a.recordedAt.localeCompare(b.recordedAt));
     summary.since = sorted[0]?.recordedAt;
     summary.until = sorted[sorted.length - 1]?.recordedAt;
+    summary.byModel = [...byModelMap.entries()]
+      .map(([model, row]) => ({ model, entries: row.entries, totalTokens: row.totalTokens }))
+      .toSorted((a, b) => b.totalTokens - a.totalTokens)
+      .slice(0, 8);
+    const tierOrder: ModelWorkTier[] = ["advisor", "worker", "general"];
+    summary.byTier = tierOrder
+      .filter((tier) => byTierMap.has(tier))
+      .map((tier) => {
+        const row = byTierMap.get(tier)!;
+        return {
+          tier,
+          label: modelWorkTierLabel(tier),
+          entries: row.entries,
+          totalTokens: row.totalTokens,
+        };
+      });
   }
   return summary;
 }

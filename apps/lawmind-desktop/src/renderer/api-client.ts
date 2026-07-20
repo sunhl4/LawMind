@@ -135,6 +135,8 @@ const CODE_HINTS: Record<string, string> = {
   missing_api_key: MODEL_NOT_CONFIGURED_USER_HINT,
   missing_provider_api_key:
     "当前所选模型的服务商尚未配置 Key。请打开 API 配置向导填写对应服务商密钥，或添加自定义模型。",
+  invalid_api_token:
+    "本机服务鉴权失败（与模型 API Key 无关）。请完全退出并重启 LawMind 桌面端后再试。",
   invalid_matter_id: "案件 ID 格式不正确。请使用字母或数字开头，2–128 字符，仅含字母、数字、点、下划线、连字符。",
   message_required: "请输入有效内容后再发送。",
   invalid_matter_id_chat: "当前关联的案件 ID 无效，请清空或更正后再试。",
@@ -186,11 +188,14 @@ export function userMessageFromApiError(status: number, body: ApiErrorJson): str
   }
   const base = joined || `请求失败（HTTP ${status}）`;
   const hint = code && CODE_HINTS[code] ? CODE_HINTS[code] : "";
+  if (code === "invalid_api_token") {
+    return hint;
+  }
   if (status === 503 || status === 502) {
     return hint || `${base} 请检查 API Key、网络与本地服务是否正常。`;
   }
   if (status === 401 || status === 403) {
-    return `${base} 请检查 API Key 是否有效、是否过期。`;
+    return hint || `${base} 请检查 API Key 是否有效、是否过期。`;
   }
   if (status === 409 && code === "session_assistant_mismatch") {
     return hint ? `${base} ${hint}` : base;

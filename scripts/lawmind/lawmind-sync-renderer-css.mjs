@@ -20,7 +20,7 @@ const stylesDir = path.join(rendererDir, "styles");
 const BLOCKS = [
   {
     marker: "chat-split",
-    chunks: [{ file: "chat.css", start: 1, end: 22 }],
+    chunks: [{ file: "chat.css", start: 1, end: 41 }],
   },
   {
     marker: "desk-layout",
@@ -28,11 +28,12 @@ const BLOCKS = [
   },
   {
     marker: "chat-workspace",
-    chunks: [{ file: "chat.css", start: 23, end: 31 }],
+    // Keep this slice closed: must include full `.lm-assignment-applied-check .lm-md-code` rule.
+    chunks: [{ file: "chat.css", start: 43, end: 58 }],
   },
   {
     marker: "shell-header+chat-main",
-    chunks: [{ file: "shell-header.css" }, { file: "chat.css", start: 32, end: 1079 }],
+    chunks: [{ file: "shell-header.css" }, { file: "chat.css", start: 60, end: 1099 }],
   },
   {
     marker: "modal-forms",
@@ -44,7 +45,15 @@ const BLOCKS = [
   },
   {
     marker: "workflow-hub+chat-compose",
-    chunks: [{ file: "workflow-hub.css" }, { file: "chat.css", start: 1080 }],
+    chunks: [{ file: "workflow-hub.css" }, { file: "chat.css", start: 1100 }],
+  },
+  {
+    marker: "agent-fleet",
+    chunks: [{ file: "agent-fleet.css" }],
+  },
+  {
+    marker: "automations",
+    chunks: [{ file: "automations.css" }],
   },
   {
     marker: "buttons",

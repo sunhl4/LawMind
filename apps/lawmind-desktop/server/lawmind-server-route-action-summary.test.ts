@@ -41,6 +41,21 @@ describe("lawmind-server-route-action-summary", () => {
   });
 
   it("GET /api/action-summary returns aggregated counts", async () => {
+    await fs.mkdir(path.join(workspaceDir, "drafts"), { recursive: true });
+    await fs.writeFile(
+      path.join(workspaceDir, "drafts", "task-review.json"),
+      JSON.stringify({
+        taskId: "task-review",
+        title: "待审意见书",
+        output: "docx",
+        templateId: "general",
+        summary: "",
+        sections: [],
+        reviewNotes: [],
+        reviewStatus: "pending",
+        createdAt: new Date().toISOString(),
+      }),
+    );
     const res = mockRes();
     const handled = await handleActionSummaryRoutes({
       ctx,
@@ -52,7 +67,16 @@ describe("lawmind-server-route-action-summary", () => {
     });
     expect(handled).toBe(true);
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ ok: true, total: expect.any(Number) });
+    expect(res.body).toMatchObject({
+      ok: true,
+      total: expect.any(Number),
+      requiresDecisionTotal: 1,
+      pendingReviewCount: 1,
+      pendingReviewDrafts: [
+        expect.objectContaining({ taskId: "task-review", title: "待审意见书" }),
+      ],
+      chatRequiresActions: expect.any(Array),
+    });
   });
 
   it("GET /api/action-summary rejects invalid matterId", async () => {

@@ -442,7 +442,7 @@ export function MatterCognitionPanel(props: MatterCognitionPanelProps) {
                   })
                 }
               >
-                去审核
+                进入文书台
               </button>
             ) : null}
           </div>

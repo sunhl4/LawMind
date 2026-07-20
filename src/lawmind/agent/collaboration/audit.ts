@@ -1,20 +1,28 @@
 /**
  * Collaboration audit — logs inter-assistant communication events.
  *
- * Events are appended to workspace/collaboration-audit.jsonl for full
- * provenance tracking. Lawyers can see which assistant produced which
- * insight and who reviewed it.
+ * New writes go to workspace/collaboration-audit/YYYY-MM-DD.jsonl (day-split).
+ * Legacy single-file collaboration-audit.jsonl is still read for compatibility.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import type { CollaborationEvent } from "./types.js";
 
-const AUDIT_FILE = "collaboration-audit.jsonl";
+const AUDIT_FILE_LEGACY = "collaboration-audit.jsonl";
+const AUDIT_DIR = "collaboration-audit";
+
+function todayStamp(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function dayFilePath(workspaceDir: string, day: string): string {
+  return path.join(workspaceDir, AUDIT_DIR, `${day}.jsonl`);
+}
 
 export function emitCollaborationEvent(workspaceDir: string, event: CollaborationEvent): void {
   try {
-    const filePath = path.join(workspaceDir, AUDIT_FILE);
+    const filePath = dayFilePath(workspaceDir, todayStamp());
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.appendFileSync(filePath, JSON.stringify(event) + "\n", "utf8");
   } catch {
@@ -22,8 +30,7 @@ export function emitCollaborationEvent(workspaceDir: string, event: Collaboratio
   }
 }
 
-export function readCollaborationEvents(workspaceDir: string): CollaborationEvent[] {
-  const filePath = path.join(workspaceDir, AUDIT_FILE);
+function readJsonlFile(filePath: string): CollaborationEvent[] {
   try {
     const raw = fs.readFileSync(filePath, "utf8");
     return raw
@@ -34,6 +41,27 @@ export function readCollaborationEvents(workspaceDir: string): CollaborationEven
   } catch {
     return [];
   }
+}
+
+export function readCollaborationEvents(workspaceDir: string): CollaborationEvent[] {
+  const out: CollaborationEvent[] = [];
+  const legacy = path.join(workspaceDir, AUDIT_FILE_LEGACY);
+  out.push(...readJsonlFile(legacy));
+  const dir = path.join(workspaceDir, AUDIT_DIR);
+  try {
+    const files = fs
+      .readdirSync(dir)
+      .filter((name) => name.endsWith(".jsonl"))
+      .toSorted();
+    // 默认只合并最近 120 天，避免多年协作日志一次读完
+    const selected = files.length > 120 ? files.slice(-120) : files;
+    for (const name of selected) {
+      out.push(...readJsonlFile(path.join(dir, name)));
+    }
+  } catch {
+    /* no day-split dir yet */
+  }
+  return out.toSorted((a, b) => a.timestamp.localeCompare(b.timestamp));
 }
 
 export function readCollaborationEventsSince(

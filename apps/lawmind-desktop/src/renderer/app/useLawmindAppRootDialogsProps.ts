@@ -1,6 +1,7 @@
 import { useMemo, type Dispatch, type SetStateAction } from "react";
 import type { FileWorkbenchCasesNodeActions } from "../FileWorkbench";
 import type { RootKey } from "../file/file-workbench-types";
+import type { LawmindMainView } from "../lawmind-main-view";
 import type { LawmindAppRootDialogsProps } from "./LawmindAppRootDialogs";
 import type { LawmindFileWorkbenchHostProps } from "./LawmindFileWorkbenchHost";
 import { RECORDS_DESK_UNLINKED } from "../lawmind-records-desk-state";
@@ -22,24 +23,11 @@ export type UseLawmindAppRootDialogsPropsInput = {
   setCreateMatterOpen: (open: boolean) => void;
   setMatterRefreshVersion: React.Dispatch<React.SetStateAction<number>>;
   recordsDeskMattersSetSelectedKey: (key: string) => void;
-  matterRenameOpen: { matterId: string; initialTitle: string } | null;
-  setMatterRenameOpen: (value: { matterId: string; initialTitle: string } | null) => void;
   matterDeleteOpen: { matterId: string; label: string } | null;
   setMatterDeleteOpen: (value: { matterId: string; label: string } | null) => void;
   setContextMatterId: (id: string | null) => void;
-  showActionHub: boolean;
-  setShowActionHub: (open: boolean) => void;
-  refreshActionSummary: () => void | Promise<void>;
-  sessionRequiresActions: LawmindAppRootDialogsProps["sessionRequiresActions"];
-  sessionByAssistant: Record<string, string | undefined>;
   taskDrawerOpen: boolean;
   setTaskDrawerOpen: (open: boolean) => void;
-  toolApprovalDialogAction: LawmindAppRootDialogsProps["toolApprovalDialogAction"];
-  setToolApprovalDialogAction: (
-    action: LawmindAppRootDialogsProps["toolApprovalDialogAction"],
-  ) => void;
-  loading: boolean;
-  handleResumeRequiresAction: LawmindAppRootDialogsProps["onResumeRequiresAction"];
 };
 
 export function useLawmindAppRootDialogsProps(
@@ -62,22 +50,11 @@ export function useLawmindAppRootDialogsProps(
     setCreateMatterOpen,
     setMatterRefreshVersion,
     recordsDeskMattersSetSelectedKey,
-    matterRenameOpen,
-    setMatterRenameOpen,
     matterDeleteOpen,
     setMatterDeleteOpen,
     setContextMatterId,
-    showActionHub,
-    setShowActionHub,
-    refreshActionSummary,
-    sessionRequiresActions,
-    sessionByAssistant,
     taskDrawerOpen,
     setTaskDrawerOpen,
-    toolApprovalDialogAction,
-    setToolApprovalDialogAction,
-    loading,
-    handleResumeRequiresAction,
   } = input;
 
   return useMemo(
@@ -106,9 +83,6 @@ export function useLawmindAppRootDialogsProps(
         setMatterRefreshVersion((v) => v + 1);
         recordsDeskMattersSetSelectedKey(mid);
       },
-      matterRenameOpen,
-      onCloseMatterRename: () => setMatterRenameOpen(null),
-      onMatterRenameSuccess: () => setMatterRefreshVersion((v) => v + 1),
       matterDeleteOpen,
       onCloseMatterDelete: () => setMatterDeleteOpen(null),
       onMatterDeleteSuccess: (mid) => {
@@ -117,18 +91,8 @@ export function useLawmindAppRootDialogsProps(
         }
       },
       onMatterListChanged: () => setMatterRefreshVersion((v) => v + 1),
-      showActionHub,
-      onCloseActionHub: () => setShowActionHub(false),
-      onRefreshActionSummary: refreshActionSummary,
-      sessionRequiresActions,
-      sessionId: sessionByAssistant[selectedAssistantId] ?? activeChatSessionId,
-      onChatResumeComplete: refreshActionSummary,
       taskDrawerOpen,
       onCloseTaskDrawer: () => setTaskDrawerOpen(false),
-      toolApprovalDialogAction,
-      loading,
-      onCloseToolApproval: () => setToolApprovalDialogAction(null),
-      onResumeRequiresAction: handleResumeRequiresAction,
     }),
     [
       apiBase,
@@ -147,22 +111,11 @@ export function useLawmindAppRootDialogsProps(
       setCreateMatterOpen,
       setMatterRefreshVersion,
       recordsDeskMattersSetSelectedKey,
-      matterRenameOpen,
-      setMatterRenameOpen,
       matterDeleteOpen,
       setMatterDeleteOpen,
       setContextMatterId,
-      showActionHub,
-      setShowActionHub,
-      refreshActionSummary,
-      sessionRequiresActions,
-      sessionByAssistant,
       taskDrawerOpen,
       setTaskDrawerOpen,
-      toolApprovalDialogAction,
-      setToolApprovalDialogAction,
-      loading,
-      handleResumeRequiresAction,
     ],
   );
 }
@@ -172,11 +125,12 @@ export type UseLawmindFileWorkbenchHostPropsInput = {
   apiBase: string | undefined;
   showSidebarWorkbenchFiles: boolean;
   projectDir: string | null;
+  onPickProject?: () => void | Promise<void>;
   fileExplorerHost: HTMLDivElement | null;
   fileEditorHost: HTMLDivElement | null;
   setFileExplorerPortaled: Dispatch<SetStateAction<boolean>>;
   addFileToChatContext: (payload: { root: RootKey; relPath: string; kind: "file" | "directory" }) => void;
-  setMainView: (view: "workspace" | "collaboration" | "review") => void;
+  setMainView: (view: LawmindMainView) => void;
   fileWorkbenchMattersPickList: Array<{ id: string; label: string }>;
   matterRefreshVersion: number;
   recordsDeskMattersSetSelectedKey: (key: string) => void;
@@ -193,6 +147,7 @@ export function useLawmindFileWorkbenchHostProps(
     apiBase,
     showSidebarWorkbenchFiles,
     projectDir,
+    onPickProject,
     fileExplorerHost,
     fileEditorHost,
     setFileExplorerPortaled,
@@ -214,6 +169,7 @@ export function useLawmindFileWorkbenchHostProps(
       showSidebarWorkbenchFiles,
       workspaceDir,
       projectDir,
+      onPickProject,
       fileExplorerHost,
       fileEditorHost,
       onExplorerPortaled: setFileExplorerPortaled,
@@ -237,6 +193,7 @@ export function useLawmindFileWorkbenchHostProps(
     apiBase,
     showSidebarWorkbenchFiles,
     projectDir,
+    onPickProject,
     fileExplorerHost,
     fileEditorHost,
     setFileExplorerPortaled,

@@ -225,7 +225,7 @@ export const writeDocument: AgentTool = {
       file_path: { type: "string", description: "相对于工作区的文件路径", required: true },
       content: { type: "string", description: "要写入的内容", required: true },
     },
-    requiresApproval: true,
+    // Mid-work writes run without HITL; client-facing export still gated by 文书台签批 + render_document.
     riskLevel: "medium",
   },
   async execute(params, ctx) {

@@ -1,3 +1,4 @@
+import { apiAuthHeaders } from "./lawmind-api-auth.ts";
 import { apiGetJson, readJsonFromResponse } from "./api-client";
 
 export type ModelCatalogEntry = {
@@ -59,7 +60,7 @@ export async function fetchModelsCatalog(apiBase: string): Promise<ModelsCatalog
 export async function setDefaultModelId(apiBase: string, modelId: string): Promise<void> {
   const res = await fetch(`${apiBase}/api/models/default`, {
     method: "PATCH",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...apiAuthHeaders() },
     body: JSON.stringify({ modelId }),
   });
   const body = await readJsonFromResponse<{ ok?: boolean }>(res);
@@ -74,7 +75,7 @@ export async function setDraftWithModelEnabled(
 ): Promise<{ draftWithModelEnabled: boolean; draftWithModelActive: boolean }> {
   const res = await fetch(`${apiBase}/api/models/draft-with-model`, {
     method: "PATCH",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...apiAuthHeaders() },
     body: JSON.stringify({ enabled }),
   });
   const body = await readJsonFromResponse<{
@@ -98,16 +99,29 @@ export async function setDraftWithModelEnabled(
 
 export async function addCustomModel(
   apiBase: string,
-  input: { label: string; baseUrl: string; model: string; apiKey: string; setAsDefault?: boolean },
+  input: {
+    label: string;
+    baseUrl: string;
+    model: string;
+    apiKey: string;
+    setAsDefault?: boolean;
+    keyStorage?: "keychain" | "env";
+  },
 ): Promise<ModelCatalogEntry> {
   const res = await fetch(`${apiBase}/api/models/custom`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...apiAuthHeaders() },
     body: JSON.stringify(input),
   });
-  const body = await readJsonFromResponse<{ ok?: boolean; model?: ModelCatalogEntry }>(res);
+  const body = await readJsonFromResponse<{ ok?: boolean; model?: ModelCatalogEntry; message?: string; error?: string }>(res);
   if (!res.ok || body.ok === false || !body.model) {
-    throw new Error("添加自定义模型失败");
+    const message =
+      (typeof body.message === "string" && body.message.trim())
+        ? body.message.trim()
+        : (typeof body.error === "string" && body.error.trim())
+          ? body.error.trim()
+          : "添加自定义模型失败";
+    throw new Error(message);
   }
   return body.model;
 }
@@ -118,7 +132,7 @@ export async function testModelConnection(
 ): Promise<ModelTestResult> {
   const res = await fetch(`${apiBase}/api/models/test`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...apiAuthHeaders() },
     body: JSON.stringify({ modelId }),
   });
   const body = await readJsonFromResponse<ModelTestResult>(res);
@@ -146,7 +160,7 @@ export async function createDelegation(
 ): Promise<{ delegationId: string; message?: string }> {
   const res = await fetch(`${apiBase}/api/delegations`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...apiAuthHeaders() },
     body: JSON.stringify(input),
   });
   const body = await readJsonFromResponse<{
@@ -169,7 +183,10 @@ export async function createDelegation(
 
 export async function deleteCustomModel(apiBase: string, modelId: string): Promise<void> {
   const id = encodeURIComponent(modelId);
-  const res = await fetch(`${apiBase}/api/models/custom/${id}`, { method: "DELETE" });
+  const res = await fetch(`${apiBase}/api/models/custom/${id}`, {
+    method: "DELETE",
+    headers: { ...apiAuthHeaders() },
+  });
   if (!res.ok) {
     const body = await readJsonFromResponse(res);
     throw new Error(typeof body.message === "string" ? body.message : "删除失败");

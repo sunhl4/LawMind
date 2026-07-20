@@ -1,5 +1,5 @@
 import type { FileChatContextItem } from "./lawmind-app-shell";
-import type { WorkflowTemplateItem } from "./LawmindWorkflowLibrary";
+import type { WorkflowTemplateItem } from "./lawmind-workflow-types";
 
 export type ComposeContextMatterOption = {
   matterId: string;
@@ -135,7 +135,14 @@ export function buildComposeContextPickerItems(opts: {
   matters: ComposeContextMatterOption[];
   contextMatterId: string | null;
   templates: WorkflowTemplateItem[];
+  /** When set, only emit these categories (e.g. meeting materials → files only). */
+  categories?: ComposeContextPickerCategory[];
 }): ComposeContextPickerItem[] {
+  const allow = opts.categories?.length
+    ? new Set(opts.categories)
+    : null;
+  const allowCat = (c: ComposeContextPickerCategory) => !allow || allow.has(c);
+
   const pinnedIds = new Set(opts.pinnedFiles.map((f) => `${f.root}|${f.relPath}|${f.kind}`));
   const fileItems: ComposeContextPickerItem[] = [];
   const seenFile = new Set<string>();
@@ -164,38 +171,44 @@ export function buildComposeContextPickerItems(opts: {
     });
   };
 
-  for (const f of opts.pinnedFiles) {
-    pushFile(f, true);
+  if (allowCat("files")) {
+    for (const f of opts.pinnedFiles) {
+      pushFile(f, true);
+    }
+    for (const f of opts.recentFiles) {
+      pushFile(f);
+    }
   }
-  for (const f of opts.recentFiles) {
-    pushFile(f);
-  }
 
-  const sortedMatters = [...opts.matters].toSorted((a, b) => {
-    const ta = Date.parse(a.latestUpdatedAt ?? "") || 0;
-    const tb = Date.parse(b.latestUpdatedAt ?? "") || 0;
-    return tb - ta;
-  });
+  const matterItems: ComposeContextPickerItem[] = allowCat("matters")
+    ? [...opts.matters]
+        .toSorted((a, b) => {
+          const ta = Date.parse(a.latestUpdatedAt ?? "") || 0;
+          const tb = Date.parse(b.latestUpdatedAt ?? "") || 0;
+          return tb - ta;
+        })
+        .map((m) => ({
+          kind: "matter" as const,
+          id: `matter:${m.matterId}`,
+          category: "matters" as const,
+          label: m.displayName.trim() || m.matterId,
+          hint: m.displayName.trim() && m.displayName.trim() !== m.matterId ? m.matterId : "案件",
+          matterId: m.matterId,
+          isCurrent: opts.contextMatterId === m.matterId,
+        }))
+    : [];
 
-  const matterItems: ComposeContextPickerItem[] = sortedMatters.map((m) => ({
-    kind: "matter",
-    id: `matter:${m.matterId}`,
-    category: "matters",
-    label: m.displayName.trim() || m.matterId,
-    hint: m.displayName.trim() && m.displayName.trim() !== m.matterId ? m.matterId : "案件",
-    matterId: m.matterId,
-    isCurrent: opts.contextMatterId === m.matterId,
-  }));
-
-  const templateItems: ComposeContextPickerItem[] = opts.templates.map((t) => ({
-    kind: "template",
-    id: `template:${t.id}`,
-    category: "templates",
-    label: t.name,
-    hint: t.description?.trim() || t.deliverableType || "工作流模板",
-    templateId: t.id,
-    starterPrompt: t.starterPrompt,
-  }));
+  const templateItems: ComposeContextPickerItem[] = allowCat("templates")
+    ? opts.templates.map((t) => ({
+        kind: "template" as const,
+        id: `template:${t.id}`,
+        category: "templates" as const,
+        label: t.name,
+        hint: t.description?.trim() || t.deliverableType || "工作流模板",
+        templateId: t.id,
+        starterPrompt: t.starterPrompt,
+      }))
+    : [];
 
   return [...fileItems, ...matterItems, ...templateItems];
 }

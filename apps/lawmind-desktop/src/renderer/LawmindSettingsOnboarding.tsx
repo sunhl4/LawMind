@@ -18,7 +18,7 @@ const QUICK_LINKS: QuickLink[] = [
   { sectionId: "models", label: "模型与检索", hint: "API 密钥与检索策略" },
   { sectionId: "workspace", label: "工作区", hint: "根目录与项目材料" },
   { sectionId: "memory", label: "记忆库", hint: "待采纳建议与历史" },
-  { sectionId: "collaboration", label: "团队工作流", hint: "后台多步流程与委派" },
+  { sectionId: "collaboration", label: "多助手交办", hint: "在「在办」查看委派与按流程办" },
 ];
 
 type Props = {
@@ -90,7 +90,7 @@ export function LawmindSettingsOnboarding(props: Props): ReactNode {
             </span>
           </div>
           <div className="lm-settings-row">
-            <span className="lm-settings-key">办案材料文件夹</span>
+            <span className="lm-settings-key">本机文件夹</span>
             <span className={projectDir ? "lm-pill lm-pill-success" : "lm-pill lm-pill-neutral"}>
               {projectDir ? "已选择" : "未选择"}
             </span>

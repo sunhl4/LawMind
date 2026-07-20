@@ -24,9 +24,10 @@ describe("LawmindChatMessagesColumn empty guide", () => {
     host.remove();
   });
 
-  it("shows create matter and workflow actions when guide is enabled", async () => {
+  it("promotes write-materials ahead of matter/workflow actions", async () => {
     const onCreateMatter = vi.fn();
-    const onOpenWorkflowLibrary = vi.fn();
+    const onOpenAgentsWorkflows = vi.fn();
+    const onOpenWriteMaterials = vi.fn();
     await act(async () => {
       root.render(
         <LawmindChatMessagesColumn
@@ -46,11 +47,17 @@ describe("LawmindChatMessagesColumn empty guide", () => {
           onResumeRequiresAction={vi.fn()}
           showEmptyMatterGuide
           onCreateMatter={onCreateMatter}
-          onOpenWorkflowLibrary={onOpenWorkflowLibrary}
+          onOpenAgentsWorkflows={onOpenAgentsWorkflows}
+          onOpenWriteMaterials={onOpenWriteMaterials}
         />,
       );
     });
+    expect(host.textContent).toContain("写材料（填表）");
     expect(host.textContent).toContain("新建案件");
-    expect(host.textContent).toContain("打开工作流库");
+    expect(host.textContent).toContain("按流程办");
+    const writeBtn = host.querySelector('[data-testid="lm-empty-write-materials"]') as HTMLButtonElement;
+    expect(writeBtn).toBeTruthy();
+    writeBtn.click();
+    expect(onOpenWriteMaterials).toHaveBeenCalledOnce();
   });
 });

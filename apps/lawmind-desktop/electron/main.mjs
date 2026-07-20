@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, Menu, Notification, session } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, shell, Menu, Notification, session, screen } from "electron";
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -74,6 +74,9 @@ async function collectSecretsForServerEnv(parsedEnvVars) {
 
 /** @type {import("electron").BrowserWindow | null} */
 let mainWindowRef = null;
+
+/** @type {Map<string, import("electron").BrowserWindow>} */
+const auxWindows = new Map();
 
 function resolveRepoRoot() {
   if (process.env.LAWMIND_REPO_ROOT) {
@@ -359,6 +362,28 @@ async function checkUpdatesWithUi() {
 }
 
 const MAX_TEXT_READ_BYTES = 1_000_000;
+const MAX_IMAGE_READ_BYTES = 12_000_000;
+
+const IMAGE_EXT_MIME = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".bmp": "image/bmp",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+};
+
+function mimeTypeForImagePath(relPath) {
+  const low = String(relPath || "").toLowerCase();
+  for (const [ext, mime] of Object.entries(IMAGE_EXT_MIME)) {
+    if (low.endsWith(ext)) {
+      return mime;
+    }
+  }
+  return null;
+}
 
 function toPosix(relPath) {
   return String(relPath || "")
@@ -577,10 +602,14 @@ async function maybeMigrateEnvKeysToKeychain(envFilePath) {
 /** After local server restart, verify the saved profile via POST /api/models/test. */
 async function postLocalModelTest(modelId) {
   const url = `http://127.0.0.1:${apiPort}/api/models/test`;
+  const headers = {
+    "content-type": "application/json",
+    ...(apiAuthToken ? { authorization: `Bearer ${apiAuthToken}` } : {}),
+  };
   try {
     const res = await fetch(url, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify({ modelId: modelId || "env:current" }),
     });
     const text = await res.text();
@@ -596,6 +625,14 @@ async function postLocalModelTest(modelId) {
     }
     if (res.ok && body.ok === true) {
       return { ok: true, latencyMs: body.latencyMs, modelId: body.modelId };
+    }
+    // If the local API itself rejected auth, surface a clearer message.
+    if (res.status === 401 || body.code === "invalid_api_token") {
+      return {
+        ok: false,
+        code: "local_api_unauthorized",
+        error: `本地 API 鉴权失败（HTTP ${res.status}）。请确保重启后 token 已正确注入。`,
+      };
     }
     return {
       ok: false,
@@ -1164,15 +1201,28 @@ function registerIpcHandlers() {
       if (!stat.isFile()) {
         throw new Error("path is not a file");
       }
-      if (stat.size > MAX_TEXT_READ_BYTES) {
-        throw new Error(`file too large (>${MAX_TEXT_READ_BYTES} bytes)`);
+      const imageMime = mimeTypeForImagePath(relPath);
+      const maxBytes = imageMime ? MAX_IMAGE_READ_BYTES : MAX_TEXT_READ_BYTES;
+      if (stat.size > maxBytes) {
+        throw new Error(`file too large (>${maxBytes} bytes)`);
       }
       const buffer = fs.readFileSync(absPath);
+      if (imageMime) {
+        return {
+          ok: true,
+          kind: "image",
+          mimeType: imageMime,
+          contentBase64: buffer.toString("base64"),
+          mtimeMs: stat.mtimeMs,
+          size: stat.size,
+        };
+      }
       if (isLikelyBinary(buffer)) {
         throw new Error("binary file is not editable in this view");
       }
       return {
         ok: true,
+        kind: "text",
         content: buffer.toString("utf8"),
         mtimeMs: stat.mtimeMs,
         size: stat.size,
@@ -1434,6 +1484,97 @@ function registerIpcHandlers() {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   });
+
+  /** Cursor-like aux window (e.g. review delivery preview undocked). */
+  ipcMain.handle("lawmind:open-aux-window", async (_evt, payload) => {
+    try {
+      const kind = typeof payload?.kind === "string" ? payload.kind.trim() : "";
+      const taskId = typeof payload?.taskId === "string" ? payload.taskId.trim() : "";
+      const title =
+        typeof payload?.title === "string" && payload.title.trim()
+          ? payload.title.trim()
+          : "交付预览";
+      if (kind !== "review-preview" || !taskId) {
+        return { ok: false, error: "invalid_aux_window" };
+      }
+      await ensureBackend();
+      const key = `${kind}:${taskId}`;
+      const existing = auxWindows.get(key);
+      if (existing && !existing.isDestroyed()) {
+        existing.focus();
+        return { ok: true, focused: true };
+      }
+
+      const point = screen.getCursorScreenPoint();
+      const display = screen.getDisplayNearestPoint(point);
+      const width = 720;
+      const height = Math.min(900, Math.max(560, display.workAreaSize.height - 80));
+      const x = Math.min(
+        Math.max(display.workArea.x, point.x - 48),
+        display.workArea.x + display.workArea.width - width,
+      );
+      const y = Math.min(
+        Math.max(display.workArea.y, point.y - 24),
+        display.workArea.y + display.workArea.height - height,
+      );
+
+      const win = new BrowserWindow({
+        width,
+        height,
+        x,
+        y,
+        title: `${title} — LawMind`,
+        autoHideMenuBar: true,
+        webPreferences: {
+          preload: path.join(__dirname, "preload.cjs"),
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: app.isPackaged,
+        },
+      });
+      auxWindows.set(key, win);
+      win.on("closed", () => {
+        if (auxWindows.get(key) === win) {
+          auxWindows.delete(key);
+        }
+      });
+      win.webContents.setWindowOpenHandler(({ url }) => {
+        try {
+          const u = new URL(url);
+          if (u.protocol === "http:" || u.protocol === "https:") {
+            void shell.openExternal(url);
+          }
+        } catch {
+          /* ignore */
+        }
+        return { action: "deny" };
+      });
+
+      const hash = `lm-popout=review-preview&taskId=${encodeURIComponent(taskId)}`;
+      await loadRendererIntoWindow(win, hash);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
+}
+
+async function loadRendererIntoWindow(win, hash = "") {
+  const devUrl = process.env.VITE_DEV_SERVER_URL || "http://127.0.0.1:5174";
+  const distIndex = path.join(__dirname, "..", "dist", "index.html");
+  const useDistInE2e =
+    process.env.LAWMIND_E2E === "1" && fs.existsSync(distIndex);
+  if (!app.isPackaged && !useDistInE2e) {
+    const url = hash ? `${devUrl}/#${hash}` : devUrl;
+    await win.loadURL(url);
+    return;
+  }
+  const indexPath = useDistInE2e ? distIndex : path.join(__dirname, "..", "dist", "index.html");
+  if (hash) {
+    await win.loadFile(indexPath, { hash });
+  } else {
+    await win.loadFile(indexPath);
+  }
 }
 
 function setupApplicationMenu() {
@@ -1591,17 +1732,9 @@ async function createWindow() {
     return { action: "deny" };
   });
 
-  const devUrl = process.env.VITE_DEV_SERVER_URL || "http://127.0.0.1:5174";
-  const distIndex = path.join(__dirname, "..", "dist", "index.html");
-  const useDistInE2e =
-    process.env.LAWMIND_E2E === "1" && fs.existsSync(distIndex);
-  if (!app.isPackaged && !useDistInE2e) {
-    await mainWindow.loadURL(devUrl);
-    if (process.env.LAWMIND_E2E !== "1") {
-      mainWindow.webContents.openDevTools({ mode: "detach" });
-    }
-  } else {
-    await mainWindow.loadFile(useDistInE2e ? distIndex : path.join(__dirname, "..", "dist", "index.html"));
+  await loadRendererIntoWindow(mainWindow);
+  if (!app.isPackaged && process.env.LAWMIND_E2E !== "1") {
+    mainWindow.webContents.openDevTools({ mode: "detach" });
   }
 }
 

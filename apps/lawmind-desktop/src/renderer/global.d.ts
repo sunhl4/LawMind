@@ -127,7 +127,10 @@ declare global {
         path: string;
       }) => Promise<{
         ok: boolean;
+        kind?: "text" | "image";
         content?: string;
+        contentBase64?: string;
+        mimeType?: string;
         mtimeMs?: number;
         size?: number;
         error?: string;
@@ -180,6 +183,12 @@ declare global {
         error?: string;
       }>;
       onFileMenu: (handler: (payload: { action?: string }) => void) => () => void;
+      /** Open a lightweight aux BrowserWindow (e.g. review delivery preview). */
+      openAuxWindow?: (payload: {
+        kind: "review-preview";
+        taskId: string;
+        title?: string;
+      }) => Promise<{ ok: boolean; focused?: boolean; error?: string }>;
     };
   }
 }

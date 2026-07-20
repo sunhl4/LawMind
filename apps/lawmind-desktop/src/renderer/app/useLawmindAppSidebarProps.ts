@@ -1,8 +1,8 @@
 import { useMemo } from "react";
-import type { CollabEvent, DelegationRow, TaskRow } from "../lawmind-app-data";
 import type { MatterSidebarRow } from "../lawmind-records-desk-state";
-import type { CollabSummaryState } from "../LawmindSettingsCollaboration";
+import type { SideChatSessionRow } from "../LawmindSideChatSessions";
 import type { LawmindAppSidebarProps } from "./LawmindAppSidebar";
+import type { LawmindMainView } from "../lawmind-main-view";
 
 export type UseLawmindAppSidebarPropsInput = {
   showAppSidebar: boolean;
@@ -10,33 +10,32 @@ export type UseLawmindAppSidebarPropsInput = {
   sidebarWidth: number;
   showSidebarWorkbenchFiles: boolean;
   showExplorerSkeleton: boolean;
-  showCollaborationSidebar: boolean;
   onSidebarResizePointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
-  setShowHelp: (open: boolean) => void;
   setShowSettings: (open: boolean) => void;
   showSettings: boolean;
   setFileExplorerHost: (el: HTMLDivElement | null) => void;
   actionSummaryTotal: number;
-  actionSummaryActiveJobs: number;
-  delegations: DelegationRow[];
-  collabEvents: CollabEvent[];
-  collabTab: "delegations" | "timeline";
-  setCollabTab: (tab: "delegations" | "timeline") => void;
-  filteredTasks: TaskRow[];
   matterSidebarRows: MatterSidebarRow[];
   selectedMatterKey: string | null;
   onSelectMatterKey: (matterId: string) => void;
   onSelectMatterForCockpit: (matterId: string) => void;
+  onSelectMatterScope?: (matterId: string) => void;
   matterCockpitOpen: boolean;
-  mainView: "workspace" | "collaboration" | "review";
-  formatRelativeTime: (iso: string) => string;
-  legalStatusLabel: (status: string | undefined, kind?: string) => string;
-  taskBadgeClass: (status: string, kind?: string) => string;
-  openDetail: (kind: "task" | "draft", id: string) => void | Promise<void>;
-  openDelegationTargetWorkspaceChat: (delegation: DelegationRow) => void | Promise<void>;
-  setShowActionHub: (open: boolean) => void;
-  refreshCollaboration: () => void | Promise<void>;
-  collabSummarySettings: CollabSummaryState | null | undefined;
+  mainView: LawmindMainView;
+  apiBase?: string;
+  setMainView: (view: LawmindMainView) => void;
+  setMatterCockpitOpen: (open: boolean) => void;
+  setAgentsDeskTab?: (tab: import("../lawmind-agents-desk").AgentsDeskTab) => void;
+  setAgentsNeedsDecisionFocus?: (focus: boolean) => void;
+  chatSessions?: SideChatSessionRow[];
+  activeChatSessionId?: string;
+  chatSessionsLoading?: boolean;
+  chatBusy?: boolean;
+  onSelectChatSession?: (sessionId: string) => void | Promise<void>;
+  onCreateNewChatSession?: () => void | Promise<void>;
+  onRenameChatSession?: (sessionId: string, title: string) => void | Promise<void>;
+  onDeleteChatSession?: (sessionId: string) => void | Promise<void>;
+  onCreateMatter?: () => void;
 };
 
 export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput): LawmindAppSidebarProps {
@@ -46,33 +45,32 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
     sidebarWidth,
     showSidebarWorkbenchFiles,
     showExplorerSkeleton,
-    showCollaborationSidebar,
     onSidebarResizePointerDown,
-    setShowHelp,
     setShowSettings,
     showSettings,
     setFileExplorerHost,
     actionSummaryTotal,
-    actionSummaryActiveJobs,
-    delegations,
-    collabEvents,
-    collabTab,
-    setCollabTab,
-    filteredTasks,
     matterSidebarRows,
     selectedMatterKey,
     onSelectMatterKey,
     onSelectMatterForCockpit,
+    onSelectMatterScope,
     matterCockpitOpen,
     mainView,
-    formatRelativeTime,
-    legalStatusLabel,
-    taskBadgeClass,
-    openDetail,
-    openDelegationTargetWorkspaceChat,
-    setShowActionHub,
-    refreshCollaboration,
-    collabSummarySettings,
+    apiBase,
+    setMainView,
+    setMatterCockpitOpen,
+    setAgentsDeskTab,
+    setAgentsNeedsDecisionFocus,
+    chatSessions,
+    activeChatSessionId,
+    chatSessionsLoading,
+    chatBusy,
+    onSelectChatSession,
+    onCreateNewChatSession,
+    onRenameChatSession,
+    onDeleteChatSession,
+    onCreateMatter,
   } = input;
 
   return useMemo(
@@ -82,34 +80,35 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
       sidebarWidth,
       showSidebarWorkbenchFiles,
       showExplorerSkeleton,
-      showCollaborationSidebar,
       onSidebarResizePointerDown,
-      onOpenHelp: () => setShowHelp(true),
       onOpenSettings: () => setShowSettings(true),
       onCloseSettings: () => setShowSettings(false),
       settingsOpen: showSettings,
       setFileExplorerHost,
       actionSummaryTotal,
-      actionSummaryActiveJobs,
-      delegations,
-      collabEvents,
-      collabTab,
-      onSelectCollabTab: setCollabTab,
-      filteredTasks,
       matterSidebarRows,
       selectedMatterKey,
       onSelectMatterKey,
       onSelectMatterForCockpit,
+      onSelectMatterScope,
       matterCockpitOpen,
       mainView,
-      formatRelativeTime,
-      legalStatusLabel,
-      taskBadgeClass,
-      onOpenDetail: openDetail,
-      onOpenDelegationTargetChat: openDelegationTargetWorkspaceChat,
-      onOpenActionHub: () => setShowActionHub(true),
-      onRefreshCollaboration: refreshCollaboration,
-      collabSummarySettings,
+      apiBase,
+      onOpenNeedsDecisionDesk: () => {
+        setMatterCockpitOpen(false);
+        setAgentsNeedsDecisionFocus?.(true);
+        setAgentsDeskTab?.("active");
+        setMainView("agents");
+      },
+      chatSessions,
+      activeChatSessionId,
+      chatSessionsLoading,
+      chatBusy,
+      onSelectChatSession,
+      onCreateNewChatSession,
+      onRenameChatSession,
+      onDeleteChatSession,
+      onCreateMatter,
     }),
     [
       showAppSidebar,
@@ -117,33 +116,32 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
       sidebarWidth,
       showSidebarWorkbenchFiles,
       showExplorerSkeleton,
-      showCollaborationSidebar,
       onSidebarResizePointerDown,
-      setShowHelp,
       setShowSettings,
       showSettings,
       setFileExplorerHost,
       actionSummaryTotal,
-      actionSummaryActiveJobs,
-      delegations,
-      collabEvents,
-      collabTab,
-      setCollabTab,
-      filteredTasks,
       matterSidebarRows,
       selectedMatterKey,
       onSelectMatterKey,
       onSelectMatterForCockpit,
+      onSelectMatterScope,
       matterCockpitOpen,
       mainView,
-      formatRelativeTime,
-      legalStatusLabel,
-      taskBadgeClass,
-      openDetail,
-      openDelegationTargetWorkspaceChat,
-      setShowActionHub,
-      refreshCollaboration,
-      collabSummarySettings,
+      apiBase,
+      setMainView,
+      setMatterCockpitOpen,
+      setAgentsDeskTab,
+      setAgentsNeedsDecisionFocus,
+      chatSessions,
+      activeChatSessionId,
+      chatSessionsLoading,
+      chatBusy,
+      onSelectChatSession,
+      onCreateNewChatSession,
+      onRenameChatSession,
+      onDeleteChatSession,
+      onCreateMatter,
     ],
   );
 }

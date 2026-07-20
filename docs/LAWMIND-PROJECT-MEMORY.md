@@ -52,6 +52,10 @@
 6. 再看 `docs/lawmind/refactor-implementation-plan.md`，确认实施级数据模型、目录迁移策略、以及首批 PR 切分。
    6b. 若改**桌面壳 UI**：读 `docs/LAWMIND-DESKTOP-UI.md`（设计令牌、`lm-*` 约定、模态/向导防回归；与 DFA/澄清/引用的展示一致性）。若改**文件页、对话引用、帮助外链、菜单保存、本机用默认应用打开**，读 `docs/LAWMIND-DESKTOP-FILES-AND-CONTEXT.md` 并随行为变更更新之。若改**合同修订积累 / 审核后入库 / desk-settings 前缀**，读 `docs/LAWMIND-CONTRACT-REVISION-ACCUMULATION.md`。
    6b' **产品定位（律师交互台、非 Word、非纯聊天）**：[LawMind 愿景](/LAWMIND-VISION) **§6.2d**；桌面英文摘要见 `apps/lawmind-desktop/README.md` 首段 **Product intent**。
+   6b'' **远景 backlog（数字团队 / 进化 / 知识沉淀 · 暂不实现）**：读 [LAWMIND-OPTIMIZATION-BACKLOG](/LAWMIND-OPTIMIZATION-BACKLOG)；用户口述北极星以该文 **§1** 为准，落地前先读再开任务。
+   6b''' **未来问题总册 / 持久化扩展性**：长期回看项见 [LAWMIND-FUTURE-ISSUES](/LAWMIND-FUTURE-ISSUES)；token/扫盘审查见 [LAWMIND-PERSISTENCE-SCALE-REVIEW](/LAWMIND-PERSISTENCE-SCALE-REVIEW)。
+   6b''' **全面工程评审（含 UI · 2026-07-12）**：读 [LAWMIND-ENGINEERING-REVIEW](/LAWMIND-ENGINEERING-REVIEW)；指挥台 orphan、orchestrator 债、测试缺口与 P0/P1 建议。
+   6b'''' **Agent Home UX（对话默认 + 在办状态层 · 2026-07-13 修订）**：读 [LAWMIND-AGENT-HOME-UX-PLAN](/LAWMIND-AGENT-HOME-UX-PLAN)；**冷启动保持对话 Agent**；在办=状态层/总览（非默认整页）；审核场景化为「进入文书台」；无模式开关。勿再将默认改成 `agents`（已否决）。
    6c. 与 OpenClaw 关系与工程边界：读 [LawMind 与 OpenClaw 取长补短](/LAWMIND-OPENCLAW-LESSONS)（健康检查字段、行为时代号、协议版本、验收与启发式防半成品）。
 7. 若要继续当前技术实现，优先看最近新增的测试文件，测试即行为边界。
 8. 理解两套入口：
@@ -74,6 +78,7 @@
 
 在 OpenClaw 经验基础上，构建律师行业可落地的 LawMind：
 
+- **数字小团队**（详见 [LAWMIND-OPTIMIZATION-BACKLOG](/LAWMIND-OPTIMIZATION-BACKLOG) §1）：律师是领导；多 agent 协作完成任务；按执行经验与律师反馈进化并特化；办案经历沉淀为个人知识库。远景：一位超强律师用 LawMind 完成过去「超强律师 + 多名成员」的工作量。
 - 默认可审计
 - 默认可确认
 - 默认可追责
@@ -187,7 +192,7 @@
   - [x] **路由**：`apps/lawmind-desktop/server/lawmind-server-route-review.ts`；单测 `lawmind-server-route-review.test.ts`
   - [x] **刻意简化 UI**：移除设置页「批量合同目录」表单与文件树「设为批量合同目录」右键；`desk-settings` 仍可通过 API / 手工 JSON 配置，壳层启动时 `GET desk-settings` 供对话可选附加修订索引前缀（`lawmind-app-shell.ts`）
   - [x] **文档真源**：[LAWMIND-CONTRACT-REVISION-ACCUMULATION](/LAWMIND-CONTRACT-REVISION-ACCUMULATION)（主路径、desk-settings、与 `contract-review/drafts` 进阶 API 分工）
-- [x] **案件「会议室」与协作对照（既有能力索引）**：本案范围内多助手讨论线程；`MatterTeamMeetingPanel`、`GET /api/matters/team-meeting`、`POST /api/chat`（`meetingMode` / `meetingAgenda`）、`team-meeting.jsonl`；与顶栏 **协作**（委派 / 工作流）分工见 [LAWMIND-COLLABORATION-UI-API-MAP](/LAWMIND-COLLABORATION-UI-API-MAP) §5 与 [使用手册](/LAWMIND-USER-MANUAL) §7.1
+- [x] **「会议室」入口与协作对照**：顶栏「会议室·办件」→ `mainView=meeting`（`MeetingView`）；可绑定案件或「临时讨论」；`MatterTeamMeetingPanel`、`GET /api/matters/team-meeting`、`POST /api/chat`（`meetingMode` / `meetingAgenda`）、`team-meeting.jsonl`；案件概览「打开会议室」深链至此。分工见 [LAWMIND-COLLABORATION-UI-API-MAP](/LAWMIND-COLLABORATION-UI-API-MAP) 与 [使用手册](/LAWMIND-USER-MANUAL) §7.1
 
 **下一 horizon（高智能化，与 M3 壳层衔接）**：与 [LawMind 2.0 strategy](/LAWMIND-2.0-STRATEGY) 及本文 **§7 LawMind 2.0 战略升级记忆** 对齐，在不过度扩 UI 的前提下，优先把**机构级记忆、结构化推理与验收/澄清、来源可追溯**做进同一产品心智；实现主战场在 `src/lawmind/` 与本地 API，桌面只负责**一致呈现与可发现入口**。
 

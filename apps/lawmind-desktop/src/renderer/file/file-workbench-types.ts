@@ -40,6 +40,8 @@ export type InlineInput = {
   parentDir: string;
   kind: "file" | "folder";
   initialValue: string;
+  /** 覆盖默认 placeholder（如新建案件用「案件名…」） */
+  placeholder?: string;
   onDone: (name: string) => Promise<void>;
 };
 
@@ -65,11 +67,13 @@ export type FileWorkbenchCasesNodeActions = {
   matterLabelById?: Record<string, string>;
   onOpenMatterCockpit: (matterId: string) => void;
   onLinkMatterToChat?: (matterId: string) => void;
-  onRequestRenameDisplayName: (matterId: string, initialTitle: string) => void;
   onRequestDeleteMatter: (matterId: string, label: string) => void;
   onSetCaseSubdirRole?: (matterId: string, role: "matter" | "folder") => void | Promise<void>;
-  /** 在「案件目录」或磁盘路径为 `cases` 的目录上右键：新建/导入/刷新（与顶部工具条案件操作一致） */
-  onNewMatter?: () => void;
+  /**
+   * 在「案件材料」上右键「新建案件」：就地建 `cases/<案件名>/` 文件夹（不跳转、不开建案弹窗）。
+   * 未提供时回退为普通新建文件夹。
+   */
+  onNewMatterFolder?: () => void;
   onImportMatters?: () => void;
   onRefreshMatters?: () => void;
   importMattersBusy?: boolean;
@@ -81,6 +85,8 @@ export type Props = {
   workspaceDir: string;
   projectDir: string | null;
   canUseFilesystemBridge: boolean;
+  /** 选择本机文件夹作为「工作区」浏览根（project root） */
+  onPickProject?: () => void | Promise<void>;
   /** 将路径加入对话引用（会切换到对话；发送时把路径说明一并给模型） */
   onAddToChatContext?: (payload: { root: RootKey; relPath: string; kind: "file" | "directory" }) => void;
   /** When set, 资源管理器 / 分割条 / 编辑器分别挂到这些节点（用于侧栏资源区 + 主区对话等布局） */

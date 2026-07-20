@@ -13,8 +13,10 @@ import {
 import {
   appendTeamMeetingLinesSync,
   createTeamMeetingAssistantLine,
+  createTeamMeetingSystemLine,
   createTeamMeetingUserLine,
   formatTeamMeetingTranscriptPrefix,
+  isAdhocMeetingMatterId,
   parseOptionalMatterId,
   readTeamMeetingTail,
   TEAM_MEETING_TAIL_LIMIT_DEFAULT,
@@ -328,6 +330,12 @@ export async function handleChatRoute({
     return true;
   }
 
+  const meetingTurnKindRaw = body.meetingTurnKind;
+  const meetingTurnKind =
+    meetingTurnKindRaw === "chair" || meetingTurnKindRaw === "conclude"
+      ? meetingTurnKindRaw
+      : "lawyer";
+
   const agent = createLawMindAgent(config);
   const hadSession = Boolean(body.sessionId?.trim());
   const projectDirForAgent = safeOptionalProjectDir(body.projectDir);
@@ -336,10 +344,33 @@ export async function handleChatRoute({
   if (meetingMode && matterIdForChat) {
     const tail = readTeamMeetingTail(workspaceDir, matterIdForChat, TEAM_MEETING_TAIL_LIMIT_DEFAULT);
     const prefix = formatTeamMeetingTranscriptPrefix(tail);
-    let core = prefix
-      ? `${prefix}\n\n---\n\n【本会发言主题】\n${message}`
-      : `【本会发言主题】\n${message}`;
     const meetingAgenda = typeof body.meetingAgenda === "string" ? body.meetingAgenda.trim() : "";
+    let topicBlock: string;
+    if (meetingTurnKind === "conclude") {
+      topicBlock = [
+        "【会议主持 · 请综合结论】",
+        "请阅读本案讨论记录，代表会议输出结构化纪要（不要寒暄）：",
+        "1. 共识要点",
+        "2. 分歧与待决事项",
+        "3. 建议工作计划（步骤、建议负责人角色、时限或优先级）",
+        "4. 风险与需律师拍板事项",
+        message ? `\n补充要求：\n${message}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    } else if (meetingTurnKind === "chair") {
+      topicBlock = [
+        "【会议主持 · 请你发言】",
+        "你是本案讨论会中的一位助手。请针对议题发表意见，可赞同、补充或反驳前人；",
+        "勿重复寒暄；发言应具体、可执行。",
+        message ? `\n本轮提示：\n${message}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    } else {
+      topicBlock = `【本会发言主题】\n${message}`;
+    }
+    let core = prefix ? `${prefix}\n\n---\n\n${topicBlock}` : topicBlock;
     if (meetingAgenda) {
       core = `【会议议程（律师备忘）】\n${meetingAgenda}\n\n---\n\n${core}`;
     }
@@ -460,9 +491,13 @@ export async function handleChatRoute({
         }
       : undefined;
 
+    // Ad-hoc「临时讨论」is not a CASE matter — keep transcript key, skip case memory attach.
+    const caseMemoryMatterId =
+      matterIdForChat && !isAdhocMeetingMatterId(matterIdForChat) ? matterIdForChat : undefined;
+
     const result = await agent.chat(instructionForAgent, {
       sessionId: body.sessionId,
-      matterId: matterIdForChat,
+      matterId: caseMemoryMatterId,
       assistantId: profile.assistantId,
       allowWebSearch,
       projectDir: projectDirForAgent,
@@ -477,9 +512,9 @@ export async function handleChatRoute({
     });
     const engineMem =
       result.memoryContext ??
-      (await loadMemoryContext(workspaceDir, { matterId: matterIdForChat }));
+      (await loadMemoryContext(workspaceDir, { matterId: caseMemoryMatterId }));
     const memorySources = await buildAgentMemorySourceReport(workspaceDir, {
-      matterId: matterIdForChat,
+      matterId: caseMemoryMatterId,
       assistantId: profile.assistantId,
       lawMindRoot,
       engineMemory: toEngineClientMemorySnapshot(engineMem),
@@ -525,16 +560,28 @@ export async function handleChatRoute({
       };
     }
     if (meetingMode && matterIdForChat) {
-      appendTeamMeetingLinesSync(workspaceDir, matterIdForChat, [
-        createTeamMeetingUserLine(message),
-        createTeamMeetingAssistantLine({
-          text: result.reply,
-          assistantId: profile.assistantId,
-          displayName: profile.displayName,
-          taskId: result.turn.turnId,
-          sessionId: result.sessionId,
-        }),
-      ]);
+      const assistantLine = createTeamMeetingAssistantLine({
+        text: result.reply,
+        assistantId: profile.assistantId,
+        displayName: profile.displayName,
+        taskId: result.turn.turnId,
+        sessionId: result.sessionId,
+      });
+      if (meetingTurnKind === "lawyer") {
+        appendTeamMeetingLinesSync(workspaceDir, matterIdForChat, [
+          createTeamMeetingUserLine(message),
+          assistantLine,
+        ]);
+      } else {
+        const chairLabel =
+          meetingTurnKind === "conclude" ? "主持人（请综合结论）" : "主持人（请下一位发言）";
+        appendTeamMeetingLinesSync(workspaceDir, matterIdForChat, [
+          createTeamMeetingSystemLine({
+            text: `${chairLabel}\n${message.trim() || "请基于讨论记录继续。"}`,
+          }),
+          assistantLine,
+        ]);
+      }
     }
     if (wantsStream) {
       sseWriteEvent("payload", payload);

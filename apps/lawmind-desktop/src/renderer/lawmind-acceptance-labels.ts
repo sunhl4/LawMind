@@ -41,7 +41,7 @@ export function buildAcceptanceChatPrompt(report: AcceptanceReport): string {
   const lines = failed.slice(0, 5).map((c) => humanizeAcceptanceLabel(c.key, c.label));
   const head =
     lines.length > 0
-      ? `请根据审核台验收清单补齐以下内容：\n${lines.map((l) => `- ${l}`).join("\n")}`
-      : "请根据审核台验收清单补齐草稿中的缺失项与占位符。";
+      ? `请根据文书台验收清单补齐以下内容：\n${lines.map((l) => `- ${l}`).join("\n")}`
+      : "请根据文书台验收清单补齐草稿中的缺失项与占位符。";
   return `${head}\n\n（关联草稿已在对话上下文中，请直接修改正文。）`;
 }

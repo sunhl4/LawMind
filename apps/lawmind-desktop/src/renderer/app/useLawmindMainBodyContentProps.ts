@@ -1,6 +1,7 @@
 import { useMemo, type RefObject } from "react";
 import type { ArtifactDraft } from "../../../../../src/lawmind/types.ts";
 import type { AppConfig } from "../lawmind-app-bootstrap";
+import type { LawmindMainView } from "../lawmind-main-view";
 import type {
   CollabEvent,
   DelegationRow,
@@ -11,13 +12,14 @@ import type {
 import type { ModelCatalogEntry } from "../lawmind-models-api";
 import type { ReviewPaneVisibility, ReviewPaneId } from "../lawmind-review-pane-prefs";
 import type { CollabSummaryState } from "../LawmindSettingsCollaboration";
-import type { CollaborationDeskTab } from "../LawmindCollaborationDesk";
+import type { AgentsDeskTab } from "../lawmind-agents-desk";
 import type { LawMindRequiresAction, LawMindRequiresActionDecision } from "../lawmind-requires-action";
 import type { ChatMsg } from "../lawmind-chat";
 import type { FileChatContextItem } from "../lawmind-file-chat-context";
 import type { LawmindComposeExtras } from "../useLawmindComposeExtras";
 import type { LawmindHealthState } from "../useLawmindAppBootstrapEffects";
 import type { LawmindMainBodyContentProps } from "./LawmindMainBodyContent";
+import { scheduleScrollChatMessagesToLatest } from "../lawmind-chat-scroll";
 
 export type UseLawmindMainBodyContentPropsInput = {
   config: AppConfig | null;
@@ -36,8 +38,11 @@ export type UseLawmindMainBodyContentPropsInput = {
   setMatterRefreshVersion: React.Dispatch<React.SetStateAction<number>>;
   recordsDeskMattersSetSelectedKey: (key: string) => void;
   linkMatterToChat: (matterId: string) => void;
-  setCollaborationDeskTab: (tab: CollaborationDeskTab) => void;
-  setMainView: (view: "workspace" | "collaboration" | "review") => void;
+  matterSidebarRows?: Array<{ key: string; title: string; matterId?: string | null }>;
+  setAgentsDeskTab: (tab: AgentsDeskTab) => void;
+  setAgentsNeedsDecisionFocus: (focus: boolean) => void;
+  agentsNeedsDecisionFocus: boolean;
+  setMainView: (view: LawmindMainView) => void;
   setContextMatterId: (id: string | null) => void;
   setMatterCockpitOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setSessionByAssistant: React.Dispatch<React.SetStateAction<Record<string, string | undefined>>>;
@@ -71,7 +76,7 @@ export type UseLawmindMainBodyContentPropsInput = {
   gateHistory: GateHistoryItem[];
   refreshCollaboration: () => void | Promise<void>;
   openDelegationTargetWorkspaceChat: (d: DelegationRow) => void | Promise<void>;
-  collaborationDeskTab: CollaborationDeskTab;
+  agentsDeskTab: AgentsDeskTab;
   modelCatalog: ModelCatalogEntry[];
   selectedModelId: string;
   handleModelSelect: (id: string) => void;
@@ -95,7 +100,7 @@ export type UseLawmindMainBodyContentPropsInput = {
   wsChatColWidth: number;
   chatSessionList: import("../useLawmindChatShell").ChatSessionListEntry[];
   chatSessionsLoading: boolean;
-  selectChatSession: (sessionId: string) => void | Promise<void>;
+  selectChatSession: (sessionId: string, assistantIdOverride?: string) => void | Promise<void>;
   createNewChatSession: () => void | Promise<void>;
   renameChatSession: (sessionId: string, title: string) => void | Promise<void>;
   deleteChatSession: (sessionId: string) => void | Promise<void>;
@@ -106,10 +111,11 @@ export type UseLawmindMainBodyContentPropsInput = {
   sendChatMessage: (msg: string) => void | Promise<void>;
   streamCompactLabels: string[];
   fileChatContextItems: FileChatContextItem[];
+  addFileToChatContext: (payload: Pick<FileChatContextItem, "root" | "relPath" | "kind">) => void;
   removeFileChatContextItem: (id: string) => void;
   clearFileChatContext: () => void;
   contextTaskId: string | null;
-  openReviewFromWorkspace: () => void;
+  openReviewFromWorkspace: (target?: { taskId?: string; matterId?: string }) => void;
   openDelegateAssist: () => void;
   delegateAssistEnabled: boolean;
   revisionBackgroundActive: boolean;
@@ -118,7 +124,6 @@ export type UseLawmindMainBodyContentPropsInput = {
     decision: LawMindRequiresActionDecision,
     clarificationDraft?: Record<string, string>,
     editedArgs?: Record<string, unknown>,
-    opts?: { skipApprovalDialog?: boolean },
   ) => void | Promise<void>;
   input: string;
   error: string | null;
@@ -132,10 +137,16 @@ export type UseLawmindMainBodyContentPropsInput = {
   queuedMessages: string[];
   cancelQueuedMessage: (index: number) => void;
   setTaskDrawerOpen: (open: boolean) => void;
-  setShowActionHub: (open: boolean) => void;
   composeExtras: LawmindComposeExtras;
   setCreateMatterOpen: (open: boolean) => void;
   matterSidebarRowCount: number;
+  activeChatSessionId?: string;
+  sessionRequiresActions?: LawMindRequiresAction[];
+  refreshActionSummary?: () => void;
+  onChatResumeComplete?: () => void | Promise<void>;
+  onSpawnPreset?: (preset: import("../lawmind-agent-fleet-api").AgentPreset) => void;
+  /** Left rail hosts the session list (hide top tabs when true). */
+  chatSessionsInSidebar?: boolean;
 };
 
 export function useLawmindMainBodyContentProps(
@@ -158,7 +169,10 @@ export function useLawmindMainBodyContentProps(
     setMatterRefreshVersion,
     recordsDeskMattersSetSelectedKey,
     linkMatterToChat,
-    setCollaborationDeskTab,
+    matterSidebarRows = [],
+    setAgentsDeskTab,
+    setAgentsNeedsDecisionFocus,
+    agentsNeedsDecisionFocus,
     setMainView,
     setContextMatterId,
     setMatterCockpitOpen,
@@ -189,7 +203,7 @@ export function useLawmindMainBodyContentProps(
     gateHistory,
     refreshCollaboration,
     openDelegationTargetWorkspaceChat,
-    collaborationDeskTab,
+    agentsDeskTab,
     modelCatalog,
     selectedModelId,
     handleModelSelect,
@@ -224,6 +238,7 @@ export function useLawmindMainBodyContentProps(
     sendChatMessage,
     streamCompactLabels,
     fileChatContextItems,
+    addFileToChatContext,
     removeFileChatContextItem,
     clearFileChatContext,
     contextTaskId,
@@ -244,10 +259,15 @@ export function useLawmindMainBodyContentProps(
     queuedMessages,
     cancelQueuedMessage,
     setTaskDrawerOpen,
-    setShowActionHub,
     composeExtras,
     setCreateMatterOpen,
     matterSidebarRowCount,
+    activeChatSessionId,
+    sessionRequiresActions,
+    refreshActionSummary,
+    onChatResumeComplete,
+    onSpawnPreset,
+    chatSessionsInSidebar = false,
   } = input;
 
   return useMemo(
@@ -271,19 +291,41 @@ export function useLawmindMainBodyContentProps(
       },
       onUseInChat: linkMatterToChat,
       onOpenWorkflowLibrary: () => {
-        setCollaborationDeskTab("workflows");
-        setMainView("collaboration");
+        setAgentsDeskTab("workflows");
+        setMainView("agents");
       },
-      onOpenChatSession: (sessionId, matterId) => {
+      onOpenTopLevelMeeting: (matterId) => {
+        const mid = matterId.trim();
+        if (mid) {
+          setContextMatterId(mid);
+          recordsDeskMattersSetSelectedKey(mid);
+        }
+        setMatterCockpitOpen(false);
+        setMainView("meeting");
+      },
+      meetingMatterOptions: matterSidebarRows
+        .filter((r) => Boolean(r.matterId?.trim() || r.key.trim()))
+        .map((r) => ({
+          id: (r.matterId ?? r.key).trim(),
+          title: r.title.trim() || (r.matterId ?? r.key).trim(),
+        })),
+      onSelectMeetingMatterScope: (matterId) => {
+        const mid = matterId?.trim() || null;
+        setContextMatterId(mid);
+        if (mid) {
+          recordsDeskMattersSetSelectedKey(mid);
+        }
+      },
+      onOpenChatSession: (sessionId, matterId, assistantId) => {
         if (matterId?.trim()) {
           setContextMatterId(matterId.trim());
         }
         setMatterCockpitOpen(false);
-        setSessionByAssistant((prev) => ({
-          ...prev,
-          [selectedAssistantId]: sessionId,
-        }));
         setMainView("workspace");
+        void Promise.resolve(selectChatSession(sessionId, assistantId)).finally(() => {
+          // Session load is async; land on latest execution, not the turn start.
+          scheduleScrollChatMessagesToLatest({ behavior: "smooth" });
+        });
       },
       onOpenReviewFromMatter: ({ taskId, matterId, statusFilter = "all", listMode = "all" }) => {
         setReviewLaunchedFromMatter(true);
@@ -291,6 +333,17 @@ export function useLawmindMainBodyContentProps(
         setReviewFocusMatterId(matterId ?? null);
         setReviewFocusStatus(statusFilter ?? "all");
         setReviewFocusListMode(listMode ?? "all");
+        if (matterId) {
+          setContextMatterId(matterId);
+        }
+        setMainView("review");
+      },
+      onOpenReviewFromWorkItem: (taskId, matterId) => {
+        setReviewLaunchedFromMatter(false);
+        setReviewFocusTaskId(taskId);
+        setReviewFocusMatterId(matterId ?? null);
+        setReviewFocusStatus("all");
+        setReviewFocusListMode("pending");
         if (matterId) {
           setContextMatterId(matterId);
         }
@@ -339,8 +392,15 @@ export function useLawmindMainBodyContentProps(
       onOpenDelegationTargetChat: (d) => {
         void openDelegationTargetWorkspaceChat(d);
       },
-      collaborationDeskTab,
-      onDeskTabChange: setCollaborationDeskTab,
+      agentsDeskTab,
+      onAgentsDeskTabChange: (tab) => {
+        if (tab !== "active") {
+          setAgentsNeedsDecisionFocus(false);
+        }
+        setAgentsDeskTab(tab);
+      },
+      needsDecisionFocus: agentsNeedsDecisionFocus,
+      onClearNeedsDecisionFocus: () => setAgentsNeedsDecisionFocus(false),
       modelCatalog,
       selectedModelId,
       onModelSelect: handleModelSelect,
@@ -365,7 +425,11 @@ export function useLawmindMainBodyContentProps(
       chatSessionList,
       chatSessionsLoading,
       onSelectChatSession: selectChatSession,
-      onCreateNewChatSession: createNewChatSession,
+      onCreateNewChatSession: () => {
+        setMatterCockpitOpen(false);
+        setMainView("workspace");
+        return createNewChatSession();
+      },
       onRenameChatSession: renameChatSession,
       onDeleteChatSession: deleteChatSession,
       currentMessages,
@@ -377,6 +441,7 @@ export function useLawmindMainBodyContentProps(
       onSendClarificationMessage: sendChatMessage,
       streamCompactLabels,
       fileChatContextItems,
+      onAddFileToChatContext: addFileToChatContext,
       onRemoveFileChatPill: removeFileChatContextItem,
       onClearFileChatPills: clearFileChatContext,
       contextTaskId,
@@ -392,15 +457,51 @@ export function useLawmindMainBodyContentProps(
       onSend: send,
       onAbortChat: abortChatSend,
       onClearContext: clearContext,
+      onContextMatterChange: setContextMatterId,
       allowWebSearch,
       onAllowWebSearchChange: setAllowWebSearch,
       queuedMessages,
       cancelQueuedMessage,
       onOpenTaskDrawer: () => setTaskDrawerOpen(true),
-      onOpenActionHub: () => setShowActionHub(true),
+      onOpenNeedsDecisionDesk: () => {
+        setMatterCockpitOpen(false);
+        setAgentsNeedsDecisionFocus(true);
+        setAgentsDeskTab("active");
+        setMainView("agents");
+      },
+      onOpenActionHub: () => {
+        setMatterCockpitOpen(false);
+        setAgentsNeedsDecisionFocus(true);
+        setAgentsDeskTab("active");
+        setMainView("agents");
+      },
+      onOpenReviewFromAutomation: (taskId, matterId) => {
+        setReviewLaunchedFromMatter(false);
+        setReviewFocusTaskId(taskId);
+        setReviewFocusMatterId(matterId ?? null);
+        setReviewFocusStatus("all");
+        setReviewFocusListMode("pending");
+        if (matterId) {
+          setContextMatterId(matterId);
+        }
+        setMainView("review");
+      },
+      onOpenAgentsWorkflows: (matterId) => {
+        if (matterId?.trim()) {
+          setContextMatterId(matterId.trim());
+        }
+        setAgentsDeskTab("workflows");
+        setMainView("agents");
+      },
       composeExtras,
       onCreateMatter: () => setCreateMatterOpen(true),
-      showEmptyMatterGuide: matterSidebarRowCount === 0 && canUseFilesystemBridge,
+      showEmptyMatterGuide: matterSidebarRowCount === 0 && Boolean(config?.apiBase?.trim()),
+      chatSessionsInSidebar,
+      activeChatSessionId,
+      sessionRequiresActions,
+      onRefreshActionSummary: refreshActionSummary,
+      onChatResumeComplete,
+      onSpawnPreset,
     }),
     [
       config,
@@ -419,7 +520,10 @@ export function useLawmindMainBodyContentProps(
       setMatterRefreshVersion,
       recordsDeskMattersSetSelectedKey,
       linkMatterToChat,
-      setCollaborationDeskTab,
+      matterSidebarRows,
+      setAgentsDeskTab,
+      setAgentsNeedsDecisionFocus,
+      agentsNeedsDecisionFocus,
       setMainView,
       setContextMatterId,
       setMatterCockpitOpen,
@@ -450,7 +554,7 @@ export function useLawmindMainBodyContentProps(
       gateHistory,
       refreshCollaboration,
       openDelegationTargetWorkspaceChat,
-      collaborationDeskTab,
+      agentsDeskTab,
       modelCatalog,
       selectedModelId,
       handleModelSelect,
@@ -485,6 +589,7 @@ export function useLawmindMainBodyContentProps(
       sendChatMessage,
       streamCompactLabels,
       fileChatContextItems,
+      addFileToChatContext,
       removeFileChatContextItem,
       clearFileChatContext,
       contextTaskId,
@@ -505,11 +610,16 @@ export function useLawmindMainBodyContentProps(
       queuedMessages,
       cancelQueuedMessage,
       setTaskDrawerOpen,
-      setShowActionHub,
       composeExtras,
       setCreateMatterOpen,
       matterSidebarRowCount,
       canUseFilesystemBridge,
+      chatSessionsInSidebar,
+      activeChatSessionId,
+      sessionRequiresActions,
+      refreshActionSummary,
+      onChatResumeComplete,
+      onSpawnPreset,
     ],
   );
 }

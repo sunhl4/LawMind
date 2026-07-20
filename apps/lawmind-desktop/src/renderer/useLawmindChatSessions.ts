@@ -6,6 +6,7 @@ import type { AppConfig } from "./lawmind-app-bootstrap";
 import type { DelegationRow } from "./lawmind-app-data";
 import { isActiveDelegation } from "./lawmind-delegation-status";
 import type { ChatSessionListEntry } from "./useLawmindChatShell";
+import type { LawmindMainView } from "./lawmind-main-view";
 import {
   chatSessionStoreKey,
   getStoredActiveChatSessionId,
@@ -29,7 +30,7 @@ export type UseLawmindChatSessionsInput = {
   ) => Promise<void>;
   refreshChatSessionListForAssistant: (assistantId: string) => Promise<ChatSessionListEntry[] | null>;
   watchBackgroundSessionFnRef: MutableRefObject<(opts: BackgroundWatchOpts) => Promise<void>>;
-  setMainView: (v: "workspace" | "collaboration" | "review") => void;
+  setMainView: (v: LawmindMainView) => void;
   setSelectedAssistantId: (id: string) => void;
   setContextMatterId: (id: string | null) => void;
   assistants: Array<{ assistantId: string; displayName: string }>;
@@ -183,11 +184,14 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
   );
 
   const selectChatSession = useCallback(
-    async (sessionId: string) => {
+    async (sessionId: string, assistantIdOverride?: string) => {
       if (!config?.apiBase) {
         return;
       }
-      const assistantId = selectedAssistantId;
+      const assistantId = assistantIdOverride?.trim() || selectedAssistantId;
+      if (assistantId !== selectedAssistantId) {
+        setSelectedAssistantId(assistantId);
+      }
       persistActiveChatSessionId(chatSessionStoreKey(config.workspaceDir), assistantId, sessionId);
       setSessionByAssistant((p) => ({ ...p, [assistantId]: sessionId }));
       await loadSessionMessagesIntoState(assistantId, sessionId);
@@ -205,7 +209,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         /* ignore */
       }
     },
-    [config, loadSessionMessagesIntoState, selectedAssistantId],
+    [config, loadSessionMessagesIntoState, selectedAssistantId, setSelectedAssistantId, setSessionByAssistant],
   );
 
   const openDelegationTargetWorkspaceChat = useCallback(
@@ -427,14 +431,14 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
           throw new Error(typeof j.message === "string" ? j.message : "delete failed");
         }
         const wasActive = sessionByAssistant[assistantId] === sessionId;
+        // Optimistic local update so a failed list refresh cannot leave a zombie tab.
+        setChatSessionList((prev) => prev.filter((row) => row.sessionId !== sessionId));
         const list = await refreshChatSessionListForAssistant(assistantId);
-        if (list === null) {
-          return;
-        }
+        const remaining = list ?? [];
         if (!wasActive) {
           return;
         }
-        if (list.length === 0) {
+        if (remaining.length === 0) {
           const cr = await fetch(`${config.apiBase}/api/sessions`, {
             method: "POST",
             headers: { "content-type": "application/json", ...apiAuthHeaders() },
@@ -450,7 +454,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
           await loadSessionMessagesIntoState(assistantId, cj.sessionId);
           return;
         }
-        const nextId = list[0].sessionId;
+        const nextId = remaining[0].sessionId;
         persistActiveChatSessionId(sessionStoreKey, assistantId, nextId);
         setSessionByAssistant((p) => ({ ...p, [assistantId]: nextId }));
         await loadSessionMessagesIntoState(assistantId, nextId);
@@ -465,6 +469,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
       refreshChatSessionListForAssistant,
       selectedAssistantId,
       sessionByAssistant,
+      setChatSessionList,
     ],
   );
 

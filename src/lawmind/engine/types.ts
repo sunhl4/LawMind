@@ -81,7 +81,11 @@ export type LawMindEngine = {
   /** 步骤 5：渲染文书（draft.reviewStatus 须为 approved） */
   render: (
     draft: ArtifactDraft,
-    opts?: { templateIdOverride?: string },
+    opts?: {
+      templateIdOverride?: string;
+      strictGates?: boolean;
+      citationGateStrict?: boolean;
+    },
   ) => Promise<{ ok: boolean; outputPath?: string; error?: string }>;
   /** 读取持久化任务状态 */
   getTaskState: (taskId: string) => TaskRecord | undefined;

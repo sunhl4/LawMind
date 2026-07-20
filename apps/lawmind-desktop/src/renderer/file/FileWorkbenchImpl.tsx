@@ -14,17 +14,19 @@ import {
 export type { FileWorkbenchCasesNodeActions, FileWorkbenchProps } from "./file-workbench-types";
 import {
   isProtectedWorkspacePath,
+  isImageLikePath,
   isOfficeLikePath,
   keyOf,
   basename,
   getDirname,
   joinRelPath,
-  parseCasesRelForWorkspaceMove,
   allocateNonCollidingChildPath,
   allocateNonCollidingRelPath,
   resolveRelForAbs,
 } from "./file-workbench-fs";
 import { isValidMatterId } from "../../../../../src/lawmind/cases/matter-id.ts";
+import { apiPost } from "../lawmind-api-routes.ts";
+import { errorMessage } from "../api-client";
 import {
   shouldShowExplorerDirectory,
   shouldShowExplorerFile,
@@ -37,6 +39,7 @@ export function FileWorkbench(props: FileWorkbenchProps) {
   const {
     workspaceDir,
     projectDir,
+    onPickProject,
     canUseFilesystemBridge,
     onAddToChatContext,
     portalHosts,
@@ -60,7 +63,18 @@ export function FileWorkbench(props: FileWorkbenchProps) {
   const [showQuickOpen, setShowQuickOpen] = useState(false);
   const [indexedFiles, setIndexedFiles] = useState<IndexedFile[]>([]);
   const [fsClip, setFsClip] = useState<FsClip | null>(null);
-  const [officeBlock, setOfficeBlock] = useState<{ root: RootKey; relPath: string; name: string } | null>(null);
+  const [officeBlock, setOfficeBlock] = useState<{
+    root: RootKey;
+    relPath: string;
+    name: string;
+    mode?: "office" | "binary";
+  } | null>(null);
+  const [imagePreview, setImagePreview] = useState<{
+    root: RootKey;
+    relPath: string;
+    name: string;
+    dataUrl: string;
+  } | null>(null);
   /** 右键「加入案件」后选择目标案件 */
   const [addToMatterPick, setAddToMatterPick] = useState<{ relPath: string; kind: "file" | "directory" } | null>(null);
   /** 加入案件弹窗内手动输入的案件编号 */
@@ -69,8 +83,9 @@ export function FileWorkbench(props: FileWorkbenchProps) {
   const [addToMatterLastError, setAddToMatterLastError] = useState<string | null>(null);
   /** 是否存在 `cases/`（用于案件目录区块提示） */
   const [casesDirProbe, setCasesDirProbe] = useState<"unknown" | "ok" | "missing">("unknown");
-  const [workSectionOpen, setWorkSectionOpen] = useState(true);
-  const [casesSectionOpen, setCasesSectionOpen] = useState(true);
+  /** 默认折叠：主栏留给「对话」；需要材料时再展开 */
+  const [workSectionOpen, setWorkSectionOpen] = useState(false);
+  const [casesSectionOpen, setCasesSectionOpen] = useState(false);
 
   const { width: filesExplorerWidth, onResizePointerDown: onFilesExplorerResize } = usePaneResizePx({
     storageKey: "lawmind.ui.filesExplorerWidth",
@@ -150,12 +165,17 @@ export function FileWorkbench(props: FileWorkbenchProps) {
 
   const refreshIndex = useCallback(async () => {
     try {
+      const parts: IndexedFile[] = [];
+      if (projectDir) {
+        parts.push(...((await indexRoot("project")) ?? []));
+      }
       const ws = (await indexRoot("workspace")) ?? [];
-      setIndexedFiles(ws);
+      parts.push(...ws.filter((f) => f.path === "cases" || f.path.startsWith("cases/")));
+      setIndexedFiles(parts);
     } catch {
       // silently ignore indexing errors
     }
-  }, [indexRoot]);
+  }, [indexRoot, projectDir]);
 
   useEffect(() => {
     void refreshIndex();
@@ -163,10 +183,12 @@ export function FileWorkbench(props: FileWorkbenchProps) {
 
   useEffect(() => {
     void (async () => {
-      try {
-        await loadDir("workspace", "");
-      } catch {
-        /* 工作区根不可用 */
+      if (projectDir) {
+        try {
+          await loadDir("project", "");
+        } catch {
+          /* 本机文件夹不可用 */
+        }
       }
       try {
         await loadDir("workspace", "cases");
@@ -176,7 +198,7 @@ export function FileWorkbench(props: FileWorkbenchProps) {
       }
       void refreshIndex();
     })();
-  }, [loadDir, workspaceTreeRefreshKey, refreshIndex]);
+  }, [loadDir, workspaceTreeRefreshKey, projectDir, refreshIndex]);
 
   // ── Save ─────────────────────────────────────────────────────
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -317,7 +339,8 @@ export function FileWorkbench(props: FileWorkbenchProps) {
 
   const openFile = useCallback(async (root: RootKey, relPath: string) => {
     if (isOfficeLikePath(relPath)) {
-      setOfficeBlock({ root, relPath, name: basename(relPath) });
+      setImagePreview(null);
+      setOfficeBlock({ root, relPath, name: basename(relPath), mode: "office" });
       setActiveTabId(null);
       setSelected({ root, path: relPath, kind: "file" });
       setError(null);
@@ -327,16 +350,23 @@ export function FileWorkbench(props: FileWorkbenchProps) {
     const existing = tabs.find((t) => t.id === tabId);
     if (existing) {
       setOfficeBlock(null);
+      setImagePreview(null);
       setActiveTabId(existing.id);
       return;
     }
     setBusy(true);
     try {
       const res = await window.lawmindDesktop?.fsRead({ root, path: relPath });
-      if (!res?.ok || typeof res.content !== "string" || typeof res.mtimeMs !== "number") {
+      if (!res?.ok || typeof res.mtimeMs !== "number") {
         const errText = res?.error ?? "文件读取失败";
-        if (errText.toLowerCase().includes("binary") && isOfficeLikePath(relPath)) {
-          setOfficeBlock({ root, relPath, name: basename(relPath) });
+        if (errText.toLowerCase().includes("binary")) {
+          setImagePreview(null);
+          setOfficeBlock({
+            root,
+            relPath,
+            name: basename(relPath),
+            mode: isOfficeLikePath(relPath) ? "office" : "binary",
+          });
           setActiveTabId(null);
           setSelected({ root, path: relPath, kind: "file" });
           setError(null);
@@ -344,7 +374,29 @@ export function FileWorkbench(props: FileWorkbenchProps) {
         }
         throw new Error(errText);
       }
+      if (res.kind === "image" || (isImageLikePath(relPath) && typeof res.contentBase64 === "string")) {
+        const mime = res.mimeType || "image/png";
+        const b64 = res.contentBase64;
+        if (!b64) {
+          throw new Error("图片读取失败");
+        }
+        setOfficeBlock(null);
+        setImagePreview({
+          root,
+          relPath,
+          name: basename(relPath),
+          dataUrl: `data:${mime};base64,${b64}`,
+        });
+        setActiveTabId(null);
+        setSelected({ root, path: relPath, kind: "file" });
+        setError(null);
+        return;
+      }
+      if (typeof res.content !== "string") {
+        throw new Error(res.error ?? "文件读取失败");
+      }
       setOfficeBlock(null);
+      setImagePreview(null);
       const tab: OpenFileTab = {
         id: tabId, root, path: relPath, name: basename(relPath),
         content: res.content, savedContent: res.content, mtimeMs: res.mtimeMs,
@@ -407,6 +459,78 @@ export function FileWorkbench(props: FileWorkbenchProps) {
     await refreshDir(root, parentDir);
     setExpanded((prev) => ({ ...prev, [keyOf(root, parentDir)]: true }));
   };
+
+  /** 右键「新建案件」：就地建 `cases/<案件名>/`，不跳转、不开弹窗。 */
+  const startCreateMatterFolder = useCallback(() => {
+    setContextMenu(null);
+    setCasesSectionOpen(true);
+    setExpanded((prev) => ({
+      ...prev,
+      [keyOf("workspace", "")]: true,
+      [keyOf("workspace", "cases")]: true,
+    }));
+    setInlineInput({
+      root: "workspace",
+      parentDir: "cases",
+      kind: "folder",
+      initialValue: "",
+      placeholder: "案件名…",
+      onDone: async (raw) => {
+        setInlineInput(null);
+        const name = raw.trim().replace(/[/\\]/g, "").replaceAll(String.fromCharCode(0), "");
+        if (!name) {
+          return;
+        }
+        if (!isValidMatterId(name)) {
+          setError("案件名至少 2 个字，且不能含路径字符（/ \\ ..）。");
+          return;
+        }
+        const relPath = joinRelPath("cases", name);
+        const res = await window.lawmindDesktop?.fsMkdir({ root: "workspace", path: relPath });
+        if (!res?.ok) {
+          setError(res?.error ?? "新建案件文件夹失败");
+          return;
+        }
+        setCasesDirProbe("ok");
+        await refreshDir("workspace", "");
+        await refreshDir("workspace", "cases");
+        setExpanded((prev) => ({
+          ...prev,
+          [keyOf("workspace", "")]: true,
+          [keyOf("workspace", "cases")]: true,
+        }));
+        const api = casesNodeActions?.apiBase?.trim();
+        if (api) {
+          try {
+            await apiPost(api, "/api/matters/create", {
+              matterId: name,
+              displayName: name,
+            });
+            casesNodeActions?.onRefreshMatters?.();
+          } catch (e) {
+            setError(errorMessage(e, "文件夹已创建，但案件登记失败；可稍后重试或在 Doctor 中修复。"));
+          }
+        }
+      },
+    });
+  }, [casesNodeActions, refreshDir]);
+
+  const casesNodeActionsResolved = (() => {
+    if (!casesNodeActions) {
+      return canUseFilesystemBridge
+        ? {
+            apiBase: "",
+            onOpenMatterCockpit: () => undefined,
+            onRequestDeleteMatter: () => undefined,
+            onNewMatterFolder: startCreateMatterFolder,
+          }
+        : null;
+    }
+    return {
+      ...casesNodeActions,
+      onNewMatterFolder: startCreateMatterFolder,
+    };
+  })();
 
   const doRename = async (root: RootKey, oldPath: string, newName: string) => {
     const newPath = joinRelPath(getDirname(oldPath), newName);
@@ -497,69 +621,6 @@ export function FileWorkbench(props: FileWorkbenchProps) {
         moveIntoMatterInFlightRef.current = false;
         setBusy(false);
       }
-    },
-    [canUseFilesystemBridge, refreshDir, refreshIndex],
-  );
-
-  const moveCaseItemToWorkspaceRoot = useCallback(
-    (relPath: string, kind: "file" | "directory") => {
-      if (!canUseFilesystemBridge) {return;}
-      setContextMenu(null);
-      const parsed = parseCasesRelForWorkspaceMove(relPath);
-      if (!parsed) {return;}
-      const { firstSeg, workspaceDestRel } = parsed;
-      const body =
-        workspaceDestRel === ""
-          ? `将卷宗文件夹「${firstSeg}」整体移到工作区根目录（磁盘文件保留，仅从 cases 下移出）。若名称冲突将自动追加序号。`
-          : `将「${workspaceDestRel}」移到工作区根目录下（保持相对路径结构）。重名时自动追加序号。`;
-      setConfirmDialog({
-        kind: "simple",
-        message: body,
-        onConfirm: () => {
-          setConfirmDialog(null);
-          void (async () => {
-            setBusy(true);
-            setError(null);
-            try {
-              const toPath =
-                workspaceDestRel === ""
-                  ? await allocateNonCollidingRelPath("workspace", firstSeg, "directory")
-                  : await allocateNonCollidingRelPath("workspace", workspaceDestRel, kind);
-              const res = await window.lawmindDesktop?.fsRename({
-                root: "workspace",
-                fromPath: relPath,
-                toPath,
-              });
-              if (!res?.ok) {
-                throw new Error(res?.error ?? "移动失败");
-              }
-              const destParent = getDirname(toPath);
-              await refreshDir("workspace", "cases");
-              await refreshDir("workspace", destParent || "");
-              void refreshIndex();
-              const oldTabPrefix = `workspace:${relPath}`;
-              setTabs((prev) =>
-                prev.map((t) => {
-                  if (t.path === relPath) {
-                    return { ...t, id: `workspace:${toPath}`, path: toPath, name: basename(toPath) };
-                  }
-                  if (t.path.startsWith(`${relPath}/`)) {
-                    const suffix = t.path.slice(relPath.length + 1);
-                    const np = joinRelPath(toPath, suffix);
-                    return { ...t, id: `workspace:${np}`, path: np, name: basename(np) };
-                  }
-                  return t;
-                }),
-              );
-              setActiveTabId((id) => (id === oldTabPrefix ? `workspace:${toPath}` : id));
-            } catch (e) {
-              setError(e instanceof Error ? e.message : String(e));
-            } finally {
-              setBusy(false);
-            }
-          })();
-        },
-      });
     },
     [canUseFilesystemBridge, refreshDir, refreshIndex],
   );
@@ -698,11 +759,12 @@ export function FileWorkbench(props: FileWorkbenchProps) {
     <FileWorkbenchView
       workspaceDir={workspaceDir}
       projectDir={projectDir}
+      onPickProject={onPickProject}
       canUseFilesystemBridge={canUseFilesystemBridge}
       onAddToChatContext={onAddToChatContext}
       portalHosts={portalHosts}
       workspaceExplorerToolbar={workspaceExplorerToolbar}
-      casesNodeActions={casesNodeActions}
+      casesNodeActions={casesNodeActionsResolved}
       mattersPickList={mattersPickList}
       childrenByDir={childrenByDir}
       expanded={expanded}
@@ -729,6 +791,8 @@ export function FileWorkbench(props: FileWorkbenchProps) {
       fsClip={fsClip}
       officeBlock={officeBlock}
       setOfficeBlock={setOfficeBlock}
+      imagePreview={imagePreview}
+      setImagePreview={setImagePreview}
       addToMatterPick={addToMatterPick}
       setAddToMatterPick={setAddToMatterPick}
       addToMatterManualDraft={addToMatterManualDraft}
@@ -759,7 +823,6 @@ export function FileWorkbench(props: FileWorkbenchProps) {
       doShowInFolder={doShowInFolder}
       pasteInto={pasteInto}
       moveWorkspaceItemIntoMatter={moveWorkspaceItemIntoMatter}
-      moveCaseItemToWorkspaceRoot={moveCaseItemToWorkspaceRoot}
       copyPath={copyPath}
       cutPath={cutPath}
       refreshDir={refreshDir}

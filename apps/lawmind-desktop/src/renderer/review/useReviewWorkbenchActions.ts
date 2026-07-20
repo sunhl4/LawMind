@@ -404,7 +404,7 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
           assistantId: queuedAssistantId,
           taskId: selectedTaskId,
         });
-        setActionMsg("已提交后台修订，正在工作区对话中展示执行过程；完成后将自动回到审核台并恢复为待审核。");
+        setActionMsg("已提交后台修订，正在工作区对话中展示执行过程；完成后可进入文书台，草稿将恢复为待审核。");
       } else {
         setActionMsg(
           "已提交后台修订：请到工作区切换到当前助手，在会话列表中打开最新「审核修订」会话查看进度；完成后回到本页刷新。",

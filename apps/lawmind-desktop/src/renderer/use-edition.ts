@@ -15,10 +15,12 @@ export type LawMindEdition = "solo" | "firm" | "private_deploy";
 
 export type EditionFeatures = {
   acceptanceGateStrict: boolean;
+  citationGateStrict: boolean;
   crossMatterRoadmap: boolean;
   crossMatterAcceptanceDashboard: boolean;
   collaborationSummary: boolean;
   complianceAuditExport: boolean;
+  auditIntegrityExport: boolean;
   securitySbomPanel: boolean;
   qualityDashboardJsonExport: boolean;
   customDeliverableSpec: boolean;
@@ -39,11 +41,13 @@ const SOLO_DEFAULT: EditionInfo = {
   label: "独立律师版",
   source: "default",
   features: {
-    acceptanceGateStrict: false,
+    acceptanceGateStrict: true,
+    citationGateStrict: true,
     crossMatterRoadmap: false,
     crossMatterAcceptanceDashboard: false,
     collaborationSummary: false,
     complianceAuditExport: false,
+    auditIntegrityExport: false,
     securitySbomPanel: false,
     qualityDashboardJsonExport: false,
     customDeliverableSpec: false,

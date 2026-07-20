@@ -1,11 +1,14 @@
 import React from "react";
-import type { CollabEvent, DelegationRow, TaskRow } from "../lawmind-app-data";
-import { LawmindCollaborationSidebar } from "../LawmindCollaborationSidebar";
+import { LawmindAutomationsSidebarList } from "../LawmindAutomationsSidebarList";
 import { LawmindMatterSidebarList } from "../LawmindMatterSidebarList";
+import {
+  LawmindSideChatSessions,
+  type SideChatSessionRow,
+} from "../LawmindSideChatSessions";
 import type { MatterSidebarRow } from "../lawmind-records-desk-state";
-import type { CollabSummaryState } from "../LawmindSettingsCollaboration";
 
 import { LawmindSideExplorerSkeleton } from "./LawmindSideExplorerSkeleton";
+import type { LawmindMainView } from "../lawmind-main-view";
 
 export type LawmindAppSidebarProps = {
   showAppSidebar: boolean;
@@ -13,34 +16,34 @@ export type LawmindAppSidebarProps = {
   sidebarWidth: number;
   showSidebarWorkbenchFiles: boolean;
   showExplorerSkeleton: boolean;
-  showCollaborationSidebar: boolean;
   onSidebarResizePointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
-  onOpenHelp: () => void;
   onOpenSettings: () => void;
   onCloseSettings: () => void;
   settingsOpen: boolean;
   setFileExplorerHost: (el: HTMLDivElement | null) => void;
   actionSummaryTotal: number;
-  actionSummaryActiveJobs: number;
-  delegations: DelegationRow[];
-  collabEvents: CollabEvent[];
-  collabTab: "delegations" | "timeline";
-  onSelectCollabTab: (tab: "delegations" | "timeline") => void;
-  filteredTasks: TaskRow[];
   matterSidebarRows: MatterSidebarRow[];
   selectedMatterKey: string | null;
   onSelectMatterKey: (matterId: string) => void;
   onSelectMatterForCockpit: (matterId: string) => void;
+  /** Scope fleet / workflow without opening matter cockpit. */
+  onSelectMatterScope?: (matterId: string) => void;
   matterCockpitOpen: boolean;
-  mainView: "workspace" | "collaboration" | "review";
-  formatRelativeTime: (iso: string) => string;
-  legalStatusLabel: (status: string | undefined, kind?: string) => string;
-  taskBadgeClass: (status: string, kind?: string) => string;
-  onOpenDetail: (kind: "task" | "draft", id: string) => void | Promise<void>;
-  onOpenDelegationTargetChat: (delegation: DelegationRow) => void | Promise<void>;
-  onOpenActionHub: () => void;
-  onRefreshCollaboration: () => void | Promise<void>;
-  collabSummarySettings: CollabSummaryState | null | undefined;
+  mainView: LawmindMainView;
+  /** Local API base for 自动办件侧栏列表；其它视图可省略。 */
+  apiBase?: string;
+  onOpenNeedsDecisionDesk: () => void;
+  /** Workspace chat list in the left rail (Cursor-style). */
+  chatSessions?: SideChatSessionRow[];
+  activeChatSessionId?: string;
+  chatSessionsLoading?: boolean;
+  chatBusy?: boolean;
+  onSelectChatSession?: (sessionId: string) => void | Promise<void>;
+  onCreateNewChatSession?: () => void | Promise<void>;
+  onRenameChatSession?: (sessionId: string, title: string) => void | Promise<void>;
+  onDeleteChatSession?: (sessionId: string) => void | Promise<void>;
+  /** Opens create-matter dialog from the matter list (no-FS / empty list). */
+  onCreateMatter?: () => void;
 };
 
 function LawmindAppSidebarImpl({
@@ -49,44 +52,56 @@ function LawmindAppSidebarImpl({
   sidebarWidth,
   showSidebarWorkbenchFiles,
   showExplorerSkeleton,
-  showCollaborationSidebar,
   onSidebarResizePointerDown,
-  onOpenHelp,
   onOpenSettings,
   onCloseSettings,
   settingsOpen,
   setFileExplorerHost,
   actionSummaryTotal,
-  actionSummaryActiveJobs,
-  delegations,
-  collabEvents,
-  collabTab,
-  onSelectCollabTab,
-  filteredTasks,
   matterSidebarRows,
   selectedMatterKey,
   onSelectMatterKey,
   onSelectMatterForCockpit,
+  onSelectMatterScope,
   matterCockpitOpen,
   mainView,
-  formatRelativeTime,
-  legalStatusLabel,
-  taskBadgeClass,
-  onOpenDetail,
-  onOpenDelegationTargetChat,
-  onOpenActionHub,
-  onRefreshCollaboration,
-  collabSummarySettings,
+  apiBase,
+  onOpenNeedsDecisionDesk,
+  chatSessions,
+  activeChatSessionId,
+  chatSessionsLoading,
+  chatBusy,
+  onSelectChatSession,
+  onCreateNewChatSession,
+  onRenameChatSession,
+  onDeleteChatSession,
+  onCreateMatter,
 }: LawmindAppSidebarProps) {
   if (!showAppSidebar) {
     return null;
   }
 
-  const showWorkspaceMatterList = mainView === "workspace" && !showCollaborationSidebar;
+  // 对话页已有「案件材料」树时不再叠一份案件列表；无材料树时仍用列表作回退。
+  const showWorkspaceMatterList =
+    mainView === "workspace" && !showSidebarWorkbenchFiles;
+  const showAgentsMatterList = mainView === "agents";
+  const showMeetingMatterList = mainView === "meeting";
+  const showMatterList = showWorkspaceMatterList || showAgentsMatterList || showMeetingMatterList;
+  const showAutomationsList =
+    mainView === "automations" && Boolean(apiBase?.trim());
+  const showSideChat =
+    mainView === "workspace" &&
+    Boolean(onSelectChatSession) &&
+    Boolean(onCreateNewChatSession) &&
+    Boolean(onRenameChatSession) &&
+    Boolean(onDeleteChatSession);
 
   const matterListClassName = (() => {
-    if (!showWorkspaceMatterList) {
+    if (!showMatterList) {
       return undefined;
+    }
+    if (showAgentsMatterList || showMeetingMatterList) {
+      return "lm-matter-sidebar-list--fill lm-matter-sidebar-list--agents";
     }
     if (showSidebarWorkbenchFiles && !matterCockpitOpen) {
       return "lm-matter-sidebar-list--stacked";
@@ -101,30 +116,20 @@ function LawmindAppSidebarImpl({
     <>
       <aside
         className={`lm-side ${sidebarCollapsed ? "lm-side-collapsed" : ""} ${
-          showSidebarWorkbenchFiles ? "lm-side-with-workbench-files" : ""
-        }${showCollaborationSidebar ? " lm-side-with-collab-context" : ""}`}
+          showSidebarWorkbenchFiles && mainView === "workspace" ? "lm-side-with-workbench-files" : ""
+        }${showSideChat ? " lm-side-with-chat-sessions" : ""}`}
         style={{
           width: sidebarCollapsed ? 0 : sidebarWidth,
           flexShrink: 0,
           borderRight: sidebarCollapsed ? "none" : undefined,
         }}
         aria-hidden={sidebarCollapsed}
+        aria-label="侧栏"
       >
         <div className="lm-brand">
-          <div className="lm-logo-mark">L</div>
           <div className="lm-brand-copy">
             <div className="lm-brand-title">LawMind</div>
-            <div className="lm-brand-subtitle">法律工作台</div>
           </div>
-          <button
-            type="button"
-            className="lm-gear-btn"
-            onClick={onOpenHelp}
-            aria-label="帮助"
-            title="帮助"
-          >
-            ?
-          </button>
           <button
             type="button"
             className={`lm-gear-btn${settingsOpen ? " is-active" : ""}`}
@@ -133,13 +138,19 @@ function LawmindAppSidebarImpl({
             aria-pressed={settingsOpen}
             title={settingsOpen ? "关闭设置" : "设置"}
           >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M6.5.75h3l.3 1.77a5.5 5.5 0 0 1 1.28.74l1.72-.58 1.5 2.6-1.42 1.19a5.6 5.6 0 0 1 0 1.06l1.42 1.19-1.5 2.6-1.72-.58a5.5 5.5 0 0 1-1.28.74l-.3 1.77h-3l-.3-1.77a5.5 5.5 0 0 1-1.28-.74l-1.72.58-1.5-2.6 1.42-1.19a5.6 5.6 0 0 1 0-1.06L1.7 5.28l1.5-2.6 1.72.58a5.5 5.5 0 0 1 1.28-.74L6.5.75Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
-              <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.2"/>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+              <path
+                d="M6.5.75h3l.3 1.77a5.5 5.5 0 0 1 1.28.74l1.72-.58 1.5 2.6-1.42 1.19a5.6 5.6 0 0 1 0 1.06l1.42 1.19-1.5 2.6-1.72-.58a5.5 5.5 0 0 1-1.28.74l-.3 1.77h-3l-.3-1.77a5.5 5.5 0 0 1-1.28-.74l-1.72.58-1.5-2.6 1.42-1.19a5.6 5.6 0 0 1 0-1.06L1.7 5.28l1.5-2.6 1.72.58a5.5 5.5 0 0 1 1.28-.74L6.5.75Z"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinejoin="round"
+              />
+              <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.2" />
             </svg>
           </button>
         </div>
-        {showSidebarWorkbenchFiles ? (
+
+        {showSidebarWorkbenchFiles && mainView === "workspace" ? (
           <div
             ref={setFileExplorerHost}
             className="lm-side-explorer-host"
@@ -148,34 +159,18 @@ function LawmindAppSidebarImpl({
             {showExplorerSkeleton ? <LawmindSideExplorerSkeleton /> : null}
           </div>
         ) : null}
-        {showCollaborationSidebar ? (
-          <LawmindCollaborationSidebar
-            actionSummaryTotal={actionSummaryTotal}
-            activeJobs={actionSummaryActiveJobs}
-            delegations={delegations}
-            collabEvents={collabEvents}
-            collabTab={collabTab}
-            onSelectCollabTab={onSelectCollabTab}
-            filteredTasks={filteredTasks}
-            matterRows={matterSidebarRows}
-            selectedMatterKey={selectedMatterKey}
-            onSelectMatter={onSelectMatterForCockpit}
-            formatRelativeTime={formatRelativeTime}
-            legalStatusLabel={legalStatusLabel}
-            taskBadgeClass={taskBadgeClass}
-            onOpenDetail={onOpenDetail}
-            onOpenDelegationTargetChat={(d) => void onOpenDelegationTargetChat(d)}
-            onOpenActionHub={onOpenActionHub}
-            onRefreshCollaboration={onRefreshCollaboration}
-            collaborationHint={collabSummarySettings?.collaborationHint}
-          />
-        ) : null}
-        {showWorkspaceMatterList ? (
+
+        {showMatterList ? (
           <LawmindMatterSidebarList
             className={matterListClassName}
             rows={matterSidebarRows}
             selectedKey={selectedMatterKey}
+            onCreateMatter={onCreateMatter}
             onSelect={(mid) => {
+              if (mainView === "agents" || mainView === "meeting") {
+                (onSelectMatterScope ?? onSelectMatterKey)(mid);
+                return;
+              }
               if (matterCockpitOpen) {
                 onSelectMatterKey(mid);
               } else {
@@ -184,20 +179,46 @@ function LawmindAppSidebarImpl({
             }}
           />
         ) : null}
-        <div className="lm-side-footer">
-          <button
-            type="button"
-            className="lm-btn lm-btn-secondary lm-btn-sm lm-side-action-hub-btn"
-            onClick={onOpenActionHub}
-          >
-            <span>待办中心</span>
-            {actionSummaryTotal > 0 ? (
-              <span className="lm-side-action-hub-badge" aria-label={`${actionSummaryTotal} 项待处理`}>
+
+        {showSideChat &&
+        onSelectChatSession &&
+        onCreateNewChatSession &&
+        onRenameChatSession &&
+        onDeleteChatSession ? (
+          <LawmindSideChatSessions
+            sessions={chatSessions ?? []}
+            activeSessionId={activeChatSessionId}
+            loading={chatSessionsLoading}
+            busy={chatBusy}
+            onSelect={onSelectChatSession}
+            onNewChat={onCreateNewChatSession}
+            onRename={onRenameChatSession}
+            onDelete={onDeleteChatSession}
+          />
+        ) : null}
+
+        {showAutomationsList && apiBase ? (
+          <LawmindAutomationsSidebarList apiBase={apiBase} />
+        ) : mainView === "automations" ? (
+          <p className="lm-meta lm-matter-sidebar-empty">本地服务未就绪，无法加载交办任务。</p>
+        ) : null}
+
+        {actionSummaryTotal > 0 ? (
+          <div className="lm-side-footer">
+            <button
+              type="button"
+              className="lm-btn lm-btn-secondary lm-btn-sm lm-side-needs-decision-btn"
+              onClick={onOpenNeedsDecisionDesk}
+              data-testid="lm-side-needs-decision"
+              title="打开「在办」处理澄清、批准与待审"
+            >
+              <span>待我拍板</span>
+              <span className="lm-side-needs-decision-badge" aria-label={`${actionSummaryTotal} 项待处理`}>
                 {actionSummaryTotal > 99 ? "99+" : actionSummaryTotal}
               </span>
-            ) : null}
-          </button>
-        </div>
+            </button>
+          </div>
+        ) : null}
       </aside>
       {!sidebarCollapsed ? (
         <div

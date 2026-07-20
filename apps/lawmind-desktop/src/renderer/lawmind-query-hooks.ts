@@ -6,7 +6,7 @@ import { lawmindQueryKeys } from "./lawmind-query-keys";
 import type { SessionTimelineEntry } from "./matter/useMatterSessionTimeline";
 import type { AcceptanceSummaryItem } from "./matter/matter-acceptance-display";
 import type { ArtifactDraft, MatterOverview } from "../../../../src/lawmind/types.ts";
-import type { AcceptanceReport } from "../../../../src/lawmind/deliverables/index.ts";
+import type { AcceptanceReport, ReasoningReport } from "../../../../src/lawmind/deliverables/index.ts";
 import type { DraftCitationIntegrityView } from "../../../../src/lawmind/drafts/citation-integrity.ts";
 import type { GateDecision, TaskExecutionState } from "../../../../src/lawmind/platform/contracts.ts";
 import type { MemorySourceLayer } from "../../../../src/lawmind/memory/index.ts";
@@ -54,6 +54,14 @@ export function useActionSummaryQuery(
         return null;
       }
       return loadActionSummary(apiBase, matterId ?? undefined);
+    },
+    // Solo desktop: stay fresh while visible; pause when tab/window hidden.
+    refetchOnWindowFocus: true,
+    refetchInterval: (query) => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return false;
+      }
+      return query.state.status === "error" ? false : 5_000;
     },
   });
 }
@@ -123,6 +131,8 @@ export type ReviewDraftDetailPayload = {
   citationIntegrity: DraftCitationIntegrityView | null;
   memorySources: MemorySourceLayer[] | null;
   acceptance: AcceptanceReport | null;
+  reasoningReport: ReasoningReport | null;
+  reasoningMarkdown: string | null;
   executionState: TaskExecutionState | null;
   gateDecisions: GateDecision[];
 };
@@ -152,6 +162,8 @@ export function useReviewDraftDetailQuery(apiBase: string, taskId: string | null
         citationIntegrity?: DraftCitationIntegrityView;
         memorySources?: MemorySourceLayer[];
         acceptance?: AcceptanceReport;
+        reasoningReport?: ReasoningReport;
+        reasoningMarkdown?: string | null;
         executionState?: TaskExecutionState;
         gateDecisions?: GateDecision[];
       }>(apiBase, `/api/drafts/${encodeURIComponent(taskId!)}`);
@@ -163,6 +175,11 @@ export function useReviewDraftDetailQuery(apiBase: string, taskId: string | null
         citationIntegrity: j.citationIntegrity ?? null,
         memorySources: Array.isArray(j.memorySources) ? j.memorySources : null,
         acceptance: j.acceptance ?? null,
+        reasoningReport: j.reasoningReport ?? null,
+        reasoningMarkdown:
+          typeof j.reasoningMarkdown === "string" && j.reasoningMarkdown.trim()
+            ? j.reasoningMarkdown
+            : null,
         executionState: j.executionState ?? null,
         gateDecisions: Array.isArray(j.gateDecisions) ? j.gateDecisions : [],
       };

@@ -262,6 +262,102 @@ export async function dismissMemorySuggestion(
   return { ok: true, record: next };
 }
 
+/**
+ * Mark pending review_label (or any) adoption rows that share `sourceTaskId`
+ * as adopted — used when the learning suggestion queue adopts first and the
+ * mirrored MemoryAdoptionService row should stay in sync.
+ * Does not run a writer (payload already applied by the caller).
+ */
+export async function markAdoptedBySourceTaskId(
+  workspaceDir: string,
+  auditDir: string,
+  sourceTaskId: string,
+  opts?: { kind?: MemoryAdoptionKind },
+): Promise<{ updated: number }> {
+  const all = await readAll(workspaceDir);
+  const now = new Date().toISOString();
+  let updated = 0;
+  for (let i = 0; i < all.length; i++) {
+    const rec = all[i];
+    if (rec.state !== "pending") {
+      continue;
+    }
+    if (rec.sourceTaskId !== sourceTaskId) {
+      continue;
+    }
+    if (opts?.kind && rec.kind !== opts.kind) {
+      continue;
+    }
+    all[i] = {
+      ...rec,
+      state: "adopted",
+      resolvedAt: now,
+    };
+    updated += 1;
+  }
+  if (updated > 0) {
+    await writeAll(workspaceDir, all);
+    await emit(auditDir, {
+      taskId: sourceTaskId,
+      kind: "memory.adoption_adopted",
+      actor: "lawyer",
+      detail: JSON.stringify({
+        bySourceTaskId: true,
+        updated,
+        kind: opts?.kind ?? null,
+      }),
+    });
+  }
+  return { updated };
+}
+
+/**
+ * Mark pending adoption rows that share `sourceTaskId` as dismissed —
+ * keeps learning-queue dismiss in sync with MemoryAdoptionService.
+ */
+export async function markDismissedBySourceTaskId(
+  workspaceDir: string,
+  auditDir: string,
+  sourceTaskId: string,
+  opts?: { kind?: MemoryAdoptionKind },
+): Promise<{ updated: number }> {
+  const all = await readAll(workspaceDir);
+  const now = new Date().toISOString();
+  let updated = 0;
+  for (let i = 0; i < all.length; i++) {
+    const rec = all[i];
+    if (rec.state !== "pending") {
+      continue;
+    }
+    if (rec.sourceTaskId !== sourceTaskId) {
+      continue;
+    }
+    if (opts?.kind && rec.kind !== opts.kind) {
+      continue;
+    }
+    all[i] = {
+      ...rec,
+      state: "dismissed",
+      resolvedAt: now,
+    };
+    updated += 1;
+  }
+  if (updated > 0) {
+    await writeAll(workspaceDir, all);
+    await emit(auditDir, {
+      taskId: sourceTaskId,
+      kind: "memory.adoption_dismissed",
+      actor: "lawyer",
+      detail: JSON.stringify({
+        bySourceTaskId: true,
+        updated,
+        kind: opts?.kind ?? null,
+      }),
+    });
+  }
+  return { updated };
+}
+
 export async function listMemorySuggestions(
   workspaceDir: string,
   opts?: { scope?: MemoryScope; state?: MemoryAdoptionState; targetId?: string },

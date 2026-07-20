@@ -84,23 +84,22 @@ export async function gotoShell(page: Page): Promise<void> {
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await expect(page.locator(".lm-shell")).toBeVisible({ timeout: 60_000 });
   await dismissBlockingDialogs(page);
-  await Promise.all([
-    page
-      .waitForResponse((res) => res.url().includes("/api/models") && res.ok(), { timeout: 30_000 })
-      .catch(() => undefined),
-    page
-      .waitForResponse((res) => res.url().includes("/api/bootstrap") && res.ok(), { timeout: 30_000 })
-      .catch(() => undefined),
-    page
-      .waitForResponse((res) => res.url().includes("/api/matters/overviews") && res.ok(), {
-        timeout: 30_000,
-      })
-      .catch(() => undefined),
-  ]);
-  await expect(page.locator(".lm-readiness-strip")).toHaveCount(0, { timeout: 30_000 });
+  // 待我拍板 only appears when there are pending decisions (mock returns ≥1).
   await expect(page.getByRole("navigation", { name: "功能模块" })).toBeVisible({ timeout: 30_000 });
-  // Wait for API-backed chrome (mock: actionSummary.total=1) — use header trigger to avoid sidebar ambiguity
-  await expect(page.locator(".lm-action-hub-trigger")).toBeVisible({ timeout: 60_000 });
+  await expect(
+    page
+      .getByTestId("lm-side-needs-decision")
+      .or(page.getByTestId("lm-side-action-hub"))
+      .or(page.locator(".lm-needs-decision-trigger"))
+      .or(page.locator(".lm-action-hub-trigger"))
+      .first(),
+  ).toBeVisible({ timeout: 60_000 });
+  // Wait for mock health (modelConfigured) so readiness strip clears before chat assertions.
+  await expect(page.locator(".lm-readiness-strip")).toHaveCount(0, { timeout: 45_000 });
+  // Chat messages region (or at least the workspace chat chrome) should be reachable on default home.
+  await expect(
+    page.locator("#lawmind-chat-messages-panel").or(page.getByRole("region", { name: "对话消息" })).first(),
+  ).toBeVisible({ timeout: 30_000 });
 }
 
 async function leaveSettingsIfOpen(page: Page): Promise<void> {
@@ -115,16 +114,29 @@ export async function openReviewWorkbench(page: Page): Promise<void> {
   await dismissBlockingDialogs(page);
   await leaveSettingsIfOpen(page);
 
-  // Click the review tab using Playwright's native click
-  const reviewTab = page.locator('nav[aria-label="功能模块"] >> button:text-is("审核")');
-  await expect(reviewTab).toBeVisible({ timeout: 30_000 });
-  await reviewTab.click();
+  // 文书台是场景化深工具：从「在办」总览进入（侧栏「待我拍板」也跳转到办）。
+  const mainNav = page.getByRole("navigation", { name: "功能模块" });
+  await expect(mainNav).toBeVisible({ timeout: 30_000 });
+  const agentsTab = mainNav.getByRole("button", { name: "在办", exact: true });
+  if (await agentsTab.isVisible().catch(() => false)) {
+    await agentsTab.click();
+  } else {
+    const sidebarHub = page.getByTestId("lm-side-needs-decision").or(page.getByTestId("lm-side-action-hub"));
+    await expect(sidebarHub).toBeVisible({ timeout: 30_000 });
+    await sidebarHub.click();
+  }
+  await expect(page.locator(".lm-agent-fleet-page")).toBeVisible({ timeout: 30_000 });
 
-  // Wait for either the review workbench OR workspace pane to still be present.
-  // If clicking worked, we should see .lm-review-workbench-root or .lm-main-workbench containing it.
+  const openWorkbench = page
+    .getByTestId("lm-fleet-primary-review")
+    .or(page.getByRole("button", { name: /进入文书台/ }))
+    .first();
+  await expect(openWorkbench).toBeVisible({ timeout: 30_000 });
+  await openWorkbench.click();
+
   await page.waitForFunction(
     () => document.querySelector(".lm-review-workbench-root") !== null,
-    { timeout: 60_000 }
+    { timeout: 60_000 },
   );
 }
 
@@ -133,24 +145,47 @@ export async function openMatterCockpit(page: Page): Promise<void> {
   await dismissBlockingDialogs(page);
   const mainNav = page.getByRole("navigation", { name: "功能模块" });
   await expect(mainNav).toBeVisible({ timeout: 30_000 });
-  const collabTab = mainNav.getByRole("button", { name: "协作", exact: true });
-  await collabTab.click({ force: true });
-  await expect(collabTab).toHaveAttribute("aria-current", "page", { timeout: 15_000 });
-  const matterRow = page.locator(".lm-matter-sidebar-list-ul button").first();
-  await expect(matterRow).toBeVisible({ timeout: 30_000 });
-  await matterRow.click({ force: true });
+  const agentsTab = mainNav.getByRole("button", { name: "在办", exact: true });
+  if (await agentsTab.isVisible().catch(() => false)) {
+    await agentsTab.click({ force: true });
+    await expect(agentsTab).toHaveAttribute("aria-current", "page", { timeout: 15_000 });
+    const matterRow = page.locator(".lm-matter-sidebar-list-ul button").first();
+    await expect(matterRow).toBeVisible({ timeout: 30_000 });
+    await matterRow.click({ force: true });
+  } else {
+    // Fallback when 在办 tab is not yet painted: open via header matter chip / sidebar list.
+    const headerMatter = page.getByTestId("lm-open-matter-cockpit");
+    await expect(headerMatter).toBeVisible({ timeout: 30_000 });
+    await headerMatter.click();
+  }
   await expect(page.locator(".lm-matter-workbench").first()).toBeVisible({ timeout: 30_000 });
 }
 
-/** Inline「批准并继续」会打开 ToolApprovalDialog；确认后才会 POST /api/chat/resume。 */
+/** Open compose 「+」 so permission / web / mode controls are in the DOM. */
+export async function openComposeOptions(page: Page): Promise<void> {
+  const plus = page.getByRole("button", { name: "输入选项" });
+  await expect(plus).toBeVisible({ timeout: 15_000 });
+  if ((await plus.getAttribute("aria-expanded")) !== "true") {
+    await plus.click();
+  }
+  await expect(page.getByLabel("工具权限模式")).toBeVisible({ timeout: 5_000 });
+}
+
+/** Inline「批准并继续」直接 POST /api/chat/resume（不再二次弹窗）。 */
 export async function approveToolViaDialog(page: Page): Promise<import("@playwright/test").Response> {
   const resumeWait = page.waitForResponse(
     (res) => res.url().includes("/api/chat/resume") && res.request().method() === "POST",
   );
   await page.getByRole("button", { name: /批准并继续/ }).click();
-  const dialog = page.getByRole("dialog", { name: /工具批准|工作流|只读|验收|外联/i });
-  await expect(dialog).toBeVisible({ timeout: 10_000 });
-  await page.getByRole("button", { name: "允许一次" }).click();
+  return resumeWait;
+}
+
+/** Inline「暂不执行」→ POST /api/chat/resume with reject. */
+export async function rejectToolViaCard(page: Page): Promise<import("@playwright/test").Response> {
+  const resumeWait = page.waitForResponse(
+    (res) => res.url().includes("/api/chat/resume") && res.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: /暂不执行/ }).click();
   return resumeWait;
 }
 
@@ -160,7 +195,9 @@ export async function openWorkspaceChat(page: Page): Promise<void> {
   const chatTab = mainNav.getByRole("button", { name: "对话" });
   await chatTab.click({ force: true });
   await expect(chatTab).toHaveAttribute("aria-current", "page");
-  await expect(page.getByRole("region", { name: "对话消息" })).toBeVisible({ timeout: 30_000 });
+  await expect(
+    page.locator("#lawmind-chat-messages-panel").or(page.getByRole("region", { name: "对话消息" })).first(),
+  ).toBeVisible({ timeout: 30_000 });
 }
 
 /** Open review tab, load mock draft detail, assert gate copy is visible. */

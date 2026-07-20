@@ -89,7 +89,7 @@
 ### 第七期 — 异步任务、系统通知与 Edition 危险工具收紧
 
 - [x] **7.1 团队工作流异步任务**：`POST /api/collaboration/workflow-run` 支持 `async: true` → `202` + `jobId`；`GET /api/jobs/:id`、`GET /api/jobs?limit=&status=&since=`；**`GET /api/jobs/:id/stream`**（SSE + `onProgress` 推送 + 心跳）；`executeWorkflow` 可选 `onProgress` 写 job `progress`（`lawmind-server-jobs.ts`、路由接入 `lawmind-server-dispatch.ts`）
-- [x] **7.2 桌面完成通知**：Electron `Notification` + `lawmind:show-notification` IPC / preload；顶栏「协作」页「运行所选模板」**优先 EventSource、失败回退轮询**，终态时一次系统通知；**近期任务**对非当前 `queued`/`running` 任务**有限并发 SSE（默认 2 路）**刷新列表（`LawmindSettingsCollaboration.tsx`）
+- [x] **7.2 桌面完成通知**：Electron `Notification` + `lawmind:show-notification` IPC / preload；「在办 · 按流程办」/设置协作区「运行所选模板」**优先 EventSource、失败回退轮询**，终态时一次系统通知；**近期任务**对非当前 `queued`/`running` 任务**有限并发 SSE（默认 2 路）**刷新列表（`LawmindSettingsCollaboration.tsx`）
 - [x] **7.3 Edition 收紧危险工具**：`EDITION_FEATURES.strictDangerousToolApproval`（Firm / Private 开启）；`buildAgentConfig` 注入；`toolRequiresExplicitApproval` + `execute_workflow` 扩展清单；`LAWMIND_ALLOW_DANGEROUS_TOOLS_WITHOUT_APPROVAL` 在严格版下不绕过（`src/lawmind/agent/dangerous-tool-policy.ts`、`runtime.ts`）
 - [x] **7.4 进度脚注**：`LAWMIND-VISION.md` Phase 7 工程注
 - [x] **7.5 异步 Job 加固**：`workspace/lawmind/jobs/*.json` 持久化与进程重启时将非终态 job 标为 `interrupted_by_restart`；`POST /api/jobs/:id/cancel`（队列内立即取消，运行中在步骤批次间协作式中止，不中断单次 `sendAndWait`）；`idempotencyKey` 防重复提交；`executeWorkflow` 可选 `shouldAbort`；通知点击聚焦并滚动至设置协作区；协作面板取消按钮与通知不可用提示
@@ -202,8 +202,8 @@ queue.jsonl,deadlines.jsonl}`；engine hot path 全程双写；`/api/matters` /
 > 依据 [docs/LAWMIND-REFERENCE-PROJECT-LESSONS.md](docs/LAWMIND-REFERENCE-PROJECT-LESSONS.md) 实施计划。
 
 - [x] **统一待处理动作**：`requiresAction` + `POST /api/chat/resume` + [LAWMIND-INTERRUPT-RESUME.md](docs/LAWMIND-INTERRUPT-RESUME.md)
-- [x] **待办中心**：`LawmindActionHub`、`GET /api/action-summary`、`POST /api/approvals/resolve`、聊天内 `LawmindRequiresActionCard`
-- [x] **工作流库**：`workspace/lawmind/workflows/` 种子模板 + `LawmindWorkflowLibrary`（协作页 / Matter 空状态）
+- [x] **待我拍板**：侧栏入口 + `GET /api/action-summary`、`POST /api/approvals/resolve`、聊天内 `LawmindRequiresActionCard`（不再挂 compose「待你处理」条）
+- [x] **工作流库**：`workspace/lawmind/workflows/` 种子模板；桌面主路径为「在办 · 按流程办」与 compose 模板画廊（原独立 `LawmindWorkflowLibrary` 组件已收敛）
 - [x] **任务看板**：`MatterTaskBoard` 聚合 tasks / queue / approvals / drafts
 - [x] **系统体检**：`buildWorkspaceStandardReport` + `LawmindSettingsDoctor` + [LAWMIND-WORKSPACE-STANDARD.md](docs/LAWMIND-WORKSPACE-STANDARD.md)
 - [x] **P1 信任**：`matterScopeMiddleware`、`buildWorkspaceSessionHealth`、MCP 路线图 [LAWMIND-INTEGRATIONS.md](docs/LAWMIND-INTEGRATIONS.md)
@@ -270,7 +270,7 @@ queue.jsonl,deadlines.jsonl}`；engine hot path 全程双写；`/api/matters` /
 - [x] **Redline 基准稿**：`POST /api/drafts/:taskId/redline/baseline` + 审核台双按钮与空状态引导
 - [x] **FTS 冷启动提示**：案件搜索 `indexMissing` + 体检重建说明 + `.env.example` 注明 `LAWMIND_ALLOW_INDEX_REBUILD`
 - [x] **E2E 导航**：`e2e-helpers` 兼容默认顶栏与工作子导航
-- [x] **侧栏增强**：`project-only` 保留；cockpit 时案件快捷列表 + 底栏「待办中心」
+- [x] **侧栏增强**：`project-only` 保留；cockpit 时案件快捷列表 + 有待决时底栏「待我拍板」
 - [x] **W11 子面板**：`MatterReasoningBoard` / `MatterQualityCockpit` / `MatterRoleBoard` 挂载 + draft `reasoningReport`
 - [x] **整洁与文档**：删除孤儿 `LawmindChatActivityFeed`；DMS fixture 说明；用户手册「日流程自检」
 
@@ -288,7 +288,7 @@ queue.jsonl,deadlines.jsonl}`；engine hot path 全程双写；`/api/matters` /
 
 - [x] **P0 消息预处理**：`lawmind-message-preprocess.ts`、Brief 模式、工具组折叠、虚拟列表（>100 条）
 - [x] **P0 Compose**：发送队列、`permissionMode`、待批准徽章、stash、`/⌘K` 命令面板
-- [x] **P0 任务/批准 UI**：`LawmindTaskDrawer`、`LawmindToolApprovalDialog`（分模板）
+- [x] **P0 任务/批准 UI**：`LawmindTaskDrawer`；工具批准为聊天内 `LawmindRequiresActionCard` 一点 resume（二次 Dialog 已拆除）
 - [x] **P1 执行契约**：扩展 `RunTurnEvent`（`token_budget` / `compact_boundary`）
 - [x] **P1 Memory 召回**：`memory/relevant-recall.ts` + `runtime` 注入
 - [x] **P1 Compact**：`agent/compact.ts`、`context-budget.ts` + `GET/POST /api/sessions/:id/context-budget|compact`

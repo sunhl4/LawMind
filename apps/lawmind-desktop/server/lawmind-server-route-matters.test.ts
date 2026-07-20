@@ -178,6 +178,60 @@ describe("lawmind-server-route-matters", () => {
     await fs.rm(ws, { recursive: true, force: true });
   });
 
+  it("POST /api/matters/profile updates archive fields and activates on engagement", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matter-profile-"));
+    try {
+      const { createMatterIfAbsent } = await import("../../../src/lawmind/cases/matter-create.js");
+      await createMatterIfAbsent(ws, "profile-matter", { displayName: "初名", status: "intake" });
+      const ctx: LawmindDispatchContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const capture = createResponseCapture();
+      const handled = await handleMatterRoutes({
+        ctx,
+        req: createJsonRequest("POST", {
+          matterId: "profile-matter",
+          title: "张三租赁案",
+          clientId: "client-zhang",
+          causeOfAction: "房屋租赁合同纠纷",
+          counterparty: "李四",
+          sensitivity: "high",
+          conflictCheckConfirmed: true,
+          engagementAccepted: true,
+        }),
+        res: capture.res,
+        url: new URL("http://127.0.0.1/api/matters/profile"),
+        pathname: "/api/matters/profile",
+        c: {},
+      });
+      expect(handled).toBe(true);
+      expect(capture.status).toBe(200);
+      const body = capture.json();
+      expect(body).toMatchObject({
+        ok: true,
+        profile: {
+          matterId: "profile-matter",
+          title: "张三租赁案",
+          clientId: "client-zhang",
+          causeOfAction: "房屋租赁合同纠纷",
+          counterparty: "李四",
+          sensitivity: "high",
+          status: "active",
+          needsEnrichment: false,
+        },
+      });
+      const caseRaw = await fs.readFile(path.join(ws, "cases", "profile-matter", "CASE.md"), "utf8");
+      expect(caseRaw).toContain("案由: 房屋租赁合同纠纷");
+      expect(caseRaw).toContain("对方当事人: 李四");
+      expect(caseRaw).toContain("客户 / clientId: client-zhang");
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true });
+    }
+  });
+
   it("POST /api/matters/display-name creates CASE.md when only cases/<id>/ exists", async () => {
     const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matter-display-name-empty-"));
     try {

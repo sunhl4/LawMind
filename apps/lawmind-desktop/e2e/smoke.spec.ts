@@ -11,14 +11,14 @@ test.describe("LawMind renderer smoke", () => {
     await expect(page).toHaveTitle(/LawMind/);
     await expect(page.getByLabel("功能模块")).toBeVisible({ timeout: 60_000 });
     await expect(page.getByText("LawMind").first()).toBeVisible();
-    await expect(page.getByText("法律工作台").first()).toBeVisible();
+    await expect(page.getByText("法律工作台")).toHaveCount(0);
   });
 
-  test("shows header settings and layout toolbar", async ({ page }) => {
+  test("shows one settings gear and layout toolbar", async ({ page }) => {
     await gotoShell(page);
-    await expect(page.getByRole("main").getByRole("button", { name: "设置" })).toBeVisible({
-      timeout: 60_000,
-    });
+    await expect(page.getByRole("button", { name: "设置" })).toHaveCount(1, { timeout: 60_000 });
+    await expect(page.getByRole("complementary").getByRole("button", { name: "设置" })).toBeVisible();
+    await expect(page.getByRole("main").getByRole("button", { name: "设置" })).toHaveCount(0);
     await expect(page.getByRole("main").getByRole("toolbar", { name: "面板布局" })).toBeVisible();
   });
 

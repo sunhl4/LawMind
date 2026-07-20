@@ -38,14 +38,14 @@ type Props = {
   apiBase: string;
   refreshVersion?: number;
   assistantId?: string;
-  /** 从审核台返回时由外壳一次性传入，用于恢复左侧选中的案件 */
+  /** 从文书台返回时由外壳一次性传入，用于恢复左侧选中的案件 */
   focusMatterId?: string | null;
   onFocusMatterIdApplied?: () => void;
   /** 在对话中带上案件 ID（matter 参数） */
   onUseInChat?: (matterId: string) => void;
   /** 从批准队列跳转到对应对话会话 */
   onOpenChatSession?: (sessionId: string, matterId?: string) => void;
-  /** 打开审核台并预选相关草稿 */
+  /** 打开文书台并预选相关草稿 */
   onOpenReview?: (target: {
     taskId: string;
     matterId?: string;
@@ -68,8 +68,12 @@ type Props = {
   /** 项目目录；会议室对话可选传给检索 */
   projectDir?: string | null;
   onMatterCreated?: (matterId: string) => void;
-  /** 打开协作页工作流库（任务看板空状态 CTA） */
+  /** 打开「在办 → 按流程办」（任务看板空状态 CTA） */
   onOpenWorkflowLibrary?: () => void;
+  /** 打开顶栏「会议室·办件」→ 会议室，并绑定本案 */
+  onOpenTopLevelMeeting?: (matterId: string) => void;
+  /** 打开「在办」待我拍板焦点 */
+  onOpenNeedsDecisionDesk?: () => void;
 };
 
 
@@ -95,6 +99,8 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
     shellHistoryBadgeClass,
     onMatterCreated,
     onOpenWorkflowLibrary,
+    onOpenTopLevelMeeting,
+    onOpenNeedsDecisionDesk,
     workspaceDir = null,
     projectDir = null,
   } = props;
@@ -125,6 +131,8 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
     detailLoading,
     detailError,
     summary,
+    profile,
+    setProfile,
     caseMemory,
     caseTruncated,
     coreIssues,
@@ -172,6 +180,8 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
   const [caseDraftNote, setCaseDraftNote] = useState("");
 
   const [matterJobs, setMatterJobs] = useState<TaskBoardJobInput[]>([]);
+  const matterJobStreamsRef = useRef<Map<string, EventSource>>(new Map());
+  const [matterJobsTick, setMatterJobsTick] = useState(0);
 
   useEffect(() => {
     if (!apiBase || !matterId) {
@@ -216,7 +226,48 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
     return () => {
       cancelled = true;
     };
-  }, [apiBase, matterId, refreshVersion]);
+  }, [apiBase, matterId, refreshVersion, matterJobsTick]);
+
+  /** Live-refresh running/queued matter jobs via the same SSE as 在办. */
+  useEffect(() => {
+    if (!apiBase) {
+      return;
+    }
+    const running = matterJobs
+      .filter((j) => j.status === "queued" || j.status === "running")
+      .map((j) => j.jobId)
+      .filter((id): id is string => Boolean(id?.trim()))
+      .slice(0, 3);
+    const wanted = new Set(running);
+    for (const [jid, es] of matterJobStreamsRef.current.entries()) {
+      if (!wanted.has(jid)) {
+        es.close();
+        matterJobStreamsRef.current.delete(jid);
+      }
+    }
+    for (const jobId of running) {
+      if (matterJobStreamsRef.current.has(jobId)) {
+        continue;
+      }
+      try {
+        const es = new EventSource(`${apiBase}/api/jobs/${encodeURIComponent(jobId)}/stream`);
+        matterJobStreamsRef.current.set(jobId, es);
+        es.addEventListener("message", () => setMatterJobsTick((n) => n + 1));
+        es.addEventListener("error", () => {
+          es.close();
+          matterJobStreamsRef.current.delete(jobId);
+        });
+      } catch {
+        /* EventSource unavailable */
+      }
+    }
+    return () => {
+      for (const es of matterJobStreamsRef.current.values()) {
+        es.close();
+      }
+      matterJobStreamsRef.current.clear();
+    };
+  }, [apiBase, matterJobs]);
 
   const sessionTimeline = useMatterSessionTimeline(apiBase, matterId, panelTab, refreshVersion);
 
@@ -544,10 +595,21 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
   const mainPanelProps: MatterWorkbenchMainPanelsProps = {
     apiBase,
     ...mainPanelShell,
+    profile: mainPanelShell.matterId ? profile : null,
+    onProfileSaved: (next, statusLine) => {
+      setProfile(next);
+      if (statusLine && summary) {
+        // refresh status line on cockpit header without full reload
+        void loadDetail(next.matterId);
+      }
+    },
     assistantId,
     projectDir,
     panelTab,
     onSelectPanelTab: setPanelTab,
+    onOpenTopLevelMeeting,
+    onUseInChat,
+    onOpenNeedsDecisionDesk,
     showShellOps,
     showWorkspaceAcceptanceDashboard,
     workspaceAcceptance,

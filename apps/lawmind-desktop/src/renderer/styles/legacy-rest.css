@@ -16,8 +16,8 @@
 .lm-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 15px 12px 13px;
+  gap: 8px;
+  padding: 2px 10px;
   font-size: 15px;
   font-weight: 700;
   letter-spacing: -0.3px;
@@ -25,17 +25,22 @@
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   user-select: none;
+  min-height: 28px;
+  box-sizing: border-box;
+  height: 29px;
 }
 .lm-brand-copy {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
 }
 .lm-brand-title {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: -0.25px;
   color: var(--text);
+  line-height: 1.2;
 }
 .lm-brand-subtitle {
   margin-top: 1px;
@@ -1092,7 +1097,7 @@
 }
 .lm-fs-dual-root-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 2px;
   padding: 6px 0 4px;
   border-bottom: 1px solid var(--border);
@@ -1115,11 +1120,7 @@
   border-radius: var(--r-xs, 4px);
 }
 .lm-fs-dual-hint {
-  display: block;
-  font-size: 11px;
-  color: var(--muted);
-  line-height: 1.35;
-  margin-top: 2px;
+  display: none;
 }
 .lm-fs-dual-empty {
   font-size: 11px;
@@ -1127,6 +1128,17 @@
   line-height: 1.45;
   padding: 6px 4px 8px 22px;
   margin: 0;
+}
+.lm-fs-dual-empty .lm-btn {
+  margin-top: 8px;
+}
+.lm-fs-dual-path {
+  font-size: 10px;
+  line-height: 1.35;
+  padding: 0 4px 6px 22px;
+  margin: 0;
+  word-break: break-all;
+  opacity: 0.85;
 }
 
 /* ── Quick open trigger button (sidebar) ───────────────────── */
@@ -1674,13 +1686,36 @@
 /* ── Review document preview pane ────────────────────────────── */
 .lm-draft-doc-preview-header {
   display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 8px 12px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.02);
   flex-shrink: 0;
+}
+.lm-draft-doc-preview-header-main {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  min-width: 0;
+}
+.lm-draft-doc-preview-undock-grip {
+  cursor: grab;
+  user-select: none;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  border-radius: var(--r-sm, 4px);
+  padding: 2px 6px;
+  font-size: 11px;
+  letter-spacing: -1px;
+  line-height: 1.2;
+  flex-shrink: 0;
+}
+.lm-draft-doc-preview-undock-grip:active {
+  cursor: grabbing;
 }
 .lm-draft-doc-preview-kicker {
   font-size: 12px;
@@ -1981,6 +2016,48 @@
 .lm-collab-card-list .lm-collab-card-row {
   margin-bottom: 10px;
 }
+.lm-collab-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.lm-collab-delegation-detail {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--border);
+  background: var(--surface-muted, var(--surface));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.lm-collab-delegation-detail-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.lm-collab-delegation-detail-body {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.lm-collab-delegation-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.lm-collab-delegation-detail-hint {
+  margin: 0;
+}
+.lm-collab-delegation-detail-error .lm-collab-delegation-detail-body {
+  color: var(--danger, #e08a8a);
+}
 .lm-msg-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2041,13 +2118,38 @@
 }
 
 .lm-draft-doc-preview {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
   width: 100%;
   max-width: none;
+  overflow: hidden;
 }
 
 .lm-draft-doc-preview-body {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px 20px 20px;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+  scrollbar-gutter: stable;
+}
+
+.lm-review-preview-popout {
+  height: 100vh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.lm-review-preview-popout .lm-draft-doc-preview {
+  height: 100%;
 }
 
 .lm-firstrun {

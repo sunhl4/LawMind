@@ -245,6 +245,7 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
     riskLevel: "low",
     audience: "solo",
     kind: "matter",
+    schedulable: true,
     starterPrompt: "请起草给客户的本案进展备忘录：已完成工作、当前风险、需客户确认事项与时间表。",
     steps: [
       {
@@ -281,8 +282,7 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
     id: "renewal-monitor",
     name: "合同续签监控",
     namedAgent: "Contract Renewal Monitor",
-    description:
-      "扫描主合同中的到期、续签与终止条款，输出续签提醒备忘（可配合 scheduleRunAt 预约执行）。",
+    description: "扫描主合同中的到期、续签与终止条款，输出续签提醒备忘；需要时可预约定期再跑。",
     practiceArea: "commercial",
     deliverableType: "document.general",
     riskLevel: "low",

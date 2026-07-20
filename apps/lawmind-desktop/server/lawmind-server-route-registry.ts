@@ -2,6 +2,9 @@ import { handleAuditExportRoute } from "./lawmind-server-route-audit-export.js";
 import { handleBootstrapRoute } from "./lawmind-server-route-bootstrap.js";
 import { handleChatRoute } from "./lawmind-server-route-chat.js";
 import { handleActionSummaryRoutes } from "./lawmind-server-route-action-summary.js";
+import { handleAgentFleetRoutes } from "./lawmind-server-route-agent-fleet.js";
+import { handleAutomationsRoutes } from "./lawmind-server-route-automations.js";
+import { handleMailRoutes } from "./lawmind-server-route-mail.js";
 import { handleAssistantRoutes } from "./lawmind-server-route-assistants.js";
 import { handleCollaborationRoutes } from "./lawmind-server-route-collaboration.js";
 import { handleJobRoutes } from "./lawmind-server-route-jobs.js";
@@ -49,6 +52,9 @@ export const LAWMIND_ROUTE_HANDLERS: LawmindRouteHandler[] = [
   (args) => handleModelsRoutes(args),
   (args) => handleChatRoute(args),
   (args) => handleActionSummaryRoutes(args),
+  (args) => handleAgentFleetRoutes(args),
+  (args) => handleMailRoutes(args),
+  (args) => handleAutomationsRoutes(args),
   (args) => handleAssistantRoutes(args),
   (args) => handleMatterRoutes(args),
   (args) => handleOnboardingRoutes(args),

@@ -28,8 +28,16 @@ export const EDITION_LABELS: Readonly<Record<LawMindEdition, string>> = {
  * `true` = 该 edition 默认开启；`false` = 隐藏或禁用。
  */
 export const EDITION_FEATURES = {
-  /** 验收门禁（Acceptance Gate）的 strict 模式：未通过禁止 render */
-  acceptanceGateStrict: { solo: false, firm: true, private_deploy: true },
+  /**
+   * 验收门禁（Acceptance Gate）的 strict 模式：未通过禁止 render。
+   * Solo 亦默认开启：个人律师交件底线与「能交件」叙事一致；试用可在 policy 中关闭。
+   */
+  acceptanceGateStrict: { solo: true, firm: true, private_deploy: true },
+  /**
+   * 引用完整性硬门禁：有 research 快照时，缺失来源 ID 或长段未锚定引用禁止 render。
+   * Solo 与 Firm/Private 对齐，避免「提醒式」交件。
+   */
+  citationGateStrict: { solo: true, firm: true, private_deploy: true },
   /** 跨案件实验/Roadmap 决策卡（产品自我进化层） */
   crossMatterRoadmap: { solo: false, firm: true, private_deploy: true },
   /** 跨案件验收就绪概览（工作区级 `GET /api/acceptance-summary` 聚合 UI） */

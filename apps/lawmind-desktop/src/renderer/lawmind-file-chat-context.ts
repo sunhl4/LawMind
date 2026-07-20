@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const MAX_FILE_CHAT_CONTEXT = 8;
 
@@ -8,6 +8,18 @@ export type FileChatContextItem = {
   relPath: string;
   kind: "file" | "directory";
 };
+
+export type FileChatContextScope = {
+  assistantId: string;
+  sessionId?: string | null;
+};
+
+/** Stable map key: pins must not leak across assistants or chat sessions. */
+export function fileChatScopeKey(scope: FileChatContextScope): string {
+  const assistantId = scope.assistantId.trim() || "default";
+  const sessionId = scope.sessionId?.trim() || "__pending__";
+  return `${assistantId}::${sessionId}`;
+}
 
 export function formatFileChatContextPill(
   it: FileChatContextItem,
@@ -50,14 +62,53 @@ export function buildFileContextMessagePrefix(items: FileChatContextItem[]): str
   return `【用户在 LawMind 文件页将下列路径标为“本回合重点”】\n${lines.join("\n")}\n\n`;
 }
 
-export function useFileChatContext(setError: (message: string | null) => void) {
-  const [fileChatContextItems, setFileChatContextItems] = useState<FileChatContextItem[]>([]);
-  const fileChatContextRef = useRef<FileChatContextItem[]>([]);
-  fileChatContextRef.current = fileChatContextItems;
+/**
+ * When a real session id appears, move any pins stored under `__pending__` for that
+ * assistant into the session bucket (once), so early “引用到对话” is not lost.
+ */
+export function migratePendingFileChatPins(
+  byScope: Record<string, FileChatContextItem[]>,
+  scope: FileChatContextScope,
+): Record<string, FileChatContextItem[]> {
+  const sessionId = scope.sessionId?.trim();
+  if (!sessionId) {
+    return byScope;
+  }
+  const pendingKey = fileChatScopeKey({ assistantId: scope.assistantId, sessionId: null });
+  const realKey = fileChatScopeKey({ assistantId: scope.assistantId, sessionId });
+  const pending = byScope[pendingKey];
+  if (!pending?.length) {
+    return byScope;
+  }
+  const existing = byScope[realKey];
+  const next = { ...byScope };
+  delete next[pendingKey];
+  if (!existing?.length) {
+    next[realKey] = pending;
+  }
+  return next;
+}
+
+export function useFileChatContext(
+  setError: (message: string | null) => void,
+  scope: FileChatContextScope,
+) {
+  const [byScope, setByScope] = useState<Record<string, FileChatContextItem[]>>({});
+  const scopeKey = fileChatScopeKey(scope);
+  const fileChatContextItems = byScope[scopeKey] ?? [];
+  const itemsRef = useRef<FileChatContextItem[]>(fileChatContextItems);
+  itemsRef.current = fileChatContextItems;
+  const scopeKeyRef = useRef(scopeKey);
+  scopeKeyRef.current = scopeKey;
+
+  useEffect(() => {
+    setByScope((prev) => migratePendingFileChatPins(prev, scope));
+  }, [scope.assistantId, scope.sessionId]);
 
   const addFileToChatContext = useCallback(
     (payload: Pick<FileChatContextItem, "root" | "relPath" | "kind">) => {
-      const prev = fileChatContextRef.current;
+      const key = scopeKeyRef.current;
+      const prev = itemsRef.current;
       const id = makeFileContextItemId(payload);
       if (prev.some((x) => x.id === id)) {
         return;
@@ -67,17 +118,27 @@ export function useFileChatContext(setError: (message: string | null) => void) {
         return;
       }
       setError(null);
-      setFileChatContextItems([...prev, { id, ...payload }]);
+      const nextItems = [...prev, { id, ...payload }];
+      itemsRef.current = nextItems;
+      setByScope((map) => ({ ...map, [key]: nextItems }));
     },
     [setError],
   );
 
   const removeFileChatContextItem = useCallback((id: string) => {
-    setFileChatContextItems((previous) => previous.filter((x) => x.id !== id));
+    const key = scopeKeyRef.current;
+    setByScope((map) => {
+      const prev = map[key] ?? [];
+      const nextItems = prev.filter((x) => x.id !== id);
+      itemsRef.current = nextItems;
+      return { ...map, [key]: nextItems };
+    });
   }, []);
 
   const clearFileChatContext = useCallback(() => {
-    setFileChatContextItems([]);
+    const key = scopeKeyRef.current;
+    itemsRef.current = [];
+    setByScope((map) => ({ ...map, [key]: [] }));
   }, []);
 
   return {

@@ -887,6 +887,95 @@ describe("lawmind-server-route-chat", () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
+  it("meetingTurnKind chair appends system+assistant (not user)", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-chat-meet-chair-"));
+    const workspaceDir = path.join(root, "workspace");
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    fs.writeFileSync(path.join(workspaceDir, "MEMORY.md"), "# memory\n", "utf8");
+    fs.writeFileSync(path.join(workspaceDir, "LAWYER_PROFILE.md"), "# profile\n", "utf8");
+    fs.mkdirSync(path.join(workspaceDir, "cases", "matter-chair"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "assistants.json"),
+      JSON.stringify([
+        {
+          assistantId: "default",
+          displayName: "默认助手",
+          introduction: "测试助手",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ]),
+      "utf8",
+    );
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(os.tmpdir(), "x.env"),
+      policy: { loaded: false },
+    };
+    mockChat.mockResolvedValue({
+      reply: "我的观点",
+      sessionId: "sess-c",
+      turn: {
+        turnId: "turn-c",
+        sessionId: "sess-c",
+        instruction: "",
+        messages: [],
+        toolCallsExecuted: 0,
+        status: "completed",
+        startedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+      },
+    });
+    const req = {
+      method: "POST",
+      headers: {},
+    } as http.IncomingMessage;
+    Object.assign(req, {
+      on(event: string, handler: (...args: unknown[]) => void) {
+        if (event === "data") {
+          handler(
+            Buffer.from(
+              JSON.stringify({
+                message: "请从管辖角度发言",
+                matterId: "matter-chair",
+                meetingMode: true,
+                meetingTurnKind: "chair",
+              }),
+            ),
+          );
+        }
+        if (event === "end") {
+          handler();
+        }
+        return this;
+      },
+    });
+    const capture = createResponseCapture();
+    await handleChatRoute({
+      ctx,
+      req,
+      res: capture.res,
+      url: new URL("http://127.0.0.1/api/chat"),
+      pathname: "/api/chat",
+      c: {},
+    });
+    expect(capture.status).toBe(200);
+    const firstArg = mockChat.mock.calls[0][0] as string;
+    expect(firstArg).toContain("会议主持");
+    expect(firstArg).toContain("请从管辖角度发言");
+    const tmPath = path.join(workspaceDir, "cases", "matter-chair", "team-meeting.jsonl");
+    const raw = fs.readFileSync(tmPath, "utf8").trim().split("\n").filter(Boolean);
+    expect(raw.length).toBe(2);
+    const s = JSON.parse(raw[0]) as { kind: string; text: string };
+    const a = JSON.parse(raw[1]) as { kind: string; text: string };
+    expect(s.kind).toBe("system");
+    expect(s.text).toContain("主持人");
+    expect(a.kind).toBe("assistant");
+    expect(a.text).toBe("我的观点");
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
   describe("SSE /api/chat streaming", () => {
     function sseResponseCapture(): {
       res: http.ServerResponse;

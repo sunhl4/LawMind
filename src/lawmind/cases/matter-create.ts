@@ -21,7 +21,12 @@ export type CreateMatterResult = {
 export async function createMatterIfAbsent(
   workspaceDir: string,
   matterId: string,
-  opts?: { displayName?: string },
+  opts?: {
+    displayName?: string;
+    clientId?: string;
+    sensitivity?: "normal" | "high" | "restricted";
+    status?: "intake" | "active";
+  },
 ): Promise<CreateMatterResult> {
   const id = matterId.trim();
   if (!isValidMatterId(id)) {
@@ -36,6 +41,9 @@ export async function createMatterIfAbsent(
   await ensureMatterWithProjection(workspaceDir, {
     matterId: id,
     ...(dn ? { title: dn } : {}),
+    ...(opts?.clientId?.trim() ? { clientId: opts.clientId.trim() } : {}),
+    ...(opts?.sensitivity ? { sensitivity: opts.sensitivity } : {}),
+    ...(opts?.status ? { status: opts.status } : {}),
   });
   return {
     matterId: id,

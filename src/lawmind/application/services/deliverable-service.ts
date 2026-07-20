@@ -29,6 +29,8 @@ export type CreatePlannedDeliverableInput = {
   kind: DeliverableRecord["kind"];
   audience?: DeliverableRecord["audience"];
   templateId?: string;
+  ownerLawyerId?: string;
+  reviewerId?: string;
 };
 
 export function createPlannedDeliverable(
@@ -45,6 +47,8 @@ export function createPlannedDeliverable(
     audience: input.audience ?? "unknown",
     status: "planned",
     templateId: input.templateId,
+    ownerLawyerId: input.ownerLawyerId,
+    reviewerId: input.reviewerId,
     blockingReasons: [],
     createdAt: now,
     updatedAt: now,
@@ -59,7 +63,14 @@ export function transitionDeliverable(
   matterId: string,
   deliverableId: string,
   status: DeliverableRecord["status"],
-  opts?: { reviewStatus?: ReviewStatus; templateId?: string; blockingReasons?: string[] },
+  opts?: {
+    reviewStatus?: ReviewStatus;
+    templateId?: string;
+    blockingReasons?: string[];
+    reviewerId?: string;
+    approvedBy?: string;
+    deliveredBy?: string;
+  },
 ): DeliverableRecord | undefined {
   const existing = loadDeliverable(workspaceDir, matterId, deliverableId);
   if (!existing) {
@@ -74,6 +85,11 @@ export function transitionDeliverable(
     currentReviewStatus: opts?.reviewStatus ?? existing.currentReviewStatus,
     templateId: opts?.templateId ?? existing.templateId,
     blockingReasons: opts?.blockingReasons ?? existing.blockingReasons,
+    reviewerId: opts?.reviewerId ?? existing.reviewerId,
+    approvedBy: opts?.approvedBy ?? existing.approvedBy,
+    deliveredBy: opts?.deliveredBy ?? existing.deliveredBy,
+    deliveredAt:
+      status === "delivered" ? (existing.deliveredAt ?? newTimestamp()) : existing.deliveredAt,
     updatedAt: newTimestamp(),
   };
   saveDeliverable(workspaceDir, next);

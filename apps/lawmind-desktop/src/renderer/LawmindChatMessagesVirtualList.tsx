@@ -8,14 +8,12 @@ type Props = {
   count: number;
   enabled: boolean;
   children: (virtualIndex: number) => ReactNode;
-  endRef?: React.RefObject<HTMLDivElement | null>;
 };
 
 export function LawmindChatMessagesVirtualList({
   count,
   enabled,
   children,
-  endRef,
 }: Props): ReactNode {
   const parentRef = useRef<HTMLDivElement>(null);
   const useVirtual = enabled && count > VIRTUAL_THRESHOLD;
@@ -29,12 +27,7 @@ export function LawmindChatMessagesVirtualList({
   });
 
   if (!useVirtual) {
-    return (
-      <>
-        {Array.from({ length: count }, (_, i) => children(i))}
-        {endRef ? <div ref={endRef} /> : null}
-      </>
-    );
+    return <>{Array.from({ length: count }, (_, i) => children(i))}</>;
   }
 
   return (
@@ -63,7 +56,6 @@ export function LawmindChatMessagesVirtualList({
           </div>
         ))}
       </div>
-      {endRef ? <div ref={endRef} /> : null}
     </div>
   );
 }

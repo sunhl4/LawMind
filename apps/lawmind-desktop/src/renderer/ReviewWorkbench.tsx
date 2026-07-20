@@ -113,6 +113,8 @@ export function ReviewWorkbench(props: Props) {
     citationIntegrity,
     memorySources,
     acceptance,
+    reasoningReport,
+    reasoningMarkdown,
     executionState,
     gateDecisions,
     detailLoading,
@@ -451,7 +453,10 @@ export function ReviewWorkbench(props: Props) {
                 detail={detail}
                 selectedTaskId={selectedTaskId}
                 acceptance={acceptance}
+                reasoningReport={reasoningReport}
+                reasoningMarkdown={reasoningMarkdown}
                 citationIntegrity={citationIntegrity}
+                citationGateStrict={edition.features.citationGateStrict}
                 gateDecisions={gateDecisions}
                 executionState={executionState}
                 memorySources={memorySources}
@@ -487,6 +492,19 @@ export function ReviewWorkbench(props: Props) {
                 onExportWord={(opts) => void submitRender(opts)}
                 onExportTrackedWord={() => void submitRenderTracked()}
                 onShowArtifact={onShowArtifact}
+                onOpenWithSystem={async (relPath) => {
+                  if (!window.lawmindDesktop?.openWithSystem) {
+                    setActionMsg("当前环境无法调用本机 Word；请用「在文件夹中显示」后手动打开。");
+                    return;
+                  }
+                  const r = await window.lawmindDesktop.openWithSystem({
+                    root: "workspace",
+                    path: relPath,
+                  });
+                  if (r && !r.ok) {
+                    setActionMsg(r.error ?? "无法用系统应用打开该文件。");
+                  }
+                }}
                 packExportEnabled={edition.features.acceptancePackExport}
                 onDownloadPack={() => void downloadAcceptancePack()}
                 packBusy={packBusy}

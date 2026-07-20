@@ -39,6 +39,33 @@ export function isOfficeLikePath(relPath: string): boolean {
   return [".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".pdf"].some((s) => low.endsWith(s));
 }
 
+const IMAGE_EXT_MIME: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".bmp": "image/bmp",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+};
+
+/** 邮件附件等常见图片：侧栏可内嵌预览 */
+export function isImageLikePath(relPath: string): boolean {
+  const low = relPath.toLowerCase();
+  return Object.keys(IMAGE_EXT_MIME).some((ext) => low.endsWith(ext));
+}
+
+export function mimeTypeForImagePath(relPath: string): string | null {
+  const low = relPath.toLowerCase();
+  for (const [ext, mime] of Object.entries(IMAGE_EXT_MIME)) {
+    if (low.endsWith(ext)) {
+      return mime;
+    }
+  }
+  return null;
+}
+
 export function keyOf(root: RootKey, dirPath: string): string {
   return `${root}:${dirPath}`;
 }

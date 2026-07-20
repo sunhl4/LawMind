@@ -164,6 +164,7 @@ export function persistDraftPipeline(
     draftPath: storedDraftPath,
   });
   if (draft.matterId) {
+    // Serialized via withCaseMdLock; fire-and-forget OK for sync draft pipeline.
     void appendCaseProgress(
       workspaceDir,
       draft.matterId,

@@ -31,6 +31,7 @@ import {
   computeRiskRecallRate,
 } from "../evaluation/metrics.js";
 import { persistQualityRecord } from "../evaluation/quality.js";
+import { recordAgentReviewOutcome } from "../learning/agent-specialization.js";
 import { applyReviewLabelsMemoryWrites } from "../learning/apply-review-labels.js";
 import { enqueueLearningSuggestion } from "../learning/suggestion-queue.js";
 import { appendCaseProgress, appendCaseRiskNote, appendTodayLog } from "../memory/index.js";
@@ -112,6 +113,18 @@ export async function reviewDraft(
     }
   }
 
+  if ((status === "approved" || status === "modified") && labelAssistantId) {
+    try {
+      recordAgentReviewOutcome({
+        workspaceDir,
+        assistantId: labelAssistantId,
+        firstPass: status === "approved" && !opts.note?.trim(),
+      });
+    } catch {
+      // 特化指标失败不阻断审核
+    }
+  }
+
   if (labels.includes("质量范例") && opts.deferMemoryWrites !== true) {
     try {
       const promoted = await promoteGoldenExample(workspaceDir, draft.taskId);
@@ -158,6 +171,8 @@ export async function reviewDraft(
         status === "approved" ? "approved" : status === "rejected" ? "blocked" : "drafting";
       transitionDeliverable(workspaceDir, draft.matterId, draft.taskId, deliverableStatus, {
         reviewStatus: status,
+        reviewerId: draft.reviewedBy,
+        approvedBy: status === "approved" ? draft.reviewedBy : undefined,
         blockingReasons:
           status === "rejected"
             ? ["rejected_by_reviewer"]

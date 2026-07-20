@@ -17,11 +17,36 @@
   gap: 8px;
   margin-top: 10px;
 }
-.lm-action-hub-backdrop .lm-wizard {
-  max-width: 520px;
-  max-height: 80vh;
+.lm-action-hub-backdrop .lm-wizard.lm-action-hub-panel {
+  width: min(720px, 100%);
+  max-width: min(720px, 100%);
+  max-height: min(88vh, calc(100dvh - 24px));
   overflow: auto;
 }
+
+.lm-action-hub-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.lm-action-hub-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.lm-action-hub-footer-end {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .lm-action-hub-list {
   list-style: none;
   margin: 0;
@@ -165,6 +190,22 @@
   color: var(--lm-warn-text, #b45309);
 }
 
+.lm-review-matrix__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+}
+
+.lm-review-matrix__header h3 {
+  margin: 0;
+}
+
+.lm-review-matrix__summary {
+  flex: 1 1 auto;
+  margin: 0;
+}
+
 .lm-review-matrix__scroll {
   overflow: auto;
   max-width: 100%;
@@ -180,8 +221,10 @@
 .lm-review-matrix__table th,
 .lm-review-matrix__table td {
   border: 1px solid var(--lm-border);
-  padding: 6px 8px;
+  padding: 8px;
   vertical-align: top;
+  min-width: 140px;
+  max-width: 220px;
 }
 
 .lm-review-matrix__corner {
@@ -200,10 +243,86 @@
   z-index: 1;
 }
 
+.lm-review-matrix__doc-title {
+  display: block;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.lm-review-matrix__cell {
+  background: var(--surface);
+}
+
+.lm-review-matrix__suggested {
+  background: rgba(183, 154, 103, 0.06);
+}
+
+.lm-review-matrix__empty {
+  opacity: 0.85;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.lm-review-matrix__verified {
+  box-shadow: inset 2px 0 0 rgba(108, 182, 177, 0.55);
+}
+
+.lm-review-matrix__cell-status {
+  margin-bottom: 4px;
+}
+
+.lm-review-matrix__pill {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+}
+
+.lm-review-matrix__pill--pending {
+  color: var(--text-2);
+  background: rgba(183, 154, 103, 0.18);
+}
+
+.lm-review-matrix__pill--empty {
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.lm-review-matrix__pill--ok {
+  color: #9fd6d2;
+  background: rgba(108, 182, 177, 0.16);
+}
+
 .lm-review-matrix__excerpt {
   margin: 0 0 4px;
   font-size: 11px;
-  line-height: 1.35;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+
+.lm-review-matrix__empty-label {
+  margin: 0 0 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.lm-review-matrix__expand {
+  margin: 0 0 6px;
+  padding: 0;
+  min-height: auto;
+}
+
+.lm-review-matrix__verify {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-2);
+  margin-bottom: 4px;
+  cursor: pointer;
+  user-select: none;
 }
 
 .lm-review-matrix__note {
@@ -211,10 +330,6 @@
   min-width: 120px;
   font-size: 11px;
   resize: vertical;
-}
-
-.lm-review-matrix__empty {
-  opacity: 0.65;
 }
 
 .lm-memory-truth {
@@ -404,24 +519,31 @@
   display: block;
 }
 
-.lm-requires-action-strip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--warn-border, rgba(217, 119, 6, 0.35));
-  background: var(--warn-dim, rgba(217, 119, 6, 0.1));
-  font-size: 12px;
-}
-
-.lm-requires-action-strip-text {
-  color: var(--text-2);
-}
-
 .lm-session-history-sidebar {
   padding: 4px 10px 8px;
   border-bottom: 1px solid var(--lm-border);
+}
+
+.lm-session-history-sidebar-compact {
+  padding: 0;
+  border-bottom: none;
+}
+
+.lm-session-history-sidebar-compact .lm-session-history-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 40;
+  min-width: 220px;
+  max-width: min(360px, 70vw);
+  max-height: 240px;
+  margin: 0;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-elevated, var(--bg));
+  box-shadow: var(--shadow-md, 0 8px 24px rgba(0, 0, 0, 0.35));
+  overflow-y: auto;
 }
 
 .lm-session-history-list {

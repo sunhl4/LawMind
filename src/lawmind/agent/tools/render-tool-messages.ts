@@ -36,7 +36,7 @@ export function classifyRenderFailure(error: string | undefined): RenderFailureC
 
 const CATEGORY_HINT: Record<RenderFailureCategory, string> = {
   approval_required:
-    "草稿尚未在审核台通过。请在对话中请律师明确同意导出后，用 render_document 并传 approve=true；或先在桌面「审核」页签批准该草稿。",
+    "草稿尚未在文书台通过。请在对话中请律师明确同意导出后，用 render_document 并传 approve=true；或先在桌面「文书台」批准该草稿。",
   acceptance_gate:
     "草稿未通过交付验收门禁（缺章节或占位符等）。请补齐后重试 render_document；若律师已确认可带占位符交付，可传 bypass_acceptance_gate=true（与 approve=true 联用）。",
   missing_draft:

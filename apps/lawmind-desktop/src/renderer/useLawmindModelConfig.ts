@@ -38,10 +38,10 @@ export function useLawmindModelConfig(args: UseLawmindModelConfigArgs) {
       const isUsable = (id: string) => models.some((m) => m.id === id && m.configured);
       const stored = readSelectedModelId(selectedAssistantId);
       const next =
-        (stored && isUsable(stored) ? stored : null) ??
         (payload.defaultModelId && isUsable(payload.defaultModelId)
           ? payload.defaultModelId
           : null) ??
+        (stored && isUsable(stored) ? stored : null) ??
         models.find((m) => m.configured)?.id ??
         "builtin:qwen-plus";
       setSelectedModelId(next);

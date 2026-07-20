@@ -22,15 +22,15 @@ Treat those as **phased** integrations below or **custom** IT projects via expor
 
 ## Connector catalog（Claude for Legal 对齐）
 
-| 类别              | 示例系统                                      | LawMind 阶段     | 默认能力                       |
-| ----------------- | --------------------------------------------- | ---------------- | ------------------------------ |
-| **工作区只读**    | LawMind workspace                             | **M1（已提供）** | MCP + loopback API             |
-| **研究**          | CourtListener、官方法规库、Brave 检索         | **M1**           | Agent 工具 + 来源锚点          |
-| **邮件/日历**     | Microsoft 365, Gmail                          | **M2**           | 按 `matterId` 只读索引（规划） |
-| **DMS**           | iManage, NetDocuments, OpenText, Worldox      | **M2–M3**        | 导出包人工回写 → 可选 API      |
-| **电子签**        | DocuSign, Adobe Sign                          | **M3**           | 验收包外链 + 状态回写（规划）  |
-| **计费/案件管理** | Clio, PracticePanther, Time Matters, Elite 3E | **M3**           | 任务/工时 CSV 导出（规划）     |
-| **E-discovery**   | Relativity, Everlaw, Nuix                     | **M3+**          | 证据索引导出，非实时 ingest    |
+| 类别              | 示例系统                                      | LawMind 阶段     | 默认能力                                                                 |
+| ----------------- | --------------------------------------------- | ---------------- | ------------------------------------------------------------------------ |
+| **工作区只读**    | LawMind workspace                             | **M1（已提供）** | MCP + loopback API                                                       |
+| **研究**          | CourtListener、官方法规库、Brave 检索         | **M1**           | Agent 工具 + 来源锚点                                                    |
+| **邮件/日历**     | Microsoft 365, Gmail, QQ, 163, IMAP           | **M2**           | 交办页邮箱配置：IMAP/SMTP 真连接；M365 可选 Graph；同步到案件 mail/inbox |
+| **DMS**           | iManage, NetDocuments, OpenText, Worldox      | **M2–M3**        | 导出包人工回写 → 可选 API                                                |
+| **电子签**        | DocuSign, Adobe Sign                          | **M3**           | 验收包外链 + 状态回写（规划）                                            |
+| **计费/案件管理** | Clio, PracticePanther, Time Matters, Elite 3E | **M3**           | 任务/工时 CSV 导出（规划）                                               |
+| **E-discovery**   | Relativity, Everlaw, Nuix                     | **M3+**          | 证据索引导出，非实时 ingest                                              |
 
 ---
 
@@ -88,10 +88,10 @@ LawMind 错位在**可审计的本地生产闭环**，而非复制 Harvey 的全
 
 **M2.5 DMS OAuth 桩（Phase 5b）**：
 
-| 连接器     | 工作区配置             | Host 密钥（不进 workspace）        | 行为                                                                                                    |
-| ---------- | ---------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| iManage    | `baseUrl`, `clientId`  | `LAWMIND_IMANAGE_CLIENT_SECRET`    | **Deliberate defer**：OAuth 桩 + fixture 供 CI；真 iManage REST 待 Firm 密钥与单连接器 E2E 后再默认启用 |
-| SharePoint | `tenantId`, `clientId` | `LAWMIND_SHAREPOINT_CLIENT_SECRET` | 同上；`LAWMIND_SHAREPOINT_FIXTURE=1`                                                                    |
+| 连接器     | 工作区配置             | Host 密钥（不进 workspace）        | 行为                                                                                                                                                                                       |
+| ---------- | ---------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| iManage    | `baseUrl`, `clientId`  | `LAWMIND_IMANAGE_CLIENT_SECRET`    | **Deliberate defer**：OAuth 桩 + **fixture 演示数据**供 CI；未配置 Firm 密钥时连接器返回 fixture，**不得作为生产 DMS 宣传或依赖**；真 iManage REST 待 Firm 密钥与单连接器 E2E 后再默认启用 |
+| SharePoint | `tenantId`, `clientId` | `LAWMIND_SHAREPOINT_CLIENT_SECRET` | 同上；`LAWMIND_SHAREPOINT_FIXTURE=1`                                                                                                                                                       |
 
 案件外部 ID 映射：`cases/<matterId>/.lawmind-dms.json`（`imanage.matterKey` / `sharepoint.siteId`）。真实 Graph/iManage REST 调用可在 Firm 环境替换 fixture 分支。
 
@@ -117,13 +117,13 @@ LawMind 错位在**可审计的本地生产闭环**，而非复制 Harvey 的全
 
 ## DMS 连接器详细路线（按产品）
 
-| 产品               | M2 只读索引           | M3 门控回写                 | 备注                                                                         |
-| ------------------ | --------------------- | --------------------------- | ---------------------------------------------------------------------------- |
-| **iManage**        | 文档列表 + 版本元数据 | 导出 .docx 至 matter 文件夹 | **Deliberate defer**（SharePoint Graph 优先）；需 Firm API 密钥在 host vault |
-| **NetDocuments**   | 同左                  | 验收包 PDF/Word 外链        | 常见 AmLaw 200                                                               |
-| **OpenText eDOCS** | 同左                  | 任务完成标记                | 企业合规评审                                                                 |
-| **Worldox**        | 文件夹映射            | 手动 sync                   | 中小所                                                                       |
-| **SharePoint**     | Graph read-only       | 上传至 matter 库            | 可与 M365 邮件共用 tenant                                                    |
+| 产品               | M2 只读索引           | M3 门控回写                 | 备注                                                                                                                   |
+| ------------------ | --------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **iManage**        | 文档列表 + 版本元数据 | 导出 .docx 至 matter 文件夹 | **Deliberate defer**（SharePoint Graph 优先）；未配置 Firm API 密钥时仅 fixture，**非生产 DMS**；真 REST 需 host vault |
+| **NetDocuments**   | 同左                  | 验收包 PDF/Word 外链        | 常见 AmLaw 200                                                                                                         |
+| **OpenText eDOCS** | 同左                  | 任务完成标记                | 企业合规评审                                                                                                           |
+| **Worldox**        | 文件夹映射            | 手动 sync                   | 中小所                                                                                                                 |
+| **SharePoint**     | Graph read-only       | 上传至 matter 库            | 可与 M365 邮件共用 tenant                                                                                              |
 
 **实施原则**：LawMind 仍是**生产系统**；DMS 是归档与协作边界，不替代审核台与 acceptance gate。
 

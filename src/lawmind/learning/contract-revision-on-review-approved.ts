@@ -46,7 +46,7 @@ export async function applyContractRevisionAccumulationAfterApprovedReview(
       requirementsSummary: note,
       matterId: draft.matterId,
       stableDocumentKey: cap.stableDocumentKey?.trim() || undefined,
-      appendLawyerProfileBullet: false,
+      appendLawyerProfileBullet: true,
     });
     const next: ArtifactDraft = { ...draft, contractRevisionAccumulatedId: result.revisionId };
     delete next.contractRevisionCapture;

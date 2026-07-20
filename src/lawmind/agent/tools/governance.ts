@@ -50,6 +50,7 @@ const IDEMPOTENT_READ_TOOLS = new Set([
 const WRITE_TOOLS = new Set([
   "add_case_note",
   "write_document",
+  "send_email",
   "draft_document",
   "render_document",
   "execute_workflow",

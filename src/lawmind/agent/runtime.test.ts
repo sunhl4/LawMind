@@ -139,10 +139,12 @@ describe("runTurn clarification handling", () => {
       instruction: "请起草一份房屋租赁合同",
     });
 
+    // Intake-first: thin lease asks pause before tools (no mid-flight draft).
     expect(result.turn.status).toBe("awaiting_clarification");
-    expect(result.turn.clarificationQuestions?.[0]?.key).toBe("rent_and_deposit");
-    expect(result.reply).toContain("我已经先生成了一份正式草稿。");
-    expect(result.reply).toContain("请补充租金、押金和支付周期");
+    expect(result.turn.clarificationQuestions?.some((q) => q.key === "parties")).toBe(true);
+    expect(result.turn.gateDecisions?.some((g) => g.gate === "intake_gate")).toBe(true);
+    expect(result.reply).toContain("少花几轮聊天");
+    expect(result.reply).toContain("出租人");
     expect(result.memoryContext).toBeDefined();
     expect(typeof result.memoryContext.profile).toBe("string");
   });
@@ -270,10 +272,17 @@ describe("runTurn clarification handling", () => {
       },
     };
 
+    // Structured intake skips intake-gate; tool may still ask remaining placeholder fields.
     const first = await runTurn({
       config,
       registry,
-      instruction: "请起草一份房屋租赁合同",
+      instruction: `【交办】房屋租赁合同
+交付物类型：contract.rental
+交办要点：
+- 双方主体：出租人张三，承租人李四
+- 房屋地址：某市某区某路 1 号
+- 租期：2026-01-01 至 2026-12-31
+请起草完整合同。`,
     });
     expect(first.turn.status).toBe("awaiting_clarification");
     expect(first.sessionId).toMatch(/[0-9a-f-]{36}/i);

@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { apiGetJson } from "./api-client";
 import type { FileChatContextItem } from "./lawmind-app-shell";
-import type { WorkflowTemplateItem } from "./LawmindWorkflowLibrary";
+import type { WorkflowTemplateItem } from "./lawmind-workflow-types";
 import {
   buildComposeContextPickerItems,
   filterContextPickerItems,
   groupContextPickerItems,
   readRecentFileContextPaths,
   type ComposeContextMatterOption,
+  type ComposeContextPickerCategory,
   type ComposeContextPickerItem,
 } from "./lawmind-compose-context";
 
@@ -22,6 +23,11 @@ type Props = {
   onSelectMatter: (matterId: string) => void;
   onSelectTemplate: (template: { id: string; starterPrompt?: string }) => void;
   onClose: () => void;
+  /** When set, show a search field (meeting desk / standalone use). */
+  onQueryChange?: (query: string) => void;
+  searchPlaceholder?: string;
+  /** Limit visible categories (meeting materials → files only). */
+  categories?: ComposeContextPickerCategory[];
 };
 
 export function LawmindComposeContextPicker(props: Props): ReactNode {
@@ -36,7 +42,13 @@ export function LawmindComposeContextPicker(props: Props): ReactNode {
     onSelectMatter,
     onSelectTemplate,
     onClose,
+    onQueryChange,
+    searchPlaceholder = "搜索文件名（至少 2 字）",
+    categories,
   } = props;
+
+  const filesOnly = Boolean(categories?.length === 1 && categories[0] === "files");
+  const includeTemplates = !categories?.length || categories.includes("templates");
 
   const [templates, setTemplates] = useState<WorkflowTemplateItem[]>([]);
   const [workspaceMatches, setWorkspaceMatches] = useState<
@@ -45,7 +57,10 @@ export function LawmindComposeContextPicker(props: Props): ReactNode {
   const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(() => {
-    if (!open || !apiBase?.trim()) {
+    if (!open || !apiBase?.trim() || !includeTemplates) {
+      if (!includeTemplates) {
+        setTemplates([]);
+      }
       return;
     }
     let cancelled = false;
@@ -66,7 +81,7 @@ export function LawmindComposeContextPicker(props: Props): ReactNode {
     return () => {
       cancelled = true;
     };
-  }, [open, apiBase]);
+  }, [open, apiBase, includeTemplates]);
 
   useEffect(() => {
     const q = query.trim().toLowerCase();
@@ -113,12 +128,23 @@ export function LawmindComposeContextPicker(props: Props): ReactNode {
     const built = buildComposeContextPickerItems({
       pinnedFiles,
       recentFiles: mergedRecent,
-      matters,
+      matters: filesOnly ? [] : matters,
       contextMatterId,
-      templates,
+      templates: includeTemplates ? templates : [],
+      categories,
     });
     return filterContextPickerItems(built, query);
-  }, [pinnedFiles, matters, contextMatterId, templates, workspaceMatches, query]);
+  }, [
+    pinnedFiles,
+    matters,
+    contextMatterId,
+    templates,
+    workspaceMatches,
+    query,
+    categories,
+    filesOnly,
+    includeTemplates,
+  ]);
 
   const groups = useMemo(() => groupContextPickerItems(flatItems), [flatItems]);
 
@@ -183,11 +209,34 @@ export function LawmindComposeContextPicker(props: Props): ReactNode {
         aria-label="添加上下文"
         onClick={(e) => e.stopPropagation()}
       >
-        <p className="lm-compose-context-picker-hint">
-          {query.trim() ? `搜索「${query}」` : "选择文件、案件或模板"}
-        </p>
+        {onQueryChange ? (
+          <label className="lm-compose-context-picker-search">
+            <span className="lm-sr-only">搜索材料</span>
+            <input
+              type="search"
+              className="lm-input"
+              value={query}
+              placeholder={searchPlaceholder}
+              autoFocus
+              data-testid="lm-compose-context-search"
+              onChange={(e) => onQueryChange(e.target.value)}
+            />
+          </label>
+        ) : (
+          <p className="lm-compose-context-picker-hint">
+            {query.trim()
+              ? `搜索「${query}」`
+              : filesOnly
+                ? "选择工作区文件"
+                : "选择文件、案件或模板"}
+          </p>
+        )}
         {groups.length === 0 ? (
-          <p className="lm-meta">无匹配项。继续输入文件名、案件名或模板名。</p>
+          <p className="lm-meta">
+            {filesOnly
+              ? "无匹配文件。继续输入文件名（至少 2 字）。"
+              : "无匹配项。继续输入文件名、案件名或模板名。"}
+          </p>
         ) : (
           groups.map((group) => (
             <section key={group.category} className="lm-compose-context-picker-group">

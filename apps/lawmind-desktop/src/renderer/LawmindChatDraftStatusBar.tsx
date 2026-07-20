@@ -11,7 +11,7 @@ type Props = {
   linkedTaskId: string | null | undefined;
   assistantText: string;
   gateDecisions?: GateDecision[];
-  onOpenReview?: () => void;
+  onOpenReview?: (target?: { taskId?: string; matterId?: string }) => void;
 };
 
 export function LawmindChatDraftStatusBar(props: Props): ReactNode {
@@ -59,8 +59,14 @@ export function LawmindChatDraftStatusBar(props: Props): ReactNode {
       <div className="lm-callout lm-callout-warn lm-draft-status-hint" role="status">
         <p className="lm-callout-body">{gateSummary}</p>
         {onOpenReview ? (
-          <button type="button" className="lm-btn lm-btn-secondary lm-btn-sm" onClick={() => onOpenReview()}>
-            去审核
+          <button
+            type="button"
+            className="lm-btn lm-btn-sm"
+            onClick={() =>
+              onOpenReview({ taskId: linkedTaskId?.trim() || undefined })
+            }
+          >
+            进入文书台
           </button>
         ) : null}
       </div>
@@ -85,8 +91,14 @@ export function LawmindChatDraftStatusBar(props: Props): ReactNode {
     >
       <p className="lm-callout-body">{hint.message}</p>
       {onOpenReview ? (
-        <button type="button" className="lm-btn lm-btn-secondary lm-btn-sm" onClick={() => onOpenReview()}>
-          去审核
+        <button
+          type="button"
+          className="lm-btn lm-btn-sm"
+          onClick={() =>
+            onOpenReview({ taskId: linkedTaskId?.trim() || undefined })
+          }
+        >
+          进入文书台
         </button>
       ) : null}
     </div>

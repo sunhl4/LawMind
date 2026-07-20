@@ -16,6 +16,8 @@ type Props = {
   busy?: boolean;
   onSelect: (sessionId: string) => void | Promise<void>;
   onResumed?: () => void | Promise<void>;
+  /** Inline into session tabs trailing — no extra chrome bar. */
+  compact?: boolean;
 };
 
 export function LawmindSessionHistorySidebar({
@@ -26,6 +28,7 @@ export function LawmindSessionHistorySidebar({
   busy,
   onSelect,
   onResumed,
+  compact = false,
 }: Props): ReactNode {
   const [open, setOpen] = useState(false);
   const [resumeBusyId, setResumeBusyId] = useState<string | null>(null);
@@ -53,14 +56,14 @@ export function LawmindSessionHistorySidebar({
   }
 
   return (
-    <div className="lm-session-history-sidebar">
+    <div className={`lm-session-history-sidebar${compact ? " lm-session-history-sidebar-compact" : ""}`}>
       <button
         type="button"
         className="lm-btn lm-btn-ghost lm-btn-small lm-session-history-toggle"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        {open ? "收起历史" : `会话历史 (${sessions.length})`}
+        {open ? "收起历史" : `历史 (${sessions.length})`}
       </button>
       {open ? (
         <ul className="lm-session-history-list" aria-label="会话历史">

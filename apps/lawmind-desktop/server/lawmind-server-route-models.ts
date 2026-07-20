@@ -74,13 +74,17 @@ export async function handleModelsRoutes({
     }
     const probe = await probeAgentModel(resolved.model);
     if (!probe.ok) {
+      let msg = probe.error;
+      if (resolved.resolvedModelId.startsWith("custom:") && /404|not.?found|model.*(exist|access)/i.test(probe.error || "")) {
+        msg = `${probe.error}\n提示：自定义模型的「模型 ID」必须是该 Base URL 真正支持的名称（不是 custom:xxx）。请确认你填的模型名在该服务商/端点的模型列表中存在，且 Key 有权限。`;
+      }
       sendJson(
         res,
         502,
         {
           ok: false,
           code: probe.code,
-          message: probe.error,
+          message: msg,
           modelId: resolved.resolvedModelId,
         },
         c,
@@ -220,6 +224,10 @@ export async function handleModelsRoutes({
       const msg = e instanceof Error ? e.message : String(e);
       if (msg === "custom_model_fields_required") {
         sendJsonError(res, 400, "custom_model_fields_required", "请填写名称、Base URL、模型名与 API Key。", c);
+        return true;
+      }
+      if (msg === "custom_model_invalid_model_name") {
+        sendJsonError(res, 400, "custom_model_invalid_model_name", "模型 ID 不能使用 LawMind 内部 ID（custom: / builtin: 等），请填写该端点实际的模型名称（如 gpt-4o、qwen-plus）。", c);
         return true;
       }
       throw e;
