@@ -207,7 +207,7 @@ function LawmindAppSidebarImpl({
           <div className="lm-side-footer">
             <button
               type="button"
-              className="lm-btn lm-btn-secondary lm-btn-sm lm-side-needs-decision-btn"
+              className="lm-btn lm-btn-sm lm-side-needs-decision-btn lm-side-needs-decision-btn--brass"
               onClick={onOpenNeedsDecisionDesk}
               data-testid="lm-side-needs-decision"
               title="打开「在办」处理澄清、批准与待审"

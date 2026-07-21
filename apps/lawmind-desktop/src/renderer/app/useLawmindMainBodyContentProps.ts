@@ -380,6 +380,12 @@ export function useLawmindMainBodyContentProps(
           textareaRef.current?.focus();
         }
       },
+      onOpenAgentsDeskFromReview: () => {
+        setMatterCockpitOpen(false);
+        setAgentsNeedsDecisionFocus(true);
+        setAgentsDeskTab("active");
+        setMainView("agents");
+      },
       onRevisionJobQueued: ({ sessionId, assistantId, taskId }) => {
         void watchBackgroundRevisionSession({ sessionId, assistantId, taskId });
       },

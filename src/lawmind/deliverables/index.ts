@@ -40,3 +40,14 @@ export type {
 export type { ReasoningGraphAtDraftReport } from "./reasoning-validator.js";
 export { loadWorkspaceDeliverableSpecs, parseDeliverableSpec } from "./workspace-loader.js";
 export type { WorkspaceSpecLoadResult, WorkspaceSpecWarning } from "./workspace-loader.js";
+export {
+  assertChecklistCompleteForApprove,
+  buildChecklistView,
+  emptyChecklistState,
+  listVerificationChecklistSpecs,
+  resolveVerificationChecklistSpec,
+  type VerificationChecklistItemSpec,
+  type VerificationChecklistSpec,
+  type VerificationChecklistState,
+  type VerificationChecklistView,
+} from "./verification-checklist.js";

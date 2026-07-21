@@ -56,43 +56,45 @@ export async function loadFleetTranscript(
   return res.ok ? res : null;
 }
 
+/** Lawyer-facing status copy (no engineer jargon). */
 export function agentRunStatusLabel(status: AgentRunSummary["status"]): string {
   switch (status) {
     case "queued":
-      return "排队";
+      return "等待开始";
     case "running":
-      return "执行中";
+      return "办理中";
     case "scheduled":
-      return "已预约";
+      return "已排期";
     case "awaiting_approval":
-      return "待批准";
+      return "待我批准";
     case "awaiting_clarification":
-      return "待澄清";
+      return "待我补充";
     case "awaiting_review":
-      return "待签批";
+      return "待我签批";
     case "completed":
-      return "已完成";
+      return "已办完";
     case "failed":
-      return "失败";
+      return "未完成";
     case "cancelled":
-      return "已取消";
+      return "已停止";
   }
 }
 
+/** Lawyer-facing channel label (what kind of matter this is, not system type). */
 export function agentRunKindLabel(kind: AgentRunSummary["kind"]): string {
   switch (kind) {
     case "chat":
       return "对话";
     case "delegation":
-      return "委派";
+      return "交办";
     case "workflow_job":
-      return "工作流";
+      return "流程";
     case "queue_item":
-      return "队列";
+      return "排队";
     case "tool_approval":
-      return "工具批准";
+      return "待确认操作";
     case "matter_approval":
-      return "案件审批";
+      return "待确认事项";
     case "pending_review":
       return "文书";
   }

@@ -1,0 +1,7 @@
+{
+  "id": "D05",
+  "triageTier": "yellow",
+  "deliverableTypeHint": "letter.demand",
+  "checklistSpecId": "demand-letter-v1",
+  "notes": "违约通知"
+}

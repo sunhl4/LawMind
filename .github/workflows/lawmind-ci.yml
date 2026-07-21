@@ -36,6 +36,17 @@ jobs:
       - name: Test (LawMind + desktop packages)
         run: pnpm test
 
+      - name: Skills golden smoke (G0)
+        run: pnpm lawmind:skills:golden -- --compare
+
+      - name: Upload skills golden compare report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: skills-golden-compare
+          path: docs/generated/skills-golden-compare-report.json
+          if-no-files-found: ignore
+
       - name: Typecheck LawMind engine
         run: pnpm typecheck
 

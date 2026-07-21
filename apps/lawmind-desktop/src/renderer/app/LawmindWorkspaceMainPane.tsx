@@ -14,10 +14,7 @@ import type {
 } from "../lawmind-requires-action";
 import type { ModelCatalogEntry } from "../lawmind-models-api";
 import type { LawmindComposeExtras } from "../useLawmindComposeExtras";
-import {
-  LawmindChatReviewSticky,
-  type ReviewOpenTarget,
-} from "../LawmindChatReviewSticky";
+import type { ReviewOpenTarget } from "../LawmindChatReviewSticky";
 
 export type LawmindWorkspaceMainPaneProps = {
   canUseFilesystemBridge: boolean;
@@ -282,10 +279,6 @@ function LawmindWorkspaceMainPaneImpl({
                 showEmptyMatterGuide={showEmptyMatterGuide}
               />
             </div>
-            <LawmindChatReviewSticky
-              actionSummary={composeExtras.actionSummary}
-              onOpenReview={onOpenReview}
-            />
             <LawmindChatComposeFooter
               currentMessages={currentMessages}
               input={input}

@@ -71,15 +71,14 @@ test.describe("LawMind golden path", () => {
   test("tool approval edit resume sends editedArgs via API", async ({ page }) => {
     await gotoShell(page);
     await openWorkspaceChat(page);
-    await expect(page.getByRole("button", { name: "修改参数" })).toBeVisible({ timeout: 15_000 });
-    await page.getByRole("button", { name: "修改参数" }).click();
-    await page.getByLabel("工具参数 JSON").fill(
-      JSON.stringify({ workflowId: "e2e-edited", __approved: true }, null, 2),
-    );
+    await expect(page.getByRole("button", { name: "改拟稿…" })).toBeVisible({ timeout: 15_000 });
+    await page.getByRole("button", { name: "改拟稿…" }).click();
+    await expect(page.getByTestId("lm-tool-args-edit-dialog")).toBeVisible();
+    await page.getByLabel("办案流程").fill("e2e-edited");
     const resumeWait = page.waitForResponse(
       (res) => res.url().includes("/api/chat/resume") && res.request().method() === "POST",
     );
-    await page.getByRole("button", { name: "修改后批准" }).click();
+    await page.getByRole("button", { name: "按修改批准" }).click();
     const resumeRes = await resumeWait;
     const resumeJson = (await resumeRes.json()) as {
       resumeEcho?: { decision?: string; editedArgs?: Record<string, unknown> };

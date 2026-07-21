@@ -15,6 +15,7 @@ import { LawmindSettingsWorkspace } from "./LawmindSettingsWorkspace";
 import { LawmindSettingsDoctor } from "./LawmindSettingsDoctor";
 import { LawmindSettingsMemory } from "./LawmindSettingsMemory";
 import { LawmindSettingsTools } from "./LawmindSettingsTools";
+import { LawmindSettingsSkills } from "./LawmindSettingsSkills";
 import { LawmindSettingsUsageStats } from "./LawmindSettingsUsageStats";
 import type { AppConfig } from "./lawmind-app-bootstrap";
 import type { HealthPayload } from "./lawmind-app-data";
@@ -534,6 +535,8 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
       );
     case "tools":
       return config ? <LawmindSettingsTools apiBase={config.apiBase} /> : notReady;
+    case "skills":
+      return config ? <LawmindSettingsSkills apiBase={config.apiBase} /> : notReady;
     case "roles":
       return config ? <LawmindSettingsRoles apiBase={config.apiBase} /> : notReady;
     case "templates":

@@ -1,0 +1,136 @@
+{
+  "ok": true,
+  "fixtureRoot": "fixtures/lawmind-skills-golden",
+  "caseCount": 20,
+  "failures": [],
+  "rows": [
+    {
+      "id": "C01",
+      "ok": true,
+      "tier": "yellow",
+      "checklist": "contract-review-v1"
+    },
+    {
+      "id": "C02",
+      "ok": true,
+      "tier": "yellow",
+      "checklist": "contract-review-v1"
+    },
+    {
+      "id": "C03",
+      "ok": true,
+      "tier": "yellow",
+      "checklist": "contract-review-v1"
+    },
+    {
+      "id": "C04",
+      "ok": true,
+      "tier": "yellow",
+      "checklist": "contract-review-v1"
+    },
+    {
+      "id": "C05",
+      "warn": "triage_tier_mismatch",
+      "expected": "red",
+      "actual": "yellow"
+    },
+    {
+      "id": "L01",
+      "ok": true,
+      "tier": "red",
+      "checklist": "general-v1"
+    },
+    {
+      "id": "L02",
+      "ok": true,
+      "tier": "red",
+      "checklist": "general-v1"
+    },
+    {
+      "id": "L03",
+      "ok": true,
+      "tier": "red",
+      "checklist": "general-v1"
+    },
+    {
+      "id": "L04",
+      "warn": "triage_tier_mismatch",
+      "expected": "yellow",
+      "actual": "red"
+    },
+    {
+      "id": "L05",
+      "ok": true,
+      "tier": "red",
+      "checklist": "general-v1"
+    },
+    {
+      "id": "D01",
+      "ok": true,
+      "tier": "yellow",
+      "checklist": "demand-letter-v1"
+    },
+    {
+      "id": "D02",
+      "ok": true,
+      "tier": "yellow",
+      "checklist": "demand-letter-v1"
+    },
+    {
+      "id": "D03",
+      "ok": true,
+      "tier": "yellow",
+      "checklist": "demand-letter-v1"
+    },
+    {
+      "id": "D04",
+      "ok": true,
+      "tier": "yellow",
+      "checklist": "demand-letter-v1"
+    },
+    {
+      "id": "D05",
+      "ok": true,
+      "tier": "yellow",
+      "checklist": "demand-letter-v1"
+    },
+    {
+      "id": "B01",
+      "warn": "triage_tier_mismatch",
+      "expected": "green",
+      "actual": "yellow"
+    },
+    {
+      "id": "B02",
+      "ok": true,
+      "tier": "green",
+      "checklist": "general-v1"
+    },
+    {
+      "id": "B03",
+      "ok": true,
+      "tier": "green",
+      "checklist": "general-v1"
+    },
+    {
+      "id": "B04",
+      "ok": true,
+      "tier": "yellow",
+      "checklist": "contract-review-v1"
+    },
+    {
+      "id": "B05",
+      "ok": true,
+      "tier": "green",
+      "checklist": "general-v1"
+    }
+  ],
+  "productMetrics": null,
+  "compare": {
+    "baseline": "S0 golden fixtures (fixtures/lawmind-skills-golden)",
+    "hardFailures": 0,
+    "softTierMismatches": 3,
+    "passRateHard": 1,
+    "notes": "Soft tier mismatches are expected until triage rules fully align with S0 expected tiers; hard failures block G6."
+  }
+}

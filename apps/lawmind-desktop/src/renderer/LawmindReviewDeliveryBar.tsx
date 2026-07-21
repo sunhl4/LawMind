@@ -11,6 +11,8 @@ type Props = {
   actionBusy: boolean;
   lastOutputPath?: string | null;
   onApprove: () => void;
+  /** Skills E6 — disable approve until checklist complete */
+  approveDisabled?: boolean;
   onReject: () => void;
   onModify: () => void;
   onReopen: () => void;
@@ -21,6 +23,13 @@ type Props = {
   packExportEnabled?: boolean;
   onDownloadPack?: () => void;
   packBusy?: boolean;
+  /**
+   * writing：文书台默认 — 导出优先，通过/驳回弱化为次要；
+   * signoff：侧栏完整签批（仍保留，正式拍板主路径在「在办」）。
+   */
+  variant?: "writing" | "signoff";
+  /** 文书台 → 在办：正式签批入口 */
+  onOpenAgentsDesk?: () => void;
 };
 
 export function LawmindReviewDeliveryBar(props: Props): ReactNode {
@@ -30,6 +39,7 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
     actionBusy,
     lastOutputPath,
     onApprove,
+    approveDisabled,
     onReject,
     onModify,
     onReopen,
@@ -40,10 +50,13 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
     packExportEnabled,
     onDownloadPack,
     packBusy,
+    variant = "writing",
+    onOpenAgentsDesk,
   } = props;
 
   const status = reviewStatus ?? "pending";
   const approved = status === "approved";
+  const writing = variant === "writing";
   const gateBlocked =
     acceptance != null && acceptance.deliverableType != null && !acceptance.ready;
   const gateSummary = buildRenderGateSummary({ reviewStatus: status, acceptance });
@@ -51,15 +64,15 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
   const step2Done = status !== "pending";
   const step3Ready = approved && !gateBlocked;
 
-  let primaryLabel = "请先通过签批";
+  let primaryLabel = writing ? "导出" : "请先签批";
   let primaryAction: (() => void) | null = null;
   let primaryDisabled = true;
 
   if (!approved) {
-    primaryLabel = "请先通过签批";
+    primaryLabel = "导出";
     primaryDisabled = true;
   } else if (gateBlocked) {
-    primaryLabel = "仍要导出 Word（已知晓待补项）";
+    primaryLabel = "仍要导出";
     primaryDisabled = actionBusy;
     primaryAction = () => {
       const blockers = acceptance?.blockerCount ?? 0;
@@ -77,16 +90,29 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
   }
 
   return (
-    <section className="lm-review-delivery-bar lm-review-delivery-bar-compact" aria-label="审阅与交付">
+    <section
+      className={`lm-review-delivery-bar lm-review-delivery-bar-compact${writing ? " lm-review-delivery-bar-writing" : ""}`}
+      aria-label={writing ? "导出与交付" : "审阅与交付"}
+    >
       <div className="lm-review-delivery-head">
         <span className="lm-review-delivery-status" role="status">
-          签批 · {reviewStatusDisplayLabel(status)}
-          {step3Ready ? " · 可导出" : step2Done ? " · 待导出" : " · 待签批"}
+          {reviewStatusDisplayLabel(status)}
+          {step3Ready ? " · 可导出" : step2Done ? " · 待导出" : ""}
         </span>
         {gateSummary && approved ? (
           <span className="lm-review-delivery-gate-hint" title={gateSummary}>
             {gateSummary}
           </span>
+        ) : null}
+        {writing && status === "pending" && onOpenAgentsDesk ? (
+          <button
+            type="button"
+            className="lm-btn lm-btn-ghost lm-btn-small"
+            onClick={onOpenAgentsDesk}
+            title="正式通过 / 驳回请在在办完成"
+          >
+            回在办
+          </button>
         ) : null}
       </div>
 
@@ -108,6 +134,7 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
               className="lm-review-toolbar-ghost"
               disabled={actionBusy}
               onClick={onReject}
+              title={writing ? "也可在「在办」驳回" : undefined}
             >
               驳回
             </button>
@@ -121,8 +148,15 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
             </button>
             <button
               type="button"
-              className="lm-review-toolbar-primary"
-              disabled={actionBusy}
+              className={writing ? "lm-review-toolbar-ghost" : "lm-review-toolbar-primary"}
+              disabled={actionBusy || Boolean(approveDisabled)}
+              title={
+                approveDisabled
+                  ? "请先完成律师必核清单"
+                  : writing
+                    ? "正式签批建议回「在办」；此处可补记通过"
+                    : undefined
+              }
               onClick={onApprove}
             >
               通过
@@ -133,7 +167,7 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
           type="button"
           className="lm-review-toolbar-primary lm-review-toolbar-primary-accent"
           disabled={primaryDisabled}
-          title={!approved ? "需先将签批标为「通过」" : undefined}
+          title={!approved ? (writing ? "需先完成签批（建议回在办）" : "需先将签批标为「通过」") : undefined}
           onClick={() => primaryAction?.()}
         >
           {primaryLabel}
@@ -146,7 +180,7 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
             title="将 Redline 提案写入 Word 修订痕迹；需本机 officecli，否则回退为普通 docx"
             onClick={() => onExportTrackedWord()}
           >
-            {actionBusy ? "导出中…" : "导出带修订 Word"}
+            {actionBusy ? "导出中…" : "带修订"}
           </button>
         ) : null}
         {packExportEnabled && onDownloadPack ? (
@@ -164,8 +198,9 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
             type="button"
             className="lm-review-toolbar-ghost"
             onClick={() => onShowInFolder(lastOutputPath)}
+            title={lastOutputPath}
           >
-            在文件夹中显示
+            文件夹
           </button>
         ) : null}
         {lastOutputPath?.trim() &&
@@ -174,20 +209,22 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
           <button
             type="button"
             className="lm-review-toolbar-ghost"
-            title="用本机 Word / WPS 打开（不回写；改完需重新导入或手动覆盖）"
+            title="用本机 Word / WPS 打开（不回写）"
             onClick={() => void onOpenWithSystem(lastOutputPath)}
           >
-            用 Word 打开
+            Word
           </button>
         ) : null}
       </div>
 
       {lastOutputPath?.trim() ? (
         <p className="lm-meta lm-review-export-path" role="status" title={lastOutputPath}>
-          已生成 {lastOutputPath.split(/[\\/]/).pop()}
+          {lastOutputPath.split(/[\\/]/).pop()}
         </p>
       ) : null}
-      <p className="lm-meta lm-review-disclaimer">{LAWMIND_ATTORNEY_DISCLAIMER_SHORT}</p>
+      {writing ? null : (
+        <p className="lm-meta lm-review-disclaimer">{LAWMIND_ATTORNEY_DISCLAIMER_SHORT}</p>
+      )}
     </section>
   );
 }

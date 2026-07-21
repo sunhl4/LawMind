@@ -143,7 +143,7 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
           }}
           onClick={() => setSectionOpen((v) => !v)}
         >
-          <span className="lm-section-label">对话</span>
+          <span className="lm-section-label">对话记录</span>
         </div>
         <button
           type="button"

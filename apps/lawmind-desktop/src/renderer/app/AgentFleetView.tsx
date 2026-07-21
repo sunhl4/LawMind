@@ -1,10 +1,9 @@
-import React, { useMemo } from "react";
+import React from "react";
 import { LawmindAgentFleetPanel } from "../LawmindAgentFleetPanel";
 import { LawmindCollaborationDesk } from "../LawmindCollaborationDesk";
 import type { AppConfig } from "../lawmind-app-bootstrap";
 import type { CollabEvent, DelegationRow, GateHistoryItem } from "../lawmind-app-data";
 import type { AgentsDeskTab } from "../lawmind-agents-desk";
-import { countActiveDelegations } from "../lawmind-records-collab-panels";
 import type { LawMindRequiresAction } from "../lawmind-requires-action";
 import type { AgentPreset } from "../lawmind-agent-fleet-api";
 import type { CollabSummaryState } from "../LawmindSettingsCollaboration";
@@ -22,15 +21,13 @@ export type AgentFleetViewProps = {
   onRefreshActionSummary?: () => void;
   onChatResumeComplete?: () => void | Promise<void>;
   onNewChat: () => void;
-  /** Jump to「按流程办」within 在办 (monitor/start console). Prefer chat templates for intake. */
   onOpenAgentsWorkflows?: () => void;
-  /** @deprecated Use onOpenAgentsWorkflows */
   onOpenWorkflowLibrary?: () => void;
   onDelegate: () => void;
   onSpawnPreset: (preset: AgentPreset) => void;
   onOpenDelegations?: () => void;
   onOpenChatSession: (sessionId: string, matterId?: string, assistantId?: string) => void;
-  onOpenReview: (taskId: string) => void;
+  onOpenReview: (taskId?: string, matterId?: string) => void;
   agentsDeskTab: AgentsDeskTab;
   onAgentsDeskTabChange: (tab: AgentsDeskTab) => void;
   needsDecisionFocus?: boolean;
@@ -59,7 +56,7 @@ export type AgentFleetViewProps = {
 };
 
 function AgentFleetViewImpl(props: AgentFleetViewProps) {
-  const activeDel = useMemo(() => countActiveDelegations(props.delegations), [props.delegations]);
+  const onActive = props.agentsDeskTab === "active";
 
   const composeModel =
     props.config?.apiBase
@@ -81,75 +78,39 @@ function AgentFleetViewImpl(props: AgentFleetViewProps) {
     composeModel?.composeModelConfigured === true &&
     isSelectedModelVerified(composeModel.modelCatalog, composeModel.selectedModelId);
 
-  if (!props.config?.apiBase && props.agentsDeskTab === "active") {
+  if (!props.config?.apiBase && onActive) {
     return (
-      <div className="lm-desk-page lm-agent-fleet-page">
-        <p className="lm-meta">本地服务未就绪，无法加载在办事项。</p>
+      <div className="lm-desk-page lm-agent-fleet-page lm-agents-desk-page">
+        <p className="lm-meta">本地服务未就绪。</p>
       </div>
     );
   }
 
   return (
-    <div className="lm-main-workbench lm-desk-page lm-agent-fleet-page" data-testid="lm-agents-desk">
+    <div
+      className="lm-main-workbench lm-desk-page lm-agent-fleet-page lm-agents-desk-page"
+      data-testid="lm-agents-desk"
+    >
       <div className="lm-side-scroll lm-desk-page-scroll lm-agents-desk-stack">
-        <header className="lm-agents-desk-header">
-          <div className="lm-agents-desk-intro">
-            <h1 className="lm-agents-desk-title">
-              {props.needsDecisionFocus && props.agentsDeskTab === "active" ? "待我拍板" : "在办"}
-            </h1>
-            <p className="lm-agents-desk-lead">
-              {props.needsDecisionFocus && props.agentsDeskTab === "active"
-                ? "只看待决：澄清、批准与待审文书。可「显示全部」回到进行中。"
-                : "跟进进度、处理待拍板；新任务请回「对话」下达。"}
-            </p>
-          </div>
-          <nav className="lm-tabs lm-agents-desk-tabs" aria-label="在办分区">
+        {!onActive ? (
+          <header className="lm-agents-wb-bar">
+            <h1>{props.agentsDeskTab === "workflows" ? "按流程" : "交出去的"}</h1>
             <button
               type="button"
-              className={`lm-tab ${props.agentsDeskTab === "active" ? "active" : ""}`}
-              aria-current={props.agentsDeskTab === "active" ? "true" : undefined}
+              className="lm-btn lm-btn-secondary lm-btn-sm"
               data-testid="lm-agents-tab-active"
               onClick={() => props.onAgentsDeskTabChange("active")}
             >
-              进行中
+              返回在办
             </button>
-            <button
-              type="button"
-              className={`lm-tab ${props.agentsDeskTab === "delegations" ? "active" : ""}`}
-              aria-current={props.agentsDeskTab === "delegations" ? "true" : undefined}
-              data-testid="lm-agents-tab-delegations"
-              onClick={() => {
-                props.onClearNeedsDecisionFocus?.();
-                props.onAgentsDeskTabChange("delegations");
-              }}
-            >
-              交出去的活
-              {activeDel > 0 ? (
-                <span className="lm-tab-inline-count" title="进行中的委派">
-                  {activeDel}
-                </span>
-              ) : null}
-            </button>
-            <button
-              type="button"
-              className={`lm-tab ${props.agentsDeskTab === "workflows" ? "active" : ""}`}
-              aria-current={props.agentsDeskTab === "workflows" ? "true" : undefined}
-              data-testid="lm-agents-tab-workflows"
-              onClick={() => {
-                props.onClearNeedsDecisionFocus?.();
-                props.onAgentsDeskTabChange("workflows");
-              }}
-            >
-              按流程办
-            </button>
-          </nav>
-        </header>
+          </header>
+        ) : null}
 
-        {composeModel && !modelVerified && props.agentsDeskTab !== "active" ? (
+        {composeModel && !modelVerified && !onActive ? (
           <LawmindCollaborationComposeModelRail {...composeModel} />
         ) : null}
 
-        {props.agentsDeskTab === "active" && props.config?.apiBase ? (
+        {onActive && props.config?.apiBase ? (
           <LawmindAgentFleetPanel
             apiBase={props.config.apiBase}
             matterId={props.matterId}

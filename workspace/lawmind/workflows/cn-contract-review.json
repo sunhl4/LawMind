@@ -1,0 +1,22 @@
+{
+  "id": "cn-contract-review",
+  "name": "中国合同审查（自研包）",
+  "namedAgent": "CN Contract Reviewer",
+  "description": "面向中国法语境的合同审查：主体、责任限制、争议解决与待检索法条占位。",
+  "practiceArea": "contracts",
+  "deliverableType": "contract.review",
+  "riskLevel": "high",
+  "audience": "solo",
+  "regionPack": "cn",
+  "starterPrompt": "请按中国合同审查清单审查本合同：当事人、违约责任、管辖、数据/个人信息（如有），并标出待检索法条。",
+  "acceptancePackRequired": true,
+  "steps": [
+    {
+      "stepId": "review",
+      "assignee": "contract_reviewer",
+      "task": "中国法合同审查（matterId={{matterId}}），交付类型 contract.review",
+      "dependsOn": [],
+      "autoApprove": false
+    }
+  ]
+}

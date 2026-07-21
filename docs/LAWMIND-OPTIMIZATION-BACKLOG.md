@@ -289,13 +289,14 @@
 
 ## 附录 A. 已落地对照
 
-| 项                         | 落地日期   | PR / 说明                                                 |
-| -------------------------- | ---------- | --------------------------------------------------------- |
-| P0-3 团队协作可视 / 指挥台 | 2026-07-12 | Header+MainBody+CSS+spawn；见 ENGINEERING-REVIEW          |
-| P0-4 批准队列              | 2026-07-12 | Action Hub 队列 Tab 嵌入 LawmindApprovalQueue             |
-| P0-1 无源拒答（工作区）    | 2026-07-12 | search_statute/case_law `refusalRequired`；外接权威库仍待 |
-| P0-2 未锚定引用            | 2026-07-12 | citation-integrity unanchoredSections + banner            |
-| P1-1 进化飞轮              | 2026-07-12 | 双队列同步 + agent-specialization 指标                    |
-| P1-2 特化轨迹              | 2026-07-12 | `learning/agent-specialization.ts`                        |
-| P0-5 Workflow Library      | 既有       | LawmindWorkflowLibrary 已存在；指挥台可跳转               |
-| 权威法规库适配             | 未完       | 需外接 API；当前为启发式+拒答                             |
+| 项                         | 落地日期   | PR / 说明                                                                                                                                              |
+| -------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Skills S0–S6 MVP 闸门切片  | 2026-07-20 | 见 `LAWMIND-AGENT-SKILLS-500PW-PLAN.md` §9.1；遗留：**字面 500 人周精修**（PDF 版式、LLM 真并行、全量 a11y、Storybook、Firm Ops 全密度、技能远程市场） |
+| P0-3 团队协作可视 / 指挥台 | 2026-07-12 | Header+MainBody+CSS+spawn；见 ENGINEERING-REVIEW                                                                                                       |
+| P0-4 批准队列              | 2026-07-12 | Action Hub 队列 Tab 嵌入 LawmindApprovalQueue                                                                                                          |
+| P0-1 无源拒答（工作区）    | 2026-07-12 | search_statute/case_law `refusalRequired`；外接权威库仍待                                                                                              |
+| P0-2 未锚定引用            | 2026-07-12 | citation-integrity unanchoredSections + banner                                                                                                         |
+| P1-1 进化飞轮              | 2026-07-12 | 双队列同步 + agent-specialization 指标                                                                                                                 |
+| P1-2 特化轨迹              | 2026-07-12 | `learning/agent-specialization.ts`                                                                                                                     |
+| P0-5 Workflow Library      | 既有       | LawmindWorkflowLibrary 已存在；指挥台可跳转                                                                                                            |
+| 权威法规库适配             | 未完       | 需外接 API；当前为启发式+拒答                                                                                                                          |

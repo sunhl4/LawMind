@@ -1,26 +1,13 @@
 import type { ChatLiveTrace, ChatTraceStep } from "./lawmind-chat-trace-types.js";
 import { apiAuthHeaders } from "./lawmind-api-auth.ts";
+import { toolDisplayNameZh } from "../../../../src/lawmind/platform/requires-action.ts";
 
 export type { ChatLiveTrace, ChatTraceStep };
 export { liveTracesEqual } from "./lawmind-chat-trace-types.js";
 
 export function humanToolLabel(toolName: string): string {
-  const map: Record<string, string> = {
-    execute_workflow: "执行工作流",
-    research_task: "法规检索",
-    draft_document: "生成草稿",
-    update_draft: "更新草稿",
-    render_document: "渲染 Word",
-    write_document: "写回草稿",
-    send_email: "发送邮件",
-    search_workspace: "检索工作区",
-    read_project_file: "读取项目文件",
-    delegate_task: "委派任务",
-    web_search: "联网搜索",
-    search_statute_web: "法规联网检索",
-    plan_task: "任务规划",
-  };
-  return map[toolName] ?? "调用工具";
+  const label = toolDisplayNameZh(toolName);
+  return label === "该项操作" ? "办理中" : label;
 }
 
 /** 已完成轨迹的一行摘要（Cursor 式折叠标题） */

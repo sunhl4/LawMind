@@ -121,7 +121,32 @@ export type HealthPayload = {
       withSnapshotCount?: number;
       ratio?: number | null;
     };
+    /** Skills E4 / E10-lite */
+    citationMode?: "grounded" | "assisted" | "off";
+    citationModeActive?: boolean;
+    triageRulesLoaded?: boolean;
+    triageRuleCount?: number;
+    productMetricsSummary?: {
+      total?: number;
+      triageConfirmed?: number;
+      gateFailures?: number;
+      firstPassOk?: number;
+    };
+    privateDeployChecklist?: {
+      applicable?: boolean;
+      passCount?: number;
+      total?: number;
+      items?: Array<{ id: string; label: string; ok: boolean; detail?: string }>;
+    };
+    fleetPlaybooksLoaded?: boolean;
+    fleetPlaybookCount?: number;
   };
+  citationMode?: "grounded" | "assisted" | "off";
+  citationModeActive?: boolean;
+  triageRulesLoaded?: boolean;
+  triageRuleCount?: number;
+  fleetPlaybooksLoaded?: boolean;
+  fleetPlaybookCount?: number;
 };
 
 export type TaskRow = {

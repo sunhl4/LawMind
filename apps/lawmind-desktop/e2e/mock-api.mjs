@@ -54,6 +54,26 @@ const healthPayload = {
   retrievalMode: "single",
   dualLegalConfigured: false,
   webSearchApiKeyConfigured: false,
+  citationMode: "assisted",
+  citationModeActive: true,
+  triageRulesLoaded: true,
+  triageRuleCount: 3,
+  doctor: {
+    citationMode: "assisted",
+    citationModeActive: true,
+    triageRulesLoaded: true,
+    triageRuleCount: 3,
+    productMetricsSummary: { total: 3, triageConfirmed: 1, gateFailures: 0, firstPassOk: 1 },
+    privateDeployChecklist: {
+      applicable: false,
+      passCount: 3,
+      total: 6,
+      items: [
+        { id: "policy_file", label: "lawmind.policy.json 存在", ok: true },
+        { id: "edition_private", label: "edition = private_deploy", ok: false, detail: "firm" },
+      ],
+    },
+  },
 };
 
 const json = (res, status, body) => {
@@ -107,6 +127,7 @@ const server = http.createServer(async (req, res) => {
       edition: "firm",
       label: "律所版",
       source: "default",
+      citationMode: "assisted",
       features: {
         acceptanceGateStrict: true,
         citationGateStrict: true,
@@ -120,6 +141,236 @@ const server = http.createServer(async (req, res) => {
         customDeliverableSpec: true,
         acceptancePackExport: true,
         strictDangerousToolApproval: true,
+        reviewCampaignParallel: true,
+      },
+    });
+    return;
+  }
+
+  if (path.startsWith("/api/memory/adoption") && req.method === "GET") {
+    json(res, 200, { ok: true, items: [], unified: true });
+    return;
+  }
+
+  if (path === "/api/skills" && req.method === "GET") {
+    json(res, 200, {
+      ok: true,
+      cnPack: {
+        id: "cn-legal-pack",
+        label: "中国法务自研包",
+        workflowIds: ["cn-contract-review", "cn-litigation-elements", "cn-labor-demand"],
+        notes: "e2e mock pack",
+      },
+      skills: [
+        {
+          id: "cn-contract-checklist",
+          name: "合同审查清单",
+          version: "1",
+          description: "e2e mock skill",
+          enabled: true,
+          signatureOk: true,
+        },
+        {
+          id: "tampered-skill",
+          name: "篡改示例",
+          version: "1",
+          description: "签名失败不可启用",
+          enabled: false,
+          signatureOk: false,
+          signatureError: "signature_mismatch",
+        },
+      ],
+    });
+    return;
+  }
+
+  if (path === "/api/skills/enabled" && req.method === "POST") {
+    const body = await readJsonBody(req);
+    json(res, 200, {
+      ok: true,
+      skills: [
+        {
+          id: "cn-contract-checklist",
+          name: "合同审查清单",
+          version: "1",
+          description: "e2e mock skill",
+          enabled: body?.skillId === "cn-contract-checklist" ? Boolean(body?.enabled) : true,
+          signatureOk: true,
+        },
+        {
+          id: "tampered-skill",
+          name: "篡改示例",
+          version: "1",
+          description: "签名失败不可启用",
+          enabled: false,
+          signatureOk: false,
+          signatureError: "signature_mismatch",
+        },
+      ],
+    });
+    return;
+  }
+
+  if (path === "/api/triage/rules" && req.method === "GET") {
+    json(res, 200, { ok: true, ruleIds: ["nda-yellow", "contract-review-yellow", "litigation-red"] });
+    return;
+  }
+
+  if (path === "/api/triage" && req.method === "POST") {
+    const body = await readJsonBody(req);
+    const text = String(body?.text ?? "");
+    const isNda = /NDA|保密协议|nondisclosure/i.test(text) || body?.deliverableTypeHint === "contract.nda";
+    const session = {
+      id: "triage_e2e_mock_1",
+      matterId: body?.matterId ?? null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      status: "preview",
+      inputSummary: text.slice(0, 200),
+      deliverableTypeHint: body?.deliverableTypeHint,
+      result: isNda
+        ? {
+            tier: "yellow",
+            tierLabel: "需律师确认",
+            reasons: ["e2e mock：NDA 分诊"],
+            recommendedWorkflowId: "nda-triage",
+            recommendedWorkflowLabel: "NDA 分诊剧本",
+            estimatedEffort: "medium",
+            clarifications: [
+              { key: "stance", question: "我方是披露方还是接收方？", required: true },
+            ],
+            matchedRuleIds: ["nda-yellow"],
+          }
+        : {
+            tier: "yellow",
+            tierLabel: "需律师确认",
+            reasons: ["e2e mock：合同类分诊"],
+            recommendedWorkflowId: "cn-contract-review",
+            recommendedWorkflowLabel: "标准合同审查",
+            estimatedEffort: "medium",
+            clarifications: [{ key: "risk", question: "风险偏好？", required: false }],
+            matchedRuleIds: ["contract-review-yellow"],
+          },
+      dispatchPrompt: body?.dispatchPrompt,
+    };
+    json(res, 200, {
+      ok: true,
+      session,
+      autoConfirmed: false,
+      matchedSkills: isNda
+        ? []
+        : [{ id: "cn-contract-checklist", name: "合同审查清单", version: "1" }],
+    });
+    return;
+  }
+
+  if (path === "/api/fleet-playbooks" && req.method === "GET") {
+    json(res, 200, {
+      ok: true,
+      playbooks: [
+        {
+          id: "standard-contract-review",
+          label: "标准合同审查专案组",
+          version: 1,
+          roleCount: 5,
+          deliverableTypes: ["contract.review"],
+          executionMode: "serial",
+        },
+      ],
+    });
+    return;
+  }
+
+  const e2eCampaign = {
+    id: "campaign_e2e_mock_1",
+    matterId: null,
+    taskId: "e2e-draft-1",
+    playbookId: "standard-contract-review",
+    playbookLabel: "标准合同审查专案组",
+    status: "completed",
+    createdAt: now,
+    updatedAt: now,
+    roles: [
+      { roleId: "clause", label: "条款结构", status: "done", weight: 0.2, score: 80, findings: [] },
+      {
+        roleId: "risk",
+        label: "风险与责任",
+        status: "done",
+        weight: 0.3,
+        score: 55,
+        findings: [{ severity: "high", title: "未见责任上限", detail: "e2e" }],
+      },
+      { roleId: "compliance", label: "合规", status: "done", weight: 0.15, score: 70, findings: [] },
+      {
+        roleId: "obligation_timeline",
+        label: "义务时间线",
+        status: "done",
+        weight: 0.15,
+        score: 75,
+        findings: [],
+      },
+      { roleId: "citation_check", label: "引用核验", status: "done", weight: 0.2, score: 70, findings: [] },
+    ],
+    safetyScore: {
+      score: 68,
+      high: 1,
+      medium: 0,
+      low: 0,
+      negotiatePriority: [{ roleId: "risk", title: "未见责任上限", severity: "high", priority: 1 }],
+      computedAt: now,
+    },
+  };
+
+  if (path === "/api/review-campaigns" && req.method === "GET") {
+    if (!url.searchParams.get("taskId")) {
+      json(res, 400, { ok: false, error: "taskId required" });
+      return;
+    }
+    json(res, 200, { ok: true, campaign: e2eCampaign });
+    return;
+  }
+
+  if (path === "/api/review-campaigns" && req.method === "POST") {
+    const body = await readJsonBody(req);
+    json(res, 200, {
+      ok: true,
+      campaign: {
+        ...e2eCampaign,
+        matterId: body?.matterId ?? null,
+        taskId: body?.taskId ?? e2eCampaign.taskId,
+      },
+    });
+    return;
+  }
+
+  if (path === "/api/review-campaigns/campaign_e2e_mock_1/report" && req.method === "GET") {
+    json(res, 200, {
+      ok: true,
+      format: "markdown",
+      markdown: "# 审查专案组报告\n\n- Safety Score：68 / 100\n",
+      campaignId: "campaign_e2e_mock_1",
+    });
+    return;
+  }
+
+  if (path === "/api/triage/confirm" && req.method === "POST") {
+    const body = await readJsonBody(req);
+    json(res, 200, {
+      ok: true,
+      session: {
+        id: body?.sessionId ?? "triage_e2e_mock_1",
+        matterId: body?.matterId ?? null,
+        status: body?.saveOnly ? "saved_only" : "confirmed",
+        result: {
+          tier: "yellow",
+          tierLabel: "需律师确认",
+          reasons: ["e2e mock"],
+          recommendedWorkflowId: "cn-contract-review",
+          recommendedWorkflowLabel: "标准合同审查",
+          estimatedEffort: "medium",
+          clarifications: [],
+          matchedRuleIds: ["contract-review-yellow"],
+        },
       },
     });
     return;
@@ -410,8 +661,19 @@ const server = http.createServer(async (req, res) => {
       acceptance: {
         ready: false,
         blockerCount: 1,
+        warningCount: 0,
         placeholderCount: 0,
+        placeholderSamples: [],
         deliverableType: "contract.review",
+        checks: [
+          {
+            key: "parties",
+            label: "当事人信息",
+            passed: false,
+            severity: "blocker",
+            hint: "请补齐相对方全称。",
+          },
+        ],
       },
       reasoningReport: {
         required: true,
@@ -455,6 +717,8 @@ const server = http.createServer(async (req, res) => {
         title: "E2E draft",
         summary: "",
         reviewStatus: "pending",
+        deliverableType: "contract.review",
+        matterId: "e2e-matter-1",
         sections: [{ heading: "摘要", body: "E2E body" }],
       },
       gateDecisions: [
@@ -470,6 +734,51 @@ const server = http.createServer(async (req, res) => {
         },
       ],
     });
+    return;
+  }
+
+  if (reviewMatch && req.method === "POST") {
+    const body = await readJsonBody(req);
+    if (body?.status === "approved") {
+      const checked = body?.checklistChecked ?? {};
+      const required = ["parties", "liability", "ip", "terminate", "citations"];
+      const missing = required.filter((id) => !checked[id]);
+      if (missing.length && body?.bypassChecklist !== true) {
+        json(res, 422, {
+          ok: false,
+          error: "checklist_incomplete",
+          message: "请完成律师必核清单后再通过签批。",
+          missingRequiredIds: missing,
+        });
+        return;
+      }
+    }
+    json(res, 200, {
+      ok: true,
+      draft: {
+        taskId: reviewMatch[1],
+        title: "E2E draft",
+        reviewStatus: body?.status ?? "pending",
+        deliverableType: "contract.review",
+        matterId: "e2e-matter-1",
+        sections: [{ heading: "摘要", body: "E2E body" }],
+      },
+    });
+    return;
+  }
+
+  const renderMatch = /^\/api\/drafts\/([^/]+)\/render$/.exec(path);
+  if (renderMatch && req.method === "POST") {
+    const body = await readJsonBody(req);
+    if (body?.citationMode === "grounded" || body?.forceGroundedBlock === true) {
+      json(res, 422, {
+        ok: false,
+        error: "theory_not_anchored",
+        message: "严格援引模式下案件理论尚未锚定，无法导出。",
+      });
+      return;
+    }
+    json(res, 200, { ok: true, outputPath: "artifacts/e2e.docx" });
     return;
   }
 

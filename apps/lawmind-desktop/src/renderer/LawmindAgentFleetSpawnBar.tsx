@@ -11,11 +11,12 @@ type Props = {
   onDelegate: () => void;
   onSpawnPreset: (preset: AgentPreset) => void;
   onOpenCollaboration?: () => void;
+  /** Skills E2 — jump to 文书台审查专案组 */
+  onOpenReviewCampaign?: () => void;
 };
 
 /**
- * Compact jump menu on the 在办 status surface (not a second “new work” home).
- * New assignment still belongs in 对话; items here open chat / workflows / 委派.
+ * Primary: return to chat to assign work. Secondary: more entry points behind「更多」。
  */
 export function LawmindAgentFleetSpawnBar(props: Props): ReactNode {
   const {
@@ -28,6 +29,7 @@ export function LawmindAgentFleetSpawnBar(props: Props): ReactNode {
     onDelegate,
     onSpawnPreset,
     onOpenCollaboration,
+    onOpenReviewCampaign,
   } = props;
 
   const [open, setOpen] = useState(false);
@@ -68,30 +70,27 @@ export function LawmindAgentFleetSpawnBar(props: Props): ReactNode {
       <div className="lm-agent-fleet-spawn-actions">
         <button
           type="button"
-          className="lm-compose-plus-btn"
-          aria-label="快捷跳转"
+          className="lm-btn lm-btn-accent lm-btn-sm"
+          data-testid="lm-fleet-spawn-new-chat"
+          onClick={() => onNewChat()}
+          title="新任务在对话里下达"
+        >
+          回对话下达
+        </button>
+        <button
+          type="button"
+          className="lm-btn lm-btn-secondary lm-btn-sm"
           aria-expanded={open}
           aria-haspopup="dialog"
-          title="跳转到对话、按流程办、委派或角色预设（新任务请在对话下达）"
+          title="更多入口"
           data-testid="lm-fleet-spawn-plus"
           onClick={() => setOpen((v) => !v)}
         >
-          <span aria-hidden>+</span>
+          更多
         </button>
-        <span className="lm-meta lm-agent-fleet-spawn-hint">快捷跳转</span>
-        {presetsLoading ? <span className="lm-meta">加载预设…</span> : null}
+        {presetsLoading ? <span className="lm-meta">加载中…</span> : null}
       </div>
-      <div className="lm-agent-fleet-spawn-menu" role="dialog" aria-label="快捷跳转" hidden={!open}>
-        <button
-          type="button"
-          className="lm-compose-options-action"
-          data-testid="lm-fleet-spawn-new-chat"
-          onClick={() => run(onNewChat)}
-          title="打开对话并新建会话"
-        >
-          <span className="lm-compose-options-action-k">聊</span>
-          回对话下达
-        </button>
+      <div className="lm-agent-fleet-spawn-menu" role="dialog" aria-label="更多入口" hidden={!open}>
         <button
           type="button"
           className="lm-compose-options-action"
@@ -105,17 +104,26 @@ export function LawmindAgentFleetSpawnBar(props: Props): ReactNode {
           }}
           disabled={!hasMatter}
         >
-          <span className="lm-compose-options-action-k">流</span>
           {hasMatter ? "按流程办" : "按流程办（先选案件）"}
         </button>
+        {onOpenReviewCampaign ? (
+          <button
+            type="button"
+            className="lm-compose-options-action"
+            data-testid="lm-fleet-spawn-review-campaign"
+            onClick={() => run(onOpenReviewCampaign)}
+            title="打开文书台，运行审查专案组"
+          >
+            用审查专案组
+          </button>
+        ) : null}
         <button
           type="button"
           className="lm-compose-options-action"
           disabled={!canDelegate}
           onClick={() => run(onDelegate)}
         >
-          <span className="lm-compose-options-action-k">委</span>
-          委派给助手
+          交办给助手
         </button>
         {onOpenCollaboration ? (
           <button
@@ -124,14 +132,13 @@ export function LawmindAgentFleetSpawnBar(props: Props): ReactNode {
             data-testid="lm-fleet-spawn-collaboration"
             onClick={() => run(onOpenCollaboration)}
           >
-            <span className="lm-compose-options-action-k">交</span>
             看交出去的活
           </button>
         ) : null}
         {presets.length > 0 ? (
           <>
             <div className="lm-compose-options-divider" role="separator" />
-            <p className="lm-meta lm-agent-fleet-spawn-menu-label">角色预设</p>
+            <p className="lm-meta lm-agent-fleet-spawn-menu-label">助手角色（可选）</p>
             {presets.map((preset) => (
               <button
                 key={preset.id}
@@ -140,7 +147,6 @@ export function LawmindAgentFleetSpawnBar(props: Props): ReactNode {
                 title={preset.description}
                 onClick={() => run(() => onSpawnPreset(preset))}
               >
-                <span className="lm-compose-options-action-k">角</span>
                 {preset.title}
               </button>
             ))}

@@ -5,11 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyReducedMotionForced,
   applyUiDensity,
+  applyUiTheme,
   readUiDensity,
   readUiFontScale,
+  readUiTheme,
   resetDefaultPanelLayout,
   writeUiDensity,
   writeUiFontScale,
+  writeUiTheme,
 } from "./lawmind-ui-prefs";
 
 function mockStorage(): Storage {
@@ -48,6 +51,16 @@ describe("lawmind-ui-prefs", () => {
     expect(readUiDensity()).toBe("compact");
     applyUiDensity("compact");
     expect(document.documentElement.classList.contains("lm-density-compact")).toBe(true);
+  });
+
+  it("defaults to light theme and toggles dark class", () => {
+    expect(readUiTheme()).toBe("light");
+    applyUiTheme("light");
+    expect(document.documentElement.classList.contains("lm-theme-dark")).toBe(false);
+    writeUiTheme("dark");
+    applyUiTheme("dark");
+    expect(readUiTheme()).toBe("dark");
+    expect(document.documentElement.classList.contains("lm-theme-dark")).toBe(true);
   });
 
   it("resetDefaultPanelLayout clears layout keys", () => {

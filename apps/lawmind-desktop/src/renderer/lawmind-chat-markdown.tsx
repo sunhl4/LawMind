@@ -48,6 +48,17 @@ export function renderLegalMarkdown(text: string): ReactNode {
       continue;
     }
 
+    const h1 = /^#\s+(.+)$/.exec(line);
+    if (h1) {
+      blocks.push(
+        <div key={`h1-${index}`} className="lm-md-h1">
+          {renderInlineLegalMarkdown(h1[1])}
+        </div>,
+      );
+      index += 1;
+      continue;
+    }
+
     const h2 = /^##\s+(.+)$/.exec(line);
     if (h2) {
       blocks.push(
@@ -57,6 +68,71 @@ export function renderLegalMarkdown(text: string): ReactNode {
       );
       index += 1;
       continue;
+    }
+
+    if (trimmed.startsWith(">")) {
+      const quoteLines: string[] = [];
+      while (index < lines.length) {
+        const q = (lines[index] ?? "").trim();
+        if (!q.startsWith(">")) {
+          break;
+        }
+        quoteLines.push(q.replace(/^>\s?/, ""));
+        index += 1;
+      }
+      blocks.push(
+        <blockquote key={`bq-${index}`} className="lm-md-quote">
+          {quoteLines.map((ql, qi) => (
+            <div key={`bq-line-${qi}`}>{renderInlineLegalMarkdown(ql)}</div>
+          ))}
+        </blockquote>,
+      );
+      continue;
+    }
+
+    if (trimmed.includes("|") && trimmed.startsWith("|")) {
+      const tableRows: string[][] = [];
+      while (index < lines.length) {
+        const raw = (lines[index] ?? "").trim();
+        if (!raw.includes("|")) {
+          break;
+        }
+        if (/^\|?\s*:?-{3,}/.test(raw)) {
+          index += 1;
+          continue;
+        }
+        const cells = raw
+          .replace(/^\|/, "")
+          .replace(/\|$/, "")
+          .split("|")
+          .map((c) => c.trim());
+        tableRows.push(cells);
+        index += 1;
+      }
+      if (tableRows.length > 0) {
+        const [head, ...body] = tableRows;
+        blocks.push(
+          <table key={`table-${index}`} className="lm-md-table">
+            <thead>
+              <tr>
+                {(head ?? []).map((cell, ci) => (
+                  <th key={`th-${ci}`}>{renderInlineLegalMarkdown(cell)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {body.map((row, ri) => (
+                <tr key={`tr-${ri}`}>
+                  {row.map((cell, ci) => (
+                    <td key={`td-${ri}-${ci}`}>{renderInlineLegalMarkdown(cell)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>,
+        );
+        continue;
+      }
     }
 
     const bullet = /^-\s+(.+)$/.exec(line);

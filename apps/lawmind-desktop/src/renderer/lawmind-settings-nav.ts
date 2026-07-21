@@ -5,6 +5,7 @@ export type LawmindSettingsSectionId =
   | "appearance"
   | "review-prefs"
   | "memory"
+  | "skills"
   | "collaboration"
   | "assistants"
   | "models"
@@ -85,6 +86,12 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
         label: "记忆库",
         description: "待采纳的记忆建议与采纳历史（与体检中的记忆真相源文件检查不同）。",
         keywords: "memory 记忆 采纳 adoption 建议",
+      },
+      {
+        id: "skills",
+        label: "技能库",
+        description: "本地 SKILL.md 启用/禁用与签名校验；中国法律包状态。",
+        keywords: "skills 技能 skill 签名 中国包 cn pack",
       },
       {
         id: "assistants",

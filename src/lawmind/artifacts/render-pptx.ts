@@ -7,6 +7,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import PptxGenJS from "pptxgenjs";
+import {
+  formatSectionSeeAlsoLine,
+  type CitationDisplaySource,
+} from "../sources/citation-display.js";
 import type { UploadedTemplateRecord } from "../templates/index.js";
 import type { ArtifactDraft, ArtifactSection } from "../types.js";
 import type { RenderResult } from "./render-docx.js";
@@ -30,9 +34,14 @@ type PptxConstructor = new () => PptxPresentation;
 export type RenderPptxOptions = {
   templateVariant?: string;
   uploadedTemplate?: UploadedTemplateRecord;
+  sources?: CitationDisplaySource[];
 };
 
-function addSectionSlide(pptx: PptxPresentation, section: ArtifactSection): void {
+function addSectionSlide(
+  pptx: PptxPresentation,
+  section: ArtifactSection,
+  sources?: CitationDisplaySource[],
+): void {
   const slide = pptx.addSlide();
   slide.addText(section.heading, {
     x: 0.5,
@@ -61,8 +70,9 @@ function addSectionSlide(pptx: PptxPresentation, section: ArtifactSection): void
     wrap: true,
   });
 
-  if (section.citations && section.citations.length > 0) {
-    slide.addText(`来源：${section.citations.join("、")}`, {
+  const seeAlso = formatSectionSeeAlsoLine(section.citations, sources);
+  if (seeAlso) {
+    slide.addText(seeAlso, {
       x: 0.5,
       y: 6.75,
       w: 9,
@@ -208,7 +218,7 @@ export async function renderPptxWithOptions(
   });
 
   for (const section of draft.sections) {
-    addSectionSlide(pptx, section);
+    addSectionSlide(pptx, section, options.sources);
   }
 
   if (draft.reviewNotes.length > 0) {

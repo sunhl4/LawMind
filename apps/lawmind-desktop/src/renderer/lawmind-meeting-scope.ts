@@ -6,4 +6,4 @@
 export {
   ADHOC_MEETING_MATTER_ID,
   isAdhocMeetingMatterId,
-} from "../../../../src/lawmind/cases/team-meeting.ts";
+} from "../../../../src/lawmind/cases/team-meeting-ids.ts";

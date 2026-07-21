@@ -1,4 +1,5 @@
 export type LawmindMainView =
+  | "home"
   | "workspace"
   | "agents"
   | "meeting"
@@ -6,6 +7,7 @@ export type LawmindMainView =
   | "review";
 
 export const LAWMIND_MAIN_VIEWS: LawmindMainView[] = [
+  "home",
   "workspace",
   "agents",
   "meeting",
@@ -15,6 +17,8 @@ export const LAWMIND_MAIN_VIEWS: LawmindMainView[] = [
 
 export function lawmindMainViewLabel(view: LawmindMainView): string {
   switch (view) {
+    case "home":
+      return "驾驶舱";
     case "workspace":
       return "对话";
     case "agents":

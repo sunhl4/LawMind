@@ -61,6 +61,8 @@ export const EDITION_FEATURES = {
    * 并对 `execute_workflow` 等未标 `requiresApproval` 的长链路工具追加门禁。
    */
   strictDangerousToolApproval: { solo: false, firm: true, private_deploy: true },
+  /** Skills S6：审查专案组 `executionMode=parallel`（Solo 强制串行） */
+  reviewCampaignParallel: { solo: false, firm: true, private_deploy: true },
 } as const satisfies Record<string, Record<LawMindEdition, boolean>>;
 
 export type EditionFeatureKey = keyof typeof EDITION_FEATURES;

@@ -38,6 +38,7 @@ const FEATURE_ROWS: FeatureRow[] = [
   { key: "crossMatterAcceptanceDashboard", label: "跨案件验收就绪概览" },
   { key: "collaborationSummary", label: "协作摘要" },
   { key: "strictDangerousToolApproval", label: "危险工具须显式批准（律所版）" },
+  { key: "reviewCampaignParallel", label: "审查专案组并行执行（律所版）" },
   { key: "securitySbomPanel", label: "安全组件清单（技术）" },
 ];
 

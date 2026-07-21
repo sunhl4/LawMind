@@ -335,6 +335,76 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
         </div>
       ) : null}
 
+      <div className="lm-settings-group lm-settings-surface" data-testid="lm-doctor-skills-trust">
+        <h4 className="lm-doctor-group-title">信任闭环（Skills S1）</h4>
+        <p className="lm-meta lm-settings-doctor-lead">
+          分诊规则、引用模式与产品指标管道状态；用于验收 G1 / 日常自检。
+        </p>
+        <div className="lm-doctor-security-grid">
+          <span className="lm-settings-key">引用模式</span>
+          <span
+            className={
+              (doctor?.citationModeActive ?? health?.citationModeActive)
+                ? "lm-pill lm-pill-success"
+                : "lm-pill lm-pill-neutral"
+            }
+          >
+            {doctor?.citationMode ?? health?.citationMode ?? "assisted"}
+          </span>
+          <span className="lm-settings-key">分诊规则</span>
+          <span
+            className={
+              (doctor?.triageRulesLoaded ?? health?.triageRulesLoaded)
+                ? "lm-pill lm-pill-success"
+                : "lm-pill lm-pill-warn"
+            }
+          >
+            {(doctor?.triageRulesLoaded ?? health?.triageRulesLoaded)
+              ? `已加载 ${doctor?.triageRuleCount ?? health?.triageRuleCount ?? 0} 条`
+              : "未加载"}
+          </span>
+          <span className="lm-settings-key">产品指标</span>
+          <span className="lm-meta">
+            事件 {doctor?.productMetricsSummary?.total ?? 0} · 分诊确认{" "}
+            {doctor?.productMetricsSummary?.triageConfirmed ?? 0} · gate 失败{" "}
+            {doctor?.productMetricsSummary?.gateFailures ?? 0}
+          </span>
+          <span className="lm-settings-key">Fleet Playbook</span>
+          <span
+            className={
+              doctor?.fleetPlaybooksLoaded || health?.fleetPlaybooksLoaded
+                ? "lm-pill lm-pill-success"
+                : "lm-pill lm-pill-warn"
+            }
+          >
+            {doctor?.fleetPlaybookCount ?? health?.fleetPlaybookCount ?? 0} 套
+          </span>
+        </div>
+        {doctor?.privateDeployChecklist ? (
+          <div className="lm-doctor-private-deploy" data-testid="lm-doctor-private-deploy">
+            <p className="lm-meta">
+              私有化检查清单
+              {doctor.privateDeployChecklist.applicable ? "（当前 edition 适用）" : "（Solo/Firm 仅预览）"}
+              ：通过 {doctor.privateDeployChecklist.passCount ?? 0}/
+              {doctor.privateDeployChecklist.total ?? 0}
+            </p>
+            <ul className="lm-meta">
+              {(doctor.privateDeployChecklist.items ?? []).map((it) => (
+                <li key={it.id}>
+                  {it.ok ? "✓" : "✗"} {it.label}
+                  {it.detail ? ` — ${it.detail}` : ""}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        <p className="lm-meta" data-testid="lm-doctor-golden-hint">
+          黄金集基线：本地运行{" "}
+          <code>pnpm lawmind:skills:golden -- --compare</code>，报告见{" "}
+          <code>docs/generated/skills-golden-compare-report.json</code>（CI 亦上传 artifact）。
+        </p>
+      </div>
+
       <div className="lm-settings-group lm-settings-surface">
         <h4 className="lm-doctor-group-title">高安全模式（参考 cLawyer）</h4>
         <p className="lm-meta lm-settings-doctor-lead">

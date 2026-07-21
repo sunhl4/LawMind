@@ -14,6 +14,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Document, Packer, Paragraph } from "docx";
+import {
+  formatSectionSeeAlsoLine,
+  type CitationDisplaySource,
+} from "../sources/citation-display.js";
 import { fillDocxTemplateWithValues } from "../templates/docx-template-fill.js";
 import { buildPlaceholderValueMap } from "../templates/draft-template-values.js";
 import type { UploadedTemplateRecord } from "../templates/index.js";
@@ -45,20 +49,26 @@ export type RenderResult = {
 export type RenderDocxOptions = {
   templateVariant?: string;
   uploadedTemplate?: UploadedTemplateRecord;
+  /** Research sources for resolving citation ids into lawyer-facing 「参见」 text. */
+  sources?: CitationDisplaySource[];
 };
 
 // ─────────────────────────────────────────────
 // Word 渲染器
 // ─────────────────────────────────────────────
 
-function buildWordSection(section: ArtifactSection): Paragraph[] {
+function buildWordSection(
+  section: ArtifactSection,
+  sources?: CitationDisplaySource[],
+): Paragraph[] {
   const paragraphs: Paragraph[] = [];
 
   paragraphs.push(paragraphHeading2(section.heading));
   paragraphs.push(...bodyLinesToParagraphs(section.body));
 
-  if (section.citations && section.citations.length > 0) {
-    paragraphs.push(paragraphCitationBlock(`【来源引用：${section.citations.join("、")}】`));
+  const seeAlso = formatSectionSeeAlsoLine(section.citations, sources);
+  if (seeAlso) {
+    paragraphs.push(paragraphCitationBlock(seeAlso));
   }
 
   return paragraphs;
@@ -140,7 +150,7 @@ export async function renderDocxWithOptions(
   ];
 
   for (const section of draft.sections) {
-    allParagraphs.push(...buildWordSection(section));
+    allParagraphs.push(...buildWordSection(section, options.sources));
   }
 
   if (draft.reviewNotes.length > 0) {

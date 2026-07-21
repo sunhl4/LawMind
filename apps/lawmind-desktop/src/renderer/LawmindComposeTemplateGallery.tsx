@@ -94,6 +94,7 @@ export function LawmindComposeTemplateGallery(props: Props): ReactNode {
         {intakeTemplate ? (
           <LawmindJobIntakeForm
             template={intakeTemplate}
+            apiBase={apiBase}
             onCancel={() => setIntakeTemplate(null)}
             onFillComposer={(prompt) => {
               onApplyStarterPrompt(prompt);

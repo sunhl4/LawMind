@@ -25,7 +25,9 @@ const editionState: { current: EditionInfo } = {
       customDeliverableSpec: false,
       acceptancePackExport: false,
       strictDangerousToolApproval: false,
+      reviewCampaignParallel: false,
     },
+    citationMode: "assisted",
     loading: false,
   },
 };

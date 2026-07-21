@@ -7,14 +7,21 @@
   gap: var(--space-2) var(--space-3);
   row-gap: var(--space-3);
   padding: var(--space-3) var(--space-8) var(--space-3);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent-border) 55%, var(--border));
   flex-shrink: 0;
+  /* Warm brass wash — matches page canvas (no charcoal bar). */
   background:
-    linear-gradient(180deg, rgba(23, 27, 33, 0.92), rgba(17, 19, 23, 0.88));
-  -webkit-backdrop-filter: saturate(140%) blur(14px);
-  backdrop-filter: saturate(140%) blur(14px);
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent-dim) 70%, #fffaf3) 0%,
+      color-mix(in srgb, var(--accent-dim) 35%, var(--surface)) 48%,
+      color-mix(in srgb, var(--side-bg) 40%, var(--surface-2)) 100%
+    );
+  -webkit-backdrop-filter: saturate(120%) blur(10px);
+  backdrop-filter: saturate(120%) blur(10px);
   position: relative;
   z-index: 5;
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--accent-border) 35%, transparent);
 }
 
 .lm-main-header::after {
@@ -24,8 +31,25 @@
   right: 0;
   bottom: -1px;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(183, 154, 103, 0.18) 30%, rgba(183, 154, 103, 0.18) 70%, transparent);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--accent) 28%, transparent) 28%,
+    color-mix(in srgb, var(--accent) 28%, transparent) 72%,
+    transparent
+  );
   pointer-events: none;
+}
+
+html.lm-theme-dark .lm-main-header {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent-dim) 55%, var(--surface)) 0%,
+      color-mix(in srgb, var(--accent-dim) 22%, var(--surface-2)) 100%
+    );
+  border-bottom-color: var(--border-md);
+  box-shadow: inset 0 -1px 0 rgba(183, 154, 103, 0.12);
 }
 
 /* 紧凑顶栏：单行标题 + 模块切换（类菜单栏） */
@@ -163,14 +187,15 @@
 }
 
 .lm-main-header-gear-btn:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text);
+  background: var(--accent-dim);
+  color: var(--accent-hover);
 }
 
 .lm-main-header-gear-btn-active,
 .lm-main-header-gear-btn[aria-pressed="true"] {
-  background: rgba(183, 154, 103, 0.18);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--accent-dim) 90%, var(--surface));
+  color: var(--accent-hover);
+  border: 1px solid var(--accent-border);
 }
 
 .lm-main-header-gear-btn:focus-visible {
@@ -208,13 +233,14 @@
 }
 
 .lm-main-header-layout-toggles .lm-panel-toggle:hover:not(:disabled) {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.06);
+  color: var(--accent-hover);
+  background: var(--accent-dim);
 }
 
 .lm-main-header-layout-toggles .lm-panel-toggle[aria-pressed='true']:not(.lm-panel-toggle-off) {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.08);
+  color: var(--accent-hover);
+  background: color-mix(in srgb, var(--accent-dim) 80%, var(--surface));
+  box-shadow: inset 0 0 0 1px var(--accent-border);
 }
 
 .lm-main-header-layout-toggles .lm-panel-toggle-off {
@@ -271,9 +297,20 @@
   min-width: 140px;
   max-width: min(320px, 42vw);
   font-size: 12px;
-  padding: 2px 6px;
+  padding: 3px 8px;
   line-height: 1.2;
-  min-height: 24px;
+  min-height: 26px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent-border) 45%, var(--border));
+  background: color-mix(in srgb, var(--surface) 90%, var(--accent-dim));
+  color: var(--text);
+  box-shadow: inset 0 1px 0 var(--inset-highlight);
+}
+
+.lm-main-asst-select:focus {
+  outline: none;
+  border-color: var(--accent-border);
+  box-shadow: var(--ring-accent);
 }
 
 .lm-main-assistant-name {
@@ -321,8 +358,15 @@
 
 .lm-nav-more-item:hover,
 .lm-nav-more-item:focus-visible {
-  background: var(--surface-2, rgba(0, 0, 0, 0.04));
+  background: var(--accent-dim);
+  color: var(--accent-hover);
   outline: none;
+}
+
+.lm-main-header-compact .lm-nav-more-trigger.active,
+.lm-main-header-compact .lm-nav-more-trigger[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--accent-dim) 75%, var(--surface));
+  color: var(--accent-hover);
 }
 
 .lm-main-nav-compact {
@@ -332,15 +376,34 @@
   width: max-content;
   max-width: 100%;
   margin-bottom: 0;
-  padding: 2px;
+  padding: 3px;
+  gap: 3px;
+  background: color-mix(in srgb, var(--surface) 75%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-border) 40%, var(--border));
+  border-radius: 999px;
+  box-shadow: inset 0 1px 0 var(--inset-highlight);
 }
 
 .lm-main-header-compact .lm-main-nav-compact .lm-tab {
   flex: 0 0 auto;
-  min-height: 22px;
-  padding: 2px 10px;
+  min-height: 26px;
+  padding: 4px 12px;
   font-size: 12px;
   line-height: 1.2;
+  border-radius: 999px;
+  color: var(--text-2);
+}
+
+.lm-main-header-compact .lm-main-nav-compact .lm-tab:hover {
+  color: var(--accent-hover);
+  background: color-mix(in srgb, var(--accent-dim) 70%, transparent);
+}
+
+.lm-main-header-compact .lm-main-nav-compact .lm-tab.active,
+.lm-main-header-compact .lm-main-nav-compact .lm-tab[aria-current="page"] {
+  background: var(--grad-brand);
+  color: var(--on-accent);
+  box-shadow: var(--shadow-brass);
 }
 
 .lm-exit-cockpit-btn {
@@ -391,25 +454,26 @@
   flex-shrink: 1;
   min-width: 0;
   max-width: min(220px, 26vw);
-  height: 24px;
-  padding: 0 10px;
+  height: 26px;
+  padding: 0 11px;
   border-radius: 999px;
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid color-mix(in srgb, var(--accent-border) 50%, var(--border));
+  background: color-mix(in srgb, var(--surface) 88%, var(--accent-dim));
   color: var(--text-2);
   font-size: 12px;
-  font-weight: 500;
-  line-height: 22px;
+  font-weight: 550;
+  line-height: 24px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
+  box-shadow: inset 0 1px 0 var(--inset-highlight);
 }
 
 .lm-header-matter-chip:hover {
   color: var(--text);
   border-color: var(--accent-border);
-  background: rgba(183, 154, 103, 0.1);
+  background: color-mix(in srgb, var(--accent-dim) 65%, var(--surface));
 }
 
 .lm-panel-toggles-compact .lm-panel-toggle {

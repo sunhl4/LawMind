@@ -30,6 +30,13 @@ export type ReviewWorkbenchDocumentColumnProps = {
   reviewEditorWidth: number;
   onReviewEditorResize: (e: ReactPointerEvent) => void;
   hasDetailPane: boolean;
+  templateOptions?: Array<{ id: string; label: string; kind: "built-in" | "uploaded" }>;
+  renderTemplateId?: string;
+  onRenderTemplateIdChange?: (id: string) => void;
+  actionBusy?: boolean;
+  onExportWord?: () => void;
+  onOpenAgentsDesk?: () => void;
+  exportReady?: boolean;
 };
 
 function reviewPaneLayoutStyle(
@@ -89,58 +96,136 @@ export function ReviewWorkbenchDocumentColumn(props: ReviewWorkbenchDocumentColu
     reviewEditorWidth,
     onReviewEditorResize,
     hasDetailPane,
+    templateOptions = [],
+    renderTemplateId = "",
+    onRenderTemplateIdChange,
+    actionBusy = false,
+    onExportWord,
+    onOpenAgentsDesk,
+    exportReady = false,
   } = props;
 
   const growReviewPaneId = lastVisibleReviewPaneId(paneVisibility);
+  const showWritingChrome =
+    Boolean(onRenderTemplateIdChange) || Boolean(onExportWord) || Boolean(onOpenAgentsDesk);
 
   return (
-    <>
-      {paneVisibility.editor ? (
-        <div
-          className={reviewPaneClassName("lm-review-editor-pane", "editor", growReviewPaneId)}
-          style={reviewPaneLayoutStyle("editor", growReviewPaneId, reviewMetaWidth, reviewEditorWidth)}
-        >
-          <LawmindDraftDocumentEditor
-            taskId={detail.taskId}
-            apiBase={apiBase}
-            value={editorValue}
-            onChange={onEditorChange}
-            editable={isDraftDocumentEditable(detail.reviewStatus)}
-            dirty={editorDirty}
-            saving={editorSaving}
-            saveError={editorSaveError}
-            onSave={onEditorSave}
-            onRevert={() => {
-              if (savedEditorValue) {
-                onEditorRevert();
+    <div className="lm-review-compose-main">
+      <div className="lm-review-compose-panes">
+        {paneVisibility.editor ? (
+          <div
+            className={reviewPaneClassName("lm-review-editor-pane", "editor", growReviewPaneId)}
+            style={reviewPaneLayoutStyle("editor", growReviewPaneId, reviewMetaWidth, reviewEditorWidth)}
+          >
+            <LawmindDraftDocumentEditor
+              taskId={detail.taskId}
+              apiBase={apiBase}
+              value={editorValue}
+              onChange={onEditorChange}
+              editable={isDraftDocumentEditable(detail.reviewStatus)}
+              dirty={editorDirty}
+              saving={editorSaving}
+              saveError={editorSaveError}
+              onSave={onEditorSave}
+              onRevert={() => {
+                if (savedEditorValue) {
+                  onEditorRevert();
+                }
+              }}
+              reviewStatus={detail.reviewStatus}
+            />
+          </div>
+        ) : null}
+
+        {paneVisibility.editor
+          ? renderReviewSplit("editor", paneVisibility, hasDetailPane, onReviewEditorResize, "调整文档编辑区宽度")
+          : null}
+
+        {paneVisibility.preview ? (
+          <div
+            className={reviewPaneClassName("lm-review-preview-pane", "preview", growReviewPaneId)}
+            style={reviewPaneLayoutStyle("preview", growReviewPaneId, reviewMetaWidth, reviewEditorWidth)}
+          >
+            {templateOptions.length > 0 && onRenderTemplateIdChange ? (
+              <div className="lm-review-preview-template-bar">
+                <label className="lm-review-template-pick lm-review-template-pick-inline">
+                  <span>交付模板</span>
+                  <select
+                    value={renderTemplateId}
+                    onChange={(e) => onRenderTemplateIdChange(e.target.value)}
+                    disabled={actionBusy}
+                    aria-label="选择交付模板"
+                  >
+                    {templateOptions.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.label}
+                        {o.kind === "uploaded" ? "（上传）" : "（内置）"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            ) : null}
+            <LawmindDraftDocumentPreview
+              taskId={detail.taskId}
+              apiBase={apiBase}
+              value={editorValue}
+              outputPath={lastExportPath ?? detail.outputPath ?? null}
+              reviewStatusLabel={
+                editorDirty ? "预览（含未保存修改）" : reviewStatusDisplayLabel(detail.reviewStatus)
               }
-            }}
-            reviewStatus={detail.reviewStatus}
-          />
-        </div>
+            />
+          </div>
+        ) : null}
+      </div>
+
+      {showWritingChrome ? (
+        <footer className="lm-review-writing-dock" aria-label="撰写操作">
+          <div className="lm-review-writing-dock-status" role="status">
+            {editorSaving
+              ? "保存中…"
+              : editorSaveError
+                ? editorSaveError
+                : editorDirty
+                  ? "有未保存修改"
+                  : "已保存"}
+            {" · "}
+            {reviewStatusDisplayLabel(detail.reviewStatus)}
+          </div>
+          <div className="lm-review-writing-dock-actions">
+            {editorDirty ? (
+              <button
+                type="button"
+                className="lm-btn lm-btn-secondary lm-btn-small"
+                disabled={editorSaving || !isDraftDocumentEditable(detail.reviewStatus)}
+                onClick={onEditorSave}
+              >
+                {editorSaving ? "保存中…" : "保存"}
+              </button>
+            ) : null}
+            {onExportWord ? (
+              <button
+                type="button"
+                className="lm-btn lm-btn-accent lm-btn-small"
+                disabled={actionBusy || !exportReady}
+                title={exportReady ? "按当前模板导出 Word" : "导出需先完成签批（建议回在办）"}
+                onClick={onExportWord}
+              >
+                {actionBusy ? "导出中…" : "导出 Word"}
+              </button>
+            ) : null}
+            {onOpenAgentsDesk ? (
+              <button
+                type="button"
+                className="lm-btn lm-btn-secondary lm-btn-small"
+                onClick={onOpenAgentsDesk}
+              >
+                回在办签批
+              </button>
+            ) : null}
+          </div>
+        </footer>
       ) : null}
-
-      {paneVisibility.editor
-        ? renderReviewSplit("editor", paneVisibility, hasDetailPane, onReviewEditorResize, "调整文档编辑区宽度")
-        : null}
-
-      {paneVisibility.preview ? (
-        <div
-          className={reviewPaneClassName("lm-review-preview-pane", "preview", growReviewPaneId)}
-          style={reviewPaneLayoutStyle("preview", growReviewPaneId, reviewMetaWidth, reviewEditorWidth)}
-        >
-          <LawmindDraftDocumentPreview
-            taskId={detail.taskId}
-            apiBase={apiBase}
-            value={editorValue}
-            outputPath={lastExportPath ?? detail.outputPath ?? null}
-            reviewStatusLabel={
-              editorDirty ? "预览（含未保存修改）" : reviewStatusDisplayLabel(detail.reviewStatus)
-            }
-          />
-        </div>
-      ) : null}
-
-    </>
+    </div>
   );
 }

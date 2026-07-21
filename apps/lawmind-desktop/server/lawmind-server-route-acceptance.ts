@@ -20,6 +20,7 @@
 
 import { acceptanceTopBlockers } from "../../../src/lawmind/platform/review-gates.js";
 import {
+  buildChecklistView,
   getDeliverableSpec,
   listDeliverableSpecs,
   listExtraDeliverableSpecs,
@@ -28,6 +29,7 @@ import {
 } from "../../../src/lawmind/deliverables/index.js";
 import { buildDraftAcceptancePackMarkdown } from "../../../src/lawmind/delivery/draft-acceptance-pack.js";
 import { listDrafts, readDraft, readReasoningSnapshot } from "../../../src/lawmind/drafts/index.js";
+import { resolveCitationMode } from "../../../src/lawmind/policy/citation-mode.js";
 import { resolveEdition } from "../../../src/lawmind/policy/index.js";
 import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/index.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
@@ -53,6 +55,7 @@ function policyForEdition(
     ...(p.retrievalMode ? { retrievalMode: p.retrievalMode } : {}),
     ...(p.enableCollaboration !== undefined ? { enableCollaboration: p.enableCollaboration } : {}),
     ...(p.edition ? { edition: p.edition } : {}),
+    ...(p.citationMode ? { citationMode: p.citationMode } : {}),
   };
 }
 
@@ -125,7 +128,9 @@ export async function handleAcceptanceRoutes({
   }
 
   if (pathname === "/api/policy/edition" && req.method === "GET") {
-    const edition = resolveEdition({ policy: policyForEdition(policy) });
+    const pol = policyForEdition(policy);
+    const edition = resolveEdition({ policy: pol });
+    const citationMode = resolveCitationMode(pol, edition.edition);
     sendJson(
       res,
       200,
@@ -135,10 +140,30 @@ export async function handleAcceptanceRoutes({
         label: edition.label,
         source: edition.source,
         features: edition.features,
+        citationMode,
       },
       c,
     );
     return true;
+  }
+
+  {
+    const checklistMatch = pathname.match(/^\/api\/drafts\/([^/]+)\/checklist$/);
+    if (checklistMatch && req.method === "GET") {
+      const raw = decodeURIComponent(checklistMatch[1] ?? "");
+      if (!isSafeTaskIdSegment(raw)) {
+        sendJson(res, 400, { ok: false, error: "invalid task id" }, c);
+        return true;
+      }
+      const draft = readDraft(workspaceDir, raw);
+      if (!draft) {
+        sendJson(res, 404, { ok: false, error: "not found" }, c);
+        return true;
+      }
+      const checklist = buildChecklistView(draft.deliverableType, null);
+      sendJson(res, 200, { ok: true, checklist }, c);
+      return true;
+    }
   }
 
   const packMatch = pathname.match(/^\/api\/drafts\/([^/]+)\/acceptance-pack$/);

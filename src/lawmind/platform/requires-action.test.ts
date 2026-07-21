@@ -8,9 +8,10 @@ import {
 } from "./requires-action.js";
 
 describe("requires-action", () => {
-  it("toolDisplayNameZh maps known tools", () => {
-    expect(toolDisplayNameZh("execute_workflow")).toBe("执行工作流");
-    expect(toolDisplayNameZh("unknown_tool")).toBe("unknown_tool");
+  it("toolDisplayNameZh maps known tools in lawyer Chinese", () => {
+    expect(toolDisplayNameZh("execute_workflow")).toBe("启动办案流程");
+    expect(toolDisplayNameZh("write_document")).toBe("审定文书");
+    expect(toolDisplayNameZh("unknown_tool")).toBe("该项操作");
   });
 
   it("buildToolApprovalAction includes approve and reject", () => {
@@ -24,7 +25,8 @@ describe("requires-action", () => {
     });
     expect(a.kind).toBe("tool_approval");
     expect(a.decisions).toContain("approve");
-    expect(a.title).toContain("渲染");
+    expect(a.title).toContain("Word");
+    expect(a.title).not.toMatch(/render_document/);
   });
 
   it("buildRequiresActionsFromTurn for clarification", () => {

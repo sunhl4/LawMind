@@ -1,5 +1,5 @@
 /**
- * 草稿审核台 — 列表、全文审阅、通过 / 驳回 / 备注、批准后渲染交付物。
+ * 文书台 — 改稿 · 模板实时预览 · 导出；正式签批主路径在「在办」。
  */
 
 import {
@@ -38,6 +38,9 @@ import { useReviewWorkbenchData } from "./review/useReviewWorkbenchData";
 import { useReviewWorkbenchActions } from "./review/useReviewWorkbenchActions";
 import { ReviewWorkbenchDocumentColumn } from "./review/ReviewWorkbenchDocumentColumn";
 import { ReviewWorkbenchMetaColumn } from "./review/ReviewWorkbenchMetaColumn";
+import type { VerificationChecklistView } from "../../../../src/lawmind/deliverables/verification-checklist.ts";
+import { buildChecklistView } from "../../../../src/lawmind/deliverables/verification-checklist.ts";
+import type { ReviewCampaign } from "./lawmind-review-campaign-api";
 
 type Props = {
   apiBase: string;
@@ -51,6 +54,8 @@ type Props = {
   onShowArtifact?: (outputPath: string) => void;
   onRecordsChanged?: () => void;
   onGoToChat?: (opts: { taskId: string; matterId?: string; prompt?: string }) => void;
+  /** 文书台 → 在办：正式签批队列 */
+  onOpenAgentsDesk?: () => void;
   onRevisionJobQueued?: (opts: { sessionId: string; assistantId: string; taskId: string }) => void;
   externalRefreshToken?: number;
   paneVisibility: ReviewPaneVisibility;
@@ -70,6 +75,7 @@ export function ReviewWorkbench(props: Props) {
     onShowArtifact,
     onRecordsChanged,
     onGoToChat,
+    onOpenAgentsDesk,
     onRevisionJobQueued,
     externalRefreshToken = 0,
     paneVisibility,
@@ -78,6 +84,9 @@ export function ReviewWorkbench(props: Props) {
 
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [note, setNote] = useState("");
+  const [checklistView, setChecklistView] = useState<VerificationChecklistView | null>(null);
+  const [checklistChecked, setChecklistChecked] = useState<Record<string, boolean>>({});
+  const [campaign, setCampaign] = useState<ReviewCampaign | null>(null);
   const [revisionDispatchNote, setRevisionDispatchNote] = useState("");
   const [appendToProfile, setAppendToProfile] = useState(false);
   const [appendToLawyerProfile, setAppendToLawyerProfile] = useState(false);
@@ -363,7 +372,29 @@ export function ReviewWorkbench(props: Props) {
       setSavedEditorValue(nextEditor);
     },
     clearEditorSaveError: () => setEditorSaveError(null),
+    checklistChecked,
   });
+
+  useEffect(() => {
+    if (!detail) {
+      setChecklistView(null);
+      setChecklistChecked({});
+      setCampaign(null);
+      return;
+    }
+    const view = buildChecklistView(detail.deliverableType, null);
+    setChecklistView(view);
+    setChecklistChecked({ ...view.state.checked });
+    setCampaign(null);
+  }, [detail?.taskId, detail?.deliverableType]);
+
+  const checklistBlocksApprove = useMemo(() => {
+    if (!checklistView || (detail?.reviewStatus ?? "pending") !== "pending") {
+      return false;
+    }
+    const required = checklistView.spec.items.filter((i) => i.required);
+    return required.some((i) => !checklistChecked[i.id]);
+  }, [checklistView, checklistChecked, detail?.reviewStatus]);
 
   const showMatterEntryBar = Boolean(returnMatterId?.trim() && onReturnToMatter);
   const hasDetailPane = Boolean(selectedTaskId && !detailLoading && detail && editorValue);
@@ -436,7 +467,7 @@ export function ReviewWorkbench(props: Props) {
       <div className="lm-workbench lm-review-workbench">
         {!selectedTaskId && !detailLoading && (
           <div className="lm-review-detail-row lm-review-detail-empty">
-            <div className="lm-meta lm-workbench-placeholder">在上方选择草稿后开始审阅与签批</div>
+            <div className="lm-meta lm-workbench-placeholder">在上方选择草稿后开始改稿与预览</div>
           </div>
         )}
         {selectedTaskId && detailLoading && (
@@ -457,6 +488,15 @@ export function ReviewWorkbench(props: Props) {
                 reasoningMarkdown={reasoningMarkdown}
                 citationIntegrity={citationIntegrity}
                 citationGateStrict={edition.features.citationGateStrict}
+                citationMode={edition.citationMode}
+                checklistView={checklistView}
+                checklistChecked={checklistChecked}
+                onChecklistToggle={(id, value) =>
+                  setChecklistChecked((prev) => ({ ...prev, [id]: value }))
+                }
+                checklistBlocksApprove={checklistBlocksApprove}
+                campaign={campaign}
+                onCampaignChange={setCampaign}
                 gateDecisions={gateDecisions}
                 executionState={executionState}
                 memorySources={memorySources}
@@ -466,6 +506,7 @@ export function ReviewWorkbench(props: Props) {
                 onDismissSuggestion={(id) => void dismissSuggestion(id, setLearningBusy)}
                 onDraftUpdated={() => void loadDetail(selectedTaskId)}
                 onGoToChat={onGoToChat}
+                onOpenAgentsDesk={onOpenAgentsDesk}
                 deferMemoryWrites={deferMemoryWrites}
                 onDeferMemoryWritesChange={(checked) => {
                   setDeferMemoryWrites(checked);
@@ -481,9 +522,6 @@ export function ReviewWorkbench(props: Props) {
                 appendToLawyerProfile={appendToLawyerProfile}
                 onAppendToLawyerProfileChange={setAppendToLawyerProfile}
                 actionBusy={actionBusy}
-                templateOptions={templateOptions}
-                renderTemplateId={renderTemplateId}
-                onRenderTemplateIdChange={setRenderTemplateId}
                 lastExportPath={lastExportPath}
                 onApprove={() => void submitReview("approved")}
                 onReject={() => void submitReview("rejected")}
@@ -521,7 +559,7 @@ export function ReviewWorkbench(props: Props) {
             ) : null}
 
             {paneVisibility.meta
-              ? renderReviewSplit("meta", onReviewMetaResize, "调整签批区宽度")
+              ? renderReviewSplit("meta", onReviewMetaResize, "调整侧栏宽度")
               : null}
 
             <ReviewWorkbenchDocumentColumn
@@ -546,6 +584,13 @@ export function ReviewWorkbench(props: Props) {
               reviewEditorWidth={reviewEditorWidth}
               onReviewEditorResize={onReviewEditorResize}
               hasDetailPane={hasDetailPane}
+              templateOptions={templateOptions}
+              renderTemplateId={renderTemplateId}
+              onRenderTemplateIdChange={setRenderTemplateId}
+              actionBusy={actionBusy}
+              onExportWord={() => void submitRender({ strict: true })}
+              onOpenAgentsDesk={onOpenAgentsDesk}
+              exportReady={(detail.reviewStatus ?? "pending") === "approved"}
             />
           </div>
         ) : null}

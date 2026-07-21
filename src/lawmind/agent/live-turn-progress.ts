@@ -1,4 +1,5 @@
 import type { TaskExecutionState } from "../platform/contracts.js";
+import { toolDisplayNameZh } from "../platform/requires-action.js";
 import type { RunTurnEvent } from "./runtime.js";
 import type { PersistedChatLiveTrace } from "./types.js";
 
@@ -21,20 +22,7 @@ export type LiveTurnProgress = {
 const store = new Map<string, LiveTurnProgress>();
 
 function toolLabel(toolName: string): string {
-  const map: Record<string, string> = {
-    execute_workflow: "执行工作流",
-    research_task: "法规检索",
-    draft_document: "生成草稿",
-    update_draft: "更新草稿",
-    render_document: "渲染 Word",
-    write_document: "写回草稿",
-    search_workspace: "检索工作区",
-    read_project_file: "读取项目文件",
-    delegate_task: "委派任务",
-    web_search: "联网搜索",
-    search_statute_web: "法规联网检索",
-  };
-  return map[toolName] ?? toolName;
+  return toolDisplayNameZh(toolName);
 }
 
 export function beginLiveTurnProgress(sessionId: string): void {

@@ -105,6 +105,10 @@ export type LawmindApiPostRoutes = {
     body: SessionCreatePostRequest;
     response: OkResponse & { sessionId?: string; title?: string };
   };
+  "/api/skills/enabled": {
+    body: { skillId: string; enabled: boolean };
+    response: OkResponse & { skills?: Array<Record<string, unknown>> };
+  };
 };
 
 export type LawmindApiPatchRoutes = {

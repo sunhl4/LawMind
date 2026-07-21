@@ -16,7 +16,7 @@ import {
   resolveMatterHeadline,
   resolveMatterSidebarLabel,
 } from "./matter-label.js";
-import { ADHOC_MEETING_MATTER_ID } from "./team-meeting.js";
+import { ADHOC_MEETING_MATTER_ID } from "./team-meeting-ids.js";
 
 function uniq(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];

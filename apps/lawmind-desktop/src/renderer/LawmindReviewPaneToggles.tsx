@@ -9,7 +9,7 @@ type PaneSpec = {
 };
 
 const REVIEW_PANE_SPECS: PaneSpec[] = [
-  { id: "meta", label: "签批", titleShow: "显示签批区", titleHide: "隐藏签批区" },
+  { id: "meta", label: "更多", titleShow: "显示交付与高级侧栏", titleHide: "隐藏交付与高级侧栏" },
   { id: "editor", label: "编辑", titleShow: "显示文档编辑区", titleHide: "隐藏文档编辑区" },
   { id: "preview", label: "预览", titleShow: "显示交付预览", titleHide: "隐藏交付预览" },
 ];

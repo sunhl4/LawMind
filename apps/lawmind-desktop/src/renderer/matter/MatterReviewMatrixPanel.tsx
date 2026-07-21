@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ArtifactDraft } from "../../../../../src/lawmind/types.ts";
+import { compareMatrixExcerpts } from "../../../../../src/lawmind/matter/review-matrix-compare.ts";
 import { apiGetJson, errorMessage } from "../api-client.js";
 import {
   loadReviewMatrixNotes,
@@ -49,6 +50,16 @@ export function MatterReviewMatrixPanel({ apiBase, matterId, onOpenReview }: Pro
   const [verified, setVerified] = useState<Record<string, boolean>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [notesReady, setNotesReady] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [compareBefore, setCompareBefore] = useState("");
+  const [compareAfter, setCompareAfter] = useState("");
+  const compareResult = useMemo(
+    () =>
+      compareBefore.trim() || compareAfter.trim()
+        ? compareMatrixExcerpts(compareBefore, compareAfter)
+        : null,
+    [compareBefore, compareAfter],
+  );
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -149,10 +160,79 @@ export function MatterReviewMatrixPanel({ apiBase, matterId, onOpenReview }: Pro
             {gapSummary.done > 0 ? ` · 已核实 ${gapSummary.done}` : ""}
           </p>
         ) : null}
-        <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => void reload()}>
-          刷新
-        </button>
+        <div className="lm-review-matrix__actions">
+          <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => void reload()}>
+            刷新
+          </button>
+          <button
+            type="button"
+            className="lm-btn lm-btn-secondary lm-btn-sm"
+            data-testid="lm-review-matrix-export"
+            disabled={exportBusy}
+            onClick={() => {
+              void (async () => {
+                setExportBusy(true);
+                setErr(null);
+                try {
+                  const j = await apiGetJson<{ ok?: boolean; csv?: string }>(
+                    apiBase,
+                    `/api/matters/review-matrix/export?matterId=${encodeURIComponent(matterId)}`,
+                  );
+                  if (!j.ok || !j.csv) {
+                    throw new Error("导出失败");
+                  }
+                  const blob = new Blob([j.csv], { type: "text/csv;charset=utf-8" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `review-matrix-${matterId}.csv`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                } catch (e) {
+                  setErr(errorMessage(e, "导出矩阵失败"));
+                } finally {
+                  setExportBusy(false);
+                }
+              })();
+            }}
+          >
+            {exportBusy ? "导出中…" : "导出 CSV（含引用）"}
+          </button>
+        </div>
       </header>
+      <details className="lm-review-matrix__compare" data-testid="lm-review-matrix-compare">
+        <summary>版本比对（危险变更摘要）</summary>
+        <p className="lm-meta">粘贴修改前/后条款摘录，检测高风险表述变化（本地规则，非全文 diff）。</p>
+        <label className="lm-job-intake-field">
+          <span>修改前</span>
+          <textarea
+            className="lm-input"
+            rows={2}
+            value={compareBefore}
+            onChange={(e) => setCompareBefore(e.target.value)}
+            data-testid="lm-matrix-compare-before"
+          />
+        </label>
+        <label className="lm-job-intake-field">
+          <span>修改后</span>
+          <textarea
+            className="lm-input"
+            rows={2}
+            value={compareAfter}
+            onChange={(e) => setCompareAfter(e.target.value)}
+            data-testid="lm-matrix-compare-after"
+          />
+        </label>
+        {compareResult ? (
+          <p
+            className={compareResult.danger ? "lm-text-warn" : "lm-meta"}
+            role="status"
+            data-testid="lm-matrix-compare-summary"
+          >
+            {compareResult.summary}
+          </p>
+        ) : null}
+      </details>
       <div className="lm-review-matrix__scroll">
         <table className="lm-review-matrix__table">
           <thead>

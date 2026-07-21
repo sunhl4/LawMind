@@ -1,16 +1,76 @@
-/* Agent fleet / 在办事项 */
+/* Agent fleet / 在办事项 — lawyer-first calm desk */
 .lm-agent-fleet-page {
   display: flex;
   flex-direction: column;
   min-height: 0;
   flex: 1;
+  background:
+    radial-gradient(ellipse 70% 35% at 40% 0%, rgba(166, 124, 82, 0.06), transparent 55%),
+    var(--bg);
+}
+
+.lm-agents-desk-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 20px;
+  padding: 4px 4px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent-border) 35%, var(--border));
+  margin-bottom: 4px;
+}
+
+.lm-agents-desk-intro {
+  min-width: 0;
+  flex: 1 1 220px;
+}
+
+.lm-agents-desk-title {
+  margin: 0 0 6px;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.lm-agents-desk-lead {
+  margin: 0;
+  max-width: 36rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.lm-agents-desk-tabs {
+  flex: 0 0 auto;
+  margin-bottom: 0;
+  padding: 3px;
+  gap: 3px;
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-border) 40%, var(--border));
+  border-radius: 999px;
+  box-shadow: inset 0 1px 0 var(--inset-highlight);
+}
+
+.lm-agents-desk-tabs .lm-tab {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 4px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.lm-agents-desk-tabs .lm-tab .lm-tab-inline-count {
+  margin-left: 6px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
 }
 
 .lm-agent-fleet-panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px 16px 20px;
+  gap: 14px;
+  padding: 14px 8px 24px;
   min-height: 0;
 }
 
@@ -20,6 +80,18 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
+}
+
+.lm-agent-fleet-lead {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: var(--text-2);
+  max-width: 40rem;
+}
+
+.lm-agent-fleet-synced-quiet:empty {
+  display: none;
 }
 
 .lm-agent-fleet-header-actions {
@@ -66,11 +138,12 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md, 8px);
-  background: var(--surface);
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent-border) 35%, var(--border));
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--surface) 92%, var(--accent-dim));
   position: relative;
+  box-shadow: var(--shadow-xs);
 }
 
 .lm-agent-fleet-spawn-compact {
@@ -188,24 +261,41 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
+  gap: 6px;
   width: 100%;
   text-align: left;
-  padding: 10px 12px;
+  padding: 12px 14px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md, 8px);
+  border-radius: var(--r-lg);
   background: var(--surface);
   cursor: pointer;
   color: inherit;
+  box-shadow: var(--shadow-xs);
+  transition: border-color var(--t) var(--ease), box-shadow var(--t) var(--ease);
+}
+
+.lm-agent-fleet-card-compact {
+  gap: 4px;
+  padding: 8px 10px;
+}
+
+.lm-agent-fleet-card-compact .lm-agent-fleet-status {
+  font-size: 10px;
 }
 
 .lm-agent-fleet-card:hover {
-  border-color: var(--accent);
+  border-color: var(--accent-border);
+  box-shadow: var(--shadow-sm);
 }
 
 .lm-agent-fleet-card-selected {
-  border-color: var(--accent);
-  background: var(--surface-elevated, var(--surface));
+  border-color: var(--accent-border);
+  background: color-mix(in srgb, var(--accent-dim) 45%, var(--surface));
+  box-shadow: inset 0 1px 0 var(--inset-highlight), var(--shadow-sm);
+}
+
+.lm-agent-fleet-card-attention {
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--border));
 }
 
 .lm-agent-fleet-card-head {
@@ -214,14 +304,23 @@
   gap: 6px;
   width: 100%;
   justify-content: space-between;
+  align-items: center;
 }
 
 .lm-agent-fleet-kind,
 .lm-agent-fleet-status {
   font-size: 0.72rem;
-  padding: 1px 6px;
-  border-radius: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
   border: 1px solid var(--border);
+  font-weight: 600;
+}
+
+.lm-agent-fleet-kind-quiet {
+  border-color: transparent;
+  background: var(--wash);
+  color: var(--muted);
+  font-weight: 500;
 }
 
 .lm-agent-fleet-status-awaiting_approval,
@@ -242,14 +341,41 @@
 }
 
 .lm-agent-fleet-card-title {
-  font-size: 0.95rem;
+  font-size: 0.98rem;
+  font-weight: 650;
+  line-height: 1.35;
+  color: var(--text);
 }
 
 .lm-agent-fleet-card-next {
   display: block;
-  margin-top: 2px;
+  margin-top: 0;
+  font-size: 0.84rem;
+  font-weight: 550;
+  color: var(--accent-hover);
+  line-height: 1.4;
+}
+
+.lm-agent-fleet-card-sub {
   font-size: 0.8rem;
-  color: var(--text-2, var(--muted));
+}
+
+.lm-agent-fleet-learning-summary,
+.lm-agent-fleet-tool-list,
+.lm-agent-fleet-transcript-advanced {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: var(--r);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.lm-agent-fleet-learning-summary summary,
+.lm-agent-fleet-tool-list summary,
+.lm-agent-fleet-transcript-advanced summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-2);
 }
 
 .lm-agent-fleet-card-meta {

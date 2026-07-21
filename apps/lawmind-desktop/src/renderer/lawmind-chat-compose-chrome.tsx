@@ -1,11 +1,12 @@
 /**
- * Compose chrome above the resizable input (errors, model warn, queue, stash, token, attachments).
+ * Compose chrome above the resizable input (errors, model warn, queue, token, attachments).
  * Extracted from lawmind-chat-shell for maintainability (R-P1-2).
  */
 
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { LawmindComposeAttachments } from "./LawmindComposeAttachments";
 import { composeModelHintCalloutClass } from "./lawmind-compose-model-hint";
+import { isPrivilegeTipUiEnabled, scanPrivilegeTip } from "./lawmind-privilege-tip";
 import type { LawmindComposeExtras } from "./useLawmindComposeExtras";
 
 export type LawmindChatComposeChromeProps = {
@@ -16,10 +17,10 @@ export type LawmindChatComposeChromeProps = {
   onOpenComposeSettings?: () => void;
   composeModelHint?: string | null;
   composeModelQuickTestBusy?: boolean;
+  /** Draft text for privilege preflight tip (E10). */
+  composeInput?: string;
   queuedMessages: string[];
   cancelQueuedMessage?: (index: number) => void;
-  stashNotice: boolean;
-  onDismissStashNotice: () => void;
   composeExtras: LawmindComposeExtras;
   fileChatPills: Array<{ id: string; shortLabel: string; title: string; relPath?: string }>;
   contextMatterId: string | null;
@@ -40,10 +41,9 @@ export function LawmindChatComposeChrome(props: LawmindChatComposeChromeProps): 
     onOpenComposeSettings,
     composeModelHint,
     composeModelQuickTestBusy,
+    composeInput,
     queuedMessages,
     cancelQueuedMessage,
-    stashNotice,
-    onDismissStashNotice,
     composeExtras: extras,
     fileChatPills,
     contextMatterId,
@@ -55,8 +55,28 @@ export function LawmindChatComposeChrome(props: LawmindChatComposeChromeProps): 
     onClearTask,
   } = props;
 
+  const privilegeTip = useMemo(() => {
+    if (!isPrivilegeTipUiEnabled()) {
+      return null;
+    }
+    return scanPrivilegeTip(composeInput ?? "");
+  }, [composeInput]);
+
   return (
     <div className="lm-compose-chrome">
+      {privilegeTip ? (
+        <div
+          className={
+            privilegeTip.level === "warn"
+              ? "lm-callout lm-callout-warn"
+              : "lm-callout lm-callout-info"
+          }
+          role="status"
+          data-testid="lm-privilege-tip"
+        >
+          <p className="lm-callout-body">{privilegeTip.message}</p>
+        </div>
+      ) : null}
       {error && !error.includes("Preload bridge") ? (
         <div className="lm-callout lm-callout-danger" role="alert">
           <p className="lm-callout-body">{error}</p>
@@ -111,14 +131,6 @@ export function LawmindChatComposeChrome(props: LawmindChatComposeChromeProps): 
               </li>
             ))}
           </ul>
-        </div>
-      ) : null}
-      {stashNotice ? (
-        <div className="lm-compose-stash" role="status">
-          已恢复未发送草稿
-          <button type="button" className="lm-btn lm-btn-ghost lm-btn-small" onClick={onDismissStashNotice}>
-            知道了
-          </button>
         </div>
       ) : null}
       {extras.contextBudget &&

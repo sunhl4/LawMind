@@ -114,16 +114,17 @@
 
 桌面端为 **左侧边栏 + 右侧主工作台**（详见 [桌面端 UI 约定](/LAWMIND-DESKTOP-UI)）。
 
-| 表面           | 用途                                                                                            | 主要渲染入口（实现参考）                                                             |
-| -------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| **对话**       | **默认首页**：向 Agent 下达任务、引用材料、澄清和中途调整                                       | `lawmind-chat-shell.tsx`、`LawmindAssignmentCommitmentCard.tsx`                      |
-| **在办**       | 并行总览：进行中 / 交出去的活 / 按流程办（含原协作能力）                                        | `AgentFleetView.tsx`、`LawmindAgentFleetPanel.tsx`、`LawmindCollaborationDesk.tsx`   |
-| **自动办件**   | 定时或邮件触发的办件（与对话下达区分）；经顶栏 **「会议室·办件」** 进入                         | `AutomationsView.tsx`、`LawmindAutomationsPanel.tsx`                                 |
-| **会议室**     | 多助手讨论（可绑案件或临时开会）；经顶栏 **「会议室·办件」** 进入                               | `MeetingView.tsx`、`MatterTeamMeetingPanel.tsx`                                      |
-| **案件工作台** | 材料、任务、期限、草稿、CASE、进度与 Insights 的长期真相源                                      | `MatterWorkbench.tsx` 与 `matter/*` 子视图                                           |
-| **文书台**     | 有稿可审时进入：正文修改、来源核验、验收门禁、签批与导出                                        | `ReviewWorkbench.tsx`、`LawmindAcceptanceGate.tsx`                                   |
-| **待我拍板**   | 跳转「在办」并只看待决（`awaiting_*`）；侧栏底部有待决时显示；顶栏角标仅在侧栏折叠/文书台时出现 | `AgentFleetView.tsx`、`LawmindAgentFleetPanel.tsx`、`LawmindNeedsDecisionButton.tsx` |
-| **文件**       | 浏览、编辑工作区内文本，标记本回合重点材料                                                      | `FileWorkbench.tsx`；服务端 `GET/POST /api/fs/*` 与 Electron `lawmind:fs:*`          |
+| 表面           | 用途                                                                                                 | 主要渲染入口（实现参考）                                                             |
+| -------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| **首页**       | **默认首页（驾驶舱）**：待我拍板 · 分诊/期限 · 专案组 · 成长收件箱；可在外观偏好切回「经典对话首页」 | `HomeView.tsx`、`lawmind-home-prefs.ts`                                              |
+| **对话**       | 向 Agent 下达任务、引用材料、澄清和中途调整（经典偏好下可作为默认）                                  | `lawmind-chat-shell.tsx`、`LawmindAssignmentCommitmentCard.tsx`                      |
+| **在办**       | 并行总览：进行中 / 交出去的活 / 按流程办（含原协作能力）                                             | `AgentFleetView.tsx`、`LawmindAgentFleetPanel.tsx`、`LawmindCollaborationDesk.tsx`   |
+| **自动办件**   | 定时或邮件触发的办件（与对话下达区分）；经顶栏 **「会议室·办件」** 进入                              | `AutomationsView.tsx`、`LawmindAutomationsPanel.tsx`                                 |
+| **会议室**     | 多助手讨论（可绑案件或临时开会）；经顶栏 **「会议室·办件」** 进入                                    | `MeetingView.tsx`、`MatterTeamMeetingPanel.tsx`                                      |
+| **案件工作台** | 材料、任务、期限、草稿、CASE、进度与 Insights 的长期真相源                                           | `MatterWorkbench.tsx` 与 `matter/*` 子视图                                           |
+| **文书台**     | 有稿可审时进入：正文修改、来源核验、验收门禁、签批与导出                                             | `ReviewWorkbench.tsx`、`LawmindAcceptanceGate.tsx`                                   |
+| **待我拍板**   | 跳转「在办」并只看待决（`awaiting_*`）；侧栏底部有待决时显示；顶栏角标仅在侧栏折叠/文书台时出现      | `AgentFleetView.tsx`、`LawmindAgentFleetPanel.tsx`、`LawmindNeedsDecisionButton.tsx` |
+| **文件**       | 浏览、编辑工作区内文本，标记本回合重点材料                                                           | `FileWorkbench.tsx`；服务端 `GET/POST /api/fs/*` 与 Electron `lawmind:fs:*`          |
 
 **顶栏一级**：仅 **对话**、**在办**（案件 chip 显示案件标题 / 文书台为场景标签）。会议室与自动办件在 **「会议室·办件」** 菜单（`lm-nav-more`）。对话区在有待审草稿时固定显示「打开此稿」条，可直达文书台对应任务。案件工作台首页有 **「本案下一步」** 轨（打开本案对话 / 待我拍板 / 进入文书台）。待办角标与粘性条共用 action-summary，对话回合结束后会即时刷新。
 
@@ -136,6 +137,21 @@
 - **Deliverable-First**：每类交付物有 **规格（DeliverableSpec）** 与 **验收清单**；渲染前默认 **strict 验收门禁**（HTTP `422 acceptance_gate_blocked`）。架构见 [Deliverable-First](/LAWMIND-DELIVERABLE-FIRST)。
 - **推理门禁（Reasoning Gate）**：部分高风险内置 spec 配置 `reasoningGate`；`reasoning-validator` 在 strict 渲染路径与 acceptance **并联**校验。桌面 `LawmindAcceptanceGate` 同列展示 reasoning 报告。
 - **文书台学习勾选**：可将摘要写入 **助手** `PROFILE.md` 或 **律师** `LAWYER_PROFILE.md`；失败时接口区分 `profileAppendFailed` / `lawyerProfileAppendFailed` 等标志；审核通过且草稿带 `contractRevisionCapture` 时可能触发 **合同修订积累**（见 §9）。
+
+### 2.4.1 Skills 主路径（分诊 · 必核 · 专案组 · 矩阵 · 技能）
+
+| 能力                | 怎么用                                    | 说明                                                                  |
+| ------------------- | ----------------------------------------- | --------------------------------------------------------------------- |
+| **分诊**            | 对话「写材料」→ 填表交办 → 确认黄/红档    | 推荐工作流（含中国包 `cn-*`）；确认后写入分诊会话                     |
+| **律师必核**        | 文书台右侧清单                            | 未勾完必核项时「通过」签批返回 `422 checklist_incomplete`             |
+| **严格援引**        | 设置 / Edition 的 `citationMode=grounded` | 无源或无理论锚点时严格导出可被拦截                                    |
+| **审查专案组**      | 文书台 Sticky「用审查专案组」             | ≥4 角色 + Safety Score；报告可 Markdown 下载；可选「更快模式」        |
+| **案件简报 / 理论** | 案件概览                                  | Ops 可追加阶段与 RAID；理论三块可锚定；文书台可将推理图「采纳到理论」 |
+| **审查矩阵**        | 案件工作台 → 审查矩阵                     | CSV 导出含 citation；版本比对看危险变更摘要                           |
+| **技能库**          | 设置 → 技能库                             | 本地 `SKILL.md` + 签名校验；中国法务包状态；篡改签名拒载              |
+| **首页迁移**        | 首次进驾驶舱横幅                          | 可一键切回经典「打开即对话」（`preferClassicChatHome`）               |
+
+更多工程闸门见 [500 人周计划](/LAWMIND-AGENT-SKILLS-500PW-PLAN) §9.1；Edition 矩阵见 [Edition 功能矩阵](/LAWMIND-EDITION-FEATURE-MATRIX)。
 
 ### 2.5 更新与支持
 

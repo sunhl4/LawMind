@@ -152,19 +152,27 @@ html.lm-density-compact[data-lm-font-scale="comfortable"] {
 }
 
 /* Tab active state alias (some panels use lm-tab-active instead of .active) */
-.lm-tab.lm-tab-active {
+.lm-tab.lm-tab-active,
+.lm-tab.active {
+  background: var(--grad-brand);
+  color: var(--on-accent);
+  box-shadow: var(--shadow-xs), var(--shadow-brass);
+}
+
+html.lm-theme-dark .lm-tab.lm-tab-active,
+html.lm-theme-dark .lm-tab.active {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
   color: var(--text);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset 0 1px 0 var(--inset-highlight),
     0 1px 6px rgba(0, 0, 0, 0.35);
 }
 
-/* Native select dropdown theming (Electron / WebKit) */
+/* Native select dropdown theming (Electron / WebKit) — follow html color-scheme */
 select,
 textarea,
 input:not([type="checkbox"]):not([type="radio"]) {
-  color-scheme: dark;
+  color-scheme: inherit;
 }
 
 select option {

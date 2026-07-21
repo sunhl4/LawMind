@@ -33,7 +33,10 @@ import {
 import type { DraftCitationIntegrityView } from "../../../src/lawmind/drafts/index.js";
 import { resolveDraftCitationIntegrity } from "../../../src/lawmind/drafts/index.js";
 import { emit, readRecentAuditLogs } from "../../../src/lawmind/audit/index.js";
-import { buildMatterReviewMatrix } from "../../../src/lawmind/matter/review-matrix.js";
+import {
+  buildMatterReviewMatrix,
+  exportReviewMatrixCsv,
+} from "../../../src/lawmind/matter/review-matrix.js";
 import {
   appendCaseArtifact,
   appendCaseCoreIssue,
@@ -327,6 +330,127 @@ export async function handleMatterRoutes({
   c,
 }: LawmindRouteContext): Promise<boolean> {
   const { workspaceDir } = ctx;
+
+  {
+    const opsMatch = pathname.match(/^\/api\/matters\/([^/]+)\/ops$/);
+    if (opsMatch) {
+      const matterId = decodeURIComponent(opsMatch[1] ?? "");
+      if (!isValidMatterId(matterId)) {
+        sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+        return true;
+      }
+      const {
+        appendMatterRaid,
+        readMatterOpsSummary,
+        writeMatterOpsPlan,
+        writeMatterOpsScope,
+      } = await import("../../../src/lawmind/matter-ops/index.js");
+      if (req.method === "GET") {
+        sendJson(res, 200, { ok: true, ops: readMatterOpsSummary(workspaceDir, matterId) }, c);
+        return true;
+      }
+      if (req.method === "PATCH" || req.method === "POST") {
+        const { parseJsonBodyZod, isInvalidRequestBodyError } = await import("./lawmind-api-parse.js");
+        const { z } = await import("zod");
+        const schema = z.object({
+          baseline: z.string().optional(),
+          plan: z
+            .object({
+              phases: z.array(
+                z.object({
+                  id: z.string(),
+                  title: z.string(),
+                  owner: z.string().optional(),
+                  dueAt: z.string().optional(),
+                }),
+              ),
+              milestones: z.array(
+                z.object({
+                  id: z.string(),
+                  title: z.string(),
+                  dueAt: z.string().optional(),
+                }),
+              ),
+            })
+            .optional(),
+          raid: z
+            .object({
+              kind: z.enum(["risk", "assumption", "issue", "decision"]),
+              text: z.string().min(1),
+              status: z.enum(["open", "closed"]).optional(),
+            })
+            .optional(),
+        });
+        try {
+          const body = await parseJsonBodyZod(req, schema);
+          if (body.baseline != null) {
+            writeMatterOpsScope(workspaceDir, matterId, body.baseline);
+          }
+          if (body.plan) {
+            writeMatterOpsPlan(workspaceDir, matterId, body.plan);
+          }
+          if (body.raid) {
+            appendMatterRaid(workspaceDir, matterId, body.raid);
+          }
+          sendJson(res, 200, { ok: true, ops: readMatterOpsSummary(workspaceDir, matterId) }, c);
+        } catch (err) {
+          if (isInvalidRequestBodyError(err)) {
+            sendJson(res, 400, { ok: false, error: "invalid ops body" }, c);
+            return true;
+          }
+          throw err;
+        }
+        return true;
+      }
+    }
+  }
+
+  {
+    const theoryMatch = pathname.match(/^\/api\/matters\/([^/]+)\/theory$/);
+    if (theoryMatch) {
+      const matterId = decodeURIComponent(theoryMatch[1] ?? "");
+      if (!isValidMatterId(matterId)) {
+        sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+        return true;
+      }
+      const { readMatterTheoryLite, writeMatterTheoryLite } = await import(
+        "../../../src/lawmind/matter-ops/index.js"
+      );
+      if (req.method === "GET") {
+        sendJson(res, 200, { ok: true, theory: readMatterTheoryLite(workspaceDir, matterId) }, c);
+        return true;
+      }
+      if (req.method === "PUT" || req.method === "POST") {
+        const { parseJsonBodyZod, isInvalidRequestBodyError } = await import("./lawmind-api-parse.js");
+        const { z } = await import("zod");
+        try {
+          const body = await parseJsonBodyZod(
+            req,
+            z.object({
+              issues: z.string(),
+              authorities: z.string(),
+              openQuestions: z.string(),
+              anchored: z.boolean().optional(),
+            }),
+          );
+          const theory = writeMatterTheoryLite(workspaceDir, matterId, {
+            issues: body.issues,
+            authorities: body.authorities,
+            openQuestions: body.openQuestions,
+            anchored: body.anchored ?? false,
+          });
+          sendJson(res, 200, { ok: true, theory }, c);
+        } catch (err) {
+          if (isInvalidRequestBodyError(err)) {
+            sendJson(res, 400, { ok: false, error: "invalid theory body" }, c);
+            return true;
+          }
+          throw err;
+        }
+        return true;
+      }
+    }
+  }
 
   if (pathname === "/api/matters/team-meeting" && req.method === "GET") {
     const matterId = url.searchParams.get("matterId")?.trim() ?? "";
@@ -740,6 +864,18 @@ export async function handleMatterRoutes({
     }
     const matrix = buildMatterReviewMatrix(workspaceDir, matterId);
     sendJson(res, 200, { ok: true, matrix }, c);
+    return true;
+  }
+
+  if (pathname === "/api/matters/review-matrix/export" && req.method === "GET") {
+    const matterId = url.searchParams.get("matterId")?.trim() ?? "";
+    if (!isValidMatterId(matterId)) {
+      sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+      return true;
+    }
+    const matrix = buildMatterReviewMatrix(workspaceDir, matterId);
+    const csv = exportReviewMatrixCsv(matrix);
+    sendJson(res, 200, { ok: true, matterId, format: "csv", csv }, c);
     return true;
   }
 

@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import type { ArtifactDraft } from "../../../../src/lawmind/types.ts";
 import { createAssistantDraft, type AssistantEditorDraft } from "./lawmind-assistant-editor";
 import type { LawmindMainView } from "./lawmind-main-view";
+import { resolveDefaultMainView } from "./lawmind-home-prefs";
 import {
   type LawmindSettingsScrollAnchorId,
   type LawmindSettingsSectionId,
@@ -42,7 +43,7 @@ export type { LawmindHealthState } from "./useLawmindAppBootstrapEffects";
 export { mapHealthState } from "./useLawmindAppBootstrapEffects";
 
 export function useLawmindAppShell() {
-  const [mainView, setMainView] = useState<LawmindMainView>("workspace");
+  const [mainView, setMainView] = useState<LawmindMainView>(() => resolveDefaultMainView());
   const [reviewFocusTaskId, setReviewFocusTaskId] = useState<string | null>(null);
   const [reviewFocusMatterId, setReviewFocusMatterId] = useState<string | null>(null);
   const [reviewFocusStatus, setReviewFocusStatus] = useState<ArtifactDraft["reviewStatus"] | "all">("all");

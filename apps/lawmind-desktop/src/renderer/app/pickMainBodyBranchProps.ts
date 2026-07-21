@@ -96,6 +96,7 @@ export function pickReviewViewProps(props: LawmindMainBodyContentProps): ReviewV
     onShowArtifact: props.onShowArtifact,
     onRecordsChanged: props.onRecordsChanged,
     onGoToChat: props.onGoToChat,
+    onOpenAgentsDesk: props.onOpenAgentsDeskFromReview,
     onRevisionJobQueued: props.onRevisionJobQueued,
     onToggleReviewPane: props.onToggleReviewPane,
   };
@@ -104,6 +105,7 @@ export function pickReviewViewProps(props: LawmindMainBodyContentProps): ReviewV
 export function pickAgentFleetViewProps(props: LawmindMainBodyContentProps): AgentFleetViewProps {
   return {
     config: props.config,
+    /** 仅作 Spawn 归因；待办列表在 Panel 内固定全工作区，不随对话案件筛选。 */
     matterId: normalizeMatterId(props, true),
     sessionId: props.activeChatSessionId,
     sessionRequiresActions: props.sessionRequiresActions,
@@ -117,7 +119,14 @@ export function pickAgentFleetViewProps(props: LawmindMainBodyContentProps): Age
     onSpawnPreset: props.onSpawnPreset ?? (() => undefined),
     onOpenDelegations: () => props.onAgentsDeskTabChange("delegations"),
     onOpenChatSession: props.onOpenChatSession,
-    onOpenReview: props.onOpenReviewFromWorkItem,
+    onOpenReview: (taskId, matterId) => {
+      const tid = taskId?.trim();
+      if (tid) {
+        props.onOpenReviewFromWorkItem(tid, matterId);
+        return;
+      }
+      props.onOpenReviewFromWorkspace({ matterId });
+    },
     agentsDeskTab: props.agentsDeskTab,
     onAgentsDeskTabChange: props.onAgentsDeskTabChange,
     needsDecisionFocus: props.needsDecisionFocus,

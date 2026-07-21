@@ -1,0 +1,22 @@
+{
+  "id": "cn-labor-demand",
+  "name": "劳动报酬催告（自研包）",
+  "namedAgent": "CN Labor Demand",
+  "description": "劳动报酬/补偿催告函：事实、金额、期限与送达策略提示。",
+  "practiceArea": "employment",
+  "deliverableType": "letter.demand",
+  "riskLevel": "medium",
+  "audience": "solo",
+  "regionPack": "cn",
+  "starterPrompt": "请起草劳动报酬催告：核对事实与金额，给出履行期限与后果表述建议。",
+  "acceptancePackRequired": true,
+  "steps": [
+    {
+      "stepId": "draft",
+      "assignee": "litigation_drafter",
+      "task": "劳动催告函（matterId={{matterId}}），交付类型 letter.demand",
+      "dependsOn": [],
+      "autoApprove": false
+    }
+  ]
+}

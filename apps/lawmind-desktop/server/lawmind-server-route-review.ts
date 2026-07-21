@@ -1,5 +1,11 @@
 import path from "node:path";
-import { validateDraftAgainstSpec, validateReasoningForDraft } from "../../../src/lawmind/deliverables/index.js";
+import {
+  assertChecklistCompleteForApprove,
+  buildChecklistView,
+  validateDraftAgainstSpec,
+  validateReasoningForDraft,
+} from "../../../src/lawmind/deliverables/index.js";
+import { appendProductMetric } from "../../../src/lawmind/metrics/product-metrics.js";
 import {
   buildAgentMemorySourceReport,
   loadMemoryContext,
@@ -50,6 +56,9 @@ import {
   type PlatformGateAuditSource,
 } from "../../../src/lawmind/platform/audit-gate.js";
 import { deriveReviewGateDecisions } from "../../../src/lawmind/platform/review-gates.js";
+import { resolveEdition } from "../../../src/lawmind/policy/edition.js";
+import { resolveCitationMode } from "../../../src/lawmind/policy/citation-mode.js";
+import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspace-policy.js";
 import {
   isInvalidRequestBodyError,
   parseJsonBodyZod,
@@ -413,6 +422,46 @@ export async function handleReviewRoute({
         sendJson(res, 404, { ok: false, error: "not found" }, c);
         return true;
       }
+      if (st === "approved") {
+        const checklistBody = body as {
+          checklistChecked?: Record<string, boolean>;
+          bypassChecklist?: boolean;
+        };
+        if (checklistBody.bypassChecklist !== true) {
+          const view = buildChecklistView(draft.deliverableType, {
+            specId: "",
+            checked: checklistBody.checklistChecked ?? {},
+          });
+          try {
+            assertChecklistCompleteForApprove(view);
+          } catch (e) {
+            const missing =
+              e && typeof e === "object" && "missingRequiredIds" in e
+                ? (e as { missingRequiredIds: string[] }).missingRequiredIds
+                : view.missingRequiredIds;
+            appendProductMetric(workspaceDir, {
+              kind: "gate_failure",
+              outcome: "checklist_incomplete",
+              taskId: raw,
+              deliverableType: draft.deliverableType,
+              detail: missing.join(","),
+            });
+            sendJson(
+              res,
+              422,
+              {
+                ok: false,
+                error: "checklist_incomplete",
+                message: "请完成律师必核清单后再通过签批。",
+                missingRequiredIds: missing,
+                checklist: view,
+              },
+              c,
+            );
+            return true;
+          }
+        }
+      }
       const labels = parseReviewLabels(body.labels);
       const deferQueue = body.deferMemoryWrites === true;
       const lawMindRootForReview = resolveLawMindRoot(workspaceDir, envFile);
@@ -603,7 +652,17 @@ export async function handleReviewRoute({
         }
       }
       const engine = getLawMindEngine(workspaceDir);
-      const result = await engine.render(draft, { templateIdOverride });
+      const policyForEdition: LawMindWorkspacePolicy | null = ctx.policy.loaded
+        ? (ctx.policy.policy as LawMindWorkspacePolicy)
+        : null;
+      const edition = resolveEdition({ policy: policyForEdition });
+      const citationMode = resolveCitationMode(policyForEdition, edition.edition);
+      const result = await engine.render(draft, {
+        templateIdOverride,
+        citationMode,
+        citationGateStrict: edition.features.citationGateStrict,
+        strictGates: strict,
+      });
       const refreshed = readDraft(workspaceDir, raw);
       const citationIntegrity = refreshed
         ? resolveDraftCitationIntegrity(workspaceDir, refreshed)

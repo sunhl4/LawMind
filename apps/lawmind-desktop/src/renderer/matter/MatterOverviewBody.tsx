@@ -3,6 +3,8 @@ import type { ApprovalRequest, WorkQueueItem } from "../../../../../src/lawmind/
 import type { DraftCitationIntegrityView } from "../../../../../src/lawmind/drafts/citation-integrity.ts";
 import type { MatterWorkspaceAcceptance } from "./useMatterWorkbench";
 import { MatterOverviewPanel } from "./MatterOverviewPanel";
+import { MatterOpsBrief } from "./MatterOpsBrief";
+import { MatterTheoryLitePanel } from "./MatterTheoryLitePanel";
 import { MatterQualityCockpit } from "./MatterQualityCockpit";
 import { type AcceptanceSummaryItem } from "./matter-acceptance-display";
 import { MatterLocalDocIndex } from "./MatterLocalDocIndex";
@@ -257,6 +259,8 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
             workspaceAcceptanceErr={workspaceAcceptanceErr}
           />
         ) : null}
+        {matterId && apiBase ? <MatterOpsBrief apiBase={apiBase} matterId={matterId} /> : null}
+        {matterId && apiBase ? <MatterTheoryLitePanel apiBase={apiBase} matterId={matterId} /> : null}
         {matterId && apiBase && profile ? (
           <MatterProfileCard apiBase={apiBase} profile={profile} onSaved={onProfileSaved} />
         ) : null}

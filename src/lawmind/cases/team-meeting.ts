@@ -8,6 +8,8 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { isValidMatterId } from "./matter-id.js";
+export { ADHOC_MEETING_MATTER_ID, isAdhocMeetingMatterId } from "./team-meeting-ids.js";
+import { ADHOC_MEETING_MATTER_ID, isAdhocMeetingMatterId } from "./team-meeting-ids.js";
 
 export type TeamMeetingLineKind = "user" | "assistant" | "system";
 
@@ -24,17 +26,11 @@ export type TeamMeetingLine = {
 };
 
 const TEAM_MEETING_FILENAME = "team-meeting.jsonl";
-/** Sentinel id kept for API compatibility; storage is under meetings/adhoc/. */
-export const ADHOC_MEETING_MATTER_ID = "临时讨论";
 export const TEAM_MEETING_MAX_LINE_TEXT = 48_000;
 export const TEAM_MEETING_TAIL_LIMIT_DEFAULT = 80;
 export const TEAM_MEETING_TAIL_LIMIT_CAP = 200;
 export const TEAM_MEETING_TRANSCRIPT_MAX_CHARS = 12_000;
 const TEAM_MEETING_READ_MAX_BYTES = 4 * 1024 * 1024;
-
-export function isAdhocMeetingMatterId(matterId: string | null | undefined): boolean {
-  return (matterId?.trim() ?? "") === ADHOC_MEETING_MATTER_ID;
-}
 
 function resolvedMatterCaseDir(workspaceDir: string, matterId: string): string {
   const casesRoot = path.resolve(workspaceDir, "cases");

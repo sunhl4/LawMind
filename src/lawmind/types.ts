@@ -394,7 +394,11 @@ export type AuditEventKind =
   | "deliverable.spec.invalid" // 工作区私有交付物规范解析失败
   | "platform.gate_snapshot" // 平台契约：executionState + gateDecisions 快照
   | "tool_call"
-  | "agent_turn";
+  | "agent_turn"
+  | "triage.created" // Skills E1：分诊会话创建
+  | "triage.confirmed" // Skills E1：律师确认分诊
+  | "review_campaign.created" // Skills E2：审查专案组创建/跑完
+  | "review_campaign.role_rerun"; // Skills E2：单角色重跑
 
 /** 审计事件 */
 export type AuditEvent = {

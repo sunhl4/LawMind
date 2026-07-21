@@ -16,7 +16,7 @@ import { LawmindChatComposeChrome } from "./lawmind-chat-compose-chrome";
 import { LawmindChatComposeToolbar } from "./lawmind-chat-compose-toolbar";
 import { LawmindComposeContextPicker } from "./LawmindComposeContextPicker";
 import { LawmindComposeTemplateGallery } from "./LawmindComposeTemplateGallery";
-import { LawmindChatReviewSticky, type ReviewOpenTarget } from "./LawmindChatReviewSticky";
+import type { ReviewOpenTarget } from "./LawmindChatReviewSticky";
 import type { FileChatContextItem } from "./lawmind-app-shell";
 import {
   parseAtTrigger,
@@ -214,7 +214,6 @@ export function LawmindChatComposeFooter({
 }) {
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
-  const [stashNotice, setStashNotice] = useState(false);
   const [contextPickerOpen, setContextPickerOpen] = useState(false);
   const [contextPickerQuery, setContextPickerQuery] = useState("");
   const [contextPickerAtIndex, setContextPickerAtIndex] = useState(0);
@@ -253,7 +252,6 @@ export function LawmindChatComposeFooter({
       const stashed = readComposeStash(contextMatterId);
       if (stashed.trim()) {
         onInputChange(stashed);
-        setStashNotice(true);
       }
     }
   }, [contextMatterId, input, onInputChange]);
@@ -270,7 +268,7 @@ export function LawmindChatComposeFooter({
         id: "review",
         slash: "/review",
         label: "文书台",
-        hint: "打开文书签批工作台",
+        hint: "打开文书撰写与预览",
         run: () => onOpenReview?.(),
       },
       {
@@ -457,10 +455,9 @@ export function LawmindChatComposeFooter({
         onOpenComposeSettings={onOpenComposeSettings}
         composeModelHint={composeModelHint}
         composeModelQuickTestBusy={composeModelQuickTestBusy}
+        composeInput={input}
         queuedMessages={queuedMessages}
         cancelQueuedMessage={cancelQueuedMessage}
-        stashNotice={stashNotice}
-        onDismissStashNotice={() => setStashNotice(false)}
         composeExtras={extras}
         fileChatPills={fileChatPills}
         contextMatterId={contextMatterId}
@@ -486,7 +483,7 @@ export function LawmindChatComposeFooter({
             value={input}
             aria-label="消息输入"
             onChange={(e) => handleComposeInputChange(e.target.value)}
-            placeholder="Enter 发送，Shift+Enter 换行；@ 添加上下文，/ 或 ⌘K 打开命令"
+            placeholder="输入您的问题，或输入 / 选择技能；Enter 发送，Shift+Enter 换行"
             title="用平常说话的方式写即可"
             onKeyDown={(e) => {
               if (contextPickerOpen && (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Enter")) {
@@ -566,12 +563,6 @@ export function LawmindChatShell(props: LawmindChatWorkspaceProps) {
         onOpenNeedsDecisionDesk={openNeedsDecisionDesk}
         onOpenWriteMaterials={() => setTemplateGalleryOpen(true)}
       />
-      {props.onOpenReview ? (
-        <LawmindChatReviewSticky
-          actionSummary={props.composeExtras.actionSummary}
-          onOpenReview={props.onOpenReview}
-        />
-      ) : null}
       <LawmindChatComposeFooter
         composeExtras={props.composeExtras}
         currentMessages={props.currentMessages}

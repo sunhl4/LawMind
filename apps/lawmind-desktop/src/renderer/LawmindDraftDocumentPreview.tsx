@@ -189,8 +189,7 @@ export function LawmindDraftDocumentPreview(props: Props): ReactNode {
               <h2 className="lm-draft-doc-preview-heading">{section.heading}</h2>
               <div className="lm-draft-doc-preview-text">{section.body || "（本节暂无正文）"}</div>
               {citations.length > 0 ? (
-                <div className="lm-draft-section-cites">
-                  <span className="lm-meta">引用：</span>
+                <div className="lm-draft-section-cites lm-draft-section-cites-legal">
                   <LawmindSourcePillList apiBase={apiBase} taskId={taskId} sourceIds={citations} />
                 </div>
               ) : null}

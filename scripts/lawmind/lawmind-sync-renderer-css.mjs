@@ -49,7 +49,11 @@ const BLOCKS = [
   },
   {
     marker: "agent-fleet",
-    chunks: [{ file: "agent-fleet.css" }],
+    chunks: [
+      { file: "agent-fleet.css" },
+      { file: "decision-ceremony.css" },
+      { file: "agents-workbench.css" },
+    ],
   },
   {
     marker: "automations",
@@ -78,6 +82,10 @@ const BLOCKS = [
   {
     marker: "legacy-rest",
     chunks: [{ file: "legacy-rest.css" }],
+  },
+  {
+    marker: "cockpit-nav",
+    chunks: [{ file: "cockpit-nav.css" }],
   },
   {
     marker: "settings",
@@ -115,6 +123,7 @@ function replaceImportedBlock(text, marker, replacement) {
       utilities: "modal-forms",
       "model-picker": "buttons",
       "legacy-rest": "matter-review-workbench",
+      "cockpit-nav": "legacy-rest",
     }[marker];
     const appendedBlock = `\n/* ── imported: ${marker} ── */\n${replacement.trimEnd()}\n\n${close}\n`;
     if (insertAfter) {

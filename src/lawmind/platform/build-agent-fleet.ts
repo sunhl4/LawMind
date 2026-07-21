@@ -10,6 +10,8 @@ import type {
   AgentRunSummary,
 } from "./agent-fleet.js";
 import { listPendingToolApprovals } from "./pending-tool-approvals.js";
+import { sanitizeLawyerFacingText, toolDisplayNameZh } from "./requires-action.js";
+import { extractApprovalDocumentPreview } from "./tool-approval-diff.js";
 
 export type WorkflowJobFleetInput = {
   jobId: string;
@@ -250,12 +252,16 @@ export async function buildAgentFleetSummary(
     if (runs.some((r) => r.actionId === tool.actionId)) {
       continue;
     }
+    const preview = tool.toolArgs ? extractApprovalDocumentPreview(tool.toolArgs) : null;
+    const toolLabel = tool.toolName ? toolDisplayNameZh(tool.toolName) : "待批准操作";
     runs.push({
       id: `tool:${tool.actionId}`,
       kind: "tool_approval",
       status: "awaiting_approval",
-      title: tool.title,
-      subtitle: tool.toolName ?? "工具批准",
+      title: preview?.title
+        ? `待审定：${preview.title}`
+        : sanitizeLawyerFacingText(tool.title, tool.toolName),
+      subtitle: preview ? "拟落稿" : toolLabel,
       matterId: tool.matterId,
       sessionId: tool.sessionId,
       actionId: tool.actionId,

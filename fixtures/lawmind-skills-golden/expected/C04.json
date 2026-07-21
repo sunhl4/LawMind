@@ -1,0 +1,7 @@
+{
+  "id": "C04",
+  "triageTier": "yellow",
+  "deliverableTypeHint": "contract.rental",
+  "checklistSpecId": "contract-review-v1",
+  "notes": "办公租赁，提前解约与装修"
+}

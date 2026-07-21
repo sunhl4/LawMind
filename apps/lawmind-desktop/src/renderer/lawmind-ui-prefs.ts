@@ -2,9 +2,12 @@ const WORK_TAB_KEY = "lm.ui.workTab.v1";
 const FONT_SCALE_KEY = "lm.ui.fontScale.v1";
 const DENSITY_KEY = "lm.ui.density.v1";
 const REDUCED_MOTION_KEY = "lm.ui.reducedMotion.v1";
+const THEME_KEY = "lm.ui.theme.v1";
 
 export type UiFontScale = "default" | "comfortable";
 export type UiDensity = "default" | "compact";
+/** Default is light (skills epic mockups). */
+export type UiTheme = "light" | "dark";
 
 export function readWorkTabEnabled(): boolean {
   try {
@@ -88,6 +91,26 @@ export function applyUiDensity(density: UiDensity): void {
   }
 }
 
+export function readUiTheme(): UiTheme {
+  try {
+    return localStorage.getItem(THEME_KEY) === "dark" ? "dark" : "light";
+  } catch {
+    return "light";
+  }
+}
+
+export function writeUiTheme(theme: UiTheme): void {
+  try {
+    localStorage.setItem(THEME_KEY, theme);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function applyUiTheme(theme: UiTheme): void {
+  document.documentElement.classList.toggle("lm-theme-dark", theme === "dark");
+}
+
 export function applyReducedMotionForced(forced: boolean): void {
   const on = forced || systemPrefersReducedMotion();
   document.documentElement.classList.toggle("lm-reduced-motion", on);
@@ -102,6 +125,7 @@ export function systemPrefersReducedMotion(): boolean {
 
 /** Apply all persisted UI prefs to `document.documentElement`. */
 export function applyAllUiPrefs(): void {
+  applyUiTheme(readUiTheme());
   applyUiFontScale(readUiFontScale());
   applyUiDensity(readUiDensity());
   applyReducedMotionForced(readReducedMotionForced());

@@ -6,19 +6,23 @@ test.describe("文书台 / 待我拍板 决策落地", () => {
     await installE2eBrowserPrefs(page);
   });
 
-  test("在办 pending_review → 进入文书台可见签批区", async ({ page }) => {
+  test("在办 pending_review → 进入文书台可见改稿面", async ({ page }) => {
     await gotoShell(page);
     await page.getByTestId("lm-tab-agents").click();
     await expect(page.getByTestId("lm-agent-fleet-panel")).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId("lm-agent-fleet-card-pending_review")).toBeVisible({
-      timeout: 30_000,
-    });
-    await page.getByTestId("lm-agent-fleet-card-pending_review").click();
-    await page.getByRole("button", { name: "进入文书台", exact: true }).click();
+    const card = page.getByTestId("lm-agent-fleet-card-pending_review");
+    if (await card.isVisible().catch(() => false)) {
+      await card.click();
+    }
+    await expect(page.getByTestId("lm-fleet-primary-review")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("lm-fleet-primary-review")).toContainText(/文书台/);
+    await page.getByTestId("lm-fleet-primary-review").click();
     await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench").first()).toBeVisible({
       timeout: 30_000,
     });
-    await expect(page.getByText(/文书台|签批|执行状态/)).toBeVisible({ timeout: 15_000 });
+    await expect(
+      page.locator(".lm-review-compose-main, .lm-review-editor-pane, .lm-review-preview-pane").first(),
+    ).toBeVisible({ timeout: 15_000 });
   });
 
   test("侧栏待我拍板 opens needs-decision focus", async ({ page }) => {

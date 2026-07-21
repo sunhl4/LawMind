@@ -36,11 +36,13 @@ export function LawmindAcceptanceGate(props: Props): ReactNode {
     );
   }
 
-  const failed = report.checks.filter((c) => !c.passed);
+  const checks = Array.isArray(report.checks) ? report.checks : [];
+  const failed = checks.filter((c) => !c.passed);
+  const placeholders = Array.isArray(report.placeholderSamples) ? report.placeholderSamples : [];
   const headlineClass = report.ready ? "lm-acceptance-ok" : "lm-acceptance-blocked";
   const summary = report.ready
     ? "已通过"
-    : `未通过 · 阻塞 ${report.blockerCount} · 提醒 ${report.warningCount}`;
+    : `未通过 · 阻塞 ${report.blockerCount ?? failed.filter((c) => c.severity === "blocker").length} · 提醒 ${report.warningCount ?? failed.filter((c) => c.severity === "warning").length}`;
 
   return (
     <details
@@ -73,9 +75,9 @@ export function LawmindAcceptanceGate(props: Props): ReactNode {
           ))}
         </ul>
       ) : null}
-      {report.placeholderSamples.length > 0 ? (
+      {placeholders.length > 0 ? (
         <div className="lm-meta lm-acceptance-placeholders">
-          待补占位示例：{report.placeholderSamples.join("｜")}
+          待补占位示例：{placeholders.join("｜")}
         </div>
       ) : null}
       {reasoning ? <ReasoningGateBlock reasoning={reasoning} /> : null}
@@ -84,7 +86,7 @@ export function LawmindAcceptanceGate(props: Props): ReactNode {
 }
 
 function ReasoningGateBlock({ reasoning }: { reasoning: ReasoningReport }): ReactNode {
-  const failed = reasoning.checks.filter((c) => !c.passed);
+  const failed = (Array.isArray(reasoning.checks) ? reasoning.checks : []).filter((c) => !c.passed);
   if (!reasoning.required && failed.length === 0) {
     return null;
   }

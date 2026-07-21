@@ -26,13 +26,18 @@ export type EditionFeatures = {
   customDeliverableSpec: boolean;
   acceptancePackExport: boolean;
   strictDangerousToolApproval: boolean;
+  reviewCampaignParallel: boolean;
 };
+
+export type CitationMode = "grounded" | "assisted" | "off";
 
 export type EditionInfo = {
   edition: LawMindEdition;
   label: string;
   source: "policy_file" | "env" | "default";
   features: EditionFeatures;
+  /** Skills E4 — from GET /api/policy/edition */
+  citationMode: CitationMode;
   loading: boolean;
 };
 
@@ -53,7 +58,9 @@ const SOLO_DEFAULT: EditionInfo = {
     customDeliverableSpec: false,
     acceptancePackExport: false,
     strictDangerousToolApproval: false,
+    reviewCampaignParallel: false,
   },
+  citationMode: "assisted",
   loading: true,
 };
 
@@ -70,6 +77,7 @@ export function useEdition(apiBase: string): EditionInfo {
           label?: string;
           source?: EditionInfo["source"];
           features?: Partial<EditionFeatures>;
+          citationMode?: CitationMode;
         }>(apiBase, "/api/policy/edition");
         if (cancelled || !j.ok || !j.edition) {
           if (!cancelled) {
@@ -77,11 +85,16 @@ export function useEdition(apiBase: string): EditionInfo {
           }
           return;
         }
+        const citationMode =
+          j.citationMode === "grounded" || j.citationMode === "assisted" || j.citationMode === "off"
+            ? j.citationMode
+            : SOLO_DEFAULT.citationMode;
         setInfo({
           edition: j.edition,
           label: j.label ?? j.edition,
           source: j.source ?? "default",
           features: { ...SOLO_DEFAULT.features, ...j.features },
+          citationMode,
           loading: false,
         });
       } catch {

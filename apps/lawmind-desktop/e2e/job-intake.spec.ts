@@ -4,7 +4,6 @@ import {
   e2eMockApiBase,
   gotoShell,
   installE2eBrowserPrefs,
-  openReviewWorkbench,
 } from "./e2e-helpers";
 
 test.describe("Job intake & template gallery", () => {
@@ -25,7 +24,7 @@ test.describe("Job intake & template gallery", () => {
       return;
     }
     await fillBtn.click();
-    await expect(gallery.getByRole("button", { name: "开始交办" })).toBeVisible({ timeout: 10_000 });
+    await expect(gallery.getByTestId("lm-job-intake-submit")).toBeVisible({ timeout: 10_000 });
 
     // Fill required fields loosely: type into first visible text inputs/textareas.
     const fields = gallery.locator(".lm-job-intake-field input, .lm-job-intake-field textarea");
@@ -39,6 +38,33 @@ test.describe("Job intake & template gallery", () => {
     await expect(gallery).toBeHidden({ timeout: 10_000 });
     const compose = page.getByRole("textbox", { name: /消息输入/i });
     await expect(compose).toHaveValue(/【交办】/, { timeout: 10_000 });
+  });
+
+  test("intake triage confirm path fills composer", async ({ page }) => {
+    await gotoShell(page);
+    await page.getByTestId("lm-compose-write-materials").click();
+    const gallery = page.getByRole("dialog", { name: /写文稿|做材料/i });
+    await expect(gallery).toBeVisible({ timeout: 15_000 });
+    const fillBtn = gallery.getByRole("button", { name: "填表交办" }).first();
+    if (!(await fillBtn.isVisible().catch(() => false))) {
+      test.skip(true, "mock API returned no workflow templates");
+      return;
+    }
+    await fillBtn.click();
+    const fields = gallery.locator(".lm-job-intake-field input, .lm-job-intake-field textarea");
+    const count = await fields.count();
+    for (let i = 0; i < count; i++) {
+      await fields.nth(i).fill(`e2e-triage-${i}`);
+    }
+    await gallery.getByTestId("lm-job-intake-submit").click();
+    await expect(gallery.getByTestId("lm-triage-tier")).toBeVisible({ timeout: 10_000 });
+    await expect(gallery.getByTestId("lm-triage-upgrade-full")).toBeVisible();
+    await gallery.getByTestId("lm-triage-confirm").click();
+    // 「确认并执行」走 onDispatch：消息进入对话区，而非仅填入输入框。
+    await expect(gallery).toBeHidden({ timeout: 10_000 });
+    await expect(page.getByRole("region", { name: "对话消息" })).toContainText(/【交办】/, {
+      timeout: 15_000,
+    });
   });
 
   test("golden journey: 填表交办 → 文书台 → 验收门禁可见", async ({ page }) => {
@@ -63,7 +89,7 @@ test.describe("Job intake & template gallery", () => {
       timeout: 10_000,
     });
 
-    await openReviewWorkbench(page);
+    // assertReviewGateList opens 文书台 and waits for draft detail (do not open twice).
     await assertReviewGateList(page);
     await expect(page.getByText(/验收|acceptance|门禁/i).first()).toBeVisible({ timeout: 15_000 });
   });
@@ -87,7 +113,7 @@ test.describe("Job intake & template gallery", () => {
       return;
     }
     await firstRun.getByRole("button", { name: /独立执业|律所协办|合伙人/ }).first().click();
-    await expect(firstRun.getByText(/行文风格|风险口径|对客语气/)).toBeVisible({
+    await expect(firstRun.getByText(/行文风格|风险口径|对客语气/).first()).toBeVisible({
       timeout: 10_000,
     });
     await firstRun.getByRole("button", { name: /稍后再说|不用了/ }).first().click();

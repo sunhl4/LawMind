@@ -8,7 +8,11 @@ export VITE_LAWMIND_DEV_API="http://127.0.0.1:${MOCK_PORT}"
 # Avoid EADDRINUSE when a previous Playwright run left listeners behind.
 for p in "${MOCK_PORT}" "${VITE_PORT}"; do
   if command -v lsof >/dev/null 2>&1; then
-    lsof -ti "tcp:${p}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    pids="$(lsof -ti "tcp:${p}" 2>/dev/null || true)"
+    if [[ -n "${pids}" ]]; then
+      # shellcheck disable=SC2086
+      kill -9 ${pids} 2>/dev/null || true
+    fi
   fi
 done
 node "$ROOT/e2e/mock-api.mjs" &

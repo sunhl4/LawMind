@@ -13,6 +13,8 @@ export function installE2eBrowserPrefs(page: { addInitScript: Page["addInitScrip
   return page.addInitScript((firstRunKey) => {
     localStorage.setItem(firstRunKey, "1");
     localStorage.setItem("lawmind.ui.sidebarCollapsed", "0");
+    // Most specs still exercise 对话/在办; Home default is covered in home.spec.ts.
+    localStorage.setItem("lm.preferClassicChatHome", "1");
     const reviewPaneKeys = [
       "lawmind.ui.reviewPaneMeta",
       "lawmind.ui.reviewPaneEditor",
@@ -48,18 +50,25 @@ export async function bootstrapE2ePage(page: Page): Promise<void> {
   await dismissBlockingDialogs(page);
 }
 
-/** Ensure review meta pane is visible (gate list lives there; meta defaults hidden). */
+/** Ensure review meta side pane + advanced section are open (gate list lives there; both default collapsed). */
 export async function ensureReviewMetaPaneVisible(page: Page): Promise<void> {
   const gateList = page.locator(".lm-review-gate-list").first();
   if (await gateList.isVisible().catch(() => false)) {
     return;
   }
-  const metaToggle = page.getByRole("button", { name: "签批", exact: true });
+  const metaToggle = page.getByRole("button", { name: "更多", exact: true });
   if (!(await metaToggle.isVisible().catch(() => false))) {
     return;
   }
   if ((await metaToggle.getAttribute("aria-pressed")) !== "true") {
     await metaToggle.click({ force: true });
+  }
+  const advanced = page.locator("details.lm-review-advanced").first();
+  if (await advanced.isVisible().catch(() => false)) {
+    const open = await advanced.getAttribute("open");
+    if (open === null) {
+      await advanced.locator("summary").click({ force: true });
+    }
   }
   await expect(gateList).toBeVisible({ timeout: 15_000 });
 }
@@ -85,7 +94,13 @@ export async function gotoShell(page: Page): Promise<void> {
   await expect(page.locator(".lm-shell")).toBeVisible({ timeout: 60_000 });
   await dismissBlockingDialogs(page);
   // 待我拍板 only appears when there are pending decisions (mock returns ≥1).
-  await expect(page.getByRole("navigation", { name: "功能模块" })).toBeVisible({ timeout: 30_000 });
+  await expect(
+    page
+      .getByRole("navigation", { name: "主导航" })
+      .or(page.getByRole("navigation", { name: "功能模块" }))
+      .or(page.getByTestId("lm-cockpit-nav"))
+      .first(),
+  ).toBeVisible({ timeout: 30_000 });
   await expect(
     page
       .getByTestId("lm-side-needs-decision")
@@ -96,9 +111,13 @@ export async function gotoShell(page: Page): Promise<void> {
   ).toBeVisible({ timeout: 60_000 });
   // Wait for mock health (modelConfigured) so readiness strip clears before chat assertions.
   await expect(page.locator(".lm-readiness-strip")).toHaveCount(0, { timeout: 45_000 });
-  // Chat messages region (or at least the workspace chat chrome) should be reachable on default home.
+  // Default Home cockpit OR classic chat messages (preferClassicChatHome).
   await expect(
-    page.locator("#lawmind-chat-messages-panel").or(page.getByRole("region", { name: "对话消息" })).first(),
+    page
+      .getByTestId("lm-home-view")
+      .or(page.locator("#lawmind-chat-messages-panel"))
+      .or(page.getByRole("region", { name: "对话消息" }))
+      .first(),
   ).toBeVisible({ timeout: 30_000 });
 }
 
@@ -114,25 +133,24 @@ export async function openReviewWorkbench(page: Page): Promise<void> {
   await dismissBlockingDialogs(page);
   await leaveSettingsIfOpen(page);
 
-  // 文书台是场景化深工具：从「在办」总览进入（侧栏「待我拍板」也跳转到办）。
+  // 文书台为顶栏一级入口；亦可从「在办」主 CTA 进入。
   const mainNav = page.getByRole("navigation", { name: "功能模块" });
   await expect(mainNav).toBeVisible({ timeout: 30_000 });
-  const agentsTab = mainNav.getByRole("button", { name: "在办", exact: true });
-  if (await agentsTab.isVisible().catch(() => false)) {
-    await agentsTab.click();
+  const reviewTab = mainNav.getByTestId("lm-tab-review");
+  if (await reviewTab.isVisible().catch(() => false)) {
+    await reviewTab.click();
   } else {
-    const sidebarHub = page.getByTestId("lm-side-needs-decision").or(page.getByTestId("lm-side-action-hub"));
-    await expect(sidebarHub).toBeVisible({ timeout: 30_000 });
-    await sidebarHub.click();
+    const agentsTab = mainNav.getByRole("button", { name: "在办", exact: true });
+    await agentsTab.click();
+    await expect(page.locator(".lm-agent-fleet-page")).toBeVisible({ timeout: 30_000 });
+    const openWorkbench = page
+      .getByTestId("lm-fleet-primary-review")
+      .or(page.getByTestId("lm-ceremony-open-review"))
+      .or(page.getByRole("button", { name: /文书台/ }))
+      .first();
+    await expect(openWorkbench).toBeVisible({ timeout: 30_000 });
+    await openWorkbench.click();
   }
-  await expect(page.locator(".lm-agent-fleet-page")).toBeVisible({ timeout: 30_000 });
-
-  const openWorkbench = page
-    .getByTestId("lm-fleet-primary-review")
-    .or(page.getByRole("button", { name: /进入文书台/ }))
-    .first();
-  await expect(openWorkbench).toBeVisible({ timeout: 30_000 });
-  await openWorkbench.click();
 
   await page.waitForFunction(
     () => document.querySelector(".lm-review-workbench-root") !== null,

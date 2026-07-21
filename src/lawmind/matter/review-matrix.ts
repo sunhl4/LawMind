@@ -206,3 +206,45 @@ export function buildMatterReviewMatrix(
     cells: buildCells(documents, questions, textByDoc),
   };
 }
+
+function csvEscape(s: string): string {
+  const t = s.replace(/\r?\n/g, " ").trim();
+  if (/[",]/.test(t)) {
+    return `"${t.replace(/"/g, '""')}"`;
+  }
+  return t;
+}
+
+/** Export matrix as CSV with citation column (sourceId / taskId). */
+export function exportReviewMatrixCsv(matrix: MatterReviewMatrix): string {
+  const header = [
+    "documentId",
+    "documentTitle",
+    "questionId",
+    "question",
+    "excerpt",
+    "status",
+    "citation",
+  ];
+  const lines = [header.join(",")];
+  const qLabel = new Map(matrix.questions.map((q) => [q.id, q.label]));
+  const docs = new Map(matrix.documents.map((d) => [d.documentId, d]));
+  for (const cell of matrix.cells) {
+    const doc = docs.get(cell.documentId);
+    const citation = doc?.sourceId || doc?.taskId || "";
+    lines.push(
+      [
+        csvEscape(cell.documentId),
+        csvEscape(doc?.title ?? ""),
+        csvEscape(cell.questionId),
+        csvEscape(qLabel.get(cell.questionId) ?? ""),
+        csvEscape(cell.excerpt),
+        csvEscape(cell.status),
+        csvEscape(citation),
+      ].join(","),
+    );
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+export { compareMatrixExcerpts } from "./review-matrix-compare.js";

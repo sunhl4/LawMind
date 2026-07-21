@@ -22,10 +22,12 @@ import {
 import {
   persistDraft,
   readReasoningSnapshot,
+  readResearchSnapshot,
   resolveDraftCitationIntegrity,
   type DraftCitationIntegrityView,
 } from "../drafts/index.js";
 import { appendCaseArtifact, appendCaseProgress, appendTodayLog } from "../memory/index.js";
+import { citationModeBlocksRender, type CitationMode } from "../policy/citation-mode.js";
 import { isFeatureEnabled } from "../policy/edition.js";
 import { syncDraftToTaskRecord, updateTaskRecord } from "../tasks/index.js";
 import { resolveTemplateForDraft, templateResolvedPin } from "../templates/index.js";
@@ -42,7 +44,13 @@ function citationGateBlocksRender(view: DraftCitationIntegrityView): boolean {
 export async function renderDraft(
   ctx: EngineContext,
   draft: ArtifactDraft,
-  opts?: { templateIdOverride?: string; strictGates?: boolean; citationGateStrict?: boolean },
+  opts?: {
+    templateIdOverride?: string;
+    strictGates?: boolean;
+    citationGateStrict?: boolean;
+    /** Skills E4 — when set, takes precedence over edition citationGateStrict alone */
+    citationMode?: CitationMode;
+  },
 ): Promise<{
   ok: boolean;
   outputPath?: string;
@@ -83,30 +91,55 @@ export async function renderDraft(
     }
   }
 
+  const citationMode = opts?.citationMode;
   const citationStrict = opts?.citationGateStrict ?? isFeatureEnabled("citationGateStrict");
-  if (citationStrict) {
-    const citationIntegrity = resolveDraftCitationIntegrity(workspaceDir, draft);
-    if (citationGateBlocksRender(citationIntegrity)) {
-      const missing =
-        citationIntegrity.checked && !citationIntegrity.ok
-          ? citationIntegrity.missingSourceIds.length
-          : 0;
-      const unanchored = citationIntegrity.checked
-        ? citationIntegrity.unanchoredSections.length
-        : 0;
+  const citationIntegrity = resolveDraftCitationIntegrity(workspaceDir, draft);
+  // Skills E3/E4 — high-risk grounded: matter theory must be anchored.
+  if (citationMode === "grounded" && draft.matterId) {
+    const { matterTheoryBlocksStrictExport } = await import("../matter-ops/index.js");
+    const highRisk =
+      draft.deliverableType?.startsWith("contract.") || draft.deliverableType === "letter.demand";
+    if (
+      highRisk &&
+      matterTheoryBlocksStrictExport(workspaceDir, draft.matterId, { requireAnchor: true })
+    ) {
       await emit(auditDir, {
         taskId: draft.taskId,
         kind: "artifact.render_blocked",
         actor: "system",
-        detail: `citationGateStrict: missingSourceIds=${missing}; unanchoredSections=${unanchored}`,
+        detail: "theory_anchor_missing",
       });
       return {
         ok: false,
-        error:
-          "渲染被引用完整性门禁拦截：存在缺失来源 ID 或长段未锚定引用。请在文书台核对 Citation Banner 后再导出。",
+        error: "严格导出被拦截：案件理论未锚定（争点/依据）。请在案件「理论」补齐并勾选已锚定。",
         citationIntegrity,
       };
     }
+  }
+  const blockedByMode =
+    citationMode != null
+      ? citationModeBlocksRender(citationMode, citationIntegrity)
+      : citationStrict && citationGateBlocksRender(citationIntegrity);
+  if (blockedByMode) {
+    const missing =
+      citationIntegrity.checked && !citationIntegrity.ok
+        ? citationIntegrity.missingSourceIds.length
+        : 0;
+    const unanchored = citationIntegrity.checked ? citationIntegrity.unanchoredSections.length : 0;
+    await emit(auditDir, {
+      taskId: draft.taskId,
+      kind: "artifact.render_blocked",
+      actor: "system",
+      detail: `citationMode=${citationMode ?? "edition_strict"}: missingSourceIds=${missing}; unanchoredSections=${unanchored}`,
+    });
+    return {
+      ok: false,
+      error:
+        citationMode === "grounded"
+          ? "严格援引模式：无检索快照、缺失来源或长段未锚定时不可导出。请补齐引用或改为 assisted。"
+          : "渲染被引用完整性门禁拦截：存在缺失来源 ID 或长段未锚定引用。请在文书台核对 Citation Banner 后再导出。",
+      citationIntegrity,
+    };
   }
 
   const override = opts?.templateIdOverride?.trim();
@@ -120,16 +153,19 @@ export async function renderDraft(
   const templatePin = templateResolvedPin(templateResolution);
   draft.templateVersion = templatePin;
 
+  const researchSources = readResearchSnapshot(workspaceDir, draft.taskId)?.sources;
   const result =
     draft.output === "pptx"
       ? await renderPptxWithOptions(draft, outputDir, {
           templateVariant: templateResolution.variant,
           uploadedTemplate: templateResolution.uploaded,
+          sources: researchSources,
         })
       : draft.output === "docx"
         ? await renderDocxWithOptions(draft, outputDir, {
             templateVariant: templateResolution.variant,
             uploadedTemplate: templateResolution.uploaded,
+            sources: researchSources,
           })
         : {
             ok: false,

@@ -5,6 +5,7 @@
 
 import type { AgentTurn } from "../agent/types.js";
 import type { ClarificationQuestion } from "../types.js";
+import { extractApprovalDocumentPreview } from "./tool-approval-diff.js";
 
 export type LawMindRequiresActionKind =
   | "clarification"
@@ -42,19 +43,89 @@ export type ResumeRequiresActionInput = {
   resolvedBy?: string;
 };
 
+/** Lawyer-facing labels — never show eng_snake tool ids in UI copy. */
 const TOOL_DISPLAY_ZH: Record<string, string> = {
-  execute_workflow: "执行工作流",
-  render_document: "渲染交付文书",
+  execute_workflow: "启动办案流程",
+  render_document: "生成 Word 文书",
   draft_document: "起草文书",
-  research_task: "检索任务",
+  research_task: "法规检索",
   update_draft: "更新草稿",
+  write_document: "审定文书",
   send_email: "发送邮件",
-  delegate_to_role: "委派给其他岗位",
+  delegate_task: "交办事项",
+  delegate_to_role: "交办给同事",
   web_search: "联网检索",
+  search_statute_web: "检索法规",
+  search_statute: "检索法条",
+  search_case_law: "检索案例",
+  search_workspace: "检索案卷材料",
+  search_matter: "检索本案材料",
+  read_project_file: "查阅项目文件",
+  read_case_file: "查阅案卷",
+  analyze_document: "分析文书",
+  plan_task: "安排办理步骤",
+  request_approval: "提请审批",
+  request_review: "提请复核",
+  record_deadline: "登记期限",
+  list_tasks: "查看事项清单",
+  list_drafts: "查看草稿清单",
+  list_matters: "查看案件列表",
+  list_delegations: "查看交办",
+  get_delegation_result: "查看交办结果",
+  get_matter_summary: "查看案件摘要",
+  get_audit_trail: "查看办理记录",
+  add_case_note: "添加案件备注",
+  consult_assistant: "征询同事意见",
+  notify_assistant: "通知同事",
+  open_work_queue_item: "打开待办事项",
+  append_session_summary: "整理会话摘要",
+  register_template: "登记模板",
+  list_templates: "查看模板",
+  check_conflict_of_interest: "利益冲突检索",
 };
 
+const SNAKE_TOOL_RE = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/;
+
 export function toolDisplayNameZh(toolName: string): string {
-  return TOOL_DISPLAY_ZH[toolName] ?? toolName;
+  const key = toolName.trim();
+  if (!key) {
+    return "该项操作";
+  }
+  if (TOOL_DISPLAY_ZH[key]) {
+    return TOOL_DISPLAY_ZH[key];
+  }
+  // Never surface programmer identifiers (e.g. write_document) in lawyer UI.
+  if (SNAKE_TOOL_RE.test(key)) {
+    return "该项操作";
+  }
+  return key;
+}
+
+/** Replace known eng tool ids / jargon inside titles / summaries for display. */
+export function sanitizeLawyerFacingText(text: string, toolName?: string | null): string {
+  let out = text;
+  if (toolName?.trim()) {
+    const raw = toolName.trim();
+    const label = toolDisplayNameZh(raw);
+    if (out.includes(raw)) {
+      out = out.split(raw).join(label);
+    }
+  }
+  out = out.replace(/\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g, (m) => TOOL_DISPLAY_ZH[m] ?? "相关操作");
+  out = out.replace(/\[协作\]\s*/g, "协作 · ");
+  out = out.replace(/\bdelegate\b/gi, "交办");
+  out = out.replace(/\bdefault\b/gi, "默认协办");
+  out = out.replace(/委派子会话/g, "协作会话");
+  out = out.replace(/协作\s*·\s*交办(?:\s*·\s*默认协办)?/g, "协作交办");
+  out = out.replace(/\s*·\s*默认协办/g, "");
+  out = out.replace(/\bdrafts\/[^\s]+/gi, "草稿");
+  out = out.replace(/\.(md|json|docx)\b/gi, "");
+  out = out.replace(/待批准：\s*审定文书/g, "待审定文书");
+  out = out.replace(/待批准：\s*写入文书/g, "待审定文书");
+  out = out.replace(/写入文书/g, "待审定文书");
+  out = out.replace(/系统准备执行/g, "拟进行");
+  out = out.replace(/暂不执行/g, "暂不办理");
+  return out.replace(/\s{2,}/g, " ").trim();
 }
 
 /** Browser + Node safe (avoids `node:crypto` in Vite renderer bundles). */
@@ -85,12 +156,21 @@ export function buildToolApprovalAction(input: {
   toolArgs: Record<string, unknown>;
 }): LawMindRequiresAction {
   const label = toolDisplayNameZh(input.toolName);
+  const preview = extractApprovalDocumentPreview(input.toolArgs);
+  const title = preview?.title
+    ? `待审定：${preview.title}`
+    : input.toolName === "write_document" || input.toolName === "update_draft"
+      ? "待审定文书"
+      : `待批准：${label}`;
+  const summary = preview
+    ? "请通读拟落稿全文后决定是否批准。"
+    : `拟进行「${label}」。请确认后再继续，或选择暂不办理。`;
   return {
     id: newRequiresActionId(),
     kind: "tool_approval",
     threadId: buildThreadId(input),
-    title: `待批准：${label}`,
-    summary: `系统准备执行「${label}」。请确认后再继续，或选择暂不执行。`,
+    title,
+    summary,
     matterId: input.matterId,
     sessionId: input.sessionId,
     taskId: input.taskId,

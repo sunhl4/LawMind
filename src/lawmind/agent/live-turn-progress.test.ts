@@ -75,6 +75,6 @@ describe("live-turn-progress", () => {
       args: {},
     });
     const snap = liveProgressToPersistedTrace("persist-1");
-    expect(snap?.steps[0]?.label).toContain("工作流");
+    expect(snap?.steps[0]?.label).toContain("办案流程");
   });
 });

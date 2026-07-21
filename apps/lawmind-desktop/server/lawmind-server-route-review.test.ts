@@ -239,7 +239,11 @@ describe("lawmind-server-route-review", () => {
     await expect(
       handleReviewRoute({
         ctx,
-        req: createJsonRequest("POST", { status: "approved", note: "可以导出正式稿" }),
+        req: createJsonRequest("POST", {
+          status: "approved",
+          note: "可以导出正式稿",
+          bypassChecklist: true,
+        }),
         res: reviewCapture.res,
         url: new URL(`http://127.0.0.1/api/drafts/${taskId}/review`),
         pathname: `/api/drafts/${taskId}/review`,
@@ -328,7 +332,7 @@ describe("lawmind-server-route-review", () => {
     await expect(
       handleReviewRoute({
         ctx,
-        req: createJsonRequest("POST", { status: "approved", note: "ok" }),
+        req: createJsonRequest("POST", { status: "approved", note: "ok", bypassChecklist: true }),
         res: reviewCapture.res,
         url: new URL(`http://127.0.0.1/api/drafts/${taskId}/review`),
         pathname: `/api/drafts/${taskId}/review`,
@@ -572,7 +576,11 @@ describe("lawmind-server-route-review", () => {
     await expect(
       handleReviewRoute({
         ctx,
-        req: createJsonRequest("POST", { status: "approved", note: "同意定稿" }),
+        req: createJsonRequest("POST", {
+          status: "approved",
+          note: "同意定稿",
+          bypassChecklist: true,
+        }),
         res: cap.res,
         url: new URL(`http://127.0.0.1/api/drafts/${taskId}/review`),
         pathname: `/api/drafts/${taskId}/review`,
@@ -825,6 +833,61 @@ describe("lawmind-server-route-review", () => {
     expect(cap.json()).toMatchObject({
       ok: false,
       error: "acceptance_gate_blocked",
+    });
+  });
+
+  it("POST /api/drafts/:id/review returns 422 when checklist incomplete", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-review-checklist-"));
+    tempDirs.push(workspaceDir);
+    fs.writeFileSync(path.join(workspaceDir, "MEMORY.md"), "# Memory\n", "utf8");
+
+    const taskId = "checklist-gate-1";
+    const now = new Date().toISOString();
+    const intent: TaskIntent = {
+      taskId,
+      kind: "analyze.contract",
+      output: "docx",
+      summary: "催告",
+      riskLevel: "medium",
+      models: ["general"],
+      requiresConfirmation: false,
+      createdAt: now,
+    };
+    ensureTaskRecord(workspaceDir, intent);
+    persistDraft(workspaceDir, {
+      taskId,
+      title: "催告函",
+      output: "docx",
+      summary: "催告摘要",
+      deliverableType: "letter.demand",
+      sections: [{ heading: "正文", body: "请于限期履行。" }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: now,
+    } as ArtifactDraft);
+
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+    const cap = createResponseCapture();
+    await expect(
+      handleReviewRoute({
+        ctx,
+        req: createJsonRequest("POST", { status: "approved", note: "未勾选清单" }),
+        res: cap.res,
+        url: new URL(`http://127.0.0.1/api/drafts/${taskId}/review`),
+        pathname: `/api/drafts/${taskId}/review`,
+        c: {},
+      }),
+    ).resolves.toBe(true);
+
+    expect(cap.status).toBe(422);
+    expect(cap.json()).toMatchObject({
+      ok: false,
+      error: "checklist_incomplete",
     });
   });
 });

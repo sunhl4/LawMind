@@ -309,6 +309,10 @@ export const draftReviewPostSchema = z.object({
   profileAssistantId: z.string().trim().optional(),
   labels: z.unknown().optional(),
   deferMemoryWrites: z.boolean().optional(),
+  /** Skills E6 — attorney verification checklist ticks */
+  checklistChecked: z.record(z.string(), z.boolean()).optional(),
+  /** Escape hatch (audited separately if used by tests / Firm override) */
+  bypassChecklist: z.boolean().optional(),
 });
 
 export type DraftReviewPostRequest = z.infer<typeof draftReviewPostSchema>;

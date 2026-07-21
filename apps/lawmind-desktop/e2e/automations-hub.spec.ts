@@ -33,15 +33,17 @@ test.describe("自动办件 / 待我拍板 / 在办委派", () => {
     );
   });
 
-  test("在办 → 交出去的活 tab is reachable", async ({ page }) => {
+  test("在办 → 交出去的活 is reachable from spawn 更多", async ({ page }) => {
     await gotoShell(page);
     const nav = page.getByRole("navigation", { name: "功能模块" });
     await nav.getByTestId("lm-tab-agents").click();
     await expect(page.getByTestId("lm-agents-desk")).toBeVisible({ timeout: 30_000 });
-    await page.getByTestId("lm-agents-tab-delegations").click();
-    await expect(page.getByTestId("lm-agents-tab-delegations")).toHaveAttribute("aria-current", "true", {
+    await page.getByTestId("lm-fleet-spawn-plus").click();
+    await page.getByTestId("lm-fleet-spawn-collaboration").click();
+    await expect(page.getByRole("heading", { name: "交出去的", exact: true })).toBeVisible({
       timeout: 10_000,
     });
+    await expect(page.getByTestId("lm-agents-tab-active")).toBeVisible();
   });
 
   test("pending decisions surface as sidebar 待我拍板 (not compose strip)", async ({ page }) => {

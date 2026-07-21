@@ -22,6 +22,7 @@ import { ReviewView } from "./ReviewView";
 import { AgentFleetView } from "./AgentFleetView";
 import { AutomationsView } from "./AutomationsView";
 import { MeetingView } from "./MeetingView";
+import { HomeView } from "./HomeView";
 import { LawmindWorkspaceMainPane } from "./LawmindWorkspaceMainPane";
 import { LawmindWorkspaceBootstrapGate } from "./LawmindWorkspaceBootstrapGate";
 import { pickWorkspaceMainPaneProps } from "./pickWorkspaceMainPaneProps";
@@ -75,6 +76,8 @@ export type LawmindMainBodyContentProps = {
   onShowArtifact: (relPath: string) => void;
   onRecordsChanged: () => void;
   onGoToChat: (opts: { taskId: string; matterId?: string; prompt?: string }) => void;
+  /** 文书台 → 在办：正式签批 */
+  onOpenAgentsDeskFromReview?: () => void;
   onRevisionJobQueued: (opts: { sessionId: string; assistantId: string; taskId: string }) => void;
   onToggleReviewPane: (id: ReviewPaneId) => void;
   collabSummarySettings: CollabSummaryState | null | undefined;
@@ -165,10 +168,39 @@ export type LawmindMainBodyContentProps = {
   onRefreshActionSummary?: () => void;
   onChatResumeComplete?: () => void | Promise<void>;
   onSpawnPreset?: (preset: import("../lawmind-agent-fleet-api").AgentPreset) => void;
+  /** Skills E11 Home cockpit navigation */
+  onOpenHomeNeedsDecision?: () => void;
+  onOpenHomeWorkspace?: () => void;
+  onOpenHomeAgents?: () => void;
+  onOpenHomeReview?: () => void;
+  onOpenHomeGrowthInbox?: () => void;
+  onOpenHomeAppearanceSettings?: () => void;
 };
 
 export function LawmindMainBodyContent(props: LawmindMainBodyContentProps) {
   const { mainView, matterCockpitOpen } = useLawmindShellNavigationContext();
+
+  if (mainView === "home") {
+    if (!props.config) {
+      return (
+        <div className="lm-home-view" data-testid="lm-home-view" aria-busy="true">
+          <p className="lm-meta">正在连接本地服务…</p>
+        </div>
+      );
+    }
+    return (
+      <HomeView
+        apiBase={props.config.apiBase}
+        onOpenNeedsDecision={props.onOpenHomeNeedsDecision ?? (() => undefined)}
+        onOpenWorkspace={props.onOpenHomeWorkspace ?? (() => undefined)}
+        onOpenAgents={props.onOpenHomeAgents ?? (() => undefined)}
+        onOpenReview={props.onOpenHomeReview}
+        onOpenIntake={props.onOpenHomeWorkspace}
+        onOpenGrowthInbox={props.onOpenHomeGrowthInbox}
+        onOpenAppearanceSettings={props.onOpenHomeAppearanceSettings}
+      />
+    );
+  }
 
   if (mainView === "workspace" && matterCockpitOpen && props.config) {
     const matterProps = pickMatterViewProps(props);

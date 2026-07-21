@@ -58,6 +58,8 @@ export type UseReviewWorkbenchActionsParams = {
   onRevisionJobQueued?: (opts: { sessionId: string; assistantId: string; taskId: string }) => void;
   syncEditorFromDraft: (draft: ArtifactDraft) => void;
   clearEditorSaveError: () => void;
+  /** Skills E6 — checklist ticks for approve gate */
+  checklistChecked?: Record<string, boolean>;
 };
 
 export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParams) {
@@ -78,6 +80,7 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
     renderTemplateId,
     revisionDispatchNote,
     revisionPrefilledForTaskRef,
+    checklistChecked,
     setRevisionDispatchNote,
     setActionMsg,
     setLastExportPath,
@@ -235,6 +238,9 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
           profileAssistantId: assistantId,
           ...(labels.length > 0 ? { labels } : {}),
           ...(deferMemoryWrites ? { deferMemoryWrites: true } : {}),
+          ...(status === "approved" && checklistChecked
+            ? { checklistChecked }
+            : {}),
         };
         const j = (await apiPostDraftReview(apiBase, selectedTaskId, reviewBody)) as {
           ok?: boolean;

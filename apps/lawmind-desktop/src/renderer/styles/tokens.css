@@ -1,60 +1,66 @@
 /* LawMind design tokens — surfaces, type, motion, semantic colors */
+/* Default: light brass workbench (skills epic mockups). Dark via html.lm-theme-dark */
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 
-  /* Surfaces */
-  --bg:         #111317;
-  --side-bg:    #0d1014;
-  --surface:    #171b21;
-  --surface-2:  #1d2229;
-  --surface-3:  #242a31;
+  /* Surfaces — soft gray canvas + white cards */
+  --bg:         #f4f2ee;
+  --side-bg:    #ebe7e0;
+  --surface:    #ffffff;
+  --surface-2:  #f8f6f2;
+  --surface-3:  #efebe4;
 
   /* Borders */
-  --border:     rgba(255, 255, 255, 0.07);
-  --border-md:  rgba(255, 255, 255, 0.12);
-  --border-strong: rgba(255, 255, 255, 0.18);
+  --border:     rgba(40, 32, 22, 0.08);
+  --border-md:  rgba(40, 32, 22, 0.14);
+  --border-strong: rgba(40, 32, 22, 0.22);
 
   /* Text */
-  --text:       #e8e2d8;
-  --text-2:     #aca597;
-  --muted:      #716b61;
+  --text:       #1c1915;
+  --text-2:     #5c554c;
+  --muted:      #8a8278;
 
-  /* Accent — warm brass */
-  --accent:         #b79a67;
-  --accent-hover:   #c7ab79;
-  --accent-dim:     rgba(183, 154, 103, 0.12);
-  --accent-border:  rgba(183, 154, 103, 0.32);
+  /* Accent — warm brass / copper */
+  --accent:         #a67c52;
+  --accent-hover:   #8f6a45;
+  --accent-dim:     rgba(166, 124, 82, 0.12);
+  --accent-border:  rgba(166, 124, 82, 0.38);
 
   /* Cool accent — used sparingly for non-primary highlights (deep teal) */
-  --accent-cool:        #6cb6b1;
-  --accent-cool-dim:    rgba(108, 182, 177, 0.12);
-  --accent-cool-border: rgba(108, 182, 177, 0.28);
+  --accent-cool:        #2f8f8a;
+  --accent-cool-dim:    rgba(47, 143, 138, 0.1);
+  --accent-cool-border: rgba(47, 143, 138, 0.28);
 
   /* Gradients */
-  --grad-brand:        linear-gradient(135deg, #c7ab79 0%, #b79a67 50%, #8a7148 100%);
-  --grad-brand-strong: linear-gradient(135deg, #d4b884 0%, #b79a67 60%, #6f5c3a 100%);
-  --grad-surface:      linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0));
-  --grad-side:         linear-gradient(180deg, #0e1116 0%, #0a0d11 100%);
-  --grad-glow-brass:   radial-gradient(circle at 30% 20%, rgba(199, 171, 121, 0.18), transparent 60%);
+  --grad-brand:        linear-gradient(135deg, #c4a06e 0%, #a67c52 50%, #8a6540 100%);
+  --grad-brand-strong: linear-gradient(135deg, #d0ae7c 0%, #a67c52 60%, #755536 100%);
+  --grad-surface:      linear-gradient(180deg, rgba(255,255,255,0.9), rgba(255,255,255,0.55));
+  --grad-side:         linear-gradient(180deg, #f2efe9 0%, #ebe7e0 100%);
+  --grad-glow-brass:   radial-gradient(circle at 30% 20%, rgba(166, 124, 82, 0.12), transparent 60%);
+
+  /* Washes (theme-aware overlays) */
+  --wash:              rgba(28, 25, 21, 0.04);
+  --wash-strong:       rgba(28, 25, 21, 0.07);
+  --inset-highlight:   rgba(255, 255, 255, 0.72);
 
   /* Semantic */
-  --ok:        #2dd4a0;
-  --ok-dim:    rgba(45, 212, 160, 0.1);
-  --ok-border: rgba(45, 212, 160, 0.28);
-  --warn:      #f5a623;
-  --warn-dim:  rgba(245, 166, 35, 0.1);
-  --warn-border: rgba(245, 166, 35, 0.28);
-  --error:     #f06565;
-  --error-dim: rgba(240, 101, 101, 0.1);
-  --error-border: rgba(240, 101, 101, 0.28);
-  --error-text: #ff9494;
-  --error-text-body: #f2e9e6;
-  --error-text-muted: #d4cbc4;
-  --on-accent: #181410;
-  --info:      #4b91f7;
-  --info-dim:  rgba(75, 145, 247, 0.1);
-  --info-border: rgba(75, 145, 247, 0.28);
+  --ok:        #1f9d6e;
+  --ok-dim:    rgba(31, 157, 110, 0.1);
+  --ok-border: rgba(31, 157, 110, 0.28);
+  --warn:      #c47d12;
+  --warn-dim:  rgba(196, 125, 18, 0.1);
+  --warn-border: rgba(196, 125, 18, 0.28);
+  --error:     #c94a4a;
+  --error-dim: rgba(201, 74, 74, 0.1);
+  --error-border: rgba(201, 74, 74, 0.28);
+  --error-text: #b53a3a;
+  --error-text-body: #3a2a28;
+  --error-text-muted: #6e5c58;
+  --on-accent: #fffaf3;
+  --info:      #2f6fd6;
+  --info-dim:  rgba(47, 111, 214, 0.1);
+  --info-border: rgba(47, 111, 214, 0.28);
 
   /* Radii */
   --r-xs: 4px;
@@ -92,24 +98,24 @@
   --t-md: 220ms;
   --t-lg: 320ms;
 
-  /* Shadows + focus rings */
-  --shadow-xs:  0 1px 2px rgba(0, 0, 0, 0.25);
-  --shadow-sm:  0 2px 6px rgba(0, 0, 0, 0.28);
-  --shadow:     0 4px 20px rgba(0, 0, 0, 0.35);
-  --shadow-md:  0 8px 28px rgba(0, 0, 0, 0.42);
-  --shadow-lg:  0 14px 50px rgba(0, 0, 0, 0.6);
-  --shadow-brass: 0 6px 24px rgba(183, 154, 103, 0.22);
-  --ring:        0 0 0 3px rgba(255, 255, 255, 0.08);
-  --ring-accent: 0 0 0 3px rgba(183, 154, 103, 0.22);
-  --ring-error:  0 0 0 3px rgba(240, 101, 101, 0.22);
-  --focus-ring:  0 0 0 2px rgba(183, 154, 103, 0.45);
-  --focus-ring-inset: inset 0 0 0 1px rgba(183, 154, 103, 0.5);
+  /* Shadows + focus rings — soft card elevation for light canvas */
+  --shadow-xs:  0 1px 2px rgba(40, 32, 22, 0.05);
+  --shadow-sm:  0 2px 8px rgba(40, 32, 22, 0.06);
+  --shadow:     0 4px 16px rgba(40, 32, 22, 0.07);
+  --shadow-md:  0 8px 28px rgba(40, 32, 22, 0.1);
+  --shadow-lg:  0 16px 48px rgba(40, 32, 22, 0.14);
+  --shadow-brass: 0 6px 20px rgba(166, 124, 82, 0.18);
+  --ring:        0 0 0 3px rgba(40, 32, 22, 0.06);
+  --ring-accent: 0 0 0 3px rgba(166, 124, 82, 0.22);
+  --ring-error:  0 0 0 3px rgba(201, 74, 74, 0.2);
+  --focus-ring:  0 0 0 2px rgba(166, 124, 82, 0.4);
+  --focus-ring-inset: inset 0 0 0 1px rgba(166, 124, 82, 0.45);
 
   /* Aliases used across shell / chat / workbench modules */
   --text-muted:        var(--muted);
   --border-subtle:     var(--border);
-  --surface-elevated:  var(--surface-2);
-  --bg-elevated:       var(--surface-2);
+  --surface-elevated:  var(--surface);
+  --bg-elevated:       var(--surface);
   --bg-subtle:         var(--side-bg);
   --surface-muted:     var(--surface-2);
   --surface-hover:     var(--surface-3);
@@ -128,7 +134,7 @@
   --lm-bg-muted:         var(--side-bg);
   --lm-surface:          var(--surface);
   --lm-surface-2:        var(--surface-2);
-  --lm-surface-elevated: var(--surface-2);
+  --lm-surface-elevated: var(--surface);
   --lm-border:           var(--border);
   --lm-border-subtle:    var(--border);
   --lm-accent:           var(--accent);
@@ -140,6 +146,77 @@
   --lm-danger-text:      var(--error);
   --lm-success-bg:       var(--ok-dim);
   --lm-success-text:     var(--ok);
+}
+
+/* Optional dark theme (外观设置) */
+html.lm-theme-dark {
+  color-scheme: dark;
+
+  --bg:         #111317;
+  --side-bg:    #0d1014;
+  --surface:    #171b21;
+  --surface-2:  #1d2229;
+  --surface-3:  #242a31;
+
+  --border:     rgba(255, 255, 255, 0.07);
+  --border-md:  rgba(255, 255, 255, 0.12);
+  --border-strong: rgba(255, 255, 255, 0.18);
+
+  --text:       #e8e2d8;
+  --text-2:     #aca597;
+  --muted:      #716b61;
+
+  --accent:         #b79a67;
+  --accent-hover:   #c7ab79;
+  --accent-dim:     rgba(183, 154, 103, 0.12);
+  --accent-border:  rgba(183, 154, 103, 0.32);
+
+  --accent-cool:        #6cb6b1;
+  --accent-cool-dim:    rgba(108, 182, 177, 0.12);
+  --accent-cool-border: rgba(108, 182, 177, 0.28);
+
+  --grad-brand:        linear-gradient(135deg, #c7ab79 0%, #b79a67 50%, #8a7148 100%);
+  --grad-brand-strong: linear-gradient(135deg, #d4b884 0%, #b79a67 60%, #6f5c3a 100%);
+  --grad-surface:      linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0));
+  --grad-side:         linear-gradient(180deg, #0e1116 0%, #0a0d11 100%);
+  --grad-glow-brass:   radial-gradient(circle at 30% 20%, rgba(199, 171, 121, 0.18), transparent 60%);
+
+  --wash:              rgba(255, 255, 255, 0.04);
+  --wash-strong:       rgba(255, 255, 255, 0.08);
+  --inset-highlight:   rgba(255, 255, 255, 0.06);
+
+  --ok:        #2dd4a0;
+  --ok-dim:    rgba(45, 212, 160, 0.1);
+  --ok-border: rgba(45, 212, 160, 0.28);
+  --warn:      #f5a623;
+  --warn-dim:  rgba(245, 166, 35, 0.1);
+  --warn-border: rgba(245, 166, 35, 0.28);
+  --error:     #f06565;
+  --error-dim: rgba(240, 101, 101, 0.1);
+  --error-border: rgba(240, 101, 101, 0.28);
+  --error-text: #ff9494;
+  --error-text-body: #f2e9e6;
+  --error-text-muted: #d4cbc4;
+  --on-accent: #181410;
+  --info:      #4b91f7;
+  --info-dim:  rgba(75, 145, 247, 0.1);
+  --info-border: rgba(75, 145, 247, 0.28);
+
+  --shadow-xs:  0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-sm:  0 2px 6px rgba(0, 0, 0, 0.28);
+  --shadow:     0 4px 20px rgba(0, 0, 0, 0.35);
+  --shadow-md:  0 8px 28px rgba(0, 0, 0, 0.42);
+  --shadow-lg:  0 14px 50px rgba(0, 0, 0, 0.6);
+  --shadow-brass: 0 6px 24px rgba(183, 154, 103, 0.22);
+  --ring:        0 0 0 3px rgba(255, 255, 255, 0.08);
+  --ring-accent: 0 0 0 3px rgba(183, 154, 103, 0.22);
+  --ring-error:  0 0 0 3px rgba(240, 101, 101, 0.22);
+  --focus-ring:  0 0 0 2px rgba(183, 154, 103, 0.45);
+  --focus-ring-inset: inset 0 0 0 1px rgba(183, 154, 103, 0.5);
+
+  --surface-elevated:  var(--surface-2);
+  --bg-elevated:       var(--surface-2);
+  --lm-surface-elevated: var(--surface-2);
 }
 
 html.lm-density-compact {

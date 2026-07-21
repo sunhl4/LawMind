@@ -32,6 +32,9 @@ import { handleMemoryAndTemplateRoutes } from "./lawmind-server-route-memory-tem
 import { handleMemorySourceTextRoute } from "./lawmind-server-route-memory-preview.js";
 import { handleMemoryAdoptionRoutes } from "./lawmind-server-route-memory-adoption.js";
 import { handleRolesRoutes } from "./lawmind-server-route-roles.js";
+import { handleTriageRoutes } from "./lawmind-server-route-triage.js";
+import { handleReviewCampaignRoutes } from "./lawmind-server-route-review-campaign.js";
+import { handleSkillsRoutes } from "./lawmind-server-route-skills.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 
 export type LawmindRouteHandler = (args: LawmindRouteContext) => boolean | Promise<boolean>;
@@ -42,6 +45,9 @@ export const LAWMIND_ROUTE_HANDLERS: LawmindRouteHandler[] = [
   (args) => handleBootstrapRoute(args),
   (args) => handleTemplateRoutes(args),
   (args) => handleAcceptanceRoutes(args),
+  (args) => handleTriageRoutes(args),
+  (args) => handleReviewCampaignRoutes(args),
+  (args) => handleSkillsRoutes(args),
   (args) => handleSourceRoutes(args),
   (args) => handleIntegrationsRoutes(args),
   (args) => handleToolsRegistryRoute(args),

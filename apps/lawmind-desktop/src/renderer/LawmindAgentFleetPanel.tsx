@@ -1,4 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+/**
+ * 在办 — 与对话工作台同构：左侧待办目录 · 右侧办理区。
+ * 职责：集中处理签批 / 补充 / 批准；新任务回对话。
+ */
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { ApprovalRequest } from "../../../../src/lawmind/core/contracts.ts";
 import {
   loadActionSummary,
@@ -9,9 +13,6 @@ import {
   type ActionSummaryPayload,
 } from "./lawmind-requires-action";
 import { LawmindRequiresActionCard } from "./LawmindRequiresActionCard";
-import { LawmindAgentFleetCard } from "./LawmindAgentFleetCard";
-import { LawmindAgentFleetSpawnBar } from "./LawmindAgentFleetSpawnBar";
-import { LawmindAgentFleetTranscript } from "./LawmindAgentFleetTranscript";
 import {
   loadAgentFleet,
   loadAgentPresets,
@@ -21,9 +22,13 @@ import {
   type AgentRunSummary,
 } from "./lawmind-agent-fleet-api";
 import { errorMessage } from "./api-client";
-import { apiSendJson } from "./api-client";
+import { sanitizeLawyerFacingText } from "../../../../src/lawmind/platform/requires-action.ts";
+import { extractApprovalDocumentPreview } from "../../../../src/lawmind/platform/tool-approval-diff.ts";
+import { LawmindApprovalDocReader } from "./LawmindApprovalDocReader";
+import { LawmindAgentFleetSpawnBar } from "./LawmindAgentFleetSpawnBar";
+import { LawmindToolArgsEditDialog } from "./LawmindToolArgsEditDialog";
 
-function runNeedsDecision(run: AgentRunSummary): boolean {
+function needsLawyer(run: AgentRunSummary): boolean {
   return (
     run.status === "awaiting_clarification" ||
     run.status === "awaiting_approval" ||
@@ -31,50 +36,61 @@ function runNeedsDecision(run: AgentRunSummary): boolean {
   );
 }
 
-function formatFleetSyncedAgo(at: number, now = Date.now()): string {
-  const sec = Math.max(0, Math.floor((now - at) / 1000));
-  if (sec < 5) {
-    return "刚刚";
+function statusKind(status: AgentRunSummary["status"]): "review" | "clarify" | "approve" {
+  if (status === "awaiting_clarification") {
+    return "clarify";
   }
-  if (sec < 60) {
-    return `${sec} 秒前`;
+  if (status === "awaiting_approval") {
+    return "approve";
   }
-  const min = Math.floor(sec / 60);
-  return `${min} 分钟前`;
+  return "review";
 }
 
-type Props = {
+function statusLabel(status: AgentRunSummary["status"]): string {
+  switch (status) {
+    case "awaiting_review":
+      return "待签批";
+    case "awaiting_clarification":
+      return "待补充";
+    case "awaiting_approval":
+      return "待批准";
+    default:
+      return "待处理";
+  }
+}
+
+function resumeSessionId(
+  action: LawMindRequiresAction,
+  selected: AgentRunSummary | null,
+  activeSessionId?: string,
+): string | undefined {
+  return action.sessionId?.trim() || selected?.sessionId?.trim() || activeSessionId?.trim() || undefined;
+}
+
+export type LawmindAgentFleetPanelProps = {
   apiBase: string;
+  /** 开新任务时的案件归因；待办列表始终全工作区，不用此字段过滤。 */
   matterId?: string | null;
   sessionId?: string;
   sessionRequiresActions?: LawMindRequiresAction[];
   assistantDisplayById: Record<string, string>;
   canDelegate: boolean;
-  /** When true (from「待我拍板」), list only awaiting_* runs. */
   needsDecisionFocus?: boolean;
   onClearNeedsDecisionFocus?: () => void;
   onRefreshSummary?: () => void;
   onChatResumeComplete?: () => void | Promise<void>;
   onNewChat: () => void;
   onOpenAgentsWorkflows?: () => void;
-  /** @deprecated Use onOpenAgentsWorkflows */
   onOpenWorkflowLibrary?: () => void;
   onDelegate: () => void;
   onSpawnPreset: (preset: AgentPreset) => void;
   onOpenCollaboration?: () => void;
   onOpenChatSession: (sessionId: string, matterId?: string, assistantId?: string) => void;
-  onOpenReview?: (taskId: string) => void;
+  onOpenReview?: (taskId?: string, matterId?: string) => void;
+  onOpenReviewCampaign?: () => void;
 };
 
-function resumeSessionIdForAction(
-  action: LawMindRequiresAction,
-  selectedRun: AgentRunSummary | null,
-  activeSessionId?: string,
-): string | undefined {
-  return action.sessionId?.trim() || selectedRun?.sessionId?.trim() || activeSessionId?.trim() || undefined;
-}
-
-export function LawmindAgentFleetPanel(props: Props): ReactNode {
+export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): ReactNode {
   const {
     apiBase,
     matterId,
@@ -93,162 +109,154 @@ export function LawmindAgentFleetPanel(props: Props): ReactNode {
     onOpenCollaboration,
     onOpenChatSession,
     onOpenReview,
+    onOpenReviewCampaign,
   } = props;
+
   const openAgentsWorkflows = onOpenAgentsWorkflows ?? onOpenWorkflowLibrary ?? (() => undefined);
 
   const [fleet, setFleet] = useState<AgentFleetSummary | null>(null);
   const [summary, setSummary] = useState<ActionSummaryPayload | null>(null);
-  const [presets, setPresets] = useState<AgentPreset[]>([]);
   const [loading, setLoading] = useState(false);
-  const [presetsLoading, setPresetsLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedRun, setSelectedRun] = useState<AgentRunSummary | null>(null);
-  const [detailTab, setDetailTab] = useState<"actions" | "transcript">("actions");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [snoozed, setSnoozed] = useState<Set<string>>(() => new Set());
   const [clarificationDraft, setClarificationDraft] = useState<Record<string, string>>({});
-  const [selectedRunActions, setSelectedRunActions] = useState<LawMindRequiresAction[]>([]);
-  const [includeAllMatters, setIncludeAllMatters] = useState(false);
-  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
-  const [, setSyncTick] = useState(0);
-  const eventSourcesRef = useRef<Map<string, EventSource>>(new Map());
+  const [runActions, setRunActions] = useState<LawMindRequiresAction[]>([]);
+  const [presets, setPresets] = useState<AgentPreset[]>([]);
+  const [presetsLoading, setPresetsLoading] = useState(false);
+  const [argsEditOpen, setArgsEditOpen] = useState(false);
+  const [argsEditError, setArgsEditError] = useState<string | null>(null);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
-  const effectiveMatterId = includeAllMatters ? null : matterId;
-
-  const refresh = useCallback(async () => {
-    if (!apiBase) {
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const [f, s, p] = await Promise.all([
-        loadAgentFleet(apiBase, effectiveMatterId),
-        loadActionSummary(apiBase, effectiveMatterId ?? undefined),
-        loadAgentPresets(apiBase),
-      ]);
-      setFleet(f);
-      setSummary(s);
-      setPresets(p);
-      onRefreshSummary?.();
-    } catch (e) {
-      setError(errorMessage(e, "无法加载在办事项"));
-    } finally {
-      setLoading(false);
-      setPresetsLoading(false);
-    }
-  }, [apiBase, effectiveMatterId, onRefreshSummary]);
-
-  useEffect(() => {
-    setPresetsLoading(true);
-    void refresh().then(() => setLastSyncedAt(Date.now()));
-    const tick = () => {
-      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+  /**
+   * 待办目录与侧栏「待我拍板」一致：始终拉全工作区，不跟对话 contextMatterId 过滤。
+   * 否则切换/回填案件上下文后，其它案件的签批会在数秒轮询后「突然消失」。
+   * matterId 仅用于开新任务时的案件归因（SpawnBar）。
+   */
+  const refresh = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!apiBase) {
         return;
       }
-      void refresh().then(() => setLastSyncedAt(Date.now()));
-    };
-    const t = window.setInterval(tick, 5_000);
-    const labelTick = window.setInterval(() => setSyncTick((n) => n + 1), 1_000);
-    const onVis = () => {
-      if (document.visibilityState === "visible") {
-        tick();
+      if (!opts?.silent) {
+        setLoading(true);
       }
-    };
-    document.addEventListener("visibilitychange", onVis);
-    return () => {
-      window.clearInterval(t);
-      window.clearInterval(labelTick);
-      document.removeEventListener("visibilitychange", onVis);
-    };
-  }, [refresh]);
+      setError(null);
+      try {
+        const [f, s] = await Promise.all([
+          loadAgentFleet(apiBase, null),
+          loadActionSummary(apiBase),
+        ]);
+        setFleet(f);
+        setSummary(s);
+        if (!opts?.silent) {
+          onRefreshSummary?.();
+        }
+      } catch (e) {
+        setError(errorMessage(e, "无法加载在办事项"));
+      } finally {
+        setLoading(false);
+        setHasLoaded(true);
+      }
+    },
+    [apiBase, onRefreshSummary],
+  );
 
-  const visibleRuns = useMemo(() => {
-    const runs = fleet?.runs ?? [];
-    if (!needsDecisionFocus) {
-      return runs;
-    }
-    return runs.filter(runNeedsDecision);
-  }, [fleet?.runs, needsDecisionFocus]);
-
-  /** Prefer first card that needs lawyer input so 待办 / 澄清入口立刻可见。 */
   useEffect(() => {
-    if (visibleRuns.length === 0) {
-      setSelectedRun(null);
-      return;
-    }
-    if (selectedRun && visibleRuns.some((r) => r.id === selectedRun.id)) {
-      return;
-    }
-    const needsInput = visibleRuns.find(runNeedsDecision) ?? visibleRuns[0];
-    setSelectedRun(needsInput);
-    if (runNeedsDecision(needsInput)) {
-      setDetailTab("actions");
-    }
-  }, [visibleRuns, selectedRun]);
+    void refresh();
+    const id = window.setInterval(() => {
+      if (document.visibilityState !== "hidden") {
+        void refresh({ silent: true });
+      }
+    }, 5_000);
+    return () => window.clearInterval(id);
+  }, [refresh]);
 
   useEffect(() => {
     if (!apiBase) {
-      return;
-    }
-    const running = (fleet?.runs ?? [])
-      .filter((r) => r.kind === "workflow_job" && (r.status === "queued" || r.status === "running"))
-      .map((r) => r.jobId)
-      .filter((id): id is string => Boolean(id))
-      .slice(0, 3);
-    const wanted = new Set(running);
-    for (const [jid, es] of eventSourcesRef.current.entries()) {
-      if (!wanted.has(jid)) {
-        es.close();
-        eventSourcesRef.current.delete(jid);
-      }
-    }
-    for (const jobId of running) {
-      if (eventSourcesRef.current.has(jobId)) {
-        continue;
-      }
-      try {
-        const es = new EventSource(`${apiBase}/api/jobs/${encodeURIComponent(jobId)}/stream`);
-        eventSourcesRef.current.set(jobId, es);
-        es.addEventListener("message", () => void refresh());
-        es.addEventListener("error", () => {
-          es.close();
-          eventSourcesRef.current.delete(jobId);
-        });
-      } catch {
-        /* EventSource unavailable */
-      }
-    }
-    return () => {
-      for (const es of eventSourcesRef.current.values()) {
-        es.close();
-      }
-      eventSourcesRef.current.clear();
-    };
-  }, [apiBase, fleet?.runs]);
-
-  useEffect(() => {
-    const sid = selectedRun?.sessionId?.trim();
-    if (!apiBase || !sid) {
-      setSelectedRunActions([]);
+      setPresets([]);
       return;
     }
     let cancelled = false;
-    void loadFleetTranscript(apiBase, sid)
-      .then((payload) => {
-        if (cancelled) {
-          return;
+    setPresetsLoading(true);
+    void loadAgentPresets(apiBase)
+      .then((rows) => {
+        if (!cancelled) {
+          setPresets(rows);
         }
-        setSelectedRunActions(payload?.pendingRequiresAction ?? []);
       })
       .catch(() => {
         if (!cancelled) {
-          setSelectedRunActions([]);
+          setPresets([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setPresetsLoading(false);
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [apiBase, selectedRun?.sessionId, fleet?.counts.awaitingAction]);
+  }, [apiBase]);
+
+  const queue = useMemo(() => {
+    const runs = (fleet?.runs ?? []).filter(needsLawyer);
+    const seen = new Set(runs.map((r) => r.taskId).filter((t): t is string => Boolean(t)));
+    const fromDrafts: AgentRunSummary[] = (summary?.pendingReviewDrafts ?? [])
+      .filter((d) => d.taskId && !seen.has(d.taskId))
+      .map((d) => ({
+        // 与 build-agent-fleet 的 review:${taskId} 对齐，避免轮询前后 id 跳变导致选中项闪没
+        id: `review:${d.taskId}`,
+        kind: "pending_review" as const,
+        status: "awaiting_review" as const,
+        title: d.title?.trim() || "待签批文书",
+        matterId: d.matterId,
+        taskId: d.taskId,
+        updatedAt: d.createdAt,
+        createdAt: d.createdAt,
+        priority: 0,
+      }));
+    const merged = [...runs, ...fromDrafts];
+    return snoozed.size === 0 ? merged : merged.filter((r) => !snoozed.has(r.id));
+  }, [fleet?.runs, summary?.pendingReviewDrafts, snoozed]);
+
+  useEffect(() => {
+    if (queue.length === 0) {
+      setSelectedId(null);
+      return;
+    }
+    if (selectedId && queue.some((r) => r.id === selectedId)) {
+      return;
+    }
+    setSelectedId(queue[0].id);
+  }, [queue, selectedId]);
+
+  const current = queue.find((r) => r.id === selectedId) ?? null;
+
+  useEffect(() => {
+    const sid = current?.sessionId?.trim();
+    if (!apiBase || !sid) {
+      setRunActions([]);
+      return;
+    }
+    let cancelled = false;
+    void loadFleetTranscript(apiBase, sid)
+      .then((payload) => {
+        if (!cancelled) {
+          setRunActions(payload?.pendingRequiresAction ?? []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRunActions([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, current?.sessionId, fleet?.counts.awaitingAction]);
 
   const workspaceChatActions = useMemo(() => {
     const rows = summary?.chatRequiresActions ?? [];
@@ -266,7 +274,7 @@ export function LawmindAgentFleetPanel(props: Props): ReactNode {
     return out;
   }, [summary?.chatRequiresActions]);
 
-  const allRequiresActions = useMemo(() => {
+  const allActions = useMemo(() => {
     const approvals = (summary as { approvals?: ApprovalRequest[] })?.approvals ?? [];
     const matterActions: LawMindRequiresAction[] = approvals
       .filter((a) => a.status === "pending")
@@ -281,12 +289,12 @@ export function LawmindAgentFleetPanel(props: Props): ReactNode {
         decisions: ["approve", "reject"],
         createdAt: a.requestedAt,
       }));
-    const selectedSid = selectedRun?.sessionId?.trim();
-    const chatPool = selectedSid
+    const sid = current?.sessionId?.trim();
+    const chatPool = sid
       ? [
-          ...selectedRunActions,
-          ...workspaceChatActions.filter((a) => a.sessionId === selectedSid),
-          ...(sessionId === selectedSid ? sessionRequiresActions : []),
+          ...runActions,
+          ...workspaceChatActions.filter((a) => a.sessionId === sid),
+          ...(sessionId === sid ? sessionRequiresActions : []),
         ]
       : [...workspaceChatActions, ...sessionRequiresActions];
     const seen = new Set<string>();
@@ -301,24 +309,34 @@ export function LawmindAgentFleetPanel(props: Props): ReactNode {
     return out;
   }, [
     summary,
-    selectedRun?.sessionId,
-    selectedRunActions,
+    current?.sessionId,
+    runActions,
     workspaceChatActions,
     sessionRequiresActions,
     sessionId,
   ]);
 
-  const handleApproveTool = async (action: LawMindRequiresAction) => {
-    const sid = resumeSessionIdForAction(action, selectedRun, sessionId);
+  const advanceAfter = useCallback(
+    (doneId?: string) => {
+      const rest = queue.filter((r) => r.id !== doneId);
+      setSelectedId(rest[0]?.id ?? null);
+    },
+    [queue],
+  );
+
+  const approveTool = async (action: LawMindRequiresAction) => {
+    const sid = resumeSessionId(action, current, sessionId);
     if (!sid) {
-      setError("请先打开对应对话会话。");
+      setError("请先打开对应对话。");
       return;
     }
+    const doneId = current?.id;
     setBusy(true);
     try {
       await resumeChatAction(apiBase, { sessionId: sid, actionId: action.id, decision: "approve" });
       await onChatResumeComplete?.();
       await refresh();
+      advanceAfter(doneId);
     } catch (e) {
       setError(errorMessage(e, "批准失败"));
     } finally {
@@ -326,29 +344,59 @@ export function LawmindAgentFleetPanel(props: Props): ReactNode {
     }
   };
 
-  const handleRejectTool = async (action: LawMindRequiresAction) => {
-    const sid = resumeSessionIdForAction(action, selectedRun, sessionId);
+  const approveToolEdit = async (action: LawMindRequiresAction, editedArgs: Record<string, unknown>) => {
+    const sid = resumeSessionId(action, current, sessionId);
     if (!sid) {
+      setError("请先打开对应对话。");
       return;
     }
+    const doneId = current?.id;
     setBusy(true);
     try {
-      await resumeChatAction(apiBase, { sessionId: sid, actionId: action.id, decision: "reject" });
+      await resumeChatAction(apiBase, {
+        sessionId: sid,
+        actionId: action.id,
+        decision: "edit",
+        editedArgs,
+      });
+      setArgsEditOpen(false);
+      setArgsEditError(null);
       await onChatResumeComplete?.();
       await refresh();
+      advanceAfter(doneId);
     } catch (e) {
-      setError(errorMessage(e, "已拒绝"));
+      setError(errorMessage(e, "按修改批准失败"));
     } finally {
       setBusy(false);
     }
   };
 
-  const handleRespondClarification = async (action: LawMindRequiresAction) => {
-    const sid = resumeSessionIdForAction(action, selectedRun, sessionId);
+  const rejectTool = async (action: LawMindRequiresAction) => {
+    const sid = resumeSessionId(action, current, sessionId);
     if (!sid) {
-      setError("找不到待澄清会话，请点「打开对话澄清」后在对话中补充。");
       return;
     }
+    const doneId = current?.id;
+    setBusy(true);
+    try {
+      await resumeChatAction(apiBase, { sessionId: sid, actionId: action.id, decision: "reject" });
+      await onChatResumeComplete?.();
+      await refresh();
+      advanceAfter(doneId);
+    } catch (e) {
+      setError(errorMessage(e, "已驳回"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const respondClarify = async (action: LawMindRequiresAction) => {
+    const sid = resumeSessionId(action, current, sessionId);
+    if (!sid) {
+      setError("请到对话中补充。");
+      return;
+    }
+    const doneId = current?.id;
     setBusy(true);
     try {
       await resumeChatAction(apiBase, {
@@ -363,20 +411,19 @@ export function LawmindAgentFleetPanel(props: Props): ReactNode {
       setClarificationDraft({});
       await onChatResumeComplete?.();
       await refresh();
+      advanceAfter(doneId);
     } catch (e) {
-      setError(errorMessage(e, "提交澄清失败"));
+      setError(errorMessage(e, "提交失败"));
     } finally {
       setBusy(false);
     }
   };
 
-  const handleMatterApproval = async (
-    action: LawMindRequiresAction,
-    status: "approved" | "rejected",
-  ) => {
+  const resolveMatter = async (action: LawMindRequiresAction, status: "approved" | "rejected") => {
     if (!action.matterId || !action.approvalId) {
       return;
     }
+    const doneId = current?.id;
     setBusy(true);
     try {
       await resolveMatterApproval(apiBase, {
@@ -385,382 +432,317 @@ export function LawmindAgentFleetPanel(props: Props): ReactNode {
         status,
       });
       await refresh();
+      advanceAfter(doneId);
     } catch (e) {
-      setError(errorMessage(e, "审批处理失败"));
+      setError(errorMessage(e, "处理失败"));
     } finally {
       setBusy(false);
     }
   };
 
-  const handleCancelJob = async (jobId: string) => {
-    setBusy(true);
-    try {
-      await apiSendJson(apiBase, `/api/jobs/${encodeURIComponent(jobId)}/cancel`, "POST", {});
-      await refresh();
-    } catch (e) {
-      setError(errorMessage(e, "取消失败"));
-    } finally {
-      setBusy(false);
+  const primaryLabel =
+    current?.status === "awaiting_review" || current?.taskId
+      ? "进入文书台改稿"
+      : current?.status === "awaiting_clarification"
+        ? "去对话补充"
+        : current?.status === "awaiting_approval"
+          ? "批准"
+          : "打开";
+
+  const runPrimary = () => {
+    if (!current || busy) {
+      return;
+    }
+    if ((current.status === "awaiting_review" || current.taskId) && onOpenReview) {
+      onOpenReview(current.taskId, current.matterId);
+      return;
+    }
+    if (current.status === "awaiting_clarification" && current.sessionId) {
+      onOpenChatSession(current.sessionId, current.matterId, current.assistantId);
+      return;
+    }
+    if (current.status === "awaiting_approval") {
+      const first = allActions[0];
+      if (first?.kind === "matter_approval") {
+        void resolveMatter(first, "approved");
+        return;
+      }
+      if (first) {
+        void approveTool(first);
+        return;
+      }
+    }
+    if (current.sessionId) {
+      onOpenChatSession(current.sessionId, current.matterId, current.assistantId);
     }
   };
 
-  const openRun = (run: AgentRunSummary) => {
-    setSelectedRun(run);
-    if (
-      run.status === "awaiting_clarification" ||
-      run.status === "awaiting_approval" ||
-      run.status === "awaiting_review"
-    ) {
-      setDetailTab("actions");
-    } else if (run.sessionId) {
-      setDetailTab("transcript");
-    } else {
-      setDetailTab("actions");
-    }
-  };
+  const showForm =
+    current != null &&
+    (current.status === "awaiting_approval" || current.status === "awaiting_clarification") &&
+    allActions.length > 0;
 
-  const transcriptSessionId =
-    selectedRun?.sessionId ??
-    (selectedRun?.kind === "tool_approval" ? sessionId ?? null : null);
+  const approvalAction =
+    current?.status === "awaiting_approval"
+      ? (allActions.find((a) => a.kind === "tool_approval") ?? allActions[0] ?? null)
+      : null;
+  const approvalDoc = approvalAction?.toolArgs
+    ? extractApprovalDocumentPreview(approvalAction.toolArgs)
+    : null;
+  const readingMode = Boolean(approvalDoc && current?.status === "awaiting_approval");
 
-  const showAwaitingClarifyHint =
-    selectedRun?.status === "awaiting_clarification" &&
-    allRequiresActions.filter((a) => a.kind === "clarification").length === 0;
-  const selectedSpecialization = selectedRun?.assistantId
-    ? fleet?.specialization?.[selectedRun.assistantId]
-    : undefined;
+  const displayTitle = current
+    ? readingMode && approvalDoc
+      ? approvalDoc.title
+      : sanitizeLawyerFacingText(current.title, current.toolName)
+    : "";
 
-  const decisionCount = visibleRuns.length;
-  const awaitingInFleet = (fleet?.runs ?? []).filter(runNeedsDecision).length;
+  const runningCount = (fleet?.runs ?? []).filter(
+    (r) => r.status === "running" || r.status === "queued" || r.status === "scheduled",
+  ).length;
 
   return (
     <div
-      className="lm-agent-fleet-panel"
+      className="lm-agents-wb"
       data-testid="lm-agent-fleet-panel"
       data-needs-decision={needsDecisionFocus ? "true" : undefined}
       aria-busy={loading || busy || undefined}
     >
-      <header className="lm-agent-fleet-header">
-        <div>
-          {needsDecisionFocus ? (
-            <p className="lm-meta" data-testid="lm-fleet-decision-focus-lead">
-              待我拍板
-              {awaitingInFleet > 0 ? ` · ${awaitingInFleet} 项` : " · 暂无待决"}
-              。在右侧澄清、批准或进入文书台。
-            </p>
+      <header className="lm-agents-wb-bar">
+        <h1>在办</h1>
+        <div className="lm-agents-wb-bar-meta">
+          {queue.length > 0 ? (
+            <span className="lm-agents-wb-pill" data-tone="warn" data-testid="lm-fleet-decision-focus-lead">
+              {queue.length} 件待办
+            </span>
           ) : (
-            <p className="lm-meta">
-              单条卡点可在右侧处理。新任务请回「对话」下达。
-              {fleet ? ` · ${fleet.counts.active} 项进行中` : ""}
-              {matterId && !includeAllMatters ? " · 当前案件" : includeAllMatters ? " · 全部案件" : ""}
-            </p>
+            <span className="lm-agents-wb-pill" data-testid="lm-fleet-decision-focus-lead">
+              暂无待办
+            </span>
           )}
-        </div>
-        <div className="lm-agent-fleet-header-actions">
-          {needsDecisionFocus ? (
-            <button
-              type="button"
-              className="lm-btn lm-btn-secondary lm-btn-sm"
-              data-testid="lm-fleet-show-all"
-              onClick={() => onClearNeedsDecisionFocus?.()}
-            >
-              显示全部
-            </button>
+          {runningCount > 0 ? (
+            <span className="lm-agents-wb-pill">{runningCount} 件办理中</span>
           ) : null}
-          {matterId ? (
+          {needsDecisionFocus ? (
             <button
               type="button"
               className="lm-btn lm-btn-ghost lm-btn-sm"
-              data-testid="lm-fleet-scope-toggle"
-              aria-pressed={includeAllMatters}
-              onClick={() => setIncludeAllMatters((v) => !v)}
-              title={includeAllMatters ? "仅看当前案件" : "查看全部案件在办"}
+              data-testid="lm-fleet-show-all"
+              onClick={() => onClearNeedsDecisionFocus?.()}
             >
-              {includeAllMatters ? "仅当前案件" : "全部案件"}
+              退出聚焦
             </button>
           ) : null}
-          <button
-            type="button"
-            className="lm-btn lm-btn-ghost lm-btn-sm"
-            disabled={loading}
-            onClick={() => void refresh().then(() => setLastSyncedAt(Date.now()))}
-          >
-            刷新
-          </button>
-          {lastSyncedAt ? (
-            <span className="lm-meta" data-testid="lm-fleet-last-synced" title="自动每 5 秒同步（窗口不可见时暂停）">
-              {loading ? "同步中…" : `已同步 ${formatFleetSyncedAgo(lastSyncedAt)}`}
-            </span>
-          ) : null}
         </div>
+        <LawmindAgentFleetSpawnBar
+          presets={presets}
+          presetsLoading={presetsLoading}
+          matterId={matterId}
+          canDelegate={canDelegate}
+          onNewChat={onNewChat}
+          onOpenAgentsWorkflows={openAgentsWorkflows}
+          onDelegate={onDelegate}
+          onSpawnPreset={onSpawnPreset}
+          onOpenCollaboration={onOpenCollaboration}
+          onOpenReviewCampaign={onOpenReviewCampaign}
+        />
       </header>
 
-      <LawmindAgentFleetSpawnBar
-        presets={presets}
-        presetsLoading={presetsLoading}
-        matterId={effectiveMatterId}
-        canDelegate={canDelegate}
-        onNewChat={onNewChat}
-        onOpenAgentsWorkflows={openAgentsWorkflows}
-        onDelegate={onDelegate}
-        onSpawnPreset={onSpawnPreset}
-        onOpenCollaboration={onOpenCollaboration}
-      />
-
-      {(summary?.pendingReviewDrafts?.length ?? 0) > 0 && onOpenReview ? (
-        <section
-          className="lm-agent-fleet-review-rail"
-          aria-label="待审文书"
-          data-testid="lm-fleet-pending-reviews"
-        >
-          <h4 className="lm-meta">待审文书</h4>
-          <ul className="lm-meta">
-            {(summary?.pendingReviewDrafts ?? []).slice(0, 5).map((d) => (
-              <li key={d.taskId}>
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-secondary lm-btn-sm"
-                  data-testid={`lm-fleet-review-${d.taskId}`}
-                  onClick={() => onOpenReview(d.taskId)}
-                >
-                  {d.title?.trim() || d.taskId}
-                  {d.reviewStatus === "modified" ? " · 已修订" : " · 进入文书台"}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
       {error ? (
-        <div className="lm-callout lm-callout-danger" role="alert">
+        <div className="lm-callout lm-callout-danger lm-agents-wb-error" role="alert">
           <p className="lm-callout-body">{error}</p>
         </div>
       ) : null}
 
-      <div className="lm-agent-fleet-body">
-        <section className="lm-agent-fleet-list" aria-label={needsDecisionFocus ? "待我拍板" : "在办交办"}>
-          {loading && !fleet ? <p className="lm-meta">加载中…</p> : null}
-          {decisionCount === 0 && !loading ? (
-            <div className="lm-agent-fleet-empty" data-testid="lm-fleet-decision-empty">
-              {needsDecisionFocus ? (
-                <>
-                  <p className="lm-meta">暂无待拍板事项。</p>
-                  <button type="button" className="lm-btn lm-btn-secondary lm-btn-sm" onClick={onNewChat}>
-                    回对话
+      {loading && !hasLoaded ? (
+        <p className="lm-meta" style={{ padding: "16px 20px" }}>
+          加载中…
+        </p>
+      ) : null}
+
+      {hasLoaded && queue.length === 0 ? (
+        <div className="lm-agents-wb-empty" data-testid="lm-fleet-decision-empty">
+          <h2>暂无待办</h2>
+          <p>需要您签批、补充或批准的事项会出现在左侧目录。新任务请在「对话」下达。</p>
+          <div className="lm-agents-wb-empty-actions">
+            <button type="button" className="lm-btn lm-btn-secondary" onClick={onNewChat}>
+              打开对话
+            </button>
+            <button
+              type="button"
+              className="lm-btn lm-btn-accent"
+              data-testid="lm-fleet-primary-review"
+              onClick={() => onOpenReview?.()}
+            >
+              打开文书台
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {queue.length > 0 && current ? (
+        <div className="lm-agents-wb-split">
+          <aside className="lm-agents-wb-list" aria-label="待办目录">
+            <div className="lm-agents-wb-list-scroll">
+              {queue.map((run) => {
+                const kind = statusKind(run.status);
+                const rowTitle = sanitizeLawyerFacingText(run.title, run.toolName)
+                  .replace(/^待审定：\s*/, "")
+                  .replace(/^待批准：\s*/, "");
+                return (
+                  <button
+                    key={run.id}
+                    type="button"
+                    className="lm-agents-wb-row"
+                    data-kind={kind}
+                    aria-selected={run.id === current.id}
+                    aria-label={`${statusLabel(run.status)} ${rowTitle}`}
+                    data-testid={`lm-agent-fleet-card-${run.kind}`}
+                    onClick={() => setSelectedId(run.id)}
+                  >
+                    <span className="lm-agents-wb-row-kind" data-kind={kind}>
+                      {statusLabel(run.status).replace(/^待/, "")}
+                    </span>
+                    <span className="lm-agents-wb-row-title">{rowTitle}</span>
                   </button>
-                </>
-              ) : (
-                <p className="lm-meta">暂无进行中的任务。回到「对话」下达新任务，或点上方「+」快捷跳转。</p>
-              )}
+                );
+              })}
             </div>
-          ) : null}
-          <div className="lm-agent-fleet-cards">
-            {visibleRuns.map((run) => (
-              <LawmindAgentFleetCard
-                key={run.id}
-                run={run}
-                selected={selectedRun?.id === run.id}
-                onSelect={openRun}
-              />
-            ))}
-          </div>
-        </section>
+          </aside>
 
-        <section className="lm-agent-fleet-detail" aria-label="详情与待办">
-          <div className="lm-agent-fleet-detail-tabs" role="tablist" aria-label="详情页签">
-            <button
-              type="button"
-              role="tab"
-              id="lm-fleet-tab-actions"
-              className={detailTab === "actions" ? "active" : ""}
-              aria-selected={detailTab === "actions"}
-              aria-controls="lm-fleet-panel-actions"
-              tabIndex={detailTab === "actions" ? 0 : -1}
-              onClick={() => setDetailTab("actions")}
-            >
-              待办
-              {allRequiresActions.length > 0 ? ` (${allRequiresActions.length})` : ""}
-            </button>
-            <button
-              type="button"
-              role="tab"
-              id="lm-fleet-tab-transcript"
-              className={detailTab === "transcript" ? "active" : ""}
-              aria-selected={detailTab === "transcript"}
-              aria-controls="lm-fleet-panel-transcript"
-              tabIndex={detailTab === "transcript" ? 0 : -1}
-              onClick={() => setDetailTab("transcript")}
-            >
-              轨迹
-            </button>
-          </div>
+          <section
+            className={`lm-agents-wb-detail${readingMode ? " lm-agents-wb-detail--reading" : ""}`}
+            aria-label="办理区"
+          >
+            <header className="lm-agents-wb-detail-head">
+              <div className="lm-agents-wb-detail-head-row">
+                <span className="lm-agents-wb-kicker" data-kind={statusKind(current.status)}>
+                  {statusLabel(current.status)}
+                </span>
+                {!readingMode && current.matterId && !current.matterId.startsWith('临时') ? (
+                  <span className="lm-agents-wb-detail-meta-inline">案件 {current.matterId}</span>
+                ) : null}
+              </div>
+              <h2>{displayTitle.replace(/^待审定：\s*/, "")}</h2>
+            </header>
 
-          {detailTab === "actions" ? (
-            <div
-              className="lm-agent-fleet-actions-pane"
-              role="tabpanel"
-              id="lm-fleet-panel-actions"
-              aria-labelledby="lm-fleet-tab-actions"
-            >
-              {selectedRun ? (
-                <div className="lm-agent-fleet-selected-meta">
-                  <strong>{selectedRun.title}</strong>
-                  <div className="lm-agent-fleet-selected-btns">
-                    {selectedRun.status === "awaiting_review" && selectedRun.taskId && onOpenReview ? (
-                      <button
-                        type="button"
-                        className="lm-btn lm-btn-sm"
-                        data-testid="lm-fleet-primary-review"
-                        onClick={() => onOpenReview(selectedRun.taskId!)}
-                      >
-                        进入文书台签批
-                      </button>
-                    ) : null}
-                    {selectedRun.status !== "awaiting_review" && selectedRun.taskId && onOpenReview ? (
-                      <button
-                        type="button"
-                        className="lm-btn lm-btn-sm"
-                        onClick={() => onOpenReview(selectedRun.taskId!)}
-                      >
-                        进入文书台
-                      </button>
-                    ) : null}
-                    {selectedRun.sessionId ? (
-                      <button
-                        type="button"
-                        className={
-                          selectedRun.status === "awaiting_clarification"
-                            ? "lm-btn lm-btn-sm"
-                            : "lm-btn lm-btn-secondary lm-btn-sm"
+            {readingMode && approvalDoc ? (
+              <LawmindApprovalDocReader doc={approvalDoc} showTitle={false} />
+            ) : (
+              <div className="lm-agents-wb-detail-scroll">
+                <div className="lm-agents-wb-detail-inner">
+                  {showForm ? (
+                    <div className="lm-agents-wb-block" id="lm-fleet-panel-actions">
+                      <LawmindRequiresActionCard
+                        actions={allActions}
+                        sessionId={current.sessionId ?? sessionId}
+                        clarificationDraft={clarificationDraft}
+                        onClarificationDraftChange={(key, value) =>
+                          setClarificationDraft((d) => ({ ...d, [key]: value }))
                         }
-                        onClick={() =>
-                          onOpenChatSession(
-                            selectedRun.sessionId!,
-                            selectedRun.matterId,
-                            selectedRun.assistantId,
-                          )
-                        }
-                      >
-                        {selectedRun.status === "awaiting_clarification"
-                          ? "打开对话澄清"
-                          : "打开对话"}
-                      </button>
-                    ) : null}
-                    {selectedRun.jobId && (selectedRun.status === "queued" || selectedRun.status === "running") ? (
-                      <button
-                        type="button"
-                        className="lm-btn lm-btn-sm lm-btn-secondary"
-                        disabled={busy}
-                        onClick={() => void handleCancelJob(selectedRun.jobId!)}
-                      >
-                        取消作业
-                      </button>
-                    ) : null}
-                  </div>
-                  {selectedSpecialization && selectedSpecialization.tasksReviewed > 0 ? (
-                    <div className="lm-agent-fleet-learning-summary">
-                      <span>
-                        该助手近期：审过 {selectedSpecialization.tasksReviewed} 份 · 一次过签批约{" "}
-                        {Math.round(selectedSpecialization.firstPassRate * 100)}%
-                        {selectedSpecialization.materialRewrites > 0
-                          ? ` · 较大改写 ${selectedSpecialization.materialRewrites} 次`
-                          : ""}
-                      </span>
+                        onApproveTool={approveTool}
+                        onApproveToolEdit={approveToolEdit}
+                        onRejectTool={rejectTool}
+                        onRespondClarification={respondClarify}
+                        onResolveMatterApproval={resolveMatter}
+                        busy={busy}
+                      />
                     </div>
-                  ) : null}
+                  ) : (
+                    <div id="lm-fleet-panel-actions" hidden />
+                  )}
                 </div>
-              ) : null}
+              </div>
+            )}
 
-              {showAwaitingClarifyHint ? (
-                <div className="lm-callout lm-callout-warn" role="status">
-                  <p className="lm-callout-body">
-                    该事项正在等待你补充信息。右侧暂无结构化澄清表单时，请点「打开对话澄清」，在对话输入框直接补充后发送。
-                  </p>
-                  {selectedRun.sessionId ? (
-                    <p className="lm-agent-fleet-clarify-cta">
-                      <button
-                        type="button"
-                        className="lm-btn"
-                        onClick={() =>
-                          onOpenChatSession(
-                            selectedRun.sessionId!,
-                            selectedRun.matterId,
-                            selectedRun.assistantId,
-                          )
-                        }
-                      >
-                        打开对话澄清
-                      </button>
-                    </p>
-                  ) : null}
-                </div>
+            <footer className="lm-agents-wb-dock">
+              <button
+                type="button"
+                className="lm-btn lm-btn-accent"
+                data-testid={
+                  current.status === "awaiting_review" || current.taskId
+                    ? "lm-fleet-primary-review"
+                    : "lm-ceremony-primary"
+                }
+                disabled={busy}
+                onClick={runPrimary}
+              >
+                {primaryLabel}
+              </button>
+              {current.status === "awaiting_approval" && approvalAction ? (
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-secondary"
+                  disabled={busy}
+                  onClick={() => {
+                    if (approvalAction.kind === "matter_approval") {
+                      void resolveMatter(approvalAction, "rejected");
+                      return;
+                    }
+                    void rejectTool(approvalAction);
+                  }}
+                >
+                  驳回
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-ghost"
+                  onClick={() => {
+                    setSnoozed((prev) => new Set(prev).add(current.id));
+                  }}
+                >
+                  稍后
+                </button>
+              )}
+              {current.status === "awaiting_approval" &&
+              approvalAction?.kind === "tool_approval" ? (
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-ghost"
+                  disabled={busy}
+                  data-testid="lm-ceremony-edit-args"
+                  onClick={() => {
+                    setArgsEditError(null);
+                    setArgsEditOpen(true);
+                  }}
+                >
+                  改拟稿…
+                </button>
               ) : null}
-
-              {allRequiresActions.length > 0 ? (
-                <LawmindRequiresActionCard
-                  actions={allRequiresActions}
-                  sessionId={selectedRun?.sessionId ?? sessionId}
-                  clarificationDraft={clarificationDraft}
-                  onClarificationDraftChange={(key, value) =>
-                    setClarificationDraft((d) => ({ ...d, [key]: value }))
+              {current.sessionId && current.status !== "awaiting_clarification" ? (
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-ghost"
+                  onClick={() =>
+                    onOpenChatSession(current.sessionId!, current.matterId, current.assistantId)
                   }
-                  onApproveTool={handleApproveTool}
-                  onRejectTool={handleRejectTool}
-                  onRespondClarification={handleRespondClarification}
-                  onResolveMatterApproval={handleMatterApproval}
-                  busy={busy}
-                />
+                >
+                  相关对话
+                </button>
               ) : null}
+            </footer>
 
-              {(summary?.toolApprovals?.length ?? 0) > 0 ? (
-                <section className="lm-agent-fleet-tool-list">
-                  <h4 className="lm-meta">工作区工具待批准</h4>
-                  <ul className="lm-meta">
-                    {(summary?.toolApprovals ?? []).map((t) => (
-                      <li key={`${t.sessionId}:${t.actionId}`}>
-                        {t.toolName ?? t.title} — {t.summary.slice(0, 80)}
-                        {t.sessionId ? (
-                          <button
-                            type="button"
-                            className="lm-btn lm-btn-ghost lm-btn-sm"
-                            onClick={() => onOpenChatSession(t.sessionId)}
-                          >
-                            打开会话
-                          </button>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ) : null}
-
-              {allRequiresActions.length === 0 && (summary?.toolApprovals?.length ?? 0) === 0 ? (
-                <p className="lm-meta">
-                  {selectedRun?.status === "awaiting_clarification"
-                    ? "暂未拉到可填的澄清表单。请点「打开对话澄清」，在对话里直接补充后发送。"
-                    : selectedRun?.status === "awaiting_review"
-                      ? "交付物已准备好，请点「进入文书台」核验来源、修改正文并完成签批。"
-                    : "当前无待办。选择左侧「待澄清 / 待批准」卡片查看可操作项。"}
-                </p>
-              ) : null}
-            </div>
-          ) : (
-            <div
-              role="tabpanel"
-              id="lm-fleet-panel-transcript"
-              aria-labelledby="lm-fleet-tab-transcript"
-              className="lm-agent-fleet-transcript-pane"
-            >
-              <LawmindAgentFleetTranscript
-                apiBase={apiBase}
-                sessionId={transcriptSessionId}
-                onClose={() => setSelectedRun(null)}
-              />
-            </div>
-          )}
-        </section>
-      </div>
+            <LawmindToolArgsEditDialog
+              open={argsEditOpen && approvalAction?.kind === "tool_approval"}
+              toolArgs={approvalAction?.kind === "tool_approval" ? approvalAction.toolArgs : null}
+              busy={busy}
+              error={argsEditError}
+              onCancel={() => {
+                setArgsEditOpen(false);
+                setArgsEditError(null);
+              }}
+              onApprove={(edited) => {
+                if (!approvalAction || approvalAction.kind !== "tool_approval") {
+                  return;
+                }
+                setArgsEditError(null);
+                void approveToolEdit(approvalAction, edited);
+              }}
+            />
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

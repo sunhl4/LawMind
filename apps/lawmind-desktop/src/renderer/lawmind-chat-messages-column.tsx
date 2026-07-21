@@ -190,7 +190,7 @@ export function LawmindChatMessagesColumn({
     <>
       {revisionBackgroundActive && contextTaskId?.trim() && onOpenReview ? (
         <div className="lm-chat-revision-banner" role="status">
-          <span>正在后台修订草稿，执行过程见下方；完成后可进入文书台继续签批。</span>
+          <span>正在后台修订草稿，执行过程见下方；完成后可进入文书台改稿，正式签批请回在办。</span>
           <button
             type="button"
             className="lm-btn lm-btn-ghost lm-btn-small"

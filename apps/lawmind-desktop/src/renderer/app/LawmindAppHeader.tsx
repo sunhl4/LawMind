@@ -229,14 +229,22 @@ function LawmindAppHeaderImpl({
                 >
                   在办
                 </button>
+                <button
+                  type="button"
+                  className={`lm-tab ${mainView === "review" ? "active" : ""}`}
+                  aria-current={mainView === "review" ? "page" : undefined}
+                  data-testid="lm-tab-review"
+                  onClick={() => {
+                    onClearNeedsDecisionFocus?.();
+                    onSetMainView("review");
+                  }}
+                  title="撰写、预览与导出文书"
+                >
+                  文书台
+                </button>
                 {moreActive ? (
                   <span className="lm-tab active" aria-current="page" data-testid={`lm-tab-${mainView}`}>
                     {lawmindMainViewLabel(mainView)}
-                  </span>
-                ) : null}
-                {mainView === "review" ? (
-                  <span className="lm-tab active" aria-current="page">
-                    文书台
                   </span>
                 ) : null}
                 <div className="lm-nav-more" ref={moreRef}>

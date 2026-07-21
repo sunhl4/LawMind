@@ -17,6 +17,7 @@ export type ReviewViewProps = {
   onShowArtifact: (relPath: string) => void;
   onRecordsChanged: () => void;
   onGoToChat: (opts: { taskId: string; matterId?: string; prompt?: string }) => void;
+  onOpenAgentsDesk?: () => void;
   onRevisionJobQueued: (opts: {
     sessionId: string;
     assistantId: string;
@@ -41,6 +42,7 @@ function ReviewViewImpl(props: ReviewViewProps) {
         onShowArtifact={props.onShowArtifact}
         onRecordsChanged={props.onRecordsChanged}
         onGoToChat={props.onGoToChat}
+        onOpenAgentsDesk={props.onOpenAgentsDesk}
         onRevisionJobQueued={props.onRevisionJobQueued}
         paneVisibility={props.paneVisibility}
         _onToggleReviewPane={props.onToggleReviewPane}

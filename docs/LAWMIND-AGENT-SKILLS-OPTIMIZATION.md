@@ -1,6 +1,8 @@
 # LawMind ← Agent Skills 生态调研与产品力优化路线
 
-> **状态**：持续更新的规划与对照文档（不是当前 sprint 的强制执行清单）。  
+> **状态**：持续更新的规划与对照文档。  
+> **执行决策（2026-07-20）**：十二史诗**全部做**；接受**完整 UI/IA 大改**；**Solo 最高优先**；预算 **500 人周**。  
+> **周级排期真相源**：[LAWMIND-AGENT-SKILLS-500PW-PLAN.md](LAWMIND-AGENT-SKILLS-500PW-PLAN.md)（W01–W100）。  
 > **创建**：2026-07-20  
 > **原则**：以**产品力**为第一目标；允许大改架构与交互，但默认值不变——本地优先、澄清→执行→交付→审核→审计、交付物可验收、律师最终责任。  
 > **关联**：[LAWMIND-VISION](LAWMIND-VISION.md) · [LAWMIND-2.0-STRATEGY](LAWMIND-2.0-STRATEGY.md) · [LAWMIND-OPTIMIZATION-BACKLOG](LAWMIND-OPTIMIZATION-BACKLOG.md) · [LAWMIND-ARCHITECTURE](LAWMIND-ARCHITECTURE.md) · [LAWMIND-DELIVERABLE-FIRST](LAWMIND-DELIVERABLE-FIRST.md) · [LAWMIND-LAWYER-AUTOMATIONS](LAWMIND-LAWYER-AUTOMATIONS.md) · [GOALS.md](../GOALS.md)  

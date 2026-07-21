@@ -7,7 +7,12 @@ import {
 } from "../../../src/lawmind/retrieval/providers.js";
 import { resolveLawMindRoot } from "../../../src/lawmind/assistants/store.js";
 import { resolveEdition } from "../../../src/lawmind/policy/edition.js";
+import { resolveCitationMode } from "../../../src/lawmind/policy/citation-mode.js";
 import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspace-policy.js";
+import { listTriageRuleIds } from "../../../src/lawmind/triage/index.js";
+import { fleetPlaybookCountForHealth } from "./lawmind-server-route-review-campaign.js";
+import { summarizeProductMetrics } from "../../../src/lawmind/metrics/product-metrics.js";
+import { runPrivateDeployChecklist } from "../../../src/lawmind/policy/private-deploy-checklist.js";
 import { buildWorkspaceSessionHealth } from "../../../src/lawmind/insights/session-health.js";
 import {
   buildDoctorStats,
@@ -58,6 +63,11 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
     ? (policy.policy as LawMindWorkspacePolicy)
     : null;
   const edition = resolveEdition({ policy: policyForEdition });
+  const citationMode = resolveCitationMode(policyForEdition, edition.edition);
+  const triageRuleIds = listTriageRuleIds();
+  const fleetPlaybookCount = fleetPlaybookCountForHealth(workspaceDir);
+  const productMetrics = summarizeProductMetrics(workspaceDir);
+  const privateDeployChecklist = runPrivateDeployChecklist(workspaceDir);
   const mandatoryRules = resolveAgentMandatoryRulesForPrompt(workspaceDir, policyForEdition);
   const lawmindRouterMode = (process.env.LAWMIND_ROUTER_MODE ?? "").trim() || "keyword";
   const lawmindReasoningMode = (process.env.LAWMIND_REASONING_MODE ?? "").trim() || "off";
@@ -79,6 +89,12 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
       lawmindAgentMaxToolCalls,
       agentMandatoryRulesActive: mandatoryRules.active,
       agentMandatoryRulesTruncated: mandatoryRules.truncated,
+      citationMode,
+      citationModeActive: citationMode !== "off",
+      triageRulesLoaded: triageRuleIds.length > 0,
+      triageRuleCount: triageRuleIds.length,
+      fleetPlaybooksLoaded: fleetPlaybookCount > 0,
+      fleetPlaybookCount,
       lawmindRouterMode,
       lawmindReasoningMode,
       draftWithModelEnabled,
@@ -131,6 +147,24 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
         multitaskObservability,
         rateLimit: getRateLimitStats(),
         skipApiAuthWarn: isLoopbackApiAuthSkipped(),
+        citationMode,
+        citationModeActive: citationMode !== "off",
+        triageRulesLoaded: triageRuleIds.length > 0,
+        triageRuleCount: triageRuleIds.length,
+        fleetPlaybooksLoaded: fleetPlaybookCount > 0,
+        fleetPlaybookCount,
+        productMetricsSummary: {
+          total: productMetrics.total,
+          triageConfirmed: productMetrics.triageConfirmed,
+          gateFailures: productMetrics.gateFailures,
+          firstPassOk: productMetrics.firstPassOk,
+        },
+        privateDeployChecklist: {
+          applicable: privateDeployChecklist.applicable,
+          passCount: privateDeployChecklist.passCount,
+          total: privateDeployChecklist.items.length,
+          items: privateDeployChecklist.items,
+        },
       },
       envHint: {
         userDataEnvPath: userEnvPath,

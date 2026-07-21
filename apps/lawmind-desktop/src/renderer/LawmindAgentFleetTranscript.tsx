@@ -23,22 +23,22 @@ export function LawmindAgentFleetTranscript({ apiBase, sessionId, onClose }: Pro
     setError(null);
     void loadFleetTranscript(apiBase, sessionId)
       .then((p) => setPayload(p))
-      .catch((e) => setError(errorMessage(e, "无法加载会话轨迹")))
+      .catch((e) => setError(errorMessage(e, "无法加载办理过程")))
       .finally(() => setLoading(false));
   }, [apiBase, sessionId]);
 
   if (!sessionId) {
     return (
-      <aside className="lm-agent-fleet-transcript lm-agent-fleet-transcript-empty" aria-label="Agent 轨迹">
-        <p className="lm-meta">选择一张 Agent 卡片查看轨迹与待处理动作。</p>
+      <aside className="lm-agent-fleet-transcript lm-agent-fleet-transcript-empty" aria-label="办理过程">
+        <p className="lm-meta">选中左侧一件事，可在此查看办理过程。</p>
       </aside>
     );
   }
 
   return (
-    <aside className="lm-agent-fleet-transcript" aria-label="Agent 轨迹" data-testid="lm-agent-fleet-transcript">
+    <aside className="lm-agent-fleet-transcript" aria-label="办理过程" data-testid="lm-agent-fleet-transcript">
       <header className="lm-agent-fleet-transcript-head">
-        <h3>{payload?.title ?? "会话轨迹"}</h3>
+        <h3>{payload?.title ?? "办理过程"}</h3>
         <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={onClose}>
           关闭
         </button>
@@ -50,7 +50,10 @@ export function LawmindAgentFleetTranscript({ apiBase, sessionId, onClose }: Pro
         </div>
       ) : null}
       {payload?.executionState ? (
-        <LawmindChatExecutionTrace executionState={payload.executionState} mode="timeline" compact />
+        <details className="lm-agent-fleet-transcript-advanced">
+          <summary className="lm-meta">技术步骤（一般无需查看）</summary>
+          <LawmindChatExecutionTrace executionState={payload.executionState} mode="timeline" compact />
+        </details>
       ) : null}
       {(payload?.pendingRequiresAction?.length ?? 0) > 0 ? (
         <div className="lm-agent-fleet-transcript-pending">
@@ -60,8 +63,11 @@ export function LawmindAgentFleetTranscript({ apiBase, sessionId, onClose }: Pro
       <ul className="lm-agent-fleet-transcript-messages">
         {(payload?.messages ?? []).map((m, i) => (
           <li key={`${m.role}-${i}`} className={`lm-agent-fleet-msg lm-agent-fleet-msg-${m.role}`}>
-            <span className="lm-agent-fleet-msg-role">{m.role === "user" ? "律师" : "Agent"}</span>
-            <p>{m.content.slice(0, 600)}{m.content.length > 600 ? "…" : ""}</p>
+            <span className="lm-agent-fleet-msg-role">{m.role === "user" ? "我" : "助手"}</span>
+            <p>
+              {m.content.slice(0, 600)}
+              {m.content.length > 600 ? "…" : ""}
+            </p>
           </li>
         ))}
       </ul>

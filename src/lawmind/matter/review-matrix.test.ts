@@ -2,10 +2,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { compareMatrixExcerpts } from "./review-matrix-compare.js";
 import {
   buildMatterReviewMatrix,
   cleanReviewExcerpt,
   excerptForQuestion,
+  exportReviewMatrixCsv,
   humanizeMatrixDocumentTitle,
 } from "./review-matrix.js";
 
@@ -80,5 +82,42 @@ describe("buildMatterReviewMatrix", () => {
     expect(humanizeMatrixDocumentTitle("MATTER_STRATEGY.md")).toBe("案件策略");
     expect(cleanReviewExcerpt("## 标题\n- **加粗**\n---\n正文")).toContain("标题");
     expect(cleanReviewExcerpt("## 标题\n- **加粗**\n---\n正文")).not.toMatch(/#|\*\*|---/);
+  });
+
+  it("exports CSV with citation column and compare flags danger", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-matrix-csv-"));
+    const matterId = "m-csv";
+    const taskId = "task-csv";
+    fs.mkdirSync(path.join(ws, "drafts"), { recursive: true });
+    fs.writeFileSync(
+      path.join(ws, "drafts", `${taskId}.json`),
+      JSON.stringify({
+        taskId,
+        matterId,
+        title: "主合同",
+        sections: [{ heading: "违约", body: "甲方违约时应赔偿乙方损失。" }],
+        reviewStatus: "pending",
+      }),
+      "utf8",
+    );
+    fs.mkdirSync(path.join(ws, "tasks"), { recursive: true });
+    fs.writeFileSync(
+      path.join(ws, "tasks", `${taskId}.json`),
+      JSON.stringify({
+        taskId,
+        matterId,
+        kind: "agent.instruction",
+        status: "running",
+        summary: "合同",
+        createdAt: "2026-01-01",
+        updatedAt: "2026-01-01",
+      }),
+      "utf8",
+    );
+    const csv = exportReviewMatrixCsv(buildMatterReviewMatrix(ws, matterId));
+    expect(csv).toMatch(/citation/);
+    expect(csv).toMatch(/task-csv|draft:/);
+    expect(compareMatrixExcerpts("普通条款", "乙方承担无限责任").danger).toBe(true);
+    expect(compareMatrixExcerpts("a", "a").changed).toBe(false);
   });
 });

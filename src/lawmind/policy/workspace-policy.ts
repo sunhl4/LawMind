@@ -86,6 +86,14 @@ export type LawMindWorkspacePolicy = {
     preferSmallFiles?: boolean;
     smallFileMaxBytes?: number;
   };
+  /**
+   * Skills E4：引用模式。
+   * - grounded：无源/未锚定长段阻断 strict 导出
+   * - assisted（Solo 默认）：缺源阻断导出，未锚定仅提示
+   * - off：不因引用阻断
+   * 也可用环境变量 `LAWMIND_CITATION_MODE`。
+   */
+  citationMode?: "grounded" | "assisted" | "off";
 };
 
 export type ResolvedAgentMandatoryRules = {

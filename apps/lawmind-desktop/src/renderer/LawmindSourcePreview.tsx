@@ -1,19 +1,15 @@
 /**
- * LawmindSourcePreview — Deliverable-First Architecture P3 (来源锚点).
- *
- * <LawmindSourcePill /> renders a citation chip that, on hover, lazily fetches
- * `/api/sources/:id/preview?taskId=...` and surfaces:
- *   - the underlying source title + citation string + URL
- *   - the draft sections that cite it
- *   - the supporting research claims (text + confidence)
- *
- * Why: this is the trust seam that lets the lawyer click through every cite
- * back to the underlying authority — the differentiator vs Harvey / Spellbook
- * style "ungrounded" generation.
+ * 来源锚点 — 律师可见文案按法律报告「参见」体例，不展示 src-1 等内部码。
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import {
+  citationFootnoteMarker,
+  formatLawyerFacingCitation,
+  looksLikeOpaqueSourceId,
+  sourceKindLabelZh,
+} from "../../../../src/lawmind/sources/citation-display.ts";
 import { apiGetJson, errorMessage } from "./api-client";
 import { scrollToSourceAnchor } from "./lawmind-source-anchor";
 import { LawmindSourceAnnotations } from "./LawmindSourceAnnotations.js";
@@ -53,28 +49,40 @@ type Props = {
   sourceId: string;
   /** Required for fast lookups; optional fall-back triggers a workspace scan. */
   taskId?: string;
-  /** Optional override label (defaults to the source ID). */
+  /** Optional override label (defaults to resolved legal citation). */
   label?: string;
   matterId?: string;
+  /** Footnote marker shown before the cite text (①…). */
+  marker?: string;
+  /** Eager-load preview so the chip never flashes opaque ids. */
+  eager?: boolean;
 };
 
-function kindLabel(kind: string): string {
-  switch (kind) {
-    case "statute":
-      return "法条";
-    case "regulation":
-      return "法规";
-    case "case":
-      return "判例";
-    case "court_view":
-      return "司法观点";
-    case "book":
-      return "著作";
-    case "internal":
-      return "内部资料";
-    default:
-      return "其他";
+async function fetchSourcePreview(
+  apiBase: string,
+  sourceId: string,
+  taskId?: string,
+): Promise<SourcePreviewPayload> {
+  const path = taskId
+    ? `/api/sources/${encodeURIComponent(sourceId)}/preview?taskId=${encodeURIComponent(taskId)}`
+    : `/api/sources/${encodeURIComponent(sourceId)}/preview`;
+  const j = await apiGetJson<{
+    ok?: boolean;
+    error?: string;
+    source?: SourcePreviewPayload["source"];
+    supportingClaims?: SourcePreviewPayload["supportingClaims"];
+    taskId?: string;
+    sectionsCiting?: SourcePreviewPayload["sectionsCiting"];
+  }>(apiBase, path);
+  if (!j.ok || !j.source) {
+    throw new Error(j.error ?? "无法获取来源详情");
   }
+  return {
+    source: j.source,
+    supportingClaims: j.supportingClaims ?? [],
+    taskId: j.taskId ?? taskId ?? "",
+    sectionsCiting: j.sectionsCiting ?? [],
+  };
 }
 
 /**
@@ -82,7 +90,7 @@ function kindLabel(kind: string): string {
  * the popover's max-width. We rely on CSS to keep it readable on narrow panels.
  */
 export function LawmindSourcePill(props: Props): ReactNode {
-  const { apiBase, sourceId, taskId, label, matterId } = props;
+  const { apiBase, sourceId, taskId, label, matterId, marker, eager = true } = props;
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<FetchState>({ kind: "idle" });
   const cacheRef = useRef<SourcePreviewPayload | null>(null);
@@ -97,28 +105,9 @@ export function LawmindSourcePill(props: Props): ReactNode {
       return inflightRef.current;
     }
     setState({ kind: "loading" });
-    const path = taskId
-      ? `/api/sources/${encodeURIComponent(sourceId)}/preview?taskId=${encodeURIComponent(taskId)}`
-      : `/api/sources/${encodeURIComponent(sourceId)}/preview`;
     const job = (async () => {
       try {
-        const j = await apiGetJson<{
-          ok?: boolean;
-          error?: string;
-          source?: SourcePreviewPayload["source"];
-          supportingClaims?: SourcePreviewPayload["supportingClaims"];
-          taskId?: string;
-          sectionsCiting?: SourcePreviewPayload["sectionsCiting"];
-        }>(apiBase, path);
-        if (!j.ok || !j.source) {
-          throw new Error(j.error ?? "无法获取来源详情");
-        }
-        const payload: SourcePreviewPayload = {
-          source: j.source,
-          supportingClaims: j.supportingClaims ?? [],
-          taskId: j.taskId ?? taskId ?? "",
-          sectionsCiting: j.sectionsCiting ?? [],
-        };
+        const payload = await fetchSourcePreview(apiBase, sourceId, taskId);
         cacheRef.current = payload;
         setState({ kind: "ready", data: payload });
       } catch (e) {
@@ -132,10 +121,35 @@ export function LawmindSourcePill(props: Props): ReactNode {
   }, [apiBase, sourceId, taskId]);
 
   useEffect(() => {
+    if (eager) {
+      void ensureLoaded();
+    }
+  }, [eager, ensureLoaded]);
+
+  useEffect(() => {
     if (open && state.kind === "idle") {
       void ensureLoaded();
     }
   }, [open, state.kind, ensureLoaded]);
+
+  const displayLabel = useMemo(() => {
+    if (label?.trim()) {
+      return label.trim();
+    }
+    if (state.kind === "ready") {
+      return formatLawyerFacingCitation(state.data.source);
+    }
+    if (state.kind === "error") {
+      return "引用待核实";
+    }
+    // Never flash opaque ids while loading.
+    if (looksLikeOpaqueSourceId(sourceId)) {
+      return state.kind === "loading" ? "加载引用…" : "引用";
+    }
+    return sourceId;
+  }, [label, state, sourceId]);
+
+  const pillText = marker ? `${marker}${displayLabel}` : displayLabel;
 
   return (
     <span
@@ -149,15 +163,17 @@ export function LawmindSourcePill(props: Props): ReactNode {
         type="button"
         className="lm-source-pill"
         aria-expanded={open}
+        aria-label={`参见：${displayLabel}`}
+        title={displayLabel}
         onClick={() => {
           setOpen((prev) => !prev);
         }}
       >
-        {label ?? sourceId}
+        {pillText}
       </button>
       {open ? (
         <div className="lm-source-popover" role="tooltip">
-          {state.kind === "loading" ? <div className="lm-meta">加载来源详情…</div> : null}
+          {state.kind === "loading" ? <div className="lm-meta">加载出处…</div> : null}
           {state.kind === "error" ? (
             <div className="lm-callout lm-callout-danger" role="alert">
               <p className="lm-callout-body">{state.message}</p>
@@ -166,7 +182,7 @@ export function LawmindSourcePill(props: Props): ReactNode {
           {state.kind === "ready" ? (
             <SourcePopoverBody apiBase={apiBase} matterId={matterId} data={state.data} />
           ) : null}
-          {state.kind === "idle" ? <div className="lm-meta">悬停以加载详情</div> : null}
+          {state.kind === "idle" ? <div className="lm-meta">悬停以查看出处</div> : null}
         </div>
       ) : null}
     </span>
@@ -184,6 +200,15 @@ function openSourceInSystemBrowser(url: string): void {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
+function shortUrlLabel(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.hostname.replace(/^www\./, "") || "原文链接";
+  } catch {
+    return "原文链接";
+  }
+}
+
 function SourcePopoverBody(props: {
   apiBase: string;
   matterId?: string;
@@ -191,28 +216,22 @@ function SourcePopoverBody(props: {
 }): ReactNode {
   const { apiBase, matterId, data } = props;
   const { source, supportingClaims, sectionsCiting } = data;
+  const cite = formatLawyerFacingCitation(source);
   return (
     <div className="lm-source-popover-body">
       <div className="lm-source-popover-head">
-        <span className="lm-source-popover-kind">{kindLabel(source.kind)}</span>
-        <span className="lm-source-popover-id">{source.id}</span>
+        <span className="lm-source-popover-kind">{sourceKindLabelZh(source.kind)}</span>
       </div>
-      <div className="lm-source-popover-title">{source.title}</div>
-      {source.citation ? (
-        <div className="lm-source-popover-cite">{source.citation}</div>
+      <div className="lm-source-popover-cite">{cite}</div>
+      {source.title?.trim() &&
+      source.title.trim() !== cite &&
+      !looksLikeOpaqueSourceId(source.title) ? (
+        <div className="lm-source-popover-title">{source.title}</div>
       ) : null}
       <ul className="lm-source-popover-meta">
         {source.court ? <li>裁判机构：{source.court}</li> : null}
         {source.caseNumber ? <li>案号：{source.caseNumber}</li> : null}
         {source.date ? <li>日期：{source.date}</li> : null}
-        {source.url ? (
-          <li>
-            链接：
-            <a href={source.url} target="_blank" rel="noreferrer">
-              {source.url}
-            </a>
-          </li>
-        ) : null}
       </ul>
       {source.url ? (
         <div className="lm-source-popover-actions">
@@ -220,14 +239,15 @@ function SourcePopoverBody(props: {
             type="button"
             className="lm-btn lm-btn-secondary lm-btn-small"
             onClick={() => openSourceInSystemBrowser(source.url!)}
+            title={source.url}
           >
-            在系统浏览器打开
+            打开原文（{shortUrlLabel(source.url)}）
           </button>
         </div>
       ) : null}
       {sectionsCiting.length > 0 ? (
         <div className="lm-source-popover-section">
-          <div className="lm-source-popover-section-title">本草稿引用章节</div>
+          <div className="lm-source-popover-section-title">本草稿引用位置</div>
           <ul className="lm-source-popover-sections">
             {sectionsCiting.map((s) => (
               <li key={s.anchorId ?? s.heading}>
@@ -249,14 +269,11 @@ function SourcePopoverBody(props: {
       ) : null}
       {supportingClaims.length > 0 ? (
         <div className="lm-source-popover-section">
-          <div className="lm-source-popover-section-title">支撑结论</div>
+          <div className="lm-source-popover-section-title">相关要点</div>
           <ul>
             {supportingClaims.slice(0, 4).map((c, idx) => (
               <li key={idx}>
                 <span className="lm-source-popover-claim">{c.text}</span>
-                <span className="lm-source-popover-confidence">
-                  {Math.round(c.confidence * 100)}% · {c.model === "legal" ? "法律模型" : "通用模型"}
-                </span>
               </li>
             ))}
           </ul>
@@ -272,21 +289,58 @@ function SourcePopoverBody(props: {
   );
 }
 
-/** Convenience: render an inline list of source pills sharing the same taskId. */
+/** 节末「参见」列表：①法条；②案号 — 符合一般法律报告体例。 */
 export function LawmindSourcePillList(props: {
   apiBase: string;
   taskId?: string;
   sourceIds: string[];
+  matterId?: string;
 }): ReactNode {
-  const { apiBase, taskId, sourceIds } = props;
-  if (sourceIds.length === 0) {
+  const { apiBase, taskId, sourceIds, matterId } = props;
+  const uniqueIds = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const raw of sourceIds) {
+      const id = raw?.trim();
+      if (!id || seen.has(id)) {
+        continue;
+      }
+      seen.add(id);
+      out.push(id);
+    }
+    return out;
+  }, [sourceIds]);
+
+  if (uniqueIds.length === 0) {
     return null;
   }
+
   return (
-    <span className="lm-source-pill-list">
-      {sourceIds.map((id) => (
-        <LawmindSourcePill key={id} apiBase={apiBase} taskId={taskId} sourceId={id} />
-      ))}
+    <span className="lm-legal-cites" aria-label="参见">
+      <span className="lm-legal-cites-label">参见</span>
+      <span className="lm-legal-cites-items">
+        {uniqueIds.map((id, index) => (
+          <span key={id} className="lm-legal-cites-item">
+            <LawmindSourcePill
+              apiBase={apiBase}
+              taskId={taskId}
+              sourceId={id}
+              matterId={matterId}
+              marker={citationFootnoteMarker(index)}
+              eager
+            />
+            {index < uniqueIds.length - 1 ? (
+              <span className="lm-legal-cites-sep" aria-hidden>
+                ；
+              </span>
+            ) : (
+              <span className="lm-legal-cites-sep" aria-hidden>
+                。
+              </span>
+            )}
+          </span>
+        ))}
+      </span>
     </span>
   );
 }
