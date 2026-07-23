@@ -224,6 +224,8 @@ export function autoCompactSessionHistory(
     policy?: LawMindWorkspacePolicy | null;
     linkedTaskId?: string;
     contextTokens?: number;
+    /** When false, skip writing compact-digest.md under the matter (dry-run preview). Default true. */
+    writeDigestFile?: boolean;
   },
 ): CompactResult {
   const budget = estimateTokenBudget(session, opts.policy, {
@@ -266,7 +268,7 @@ export function autoCompactSessionHistory(
 
   const digestCap = resolveCompactDigestCharCap(opts.contextTokens);
   const droppedDigest = buildDroppedSpanDigest(droppedSpan, digestCap);
-  if (droppedDigest) {
+  if (droppedDigest && opts.writeDigestFile !== false) {
     writeCompactDigestFile(workspaceDir, session.matterId, droppedDigest);
   }
 

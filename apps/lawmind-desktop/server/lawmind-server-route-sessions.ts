@@ -224,6 +224,7 @@ export async function handleSessionExtendedRoutes({
       maxHistoryMessages: envelope.maxHistoryMessages,
       policy,
       contextTokens: envelope.contextTokens,
+      writeDigestFile: !dryRun,
     });
     let usedLlmDigest = false;
 

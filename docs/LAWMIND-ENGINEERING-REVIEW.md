@@ -98,7 +98,7 @@ LawMind 在「可审计的法律生产系统」水位上已经扎实：交付物
 交付层：审核台
 ```
 
-今日缺口：**指挥层入口已接通**（在办 tab + 三分区）。路由 defaults / 内测指标 / 团队视图 e2e 已补；R-P0-3 orchestrator 续拆已落地。仍属后续专项：R-P1-6 个人知识库 hybrid、覆盖率地板。
+今日缺口：**指挥层入口已接通**（在办 tab + 三分区）。路由 defaults / 内测指标 / 团队视图 e2e 已补；R-P0-3 orchestrator 续拆已落地。R-P1-6 Wave-1（FTS hybrid 个人知识）与 R-P2-2 覆盖率地板本轮已抬升；embedding / 专用知识库 UI 仍属 Wave-2。
 
 设计系统：保持现有 brass / `lm-*`；`styles/agent-fleet.css` 已同步 `styles.css`；`LAWMIND-DESKTOP-UI.md` 仍可补在办说明。
 
@@ -129,7 +129,7 @@ LawMind 在「可审计的法律生产系统」水位上已经扎实：交付物
 | R-P1-3 | `approval-queue` 进 PR E2E                                                                         |
 | R-P1-4 | ~~matter-storage + 写侧服务单测~~ **已落地**（adapter + queue-write smoke；W3 matter-write 既有）  |
 | R-P1-5 | 案件工作台 Header 入口 + 审查矩阵                                                                  |
-| R-P1-6 | 个人知识库 hybrid 检索                                                                             |
+| R-P1-6 | ~~个人知识库 hybrid 检索~~ **Wave-1 已落地**（FTS trigram + 加权；无 embedding）                   |
 | R-P1-7 | 打断 message-bus 环依赖 + bus 单测                                                                 |
 | R-P1-8 | ~~engine planning/drafting/researching 冒烟测~~ **已落地**                                         |
 
@@ -138,7 +138,7 @@ LawMind 在「可审计的法律生产系统」水位上已经扎实：交付物
 | ID     | 项                                                                     |
 | ------ | ---------------------------------------------------------------------- |
 | R-P2-1 | Agent 特化指标（首过率、改写率）                                       |
-| R-P2-2 | 覆盖率地板 +2–3pt（platform / application / fleet）                    |
+| R-P2-2 | ~~覆盖率地板 +2–3pt~~ **已抬升**（ratchet statements ~44.3%）          |
 | R-P2-3 | 文档同步：GOALS、ARCHITECTURE、USER-MANUAL、COLLABORATION-UI-API-MAP   |
 | R-P2-4 | FileWorkbench 拆分（dialogs 已拆）；命令面板升级为全应用「律师命令」续 |
 | R-P2-5 | sync→async I/O 或写队列；hash-chain 并发属性测                         |
@@ -221,3 +221,5 @@ LawMind 在「可审计的法律生产系统」水位上已经扎实：交付物
 | 会议室 ↔ 对话同构左栏 + 打断                         | 2026-07-23 | 共用全局材料树/会话；终止发言 abort；live sticky runbar；仅材料可开场；记录区加高                                                                                                                     |
 | 会议室材料栏 + 设置精简                              | 2026-07-21 | （已演进）页内材料 portal 取消；改拖全局左栏进议题                                                                                                                                                    |
 | Review hardening（mutate/abort/distill）             | 2026-07-21 | 删末条助手清 pending；SSE close 不再误 abort 下一轮；auto-wf 前/后查 abort；文书 write 需 path；distill 去重+仅 dropped；mutate 409；lease_term textarea；e2e mock stub                               |
+| R-P2-2 覆盖率地板                                    | 2026-07-23 | platform/fleet/schema 补测；`coverage-baseline.json` statements 42.53→~44.3                                                                                                                           |
+| R-P1-6 个人知识库 Wave-1                             | 2026-07-23 | `knowledge_fts`（trigram）+ `searchPersonalKnowledge`；接线 tool/recall/HTTP；假命中与 Recall@K 验收测                                                                                                |

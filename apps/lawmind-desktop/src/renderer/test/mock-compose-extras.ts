@@ -13,6 +13,8 @@ export function mockComposeExtras(
     contextBudget: null,
     refreshContextBudget: vi.fn().mockResolvedValue(undefined),
     applyStreamTokenBudget: vi.fn(),
+    previewCompact: vi.fn().mockResolvedValue(null),
+    runCompact: vi.fn().mockResolvedValue(undefined),
     compactSession: vi.fn().mockResolvedValue(undefined),
     distillSessionLearning: vi.fn().mockResolvedValue(undefined),
     compactBusy: false,

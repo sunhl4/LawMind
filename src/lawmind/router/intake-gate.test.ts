@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  caseMemoryLooksFilledForIntake,
   instructionLooksLikeFilledIntake,
+  instructionRequestsIntakeEscape,
   resolveIntakeClarificationQuestions,
 } from "./intake-gate.js";
 
@@ -24,5 +26,28 @@ describe("intake-gate", () => {
     const qs = resolveIntakeClarificationQuestions("请起草一份租赁合同");
     expect(qs.length).toBeGreaterThan(0);
     expect(qs.some((q) => q.key === "parties")).toBe(true);
+  });
+
+  it("skips when lawyer requests escape hatch", () => {
+    expect(instructionRequestsIntakeEscape("直接做，别再问了")).toBe(true);
+    expect(resolveIntakeClarificationQuestions("请起草一份租赁合同，继续不澄清")).toEqual([]);
+  });
+
+  it("skips when CASE memory already has parties and type", () => {
+    const caseMemory = `
+# 案件
+当事人：甲方上海甲公司，乙方北京乙公司
+文书类型：租赁合同
+事实：房屋位于浦东，租期三年。
+更多背景说明与沟通记录若干行以充实档案内容。
+`;
+    expect(caseMemoryLooksFilledForIntake(caseMemory, "contract.lease")).toBe(true);
+    expect(resolveIntakeClarificationQuestions("请起草一份租赁合同", { caseMemory })).toEqual([]);
+  });
+
+  it("respects intakeHeuristicsEnabled=false", () => {
+    expect(
+      resolveIntakeClarificationQuestions("请审查这份合同", { intakeHeuristicsEnabled: false }),
+    ).toEqual([]);
   });
 });

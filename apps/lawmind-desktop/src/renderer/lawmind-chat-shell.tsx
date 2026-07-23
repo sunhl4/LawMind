@@ -650,6 +650,7 @@ export function LawmindChatComposeFooter({
             compactHint={extras.compactHint}
             onCompactContext={() => void extras.compactSession()}
             onDistillLearning={() => void extras.distillSessionLearning()}
+            onPreviewCompact={() => extras.previewCompact()}
             onOpenMemoryInspector={onOpenMemoryInspector}
           />
         </div>

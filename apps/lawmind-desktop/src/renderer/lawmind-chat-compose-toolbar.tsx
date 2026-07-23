@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { LawmindModelPicker } from "./LawmindModelPicker";
 import {
   LawmindComposeContextUsage,
+  type CompactPreview,
   type ComposeContextBudget,
 } from "./LawmindComposeContextUsage";
 import type { ComposePermissionMode } from "./lawmind-compose-prefs";
@@ -40,6 +41,7 @@ export type LawmindChatComposeToolbarProps = {
   compactHint?: string | null;
   onCompactContext?: () => void | Promise<void>;
   onDistillLearning?: () => void | Promise<void>;
+  onPreviewCompact?: () => Promise<CompactPreview | null>;
   onOpenMemoryInspector?: () => void;
 };
 
@@ -68,6 +70,7 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
     compactHint = null,
     onCompactContext,
     onDistillLearning,
+    onPreviewCompact,
     onOpenMemoryInspector,
   } = props;
 
@@ -220,6 +223,7 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
             disabled={loading}
             onCompact={onCompactContext}
             onDistill={onDistillLearning}
+            onPreviewCompact={onPreviewCompact}
             onOpenMemory={onOpenMemoryInspector}
           />
         ) : null}

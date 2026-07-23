@@ -80,6 +80,7 @@ export type HealthPayload = {
       rowCount?: number;
       auditRows?: number;
       sessionRows?: number;
+      knowledgeRows?: number;
       lastRebuildAt?: string;
       truncated?: boolean;
     };
@@ -149,6 +150,8 @@ export type HealthPayload = {
   triageRuleCount?: number;
   fleetPlaybooksLoaded?: boolean;
   fleetPlaybookCount?: number;
+  agentMandatoryRulesActive?: boolean;
+  agentMandatoryRulesTruncated?: boolean;
 };
 
 export type TaskRow = {

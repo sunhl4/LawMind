@@ -35,12 +35,10 @@ export function caseMemoryLooksFilledForIntake(
   deliverableType?: DeliverableType,
 ): boolean {
   const text = caseMemory?.trim() ?? "";
-  if (text.length < 120) {
+  if (text.length < 40) {
     return false;
   }
-  const hasParties =
-    /当事人|甲方|乙方|原告|被告|出租人|承租人|委托人/.test(text) &&
-    text.split("\n").filter((l) => l.trim().length > 8).length >= 4;
+  const hasParties = /当事人|甲方|乙方|原告|被告|出租人|承租人|委托人/.test(text);
   const hasType =
     Boolean(deliverableType) || /交付物|文书类型|合同审查|律师函|起诉状|租赁|ESG|意见书/.test(text);
   return hasParties && hasType;

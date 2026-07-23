@@ -1048,6 +1048,19 @@
   background: var(--error);
 }
 
+.lm-compose-ctx-usage-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0 0;
+}
+
+.lm-compose-ctx-usage-confirm-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .lm-compose-ctx-usage-actions {
   list-style: none;
   margin: 0;

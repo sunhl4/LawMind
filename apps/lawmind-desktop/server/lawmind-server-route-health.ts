@@ -137,7 +137,8 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
             lastRebuildAt: s.lastRebuildAt,
             auditRows: s.auditRows,
             sessionRows: s.sessionRows,
-            rowCount: (s.auditRows ?? 0) + (s.sessionRows ?? 0),
+            knowledgeRows: s.knowledgeRows,
+            rowCount: (s.auditRows ?? 0) + (s.sessionRows ?? 0) + (s.knowledgeRows ?? 0),
             truncated: s.truncated,
           };
         })(),

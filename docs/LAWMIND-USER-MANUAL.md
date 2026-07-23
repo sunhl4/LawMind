@@ -1021,8 +1021,8 @@ LawMind 不复制 Harvey 等企业云台的部署形态，但在**可核对来�
 
 **工作区全文检索（FTS）**：
 
-- `GET /api/search/workspace?q=&matterId=&source=audit,session&limit=30` — 查询 `lawmind/search-index.sqlite`（审计 + 会话 turns）。
-- `POST /api/search/workspace/rebuild` — 全量重建（需环境变量 `LAWMIND_ALLOW_INDEX_REBUILD=1`）。
+- `GET /api/search/workspace?q=&matterId=&source=audit,session,knowledge|all&limit=30` — 查询 `lawmind/search-index.sqlite`（审计 + 会话 turns + 个人知识库 FTS hybrid；`source=knowledge` 仅知识语料）。
+- `POST /api/search/workspace/rebuild` — 全量重建含知识语料（需环境变量 `LAWMIND_ALLOW_INDEX_REBUILD=1`）。
 - `GET /api/health` → `doctor.searchIndex` — 行数、上次重建时间。
 - 案件工作台搜索会并行合并 `GET /api/matters/search` 与 FTS 命中（「审计」「会话」分组）。
 

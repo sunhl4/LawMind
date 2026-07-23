@@ -8,6 +8,9 @@ Historical **OpenClaw** upstream release notes were removed when the repository 
 
 ### Changes
 
+- Engine（R-P1-6 Wave-1）：个人知识库 **FTS-first hybrid-lite**——`knowledge_fts`（trigram）索引 CASE/记忆/playbook/golden 等；`searchPersonalKnowledge` 融合 BM25 + 争点加权并压低日记假命中；接线 `search_workspace`、相关记忆召回、`GET /api/search/workspace?source=knowledge|all`。无 embedding（Wave-2）。
+- CI（R-P2-2）：覆盖率 ratchet 地板抬升（statements ~42.5→~44.3）；补 fleet-transcript / build-agent-fleet / automations / schema 边场景单测。
+- Engine：`render_document` / `force_render` 在律师批准或 bypass 时同步跳过引擎双门禁（`strictGates: false`），与验收门禁旁路语义一致。
 - Desktop / Engine（易上手 + 交付可靠 · 第四波）：Plan 交接写入 `session.json`（`/api/sessions/:id/plan-handoff`，本地与服务端按时间戳合并）；在办导出成功后可「用 Word 打开」。见 `docs/LAWMIND-SIMPLE-RELIABLE-PLAN.md` §6。
 - Desktop（易上手 + 交付可靠 · 第三波）：在办「通过」后导出引导条（strict Word / 去文书台）；Plan 交接按会话持久化（刷新可恢复）+ Compose「已保存执行计划」填入/清除条。详见 `docs/LAWMIND-SIMPLE-RELIABLE-PLAN.md` §4。
 - Desktop / Engine（易上手 + 交付可靠 · 续）：在办待签批内嵌必核清单 +「一键勾选必核」后可直接通过；Compose「开始执行」将末条计划注入【确认执行】交办（Plan→Execute 交接）。
@@ -17,6 +20,7 @@ Historical **OpenClaw** upstream release notes were removed when the repository 
 - Engine / Desktop（模型能力续）：`analyze_document` / `read_project_file` 支持 `offset`/`limit` 分页（默认页约 40k 字，原 analyze 仅 8k）；会议室 agenda 同步嵌入小文本；相关记忆召回 5→8、单段 2.5k→4k。
 - Engine / Desktop（模型能力续 2）：工具未知参数改为剥离+旁注（不再硬失败）；Solo 默认开启 `reviewCampaignParallel`；引用门禁文案区分「聊天草稿可续」与「仅挡 Word 导出」。
 - Engine（模型能力续 3）：Stop/SSE 断开时 `AbortSignal` 取消进行中的模型 HTTP（不再只等轮次间隙）；检索非 JSON 时降级为带风险标记的纯文本 claims，避免空结果。
+- Engine / Desktop（模型能力 R1 / W1–W2）：手动 compact 可选 LLM 再摘要（`LAWMIND_COMPACT_LLM=0` 可关）+ dryRun 预览确认；distill 待采纳预览注入 prompt；超大 tool 结果截断入史；intake 逃生口/CASE 已填可跳过；system prompt 可 `compact` 工具目录；交付管线 note 条件注入；「本轮已应用」默认首轮；Doctor 展示强制规则截断。详见 `docs/LAWMIND-MODEL-CAPABILITY-REMAINING-PLAN.md`。
 - Engine / Desktop（团队成长 Wave D）：审查专案组 playbook 角色绑定工作区助手（报告/角色 Tab 显示助手名）；案件 `team-roster.json` + 会议室「记住本案编制」；概览「本案团队」条（编制 + 未闭环委派）；`GET /api/delegations?matterId=`；action-summary 近 48h 互审/委派完成角标（不计入待拍板）；**T1.4 改写幅度**（修订完成记字符/段落 delta → quality meta；设置岗位表 / 在办团队 / Doctor 可见）。
 - Engine / Desktop（内测指标表）：`team-growth-dashboard` 汇总一次过/改写/学习处理/路由命中/互审覆盖；`routing.resolve_ok` 审计；`GET /api/metrics/team-growth` + `POST …/baseline`；Doctor「团队成长 · 内测指标」可记基线对比；e2e mock + 设置页可见。
 - Engine（信任）：合同修订积累在审核通过路径**不再静默写** `LAWYER_PROFILE`；关键修改点 → pending adoption（与手动 finalize API 一致）。

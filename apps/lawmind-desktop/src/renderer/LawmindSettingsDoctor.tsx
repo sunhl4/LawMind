@@ -217,10 +217,11 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
         hint?: string;
         auditRows?: number;
         sessionRows?: number;
+        knowledgeRows?: number;
       };
       if (j.ok) {
         setRebuildMsg(
-          `已重建：审计 ${j.auditRows ?? 0} 条，会话 ${j.sessionRows ?? 0} 条。刷新体检可查看最新状态。`,
+          `已重建：审计 ${j.auditRows ?? 0} 条，会话 ${j.sessionRows ?? 0} 条，知识 ${j.knowledgeRows ?? 0} 条。刷新体检可查看最新状态。`,
         );
         const h = await loadHealthPayload(apiBase);
         setFetchedHealth(h);
@@ -437,6 +438,23 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
       <div className="lm-settings-group lm-settings-surface" data-testid="lm-doctor-skills-trust">
         <h4 className="lm-doctor-group-title">信任与分诊</h4>
         <div className="lm-doctor-security-grid">
+          <span className="lm-settings-key">强制规则</span>
+          <span
+            className={
+              health?.agentMandatoryRulesTruncated
+                ? "lm-pill lm-pill-warn"
+                : health?.agentMandatoryRulesActive
+                  ? "lm-pill lm-pill-success"
+                  : "lm-pill lm-pill-neutral"
+            }
+            data-testid="lm-doctor-mandatory-rules"
+          >
+            {health?.agentMandatoryRulesTruncated
+              ? "已截断（见 policy 全文）"
+              : health?.agentMandatoryRulesActive
+                ? "已注入"
+                : "未配置"}
+          </span>
           <span className="lm-settings-key">引用模式</span>
           <span
             className={
@@ -792,7 +810,8 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
         </div>
         {searchIndex?.ready ? (
           <p className="lm-meta">
-            审计 {searchIndex.auditRows ?? 0} 条 · 会话 {searchIndex.sessionRows ?? 0} 条
+            审计 {searchIndex.auditRows ?? 0} 条 · 会话 {searchIndex.sessionRows ?? 0} 条 · 知识{" "}
+            {searchIndex.knowledgeRows ?? 0} 条
             {searchIndex.lastRebuildAt ? ` · 上次重建 ${searchIndex.lastRebuildAt}` : ""}
             {searchIndex.truncated ? " · 已截断（工作区过大）" : ""}
           </p>

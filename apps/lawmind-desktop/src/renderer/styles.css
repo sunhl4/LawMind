@@ -4197,6 +4197,19 @@ html.lm-theme-dark .lm-main-header {
   background: var(--error);
 }
 
+.lm-compose-ctx-usage-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0 0;
+}
+
+.lm-compose-ctx-usage-confirm-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .lm-compose-ctx-usage-actions {
   list-style: none;
   margin: 0;
@@ -4233,19 +4246,6 @@ html.lm-theme-dark .lm-main-header {
 
 .lm-compose-ctx-usage-action-title {
   font-size: 13px;
-  font-weight: 550;
-}
-
-.lm-compose-ctx-usage-action .lm-meta {
-  font-size: 11px;
-  line-height: 1.35;
-}
-
-.lm-compose-mode-chip {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  padding: 0 10px;
 
 /* ── end imported: shell-header+chat-main ── */
 /* ── imported: modal-forms ── */
@@ -5536,6 +5536,19 @@ select option {
   border-color: rgba(108, 182, 177, 0.35);
   color: var(--accent-cool);
 }
+  font-weight: 550;
+}
+
+.lm-compose-ctx-usage-action .lm-meta {
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.lm-compose-mode-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
   border: 1px solid var(--lm-border, #d6d3cd);
   border-radius: 6px;
   font-size: 12px;
