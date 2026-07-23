@@ -47,7 +47,7 @@
 | 进度           | 优先 `GET /api/jobs/:id/stream`（SSE）；失败则轮询 `GET /api/jobs/:id`     |
 | 近期任务       | `GET /api/jobs?limit=…`                                                    |
 
-对话空态「按流程办」、舰队 Spawn「按流程办」均深链到本 Tab（`setAgentsDeskTab("workflows"); setMainView("agents")`）。
+对话空态「按流程办」、在办工作台「按流程办」均深链到本 Tab（`setAgentsDeskTab("workflows"); setMainView("agents")`）。
 
 ---
 

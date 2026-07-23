@@ -1,12 +1,32 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { apiSendJson } from "./api-client";
+import { apiGetJson, apiSendJson } from "./api-client";
 import { loadHealthPayload, type HealthPayload } from "./lawmind-app-data";
+import { apiGetTriageRules } from "./lawmind-triage-api";
 
 type WorkspaceCheck = {
   id: string;
   label: string;
   state: "ok" | "warn" | "missing";
   hint: string;
+};
+
+type TeamGrowthMetricRow = {
+  id: string;
+  label: string;
+  value: number | null;
+  numerator: number;
+  denominator: number;
+  targetNote: string;
+  baselineValue: number | null;
+  deltaPts: number | null;
+};
+
+type TeamGrowthDashboardPayload = {
+  ok?: boolean;
+  capturedAt?: string;
+  windowDays?: number;
+  metrics?: TeamGrowthMetricRow[];
+  baseline?: { capturedAt: string; note?: string; windowDays: number } | null;
 };
 
 type Props = {
@@ -40,11 +60,19 @@ function stateLabel(state: WorkspaceCheck["state"]): string {
   }
 }
 
-function pct(rate: number | undefined): string {
+function pct(rate: number | undefined | null): string {
   if (rate == null || Number.isNaN(rate)) {
     return "n/a";
   }
   return `${Math.round(rate * 1000) / 10}%`;
+}
+
+function formatDeltaPts(delta: number | null | undefined): string {
+  if (delta == null || Number.isNaN(delta)) {
+    return "—";
+  }
+  const sign = delta > 0 ? "+" : "";
+  return `${sign}${delta}pt`;
 }
 
 export function LawmindSettingsDoctor(props: Props): ReactNode {
@@ -61,6 +89,13 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
   const [rebuildMsg, setRebuildMsg] = useState<string | null>(null);
   const [matterRepairBusy, setMatterRepairBusy] = useState(false);
   const [matterRepairMsg, setMatterRepairMsg] = useState<string | null>(null);
+  const [triageRuleIds, setTriageRuleIds] = useState<string[] | null>(null);
+  const [integrationCatalog, setIntegrationCatalog] = useState<
+    Array<{ id: string; label?: string; status?: string; hint?: string; phase?: string }> | null
+  >(null);
+  const [teamGrowth, setTeamGrowth] = useState<TeamGrowthDashboardPayload | null>(null);
+  const [teamGrowthBusy, setTeamGrowthBusy] = useState(false);
+  const [teamGrowthMsg, setTeamGrowthMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (!apiBase || healthProp) {
@@ -83,12 +118,59 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
     };
   }, [apiBase, healthProp]);
 
+  useEffect(() => {
+    if (!apiBase) {
+      return;
+    }
+    let cancelled = false;
+    void apiGetTriageRules(apiBase)
+      .then((j) => {
+        if (!cancelled && j.ok && Array.isArray(j.ruleIds)) {
+          setTriageRuleIds(j.ruleIds);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTriageRuleIds(null);
+        }
+      });
+    void apiGetJson<{
+      ok?: boolean;
+      connectors?: Array<{ id: string; label?: string; status?: string; hint?: string; phase?: string }>;
+    }>(apiBase, "/api/integrations")
+      .then((j) => {
+        if (!cancelled && j.ok && Array.isArray(j.connectors)) {
+          setIntegrationCatalog(j.connectors);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setIntegrationCatalog(null);
+        }
+      });
+    void apiGetJson<TeamGrowthDashboardPayload>(apiBase, "/api/metrics/team-growth?windowDays=30")
+      .then((j) => {
+        if (!cancelled && j.ok) {
+          setTeamGrowth(j);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTeamGrowth(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase]);
+
   const health = healthProp ?? fetchedHealth;
   const doctor = health?.doctor;
   const ws = doctor?.workspaceStandard;
   const mem = doctor?.memoryTruthSources;
   const sessionHealth = doctor?.sessionHealth;
-  const integrationConnectors = doctor?.integrations?.connectors ?? [];
+  const integrationConnectors =
+    integrationCatalog ?? doctor?.integrations?.connectors ?? [];
   const searchIndex = doctor?.searchIndex;
   const p2 = doctor?.p2;
   const matterConsistency = doctor?.matterConsistency;
@@ -152,6 +234,32 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
     }
   }
 
+  async function captureTeamGrowthBaseline(): Promise<void> {
+    if (!apiBase) {
+      return;
+    }
+    setTeamGrowthBusy(true);
+    setTeamGrowthMsg(null);
+    try {
+      const j = await apiSendJson<TeamGrowthDashboardPayload, { windowDays: number; note: string }>(
+        apiBase,
+        "/api/metrics/team-growth/baseline",
+        "POST",
+        { windowDays: teamGrowth?.windowDays ?? 30, note: "内测基线" },
+      );
+      if (j.ok) {
+        setTeamGrowth(j);
+        setTeamGrowthMsg("已记录当前窗口为基线，后续对比将显示相对变化。");
+      } else {
+        setTeamGrowthMsg("记录基线失败");
+      }
+    } catch (e) {
+      setTeamGrowthMsg(e instanceof Error ? e.message : "记录基线失败");
+    } finally {
+      setTeamGrowthBusy(false);
+    }
+  }
+
   function connectorPillClass(status: string): string {
     if (status === "active") {
       return "lm-pill lm-pill-success";
@@ -174,10 +282,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
 
   return (
     <div className="lm-settings-section lm-settings-doctor" id="lawmind-settings-doctor">
-      <div className="lm-settings-section-title">系统体检</div>
-      <p className="lm-meta lm-settings-doctor-lead">
-        检查本机连接、工作区记忆与协作环境，便于新律师在 30 分钟内完成首份可交付草稿。
-      </p>
+      <div className="lm-settings-section-title lm-settings-section-title--duplicate">系统体检</div>
 
       <div className="lm-settings-group lm-settings-surface">
         <h4 className="lm-doctor-group-title">连接与模型</h4>
@@ -211,16 +316,16 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
 
       <div className="lm-settings-group lm-settings-surface" id="lawmind-settings-memory-truth">
         <h4 className="lm-doctor-group-title">工作区与记忆真相源</h4>
-        <p className="lm-settings-hint">
-          检查 MEMORY.md、律师/律所档案等真相源文件是否就绪。待采纳的记忆建议请在设置 →{" "}
+        <p className="lm-settings-caption">
+          真相源文件状态
           {onOpenMemorySection ? (
-            <button type="button" className="lm-link-btn" onClick={() => onOpenMemorySection()}>
-              记忆库
-            </button>
-          ) : (
-            "记忆库"
-          )}
-          中处理。
+            <>
+              {" · "}
+              <button type="button" className="lm-link-btn" onClick={() => onOpenMemorySection()}>
+                记忆库
+              </button>
+            </>
+          ) : null}
         </p>
         {ws?.checks?.map((c) => (
           <div key={c.id} className={checkRowClass(c.state)}>
@@ -260,41 +365,35 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
 
       {integrationConnectors.length > 0 ? (
         <div className="lm-settings-group lm-settings-surface">
-          <h4 className="lm-doctor-group-title">外部集成（M2）</h4>
-          <p className="lm-meta lm-settings-doctor-lead">
-            只读连接器 POC：本地案件目录可索引；DMS 需在工作区配置后由 IT 启用真实 API。
-          </p>
+          <h4 className="lm-doctor-group-title">外部集成</h4>
           <ul className="lm-doctor-integrations-list">
-            {integrationConnectors.map((conn) => (
-              <li key={conn.id} className="lm-doctor-integration-row">
-                <div className="lm-doctor-check-head">
-                  <span>
-                    {conn.label}{" "}
-                    <span className="lm-meta">({conn.phase})</span>
-                  </span>
-                  <span className={connectorPillClass(conn.status)}>
-                    {connectorStatusLabel(conn.status)}
-                  </span>
-                </div>
-                {conn.hint ? <p className="lm-meta">{conn.hint}</p> : null}
-                {conn.status === "active" && /fixture|演示|POC/i.test(conn.hint ?? "") ? (
-                  <p className="lm-callout lm-callout-info lm-callout-compact">
-                    当前为演示数据，非真实 DMS 连接。Solo 版默认不启用 OAuth；律所版由 IT 配置环境变量与{" "}
-                    <code>lawmind/integrations.json</code>。
-                  </p>
-                ) : null}
-              </li>
-            ))}
+            {integrationConnectors.map((conn) => {
+              const status = typeof conn.status === "string" ? conn.status : "";
+              return (
+                <li key={conn.id} className="lm-doctor-integration-row">
+                  <div className="lm-doctor-check-head">
+                    <span>
+                      {conn.label}{" "}
+                      <span className="lm-meta">({conn.phase})</span>
+                    </span>
+                    <span className={connectorPillClass(status)}>
+                      {connectorStatusLabel(status)}
+                    </span>
+                  </div>
+                  {conn.hint ? <p className="lm-meta">{conn.hint}</p> : null}
+                  {status === "active" && /fixture|演示|POC/i.test(conn.hint ?? "") ? (
+                    <p className="lm-settings-caption">演示数据，非真实 DMS</p>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         </div>
       ) : null}
 
       {p2 ? (
         <div className="lm-settings-group lm-settings-surface">
-          <h4 className="lm-doctor-group-title">P2 隔离与团队记忆（默认关闭）</h4>
-          <p className="lm-meta lm-settings-doctor-lead">
-            高风险工具子进程沙箱与律所团队记忆云同步均为 opt-in；未启用时不改变现有执行路径。
-          </p>
+          <h4 className="lm-doctor-group-title">隔离与团队记忆</h4>
           <div className="lm-doctor-security-grid">
             <span className="lm-settings-key">工具子进程沙箱</span>
             <span
@@ -336,10 +435,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
       ) : null}
 
       <div className="lm-settings-group lm-settings-surface" data-testid="lm-doctor-skills-trust">
-        <h4 className="lm-doctor-group-title">信任闭环（Skills S1）</h4>
-        <p className="lm-meta lm-settings-doctor-lead">
-          分诊规则、引用模式与产品指标管道状态；用于验收 G1 / 日常自检。
-        </p>
+        <h4 className="lm-doctor-group-title">信任与分诊</h4>
         <div className="lm-doctor-security-grid">
           <span className="lm-settings-key">引用模式</span>
           <span
@@ -354,20 +450,23 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
           <span className="lm-settings-key">分诊规则</span>
           <span
             className={
-              (doctor?.triageRulesLoaded ?? health?.triageRulesLoaded)
+              (doctor?.triageRulesLoaded ?? health?.triageRulesLoaded) || (triageRuleIds?.length ?? 0) > 0
                 ? "lm-pill lm-pill-success"
                 : "lm-pill lm-pill-warn"
             }
           >
-            {(doctor?.triageRulesLoaded ?? health?.triageRulesLoaded)
-              ? `已加载 ${doctor?.triageRuleCount ?? health?.triageRuleCount ?? 0} 条`
+            {(doctor?.triageRulesLoaded ?? health?.triageRulesLoaded) || (triageRuleIds?.length ?? 0) > 0
+              ? `已加载 ${triageRuleIds?.length ?? doctor?.triageRuleCount ?? health?.triageRuleCount ?? 0} 条`
               : "未加载"}
           </span>
           <span className="lm-settings-key">产品指标</span>
           <span className="lm-meta">
             事件 {doctor?.productMetricsSummary?.total ?? 0} · 分诊确认{" "}
             {doctor?.productMetricsSummary?.triageConfirmed ?? 0} · gate 失败{" "}
-            {doctor?.productMetricsSummary?.gateFailures ?? 0}
+            {doctor?.productMetricsSummary?.gateFailures ?? 0} · 一次过{" "}
+            {doctor?.productMetricsSummary?.firstPassOk ?? 0} · 改写{" "}
+            {doctor?.productMetricsSummary?.rewrites ?? 0} · 改写幅度样本{" "}
+            {doctor?.productMetricsSummary?.rewriteAmplitudeSamples ?? 0}
           </span>
           <span className="lm-settings-key">Fleet Playbook</span>
           <span
@@ -398,18 +497,91 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
             </ul>
           </div>
         ) : null}
-        <p className="lm-meta" data-testid="lm-doctor-golden-hint">
-          黄金集基线：本地运行{" "}
-          <code>pnpm lawmind:skills:golden -- --compare</code>，报告见{" "}
-          <code>docs/generated/skills-golden-compare-report.json</code>（CI 亦上传 artifact）。
+        {triageRuleIds && triageRuleIds.length > 0 ? (
+          <details className="lm-doctor-triage-rules" data-testid="lm-doctor-triage-rules">
+            <summary className="lm-meta">查看分诊规则 ID（只读）</summary>
+            <ul className="lm-meta" style={{ marginTop: 8 }}>
+              {triageRuleIds.map((id) => (
+                <li key={id}>
+                  <code>{id}</code>
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
+        <details className="lm-settings-advanced" data-testid="lm-doctor-golden-hint">
+          <summary>黄金集（开发者）</summary>
+          <p className="lm-settings-caption">
+            <code>pnpm lawmind:skills:golden -- --compare</code>
+          </p>
+        </details>
+      </div>
+
+      <div
+        className="lm-settings-group lm-settings-surface"
+        data-testid="lm-doctor-team-growth"
+      >
+        <h4 className="lm-doctor-group-title">团队成长 · 内测指标</h4>
+        <p className="lm-settings-caption">
+          近 {teamGrowth?.windowDays ?? 30} 天窗口；相对基线看一次过 / 改写 / 学习处理 / 路由命中 /
+          互审覆盖。样本不足时显示 n/a。
         </p>
+        {teamGrowth?.metrics && teamGrowth.metrics.length > 0 ? (
+          <table
+            className="lm-role-table"
+            style={{ width: "100%", borderCollapse: "collapse", marginTop: 8 }}
+          >
+            <thead>
+              <tr>
+                <th scope="col">指标</th>
+                <th scope="col">当前</th>
+                <th scope="col">样本</th>
+                <th scope="col">基线</th>
+                <th scope="col">Δ</th>
+                <th scope="col">目标</th>
+              </tr>
+            </thead>
+            <tbody>
+              {teamGrowth.metrics.map((m) => (
+                <tr key={m.id} data-testid={`lm-doctor-team-growth-row-${m.id}`}>
+                  <td>{m.label}</td>
+                  <td>{pct(m.value)}</td>
+                  <td className="lm-meta">
+                    {m.numerator}/{m.denominator}
+                  </td>
+                  <td>{pct(m.baselineValue)}</td>
+                  <td>{formatDeltaPts(m.deltaPts)}</td>
+                  <td className="lm-meta">{m.targetNote}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p className="lm-meta">加载中或暂无数据…</p>
+        )}
+        <p className="lm-meta" style={{ marginTop: 8 }}>
+          {teamGrowth?.baseline
+            ? `基线：${teamGrowth.baseline.capturedAt.slice(0, 10)}${
+                teamGrowth.baseline.note ? ` · ${teamGrowth.baseline.note}` : ""
+              }`
+            : "尚未记录基线"}
+        </p>
+        <div className="lm-doctor-actions" style={{ marginTop: 8 }}>
+          <button
+            type="button"
+            className="lm-btn lm-btn-secondary"
+            disabled={!apiBase || teamGrowthBusy}
+            onClick={() => void captureTeamGrowthBaseline()}
+            data-testid="lm-doctor-team-growth-baseline"
+          >
+            {teamGrowthBusy ? "记录中…" : "记录基线"}
+          </button>
+        </div>
+        {teamGrowthMsg ? <p className="lm-meta">{teamGrowthMsg}</p> : null}
       </div>
 
       <div className="lm-settings-group lm-settings-surface">
-        <h4 className="lm-doctor-group-title">高安全模式（参考 cLawyer）</h4>
-        <p className="lm-meta lm-settings-doctor-lead">
-          三项状态供律所 IT 快速核对：联网边界、危险工具批准、审计链完整性。
-        </p>
+        <h4 className="lm-doctor-group-title">高安全核对</h4>
         <div className="lm-doctor-security-grid">
           <span className="lm-settings-key">联网 allowlist</span>
           <span
@@ -487,10 +659,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
       ) : null}
 
       <div className="lm-settings-group lm-settings-surface">
-        <h4 className="lm-doctor-group-title">Legal Reasoning Graph 覆盖率</h4>
-        <p className="lm-meta lm-settings-doctor-lead">
-          高风控交付物（需 reasoning graph 侧车）的草稿中，已写入 reasoning snapshot 的比例。
-        </p>
+        <h4 className="lm-doctor-group-title">推理图覆盖率</h4>
         <div className="lm-settings-row">
           <span className="lm-settings-key">覆盖率</span>
           <span
@@ -515,10 +684,6 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
 
       <div className="lm-settings-group lm-settings-surface">
         <h4 className="lm-doctor-group-title">案件数据一致性</h4>
-        <p className="lm-meta lm-settings-doctor-lead">
-          检查 <code>matters/&lt;id&gt;/matter.json</code> 与 <code>cases/&lt;id&gt;/CASE.md</code>{" "}
-          是否对齐（JSON 为真相源，CASE 为投影）。
-        </p>
         <div className="lm-settings-row">
           <span className="lm-settings-key">一致性</span>
           <span
@@ -553,10 +718,6 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
 
       <div className="lm-settings-group lm-settings-surface">
         <h4 className="lm-doctor-group-title">任务 / 草稿一致性</h4>
-        <p className="lm-meta lm-settings-doctor-lead">
-          只读检查 <code>tasks/*.json</code> 与 <code>drafts/*.json</code>{" "}
-          是否对齐（孤儿草稿、交付任务缺草稿）。
-        </p>
         <div className="lm-settings-row">
           <span className="lm-settings-key">一致性</span>
           <span
@@ -582,9 +743,6 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
 
       <div className="lm-settings-group lm-settings-surface">
         <h4 className="lm-doctor-group-title">多任务 Jobs 观测（{multitaskObservability?.windowDays ?? 14} 天）</h4>
-        <p className="lm-meta lm-settings-doctor-lead">
-          读取 <code>lawmind/jobs/*.json</code> 与协作审计窗口，展示 lead time / 重试 / 取消 / 失败率（只读）。
-        </p>
         <div className="lm-settings-row">
           <span className="lm-settings-key">样本</span>
           <span className="lm-meta">
@@ -622,9 +780,6 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
 
       <div className="lm-settings-group lm-settings-surface">
         <h4 className="lm-doctor-group-title">本地搜索索引（FTS）</h4>
-        <p className="lm-meta lm-settings-doctor-lead">
-          只读索引库位于工作区 <code>lawmind/search-index.sqlite</code>，用于审计与会话全文检索。
-        </p>
         <div className="lm-settings-row">
           <span className="lm-settings-key">索引状态</span>
           <span
@@ -651,16 +806,13 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
           {rebuildBusy ? "重建中…" : "重建索引"}
         </button>
         {rebuildMsg ? <p className="lm-meta">{rebuildMsg}</p> : null}
-        <p className="lm-meta">
-          需在本机环境设置 <code>LAWMIND_ALLOW_INDEX_REBUILD=1</code> 后重建按钮才可用。
+        <p className="lm-settings-caption">
+          重建需 <code>LAWMIND_ALLOW_INDEX_REBUILD=1</code>
         </p>
       </div>
 
       <div className="lm-settings-group lm-settings-surface">
-        <h4 className="lm-doctor-group-title">MCP 只读桥接（Cursor / Claude Desktop）</h4>
-        <p className="lm-meta lm-settings-doctor-lead">
-          工作区诊断与案件/草稿只读查询可通过 stdio MCP 暴露给外部助手，不写入工作区。
-        </p>
+        <h4 className="lm-doctor-group-title">MCP 只读桥接</h4>
         <pre className="lm-doctor-mcp-snippet">{`{
   "mcpServers": {
     "lawmind-readonly": {

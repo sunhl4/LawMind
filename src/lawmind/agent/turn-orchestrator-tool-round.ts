@@ -15,6 +15,10 @@ import {
 } from "../runtime/tool-pipeline.js";
 import type { RiskLevel } from "../types.js";
 import type { ClarificationQuestion } from "../types.js";
+import {
+  stringifyToolResultForHistory,
+  summarizeToolResultForHistory,
+} from "./tool-result-history.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import {
   extractClarificationQuestions,
@@ -23,7 +27,14 @@ import {
 } from "./turn-orchestrator-events.js";
 import type { AgentContext, AgentMessage, AgentTurn } from "./types.js";
 
-const runToolPipeline = composeToolPipeline(buildDefaultToolPipeline());
+/** Lazy: avoids TDZ when tool-pipeline ↔ legal-tools ↔ turn-orchestrator cycle loads. */
+let runToolPipeline: ReturnType<typeof composeToolPipeline> | undefined;
+function getRunToolPipeline(): ReturnType<typeof composeToolPipeline> {
+  if (!runToolPipeline) {
+    runToolPipeline = composeToolPipeline(buildDefaultToolPipeline());
+  }
+  return runToolPipeline;
+}
 
 export type ToolRoundPolicyHints = {
   allowedToolNames?: string[];
@@ -141,7 +152,7 @@ export async function executeToolBatches(
           sessionAssistantId,
         },
       };
-      const result = await runToolPipeline(callCtx);
+      const result = await getRunToolPipeline()(callCtx);
       emitEvent({
         type: "tool_call_end",
         roundIndex,
@@ -152,10 +163,11 @@ export async function executeToolBatches(
       });
       ctx.emitToolProgress = undefined;
 
+      const historyResult = summarizeToolResultForHistory(result);
       const toolResponseMsg: AgentMessage = {
         role: "tool",
-        content: JSON.stringify(result),
-        toolCallResponses: [{ toolCallId: tc.id, name: toolName, result }],
+        content: stringifyToolResultForHistory(historyResult),
+        toolCallResponses: [{ toolCallId: tc.id, name: toolName, result: historyResult }],
         timestamp: new Date().toISOString(),
       };
       pushMessage(toolResponseMsg);

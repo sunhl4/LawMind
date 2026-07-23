@@ -9,6 +9,7 @@ import { assertSafeMatterId, matterDir } from "../adapters/matter-storage/paths.
 import { isFeatureEnabled } from "../policy/edition.js";
 import { readWorkspacePolicyFile } from "../policy/workspace-policy.js";
 // FleetPlaybook used by playbookForFastMode
+import { bindPlaybookRolesToAssistants } from "./bind-assistants.js";
 import { getFleetPlaybook, resolveDefaultPlaybookId } from "./playbooks.js";
 import {
   runCampaignRolesParallel,
@@ -168,14 +169,11 @@ export function findCampaignByIdempotencyKey(
   return null;
 }
 
-function rolesFromPlaybook(playbook: FleetPlaybook): ReviewCampaignRoleResult[] {
-  return playbook.roles.map((r) => ({
-    roleId: r.id,
-    label: r.label,
-    status: "pending" as const,
-    weight: r.weight,
-    findings: [],
-  }));
+function rolesFromPlaybook(
+  workspaceDir: string,
+  playbook: FleetPlaybook,
+): ReviewCampaignRoleResult[] {
+  return bindPlaybookRolesToAssistants(workspaceDir, playbook.roles);
 }
 
 export type CreateReviewCampaignInput = {
@@ -227,7 +225,7 @@ export function createReviewCampaign(
     status: "draft",
     createdAt: now,
     updatedAt: now,
-    roles: rolesFromPlaybook(effective),
+    roles: rolesFromPlaybook(workspaceDir, effective),
     sourceText: (input.sourceText ?? "").slice(0, 200_000),
     ...(input.preferFast ? { preferFast: true } : {}),
     ...(input.idempotencyKey?.trim() ? { idempotencyKey: input.idempotencyKey.trim() } : {}),
@@ -386,8 +384,14 @@ export function renderCampaignReportMarkdown(campaign: ReviewCampaign): string {
     ``,
   ];
   for (const r of campaign.roles) {
-    lines.push(`### ${r.label}（${r.roleId}）`);
+    const who = r.boundAssistantName ? r.boundAssistantName : "未绑定助手（抽象角色）";
+    lines.push(`### ${r.label}（${r.roleId}）· ${who}`);
     lines.push(`- 状态：${r.status}${typeof r.score === "number" ? ` · 分 ${r.score}` : ""}`);
+    if (r.boundAssistantId) {
+      lines.push(
+        `- 助手：\`${r.boundAssistantId}\`${r.workspaceRoleId ? ` · Role ${r.workspaceRoleId}` : ""}`,
+      );
+    }
     if (r.summary) {
       lines.push(`- 摘要：${r.summary}`);
     }

@@ -14,6 +14,7 @@ import {
   resolveAgentModelById,
   resolveModelIdentityForPrompt,
 } from "../../../src/lawmind/models/index.js";
+import { resolveCapabilityEnvelope } from "../../../src/lawmind/models/capability-envelope.js";
 import { resolveEdition } from "../../../src/lawmind/policy/edition.js";
 import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspace-policy.js";
 import { resolveAgentMaxToolCallsPerTurn } from "../../../src/lawmind/policy/workspace-policy.js";
@@ -190,14 +191,19 @@ export function buildAgentConfig(
   const modelTimeoutMs = parsePositiveIntEnv("LAWMIND_AGENT_TIMEOUT_MS", 120000);
   const toolTimeoutMs = parsePositiveIntEnv("LAWMIND_TOOL_TIMEOUT_MS", modelTimeoutMs);
   const resolved = resolveAgentModelById(lawMindRoot, opts?.modelId);
+  const fallbackEnvelope = resolveCapabilityEnvelope({
+    contextTokens: resolved.model?.contextTokens,
+    timeoutMs: modelTimeoutMs,
+  });
   const modelConfig = resolved.model ?? {
     provider: "openai-compatible" as const,
     baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
     apiKey: "",
     model: "qwen-plus",
-    maxTokens: 4096,
+    maxTokens: fallbackEnvelope.maxOutputTokens,
     temperature: 0.3,
-    timeoutMs: modelTimeoutMs,
+    timeoutMs: fallbackEnvelope.modelTimeoutMs,
+    contextTokens: fallbackEnvelope.contextTokens,
   };
 
   const actorId = resolveDesktopActorId();
@@ -222,11 +228,30 @@ export function buildAgentConfig(
   }
 
   const enableCollaboration = process.env.LAWMIND_ENABLE_COLLABORATION?.trim().toLowerCase() !== "false";
-  const maxToolCalls = resolveAgentMaxToolCallsPerTurn(workspaceDir);
+  const envelope = resolveCapabilityEnvelope({
+    contextTokens: modelConfig.contextTokens,
+    timeoutMs: modelConfig.timeoutMs ?? modelTimeoutMs,
+  });
+  if (!modelConfig.contextTokens) {
+    modelConfig.contextTokens = envelope.contextTokens;
+  }
+  if (!modelConfig.maxTokens || modelConfig.maxTokens < envelope.maxOutputTokens) {
+    // Prefer envelope when legacy 4096 (or lower) slipped through.
+    if (!modelConfig.maxTokens || modelConfig.maxTokens <= 4096) {
+      modelConfig.maxTokens = envelope.maxOutputTokens;
+    }
+  }
   const policyState = readLawMindPolicyFile(workspaceDir);
   const policyForEdition: LawMindWorkspacePolicy | null = policyState.loaded
     ? (policyState.policy as LawMindWorkspacePolicy)
     : null;
+  const explicitToolCap =
+    (typeof policyForEdition?.agentMaxToolCallsPerTurn === "number" &&
+      policyForEdition.agentMaxToolCallsPerTurn > 0) ||
+    Boolean(process.env.LAWMIND_AGENT_MAX_TOOL_CALLS?.trim());
+  const maxToolCalls = explicitToolCap
+    ? resolveAgentMaxToolCallsPerTurn(workspaceDir)
+    : envelope.toolCallsPerTurn;
   const edition = resolveEdition({ policy: policyForEdition });
   const allowDangerousRaw =
     process.env.LAWMIND_ALLOW_DANGEROUS_TOOLS_WITHOUT_APPROVAL?.trim().toLowerCase() ?? "";
@@ -245,8 +270,8 @@ export function buildAgentConfig(
       model: modelConfig,
       runtimeModel,
       maxToolCalls,
-      maxHistoryMessages: 50,
-      toolExecutionTimeoutMs: toolTimeoutMs,
+      maxHistoryMessages: envelope.maxHistoryMessages,
+      toolExecutionTimeoutMs: toolTimeoutMs || envelope.toolTimeoutMs,
       actorId,
       enableCollaboration,
       allowDangerousToolsWithoutApproval,

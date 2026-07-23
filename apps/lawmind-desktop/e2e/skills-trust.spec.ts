@@ -22,4 +22,29 @@ test.describe("Skills trust gates (G1 leftovers)", () => {
     const j = (await res.json()) as { error?: string };
     expect(j.error).toBe("theory_not_anchored");
   });
+
+  test("team-growth metrics snapshot + baseline via mock API", async ({ request }) => {
+    const base = e2eMockApiBase();
+    const getRes = await request.get(`${base}/api/metrics/team-growth?windowDays=14`);
+    expect(getRes.status()).toBe(200);
+    const snap = (await getRes.json()) as {
+      ok?: boolean;
+      windowDays?: number;
+      metrics?: Array<{ id: string }>;
+    };
+    expect(snap.ok).toBe(true);
+    expect(snap.windowDays).toBe(14);
+    expect(snap.metrics?.some((m) => m.id === "first_pass_rate")).toBe(true);
+
+    const postRes = await request.post(`${base}/api/metrics/team-growth/baseline`, {
+      data: { windowDays: 14, note: "e2e" },
+    });
+    expect(postRes.status()).toBe(200);
+    const baselined = (await postRes.json()) as {
+      ok?: boolean;
+      baseline?: { note?: string };
+    };
+    expect(baselined.ok).toBe(true);
+    expect(baselined.baseline?.note).toBe("e2e");
+  });
 });

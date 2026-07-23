@@ -3,12 +3,14 @@
  */
 
 import { displayChatSessionTitle, listSessions, saveSession } from "../../../src/lawmind/agent/session.js";
+import { readCollaborationEventsSince } from "../../../src/lawmind/agent/collaboration/index.js";
 import { listPendingToolApprovals } from "../../../src/lawmind/platform/pending-tool-approvals.js";
 import type { LawMindRequiresAction } from "../../../src/lawmind/platform/requires-action.js";
 import { resolveApproval } from "../../../src/lawmind/application/services/approval-service.js";
 import { listApprovalRequests, listWorkQueueItems } from "../../../src/lawmind/application/services/queue-service.js";
 import { listDrafts } from "../../../src/lawmind/drafts/index.js";
 import { listOpenAutomationInbox } from "../../../src/lawmind/platform/lawyer-automations.js";
+import { readTaskRecord } from "../../../src/lawmind/tasks/index.js";
 import { listWorkflowJobs } from "./lawmind-server-jobs.js";
 import { isValidMatterId } from "../../../src/lawmind/cases/matter-id.js";
 import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
@@ -16,6 +18,9 @@ import { approvalResolvePostSchema } from "./lawmind-api-schemas.js";
 import { sendJsonError } from "./lawmind-api-error.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import { resolveDesktopActorId, sendJson } from "./lawmind-server-helpers.js";
+
+/** Info badges only — must not inflate requiresDecisionTotal (Wave D / T4.4). */
+const COLLAB_COMPLETION_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 export type ChatRequiresActionRow = {
   sessionId: string;
@@ -135,6 +140,18 @@ export async function handleActionSummaryRoutes({
       requiresDecisionTotal +
       jobs.length;
 
+    const sinceIso = new Date(Date.now() - COLLAB_COMPLETION_WINDOW_MS).toISOString();
+    const recentCollab = readCollaborationEventsSince(workspaceDir, sinceIso).filter((ev) => {
+      if (matterFilter && ev.matterId !== matterFilter) {
+        return false;
+      }
+      return ev.kind === "review.completed" || ev.kind === "delegation.completed";
+    });
+    const recentReviewCompleted = recentCollab.filter((ev) => ev.kind === "review.completed").length;
+    const recentDelegationCompleted = recentCollab.filter(
+      (ev) => ev.kind === "delegation.completed",
+    ).length;
+
     sendJson(
       res,
       200,
@@ -149,16 +166,24 @@ export async function handleActionSummaryRoutes({
         chatRequiresActionCount,
         pendingToolApprovals: toolApprovals.length,
         pendingAutomationCount: automationInbox.length,
+        /** 近 48h 协作完成（信息角标，不计入待我拍板） */
+        recentReviewCompleted,
+        recentDelegationCompleted,
+        recentCollabCompleted: recentReviewCompleted + recentDelegationCompleted,
         approvals: pendingApprovals.slice(0, 20),
         queueItems: openQueueItems.slice(0, 20),
         jobs: jobs.slice(0, 10),
-        pendingReviewDrafts: pendingReviewDrafts.slice(0, 20).map((draft) => ({
-          taskId: draft.taskId,
-          matterId: draft.matterId,
-          title: draft.title,
-          reviewStatus: draft.reviewStatus,
-          createdAt: draft.createdAt,
-        })),
+        pendingReviewDrafts: pendingReviewDrafts.slice(0, 20).map((draft) => {
+          const task = readTaskRecord(workspaceDir, draft.taskId);
+          return {
+            taskId: draft.taskId,
+            matterId: draft.matterId,
+            title: draft.title,
+            reviewStatus: draft.reviewStatus,
+            createdAt: draft.createdAt,
+            assistantId: task?.assistantId,
+          };
+        }),
         toolApprovals: toolApprovals.slice(0, 20),
         chatRequiresActions: chatRequiresActions.slice(0, 30),
         automationInbox: automationInbox.slice(0, 30),

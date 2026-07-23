@@ -27,6 +27,7 @@ export type EditionFeatures = {
   acceptancePackExport: boolean;
   strictDangerousToolApproval: boolean;
   reviewCampaignParallel: boolean;
+  forcePeerReview: boolean;
 };
 
 export type CitationMode = "grounded" | "assisted" | "off";
@@ -58,7 +59,8 @@ const SOLO_DEFAULT: EditionInfo = {
     customDeliverableSpec: false,
     acceptancePackExport: false,
     strictDangerousToolApproval: false,
-    reviewCampaignParallel: false,
+    reviewCampaignParallel: true,
+    forcePeerReview: false,
   },
   citationMode: "assisted",
   loading: true,

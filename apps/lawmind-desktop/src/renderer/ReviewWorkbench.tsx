@@ -1,5 +1,6 @@
 /**
- * 文书台 — 改稿 · 模板实时预览 · 导出；正式签批主路径在「在办」。
+ * 文书台 — 改稿 · 批注 · 模板实时预览 · 导出。
+ * 正式通过 / 驳回 / 需修改主路径在「在办」；高级区保留必核后的兜底签批。
  */
 
 import {
@@ -11,7 +12,10 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import type { ArtifactDraft } from "../../../../src/lawmind/types.ts";
-import type { AcceptanceReport } from "../../../../src/lawmind/deliverables/index.ts";
+import {
+  assessDeliverableReadiness,
+  type AcceptanceReport,
+} from "../../../../src/lawmind/deliverables/index.ts";
 import type { DraftCitationIntegrityView } from "../../../../src/lawmind/drafts/citation-integrity.ts";
 import type { GateDecision, TaskExecutionState } from "../../../../src/lawmind/platform/contracts.ts";
 import type { LearningSuggestionRecord } from "../../../../src/lawmind/learning/suggestion-queue.ts";
@@ -382,11 +386,14 @@ export function ReviewWorkbench(props: Props) {
       setCampaign(null);
       return;
     }
-    const view = buildChecklistView(detail.deliverableType, null);
+    const view = buildChecklistView(
+      detail.deliverableType,
+      detail.verificationChecklist ?? null,
+    );
     setChecklistView(view);
     setChecklistChecked({ ...view.state.checked });
     setCampaign(null);
-  }, [detail?.taskId, detail?.deliverableType]);
+  }, [detail?.taskId, detail?.deliverableType, detail?.verificationChecklist?.updatedAt]);
 
   const checklistBlocksApprove = useMemo(() => {
     if (!checklistView || (detail?.reviewStatus ?? "pending") !== "pending") {
@@ -395,6 +402,29 @@ export function ReviewWorkbench(props: Props) {
     const required = checklistView.spec.items.filter((i) => i.required);
     return required.some((i) => !checklistChecked[i.id]);
   }, [checklistView, checklistChecked, detail?.reviewStatus]);
+
+  const deliverableReadiness = useMemo(() => {
+    if (!detail) {
+      return null;
+    }
+    return assessDeliverableReadiness({
+      draft: detail,
+      checklistState: {
+        specId: checklistView?.spec.id ?? "",
+        checked: checklistChecked,
+      },
+      citationIntegrity,
+      citationMode: edition.citationMode,
+      citationGateStrict: edition.features.citationGateStrict,
+    });
+  }, [
+    detail,
+    checklistView?.spec.id,
+    checklistChecked,
+    citationIntegrity,
+    edition.citationMode,
+    edition.features.citationGateStrict,
+  ]);
 
   const showMatterEntryBar = Boolean(returnMatterId?.trim() && onReturnToMatter);
   const hasDetailPane = Boolean(selectedTaskId && !detailLoading && detail && editorValue);
@@ -495,6 +525,7 @@ export function ReviewWorkbench(props: Props) {
                   setChecklistChecked((prev) => ({ ...prev, [id]: value }))
                 }
                 checklistBlocksApprove={checklistBlocksApprove}
+                readiness={deliverableReadiness}
                 campaign={campaign}
                 onCampaignChange={setCampaign}
                 gateDecisions={gateDecisions}

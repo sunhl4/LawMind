@@ -40,6 +40,7 @@ export function createAssistantDraft(
   mode: "create" | "edit",
   presets: PresetRow[],
   assistant?: AssistantRow,
+  opts?: { presetKey?: string },
 ): AssistantEditorDraft {
   if (mode === "edit" && assistant) {
     return {
@@ -53,7 +54,17 @@ export function createAssistantDraft(
       peerReviewDefaultAssistantId: assistant.peerReviewDefaultAssistantId ?? "",
     };
   }
-  return emptyDraft(presets);
+  const draft = emptyDraft(presets);
+  const presetKey = opts?.presetKey?.trim();
+  if (presetKey) {
+    const preset = presets.find((p) => p.id === presetKey);
+    draft.presetKey = presetKey;
+    if (preset) {
+      draft.displayName = preset.displayName;
+      draft.customRoleTitle = preset.displayName;
+    }
+  }
+  return draft;
 }
 
 export async function saveAssistantDraft(args: {
@@ -202,12 +213,14 @@ function AssistantAdvancedFields(props: {
 
 function AssistantQuickCreateWizard(props: {
   presets: PresetRow[];
+  /** Prefill when opened from a practice-area chip. */
+  initialPresetKey?: string;
   busy: boolean;
   error: string | null;
   onClose: () => void;
   onSave: (draft: AssistantEditorDraft) => void | Promise<void>;
 }): ReactNode {
-  const { presets, busy, error, onClose, onSave } = props;
+  const { presets, initialPresetKey, busy, error, onClose, onSave } = props;
   const presetOptions =
     presets.length > 0
       ? presets
@@ -224,7 +237,9 @@ function AssistantQuickCreateWizard(props: {
   }, [presetOptions]);
 
   const [step, setStep] = useState(1);
-  const [presetKey, setPresetKey] = useState(quickPresets[0]?.id ?? DEFAULT_PRESET_KEY);
+  const [presetKey, setPresetKey] = useState(
+    () => initialPresetKey?.trim() || quickPresets[0]?.id || DEFAULT_PRESET_KEY,
+  );
   const [displayName, setDisplayName] = useState("");
 
   useEffect(() => {
@@ -338,7 +353,7 @@ type Props = {
   error: string | null;
   onChange: (draft: AssistantEditorDraft) => void;
   onClose: () => void;
-  onSave: () => void | Promise<void>;
+  onSave: (draftOverride?: AssistantEditorDraft) => void | Promise<void>;
 };
 
 export function LawmindAssistantEditorDialog({
@@ -364,7 +379,7 @@ export function LawmindAssistantEditorDialog({
 
   const handleQuickSave = async (quickDraft: AssistantEditorDraft) => {
     onChange(quickDraft);
-    await onSave();
+    await onSave(quickDraft);
   };
 
   return (
@@ -372,6 +387,7 @@ export function LawmindAssistantEditorDialog({
       {editingAssistantId === null ? (
         <AssistantQuickCreateWizard
           presets={presets}
+          initialPresetKey={draft.presetKey}
           busy={busy}
           error={error}
           onClose={onClose}

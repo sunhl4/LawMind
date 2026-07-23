@@ -29,7 +29,7 @@ export type UseLawmindAppSettingsPanelPropsInput = {
   retrievalLabel: string;
   retrievalSaving: boolean;
   draftWithModelSaving: boolean;
-  openNewAssistant: () => void;
+  openNewAssistant: (presetKey?: string) => void;
   openEditAssistant: () => void;
   removeAssistant: () => void | Promise<void>;
   applyRetrievalMode: (mode: "single" | "dual") => void | Promise<void>;
@@ -46,9 +46,13 @@ export type UseLawmindAppSettingsPanelPropsInput = {
   pickProject: () => void | Promise<void>;
   clearProject: () => void | Promise<void>;
   setAgentsDeskTab: (tab: AgentsDeskTab) => void;
+  setAgentsNeedsDecisionFocus?: (focus: boolean) => void;
   setMainView: (view: LawmindMainView) => void;
   assistants: AssistantRow[];
   onPrefsChange: () => void;
+  matterSidebarRows?: Array<{ matterId?: string | null; title: string }>;
+  contextMatterId?: string | null;
+  onOpenReviewFromAutomation?: (taskId: string, matterId?: string) => void;
 };
 
 export function useLawmindAppSettingsPanelProps(
@@ -88,10 +92,33 @@ export function useLawmindAppSettingsPanelProps(
     pickProject,
     clearProject,
     setAgentsDeskTab,
+    setAgentsNeedsDecisionFocus,
     setMainView,
     assistants,
     onPrefsChange,
+    matterSidebarRows = [],
+    contextMatterId = null,
+    onOpenReviewFromAutomation,
   } = input;
+
+  const automationMatterOptions = useMemo(() => {
+    const out: Array<{ id: string; title: string }> = [];
+    const seen = new Set<string>();
+    for (const row of matterSidebarRows) {
+      const id = row.matterId?.trim();
+      if (!id || seen.has(id)) {
+        continue;
+      }
+      seen.add(id);
+      out.push({ id, title: row.title?.trim() || id });
+    }
+    return out;
+  }, [matterSidebarRows]);
+
+  const automationMatterId =
+    contextMatterId?.trim() ||
+    automationMatterOptions[0]?.id ||
+    null;
 
   return useMemo(
     (): LawmindAppSettingsPanelProps => ({
@@ -134,11 +161,29 @@ export function useLawmindAppSettingsPanelProps(
       onPickProject: () => void pickProject(),
       onClearProject: () => void clearProject(),
       onOpenCollaborationPage: () => {
-        setAgentsDeskTab("workflows");
+        // 「去在办处理」→ 待拍板（领导主入口）；按流程仍可从在办分区进入。
+        setAgentsDeskTab("active");
         setMainView("agents");
         setShowSettings(false);
       },
       onPrefsChange,
+      automationMatterId,
+      automationMatterOptions,
+      onOpenAutomationsNeedsDecision: () => {
+        setAgentsNeedsDecisionFocus?.(true);
+        setAgentsDeskTab("active");
+        setMainView("agents");
+        setShowSettings(false);
+      },
+      onOpenAutomationsReview: (taskId, matterId) => {
+        setShowSettings(false);
+        onOpenReviewFromAutomation?.(taskId, matterId);
+      },
+      onOpenAutomationsCollaboration: () => {
+        setAgentsDeskTab("workflows");
+        setMainView("agents");
+        setShowSettings(false);
+      },
     }),
     [
       showSettings,
@@ -175,8 +220,12 @@ export function useLawmindAppSettingsPanelProps(
       pickProject,
       clearProject,
       setAgentsDeskTab,
+      setAgentsNeedsDecisionFocus,
       setMainView,
       onPrefsChange,
+      automationMatterId,
+      automationMatterOptions,
+      onOpenReviewFromAutomation,
     ],
   );
 }

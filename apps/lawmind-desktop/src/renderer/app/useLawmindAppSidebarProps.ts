@@ -15,6 +15,7 @@ export type UseLawmindAppSidebarPropsInput = {
   showSettings: boolean;
   setFileExplorerHost: (el: HTMLDivElement | null) => void;
   actionSummaryTotal: number;
+  recentCollabCompleted?: number;
   matterSidebarRows: MatterSidebarRow[];
   selectedMatterKey: string | null;
   onSelectMatterKey: (matterId: string) => void;
@@ -50,6 +51,7 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
     showSettings,
     setFileExplorerHost,
     actionSummaryTotal,
+    recentCollabCompleted = 0,
     matterSidebarRows,
     selectedMatterKey,
     onSelectMatterKey,
@@ -86,6 +88,7 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
       settingsOpen: showSettings,
       setFileExplorerHost,
       actionSummaryTotal,
+      recentCollabCompleted,
       matterSidebarRows,
       selectedMatterKey,
       onSelectMatterKey,
@@ -104,8 +107,22 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
       activeChatSessionId,
       chatSessionsLoading,
       chatBusy,
-      onSelectChatSession,
-      onCreateNewChatSession,
+      onSelectChatSession: onSelectChatSession
+        ? async (sessionId) => {
+            if (mainView === "meeting") {
+              setMainView("workspace");
+            }
+            await onSelectChatSession(sessionId);
+          }
+        : undefined,
+      onCreateNewChatSession: onCreateNewChatSession
+        ? async () => {
+            if (mainView === "meeting") {
+              setMainView("workspace");
+            }
+            await onCreateNewChatSession();
+          }
+        : undefined,
       onRenameChatSession,
       onDeleteChatSession,
       onCreateMatter,
@@ -121,6 +138,7 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
       showSettings,
       setFileExplorerHost,
       actionSummaryTotal,
+      recentCollabCompleted,
       matterSidebarRows,
       selectedMatterKey,
       onSelectMatterKey,

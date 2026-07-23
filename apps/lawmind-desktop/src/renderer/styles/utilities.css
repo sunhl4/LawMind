@@ -88,6 +88,12 @@ html.lm-density-compact[data-lm-font-scale="comfortable"] {
   color: var(--muted);
 }
 
+.lm-input--mono {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+
 /* Text button used in settings sidebars and inline links */
 .lm-link-btn {
   display: inline-flex;

@@ -16,8 +16,6 @@ export type UseLawmindAppHeaderPropsInput = {
   setMatterCockpitOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setMainView: (view: LawmindMainView) => void;
   apiBase: string | undefined;
-  actionSummaryTotal: number;
-  setAgentsDeskTab?: (tab: import("../lawmind-agents-desk").AgentsDeskTab) => void;
   setAgentsNeedsDecisionFocus?: (focus: boolean) => void;
   projectDir: string | null;
   currentMatterLabel: string | null;
@@ -53,8 +51,6 @@ export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): 
     setMatterCockpitOpen,
     setMainView,
     apiBase,
-    actionSummaryTotal,
-    setAgentsDeskTab,
     setAgentsNeedsDecisionFocus,
     projectDir,
     currentMatterLabel,
@@ -96,26 +92,7 @@ export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): 
           }
         : undefined,
       apiBase,
-      actionSummaryTotal,
-      onOpenNeedsDecisionDesk: () => {
-        setMatterCockpitOpen(false);
-        setAgentsNeedsDecisionFocus?.(true);
-        setAgentsDeskTab?.("active");
-        setMainView("agents");
-      },
       onClearNeedsDecisionFocus: () => setAgentsNeedsDecisionFocus?.(false),
-      onOpenAgentsDesk: () => {
-        setMatterCockpitOpen(false);
-        setAgentsNeedsDecisionFocus?.(true);
-        setAgentsDeskTab?.("active");
-        setMainView("agents");
-      },
-      onOpenActionHub: () => {
-        setMatterCockpitOpen(false);
-        setAgentsNeedsDecisionFocus?.(true);
-        setAgentsDeskTab?.("active");
-        setMainView("agents");
-      },
       projectDir,
       currentMatterLabel,
       sidebarCollapsed,
@@ -163,8 +140,6 @@ export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): 
       setMatterCockpitOpen,
       setMainView,
       apiBase,
-      actionSummaryTotal,
-      setAgentsDeskTab,
       setAgentsNeedsDecisionFocus,
       projectDir,
       currentMatterLabel,

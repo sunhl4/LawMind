@@ -122,6 +122,56 @@ describe("lawmind-server-route-collaboration", () => {
     fs.rmSync(workspaceDir, { recursive: true, force: true });
   });
 
+  it("GET /api/delegations filters by matterId", async () => {
+    const { registerDelegation } = await import(
+      "../../../src/lawmind/agent/collaboration/index.js"
+    );
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-collab-list-"));
+    const suffix = Date.now().toString(36);
+    const matterA = `matter_a_${suffix}`;
+    const matterB = `matter_b_${suffix}`;
+    registerDelegation({
+      workspaceDir,
+      fromAssistantId: "a1",
+      toAssistantId: "a2",
+      task: "for A",
+      matterId: matterA,
+    });
+    registerDelegation({
+      workspaceDir,
+      fromAssistantId: "a1",
+      toAssistantId: "a3",
+      task: "for B",
+      matterId: matterB,
+    });
+    const capture = createResponseCapture();
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+    const handled = await handleCollaborationRoutes({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res: capture.res,
+      url: new URL(
+        `http://127.0.0.1/api/delegations?matterId=${encodeURIComponent(matterA)}`,
+      ),
+      pathname: "/api/delegations",
+      c: {},
+    });
+    expect(handled).toBe(true);
+    expect(capture.status).toBe(200);
+    const payload = capture.json();
+    expect(payload.ok).toBe(true);
+    const dels = payload.delegations as Array<{ matterId?: string; task: string }>;
+    expect(dels.every((d) => d.matterId === matterA)).toBe(true);
+    expect(dels.some((d) => d.task === "for A")).toBe(true);
+    expect(dels.some((d) => d.task === "for B")).toBe(false);
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+  });
+
   it("rejects POST /api/delegations without required fields", async () => {
     const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-collab-del-"));
     const capture = createResponseCapture();

@@ -154,7 +154,7 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
         key: "review-loop",
         title: "审核入口仍是主工作面",
         detail:
-          "当前案件多次从驾驶舱进入文书台，说明律师还在围绕草稿把关来回切换。可以继续把关键审核决策前置到案件概览。",
+          "当前案件多次从案件概览进入文书台，说明律师还在围绕草稿把关来回切换。可以继续把关键审核决策前置到案件概览。",
         actionLabel: targetDraft ? "打开当前审核焦点" : "等待草稿",
         tone: "warn",
         target: targetDraft
@@ -236,7 +236,7 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
         key: "adapt-review-surface",
         title: "把审核决策前置到案件概览",
         detail:
-          "当前案件多次从驾驶舱进入文书台，说明概览页还缺少足够的审核上下文。下一版应把审核理由、修改标签和引用状态更早暴露出来。",
+          "当前案件多次从案件概览进入文书台，说明概览页还缺少足够的审核上下文。下一版应把审核理由、修改标签和引用状态更早暴露出来。",
         actionLabel: targetDraft ? "查看当前审核焦点" : "等待草稿",
         tone: "warn",
         target: targetDraft
@@ -347,7 +347,7 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
         items.push({
           key: "exp-memory-fastlane",
           title: "实验：把认知升级做成快捷采纳区",
-          hypothesis: "如果高频升级建议更早出现在驾驶舱里，律师会更愿意及时沉淀长期记忆，而不是等到认知深层再操作。",
+          hypothesis: "如果高频升级建议更早出现在案件概览里，律师会更愿意及时沉淀长期记忆，而不是等到认知深层再操作。",
           validation: "观察后续案件里认知建议采纳是否更早发生，且是否减少同一建议在单案内的重复检视。",
           signal: `当前案件已出现 ${matterInteractionSummary.memorySaveCount} 次长期记忆写入动作。`,
           priority: "medium",

@@ -59,10 +59,21 @@ export type DeliverableType =
   | (string & {});
 
 /** 信息不足时用于向律师追问的关键问题 */
+/** 澄清字段控件类型（缺省按 text；引擎可逐步标注）。 */
+export type ClarificationInputType = "text" | "textarea" | "enum" | "bool" | "date" | "file";
+
 export type ClarificationQuestion = {
   key: string;
   question: string;
   reason?: string;
+  /** 控件类型；未标时 UI 按 text */
+  inputType?: ClarificationInputType;
+  /** enum 选项（律师可读文案） */
+  options?: string[];
+  /** 默认 true；false 时可不填 */
+  required?: boolean;
+  /** file：建议扩展名提示，如 ".pdf,.docx" */
+  accept?: string;
 };
 
 /** 任务意图 — 由 Instruction Router 生成 */
@@ -230,6 +241,15 @@ export type ArtifactDraft = {
   contractRevisionCapture?: ContractRevisionCapture;
   /** 已通过 `contractRevisionCapture` 写入积累包后的 `revisionId`，防止重复落盘 */
   contractRevisionAccumulatedId?: string;
+  /**
+   * 律师必核清单落盘（签批通过时写入）。导出/复盘以这份为准，避免仅存在于 UI 内存。
+   * 形状与 `VerificationChecklistState` 对齐。
+   */
+  verificationChecklist?: {
+    specId: string;
+    checked: Record<string, boolean>;
+    updatedAt?: string;
+  };
 };
 
 // ─────────────────────────────────────────────
@@ -398,7 +418,12 @@ export type AuditEventKind =
   | "triage.created" // Skills E1：分诊会话创建
   | "triage.confirmed" // Skills E1：律师确认分诊
   | "review_campaign.created" // Skills E2：审查专案组创建/跑完
-  | "review_campaign.role_rerun"; // Skills E2：单角色重跑
+  | "review_campaign.role_rerun" // Skills E2：单角色重跑
+  | "routing.resolve_ok" // 默认路由：命中 defaults 解析到助手
+  | "routing.resolve_fallback" // 默认路由：role 无助手时回退 shell
+  | "routing.resolve_failed" // 默认路由无法解析 assignee
+  | "draft.peer_review_required" // 强制互审闸：已建 peer 委派
+  | "draft.peer_review_skipped"; // 强制互审闸：无 peer / 自审跳过
 
 /** 审计事件 */
 export type AuditEvent = {

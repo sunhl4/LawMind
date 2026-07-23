@@ -1,13 +1,12 @@
 /**
- * Compose chrome above the resizable input (errors, model warn, queue, token, attachments).
- * Extracted from lawmind-chat-shell for maintainability (R-P1-2).
+ * Compose chrome above the resizable input (errors, model warn, queue, attachments).
+ * Context token ring lives on the model toolbar row (Cursor-style).
  */
 
 import { useMemo, type ReactNode } from "react";
 import { LawmindComposeAttachments } from "./LawmindComposeAttachments";
 import { composeModelHintCalloutClass } from "./lawmind-compose-model-hint";
 import { isPrivilegeTipUiEnabled, scanPrivilegeTip } from "./lawmind-privilege-tip";
-import type { LawmindComposeExtras } from "./useLawmindComposeExtras";
 
 export type LawmindChatComposeChromeProps = {
   error: string | null;
@@ -21,7 +20,6 @@ export type LawmindChatComposeChromeProps = {
   composeInput?: string;
   queuedMessages: string[];
   cancelQueuedMessage?: (index: number) => void;
-  composeExtras: LawmindComposeExtras;
   fileChatPills: Array<{ id: string; shortLabel: string; title: string; relPath?: string }>;
   contextMatterId: string | null;
   contextTaskId: string | null;
@@ -30,6 +28,10 @@ export type LawmindChatComposeChromeProps = {
   onClearFileChatPills: () => void;
   onClearMatter?: () => void;
   onClearTask?: () => void;
+  /** Wave 3-C：会话级计划交接条 */
+  planHandoffSummary?: string | null;
+  onFillPlanHandoff?: () => void;
+  onClearPlanHandoff?: () => void;
 };
 
 export function LawmindChatComposeChrome(props: LawmindChatComposeChromeProps): ReactNode {
@@ -44,7 +46,6 @@ export function LawmindChatComposeChrome(props: LawmindChatComposeChromeProps): 
     composeInput,
     queuedMessages,
     cancelQueuedMessage,
-    composeExtras: extras,
     fileChatPills,
     contextMatterId,
     contextTaskId,
@@ -53,6 +54,9 @@ export function LawmindChatComposeChrome(props: LawmindChatComposeChromeProps): 
     onClearFileChatPills,
     onClearMatter,
     onClearTask,
+    planHandoffSummary = null,
+    onFillPlanHandoff,
+    onClearPlanHandoff,
   } = props;
 
   const privilegeTip = useMemo(() => {
@@ -64,6 +68,38 @@ export function LawmindChatComposeChrome(props: LawmindChatComposeChromeProps): 
 
   return (
     <div className="lm-compose-chrome">
+      {planHandoffSummary && onFillPlanHandoff ? (
+        <div
+          className="lm-callout lm-callout-info lm-plan-handoff-banner"
+          role="status"
+          data-testid="lm-plan-handoff-banner"
+        >
+          <p className="lm-callout-title">已保存执行计划</p>
+          <p className="lm-callout-body lm-plan-handoff-summary" title={planHandoffSummary}>
+            {planHandoffSummary}
+          </p>
+          <div className="lm-plan-handoff-actions">
+            <button
+              type="button"
+              className="lm-btn lm-btn-accent lm-btn-sm"
+              data-testid="lm-plan-handoff-fill"
+              onClick={() => onFillPlanHandoff()}
+            >
+              填入交办
+            </button>
+            {onClearPlanHandoff ? (
+              <button
+                type="button"
+                className="lm-btn lm-btn-ghost lm-btn-sm"
+                data-testid="lm-plan-handoff-clear"
+                onClick={() => onClearPlanHandoff()}
+              >
+                清除
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       {privilegeTip ? (
         <div
           className={
@@ -131,16 +167,6 @@ export function LawmindChatComposeChrome(props: LawmindChatComposeChromeProps): 
               </li>
             ))}
           </ul>
-        </div>
-      ) : null}
-      {extras.contextBudget &&
-      (extras.contextBudget.level === "warn" || extras.contextBudget.level === "compact") ? (
-        <div
-          className={`lm-compose-token-bar lm-compose-token-bar--${extras.contextBudget.level === "compact" ? "danger" : "warn"}`}
-          role="status"
-        >
-          上下文约 {extras.contextBudget.used} / {extras.contextBudget.effectiveLimit} tokens
-          {extras.contextBudget.level === "warn" ? " · 接近上限" : " · 建议压缩"}
         </div>
       ) : null}
       <LawmindComposeAttachments

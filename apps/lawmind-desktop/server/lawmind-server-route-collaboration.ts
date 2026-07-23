@@ -250,9 +250,15 @@ export async function handleCollaborationRoutes({
   if (pathname === "/api/delegations" && req.method === "GET") {
     const statusFilter = url.searchParams.get("status") ?? undefined;
     const assistantFilter = url.searchParams.get("assistantId") ?? undefined;
+    const matterFilterRaw = url.searchParams.get("matterId")?.trim() ?? "";
+    if (matterFilterRaw && !isValidMatterId(matterFilterRaw)) {
+      sendJson(res, 400, { ok: false, error: "invalid_matter_id" }, c);
+      return true;
+    }
     const records = listDelegations({
       fromAssistantId: assistantFilter || undefined,
       status: statusFilter as "pending" | "running" | "completed" | "failed" | undefined,
+      matterId: matterFilterRaw || undefined,
     });
     sendJson(
       res,

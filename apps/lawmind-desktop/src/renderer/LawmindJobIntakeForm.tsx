@@ -4,7 +4,11 @@ import {
   defaultIntakeFieldsForDeliverable,
   type JobIntakeFieldDef,
 } from "./lawmind-job-intake";
-import { apiPostTriageConfirm, apiPostTriagePreview } from "./lawmind-triage-api";
+import {
+  apiPostTriageConfirm,
+  apiPostTriagePreview,
+  type TriageMatchedSkill,
+} from "./lawmind-triage-api";
 import type { TriageSession } from "../../../../src/lawmind/triage/types.ts";
 
 export type JobIntakeTemplate = {
@@ -55,6 +59,7 @@ export function LawmindJobIntakeForm(props: Props): ReactNode {
   const [step, setStep] = useState<Step>("form");
   const [busy, setBusy] = useState(false);
   const [session, setSession] = useState<TriageSession | null>(null);
+  const [matchedSkills, setMatchedSkills] = useState<TriageMatchedSkill[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
 
@@ -116,6 +121,7 @@ export function LawmindJobIntakeForm(props: Props): ReactNode {
       }
       setPendingPrompt(prompt);
       setSession(j.session);
+      setMatchedSkills(Array.isArray(j.matchedSkills) ? j.matchedSkills : []);
       setAnswers({});
       setStep("triage");
     } catch (e) {
@@ -252,6 +258,18 @@ export function LawmindJobIntakeForm(props: Props): ReactNode {
               <span className="lm-triage-reco-badge">推荐</span>
               <p className="lm-meta">预估投入：{effortLabel}</p>
             </div>
+            {matchedSkills.length > 0 ? (
+              <div className="lm-triage-skills" data-testid="lm-triage-matched-skills" aria-label="将启用技能">
+                <span className="lm-meta">将启用技能</span>
+                <div className="lm-triage-chips">
+                  {matchedSkills.slice(0, 8).map((s) => (
+                    <span key={s.id} className="lm-triage-chip" title={s.id}>
+                      {s.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             {result.clarifications.length > 0 ? (
               <div className="lm-job-intake-fields">
                 <span className="lm-meta">待澄清问题</span>

@@ -42,6 +42,8 @@ export type LawMindAgent = {
       onEvent?: (event: RunTurnEvent) => void;
       /** 供后台任务轮询 GET /api/sessions/:id/live-turn */
       liveProgressSessionId?: string;
+      /** Cooperative stop between model rounds */
+      shouldAbort?: () => boolean;
     },
   ) => Promise<{
     reply: string;
@@ -118,6 +120,7 @@ export function createLawMindAgent(config: AgentConfig): LawMindAgent {
         teamMeetingMode: opts?.teamMeetingMode === true,
         onEvent: opts?.onEvent,
         liveProgressSessionId: opts?.liveProgressSessionId,
+        shouldAbort: opts?.shouldAbort,
       });
 
       return {

@@ -54,7 +54,9 @@ export type MatterWorkbenchMainPanelsProps = {
   /** Jump to top-level「会议室」with this matter scoped. */
   onOpenTopLevelMeeting?: (matterId: string) => void;
   onUseInChat?: (matterId: string) => void;
-  onOpenNeedsDecisionDesk?: () => void;
+  onOpenNeedsDecisionDesk?: (
+    target?: import("../lawmind-agents-desk").NeedsDecisionDeskTarget,
+  ) => void;
   showShellOps: boolean;
   detailLoading: boolean;
   detailError: string | null;

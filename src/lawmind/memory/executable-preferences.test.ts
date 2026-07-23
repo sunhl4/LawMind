@@ -31,7 +31,8 @@ describe("executable-preferences", () => {
     const prefs = loadExecutablePreferences(ws, profile, 5);
     expect(prefs[0]?.id).toBe("pref_tone");
     expect(prefs.some((p) => p.text.includes("偏保守"))).toBe(true);
-    expect(formatExecutablePreferencesHint(prefs)).toContain("本轮已应用");
+    expect(formatExecutablePreferencesHint(prefs)).toContain("可执行偏好");
+    expect(formatExecutablePreferencesHint(prefs)).toContain("pref_tone");
   });
 
   it("clears JSON prefs and detects applied ids from reply", () => {

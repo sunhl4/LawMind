@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { loadMatter } from "../../../adapters/matter-storage/index.js";
 import { buildMatterIndex, listMatterIds, searchMatterIndex } from "../../../cases/index.js";
+import { searchPersonalKnowledge } from "../../../indexing/knowledge-search.js";
 import { loadMemoryContext } from "../../../memory/index.js";
 import type { IngestSourceType, IngestStage } from "../../../platform/contracts.js";
 import {
@@ -28,6 +29,7 @@ import {
   shouldUseVisionFallback,
   unsupportedOfficeIngestReason,
   searchProjectTextFiles,
+  sliceDocumentPage,
   MAX_PROJECT_READ_BYTES,
   MAX_PROJECT_PDF_READ_BYTES,
   MAX_DOCX_READ_BYTES,
@@ -63,17 +65,44 @@ export const searchWorkspace: AgentTool = {
   definition: {
     name: "search_workspace",
     description:
-      "搜索 LawMind 工作区通用记忆、律师偏好与当前案件档案。默认不跨案件读取；仅在管理员显式允许时扫描其他非受限案件。若用户关联了桌面「项目目录」，会额外扫描有限数量的纯文本文件。",
+      "搜索个人知识库与工作区材料（FTS hybrid：CASE/记忆/playbook/golden 等）。默认压低日记假命中；跨受限案件仍受策略限制。若用户关联了桌面「项目目录」，会额外扫描有限数量的纯文本文件。",
     category: "search",
     parameters: {
       query: { type: "string", description: "搜索关键词", required: true },
     },
   },
   async execute(params, ctx) {
-    const memory = await loadMemoryContext(ctx.workspaceDir, { matterId: ctx.matterId });
-    const query = (params.query as string).toLowerCase();
-    const results: Array<{ source: string; snippet: string }> = [];
+    const queryRaw = typeof params.query === "string" ? params.query : "";
+    const query = queryRaw.toLowerCase();
+    const results: Array<{
+      source: string;
+      snippet: string;
+      docKind?: string;
+      path?: string;
+      score?: number;
+    }> = [];
 
+    try {
+      const knowledge = await searchPersonalKnowledge(ctx.workspaceDir, {
+        q: queryRaw,
+        matterId: ctx.matterId,
+        limit: 24,
+      });
+      for (const hit of knowledge.hits) {
+        results.push({
+          source: hit.path,
+          path: hit.path,
+          docKind: hit.docKind,
+          snippet: hit.snippet,
+          score: hit.score,
+        });
+      }
+    } catch {
+      // fall through to lexical memory scan
+    }
+
+    // Lexical fallback / supplement for hot memory surfaces (small-file bias).
+    const memory = await loadMemoryContext(ctx.workspaceDir, { matterId: ctx.matterId });
     for (const [source, content] of Object.entries({
       "MEMORY.md": memory.general,
       "LAWYER_PROFILE.md": memory.profile,
@@ -94,7 +123,7 @@ export const searchWorkspace: AgentTool = {
     let projectHits: Array<{ source: string; snippet: string }> = [];
     if (ctx.projectDir?.trim()) {
       try {
-        projectHits = await searchProjectTextFiles(ctx.projectDir.trim(), params.query as string);
+        projectHits = await searchProjectTextFiles(ctx.projectDir.trim(), queryRaw);
       } catch {
         projectHits = [];
       }
@@ -102,7 +131,6 @@ export const searchWorkspace: AgentTool = {
 
     const crossMatterAllowed = process.env.LAWMIND_ALLOW_CROSS_MATTER_SEARCH === "1";
     if (crossMatterAllowed) {
-      // Cross-matter CASE.md scan is opt-in and never reads restricted matters.
       try {
         const matterIds = await listMatterIds(ctx.workspaceDir);
         for (const mid of matterIds.slice(0, 20)) {
@@ -121,6 +149,8 @@ export const searchWorkspace: AgentTool = {
             if (line.toLowerCase().includes(query)) {
               results.push({
                 source: `CASE:${mid}`,
+                path: `cases/${mid}/CASE.md`,
+                docKind: "case",
                 snippet: line.trim().slice(0, 200),
               });
             }
@@ -141,6 +171,7 @@ export const searchWorkspace: AgentTool = {
         total: merged.length,
         projectScanned: Boolean(ctx.projectDir?.trim()),
         crossMatterScanned: crossMatterAllowed,
+        knowledgeHybrid: true,
       },
     };
   },
@@ -150,13 +181,21 @@ export const readProjectFile: AgentTool = {
   definition: {
     name: "read_project_file",
     description:
-      "读取律师在桌面端关联的「项目目录」下的文本文件、PDF、.docx、.xlsx（表格转 TSV 纯文本，有界）、常见图片（OCR，可选视觉兜底）（相对路径）。不支持旧式 .doc/.xls/.ppt 与 .pptx。用于合同、证据清单、说明等本地材料；未关联项目时不可用。",
+      "读取律师在桌面端关联的「项目目录」下的文本文件、PDF、.docx、.xlsx（表格转 TSV 纯文本，有界）、常见图片（OCR，可选视觉兜底）（相对路径）。不支持旧式 .doc/.xls/.ppt 与 .pptx。用于合同、证据清单、说明等本地材料；未关联项目时不可用。大文件请用 offset/limit（字符）分页；hasMore=true 时用 nextOffset 续读。",
     category: "search",
     parameters: {
       relative_path: {
         type: "string",
         description: '相对项目根的路径，如 "合同/补充协议.md" 或 "notes.txt"',
         required: true,
+      },
+      offset: {
+        type: "number",
+        description: "从提取文本的第几个字符开始（默认 0）。",
+      },
+      limit: {
+        type: "number",
+        description: "本页最多返回多少字符（默认约 40000，上限 120000）。",
       },
     },
   },
@@ -178,11 +217,22 @@ export const readProjectFile: AgentTool = {
       bytes: number,
       stage: IngestStage,
     ) => {
-      const sliced = content.slice(0, 500_000);
-      const result = ingestSuccess(sourceType, sliced, content.length > 500_000, bytes, stage);
+      const page = sliceDocumentPage(content, params.offset, params.limit);
+      const result = ingestSuccess(sourceType, page.content, page.hasMore, bytes, stage);
       return toolDataFromIngestSuccess(
         result,
-        { path: rel, size: result.bytes },
+        {
+          path: rel,
+          size: result.bytes,
+          totalChars: page.totalChars,
+          offset: page.offset,
+          limit: page.limit,
+          hasMore: page.hasMore,
+          nextOffset: page.nextOffset,
+          hint: page.hasMore
+            ? `文本未读完：请再用 read_project_file(relative_path, offset=${page.nextOffset}) 续读。`
+            : undefined,
+        },
         { contentTrust: "untrusted_user_document" },
       );
     };

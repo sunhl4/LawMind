@@ -79,3 +79,15 @@ export async function apiGetCampaignReport(
 ): Promise<{ ok: boolean; markdown?: string; error?: string }> {
   return apiGetJson(apiBase, `/api/review-campaigns/${encodeURIComponent(campaignId)}/report`);
 }
+
+export async function apiCancelReviewCampaign(
+  apiBase: string,
+  campaignId: string,
+): Promise<{ ok: boolean; campaign?: ReviewCampaign; error?: string }> {
+  return apiSendJson(
+    apiBase,
+    `/api/review-campaigns/${encodeURIComponent(campaignId)}/cancel`,
+    "POST",
+    {},
+  );
+}

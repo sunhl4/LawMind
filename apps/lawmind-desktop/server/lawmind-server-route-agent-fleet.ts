@@ -6,6 +6,7 @@ import { loadSession, displayChatSessionTitle, saveSession } from "../../../src/
 import { listWorkspaceAgentPresets } from "../../../src/lawmind/agent/agent-presets.js";
 import { loadAssistantProfiles, resolveLawMindRoot } from "../../../src/lawmind/assistants/store.js";
 import { isValidMatterId } from "../../../src/lawmind/cases/matter-id.js";
+import { buildAssistantGrowthReport } from "../../../src/lawmind/learning/assistant-growth.js";
 import {
   firstPassRate,
   loadAgentSpecializationStore,
@@ -15,6 +16,17 @@ import { sendJsonError } from "./lawmind-api-error.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import { sendJson } from "./lawmind-server-helpers.js";
 import { listWorkflowJobs } from "./lawmind-server-jobs.js";
+
+function parseWindowDays(raw: string | null): number {
+  if (!raw?.trim()) {
+    return 30;
+  }
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n)) {
+    return 30;
+  }
+  return Math.max(1, Math.min(365, n));
+}
 
 function pendingActionsForSession(
   workspaceDir: string,
@@ -93,8 +105,17 @@ export async function handleAgentFleetRoutes({
         { ...stats, firstPassRate: firstPassRate(stats) },
       ]),
     );
+    const windowDays = parseWindowDays(url.searchParams.get("windowDays"));
+    const growth = await buildAssistantGrowthReport(workspaceDir, { windowDays });
 
-    sendJson(res, 200, { ok: true, ...fleet, specialization }, c);
+    sendJson(res, 200, { ok: true, ...fleet, specialization, growth }, c);
+    return true;
+  }
+
+  if (pathname === "/api/assistants/growth" && req.method === "GET") {
+    const windowDays = parseWindowDays(url.searchParams.get("windowDays"));
+    const growth = await buildAssistantGrowthReport(workspaceDir, { windowDays });
+    sendJson(res, 200, { ok: true, ...growth }, c);
     return true;
   }
 

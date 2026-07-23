@@ -140,6 +140,104 @@ export type ApprovalDocumentPreview = {
   meta: string[];
 };
 
+const DOC_WRITE_SKIP_KEYS = new Set(["__approved", "content", "body"]);
+
+/** 系统/关联 id 与保存路径：律师签批时几乎不手改，不算「值得开弹窗」的短参数。 */
+const LAWYER_SHORT_EDIT_SKIP_KEYS = new Set([
+  ...DOC_WRITE_SKIP_KEYS,
+  "file_path",
+  "path",
+  "task_id",
+  "taskId",
+  "matter_id",
+  "matterId",
+  "session_id",
+  "sessionId",
+  "assistant_id",
+  "assistantId",
+  "role_id",
+  "roleId",
+]);
+
+/**
+ * 拟写入整篇文书（`content`）— 与「文书台」改稿重合，在办不应再开全文编辑。
+ * 邮件等仅有 `body` 的短字段批准不在此列。
+ */
+export function toolArgsAreDocumentWrite(
+  toolArgs: Record<string, unknown> | null | undefined,
+): boolean {
+  if (!toolArgs || typeof toolArgs !== "object") {
+    return false;
+  }
+  const content = toolArgs.content;
+  if (typeof content !== "string" || !content.trim()) {
+    return false;
+  }
+  // Require a save path so case notes / progress rows with `content` stay editable.
+  const filePath =
+    (typeof toolArgs.file_path === "string" && toolArgs.file_path.trim()) ||
+    (typeof toolArgs.path === "string" && toolArgs.path.trim());
+  return Boolean(filePath);
+}
+
+/** 文书写入场景下仍可在弹窗改的短字段（保存位置、标题等），不含正文。 */
+export function toolArgsHaveShortEditFields(
+  toolArgs: Record<string, unknown> | null | undefined,
+): boolean {
+  if (!toolArgs || typeof toolArgs !== "object") {
+    return false;
+  }
+  if (typeof toolArgs.file_path === "string" || typeof toolArgs.path === "string") {
+    return true;
+  }
+  for (const [key, value] of Object.entries(toolArgs)) {
+    if (DOC_WRITE_SKIP_KEYS.has(key)) {
+      continue;
+    }
+    if (typeof value === "string" && value.trim()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * 律师值得打开「改参数/改拟稿」弹窗的短文字字段（标题、摘要、收件人等）。
+ * 不含正文、保存路径与各类 id——路径级调整应走驳回/对话，避免为单一 path 开大窗。
+ */
+export function toolArgsHaveLawyerEditableShortFields(
+  toolArgs: Record<string, unknown> | null | undefined,
+): boolean {
+  if (!toolArgs || typeof toolArgs !== "object") {
+    return false;
+  }
+  for (const [key, value] of Object.entries(toolArgs)) {
+    if (LAWYER_SHORT_EDIT_SKIP_KEYS.has(key)) {
+      continue;
+    }
+    if (typeof value === "string" && value.trim()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** 从工具参数取出关联草稿 taskId（若有）。 */
+export function toolArgsLinkedTaskId(
+  toolArgs: Record<string, unknown> | null | undefined,
+): string | null {
+  if (!toolArgs || typeof toolArgs !== "object") {
+    return null;
+  }
+  for (const key of ["taskId", "task_id"] as const) {
+    const v = toolArgs[key];
+    if (typeof v === "string" && v.trim()) {
+      return v.trim();
+    }
+  }
+  return null;
+}
+
 function basenameLabel(pathLike: string): string {
   const base = pathLike
     .replace(/^.*[/\\]/, "")

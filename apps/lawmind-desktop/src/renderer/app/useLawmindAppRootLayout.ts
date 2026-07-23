@@ -21,6 +21,7 @@ import {
   useLawmindAppRootDialogsProps,
   useLawmindFileWorkbenchHostProps,
 } from "./useLawmindAppRootDialogsProps";
+import { tryClarifyAttachSession } from "../lawmind-clarify-bring-in-bus";
 
 type ShellBundle = ReturnType<typeof useLawmindAppShell>;
 type RecordsDesk = ReturnType<typeof useLawmindRecordsDeskMatters>;
@@ -47,6 +48,10 @@ export type LawmindAppRootLayoutInput = {
   setAgentsDeskTab: (tab: AgentsDeskTab) => void;
   agentsNeedsDecisionFocus: boolean;
   setAgentsNeedsDecisionFocus: (focus: boolean) => void;
+  agentsDeskFocusTarget: import("../lawmind-agents-desk").NeedsDecisionDeskTarget | null;
+  setAgentsDeskFocusTarget: (
+    t: import("../lawmind-agents-desk").NeedsDecisionDeskTarget | null,
+  ) => void;
   setFocusMatterIdFromReview: (id: string | null) => void;
   sidebarCollapsed: boolean;
   setSidebarCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
@@ -77,11 +82,11 @@ export type LawmindAppRootLayoutInput = {
   openOutputInFolder: (outputPath?: string) => void;
   workflowModelLabel: string;
   actionSummaryTotal: number;
+  recentCollabCompleted?: number;
   actionSummaryActiveJobs: number;
   refreshActionSummary: () => void | Promise<void>;
   sessionRequiresActions: LawMindRequiresAction[];
   onChatResumeComplete?: () => void | Promise<void>;
-  onSpawnPreset?: (preset: import("../lawmind-agent-fleet-api").AgentPreset) => void;
   delegateAssistOpen: boolean;
   setDelegateAssistOpen: (open: boolean) => void;
   delegateTaskDefault: string;
@@ -219,6 +224,8 @@ export function useLawmindAppRootLayout(
     send,
     abortChatSend,
     sendChatMessage,
+    deleteChatMessageAt,
+    editChatMessageAt,
     queuedMessages,
     cancelQueuedMessage,
     setSessionByAssistant,
@@ -252,8 +259,6 @@ export function useLawmindAppRootLayout(
     setMatterCockpitOpen: input.setMatterCockpitOpen,
     setMainView,
     apiBase: config?.apiBase,
-    actionSummaryTotal: input.actionSummaryTotal,
-    setAgentsDeskTab: input.setAgentsDeskTab,
     setAgentsNeedsDecisionFocus: input.setAgentsNeedsDecisionFocus,
     projectDir,
     currentMatterLabel: input.chatMatterHeadline?.trim() || currentMatterLabel,
@@ -300,6 +305,8 @@ export function useLawmindAppRootLayout(
     setAgentsDeskTab: input.setAgentsDeskTab,
     setAgentsNeedsDecisionFocus: input.setAgentsNeedsDecisionFocus,
     agentsNeedsDecisionFocus: input.agentsNeedsDecisionFocus,
+    agentsDeskFocusTarget: input.agentsDeskFocusTarget,
+    setAgentsDeskFocusTarget: input.setAgentsDeskFocusTarget,
     setMainView,
     setContextMatterId,
     setMatterCockpitOpen: input.setMatterCockpitOpen,
@@ -381,6 +388,8 @@ export function useLawmindAppRootLayout(
     chatMatterHeadline: input.chatMatterHeadline,
     send,
     abortChatSend,
+    deleteChatMessageAt,
+    editChatMessageAt,
     clearContext,
     allowWebSearch,
     setAllowWebSearch,
@@ -394,7 +403,6 @@ export function useLawmindAppRootLayout(
     sessionRequiresActions: input.sessionRequiresActions,
     refreshActionSummary: input.refreshActionSummary,
     onChatResumeComplete: input.onChatResumeComplete,
-    onSpawnPreset: input.onSpawnPreset,
   });
 
   const overlayProps = useLawmindAppOverlaysProps({
@@ -486,13 +494,28 @@ export function useLawmindAppRootLayout(
     pickProject,
     clearProject,
     setAgentsDeskTab: input.setAgentsDeskTab,
+    setAgentsNeedsDecisionFocus: input.setAgentsNeedsDecisionFocus,
     setMainView,
     assistants,
     onPrefsChange: () => input.setUiPrefsVersion((v) => v + 1),
+    matterSidebarRows: recordsDeskMatters.sidebarRows,
+    contextMatterId,
+    onOpenReviewFromAutomation: (taskId, matterId) => {
+      input.setReviewLaunchedFromMatter(false);
+      setReviewFocusTaskId(taskId);
+      setReviewFocusMatterId(matterId ?? null);
+      setReviewFocusStatus("all");
+      setReviewFocusListMode("pending");
+      if (matterId) {
+        setContextMatterId(matterId);
+      }
+      setMainView("review");
+    },
   });
 
   const sidebarProps = useLawmindAppSidebarProps({
-    showAppSidebar: input.showAppSidebar,
+    // Settings is a full-page surface — hide the workspace left rail while open.
+    showAppSidebar: input.showAppSidebar && !showSettings,
     sidebarCollapsed: input.sidebarCollapsed,
     sidebarWidth: input.sidebarWidth,
     showSidebarWorkbenchFiles: input.showSidebarWorkbenchFiles,
@@ -502,6 +525,7 @@ export function useLawmindAppRootLayout(
     showSettings,
     setFileExplorerHost: input.setFileExplorerHost,
     actionSummaryTotal: input.actionSummaryTotal,
+    recentCollabCompleted: input.recentCollabCompleted ?? 0,
     matterSidebarRows: recordsDeskMatters.sidebarRows,
     selectedMatterKey: recordsDeskMatters.selectedKey,
     onSelectMatterKey: recordsDeskMatters.setSelectedKey,
@@ -526,7 +550,18 @@ export function useLawmindAppRootLayout(
     activeChatSessionId,
     chatSessionsLoading,
     chatBusy: loading,
-    onSelectChatSession: selectChatSession,
+    onSelectChatSession: (sessionId: string) => {
+      const row = chatSessionList.find((s) => s.sessionId === sessionId);
+      if (
+        tryClarifyAttachSession({
+          sessionId,
+          title: (row?.title ?? "").trim() || sessionId.slice(0, 8),
+        })
+      ) {
+        return;
+      }
+      return selectChatSession(sessionId);
+    },
     onCreateNewChatSession: () => {
       input.setMatterCockpitOpen(false);
       setMainView("workspace");
@@ -572,11 +607,9 @@ export function useLawmindAppRootLayout(
     setFileExplorerPortaled: input.setFileExplorerPortaled,
     addFileToChatContext,
     setMainView,
+    mainView,
     fileWorkbenchMattersPickList: input.fileWorkbenchMattersPickList,
     matterRefreshVersion,
-    recordsDeskMattersSetSelectedKey: recordsDeskMatters.setSelectedKey,
-    setMatterCockpitOpen: input.setMatterCockpitOpen,
-    matterCockpitOpen: input.matterCockpitOpen,
     workspaceCasesMenu: input.workspaceCasesMenu,
   });
 

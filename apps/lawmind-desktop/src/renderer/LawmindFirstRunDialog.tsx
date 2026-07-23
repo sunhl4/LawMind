@@ -10,6 +10,7 @@ import type { ReactNode } from "react";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import { lawmindDocUrl } from "./lawmind-public-urls.js";
 import { LAWMIND_ATTORNEY_DISCLAIMER_SHORT } from "./lawmind-attorney-disclaimer";
+import { writeComposePermissionMode } from "./lawmind-compose-prefs";
 
 const DISMISS_KEY = "lm.firstRun.dismissed";
 /** Set by API wizard after successful save to open first-run once suppress lifts. */
@@ -57,11 +58,11 @@ type SpecSummary = {
 
 const STARTER_PROMPT_BY_ROLE: Record<Role["id"], (specName: string) => string> = {
   solo: (name) =>
-    `【交办】首跑《${name}》\n交付物类型：首跑文书\n交办要点：\n- 要完成什么：按中国大陆法起草可审核初稿\n- 必须包含的要点：必备要素齐全，缺项用【待补充】标记\n\n请按上述交办要点执行：信息已齐则直接起草可审核交付物并进入文书台；仍缺关键事实时再用结构化问题追问，不要空聊。`,
+    `【交办】首跑《${name}》\n交付物类型：首跑文书\n交办要点：\n- 要完成什么：按中国大陆法起草可审核初稿\n- 必须包含的要点：必备要素齐全，缺项用【待补充】标记\n\n【先计划】当前为「先计划」权限：请先给出执行步骤、所需材料与验收要点，不要直接写文件或出稿；等我切换到「标准」并确认后再起草。信息不足时用结构化问题追问。`,
   associate: (name) =>
-    `【交办】首跑《${name}》\n交付物类型：首跑文书\n交办要点：\n- 要完成什么：按所内通用范式生成初稿并标出须合伙人确认的留白\n- 必须包含的要点：关键风险与裁判倾向摘要\n\n请按上述交办要点执行并进入文书台。`,
+    `【交办】首跑《${name}》\n交付物类型：首跑文书\n交办要点：\n- 要完成什么：按所内通用范式生成初稿并标出须合伙人确认的留白\n- 必须包含的要点：关键风险与裁判倾向摘要\n\n【先计划】请先列执行计划与互审点，勿直接写盘；待我确认后再起草并进入文书台。`,
   partner: (name) =>
-    `【交办】首跑《${name}》\n交付物类型：首跑文书\n交办要点：\n- 要完成什么：全要素复核样本\n- 必须包含的要点：结论附来源 ID；占位符用【待补充:xxx】\n\n请按上述交办要点执行，提交文书台前完成验收自查。`,
+    `【交办】首跑《${name}》\n交付物类型：首跑文书\n交办要点：\n- 要完成什么：全要素复核样本\n- 必须包含的要点：结论附来源 ID；占位符用【待补充:xxx】\n\n【先计划】请先给出复核清单与验收门禁，勿直接出稿；待我确认后再执行，提交文书台前完成验收自查。`,
 };
 
 type Props = {
@@ -261,6 +262,8 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
         }
       }
       const seedPrompt = STARTER_PROMPT_BY_ROLE[role](chosenSpec.displayName);
+      // 首跑默认「先计划」：降低误写盘风险，律师确认后再切标准执行。
+      writeComposePermissionMode("readonly");
       onSeedReady({ matterId, seedPrompt });
       dismissForever();
     } catch (e) {
@@ -300,8 +303,8 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
         <div className="lm-firstrun-head">
           <h2>几步开始用</h2>
             <p className="lm-meta">
-            先记下你的习惯，再选文书类型。之后交办会少问几遍、更贴你的口径。交付前请在「
-            <strong>文书台</strong>」把关。
+            选身份与文书即可上手；习惯可跳过。首跑默认「先计划」再动手，交付前在「
+            <strong>文书台</strong>」完成必核与签批。
           </p>
           <ol className="lm-firstrun-steps" aria-label="进度">
             <li className={step === "role" ? "active" : "done"}>1. 身份</li>
@@ -354,6 +357,22 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
         {step === "prefs" ? (
           <div className="lm-firstrun-prefs">
             <p className="lm-meta">选三项即可，后面随时可在文书台继续沉淀。</p>
+            <p className="lm-firstrun-express">
+              <button
+                type="button"
+                className="lm-btn lm-btn-secondary lm-btn-sm"
+                data-testid="lm-firstrun-skip-prefs"
+                onClick={() => {
+                  setWritingStyle("concise");
+                  setRiskPosture("balanced");
+                  setClientTone("formal");
+                  setStep("spec");
+                }}
+              >
+                用推荐默认，跳过习惯
+              </button>
+              <span className="lm-meta">简洁 · 平衡风险 · 正式语气</span>
+            </p>
             <fieldset className="lm-firstrun-pref-group">
               <legend>行文风格</legend>
               <div className="lm-firstrun-pref-options">

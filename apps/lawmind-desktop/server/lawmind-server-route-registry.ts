@@ -31,7 +31,9 @@ import { handleTemplateRoutes } from "./lawmind-server-route-templates.js";
 import { handleMemoryAndTemplateRoutes } from "./lawmind-server-route-memory-templates.js";
 import { handleMemorySourceTextRoute } from "./lawmind-server-route-memory-preview.js";
 import { handleMemoryAdoptionRoutes } from "./lawmind-server-route-memory-adoption.js";
+import { handleMetricsRoutes } from "./lawmind-server-route-metrics.js";
 import { handleRolesRoutes } from "./lawmind-server-route-roles.js";
+import { handleRoutingRoutes } from "./lawmind-server-route-routing.js";
 import { handleTriageRoutes } from "./lawmind-server-route-triage.js";
 import { handleReviewCampaignRoutes } from "./lawmind-server-route-review-campaign.js";
 import { handleSkillsRoutes } from "./lawmind-server-route-skills.js";
@@ -76,7 +78,9 @@ export const LAWMIND_ROUTE_HANDLERS: LawmindRouteHandler[] = [
   (args) => handleMemoryAndTemplateRoutes(args),
   (args) => handleMemorySourceTextRoute(args),
   (args) => handleMemoryAdoptionRoutes(args),
+  (args) => handleMetricsRoutes(args),
   (args) => handleRolesRoutes(args),
+  (args) => handleRoutingRoutes(args),
   (args) => handleFilesystemRoute(args),
 ];
 

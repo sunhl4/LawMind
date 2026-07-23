@@ -13,8 +13,16 @@ export {
 export {
   searchWorkspaceIndex,
   getSearchIndexStatus,
+  escapeFtsQuery,
+  escapeKnowledgeFtsQuery,
   type WorkspaceSearchHit,
   type WorkspaceSearchOptions,
   type WorkspaceSearchResult,
   type SearchIndexSource,
 } from "./fts-search.js";
+export {
+  searchPersonalKnowledge,
+  type PersonalKnowledgeHit,
+  type SearchPersonalKnowledgeOpts,
+  type KnowledgeDocKindFilter,
+} from "./knowledge-search.js";

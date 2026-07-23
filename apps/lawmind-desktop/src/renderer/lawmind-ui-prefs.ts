@@ -1,4 +1,3 @@
-const WORK_TAB_KEY = "lm.ui.workTab.v1";
 const FONT_SCALE_KEY = "lm.ui.fontScale.v1";
 const DENSITY_KEY = "lm.ui.density.v1";
 const REDUCED_MOTION_KEY = "lm.ui.reducedMotion.v1";
@@ -8,22 +7,6 @@ export type UiFontScale = "default" | "comfortable";
 export type UiDensity = "default" | "compact";
 /** Default is light (skills epic mockups). */
 export type UiTheme = "light" | "dark";
-
-export function readWorkTabEnabled(): boolean {
-  try {
-    return localStorage.getItem(WORK_TAB_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-export function writeWorkTabEnabled(enabled: boolean): void {
-  try {
-    localStorage.setItem(WORK_TAB_KEY, enabled ? "1" : "0");
-  } catch {
-    /* ignore */
-  }
-}
 
 export function readUiFontScale(): UiFontScale {
   try {
@@ -134,6 +117,7 @@ export function applyAllUiPrefs(): void {
 export function resetDefaultPanelLayout(): void {
   const keys = [
     "lawmind.ui.sidebarCollapsed",
+    "lawmind.ui.meetingMaterialsCollapsed",
     "lawmind.ui.wsPaneEditor",
     "lawmind.ui.wsPaneChat",
   ];

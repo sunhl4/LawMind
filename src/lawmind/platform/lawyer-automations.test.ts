@@ -145,4 +145,100 @@ describe("lawyer-automations", () => {
     expect(inbox.length).toBeGreaterThanOrEqual(1);
     expect(inbox[0]?.summary).toContain("合同修订稿");
   });
+
+  it("skips disabled and not-yet-due automations", async () => {
+    const ws = tmpWs();
+    createAutomation(
+      ws,
+      {
+        presetId: "mail-inbox-digest",
+        matterId: "m_skip",
+        schedule: { kind: "once", runAt: "2099-01-01T00:00:00.000Z" },
+      },
+      new Date("2026-07-18T10:00:00Z"),
+    );
+    const n = await processDueLawyerAutomations(ws, {}, new Date("2026-07-18T10:01:00Z"));
+    expect(n).toBe(0);
+  });
+
+  it("records custom automation without template into inbox only", async () => {
+    const ws = tmpWs();
+    const matterId = "m_custom";
+    createAutomation(
+      ws,
+      {
+        presetId: "custom",
+        matterId,
+        instruction: "跟进对方是否回函",
+        schedule: { kind: "once", runAt: "2020-01-01T00:00:00.000Z" },
+      },
+      new Date("2026-07-18T10:00:00Z"),
+    );
+    const n = await processDueLawyerAutomations(ws, {}, new Date("2026-07-18T10:01:00Z"));
+    expect(n).toBe(1);
+    const inbox = listOpenAutomationInbox(ws, matterId);
+    expect(inbox[0]?.title).toContain("待处理");
+    expect(inbox[0]?.summary).toContain("跟进对方是否回函");
+  });
+
+  it("enqueues renewal-monitor template when due", async () => {
+    const ws = tmpWs();
+    const matterId = "m_renew";
+    createAutomation(
+      ws,
+      {
+        presetId: "renewal-monitor",
+        matterId,
+        schedule: { kind: "once", runAt: "2020-01-01T00:00:00.000Z" },
+      },
+      new Date("2026-07-18T10:00:00Z"),
+    );
+    const jobs: string[] = [];
+    const n = await processDueLawyerAutomations(
+      ws,
+      {
+        enqueueTemplate: ({ templateId }) => {
+          jobs.push(templateId);
+          return "job-renew-1";
+        },
+      },
+      new Date("2026-07-18T10:01:00Z"),
+    );
+    expect(n).toBe(1);
+    expect(jobs).toEqual(["renewal-monitor"]);
+    const inbox = listOpenAutomationInbox(ws, matterId);
+    expect(inbox[0]?.summary).toContain("renewal-monitor");
+  });
+
+  it("marks mail-contract-review when attachments are missing", async () => {
+    const ws = tmpWs();
+    const matterId = "m_no_attach";
+    writeMatterMailMessage(ws, matterId, {
+      id: "msg-plain",
+      from: "a@firm.com",
+      to: "me@firm.com",
+      subject: "无附件",
+      receivedAt: "2026-07-17T08:00:00.000Z",
+      bodyText: "仅正文",
+      attachments: [],
+    });
+    createAutomation(
+      ws,
+      {
+        presetId: "mail-contract-review",
+        matterId,
+        schedule: { kind: "once", runAt: "2020-01-01T00:00:00.000Z" },
+      },
+      new Date("2026-07-18T10:00:00Z"),
+    );
+    const n = await processDueLawyerAutomations(
+      ws,
+      { enqueueTemplate: () => "should-not-run" },
+      new Date("2026-07-18T10:01:00Z"),
+    );
+    expect(n).toBe(1);
+    const inbox = listOpenAutomationInbox(ws, matterId);
+    expect(inbox[0]?.summary).toContain("无合同附件");
+    expect(inbox[0]?.jobId).toBeUndefined();
+  });
 });

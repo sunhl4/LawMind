@@ -16,6 +16,6 @@ describe("lawmind-memory-scope", () => {
   });
 
   it("labels scopes in Chinese", () => {
-    expect(memoryScopeLabel("firm")).toBe("律所");
+    expect(memoryScopeLabel("firm")).toBe("律所惯例");
   });
 });

@@ -24,12 +24,39 @@ export function initSearchIndexSchema(db: DatabaseSync): void {
       timestamp UNINDEXED,
       tokenize='unicode61'
     );
+    CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
+      path UNINDEXED,
+      matter_id UNINDEXED,
+      doc_kind,
+      section,
+      body,
+      tokenize='trigram'
+    );
+  `);
+}
+
+/**
+ * Recreate knowledge_fts (trigram). Call only from rebuild/clear — never on read-only open,
+ * or search would wipe the index.
+ */
+export function recreateKnowledgeFts(db: DatabaseSync): void {
+  db.exec(`DROP TABLE IF EXISTS knowledge_fts;`);
+  db.exec(`
+    CREATE VIRTUAL TABLE knowledge_fts USING fts5(
+      path UNINDEXED,
+      matter_id UNINDEXED,
+      doc_kind,
+      section,
+      body,
+      tokenize='trigram'
+    );
   `);
 }
 
 export function clearFtsTables(db: DatabaseSync): void {
   db.exec(`DELETE FROM audit_fts;`);
   db.exec(`DELETE FROM session_fts;`);
+  recreateKnowledgeFts(db);
 }
 
 export function setMeta(db: DatabaseSync, key: string, value: string): void {

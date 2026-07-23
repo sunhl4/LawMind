@@ -114,23 +114,22 @@
 
 桌面端为 **左侧边栏 + 右侧主工作台**（详见 [桌面端 UI 约定](/LAWMIND-DESKTOP-UI)）。
 
-| 表面           | 用途                                                                                                 | 主要渲染入口（实现参考）                                                             |
-| -------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| **首页**       | **默认首页（驾驶舱）**：待我拍板 · 分诊/期限 · 专案组 · 成长收件箱；可在外观偏好切回「经典对话首页」 | `HomeView.tsx`、`lawmind-home-prefs.ts`                                              |
-| **对话**       | 向 Agent 下达任务、引用材料、澄清和中途调整（经典偏好下可作为默认）                                  | `lawmind-chat-shell.tsx`、`LawmindAssignmentCommitmentCard.tsx`                      |
-| **在办**       | 并行总览：进行中 / 交出去的活 / 按流程办（含原协作能力）                                             | `AgentFleetView.tsx`、`LawmindAgentFleetPanel.tsx`、`LawmindCollaborationDesk.tsx`   |
-| **自动办件**   | 定时或邮件触发的办件（与对话下达区分）；经顶栏 **「会议室·办件」** 进入                              | `AutomationsView.tsx`、`LawmindAutomationsPanel.tsx`                                 |
-| **会议室**     | 多助手讨论（可绑案件或临时开会）；经顶栏 **「会议室·办件」** 进入                                    | `MeetingView.tsx`、`MatterTeamMeetingPanel.tsx`                                      |
-| **案件工作台** | 材料、任务、期限、草稿、CASE、进度与 Insights 的长期真相源                                           | `MatterWorkbench.tsx` 与 `matter/*` 子视图                                           |
-| **文书台**     | 有稿可审时进入：正文修改、来源核验、验收门禁、签批与导出                                             | `ReviewWorkbench.tsx`、`LawmindAcceptanceGate.tsx`                                   |
-| **待我拍板**   | 跳转「在办」并只看待决（`awaiting_*`）；侧栏底部有待决时显示；顶栏角标仅在侧栏折叠/文书台时出现      | `AgentFleetView.tsx`、`LawmindAgentFleetPanel.tsx`、`LawmindNeedsDecisionButton.tsx` |
-| **文件**       | 浏览、编辑工作区内文本，标记本回合重点材料                                                           | `FileWorkbench.tsx`；服务端 `GET/POST /api/fs/*` 与 Electron `lawmind:fs:*`          |
+| 表面           | 用途                                                                                              | 主要渲染入口（实现参考）                                                           |
+| -------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| **对话**       | **默认入口**：向 Agent 下达任务、引用材料、澄清和中途调整                                         | `lawmind-chat-shell.tsx`、`LawmindAssignmentCommitmentCard.tsx`                    |
+| **在办**       | 并行总览：进行中 / 交出去的活 / 按流程办（含原协作能力）                                          | `AgentFleetView.tsx`、`LawmindAgentFleetPanel.tsx`、`LawmindCollaborationDesk.tsx` |
+| **自动办件**   | 定时或邮件触发的办件（配置向）；在 **设置 → 自动办件** 管理；结果进「待我拍板」                   | `LawmindAutomationsPanel.tsx`（设置分区）                                          |
+| **会议室**     | 多助手讨论（可绑案件或临时开会）；经顶栏 **会议室** 进入                                          | `MeetingView.tsx`、`MatterTeamMeetingPanel.tsx`                                    |
+| **案件工作台** | 材料、任务、期限、草稿、CASE、进度与 Insights 的长期真相源                                        | `MatterWorkbench.tsx` 与 `matter/*` 子视图                                         |
+| **文书台**     | 有稿可审时进入：正文修改、批注、来源核验、交付预览与导出；正式签批主路径在「在办」                | `ReviewWorkbench.tsx`、`LawmindAcceptanceGate.tsx`                                 |
+| **待我拍板**   | 跳转「在办」并只看待决（`awaiting_*`）；缺信息时在办表格「提交补充并继续」；对话多为弱引导/短确认 | `AgentFleetView.tsx`、`LawmindAgentFleetPanel.tsx`、`LawmindClarificationForm.tsx` |
+| **文件**       | 浏览、编辑工作区内文本，标记本回合重点材料                                                        | `FileWorkbench.tsx`；服务端 `GET/POST /api/fs/*` 与 Electron `lawmind:fs:*`        |
 
-**顶栏一级**：仅 **对话**、**在办**（案件 chip 显示案件标题 / 文书台为场景标签）。会议室与自动办件在 **「会议室·办件」** 菜单（`lm-nav-more`）。对话区在有待审草稿时固定显示「打开此稿」条，可直达文书台对应任务。案件工作台首页有 **「本案下一步」** 轨（打开本案对话 / 待我拍板 / 进入文书台）。待办角标与粘性条共用 action-summary，对话回合结束后会即时刷新。
+**顶栏一级**：**对话**、**在办**、**会议室**、**文书台**。自动办件在 **设置 → 自动办件**。对话区在有待审草稿时固定显示「打开此稿」条，可直达文书台对应任务。案件工作台首页有 **「本案下一步」** 轨（打开本案对话 / 待我拍板 / 进入文书台）。侧栏待办角标共用 action-summary，对话回合结束后会即时刷新。
 
-文书台不再作为顶栏对等首页；请从对话承诺卡、在办或案件任务卡的 **「进入文书台」** 打开。系统不会因为后台修订完成而强制打断当前页面。
+正式签批主路径仍在「在办」；文书台侧重改稿、批注与交付预览。系统不会因为后台修订完成而强制打断当前页面。
 
-**侧边栏**：设置齿轮、案件材料树（或案件列表）、自动办件列表（在「自动办件」视图）、有待决时底部 **待我拍板**。
+**侧边栏**：设置齿轮、案件材料树（或案件列表）、有待决时底部 **待我拍板**。
 
 ### 2.4 交付、验收门禁与文书台
 
@@ -143,13 +142,12 @@
 | 能力                | 怎么用                                    | 说明                                                                  |
 | ------------------- | ----------------------------------------- | --------------------------------------------------------------------- |
 | **分诊**            | 对话「写材料」→ 填表交办 → 确认黄/红档    | 推荐工作流（含中国包 `cn-*`）；确认后写入分诊会话                     |
-| **律师必核**        | 文书台右侧清单                            | 未勾完必核项时「通过」签批返回 `422 checklist_incomplete`             |
+| **律师必核**        | 文书台右侧清单                            | 未勾完时在办「通过」或文书台高级签批返回 `422 checklist_incomplete`   |
 | **严格援引**        | 设置 / Edition 的 `citationMode=grounded` | 无源或无理论锚点时严格导出可被拦截                                    |
 | **审查专案组**      | 文书台 Sticky「用审查专案组」             | ≥4 角色 + Safety Score；报告可 Markdown 下载；可选「更快模式」        |
 | **案件简报 / 理论** | 案件概览                                  | Ops 可追加阶段与 RAID；理论三块可锚定；文书台可将推理图「采纳到理论」 |
 | **审查矩阵**        | 案件工作台 → 审查矩阵                     | CSV 导出含 citation；版本比对看危险变更摘要                           |
 | **技能库**          | 设置 → 技能库                             | 本地 `SKILL.md` + 签名校验；中国法务包状态；篡改签名拒载              |
-| **首页迁移**        | 首次进驾驶舱横幅                          | 可一键切回经典「打开即对话」（`preferClassicChatHome`）               |
 
 更多工程闸门见 [500 人周计划](/LAWMIND-AGENT-SKILLS-500PW-PLAN) §9.1；Edition 矩阵见 [Edition 功能矩阵](/LAWMIND-EDITION-FEATURE-MATRIX)。
 
@@ -173,15 +171,15 @@
 
 上线或版本升级后，可用下列 **5 分钟** 清单确认主链可用（无需逐条读 API 文档）：
 
-| 步骤 | 操作                                                                            | 预期                                                       |
-| ---- | ------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| 1    | 工作台对话产出带 `taskId` 的助手回复                                            | 消息下方显示「当前交办」和 gate 摘要或「进入文书台」       |
-| 2    | 侧栏/顶栏 **待我拍板** 进入「在办」处理 `requiresAction`（或会话内澄清/批准卡） | 批准/拒绝后任务继续                                        |
-| 3    | 点 **进入文书台** → 选草稿 → 签批 → 渲染                                        | strict 模式下未过 gate 时渲染返回 422                      |
-| 4    | 案件工作台 → **认知** → 记忆采纳「预览变更」                                    | diff 预览可用；采纳写入 CASE/PROFILE                       |
-| 5    | 审核台 Redline：**将当前稿设为基准** → 改正文 → **生成修订提案** → 接受         | 段落写回草稿正文                                           |
-| 6    | 案件 **案件** Tab 搜索关键词                                                    | 无索引时提示到 **设置→系统体检** 重建；重建后命中出现      |
-| 7    | 左栏 `cases/` 或 **案件** 快捷列表选案                                          | cockpit 打开；有待决时底栏 **待我拍板** 跳转「在办」决策区 |
+| 步骤 | 操作                                                                       | 预期                                                       |
+| ---- | -------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| 1    | 工作台对话产出带 `taskId` 的助手回复                                       | 消息下方显示「当前交办」和 gate 摘要或「进入文书台」       |
+| 2    | 侧栏 **待我拍板** 进入「在办」处理 `requiresAction`（或会话内澄清/批准卡） | 批准/拒绝后任务继续                                        |
+| 3    | 点 **进入文书台** → 选草稿 → 签批 → 渲染                                   | strict 模式下未过 gate 时渲染返回 422                      |
+| 4    | 案件工作台 → **认知** → 记忆采纳「预览变更」                               | diff 预览可用；采纳写入 CASE/PROFILE                       |
+| 5    | 审核台 Redline：**将当前稿设为基准** → 改正文 → **生成修订提案** → 接受    | 段落写回草稿正文                                           |
+| 6    | 案件 **案件** Tab 搜索关键词                                               | 无索引时提示到 **设置→系统体检** 重建；重建后命中出现      |
+| 7    | 左栏 `cases/` 或 **案件** 快捷列表选案                                     | cockpit 打开；有待决时底栏 **待我拍板** 跳转「在办」决策区 |
 
 索引未建立时，本机开发可在 loopback 环境设置 `LAWMIND_ALLOW_INDEX_REBUILD=1` 后于体检页重建（见 [工作区标准](/LAWMIND-WORKSPACE-STANDARD)）。
 
@@ -215,7 +213,7 @@
 1. 在 **设置 → 助手与岗位** 至少配置两名助手（`assistants.json` + `assistants/<id>/PROFILE.md`）。
 2. 顶栏选中 **主办助手 A**（`assistantId` 进入 `POST /api/chat`）。
 3. **关联案件**、任务/草稿，并添加 **本回合重点**，便于模型派活。
-4. 自然语言下达；也可在对话或在办 Spawn 使用 **委派给助手**；模型可调用 `delegate_task` / 协调类工具。
+4. 自然语言下达；也可在对话或「在办」工作台使用 **委派给助手**；模型可调用 `delegate_task` / 协调类工具。
 5. 在 **顶栏「在办」→「交出去的活」** 查看委派进度（`GET /api/delegations` / `GET /api/collaboration-events`）；**刷新**走壳层 `refreshCollaboration()`（见 [协作 UI ↔ API 对照](/LAWMIND-COLLABORATION-UI-API-MAP)）。
 
 **状态**：等待中 / 进行中 / 已完成 / 失败 / 超时——与委派注册表字段一致。
@@ -317,9 +315,9 @@
 
 **子视图（`matter/` 目录）**：如 `MatterCockpit.tsx`、`MatterMemoryInspector.tsx`、`MatterQualityCockpit.tsx`、`MatterReasoningBoard.tsx`、`MatterReviewQueuePanel.tsx`、`MatterRoleBoard.tsx` 等，用于拆分原巨型工作台能力。
 
-### 7.1 团队会议室（经「会议室·办件」进入）
+### 7.1 团队会议室
 
-- **入口**：顶栏 **「会议室·办件」→ 会议室**（`mainView = "meeting"` → `MeetingView`）。可绑定案件，或选「不绑定案件 · 临时讨论」（API 仍用哨兵 id `临时讨论`，磁盘落在 `meetings/adhoc/team-meeting.jsonl`，不占用案件列表）。
+- **入口**：顶栏 **会议室**（`mainView = "meeting"` → `MeetingView`）。可绑定案件，或选「不绑定案件 · 临时讨论」（API 仍用哨兵 id `临时讨论`，磁盘落在 `meetings/adhoc/team-meeting.jsonl`，不占用案件列表）。
 - **案件侧深链**：案件概览「打开会议室」跳到会议室视图并带上本案。
 - **UI**：`MatterTeamMeetingPanel.tsx`；**数据**：`GET /api/matters/team-meeting?matterId=&limit=&skipFromEnd=` → `readTeamMeetingWindow`（`src/lawmind/cases/team-meeting.ts`）。
 - **发言**：`POST /api/chat`，`meetingMode: true` 且 **必须**合法 `matterId`；否则 **400** `meeting_matter_required`。
@@ -415,6 +413,8 @@ LawMind 不复制 Harvey 等企业云台的部署形态，但在**可核对来�
 | 方法      | 路径                                          | 说明                                                                     |
 | --------- | --------------------------------------------- | ------------------------------------------------------------------------ |
 | GET       | `/api/health`                                 | 工作区、模型、策略、doctor 计数、edition 等                              |
+| GET       | `/api/metrics/team-growth`                    | 团队成长内测指标快照；`?windowDays=`（默认 30）                          |
+| POST      | `/api/metrics/team-growth/baseline`           | 冻结当前窗口为基线（body：`windowDays?`、`note?`）                       |
 | GET       | `/api/templates`                              | 内置 + 已上传模板列表                                                    |
 | GET       | `/api/templates/built-in`                     | 内置模板（含 `category`）                                                |
 | POST      | `/api/templates/scan`                         | 扫描工作区内 `.docx` 占位符                                              |
@@ -468,7 +468,9 @@ LawMind 不复制 Harvey 等企业云台的部署形态，但在**可核对来�
 | GET       | `/api/tasks`                                  | 任务列表（records 路由）                                                 |
 | GET       | `/api/sessions`                               | 会话列表（含 `lastPreview`）                                             |
 | GET       | `/api/sessions/:id/context-budget`            | 当前会话 token 用量与 compact 级别                                       |
-| POST      | `/api/sessions/:id/compact`                   | 手动压缩对话历史                                                         |
+| POST      | `/api/sessions/:id/compact`                   | 手动压缩对话历史（可选 `distill` 沉淀学习）                              |
+| POST      | `/api/sessions/:id/messages/mutate`           | 按气泡下标截断/删除问答对                                                |
+| POST      | `/api/sessions/:id/abort`                     | 协作式停止进行中的对话轮                                                 |
 | POST      | `/api/sessions/:id/resume`                    | 从 JSONL transcript 修复并加载会话                                       |
 | GET/PATCH | `/api/policy/workspace`                       | 读取/更新工作区策略（含 **高安全模式**）                                 |
 | GET       | `/api/drafts`                                 | 草稿列表                                                                 |
@@ -478,7 +480,7 @@ LawMind 不复制 Harvey 等企业云台的部署形态，但在**可核对来�
 | GET       | `/api/jobs/:id/stream`                        | SSE                                                                      |
 | POST      | `/api/jobs/:id/cancel`                        | 取消 Job                                                                 |
 | GET       | `/api/collaboration/summary`                  | 协作摘要                                                                 |
-| GET       | `/api/delegations`                            | 委派列表；可选 `status`、`assistantId`                                   |
+| GET       | `/api/delegations`                            | 委派列表；可选 `status`、`assistantId`、`matterId`                       |
 | GET       | `/api/delegations/:id`                        | 委派详情                                                                 |
 | DELETE    | `/api/delegations/:id`                        | 取消委派                                                                 |
 | GET       | `/api/collaboration/workflow-templates`       | 工作流模板                                                               |
@@ -1483,8 +1485,10 @@ LawMind 不复制 Harvey 等企业云台的部署形态，但在**可核对来�
 
 **扩展（第十期）**：
 
-- **`GET /api/sessions/:id/context-budget`**：`{ ok, used, effectiveLimit, level }`，`level` 为 `ok` | `warn` | `compact`；Compose 底栏 token 条与此一致。
-- **`POST /api/sessions/:id/compact`**：手动触发 `autoCompactSessionHistory`；响应含 `compacted`、`sessionSummaryPath`、`droppedMessageCount`。
+- **`GET /api/sessions/:id/context-budget`**：`{ ok, used, effectiveLimit, level }`，`level` 为 `ok` | `warn` | `compact`；Compose 模型行旁圆环用量与此一致。
+- **`POST /api/sessions/:id/compact`**：手动触发 `autoCompactSessionHistory`；响应含 `compacted`、`sessionSummaryPath`、`droppedMessageCount`、`messages`。可选 body `{ distill: true }`（圆环菜单「沉淀到知识库」）会提炼律师偏好建议与案件摘要写入记忆采纳队列。
+- **`POST /api/sessions/:id/messages/mutate`**：按桌面气泡下标修改历史。`{ uiIndex, mode: "truncate" | "delete_pair" }` — `truncate` 从该条起截断（原地改问后重发）；`delete_pair` 删除提问及其紧随回答（保留其后轮次）。响应含更新后的 `messages`。
+- **`POST /api/sessions/:id/abort`**：协作式停止进行中的对话轮（与 Compose「停止」配合；轮间检查，不强制中断单次模型 HTTP）。
 - **`POST /api/sessions/:id/resume`**：从 `sessions/<id>.transcript.jsonl` 修复链并写回 `conversationHistory`；响应含 `messages`（简版）与 `pendingApprovals` 计数。
 
 ### 38.3 `GET /api/drafts`

@@ -21,6 +21,36 @@ export const PROMPT_WINDOW = {
   caseProgressMaxBullets: 80,
 } as const;
 
+export type PromptWindowChars = {
+  matterContextChars: number;
+  lawyerProfileChars: number;
+  clientProfileChars: number;
+  dayLogChars: number;
+  assistantProfileChars: number;
+  retrievalMemoryChars: number;
+  similarCaseReadChars: number;
+  caseProgressMaxBullets: number;
+};
+
+/** Scale memory injection windows with model context (keeps floors, raises for large windows). */
+export function scalePromptWindows(scale: number): PromptWindowChars {
+  const s = Number.isFinite(scale) && scale > 0 ? Math.min(2.5, Math.max(0.5, scale)) : 1;
+  const scaleChars = (n: number) => Math.max(n, Math.floor(n * s));
+  return {
+    matterContextChars: scaleChars(PROMPT_WINDOW.matterContextChars),
+    lawyerProfileChars: scaleChars(PROMPT_WINDOW.lawyerProfileChars),
+    clientProfileChars: scaleChars(PROMPT_WINDOW.clientProfileChars),
+    dayLogChars: scaleChars(PROMPT_WINDOW.dayLogChars),
+    assistantProfileChars: scaleChars(PROMPT_WINDOW.assistantProfileChars),
+    retrievalMemoryChars: scaleChars(PROMPT_WINDOW.retrievalMemoryChars),
+    similarCaseReadChars: scaleChars(PROMPT_WINDOW.similarCaseReadChars),
+    caseProgressMaxBullets: Math.max(
+      PROMPT_WINDOW.caseProgressMaxBullets,
+      Math.floor(PROMPT_WINDOW.caseProgressMaxBullets * s),
+    ),
+  };
+}
+
 export function truncateForPrompt(
   text: string | undefined | null,
   maxChars: number,

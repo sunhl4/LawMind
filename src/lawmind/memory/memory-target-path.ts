@@ -24,6 +24,10 @@ export function resolveMemoryTargetRelativePath(
       if (!mid) {
         return null;
       }
+      // 进展类采纳落 session-summary；其它 case.* 仍写 CASE.md
+      if (record.kind === "case.progress") {
+        return `cases/${mid}/session-summary.md`;
+      }
       return `cases/${mid}/CASE.md`;
     }
     case "assistant": {

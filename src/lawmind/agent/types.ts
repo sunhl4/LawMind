@@ -94,7 +94,8 @@ export type AgentContext = {
   collaborationDepth?: number;
   /**
    * 本轮内已有工具返回 clarificationQuestions 且尚未结束 turn 时为 true；
-   * research_task / draft_document / execute_workflow / render_document 应拒绝执行。
+   * draft_document / execute_workflow / render_document 应拒绝执行。
+   * 只读 / research_task 仍允许，便于先收集事实再请律师澄清。
    */
   clarificationBlockingHeavyTools?: boolean;
   /** 与 `AgentConfig.strictDangerousToolApproval` 对齐，供工具层读取 */
@@ -221,6 +222,14 @@ export type AgentSession = {
   collaborationDelegationId?: string;
   /** 上次自动写入 session-summary 时的 turn 数（用于节流） */
   lastSessionSummaryTurnCount?: number;
+  /**
+   * Plan→Execute 交接（「先计划」产出）：写入 session.json，便于刷新 / 跨端同工作区恢复。
+   * 桌面仍可镜像到 localStorage 作离线缓存。
+   */
+  planHandoff?: {
+    planText: string;
+    updatedAt: string;
+  };
 };
 
 // ─────────────────────────────────────────────
@@ -236,6 +245,8 @@ export type AgentModelConfig = {
   temperature?: number;
   timeoutMs?: number;
   maxRetries?: number;
+  /** Catalog / custom context window; drives compact budget when set. */
+  contextTokens?: number;
 };
 
 /** Non-secret model identity for system prompt (lawyer may ask「你是什么模型」). */

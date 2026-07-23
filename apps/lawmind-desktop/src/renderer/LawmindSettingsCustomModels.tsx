@@ -1,4 +1,4 @@
-import { useCallback, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useId, useState, type FormEvent, type ReactNode } from "react";
 import {
   addCustomModel,
   deleteCustomModel,
@@ -13,6 +13,7 @@ type Props = {
 
 export function LawmindSettingsCustomModels(props: Props): ReactNode {
   const { apiBase, customModels, onChanged } = props;
+  const uid = useId();
   const [label, setLabel] = useState("");
   const [baseUrl, setBaseUrl] = useState("https://api.openai.com/v1");
   const [model, setModel] = useState("gpt-4o");
@@ -27,9 +28,8 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
       setError(null);
       try {
         const trimmedModel = model.trim();
-        // Client-side guard: common mistake is pasting LawMind internal id or raw uuid into the upstream model field.
         if (/^(custom|builtin|platform|env):/i.test(trimmedModel) || /^[0-9a-f-]{20,}$/i.test(trimmedModel)) {
-          setError("模型 ID 看起来像 LawMind 内部标识（custom:xxx 或一串 hex/uuid），请填写该 Base URL 实际接受的模型名称，例如 gpt-4o、qwen-plus 或你本地模型的名字。");
+          setError("请填写上游实际模型名（如 gpt-4o），不要填 LawMind 内部 ID。");
           setBusy(false);
           return;
         }
@@ -98,70 +98,133 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
     [apiBase, onChanged],
   );
 
+  const canSubmit = Boolean(label.trim() && model.trim() && apiKey.trim()) && !busy;
+  const idLabel = `${uid}-label`;
+  const idBaseUrl = `${uid}-base-url`;
+  const idModel = `${uid}-model`;
+  const idKey = `${uid}-key`;
+
   return (
-    <div className="lm-settings-subsection">
-      <div className="lm-settings-subsection-title">自定义模型（自带 API Key）</div>
-      <p className="lm-meta lm-settings-hint">
-        与 Cursor 类似：内置模型使用各服务商在向导/env 中的 Key；此处可添加任意 OpenAI 兼容端点。
-        「模型 ID」请填写该端点实际接受的模型名称（会直接作为 chat/completions 的 model 参数发出），不要填 LawMind 内部 ID。
-      </p>
+    <section className="lm-custom-model-panel" data-testid="lm-custom-model-panel">
+      <header className="lm-custom-model-panel__head">
+        <div className="lm-custom-model-panel__titles">
+          <h3 className="lm-custom-model-panel__title">自定义模型</h3>
+          <p className="lm-custom-model-panel__caption">添加 OpenAI 兼容端点，并设为当前默认</p>
+        </div>
+      </header>
+
       {customModels.length > 0 ? (
-        <ul className="lm-custom-model-list">
+        <ul className="lm-custom-model-list" aria-label="已添加的自定义模型">
           {customModels.map((m) => (
-            <li key={m.id} className="lm-custom-model-row">
-              <span className="lm-custom-model-name">{m.label}</span>
-              <span className="lm-meta">{m.model}</span>
-              {m.verifiedAt ? (
-                <span className="lm-pill lm-pill-success" title={`最后验证：${m.verifiedAt}`}>
-                  已验证{typeof m.verifiedLatencyMs === "number" ? ` · ${m.verifiedLatencyMs}ms` : ""}
+            <li key={m.id} className="lm-custom-model-card">
+              <div className="lm-custom-model-card__main">
+                <span className="lm-custom-model-card__name">{m.label}</span>
+                <span className="lm-custom-model-card__meta">
+                  <span className="lm-custom-model-card__model">{m.model}</span>
+                  <span className="lm-custom-model-card__url" title={m.baseUrl}>
+                    {m.baseUrl}
+                  </span>
                 </span>
-              ) : (
-                <span className="lm-pill lm-pill-warn">待验证</span>
-              )}
-              <button
-                type="button"
-                className="lm-btn lm-btn-secondary lm-btn-sm"
-                disabled={busy}
-                onClick={() => void onRemove(m.id)}
-              >
-                删除
-              </button>
+              </div>
+              <div className="lm-custom-model-card__aside">
+                {m.verifiedAt ? (
+                  <span className="lm-pill lm-pill-success" title={`最后验证：${m.verifiedAt}`}>
+                    已验证
+                    {typeof m.verifiedLatencyMs === "number" ? ` · ${m.verifiedLatencyMs}ms` : ""}
+                  </span>
+                ) : (
+                  <span className="lm-pill lm-pill-warn">待验证</span>
+                )}
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-ghost lm-btn-sm"
+                  disabled={busy}
+                  onClick={() => void onRemove(m.id)}
+                >
+                  删除
+                </button>
+              </div>
             </li>
           ))}
         </ul>
       ) : null}
+
       <form className="lm-custom-model-form" onSubmit={(e) => void onSubmit(e)}>
-        <label className="lm-field">
-          <span>显示名称</span>
-          <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="例如：我的 GPT-4o" />
-        </label>
-        <label className="lm-field">
-          <span>Base URL</span>
-          <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
-        </label>
-        <label className="lm-field">
-          <span>模型 ID（上游实际模型名）</span>
-          <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="gpt-4o 或 qwen-plus" />
-          <span className="lm-meta" style={{ marginTop: 2 }}>必须是该 Base URL 认识的模型名称（会直接发给 /chat/completions 的 model 参数）。不要填 custom:xxx 之类的内部 ID。</span>
-        </label>
-        <label className="lm-field">
-          <span>API Key</span>
+        <div className="lm-custom-model-field">
+          <label className="lm-custom-model-field__label" htmlFor={idLabel}>
+            显示名称
+          </label>
           <input
+            id={idLabel}
+            className="lm-custom-model-input"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="例如：我的 GPT-4o"
+            autoComplete="off"
+          />
+        </div>
+
+        <div className="lm-custom-model-field">
+          <label className="lm-custom-model-field__label" htmlFor={idBaseUrl}>
+            Base URL
+          </label>
+          <input
+            id={idBaseUrl}
+            className="lm-custom-model-input lm-custom-model-input--mono"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder="https://api.openai.com/v1"
+            spellCheck={false}
+            autoComplete="off"
+          />
+        </div>
+
+        <div className="lm-custom-model-field">
+          <label className="lm-custom-model-field__label" htmlFor={idModel}>
+            模型 ID
+          </label>
+          <input
+            id={idModel}
+            className="lm-custom-model-input lm-custom-model-input--mono"
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            placeholder="gpt-4o 或 qwen-plus"
+            spellCheck={false}
+            autoComplete="off"
+          />
+        </div>
+
+        <div className="lm-custom-model-field">
+          <label className="lm-custom-model-field__label" htmlFor={idKey}>
+            API Key
+          </label>
+          <input
+            id={idKey}
+            className="lm-custom-model-input lm-custom-model-input--mono"
             type="password"
             autoComplete="off"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
+            placeholder="sk-…"
           />
-        </label>
+        </div>
+
         {error ? (
-          <div className="lm-callout lm-callout-danger" role="alert">
-            <p className="lm-callout-body">{error}</p>
-          </div>
+          <p className="lm-custom-model-form__error" role="alert">
+            {error}
+          </p>
         ) : null}
-        <button type="submit" className="lm-btn lm-btn-sm" disabled={busy || !label.trim() || !model.trim() || !apiKey.trim()}>
-          {busy ? "保存中…" : "添加并设为默认"}
-        </button>
+
+        <div className="lm-custom-model-form__actions">
+          <button
+            type="submit"
+            className="lm-btn lm-btn-accent lm-custom-model-submit"
+            disabled={!canSubmit}
+          >
+            {busy ? "保存中…" : "添加并设为默认"}
+          </button>
+        </div>
       </form>
-    </div>
+    </section>
   );
 }

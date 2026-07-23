@@ -3,6 +3,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { readAllAuditLogs } from "../audit/index.js";
 import { listTaskRecords } from "../tasks/index.js";
+import { ingestKnowledgeRows } from "./fts-ingest-knowledge.js";
 import { clearFtsTables, initSearchIndexSchema, setMeta } from "./fts-schema.js";
 import {
   SEARCH_INDEX_SCHEMA_VERSION,
@@ -13,18 +14,21 @@ import {
 export type RebuildIndexOptions = {
   maxAuditRows?: number;
   maxSessionRows?: number;
+  maxKnowledgeRows?: number;
 };
 
 export type RebuildIndexResult = {
   ok: true;
   auditRows: number;
   sessionRows: number;
+  knowledgeRows: number;
   truncated: boolean;
   durationMs: number;
 };
 
 const DEFAULT_MAX_AUDIT = 50_000;
 const DEFAULT_MAX_SESSION = 50_000;
+const DEFAULT_MAX_KNOWLEDGE = 40_000;
 
 function matterIdByTaskId(workspaceDir: string): Map<string, string> {
   const m = new Map<string, string>();
@@ -168,21 +172,25 @@ export async function rebuildWorkspaceSearchIndex(
   const started = Date.now();
   const maxAudit = opts?.maxAuditRows ?? DEFAULT_MAX_AUDIT;
   const maxSession = opts?.maxSessionRows ?? DEFAULT_MAX_SESSION;
+  const maxKnowledge = opts?.maxKnowledgeRows ?? DEFAULT_MAX_KNOWLEDGE;
   const db = openSearchIndexDb(workspaceDir);
   clearFtsTables(db);
   const audit = await ingestAuditRows(db, workspaceDir, maxAudit);
   const session = ingestSessionRows(db, workspaceDir, maxSession);
-  const truncated = audit.truncated || session.truncated;
+  const knowledge = ingestKnowledgeRows(db, workspaceDir, maxKnowledge);
+  const truncated = audit.truncated || session.truncated || knowledge.truncated;
   setMeta(db, "schemaVersion", String(SEARCH_INDEX_SCHEMA_VERSION));
   setMeta(db, "lastRebuildAt", new Date().toISOString());
   setMeta(db, "auditRows", String(audit.count));
   setMeta(db, "sessionRows", String(session.count));
+  setMeta(db, "knowledgeRows", String(knowledge.count));
   setMeta(db, "truncated", truncated ? "1" : "0");
   db.close();
   return {
     ok: true,
     auditRows: audit.count,
     sessionRows: session.count,
+    knowledgeRows: knowledge.count,
     truncated,
     durationMs: Date.now() - started,
   };

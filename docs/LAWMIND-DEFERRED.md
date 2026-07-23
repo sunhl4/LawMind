@@ -21,19 +21,20 @@
 
 - [ ] **智能体层级强制策略** → FUTURE-ISSUES §3
 - [ ] **互审轮次与版本** → FUTURE-ISSUES §3
+- [ ] **完整工作队列台**（`GET /api/queues` 写侧处置）：案件概览已只读聚合；独立队列控制台仍非 Solo 刚需
 
-### 半暴露 API（2026-07-19 Wave D：标 deferred，暂不铺完整 UI）
+### 半暴露 API（2026-07-21 · UI 已接通）
 
-下列能力引擎/HTTP 已有，桌面**不**作为一等入口；案件概览「工作队列」等若已展示读侧数据，仍属只读聚合，不等于完整队列台：
-
-| API / 能力                                      | 状态     | 说明                                        |
-| ----------------------------------------------- | -------- | ------------------------------------------- |
-| `GET /api/queues`                               | deferred | 写侧 JSONL 存在；完整队列台未做             |
-| `POST /api/sessions/:id/compact`                | deferred | 上下文预算条可读；无「整理上下文」按钮      |
-| `POST /api/memory/adoption/suggest`             | deferred | 采纳/忽略 UI 在记忆库；无主动 suggest       |
-| `POST /api/learning/contract-revision/finalize` | deferred | 列表/学习面板部分消费；finalize 无按钮      |
-| `GET /api/integrations` 目录                    | deferred | 案件 documents 子路径可用；连接器目录页未做 |
-| `GET /api/assistants/:id/profile-sections`      | deferred | 助手编辑未展示分段预览                      |
+| API / 能力                                      | 状态    | 说明                                                        |
+| ----------------------------------------------- | ------- | ----------------------------------------------------------- |
+| `GET /api/queues`                               | partial | 读侧仍经 matter detail；完整队列台见上                      |
+| `POST /api/sessions/:id/compact`                | done    | 对话 compose token 条「整理上下文」；`distill`→「沉淀学习」 |
+| `POST /api/sessions/:id/messages/mutate`        | done    | 气泡修改/删除（truncate / delete_pair）                     |
+| `POST /api/sessions/:id/abort`                  | done    | Compose「停止」协作式中止轮次                               |
+| `POST /api/memory/adoption/suggest`             | done    | 设置 → 记忆库「主动提出记忆建议」                           |
+| `POST /api/learning/contract-revision/finalize` | done    | 设置 → 记忆库合同学习「高级 finalize」                      |
+| `GET /api/integrations` 目录                    | done    | Doctor 外部集成列表（兼 health + `/api/integrations`）      |
+| `GET /api/assistants/:id/profile-sections`      | done    | 设置 → 助手「画像分段预览」                                 |
 
 ---
 

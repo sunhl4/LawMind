@@ -61,8 +61,16 @@ export const EDITION_FEATURES = {
    * 并对 `execute_workflow` 等未标 `requiresApproval` 的长链路工具追加门禁。
    */
   strictDangerousToolApproval: { solo: false, firm: true, private_deploy: true },
-  /** Skills S6：审查专案组 `executionMode=parallel`（Solo 强制串行） */
-  reviewCampaignParallel: { solo: false, firm: true, private_deploy: true },
+  /**
+   * Skills S6：审查专案组 `executionMode=parallel`。
+   * Solo 亦默认开启（本机启发式并行），避免人为压低审查吞吐；policy/UI 仍可按需关闭。
+   */
+  reviewCampaignParallel: { solo: true, firm: true, private_deploy: true },
+  /**
+   * 草稿交律师签批前强制互审（作者配置了 peerReviewDefaultAssistantId 时建委派）。
+   * Solo 默认关；Firm / Private 默认开。工作区 routing/defaults.json 可覆盖。
+   */
+  forcePeerReview: { solo: false, firm: true, private_deploy: true },
 } as const satisfies Record<string, Record<LawMindEdition, boolean>>;
 
 export type EditionFeatureKey = keyof typeof EDITION_FEATURES;

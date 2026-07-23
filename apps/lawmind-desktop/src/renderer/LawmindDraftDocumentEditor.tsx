@@ -243,7 +243,7 @@ export function LawmindDraftDocumentEditor(props: Props) {
               onClick={addSection}
               title={
                 reviewStatus === "modified"
-                  ? "也可在侧栏标「需修改」交给助手改稿"
+                  ? "也可回「在办」标需修改，或在侧栏派发助手改稿"
                   : undefined
               }
             >

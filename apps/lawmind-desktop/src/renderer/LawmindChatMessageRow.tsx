@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { LawmindAssignmentCommitmentCard } from "./LawmindAssignmentCommitmentCard";
 import { LawmindRequiresActionCard } from "./LawmindRequiresActionCard";
 import { LawmindChatDraftStatusBar } from "./LawmindChatDraftStatusBar";
@@ -14,6 +14,8 @@ import { LawmindMsgWorkflowApproval } from "./LawmindMsgWorkflowApproval";
 import { renderLegalMarkdown } from "./lawmind-chat-markdown";
 import { hasChatDiagnostics, type ChatMsg, type PendingClarificationState } from "./lawmind-chat";
 import { formatLawyerGateChip, parseLawyerGateMessage } from "./lawmind-gate-message";
+import { isClarificationShortConfirm } from "../../../../src/lawmind/platform/clarification-fields.ts";
+import type { NeedsDecisionDeskTarget } from "./lawmind-agents-desk";
 
 function hasClarificationQuestions(message: ChatMsg): boolean {
   return (message.clarificationQuestions?.length ?? 0) > 0;
@@ -51,9 +53,11 @@ export type LawmindChatMessageRowProps = {
   onSendClarificationMessage: (text: string) => void | Promise<void>;
   onApplyPrompt: (text: string) => void;
   onOpenReview?: (target?: { taskId?: string; matterId?: string }) => void;
-  /** Jump to「在办」needs-decision focus (侧栏待我拍板). */
-  onOpenNeedsDecisionDesk?: () => void;
+  /** Jump to「在办」and select the matching 待补充/待批准 row. */
+  onOpenNeedsDecisionDesk?: (target?: NeedsDecisionDeskTarget) => void;
   dimmed?: boolean;
+  onDeleteChatMessage?: (uiIndex: number) => void | Promise<void>;
+  onEditChatMessage?: (uiIndex: number, nextText: string) => void | Promise<void>;
 };
 
 export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactNode {
@@ -79,7 +83,13 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
     onOpenReview,
     onOpenNeedsDecisionDesk,
     dimmed,
+    onDeleteChatMessage,
+    onEditChatMessage,
   } = props;
+
+  const [editing, setEditing] = useState(false);
+  const [editDraft, setEditDraft] = useState(msg.text ?? "");
+  const [mutateBusy, setMutateBusy] = useState(false);
 
   const activityBlocks = msg.role === "assistant" ? resolveMessageActivity(msg) : [];
   const modelFailure = msg.role === "assistant" && msg.failureKind === "model";
@@ -124,6 +134,15 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
     msg.requiresAction?.filter(
       (a) => !(a.kind === "tool_approval" && a.toolName === "execute_workflow"),
     ) ?? [];
+  const clarifyDeskTarget = (): NeedsDecisionDeskTarget => {
+    const clarifyAction = nonWorkflowRequiresActions.find((a) => a.kind === "clarification");
+    return {
+      sessionId: clarifyAction?.sessionId?.trim() || chatSessionId?.trim() || undefined,
+      taskId: clarifyAction?.taskId?.trim() || linkedTaskId,
+      matterId: clarifyAction?.matterId?.trim() || undefined,
+      preferStatus: "awaiting_clarification",
+    };
+  };
   const gateMessage =
     msg.role === "user" ? parseLawyerGateMessage(msg.text ?? "") : null;
 
@@ -179,6 +198,59 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
             <div className="lm-msg lm-msg-gate" data-testid="lm-msg-gate" role="status">
               {formatLawyerGateChip(gateMessage)}
             </div>
+          ) : editing ? (
+            <div className="lm-msg-edit" data-testid="lm-msg-edit">
+              <textarea
+                className="lm-msg-edit-input"
+                value={editDraft}
+                rows={Math.min(8, Math.max(2, editDraft.split("\n").length))}
+                disabled={mutateBusy || loading}
+                onChange={(e) => setEditDraft(e.target.value)}
+                aria-label="修改提问"
+              />
+              <div className="lm-msg-edit-actions">
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-ghost lm-btn-small"
+                  disabled={mutateBusy || loading}
+                  onClick={() => {
+                    setEditing(false);
+                    setEditDraft(msg.text ?? "");
+                  }}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-primary lm-btn-small"
+                  data-testid="lm-msg-edit-submit"
+                  disabled={mutateBusy || loading || !editDraft.trim()}
+                  onClick={() => {
+                    if (!onEditChatMessage || !editDraft.trim()) {
+                      return;
+                    }
+                    // truncate-from-here removes this bubble and everything after (Cursor-style).
+                    if (
+                      typeof window !== "undefined" &&
+                      !window.confirm(
+                        "发送修改后，将从此条起截断后续对话并重新生成。是否继续？",
+                      )
+                    ) {
+                      return;
+                    }
+                    setMutateBusy(true);
+                    void Promise.resolve(onEditChatMessage(index, editDraft))
+                      .catch(() => undefined)
+                      .finally(() => {
+                        setMutateBusy(false);
+                        setEditing(false);
+                      });
+                  }}
+                >
+                  {mutateBusy ? "发送中…" : "发送修改"}
+                </button>
+              </div>
+            </div>
           ) : (
             <div className="lm-msg lm-msg-user">{msg.text}</div>
           )
@@ -191,6 +263,46 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
         ) : displayText ? (
           <LawmindMsgAssistant text={displayText} className="lm-msg-answer" />
         ) : null}
+        {msg.role === "user" && !gateMessage && (onEditChatMessage || onDeleteChatMessage) ? (
+          <div className="lm-msg-actions lm-msg-actions-user">
+            {onEditChatMessage && !editing ? (
+              <button
+                type="button"
+                className="lm-msg-copy-btn"
+                data-testid="lm-msg-edit"
+                disabled={loading || mutateBusy}
+                onClick={() => {
+                  setEditDraft(msg.text ?? "");
+                  setEditing(true);
+                }}
+              >
+                修改
+              </button>
+            ) : null}
+            {onDeleteChatMessage ? (
+              <button
+                type="button"
+                className="lm-msg-copy-btn"
+                data-testid="lm-msg-delete"
+                disabled={loading || mutateBusy}
+                onClick={() => {
+                  if (
+                    typeof window !== "undefined" &&
+                    !window.confirm("删除这条提问及其回答？之后的对话会保留。")
+                  ) {
+                    return;
+                  }
+                  setMutateBusy(true);
+                  void Promise.resolve(onDeleteChatMessage(index))
+                    .catch(() => undefined)
+                    .finally(() => setMutateBusy(false));
+                }}
+              >
+                删除
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {msg.role === "assistant" && (
           <div className="lm-msg-actions">
             <button
@@ -200,6 +312,28 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
             >
               {copiedMessageIndex === index ? "已复制 ✓" : "复制"}
             </button>
+            {onDeleteChatMessage ? (
+              <button
+                type="button"
+                className="lm-msg-copy-btn"
+                data-testid="lm-msg-delete-assistant"
+                disabled={loading || mutateBusy}
+                onClick={() => {
+                  if (
+                    typeof window !== "undefined" &&
+                    !window.confirm("删除这条回答？")
+                  ) {
+                    return;
+                  }
+                  setMutateBusy(true);
+                  void Promise.resolve(onDeleteChatMessage(index))
+                    .catch(() => undefined)
+                    .finally(() => setMutateBusy(false));
+                }}
+              >
+                删除
+              </button>
+            ) : null}
             {index === lastAssistantIndex && delegateAssistEnabled && onDelegateAssist ? (
               <button type="button" className="lm-msg-copy-btn" onClick={() => onDelegateAssist()}>
                 交给其他助手
@@ -227,10 +361,23 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
                 void onResumeRequiresAction(a, "edit", undefined, edited)
               }
               onRejectTool={(a) => void onResumeRequiresAction(a, "reject")}
-              onRespondClarification={(a) =>
-                void onResumeRequiresAction(a, "respond", clarificationDraft)
+              onRespondClarification={(a, answers) =>
+                void onResumeRequiresAction(a, "respond", answers ?? clarificationDraft)
               }
               onOpenNeedsDecisionDesk={onOpenNeedsDecisionDesk}
+              onOpenReview={
+                onOpenReview
+                  ? (taskId, matterId) => onOpenReview({ taskId, matterId })
+                  : undefined
+              }
+              clarificationVariant={
+                isClarificationShortConfirm(
+                  nonWorkflowRequiresActions.find((a) => a.kind === "clarification")
+                    ?.clarificationQuestions ?? [],
+                )
+                  ? "compact"
+                  : "hint"
+              }
               busy={loading}
             />
           </div>
@@ -243,28 +390,96 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
               index === pendingClarify.assistantMessageIndex ? "lm-clarify-card-active" : undefined
             }
           >
-            <div className="lm-clarify-card-title">
-              {msg.status === "awaiting_clarification" ? "还差这些信息" : "建议补充这些"}
-            </div>
-            <div className="lm-clarify-card-hint">
-              {msg.status === "awaiting_clarification" &&
-              (msg.clarificationQuestions?.length ?? 0) === 0
-                ? "请补充说明后发送。"
-                : msg.status === "awaiting_clarification"
-                  ? "请填毕下方各项。"
-                  : "可在大框说明后发送。"}
-            </div>
-            {(msg.clarificationQuestions?.length ?? 0) > 0 ? (
-              <LawmindClarificationForm
-                formKey={`${selectedAssistantId}-${index}`}
-                questions={msg.clarificationQuestions ?? []}
-                loading={loading}
-                onApplyToInput={onApplyPrompt}
-                onSend={onSendClarificationMessage}
-              />
-            ) : (
-              <p className="lm-clarify-card-fallback">请在下方输入并发送。</p>
-            )}
+            {(() => {
+              const qs = msg.clarificationQuestions ?? [];
+              const short = isClarificationShortConfirm(qs);
+              const blocking = msg.status === "awaiting_clarification";
+              if (blocking && qs.length > 0 && !short) {
+                return (
+                  <>
+                    <div className="lm-clarify-card-title">还差 {qs.length} 项信息</div>
+                    <div className="lm-clarify-card-hint">
+                      请到「在办」用表格补充（可填表或挂材料）。对话里不必重复填大表。
+                    </div>
+                    <ul className="lm-clarify-weak-list">
+                      {qs.slice(0, 6).map((q) => (
+                        <li key={q.key}>{q.question}</li>
+                      ))}
+                    </ul>
+                    <div className="lm-clarify-form-actions">
+                      {onOpenNeedsDecisionDesk ? (
+                        <button
+                          type="button"
+                          className="lm-btn lm-btn-accent lm-clarify-btn"
+                          data-testid="lm-clarify-open-desk"
+                          disabled={loading}
+                          onClick={() => onOpenNeedsDecisionDesk(clarifyDeskTarget())}
+                        >
+                          去在办补充
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="lm-btn lm-btn-ghost lm-clarify-btn"
+                        disabled={loading}
+                        onClick={() => onApplyPrompt(qs.map((q, i) => `${i + 1}. ${q.question}`).join("\n"))}
+                      >
+                        把问题列到输入框
+                      </button>
+                    </div>
+                  </>
+                );
+              }
+              return (
+                <>
+                  <div className="lm-clarify-card-title">
+                    {blocking ? "还差这些信息" : "建议补充这些"}
+                  </div>
+                  <div className="lm-clarify-card-hint">
+                    {blocking && qs.length === 0
+                      ? "请补充说明后发送，或到「在办」处理。"
+                      : short
+                        ? "一两项短确认可在此填写；复杂项请到「在办」。"
+                        : "可在大框说明后发送。"}
+                  </div>
+                  {qs.length > 0 ? (
+                    <LawmindClarificationForm
+                      formKey={`${selectedAssistantId}-${index}`}
+                      questions={qs}
+                      loading={loading}
+                      variant={short && blocking ? "compact" : "chat"}
+                      values={clarificationDraft}
+                      onValuesChange={(next) => {
+                        for (const [key, value] of Object.entries(next)) {
+                          if ((clarificationDraft[key] ?? "") !== value) {
+                            onClarificationDraftChange(key, value);
+                          }
+                        }
+                      }}
+                      onSubmitAnswers={
+                        short && blocking
+                          ? async (answers) => {
+                              await onSendClarificationMessage(
+                                Object.entries(answers)
+                                  .map(([k, v]) => {
+                                    const q = qs.find((item) => item.key === k);
+                                    return q ? `${q.question}\n答：${v}` : v;
+                                  })
+                                  .join("\n\n"),
+                              );
+                            }
+                          : undefined
+                      }
+                      onApplyToInput={onApplyPrompt}
+                      onSend={onSendClarificationMessage}
+                      onOpenDesk={() => onOpenNeedsDecisionDesk?.(clarifyDeskTarget())}
+                    />
+                  ) : (
+                    <p className="lm-clarify-card-fallback">请在下方输入并发送。</p>
+                  )}
+                </>
+              );
+            })()}
           </div>
         )}
         {msg.role === "assistant" && hasChatDiagnostics(msg) && (

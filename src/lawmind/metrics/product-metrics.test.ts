@@ -24,11 +24,19 @@ describe("product-metrics", () => {
       taskId: "t1",
     });
     appendProductMetric(dir, { kind: "first_pass", outcome: "ok", taskId: "t1" });
+    appendProductMetric(dir, {
+      kind: "rewrite",
+      outcome: "modified",
+      taskId: "t2",
+      meta: { assistantId: "a1" },
+    });
     const s = summarizeProductMetrics(dir);
-    expect(s.total).toBe(4);
+    expect(s.total).toBe(5);
     expect(s.triagePreview).toBe(1);
     expect(s.triageConfirmed).toBe(1);
     expect(s.gateFailures).toBe(1);
     expect(s.firstPassOk).toBe(1);
+    expect(s.rewrites).toBe(1);
+    expect(s.firstPassFail).toBe(1);
   });
 });

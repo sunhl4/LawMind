@@ -1,5 +1,8 @@
 import type { ReactNode } from "react";
-import type { AcceptanceReport } from "../../../../src/lawmind/deliverables/index.ts";
+import type {
+  AcceptanceReport,
+  DeliverableReadiness,
+} from "../../../../src/lawmind/deliverables/index.ts";
 import type { ArtifactDraft } from "../../../../src/lawmind/types.ts";
 import { buildRenderGateSummary } from "./lawmind-render-gate-summary";
 import { reviewStatusDisplayLabel } from "./lawmind-review-display";
@@ -24,12 +27,14 @@ type Props = {
   onDownloadPack?: () => void;
   packBusy?: boolean;
   /**
-   * writing：文书台默认 — 导出优先，通过/驳回弱化为次要；
-   * signoff：侧栏完整签批（仍保留，正式拍板主路径在「在办」）。
+   * writing：文书台 — 改稿/预览/导出；正式通过·驳回·需修改在「在办」；
+   * signoff：完整签批条（高级区或兜底路径）。
    */
   variant?: "writing" | "signoff";
   /** 文书台 → 在办：正式签批入口 */
   onOpenAgentsDesk?: () => void;
+  /** 一览：签批 / 验收 / 必核 / 引用是否可交付 */
+  readiness?: DeliverableReadiness | null;
 };
 
 export function LawmindReviewDeliveryBar(props: Props): ReactNode {
@@ -52,6 +57,7 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
     packBusy,
     variant = "writing",
     onOpenAgentsDesk,
+    readiness = null,
   } = props;
 
   const status = reviewStatus ?? "pending";
@@ -62,14 +68,23 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
   const gateSummary = buildRenderGateSummary({ reviewStatus: status, acceptance });
 
   const step2Done = status !== "pending";
-  const step3Ready = approved && !gateBlocked;
+  const step3Ready = approved && !gateBlocked && readiness?.readyToExport !== false;
 
   let primaryLabel = writing ? "导出" : "请先签批";
   let primaryAction: (() => void) | null = null;
   let primaryDisabled = true;
 
+  const hardBlockExport =
+    approved &&
+    readiness != null &&
+    !readiness.readyToExport &&
+    readiness.blockers.some((b) => b.code === "checklist" || b.code === "citation");
+
   if (!approved) {
     primaryLabel = "导出";
+    primaryDisabled = true;
+  } else if (hardBlockExport) {
+    primaryLabel = "不可导出";
     primaryDisabled = true;
   } else if (gateBlocked) {
     primaryLabel = "仍要导出";
@@ -97,26 +112,42 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
       <div className="lm-review-delivery-head">
         <span className="lm-review-delivery-status" role="status">
           {reviewStatusDisplayLabel(status)}
-          {step3Ready ? " · 可导出" : step2Done ? " · 待导出" : ""}
+          {step3Ready ? " · 可导出" : step2Done ? " · 待导出" : writing ? " · 改稿预览" : ""}
         </span>
         {gateSummary && approved ? (
           <span className="lm-review-delivery-gate-hint" title={gateSummary}>
             {gateSummary}
           </span>
         ) : null}
+      </div>
+      {readiness?.summaryZh ? (
+        <p
+          className={`lm-meta lm-review-readiness${readiness.readyToExport ? " lm-review-readiness-ok" : ""}`}
+          role="status"
+          data-testid="lm-deliverable-readiness"
+          data-ready={readiness.readyToExport ? "true" : "false"}
+        >
+          {readiness.summaryZh}
+        </p>
+      ) : null}
+
+      {writing && status === "pending" ? (
+        <p className="lm-meta lm-review-writing-hint" role="note">
+          此处改稿、批注并预览交付样式；正式通过 / 驳回 / 需修改请回「在办」。
+        </p>
+      ) : null}
+
+      <div className="lm-review-delivery-actions">
         {writing && status === "pending" && onOpenAgentsDesk ? (
           <button
             type="button"
-            className="lm-btn lm-btn-ghost lm-btn-small"
+            className="lm-review-toolbar-primary"
             onClick={onOpenAgentsDesk}
-            title="正式通过 / 驳回请在在办完成"
+            title="在办处理通过、驳回或需修改；无需打开全文预览的批复也在那里"
           >
-            回在办
+            回到在办签批
           </button>
         ) : null}
-      </div>
-
-      <div className="lm-review-delivery-actions">
         {status !== "pending" ? (
           <button
             type="button"
@@ -127,14 +158,13 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
             恢复待审核
           </button>
         ) : null}
-        {status === "pending" ? (
+        {!writing && status === "pending" ? (
           <>
             <button
               type="button"
               className="lm-review-toolbar-ghost"
               disabled={actionBusy}
               onClick={onReject}
-              title={writing ? "也可在「在办」驳回" : undefined}
             >
               驳回
             </button>
@@ -148,15 +178,9 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
             </button>
             <button
               type="button"
-              className={writing ? "lm-review-toolbar-ghost" : "lm-review-toolbar-primary"}
+              className="lm-review-toolbar-primary"
               disabled={actionBusy || Boolean(approveDisabled)}
-              title={
-                approveDisabled
-                  ? "请先完成律师必核清单"
-                  : writing
-                    ? "正式签批建议回「在办」；此处可补记通过"
-                    : undefined
-              }
+              title={approveDisabled ? "请先完成律师必核清单" : undefined}
               onClick={onApprove}
             >
               通过
@@ -167,7 +191,15 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
           type="button"
           className="lm-review-toolbar-primary lm-review-toolbar-primary-accent"
           disabled={primaryDisabled}
-          title={!approved ? (writing ? "需先完成签批（建议回在办）" : "需先将签批标为「通过」") : undefined}
+          title={
+            !approved
+              ? writing
+                ? "导出需先在「在办」完成签批通过"
+                : "需先将签批标为「通过」"
+              : hardBlockExport
+                ? readiness?.summaryZh ?? "必核或引用未就绪，不可导出"
+                : undefined
+          }
           onClick={() => primaryAction?.()}
         >
           {primaryLabel}

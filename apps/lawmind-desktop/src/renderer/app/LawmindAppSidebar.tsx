@@ -1,5 +1,4 @@
 import React from "react";
-import { LawmindAutomationsSidebarList } from "../LawmindAutomationsSidebarList";
 import { LawmindMatterSidebarList } from "../LawmindMatterSidebarList";
 import {
   LawmindSideChatSessions,
@@ -22,6 +21,8 @@ export type LawmindAppSidebarProps = {
   settingsOpen: boolean;
   setFileExplorerHost: (el: HTMLDivElement | null) => void;
   actionSummaryTotal: number;
+  /** 近 48h 互审/委派完成（信息角标，不计入待拍板） */
+  recentCollabCompleted?: number;
   matterSidebarRows: MatterSidebarRow[];
   selectedMatterKey: string | null;
   onSelectMatterKey: (matterId: string) => void;
@@ -30,7 +31,7 @@ export type LawmindAppSidebarProps = {
   onSelectMatterScope?: (matterId: string) => void;
   matterCockpitOpen: boolean;
   mainView: LawmindMainView;
-  /** Local API base for 自动办件侧栏列表；其它视图可省略。 */
+  /** Reserved for sidebar fetches that need the local API. */
   apiBase?: string;
   onOpenNeedsDecisionDesk: () => void;
   /** Workspace chat list in the left rail (Cursor-style). */
@@ -58,14 +59,14 @@ function LawmindAppSidebarImpl({
   settingsOpen,
   setFileExplorerHost,
   actionSummaryTotal,
+  recentCollabCompleted = 0,
   matterSidebarRows,
   selectedMatterKey,
   onSelectMatterKey,
   onSelectMatterForCockpit,
-  onSelectMatterScope,
+  onSelectMatterScope: _onSelectMatterScope,
   matterCockpitOpen,
   mainView,
-  apiBase,
   onOpenNeedsDecisionDesk,
   chatSessions,
   activeChatSessionId,
@@ -77,20 +78,21 @@ function LawmindAppSidebarImpl({
   onDeleteChatSession,
   onCreateMatter,
 }: LawmindAppSidebarProps) {
-  if (!showAppSidebar) {
+  // Settings owns the full shell width; do not keep the workspace rail beside it.
+  if (!showAppSidebar || settingsOpen) {
     return null;
   }
 
-  // 对话页已有「案件材料」树时不再叠一份案件列表；无材料树时仍用列表作回退。
+  // 对话 / 会议室 / 在办：有材料树时不再叠案件列表；无材料树时仍用列表作回退。
   const showWorkspaceMatterList =
-    mainView === "workspace" && !showSidebarWorkbenchFiles;
-  const showAgentsMatterList = mainView === "agents";
-  const showMeetingMatterList = mainView === "meeting";
-  const showMatterList = showWorkspaceMatterList || showAgentsMatterList || showMeetingMatterList;
-  const showAutomationsList =
-    mainView === "automations" && Boolean(apiBase?.trim());
+    (mainView === "workspace" || mainView === "meeting" || mainView === "agents") &&
+    !showSidebarWorkbenchFiles;
+  const showMatterList = showWorkspaceMatterList;
+  const showWorkbenchExplorer =
+    showSidebarWorkbenchFiles &&
+    (mainView === "workspace" || mainView === "meeting" || mainView === "agents");
   const showSideChat =
-    mainView === "workspace" &&
+    (mainView === "workspace" || mainView === "meeting" || mainView === "agents") &&
     Boolean(onSelectChatSession) &&
     Boolean(onCreateNewChatSession) &&
     Boolean(onRenameChatSession) &&
@@ -99,9 +101,6 @@ function LawmindAppSidebarImpl({
   const matterListClassName = (() => {
     if (!showMatterList) {
       return undefined;
-    }
-    if (showAgentsMatterList || showMeetingMatterList) {
-      return "lm-matter-sidebar-list--fill lm-matter-sidebar-list--agents";
     }
     if (showSidebarWorkbenchFiles && !matterCockpitOpen) {
       return "lm-matter-sidebar-list--stacked";
@@ -116,7 +115,7 @@ function LawmindAppSidebarImpl({
     <>
       <aside
         className={`lm-side ${sidebarCollapsed ? "lm-side-collapsed" : ""} ${
-          showSidebarWorkbenchFiles && mainView === "workspace" ? "lm-side-with-workbench-files" : ""
+          showWorkbenchExplorer ? "lm-side-with-workbench-files" : ""
         }${showSideChat ? " lm-side-with-chat-sessions" : ""}`}
         style={{
           width: sidebarCollapsed ? 0 : sidebarWidth,
@@ -150,7 +149,7 @@ function LawmindAppSidebarImpl({
           </button>
         </div>
 
-        {showSidebarWorkbenchFiles && mainView === "workspace" ? (
+        {showWorkbenchExplorer ? (
           <div
             ref={setFileExplorerHost}
             className="lm-side-explorer-host"
@@ -167,10 +166,6 @@ function LawmindAppSidebarImpl({
             selectedKey={selectedMatterKey}
             onCreateMatter={onCreateMatter}
             onSelect={(mid) => {
-              if (mainView === "agents" || mainView === "meeting") {
-                (onSelectMatterScope ?? onSelectMatterKey)(mid);
-                return;
-              }
               if (matterCockpitOpen) {
                 onSelectMatterKey(mid);
               } else {
@@ -197,26 +192,36 @@ function LawmindAppSidebarImpl({
           />
         ) : null}
 
-        {showAutomationsList && apiBase ? (
-          <LawmindAutomationsSidebarList apiBase={apiBase} />
-        ) : mainView === "automations" ? (
-          <p className="lm-meta lm-matter-sidebar-empty">本地服务未就绪，无法加载交办任务。</p>
-        ) : null}
-
-        {actionSummaryTotal > 0 ? (
+        {actionSummaryTotal > 0 || recentCollabCompleted > 0 ? (
           <div className="lm-side-footer">
-            <button
-              type="button"
-              className="lm-btn lm-btn-sm lm-side-needs-decision-btn lm-side-needs-decision-btn--brass"
-              onClick={onOpenNeedsDecisionDesk}
-              data-testid="lm-side-needs-decision"
-              title="打开「在办」处理澄清、批准与待审"
-            >
-              <span>待我拍板</span>
-              <span className="lm-side-needs-decision-badge" aria-label={`${actionSummaryTotal} 项待处理`}>
-                {actionSummaryTotal > 99 ? "99+" : actionSummaryTotal}
-              </span>
-            </button>
+            {actionSummaryTotal > 0 ? (
+              <button
+                type="button"
+                className="lm-btn lm-btn-sm lm-side-needs-decision-btn lm-side-needs-decision-btn--brass"
+                onClick={onOpenNeedsDecisionDesk}
+                data-testid="lm-side-needs-decision"
+                title="打开「在办」处理澄清、批准与待审"
+              >
+                <span>待我拍板</span>
+                <span className="lm-side-needs-decision-badge" aria-label={`${actionSummaryTotal} 项待处理`}>
+                  {actionSummaryTotal > 99 ? "99+" : actionSummaryTotal}
+                </span>
+              </button>
+            ) : null}
+            {recentCollabCompleted > 0 ? (
+              <button
+                type="button"
+                className="lm-btn lm-btn-sm lm-side-collab-done-btn"
+                onClick={onOpenNeedsDecisionDesk}
+                data-testid="lm-side-collab-completed"
+                title="近 48 小时互审/委派完成（信息提示，不计入待拍板）"
+              >
+                <span>协作完成</span>
+                <span className="lm-side-needs-decision-badge" aria-label={`${recentCollabCompleted} 项协作完成`}>
+                  {recentCollabCompleted > 99 ? "99+" : recentCollabCompleted}
+                </span>
+              </button>
+            ) : null}
           </div>
         ) : null}
       </aside>

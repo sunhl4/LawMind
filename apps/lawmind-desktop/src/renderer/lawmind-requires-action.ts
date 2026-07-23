@@ -2,7 +2,6 @@
  * Desktop helpers for LawMindRequiresAction (chat + action hub).
  */
 
-import type { ClarificationQuestion } from "../../../../src/lawmind/types.ts";
 import {
   formatClarificationResumeMessage,
   type LawMindRequiresAction,
@@ -53,6 +52,10 @@ export type ActionSummaryPayload = {
   pendingAutomationCount?: number;
   chatRequiresActionCount?: number;
   pendingToolApprovals?: number;
+  /** 近 48h 互审/委派完成（信息角标；不计入 requiresDecisionTotal） */
+  recentReviewCompleted?: number;
+  recentDelegationCompleted?: number;
+  recentCollabCompleted?: number;
   toolApprovals?: Array<{
     actionId: string;
     sessionId: string;
@@ -77,6 +80,7 @@ export type ActionSummaryPayload = {
     title: string;
     reviewStatus: "pending" | "modified";
     createdAt: string;
+    assistantId?: string;
   }>;
   automationInbox?: Array<{
     id: string;
@@ -127,16 +131,4 @@ export async function resolveMatterApproval(
   return apiPost(apiBase, "/api/approvals/resolve", body);
 }
 
-export function buildClarificationAnswerMap(
-  questions: ClarificationQuestion[],
-  values: Record<string, string>,
-): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const q of questions) {
-    const v = values[q.key]?.trim();
-    if (v) {
-      out[q.key] = v;
-    }
-  }
-  return out;
-}
+export { buildClarificationAnswerMap } from "../../../../src/lawmind/platform/clarification-fields.ts";

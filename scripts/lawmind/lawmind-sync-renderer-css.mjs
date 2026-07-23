@@ -77,7 +77,7 @@ const BLOCKS = [
   },
   {
     marker: "matter-review-workbench",
-    chunks: [{ file: "matter-review-workbench.css" }],
+    chunks: [{ file: "matter-review-workbench.css" }, { file: "meeting-workbench.css" }],
   },
   {
     marker: "legacy-rest",

@@ -150,7 +150,8 @@ describe("LawmindMainBodyContent workspace bootstrap", () => {
         </LawmindShellProviders>,
       );
     });
-    expect(host.querySelector(".lm-workspace-bootstrap-gate")).not.toBeNull();
+    // Connecting: no splash strip; workspace chrome waits for config.
+    expect(host.querySelector(".lm-workspace-bootstrap-gate")).toBeNull();
     expect(host.querySelector(".lm-workspace-unified")).toBeNull();
   });
 });

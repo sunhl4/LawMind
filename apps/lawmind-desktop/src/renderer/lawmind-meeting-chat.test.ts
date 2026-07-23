@@ -23,6 +23,17 @@ describe("lawmind-meeting-chat agenda helpers", () => {
     expect(agenda).toContain("本回合重点");
   });
 
+  it("buildMeetingAgenda embeds excerpts when provided", () => {
+    const p = pin("contracts/nda.md");
+    const agenda = buildMeetingAgenda({
+      topic: "和解空间",
+      filePins: [p],
+      excerpts: { [p.id]: "保密义务条款正文" },
+    });
+    expect(agenda).toContain("已嵌入正文");
+    expect(agenda).toContain("保密义务条款正文");
+  });
+
   it("buildMeetingAgenda returns undefined when empty", () => {
     expect(buildMeetingAgenda({})).toBeUndefined();
     expect(buildMeetingAgenda({ topic: "  " })).toBeUndefined();

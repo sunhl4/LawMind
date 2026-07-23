@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { z } from "zod";
 import {
   listApprovalRequests,
   listWorkQueueItems,
@@ -30,6 +31,8 @@ import {
   writeCaseSubdirRole,
   type CaseSubdirRole,
 } from "../../../src/lawmind/cases/index.js";
+import { readTeamRoster, writeTeamRoster } from "../../../src/lawmind/cases/team-roster.js";
+import { isAdhocMeetingMatterId } from "../../../src/lawmind/cases/team-meeting-ids.js";
 import type { DraftCitationIntegrityView } from "../../../src/lawmind/drafts/index.js";
 import { resolveDraftCitationIntegrity } from "../../../src/lawmind/drafts/index.js";
 import { emit, readRecentAuditLogs } from "../../../src/lawmind/audit/index.js";
@@ -62,6 +65,12 @@ import {
 } from "./lawmind-api-schemas.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import { resolveDesktopActorId, sendJson } from "./lawmind-server-helpers.js";
+
+const teamRosterPutSchema = z.object({
+  matterId: z.string().min(1),
+  participantAssistantIds: z.array(z.string()),
+  synthesizerAssistantId: z.string().nullable().optional(),
+});
 
 function matterGovernanceLabel(record: ReturnType<typeof loadMatter>): string {
   if (!record) {
@@ -450,6 +459,50 @@ export async function handleMatterRoutes({
         return true;
       }
     }
+  }
+
+  if (pathname === "/api/matters/team-roster" && req.method === "GET") {
+    const matterId = url.searchParams.get("matterId")?.trim() ?? "";
+    if (!isValidMatterId(matterId)) {
+      sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+      return true;
+    }
+    if (isAdhocMeetingMatterId(matterId)) {
+      sendJson(res, 200, { ok: true, roster: null, adhoc: true }, c);
+      return true;
+    }
+    const roster = readTeamRoster(workspaceDir, matterId);
+    sendJson(res, 200, { ok: true, roster }, c);
+    return true;
+  }
+
+  if (pathname === "/api/matters/team-roster" && req.method === "PUT") {
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, teamRosterPutSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid request" }, c);
+        return true;
+      }
+      throw err;
+    }
+    const matterId = body.matterId.trim();
+    if (!isValidMatterId(matterId) || isAdhocMeetingMatterId(matterId)) {
+      sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+      return true;
+    }
+    try {
+      const roster = writeTeamRoster(workspaceDir, matterId, {
+        participantAssistantIds: body.participantAssistantIds,
+        synthesizerAssistantId: body.synthesizerAssistantId,
+      });
+      sendJson(res, 200, { ok: true, roster }, c);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      sendJson(res, 400, { ok: false, error: msg }, c);
+    }
+    return true;
   }
 
   if (pathname === "/api/matters/team-meeting" && req.method === "GET") {

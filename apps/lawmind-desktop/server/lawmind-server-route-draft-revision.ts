@@ -21,6 +21,11 @@ import {
   draftRevisionWasPersisted,
   snapshotDraftRevisionBaseline,
 } from "../../../src/lawmind/drafts/revision-persisted.js";
+import {
+  draftPlainText,
+  recordRewriteAmplitude,
+} from "../../../src/lawmind/learning/rewrite-amplitude.js";
+import { suggestLearningFromDraftReview } from "../../../src/lawmind/learning/review-learning-suggest.js";
 import type { ArtifactDraft } from "../../../src/lawmind/types.js";
 import { parseJsonBodyZod } from "./lawmind-api-parse.js";
 import { draftRevisionJobPostSchema } from "./lawmind-api-schemas.js";
@@ -241,6 +246,22 @@ export async function handleDraftRevisionJobRoute({
         actorId: `${desktopActor}|revision-agent`,
       });
       if (reopened) {
+        try {
+          const beforeText = revisionBaseline?.plainText ?? "";
+          const afterText = draftPlainText(reopened);
+          if (beforeText || afterText) {
+            recordRewriteAmplitude({
+              workspaceDir,
+              assistantId: profile.assistantId,
+              taskId: raw,
+              matterId: reopened.matterId,
+              beforeText,
+              afterText,
+            });
+          }
+        } catch {
+          /* 幅度指标失败不阻断修订完成 */
+        }
         await emit(auditDir, {
           taskId: raw,
           kind: "draft.revision_completed",
@@ -252,6 +273,21 @@ export async function handleDraftRevisionJobRoute({
             title: reopened.title,
           }).slice(0, 4000),
         });
+        const learnNote = supplementary.trim();
+        if (learnNote) {
+          try {
+            await suggestLearningFromDraftReview({
+              workspaceDir,
+              auditDir,
+              taskId: raw,
+              status: "modified",
+              note: learnNote.slice(0, 600),
+              assistantId: profile.assistantId,
+            });
+          } catch {
+            /* 学习建议失败不阻断修订完成 */
+          }
+        }
       }
     } catch (err) {
       finishLiveTurnProgress(preSession.sessionId, "failed");

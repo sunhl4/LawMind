@@ -20,15 +20,12 @@ import type { LawmindHealthState } from "../useLawmindAppBootstrapEffects";
 import { MatterView } from "./MatterView";
 import { ReviewView } from "./ReviewView";
 import { AgentFleetView } from "./AgentFleetView";
-import { AutomationsView } from "./AutomationsView";
 import { MeetingView } from "./MeetingView";
-import { HomeView } from "./HomeView";
 import { LawmindWorkspaceMainPane } from "./LawmindWorkspaceMainPane";
 import { LawmindWorkspaceBootstrapGate } from "./LawmindWorkspaceBootstrapGate";
 import { pickWorkspaceMainPaneProps } from "./pickWorkspaceMainPaneProps";
 import {
   pickAgentFleetViewProps,
-  pickAutomationsViewProps,
   pickMatterViewProps,
   pickMeetingViewProps,
   pickReviewViewProps,
@@ -90,10 +87,14 @@ export type LawmindMainBodyContentProps = {
   onAgentsDeskTabChange: (tab: AgentsDeskTab) => void;
   needsDecisionFocus?: boolean;
   onClearNeedsDecisionFocus?: () => void;
+  agentsDeskFocusTarget?: import("../lawmind-agents-desk").NeedsDecisionDeskTarget | null;
+  onAgentsDeskFocusTargetConsumed?: () => void;
   modelCatalog: ModelCatalogEntry[];
   selectedModelId: string;
   onModelSelect: (id: string) => void;
   onOpenComposeSettings: () => void;
+  /** Open Settings → memory (compose context usage “注入记忆”). */
+  onOpenMemoryInspector?: () => void;
   onOpenApiWizard: () => void;
   composeModelHint: string | null;
   composeModelQuickTestBusy: boolean;
@@ -146,6 +147,8 @@ export type LawmindMainBodyContentProps = {
   chatMatterHeadline: string | null;
   onSend: () => void | Promise<void>;
   onAbortChat: () => void;
+  onDeleteChatMessage?: (uiIndex: number) => void | Promise<void>;
+  onEditChatMessage?: (uiIndex: number, nextText: string) => void | Promise<void>;
   onClearContext: () => void;
   onContextMatterChange?: (matterId: string | null) => void;
   allowWebSearch: boolean;
@@ -153,9 +156,13 @@ export type LawmindMainBodyContentProps = {
   queuedMessages: string[];
   cancelQueuedMessage: (index: number) => void;
   onOpenTaskDrawer: () => void;
-  onOpenNeedsDecisionDesk?: () => void;
+  onOpenNeedsDecisionDesk?: (
+    target?: import("../lawmind-agents-desk").NeedsDecisionDeskTarget,
+  ) => void;
   /** @deprecated Use onOpenNeedsDecisionDesk */
-  onOpenActionHub?: () => void;
+  onOpenActionHub?: (
+    target?: import("../lawmind-agents-desk").NeedsDecisionDeskTarget,
+  ) => void;
   onOpenReviewFromAutomation?: (taskId: string, matterId?: string) => void;
   onOpenAgentsWorkflows?: (matterId?: string) => void;
   composeExtras: LawmindComposeExtras;
@@ -167,40 +174,10 @@ export type LawmindMainBodyContentProps = {
   sessionRequiresActions?: LawMindRequiresAction[];
   onRefreshActionSummary?: () => void;
   onChatResumeComplete?: () => void | Promise<void>;
-  onSpawnPreset?: (preset: import("../lawmind-agent-fleet-api").AgentPreset) => void;
-  /** Skills E11 Home cockpit navigation */
-  onOpenHomeNeedsDecision?: () => void;
-  onOpenHomeWorkspace?: () => void;
-  onOpenHomeAgents?: () => void;
-  onOpenHomeReview?: () => void;
-  onOpenHomeGrowthInbox?: () => void;
-  onOpenHomeAppearanceSettings?: () => void;
 };
 
 export function LawmindMainBodyContent(props: LawmindMainBodyContentProps) {
   const { mainView, matterCockpitOpen } = useLawmindShellNavigationContext();
-
-  if (mainView === "home") {
-    if (!props.config) {
-      return (
-        <div className="lm-home-view" data-testid="lm-home-view" aria-busy="true">
-          <p className="lm-meta">正在连接本地服务…</p>
-        </div>
-      );
-    }
-    return (
-      <HomeView
-        apiBase={props.config.apiBase}
-        onOpenNeedsDecision={props.onOpenHomeNeedsDecision ?? (() => undefined)}
-        onOpenWorkspace={props.onOpenHomeWorkspace ?? (() => undefined)}
-        onOpenAgents={props.onOpenHomeAgents ?? (() => undefined)}
-        onOpenReview={props.onOpenHomeReview}
-        onOpenIntake={props.onOpenHomeWorkspace}
-        onOpenGrowthInbox={props.onOpenHomeGrowthInbox}
-        onOpenAppearanceSettings={props.onOpenHomeAppearanceSettings}
-      />
-    );
-  }
 
   if (mainView === "workspace" && matterCockpitOpen && props.config) {
     const matterProps = pickMatterViewProps(props);
@@ -215,9 +192,6 @@ export function LawmindMainBodyContent(props: LawmindMainBodyContentProps) {
   }
   if (mainView === "agents") {
     return <AgentFleetView {...pickAgentFleetViewProps(props)} />;
-  }
-  if (mainView === "automations") {
-    return <AutomationsView {...pickAutomationsViewProps(props)} />;
   }
   if (mainView === "workspace" && !matterCockpitOpen && !props.config) {
     return (

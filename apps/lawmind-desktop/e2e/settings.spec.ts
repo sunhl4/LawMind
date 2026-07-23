@@ -29,6 +29,17 @@ test.describe("LawMind settings page", () => {
       timeout: 15_000,
     });
 
+    await search.fill("内测");
+    await search.press("Enter");
+    await expect(page.getByRole("heading", { name: "开始使用", level: 2 })).toBeVisible({
+      timeout: 15_000,
+    });
+    const teamGrowth = page.getByTestId("lm-doctor-team-growth");
+    await expect(teamGrowth).toBeVisible({ timeout: 15_000 });
+    await expect(teamGrowth).toContainText("团队成长 · 内测指标");
+    await expect(teamGrowth).toContainText("主力一次过率");
+    await expect(page.getByTestId("lm-doctor-team-growth-baseline")).toBeVisible();
+
     await page.getByRole("button", { name: "关闭设置并返回" }).first().click();
     await expect(page.getByRole("region", { name: "设置" })).toHaveCount(0, { timeout: 15_000 });
     await expect(page.getByRole("button", { name: "设置" })).toHaveCount(1);

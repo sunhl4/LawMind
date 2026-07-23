@@ -3,10 +3,10 @@
  *
  * - GET    /api/memory/adoption?scope=&state=&matterId=
  * - POST   /api/memory/adoption/suggest
- * - POST   /api/memory/adoption/adopt    { id }
+ * - POST   /api/memory/adoption/adopt    { id, note? }  note = 改写后写入时的落盘正文覆盖
  * - POST   /api/memory/adoption/dismiss  { id, note? }
  *
- * 用于 Inspector UI 列出 / 采纳 / 撤回 / 暂存 / 永久忽略 待审记忆建议。
+ * 用于 Inspector UI 列出 / 采纳 / 忽略 待审记忆建议。「稍后再说」仅前端会话内搁置，不写库。
  */
 
 import {
@@ -17,6 +17,7 @@ import {
   type MemoryAdoptionState,
   type MemoryScope,
 } from "../../../src/lawmind/memory/adoption-service.js";
+import { applyMemoryAdoptionWrite } from "../../../src/lawmind/memory/adoption-apply.js";
 import { listPendingAdoptionsUnified } from "../../../src/lawmind/memory/unified-pending-adoptions.js";
 import { buildAdoptionPreviewDiff } from "../../../src/lawmind/memory/adoption-preview-diff.js";
 import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
@@ -164,14 +165,27 @@ export async function handleMemoryAdoptionRoutes({
       }
       throw err;
     }
-    const result = await adoptMemorySuggestion(workspaceDir, auditDir, body.id, () => {
-      // Inspector adoption is informational by default — actual writeback paths are
-      // already handled by their respective writers (case markdown, profile md).
-    }, {
-      actorId: resolveDesktopActorId(),
-      note: body.note,
-    });
-    sendJson(res, result.ok ? 200 : 400, result, c);
+    try {
+      const rewritten = body.note?.trim();
+      const result = await adoptMemorySuggestion(
+        workspaceDir,
+        auditDir,
+        body.id,
+        async (rec) => {
+          // 改写后写入：note 覆盖落盘正文；否则写原 payload。
+          const toWrite = rewritten ? { ...rec, payload: rewritten } : rec;
+          await applyMemoryAdoptionWrite(workspaceDir, toWrite, { envFile: ctx.envFile });
+        },
+        {
+          actorId: resolveDesktopActorId(),
+          note: rewritten ? "rewritten" : body.note,
+        },
+      );
+      sendJson(res, result.ok ? 200 : 400, result, c);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      sendJson(res, 400, { ok: false, error: msg }, c);
+    }
     return true;
   }
 

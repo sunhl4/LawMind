@@ -1,6 +1,7 @@
 import path from "node:path";
 
-export const SEARCH_INDEX_SCHEMA_VERSION = 1;
+/** Bumped when knowledge_fts (personal KB) corpus was added. */
+export const SEARCH_INDEX_SCHEMA_VERSION = 2;
 
 export function lawmindDir(workspaceDir: string): string {
   return path.join(path.resolve(workspaceDir), "lawmind");

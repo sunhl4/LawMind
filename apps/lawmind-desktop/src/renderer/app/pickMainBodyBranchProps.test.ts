@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import type { LawmindMainBodyContentProps } from "./LawmindMainBodyContent";
 import {
   pickAgentFleetViewProps,
-  pickAutomationsViewProps,
   pickMeetingViewProps,
   pickMatterViewProps,
   pickReviewViewProps,
@@ -60,7 +59,6 @@ function baseProps(
     onOpenReviewFromWorkItem: () => {},
     onOpenReviewFromAutomation: () => {},
     onOpenTopLevelMeeting: () => {},
-    onSpawnPreset: () => {},
     agentsDeskTab: "active",
     onAgentsDeskTabChange: () => {},
     needsDecisionFocus: false,
@@ -124,21 +122,16 @@ describe("pickMainBodyBranchProps", () => {
     expect(pickReviewViewProps(baseProps({ config: null }))).toBeNull();
   });
 
-  it("pickAgentFleetViewProps falls back openAgentsWorkflows to workflow library", () => {
-    const onOpenWorkflowLibrary = vi.fn();
+  it("pickAgentFleetViewProps wires onOpenReview to work item or workspace", () => {
+    const onOpenReviewFromWorkItem = vi.fn();
+    const onOpenReviewFromWorkspace = vi.fn();
     const props = pickAgentFleetViewProps(
-      baseProps({
-        onOpenAgentsWorkflows: undefined,
-        onOpenWorkflowLibrary,
-      }),
+      baseProps({ onOpenReviewFromWorkItem, onOpenReviewFromWorkspace }),
     );
-    props.onOpenAgentsWorkflows?.();
-    expect(onOpenWorkflowLibrary).toHaveBeenCalledOnce();
+    props.onOpenReview("task-1", "matter-1");
+    expect(onOpenReviewFromWorkItem).toHaveBeenCalledWith("task-1", "matter-1");
+    props.onOpenReview(undefined, "matter-2");
+    expect(onOpenReviewFromWorkspace).toHaveBeenCalledWith({ matterId: "matter-2" });
   });
 
-  it("pickAutomationsViewProps scopes matter options to current id", () => {
-    const props = pickAutomationsViewProps(baseProps({ contextMatterId: "demo-matter" }));
-    expect(props.matterId).toBe("demo-matter");
-    expect(props.matterOptions).toEqual([{ id: "demo-matter", title: "demo-matter" }]);
-  });
 });

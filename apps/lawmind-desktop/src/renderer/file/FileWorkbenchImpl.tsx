@@ -42,6 +42,7 @@ export function FileWorkbench(props: FileWorkbenchProps) {
     onPickProject,
     canUseFilesystemBridge,
     onAddToChatContext,
+    addToContextLabel,
     portalHosts,
     workspaceExplorerToolbar,
     casesNodeActions,
@@ -762,6 +763,7 @@ export function FileWorkbench(props: FileWorkbenchProps) {
       onPickProject={onPickProject}
       canUseFilesystemBridge={canUseFilesystemBridge}
       onAddToChatContext={onAddToChatContext}
+      addToContextLabel={addToContextLabel}
       portalHosts={portalHosts}
       workspaceExplorerToolbar={workspaceExplorerToolbar}
       casesNodeActions={casesNodeActionsResolved}

@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import type { ArtifactDraft } from "../../../../../src/lawmind/types.ts";
 import type {
   AcceptanceReport,
+  DeliverableReadiness,
   ReasoningReport,
 } from "../../../../../src/lawmind/deliverables/index.ts";
 import type { DraftCitationIntegrityView } from "../../../../../src/lawmind/drafts/citation-integrity.ts";
@@ -47,6 +48,7 @@ export type ReviewWorkbenchMetaColumnProps = {
   checklistChecked?: Record<string, boolean>;
   onChecklistToggle?: (itemId: string, value: boolean) => void;
   checklistBlocksApprove?: boolean;
+  readiness?: DeliverableReadiness | null;
   /** Skills E2 */
   campaign?: ReviewCampaign | null;
   onCampaignChange?: (c: ReviewCampaign | null) => void;
@@ -110,6 +112,7 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
     checklistChecked,
     onChecklistToggle,
     checklistBlocksApprove,
+    readiness = null,
     campaign = null,
     onCampaignChange,
     gateDecisions,
@@ -180,9 +183,9 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
                 type="button"
                 className="lm-btn lm-btn-secondary lm-btn-small"
                 onClick={onOpenAgentsDesk}
-                title="正式通过 / 驳回请在在办完成"
+                title="正式通过 / 驳回 / 需修改在「在办」完成"
               >
-                回在办
+                回到在办
               </button>
             ) : null}
             {detail.output ? (
@@ -222,6 +225,7 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
           packBusy={packBusy}
           variant="writing"
           onOpenAgentsDesk={onOpenAgentsDesk}
+          readiness={readiness}
         />
 
         {detail.reviewStatus === "modified" ? (
@@ -280,11 +284,11 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
         ) : null}
 
         <label className="lm-review-note">
-          <span className="lm-review-note-title">备注</span>
+          <span className="lm-review-note-title">批注</span>
           <textarea
             value={note}
             onChange={(e) => onNoteChange(e.target.value)}
-            placeholder="签批备注（可选）"
+            placeholder="批注（可选；在下方「完成签批」或回在办批复时一并提交）"
             rows={3}
             disabled={actionBusy || !reviewPending}
             aria-disabled={actionBusy || !reviewPending}
@@ -294,6 +298,35 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
         <details className="lm-review-advanced">
           <summary className="lm-review-advanced-summary">高级</summary>
           <div className="lm-review-advanced-body">
+            {reviewPending ? (
+              <div className="lm-callout lm-callout-muted" role="region" aria-label="完成签批">
+                <p className="lm-callout-title">完成签批（兜底）</p>
+                <p className="lm-callout-body">
+                  主路径请回「在办」批复。若已在此勾完律师必核、不想跳转，可在此直接通过 / 驳回 /
+                  需修改。
+                </p>
+                <LawmindReviewDeliveryBar
+                  reviewStatus={detail.reviewStatus}
+                  acceptance={acceptance}
+                  actionBusy={actionBusy}
+                  lastOutputPath={lastExportPath ?? detail.output ?? null}
+                  onApprove={onApprove}
+                  approveDisabled={checklistBlocksApprove}
+                  onReject={onReject}
+                  onModify={onModify}
+                  onReopen={onReopen}
+                  onExportWord={onExportWord}
+                  onExportTrackedWord={onExportTrackedWord}
+                  onShowInFolder={onShowArtifact}
+                  onOpenWithSystem={onOpenWithSystem}
+                  packExportEnabled={packExportEnabled}
+                  onDownloadPack={onDownloadPack}
+                  packBusy={packBusy}
+                  variant="signoff"
+                  readiness={readiness}
+                />
+              </div>
+            ) : null}
             {onCampaignChange ? (
               <LawmindReviewCampaignPanel
                 apiBase={apiBase}

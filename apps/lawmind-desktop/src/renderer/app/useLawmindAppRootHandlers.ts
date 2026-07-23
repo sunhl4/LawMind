@@ -12,7 +12,6 @@ import { apiPost } from "../lawmind-api-routes.ts";
 import { displayNameFromImportBasename, suggestMatterIdForImport } from "../../../../../src/lawmind/cases/matter-label.ts";
 import type { AppConfig } from "../lawmind-app-bootstrap";
 import type { LawmindMainView } from "../lawmind-main-view";
-import type { AgentPreset } from "../lawmind-agent-fleet-api";
 
 export type UseLawmindAppRootHandlersInput = {
   config: AppConfig | null;
@@ -48,7 +47,6 @@ export type UseLawmindAppRootHandlersInput = {
   setSessionByAssistant: React.Dispatch<React.SetStateAction<Record<string, string | undefined>>>;
   sendChatMessage: (msg: string) => Promise<void>;
   refreshActionSummary: () => void | Promise<void>;
-  createNewChatSession: () => void | Promise<void>;
 };
 
 export function useLawmindAppRootHandlers(input: UseLawmindAppRootHandlersInput) {
@@ -78,7 +76,6 @@ export function useLawmindAppRootHandlers(input: UseLawmindAppRootHandlersInput)
     setSessionByAssistant,
     sendChatMessage,
     refreshActionSummary,
-    createNewChatSession,
   } = input;
 
   const handleResumeRequiresAction = useCallback(
@@ -311,27 +308,6 @@ export function useLawmindAppRootHandlers(input: UseLawmindAppRootHandlersInput)
     ],
   );
 
-  const handleSpawnPreset = useCallback(
-    async (preset: AgentPreset) => {
-      const prompt = preset.starterPrompt?.trim();
-      if (!prompt) {
-        return;
-      }
-      setMatterCockpitOpen(false);
-      setMainView("workspace");
-      await createNewChatSession();
-      await sendChatMessage(prompt);
-      void refreshActionSummary();
-    },
-    [
-      createNewChatSession,
-      refreshActionSummary,
-      sendChatMessage,
-      setMainView,
-      setMatterCockpitOpen,
-    ],
-  );
-
   const handleChatResumeComplete = useCallback(async () => {
     void refreshActionSummary();
   }, [refreshActionSummary]);
@@ -342,7 +318,6 @@ export function useLawmindAppRootHandlers(input: UseLawmindAppRootHandlersInput)
     importMattersFromUserFiles,
     workspaceCasesMenu,
     openReviewFromWorkspace,
-    handleSpawnPreset,
     handleChatResumeComplete,
   };
 }

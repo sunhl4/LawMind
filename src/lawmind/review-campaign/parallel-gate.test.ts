@@ -49,7 +49,7 @@ describe("review campaign parallel gate", () => {
     );
   }
 
-  it("forces serial on Solo even when playbook prefers parallel", () => {
+  it("allows parallel on Solo when playbook prefers parallel (edition default on)", () => {
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-camp-par-"));
     dirs.push(ws);
     writePlaybook(ws);
@@ -63,7 +63,7 @@ describe("review campaign parallel gate", () => {
       sourceText: "定义条款与责任上限均具备。",
       preferParallel: true,
     });
-    expect(c.executionModeUsed).toBe("serial");
+    expect(c.executionModeUsed).toBe("parallel");
     expect(c.status).toBe("completed");
   });
 

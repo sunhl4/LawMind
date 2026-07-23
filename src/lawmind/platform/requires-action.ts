@@ -274,19 +274,4 @@ export function buildRequiresActionsFromTurn(
   return out;
 }
 
-export function formatClarificationResumeMessage(
-  answers: Record<string, string>,
-  questions: ClarificationQuestion[],
-): string {
-  const lines: string[] = ["【补充信息】"];
-  for (const q of questions) {
-    const a = answers[q.key]?.trim();
-    if (a) {
-      lines.push(`${q.question}\n答：${a}`);
-    }
-  }
-  if (lines.length === 1) {
-    return "【补充信息】（律师已确认继续）";
-  }
-  return lines.join("\n\n");
-}
+export { formatClarificationResumeMessage } from "./clarification-fields.js";

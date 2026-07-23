@@ -158,7 +158,7 @@ ${assistantList}
           { role: "user", content: directive },
         ],
         temperature: 0.1,
-        max_tokens: 2048,
+        max_tokens: Math.min(16_384, Math.max(4_096, modelConfig.maxTokens ?? 8_192)),
       }),
     });
 

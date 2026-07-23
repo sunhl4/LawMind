@@ -59,7 +59,9 @@ export type UseLawmindAppOverlaysPropsInput = {
   asstError: string | null;
   setAssistantDraft: (draft: AssistantEditorDraft) => void;
   setShowAssistantEditor: (open: boolean) => void;
-  saveAssistant: () => void | Promise<void>;
+  saveAssistant: (
+    draftOverride?: import("../lawmind-assistant-editor").AssistantEditorDraft,
+  ) => void | Promise<void>;
   showHelp: boolean;
   setShowHelp: (open: boolean) => void;
   config: AppConfig | null;
@@ -175,7 +177,7 @@ export function useLawmindAppOverlaysProps(input: UseLawmindAppOverlaysPropsInpu
       asstError,
       onAssistantDraftChange: setAssistantDraft,
       onCloseAssistantEditor: () => setShowAssistantEditor(false),
-      onSaveAssistant: () => void saveAssistant(),
+      onSaveAssistant: (draftOverride) => void saveAssistant(draftOverride),
       showHelp,
       onCloseHelp: () => setShowHelp(false),
       onOpenWorkflowLibrary: config

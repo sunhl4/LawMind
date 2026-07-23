@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertChecklistCompleteForApprove,
   buildChecklistView,
+  checkAllRequiredChecklistItems,
   resolveVerificationChecklistSpec,
 } from "./verification-checklist.js";
 
@@ -24,5 +25,20 @@ describe("verification-checklist", () => {
     const view = buildChecklistView("letter.demand", { specId: view0.spec.id, checked });
     expect(view.complete).toBe(true);
     expect(() => assertChecklistCompleteForApprove(view)).not.toThrow();
+  });
+
+  it("honors checked when client omits specId", () => {
+    const view0 = buildChecklistView("letter.demand", null);
+    const checked = Object.fromEntries(view0.spec.items.map((i) => [i.id, true]));
+    const view = buildChecklistView("letter.demand", { specId: "", checked });
+    expect(view.complete).toBe(true);
+  });
+
+  it("checkAllRequiredChecklistItems completes required only", () => {
+    const view0 = buildChecklistView("letter.demand", null);
+    const checked = checkAllRequiredChecklistItems(view0);
+    const view = buildChecklistView("letter.demand", { specId: view0.spec.id, checked });
+    expect(view.complete).toBe(true);
+    expect(checked.tone).toBeFalsy();
   });
 });

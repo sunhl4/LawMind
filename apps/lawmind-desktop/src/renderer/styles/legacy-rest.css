@@ -2056,27 +2056,6 @@
   padding-top: 12px;
   border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
 }
-.lm-custom-model-list {
-  list-style: none;
-  margin: 0 0 12px;
-  padding: 0;
-}
-.lm-custom-model-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
-}
-.lm-custom-model-name {
-  flex: 1;
-  font-weight: 500;
-}
-.lm-custom-model-form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
 
 /* ── Model picker ──────────────────────────────────────────── */
 .lm-review-delivery-bar {
@@ -2092,6 +2071,15 @@
   align-items: baseline;
   gap: 6px 12px;
   margin-bottom: 8px;
+}
+.lm-review-readiness {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--warn, #b45309);
+}
+.lm-review-readiness-ok {
+  color: var(--ok, #15803d);
 }
 .lm-review-delivery-status {
   font-size: 12px;

@@ -45,12 +45,17 @@ export function useLawmindAssistantActions(params: UseLawmindAssistantActionsPar
     refreshAssistants,
   } = params;
 
-  const openNewAssistant = useCallback(() => {
-    setEditingAssistantId(null);
-    setAssistantDraft(createAssistantDraft("create", presets));
-    setAsstError(null);
-    setShowAssistantEditor(true);
-  }, [presets, setAssistantDraft, setAsstError, setEditingAssistantId, setShowAssistantEditor]);
+  const openNewAssistant = useCallback(
+    (presetKey?: string) => {
+      setEditingAssistantId(null);
+      setAssistantDraft(
+        createAssistantDraft("create", presets, undefined, presetKey ? { presetKey } : undefined),
+      );
+      setAsstError(null);
+      setShowAssistantEditor(true);
+    },
+    [presets, setAssistantDraft, setAsstError, setEditingAssistantId, setShowAssistantEditor],
+  );
 
   const openEditAssistant = useCallback(() => {
     const assistant = assistants.find((entry) => entry.assistantId === selectedAssistantId);
@@ -63,38 +68,42 @@ export function useLawmindAssistantActions(params: UseLawmindAssistantActionsPar
     setShowAssistantEditor(true);
   }, [assistants, presets, selectedAssistantId, setAssistantDraft, setAsstError, setEditingAssistantId, setShowAssistantEditor]);
 
-  const saveAssistant = useCallback(async () => {
-    if (!config) {
-      return;
-    }
-    setAsstBusy(true);
-    setAsstError(null);
-    try {
-      const result = await saveAssistantDraft({
-        apiBase: config.apiBase,
-        editingAssistantId,
-        draft: assistantDraft,
-      });
-      if (result.assistant?.assistantId) {
-        setSelectedAssistantId(result.assistant.assistantId);
+  const saveAssistant = useCallback(
+    async (draftOverride?: AssistantEditorDraft) => {
+      if (!config) {
+        return;
       }
-      setShowAssistantEditor(false);
-      await refreshAssistants();
-    } catch (cause) {
-      setAsstError(errorMessage(cause, "保存助手失败"));
-    } finally {
-      setAsstBusy(false);
-    }
-  }, [
-    assistantDraft,
-    config,
-    editingAssistantId,
-    refreshAssistants,
-    setAsstBusy,
-    setAsstError,
-    setSelectedAssistantId,
-    setShowAssistantEditor,
-  ]);
+      const draft = draftOverride ?? assistantDraft;
+      setAsstBusy(true);
+      setAsstError(null);
+      try {
+        const result = await saveAssistantDraft({
+          apiBase: config.apiBase,
+          editingAssistantId,
+          draft,
+        });
+        if (result.assistant?.assistantId) {
+          setSelectedAssistantId(result.assistant.assistantId);
+        }
+        setShowAssistantEditor(false);
+        await refreshAssistants();
+      } catch (cause) {
+        setAsstError(errorMessage(cause, "保存助手失败"));
+      } finally {
+        setAsstBusy(false);
+      }
+    },
+    [
+      assistantDraft,
+      config,
+      editingAssistantId,
+      refreshAssistants,
+      setAsstBusy,
+      setAsstError,
+      setSelectedAssistantId,
+      setShowAssistantEditor,
+    ],
+  );
 
   const removeAssistant = useCallback(async () => {
     if (!config || selectedAssistantId === DEFAULT_ASSISTANT_ID) {

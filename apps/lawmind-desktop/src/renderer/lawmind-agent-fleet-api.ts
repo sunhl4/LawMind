@@ -1,8 +1,56 @@
-import type { AgentFleetSummary, AgentPreset, AgentRunSummary } from "../../../../src/lawmind/platform/agent-fleet.ts";
+import type {
+  AgentFleetSummary,
+  AgentPreset,
+  AgentRunSummary,
+  AssistantGrowthReportView,
+} from "../../../../src/lawmind/platform/agent-fleet.ts";
 import { isValidMatterId } from "../../../../src/lawmind/cases/matter-id.ts";
 import { apiGetJson } from "./api-client";
+import type { NeedsDecisionDeskTarget } from "./lawmind-agents-desk";
 
-export type { AgentFleetSummary, AgentPreset, AgentRunSummary };
+export type { AgentFleetSummary, AgentPreset, AgentRunSummary, AssistantGrowthReportView };
+
+/** Match queue row for deep-link from chat「去在办补充». */
+export function matchNeedsDecisionFocusId(
+  queue: AgentRunSummary[],
+  target: NeedsDecisionDeskTarget | null | undefined,
+): string | null {
+  if (!target || queue.length === 0) {
+    return null;
+  }
+  const sid = target.sessionId?.trim();
+  if (sid) {
+    const bySession = queue.find(
+      (r) => r.sessionId === sid || r.id === `chat:${sid}`,
+    );
+    if (bySession) {
+      return bySession.id;
+    }
+    // sessionId 已指定但队列里还没有：勿用 preferStatus 误选其它会话
+    const tid = target.taskId?.trim();
+    if (tid) {
+      const byTask = queue.find((r) => r.taskId === tid || r.id === `review:${tid}`);
+      if (byTask) {
+        return byTask.id;
+      }
+    }
+    return null;
+  }
+  const tid = target.taskId?.trim();
+  if (tid) {
+    const byTask = queue.find((r) => r.taskId === tid || r.id === `review:${tid}`);
+    if (byTask) {
+      return byTask.id;
+    }
+  }
+  if (target.preferStatus) {
+    const pref = queue.find((r) => r.status === target.preferStatus);
+    if (pref) {
+      return pref.id;
+    }
+  }
+  return null;
+}
 
 export type FleetTranscriptPayload = {
   ok: boolean;
@@ -28,14 +76,25 @@ export function matterIdQueryParam(matterId?: string | null): string {
 export async function loadAgentFleet(
   apiBase: string,
   matterId?: string | null,
+  opts?: { windowDays?: number },
 ): Promise<AgentFleetSummary> {
+  const params = new URLSearchParams();
+  const mid = matterId?.trim() ?? "";
+  if (mid && isValidMatterId(mid)) {
+    params.set("matterId", mid);
+  }
+  if (opts?.windowDays != null && Number.isFinite(opts.windowDays)) {
+    params.set("windowDays", String(opts.windowDays));
+  }
+  const qs = params.toString() ? `?${params.toString()}` : "";
   const res = await apiGetJson<{ ok?: boolean } & AgentFleetSummary>(
     apiBase,
-    `/api/agent-fleet${matterIdQueryParam(matterId)}`,
+    `/api/agent-fleet${qs}`,
   );
   return {
     runs: res.runs ?? [],
     specialization: res.specialization ?? {},
+    growth: res.growth,
     counts: res.counts ?? { total: 0, active: 0, awaitingAction: 0, byKind: {} as AgentFleetSummary["counts"]["byKind"] },
   };
 }
@@ -80,22 +139,3 @@ export function agentRunStatusLabel(status: AgentRunSummary["status"]): string {
   }
 }
 
-/** Lawyer-facing channel label (what kind of matter this is, not system type). */
-export function agentRunKindLabel(kind: AgentRunSummary["kind"]): string {
-  switch (kind) {
-    case "chat":
-      return "对话";
-    case "delegation":
-      return "交办";
-    case "workflow_job":
-      return "流程";
-    case "queue_item":
-      return "排队";
-    case "tool_approval":
-      return "待确认操作";
-    case "matter_approval":
-      return "待确认事项";
-    case "pending_review":
-      return "文书";
-  }
-}

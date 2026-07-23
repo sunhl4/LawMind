@@ -11,7 +11,7 @@
  * 与历史 runtime.ts 行为对齐：
  *   - argSchemaMiddleware 复用 `validateToolArguments`。
  *   - approvalMiddleware 复用 `toolRequiresExplicitApproval` + `__approved` 字段。
- *   - clarificationGateMiddleware 在 `ctx.clarificationBlockingHeavyTools` 为真时拒绝重型工具。
+ *   - clarificationGateMiddleware 在 `ctx.clarificationBlockingHeavyTools` 为真时拒绝写/导出工具（仍允许 research）。
  *   - budgetMiddleware 在调用前检查 `usedToolCalls >= maxToolCalls`。
  *   - timeoutMiddleware 用 `Promise.race` 包装。
  *   - auditMiddleware 在 next() 后写入审计（保证记录的是真实结果）。
@@ -22,14 +22,20 @@ import {
   toolRequiresSubprocessSandbox,
 } from "../agent/dangerous-tool-policy.js";
 import { normalizeToolCallArguments } from "../agent/runtime-tool-arg-normalize.js";
-import { validateToolArguments } from "../agent/runtime-tool-validation.js";
+import {
+  stripUnknownToolArguments,
+  validateToolArguments,
+} from "../agent/runtime-tool-validation.js";
 import type { AgentContext, AgentTool, ToolCallResult, ToolDefinition } from "../agent/types.js";
 import { emit } from "../audit/index.js";
 import { runToolInSubprocessSandbox } from "./tool-sandbox.js";
 
-/** 与重型管线工具相关的工具名（澄清未结时禁止并行）。 */
-const HEAVY_TOOL_NAMES = new Set<string>([
-  "research_task",
+/**
+ * Write/export tools blocked while clarification is pending.
+ * research_task and other read/analyze tools stay allowed so the model can
+ * gather facts before the lawyer answers.
+ */
+const WRITE_HEAVY_TOOL_NAMES = new Set<string>([
   "draft_document",
   "execute_workflow",
   "render_document",
@@ -164,13 +170,13 @@ export const roleAllowlistMiddleware: ToolMiddleware = async (call, next) => {
   return next();
 };
 
-/** Clarification gate：上一轮工具触发待澄清时，禁止并行重型管线工具。 */
+/** Clarification gate：待澄清时禁止起草/工作流/渲染；允许只读与 research_task。 */
 export const clarificationGateMiddleware: ToolMiddleware = async (call, next) => {
-  if (call.ctx.clarificationBlockingHeavyTools && HEAVY_TOOL_NAMES.has(call.toolName)) {
+  if (call.ctx.clarificationBlockingHeavyTools && WRITE_HEAVY_TOOL_NAMES.has(call.toolName)) {
     return {
       ok: false,
       error:
-        "仍有待澄清事项：请先请律师回答上一轮列出的问题后，再执行检索、起草、完整工作流或渲染。",
+        "仍有待澄清事项：请先请律师回答上一轮列出的问题后，再执行起草、完整工作流或渲染。澄清期间仍可只读检索与 analyze。",
     };
   }
   return next();
@@ -203,16 +209,26 @@ export const argNormalizeMiddleware: ToolMiddleware = async (call, next) => {
   return next();
 };
 
-/** 参数 schema 校验。 */
+/** 参数 schema 校验：未知键剥离（不硬失败），再校验 required/type/enum。 */
 export const argSchemaMiddleware: ToolMiddleware = async (call, next) => {
   if (!call.tool) {
     return next();
   }
+  const stripped = stripUnknownToolArguments(call.tool.definition, call.args);
   const validationError = validateToolArguments(call.tool.definition, call.args);
   if (validationError) {
     return { ok: false, error: `Invalid arguments for ${call.toolName}: ${validationError}` };
   }
-  return next();
+  const result = await next();
+  if (stripped.length > 0 && result.ok) {
+    const note = `已忽略未知参数：${stripped.join(", ")}（不影响执行）`;
+    const data =
+      result.data && typeof result.data === "object"
+        ? { ...(result.data as Record<string, unknown>), argNote: note }
+        : { argNote: note };
+    return { ...result, data };
+  }
+  return result;
 };
 
 /** 单次工具执行超时（默认包在 execute 外层）。 */

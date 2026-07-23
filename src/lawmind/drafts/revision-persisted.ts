@@ -5,11 +5,14 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import type { AgentTurn } from "../agent/types.js";
+import { draftPlainText } from "../learning/rewrite-amplitude.js";
 import { draftPath, readDraft } from "./index.js";
 
 export type DraftRevisionBaseline = {
   mtimeMs: number;
   contentHash: string;
+  /** Plain text of draft at revision start (for T1.4 amplitude). */
+  plainText?: string;
 };
 
 function hashContent(content: string): string {
@@ -24,7 +27,12 @@ export function snapshotDraftRevisionBaseline(
   try {
     const stat = fs.statSync(target);
     const content = fs.readFileSync(target, "utf8");
-    return { mtimeMs: stat.mtimeMs, contentHash: hashContent(content) };
+    const draft = readDraft(workspaceDir, taskId);
+    return {
+      mtimeMs: stat.mtimeMs,
+      contentHash: hashContent(content),
+      plainText: draft ? draftPlainText(draft) : undefined,
+    };
   } catch {
     return undefined;
   }

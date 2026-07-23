@@ -9,6 +9,7 @@ import path from "node:path";
 export type ProductMetricKind =
   | "first_pass"
   | "rewrite"
+  | "rewrite_amplitude"
   | "gate_failure"
   | "triage"
   | "checklist"
@@ -49,6 +50,8 @@ export type ProductMetricSummary = {
   gateFailures: number;
   firstPassOk: number;
   firstPassFail: number;
+  /** kind=rewrite 事件数（与 specialization materialRewrites 同向） */
+  rewrites: number;
 };
 
 export function summarizeProductMetrics(workspaceDir: string, limit = 5000): ProductMetricSummary {
@@ -62,6 +65,7 @@ export function summarizeProductMetrics(workspaceDir: string, limit = 5000): Pro
     gateFailures: 0,
     firstPassOk: 0,
     firstPassFail: 0,
+    rewrites: 0,
   };
   if (!fs.existsSync(file)) {
     return summary;
@@ -86,6 +90,10 @@ export function summarizeProductMetrics(workspaceDir: string, limit = 5000): Pro
         summary.firstPassOk += 1;
       }
       if (ev.kind === "first_pass" && ev.outcome === "fail") {
+        summary.firstPassFail += 1;
+      }
+      if (ev.kind === "rewrite") {
+        summary.rewrites += 1;
         summary.firstPassFail += 1;
       }
     } catch {

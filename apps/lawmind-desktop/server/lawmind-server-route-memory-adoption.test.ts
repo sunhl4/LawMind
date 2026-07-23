@@ -84,4 +84,39 @@ describe("lawmind-server-route-memory-adoption", () => {
     expect(handled).toBe(true);
     expect(res.status).toBe(400);
   });
+
+  it("POST /api/memory/adoption/adopt writes case.progress to session-summary", async () => {
+    const { suggestMemoryAdoption } = await import(
+      "../../../src/lawmind/memory/adoption-service.js"
+    );
+    const rec = await suggestMemoryAdoption(
+      workspaceDir,
+      path.join(workspaceDir, "audit"),
+      {
+        scope: "matter",
+        kind: "case.progress",
+        targetId: "matter-adopt",
+        payload: "### 沉淀\n\n律师：请记住对方主张适用仲裁。",
+        origin: "agent",
+      },
+      { autoAdopt: false },
+    );
+    const res = mockRes();
+    const handled = await handleMemoryAdoptionRoutes({
+      ctx,
+      req: mockPostReq({ id: rec.id }),
+      res,
+      url: new URL("http://127.0.0.1/api/memory/adoption/adopt"),
+      pathname: "/api/memory/adoption/adopt",
+      c: {},
+    });
+    expect(handled).toBe(true);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true });
+    const summary = await fs.readFile(
+      path.join(workspaceDir, "cases", "matter-adopt", "session-summary.md"),
+      "utf8",
+    );
+    expect(summary).toContain("仲裁");
+  });
 });

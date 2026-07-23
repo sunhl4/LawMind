@@ -1,4 +1,5 @@
 import type { AgentModelConfig, AgentRuntimeModelIdentity } from "../agent/types.js";
+import { applyEnvelopeToAgentModelDefaults } from "./capability-envelope.js";
 import {
   builtinIdForEnvModelName,
   getBuiltinModelById,
@@ -65,36 +66,22 @@ export function resolveEnvCurrentToAgentModel(): {
   if (!profile) {
     return { error: "missing_agent_env" };
   }
+  const builtinMatch = LAWMIND_BUILTIN_MODELS.find((m) => m.model === profile.model);
   return {
     model: {
       provider: "openai-compatible",
       baseUrl: profile.baseUrl,
       apiKey: profile.apiKey,
       model: profile.model,
-      ...baseAgentModelDefaults(),
+      ...baseAgentModelDefaults(builtinMatch?.contextTokens),
     },
   };
 }
 
-function parsePositiveIntEnv(name: string, fallback: number): number {
-  const raw = process.env[name]?.trim();
-  if (!raw) {
-    return fallback;
-  }
-  const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
-}
-
-function baseAgentModelDefaults(): Pick<
-  AgentModelConfig,
-  "maxTokens" | "temperature" | "timeoutMs"
-> {
-  const modelTimeoutMs = parsePositiveIntEnv("LAWMIND_AGENT_TIMEOUT_MS", 120000);
-  return {
-    maxTokens: 4096,
-    temperature: 0.3,
-    timeoutMs: modelTimeoutMs,
-  };
+function baseAgentModelDefaults(
+  contextTokens?: number,
+): Pick<AgentModelConfig, "maxTokens" | "temperature" | "timeoutMs" | "contextTokens"> {
+  return applyEnvelopeToAgentModelDefaults({ contextTokens });
 }
 
 export function resolvePlatformToAgentModel(platformId: string): {
@@ -114,7 +101,7 @@ export function resolvePlatformToAgentModel(platformId: string): {
         baseUrl,
         apiKey: proxy.accessToken,
         model: def.model,
-        ...baseAgentModelDefaults(),
+        ...baseAgentModelDefaults(def.contextTokens),
       },
     };
   }
@@ -130,7 +117,7 @@ export function resolvePlatformToAgentModel(platformId: string): {
         baseUrl: def.baseUrl,
         apiKey: "",
         model: def.model,
-        ...baseAgentModelDefaults(),
+        ...baseAgentModelDefaults(def.contextTokens),
       },
     };
   }
@@ -140,7 +127,7 @@ export function resolvePlatformToAgentModel(platformId: string): {
       baseUrl: def.baseUrl,
       apiKey,
       model: def.model,
-      ...baseAgentModelDefaults(),
+      ...baseAgentModelDefaults(def.contextTokens),
     },
   };
 }
@@ -163,7 +150,7 @@ export function resolveBuiltinToAgentModel(builtinId: string): {
         baseUrl: def.baseUrl,
         apiKey: "",
         model: def.model,
-        ...baseAgentModelDefaults(),
+        ...baseAgentModelDefaults(def.contextTokens),
       },
     };
   }
@@ -173,7 +160,7 @@ export function resolveBuiltinToAgentModel(builtinId: string): {
       baseUrl: def.baseUrl,
       apiKey,
       model: def.model,
-      ...baseAgentModelDefaults(),
+      ...baseAgentModelDefaults(def.contextTokens),
     },
   };
 }
@@ -210,6 +197,28 @@ export function resolveCustomToAgentModel(
       ...baseAgentModelDefaults(),
     },
   };
+}
+
+/** Prefer catalog contextTokens when resolving by id (for callers that only have a model config). */
+export function resolveContextTokensForModelId(
+  _lawMindRoot: string,
+  modelId: string,
+): number | undefined {
+  const id = modelId.trim();
+  if (id.startsWith("custom:")) {
+    return undefined;
+  }
+  if (id.startsWith("platform:")) {
+    return getPlatformModelById(id)?.contextTokens;
+  }
+  if (id === ENV_CURRENT_MODEL_ID) {
+    const profile = readAgentEnvProfile();
+    if (!profile) {
+      return undefined;
+    }
+    return LAWMIND_BUILTIN_MODELS.find((m) => m.model === profile.model)?.contextTokens;
+  }
+  return getBuiltinModelById(id)?.contextTokens ?? undefined;
 }
 
 export function resolveDefaultModelId(lawMindRoot: string): string {

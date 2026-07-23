@@ -15,9 +15,7 @@ export function LawmindSettingsAppUpdate({ config }: Props): ReactNode {
     return (
       <div className="lm-settings-section">
         <div className="lm-settings-section-title lm-settings-section-title--duplicate">应用更新</div>
-        <p className="lm-meta">
-          当前为开发或非打包运行，不提供应用内更新。正式安装包可从下方「打开下载页」获取（与菜单<strong>帮助 → 下载安装包</strong>相同）。
-        </p>
+        <p className="lm-settings-caption">开发模式无应用内更新。</p>
         <div className="lm-settings-actions">
           <button
             type="button"
@@ -34,8 +32,8 @@ export function LawmindSettingsAppUpdate({ config }: Props): ReactNode {
   return (
     <div className="lm-settings-section">
       <div className="lm-settings-section-title lm-settings-section-title--duplicate">应用更新</div>
-      <p className="lm-meta">
-        当前版本：<strong>{config?.appVersion ?? "—"}</strong>。联网时应用会在后台检查 GitHub Release；也可手动检查或从下载页获取全量安装包。
+      <p className="lm-settings-caption">
+        当前 v{config?.appVersion ?? "—"}
       </p>
       <div className="lm-settings-actions">
         <button

@@ -12,15 +12,13 @@ export function LawmindSettingsReviewPrefs(): ReactNode {
 
   return (
     <div className="lm-settings-section">
-      <div className="lm-settings-section-title">审核与导出</div>
+      <div className="lm-settings-section-title lm-settings-section-title--duplicate">审核与导出</div>
       <div className="lm-settings-group lm-settings-surface">
-        <label className="lm-review-profile-toggle">
+        <label className="lm-settings-row lm-settings-row-check">
+          <span className="lm-settings-key">签批后自动导出 Word</span>
           <input type="checkbox" checked={autoExport} onChange={onAutoExportChange} />
-          <span>通过签批后自动导出 Word（出稿检查未通过时会询问）</span>
         </label>
-        <p className="lm-meta lm-settings-hint">
-          导出在本地生成 .docx，不调用模型 API。默认关闭，便于律所合规把关。
-        </p>
+        <p className="lm-settings-caption">本地生成 .docx；出稿检查未通过时会询问。默认关闭。</p>
       </div>
     </div>
   );

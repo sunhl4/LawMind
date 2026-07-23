@@ -55,7 +55,7 @@ export function LawmindAppRootView({
           跳到主内容
         </a>
         <LawmindModalHost overlayProps={overlayProps} dialogProps={dialogProps} />
-        <LawmindAppSidebar {...sidebarProps} />
+        {showSettings ? null : <LawmindAppSidebar {...sidebarProps} />}
         <main
           id="main-content"
           className={`lm-main${mainView === "review" ? " lm-main-review" : ""}${showSettings ? " lm-main-settings" : ""}`}

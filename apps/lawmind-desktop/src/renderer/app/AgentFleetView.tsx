@@ -3,9 +3,9 @@ import { LawmindAgentFleetPanel } from "../LawmindAgentFleetPanel";
 import { LawmindCollaborationDesk } from "../LawmindCollaborationDesk";
 import type { AppConfig } from "../lawmind-app-bootstrap";
 import type { CollabEvent, DelegationRow, GateHistoryItem } from "../lawmind-app-data";
-import type { AgentsDeskTab } from "../lawmind-agents-desk";
+import type { AgentsDeskTab, NeedsDecisionDeskTarget } from "../lawmind-agents-desk";
+import { countActiveDelegations } from "../lawmind-records-collab-panels";
 import type { LawMindRequiresAction } from "../lawmind-requires-action";
-import type { AgentPreset } from "../lawmind-agent-fleet-api";
 import type { CollabSummaryState } from "../LawmindSettingsCollaboration";
 import type { ModelCatalogEntry } from "../lawmind-models-api";
 import { isSelectedModelVerified } from "../lawmind-model-verify";
@@ -13,25 +13,21 @@ import { LawmindCollaborationComposeModelRail } from "../LawmindCollaborationCom
 
 export type AgentFleetViewProps = {
   config: AppConfig | null;
-  matterId?: string | null;
   sessionId?: string;
   sessionRequiresActions?: LawMindRequiresAction[];
   assistantDisplayById: Record<string, string>;
-  canDelegate: boolean;
   onRefreshActionSummary?: () => void;
   onChatResumeComplete?: () => void | Promise<void>;
-  onNewChat: () => void;
-  onOpenAgentsWorkflows?: () => void;
-  onOpenWorkflowLibrary?: () => void;
-  onDelegate: () => void;
-  onSpawnPreset: (preset: AgentPreset) => void;
-  onOpenDelegations?: () => void;
   onOpenChatSession: (sessionId: string, matterId?: string, assistantId?: string) => void;
   onOpenReview: (taskId?: string, matterId?: string) => void;
+  onShowArtifact?: (outputPath: string) => void;
+  onOpenMemoryInspector?: () => void;
   agentsDeskTab: AgentsDeskTab;
   onAgentsDeskTabChange: (tab: AgentsDeskTab) => void;
   needsDecisionFocus?: boolean;
   onClearNeedsDecisionFocus?: () => void;
+  focusTarget?: NeedsDecisionDeskTarget | null;
+  onFocusTargetConsumed?: () => void;
   collabSummarySettings: CollabSummaryState | null | undefined;
   selectedAssistantId: string;
   delegations: DelegationRow[];
@@ -55,8 +51,20 @@ export type AgentFleetViewProps = {
   localServiceReconnecting: boolean;
 };
 
+function deskTabTitle(tab: AgentsDeskTab): string {
+  switch (tab) {
+    case "workflows":
+      return "按流程办";
+    case "delegations":
+      return "交出去的活";
+    default:
+      return "待拍板";
+  }
+}
+
 function AgentFleetViewImpl(props: AgentFleetViewProps) {
   const onActive = props.agentsDeskTab === "active";
+  const activeDel = countActiveDelegations(props.delegations);
 
   const composeModel =
     props.config?.apiBase
@@ -92,19 +100,51 @@ function AgentFleetViewImpl(props: AgentFleetViewProps) {
       data-testid="lm-agents-desk"
     >
       <div className="lm-side-scroll lm-desk-page-scroll lm-agents-desk-stack">
-        {!onActive ? (
-          <header className="lm-agents-wb-bar">
-            <h1>{props.agentsDeskTab === "workflows" ? "按流程" : "交出去的"}</h1>
+        <header className="lm-agents-wb-bar" data-testid="lm-agents-desk-chrome">
+          <div className="lm-agents-wb-bar-meta">
+            <h1>在办</h1>
+            <span className="lm-meta lm-agents-desk-chrome-sub" aria-live="polite">
+              {deskTabTitle(props.agentsDeskTab)}
+            </span>
+          </div>
+          <nav className="lm-tabs lm-agents-desk-tabs" aria-label="在办分区">
             <button
               type="button"
-              className="lm-btn lm-btn-secondary lm-btn-sm"
+              className={`lm-tab ${props.agentsDeskTab === "active" ? "active" : ""}`}
+              aria-current={props.agentsDeskTab === "active" ? "page" : undefined}
               data-testid="lm-agents-tab-active"
               onClick={() => props.onAgentsDeskTabChange("active")}
+              title="谁在忙、待签批 / 补充 / 批准"
             >
-              返回在办
+              待拍板
             </button>
-          </header>
-        ) : null}
+            <button
+              type="button"
+              className={`lm-tab ${props.agentsDeskTab === "delegations" ? "active" : ""}`}
+              aria-current={props.agentsDeskTab === "delegations" ? "page" : undefined}
+              data-testid="lm-agents-tab-delegations"
+              onClick={() => props.onAgentsDeskTabChange("delegations")}
+              title="已交办给助手的事项进度"
+            >
+              交出去的活
+              {activeDel > 0 ? (
+                <span className="lm-tab-inline-count" title="进行中的交办">
+                  {activeDel}
+                </span>
+              ) : null}
+            </button>
+            <button
+              type="button"
+              className={`lm-tab ${props.agentsDeskTab === "workflows" ? "active" : ""}`}
+              aria-current={props.agentsDeskTab === "workflows" ? "page" : undefined}
+              data-testid="lm-agents-tab-workflows"
+              onClick={() => props.onAgentsDeskTabChange("workflows")}
+              title="按模板跑多步团队流程"
+            >
+              按流程办
+            </button>
+          </nav>
+        </header>
 
         {composeModel && !modelVerified && !onActive ? (
           <LawmindCollaborationComposeModelRail {...composeModel} />
@@ -113,22 +153,21 @@ function AgentFleetViewImpl(props: AgentFleetViewProps) {
         {onActive && props.config?.apiBase ? (
           <LawmindAgentFleetPanel
             apiBase={props.config.apiBase}
-            matterId={props.matterId}
+            workspaceDir={props.config.workspaceDir}
             sessionId={props.sessionId}
             sessionRequiresActions={props.sessionRequiresActions}
             assistantDisplayById={props.assistantDisplayById}
-            canDelegate={props.canDelegate}
+            selectedAssistantId={props.selectedAssistantId}
             needsDecisionFocus={props.needsDecisionFocus}
             onClearNeedsDecisionFocus={props.onClearNeedsDecisionFocus}
+            focusTarget={props.focusTarget}
+            onFocusTargetConsumed={props.onFocusTargetConsumed}
             onRefreshSummary={props.onRefreshActionSummary}
             onChatResumeComplete={props.onChatResumeComplete}
-            onNewChat={props.onNewChat}
-            onOpenAgentsWorkflows={props.onOpenAgentsWorkflows ?? props.onOpenWorkflowLibrary}
-            onDelegate={props.onDelegate}
-            onSpawnPreset={props.onSpawnPreset}
-            onOpenCollaboration={props.onOpenDelegations}
             onOpenChatSession={props.onOpenChatSession}
             onOpenReview={props.onOpenReview}
+            onShowArtifact={props.onShowArtifact}
+            onOpenMemoryInspector={props.onOpenMemoryInspector}
           />
         ) : null}
 

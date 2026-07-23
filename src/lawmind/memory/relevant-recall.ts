@@ -12,7 +12,8 @@ export type MemoryManifestEntry = {
   sizeBytes?: number;
 };
 
-const MAX_RECALL = 5;
+/** Raised so long matters surface more topic files without starving the window. */
+const MAX_RECALL = 8;
 const DEFAULT_SMALL_FILE_MAX_BYTES = 8_000;
 const MEMORY_READ_TOOL_NAMES = new Set([
   "read_file",
@@ -23,6 +24,10 @@ const MEMORY_READ_TOOL_NAMES = new Set([
 
 function memoryTopicsDir(workspaceDir: string): string {
   return path.join(workspaceDir, "memory", "topics");
+}
+
+function isDailyLogRel(rel: string): boolean {
+  return /^memory\/\d{4}-\d{2}-\d{2}\.md$/i.test(rel.replace(/\\/g, "/"));
 }
 
 function fileSizeBytes(workspaceDir: string, relativePath: string): number {
@@ -191,6 +196,34 @@ export async function findRelevantMemoriesForTurn(opts: {
   const manifest = scanMemoryManifest(opts.workspaceDir).filter(
     (e) => !opts.alreadySurfaced.has(e.relativePath) && !isExpired(e),
   );
+
+  // FTS personal-knowledge candidates supplement the small-file manifest bias.
+  try {
+    const { searchPersonalKnowledge } = await import("../indexing/knowledge-search.js");
+    const fts = await searchPersonalKnowledge(opts.workspaceDir, {
+      q: opts.query,
+      matterId: opts.matterId,
+      limit: 6,
+      autoRebuild: false,
+    });
+    for (const hit of fts.hits) {
+      const rel = hit.path.replace(/\\/g, "/");
+      if (opts.alreadySurfaced.has(rel) || isDailyLogRel(rel)) {
+        continue;
+      }
+      if (manifest.some((e) => e.relativePath === rel)) {
+        continue;
+      }
+      manifest.push({
+        relativePath: rel,
+        title: hit.section || hit.docKind,
+        mtimeMs: Date.now(),
+        sizeBytes: hit.snippet.length,
+      });
+    }
+  } catch {
+    /* index optional */
+  }
 
   if (opts.matterId?.trim()) {
     const caseRel = `cases/${opts.matterId.trim()}/CASE.md`.replace(/\\/g, "/");

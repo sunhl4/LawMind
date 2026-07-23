@@ -23,6 +23,7 @@ import { matterIdFromWorkspaceCasesRelPath, isWorkspaceCaseSubdirRootRelPath } f
 import { filterExplorerEntries } from "../lawmind-explorer-lawyer-view";
 import { FileWorkbenchDialogs } from "./FileWorkbenchDialogs";
 import { FileWorkbenchContextMenu } from "./FileWorkbenchContextMenu";
+import { encodeLawmindFsDrag, LAWMID_FS_DRAG_MIME } from "../lawmind-file-drag";
 
 export type FileWorkbenchViewModel = {
   workspaceDir: string;
@@ -30,6 +31,7 @@ export type FileWorkbenchViewModel = {
   onPickProject?: () => void | Promise<void>;
   canUseFilesystemBridge: boolean;
   onAddToChatContext?: (payload: { root: RootKey; relPath: string; kind: "file" | "directory" }) => void;
+  addToContextLabel?: string;
   portalHosts?: FilePortalHosts | null;
   workspaceExplorerToolbar?: ReactNode;
   casesNodeActions?: FileWorkbenchCasesNodeActions | null;
@@ -110,6 +112,7 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
     onPickProject,
     canUseFilesystemBridge,
     onAddToChatContext,
+    addToContextLabel,
     portalHosts,
     workspaceExplorerToolbar,
     casesNodeActions,
@@ -259,6 +262,21 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
               className={`lm-fs-node lm-fs-dir ${isSelected ? "active" : ""} ${isProtected ? "protected" : ""}`}
               style={{ paddingLeft: pad }}
               title={treeTitle}
+              draggable={Boolean(onAddToChatContext) && !isProtected}
+              onDragStart={(e) => {
+                if (!onAddToChatContext || isProtected) {
+                  e.preventDefault();
+                  return;
+                }
+                const payload = encodeLawmindFsDrag({
+                  root,
+                  relPath: entry.path,
+                  kind: "directory",
+                });
+                e.dataTransfer.setData(LAWMID_FS_DRAG_MIME, payload);
+                e.dataTransfer.setData("text/plain", entry.path || entry.name);
+                e.dataTransfer.effectAllowed = "copy";
+              }}
               onClick={() => { setSelected({ root, path: entry.path, kind: "directory" }); void toggleDir(root, entry.path); }}
               onDoubleClick={(e) => {
                 if (
@@ -322,6 +340,21 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
             className={`lm-fs-node lm-fs-file ${isSelected ? "active" : ""} ${isProtected ? "protected" : ""}`}
             style={{ paddingLeft: pad + 16 }}
             title={isProtected ? "⚠️ 受保护文件" : entry.name}
+            draggable={Boolean(onAddToChatContext) && !isProtected}
+            onDragStart={(e) => {
+              if (!onAddToChatContext || isProtected) {
+                e.preventDefault();
+                return;
+              }
+              const payload = encodeLawmindFsDrag({
+                root,
+                relPath: entry.path,
+                kind: "file",
+              });
+              e.dataTransfer.setData(LAWMID_FS_DRAG_MIME, payload);
+              e.dataTransfer.setData("text/plain", entry.path || entry.name);
+              e.dataTransfer.effectAllowed = "copy";
+            }}
             onClick={() => { setSelected({ root, path: entry.path, kind: "file" }); void openFile(root, entry.path); }}
             onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, root, path: entry.path, kind: "file", isRoot: false }); }}
           >
@@ -797,6 +830,7 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
         canUseFilesystemBridge={canUseFilesystemBridge}
         busy={busy}
         onAddToChatContext={onAddToChatContext}
+        addToContextLabel={addToContextLabel}
         setAddToMatterManualDraft={setAddToMatterManualDraft}
         setAddToMatterLastError={setAddToMatterLastError}
         setAddToMatterPick={setAddToMatterPick}

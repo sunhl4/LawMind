@@ -17,6 +17,7 @@ import { LawmindSettingsMemory } from "./LawmindSettingsMemory";
 import { LawmindSettingsTools } from "./LawmindSettingsTools";
 import { LawmindSettingsSkills } from "./LawmindSettingsSkills";
 import { LawmindSettingsUsageStats } from "./LawmindSettingsUsageStats";
+import { LawmindAutomationsPanel } from "./LawmindAutomationsPanel";
 import type { AppConfig } from "./lawmind-app-bootstrap";
 import type { HealthPayload } from "./lawmind-app-data";
 import type { ModelCatalogEntry, ProviderKeyStatus } from "./lawmind-models-api";
@@ -99,7 +100,7 @@ type Props = {
   retrievalSaving: boolean;
   draftWithModelSaving?: boolean;
   onClose: () => void;
-  onOpenNewAssistant: () => void;
+  onOpenNewAssistant: (presetKey?: string) => void;
   onOpenEditAssistant: () => void;
   onRemoveAssistant: () => void | Promise<void>;
   onApplyRetrievalMode: (mode: "single" | "dual") => void | Promise<void>;
@@ -118,6 +119,12 @@ type Props = {
   onClearProject: () => void | Promise<void>;
   onOpenCollaborationPage: () => void;
   onPrefsChange?: () => void;
+  /** Automations (settings section) */
+  automationMatterId?: string | null;
+  automationMatterOptions?: Array<{ id: string; title: string }>;
+  onOpenAutomationsNeedsDecision?: () => void;
+  onOpenAutomationsReview?: (taskId: string, matterId?: string) => void;
+  onOpenAutomationsCollaboration?: (matterId?: string) => void;
 };
 
 function LawmindSettingsContentHeader(props: { title: string; description: string }): ReactNode {
@@ -125,7 +132,7 @@ function LawmindSettingsContentHeader(props: { title: string; description: strin
   return (
     <header className="lm-settings-content-header">
       <h2 className="lm-settings-content-title">{title}</h2>
-      <p className="lm-settings-content-desc">{description}</p>
+      {description.trim() ? <p className="lm-settings-content-desc">{description}</p> : null}
     </header>
   );
 }
@@ -169,6 +176,11 @@ export function LawmindSettingsPage({
   onClearProject,
   onOpenCollaborationPage,
   onPrefsChange,
+  automationMatterId = null,
+  automationMatterOptions,
+  onOpenAutomationsNeedsDecision,
+  onOpenAutomationsReview,
+  onOpenAutomationsCollaboration,
 }: Props) {
   const [activeSectionId, setActiveSectionId] = useState<LawmindSettingsSectionId>(initialSectionId);
   const [navQuery, setNavQuery] = useState("");
@@ -261,6 +273,11 @@ export function LawmindSettingsPage({
     onClearProject,
     onOpenCollaborationPage,
     onPrefsChange,
+    automationMatterId,
+    automationMatterOptions,
+    onOpenAutomationsNeedsDecision,
+    onOpenAutomationsReview,
+    onOpenAutomationsCollaboration,
     navigateToSection,
   });
 
@@ -419,6 +436,11 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
     onClearProject,
     onOpenCollaborationPage,
     onPrefsChange,
+    automationMatterId,
+    automationMatterOptions,
+    onOpenAutomationsNeedsDecision,
+    onOpenAutomationsReview,
+    onOpenAutomationsCollaboration,
     navigateToSection,
   } = args;
 
@@ -476,9 +498,24 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
       ) : (
         notReady
       );
+    case "automations":
+      return config?.apiBase ? (
+        <LawmindAutomationsPanel
+          apiBase={config.apiBase}
+          matterId={automationMatterId}
+          matterOptions={automationMatterOptions}
+          hideTitleChrome
+          onOpenNeedsDecisionDesk={onOpenAutomationsNeedsDecision}
+          onOpenReview={onOpenAutomationsReview}
+          onOpenCollaboration={onOpenAutomationsCollaboration}
+        />
+      ) : (
+        notReady
+      );
     case "assistants":
       return (
         <LawmindSettingsAssistants
+          apiBase={config?.apiBase}
           assistants={assistants}
           selectedAssistantId={selectedAssistantId}
           onSelectAssistantId={onSelectAssistantId}
@@ -525,6 +562,7 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
             projectDir: config.projectDir,
             retrievalMode: config.retrievalMode,
           }}
+          apiBase={config.apiBase}
           workspaceLabel={workspaceLabel}
           projectDir={projectDir}
           onPickProject={() => void onPickProject()}
@@ -540,7 +578,11 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
     case "roles":
       return config ? <LawmindSettingsRoles apiBase={config.apiBase} /> : notReady;
     case "templates":
-      return config ? <LawmindSettingsTemplates apiBase={config.apiBase} /> : notReady;
+      return config ? (
+        <LawmindSettingsTemplates apiBase={config.apiBase} projectDir={projectDir} />
+      ) : (
+        notReady
+      );
     case "edition":
       return config ? <LawmindSettingsEdition apiBase={config.apiBase} /> : notReady;
     case "app-update":

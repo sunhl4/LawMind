@@ -10,6 +10,7 @@ import { type AcceptanceSummaryItem } from "./matter-acceptance-display";
 import { MatterLocalDocIndex } from "./MatterLocalDocIndex";
 import { MatterOverviewExtras } from "./MatterOverviewExtras";
 import { MatterProfileCard, type MatterProfilePayload } from "./MatterProfileCard";
+import { MatterTeamRosterStrip } from "./MatterTeamRosterStrip";
 import {
   InteractionConvergence,
   LawyerActionFeed,
@@ -125,7 +126,9 @@ export type MatterOverviewBodyProps = {
   /** 打开本案对话（绑定 matter 上下文） */
   onUseInChat?: (matterId: string) => void;
   /** 打开「在办」待我拍板焦点 */
-  onOpenNeedsDecisionDesk?: () => void;
+  onOpenNeedsDecisionDesk?: (
+    target?: import("../lawmind-agents-desk").NeedsDecisionDeskTarget,
+  ) => void;
   opsFocus: OperationsFocus;
   setOpsFocus: (v: OperationsFocus) => void;
   opsSort: OperationsSort;
@@ -260,6 +263,16 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
           />
         ) : null}
         {matterId && apiBase ? <MatterOpsBrief apiBase={apiBase} matterId={matterId} /> : null}
+        {matterId && apiBase ? (
+          <MatterTeamRosterStrip
+            apiBase={apiBase}
+            matterId={matterId}
+            onOpenMeeting={onOpenMeeting}
+            onOpenNeedsDecisionDesk={
+              onOpenNeedsDecisionDesk ? () => onOpenNeedsDecisionDesk() : undefined
+            }
+          />
+        ) : null}
         {matterId && apiBase ? <MatterTheoryLitePanel apiBase={apiBase} matterId={matterId} /> : null}
         {matterId && apiBase && profile ? (
           <MatterProfileCard apiBase={apiBase} profile={profile} onSaved={onProfileSaved} />
@@ -314,7 +327,7 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
                 type="button"
                 className="lm-btn lm-btn-secondary lm-btn-sm"
                 data-testid="lm-matter-open-needs-decision"
-                onClick={onOpenNeedsDecisionDesk}
+                onClick={() => onOpenNeedsDecisionDesk?.()}
               >
                 待我拍板
               </button>
@@ -382,7 +395,7 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
               </button>
             </div>
             <p className="lm-meta">
-              打开顶栏「会议室·办件 → 会议室」并绑定本案；也可开临时讨论。多位助手轮流发言，律师可开场或中途介入。
+              打开顶栏「会议室」并绑定本案；也可开临时讨论。多位助手轮流发言，律师可开场或中途介入。
             </p>
           </section>
         ) : null}

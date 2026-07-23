@@ -73,9 +73,9 @@ describe("Engine-Bridge Tools", () => {
     expect(names).toContain("record_deadline");
   });
 
-  it("total tool count is 27 (15 legal + 12 engine)", () => {
+  it("total tool count is 28 (16 legal + 12 engine)", () => {
     const registry = createLegalToolRegistry();
-    expect(registry.size()).toBe(27);
+    expect(registry.size()).toBe(28);
   });
 });
 
@@ -156,7 +156,7 @@ describe("clarification pending guard", () => {
     expect(result.error).toContain("待澄清");
   });
 
-  it("blocks research_task when clarificationBlockingHeavyTools", async () => {
+  it("allows research_task when clarificationBlockingHeavyTools (read/research stay open)", async () => {
     const ws = tmpWorkspace();
     const registry = createLegalToolRegistry();
     const plan = registry.get("plan_task")!;
@@ -172,8 +172,8 @@ describe("clarification pending guard", () => {
       { task_id: taskId, instruction: "请审查合同", matter_id: "m-r" },
       ctx,
     );
-    expect(result.ok).toBe(false);
-    expect(result.error).toContain("待澄清");
+    // May fail for missing adapters/API, but must not be the clarification write-gate.
+    expect(result.error ?? "").not.toContain("待澄清");
   });
 
   it("blocks render_document when clarificationBlockingHeavyTools", async () => {

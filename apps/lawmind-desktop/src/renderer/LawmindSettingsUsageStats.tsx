@@ -49,9 +49,7 @@ export function LawmindSettingsUsageStats({ apiBase }: Props): ReactNode {
     return (
       <section className="lm-settings-section" id="lawmind-settings-usage">
         <h3>本地使用统计</h3>
-        <p className="lm-hint">
-          近 30 天尚无 token 记录。完成对话且模型返回 usage 后，将在此汇总（仅保存在本工作区，不上传）。
-        </p>
+        <p className="lm-settings-caption">近 30 天暂无用量</p>
       </section>
     );
   }
@@ -59,10 +57,7 @@ export function LawmindSettingsUsageStats({ apiBase }: Props): ReactNode {
   return (
     <section className="lm-settings-section" id="lawmind-settings-usage">
       <h3>本地使用统计</h3>
-      <p className="lm-hint">近 30 天、本工作区累计（agentsview 式本地账本，非计费系统）。</p>
-      <p className="lm-meta">
-        本地 token 账本，非计费。Worker / Advisor 为模型名启发式分层，不含美元成本。
-      </p>
+      <p className="lm-settings-caption">近 30 天本机用量（不计费）</p>
       <dl className="lm-usage-stats-grid">
         <div>
           <dt>记录条数</dt>

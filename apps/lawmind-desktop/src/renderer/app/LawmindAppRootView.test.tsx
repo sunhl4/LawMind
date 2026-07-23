@@ -110,14 +110,12 @@ function minimalProps(overrides: Partial<LawmindAppRootViewProps> = {}): Lawmind
       onCloseSettings: noop,
       settingsOpen: false,
       setFileExplorerHost: noop,
-      actionSummaryTotal: 0,
       matterSidebarRows: [],
       selectedMatterKey: null,
       onSelectMatterKey: noop,
       onSelectMatterForCockpit: noop,
       matterCockpitOpen: false,
       mainView: "workspace" as const,
-      onOpenActionHub: noop,
     },
     headerProps: {
       mainView: "workspace" as const,
@@ -128,8 +126,6 @@ function minimalProps(overrides: Partial<LawmindAppRootViewProps> = {}): Lawmind
       onExitMatterCockpit: noop,
       onSetMainView: noop,
             apiBase: undefined,
-      actionSummaryTotal: 0,
-      onOpenActionHub: noop,
       projectDir: null,
       currentMatterLabel: null,
       sidebarCollapsed: false,
@@ -255,7 +251,6 @@ function minimalProps(overrides: Partial<LawmindAppRootViewProps> = {}): Lawmind
       queuedMessages: [],
       cancelQueuedMessage: noop,
       onOpenTaskDrawer: noop,
-      onOpenActionHub: noop,
       composeExtras: mockComposeExtras(),
     },
     fileWorkbenchHostProps: null,
@@ -337,5 +332,7 @@ describe("LawmindAppRootView", () => {
     expect(main?.querySelector(".lm-settings-page")).toBeTruthy();
     expect(main?.querySelector(".lm-main-body")?.children.length).toBe(1);
     expect(main?.querySelector(".lm-settings-content-title")?.textContent).toContain("模型/API");
+    // Full-page settings: workspace left rail must not remain beside the settings nav.
+    expect(host.querySelector(".lm-side")).toBeNull();
   });
 });

@@ -64,7 +64,9 @@ export type LawmindChatMessagesColumnProps = {
     clarificationDraft?: Record<string, string>,
     editedArgs?: Record<string, unknown>,
   ) => void | Promise<void>;
-  onOpenNeedsDecisionDesk?: () => void;
+  onOpenNeedsDecisionDesk?: (
+    target?: import("./lawmind-agents-desk").NeedsDecisionDeskTarget,
+  ) => void;
   /** @deprecated Use onOpenNeedsDecisionDesk */
   onOpenActionHub?: () => void;
   revisionBackgroundActive?: boolean;
@@ -77,6 +79,8 @@ export type LawmindChatMessagesColumnProps = {
   /** Opens compose「写材料」template / job-intake gallery. */
   onOpenWriteMaterials?: () => void;
   showEmptyMatterGuide?: boolean;
+  onDeleteChatMessage?: (uiIndex: number) => void | Promise<void>;
+  onEditChatMessage?: (uiIndex: number, nextText: string) => void | Promise<void>;
 };
 
 export function LawmindChatMessagesColumn({
@@ -107,6 +111,8 @@ export function LawmindChatMessagesColumn({
   onOpenWorkflowLibrary,
   onOpenWriteMaterials,
   showEmptyMatterGuide = false,
+  onDeleteChatMessage,
+  onEditChatMessage,
 }: LawmindChatMessagesColumnProps) {
   const openNeedsDecisionDesk = onOpenNeedsDecisionDesk ?? onOpenActionHub;
   const openAgentsWorkflows = onOpenAgentsWorkflows ?? onOpenWorkflowLibrary;
@@ -182,6 +188,8 @@ export function LawmindChatMessagesColumn({
         onOpenReview={onOpenReview}
         onOpenNeedsDecisionDesk={openNeedsDecisionDesk}
         dimmed={dimmed}
+        onDeleteChatMessage={onDeleteChatMessage}
+        onEditChatMessage={onEditChatMessage}
       />
     );
   };

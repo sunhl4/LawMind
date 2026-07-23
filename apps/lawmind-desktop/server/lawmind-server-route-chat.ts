@@ -3,6 +3,10 @@ import { resumeTurn } from "../../../src/lawmind/agent/runtime-resume.js";
 import { createLegalToolRegistry } from "../../../src/lawmind/agent/tools/index.js";
 import type { ResumeRequiresActionInput } from "../../../src/lawmind/platform/requires-action.js";
 import type { RunTurnEvent } from "../../../src/lawmind/agent/index.js";
+import {
+  clearTurnAbort,
+  isTurnAbortRequested,
+} from "../../../src/lawmind/agent/turn-abort.js";
 import { parsePermissionMode } from "../../../src/lawmind/agent/permission-mode.js";
 import type { AgentConfig, AgentTurn, ToolCallResult } from "../../../src/lawmind/agent/types.js";
 import {
@@ -387,6 +391,8 @@ export async function handleChatRoute({
         : undefined;
 
     let sseClosed = false;
+    /** Set true after `agent.chat` returns so a late `req.close` cannot abort the next turn. */
+    let turnFinished = false;
     let ssePingTimer: ReturnType<typeof setInterval> | null = null;
     const sseWriteEvent = (event: string, data: unknown): void => {
       if (sseClosed || res.writableEnded) {return;}
@@ -429,7 +435,12 @@ export async function handleChatRoute({
         }
       }, 25_000);
       req.on("close", () => {
-        sseEnd();
+        // Disconnect abort is signaled via `sseClosed` → `shouldAbort` for *this* turn only.
+        // Do not call `requestTurnAbort` here: normal completion also fires `close` after
+        // `sseEnd`, which would race a fast follow-up turn that already cleared the flag.
+        if (!turnFinished) {
+          sseEnd();
+        }
       });
     }
 
@@ -495,17 +506,30 @@ export async function handleChatRoute({
     const caseMemoryMatterId =
       matterIdForChat && !isAdhocMeetingMatterId(matterIdForChat) ? matterIdForChat : undefined;
 
-    const result = await agent.chat(instructionForAgent, {
-      sessionId: body.sessionId,
-      matterId: caseMemoryMatterId,
-      assistantId: profile.assistantId,
-      allowWebSearch,
-      projectDir: projectDirForAgent,
-      teamMeetingMode: meetingMode,
-      sessionTitleHint,
-      linkedTaskId: linkedTaskIdForChat,
-      onEvent,
-    });
+    const abortSessionId =
+      typeof body.sessionId === "string" && body.sessionId.trim() ? body.sessionId.trim() : undefined;
+    let result: Awaited<ReturnType<typeof agent.chat>>;
+    try {
+      result = await agent.chat(instructionForAgent, {
+        sessionId: body.sessionId,
+        matterId: caseMemoryMatterId,
+        assistantId: profile.assistantId,
+        allowWebSearch,
+        projectDir: projectDirForAgent,
+        teamMeetingMode: meetingMode,
+        sessionTitleHint,
+        linkedTaskId: linkedTaskIdForChat,
+        onEvent,
+        shouldAbort: () =>
+          Boolean(abortSessionId && isTurnAbortRequested(abortSessionId)) ||
+          (wantsStream && sseClosed),
+      });
+    } finally {
+      turnFinished = true;
+      if (abortSessionId) {
+        clearTurnAbort(abortSessionId);
+      }
+    }
     bumpAssistantStats(lawMindRoot, profile.assistantId, {
       newSession: !hadSession,
       turn: true,

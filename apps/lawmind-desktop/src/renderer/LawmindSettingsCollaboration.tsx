@@ -422,8 +422,8 @@ export function LawmindSettingsCollaborationBrief(props: BriefProps): ReactNode 
   } = props;
 
   return (
-    <div className="lm-settings-section">
-      <div className="lm-settings-section-title">多助手交办</div>
+    <div className="lm-settings-section lm-settings-advanced-page">
+      <p className="lm-settings-lead">签批与接力在「在办」处理。这里只看状态与入口。</p>
       <div className="lm-settings-group lm-settings-surface">
         {collabSummarySettings === undefined ? (
           <div className="lm-settings-loading" aria-busy="true" aria-label="加载协作状态">
@@ -450,37 +450,21 @@ export function LawmindSettingsCollaborationBrief(props: BriefProps): ReactNode 
               </span>
             </div>
             <div className="lm-settings-row">
-              <span className="lm-settings-key">当前委派数</span>
+              <span className="lm-settings-key">进行中的委派</span>
               <span className="lm-settings-val">{collabSummarySettings.delegationCount}</span>
             </div>
             {collabSummarySettings.collaborationHint ? (
-              <div className="lm-callout lm-callout-muted" role="note">
-                <p className="lm-callout-body">{collabSummarySettings.collaborationHint}</p>
-              </div>
+              <p className="lm-settings-caption">{collabSummarySettings.collaborationHint}</p>
             ) : null}
-            <p className="lm-settings-hint">
-              本页仅显示协作开关与委派摘要。进度与「按流程办」在顶部「在办」；新任务请在「对话」下达。岗位与互审关系在「助手与岗位」中配置。
-            </p>
             <div className="lm-settings-actions">
               <button
                 type="button"
                 className="lm-btn lm-btn-accent lm-btn-sm"
                 onClick={() => onOpenCollaborationPage()}
               >
-                在在办中打开按流程办
+                去「在办」处理
               </button>
             </div>
-            <p className="lm-settings-hint">
-              集成与外部系统边界见{" "}
-              <a href={lawmindDocUrl("LAWMIND-INTEGRATIONS")} target="_blank" rel="noreferrer noopener">
-                官方说明
-              </a>
-              ；界面与 API 对照见文档{" "}
-              <a href={lawmindDocUrl("LAWMIND-COLLABORATION-UI-API-MAP")} target="_blank" rel="noreferrer noopener">
-                LAWMIND-COLLABORATION-UI-API-MAP
-              </a>
-              。
-            </p>
           </>
         )}
       </div>

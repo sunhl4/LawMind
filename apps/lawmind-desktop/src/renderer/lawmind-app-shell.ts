@@ -2,7 +2,6 @@ import { useCallback, useRef, useState } from "react";
 import type { ArtifactDraft } from "../../../../src/lawmind/types.ts";
 import { createAssistantDraft, type AssistantEditorDraft } from "./lawmind-assistant-editor";
 import type { LawmindMainView } from "./lawmind-main-view";
-import { resolveDefaultMainView } from "./lawmind-home-prefs";
 import {
   type LawmindSettingsScrollAnchorId,
   type LawmindSettingsSectionId,
@@ -43,7 +42,7 @@ export type { LawmindHealthState } from "./useLawmindAppBootstrapEffects";
 export { mapHealthState } from "./useLawmindAppBootstrapEffects";
 
 export function useLawmindAppShell() {
-  const [mainView, setMainView] = useState<LawmindMainView>(() => resolveDefaultMainView());
+  const [mainView, setMainView] = useState<LawmindMainView>("workspace");
   const [reviewFocusTaskId, setReviewFocusTaskId] = useState<string | null>(null);
   const [reviewFocusMatterId, setReviewFocusMatterId] = useState<string | null>(null);
   const [reviewFocusStatus, setReviewFocusStatus] = useState<ArtifactDraft["reviewStatus"] | "all">("all");
@@ -334,6 +333,16 @@ export function useLawmindAppShell() {
     apiBase: config?.apiBase,
     sessionId: activeChatSessionIdForExtras,
     matterId: contextMatterId,
+    onCompactMessages: (rows) => {
+      const msgs = rows
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => ({
+          role: m.role as "user" | "assistant",
+          text:
+            typeof m.text === "string" ? m.text : typeof m.content === "string" ? m.content : "",
+        }));
+      setMessagesByAssistant((p) => ({ ...p, [selectedAssistantId]: msgs }));
+    },
   });
   const [streamCompactNoticesByAssistant, setStreamCompactNoticesByAssistant] = useState<
     Record<string, string[]>
@@ -343,6 +352,8 @@ export function useLawmindAppShell() {
     abortChatSend,
     sendChatMessage,
     send,
+    deleteChatMessageAt,
+    editChatMessageAt,
     queuedMessages,
     cancelQueuedMessage,
     clearSendQueue,
@@ -559,6 +570,8 @@ export function useLawmindAppShell() {
       send,
       abortChatSend,
       sendChatMessage,
+      deleteChatMessageAt,
+      editChatMessageAt,
       queuedMessages,
       cancelQueuedMessage,
       clearSendQueue,

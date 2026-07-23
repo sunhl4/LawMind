@@ -464,6 +464,52 @@ async function searchProjectTextFiles(
   return results;
 }
 
+/** Default / max chars returned per analyze_document or read_project_file call. */
+export const DOCUMENT_PAGE_DEFAULT_CHARS = 40_000;
+export const DOCUMENT_PAGE_MAX_CHARS = 120_000;
+
+export type DocumentPageSlice = {
+  content: string;
+  totalChars: number;
+  offset: number;
+  limit: number;
+  hasMore: boolean;
+  nextOffset: number;
+};
+
+/**
+ * Paginate extracted document text so large contracts stay readable across tool calls.
+ * `offset` / `limit` are character offsets into the extracted UTF-8 text.
+ */
+export function sliceDocumentPage(
+  fullText: string,
+  offsetRaw: unknown,
+  limitRaw: unknown,
+  defaults: { defaultLimit?: number; maxLimit?: number } = {},
+): DocumentPageSlice {
+  const defaultLimit = defaults.defaultLimit ?? DOCUMENT_PAGE_DEFAULT_CHARS;
+  const maxLimit = defaults.maxLimit ?? DOCUMENT_PAGE_MAX_CHARS;
+  const totalChars = fullText.length;
+  const offsetNum = Number(offsetRaw);
+  const offset =
+    Number.isFinite(offsetNum) && offsetNum > 0 ? Math.min(totalChars, Math.floor(offsetNum)) : 0;
+  let limit = Number(limitRaw);
+  if (!Number.isFinite(limit) || limit <= 0) {
+    limit = defaultLimit;
+  }
+  limit = Math.min(maxLimit, Math.max(1, Math.floor(limit)));
+  const content = fullText.slice(offset, offset + limit);
+  const nextOffset = offset + content.length;
+  return {
+    content,
+    totalChars,
+    offset,
+    limit,
+    hasMore: nextOffset < totalChars,
+    nextOffset,
+  };
+}
+
 export {
   readSafe,
   isPathInsideRoot,

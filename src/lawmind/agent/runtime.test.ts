@@ -23,9 +23,9 @@ describe("validateToolArguments", () => {
     expect(error).toBeUndefined();
   });
 
-  it("rejects unknown keys", () => {
+  it("ignores unknown keys at validate layer (stripped earlier in pipeline)", () => {
     const error = validateToolArguments(def, { query: "abc", unknown: 1 });
-    expect(error).toContain("unknown keys");
+    expect(error).toBeUndefined();
   });
 
   it("rejects missing required key", () => {

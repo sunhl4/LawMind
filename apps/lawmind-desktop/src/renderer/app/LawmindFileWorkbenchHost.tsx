@@ -11,12 +11,10 @@ export type LawmindFileWorkbenchHostProps = {
   fileEditorHost: HTMLDivElement | null;
   onExplorerPortaled?: (portaled: boolean) => void;
   onAddToChatContext: (payload: { root: RootKey; relPath: string; kind: "file" | "directory" }) => void;
+  /** workspace = chat materials; meeting = agenda; agents = 在办补充带入 */
+  explorerVariant?: "workspace" | "meeting" | "agents";
   mattersPickList: Array<{ id: string; label: string }>;
   workspaceTreeRefreshKey: number;
-  apiBase: string;
-  onOpenUnlinkedMatters: () => void;
-  matterCockpitOpen: boolean;
-  onToggleMatterCockpit: () => void;
   casesNodeActions: FileWorkbenchCasesNodeActions | null;
 };
 
@@ -29,12 +27,9 @@ function LawmindFileWorkbenchHostImpl({
   fileEditorHost,
   onExplorerPortaled,
   onAddToChatContext,
+  explorerVariant = "workspace",
   mattersPickList,
   workspaceTreeRefreshKey,
-  apiBase,
-  onOpenUnlinkedMatters,
-  matterCockpitOpen,
-  onToggleMatterCockpit,
   casesNodeActions,
 }: LawmindFileWorkbenchHostProps) {
   useEffect(() => {
@@ -47,6 +42,14 @@ function LawmindFileWorkbenchHostImpl({
     return null;
   }
 
+  const isMeeting = explorerVariant === "meeting";
+  const isAgents = explorerVariant === "agents";
+  const addToContextLabel = isMeeting
+    ? "加入议题材料"
+    : isAgents
+      ? "加入补充材料"
+      : undefined;
+
   return (
     <FileWorkbench
       workspaceDir={workspaceDir}
@@ -54,40 +57,15 @@ function LawmindFileWorkbenchHostImpl({
       onPickProject={onPickProject}
       canUseFilesystemBridge
       onAddToChatContext={onAddToChatContext}
+      addToContextLabel={addToContextLabel}
       portalHosts={{
         explorer: fileExplorerHost,
-        editor: fileEditorHost ?? null,
+        editor: isMeeting || isAgents ? null : (fileEditorHost ?? null),
         explorerLayout: "embedded",
       }}
       mattersPickList={mattersPickList}
       workspaceTreeRefreshKey={workspaceTreeRefreshKey}
-      workspaceExplorerToolbar={
-        <>
-          <button
-            type="button"
-            className="lm-btn lm-btn-secondary lm-btn-small"
-            disabled={!apiBase}
-            title="打开案件工作台并筛选「未关联对话」案件"
-            onClick={onOpenUnlinkedMatters}
-          >
-            未关联
-          </button>
-          <button
-            type="button"
-            className="lm-btn lm-btn-secondary lm-btn-small"
-            disabled={!apiBase}
-            title={
-              matterCockpitOpen
-                ? "关闭主区案件工作台，回到文件与对话"
-                : "在主区打开案件工作台（驾驶舱）"
-            }
-            onClick={onToggleMatterCockpit}
-          >
-            {matterCockpitOpen ? "关闭案件" : "案件"}
-          </button>
-        </>
-      }
-      casesNodeActions={casesNodeActions}
+      casesNodeActions={isMeeting || isAgents ? null : casesNodeActions}
     />
   );
 }

@@ -1,9 +1,15 @@
 import { useState, type ReactNode } from "react";
 import type { LawMindRequiresAction } from "./lawmind-requires-action";
-import type { ClarificationQuestion } from "../../../../src/lawmind/types.ts";
-import { formatToolArgsDiffPreview } from "../../../../src/lawmind/platform/tool-approval-diff.ts";
+import {
+  formatToolArgsDiffPreview,
+  toolArgsAreDocumentWrite,
+  toolArgsHaveLawyerEditableShortFields,
+  toolArgsLinkedTaskId,
+} from "../../../../src/lawmind/platform/tool-approval-diff.ts";
 import { sanitizeLawyerFacingText } from "../../../../src/lawmind/platform/requires-action.ts";
 import { LawmindToolArgsEditDialog } from "./LawmindToolArgsEditDialog";
+import { LawmindClarificationForm } from "./LawmindClarificationForm";
+import type { NeedsDecisionDeskTarget } from "./lawmind-agents-desk";
 
 type Props = {
   actions: LawMindRequiresAction[];
@@ -16,48 +22,25 @@ type Props = {
     editedArgs: Record<string, unknown>,
   ) => void | Promise<void>;
   onRejectTool?: (action: LawMindRequiresAction) => void | Promise<void>;
-  onRespondClarification?: (action: LawMindRequiresAction) => void | Promise<void>;
+  onRespondClarification?: (
+    action: LawMindRequiresAction,
+    answers?: Record<string, string>,
+  ) => void | Promise<void>;
   onResolveMatterApproval?: (
     action: LawMindRequiresAction,
     status: "approved" | "rejected",
   ) => void | Promise<void>;
-  /** Jump to「在办」needs-decision desk (single queue mental model). */
-  onOpenNeedsDecisionDesk?: () => void;
+  /** Jump to「在办」and focus the matching decision row. */
+  onOpenNeedsDecisionDesk?: (target?: NeedsDecisionDeskTarget) => void;
+  onOpenReview?: (taskId?: string, matterId?: string) => void;
   busy?: boolean;
   /** 在办大阅读面已展示正文时：隐藏参数缩略与重复按钮 */
   deskReading?: boolean;
   /** 底部 dock 已提供批准/驳回时隐藏卡片内操作 */
   hideActions?: boolean;
+  /** desk：在办全表；compact：对话短确认；hint：仅清单+去在办 */
+  clarificationVariant?: "desk" | "compact" | "hint";
 };
-
-function ClarificationFields(props: {
-  questions: ClarificationQuestion[];
-  draft: Record<string, string>;
-  onChange: (key: string, value: string) => void;
-}): ReactNode {
-  const { questions, draft, onChange } = props;
-  if (questions.length === 0) {
-    return (
-      <p className="lm-meta">请在下方的输入框补充说明后发送，或点击「已补充，继续」。</p>
-    );
-  }
-  return (
-    <ul className="lm-requires-action-clarify-list">
-      {questions.map((q) => (
-        <li key={q.key}>
-          <label className="lm-meta">{q.question}</label>
-          <input
-            type="text"
-            className="lm-input"
-            value={draft[q.key] ?? ""}
-            onChange={(e) => onChange(q.key, e.target.value)}
-            placeholder="请填写"
-          />
-        </li>
-      ))}
-    </ul>
-  );
-}
 
 function ToolApprovalActions(props: {
   action: LawMindRequiresAction;
@@ -70,14 +53,32 @@ function ToolApprovalActions(props: {
     editedArgs: Record<string, unknown>,
   ) => void | Promise<void>;
   onRejectTool?: (action: LawMindRequiresAction) => void | Promise<void>;
+  onOpenReview?: (taskId?: string, matterId?: string) => void;
 }): ReactNode {
-  const { action, busy, deskReading, hideActions, onApproveTool, onApproveToolEdit, onRejectTool } =
-    props;
+  const {
+    action,
+    busy,
+    deskReading,
+    hideActions,
+    onApproveTool,
+    onApproveToolEdit,
+    onRejectTool,
+    onOpenReview,
+  } = props;
   const [editing, setEditing] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
-  const diffLines = deskReading ? [] : formatToolArgsDiffPreview(action.toolArgs);
+  const toolArgs = action.toolArgs;
+  const diffLines = deskReading ? [] : formatToolArgsDiffPreview(toolArgs);
+  const docWrite = toolArgsAreDocumentWrite(toolArgs);
+  const hasLawyerShortEdits = toolArgsHaveLawyerEditableShortFields(toolArgs);
+  const hasEditableBody =
+    !docWrite &&
+    !!toolArgs &&
+    (typeof toolArgs.body === "string" || typeof toolArgs.content === "string");
+  const linkedTaskId = toolArgsLinkedTaskId(toolArgs);
+  const showEdit = docWrite ? hasLawyerShortEdits : hasLawyerShortEdits || hasEditableBody;
 
-  /** 在办阅读面：底栏已提供批准/驳回/改拟稿，此处不再渲染任何条带。 */
+  /** 在办阅读面：底栏已提供批准/驳回/改参数，此处不再渲染任何条带。 */
   if (deskReading && hideActions) {
     return null;
   }
@@ -118,23 +119,37 @@ function ToolApprovalActions(props: {
             </button>
           </>
         ) : null}
-        <button
-          type="button"
-          className="lm-btn lm-btn-ghost lm-btn-sm"
-          disabled={busy}
-          onClick={() => {
-            setEditError(null);
-            setEditing(true);
-          }}
-        >
-          改拟稿…
-        </button>
+        {docWrite && linkedTaskId && onOpenReview ? (
+          <button
+            type="button"
+            className="lm-btn lm-btn-ghost lm-btn-sm"
+            disabled={busy}
+            onClick={() => onOpenReview(linkedTaskId, action.matterId)}
+          >
+            进入文书台
+          </button>
+        ) : null}
+        {showEdit ? (
+          <button
+            type="button"
+            className="lm-btn lm-btn-ghost lm-btn-sm"
+            disabled={busy}
+            onClick={() => {
+              setEditError(null);
+              setEditing(true);
+            }}
+          >
+            {docWrite ? "改参数…" : "改拟稿…"}
+          </button>
+        ) : null}
       </div>
       <LawmindToolArgsEditDialog
         open={editing}
         toolArgs={action.toolArgs}
         busy={busy}
         error={editError}
+        matterId={action.matterId}
+        onOpenReview={onOpenReview}
         onCancel={() => {
           setEditing(false);
           setEditError(null);
@@ -156,6 +171,7 @@ function ToolApprovalActions(props: {
 export function LawmindRequiresActionCard(props: Props): ReactNode {
   const {
     actions,
+    sessionId,
     clarificationDraft = {},
     onClarificationDraftChange,
     onApproveTool,
@@ -164,9 +180,11 @@ export function LawmindRequiresActionCard(props: Props): ReactNode {
     onRespondClarification,
     onResolveMatterApproval,
     onOpenNeedsDecisionDesk,
+    onOpenReview,
     busy = false,
     deskReading = false,
     hideActions = false,
+    clarificationVariant = "desk",
   } = props;
 
   if (actions.length === 0) {
@@ -196,25 +214,68 @@ export function LawmindRequiresActionCard(props: Props): ReactNode {
           )}
 
           {action.kind === "clarification" ? (
-            <>
-              <ClarificationFields
-                questions={action.clarificationQuestions ?? []}
-                draft={clarificationDraft}
-                onChange={(key, value) => onClarificationDraftChange?.(key, value)}
-              />
-              {hideActions ? null : (
-                <div className="lm-requires-action-actions">
+            clarificationVariant === "hint" ? (
+              <div className="lm-clarify-hint" data-testid="lm-clarify-hint">
+                <p className="lm-meta">
+                  还差 {(action.clarificationQuestions ?? []).length}{" "}
+                  项，请到「在办」表格补充（可挂材料）。
+                </p>
+                <ul className="lm-clarify-weak-list">
+                  {(action.clarificationQuestions ?? []).slice(0, 6).map((q) => (
+                    <li key={q.key}>{q.question}</li>
+                  ))}
+                </ul>
+                {onOpenNeedsDecisionDesk ? (
                   <button
                     type="button"
-                    className="lm-btn lm-btn-sm"
+                    className="lm-btn lm-btn-accent lm-btn-sm"
+                    data-testid="lm-clarify-open-desk"
                     disabled={busy}
-                    onClick={() => void onRespondClarification?.(action)}
+                    onClick={() =>
+                      onOpenNeedsDecisionDesk({
+                        sessionId: action.sessionId ?? sessionId,
+                        taskId: action.taskId,
+                        matterId: action.matterId,
+                        preferStatus: "awaiting_clarification",
+                      })
+                    }
                   >
-                    已补充，继续
+                    去在办补充
                   </button>
-                </div>
-              )}
-            </>
+                ) : null}
+              </div>
+            ) : (
+              <LawmindClarificationForm
+                formKey={`${action.id}-${sessionId ?? ""}`}
+                questions={action.clarificationQuestions ?? []}
+                loading={busy}
+                variant={clarificationVariant === "compact" ? "compact" : "desk"}
+                values={clarificationDraft}
+                onValuesChange={(next) => {
+                  for (const [key, value] of Object.entries(next)) {
+                    if ((clarificationDraft?.[key] ?? "") !== value) {
+                      onClarificationDraftChange?.(key, value);
+                    }
+                  }
+                }}
+                onSubmitAnswers={
+                  hideActions
+                    ? undefined
+                    : (answers) => void onRespondClarification?.(action, answers)
+                }
+                onOpenDesk={
+                  onOpenNeedsDecisionDesk
+                    ? () =>
+                        onOpenNeedsDecisionDesk({
+                          sessionId: action.sessionId ?? sessionId,
+                          taskId: action.taskId,
+                          matterId: action.matterId,
+                          preferStatus: "awaiting_clarification",
+                        })
+                    : undefined
+                }
+              />
+            )
           ) : null}
 
           {action.kind === "tool_approval" ? (
@@ -226,6 +287,7 @@ export function LawmindRequiresActionCard(props: Props): ReactNode {
               onApproveTool={onApproveTool}
               onApproveToolEdit={onApproveToolEdit}
               onRejectTool={onRejectTool}
+              onOpenReview={onOpenReview}
             />
           ) : null}
 
@@ -258,7 +320,7 @@ export function LawmindRequiresActionCard(props: Props): ReactNode {
             type="button"
             className="lm-link-btn"
             data-testid="lm-decision-card-open-desk"
-            onClick={onOpenNeedsDecisionDesk}
+            onClick={() => onOpenNeedsDecisionDesk?.()}
           >
             也可在侧栏「待我拍板」集中处理
           </button>

@@ -219,8 +219,9 @@ export function ReviewWorkbenchDocumentColumn(props: ReviewWorkbenchDocumentColu
                 type="button"
                 className="lm-btn lm-btn-secondary lm-btn-small"
                 onClick={onOpenAgentsDesk}
+                title="正式通过 / 驳回 / 需修改在「在办」完成；工具批准等无需预览的批复也在那里"
               >
-                回在办签批
+                回到在办签批
               </button>
             ) : null}
           </div>

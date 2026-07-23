@@ -12,13 +12,14 @@ import type {
 import type { ModelCatalogEntry } from "../lawmind-models-api";
 import type { ReviewPaneVisibility, ReviewPaneId } from "../lawmind-review-pane-prefs";
 import type { CollabSummaryState } from "../LawmindSettingsCollaboration";
-import type { AgentsDeskTab } from "../lawmind-agents-desk";
+import type { AgentsDeskTab, NeedsDecisionDeskTarget } from "../lawmind-agents-desk";
 import type { LawMindRequiresAction, LawMindRequiresActionDecision } from "../lawmind-requires-action";
 import type { ChatMsg } from "../lawmind-chat";
 import type { FileChatContextItem } from "../lawmind-file-chat-context";
 import type { LawmindComposeExtras } from "../useLawmindComposeExtras";
 import type { LawmindHealthState } from "../useLawmindAppBootstrapEffects";
 import type { LawmindMainBodyContentProps } from "./LawmindMainBodyContent";
+import type { SetShowSettings } from "../lawmind-settings-shell";
 import { scheduleScrollChatMessagesToLatest } from "../lawmind-chat-scroll";
 
 export type UseLawmindMainBodyContentPropsInput = {
@@ -42,6 +43,8 @@ export type UseLawmindMainBodyContentPropsInput = {
   setAgentsDeskTab: (tab: AgentsDeskTab) => void;
   setAgentsNeedsDecisionFocus: (focus: boolean) => void;
   agentsNeedsDecisionFocus: boolean;
+  agentsDeskFocusTarget: NeedsDecisionDeskTarget | null;
+  setAgentsDeskFocusTarget: (t: NeedsDecisionDeskTarget | null) => void;
   setMainView: (view: LawmindMainView) => void;
   setContextMatterId: (id: string | null) => void;
   setMatterCockpitOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -80,7 +83,7 @@ export type UseLawmindMainBodyContentPropsInput = {
   modelCatalog: ModelCatalogEntry[];
   selectedModelId: string;
   handleModelSelect: (id: string) => void;
-  setShowSettings: (open: boolean) => void;
+  setShowSettings: SetShowSettings;
   openApiWizard: () => void;
   composeModelHint: string | null;
   composeModelQuickTestBusy: boolean;
@@ -92,6 +95,7 @@ export type UseLawmindMainBodyContentPropsInput = {
   localServiceReconnecting: boolean;
   canUseFilesystemBridge: boolean;
   setFileEditorHost: (el: HTMLDivElement | null) => void;
+  /** Portal host for meeting materials file tree */
   wsShowEditor: boolean;
   setWsShowEditor: React.Dispatch<React.SetStateAction<boolean>>;
   wsShowChat: boolean;
@@ -131,6 +135,8 @@ export type UseLawmindMainBodyContentPropsInput = {
   chatMatterHeadline: string | null;
   send: () => void | Promise<void>;
   abortChatSend: () => void;
+  deleteChatMessageAt: (uiIndex: number) => void | Promise<void>;
+  editChatMessageAt: (uiIndex: number, nextText: string) => void | Promise<void>;
   clearContext: () => void;
   allowWebSearch: boolean;
   setAllowWebSearch: (enabled: boolean) => void;
@@ -144,7 +150,6 @@ export type UseLawmindMainBodyContentPropsInput = {
   sessionRequiresActions?: LawMindRequiresAction[];
   refreshActionSummary?: () => void;
   onChatResumeComplete?: () => void | Promise<void>;
-  onSpawnPreset?: (preset: import("../lawmind-agent-fleet-api").AgentPreset) => void;
   /** Left rail hosts the session list (hide top tabs when true). */
   chatSessionsInSidebar?: boolean;
 };
@@ -173,6 +178,8 @@ export function useLawmindMainBodyContentProps(
     setAgentsDeskTab,
     setAgentsNeedsDecisionFocus,
     agentsNeedsDecisionFocus,
+    agentsDeskFocusTarget,
+    setAgentsDeskFocusTarget,
     setMainView,
     setContextMatterId,
     setMatterCockpitOpen,
@@ -253,6 +260,8 @@ export function useLawmindMainBodyContentProps(
     chatMatterHeadline,
     send,
     abortChatSend,
+    deleteChatMessageAt,
+    editChatMessageAt,
     clearContext,
     allowWebSearch,
     setAllowWebSearch,
@@ -266,7 +275,6 @@ export function useLawmindMainBodyContentProps(
     sessionRequiresActions,
     refreshActionSummary,
     onChatResumeComplete,
-    onSpawnPreset,
     chatSessionsInSidebar = false,
   } = input;
 
@@ -382,6 +390,7 @@ export function useLawmindMainBodyContentProps(
       },
       onOpenAgentsDeskFromReview: () => {
         setMatterCockpitOpen(false);
+        setAgentsDeskFocusTarget(null);
         setAgentsNeedsDecisionFocus(true);
         setAgentsDeskTab("active");
         setMainView("agents");
@@ -406,11 +415,17 @@ export function useLawmindMainBodyContentProps(
         setAgentsDeskTab(tab);
       },
       needsDecisionFocus: agentsNeedsDecisionFocus,
-      onClearNeedsDecisionFocus: () => setAgentsNeedsDecisionFocus(false),
+      onClearNeedsDecisionFocus: () => {
+        setAgentsNeedsDecisionFocus(false);
+        setAgentsDeskFocusTarget(null);
+      },
+      agentsDeskFocusTarget,
+      onAgentsDeskFocusTargetConsumed: () => setAgentsDeskFocusTarget(null),
       modelCatalog,
       selectedModelId,
       onModelSelect: handleModelSelect,
       onOpenComposeSettings: () => setShowSettings(true),
+      onOpenMemoryInspector: () => setShowSettings(true, "memory"),
       onOpenApiWizard: openApiWizard,
       composeModelHint,
       composeModelQuickTestBusy,
@@ -462,6 +477,8 @@ export function useLawmindMainBodyContentProps(
       chatMatterHeadline,
       onSend: send,
       onAbortChat: abortChatSend,
+      onDeleteChatMessage: deleteChatMessageAt,
+      onEditChatMessage: editChatMessageAt,
       onClearContext: clearContext,
       onContextMatterChange: setContextMatterId,
       allowWebSearch,
@@ -469,14 +486,22 @@ export function useLawmindMainBodyContentProps(
       queuedMessages,
       cancelQueuedMessage,
       onOpenTaskDrawer: () => setTaskDrawerOpen(true),
-      onOpenNeedsDecisionDesk: () => {
+      onOpenNeedsDecisionDesk: (target?: NeedsDecisionDeskTarget) => {
         setMatterCockpitOpen(false);
+        const hasTarget = Boolean(
+          target?.sessionId?.trim() || target?.taskId?.trim() || target?.preferStatus,
+        );
+        setAgentsDeskFocusTarget(hasTarget && target ? target : null);
         setAgentsNeedsDecisionFocus(true);
         setAgentsDeskTab("active");
         setMainView("agents");
       },
-      onOpenActionHub: () => {
+      onOpenActionHub: (target?: NeedsDecisionDeskTarget) => {
         setMatterCockpitOpen(false);
+        const hasTarget = Boolean(
+          target?.sessionId?.trim() || target?.taskId?.trim() || target?.preferStatus,
+        );
+        setAgentsDeskFocusTarget(hasTarget && target ? target : null);
         setAgentsNeedsDecisionFocus(true);
         setAgentsDeskTab("active");
         setMainView("agents");
@@ -507,7 +532,6 @@ export function useLawmindMainBodyContentProps(
       sessionRequiresActions,
       onRefreshActionSummary: refreshActionSummary,
       onChatResumeComplete,
-      onSpawnPreset,
     }),
     [
       config,
@@ -530,6 +554,8 @@ export function useLawmindMainBodyContentProps(
       setAgentsDeskTab,
       setAgentsNeedsDecisionFocus,
       agentsNeedsDecisionFocus,
+      agentsDeskFocusTarget,
+      setAgentsDeskFocusTarget,
       setMainView,
       setContextMatterId,
       setMatterCockpitOpen,
@@ -610,6 +636,8 @@ export function useLawmindMainBodyContentProps(
       chatMatterHeadline,
       send,
       abortChatSend,
+      deleteChatMessageAt,
+      editChatMessageAt,
       clearContext,
       allowWebSearch,
       setAllowWebSearch,
@@ -625,7 +653,7 @@ export function useLawmindMainBodyContentProps(
       sessionRequiresActions,
       refreshActionSummary,
       onChatResumeComplete,
-      onSpawnPreset,
+      setReviewFocusListMode,
     ],
   );
 }

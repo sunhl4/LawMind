@@ -13,6 +13,9 @@ type ContractReviewDraftItem = {
 
 type Props = {
   apiBase: string;
+  /** Settings page already shows section title/description. */
+  embedInSettings?: boolean;
+  onDraftCountChange?: (count: number) => void;
 };
 
 function formatPathLabel(path: string): string {
@@ -24,12 +27,25 @@ function formatPathLabel(path: string): string {
   return parts[parts.length - 1] ?? trimmed;
 }
 
-export function LawmindContractReviewLearningPanel({ apiBase }: Props): ReactNode {
+export function LawmindContractReviewLearningPanel({
+  apiBase,
+  embedInSettings = false,
+  onDraftCountChange,
+}: Props): ReactNode {
   const [items, setItems] = useState<ContractReviewDraftItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [acceptBusyId, setAcceptBusyId] = useState<string | null>(null);
   const [statusHint, setStatusHint] = useState<string | null>(null);
+  const [finalizeInitial, setFinalizeInitial] = useState("");
+  const [finalizeFinal, setFinalizeFinal] = useState("");
+  const [finalizeMatterId, setFinalizeMatterId] = useState("");
+  const [finalizeKeys, setFinalizeKeys] = useState("");
+  const [finalizeBusy, setFinalizeBusy] = useState(false);
+
+  useEffect(() => {
+    onDraftCountChange?.(items.length);
+  }, [items.length, onDraftCountChange]);
 
   const refresh = useCallback(async () => {
     if (!apiBase?.trim()) {
@@ -44,7 +60,7 @@ export function LawmindContractReviewLearningPanel({ apiBase }: Props): ReactNod
       );
       setItems(Array.isArray(j.items) ? j.items : []);
     } catch (err) {
-      setLoadError(errorMessage(err, "无法加载合同审查学习草稿"));
+      setLoadError(errorMessage(err, "无法加载待确认改稿"));
       setItems([]);
     } finally {
       setLoading(false);
@@ -58,7 +74,7 @@ export function LawmindContractReviewLearningPanel({ apiBase }: Props): ReactNod
   async function acceptDraft(draft: ContractReviewDraftItem): Promise<void> {
     const label = formatPathLabel(draft.revisedPath || draft.initialPath);
     const ok = window.confirm(
-      `确认将「${label}」验收通过并写入合同修订积累库？\n\n此操作会把律师批注与要点转入 learning/contract-revisions/。`,
+      `确认将「${label}」写入修订学习库？\n\n批注与改点会用于后续同类合同参考。`,
     );
     if (!ok) {
       return;
@@ -73,89 +89,178 @@ export function LawmindContractReviewLearningPanel({ apiBase }: Props): ReactNod
         draftId: draft.draftId,
       });
       if (j.ok) {
-        setStatusHint(
-          j.revisionId
-            ? `已写入积累包（${j.revisionId}）。`
-            : "验收通过，已写入合同修订积累库。",
-        );
+        setStatusHint(j.revisionId ? `已写入学习库（${j.revisionId}）` : "已写入学习库");
         await refresh();
       } else {
-        setStatusHint(j.message ?? "验收失败，请稍后重试。");
+        setStatusHint(j.message ?? "写入失败，请稍后重试");
       }
     } catch (err) {
-      setStatusHint(errorMessage(err, "验收失败"));
+      setStatusHint(errorMessage(err, "写入失败"));
     } finally {
       setAcceptBusyId(null);
     }
   }
 
+  async function finalizePack(): Promise<void> {
+    const initialPath = finalizeInitial.trim();
+    const finalPath = finalizeFinal.trim();
+    if (!initialPath || !finalPath) {
+      setStatusHint("请填写初稿与定稿相对路径。");
+      return;
+    }
+    setFinalizeBusy(true);
+    setStatusHint(null);
+    try {
+      const keys = finalizeKeys
+        .split(/[\n,]/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const j = await apiSendJson<
+        { ok?: boolean; revisionId?: string; error?: string; message?: string },
+        {
+          initialPath: string;
+          finalPath: string;
+          matterId?: string;
+          keyModifications?: string[];
+        }
+      >(apiBase, "/api/learning/contract-revision/finalize", "POST", {
+        initialPath,
+        finalPath,
+        matterId: finalizeMatterId.trim() || undefined,
+        keyModifications: keys.length > 0 ? keys : undefined,
+      });
+      if (!j.ok) {
+        setStatusHint(j.message ?? j.error ?? "写入失败");
+        return;
+      }
+      setStatusHint(j.revisionId ? `已写入学习库（${j.revisionId}）` : "已写入学习库");
+      setFinalizeInitial("");
+      setFinalizeFinal("");
+      setFinalizeKeys("");
+    } catch (err) {
+      setStatusHint(errorMessage(err, "写入失败"));
+    } finally {
+      setFinalizeBusy(false);
+    }
+  }
+
   return (
-    <section className="lm-settings-group lm-settings-surface" style={{ marginTop: 24 }}>
-      <h3 style={{ marginTop: 0 }}>合同审查学习</h3>
-      <p className="lm-meta">
-        审核通过且草稿配置了 <code>contractRevisionCapture</code> 时，系统会自动积累合同修订样本。
-        此处列出待验收草稿，律师确认后可写入私有学习库。
-      </p>
+    <section
+      className={`lm-contract-learning${embedInSettings ? " lm-contract-learning--embed" : " lm-settings-group lm-settings-surface"}`}
+    >
+      {!embedInSettings ? (
+        <>
+          <h3 className="lm-contract-learning__title">合同修订学习</h3>
+          <p className="lm-settings-caption">签批后的改稿样本，确认后写入学习库。</p>
+        </>
+      ) : null}
 
       {loadError ? (
-        <div className="lm-callout lm-callout-danger" role="alert">
-          <p className="lm-callout-body">{loadError}</p>
-        </div>
+        <p className="lm-settings-caption lm-settings-caption--warn" role="alert">
+          {loadError}
+        </p>
       ) : null}
-      {loading ? <p className="lm-meta">加载中…</p> : null}
+      {loading ? <p className="lm-settings-caption">加载中…</p> : null}
 
       {!loading && !loadError && items.length === 0 ? (
-        <div className="lm-callout lm-callout-muted" role="note">
-          <p className="lm-callout-body">
-            暂无待验收草稿。在文书台审核通过合同类交付物，且任务草稿带有合同修订捕获配置时，会自动在此出现。
-          </p>
+        <div className="lm-memory-empty lm-memory-empty--compact">
+          <p className="lm-memory-empty__title">暂无待积累改稿</p>
+          <p className="lm-memory-empty__desc">文书台签批通过后会出现在这里。</p>
         </div>
       ) : null}
 
       {items.length > 0 ? (
-        <ul className="lm-contract-review-draft-list" style={{ listStyle: "none", padding: 0, margin: 0 }}>
+        <ul className="lm-contract-review-draft-list">
           {items.map((draft) => (
-            <li
-              key={draft.draftId}
-              className="lm-contract-review-draft-row"
-              style={{
-                padding: "12px 0",
-                borderBottom: "1px solid var(--lm-border, #e5e7eb)",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                <div>
-                  <div style={{ fontWeight: 600 }}>
-                    {formatPathLabel(draft.revisedPath)} → 积累
-                  </div>
-                  <p className="lm-meta" style={{ margin: "4px 0 0" }}>
-                    初稿：{draft.initialPath}
-                    {draft.matterId ? ` · 案件 ${draft.matterId}` : ""}
-                    {draft.updatedAt ? ` · 更新 ${draft.updatedAt.slice(0, 10)}` : ""}
-                  </p>
-                  {draft.lawyerAnnotations?.trim() ? (
-                    <p className="lm-meta" style={{ margin: "4px 0 0" }}>
-                      批注：{draft.lawyerAnnotations.trim().slice(0, 160)}
-                      {draft.lawyerAnnotations.trim().length > 160 ? "…" : ""}
-                    </p>
-                  ) : null}
-                </div>
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-sm"
-                  disabled={acceptBusyId === draft.draftId}
-                  onClick={() => void acceptDraft(draft)}
-                >
-                  {acceptBusyId === draft.draftId ? "写入中…" : "验收通过"}
-                </button>
+            <li key={draft.draftId} className="lm-contract-review-draft-row">
+              <div className="lm-contract-review-draft-main">
+                <div className="lm-contract-review-draft-name">{formatPathLabel(draft.revisedPath)}</div>
+                <p className="lm-meta">
+                  {draft.updatedAt ? draft.updatedAt.slice(0, 10) : ""}
+                  {draft.lawyerAnnotations?.trim()
+                    ? ` · ${draft.lawyerAnnotations.trim().slice(0, 80)}${
+                        draft.lawyerAnnotations.trim().length > 80 ? "…" : ""
+                      }`
+                    : ""}
+                </p>
               </div>
+              <button
+                type="button"
+                className="lm-btn lm-btn-accent lm-btn-sm"
+                disabled={acceptBusyId === draft.draftId}
+                onClick={() => void acceptDraft(draft)}
+              >
+                {acceptBusyId === draft.draftId ? "写入中…" : "确认积累"}
+              </button>
             </li>
           ))}
         </ul>
       ) : null}
 
+      <details className="lm-memory-fold lm-memory-fold--nested lm-contract-finalize" data-testid="lm-contract-finalize">
+        <summary>
+          <span className="lm-memory-fold__label">从文件路径写入</span>
+          <span className="lm-memory-fold__hint">少用</span>
+        </summary>
+        <div className="lm-memory-fold__body">
+          <div className="lm-contract-finalize__form">
+            <label>
+              初稿
+              <input
+                className="lm-input"
+                value={finalizeInitial}
+                onChange={(e) => setFinalizeInitial(e.target.value)}
+                placeholder="drafts/nda-v1.md"
+              />
+            </label>
+            <label>
+              定稿
+              <input
+                className="lm-input"
+                value={finalizeFinal}
+                onChange={(e) => setFinalizeFinal(e.target.value)}
+                placeholder="drafts/nda-v2.md"
+              />
+            </label>
+            {!embedInSettings ? (
+              <>
+                <label>
+                  案件 ID（可选）
+                  <input
+                    className="lm-input"
+                    value={finalizeMatterId}
+                    onChange={(e) => setFinalizeMatterId(e.target.value)}
+                  />
+                </label>
+                <label>
+                  关键修改点（可选）
+                  <textarea
+                    className="lm-input"
+                    rows={2}
+                    value={finalizeKeys}
+                    onChange={(e) => setFinalizeKeys(e.target.value)}
+                    placeholder="逗号或换行分隔"
+                  />
+                </label>
+              </>
+            ) : null}
+            <div className="lm-memory-fold__actions">
+              <button
+                type="button"
+                className="lm-btn lm-btn-secondary lm-btn-sm"
+                data-testid="lm-contract-finalize-submit"
+                disabled={finalizeBusy}
+                onClick={() => void finalizePack()}
+              >
+                {finalizeBusy ? "写入中…" : "写入样本"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </details>
+
       {statusHint ? (
-        <p className="lm-meta" role="status" style={{ marginTop: 8 }}>
+        <p className="lm-settings-caption" role="status">
           {statusHint}
         </p>
       ) : null}

@@ -75,6 +75,7 @@
     "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC",
     "Source Han Sans SC", ui-sans-serif, sans-serif;
   --mono: "SF Mono", "Cascadia Code", ui-monospace, "Consolas", monospace;
+  --font-mono: var(--mono);
 
   /* Spacing rhythm (4px base — Linear / Notion style) */
   --space-1: 4px;
@@ -125,9 +126,11 @@
   --t-sm:              var(--t);
   --danger:            var(--error);
   --success:           var(--ok);
+  --fg:                var(--text);
 
   /* Legacy lm-* tokens (workflow hub, skip nav, older panels) */
   --lm-text:             var(--text);
+  --lm-fg:               var(--text);
   --lm-text-muted:       var(--muted);
   --lm-muted:            var(--muted);
   --lm-bg:               var(--bg);

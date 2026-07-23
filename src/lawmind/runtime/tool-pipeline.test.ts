@@ -149,14 +149,23 @@ describe("tool-pipeline middlewares", () => {
     expect(result.error).toMatch(/not allowed for current role/);
   });
 
-  it("clarificationGateMiddleware rejects heavy tools when blocking", async () => {
+  it("clarificationGateMiddleware rejects write tools when blocking", async () => {
     const call = buildCall(workspaceDir, {
-      toolName: "research_task",
+      toolName: "draft_document",
       ctxOverride: { clarificationBlockingHeavyTools: true },
     });
     const result = await clarificationGateMiddleware(call, async () => ({ ok: true }));
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/待澄清/);
+  });
+
+  it("clarificationGateMiddleware allows research_task while clarification pending", async () => {
+    const call = buildCall(workspaceDir, {
+      toolName: "research_task",
+      ctxOverride: { clarificationBlockingHeavyTools: true },
+    });
+    const result = await clarificationGateMiddleware(call, async () => ({ ok: true }));
+    expect(result.ok).toBe(true);
   });
 
   it("approvalMiddleware demands __approved for dangerous tools", async () => {
@@ -170,15 +179,33 @@ describe("tool-pipeline middlewares", () => {
     expect(result.pendingApproval).toBe(true);
   });
 
-  it("argSchemaMiddleware rejects invalid args", async () => {
+  it("argSchemaMiddleware strips unknown args instead of failing", async () => {
+    const tool: AgentTool = {
+      definition: baseDef,
+      execute: async () => ({ ok: true, data: { ran: true } }),
+    };
+    const call = buildCall(workspaceDir, {
+      tool,
+      args: { query: "ok", unexpected: 1 },
+    });
+    const result = await argSchemaMiddleware(call, async () => ({
+      ok: true,
+      data: { ran: true },
+    }));
+    expect(result.ok).toBe(true);
+    expect(call.args.unexpected).toBeUndefined();
+    expect((result.data as { argNote?: string }).argNote).toMatch(/unexpected/);
+  });
+
+  it("argSchemaMiddleware still rejects missing required args", async () => {
     const tool: AgentTool = {
       definition: baseDef,
       execute: async () => ({ ok: true }),
     };
-    const call = buildCall(workspaceDir, { tool, args: { unexpected: 1 } });
+    const call = buildCall(workspaceDir, { tool, args: {} });
     const result = await argSchemaMiddleware(call, async () => ({ ok: true }));
     expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/Invalid arguments/);
+    expect(result.error).toMatch(/Invalid arguments|missing required/);
   });
 
   it("timeoutMiddleware rejects when tool exceeds timeout (audit catches downstream)", async () => {

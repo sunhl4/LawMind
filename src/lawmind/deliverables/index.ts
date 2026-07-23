@@ -43,6 +43,7 @@ export type { WorkspaceSpecLoadResult, WorkspaceSpecWarning } from "./workspace-
 export {
   assertChecklistCompleteForApprove,
   buildChecklistView,
+  checkAllRequiredChecklistItems,
   emptyChecklistState,
   listVerificationChecklistSpecs,
   resolveVerificationChecklistSpec,
@@ -51,3 +52,8 @@ export {
   type VerificationChecklistState,
   type VerificationChecklistView,
 } from "./verification-checklist.js";
+export {
+  assessDeliverableReadiness,
+  type DeliverableReadiness,
+  type DeliverableReadinessBlocker,
+} from "./deliverable-readiness.js";

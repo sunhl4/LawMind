@@ -58,7 +58,7 @@ export type LawmindAppOverlaysProps = {
   asstError: string | null;
   onAssistantDraftChange: (draft: AssistantEditorDraft) => void;
   onCloseAssistantEditor: () => void;
-  onSaveAssistant: () => void;
+  onSaveAssistant: (draftOverride?: import("../lawmind-assistant-editor").AssistantEditorDraft) => void;
   showHelp: boolean;
   onCloseHelp: () => void;
   onOpenWorkflowLibrary: (() => void) | undefined;
@@ -177,7 +177,7 @@ export function LawmindAppOverlays(props: LawmindAppOverlaysProps) {
         error={asstError}
         onChange={onAssistantDraftChange}
         onClose={onCloseAssistantEditor}
-        onSave={() =>  onSaveAssistant()}
+        onSave={(draftOverride) => onSaveAssistant(draftOverride)}
       />
       {showHelp && <HelpPanel onClose={onCloseHelp} />}
       <LawmindFirstRunDialog

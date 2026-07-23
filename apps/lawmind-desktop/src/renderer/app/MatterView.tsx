@@ -19,7 +19,9 @@ export type MatterViewProps = {
   onUseInChat: (matterId: string) => void;
   onOpenWorkflowLibrary: () => void;
   onOpenTopLevelMeeting?: (matterId: string) => void;
-  onOpenNeedsDecisionDesk?: () => void;
+  onOpenNeedsDecisionDesk?: (
+    target?: import("../lawmind-agents-desk").NeedsDecisionDeskTarget,
+  ) => void;
   onOpenChatSession: (sessionId: string, matterId?: string) => void;
   onOpenReview: (target: {
     taskId: string;

@@ -15,8 +15,8 @@ import {
 
 describe("lawmind-chat-trace", () => {
   it("maps known tool names to human labels", () => {
-    expect(humanToolLabel("execute_workflow")).toBe("执行工作流");
-    expect(humanToolLabel("unknown_tool")).toBe("调用工具");
+    expect(humanToolLabel("execute_workflow")).toBe("启动办案流程");
+    expect(humanToolLabel("unknown_tool")).toBe("办理中");
   });
 
   it("accumulates round, tool, and workflow steps", () => {

@@ -8,7 +8,23 @@ import type { AgentModelConfig } from "./types.js";
 /** 模型单次调用超时（起草等任务可能较慢，60s 减少 aborted） */
 const DEFAULT_MODEL_TIMEOUT_MS = 60000;
 const DEFAULT_MODEL_MAX_RETRIES = 2;
-function formatModelFetchError(err: unknown, config: AgentModelConfig, timeoutMs: number): Error {
+
+export class ModelCallUserAbortError extends Error {
+  readonly name = "ModelCallUserAbortError";
+  constructor(message = "Model request cancelled (user stop).") {
+    super(message);
+  }
+}
+
+function formatModelFetchError(
+  err: unknown,
+  config: AgentModelConfig,
+  timeoutMs: number,
+  opts?: { userAbort?: boolean },
+): Error {
+  if (opts?.userAbort || err instanceof ModelCallUserAbortError) {
+    return err instanceof ModelCallUserAbortError ? err : new ModelCallUserAbortError();
+  }
   if (err instanceof Error && err.name === "AbortError") {
     return new Error(
       `Model request timed out after ${timeoutMs}ms. Check network or increase LAWMIND_AGENT_TIMEOUT_MS in .env.lawmind.`,
@@ -24,6 +40,37 @@ function formatModelFetchError(err: unknown, config: AgentModelConfig, timeoutMs
     );
   }
   return err instanceof Error ? err : new Error(combined || "Model call failed");
+}
+
+/** Combine timeout abort with optional external (Stop button) signal. */
+export function combineAbortSignals(
+  timeoutMs: number,
+  external?: AbortSignal,
+): { signal: AbortSignal; cleanup: () => void; wasUserAbort: () => boolean } {
+  const timeoutController = new AbortController();
+  const timer = setTimeout(() => timeoutController.abort(), timeoutMs);
+  let removeExternal: (() => void) | undefined;
+
+  if (external) {
+    const onExternal = () => {
+      timeoutController.abort();
+    };
+    if (external.aborted) {
+      timeoutController.abort();
+    } else {
+      external.addEventListener("abort", onExternal, { once: true });
+      removeExternal = () => external.removeEventListener("abort", onExternal);
+    }
+  }
+
+  return {
+    signal: timeoutController.signal,
+    cleanup: () => {
+      clearTimeout(timer);
+      removeExternal?.();
+    },
+    wasUserAbort: () => Boolean(external?.aborted),
+  };
 }
 
 /** Streaming chunk shape (OpenAI SSE `data: {...}` lines). */
@@ -64,6 +111,8 @@ export type CallModelOptions = {
   stream?: boolean;
   /** Per-chunk content delta (final round only). */
   onDelta?: (chunk: string) => void;
+  /** When aborted (e.g. Stop button), cancel in-flight fetch/stream. */
+  signal?: AbortSignal;
 };
 
 /** Accumulate streaming chunks into a final `ChatCompletionResponse` shape. */
@@ -215,8 +264,11 @@ async function callModelOnce(
     body.stream = true;
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  if (opts.signal?.aborted) {
+    throw new ModelCallUserAbortError();
+  }
+
+  const combined = combineAbortSignals(timeoutMs, opts.signal);
   let response: Response;
   try {
     response = await fetch(url, {
@@ -227,14 +279,16 @@ async function callModelOnce(
         ...(wantStream ? { Accept: "text/event-stream" } : {}),
       },
       body: JSON.stringify(body),
-      signal: controller.signal,
+      signal: combined.signal,
     });
   } catch (err) {
-    throw formatModelFetchError(err, config, timeoutMs);
+    throw formatModelFetchError(err, config, timeoutMs, {
+      userAbort: combined.wasUserAbort(),
+    });
   }
 
   if (!response.ok) {
-    clearTimeout(timer);
+    combined.cleanup();
     const text = await response.text();
     const is404 = response.status === 404;
     const attempted = `model="${config.model}" baseUrl=${config.baseUrl}`;
@@ -249,7 +303,7 @@ async function callModelOnce(
   }
 
   if (!wantStream || !response.body) {
-    clearTimeout(timer);
+    combined.cleanup();
     return (await response.json()) as ChatCompletionResponse;
   }
 
@@ -260,6 +314,14 @@ async function callModelOnce(
     let buffer = "";
     let suppressDeltas = false;
     while (true) {
+      if (opts.signal?.aborted) {
+        try {
+          await reader.cancel();
+        } catch {
+          /* ignore */
+        }
+        throw new ModelCallUserAbortError();
+      }
       const { done, value } = await reader.read();
       if (value) {
         buffer += decoder.decode(value, { stream: true });
@@ -295,9 +357,11 @@ async function callModelOnce(
     }
     return aggregateStreamChunks(chunks);
   } catch (err) {
-    throw formatModelFetchError(err, config, timeoutMs);
+    throw formatModelFetchError(err, config, timeoutMs, {
+      userAbort: combined.wasUserAbort() || err instanceof ModelCallUserAbortError,
+    });
   } finally {
-    clearTimeout(timer);
+    combined.cleanup();
   }
 }
 
@@ -319,7 +383,13 @@ export async function callModelWithRetry(
       return await callModelOnce(config, messages, tools, opts);
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
-      if (attempt >= maxRetries || !isRetryableHttpFailure(err)) {
+      // Never retry user Stop — that would ignore the lawyer's cancel.
+      if (
+        err instanceof ModelCallUserAbortError ||
+        opts.signal?.aborted ||
+        attempt >= maxRetries ||
+        !isRetryableHttpFailure(err)
+      ) {
         break;
       }
       await new Promise((resolve) => setTimeout(resolve, computeRetryDelayMs(attempt)));

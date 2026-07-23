@@ -6,6 +6,14 @@
  */
 export type AgentsDeskTab = "active" | "delegations" | "workflows";
 
+/** 对话「去在办补充」等入口：定位到具体待办行，而非只打开在办页。 */
+export type NeedsDecisionDeskTarget = {
+  sessionId?: string;
+  taskId?: string;
+  matterId?: string;
+  preferStatus?: "awaiting_clarification" | "awaiting_approval" | "awaiting_review";
+};
+
 /** @deprecated Prefer AgentsDeskTab; kept for short migration of collaboration desk props. */
 export type CollaborationDeskTab = "overview" | "workflows";
 

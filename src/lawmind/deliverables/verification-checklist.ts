@@ -99,8 +99,13 @@ export function buildChecklistView(
   state?: VerificationChecklistState | null,
 ): VerificationChecklistView {
   const spec = resolveVerificationChecklistSpec(deliverableType);
-  const base = state?.specId === spec.id ? state : emptyChecklistState(spec);
-  const checked = { ...emptyChecklistState(spec).checked, ...base.checked };
+  // Empty / mismatched specId: still honor provided `checked` (desktop often omits specId).
+  const base =
+    !state || state.specId === spec.id || !state.specId?.trim() ? state : emptyChecklistState(spec);
+  const checked = {
+    ...emptyChecklistState(spec).checked,
+    ...base?.checked,
+  };
   const required = spec.items.filter((i) => i.required);
   const missing = required.filter((i) => !checked[i.id]).map((i) => i.id);
   return {
@@ -111,6 +116,20 @@ export function buildChecklistView(
     complete: missing.length === 0,
     missingRequiredIds: missing,
   };
+}
+
+/** Mark all required items checked (optional items unchanged). For desk one-click. */
+export function checkAllRequiredChecklistItems(
+  view: VerificationChecklistView,
+  current?: Record<string, boolean>,
+): Record<string, boolean> {
+  const next = { ...(current ?? view.state.checked) };
+  for (const item of view.spec.items) {
+    if (item.required) {
+      next[item.id] = true;
+    }
+  }
+  return next;
 }
 
 export function assertChecklistCompleteForApprove(view: VerificationChecklistView): void {

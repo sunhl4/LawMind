@@ -2,9 +2,9 @@ import { useMemo, type Dispatch, type SetStateAction } from "react";
 import type { FileWorkbenchCasesNodeActions } from "../FileWorkbench";
 import type { RootKey } from "../file/file-workbench-types";
 import type { LawmindMainView } from "../lawmind-main-view";
+import { tryClarifyAttachFile } from "../lawmind-clarify-bring-in-bus";
 import type { LawmindAppRootDialogsProps } from "./LawmindAppRootDialogs";
 import type { LawmindFileWorkbenchHostProps } from "./LawmindFileWorkbenchHost";
-import { RECORDS_DESK_UNLINKED } from "../lawmind-records-desk-state";
 
 export type UseLawmindAppRootDialogsPropsInput = {
   apiBase: string | undefined;
@@ -131,11 +131,9 @@ export type UseLawmindFileWorkbenchHostPropsInput = {
   setFileExplorerPortaled: Dispatch<SetStateAction<boolean>>;
   addFileToChatContext: (payload: { root: RootKey; relPath: string; kind: "file" | "directory" }) => void;
   setMainView: (view: LawmindMainView) => void;
+  mainView: LawmindMainView;
   fileWorkbenchMattersPickList: Array<{ id: string; label: string }>;
   matterRefreshVersion: number;
-  recordsDeskMattersSetSelectedKey: (key: string) => void;
-  setMatterCockpitOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  matterCockpitOpen: boolean;
   workspaceCasesMenu: FileWorkbenchCasesNodeActions | null;
 };
 
@@ -153,11 +151,9 @@ export function useLawmindFileWorkbenchHostProps(
     setFileExplorerPortaled,
     addFileToChatContext,
     setMainView,
+    mainView,
     fileWorkbenchMattersPickList,
     matterRefreshVersion,
-    recordsDeskMattersSetSelectedKey,
-    setMatterCockpitOpen,
-    matterCockpitOpen,
     workspaceCasesMenu,
   } = input;
 
@@ -165,6 +161,8 @@ export function useLawmindFileWorkbenchHostProps(
     if (!workspaceDir || !apiBase) {
       return null;
     }
+    const isMeeting = mainView === "meeting";
+    const isAgents = mainView === "agents";
     return {
       showSidebarWorkbenchFiles,
       workspaceDir,
@@ -173,19 +171,25 @@ export function useLawmindFileWorkbenchHostProps(
       fileExplorerHost,
       fileEditorHost,
       onExplorerPortaled: setFileExplorerPortaled,
+      explorerVariant: isMeeting ? "meeting" : isAgents ? "agents" : "workspace",
       onAddToChatContext: (payload) => {
+        if (
+          tryClarifyAttachFile({
+            root: payload.root,
+            relPath: payload.relPath,
+            kind: payload.kind,
+          })
+        ) {
+          return;
+        }
         addFileToChatContext(payload);
-        setMainView("workspace");
+        // 会议室 / 在办：加入材料后留在当前页；对话页才跳回 workspace。
+        if (!isMeeting && !isAgents) {
+          setMainView("workspace");
+        }
       },
       mattersPickList: fileWorkbenchMattersPickList,
       workspaceTreeRefreshKey: matterRefreshVersion,
-      apiBase,
-      onOpenUnlinkedMatters: () => {
-        recordsDeskMattersSetSelectedKey(RECORDS_DESK_UNLINKED);
-        setMatterCockpitOpen(true);
-      },
-      matterCockpitOpen,
-      onToggleMatterCockpit: () => setMatterCockpitOpen((v) => !v),
       casesNodeActions: workspaceCasesMenu,
     };
   }, [
@@ -199,11 +203,9 @@ export function useLawmindFileWorkbenchHostProps(
     setFileExplorerPortaled,
     addFileToChatContext,
     setMainView,
+    mainView,
     fileWorkbenchMattersPickList,
     matterRefreshVersion,
-    recordsDeskMattersSetSelectedKey,
-    setMatterCockpitOpen,
-    matterCockpitOpen,
     workspaceCasesMenu,
   ]);
 }

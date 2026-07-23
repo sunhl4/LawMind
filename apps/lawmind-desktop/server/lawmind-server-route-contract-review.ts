@@ -17,6 +17,7 @@ import {
   readContractReviewDraft,
   saveContractReviewDraft,
 } from "../../../src/lawmind/learning/contract-review-draft.js";
+import { suggestLearningFromDraftReview } from "../../../src/lawmind/learning/review-learning-suggest.js";
 import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
 import {
   contractReviewAcceptPostSchema,
@@ -105,11 +106,14 @@ export async function handleContractReviewRoutes({
         (body.title?.trim()) ||
         path.basename(draft.revisedPath) ||
         path.basename(draft.initialPath);
+      const keyMods = draft.keyModificationsDraft.length
+        ? draft.keyModificationsDraft
+        : ["（由验收草稿转入，未单独列要点）"];
       const result = await finalizeContractRevisionPack({
         workspaceDir,
         initialSourcePath: draft.initialPath,
         finalSourcePath: draft.revisedPath,
-        keyModifications: draft.keyModificationsDraft.length ? draft.keyModificationsDraft : ["（由验收草稿转入，未单独列要点）"],
+        keyModifications: keyMods,
         title,
         requirementsSummary: draft.lawyerAnnotations,
         matterId: draft.matterId,
@@ -118,6 +122,26 @@ export async function handleContractReviewRoutes({
         auditDir: body.appendLawyerProfileBullet === true ? auditDir : undefined,
         stableDocumentKey: body.stableDocumentKey,
       });
+      const learnNote = [
+        ...keyMods.map((k) => String(k).trim()).filter(Boolean).slice(0, 3),
+        typeof draft.lawyerAnnotations === "string" ? draft.lawyerAnnotations.trim() : "",
+      ]
+        .filter(Boolean)
+        .join("。");
+      if (learnNote && body.appendLawyerProfileBullet !== true) {
+        try {
+          await suggestLearningFromDraftReview({
+            workspaceDir,
+            auditDir,
+            taskId: result.revisionId,
+            status: "modified",
+            note: learnNote.slice(0, 600),
+            assistantId: draft.assistantId,
+          });
+        } catch {
+          /* 学习建议失败不阻断验收 */
+        }
+      }
       await markContractReviewDraftAccepted(workspaceDir, draftId);
       sendJson(
         res,

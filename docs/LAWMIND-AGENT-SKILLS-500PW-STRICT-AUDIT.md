@@ -14,15 +14,15 @@
 
 ## 2. 闸门对照（定义 A）
 
-| 闸门 | 计划必过                                       | 证据                                                                       | A    |
-| ---- | ---------------------------------------------- | -------------------------------------------------------------------------- | ---- |
-| G0   | 黄金集 20 + 指标 + 许可证                      | `fixtures/lawmind-skills-golden/` · CI golden · LICENSE 表 · metrics JSONL | ✅   |
-| G1   | 分诊确认 · 必核挡 approve · grounded 挡 strict | Intake/API · checklist 422 · theory/citation gate · trust e2e              | ✅   |
-| G2   | Score 可复现 · 报告导出 · 性能预算             | Campaign + MD 报告 · `LAWMIND-REVIEW-CAMPAIGN-PERF-BUDGET.md` · e2e        | ✅\* |
-| G3   | 默认 Home · 经典可切 · 导航 e2e                | `HomeView` · migration · `preferClassicChatHome` · `home.spec.ts`          | ✅   |
-| G4   | Ops + 理论锚定 · 无锚点不可 strict             | Ops API/网格 · Theory lite · adopt · render gate                           | ✅\* |
-| G5   | 中国包 · 技能签名 · 10 份矩阵带引用            | CN pack · skill sig · NDA×10 CSV · compare UI                              | ✅   |
-| G6   | S0 对比报告 · Edition 清单 · 手册              | `--compare` · Edition 矩阵文档 · Private checklist · MANUAL §2.4.1         | ✅   |
+| 闸门 | 计划必过                                       | 证据                                                                       | A              |
+| ---- | ---------------------------------------------- | -------------------------------------------------------------------------- | -------------- |
+| G0   | 黄金集 20 + 指标 + 许可证                      | `fixtures/lawmind-skills-golden/` · CI golden · LICENSE 表 · metrics JSONL | ✅             |
+| G1   | 分诊确认 · 必核挡 approve · grounded 挡 strict | Intake/API · checklist 422 · theory/citation gate · trust e2e              | ✅             |
+| G2   | Score 可复现 · 报告导出 · 性能预算             | Campaign + MD 报告 · `LAWMIND-REVIEW-CAMPAIGN-PERF-BUDGET.md` · e2e        | ✅\*           |
+| G3   | 默认 Home · 经典可切 · 导航 e2e                | ~~`HomeView` / `preferClassicChatHome`~~ → 已撤销；默认对话 +「在办」指挥  | ✅→ superseded |
+| G4   | Ops + 理论锚定 · 无锚点不可 strict             | Ops API/网格 · Theory lite · adopt · render gate                           | ✅\*           |
+| G5   | 中国包 · 技能签名 · 10 份矩阵带引用            | CN pack · skill sig · NDA×10 CSV · compare UI                              | ✅             |
+| G6   | S0 对比报告 · Edition 清单 · 手册              | `--compare` · Edition 矩阵文档 · Private checklist · MANUAL §2.4.1         | ✅             |
 
 \*G2 报告为 **Markdown**（非精美 PDF）；G4 理论/Ops 为 **lite+可编辑网格**（非完整 Matter OS / 完整推理图产品面）。
 

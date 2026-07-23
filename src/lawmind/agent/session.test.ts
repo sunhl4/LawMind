@@ -3,15 +3,18 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   AUTO_CHAT_TITLE_MAX_LENGTH,
+  clearSessionPlanHandoff,
   createSession,
   DEFAULT_CHAT_SESSION_TITLE,
   deleteSession,
   deriveAutoChatTitleFromFirstUserMessage,
   displayChatSessionTitle,
   extractFirstSentenceFromUserMessageParagraph,
+  loadSession,
   maybeUpdateSessionTitleFromInstruction,
   renameSession,
   sessionHistoryToSimpleMessages,
+  setSessionPlanHandoff,
 } from "./session.js";
 import type { AgentSession } from "./types.js";
 
@@ -86,6 +89,20 @@ describe("session title and history helpers", () => {
       fs.readFileSync(path.join(ws, "sessions", `${s.sessionId}.json`), "utf8"),
     ) as AgentSession;
     expect(loaded.title).toBe("My matter");
+  });
+
+  it("setSessionPlanHandoff / clearSessionPlanHandoff persist on session.json", () => {
+    const ws = tmpDir();
+    const s = createSession({ workspaceDir: ws, actorId: "a" });
+    const withPlan = setSessionPlanHandoff(ws, s.sessionId, "执行计划：\n1. 检索");
+    expect(withPlan?.planHandoff?.planText).toContain("检索");
+    const loaded = JSON.parse(
+      fs.readFileSync(path.join(ws, "sessions", `${s.sessionId}.json`), "utf8"),
+    ) as AgentSession;
+    expect(loaded.planHandoff?.planText).toContain("检索");
+    clearSessionPlanHandoff(ws, s.sessionId);
+    const cleared = loadSession(ws, s.sessionId);
+    expect(cleared?.planHandoff).toBeUndefined();
   });
 
   it("sessionHistoryToSimpleMessages maps user and assistant only", () => {

@@ -77,28 +77,30 @@ export function LawmindSettingsSkills(props: Props): ReactNode {
 
   return (
     <div className="lm-settings-section" data-testid="lm-settings-skills">
-      <div className="lm-settings-section-title">技能库</div>
-      <p className="lm-meta">
-        本地 <code>workspace/lawmind/skills/*/SKILL.md</code>；启用前校验 HMAC 签名（
-        <code>SKILL.sig</code>）。篡改签名的技能不会加载为可用。
-      </p>
+      <div className="lm-settings-section-title lm-settings-section-title--duplicate">技能库</div>
       {cnPack ? (
         <div className="lm-settings-group lm-settings-surface" data-testid="lm-cn-legal-pack">
           <div className="lm-settings-row">
             <span className="lm-settings-key">中国法律包</span>
             <span className="lm-pill lm-pill-success">{cnPack.label ?? cnPack.id ?? "已发现"}</span>
           </div>
-          <p className="lm-meta">
-            {cnPack.notes ?? cnPack.description ?? "自研中文工作流包（非第三方原文）。"}
-            {cnPack.workflowIds?.length ? ` · 工作流 ${cnPack.workflowIds.join("、")}` : ""}
-          </p>
+          {(cnPack.notes || cnPack.description || cnPack.workflowIds?.length) ? (
+            <p className="lm-settings-caption">
+              {cnPack.notes ?? cnPack.description ?? ""}
+              {cnPack.workflowIds?.length ? ` · ${cnPack.workflowIds.join("、")}` : ""}
+            </p>
+          ) : null}
         </div>
       ) : (
-        <p className="lm-meta">未发现 `packs/cn-legal-pack.json`。</p>
+        <p className="lm-settings-caption">未发现中国法律包</p>
       )}
-      {error ? <p className="lm-meta lm-callout-warn" role="alert">{error}</p> : null}
-      {skills === null ? <p className="lm-meta">加载中…</p> : null}
-      {skills && skills.length === 0 ? <p className="lm-meta">工作区尚无本地技能。</p> : null}
+      {error ? (
+        <p className="lm-settings-caption lm-settings-caption--warn" role="alert">
+          {error}
+        </p>
+      ) : null}
+      {skills === null ? <p className="lm-settings-caption">加载中…</p> : null}
+      {skills && skills.length === 0 ? <p className="lm-settings-caption">暂无本地技能</p> : null}
       {skills && skills.length > 0 ? (
         <ul className="lm-settings-group lm-settings-surface" data-testid="lm-skills-list">
           {skills.map((s) => (

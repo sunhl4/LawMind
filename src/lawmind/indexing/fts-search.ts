@@ -1,15 +1,21 @@
 import { indexExists, openSearchIndexDb } from "./fts-ingest.js";
 import { getMeta } from "./fts-schema.js";
 
-export type SearchIndexSource = "audit" | "session";
+export type SearchIndexSource = "audit" | "session" | "knowledge";
 
 export type WorkspaceSearchHit = {
   source: SearchIndexSource;
   id: string;
   taskId?: string;
   matterId?: string;
+  /** Relative workspace path for knowledge hits */
+  path?: string;
+  docKind?: string;
+  section?: string;
   snippet: string;
   timestamp?: string;
+  /** Optional fusion score (knowledge hybrid) */
+  score?: number;
 };
 
 export type WorkspaceSearchOptions = {
@@ -26,7 +32,7 @@ export type WorkspaceSearchResult = {
   indexMissing?: boolean;
 };
 
-function escapeFtsQuery(q: string): string {
+export function escapeFtsQuery(q: string): string {
   return q
     .trim()
     .replace(/["']/g, " ")
@@ -34,6 +40,39 @@ function escapeFtsQuery(q: string): string {
     .filter((t) => t.length > 0)
     .map((t) => `"${t.replace(/"/g, "")}"*`)
     .join(" ");
+}
+
+/** Query builder for knowledge_fts (trigram): phrase + CJK bigram OR terms. */
+export function escapeKnowledgeFtsQuery(q: string): string {
+  const cleaned = q
+    .trim()
+    .replace(/["']/g, " ")
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) {
+    return "";
+  }
+  const terms = new Set<string>();
+  if (cleaned.length >= 3) {
+    terms.add(cleaned);
+  }
+  for (const part of cleaned.split(/\s+/)) {
+    if (part.length >= 3) {
+      terms.add(part);
+    }
+  }
+  const cjk = cleaned.replace(/[^\u4e00-\u9fff]/g, "");
+  for (let i = 0; i < cjk.length - 1; i++) {
+    terms.add(cjk.slice(i, i + 2));
+  }
+  for (let i = 0; i < cjk.length - 2; i++) {
+    terms.add(cjk.slice(i, i + 3));
+  }
+  return [...terms]
+    .slice(0, 24)
+    .map((t) => `"${t.replace(/"/g, "")}"`)
+    .join(" OR ");
 }
 
 function snippet(body: string, max = 160): string {
@@ -59,7 +98,7 @@ export function searchWorkspaceIndex(
   if (!ftsQ) {
     return { ok: true, query: q, hits: [] };
   }
-  const sources = opts.sources ?? ["audit", "session"];
+  const sources = opts.sources ?? ["audit", "session", "knowledge"];
   const limit = Math.min(100, Math.max(1, opts.limit ?? 30));
   const matterId = opts.matterId?.trim();
   const db = openSearchIndexDb(workspaceDir);
@@ -115,6 +154,44 @@ export function searchWorkspaceIndex(
         });
       }
     }
+
+    if (sources.includes("knowledge") && hits.length < limit) {
+      const remain = limit - hits.length;
+      const knowledgeQ = escapeKnowledgeFtsQuery(q);
+      if (knowledgeQ) {
+        const sql = matterId
+          ? `SELECT path, matter_id, doc_kind, section, body, bm25(knowledge_fts) AS rank
+             FROM knowledge_fts WHERE knowledge_fts MATCH ? AND (matter_id = ? OR matter_id = '')
+             ORDER BY rank LIMIT ?`
+          : `SELECT path, matter_id, doc_kind, section, body, bm25(knowledge_fts) AS rank
+             FROM knowledge_fts WHERE knowledge_fts MATCH ?
+             ORDER BY rank LIMIT ?`;
+        const rows = (
+          matterId
+            ? db.prepare(sql).all(knowledgeQ, matterId, remain)
+            : db.prepare(sql).all(knowledgeQ, remain)
+        ) as Array<{
+          path: string;
+          matter_id: string;
+          doc_kind: string;
+          section: string;
+          body: string;
+          rank: number;
+        }>;
+        for (const r of rows) {
+          hits.push({
+            source: "knowledge",
+            id: `${r.path}#${r.section || "body"}`,
+            path: r.path,
+            docKind: r.doc_kind,
+            section: r.section || undefined,
+            matterId: r.matter_id || undefined,
+            snippet: snippet(r.body),
+            score: typeof r.rank === "number" ? -r.rank : undefined,
+          });
+        }
+      }
+    }
   } finally {
     db.close();
   }
@@ -128,6 +205,7 @@ export function getSearchIndexStatus(workspaceDir: string): {
   lastRebuildAt?: string;
   auditRows?: number;
   sessionRows?: number;
+  knowledgeRows?: number;
   truncated?: boolean;
 } {
   if (!indexExists(workspaceDir)) {
@@ -139,6 +217,7 @@ export function getSearchIndexStatus(workspaceDir: string): {
     const lastRebuildAt = getMeta(db, "lastRebuildAt");
     const auditRows = Number(getMeta(db, "auditRows") ?? "0");
     const sessionRows = Number(getMeta(db, "sessionRows") ?? "0");
+    const knowledgeRows = Number(getMeta(db, "knowledgeRows") ?? "0");
     const truncated = getMeta(db, "truncated") === "1";
     return {
       ready: true,
@@ -146,6 +225,7 @@ export function getSearchIndexStatus(workspaceDir: string): {
       lastRebuildAt,
       auditRows,
       sessionRows,
+      knowledgeRows,
       truncated,
     };
   } finally {

@@ -9,7 +9,6 @@ import type { MatterViewProps } from "./MatterView";
 import type { MeetingViewProps } from "./MeetingView";
 import type { ReviewViewProps } from "./ReviewView";
 import type { AgentFleetViewProps } from "./AgentFleetView";
-import type { AutomationsViewProps } from "./AutomationsView";
 
 function openAgentsWorkflows(props: LawmindMainBodyContentProps, matterId?: string): void {
   if (props.onOpenAgentsWorkflows) {
@@ -19,8 +18,11 @@ function openAgentsWorkflows(props: LawmindMainBodyContentProps, matterId?: stri
   props.onOpenWorkflowLibrary?.();
 }
 
-function openNeedsDecisionDesk(props: LawmindMainBodyContentProps): void {
-  (props.onOpenNeedsDecisionDesk ?? props.onOpenActionHub ?? (() => undefined))();
+function openNeedsDecisionDesk(
+  props: LawmindMainBodyContentProps,
+  target?: import("../lawmind-agents-desk").NeedsDecisionDeskTarget,
+): void {
+  (props.onOpenNeedsDecisionDesk ?? props.onOpenActionHub ?? (() => undefined))(target);
 }
 
 function normalizeMatterId(
@@ -58,7 +60,7 @@ export function pickMatterViewProps(props: LawmindMainBodyContentProps): MatterV
     onUseInChat: props.onUseInChat,
     onOpenWorkflowLibrary: () => openAgentsWorkflows(props),
     onOpenTopLevelMeeting: props.onOpenTopLevelMeeting,
-    onOpenNeedsDecisionDesk: () => openNeedsDecisionDesk(props),
+    onOpenNeedsDecisionDesk: (target) => openNeedsDecisionDesk(props, target),
     onOpenChatSession: props.onOpenChatSession,
     onOpenReview: props.onOpenReviewFromMatter,
   };
@@ -105,19 +107,11 @@ export function pickReviewViewProps(props: LawmindMainBodyContentProps): ReviewV
 export function pickAgentFleetViewProps(props: LawmindMainBodyContentProps): AgentFleetViewProps {
   return {
     config: props.config,
-    /** 仅作 Spawn 归因；待办列表在 Panel 内固定全工作区，不随对话案件筛选。 */
-    matterId: normalizeMatterId(props, true),
     sessionId: props.activeChatSessionId,
     sessionRequiresActions: props.sessionRequiresActions,
     assistantDisplayById: props.assistantDisplayById,
-    canDelegate: props.delegateAssistEnabled,
     onRefreshActionSummary: props.onRefreshActionSummary,
     onChatResumeComplete: props.onChatResumeComplete,
-    onNewChat: () => void props.onCreateNewChatSession(),
-    onOpenAgentsWorkflows: () => openAgentsWorkflows(props),
-    onDelegate: props.onDelegateAssist,
-    onSpawnPreset: props.onSpawnPreset ?? (() => undefined),
-    onOpenDelegations: () => props.onAgentsDeskTabChange("delegations"),
     onOpenChatSession: props.onOpenChatSession,
     onOpenReview: (taskId, matterId) => {
       const tid = taskId?.trim();
@@ -127,10 +121,14 @@ export function pickAgentFleetViewProps(props: LawmindMainBodyContentProps): Age
       }
       props.onOpenReviewFromWorkspace({ matterId });
     },
+    onOpenMemoryInspector: props.onOpenMemoryInspector,
+    onShowArtifact: props.onShowArtifact,
     agentsDeskTab: props.agentsDeskTab,
     onAgentsDeskTabChange: props.onAgentsDeskTabChange,
     needsDecisionFocus: props.needsDecisionFocus,
     onClearNeedsDecisionFocus: props.onClearNeedsDecisionFocus,
+    focusTarget: props.agentsDeskFocusTarget,
+    onFocusTargetConsumed: props.onAgentsDeskFocusTargetConsumed,
     collabSummarySettings: props.collabSummarySettings,
     selectedAssistantId: props.selectedAssistantId,
     delegations: props.delegations,
@@ -157,17 +155,5 @@ export function pickAgentFleetViewProps(props: LawmindMainBodyContentProps): Age
     workflowModelLabel: props.workflowModelLabel,
     onReconnectLocalService: props.onReconnectLocalService,
     localServiceReconnecting: props.localServiceReconnecting,
-  };
-}
-
-export function pickAutomationsViewProps(props: LawmindMainBodyContentProps): AutomationsViewProps {
-  const autoMatterId = normalizeMatterId(props, true);
-  return {
-    config: props.config,
-    matterId: autoMatterId,
-    matterOptions: autoMatterId ? [{ id: autoMatterId, title: autoMatterId }] : undefined,
-    onOpenNeedsDecisionDesk: () => openNeedsDecisionDesk(props),
-    onOpenReview: props.onOpenReviewFromAutomation,
-    onOpenCollaboration: (matterId) => openAgentsWorkflows(props, matterId),
   };
 }

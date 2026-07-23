@@ -33,8 +33,10 @@ import {
 import { persistQualityRecord } from "../evaluation/quality.js";
 import { recordAgentReviewOutcome } from "../learning/agent-specialization.js";
 import { applyReviewLabelsMemoryWrites } from "../learning/apply-review-labels.js";
+import { suggestLearningFromDraftReview } from "../learning/review-learning-suggest.js";
 import { enqueueLearningSuggestion } from "../learning/suggestion-queue.js";
 import { appendCaseProgress, appendCaseRiskNote, appendTodayLog } from "../memory/index.js";
+import { appendProductMetric } from "../metrics/product-metrics.js";
 import { readTaskRecord, syncDraftToTaskRecord, updateTaskRecord } from "../tasks/index.js";
 import type { ArtifactDraft, QualityRecord, ReviewLabel, ReviewStatus } from "../types.js";
 import type { EngineContext } from "./context.js";
@@ -114,14 +116,55 @@ export async function reviewDraft(
   }
 
   if ((status === "approved" || status === "modified") && labelAssistantId) {
+    const firstPass = status === "approved" && !opts.note?.trim();
+    let roleId: string | undefined;
+    try {
+      const lawMindRoot = resolveLawMindRoot(workspaceDir);
+      roleId = getAssistantById(lawMindRoot, labelAssistantId)?.roleId;
+    } catch {
+      roleId = undefined;
+    }
     try {
       recordAgentReviewOutcome({
         workspaceDir,
         assistantId: labelAssistantId,
-        firstPass: status === "approved" && !opts.note?.trim(),
+        roleId,
+        firstPass,
       });
     } catch {
       // 特化指标失败不阻断审核
+    }
+    try {
+      appendProductMetric(workspaceDir, {
+        kind: firstPass ? "first_pass" : "rewrite",
+        outcome: firstPass ? "ok" : status === "modified" ? "modified" : "noted",
+        taskId: draft.taskId,
+        matterId: draft.matterId,
+        deliverableType: draft.deliverableType,
+        meta: {
+          assistantId: labelAssistantId,
+          ...(roleId ? { roleId } : {}),
+        },
+      });
+    } catch {
+      // 产品指标失败不阻断审核
+    }
+  }
+
+  if (status === "modified") {
+    try {
+      await suggestLearningFromDraftReview({
+        workspaceDir,
+        auditDir,
+        taskId: draft.taskId,
+        status,
+        note: opts.note,
+        labels,
+        assistantId: labelAssistantId,
+        skipBecauseLabels: labels.length > 0,
+      });
+    } catch {
+      // 学习建议失败不阻断审核
     }
   }
 

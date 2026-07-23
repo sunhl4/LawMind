@@ -158,6 +158,8 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
           triageConfirmed: productMetrics.triageConfirmed,
           gateFailures: productMetrics.gateFailures,
           firstPassOk: productMetrics.firstPassOk,
+          rewrites: productMetrics.rewrites,
+          rewriteAmplitudeSamples: productMetrics.byKind.rewrite_amplitude ?? 0,
         },
         privateDeployChecklist: {
           applicable: privateDeployChecklist.applicable,

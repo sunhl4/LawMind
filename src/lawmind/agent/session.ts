@@ -229,6 +229,49 @@ export function renameSession(
   return session;
 }
 
+const PLAN_HANDOFF_MAX = 2400;
+
+/** Persist Plan→Execute handoff onto session.json (Wave 4). */
+export function setSessionPlanHandoff(
+  workspaceDir: string,
+  sessionId: string,
+  planText: string,
+  updatedAt?: string,
+): AgentSession | undefined {
+  const session = loadSession(workspaceDir, sessionId);
+  if (!session) {
+    return undefined;
+  }
+  const text = planText.trim().slice(0, PLAN_HANDOFF_MAX);
+  if (!text) {
+    delete session.planHandoff;
+    saveSession(workspaceDir, session);
+    return session;
+  }
+  session.planHandoff = {
+    planText: text,
+    updatedAt: updatedAt?.trim() || new Date().toISOString(),
+  };
+  saveSession(workspaceDir, session);
+  return session;
+}
+
+export function clearSessionPlanHandoff(
+  workspaceDir: string,
+  sessionId: string,
+): AgentSession | undefined {
+  const session = loadSession(workspaceDir, sessionId);
+  if (!session) {
+    return undefined;
+  }
+  if (!session.planHandoff) {
+    return session;
+  }
+  delete session.planHandoff;
+  saveSession(workspaceDir, session);
+  return session;
+}
+
 /**
  * 若标题仍为默认「New Chat」，用首条用户消息解析出的「第一句」自动命名。
  * `sessionTitleHint` 为输入框原文（不含文件引用等前缀）；缺省时从 `instruction` 中跳过注入前缀后解析。

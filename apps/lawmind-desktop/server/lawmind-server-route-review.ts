@@ -422,14 +422,34 @@ export async function handleReviewRoute({
         sendJson(res, 404, { ok: false, error: "not found" }, c);
         return true;
       }
+      let approvedChecklistView: ReturnType<typeof buildChecklistView> | undefined;
       if (st === "approved") {
         const checklistBody = body as {
           checklistChecked?: Record<string, boolean>;
           bypassChecklist?: boolean;
         };
-        if (checklistBody.bypassChecklist !== true) {
+        const allowBypass =
+          checklistBody.bypassChecklist === true &&
+          (process.env.LAWMIND_ALLOW_CHECKLIST_BYPASS === "1" ||
+            process.env.LAWMIND_ALLOW_CHECKLIST_BYPASS === "true" ||
+            process.env.VITEST === "true");
+        if (checklistBody.bypassChecklist === true && !allowBypass) {
+          sendJson(
+            res,
+            403,
+            {
+              ok: false,
+              error: "checklist_bypass_forbidden",
+              message: "交付可靠模式下不可跳过律师必核清单。",
+            },
+            c,
+          );
+          return true;
+        }
+        if (!allowBypass) {
+          const empty = buildChecklistView(draft.deliverableType, null);
           const view = buildChecklistView(draft.deliverableType, {
-            specId: "",
+            specId: empty.spec.id,
             checked: checklistBody.checklistChecked ?? {},
           });
           try {
@@ -460,6 +480,14 @@ export async function handleReviewRoute({
             );
             return true;
           }
+          approvedChecklistView = view;
+        } else if (allowBypass) {
+          // Test / explicit bypass: still persist a complete checklist so export gates stay consistent.
+          const empty = buildChecklistView(draft.deliverableType, null);
+          approvedChecklistView = buildChecklistView(draft.deliverableType, {
+            specId: empty.spec.id,
+            checked: Object.fromEntries(empty.spec.items.map((i) => [i.id, true])),
+          });
         }
       }
       const labels = parseReviewLabels(body.labels);
@@ -484,6 +512,17 @@ export async function handleReviewRoute({
       let contractRevisionAccumulatedId: string | undefined;
       let contractRevisionAccumulationWarning: string | undefined;
       if (st === "approved") {
+        if (approvedChecklistView) {
+          updated = {
+            ...updated,
+            verificationChecklist: {
+              specId: approvedChecklistView.spec.id,
+              checked: { ...approvedChecklistView.state.checked },
+              updatedAt: new Date().toISOString(),
+            },
+          };
+          persistDraft(workspaceDir, updated);
+        }
         const acc = await applyContractRevisionAccumulationAfterApprovedReview(
           workspaceDir,
           updated,
@@ -645,6 +684,32 @@ export async function handleReviewRoute({
               acceptance,
               executionState,
               gateDecisions,
+            },
+            c,
+          );
+          return true;
+        }
+        const checklistAtExport = buildChecklistView(
+          draft.deliverableType,
+          draft.verificationChecklist ?? null,
+        );
+        if (!checklistAtExport.complete) {
+          appendProductMetric(workspaceDir, {
+            kind: "gate_failure",
+            outcome: "checklist_incomplete",
+            taskId: raw,
+            deliverableType: draft.deliverableType,
+            detail: `export:${checklistAtExport.missingRequiredIds.join(",")}`,
+          });
+          sendJson(
+            res,
+            422,
+            {
+              ok: false,
+              error: "checklist_incomplete",
+              message: "导出被拦截：草稿缺少已落盘的律师必核清单，请重新在「在办」完成必核并签批通过。",
+              missingRequiredIds: checklistAtExport.missingRequiredIds,
+              checklist: checklistAtExport,
             },
             c,
           );

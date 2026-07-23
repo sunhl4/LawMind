@@ -89,9 +89,44 @@ function safeJsonParse<T>(raw: string): T | null {
     try {
       return JSON.parse(cleaned) as T;
     } catch {
+      // Broader: first JSON object in the blob
+      const match = cleaned.match(/\{[\s\S]*\}/);
+      if (match) {
+        try {
+          return JSON.parse(match[0]) as T;
+        } catch {
+          return null;
+        }
+      }
       return null;
     }
   }
+}
+
+/**
+ * When the model ignores JSON mode, salvage markdown/plain text as a single
+ * low-confidence claim instead of returning empty claims.
+ */
+export function fallbackRetrievalFromNonJson(content: string): ModelRetrievalOutput {
+  const cleaned = content
+    .trim()
+    .replace(/^```(?:json|markdown|md|text)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  const claimText = cleaned.slice(0, 2_500);
+  if (!claimText) {
+    return {
+      claims: [],
+      riskFlags: ["模型返回非 JSON，且无可提取文本"],
+      missingItems: ["请重试并检查模型输出格式"],
+    };
+  }
+  return {
+    claims: [{ text: claimText, confidence: 0.35 }],
+    sources: [],
+    riskFlags: ["模型未返回合法 JSON，已降级为纯文本摘要（请人工核对，勿直接当权威出处）"],
+    missingItems: ["结构化来源缺失，请核对原文与法规库"],
+  };
 }
 
 const RETRIEVAL_MAX_RETRIES = 2;
@@ -148,11 +183,7 @@ async function fetchOpenAICompatibleOnce(
 
     const parsed = safeJsonParse<ModelRetrievalOutput>(content);
     if (!parsed) {
-      return {
-        claims: [],
-        riskFlags: ["模型返回非 JSON，已拒绝注入 claims"],
-        missingItems: ["请重试并检查模型输出格式"],
-      };
+      return fallbackRetrievalFromNonJson(content);
     }
 
     return {

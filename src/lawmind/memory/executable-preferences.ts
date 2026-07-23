@@ -151,7 +151,7 @@ export function formatExecutablePreferencesHint(prefs: ExecutablePreference[]): 
     return undefined;
   }
   const lines = prefs.map((p, i) => `${i + 1}. [${p.id}] ${p.text}`);
-  return ["已按你的习惯（可执行偏好；回复末尾须列出「本轮已应用」的 id）：", ...lines].join("\n");
+  return ["已按你的习惯（可执行偏好）：", ...lines].join("\n");
 }
 
 /**

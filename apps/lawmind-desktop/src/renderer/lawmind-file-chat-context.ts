@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const MAX_FILE_CHAT_CONTEXT = 8;
+/** Auto-embed text bodies under this size so the model sees content, not only paths. */
+export const FILE_CHAT_EXCERPT_MAX_BYTES = 24_000;
+export const FILE_CHAT_EXCERPT_MAX_CHARS = 12_000;
+
+const TEXTISH_EXT =
+  /\.(md|txt|text|json|jsonl|csv|tsv|xml|html?|ya?ml|toml|ini|log|rst|tex|css|scss|less|js|jsx|mjs|cjs|ts|tsx|py|rb|go|rs|java|kt|swift|c|cc|cpp|h|hpp|sql|sh|bash|zsh|env|gitignore|dockerignore|editorconfig)$/i;
 
 export type FileChatContextItem = {
   id: string;
@@ -39,27 +45,110 @@ export function makeFileContextItemId(
   return `${p.root}|${p.kind}|${encodeURIComponent(p.relPath)}`;
 }
 
-export function buildFileContextMessagePrefix(items: FileChatContextItem[]): string {
+export function isFileChatExcerptCandidate(it: FileChatContextItem): boolean {
+  if (it.kind !== "file") {
+    return false;
+  }
+  const p = it.relPath.trim();
+  if (!p || p.includes("..")) {
+    return false;
+  }
+  const base = p.split(/[/\\]/).pop() ?? p;
+  if (TEXTISH_EXT.test(base)) {
+    return true;
+  }
+  // Extensionless short names (e.g. README, Makefile) — try embed; API rejects binary.
+  return !base.includes(".");
+}
+
+export function buildFileContextMessagePrefix(
+  items: FileChatContextItem[],
+  excerpts?: Record<string, string>,
+): string {
   if (items.length === 0) {
     return "";
   }
   const lines = items.map((it) => {
     const scope = it.root === "workspace" ? "工作区" : "项目";
     const p = it.relPath || "（工作区/项目根，谨慎操作）";
+    const excerpt = excerpts?.[it.id]?.trim();
+    if (excerpt) {
+      return `- [${scope} · 已嵌入正文] \`${p}\`\n\`\`\`\n${excerpt}\n\`\`\``;
+    }
     if (it.root === "workspace") {
       const hint =
         it.kind === "directory"
           ? "请先在目录中定位要读的文件，用 analyze_document 读工作区相对路径。"
-          : "请用 analyze_document 读取以下工作区相对路径。";
-      return `- [${scope} · ${it.kind === "directory" ? "目录" : "文件"}] \`${p}\` — ${hint}`;
+          : "路径引用（未嵌入正文）：请用 analyze_document 读取以下工作区相对路径。";
+      return `- [${scope} · ${it.kind === "directory" ? "目录" : "路径引用"}] \`${p}\` — ${hint}`;
     }
     const hint =
       it.kind === "directory"
         ? "对项目内文件用 read_project_file(相对项目根的路径) 逐份阅读；目录下请先列举再选读。"
-        : "请用 read_project_file 读取。";
-    return `- [${scope} · ${it.kind === "directory" ? "目录" : "文件"}] \`${p}\` — ${hint}`;
+        : "路径引用（未嵌入正文）：请用 read_project_file 读取。";
+    return `- [${scope} · ${it.kind === "directory" ? "目录" : "路径引用"}] \`${p}\` — ${hint}`;
   });
-  return `【用户在 LawMind 文件页将下列路径标为“本回合重点”】\n${lines.join("\n")}\n\n`;
+  const embedded = items.filter((it) => Boolean(excerpts?.[it.id]?.trim())).length;
+  const head =
+    embedded > 0
+      ? `【用户将下列路径标为“本回合重点”；其中 ${embedded} 个小文本已嵌入正文，其余为路径引用】`
+      : `【用户在 LawMind 文件页将下列路径标为“本回合重点”（路径引用，需助手读取）】`;
+  return `${head}\n${lines.join("\n")}\n\n`;
+}
+
+/**
+ * Fetch small text file bodies via `/api/fs/read` for embed-into-prompt.
+ * Failures are ignored (falls back to path-only hints).
+ */
+export async function fetchFileChatExcerpts(opts: {
+  apiBase: string;
+  items: FileChatContextItem[];
+  signal?: AbortSignal;
+  maxBytes?: number;
+  maxChars?: number;
+}): Promise<Record<string, string>> {
+  const maxBytes = opts.maxBytes ?? FILE_CHAT_EXCERPT_MAX_BYTES;
+  const maxChars = opts.maxChars ?? FILE_CHAT_EXCERPT_MAX_CHARS;
+  const out: Record<string, string> = {};
+  const candidates = opts.items.filter(isFileChatExcerptCandidate).slice(0, MAX_FILE_CHAT_CONTEXT);
+  await Promise.all(
+    candidates.map(async (it) => {
+      try {
+        const q = new URLSearchParams({
+          root: it.root,
+          path: it.relPath,
+        });
+        const res = await fetch(`${opts.apiBase}/api/fs/read?${q}`, {
+          signal: opts.signal,
+        });
+        if (!res.ok) {
+          return;
+        }
+        const data = (await res.json()) as {
+          ok?: boolean;
+          content?: string;
+          size?: number;
+        };
+        if (!data.ok || typeof data.content !== "string") {
+          return;
+        }
+        if (typeof data.size === "number" && data.size > maxBytes) {
+          return;
+        }
+        const body = data.content.trim();
+        if (!body) {
+          return;
+        }
+        out[it.id] =
+          body.length > maxChars
+            ? `${body.slice(0, maxChars)}\n…[正文截断，完整内容请用工具读取]`
+            : body;
+      } catch {
+        /* ignore — path-only fallback */
+      }
+    }),
+  );
+  return out;
 }
 
 /**

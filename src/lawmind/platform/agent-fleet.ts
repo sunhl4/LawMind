@@ -53,6 +53,34 @@ export type AgentRunSummary = {
   priority: number;
 };
 
+export type AssistantGrowthRatesView = {
+  tasksReviewed: number;
+  firstPassApprovals: number;
+  materialRewrites: number;
+  firstPassRate: number;
+  rewriteRate: number;
+};
+
+export type AssistantGrowthRowView = {
+  assistantId: string;
+  roleId?: string;
+  lifetime: AssistantGrowthRatesView;
+  window: AssistantGrowthRatesView;
+  pendingAdoptions: number;
+  lastUpdatedAt?: string;
+  rewriteAmplitude?: {
+    samples: number;
+    avgAbsCharDelta: number;
+    avgAbsParagraphDelta: number;
+    lastAbsCharDelta: number;
+  };
+};
+
+export type AssistantGrowthReportView = {
+  windowDays: number;
+  assistants: AssistantGrowthRowView[];
+};
+
 export type AgentFleetSummary = {
   runs: AgentRunSummary[];
   specialization?: Record<
@@ -67,6 +95,8 @@ export type AgentFleetSummary = {
       lastUpdatedAt: string;
     }
   >;
+  /** Windowed growth (same source as GET /api/assistants/growth) */
+  growth?: AssistantGrowthReportView;
   counts: {
     total: number;
     active: number;

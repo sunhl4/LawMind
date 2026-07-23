@@ -14,6 +14,7 @@ import {
 } from "./lawmind-chat";
 import {
   buildFileContextMessagePrefix,
+  fetchFileChatExcerpts,
   type FileChatContextItem,
 } from "./lawmind-file-chat-context";
 
@@ -21,16 +22,41 @@ const MAX_MEETING_AGENDA_FILE_PINS = 8;
 
 /**
  * Merge lawyer topic + file pins into `meetingAgenda` (model context only; not JSONL user text).
+ * Prefer `buildMeetingAgendaAsync` when apiBase is available so small files get embedded.
  */
 export function buildMeetingAgenda(opts: {
   topic?: string;
   filePins?: FileChatContextItem[];
+  excerpts?: Record<string, string>;
 }): string | undefined {
   const topic = (opts.topic ?? "").trim();
   const pins = (opts.filePins ?? []).slice(0, MAX_MEETING_AGENDA_FILE_PINS);
-  const filePrefix = buildFileContextMessagePrefix(pins).trim();
+  const filePrefix = buildFileContextMessagePrefix(pins, opts.excerpts).trim();
   const joined = [topic, filePrefix].filter(Boolean).join("\n\n");
   return joined || undefined;
+}
+
+/** Async agenda builder: embeds small text pins via `/api/fs/read`. */
+export async function buildMeetingAgendaAsync(opts: {
+  apiBase: string;
+  topic?: string;
+  filePins?: FileChatContextItem[];
+  signal?: AbortSignal;
+}): Promise<string | undefined> {
+  const pins = (opts.filePins ?? []).slice(0, MAX_MEETING_AGENDA_FILE_PINS);
+  const excerpts =
+    pins.length > 0
+      ? await fetchFileChatExcerpts({
+          apiBase: opts.apiBase,
+          items: pins,
+          signal: opts.signal,
+        })
+      : {};
+  return buildMeetingAgenda({
+    topic: opts.topic,
+    filePins: pins,
+    excerpts,
+  });
 }
 
 /** Short timeline label for pinned materials (system line). */
@@ -69,6 +95,8 @@ export async function sendMeetingChatTurn(args: {
   meetingAgenda?: string;
   /** lawyer=律师发言；chair/conclude=主持人催办（时间线不记「您」） */
   meetingTurnKind?: "lawyer" | "chair" | "conclude";
+  /** Client abort (paired with POST /api/sessions/:id/abort). */
+  signal?: AbortSignal;
 }): Promise<{
   sessionId?: string;
   assistantMessage: ChatMsg;
@@ -77,6 +105,7 @@ export async function sendMeetingChatTurn(args: {
   const response = await fetch(`${args.apiBase}/api/chat`, {
     method: "POST",
     headers: { "content-type": "application/json", ...apiAuthHeaders() },
+    signal: args.signal,
     body: JSON.stringify({
       message: args.message,
       sessionId: args.sessionId,

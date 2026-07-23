@@ -15,7 +15,7 @@ test("debug open review", async ({ page }) => {
   console.log("btn testid", await openWorkbench.getAttribute("data-testid"));
   await openWorkbench.click();
   await page.waitForTimeout(2000);
-  console.log("mainView hint", await page.locator(".lm-review-workbench-root, .lm-agent-fleet-page, .lm-home-view").evaluateAll(els => els.map(e => e.className)));
+  console.log("mainView hint", await page.locator(".lm-review-workbench-root, .lm-agent-fleet-page").evaluateAll(els => els.map(e => e.className)));
   console.log("url", page.url());
   console.log("has review", await page.locator(".lm-review-workbench-root").count());
   console.log("aria", await page.locator("main").innerText().then(t => t.slice(0, 400)));

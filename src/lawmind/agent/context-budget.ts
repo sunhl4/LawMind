@@ -9,10 +9,20 @@ export type TokenBudgetSnapshot = {
   level: TokenBudgetLevel;
 };
 
-const DEFAULT_EFFECTIVE_LIMIT = 128_000;
-const CHARS_PER_TOKEN_ESTIMATE = 4;
+const DEFAULT_CONTEXT_TOKENS = 128_000;
+const DEFAULT_CHARS_PER_TOKEN = 4;
 
-export function estimateMessageTokens(messages: AgentMessage[]): number {
+export type EstimateTokenBudgetOptions = {
+  /** Selected model context window (catalog). */
+  contextTokens?: number;
+  charsPerToken?: number;
+};
+
+export function estimateMessageTokens(
+  messages: AgentMessage[],
+  charsPerToken: number = DEFAULT_CHARS_PER_TOKEN,
+): number {
+  const cpt = charsPerToken > 0 ? charsPerToken : DEFAULT_CHARS_PER_TOKEN;
   let chars = 0;
   for (const msg of messages) {
     chars += (msg.content ?? "").length;
@@ -23,7 +33,7 @@ export function estimateMessageTokens(messages: AgentMessage[]): number {
       chars += JSON.stringify(msg.toolCallResponses).length;
     }
   }
-  return Math.ceil(chars / CHARS_PER_TOKEN_ESTIMATE);
+  return Math.ceil(chars / cpt);
 }
 
 export function resolveContextPolicy(policy: LawMindWorkspacePolicy | null | undefined): {
@@ -47,12 +57,21 @@ export function resolveContextPolicy(policy: LawMindWorkspacePolicy | null | und
 export function estimateTokenBudget(
   session: AgentSession,
   policy?: LawMindWorkspacePolicy | null,
+  opts?: EstimateTokenBudgetOptions,
 ): TokenBudgetSnapshot {
   const { autoCompactBufferTokens, summaryOutputTokenReserve } = resolveContextPolicy(policy);
-  const used = estimateMessageTokens(session.conversationHistory);
+  const charsPerToken = opts?.charsPerToken ?? DEFAULT_CHARS_PER_TOKEN;
+  const used = estimateMessageTokens(session.conversationHistory, charsPerToken);
+  const contextTokens = Math.max(
+    8_000,
+    opts?.contextTokens ??
+      (typeof policy?.context?.contextTokens === "number"
+        ? policy.context.contextTokens
+        : DEFAULT_CONTEXT_TOKENS),
+  );
   const effectiveLimit = Math.max(
     8_000,
-    DEFAULT_EFFECTIVE_LIMIT - summaryOutputTokenReserve - autoCompactBufferTokens,
+    contextTokens - summaryOutputTokenReserve - autoCompactBufferTokens,
   );
   const ratio = used / effectiveLimit;
   let level: TokenBudgetLevel = "ok";

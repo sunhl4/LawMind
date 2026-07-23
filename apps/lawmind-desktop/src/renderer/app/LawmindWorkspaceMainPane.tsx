@@ -62,9 +62,13 @@ export type LawmindWorkspaceMainPaneProps = {
   chatMatterHeadline: string | null;
   onSend: () => void | Promise<void>;
   onAbortChat: () => void;
+  onDeleteChatMessage?: (uiIndex: number) => void | Promise<void>;
+  onEditChatMessage?: (uiIndex: number, nextText: string) => void | Promise<void>;
   onClearContext: () => void;
   onContextMatterChange?: (matterId: string | null) => void;
   onOpenComposeSettings: () => void;
+  /** Open Settings → memory inspector. */
+  onOpenMemoryInspector?: () => void;
   onOpenApiWizard: () => void;
   composeModelHint: string | null;
   composeModelQuickTestBusy: boolean;
@@ -79,7 +83,9 @@ export type LawmindWorkspaceMainPaneProps = {
   queuedMessages: string[];
   cancelQueuedMessage: (index: number) => void;
   onOpenTaskDrawer: () => void;
-  onOpenNeedsDecisionDesk?: () => void;
+  onOpenNeedsDecisionDesk?: (
+    target?: import("../lawmind-agents-desk").NeedsDecisionDeskTarget,
+  ) => void;
   /** @deprecated Use onOpenNeedsDecisionDesk */
   onOpenActionHub?: () => void;
   composeExtras: LawmindComposeExtras;
@@ -133,9 +139,12 @@ function LawmindWorkspaceMainPaneImpl({
   chatMatterHeadline,
   onSend,
   onAbortChat,
+  onDeleteChatMessage,
+  onEditChatMessage,
   onClearContext,
   onContextMatterChange,
   onOpenComposeSettings,
+  onOpenMemoryInspector,
   onOpenApiWizard,
   composeModelHint,
   composeModelQuickTestBusy,
@@ -277,6 +286,8 @@ function LawmindWorkspaceMainPaneImpl({
                 onOpenAgentsWorkflows={openAgentsWorkflows}
                 onOpenWriteMaterials={() => setTemplateGalleryOpen(true)}
                 showEmptyMatterGuide={showEmptyMatterGuide}
+                onDeleteChatMessage={onDeleteChatMessage}
+                onEditChatMessage={onEditChatMessage}
               />
             </div>
             <LawmindChatComposeFooter
@@ -318,7 +329,7 @@ function LawmindWorkspaceMainPaneImpl({
               cancelQueuedMessage={cancelQueuedMessage}
               onOpenTaskDrawer={onOpenTaskDrawer}
               onOpenNeedsDecisionDesk={openNeedsDecisionDesk}
-              onOpenMemoryInspector={onOpenComposeSettings}
+              onOpenMemoryInspector={onOpenMemoryInspector}
               onOpenReview={onOpenReview}
               composeExtras={composeExtras}
               fileChatPills={fileChatPills}

@@ -23,11 +23,11 @@ describe("LawmindWorkspaceBootstrapGate", () => {
     host.remove();
   });
 
-  it("shows loading state when config is not ready", async () => {
+  it("renders nothing while connecting (no splash strip)", async () => {
     await act(async () => {
       root.render(<LawmindWorkspaceBootstrapGate error={null} onOpenApiWizard={() => {}} />);
     });
-    expect(host.textContent).toContain("正在连接本地服务");
+    expect(host.innerHTML).toBe("");
   });
 
   it("shows preload guidance when bridge is missing", async () => {

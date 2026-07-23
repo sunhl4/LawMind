@@ -92,4 +92,76 @@ describe("lawmind-server-route-action-summary", () => {
     expect(handled).toBe(true);
     expect(res.status).toBe(400);
   });
+
+  it("GET /api/action-summary exposes recent collab completions without inflating decisions", async () => {
+    const { emitCollaborationEvent } = await import(
+      "../../../src/lawmind/agent/collaboration/index.js"
+    );
+    const now = new Date().toISOString();
+    emitCollaborationEvent(workspaceDir, {
+      eventId: "ev-rev-1",
+      kind: "review.completed",
+      fromAssistantId: "a",
+      toAssistantId: "b",
+      matterId: "matter-alpha",
+      timestamp: now,
+    });
+    emitCollaborationEvent(workspaceDir, {
+      eventId: "ev-del-1",
+      kind: "delegation.completed",
+      fromAssistantId: "b",
+      toAssistantId: "c",
+      matterId: "matter-alpha",
+      timestamp: now,
+    });
+    emitCollaborationEvent(workspaceDir, {
+      eventId: "ev-other",
+      kind: "delegation.completed",
+      fromAssistantId: "x",
+      toAssistantId: "y",
+      matterId: "matter-beta",
+      timestamp: now,
+    });
+
+    const resAll = mockRes();
+    await handleActionSummaryRoutes({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res: resAll,
+      url: new URL("http://127.0.0.1/api/action-summary"),
+      pathname: "/api/action-summary",
+      c: {},
+    });
+    expect(resAll.body).toMatchObject({
+      ok: true,
+      requiresDecisionTotal: 0,
+      recentReviewCompleted: 1,
+      recentDelegationCompleted: 2,
+      recentCollabCompleted: 3,
+    });
+
+    const resMatter = mockRes();
+    await handleActionSummaryRoutes({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res: resMatter,
+      url: new URL("http://127.0.0.1/api/action-summary?matterId=matter-alpha"),
+      pathname: "/api/action-summary",
+      c: {},
+    });
+    // matter 过滤会合成策略缺失队列项；只断言协作角标口径，不要求 decision=0
+    expect(resMatter.body).toMatchObject({
+      ok: true,
+      recentReviewCompleted: 1,
+      recentDelegationCompleted: 1,
+      recentCollabCompleted: 2,
+    });
+    const body = resMatter.body as {
+      requiresDecisionTotal?: number;
+      recentCollabCompleted?: number;
+    };
+    expect(body.requiresDecisionTotal ?? 0).toBeLessThan(
+      (body.requiresDecisionTotal ?? 0) + (body.recentCollabCompleted ?? 0),
+    );
+  });
 });

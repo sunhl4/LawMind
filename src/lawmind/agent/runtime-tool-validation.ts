@@ -1,6 +1,9 @@
 /**
  * Tool 参数 schema 校验 — 自 W2 起从 runtime.ts 抽出，
  * 便于 ToolPolicy pipeline 与历史 runtime 都直接引用，避免循环。
+ *
+ * Unknown keys: strip (do not hard-fail) so capable models that add extra
+ * JSON fields still run; required/type/enum errors remain hard failures.
  */
 
 import type { ToolDefinition } from "./types.js";
@@ -18,18 +21,26 @@ function valueMatchesType(
   return typeof value === type;
 }
 
-export function validateToolArguments(
+/** Remove keys not in the tool schema (keeps `__approved`). Mutates `args`. */
+export function stripUnknownToolArguments(
   definition: ToolDefinition,
   args: Record<string, unknown>,
-): string | undefined {
+): string[] {
   const unknownKeys = Object.keys(args).filter(
     (key) =>
       !Object.prototype.hasOwnProperty.call(definition.parameters, key) && key !== "__approved",
   );
-  if (unknownKeys.length > 0) {
-    return `unknown keys: ${unknownKeys.join(", ")}`;
+  for (const key of unknownKeys) {
+    delete args[key];
   }
+  return unknownKeys;
+}
 
+export function validateToolArguments(
+  definition: ToolDefinition,
+  args: Record<string, unknown>,
+): string | undefined {
+  // Unknown keys are stripped before validate (see argSchemaMiddleware).
   for (const [name, schema] of Object.entries(definition.parameters)) {
     const value = args[name];
     if (schema.required && value === undefined) {

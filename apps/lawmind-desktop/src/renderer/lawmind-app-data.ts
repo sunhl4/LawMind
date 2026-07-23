@@ -131,6 +131,8 @@ export type HealthPayload = {
       triageConfirmed?: number;
       gateFailures?: number;
       firstPassOk?: number;
+      rewrites?: number;
+      rewriteAmplitudeSamples?: number;
     };
     privateDeployChecklist?: {
       applicable?: boolean;

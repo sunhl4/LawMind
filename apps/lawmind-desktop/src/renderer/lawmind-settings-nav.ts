@@ -7,6 +7,7 @@ export type LawmindSettingsSectionId =
   | "memory"
   | "skills"
   | "collaboration"
+  | "automations"
   | "assistants"
   | "models"
   | "workspace"
@@ -30,6 +31,7 @@ export type LawmindSettingsScrollAnchorId =
 export type SettingsNavItem = {
   id: LawmindSettingsSectionId;
   label: string;
+  /** Short caption under the page title (not a manual blurb). */
   description: string;
   keywords: string;
 };
@@ -48,55 +50,56 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
       {
         id: "doctor",
         label: "开始使用",
-        description: "确认基础配置和常用能力是否可用。",
-        keywords: "doctor 体检 健康 用量 索引 memory truth 真相源 overview 概览",
+        description: "配置检查与快捷入口",
+        keywords:
+          "doctor 体检 健康 用量 索引 memory truth 真相源 overview 概览 内测 团队成长 基线 一次过",
       },
       {
         id: "models",
         label: "模型/API",
-        description: "配置模型 API，让 LawMind 可以开始写材料和处理案件。",
+        description: "密钥、模型与检索",
         keywords: "model api key 检索 retrieval brave 联网",
       },
       {
         id: "workspace",
         label: "工作区",
-        description: "设置数据保存位置和可选材料目录。",
+        description: "数据目录与本机材料",
         keywords: "workspace 工作区 项目 project 目录",
       },
       {
         id: "appearance",
         label: "外观",
-        description: "调整界面字号等本机显示偏好。",
+        description: "主题、字号与布局",
         keywords: "appearance 字体 字号 ui",
       },
       {
         id: "review-prefs",
         label: "审核偏好",
-        description: "配置文书台签批后的导出与出稿方式。",
+        description: "签批后导出",
         keywords: "review 审核 导出 word",
       },
       {
         id: "templates",
         label: "模板",
-        description: "登记本所 Word（.docx）与 PPT（.pptx）交付模板。",
+        description: "Word / PPT 交付模板",
         keywords: "templates 模板 docx word ppt pptx 文稿",
       },
       {
         id: "memory",
         label: "记忆库",
-        description: "待采纳的记忆建议与采纳历史（与体检中的记忆真相源文件检查不同）。",
-        keywords: "memory 记忆 采纳 adoption 建议",
+        description: "办案沉淀与助手进化",
+        keywords: "memory 记忆 采纳 adoption 建议 沉淀 习惯 进化 学习",
       },
       {
         id: "skills",
         label: "技能库",
-        description: "本地 SKILL.md 启用/禁用与签名校验；中国法律包状态。",
+        description: "本地技能与中国法律包",
         keywords: "skills 技能 skill 签名 中国包 cn pack",
       },
       {
         id: "assistants",
         label: "助手与岗位",
-        description: "配置多助手、岗位和对话切换。",
+        description: "切换助手与按领域新建",
         keywords: "assistant 智能体 岗位 persona 助手",
       },
     ],
@@ -108,25 +111,31 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
       {
         id: "collaboration",
         label: "团队工作流",
-        description: "多助手交办摘要；进度在「在办」查看。",
+        description: "在办入口与状态",
         keywords: "collaboration 协作 在办 委派 delegation",
+      },
+      {
+        id: "automations",
+        label: "自动办件",
+        description: "定时任务与邮件",
+        keywords: "automations 自动办件 定时 邮件 续签 周报 交办任务",
       },
       {
         id: "tools",
         label: "安全与工具",
-        description: "高安全模式、工具批准和 MCP。默认策略已足够个人律师使用。",
+        description: "高安全开关",
         keywords: "tools mcp 工具 沙箱 policy",
       },
       {
         id: "roles",
         label: "角色",
-        description: "工作区内助手角色与权限配置。通常由模板自动选择。",
-        keywords: "roles 角色 助手",
+        description: "内置岗位说明",
+        keywords: "roles 角色 助手 岗位",
       },
       {
         id: "edition",
         label: "版本与授权",
-        description: "当前版本能力（Solo / Firm）与功能开关。",
+        description: "版本与能力一览",
         keywords: "edition 版本 firm solo 授权",
       },
     ],
@@ -138,13 +147,13 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
       {
         id: "app-update",
         label: "应用更新",
-        description: "检查更新与安装包下载。",
+        description: "检查更新",
         keywords: "update 更新 安装包",
       },
       {
         id: "disclaimer",
         label: "免责声明",
-        description: "产品使用边界与法律免责说明。",
+        description: "使用边界",
         keywords: "disclaimer 免责",
       },
     ],

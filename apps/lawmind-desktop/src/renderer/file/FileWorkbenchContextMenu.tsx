@@ -17,6 +17,8 @@ export type FileWorkbenchContextMenuProps = {
   canUseFilesystemBridge: boolean;
   busy: boolean;
   onAddToChatContext?: (payload: { root: RootKey; relPath: string; kind: "file" | "directory" }) => void;
+  /** Override default「在对话中引用」label (e.g. meeting →「加入议题材料」). */
+  addToContextLabel?: string;
   setAddToMatterManualDraft: Dispatch<SetStateAction<string>>;
   setAddToMatterLastError: Dispatch<SetStateAction<string | null>>;
   setAddToMatterPick: Dispatch<SetStateAction<{ relPath: string; kind: "file" | "directory" } | null>>;
@@ -39,6 +41,7 @@ export function FileWorkbenchContextMenu({
   canUseFilesystemBridge,
   busy,
   onAddToChatContext,
+  addToContextLabel,
   setAddToMatterManualDraft,
   setAddToMatterLastError,
   setAddToMatterPick,
@@ -150,7 +153,9 @@ export function FileWorkbenchContextMenu({
                 setContextMenu(null);
               }}
             >
-              💬 在对话中引用{kind === "directory" ? "（整目录）" : ""}
+              {addToContextLabel
+                ? `${addToContextLabel}${kind === "directory" ? "（整目录）" : ""}`
+                : `💬 在对话中引用${kind === "directory" ? "（整目录）" : ""}`}
             </button>
           ) : null}
           {canOfferAddToMatter ? (
@@ -283,7 +288,9 @@ export function FileWorkbenchContextMenu({
             setContextMenu(null);
           }}
         >
-          💬 在对话中引用{root === "workspace" ? "材料" : "本机文件夹"}根目录
+          {addToContextLabel
+            ? `${addToContextLabel}（${root === "workspace" ? "材料" : "本机"}根目录）`
+            : `💬 在对话中引用${root === "workspace" ? "材料" : "本机文件夹"}根目录`}
         </button>
       ) : null}
       <div className="lm-context-menu-sep" role="separator" />

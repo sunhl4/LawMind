@@ -65,6 +65,8 @@ export type LawMindWorkspacePolicy = {
     autoCompactBufferTokens?: number;
     maxConsecutiveCompactFailures?: number;
     summaryOutputTokenReserve?: number;
+    /** Optional workspace override for context window (tokens). */
+    contextTokens?: number;
   };
   /** High-security desktop preset: disable web + auto memory adopt hints. */
   highSecurityMode?: boolean;
@@ -94,7 +96,50 @@ export type LawMindWorkspacePolicy = {
    * 也可用环境变量 `LAWMIND_CITATION_MODE`。
    */
   citationMode?: "grounded" | "assisted" | "off";
+  /**
+   * System prompt tool catalogue verbosity.
+   * - full（默认）：完整工具参数列表
+   * - compact：分类摘要 + 常用工具短列表（省 context）
+   * 也可用 `LAWMIND_PROMPT_VERBOSITY=compact|full`。
+   */
+  agentPromptVerbosity?: "compact" | "full";
+  /**
+   * When false, skip intake-first clarification heuristics (Doctor / power users).
+   * Also `LAWMIND_INTAKE=0`.
+   */
+  intakeHeuristicsEnabled?: boolean;
+  /**
+   * Whether the model must emit「本轮已应用」footer for executable preferences.
+   * - first（默认）：仅会话首轮要求
+   * - always：每轮要求
+   * - off：不要求（system 仍列出偏好）
+   */
+  appliedPreferencesFooter?: "always" | "first" | "off";
 };
+
+export function resolveAgentPromptVerbosity(
+  policy: LawMindWorkspacePolicy | null | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): "compact" | "full" {
+  const envRaw = env.LAWMIND_PROMPT_VERBOSITY?.trim().toLowerCase();
+  if (envRaw === "compact" || envRaw === "full") {
+    return envRaw;
+  }
+  if (policy?.agentPromptVerbosity === "compact" || policy?.agentPromptVerbosity === "full") {
+    return policy.agentPromptVerbosity;
+  }
+  return "full";
+}
+
+export function resolveAppliedPreferencesFooterMode(
+  policy: LawMindWorkspacePolicy | null | undefined,
+): "always" | "first" | "off" {
+  const mode = policy?.appliedPreferencesFooter;
+  if (mode === "always" || mode === "first" || mode === "off") {
+    return mode;
+  }
+  return "first";
+}
 
 export type ResolvedAgentMandatoryRules = {
   active: boolean;
@@ -248,7 +293,8 @@ export function resolveAgentMaxToolCallsPerTurn(workspaceDir: string): number {
       : undefined;
   const envRaw = process.env.LAWMIND_AGENT_MAX_TOOL_CALLS?.trim();
   const envParsed = envRaw ? Math.floor(Number(envRaw)) : NaN;
-  const fromEnv = Number.isFinite(envParsed) && envParsed > 0 ? envParsed : 15;
-  const base = fromPolicy !== undefined ? fromPolicy : fromEnv;
+  const fromEnv = Number.isFinite(envParsed) && envParsed > 0 ? envParsed : undefined;
+  /** Default raised so complex legal turns are less likely to stop mid-task. */
+  const base = fromPolicy !== undefined ? fromPolicy : (fromEnv ?? 25);
   return Math.min(MAX_TOOL_CALLS_CAP, Math.max(1, base));
 }

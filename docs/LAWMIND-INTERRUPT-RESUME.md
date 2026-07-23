@@ -66,7 +66,7 @@
 ## 6. 桌面消费
 
 - 聊天：`LawmindRequiresActionCard` 渲染 `requiresAction`（一点「批准并继续」即 `POST chat/resume`，无二次确认窗）
-- 全局入口：侧栏/顶栏 **待我拍板** → 主视图「在办」（`agents` desk / 舰队面板），汇总 `/api/action-summary` 与 pending；无独立 Action Hub 模态
+- 全局入口：侧栏 **待我拍板** → 主视图「在办」（`agents` desk / 舰队面板），汇总 `/api/action-summary` 与 pending；无独立 Action Hub 模态
 
 ## 7. 审批收紧（律师少参与）
 

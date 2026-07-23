@@ -53,21 +53,33 @@ const RENTAL_CONTRACT_SPEC: DeliverableSpec = {
       key: "parties",
       question: "请补充出租人和承租人的姓名/名称及身份信息。",
       reason: "租赁合同必须明确双方主体。",
+      inputType: "textarea",
     },
     {
       key: "property_address",
       question: "请补充房屋地址、面积和用途。",
       reason: "标的描述不完整影响合同可执行性。",
+      inputType: "textarea",
     },
     {
       key: "lease_term",
       question: "请补充租赁期限和起止时间。",
       reason: "租期是租赁合同核心条款。",
+      inputType: "textarea",
     },
     {
       key: "rent_and_deposit",
       question: "请补充租金、押金和支付周期。",
       reason: "价款与支付安排是完整交付必需信息。",
+      inputType: "textarea",
+    },
+    {
+      key: "lease_scan",
+      question: "如有房屋租赁合同或权属证明扫描件，请挂接材料。",
+      reason: "原件材料可减少主体与标的核对误差。",
+      inputType: "file",
+      required: false,
+      accept: ".pdf,.docx,.png,.jpg",
     },
   ],
 };

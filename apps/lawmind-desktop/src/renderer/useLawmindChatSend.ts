@@ -10,13 +10,21 @@ import {
   fetchContractRevisionIndexPrefix,
   shouldAttachContractRevisionIndex,
 } from "./lawmind-contract-chat-context";
-import { errorMessage, isModelFailureError, MODEL_NOT_CONFIGURED_USER_HINT } from "./api-client";
+import {
+  apiSendJson,
+  errorMessage,
+  isModelFailureError,
+  MODEL_NOT_CONFIGURED_USER_HINT,
+} from "./api-client";
 import { isSelectedModelVerified, MODEL_NOT_VERIFIED_HINT } from "./lawmind-model-verify";
 import { resolveComposeModelSelectValue } from "./lawmind-model-picker-utils";
 import type { AppConfig } from "./lawmind-app-bootstrap";
 import type { LawmindHealthState } from "./lawmind-app-shell";
 import type { FileChatContextItem } from "./lawmind-app-shell";
-import { buildFileContextMessagePrefix } from "./lawmind-file-chat-context";
+import {
+  buildFileContextMessagePrefix,
+  fetchFileChatExcerpts,
+} from "./lawmind-file-chat-context";
 import {
   appendActivityDelta,
   appendActivityToolProgress,
@@ -39,6 +47,7 @@ import {
 import type { ModelCatalogEntry } from "./lawmind-models-api";
 import { chatSessionStoreKey, persistActiveChatSessionId } from "./useLawmindChatShell";
 import { readComposePermissionMode } from "./lawmind-compose-prefs";
+import { abortSessionTurn, mutateSessionMessages } from "./lawmind-chat-message-mutate";
 
 export type UseLawmindChatSendInput = {
   config: AppConfig | null;
@@ -120,8 +129,57 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
   const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
 
   const abortChatSend = useCallback(() => {
+    const sessionId = sessionByAssistant[selectedAssistantId];
+    if (config?.apiBase && sessionId) {
+      void abortSessionTurn(config.apiBase, sessionId);
+    }
+    const taskId = contextTaskId?.trim();
+    if (config?.apiBase && taskId) {
+      void apiSendJson(config.apiBase, `/api/jobs/${encodeURIComponent(taskId)}/cancel`, "POST", {}).catch(
+        () => undefined,
+      );
+    }
     chatAbortControllerRef.current?.abort();
-  }, []);
+  }, [config?.apiBase, contextTaskId, selectedAssistantId, sessionByAssistant]);
+
+  const applyMutatedMessages = useCallback(
+    (assistantId: string, messages: ChatMsg[]) => {
+      setMessagesByAssistant((previous) => ({ ...previous, [assistantId]: messages }));
+    },
+    [setMessagesByAssistant],
+  );
+
+  const deleteChatMessageAt = useCallback(
+    async (uiIndex: number) => {
+      if (!config?.apiBase || loading) {
+        return;
+      }
+      const sessionId = sessionByAssistant[selectedAssistantId];
+      if (!sessionId) {
+        return;
+      }
+      try {
+        setError(null);
+        const { messages } = await mutateSessionMessages(config.apiBase, sessionId, {
+          uiIndex,
+          mode: "delete_pair",
+        });
+        applyMutatedMessages(selectedAssistantId, messages);
+        await refreshChatSessionListForAssistant(selectedAssistantId);
+      } catch (cause) {
+        setError(errorMessage(cause, "删除失败"));
+      }
+    },
+    [
+      applyMutatedMessages,
+      config?.apiBase,
+      loading,
+      refreshChatSessionListForAssistant,
+      selectedAssistantId,
+      sessionByAssistant,
+      setError,
+    ],
+  );
 
   const sendChatMessage = useCallback(
     async (rawText: string, opts2?: { fromQueue?: boolean }) => {
@@ -151,11 +209,16 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
         setComposeModelHint(MODEL_NOT_VERIFIED_HINT);
         return;
       }
-      const prefix = buildFileContextMessagePrefix(fileChatContextItems);
       const assistantId = selectedAssistantId;
       const ac = new AbortController();
       chatAbortControllerRef.current = ac;
       chatInFlightRef.current = { assistantId, userText: text };
+      const excerpts = await fetchFileChatExcerpts({
+        apiBase: config.apiBase,
+        items: fileChatContextItems,
+        signal: ac.signal,
+      });
+      const prefix = buildFileContextMessagePrefix(fileChatContextItems, excerpts);
       let learnPrefix = "";
       if (shouldAttachContractRevisionIndex(fileChatContextItems, deskContractBatchDir || undefined, text)) {
         learnPrefix = await fetchContractRevisionIndexPrefix(config.apiBase, ac.signal);
@@ -427,6 +490,41 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
     await sendChatMessage(composeInput);
   }, [composeInput, sendChatMessage]);
 
+  const editChatMessageAt = useCallback(
+    async (uiIndex: number, nextText: string) => {
+      const text = nextText.trim();
+      if (!text || !config?.apiBase || loading) {
+        return;
+      }
+      const sessionId = sessionByAssistant[selectedAssistantId];
+      if (!sessionId) {
+        return;
+      }
+      try {
+        setError(null);
+        const { messages } = await mutateSessionMessages(config.apiBase, sessionId, {
+          uiIndex,
+          mode: "truncate",
+        });
+        applyMutatedMessages(selectedAssistantId, messages);
+        await refreshChatSessionListForAssistant(selectedAssistantId);
+        await sendChatMessage(text);
+      } catch (cause) {
+        setError(errorMessage(cause, "修改失败"));
+      }
+    },
+    [
+      applyMutatedMessages,
+      config?.apiBase,
+      loading,
+      refreshChatSessionListForAssistant,
+      selectedAssistantId,
+      sendChatMessage,
+      sessionByAssistant,
+      setError,
+    ],
+  );
+
   const cancelQueuedMessage = useCallback((index: number) => {
     sendQueueRef.current = sendQueueRef.current.filter((_, i) => i !== index);
     setQueuedMessages([...sendQueueRef.current]);
@@ -441,6 +539,8 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
     abortChatSend,
     sendChatMessage,
     send,
+    deleteChatMessageAt,
+    editChatMessageAt,
     queuedMessages,
     cancelQueuedMessage,
     clearSendQueue,

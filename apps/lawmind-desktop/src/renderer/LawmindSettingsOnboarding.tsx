@@ -15,10 +15,10 @@ type QuickLink = {
 };
 
 const QUICK_LINKS: QuickLink[] = [
-  { sectionId: "models", label: "模型与检索", hint: "API 密钥与检索策略" },
-  { sectionId: "workspace", label: "工作区", hint: "根目录与项目材料" },
-  { sectionId: "memory", label: "记忆库", hint: "待采纳建议与历史" },
-  { sectionId: "collaboration", label: "多助手交办", hint: "在「在办」查看委派与按流程办" },
+  { sectionId: "models", label: "模型/API", hint: "密钥与检索" },
+  { sectionId: "workspace", label: "工作区", hint: "数据与材料夹" },
+  { sectionId: "memory", label: "记忆库", hint: "待采纳建议" },
+  { sectionId: "collaboration", label: "团队工作流", hint: "委派摘要" },
 ];
 
 type Props = {
@@ -128,11 +128,6 @@ export function LawmindSettingsOnboarding(props: Props): ReactNode {
             >
               {health ? (health.webSearchApiKeyConfigured ? "已配置" : "未配置") : "检测中…"}
             </span>
-          </div>
-          <div className="lm-callout lm-callout-muted lm-onboarding-hint" role="note">
-            <p className="lm-callout-body">
-              可用「API 配置向导」填密钥；上表由软件自动检查，一般不必逐条研究。
-            </p>
           </div>
         </div>
       </div>

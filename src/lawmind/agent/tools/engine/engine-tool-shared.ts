@@ -98,7 +98,10 @@ export function pushWorkflowProgress(ctx: AgentContext, steps: string[], message
   ctx.emitToolProgress?.(message);
 }
 
-/** 同一 turn 内已有工具返回 clarificationQuestions 时，阻止并行重型管线。 */
+/**
+ * 同一 turn 内已有工具返回 clarificationQuestions 时，阻止写/导出管线。
+ * 不拦截 research_task：澄清期间允许先检索事实。
+ */
 export function blockHeavyPipelineIfClarificationPending(ctx: AgentContext): ToolCallResult | null {
   if (!ctx.clarificationBlockingHeavyTools) {
     return null;
@@ -106,7 +109,7 @@ export function blockHeavyPipelineIfClarificationPending(ctx: AgentContext): Too
   return {
     ok: false,
     error:
-      "仍有待澄清事项：请先请律师回答上一轮列出的问题后，再执行检索、起草、完整工作流或渲染。可直接在对话中补充要点。",
+      "仍有待澄清事项：请先请律师回答上一轮列出的问题后，再执行起草、完整工作流或渲染。澄清期间仍可只读检索与 analyze。可直接在对话中补充要点。",
     data: {
       gateDecision: {
         gate: "clarification_gate",

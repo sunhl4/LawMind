@@ -54,12 +54,26 @@ describe("LawmindAppSidebar", () => {
     expect(host.innerHTML).toBe("");
   });
 
-  it("shows matter list on 在办 desk", async () => {
+  it("renders nothing when settings is open", async () => {
+    await act(async () => {
+      root.render(<LawmindAppSidebar {...baseProps({ settingsOpen: true, mainView: "workspace" })} />);
+    });
+    expect(host.innerHTML).toBe("");
+  });
+
+  it("在办 shows chat sessions + materials explorer like 对话 (not matter list)", async () => {
     await act(async () => {
       root.render(
         <LawmindAppSidebar
           {...baseProps({
+            showAppSidebar: true,
+            showSidebarWorkbenchFiles: true,
             mainView: "agents",
+            chatSessions: [{ sessionId: "s1", title: "合同审查" }],
+            onSelectChatSession: () => undefined,
+            onCreateNewChatSession: () => undefined,
+            onRenameChatSession: async () => undefined,
+            onDeleteChatSession: async () => undefined,
             matterSidebarRows: [
               { key: "m1", matterId: "m1", title: "测试案件", subline: "2 任务" },
             ],
@@ -67,8 +81,28 @@ describe("LawmindAppSidebar", () => {
         />,
       );
     });
-    expect(host.querySelector(".lm-matter-sidebar-list--fill")).not.toBeNull();
-    expect(host.textContent).toContain("测试案件");
+    expect(host.querySelector('[aria-label="材料资源树"]')).toBeTruthy();
+    expect(host.textContent).toContain("合同审查");
+    expect(host.textContent).not.toContain("测试案件");
+  });
+
+  it("会议室复用全局侧栏材料树（与对话同构）", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindAppSidebar
+          {...baseProps({
+            showAppSidebar: true,
+            mainView: "meeting",
+            showSidebarWorkbenchFiles: true,
+            matterSidebarRows: [
+              { key: "m1", matterId: "m1", title: "测试案件", subline: "2 任务" },
+            ],
+          })}
+        />,
+      );
+    });
+    expect(host.querySelector(".lm-side-explorer-host")).toBeTruthy();
+    expect(host.querySelector(".lm-matter-sidebar-list")).toBeNull();
   });
 
   it("empty matter list exposes 新建案件 CTA when onCreateMatter is set", async () => {
@@ -77,7 +111,9 @@ describe("LawmindAppSidebar", () => {
       root.render(
         <LawmindAppSidebar
           {...baseProps({
-            mainView: "agents",
+            // Matter list appears on workspace when materials tree is not mounted.
+            mainView: "workspace",
+            showSidebarWorkbenchFiles: false,
             matterSidebarRows: [],
             onCreateMatter: () => {
               created = true;
@@ -130,35 +166,16 @@ describe("LawmindAppSidebar", () => {
     expect(host.querySelector(".lm-side-explorer-skeleton")).not.toBeNull();
   });
 
-  it("shows automations sidebar list on 自动办件 view when apiBase is set", async () => {
+  it("shows 待我拍板 only when there are pending decisions", async () => {
     await act(async () => {
-      root.render(
-        <LawmindAppSidebar
-          {...baseProps({
-            mainView: "automations",
-            apiBase: "http://127.0.0.1:9",
-          })}
-        />,
-      );
-    });
-    expect(host.querySelector('[data-testid="lm-automations-sidebar-list"]')).not.toBeNull();
-    expect(host.textContent).toContain("交办任务");
-  });
-
-  it("always shows 待我拍板 on chat workspace; hides on other views when count is 0", async () => {
-    await act(async () => {
-      root.render(<LawmindAppSidebar {...baseProps({ mainView: "home", actionSummaryTotal: 0 })} />);
+      root.render(<LawmindAppSidebar {...baseProps({ mainView: "workspace", actionSummaryTotal: 0 })} />);
     });
     expect(host.querySelector('[data-testid="lm-side-needs-decision"]')).toBeNull();
 
     await act(async () => {
-      root.render(<LawmindAppSidebar {...baseProps({ mainView: "workspace", actionSummaryTotal: 0 })} />);
+      root.render(<LawmindAppSidebar {...baseProps({ mainView: "agents", actionSummaryTotal: 2 })} />);
     });
     expect(host.querySelector('[data-testid="lm-side-needs-decision"]')?.textContent).toContain("待我拍板");
-
-    await act(async () => {
-      root.render(<LawmindAppSidebar {...baseProps({ mainView: "workspace", actionSummaryTotal: 2 })} />);
-    });
     expect(host.querySelector('[data-testid="lm-side-needs-decision"]')?.textContent).toContain("2");
   });
 

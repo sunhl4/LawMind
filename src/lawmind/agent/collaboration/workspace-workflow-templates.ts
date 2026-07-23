@@ -18,6 +18,8 @@ export { resolveWorkflowTemplateKind, workflowTemplateKindUiLabel };
 export type WorkspaceWorkflowTemplateStep = {
   stepId: string;
   assignee: string;
+  /** Prefer resolving live assistant via Role when present (Wave B). */
+  assigneeRoleId?: string;
   task: string;
   dependsOn: string[];
   reviewBy?: string;
@@ -173,6 +175,7 @@ export function instantiateCollaborationWorkflowFromTemplate(
   const steps: WorkflowStep[] = template.steps.map((t) => ({
     stepId: t.stepId,
     assignee: t.assignee,
+    assigneeRoleId: t.assigneeRoleId,
     task: substituteTask(t.task, opts.vars ?? {}, opts.matterId),
     dependsOn: [...t.dependsOn],
     reviewBy: t.reviewBy,

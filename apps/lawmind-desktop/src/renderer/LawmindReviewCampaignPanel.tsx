@@ -1,11 +1,14 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { ReviewCampaign, ReviewCampaignRoleResult } from "./lawmind-review-campaign-api";
 import {
+  apiCancelReviewCampaign,
   apiCreateReviewCampaign,
   apiGetCampaignReport,
   apiGetReviewCampaignByTask,
+  apiListFleetPlaybooks,
   apiRerunCampaignRole,
 } from "./lawmind-review-campaign-api";
+import { useEdition } from "./use-edition";
 
 type Props = {
   apiBase: string;
@@ -16,16 +19,22 @@ type Props = {
   busy?: boolean;
 };
 
+type PlaybookOption = { id: string; label: string; roleCount: number };
+
 /**
  * Skills E2 — Sticky Safety Score + role tabs (Workbench meta column).
  */
 export function LawmindReviewCampaignPanel(props: Props): ReactNode {
   const { apiBase, taskId, matterId, campaign, onCampaignChange } = props;
+  const edition = useEdition(apiBase);
+  const allowParallel =  edition.features.reviewCampaignParallel;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportMd, setReportMd] = useState<string | null>(null);
   const [activeRoleId, setActiveRoleId] = useState<string | null>(null);
+  const [playbooks, setPlaybooks] = useState<PlaybookOption[]>([]);
+  const [playbookId, setPlaybookId] = useState("standard-contract-review");
   const [preferFast, setPreferFast] = useState(() => {
     try {
       return localStorage.getItem("lm.campaignPreferFast") === "1";
@@ -33,6 +42,36 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
       return false;
     }
   });
+  const [preferParallel, setPreferParallel] = useState(() => {
+    try {
+      return localStorage.getItem("lm.campaignPreferParallel") === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    if (!apiBase) {
+      return;
+    }
+    let cancelled = false;
+    void apiListFleetPlaybooks(apiBase)
+      .then((j) => {
+        if (cancelled || !j.ok || !j.playbooks?.length) {
+          return;
+        }
+        setPlaybooks(j.playbooks);
+        setPlaybookId((prev) =>
+          j.playbooks!.some((p) => p.id === prev) ? prev : j.playbooks![0].id,
+        );
+      })
+      .catch(() => {
+        /* keep default */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase]);
 
   useEffect(() => {
     if (!apiBase || !taskId) {
@@ -69,16 +108,37 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
     setBusy(true);
     setError(null);
     try {
+      const pb = playbookId.trim() || "standard-contract-review";
       const j = await apiCreateReviewCampaign(apiBase, {
         taskId,
         matterId,
-        playbookId: "standard-contract-review",
-        idempotencyKey: `campaign:${taskId}:standard-contract-review:${preferFast ? "fast" : "full"}`,
+        playbookId: pb,
+        idempotencyKey: `campaign:${taskId}:${pb}:${preferFast ? "fast" : "full"}:${preferParallel && allowParallel ? "par" : "ser"}`,
         runNow: true,
         preferFast,
+        preferParallel: allowParallel && preferParallel,
       });
       if (!j.ok || !j.campaign) {
         throw new Error(j.error ?? "创建专案组失败");
+      }
+      onCampaignChange(j.campaign);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cancelCampaign = async () => {
+    if (!campaign) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const j = await apiCancelReviewCampaign(apiBase, campaign.id);
+      if (!j.ok || !j.campaign) {
+        throw new Error(j.error ?? "取消失败");
       }
       onCampaignChange(j.campaign);
     } catch (e) {
@@ -132,12 +192,11 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
       return;
     }
     const blob = new Blob([reportMd], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url;
+    a.href = URL.createObjectURL(blob);
     a.download = `review-campaign-${campaign.id}.md`;
     a.click();
-    URL.revokeObjectURL(url);
+    URL.revokeObjectURL(a.href);
   };
 
   const copyReport = async () => {
@@ -155,6 +214,12 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
   const activeRole: ReviewCampaignRoleResult | undefined = campaign?.roles.find(
     (r) => r.roleId === activeRoleId,
   );
+  const canCancel =
+    campaign != null &&
+    (campaign.status === "draft" ||
+      campaign.status === "queued" ||
+      campaign.status === "running" ||
+      campaign.roles.some((r) => r.status === "running" || r.status === "pending"));
 
   return (
     <section className="lm-review-campaign" aria-label="审查专案组" data-testid="lm-review-campaign">
@@ -173,6 +238,17 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
           >
             {campaign ? "重新跑专案组" : "用审查专案组"}
           </button>
+          {canCancel ? (
+            <button
+              type="button"
+              className="lm-btn lm-btn-ghost lm-btn-sm"
+              disabled={busy}
+              onClick={() => void cancelCampaign()}
+              data-testid="lm-review-campaign-cancel"
+            >
+              取消
+            </button>
+          ) : null}
           {campaign ? (
             <button
               type="button"
@@ -186,6 +262,27 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
           ) : null}
         </div>
       </header>
+
+      <label className="lm-settings-row lm-review-campaign-playbook">
+        <span className="lm-meta">Playbook</span>
+        <select
+          className="lm-input"
+          value={playbookId}
+          data-testid="lm-review-campaign-playbook"
+          aria-label="审查 Playbook"
+          onChange={(e) => setPlaybookId(e.target.value)}
+        >
+          {(playbooks.length > 0
+            ? playbooks
+            : [{ id: "standard-contract-review", label: "标准合同审查", roleCount: 5 }]
+          ).map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+              {p.roleCount ? `（${p.roleCount} 角色）` : ""}
+            </option>
+          ))}
+        </select>
+      </label>
 
       {score ? (
         <div className="lm-review-campaign-scoreboard" aria-label="Contract Safety Score">
@@ -225,7 +322,7 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
           </div>
         </div>
       ) : (
-        <p className="lm-meta">一键跑五角色（Solo 串行启发式），聚合 Safety Score 与谈判优先级。</p>
+        <p className="lm-meta">选择 Playbook 后一键跑多角色，聚合 Safety Score 与谈判优先级。</p>
       )}
 
       <label className="lm-settings-row lm-settings-row-check lm-review-campaign-fast">
@@ -245,6 +342,27 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
         />
         <span className="lm-meta">更快模式（跳过低权重角色，仍保留 ≥4 角色）</span>
       </label>
+      {allowParallel ? (
+        <label className="lm-settings-row lm-settings-row-check lm-review-campaign-parallel">
+          <input
+            type="checkbox"
+            checked={preferParallel}
+            data-testid="lm-review-campaign-parallel"
+            onChange={(e) => {
+              const on = e.target.checked;
+              setPreferParallel(on);
+              try {
+                localStorage.setItem("lm.campaignPreferParallel", on ? "1" : "0");
+              } catch {
+                /* ignore */
+              }
+            }}
+          />
+          <span className="lm-meta">并行执行角色（律所版）</span>
+        </label>
+      ) : (
+        <p className="lm-meta">当前版本串行执行角色（律所版可开并行）。</p>
+      )}
       {error ? <p className="lm-error">{error}</p> : null}
       {campaign && campaign.roles.length > 0 ? (
         <>
@@ -266,9 +384,17 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
                     : "lm-review-campaign-tab"
                 }
                 data-status={r.status}
+                title={
+                  r.boundAssistantName
+                    ? `${r.label} · ${r.boundAssistantName}`
+                    : `${r.label}（抽象角色，未绑定工作区助手）`
+                }
                 onClick={() => setActiveRoleId(r.roleId)}
               >
                 {r.label}
+                {r.boundAssistantName ? (
+                  <span className="lm-meta lm-review-campaign-bound"> · {r.boundAssistantName}</span>
+                ) : null}
                 {typeof r.score === "number" ? (
                   <span className="lm-meta"> {r.score}</span>
                 ) : null}
@@ -281,11 +407,20 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
               role="tabpanel"
               data-status={activeRole.status}
               data-testid="lm-review-campaign-role-panel"
+              data-bound-assistant={activeRole.boundAssistantId ?? ""}
             >
               <div className="lm-review-campaign-role-head">
                 <span>
                   {activeRole.label}
                   <span className="lm-meta"> · {activeRole.status}</span>
+                  {activeRole.boundAssistantName ? (
+                    <span className="lm-meta" data-testid="lm-review-campaign-bound-name">
+                      {" "}
+                      · 助手 {activeRole.boundAssistantName}
+                    </span>
+                  ) : (
+                    <span className="lm-meta"> · 抽象角色</span>
+                  )}
                 </span>
                 <button
                   type="button"

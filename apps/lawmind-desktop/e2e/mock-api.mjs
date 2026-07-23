@@ -120,6 +120,105 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (path === "/api/metrics/team-growth" && req.method === "GET") {
+    json(res, 200, {
+      ok: true,
+      capturedAt: now,
+      windowDays: Number(url.searchParams.get("windowDays") || 30) || 30,
+      metrics: [
+        {
+          id: "first_pass_rate",
+          label: "主力一次过率",
+          value: 0.62,
+          numerator: 31,
+          denominator: 50,
+          targetNote: "相对基线 ↑ ≥10pt",
+          baselineValue: null,
+          deltaPts: null,
+        },
+        {
+          id: "rewrite_rate",
+          label: "改写率",
+          value: 0.38,
+          numerator: 19,
+          denominator: 50,
+          targetNote: "相对基线 ↓",
+          baselineValue: null,
+          deltaPts: null,
+        },
+        {
+          id: "learning_process_rate",
+          label: "学习处理率",
+          value: 0.45,
+          numerator: 9,
+          denominator: 20,
+          targetNote: "≥40% 被采纳或驳回",
+          baselineValue: null,
+          deltaPts: null,
+        },
+        {
+          id: "routing_hit_rate",
+          label: "默认路由命中",
+          value: 0.7,
+          numerator: 7,
+          denominator: 10,
+          targetNote: "≥60%（有 defaults 且未回退）",
+          baselineValue: null,
+          deltaPts: null,
+        },
+        {
+          id: "peer_review_coverage",
+          label: "互审闸覆盖",
+          value: 0.5,
+          numerator: 2,
+          denominator: 4,
+          targetNote: "Firm：触发 / (触发+跳过)",
+          baselineValue: null,
+          deltaPts: null,
+        },
+      ],
+      assistants: [],
+      baseline: null,
+    });
+    return;
+  }
+
+  if (path === "/api/metrics/team-growth/baseline" && req.method === "POST") {
+    const body = await readJsonBody(req);
+    const windowDays = Number(body?.windowDays || 30) || 30;
+    json(res, 200, {
+      ok: true,
+      capturedAt: now,
+      windowDays,
+      metrics: [
+        {
+          id: "first_pass_rate",
+          label: "主力一次过率",
+          value: 0.62,
+          numerator: 31,
+          denominator: 50,
+          targetNote: "相对基线 ↑ ≥10pt",
+          baselineValue: 0.62,
+          deltaPts: 0,
+        },
+      ],
+      assistants: [],
+      baseline: {
+        capturedAt: now,
+        note: typeof body?.note === "string" ? body.note : "内测基线",
+        windowDays,
+      },
+      baselineFile: {
+        version: 1,
+        capturedAt: now,
+        windowDays,
+        note: typeof body?.note === "string" ? body.note : "内测基线",
+        metrics: [{ id: "first_pass_rate", value: 0.62 }],
+      },
+    });
+    return;
+  }
+
   if (path === "/api/policy/edition" && req.method === "GET") {
     // Firm edition keeps multi-assistant features on for e2e (委派 / 按流程办 under「在办」).
     json(res, 200, {
@@ -816,6 +915,45 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  const sessionAbortMatch = /^\/api\/sessions\/([^/]+)\/abort$/.exec(path);
+  if (sessionAbortMatch && req.method === "POST") {
+    json(res, 200, { ok: true, aborted: true, sessionId: sessionAbortMatch[1] });
+    return;
+  }
+
+  const sessionMutateMatch = /^\/api\/sessions\/([^/]+)\/messages\/mutate$/.exec(path);
+  if (sessionMutateMatch && req.method === "POST") {
+    json(res, 200, {
+      ok: true,
+      mode: "truncate",
+      removedCount: 0,
+      messages: [
+        { role: "user", text: "E2E user" },
+        { role: "assistant", text: "E2E assistant" },
+      ],
+    });
+    return;
+  }
+
+  const sessionCompactMatch = /^\/api\/sessions\/([^/]+)\/compact$/.exec(path);
+  if (sessionCompactMatch && req.method === "POST") {
+    json(res, 200, {
+      ok: true,
+      compacted: false,
+      droppedMessageCount: 0,
+      messages: [
+        { role: "user", text: "E2E user" },
+        { role: "assistant", text: "E2E assistant" },
+      ],
+      distill: {
+        suggestionIds: [],
+        sessionSummaryAppended: false,
+        preferenceSnippetCount: 0,
+      },
+    });
+    return;
+  }
+
   if (path === "/api/chat" && req.method === "POST") {
     const body = await readJsonBody(req);
     const msg = typeof body?.message === "string" ? body.message : "";
@@ -903,6 +1041,30 @@ const server = http.createServer(async (req, res) => {
           firstPassRate: 0.67,
           lastUpdatedAt: now,
         },
+      },
+      growth: {
+        windowDays: 30,
+        assistants: [
+          {
+            assistantId: "default",
+            roleId: "general_default",
+            lifetime: {
+              tasksReviewed: 3,
+              firstPassApprovals: 2,
+              materialRewrites: 1,
+              firstPassRate: 0.67,
+              rewriteRate: 0.33,
+            },
+            window: {
+              tasksReviewed: 2,
+              firstPassApprovals: 1,
+              materialRewrites: 1,
+              firstPassRate: 0.5,
+              rewriteRate: 0.5,
+            },
+            pendingAdoptions: 1,
+          },
+        ],
       },
       counts: {
         total: 2,

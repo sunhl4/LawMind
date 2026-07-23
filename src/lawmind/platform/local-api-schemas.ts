@@ -184,21 +184,35 @@ export const matterDeletePostSchema = z.object({
 
 export type MatterDeletePostRequest = z.infer<typeof matterDeletePostSchema>;
 
-export const templateScanPostSchema = z.object({
-  path: trimmedNonEmptyString,
-});
+export const templateScanPostSchema = z
+  .object({
+    /** Workspace-relative path */
+    path: z.string().trim().optional(),
+    /** Absolute filesystem path (desktop import / drop) */
+    absolutePath: z.string().trim().optional(),
+  })
+  .refine((v) => Boolean(v.path?.trim() || v.absolutePath?.trim()), {
+    message: "path or absolutePath is required",
+  });
 
 export type TemplateScanPostRequest = z.infer<typeof templateScanPostSchema>;
 
-export const templateRegisterPostSchema = z.object({
-  id: trimmedNonEmptyString,
-  label: z.string().trim().optional(),
-  format: z.string().trim().optional(),
-  path: z.string().trim().optional(),
-  sourcePath: z.string().trim().optional(),
-  placeholderMap: z.record(z.string(), z.string()).optional(),
-  enabled: z.boolean().optional(),
-});
+export const templateRegisterPostSchema = z
+  .object({
+    id: trimmedNonEmptyString,
+    label: z.string().trim().optional(),
+    format: z.string().trim().optional(),
+    /** Workspace-relative path */
+    path: z.string().trim().optional(),
+    sourcePath: z.string().trim().optional(),
+    /** Absolute filesystem path (desktop import / drop) */
+    absolutePath: z.string().trim().optional(),
+    placeholderMap: z.record(z.string(), z.string()).optional(),
+    enabled: z.boolean().optional(),
+  })
+  .refine((v) => Boolean(v.path?.trim() || v.sourcePath?.trim() || v.absolutePath?.trim()), {
+    message: "path, sourcePath, or absolutePath is required",
+  });
 
 export type TemplateRegisterPostRequest = z.infer<typeof templateRegisterPostSchema>;
 

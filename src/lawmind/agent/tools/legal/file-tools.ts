@@ -24,6 +24,7 @@ import {
   isXlsxPath,
   isOcrImagePath,
   unsupportedOfficeIngestReason,
+  sliceDocumentPage,
   MAX_DOCX_READ_BYTES,
   MAX_WORKSPACE_PDF_READ_BYTES,
   MAX_IMAGE_OCR_READ_BYTES,
@@ -34,10 +35,18 @@ export const analyzeDocument: AgentTool = {
   definition: {
     name: "analyze_document",
     description:
-      "读取工作区内的指定文件（路径相对工作区根），返回内容供后续分析。支持 Markdown/txt、PDF（文本层→OCR→可选视觉）、.docx、.xlsx（表格转 TSV，有界）、常见图片 OCR；不支持 .doc/.xls/.ppt 与 .pptx。",
+      "读取工作区内的指定文件（路径相对工作区根），返回内容供后续分析。支持 Markdown/txt、PDF（文本层→OCR→可选视觉）、.docx、.xlsx（表格转 TSV，有界）、常见图片 OCR；不支持 .doc/.xls/.ppt 与 .pptx。大文件请用 offset/limit（字符）分页续读；若 hasMore=true，用 nextOffset 再调一次。",
     category: "analyze",
     parameters: {
       file_path: { type: "string", description: "相对于工作区的文件路径", required: true },
+      offset: {
+        type: "number",
+        description: "从提取文本的第几个字符开始（默认 0）。用于分页续读长合同。",
+      },
+      limit: {
+        type: "number",
+        description: "本页最多返回多少字符（默认约 40000，上限 120000）。",
+      },
     },
   },
   async execute(params, ctx) {
@@ -48,11 +57,21 @@ export const analyzeDocument: AgentTool = {
       bytes: number,
       stage: IngestStage,
     ) => {
-      const sliced = content.slice(0, 8000);
-      const result = ingestSuccess(sourceType, sliced, content.length > 8000, bytes, stage);
+      const page = sliceDocumentPage(content, params.offset, params.limit);
+      const result = ingestSuccess(sourceType, page.content, page.hasMore, bytes, stage);
       return toolDataFromIngestSuccess(
         result,
-        { filePath: params.file_path },
+        {
+          filePath: params.file_path,
+          totalChars: page.totalChars,
+          offset: page.offset,
+          limit: page.limit,
+          hasMore: page.hasMore,
+          nextOffset: page.nextOffset,
+          hint: page.hasMore
+            ? `文本未读完：请再用 analyze_document(file_path, offset=${page.nextOffset}) 续读。`
+            : undefined,
+        },
         { contentTrust: "untrusted_user_document" },
       );
     };

@@ -44,8 +44,11 @@ export function buildContextPlan(params: {
   session: AgentSession;
   ctx: AgentContext;
   policy?: LawMindWorkspacePolicy | null;
+  contextTokens?: number;
 }): ContextPlan {
-  const tokenBudget = estimateTokenBudget(params.session, params.policy);
+  const tokenBudget = estimateTokenBudget(params.session, params.policy, {
+    contextTokens: params.contextTokens,
+  });
   const matterId = params.ctx.matterId ?? params.session.matterId;
   const assistantId = params.ctx.assistantId ?? params.session.assistantId;
   const hasPendingActions =

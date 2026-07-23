@@ -134,60 +134,6 @@
   color: var(--muted);
 }
 
-.lm-agent-fleet-spawn {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--accent-border) 35%, var(--border));
-  border-radius: var(--r-lg);
-  background: color-mix(in srgb, var(--surface) 92%, var(--accent-dim));
-  position: relative;
-  box-shadow: var(--shadow-xs);
-}
-
-.lm-agent-fleet-spawn-compact {
-  align-items: flex-start;
-}
-
-.lm-agent-fleet-spawn-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.lm-agent-fleet-spawn-hint {
-  font-size: 12px;
-}
-
-.lm-agent-fleet-spawn-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 40;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 240px;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md, 8px);
-  background: var(--surface-elevated, var(--surface));
-  box-shadow: var(--shadow-md, 0 8px 24px rgba(0, 0, 0, 0.35));
-}
-
-.lm-agent-fleet-spawn-menu[hidden] {
-  display: none !important;
-}
-
-.lm-agent-fleet-spawn-menu-label {
-  margin: 4px 4px 0;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
 .lm-agent-fleet-presets,
 .lm-agent-fleet-preset-row {
   display: flex;

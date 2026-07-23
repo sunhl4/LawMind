@@ -70,10 +70,12 @@ type Props = {
   onMatterCreated?: (matterId: string) => void;
   /** 打开「在办 → 按流程办」（任务看板空状态 CTA） */
   onOpenWorkflowLibrary?: () => void;
-  /** 打开顶栏「会议室·办件」→ 会议室，并绑定本案 */
+  /** 打开顶栏「会议室」并绑定本案 */
   onOpenTopLevelMeeting?: (matterId: string) => void;
   /** 打开「在办」待我拍板焦点 */
-  onOpenNeedsDecisionDesk?: () => void;
+  onOpenNeedsDecisionDesk?: (
+    target?: import("../lawmind-agents-desk").NeedsDecisionDeskTarget,
+  ) => void;
 };
 
 

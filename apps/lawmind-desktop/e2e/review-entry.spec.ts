@@ -14,7 +14,8 @@ test.describe("文书台 / 待我拍板 决策落地", () => {
     if (await card.isVisible().catch(() => false)) {
       await card.click();
     }
-    await expect(page.getByTestId("lm-fleet-primary-review")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("lm-fleet-draft-approve")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("lm-fleet-draft-hint")).toBeVisible();
     await expect(page.getByTestId("lm-fleet-primary-review")).toContainText(/文书台/);
     await page.getByTestId("lm-fleet-primary-review").click();
     await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench").first()).toBeVisible({
@@ -23,6 +24,7 @@ test.describe("文书台 / 待我拍板 决策落地", () => {
     await expect(
       page.locator(".lm-review-compose-main, .lm-review-editor-pane, .lm-review-preview-pane").first(),
     ).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("button", { name: /回到在办签批/ })).toBeVisible({ timeout: 15_000 });
   });
 
   test("侧栏待我拍板 opens needs-decision focus", async ({ page }) => {

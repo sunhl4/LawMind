@@ -202,7 +202,7 @@ describe("lawmind-server-route-records", () => {
     };
     expect(body.ok).toBe(true);
     expect(body.progress?.status).toBe("running");
-    expect(body.progress?.steps?.some((s) => s.label.includes("写回"))).toBe(true);
+    expect(body.progress?.steps?.some((s) => s.label.includes("审定文书"))).toBe(true);
     resetLiveTurnProgressStore();
   });
 

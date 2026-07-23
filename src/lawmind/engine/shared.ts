@@ -27,6 +27,8 @@ import {
 } from "../drafts/index.js";
 import { appendCaseProgress, appendTodayLog } from "../memory/index.js";
 import { buildLegalReasoningGraph } from "../reasoning/index.js";
+import { resolveDefaultAssignee } from "../routing/defaults.js";
+import { maybeApplyForcedPeerReview } from "../routing/peer-review-gate.js";
 import {
   ensureTaskRecord,
   readTaskRecord,
@@ -60,7 +62,18 @@ export async function emitWorkspaceSpecWarnings(
 /** 任务计划落盘 + 审计 + 案件目录初始化 + 当日日志 + matter/deliverable JSON 真相源（W4）。 */
 export function commitPlannedIntent(ctx: EngineContext, intent: TaskIntent): void {
   const { workspaceDir, auditDir, assistantId } = ctx;
-  const { created } = ensureTaskRecord(workspaceDir, intent, { assistantId });
+  const routed = resolveDefaultAssignee({
+    workspaceDir,
+    kind: intent.kind,
+    deliverableType: intent.deliverableType,
+    fallbackAssistantId: assistantId,
+    auditDir,
+    taskId: intent.taskId,
+  });
+  const resolvedAssistantId = routed.assistantId ?? assistantId;
+  const { created } = ensureTaskRecord(workspaceDir, intent, {
+    assistantId: resolvedAssistantId,
+  });
   if (created) {
     void emit(auditDir, {
       taskId: intent.taskId,
@@ -173,10 +186,20 @@ export function persistDraftPipeline(
     // W4：双轨写入 deliverables/queue JSON 真相源（best-effort）。
     try {
       linkDraftToDeliverable(workspaceDir, draft, tr ?? undefined);
+      const authorAssistantId = tr?.assistantId ?? ctx.assistantId;
+      const peerGate = maybeApplyForcedPeerReview({
+        workspaceDir,
+        auditDir,
+        draft,
+        authorAssistantId,
+      });
+      const queueTitle = peerGate.applied
+        ? `【先互审】草稿待签批：${draft.title}`
+        : `草稿待审核：${draft.title}`;
       openQueueItem(workspaceDir, {
         matterId: draft.matterId,
         kind: "need_lawyer_review",
-        title: `草稿待审核：${draft.title}`,
+        title: queueTitle,
         relatedTaskId: draft.taskId,
         relatedDeliverableId: draft.taskId,
       });

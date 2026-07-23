@@ -7,6 +7,8 @@ type Props = {
   apiBase: string;
   matterId?: string;
   assistantId?: string;
+  /** Settings page already shows section title; omit duplicate eyebrow. */
+  embedInSettings?: boolean;
 };
 
 type SourceTextPreview = {
@@ -16,7 +18,17 @@ type SourceTextPreview = {
   text: string;
 };
 
-export function LawmindMemoryTruthSources({ apiBase, matterId, assistantId }: Props) {
+function shortPath(rel: string): string {
+  const parts = rel.split(/[\\/]/).filter(Boolean);
+  return parts.slice(-2).join("/");
+}
+
+export function LawmindMemoryTruthSources({
+  apiBase,
+  matterId,
+  assistantId,
+  embedInSettings = false,
+}: Props) {
   const [layers, setLayers] = useState<MemorySourceLayer[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -35,16 +47,22 @@ export function LawmindMemoryTruthSources({ apiBase, matterId, assistantId }: Pr
       if (assistantId) {
         params.set("assistantId", assistantId);
       }
-      const j = await apiGetJson<{ ok?: boolean; layers?: MemorySourceLayer[] }>(
-        apiBase,
-        `/api/memory/sources?${params.toString()}`,
-      );
-      if (!j.ok || !Array.isArray(j.layers)) {
-        throw new Error("加载记忆真相源失败");
+      const j = await apiGetJson<{
+        ok?: boolean;
+        layers?: MemorySourceLayer[];
+        memorySources?: MemorySourceLayer[];
+      }>(apiBase, `/api/memory/sources?${params.toString()}`);
+      const rows = Array.isArray(j.layers)
+        ? j.layers
+        : Array.isArray(j.memorySources)
+          ? j.memorySources
+          : null;
+      if (!j.ok || !rows) {
+        throw new Error("加载档案失败");
       }
-      setLayers(j.layers);
+      setLayers(rows);
     } catch (e) {
-      setErr(errorMessage(e, "加载记忆真相源失败"));
+      setErr(errorMessage(e, "加载档案失败"));
       setLayers([]);
     } finally {
       setLoading(false);
@@ -95,7 +113,7 @@ export function LawmindMemoryTruthSources({ apiBase, matterId, assistantId }: Pr
           text: j.text,
         });
       } catch (e) {
-        setErr(errorMessage(e, "读取文件预览失败"));
+        setErr(errorMessage(e, "读取预览失败"));
         setPreview(null);
         setPreviewPath(null);
       } finally {
@@ -105,77 +123,100 @@ export function LawmindMemoryTruthSources({ apiBase, matterId, assistantId }: Pr
     [apiBase, preview, previewPath],
   );
 
+  const groupEntries = Object.entries(grouped);
+
   return (
-    <section className="lm-memory-truth" aria-label="记忆真相源">
-      <header className="lm-memory-truth__header">
-        <h4>记忆真相源（按 scope）</h4>
-        <button type="button" className="lm-btn-ghost" onClick={() => void reload()} disabled={loading}>
-          刷新
-        </button>
-      </header>
-      <p className="lm-hint">
-        展示 Agent 可能读取的工作区记忆层；点击「预览」查看当前文件片段（只读）。
-      </p>
-      {err ? <div className="memory-inspector__error">{err}</div> : null}
-      {loading ? <p>加载真相源…</p> : null}
-      {!loading && layers.length === 0 ? <p className="lm-meta">暂无记忆层报告。</p> : null}
-      {Object.entries(grouped).map(([scope, rows]) => (
-        <details key={scope} className="lm-memory-truth__group" open={scope === "matter"}>
-          <summary>
-            <strong>{memoryScopeLabel(scope)}</strong>
-            <span className="lm-meta">（{rows.length}）</span>
-          </summary>
-          <table className="lm-memory-truth__table">
-            <thead>
-              <tr>
-                <th>层</th>
-                <th>路径</th>
-                <th>状态</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.id} className={row.activeForEngine ? "lm-memory-truth__active" : undefined}>
-                  <td>
-                    {row.label}
-                    {row.inAgentSystemPrompt ? (
-                      <span className="lm-badge lm-badge--ok" title="进入 Agent system prompt">
-                        prompt
-                      </span>
-                    ) : null}
-                    {row.activeForEngine ? (
-                      <span className="lm-badge" title="本回合引擎选中">
-                        生效
-                      </span>
-                    ) : null}
-                  </td>
-                  <td className="lm-mono">{row.relativePath}</td>
-                  <td>
-                    {row.exists ? `${row.charCount} 字` : "缺失"}
-                  </td>
-                  <td>
+    <section
+      className={`lm-memory-truth${embedInSettings ? " lm-memory-truth--embed" : ""}`}
+      aria-label="办案沉淀档案"
+    >
+      {!embedInSettings ? (
+        <header className="lm-memory-truth__header">
+          <span className="lm-memory-truth__eyebrow">档案一览</span>
+          <button
+            type="button"
+            className="lm-btn lm-btn-ghost lm-btn-sm"
+            onClick={() => void reload()}
+            disabled={loading}
+          >
+            刷新
+          </button>
+        </header>
+      ) : null}
+      {err ? (
+        <div className="memory-inspector__error" role="alert">
+          {err}
+        </div>
+      ) : null}
+      {loading ? <p className="lm-settings-caption">加载中…</p> : null}
+      {!loading && layers.length === 0 ? (
+        <div className="lm-memory-empty">
+          <p className="lm-memory-empty__title">尚无档案条目</p>
+          <p className="lm-memory-empty__desc">办案与确认建议后会逐渐出现在这里。</p>
+        </div>
+      ) : null}
+      <div className="lm-memory-truth__groups">
+        {groupEntries.map(([scope, rows], index) => (
+          <details
+            key={scope}
+            className="lm-memory-fold lm-memory-truth__group"
+            open={scope === "matter" || scope === "lawyer" || (!embedInSettings && index === 0)}
+          >
+            <summary>
+              <span className="lm-memory-fold__label">{memoryScopeLabel(scope)}</span>
+              <span className="lm-memory-fold__count">{rows.length}</span>
+            </summary>
+            <div className="lm-memory-fold__body">
+              <ul className="lm-memory-truth__list">
+                {rows.map((row) => (
+                  <li
+                    key={row.id}
+                    className={`lm-memory-truth__row${row.activeForEngine ? " is-active" : ""}`}
+                  >
+                    <div className="lm-memory-truth__row-main">
+                      <div className="lm-memory-truth__row-title">
+                        <span className="lm-memory-truth__name">{row.label}</span>
+                        {row.activeForEngine ? (
+                          <span className="lm-badge lm-badge-done" title="当前办案会参考">
+                            在用
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="lm-memory-truth__row-meta">
+                        {row.exists ? `${row.charCount} 字` : "尚未建立"}
+                        {!embedInSettings ? (
+                          <>
+                            <span className="lm-memory-truth__sep" aria-hidden="true">
+                              ·
+                            </span>
+                            <span className="lm-mono" title={row.relativePath}>
+                              {shortPath(row.relativePath)}
+                            </span>
+                          </>
+                        ) : null}
+                      </p>
+                    </div>
                     {row.exists ? (
                       <button
                         type="button"
-                        className="lm-btn-ghost"
+                        className="lm-btn lm-btn-ghost lm-btn-sm"
                         disabled={previewBusy}
                         onClick={() => void loadPreview(row.relativePath)}
                       >
                         {previewPath === row.relativePath ? "收起" : "预览"}
                       </button>
                     ) : null}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </details>
-      ))}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </details>
+        ))}
+      </div>
       {preview ? (
         <div className="lm-memory-truth__preview">
           <header>
-            <strong>{preview.path}</strong>
+            <strong title={preview.path}>{shortPath(preview.path)}</strong>
             <span className="lm-meta">
               {preview.charCount} 字{preview.truncated ? "（已截断）" : ""}
             </span>

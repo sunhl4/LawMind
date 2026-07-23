@@ -87,8 +87,10 @@ export type Props = {
   canUseFilesystemBridge: boolean;
   /** 选择本机文件夹作为「工作区」浏览根（project root） */
   onPickProject?: () => void | Promise<void>;
-  /** 将路径加入对话引用（会切换到对话；发送时把路径说明一并给模型） */
+  /** 将路径加入对话/议题引用（发送时把路径说明一并给模型） */
   onAddToChatContext?: (payload: { root: RootKey; relPath: string; kind: "file" | "directory" }) => void;
+  /** 右键「引用」菜单文案；默认「在对话中引用」 */
+  addToContextLabel?: string;
   /** When set, 资源管理器 / 分割条 / 编辑器分别挂到这些节点（用于侧栏资源区 + 主区对话等布局） */
   portalHosts?: FilePortalHosts | null;
   /** 工作区资源区顶部工具条（如未关联、案件工作台等） */

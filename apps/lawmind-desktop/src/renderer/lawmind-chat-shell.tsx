@@ -14,6 +14,21 @@ import { usePaneResizeVerticalPx } from "./use-pane-resize";
 import type { ModelCatalogEntry } from "./lawmind-models-api";
 import { LawmindChatComposeChrome } from "./lawmind-chat-compose-chrome";
 import { LawmindChatComposeToolbar } from "./lawmind-chat-compose-toolbar";
+import {
+  buildExecuteConfirmPrompt,
+  clearPlanHandoff,
+  deleteSessionPlanHandoff,
+  extractPlanHandoffText,
+  isExecuteConfirmPrompt,
+  planHandoffSummary,
+  pushSessionPlanHandoff,
+  readPlanHandoff,
+  reconcilePlanHandoffWithServer,
+  shouldInjectExecuteHandoff,
+  syncPlanHandoffFromMessages,
+  writePlanHandoff,
+} from "./lawmind-plan-handoff";
+import { readComposePermissionMode } from "./lawmind-compose-prefs";
 import { LawmindComposeContextPicker } from "./LawmindComposeContextPicker";
 import { LawmindComposeTemplateGallery } from "./LawmindComposeTemplateGallery";
 import type { ReviewOpenTarget } from "./LawmindChatReviewSticky";
@@ -53,6 +68,8 @@ export type LawmindChatWorkspaceProps = {
   onSend: () => void | Promise<void>;
   /** 请求进行中时中止当前对话请求（与「发送」同位切换为「停止」） */
   onAbortChat?: () => void;
+  onDeleteChatMessage?: (uiIndex: number) => void | Promise<void>;
+  onEditChatMessage?: (uiIndex: number, nextText: string) => void | Promise<void>;
   onCopyMessage: (text: string, index: number) => void | Promise<void>;
   onApplyPrompt: (prompt: string) => void;
   onSendClarificationMessage: (text: string) => void | Promise<void>;
@@ -100,9 +117,13 @@ export type LawmindChatWorkspaceProps = {
   cancelQueuedMessage?: (index: number) => void;
   onOpenTaskDrawer?: () => void;
   /** Opens「在办」with needs-decision focus. */
-  onOpenNeedsDecisionDesk?: () => void;
+  onOpenNeedsDecisionDesk?: (
+    target?: import("./lawmind-agents-desk").NeedsDecisionDeskTarget,
+  ) => void;
   /** @deprecated Use onOpenNeedsDecisionDesk */
-  onOpenActionHub?: () => void;
+  onOpenActionHub?: (
+    target?: import("./lawmind-agents-desk").NeedsDecisionDeskTarget,
+  ) => void;
   onOpenMemoryInspector?: () => void;
   composeExtras: LawmindComposeExtras;
   streamCompactLabels?: string[];
@@ -110,7 +131,7 @@ export type LawmindChatWorkspaceProps = {
 
 /** 底部输入区：始终显示在主工作区底栏（可拖高度） */
 export function LawmindChatComposeFooter({
-  currentMessages: _currentMessages,
+  currentMessages,
   input,
   loading,
   error,
@@ -141,7 +162,7 @@ export function LawmindChatComposeFooter({
   webSearchPolicyBlocked,
   onAllowWebSearchChange,
   apiBase,
-  chatSessionId: _chatSessionId,
+  chatSessionId,
   queuedMessages = [],
   cancelQueuedMessage,
   onOpenTaskDrawer,
@@ -217,6 +238,7 @@ export function LawmindChatComposeFooter({
   const [contextPickerOpen, setContextPickerOpen] = useState(false);
   const [contextPickerQuery, setContextPickerQuery] = useState("");
   const [contextPickerAtIndex, setContextPickerAtIndex] = useState(0);
+  const [planHandoffText, setPlanHandoffText] = useState<string | null>(null);
   const [templateGalleryOpenLocal, setTemplateGalleryOpenLocal] = useState(false);
   const templateGalleryOpen = templateGalleryOpenProp ?? templateGalleryOpenLocal;
   const setTemplateGalleryOpen = (open: boolean) => {
@@ -255,6 +277,109 @@ export function LawmindChatComposeFooter({
       }
     }
   }, [contextMatterId, input, onInputChange]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const merged = await reconcilePlanHandoffWithServer(apiBase, chatSessionId);
+      if (!cancelled) {
+        setPlanHandoffText(merged?.planText ?? readPlanHandoff(chatSessionId)?.planText ?? null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, chatSessionId]);
+
+  useEffect(() => {
+    if (!chatSessionId) {
+      return;
+    }
+    const mode = extras.permissionMode || readComposePermissionMode();
+    if (mode !== "readonly") {
+      return;
+    }
+    const synced = syncPlanHandoffFromMessages(chatSessionId, currentMessages);
+    if (synced?.planText) {
+      setPlanHandoffText(synced.planText);
+      if (apiBase) {
+        void pushSessionPlanHandoff(apiBase, chatSessionId, synced.planText, synced.updatedAt);
+      }
+    }
+  }, [apiBase, chatSessionId, currentMessages, extras.permissionMode]);
+
+  const persistPlanLocalAndRemote = useCallback(
+    (plan: string) => {
+      if (!plan.trim()) {
+        return;
+      }
+      writePlanHandoff(chatSessionId, plan);
+      setPlanHandoffText(plan);
+      if (apiBase && chatSessionId) {
+        void pushSessionPlanHandoff(apiBase, chatSessionId, plan);
+      }
+    },
+    [apiBase, chatSessionId],
+  );
+
+  const fillPlanHandoff = useCallback(() => {
+    extras.onPermissionModeChange("standard");
+    const plan =
+      planHandoffText?.trim() ||
+      extractPlanHandoffText(currentMessages) ||
+      readPlanHandoff(chatSessionId)?.planText ||
+      "";
+    persistPlanLocalAndRemote(plan);
+    onInputChange(buildExecuteConfirmPrompt(plan));
+  }, [
+    chatSessionId,
+    currentMessages,
+    extras,
+    onInputChange,
+    persistPlanLocalAndRemote,
+    planHandoffText,
+  ]);
+
+  const dismissPlanHandoff = useCallback(() => {
+    clearPlanHandoff(chatSessionId);
+    setPlanHandoffText(null);
+    if (apiBase && chatSessionId) {
+      void deleteSessionPlanHandoff(apiBase, chatSessionId);
+    }
+  }, [apiBase, chatSessionId]);
+
+  const startExecuteFromPlan = useCallback(() => {
+    extras.onPermissionModeChange("standard");
+    const plan =
+      extractPlanHandoffText(currentMessages) ||
+      planHandoffText ||
+      readPlanHandoff(chatSessionId)?.planText ||
+      "";
+    persistPlanLocalAndRemote(plan);
+    if (!shouldInjectExecuteHandoff(input)) {
+      return;
+    }
+    onInputChange(buildExecuteConfirmPrompt(plan));
+  }, [
+    chatSessionId,
+    currentMessages,
+    extras,
+    input,
+    onInputChange,
+    persistPlanLocalAndRemote,
+    planHandoffText,
+  ]);
+
+  const handleComposeSend = useCallback(() => {
+    if (isExecuteConfirmPrompt(input)) {
+      clearPlanHandoff(chatSessionId);
+      setPlanHandoffText(null);
+      if (apiBase && chatSessionId) {
+        void deleteSessionPlanHandoff(apiBase, chatSessionId);
+      }
+    }
+    return onSend();
+  }, [apiBase, chatSessionId, input, onSend]);
 
   const paletteActions: CommandPaletteAction[] = useMemo(
     () => [
@@ -458,7 +583,6 @@ export function LawmindChatComposeFooter({
         composeInput={input}
         queuedMessages={queuedMessages}
         cancelQueuedMessage={cancelQueuedMessage}
-        composeExtras={extras}
         fileChatPills={fileChatPills}
         contextMatterId={contextMatterId}
         contextTaskId={contextTaskId}
@@ -467,6 +591,9 @@ export function LawmindChatComposeFooter({
         onClearFileChatPills={onClearFileChatPills}
         onClearMatter={contextTaskId ? undefined : clearMatterChip}
         onClearTask={contextTaskId ? onClearContext : undefined}
+        planHandoffSummary={planHandoffText ? planHandoffSummary(planHandoffText) : null}
+        onFillPlanHandoff={planHandoffText ? fillPlanHandoff : undefined}
+        onClearPlanHandoff={planHandoffText ? dismissPlanHandoff : undefined}
       />
       <div
         className="lm-compose lm-compose-resizable"
@@ -496,16 +623,17 @@ export function LawmindChatComposeFooter({
                 setCommandQuery("/");
                 return;
               }
-              handleEnterSendShiftNewline(e, () => void onSend());
+              handleEnterSendShiftNewline(e, () => void handleComposeSend());
             }}
           />
           <LawmindChatComposeToolbar
             loading={loading}
             input={input}
-            onSend={onSend}
+            onSend={handleComposeSend}
             onAbortChat={onAbortChat}
             permissionMode={extras.permissionMode}
             onPermissionModeChange={extras.onPermissionModeChange}
+            onStartExecuteFromPlan={startExecuteFromPlan}
             allowWebSearch={allowWebSearch}
             webSearchPolicyBlocked={webSearchPolicyBlocked}
             onAllowWebSearchChange={onAllowWebSearchChange}
@@ -517,6 +645,12 @@ export function LawmindChatComposeFooter({
             onComposeModelQuickTest={onComposeModelQuickTest}
             composeModelQuickTestBusy={composeModelQuickTestBusy}
             onOpenWriteMaterials={() => setTemplateGalleryOpen(true)}
+            contextBudget={extras.contextBudget}
+            compactBusy={extras.compactBusy}
+            compactHint={extras.compactHint}
+            onCompactContext={() => void extras.compactSession()}
+            onDistillLearning={() => void extras.distillSessionLearning()}
+            onOpenMemoryInspector={onOpenMemoryInspector}
           />
         </div>
       </div>

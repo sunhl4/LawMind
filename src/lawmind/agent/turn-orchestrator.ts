@@ -3,15 +3,9 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { resolveIntakeClarificationQuestions } from "../router/intake-gate.js";
-import type { ClarificationQuestion } from "../types.js";
 import { autoCompactSessionHistory } from "./compact.js";
 import { estimateTokenBudget } from "./context-budget.js";
 import { resolveToolSandboxEnabled } from "./dangerous-tool-policy.js";
-import {
-  formatDeliverableWorkflowReply,
-  shouldAutoRunDeliverableWorkflow,
-} from "./deliverable-pipeline.js";
 import {
   applyLiveTurnEvent,
   beginLiveTurnProgress,
@@ -20,39 +14,36 @@ import {
 import { tryBuildModelConnectivityCheckReply } from "./model-connectivity-check.js";
 import { tryBuildModelIdentityReply } from "./model-identity-reply.js";
 import { filterToolsForPermissionMode, type AgentPermissionMode } from "./permission-mode.js";
-import { callModelWithRetry } from "./runtime-model-call.js";
-import { createSession, loadSession, toModelMessages } from "./session.js";
-import { executeWorkflow } from "./tools/engine-tools.js";
+import { createSession, loadSession } from "./session.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import {
-  buildClarificationReply,
-  buildTurnReplyFallback,
-  safeParse,
-  type RunTurnEvent,
-} from "./turn-orchestrator-events.js";
+  bindTurnAbortSignal,
+  clearTurnAbort,
+  isTurnAbortRequested,
+  requestTurnAbort,
+} from "./turn-abort.js";
+import type { RunTurnEvent } from "./turn-orchestrator-events.js";
+export type { RunTurnEvent } from "./turn-orchestrator-events.js";
+import type { MemoryContext } from "../memory/index.js";
+import { readWorkspacePolicyFile } from "../policy/workspace-policy.js";
 import {
   cleanupFailedTurn,
   finalizeAgentTurn,
   finishShortCircuitTurn,
   type TurnFinalizeShared,
 } from "./turn-orchestrator-finalize.js";
-export type { RunTurnEvent } from "./turn-orchestrator-events.js";
-import type { MemoryContext } from "../memory/index.js";
-import {
-  mergeUsageSnapshots,
-  usageFromProvider,
-  type ModelUsageSnapshot,
-} from "../models/model-usage.js";
-import { readWorkspacePolicyFile } from "../policy/workspace-policy.js";
-import type { ToolCallRef } from "../runtime/tool-concurrency.js";
+import { runModelToolLoop } from "./turn-orchestrator-model-loop.js";
 import { prepareTurnPromptContext } from "./turn-orchestrator-prompt.js";
-import { executeToolBatches } from "./turn-orchestrator-tool-round.js";
-import type { AgentConfig, AgentContext, AgentMessage, AgentTurn } from "./types.js";
+import {
+  tryAutoDeliverableWorkflowShortcut,
+  tryIntakeClarificationShortcut,
+} from "./turn-orchestrator-shortcuts.js";
+import type { AgentConfig, AgentContext, AgentTurn } from "./types.js";
 
-const DEFAULT_MAX_TOOL_CALLS = 15;
-const DEFAULT_MAX_HISTORY_MESSAGES = 50;
-/** Used only when `AgentConfig.toolExecutionTimeoutMs` is unset (CLI/desktop should set via env). */
-const DEFAULT_TOOL_TIMEOUT_MS = 30000;
+const DEFAULT_MAX_TOOL_CALLS = 25;
+const DEFAULT_MAX_HISTORY_MESSAGES = 100;
+/** Used only when `AgentConfig.toolExecutionTimeoutMs` is unset — prefer model timeout. */
+const DEFAULT_TOOL_TIMEOUT_MS = 120_000;
 
 export async function runTurn(opts: {
   config: AgentConfig;
@@ -72,6 +63,8 @@ export async function runTurn(opts: {
   onEvent?: (event: RunTurnEvent) => void;
   /** When set, progress is also written for GET /api/sessions/:id/live-turn polling. */
   liveProgressSessionId?: string;
+  /** Cooperative stop: checked between model rounds (Stop button). */
+  shouldAbort?: () => boolean;
   /** resumeTurn：自动为同名工具注入 __approved */
   preApproveToolName?: string;
   preApproveToolArgs?: Record<string, unknown>;
@@ -185,13 +178,23 @@ export async function runTurn(opts: {
     startedAt,
   };
 
-  let finalReply = "";
-  let pendingClarificationQuestions: ClarificationQuestion[] = [];
-
   const liveProgressKey = opts.liveProgressSessionId?.trim() || session.sessionId;
+  clearTurnAbort(session.sessionId);
+  const turnAbortSignal = bindTurnAbortSignal(session.sessionId);
+  // Mirror shouldAbort (e.g. SSE disconnect) onto the AbortSignal so in-flight fetch cancels.
+  const abortMirror = setInterval(() => {
+    if (opts.shouldAbort?.() === true && !turnAbortSignal.aborted) {
+      requestTurnAbort(session.sessionId);
+    }
+  }, 200);
   if (liveProgressKey) {
     beginLiveTurnProgress(liveProgressKey);
   }
+
+  const abortRequested = (): boolean =>
+    opts.shouldAbort?.() === true ||
+    isTurnAbortRequested(session.sessionId) ||
+    turnAbortSignal.aborted;
 
   const emitEvent = (event: RunTurnEvent): void => {
     if (liveProgressKey) {
@@ -208,7 +211,10 @@ export async function runTurn(opts: {
   };
 
   const policyForCompact = readWorkspacePolicyFile(config.workspaceDir);
-  const tokenBudget = estimateTokenBudget(session, policyForCompact);
+  const budgetOpts = {
+    contextTokens: config.model.contextTokens ?? policyForCompact?.context?.contextTokens,
+  };
+  const tokenBudget = estimateTokenBudget(session, policyForCompact, budgetOpts);
   emitEvent({
     type: "token_budget",
     used: tokenBudget.used,
@@ -219,6 +225,7 @@ export async function runTurn(opts: {
     maxHistoryMessages: maxHistory,
     policy: policyForCompact,
     linkedTaskId: linkedTaskIdForCtx,
+    contextTokens: budgetOpts.contextTokens,
   });
   session.conversationHistory = compactResult.messages;
   if (compactResult.compacted) {
@@ -236,6 +243,39 @@ export async function runTurn(opts: {
     }
     liveProgressFinished = true;
     finishLiveTurnProgress(liveProgressKey, status);
+  };
+
+  const finishAbortedByUser = (): {
+    turn: typeof turn;
+    reply: string;
+    sessionId: string;
+    memoryContext: typeof memory;
+  } => {
+    clearTurnAbort(session.sessionId);
+    turn.status = "error";
+    turn.error = "aborted_by_user";
+    // Match desktop Stop: drop this turn's user row when no assistant content yet.
+    if (turn.messages.length === 0) {
+      const last = session.conversationHistory[session.conversationHistory.length - 1];
+      if (last?.role === "user" && last.content === instruction) {
+        session.conversationHistory.pop();
+      }
+    }
+    const reply = "已停止生成。";
+    emitEvent({ type: "final", status: "error", reply });
+    cleanupFailedTurn({
+      workspaceDir: config.workspaceDir,
+      session,
+      turn,
+      liveProgressKey,
+      ensureLiveProgressFinished,
+    });
+    return {
+      turn,
+      reply,
+      sessionId: session.sessionId,
+      memoryContext: memory,
+    };
   };
 
   const finalizeShared = (): TurnFinalizeShared => ({
@@ -266,264 +306,69 @@ export async function runTurn(opts: {
       return finishShortCircuitTurn(finalizeShared(), connectivityReply);
     }
 
-    // Intake-first: ask structured questions before heavy tools / auto workflow.
-    const intakeQs = resolveIntakeClarificationQuestions(instruction);
-    if (intakeQs.length > 0) {
-      const reply = buildClarificationReply(
-        "",
-        intakeQs,
-        "为少花几轮聊天、提高交件质量，请先确认以下要点（填完后我会继续执行）：",
-      );
-      const agentMsg: AgentMessage = {
-        role: "assistant",
-        content: reply,
-        timestamp: new Date().toISOString(),
-      };
-      session.conversationHistory.push(agentMsg);
-      turn.messages.push(agentMsg);
-      turn.status = "awaiting_clarification";
-      turn.clarificationQuestions = intakeQs;
-      turn.gateDecisions?.push({
-        gate: "intake_gate",
-        decision: "awaiting_confirmation",
-        reason: "开干前待澄清要点。",
-      });
-      return finalizeAgentTurn({
-        shared: finalizeShared(),
-        finalReply: reply,
-        pendingClarificationQuestions: intakeQs,
-        turnUsage: undefined,
-        actorId,
-        resolvedAssistantId,
-        modelName: config.model.model,
-      });
+    const intakePolicy = readWorkspacePolicyFile(config.workspaceDir);
+    const intakeResult = tryIntakeClarificationShortcut({
+      instruction,
+      session,
+      turn,
+      shared: finalizeShared(),
+      actorId,
+      resolvedAssistantId,
+      modelName: config.model.model,
+      caseMemory: memory.caseMemory,
+      intakeHeuristicsEnabled: intakePolicy?.intakeHeuristicsEnabled,
+    });
+    if (intakeResult) {
+      return intakeResult;
     }
 
-    if (shouldAutoRunDeliverableWorkflow(instruction)) {
-      const autoWfRound = 1;
-      const autoWfToolId = "auto-deliverable-wf";
-      emitEvent({ type: "round_start", roundIndex: autoWfRound });
-      emitEvent({
-        type: "tool_call_start",
-        roundIndex: autoWfRound,
-        toolCallId: autoWfToolId,
-        toolName: "execute_workflow",
-        args: { instruction },
-      });
-      ctx.emitToolProgress = (label) =>
-        emitEvent({
-          type: "tool_progress",
-          roundIndex: autoWfRound,
-          toolCallId: autoWfToolId,
-          toolName: "execute_workflow",
-          label,
-        });
-      let wfResult: Awaited<ReturnType<typeof executeWorkflow.execute>>;
-      try {
-        wfResult = await executeWorkflow.execute(
-          {
-            instruction,
-            matter_id: session.matterId,
-            auto_approve: false,
-          },
-          ctx,
-        );
-      } finally {
-        ctx.emitToolProgress = undefined;
-      }
-      emitEvent({
-        type: "tool_call_end",
-        roundIndex: autoWfRound,
-        toolCallId: autoWfToolId,
-        toolName: "execute_workflow",
-        ok: wfResult.ok,
-        error: wfResult.error,
-      });
-      const wfData =
-        wfResult.data && typeof wfResult.data === "object"
-          ? (wfResult.data as Record<string, unknown>)
-          : {};
-      const wfReply = formatDeliverableWorkflowReply({
-        taskId: typeof wfData.taskId === "string" ? wfData.taskId : undefined,
-        title: typeof wfData.title === "string" ? wfData.title : undefined,
-        deliverableType:
-          typeof wfData.deliverableType === "string" ? wfData.deliverableType : undefined,
-        status: typeof wfData.status === "string" ? wfData.status : undefined,
-        sectionsCount: typeof wfData.sectionsCount === "number" ? wfData.sectionsCount : undefined,
-        steps: Array.isArray(wfData.steps) ? (wfData.steps as string[]) : undefined,
-        outputPath: typeof wfData.outputPath === "string" ? wfData.outputPath : undefined,
-        researchDegraded: wfData.researchDegraded === true,
-        error: wfResult.ok ? undefined : wfResult.error,
-      });
-      if (wfResult.ok || typeof wfData.taskId === "string") {
-        return finishShortCircuitTurn(finalizeShared(), wfReply);
-      }
+    const autoWfResult = await tryAutoDeliverableWorkflowShortcut({
+      instruction,
+      session,
+      ctx,
+      shared: finalizeShared(),
+      emitEvent,
+      abortRequested,
+      onAborted: finishAbortedByUser,
+    });
+    if (autoWfResult) {
+      return autoWfResult;
     }
 
-    // 5. 主循环：call model → execute tools → repeat
-    let loopCount = 0;
-    let turnUsage: ModelUsageSnapshot | undefined;
+    const loop = await runModelToolLoop({
+      config,
+      registry,
+      session,
+      turn,
+      ctx,
+      openAITools,
+      maxToolCalls,
+      toolTimeoutMs,
+      strictDangerousToolApproval,
+      allowDangerousToolsWithoutApproval,
+      toolSandboxEnabled,
+      policyHints: {
+        allowedToolNames: roleForTools?.allowedToolNames ?? presetForTools?.allowedToolNames,
+        roleId: roleForTools?.roleId,
+        riskCeiling: roleForTools?.riskCeiling ?? presetForTools?.riskCeiling,
+      },
+      actorId,
+      hasOnEvent: Boolean(opts.onEvent),
+      pendingClarificationQuestions: [],
+      emitEvent,
+      abortRequested,
+      abortSignal: turnAbortSignal,
+    });
 
-    /**
-     * Strict mode (default when `LAWMIND_STRICT_TOOL_STREAM` is unset): do **not**
-     * open upstream `stream: true` until this turn already has `role: tool` messages
-     * (i.e. after at least one tool round), matching the Cursor-parity contract that
-     * tool-selection hops stay JSON completions. Clients still receive SSE *events*
-     * for round_start/tool_call/etc.; only upstream token streaming waits until
-     * post-tool completions. Relax with `LAWMIND_STRICT_TOOL_STREAM=0`.
-     */
-    const strictUpstreamToolStreaming =
-      opts.onEvent &&
-      !(
-        process.env.LAWMIND_STRICT_TOOL_STREAM === "0" ||
-        ["false", "off"].includes(
-          process.env.LAWMIND_STRICT_TOOL_STREAM?.trim().toLowerCase() ?? "",
-        )
-      );
-
-    while (loopCount < maxToolCalls + 1) {
-      loopCount++;
-      const roundIndex = loopCount;
-      emitEvent({ type: "round_start", roundIndex });
-
-      const modelMessages = toModelMessages(session);
-      const hadToolResponsesThisTurn = turn.messages.some((m) => m.role === "tool");
-      const useUpstreamTokenStream =
-        Boolean(opts.onEvent) &&
-        (!strictUpstreamToolStreaming || openAITools.length === 0 || hadToolResponsesThisTurn);
-
-      const response = await callModelWithRetry(config.model, modelMessages, openAITools, {
-        stream: useUpstreamTokenStream,
-        onDelta: useUpstreamTokenStream
-          ? (chunk: string) => emitEvent({ type: "delta", roundIndex, text: chunk })
-          : undefined,
-      });
-      turnUsage = mergeUsageSnapshots(turnUsage, usageFromProvider(response.usage));
-
-      const choice = response.choices[0];
-      if (!choice) {
-        turn.status = "error";
-        turn.error = "Empty response from model";
-        break;
-      }
-
-      const assistantMsg = choice.message;
-      const toolCalls = assistantMsg.tool_calls;
-
-      if (!useUpstreamTokenStream) {
-        const segment = assistantMsg.content ?? "";
-        if (segment.length > 0) {
-          emitEvent({ type: "delta", roundIndex, text: segment });
-        }
-      }
-
-      // 记录 assistant 消息
-      const agentMsg: AgentMessage = {
-        role: "assistant",
-        content: assistantMsg.content ?? "",
-        timestamp: new Date().toISOString(),
-      };
-
-      if (toolCalls && toolCalls.length > 0) {
-        agentMsg.toolCalls = toolCalls.map(
-          (tc: { id: string; function: { name: string; arguments: string } }) => ({
-            id: tc.id,
-            name: tc.function.name,
-            arguments: safeParse(tc.function.arguments),
-          }),
-        );
-      }
-
-      session.conversationHistory.push(agentMsg);
-      turn.messages.push(agentMsg);
-
-      // 没有 tool calls → 最终回答
-      if (!toolCalls || toolCalls.length === 0) {
-        if (pendingClarificationQuestions.length > 0) {
-          finalReply = buildClarificationReply(
-            assistantMsg.content ?? "",
-            pendingClarificationQuestions,
-          );
-          turn.status = "awaiting_clarification";
-          turn.clarificationQuestions = pendingClarificationQuestions;
-        } else {
-          finalReply = assistantMsg.content ?? "";
-          turn.status = "completed";
-        }
-        break;
-      }
-
-      // 执行 tool calls — 通过 ToolPolicy pipeline（W2）；只读批可并发（见 turn-orchestrator-tool-round）
-      const toolRefs: ToolCallRef[] = toolCalls.map(
-        (tc: { id: string; function: { name: string; arguments: string } }) => ({
-          id: tc.id,
-          name: tc.function.name,
-          arguments: safeParse(tc.function.arguments),
-        }),
-      );
-      const batchResult = await executeToolBatches({
-        toolRefs,
-        registry,
-        turn,
-        ctx,
-        roundIndex,
-        assistantContent: assistantMsg.content ?? "",
-        maxToolCalls,
-        toolTimeoutMs,
-        strictDangerousToolApproval,
-        allowDangerousToolsWithoutApproval,
-        toolSandboxEnabled,
-        policyHints: {
-          allowedToolNames: roleForTools?.allowedToolNames ?? presetForTools?.allowedToolNames,
-          roleId: roleForTools?.roleId,
-          riskCeiling: roleForTools?.riskCeiling ?? presetForTools?.riskCeiling,
-        },
-        actorId,
-        sessionMatterId: session.matterId,
-        sessionAssistantId: session.assistantId,
-        pendingClarificationQuestions,
-        emitEvent,
-        pushMessage: (msg) => {
-          session.conversationHistory.push(msg);
-          turn.messages.push(msg);
-        },
-      });
-      pendingClarificationQuestions = batchResult.pendingClarificationQuestions;
-      if (batchResult.finalReply) {
-        finalReply = batchResult.finalReply;
-      }
-
-      if (turn.status === "awaiting_approval") {
-        break;
-      }
-
-      // 检查是否达到工具调用上限
-      if (turn.toolCallsExecuted >= maxToolCalls) {
-        if (pendingClarificationQuestions.length > 0) {
-          turn.status = "awaiting_clarification";
-          turn.clarificationQuestions = pendingClarificationQuestions;
-          finalReply = buildClarificationReply(
-            assistantMsg.content ?? "",
-            pendingClarificationQuestions,
-            "已生成带待补充项的正式草稿，但当前轮次已达到工具调用上限。为完成最终交付，请补充：",
-          );
-        } else {
-          turn.status = "completed";
-          finalReply = assistantMsg.content ?? "已达到工具调用上限。";
-        }
-        break;
-      }
-    }
-
-    if (!finalReply.trim() && turn.toolCallsExecuted > 0) {
-      finalReply = buildTurnReplyFallback(turn);
+    if (loop.aborted) {
+      return finishAbortedByUser();
     }
 
     return finalizeAgentTurn({
       shared: finalizeShared(),
-      finalReply,
-      pendingClarificationQuestions,
-      turnUsage,
+      finalReply: loop.finalReply,
+      pendingClarificationQuestions: loop.pendingClarificationQuestions,
+      turnUsage: loop.turnUsage,
       actorId,
       resolvedAssistantId,
       modelName: config.model.model,
@@ -537,5 +382,8 @@ export async function runTurn(opts: {
       ensureLiveProgressFinished,
     });
     throw err;
+  } finally {
+    clearInterval(abortMirror);
+    clearTurnAbort(session.sessionId);
   }
 }

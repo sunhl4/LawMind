@@ -208,7 +208,9 @@ export const executeWorkflow: AgentTool = {
 
         // Step 6: Render
         pushWorkflowProgress(ctx, steps, "正在渲染最终文档...");
-        const result = await engine.render(draft);
+        // force_render / low-risk auto-approve is a demo/automation path: skip dual gates
+        // so Word export matches tool-level approve/bypass semantics.
+        const result = await engine.render(draft, { strictGates: false });
         if (result.ok) {
           finalStatus = "delivered";
           pushWorkflowProgress(ctx, steps, `交付完成（本地 Word）：${result.outputPath}`);

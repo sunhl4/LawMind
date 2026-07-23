@@ -1,11 +1,9 @@
-import React, { useEffect, useRef, useState } from "react";
-import { LawmindNeedsDecisionButton } from "../LawmindNeedsDecisionButton";
+import React from "react";
 import { LawmindReadinessStrip } from "../LawmindReadinessStrip";
 import { LawmindReviewPaneToggles } from "../LawmindReviewPaneToggles";
 import { LawmindWorkspaceLayoutToggles } from "../LawmindWorkspaceLayoutToggles";
 import type { HealthPayload } from "../lawmind-app-data";
 import type { LawmindMainView } from "../lawmind-main-view";
-import { lawmindMainViewLabel } from "../lawmind-main-view";
 import type { ModelCatalogEntry } from "../lawmind-models-api";
 import type { ReviewPaneId, ReviewPaneVisibility } from "../lawmind-review-pane-prefs";
 import type { AssistantRow } from "../lawmind-settings-models.ts";
@@ -20,15 +18,8 @@ export type LawmindAppHeaderProps = {
   onSetMainView: (view: LawmindMainView) => void;
   onOpenMatterCockpit?: () => void;
   apiBase: string | undefined;
-  actionSummaryTotal: number;
-  /** Open「在办」with needs-decision focus (待我拍板). */
-  onOpenNeedsDecisionDesk: () => void;
   /** Clear needs-decision filter when opening plain「在办」. */
   onClearNeedsDecisionFocus?: () => void;
-  /** @deprecated Use onOpenNeedsDecisionDesk */
-  onOpenAgentsDesk?: () => void;
-  /** @deprecated Use onOpenNeedsDecisionDesk */
-  onOpenActionHub?: () => void;
   projectDir: string | null;
   currentMatterLabel: string | null;
   sidebarCollapsed: boolean;
@@ -65,11 +56,7 @@ function LawmindAppHeaderImpl({
   onSetMainView,
   onOpenMatterCockpit,
   apiBase,
-  actionSummaryTotal,
-  onOpenNeedsDecisionDesk,
   onClearNeedsDecisionFocus,
-  onOpenAgentsDesk,
-  onOpenActionHub,
   projectDir,
   currentMatterLabel,
   sidebarCollapsed,
@@ -96,35 +83,6 @@ function LawmindAppHeaderImpl({
 }: LawmindAppHeaderProps) {
   /** Sidebar already hosts the settings gear; keep one gear in the header only when the sidebar is unavailable. */
   const showHeaderSettingsGear = sidebarCollapsed || mainView === "review";
-  const openNeedsDecisionDesk =
-    onOpenNeedsDecisionDesk ?? onOpenAgentsDesk ?? onOpenActionHub ?? (() => undefined);
-  const [moreOpen, setMoreOpen] = useState(false);
-  const moreRef = useRef<HTMLDivElement | null>(null);
-  const moreActive = mainView === "meeting" || mainView === "automations";
-
-  useEffect(() => {
-    if (!moreOpen) {
-      return;
-    }
-    const onDoc = (event: MouseEvent) => {
-      const t = event.target as Node | null;
-      if (!t || moreRef.current?.contains(t)) {
-        return;
-      }
-      setMoreOpen(false);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setMoreOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [moreOpen]);
 
   return (
     <>
@@ -242,60 +200,20 @@ function LawmindAppHeaderImpl({
                 >
                   文书台
                 </button>
-                {moreActive ? (
-                  <span className="lm-tab active" aria-current="page" data-testid={`lm-tab-${mainView}`}>
-                    {lawmindMainViewLabel(mainView)}
-                  </span>
-                ) : null}
-                <div className="lm-nav-more" ref={moreRef}>
-                  <button
-                    type="button"
-                    className={`lm-tab lm-nav-more-trigger${moreActive || moreOpen ? " active" : ""}`}
-                    aria-expanded={moreOpen}
-                    aria-haspopup="menu"
-                    data-testid="lm-nav-more"
-                    aria-label="会议室与自动办件"
-                    title="会议室、自动办件"
-                    onClick={() => setMoreOpen((v) => !v)}
-                  >
-                    会议室·办件
-                  </button>
-                  {moreOpen ? (
-                    <div className="lm-nav-more-menu" role="menu" data-testid="lm-nav-more-menu">
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="lm-nav-more-item"
-                        data-testid="lm-tab-meeting"
-                        onClick={() => {
-                          setMoreOpen(false);
-                          onSetMainView("meeting");
-                        }}
-                      >
-                        会议室
-                      </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="lm-nav-more-item"
-                        data-testid="lm-tab-automations"
-                        onClick={() => {
-                          setMoreOpen(false);
-                          onSetMainView("automations");
-                        }}
-                      >
-                        自动办件
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
+                <button
+                  type="button"
+                  className={`lm-tab ${mainView === "meeting" ? "active" : ""}`}
+                  aria-current={mainView === "meeting" ? "page" : undefined}
+                  data-testid="lm-tab-meeting"
+                  onClick={() => {
+                    onClearNeedsDecisionFocus?.();
+                    onSetMainView("meeting");
+                  }}
+                  title="多助手讨论"
+                >
+                  会议室
+                </button>
               </nav>
-              {apiBase && (mainView === "review" || sidebarCollapsed) ? (
-                <LawmindNeedsDecisionButton
-                  total={actionSummaryTotal}
-                  onClick={openNeedsDecisionDesk}
-                />
-              ) : null}
               {!matterCockpitOpen && currentMatterLabel && onOpenMatterCockpit ? (
                 <button
                   type="button"
@@ -311,7 +229,10 @@ function LawmindAppHeaderImpl({
               ) : null}
               <div className="lm-header-spacer" aria-hidden />
               <div className="lm-main-header-right">
-                {mainView === "workspace" || mainView === "review" ? (
+                {mainView === "workspace" ||
+                mainView === "review" ||
+                mainView === "meeting" ||
+                mainView === "agents" ? (
                   <div className="lm-main-header-layout-toggles" role="toolbar" aria-label="面板布局">
                     {mainView === "review" ? (
                       <LawmindReviewPaneToggles
@@ -319,6 +240,46 @@ function LawmindAppHeaderImpl({
                         onToggle={onToggleReviewPane}
                         iconOnly
                       />
+                    ) : mainView === "meeting" || mainView === "agents" ? (
+                      <div className="lm-panel-toggles" role="group" aria-label="侧栏">
+                        <button
+                          type="button"
+                          className={`lm-panel-toggle ${sidebarCollapsed ? "lm-panel-toggle-off" : ""}`}
+                          data-testid={
+                            mainView === "agents"
+                              ? "lm-agents-toggle-sidebar"
+                              : "lm-meeting-toggle-sidebar"
+                          }
+                          title={sidebarCollapsed ? "显示侧栏" : "隐藏侧栏"}
+                          aria-label={sidebarCollapsed ? "显示侧栏" : "隐藏侧栏"}
+                          aria-pressed={!sidebarCollapsed}
+                          onClick={onToggleSidebar}
+                        >
+                          <span className="lm-panel-toggle-icon" aria-hidden>
+                            <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                              <rect
+                                x="2"
+                                y="2"
+                                width="5"
+                                height="12"
+                                rx="1"
+                                stroke="currentColor"
+                                strokeWidth="1.2"
+                              />
+                              <rect
+                                x="9"
+                                y="2"
+                                width="5"
+                                height="12"
+                                rx="1"
+                                stroke="currentColor"
+                                strokeWidth="1.2"
+                                opacity="0.35"
+                              />
+                            </svg>
+                          </span>
+                        </button>
+                      </div>
                     ) : (
                       <LawmindWorkspaceLayoutToggles
                         sidebarCollapsed={sidebarCollapsed}

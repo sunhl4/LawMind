@@ -90,6 +90,9 @@ function normalizePlaybook(raw: unknown): FleetPlaybook | null {
     if (!isRoleId(rid)) {
       continue;
     }
+    const workspaceRoleId =
+      typeof rr.workspaceRoleId === "string" ? rr.workspaceRoleId.trim() : undefined;
+    const assistantId = typeof rr.assistantId === "string" ? rr.assistantId.trim() : undefined;
     roles.push({
       id: rid,
       label: typeof rr.label === "string" ? rr.label : rid,
@@ -99,6 +102,8 @@ function normalizePlaybook(raw: unknown): FleetPlaybook | null {
         ? rr.toolAllowlist.filter((x): x is string => typeof x === "string")
         : [],
       promptHint: typeof rr.promptHint === "string" ? rr.promptHint : "",
+      ...(workspaceRoleId ? { workspaceRoleId } : {}),
+      ...(assistantId ? { assistantId } : {}),
     });
   }
   if (roles.length < 4) {

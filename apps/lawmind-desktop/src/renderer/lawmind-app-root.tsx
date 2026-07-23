@@ -105,6 +105,7 @@ export function LawmindAppRoot() {
   );
   const actionSummaryTotal =
     actionSummaryQuery.data?.requiresDecisionTotal ?? actionSummaryQuery.data?.total ?? 0;
+  const recentCollabCompleted = actionSummaryQuery.data?.recentCollabCompleted ?? 0;
   const actionSummaryActiveJobs = actionSummaryQuery.data?.activeJobs ?? 0;
   const refreshActionSummary = useCallback(async () => {
     await actionSummaryQuery.refetch();
@@ -144,6 +145,9 @@ export function LawmindAppRoot() {
   const [agentsDeskTab, setAgentsDeskTab] = useState<AgentsDeskTab>("active");
   /** 「待我拍板」入口：在办列表仅显示 awaiting_* */
   const [agentsNeedsDecisionFocus, setAgentsNeedsDecisionFocus] = useState(false);
+  /** 对话「去在办补充」深链到具体待办行 */
+  const [agentsDeskFocusTarget, setAgentsDeskFocusTarget] =
+    useState<import("./lawmind-agents-desk").NeedsDecisionDeskTarget | null>(null);
 
   useEffect(() => {
     const id = focusMatterIdFromReview?.trim();
@@ -199,7 +203,6 @@ export function LawmindAppRoot() {
     setShowSettings,
     sendChatMessage,
     setSessionByAssistant,
-    createNewChatSession,
   } = actions;
 
   const {
@@ -207,7 +210,6 @@ export function LawmindAppRoot() {
     linkMatterToChat,
     workspaceCasesMenu,
     openReviewFromWorkspace,
-    handleSpawnPreset,
     handleChatResumeComplete,
   } = useLawmindAppRootHandlers({
     config,
@@ -238,7 +240,6 @@ export function LawmindAppRoot() {
     setSessionByAssistant,
     sendChatMessage,
     refreshActionSummary,
-    createNewChatSession,
   });
 
   const fileWorkbenchMattersPickList = useMemo(() => {
@@ -381,10 +382,16 @@ export function LawmindAppRoot() {
     return scheduleScrollChatMessagesToLatest({ behavior: "smooth" });
   }, [currentMessages, activeChatSessionId]);
 
-  /** 文书台不展示全局左栏（材料树 / 工作目录 / 案件目录），主区留给签批工作台。 */
+  /**
+   * 文书台 / 在办：不展示全局侧栏（页内自有目录）。
+   * 会议室与对话共用全局左栏（材料树 + 会话列表），便于拖入议题材料。
+   */
+  // 在办与对话共用全局左栏（会话 + 材料树）；审核台仍全宽无侧栏。
   const showAppSidebar = mainView !== "review";
   const showSidebarWorkbenchFiles =
-    showAppSidebar && canUseFilesystemBridge && mainView === "workspace";
+    canUseFilesystemBridge &&
+    showAppSidebar &&
+    (mainView === "workspace" || mainView === "meeting" || mainView === "agents");
   const previewArtifact = (outputPath?: string) => {
     if (!config) {
       return;
@@ -422,6 +429,8 @@ export function LawmindAppRoot() {
     setAgentsDeskTab,
     agentsNeedsDecisionFocus,
     setAgentsNeedsDecisionFocus,
+    agentsDeskFocusTarget,
+    setAgentsDeskFocusTarget,
     setFocusMatterIdFromReview,
     sidebarCollapsed,
     setSidebarCollapsed,
@@ -452,13 +461,11 @@ export function LawmindAppRoot() {
     openOutputInFolder,
     workflowModelLabel,
     actionSummaryTotal,
+    recentCollabCompleted,
     actionSummaryActiveJobs,
     refreshActionSummary,
     sessionRequiresActions,
     onChatResumeComplete: handleChatResumeComplete,
-    onSpawnPreset: (preset) => {
-      void handleSpawnPreset(preset);
-    },
     delegateAssistOpen,
     setDelegateAssistOpen,
     delegateTaskDefault,

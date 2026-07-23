@@ -44,10 +44,6 @@ describe("LawmindFileWorkbenchHost", () => {
           onAddToChatContext={() => {}}
           mattersPickList={[]}
           workspaceTreeRefreshKey={0}
-          apiBase="http://127.0.0.1:1"
-          onOpenUnlinkedMatters={() => {}}
-          matterCockpitOpen={false}
-          onToggleMatterCockpit={() => {}}
           casesNodeActions={null}
         />,
       );
@@ -70,10 +66,6 @@ describe("LawmindFileWorkbenchHost", () => {
           onAddToChatContext={() => {}}
           mattersPickList={[]}
           workspaceTreeRefreshKey={0}
-          apiBase="http://127.0.0.1:1"
-          onOpenUnlinkedMatters={() => {}}
-          matterCockpitOpen={false}
-          onToggleMatterCockpit={() => {}}
           casesNodeActions={null}
         />,
       );

@@ -29,6 +29,13 @@ export type FleetPlaybookRole = {
   /** Tool allowlist for future Firm parallelism */
   toolAllowlist: string[];
   promptHint: string;
+  /**
+   * Workspace assistant Role / preset id for binding (e.g. contract_review).
+   * When omitted, engine uses PLAYBOOK_ROLE_TO_WORKSPACE_ROLE defaults.
+   */
+  workspaceRoleId?: string;
+  /** Explicit workspace assistant instance (wins over role match). */
+  assistantId?: string;
 };
 
 export type FleetPlaybook = {
@@ -61,6 +68,11 @@ export type ReviewCampaignRoleResult = {
   startedAt?: string;
   finishedAt?: string;
   error?: string;
+  /** Resolved workspace Role / preset used for binding */
+  workspaceRoleId?: string;
+  /** Bound workspace assistant instance (when available) */
+  boundAssistantId?: string;
+  boundAssistantName?: string;
 };
 
 export type SafetyScore = {

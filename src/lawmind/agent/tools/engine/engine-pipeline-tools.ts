@@ -91,10 +91,7 @@ export const researchTask: AgentTool = {
     },
   },
   async execute(params, ctx) {
-    const blocked = blockHeavyPipelineIfClarificationPending(ctx);
-    if (blocked) {
-      return blocked;
-    }
+    // Clarification pending: research stays allowed (gather facts before write/export).
     try {
       const engine = getEngine(ctx);
       const taskId = asNonEmptyString(params.task_id, "task_id", 128);
@@ -496,7 +493,11 @@ export const renderDocument: AgentTool = {
         };
       }
 
-      const result = await engine.render(approvedDraft);
+      // Lawyer-confirmed export / explicit bypass must also skip engine dual gates
+      // (acceptanceGateStrict merges acceptance + reasoning inside renderDraft).
+      const result = await engine.render(approvedDraft, {
+        strictGates: bypassGate ? false : undefined,
+      });
       if (result.ok) {
         return {
           ok: true,

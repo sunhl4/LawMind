@@ -12,7 +12,23 @@ import type { AgentRuntimeModelIdentity, ToolDefinition } from "./types.js";
  * Bumped when LawMind core agent *behavior* (system prompt, clarification rules) changes materially.
  * Exposed on GET /api/health as `lawmindAgentBehaviorEpoch` for support and regression notes.
  */
-export const LAWMIND_AGENT_BEHAVIOR_EPOCH = "2026-05-deliverable-pipeline-auto";
+export const LAWMIND_AGENT_BEHAVIOR_EPOCH = "2026-07-capability-prompt-v2";
+
+/** Priority tools shown in full detail under compact prompt verbosity. */
+const COMPACT_PRIORITY_TOOLS = [
+  "execute_workflow",
+  "research_task",
+  "draft_document",
+  "render_document",
+  "analyze_document",
+  "search_matter",
+  "search_workspace",
+  "get_matter_summary",
+  "plan_task",
+  "web_search",
+  "delegate_task",
+  "add_case_note",
+] as const;
 
 export type SystemPromptContext = {
   lawyerName?: string;
@@ -58,6 +74,12 @@ export type SystemPromptContext = {
    * 工作区策略注入的强制规则（`lawmind.policy.json` → resolveAgentMandatoryRulesForPrompt）。
    */
   agentMandatoryRules?: string;
+  /** When true, mandatory rules were truncated for prompt size. */
+  agentMandatoryRulesTruncated?: boolean;
+  /** full = complete tool catalogue; compact = category summary + priority tools. */
+  agentPromptVerbosity?: "compact" | "full";
+  /** When true, require「本轮已应用」footer in the assistant reply. */
+  requireAppliedPreferencesFooter?: boolean;
   /** 当前助手组织关系（虚拟团队） */
   assistantOrgLine?: string;
   /** 全团队组织关系概览（多智能体） */
@@ -75,19 +97,48 @@ export type SystemPromptContext = {
   appliedPreferencesHint?: string;
 };
 
+function formatToolFull(tool: ToolDefinition): string {
+  const paramDesc = Object.entries(tool.parameters)
+    .map(
+      ([key, schema]) =>
+        `    - ${key} (${schema.type}${schema.required ? ", 必填" : ""}): ${schema.description}`,
+    )
+    .join("\n");
+  const approval = tool.requiresApproval ? " ⚠️ 需要律师确认" : "";
+  return `  - **${tool.name}** [${tool.category}]${approval}\n    ${tool.description}\n${paramDesc}`;
+}
+
+function formatToolList(tools: ToolDefinition[], verbosity: "compact" | "full"): string {
+  if (verbosity !== "compact" || tools.length <= COMPACT_PRIORITY_TOOLS.length) {
+    return tools.map(formatToolFull).join("\n\n");
+  }
+  const byName = new Map(tools.map((t) => [t.name, t]));
+  const priority = COMPACT_PRIORITY_TOOLS.map((n) => byName.get(n)).filter(
+    (t): t is ToolDefinition => Boolean(t),
+  );
+  const priorityNames = new Set(priority.map((t) => t.name));
+  const rest = tools.filter((t) => !priorityNames.has(t.name));
+  const byCat = new Map<string, string[]>();
+  for (const t of rest) {
+    const list = byCat.get(t.category) ?? [];
+    list.push(t.name);
+    byCat.set(t.category, list);
+  }
+  const catLines = [...byCat.entries()]
+    .map(([cat, names]) => `- **${cat}**：${names.join(", ")}`)
+    .join("\n");
+  return [
+    "### 常用工具（含参数）",
+    priority.map(formatToolFull).join("\n\n"),
+    "",
+    "### 其他工具（按类别；需要完整参数时按名称调用即可）",
+    catLines || "（无）",
+  ].join("\n");
+}
+
 export function buildSystemPrompt(ctx: SystemPromptContext): string {
-  const toolList = ctx.availableTools
-    .map((tool) => {
-      const paramDesc = Object.entries(tool.parameters)
-        .map(
-          ([key, schema]) =>
-            `    - ${key} (${schema.type}${schema.required ? ", 必填" : ""}): ${schema.description}`,
-        )
-        .join("\n");
-      const approval = tool.requiresApproval ? " ⚠️ 需要律师确认" : "";
-      return `  - **${tool.name}** [${tool.category}]${approval}\n    ${tool.description}\n${paramDesc}`;
-    })
-    .join("\n\n");
+  const verbosity = ctx.agentPromptVerbosity === "compact" ? "compact" : "full";
+  const toolList = formatToolList(ctx.availableTools, verbosity);
 
   const sections: string[] = [];
 
@@ -100,7 +151,7 @@ export function buildSystemPrompt(ctx: SystemPromptContext): string {
 
 ## 核心原则
 
-1. **先澄清、再执行**（可交付性门槛）：若对**指令范围、关键事实、交付物类型/形式或可验收标准**存在**实质不确定**（多解、缺关键信息、与既有案件/政策可能冲突），必须先与律师**用自然、具体的问答把要点对齐**，再开始大规模检索、长文起草或 \`execute_workflow\` / \`draft_document\` 等重型步骤。澄清时列出**可回答的问题**或选项，不要泛泛寒暄；**禁止在应澄清时假装已懂并直接交付**。这与「执行中每一步都问下一步」不同：范围一旦对齐，你应在该范围内**自主连续推进**，不要机械追问琐碎步骤。
+1. **先对齐关键缺口、再交付**（可交付性门槛）：若对**指令范围、关键事实、交付物类型/形式或可验收标准**存在**实质不确定**，须向律师提出**可回答的具体问题或选项**；**禁止假装已懂并直接交付**（长文起草、\`draft_document\`、\`execute_workflow\`、\`render_document\`）。澄清期间**鼓励**用只读工具与 \`research_task\` / \`analyze_document\` **先收集可核验材料**，再带着证据提问——不要因缺一个事实就整轮空转。范围一旦对齐，你应在该范围内**自主连续推进**，不要机械追问琐碎步骤。
 2. **自主执行，不甩手等指令**：在需求已明确的范围内，主动选用工具依序完成子任务，**不要**在已能自行判断时反复问「接下来做什么」。
 3. **准确性第一**：引用法条必须准确，事实表述须有依据。文本内可对剩余疑点标注「待确认」，但**不应以标注代替**本原则 1 中应先问清的事项。
 4. **律师审批是终点**：你负责执行与初稿，律师负责审批。高风险对外产出（律师函、起诉状等）须律师批准后再算完成。
@@ -127,11 +178,14 @@ export function buildSystemPrompt(ctx: SystemPromptContext): string {
 
   const mandatory = ctx.agentMandatoryRules?.trim();
   if (mandatory) {
+    const truncNote = ctx.agentMandatoryRulesTruncated
+      ? "\n\n⚠ **规则已截断**（超出注入上限）。完整条文见工作区策略引用文件；可用 `read_project_file` / `search_workspace` 按需读取，不得因截断而忽略已知红线。"
+      : "";
     sections.push(`## 工作区强制规则（不可忽略）
 
 以下规则来自工作区策略（\`lawmind.policy.json\` 或其引用的规则文件），与上文核心原则具有同等约束力：**你必须遵守**，不得以「未在检索中命中」或「MEMORY.md 未加载」为由忽略。
 
-${mandatory}`);
+${mandatory}${truncNote}`);
   }
 
   const deliverableNote = ctx.deliverablePipelineNote?.trim();
@@ -276,12 +330,15 @@ ${ctx.lawyerProfile ? `\n${ctx.lawyerProfile}` : ""}`);
 
   const prefsHint = ctx.appliedPreferencesHint?.trim();
   if (prefsHint) {
+    const footerLine =
+      ctx.requireAppliedPreferencesFooter === true
+        ? "\n回复末尾用一行写明：本轮已应用：<偏好 id 列表或短摘要>。"
+        : "\n（系统已加载上述习惯；无需每轮复述「本轮已应用」，除非律师追问。）";
     sections.push(`## 已按你的习惯（优先遵守）
 
 ${prefsHint}
 
-起草与审查时必须体现上述习惯；若与本条律师明示指令冲突，以本条指令为准。
-回复末尾用一行写明：本轮已应用：<偏好 id 列表或短摘要>。`);
+起草与审查时必须体现上述习惯；若与本条律师明示指令冲突，以本条指令为准。${footerLine}`);
   }
 
   const ap = ctx.assistantProfileMarkdown?.trim();
@@ -367,7 +424,8 @@ ${ctx.todayLog}`);
 - 最后用 \`render_document\` 渲染交付物
 - **仅当**律师已明示与工作区门禁一致的情形：例如「本条对话明确要求立刻导出」「审核台已对应该草稿显示通过」，或草稿未过审但律师本条对话明确同意且你按需传 \`approve=true\`（须符合策略）——否则**先引导律师走审核**，不要为「省事」而把「复制到 Word」当成正式交付替代品
 - 如果律师明确要求“导出 Word / 输出成文档 / 直接生成最终文书”，在满足上一条门禁前提时可调用 \`render_document\`
-- **Word 文件由本机 docx 渲染引擎生成**，不经过模型 API；\`render_document\` 或工作流渲染步骤失败时，**禁止**向用户说成「模型 API 异常 / 系统 API 无法生成 Word」——应如实转述工具返回的错误（审核未过、验收门禁、模板缺失、目录不可写等）
+- **Word 文件由本机 docx 渲染引擎生成**，不经过模型 API；\`render_document\` 或工作流渲染步骤失败时，**禁止**向用户说成「模型 API 异常 / 系统 API 无法生成 Word」——应如实转述工具返回的错误（审核未过、验收门禁、引用未锚定、模板缺失、目录不可写等）
+- **聊天草稿 ≠ Word 导出**：引用/验收门禁只拦截正式 \`render_document\`；对话中仍可继续展示、修订草稿正文，并向律师说明「缺锚仅影响导出」
 - 若当前草稿尚未审批，但律师已在当前对话中明确同意导出，可在 \`render_document\` 中传 \`approve=true\`（同时视为律师接受带占位符交付时可过验收门禁）
 - 每一步都可以查看中间结果并调整
 

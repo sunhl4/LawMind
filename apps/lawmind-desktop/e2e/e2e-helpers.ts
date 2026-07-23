@@ -13,8 +13,6 @@ export function installE2eBrowserPrefs(page: { addInitScript: Page["addInitScrip
   return page.addInitScript((firstRunKey) => {
     localStorage.setItem(firstRunKey, "1");
     localStorage.setItem("lawmind.ui.sidebarCollapsed", "0");
-    // Most specs still exercise 对话/在办; Home default is covered in home.spec.ts.
-    localStorage.setItem("lm.preferClassicChatHome", "1");
     const reviewPaneKeys = [
       "lawmind.ui.reviewPaneMeta",
       "lawmind.ui.reviewPaneEditor",
@@ -105,17 +103,13 @@ export async function gotoShell(page: Page): Promise<void> {
     page
       .getByTestId("lm-side-needs-decision")
       .or(page.getByTestId("lm-side-action-hub"))
-      .or(page.locator(".lm-needs-decision-trigger"))
-      .or(page.locator(".lm-action-hub-trigger"))
       .first(),
   ).toBeVisible({ timeout: 60_000 });
   // Wait for mock health (modelConfigured) so readiness strip clears before chat assertions.
   await expect(page.locator(".lm-readiness-strip")).toHaveCount(0, { timeout: 45_000 });
-  // Default Home cockpit OR classic chat messages (preferClassicChatHome).
   await expect(
     page
-      .getByTestId("lm-home-view")
-      .or(page.locator("#lawmind-chat-messages-panel"))
+      .locator("#lawmind-chat-messages-panel")
       .or(page.getByRole("region", { name: "对话消息" }))
       .first(),
   ).toBeVisible({ timeout: 30_000 });

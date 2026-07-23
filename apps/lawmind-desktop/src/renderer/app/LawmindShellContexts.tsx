@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import type { LawmindMainView } from "../lawmind-main-view";
 
 export type ShellNavigationContextValue = {
@@ -15,37 +15,22 @@ export type ChatSessionContextValue = {
 export type AutomationsNavContextValue = {
   selectedAutomationId: string | null;
   setSelectedAutomationId: (id: string | null) => void;
-  automationsListVersion: number;
-  bumpAutomationsListVersion: () => void;
 };
 
 const ShellNavigationContext = createContext<ShellNavigationContextValue | null>(null);
 const ChatSessionContext = createContext<ChatSessionContextValue | null>(null);
 const AutomationsNavContext = createContext<AutomationsNavContextValue | null>(null);
 
-function AutomationsNavProvider(props: { mainView: LawmindMainView; children: ReactNode }) {
-  const { mainView, children } = props;
+function AutomationsNavProvider(props: { children: ReactNode }) {
+  const { children } = props;
   const [selectedAutomationId, setSelectedAutomationId] = useState<string | null>(null);
-  const [automationsListVersion, setAutomationsListVersion] = useState(0);
-
-  useEffect(() => {
-    if (mainView !== "automations") {
-      setSelectedAutomationId(null);
-    }
-  }, [mainView]);
-
-  const bumpAutomationsListVersion = useCallback(() => {
-    setAutomationsListVersion((v) => v + 1);
-  }, []);
 
   const value = useMemo(
     (): AutomationsNavContextValue => ({
       selectedAutomationId,
       setSelectedAutomationId,
-      automationsListVersion,
-      bumpAutomationsListVersion,
     }),
-    [selectedAutomationId, automationsListVersion, bumpAutomationsListVersion],
+    [selectedAutomationId],
   );
 
   return <AutomationsNavContext.Provider value={value}>{children}</AutomationsNavContext.Provider>;
@@ -60,7 +45,7 @@ export function LawmindShellProviders(props: {
   return (
     <ShellNavigationContext.Provider value={navigation}>
       <ChatSessionContext.Provider value={chatSession}>
-        <AutomationsNavProvider mainView={navigation.mainView}>{children}</AutomationsNavProvider>
+        <AutomationsNavProvider>{children}</AutomationsNavProvider>
       </ChatSessionContext.Provider>
     </ShellNavigationContext.Provider>
   );
@@ -90,8 +75,6 @@ export function useLawmindAutomationsNavContext(): AutomationsNavContextValue {
     useContext(AutomationsNavContext) ?? {
       selectedAutomationId: null,
       setSelectedAutomationId: () => {},
-      automationsListVersion: 0,
-      bumpAutomationsListVersion: () => {},
     }
   );
 }

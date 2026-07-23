@@ -136,8 +136,8 @@ export async function renderDraft(
       ok: false,
       error:
         citationMode === "grounded"
-          ? "严格援引模式：无检索快照、缺失来源或长段未锚定时不可导出。请补齐引用或改为 assisted。"
-          : "渲染被引用完整性门禁拦截：存在缺失来源 ID 或长段未锚定引用。请在文书台核对 Citation Banner 后再导出。",
+          ? "严格援引模式：无检索快照、缺失来源或长段未锚定时不可导出 Word。对话中仍可继续展示/修改草稿正文；请补齐引用锚定，或将 citationMode 改为 assisted 后再 render_document。"
+          : "引用完整性门禁仅拦截正式 Word 导出（缺失来源 ID 或长段未锚定）。对话中的草稿正文仍可继续完善；请在文书台核对 Citation Banner 后补锚再导出。",
       citationIntegrity,
     };
   }

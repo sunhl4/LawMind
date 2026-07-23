@@ -165,7 +165,7 @@ export function LawmindCollaborationDesk(props: Props): ReactNode {
               <h2 className="lm-collab-desk-panel-heading">审批与拦截记录</h2>
               <LawmindGateHistoryTimeline items={gateHistory} formatRelativeTime={formatRelativeTime} />
               <p className="lm-meta lm-collab-meeting-hint">
-                案件或临时讨论请到「更多 → 会议室」；此处是跨会话交办与审批拦截的流水记录。
+                案件或临时讨论请到顶栏「会议室」；此处是跨会话交办与审批拦截的流水记录。
               </p>
             </section>
           ) : null}

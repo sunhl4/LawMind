@@ -49,11 +49,15 @@ type Props = {
   apiBase: string;
   matterId?: string | null;
   matterOptions?: Array<{ id: string; title: string }>;
-  onOpenNeedsDecisionDesk?: () => void;
+  onOpenNeedsDecisionDesk?: (
+    target?: import("./lawmind-agents-desk").NeedsDecisionDeskTarget,
+  ) => void;
   /** @deprecated Use onOpenNeedsDecisionDesk */
   onOpenActionHub?: () => void;
   onOpenReview?: (taskId: string, matterId?: string) => void;
   onOpenCollaboration?: (matterId?: string) => void;
+  /** Settings page already shows section title — hide duplicate chrome. */
+  hideTitleChrome?: boolean;
 };
 
 function scheduleLabel(s: Schedule): string {
@@ -81,10 +85,10 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
     onOpenActionHub,
     onOpenReview,
     onOpenCollaboration,
+    hideTitleChrome = false,
   } = props;
   const openNeedsDecisionDesk = onOpenNeedsDecisionDesk ?? onOpenActionHub;
-  const { selectedAutomationId, setSelectedAutomationId, bumpAutomationsListVersion } =
-    useLawmindAutomationsNavContext();
+  const { selectedAutomationId, setSelectedAutomationId } = useLawmindAutomationsNavContext();
   const [presets, setPresets] = useState<Preset[]>([]);
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [inbox, setInbox] = useState<InboxItem[]>([]);
@@ -132,7 +136,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
   }, [matterOptions, selectedMatter]);
 
   const refresh = useCallback(
-    async (opts?: { syncSidebar?: boolean; quiet?: boolean }) => {
+    async (opts?: { quiet?: boolean }) => {
       if (!apiBase) {
         return;
       }
@@ -155,16 +159,13 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
           })),
         );
         setError(null);
-        if (opts?.syncSidebar) {
-          bumpAutomationsListVersion();
-        }
       } catch (e) {
         setError(errorMessage(e, "无法加载交办任务"));
       } finally {
         setLoading(false);
       }
     },
-    [apiBase, bumpAutomationsListVersion],
+    [apiBase],
   );
 
   useEffect(() => {
@@ -219,7 +220,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
       });
       setError(null);
       setSuccess("已创建交办任务。");
-      await refresh({ syncSidebar: true, quiet: true });
+      await refresh({ quiet: true });
     } catch (e) {
       const msg = errorMessage(e, "创建失败");
       setError(
@@ -260,7 +261,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
       setCustomText("");
       setError(null);
       setSuccess("已从这句话创建交办任务。");
-      await refresh({ syncSidebar: true, quiet: true });
+      await refresh({ quiet: true });
     } catch (e) {
       const msg = errorMessage(e, "创建失败");
       setError(
@@ -279,7 +280,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
       await apiSendJson(apiBase, `/api/automations/${encodeURIComponent(a.id)}`, "PATCH", {
         enabled: !a.enabled,
       });
-      await refresh({ syncSidebar: true, quiet: true });
+      await refresh({ quiet: true });
     } catch (e) {
       setError(errorMessage(e, "更新失败"));
     } finally {
@@ -295,7 +296,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
         runNow: true,
         enabled: true,
       });
-      await refresh({ syncSidebar: true, quiet: true });
+      await refresh({ quiet: true });
       setError(null);
       setSuccess("已触发立即运行；结果将出现在下方「待拍板」。");
     } catch (e) {
@@ -316,7 +317,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
         setSelectedAutomationId(null);
       }
       setSuccess("已删除交办任务。");
-      await refresh({ syncSidebar: true, quiet: true });
+      await refresh({ quiet: true });
     } catch (e) {
       setError(errorMessage(e, "删除失败"));
     } finally {
@@ -333,7 +334,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
         "POST",
         { action },
       );
-      await refresh({ syncSidebar: true, quiet: true });
+      await refresh({ quiet: true });
       setSuccess(
         action === "approve_send" ? "已批准发送。" : action === "dismiss" ? "已忽略。" : "已标记已知悉。",
       );
@@ -368,17 +369,24 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
 
   return (
     <div
-      className="lm-automations-panel"
+      className={`lm-automations-panel${hideTitleChrome ? " lm-settings-advanced-page" : ""}`}
       data-testid="lm-automations-panel"
       aria-busy={loading || busy || undefined}
     >
+      {hideTitleChrome ? (
+        <p className="lm-settings-lead">
+          定时或邮件触发自动办件；日常下达请用对话。结果进「待我拍板」。
+        </p>
+      ) : null}
       <header className="lm-automations-header">
-        <div>
-          <h2 className="lm-agent-fleet-title">自动办件</h2>
-          <p className="lm-meta">
-            此处为定时或邮件触发的自动办件；日常下达请用「对话」。选模板或写一句话，到点自动跑，结果进「待我拍板」。
-          </p>
-        </div>
+        {hideTitleChrome ? null : (
+          <div>
+            <h2 className="lm-agent-fleet-title">自动办件</h2>
+            <p className="lm-meta">
+              此处为定时或邮件触发的自动办件；日常下达请用「对话」。选模板或写一句话，到点自动跑，结果进「待我拍板」。
+            </p>
+          </div>
+        )}
         <div className="lm-automations-header-actions">
           <button
             type="button"
@@ -392,7 +400,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
             <button
               type="button"
               className="lm-btn lm-btn-secondary lm-btn-sm"
-              onClick={openNeedsDecisionDesk}
+              onClick={() => openNeedsDecisionDesk?.()}
             >
               去在办处理
             </button>

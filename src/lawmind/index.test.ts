@@ -28,7 +28,7 @@ describe("LawMind Engine", () => {
   });
 
   afterEach(async () => {
-    await fs.rm(workspaceDir, { recursive: true, force: true });
+    await fs.rm(workspaceDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 25 });
   });
 
   it("plan -> research -> draft produces draft with sections", async () => {
@@ -240,7 +240,7 @@ describe("LawMind Engine", () => {
     const draft = engine.draft(intent, bundle, { title: "PPT 集成测试草稿" });
     expect(draft.output).toBe("pptx");
     await engine.review(draft, { actorId: "lawyer:test", status: "approved" });
-    const result = await engine.render(draft);
+    const result = await engine.render(draft, { strictGates: false });
 
     expect(result.ok).toBe(true);
     expect(result.outputPath).toMatch(/\.pptx$/);
@@ -262,7 +262,7 @@ describe("LawMind Engine", () => {
     const bundle = await engine.research(intent);
     const draft = engine.draft(intent, bundle);
     await engine.review(draft, { actorId: "lawyer:test", status: "approved" });
-    const result = await engine.render(draft);
+    const result = await engine.render(draft, { strictGates: false });
 
     expect(result.ok).toBe(true);
     const renderedState = engine.getTaskState(intent.taskId);
@@ -298,7 +298,7 @@ describe("LawMind Engine", () => {
       title: "Fallback Template Test",
     });
     await engine.review(draft, { actorId: "lawyer:test", status: "approved" });
-    const result = await engine.render(draft);
+    const result = await engine.render(draft, { strictGates: false });
 
     expect(result.ok).toBe(true);
     const auditDir = path.join(workspaceDir, "audit");

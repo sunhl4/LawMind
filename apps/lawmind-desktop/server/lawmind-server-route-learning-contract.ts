@@ -11,6 +11,7 @@ import {
   finalizeContractRevisionPack,
   listContractRevisionPacks,
 } from "../../../src/lawmind/learning/contract-revision-pack.js";
+import { suggestLearningFromDraftReview } from "../../../src/lawmind/learning/review-learning-suggest.js";
 import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
 import { learningContractFinalizePostSchema } from "./lawmind-api-schemas.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
@@ -87,6 +88,27 @@ export async function handleLearningContractRoutes({
       stableDocumentKey: body.stableDocumentKey,
       lawyerReviewNotes: body.lawyerReviewNotes,
     });
+    const learnNote = [
+      ...keys.map((k) => String(k).trim()).filter(Boolean).slice(0, 3),
+      typeof body.lawyerReviewNotes === "string" ? body.lawyerReviewNotes.trim() : "",
+    ]
+      .filter(Boolean)
+      .join("。");
+    if (learnNote) {
+      try {
+        await suggestLearningFromDraftReview({
+          workspaceDir,
+          auditDir,
+          taskId: result.revisionId,
+          status: "modified",
+          note: learnNote,
+          assistantId:
+            typeof body.assistantId === "string" ? body.assistantId.trim() : undefined,
+        });
+      } catch {
+        /* 学习建议失败不阻断修订包落盘 */
+      }
+    }
     sendJson(
       res,
       200,

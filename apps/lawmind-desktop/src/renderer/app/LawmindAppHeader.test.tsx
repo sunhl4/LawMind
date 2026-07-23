@@ -25,7 +25,8 @@ const editionState: { current: EditionInfo } = {
       customDeliverableSpec: false,
       acceptancePackExport: false,
       strictDangerousToolApproval: false,
-      reviewCampaignParallel: false,
+      reviewCampaignParallel: true,
+      forcePeerReview: false,
     },
     citationMode: "assisted",
     loading: false,
@@ -80,8 +81,6 @@ describe("LawmindAppHeader", () => {
           onExitMatterCockpit={vi.fn()}
           onSetMainView={vi.fn()}
                     apiBase="http://127.0.0.1:8765"
-          actionSummaryTotal={0}
-          onOpenNeedsDecisionDesk={vi.fn()}
           projectDir={null}
           currentMatterLabel={null}
           sidebarCollapsed={false}
@@ -109,16 +108,17 @@ describe("LawmindAppHeader", () => {
         />,
       );
     });
+    expect(host.querySelector('[data-testid="lm-tab-home"]')).toBeNull();
     expect(host.querySelector('[aria-current="page"]')?.textContent).toContain("对话");
     expect(host.textContent).toContain("在办");
-    expect(host.textContent).toContain("会议室·办件");
-    expect(host.querySelector('[data-testid="lm-tab-meeting"]')).toBeNull();
+    expect(host.querySelector('[data-testid="lm-tab-meeting"]')?.textContent).toContain("会议室");
+    expect(host.querySelector('[data-testid="lm-nav-more"]')).toBeNull();
     expect(host.querySelector('[data-testid="lm-tab-automations"]')).toBeNull();
     expect(host.textContent).not.toContain("审核");
     expect(host.querySelector('[data-testid="lm-tab-collaboration"]')).toBeNull();
   });
 
-  it("opens 会议室 and 自动办件 from 更多 menu", async () => {
+  it("opens 会议室 from top nav tab", async () => {
     const onSetMainView = vi.fn();
     await act(async () => {
       root.render(
@@ -131,8 +131,6 @@ describe("LawmindAppHeader", () => {
           onExitMatterCockpit={vi.fn()}
           onSetMainView={onSetMainView}
           apiBase="http://127.0.0.1:8765"
-          actionSummaryTotal={0}
-          onOpenNeedsDecisionDesk={vi.fn()}
           projectDir={null}
           currentMatterLabel={null}
           sidebarCollapsed={false}
@@ -160,16 +158,10 @@ describe("LawmindAppHeader", () => {
         />,
       );
     });
-    const more = host.querySelector('[data-testid="lm-nav-more"]') as HTMLButtonElement;
-    expect(more).toBeTruthy();
     await act(async () => {
-      more.click();
+      (host.querySelector('[data-testid="lm-tab-meeting"]') as HTMLButtonElement).click();
     });
-    expect(host.querySelector('[data-testid="lm-nav-more-menu"]')).toBeTruthy();
-    await act(async () => {
-      (host.querySelector('[data-testid="lm-tab-automations"]') as HTMLButtonElement).click();
-    });
-    expect(onSetMainView).toHaveBeenCalledWith("automations");
+    expect(onSetMainView).toHaveBeenCalledWith("meeting");
   });
 
   it("shows 案件 tab as current when matter cockpit is open", async () => {
@@ -185,8 +177,6 @@ describe("LawmindAppHeader", () => {
           onExitMatterCockpit={onExit}
           onSetMainView={vi.fn()}
                     apiBase="http://127.0.0.1:8765"
-          actionSummaryTotal={0}
-          onOpenNeedsDecisionDesk={vi.fn()}
           projectDir={null}
           currentMatterLabel="chen-ac"
           sidebarCollapsed={false}
@@ -237,8 +227,6 @@ describe("LawmindAppHeader", () => {
           onExitMatterCockpit={vi.fn()}
           onSetMainView={vi.fn()}
           apiBase="http://127.0.0.1:8765"
-          actionSummaryTotal={0}
-          onOpenNeedsDecisionDesk={vi.fn()}
           projectDir={null}
           currentMatterLabel={null}
           sidebarCollapsed={false}
@@ -271,6 +259,55 @@ describe("LawmindAppHeader", () => {
     expect(host.querySelector('[aria-label="功能模块"]')?.textContent).not.toContain("协作");
   });
 
+  it("在办 header exposes sidebar hide/show toggle", async () => {
+    const onToggleSidebar = vi.fn();
+    await act(async () => {
+      root.render(
+        <LawmindAppHeader
+          mainView="agents"
+          assistants={[]}
+          selectedAssistantId="a1"
+          onSelectAssistantId={vi.fn()}
+          matterCockpitOpen={false}
+          onExitMatterCockpit={vi.fn()}
+          onSetMainView={vi.fn()}
+          apiBase="http://127.0.0.1:8765"
+          projectDir={null}
+          currentMatterLabel={null}
+          sidebarCollapsed={false}
+          wsShowEditor
+          wsShowChat
+          canUseFilesystemBridge
+          onToggleSidebar={onToggleSidebar}
+          onToggleEditor={vi.fn()}
+          onToggleChat={vi.fn()}
+          reviewPaneVisibility={{ meta: true, editor: true, preview: true }}
+          onToggleReviewPane={vi.fn()}
+          onOpenSettings={vi.fn()}
+          onCloseSettings={vi.fn()}
+          settingsOpen={false}
+          showReadinessStrip={false}
+          health={null}
+          workspaceDir="/tmp/ws"
+          localServiceReconnecting={false}
+          modelCatalog={[]}
+          selectedModelId="m1"
+          onOpenApiWizard={vi.fn()}
+          onOpenDoctor={vi.fn()}
+          onVerifyModel={vi.fn()}
+          composeModelQuickTestBusy={false}
+        />,
+      );
+    });
+    const btn = host.querySelector<HTMLButtonElement>('[data-testid="lm-agents-toggle-sidebar"]');
+    expect(btn).toBeTruthy();
+    expect(btn?.getAttribute("aria-label")).toBe("隐藏侧栏");
+    await act(async () => {
+      btn?.click();
+    });
+    expect(onToggleSidebar).toHaveBeenCalled();
+  });
+
   it("marks settings gear active when settingsOpen and sidebar unavailable", async () => {
     await act(async () => {
       root.render(
@@ -283,8 +320,6 @@ describe("LawmindAppHeader", () => {
           onExitMatterCockpit={vi.fn()}
           onSetMainView={vi.fn()}
                     apiBase="http://127.0.0.1:8765"
-          actionSummaryTotal={0}
-          onOpenNeedsDecisionDesk={vi.fn()}
           projectDir={null}
           currentMatterLabel={null}
           sidebarCollapsed
@@ -328,8 +363,6 @@ describe("LawmindAppHeader", () => {
           onExitMatterCockpit={vi.fn()}
           onSetMainView={vi.fn()}
                     apiBase="http://127.0.0.1:8765"
-          actionSummaryTotal={0}
-          onOpenNeedsDecisionDesk={vi.fn()}
           projectDir={null}
           currentMatterLabel={null}
           sidebarCollapsed={false}
@@ -374,8 +407,6 @@ describe("LawmindAppHeader", () => {
           onExitMatterCockpit={vi.fn()}
           onSetMainView={vi.fn()}
                     apiBase="http://127.0.0.1:8765"
-          actionSummaryTotal={0}
-          onOpenNeedsDecisionDesk={vi.fn()}
           projectDir={null}
           currentMatterLabel={null}
           sidebarCollapsed={false}
@@ -411,7 +442,7 @@ describe("LawmindAppHeader", () => {
     expect(host.querySelector(".lm-tabs")).toBeNull();
   });
 
-  it("shows header 待我拍板 only when sidebar is collapsed or in review", async () => {
+  it("never shows header 待我拍板 (inbox stays on sidebar / 在办)", async () => {
     const base = {
       assistants: [],
       selectedAssistantId: "a1",
@@ -419,9 +450,7 @@ describe("LawmindAppHeader", () => {
       matterCockpitOpen: false,
       onExitMatterCockpit: vi.fn(),
       onSetMainView: vi.fn(),
-            apiBase: "http://127.0.0.1:8765",
-      actionSummaryTotal: 2,
-      onOpenNeedsDecisionDesk: vi.fn(),
+      apiBase: "http://127.0.0.1:8765",
       projectDir: null as string | null,
       currentMatterLabel: null as string | null,
       wsShowEditor: true,
@@ -446,73 +475,22 @@ describe("LawmindAppHeader", () => {
       onVerifyModel: vi.fn(),
       composeModelQuickTestBusy: false,
     };
-
-    await act(async () => {
-      root.render(
-        <LawmindAppHeader {...base} mainView="workspace" sidebarCollapsed={false} />,
-      );
-    });
-    expect(host.querySelector(".lm-needs-decision-trigger")).toBeNull();
 
     await act(async () => {
       root.render(
         <LawmindAppHeader {...base} mainView="workspace" sidebarCollapsed />,
       );
     });
-    expect(host.querySelector(".lm-needs-decision-trigger")?.textContent).toContain("待我拍板");
+    expect(host.querySelector(".lm-needs-decision-trigger")).toBeNull();
+    expect(host.querySelector('[data-testid="lm-header-needs-decision"]')).toBeNull();
 
     await act(async () => {
       root.render(
         <LawmindAppHeader {...base} mainView="review" sidebarCollapsed={false} />,
       );
     });
-    expect(host.querySelector(".lm-needs-decision-trigger")?.textContent).toContain("待我拍板");
-  });
-
-  it("does not put decision badge on 在办 tab (inbox stays on 待我拍板)", async () => {
-    const base = {
-      assistants: [],
-      selectedAssistantId: "a1",
-      onSelectAssistantId: vi.fn(),
-      matterCockpitOpen: false,
-      onExitMatterCockpit: vi.fn(),
-      onSetMainView: vi.fn(),
-            apiBase: "http://127.0.0.1:8765",
-      actionSummaryTotal: 3,
-      onOpenNeedsDecisionDesk: vi.fn(),
-      projectDir: null as string | null,
-      currentMatterLabel: null as string | null,
-      wsShowEditor: true,
-      wsShowChat: true,
-      canUseFilesystemBridge: false,
-      onToggleSidebar: vi.fn(),
-      onToggleEditor: vi.fn(),
-      onToggleChat: vi.fn(),
-      reviewPaneVisibility: { meta: true, editor: true, preview: true },
-      onToggleReviewPane: vi.fn(),
-      onOpenSettings: vi.fn(),
-      onCloseSettings: vi.fn(),
-      settingsOpen: false,
-      showReadinessStrip: false,
-      health: null,
-      workspaceDir: "/tmp/ws",
-      localServiceReconnecting: false,
-      modelCatalog: [],
-      selectedModelId: "m1",
-      onOpenApiWizard: vi.fn(),
-      onOpenDoctor: vi.fn(),
-      onVerifyModel: vi.fn(),
-      composeModelQuickTestBusy: false,
-    };
-
-    await act(async () => {
-      root.render(
-        <LawmindAppHeader {...base} mainView="workspace" sidebarCollapsed={false} />,
-      );
-    });
-    const agentsTab = host.querySelector('[data-testid="lm-tab-agents"]');
-    expect(agentsTab?.textContent?.trim()).toBe("在办");
-    expect(agentsTab?.querySelector(".lm-tab-badge")).toBeNull();
+    expect(host.querySelector(".lm-needs-decision-trigger")).toBeNull();
+    expect(host.querySelector('[data-testid="lm-tab-agents"]')?.textContent?.trim()).toBe("在办");
   });
 
   it("shows weak matter chip when a case is linked", async () => {
@@ -539,8 +517,6 @@ describe("LawmindAppHeader", () => {
           onExitMatterCockpit={vi.fn()}
           onSetMainView={vi.fn()}
                     apiBase="http://127.0.0.1:8765"
-          actionSummaryTotal={0}
-          onOpenNeedsDecisionDesk={vi.fn()}
           projectDir="/tmp/ws"
           currentMatterLabel="张三诉李四"
           sidebarCollapsed={false}
@@ -591,8 +567,6 @@ describe("LawmindAppHeader", () => {
           onExitMatterCockpit={vi.fn()}
           onSetMainView={vi.fn()}
                     apiBase="http://127.0.0.1:8765"
-          actionSummaryTotal={0}
-          onOpenNeedsDecisionDesk={vi.fn()}
           projectDir={null}
           currentMatterLabel={null}
           sidebarCollapsed={false}

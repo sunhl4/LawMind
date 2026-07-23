@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildFileContextMessagePrefix,
   fileChatScopeKey,
+  isFileChatExcerptCandidate,
   makeFileContextItemId,
   migratePendingFileChatPins,
   type FileChatContextItem,
@@ -55,5 +57,49 @@ describe("migratePendingFileChatPins", () => {
   it("is a no-op without a session id", () => {
     const map = { "default::__pending__": [pin("a.md")] };
     expect(migratePendingFileChatPins(map, { assistantId: "default", sessionId: null })).toBe(map);
+  });
+});
+
+describe("file chat excerpts", () => {
+  it("detects textish excerpt candidates", () => {
+    expect(
+      isFileChatExcerptCandidate({
+        id: "1",
+        root: "workspace",
+        relPath: "notes/memo.md",
+        kind: "file",
+      }),
+    ).toBe(true);
+    expect(
+      isFileChatExcerptCandidate({
+        id: "2",
+        root: "workspace",
+        relPath: "scan.pdf",
+        kind: "file",
+      }),
+    ).toBe(false);
+    expect(
+      isFileChatExcerptCandidate({
+        id: "3",
+        root: "workspace",
+        relPath: "folder",
+        kind: "directory",
+      }),
+    ).toBe(false);
+  });
+
+  it("embeds excerpt bodies and labels path-only refs", () => {
+    const item: FileChatContextItem = {
+      id: makeFileContextItemId({ root: "workspace", relPath: "a.md", kind: "file" }),
+      root: "workspace",
+      relPath: "a.md",
+      kind: "file",
+    };
+    const withBody = buildFileContextMessagePrefix([item], { [item.id]: "合同正文摘录" });
+    expect(withBody).toContain("已嵌入正文");
+    expect(withBody).toContain("合同正文摘录");
+    const pathOnly = buildFileContextMessagePrefix([item]);
+    expect(pathOnly).toContain("路径引用");
+    expect(pathOnly).not.toContain("已嵌入正文");
   });
 });

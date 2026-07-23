@@ -1,7 +1,7 @@
 /**
- * Workspace FTS search (audit + session turns).
+ * Workspace FTS search (audit + session turns + personal knowledge).
  *
- * GET  /api/search/workspace?q=&matterId=&source=audit,session&limit=
+ * GET  /api/search/workspace?q=&matterId=&source=audit,session,knowledge|all&limit=
  * POST /api/search/workspace/rebuild
  */
 
@@ -10,8 +10,10 @@ import { isValidMatterId } from "../../../src/lawmind/cases/index.js";
 import {
   getSearchIndexStatus,
   rebuildWorkspaceSearchIndex,
+  searchPersonalKnowledge,
   searchWorkspaceIndex,
   type SearchIndexSource,
+  type WorkspaceSearchHit,
 } from "../../../src/lawmind/indexing/index.js";
 import { sendJson } from "./lawmind-server-helpers.js";
 
@@ -19,7 +21,14 @@ function parseSources(raw: string | null): SearchIndexSource[] | undefined {
   if (!raw?.trim()) {
     return undefined;
   }
-  const allowed = new Set<SearchIndexSource>(["audit", "session"]);
+  const token = raw.trim().toLowerCase();
+  if (token === "all") {
+    return ["audit", "session", "knowledge"];
+  }
+  if (token === "knowledge") {
+    return ["knowledge"];
+  }
+  const allowed = new Set<SearchIndexSource>(["audit", "session", "knowledge"]);
   const parts = raw
     .split(",")
     .map((s) => s.trim())
@@ -79,16 +88,58 @@ export async function handleSearchRoutes({
       return true;
     }
     const limitRaw = url.searchParams.get("limit");
-    const limit = limitRaw ? Number(limitRaw) : undefined;
+    const limit = Number.isFinite(limitRaw ? Number(limitRaw) : NaN)
+      ? Number(limitRaw)
+      : 30;
     const sources = parseSources(url.searchParams.get("source"));
-    const result = searchWorkspaceIndex(workspaceDir, {
-      q,
-      matterId: matterId || undefined,
-      sources,
-      limit: Number.isFinite(limit) ? limit : undefined,
-    });
+    const wantKnowledge = !sources || sources.includes("knowledge");
+    const nonKnowledge = (sources ?? ["audit", "session", "knowledge"]).filter(
+      (s) => s !== "knowledge",
+    ) as SearchIndexSource[];
+
+    const hits: WorkspaceSearchHit[] = [];
+    if (nonKnowledge.length > 0 && !(sources?.length === 1 && sources[0] === "knowledge")) {
+      const base = searchWorkspaceIndex(workspaceDir, {
+        q,
+        matterId: matterId || undefined,
+        sources: nonKnowledge,
+        limit,
+      });
+      hits.push(...base.hits);
+    }
+    if (wantKnowledge) {
+      const knowledge = await searchPersonalKnowledge(workspaceDir, {
+        q,
+        matterId: matterId || undefined,
+        limit,
+        autoRebuild: false,
+      });
+      for (const h of knowledge.hits) {
+        hits.push({
+          source: "knowledge",
+          id: h.path,
+          path: h.path,
+          docKind: h.docKind,
+          section: h.section,
+          matterId: h.matterId,
+          snippet: h.snippet,
+          score: h.score,
+        });
+      }
+    }
     const searchIndex = getSearchIndexStatus(workspaceDir);
-    sendJson(res, 200, { ...result, searchIndex }, c);
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        query: q,
+        hits: hits.slice(0, limit),
+        indexMissing: !searchIndex.ready,
+        searchIndex,
+      },
+      c,
+    );
     return true;
   }
 
