@@ -1,6 +1,11 @@
 import { linkDraftToDeliverable } from "../../../application/services/deliverable-service.js";
 import { validateDraftAgainstSpec } from "../../../deliverables/index.js";
-import { persistDraft, readDraft } from "../../../drafts/index.js";
+import {
+  generateRedlineAfterWrite,
+  persistDraft,
+  prepareRedlineBaselineBeforeWrite,
+  readDraft,
+} from "../../../drafts/index.js";
 import { readTaskRecord } from "../../../tasks/index.js";
 import type { ArtifactSection } from "../../../types.js";
 import type { AgentContext, AgentTool } from "../../types.js";
@@ -264,7 +269,10 @@ export const updateDraft: AgentTool = {
       if (next.taskId !== taskId) {
         return { ok: false, error: "taskId 不可变更" };
       }
+      // Proposal-first: lock baseline before write, then regenerate redline hunks.
+      prepareRedlineBaselineBeforeWrite(ctx.workspaceDir, taskId);
       persistDraft(ctx.workspaceDir, next);
+      const redline = generateRedlineAfterWrite(ctx.workspaceDir, taskId);
       if (next.matterId) {
         try {
           const tr = readTaskRecord(ctx.workspaceDir, taskId);
@@ -283,6 +291,9 @@ export const updateDraft: AgentTool = {
           reviewStatus: next.reviewStatus,
           acceptanceReady: acceptance.ready,
           draftPath: `drafts/${taskId}.json`,
+          redlinePending: redline.ok
+            ? redline.proposal.hunks.filter((h) => h.status === "pending").length
+            : 0,
         },
       };
     } catch (err) {

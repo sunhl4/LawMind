@@ -26,6 +26,7 @@ export {
   markDelegationTimeout,
   cancelDelegation,
   getDelegation,
+  readDelegationResultFile,
   listDelegations,
   listDelegationFollowUpsForSession,
   listRunningDelegationsForSession,

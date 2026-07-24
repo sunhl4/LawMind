@@ -40,7 +40,26 @@ export type ToolRoundPolicyHints = {
   allowedToolNames?: string[];
   roleId?: string;
   riskCeiling?: RiskLevel;
+  autoApproveSandboxWorkflowSteps?: boolean;
 };
+
+/** Tools eligible for C3 sandbox auto-approve (never render / mail). */
+const SANDBOX_AUTO_APPROVE_TOOLS = new Set(["execute_workflow", "draft_document"]);
+
+/** Pure gate for C3 (exported for unit tests). */
+export function shouldPreApproveSandboxWorkflowStep(opts: {
+  autoApproveSandboxWorkflowSteps?: boolean;
+  toolSandboxEnabled?: boolean;
+  toolName: string;
+  strictDangerousToolApproval?: boolean;
+}): boolean {
+  return (
+    opts.autoApproveSandboxWorkflowSteps === true &&
+    opts.toolSandboxEnabled === true &&
+    SANDBOX_AUTO_APPROVE_TOOLS.has(opts.toolName) &&
+    opts.strictDangerousToolApproval !== true
+  );
+}
 
 export type ExecuteToolBatchesParams = {
   toolRefs: ToolCallRef[];
@@ -112,6 +131,16 @@ export async function executeToolBatches(
         if (ctx.preApproveToolArgs && typeof ctx.preApproveToolArgs === "object") {
           Object.assign(toolArgs, ctx.preApproveToolArgs);
         }
+      } else if (
+        shouldPreApproveSandboxWorkflowStep({
+          autoApproveSandboxWorkflowSteps: policyHints?.autoApproveSandboxWorkflowSteps,
+          toolSandboxEnabled,
+          toolName,
+          strictDangerousToolApproval,
+        })
+      ) {
+        // C3: Solo/opt-in sandbox steps — never when Firm strict approval is on.
+        toolArgs.__approved = true;
       }
       emitEvent({
         type: "tool_call_start",

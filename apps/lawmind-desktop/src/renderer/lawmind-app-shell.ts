@@ -28,6 +28,7 @@ import {
 } from "./lawmind-web-search-prefs.js";
 import type { HealthPayload } from "./lawmind-app-data.js";
 import { useFileChatContext } from "./lawmind-file-chat-context";
+import { useComposeTruthPins } from "./useComposeTruthPins";
 import {
   useLawmindAppBootstrapEffects,
   type LawmindHealthState,
@@ -122,6 +123,15 @@ export function useLawmindAppShell() {
     removeFileChatContextItem,
     clearFileChatContext,
   } = useFileChatContext(setError, {
+    assistantId: selectedAssistantId,
+    sessionId: sessionByAssistant[selectedAssistantId],
+  });
+  const {
+    composeTruthPins,
+    addComposeTruthPin,
+    removeComposeTruthPin,
+    clearComposeTruthPins,
+  } = useComposeTruthPins(setError, {
     assistantId: selectedAssistantId,
     sessionId: sessionByAssistant[selectedAssistantId],
   });
@@ -378,6 +388,7 @@ export function useLawmindAppShell() {
     contextMatterId,
     contextTaskId,
     fileChatContextItems,
+    composeTruthPins,
     deskContractBatchDir,
     projectDir,
     allowWebSearch,
@@ -494,6 +505,7 @@ export function useLawmindAppShell() {
       contextTaskId,
       contextMatterId,
       fileChatContextItems,
+      composeTruthPins,
       copiedMessageIndex,
       recordsExpanded,
       showSettings,
@@ -588,6 +600,9 @@ export function useLawmindAppShell() {
       addFileToChatContext,
       removeFileChatContextItem,
       clearFileChatContext,
+      addComposeTruthPin,
+      removeComposeTruthPin,
+      clearComposeTruthPins,
       selectChatSession,
       refreshChatSessionListForAssistant,
       openDelegationTargetWorkspaceChat,

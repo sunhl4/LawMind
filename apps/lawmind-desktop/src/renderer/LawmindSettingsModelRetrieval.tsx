@@ -1,10 +1,12 @@
-import { useCallback, useState, type ChangeEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ChangeEvent, type ReactNode } from "react";
 import {
   readIncludeTurnDiagnostics,
   writeIncludeTurnDiagnostics,
 } from "./lawmind-chat-diagnostics-pref.ts";
 import { LawmindSettingsCustomModels } from "./LawmindSettingsCustomModels";
 import {
+  fetchModelsCatalog,
+  setWorkerModelIdApi,
   testModelConnection,
   type ModelCatalogEntry,
   type PlatformProviderKeyStatus,
@@ -53,6 +55,17 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
     applyDraftWithModelEnabled,
     onOpenApiWizard,
   } = props;
+  const [workerModelId, setWorkerModelId] = useState<string>("");
+  const [workerSaving, setWorkerSaving] = useState(false);
+
+  useEffect(() => {
+    if (!apiBase) {
+      return;
+    }
+    void fetchModelsCatalog(apiBase)
+      .then((c) => setWorkerModelId(c.workerModelId?.trim() || ""))
+      .catch(() => setWorkerModelId(""));
+  }, [apiBase]);
   const [turnDiagnostics, setTurnDiagnostics] = useState(readIncludeTurnDiagnostics);
   const [modelTestBusy, setModelTestBusy] = useState(false);
   const [modelTestResult, setModelTestResult] = useState<string | null>(null);
@@ -191,6 +204,43 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
             已开启但凭据不可用，将回退规则模板。
           </p>
         ) : null}
+      </div>
+
+      <div className="lm-settings-group lm-settings-surface">
+        <label className="lm-settings-row">
+          <span className="lm-settings-key">Worker 模型（工具轮）</span>
+          <select
+            className="lm-compose-select"
+            data-testid="lm-settings-worker-model"
+            disabled={!apiBase || !health?.modelConfigured || workerSaving}
+            value={workerModelId}
+            aria-label="工具轮 Worker 模型"
+            onChange={(e) => {
+              const next = e.target.value;
+              setWorkerModelId(next);
+              if (!apiBase) {
+                return;
+              }
+              setWorkerSaving(true);
+              void setWorkerModelIdApi(apiBase, next || null)
+                .then((id) => setWorkerModelId(id ?? ""))
+                .catch(() => undefined)
+                .finally(() => setWorkerSaving(false));
+            }}
+          >
+            <option value="">同主模型</option>
+            {modelCatalog
+              .filter((m) => m.configured)
+              .map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+          </select>
+        </label>
+        <p className="lm-settings-caption">
+          可选：工具调用轮用较快模型，主模型仍用于终稿合成（E7）。
+        </p>
       </div>
 
       <details className="lm-settings-advanced">

@@ -13,8 +13,7 @@ export const SUBPROCESS_SANDBOX_TOOL_NAMES = new Set<string>([
   "execute_workflow",
   "draft_document",
   "add_case_note",
-  "read_project_file",
-  "analyze_document",
+  // read_project_file / analyze_document stay in-process (C8): readonly, latency-sensitive
 ]);
 
 export function toolRequiresSubprocessSandbox(toolName: string): boolean {

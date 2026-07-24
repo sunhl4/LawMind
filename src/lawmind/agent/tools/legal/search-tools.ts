@@ -13,6 +13,7 @@ import {
   toolFailureFromIngest,
 } from "../../../platform/ingest-helpers.js";
 import type { AgentTool } from "../../types.js";
+import { matterRequiredResult } from "../matter-required.js";
 import {
   isPathInsideRoot,
   isPdfPath,
@@ -50,7 +51,7 @@ export const searchMatter: AgentTool = {
   async execute(params, ctx) {
     const matterId = (params.matter_id as string) || ctx.matterId;
     if (!matterId) {
-      return { ok: false, error: "未指定案件 ID，请先关联案件或传入 matter_id。" };
+      return matterRequiredResult(ctx.workspaceDir);
     }
     const index = await buildMatterIndex(ctx.workspaceDir, matterId);
     const hits = searchMatterIndex(index, params.query as string);

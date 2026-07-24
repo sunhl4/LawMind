@@ -12,10 +12,8 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import type { ArtifactDraft } from "../../../../src/lawmind/types.ts";
-import {
-  assessDeliverableReadiness,
-  type AcceptanceReport,
-} from "../../../../src/lawmind/deliverables/index.ts";
+import type { AcceptanceReport } from "../../../../src/lawmind/deliverables/index.ts";
+import { assessDeliverableReadiness } from "../../../../src/lawmind/deliverables/deliverable-readiness.ts";
 import type { DraftCitationIntegrityView } from "../../../../src/lawmind/drafts/citation-integrity.ts";
 import type { GateDecision, TaskExecutionState } from "../../../../src/lawmind/platform/contracts.ts";
 import type { LearningSuggestionRecord } from "../../../../src/lawmind/learning/suggestion-queue.ts";

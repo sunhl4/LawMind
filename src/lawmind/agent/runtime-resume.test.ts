@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { resumeTurn } from "./runtime-resume.js";
+import { resumePausedTurn, resumeTurn } from "./runtime-resume.js";
 import * as runtimeMod from "./runtime.js";
 import * as sessionMod from "./session.js";
 import type { AgentConfig, AgentSession } from "./types.js";
@@ -85,5 +85,61 @@ describe("resumeTurn editedArgs", () => {
         preApproveToolArgs: { workflowId: "new", __approved: true },
       }),
     );
+  });
+});
+
+describe("resumePausedTurn", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("continues from last paused turn with checkpoint instruction", async () => {
+    const sessionId = "sess-paused";
+    const session: AgentSession = {
+      sessionId,
+      matterId: "matter-a",
+      conversationHistory: [],
+      turns: [
+        {
+          turnId: "turn-p",
+          sessionId,
+          instruction: "审查这份合同",
+          messages: [
+            {
+              role: "assistant",
+              content: "",
+              timestamp: new Date().toISOString(),
+              toolCalls: [{ id: "t1", name: "analyze_document", arguments: "{}" }],
+            },
+          ],
+          toolCallsExecuted: 2,
+          status: "paused",
+          startedAt: new Date().toISOString(),
+        },
+      ],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    vi.spyOn(sessionMod, "loadSession").mockReturnValue(session);
+    const runTurnSpy = vi.spyOn(runtimeMod, "runTurn").mockResolvedValue({
+      turn: session.turns[0],
+      reply: "continued",
+      sessionId,
+      memoryContext: {} as never,
+    });
+    const config = {
+      workspaceDir: "/tmp/lm-resume-paused",
+      model: { provider: "openai-compatible", baseUrl: "http://x", apiKey: "k", model: "m" },
+    } as AgentConfig;
+
+    await resumePausedTurn(config, {} as never, sessionId, {});
+
+    expect(runTurnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId,
+        instruction: expect.stringContaining("【从检查点继续】"),
+      }),
+    );
+    expect(runTurnSpy.mock.calls[0]?.[0]?.instruction).toContain("审查这份合同");
   });
 });

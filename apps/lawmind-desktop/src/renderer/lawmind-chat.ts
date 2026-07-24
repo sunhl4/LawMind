@@ -137,6 +137,8 @@ export function getPendingClarificationState(messages: ChatMsg[]): PendingClarif
   return { pending: false, count: 0, assistantMessageIndex: -1 };
 }
 
+import type { ComposeContextPin } from "../../../../src/lawmind/platform/compose-context-pin.ts";
+
 type SendChatTurnArgs = {
   apiBase: string;
   modelId?: string;
@@ -144,11 +146,11 @@ type SendChatTurnArgs = {
   sessionId?: string;
   assistantId: string;
   allowWebSearch: boolean;
-  permissionMode?: "standard" | "strict" | "readonly";
+  permissionMode?: "standard" | "strict" | "readonly" | "research";
   matterId?: string | null;
   projectDir?: string | null;
-  /** 与 shell 中 fileChatContextItems 一致，供服务端校验已钉选路径 */
-  contextPins?: Array<{ root: "workspace" | "project"; relPath: string; kind: "file" | "directory" }>;
+  /** Structured compose `@` pins (files + truth sources). */
+  contextPins?: ComposeContextPin[];
   /** 关联任务/草稿时的 taskId */
   linkedTaskId?: string | null;
   /** 输入框原文（无文件/学习前缀），用于自动会话标题 */

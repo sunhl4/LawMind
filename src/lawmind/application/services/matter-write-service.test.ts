@@ -50,8 +50,19 @@ describe("Matter write services (W3)", () => {
 
   it("createMatterIfMissing schedules CASE.md projection", async () => {
     createMatterIfMissing(workspaceDir, { matterId: "m-dual", title: "Dual Write" });
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    const raw = await fs.readFile(caseFilePath(workspaceDir, "m-dual"), "utf8");
+    const casePath = caseFilePath(workspaceDir, "m-dual");
+    let raw = "";
+    for (let i = 0; i < 40; i++) {
+      try {
+        raw = await fs.readFile(casePath, "utf8");
+        if (parseMatterDisplayNameFromCase(raw) === "Dual Write") {
+          break;
+        }
+      } catch {
+        /* not written yet */
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
     expect(parseMatterDisplayNameFromCase(raw)).toBe("Dual Write");
   });
 

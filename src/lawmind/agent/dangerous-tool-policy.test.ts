@@ -21,8 +21,8 @@ const defApproved: ToolDefinition = {
 describe("dangerous-tool-policy", () => {
   it("toolRequiresSubprocessSandbox matches high-risk tool set", () => {
     expect(toolRequiresSubprocessSandbox("render_document")).toBe(true);
-    expect(toolRequiresSubprocessSandbox("read_project_file")).toBe(true);
-    expect(toolRequiresSubprocessSandbox("analyze_document")).toBe(true);
+    expect(toolRequiresSubprocessSandbox("read_project_file")).toBe(false);
+    expect(toolRequiresSubprocessSandbox("analyze_document")).toBe(false);
     expect(toolRequiresSubprocessSandbox("research_task")).toBe(false);
   });
 

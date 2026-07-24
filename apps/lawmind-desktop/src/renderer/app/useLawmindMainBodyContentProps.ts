@@ -16,6 +16,7 @@ import type { AgentsDeskTab, NeedsDecisionDeskTarget } from "../lawmind-agents-d
 import type { LawMindRequiresAction, LawMindRequiresActionDecision } from "../lawmind-requires-action";
 import type { ChatMsg } from "../lawmind-chat";
 import type { FileChatContextItem } from "../lawmind-file-chat-context";
+import type { TruthSourceContextPin } from "../../../../../src/lawmind/platform/compose-context-pin.ts";
 import type { LawmindComposeExtras } from "../useLawmindComposeExtras";
 import type { LawmindHealthState } from "../useLawmindAppBootstrapEffects";
 import type { LawmindMainBodyContentProps } from "./LawmindMainBodyContent";
@@ -115,9 +116,13 @@ export type UseLawmindMainBodyContentPropsInput = {
   sendChatMessage: (msg: string) => void | Promise<void>;
   streamCompactLabels: string[];
   fileChatContextItems: FileChatContextItem[];
+  composeTruthPins: TruthSourceContextPin[];
   addFileToChatContext: (payload: Pick<FileChatContextItem, "root" | "relPath" | "kind">) => void;
+  addComposeTruthPin: (pin: TruthSourceContextPin) => void;
   removeFileChatContextItem: (id: string) => void;
+  removeComposeTruthPin: (id: string) => void;
   clearFileChatContext: () => void;
+  clearComposeTruthPins: () => void;
   contextTaskId: string | null;
   openReviewFromWorkspace: (target?: { taskId?: string; matterId?: string }) => void;
   openDelegateAssist: () => void;
@@ -245,9 +250,13 @@ export function useLawmindMainBodyContentProps(
     sendChatMessage,
     streamCompactLabels,
     fileChatContextItems,
+    composeTruthPins,
     addFileToChatContext,
+    addComposeTruthPin,
     removeFileChatContextItem,
+    removeComposeTruthPin,
     clearFileChatContext,
+    clearComposeTruthPins,
     contextTaskId,
     openReviewFromWorkspace,
     openDelegateAssist,
@@ -462,9 +471,13 @@ export function useLawmindMainBodyContentProps(
       onSendClarificationMessage: sendChatMessage,
       streamCompactLabels,
       fileChatContextItems,
+      composeTruthPins,
       onAddFileToChatContext: addFileToChatContext,
+      onAddComposeTruthPin: addComposeTruthPin,
       onRemoveFileChatPill: removeFileChatContextItem,
+      onRemoveTruthPin: removeComposeTruthPin,
       onClearFileChatPills: clearFileChatContext,
+      onClearTruthPills: clearComposeTruthPins,
       contextTaskId,
       onOpenReviewFromWorkspace: openReviewFromWorkspace,
       onDelegateAssist: openDelegateAssist,
@@ -621,9 +634,13 @@ export function useLawmindMainBodyContentProps(
       sendChatMessage,
       streamCompactLabels,
       fileChatContextItems,
+      composeTruthPins,
       addFileToChatContext,
+      addComposeTruthPin,
       removeFileChatContextItem,
+      removeComposeTruthPin,
       clearFileChatContext,
+      clearComposeTruthPins,
       contextTaskId,
       openReviewFromWorkspace,
       openDelegateAssist,

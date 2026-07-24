@@ -115,7 +115,38 @@ export type LawMindWorkspacePolicy = {
    * - off：不要求（system 仍列出偏好）
    */
   appliedPreferencesFooter?: "always" | "first" | "off";
+  /**
+   * When false, skip the ESG/report auto `execute_workflow` short-circuit (fall through to model loop).
+   * Also `LAWMIND_AUTO_DELIVERABLE_WF=0`. Default true.
+   */
+  autoDeliverableWorkflow?: boolean;
+  /**
+   * Soft cap on conversation history messages before compact-by-count (F6).
+   * Overrides capability-envelope default when set (clamped 8–200).
+   */
+  agentMaxHistoryMessages?: number;
+  /**
+   * Solo / opt-in: pre-approve sandbox workflow steps with `__approved` (C3).
+   * Firm edition still respects strictDangerousToolApproval. Never auto-approves render.
+   * Default false.
+   */
+  autoApproveSandboxWorkflowSteps?: boolean;
 };
+
+export function resolveAgentMaxHistoryMessages(
+  workspaceDir: string,
+  envelopeDefault: number,
+): number {
+  const policy = readWorkspacePolicyFile(workspaceDir);
+  const fromPolicy =
+    policy &&
+    typeof policy.agentMaxHistoryMessages === "number" &&
+    Number.isFinite(policy.agentMaxHistoryMessages)
+      ? Math.floor(policy.agentMaxHistoryMessages)
+      : undefined;
+  const base = fromPolicy !== undefined ? fromPolicy : envelopeDefault;
+  return Math.min(200, Math.max(8, base));
+}
 
 export function resolveAgentPromptVerbosity(
   policy: LawMindWorkspacePolicy | null | undefined,
@@ -220,6 +251,51 @@ export function resolveAgentMandatoryRulesForPrompt(
     raw = raw.slice(0, AGENT_MANDATORY_RULES_MAX_CHARS);
   }
 
+  return { active: true, truncated, text: raw };
+}
+
+/**
+ * Matter-scoped hard rules: `matters/<id>/RULES.md` or `cases/<id>/RULES.md`.
+ * Same size cap as workspace mandatory rules.
+ */
+export function resolveMatterMandatoryRulesForPrompt(
+  workspaceDir: string,
+  matterId: string | undefined,
+): ResolvedAgentMandatoryRules {
+  const id = typeof matterId === "string" ? matterId.trim() : "";
+  if (!id || !/^[a-zA-Z0-9_-]{1,128}$/.test(id)) {
+    return { active: false, truncated: false, text: "" };
+  }
+  const root = path.resolve(workspaceDir);
+  const candidates = [
+    path.join(root, "matters", id, "RULES.md"),
+    path.join(root, "cases", id, "RULES.md"),
+  ];
+  let raw = "";
+  for (const abs of candidates) {
+    const rel = path.relative(root, abs);
+    if (rel.startsWith("..") || path.isAbsolute(rel)) {
+      continue;
+    }
+    try {
+      if (fs.existsSync(abs) && fs.statSync(abs).isFile()) {
+        raw = fs.readFileSync(abs, "utf8").trim();
+        if (raw) {
+          break;
+        }
+      }
+    } catch {
+      /* try next */
+    }
+  }
+  if (!raw) {
+    return { active: false, truncated: false, text: "" };
+  }
+  let truncated = false;
+  if (raw.length > AGENT_MANDATORY_RULES_MAX_CHARS) {
+    truncated = true;
+    raw = raw.slice(0, AGENT_MANDATORY_RULES_MAX_CHARS);
+  }
   return { active: true, truncated, text: raw };
 }
 

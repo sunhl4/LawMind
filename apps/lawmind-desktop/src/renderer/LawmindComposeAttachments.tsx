@@ -7,14 +7,19 @@ export type ComposeAttachmentFilePill = {
   title: string;
 };
 
+export type ComposeAttachmentTruthPill = ComposeAttachmentFilePill;
+
 type Props = {
   filePills: ComposeAttachmentFilePill[];
+  truthPills?: ComposeAttachmentTruthPill[];
   contextMatterId: string | null;
   /** When set, show a compact draft chip instead of a full-width banner. */
   contextTaskId?: string | null;
   matterTitle?: string | null;
   onRemoveFilePill: (id: string) => void;
+  onRemoveTruthPill?: (id: string) => void;
   onClearFilePills: () => void;
+  onClearTruthPills?: () => void;
   onClearMatter?: () => void;
   onClearTask?: () => void;
 };
@@ -22,11 +27,14 @@ type Props = {
 export function LawmindComposeAttachments(props: Props): ReactNode {
   const {
     filePills,
+    truthPills = [],
     contextMatterId,
     contextTaskId = null,
     matterTitle,
     onRemoveFilePill,
+    onRemoveTruthPill,
     onClearFilePills,
+    onClearTruthPills,
     onClearMatter,
     onClearTask,
   } = props;
@@ -34,7 +42,7 @@ export function LawmindComposeAttachments(props: Props): ReactNode {
   const hasTask = Boolean(contextTaskId?.trim());
   const hasMatter = Boolean(contextMatterId?.trim()) && !hasTask;
 
-  if (filePills.length === 0 && !hasMatter && !hasTask) {
+  if (filePills.length === 0 && truthPills.length === 0 && !hasMatter && !hasTask) {
     return null;
   }
 
@@ -97,6 +105,21 @@ export function LawmindComposeAttachments(props: Props): ReactNode {
             </button>
           </span>
         ))}
+        {truthPills.map((pill) => (
+          <span key={pill.id} className="lm-compose-chip lm-compose-chip--truth" title={pill.title}>
+            <span className="lm-compose-chip-label">{pill.shortLabel}</span>
+            {onRemoveTruthPill ? (
+              <button
+                type="button"
+                className="lm-compose-chip-remove"
+                aria-label={`移除钉选 ${pill.title}`}
+                onClick={() => onRemoveTruthPill(pill.id)}
+              >
+                ×
+              </button>
+            ) : null}
+          </span>
+        ))}
       </div>
       {filePills.length > 0 ? (
         <button
@@ -105,6 +128,15 @@ export function LawmindComposeAttachments(props: Props): ReactNode {
           onClick={onClearFilePills}
         >
           清空文件
+        </button>
+      ) : null}
+      {truthPills.length > 0 && onClearTruthPills ? (
+        <button
+          type="button"
+          className="lm-btn lm-btn-ghost lm-btn-small lm-compose-attachments-clear"
+          onClick={onClearTruthPills}
+        >
+          清空钉选
         </button>
       ) : null}
     </div>

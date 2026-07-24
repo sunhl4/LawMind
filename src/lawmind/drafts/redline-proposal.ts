@@ -147,24 +147,25 @@ export function resolveRedlineHunk(
   hunk.status = decision === "accept" ? "accepted" : "rejected";
   proposal.updatedAt = new Date().toISOString();
 
-  let draft: ArtifactDraft | undefined;
+  let draft: ArtifactDraft | undefined = readDraft(workspaceDir, taskId);
+  if (!draft) {
+    return { ok: false, error: "draft_not_found" };
+  }
+  const sections = [...draft.sections];
+  while (sections.length <= hunk.sectionIndex) {
+    sections.push({ heading: hunk.sectionHeading ?? "", body: "" });
+  }
+  const section = sections[hunk.sectionIndex];
+  const body = decision === "accept" ? hunk.after : hunk.before;
+  sections[hunk.sectionIndex] = {
+    ...section,
+    heading: hunk.sectionHeading ?? section.heading,
+    body,
+  };
+  draft = { ...draft, sections };
+  persistDraft(workspaceDir, draft);
+
   if (decision === "accept") {
-    draft = readDraft(workspaceDir, taskId);
-    if (!draft) {
-      return { ok: false, error: "draft_not_found" };
-    }
-    const sections = [...draft.sections];
-    while (sections.length <= hunk.sectionIndex) {
-      sections.push({ heading: hunk.sectionHeading ?? "", body: "" });
-    }
-    const section = sections[hunk.sectionIndex];
-    sections[hunk.sectionIndex] = {
-      ...section,
-      heading: hunk.sectionHeading ?? section.heading,
-      body: hunk.after,
-    };
-    draft = { ...draft, sections };
-    persistDraft(workspaceDir, draft);
     const baseline = [...proposal.baselineSections];
     while (baseline.length <= hunk.sectionIndex) {
       baseline.push({ heading: hunk.sectionHeading ?? "", body: "" });
@@ -175,6 +176,67 @@ export function resolveRedlineHunk(
 
   writeRedlineProposal(workspaceDir, proposal);
   return { ok: true, proposal, draft };
+}
+
+/**
+ * Resolve every pending hunk with the same decision (Cursor-like Accept/Reject all).
+ */
+export function resolveAllRedlineHunks(
+  workspaceDir: string,
+  taskId: string,
+  decision: "accept" | "reject",
+):
+  | { ok: true; proposal: RedlineProposal; draft?: ArtifactDraft; resolved: number }
+  | { ok: false; error: string } {
+  const proposal = readRedlineProposal(workspaceDir, taskId);
+  if (!proposal) {
+    return { ok: false, error: "redline_not_found" };
+  }
+  const pendingIds = proposal.hunks.filter((h) => h.status === "pending").map((h) => h.hunkId);
+  let lastDraft: ArtifactDraft | undefined;
+  let resolved = 0;
+  for (const hunkId of pendingIds) {
+    const r = resolveRedlineHunk(workspaceDir, taskId, hunkId, decision);
+    if (!r.ok) {
+      return { ok: false, error: r.error };
+    }
+    lastDraft = r.draft;
+    resolved++;
+  }
+  const next = readRedlineProposal(workspaceDir, taskId);
+  if (!next) {
+    return { ok: false, error: "redline_not_found" };
+  }
+  return { ok: true, proposal: next, draft: lastDraft, resolved };
+}
+
+/**
+ * Call **before** agent/lawyer overlay write: lock baseline from current draft when none exists.
+ * Keeps an existing baseline (so pending proposals stay anchored).
+ */
+export function prepareRedlineBaselineBeforeWrite(
+  workspaceDir: string,
+  taskId: string,
+): { ok: true; proposal: RedlineProposal; created: boolean } | { ok: false; error: string } {
+  const existing = readRedlineProposal(workspaceDir, taskId);
+  if (existing?.baselineSections?.length) {
+    return { ok: true, proposal: existing, created: false };
+  }
+  const baselined = resetRedlineBaselineFromDraft(workspaceDir, taskId);
+  if (!baselined.ok) {
+    return baselined;
+  }
+  return { ok: true, proposal: baselined.proposal, created: true };
+}
+
+/**
+ * Call **after** draft body write: regenerate section hunks vs baseline.
+ */
+export function generateRedlineAfterWrite(
+  workspaceDir: string,
+  taskId: string,
+): { ok: true; proposal: RedlineProposal } | { ok: false; error: string } {
+  return generateRedlineProposal(workspaceDir, taskId);
 }
 
 export function resetRedlineBaselineFromDraft(

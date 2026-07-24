@@ -1,10 +1,12 @@
 import { estimateTokenBudget, type TokenBudgetSnapshot } from "../agent/context-budget.js";
 import type { AgentContext, AgentSession } from "../agent/types.js";
 import type { LawMindWorkspacePolicy } from "../policy/workspace-policy.js";
+import type { PinnedContextSummary } from "./pinned-context.js";
 
 export type ContextPlanLayerId =
   | "matter_state"
   | "matter_strategy"
+  | "pinned_context"
   | "recent_transcript"
   | "memory_recall"
   | "source_anchors"
@@ -45,6 +47,7 @@ export function buildContextPlan(params: {
   ctx: AgentContext;
   policy?: LawMindWorkspacePolicy | null;
   contextTokens?: number;
+  pinnedContext?: PinnedContextSummary | null;
 }): ContextPlan {
   const tokenBudget = estimateTokenBudget(params.session, params.policy, {
     contextTokens: params.contextTokens,
@@ -56,6 +59,10 @@ export function buildContextPlan(params: {
     params.session.pendingClarificationKeys?.length;
   const surfacedMemoryCount = params.session.alreadySurfacedMemoryPaths?.length ?? 0;
   const hasTranscript = params.session.conversationHistory.length > 0;
+  const pinned = params.pinnedContext;
+  const hasPinnedContext = Boolean(
+    pinned?.included && (pinned.evidence.length > 0 || pinned.markdownBlock),
+  );
 
   const layers: ContextPlanLayer[] = [
     includedLayer(
@@ -73,6 +80,14 @@ export function buildContextPlan(params: {
       "Strategy is loaded separately from chat so the model follows the current legal theory.",
       Boolean(matterId),
       matterId ? [`cases/${matterId}/MATTER_STRATEGY.md`] : [],
+    ),
+    includedLayer(
+      "pinned_context",
+      "Pinned truth sources",
+      88,
+      "Lawyer @-pinned files, evidence, clause playbook, fleet playbook, or matter theory for this turn.",
+      hasPinnedContext,
+      pinned?.evidence ?? [],
     ),
     includedLayer(
       "pending_actions",

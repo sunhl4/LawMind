@@ -137,9 +137,19 @@ export function fireAndForget(params: {
   message: string;
   matterId?: string;
   kind?: CollaborationMessageKind;
+  /** Registry id — must match transcript / cancel / timeout (defaults to new UUID). */
+  delegationId?: string;
+  /** Nesting depth for child tool registry (parent depth + 1). */
+  collaborationDepth?: number;
+  /** Inherit parent's compose permission mode when set. */
+  permissionMode?: AgentConfig["permissionMode"];
+  /** Abort child turn after this many ms (0 = no timer). */
+  timeoutMs?: number;
+  onTimeout?: (targetSessionId: string) => void;
 }): FireAndForgetResult {
   const { baseConfig, fromAssistantId, toAssistantId, message, matterId, kind } = params;
-  const delegationId = randomUUID();
+  const delegationId = params.delegationId?.trim() || randomUUID();
+  const collaborationDepth = Math.max(0, params.collaborationDepth ?? 0);
 
   const targetConfig = resolveAssistantConfig(baseConfig, toAssistantId);
   if (!targetConfig) {
@@ -153,7 +163,12 @@ export function fireAndForget(params: {
     );
   }
 
-  const agent = createLawMindAgent(targetConfig);
+  const childConfig: AgentConfig = {
+    ...targetConfig,
+    permissionMode: params.permissionMode ?? targetConfig.permissionMode,
+    collaborationDepth,
+  };
+  const agent = createLawMindAgent(childConfig);
 
   const kindResolved = kind ?? "delegate";
   const preSession = agent.newSession({
@@ -170,17 +185,31 @@ export function fireAndForget(params: {
     message,
   });
 
+  let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutMs = params.timeoutMs ?? 0;
+  if (timeoutMs > 0) {
+    timeoutTimer = setTimeout(() => {
+      params.onTimeout?.(targetSessionId);
+    }, timeoutMs);
+  }
+
   const completion = agent
     .chat(instruction, {
       matterId,
       sessionId: targetSessionId,
       liveProgressSessionId: targetSessionId,
+      permissionMode: childConfig.permissionMode,
     })
     .then((result) => ({
       reply: result.reply,
       turnId: result.turn.turnId,
       sessionId: result.sessionId,
-    }));
+    }))
+    .finally(() => {
+      if (timeoutTimer) {
+        clearTimeout(timeoutTimer);
+      }
+    });
 
   return {
     delegationId,

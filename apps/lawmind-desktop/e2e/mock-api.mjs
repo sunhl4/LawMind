@@ -10,6 +10,23 @@ const now = new Date().toISOString();
 const sessionId = "e2e-session-1";
 const defaultModelId = "builtin:qwen-plus";
 
+/** In-memory draft review state for approve → export e2e */
+const draftStateById = new Map();
+/** sessionId → { planText, updatedAt } */
+const planHandoffBySession = new Map();
+
+function getDraftState(taskId) {
+  const id = String(taskId || "").trim() || "e2e-draft-1";
+  if (!draftStateById.has(id)) {
+    draftStateById.set(id, {
+      reviewStatus: "pending",
+      verificationChecklist: null,
+      deliverableType: "contract.review",
+    });
+  }
+  return draftStateById.get(id);
+}
+
 const e2eRequiresAction = [
   {
     id: "ra-tool-1",
@@ -694,6 +711,43 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  const planHandoffMatch = /^\/api\/sessions\/([^/]+)\/plan-handoff$/.exec(path);
+  if (planHandoffMatch) {
+    const sid = planHandoffMatch[1];
+    if (req.method === "GET") {
+      json(res, 200, {
+        ok: true,
+        sessionId: sid,
+        planHandoff: planHandoffBySession.get(sid) ?? null,
+      });
+      return;
+    }
+    if (req.method === "PUT" || req.method === "POST") {
+      const body = await readJsonBody(req);
+      const planText = typeof body?.planText === "string" ? body.planText.trim() : "";
+      if (!planText) {
+        planHandoffBySession.delete(sid);
+        json(res, 200, { ok: true, sessionId: sid, planHandoff: null });
+        return;
+      }
+      const entry = {
+        planText: planText.slice(0, 2400),
+        updatedAt:
+          typeof body?.updatedAt === "string" && body.updatedAt.trim()
+            ? body.updatedAt.trim()
+            : new Date().toISOString(),
+      };
+      planHandoffBySession.set(sid, entry);
+      json(res, 200, { ok: true, sessionId: sid, planHandoff: entry });
+      return;
+    }
+    if (req.method === "DELETE") {
+      planHandoffBySession.delete(sid);
+      json(res, 200, { ok: true, sessionId: sid, planHandoff: null });
+      return;
+    }
+  }
+
   const sessionMatch = /^\/api\/sessions\/([^/]+)$/.exec(path);
   if (sessionMatch && req.method === "GET") {
     json(res, 200, {
@@ -742,6 +796,7 @@ const server = http.createServer(async (req, res) => {
 
   const draftMatch = /^\/api\/drafts\/([^/]+)$/.exec(path);
   if (draftMatch && req.method === "GET") {
+    const st = getDraftState(draftMatch[1]);
     json(res, 200, {
       ok: true,
       draft: {
@@ -750,12 +805,13 @@ const server = http.createServer(async (req, res) => {
         summary: "E2E summary",
         output: "docx",
         templateId: "review-contract-default",
-        deliverableType: "contract.review",
-        reviewStatus: "pending",
+        deliverableType: st.deliverableType || "contract.review",
+        reviewStatus: st.reviewStatus || "pending",
         matterId: "e2e-matter-1",
         reviewNotes: [],
         sections: [{ heading: "摘要", body: "E2E body" }],
         createdAt: now,
+        ...(st.verificationChecklist ? { verificationChecklist: st.verificationChecklist } : {}),
       },
       acceptance: {
         ready: false,
@@ -838,6 +894,7 @@ const server = http.createServer(async (req, res) => {
 
   if (reviewMatch && req.method === "POST") {
     const body = await readJsonBody(req);
+    const st = getDraftState(reviewMatch[1]);
     if (body?.status === "approved") {
       const checked = body?.checklistChecked ?? {};
       const required = ["parties", "liability", "ip", "terminate", "citations"];
@@ -851,16 +908,25 @@ const server = http.createServer(async (req, res) => {
         });
         return;
       }
+      st.reviewStatus = "approved";
+      st.verificationChecklist = {
+        specId: "contract-review-v1",
+        checked: { ...Object.fromEntries(required.map((id) => [id, true])), ...checked },
+        updatedAt: new Date().toISOString(),
+      };
+    } else if (body?.status === "rejected" || body?.status === "modified") {
+      st.reviewStatus = body.status;
     }
     json(res, 200, {
       ok: true,
       draft: {
         taskId: reviewMatch[1],
         title: "E2E draft",
-        reviewStatus: body?.status ?? "pending",
+        reviewStatus: st.reviewStatus,
         deliverableType: "contract.review",
         matterId: "e2e-matter-1",
         sections: [{ heading: "摘要", body: "E2E body" }],
+        ...(st.verificationChecklist ? { verificationChecklist: st.verificationChecklist } : {}),
       },
     });
     return;
@@ -876,6 +942,21 @@ const server = http.createServer(async (req, res) => {
         message: "严格援引模式下案件理论尚未锚定，无法导出。",
       });
       return;
+    }
+    const st = getDraftState(renderMatch[1]);
+    if (st.reviewStatus === "approved") {
+      const checked = st.verificationChecklist?.checked ?? {};
+      const required = ["parties", "liability", "ip", "terminate", "citations"];
+      const missing = required.filter((id) => !checked[id]);
+      if (missing.length) {
+        json(res, 422, {
+          ok: false,
+          error: "checklist_incomplete",
+          message: "导出被拦截：缺少已落盘的律师必核清单。",
+          missingRequiredIds: missing,
+        });
+        return;
+      }
     }
     json(res, 200, { ok: true, outputPath: "artifacts/e2e.docx" });
     return;
@@ -998,6 +1079,8 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (path === "/api/agent-fleet" && req.method === "GET") {
+    // Keep pending_review stable across the Playwright suite (shared mock process).
+    // Approve→export e2e relies on React post-approve strip, not fleet removal.
     json(res, 200, {
       ok: true,
       runs: [

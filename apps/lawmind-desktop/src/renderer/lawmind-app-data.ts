@@ -152,6 +152,13 @@ export type HealthPayload = {
   fleetPlaybookCount?: number;
   agentMandatoryRulesActive?: boolean;
   agentMandatoryRulesTruncated?: boolean;
+  capabilityEnvelope?: {
+    contextTokens?: number | null;
+    maxOutputTokens?: number | null;
+    temperature?: number | null;
+    toolCallsPerTurn?: number | null;
+    maxHistoryMessages?: number | null;
+  };
 };
 
 export type TaskRow = {

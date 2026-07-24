@@ -110,3 +110,14 @@ pnpm exec vitest run \
   apps/lawmind-desktop/src/renderer/lawmind-plan-handoff.test.ts \
   apps/lawmind-desktop/src/renderer/lawmind-workspace-relpath.test.ts
 ```
+
+## 7. 收尾加固（已完成 · 2026-07-23）
+
+| ID  | 项                                    | 落点                                                        |
+| --- | ------------------------------------- | ----------------------------------------------------------- |
+| S1  | mock-api：plan-handoff + 签批落盘必核 | `e2e/mock-api.mjs`                                          |
+| S2  | e2e：在办必核→通过→导出条             | `e2e/agent-fleet.spec.ts`                                   |
+| S3  | e2e：plan-handoff API round-trip      | `e2e/skills-trust.spec.ts`                                  |
+| S4  | 渲染进程勿拉 Node `workspace-loader`  | `deliverables/index.ts` 不再 re-export；engine/CLI 直引模块 |
+
+主闭环到此为止。明确不做：Solo 默认 `grounded`、子 agent 隔离重写、权威法规 API、Firm 远程同步。

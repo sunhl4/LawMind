@@ -37,6 +37,8 @@ export type CustomModelRecord = {
   baseUrl: string;
   model: string;
   apiKey: string;
+  /** Optional stop sequences passed to chat/completions. */
+  stop?: string[];
   createdAt: string;
   updatedAt: string;
 };
@@ -59,6 +61,11 @@ export type ModelsStoreFile = {
   defaultModelId?: string;
   /** When true, workflow drafting uses the configured chat model (same API key). */
   draftWithModelEnabled?: boolean;
+  /**
+   * Optional fast/worker model for tool-loop rounds (E7).
+   * Falls back to defaultModelId when unset.
+   */
+  workerModelId?: string;
   customModels: CustomModelRecord[];
   /** v2: keyed by model id (built-in/custom/platform). Optional for back-compat. */
   verifications?: Record<string, ModelVerificationRecord>;

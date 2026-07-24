@@ -18,6 +18,7 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
   const [baseUrl, setBaseUrl] = useState("https://api.openai.com/v1");
   const [model, setModel] = useState("gpt-4o");
   const [apiKey, setApiKey] = useState("");
+  const [stop, setStop] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,19 +35,26 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
           return;
         }
         const trimmedKey = apiKey.trim();
+        const stopList = stop
+          .split(/[,，]/)
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .slice(0, 8);
+        const payload = {
+          label: label.trim(),
+          baseUrl: baseUrl.trim(),
+          model: trimmedModel,
+          apiKey: trimmedKey,
+          setAsDefault: true as const,
+          ...(stopList.length > 0 ? { stop: stopList } : {}),
+        };
         const desktop = window.lawmindDesktop;
         const keychainAvailable = Boolean(desktop?.saveCustomModelKey);
         let usedKeychain = false;
         if (keychainAvailable && desktop) {
           const status = await desktop.keychainStatus();
           if (status?.available) {
-            const added = await addCustomModel(apiBase, {
-              label: label.trim(),
-              baseUrl: baseUrl.trim(),
-              model: trimmedModel,
-              apiKey: trimmedKey,
-              setAsDefault: true,
-            });
+            const added = await addCustomModel(apiBase, payload);
             const saved = await desktop.saveCustomModelKey({
               id: added.id,
               apiKey: trimmedKey,
@@ -57,16 +65,11 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
           }
         }
         if (!usedKeychain) {
-          await addCustomModel(apiBase, {
-            label: label.trim(),
-            baseUrl: baseUrl.trim(),
-            model: trimmedModel,
-            apiKey: trimmedKey,
-            setAsDefault: true,
-          });
+          await addCustomModel(apiBase, payload);
         }
         setLabel("");
         setApiKey("");
+        setStop("");
         await onChanged();
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause));
@@ -74,7 +77,7 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
         setBusy(false);
       }
     },
-    [apiBase, apiKey, baseUrl, label, model, onChanged],
+    [apiBase, apiKey, baseUrl, label, model, onChanged, stop],
   );
 
   const onRemove = useCallback(
@@ -103,6 +106,7 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
   const idBaseUrl = `${uid}-base-url`;
   const idModel = `${uid}-model`;
   const idKey = `${uid}-key`;
+  const idStop = `${uid}-stop`;
 
   return (
     <section className="lm-custom-model-panel" data-testid="lm-custom-model-panel">
@@ -207,6 +211,23 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
             onChange={(e) => setApiKey(e.target.value)}
             placeholder="sk-…"
           />
+        </div>
+
+        <div className="lm-custom-model-field">
+          <label className="lm-custom-model-field__label" htmlFor={idStop}>
+            Stop 序列（可选）
+          </label>
+          <input
+            id={idStop}
+            className="lm-custom-model-input lm-custom-model-input--mono"
+            value={stop}
+            onChange={(e) => setStop(e.target.value)}
+            placeholder="如：###END###, <|im_end|>"
+            spellCheck={false}
+            autoComplete="off"
+            data-testid="lm-custom-model-stop"
+          />
+          <p className="lm-settings-caption">逗号分隔，最多 8 个；写入上游 chat/completions 的 stop。</p>
         </div>
 
         {error ? (

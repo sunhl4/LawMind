@@ -21,11 +21,14 @@ export type LawmindChatComposeChromeProps = {
   queuedMessages: string[];
   cancelQueuedMessage?: (index: number) => void;
   fileChatPills: Array<{ id: string; shortLabel: string; title: string; relPath?: string }>;
+  truthPills?: Array<{ id: string; shortLabel: string; title: string }>;
   contextMatterId: string | null;
   contextTaskId: string | null;
   matterTitle: string | null;
   onRemoveFileChatPill: (id: string) => void;
+  onRemoveTruthPill?: (id: string) => void;
   onClearFileChatPills: () => void;
+  onClearTruthPills?: () => void;
   onClearMatter?: () => void;
   onClearTask?: () => void;
   /** Wave 3-C：会话级计划交接条 */
@@ -47,11 +50,14 @@ export function LawmindChatComposeChrome(props: LawmindChatComposeChromeProps): 
     queuedMessages,
     cancelQueuedMessage,
     fileChatPills,
+    truthPills = [],
     contextMatterId,
     contextTaskId,
     matterTitle,
     onRemoveFileChatPill,
+    onRemoveTruthPill,
     onClearFileChatPills,
+    onClearTruthPills,
     onClearMatter,
     onClearTask,
     planHandoffSummary = null,
@@ -171,11 +177,14 @@ export function LawmindChatComposeChrome(props: LawmindChatComposeChromeProps): 
       ) : null}
       <LawmindComposeAttachments
         filePills={fileChatPills}
+        truthPills={truthPills}
         contextMatterId={contextMatterId}
         contextTaskId={contextTaskId}
         matterTitle={matterTitle}
         onRemoveFilePill={onRemoveFileChatPill}
+        onRemoveTruthPill={onRemoveTruthPill}
         onClearFilePills={onClearFileChatPills}
+        onClearTruthPills={onClearTruthPills}
         onClearMatter={onClearMatter}
         onClearTask={onClearTask}
       />

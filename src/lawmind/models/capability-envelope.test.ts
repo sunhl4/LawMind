@@ -65,6 +65,14 @@ describe("resolveCapabilityEnvelope", () => {
     expect(draft.maxOutputTokens).toBeGreaterThan(chat.maxOutputTokens);
   });
 
+  it("plan task kind uses a dedicated envelope (E8)", () => {
+    clearEnv();
+    const chat = resolveCapabilityEnvelope({ contextTokens: 100_000, taskKind: "chat" });
+    const plan = resolveCapabilityEnvelope({ contextTokens: 100_000, taskKind: "plan" });
+    expect(plan.maxOutputTokens).toBeGreaterThan(0);
+    expect(plan.maxOutputTokens).not.toBe(chat.maxOutputTokens);
+  });
+
   it("applyEnvelopeToAgentModelDefaults attaches contextTokens", () => {
     clearEnv();
     const defaults = applyEnvelopeToAgentModelDefaults({ contextTokens: 64_000 });

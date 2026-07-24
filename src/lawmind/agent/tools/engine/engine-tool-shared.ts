@@ -9,6 +9,7 @@ import { createWorkspaceAdapter } from "../../../retrieval/index.js";
 import type { RetrievalAdapter } from "../../../retrieval/index.js";
 import { createOpenAICompatibleAdapters } from "../../../retrieval/openai-compatible.js";
 import {
+  createLexEdgeAdapterFromEnv,
   createOpenSourceLegalAdaptersFromEnv,
   createPartnerLegalAdapterFromEnv,
 } from "../../../retrieval/providers.js";
@@ -183,6 +184,9 @@ export function buildAdaptersFromEnv(workspaceDir: string): RetrievalAdapter[] {
     createWorkspaceAdapter(workspaceDir),
     createAuthorityAdapterFromEnv(),
   ];
+
+  // C11: LexEdge when LAWMIND_LEXEDGE_ENDPOINT is set (no-op otherwise).
+  adapters.push(...createLexEdgeAdapterFromEnv());
 
   const modeRaw = (process.env.LAWMIND_RETRIEVAL_MODE ?? "single").trim().toLowerCase();
   const mode = modeRaw === "dual" ? "dual" : "single";

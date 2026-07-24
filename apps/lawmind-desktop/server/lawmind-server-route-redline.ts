@@ -11,6 +11,7 @@ import {
   generateRedlineProposal,
   readRedlineProposal,
   resetRedlineBaselineFromDraft,
+  resolveAllRedlineHunks,
   resolveRedlineHunk,
   summarizeRedline,
 } from "../../../src/lawmind/drafts/redline-proposal.js";
@@ -31,6 +32,49 @@ export async function handleRedlineRoutes({
   c,
 }: LawmindRouteContext): Promise<boolean> {
   const { workspaceDir } = ctx;
+
+  const resolveAllMatch = pathname.match(/^\/api\/drafts\/([^/]+)\/redline\/resolve-all$/);
+  if (resolveAllMatch && req.method === "POST") {
+    const taskId = decodeURIComponent(resolveAllMatch[1] ?? "");
+    if (!isSafeTaskIdSegment(taskId)) {
+      sendJson(res, 400, { ok: false, error: "invalid_task_id" }, c);
+      return true;
+    }
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, redlineHunkResolvePostSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid_decision" }, c);
+        return true;
+      }
+      throw err;
+    }
+    const result = resolveAllRedlineHunks(workspaceDir, taskId, body.decision);
+    if (!result.ok) {
+      const status = result.error === "redline_not_found" ? 404 : 409;
+      sendJson(res, status, result, c);
+      return true;
+    }
+    const draft = result.draft ?? readDraft(workspaceDir, taskId);
+    const acceptance = draft ? validateDraftAgainstSpec(draft) : undefined;
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        proposal: result.proposal,
+        resolved: result.resolved,
+        redlineSummary: summarizeRedline(result.proposal),
+        draft,
+        citationIntegrity: draft ? resolveDraftCitationIntegrity(workspaceDir, draft) : undefined,
+        acceptance,
+        gateDecisions: draft && acceptance ? deriveReviewGateDecisions(draft, acceptance) : undefined,
+      },
+      c,
+    );
+    return true;
+  }
 
   const resolveMatch = pathname.match(/^\/api\/drafts\/([^/]+)\/redline\/hunks\/([^/]+)\/resolve$/);
   if (resolveMatch && req.method === "POST") {

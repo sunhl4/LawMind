@@ -79,8 +79,12 @@ export {
 } from "./reasoning-snapshot.js";
 export { resolveDraftCitationIntegrity } from "./citation-resolve.js";
 export {
+  generateRedlineAfterWrite,
   generateRedlineProposal,
+  prepareRedlineBaselineBeforeWrite,
   readRedlineProposal,
+  resetRedlineBaselineFromDraft,
+  resolveAllRedlineHunks,
   resolveRedlineHunk,
   summarizeRedline,
   writeRedlineProposal,

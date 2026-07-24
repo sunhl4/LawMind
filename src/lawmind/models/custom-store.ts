@@ -52,6 +52,10 @@ export function readModelsStore(lawMindRoot: string): ModelsStoreFile {
       return emptyStore();
     }
     const verifications = sanitizeVerifications((raw as { verifications?: unknown }).verifications);
+    const workerModelId =
+      typeof raw.workerModelId === "string" && raw.workerModelId.trim()
+        ? raw.workerModelId.trim()
+        : undefined;
     return {
       schemaVersion: CURRENT_SCHEMA_VERSION,
       defaultModelId:
@@ -59,7 +63,8 @@ export function readModelsStore(lawMindRoot: string): ModelsStoreFile {
           ? raw.defaultModelId.trim()
           : undefined,
       draftWithModelEnabled: raw.draftWithModelEnabled === true ? true : undefined,
-      customModels: raw.customModels.filter(isValidCustomRecord),
+      ...(workerModelId ? { workerModelId } : {}),
+      customModels: raw.customModels.filter(isValidCustomRecord).map(sanitizeCustomRecord),
       verifications: verifications ?? {},
     };
   } catch {
@@ -80,6 +85,24 @@ function isValidCustomRecord(row: unknown): row is CustomModelRecord {
     typeof o.model === "string" &&
     typeof o.apiKey === "string"
   );
+}
+
+function sanitizeStopSequences(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) {
+    return undefined;
+  }
+  const stop = raw
+    .filter((s): s is string => typeof s === "string")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+  return stop.length > 0 ? stop : undefined;
+}
+
+function sanitizeCustomRecord(row: CustomModelRecord): CustomModelRecord {
+  const { stop: _rawStop, ...rest } = row;
+  const stop = sanitizeStopSequences(row.stop);
+  return stop ? { ...rest, stop } : rest;
 }
 
 export function writeModelsStore(lawMindRoot: string, store: ModelsStoreFile): void {
@@ -108,6 +131,18 @@ export function setDraftWithModelEnabled(lawMindRoot: string, enabled: boolean):
   return store;
 }
 
+/** E7: optional worker model id for tool-loop rounds. */
+export function setWorkerModelId(
+  lawMindRoot: string,
+  modelId: string | undefined,
+): ModelsStoreFile {
+  const store = readModelsStore(lawMindRoot);
+  const id = modelId?.trim();
+  store.workerModelId = id || undefined;
+  writeModelsStore(lawMindRoot, store);
+  return store;
+}
+
 export type UpsertCustomModelInput = {
   label: string;
   baseUrl: string;
@@ -120,6 +155,8 @@ export type UpsertCustomModelInput = {
   apiKey: string;
   /** Allow `apiKey: ""` when keychain integration is expected. */
   allowKeylessIfKeychain?: boolean;
+  /** Optional stop sequences for chat/completions (E3). */
+  stop?: string[];
 };
 
 export function addCustomModel(
@@ -147,6 +184,7 @@ export function addCustomModel(
     throw new Error("custom_model_invalid_model_name");
   }
   const now = new Date().toISOString();
+  const stop = sanitizeStopSequences(input.stop);
   const row: CustomModelRecord = {
     id: `custom:${randomUUID()}`,
     kind: "custom",
@@ -154,6 +192,7 @@ export function addCustomModel(
     baseUrl,
     model,
     apiKey,
+    ...(stop ? { stop } : {}),
     createdAt: now,
     updatedAt: now,
   };

@@ -113,10 +113,39 @@ export function resolveCapabilityEnvelope(opts: {
   };
 }
 
+/** Sampling temperature by task kind (E2); override via opts.temperature / env. */
+export function resolveTemperatureForTask(
+  taskKind?: CapabilityTaskKind,
+  override?: number,
+): number {
+  if (typeof override === "number" && Number.isFinite(override)) {
+    return Math.min(1.5, Math.max(0, override));
+  }
+  const envRaw = process.env.LAWMIND_AGENT_TEMPERATURE?.trim();
+  if (envRaw) {
+    const n = Number(envRaw);
+    if (Number.isFinite(n)) {
+      return Math.min(1.5, Math.max(0, n));
+    }
+  }
+  switch (taskKind) {
+    case "classify":
+    case "plan":
+      return 0.15;
+    case "draft":
+    case "review":
+      return 0.5;
+    case "chat":
+    default:
+      return 0.35;
+  }
+}
+
 /** Attach envelope fields onto a resolved agent model config. */
 export function applyEnvelopeToAgentModelDefaults(opts: {
   contextTokens?: number;
   temperature?: number;
+  taskKind?: CapabilityTaskKind;
 }): {
   maxTokens: number;
   temperature: number;
@@ -125,10 +154,11 @@ export function applyEnvelopeToAgentModelDefaults(opts: {
 } {
   const envelope = resolveCapabilityEnvelope({
     contextTokens: opts.contextTokens,
+    taskKind: opts.taskKind,
   });
   return {
     maxTokens: envelope.maxOutputTokens,
-    temperature: opts.temperature ?? 0.3,
+    temperature: resolveTemperatureForTask(opts.taskKind ?? "chat", opts.temperature),
     timeoutMs: envelope.modelTimeoutMs,
     contextTokens: envelope.contextTokens,
   };

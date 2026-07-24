@@ -438,6 +438,16 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
       <div className="lm-settings-group lm-settings-surface" data-testid="lm-doctor-skills-trust">
         <h4 className="lm-doctor-group-title">信任与分诊</h4>
         <div className="lm-doctor-security-grid">
+          <span className="lm-settings-key">模型能力包络</span>
+          <span className="lm-meta" data-testid="lm-doctor-capability-envelope">
+            {health?.capabilityEnvelope?.contextTokens
+              ? `上下文 ${health.capabilityEnvelope.contextTokens.toLocaleString("zh-CN")} · 输出上限 ${
+                  health.capabilityEnvelope.maxOutputTokens?.toLocaleString("zh-CN") ?? "—"
+                } · 工具/轮 ${health.capabilityEnvelope.toolCallsPerTurn ?? "—"} · 历史 ${
+                  health.capabilityEnvelope.maxHistoryMessages ?? "—"
+                }`
+              : "未配置模型"}
+          </span>
           <span className="lm-settings-key">强制规则</span>
           <span
             className={
@@ -454,6 +464,11 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
               : health?.agentMandatoryRulesActive
                 ? "已注入"
                 : "未配置"}
+          </span>
+          <span className="lm-settings-key">本案规则</span>
+          <span className="lm-meta" data-testid="lm-doctor-matter-rules-hint">
+            可选：在 <code>matters/&lt;id&gt;/RULES.md</code> 或{" "}
+            <code>cases/&lt;id&gt;/RULES.md</code> 写入本案强制规则（每轮硬注入）
           </span>
           <span className="lm-settings-key">引用模式</span>
           <span

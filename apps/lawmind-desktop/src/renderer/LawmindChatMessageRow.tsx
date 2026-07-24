@@ -95,10 +95,19 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
   const modelFailure = msg.role === "assistant" && msg.failureKind === "model";
   const showActivityFeed =
     msg.role === "assistant" && !modelFailure && (activityBlocks.length > 0 || msg.activityActive);
+  const showToolTracePref =
+    typeof localStorage !== "undefined" &&
+    (() => {
+      try {
+        return localStorage.getItem("lawmind.ui.showToolTrace.v1") === "1";
+      } catch {
+        return false;
+      }
+    })();
   const showLegacyTrace =
     msg.role === "assistant" &&
     !modelFailure &&
-    !showActivityFeed &&
+    (!showActivityFeed || showToolTracePref) &&
     (msg.liveTrace?.steps.length || msg.liveTrace?.active || msg.executionState);
   const streamingThought = loading && index === lastAssistantIndex && Boolean(msg.activityActive);
   const thoughtParts = partitionActivityForThoughtView(activityBlocks, {
@@ -188,8 +197,8 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
             <LawmindChatExecutionTrace
               trace={msg.liveTrace}
               executionState={msg.executionState}
-              compact={index !== lastAssistantIndex}
-              mode={index === lastAssistantIndex ? "timeline" : "steps"}
+              compact={!showToolTracePref && index !== lastAssistantIndex}
+              mode={index === lastAssistantIndex || showToolTracePref ? "timeline" : "steps"}
             />
           </div>
         ) : null}

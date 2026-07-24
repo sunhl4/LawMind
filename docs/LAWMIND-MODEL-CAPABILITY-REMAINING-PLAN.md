@@ -11,37 +11,52 @@
 
 下列 ID 在 2026-07-23 批次已落地或明确缓解，本计划不再排期：
 
-| ID                     | 状态                                                             |
-| ---------------------- | ---------------------------------------------------------------- |
-| E1 / A2                | 能力包络 `maxTokens` + `contextTokens` 预算                      |
-| A1 / A5（提取式）      | compact digest 回灌 + `compact-digest.md`                        |
-| A1↑ / F4 / A9 / A10    | **R1**：手动 LLM 摘要；dryRun 预览；tool 截断；distill 预览      |
-| B1 / B3 / B5 / B6 / B7 | **R1**：verbosity；规则截断；管线 note；footer 首轮；intake 逃生 |
-| C2 / B2（原则改写）    | 澄清期放行 research；只拦写/渲                                   |
-| A11                    | ContextPlan 接线                                                 |
-| A7 / F1 / 会议室 embed | 小文本自动嵌入                                                   |
-| C10                    | analyze / read_project 分页                                      |
-| A3 / A4（初档）        | 窗口缩放 + 召回 8×4k                                             |
-| C4 / C5（初档）        | 工具次数/超时随 envelope                                         |
-| C7                     | 未知参数剥离                                                     |
-| D7                     | Solo `reviewCampaignParallel`                                    |
-| D4（文案）             | 聊天草稿 vs Word 导出提示                                        |
-| D5                     | AbortSignal 取消进行中模型 HTTP                                  |
-| E5                     | 检索非 JSON 降级                                                 |
+| ID                              | 状态                                                                         |
+| ------------------------------- | ---------------------------------------------------------------------------- |
+| E1 / A2                         | 能力包络 `maxTokens` + `contextTokens` 预算                                  |
+| A1 / A5（提取式）               | compact digest 回灌 + `compact-digest.md`                                    |
+| A1↑ / F4 / A9 / A10             | **R1**：手动 LLM 摘要；dryRun 预览；tool 截断；distill 预览                  |
+| B1 / B3 / B5 / B6 / B7          | **R1**：verbosity；规则截断；管线 note；footer 首轮；intake 逃生             |
+| C2 / B2（原则改写）             | 澄清期放行 research；只拦写/渲                                               |
+| A11                             | ContextPlan 接线                                                             |
+| A7 / F1 / 会议室 embed          | 小文本自动嵌入                                                               |
+| C10                             | analyze / read_project 分页                                                  |
+| A3 / A4（初档）                 | 窗口缩放 + 召回 8×4k                                                         |
+| C4 / C5（初档）                 | 工具次数/超时随 envelope                                                     |
+| C7                              | 未知参数剥离                                                                 |
+| D7                              | Solo `reviewCampaignParallel`                                                |
+| D4（文案）                      | 聊天草稿 vs Word 导出提示                                                    |
+| D5                              | AbortSignal 取消进行中模型 HTTP                                              |
+| E5                              | 检索非 JSON 降级                                                             |
+| C1 / C8 / C6 / C9               | **R2**：research 模式；只读出 sandbox；needsMatter；推荐白名单               |
+| A8 / B4 / A6（尾窗）            | **R2**：委派落盘；advisory 信任；会议 transcript 加长                        |
+| E2 / E6 / D1 / D3 / Doctor 包络 | **R3 初档**：temperature；reasoning 默认；auto-wf 可关；strict stream opt-in |
+
+### 仍后置（未做）
+
+无（R4 已收口，见 [`LAWMIND-MODEL-CAPABILITY-RESIDUAL-PLAN.md`](LAWMIND-MODEL-CAPABILITY-RESIDUAL-PLAN.md) §0）。
+
+| ID                     | 说明                                                   | 状态          |
+| ---------------------- | ------------------------------------------------------ | ------------- |
+| C3                     | Solo 沙箱 workflow 步自动批                            | **R4 已落地** |
+| E7 / E3 / E8           | advisor/worker；stop；directive envelope               | **R4 已落地** |
+| D8 / F2 / F3 / F5 / F6 | 澄清 key；编辑警告；工具轨迹；会议开网；history policy | **R4 已落地** |
+| C11 / C12              | LexEdge；Role allowlist UI                             | **R4 已落地** |
+| A6↑                    | 滚动 `meeting-summary.md`                              | **R4 已落地** |
 
 ---
 
 ## 1. 剩余价值矩阵（按杠杆排序）
 
-| Wave       | 主题                             | 含 ID                     | 能力杠杆 | 风险/争议           | 粗估          |
-| ---------- | -------------------------------- | ------------------------- | -------- | ------------------- | ------------- |
-| ~~**W1**~~ | ~~Compact / 记忆「看得见」收尾~~ | A1↑、A10、F4、A9          | —        | —                   | **R1 已落地** |
-| ~~**W2**~~ | ~~Prompt / Intake 减摩擦~~       | B1、B7、B5、B6、B3        | —        | —                   | **R1 已落地** |
-| **W3**     | 工具面与权限「少卡死」           | C1、C8、C6、C3、C9/D6     | 中高     | 中（产品/安全取舍） | 2.5–4 人日    |
-| **W4**     | 协作交接不失忆                   | A8、B4、A6                | 中       | 低–中               | 2–3 人日      |
-| **W5**     | 模型采样与任务路由               | E2、E6、E8、E7、E3        | 中       | 低                  | 2–3 人日      |
-| **W6**     | 编排旁路与流式体验               | D1、D3、D8、F2/F3、F5、F6 | 中低–中  | 低–中               | 2.5–4 人日    |
-| **W7**     | 可观测与接入完备                 | Doctor 包络展示、C11、C12 | 低–中    | 低                  | 1–2 人日      |
+| Wave       | 主题                             | 含 ID                      | 能力杠杆 | 风险/争议 | 粗估          |
+| ---------- | -------------------------------- | -------------------------- | -------- | --------- | ------------- |
+| ~~**W1**~~ | ~~Compact / 记忆「看得见」收尾~~ | A1↑、A10、F4、A9           | —        | —         | **R1 已落地** |
+| ~~**W2**~~ | ~~Prompt / Intake 减摩擦~~       | B1、B7、B5、B6、B3         | —        | —         | **R1 已落地** |
+| ~~**W3**~~ | ~~工具面与权限~~                 | C1、C8、C6、C9；C3→R4      | —        | —         | **R2 + R4**   |
+| ~~**W4**~~ | ~~协作交接~~                     | A8、B4、A6（尾窗）；A6↑→R4 | —        | —         | **R2 + R4**   |
+| ~~**W5**~~ | ~~采样与路由~~                   | E2、E6；E7/E3/E8→R4        | —        | —         | **R3 + R4**   |
+| ~~**W6**~~ | ~~编排旁路~~                     | D1、D3；D8/F2/F5/F6→R4     | —        | —         | **R3 + R4**   |
+| ~~**W7**~~ | ~~可观测~~                       | Doctor 包络；C11/C12→R4    | —        | —         | **R3 + R4**   |
 
 **推荐默认顺序：W1 → W2 → W3 → W4 → W5 → W6 → W7。**  
 若只做「下一周」：只排 **W1 + W2**（约一周一单人）。
@@ -367,8 +382,8 @@
 ## 12. 决议位（开工前请勾）
 
 - [x] W1 手动 compact 允许额外 LLM 摘要调用（费用）— 默认开，`LAWMIND_COMPACT_LLM=0` 可关
-- [ ] W3 增加 Compose「仅调研」模式
-- [ ] W3 Firm 推荐网络白名单一键（默认仍不强制开网）
+- [x] W3 增加 Compose「仅调研」模式
+- [x] W3 Firm 推荐网络白名单一键（默认仍不强制开网）
 - [ ] W3 Solo 沙箱 workflow 步自动批（默认关 / 开）
 - [ ] W5 双模型 advisor/worker（R3 或更后）
 

@@ -52,4 +52,21 @@ describe("ContextPlan", () => {
     expect(markdown).toContain("LawMind Context Plan");
     expect(markdown).toContain("Matter state");
   });
+
+  it("includes pinned_context layer when pins are present", () => {
+    const plan = buildContextPlan({
+      session: session(),
+      ctx: ctx(),
+      pinnedContext: {
+        included: true,
+        evidence: ["theory:cases/matter-1/MATTER_STRATEGY.md"],
+        markdownBlock: "## pinned",
+      },
+    });
+    const pinned = plan.layers.find((layer) => layer.id === "pinned_context");
+    expect(pinned?.included).toBe(true);
+    expect(pinned?.evidence).toContain("theory:cases/matter-1/MATTER_STRATEGY.md");
+    const markdown = buildContextPlanMarkdown(plan);
+    expect(markdown).toContain("Pinned truth sources");
+  });
 });

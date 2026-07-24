@@ -3,6 +3,7 @@ import { buildMatterIndex, listMatterIds, summarizeMatterIndex } from "../../../
 import { caseFilePath } from "../../../memory/index.js";
 import { writeCaseMemorySection, type CaseMemorySection } from "../../../memory/write-gateway.js";
 import type { AgentTool } from "../../types.js";
+import { matterRequiredResult } from "../matter-required.js";
 import { readSafe } from "./ingest-helpers.js";
 
 export const getMatterSummary: AgentTool = {
@@ -17,7 +18,7 @@ export const getMatterSummary: AgentTool = {
   async execute(params, ctx) {
     const matterId = (params.matter_id as string) || ctx.matterId;
     if (!matterId) {
-      return { ok: false, error: "未指定案件 ID。" };
+      return matterRequiredResult(ctx.workspaceDir);
     }
     const index = await buildMatterIndex(ctx.workspaceDir, matterId);
     const summary = summarizeMatterIndex(index);
@@ -61,7 +62,7 @@ export const readCaseFile: AgentTool = {
   async execute(params, ctx) {
     const matterId = (params.matter_id as string) || ctx.matterId;
     if (!matterId) {
-      return { ok: false, error: "未指定案件 ID。" };
+      return matterRequiredResult(ctx.workspaceDir);
     }
     const filePath = caseFilePath(ctx.workspaceDir, matterId);
     const content = await readSafe(filePath);
@@ -91,7 +92,7 @@ export const addCaseNote: AgentTool = {
   async execute(params, ctx) {
     const matterId = (params.matter_id as string) || ctx.matterId;
     if (!matterId) {
-      return { ok: false, error: "未指定案件 ID。" };
+      return matterRequiredResult(ctx.workspaceDir);
     }
     const section = params.section as CaseMemorySection;
     const content = params.content as string;

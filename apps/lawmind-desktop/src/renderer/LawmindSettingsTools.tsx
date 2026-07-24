@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { apiGetJson, errorMessage } from "./api-client";
+import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import { apiPatch } from "./lawmind-api-routes.ts";
 
 type ToolRow = {
@@ -25,6 +25,7 @@ export function LawmindSettingsTools(props: Props): ReactNode {
   const [error, setError] = useState<string | null>(null);
   const [highSecurityMode, setHighSecurityMode] = useState(false);
   const [policyBusy, setPolicyBusy] = useState(false);
+  const [allowlistHint, setAllowlistHint] = useState<string | null>(null);
 
   useEffect(() => {
     if (!apiBase) {
@@ -54,6 +55,36 @@ export function LawmindSettingsTools(props: Props): ReactNode {
     }
   }
 
+  async function applyRecommendedAllowlist(): Promise<void> {
+    if (!apiBase) {
+      return;
+    }
+    setPolicyBusy(true);
+    setAllowlistHint(null);
+    try {
+      const r = await apiSendJson<
+        {
+          ok?: boolean;
+          networkAllowlist?: string[];
+          note?: string;
+          error?: string;
+        },
+        Record<string, never>
+      >(apiBase, "/api/policy/workspace/recommended-allowlist", "POST", {});
+      if (!r.ok) {
+        throw new Error(r.error ?? "写入失败");
+      }
+      setAllowlistHint(
+        r.note ??
+          `已写入 ${r.networkAllowlist?.length ?? 0} 个推荐主机（未强制开网）。`,
+      );
+    } catch (e) {
+      setError(errorMessage(e, "写入推荐白名单失败"));
+    } finally {
+      setPolicyBusy(false);
+    }
+  }
+
   const approvalCount = tools?.filter((t) => t.requiresApproval).length ?? 0;
 
   return (
@@ -77,6 +108,28 @@ export function LawmindSettingsTools(props: Props): ReactNode {
             {policyBusy ? "保存中…" : highSecurityMode ? "已开启" : "未开启"}
           </button>
         </div>
+        <div className="lm-settings-row">
+          <div className="lm-settings-row-stack">
+            <span className="lm-settings-key">推荐法律检索白名单</span>
+            <span className="lm-settings-caption" style={{ margin: 0 }}>
+              一键写入 Brave + 常见法规站主机；不强制开启联网，也不强制 enforcement
+            </span>
+          </div>
+          <button
+            type="button"
+            className="lm-btn lm-btn-sm lm-btn-secondary"
+            data-testid="lm-settings-recommended-allowlist"
+            disabled={policyBusy}
+            onClick={() => void applyRecommendedAllowlist()}
+          >
+            写入推荐主机
+          </button>
+        </div>
+        {allowlistHint ? (
+          <p className="lm-settings-caption" role="status">
+            {allowlistHint}
+          </p>
+        ) : null}
       </div>
 
       {error ? (

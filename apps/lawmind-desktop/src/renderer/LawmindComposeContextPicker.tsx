@@ -7,10 +7,13 @@ import {
   filterContextPickerItems,
   groupContextPickerItems,
   readRecentFileContextPaths,
+  truthPinToPayload,
   type ComposeContextMatterOption,
   type ComposeContextPickerCategory,
   type ComposeContextPickerItem,
 } from "./lawmind-compose-context";
+import type { TruthSourceContextPin } from "../../../../src/lawmind/platform/compose-context-pin.ts";
+import { apiListFleetPlaybooks } from "./lawmind-review-campaign-api";
 
 type Props = {
   open: boolean;
@@ -18,8 +21,10 @@ type Props = {
   apiBase?: string;
   contextMatterId: string | null;
   pinnedFiles: FileChatContextItem[];
+  pinnedTruthPins?: TruthSourceContextPin[];
   matters: ComposeContextMatterOption[];
   onSelectFile: (payload: Pick<FileChatContextItem, "root" | "relPath" | "kind">) => void;
+  onSelectTruthPin?: (pin: TruthSourceContextPin) => void;
   onSelectMatter: (matterId: string) => void;
   onSelectTemplate: (template: { id: string; starterPrompt?: string }) => void;
   onClose: () => void;
@@ -37,8 +42,10 @@ export function LawmindComposeContextPicker(props: Props): ReactNode {
     apiBase,
     contextMatterId,
     pinnedFiles,
+    pinnedTruthPins = [],
     matters,
     onSelectFile,
+    onSelectTruthPin,
     onSelectMatter,
     onSelectTemplate,
     onClose,
@@ -51,6 +58,10 @@ export function LawmindComposeContextPicker(props: Props): ReactNode {
   const includeTemplates = !categories?.length || categories.includes("templates");
 
   const [templates, setTemplates] = useState<WorkflowTemplateItem[]>([]);
+  const [fleetPlaybooks, setFleetPlaybooks] = useState<Array<{ id: string; label: string }>>([]);
+  const [matterEvidencePaths, setMatterEvidencePaths] = useState<
+    Array<{ relPath: string; label?: string; hint?: string }>
+  >([]);
   const [workspaceMatches, setWorkspaceMatches] = useState<
     Array<Pick<FileChatContextItem, "root" | "relPath" | "kind">>
   >([]);
@@ -82,6 +93,71 @@ export function LawmindComposeContextPicker(props: Props): ReactNode {
       cancelled = true;
     };
   }, [open, apiBase, includeTemplates]);
+
+  useEffect(() => {
+    if (!open || !apiBase?.trim() || categories?.length === 1 && categories[0] === "files") {
+      setFleetPlaybooks([]);
+      return;
+    }
+    let cancelled = false;
+    void apiListFleetPlaybooks(apiBase)
+      .then((r) => {
+        if (!cancelled) {
+          setFleetPlaybooks(
+            (r.playbooks ?? []).map((pb) => ({ id: pb.id, label: pb.label || pb.id })),
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFleetPlaybooks([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, apiBase, categories]);
+
+  useEffect(() => {
+    const matterId = contextMatterId?.trim();
+    if (!open || !apiBase?.trim() || !matterId) {
+      setMatterEvidencePaths([]);
+      return;
+    }
+    let cancelled = false;
+    void fetch(
+      `${apiBase.replace(/\/$/, "")}/api/fs/tree?root=workspace&path=${encodeURIComponent(`cases/${matterId}`)}`,
+    )
+      .then((r) => r.json())
+      .then((payload: { ok?: boolean; entries?: Array<{ path?: string; kind?: string }> }) => {
+        if (cancelled || !payload.ok || !Array.isArray(payload.entries)) {
+          return;
+        }
+        const skip = new Set(["CASE.md", "MATTER_STRATEGY.md", "team-meeting.jsonl"]);
+        const paths = payload.entries
+          .filter(
+            (e) =>
+              typeof e.path === "string" &&
+              e.kind === "file" &&
+              !skip.has(e.path.split("/").pop() ?? ""),
+          )
+          .slice(0, 12)
+          .map((e) => ({
+            relPath: e.path ?? "",
+            label: e.path?.split("/").pop() ?? e.path,
+            hint: "案件材料",
+          }));
+        setMatterEvidencePaths(paths);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMatterEvidencePaths([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, apiBase, contextMatterId]);
 
   useEffect(() => {
     const q = query.trim().toLowerCase();
@@ -127,19 +203,25 @@ export function LawmindComposeContextPicker(props: Props): ReactNode {
     const mergedRecent = [...workspaceMatches, ...recent];
     const built = buildComposeContextPickerItems({
       pinnedFiles,
+      pinnedTruthPins,
       recentFiles: mergedRecent,
       matters: filesOnly ? [] : matters,
       contextMatterId,
       templates: includeTemplates ? templates : [],
+      evidencePaths: matterEvidencePaths,
+      fleetPlaybooks,
       categories,
     });
     return filterContextPickerItems(built, query);
   }, [
     pinnedFiles,
+    pinnedTruthPins,
     matters,
     contextMatterId,
     templates,
     workspaceMatches,
+    matterEvidencePaths,
+    fleetPlaybooks,
     query,
     categories,
     filesOnly,
@@ -158,6 +240,18 @@ export function LawmindComposeContextPicker(props: Props): ReactNode {
         if (!item.alreadyPinned) {
           onSelectFile({ root: item.root, relPath: item.relPath, kind: item.fileKind });
         }
+      } else if (
+        item.kind === "evidence" ||
+        item.kind === "clause" ||
+        item.kind === "playbook" ||
+        item.kind === "theory"
+      ) {
+        if (!item.alreadyPinned) {
+          const pin = truthPinToPayload(item);
+          if (pin) {
+            onSelectTruthPin?.(pin);
+          }
+        }
       } else if (item.kind === "matter") {
         onSelectMatter(item.matterId);
       } else if (item.kind === "template") {
@@ -165,7 +259,7 @@ export function LawmindComposeContextPicker(props: Props): ReactNode {
       }
       onClose();
     },
-    [onSelectFile, onSelectMatter, onSelectTemplate, onClose],
+    [onSelectFile, onSelectTruthPin, onSelectMatter, onSelectTemplate, onClose],
   );
 
   useEffect(() => {
@@ -228,14 +322,14 @@ export function LawmindComposeContextPicker(props: Props): ReactNode {
               ? `搜索「${query}」`
               : filesOnly
                 ? "选择工作区文件"
-                : "选择文件、案件或模板"}
+                : "选择文件、证据、Playbook、本案理论、案件或模板"}
           </p>
         )}
         {groups.length === 0 ? (
           <p className="lm-meta">
             {filesOnly
               ? "无匹配文件。继续输入文件名（至少 2 字）。"
-              : "无匹配项。继续输入文件名、案件名或模板名。"}
+              : "无匹配项。继续输入文件名、案件名、Playbook 或模板名。"}
           </p>
         ) : (
           groups.map((group) => (
@@ -254,7 +348,14 @@ export function LawmindComposeContextPicker(props: Props): ReactNode {
                         aria-selected={active}
                         className={`lm-compose-context-picker-item${active ? " lm-compose-context-picker-item-active" : ""}`}
                         onClick={() => runSelect(item)}
-                        disabled={item.kind === "file" && item.alreadyPinned}
+                        disabled={
+                          (item.kind === "file" && item.alreadyPinned) ||
+                          ((item.kind === "evidence" ||
+                            item.kind === "clause" ||
+                            item.kind === "playbook" ||
+                            item.kind === "theory") &&
+                            item.alreadyPinned)
+                        }
                       >
                         <span className="lm-compose-context-picker-label">{item.label}</span>
                         {item.hint ? (
@@ -262,6 +363,13 @@ export function LawmindComposeContextPicker(props: Props): ReactNode {
                         ) : null}
                         {item.kind === "file" && item.alreadyPinned ? (
                           <span className="lm-tag lm-compose-context-picker-tag">已引用</span>
+                        ) : null}
+                        {(item.kind === "evidence" ||
+                          item.kind === "clause" ||
+                          item.kind === "playbook" ||
+                          item.kind === "theory") &&
+                        item.alreadyPinned ? (
+                          <span className="lm-tag lm-compose-context-picker-tag">已钉选</span>
                         ) : null}
                         {item.kind === "matter" && item.isCurrent ? (
                           <span className="lm-tag lm-compose-context-picker-tag">当前</span>

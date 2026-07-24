@@ -9,6 +9,7 @@ import {
 } from "../../../src/lawmind/agent/turn-abort.js";
 import { parsePermissionMode } from "../../../src/lawmind/agent/permission-mode.js";
 import type { AgentConfig, AgentTurn, ToolCallResult } from "../../../src/lawmind/agent/types.js";
+import { parseContextPins } from "../../../src/lawmind/platform/compose-context-pin.js";
 import {
   buildAgentMemorySourceReport,
   loadMemoryContext,
@@ -22,6 +23,7 @@ import {
   formatTeamMeetingTranscriptPrefix,
   isAdhocMeetingMatterId,
   parseOptionalMatterId,
+  readMeetingSummaryExcerpt,
   readTeamMeetingTail,
   TEAM_MEETING_TAIL_LIMIT_DEFAULT,
 } from "../../../src/lawmind/cases/index.js";
@@ -286,8 +288,10 @@ export async function handleChatRoute({
     roleTitle: role.roleTitle,
     roleIntroduction: role.roleIntroduction,
     roleDirective: role.roleDirective,
-    allowWebSearch: permissionMode === "readonly" ? false : allowWebSearch,
-    enableCollaboration: permissionMode === "readonly" ? false : enableCollaboration,
+    allowWebSearch:
+      permissionMode === "readonly" || permissionMode === "research" ? false : allowWebSearch,
+    enableCollaboration:
+      permissionMode === "readonly" || permissionMode === "research" ? false : enableCollaboration,
     permissionMode,
     strictDangerousToolApproval:
       permissionMode === "strict" || built.config.strictDangerousToolApproval === true,
@@ -322,6 +326,19 @@ export async function handleChatRoute({
     return true;
   }
 
+  const parsedContextPins = parseContextPins(body.contextPins);
+  if (!Array.isArray(parsedContextPins)) {
+    sendJsonError(
+      res,
+      400,
+      "invalid_context_pins",
+      "本回合重点（contextPins）格式不正确。请移除钉选后重试。",
+      c,
+    );
+    return true;
+  }
+  const contextPinsForAgent = parsedContextPins.length > 0 ? parsedContextPins : undefined;
+
   const meetingMode = body.meetingMode === true;
   if (meetingMode && !matterIdForChat) {
     sendJsonError(
@@ -347,7 +364,9 @@ export async function handleChatRoute({
   let instructionForAgent = message;
   if (meetingMode && matterIdForChat) {
     const tail = readTeamMeetingTail(workspaceDir, matterIdForChat, TEAM_MEETING_TAIL_LIMIT_DEFAULT);
-    const prefix = formatTeamMeetingTranscriptPrefix(tail);
+    const summaryExcerpt = readMeetingSummaryExcerpt(workspaceDir, matterIdForChat);
+    const transcriptPrefix = formatTeamMeetingTranscriptPrefix(tail);
+    const prefix = [summaryExcerpt, transcriptPrefix].filter(Boolean).join("\n\n");
     const meetingAgenda = typeof body.meetingAgenda === "string" ? body.meetingAgenda.trim() : "";
     let topicBlock: string;
     if (meetingTurnKind === "conclude") {
@@ -520,6 +539,7 @@ export async function handleChatRoute({
         sessionTitleHint,
         linkedTaskId: linkedTaskIdForChat,
         onEvent,
+        contextPins: contextPinsForAgent,
         shouldAbort: () =>
           Boolean(abortSessionId && isTurnAbortRequested(abortSessionId)) ||
           (wantsStream && sseClosed),

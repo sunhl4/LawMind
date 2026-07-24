@@ -21,6 +21,8 @@ import { resolveComposeModelSelectValue } from "./lawmind-model-picker-utils";
 import type { AppConfig } from "./lawmind-app-bootstrap";
 import type { LawmindHealthState } from "./lawmind-app-shell";
 import type { FileChatContextItem } from "./lawmind-app-shell";
+import { buildContextPinsPayload } from "../../../../src/lawmind/platform/compose-context-pin.ts";
+import type { TruthSourceContextPin } from "../../../../src/lawmind/platform/compose-context-pin.ts";
 import {
   buildFileContextMessagePrefix,
   fetchFileChatExcerpts,
@@ -70,6 +72,7 @@ export type UseLawmindChatSendInput = {
   contextMatterId: string | null;
   contextTaskId: string | null;
   fileChatContextItems: FileChatContextItem[];
+  composeTruthPins: TruthSourceContextPin[];
   deskContractBatchDir: string;
   projectDir: string | null;
   allowWebSearch: boolean;
@@ -111,6 +114,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
     contextMatterId,
     contextTaskId,
     fileChatContextItems,
+    composeTruthPins,
     deskContractBatchDir,
     projectDir,
     allowWebSearch,
@@ -268,6 +272,14 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       const toolNamesById = new Map<string, string>();
       try {
         const effectiveModelId = resolveComposeModelSelectValue(modelCatalog, selectedModelId);
+        const contextPins = buildContextPinsPayload({
+          filePins: fileChatContextItems.map((it) => ({
+            root: it.root,
+            relPath: it.relPath,
+            kind: it.kind,
+          })),
+          truthPins: composeTruthPins,
+        });
         const result = await sendChatTurnStream(
           {
             apiBase: config.apiBase,
@@ -279,11 +291,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
             allowWebSearch,
             matterId: contextMatterId,
             projectDir,
-            contextPins: fileChatContextItems.map((it) => ({
-              root: it.root,
-              relPath: it.relPath,
-              kind: it.kind,
-            })),
+            contextPins: contextPins.length > 0 ? contextPins : undefined,
             linkedTaskId: contextTaskId,
             permissionMode: readComposePermissionMode(),
             signal: ac.signal,
@@ -471,6 +479,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       contextMatterId,
       contextTaskId,
       fileChatContextItems,
+      composeTruthPins,
       deskContractBatchDir,
       loading,
       projectDir,
@@ -498,6 +507,13 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       }
       const sessionId = sessionByAssistant[selectedAssistantId];
       if (!sessionId) {
+        return;
+      }
+      // F2: warn that truncate drops later turns including tool evidence.
+      const ok = window.confirm(
+        "编辑并重发将截断该条之后的对话（含工具调用与结果证据）。确定继续？",
+      );
+      if (!ok) {
         return;
       }
       try {

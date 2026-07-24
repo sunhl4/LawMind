@@ -136,3 +136,52 @@ export async function resumeTurn(
 
   throw new Error("unsupported_resume");
 }
+
+/**
+ * Resume after user Stop when the last turn was checkpointed as `paused`.
+ */
+export async function resumePausedTurn(
+  config: AgentConfig,
+  registry: ToolRegistry,
+  sessionId: string,
+  opts?: ResumeTurnOpts & { extraInstruction?: string },
+): Promise<ResumeTurnResult> {
+  const session = loadSession(config.workspaceDir, sessionId);
+  if (!session) {
+    throw new Error("session_not_found");
+  }
+  const last = [...session.turns].toReversed().find((t) => t.status === "paused");
+  if (!last) {
+    throw new Error("no_paused_turn");
+  }
+  const toolNames = last.messages
+    .flatMap((m) => (m.toolCalls ?? []).map((tc) => tc.name))
+    .filter(Boolean)
+    .slice(0, 12);
+  const toolsLine = toolNames.length > 0 ? `已用工具：${[...new Set(toolNames)].join("、")}。` : "";
+  const extra = opts?.extraInstruction?.trim();
+  const instruction = [
+    "【从检查点继续】",
+    `上一轮在完成 ${last.toolCallsExecuted} 次工具调用后被暂停。`,
+    toolsLine,
+    `原指令：\n${last.instruction}`,
+    "",
+    "请在已有对话与工具结果基础上继续完成任务，不要重复已成功的步骤。",
+    extra ? `\n律师补充：${extra}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  // Keep paused turn as historical checkpoint; new turn continues the session.
+  return runTurn({
+    config,
+    registry,
+    instruction,
+    sessionId: session.sessionId,
+    matterId: session.matterId ?? opts?.matterId,
+    projectDir: opts?.projectDir,
+    linkedTaskId: opts?.linkedTaskId,
+    onEvent: opts?.onEvent,
+    liveProgressSessionId: opts?.liveProgressSessionId,
+  });
+}

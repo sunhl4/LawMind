@@ -148,6 +148,7 @@ export function MatterTeamMeetingPanel(props: Props): ReactNode {
   const [lawyerMode, setLawyerMode] = useState<LawyerMode>("later");
   const [synthesizerId, setSynthesizerId] = useState(shellAssistantId);
   const [phase, setPhase] = useState<Phase>("idle");
+  const [allowMeetingWebSearch, setAllowMeetingWebSearch] = useState(false);
   const [statusLabel, setStatusLabel] = useState<string | null>(null);
   const [plan, setPlan] = useState<DeliberationCue[]>([]);
   const [nextCueIndex, setNextCueIndex] = useState(0);
@@ -472,7 +473,7 @@ export function MatterTeamMeetingPanel(props: Props): ReactNode {
         matterId,
         assistantId,
         sessionId: sess[assistantId],
-        allowWebSearch: false as const,
+        allowWebSearch: allowMeetingWebSearch,
         projectDir: projectDir ?? undefined,
         meetingAgenda,
         meetingTurnKind: turnKind,
@@ -944,6 +945,16 @@ export function MatterTeamMeetingPanel(props: Props): ReactNode {
               })}
             </div>
           )}
+          <label className="lm-matter-meeting-web-toggle">
+            <input
+              type="checkbox"
+              data-testid="lm-meeting-allow-web"
+              checked={allowMeetingWebSearch}
+              disabled={busy || phase === "running"}
+              onChange={(e) => setAllowMeetingWebSearch(e.target.checked)}
+            />
+            <span>允许本场联网检索（默认关）</span>
+          </label>
           {!isAdhocMeetingMatterId(matterId) ? (
             <div className="lm-matter-meeting-roster-actions">
               <button

@@ -10,6 +10,7 @@ import {
   recordVerification,
   removeCustomModel,
   setDraftWithModelEnabled,
+  setWorkerModelId,
 } from "./custom-store.js";
 
 describe("lawmind custom-store", () => {
@@ -160,5 +161,26 @@ describe("lawmind custom-store", () => {
     expect(readModelsStore(lawMindRoot).draftWithModelEnabled).toBe(true);
     setDraftWithModelEnabled(lawMindRoot, false);
     expect(readModelsStore(lawMindRoot).draftWithModelEnabled).toBeUndefined();
+  });
+
+  it("persists workerModelId across read/write (E7)", () => {
+    lawMindRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-store-"));
+    setWorkerModelId(lawMindRoot, "builtin:qwen-turbo");
+    expect(readModelsStore(lawMindRoot).workerModelId).toBe("builtin:qwen-turbo");
+    setWorkerModelId(lawMindRoot, undefined);
+    expect(readModelsStore(lawMindRoot).workerModelId).toBeUndefined();
+  });
+
+  it("persists optional stop sequences on custom models (E3)", () => {
+    lawMindRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-store-"));
+    const row = addCustomModel(lawMindRoot, {
+      label: "Stopped",
+      baseUrl: "https://api.openai.com/v1",
+      model: "gpt-4o",
+      apiKey: "sk-test",
+      stop: ["###END###", "  ", "<|im_end|>"],
+    });
+    expect(row.stop).toEqual(["###END###", "<|im_end|>"]);
+    expect(readModelsStore(lawMindRoot).customModels[0]?.stop).toEqual(["###END###", "<|im_end|>"]);
   });
 });

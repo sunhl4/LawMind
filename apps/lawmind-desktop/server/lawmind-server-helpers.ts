@@ -9,15 +9,22 @@ import { createLawMindEngine } from "../../../src/lawmind/index.js";
 import { buildLawMindRetrievalAdaptersFromEnvForTest } from "../../../src/lawmind/agent/tools/engine-tools.js";
 import type { AgentConfig } from "../../../src/lawmind/agent/types.js";
 import { resolveLawMindRoot } from "../../../src/lawmind/assistants/store.js";
+import { readModelsStore } from "../../../src/lawmind/models/custom-store.js";
 import {
   isAnyModelConfigured,
   resolveAgentModelById,
   resolveModelIdentityForPrompt,
 } from "../../../src/lawmind/models/index.js";
-import { resolveCapabilityEnvelope } from "../../../src/lawmind/models/capability-envelope.js";
+import {
+  resolveCapabilityEnvelope,
+  resolveTemperatureForTask,
+} from "../../../src/lawmind/models/capability-envelope.js";
 import { resolveEdition } from "../../../src/lawmind/policy/edition.js";
 import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspace-policy.js";
-import { resolveAgentMaxToolCallsPerTurn } from "../../../src/lawmind/policy/workspace-policy.js";
+import {
+  resolveAgentMaxHistoryMessages,
+  resolveAgentMaxToolCallsPerTurn,
+} from "../../../src/lawmind/policy/workspace-policy.js";
 import { readLawMindPolicyFile } from "./lawmind-policy.js";
 import type { TaskRecord } from "../../../src/lawmind/types.js";
 import {
@@ -231,6 +238,7 @@ export function buildAgentConfig(
   const envelope = resolveCapabilityEnvelope({
     contextTokens: modelConfig.contextTokens,
     timeoutMs: modelConfig.timeoutMs ?? modelTimeoutMs,
+    taskKind: "chat",
   });
   if (!modelConfig.contextTokens) {
     modelConfig.contextTokens = envelope.contextTokens;
@@ -240,6 +248,10 @@ export function buildAgentConfig(
     if (!modelConfig.maxTokens || modelConfig.maxTokens <= 4096) {
       modelConfig.maxTokens = envelope.maxOutputTokens;
     }
+  }
+  if (modelConfig.temperature === undefined || modelConfig.temperature === 0.3) {
+    // E2: chat default 0.35 (legacy hardcoded 0.3 treated as unset).
+    modelConfig.temperature = resolveTemperatureForTask("chat");
   }
   const policyState = readLawMindPolicyFile(workspaceDir);
   const policyForEdition: LawMindWorkspacePolicy | null = policyState.loaded
@@ -264,18 +276,34 @@ export function buildAgentConfig(
     modelConfig,
   );
 
+  // E7: optional worker (fast) model for tool rounds.
+  let workerModel = undefined as typeof modelConfig | undefined;
+  const workerId = readModelsStore(lawMindRoot).workerModelId?.trim();
+  if (workerId && workerId !== resolved.resolvedModelId) {
+    const workerResolved = resolveAgentModelById(lawMindRoot, workerId);
+    if (workerResolved.model?.apiKey) {
+      workerModel = workerResolved.model;
+    }
+  }
+
   return {
     config: {
       workspaceDir,
       model: modelConfig,
       runtimeModel,
+      ...(workerModel ? { workerModel } : {}),
       maxToolCalls,
-      maxHistoryMessages: envelope.maxHistoryMessages,
+      maxHistoryMessages: resolveAgentMaxHistoryMessages(
+        workspaceDir,
+        envelope.maxHistoryMessages,
+      ),
       toolExecutionTimeoutMs: toolTimeoutMs || envelope.toolTimeoutMs,
       actorId,
       enableCollaboration,
       allowDangerousToolsWithoutApproval,
       strictDangerousToolApproval: edition.features.strictDangerousToolApproval,
+      autoApproveSandboxWorkflowSteps:
+        policyForEdition?.autoApproveSandboxWorkflowSteps === true,
       ...(opts?.envFile ? { envFile: opts.envFile } : {}),
     },
     modelId: resolved.resolvedModelId,

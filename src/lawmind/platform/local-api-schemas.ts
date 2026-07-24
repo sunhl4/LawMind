@@ -3,6 +3,7 @@
  * Imported by desktop server routes and renderer typed clients.
  */
 import { z } from "zod";
+import { contextPinsRequestSchema } from "./compose-context-pin.js";
 
 export const trimmedNonEmptyString = z.string().trim().min(1);
 
@@ -31,6 +32,10 @@ export const modelsCustomPostSchema = z.object({
   apiKey: z.string().optional(),
   setAsDefault: z.boolean().optional(),
   keyStorage: z.enum(["keychain", "env"]).optional(),
+  /** Optional stop sequences (comma-separated string or string array). */
+  stop: z
+    .union([z.array(z.string().trim().min(1).max(200)).max(8), z.string().trim().max(800)])
+    .optional(),
 });
 
 export type ModelsCustomPostRequest = z.infer<typeof modelsCustomPostSchema>;
@@ -111,7 +116,7 @@ export const chatPostRequestSchema = z.object({
   enableCollaboration: z.boolean().optional(),
   projectDir: z.string().optional(),
   includeTurnDiagnostics: z.boolean().optional(),
-  contextPins: z.unknown().optional(),
+  contextPins: contextPinsRequestSchema,
   linkedTaskId: z.string().trim().optional(),
   meetingMode: z.boolean().optional(),
   meetingAgenda: z.string().optional(),

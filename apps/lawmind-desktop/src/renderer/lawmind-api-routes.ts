@@ -218,6 +218,19 @@ export async function apiPostRedlineHunkResolve(
   );
 }
 
+export async function apiPostRedlineResolveAll(
+  apiBase: string,
+  taskId: string,
+  body: RedlineHunkResolvePostRequest,
+): Promise<LawmindRedlineResolveResponse & { resolved?: number }> {
+  return apiSendJson<LawmindRedlineResolveResponse & { resolved?: number }, RedlineHunkResolvePostRequest>(
+    apiBase,
+    `/api/drafts/${encodeURIComponent(taskId)}/redline/resolve-all`,
+    "POST",
+    body,
+  );
+}
+
 export async function apiPatchAssistant(
   apiBase: string,
   assistantId: string,

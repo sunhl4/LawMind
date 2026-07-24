@@ -196,26 +196,46 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
               </details>
             ) : null}
 
-            <div className="lm-assistants-actions">
+            <div className="lm-assistants-actions" role="group" aria-label="助手操作">
               <button
                 type="button"
-                className="lm-btn lm-btn-accent lm-btn-sm"
+                className="lm-assistants-action lm-assistants-action--primary"
+                data-testid="lm-assistants-quick-create"
                 onClick={() => onOpenNew()}
               >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+                  <path
+                    d="M8 3.25v9.5M3.25 8h9.5"
+                    stroke="currentColor"
+                    strokeWidth="1.75"
+                    strokeLinecap="round"
+                  />
+                </svg>
                 快速新建
               </button>
               <button
                 type="button"
-                className="lm-btn lm-btn-secondary lm-btn-sm"
+                className="lm-assistants-action lm-assistants-action--secondary"
+                data-testid="lm-assistants-advanced-edit"
                 onClick={onOpenEdit}
                 disabled={empty}
+                title="编辑名称、岗位、组织关系与简介"
               >
-                编辑
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+                  <path
+                    d="M11.2 2.9a1.4 1.4 0 0 1 2 2L5.7 12.4 2.5 13.2l.8-3.2L11.2 2.9Z"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                高级编辑
               </button>
               {selectedAssistantId !== DEFAULT_ASSISTANT_ID ? (
                 <button
                   type="button"
-                  className="lm-btn lm-btn-ghost lm-btn-sm"
+                  className="lm-assistants-action lm-assistants-action--danger"
+                  data-testid="lm-assistants-remove"
                   onClick={onRemove}
                   disabled={empty}
                 >
@@ -227,12 +247,21 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
         )}
 
         {empty ? (
-          <div className="lm-assistants-actions">
+          <div className="lm-assistants-actions" role="group" aria-label="助手操作">
             <button
               type="button"
-              className="lm-btn lm-btn-accent lm-btn-sm"
+              className="lm-assistants-action lm-assistants-action--primary"
+              data-testid="lm-assistants-quick-create"
               onClick={() => onOpenNew()}
             >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+                <path
+                  d="M8 3.25v9.5M3.25 8h9.5"
+                  stroke="currentColor"
+                  strokeWidth="1.75"
+                  strokeLinecap="round"
+                />
+              </svg>
               快速新建
             </button>
           </div>

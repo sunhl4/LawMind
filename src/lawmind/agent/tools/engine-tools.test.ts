@@ -537,7 +537,7 @@ describe("draft_document", () => {
       makeCtx(ws, "m-draft-template"),
     );
 
-    expect(result.ok).toBe(true);
+    expect(result.ok, result.error ?? "draft_document failed").toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.templateId).toBe("word/contract-default");
   });

@@ -91,8 +91,13 @@ export async function tryAutoDeliverableWorkflowShortcut(opts: {
   emitEvent: (event: RunTurnEvent) => void;
   abortRequested: () => boolean;
   onAborted: () => TurnRunResult;
+  autoDeliverableWorkflow?: boolean;
 }): Promise<TurnRunResult | null> {
-  if (!shouldAutoRunDeliverableWorkflow(opts.instruction)) {
+  if (
+    !shouldAutoRunDeliverableWorkflow(opts.instruction, {
+      policy: { autoDeliverableWorkflow: opts.autoDeliverableWorkflow },
+    })
+  ) {
     return null;
   }
   if (opts.abortRequested()) {

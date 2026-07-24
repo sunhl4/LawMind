@@ -12,6 +12,7 @@
  *   但 tool 定义、policy 规则、system prompt 完全面向法律场景。
  */
 
+import type { ComposeContextPin } from "../platform/compose-context-pin.js";
 import type { GateDecision, TaskExecutionState } from "../platform/contracts.js";
 import type { LawMindRequiresAction } from "../platform/requires-action.js";
 import type { ClarificationQuestion, RiskLevel, MatterIndex } from "../types.js";
@@ -78,7 +79,7 @@ export type AgentContext = {
   /** 本轮是否允许调用 web_search 等联网工具 */
   allowWebSearch?: boolean;
   /** 桌面 compose 权限模式（只读/严格/标准） */
-  permissionMode?: "standard" | "strict" | "readonly";
+  permissionMode?: "standard" | "strict" | "readonly" | "research";
   /**
    * 桌面工作台当前关联的草稿/任务 ID（可选）。
    * 工具在未显式传入 `task_id` 时可将此作为隐式默认（例如 `render_document` 优先于「最近草稿」）。
@@ -106,6 +107,8 @@ export type AgentContext = {
   preApproveToolName?: string;
   /** Merged into the next call of `preApproveToolName` (lawyer-edited args). */
   preApproveToolArgs?: Record<string, unknown>;
+  /** Desktop compose `@` pins for this turn (structured truth sources). */
+  contextPins?: ComposeContextPin[];
 };
 
 // ─────────────────────────────────────────────
@@ -158,6 +161,7 @@ export type AgentTurnStatus =
   | "completed"
   | "awaiting_approval"
   | "awaiting_clarification"
+  | "paused"
   | "error";
 
 export type AgentTurn = {
@@ -247,6 +251,8 @@ export type AgentModelConfig = {
   maxRetries?: number;
   /** Catalog / custom context window; drives compact budget when set. */
   contextTokens?: number;
+  /** Optional OpenAI-compatible stop sequences (custom profiles). */
+  stop?: string[];
 };
 
 /** Non-secret model identity for system prompt (lawyer may ask「你是什么模型」). */
@@ -278,6 +284,14 @@ export type AgentConfig = {
    * 即使 `allowDangerousToolsWithoutApproval` 为 true。
    */
   strictDangerousToolApproval?: boolean;
+  /**
+   * C3：Solo / policy 允许时，对沙箱内 `execute_workflow` 预填 `__approved`（永不自动批 render）。
+   */
+  autoApproveSandboxWorkflowSteps?: boolean;
+  /**
+   * E7：可选「快模型」——工具轮优先使用；缺省回退 `model`。
+   */
+  workerModel?: AgentModelConfig;
   actorId?: string;
   /** 多助手：助手档案 ID，与 actorId `assistant:<id>` 对应 */
   assistantId?: string;
@@ -290,9 +304,11 @@ export type AgentConfig = {
   /** 是否注册并允许使用联网检索工具（web_search，Brave API） */
   allowWebSearch?: boolean;
   /** 桌面 compose 权限模式 */
-  permissionMode?: "standard" | "strict" | "readonly";
+  permissionMode?: "standard" | "strict" | "readonly" | "research";
   /** 是否注册助手间协作工具（delegate_task, consult_assistant 等） */
   enableCollaboration?: boolean;
+  /** 当前委派嵌套深度（子 agent 工具注册用） */
+  collaborationDepth?: number;
   /** 与桌面 local server 一致，用于解析 assistants.json 所在 LawMind 根目录 */
   envFile?: string;
   /**

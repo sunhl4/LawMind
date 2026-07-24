@@ -60,13 +60,19 @@ function sanitizeSections(raw: ModelSectionsJson["sections"]): ArtifactSection[]
   return out.slice(0, 40);
 }
 
-/** LAWMIND_REASONING_MODE=model 且具备 LLM 凭据时启用 */
+/**
+ * Model drafting without lawMindRoot (CLI / engine).
+ * E6：MODE 未设或为 model 时，有凭据即启用；keyword/off 关闭。
+ */
 export function isModelReasoningEnabled(): boolean {
   const mode = (process.env.LAWMIND_REASONING_MODE ?? "").trim().toLowerCase();
-  if (mode !== "model") {
+  if (mode === "keyword" || mode === "off" || mode === "0" || mode === "false" || mode === "no") {
     return false;
   }
-  return reasoningLlmConfigFromEnv() !== null;
+  if (mode === "model" || mode === "") {
+    return reasoningLlmConfigFromEnv() !== null;
+  }
+  return false;
 }
 
 function draftSystemPrompt(intent: BuildDraftParams["intent"]): string {

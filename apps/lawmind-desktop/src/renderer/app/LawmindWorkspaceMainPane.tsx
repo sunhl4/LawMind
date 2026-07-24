@@ -5,6 +5,8 @@ import { LawmindChatSessionTabs } from "../LawmindChatSessionTabs";
 import { LawmindChatMessagesColumn, LawmindChatComposeFooter } from "../lawmind-chat-shell";
 import type { ChatMsg } from "../lawmind-chat";
 import { formatFileChatContextPill, type FileChatContextItem } from "../lawmind-file-chat-context";
+import type { TruthSourceContextPin } from "../../../../../src/lawmind/platform/compose-context-pin.ts";
+import { formatTruthPinChip } from "../lawmind-compose-context";
 import { LawmindWorkspacePaneRecovery } from "./LawmindWorkspacePaneRecovery";
 import { LawmindSessionHistorySidebar } from "../LawmindSessionHistorySidebar";
 import { useLawmindChatSessionContext } from "./LawmindShellContexts";
@@ -42,6 +44,10 @@ export type LawmindWorkspaceMainPaneProps = {
   onSendClarificationMessage: (text: string) => void | Promise<void>;
   streamCompactLabels: string[];
   fileChatContextItems: FileChatContextItem[];
+  composeTruthPins?: TruthSourceContextPin[];
+  onAddComposeTruthPin?: (pin: TruthSourceContextPin) => void;
+  onRemoveTruthPin?: (id: string) => void;
+  onClearTruthPills?: () => void;
   onAddFileToChatContext?: (payload: Pick<FileChatContextItem, "root" | "relPath" | "kind">) => void;
   onRemoveFileChatPill: (id: string) => void;
   onClearFileChatPills: () => void;
@@ -124,6 +130,10 @@ function LawmindWorkspaceMainPaneImpl({
   onSendClarificationMessage,
   streamCompactLabels,
   fileChatContextItems,
+  composeTruthPins = [],
+  onAddComposeTruthPin,
+  onRemoveTruthPin,
+  onClearTruthPills,
   onAddFileToChatContext,
   onRemoveFileChatPill,
   onClearFileChatPills,
@@ -178,6 +188,7 @@ function LawmindWorkspaceMainPaneImpl({
     relPath: it.relPath,
     ...formatFileChatContextPill(it),
   }));
+  const truthPills = composeTruthPins.map((pin) => formatTruthPinChip(pin));
   const bothWorkspacePanesHidden = !wsShowChat && (!canUseFilesystemBridge || !wsShowEditor);
 
   return (
@@ -333,10 +344,15 @@ function LawmindWorkspaceMainPaneImpl({
               onOpenReview={onOpenReview}
               composeExtras={composeExtras}
               fileChatPills={fileChatPills}
+              truthPills={truthPills}
               fileChatContextItems={fileChatContextItems}
+              composeTruthPins={composeTruthPins}
               onAddFileToChatContext={onAddFileToChatContext}
+              onAddComposeTruthPin={onAddComposeTruthPin}
               onRemoveFileChatPill={onRemoveFileChatPill}
+              onRemoveTruthPill={onRemoveTruthPin}
               onClearFileChatPills={onClearFileChatPills}
+              onClearTruthPills={onClearTruthPills}
               templateGalleryOpen={templateGalleryOpen}
               onTemplateGalleryOpenChange={setTemplateGalleryOpen}
             />

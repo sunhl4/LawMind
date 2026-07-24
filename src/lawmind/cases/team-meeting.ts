@@ -27,9 +27,9 @@ export type TeamMeetingLine = {
 
 const TEAM_MEETING_FILENAME = "team-meeting.jsonl";
 export const TEAM_MEETING_MAX_LINE_TEXT = 48_000;
-export const TEAM_MEETING_TAIL_LIMIT_DEFAULT = 80;
-export const TEAM_MEETING_TAIL_LIMIT_CAP = 200;
-export const TEAM_MEETING_TRANSCRIPT_MAX_CHARS = 12_000;
+export const TEAM_MEETING_TAIL_LIMIT_DEFAULT = 120;
+export const TEAM_MEETING_TAIL_LIMIT_CAP = 240;
+export const TEAM_MEETING_TRANSCRIPT_MAX_CHARS = 18_000;
 const TEAM_MEETING_READ_MAX_BYTES = 4 * 1024 * 1024;
 
 function resolvedMatterCaseDir(workspaceDir: string, matterId: string): string {
@@ -220,6 +220,71 @@ export function formatTeamMeetingTranscriptPrefix(lines: TeamMeetingLine[]): str
   ].join("\n");
 }
 
+const MEETING_SUMMARY_FILENAME = "meeting-summary.md";
+const MEETING_SUMMARY_MAX_CHARS = 12_000;
+
+export function meetingSummaryPath(workspaceDir: string, matterId: string): string {
+  return path.join(resolvedTeamMeetingDir(workspaceDir, matterId), MEETING_SUMMARY_FILENAME);
+}
+
+/** Best-effort rolling summary of older meeting lines (A6↑). */
+export function rewriteMeetingSummaryFile(workspaceDir: string, matterId: string): void {
+  try {
+    const all = readTeamMeetingLines(workspaceDir, matterId);
+    if (all.length <= TEAM_MEETING_TAIL_LIMIT_DEFAULT) {
+      return;
+    }
+    const head = all.slice(0, Math.max(0, all.length - TEAM_MEETING_TAIL_LIMIT_DEFAULT));
+    const bullets: string[] = [];
+    for (const row of head.slice(-40)) {
+      const label =
+        row.kind === "user"
+          ? "律师"
+          : row.kind === "system"
+            ? "主持"
+            : row.displayName?.trim() || "助手";
+      const text = row.text.replace(/\s+/g, " ").trim().slice(0, 160);
+      if (text) {
+        bullets.push(`- [${label}] ${text}`);
+      }
+    }
+    if (bullets.length === 0) {
+      return;
+    }
+    const body = [
+      `# 会议室滚动摘要`,
+      ``,
+      `_Updated: ${new Date().toISOString()}_`,
+      ``,
+      `共归档较早发言约 ${head.length} 条；近期对话见 transcript 尾窗。`,
+      ``,
+      ...bullets,
+      ``,
+    ].join("\n");
+    const abs = meetingSummaryPath(workspaceDir, matterId);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, body.slice(0, MEETING_SUMMARY_MAX_CHARS), "utf8");
+  } catch {
+    /* non-fatal */
+  }
+}
+
+export function readMeetingSummaryExcerpt(
+  workspaceDir: string,
+  matterId: string,
+  maxChars = 4_000,
+): string {
+  try {
+    const raw = fs.readFileSync(meetingSummaryPath(workspaceDir, matterId), "utf8").trim();
+    if (!raw) {
+      return "";
+    }
+    return raw.slice(0, maxChars);
+  } catch {
+    return "";
+  }
+}
+
 export function appendTeamMeetingLinesSync(
   workspaceDir: string,
   matterId: string,
@@ -244,6 +309,7 @@ export function appendTeamMeetingLinesSync(
       )
       .join("\n") + "\n";
   fs.appendFileSync(filePath, chunk, "utf8");
+  rewriteMeetingSummaryFile(workspaceDir, matterId);
 }
 
 export function createTeamMeetingUserLine(text: string): TeamMeetingLine {

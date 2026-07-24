@@ -6,10 +6,8 @@
  * 旧入口 `src/lawmind/index.ts` 仍然 re-export 本函数以保持向后兼容。
  */
 
-import {
-  loadWorkspaceDeliverableSpecs,
-  registerExtraDeliverableSpecs,
-} from "../deliverables/index.js";
+import { registerExtraDeliverableSpecs } from "../deliverables/index.js";
+import { loadWorkspaceDeliverableSpecs } from "../deliverables/workspace-loader.js";
 import { buildEngineContext } from "./context.js";
 import { draftAsyncImpl, draftSync } from "./drafting.js";
 import { confirmTask, planAsyncImpl, planSync } from "./planning.js";

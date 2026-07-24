@@ -18,15 +18,18 @@ import {
   markDelegationRunning,
   markDelegationCompleted,
   markDelegationFailed,
+  markDelegationTimeout,
   validateDelegation,
   listDelegations,
   getDelegation,
   buildDelegationEvent,
+  readDelegationResultFile,
 } from "../../collaboration/delegation-registry.js";
 import { fireAndForget, wrapUntrustedResult } from "../../collaboration/message-bus.js";
 import type { CollaborationPolicy, DelegationRecord } from "../../collaboration/types.js";
 import { DEFAULT_COLLABORATION_POLICY } from "../../collaboration/types.js";
 import { appendSyntheticAssistantReply } from "../../session.js";
+import { requestTurnAbort } from "../../turn-abort.js";
 import type { AgentTool, AgentConfig } from "../../types.js";
 import { findAssistantsByRole, listAvailableAssistantNames, resolveAssistantId } from "./utils.js";
 
@@ -251,6 +254,7 @@ export function startDelegation(args: {
     }
   }
 
+  const timeoutMs = DEFAULT_COLLABORATION_POLICY.defaultDelegationTimeoutMs;
   const { completion, targetSessionId } = fireAndForget({
     baseConfig: args.baseConfig,
     fromAssistantId: args.fromId,
@@ -258,8 +262,16 @@ export function startDelegation(args: {
     message: args.task,
     matterId: args.matterId,
     kind: "delegate",
+    delegationId: record.delegationId,
+    collaborationDepth: args.depth + 1,
+    permissionMode: args.baseConfig.permissionMode,
+    timeoutMs,
+    onTimeout: (sid) => {
+      markDelegationTimeout(args.workspaceDir, record.delegationId);
+      requestTurnAbort(sid);
+      emitCollaborationEvent(args.workspaceDir, buildDelegationEvent(record, "delegation.timeout"));
+    },
   });
-
   markDelegationRunning(args.workspaceDir, record.delegationId, targetSessionId);
   emitCollaborationEvent(args.workspaceDir, buildDelegationEvent(record, "delegation.started"));
 
@@ -399,12 +411,15 @@ export const getDelegationResultTool: AgentTool = {
       },
     },
   },
-  async execute(params) {
+  async execute(params, ctx) {
     const delegationId = params.delegation_id as string;
     const record = getDelegation(delegationId);
     if (!record) {
       return { ok: false, error: `未找到委派记录：${delegationId}` };
     }
+
+    const fullFromDisk = readDelegationResultFile(ctx.workspaceDir, record);
+    const resultText = fullFromDisk ?? record.result;
 
     return {
       ok: true,
@@ -417,7 +432,9 @@ export const getDelegationResultTool: AgentTool = {
         targetSessionId: record.targetSessionId,
         task: record.task,
         status: record.status,
-        result: record.result ? wrapUntrustedResult(record.result) : undefined,
+        result: resultText ? wrapUntrustedResult(resultText) : undefined,
+        resultTruncated: record.resultTruncated === true && !fullFromDisk,
+        resultPath: record.resultPath,
         error: record.error,
         startedAt: record.startedAt,
         completedAt: record.completedAt,

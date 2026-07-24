@@ -9,6 +9,40 @@ export type NetworkAllowlistCheck = {
   reason?: string;
 };
 
+/**
+ * Recommended hosts for Firm / legal research (does not force enable web search).
+ * One-click merge via Doctor / Settings → does not set networkAllowlistEnforced.
+ */
+export const RECOMMENDED_LEGAL_NETWORK_ALLOWLIST = [
+  "api.search.brave.com",
+  "npc.gov.cn",
+  "www.gov.cn",
+  "court.gov.cn",
+  "supremecourt.gov.cn",
+  "spp.gov.cn",
+  "moj.gov.cn",
+  "samr.gov.cn",
+  "pkulaw.com",
+  "chinalawinfo.com",
+] as const;
+
+/** Merge recommended legal hosts into an existing allowlist (dedupe, preserve order). */
+export function mergeRecommendedLegalNetworkAllowlist(
+  existing: string[] | null | undefined,
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const h of [...(existing ?? []), ...RECOMMENDED_LEGAL_NETWORK_ALLOWLIST]) {
+    const n = h.trim().toLowerCase();
+    if (!n || seen.has(n)) {
+      continue;
+    }
+    seen.add(n);
+    out.push(n);
+  }
+  return out;
+}
+
 function normalizeHost(host: string): string {
   return host
     .trim()

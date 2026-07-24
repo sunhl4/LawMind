@@ -34,11 +34,13 @@ import {
   formatSimilarCaseRecallBlock,
 } from "../memory/similar-case-recall.js";
 import { resolveCapabilityEnvelope } from "../models/capability-envelope.js";
+import type { ComposeContextPin } from "../platform/compose-context-pin.js";
 import {
   readWorkspacePolicyFile,
   resolveAgentMandatoryRulesForPrompt,
   resolveAgentPromptVerbosity,
   resolveAppliedPreferencesFooterMode,
+  resolveMatterMandatoryRulesForPrompt,
 } from "../policy/workspace-policy.js";
 import {
   deliverableTypeFromInstruction,
@@ -46,6 +48,7 @@ import {
   resolveIntakeClarificationQuestions,
 } from "../router/intake-gate.js";
 import { buildContextPlan, buildContextPlanMarkdown } from "../runtime/context-plan.js";
+import { resolvePinnedContextSummary } from "../runtime/pinned-context.js";
 import { getAssistantPreset } from "./assistant-presets.js";
 import { buildDeliverablePipelineSystemNote } from "./deliverable-pipeline.js";
 import { buildSystemPrompt } from "./system-prompt.js";
@@ -62,6 +65,7 @@ export async function prepareTurnPromptContext(opts: {
   linkedTaskIdForCtx: string | undefined;
   projectDirResolved: string | undefined;
   teamMeetingMode?: boolean;
+  contextPins?: ComposeContextPin[];
 }): Promise<{
   memory: MemoryContext;
   systemPromptFinal: string;
@@ -79,6 +83,11 @@ export async function prepareTurnPromptContext(opts: {
     projectDirResolved,
     teamMeetingMode,
   } = opts;
+
+  const pinnedContextSummary = resolvePinnedContextSummary({
+    workspaceDir: config.workspaceDir,
+    pins: opts.contextPins ?? [],
+  });
 
   const memory = await loadMemoryContext(config.workspaceDir, { matterId: session.matterId });
 
@@ -136,6 +145,10 @@ export async function prepareTurnPromptContext(opts: {
 
   const workspacePolicy = readWorkspacePolicyFile(config.workspaceDir);
   const mandatoryRules = resolveAgentMandatoryRulesForPrompt(config.workspaceDir, workspacePolicy);
+  const matterMandatoryRules = resolveMatterMandatoryRulesForPrompt(
+    config.workspaceDir,
+    session.matterId,
+  );
 
   const intakeQsForPipeline = resolveIntakeClarificationQuestions(instruction, {
     caseMemory: memory.caseMemory,
@@ -174,6 +187,7 @@ export async function prepareTurnPromptContext(opts: {
       ctx: planCtx,
       policy: workspacePolicy,
       contextTokens: envelope.contextTokens,
+      pinnedContext: pinnedContextSummary,
     }),
   );
   const systemPrompt = buildSystemPrompt({
@@ -201,6 +215,8 @@ export async function prepareTurnPromptContext(opts: {
     linkedTaskId: linkedTaskIdForCtx,
     agentMandatoryRules: mandatoryRules.active ? mandatoryRules.text : undefined,
     agentMandatoryRulesTruncated: mandatoryRules.truncated,
+    agentMatterMandatoryRules: matterMandatoryRules.active ? matterMandatoryRules.text : undefined,
+    agentMatterMandatoryRulesTruncated: matterMandatoryRules.truncated,
     agentPromptVerbosity,
     requireAppliedPreferencesFooter,
     assistantOrgLine,
@@ -214,6 +230,21 @@ export async function prepareTurnPromptContext(opts: {
 
   let systemPromptFinal = systemPrompt;
   const extraBlocks: string[] = [];
+  if (pinnedContextSummary.markdownBlock) {
+    extraBlocks.push(`\n\n${pinnedContextSummary.markdownBlock}`);
+  }
+
+  if (session.pendingClarificationKeys?.length) {
+    extraBlocks.push(
+      [
+        "\n\n## 未决澄清要点（跨轮保留）",
+        "",
+        "律师尚未完全回答下列关键缺口；继续时可先用只读/`research_task` 收集材料，但**不得**在缺口未对齐时调用 `draft_document` / `execute_workflow` / `render_document`。",
+        "",
+        `待确认键：${session.pendingClarificationKeys.join(", ")}`,
+      ].join("\n"),
+    );
+  }
 
   try {
     const pending = await listPendingMemorySuggestions(config.workspaceDir);

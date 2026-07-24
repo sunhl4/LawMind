@@ -18,8 +18,33 @@ export function routeInstructionForDeliverable(instruction: string): TaskIntent 
   return route({ instruction: instruction.trim() });
 }
 
+/**
+ * Opt-in auto execute_workflow shortcut (D1).
+ * Default on for ESG/report heuristics; disable via policy `autoDeliverableWorkflow: false`
+ * or `LAWMIND_AUTO_DELIVERABLE_WF=0`.
+ */
+export function isAutoDeliverableWorkflowEnabled(
+  policy?: { autoDeliverableWorkflow?: boolean } | null,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (policy?.autoDeliverableWorkflow === false) {
+    return false;
+  }
+  const raw = env.LAWMIND_AUTO_DELIVERABLE_WF?.trim().toLowerCase();
+  if (raw === "0" || raw === "false" || raw === "off" || raw === "no") {
+    return false;
+  }
+  return true;
+}
+
 /** True when the lawyer clearly wants a formal docx-bound deliverable, not Q&A. */
-export function shouldAutoRunDeliverableWorkflow(instruction: string): boolean {
+export function shouldAutoRunDeliverableWorkflow(
+  instruction: string,
+  opts?: { policy?: { autoDeliverableWorkflow?: boolean } | null },
+): boolean {
+  if (!isAutoDeliverableWorkflowEnabled(opts?.policy)) {
+    return false;
+  }
   const core = instruction.trim();
   if (!core || core.length > 2500) {
     return false;

@@ -427,6 +427,20 @@ function RoleDetail({
           <dt>习惯范围</dt>
           <dd>{role.memoryScope.join("、") || "不限"}</dd>
         </div>
+        <div>
+          <dt>工具允许列表</dt>
+          <dd data-testid="lm-role-allowed-tools">
+            {role.allowedToolNames === undefined ? (
+              "不限制（全部可用工具）"
+            ) : role.allowedToolNames.length === 0 ? (
+              <span className="lm-settings-caption lm-settings-caption--warn">
+                ⚠ 已配置为空列表：助手将无法调用任何工具，请补全或删除该字段
+              </span>
+            ) : (
+              role.allowedToolNames.join("、")
+            )}
+          </dd>
+        </div>
         {role.defaultEscalateTo ? (
           <div>
             <dt>默认上报</dt>

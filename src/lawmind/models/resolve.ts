@@ -188,6 +188,10 @@ export function resolveCustomToAgentModel(
   if (!apiKey) {
     return { error: "missing_api_key" };
   }
+  const stop =
+    Array.isArray(row.stop) && row.stop.length > 0
+      ? row.stop.filter((s) => typeof s === "string" && s.trim()).map((s) => s.trim())
+      : undefined;
   return {
     model: {
       provider: "openai-compatible",
@@ -195,6 +199,7 @@ export function resolveCustomToAgentModel(
       apiKey,
       model: row.model,
       ...baseAgentModelDefaults(),
+      ...(stop && stop.length > 0 ? { stop } : {}),
     },
   };
 }

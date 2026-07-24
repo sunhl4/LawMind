@@ -73,4 +73,22 @@ describe("lawmind-compose-context", () => {
     expect(items.every((i) => i.kind === "file")).toBe(true);
     expect(items.some((i) => i.label.includes("CASE"))).toBe(true);
   });
+
+  it("builds truth-source picker items when matter is linked", () => {
+    const items = buildComposeContextPickerItems({
+      pinnedFiles: [],
+      recentFiles: [],
+      matters: [{ matterId: "demo", displayName: "演示案件" }],
+      contextMatterId: "demo",
+      templates: [],
+      evidencePaths: [{ relPath: "contracts/a.pdf", label: "a.pdf" }],
+      fleetPlaybooks: [{ id: "standard-contract-review", label: "标准合同审查专案组" }],
+      pinnedTruthPins: [{ pinKind: "theory", matterId: "demo" }],
+    });
+    expect(items.some((i) => i.kind === "evidence")).toBe(true);
+    expect(items.some((i) => i.kind === "playbook")).toBe(true);
+    expect(items.some((i) => i.kind === "theory" && i.alreadyPinned)).toBe(true);
+    const theory = items.find((i) => i.kind === "theory");
+    expect(theory?.kind === "theory" && theory.alreadyPinned).toBe(true);
+  });
 });

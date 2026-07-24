@@ -1,5 +1,7 @@
 import type { FileChatContextItem } from "./lawmind-app-shell";
 import type { WorkflowTemplateItem } from "./lawmind-workflow-types";
+import type { TruthSourceContextPin } from "../../../../src/lawmind/platform/compose-context-pin.ts";
+import { makeContextPinId } from "../../../../src/lawmind/platform/compose-context-pin.ts";
 
 export type ComposeContextMatterOption = {
   matterId: string;
@@ -7,7 +9,14 @@ export type ComposeContextMatterOption = {
   latestUpdatedAt?: string;
 };
 
-export type ComposeContextPickerCategory = "files" | "matters" | "templates";
+export type ComposeContextPickerCategory =
+  | "files"
+  | "matters"
+  | "templates"
+  | "evidence"
+  | "clause"
+  | "playbook"
+  | "theory";
 
 export type ComposeContextPickerItem =
   | {
@@ -38,7 +47,51 @@ export type ComposeContextPickerItem =
       hint?: string;
       templateId: string;
       starterPrompt?: string;
+    }
+  | {
+      kind: "evidence";
+      id: string;
+      category: "evidence";
+      label: string;
+      hint?: string;
+      matterId: string;
+      relPath: string;
+      alreadyPinned?: boolean;
+    }
+  | {
+      kind: "clause";
+      id: string;
+      category: "clause";
+      label: string;
+      hint?: string;
+      scope: "full" | "section";
+      sectionHeading?: string;
+      alreadyPinned?: boolean;
+    }
+  | {
+      kind: "playbook";
+      id: string;
+      category: "playbook";
+      label: string;
+      hint?: string;
+      playbookId: string;
+      alreadyPinned?: boolean;
+    }
+  | {
+      kind: "theory";
+      id: string;
+      category: "theory";
+      label: string;
+      hint?: string;
+      matterId: string;
+      alreadyPinned?: boolean;
     };
+
+export type ComposeTruthPinOption = TruthSourceContextPin;
+
+export const CLAUSE_PLAYBOOK_PIN_SECTIONS = [
+  "## 6. LawMind 审核学习（自动摘要）",
+] as const;
 
 const RECENT_FILE_CONTEXT_KEY = "lawmind.compose.recentFileContext";
 
@@ -135,6 +188,9 @@ export function buildComposeContextPickerItems(opts: {
   matters: ComposeContextMatterOption[];
   contextMatterId: string | null;
   templates: WorkflowTemplateItem[];
+  pinnedTruthPins?: TruthSourceContextPin[];
+  evidencePaths?: Array<{ relPath: string; label?: string; hint?: string }>;
+  fleetPlaybooks?: Array<{ id: string; label: string }>;
   /** When set, only emit these categories (e.g. meeting materials → files only). */
   categories?: ComposeContextPickerCategory[];
 }): ComposeContextPickerItem[] {
@@ -144,6 +200,7 @@ export function buildComposeContextPickerItems(opts: {
   const allowCat = (c: ComposeContextPickerCategory) => !allow || allow.has(c);
 
   const pinnedIds = new Set(opts.pinnedFiles.map((f) => `${f.root}|${f.relPath}|${f.kind}`));
+  const pinnedTruthIds = new Set((opts.pinnedTruthPins ?? []).map((p) => makeContextPinId(p)));
   const fileItems: ComposeContextPickerItem[] = [];
   const seenFile = new Set<string>();
 
@@ -210,7 +267,96 @@ export function buildComposeContextPickerItems(opts: {
       }))
     : [];
 
-  return [...fileItems, ...matterItems, ...templateItems];
+  const matterId = opts.contextMatterId?.trim() || null;
+
+  const evidenceItems: ComposeContextPickerItem[] =
+    allowCat("evidence") && matterId
+      ? (opts.evidencePaths ?? []).map((entry) => {
+          const pin: TruthSourceContextPin = {
+            pinKind: "evidence",
+            matterId,
+            relPath: entry.relPath,
+          };
+          const pinId = makeContextPinId(pin);
+          return {
+            kind: "evidence" as const,
+            id: `evidence:${pinId}`,
+            category: "evidence" as const,
+            label: entry.label?.trim() || entry.relPath,
+            hint: entry.hint ?? "案件材料",
+            matterId,
+            relPath: entry.relPath,
+            alreadyPinned: pinnedTruthIds.has(pinId),
+          };
+        })
+      : [];
+
+  const clauseItems: ComposeContextPickerItem[] = allowCat("clause")
+    ? [
+        {
+          kind: "clause" as const,
+          id: "clause:full",
+          category: "clause" as const,
+          label: "条款 Playbook（整册）",
+          hint: "playbooks/CLAUSE_PLAYBOOK.md",
+          scope: "full" as const,
+          alreadyPinned: pinnedTruthIds.has(makeContextPinId({ pinKind: "clause", scope: "full" })),
+        },
+        ...CLAUSE_PLAYBOOK_PIN_SECTIONS.map((heading) => ({
+          kind: "clause" as const,
+          id: `clause:section:${heading}`,
+          category: "clause" as const,
+          label: heading.replace(/^##\s+/, ""),
+          hint: "CLAUSE_PLAYBOOK 片段",
+          scope: "section" as const,
+          sectionHeading: heading,
+          alreadyPinned: pinnedTruthIds.has(
+            makeContextPinId({ pinKind: "clause", scope: "section", sectionHeading: heading }),
+          ),
+        })),
+      ]
+    : [];
+
+  const playbookItems: ComposeContextPickerItem[] = allowCat("playbook")
+    ? (opts.fleetPlaybooks ?? []).map((pb) => ({
+        kind: "playbook" as const,
+        id: `playbook:${pb.id}`,
+        category: "playbook" as const,
+        label: pb.label,
+        hint: "标准审查剧本",
+        playbookId: pb.id,
+        alreadyPinned: pinnedTruthIds.has(
+          makeContextPinId({ pinKind: "playbook", playbookId: pb.id }),
+        ),
+      }))
+    : [];
+
+  const theoryItems: ComposeContextPickerItem[] =
+    allowCat("theory") && matterId
+      ? [
+          {
+            kind: "theory" as const,
+            id: `theory:${matterId}`,
+            category: "theory" as const,
+            label: "本案策略 MATTER_STRATEGY",
+            hint: `cases/${matterId}/MATTER_STRATEGY.md`,
+            matterId,
+            alreadyPinned: pinnedTruthIds.has(
+              makeContextPinId({ pinKind: "theory", matterId }),
+            ),
+          },
+        ]
+      : [];
+
+  return [
+    ...fileItems,
+    ...evidenceItems,
+    ...clauseItems,
+    ...playbookItems,
+    ...theoryItems,
+    ...matterItems,
+    ...templateItems,
+  ];
 }
 
 export function groupContextPickerItems(
@@ -222,6 +368,10 @@ export function groupContextPickerItems(
     items: ComposeContextPickerItem[];
   }> = [
     { category: "files", label: "文件", items: [] },
+    { category: "evidence", label: "证据材料", items: [] },
+    { category: "clause", label: "条款 Playbook", items: [] },
+    { category: "playbook", label: "审查剧本", items: [] },
+    { category: "theory", label: "本案理论", items: [] },
     { category: "matters", label: "案件", items: [] },
     { category: "templates", label: "模板", items: [] },
   ];
@@ -238,4 +388,63 @@ export function matterComposeChipLabel(matterId: string, displayName?: string | 
     return name.length <= 28 ? name : `${name.slice(0, 14)}…${name.slice(-8)}`;
   }
   return matterId.length <= 24 ? matterId : `${matterId.slice(0, 10)}…${matterId.slice(-6)}`;
+}
+
+export function truthPinToPayload(item: ComposeContextPickerItem): TruthSourceContextPin | null {
+  if (item.kind === "evidence") {
+    return { pinKind: "evidence", matterId: item.matterId, relPath: item.relPath };
+  }
+  if (item.kind === "clause") {
+    return {
+      pinKind: "clause",
+      scope: item.scope,
+      ...(item.sectionHeading ? { sectionHeading: item.sectionHeading } : {}),
+    };
+  }
+  if (item.kind === "playbook") {
+    return { pinKind: "playbook", playbookId: item.playbookId };
+  }
+  if (item.kind === "theory") {
+    return { pinKind: "theory", matterId: item.matterId };
+  }
+  return null;
+}
+
+export function formatTruthPinChip(
+  pin: TruthSourceContextPin,
+): { id: string; shortLabel: string; title: string } {
+  const id = makeContextPinId(pin);
+  switch (pin.pinKind) {
+    case "evidence":
+      return {
+        id,
+        shortLabel: `📎 ${pin.relPath.split("/").pop() ?? pin.relPath}`,
+        title: `证据材料 · cases/${pin.matterId}/${pin.relPath}`,
+      };
+    case "clause":
+      return {
+        id,
+        shortLabel: pin.scope === "full" ? "📚 条款 Playbook" : "📚 条款片段",
+        title:
+          pin.scope === "full"
+            ? "条款 Playbook（整册）"
+            : `条款 Playbook 片段 · ${pin.sectionHeading ?? ""}`,
+      };
+    case "playbook":
+      return {
+        id,
+        shortLabel: `🎭 ${pin.playbookId}`,
+        title: `审查剧本 · ${pin.playbookId}`,
+      };
+    case "theory":
+      return {
+        id,
+        shortLabel: "🧭 本案策略",
+        title: `本案理论 · cases/${pin.matterId}/MATTER_STRATEGY.md`,
+      };
+    default: {
+      const _exhaustive: never = pin;
+      return { id: String(_exhaustive), shortLabel: "钉选", title: "钉选" };
+    }
+  }
 }

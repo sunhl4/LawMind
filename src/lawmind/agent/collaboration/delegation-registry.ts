@@ -97,6 +97,26 @@ export function markDelegationRunning(
   return record;
 }
 
+function delegationResultMarkdownPath(workspaceDir: string, delegationId: string): string {
+  return path.join(delegationsDir(workspaceDir), `${delegationId}.result.md`);
+}
+
+export function readDelegationResultFile(
+  workspaceDir: string,
+  record: DelegationRecord,
+): string | undefined {
+  const rel = record.resultPath?.trim();
+  if (!rel) {
+    return undefined;
+  }
+  const abs = path.isAbsolute(rel) ? rel : path.join(workspaceDir, rel);
+  try {
+    return fs.readFileSync(abs, "utf8");
+  } catch {
+    return undefined;
+  }
+}
+
 export function markDelegationCompleted(
   workspaceDir: string,
   delegationId: string,
@@ -108,7 +128,20 @@ export function markDelegationCompleted(
     return undefined;
   }
   record.status = "completed";
-  record.result = result.slice(0, MAX_FROZEN_RESULT_BYTES);
+  if (result.length > MAX_FROZEN_RESULT_BYTES) {
+    const abs = delegationResultMarkdownPath(workspaceDir, delegationId);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, result, "utf8");
+    const rel = path.join(DELEGATIONS_DIR, `${delegationId}.result.md`);
+    record.resultPath = rel;
+    record.resultTruncated = true;
+    const head = result.slice(0, Math.min(8_000, MAX_FROZEN_RESULT_BYTES));
+    record.result = `${head}\n\n…[全文已落盘 ${rel}；请用 get_delegation_result 读取完整结果]`;
+  } else {
+    record.result = result;
+    record.resultTruncated = false;
+    record.resultPath = undefined;
+  }
   const sid = targetSessionId?.trim();
   if (sid) {
     record.targetSessionId = sid;

@@ -4,10 +4,12 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ArtifactDraft } from "../types.js";
 import { persistDraft } from "./index.js";
+import { readDraft } from "./index.js";
 import {
   generateRedlineProposal,
   readRedlineProposal,
   resetRedlineBaselineFromDraft,
+  resolveAllRedlineHunks,
   resolveRedlineHunk,
   writeRedlineProposal,
 } from "./redline-proposal.js";
@@ -90,6 +92,69 @@ describe("redline-proposal", () => {
     expect(resolved.draft.sections[0]?.body).toBe("Revised text");
     const stored = readRedlineProposal(ws, draft.taskId);
     expect(stored?.hunks[0]?.status).toBe("accepted");
+  });
+
+  it("reject reverts draft body to before", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-redline-"));
+    dirs.push(ws);
+    const draft: ArtifactDraft = {
+      taskId: "task-redline-reject",
+      title: "Test",
+      output: "markdown",
+      templateId: "default",
+      summary: "s",
+      sections: [{ heading: "Intro", body: "Original" }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: new Date().toISOString(),
+    };
+    persistDraft(ws, draft);
+    resetRedlineBaselineFromDraft(ws, draft.taskId);
+    draft.sections[0].body = "Changed by agent";
+    persistDraft(ws, draft);
+    const gen = generateRedlineProposal(ws, draft.taskId);
+    expect(gen.ok).toBe(true);
+    if (!gen.ok) {
+      return;
+    }
+    const hunkId = gen.proposal.hunks[0].hunkId;
+    const rejected = resolveRedlineHunk(ws, draft.taskId, hunkId, "reject");
+    expect(rejected.ok).toBe(true);
+    const after = readDraft(ws, draft.taskId);
+    expect(after?.sections[0]?.body).toBe("Original");
+    expect(readRedlineProposal(ws, draft.taskId)?.hunks[0]?.status).toBe("rejected");
+  });
+
+  it("resolveAll accept applies every pending hunk", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-redline-"));
+    dirs.push(ws);
+    const draft: ArtifactDraft = {
+      taskId: "task-redline-all",
+      title: "Test",
+      output: "markdown",
+      templateId: "default",
+      summary: "s",
+      sections: [
+        { heading: "A", body: "a0" },
+        { heading: "B", body: "b0" },
+      ],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: new Date().toISOString(),
+    };
+    persistDraft(ws, draft);
+    resetRedlineBaselineFromDraft(ws, draft.taskId);
+    draft.sections[0].body = "a1";
+    draft.sections[1].body = "b1";
+    persistDraft(ws, draft);
+    expect(generateRedlineProposal(ws, draft.taskId).ok).toBe(true);
+    const all = resolveAllRedlineHunks(ws, draft.taskId, "accept");
+    expect(all.ok).toBe(true);
+    if (!all.ok) {
+      return;
+    }
+    expect(all.resolved).toBe(2);
+    expect(readDraft(ws, draft.taskId)?.sections.map((s) => s.body)).toEqual(["a1", "b1"]);
   });
 });
 

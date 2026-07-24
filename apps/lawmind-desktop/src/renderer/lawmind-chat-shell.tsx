@@ -33,6 +33,7 @@ import { LawmindComposeContextPicker } from "./LawmindComposeContextPicker";
 import { LawmindComposeTemplateGallery } from "./LawmindComposeTemplateGallery";
 import type { ReviewOpenTarget } from "./LawmindChatReviewSticky";
 import type { FileChatContextItem } from "./lawmind-app-shell";
+import type { TruthSourceContextPin } from "../../../../src/lawmind/platform/compose-context-pin.ts";
 import {
   parseAtTrigger,
   rememberFileContextPath,
@@ -83,9 +84,14 @@ export type LawmindChatWorkspaceProps = {
   onRemoveFileChatPill: (id: string) => void;
   onClearFileChatPills: () => void;
   onAddFileToChatContext?: (payload: Pick<FileChatContextItem, "root" | "relPath" | "kind">) => void;
+  onAddComposeTruthPin?: (pin: TruthSourceContextPin) => void;
   onContextMatterChange?: (matterId: string | null) => void;
   composeMatterOptions?: ComposeContextMatterOption[];
   fileChatContextItems?: FileChatContextItem[];
+  composeTruthPins?: TruthSourceContextPin[];
+  truthPills?: Array<{ id: string; shortLabel: string; title: string }>;
+  onRemoveTruthPill?: (id: string) => void;
+  onClearTruthPills?: () => void;
   /** 打开设置（模型/API、联网密钥等） */
   onOpenComposeSettings?: () => void;
   /** 打开设置首页（上次所在分区或概览） */
@@ -175,9 +181,14 @@ export function LawmindChatComposeFooter({
   onRemoveFileChatPill,
   onClearFileChatPills,
   onAddFileToChatContext,
+  onAddComposeTruthPin,
   onContextMatterChange,
   composeMatterOptions = [],
   fileChatContextItems = [],
+  composeTruthPins = [],
+  truthPills = [],
+  onRemoveTruthPill,
+  onClearTruthPills,
   templateGalleryOpen: templateGalleryOpenProp,
   onTemplateGalleryOpenChange,
 }: Pick<
@@ -225,9 +236,14 @@ export function LawmindChatComposeFooter({
   | "onRemoveFileChatPill"
   | "onClearFileChatPills"
   | "onAddFileToChatContext"
+  | "onAddComposeTruthPin"
   | "onContextMatterChange"
   | "composeMatterOptions"
   | "fileChatContextItems"
+  | "composeTruthPins"
+  | "truthPills"
+  | "onRemoveTruthPill"
+  | "onClearTruthPills"
 > & {
   composeExtras: LawmindComposeExtras;
   templateGalleryOpen?: boolean;
@@ -531,6 +547,14 @@ export function LawmindChatComposeFooter({
     [onAddFileToChatContext, finishContextPickerSelection],
   );
 
+  const handleSelectContextTruthPin = useCallback(
+    (pin: TruthSourceContextPin) => {
+      onAddComposeTruthPin?.(pin);
+      finishContextPickerSelection();
+    },
+    [onAddComposeTruthPin, finishContextPickerSelection],
+  );
+
   const handleSelectContextMatter = useCallback(
     (matterId: string) => {
       onContextMatterChange?.(matterId);
@@ -584,11 +608,14 @@ export function LawmindChatComposeFooter({
         queuedMessages={queuedMessages}
         cancelQueuedMessage={cancelQueuedMessage}
         fileChatPills={fileChatPills}
+        truthPills={truthPills}
         contextMatterId={contextMatterId}
         contextTaskId={contextTaskId}
         matterTitle={matterTitle}
         onRemoveFileChatPill={onRemoveFileChatPill}
+        onRemoveTruthPill={onRemoveTruthPill}
         onClearFileChatPills={onClearFileChatPills}
+        onClearTruthPills={onClearTruthPills}
         onClearMatter={contextTaskId ? undefined : clearMatterChip}
         onClearTask={contextTaskId ? onClearContext : undefined}
         planHandoffSummary={planHandoffText ? planHandoffSummary(planHandoffText) : null}
@@ -661,8 +688,10 @@ export function LawmindChatComposeFooter({
         apiBase={apiBase}
         contextMatterId={contextMatterId}
         pinnedFiles={fileChatContextItems}
+        pinnedTruthPins={composeTruthPins}
         matters={composeMatterOptions}
         onSelectFile={handleSelectContextFile}
+        onSelectTruthPin={handleSelectContextTruthPin}
         onSelectMatter={handleSelectContextMatter}
         onSelectTemplate={handleSelectContextTemplate}
         onClose={closeContextPicker}
@@ -742,9 +771,14 @@ export function LawmindChatShell(props: LawmindChatWorkspaceProps) {
         onRemoveFileChatPill={props.onRemoveFileChatPill}
         onClearFileChatPills={props.onClearFileChatPills}
         onAddFileToChatContext={props.onAddFileToChatContext}
+        onAddComposeTruthPin={props.onAddComposeTruthPin}
         onContextMatterChange={props.onContextMatterChange}
         composeMatterOptions={props.composeMatterOptions}
         fileChatContextItems={props.fileChatContextItems}
+        composeTruthPins={props.composeTruthPins}
+        truthPills={props.truthPills}
+        onRemoveTruthPill={props.onRemoveTruthPill}
+        onClearTruthPills={props.onClearTruthPills}
         templateGalleryOpen={templateGalleryOpen}
         onTemplateGalleryOpenChange={setTemplateGalleryOpen}
       />

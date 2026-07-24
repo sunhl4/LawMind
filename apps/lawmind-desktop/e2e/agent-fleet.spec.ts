@@ -56,4 +56,25 @@ test.describe("在办工作台", () => {
     await page.getByTestId("lm-agents-tab-active").click();
     await expect(page.getByTestId("lm-agent-fleet-panel")).toBeVisible({ timeout: 15_000 });
   });
+
+  test("必核勾选 → 通过 → 导出 Word 引导条", async ({ page }) => {
+    await gotoShell(page);
+    await page.getByTestId("lm-tab-agents").click();
+    await expect(page.getByTestId("lm-agent-fleet-panel")).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId("lm-fleet-team-default").click();
+    await expect(page.getByTestId("lm-fleet-desk-checklist")).toBeVisible({ timeout: 15_000 });
+    const checkAll = page.getByTestId("lm-fleet-checklist-check-all");
+    if (await checkAll.isEnabled()) {
+      await checkAll.click();
+    }
+    await expect(page.getByTestId("lm-fleet-draft-approve")).toBeEnabled({ timeout: 10_000 });
+    await page.getByTestId("lm-fleet-draft-approve").click();
+    await expect(page.getByTestId("lm-fleet-post-approve")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("lm-fleet-post-approve")).toContainText(/已通过/);
+    await page.getByTestId("lm-fleet-post-approve-export").click();
+    await expect(page.getByTestId("lm-fleet-post-approve")).toContainText(/已导出|e2e\.docx/, {
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId("lm-fleet-post-approve-dismiss")).toBeVisible();
+  });
 });

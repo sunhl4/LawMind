@@ -254,6 +254,10 @@ async function callModelOnce(
     body.max_tokens = config.maxTokens;
   }
 
+  if (Array.isArray(config.stop) && config.stop.length > 0) {
+    body.stop = config.stop.filter((s) => typeof s === "string" && s.length > 0).slice(0, 8);
+  }
+
   if (tools.length > 0) {
     body.tools = tools;
     body.tool_choice = "auto";

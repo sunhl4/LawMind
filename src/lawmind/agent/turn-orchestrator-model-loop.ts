@@ -21,6 +21,10 @@ import {
 import { executeToolBatches, type ToolRoundPolicyHints } from "./turn-orchestrator-tool-round.js";
 import type { AgentConfig, AgentContext, AgentMessage, AgentSession, AgentTurn } from "./types.js";
 
+/**
+ * Strict tool streaming is opt-in (D3): desktop/SSE defaults relaxed so tool_calls
+ * can arrive without forcing upstream stream constraints. Set LAWMIND_STRICT_TOOL_STREAM=1 to enable.
+ */
 export function resolveStrictUpstreamToolStreaming(
   hasOnEvent: boolean,
   env: NodeJS.ProcessEnv = process.env,
@@ -28,10 +32,8 @@ export function resolveStrictUpstreamToolStreaming(
   if (!hasOnEvent) {
     return false;
   }
-  return !(
-    env.LAWMIND_STRICT_TOOL_STREAM === "0" ||
-    ["false", "off"].includes(env.LAWMIND_STRICT_TOOL_STREAM?.trim().toLowerCase() ?? "")
-  );
+  const raw = env.LAWMIND_STRICT_TOOL_STREAM?.trim().toLowerCase() ?? "";
+  return raw === "1" || raw === "true" || raw === "on";
 }
 
 export type ModelToolLoopResult = {
@@ -91,9 +93,15 @@ export async function runModelToolLoop(opts: {
       opts.hasOnEvent &&
       (!strictUpstreamToolStreaming || opts.openAITools.length === 0 || hadToolResponsesThisTurn);
 
+    // E7: tool rounds prefer workerModel when configured; final no-tool reply uses primary.
+    const modelForRound =
+      opts.openAITools.length > 0 && opts.config.workerModel
+        ? opts.config.workerModel
+        : opts.config.model;
+
     let response: Awaited<ReturnType<typeof callModelWithRetry>>;
     try {
-      response = await callModelWithRetry(opts.config.model, modelMessages, opts.openAITools, {
+      response = await callModelWithRetry(modelForRound, modelMessages, opts.openAITools, {
         stream: useUpstreamTokenStream,
         onDelta: useUpstreamTokenStream
           ? (chunk: string) => opts.emitEvent({ type: "delta", roundIndex, text: chunk })

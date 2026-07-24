@@ -10,7 +10,11 @@ import {
   type CompactPreview,
   type ComposeContextBudget,
 } from "./LawmindComposeContextUsage";
-import type { ComposePermissionMode } from "./lawmind-compose-prefs";
+import {
+  readShowToolTrace,
+  writeShowToolTrace,
+  type ComposePermissionMode,
+} from "./lawmind-compose-prefs";
 import type { ModelCatalogEntry } from "./lawmind-models-api";
 
 export type LawmindChatComposeToolbarProps = {
@@ -75,6 +79,7 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
   } = props;
 
   const [composeOptionsOpen, setComposeOptionsOpen] = useState(false);
+  const [showToolTrace, setShowToolTrace] = useState(() => readShowToolTrace());
   const composeOptionsRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -115,13 +120,16 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
             title={
               permissionMode === "readonly"
                 ? "先计划：只检索与分析，不写盘；确认后再切「标准」执行"
-                : permissionMode === "strict"
-                  ? "严格审批：危险工具必须先拍板"
-                  : "标准：可按策略调用工具"
+                : permissionMode === "research"
+                  ? "仅调研：只读工具 + research_task，不可起草/渲染/工作流"
+                  : permissionMode === "strict"
+                    ? "严格审批：危险工具必须先拍板"
+                    : "标准：可按策略调用工具"
             }
             onChange={(e) => onPermissionModeChange(e.target.value as ComposePermissionMode)}
           >
             <option value="readonly">先计划</option>
+            <option value="research">仅调研</option>
             <option value="standard">标准</option>
             <option value="strict">严格审批</option>
           </select>
@@ -172,6 +180,7 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
                 onChange={(e) => onPermissionModeChange(e.target.value as ComposePermissionMode)}
               >
                 <option value="readonly">先计划</option>
+                <option value="research">仅调研</option>
                 <option value="standard">标准</option>
                 <option value="strict">严格审批</option>
               </select>
@@ -202,6 +211,25 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
                 对话
               </span>
             </span>
+            <label className="lm-compose-bar-field">
+              <span className="lm-compose-bar-label">工具轨迹</span>
+              <select
+                className="lm-compose-select"
+                value={showToolTrace ? "on" : "off"}
+                disabled={loading}
+                aria-label="显示工具轨迹"
+                data-testid="lm-compose-show-tool-trace"
+                title="展开助手消息中的工具步骤与轨迹"
+                onChange={(e) => {
+                  const on = e.target.value === "on";
+                  setShowToolTrace(on);
+                  writeShowToolTrace(on);
+                }}
+              >
+                <option value="off">折叠</option>
+                <option value="on">展开</option>
+              </select>
+            </label>
           </div>
         </div>
         <LawmindModelPicker

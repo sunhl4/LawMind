@@ -14,7 +14,7 @@ import {
 import { tryBuildModelConnectivityCheckReply } from "./model-connectivity-check.js";
 import { tryBuildModelIdentityReply } from "./model-identity-reply.js";
 import { filterToolsForPermissionMode, type AgentPermissionMode } from "./permission-mode.js";
-import { createSession, loadSession } from "./session.js";
+import { appendTurn, createSession, loadSession, saveSession } from "./session.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import {
   bindTurnAbortSignal,
@@ -69,6 +69,8 @@ export async function runTurn(opts: {
   preApproveToolName?: string;
   preApproveToolArgs?: Record<string, unknown>;
   permissionMode?: AgentPermissionMode;
+  /** Structured compose `@` pins from desktop chat. */
+  contextPins?: import("../platform/compose-context-pin.js").ComposeContextPin[];
 }): Promise<{ turn: AgentTurn; reply: string; sessionId: string; memoryContext: MemoryContext }> {
   const { config, registry, instruction, matterId, sessionTitleHint } = opts;
   const linkedTaskIdForCtx =
@@ -108,10 +110,8 @@ export async function runTurn(opts: {
     session.matterId = matterId;
   }
 
-  // 新用户 instruction 视为对上一轮待澄清的回复：清除磁盘上的 pending，本轮内由工具结果重新设置 blocking。
-  if (session.pendingClarificationKeys?.length) {
-    delete session.pendingClarificationKeys;
-  }
+  // D8: keep pendingClarificationKeys across the turn so the prompt can list them;
+  // finalize clears or refreshes when the turn ends.
 
   const turnId = randomUUID();
   const startedAt = new Date().toISOString();
@@ -134,6 +134,7 @@ export async function runTurn(opts: {
     strictDangerousToolApproval,
     preApproveToolName: opts.preApproveToolName?.trim() || undefined,
     preApproveToolArgs: opts.preApproveToolArgs,
+    contextPins: opts.contextPins,
   };
 
   // 2. 构建 system prompt
@@ -146,6 +147,7 @@ export async function runTurn(opts: {
     linkedTaskIdForCtx,
     projectDirResolved,
     teamMeetingMode: opts.teamMeetingMode,
+    contextPins: opts.contextPins,
   });
 
   const toolSandboxEnabled = resolveToolSandboxEnabled(config.workspaceDir);
@@ -252,6 +254,43 @@ export async function runTurn(opts: {
     memoryContext: typeof memory;
   } => {
     clearTurnAbort(session.sessionId);
+    const hasProgress = turn.toolCallsExecuted > 0 || turn.messages.length > 0;
+
+    // Soft stop with progress → checkpoint (paused) so lawyer can resume.
+    if (hasProgress) {
+      turn.status = "paused";
+      turn.error = undefined;
+      const reply = `已暂停（已完成 ${turn.toolCallsExecuted} 次工具调用）。可「继续」从检查点接着做，或发送新指令。`;
+      turn.result = reply;
+      turn.completedAt = new Date().toISOString();
+      const agentMsg = {
+        role: "assistant" as const,
+        content: reply,
+        timestamp: new Date().toISOString(),
+      };
+      session.conversationHistory.push(agentMsg);
+      turn.messages.push(agentMsg);
+      session.turns.push({ ...turn });
+      try {
+        appendTurn(config.workspaceDir, turn);
+      } catch {
+        /* ignore disk */
+      }
+      emitEvent({ type: "final", status: "paused", reply });
+      ensureLiveProgressFinished("failed");
+      try {
+        saveSession(config.workspaceDir, session);
+      } catch {
+        /* ignore */
+      }
+      return {
+        turn,
+        reply,
+        sessionId: session.sessionId,
+        memoryContext: memory,
+      };
+    }
+
     turn.status = "error";
     turn.error = "aborted_by_user";
     // Match desktop Stop: drop this turn's user row when no assistant content yet.
@@ -330,6 +369,7 @@ export async function runTurn(opts: {
       emitEvent,
       abortRequested,
       onAborted: finishAbortedByUser,
+      autoDeliverableWorkflow: intakePolicy?.autoDeliverableWorkflow,
     });
     if (autoWfResult) {
       return autoWfResult;
@@ -351,6 +391,7 @@ export async function runTurn(opts: {
         allowedToolNames: roleForTools?.allowedToolNames ?? presetForTools?.allowedToolNames,
         roleId: roleForTools?.roleId,
         riskCeiling: roleForTools?.riskCeiling ?? presetForTools?.riskCeiling,
+        autoApproveSandboxWorkflowSteps: config.autoApproveSandboxWorkflowSteps === true,
       },
       actorId,
       hasOnEvent: Boolean(opts.onEvent),

@@ -70,10 +70,19 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
   const privateDeployChecklist = runPrivateDeployChecklist(workspaceDir);
   const mandatoryRules = resolveAgentMandatoryRulesForPrompt(workspaceDir, policyForEdition);
   const lawmindRouterMode = (process.env.LAWMIND_ROUTER_MODE ?? "").trim() || "keyword";
-  const lawmindReasoningMode = (process.env.LAWMIND_REASONING_MODE ?? "").trim() || "off";
-  const lawmindAgentMaxToolCalls = resolveAgentMaxToolCallsPerTurn(workspaceDir);
+  const reasoningModeRaw = (process.env.LAWMIND_REASONING_MODE ?? "").trim().toLowerCase();
   const draftWithModelEnabled = readDraftWithModelStoreFlag(lawMindRoot);
   const draftWithModelActive = resolveDraftReasoningLlmConfig(lawMindRoot) !== null;
+  const lawmindReasoningMode =
+    reasoningModeRaw || (draftWithModelActive ? "model" : "off");
+  const lawmindAgentMaxToolCalls = resolveAgentMaxToolCallsPerTurn(workspaceDir);
+  const capabilityEnvelope = {
+    contextTokens: built.config?.model?.contextTokens ?? null,
+    maxOutputTokens: built.config?.model?.maxTokens ?? null,
+    temperature: built.config?.model?.temperature ?? null,
+    toolCallsPerTurn: lawmindAgentMaxToolCalls,
+    maxHistoryMessages: built.config?.maxHistoryMessages ?? null,
+  };
   const usageSummary = summarizeModelUsage(workspaceDir, { sinceDays: 30 });
   const matterConsistency = await buildMatterConsistencySummary(workspaceDir);
   const taskDraftConsistency = buildTaskDraftConsistencySummary(workspaceDir);
@@ -87,6 +96,7 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
       lawmindAgentBehaviorEpoch: LAWMIND_AGENT_BEHAVIOR_EPOCH,
       lawmindClarificationProtocol: "v1",
       lawmindAgentMaxToolCalls,
+      capabilityEnvelope,
       agentMandatoryRulesActive: mandatoryRules.active,
       agentMandatoryRulesTruncated: mandatoryRules.truncated,
       citationMode,

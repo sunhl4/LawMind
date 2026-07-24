@@ -21,6 +21,8 @@ import {
   deleteSessionMessagePairAtUiIndex,
   truncateSessionFromUiIndex,
 } from "../../../src/lawmind/agent/session-message-mutate.js";
+import { createLawMindAgent } from "../../../src/lawmind/agent/agent-factory.js";
+import { resumePausedTurn } from "../../../src/lawmind/agent/runtime-resume.js";
 import { requestTurnAbort } from "../../../src/lawmind/agent/turn-abort.js";
 import type { AgentMessage } from "../../../src/lawmind/agent/types.js";
 import { loadTranscriptForResume, repairTranscriptChain } from "../../../src/lawmind/adapters/session-transcript/index.js";
@@ -32,7 +34,7 @@ import { listPendingToolApprovals } from "../../../src/lawmind/platform/pending-
 import { z } from "zod";
 import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
-import { readJsonBody, sendJson } from "./lawmind-server-helpers.js";
+import { buildAgentConfig, readJsonBody, sendJson } from "./lawmind-server-helpers.js";
 
 const compactBodySchema = z.object({
   distill: z.boolean().optional(),
@@ -319,6 +321,47 @@ export async function handleSessionExtendedRoutes({
       },
       c,
     );
+    return true;
+  }
+
+  const resumePausedMatch = /^\/api\/sessions\/([^/]+)\/resume-paused$/.exec(pathname);
+  if (resumePausedMatch && req.method === "POST") {
+    const sessionId = resumePausedMatch[1] ?? "";
+    const session = loadSession(workspaceDir, sessionId);
+    if (!session) {
+      sendJson(res, 404, { ok: false, code: "not_found", message: "session not found" }, c);
+      return true;
+    }
+    const hasPaused = session.turns.some((t) => t.status === "paused");
+    if (!hasPaused) {
+      sendJson(res, 409, { ok: false, error: "no_paused_turn" }, c);
+      return true;
+    }
+    const built = buildAgentConfig(workspaceDir, { envFile: ctx.envFile });
+    if (!built.config) {
+      sendJson(res, 503, { ok: false, error: "missing_api_key" }, c);
+      return true;
+    }
+    const agent = createLawMindAgent(built.config);
+    try {
+      const result = await resumePausedTurn(built.config, agent.getRegistry(), sessionId, {
+        matterId: session.matterId,
+      });
+      sendJson(
+        res,
+        200,
+        {
+          ok: true,
+          sessionId: result.sessionId,
+          reply: result.reply,
+          turnStatus: result.turn.status,
+        },
+        c,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      sendJson(res, 500, { ok: false, error: msg }, c);
+    }
     return true;
   }
 

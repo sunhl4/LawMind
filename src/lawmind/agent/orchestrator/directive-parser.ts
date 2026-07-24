@@ -12,6 +12,10 @@
 
 import { randomUUID } from "node:crypto";
 import { loadAssistantProfiles } from "../../assistants/store.js";
+import {
+  resolveCapabilityEnvelope,
+  resolveTemperatureForTask,
+} from "../../models/capability-envelope.js";
 import type { AgentConfig, AgentModelConfig } from "../types.js";
 import type {
   CollaborationWorkflow,
@@ -157,8 +161,12 @@ ${assistantList}
           { role: "system", content: systemPrompt },
           { role: "user", content: directive },
         ],
-        temperature: 0.1,
-        max_tokens: Math.min(16_384, Math.max(4_096, modelConfig.maxTokens ?? 8_192)),
+        temperature: resolveTemperatureForTask("plan", modelConfig.temperature),
+        max_tokens: resolveCapabilityEnvelope({
+          contextTokens: modelConfig.contextTokens,
+          taskKind: "plan",
+          maxTokensOverride: modelConfig.maxTokens,
+        }).maxOutputTokens,
       }),
     });
 

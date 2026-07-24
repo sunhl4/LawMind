@@ -1,4 +1,5 @@
 import { listPlatformGateHistory } from "../../../src/lawmind/platform/audit-gate.js";
+import { mergeRecommendedLegalNetworkAllowlist } from "../../../src/lawmind/policy/network-allowlist.js";
 import {
   mergeWorkspacePolicyFile,
   readWorkspacePolicyFile,
@@ -59,6 +60,27 @@ export async function handlePlatformRoutes({
       res,
       200,
       { ok: true, highSecurityMode: merged.policy.highSecurityMode === true },
+      c,
+    );
+    return true;
+  }
+
+  if (pathname === "/api/policy/workspace/recommended-allowlist" && req.method === "POST") {
+    const policy = readWorkspacePolicyFile(ctx.workspaceDir);
+    const networkAllowlist = mergeRecommendedLegalNetworkAllowlist(policy?.networkAllowlist);
+    const merged = mergeWorkspacePolicyFile(ctx.workspaceDir, { networkAllowlist });
+    if (!merged.ok) {
+      sendJson(res, 500, { ok: false, message: merged.error }, c);
+      return true;
+    }
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        networkAllowlist: merged.policy.networkAllowlist ?? networkAllowlist,
+        note: "已合并推荐法律检索主机；未强制开启联网或 networkAllowlistEnforced。",
+      },
       c,
     );
     return true;

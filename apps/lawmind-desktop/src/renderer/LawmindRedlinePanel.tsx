@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { apiGetJson, apiSendJson } from "./api-client";
-import { apiPostRedlineHunkResolve } from "./lawmind-api-routes.ts";
+import { apiPostRedlineHunkResolve, apiPostRedlineResolveAll } from "./lawmind-api-routes.ts";
 
 type RedlineHunk = {
   hunkId: string;
@@ -107,6 +107,25 @@ export function LawmindRedlinePanel(props: Props): ReactNode {
     }
   };
 
+  const resolveAll = async (decision: "accept" | "reject") => {
+    setBusy(true);
+    setError(null);
+    try {
+      const j = (await apiPostRedlineResolveAll(apiBase, taskId, { decision })) as {
+        ok?: boolean;
+        proposal?: RedlineProposal;
+      };
+      if (j.ok && j.proposal) {
+        setProposal(j.proposal);
+        onDraftUpdated?.();
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const pending = proposal?.hunks.filter((h) => h.status === "pending") ?? [];
 
   return (
@@ -130,10 +149,32 @@ export function LawmindRedlinePanel(props: Props): ReactNode {
           >
             {busy ? "…" : "生成提案"}
           </button>
+          {pending.length > 0 ? (
+            <>
+              <button
+                type="button"
+                className="lm-btn lm-btn-small"
+                disabled={busy}
+                data-testid="lm-redline-accept-all"
+                onClick={() => void resolveAll("accept")}
+              >
+                全部接受
+              </button>
+              <button
+                type="button"
+                className="lm-btn lm-btn-secondary lm-btn-small"
+                disabled={busy}
+                data-testid="lm-redline-reject-all"
+                onClick={() => void resolveAll("reject")}
+              >
+                全部拒绝
+              </button>
+            </>
+          ) : null}
         </div>
       </div>
       <p className="lm-meta">
-        先「设为基准」锁定对照稿，再在编辑器中修改正文，最后「生成提案」对比差异（本波不含 Word 修订轨）。
+        助手改稿后会自动生成待决提案；「接受」写入、「拒绝」回滚到基准。亦可手动设基准后编辑再「生成提案」。
       </p>
       {error ? <p className="lm-meta lm-text-danger">{error}</p> : null}
       {pending.length === 0 ? (

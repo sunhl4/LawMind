@@ -355,20 +355,41 @@ export function LawmindSettingsPage({
           <footer className="lm-settings-sidebar-footer">
             <button
               type="button"
-              className="lm-link-btn lm-settings-sidebar-close"
+              className="lm-settings-sidebar-btn lm-settings-sidebar-btn--back"
               onClick={onClose}
-              aria-label="关闭设置并返回"
+              aria-label="关闭设置并返回工作台"
+              data-testid="lm-settings-sidebar-back"
             >
-              ← 返回工作台
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden>
+                <path
+                  d="M9.75 3.5 5.25 8l4.5 4.5"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              返回工作台
             </button>
             <span className="lm-settings-sidebar-version" title="LawMind 桌面版">
               v{config?.appVersion?.trim() || "dev"}
             </span>
             <button
               type="button"
-              className="lm-link-btn lm-settings-sidebar-about-link"
+              className="lm-settings-sidebar-btn lm-settings-sidebar-btn--update"
               onClick={() => navigateToSection("app-update")}
+              aria-label="检查应用更新"
+              data-testid="lm-settings-sidebar-update"
             >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden>
+                <path
+                  d="M8 2.75v6.5M5.5 6.75 8 9.25l2.5-2.5M3.25 12.5h9.5"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
               更新
             </button>
           </footer>

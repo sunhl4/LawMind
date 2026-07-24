@@ -29,7 +29,7 @@ export type {
 
 export { ToolRegistry, createLegalToolRegistry } from "./tools/index.js";
 export { runTurn } from "./runtime.js";
-export { resumeTurn } from "./runtime-resume.js";
+export { resumePausedTurn, resumeTurn } from "./runtime-resume.js";
 export type { RunTurnEvent } from "./runtime.js";
 export {
   createSession,

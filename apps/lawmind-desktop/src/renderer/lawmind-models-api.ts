@@ -36,6 +36,7 @@ export type ModelsCatalogPayload = {
   ok?: boolean;
   models: ModelCatalogEntry[];
   defaultModelId: string;
+  workerModelId?: string | null;
   draftWithModelEnabled?: boolean;
   providers: ProviderKeyStatus[];
   platformProviders?: PlatformProviderKeyStatus[];
@@ -67,6 +68,23 @@ export async function setDefaultModelId(apiBase: string, modelId: string): Promi
   if (!res.ok || body.ok === false) {
     throw new Error("设置默认模型失败");
   }
+}
+
+/** E7: optional fast worker model for tool-loop rounds. Pass null/empty to clear. */
+export async function setWorkerModelIdApi(
+  apiBase: string,
+  modelId: string | null,
+): Promise<string | null> {
+  const res = await fetch(`${apiBase}/api/models/worker`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json", ...apiAuthHeaders() },
+    body: JSON.stringify({ modelId }),
+  });
+  const body = await readJsonFromResponse<{ ok?: boolean; workerModelId?: string | null }>(res);
+  if (!res.ok || body.ok === false) {
+    throw new Error("设置 Worker 模型失败");
+  }
+  return body.workerModelId ?? null;
 }
 
 export async function setDraftWithModelEnabled(
@@ -106,6 +124,8 @@ export async function addCustomModel(
     apiKey: string;
     setAsDefault?: boolean;
     keyStorage?: "keychain" | "env";
+    /** Optional stop sequences (comma-separated or array). */
+    stop?: string | string[];
   },
 ): Promise<ModelCatalogEntry> {
   const res = await fetch(`${apiBase}/api/models/custom`, {

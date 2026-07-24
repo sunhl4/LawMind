@@ -7,6 +7,8 @@ import {
   resolveAgentModelById,
   resolveDraftReasoningLlmConfig,
   setDefaultModelId,
+  setWorkerModelId,
+  readModelsStore,
   setDraftWithModelEnabled,
 } from "../../../src/lawmind/models/index.js";
 import { resolveLawMindRoot } from "../../../src/lawmind/assistants/store.js";
@@ -20,6 +22,11 @@ import {
 import { sendJsonError } from "./lawmind-api-error.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import { sendJson } from "./lawmind-server-helpers.js";
+import { z } from "zod";
+
+const modelsWorkerPatchSchema = z.object({
+  modelId: z.union([z.string().trim().max(200), z.null()]).optional(),
+});
 
 function lawMindRootFromCtx(ctx: LawmindRouteContext["ctx"]): string {
   return resolveLawMindRoot(ctx.workspaceDir, ctx.envFile);
@@ -36,6 +43,7 @@ export async function handleModelsRoutes({
 
   if (pathname === "/api/models" && req.method === "GET") {
     const catalog = buildModelCatalog(lawMindRoot);
+    const workerModelId = readModelsStore(lawMindRoot).workerModelId ?? null;
     sendJson(
       res,
       200,
@@ -43,6 +51,7 @@ export async function handleModelsRoutes({
         ok: true,
         models: catalog.models,
         defaultModelId: catalog.defaultModelId,
+        workerModelId,
         providers: catalog.providers,
         platformProviders: catalog.platformProviders,
         platformMode: catalog.platformMode,
@@ -145,6 +154,35 @@ export async function handleModelsRoutes({
     return true;
   }
 
+  if (pathname === "/api/models/worker" && req.method === "PATCH") {
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, modelsWorkerPatchSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJsonError(res, 400, "invalid_body", "worker modelId 无效。", c);
+        return true;
+      }
+      throw err;
+    }
+    const modelId = body.modelId?.trim() || undefined;
+    if (modelId) {
+      const catalog = buildModelCatalog(lawMindRoot);
+      const row = catalog.models.find((m) => m.id === modelId);
+      if (!row) {
+        sendJsonError(res, 404, "unknown_model", "未找到该 Worker 模型。", c);
+        return true;
+      }
+      if (!row.configured) {
+        sendJsonError(res, 400, "model_not_configured", "该模型尚未配置，无法设为 Worker。", c);
+        return true;
+      }
+    }
+    setWorkerModelId(lawMindRoot, modelId);
+    sendJson(res, 200, { ok: true, workerModelId: modelId ?? null }, c);
+    return true;
+  }
+
   if (pathname === "/api/models/draft-with-model" && req.method === "PATCH") {
     let body;
     try {
@@ -190,12 +228,23 @@ export async function handleModelsRoutes({
     const rawApiKey = body.apiKey ?? "";
     const allowKeyless = body.keyStorage === "keychain" || rawApiKey === "";
     try {
+      const stopRaw = body.stop;
+      const stop =
+        typeof stopRaw === "string"
+          ? stopRaw
+              .split(/[,，]/)
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : Array.isArray(stopRaw)
+            ? stopRaw
+            : undefined;
       const row = addCustomModel(lawMindRoot, {
         label: body.label ?? "",
         baseUrl: body.baseUrl ?? "",
         model: body.model ?? "",
         apiKey: rawApiKey,
         allowKeylessIfKeychain: allowKeyless,
+        ...(stop && stop.length > 0 ? { stop } : {}),
       });
       if (body.setAsDefault === true) {
         setDefaultModelId(lawMindRoot, row.id);

@@ -15,6 +15,7 @@ import { startDelegation } from "../../../src/lawmind/agent/tools/coordination/d
 import { resolveAssistantId } from "../../../src/lawmind/agent/tools/coordination/utils.js";
 import { loadSession } from "../../../src/lawmind/agent/session.js";
 import { getLiveTurnProgress } from "../../../src/lawmind/agent/live-turn-progress.js";
+import { requestTurnAbort } from "../../../src/lawmind/agent/turn-abort.js";
 import {
   buildWorkflowReport,
   executeWorkflow as runCollaborationWorkflow,
@@ -305,6 +306,9 @@ export async function handleCollaborationRoutes({
       if (!record) {
         sendJson(res, 404, { ok: false, error: "delegation not found" }, c);
         return true;
+      }
+      if (record.targetSessionId) {
+        requestTurnAbort(record.targetSessionId);
       }
       sendJson(res, 200, { ok: true, delegation: record }, c);
       return true;

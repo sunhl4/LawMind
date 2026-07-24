@@ -44,6 +44,10 @@ export type LawMindAgent = {
       liveProgressSessionId?: string;
       /** Cooperative stop between model rounds */
       shouldAbort?: () => boolean;
+      /** Structured compose `@` pins (truth sources). */
+      contextPins?: import("../platform/compose-context-pin.js").ComposeContextPin[];
+      /** Inherit compose permission mode into this turn. */
+      permissionMode?: AgentConfig["permissionMode"];
     },
   ) => Promise<{
     reply: string;
@@ -89,6 +93,7 @@ export function createLawMindAgent(config: AgentConfig): LawMindAgent {
       allowWebSearch: config.allowWebSearch === true,
       enableCollaboration: config.enableCollaboration === true,
       baseConfig: config.enableCollaboration ? config : undefined,
+      collaborationDepth: config.collaborationDepth ?? 0,
     });
 
   if (config.enableCollaboration) {
@@ -102,11 +107,14 @@ export function createLawMindAgent(config: AgentConfig): LawMindAgent {
         actorId,
         assistantId: opts?.assistantId ?? config.assistantId,
         allowWebSearch: opts?.allowWebSearch ?? config.allowWebSearch,
+        permissionMode: opts?.permissionMode ?? config.permissionMode,
+        collaborationDepth: config.collaborationDepth ?? 0,
       };
       const registry = createLegalToolRegistry({
         allowWebSearch: mergedConfig.allowWebSearch === true,
         enableCollaboration: mergedConfig.enableCollaboration === true,
         baseConfig: mergedConfig.enableCollaboration ? mergedConfig : undefined,
+        collaborationDepth: mergedConfig.collaborationDepth ?? 0,
       });
       const result = await runTurn({
         config: mergedConfig,
@@ -121,6 +129,8 @@ export function createLawMindAgent(config: AgentConfig): LawMindAgent {
         onEvent: opts?.onEvent,
         liveProgressSessionId: opts?.liveProgressSessionId,
         shouldAbort: opts?.shouldAbort,
+        contextPins: opts?.contextPins,
+        permissionMode: mergedConfig.permissionMode,
       });
 
       return {

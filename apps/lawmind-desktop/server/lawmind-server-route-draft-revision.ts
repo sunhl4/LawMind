@@ -15,7 +15,11 @@ import {
   loadAssistantProfiles,
   resolveLawMindRoot,
 } from "../../../src/lawmind/assistants/store.js";
-import { readDraft } from "../../../src/lawmind/drafts/index.js";
+import {
+  generateRedlineAfterWrite,
+  prepareRedlineBaselineBeforeWrite,
+  readDraft,
+} from "../../../src/lawmind/drafts/index.js";
 import {
   buildRevisionRetryInstruction,
   draftRevisionWasPersisted,
@@ -206,6 +210,7 @@ export async function handleDraftRevisionJobRoute({
   const bumpRoot = lawMindRoot;
   const bumpAssistantId = profile.assistantId;
   const revisionBaseline = snapshotDraftRevisionBaseline(workspaceDir, raw);
+  prepareRedlineBaselineBeforeWrite(workspaceDir, raw);
   void (async () => {
     const chatOpts = {
       sessionId: preSession.sessionId,
@@ -239,6 +244,11 @@ export async function handleDraftRevisionJobRoute({
         throw new Error(
           "revision_not_persisted: 助手未将修订写入 drafts 文件，请查看对话后重试或手动恢复待审核。",
         );
+      }
+      try {
+        generateRedlineAfterWrite(workspaceDir, raw);
+      } catch {
+        /* redline 失败不阻断修订完成 */
       }
       bumpAssistantStats(bumpRoot, bumpAssistantId, { newSession: true, turn: true });
       const engine = getLawMindEngine(workspaceDir);

@@ -20,11 +20,11 @@
 import path from "node:path";
 import {
   listDeliverableSpecs,
-  loadWorkspaceDeliverableSpecs,
   registerExtraDeliverableSpecs,
   validateDraftAgainstSpec,
 } from "../../src/lawmind/deliverables/index.js";
 import type { AcceptanceReport } from "../../src/lawmind/deliverables/index.js";
+import { loadWorkspaceDeliverableSpecs } from "../../src/lawmind/deliverables/workspace-loader.js";
 import { buildDraftAcceptancePackMarkdown } from "../../src/lawmind/delivery/draft-acceptance-pack.js";
 import { readDraft } from "../../src/lawmind/drafts/index.js";
 import { listTaskRecords } from "../../src/lawmind/tasks/index.js";
