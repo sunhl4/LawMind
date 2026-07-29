@@ -1,0 +1,29 @@
+{
+  "search_meta": {
+    "offset": 0,
+    "search": "买卖合同",
+    "search_type": "keyword",
+    "limit": 20,
+    "total": 1,
+    "export": false,
+    "enable_vsearch": false
+  },
+  "cases": [
+    {
+      "id": 42,
+      "preview": "本院认为，买卖合同依法成立……",
+      "doc_id": "http://wenshu.court.gov.cn/example/42",
+      "case_id": "（2020）京01民终123号",
+      "case_name": "张某与李某买卖合同纠纷二审民事判决书",
+      "court": "北京市第一中级人民法院",
+      "case_type": "民事",
+      "procedure": "二审",
+      "judgment_date": "2020-06-01",
+      "public_date": "2020-06-15",
+      "parties": "张某,李某",
+      "cause": "买卖合同纠纷",
+      "legal_basis": "《中华人民共和国民法典》第五百七十七条",
+      "full_text": "<div>本院认为……</div>"
+    }
+  ]
+}
