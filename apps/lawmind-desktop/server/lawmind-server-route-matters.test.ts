@@ -564,4 +564,597 @@ describe("lawmind-server-route-matters", () => {
       await fs.rm(ws, { recursive: true, force: true });
     }
   });
+
+  it("GET /api/matters lists matter ids", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matters-list-"));
+    try {
+      await fs.mkdir(path.join(ws, "cases", "matter-a"), { recursive: true });
+      await fs.writeFile(path.join(ws, "cases", "matter-a", "CASE.md"), "# A\n", "utf8");
+      const ctx: LawmindDispatchContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const capture = createResponseCapture();
+      await handleMatterRoutes({
+        ctx,
+        req: { method: "GET" } as http.IncomingMessage,
+        res: capture.res,
+        url: new URL("http://127.0.0.1/api/matters"),
+        pathname: "/api/matters",
+        c: {},
+      });
+      expect(capture.status).toBe(200);
+      expect(capture.json()).toMatchObject({ ok: true, matterIds: expect.arrayContaining(["matter-a"]) });
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("GET /api/matters/overviews returns summaries", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matters-overviews-"));
+    try {
+      await fs.mkdir(path.join(ws, "cases", "ov-1"), { recursive: true });
+      await fs.writeFile(path.join(ws, "cases", "ov-1", "CASE.md"), "# Case\n", "utf8");
+      const ctx: LawmindDispatchContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const capture = createResponseCapture();
+      await handleMatterRoutes({
+        ctx,
+        req: { method: "GET" } as http.IncomingMessage,
+        res: capture.res,
+        url: new URL("http://127.0.0.1/api/matters/overviews"),
+        pathname: "/api/matters/overviews",
+        c: {},
+      });
+      expect(capture.status).toBe(200);
+      const j = capture.json();
+      expect(j.ok).toBe(true);
+      expect(Array.isArray(j.overviews)).toBe(true);
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("POST /api/matters/create opens conflict queue when not confirmed", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matters-create-"));
+    try {
+      const ctx: LawmindDispatchContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const capture = createResponseCapture();
+      await handleMatterRoutes({
+        ctx,
+        req: createJsonRequest("POST", { matterId: "new-matter", displayName: "新案" }),
+        res: capture.res,
+        url: new URL("http://127.0.0.1/api/matters/create"),
+        pathname: "/api/matters/create",
+        c: {},
+      });
+      expect(capture.status).toBe(200);
+      expect(capture.json()).toMatchObject({
+        ok: true,
+        matterId: "new-matter",
+        conflictCheckRequired: true,
+        status: "intake",
+      });
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("GET /api/matters/detail returns index payload", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matters-detail-"));
+    try {
+      const matterId = "detail-1";
+      await fs.mkdir(path.join(ws, "cases", matterId), { recursive: true });
+      await fs.mkdir(path.join(ws, "matters", matterId), { recursive: true });
+      await fs.writeFile(
+        path.join(ws, "cases", matterId, "CASE.md"),
+        `# Case\n\n## 1. 基本信息\n\n- matterId: ${matterId}\n`,
+        "utf8",
+      );
+      await fs.writeFile(
+        path.join(ws, "matters", matterId, "matter.json"),
+        JSON.stringify({
+          matterId,
+          title: "详情案",
+          status: "active",
+          sensitivity: "normal",
+          strategyStatus: "missing",
+          openQuestionIds: [],
+          nextActions: [],
+          deadlineIds: [],
+          deliverableIds: [],
+          queueItemIds: [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }),
+        "utf8",
+      );
+      const ctx: LawmindDispatchContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const capture = createResponseCapture();
+      await handleMatterRoutes({
+        ctx,
+        req: { method: "GET" } as http.IncomingMessage,
+        res: capture.res,
+        url: new URL(`http://127.0.0.1/api/matters/detail?matterId=${matterId}`),
+        pathname: "/api/matters/detail",
+        c: {},
+      });
+      expect(capture.status).toBe(200);
+      const j = capture.json();
+      expect(j.ok).toBe(true);
+      expect(j.matterId).toBe(matterId);
+      expect(j.summary).toBeTruthy();
+      expect(Array.isArray(j.tasks)).toBe(true);
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("GET /api/approvals and /api/queues list workspace items", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matters-approvals-"));
+    try {
+      const { requestApproval } = await import(
+        "../../../src/lawmind/application/services/approval-service.js"
+      );
+      const { openQueueItem } = await import(
+        "../../../src/lawmind/application/services/queue-write-service.js"
+      );
+      requestApproval(ws, {
+        matterId: "m-appr-list",
+        requestedBy: "lawyer:1",
+        reason: "签批",
+        riskLevel: "low",
+      });
+      openQueueItem(ws, {
+        matterId: "m-appr-list",
+        kind: "need_lawyer_review",
+        title: "待审",
+      });
+      const ctx: LawmindDispatchContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const apprCap = createResponseCapture();
+      await handleMatterRoutes({
+        ctx,
+        req: { method: "GET" } as http.IncomingMessage,
+        res: apprCap.res,
+        url: new URL("http://127.0.0.1/api/approvals?matterId=m-appr-list&status=pending"),
+        pathname: "/api/approvals",
+        c: {},
+      });
+      expect(apprCap.status).toBe(200);
+      expect((apprCap.json().approvals as unknown[]).length).toBeGreaterThan(0);
+
+      const queueCap = createResponseCapture();
+      await handleMatterRoutes({
+        ctx,
+        req: { method: "GET" } as http.IncomingMessage,
+        res: queueCap.res,
+        url: new URL("http://127.0.0.1/api/queues?matterId=m-appr-list&kind=need_lawyer_review"),
+        pathname: "/api/queues",
+        c: {},
+      });
+      expect(queueCap.status).toBe(200);
+      expect((queueCap.json().queueItems as unknown[]).length).toBeGreaterThan(0);
+    } finally {
+      await new Promise((r) => setTimeout(r, 80));
+      await fs.rm(ws, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+    }
+  });
+
+  it("GET /api/matters/search returns hits array for query", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matters-search-"));
+    try {
+      const matterId = "search-1";
+      await fs.mkdir(path.join(ws, "cases", matterId), { recursive: true });
+      await fs.writeFile(
+        path.join(ws, "cases", matterId, "CASE.md"),
+        "# 租赁合同纠纷\n\n核心争点：押金退还\n",
+        "utf8",
+      );
+      const ctx: LawmindDispatchContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const capture = createResponseCapture();
+      await handleMatterRoutes({
+        ctx,
+        req: { method: "GET" } as http.IncomingMessage,
+        res: capture.res,
+        url: new URL(`http://127.0.0.1/api/matters/search?matterId=${matterId}&q=押金`),
+        pathname: "/api/matters/search",
+        c: {},
+      });
+      expect(capture.status).toBe(200);
+      const j = capture.json();
+      expect(j.ok).toBe(true);
+      expect(j.query).toBe("押金");
+      expect(Array.isArray(j.hits)).toBe(true);
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("POST /api/matters/case-note appends core issue note", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matters-case-note-"));
+    try {
+      const matterId = "note-1";
+      await fs.mkdir(path.join(ws, "cases", matterId), { recursive: true });
+      await fs.writeFile(path.join(ws, "cases", matterId, "CASE.md"), "# Case\n", "utf8");
+      const ctx: LawmindDispatchContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const capture = createResponseCapture();
+      await handleMatterRoutes({
+        ctx,
+        req: createJsonRequest("POST", {
+          matterId,
+          section: "core_issue",
+          note: "管辖条款争议",
+        }),
+        res: capture.res,
+        url: new URL("http://127.0.0.1/api/matters/case-note"),
+        pathname: "/api/matters/case-note",
+        c: {},
+      });
+      expect(capture.status).toBe(200);
+      expect(capture.json()).toMatchObject({ ok: true });
+      const caseRaw = await fs.readFile(path.join(ws, "cases", matterId, "CASE.md"), "utf8");
+      expect(caseRaw).toContain("管辖条款争议");
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("GET /api/matters/interaction-rollup and session-timeline", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matters-rollup-"));
+    try {
+      const matterId = "rollup-1";
+      await fs.mkdir(path.join(ws, "cases", matterId), { recursive: true });
+      await fs.writeFile(path.join(ws, "cases", matterId, "CASE.md"), "# Case\n", "utf8");
+      const ctx: LawmindDispatchContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const rollupCap = createResponseCapture();
+      await handleMatterRoutes({
+        ctx,
+        req: { method: "GET" } as http.IncomingMessage,
+        res: rollupCap.res,
+        url: new URL("http://127.0.0.1/api/matters/interaction-rollup"),
+        pathname: "/api/matters/interaction-rollup",
+        c: {},
+      });
+      expect(rollupCap.status).toBe(200);
+      expect(rollupCap.json().ok).toBe(true);
+
+      const timelineCap = createResponseCapture();
+      await handleMatterRoutes({
+        ctx,
+        req: { method: "GET" } as http.IncomingMessage,
+        res: timelineCap.res,
+        url: new URL(`http://127.0.0.1/api/matters/session-timeline?matterId=${matterId}`),
+        pathname: "/api/matters/session-timeline",
+        c: {},
+      });
+      expect(timelineCap.status).toBe(200);
+      expect(timelineCap.json()).toMatchObject({ ok: true, matterId });
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    }
+  });
+
+  it("POST /api/matters/interaction records ui.matter_action audit", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matters-interaction-"));
+    try {
+      const matterId = "ix-1";
+      const taskId = "task-ix";
+      await fs.mkdir(path.join(ws, "tasks"), { recursive: true });
+      await fs.mkdir(path.join(ws, "cases", matterId), { recursive: true });
+      await fs.writeFile(path.join(ws, "cases", matterId, "CASE.md"), "# Case\n", "utf8");
+      await fs.writeFile(
+        path.join(ws, "tasks", `${taskId}.json`),
+        JSON.stringify({
+          taskId,
+          matterId,
+          kind: "agent.instruction",
+          status: "running",
+          summary: "对话",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }),
+        "utf8",
+      );
+      const ctx: LawmindDispatchContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const capture = createResponseCapture();
+      await handleMatterRoutes({
+        ctx,
+        req: createJsonRequest("POST", {
+          matterId,
+          taskId,
+          action: "open_review",
+          surface: "matter_workbench",
+          label: "打开审核",
+        }),
+        res: capture.res,
+        url: new URL("http://127.0.0.1/api/matters/interaction"),
+        pathname: "/api/matters/interaction",
+        c: {},
+      });
+      expect(capture.status).toBe(200);
+      expect(capture.json()).toMatchObject({ ok: true, taskId });
+    } finally {
+      await new Promise((r) => setTimeout(r, 50));
+      await fs.rm(ws, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+    }
+  });
+
+  it("GET/PUT /api/matters/team-roster round-trip", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matters-roster-"));
+    try {
+      const matterId = "roster-1";
+      await fs.mkdir(path.join(ws, "cases", matterId), { recursive: true });
+      await fs.writeFile(path.join(ws, "cases", matterId, "CASE.md"), "# Case\n", "utf8");
+      const ctx: LawmindDispatchContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const getCap = createResponseCapture();
+      await handleMatterRoutes({
+        ctx,
+        req: { method: "GET" } as http.IncomingMessage,
+        res: getCap.res,
+        url: new URL(`http://127.0.0.1/api/matters/team-roster?matterId=${matterId}`),
+        pathname: "/api/matters/team-roster",
+        c: {},
+      });
+      expect(getCap.status).toBe(200);
+      expect(getCap.json()).toMatchObject({ ok: true });
+
+      const putCap = createResponseCapture();
+      await handleMatterRoutes({
+        ctx,
+        req: createJsonRequest("PUT", {
+          matterId,
+          participantAssistantIds: ["asst-a", "asst-b"],
+          synthesizerAssistantId: "asst-a",
+        }),
+        res: putCap.res,
+        url: new URL("http://127.0.0.1/api/matters/team-roster"),
+        pathname: "/api/matters/team-roster",
+        c: {},
+      });
+      expect(putCap.status).toBe(200);
+      expect(putCap.json()).toMatchObject({
+        ok: true,
+        roster: expect.objectContaining({ synthesizerAssistantId: "asst-a" }),
+      });
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    }
+  });
+
+  it("GET /api/matters/team-meeting returns meeting window", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matters-meeting-"));
+    try {
+      const matterId = "meet-1";
+      await fs.mkdir(path.join(ws, "cases", matterId), { recursive: true });
+      await fs.writeFile(path.join(ws, "cases", matterId, "CASE.md"), "# Case\n", "utf8");
+      const ctx: LawmindDispatchContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const capture = createResponseCapture();
+      await handleMatterRoutes({
+        ctx,
+        req: { method: "GET" } as http.IncomingMessage,
+        res: capture.res,
+        url: new URL(`http://127.0.0.1/api/matters/team-meeting?matterId=${matterId}&limit=5`),
+        pathname: "/api/matters/team-meeting",
+        c: {},
+      });
+      expect(capture.status).toBe(200);
+      expect(capture.json()).toMatchObject({
+        ok: true,
+        lines: expect.any(Array),
+        total: expect.any(Number),
+      });
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("POST /api/matters/case-note appends risk and artifact sections", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matters-note-sections-"));
+    try {
+      const matterId = "note-sec";
+      await fs.mkdir(path.join(ws, "cases", matterId), { recursive: true });
+      await fs.writeFile(path.join(ws, "cases", matterId, "CASE.md"), "# Case\n", "utf8");
+      const ctx: LawmindDispatchContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      for (const section of ["risk", "artifact", "task_goal"] as const) {
+        const capture = createResponseCapture();
+        await handleMatterRoutes({
+          ctx,
+          req: createJsonRequest("POST", { matterId, section, note: `${section}-note` }),
+          res: capture.res,
+          url: new URL("http://127.0.0.1/api/matters/case-note"),
+          pathname: "/api/matters/case-note",
+          c: {},
+        });
+        expect(capture.status).toBe(200);
+      }
+      const caseRaw = await fs.readFile(path.join(ws, "cases", matterId, "CASE.md"), "utf8");
+      expect(caseRaw).toContain("risk-note");
+      expect(caseRaw).toContain("artifact-note");
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("GET/POST /api/matters/role reads and writes subdir role", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matters-role-"));
+    try {
+      const matterId = "role-1";
+      const ctx: LawmindDispatchContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const postCap = createResponseCapture();
+      await handleMatterRoutes({
+        ctx,
+        req: createJsonRequest("POST", { matterId, role: "folder" }),
+        res: postCap.res,
+        url: new URL("http://127.0.0.1/api/matters/role"),
+        pathname: "/api/matters/role",
+        c: {},
+      });
+      expect(postCap.status).toBe(200);
+      expect(postCap.json()).toMatchObject({ ok: true, role: "folder" });
+
+      const getCap = createResponseCapture();
+      await handleMatterRoutes({
+        ctx,
+        req: { method: "GET" } as http.IncomingMessage,
+        res: getCap.res,
+        url: new URL(`http://127.0.0.1/api/matters/role?matterId=${matterId}`),
+        pathname: "/api/matters/role",
+        c: {},
+      });
+      expect(getCap.status).toBe(200);
+      expect(getCap.json()).toMatchObject({ ok: true, role: "folder" });
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    }
+  });
+
+  it("GET /api/matters/review-matrix and export csv", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matters-matrix-"));
+    try {
+      const matterId = "matrix-1";
+      await fs.mkdir(path.join(ws, "cases", matterId), { recursive: true });
+      await fs.writeFile(path.join(ws, "cases", matterId, "CASE.md"), "# Case\n", "utf8");
+      const ctx: LawmindDispatchContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const matrixCap = createResponseCapture();
+      await handleMatterRoutes({
+        ctx,
+        req: { method: "GET" } as http.IncomingMessage,
+        res: matrixCap.res,
+        url: new URL(`http://127.0.0.1/api/matters/review-matrix?matterId=${matterId}`),
+        pathname: "/api/matters/review-matrix",
+        c: {},
+      });
+      expect(matrixCap.status).toBe(200);
+      expect(matrixCap.json()).toMatchObject({ ok: true, matrix: expect.any(Object) });
+
+      const exportCap = createResponseCapture();
+      await handleMatterRoutes({
+        ctx,
+        req: { method: "GET" } as http.IncomingMessage,
+        res: exportCap.res,
+        url: new URL(`http://127.0.0.1/api/matters/review-matrix/export?matterId=${matterId}`),
+        pathname: "/api/matters/review-matrix/export",
+        c: {},
+      });
+      expect(exportCap.status).toBe(200);
+      expect(exportCap.json()).toMatchObject({ ok: true, format: "csv", csv: expect.any(String) });
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("GET /api/matters/review-matrix rejects invalid matter id", async () => {
+    const ctx: LawmindDispatchContext = {
+      workspaceDir: os.tmpdir(),
+      envFile: undefined,
+      userEnvPath: path.join(os.tmpdir(), "x.env"),
+      policy: { loaded: false },
+    };
+    const capture = createResponseCapture();
+    await handleMatterRoutes({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res: capture.res,
+      url: new URL("http://127.0.0.1/api/matters/review-matrix?matterId=../evil"),
+      pathname: "/api/matters/review-matrix",
+      c: {},
+    });
+    expect(capture.status).toBe(400);
+    expect(capture.json()).toMatchObject({ ok: false, error: "invalid matter id" });
+  });
+
+  it("POST /api/matters/delete removes case directory", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matters-delete-"));
+    try {
+      const matterId = "del-1";
+      await fs.mkdir(path.join(ws, "cases", matterId), { recursive: true });
+      await fs.writeFile(path.join(ws, "cases", matterId, "CASE.md"), "# Case\n", "utf8");
+      const ctx: LawmindDispatchContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const capture = createResponseCapture();
+      await handleMatterRoutes({
+        ctx,
+        req: createJsonRequest("POST", { matterId }),
+        res: capture.res,
+        url: new URL("http://127.0.0.1/api/matters/delete"),
+        pathname: "/api/matters/delete",
+        c: {},
+      });
+      expect(capture.status).toBe(200);
+      expect(capture.json()).toMatchObject({ ok: true, matterId });
+      await expect(fs.access(path.join(ws, "cases", matterId))).rejects.toThrow();
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    }
+  });
 });

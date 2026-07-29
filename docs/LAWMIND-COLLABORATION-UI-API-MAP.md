@@ -12,7 +12,7 @@
 
 | 用户说法          | 代码                              | 组件                                                                             |
 | ----------------- | --------------------------------- | -------------------------------------------------------------------------------- |
-| 在办 · 进行中     | `agents` + `AgentsDeskTab=active` | `AgentFleetView` → `LawmindAgentFleetPanel`                                      |
+| 在办 · 待拍板     | `agents` + `AgentsDeskTab=active` | `AgentFleetView` → `LawmindAgentFleetPanel`                                      |
 | 在办 · 交出去的活 | `agents` + `delegations`          | `LawmindCollaborationDesk`（overview）                                           |
 | 在办 · 按流程办   | `agents` + `workflows`            | `LawmindCollaborationDesk` → `LawmindSettingsCollaboration`（`workflowsColumn`） |
 | 设置 · 团队工作流 | settings section `collaboration`  | `LawmindSettingsCollaborationBrief` → 按钮「在在办中打开按流程办」               |

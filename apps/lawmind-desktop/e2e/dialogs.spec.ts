@@ -6,23 +6,19 @@ test.describe("LawMind dialogs", () => {
     await installE2eBrowserPrefs(page);
   });
 
-  test("新建案件 creates a folder inline under 案件材料 (no create dialog)", async ({ page }) => {
+  test("新建案件 opens the create dialog from the sidebar (no FS bridge in browser E2E)", async ({
+    page,
+  }) => {
     await gotoShell(page);
-    const casesHeader = page
-      .locator(".lm-fs-section")
-      .filter({ hasText: "案件材料" })
-      .locator(".lm-fs-dual-header-body");
-    await expect(casesHeader).toBeVisible({ timeout: 30_000 });
-    await casesHeader.click({ button: "right" });
-    const newMatter = page.getByRole("menuitem", { name: /新建案件/ });
-    await expect(newMatter).toBeVisible({ timeout: 15_000 });
-    await newMatter.click();
-    const inline = page.locator(".lm-fs-inline-input input").first();
-    await expect(inline).toBeVisible({ timeout: 15_000 });
-    await expect(inline).toHaveAttribute("placeholder", /案件名/);
-    // Cancel without creating — Esc closes the inline field.
-    await inline.press("Escape");
-    await expect(page.getByRole("dialog", { name: /新建案件|创建案件/i })).toHaveCount(0);
+    // 浏览器 mock 模式无 FS bridge：材料树不渲染，走侧栏「新建」弹窗路径（Electron 内联建目录路径见 e2e:electron）。
+    const createBtn = page.getByTestId("lm-matter-sidebar-create");
+    await expect(createBtn).toBeVisible({ timeout: 30_000 });
+    await createBtn.click();
+    const dialog = page.getByRole("dialog", { name: /新建案件|创建案件/i });
+    await expect(dialog).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator(".lm-wizard-backdrop")).toBeVisible();
+    await page.getByRole("button", { name: /取消|关闭/i }).first().click();
+    await expect(dialog).toHaveCount(0, { timeout: 15_000 });
   });
 
   test("first-run wizard can be dismissed without blocking shell", async ({ page }) => {

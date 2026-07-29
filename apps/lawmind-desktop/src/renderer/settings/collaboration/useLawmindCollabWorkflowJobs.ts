@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { apiGetJson, errorMessage } from "../../api-client.js";
+import { apiGetJson, apiSendJson, errorMessage } from "../../api-client.js";
 import { apiPost } from "../../lawmind-api-routes.ts";
+import { openJobEventStream } from "../../lawmind-job-stream.ts";
 import type { WorkflowRunRequest } from "../../lawmind-api-request-types.ts";
 import {
   MAX_RECENT_JOB_SSE,
@@ -43,8 +44,8 @@ export function useLawmindCollabWorkflowJobs(opts: UseLawmindCollabWorkflowJobsO
   const [recentJobsError, setRecentJobsError] = useState<string | null>(null);
   const [copyHint, setCopyHint] = useState<string | null>(null);
   const workflowPollRef = useRef<number | null>(null);
-  const eventSourceRef = useRef<EventSource | null>(null);
-  const recentJobEventSourcesRef = useRef(new Map<string, EventSource>());
+  const eventSourceRef = useRef<(() => void) | null>(null);
+  const recentJobEventSourcesRef = useRef(new Map<string, () => void>());
   const notifiedTerminalJobsRef = useRef(new Set<string>());
 
   useEffect(() => {
@@ -54,11 +55,11 @@ export function useLawmindCollabWorkflowJobs(opts: UseLawmindCollabWorkflowJobsO
         workflowPollRef.current = null;
       }
       if (eventSourceRef.current) {
-        eventSourceRef.current.close();
+        eventSourceRef.current();
         eventSourceRef.current = null;
       }
       for (const [, es] of recentJobEventSourcesRef.current) {
-        es.close();
+        es();
       }
       recentJobEventSourcesRef.current.clear();
     };
@@ -115,16 +116,12 @@ export function useLawmindCollabWorkflowJobs(opts: UseLawmindCollabWorkflowJobsO
   useEffect(() => {
     if (!apiBase || !collaborationEnabled) {
       for (const [, es] of recentJobEventSourcesRef.current) {
-        es.close();
+        es();
       }
       recentJobEventSourcesRef.current.clear();
       return;
     }
-    if (typeof EventSource === "undefined") {
-      return;
-    }
 
-    const base = apiBase.replace(/\/?$/u, "");
     const watchIds = (recentJobs ?? [])
       .filter(
         (r) => (r.status === "queued" || r.status === "running") && r.jobId !== activeJobId,
@@ -137,7 +134,7 @@ export function useLawmindCollabWorkflowJobs(opts: UseLawmindCollabWorkflowJobsO
 
     for (const [jid, es] of recentJobEventSourcesRef.current.entries()) {
       if (!wanted.has(jid)) {
-        es.close();
+        es();
         recentJobEventSourcesRef.current.delete(jid);
       }
     }
@@ -146,55 +143,49 @@ export function useLawmindCollabWorkflowJobs(opts: UseLawmindCollabWorkflowJobsO
       if (recentJobEventSourcesRef.current.has(streamJobId)) {
         continue;
       }
-      try {
-        const es = new EventSource(`${base}/api/jobs/${encodeURIComponent(streamJobId)}/stream`);
-        recentJobEventSourcesRef.current.set(streamJobId, es);
-        es.addEventListener("message", (ev: MessageEvent) => {
-          try {
-            const data = JSON.parse(ev.data) as { ok?: boolean; job?: WorkflowJobListItem };
-            const job = data.job;
-            if (!job) {
-              return;
-            }
-            setRecentJobs((prev) => {
-              if (!prev) {
-                return prev;
-              }
-              return prev.map((row) =>
-                row.jobId === streamJobId
-                  ? {
-                      ...row,
-                      status: job.status,
-                      error: job.error,
-                      cancelRequested: job.cancelRequested,
-                      progress: job.progress,
-                      executionState: job.executionState,
-                      gateDecisions: job.gateDecisions,
-                    }
-                  : row,
-              );
-            });
-            if (
-              job.status === "completed" ||
-              job.status === "failed" ||
-              job.status === "cancelled"
-            ) {
-              es.close();
-              recentJobEventSourcesRef.current.delete(streamJobId);
-              void fetchRecentJobs();
-            }
-          } catch {
-            /* ignore */
+      const close = openJobEventStream({
+        apiBase,
+        jobId: streamJobId,
+        onMessage: (data) => {
+          const job = data.job as WorkflowJobListItem | undefined;
+          if (!job) {
+            return;
           }
-        });
-        es.addEventListener("error", () => {
-          es.close();
+          setRecentJobs((prev) => {
+            if (!prev) {
+              return prev;
+            }
+            return prev.map((row) =>
+              row.jobId === streamJobId
+                ? {
+                    ...row,
+                    status: job.status,
+                    error: job.error,
+                    cancelRequested: job.cancelRequested,
+                    progress: job.progress,
+                    executionState: job.executionState,
+                    gateDecisions: job.gateDecisions,
+                  }
+                : row,
+            );
+          });
+          if (
+            job.status === "completed" ||
+            job.status === "failed" ||
+            job.status === "cancelled"
+          ) {
+            recentJobEventSourcesRef.current.get(streamJobId)?.();
+            recentJobEventSourcesRef.current.delete(streamJobId);
+            void fetchRecentJobs();
+          }
+        },
+        onError: () => {
+          recentJobEventSourcesRef.current.get(streamJobId)?.();
           recentJobEventSourcesRef.current.delete(streamJobId);
           void fetchRecentJobs();
-        });
-      } catch {
-        /* ignore */
-      }
+        },
+      });
+      recentJobEventSourcesRef.current.set(streamJobId, close);
     }
   }, [apiBase, collaborationEnabled, recentJobs, activeJobId, fetchRecentJobs]);
 
@@ -203,15 +194,11 @@ export function useLawmindCollabWorkflowJobs(opts: UseLawmindCollabWorkflowJobsO
       return;
     }
     try {
-      const res = await fetch(
-        `${apiBase}/api/jobs/${encodeURIComponent(activeJobId.trim())}/cancel`,
-        { method: "POST" },
+      await apiSendJson(
+        apiBase,
+        `/api/jobs/${encodeURIComponent(activeJobId.trim())}/cancel`,
+        "POST",
       );
-      const j = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-      if (!res.ok) {
-        setNotificationHint(typeof j.error === "string" ? j.error : `取消失败（HTTP ${res.status}）`);
-        return;
-      }
       setCancelPendingMessage("已发送取消请求：当前步骤结束后将停止（单次委派仍会跑完）。");
     } catch (e) {
       setNotificationHint(errorMessage(e, "取消失败"));
@@ -240,7 +227,7 @@ export function useLawmindCollabWorkflowJobs(opts: UseLawmindCollabWorkflowJobsO
       workflowPollRef.current = null;
     }
     if (eventSourceRef.current) {
-      eventSourceRef.current.close();
+      eventSourceRef.current();
       eventSourceRef.current = null;
     }
     setRunBusy(true);
@@ -281,7 +268,7 @@ export function useLawmindCollabWorkflowJobs(opts: UseLawmindCollabWorkflowJobsO
 
         const closeEventSource = () => {
           if (eventSourceRef.current) {
-            eventSourceRef.current.close();
+            eventSourceRef.current();
             eventSourceRef.current = null;
           }
         };
@@ -428,40 +415,37 @@ export function useLawmindCollabWorkflowJobs(opts: UseLawmindCollabWorkflowJobsO
         };
 
         const openJobStream = (): boolean => {
-          if (typeof EventSource === "undefined") {
+          if (!apiBase) {
             return false;
           }
           try {
-            const base = apiBase.replace(/\/?$/u, "");
-            const es = new EventSource(`${base}/api/jobs/${encodeURIComponent(jobId)}/stream`);
-            eventSourceRef.current = es;
-            es.addEventListener("open", () => {
-              clearPoll();
-              setRunResult("后台运行中（实时进度流已连接）…");
-            });
-            es.addEventListener("message", (ev: MessageEvent) => {
-              try {
-                const data = JSON.parse(ev.data) as { ok?: boolean; job?: JobSnap };
-                const cont = applyJobUpdate(data.job);
+            const close = openJobEventStream({
+              apiBase,
+              jobId,
+              onOpen: () => {
+                clearPoll();
+                setRunResult("后台运行中（实时进度流已连接）…");
+              },
+              onMessage: (data) => {
+                const cont = applyJobUpdate(data.job as JobSnap | undefined);
                 if (!cont) {
                   closeEventSource();
                 }
-              } catch {
-                /* ignore */
-              }
-            });
-            es.addEventListener("error", () => {
-              closeEventSource();
-              if (terminalHandled) {
-                return;
-              }
-              void (async () => {
-                const cont = await pollOnce();
-                if (cont && !terminalHandled) {
-                  schedulePoll();
+              },
+              onError: () => {
+                closeEventSource();
+                if (terminalHandled) {
+                  return;
                 }
-              })();
+                void (async () => {
+                  const cont = await pollOnce();
+                  if (cont && !terminalHandled) {
+                    schedulePoll();
+                  }
+                })();
+              },
             });
+            eventSourceRef.current = close;
             return true;
           } catch {
             return false;

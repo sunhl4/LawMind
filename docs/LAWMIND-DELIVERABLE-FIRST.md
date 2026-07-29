@@ -205,7 +205,7 @@ AcceptanceReport { ready, checks, placeholderCount }
 
 ### 6.3 验收交付包（per-draft Acceptance Pack）
 
-> 受 `acceptancePackExport` feature 控制；Solo 调用 `/acceptance-pack` 端点会得到 403。
+> 受 `acceptancePackExport` feature 控制；Solo/Firm/Private 默认开启；policy 关闭时返回 403。
 
 每份草稿都可生成一份"放心交付包"Markdown，建议随 `.docx` 一同发给客户：
 

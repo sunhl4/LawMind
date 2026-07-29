@@ -10,7 +10,7 @@ import type { ReactNode } from "react";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import { lawmindDocUrl } from "./lawmind-public-urls.js";
 import { LAWMIND_ATTORNEY_DISCLAIMER_SHORT } from "./lawmind-attorney-disclaimer";
-import { writeComposePermissionMode } from "./lawmind-compose-prefs";
+import { applyPostFirstrunPermissionDefaults } from "./lawmind-compose-prefs";
 
 const DISMISS_KEY = "lm.firstRun.dismissed";
 /** Set by API wizard after successful save to open first-run once suppress lifts. */
@@ -262,8 +262,8 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
         }
       }
       const seedPrompt = STARTER_PROMPT_BY_ROLE[role](chosenSpec.displayName);
-      // 首跑默认「先计划」：降低误写盘风险，律师确认后再切标准执行。
-      writeComposePermissionMode("readonly");
+      // 首跑默认「先计划」；确认执行后优先「严格审批」（Solo 信任包装）。
+      applyPostFirstrunPermissionDefaults();
       onSeedReady({ matterId, seedPrompt });
       dismissForever();
     } catch (e) {
@@ -303,8 +303,8 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
         <div className="lm-firstrun-head">
           <h2>几步开始用</h2>
             <p className="lm-meta">
-            选身份与文书即可上手；习惯可跳过。首跑默认「先计划」再动手，交付前在「
-            <strong>文书台</strong>」完成必核与签批。
+            选身份与文书即可上手；习惯可跳过。首跑默认「先计划」；点「开始执行」后进入「严格审批」。交付前在「
+            <strong>文书台</strong>」完成必核，正式签批请回「在办」。
           </p>
           <ol className="lm-firstrun-steps" aria-label="进度">
             <li className={step === "role" ? "active" : "done"}>1. 身份</li>
@@ -506,6 +506,10 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
                 完整使用手册
               </a>
               （推荐从「桌面版快速上手」读起）。
+            </p>
+            <p className="lm-callout-body" data-testid="lm-firstrun-authority-boundary">
+              默认使用开源权威语料（内置少量演示 sample，非正式完整法库；可扩充 CORPUS）。无命中会拒答并提示「缺源」；正式引用请核对官方法条。闭源法宝/Lexis
+              仅手动接入，请勿将模型口述当作已核实法条或案号。
             </p>
           </div>
         </div>

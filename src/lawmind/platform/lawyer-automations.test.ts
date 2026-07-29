@@ -15,6 +15,9 @@ import {
   listMatterMailMessages,
   sanitizeNotifyEmail,
   writeMatterMailMessage,
+  listAutomations,
+  deleteAutomation,
+  buildMailDigestSummary,
 } from "./lawyer-automations.js";
 
 const dirs: string[] = [];
@@ -240,5 +243,39 @@ describe("lawyer-automations", () => {
     const inbox = listOpenAutomationInbox(ws, matterId);
     expect(inbox[0]?.summary).toContain("无合同附件");
     expect(inbox[0]?.jobId).toBeUndefined();
+  });
+
+  it("computeNextRunAt weekly schedule lands in future", () => {
+    const from = new Date("2026-07-18T12:00:00");
+    const next = computeNextRunAt({ kind: "weekly", weekday: 1, hour: 9, minute: 0 }, from);
+    expect(Date.parse(next)).toBeGreaterThan(from.getTime());
+  });
+
+  it("listAutomations / deleteAutomation round-trip", () => {
+    const ws = tmpWs();
+    const auto = createAutomation(ws, {
+      presetId: "custom",
+      matterId: "m_list",
+      instruction: "跟进",
+      schedule: { kind: "once", runAt: "2099-01-01T00:00:00.000Z" },
+    });
+    expect(listAutomations(ws).some((a) => a.id === auto.id)).toBe(true);
+    expect(deleteAutomation(ws, auto.id)).toBe(true);
+    expect(listAutomations(ws).some((a) => a.id === auto.id)).toBe(false);
+  });
+
+  it("buildMailDigestSummary summarizes subjects", () => {
+    const summary = buildMailDigestSummary([
+      {
+        id: "1",
+        from: "a@firm.com",
+        to: "me@firm.com",
+        subject: "合同修订",
+        receivedAt: "2026-07-18T08:00:00.000Z",
+        bodyText: "正文",
+        attachments: [],
+      },
+    ]);
+    expect(summary).toContain("合同修订");
   });
 });

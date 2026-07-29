@@ -355,8 +355,8 @@ pnpm lawmind:quarterly-demo
 ```
 
 - [x] 发布报告：`Benchmark gate: pass`（mock 对齐模式）+ Quality Dashboard 可灌数
-- [x] `pnpm lawmind:verify` + `LAWMIND_BENCHMARK_STRICT=1 pnpm lawmind:release-readiness` + `pnpm lawmind:desktop:e2e:pr`（14/14）+ `pnpm lawmind:quarterly-demo`
+- [x] `pnpm lawmind:verify` + `LAWMIND_BENCHMARK_STRICT=1 pnpm lawmind:release-readiness` + `pnpm lawmind:desktop:e2e:pr`（38 过 / 2 跳 / 0 败）+ `pnpm lawmind:quarterly-demo`
 
 ---
 
-_最后更新：2026-06-02（第十二期 W1–W4 验收完成；`lawmind-app-root` ≤800 行、Renderer 单测 ≥12、ReasoningGraph Doctor UI 已落地）。_
+_最后更新：2026-07-29（独立复评第三轮 + 优化落地：compose-picker 漏鉴权已修、vendor 脚本已补、并发加锁/AbortSignal/治理拆分/SSRF pin/CI 门禁/a11y/文案/信任默认全部收敛；工程可合并 ≈8.9 / 产品信任 ≈8.5，详见 `docs/LAWMIND-ENGINEERING-REVIEW.md` 附录；外接权威库仍依赖凭证）。_

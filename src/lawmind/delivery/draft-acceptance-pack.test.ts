@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { persistResearchSnapshot } from "../drafts/research-snapshot.js";
+import { DEMO_CORPUS_RISK_FLAG } from "../retrieval/authority-gap.js";
 import type { ArtifactDraft } from "../types.js";
 import { buildDraftAcceptancePackMarkdown } from "./draft-acceptance-pack.js";
 
@@ -73,5 +75,26 @@ describe("buildDraftAcceptancePackMarkdown", () => {
     tmp = await fs.mkdtemp(path.join(os.tmpdir(), "lawmind-draft-pack-"));
     const md = await buildDraftAcceptancePackMarkdown(tmp, rentalDraft());
     expect(md).toMatch(/【待补充[:：]出租方姓名】/);
+  });
+
+  it("watermarks pack when research snapshot is demo corpus", async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), "lawmind-draft-pack-"));
+    const draft = rentalDraft();
+    persistResearchSnapshot(tmp, {
+      taskId: draft.taskId,
+      query: "demo",
+      sources: [{ id: "s1", title: "演示条文", kind: "statute", demo: true }],
+      claims: [
+        { text: "演示摘录", sourceIds: ["s1"], confidence: 0.5, model: "legal", demo: true },
+      ],
+      riskFlags: [DEMO_CORPUS_RISK_FLAG],
+      missingItems: [],
+      requiresReview: true,
+      completedAt: "2026-07-28T00:00:00.000Z",
+    });
+    const md = await buildDraftAcceptancePackMarkdown(tmp, draft);
+    expect(md).toContain("演示语料水印");
+    expect(md).toContain(DEMO_CORPUS_RISK_FLAG);
+    expect(md).toContain("权威语料**: 演示语料");
   });
 });

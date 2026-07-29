@@ -15,6 +15,8 @@ describe("policy/edition", () => {
     expect(ctx.label).toBe(EDITION_LABELS.solo);
     expect(ctx.features.acceptanceGateStrict).toBe(true);
     expect(ctx.features.citationGateStrict).toBe(true);
+    expect(ctx.features.auditIntegrityExport).toBe(true);
+    expect(ctx.features.acceptancePackExport).toBe(true);
     expect(ctx.features.strictDangerousToolApproval).toBe(false);
   });
 

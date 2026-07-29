@@ -12,6 +12,7 @@ import {
 } from "../api-client";
 import type { DraftReviewPostRequest } from "../lawmind-api-request-types.ts";
 import { apiPostDraftReview } from "../lawmind-api-routes.ts";
+import { apiAuthHeaders } from "../lawmind-api-auth.ts";
 import { readAutoExportOnApprove } from "../lawmind-review-prefs";
 import {
   officecliMissingErrorMessage,
@@ -478,7 +479,9 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
     setActionMsg(null);
     try {
       const url = `${apiBase}/api/drafts/${encodeURIComponent(selectedTaskId)}/acceptance-pack`;
-      const resp = await fetch(url, { headers: { accept: "text/markdown" } });
+      const resp = await fetch(url, {
+        headers: { accept: "text/markdown", ...apiAuthHeaders() },
+      });
       if (!resp.ok) {
         const text = await resp.text();
         let body: ApiErrorJson = {};

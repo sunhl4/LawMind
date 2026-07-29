@@ -1,5 +1,5 @@
 import type { AppConfig } from "./lawmind-app-bootstrap";
-import { setLoopbackApiAuthToken } from "./lawmind-api-auth.ts";
+import { apiAuthHeaders, setLoopbackApiAuthToken } from "./lawmind-api-auth.ts";
 
 const API_BASE_KEY = "lawmind.dev.apiBase";
 const API_TOKEN_KEY = "lawmind.dev.apiAuthToken";
@@ -18,13 +18,11 @@ export function persistDevAppConfig(config: AppConfig): void {
   }
 }
 
-async function healthReachable(apiBase: string, apiAuthToken?: string): Promise<boolean> {
+async function healthReachable(apiBase: string): Promise<boolean> {
   try {
-    const headers: Record<string, string> = {};
-    if (apiAuthToken?.trim()) {
-      headers.Authorization = `Bearer ${apiAuthToken.trim()}`;
-    }
-    const res = await fetch(`${apiBase.replace(/\/$/, "")}/api/health`, { headers });
+    const res = await fetch(`${apiBase.replace(/\/$/, "")}/api/health`, {
+      headers: apiAuthHeaders(),
+    });
     return res.ok;
   } catch {
     return false;
@@ -44,10 +42,11 @@ export async function loadCachedDevAppConfig(): Promise<AppConfig | null> {
   if (!apiBase) {
     return null;
   }
-  if (!(await healthReachable(apiBase, apiAuthToken))) {
+  // Set the token before the health probe so apiAuthHeaders() is populated.
+  setLoopbackApiAuthToken(apiAuthToken);
+  if (!(await healthReachable(apiBase))) {
     return null;
   }
-  setLoopbackApiAuthToken(apiAuthToken);
   return {
     apiBase: apiBase.replace(/\/$/, ""),
     apiAuthToken,

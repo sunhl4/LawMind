@@ -152,7 +152,7 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
       <button
         type="button"
         className={`lm-compose-ctx-usage-trigger lm-compose-ctx-usage-trigger--${tone}`}
-        aria-label={`上下文约 ${budget.used} / ${budget.effectiveLimit} tokens，打开用量与整理`}
+        aria-label={`上下文约 ${budget.used} / ${budget.effectiveLimit} 字，打开用量与整理`}
         aria-expanded={open}
         aria-haspopup="dialog"
         title="上下文用量 · 点击整理或沉淀"
@@ -192,7 +192,7 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
             <h3 id={titleId}>上下文用量</h3>
             <p className="lm-meta">
               约 {budget.used.toLocaleString("zh-CN")} / {budget.effectiveLimit.toLocaleString("zh-CN")}{" "}
-              tokens（{Math.round(pct)}%）
+              字（{Math.round(pct)}%）
               {tone === "warn" ? " · 接近上限" : tone === "danger" ? " · 建议压缩" : ""}
             </p>
             {compactHint ? (
@@ -213,7 +213,7 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
             <div className="lm-compose-ctx-usage-confirm" data-testid="lm-compose-compact-confirm">
               <p className="lm-meta">
                 {confirm.preview?.compacted
-                  ? `预计移除约 ${confirm.preview.droppedMessageCount} 条消息（~${confirm.preview.estimatedDroppedTokens.toLocaleString("zh-CN")} tokens）${
+                  ? `预计移除约 ${confirm.preview.droppedMessageCount} 条消息（~${confirm.preview.estimatedDroppedTokens.toLocaleString("zh-CN")} 字）${
                       confirm.preview.useLlmDigestAvailable
                         ? "；将尝试 LLM 连贯摘要（失败则回退提取式）"
                         : "；使用提取式要点"

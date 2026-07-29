@@ -1,7 +1,12 @@
 import type { RefObject } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { LawmindCommandPalette, type CommandPaletteAction } from "./LawmindCommandPalette";
-import { readComposeStash, writeComposeStash } from "./lawmind-compose-prefs";
+import {
+  readComposePermissionMode,
+  readComposeStash,
+  readExecutePermissionMode,
+  writeComposeStash,
+} from "./lawmind-compose-prefs";
 import type { LawmindComposeExtras } from "./useLawmindComposeExtras";
 import type { LawMindRequiresAction, LawMindRequiresActionDecision } from "./lawmind-requires-action";
 import { handleEnterSendShiftNewline, type ChatMsg } from "./lawmind-chat";
@@ -28,7 +33,6 @@ import {
   syncPlanHandoffFromMessages,
   writePlanHandoff,
 } from "./lawmind-plan-handoff";
-import { readComposePermissionMode } from "./lawmind-compose-prefs";
 import { LawmindComposeContextPicker } from "./LawmindComposeContextPicker";
 import { LawmindComposeTemplateGallery } from "./LawmindComposeTemplateGallery";
 import type { ReviewOpenTarget } from "./LawmindChatReviewSticky";
@@ -365,7 +369,7 @@ export function LawmindChatComposeFooter({
   }, [apiBase, chatSessionId]);
 
   const startExecuteFromPlan = useCallback(() => {
-    extras.onPermissionModeChange("standard");
+    extras.onPermissionModeChange(readExecutePermissionMode());
     const plan =
       extractPlanHandoffText(currentMessages) ||
       planHandoffText ||

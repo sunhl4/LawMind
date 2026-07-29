@@ -14,7 +14,7 @@ describe("peer-review-gate", () => {
 
   afterEach(() => {
     if (root) {
-      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 25 });
     }
   });
 
@@ -84,5 +84,62 @@ describe("peer-review-gate", () => {
     });
     expect(r.applied).toBe(false);
     expect(r.skippedReason).toBe("edition_off");
+  });
+
+  it("skips when author missing", () => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "lm-peer-"));
+    ws = path.join(root, "workspace");
+    fs.mkdirSync(path.join(ws, "audit"), { recursive: true });
+    saveRoutingDefaults(ws, { version: 1, forcePeerReview: true });
+    const draft: ArtifactDraft = {
+      taskId: "t-no-author",
+      title: "x",
+      summary: "s",
+      sections: [],
+      reviewStatus: "pending",
+      reviewNotes: [],
+      output: "docx",
+      templateId: "word/contract-default",
+      createdAt: new Date().toISOString(),
+    };
+    const r = maybeApplyForcedPeerReview({
+      workspaceDir: ws,
+      auditDir: path.join(ws, "audit"),
+      draft,
+    });
+    expect(r.applied).toBe(false);
+    expect(r.skippedReason).toBe("no_author");
+  });
+
+  it("skips when author has no peer configured", () => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "lm-peer-"));
+    ws = path.join(root, "workspace");
+    fs.mkdirSync(path.join(ws, "audit"), { recursive: true });
+    upsertAssistant(root, {
+      assistantId: "solo",
+      displayName: "独作",
+      introduction: "",
+      roleId: "general_default",
+    });
+    saveRoutingDefaults(ws, { version: 1, forcePeerReview: true });
+    const draft: ArtifactDraft = {
+      taskId: "t-no-peer",
+      title: "x",
+      summary: "s",
+      sections: [],
+      reviewStatus: "pending",
+      reviewNotes: [],
+      output: "docx",
+      templateId: "word/contract-default",
+      createdAt: new Date().toISOString(),
+    };
+    const r = maybeApplyForcedPeerReview({
+      workspaceDir: ws,
+      auditDir: path.join(ws, "audit"),
+      draft,
+      authorAssistantId: "solo",
+    });
+    expect(r.applied).toBe(false);
+    expect(r.skippedReason).toBe("no_peer");
   });
 });

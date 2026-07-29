@@ -202,6 +202,26 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
             />
           </div>
         ) : null}
+        {msg.role === "assistant" && msg.authorityGapNotice ? (
+          <div
+            className="lm-callout lm-callout-warn lm-authority-gap"
+            role="status"
+            data-testid="lm-authority-gap-banner"
+          >
+            <div className="lm-callout-title">缺源提示</div>
+            <p className="lm-callout-body">{msg.authorityGapNotice}</p>
+          </div>
+        ) : null}
+        {msg.role === "assistant" && msg.demoCorpusNotice ? (
+          <div
+            className="lm-callout lm-callout-warn lm-demo-corpus"
+            role="status"
+            data-testid="lm-demo-corpus-banner"
+          >
+            <div className="lm-callout-title">演示语料</div>
+            <p className="lm-callout-body">{msg.demoCorpusNotice}</p>
+          </div>
+        ) : null}
         {msg.role === "user" ? (
           gateMessage ? (
             <div className="lm-msg lm-msg-gate" data-testid="lm-msg-gate" role="status">

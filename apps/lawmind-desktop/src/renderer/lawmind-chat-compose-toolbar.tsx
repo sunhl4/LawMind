@@ -11,7 +11,9 @@ import {
   type ComposeContextBudget,
 } from "./LawmindComposeContextUsage";
 import {
+  readExecutePermissionMode,
   readShowToolTrace,
+  writeExecutePermissionMode,
   writeShowToolTrace,
   type ComposePermissionMode,
 } from "./lawmind-compose-prefs";
@@ -119,7 +121,7 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
             disabled={loading}
             title={
               permissionMode === "readonly"
-                ? "先计划：只检索与分析，不写盘；确认后再切「标准」执行"
+                ? "先计划：只检索与分析，不写盘；确认后再执行（默认严格审批）"
                 : permissionMode === "research"
                   ? "仅调研：只读工具 + research_task，不可起草/渲染/工作流"
                   : permissionMode === "strict"
@@ -140,16 +142,31 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
             className="lm-btn lm-btn-accent lm-btn-small"
             data-testid="lm-compose-start-execute"
             disabled={loading}
-            title="切换到标准权限并带入计划确认交办，允许起草与写盘"
+            title="切换到执行权限并带入计划确认交办，允许起草与写盘"
             onClick={() => {
               if (onStartExecuteFromPlan) {
                 onStartExecuteFromPlan();
                 return;
               }
-              onPermissionModeChange("standard");
+              onPermissionModeChange(readExecutePermissionMode());
             }}
           >
             开始执行
+          </button>
+        ) : null}
+        {permissionMode === "strict" ? (
+          <button
+            type="button"
+            className="lm-btn lm-btn-ghost lm-btn-small"
+            data-testid="lm-compose-restore-standard"
+            disabled={loading}
+            title="改回标准权限（危险工具仍可能按策略要求批准）"
+            onClick={() => {
+              writeExecutePermissionMode("standard");
+              onPermissionModeChange("standard");
+            }}
+          >
+            恢复标准
           </button>
         ) : null}
         <div className="lm-compose-options" ref={composeOptionsRef}>

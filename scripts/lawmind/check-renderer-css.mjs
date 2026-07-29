@@ -124,6 +124,31 @@ async function main() {
     errors.push(err instanceof Error ? err.message : String(err));
   }
 
+  // Per-block brace balance catches mid-rule sync slice cuts that still
+  // balance globally (orphan `}` in a later block closing an earlier rule).
+  for (const marker of REQUIRED_MARKERS) {
+    const open = `/* ── imported: ${marker} ── */`;
+    const close = `/* ── end imported: ${marker} ── */`;
+    const start = text.indexOf(open);
+    const end = text.indexOf(close, start + open.length);
+    if (start < 0 || end < 0) {
+      continue;
+    }
+    const block = text.slice(start + open.length, end);
+    try {
+      validateCssBraces(block);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`imported block "${marker}": ${msg}`);
+    }
+  }
+
+  if (!/(?:^|\n)\.lm-wizard-backdrop\s*\{/m.test(text)) {
+    errors.push(
+      "missing top-level .lm-wizard-backdrop rule (wizard/modals will not cover the viewport)",
+    );
+  }
+
   if (errors.length > 0) {
     console.error("[check-renderer-css] FAILED");
     for (const e of errors) {

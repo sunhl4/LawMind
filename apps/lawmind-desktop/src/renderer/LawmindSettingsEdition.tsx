@@ -229,7 +229,9 @@ AI 辅助不能预测诉讼/仲裁/谈判结果。本所服务仍受委托合同
 
   return (
     <div className="lm-settings-section lm-settings-advanced-page">
-      <p className="lm-settings-lead">当前产品版本与能力。导出、审计留给管理员即可。</p>
+      <p className="lm-settings-lead">
+        当前产品版本与能力。独立律师版亦可导出审计摘要与验收包；合规批量审计需私有化部署。
+      </p>
 
       <div className="lm-settings-group lm-settings-surface">
         <div className="lm-settings-row">
@@ -255,7 +257,7 @@ AI 辅助不能预测诉讼/仲裁/谈判结果。本所服务仍受委托合同
           </span>
         </summary>
         <div className="lm-settings-advanced-body">
-          <p className="lm-settings-caption">灰色项需律所版或更高部署。</p>
+          <p className="lm-settings-caption">灰色项需律所版或私有化部署。</p>
           <ul className="lm-edition-feature-list">
             {FEATURE_ROWS.map((row) => {
               const enabled = edition.features[row.key];
@@ -352,7 +354,7 @@ AI 辅助不能预测诉讼/仲裁/谈判结果。本所服务仍受委托合同
       {!canExportAudit &&
       !edition.features.qualityDashboardJsonExport &&
       !edition.features.securitySbomPanel ? (
-        <p className="lm-settings-caption">当前版本不开放批量审计导出。</p>
+        <p className="lm-settings-caption">当前版本暂无可用的导出项。</p>
       ) : null}
 
       {showEthicsSection ? (

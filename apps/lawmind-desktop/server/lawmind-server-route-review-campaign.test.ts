@@ -56,6 +56,25 @@ describe("lawmind-server-route-review-campaign", () => {
     }
   });
 
+  it("returns false for unrelated routes", async () => {
+    const ctx: LawmindDispatchContext = {
+      workspaceDir: os.tmpdir(),
+      envFile: undefined,
+      userEnvPath: path.join(os.tmpdir(), "x.env"),
+      policy: { loaded: false },
+    };
+    await expect(
+      handleReviewCampaignRoutes({
+        ctx,
+        req: { method: "GET" } as http.IncomingMessage,
+        res: {} as http.ServerResponse,
+        url: new URL("http://127.0.0.1/api/other"),
+        pathname: "/api/other",
+        c: {},
+      }),
+    ).resolves.toBe(false);
+  });
+
   it("lists playbooks, creates campaign, reruns role, returns report", async () => {
     const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-campaign-route-"));
     tempDirs.push(workspaceDir);

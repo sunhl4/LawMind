@@ -372,12 +372,17 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
             aria-label="专案组角色"
             data-testid="lm-review-campaign-roles"
           >
-            {campaign.roles.map((r) => (
+            {campaign.roles.map((r) => {
+              const tabId = `lm-review-campaign-tab-${r.roleId}`;
+              return (
               <button
                 key={r.roleId}
                 type="button"
                 role="tab"
+                id={tabId}
                 aria-selected={r.roleId === activeRoleId}
+                aria-controls="lm-review-campaign-role-panel"
+                tabIndex={r.roleId === activeRoleId ? 0 : -1}
                 className={
                   r.roleId === activeRoleId
                     ? "lm-review-campaign-tab lm-review-campaign-tab--active"
@@ -399,12 +404,15 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
                   <span className="lm-meta"> {r.score}</span>
                 ) : null}
               </button>
-            ))}
+              );
+            })}
           </div>
           {activeRole ? (
             <div
               className="lm-review-campaign-role"
               role="tabpanel"
+              id="lm-review-campaign-role-panel"
+              aria-labelledby={`lm-review-campaign-tab-${activeRole.roleId}`}
               data-status={activeRole.status}
               data-testid="lm-review-campaign-role-panel"
               data-bound-assistant={activeRole.boundAssistantId ?? ""}

@@ -91,9 +91,12 @@ describe("lawmind-server-route-audit-export integrity", () => {
     expect(integrity.chainedCount).toBe(3);
   });
 
-  it("rejects integrity export when edition is solo", async () => {
+  it("allows integrity export on Solo edition (trust packaging)", async () => {
     delete process.env.LAWMIND_EDITION;
     const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-audit-solo-"));
+    const auditDir = path.join(workspaceDir, "audit");
+    fs.mkdirSync(auditDir, { recursive: true });
+    fs.writeFileSync(path.join(auditDir, "events.jsonl"), "", "utf8");
     const capture = createResponseCapture();
     const ctx: LawmindDispatchContext = {
       workspaceDir,
@@ -110,7 +113,7 @@ describe("lawmind-server-route-audit-export integrity", () => {
       c: {},
     });
     expect(handled).toBe(true);
-    expect(capture.status).toBe(403);
+    expect(capture.status).toBe(200);
   });
 });
 

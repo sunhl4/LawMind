@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { apiGetJson } from "./api-client";
+import { apiAuthHeaders } from "./lawmind-api-auth.ts";
 import type { FileChatContextItem } from "./lawmind-app-shell";
 import type { WorkflowTemplateItem } from "./lawmind-workflow-types";
 import {
@@ -127,6 +128,7 @@ export function LawmindComposeContextPicker(props: Props): ReactNode {
     let cancelled = false;
     void fetch(
       `${apiBase.replace(/\/$/, "")}/api/fs/tree?root=workspace&path=${encodeURIComponent(`cases/${matterId}`)}`,
+      { headers: apiAuthHeaders() },
     )
       .then((r) => r.json())
       .then((payload: { ok?: boolean; entries?: Array<{ path?: string; kind?: string }> }) => {
@@ -168,6 +170,7 @@ export function LawmindComposeContextPicker(props: Props): ReactNode {
     let cancelled = false;
     void fetch(
       `${apiBase.replace(/\/$/, "")}/api/fs/tree?root=workspace&path=`,
+      { headers: apiAuthHeaders() },
     )
       .then((r) => r.json())
       .then((payload: { ok?: boolean; entries?: Array<{ path?: string; kind?: string }> }) => {

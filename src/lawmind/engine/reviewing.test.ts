@@ -6,11 +6,14 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { readDeliverable } from "../application/services/deliverable-service.js";
+import { checkTaskDraftConsistency } from "../application/task-draft-consistency.js";
 import { readAllAuditLogs } from "../audit/index.js";
-import { persistDraft } from "../drafts/index.js";
+import { persistDraft, readDraft } from "../drafts/index.js";
 import { loadAgentSpecializationStore } from "../learning/agent-specialization.js";
 import { listPendingMemorySuggestions } from "../memory/adoption-service.js";
 import { summarizeProductMetrics } from "../metrics/product-metrics.js";
+import { ensureTaskRecord } from "../tasks/index.js";
 import type { ArtifactDraft } from "../types.js";
 import { buildEngineContext } from "./context.js";
 import { reviewDraft } from "./reviewing.js";
@@ -27,7 +30,9 @@ describe("engine/reviewing", () => {
   });
 
   afterEach(async () => {
-    await fs.rm(workspaceDir, { recursive: true, force: true });
+    // createMatterIfMissing → scheduleMatterProjection may still write CASE.md after
+    // reviewDraft returns; retry so async projection cannot trip ENOTEMPTY on macOS.
+    await fs.rm(workspaceDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   });
 
   it("reviewDraft sets approved status and emits draft.reviewed audit", async () => {
@@ -112,5 +117,143 @@ describe("engine/reviewing", () => {
     const pending = await listPendingMemorySuggestions(workspaceDir);
     expect(pending.length).toBeGreaterThanOrEqual(1);
     expect(pending.some((r) => r.sourceTaskId === taskId)).toBe(true);
+  });
+
+  it("reviewDraft stamps deliverable JSON before draft persist (R-P2-7 SSOT)", async () => {
+    const taskId = "task-review-ssot";
+    const draft: ArtifactDraft = {
+      taskId,
+      matterId: "matter-r",
+      title: "SSOT review",
+      summary: "summary",
+      sections: [{ heading: "结论", body: "正文", citations: [] }],
+      reviewStatus: "pending",
+      reviewNotes: [],
+      output: "docx",
+      templateId: "word/contract-default",
+      createdAt: new Date().toISOString(),
+    };
+    persistDraft(workspaceDir, draft);
+    const ctx = buildEngineContext({ workspaceDir, adapters: [] });
+    await reviewDraft(ctx, draft, { actorId: "lawyer:test", status: "approved" });
+
+    const deliverable = readDeliverable(workspaceDir, "matter-r", taskId);
+    expect(deliverable?.currentReviewStatus).toBe("approved");
+    expect(readDraft(workspaceDir, taskId)?.reviewStatus).toBe("approved");
+    const drift = checkTaskDraftConsistency(workspaceDir).filter(
+      (i) => i.code === "deliverable_review_drift",
+    );
+    expect(drift).toEqual([]);
+  });
+
+  it("reopenDraftReviewImpl restores pending and opens review queue", async () => {
+    const taskId = "task-reopen";
+    const draft: ArtifactDraft = {
+      taskId,
+      matterId: "matter-r",
+      title: "Reopen",
+      summary: "summary",
+      sections: [{ heading: "结论", body: "正文", citations: [] }],
+      reviewStatus: "approved",
+      reviewNotes: [],
+      output: "docx",
+      templateId: "word/contract-default",
+      createdAt: new Date().toISOString(),
+      reviewedBy: "lawyer:test",
+      reviewedAt: new Date().toISOString(),
+    };
+    persistDraft(workspaceDir, draft);
+    const ctx = buildEngineContext({ workspaceDir, adapters: [] });
+    const { reopenDraftReviewImpl } = await import("./reviewing.js");
+    const reopened = await reopenDraftReviewImpl(ctx, taskId, { actorId: "lawyer:test" });
+    expect(reopened?.reviewStatus).toBe("pending");
+    expect(reopened?.reviewedBy).toBeUndefined();
+    const events = await readAllAuditLogs(path.join(workspaceDir, "audit"));
+    expect(events.some((e) => e.kind === "draft.review_reopened")).toBe(true);
+  });
+
+  it("recordQualityImpl persists quality snapshot with metrics", async () => {
+    const taskId = "task-quality";
+    const now = new Date().toISOString();
+    persistDraft(workspaceDir, {
+      taskId,
+      matterId: "matter-r",
+      title: "Quality",
+      summary: "summary",
+      sections: [{ heading: "结论", body: "正文", citations: [] }],
+      reviewStatus: "approved",
+      reviewNotes: [],
+      output: "docx",
+      templateId: "word/contract-default",
+      createdAt: now,
+    });
+    ensureTaskRecord(workspaceDir, {
+      taskId,
+      kind: "draft.word",
+      output: "docx",
+      instruction: "写备忘",
+      summary: "写备忘",
+      riskLevel: "medium",
+      models: ["general"],
+      requiresConfirmation: false,
+      createdAt: now,
+      deliverableType: "document.general",
+    });
+    const ctx = buildEngineContext({ workspaceDir, adapters: [], assistantId: "asst_a" });
+    const { recordQualityImpl } = await import("./reviewing.js");
+    const record = await recordQualityImpl(ctx, taskId, { labels: ["质量范例"], latencyMs: 900 });
+    expect(record?.firstPassApproved).toBe(true);
+    expect(record?.isGoldenExample).toBe(true);
+    const events = await readAllAuditLogs(path.join(workspaceDir, "audit"));
+    expect(events.some((e) => e.kind === "quality.snapshot")).toBe(true);
+  });
+
+  it("reviewDraft records modified status and review note", async () => {
+    const taskId = "task-modified";
+    const draft: ArtifactDraft = {
+      taskId,
+      matterId: "matter-r",
+      title: "Needs edits",
+      summary: "summary",
+      sections: [{ heading: "结论", body: "正文", citations: [] }],
+      reviewStatus: "pending",
+      reviewNotes: [],
+      output: "docx",
+      templateId: "word/contract-default",
+      createdAt: new Date().toISOString(),
+    };
+    persistDraft(workspaceDir, draft);
+    const ctx = buildEngineContext({ workspaceDir, adapters: [] });
+    const reviewed = await reviewDraft(ctx, draft, {
+      actorId: "lawyer:test",
+      status: "modified",
+      note: "请补充引用",
+    });
+    expect(reviewed.reviewStatus).toBe("modified");
+    expect(reviewed.reviewNotes.some((n) => n.includes("请补充引用"))).toBe(true);
+  });
+
+  it("reviewDraft records rejected status", async () => {
+    const taskId = "task-rejected";
+    const draft: ArtifactDraft = {
+      taskId,
+      matterId: "matter-r",
+      title: "Reject me",
+      summary: "summary",
+      sections: [{ heading: "结论", body: "正文", citations: [] }],
+      reviewStatus: "pending",
+      reviewNotes: [],
+      output: "docx",
+      templateId: "word/contract-default",
+      createdAt: new Date().toISOString(),
+    };
+    persistDraft(workspaceDir, draft);
+    const ctx = buildEngineContext({ workspaceDir, adapters: [] });
+    const reviewed = await reviewDraft(ctx, draft, {
+      actorId: "lawyer:test",
+      status: "rejected",
+      note: "方向不对",
+    });
+    expect(reviewed.reviewStatus).toBe("rejected");
   });
 });

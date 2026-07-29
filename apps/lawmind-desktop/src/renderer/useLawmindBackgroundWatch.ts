@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { errorMessage } from "./api-client";
+import { apiAuthHeaders } from "./lawmind-api-auth";
 import type { ChatMsg } from "./lawmind-chat";
 import type { LawmindMainView } from "./lawmind-main-view";
 import {
@@ -160,6 +161,7 @@ export function useLawmindBackgroundWatch(input: UseLawmindBackgroundWatchInput)
         if (!resumeOnly) {
           const listRes = await fetch(
             `${config.apiBase}/api/sessions?assistantId=${encodeURIComponent(assistantId)}`,
+            { headers: { ...apiAuthHeaders() } },
           );
           const listJ = (await listRes.json()) as {
             ok?: boolean;
@@ -177,6 +179,7 @@ export function useLawmindBackgroundWatch(input: UseLawmindBackgroundWatchInput)
 
           const sessionRes = await fetch(
             `${config.apiBase}/api/sessions/${encodeURIComponent(sessionId)}?assistantId=${encodeURIComponent(assistantId)}`,
+            { headers: { ...apiAuthHeaders() } },
           );
           const sessionJ = (await sessionRes.json()) as {
             ok?: boolean;
@@ -352,6 +355,7 @@ export function useLawmindBackgroundWatch(input: UseLawmindBackgroundWatchInput)
           try {
             const listRes2 = await fetch(
               `${config.apiBase}/api/sessions?assistantId=${encodeURIComponent(assistantId)}`,
+              { headers: { ...apiAuthHeaders() } },
             );
             const listJ2 = (await listRes2.json()) as {
               ok?: boolean;
@@ -422,6 +426,7 @@ export function useLawmindBackgroundWatch(input: UseLawmindBackgroundWatchInput)
             if (live.idle) {
               const sessionRes2 = await fetch(
                 `${config.apiBase}/api/sessions/${encodeURIComponent(sessionId)}?assistantId=${encodeURIComponent(assistantId)}`,
+                { headers: { ...apiAuthHeaders() } },
               );
               const sessionJ2 = (await sessionRes2.json()) as {
                 ok?: boolean;

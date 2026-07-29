@@ -117,7 +117,7 @@
 | 表面           | 用途                                                                                              | 主要渲染入口（实现参考）                                                           |
 | -------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | **对话**       | **默认入口**：向 Agent 下达任务、引用材料、澄清和中途调整                                         | `lawmind-chat-shell.tsx`、`LawmindAssignmentCommitmentCard.tsx`                    |
-| **在办**       | 并行总览：进行中 / 交出去的活 / 按流程办（含原协作能力）                                          | `AgentFleetView.tsx`、`LawmindAgentFleetPanel.tsx`、`LawmindCollaborationDesk.tsx` |
+| **在办**       | 并行总览：待拍板 / 交出去的活 / 按流程办（含原协作能力）                                          | `AgentFleetView.tsx`、`LawmindAgentFleetPanel.tsx`、`LawmindCollaborationDesk.tsx` |
 | **自动办件**   | 定时或邮件触发的办件（配置向）；在 **设置 → 自动办件** 管理；结果进「待我拍板」                   | `LawmindAutomationsPanel.tsx`（设置分区）                                          |
 | **会议室**     | 多助手讨论（可绑案件或临时开会）；经顶栏 **会议室** 进入                                          | `MeetingView.tsx`、`MatterTeamMeetingPanel.tsx`                                    |
 | **案件工作台** | 材料、任务、期限、草稿、CASE、进度与 Insights 的长期真相源                                        | `MatterWorkbench.tsx` 与 `matter/*` 子视图                                         |
@@ -125,9 +125,9 @@
 | **待我拍板**   | 跳转「在办」并只看待决（`awaiting_*`）；缺信息时在办表格「提交补充并继续」；对话多为弱引导/短确认 | `AgentFleetView.tsx`、`LawmindAgentFleetPanel.tsx`、`LawmindClarificationForm.tsx` |
 | **文件**       | 浏览、编辑工作区内文本，标记本回合重点材料                                                        | `FileWorkbench.tsx`；服务端 `GET/POST /api/fs/*` 与 Electron `lawmind:fs:*`        |
 
-**顶栏一级**：**对话**、**在办**、**会议室**、**文书台**。自动办件在 **设置 → 自动办件**。对话区在有待审草稿时固定显示「打开此稿」条，可直达文书台对应任务。案件工作台首页有 **「本案下一步」** 轨（打开本案对话 / 待我拍板 / 进入文书台）。侧栏待办角标共用 action-summary，对话回合结束后会即时刷新。
+**顶栏一级**：**对话**、**在办**、**文书台**、**会议室**（对等 Tab；亦可从在办「进入文书台」场景按钮进入）。自动办件在 **设置 → 自动办件**。对话区在有待审草稿时固定显示「打开此稿」条，可直达文书台对应任务。案件工作台首页有 **「本案下一步」** 轨（打开本案对话 / 待我拍板 / 进入文书台）。侧栏待办角标共用 action-summary，对话回合结束后会即时刷新。
 
-正式签批主路径仍在「在办」；文书台侧重改稿、批注与交付预览。系统不会因为后台修订完成而强制打断当前页面。
+正式签批主路径仍在「在办」；文书台侧重改稿、批注、验收检查与交付预览。系统不会因为后台修订完成而强制打断当前页面。
 
 **侧边栏**：设置齿轮、案件材料树（或案件列表）、有待决时底部 **待我拍板**。
 
@@ -341,7 +341,7 @@
 | 重新打开审核 | 修正后再审     | `POST /api/drafts/:taskId/reopen-review`                                                                                                                     |
 | 渲染         | 导出 Word/PPT  | `POST /api/drafts/:taskId/render?strict=`（默认 strict；`false` 为显式弱化门禁，**不推荐**）                                                                 |
 | 带修订 Word  | 审核台按钮     | `POST /api/drafts/:taskId/render-tracked`：将 Redline 提案写入 Word 修订痕迹；需本机 **officecli**，未安装时回退为普通 docx 并提示                           |
-| 验收包       | 对外证明       | `GET /api/drafts/:taskId/acceptance-pack`（Markdown 或 `?format=json`）；受 Edition `acceptancePackExport` 控制（Solo 可能 **403**）                         |
+| 验收包       | 对外证明       | `GET /api/drafts/:taskId/acceptance-pack`（Markdown 或 `?format=json`）；受 Edition `acceptancePackExport` 控制（Solo/Firm/Private 默认开启）                |
 
 **Word 修订导出限制**：`render-tracked` 依赖主机已安装 `officecli` 且草稿具备 Redline 基准/提案；无 CLI 时仍会得到 docx 文件但不含原生修订痕迹。清洁版请用「导出 Word」（`/render` strict 路径）。
 
@@ -1000,15 +1000,15 @@ LawMind 不复制 Harvey 等企业云台的部署形态，但在**可核对来�
 
 **路由**：`apps/lawmind-desktop/server/lawmind-server-route-audit-export.ts`。
 
-| 查询参数     | 说明                                                                           |
-| ------------ | ------------------------------------------------------------------------------ |
-| `matterId`   | 可选；非法 ID → **400** `invalid matter id`                                    |
-| `taskId`     | 可选；过滤单任务相关事件                                                       |
-| `since`      | 可选；时间下界（传入 `buildAuditExportMarkdown` / compliance 变体）            |
-| `until`      | 可选；时间上界                                                                 |
-| `compliance` | `1` 或 `true`（大小写不敏感）→ 使用 `buildComplianceAuditMarkdown`             |
-| `integrity`  | `1` 或 `true` → JSON 完整性链摘要（Firm/Private，`auditIntegrityExport`）      |
-| `replay`     | `1` 或 `true` → **JSON** 机器可读时间线（Agent Replay 风格；与 Markdown 互斥） |
+| 查询参数     | 说明                                                                                  |
+| ------------ | ------------------------------------------------------------------------------------- |
+| `matterId`   | 可选；非法 ID → **400** `invalid matter id`                                           |
+| `taskId`     | 可选；过滤单任务相关事件                                                              |
+| `since`      | 可选；时间下界（传入 `buildAuditExportMarkdown` / compliance 变体）                   |
+| `until`      | 可选；时间上界                                                                        |
+| `compliance` | `1` 或 `true`（大小写不敏感）→ 使用 `buildComplianceAuditMarkdown`                    |
+| `integrity`  | `1` 或 `true` → JSON 完整性链摘要（`auditIntegrityExport`，Solo/Firm/Private 默认开） |
+| `replay`     | `1` 或 `true` → **JSON** 机器可读时间线（Agent Replay 风格；与 Markdown 互斥）        |
 
 **响应**：
 
@@ -1435,7 +1435,7 @@ LawMind 不复制 Harvey 等企业云台的部署形态，但在**可核对来�
 
 - **`?format=markdown`（默认）**：**200** 流式 **`text/markdown`**，头 `Content-Disposition: attachment; filename="lawmind-acceptance-pack-<taskId>.md"`。
 - **`?format=json`**：**200** JSON `{ ok, taskId, markdown }`（便于二次加工）。
-- **403**：当前 Edition **`acceptancePackExport`** 为 false（典型为 **Solo**），body 含 `feature_disabled` 与 `hint`。
+- **403**：当前 Edition **`acceptancePackExport`** 为 false（policy 显式关闭时），body 含 `feature_disabled` 与 `hint`。
 - 依赖 `buildDraftAcceptancePackMarkdown`（`src/lawmind/delivery/draft-acceptance-pack.ts`）。
 
 ---
@@ -1457,7 +1457,7 @@ LawMind 不复制 Harvey 等企业云台的部署形态，但在**可核对来�
 | `securitySbomPanel`              | false | false | true           | SBOM / 安全自检入口                                        |
 | `qualityDashboardJsonExport`     | false | true  | true           | Quality dashboard JSON 导出                                |
 | `customDeliverableSpec`          | false | true  | true           | 工作区 `lawmind/deliverables/*.json` 私有 spec             |
-| `acceptancePackExport`           | false | true  | true           | 验收包 `.md` / `format=json`                               |
+| `acceptancePackExport`           | true  | true  | true           | 验收包 `.md` / `format=json`                               |
 | `strictDangerousToolApproval`    | false | true  | true           | 危险工具须显式批准；`execute_workflow` 等长链路收紧        |
 
 **人类可读标签**：`EDITION_LABELS` — `solo`→「独立律师版」、`firm`→「律所协作版」、`private_deploy`→「私有化部署版」。

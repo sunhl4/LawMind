@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { apiAuthHeaders } from "./lawmind-api-auth";
 
 const MAX_FILE_CHAT_CONTEXT = 8;
 /** Auto-embed text bodies under this size so the model sees content, not only paths. */
@@ -120,6 +121,7 @@ export async function fetchFileChatExcerpts(opts: {
         });
         const res = await fetch(`${opts.apiBase}/api/fs/read?${q}`, {
           signal: opts.signal,
+          headers: { ...apiAuthHeaders() },
         });
         if (!res.ok) {
           return;

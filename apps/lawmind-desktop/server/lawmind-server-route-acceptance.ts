@@ -6,7 +6,7 @@
  *
  *   GET /api/drafts/:taskId/acceptance-pack
  *     -> Markdown 验收包（默认 text/markdown）；?format=json 时返回 { ok, markdown }
- *        受 edition.features.acceptancePackExport 控制（Solo 不可用，返回 403）。
+ *        受 edition.features.acceptancePackExport 控制（未开时返回 403；Solo/Firm/Private 默认均开）。
  *
  *   GET /api/deliverables/specs
  *     -> { ok, specs: Array<{ type, displayName, description, defaultOutput, defaultRiskLevel }> }
@@ -35,6 +35,10 @@ import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/index.j
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import { sendJson } from "./lawmind-server-helpers.js";
 import { isSafeTaskIdSegment } from "./safe-task-id.js";
+import {
+  isAuthorityCitationValidateEnabled,
+  validateCitationsWithAuthority,
+} from "../../../src/lawmind/retrieval/providers/pkulaw/citation-validate.js";
 
 /**
  * Bridge the desktop's `LawMindPolicyFile` to the engine's `LawMindWorkspacePolicy`
@@ -227,6 +231,18 @@ export async function handleAcceptanceRoutes({
     const spec = getDeliverableSpec(draft.deliverableType);
     const graph = readReasoningSnapshot(workspaceDir, raw);
     const reasoning = validateReasoningForDraft(draft, graph ?? undefined);
+    const bodyText = draft.sections.map((s) => s.body ?? "").join("\n");
+    const citationHints = (
+      bodyText.match(/《[^》]+》第?[零一二三四五六七八九十百千0-9]+条/g) ?? []
+    ).slice(0, 20);
+    const authorityCitationValidate = isAuthorityCitationValidateEnabled()
+      ? await validateCitationsWithAuthority({ citations: citationHints })
+      : {
+          ok: true,
+          skipped: true,
+          issues: [],
+          message: "未启用 LAWMIND_AUTHORITY_CITATION_VALIDATE。",
+        };
     sendJson(
       res,
       200,
@@ -235,6 +251,7 @@ export async function handleAcceptanceRoutes({
         draft,
         acceptance: report,
         reasoning,
+        authorityCitationValidate,
         ...(spec
           ? {
               spec: {

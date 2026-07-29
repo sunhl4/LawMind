@@ -12,18 +12,11 @@ import {
   type FilePortalHosts,
   type FileWorkbenchCasesNodeActions,
 } from "./file-workbench-types";
-import {
-  isProtectedWorkspacePath,
-  keyOf,
-  getDirname,
-  getFileIcon,
-  QuickOpenModal,
-} from "./file-workbench-fs";
-import { matterIdFromWorkspaceCasesRelPath, isWorkspaceCaseSubdirRootRelPath } from "../lawmind-cases-path";
-import { filterExplorerEntries } from "../lawmind-explorer-lawyer-view";
+import { QuickOpenModal } from "./file-workbench-fs";
 import { FileWorkbenchDialogs } from "./FileWorkbenchDialogs";
 import { FileWorkbenchContextMenu } from "./FileWorkbenchContextMenu";
-import { encodeLawmindFsDrag, LAWMID_FS_DRAG_MIME } from "../lawmind-file-drag";
+import { FileWorkbenchTree } from "./FileWorkbenchTree";
+import { FileWorkbenchEditorPane } from "./FileWorkbenchEditorPane";
 
 export type FileWorkbenchViewModel = {
   workspaceDir: string;
@@ -178,213 +171,19 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
     refreshDir,
   } = vm;
 
-  // ── File tree render ─────────────────────────────────────────
-  /** 在某一父目录下按名称排除顶级项（工作区根不重复展示 `cases/`） */
-  type TreeOmit = { forParentDir: string; names: Set<string> };
-
-  const renderTree = (root: RootKey, dirPath: string, level: number, omit?: TreeOmit): ReactNode => {
-    const k = keyOf(root, dirPath);
-    const raw = childrenByDir[k] ?? [];
-    let entries = filterExplorerEntries(root, dirPath, raw);
-    if (omit && dirPath === omit.forParentDir) {
-      entries = entries.filter((e) => !omit.names.has(e.name));
-    }
-    const pad = 8 + level * 14;
-
-    const nodes: ReactNode[] = [];
-
-    // Inline input for new file/folder at this level
-    if (inlineInput?.root === root && inlineInput.parentDir === dirPath && inlineInput.kind !== "file") {
-      nodes.push(
-        <div key="__new_folder__" className="lm-fs-inline-input" style={{ paddingLeft: pad + 16 }}>
-          <input
-            ref={inlineInputRef}
-            type="text"
-            placeholder={inlineInput.placeholder ?? "文件夹名…"}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {void inlineInput.onDone(e.currentTarget.value);}
-              if (e.key === "Escape") {setInlineInput(null);}
-            }}
-            onBlur={(e) => void inlineInput.onDone(e.currentTarget.value)}
-          />
-        </div>,
-      );
-    }
-
-    for (const entry of entries) {
-      const entryKey = keyOf(root, entry.path);
-      const isOpen = Boolean(expanded[entryKey]);
-      const isSelected = selected?.root === root && selected.path === entry.path;
-      const isProtected = Boolean(isProtectedWorkspacePath(root, entry.path));
-
-      // Inline rename input
-      const isRenaming =
-        inlineInput?.root === root &&
-        getDirname(entry.path) === inlineInput.parentDir &&
-        inlineInput.initialValue === entry.name &&
-        inlineInput.kind === "file";
-
-      if (isRenaming) {
-        nodes.push(
-          <div key={`__rename__${entry.path}`} className="lm-fs-inline-input" style={{ paddingLeft: pad + 16 }}>
-            <input
-              ref={inlineInputRef}
-              type="text"
-              defaultValue={inlineInput.initialValue}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {void inlineInput.onDone(e.currentTarget.value);}
-                if (e.key === "Escape") {setInlineInput(null);}
-              }}
-              onBlur={(e) => void inlineInput.onDone(e.currentTarget.value)}
-            />
-          </div>,
-        );
-        continue;
-      }
-
-      if (entry.kind === "directory") {
-        const caseMidForTree =
-          root === "workspace" && isWorkspaceCaseSubdirRootRelPath(entry.path)
-            ? matterIdFromWorkspaceCasesRelPath(entry.path)
-            : null;
-        const caseDisplayHint =
-          caseMidForTree &&
-          casesNodeActions?.matterLabelById?.[caseMidForTree]?.trim() &&
-          casesNodeActions.matterLabelById[caseMidForTree] !== entry.name
-            ? casesNodeActions.matterLabelById[caseMidForTree].trim()
-            : null;
-        const treeTitle =
-          caseDisplayHint && !isProtected ? `${entry.name} — ${caseDisplayHint}` : isProtected ? "⚠️ 受保护目录" : entry.name;
-        nodes.push(
-          <div key={entry.path}>
-            <button
-              type="button"
-              className={`lm-fs-node lm-fs-dir ${isSelected ? "active" : ""} ${isProtected ? "protected" : ""}`}
-              style={{ paddingLeft: pad }}
-              title={treeTitle}
-              draggable={Boolean(onAddToChatContext) && !isProtected}
-              onDragStart={(e) => {
-                if (!onAddToChatContext || isProtected) {
-                  e.preventDefault();
-                  return;
-                }
-                const payload = encodeLawmindFsDrag({
-                  root,
-                  relPath: entry.path,
-                  kind: "directory",
-                });
-                e.dataTransfer.setData(LAWMID_FS_DRAG_MIME, payload);
-                e.dataTransfer.setData("text/plain", entry.path || entry.name);
-                e.dataTransfer.effectAllowed = "copy";
-              }}
-              onClick={() => { setSelected({ root, path: entry.path, kind: "directory" }); void toggleDir(root, entry.path); }}
-              onDoubleClick={(e) => {
-                if (
-                  root !== "workspace" ||
-                  !casesNodeActions ||
-                  !isWorkspaceCaseSubdirRootRelPath(entry.path)
-                ) {
-                  return;
-                }
-                e.preventDefault();
-                e.stopPropagation();
-                const mid = matterIdFromWorkspaceCasesRelPath(entry.path);
-                if (mid) {
-                  casesNodeActions.onOpenMatterCockpit(mid);
-                }
-              }}
-              onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, root, path: entry.path, kind: "directory", isRoot: false }); }}
-            >
-              <span className={`lm-fs-arrow ${isOpen ? "open" : ""}`}>▸</span>
-              <span className="lm-fs-icon">{getFileIcon(entry.name, "directory", isOpen)}</span>
-              <span className="lm-fs-name">{entry.name}</span>
-              {caseDisplayHint ? (
-                <span className="lm-meta" style={{ marginLeft: 6, fontSize: "0.92em", opacity: 0.92 }}>
-                  {caseDisplayHint}
-                </span>
-              ) : null}
-              {isProtected && <span className="lm-fs-lock">🔒</span>}
-            </button>
-            {isOpen && renderTree(root, entry.path, level + 1, omit)}
-          </div>,
-        );
-      } else {
-        // Inline input for new file at this level
-        const showNewFileInput =
-          inlineInput?.root === root &&
-          inlineInput.parentDir === dirPath &&
-          inlineInput.kind === "file" &&
-          !inlineInput.initialValue; // only for new files, not renames
-
-        if (showNewFileInput) {
-          nodes.push(
-            <div key="__new_file__" className="lm-fs-inline-input" style={{ paddingLeft: pad + 16 }}>
-              <input
-                ref={inlineInputRef}
-                type="text"
-                placeholder="文件名（例如 notes.md）…"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {void inlineInput.onDone(e.currentTarget.value);}
-                  if (e.key === "Escape") {setInlineInput(null);}
-                }}
-                onBlur={(e) => void inlineInput.onDone(e.currentTarget.value)}
-              />
-            </div>,
-          );
-        }
-
-        nodes.push(
-          <button
-            key={entry.path}
-            type="button"
-            className={`lm-fs-node lm-fs-file ${isSelected ? "active" : ""} ${isProtected ? "protected" : ""}`}
-            style={{ paddingLeft: pad + 16 }}
-            title={isProtected ? "⚠️ 受保护文件" : entry.name}
-            draggable={Boolean(onAddToChatContext) && !isProtected}
-            onDragStart={(e) => {
-              if (!onAddToChatContext || isProtected) {
-                e.preventDefault();
-                return;
-              }
-              const payload = encodeLawmindFsDrag({
-                root,
-                relPath: entry.path,
-                kind: "file",
-              });
-              e.dataTransfer.setData(LAWMID_FS_DRAG_MIME, payload);
-              e.dataTransfer.setData("text/plain", entry.path || entry.name);
-              e.dataTransfer.effectAllowed = "copy";
-            }}
-            onClick={() => { setSelected({ root, path: entry.path, kind: "file" }); void openFile(root, entry.path); }}
-            onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, root, path: entry.path, kind: "file", isRoot: false }); }}
-          >
-            <span className="lm-fs-icon">{getFileIcon(entry.name, "file")}</span>
-            <span className="lm-fs-name">{entry.name}</span>
-            {isProtected && <span className="lm-fs-lock">🔒</span>}
-          </button>,
-        );
-      }
-    }
-
-    // Inline new-file input when list is empty or at the end
-    if (inlineInput?.root === root && inlineInput.parentDir === dirPath && inlineInput.kind === "file" && !inlineInput.initialValue && entries.length === 0) {
-      nodes.push(
-        <div key="__new_file_empty__" className="lm-fs-inline-input" style={{ paddingLeft: pad + 16 }}>
-          <input
-            ref={inlineInputRef}
-            type="text"
-            placeholder="文件名（例如 notes.md）…"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {void inlineInput.onDone(e.currentTarget.value);}
-              if (e.key === "Escape") {setInlineInput(null);}
-            }}
-            onBlur={(e) => void inlineInput.onDone(e.currentTarget.value)}
-          />
-        </div>,
-      );
-    }
-
-    return <div>{nodes}</div>;
+  const treeProps = {
+    childrenByDir,
+    expanded,
+    selected,
+    setSelected,
+    inlineInput,
+    setInlineInput,
+    inlineInputRef,
+    casesNodeActions,
+    onAddToChatContext,
+    toggleDir,
+    openFile,
+    setContextMenu,
   };
 
   const renderExplorerSectionHeader = (opts: {
@@ -438,7 +237,6 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
     </div>
   );
 
-  // ── Render ───────────────────────────────────────────────────
   const explorerAside = (
     <aside
       className={`lm-files-explorer ${portalHosts ? (explorerUsesRailLayout ? "lm-file-explorer-rail" : "lm-file-explorer-embedded") : ""}`.trim()}
@@ -486,7 +284,7 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
               <p className="lm-fs-dual-path lm-meta" title={projectDir}>
                 {projectDir}
               </p>
-              {renderTree("project", "", 0)}
+              <FileWorkbenchTree root="project" dirPath="" {...treeProps} />
             </>
           ) : (
             <div className="lm-fs-dual-empty">
@@ -522,7 +320,7 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
               还没有案件。需要办案时，在本区标题上右键「新建案件…」即可；平时写文档可直接用上方「工作区」的本机文件夹。
             </p>
           ) : (
-            renderTree("workspace", "cases", 0)
+            <FileWorkbenchTree root="workspace" dirPath="cases" {...treeProps} />
           )
         ) : null}
       </div>
@@ -633,190 +431,25 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
   );
 
   const editorSection = (
-    <section className="lm-files-editor" onClick={(e) => e.stopPropagation()}>
-        <div className="lm-file-tabs">
-          {tabs.map((tab) => {
-            const dirty = tab.content !== tab.savedContent;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                className={`lm-file-tab ${activeTabId === tab.id ? "active" : ""}`}
-                title={`${tab.root}:${tab.path}`}
-                onClick={() => {
-                  setOfficeBlock(null);
-                  setImagePreview(null);
-                  setActiveTabId(tab.id);
-                }}
-              >
-                <span className="lm-fs-icon">{getFileIcon(tab.name, "file")}</span>
-                <span>{tab.name}{dirty ? " ●" : ""}</span>
-                <span
-                  className="lm-file-tab-close"
-                  role="button"
-                  tabIndex={0}
-                  onMouseDown={(e) => { e.stopPropagation(); closeTab(tab.id); }}
-                  onKeyDown={(e) => { if (e.key === "Enter") {closeTab(tab.id);} }}
-                >×</span>
-              </button>
-            );
-          })}
-        </div>
-
-        {activeTab ? (
-          <div className="lm-editor-pane">
-            <div className="lm-editor-header">
-              <div className="lm-editor-breadcrumb">
-                <span className="lm-editor-root-badge">{activeTab.root}</span>
-                <span className="lm-editor-path">{activeTab.path}</span>
-              </div>
-              <div className="lm-compose-actions">
-                {activeDirty && <span className="lm-dot lm-dot-warn">未保存</span>}
-                {onAddToChatContext && activeTab ? (
-                  <button
-                    type="button"
-                    className="lm-btn lm-btn-ghost lm-btn-sm"
-                    onClick={() => onAddToChatContext({ root: activeTab.root, relPath: activeTab.path, kind: "file" })}
-                  >
-                    加入对话引用
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-sm"
-                  disabled={busy || !activeTab}
-                  title={!activeDirty ? "无未保存修改时不会写入" : "保存到当前文件（⌘S）"}
-                  onClick={() => void saveActive()}
-                >
-                  保存
-                </button>
-                <button type="button" className="lm-btn lm-btn-secondary lm-btn-sm" disabled={busy || !activeTab} onClick={() => void saveActiveAs()}>另存为…</button>
-              </div>
-            </div>
-            <textarea
-              className="lm-editor-textarea"
-              value={activeTab.content}
-              onChange={(e) => updateActiveContent(e.target.value)}
-              spellCheck={false}
-            />
-            <div className="lm-editor-statusbar">
-              {activeTab.name} · {activeTab.content.split("\n").length} 行 · {activeTab.content.length} 字符
-            </div>
-          </div>
-        ) : imagePreview ? (
-          <div className="lm-editor-pane lm-image-preview-pane">
-            <div className="lm-editor-header">
-              <div className="lm-editor-breadcrumb">
-                <span className="lm-editor-root-badge">{imagePreview.root}</span>
-                <span className="lm-editor-path">{imagePreview.relPath || "(根)"}</span>
-              </div>
-              <div className="lm-editor-actions">
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-secondary lm-btn-sm"
-                  onClick={() => void doShowInFolder(imagePreview.root, imagePreview.relPath)}
-                >
-                  在访达中显示
-                </button>
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-sm"
-                  disabled={busy}
-                  onClick={async () => {
-                    setError(null);
-                    const r = await window.lawmindDesktop?.openWithSystem({
-                      root: imagePreview.root,
-                      path: imagePreview.relPath,
-                    });
-                    if (r && !r.ok) {
-                      setError(r.error ?? "无法用系统应用打开该文件。");
-                    }
-                  }}
-                >
-                  用本机应用打开
-                </button>
-                {onAddToChatContext ? (
-                  <button
-                    type="button"
-                    className="lm-btn lm-btn-ghost lm-btn-sm"
-                    onClick={() =>
-                      onAddToChatContext({
-                        root: imagePreview.root,
-                        relPath: imagePreview.relPath,
-                        kind: "file",
-                      })
-                    }
-                  >
-                    在对话中引用
-                  </button>
-                ) : null}
-              </div>
-            </div>
-            <div className="lm-image-preview-body">
-              <img className="lm-image-preview-img" src={imagePreview.dataUrl} alt={imagePreview.name} />
-              <p className="lm-meta lm-image-preview-caption">{imagePreview.name}</p>
-            </div>
-          </div>
-        ) : officeBlock ? (
-          <div className="lm-editor-pane lm-office-doc-pane">
-            <div className="lm-editor-header">
-              <div className="lm-editor-breadcrumb">
-                <span className="lm-editor-root-badge">{officeBlock.root}</span>
-                <span className="lm-editor-path">{officeBlock.relPath || "(根)"}</span>
-              </div>
-            </div>
-            <div className="lm-office-doc-body">
-              <p className="lm-office-doc-title">{officeBlock.name}</p>
-              <p className="lm-office-doc-copy">
-                {officeBlock.mode === "binary"
-                  ? "该文件为二进制格式，无法在此纯文本编辑器中打开。可用本机应用查看，或在访达中打开。"
-                  : "本页为纯文本材料编辑器，不支持 Word/Excel/PowerPoint/PDF 的版式与表格预览。请用本机已安装的 Office 或 WPS 等打开编辑。"}
-              </p>
-              <div className="lm-office-doc-actions">
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-sm"
-                  disabled={busy}
-                  onClick={async () => {
-                    setError(null);
-                    const r = await window.lawmindDesktop?.openWithSystem({
-                      root: officeBlock.root,
-                      path: officeBlock.relPath,
-                    });
-                    if (r && ! r.ok) {
-                      setError(r.error ?? "无法用系统应用打开该文件。");
-                    }
-                  }}
-                >
-                  用本机应用打开
-                </button>
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-secondary lm-btn-sm"
-                  onClick={() => void doShowInFolder(officeBlock.root, officeBlock.relPath)}
-                >
-                  在访达中显示
-                </button>
-                {onAddToChatContext ? (
-                  <button
-                    type="button"
-                    className="lm-btn lm-btn-ghost lm-btn-sm"
-                    onClick={() => onAddToChatContext({ root: officeBlock.root, relPath: officeBlock.relPath, kind: "file" })}
-                  >
-                    在对话中引用
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="lm-editor-empty">
-            <div className="lm-messages-empty-icon">📂</div>
-            <div className="lm-messages-empty-title">选择文件开始编辑</div>
-            <div className="lm-messages-empty-hint">在左栏资源树中点击文件，或按 ⌘P 快速搜索。图片可预览；Word 文档请用系统应用打开。</div>
-          </div>
-        )}
-      </section>
+    <FileWorkbenchEditorPane
+      tabs={tabs}
+      activeTabId={activeTabId}
+      setActiveTabId={setActiveTabId}
+      activeTab={activeTab}
+      activeDirty={activeDirty}
+      busy={busy}
+      onAddToChatContext={onAddToChatContext}
+      imagePreview={imagePreview}
+      setImagePreview={setImagePreview}
+      officeBlock={officeBlock}
+      setOfficeBlock={setOfficeBlock}
+      setError={setError}
+      closeTab={closeTab}
+      updateActiveContent={updateActiveContent}
+      saveActive={saveActive}
+      saveActiveAs={saveActiveAs}
+      doShowInFolder={doShowInFolder}
+    />
   );
 
   const floatingLayer = (

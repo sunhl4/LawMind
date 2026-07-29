@@ -32,11 +32,12 @@ const e2eRequiresAction = [
     id: "ra-tool-1",
     kind: "tool_approval",
     threadId: `${sessionId}:turn`,
-    title: "待批准：执行工作流",
-    summary: "系统准备执行 execute_workflow，请确认。",
-    toolName: "execute_workflow",
-    toolArgs: { workflowId: "e2e-default" },
-    decisions: ["approve", "reject"],
+    // Non-execute_workflow so chat uses RequiresActionCard（批准并继续 / 改拟稿）not workflow bubble.
+    title: "待批准：起草文书",
+    summary: "系统准备执行 draft_document，请确认。",
+    toolName: "draft_document",
+    toolArgs: { workflowId: "e2e-default", title: "E2E 草稿" },
+    decisions: ["approve", "reject", "edit"],
     createdAt: now,
   },
 ];
@@ -65,6 +66,19 @@ const catalogModel = {
   verifiedLatencyMs: 12,
 };
 
+const authorityCorpusOpenSample = {
+  configured: true,
+  status: "sample-ready",
+  endpointHost: "local-corpus",
+  authConfigured: false,
+  provider: "open",
+  providerLabel: "开源本地语料",
+  message: "演示语料就绪：内置 sample（非正式完整法库）。",
+  envKey: "LAWMIND_AUTHORITY_ENDPOINT",
+  authEnvKey: "LAWMIND_AUTHORITY_API_KEY",
+  providerEnvKey: "LAWMIND_AUTHORITY_PROVIDER",
+};
+
 const healthPayload = {
   modelConfigured: true,
   modelName: "qwen-plus",
@@ -75,12 +89,28 @@ const healthPayload = {
   citationModeActive: true,
   triageRulesLoaded: true,
   triageRuleCount: 3,
+  authorityCorpus: authorityCorpusOpenSample,
+  authorityUsage: {
+    day: now.slice(0, 10),
+    ok: 0,
+    error: 0,
+    total: 0,
+    message: "今日尚无权威调用。",
+  },
   doctor: {
     citationMode: "assisted",
     citationModeActive: true,
     triageRulesLoaded: true,
     triageRuleCount: 3,
-    productMetricsSummary: { total: 3, triageConfirmed: 1, gateFailures: 0, firstPassOk: 1 },
+    authorityCorpus: authorityCorpusOpenSample,
+    authorityUsage: {
+      day: now.slice(0, 10),
+      ok: 0,
+      error: 0,
+      total: 0,
+      message: "今日尚无权威调用。",
+    },
+    productMetricsSummary: { total: 3, lawyerConfirmed: 1, gateFailures: 0, firstPassOk: 1 },
     privateDeployChecklist: {
       applicable: false,
       passCount: 3,
@@ -126,14 +156,36 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(204, {
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
-      "access-control-allow-headers": "content-type",
+      "access-control-allow-headers": "content-type,authorization",
     });
     res.end();
     return;
   }
 
+  // Optional Bearer enforcement: set LAWMIND_E2E_MOCK_TOKEN to catch renderer fetch
+  // sites that forget apiAuthHeaders() (would 401 in packaged builds). Off by default
+  // so the existing suite (renderer sends no token in mock mode) keeps passing.
+  const mockToken = process.env.LAWMIND_E2E_MOCK_TOKEN?.trim();
+  if (mockToken && path.startsWith("/api/")) {
+    const auth = req.headers.authorization ?? "";
+    if (auth !== `Bearer ${mockToken}`) {
+      json(res, 401, { ok: false, error: "unauthorized" });
+      return;
+    }
+  }
+
   if (path === "/api/health" && req.method === "GET") {
     json(res, 200, healthPayload);
+    return;
+  }
+
+  if (path === "/api/authority/probe" && req.method === "POST") {
+    json(res, 200, {
+      ok: true,
+      probe: { ok: true, latencyMs: 1, hitCount: 5 },
+      authorityCorpus: authorityCorpusOpenSample,
+      note: "开源语料本地探测通过（非厂商付费库）。",
+    });
     return;
   }
 
@@ -1228,6 +1280,72 @@ const server = http.createServer(async (req, res) => {
         updatedAt: now,
       },
     });
+    return;
+  }
+
+  // ── Jobs (background workflow jobs) ─────────────────────────────────────────
+  if (path === "/api/jobs" && req.method === "GET") {
+    json(res, 200, { ok: true, jobs: [] });
+    return;
+  }
+
+  const jobMatch = /^\/api\/jobs\/([^/]+)$/.exec(path);
+  if (jobMatch && req.method === "GET") {
+    json(res, 200, {
+      ok: true,
+      job: {
+        id: jobMatch[1],
+        status: "completed",
+        kind: "workflow",
+        matterId: "e2e-matter-1",
+        createdAt: now,
+        updatedAt: now,
+      },
+    });
+    return;
+  }
+
+  const jobStreamMatch = /^\/api\/jobs\/([^/]+)\/stream$/.exec(path);
+  if (jobStreamMatch && req.method === "GET") {
+    // SSE: emit one terminal frame then close the stream (renderer tolerates immediate end).
+    res.writeHead(200, {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+      "access-control-allow-origin": "*",
+    });
+    res.write(`data: ${JSON.stringify({ ok: true, job: { id: jobStreamMatch[1], status: "completed" } })}\n\n`);
+    res.end();
+    return;
+  }
+
+  const jobCancelMatch = /^\/api\/jobs\/([^/]+)\/cancel$/.exec(path);
+  if (jobCancelMatch && req.method === "POST") {
+    json(res, 200, { ok: true, cancelled: true, jobId: jobCancelMatch[1] });
+    return;
+  }
+
+  // ── Collaboration workflow-run (async kickoff) ──────────────────────────────
+  if (path === "/api/collaboration/workflow-run" && req.method === "POST") {
+    const body = await readJsonBody(req);
+    const idempotencyKey = typeof body?.idempotencyKey === "string" ? body.idempotencyKey : "";
+    json(res, 200, {
+      ok: true,
+      jobId: `e2e-wf-${idempotencyKey ? idempotencyKey.slice(0, 8) : "1"}`,
+      status: "queued",
+      async: true,
+    });
+    return;
+  }
+
+  // ── Filesystem bridge (compose context picker / file embed) ─────────────────
+  if (path === "/api/fs/tree" && req.method === "GET") {
+    json(res, 200, { ok: true, entries: [] });
+    return;
+  }
+
+  if (path === "/api/fs/read" && req.method === "GET") {
+    json(res, 200, { ok: true, content: "" });
     return;
   }
 

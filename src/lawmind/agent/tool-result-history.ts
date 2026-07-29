@@ -3,6 +3,8 @@
  * cannot consume the whole context window.
  */
 
+import type { ToolCallResult } from "./types.js";
+
 export type ToolResultHistoryOpts = {
   /** Soft char budget for stringified tool content (default 16k ≈ 4k tokens @ chars/4). */
   maxChars?: number;
@@ -43,6 +45,14 @@ function pickKeyFields(result: Record<string, unknown>): Record<string, unknown>
  * Prepare a tool result for persistence in conversationHistory.
  * Over-budget payloads keep ok/error + key fields and mark truncated.
  */
+export function summarizeToolResultForHistory(
+  result: ToolCallResult,
+  opts?: ToolResultHistoryOpts,
+): ToolCallResult;
+export function summarizeToolResultForHistory(
+  result: unknown,
+  opts?: ToolResultHistoryOpts,
+): unknown;
 export function summarizeToolResultForHistory(
   result: unknown,
   opts: ToolResultHistoryOpts = {},

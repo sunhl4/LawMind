@@ -64,15 +64,15 @@ export function LawmindSettingsUsageStats({ apiBase }: Props): ReactNode {
           <dd>{fmt(s.entries)}</dd>
         </div>
         <div>
-          <dt>Prompt tokens</dt>
+          <dt>提问用量</dt>
           <dd>{fmt(s.promptTokens)}</dd>
         </div>
         <div>
-          <dt>Completion tokens</dt>
+          <dt>回复用量</dt>
           <dd>{fmt(s.completionTokens)}</dd>
         </div>
         <div>
-          <dt>合计 tokens</dt>
+          <dt>合计用量</dt>
           <dd>{fmt(s.totalTokens)}</dd>
         </div>
       </dl>
@@ -87,7 +87,7 @@ export function LawmindSettingsUsageStats({ apiBase }: Props): ReactNode {
             <tr>
               <th style={{ textAlign: "left", padding: "6px 12px 6px 0" }}>工作分层</th>
               <th style={{ textAlign: "right", padding: "6px 12px 6px 0" }}>记录条数</th>
-              <th style={{ textAlign: "right", padding: "6px 0" }}>合计 tokens</th>
+              <th style={{ textAlign: "right", padding: "6px 0" }}>合计用量</th>
             </tr>
           </thead>
           <tbody>
@@ -107,7 +107,7 @@ export function LawmindSettingsUsageStats({ apiBase }: Props): ReactNode {
             <tr>
               <th style={{ textAlign: "left", padding: "6px 12px 6px 0" }}>模型</th>
               <th style={{ textAlign: "right", padding: "6px 12px 6px 0" }}>记录条数</th>
-              <th style={{ textAlign: "right", padding: "6px 0" }}>合计 tokens</th>
+              <th style={{ textAlign: "right", padding: "6px 0" }}>合计用量</th>
             </tr>
           </thead>
           <tbody>

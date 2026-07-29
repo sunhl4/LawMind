@@ -140,6 +140,17 @@ export type ResearchSource = {
   court?: string;
   /** 案号（类案时填写） */
   caseNumber?: string;
+  /**
+   * True when hit came from open-law bundled sample or CORPUS marked demo.
+   * Acceptance/chat should surface「演示语料」— not a verified commercial statute.
+   */
+  demo?: boolean;
+  /** Provider id (e.g. open-law.local / open-law.npc_flk) — attribution, not 法宝. */
+  provider?: string;
+  /** Corpus / dump id for open sources. */
+  corpusId?: string;
+  /** Short license / attribution note for open dumps / live gov APIs. */
+  licenseNote?: string;
 };
 
 /** 单条结论 */
@@ -151,6 +162,8 @@ export type ResearchClaim = {
   confidence: number;
   /** 标注来源模型 */
   model: "general" | "legal";
+  /** True when claim text came from a demo/sample corpus hit. */
+  demo?: boolean;
 };
 
 /** 检索层输出 — 所有结论必须有 sourceIds */

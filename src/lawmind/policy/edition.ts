@@ -46,16 +46,22 @@ export const EDITION_FEATURES = {
   collaborationSummary: { solo: false, firm: true, private_deploy: true },
   /** 合规审计导出（compliance=true） */
   complianceAuditExport: { solo: false, firm: false, private_deploy: true },
-  /** 审计 JSONL hash-chain 校验导出（integrity=true） */
-  auditIntegrityExport: { solo: false, firm: true, private_deploy: true },
+  /**
+   * 审计 JSONL hash-chain 校验导出（integrity=true）。
+   * Solo 亦开启：个人律师需能一键核对办案审计链（轻量信任包装，非 Firm 合规报表）。
+   */
+  auditIntegrityExport: { solo: true, firm: true, private_deploy: true },
   /** SBOM 与安全自检面板入口 */
   securitySbomPanel: { solo: false, firm: false, private_deploy: true },
   /** Quality dashboard JSON 自动导出 */
   qualityDashboardJsonExport: { solo: false, firm: true, private_deploy: true },
   /** 自定义 DeliverableSpec（律所专属合同/律师函） */
   customDeliverableSpec: { solo: false, firm: true, private_deploy: true },
-  /** 客户验收包导出（acceptance-pack.md） */
-  acceptancePackExport: { solo: false, firm: true, private_deploy: true },
+  /**
+   * 客户验收包导出（acceptance-pack.md）。
+   * Solo 亦开启：交件前可下载轻量证据包；合规批量审计仍仅 Private。
+   */
+  acceptancePackExport: { solo: true, firm: true, private_deploy: true },
   /**
    * 危险工具一律要求显式 `__approved: true`，不因开发环境 `allowDangerousToolsWithoutApproval` 绕过。
    * 并对 `execute_workflow` 等未标 `requiresApproval` 的长链路工具追加门禁。

@@ -102,7 +102,7 @@ export function LawmindApprovalQueue(props: Props): ReactNode {
           刷新
         </button>
       </div>
-      {loading ? <p className="lm-meta">加载中…</p> : null}
+      {loading ? <p className="lm-meta" aria-busy="true">加载中…</p> : null}
       {error ? <p className="lm-meta lm-callout-warn">{error}</p> : null}
       {empty && !loading ? (
         <p className="lm-meta">暂无待批准的工具调用、案件审批或待审文书。</p>

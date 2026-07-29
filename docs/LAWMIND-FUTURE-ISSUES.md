@@ -34,6 +34,7 @@
 - [ ] **真正的 matter 级 audit 索引**（taskId/matterId → 日期文件偏移），彻底告别「按天窗口近似」
 - [ ] **会话磁盘 compact**：`sessions/*.json` 与 `.turns.jsonl` / transcript 归档或 gzip 旧段；热路径只保留摘要
 - [ ] **queue / approvals / adoption JSONL**：行数大时改为 append-only + 软删，或 SQLite
+- [x] **atomic `rewriteJsonl`**（短中期）：temp+rename 已落地（ENGINEERING-REVIEW **R-P1-9 ✅**）；长期 JSONL→SQLite 仍见上条
 - [ ] **LAWYER_PROFILE §八写侧轮转**（prompt 已截断；档案本体仍可能无限 append）
 - [ ] **`model-usage/ledger.jsonl` 保留策略**（按月滚动）
 - [ ] **FTS 重建增量索引**（避免全量扫 audit + turns）
@@ -90,6 +91,7 @@
 - [ ] CI：为 prompt-windows / overview-lite 增加回归门禁（已有单测则挂到 PR 集）
 - [ ] `persistDraftPipeline` 仍为同步 API、CASE 进展 `void` 触发：长期可改为 async 管道，避免测试/热路径依赖「锁 + 最终一致」
 - [ ] 将其它 Markdown 真相文件（日日志、LAWYER_PROFILE）也纳入同类写锁或统一 write-gateway
+- [ ] **双真相写路径收敛**（检测已部分落地）：高风险字段单写口见 ENGINEERING-REVIEW **R-P2-7**（review stamp SSOT + `transitionDeliverable` 防 approved/rejected 回写，2026-07-28）；Doctor 巡检另含 `client_drift`（CASE ↔ matter.json.clientId，2026-07-28 续轮）；完整 Markdown↔JSON / tasks↔drafts 其余写路径仍属本文件长期项
 
 ---
 
@@ -99,3 +101,4 @@
 | ---------- | --------------------------------------------------------------------------- |
 | 2026-07-18 | 建册；并入持久化审查未尽项与 DEFERRED 类问题；链到 PERSISTENCE-SCALE-REVIEW |
 | 2026-07-18 | 标记 CASE.md 写锁已落地；补充日日志/画像写锁与 async draft pipeline 待做项  |
+| 2026-07-25 | 链到工程 9.5 冲刺：R-P1-9 atomic rewriteJsonl、R-P2-7 写路径收敛（短中期）  |

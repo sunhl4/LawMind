@@ -216,8 +216,8 @@ function LawmindAppSidebarImpl({
                 data-testid="lm-side-collab-completed"
                 title="近 48 小时互审/委派完成（信息提示，不计入待拍板）"
               >
-                <span>协作完成</span>
-                <span className="lm-side-needs-decision-badge" aria-label={`${recentCollabCompleted} 项协作完成`}>
+                <span>工作流完成</span>
+                <span className="lm-side-needs-decision-badge" aria-label={`${recentCollabCompleted} 项工作流完成`}>
                   {recentCollabCompleted > 99 ? "99+" : recentCollabCompleted}
                 </span>
               </button>

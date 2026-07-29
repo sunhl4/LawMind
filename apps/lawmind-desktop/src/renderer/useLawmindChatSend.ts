@@ -38,6 +38,10 @@ import {
   textFromActivity,
 } from "./lawmind-chat-activity.js";
 import {
+  noticeFromToolAuthorityGap,
+  noticeFromToolDemoCorpus,
+} from "./lawmind-authority-gap-notice";
+import {
   applyRoundStart,
   applyToolEnd,
   applyToolProgress,
@@ -335,6 +339,8 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
             },
             onToolCallEnd: (info) => {
               const name = info.toolName || toolNamesById.get(info.toolCallId) || "tool";
+              const gapNotice = noticeFromToolAuthorityGap(name, info.authorityGap === true);
+              const demoNotice = noticeFromToolDemoCorpus(info.demoCorpus === true);
               updatePlaceholder((msg) => ({
                 ...msg,
                 activityActive: true,
@@ -346,6 +352,8 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
                   ...info,
                   toolName: name,
                 }),
+                ...(gapNotice ? { authorityGapNotice: gapNotice } : {}),
+                ...(demoNotice ? { demoCorpusNotice: demoNotice } : {}),
               }));
             },
             onTokenBudget: (info) => {

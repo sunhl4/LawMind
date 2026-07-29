@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type ChangeEvent, type ReactNode } from "react";
+import { apiSendJson, errorMessage } from "./api-client";
 import {
   readIncludeTurnDiagnostics,
   writeIncludeTurnDiagnostics,
@@ -12,8 +13,14 @@ import {
   type PlatformProviderKeyStatus,
   type ProviderKeyStatus,
 } from "./lawmind-models-api";
-import type { LawmindSettingsAppConfig, LawmindSettingsHealth } from "./lawmind-settings-models.ts";
+import {
+  formatAuthorityProbeSuccessMsg,
+  isAuthorityCorpusUiReady,
+  type LawmindSettingsAppConfig,
+  type LawmindSettingsHealth,
+} from "./lawmind-settings-models.ts";
 import { isSelectedModelVerified } from "./lawmind-model-verify";
+import { LawmindAuthoritySetup } from "./LawmindAuthoritySetup";
 
 type Props = {
   config: LawmindSettingsAppConfig;
@@ -69,6 +76,8 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
   const [turnDiagnostics, setTurnDiagnostics] = useState(readIncludeTurnDiagnostics);
   const [modelTestBusy, setModelTestBusy] = useState(false);
   const [modelTestResult, setModelTestResult] = useState<string | null>(null);
+  const [authorityProbeBusy, setAuthorityProbeBusy] = useState(false);
+  const [authorityProbeMsg, setAuthorityProbeMsg] = useState<string | null>(null);
   const onTurnDiagnosticsChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const next = e.target.checked;
     writeIncludeTurnDiagnostics(next);
@@ -95,6 +104,43 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
       setModelTestBusy(false);
     }
   }, [apiBase, onModelsChanged, selectedModelId]);
+
+  const onProbeAuthority = useCallback(async () => {
+    if (!apiBase) {
+      return;
+    }
+    setAuthorityProbeBusy(true);
+    setAuthorityProbeMsg(null);
+    try {
+      const j = (await apiSendJson(apiBase, "/api/authority/probe", "POST", {})) as {
+        ok?: boolean;
+        probe?: { ok?: boolean; latencyMs?: number; hitCount?: number; error?: string };
+        note?: string;
+        message?: string;
+        error?: string;
+      };
+      if (j.ok && j.probe?.ok) {
+        setAuthorityProbeMsg(
+          formatAuthorityProbeSuccessMsg({
+            latencyMs: j.probe.latencyMs,
+            hitCount: j.probe.hitCount,
+            note: j.note,
+            provider: health?.authorityCorpus?.provider,
+          }),
+        );
+      } else {
+        setAuthorityProbeMsg(
+          [j.note, j.probe?.error || j.message || j.error || "权威端点探测失败（fail-closed）。"]
+            .filter(Boolean)
+            .join(" · "),
+        );
+      }
+    } catch (cause) {
+      setAuthorityProbeMsg(errorMessage(cause, "权威端点探测失败"));
+    } finally {
+      setAuthorityProbeBusy(false);
+    }
+  }, [apiBase, health?.authorityCorpus?.provider]);
 
   const modelOk =
     Boolean(health?.modelConfigured) && isSelectedModelVerified(modelCatalog, selectedModelId);
@@ -131,6 +177,43 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
           >
             {health?.webSearchApiKeyConfigured ? "已配置" : "未配置"}
           </span>
+        </div>
+        <div
+          data-testid="lm-settings-authority-boundary"
+          data-status={health?.authorityCorpus?.status ?? "unset"}
+        >
+          <LawmindAuthoritySetup
+            authorityCorpus={health?.authorityCorpus}
+            authorityUsage={health?.authorityUsage}
+            envFilePath={envFilePath}
+            probeControl={
+              apiBase ? (
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-secondary lm-btn-sm"
+                  data-testid="lm-settings-authority-probe"
+                  disabled={
+                    authorityProbeBusy ||
+                    !isAuthorityCorpusUiReady(health?.authorityCorpus?.status)
+                  }
+                  onClick={() => void onProbeAuthority()}
+                  title={
+                    isAuthorityCorpusUiReady(health?.authorityCorpus?.status)
+                      ? health?.authorityCorpus?.provider === "open"
+                        ? "探测开源本地语料是否就绪（非厂商付费库核验）"
+                        : "对已配置端点发起契约健康探测（非厂商语料核验）"
+                      : "开源：检查语料；闭源/generic：需先配置合法 LAWMIND_AUTHORITY_ENDPOINT"
+                  }
+                >
+                  {authorityProbeBusy
+                    ? "探测中…"
+                    : health?.authorityCorpus?.provider === "open"
+                      ? "探测开源语料"
+                      : "探测权威端点"}
+                </button>
+              ) : null
+            }
+          />
         </div>
         {envFilePath ? (
           <div className="lm-settings-row lm-settings-row-stack">
@@ -170,6 +253,15 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
             role="status"
           >
             {modelTestResult}
+          </p>
+        ) : null}
+        {authorityProbeMsg ? (
+          <p
+            className="lm-settings-caption"
+            role="status"
+            data-testid="lm-settings-authority-probe-msg"
+          >
+            {authorityProbeMsg}
           </p>
         ) : null}
       </div>

@@ -168,7 +168,7 @@ S0 底座 → S1 信任+分诊 → S2 审查专案组 → S3 Solo 驾驶舱大�
 - [x] 聚合器：Safety Score、高中低计数、谈判优先级列表（启发式可复现）
 - [ ] 子结果写入 matter deliverables；主 task 挂 `campaignId`
 - [x] 单角色重跑 + 取消；idempotencyKey（Job 真并行挂接待 W22 深化）
-- [x] Edition：Solo 串行；Firm/Private `reviewCampaignParallel` 允许 parallel 启发式（MVP；LLM 真并行仍 backlog）
+- [x] Edition：Solo/Firm/Private 默认 `reviewCampaignParallel=true`（本地启发式并行；LLM 真并行仍 backlog）
 
 **B. API**
 

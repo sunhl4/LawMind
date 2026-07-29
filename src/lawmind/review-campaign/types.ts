@@ -24,7 +24,7 @@ export type FleetPlaybookRole = {
   label: string;
   /** Weight in Safety Score (sum need not be 1; normalized at aggregate time) */
   weight: number;
-  /** Soft timeout hint (ms) for Solo serial runner */
+  /** Soft timeout hint (ms) for heuristic role runner */
   timeoutMs: number;
   /** Tool allowlist for future Firm parallelism */
   toolAllowlist: string[];
@@ -44,7 +44,7 @@ export type FleetPlaybook = {
   version: number;
   deliverableTypes: string[];
   roles: FleetPlaybookRole[];
-  /** Solo serial vs firm parallel (execution hint) */
+  /** Serial vs parallel heuristics (execution hint; parallel still edition-gated) */
   executionMode: "serial" | "parallel";
 };
 

@@ -18,7 +18,9 @@ export type MatterConsistencyIssueCode =
   | "missing_matter_json"
   | "both_missing"
   | "title_drift"
-  | "status_drift";
+  | "status_drift"
+  | "sensitivity_drift"
+  | "client_drift";
 
 export type MatterConsistencyIssue = {
   matterId: string;
@@ -31,6 +33,24 @@ function parseCaseStatusLabel(caseRaw: string): string | undefined {
   const v = m?.[1]?.trim();
   return v || undefined;
 }
+
+function parseCaseSensitivityLabel(caseRaw: string): string | undefined {
+  const m = /(?:^|\n)-\s*密级[:：]\s*([^\n]+)/.exec(caseRaw);
+  const v = m?.[1]?.trim();
+  return v || undefined;
+}
+
+function parseCaseClientId(caseRaw: string): string | undefined {
+  const m = /(?:^|\n)-\s*客户\s*\/\s*clientId[:：]\s*([^\n]+)/.exec(caseRaw);
+  const v = m?.[1]?.trim();
+  return v || undefined;
+}
+
+const SENSITIVITY_LABELS: Record<string, string> = {
+  normal: "普通保密",
+  high: "高度敏感",
+  restricted: "严格隔离",
+};
 
 export async function checkMatterConsistency(
   workspaceDir: string,
@@ -87,6 +107,30 @@ export async function checkMatterConsistency(
             matterId,
             code: "status_drift",
             message: `CASE「当前阶段：${caseStatus}」与 matter.json.status「${expectedStatus}」不一致`,
+          });
+        }
+        const caseSensitivity = parseCaseSensitivityLabel(caseRaw);
+        const expectedSensitivity = SENSITIVITY_LABELS[record.sensitivity] ?? record.sensitivity;
+        if (caseSensitivity && caseSensitivity !== expectedSensitivity) {
+          issues.push({
+            matterId,
+            code: "sensitivity_drift",
+            message: `CASE「密级：${caseSensitivity}」与 matter.json.sensitivity「${expectedSensitivity}」不一致`,
+          });
+        }
+        const caseClient = parseCaseClientId(caseRaw);
+        const jsonClient = record.clientId?.trim() || "";
+        if (caseClient && jsonClient && caseClient !== jsonClient) {
+          issues.push({
+            matterId,
+            code: "client_drift",
+            message: `CASE「客户 / clientId：${caseClient}」与 matter.json.clientId「${jsonClient}」不一致`,
+          });
+        } else if (caseClient && !jsonClient) {
+          issues.push({
+            matterId,
+            code: "client_drift",
+            message: `CASE 有客户「${caseClient}」但 matter.json.clientId 为空（以 JSON 为准）`,
           });
         }
       }
