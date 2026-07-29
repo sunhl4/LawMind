@@ -22,8 +22,7 @@
  * 幂等：目标已存在且 `--version` 与期望一致则跳过。输出目录已被 .gitignore 排除。
  */
 import { spawnSync } from "node:child_process";
-import { createGunzip } from "node:zlib";
-import { createWriteStream, readFileSync } from "node:fs";
+import { createWriteStream } from "node:fs";
 import fs from "node:fs";
 import https from "node:https";
 import os from "node:os";
@@ -38,10 +37,15 @@ function parseArgs(argv) {
   const out = { nodeBin: "", nodeVersion: "", clean: false, help: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--node") out.nodeBin = argv[++i] ?? "";
-    else if (a === "--node-version") out.nodeVersion = argv[++i] ?? "";
-    else if (a === "--clean") out.clean = true;
-    else if (a === "--help" || a === "-h") out.help = true;
+    if (a === "--node") {
+      out.nodeBin = argv[++i] ?? "";
+    } else if (a === "--node-version") {
+      out.nodeVersion = argv[++i] ?? "";
+    } else if (a === "--clean") {
+      out.clean = true;
+    } else if (a === "--help" || a === "-h") {
+      out.help = true;
+    }
   }
   return out;
 }
@@ -57,15 +61,25 @@ function nodeVersionOf(binPath) {
 }
 
 function mapDistArch(arch) {
-  if (arch === "x64" || arch === "arm64" || arch === "armv7l") return arch;
-  if (arch === "ia32") return "x86";
+  if (arch === "x64" || arch === "arm64" || arch === "armv7l") {
+    return arch;
+  }
+  if (arch === "ia32") {
+    return "x86";
+  }
   throw new Error(`不支持的架构：${arch}（仅支持 x64 / arm64 / armv7l）`);
 }
 
 function distPlatformName(platform) {
-  if (platform === "darwin") return "darwin";
-  if (platform === "linux") return "linux";
-  if (platform === "win32") return "win";
+  if (platform === "darwin") {
+    return "darwin";
+  }
+  if (platform === "linux") {
+    return "linux";
+  }
+  if (platform === "win32") {
+    return "win";
+  }
   throw new Error(`不支持的平台：${platform}`);
 }
 
@@ -106,7 +120,9 @@ function extractArchive(archivePath, destDir, isZip) {
 function copyStandaloneBinary(srcBin, destBin) {
   fs.mkdirSync(path.dirname(destBin), { recursive: true });
   fs.copyFileSync(srcBin, destBin);
-  if (process.platform !== "win32") fs.chmodSync(destBin, 0o755);
+  if (process.platform !== "win32") {
+    fs.chmodSync(destBin, 0o755);
+  }
 }
 
 async function vendorFromDownload(version, key, destBin) {
@@ -208,4 +224,4 @@ async function main() {
   }
 }
 
-main();
+void main();

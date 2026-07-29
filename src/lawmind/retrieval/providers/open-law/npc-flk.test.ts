@@ -58,7 +58,8 @@ describe("open-law/npc-flk", () => {
     const fixture = JSON.parse(fs.readFileSync(fixturePath, "utf8")) as unknown;
     const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
       expect(init?.method).toBe("POST");
-      const body = JSON.parse(String(init?.body ?? "{}")) as { searchContent?: string };
+      const rawBody = typeof init?.body === "string" ? init.body : "{}";
+      const body = JSON.parse(rawBody) as { searchContent?: string };
       expect(body.searchContent).toBe("民法典");
       return new Response(JSON.stringify(fixture), {
         status: 200,
