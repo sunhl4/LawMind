@@ -358,7 +358,7 @@ export function MatterWorkbenchMainPanels(props: MatterWorkbenchMainPanelsProps)
   }
 
   if (detailLoading) {
-    return <div className="lm-meta">加载案件详情…</div>;
+    return <div className="lm-meta" aria-busy="true" aria-label="加载案件详情">加载案件详情…</div>;
   }
   if (detailError) {
     return (
@@ -383,6 +383,12 @@ export function MatterWorkbenchMainPanels(props: MatterWorkbenchMainPanelsProps)
 
       <MatterWorkbenchTabs panelTab={panelTab} onSelect={onSelectPanelTab} showShellOps={showShellOps} />
 
+      <div
+        role="tabpanel"
+        id={`lm-matter-panel-${panelTab}`}
+        aria-labelledby={`lm-matter-tab-${panelTab}`}
+        tabIndex={0}
+      >
       {panelTab === "overview" && (
         <MatterOverviewBody
           apiBase={apiBase}
@@ -548,6 +554,7 @@ export function MatterWorkbenchMainPanels(props: MatterWorkbenchMainPanelsProps)
           onOpenShellDetail={onOpenShellDetail}
         />
       )}
+      </div>
     </>
   );
 }

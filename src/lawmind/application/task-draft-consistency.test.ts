@@ -80,4 +80,116 @@ describe("task-draft-consistency", () => {
     const ws = tmpWs();
     expect(formatTaskDraftConsistencyReport(ws)).toContain("OK");
   });
+
+  it("format report lists issues when present", () => {
+    const ws = tmpWs();
+    persistDraft(ws, {
+      taskId: "orphan-fmt",
+      title: "孤",
+      output: "docx",
+      templateId: "builtin/memo",
+      summary: "x",
+      sections: [],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    const report = formatTaskDraftConsistencyReport(ws);
+    expect(report).toContain("orphan_draft");
+    expect(report).not.toContain("OK");
+  });
+
+  it("reports deliverable pointing at missing draft", async () => {
+    const ws = tmpWs();
+    const { createPlannedDeliverable, transitionDeliverable } = await import(
+      "./services/deliverable-service.js"
+    );
+    const { loadDeliverable, saveDeliverable } = await import(
+      "../adapters/matter-storage/index.js"
+    );
+    createPlannedDeliverable(ws, {
+      matterId: "m-dd",
+      deliverableId: "del-ghost",
+      kind: "legal-memo",
+      taskId: "ghost-draft",
+    });
+    transitionDeliverable(ws, "m-dd", "del-ghost", "drafting");
+    const d = loadDeliverable(ws, "m-dd", "del-ghost");
+    expect(d).toBeTruthy();
+    saveDeliverable(ws, {
+      ...d!,
+      currentDraftTaskId: "ghost-draft",
+      updatedAt: new Date().toISOString(),
+    });
+    const issues = checkTaskDraftConsistency(ws);
+    expect(
+      issues.some(
+        (i) =>
+          i.code === "deliverable_draft_missing" &&
+          i.taskId === "ghost-draft" &&
+          i.deliverableId === "del-ghost",
+      ),
+    ).toBe(true);
+  });
+
+  it("reports deliverable_review_drift when review stamps diverge", async () => {
+    const ws = tmpWs();
+    const { createPlannedDeliverable, transitionDeliverable } = await import(
+      "./services/deliverable-service.js"
+    );
+    const { loadDeliverable, saveDeliverable } = await import(
+      "../adapters/matter-storage/index.js"
+    );
+    const now = new Date().toISOString();
+    persistDraft(ws, {
+      taskId: "draft-rev",
+      title: "备忘",
+      output: "docx",
+      templateId: "builtin/memo",
+      summary: "x",
+      sections: [],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: now,
+      updatedAt: now,
+    });
+    ensureTaskRecord(ws, {
+      taskId: "draft-rev",
+      kind: "draft.word",
+      output: "docx",
+      instruction: "写备忘",
+      summary: "写备忘",
+      riskLevel: "medium",
+      models: ["general"],
+      requiresConfirmation: false,
+      createdAt: now,
+      deliverableType: "document.general",
+    });
+    createPlannedDeliverable(ws, {
+      matterId: "m-rev",
+      deliverableId: "del-rev",
+      kind: "legal-memo",
+      taskId: "draft-rev",
+    });
+    transitionDeliverable(ws, "m-rev", "del-rev", "drafting");
+    const d = loadDeliverable(ws, "m-rev", "del-rev");
+    expect(d).toBeTruthy();
+    saveDeliverable(ws, {
+      ...d!,
+      currentDraftTaskId: "draft-rev",
+      currentReviewStatus: "approved",
+      updatedAt: now,
+    });
+    const issues = checkTaskDraftConsistency(ws);
+    expect(
+      issues.some(
+        (i) =>
+          i.code === "deliverable_review_drift" &&
+          i.taskId === "draft-rev" &&
+          i.deliverableId === "del-rev",
+      ),
+    ).toBe(true);
+  });
 });
+

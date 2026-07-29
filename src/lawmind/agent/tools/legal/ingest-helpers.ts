@@ -123,6 +123,7 @@ function readChoiceText(raw: unknown): string {
 async function readImageTextByVisionModel(
   image: Buffer | Uint8Array,
   mime: string,
+  signal?: AbortSignal,
 ): Promise<string> {
   const cfg = resolveVisionModelConfig();
   if (!cfg) {
@@ -154,6 +155,7 @@ async function readImageTextByVisionModel(
       "content-type": "application/json",
     },
     body: JSON.stringify(payload),
+    signal,
   }).catch(() => null);
   if (!response || !response.ok) {
     return "";

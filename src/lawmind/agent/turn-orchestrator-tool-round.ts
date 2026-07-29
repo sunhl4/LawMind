@@ -182,6 +182,9 @@ export async function executeToolBatches(
         },
       };
       const result = await getRunToolPipeline()(callCtx);
+      const { authorityGapFromToolResult, demoCorpusFromToolResult } = await import(
+        "../retrieval/authority-gap.js"
+      );
       emitEvent({
         type: "tool_call_end",
         roundIndex,
@@ -189,6 +192,8 @@ export async function executeToolBatches(
         toolName,
         ok: result.ok,
         error: result.ok ? undefined : extractToolErrorMessage(result),
+        ...(authorityGapFromToolResult(result) ? { authorityGap: true } : {}),
+        ...(demoCorpusFromToolResult(result) ? { demoCorpus: true } : {}),
       });
       ctx.emitToolProgress = undefined;
 

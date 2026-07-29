@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import {
   approveToolViaDialog,
   e2eMockApiBase,
+  ensureReviewMetaPaneVisible,
   gotoShell,
   installE2eBrowserPrefs,
   openComposeOptions,
@@ -24,39 +25,32 @@ test.describe("LawMind golden path", () => {
     await expect(page.locator(".lm-readiness-strip")).toHaveCount(0, { timeout: 30_000 });
   });
 
-  // TODO: Skip flaky review workbench test - functionality verified by contract-review-trust.spec.ts
-  test.skip("review workbench shows acceptance gate region when opened", async ({ page }) => {
+  test("review workbench shows acceptance gate region when opened", async ({ page }) => {
     test.setTimeout(120_000);
     await gotoShell(page);
     await openReviewWorkbench(page);
-    // Verify the review workbench root and draft picker toolbar are visible
     await expect(page.locator(".lm-review-workbench-root")).toBeVisible({ timeout: 30_000 });
-    await expect(page.locator(".lm-review-draft-toolbar")).toBeVisible({ timeout: 30_000 });
-    // Wait for drafts API call to complete
-    await page.waitForResponse(
-      (res) => res.url().includes("/api/drafts") && res.ok(),
-      { timeout: 30_000 }
-    ).catch(() => undefined);
-    // Try to select a draft if available (mock provides e2e-draft-1)
     const draftSelect = page.locator("select.lm-review-draft-select");
-    if (await draftSelect.isEnabled().catch(() => false)) {
-      await draftSelect.selectOption("e2e-draft-1");
-      // Wait for draft detail to load
-      await page.waitForResponse(
-        (res) => res.url().includes("/api/drafts/e2e-draft-1") && res.ok(),
-        { timeout: 30_000 }
-      ).catch(() => undefined);
-      // Verify gate content appears after selecting a draft
-      await expect(page.getByText(/验收门禁|等待律师签批|执行状态看板/).first()).toBeVisible({
-        timeout: 30_000,
-      });
+    if (await draftSelect.isVisible().catch(() => false)) {
+      const options = await draftSelect.locator("option").all();
+      if (options.length > 1) {
+        await draftSelect.selectOption({ index: 1 }).catch(async () => {
+          await draftSelect.selectOption("e2e-draft-1").catch(() => undefined);
+        });
+      }
     }
+    await ensureReviewMetaPaneVisible(page);
+    await expect(page.locator("#lm-review-acceptance-gate")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/出稿检查/).first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("lm-review-export-blockers")).toBeVisible({ timeout: 15_000 });
   });
 
   test("tool approval card resumes without manual __approved JSON", async ({ page }) => {
     await gotoShell(page);
     await openWorkspaceChat(page);
-    await expect(page.getByRole("button", { name: /批准并继续/ })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("button", { name: /批准并继续|允许一次/ })).toBeVisible({
+      timeout: 15_000,
+    });
     const resumeRes = await approveToolViaDialog(page);
     const resumeJson = (await resumeRes.json()) as { resumeEcho?: { decision?: string } };
     expect(resumeJson.resumeEcho?.decision).toBe("approve");
@@ -120,7 +114,7 @@ test.describe("LawMind golden path", () => {
     await gotoShell(page);
     await openWorkspaceChat(page);
     await openComposeOptions(page);
-    const perm = page.getByLabel("工具权限模式");
+    const perm = page.getByTestId("lm-compose-permission-mode");
     await expect(perm).toBeVisible({ timeout: 15_000 });
     await perm.selectOption("strict");
     await expect(perm).toHaveValue("strict");

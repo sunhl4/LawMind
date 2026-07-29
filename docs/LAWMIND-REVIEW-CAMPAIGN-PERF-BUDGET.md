@@ -1,10 +1,10 @@
 # 审查专案组性能预算（G2）
 
-Solo 默认 **串行启发式**（无 LLM）跑 Fleet Playbook；Firm 可开 `reviewCampaignParallel`（仍为本地启发式并行时间戳，非 LLM 真并行）。
+Solo / Firm / Private 在 `edition.ts` 均默认 **`reviewCampaignParallel=true`**（本地启发式并行时间戳，非 LLM 真并行）。仍可按 playbook `executionMode: "serial"` 或调用方 `preferParallel: false` 走串行启发式。
 
 ## 目标（样例合同 ≤ 40KB 正文）
 
-| 指标       | Solo 串行         | Firm parallel 闸门开       |
+| 指标       | 串行启发式        | parallel 闸门开（默认）    |
 | ---------- | ----------------- | -------------------------- |
 | 墙钟时间   | ≤ 2s              | ≤ 2s（启发式）             |
 | 角色数     | ≥ 4（标准剧本 5） | 同左                       |

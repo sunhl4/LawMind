@@ -5,6 +5,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { writeJsonAtomic } from "../adapters/matter-storage/io.js";
 
 export type AgentSpecializationStats = {
   assistantId: string;
@@ -57,9 +58,7 @@ export function recordAgentReviewOutcome(params: {
     lastUpdatedAt: new Date().toISOString(),
   };
   store.byAssistant[params.assistantId] = next;
-  const dir = path.dirname(storePath(params.workspaceDir));
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(storePath(params.workspaceDir), `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  writeJsonAtomic(storePath(params.workspaceDir), store);
   return next;
 }
 

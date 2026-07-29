@@ -736,7 +736,7 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
               key: "injected",
               title: "已注入核心记忆",
               count: Array.from(layerCounts.values()).filter((entry) => entry.injected).length,
-              hint: "这些层已经进入 system prompt，直接参与当前推理。",
+              hint: "这些层已经进入助手主说明，直接参与当前推理。",
             },
             {
               key: "candidate",

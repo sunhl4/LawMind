@@ -33,11 +33,14 @@ export function MatterWorkbenchTabs(props: Props): ReactNode {
       {tabs.map((t) => (
         <button
           key={t.id}
+          id={`lm-matter-tab-${t.id}`}
           type="button"
           role="tab"
           className={`lm-tab ${panelTab === t.id ? "active" : ""}`}
           aria-selected={panelTab === t.id}
           aria-current={panelTab === t.id ? "page" : undefined}
+          aria-controls={`lm-matter-panel-${t.id}`}
+          tabIndex={panelTab === t.id ? 0 : -1}
           onClick={() => onSelect(t.id)}
         >
           {t.label}

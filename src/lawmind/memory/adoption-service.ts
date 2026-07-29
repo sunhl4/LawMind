@@ -121,7 +121,9 @@ async function writeAll(workspaceDir: string, records: MemoryAdoptionRecord[]): 
   const file = suggestionsFile(workspaceDir);
   await ensureDir(file);
   const body = records.map((r) => JSON.stringify(r)).join("\n");
-  await fs.writeFile(file, body ? `${body}\n` : "", "utf8");
+  // 原子写：temp + rename，避免崩溃留下撕档文件（对齐 matter-storage io.ts 模式）。
+  const { writeFileAtomicAsync } = await import("../adapters/matter-storage/io.js");
+  await writeFileAtomicAsync(file, body ? `${body}\n` : "");
 }
 
 /**

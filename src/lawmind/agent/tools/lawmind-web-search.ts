@@ -45,6 +45,7 @@ export async function lawMindBraveWebSearch(
   query: string,
   count: number,
   workspaceDir?: string,
+  signal?: AbortSignal,
 ): Promise<Array<{ title: string; url: string; description: string }>> {
   const apiKey = resolveLawMindWebSearchApiKey();
   if (!apiKey) {
@@ -66,6 +67,7 @@ export async function lawMindBraveWebSearch(
       Accept: "application/json",
       "X-Subscription-Token": apiKey,
     },
+    signal,
   });
 
   if (!res.ok) {
@@ -117,7 +119,7 @@ export const lawMindWebSearchTool: AgentTool = {
       typeof params.count === "number" && Number.isFinite(params.count) ? params.count : 5;
     const count = Math.min(10, Math.max(1, Math.floor(raw)));
     try {
-      const results = await lawMindBraveWebSearch(query, count, ctx.workspaceDir);
+      const results = await lawMindBraveWebSearch(query, count, ctx.workspaceDir, ctx.abortSignal);
       return {
         ok: true,
         data: {

@@ -10,9 +10,14 @@ test.describe("文书台 / 待我拍板 决策落地", () => {
     await gotoShell(page);
     await page.getByTestId("lm-tab-agents").click();
     await expect(page.getByTestId("lm-agent-fleet-panel")).toBeVisible({ timeout: 30_000 });
-    const card = page.getByTestId("lm-agent-fleet-card-pending_review");
-    if (await card.isVisible().catch(() => false)) {
-      await card.click();
+    const team = page.getByTestId("lm-fleet-team-default");
+    if (await team.isVisible().catch(() => false)) {
+      await team.click();
+    } else {
+      const card = page.getByTestId("lm-agent-fleet-card-pending_review");
+      if (await card.isVisible().catch(() => false)) {
+        await card.click();
+      }
     }
     await expect(page.getByTestId("lm-fleet-draft-approve")).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId("lm-fleet-draft-hint")).toBeVisible();
@@ -24,7 +29,9 @@ test.describe("文书台 / 待我拍板 决策落地", () => {
     await expect(
       page.locator(".lm-review-compose-main, .lm-review-editor-pane, .lm-review-preview-pane").first(),
     ).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByRole("button", { name: /回到在办签批/ })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("button", { name: /回到在办签批/ }).first()).toBeVisible({
+      timeout: 15_000,
+    });
   });
 
   test("侧栏待我拍板 opens needs-decision focus", async ({ page }) => {
@@ -49,5 +56,16 @@ test.describe("文书台 / 待我拍板 决策落地", () => {
     await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench").first()).toBeVisible({
       timeout: 30_000,
     });
+  });
+
+  test("顶栏文书台 peer tab opens review workbench", async ({ page }) => {
+    await gotoShell(page);
+    const tab = page.getByTestId("lm-tab-review");
+    await expect(tab).toBeVisible({ timeout: 30_000 });
+    await tab.click();
+    await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench").first()).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(tab).toHaveAttribute("aria-current", "page");
   });
 });

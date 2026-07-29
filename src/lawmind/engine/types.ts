@@ -37,7 +37,7 @@ export type LawMindEngine = {
   /** 步骤 1.5：律师确认任务后才允许进入高风险检索 */
   confirm: (taskId: string, opts?: { actorId?: string; note?: string }) => Promise<TaskRecord>;
   /** 步骤 2：执行检索（律师确认后调用） */
-  research: (intent: TaskIntent) => Promise<ResearchBundle>;
+  research: (intent: TaskIntent, opts?: { signal?: AbortSignal }) => Promise<ResearchBundle>;
   /** 步骤 3：生成草稿（供律师审核） */
   draft: (
     intent: TaskIntent,

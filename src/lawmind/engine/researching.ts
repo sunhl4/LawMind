@@ -21,6 +21,7 @@ import type { EngineContext } from "./context.js";
 export async function researchTask(
   ctx: EngineContext,
   intent: TaskIntent,
+  opts?: { signal?: AbortSignal },
 ): Promise<ResearchBundle> {
   const { workspaceDir, auditDir, adapters, assistantId } = ctx;
 
@@ -47,7 +48,7 @@ export async function researchTask(
   });
 
   const memory = await loadMemoryContext(workspaceDir, { matterId: intent.matterId });
-  const bundle = await retrieve({ intent, memory, adapters });
+  const bundle = await retrieve({ intent, memory, adapters, signal: opts?.signal });
 
   await emit(auditDir, {
     taskId: intent.taskId,

@@ -27,16 +27,21 @@ describe("LawmindToolArgsEditDialog", () => {
         />,
       );
     });
-    expect(host.querySelector('[data-document-write="true"]')).toBeTruthy();
-    expect(host.querySelector('[data-testid="lm-tool-args-edit-doc-redirect"]')).toBeTruthy();
-    expect(host.querySelector('[data-size="compact"]')).toBeTruthy();
-    expect(host.textContent).toContain("全文请用「文书台」");
-    expect(host.querySelector("h2")?.textContent).toBe("改参数");
-    expect(host.querySelector('textarea[aria-label="文书正文"]')).toBeNull();
-    expect(host.querySelector('textarea[aria-label="正文"]')).toBeNull();
-    expect(host.querySelector('input[aria-label="保存位置"]')).toBeNull();
+    // 弹层经 createPortal 挂到 document.body（消息行 contentVisibility 会裁剪行内弹层）。
+    expect(document.body.querySelector('[data-document-write="true"]')).toBeTruthy();
+    expect(
+      document.body.querySelector('[data-testid="lm-tool-args-edit-doc-redirect"]'),
+    ).toBeTruthy();
+    expect(document.body.querySelector('[data-size="compact"]')).toBeTruthy();
+    expect(document.body.textContent).toContain("全文请用「文书台」");
+    expect(document.body.querySelector("h2")?.textContent).toBe("改参数");
+    expect(document.body.querySelector('textarea[aria-label="文书正文"]')).toBeNull();
+    expect(document.body.querySelector('textarea[aria-label="正文"]')).toBeNull();
+    expect(document.body.querySelector('input[aria-label="保存位置"]')).toBeNull();
     await act(async () => {
-      host.querySelector<HTMLButtonElement>('[data-testid="lm-tool-args-edit-approve"]')?.click();
+      document.body
+        .querySelector<HTMLButtonElement>('[data-testid="lm-tool-args-edit-approve"]')
+        ?.click();
     });
     expect(onApprove).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -63,8 +68,8 @@ describe("LawmindToolArgsEditDialog", () => {
         />,
       );
     });
-    expect(host.querySelector("h2")?.textContent).toBe("改拟稿");
-    expect(host.querySelector('[data-document-write="true"]')).toBeNull();
+    expect(document.body.querySelector("h2")?.textContent).toBe("改拟稿");
+    expect(document.body.querySelector('[data-document-write="true"]')).toBeNull();
     root.unmount();
     host.remove();
   });

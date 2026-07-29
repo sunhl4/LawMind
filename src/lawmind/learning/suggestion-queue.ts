@@ -57,7 +57,9 @@ async function readQueue(workspaceDir: string): Promise<QueueFile> {
 async function writeQueue(workspaceDir: string, data: QueueFile): Promise<void> {
   const p = queuePath(workspaceDir);
   await fs.mkdir(path.dirname(p), { recursive: true });
-  await fs.writeFile(p, JSON.stringify(data, null, 2), "utf8");
+  // 原子写：temp + rename，避免并发 adopt/dismiss/enqueue 互相覆盖或崩溃撕档。
+  const { writeFileAtomicAsync } = await import("../adapters/matter-storage/io.js");
+  await writeFileAtomicAsync(p, JSON.stringify(data, null, 2));
 }
 
 export async function listLearningSuggestions(

@@ -48,8 +48,8 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
     confirm(taskId, opts = {}) {
       return confirmTask(ctx, taskId, opts);
     },
-    research(intent) {
-      return researchTask(ctx, intent);
+    research(intent, opts = {}) {
+      return researchTask(ctx, intent, opts);
     },
     draft(intent, bundle, opts = {}) {
       return draftSync(ctx, intent, bundle, opts);

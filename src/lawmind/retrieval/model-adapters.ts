@@ -14,6 +14,7 @@ import { validateModelRetrievalOutput } from "./schema.js";
 export type ModelRetrievalInput = {
   intent: TaskIntent;
   memory: MemoryContext;
+  signal?: AbortSignal;
 };
 
 export type ModelRetrievalOutput = {
@@ -67,8 +68,8 @@ export function createModelAdapter(params: CreateModelAdapterParams): RetrievalA
   return {
     name: params.name,
     supports: params.supports,
-    async retrieve({ intent, memory }): Promise<RetrievalResult> {
-      const raw = await params.run({ intent, memory });
+    async retrieve({ intent, memory, signal }): Promise<RetrievalResult> {
+      const raw = await params.run({ intent, memory, signal });
       const output = validateModelRetrievalOutput(raw);
       const sources = output.sources ? toSources(params.role, output.sources) : [];
       const sourceIds = sources.map((s) => s.id);

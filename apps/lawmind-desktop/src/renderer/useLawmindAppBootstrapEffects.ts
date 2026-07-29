@@ -22,6 +22,7 @@ export type LawmindHealthState = {
   modelEnvFileExists?: boolean;
   draftWithModelEnabled?: boolean;
   draftWithModelActive?: boolean;
+  authorityCorpus?: NonNullable<HealthPayload["doctor"]>["authorityCorpus"];
 } | null;
 
 export function mapHealthState(payload: {
@@ -34,6 +35,7 @@ export function mapHealthState(payload: {
   draftWithModelEnabled?: boolean;
   draftWithModelActive?: boolean;
   policy?: HealthPayload["policy"];
+  doctor?: HealthPayload["doctor"];
 }): NonNullable<LawmindHealthState> {
   return {
     modelConfigured: Boolean(payload.modelConfigured),
@@ -45,6 +47,12 @@ export function mapHealthState(payload: {
     modelEnvFileExists: Boolean(payload.modelEnvFileExists),
     draftWithModelEnabled: payload.draftWithModelEnabled === true,
     draftWithModelActive: payload.draftWithModelActive === true,
+    ...(payload.doctor?.authorityCorpus
+      ? { authorityCorpus: payload.doctor.authorityCorpus }
+      : {}),
+    ...(payload.doctor?.authorityUsage
+      ? { authorityUsage: payload.doctor.authorityUsage }
+      : {}),
   };
 }
 

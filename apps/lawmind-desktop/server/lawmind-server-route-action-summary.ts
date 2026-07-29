@@ -226,15 +226,26 @@ export async function handleActionSummaryRoutes({
       typeof body.resolvedBy === "string" && body.resolvedBy.trim()
         ? body.resolvedBy.trim()
         : resolveDesktopActorId();
-    const updated = resolveApproval(workspaceDir, matterId, approvalId, {
+    const result = resolveApproval(workspaceDir, matterId, approvalId, {
       status: statusRaw,
       resolvedBy,
     });
-    if (!updated) {
+    if (result.outcome === "not_found") {
       sendJsonError(res, 404, "approval_not_found", "未找到该审批项。", c);
       return true;
     }
-    sendJson(res, 200, { ok: true, approval: updated }, c);
+    if (result.outcome === "already_resolved") {
+      sendJsonError(
+        res,
+        409,
+        "approval_already_resolved",
+        "该审批已被处理，当前状态未变更。",
+        c,
+        { approval: result.approval },
+      );
+      return true;
+    }
+    sendJson(res, 200, { ok: true, approval: result.approval }, c);
     return true;
   }
 

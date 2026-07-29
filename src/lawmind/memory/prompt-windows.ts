@@ -78,7 +78,7 @@ export function truncateForPrompt(
  */
 export function windowCaseMarkdownForPrompt(
   caseMemory: string | undefined | null,
-  maxChars = PROMPT_WINDOW.matterContextChars,
+  maxChars: number = PROMPT_WINDOW.matterContextChars,
 ): string {
   const raw = (caseMemory ?? "").trim();
   if (!raw) {

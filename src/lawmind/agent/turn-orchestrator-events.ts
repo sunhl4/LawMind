@@ -111,6 +111,10 @@ export type RunTurnEvent =
       toolName: string;
       ok: boolean;
       error?: string;
+      /** Statute/case search returned no authority — UI should show 缺源 banner. */
+      authorityGap?: boolean;
+      /** Open sample / demo CORPUS hits — UI should show 演示语料 watermark. */
+      demoCorpus?: boolean;
     }
   | {
       type: "tool_progress";

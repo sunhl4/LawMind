@@ -4,7 +4,9 @@
 
 import { listPendingApprovals, resolveApproval } from "../application/services/approval-service.js";
 import {
+  applyDeliverableReviewStamp,
   linkDraftToDeliverable,
+  syncDraftReviewStatusFromDeliverable,
   transitionDeliverable,
 } from "../application/services/deliverable-service.js";
 import {
@@ -55,7 +57,7 @@ export async function reviewDraft(
 ): Promise<ArtifactDraft> {
   const { workspaceDir, auditDir, assistantId } = ctx;
   const status = opts.status ?? "approved";
-  draft.reviewStatus = status;
+  // reviewStatus is set from deliverable JSON authority below (R-P2-7), not draft-first.
   draft.reviewedBy = opts.actorId ?? draft.reviewedBy ?? resolveDefaultEngineLawyerActorId();
   draft.reviewedAt = draft.reviewedAt ?? new Date().toISOString();
   if (opts.note) {
@@ -185,6 +187,75 @@ export async function reviewDraft(
     }
   }
 
+  // R-P2-7：审核态以 deliverables/*.json 为权威口；draft.reviewStatus 仅从该 stamp 同步后再落盘。
+  let matterWriteFailed = false;
+  if (draft.matterId) {
+    try {
+      const deliverableStatus =
+        status === "approved" ? "approved" : status === "rejected" ? "blocked" : "drafting";
+      const stampOpts = {
+        reviewStatus: status,
+        status: deliverableStatus,
+        reviewerId: draft.reviewedBy,
+        approvedBy: status === "approved" ? draft.reviewedBy : undefined,
+        blockingReasons:
+          status === "rejected"
+            ? ["rejected_by_reviewer"]
+            : status === "modified"
+              ? ["changes_requested"]
+              : [],
+      } as const;
+      let stamped = applyDeliverableReviewStamp(
+        workspaceDir,
+        draft.matterId,
+        draft.taskId,
+        stampOpts,
+      );
+      if (!stamped) {
+        const tr = readTaskRecord(workspaceDir, draft.taskId);
+        linkDraftToDeliverable(workspaceDir, draft, tr ?? undefined);
+        stamped = applyDeliverableReviewStamp(
+          workspaceDir,
+          draft.matterId,
+          draft.taskId,
+          stampOpts,
+        );
+      }
+      if (stamped) {
+        syncDraftReviewStatusFromDeliverable(draft, stamped);
+      } else {
+        const transitioned = transitionDeliverable(
+          workspaceDir,
+          draft.matterId,
+          draft.taskId,
+          deliverableStatus,
+          {
+            reviewStatus: status,
+            reviewerId: draft.reviewedBy,
+            approvedBy: status === "approved" ? draft.reviewedBy : undefined,
+            blockingReasons: stampOpts.blockingReasons,
+          },
+        );
+        if (transitioned) {
+          syncDraftReviewStatusFromDeliverable(draft, transitioned);
+        } else {
+          draft.reviewStatus = status;
+        }
+      }
+    } catch (err) {
+      matterWriteFailed = true;
+      draft.reviewStatus = status;
+      await emit(auditDir, {
+        taskId: draft.taskId,
+        kind: "matter.write_failed",
+        actor: "system",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
+  } else {
+    draft.reviewStatus = status;
+  }
+
   const storedDraftPath = persistDraft(workspaceDir, draft);
   syncDraftToTaskRecord(workspaceDir, draft, status === "rejected" ? "rejected" : "reviewed");
   updateTaskRecord(workspaceDir, draft.taskId, {
@@ -208,53 +279,41 @@ export async function reviewDraft(
         `${taskProgressPrefix(draft.taskId)}审核备注：${opts.note}`,
       );
     }
-    // W4：写侧 service 同步——审批 / 队列 / deliverable 状态。
-    try {
-      const deliverableStatus =
-        status === "approved" ? "approved" : status === "rejected" ? "blocked" : "drafting";
-      transitionDeliverable(workspaceDir, draft.matterId, draft.taskId, deliverableStatus, {
-        reviewStatus: status,
-        reviewerId: draft.reviewedBy,
-        approvedBy: status === "approved" ? draft.reviewedBy : undefined,
-        blockingReasons:
-          status === "rejected"
-            ? ["rejected_by_reviewer"]
-            : status === "modified"
-              ? ["changes_requested"]
-              : [],
-      });
-      const reviewer = draft.reviewedBy ?? "system";
-      for (const queueItem of listQueueItemsForMatter(workspaceDir, draft.matterId, {
-        status: "open",
-      })) {
-        if (
-          queueItem.relatedTaskId === draft.taskId &&
-          (queueItem.kind === "need_lawyer_review" || queueItem.kind === "need_partner_approval")
-        ) {
-          transitionQueueItem(workspaceDir, draft.matterId, queueItem.queueItemId, "resolved");
+    if (!matterWriteFailed) {
+      try {
+        const reviewer = draft.reviewedBy ?? "system";
+        for (const queueItem of listQueueItemsForMatter(workspaceDir, draft.matterId, {
+          status: "open",
+        })) {
+          if (
+            queueItem.relatedTaskId === draft.taskId &&
+            (queueItem.kind === "need_lawyer_review" || queueItem.kind === "need_partner_approval")
+          ) {
+            transitionQueueItem(workspaceDir, draft.matterId, queueItem.queueItemId, "resolved");
+          }
         }
-      }
-      for (const approval of listPendingApprovals(workspaceDir, draft.matterId)) {
-        if (approval.deliverableId === draft.taskId) {
-          const next =
-            status === "approved"
-              ? "approved"
-              : status === "rejected"
-                ? "rejected"
-                : "needs_changes";
-          resolveApproval(workspaceDir, draft.matterId, approval.approvalId, {
-            status: next,
-            resolvedBy: reviewer,
-          });
+        for (const approval of listPendingApprovals(workspaceDir, draft.matterId)) {
+          if (approval.deliverableId === draft.taskId) {
+            const next =
+              status === "approved"
+                ? "approved"
+                : status === "rejected"
+                  ? "rejected"
+                  : "needs_changes";
+            resolveApproval(workspaceDir, draft.matterId, approval.approvalId, {
+              status: next,
+              resolvedBy: reviewer,
+            });
+          }
         }
+      } catch (err) {
+        await emit(auditDir, {
+          taskId: draft.taskId,
+          kind: "matter.write_failed",
+          actor: "system",
+          detail: err instanceof Error ? err.message : String(err),
+        });
       }
-    } catch (err) {
-      await emit(auditDir, {
-        taskId: draft.taskId,
-        kind: "matter.write_failed",
-        actor: "system",
-        detail: err instanceof Error ? err.message : String(err),
-      });
     }
   }
   return draft;

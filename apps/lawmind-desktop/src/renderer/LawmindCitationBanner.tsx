@@ -55,7 +55,7 @@ export function LawmindCitationBanner(props: Props): ReactNode {
   if (kind === "pending" && !view.checked) {
     return (
       <div className="lm-callout lm-callout-warn lm-citation-pending" role="status" data-testid="lm-citation-mode-pending">
-        <div className="lm-callout-title">待核实引用</div>
+        <div className="lm-callout-title">缺源 · 待核实引用</div>
         <p className="lm-callout-body">
           严格援引模式：尚无检索快照，导出 Word 将被拦截。请先完成检索或改为辅助标注。
         </p>
@@ -65,7 +65,17 @@ export function LawmindCitationBanner(props: Props): ReactNode {
 
   if (!view.checked) {
     return (
-      <div className="lm-meta lm-citation-skip">引用：无检索快照，未对照。</div>
+      <div
+        className="lm-callout lm-callout-warn lm-citation-pending"
+        role="status"
+        data-testid="lm-citation-mode-nosnapshot"
+      >
+        <div className="lm-callout-title">缺源 · 无检索快照</div>
+        <p className="lm-callout-body">
+          本草稿尚未对照检索结果，请勿将法条/类案当作已核实引用。完成检索后再定稿。
+        </p>
+        {editionHint ? <p className="lm-meta lm-citation-edition-hint">{editionHint}</p> : null}
+      </div>
     );
   }
 
@@ -106,18 +116,19 @@ export function LawmindCitationBanner(props: Props): ReactNode {
   }
 
   if ((view.unanchoredSections?.length ?? 0) > 0) {
+    const pending = kind === "pending";
     return (
       <div
         className={
-          kind === "pending"
-            ? "lm-callout lm-callout-warn lm-citation-unanchored"
+          pending
+            ? "lm-callout lm-callout-danger lm-citation-unanchored"
             : "lm-callout lm-callout-warn lm-citation-unanchored"
         }
-        role="status"
-        data-testid={kind === "pending" ? "lm-citation-mode-pending" : "lm-citation-mode-verified"}
+        role={pending ? "alert" : "status"}
+        data-testid={pending ? "lm-citation-mode-pending" : "lm-citation-unanchored"}
       >
         <div className="lm-callout-title">
-          {kind === "pending" ? "待核实 · 部分章节缺少引用" : "部分章节缺少引用"}
+          {pending ? "未锚定 · 部分章节缺少引用（将拦导出）" : "未锚定 · 部分章节缺少引用"}
         </div>
         <p className="lm-callout-body">
           以下章节正文较长但未标注检索来源，请核对后再定稿：

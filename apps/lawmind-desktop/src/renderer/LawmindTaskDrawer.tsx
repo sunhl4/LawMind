@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
+import { openJobEventStream } from "./lawmind-job-stream";
 import type { LawMindRequiresAction } from "./lawmind-requires-action";
 
 type JobRow = {
@@ -39,7 +40,7 @@ export function LawmindTaskDrawer({
   const [delegations, setDelegations] = useState<DelegationRow[]>([]);
   const [cancelBusyId, setCancelBusyId] = useState<string | null>(null);
   const [cancelHint, setCancelHint] = useState<string | null>(null);
-  const jobEventSourcesRef = useRef<Map<string, EventSource>>(new Map());
+  const jobEventSourcesRef = useRef<Map<string, () => void>>(new Map());
 
   const cancelDelegation = async (id: string) => {
     setCancelBusyId(id);
@@ -86,7 +87,7 @@ export function LawmindTaskDrawer({
   useEffect(() => {
     if (!open || tab !== "jobs" || !apiBase) {
       for (const es of jobEventSourcesRef.current.values()) {
-        es.close();
+        es();
       }
       jobEventSourcesRef.current.clear();
       return;
@@ -98,7 +99,7 @@ export function LawmindTaskDrawer({
     const wanted = new Set(running);
     for (const [jid, es] of jobEventSourcesRef.current.entries()) {
       if (!wanted.has(jid)) {
-        es.close();
+        es();
         jobEventSourcesRef.current.delete(jid);
       }
     }
@@ -106,51 +107,45 @@ export function LawmindTaskDrawer({
       if (jobEventSourcesRef.current.has(jobId)) {
         continue;
       }
-      try {
-        const es = new EventSource(`${apiBase}/api/jobs/${encodeURIComponent(jobId)}/stream`);
-        jobEventSourcesRef.current.set(jobId, es);
-        es.addEventListener("message", (ev: MessageEvent) => {
-          try {
-            const data = JSON.parse(ev.data as string) as { ok?: boolean; job?: JobRow };
-            const job = data.job;
-            if (!job?.jobId) {
-              return;
-            }
-            setJobs((prev) =>
-              prev.map((row) =>
-                row.jobId === job.jobId
-                  ? {
-                      ...row,
-                      status: job.status ?? row.status,
-                      updatedAt: job.updatedAt ?? row.updatedAt,
-                    }
-                  : row,
-              ),
-            );
-            if (
-              job.status === "completed" ||
-              job.status === "failed" ||
-              job.status === "cancelled"
-            ) {
-              es.close();
-              jobEventSourcesRef.current.delete(jobId);
-              void refresh();
-            }
-          } catch {
-            /* ignore malformed SSE */
+      const close = openJobEventStream({
+        apiBase,
+        jobId,
+        onMessage: (data) => {
+          const job = data.job as JobRow | undefined;
+          if (!job?.jobId) {
+            return;
           }
-        });
-        es.addEventListener("error", () => {
-          es.close();
+          setJobs((prev) =>
+            prev.map((row) =>
+              row.jobId === job.jobId
+                ? {
+                    ...row,
+                    status: job.status ?? row.status,
+                    updatedAt: job.updatedAt ?? row.updatedAt,
+                  }
+                : row,
+            ),
+          );
+          if (
+            job.status === "completed" ||
+            job.status === "failed" ||
+            job.status === "cancelled"
+          ) {
+            jobEventSourcesRef.current.get(jobId)?.();
+            jobEventSourcesRef.current.delete(jobId);
+            void refresh();
+          }
+        },
+        onError: () => {
+          jobEventSourcesRef.current.get(jobId)?.();
           jobEventSourcesRef.current.delete(jobId);
-        });
-      } catch {
-        /* EventSource unavailable */
-      }
+        },
+      });
+      jobEventSourcesRef.current.set(jobId, close);
     }
     return () => {
       for (const es of jobEventSourcesRef.current.values()) {
-        es.close();
+        es();
       }
       jobEventSourcesRef.current.clear();
     };

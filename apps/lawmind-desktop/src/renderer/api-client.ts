@@ -141,6 +141,7 @@ const CODE_HINTS: Record<string, string> = {
   message_required: "请输入有效内容后再发送。",
   invalid_matter_id_chat: "当前关联的案件 ID 无效，请清空或更正后再试。",
   session_assistant_mismatch: "该会话属于其他助手，请新开对话或清空会话后重试。",
+  approval_already_resolved: "该审批已被处理，请刷新待办后查看最新状态。",
   model_unavailable: "模型暂时不可用。请检查 API Key、账户状态与网络连接。",
   model_network_error: "无法连接模型服务。请检查 Base URL、本机网络/代理，或在设置中测试模型连接。",
   missing_platform_api_key: "平台模型未开通。请使用 API 配置向导自备 Key，或联系管理员配置平台模型。",
@@ -197,7 +198,10 @@ export function userMessageFromApiError(status: number, body: ApiErrorJson): str
   if (status === 401 || status === 403) {
     return hint || `${base} 请检查 API Key 是否有效、是否过期。`;
   }
-  if (status === 409 && code === "session_assistant_mismatch") {
+  if (
+    status === 409 &&
+    (code === "session_assistant_mismatch" || code === "approval_already_resolved")
+  ) {
     return hint ? `${base} ${hint}` : base;
   }
   return hint ? `${base} ${hint}` : base;

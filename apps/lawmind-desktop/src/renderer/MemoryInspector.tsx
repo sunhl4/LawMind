@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { LawmindMemoryTruthSources } from "./LawmindMemoryTruthSources.js";
+import { apiAuthHeaders } from "./lawmind-api-auth.ts";
 import { memoryKindLabel, memoryScopeLabel } from "./lawmind-memory-scope.js";
 
 const SCOPES = ["matter", "lawyer", "playbook", "client", "firm", "assistant", "opponent", "project"] as const;
@@ -56,7 +57,9 @@ async function fetchSuggestions(opts: {
   if (opts.matterId) {
     params.set("matterId", opts.matterId);
   }
-  const res = await fetch(`${opts.baseUrl}/api/memory/adoption?${params.toString()}`);
+  const res = await fetch(`${opts.baseUrl}/api/memory/adoption?${params.toString()}`, {
+    headers: { ...apiAuthHeaders() },
+  });
   const json = (await res.json()) as ApiResult<{ items: Suggestion[] }>;
   return "items" in json && json.items ? json.items : [];
 }
@@ -68,7 +71,7 @@ async function postAction(
 ): Promise<ApiResult<unknown>> {
   const res = await fetch(`${baseUrl}/api/memory/adoption/${action}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...apiAuthHeaders() },
     body: JSON.stringify(body),
   });
   return (await res.json()) as ApiResult<unknown>;
@@ -247,6 +250,7 @@ export default function MemoryInspector({
         const q = params.toString();
         const res = await fetch(
           `${baseUrl}/api/memory/adoption/${encodeURIComponent(id)}/preview-diff${q ? `?${q}` : ""}`,
+          { headers: { ...apiAuthHeaders() } },
         );
         const json = (await res.json()) as {
           ok?: boolean;
@@ -289,7 +293,7 @@ export default function MemoryInspector({
     try {
       const res = await fetch(`${baseUrl}/api/memory/adoption/suggest`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...apiAuthHeaders() },
         body: JSON.stringify({
           scope: suggestScope,
           kind: suggestKind,

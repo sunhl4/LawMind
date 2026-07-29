@@ -92,7 +92,7 @@ function loadCollaborationEvents(workspaceDir: string): {
   const parsed = readCollaborationEvents(workspaceDir);
   return {
     events: parsed.map((e) => ({
-      timestampMs: parseIsoMs(e.createdAt ?? e.timestamp) ?? 0,
+      timestampMs: parseIsoMs(e.timestamp) ?? 0,
       line: JSON.stringify(e),
     })),
     malformed: 0,

@@ -287,4 +287,77 @@ describe("lawmind-server-route-collaboration", () => {
       expect(payload.delegationId).toBe("del-test-1");
     });
   });
+
+  it("GET /api/collaboration/summary returns delegation snapshot", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-collab-summary-"));
+    const capture = createResponseCapture();
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+    const handled = await handleCollaborationRoutes({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res: capture.res,
+      url: new URL("http://127.0.0.1/api/collaboration/summary"),
+      pathname: "/api/collaboration/summary",
+      c: {},
+    });
+    expect(handled).toBe(true);
+    expect(capture.status).toBe(200);
+    expect(capture.json()).toMatchObject({
+      ok: true,
+      delegationCount: expect.any(Number),
+      recentCollaborationEvents: expect.any(Array),
+    });
+    fs.rmSync(workspaceDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  });
+
+  it("GET /api/delegations/follow-up validates session params", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-collab-follow-"));
+    const capture = createResponseCapture();
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+    await handleCollaborationRoutes({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res: capture.res,
+      url: new URL("http://127.0.0.1/api/delegations/follow-up"),
+      pathname: "/api/delegations/follow-up",
+      c: {},
+    });
+    expect(capture.status).toBe(400);
+    expect(capture.json()).toMatchObject({ ok: false, error: "sessionId_and_assistantId_required" });
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+  });
+
+  it("GET /api/delegations/session-progress returns 404 for missing session", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-collab-progress-"));
+    const capture = createResponseCapture();
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+    await handleCollaborationRoutes({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res: capture.res,
+      url: new URL(
+        "http://127.0.0.1/api/delegations/session-progress?sessionId=missing&assistantId=a1",
+      ),
+      pathname: "/api/delegations/session-progress",
+      c: {},
+    });
+    expect(capture.status).toBe(404);
+    expect(capture.json()).toMatchObject({ ok: false, error: "session_not_found" });
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+  });
 });

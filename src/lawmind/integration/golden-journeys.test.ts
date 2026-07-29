@@ -147,7 +147,10 @@ describe("Golden journeys (Phase 12)", () => {
       status: "approved",
       resolvedBy: "partner-1",
     });
-    expect(resolved?.status).toBe("approved");
+    expect(resolved).toMatchObject({
+      outcome: "written",
+      approval: { status: "approved" },
+    });
     expect(readApprovals(ws, matterId).length).toBe(1);
     await suggestMemoryAdoption(ws, auditDir, {
       scope: "matter",

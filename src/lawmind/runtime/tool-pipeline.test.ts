@@ -217,6 +217,36 @@ describe("tool-pipeline middlewares", () => {
     ).rejects.toThrow(/timed out/);
   });
 
+  it("timeoutMiddleware aborts ctx.abortSignal on timeout so tools can cancel underlying work", async () => {
+    const call = buildCall(workspaceDir, { policyOverride: { toolTimeoutMs: 40 } });
+    let observedSignal: AbortSignal | undefined;
+    let signalAbortedDuringTool = false;
+    // A tool that records the injected signal and never resolves on its own — it should
+    // observe the signal abort and reject, proving the pipeline cancels the underlying work.
+    const hangingTool: ToolMiddleware = async (c) => {
+      observedSignal = c.ctx.abortSignal;
+      return new Promise<ToolCallResult>((_, reject) => {
+        const sig = c.ctx.abortSignal;
+        if (sig) {
+          sig.addEventListener("abort", () => {
+            signalAbortedDuringTool = sig.aborted;
+            reject(new Error("aborted_by_timeout"));
+          });
+        }
+      });
+    };
+    await expect(
+      timeoutMiddleware(call, () => hangingTool(call, async () => ({ ok: true }))),
+    ).rejects.toThrow(/timed out/);
+    // The signal was injected into ctx for this call...
+    expect(observedSignal).toBeDefined();
+    // ...and it flipped to aborted, which the tool observed (cancellation propagated).
+    expect(signalAbortedDuringTool).toBe(true);
+    expect(observedSignal!.aborted).toBe(true);
+    // ctx.abortSignal is restored after the call (no leak across tool calls).
+    expect(call.ctx.abortSignal).toBeUndefined();
+  });
+
   it("subprocessSandboxMiddleware bypasses next when sandbox disabled", async () => {
     let nextCalled = false;
     const call = buildCall(workspaceDir, {

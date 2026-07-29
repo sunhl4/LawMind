@@ -183,9 +183,9 @@ export type CreateReviewCampaignInput = {
   deliverableTypeHint?: string;
   sourceText?: string;
   idempotencyKey?: string;
-  /** When true, run Solo serial heuristics immediately */
+  /** When true, run heuristics immediately (serial or parallel per edition gate) */
   runNow?: boolean;
-  /** Request parallel execution (Firm/Private only; Solo forced serial) */
+  /** Request parallel heuristics when `reviewCampaignParallel` is enabled (Solo/Firm/Private) */
   preferParallel?: boolean;
   /** Drop roles with weight &lt; 0.18 for faster Solo runs (keep ≥4 when possible) */
   preferFast?: boolean;
@@ -261,7 +261,7 @@ function resolveCampaignParallelAllowed(workspaceDir: string): boolean {
   }
 }
 
-/** Solo serial or Firm parallel (edition-gated). */
+/** Serial or parallel heuristics (edition-gated via `reviewCampaignParallel`). */
 export function executeCampaign(
   workspaceDir: string,
   campaign: ReviewCampaign,

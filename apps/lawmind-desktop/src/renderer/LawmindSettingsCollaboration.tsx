@@ -84,14 +84,14 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
       id={workflowsOnly ? undefined : "lawmind-collaboration-hub"}
     >
       {!workflowsOnly ? (
-        <div className="lm-settings-section-title">协作与多助手流程</div>
+        <div className="lm-settings-section-title">工作流与多助手流程</div>
       ) : null}
       <div className="lm-settings-group lm-settings-surface">
         {collabSummarySettings === undefined ? (
           <div
             className="lm-settings-loading"
             aria-busy="true"
-            aria-label="加载协作状态"
+            aria-label="加载工作流状态"
             id={workflowsOnly ? "lawmind-collaboration-hub" : undefined}
           >
             <div className="lm-shimmer lm-shimmer-line" />

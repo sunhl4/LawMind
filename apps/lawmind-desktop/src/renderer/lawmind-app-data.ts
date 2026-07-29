@@ -105,6 +105,26 @@ export type HealthPayload = {
       issueCount?: number;
       issues?: Array<{ taskId: string; code: string; message: string }>;
     };
+    /** 权威库端点契约（同步；未配置 / 无效 / 已配置 / 演示语料就绪 / 适配器未实现） */
+    authorityCorpus?: {
+      configured?: boolean;
+      status?: "unset" | "invalid" | "configured" | "sample-ready" | "unimplemented";
+      endpointHost?: string | null;
+      authConfigured?: boolean;
+      provider?: "open" | "generic" | "pkulaw" | "lexis";
+      providerLabel?: string;
+      message?: string;
+      envKey?: string;
+      authEnvKey?: string;
+      providerEnvKey?: string;
+    };
+    authorityUsage?: {
+      day?: string;
+      ok?: number;
+      error?: number;
+      total?: number;
+      message?: string;
+    };
     multitaskObservability?: {
       windowDays?: number;
       jobsTotal?: number;

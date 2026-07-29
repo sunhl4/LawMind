@@ -301,9 +301,40 @@ describe("lawmind-server-route-acceptance", () => {
     expect(body.spec?.type).toBe("contract.rental");
   });
 
-  it("blocks acceptance-pack on Solo edition (default) with 403", async () => {
+  it("allows acceptance-pack on Solo edition (default) when draft exists", async () => {
     const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-pack-route-"));
     tempDirs.push(workspaceDir);
+    const taskId = "solo-pack-1";
+    const now = new Date().toISOString();
+    const intent: TaskIntent = {
+      taskId,
+      kind: "draft.word",
+      output: "docx",
+      instruction: "起草租赁合同",
+      summary: "起草租赁合同",
+      riskLevel: "medium",
+      models: ["legal"],
+      requiresConfirmation: false,
+      createdAt: now,
+      matterId: "matter-solo-pack",
+      templateId: "word/contract-rental",
+      deliverableType: "contract.rental",
+    };
+    ensureTaskRecord(workspaceDir, intent);
+    const draft: ArtifactDraft = {
+      taskId,
+      matterId: "matter-solo-pack",
+      title: "房屋租赁合同（Solo 验收包）",
+      output: "docx",
+      templateId: "word/contract-rental",
+      summary: "测试用草稿",
+      sections: [{ heading: "合同当事人", body: "出租人：甲\n承租人：乙" }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: now,
+      deliverableType: "contract.rental",
+    };
+    persistDraft(workspaceDir, draft);
     const ctx: LawmindDispatchContext = {
       workspaceDir,
       envFile: undefined,
@@ -311,7 +342,6 @@ describe("lawmind-server-route-acceptance", () => {
       policy: { loaded: false },
     };
     const cap = createResponseCapture();
-    const taskId = "task-pack-403";
     await expect(
       handleAcceptanceRoutes({
         ctx,
@@ -322,8 +352,9 @@ describe("lawmind-server-route-acceptance", () => {
         c: {},
       }),
     ).resolves.toBe(true);
-    expect(cap.status).toBe(403);
-    expect(cap.json()).toMatchObject({ ok: false, feature: "acceptancePackExport" });
+    expect(cap.status).toBe(200);
+    expect(cap.header("content-type")).toContain("text/markdown");
+    expect(cap.text()).toContain("LawMind 交付验收包");
   });
 
   it("returns markdown body for Firm edition draft acceptance-pack", async () => {

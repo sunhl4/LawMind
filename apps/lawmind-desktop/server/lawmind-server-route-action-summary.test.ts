@@ -2,8 +2,25 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import http from "node:http";
+import { requestApproval } from "../../../src/lawmind/application/services/approval-service.js";
 import { handleActionSummaryRoutes } from "./lawmind-server-route-action-summary.js";
 import type { LawmindDispatchContext } from "./lawmind-server-route-types.js";
+
+function mockJsonReq(payload: unknown): http.IncomingMessage {
+  const req = { method: "POST", headers: {} } as http.IncomingMessage;
+  Object.assign(req, {
+    on(event: string, handler: (...args: unknown[]) => void) {
+      if (event === "data") {
+        handler(Buffer.from(JSON.stringify(payload)));
+      }
+      if (event === "end") {
+        handler();
+      }
+      return this;
+    },
+  });
+  return req;
+}
 
 function mockRes(): http.ServerResponse & { body?: unknown; status?: number } {
   const res = {
@@ -37,7 +54,7 @@ describe("lawmind-server-route-action-summary", () => {
   });
 
   afterEach(async () => {
-    await fs.rm(workspaceDir, { recursive: true, force: true });
+    await fs.rm(workspaceDir, { recursive: true, force: true }).catch(() => undefined);
   });
 
   it("GET /api/action-summary returns aggregated counts", async () => {
@@ -163,5 +180,152 @@ describe("lawmind-server-route-action-summary", () => {
     expect(body.requiresDecisionTotal ?? 0).toBeLessThan(
       (body.requiresDecisionTotal ?? 0) + (body.recentCollabCompleted ?? 0),
     );
+  });
+
+  it("POST /api/approvals/resolve: winner 200, CAS loser 409 approval_already_resolved", async () => {
+    const created = requestApproval(workspaceDir, {
+      matterId: "matter-appr-cas",
+      requestedBy: "lawyer-1",
+      reason: "并发签批",
+      riskLevel: "high",
+    });
+
+    const winRes = mockRes();
+    const winHandled = await handleActionSummaryRoutes({
+      ctx,
+      req: mockJsonReq({
+        matterId: "matter-appr-cas",
+        approvalId: created.approvalId,
+        status: "approved",
+        resolvedBy: "lawyer-a",
+      }),
+      res: winRes,
+      url: new URL("http://127.0.0.1/api/approvals/resolve"),
+      pathname: "/api/approvals/resolve",
+      c: {},
+    });
+    expect(winHandled).toBe(true);
+    expect(winRes.status).toBe(200);
+    expect(winRes.body).toMatchObject({
+      ok: true,
+      approval: { status: "approved", resolvedBy: "lawyer-a" },
+    });
+
+    const loseRes = mockRes();
+    const loseHandled = await handleActionSummaryRoutes({
+      ctx,
+      req: mockJsonReq({
+        matterId: "matter-appr-cas",
+        approvalId: created.approvalId,
+        status: "rejected",
+        resolvedBy: "lawyer-b",
+      }),
+      res: loseRes,
+      url: new URL("http://127.0.0.1/api/approvals/resolve"),
+      pathname: "/api/approvals/resolve",
+      c: {},
+    });
+    expect(loseHandled).toBe(true);
+    expect(loseRes.status).toBe(409);
+    expect(loseRes.body).toMatchObject({
+      ok: false,
+      code: "approval_already_resolved",
+      approval: { status: "approved", resolvedBy: "lawyer-a" },
+    });
+  });
+
+  it("POST /api/approvals/resolve: missing approval → 404", async () => {
+    requestApproval(workspaceDir, {
+      matterId: "matter-appr-miss",
+      requestedBy: "lawyer-1",
+      reason: "x",
+      riskLevel: "low",
+    });
+    const res = mockRes();
+    await handleActionSummaryRoutes({
+      ctx,
+      req: mockJsonReq({
+        matterId: "matter-appr-miss",
+        approvalId: "does-not-exist",
+        status: "approved",
+      }),
+      res,
+      url: new URL("http://127.0.0.1/api/approvals/resolve"),
+      pathname: "/api/approvals/resolve",
+      c: {},
+    });
+    expect(res.status).toBe(404);
+    expect(res.body).toMatchObject({ ok: false, code: "approval_not_found" });
+  });
+
+  it("POST /api/approvals/resolve rejects invalid status", async () => {
+    requestApproval(workspaceDir, {
+      matterId: "matter-bad-status",
+      requestedBy: "lawyer-1",
+      reason: "x",
+      riskLevel: "low",
+    });
+    const res = mockRes();
+    await handleActionSummaryRoutes({
+      ctx,
+      req: mockJsonReq({
+        matterId: "matter-bad-status",
+        approvalId: "any",
+        status: "maybe",
+      }),
+      res,
+      url: new URL("http://127.0.0.1/api/approvals/resolve"),
+      pathname: "/api/approvals/resolve",
+      c: {},
+    });
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ ok: false, code: "invalid_status" });
+  });
+
+  it("GET /api/action-summary rehydrates chat requiresAction from last turn", async () => {
+    const { createSession, saveSession } = await import(
+      "../../../src/lawmind/agent/session.js"
+    );
+    const session = createSession({
+      workspaceDir,
+      actorId: "lawyer",
+      assistantId: "default",
+      matterId: "matter-chat-action",
+    });
+    session.turns.push({
+      turnId: "turn-1",
+      instruction: "请确认",
+      result: "等待",
+      requiresAction: [
+        {
+          actionId: "act-1",
+          kind: "confirm",
+          label: "确认导出",
+          sessionId: session.sessionId,
+        },
+      ],
+      messages: [],
+      startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+    });
+    saveSession(workspaceDir, session);
+
+    const res = mockRes();
+    await handleActionSummaryRoutes({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res,
+      url: new URL("http://127.0.0.1/api/action-summary?matterId=matter-chat-action"),
+      pathname: "/api/action-summary",
+      c: {},
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      ok: true,
+      chatRequiresActionCount: 1,
+      requiresDecisionTotal: expect.any(Number),
+    });
+    const body = res.body as { chatRequiresActions: Array<{ sessionId: string }> };
+    expect(body.chatRequiresActions[0]?.sessionId).toBe(session.sessionId);
   });
 });

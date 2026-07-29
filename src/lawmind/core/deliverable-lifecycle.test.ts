@@ -37,4 +37,19 @@ describe("deliverable lifecycle", () => {
   it("has lawyer-readable labels", () => {
     expect(deliverableStatusLabel("learned")).toBe("已沉淀");
   });
+
+  it("labels every lifecycle status", () => {
+    expect(deliverableStatusLabel("planned")).toBe("已规划");
+    expect(deliverableStatusLabel("drafting")).toBe("起草中");
+    expect(deliverableStatusLabel("pending_review")).toBe("待审核");
+    expect(deliverableStatusLabel("approved")).toBe("已批准");
+    expect(deliverableStatusLabel("rendered")).toBe("已渲染");
+    expect(deliverableStatusLabel("delivered")).toBe("已交付");
+    expect(deliverableStatusLabel("blocked")).toBe("已阻塞");
+  });
+
+  it("allows noop transition to same status", () => {
+    expect(canTransitionDeliverable("drafting", "drafting")).toBe(true);
+    expect(nextDeliverableStatuses("approved")).toEqual(["rendered"]);
+  });
 });

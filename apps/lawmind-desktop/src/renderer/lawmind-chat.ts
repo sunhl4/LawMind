@@ -62,6 +62,10 @@ export type ChatMsg = {
   failureKind?: "model";
   /** 律师待处理动作（澄清、工具批准等） */
   requiresAction?: LawMindRequiresAction[];
+  /** 法条/类案检索未命中权威源时的缺源提示（对话内醒目展示） */
+  authorityGapNotice?: string;
+  /** 命中开源演示 sample / 标记为 demo 的 CORPUS 时的语料水印 */
+  demoCorpusNotice?: string;
 };
 
 export function parseRuntimeHintsFromResponse(raw: unknown): ChatRuntimeHints | undefined {
@@ -211,6 +215,8 @@ export type StreamingChatCallbacks = {
     roundIndex: number;
     ok: boolean;
     error?: string;
+    authorityGap?: boolean;
+    demoCorpus?: boolean;
   }) => void;
   onToolProgress?: (info: {
     toolCallId: string;
@@ -311,6 +317,8 @@ export async function sendChatTurnStream(
             roundIndex: typeof parsed.roundIndex === "number" ? parsed.roundIndex : 0,
             ok: parsed.ok === true,
             error: typeof parsed.error === "string" ? parsed.error : undefined,
+            authorityGap: parsed.authorityGap === true,
+            demoCorpus: parsed.demoCorpus === true,
           });
           break;
         }

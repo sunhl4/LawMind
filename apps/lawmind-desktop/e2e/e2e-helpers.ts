@@ -48,10 +48,14 @@ export async function bootstrapE2ePage(page: Page): Promise<void> {
   await dismissBlockingDialogs(page);
 }
 
-/** Ensure review meta side pane + advanced section are open (gate list lives there; both default collapsed). */
+/** Ensure review meta side pane + advanced section are open (acceptance gate / gate list live there). */
 export async function ensureReviewMetaPaneVisible(page: Page): Promise<void> {
+  const acceptanceGate = page.locator("#lm-review-acceptance-gate").first();
   const gateList = page.locator(".lm-review-gate-list").first();
-  if (await gateList.isVisible().catch(() => false)) {
+  if (
+    (await acceptanceGate.isVisible().catch(() => false)) ||
+    (await gateList.isVisible().catch(() => false))
+  ) {
     return;
   }
   const metaToggle = page.getByRole("button", { name: "更多", exact: true });
@@ -68,7 +72,7 @@ export async function ensureReviewMetaPaneVisible(page: Page): Promise<void> {
       await advanced.locator("summary").click({ force: true });
     }
   }
-  await expect(gateList).toBeVisible({ timeout: 15_000 });
+  await expect(acceptanceGate.or(gateList).first()).toBeVisible({ timeout: 15_000 });
 }
 
 /** Dismiss blocking dialogs if they still appear (e.g. stale storage). */
@@ -180,7 +184,7 @@ export async function openComposeOptions(page: Page): Promise<void> {
   if ((await plus.getAttribute("aria-expanded")) !== "true") {
     await plus.click();
   }
-  await expect(page.getByLabel("工具权限模式")).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByTestId("lm-compose-permission-mode")).toBeVisible({ timeout: 5_000 });
 }
 
 /** Inline「批准并继续」直接 POST /api/chat/resume（不再二次弹窗）。 */
@@ -188,16 +192,16 @@ export async function approveToolViaDialog(page: Page): Promise<import("@playwri
   const resumeWait = page.waitForResponse(
     (res) => res.url().includes("/api/chat/resume") && res.request().method() === "POST",
   );
-  await page.getByRole("button", { name: /批准并继续/ }).click();
+  await page.getByRole("button", { name: /批准并继续|允许一次/ }).click();
   return resumeWait;
 }
 
-/** Inline「暂不执行」→ POST /api/chat/resume with reject. */
+/** Inline「暂不办理」→ POST /api/chat/resume with reject. */
 export async function rejectToolViaCard(page: Page): Promise<import("@playwright/test").Response> {
   const resumeWait = page.waitForResponse(
     (res) => res.url().includes("/api/chat/resume") && res.request().method() === "POST",
   );
-  await page.getByRole("button", { name: /暂不执行/ }).click();
+  await page.getByRole("button", { name: /暂不办理/ }).click();
   return resumeWait;
 }
 

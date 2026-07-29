@@ -72,4 +72,63 @@ describe("application/matter-consistency", () => {
       true,
     );
   });
+
+  it("reports sensitivity_drift when CASE 密级 differs from JSON", async () => {
+    await ensureMatterWithProjection(workspaceDir, {
+      matterId: "matter-sens",
+      title: "密级案件",
+    });
+    const casePath = path.join(workspaceDir, "cases", "matter-sens", "CASE.md");
+    let raw = await fs.readFile(casePath, "utf8");
+    if (/密级[:：]/.test(raw)) {
+      raw = raw.replace(/密级[:：][^\n]*/, "密级: 严格隔离");
+    } else {
+      raw = `${raw.trimEnd()}\n- 密级: 严格隔离\n`;
+    }
+    await fs.writeFile(casePath, raw, "utf8");
+    const issues = await checkMatterConsistency(workspaceDir);
+    expect(
+      issues.some((i) => i.matterId === "matter-sens" && i.code === "sensitivity_drift"),
+    ).toBe(true);
+  });
+
+  it("reports client_drift when CASE clientId differs from JSON", async () => {
+    await ensureMatterWithProjection(workspaceDir, {
+      matterId: "matter-client",
+      title: "客户案件",
+      clientId: "client-json",
+    });
+    const casePath = path.join(workspaceDir, "cases", "matter-client", "CASE.md");
+    let raw = await fs.readFile(casePath, "utf8");
+    if (/客户\s*\/\s*clientId[:：]/.test(raw)) {
+      raw = raw.replace(/客户\s*\/\s*clientId[:：][^\n]*/, "客户 / clientId: client-case");
+    } else {
+      raw = `${raw.trimEnd()}\n- 客户 / clientId: client-case\n`;
+    }
+    await fs.writeFile(casePath, raw, "utf8");
+    const issues = await checkMatterConsistency(workspaceDir);
+    expect(issues.some((i) => i.matterId === "matter-client" && i.code === "client_drift")).toBe(
+      true,
+    );
+  });
+
+  it("repairMatterProjections clears title_drift", async () => {
+    const { repairMatterProjections } = await import("./matter-consistency.js");
+    await ensureMatterWithProjection(workspaceDir, {
+      matterId: "matter-repair",
+      title: "应投影标题",
+    });
+    const record = loadMatter(workspaceDir, "matter-repair");
+    saveMatter(workspaceDir, { ...record!, title: "漂移后标题" });
+    const before = await checkMatterConsistency(workspaceDir);
+    expect(before.some((i) => i.matterId === "matter-repair" && i.code === "title_drift")).toBe(
+      true,
+    );
+    const n = await repairMatterProjections(workspaceDir);
+    expect(n).toBeGreaterThan(0);
+    const after = await checkMatterConsistency(workspaceDir);
+    expect(after.some((i) => i.matterId === "matter-repair" && i.code === "title_drift")).toBe(
+      false,
+    );
+  });
 });

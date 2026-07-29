@@ -228,6 +228,21 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
           readiness={readiness}
         />
 
+        <LawmindAcceptanceGate
+          report={acceptance}
+          reasoning={reasoningReport}
+          onGoFillInChat={
+            onGoToChat
+              ? (prompt) =>
+                  onGoToChat({
+                    taskId: selectedTaskId,
+                    matterId: detail.matterId,
+                    prompt,
+                  })
+              : undefined
+          }
+        />
+
         {detail.reviewStatus === "modified" ? (
           <div
             className="lm-callout lm-callout-info lm-review-revision-dispatch"
@@ -480,21 +495,6 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
                 disableApproveHint={checklistBlocksApprove}
               />
             ) : null}
-            <LawmindAcceptanceGate
-              report={acceptance}
-              reasoning={reasoningReport}
-              defaultCollapsed
-              onGoFillInChat={
-                onGoToChat
-                  ? (prompt) =>
-                      onGoToChat({
-                        taskId: selectedTaskId,
-                        matterId: detail.matterId,
-                        prompt,
-                      })
-                  : undefined
-              }
-            />
             <label className="lm-review-profile-toggle">
               <input
                 type="checkbox"

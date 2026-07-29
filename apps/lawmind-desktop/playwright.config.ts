@@ -10,6 +10,8 @@ const e2eVitePort = process.env.LAWMIND_E2E_VITE_PORT ?? "52473";
 
 export default defineConfig({
   testDir: path.join(__dirname, "e2e"),
+  /** Local debug harness — never run in CI / default suite. */
+  testIgnore: ["**/_debug-*.spec.ts"],
   timeout: 60_000,
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),

@@ -1,3 +1,7 @@
+/**
+ * Quarantined local debug harness (excluded via playwright.config testIgnore).
+ * Do not add to lawmind:desktop:e2e:pr.
+ */
 import { expect, test } from "@playwright/test";
 import { gotoShell, installE2eBrowserPrefs } from "./e2e-helpers";
 

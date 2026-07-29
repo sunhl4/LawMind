@@ -53,6 +53,7 @@ Git 克隆后的**父文件夹名称可以随意**（例如 `lawmind` 或仍名�
 | [LAWMIND-ARCHITECTURE.md](./LAWMIND-ARCHITECTURE.md)                             | 架构与模块边界                                     |
 | [LAWMIND-DESKTOP-UI.md](./LAWMIND-DESKTOP-UI.md)                                 | 桌面 UI 与 renderer 拆分约定                       |
 | [LAWMIND-EXCELLENCE-ROADMAP.md](./LAWMIND-EXCELLENCE-ROADMAP.md)                 | 第十二期优化路线                                   |
+| [LAWMIND-EXTERNAL-INTEGRATIONS.md](./LAWMIND-EXTERNAL-INTEGRATIONS.md)           | 外接能力开源/闭源矩阵与闭源商业路线（权威/OCR/邮件等） |
 | [LAWMIND-REFERENCE-PROJECT-LESSONS.md](./LAWMIND-REFERENCE-PROJECT-LESSONS.md)   | 借鉴项与落地状态矩阵                               |
 | [LAWMIND-AGENT-SKILLS-OPTIMIZATION.md](./LAWMIND-AGENT-SKILLS-OPTIMIZATION.md)   | Agent Skills 生态调研与产品力优化史诗（持续更新）  |
 | [LAWMIND-AGENT-SKILLS-EPIC-PLANS.md](./LAWMIND-AGENT-SKILLS-EPIC-PLANS.md)       | 十二史诗详细工作包与 UI 前后示意图（决策用）       |

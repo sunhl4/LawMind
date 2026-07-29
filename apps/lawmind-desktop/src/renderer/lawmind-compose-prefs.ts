@@ -1,6 +1,8 @@
 export type ComposePermissionMode = "standard" | "strict" | "readonly" | "research";
 
 const PERMISSION_MODE_KEY = "lawmind.ui.permissionMode.v1";
+/** After first-run,「开始执行」prefer strict over standard (Solo trust packaging). */
+const EXECUTE_PERMISSION_KEY = "lawmind.ui.executePermissionMode.v1";
 
 export function readComposePermissionMode(): ComposePermissionMode {
   try {
@@ -20,6 +22,36 @@ export function writeComposePermissionMode(mode: ComposePermissionMode): void {
   } catch {
     /* ignore */
   }
+}
+
+/**
+ * Preferred mode when leaving「先计划」via「开始执行」.
+ * Post-firstrun Solo default is `strict`; otherwise `standard`.
+ */
+export function readExecutePermissionMode(): "standard" | "strict" {
+  try {
+    const v = localStorage.getItem(EXECUTE_PERMISSION_KEY);
+    if (v === "strict" || v === "standard") {
+      return v;
+    }
+  } catch {
+    /* ignore */
+  }
+  return "standard";
+}
+
+export function writeExecutePermissionMode(mode: "standard" | "strict"): void {
+  try {
+    localStorage.setItem(EXECUTE_PERMISSION_KEY, mode);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Call when first-run wizard completes: seed plan-first, prefer strict on execute. */
+export function applyPostFirstrunPermissionDefaults(): void {
+  writeComposePermissionMode("readonly");
+  writeExecutePermissionMode("strict");
 }
 
 export function composeStashKey(matterId: string | null | undefined): string {

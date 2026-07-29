@@ -2,7 +2,7 @@
  * <LawmindAcceptanceGate /> — Deliverable-First Architecture surface in the Review workbench.
  */
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type {
   AcceptanceReport,
   ReasoningReport,
@@ -14,6 +14,11 @@ type Props = {
   reasoning?: ReasoningReport | null;
   /** When set, failed blockers show「去对话补充」 */
   onGoFillInChat?: (prompt: string) => void;
+  /**
+   * Prefer collapsed when the report is ready.
+   * When not ready / has blockers / placeholders, the gate auto-expands
+   * regardless of this flag (9/10 trust packaging).
+   */
   defaultCollapsed?: boolean;
 };
 
@@ -21,9 +26,42 @@ function severityBadge(severity: "blocker" | "warning"): string {
   return severity === "blocker" ? "lm-badge lm-badge-blocker" : "lm-badge lm-badge-warning";
 }
 
+/** True when lawyers must see the checklist without an extra click. */
+export function acceptanceGateShouldExpand(
+  report: AcceptanceReport,
+  reasoning?: ReasoningReport | null,
+): boolean {
+  if (!report.deliverableType) {
+    return false;
+  }
+  if (!report.ready) {
+    return true;
+  }
+  if ((report.blockerCount ?? 0) > 0) {
+    return true;
+  }
+  if ((report.placeholderCount ?? 0) > 0) {
+    return true;
+  }
+  if (reasoning && reasoning.required && !reasoning.ready) {
+    return true;
+  }
+  return false;
+}
+
 export function LawmindAcceptanceGate(props: Props): ReactNode {
   const { report, reasoning, onGoFillInChat, defaultCollapsed = true } = props;
-  const [expanded, setExpanded] = useState(!defaultCollapsed);
+  const forceExpand = report ? acceptanceGateShouldExpand(report, reasoning) : false;
+  const [expanded, setExpanded] = useState(() => (forceExpand ? true : !defaultCollapsed));
+
+  useEffect(() => {
+    if (!report) {
+      return;
+    }
+    if (acceptanceGateShouldExpand(report, reasoning)) {
+      setExpanded(true);
+    }
+  }, [report, reasoning]);
 
   if (!report) {
     return null;
@@ -40,9 +78,13 @@ export function LawmindAcceptanceGate(props: Props): ReactNode {
   const failed = checks.filter((c) => !c.passed);
   const placeholders = Array.isArray(report.placeholderSamples) ? report.placeholderSamples : [];
   const headlineClass = report.ready ? "lm-acceptance-ok" : "lm-acceptance-blocked";
+  const blockerN =
+    report.blockerCount ?? failed.filter((c) => c.severity === "blocker").length;
+  const warningN =
+    report.warningCount ?? failed.filter((c) => c.severity === "warning").length;
   const summary = report.ready
     ? "已通过"
-    : `未通过 · 阻塞 ${report.blockerCount ?? failed.filter((c) => c.severity === "blocker").length} · 提醒 ${report.warningCount ?? failed.filter((c) => c.severity === "warning").length}`;
+    : `未通过 · 阻塞 ${blockerN} · 提醒 ${warningN}`;
 
   return (
     <details
@@ -53,7 +95,9 @@ export function LawmindAcceptanceGate(props: Props): ReactNode {
     >
       <summary className="lm-acceptance-summary">
         <strong>出稿检查：{summary}</strong>
-        <span className="lm-meta">（点击展开清单）</span>
+        <span className="lm-meta">
+          {forceExpand ? "（请先处理阻塞项）" : "（点击展开清单）"}
+        </span>
       </summary>
       {!report.ready && failed.length > 0 ? (
         <ul className="lm-acceptance-list">

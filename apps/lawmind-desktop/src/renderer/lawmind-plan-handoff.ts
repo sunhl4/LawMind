@@ -2,6 +2,8 @@
  * Plan → Execute handoff: extract plan text, persist per session, build confirm prompt.
  */
 
+import { apiAuthHeaders } from "./lawmind-api-auth";
+
 export type PlanHandoffMessage = {
   role: string;
   text?: string;
@@ -205,6 +207,7 @@ export async function fetchSessionPlanHandoff(
   try {
     const res = await fetch(
       `${apiBase.replace(/\/$/, "")}/api/sessions/${encodeURIComponent(id)}/plan-handoff`,
+      { headers: { ...apiAuthHeaders() } },
     );
     if (!res.ok) {
       return null;
@@ -238,7 +241,7 @@ export async function pushSessionPlanHandoff(
       `${apiBase.replace(/\/$/, "")}/api/sessions/${encodeURIComponent(id)}/plan-handoff`,
       {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...apiAuthHeaders() },
         body: JSON.stringify({
           planText: text.slice(0, 2400),
           ...(updatedAt ? { updatedAt } : {}),
@@ -271,7 +274,7 @@ export async function deleteSessionPlanHandoff(
   try {
     await fetch(
       `${apiBase.replace(/\/$/, "")}/api/sessions/${encodeURIComponent(id)}/plan-handoff`,
-      { method: "DELETE" },
+      { method: "DELETE", headers: { ...apiAuthHeaders() } },
     );
   } catch {
     /* ignore */

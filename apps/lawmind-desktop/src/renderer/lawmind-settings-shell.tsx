@@ -87,6 +87,7 @@ type Props = {
     modelEnvFileExists?: boolean;
     draftWithModelEnabled?: boolean;
     draftWithModelActive?: boolean;
+    authorityCorpus?: NonNullable<HealthPayload["doctor"]>["authorityCorpus"];
   } | null;
   /** Full GET /api/health payload (doctor section); avoids redundant refetch when bootstrap already loaded it. */
   healthPayload?: HealthPayload | null;

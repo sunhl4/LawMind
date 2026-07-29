@@ -483,6 +483,8 @@ export async function handleChatRoute({
                 toolName: event.toolName,
                 ok: event.ok,
                 error: event.error,
+                ...(event.authorityGap ? { authorityGap: true } : {}),
+                ...(event.demoCorpus ? { demoCorpus: true } : {}),
               });
               break;
             case "tool_progress":

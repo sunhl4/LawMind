@@ -52,7 +52,10 @@ export function LawmindReviewDraftPicker(props: Props) {
           <button
             type="button"
             role="tab"
+            id="lm-review-draft-tab-pending"
             aria-selected={filter === "pending"}
+            aria-controls="lm-review-draft-panel"
+            tabIndex={filter === "pending" ? 0 : -1}
             className={`lm-review-segment ${filter === "pending" ? "lm-review-segment-active" : ""}`}
             onClick={() => onFilterChange("pending")}
           >
@@ -61,7 +64,10 @@ export function LawmindReviewDraftPicker(props: Props) {
           <button
             type="button"
             role="tab"
+            id="lm-review-draft-tab-all"
             aria-selected={filter === "all"}
+            aria-controls="lm-review-draft-panel"
+            tabIndex={filter === "all" ? 0 : -1}
             className={`lm-review-segment ${filter === "all" ? "lm-review-segment-active" : ""}`}
             onClick={() => onFilterChange("all")}
           >
@@ -69,6 +75,12 @@ export function LawmindReviewDraftPicker(props: Props) {
           </button>
         </div>
 
+        <div
+          role="tabpanel"
+          id="lm-review-draft-panel"
+          aria-labelledby={filter === "pending" ? "lm-review-draft-tab-pending" : "lm-review-draft-tab-all"}
+          tabIndex={0}
+        >
         <label className="lm-review-draft-select-field">
           <span className="lm-sr-only">选择草稿</span>
           <select
@@ -164,6 +176,7 @@ export function LawmindReviewDraftPicker(props: Props) {
             />
           </svg>
         </button>
+        </div>
       </div>
 
       {error ? (

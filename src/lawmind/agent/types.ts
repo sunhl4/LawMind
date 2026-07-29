@@ -109,6 +109,15 @@ export type AgentContext = {
   preApproveToolArgs?: Record<string, unknown>;
   /** Desktop compose `@` pins for this turn (structured truth sources). */
   contextPins?: ComposeContextPin[];
+  /**
+   * Per-tool-call cancellation signal set by the tool-pipeline timeout middleware.
+   * Tools that perform long-running work (fetch, model calls, subprocesses) SHOULD
+   * read `ctx.abortSignal` and pass it through (e.g. `fetch(url, { signal })`) so the
+   * pipeline can cancel the underlying work when the per-call timeout fires — instead
+   * of letting it run to completion after the caller already received a timeout error.
+   * Optional: tools that ignore it simply keep the historical behavior.
+   */
+  abortSignal?: AbortSignal;
 };
 
 // ─────────────────────────────────────────────

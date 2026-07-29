@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   appendApproval,
   appendDeadline,
@@ -92,6 +92,73 @@ describe("adapters/matter-storage", () => {
     expect(rows[0]?.status).toBe("approved");
   });
 
+  it("rewriteJsonl is atomic (temp + rename; no leftover .tmp after success)", async () => {
+    const { rewriteJsonl } = await import("./io.js");
+    const { approvalSchema } = await import("./schemas.js");
+    const matterId = "m-atomic";
+    saveMatter(workspaceDir, sampleMatter(matterId));
+    const file = path.join(workspaceDir, "matters", matterId, "approvals.jsonl");
+    const row: ApprovalRecord = {
+      approvalId: "ap-atomic",
+      matterId,
+      requestedBy: "lawyer:test",
+      requestedAt: new Date().toISOString(),
+      reason: "原子重写",
+      riskLevel: "low",
+      status: "pending",
+    };
+    rewriteJsonl(file, approvalSchema, [row]);
+    expect(fs.readFileSync(file, "utf8").trim()).toContain("ap-atomic");
+    const leftovers = fs
+      .readdirSync(path.dirname(file))
+      .filter((name) => name.startsWith("approvals.jsonl.tmp-"));
+    expect(leftovers).toEqual([]);
+    // Second rewrite still leaves a coherent single-line JSONL file
+    rewriteJsonl(file, approvalSchema, [
+      { ...row, status: "approved", resolvedBy: "lawyer:test", resolvedAt: new Date().toISOString() },
+    ]);
+    const parsed = JSON.parse(fs.readFileSync(file, "utf8").trim()) as ApprovalRecord;
+    expect(parsed.status).toBe("approved");
+  });
+
+  it("rewriteJsonl writes to temp path before rename (no in-place half-write)", async () => {
+    const { rewriteJsonl } = await import("./io.js");
+    const { approvalSchema } = await import("./schemas.js");
+    const matterId = "m-atomic-spy";
+    saveMatter(workspaceDir, sampleMatter(matterId));
+    const file = path.join(workspaceDir, "matters", matterId, "approvals.jsonl");
+    const seed: ApprovalRecord = {
+      approvalId: "ap-seed",
+      matterId,
+      requestedBy: "lawyer:test",
+      requestedAt: new Date().toISOString(),
+      reason: "seed",
+      riskLevel: "low",
+      status: "pending",
+    };
+    rewriteJsonl(file, approvalSchema, [seed]);
+    const original = fs.readFileSync(file, "utf8");
+
+    const writeSpy = vi.spyOn(fs, "writeFileSync");
+    const renameSpy = vi.spyOn(fs, "renameSync");
+    try {
+      rewriteJsonl(file, approvalSchema, [
+        { ...seed, status: "approved", resolvedBy: "lawyer:test", resolvedAt: new Date().toISOString() },
+      ]);
+      expect(writeSpy).toHaveBeenCalledTimes(1);
+      const tmpPath = String(writeSpy.mock.calls[0]?.[0] ?? "");
+      expect(tmpPath).toMatch(/approvals\.jsonl\.tmp-/);
+      expect(tmpPath).not.toBe(file);
+      expect(renameSpy).toHaveBeenCalledWith(tmpPath, file);
+      // Target file was replaced atomically — seed line gone, not concatenated half-write
+      expect(fs.readFileSync(file, "utf8")).not.toBe(original);
+      expect(JSON.parse(fs.readFileSync(file, "utf8").trim()).status).toBe("approved");
+    } finally {
+      writeSpy.mockRestore();
+      renameSpy.mockRestore();
+    }
+  });
+
   it("skips corrupt JSONL lines while retaining valid deadline rows", () => {
     const matterId = "m-dl";
     saveMatter(workspaceDir, sampleMatter(matterId));
@@ -116,5 +183,25 @@ describe("adapters/matter-storage", () => {
 
     const rows = readDeadlines(workspaceDir, matterId);
     expect(rows.map((r) => r.deadlineId)).toEqual(["dl-1", "dl-2"]);
+  });
+
+  it("withExclusiveFileLock serializes concurrent writers", async () => {
+    const { withExclusiveFileLock } = await import("./io.js");
+    const lock = path.join(workspaceDir, "matters", "m-lock", ".lock");
+    let concurrent = 0;
+    let maxConcurrent = 0;
+    await Promise.all(
+      Array.from({ length: 4 }, () =>
+        Promise.resolve(
+          withExclusiveFileLock(lock, () => {
+            concurrent += 1;
+            maxConcurrent = Math.max(maxConcurrent, concurrent);
+            concurrent -= 1;
+            return true;
+          }),
+        ),
+      ),
+    );
+    expect(maxConcurrent).toBe(1);
   });
 });

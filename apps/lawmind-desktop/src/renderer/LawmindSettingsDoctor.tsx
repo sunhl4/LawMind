@@ -1,7 +1,13 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { apiGetJson, apiSendJson } from "./api-client";
+import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import { loadHealthPayload, type HealthPayload } from "./lawmind-app-data";
+import { apiAuthHeaders } from "./lawmind-api-auth";
 import { apiGetTriageRules } from "./lawmind-triage-api";
+import {
+  authorityCorpusStatusLabel,
+  formatAuthorityProbeSuccessMsg,
+  isAuthorityCorpusUiReady,
+} from "./lawmind-settings-models";
 
 type WorkspaceCheck = {
   id: string;
@@ -96,6 +102,10 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
   const [teamGrowth, setTeamGrowth] = useState<TeamGrowthDashboardPayload | null>(null);
   const [teamGrowthBusy, setTeamGrowthBusy] = useState(false);
   const [teamGrowthMsg, setTeamGrowthMsg] = useState<string | null>(null);
+  const [auditExportBusy, setAuditExportBusy] = useState(false);
+  const [auditExportMsg, setAuditExportMsg] = useState<string | null>(null);
+  const [authorityProbeBusy, setAuthorityProbeBusy] = useState(false);
+  const [authorityProbeMsg, setAuthorityProbeMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (!apiBase || healthProp) {
@@ -175,8 +185,46 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
   const p2 = doctor?.p2;
   const matterConsistency = doctor?.matterConsistency;
   const taskDraftConsistency = doctor?.taskDraftConsistency;
+  const authorityCorpus = doctor?.authorityCorpus;
   const multitaskObservability = doctor?.multitaskObservability;
   const reasoningGraphCoverage = doctor?.reasoningGraphCoverage;
+
+  async function probeAuthorityEndpointLive(): Promise<void> {
+    if (!apiBase) {
+      return;
+    }
+    setAuthorityProbeBusy(true);
+    setAuthorityProbeMsg(null);
+    try {
+      const j = (await apiSendJson(apiBase, "/api/authority/probe", "POST", {})) as {
+        ok?: boolean;
+        probe?: { ok?: boolean; latencyMs?: number; hitCount?: number; error?: string };
+        note?: string;
+        message?: string;
+        error?: string;
+      };
+      if (j.ok && j.probe?.ok) {
+        setAuthorityProbeMsg(
+          formatAuthorityProbeSuccessMsg({
+            latencyMs: j.probe.latencyMs,
+            hitCount: j.probe.hitCount,
+            note: j.note,
+            provider: authorityCorpus?.provider,
+          }),
+        );
+      } else {
+        setAuthorityProbeMsg(
+          [j.note, j.probe?.error || j.message || j.error || "权威端点探测失败（fail-closed）。"]
+            .filter(Boolean)
+            .join(" · "),
+        );
+      }
+    } catch (e) {
+      setAuthorityProbeMsg(errorMessage(e, "权威端点探测失败"));
+    } finally {
+      setAuthorityProbeBusy(false);
+    }
+  }
 
   async function repairMatterProjections(): Promise<void> {
     if (!apiBase) {
@@ -232,6 +280,56 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
       setRebuildMsg(e instanceof Error ? e.message : String(e));
     } finally {
       setRebuildBusy(false);
+    }
+  }
+
+  async function exportCaseAuditSummary(): Promise<void> {
+    if (!apiBase?.trim()) {
+      return;
+    }
+    setAuditExportBusy(true);
+    setAuditExportMsg(null);
+    try {
+      const res = await fetch(`${apiBase}/api/audit/export`, { headers: apiAuthHeaders() });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string; message?: string } | null;
+        throw new Error(body?.message ?? body?.error ?? `导出失败（HTTP ${res.status}）`);
+      }
+      const text = await res.text();
+      const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "lawmind-audit-summary.md";
+      a.click();
+      URL.revokeObjectURL(url);
+
+      let integrityNote = "";
+      if (health?.edition?.features?.auditIntegrityExport) {
+        try {
+          const j = await apiGetJson<{
+            ok?: boolean;
+            integrity?: { ok?: boolean; eventCount?: number; chainedCount?: number; brokenAt?: number };
+          }>(apiBase, "/api/audit/export?integrity=true");
+          const i = j.integrity;
+          if (i) {
+            const chainNote =
+              typeof i.brokenAt === "number"
+                ? `断链 @${i.brokenAt}`
+                : i.ok === false
+                  ? "异常"
+                  : "完整";
+            integrityNote = ` · hash-chain ${i.eventCount ?? 0}/${i.chainedCount ?? 0}（${chainNote}）`;
+          }
+        } catch {
+          /* integrity optional */
+        }
+      }
+      setAuditExportMsg(`已下载办案审计摘要${integrityNote}。`);
+    } catch (e) {
+      setAuditExportMsg(errorMessage(e, "审计摘要导出失败"));
+    } finally {
+      setAuditExportBusy(false);
     }
   }
 
@@ -614,6 +712,96 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
       </div>
 
       <div className="lm-settings-group lm-settings-surface">
+        <h4 className="lm-doctor-group-title">办案审计摘要</h4>
+        <p className="lm-settings-caption">
+          一键导出本机审计 Markdown
+          {health?.edition?.features?.auditIntegrityExport ? "，并附带 hash-chain 完整性核对。" : "。"}
+        </p>
+        <div className="lm-settings-actions lm-settings-actions--flush">
+          <button
+            type="button"
+            className="lm-btn lm-btn-secondary lm-btn-sm"
+            data-testid="lm-doctor-export-audit-summary"
+            disabled={auditExportBusy || !apiBase}
+            onClick={() => void exportCaseAuditSummary()}
+          >
+            {auditExportBusy ? "导出中…" : "一键导出办案审计摘要"}
+          </button>
+        </div>
+        {auditExportMsg ? (
+          <p className="lm-meta" role="status">
+            {auditExportMsg}
+          </p>
+        ) : null}
+      </div>
+
+      <div
+        className="lm-settings-group lm-settings-surface"
+        data-testid="lm-doctor-authority-boundary"
+      >
+        <h4 className="lm-doctor-group-title">权威法条 / 类案库</h4>
+        <div className="lm-doctor-security-grid">
+          <span className="lm-settings-key">外接权威库</span>
+          <span
+            className={
+              isAuthorityCorpusUiReady(authorityCorpus?.status)
+                ? "lm-pill lm-pill-success"
+                : authorityCorpus?.status === "invalid"
+                  ? "lm-pill lm-pill-danger"
+                  : "lm-pill lm-pill-warn"
+            }
+            data-testid="lm-doctor-authority-status"
+            data-status={authorityCorpus?.status ?? "unset"}
+          >
+            {authorityCorpus?.status === "invalid"
+              ? "配置无效（已拒外呼）"
+              : authorityCorpus?.status === "unimplemented"
+                ? "适配器未实现（占位）"
+                : authorityCorpusStatusLabel(authorityCorpus)}
+          </span>
+          <span className="lm-settings-key">无命中时</span>
+          <span className="lm-pill lm-pill-neutral">拒答 / 缺源提示</span>
+        </div>
+        <p className="lm-settings-caption" role="status">
+          {authorityCorpus?.message?.trim()
+            ? authorityCorpus.message
+            : "默认 provider=open：使用本地开源语料（内置演示 sample，非正式完整法库）。无命中则拒答并显示「缺源」，不会编造条文或案号。"}{" "}
+          闭源北大法宝 / Lexis 需手动设置 provider 与端点/Token（Lexis 未实现时为「适配器未实现」，非端点无效）；正式引用请律师核对官方法条与裁判文书。
+        </p>
+        <div className="lm-settings-actions">
+          <button
+            type="button"
+            className="lm-btn lm-btn-secondary lm-btn-sm"
+            data-testid="lm-doctor-authority-probe"
+            disabled={
+              authorityProbeBusy ||
+              !apiBase ||
+              !isAuthorityCorpusUiReady(authorityCorpus?.status)
+            }
+            onClick={() => void probeAuthorityEndpointLive()}
+            title={
+              isAuthorityCorpusUiReady(authorityCorpus?.status)
+                ? authorityCorpus?.provider === "open"
+                  ? "探测开源本地语料是否就绪（非厂商付费库核验）"
+                  : "对已配置端点发起契约健康探测（非厂商语料核验）"
+                : "开源：检查语料；闭源/generic：需先配置合法 LAWMIND_AUTHORITY_ENDPOINT"
+            }
+          >
+            {authorityProbeBusy
+              ? "探测中…"
+              : authorityCorpus?.provider === "open"
+                ? "探测开源语料"
+                : "探测权威端点"}
+          </button>
+        </div>
+        {authorityProbeMsg ? (
+          <p className="lm-settings-caption" role="status" data-testid="lm-doctor-authority-probe-msg">
+            {authorityProbeMsg}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="lm-settings-group lm-settings-surface">
         <h4 className="lm-doctor-group-title">高安全核对</h4>
         <div className="lm-doctor-security-grid">
           <span className="lm-settings-key">联网 allowlist</span>
@@ -717,6 +905,10 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
 
       <div className="lm-settings-group lm-settings-surface">
         <h4 className="lm-doctor-group-title">案件数据一致性</h4>
+        <p className="lm-settings-caption">
+          读侧以 <code>matters/&lt;id&gt;/matter.json</code> 为准；CASE.md 为投影。不一致时可用下方按钮从
+          JSON 重建。
+        </p>
         <div className="lm-settings-row">
           <span className="lm-settings-key">一致性</span>
           <span
@@ -750,7 +942,13 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
       </div>
 
       <div className="lm-settings-group lm-settings-surface">
-        <h4 className="lm-doctor-group-title">任务 / 草稿一致性</h4>
+        <h4 className="lm-doctor-group-title">任务 / 草稿 / 交付物一致性</h4>
+        <p className="lm-settings-caption">
+          读侧优先 <code>tasks/</code>、<code>drafts/</code> 与{" "}
+          <code>matters/&lt;id&gt;/deliverables/</code>{" "}
+          JSON；含交付物指向缺失草稿、以及交付物审核态与草稿 <code>reviewStatus</code>{" "}
+          不一致的漂移计数。
+        </p>
         <div className="lm-settings-row">
           <span className="lm-settings-key">一致性</span>
           <span
@@ -775,7 +973,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
       </div>
 
       <div className="lm-settings-group lm-settings-surface">
-        <h4 className="lm-doctor-group-title">多任务 Jobs 观测（{multitaskObservability?.windowDays ?? 14} 天）</h4>
+        <h4 className="lm-doctor-group-title">多任务运行观测（{multitaskObservability?.windowDays ?? 14} 天）</h4>
         <div className="lm-settings-row">
           <span className="lm-settings-key">样本</span>
           <span className="lm-meta">

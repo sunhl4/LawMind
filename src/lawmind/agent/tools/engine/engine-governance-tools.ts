@@ -1,9 +1,6 @@
 import { requestApproval } from "../../../application/services/approval-service.js";
 import { recordDeadline } from "../../../application/services/deadline-service.js";
-import {
-  openQueueItem,
-  transitionQueueItem,
-} from "../../../application/services/queue-write-service.js";
+import { openQueueItem } from "../../../application/services/queue-write-service.js";
 import { appendSessionSummary } from "../../../memory/session-summary.js";
 import type { AgentTool } from "../../types.js";
 import {
@@ -216,4 +213,3 @@ export const appendSessionSummaryTool: AgentTool = {
     }
   },
 };
-void transitionQueueItem;

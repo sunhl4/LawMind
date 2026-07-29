@@ -8,12 +8,14 @@
  */
 
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 import {
   appendQueueItem,
   readQueueItems,
   rewriteQueueItems,
   type QueueItemRecord,
 } from "../../adapters/matter-storage/index.js";
+import { matterDir, withExclusiveFileLock } from "../../adapters/matter-storage/io.js";
 import { attachQueueItemId, createMatterIfMissing } from "./matter-write-service.js";
 
 function newTimestamp(): string {
@@ -91,19 +93,22 @@ export function transitionQueueItem(
   queueItemId: string,
   status: QueueItemRecord["status"],
 ): QueueItemRecord | undefined {
-  const all = readQueueItems(workspaceDir, matterId);
-  const idx = all.findIndex((q) => q.queueItemId === queueItemId);
-  if (idx < 0) {
-    return undefined;
-  }
-  const next: QueueItemRecord = {
-    ...all[idx],
-    status,
-    updatedAt: newTimestamp(),
-  };
-  all[idx] = next;
-  rewriteQueueItems(workspaceDir, matterId, all);
-  return next;
+  const lockPath = path.join(matterDir(workspaceDir, matterId), "queue.jsonl.lock");
+  return withExclusiveFileLock(lockPath, () => {
+    const all = readQueueItems(workspaceDir, matterId);
+    const idx = all.findIndex((q) => q.queueItemId === queueItemId);
+    if (idx < 0) {
+      return undefined;
+    }
+    const next: QueueItemRecord = {
+      ...all[idx],
+      status,
+      updatedAt: newTimestamp(),
+    };
+    all[idx] = next;
+    rewriteQueueItems(workspaceDir, matterId, all);
+    return next;
+  });
 }
 
 export function listQueueItemsForMatter(

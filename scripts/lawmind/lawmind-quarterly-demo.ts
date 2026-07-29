@@ -138,7 +138,10 @@ async function main(): Promise<void> {
       status: "approved",
       resolvedBy: "lawyer:partner",
     });
-    if (approvalResolved?.status !== "approved") {
+    if (
+      approvalResolved.outcome !== "written" ||
+      approvalResolved.approval.status !== "approved"
+    ) {
       throw new Error("approval transition failed");
     }
     console.log("  ✓ 三类状态机均完成 happy-path 跃迁。");

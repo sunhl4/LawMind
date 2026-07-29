@@ -70,7 +70,7 @@ function ChatChipStrip(props: {
           </span>
           <span
             className="lm-context-chip lm-context-chip--memory lm-context-chip--accent"
-            title={plain ? "已把这部分写进给助手的总说明" : "已进入本助手主提示（system prompt）"}
+            title={plain ? "已把这部分写进给助手的总说明" : "已进入本助手主说明（system prompt）"}
           >
             {plain ? `${s.inPrompt} 已写入说明` : `${s.inPrompt} 已注入提示`}
           </span>

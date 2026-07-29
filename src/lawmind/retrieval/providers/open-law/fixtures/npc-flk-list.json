@@ -1,0 +1,29 @@
+{
+  "total": 2,
+  "rows": [
+    {
+      "bbbs": "ff808081729d1efe01729d50b5c500bf",
+      "title": "中华人民共和国<em class='highlight'>民法典</em>",
+      "gbrq": "2020-05-28",
+      "sxrq": "2021-01-01",
+      "sxx": 3,
+      "zdjgName": "全国人民代表大会",
+      "flxz": "法律",
+      "score": 35.0
+    },
+    {
+      "bbbs": "demo-pipl",
+      "title": "中华人民共和国个人信息保护法",
+      "gbrq": "2021-08-20",
+      "sxrq": "2021-11-01",
+      "sxx": 3,
+      "zdjgName": "全国人民代表大会常务委员会",
+      "flxz": "法律",
+      "score": 20.0
+    }
+  ],
+  "code": 200,
+  "msg": "查询成功",
+  "searchType": 2,
+  "searchContent": "民法典"
+}

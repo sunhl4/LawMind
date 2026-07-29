@@ -14,6 +14,10 @@ coverage/
 .env
 .env.*
 !.env.example
+**/.signing-secret
+
+# LawMind workspace — lawyer matter data (runtime truth source, never commit)
+/matters/
 
 # OS / editor
 .DS_Store

@@ -94,7 +94,10 @@ describe("Quarterly acceptance (W3 + W4 + W5 + W7 + W9)", () => {
       status: "approved",
       resolvedBy: "lawyer-x",
     });
-    expect(approvalResolved?.status).toBe("approved");
+    expect(approvalResolved).toMatchObject({
+      outcome: "written",
+      approval: { status: "approved" },
+    });
   });
 
   it("Role first-class wiring constrains deliverable types", () => {

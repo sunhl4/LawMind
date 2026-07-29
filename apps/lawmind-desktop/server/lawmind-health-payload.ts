@@ -15,7 +15,20 @@ import { readReasoningSnapshot } from "../../../src/lawmind/drafts/reasoning-sna
 import { evaluateTeamMemorySyncGate } from "../../../src/lawmind/memory/team-memory-sync.js";
 import { buildMultitaskObservabilityReport } from "../../../src/lawmind/ops/multitask-observability.js";
 import { checkTaskDraftConsistency } from "../../../src/lawmind/application/task-draft-consistency.js";
+import {
+  buildAuthorityCorpusSummary,
+  type AuthorityCorpusSummary,
+} from "../../../src/lawmind/retrieval/authority-health.js";
 import { listTaskRecords } from "../../../src/lawmind/tasks/index.js";
+
+export type { AuthorityCorpusSummary };
+
+/** Sync authority endpoint contract for Doctor (no network). */
+export function buildAuthorityCorpusHealthSummary(opts?: {
+  endpoint?: string;
+}): AuthorityCorpusSummary {
+  return buildAuthorityCorpusSummary(opts);
+}
 
 export function countAuditJsonlFiles(workspaceDir: string): number {
   const dir = path.join(workspaceDir, "audit");

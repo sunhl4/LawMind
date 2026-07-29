@@ -1,5 +1,5 @@
 /**
- * Solo serial role runner — heuristic findings (no LLM) for reproducible Score.
+ * Serial heuristic role runner — findings (no LLM) for reproducible Score.
  * Firm parallel LLM runners come later (S6).
  */
 

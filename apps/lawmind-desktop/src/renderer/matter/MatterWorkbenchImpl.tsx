@@ -5,6 +5,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { ArtifactDraft } from "../../../../../src/lawmind/types.ts";
 import { apiGetJson, apiSendJson, messageFromOkFalseBody } from "../api-client";
+import { openJobEventStream } from "../lawmind-job-stream";
 import { LM_PANE_MAX_WIDTH_PX, LM_PANE_MIN_WIDTH_PX } from "../lawmind-panel-layout";
 import { usePaneResizePx } from "../use-pane-resize";
 import { useEdition } from "../use-edition";
@@ -182,7 +183,7 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
   const [caseDraftNote, setCaseDraftNote] = useState("");
 
   const [matterJobs, setMatterJobs] = useState<TaskBoardJobInput[]>([]);
-  const matterJobStreamsRef = useRef<Map<string, EventSource>>(new Map());
+  const matterJobStreamsRef = useRef<Map<string, () => void>>(new Map());
   const [matterJobsTick, setMatterJobsTick] = useState(0);
 
   useEffect(() => {
@@ -243,7 +244,7 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
     const wanted = new Set(running);
     for (const [jid, es] of matterJobStreamsRef.current.entries()) {
       if (!wanted.has(jid)) {
-        es.close();
+        es();
         matterJobStreamsRef.current.delete(jid);
       }
     }
@@ -251,21 +252,20 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
       if (matterJobStreamsRef.current.has(jobId)) {
         continue;
       }
-      try {
-        const es = new EventSource(`${apiBase}/api/jobs/${encodeURIComponent(jobId)}/stream`);
-        matterJobStreamsRef.current.set(jobId, es);
-        es.addEventListener("message", () => setMatterJobsTick((n) => n + 1));
-        es.addEventListener("error", () => {
-          es.close();
+      const close = openJobEventStream({
+        apiBase,
+        jobId,
+        onMessage: () => setMatterJobsTick((n) => n + 1),
+        onError: () => {
+          matterJobStreamsRef.current.get(jobId)?.();
           matterJobStreamsRef.current.delete(jobId);
-        });
-      } catch {
-        /* EventSource unavailable */
-      }
+        },
+      });
+      matterJobStreamsRef.current.set(jobId, close);
     }
     return () => {
       for (const es of matterJobStreamsRef.current.values()) {
-        es.close();
+        es();
       }
       matterJobStreamsRef.current.clear();
     };

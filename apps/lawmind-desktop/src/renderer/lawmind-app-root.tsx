@@ -141,7 +141,7 @@ export function LawmindAppRoot() {
   const [focusMatterIdFromReview, setFocusMatterIdFromReview] = useState<string | null>(null);
   /** 从案件点「去复核」进入审核时为 true，点顶栏「审核」为 false，用于是否显示「返回案件」 */
   const [reviewLaunchedFromMatter, setReviewLaunchedFromMatter] = useState(false);
-  /** 「在办」内分栏：进行中 / 交出去的活 / 按流程办 */
+  /** 「在办」内分栏：待拍板 / 交出去的活 / 按流程办 */
   const [agentsDeskTab, setAgentsDeskTab] = useState<AgentsDeskTab>("active");
   /** 「待我拍板」入口：在办列表仅显示 awaiting_* */
   const [agentsNeedsDecisionFocus, setAgentsNeedsDecisionFocus] = useState(false);

@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   toolArgsAreDocumentWrite,
   toolArgsLinkedTaskId,
@@ -144,7 +145,7 @@ export function LawmindToolArgsEditDialog(props: LawmindToolArgsEditDialogProps)
     };
   }, [open, busy, onCancel, editFullBody]);
 
-  if (!open) {
+  if (!open || typeof document === "undefined") {
     return null;
   }
 
@@ -172,7 +173,8 @@ export function LawmindToolArgsEditDialog(props: LawmindToolArgsEditDialogProps)
     onApprove(next);
   };
 
-  return (
+  // Portal 到 body：消息行带 contentVisibility:auto，行内 fixed 弹层会被裁剪在行盒内。
+  return createPortal(
     <div
       className="lm-wizard-backdrop lm-tool-args-edit-backdrop"
       role="presentation"
@@ -340,6 +342,7 @@ export function LawmindToolArgsEditDialog(props: LawmindToolArgsEditDialogProps)
           </button>
         </footer>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

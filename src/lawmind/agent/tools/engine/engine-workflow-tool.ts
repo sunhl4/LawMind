@@ -1,4 +1,5 @@
 import { validateDraftCitationsAgainstBundle } from "../../../drafts/index.js";
+import { isDemoCorpusResult } from "../../../retrieval/authority-gap.js";
 import { readTaskRecord, taskIntentFromRecordOnly } from "../../../tasks/index.js";
 import type { TaskIntent } from "../../../types.js";
 import type { AgentTool } from "../../types.js";
@@ -8,6 +9,7 @@ import {
   asOptionalString,
   blockHeavyPipelineIfClarificationPending,
   canDraftWithoutResearch,
+  DEMO_CORPUS_DRAFT_REFUSAL,
   getEngine,
   MAX_AUDIENCE_LENGTH,
   MAX_INSTRUCTION_LENGTH,
@@ -15,6 +17,7 @@ import {
   pushWorkflowProgress,
   resolveMatterId,
   resolveTemplateId,
+  shouldRefuseDraftOnDemoCorpus,
 } from "./engine-tool-shared.js";
 
 // ─────────────────────────────────────────────
@@ -141,7 +144,7 @@ export const executeWorkflow: AgentTool = {
 
       // Step 3: Research
       pushWorkflowProgress(ctx, steps, "正在检索法规和案例...");
-      const bundle = await engine.research(intent);
+      const bundle = await engine.research(intent, { signal: ctx.abortSignal });
       let researchDegraded = false;
       if (bundle.claims.length === 0 && bundle.sources.length === 0) {
         if (canDraftWithoutResearch(intent)) {
@@ -170,6 +173,26 @@ export const executeWorkflow: AgentTool = {
         steps,
         `检索完成：${bundle.sources.length} 条来源，${bundle.claims.length} 条结论，${bundle.riskFlags.length} 条风险标记`,
       );
+
+      if (shouldRefuseDraftOnDemoCorpus(intent) && isDemoCorpusResult(bundle)) {
+        return {
+          ok: false,
+          error: DEMO_CORPUS_DRAFT_REFUSAL,
+          data: {
+            stepsCompleted: steps,
+            demoCorpus: true,
+            recoverable: true,
+            existingTaskId: intent.taskId,
+            restartFrom: "research",
+            gateDecision: {
+              gate: "demo_corpus_gate",
+              decision: "block",
+              reason: "high-risk workflow with demo-only authority hits",
+            },
+            hint: "配置正式权威库或非演示 CORPUS 后，可带 existing_task_id 从 research 续跑。",
+          },
+        };
+      }
 
       // Step 4: Draft
       pushWorkflowProgress(ctx, steps, "正在生成文书草稿...");

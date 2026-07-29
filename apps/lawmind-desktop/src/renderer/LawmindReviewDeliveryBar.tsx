@@ -120,6 +120,19 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
           </span>
         ) : null}
       </div>
+      {writing && gateBlocked ? (
+        <p
+          className="lm-meta lm-review-export-blockers"
+          role="status"
+          data-testid="lm-review-export-blockers"
+        >
+          出稿检查未通过：阻塞 {acceptance?.blockerCount ?? 0}
+          {(acceptance?.placeholderCount ?? 0) > 0
+            ? ` · 占位 ${acceptance?.placeholderCount}`
+            : ""}
+          。请先处理上方「出稿检查」阻塞项后再严格导出。
+        </p>
+      ) : null}
       {readiness?.summaryZh ? (
         <p
           className={`lm-meta lm-review-readiness${readiness.readyToExport ? " lm-review-readiness-ok" : ""}`}
