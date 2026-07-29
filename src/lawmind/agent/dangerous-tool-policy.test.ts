@@ -75,7 +75,7 @@ describe("dangerous-tool-policy", () => {
     ).toBe(true);
   });
 
-  it("mid-work draft tools do not require approval by default", () => {
+  it("mid-work draft tools do not require approval by default (non-strict)", () => {
     for (const toolName of ["write_document", "update_draft"] as const) {
       const definition: ToolDefinition = {
         ...defApproved,
@@ -90,15 +90,44 @@ describe("dangerous-tool-policy", () => {
           strictDangerousToolApproval: false,
         }),
       ).toBe(false);
+    }
+  });
+
+  it("strict: governance-classified write tools require approval even without definition flag", () => {
+    // In strict mode, WRITE_TOOLS membership enforces approval — aligning
+    // runtime enforcement with governance metadata (which marks these
+    // requiresApproval: true via resolveRuntimeMode).
+    for (const toolName of ["write_document", "update_draft", "add_case_note"] as const) {
+      const definition: ToolDefinition = {
+        ...defApproved,
+        name: toolName,
+        requiresApproval: false,
+      };
       expect(
         toolRequiresExplicitApproval({
           toolName,
           definition,
-          allowDangerousToolsWithoutApproval: false,
+          allowDangerousToolsWithoutApproval: true,
           strictDangerousToolApproval: true,
         }),
-      ).toBe(false);
+      ).toBe(true);
     }
+  });
+
+  it("non-strict: read tools never require approval", () => {
+    const definition: ToolDefinition = {
+      ...defApproved,
+      name: "search_statute",
+      requiresApproval: false,
+    };
+    expect(
+      toolRequiresExplicitApproval({
+        toolName: "search_statute",
+        definition,
+        allowDangerousToolsWithoutApproval: false,
+        strictDangerousToolApproval: true,
+      }),
+    ).toBe(false);
   });
 
   it("strict: execute_workflow needs explicit approval without requiresApproval on definition", () => {

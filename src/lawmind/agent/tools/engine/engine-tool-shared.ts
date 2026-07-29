@@ -91,8 +91,25 @@ export function canDraftWithoutResearch(intent: {
   kind: string;
   deliverableType?: string;
 }): boolean {
-  return intent.kind === "draft.word" && Boolean(intent.deliverableType);
+  // Deliverable-first: sparse/empty retrieval must still yield an editable draft
+  // with placeholders (contract review is analyze.contract, not draft.word).
+  if (!intent.deliverableType) {
+    return false;
+  }
+  return intent.kind === "draft.word" || intent.kind === "analyze.contract";
 }
+
+/**
+ * 中高风险起草不得把开放 sample / 演示 CORPUS 当作已核验权威。
+ * 空检索是另一条路径（`canDraftWithoutResearch`）；本闸门只挡「仅命中演示语料」。
+ * 保守默认：medium 也拒（N-A3）——避免中风险文书基于演示法条自动成稿。
+ */
+export function shouldRefuseDraftOnDemoCorpus(intent: { riskLevel?: string }): boolean {
+  return intent.riskLevel === "high" || intent.riskLevel === "medium";
+}
+
+export const DEMO_CORPUS_DRAFT_REFUSAL =
+  "中高风险任务仅命中演示语料：已拒绝自动起草。请配置正式权威库 / 非演示 CORPUS、启用官库直播，或由律师手工提供法条后再起草。";
 
 export function pushWorkflowProgress(ctx: AgentContext, steps: string[], message: string): void {
   steps.push(message);
@@ -182,7 +199,7 @@ export function resolveGeneralOpenAICompatibleFromEnv(): {
 export function buildAdaptersFromEnv(workspaceDir: string): RetrievalAdapter[] {
   const adapters: RetrievalAdapter[] = [
     createWorkspaceAdapter(workspaceDir),
-    createAuthorityAdapterFromEnv(),
+    createAuthorityAdapterFromEnv({ workspaceDir }),
   ];
 
   // C11: LexEdge when LAWMIND_LEXEDGE_ENDPOINT is set (no-op otherwise).

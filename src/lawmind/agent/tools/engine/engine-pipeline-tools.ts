@@ -6,6 +6,8 @@ import {
   prepareRedlineBaselineBeforeWrite,
   readDraft,
 } from "../../../drafts/index.js";
+import { readResearchSnapshot } from "../../../drafts/research-snapshot.js";
+import { isDemoCorpusResult } from "../../../retrieval/authority-gap.js";
 import { readTaskRecord } from "../../../tasks/index.js";
 import type { ArtifactSection } from "../../../types.js";
 import type { AgentContext, AgentTool } from "../../types.js";
@@ -15,6 +17,7 @@ import {
   asOptionalString,
   blockHeavyPipelineIfClarificationPending,
   canDraftWithoutResearch,
+  DEMO_CORPUS_DRAFT_REFUSAL,
   getEngine,
   MAX_AUDIENCE_LENGTH,
   MAX_INSTRUCTION_LENGTH,
@@ -22,6 +25,7 @@ import {
   resolveDefaultRenderTaskId,
   resolveMatterId,
   resolveTemplateId,
+  shouldRefuseDraftOnDemoCorpus,
 } from "./engine-tool-shared.js";
 
 // ─────────────────────────────────────────────
@@ -122,7 +126,7 @@ export const researchTask: AgentTool = {
         });
       }
 
-      const bundle = await engine.research(intent);
+      const bundle = await engine.research(intent, { signal: ctx.abortSignal });
       if (bundle.claims.length === 0 && bundle.sources.length === 0) {
         if (canDraftWithoutResearch(intent)) {
           return {
@@ -161,7 +165,12 @@ export const researchTask: AgentTool = {
             title: s.title,
             kind: s.kind,
             citation: s.citation,
+            ...(s.demo ? { demo: true as const } : {}),
           })),
+          ...(bundle.sources.some((s) => s.demo) ||
+          bundle.riskFlags.some((f) => f.includes("演示语料"))
+            ? { demoCorpus: true as const }
+            : {}),
         },
       };
     } catch (err) {
@@ -282,6 +291,12 @@ export const updateDraft: AgentTool = {
         }
       }
       const acceptance = validateDraftAgainstSpec(next);
+      // update_draft revises an existing draft's body without re-running retrieval.
+      // If the original research snapshot was demo-only, surface a non-blocking
+      // warning so the lawyer knows the underlying authority hits were not vetted
+      // and the revised draft must not be delivered as-is.
+      const snapshot = readResearchSnapshot(ctx.workspaceDir, taskId);
+      const demoCorpus = snapshot ? isDemoCorpusResult(snapshot) : false;
       return {
         ok: true,
         data: {
@@ -294,6 +309,13 @@ export const updateDraft: AgentTool = {
           redlinePending: redline.ok
             ? redline.proposal.hunks.filter((h) => h.status === "pending").length
             : 0,
+          ...(demoCorpus
+            ? {
+                demoCorpus: true as const,
+                demoCorpusWarning:
+                  "本草稿的检索快照仅命中演示语料，引用未经正式权威库核验。修订后请勿直接交付，需补齐正式权威来源或由律师手工核对法条后再渲染。",
+              }
+            : {}),
         },
       };
     } catch (err) {
@@ -352,7 +374,7 @@ export const draftDocument: AgentTool = {
         await engine.confirm(intent.taskId, { actorId: ctx.actorId });
       }
 
-      const bundle = await engine.research(intent);
+      const bundle = await engine.research(intent, { signal: ctx.abortSignal });
       if (bundle.claims.length === 0 && bundle.sources.length === 0) {
         if (canDraftWithoutResearch(intent)) {
           // Deliverable-first drafting can still produce a full editable draft with placeholders.
@@ -362,6 +384,20 @@ export const draftDocument: AgentTool = {
             error: "检索返回空结果，无法生成可靠草稿。请补充信息后重试。",
           };
         }
+      }
+      if (shouldRefuseDraftOnDemoCorpus(intent) && isDemoCorpusResult(bundle)) {
+        return {
+          ok: false,
+          error: DEMO_CORPUS_DRAFT_REFUSAL,
+          data: {
+            demoCorpus: true,
+            gateDecision: {
+              gate: "demo_corpus_gate",
+              decision: "block",
+              reason: "high-risk draft with demo-only authority hits",
+            },
+          },
+        };
       }
       const draft = await engine.draftAsync(intent, bundle, {
         title,
@@ -390,6 +426,7 @@ export const draftDocument: AgentTool = {
             draft.clarificationQuestions && draft.clarificationQuestions.length > 0
               ? "draft_with_placeholders"
               : "draft_ready",
+          ...(isDemoCorpusResult(bundle) ? { demoCorpus: true as const } : {}),
         },
       };
     } catch (err) {
@@ -437,8 +474,11 @@ export const renderDocument: AgentTool = {
           : asNonEmptyString(params.task_id, "task_id", 128);
       const approvalNote = asOptionalString(params.approval_note, "approval_note", 500);
       const shouldApprove = params.approve === true;
-      // 律师在对话中明确同意导出时，视为可跳过验收门禁（仍须过审核状态或 approve 批准）。
-      const bypassGate = params.bypass_acceptance_gate === true || shouldApprove;
+      // Acceptance gate bypass is a distinct lawyer decision from approval.
+      // approve=true only sets the review status to approved; it must NOT silently
+      // bypass the Deliverable-First acceptance gate. The lawyer must explicitly
+      // pass bypass_acceptance_gate=true to accept placeholders / blockers.
+      const bypassGate = params.bypass_acceptance_gate === true;
       if (!taskId) {
         return {
           ok: false,
@@ -485,7 +525,7 @@ export const renderDocument: AgentTool = {
       // 当律师明确知情接受占位符时可传 bypass_acceptance_gate=true 走旁路。
       const acceptance = validateDraftAgainstSpec(approvedDraft);
       if (!acceptance.ready && !bypassGate) {
-        const gateErr = `草稿未通过验收门禁（blockers=${acceptance.blockerCount}, placeholders=${acceptance.placeholderCount}）。请先补齐缺失内容再渲染；若律师已确认接受占位符，可使用 bypass_acceptance_gate=true 或 approve=true 重新调用。`;
+        const gateErr = `草稿未通过验收门禁（blockers=${acceptance.blockerCount}, placeholders=${acceptance.placeholderCount}）。请先补齐缺失内容再渲染；若律师已确认接受占位符，请使用 bypass_acceptance_gate=true 重新调用。`;
         return {
           ok: false,
           error: formatRenderToolError(gateErr),

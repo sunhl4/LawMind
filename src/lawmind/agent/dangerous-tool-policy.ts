@@ -1,4 +1,5 @@
 import { readWorkspacePolicyFile } from "../policy/workspace-policy.js";
+import { WRITE_TOOLS } from "./tool-name-sets.js";
 import type { ToolDefinition } from "./types.js";
 
 /**
@@ -43,6 +44,15 @@ export function resolveToolSandboxEnabled(workspaceDir: string): boolean {
 
 /**
  * Whether the tool call must include `__approved: true` before execution.
+ *
+ * In **strict** mode, consults the per-definition `requiresApproval` flag, the
+ * `STRICT_EXTRA` set, AND the shared `WRITE_TOOLS` governance set — so that any
+ * tool classified as a write tool in governance metadata requires explicit
+ * approval, keeping governance classification and runtime enforcement aligned.
+ *
+ * In **non-strict** mode, only the per-definition `requiresApproval` flag is
+ * consulted (mid-work draft tools like `write_document` / `update_draft`
+ * intentionally run without `__approved` so the lawyer is not interrupted).
  */
 export function toolRequiresExplicitApproval(args: {
   toolName: string;
@@ -54,9 +64,10 @@ export function toolRequiresExplicitApproval(args: {
     args;
   const marked = definition?.requiresApproval === true;
   const strictExtra = STRICT_EXTRA_APPROVAL_TOOL_NAMES.has(toolName);
+  const governanceWrite = WRITE_TOOLS.has(toolName);
 
   if (strictDangerousToolApproval) {
-    return marked || strictExtra;
+    return marked || strictExtra || governanceWrite;
   }
   return marked && !allowDangerousToolsWithoutApproval;
 }

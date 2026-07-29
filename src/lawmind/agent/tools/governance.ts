@@ -1,5 +1,11 @@
 import type { RiskLevel } from "../../types.js";
 import { toolRequiresSubprocessSandbox } from "../dangerous-tool-policy.js";
+import {
+  BACKGROUND_JOB_TOOLS,
+  IDEMPOTENT_READ_TOOLS,
+  MATTER_SCOPE_REQUIRED,
+  WRITE_TOOLS,
+} from "../tool-name-sets.js";
 import type { AgentTool, ToolDefinition } from "../types.js";
 import { ToolRegistry } from "./registry.js";
 
@@ -20,51 +26,7 @@ export type ToolGovernanceMetadata = {
   policyReason: string;
 };
 
-const MATTER_SCOPE_REQUIRED = new Set([
-  "search_matter",
-  "read_case_file",
-  "add_case_note",
-  "get_matter_summary",
-]);
-
-const BACKGROUND_JOB_TOOLS = new Set(["execute_workflow"]);
-
-const IDEMPOTENT_READ_TOOLS = new Set([
-  "search_matter",
-  "search_workspace",
-  "read_project_file",
-  "search_statute",
-  "search_case_law",
-  "get_matter_summary",
-  "list_matters",
-  "check_conflict_of_interest",
-  "read_case_file",
-  "analyze_document",
-  "list_tasks",
-  "list_all_drafts",
-  "get_audit_trail",
-  "get_delegation_result",
-  "list_delegations",
-]);
-
-const WRITE_TOOLS = new Set([
-  "add_case_note",
-  "write_document",
-  "send_email",
-  "draft_document",
-  "render_document",
-  "execute_workflow",
-  "request_review",
-  "delegate_task",
-  "delegate_to_role",
-  "notify_assistant",
-  "open_work_queue_item",
-  "request_approval",
-  "record_deadline",
-  "append_session_summary",
-  "register_uploaded_template",
-  "set_uploaded_template_enabled",
-]);
+export { MATTER_SCOPE_REQUIRED, BACKGROUND_JOB_TOOLS, IDEMPOTENT_READ_TOOLS, WRITE_TOOLS };
 
 function resolveRiskLevel(definition: ToolDefinition): RiskLevel {
   if (definition.riskLevel) {

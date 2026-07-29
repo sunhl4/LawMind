@@ -10,7 +10,11 @@ export {
   renderDocument,
 } from "./engine/engine-pipeline-tools.js";
 export { executeWorkflow } from "./engine/engine-workflow-tool.js";
-export { registerTemplate, listTemplates } from "./engine/engine-template-tools.js";
+export {
+  registerTemplate,
+  listTemplates,
+  setTemplateEnabled,
+} from "./engine/engine-template-tools.js";
 export {
   openWorkQueueItem,
   requestApprovalTool,
@@ -31,7 +35,11 @@ import {
   draftDocument,
   renderDocument,
 } from "./engine/engine-pipeline-tools.js";
-import { registerTemplate, listTemplates } from "./engine/engine-template-tools.js";
+import {
+  registerTemplate,
+  listTemplates,
+  setTemplateEnabled,
+} from "./engine/engine-template-tools.js";
 import { executeWorkflow } from "./engine/engine-workflow-tool.js";
 
 export const engineTools: AgentTool[] = [
@@ -43,6 +51,7 @@ export const engineTools: AgentTool[] = [
   executeWorkflow,
   registerTemplate,
   listTemplates,
+  setTemplateEnabled,
   openWorkQueueItem,
   requestApprovalTool,
   recordDeadlineTool,

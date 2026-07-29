@@ -135,10 +135,22 @@ async function fetchOpenAICompatibleOnce(
   cfg: OpenAICompatibleClientConfig,
   input: ModelRetrievalInput,
   role: "general" | "legal",
+  externalSignal?: AbortSignal,
 ): Promise<ModelRetrievalOutput> {
   const timeoutMs = cfg.timeoutMs ?? 30000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  // Link external (turn-level) abort with the per-call timeout so either
+  // can cancel the underlying fetch — not just the timeout.
+  const onExternalAbort = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+    }
+  }
 
   try {
     const url = `${trimSlash(cfg.baseUrl)}/chat/completions`;
@@ -203,6 +215,9 @@ async function fetchOpenAICompatibleOnce(
     };
   } finally {
     clearTimeout(timer);
+    if (externalSignal) {
+      externalSignal.removeEventListener("abort", onExternalAbort);
+    }
   }
 }
 
@@ -210,11 +225,12 @@ async function callOpenAICompatible(
   cfg: OpenAICompatibleClientConfig,
   input: ModelRetrievalInput,
   role: "general" | "legal",
+  signal?: AbortSignal,
 ): Promise<ModelRetrievalOutput> {
   let lastFailure: ModelRetrievalOutput | undefined;
   for (let attempt = 0; attempt <= RETRIEVAL_MAX_RETRIES; attempt += 1) {
     try {
-      return await fetchOpenAICompatibleOnce(cfg, input, role);
+      return await fetchOpenAICompatibleOnce(cfg, input, role, signal);
     } catch (err) {
       if (attempt >= RETRIEVAL_MAX_RETRIES || !isRetryableHttpFailure(err)) {
         lastFailure = {
@@ -248,7 +264,12 @@ export function createOpenAICompatibleAdapters(
   if (params.general) {
     adapters.push(
       createGeneralModelAdapter((input) =>
-        callOpenAICompatible(params.general as OpenAICompatibleClientConfig, input, "general"),
+        callOpenAICompatible(
+          params.general as OpenAICompatibleClientConfig,
+          input,
+          "general",
+          input.signal,
+        ),
       ),
     );
   }
@@ -256,7 +277,12 @@ export function createOpenAICompatibleAdapters(
   if (params.legal) {
     adapters.push(
       createLegalModelAdapter((input) =>
-        callOpenAICompatible(params.legal as OpenAICompatibleClientConfig, input, "legal"),
+        callOpenAICompatible(
+          params.legal as OpenAICompatibleClientConfig,
+          input,
+          "legal",
+          input.signal,
+        ),
       ),
     );
   }

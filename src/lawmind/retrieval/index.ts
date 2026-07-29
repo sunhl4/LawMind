@@ -33,8 +33,12 @@ export type RetrievalAdapter = {
   name: string;
   /** 是否支持某类任务 */
   supports: (intent: TaskIntent) => boolean;
-  /** 执行检索，返回结构化结果 */
-  retrieve: (params: { intent: TaskIntent; memory: MemoryContext }) => Promise<RetrievalResult>;
+  /** 执行检索，返回结构化结果。signal 可用于取消底层模型/网络调用。 */
+  retrieve: (params: {
+    intent: TaskIntent;
+    memory: MemoryContext;
+    signal?: AbortSignal;
+  }) => Promise<RetrievalResult>;
 };
 
 // ─────────────────────────────────────────────
@@ -45,6 +49,7 @@ export type RetrieveParams = {
   intent: TaskIntent;
   memory: MemoryContext;
   adapters: RetrievalAdapter[];
+  signal?: AbortSignal;
 };
 
 /**
@@ -54,7 +59,7 @@ export type RetrieveParams = {
  * 提示律师手动补充。
  */
 export async function retrieve(params: RetrieveParams): Promise<ResearchBundle> {
-  const { intent, memory, adapters } = params;
+  const { intent, memory, adapters, signal } = params;
 
   const applicableAdapters = adapters.filter((a) => a.supports(intent));
 
@@ -67,7 +72,7 @@ export async function retrieve(params: RetrieveParams): Promise<ResearchBundle> 
     allMissingItems.push("没有可用的检索适配器，请手动补充资料。");
   } else {
     const results = await Promise.allSettled(
-      applicableAdapters.map((adapter) => adapter.retrieve({ intent, memory })),
+      applicableAdapters.map((adapter) => adapter.retrieve({ intent, memory, signal })),
     );
 
     for (const result of results) {

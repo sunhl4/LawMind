@@ -37,6 +37,7 @@ import { runToolInSubprocessSandbox } from "./tool-sandbox.js";
  */
 const WRITE_HEAVY_TOOL_NAMES = new Set<string>([
   "draft_document",
+  "update_draft",
   "execute_workflow",
   "render_document",
 ]);
@@ -231,13 +232,34 @@ export const argSchemaMiddleware: ToolMiddleware = async (call, next) => {
   return result;
 };
 
-/** 单次工具执行超时（默认包在 execute 外层）。 */
+/**
+ * 单次工具执行超时（默认包在 execute 外层）。
+ *
+ * 用 AbortController + Promise.race：超时时既立即向调用方返回超时错误，
+ * 又通过 `controller.abort()` 翻转 `ctx.abortSignal`，让读取该 signal 的工具
+ * （fetch / 模型调用 / 子进程）取消底层工作，而不是让它在超时后继续跑到完成。
+ */
 export const timeoutMiddleware: ToolMiddleware = async (call, next) => {
-  return withTimeout(
-    next(),
-    call.policy.toolTimeoutMs,
-    `Tool ${call.toolName} timed out after ${call.policy.toolTimeoutMs}ms`,
-  );
+  const controller = new AbortController();
+  const prev = call.ctx.abortSignal;
+  call.ctx.abortSignal = controller.signal;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      next(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(new Error(`Tool ${call.toolName} timed out after ${call.policy.toolTimeoutMs}ms`));
+        }, call.policy.toolTimeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+    call.ctx.abortSignal = prev;
+  }
 };
 
 /** 审计：next() 之后写一条 tool_call 事件（best-effort）。 */
@@ -317,22 +339,6 @@ export function buildDefaultToolPipeline(): ToolMiddleware[] {
 // ─────────────────────────────────────────────
 // 内部工具
 // ─────────────────────────────────────────────
-
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timer) {
-      clearTimeout(timer);
-    }
-  }
-}
 
 /** 公共 ToolDefinition export，便于测试构造 stub。 */
 export type { ToolDefinition };

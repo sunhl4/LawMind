@@ -81,6 +81,7 @@ const TOOL_DISPLAY_ZH: Record<string, string> = {
   append_session_summary: "整理会话摘要",
   register_template: "登记模板",
   list_templates: "查看模板",
+  set_template_enabled: "启用/停用模板",
   check_conflict_of_interest: "利益冲突检索",
 };
 

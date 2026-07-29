@@ -78,22 +78,13 @@ export const registerTemplate: AgentTool = {
 export const listTemplates: AgentTool = {
   definition: {
     name: "list_templates",
-    description: "查看内置模板和已上传模板，支持更新上传模板启用状态。用于任务前检查模板是否可用。",
+    description:
+      "查看内置模板和已上传模板。用于任务前检查模板是否可用。如需变更启用状态请用 set_template_enabled。",
     category: "system",
-    parameters: {
-      set_enabled_for_id: { type: "string", description: "可选：要变更启用状态的上传模板 ID" },
-      enabled: { type: "boolean", description: "配合 set_enabled_for_id 使用" },
-    },
+    parameters: {},
   },
-  async execute(params, ctx) {
+  async execute(_params, ctx) {
     try {
-      if (typeof params.set_enabled_for_id === "string" && typeof params.enabled === "boolean") {
-        await setUploadedTemplateEnabled({
-          workspaceDir: ctx.workspaceDir,
-          id: params.set_enabled_for_id.trim(),
-          enabled: params.enabled,
-        });
-      }
       const builtIn = listBuiltInTemplates();
       const uploaded = await listUploadedTemplates(ctx.workspaceDir);
       return {
@@ -107,6 +98,53 @@ export const listTemplates: AgentTool = {
       return {
         ok: false,
         error: `读取模板失败: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  },
+};
+
+export const setTemplateEnabled: AgentTool = {
+  definition: {
+    name: "set_template_enabled",
+    description: "启用或停用某个已上传模板。会改变工作区模板库状态，需律师审批。",
+    category: "system",
+    parameters: {
+      id: { type: "string", description: "要变更启用状态的上传模板 ID", required: true },
+      enabled: { type: "boolean", description: "true 启用 / false 停用", required: true },
+    },
+    requiresApproval: true,
+    riskLevel: "medium",
+  },
+  async execute(params, ctx) {
+    try {
+      if (typeof params.id !== "string" || !params.id.trim()) {
+        throw new Error("id 必填");
+      }
+      if (typeof params.enabled !== "boolean") {
+        throw new Error("enabled 必填且为布尔");
+      }
+      const rec = await setUploadedTemplateEnabled({
+        workspaceDir: ctx.workspaceDir,
+        id: params.id.trim(),
+        enabled: params.enabled,
+      });
+      if (!rec) {
+        return {
+          ok: false,
+          error: `未找到模板：${params.id.trim()}`,
+        };
+      }
+      return {
+        ok: true,
+        data: {
+          id: rec.id,
+          enabled: rec.enabled,
+        },
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        error: `变更模板启用状态失败: ${err instanceof Error ? err.message : String(err)}`,
       };
     }
   },
