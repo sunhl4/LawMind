@@ -299,7 +299,7 @@ export function LawmindModelPicker(props: Props): ReactNode {
         }`}
         onMouseEnter={() => setFocusIndex(index)}
         onClick={() => selectRow(row)}
-        title={row.configured ? name : "API key required"}
+        title={row.configured ? name : "未配置 API 密钥"}
       >
         <span
           className={`lm-model-picker-icon lm-model-picker-icon-${iconKey}`}

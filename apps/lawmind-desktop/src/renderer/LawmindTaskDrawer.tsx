@@ -172,7 +172,7 @@ export function LawmindTaskDrawer({
         onClick={(e) => e.stopPropagation()}
       >
         <header className="lm-task-drawer-head">
-          <h3>任务抽屉</h3>
+          <h3>任务与待批准</h3>
           <button type="button" className="lm-btn lm-btn-ghost lm-btn-small" onClick={onClose}>
             关闭
           </button>

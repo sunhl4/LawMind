@@ -568,48 +568,60 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
             可选：在 <code>matters/&lt;id&gt;/RULES.md</code> 或{" "}
             <code>cases/&lt;id&gt;/RULES.md</code> 写入本案强制规则（每轮硬注入）
           </span>
-          <span className="lm-settings-key">引用模式</span>
-          <span
-            className={
-              (doctor?.citationModeActive ?? health?.citationModeActive)
-                ? "lm-pill lm-pill-success"
-                : "lm-pill lm-pill-neutral"
-            }
-          >
-            {doctor?.citationMode ?? health?.citationMode ?? "assisted"}
-          </span>
-          <span className="lm-settings-key">分诊规则</span>
-          <span
-            className={
-              (doctor?.triageRulesLoaded ?? health?.triageRulesLoaded) || (triageRuleIds?.length ?? 0) > 0
-                ? "lm-pill lm-pill-success"
-                : "lm-pill lm-pill-warn"
-            }
-          >
-            {(doctor?.triageRulesLoaded ?? health?.triageRulesLoaded) || (triageRuleIds?.length ?? 0) > 0
-              ? `已加载 ${triageRuleIds?.length ?? doctor?.triageRuleCount ?? health?.triageRuleCount ?? 0} 条`
-              : "未加载"}
-          </span>
-          <span className="lm-settings-key">产品指标</span>
-          <span className="lm-meta">
-            事件 {doctor?.productMetricsSummary?.total ?? 0} · 分诊确认{" "}
-            {doctor?.productMetricsSummary?.triageConfirmed ?? 0} · gate 失败{" "}
-            {doctor?.productMetricsSummary?.gateFailures ?? 0} · 一次过{" "}
-            {doctor?.productMetricsSummary?.firstPassOk ?? 0} · 改写{" "}
-            {doctor?.productMetricsSummary?.rewrites ?? 0} · 改写幅度样本{" "}
-            {doctor?.productMetricsSummary?.rewriteAmplitudeSamples ?? 0}
-          </span>
-          <span className="lm-settings-key">Fleet Playbook</span>
-          <span
-            className={
-              doctor?.fleetPlaybooksLoaded || health?.fleetPlaybooksLoaded
-                ? "lm-pill lm-pill-success"
-                : "lm-pill lm-pill-warn"
-            }
-          >
-            {doctor?.fleetPlaybookCount ?? health?.fleetPlaybookCount ?? 0} 套
-          </span>
         </div>
+        <details className="lm-doctor-advanced-trust" data-testid="lm-doctor-advanced-trust">
+          <summary className="lm-meta">信任闭环指标（高级）</summary>
+          <div className="lm-doctor-security-grid">
+            <span className="lm-settings-key">引用模式</span>
+            <span
+              className={
+                (doctor?.citationModeActive ?? health?.citationModeActive)
+                  ? "lm-pill lm-pill-success"
+                  : "lm-pill lm-pill-neutral"
+              }
+            >
+              {(() => {
+                const m = doctor?.citationMode ?? health?.citationMode ?? "assisted";
+                return m === "grounded"
+                  ? "严格援引"
+                  : m === "off"
+                    ? "关闭"
+                    : "辅助标注";
+              })()}
+            </span>
+            <span className="lm-settings-key">分诊规则</span>
+            <span
+              className={
+                (doctor?.triageRulesLoaded ?? health?.triageRulesLoaded) || (triageRuleIds?.length ?? 0) > 0
+                  ? "lm-pill lm-pill-success"
+                  : "lm-pill lm-pill-warn"
+              }
+            >
+              {(doctor?.triageRulesLoaded ?? health?.triageRulesLoaded) || (triageRuleIds?.length ?? 0) > 0
+                ? `已加载 ${triageRuleIds?.length ?? doctor?.triageRuleCount ?? health?.triageRuleCount ?? 0} 条`
+                : "未加载"}
+            </span>
+            <span className="lm-settings-key">产品指标</span>
+            <span className="lm-meta">
+              事件 {doctor?.productMetricsSummary?.total ?? 0} · 分诊确认{" "}
+              {doctor?.productMetricsSummary?.triageConfirmed ?? 0} · 门禁失败{" "}
+              {doctor?.productMetricsSummary?.gateFailures ?? 0} · 一次过{" "}
+              {doctor?.productMetricsSummary?.firstPassOk ?? 0} · 改写{" "}
+              {doctor?.productMetricsSummary?.rewrites ?? 0} · 改写幅度样本{" "}
+              {doctor?.productMetricsSummary?.rewriteAmplitudeSamples ?? 0}
+            </span>
+            <span className="lm-settings-key">审查模板</span>
+            <span
+              className={
+                doctor?.fleetPlaybooksLoaded || health?.fleetPlaybooksLoaded
+                  ? "lm-pill lm-pill-success"
+                  : "lm-pill lm-pill-warn"
+              }
+            >
+              {doctor?.fleetPlaybookCount ?? health?.fleetPlaybookCount ?? 0} 套
+            </span>
+          </div>
+        </details>
         {doctor?.privateDeployChecklist ? (
           <div className="lm-doctor-private-deploy" data-testid="lm-doctor-private-deploy">
             <p className="lm-meta">
@@ -648,11 +660,11 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
         </details>
       </div>
 
-      <div
-        className="lm-settings-group lm-settings-surface"
+      <details
+        className="lm-settings-group lm-settings-surface lm-doctor-advanced"
         data-testid="lm-doctor-team-growth"
       >
-        <h4 className="lm-doctor-group-title">团队成长 · 内测指标</h4>
+        <summary className="lm-doctor-group-title">团队成长 · 内测指标（高级）</summary>
         <p className="lm-settings-caption">
           近 {teamGrowth?.windowDays ?? 30} 天窗口；相对基线看一次过 / 改写 / 学习处理 / 路由命中 /
           互审覆盖。样本不足时显示 n/a。
@@ -709,7 +721,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
           </button>
         </div>
         {teamGrowthMsg ? <p className="lm-meta">{teamGrowthMsg}</p> : null}
-      </div>
+      </details>
 
       <div className="lm-settings-group lm-settings-surface">
         <h4 className="lm-doctor-group-title">办案审计摘要</h4>
@@ -1064,7 +1076,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
 
       {doctor ? (
         <div className="lm-settings-group lm-settings-surface">
-          <h4 className="lm-doctor-group-title">协作与任务统计</h4>
+          <h4 className="lm-doctor-group-title">工作流与任务统计</h4>
           <div className="lm-doctor-stats">
             <span>任务 {doctor.taskCount ?? 0}</span>
             <span>草稿 {doctor.draftCount ?? 0}</span>

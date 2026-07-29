@@ -22,7 +22,7 @@ type Props = {
 type PlaybookOption = { id: string; label: string; roleCount: number };
 
 /**
- * Skills E2 — Sticky Safety Score + role tabs (Workbench meta column).
+ * Skills E2 — Sticky 风险分 + role tabs (Workbench meta column).
  */
 export function LawmindReviewCampaignPanel(props: Props): ReactNode {
   const { apiBase, taskId, matterId, campaign, onCampaignChange } = props;
@@ -264,12 +264,12 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
       </header>
 
       <label className="lm-settings-row lm-review-campaign-playbook">
-        <span className="lm-meta">Playbook</span>
+        <span className="lm-meta">审查模板</span>
         <select
           className="lm-input"
           value={playbookId}
           data-testid="lm-review-campaign-playbook"
-          aria-label="审查 Playbook"
+          aria-label="审查模板"
           onChange={(e) => setPlaybookId(e.target.value)}
         >
           {(playbooks.length > 0
@@ -285,12 +285,12 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
       </label>
 
       {score ? (
-        <div className="lm-review-campaign-scoreboard" aria-label="Contract Safety Score">
+        <div className="lm-review-campaign-scoreboard" aria-label="合同风险分">
           <div
             className="lm-review-campaign-score"
             data-testid="lm-safety-score"
             data-score={score.score}
-            title="Safety Score（越高越安全）"
+            title="风险分（越高越安全）"
           >
             <div className="lm-safety-gauge" aria-hidden="true">
               <svg viewBox="0 0 72 72" width="72" height="72">
@@ -308,7 +308,7 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
               <span className="lm-review-campaign-score-value">{score.score}</span>
             </div>
             <div>
-              <span className="lm-review-campaign-score-label">Safety Score</span>
+              <span className="lm-review-campaign-score-label">风险分</span>
               <p className="lm-meta">/ 100 · 越高越安全</p>
             </div>
           </div>
@@ -322,7 +322,7 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
           </div>
         </div>
       ) : (
-        <p className="lm-meta">选择 Playbook 后一键跑多角色，聚合 Safety Score 与谈判优先级。</p>
+        <p className="lm-meta">选择审查模板后一键跑多角色，聚合风险分与谈判优先级。</p>
       )}
 
       <label className="lm-settings-row lm-settings-row-check lm-review-campaign-fast">

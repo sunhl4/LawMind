@@ -6,7 +6,7 @@ test.describe("审查专案组 (Skills E2)", () => {
     await installE2eBrowserPrefs(page);
   });
 
-  test("文书台跑专案组可见 Safety Score 与角色 Tab", async ({ page }) => {
+  test("文书台跑专案组可见风险分与角色 Tab", async ({ page }) => {
     await gotoShell(page);
     await openReviewWorkbench(page);
     await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench").first()).toBeVisible({
