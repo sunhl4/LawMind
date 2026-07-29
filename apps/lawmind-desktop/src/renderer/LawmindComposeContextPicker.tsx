@@ -325,14 +325,14 @@ export function LawmindComposeContextPicker(props: Props): ReactNode {
               ? `搜索「${query}」`
               : filesOnly
                 ? "选择工作区文件"
-                : "选择文件、证据、Playbook、本案理论、案件或模板"}
+                : "选择文件、证据、审查模板、本案理论、案件或模板"}
           </p>
         )}
         {groups.length === 0 ? (
           <p className="lm-meta">
             {filesOnly
               ? "无匹配文件。继续输入文件名（至少 2 字）。"
-              : "无匹配项。继续输入文件名、案件名、Playbook 或模板名。"}
+              : "无匹配项。继续输入文件名、案件名、审查模板或模板名。"}
           </p>
         ) : (
           groups.map((group) => (

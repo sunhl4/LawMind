@@ -79,6 +79,7 @@ export function LawmindCommandPalette({
       <div
         className="lm-command-palette"
         role="dialog"
+        aria-modal="true"
         aria-label="律师命令"
         onClick={(e) => e.stopPropagation()}
       >

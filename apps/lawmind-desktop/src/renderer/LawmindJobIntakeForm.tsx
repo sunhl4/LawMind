@@ -241,13 +241,16 @@ export function LawmindJobIntakeForm(props: Props): ReactNode {
               ))}
             </ul>
             {result.matchedRuleIds.length > 0 ? (
-              <div className="lm-triage-chips" aria-label="命中规则">
-                {result.matchedRuleIds.slice(0, 6).map((chip) => (
-                  <span key={chip} className="lm-triage-chip">
-                    {chip}
-                  </span>
-                ))}
-              </div>
+              <details className="lm-triage-chips-wrap">
+                <summary className="lm-meta">命中规则（{result.matchedRuleIds.length}）</summary>
+                <div className="lm-triage-chips" aria-label="命中规则">
+                  {result.matchedRuleIds.slice(0, 6).map((chip) => (
+                    <span key={chip} className="lm-triage-chip">
+                      {chip}
+                    </span>
+                  ))}
+                </div>
+              </details>
             ) : null}
           </div>
 

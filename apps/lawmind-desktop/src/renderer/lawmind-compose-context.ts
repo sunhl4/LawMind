@@ -297,7 +297,7 @@ export function buildComposeContextPickerItems(opts: {
           kind: "clause" as const,
           id: "clause:full",
           category: "clause" as const,
-          label: "条款 Playbook（整册）",
+          label: "条款审查要点（整册）",
           hint: "playbooks/CLAUSE_PLAYBOOK.md",
           scope: "full" as const,
           alreadyPinned: pinnedTruthIds.has(makeContextPinId({ pinKind: "clause", scope: "full" })),
@@ -369,8 +369,8 @@ export function groupContextPickerItems(
   }> = [
     { category: "files", label: "文件", items: [] },
     { category: "evidence", label: "证据材料", items: [] },
-    { category: "clause", label: "条款 Playbook", items: [] },
-    { category: "playbook", label: "审查剧本", items: [] },
+    { category: "clause", label: "条款审查要点", items: [] },
+    { category: "playbook", label: "审查模板", items: [] },
     { category: "theory", label: "本案理论", items: [] },
     { category: "matters", label: "案件", items: [] },
     { category: "templates", label: "模板", items: [] },
@@ -424,17 +424,17 @@ export function formatTruthPinChip(
     case "clause":
       return {
         id,
-        shortLabel: pin.scope === "full" ? "📚 条款 Playbook" : "📚 条款片段",
+        shortLabel: pin.scope === "full" ? "📚 条款审查要点" : "📚 条款片段",
         title:
           pin.scope === "full"
-            ? "条款 Playbook（整册）"
-            : `条款 Playbook 片段 · ${pin.sectionHeading ?? ""}`,
+            ? "条款审查要点（整册）"
+            : `条款审查要点片段 · ${pin.sectionHeading ?? ""}`,
       };
     case "playbook":
       return {
         id,
         shortLabel: `🎭 ${pin.playbookId}`,
-        title: `审查剧本 · ${pin.playbookId}`,
+        title: `审查模板 · ${pin.playbookId}`,
       };
     case "theory":
       return {

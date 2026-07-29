@@ -285,7 +285,7 @@ export function memoryUpgradeRecommendation(label: string): string {
     return "如果这是稳定交付规则，建议整理进律所级规则并考虑进入核心提示。";
   }
   if (label.includes("条款") || label.includes("Playbook")) {
-    return "如果这类条款模式持续高频出现，建议升级为常用 playbook 并考虑核心注入。";
+    return "如果这类条款模式持续高频出现，建议升级为常用审查模板并考虑强制注入。";
   }
   if (label.includes("案件") || label.includes("策略")) {
     return "如果案件策略反复被检索，建议把关键决策沉淀为 MATTER_STRATEGY 核心段落。";

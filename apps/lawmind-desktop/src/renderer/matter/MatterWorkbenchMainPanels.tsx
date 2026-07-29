@@ -311,9 +311,14 @@ export function MatterWorkbenchMainPanels(props: MatterWorkbenchMainPanelsProps)
             <p className="lm-meta">下列任务与交付尚未关联案件编号，建议在工作台中归入具体案件。</p>
           </div>
         </div>
-        <div className="lm-tabs lm-workbench-tabs">
+        <div className="lm-tabs lm-workbench-tabs" role="tablist" aria-label="未关联案件记录">
           <button
             type="button"
+            role="tab"
+            id="lm-matter-unlinked-tab-ledger"
+            aria-selected={panelTab === "ledger"}
+            aria-controls="lm-matter-unlinked-panel"
+            tabIndex={panelTab === "ledger" ? 0 : -1}
             className={`lm-tab ${panelTab === "ledger" ? "active" : ""}`}
             onClick={() => onSelectPanelTabUnlinked("ledger")}
           >
@@ -321,12 +326,23 @@ export function MatterWorkbenchMainPanels(props: MatterWorkbenchMainPanelsProps)
           </button>
           <button
             type="button"
+            role="tab"
+            id="lm-matter-unlinked-tab-deliveries"
+            aria-selected={panelTab === "deliveries"}
+            aria-controls="lm-matter-unlinked-panel"
+            tabIndex={panelTab === "deliveries" ? 0 : -1}
             className={`lm-tab ${panelTab === "deliveries" ? "active" : ""}`}
             onClick={() => onSelectPanelTabUnlinked("deliveries")}
           >
             交付记录
           </button>
         </div>
+        <div
+          role="tabpanel"
+          id="lm-matter-unlinked-panel"
+          aria-labelledby={`lm-matter-unlinked-tab-${panelTab}`}
+          tabIndex={0}
+        >
         {panelTab === "ledger" && (
           <MatterShellRecordsPanel
             mode="ledger"
@@ -353,6 +369,7 @@ export function MatterWorkbenchMainPanels(props: MatterWorkbenchMainPanelsProps)
             onOpenShellDetail={onOpenShellDetail}
           />
         )}
+        </div>
       </>
     );
   }

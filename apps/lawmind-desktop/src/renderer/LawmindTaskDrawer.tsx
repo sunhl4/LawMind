@@ -168,6 +168,7 @@ export function LawmindTaskDrawer({
       <aside
         className="lm-task-drawer"
         role="dialog"
+        aria-modal="true"
         aria-label="任务与待批准"
         onClick={(e) => e.stopPropagation()}
       >
