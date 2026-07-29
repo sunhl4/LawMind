@@ -4,6 +4,7 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import { writeFileAtomicAsync } from "../adapters/matter-storage/io.js";
 
 export const DESK_SETTINGS_SCHEMA_VERSION = 1 as const;
 
@@ -76,8 +77,6 @@ export async function writeDeskSettings(
   if (raw != null && String(raw).trim() !== "") {
     next.contractBatchRelativeDir = normalizeContractBatchRelativeDir(String(raw));
   }
-  const dir = path.join(workspaceDir, "lawmind");
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(deskSettingsPath(workspaceDir), `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  await writeFileAtomicAsync(deskSettingsPath(workspaceDir), `${JSON.stringify(next, null, 2)}\n`);
   return next;
 }

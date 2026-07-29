@@ -8,11 +8,13 @@
  * Markdown / TaskRecord / Deliverable 三处。
  */
 
+import path from "node:path";
 import {
   loadDeliverable,
   saveDeliverable,
   type DeliverableRecord,
 } from "../../adapters/matter-storage/index.js";
+import { matterDir, withExclusiveFileLock } from "../../adapters/matter-storage/io.js";
 import { buildDeliverableFromDraft } from "../../core/contracts.js";
 import { canTransitionDeliverable } from "../../core/deliverable-lifecycle.js";
 import type { ArtifactDraft, ReviewStatus, TaskRecord } from "../../types.js";
@@ -20,6 +22,25 @@ import { attachDeliverableId, createMatterIfMissing } from "./matter-write-servi
 
 function newTimestamp(): string {
   return new Date().toISOString();
+}
+
+/**
+ * Per-deliverable exclusive lock around `deliverables/<id>.json` read-modify-write.
+ * Prevents concurrent transitions / stamp writes / draft links from clobbering
+ * each other's status or review-stamp fields.
+ */
+function withDeliverableLock<T>(
+  workspaceDir: string,
+  matterId: string,
+  deliverableId: string,
+  fn: () => T,
+): T {
+  const lockPath = path.join(
+    matterDir(workspaceDir, matterId),
+    "deliverables",
+    `${deliverableId}.json.lock`,
+  );
+  return withExclusiveFileLock(lockPath, fn);
 }
 
 export type CreatePlannedDeliverableInput = {
@@ -72,31 +93,40 @@ export function transitionDeliverable(
     deliveredBy?: string;
   },
 ): DeliverableRecord | undefined {
-  const existing = loadDeliverable(workspaceDir, matterId, deliverableId);
-  if (!existing) {
-    return undefined;
-  }
-  if (!canTransitionDeliverable(existing.status, status)) {
-    throw new Error(`invalid deliverable transition: ${existing.status} -> ${status}`);
-  }
-  const next: DeliverableRecord = {
-    ...existing,
-    status,
-    currentReviewStatus: opts?.reviewStatus ?? existing.currentReviewStatus,
-    templateId: opts?.templateId ?? existing.templateId,
-    blockingReasons: opts?.blockingReasons ?? existing.blockingReasons,
-    reviewerId: opts?.reviewerId ?? existing.reviewerId,
-    approvedBy: opts?.approvedBy ?? existing.approvedBy,
-    deliveredBy: opts?.deliveredBy ?? existing.deliveredBy,
-    deliveredAt:
-      status === "delivered" ? (existing.deliveredAt ?? newTimestamp()) : existing.deliveredAt,
-    updatedAt: newTimestamp(),
-  };
-  saveDeliverable(workspaceDir, next);
-  return next;
+  return withDeliverableLock(workspaceDir, matterId, deliverableId, () => {
+    const existing = loadDeliverable(workspaceDir, matterId, deliverableId);
+    if (!existing) {
+      return undefined;
+    }
+    if (!canTransitionDeliverable(existing.status, status)) {
+      throw new Error(`invalid deliverable transition: ${existing.status} -> ${status}`);
+    }
+    // SSOT: terminal review stamps (approved/rejected) must not be overwritten by a
+    // drifted draft.reviewStatus on later lifecycle transitions (e.g. render).
+    // pending → approved still takes opts.reviewStatus via applyDeliverableReviewStamp
+    // or an explicit non-regressing transition.
+    const terminalStamp =
+      existing.currentReviewStatus === "approved" || existing.currentReviewStatus === "rejected";
+    const next: DeliverableRecord = {
+      ...existing,
+      status,
+      currentReviewStatus: terminalStamp
+        ? existing.currentReviewStatus
+        : (opts?.reviewStatus ?? existing.currentReviewStatus),
+      templateId: opts?.templateId ?? existing.templateId,
+      blockingReasons: opts?.blockingReasons ?? existing.blockingReasons,
+      reviewerId: opts?.reviewerId ?? existing.reviewerId,
+      approvedBy: opts?.approvedBy ?? existing.approvedBy,
+      deliveredBy: opts?.deliveredBy ?? existing.deliveredBy,
+      deliveredAt:
+        status === "delivered" ? (existing.deliveredAt ?? newTimestamp()) : existing.deliveredAt,
+      updatedAt: newTimestamp(),
+    };
+    saveDeliverable(workspaceDir, next);
+    return next;
+  });
 }
 
-/** 把现有 ArtifactDraft 落到 deliverables/ 真相源（与 Markdown 并存）。 */
 export function linkDraftToDeliverable(
   workspaceDir: string,
   draft: ArtifactDraft,
@@ -107,13 +137,108 @@ export function linkDraftToDeliverable(
     return undefined;
   }
   createMatterIfMissing(workspaceDir, { matterId: derived.matterId });
-  const existing = loadDeliverable(workspaceDir, derived.matterId, derived.deliverableId);
-  const merged: DeliverableRecord = existing
-    ? { ...existing, ...derived, updatedAt: newTimestamp() }
-    : { ...derived, updatedAt: newTimestamp() };
-  saveDeliverable(workspaceDir, merged);
-  attachDeliverableId(workspaceDir, merged.matterId, merged.deliverableId);
-  return merged;
+  return withDeliverableLock(workspaceDir, derived.matterId, derived.deliverableId, () => {
+    const existing = loadDeliverable(workspaceDir, derived.matterId, derived.deliverableId);
+    // SSOT: once a review stamp exists on deliverable JSON, draft re-link must not
+    // overwrite currentReviewStatus / lifecycle (R-P2-7 hardening).
+    const stampLocked =
+      existing != null &&
+      (existing.currentReviewStatus != null ||
+        existing.status === "approved" ||
+        existing.status === "rendered" ||
+        existing.status === "delivered");
+    const merged: DeliverableRecord = existing
+      ? {
+          ...existing,
+          ...derived,
+          currentReviewStatus: existing.currentReviewStatus ?? derived.currentReviewStatus,
+          reviewerId: existing.reviewerId ?? derived.reviewerId,
+          approvedBy: existing.approvedBy ?? derived.approvedBy,
+          blockingReasons: stampLocked
+            ? (existing.blockingReasons ?? derived.blockingReasons)
+            : (derived.blockingReasons ?? existing.blockingReasons),
+          status: stampLocked ? existing.status : derived.status,
+          deliveredAt: existing.deliveredAt ?? derived.deliveredAt,
+          deliveredBy: existing.deliveredBy ?? derived.deliveredBy,
+          updatedAt: newTimestamp(),
+        }
+      : { ...derived, updatedAt: newTimestamp() };
+    saveDeliverable(workspaceDir, merged);
+    attachDeliverableId(workspaceDir, merged.matterId, merged.deliverableId);
+    return merged;
+  });
+}
+
+/**
+ * High-risk review-stamp write mouth (R-P2-7).
+ *
+ * Authority: `matters/<id>/deliverables/<id>.json` (`currentReviewStatus`).
+ * The linked draft's `reviewStatus` is synced FROM that stamp (not the reverse),
+ * so Doctor `deliverable_review_drift` stays green after this path.
+ */
+export function applyDeliverableReviewStamp(
+  workspaceDir: string,
+  matterId: string,
+  deliverableId: string,
+  stamp: {
+    reviewStatus: ReviewStatus;
+    status: DeliverableRecord["status"];
+    reviewerId?: string;
+    approvedBy?: string;
+    blockingReasons?: string[];
+  },
+): DeliverableRecord | undefined {
+  return withDeliverableLock(workspaceDir, matterId, deliverableId, () => {
+    const existing = loadDeliverable(workspaceDir, matterId, deliverableId);
+    if (!existing) {
+      return undefined;
+    }
+    if (
+      existing.status !== stamp.status &&
+      !canTransitionDeliverable(existing.status, stamp.status)
+    ) {
+      // Still converge the review stamp even if lifecycle skip is illegal —
+      // stamp is the high-risk dual-truth field; lifecycle stays guarded elsewhere.
+      const stamped: DeliverableRecord = {
+        ...existing,
+        currentReviewStatus: stamp.reviewStatus,
+        reviewerId: stamp.reviewerId ?? existing.reviewerId,
+        approvedBy: stamp.approvedBy ?? existing.approvedBy,
+        blockingReasons: stamp.blockingReasons ?? existing.blockingReasons,
+        updatedAt: newTimestamp(),
+      };
+      saveDeliverable(workspaceDir, stamped);
+      return stamped;
+    }
+    const next: DeliverableRecord = {
+      ...existing,
+      status: stamp.status,
+      currentReviewStatus: stamp.reviewStatus,
+      reviewerId: stamp.reviewerId ?? existing.reviewerId,
+      approvedBy: stamp.approvedBy ?? existing.approvedBy,
+      blockingReasons: stamp.blockingReasons ?? existing.blockingReasons,
+      deliveredAt:
+        stamp.status === "delivered"
+          ? (existing.deliveredAt ?? newTimestamp())
+          : existing.deliveredAt,
+      updatedAt: newTimestamp(),
+    };
+    saveDeliverable(workspaceDir, next);
+    return next;
+  });
+}
+
+/** Sync draft.reviewStatus from deliverable JSON authority (no-op if no stamp). */
+export function syncDraftReviewStatusFromDeliverable(
+  draft: ArtifactDraft,
+  deliverable: DeliverableRecord,
+): ArtifactDraft {
+  const stamp = deliverable.currentReviewStatus;
+  if (!stamp) {
+    return draft;
+  }
+  draft.reviewStatus = stamp;
+  return draft;
 }
 
 export { loadDeliverable as readDeliverable };

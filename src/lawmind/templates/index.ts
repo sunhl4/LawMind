@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { writeFileAtomicAsync } from "../adapters/matter-storage/io.js";
 import type { ArtifactDraft } from "../types.js";
 import { scanDocxPlaceholders } from "./docx-template-fill.js";
 import { suggestPlaceholderFieldPaths } from "./draft-template-values.js";
@@ -134,8 +135,7 @@ async function readRegistry(workspaceDir: string): Promise<TemplateRegistryFile>
 
 async function writeRegistry(workspaceDir: string, registry: TemplateRegistryFile): Promise<void> {
   const filePath = registryFilePath(workspaceDir);
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify(registry, null, 2), "utf8");
+  await writeFileAtomicAsync(filePath, JSON.stringify(registry, null, 2));
 }
 
 function defaultTemplateIdFor(format: TemplateFormat): string {

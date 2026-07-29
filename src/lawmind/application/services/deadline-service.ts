@@ -5,12 +5,14 @@
  */
 
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 import {
   appendDeadline,
   readDeadlines,
   rewriteDeadlines,
   type DeadlineRecord,
 } from "../../adapters/matter-storage/index.js";
+import { matterDir, withExclusiveFileLock } from "../../adapters/matter-storage/io.js";
 import { attachDeadlineId, createMatterIfMissing } from "./matter-write-service.js";
 
 export type RecordDeadlineInput = {
@@ -68,19 +70,22 @@ function updateDeadlineStatus(
   status: DeadlineRecord["status"],
   opts?: { dueAt?: string },
 ): DeadlineRecord | undefined {
-  const all = readDeadlines(workspaceDir, matterId);
-  const idx = all.findIndex((d) => d.deadlineId === deadlineId);
-  if (idx < 0) {
-    return undefined;
-  }
-  const next: DeadlineRecord = {
-    ...all[idx],
-    status,
-    dueAt: opts?.dueAt ?? all[idx].dueAt,
-  };
-  all[idx] = next;
-  rewriteDeadlines(workspaceDir, matterId, all);
-  return next;
+  const lockPath = path.join(matterDir(workspaceDir, matterId), "deadlines.jsonl.lock");
+  return withExclusiveFileLock(lockPath, () => {
+    const all = readDeadlines(workspaceDir, matterId);
+    const idx = all.findIndex((d) => d.deadlineId === deadlineId);
+    if (idx < 0) {
+      return undefined;
+    }
+    const next: DeadlineRecord = {
+      ...all[idx],
+      status,
+      dueAt: opts?.dueAt ?? all[idx].dueAt,
+    };
+    all[idx] = next;
+    rewriteDeadlines(workspaceDir, matterId, all);
+    return next;
+  });
 }
 
 export type { DeadlineRecord };

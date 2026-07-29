@@ -139,7 +139,10 @@ describe("Matter write services (W3)", () => {
       status: "approved",
       resolvedBy: "lawyer:partner",
     });
-    expect(resolved?.status).toBe("approved");
+    expect(resolved).toMatchObject({
+      outcome: "written",
+      approval: { status: "approved" },
+    });
     const all = readApprovals(workspaceDir, "m-5");
     expect(all[0].status).toBe("approved");
   });

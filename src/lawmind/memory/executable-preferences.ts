@@ -5,6 +5,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { writeJsonAtomic } from "../adapters/matter-storage/io.js";
 import {
   extractAppliedPreferencesFromProfile,
   type AppliedPreference,
@@ -80,7 +81,7 @@ export function writeExecutablePreference(
       capturedAt: e.capturedAt,
     })),
   };
-  fs.writeFileSync(prefsFilePath(workspaceDir), `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  writeJsonAtomic(prefsFilePath(workspaceDir), payload);
   return next;
 }
 
@@ -98,8 +99,6 @@ export function clearExecutablePreference(
   if (next.length === existing.length) {
     return { ok: true, cleared: false };
   }
-  const dir = path.join(workspaceDir, "lawmind");
-  fs.mkdirSync(dir, { recursive: true });
   const payload: PrefsFileV1 = {
     schemaVersion: 1,
     preferences: next.map((e) => ({
@@ -109,7 +108,7 @@ export function clearExecutablePreference(
       capturedAt: e.capturedAt,
     })),
   };
-  fs.writeFileSync(prefsFilePath(workspaceDir), `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  writeJsonAtomic(prefsFilePath(workspaceDir), payload);
   return { ok: true, cleared: true };
 }
 

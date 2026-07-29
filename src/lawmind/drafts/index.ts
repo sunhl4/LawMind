@@ -8,6 +8,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { writeJsonAtomic } from "../adapters/matter-storage/io.js";
 import type { ArtifactDraft } from "../types.js";
 
 function draftsDir(workspaceDir: string): string {
@@ -20,8 +21,7 @@ export function draftPath(workspaceDir: string, taskId: string): string {
 
 export function persistDraft(workspaceDir: string, draft: ArtifactDraft): string {
   const target = draftPath(workspaceDir, draft.taskId);
-  fs.mkdirSync(draftsDir(workspaceDir), { recursive: true });
-  fs.writeFileSync(target, JSON.stringify(draft, null, 2));
+  writeJsonAtomic(target, draft);
   return target;
 }
 
