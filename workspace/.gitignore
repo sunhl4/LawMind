@@ -8,6 +8,9 @@
 /audit/
 /memory/
 /learning/
+# 运行期案件 JSON 真相源（律师数据勿提交；保留 smoke 样例骨架）
+/matters/*
+!/matters/smoke-verify-matter/
 /lawmind/desk-settings.json
 /delegations/
 /collaboration/

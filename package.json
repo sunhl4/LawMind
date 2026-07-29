@@ -19,7 +19,7 @@
     "lawmind:desktop:e2e": "pnpm --filter lawmind-desktop test:e2e",
     "lawmind:desktop:e2e:cockpit": "pnpm --filter lawmind-desktop test:e2e -- matter-cockpit",
     "lawmind:desktop:e2e:electron": "pnpm lawmind:bundle:desktop-server && pnpm --filter lawmind-desktop build:renderer && pnpm --filter lawmind-desktop test:e2e:electron",
-    "lawmind:desktop:e2e:pr": "pnpm --filter lawmind-desktop exec playwright test e2e/smoke.spec.ts e2e/golden-path.spec.ts e2e/matter-cockpit.spec.ts e2e/contract-review-trust.spec.ts e2e/settings.spec.ts e2e/workspace-chat.spec.ts e2e/dialogs.spec.ts e2e/workspace-layout.spec.ts e2e/agent-fleet.spec.ts e2e/approval-queue.spec.ts --workers=1",
+    "lawmind:desktop:e2e:pr": "pnpm --filter lawmind-desktop exec playwright test e2e/smoke.spec.ts e2e/golden-path.spec.ts e2e/matter-cockpit.spec.ts e2e/contract-review-trust.spec.ts e2e/settings.spec.ts e2e/authority-mock.spec.ts e2e/workspace-chat.spec.ts e2e/dialogs.spec.ts e2e/workspace-layout.spec.ts e2e/agent-fleet.spec.ts e2e/approval-queue.spec.ts e2e/review-entry.spec.ts e2e/skills-trust.spec.ts --workers=1",
     "lawmind:desktop:http-smoke": "node scripts/lawmind/lawmind-desktop-http-smoke-auto.mjs",
     "lawmind:desktop:http-smoke:probe": "node scripts/lawmind/lawmind-desktop-http-smoke.mjs",
     "lawmind:docs:build": "pnpm --filter lawmind-docs build",
@@ -37,6 +37,7 @@
     "lawmind:multitask:validate": "node --import tsx scripts/lawmind/lawmind-multitask-validate.ts",
     "lawmind:multitask:validate:strict": "node --import tsx scripts/lawmind/lawmind-multitask-validate.ts --with-playwright --strict",
     "lawmind:onboard": "node --import tsx scripts/lawmind/lawmind-onboard.ts",
+    "lawmind:open-law:convert": "node --import tsx scripts/lawmind/open-law-corpus-convert.ts",
     "lawmind:ops": "node --import tsx scripts/lawmind/lawmind-ops.ts",
     "lawmind:quarterly-demo": "node --import tsx scripts/lawmind/lawmind-quarterly-demo.ts",
     "lawmind:release-readiness": "node --import tsx scripts/lawmind/lawmind-release-readiness.ts",
@@ -80,14 +81,14 @@
     "@types/mailparser": "^3.4.6",
     "@types/node": "^25.5.0",
     "@types/nodemailer": "^8.0.1",
-    "@vitest/coverage-v8": "^4.1.0",
+    "@vitest/coverage-v8": "^4.1.10",
     "esbuild": "^0.27.3",
     "oxfmt": "0.40.0",
     "oxlint": "1.55.0",
     "oxlint-tsgolint": "0.22.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.10"
   },
   "engines": {
     "node": ">=22.16.0"
@@ -97,6 +98,9 @@
     "onlyBuiltDependencies": [
       "electron",
       "esbuild"
-    ]
+    ],
+    "overrides": {
+      "vitest>vite": "^8.0.5"
+    }
   }
 }

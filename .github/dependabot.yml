@@ -1,5 +1,6 @@
-# Dependabot configuration
-# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+# Dependabot configuration — LawMind-only tree.
+# Removed OpenClaw/Moltbot ecosystems (swift / gradle / docker) whose directories
+# (apps/macos, apps/android, Swabble, MoltbotKit, root Dockerfile) do not exist here.
 
 version: 2
 
@@ -11,7 +12,7 @@ registries:
     replaces-base: true
 
 updates:
-  # npm dependencies (root)
+  # npm dependencies (root workspace)
   - package-ecosystem: npm
     directory: /
     schedule:
@@ -47,81 +48,4 @@ updates:
         update-types:
           - minor
           - patch
-    open-pull-requests-limit: 5
-
-  # Swift Package Manager - macOS app
-  - package-ecosystem: swift
-    directory: /apps/macos
-    schedule:
-      interval: daily
-    cooldown:
-      default-days: 2
-    groups:
-      swift-deps:
-        patterns:
-          - "*"
-        update-types:
-          - minor
-          - patch
-    open-pull-requests-limit: 5
-
-  # Swift Package Manager - shared MoltbotKit
-  - package-ecosystem: swift
-    directory: /apps/shared/MoltbotKit
-    schedule:
-      interval: daily
-    cooldown:
-      default-days: 2
-    groups:
-      swift-deps:
-        patterns:
-          - "*"
-        update-types:
-          - minor
-          - patch
-    open-pull-requests-limit: 5
-
-  # Swift Package Manager - Swabble
-  - package-ecosystem: swift
-    directory: /Swabble
-    schedule:
-      interval: daily
-    cooldown:
-      default-days: 2
-    groups:
-      swift-deps:
-        patterns:
-          - "*"
-        update-types:
-          - minor
-          - patch
-    open-pull-requests-limit: 5
-
-  # Gradle - Android app
-  - package-ecosystem: gradle
-    directory: /apps/android
-    schedule:
-      interval: daily
-    cooldown:
-      default-days: 2
-    groups:
-      android-deps:
-        patterns:
-          - "*"
-        update-types:
-          - minor
-          - patch
-    open-pull-requests-limit: 5
-
-  # Docker base images
-  - package-ecosystem: docker
-    directory: /
-    schedule:
-      interval: weekly
-    cooldown:
-      default-days: 2
-    groups:
-      docker-images:
-        patterns:
-          - "*"
     open-pull-requests-limit: 5

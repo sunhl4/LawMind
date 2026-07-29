@@ -31,6 +31,18 @@ Product-facing security checklists and deployment notes: **`docs/LAWMIND-SECURIT
 - **Rate limiting**: token-bucket guard on the loopback server (`lawmind-local-rate-limit.ts`); stats exposed on `GET /api/health` → `doctor.rateLimit`.
 - **Secrets**: model and integration keys belong in the OS keychain / host env, not in the workspace git tree. Inspect `doctor.skipApiAuthWarn` and integration health before firm rollout.
 
+## Hardening notes (Electron shell)
+
+The desktop app follows Electron security best practices; the implementation lives in `apps/lawmind-desktop/electron/`:
+
+- **`contextIsolation: true`** — renderer runs in an isolated world; Node globals are not exposed to page scripts.
+- **`nodeIntegration: false`** — renderer cannot call Node APIs directly; all native access goes through the narrow preload bridge.
+- **Sandbox**: `sandbox: app.isPackaged` — packaged builds enable the renderer sandbox; dev keeps it off for Vite HMR.
+- **CSP**: `installLawmindContentSecurityPolicy` sets a strict Content-Security-Policy on the main window. Dev allows `unsafe-eval` for Vite HMR; packaged builds do not.
+- **Preload bridge**: `preload.mjs` exposes only a minimal `lawmindDesktop` API surface via `contextBridge`; no `ipcRenderer.on` is exposed to the page.
+- **Path traversal guard**: `fs-bridge.mjs` validates all file-system IPC against the workspace root before touching disk.
+- **Bearer comparison**: `timingSafeEqual` with a length pre-check prevents timing side-channels on the loopback auth check.
+
 ## Bug bounty
 
 There is **no** formal bug bounty program. Responsible disclosure is still appreciated; fixes may be credited in release notes or advisories at maintainer discretion.
