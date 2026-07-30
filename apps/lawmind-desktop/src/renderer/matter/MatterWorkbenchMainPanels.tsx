@@ -445,9 +445,6 @@ export function MatterWorkbenchMainPanels(props: MatterWorkbenchMainPanelsProps)
           productExperimentChecklist={productExperimentChecklist}
           crossMatterExperimentBoard={crossMatterExperimentBoard}
           roadmapCandidates={roadmapCandidates}
-          _adoptionHistoryInsight={adoptionHistoryInsight}
-          _visiblePersistentAdoptions={visiblePersistentAdoptions}
-          _adoptedSuggestions={adoptedSuggestions}
           roadmapPressureSummary={roadmapPressureSummary}
           recentMatterInteractions={recentMatterInteractions}
           filteredQueueItems={filteredQueueItems}

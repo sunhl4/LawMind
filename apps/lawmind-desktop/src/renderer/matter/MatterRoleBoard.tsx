@@ -3,15 +3,9 @@
  */
 
 import type { ReactNode } from "react";
+import type { RoleAssignmentRow } from "./matter-role-board";
 
-export type RoleAssignmentRow = {
-  assistantId: string;
-  displayName: string;
-  roleId?: string;
-  roleDisplayName?: string;
-  riskCeiling?: "low" | "medium" | "high";
-  pendingApprovalCount?: number;
-};
+export type { RoleAssignmentRow } from "./matter-role-board";
 
 type Props = {
   matterId: string;

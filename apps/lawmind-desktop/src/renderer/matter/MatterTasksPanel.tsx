@@ -1,13 +1,20 @@
 import type { ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ApprovalRequest, WorkQueueItem } from "../../../../../src/lawmind/core/contracts.ts";
 import type { ArtifactDraft, TaskRecord } from "../../../../../src/lawmind/types.ts";
 import type { DraftCitationIntegrityView } from "../../../../../src/lawmind/drafts/citation-integrity.ts";
+import { apiGetJson } from "../api-client";
 import { type AcceptanceSummaryItem } from "./matter-acceptance-display";
 import { MatterTaskBoard } from "./MatterTaskBoard";
 import type { TaskBoardJobInput } from "./matter-task-board";
 import { LawmindApprovalQueue } from "../LawmindApprovalQueue";
-import { MatterRoleBoard, type RoleAssignmentRow } from "./MatterRoleBoard";
-import { useMemo } from "react";
+import { MatterRoleBoard } from "./MatterRoleBoard";
+import {
+  buildRoleAssignmentRows,
+  type RoleBoardAssistant,
+  type RoleBoardRole,
+  type RoleBoardRoster,
+} from "./matter-role-board";
 
 type ReviewOpenArgs = {
   taskId: string;
@@ -48,34 +55,62 @@ export function MatterTasksPanel(props: Props): ReactNode {
     jobs = [],
   } = props;
 
-  const roleRows: RoleAssignmentRow[] = useMemo(() => {
-    const byAssistant = new Map<string, RoleAssignmentRow>();
-    for (const t of tasks) {
-      const aid = (t as { assistantId?: string }).assistantId?.trim() || "default";
-      if (!byAssistant.has(aid)) {
-        byAssistant.set(aid, {
-          assistantId: aid,
-          displayName: aid,
-          pendingApprovalCount: 0,
-        });
-      }
+  const [roster, setRoster] = useState<RoleBoardRoster | null>(null);
+  const [assistants, setAssistants] = useState<RoleBoardAssistant[]>([]);
+  const [roles, setRoles] = useState<RoleBoardRole[]>([]);
+
+  useEffect(() => {
+    if (!apiBase?.trim() || !matterId?.trim()) {
+      setRoster(null);
+      setAssistants([]);
+      setRoles([]);
+      return;
     }
-    for (const a of approvalRequests) {
-      if (a.status !== "pending") {
-        continue;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [rosterRes, assistantsRes, rolesRes] = await Promise.all([
+          apiGetJson<{ ok?: boolean; roster?: RoleBoardRoster | null }>(
+            apiBase,
+            `/api/matters/team-roster?matterId=${encodeURIComponent(matterId)}`,
+          ),
+          apiGetJson<{ ok?: boolean; assistants?: RoleBoardAssistant[] }>(
+            apiBase,
+            "/api/assistants",
+          ),
+          apiGetJson<{ ok?: boolean; roles?: RoleBoardRole[] }>(apiBase, "/api/roles").catch(
+            () => ({ ok: false, roles: [] as RoleBoardRole[] }),
+          ),
+        ]);
+        if (cancelled) {
+          return;
+        }
+        setRoster(rosterRes.roster ?? null);
+        setAssistants(assistantsRes.assistants ?? []);
+        setRoles(rolesRes.roles ?? []);
+      } catch {
+        if (!cancelled) {
+          setRoster(null);
+          setAssistants([]);
+          setRoles([]);
+        }
       }
-      const aid = a.requestedBy?.trim() || a.targetRole?.trim() || "approver";
-      const row = byAssistant.get(aid) ?? {
-        assistantId: aid,
-        displayName: a.targetRole ?? aid,
-        roleDisplayName: a.targetRole,
-        pendingApprovalCount: 0,
-      };
-      row.pendingApprovalCount = (row.pendingApprovalCount ?? 0) + 1;
-      byAssistant.set(aid, row);
-    }
-    return [...byAssistant.values()];
-  }, [approvalRequests, tasks]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, matterId]);
+
+  const roleRows = useMemo(
+    () =>
+      buildRoleAssignmentRows({
+        roster,
+        assistants,
+        roles,
+        pendingApprovals: approvalRequests,
+      }),
+    [approvalRequests, assistants, roles, roster],
+  );
 
   return (
     <div className="lm-workbench-panel">

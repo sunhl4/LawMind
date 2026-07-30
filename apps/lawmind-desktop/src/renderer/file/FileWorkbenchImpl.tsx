@@ -21,7 +21,6 @@ import {
   getDirname,
   joinRelPath,
   allocateNonCollidingChildPath,
-  allocateNonCollidingRelPath,
   resolveRelForAbs,
 } from "./file-workbench-fs";
 import { isValidMatterId } from "../../../../../src/lawmind/cases/matter-id.ts";
@@ -34,6 +33,11 @@ import {
 import { LM_PANE_MAX_WIDTH_PX, LM_PANE_MIN_WIDTH_PX } from "../lawmind-panel-layout";
 import { usePaneResizePx } from "../use-pane-resize";
 import { FileWorkbenchView } from "./FileWorkbenchView";
+import {
+  moveWorkspaceItemIntoMatterFs,
+  parentDirsToRefresh,
+  remapTabsAfterWorkspaceMove,
+} from "./file-workbench-add-to-matter";
 
 export function FileWorkbench(props: FileWorkbenchProps) {
   const {
@@ -563,54 +567,29 @@ export function FileWorkbench(props: FileWorkbenchProps) {
 
   const moveWorkspaceItemIntoMatter = useCallback(
     async (matterId: string, relPath: string, kind: "file" | "directory") => {
-      if (!canUseFilesystemBridge) {return;}
-      const mid = matterId.trim();
-      if (!isValidMatterId(mid)) {
-        setError("案件编号格式无效，请检查输入。");
-        setAddToMatterLastError("案件编号格式无效，请检查输入。");
+      if (!canUseFilesystemBridge) {
         return;
       }
-      if (moveIntoMatterInFlightRef.current) {return;}
+      if (moveIntoMatterInFlightRef.current) {
+        return;
+      }
       moveIntoMatterInFlightRef.current = true;
       setContextMenu(null);
       setBusy(true);
       setError(null);
       setAddToMatterLastError(null);
       try {
-        const caseDir = joinRelPath("cases", mid);
-        const mk = await window.lawmindDesktop?.fsMkdir({ root: "workspace", path: caseDir });
-        if (mk && !mk.ok) {
-          throw new Error(mk.error ?? "无法创建案件目录");
+        const moved = await moveWorkspaceItemIntoMatterFs({ matterId, relPath, kind });
+        if (!moved.ok) {
+          throw new Error(moved.error);
         }
-        const leaf = basename(relPath);
-        const desired = joinRelPath(caseDir, leaf);
-        const toPath = await allocateNonCollidingRelPath("workspace", desired, kind);
-        const res = await window.lawmindDesktop?.fsRename({
-          root: "workspace",
-          fromPath: relPath,
-          toPath,
-        });
-        if (!res?.ok) {
-          throw new Error(res?.error ?? "移动失败");
+        for (const dir of parentDirsToRefresh(moved.fromPath, moved.caseDir)) {
+          await refreshDir("workspace", dir);
         }
-        await refreshDir("workspace", getDirname(relPath));
-        await refreshDir("workspace", caseDir);
         void refreshIndex();
         const oldTabPrefix = `workspace:${relPath}`;
-        setTabs((prev) =>
-          prev.map((t) => {
-            if (t.path === relPath) {
-              return { ...t, id: `workspace:${toPath}`, path: toPath, name: basename(toPath) };
-            }
-            if (t.path.startsWith(`${relPath}/`)) {
-              const suffix = t.path.slice(relPath.length + 1);
-              const np = joinRelPath(toPath, suffix);
-              return { ...t, id: `workspace:${np}`, path: np, name: basename(np) };
-            }
-            return t;
-          }),
-        );
-        setActiveTabId((id) => (id === oldTabPrefix ? `workspace:${toPath}` : id));
+        setTabs((prev) => remapTabsAfterWorkspaceMove(prev, moved.fromPath, moved.toPath));
+        setActiveTabId((id) => (id === oldTabPrefix ? `workspace:${moved.toPath}` : id));
         setAddToMatterPick(null);
         setAddToMatterManualDraft("");
         setAddToMatterLastError(null);
