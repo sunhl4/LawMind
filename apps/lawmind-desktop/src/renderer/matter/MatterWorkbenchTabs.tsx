@@ -29,7 +29,7 @@ export function MatterWorkbenchTabs(props: Props): ReactNode {
   const tabs = showShellOps ? [...MATTER_TABS, ...SHELL_OPS_TABS] : MATTER_TABS;
 
   return (
-    <div className="lm-tabs lm-workbench-tabs lm-workbench-tabs-commercial" role="tablist">
+    <div className="lm-tabs lm-workbench-tabs lm-workbench-tabs-commercial" role="tablist" aria-label="案件工作台视图">
       {tabs.map((t) => (
         <button
           key={t.id}
@@ -38,7 +38,6 @@ export function MatterWorkbenchTabs(props: Props): ReactNode {
           role="tab"
           className={`lm-tab ${panelTab === t.id ? "active" : ""}`}
           aria-selected={panelTab === t.id}
-          aria-current={panelTab === t.id ? "page" : undefined}
           aria-controls={`lm-matter-panel-${t.id}`}
           tabIndex={panelTab === t.id ? 0 : -1}
           onClick={() => onSelect(t.id)}

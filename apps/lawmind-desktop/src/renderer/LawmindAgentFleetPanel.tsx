@@ -623,7 +623,7 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
       ) : null}
 
       {loading && !hasLoaded ? (
-        <p className="lm-meta" style={{ padding: "16px 20px" }}>
+        <p className="lm-meta" style={{ padding: "16px 20px" }} role="status" aria-live="polite">
           加载中…
         </p>
       ) : null}

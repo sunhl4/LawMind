@@ -10,14 +10,14 @@ export function DraftCitationBadge(props: {
   }
   if (!cit.checked) {
     return (
-      <span className="lm-matter-cit lm-matter-cit-skip" title="无检索快照，无法对照 bundle">
+      <span className="lm-matter-cit lm-matter-cit-skip" title="无检索快照，无法对照检索快照">
         无快照
       </span>
     );
   }
   if (cit.ok) {
     return (
-      <span className="lm-matter-cit lm-matter-cit-ok" title="章节引用 ID 均在本次检索 bundle 内">
+      <span className="lm-matter-cit lm-matter-cit-ok" title="章节引用 ID 均在本次检索快照内">
         引用OK
       </span>
     );
@@ -25,7 +25,7 @@ export function DraftCitationBadge(props: {
   return (
     <span
       className="lm-matter-cit lm-matter-cit-warn"
-      title={`以下 ID 不在检索 bundle：${cit.missingSourceIds.join(", ")}`}
+      title={`以下 ID 不在检索快照内：${cit.missingSourceIds.join(", ")}`}
     >
       引用待核
     </span>

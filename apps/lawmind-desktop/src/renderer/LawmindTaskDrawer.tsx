@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
+import { delegationStatusLabel } from "./lawmind-delegation-status";
 import { openJobEventStream } from "./lawmind-job-stream";
 import type { LawMindRequiresAction } from "./lawmind-requires-action";
+import { jobStatusLabel } from "./matter/matter-task-board";
 
 type JobRow = {
   jobId: string;
@@ -208,7 +210,7 @@ export function LawmindTaskDrawer({
             ) : (
               jobs.map((j) => (
                 <li key={j.jobId}>
-                  <span className="lm-task-drawer-status">{j.status}</span>
+                  <span className="lm-task-drawer-status">{jobStatusLabel(j.status)}</span>
                   <span>{j.templateId ?? j.jobId}</span>
                 </li>
               ))
@@ -236,7 +238,7 @@ export function LawmindTaskDrawer({
             ) : (
               delegations.map((d) => (
                 <li key={d.delegationId}>
-                  <span className="lm-task-drawer-status">{d.status}</span>
+                  <span className="lm-task-drawer-status">{delegationStatusLabel(d.status)}</span>
                   <span>
                     → {d.toAssistant}
                     {d.task ? ` · ${d.task.slice(0, 48)}` : ""}

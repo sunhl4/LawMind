@@ -200,7 +200,7 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
 
         <div className="lm-custom-model-field">
           <label className="lm-custom-model-field__label" htmlFor={idKey}>
-            API Key
+            API 密钥
           </label>
           <input
             id={idKey}

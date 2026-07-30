@@ -984,8 +984,11 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
         ) : null}
       </div>
 
-      <div className="lm-settings-group lm-settings-surface">
-        <h4 className="lm-doctor-group-title">多任务运行观测（{multitaskObservability?.windowDays ?? 14} 天）</h4>
+      <details
+        className="lm-settings-group lm-settings-surface lm-doctor-advanced"
+        data-testid="lm-doctor-multitask-observability"
+      >
+        <summary className="lm-doctor-group-title">多任务运行观测（{multitaskObservability?.windowDays ?? 14} 天）（高级）</summary>
         <div className="lm-settings-row">
           <span className="lm-settings-key">样本</span>
           <span className="lm-meta">
@@ -994,15 +997,15 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
           </span>
         </div>
         <div className="lm-settings-row">
-          <span className="lm-settings-key">Lead time P50/P90</span>
+          <span className="lm-settings-key">响应时间 P50/P90</span>
           <span className="lm-meta">
             {multitaskObservability?.leadTimeP50Ms != null
               ? `${Math.round(multitaskObservability.leadTimeP50Ms / 1000)}s`
-              : "n/a"}{" "}
+              : "暂无"}{" "}
             /{" "}
             {multitaskObservability?.leadTimeP90Ms != null
               ? `${Math.round(multitaskObservability.leadTimeP90Ms / 1000)}s`
-              : "n/a"}
+              : "暂无"}
           </span>
         </div>
         <div className="lm-settings-row">
@@ -1019,7 +1022,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
             ))}
           </ul>
         ) : null}
-      </div>
+      </details>
 
       <div className="lm-settings-group lm-settings-surface">
         <h4 className="lm-doctor-group-title">本地搜索索引（FTS）</h4>

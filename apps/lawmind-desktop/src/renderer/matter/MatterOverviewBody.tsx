@@ -433,7 +433,7 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
           </div>
         </section>
          <section className="lm-matter-cockpit-card lm-matter-blocking-card">
-          <h3>Blocked By</h3>
+          <h3>阻塞因素</h3>
           {blockingExplanations.length === 0 ? (
             <p className="lm-meta">无</p>
           ) : (

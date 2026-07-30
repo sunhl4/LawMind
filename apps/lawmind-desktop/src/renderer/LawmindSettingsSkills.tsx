@@ -55,7 +55,7 @@ export function LawmindSettingsSkills(props: Props): ReactNode {
 
   async function toggle(skill: SkillRow, enabled: boolean): Promise<void> {
     if (!skill.signatureOk && enabled) {
-      setError(`技能 ${skill.id} 签名无效，无法启用（${skill.signatureError ?? "signature"}）`);
+      setError(`技能 ${skill.id} 签名无效，无法启用（${skill.signatureError ?? "签名校验失败"}）`);
       return;
     }
     setBusyId(skill.id);

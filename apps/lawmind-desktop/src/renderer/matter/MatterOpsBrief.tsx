@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { apiGetJson, apiSendJson } from "../api-client";
+import { apiGetJson, apiSendJson, errorMessage } from "../api-client";
 import type { MatterOpsSummary } from "../../../../../src/lawmind/matter-ops/types.ts";
 
 type Props = {
@@ -31,8 +31,9 @@ export function MatterOpsBrief(props: Props): ReactNode {
         setOps(j.ops);
         setBaseline(j.ops.scope?.baseline ?? "");
       }
-    } catch {
+    } catch (err) {
       setOps(null);
+      setError(errorMessage(err, "加载案件简报失败"));
     }
   };
 
@@ -93,7 +94,7 @@ export function MatterOpsBrief(props: Props): ReactNode {
     <section className="lm-matter-ops-brief" data-testid="lm-matter-ops-brief" aria-label="案件简报">
       <header className="lm-matter-ops-brief-head">
         <div>
-          <span className="lm-assignment-kicker">案件 Ops</span>
+          <span className="lm-assignment-kicker">案件运营</span>
           <strong>案件简报</strong>
         </div>
         <button
@@ -102,11 +103,11 @@ export function MatterOpsBrief(props: Props): ReactNode {
           onClick={() => setExpanded((v) => !v)}
           data-testid="lm-matter-ops-expand"
         >
-          {expanded ? "收起" : "展开 Ops"}
+          {expanded ? "收起" : "展开简报"}
         </button>
       </header>
 
-      <div className="lm-matter-ops-kpis" aria-label="Ops KPI">
+      <div className="lm-matter-ops-kpis" aria-label="案件关键指标">
         <div className="lm-matter-ops-kpi">
           <span className="lm-meta">开放风险</span>
           <strong data-testid="lm-ops-risk-count">{openRisks}</strong>
@@ -124,6 +125,11 @@ export function MatterOpsBrief(props: Props): ReactNode {
           <strong>{ops?.scope?.baseline?.trim() ? "已设定" : "未设定"}</strong>
         </div>
       </div>
+      {error && !ops ? (
+        <p className="lm-error" role="alert">
+          {error}
+        </p>
+      ) : null}
       <p className="lm-meta lm-matter-ops-baseline" data-testid="lm-ops-baseline">
         范围：{ops?.scope?.baseline?.trim() || "尚未设定基线"}
       </p>

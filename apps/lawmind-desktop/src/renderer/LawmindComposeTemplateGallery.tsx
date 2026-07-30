@@ -88,6 +88,7 @@ export function LawmindComposeTemplateGallery(props: Props): ReactNode {
       <div
         className="lm-compose-template-gallery"
         role="dialog"
+        aria-modal="true"
         aria-label="写文稿或做材料"
         onClick={(e) => e.stopPropagation()}
       >

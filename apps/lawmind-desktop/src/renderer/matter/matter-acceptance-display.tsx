@@ -23,7 +23,7 @@ export function DraftAcceptanceBadge(props: { acc: AcceptanceSummaryItem | undef
   }
   if (!acc.hasSpec) {
     return (
-      <span className="lm-acc-badge lm-acc-badge--none" title="该草稿未关联 DeliverableSpec">
+      <span className="lm-acc-badge lm-acc-badge--none" title="该草稿未关联交付物规格">
         无门禁
       </span>
     );

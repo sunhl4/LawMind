@@ -499,8 +499,10 @@ export function ReviewWorkbench(props: Props) {
           </div>
         )}
         {selectedTaskId && detailLoading && (
-          <div className="lm-review-detail-row lm-review-detail-empty">
-            <div className="lm-meta">加载草稿…</div>
+          <div className="lm-review-detail-row lm-review-detail-empty" aria-busy="true">
+            <div className="lm-meta" role="status" aria-live="polite">
+              加载草稿…
+            </div>
           </div>
         )}
         {hasDetailPane && detail && editorValue && selectedTaskId ? (

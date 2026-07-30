@@ -33,7 +33,7 @@ export function MatterRoleBoard({ matterId, rows }: Props): ReactNode {
           <thead>
             <tr>
               <th style={{ textAlign: "left", padding: "6px 0" }}>助手</th>
-              <th style={{ textAlign: "left", padding: "6px 0" }}>Role</th>
+              <th style={{ textAlign: "left", padding: "6px 0" }}>岗位</th>
               <th style={{ textAlign: "left", padding: "6px 0" }}>风险上限</th>
               <th style={{ textAlign: "left", padding: "6px 0" }}>待审批</th>
             </tr>

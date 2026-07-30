@@ -58,6 +58,7 @@ export function LawmindAppRootView({
         {showSettings ? null : <LawmindAppSidebar {...sidebarProps} />}
         <main
           id="main-content"
+          tabIndex={-1}
           className={`lm-main${mainView === "review" ? " lm-main-review" : ""}${showSettings ? " lm-main-settings" : ""}`}
         >
           <LawmindAppHeader {...headerProps} />

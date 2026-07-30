@@ -43,7 +43,7 @@ export function LawmindReasoningCollapsible(props: Props) {
       >
         <span className="lm-context-panel-title">{title}</span>
         <span className="lm-context-panel-badges" aria-hidden>
-          <span className="lm-badge-soft">LegalReasoningGraph</span>
+          <span className="lm-badge-soft">法律推理图</span>
           <span className="lm-badge-soft">约 {lines} 行</span>
         </span>
         <span className={`lm-context-panel-chevron ${open ? "lm-context-panel-chevron--open" : ""}`} aria-hidden>

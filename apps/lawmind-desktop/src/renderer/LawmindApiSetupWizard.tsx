@@ -80,7 +80,7 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
       <div className="lm-wizard">
         <h2>欢迎使用 LawMind</h2>
         <p className="lm-wizard-lead lm-settings-hint">
-          填好 API Key，点一次推荐方案即可开始。保存时会写入本机{" "}
+          填好 API 密钥，点一次推荐方案即可开始。保存时会写入本机{" "}
           <code className="lm-md-code">.env.lawmind</code>，并真实调用一次模型验证。
         </p>
         <div className="lm-wizard-recommended" role="group" aria-label="推荐模型">
@@ -105,7 +105,7 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
           </div>
         </div>
         <label className="lm-field">
-          <span>API Key</span>
+          <span>API 密钥</span>
           <input
             type="password"
             autoComplete="off"

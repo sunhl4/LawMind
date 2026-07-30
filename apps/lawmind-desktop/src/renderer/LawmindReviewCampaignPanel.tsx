@@ -10,6 +10,30 @@ import {
 } from "./lawmind-review-campaign-api";
 import { useEdition } from "./use-edition";
 
+const CAMPAIGN_ROLE_STATUS_ZH: Record<string, string> = {
+  pending: "待执行",
+  queued: "排队中",
+  running: "执行中",
+  completed: "已完成",
+  failed: "失败",
+  cancelled: "已取消",
+};
+
+function campaignRoleStatusLabel(status: string): string {
+  return CAMPAIGN_ROLE_STATUS_ZH[status] ?? status;
+}
+
+const SEVERITY_ZH: Record<string, string> = {
+  critical: "严重",
+  high: "高",
+  medium: "中",
+  low: "低",
+};
+
+function severityLabel(severity: string): string {
+  return SEVERITY_ZH[severity] ?? severity;
+}
+
 type Props = {
   apiBase: string;
   taskId: string;
@@ -363,7 +387,7 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
       ) : (
         <p className="lm-meta">当前版本串行执行角色（律所版可开并行）。</p>
       )}
-      {error ? <p className="lm-error">{error}</p> : null}
+      {error ? <p className="lm-error" role="alert">{error}</p> : null}
       {campaign && campaign.roles.length > 0 ? (
         <>
           <div
@@ -371,6 +395,27 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
             role="tablist"
             aria-label="专案组角色"
             data-testid="lm-review-campaign-roles"
+            onKeyDown={(event) => {
+              const currentIndex = campaign.roles.findIndex((r) => r.roleId === activeRoleId);
+              if (currentIndex < 0) {
+                return;
+              }
+              if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+                event.preventDefault();
+                const step = event.key === "ArrowRight" ? 1 : -1;
+                const nextIndex =
+                  (currentIndex + step + campaign.roles.length) % campaign.roles.length;
+                setActiveRoleId(campaign.roles[nextIndex]?.roleId ?? activeRoleId);
+              }
+              if (event.key === "Home") {
+                event.preventDefault();
+                setActiveRoleId(campaign.roles[0]?.roleId ?? activeRoleId);
+              }
+              if (event.key === "End") {
+                event.preventDefault();
+                setActiveRoleId(campaign.roles[campaign.roles.length - 1]?.roleId ?? activeRoleId);
+              }
+            }}
           >
             {campaign.roles.map((r) => {
               const tabId = `lm-review-campaign-tab-${r.roleId}`;
@@ -420,7 +465,7 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
               <div className="lm-review-campaign-role-head">
                 <span>
                   {activeRole.label}
-                  <span className="lm-meta"> · {activeRole.status}</span>
+                  <span className="lm-meta"> · {campaignRoleStatusLabel(activeRole.status)}</span>
                   {activeRole.boundAssistantName ? (
                     <span className="lm-meta" data-testid="lm-review-campaign-bound-name">
                       {" "}
@@ -442,7 +487,7 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
               {activeRole.summary ? <p className="lm-meta">{activeRole.summary}</p> : null}
               {activeRole.findings.slice(0, 5).map((f) => (
                 <p key={f.title} className={`lm-review-campaign-finding lm-sev-${f.severity}`}>
-                  [{f.severity}] {f.title}
+                  [{severityLabel(f.severity)}] {f.title}
                 </p>
               ))}
             </div>
@@ -455,7 +500,7 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
           <ol>
             {score.negotiatePriority.slice(0, 5).map((n) => (
               <li key={`${n.priority}-${n.title}`}>
-                [{n.severity}] {n.title}
+                [{severityLabel(n.severity)}] {n.title}
               </li>
             ))}
           </ol>

@@ -43,6 +43,8 @@ export function MatterTeamMeetingPanel(props: Props): ReactNode {
   } = props;
 
   const [assistants, setAssistants] = useState<MeetingAssistantRow[]>([]);
+  const [assistantsLoading, setAssistantsLoading] = useState(false);
+  const [assistantsError, setAssistantsError] = useState<string | null>(null);
   const [participantIds, setParticipantIds] = useState<string[]>(() => {
     const stored = readParticipants(matterId);
     return stored?.length ? stored : [shellAssistantId];
@@ -177,6 +179,8 @@ export function MatterTeamMeetingPanel(props: Props): ReactNode {
   }, []);
 
   const loadAssistants = useCallback(async () => {
+    setAssistantsLoading(true);
+    setAssistantsError(null);
     try {
       const j = await apiGetJson<{ ok?: boolean; assistants?: MeetingAssistantRow[] }>(
         apiBase,
@@ -192,8 +196,11 @@ export function MatterTeamMeetingPanel(props: Props): ReactNode {
           displayName: a.displayName?.trim() || a.assistantId,
         })),
       );
-    } catch {
+    } catch (err) {
       setAssistants([]);
+      setAssistantsError(errorMessage(err, "加载助手列表失败"));
+    } finally {
+      setAssistantsLoading(false);
     }
   }, [apiBase]);
 
@@ -311,6 +318,9 @@ export function MatterTeamMeetingPanel(props: Props): ReactNode {
         matterId={matterId}
         apiBase={apiBase}
         assistants={assistants}
+        assistantsLoading={assistantsLoading}
+        assistantsError={assistantsError}
+        onRetryAssistants={() => void loadAssistants()}
         participantIds={participantIds}
         participantAssistants={participantAssistants}
         agendaFilePins={agendaFilePins}

@@ -111,6 +111,9 @@ export type MatterTeamMeetingSetupSectionProps = {
   matterId: string;
   apiBase: string;
   assistants: MeetingAssistantRow[];
+  assistantsLoading?: boolean;
+  assistantsError?: string | null;
+  onRetryAssistants?: () => void;
   participantIds: string[];
   participantAssistants: MeetingAssistantRow[];
   agendaFilePins: FileChatContextItem[];
@@ -143,6 +146,9 @@ export function MatterTeamMeetingSetupSection(props: MatterTeamMeetingSetupSecti
     matterId,
     apiBase,
     assistants,
+    assistantsLoading = false,
+    assistantsError = null,
+    onRetryAssistants,
     participantIds,
     participantAssistants,
     agendaFilePins,
@@ -184,7 +190,25 @@ export function MatterTeamMeetingSetupSection(props: MatterTeamMeetingSetupSecti
           </span>
         </div>
         {assistants.length === 0 ? (
-          <p className="lm-meta">加载助手列表…</p>
+          assistantsError ? (
+            <div className="lm-callout lm-callout-danger" role="alert">
+              <p className="lm-meta">{assistantsError}</p>
+              {onRetryAssistants ? (
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-ghost lm-btn-sm"
+                  disabled={assistantsLoading}
+                  onClick={() => onRetryAssistants()}
+                >
+                  {assistantsLoading ? "重试中…" : "重试"}
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <p className="lm-meta" role="status" aria-live="polite">
+              加载助手列表…
+            </p>
+          )
         ) : (
           <div className="lm-matter-meeting-chip-list" role="group" aria-label="勾选参加讨论的助手">
             {assistants.map((a) => {
