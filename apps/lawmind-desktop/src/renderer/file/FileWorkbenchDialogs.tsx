@@ -56,9 +56,7 @@ export function FileWorkbenchDialogs({
       <div
         className="lm-wizard-backdrop"
         style={{ zIndex: "var(--z-toast)" }}
-        role="dialog"
-        aria-modal="true"
-        aria-label="加入案件"
+        role="presentation"
         onClick={() => {
           if (!busy) {
             setAddToMatterPick(null);
@@ -68,6 +66,9 @@ export function FileWorkbenchDialogs({
         <div
           ref={addToMatterCardRef}
           className="lm-wizard lm-wizard--detail"
+          role="dialog"
+          aria-modal="true"
+          aria-label="加入案件"
           onClick={(e) => e.stopPropagation()}
         >
           <h2>加入案件</h2>

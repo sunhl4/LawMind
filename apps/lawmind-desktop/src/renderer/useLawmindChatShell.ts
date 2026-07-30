@@ -150,7 +150,7 @@ export function useLawmindChatShell(input: {
       }
       const mapped: ChatSessionListEntry[] = j.sessions.map((s) => ({
         sessionId: s.sessionId,
-        title: typeof s.title === "string" && s.title.trim() ? s.title : "New Chat",
+        title: typeof s.title === "string" && s.title.trim() ? s.title : "新对话",
         updatedAt: s.updatedAt,
         lastPreview: typeof s.lastPreview === "string" ? s.lastPreview : undefined,
       }));

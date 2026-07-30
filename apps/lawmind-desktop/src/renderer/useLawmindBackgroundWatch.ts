@@ -171,7 +171,7 @@ export function useLawmindBackgroundWatch(input: UseLawmindBackgroundWatchInput)
             setChatSessionList(
               listJ.sessions.map((s) => ({
                 sessionId: s.sessionId,
-                title: typeof s.title === "string" && s.title.trim() ? s.title : "New Chat",
+                title: typeof s.title === "string" && s.title.trim() ? s.title : "新对话",
                 updatedAt: s.updatedAt,
               })),
             );
@@ -365,7 +365,7 @@ export function useLawmindBackgroundWatch(input: UseLawmindBackgroundWatchInput)
               setChatSessionList(
                 listJ2.sessions.map((s) => ({
                   sessionId: s.sessionId,
-                  title: typeof s.title === "string" && s.title.trim() ? s.title : "New Chat",
+                  title: typeof s.title === "string" && s.title.trim() ? s.title : "新对话",
                   updatedAt: s.updatedAt,
                 })),
               );

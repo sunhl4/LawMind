@@ -218,7 +218,7 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
                   webSearchPolicyBlocked
                     ? "工作区策略已禁止联网检索"
                     : !webSearchApiKeyConfigured
-                      ? "未配置联网密钥：请在设置 → 模型与检索中配置 Brave Key（LAWMIND_WEB_SEARCH_API_KEY）"
+                      ? "未配置联网密钥：请在设置 → 模型与检索中配置联网密钥"
                       : allowWebSearch
                         ? "已开启：助手可联网检索（Brave）"
                         : "关闭：仅使用工作区、案件记忆与本地工具"

@@ -96,7 +96,7 @@
 }
 .lm-doctor-check-ok em { color: var(--ok); }
 .lm-doctor-check-warn em { color: var(--warn); }
-.lm-doctor-check-missing em { color: var(--danger, #c44); }
+.lm-doctor-check-missing em { color: var(--error, #c44); }
 .lm-doctor-group-title {
   font-size: 13px;
   font-weight: 600;

@@ -225,7 +225,7 @@ export function LawmindContractReviewLearningPanel({
             {!embedInSettings ? (
               <>
                 <label>
-                  案件 ID（可选）
+                  案件编号（可选）
                   <input
                     className="lm-input"
                     value={finalizeMatterId}

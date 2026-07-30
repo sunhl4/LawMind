@@ -60,7 +60,7 @@ export function LawmindComposeAttachments(props: Props): ReactNode {
             title={`已关联草稿 ${contextTaskId}${contextMatterId ? ` · 案件 ${contextMatterId}` : ""}`}
           >
             <span className="lm-compose-chip-label">
-              📄 草稿{matterTitle?.trim() ? ` · ${matterLabel}` : ""}
+              草稿{matterTitle?.trim() ? ` · ${matterLabel}` : ""}
             </span>
             {onClearTask ? (
               <button

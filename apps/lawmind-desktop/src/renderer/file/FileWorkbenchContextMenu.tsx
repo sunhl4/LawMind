@@ -132,14 +132,14 @@ export function FileWorkbenchContextMenu({
         </>
       ) : null}
       <button type="button" role="menuitem" onClick={() => startCreate(root, parentDir, "file")}>
-        📄 新建文件
+        新建文件
       </button>
       <button type="button" role="menuitem" onClick={() => startCreate(root, parentDir, "folder")}>
-        📁 新建文件夹
+        新建文件夹
       </button>
       {canPasteHere ? (
         <button type="button" role="menuitem" onClick={() => void pasteInto(root, parentDir)}>
-          📋 粘贴
+          粘贴
         </button>
       ) : null}
       {ctxPath ? (
@@ -155,7 +155,7 @@ export function FileWorkbenchContextMenu({
             >
               {addToContextLabel
                 ? `${addToContextLabel}${kind === "directory" ? "（整目录）" : ""}`
-                : `💬 在对话中引用${kind === "directory" ? "（整目录）" : ""}`}
+                : `在对话中引用${kind === "directory" ? "（整目录）" : ""}`}
             </button>
           ) : null}
           {canOfferAddToMatter ? (
@@ -185,7 +185,7 @@ export function FileWorkbenchContextMenu({
                   setContextMenu(null);
                 }}
               >
-                📋 打开案件工作台
+                打开案件工作台
               </button>
               {cn.onLinkMatterToChat ? (
                 <button
@@ -246,7 +246,7 @@ export function FileWorkbenchContextMenu({
           ) : null}
           <div className="lm-context-menu-sep" role="separator" />
           <button type="button" role="menuitem" onClick={() => copyPath(root, ctxPath)}>
-            📎 复制
+            复制
           </button>
           <button
             type="button"
@@ -255,7 +255,7 @@ export function FileWorkbenchContextMenu({
             title={wsProtectedHint ?? undefined}
             onClick={() => cutPath(root, ctxPath)}
           >
-            ✂️ 剪切
+            剪切
           </button>
           <div className="lm-context-menu-sep" role="separator" />
           <button
@@ -265,7 +265,7 @@ export function FileWorkbenchContextMenu({
             title={wsProtectedHint ?? undefined}
             onClick={() => startRename(root, ctxPath)}
           >
-            ✏️ 重命名
+            重命名
           </button>
           {/* 案件根已有「删除案件…」，避免与文件系统删除重复 */}
           {!caseRootMid ? (
@@ -275,7 +275,7 @@ export function FileWorkbenchContextMenu({
               className={wsProtectedHint ? "danger" : ""}
               onClick={() => requestDelete(root, ctxPath, kind)}
             >
-              🗑️ 删除{wsProtectedHint ? " ⚠️" : ""}
+              删除{wsProtectedHint ? "（受保护路径）" : ""}
             </button>
           ) : null}
         </>
@@ -290,12 +290,12 @@ export function FileWorkbenchContextMenu({
         >
           {addToContextLabel
             ? `${addToContextLabel}（${root === "workspace" ? "材料" : "本机"}根目录）`
-            : `💬 在对话中引用${root === "workspace" ? "材料" : "本机文件夹"}根目录`}
+            : `在对话中引用${root === "workspace" ? "材料" : "本机文件夹"}根目录`}
         </button>
       ) : null}
       <div className="lm-context-menu-sep" role="separator" />
       <button type="button" role="menuitem" onClick={() => void doShowInFolder(root, ctxPath)}>
-        📂 在访达中显示
+        在访达中显示
       </button>
       <button
         type="button"
@@ -305,7 +305,7 @@ export function FileWorkbenchContextMenu({
           void refreshDir(root, ctxPath && kind === "file" ? getDirname(ctxPath) : ctxPath);
         }}
       >
-        🔄 刷新
+        刷新
       </button>
     </div>
   );

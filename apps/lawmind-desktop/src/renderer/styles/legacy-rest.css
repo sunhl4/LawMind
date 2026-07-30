@@ -1538,7 +1538,7 @@
   text-decoration-color: var(--accent-border);
 }
 .lm-legal-cite-missing {
-  color: var(--danger, #a33);
+  color: var(--error, #a33);
   font-size: 12px;
 }
 .lm-source-popover-body {
@@ -2178,7 +2178,7 @@
   margin: 0;
 }
 .lm-collab-delegation-detail-error .lm-collab-delegation-detail-body {
-  color: var(--danger, #e08a8a);
+  color: var(--error, #e08a8a);
 }
 .lm-msg-actions {
   display: flex;

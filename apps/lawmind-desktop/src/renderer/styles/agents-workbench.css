@@ -998,7 +998,7 @@ button.lm-agents-wb-pill:hover {
 }
 
 .lm-clarify-chip-remove:hover:not(:disabled) {
-  color: var(--danger, #b42318);
+  color: var(--error, #b42318);
 }
 
 .lm-agents-wb-block .lm-requires-action-card,
@@ -1187,7 +1187,7 @@ html.lm-theme-dark .lm-tool-args-edit-textarea {
 .lm-tool-args-edit-error {
   margin: 0;
   flex-shrink: 0;
-  color: var(--danger, #b42318);
+  color: var(--error, #b42318);
 }
 
 .lm-tool-args-edit-actions {

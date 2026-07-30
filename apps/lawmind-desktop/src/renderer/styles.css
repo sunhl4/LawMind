@@ -3644,7 +3644,7 @@ html.lm-theme-dark .lm-main-header {
 }
 
 .lm-chat-trace-step-failed .lm-chat-trace-step-label {
-  color: var(--danger, #c0392b);
+  color: var(--error, #c0392b);
 }
 
 .lm-chat-trace-wait {
@@ -3782,7 +3782,7 @@ html.lm-theme-dark .lm-main-header {
 }
 
 .lm-chat-thought-step-failed .lm-chat-thought-step-title {
-  color: var(--danger, #b00020);
+  color: var(--error, #b00020);
 }
 
 .lm-chat-thought-detail-body {
@@ -3968,12 +3968,12 @@ html.lm-theme-dark .lm-main-header {
 
 .lm-chat-activity-tool-detail {
   margin-top: 6px;
-  color: var(--danger, #b00020);
+  color: var(--error, #b00020);
   font-size: 11px;
 }
 
 .lm-chat-activity-tool-failed .lm-chat-activity-tool-label {
-  color: var(--danger, #b00020);
+  color: var(--error, #b00020);
 }
 
 .lm-sr-only {
@@ -4914,7 +4914,7 @@ select option {
 }
 .lm-doctor-check-ok em { color: var(--ok); }
 .lm-doctor-check-warn em { color: var(--warn); }
-.lm-doctor-check-missing em { color: var(--danger, #c44); }
+.lm-doctor-check-missing em { color: var(--error, #c44); }
 .lm-doctor-group-title {
   font-size: 13px;
   font-weight: 600;
@@ -6679,7 +6679,7 @@ select option {
 }
 
 .lm-job-intake-field abbr {
-  color: var(--danger, #c45);
+  color: var(--error, #c45);
   text-decoration: none;
   margin-left: 2px;
 }
@@ -13986,7 +13986,7 @@ select option {
   text-decoration-color: var(--accent-border);
 }
 .lm-legal-cite-missing {
-  color: var(--danger, #a33);
+  color: var(--error, #a33);
   font-size: 12px;
 }
 .lm-source-popover-body {
@@ -14626,7 +14626,7 @@ select option {
   margin: 0;
 }
 .lm-collab-delegation-detail-error .lm-collab-delegation-detail-body {
-  color: var(--danger, #e08a8a);
+  color: var(--error, #e08a8a);
 }
 .lm-msg-actions {
   display: flex;
@@ -19141,7 +19141,7 @@ button.lm-agents-wb-pill:hover {
 }
 
 .lm-clarify-chip-remove:hover:not(:disabled) {
-  color: var(--danger, #b42318);
+  color: var(--error, #b42318);
 }
 
 .lm-agents-wb-block .lm-requires-action-card,
@@ -19330,7 +19330,7 @@ html.lm-theme-dark .lm-tool-args-edit-textarea {
 .lm-tool-args-edit-error {
   margin: 0;
   flex-shrink: 0;
-  color: var(--danger, #b42318);
+  color: var(--error, #b42318);
 }
 
 .lm-tool-args-edit-actions {

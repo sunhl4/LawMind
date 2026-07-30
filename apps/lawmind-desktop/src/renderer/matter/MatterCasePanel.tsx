@@ -153,8 +153,7 @@ export function MatterCasePanel(props: Props): ReactNode {
       </div>
       {searchIndexMissing ? (
         <p className="lm-meta lm-callout-muted">
-          审计/会话全文索引尚未建立。请打开 <strong>设置 → 系统体检</strong>，在「本地搜索索引」中重建（需本机环境变量
-          LAWMIND_ALLOW_INDEX_REBUILD=1）。
+          审计/会话全文索引尚未建立。请打开 <strong>设置 → 系统体检</strong>，在「本地搜索索引」中重建。
         </p>
       ) : null}
       {searchHits.length > 0 ? (

@@ -495,7 +495,7 @@
 }
 
 .lm-chat-trace-step-failed .lm-chat-trace-step-label {
-  color: var(--danger, #c0392b);
+  color: var(--error, #c0392b);
 }
 
 .lm-chat-trace-wait {
@@ -633,7 +633,7 @@
 }
 
 .lm-chat-thought-step-failed .lm-chat-thought-step-title {
-  color: var(--danger, #b00020);
+  color: var(--error, #b00020);
 }
 
 .lm-chat-thought-detail-body {
@@ -819,12 +819,12 @@
 
 .lm-chat-activity-tool-detail {
   margin-top: 6px;
-  color: var(--danger, #b00020);
+  color: var(--error, #b00020);
   font-size: 11px;
 }
 
 .lm-chat-activity-tool-failed .lm-chat-activity-tool-label {
-  color: var(--danger, #b00020);
+  color: var(--error, #b00020);
 }
 
 .lm-sr-only {
@@ -2220,7 +2220,7 @@
 }
 
 .lm-job-intake-field abbr {
-  color: var(--danger, #c45);
+  color: var(--error, #c45);
   text-decoration: none;
   margin-left: 2px;
 }

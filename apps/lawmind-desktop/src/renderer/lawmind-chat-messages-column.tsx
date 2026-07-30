@@ -220,7 +220,7 @@ export function LawmindChatMessagesColumn({
       <div
         id="lawmind-chat-messages-panel"
         className="lm-messages lm-chat-messages"
-        role="region"
+        role="tabpanel"
         aria-label="对话消息"
         aria-live="polite"
         aria-atomic="false"

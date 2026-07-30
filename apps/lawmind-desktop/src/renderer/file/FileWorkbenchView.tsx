@@ -257,7 +257,7 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
         className="lm-quickopen-trigger"
         onClick={() => setShowQuickOpen(true)}
       >
-        <span>🔍</span>
+        <span className="lm-quickopen-trigger-icon" aria-hidden="true" />
         <span>在材料中搜索…</span>
         <kbd>⌘P</kbd>
       </button>

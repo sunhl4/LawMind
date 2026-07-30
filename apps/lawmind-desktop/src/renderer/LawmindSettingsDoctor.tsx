@@ -239,7 +239,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
         error?: string;
       };
       if (j.ok) {
-        setMatterRepairMsg(`已从 matter.json 重建 ${j.repaired ?? 0} 个案件的 CASE.md 投影。`);
+        setMatterRepairMsg(`已从 matter.json 重建 ${j.repaired ?? 0} 个案件的案件档案投影。`);
         const h = await loadHealthPayload(apiBase);
         setFetchedHealth(h);
       } else {
@@ -626,7 +626,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
           <div className="lm-doctor-private-deploy" data-testid="lm-doctor-private-deploy">
             <p className="lm-meta">
               私有化检查清单
-              {doctor.privateDeployChecklist.applicable ? "（当前 edition 适用）" : "（Solo/Firm 仅预览）"}
+              {doctor.privateDeployChecklist.applicable ? "（当前版本适用）" : "（个人版/律所版仅预览）"}
               ：通过 {doctor.privateDeployChecklist.passCount ?? 0}/
               {doctor.privateDeployChecklist.total ?? 0}
             </p>
@@ -837,7 +837,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
             }
           >
             {health?.edition?.features?.strictDangerousToolApproval
-              ? "Firm：一律显式批准"
+              ? "律所版：一律显式批准"
               : "Solo：开发可放宽"}
           </span>
           <span className="lm-settings-key">审计链式校验</span>
@@ -918,7 +918,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
       <div className="lm-settings-group lm-settings-surface">
         <h4 className="lm-doctor-group-title">案件数据一致性</h4>
         <p className="lm-settings-caption">
-          读侧以 <code>matters/&lt;id&gt;/matter.json</code> 为准；CASE.md 为投影。不一致时可用下方按钮从
+          读侧以 <code>matters/&lt;id&gt;/matter.json</code> 为准；案件档案（CASE.md）为投影。不一致时可用下方按钮从
           JSON 重建。
         </p>
         <div className="lm-settings-row">
@@ -948,7 +948,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
           disabled={matterRepairBusy || !apiBase}
           onClick={() => void repairMatterProjections()}
         >
-          {matterRepairBusy ? "重建中…" : "从 JSON 重建 CASE.md"}
+          {matterRepairBusy ? "重建中…" : "从 JSON 重建案件档案"}
         </button>
         {matterRepairMsg ? <p className="lm-meta">{matterRepairMsg}</p> : null}
       </div>

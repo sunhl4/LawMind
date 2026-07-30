@@ -37,15 +37,21 @@ export function MatterWorkbenchTabs(props: Props): ReactNode {
       event.preventDefault();
       const step = event.key === "ArrowRight" ? 1 : -1;
       const nextIndex = (currentIndex + step + tabs.length) % tabs.length;
-      onSelect(tabs[nextIndex]?.id ?? panelTab);
+      const nextId = tabs[nextIndex]?.id ?? panelTab;
+      onSelect(nextId);
+      document.getElementById(`lm-matter-tab-${nextId}`)?.focus();
     }
     if (event.key === "Home") {
       event.preventDefault();
-      onSelect(tabs[0]?.id ?? panelTab);
+      const firstId = tabs[0]?.id ?? panelTab;
+      onSelect(firstId);
+      document.getElementById(`lm-matter-tab-${firstId}`)?.focus();
     }
     if (event.key === "End") {
       event.preventDefault();
-      onSelect(tabs[tabs.length - 1]?.id ?? panelTab);
+      const lastId = tabs[tabs.length - 1]?.id ?? panelTab;
+      onSelect(lastId);
+      document.getElementById(`lm-matter-tab-${lastId}`)?.focus();
     }
   };
 

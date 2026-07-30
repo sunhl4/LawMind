@@ -160,7 +160,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
         );
         setError(null);
       } catch (e) {
-        setError(errorMessage(e, "无法加载交办任务"));
+        setError(errorMessage(e, "无法加载自动办件"));
       } finally {
         setLoading(false);
       }
@@ -195,7 +195,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
 
   const createFromPreset = async () => {
     if (!selectedMatter.trim()) {
-      setError("请先选择案件。交办任务必须绑定案件。");
+      setError("请先选择案件。自动办件必须绑定案件。");
       return;
     }
     if (needsNotifyEmail && notifyEmail.trim() && !looksLikeEmail(notifyEmail)) {
@@ -219,7 +219,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
         notifyEmail: notifyEmail.trim() || undefined,
       });
       setError(null);
-      setSuccess("已创建交办任务。");
+      setSuccess("已创建自动办件。");
       await refresh({ quiet: true });
     } catch (e) {
       const msg = errorMessage(e, "创建失败");
@@ -260,7 +260,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
       });
       setCustomText("");
       setError(null);
-      setSuccess("已从这句话创建交办任务。");
+      setSuccess("已从这句话创建自动办件。");
       await refresh({ quiet: true });
     } catch (e) {
       const msg = errorMessage(e, "创建失败");
@@ -307,7 +307,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
   };
 
   const remove = async (a: Automation) => {
-    if (!window.confirm(`确定删除交办任务「${a.title}」？此操作不可撤销。`)) {
+    if (!window.confirm(`确定删除自动办件「${a.title}」？此操作不可撤销。`)) {
       return;
     }
     setBusy(true);
@@ -316,7 +316,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
       if (selectedAutomationId === a.id) {
         setSelectedAutomationId(null);
       }
-      setSuccess("已删除交办任务。");
+      setSuccess("已删除自动办件。");
       await refresh({ quiet: true });
     } catch (e) {
       setError(errorMessage(e, "删除失败"));
@@ -420,11 +420,11 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
       ) : null}
       {busy || loading ? (
         <p className="lm-meta lm-automations-loading" aria-live="polite">
-          {busy ? "处理中…" : "正在加载交办任务…"}
+          {busy ? "处理中…" : "正在加载自动办件…"}
         </p>
       ) : null}
 
-      <section className="lm-automations-inbox" aria-label="交办任务结果">
+      <section className="lm-automations-inbox" aria-label="自动办件结果">
         <div className="lm-automations-section-head">
           <h3 className="lm-settings-subtitle">待拍板的运行结果</h3>
           {inbox.length > 0 ? (
@@ -503,15 +503,15 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
         )}
       </section>
 
-      <section className="lm-automations-list" aria-label="我的交办任务">
+      <section className="lm-automations-list" aria-label="我的自动办件">
         <div className="lm-automations-section-head">
-          <h3 className="lm-settings-subtitle">我的交办任务</h3>
+          <h3 className="lm-settings-subtitle">我的自动办件</h3>
           {automations.length > 0 ? (
             <span className="lm-automations-count">{automations.length}</span>
           ) : null}
         </div>
         {automations.length === 0 ? (
-          <p className="lm-meta">还没有交办任务。从下方模板或一句话创建一个。</p>
+          <p className="lm-meta">还没有自动办件。从下方模板或一句话创建一个。</p>
         ) : (
           <ul className="lm-automations-ul">
             {automations.map((a) => {
@@ -579,7 +579,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
         )}
       </section>
 
-      <section className="lm-automations-create" aria-label="创建交办任务">
+      <section className="lm-automations-create" aria-label="创建自动办件">
         <h3 className="lm-settings-subtitle">创建</h3>
         <label className="lm-compose-bar-field">
           <span className="lm-compose-bar-label">案件（必选）</span>
@@ -607,7 +607,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
           )}
         </label>
         {matterOptions.length === 0 ? (
-          <p className="lm-meta">当前工作区还没有案件。请先在侧栏点「新建」或对话空态「新建案件」，再创建交办任务。</p>
+          <p className="lm-meta">当前工作区还没有案件。请先在侧栏点「新建」或对话空态「新建案件」，再创建自动办件。</p>
         ) : null}
 
         <div className="lm-automations-preset-grid">
