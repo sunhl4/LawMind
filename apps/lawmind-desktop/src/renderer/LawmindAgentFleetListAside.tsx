@@ -202,7 +202,14 @@ export function LawmindAgentFleetListAside(props: LawmindAgentFleetListAsideProp
                     {fleetTeamBusyLabel(row.busy)}
                     {row.awaitingCount > 0 ? ` ${row.awaitingCount}` : ""}
                   </span>
-                  <span className="lm-agents-wb-team-meta">
+                  <span
+                    className="lm-agents-wb-team-meta"
+                    title={
+                      pass
+                        ? "近30日一次过：该助手近 30 日首次提交即通过审核、无需改写的任务占比"
+                        : undefined
+                    }
+                  >
                     {pass ? `近30日一次过 ${pass}` : (row.roleId ?? "—")}
                     {typeof row.avgRewriteAbsChars === "number"
                       ? ` · 均改写 ~${row.avgRewriteAbsChars} 字`

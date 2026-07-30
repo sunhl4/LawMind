@@ -433,7 +433,7 @@ export function formatTruthPinChip(
     case "playbook":
       return {
         id,
-        shortLabel: `🎭 ${pin.playbookId}`,
+        shortLabel: "🎭 审查模板",
         title: `审查模板 · ${pin.playbookId}`,
       };
     case "theory":

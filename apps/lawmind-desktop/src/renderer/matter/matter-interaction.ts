@@ -284,7 +284,7 @@ export function memoryUpgradeRecommendation(label: string): string {
   if (label.includes("律所")) {
     return "如果这是稳定交付规则，建议整理进律所级规则并考虑进入核心提示。";
   }
-  if (label.includes("条款") || label.includes("Playbook")) {
+  if (label.includes("条款") || label.includes("审查模板") || label.includes("Playbook")) {
     return "如果这类条款模式持续高频出现，建议升级为常用审查模板并考虑强制注入。";
   }
   if (label.includes("案件") || label.includes("策略")) {

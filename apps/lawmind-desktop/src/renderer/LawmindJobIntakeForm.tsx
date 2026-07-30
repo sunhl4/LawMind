@@ -243,6 +243,9 @@ export function LawmindJobIntakeForm(props: Props): ReactNode {
             {result.matchedRuleIds.length > 0 ? (
               <details className="lm-triage-chips-wrap">
                 <summary className="lm-meta">命中规则（{result.matchedRuleIds.length}）</summary>
+                <p className="lm-meta" style={{ fontSize: "0.85em", opacity: 0.7 }}>
+                  以下为系统内部规则标识，仅供排查参考。
+                </p>
                 <div className="lm-triage-chips" aria-label="命中规则">
                   {result.matchedRuleIds.slice(0, 6).map((chip) => (
                     <span key={chip} className="lm-triage-chip">
