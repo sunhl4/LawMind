@@ -28,6 +28,7 @@ export type UseLawmindAppRootDialogsPropsInput = {
   setContextMatterId: (id: string | null) => void;
   taskDrawerOpen: boolean;
   setTaskDrawerOpen: (open: boolean) => void;
+  onOpenApprovalsFromDrawer?: () => void;
 };
 
 export function useLawmindAppRootDialogsProps(
@@ -55,6 +56,7 @@ export function useLawmindAppRootDialogsProps(
     setContextMatterId,
     taskDrawerOpen,
     setTaskDrawerOpen,
+    onOpenApprovalsFromDrawer,
   } = input;
 
   return useMemo(
@@ -93,6 +95,7 @@ export function useLawmindAppRootDialogsProps(
       onMatterListChanged: () => setMatterRefreshVersion((v) => v + 1),
       taskDrawerOpen,
       onCloseTaskDrawer: () => setTaskDrawerOpen(false),
+      onOpenApprovalsFromDrawer,
     }),
     [
       apiBase,
@@ -116,6 +119,7 @@ export function useLawmindAppRootDialogsProps(
       setContextMatterId,
       taskDrawerOpen,
       setTaskDrawerOpen,
+      onOpenApprovalsFromDrawer,
     ],
   );
 }

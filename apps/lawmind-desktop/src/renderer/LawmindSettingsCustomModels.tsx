@@ -40,11 +40,10 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
           .map((s) => s.trim())
           .filter(Boolean)
           .slice(0, 8);
-        const payload = {
+        const basePayload = {
           label: label.trim(),
           baseUrl: baseUrl.trim(),
           model: trimmedModel,
-          apiKey: trimmedKey,
           setAsDefault: true as const,
           ...(stopList.length > 0 ? { stop: stopList } : {}),
         };
@@ -54,18 +53,37 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
         if (keychainAvailable && desktop) {
           const status = await desktop.keychainStatus();
           if (status?.available) {
-            const added = await addCustomModel(apiBase, payload);
-            const saved = await desktop.saveCustomModelKey({
-              id: added.id,
-              apiKey: trimmedKey,
+            const added = await addCustomModel(apiBase, {
+              ...basePayload,
+              apiKey: "",
+              keyStorage: "keychain",
             });
-            if (saved.ok) {
+            try {
+              const saved = await desktop.saveCustomModelKey({
+                id: added.id,
+                apiKey: trimmedKey,
+              });
+              if (!saved.ok) {
+                throw new Error(saved.error?.trim() || "钥匙串保存失败");
+              }
               usedKeychain = true;
+            } catch (keychainErr) {
+              try {
+                await deleteCustomModel(apiBase, added.id);
+              } catch {
+                /* best-effort orphan cleanup */
+              }
+              throw keychainErr instanceof Error
+                ? keychainErr
+                : new Error(String(keychainErr));
             }
           }
         }
         if (!usedKeychain) {
-          await addCustomModel(apiBase, payload);
+          await addCustomModel(apiBase, {
+            ...basePayload,
+            apiKey: trimmedKey,
+          });
         }
         setLabel("");
         setApiKey("");

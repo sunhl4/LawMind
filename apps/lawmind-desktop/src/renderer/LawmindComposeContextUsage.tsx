@@ -106,12 +106,11 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
     };
   }, [open, confirm]);
 
-  if (!budget || budget.effectiveLimit <= 0) {
-    return null;
-  }
-
-  const pct = Math.min(100, Math.max(0, (budget.used / budget.effectiveLimit) * 100));
-  const tone = ringTone(budget.level);
+  const hasBudget = Boolean(budget && budget.effectiveLimit > 0);
+  const pct = hasBudget
+    ? Math.min(100, Math.max(0, (budget!.used / budget!.effectiveLimit) * 100))
+    : 0;
+  const tone = hasBudget ? ringTone(budget!.level) : "ok";
   const r = 7;
   const c = 2 * Math.PI * r;
   const dash = (pct / 100) * c;
@@ -151,11 +150,17 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
     <div className="lm-compose-ctx-usage" ref={rootRef} data-testid="lm-compose-ctx-usage">
       <button
         type="button"
-        className={`lm-compose-ctx-usage-trigger lm-compose-ctx-usage-trigger--${tone}`}
-        aria-label={`上下文约 ${budget.used} / ${budget.effectiveLimit} 字，打开用量与整理`}
+        className={`lm-compose-ctx-usage-trigger lm-compose-ctx-usage-trigger--${tone}${
+          !hasBudget ? " lm-compose-ctx-usage-trigger--weak" : ""
+        }`}
+        aria-label={
+          hasBudget
+            ? `上下文约 ${budget!.used} / ${budget!.effectiveLimit} token，打开用量与整理`
+            : "估算用量暂不可用，打开上下文整理"
+        }
         aria-expanded={open}
         aria-haspopup="dialog"
-        title="上下文用量 · 点击整理或沉淀"
+        title={hasBudget ? "估算用量 · 点击整理或沉淀" : "估算用量暂不可用 · 点击查看整理选项"}
         disabled={disabled}
         data-testid="lm-compose-token-bar"
         onClick={() => {
@@ -177,7 +182,9 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
           />
         </svg>
         <span className="lm-compose-ctx-usage-frac">
-          {formatTokenCount(budget.used)}/{formatTokenCount(budget.effectiveLimit)}
+          {hasBudget
+            ? `${formatTokenCount(budget!.used)}/${formatTokenCount(budget!.effectiveLimit)}`
+            : "—"}
         </span>
       </button>
 
@@ -189,11 +196,13 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
           data-testid="lm-compose-ctx-usage-panel"
         >
           <header className="lm-compose-ctx-usage-head">
-            <h3 id={titleId}>上下文用量</h3>
+            <h3 id={titleId}>估算用量</h3>
             <p className="lm-meta">
-              约 {budget.used.toLocaleString("zh-CN")} / {budget.effectiveLimit.toLocaleString("zh-CN")}{" "}
-              字（{Math.round(pct)}%）
-              {tone === "warn" ? " · 接近上限" : tone === "danger" ? " · 建议压缩" : ""}
+              {hasBudget
+                ? `约 ${budget!.used.toLocaleString("zh-CN")} / ${budget!.effectiveLimit.toLocaleString("zh-CN")} token（${Math.round(pct)}%）${
+                    tone === "warn" ? " · 接近上限" : tone === "danger" ? " · 建议压缩" : ""
+                  }`
+                : "当前会话尚未提供用量估算。仍可整理上下文或沉淀到知识库。"}
             </p>
             {compactHint ? (
               <p className="lm-meta lm-compose-ctx-usage-hint" role="status">
@@ -202,18 +211,20 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
             ) : null}
           </header>
 
-          <div className="lm-compose-ctx-usage-meter" aria-hidden>
-            <div
-              className={`lm-compose-ctx-usage-meter-fill lm-compose-ctx-usage-meter-fill--${tone}`}
-              style={{ width: `${pct}%` }}
-            />
-          </div>
+          {hasBudget ? (
+            <div className="lm-compose-ctx-usage-meter" aria-hidden>
+              <div
+                className={`lm-compose-ctx-usage-meter-fill lm-compose-ctx-usage-meter-fill--${tone}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          ) : null}
 
           {confirm ? (
             <div className="lm-compose-ctx-usage-confirm" data-testid="lm-compose-compact-confirm">
               <p className="lm-meta">
                 {confirm.preview?.compacted
-                  ? `预计移除约 ${confirm.preview.droppedMessageCount} 条消息（~${confirm.preview.estimatedDroppedTokens.toLocaleString("zh-CN")} 字）${
+                  ? `预计移除约 ${confirm.preview.droppedMessageCount} 条消息（~${confirm.preview.estimatedDroppedTokens.toLocaleString("zh-CN")} token）${
                       confirm.preview.useLlmDigestAvailable
                         ? "；将尝试模型连贯摘要（失败则回退提取式）"
                         : "；使用提取式要点"

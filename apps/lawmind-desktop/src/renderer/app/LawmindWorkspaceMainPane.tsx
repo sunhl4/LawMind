@@ -85,6 +85,7 @@ export type LawmindWorkspaceMainPaneProps = {
   onModelSelect: (modelId: string) => void | Promise<void>;
   allowWebSearch: boolean;
   webSearchPolicyBlocked?: boolean;
+  webSearchApiKeyConfigured?: boolean;
   onAllowWebSearchChange: (value: boolean) => void;
   queuedMessages: string[];
   cancelQueuedMessage: (index: number) => void;
@@ -165,6 +166,7 @@ function LawmindWorkspaceMainPaneImpl({
   onModelSelect,
   allowWebSearch,
   webSearchPolicyBlocked,
+  webSearchApiKeyConfigured,
   onAllowWebSearchChange,
   queuedMessages,
   cancelQueuedMessage,
@@ -333,6 +335,7 @@ function LawmindWorkspaceMainPaneImpl({
               delegateAssistEnabled={delegateAssistEnabled}
               allowWebSearch={allowWebSearch}
               webSearchPolicyBlocked={webSearchPolicyBlocked}
+              webSearchApiKeyConfigured={webSearchApiKeyConfigured}
               onAllowWebSearchChange={onAllowWebSearchChange}
               apiBase={config?.apiBase}
               chatSessionId={chatSessionId}

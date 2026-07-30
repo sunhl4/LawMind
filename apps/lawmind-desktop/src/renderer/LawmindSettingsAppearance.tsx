@@ -92,7 +92,7 @@ export function LawmindSettingsAppearance({ onPrefsChange }: Props): ReactNode {
             onChange={(e) => setFontScale(e.target.value === "comfortable" ? "comfortable" : "default")}
           >
             <option value="default">标准</option>
-            <option value="comfortable">舒适</option>
+            <option value="comfortable">偏大</option>
           </select>
         </div>
         <div className="lm-settings-row">
@@ -103,7 +103,7 @@ export function LawmindSettingsAppearance({ onPrefsChange }: Props): ReactNode {
             aria-label="界面密度"
             onChange={(e) => setDensity(e.target.value === "compact" ? "compact" : "default")}
           >
-            <option value="default">舒适</option>
+            <option value="default">标准</option>
             <option value="compact">紧凑</option>
           </select>
         </div>

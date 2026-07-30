@@ -36,6 +36,10 @@ type Props = {
   apiBase: string;
   matterId?: string | null;
   tab?: DrawerTab;
+  /** Navigate to「在办」approvals / needs-decision desk. */
+  onOpenApprovals?: () => void;
+  /** @deprecated Prefer onOpenApprovals */
+  onNavigateToAgents?: () => void;
 };
 
 const DRAWER_TABS: { id: DrawerTab; label: (counts: Counts) => string }[] = [
@@ -52,7 +56,10 @@ export function LawmindTaskDrawer({
   apiBase,
   matterId,
   tab: initialTab = "jobs",
+  onOpenApprovals,
+  onNavigateToAgents,
 }: Props): ReactNode {
+  const openApprovalsDesk = onOpenApprovals ?? onNavigateToAgents;
   const [tab, setTab] = useState<DrawerTab>(initialTab);
   const [jobs, setJobs] = useState<JobRow[]>([]);
   const [approvals, setApprovals] = useState<LawMindRequiresAction[]>([]);
@@ -306,8 +313,24 @@ export function LawmindTaskDrawer({
             ) : (
               approvals.map((a) => (
                 <li key={a.id}>
-                  <strong>{a.title}</strong>
-                  <p className="lm-meta">{a.summary}</p>
+                  {openApprovalsDesk ? (
+                    <button
+                      type="button"
+                      className="lm-task-drawer-row-btn"
+                      onClick={() => {
+                        onClose();
+                        openApprovalsDesk();
+                      }}
+                    >
+                      <strong>{a.title}</strong>
+                      <p className="lm-meta">{a.summary}</p>
+                    </button>
+                  ) : (
+                    <>
+                      <strong>{a.title}</strong>
+                      <p className="lm-meta">{a.summary}</p>
+                    </>
+                  )}
                 </li>
               ))
             )}

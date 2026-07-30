@@ -456,7 +456,17 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
               ))}
             </div>
           )}
-          <MatterReviewQueuePanel matterId={matterId} queueItems={reviewQueueRows} approvals={approvalRows} />
+          <MatterReviewQueuePanel
+            matterId={matterId}
+            queueItems={reviewQueueRows}
+            approvals={approvalRows}
+            onOpenNeedsDecision={
+              onOpenNeedsDecisionDesk ? () => onOpenNeedsDecisionDesk() : undefined
+            }
+            onOpenApprovals={
+              onOpenNeedsDecisionDesk ? () => onOpenNeedsDecisionDesk() : undefined
+            }
+          />
         </section>
          <MatterOverviewExtras
           expanded={matterOverviewExtrasOpen}
@@ -533,71 +543,75 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
             }}
           />
         </section>
-         <section className="lm-matter-cockpit-card lm-matter-product-card">
-          <h3>产品改造建议</h3>
-          <InteractionConvergence
-            hints={productAdaptationSuggestions.map(toConvergenceHint)}
-            onAction={(hint) => {
-              const item = productAdaptationSuggestions.find((s) => s.key === hint.key);
-              if (item) {
-                handleConvergenceSuggestion(item);
+        <details className="lm-matter-cockpit-card lm-matter-product-experiments-advanced">
+          <summary>产品实验（高级）</summary>
+          <section className="lm-matter-product-card">
+            <h3>产品改造建议</h3>
+            <InteractionConvergence
+              hints={productAdaptationSuggestions.map(toConvergenceHint)}
+              onAction={(hint) => {
+                const item = productAdaptationSuggestions.find((s) => s.key === hint.key);
+                if (item) {
+                  handleConvergenceSuggestion(item);
+                }
+              }}
+            />
+          </section>
+          <section className="lm-matter-experiment-card">
+            <h3>产品实验清单</h3>
+            <ProductExperiments
+              items={productExperimentChecklist.map(toExperimentItem)}
+              actionLabelForItem={(it) =>
+                productExperimentChecklist.find((s) => s.key === it.key)?.actionLabel ??
+                "打开对应入口"
               }
-            }}
-          />
-        </section>
-         <section className="lm-matter-cockpit-card lm-matter-experiment-card">
-          <h3>产品实验清单</h3>
-          <ProductExperiments
-            items={productExperimentChecklist.map(toExperimentItem)}
-            actionLabelForItem={(it) =>
-              productExperimentChecklist.find((s) => s.key === it.key)?.actionLabel ?? "打开对应入口"
-            }
-            onAction={(it) => {
-              const item = productExperimentChecklist.find((s) => s.key === it.key);
-              if (item && item.target.type !== "none") {
-                handleConvergenceSuggestion(item);
-              }
-            }}
-          />
-        </section>
-         <section className="lm-matter-cockpit-card lm-matter-cross-experiment-card">
-          <h3>跨案件实验累积板</h3>
-          {crossMatterExperimentBoard.length === 0 ? (
-            <p className="lm-meta">暂无</p>
-          ) : (
-            <ul className="lm-matter-ops-list">
-              {crossMatterExperimentBoard.map((item) => (
-                <li key={item.key}>
-                  <div className="lm-matter-ops-title">
-                    <span>{item.title}</span>
-                    <span className="lm-matter-pill">
-                      {item.matterCount} 案件 · {item.totalEvents} 次
-                    </span>
-                  </div>
-                  <div className="lm-matter-ops-meta" title={item.exampleMatterIds.join("、")}>
-                    {item.matterCount} 案 · {formatShortDateTime(item.latestAt)}
-                    {item.includesCurrentMatter ? " · 含本案" : ""}
-                  </div>
-                  {item.localSuggestion ? (
-                    <div className="lm-matter-ops-actions lm-matter-convergence-actions">
-                      <button
-                        type="button"
-                        className="lm-btn lm-btn-secondary lm-btn-small"
-                        onClick={() => {
-                          if (item.localSuggestion) {
-                            handleConvergenceSuggestion(item.localSuggestion);
-                          }
-                        }}
-                      >
-                        查看本案对应建议
-                      </button>
+              onAction={(it) => {
+                const item = productExperimentChecklist.find((s) => s.key === it.key);
+                if (item && item.target.type !== "none") {
+                  handleConvergenceSuggestion(item);
+                }
+              }}
+            />
+          </section>
+          <section className="lm-matter-cross-experiment-card">
+            <h3>跨案件实验累积板</h3>
+            {crossMatterExperimentBoard.length === 0 ? (
+              <p className="lm-meta">暂无</p>
+            ) : (
+              <ul className="lm-matter-ops-list">
+                {crossMatterExperimentBoard.map((item) => (
+                  <li key={item.key}>
+                    <div className="lm-matter-ops-title">
+                      <span>{item.title}</span>
+                      <span className="lm-matter-pill">
+                        {item.matterCount} 案件 · {item.totalEvents} 次
+                      </span>
                     </div>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+                    <div className="lm-matter-ops-meta" title={item.exampleMatterIds.join("、")}>
+                      {item.matterCount} 案 · {formatShortDateTime(item.latestAt)}
+                      {item.includesCurrentMatter ? " · 含本案" : ""}
+                    </div>
+                    {item.localSuggestion ? (
+                      <div className="lm-matter-ops-actions lm-matter-convergence-actions">
+                        <button
+                          type="button"
+                          className="lm-btn lm-btn-secondary lm-btn-small"
+                          onClick={() => {
+                            if (item.localSuggestion) {
+                              handleConvergenceSuggestion(item.localSuggestion);
+                            }
+                          }}
+                        >
+                          查看本案对应建议
+                        </button>
+                      </div>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </details>
          <section className="lm-matter-cockpit-card lm-matter-roadmap-card">
           <h3>路线图候选</h3>
           {roadmapCandidates.length === 0 ? (

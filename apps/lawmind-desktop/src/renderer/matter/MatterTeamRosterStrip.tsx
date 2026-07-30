@@ -110,7 +110,7 @@ export function MatterTeamRosterStrip({
             ? ` · ${openDelegations.length} 项未闭环委派`
             : ""}
         </span>
-        {err ? <span className="lm-meta lm-danger">{err}</span> : null}
+        {err ? <span className="lm-meta lm-text-error">{err}</span> : null}
         {openDelegations.length > 0 ? (
           <ul className="lm-matter-team-strip-dels">
             {openDelegations.map((d) => (

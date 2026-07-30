@@ -62,6 +62,8 @@ export type LawmindChatWorkspaceProps = {
   allowWebSearch: boolean;
   /** 工作区策略禁止联网时禁用联网下拉 */
   webSearchPolicyBlocked?: boolean;
+  /** Brave 密钥未配置时禁用联网下拉 */
+  webSearchApiKeyConfigured?: boolean;
   contextTaskId: string | null;
   contextMatterId: string | null;
   apiBase?: string;
@@ -170,6 +172,7 @@ export function LawmindChatComposeFooter({
   delegateAssistEnabled: _delegateAssistEnabled,
   allowWebSearch,
   webSearchPolicyBlocked,
+  webSearchApiKeyConfigured,
   onAllowWebSearchChange,
   apiBase,
   chatSessionId,
@@ -226,6 +229,7 @@ export function LawmindChatComposeFooter({
   | "delegateAssistEnabled"
   | "allowWebSearch"
   | "webSearchPolicyBlocked"
+  | "webSearchApiKeyConfigured"
   | "onAllowWebSearchChange"
   | "apiBase"
   | "chatSessionId"
@@ -667,6 +671,7 @@ export function LawmindChatComposeFooter({
             onStartExecuteFromPlan={startExecuteFromPlan}
             allowWebSearch={allowWebSearch}
             webSearchPolicyBlocked={webSearchPolicyBlocked}
+            webSearchApiKeyConfigured={webSearchApiKeyConfigured}
             onAllowWebSearchChange={onAllowWebSearchChange}
             modelCatalog={modelCatalog}
             selectedModelId={selectedModelId}
@@ -762,6 +767,7 @@ export function LawmindChatShell(props: LawmindChatWorkspaceProps) {
         delegateAssistEnabled={props.delegateAssistEnabled}
         allowWebSearch={props.allowWebSearch}
         webSearchPolicyBlocked={props.webSearchPolicyBlocked}
+        webSearchApiKeyConfigured={props.webSearchApiKeyConfigured}
         onAllowWebSearchChange={props.onAllowWebSearchChange}
         apiBase={props.apiBase}
         chatSessionId={props.chatSessionId}

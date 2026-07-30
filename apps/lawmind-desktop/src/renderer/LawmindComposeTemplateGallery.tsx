@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { apiGetJson, errorMessage } from "./api-client";
 import { LawmindJobIntakeForm } from "./LawmindJobIntakeForm";
 import type { WorkflowTemplateItem } from "./lawmind-workflow-types";
@@ -6,6 +6,7 @@ import {
   sortWorkflowTemplatesForLawyer,
   workflowTemplateSearchHaystack,
 } from "./lawmind-workflow-display";
+import { useModalFocusTrap } from "./use-modal-focus-trap";
 
 type Props = {
   open: boolean;
@@ -27,6 +28,8 @@ export function LawmindComposeTemplateGallery(props: Props): ReactNode {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [intakeTemplate, setIntakeTemplate] = useState<WorkflowTemplateItem | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalFocusTrap(open, dialogRef);
 
   useEffect(() => {
     if (!open || !apiBase?.trim()) {
@@ -86,6 +89,7 @@ export function LawmindComposeTemplateGallery(props: Props): ReactNode {
   return (
     <div className="lm-compose-template-gallery-backdrop" role="presentation" onClick={onClose}>
       <div
+        ref={dialogRef}
         className="lm-compose-template-gallery"
         role="dialog"
         aria-modal="true"

@@ -133,11 +133,12 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
     setError(null);
     try {
       const pb = playbookId.trim() || "standard-contract-review";
+      // Include a nonce so「重新跑专案组」is not swallowed by create idempotency.
       const j = await apiCreateReviewCampaign(apiBase, {
         taskId,
         matterId,
         playbookId: pb,
-        idempotencyKey: `campaign:${taskId}:${pb}:${preferFast ? "fast" : "full"}:${preferParallel && allowParallel ? "par" : "ser"}`,
+        idempotencyKey: `campaign:${taskId}:${pb}:${preferFast ? "fast" : "full"}:${preferParallel && allowParallel ? "par" : "ser"}:${Date.now()}`,
         runNow: true,
         preferFast,
         preferParallel: allowParallel && preferParallel,
@@ -253,6 +254,11 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
           <strong>审查专案组</strong>
         </div>
         <div className="lm-review-campaign-actions">
+          {busy ? (
+            <span className="lm-meta" role="status" data-testid="lm-review-campaign-busy">
+              专案组执行中…
+            </span>
+          ) : null}
           <button
             type="button"
             className="lm-btn lm-btn-sm"

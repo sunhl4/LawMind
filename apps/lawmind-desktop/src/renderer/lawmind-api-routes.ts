@@ -122,7 +122,10 @@ export type LawmindApiPatchRoutes = {
   };
   "/api/policy/workspace": {
     body: WorkspacePolicyPatchRequest;
-    response: OkResponse & { highSecurityMode?: boolean };
+    response: OkResponse & {
+      highSecurityMode?: boolean;
+      citationMode?: "grounded" | "assisted" | "off" | null;
+    };
   };
 };
 

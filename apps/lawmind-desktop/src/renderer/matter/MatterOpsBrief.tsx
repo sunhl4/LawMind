@@ -195,7 +195,7 @@ export function MatterOpsBrief(props: Props): ReactNode {
             </div>
 
             <div className="lm-matter-ops-panel">
-              <h4>RAID 日志</h4>
+              <h4>风险·假设·问题·决策</h4>
               <label className="lm-job-intake-field">
                 <span className="lm-meta">新增条目</span>
                 <select
@@ -224,21 +224,29 @@ export function MatterOpsBrief(props: Props): ReactNode {
                 onClick={() => void addRaid()}
                 data-testid="lm-ops-raid-add"
               >
-                追加 RAID
+                追加记录
               </button>
               {ops?.raidRecent?.length ? (
                 <ul className="lm-matter-ops-raid" data-testid="lm-ops-raid">
                   {ops.raidRecent.slice(0, 8).map((r) => (
                     <li key={r.id}>
                       <span className={`lm-matter-ops-raid-kind lm-matter-ops-raid-kind--${r.kind}`}>
-                        {r.kind}
+                        {r.kind === "risk"
+                          ? "风险"
+                          : r.kind === "assumption"
+                            ? "假设"
+                            : r.kind === "issue"
+                              ? "问题"
+                              : r.kind === "decision"
+                                ? "决策"
+                                : r.kind}
                       </span>
                       {r.text}
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p className="lm-meta">尚无 RAID 记录。</p>
+                <p className="lm-meta">尚无记录</p>
               )}
             </div>
           </div>

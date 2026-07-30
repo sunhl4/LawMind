@@ -4,7 +4,6 @@ import type { ArtifactDraft, TaskRecord } from "../../../../../src/lawmind/types
 import type { AcceptanceSummaryItem } from "./matter-acceptance-display";
 import { DraftAcceptanceBadge } from "./matter-acceptance-display";
 import { mergeTaskBoardRows, type TaskBoardJobInput } from "./matter-task-board";
-import { approvalStatusLabel } from "./matter-display-labels";
 
 type ReviewOpenArgs = {
   taskId: string;
@@ -12,6 +11,7 @@ type ReviewOpenArgs = {
 };
 
 type Props = {
+  matterId?: string | null;
   tasks: TaskRecord[];
   queueItems: WorkQueueItem[];
   approvalRequests: ApprovalRequest[];
@@ -20,10 +20,12 @@ type Props = {
   acceptanceByTask: Record<string, AcceptanceSummaryItem | undefined>;
   onOpenReview?: (args: ReviewOpenArgs) => void;
   onOpenWorkflowLibrary?: () => void;
+  onOpenNeedsDecision?: () => void;
 };
 
 export function MatterTaskBoard(props: Props): ReactNode {
   const {
+    matterId,
     tasks,
     queueItems,
     approvalRequests,
@@ -32,6 +34,7 @@ export function MatterTaskBoard(props: Props): ReactNode {
     acceptanceByTask,
     onOpenReview,
     onOpenWorkflowLibrary,
+    onOpenNeedsDecision,
   } = props;
 
   const rows = mergeTaskBoardRows({ tasks, queueItems, approvalRequests, drafts, jobs });
@@ -66,7 +69,10 @@ export function MatterTaskBoard(props: Props): ReactNode {
                   type="button"
                   className="lm-btn lm-btn-secondary lm-btn-sm"
                   onClick={() =>
-                    onOpenReview({ taskId: row.draftTaskId!, matterId: undefined })
+                    onOpenReview({
+                      taskId: row.draftTaskId!,
+                      matterId: matterId ?? undefined,
+                    })
                   }
                 >
                   进入文书台
@@ -74,8 +80,16 @@ export function MatterTaskBoard(props: Props): ReactNode {
               ) : null}
             </div>
           ) : null}
-          {row.kind === "approval" ? (
-            <span className="lm-meta">{approvalStatusLabel(row.statusLabel as never)}</span>
+          {row.kind === "approval" && onOpenNeedsDecision ? (
+            <div className="lm-task-board-row-actions">
+              <button
+                type="button"
+                className="lm-btn lm-btn-ghost lm-btn-sm"
+                onClick={() => onOpenNeedsDecision()}
+              >
+                去拍板
+              </button>
+            </div>
           ) : null}
         </li>
       ))}

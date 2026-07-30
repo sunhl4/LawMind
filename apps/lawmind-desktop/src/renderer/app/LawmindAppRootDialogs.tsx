@@ -29,6 +29,7 @@ export type LawmindAppRootDialogsProps = {
   onMatterListChanged: () => void;
   taskDrawerOpen: boolean;
   onCloseTaskDrawer: () => void;
+  onOpenApprovalsFromDrawer?: () => void;
 };
 
 function LawmindAppRootDialogsImpl({
@@ -53,6 +54,7 @@ function LawmindAppRootDialogsImpl({
   onMatterListChanged,
   taskDrawerOpen,
   onCloseTaskDrawer,
+  onOpenApprovalsFromDrawer,
 }: LawmindAppRootDialogsProps) {
   return (
     <>
@@ -95,6 +97,7 @@ function LawmindAppRootDialogsImpl({
           onClose={onCloseTaskDrawer}
           apiBase={apiBase}
           matterId={contextMatterId}
+          onOpenApprovals={onOpenApprovalsFromDrawer}
         />
       ) : null}
     </>

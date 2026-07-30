@@ -33,6 +33,8 @@ export type LawmindChatComposeToolbarProps = {
   onStartExecuteFromPlan?: () => void;
   allowWebSearch: boolean;
   webSearchPolicyBlocked?: boolean;
+  /** When false, Brave key missing — disable「联网」and guide to settings. */
+  webSearchApiKeyConfigured?: boolean;
   onAllowWebSearchChange: (value: boolean) => void;
   modelCatalog: ModelCatalogEntry[];
   selectedModelId: string;
@@ -62,6 +64,7 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
     onStartExecuteFromPlan,
     allowWebSearch,
     webSearchPolicyBlocked,
+    webSearchApiKeyConfigured = true,
     onAllowWebSearchChange,
     modelCatalog,
     selectedModelId,
@@ -207,14 +210,18 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
               <select
                 className="lm-compose-select"
                 value={allowWebSearch ? "web" : "local"}
-                disabled={Boolean(webSearchPolicyBlocked) || loading}
+                disabled={
+                  Boolean(webSearchPolicyBlocked) || !webSearchApiKeyConfigured || loading
+                }
                 aria-label="联网工具"
                 title={
                   webSearchPolicyBlocked
                     ? "工作区策略已禁止联网检索"
-                    : allowWebSearch
-                      ? "已开启：助手可联网检索（Brave）"
-                      : "关闭：仅使用工作区、案件记忆与本地工具"
+                    : !webSearchApiKeyConfigured
+                      ? "未配置联网密钥：请在设置 → 模型与检索中配置 Brave Key（LAWMIND_WEB_SEARCH_API_KEY）"
+                      : allowWebSearch
+                        ? "已开启：助手可联网检索（Brave）"
+                        : "关闭：仅使用工作区、案件记忆与本地工具"
                 }
                 onChange={(e) => onAllowWebSearchChange(e.target.value === "web")}
               >
@@ -260,9 +267,9 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
           disabled={loading}
           disabledTitle={loading ? "回复生成中，请稍后再切换模型" : undefined}
         />
-        {contextBudget && onCompactContext && onDistillLearning ? (
+        {onCompactContext && onDistillLearning ? (
           <LawmindComposeContextUsage
-            budget={contextBudget}
+            budget={contextBudget ?? null}
             compactBusy={compactBusy}
             compactHint={compactHint}
             disabled={loading}

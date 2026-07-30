@@ -503,7 +503,7 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
     case "appearance":
       return <LawmindSettingsAppearance onPrefsChange={onPrefsChange} />;
     case "review-prefs":
-      return <LawmindSettingsReviewPrefs />;
+      return <LawmindSettingsReviewPrefs apiBase={config?.apiBase} />;
     case "memory":
       return config ? <LawmindSettingsMemory apiBase={config.apiBase} /> : notReady;
     case "collaboration":

@@ -240,10 +240,7 @@ AI 辅助不能预测诉讼/仲裁/谈判结果。本所服务仍受委托合同
             {edition.loading ? (
               <span className="lm-pill lm-pill-neutral">加载中…</span>
             ) : (
-              <>
-                {edition.label}
-                <span className={`lm-edition-badge lm-edition-${edition.edition}`}>{edition.edition}</span>
-              </>
+              <span className={`lm-edition-badge lm-edition-${edition.edition}`}>{edition.label}</span>
             )}
           </span>
         </div>

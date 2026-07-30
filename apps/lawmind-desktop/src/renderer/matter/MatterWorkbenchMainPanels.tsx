@@ -500,6 +500,9 @@ export function MatterWorkbenchMainPanels(props: MatterWorkbenchMainPanelsProps)
           onOpenReview={onOpenReview}
           onOpenWorkflowLibrary={onOpenWorkflowLibrary}
           onOpenChatSession={onOpenChatSession}
+          onOpenNeedsDecision={
+            onOpenNeedsDecisionDesk ? () => onOpenNeedsDecisionDesk() : undefined
+          }
           jobs={matterJobs}
         />
       )}

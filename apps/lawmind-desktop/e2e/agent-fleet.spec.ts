@@ -22,6 +22,8 @@ test.describe("在办工作台", () => {
     await page.getByTestId("lm-fleet-team-default").click();
     await expect(page.getByTestId("lm-fleet-primary-review")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("lm-fleet-primary-review")).toContainText(/签批|文书台/);
+    await expect(page.getByTestId("lm-fleet-campaign-review")).toBeVisible();
+    await expect(page.getByTestId("lm-fleet-campaign-review")).toContainText("用审查专案组");
   });
 
   test("team mode lists assistants and queue filter still works", async ({ page }) => {

@@ -64,9 +64,19 @@ type Props = {
   matterId: string;
   queueItems: ReviewQueueRow[];
   approvals: ApprovalRow[];
+  /** Opens「在办」needs-decision focus. */
+  onOpenNeedsDecision?: () => void;
+  /** Opens「在办」approvals / desk. */
+  onOpenApprovals?: () => void;
 };
 
-export function MatterReviewQueuePanel({ matterId, queueItems, approvals }: Props): ReactNode {
+export function MatterReviewQueuePanel({
+  matterId,
+  queueItems,
+  approvals,
+  onOpenNeedsDecision,
+  onOpenApprovals,
+}: Props): ReactNode {
   return (
     <section
       className="lm-matter-review-queue"
@@ -96,6 +106,17 @@ export function MatterReviewQueuePanel({ matterId, queueItems, approvals }: Prop
                 状态 {QUEUE_STATUS_ZH[q.status] ?? q.status}
                 {q.updatedAt ? ` · 更新于 ${q.updatedAt}` : ""}
               </div>
+              {onOpenNeedsDecision ? (
+                <div className="lm-matter-ops-actions">
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-ghost lm-btn-sm"
+                    onClick={() => onOpenNeedsDecision()}
+                  >
+                    去在办
+                  </button>
+                </div>
+              ) : null}
             </li>
           ))}
         </ul>
@@ -122,6 +143,17 @@ export function MatterReviewQueuePanel({ matterId, queueItems, approvals }: Prop
                 {a.targetRole ? ` · 目标岗位 ${a.targetRole}` : ""}
                 {a.requestedAt ? ` · 请求于 ${a.requestedAt}` : ""}
               </div>
+              {onOpenApprovals || onOpenNeedsDecision ? (
+                <div className="lm-matter-ops-actions">
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-ghost lm-btn-sm"
+                    onClick={() => (onOpenApprovals ?? onOpenNeedsDecision)?.()}
+                  >
+                    去在办
+                  </button>
+                </div>
+              ) : null}
             </li>
           ))}
         </ul>

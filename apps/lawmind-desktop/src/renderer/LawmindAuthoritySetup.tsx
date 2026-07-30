@@ -80,25 +80,6 @@ export function LawmindAuthoritySetup({
           {authorityUsage.message}
         </p>
       ) : null}
-      <ul className="lm-settings-caption">
-        <li>
-          <code className="lm-md-code">LAWMIND_AUTHORITY_PROVIDER</code> = open | generic | pkulaw |
-          lexis
-        </li>
-        <li>
-          开源：<code className="lm-md-code">LAWMIND_OPEN_LAW_CORPUS</code>（可选 JSONL）、
-          <code className="lm-md-code">LAWMIND_OPEN_LAW_MODE</code>=local|hybrid|npc_flk
-        </li>
-        <li>
-          闭源手动：<code className="lm-md-code">LAWMIND_AUTHORITY_ENDPOINT</code> +{" "}
-          <code className="lm-md-code">LAWMIND_AUTHORITY_API_KEY</code>
-        </li>
-      </ul>
-      {envFilePath ? (
-        <p className="lm-settings-caption">
-          配置文件：<code className="lm-md-code">{envFilePath}</code>
-        </p>
-      ) : null}
       <div className="lm-settings-actions">
         {onOpenApiWizard ? (
           <button type="button" className="lm-btn lm-btn-accent lm-btn-sm" onClick={onOpenApiWizard}>
@@ -107,12 +88,36 @@ export function LawmindAuthoritySetup({
         ) : null}
         {probeControl}
       </div>
-      <p className="lm-settings-caption lm-settings-caption--warn" role="note">
-        开源路径开箱即用（演示 sample ≠ 完整法库）。扩充：设置{" "}
-        <code className="lm-md-code">LAWMIND_OPEN_LAW_CORPUS</code>
-        （JSONL 格式见 open-law README）。闭源法宝/Lexis：见{" "}
-        <code className="lm-md-code">docs/LAWMIND-EXTERNAL-INTEGRATIONS.md</code> §10 手动清单。
-      </p>
+      <details className="lm-settings-advanced" data-testid="lm-authority-env-details">
+        <summary className="lm-meta">环境变量与工程师说明（高级）</summary>
+        <div className="lm-settings-advanced-body">
+          <ul className="lm-settings-caption">
+            <li>
+              <code className="lm-md-code">LAWMIND_AUTHORITY_PROVIDER</code> = open | generic | pkulaw |
+              lexis
+            </li>
+            <li>
+              开源：<code className="lm-md-code">LAWMIND_OPEN_LAW_CORPUS</code>（可选 JSONL）、
+              <code className="lm-md-code">LAWMIND_OPEN_LAW_MODE</code>=local|hybrid|npc_flk
+            </li>
+            <li>
+              闭源手动：<code className="lm-md-code">LAWMIND_AUTHORITY_ENDPOINT</code> +{" "}
+              <code className="lm-md-code">LAWMIND_AUTHORITY_API_KEY</code>
+            </li>
+          </ul>
+          {envFilePath ? (
+            <p className="lm-settings-caption">
+              配置文件：<code className="lm-md-code">{envFilePath}</code>
+            </p>
+          ) : null}
+          <p className="lm-settings-caption lm-settings-caption--warn" role="note">
+            开源路径开箱即用（演示 sample ≠ 完整法库）。扩充：设置{" "}
+            <code className="lm-md-code">LAWMIND_OPEN_LAW_CORPUS</code>
+            （JSONL 格式见 open-law README）。闭源法宝/Lexis：见{" "}
+            <code className="lm-md-code">docs/LAWMIND-EXTERNAL-INTEGRATIONS.md</code> §10 手动清单。
+          </p>
+        </div>
+      </details>
     </section>
   );
 }

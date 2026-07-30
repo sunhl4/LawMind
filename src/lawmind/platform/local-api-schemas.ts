@@ -293,9 +293,14 @@ export const deskSettingsPostSchema = z.object({
 
 export type DeskSettingsPostRequest = z.infer<typeof deskSettingsPostSchema>;
 
-export const workspacePolicyPatchSchema = z.object({
-  highSecurityMode: z.boolean(),
-});
+export const workspacePolicyPatchSchema = z
+  .object({
+    highSecurityMode: z.boolean().optional(),
+    citationMode: z.enum(["grounded", "assisted", "off"]).optional(),
+  })
+  .refine((v) => v.highSecurityMode !== undefined || v.citationMode !== undefined, {
+    message: "at least one of highSecurityMode or citationMode is required",
+  });
 
 export type WorkspacePolicyPatchRequest = z.infer<typeof workspacePolicyPatchSchema>;
 

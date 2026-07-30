@@ -26,6 +26,7 @@ export async function handlePlatformRoutes({
         ok: true,
         highSecurityMode: policy?.highSecurityMode === true,
         allowWebSearch: policy?.allowWebSearch,
+        citationMode: policy?.citationMode ?? null,
       },
       c,
     );
@@ -40,17 +41,18 @@ export async function handlePlatformRoutes({
       if (isLawMindHttpError(e)) {
         sendJson(res, e.status, { ok: false, message: e.message }, c);
       } else if (isInvalidRequestBodyError(e)) {
-        sendJson(res, 400, { ok: false, message: "highSecurityMode must be boolean" }, c);
+        sendJson(res, 400, { ok: false, message: "invalid policy patch body" }, c);
       } else {
         sendJson(res, 400, { ok: false, message: "invalid json" }, c);
       }
       return true;
     }
     const merged = mergeWorkspacePolicyFile(ctx.workspaceDir, {
-      highSecurityMode: body.highSecurityMode,
-      ...(body.highSecurityMode
+      ...(body.highSecurityMode !== undefined ? { highSecurityMode: body.highSecurityMode } : {}),
+      ...(body.highSecurityMode === true
         ? { allowWebSearch: false, productInsightsCollection: "off" as const }
         : {}),
+      ...(body.citationMode !== undefined ? { citationMode: body.citationMode } : {}),
     });
     if (!merged.ok) {
       sendJson(res, 500, { ok: false, message: merged.error }, c);
@@ -59,7 +61,11 @@ export async function handlePlatformRoutes({
     sendJson(
       res,
       200,
-      { ok: true, highSecurityMode: merged.policy.highSecurityMode === true },
+      {
+        ok: true,
+        highSecurityMode: merged.policy.highSecurityMode === true,
+        citationMode: merged.policy.citationMode ?? null,
+      },
       c,
     );
     return true;

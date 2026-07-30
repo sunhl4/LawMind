@@ -411,7 +411,7 @@ export function LawmindModelPicker(props: Props): ReactNode {
                   close();
                 }}
               >
-                Add models
+                添加模型
               </button>
             ) : null}
             {onOpenSettings ? (
@@ -423,7 +423,7 @@ export function LawmindModelPicker(props: Props): ReactNode {
                   close();
                 }}
               >
-                Open settings
+                打开设置
               </button>
             ) : null}
             {onTestCurrent ? (

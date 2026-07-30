@@ -176,7 +176,7 @@ export function LawmindRedlinePanel(props: Props): ReactNode {
       <p className="lm-meta">
         助手改稿后会自动生成待决提案；「接受」写入、「拒绝」回滚到基准。亦可手动设基准后编辑再「生成提案」。
       </p>
-      {error ? <p className="lm-meta lm-text-danger">{error}</p> : null}
+      {error ? <p className="lm-meta lm-text-error">{error}</p> : null}
       {pending.length === 0 ? (
         <p className="lm-meta">
           暂无待处理修订段。若已修改正文，请先点「将当前稿设为基准」再编辑，或点「生成提案」刷新对比。

@@ -1,5 +1,6 @@
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { lawmindDocUrl } from "./lawmind-public-urls.js";
+import { useModalFocusTrap } from "./use-modal-focus-trap";
 
 type RetrievalMode = "single" | "dual";
 
@@ -74,10 +75,12 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
     onCancel,
     onSave,
   } = props;
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalFocusTrap(true, dialogRef);
 
   return (
     <div className="lm-wizard-backdrop" role="dialog" aria-modal="true" aria-label="LawMind 首次配置">
-      <div className="lm-wizard">
+      <div className="lm-wizard" ref={dialogRef}>
         <h2>欢迎使用 LawMind</h2>
         <p className="lm-wizard-lead lm-settings-hint">
           填好 API 密钥，点一次推荐方案即可开始。保存时会写入本机{" "}

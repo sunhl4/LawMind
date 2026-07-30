@@ -41,6 +41,31 @@ describe("LawmindComposeContextUsage", () => {
     host.remove();
   });
 
+  it("still renders a weak entry when budget is missing", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <LawmindComposeContextUsage
+          budget={null}
+          onCompact={vi.fn()}
+          onDistill={vi.fn()}
+        />,
+      );
+    });
+    const trigger = host.querySelector('[data-testid="lm-compose-token-bar"]') as HTMLButtonElement;
+    expect(trigger).toBeTruthy();
+    expect(trigger.className).toContain("lm-compose-ctx-usage-trigger--weak");
+    expect(trigger.textContent).toContain("—");
+    await act(async () => {
+      trigger.click();
+    });
+    expect(host.textContent).toContain("估算用量");
+    root.unmount();
+    host.remove();
+  });
+
   it("shows dry-run confirm before compact and does not call onCompact until confirmed", async () => {
     const host = document.createElement("div");
     document.body.appendChild(host);

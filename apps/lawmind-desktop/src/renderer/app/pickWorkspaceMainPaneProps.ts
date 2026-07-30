@@ -75,6 +75,7 @@ export function pickWorkspaceMainPaneProps(
     onModelSelect: props.onModelSelect,
     allowWebSearch: props.allowWebSearch,
     webSearchPolicyBlocked: props.health?.webSearchPolicyBlocked,
+    webSearchApiKeyConfigured: props.health?.webSearchApiKeyConfigured,
     onAllowWebSearchChange: props.onAllowWebSearchChange,
     queuedMessages: props.queuedMessages,
     cancelQueuedMessage: props.cancelQueuedMessage,

@@ -28,6 +28,7 @@ type Props = {
   onOpenReview?: (args: ReviewOpenArgs) => void;
   onOpenWorkflowLibrary?: () => void;
   onOpenChatSession?: (sessionId: string, matterId?: string) => void;
+  onOpenNeedsDecision?: () => void;
   jobs?: TaskBoardJobInput[];
 };
 
@@ -43,6 +44,7 @@ export function MatterTasksPanel(props: Props): ReactNode {
     onOpenReview,
     onOpenWorkflowLibrary,
     onOpenChatSession,
+    onOpenNeedsDecision,
     jobs = [],
   } = props;
 
@@ -95,6 +97,7 @@ export function MatterTasksPanel(props: Props): ReactNode {
       />
       {matterId ? <MatterRoleBoard matterId={matterId} rows={roleRows} /> : null}
       <MatterTaskBoard
+        matterId={matterId}
         tasks={tasks}
         queueItems={queueItems}
         approvalRequests={approvalRequests}
@@ -102,6 +105,7 @@ export function MatterTasksPanel(props: Props): ReactNode {
         acceptanceByTask={acceptanceByTask}
         onOpenReview={onOpenReview}
         onOpenWorkflowLibrary={onOpenWorkflowLibrary}
+        onOpenNeedsDecision={onOpenNeedsDecision}
         jobs={jobs}
       />
     </div>

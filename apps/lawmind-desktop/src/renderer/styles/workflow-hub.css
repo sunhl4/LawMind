@@ -694,6 +694,27 @@
   margin: 0;
 }
 
+.lm-task-drawer-row-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.lm-task-drawer-row-btn:hover {
+  opacity: 0.9;
+}
+
+.lm-task-drawer-row-btn:focus-visible {
+  outline: 2px solid var(--accent, #3b82f6);
+  outline-offset: 2px;
+}
+
 .lm-approval-dialog {
   width: min(480px, 92vw);
   background: var(--lm-surface);

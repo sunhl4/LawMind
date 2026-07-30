@@ -602,6 +602,11 @@ export function useLawmindAppRootLayout(
     setContextMatterId,
     taskDrawerOpen: input.taskDrawerOpen,
     setTaskDrawerOpen: input.setTaskDrawerOpen,
+    onOpenApprovalsFromDrawer: () => {
+      input.setAgentsNeedsDecisionFocus(true);
+      input.setAgentsDeskTab("active");
+      setMainView("agents");
+    },
   });
 
   const fileWorkbenchHostProps = useLawmindFileWorkbenchHostProps({

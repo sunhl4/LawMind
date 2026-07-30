@@ -18,7 +18,7 @@ export function DraftCitationBadge(props: {
   if (cit.ok) {
     return (
       <span className="lm-matter-cit lm-matter-cit-ok" title="章节引用 ID 均在本次检索快照内">
-        引用OK
+        已核实
       </span>
     );
   }

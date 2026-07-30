@@ -287,6 +287,16 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
                 >
                   进入文书台
                 </button>
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-secondary"
+                  data-testid="lm-fleet-campaign-review"
+                  disabled={busy}
+                  onClick={() => onOpenReview?.(current.taskId, current.matterId)}
+                  title="打开文书台并用审查专案组跑多角色风险分与谈判优先级"
+                >
+                  用审查专案组
+                </button>
               </>
             ) : current.status === "awaiting_approval" && approvalAction ? (
               <button

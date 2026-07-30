@@ -41,6 +41,15 @@ export function LawmindAgentFleetEmpty(props: LawmindAgentFleetEmptyProps): Reac
         >
           打开文书台
         </button>
+        <button
+          type="button"
+          className="lm-btn lm-btn-secondary"
+          data-testid="lm-fleet-campaign-entry"
+          onClick={() => props.onOpenReview?.()}
+          title="有待审稿时，在文书台选择审查模板一键跑专案组"
+        >
+          用审查专案组
+        </button>
       </div>
     </div>
   );

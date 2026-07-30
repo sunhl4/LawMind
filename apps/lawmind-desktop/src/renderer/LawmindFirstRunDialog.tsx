@@ -5,12 +5,13 @@
  *   role → prefs → starter deliverable → create matter + seed prompt + write preferences
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import { lawmindDocUrl } from "./lawmind-public-urls.js";
 import { LAWMIND_ATTORNEY_DISCLAIMER_SHORT } from "./lawmind-attorney-disclaimer";
 import { applyPostFirstrunPermissionDefaults } from "./lawmind-compose-prefs";
+import { useModalFocusTrap } from "./use-modal-focus-trap";
 
 const DISMISS_KEY = "lm.firstRun.dismissed";
 /** Set by API wizard after successful save to open first-run once suppress lifts. */
@@ -283,6 +284,9 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
     dismissForever,
   ]);
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalFocusTrap(visible, dialogRef);
+
   if (!visible) {
     return null;
   }
@@ -299,7 +303,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
 
   return (
     <div className="lm-wizard-backdrop" role="dialog" aria-modal="true" aria-label="LawMind 新手引导">
-      <div className="lm-wizard lm-firstrun">
+      <div className="lm-wizard lm-firstrun" ref={dialogRef}>
         <div className="lm-firstrun-head">
           <h2>几步开始用</h2>
             <p className="lm-meta">

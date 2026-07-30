@@ -64,6 +64,7 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
   } = props;
   const [workerModelId, setWorkerModelId] = useState<string>("");
   const [workerSaving, setWorkerSaving] = useState(false);
+  const [workerError, setWorkerError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!apiBase) {
@@ -309,14 +310,19 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
             aria-label="工具轮模型"
             onChange={(e) => {
               const next = e.target.value;
+              const prev = workerModelId;
               setWorkerModelId(next);
+              setWorkerError(null);
               if (!apiBase) {
                 return;
               }
               setWorkerSaving(true);
               void setWorkerModelIdApi(apiBase, next || null)
                 .then((id) => setWorkerModelId(id ?? ""))
-                .catch(() => undefined)
+                .catch((cause) => {
+                  setWorkerModelId(prev);
+                  setWorkerError(errorMessage(cause, "更新工具轮模型失败"));
+                })
                 .finally(() => setWorkerSaving(false));
             }}
           >
@@ -333,6 +339,11 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
         <p className="lm-settings-caption">
           可选：工具调用轮用较快模型，主模型仍用于终稿合成。
         </p>
+        {workerError ? (
+          <p className="lm-settings-caption lm-settings-caption--warn" role="alert">
+            {workerError}
+          </p>
+        ) : null}
       </div>
 
       <details className="lm-settings-advanced">
