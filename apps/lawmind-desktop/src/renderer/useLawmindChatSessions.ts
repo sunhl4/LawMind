@@ -89,7 +89,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         const mapped: ChatSessionListEntry[] = (Array.isArray(listJ.sessions) ? listJ.sessions : []).map(
           (s) => ({
             sessionId: s.sessionId,
-            title: typeof s.title === "string" && s.title.trim() ? s.title : "New Chat",
+            title: typeof s.title === "string" && s.title.trim() ? s.title : "新对话",
             updatedAt: s.updatedAt,
             lastPreview: typeof s.lastPreview === "string" ? s.lastPreview : undefined,
           }),
@@ -114,8 +114,8 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
           if (!cr.ok || !cj.sessionId) {
             setError(
               errorMessage(
-                new Error(typeof cj.message === "string" ? cj.message : "create session failed"),
-                "创建对话失败",
+                new Error(typeof cj.message === "string" ? cj.message : "新建对话失败"),
+                "新建对话失败",
               ),
             );
             return;
@@ -141,7 +141,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
             Array.isArray(listJ2.sessions) ? listJ2.sessions : []
           ).map((s) => ({
             sessionId: s.sessionId,
-            title: typeof s.title === "string" && s.title.trim() ? s.title : "New Chat",
+            title: typeof s.title === "string" && s.title.trim() ? s.title : "新对话",
             updatedAt: s.updatedAt,
             lastPreview: typeof s.lastPreview === "string" ? s.lastPreview : undefined,
           }));
@@ -247,7 +247,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         const mapped: ChatSessionListEntry[] = (Array.isArray(listJ.sessions) ? listJ.sessions : []).map(
           (s) => ({
             sessionId: s.sessionId,
-            title: typeof s.title === "string" && s.title.trim() ? s.title : "New Chat",
+            title: typeof s.title === "string" && s.title.trim() ? s.title : "新对话",
             updatedAt: s.updatedAt,
             lastPreview: typeof s.lastPreview === "string" ? s.lastPreview : undefined,
           }),
@@ -271,7 +271,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
           if (!cr.ok || !cj.sessionId) {
             setError(
               errorMessage(
-                new Error(typeof cj.message === "string" ? cj.message : "create session failed"),
+                new Error(typeof cj.message === "string" ? cj.message : "新建对话失败"),
                 "打开子助手对话失败",
               ),
             );
@@ -295,7 +295,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
             Array.isArray(listJ2.sessions) ? listJ2.sessions : []
           ).map((s) => ({
             sessionId: s.sessionId,
-            title: typeof s.title === "string" && s.title.trim() ? s.title : "New Chat",
+            title: typeof s.title === "string" && s.title.trim() ? s.title : "新对话",
             updatedAt: s.updatedAt,
             lastPreview: typeof s.lastPreview === "string" ? s.lastPreview : undefined,
           }));
@@ -360,7 +360,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
       });
       const cj = (await cr.json()) as { ok?: boolean; sessionId?: string; message?: string };
       if (!cr.ok || !cj.sessionId) {
-        throw new Error(typeof cj.message === "string" ? cj.message : "create session failed");
+        throw new Error(typeof cj.message === "string" ? cj.message : "新建对话失败");
       }
       await refreshChatSessionListForAssistant(assistantId);
       persistActiveChatSessionId(chatSessionStoreKey(config.workspaceDir), assistantId, cj.sessionId);
@@ -395,7 +395,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
       if (!r.ok || j.ok === false) {
         setError(
           errorMessage(
-            new Error(typeof j.message === "string" ? j.message : "rename failed"),
+            new Error(typeof j.message === "string" ? j.message : "重命名失败"),
             "重命名失败",
           ),
         );
@@ -428,7 +428,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         });
         const j = (await r.json()) as { ok?: boolean; message?: string };
         if (!r.ok || j.ok === false) {
-          throw new Error(typeof j.message === "string" ? j.message : "delete failed");
+          throw new Error(typeof j.message === "string" ? j.message : "删除失败");
         }
         const wasActive = sessionByAssistant[assistantId] === sessionId;
         // Optimistic local update so a failed list refresh cannot leave a zombie tab.
@@ -446,7 +446,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
           });
           const cj = (await cr.json()) as { ok?: boolean; sessionId?: string; message?: string };
           if (!cr.ok || !cj.sessionId) {
-            throw new Error(typeof cj.message === "string" ? cj.message : "create failed");
+            throw new Error(typeof cj.message === "string" ? cj.message : "新建对话失败");
           }
           await refreshChatSessionListForAssistant(assistantId);
           persistActiveChatSessionId(chatSessionStoreKey(config.workspaceDir), assistantId, cj.sessionId);
@@ -459,7 +459,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         setSessionByAssistant((p) => ({ ...p, [assistantId]: nextId }));
         await loadSessionMessagesIntoState(assistantId, nextId);
       } catch (cause) {
-        setError(errorMessage(cause, "删除对话失败"));
+        setError(errorMessage(cause, "删除失败"));
       }
     },
     [

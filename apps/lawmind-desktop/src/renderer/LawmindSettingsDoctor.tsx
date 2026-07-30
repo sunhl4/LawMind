@@ -319,7 +319,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
                 : i.ok === false
                   ? "异常"
                   : "完整";
-            integrityNote = ` · hash-chain ${i.eventCount ?? 0}/${i.chainedCount ?? 0}（${chainNote}）`;
+            integrityNote = ` · 审计链式校验 ${i.eventCount ?? 0}/${i.chainedCount ?? 0}（${chainNote}）`;
           }
         } catch {
           /* integrity optional */
@@ -727,7 +727,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
         <h4 className="lm-doctor-group-title">办案审计摘要</h4>
         <p className="lm-settings-caption">
           一键导出本机审计 Markdown
-          {health?.edition?.features?.auditIntegrityExport ? "，并附带 hash-chain 完整性核对。" : "。"}
+          {health?.edition?.features?.auditIntegrityExport ? "，并附带审计链式校验。" : "。"}
         </p>
         <div className="lm-settings-actions lm-settings-actions--flush">
           <button
@@ -816,7 +816,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
       <div className="lm-settings-group lm-settings-surface">
         <h4 className="lm-doctor-group-title">高安全核对</h4>
         <div className="lm-doctor-security-grid">
-          <span className="lm-settings-key">联网 allowlist</span>
+          <span className="lm-settings-key">联网主机白名单</span>
           <span
             className={
               health?.policy?.networkAllowlist?.length
@@ -840,7 +840,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
               ? "Firm：一律显式批准"
               : "Solo：开发可放宽"}
           </span>
-          <span className="lm-settings-key">审计 hash-chain</span>
+          <span className="lm-settings-key">审计链式校验</span>
           <span
             className={
               health?.edition?.features?.auditIntegrityExport
@@ -859,7 +859,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
         <div className="lm-settings-group lm-settings-surface">
           <h4 className="lm-doctor-group-title">联网策略</h4>
           <div className="lm-settings-row">
-            <span className="lm-settings-key">networkAllowlist</span>
+            <span className="lm-settings-key">联网主机白名单</span>
             <span className="lm-meta">
               {Array.isArray(health.policy.networkAllowlist) && health.policy.networkAllowlist.length > 0
                 ? health.policy.networkAllowlist.join(", ")
@@ -867,7 +867,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
             </span>
           </div>
           {health.policy.networkAllowlistEnforced ? (
-            <p className="lm-meta">已启用强制 allowlist：未列入的主机将无法联网检索。</p>
+            <p className="lm-meta">已启用强制白名单：未列入的主机将无法联网检索。</p>
           ) : null}
         </div>
       ) : null}

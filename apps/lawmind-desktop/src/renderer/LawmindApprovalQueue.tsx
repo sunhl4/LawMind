@@ -7,6 +7,7 @@ import type { ApprovalRequest } from "../../../../src/lawmind/core/contracts.ts"
 import { isValidMatterId } from "../../../../src/lawmind/cases/matter-id.ts";
 import { apiGetJson, errorMessage } from "./api-client";
 import { toolDisplayNameZh } from "../../../../src/lawmind/platform/requires-action.js";
+import { riskLevelLabel } from "./matter/matter-display-labels";
 
 export type ToolApprovalRow = {
   actionId: string;
@@ -175,7 +176,7 @@ export function LawmindApprovalQueue(props: Props): ReactNode {
               <li key={a.approvalId} className="lm-approval-queue-row">
                 <strong>{a.reason.slice(0, 80)}</strong>
                 <span className="lm-meta">
-                  {a.targetRole ? `→ ${a.targetRole}` : ""} · {a.riskLevel ?? "normal"}
+                  {a.targetRole ? `→ ${a.targetRole}` : ""} · {riskLevelLabel(a.riskLevel)}
                 </span>
               </li>
             ))}

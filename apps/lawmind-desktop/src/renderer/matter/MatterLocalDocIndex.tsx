@@ -53,7 +53,7 @@ export function MatterLocalDocIndex(props: Props): ReactNode {
         if (connector === "imanage" || r.mode === "fixture" || r.hint?.includes("演示")) {
           setHint(
             connector === "imanage"
-              ? "iManage 当前为演示索引（fixture），非生产 DMS；Firm 凭证就绪前请勿当作正式检索。"
+              ? "iManage 当前为演示索引，非正式文档库；正式凭证就绪前请勿当作正式检索。"
               : (r.hint ?? null),
           );
         }
@@ -70,7 +70,7 @@ export function MatterLocalDocIndex(props: Props): ReactNode {
     >
       <summary>文档索引（本地 / DMS）</summary>
       <p className="lm-meta">
-        只读列出本案相关文件元数据；DMS 连接器未配置 Firm 密钥时仅返回演示数据。
+        只读列出本案相关文件元数据；外部文档库未配置正式密钥时仅返回演示数据。
       </p>
       <label className="lm-field" style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
         <span className="lm-meta">来源</span>

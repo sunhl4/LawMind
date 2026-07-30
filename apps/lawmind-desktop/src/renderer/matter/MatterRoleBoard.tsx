@@ -10,6 +10,9 @@ export type { RoleAssignmentRow } from "./matter-role-board";
 type Props = {
   matterId: string;
   rows: RoleAssignmentRow[];
+  /** Distinguishes fetch failure from a genuine empty roster. */
+  loadError?: string | null;
+  onRetryLoad?: () => void;
 };
 
 const RISK_CEILING_ZH: Record<string, string> = {
@@ -18,7 +21,7 @@ const RISK_CEILING_ZH: Record<string, string> = {
   high: "高",
 };
 
-export function MatterRoleBoard({ matterId, rows }: Props): ReactNode {
+export function MatterRoleBoard({ matterId, rows, loadError, onRetryLoad }: Props): ReactNode {
   return (
     <section
       className="lm-matter-role-board"
@@ -26,7 +29,16 @@ export function MatterRoleBoard({ matterId, rows }: Props): ReactNode {
       data-matter-id={matterId}
     >
       <h3>岗位分配</h3>
-      {rows.length === 0 ? (
+      {loadError ? (
+        <div className="lm-callout lm-callout-warn" role="alert">
+          <p>{loadError}</p>
+          {onRetryLoad ? (
+            <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={onRetryLoad}>
+              重试
+            </button>
+          ) : null}
+        </div>
+      ) : rows.length === 0 ? (
         <div className="lm-callout lm-callout-muted">
           案件目前未指派助手。可在会议室勾选参会后「记住本案编制」。
         </div>

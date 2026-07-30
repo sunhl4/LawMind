@@ -171,7 +171,7 @@ export function FileWorkbenchContextMenu({
                 setContextMenu(null);
               }}
             >
-              📥 加入案件…
+              加入案件…
             </button>
           ) : null}
           {caseRootMid && cn ? (

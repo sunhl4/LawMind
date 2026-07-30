@@ -75,6 +75,23 @@ export function priorityLabel(priority: WorkQueueItem["priority"]): string {
   }
 }
 
+export function riskLevelLabel(risk: string | undefined | null): string {
+  switch (risk) {
+    case "critical":
+      return "紧急";
+    case "high":
+      return "高";
+    case "medium":
+      return "中";
+    case "normal":
+      return "中";
+    case "low":
+      return "低";
+    default:
+      return risk?.trim() ? risk : "—";
+  }
+}
+
 export function formatShortDateTime(iso?: string): string {
   if (!iso) {
     return "—";

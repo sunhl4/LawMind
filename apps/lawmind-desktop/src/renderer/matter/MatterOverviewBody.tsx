@@ -24,6 +24,7 @@ import {
   priorityLabel,
   queueKindLabel,
   reviewStatusLabel,
+  riskLevelLabel,
 } from "./matter-display-labels.js";
 import type {
   AuditEventRow,
@@ -223,7 +224,12 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
             }
           />
         ) : null}
-        {matterId && apiBase ? <MatterTheoryLitePanel apiBase={apiBase} matterId={matterId} /> : null}
+        {matterId && apiBase ? (
+          <details className="lm-matter-cockpit-card">
+            <summary>案件理论</summary>
+            <MatterTheoryLitePanel apiBase={apiBase} matterId={matterId} />
+          </details>
+        ) : null}
         {matterId && apiBase && profile ? (
           <MatterProfileCard apiBase={apiBase} profile={profile} onSaved={onProfileSaved} />
         ) : null}
@@ -443,7 +449,7 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
                 </div>
                 <div className="lm-matter-summary-card lm-matter-summary-card-info">
                   <div className="lm-matter-summary-top">
-                    <span className="lm-matter-summary-title">补 CASE</span>
+                    <span className="lm-matter-summary-title">补案件档案</span>
                     <span className="lm-matter-summary-count">{matterInteractionSummary.caseWriteCount}</span>
                   </div>
                 </div>
@@ -599,7 +605,7 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
                       <span>{approvalStatusLabel(item.status)}</span>
                       <div className="lm-matter-ops-actions">
                         <span className={`lm-matter-pill lm-matter-pill-status-${item.status}`}>
-                          {item.riskLevel.toUpperCase()}
+                          {riskLevelLabel(item.riskLevel)}
                         </span>
                         {onOpenReview && item.deliverableId ? (
                           <button

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { apiGetJson, apiSendJson } from "../api-client";
+import { apiGetJson, apiSendJson, errorMessage } from "../api-client";
 import type { MatterTheoryLite } from "../../../../../src/lawmind/matter-ops/types.ts";
 
 type Props = {
@@ -18,28 +18,29 @@ export function MatterTheoryLitePanel(props: Props): ReactNode {
   const [anchored, setAnchored] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const reload = async () => {
+    setLoadError(null);
+    try {
+      const j = await apiGetJson<{ ok?: boolean; theory?: MatterTheoryLite | null }>(
+        apiBase,
+        `/api/matters/${encodeURIComponent(matterId)}/theory`,
+      );
+      if (!j.theory) {
+        return;
+      }
+      setIssues(j.theory.issues);
+      setAuthorities(j.theory.authorities);
+      setOpenQuestions(j.theory.openQuestions);
+      setAnchored(j.theory.anchored);
+    } catch (e) {
+      setLoadError(errorMessage(e, "加载案件理论失败"));
+    }
+  };
 
   useEffect(() => {
-    let cancelled = false;
-    void apiGetJson<{ ok?: boolean; theory?: MatterTheoryLite | null }>(
-      apiBase,
-      `/api/matters/${encodeURIComponent(matterId)}/theory`,
-    )
-      .then((j) => {
-        if (cancelled || !j.theory) {
-          return;
-        }
-        setIssues(j.theory.issues);
-        setAuthorities(j.theory.authorities);
-        setOpenQuestions(j.theory.openQuestions);
-        setAnchored(j.theory.anchored);
-      })
-      .catch(() => {
-        /* empty */
-      });
-    return () => {
-      cancelled = true;
-    };
+    void reload();
   }, [apiBase, matterId]);
 
   const save = async () => {
@@ -54,7 +55,7 @@ export function MatterTheoryLitePanel(props: Props): ReactNode {
       });
       setMsg("理论已保存");
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : String(e));
+      setMsg(errorMessage(e, "保存理论失败"));
     } finally {
       setBusy(false);
     }
@@ -69,6 +70,15 @@ export function MatterTheoryLitePanel(props: Props): ReactNode {
         </div>
         <p className="lm-meta">结构化推理板，不是对话。严格援引导出前请勾选已锚定。</p>
       </header>
+
+      {loadError ? (
+        <p className="lm-error" role="alert">
+          {loadError}{" "}
+          <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => void reload()}>
+            重试
+          </button>
+        </p>
+      ) : null}
 
       <div className="lm-matter-theory-panes">
         <label className="lm-matter-theory-pane lm-job-intake-field">
@@ -105,7 +115,7 @@ export function MatterTheoryLitePanel(props: Props): ReactNode {
 
       <div className="lm-matter-theory-actions">
         <label className="lm-settings-row lm-settings-row-check">
-          <span>已锚定（可用于 grounded 严格导出）</span>
+          <span>已锚定（可用于严格援引导出）</span>
           <input
             type="checkbox"
             checked={anchored}
@@ -123,7 +133,11 @@ export function MatterTheoryLitePanel(props: Props): ReactNode {
           保存理论
         </button>
       </div>
-      {msg ? <p className="lm-meta">{msg}</p> : null}
+      {msg ? (
+        <p className="lm-meta" role="status">
+          {msg}
+        </p>
+      ) : null}
     </section>
   );
 }

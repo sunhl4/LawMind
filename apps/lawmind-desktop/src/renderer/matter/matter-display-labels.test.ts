@@ -5,6 +5,7 @@ import {
   priorityLabel,
   queueKindLabel,
   reviewStatusLabel,
+  riskLevelLabel,
 } from "./matter-display-labels.js";
 
 describe("matter-display-labels", () => {
@@ -21,6 +22,13 @@ describe("matter-display-labels", () => {
   it("labels priority", () => {
     expect(priorityLabel("high")).toBe("高");
     expect(priorityLabel("normal")).toBe("中");
+  });
+
+  it("labels risk level", () => {
+    expect(riskLevelLabel("critical")).toBe("紧急");
+    expect(riskLevelLabel("high")).toBe("高");
+    expect(riskLevelLabel("medium")).toBe("中");
+    expect(riskLevelLabel(null)).toBe("—");
   });
 
   it("formats short datetime", () => {

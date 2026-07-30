@@ -1,7 +1,8 @@
-import type { Dispatch, SetStateAction } from "react";
+import { useRef, type Dispatch, type SetStateAction } from "react";
 import { type ConfirmDialog } from "./file-workbench-types";
 import { basename } from "./file-workbench-fs";
 import { isValidMatterId } from "../../../../../src/lawmind/cases/matter-id.ts";
+import { useModalFocusTrap } from "../use-modal-focus-trap";
 
 export type FileWorkbenchDialogsProps = {
   busy: boolean;
@@ -38,6 +39,11 @@ export function FileWorkbenchDialogs({
   setAddToMatterLastError,
   moveWorkspaceItemIntoMatter,
 }: FileWorkbenchDialogsProps) {
+  const addToMatterCardRef = useRef<HTMLDivElement>(null);
+  const confirmCardRef = useRef<HTMLDivElement>(null);
+  useModalFocusTrap(Boolean(addToMatterPick), addToMatterCardRef);
+  useModalFocusTrap(Boolean(confirmDialog), confirmCardRef);
+
   const addToMatterPicker = (() => {
     if (!addToMatterPick) {
       return null;
@@ -59,7 +65,11 @@ export function FileWorkbenchDialogs({
           }
         }}
       >
-        <div className="lm-wizard lm-wizard--detail" onClick={(e) => e.stopPropagation()}>
+        <div
+          ref={addToMatterCardRef}
+          className="lm-wizard lm-wizard--detail"
+          onClick={(e) => e.stopPropagation()}
+        >
           <h2>加入案件</h2>
           <p className="lm-wizard-lead">
             将「{leaf}」移入案件卷宗文件夹（<code className="lm-meta">cases/…/</code>）。重名时自动追加序号。
@@ -139,7 +149,13 @@ export function FileWorkbenchDialogs({
     if (confirmDialog.kind === "simple") {
       return (
         <div className="lm-wizard-backdrop" onClick={() => setConfirmDialog(null)}>
-          <div className="lm-wizard lm-wizard--confirm" onClick={(e) => e.stopPropagation()}>
+          <div
+            ref={confirmCardRef}
+            className="lm-wizard lm-wizard--confirm"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
             <p className="lm-wizard-lead">{confirmDialog.message}</p>
             <div className="lm-wizard-actions">
               <button type="button" className="lm-btn lm-btn-secondary" onClick={() => setConfirmDialog(null)}>取消</button>
@@ -153,7 +169,13 @@ export function FileWorkbenchDialogs({
     const canConfirm = !requiredName || dangerInput.trim() === requiredName;
     return (
       <div className="lm-wizard-backdrop" onClick={() => setConfirmDialog(null)}>
-        <div className="lm-wizard lm-wizard--danger" onClick={(e) => e.stopPropagation()}>
+        <div
+          ref={confirmCardRef}
+          className="lm-wizard lm-wizard--danger"
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => e.stopPropagation()}
+        >
           <h2 className="lm-wizard-title-danger">{confirmDialog.title}</h2>
           <p className="lm-wizard-body-pre">{confirmDialog.body}</p>
           {requiredName && (

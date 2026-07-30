@@ -17,7 +17,7 @@ export function LawyerActionFeed({ events, formatRelative }: Props): ReactNode {
   if (events.length === 0) {
     return (
       <div className="lm-callout lm-callout-muted">
-        本案件还没有记录到律师动作。打开文书台、写入 CASE 或采纳认知建议后即可在此处看到。
+        本案件还没有记录到律师动作。打开文书台、写入案件笔记或采纳认知建议后即可在此处看到。
       </div>
     );
   }
@@ -33,9 +33,9 @@ export function LawyerActionFeed({ events, formatRelative }: Props): ReactNode {
           }}
         >
           <div style={{ fontWeight: 600 }}>
-            {actionLabel(ev.action)} · {ev.surface ?? "(unknown surface)"}
+            {actionLabel(ev.action)} · {ev.surface ?? "未知表面"}
           </div>
-          <div className="lm-meta">{ev.label ?? "(no label)"}</div>
+          <div className="lm-meta">{ev.label ?? "无标签"}</div>
           <div className="lm-meta" style={{ marginTop: 4, fontSize: 11 }}>
             {formatRelative ? formatRelative(ev.timestamp) : ev.timestamp}
           </div>
@@ -52,7 +52,7 @@ function actionLabel(a: InteractionEvent["action"]): string {
     case "save_upgrade_suggestion":
       return "采纳认知升级";
     case "write_case_note":
-      return "回写 CASE";
+      return "写入案件笔记";
     default:
       return "其他动作";
   }

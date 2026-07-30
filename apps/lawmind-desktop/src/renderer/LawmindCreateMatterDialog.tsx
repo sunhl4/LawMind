@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { isValidMatterId } from "../../../../src/lawmind/cases/matter-id.ts";
 import { errorMessage, messageFromOkFalseBody } from "./api-client";
 import { apiPost } from "./lawmind-api-routes.ts";
+import { useModalFocusTrap } from "./use-modal-focus-trap";
 
 export type LawmindCreateMatterDialogProps = {
   open: boolean;
@@ -26,6 +27,7 @@ export function LawmindCreateMatterDialog({
   const [caseName, setCaseName] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  useModalFocusTrap(open, panelRef);
 
   useEffect(() => {
     if (!open) {

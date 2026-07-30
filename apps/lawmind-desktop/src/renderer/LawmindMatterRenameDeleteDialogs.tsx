@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage, messageFromOkFalseBody } from "./api-client";
 import { apiPost } from "./lawmind-api-routes.ts";
+import { useModalFocusTrap } from "./use-modal-focus-trap";
 
 export type LawmindMatterDeleteDialogProps = {
   open: { matterId: string; label: string } | null;
@@ -21,6 +22,8 @@ export function LawmindMatterDeleteDialog({
   const [deleteErr, setDeleteErr] = useState<string | null>(null);
   const [confirmMatterId, setConfirmMatterId] = useState("");
   const deleteSubmitLockRef = useRef(false);
+  const dialogCardRef = useRef<HTMLDivElement>(null);
+  useModalFocusTrap(Boolean(open), dialogCardRef);
 
   useEffect(() => {
     if (open) {
@@ -79,7 +82,11 @@ export function LawmindMatterDeleteDialog({
         }
       }}
     >
-      <div className="lm-wizard lm-modal-matter-delete" onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={dialogCardRef}
+        className="lm-wizard lm-modal-matter-delete"
+        onClick={(e) => e.stopPropagation()}
+      >
         <h2>删除案件</h2>
         <p className="lm-meta">
           若磁盘上存在目录 <code className="lm-meta">{`cases/${open.matterId}`}</code>

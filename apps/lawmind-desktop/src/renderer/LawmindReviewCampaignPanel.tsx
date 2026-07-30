@@ -59,6 +59,7 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
   const [activeRoleId, setActiveRoleId] = useState<string | null>(null);
   const [playbooks, setPlaybooks] = useState<PlaybookOption[]>([]);
   const [playbookId, setPlaybookId] = useState("standard-contract-review");
+  const [playbookListHint, setPlaybookListHint] = useState<string | null>(null);
   const [preferFast, setPreferFast] = useState(() => {
     try {
       return localStorage.getItem("lm.campaignPreferFast") === "1";
@@ -79,6 +80,7 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
       return;
     }
     let cancelled = false;
+    setPlaybookListHint(null);
     void apiListFleetPlaybooks(apiBase)
       .then((j) => {
         if (cancelled || !j.ok || !j.playbooks?.length) {
@@ -90,7 +92,9 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
         );
       })
       .catch(() => {
-        /* keep default */
+        if (!cancelled) {
+          setPlaybookListHint("审查模板列表暂不可用，将使用默认模板");
+        }
       });
     return () => {
       cancelled = true;
@@ -313,6 +317,11 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
           ))}
         </select>
       </label>
+      {playbookListHint ? (
+        <p className="lm-settings-caption" role="status">
+          {playbookListHint}
+        </p>
+      ) : null}
 
       {score ? (
         <div className="lm-review-campaign-scoreboard" aria-label="合同风险分">

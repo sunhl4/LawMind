@@ -13,7 +13,7 @@ type Props = {
 export function MatterOpsBrief(props: Props): ReactNode {
   const { apiBase, matterId } = props;
   const [ops, setOps] = useState<MatterOpsSummary | null>(null);
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const [baseline, setBaseline] = useState("");
   const [raidText, setRaidText] = useState("");
   const [raidKind, setRaidKind] = useState<"risk" | "assumption" | "issue" | "decision">("risk");

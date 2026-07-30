@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { ApprovalRequest, WorkQueueItem } from "../../../../../src/lawmind/core/contracts.ts";
 import type { ArtifactDraft, TaskRecord } from "../../../../../src/lawmind/types.ts";
 import type { DraftCitationIntegrityView } from "../../../../../src/lawmind/drafts/citation-integrity.ts";
-import { apiGetJson } from "../api-client";
+import { apiGetJson, errorMessage } from "../api-client";
 import { type AcceptanceSummaryItem } from "./matter-acceptance-display";
 import { MatterTaskBoard } from "./MatterTaskBoard";
 import type { TaskBoardJobInput } from "./matter-task-board";
@@ -58,16 +58,20 @@ export function MatterTasksPanel(props: Props): ReactNode {
   const [roster, setRoster] = useState<RoleBoardRoster | null>(null);
   const [assistants, setAssistants] = useState<RoleBoardAssistant[]>([]);
   const [roles, setRoles] = useState<RoleBoardRole[]>([]);
+  const [roleBoardError, setRoleBoardError] = useState<string | null>(null);
+  const [roleBoardReloadKey, setRoleBoardReloadKey] = useState(0);
 
   useEffect(() => {
     if (!apiBase?.trim() || !matterId?.trim()) {
       setRoster(null);
       setAssistants([]);
       setRoles([]);
+      setRoleBoardError(null);
       return;
     }
     let cancelled = false;
     void (async () => {
+      setRoleBoardError(null);
       try {
         const [rosterRes, assistantsRes, rolesRes] = await Promise.all([
           apiGetJson<{ ok?: boolean; roster?: RoleBoardRoster | null }>(
@@ -88,18 +92,20 @@ export function MatterTasksPanel(props: Props): ReactNode {
         setRoster(rosterRes.roster ?? null);
         setAssistants(assistantsRes.assistants ?? []);
         setRoles(rolesRes.roles ?? []);
-      } catch {
+        setRoleBoardError(null);
+      } catch (e) {
         if (!cancelled) {
           setRoster(null);
           setAssistants([]);
           setRoles([]);
+          setRoleBoardError(errorMessage(e, "加载岗位编制失败"));
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [apiBase, matterId]);
+  }, [apiBase, matterId, roleBoardReloadKey]);
 
   const roleRows = useMemo(
     () =>
@@ -130,7 +136,14 @@ export function MatterTasksPanel(props: Props): ReactNode {
         }
         compact
       />
-      {matterId ? <MatterRoleBoard matterId={matterId} rows={roleRows} /> : null}
+      {matterId ? (
+        <MatterRoleBoard
+          matterId={matterId}
+          rows={roleRows}
+          loadError={roleBoardError}
+          onRetryLoad={() => setRoleBoardReloadKey((k) => k + 1)}
+        />
+      ) : null}
       <MatterTaskBoard
         matterId={matterId}
         tasks={tasks}
