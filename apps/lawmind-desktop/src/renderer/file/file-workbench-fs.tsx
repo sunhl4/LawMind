@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useModalFocusTrap } from "../use-modal-focus-trap";
 import { type RootKey, type FsEntry, type IndexedFile } from "./file-workbench-types";
+
+function rootDisplayLabel(root: RootKey): string {
+  return root === "workspace" ? "工作区" : "本机文件夹";
+}
 
 // Core workspace paths that require lawyer confirmation before delete/rename.
 const PROTECTED_WORKSPACE: Record<string, string> = {
@@ -212,10 +217,8 @@ export function QuickOpenModal({
   const [cursor, setCursor] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+  const modalRef = useRef<HTMLDivElement>(null);
+  useModalFocusTrap(true, modalRef, { initialFocusRef: inputRef });
 
   const results = useMemo(() => {
     if (!query.trim()) {
@@ -251,14 +254,26 @@ export function QuickOpenModal({
   return (
     <div
       className="lm-wizard-backdrop lm-wizard-backdrop--quickopen"
+      role="presentation"
       onMouseDown={(e) => {
         // Close only when clicking the backdrop itself (not the modal)
-        if (e.target === e.currentTarget) {onClose();}
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
       }}
     >
-      <div className="lm-quickopen-modal" onMouseDown={(e) => e.stopPropagation()}>
+      <div
+        ref={modalRef}
+        className="lm-quickopen-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="快速打开文件"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <div className="lm-quickopen-inputrow">
-          <span className="lm-quickopen-magnifier">🔍</span>
+          <span className="lm-quickopen-magnifier" aria-hidden="true">
+            ⌕
+          </span>
           <input
             ref={inputRef}
             type="text"
@@ -267,13 +282,27 @@ export function QuickOpenModal({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Escape") { e.preventDefault(); onClose(); }
-              if (e.key === "ArrowDown") { e.preventDefault(); setCursor((c) => Math.min(c + 1, results.length - 1)); }
-              if (e.key === "ArrowUp") { e.preventDefault(); setCursor((c) => Math.max(c - 1, 0)); }
-              if (e.key === "Enter") { e.preventDefault(); confirm(cursor); }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                onClose();
+              }
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setCursor((c) => Math.min(c + 1, results.length - 1));
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setCursor((c) => Math.max(c - 1, 0));
+              }
+              if (e.key === "Enter") {
+                e.preventDefault();
+                confirm(cursor);
+              }
             }}
           />
-          <kbd className="lm-quickopen-esc" onClick={onClose}>Esc</kbd>
+          <kbd className="lm-quickopen-esc" onClick={onClose}>
+            Esc
+          </kbd>
         </div>
 
         {results.length > 0 ? (
@@ -292,7 +321,7 @@ export function QuickOpenModal({
                   <span className="lm-quickopen-item-name">{f.name}</span>
                   <span className="lm-quickopen-item-path">{f.path}</span>
                 </div>
-                <span className="lm-quickopen-item-root">{f.root}</span>
+                <span className="lm-quickopen-item-root">{rootDisplayLabel(f.root)}</span>
               </div>
             ))}
           </div>

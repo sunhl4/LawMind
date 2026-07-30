@@ -177,10 +177,10 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
         undefined;
       suggestions.push({
         key: "case-loop",
-        title: "CASE 已成为推进主入口",
+        title: "案件档案已成为推进主入口",
         detail:
           "律师反复把阻塞信息写回案件档案，说明当前更需要结构化案件记录，而不只是列表式提醒。优先把争点、风险和证据补齐会更高效。",
-        actionLabel: "回到 CASE 焦点",
+        actionLabel: "回到案件档案焦点",
         tone: "info",
         target: { type: "case", context: blockerContext },
       });
@@ -263,10 +263,10 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
         undefined;
       suggestions.push({
         key: "adapt-case-form",
-        title: "为 CASE 补录增加结构化表单",
+        title: "为案件档案补录增加结构化表单",
         detail:
-          "律师反复回到 CASE 补档，说明自由文本入口不够顺手。下一版应把事实缺口、风险确认、策略目标拆成更显式的结构化输入，而不是只靠文本写回。",
-        actionLabel: "查看当前 CASE 焦点",
+          "律师反复回到案件档案补录，说明自由文本入口不够顺手。下一版应把事实缺口、风险确认、策略目标拆成更显式的结构化输入，而不是只靠文本写回。",
+        actionLabel: "查看当前案件档案焦点",
         tone: "info",
         target: { type: "case", context: blockerContext },
       });
@@ -333,10 +333,10 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
       if (suggestion.key === "adapt-case-form") {
         items.push({
           key: "exp-case-structured-form",
-          title: "实验：把 CASE 补录改成结构化录入",
-          hypothesis: "如果把事实缺口、风险确认、策略目标拆成结构化字段，律师反复回 CASE 补文本的次数会下降。",
-          validation: "观察后续案件里“补 CASE”次数是否下降，并检查是否更少出现同主题重复写回。",
-          signal: `当前案件已出现 ${matterInteractionSummary.caseWriteCount} 次 CASE 写回动作。`,
+          title: "实验：把案件档案补录改成结构化录入",
+          hypothesis: "如果把事实缺口、风险确认、策略目标拆成结构化字段，律师反复回案件档案补文本的次数会下降。",
+          validation: "观察后续案件里「补案件档案」次数是否下降，并检查是否更少出现同主题重复写回。",
+          signal: `当前案件已出现 ${matterInteractionSummary.caseWriteCount} 次案件档案写回动作。`,
           priority: "high",
           actionLabel: suggestion.actionLabel,
           target: suggestion.target,
@@ -412,7 +412,7 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
           item.key === "adapt-review-surface"
             ? "多个案件都在重复把审核上下文留到文书台，说明概览层的信息前置价值最高。"
             : item.key === "adapt-case-form"
-              ? "多个案件都在反复补 CASE 文本，说明结构化补录已经接近共性需求。"
+              ? "多个案件都在反复补案件档案文本，说明结构化补录已经接近共性需求。"
               : item.key === "adapt-memory-fastlane"
                 ? "多个案件都在持续沉淀长期记忆，说明认知升级正在从偶发动作走向常规流程。"
                 : "同一入口在多个案件中持续高频出现，说明默认展示顺序可能已经需要调整。";
@@ -420,7 +420,7 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
           item.key === "adapt-review-surface"
             ? "案件概览 / 文书台"
             : item.key === "adapt-case-form"
-              ? "CASE 档案层"
+              ? "案件档案层"
               : item.key === "adapt-memory-fastlane"
                 ? "认知面板"
                 : "工作台框架";

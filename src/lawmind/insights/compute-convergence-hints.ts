@@ -35,7 +35,7 @@ export function computeConvergenceHints(summary: BehaviorSummary): ConvergenceHi
   if (summary.caseWriteCount >= 4) {
     hints.push({
       key: "case_write_dominant",
-      title: "CASE 补档频繁，建议固化为模板",
+      title: "案件档案补录频繁，建议固化为模板",
       detail: `已 ${summary.caseWriteCount} 次回写案件档案；这些字段值得抽成案件模板，新案件直接预填，减少重复劳动。`,
       actionLabel: "新增案件模板编辑器",
       tone: "info",

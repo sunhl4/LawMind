@@ -188,7 +188,7 @@ export function MatterCasePanel(props: Props): ReactNode {
           <li key={i}>{x}</li>
         ))}
       </ul>
-      <h3 ref={caseMdRef}>CASE.md {caseTruncated ? "（已截断显示）" : ""}</h3>
+      <h3 ref={caseMdRef}>案件档案（CASE.md）{caseTruncated ? "（已截断显示）" : ""}</h3>
       <pre className="lm-case-md">{caseMemory}</pre>
     </div>
   );

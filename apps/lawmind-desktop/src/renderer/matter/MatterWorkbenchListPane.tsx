@@ -60,7 +60,7 @@ export function MatterWorkbenchListPane(props: Props) {
             <p className="lm-callout-body">{listError}</p>
           </div>
         ) : null}
-        {!loadingList && overviews.length === 0 && (
+        {!loadingList && !listError && overviews.length === 0 && (
           <div className="lm-meta lm-workbench-empty">暂无案件</div>
         )}
         <ul className="lm-workbench-matter-list">

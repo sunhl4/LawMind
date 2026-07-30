@@ -16,6 +16,41 @@ export type SessionTimelineEntry = {
   severity: "info" | "warn";
 };
 
+function approvalStatusLabel(status: string): string {
+  switch (status) {
+    case "pending":
+      return "待审批";
+    case "approved":
+      return "已通过";
+    case "rejected":
+      return "已驳回";
+    case "needs_changes":
+      return "需修改";
+    default:
+      return status;
+  }
+}
+
+function jobStatusLabel(status: string | undefined): string {
+  switch (status) {
+    case "queued":
+      return "排队中";
+    case "running":
+      return "执行中";
+    case "succeeded":
+    case "completed":
+      return "已完成";
+    case "failed":
+      return "失败";
+    case "cancelled":
+      return "已取消";
+    case undefined:
+      return "未知";
+    default:
+      return status;
+  }
+}
+
 export async function buildMatterSessionTimeline(
   workspaceDir: string,
   matterId: string,
@@ -71,7 +106,7 @@ export async function buildMatterSessionTimeline(
     entries.push({
       id: approval.approvalId,
       timestamp: approval.requestedAt,
-      label: `审批 ${approval.status} — ${approval.reason.slice(0, 60)}`,
+      label: `审批 ${approvalStatusLabel(approval.status)} — ${approval.reason.slice(0, 60)}`,
       kind: "approval",
       severity: approval.status === "pending" ? "warn" : "info",
     });
@@ -97,7 +132,7 @@ export async function buildMatterSessionTimeline(
       entries.push({
         id: job.jobId ?? name,
         timestamp: job.updatedAt ?? job.createdAt ?? new Date().toISOString(),
-        label: `任务 ${job.status ?? "unknown"}`,
+        label: `任务 ${jobStatusLabel(job.status)}`,
         kind: "job",
         severity: job.status === "failed" || job.status === "cancelled" ? "warn" : "info",
       });

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AssistantOrgRole, AssistantRow } from "./lawmind-settings-models.ts";
 import type { PresetRow } from "./lawmind-app-data";
 import { apiSendJson } from "./api-client";
@@ -9,6 +9,7 @@ import {
   presetSummary,
   QUICK_ASSISTANT_PRESET_IDS,
 } from "./lawmind-assistant-templates";
+import { useModalFocusTrap } from "./use-modal-focus-trap";
 
 export type AssistantEditorDraft = {
   displayName: string;
@@ -368,6 +369,22 @@ export function LawmindAssistantEditorDialog({
   onClose,
   onSave,
 }: Props) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalFocusTrap(open, panelRef);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) {
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, busy, onClose]);
+
   if (!open) {
     return null;
   }
@@ -383,7 +400,13 @@ export function LawmindAssistantEditorDialog({
   };
 
   return (
-    <div className="lm-wizard-backdrop" role="dialog" aria-modal="true" aria-label="助手编辑">
+    <div
+      className="lm-wizard-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label="助手编辑"
+      ref={panelRef}
+    >
       {editingAssistantId === null ? (
         <AssistantQuickCreateWizard
           presets={presets}

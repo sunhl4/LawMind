@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { apiGetJson, apiSendJson } from "./api-client";
+import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import { apiPostRedlineHunkResolve, apiPostRedlineResolveAll } from "./lawmind-api-routes.ts";
 
 type RedlineHunk = {
@@ -32,6 +32,7 @@ export function LawmindRedlinePanel(props: Props): ReactNode {
     if (!apiBase || !taskId) {
       return;
     }
+    setError(null);
     try {
       const j = await apiGetJson<{ ok?: boolean; proposal?: RedlineProposal | null }>(
         apiBase,
@@ -39,9 +40,13 @@ export function LawmindRedlinePanel(props: Props): ReactNode {
       );
       if (j.ok) {
         setProposal(j.proposal ?? null);
+      } else {
+        setProposal(null);
+        setError("加载修订提案失败");
       }
-    } catch {
+    } catch (e) {
       setProposal(null);
+      setError(errorMessage(e, "加载修订提案失败"));
     }
   }, [apiBase, taskId]);
 
@@ -176,12 +181,20 @@ export function LawmindRedlinePanel(props: Props): ReactNode {
       <p className="lm-meta">
         助手改稿后会自动生成待决提案；「接受」写入、「拒绝」回滚到基准。亦可手动设基准后编辑再「生成提案」。
       </p>
-      {error ? <p className="lm-meta lm-text-error">{error}</p> : null}
-      {pending.length === 0 ? (
+      {error ? (
+        <p className="lm-meta lm-text-error" role="alert">
+          {error}{" "}
+          <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => void load()}>
+            重试
+          </button>
+        </p>
+      ) : null}
+      {!error && pending.length === 0 ? (
         <p className="lm-meta">
           暂无待处理修订段。若已修改正文，请先点「将当前稿设为基准」再编辑，或点「生成提案」刷新对比。
         </p>
-      ) : (
+      ) : null}
+      {!error && pending.length > 0 ? (
         <ul className="lm-review-redline-list">
           {pending.map((h) => (
             <li key={h.hunkId} className="lm-review-redline-item">
@@ -213,7 +226,7 @@ export function LawmindRedlinePanel(props: Props): ReactNode {
             </li>
           ))}
         </ul>
-      )}
+      ) : null}
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type {
   ArtifactDraft,
   TaskExecutionPlanStep,
@@ -12,6 +13,7 @@ import { LawmindTaskCheckpoints } from "./LawmindTaskCheckpoints";
 import { internalIdsTitle, pathBasename } from "./display-ids";
 import { messageFromOkFalseBody, readJsonFromResponse, userMessageFromApiError } from "./api-client";
 import { apiAuthHeaders } from "./lawmind-api-auth.ts";
+import { useModalFocusTrap } from "./use-modal-focus-trap";
 
 function taskKindCn(kind: TaskKind): string {
   const map: Record<TaskKind, string> = {
@@ -130,6 +132,22 @@ export function LawmindDetailDialog(props: Props) {
     artifactApiRelFromOutput,
   } = props;
 
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalFocusTrap(open, panelRef);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
   if (!open) {
     return null;
   }
@@ -140,7 +158,7 @@ export function LawmindDetailDialog(props: Props) {
 
   return (
     <div className="lm-wizard-backdrop" role="dialog" aria-modal="true" aria-label="任务或草稿详情">
-      <div className="lm-wizard lm-wizard--detail">
+      <div className="lm-wizard lm-wizard--detail" ref={panelRef}>
         <h2
           title={
             detailId

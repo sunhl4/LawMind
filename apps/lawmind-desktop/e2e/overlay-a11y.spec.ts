@@ -28,6 +28,24 @@ test.describe("覆盖层 a11y 冒烟", () => {
     });
   });
 
+  test("文件页快速打开为 dialog 且 Escape 关闭", async ({ page }) => {
+    await gotoShell(page);
+    const fileTab = page.getByRole("tab", { name: /文件|材料/i }).or(page.getByTestId("lm-tab-files"));
+    if (await fileTab.first().isVisible({ timeout: 8_000 }).catch(() => false)) {
+      await fileTab.first().click();
+    }
+    const quickOpen = page.getByRole("button", { name: /在材料中搜索|快速打开/i });
+    if (!(await quickOpen.isVisible({ timeout: 8_000 }).catch(() => false))) {
+      test.skip();
+      return;
+    }
+    await quickOpen.click();
+    const dialog = page.getByRole("dialog", { name: /快速打开/i });
+    await expect(dialog).toBeVisible({ timeout: 10_000 });
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0, { timeout: 10_000 });
+  });
+
   test("案件工作台 Tab 可切换到任务", async ({ page }) => {
     await gotoShell(page);
     // 侧栏选第一个案件（若有）

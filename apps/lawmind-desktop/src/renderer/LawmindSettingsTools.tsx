@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { toolDisplayNameZh } from "../../../../src/lawmind/platform/requires-action.js";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import { apiPatch } from "./lawmind-api-routes.ts";
+import { riskLevelLabel } from "./matter/matter-display-labels";
 
 type ToolRow = {
   name: string;
@@ -36,7 +38,10 @@ export function LawmindSettingsTools(props: Props): ReactNode {
       .catch((e) => setError(errorMessage(e, "无法加载工具列表")));
     void apiGetJson<{ ok?: boolean; highSecurityMode?: boolean }>(apiBase, "/api/policy/workspace")
       .then((r) => setHighSecurityMode(r.highSecurityMode === true))
-      .catch(() => setHighSecurityMode(false));
+      .catch((e) => {
+        setHighSecurityMode(false);
+        setError(errorMessage(e, "无法加载高安全策略"));
+      });
   }, [apiBase]);
 
   async function toggleHighSecurity(): Promise<void> {
@@ -112,7 +117,7 @@ export function LawmindSettingsTools(props: Props): ReactNode {
           <div className="lm-settings-row-stack">
             <span className="lm-settings-key">推荐法律检索白名单</span>
             <span className="lm-settings-caption" style={{ margin: 0 }}>
-              一键写入 Brave + 常见法规站主机；不强制开启联网，也不强制 enforcement
+              一键写入 Brave + 常见法规站主机；不强制开启联网，也不强制执行白名单策略
             </span>
           </div>
           <button
@@ -159,11 +164,13 @@ export function LawmindSettingsTools(props: Props): ReactNode {
               {tools.map((t) => (
                 <li key={t.name} className="lm-tools-registry-row">
                   <div className="lm-tools-registry-main">
-                    <strong>{t.name}</strong>
+                    <strong>{toolDisplayNameZh(t.name)}</strong>
                     {t.description ? <p className="lm-meta">{t.description}</p> : null}
                     <span className="lm-meta">
                       {t.category}
-                      {t.governance?.riskLevel ? ` · 风险 ${t.governance.riskLevel}` : ""}
+                      {t.governance?.riskLevel
+                        ? ` · 风险 ${riskLevelLabel(t.governance.riskLevel)}`
+                        : ""}
                       {t.governance?.matterScope === "required" ? " · 需绑定案件" : ""}
                     </span>
                   </div>

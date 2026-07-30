@@ -377,7 +377,7 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
             <div className="lm-callout lm-callout-muted" role="status">
               <p className="lm-callout-title">责任与交付权限</p>
               <p className="lm-callout-body">
-                产出 Agent：{assistantId || "未记录"} · 复核人：
+                产出助手：{assistantId || "未记录"} · 复核人：
                 {detail.reviewedBy?.trim() || "待执业律师确认"} · 对外交付：
                 {detail.reviewStatus === "approved"
                   ? `已由 ${detail.reviewedBy?.trim() || "律师"} 批准`

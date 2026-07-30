@@ -4,6 +4,7 @@ import {
   toolArgsAreDocumentWrite,
   toolArgsLinkedTaskId,
 } from "../../../../src/lawmind/platform/tool-approval-diff.ts";
+import { useModalFocusTrap } from "./use-modal-focus-trap";
 
 const BODY_KEYS = ["content", "body"] as const;
 const PATH_KEYS = ["file_path", "path"] as const;
@@ -87,6 +88,8 @@ export function LawmindToolArgsEditDialog(props: LawmindToolArgsEditDialogProps)
   } = props;
   const titleId = useId();
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  useModalFocusTrap(open, dialogRef);
 
   const baseArgs = useMemo(
     () => (toolArgs && typeof toolArgs === "object" ? { ...toolArgs } : {}),
@@ -186,6 +189,7 @@ export function LawmindToolArgsEditDialog(props: LawmindToolArgsEditDialogProps)
       }}
     >
       <div
+        ref={dialogRef}
         className={`lm-wizard lm-tool-args-edit-dialog lm-tool-args-edit-dialog--${sizeMode}`}
         role="dialog"
         aria-modal="true"

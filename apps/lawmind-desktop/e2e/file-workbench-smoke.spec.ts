@@ -40,8 +40,9 @@ test.describe("文件台 / 材料树冒烟", () => {
       return;
     }
     await quickOpen.click();
-    const dialog = page.getByRole("dialog").or(page.locator(".lm-wizard-backdrop--quickopen, .lm-quickopen"));
-    await expect(dialog.first()).toBeVisible({ timeout: 10_000 });
+    const dialog = page.getByRole("dialog", { name: /快速打开/i });
+    await expect(dialog).toBeVisible({ timeout: 10_000 });
     await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0, { timeout: 10_000 });
   });
 });

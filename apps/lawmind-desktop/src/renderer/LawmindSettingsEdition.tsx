@@ -33,7 +33,7 @@ const FEATURE_ROWS: FeatureRow[] = [
   { key: "acceptancePackExport", label: "一键打包验收材料" },
   { key: "qualityDashboardJsonExport", label: "质量数据导出（JSON）" },
   { key: "complianceAuditExport", label: "合规审计批量导出" },
-  { key: "auditIntegrityExport", label: "审计 hash-chain 完整性导出" },
+  { key: "auditIntegrityExport", label: "审计链式校验完整性导出" },
   { key: "crossMatterRoadmap", label: "跨案件路线图" },
   { key: "crossMatterAcceptanceDashboard", label: "跨案件验收就绪概览" },
   { key: "collaborationSummary", label: "协作摘要" },
@@ -135,7 +135,7 @@ export function LawmindSettingsEdition({ apiBase }: Props): ReactNode {
               ? "存在异常"
               : "完整";
         setExportHint(
-          `hash-chain：事件 ${i.eventCount ?? 0} 条 · 已链式 ${i.chainedCount ?? 0} · ${chainNote}`,
+          `审计链式校验：事件 ${i.eventCount ?? 0} 条 · 已链式 ${i.chainedCount ?? 0} · ${chainNote}`,
         );
       }
     } catch (e) {

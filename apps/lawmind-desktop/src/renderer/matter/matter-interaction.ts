@@ -219,7 +219,7 @@ export function matterInteractionSurfaceLabel(surface?: string): string {
     case "cognition":
       return "认知页";
     case "case-focus":
-      return "CASE 焦点";
+      return "案件档案焦点";
     case "overview":
       return "案件概览";
     default:
@@ -255,7 +255,7 @@ export function blockingReasonLabel(kind: WorkQueueItem["kind"]): string {
 export function blockingNextAction(kind: WorkQueueItem["kind"]): string {
   switch (kind) {
     case "need_client_input":
-      return "先向客户发起补充提问，并把缺口写入 CASE 或任务备注。";
+      return "先向客户发起补充提问，并把缺口写入案件档案或任务备注。";
     case "need_evidence":
       return "先补证据目录或事实清单，再继续推理和交付。";
     case "need_conflict_check":

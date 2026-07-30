@@ -3,12 +3,13 @@
  * 分层导航：先读手册与交付心智，其余按需展开。
  */
 
-import type { MouseEvent, ReactNode } from "react";
+import { useEffect, useRef, type MouseEvent, type ReactNode } from "react";
 import {
   LAWMIND_DOWNLOAD_PAGE_URL,
   lawmindDocUrl,
   lawmindGithubBlobUrl,
 } from "./lawmind-public-urls.js";
+import { useModalFocusTrap } from "./use-modal-focus-trap";
 
 const DOCS_START_HERE = [
   {
@@ -88,9 +89,22 @@ function linkList(items: readonly { label: string; href: string }[], tight: bool
 
 export function HelpPanel(props: Props): ReactNode {
   const { onClose } = props;
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalFocusTrap(true, panelRef);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   return (
     <div className="lm-wizard-backdrop" role="dialog" aria-modal="true" aria-label="帮助">
-      <div className="lm-wizard lm-help-panel">
+      <div className="lm-wizard lm-help-panel" ref={panelRef}>
         <h2>帮助</h2>
         <p className="lm-meta">
           LawMind 是<strong>本机律师工作台</strong>：多助手分工、材料留在您电脑上。对外文书请在<strong>文书台</strong>中把关并通过验收门禁后再交付。下方文档与在线《使用手册》一致；需 **PDF / 离线** 时打开手册第 16 节按步骤导出。

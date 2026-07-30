@@ -1,5 +1,5 @@
 /**
- * <LawyerActionFeed /> — W10。
+ * <LawyerActionFeed /> — W10.
  *
  * 仅渲染：把 InteractionEvent 数组按时间倒序展示。所有计算（surface 计数、主导动作）
  * 都在 src/lawmind/insights/computeBehaviorSummary 内完成。
@@ -7,6 +7,7 @@
 
 import type { ReactNode } from "react";
 import type { InteractionEvent } from "../../../../../src/lawmind/insights/index.ts";
+import { matterInteractionSurfaceLabel } from "../matter/matter-interaction";
 
 type Props = {
   events: InteractionEvent[];
@@ -33,7 +34,7 @@ export function LawyerActionFeed({ events, formatRelative }: Props): ReactNode {
           }}
         >
           <div style={{ fontWeight: 600 }}>
-            {actionLabel(ev.action)} · {ev.surface ?? "未知表面"}
+            {actionLabel(ev.action)} · {matterInteractionSurfaceLabel(ev.surface)}
           </div>
           <div className="lm-meta">{ev.label ?? "无标签"}</div>
           <div className="lm-meta" style={{ marginTop: 4, fontSize: 11 }}>
@@ -48,7 +49,7 @@ export function LawyerActionFeed({ events, formatRelative }: Props): ReactNode {
 function actionLabel(a: InteractionEvent["action"]): string {
   switch (a) {
     case "open_review":
-      return "进入文书台";
+      return "打开文书台";
     case "save_upgrade_suggestion":
       return "采纳认知升级";
     case "write_case_note":

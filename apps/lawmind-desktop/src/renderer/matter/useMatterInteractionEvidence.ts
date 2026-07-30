@@ -83,13 +83,13 @@ export function useMatterInteractionEvidence(input: {
           ? "memory"
           : "case";
     const dominantActionLabel =
-      dominantAction === "review" ? "审核往返最频繁" : dominantAction === "memory" ? "认知沉淀最活跃" : "CASE 补档最频繁";
+      dominantAction === "review" ? "审核往返最频繁" : dominantAction === "memory" ? "认知沉淀最活跃" : "案件档案补录最频繁";
     const dominantActionHint =
       dominantAction === "review"
         ? "律师最近更多是在文书台和案件页之间来回切换，说明草稿把关仍是当前主工作面。"
         : dominantAction === "memory"
           ? "律师最近更常把高频经验沉淀进长期记忆，说明认知升级机制开始被实际使用。"
-          : "律师最近更常把阻塞信息写回案件档案，说明 CASE 正在成为推进案件的实际操作面。";
+          : "律师最近更常把阻塞信息写回案件档案，说明案件档案正在成为推进案件的实际操作面。";
     return {
       total: interactions.length,
       latestAt: interactions
@@ -197,11 +197,11 @@ export function useMatterInteractionEvidence(input: {
           evidenceBlockers[0]?.detail ?? "当前案件仍缺关键事实、证据或冲突检查信息，推理与交付可信度不足。",
         count: evidenceBlockers.length,
         nextAction: blockingNextAction(evidenceBlockers[0]?.kind ?? "need_evidence"),
-        actionLabel: "去 CASE 档案",
+        actionLabel: "去案件档案",
         actionTab: "case",
         caseFocusContext: {
           title: "材料与事实阻塞",
-          hint: "建议先在 CASE 档案里补充事实缺口、证据线索或客户待答问题。",
+          hint: "建议先在案件档案里补充事实缺口、证据线索或客户待答问题。",
           query: "证据",
           section: "risk-notes",
         },
@@ -218,7 +218,7 @@ export function useMatterInteractionEvidence(input: {
           strategyBlockers[0]?.detail ?? "案件还没有沉淀出稳定的核心争点和任务目标，后续执行会反复返工。",
         count: strategyBlockers.length,
         nextAction: blockingNextAction(strategyBlockers[0]?.kind ?? "blocked_by_missing_strategy"),
-        actionLabel: "去 CASE 档案",
+        actionLabel: "去案件档案",
         actionTab: "case",
         caseFocusContext: {
           title: "策略尚未定型",

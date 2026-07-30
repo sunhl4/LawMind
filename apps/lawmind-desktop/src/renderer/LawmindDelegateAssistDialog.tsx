@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AssistantRow } from "./lawmind-settings-models.ts";
 import type { DelegationRow } from "./lawmind-app-data";
 import { assistantIdsBusyFromDelegations } from "./lawmind-delegation-status";
@@ -6,6 +6,7 @@ import { createDelegation } from "./lawmind-models-api";
 import { resolveComposeModelSelectValue } from "./lawmind-model-picker-utils";
 import type { ModelCatalogEntry } from "./lawmind-models-api";
 import { errorMessage } from "./api-client";
+import { useModalFocusTrap } from "./use-modal-focus-trap";
 
 type Props = {
   open: boolean;
@@ -42,6 +43,8 @@ export function LawmindDelegateAssistDialog(props: Props): ReactNode {
   const [task, setTask] = useState(taskDefault);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalFocusTrap(open, panelRef);
 
   const busyIds = useMemo(() => assistantIdsBusyFromDelegations(delegations), [delegations]);
 
@@ -59,6 +62,19 @@ export function LawmindDelegateAssistDialog(props: Props): ReactNode {
 
   const availablePeers = peers.filter((p) => !p.busy).slice(0, 3);
   const showPeers = availablePeers.length > 0 ? availablePeers : peers.slice(0, 3);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) {
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, busy, onClose]);
 
   if (!open) {
     return null;
@@ -95,7 +111,7 @@ export function LawmindDelegateAssistDialog(props: Props): ReactNode {
 
   return (
     <div className="lm-wizard-backdrop" role="dialog" aria-modal="true" aria-label="交给其他助手">
-      <div className="lm-wizard lm-delegate-dialog">
+      <div className="lm-wizard lm-delegate-dialog" ref={panelRef}>
         <h3>交给其他助手</h3>
         <p className="lm-meta">
           进行中的步骤会显示在本对话上方；完成后会自动插入一条委派结果。
@@ -121,7 +137,7 @@ export function LawmindDelegateAssistDialog(props: Props): ReactNode {
           ))}
         </div>
         {peers.length === 0 ? (
-          <p className="lm-meta">暂无其他助手。请先在设置中新建智能体。</p>
+          <p className="lm-meta">暂无其他助手。请先在设置中新建助手。</p>
         ) : null}
         <label className="lm-delegate-task-label">
           <span>任务说明</span>
