@@ -62,6 +62,13 @@
   --info-dim:  rgba(47, 111, 214, 0.1);
   --info-border: rgba(47, 111, 214, 0.28);
 
+  /* Stacking — overlays share one ladder */
+  --z-dropdown: 1000;
+  --z-modal: 9000;
+  --z-popover: 20000;
+  --z-toast: 21000;
+  --z-critical: 99999;
+
   /* Radii */
   --r-xs: 4px;
   --r-sm: 6px;

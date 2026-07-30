@@ -72,7 +72,7 @@ export function LawmindMatterDeleteDialog({
       role="dialog"
       aria-modal="true"
       aria-label="删除案件"
-      style={{ zIndex: 21_000 }}
+      style={{ zIndex: "var(--z-toast)" }}
       onClick={() => {
         if (!busy) {
           onClose();

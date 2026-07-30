@@ -215,7 +215,7 @@ export function matterInteractionSurfaceLabel(surface?: string): string {
     case "draft-status":
       return "交付物状态";
     case "blocked-by":
-      return "Blocked By";
+      return "阻塞因素";
     case "cognition":
       return "认知页";
     case "case-focus":
@@ -288,7 +288,7 @@ export function memoryUpgradeRecommendation(label: string): string {
     return "如果这类条款模式持续高频出现，建议升级为常用审查模板并考虑强制注入。";
   }
   if (label.includes("案件") || label.includes("策略")) {
-    return "如果案件策略反复被检索，建议把关键决策沉淀为 MATTER_STRATEGY 核心段落。";
+    return "如果案件策略反复被检索，建议把关键决策沉淀为本案策略核心段落。";
   }
   return "如果这层信息持续高频命中，建议升级为更稳定的核心记忆而不是临时检索。";
 }

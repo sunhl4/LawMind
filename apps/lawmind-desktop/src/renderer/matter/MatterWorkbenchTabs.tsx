@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import type { MatterPanelTab } from "./useMatterWorkbench";
 
 type TabDef = { id: MatterPanelTab; label: string };
@@ -28,8 +28,34 @@ export function MatterWorkbenchTabs(props: Props): ReactNode {
   const { panelTab, onSelect, showShellOps = false } = props;
   const tabs = showShellOps ? [...MATTER_TABS, ...SHELL_OPS_TABS] : MATTER_TABS;
 
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const currentIndex = tabs.findIndex((t) => t.id === panelTab);
+    if (currentIndex < 0) {
+      return;
+    }
+    if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+      event.preventDefault();
+      const step = event.key === "ArrowRight" ? 1 : -1;
+      const nextIndex = (currentIndex + step + tabs.length) % tabs.length;
+      onSelect(tabs[nextIndex]?.id ?? panelTab);
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      onSelect(tabs[0]?.id ?? panelTab);
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      onSelect(tabs[tabs.length - 1]?.id ?? panelTab);
+    }
+  };
+
   return (
-    <div className="lm-tabs lm-workbench-tabs lm-workbench-tabs-commercial" role="tablist" aria-label="案件工作台视图">
+    <div
+      className="lm-tabs lm-workbench-tabs lm-workbench-tabs-commercial"
+      role="tablist"
+      aria-label="案件工作台视图"
+      onKeyDown={onKeyDown}
+    >
       {tabs.map((t) => (
         <button
           key={t.id}

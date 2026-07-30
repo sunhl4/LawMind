@@ -17,7 +17,7 @@ describe("api-client", () => {
 
   it("handles 401 with key wording", () => {
     const t = userMessageFromApiError(401, { message: "Unauthorized" });
-    expect(t).toContain("API Key");
+    expect(t).toContain("API 密钥");
   });
 
   it("maps invalid_api_token without blaming model API Key", () => {

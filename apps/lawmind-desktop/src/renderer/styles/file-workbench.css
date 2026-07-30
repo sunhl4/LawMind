@@ -1407,7 +1407,7 @@
 /* ── Context menu ──────────────────────────────────────────── */
 .lm-context-menu {
   position: fixed;
-  z-index: 2000;
+  z-index: var(--z-popover);
   background: var(--surface-2);
   border: 1px solid var(--border-md);
   border-radius: var(--r);

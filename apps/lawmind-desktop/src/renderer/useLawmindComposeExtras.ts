@@ -164,7 +164,7 @@ export function useLawmindComposeExtras(opts: {
           distillBits.push("待记忆检查采纳");
         }
         const distillHint = distillBits.length > 0 ? ` · ${distillBits.join(" · ")}` : "";
-        const llmHint = j.usedLlmDigest ? " · 已 LLM 摘要" : "";
+        const llmHint = j.usedLlmDigest ? " · 已生成摘要" : "";
         setCompactHint(
           j.compacted
             ? `已整理上下文${typeof j.droppedMessageCount === "number" ? `（压缩 ${j.droppedMessageCount} 条）` : ""}${llmHint}${distillHint}`

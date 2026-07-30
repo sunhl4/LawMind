@@ -223,7 +223,7 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
             position: "fixed",
             left: contextMenu.x,
             top: contextMenu.y,
-            zIndex: 99_999,
+            zIndex: "var(--z-critical)",
           }}
           onMouseDown={(e) => e.stopPropagation()}
         >

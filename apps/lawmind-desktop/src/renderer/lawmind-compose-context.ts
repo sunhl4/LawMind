@@ -298,7 +298,7 @@ export function buildComposeContextPickerItems(opts: {
           id: "clause:full",
           category: "clause" as const,
           label: "条款审查要点（整册）",
-          hint: "playbooks/CLAUSE_PLAYBOOK.md",
+          hint: "条款审查要点全文",
           scope: "full" as const,
           alreadyPinned: pinnedTruthIds.has(makeContextPinId({ pinKind: "clause", scope: "full" })),
         },
@@ -307,7 +307,7 @@ export function buildComposeContextPickerItems(opts: {
           id: `clause:section:${heading}`,
           category: "clause" as const,
           label: heading.replace(/^##\s+/, ""),
-          hint: "CLAUSE_PLAYBOOK 片段",
+          hint: "条款审查要点片段",
           scope: "section" as const,
           sectionHeading: heading,
           alreadyPinned: pinnedTruthIds.has(
@@ -338,8 +338,8 @@ export function buildComposeContextPickerItems(opts: {
             kind: "theory" as const,
             id: `theory:${matterId}`,
             category: "theory" as const,
-            label: "本案策略 MATTER_STRATEGY",
-            hint: `cases/${matterId}/MATTER_STRATEGY.md`,
+            label: "本案策略",
+            hint: "案件策略与底线要点",
             matterId,
             alreadyPinned: pinnedTruthIds.has(
               makeContextPinId({ pinKind: "theory", matterId }),
@@ -440,7 +440,7 @@ export function formatTruthPinChip(
       return {
         id,
         shortLabel: "🧭 本案策略",
-        title: `本案理论 · cases/${pin.matterId}/MATTER_STRATEGY.md`,
+        title: "本案策略",
       };
     default: {
       const _exhaustive: never = pin;

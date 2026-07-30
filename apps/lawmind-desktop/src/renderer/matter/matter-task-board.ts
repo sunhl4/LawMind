@@ -1,6 +1,12 @@
 import type { ApprovalRequest, WorkQueueItem } from "../../../../../src/lawmind/core/contracts.ts";
 import type { ArtifactDraft, TaskRecord } from "../../../../../src/lawmind/types.ts";
 import { lawyerDeliverableTypeLabel } from "../lawmind-lawyer-labels";
+import { taskRecordStatusLabel } from "../lawmind-execution-status-label";
+import {
+  approvalStatusLabel,
+  queueKindLabel,
+  reviewStatusLabel,
+} from "./matter-display-labels";
 
 export type TaskBoardRowKind = "task" | "queue" | "approval" | "draft" | "job";
 
@@ -34,21 +40,35 @@ const QUEUE_PHASE_ZH: Record<string, string> = {
   render: "渲染",
 };
 
-const QUEUE_KIND_ZH: Record<string, string> = {
-  need_client_input: "待客户补充",
-  need_evidence: "待证据",
-  need_conflict_check: "利益冲突核查",
-  need_lawyer_review: "待律师复核",
-  need_partner_approval: "待合伙人批准",
-  ready_to_draft: "可起草",
-  ready_to_render: "可渲染",
-  blocked_by_deadline: "节点阻塞",
-  blocked_by_missing_strategy: "策略未明",
+const QUEUE_STATUS_ZH: Record<string, string> = {
+  open: "待处理",
+  in_progress: "进行中",
+  done: "已完成",
+  cancelled: "已取消",
 };
 
-export function queueKindLabel(kind: string): string {
-  return QUEUE_KIND_ZH[kind] ?? kind;
+function queueStatusLabel(status: string): string {
+  return QUEUE_STATUS_ZH[status] ?? status;
 }
+
+const TASK_KIND_ZH: Record<string, string> = {
+  "research.general": "通用检索整理",
+  "research.legal": "法律专项检索",
+  "research.hybrid": "通用与法律联合检索",
+  "draft.word": "生成 Word 文书",
+  "draft.ppt": "生成演示文稿",
+  "summarize.case": "案件摘要",
+  "analyze.contract": "合同审查",
+  "agent.instruction": "对话交办",
+  unknown: "待人工确认",
+};
+
+export function taskKindLabel(kind: string): string {
+  return TASK_KIND_ZH[kind] ?? kind;
+}
+
+/** Re-export canonical queue kind labels (single source: matter-display-labels). */
+export { queueKindLabel };
 
 const JOB_STATUS_ZH: Record<string, string> = {
   scheduled: "已预约",
@@ -77,8 +97,8 @@ export function mergeTaskBoardRows(input: {
       id: `task:${t.taskId}`,
       kind: "task",
       title: t.summary.slice(0, 120) || t.taskId,
-      subtitle: t.kind,
-      statusLabel: t.status,
+      subtitle: taskKindLabel(t.kind),
+      statusLabel: taskRecordStatusLabel(t),
       sortKey: t.updatedAt ?? t.createdAt ?? "",
       priority: 2,
       taskId: t.taskId,
@@ -100,7 +120,7 @@ export function mergeTaskBoardRows(input: {
       kind: "queue",
       title: q.title,
       subtitle: subtitleParts.length ? subtitleParts.join(" · ") : kindLabel,
-      statusLabel: q.status,
+      statusLabel: queueStatusLabel(q.status),
       sortKey: q.updatedAt ?? q.createdAt ?? "",
       priority: q.priority === "critical" ? 0 : q.priority === "high" ? 1 : 3,
       taskId: q.relatedTaskId,
@@ -135,7 +155,7 @@ export function mergeTaskBoardRows(input: {
       kind: "approval",
       title: a.reason.slice(0, 120),
       subtitle: a.targetRole ? `→ ${a.targetRole}` : "审批",
-      statusLabel: a.status,
+      statusLabel: approvalStatusLabel(a.status),
       sortKey: a.requestedAt,
       priority: 0,
     });
@@ -147,7 +167,7 @@ export function mergeTaskBoardRows(input: {
       kind: "draft",
       title: d.title,
       subtitle: lawyerDeliverableTypeLabel(d.deliverableType) ?? d.output ?? "草稿",
-      statusLabel: d.reviewStatus,
+      statusLabel: reviewStatusLabel(d.reviewStatus),
       sortKey: d.createdAt ?? "",
       priority: d.reviewStatus === "pending" ? 1 : 4,
       draftTaskId: d.taskId,

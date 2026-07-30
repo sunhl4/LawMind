@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { apiGetJson } from "./api-client";
 import { apiAuthHeaders } from "./lawmind-api-auth.ts";
 import type { FileChatContextItem } from "./lawmind-app-shell";
@@ -15,6 +15,7 @@ import {
 } from "./lawmind-compose-context";
 import type { TruthSourceContextPin } from "../../../../src/lawmind/platform/compose-context-pin.ts";
 import { apiListFleetPlaybooks } from "./lawmind-review-campaign-api";
+import { useModalFocusTrap } from "./use-modal-focus-trap";
 
 type Props = {
   open: boolean;
@@ -67,6 +68,9 @@ export function LawmindComposeContextPicker(props: Props): ReactNode {
     Array<Pick<FileChatContextItem, "root" | "relPath" | "kind">>
   >([]);
   const [activeIndex, setActiveIndex] = useState(0);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  useModalFocusTrap(open, dialogRef, { initialFocusRef: searchRef });
 
   useEffect(() => {
     if (!open || !apiBase?.trim() || !includeTemplates) {
@@ -301,8 +305,10 @@ export function LawmindComposeContextPicker(props: Props): ReactNode {
   return (
     <div className="lm-compose-context-picker-backdrop" role="presentation" onClick={onClose}>
       <div
+        ref={dialogRef}
         className="lm-compose-context-picker"
-        role="listbox"
+        role="dialog"
+        aria-modal="true"
         aria-label="添加上下文"
         onClick={(e) => e.stopPropagation()}
       >
@@ -310,11 +316,11 @@ export function LawmindComposeContextPicker(props: Props): ReactNode {
           <label className="lm-compose-context-picker-search">
             <span className="lm-sr-only">搜索材料</span>
             <input
+              ref={searchRef}
               type="search"
               className="lm-input"
               value={query}
               placeholder={searchPlaceholder}
-              autoFocus
               data-testid="lm-compose-context-search"
               onChange={(e) => onQueryChange(e.target.value)}
             />
@@ -338,7 +344,7 @@ export function LawmindComposeContextPicker(props: Props): ReactNode {
           groups.map((group) => (
             <section key={group.category} className="lm-compose-context-picker-group">
               <h4 className="lm-compose-context-picker-group-title">{group.label}</h4>
-              <ul className="lm-compose-context-picker-list">
+              <ul className="lm-compose-context-picker-list" role="listbox" aria-label="可选上下文">
                 {group.items.map((item) => {
                   const idx = rowIndex;
                   rowIndex += 1;

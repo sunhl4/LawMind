@@ -300,13 +300,13 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
 
       <div className="lm-settings-group lm-settings-surface">
         <label className="lm-settings-row">
-          <span className="lm-settings-key">Worker 模型（工具轮）</span>
+          <span className="lm-settings-key">工具轮模型</span>
           <select
             className="lm-compose-select"
             data-testid="lm-settings-worker-model"
             disabled={!apiBase || !health?.modelConfigured || workerSaving}
             value={workerModelId}
-            aria-label="工具轮 Worker 模型"
+            aria-label="工具轮模型"
             onChange={(e) => {
               const next = e.target.value;
               setWorkerModelId(next);
@@ -331,7 +331,7 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
           </select>
         </label>
         <p className="lm-settings-caption">
-          可选：工具调用轮用较快模型，主模型仍用于终稿合成（E7）。
+          可选：工具调用轮用较快模型，主模型仍用于终稿合成。
         </p>
       </div>
 
@@ -392,7 +392,7 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
             </p>
           ) : null}
           {modelProviders.length > 0 ? (
-            <div className="lm-provider-key-grid" aria-label="本机 API Key 状态">
+            <div className="lm-provider-key-grid" aria-label="本机 API 密钥状态">
               {modelProviders.map((p) => (
                 <div className="lm-settings-row" key={p.provider}>
                   <span className="lm-settings-key">{p.label}</span>

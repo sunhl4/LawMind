@@ -215,7 +215,7 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
                 {confirm.preview?.compacted
                   ? `预计移除约 ${confirm.preview.droppedMessageCount} 条消息（~${confirm.preview.estimatedDroppedTokens.toLocaleString("zh-CN")} 字）${
                       confirm.preview.useLlmDigestAvailable
-                        ? "；将尝试 LLM 连贯摘要（失败则回退提取式）"
+                        ? "；将尝试模型连贯摘要（失败则回退提取式）"
                         : "；使用提取式要点"
                     }。`
                   : confirm.kind === "distill"

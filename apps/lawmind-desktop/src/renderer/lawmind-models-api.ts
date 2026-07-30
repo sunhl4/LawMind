@@ -82,7 +82,7 @@ export async function setWorkerModelIdApi(
   });
   const body = await readJsonFromResponse<{ ok?: boolean; workerModelId?: string | null }>(res);
   if (!res.ok || body.ok === false) {
-    throw new Error("设置 Worker 模型失败");
+    throw new Error("设置工具轮模型失败");
   }
   return body.workerModelId ?? null;
 }

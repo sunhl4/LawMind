@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useModalFocusTrap } from "./use-modal-focus-trap";
 
 export type CommandPaletteAction = {
   id: string;
@@ -24,6 +25,9 @@ export function LawmindCommandPalette({
   onQueryChange,
 }: Props): ReactNode {
   const [activeIndex, setActiveIndex] = useState(0);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useModalFocusTrap(open, dialogRef, { initialFocusRef: inputRef });
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase().replace(/^\//, "");
@@ -77,6 +81,7 @@ export function LawmindCommandPalette({
   return (
     <div className="lm-command-palette-backdrop" role="presentation" onClick={onClose}>
       <div
+        ref={dialogRef}
         className="lm-command-palette"
         role="dialog"
         aria-modal="true"
@@ -84,11 +89,11 @@ export function LawmindCommandPalette({
         onClick={(e) => e.stopPropagation()}
       >
         <input
+          ref={inputRef}
           className="lm-input lm-command-palette-input"
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
           placeholder="输入 / 命令或搜索…"
-          autoFocus
           aria-label="命令搜索"
         />
         <ul className="lm-command-palette-list">

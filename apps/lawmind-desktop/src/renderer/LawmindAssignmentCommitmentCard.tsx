@@ -9,6 +9,7 @@ import {
   type ExecutablePreference,
 } from "../../../../src/lawmind/memory/executable-preferences.ts";
 import { apiGetJson, apiSendJson } from "./api-client";
+import { resolveTaskStatusLabel } from "./lawmind-execution-status-label";
 import { lawyerAudienceLabel, lawyerDeliverableTypeLabel } from "./lawmind-lawyer-labels";
 
 type AssignmentSummary = {
@@ -154,7 +155,13 @@ export function LawmindAssignmentCommitmentCard(props: Props): ReactNode {
           <span className="lm-assignment-kicker">当前交办</span>
           <strong>{task.title?.trim() || task.summary}</strong>
         </div>
-        <span className="lm-assignment-status">{task.statusLabel ?? task.status}</span>
+        <span className="lm-assignment-status">
+          {task.statusLabel ??
+            resolveTaskStatusLabel({
+              status: task.status,
+              reviewStatus: task.reviewStatus,
+            })}
+        </span>
       </div>
       <div className="lm-assignment-meta">
         {task.matterId ? <span>案件：{task.matterId}</span> : <span>暂未归案</span>}

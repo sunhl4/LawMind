@@ -68,7 +68,7 @@ function stateLabel(state: WorkspaceCheck["state"]): string {
 
 function pct(rate: number | undefined | null): string {
   if (rate == null || Number.isNaN(rate)) {
-    return "n/a";
+    return "暂无";
   }
   return `${Math.round(rate * 1000) / 10}%`;
 }
@@ -667,7 +667,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
         <summary className="lm-doctor-group-title">团队成长 · 内测指标（高级）</summary>
         <p className="lm-settings-caption">
           近 {teamGrowth?.windowDays ?? 30} 天窗口；相对基线看一次过 / 改写 / 学习处理 / 路由命中 /
-          互审覆盖。样本不足时显示 n/a。
+          互审覆盖。样本不足时显示暂无。
         </p>
         {teamGrowth?.metrics && teamGrowth.metrics.length > 0 ? (
           <table

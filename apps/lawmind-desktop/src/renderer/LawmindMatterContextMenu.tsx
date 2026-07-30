@@ -29,7 +29,7 @@ export function LawmindMatterContextMenu(props: LawmindMatterContextMenuProps) {
   return (
     <div
       className="lm-context-menu lm-matter-context-menu"
-      style={{ position: "fixed", top: y, left: x, zIndex: 20_000 }}
+      style={{ position: "fixed", top: y, left: x, zIndex: "var(--z-popover)" }}
       role="menu"
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}

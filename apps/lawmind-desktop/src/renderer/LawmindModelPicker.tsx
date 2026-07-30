@@ -208,7 +208,7 @@ export function LawmindModelPicker(props: Props): ReactNode {
         ? Math.max(margin, rect.top - estimatedHeight - margin)
         : rect.bottom + margin;
     const left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin));
-    setPosition({ position: "fixed", top, left, width, zIndex: 9000 });
+    setPosition({ position: "fixed", top, left, width, zIndex: "var(--z-modal)" });
     setTimeout(() => searchRef.current?.focus(), 0);
   }, [open, query, flat.length]);
 

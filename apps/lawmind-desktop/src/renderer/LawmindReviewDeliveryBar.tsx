@@ -222,7 +222,7 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
             type="button"
             className="lm-review-toolbar-ghost"
             disabled={actionBusy || !approved}
-            title="将 Redline 提案写入 Word 修订痕迹；需本机 officecli，否则回退为普通 docx"
+            title="将修订提案写入 Word 修订痕迹；需本机 officecli，否则回退为普通 docx"
             onClick={() => onExportTrackedWord()}
           >
             {actionBusy ? "导出中…" : "带修订"}

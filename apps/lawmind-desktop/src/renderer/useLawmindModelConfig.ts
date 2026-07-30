@@ -114,7 +114,7 @@ export function useLawmindModelConfig(args: UseLawmindModelConfigArgs) {
     const effectiveId = resolveComposeModelSelectValue(modelCatalog, selectedModelId);
     const picked = modelCatalog.find((m) => m.id === effectiveId);
     if (picked && !picked.configured) {
-      setComposeModelHint(`「${picked.label}」未配置 API Key，请打开 API 配置向导或添加自定义模型。`);
+      setComposeModelHint(`「${picked.label}」未配置 API 密钥，请打开 API 配置向导或添加自定义模型。`);
       clearComposeModelHintSoon(8000);
       return;
     }

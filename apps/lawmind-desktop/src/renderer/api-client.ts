@@ -129,22 +129,22 @@ export function messageFromOkFalseBody(body: unknown, fallback: string): string 
 
 /** Shared copy for compose banner, readiness strip, and send-time errors. */
 export const MODEL_NOT_CONFIGURED_USER_HINT =
-  "请在设置中打开「API 配置向导」，或编辑用户目录下的 .env.lawmind 填写模型 API Key。";
+  "请在设置中打开「API 配置向导」，或编辑用户目录下的 .env.lawmind 填写模型 API 密钥。";
 
 const CODE_HINTS: Record<string, string> = {
   missing_api_key: MODEL_NOT_CONFIGURED_USER_HINT,
   missing_provider_api_key:
-    "当前所选模型的服务商尚未配置 Key。请打开 API 配置向导填写对应服务商密钥，或添加自定义模型。",
+    "当前所选模型的服务商尚未配置密钥。请打开 API 配置向导填写对应服务商密钥，或添加自定义模型。",
   invalid_api_token:
-    "本机服务鉴权失败（与模型 API Key 无关）。请完全退出并重启 LawMind 桌面端后再试。",
+    "本机服务鉴权失败（与模型 API 密钥无关）。请完全退出并重启 LawMind 桌面端后再试。",
   invalid_matter_id: "案件 ID 格式不正确。请使用字母或数字开头，2–128 字符，仅含字母、数字、点、下划线、连字符。",
   message_required: "请输入有效内容后再发送。",
   invalid_matter_id_chat: "当前关联的案件 ID 无效，请清空或更正后再试。",
   session_assistant_mismatch: "该会话属于其他助手，请新开对话或清空会话后重试。",
   approval_already_resolved: "该审批已被处理，请刷新待办后查看最新状态。",
-  model_unavailable: "模型暂时不可用。请检查 API Key、账户状态与网络连接。",
+  model_unavailable: "模型暂时不可用。请检查 API 密钥、账户状态与网络连接。",
   model_network_error: "无法连接模型服务。请检查 Base URL、本机网络/代理，或在设置中测试模型连接。",
-  missing_platform_api_key: "平台模型未开通。请使用 API 配置向导自备 Key，或联系管理员配置平台模型。",
+  missing_platform_api_key: "平台模型未开通。请使用 API 配置向导自备密钥，或联系管理员配置平台模型。",
 };
 
 const MODEL_ERROR_CODES = new Set(["model_unavailable", "model_network_error"]);
@@ -182,7 +182,7 @@ export function userMessageFromApiError(status: number, body: ApiErrorJson): str
     if (joined) {
       return friendlyModelErrorMessage(joined);
     }
-    return CODE_HINTS[code] ?? "模型暂时不可用。请检查 API Key、账户状态与网络连接。";
+    return CODE_HINTS[code] ?? "模型暂时不可用。请检查 API 密钥、账户状态与网络连接。";
   }
   if (joined && isModelProviderErrorMessage(joined)) {
     return friendlyModelErrorMessage(joined);
@@ -193,10 +193,10 @@ export function userMessageFromApiError(status: number, body: ApiErrorJson): str
     return hint;
   }
   if (status === 503 || status === 502) {
-    return hint || `${base} 请检查 API Key、网络与本地服务是否正常。`;
+    return hint || `${base} 请检查 API 密钥、网络与本地服务是否正常。`;
   }
   if (status === 401 || status === 403) {
-    return hint || `${base} 请检查 API Key 是否有效、是否过期。`;
+    return hint || `${base} 请检查 API 密钥是否有效、是否过期。`;
   }
   if (
     status === 409 &&

@@ -49,7 +49,7 @@ export function FileWorkbenchDialogs({
     return (
       <div
         className="lm-wizard-backdrop"
-        style={{ zIndex: 21_000 }}
+        style={{ zIndex: "var(--z-toast)" }}
         role="dialog"
         aria-modal="true"
         aria-label="加入案件"

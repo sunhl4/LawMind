@@ -40,7 +40,13 @@ describe("mergeTaskBoardRows", () => {
       drafts: [],
     });
     expect(rows[0]?.kind).toBe("approval");
+    expect(rows[0]?.statusLabel).toBe("待审批");
     expect(rows.some((r) => r.kind === "queue")).toBe(true);
+    expect(rows.find((r) => r.kind === "queue")?.statusLabel).toBe("待处理");
+    expect(rows.find((r) => r.kind === "task")?.statusLabel).not.toMatch(
+      /^(pending|open|running|in_progress)$/,
+    );
+    expect(rows.find((r) => r.kind === "task")?.subtitle).toBe("对话交办");
   });
 
   it("includes running jobs", () => {

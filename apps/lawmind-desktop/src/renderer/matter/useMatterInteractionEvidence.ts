@@ -222,7 +222,7 @@ export function useMatterInteractionEvidence(input: {
         actionTab: "case",
         caseFocusContext: {
           title: "策略尚未定型",
-          hint: "建议先在 CASE 或 MATTER_STRATEGY 中补齐核心争点、目标和底线。",
+          hint: "建议先在案件档案或本案策略中补齐核心争点、目标和底线。",
           query: "策略",
           section: "core-issues",
         },
@@ -281,7 +281,7 @@ export function useMatterInteractionEvidence(input: {
       if (item.actionTaskId) {
         openReviewFromMatter(item.actionTaskId, {
           sourceSurface: "blocked-by",
-          sourceLabel: item.caseFocusContext?.title ?? "Blocked By",
+          sourceLabel: item.caseFocusContext?.title ?? "阻塞因素",
         });
         return;
       }

@@ -209,7 +209,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
         return;
       }
       if (picked && !picked.configured) {
-        setError(`「${picked.label}」尚未配置 API Key。请打开 API 配置向导或添加自定义模型。`);
+        setError(`「${picked.label}」尚未配置 API 密钥。请打开 API 配置向导或添加自定义模型。`);
         setShowSettings(true, "models");
         return;
       }

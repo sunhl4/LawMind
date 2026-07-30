@@ -1,9 +1,16 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import { delegationStatusLabel } from "./lawmind-delegation-status";
 import { openJobEventStream } from "./lawmind-job-stream";
 import type { LawMindRequiresAction } from "./lawmind-requires-action";
 import { jobStatusLabel } from "./matter/matter-task-board";
+import { useModalFocusTrap } from "./use-modal-focus-trap";
 
 type JobRow = {
   jobId: string;
@@ -21,13 +28,23 @@ type DelegationRow = {
   updatedAt?: string;
 };
 
+type DrawerTab = "jobs" | "approvals" | "delegations";
+
 type Props = {
   open: boolean;
   onClose: () => void;
   apiBase: string;
   matterId?: string | null;
-  tab?: "jobs" | "approvals" | "delegations";
+  tab?: DrawerTab;
 };
+
+const DRAWER_TABS: { id: DrawerTab; label: (counts: Counts) => string }[] = [
+  { id: "jobs", label: () => "后台任务" },
+  { id: "approvals", label: (c) => `待批准 (${c.approvals})` },
+  { id: "delegations", label: (c) => `委派 (${c.delegations})` },
+];
+
+type Counts = { approvals: number; delegations: number };
 
 export function LawmindTaskDrawer({
   open,
@@ -36,13 +53,18 @@ export function LawmindTaskDrawer({
   matterId,
   tab: initialTab = "jobs",
 }: Props): ReactNode {
-  const [tab, setTab] = useState<"jobs" | "approvals" | "delegations">(initialTab);
+  const [tab, setTab] = useState<DrawerTab>(initialTab);
   const [jobs, setJobs] = useState<JobRow[]>([]);
   const [approvals, setApprovals] = useState<LawMindRequiresAction[]>([]);
   const [delegations, setDelegations] = useState<DelegationRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [cancelBusyId, setCancelBusyId] = useState<string | null>(null);
   const [cancelHint, setCancelHint] = useState<string | null>(null);
   const jobEventSourcesRef = useRef<Map<string, () => void>>(new Map());
+  const drawerRef = useRef<HTMLElement>(null);
+  const closeBtnRef = useRef<HTMLButtonElement>(null);
+  useModalFocusTrap(open, drawerRef, { initialFocusRef: closeBtnRef });
 
   const cancelDelegation = async (id: string) => {
     setCancelBusyId(id);
@@ -59,21 +81,29 @@ export function LawmindTaskDrawer({
   };
 
   const refresh = async (): Promise<void> => {
-    const q = matterId ? `?matterId=${encodeURIComponent(matterId)}&limit=30` : "?limit=30";
-    const [j, s, d] = await Promise.all([
-      apiGetJson<{ ok: boolean; jobs?: JobRow[] }>(apiBase, `/api/jobs${q}`),
-      apiGetJson<{ ok: boolean; toolApprovals?: LawMindRequiresAction[] }>(
-        apiBase,
-        `/api/action-summary${matterId ? `?matterId=${encodeURIComponent(matterId)}` : ""}`,
-      ),
-      apiGetJson<{ ok: boolean; delegations?: DelegationRow[] }>(
-        apiBase,
-        `/api/delegations?status=active&limit=20`,
-      ),
-    ]);
-    setJobs(j.jobs ?? []);
-    setApprovals(s.toolApprovals ?? []);
-    setDelegations(d.delegations ?? []);
+    setLoading(true);
+    setError(null);
+    try {
+      const q = matterId ? `?matterId=${encodeURIComponent(matterId)}&limit=30` : "?limit=30";
+      const [j, s, d] = await Promise.all([
+        apiGetJson<{ ok: boolean; jobs?: JobRow[] }>(apiBase, `/api/jobs${q}`),
+        apiGetJson<{ ok: boolean; toolApprovals?: LawMindRequiresAction[] }>(
+          apiBase,
+          `/api/action-summary${matterId ? `?matterId=${encodeURIComponent(matterId)}` : ""}`,
+        ),
+        apiGetJson<{ ok: boolean; delegations?: DelegationRow[] }>(
+          apiBase,
+          `/api/delegations?status=active&limit=20`,
+        ),
+      ]);
+      setJobs(j.jobs ?? []);
+      setApprovals(s.toolApprovals ?? []);
+      setDelegations(d.delegations ?? []);
+    } catch (e) {
+      setError(errorMessage(e, "加载任务抽屉失败"));
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -161,6 +191,29 @@ export function LawmindTaskDrawer({
       .join(","),
   ]);
 
+  const counts: Counts = { approvals: approvals.length, delegations: delegations.length };
+
+  const onTabKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const currentIndex = DRAWER_TABS.findIndex((t) => t.id === tab);
+    if (currentIndex < 0) {
+      return;
+    }
+    if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+      event.preventDefault();
+      const step = event.key === "ArrowRight" ? 1 : -1;
+      const nextIndex = (currentIndex + step + DRAWER_TABS.length) % DRAWER_TABS.length;
+      setTab(DRAWER_TABS[nextIndex]?.id ?? tab);
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      setTab(DRAWER_TABS[0]?.id ?? tab);
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      setTab(DRAWER_TABS[DRAWER_TABS.length - 1]?.id ?? tab);
+    }
+  };
+
   if (!open) {
     return null;
   }
@@ -168,43 +221,67 @@ export function LawmindTaskDrawer({
   return (
     <div className="lm-task-drawer-backdrop" role="presentation" onClick={onClose}>
       <aside
+        ref={drawerRef}
         className="lm-task-drawer"
         role="dialog"
         aria-modal="true"
         aria-label="任务与待批准"
+        aria-busy={loading}
         onClick={(e) => e.stopPropagation()}
       >
         <header className="lm-task-drawer-head">
           <h3>任务与待批准</h3>
-          <button type="button" className="lm-btn lm-btn-ghost lm-btn-small" onClick={onClose}>
+          <button
+            ref={closeBtnRef}
+            type="button"
+            className="lm-btn lm-btn-ghost lm-btn-small"
+            onClick={onClose}
+          >
             关闭
           </button>
         </header>
-        <div className="lm-task-drawer-tabs">
-          <button
-            type="button"
-            className={tab === "jobs" ? "lm-tab lm-tab-active" : "lm-tab"}
-            onClick={() => setTab("jobs")}
-          >
-            后台任务
-          </button>
-          <button
-            type="button"
-            className={tab === "approvals" ? "lm-tab lm-tab-active" : "lm-tab"}
-            onClick={() => setTab("approvals")}
-          >
-            待批准 ({approvals.length})
-          </button>
-          <button
-            type="button"
-            className={tab === "delegations" ? "lm-tab lm-tab-active" : "lm-tab"}
-            onClick={() => setTab("delegations")}
-          >
-            委派 ({delegations.length})
-          </button>
+        <div
+          className="lm-task-drawer-tabs"
+          role="tablist"
+          aria-label="任务抽屉分区"
+          onKeyDown={onTabKeyDown}
+        >
+          {DRAWER_TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              id={`lm-task-drawer-tab-${t.id}`}
+              aria-selected={tab === t.id}
+              aria-controls={`lm-task-drawer-panel-${t.id}`}
+              tabIndex={tab === t.id ? 0 : -1}
+              className={tab === t.id ? "lm-tab lm-tab-active" : "lm-tab"}
+              onClick={() => setTab(t.id)}
+            >
+              {t.label(counts)}
+            </button>
+          ))}
         </div>
+        {error ? (
+          <p className="lm-error" role="alert">
+            {error}{" "}
+            <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => void refresh()}>
+              重试
+            </button>
+          </p>
+        ) : null}
+        {loading && jobs.length === 0 && approvals.length === 0 && delegations.length === 0 ? (
+          <p className="lm-meta" role="status" aria-live="polite">
+            加载中…
+          </p>
+        ) : null}
         {tab === "jobs" ? (
-          <ul className="lm-task-drawer-list">
+          <ul
+            className="lm-task-drawer-list"
+            role="tabpanel"
+            id="lm-task-drawer-panel-jobs"
+            aria-labelledby="lm-task-drawer-tab-jobs"
+          >
             {jobs.length === 0 ? (
               <li className="lm-meta">暂无任务</li>
             ) : (
@@ -218,7 +295,12 @@ export function LawmindTaskDrawer({
           </ul>
         ) : null}
         {tab === "approvals" ? (
-          <ul className="lm-task-drawer-list">
+          <ul
+            className="lm-task-drawer-list"
+            role="tabpanel"
+            id="lm-task-drawer-panel-approvals"
+            aria-labelledby="lm-task-drawer-tab-approvals"
+          >
             {approvals.length === 0 ? (
               <li className="lm-meta">暂无待批准工具</li>
             ) : (
@@ -232,7 +314,12 @@ export function LawmindTaskDrawer({
           </ul>
         ) : null}
         {tab === "delegations" ? (
-          <ul className="lm-task-drawer-list">
+          <ul
+            className="lm-task-drawer-list"
+            role="tabpanel"
+            id="lm-task-drawer-panel-delegations"
+            aria-labelledby="lm-task-drawer-tab-delegations"
+          >
             {delegations.length === 0 ? (
               <li className="lm-meta">暂无进行中的委派</li>
             ) : (

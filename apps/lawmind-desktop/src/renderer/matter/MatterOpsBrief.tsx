@@ -160,7 +160,7 @@ export function MatterOpsBrief(props: Props): ReactNode {
             </div>
 
             <div className="lm-matter-ops-panel">
-              <h4>Matter 计划</h4>
+              <h4>案件计划</h4>
               <label className="lm-job-intake-field">
                 <span className="lm-meta">新增阶段</span>
                 <input

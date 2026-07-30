@@ -599,7 +599,7 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
           )}
         </section>
          <section className="lm-matter-cockpit-card lm-matter-roadmap-card">
-          <h3>Roadmap 候选池</h3>
+          <h3>路线图候选</h3>
           {roadmapCandidates.length === 0 ? (
             <p className="lm-meta">暂无</p>
           ) : (

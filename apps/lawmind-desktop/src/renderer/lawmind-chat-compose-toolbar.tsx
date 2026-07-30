@@ -213,7 +213,7 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
                   webSearchPolicyBlocked
                     ? "工作区策略已禁止联网检索"
                     : allowWebSearch
-                      ? "已开启：助手可调用 web_search（Brave）"
+                      ? "已开启：助手可联网检索（Brave）"
                       : "关闭：仅使用工作区、案件记忆与本地工具"
                 }
                 onChange={(e) => onAllowWebSearchChange(e.target.value === "web")}

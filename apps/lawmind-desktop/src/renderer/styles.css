@@ -4342,7 +4342,7 @@ html.lm-theme-dark .lm-main-header {
 .lm-wizard-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  z-index: var(--z-dropdown);
   background:
     radial-gradient(80% 60% at 50% 30%, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.85));
   -webkit-backdrop-filter: blur(10px) saturate(120%);
@@ -5431,7 +5431,7 @@ select option {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.35);
-  z-index: 9000;
+  z-index: var(--z-modal);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -9347,7 +9347,7 @@ select option {
 /* ── Context menu ──────────────────────────────────────────── */
 .lm-context-menu {
   position: fixed;
-  z-index: 2000;
+  z-index: var(--z-popover);
   background: var(--surface-2);
   border: 1px solid var(--border-md);
   border-radius: var(--r);
