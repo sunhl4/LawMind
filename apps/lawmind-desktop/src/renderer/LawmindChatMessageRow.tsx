@@ -143,8 +143,8 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
     msg.requiresAction?.filter(
       (a) => !(a.kind === "tool_approval" && a.toolName === "execute_workflow"),
     ) ?? [];
+  const clarifyAction = nonWorkflowRequiresActions.find((a) => a.kind === "clarification");
   const clarifyDeskTarget = (): NeedsDecisionDeskTarget => {
-    const clarifyAction = nonWorkflowRequiresActions.find((a) => a.kind === "clarification");
     return {
       sessionId: clarifyAction?.sessionId?.trim() || chatSessionId?.trim() || undefined,
       taskId: clarifyAction?.taskId?.trim() || linkedTaskId,
@@ -488,6 +488,10 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
                       onSubmitAnswers={
                         short && blocking
                           ? async (answers) => {
+                              if (clarifyAction && onResumeRequiresAction) {
+                                await onResumeRequiresAction(clarifyAction, "respond", answers);
+                                return;
+                              }
                               await onSendClarificationMessage(
                                 Object.entries(answers)
                                   .map(([k, v]) => {

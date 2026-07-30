@@ -20,8 +20,11 @@ export function MatterOpsBrief(props: Props): ReactNode {
   const [phaseTitle, setPhaseTitle] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const reload = async () => {
+    setLoading(true);
+    setError(null);
     try {
       const j = await apiGetJson<{ ok?: boolean; ops?: MatterOpsSummary }>(
         apiBase,
@@ -34,6 +37,8 @@ export function MatterOpsBrief(props: Props): ReactNode {
     } catch (err) {
       setOps(null);
       setError(errorMessage(err, "加载案件简报失败"));
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -107,32 +112,40 @@ export function MatterOpsBrief(props: Props): ReactNode {
         </button>
       </header>
 
-      <div className="lm-matter-ops-kpis" aria-label="案件关键指标">
-        <div className="lm-matter-ops-kpi">
-          <span className="lm-meta">开放风险</span>
-          <strong data-testid="lm-ops-risk-count">{openRisks}</strong>
+      {loading ? (
+        <p className="lm-meta" aria-busy="true">加载中…</p>
+      ) : error ? (
+        <div className="lm-callout lm-callout-warn" role="alert">
+          <p className="lm-callout-body">{error}</p>
+          <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => void reload()}>
+            重试
+          </button>
         </div>
-        <div className="lm-matter-ops-kpi">
-          <span className="lm-meta">计划阶段</span>
-          <strong>{phaseCount}</strong>
+      ) : (
+        <div className="lm-matter-ops-kpis" aria-label="案件关键指标">
+          <div className="lm-matter-ops-kpi">
+            <span className="lm-meta">开放风险</span>
+            <strong data-testid="lm-ops-risk-count">{openRisks}</strong>
+          </div>
+          <div className="lm-matter-ops-kpi">
+            <span className="lm-meta">计划阶段</span>
+            <strong>{phaseCount}</strong>
+          </div>
+          <div className="lm-matter-ops-kpi">
+            <span className="lm-meta">下一里程碑</span>
+            <strong>{ops?.nextMilestone?.title?.trim() || "—"}</strong>
+          </div>
+          <div className="lm-matter-ops-kpi">
+            <span className="lm-meta">范围基线</span>
+            <strong>{ops?.scope?.baseline?.trim() ? "已设定" : "未设定"}</strong>
+          </div>
         </div>
-        <div className="lm-matter-ops-kpi">
-          <span className="lm-meta">下一里程碑</span>
-          <strong>{ops?.nextMilestone?.title?.trim() || "—"}</strong>
-        </div>
-        <div className="lm-matter-ops-kpi">
-          <span className="lm-meta">范围基线</span>
-          <strong>{ops?.scope?.baseline?.trim() ? "已设定" : "未设定"}</strong>
-        </div>
-      </div>
-      {error && !ops ? (
-        <p className="lm-error" role="alert">
-          {error}
+      )}
+      {!loading && !error ? (
+        <p className="lm-meta lm-matter-ops-baseline" data-testid="lm-ops-baseline">
+          范围：{ops?.scope?.baseline?.trim() || "尚未设定基线"}
         </p>
       ) : null}
-      <p className="lm-meta lm-matter-ops-baseline" data-testid="lm-ops-baseline">
-        范围：{ops?.scope?.baseline?.trim() || "尚未设定基线"}
-      </p>
 
       {expanded ? (
         <div className="lm-matter-ops-expanded">

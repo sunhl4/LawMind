@@ -66,6 +66,8 @@ export function LawmindRedlinePanel(props: Props): ReactNode {
       )) as { ok?: boolean; proposal?: RedlineProposal };
       if (j.ok && j.proposal) {
         setProposal(j.proposal);
+      } else if (!j.ok) {
+        setError("设定基准失败");
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -83,9 +85,11 @@ export function LawmindRedlinePanel(props: Props): ReactNode {
         `/api/drafts/${encodeURIComponent(taskId)}/redline/generate`,
         "POST",
         {},
-      )) as { ok?: boolean; proposal?: RedlineProposal };
+      )) as { ok?: boolean; proposal?: RedlineProposal; error?: string };
       if (j.ok && j.proposal) {
         setProposal(j.proposal);
+      } else if (!j.ok) {
+        setError(j.error ?? "生成提案失败");
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

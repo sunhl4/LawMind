@@ -192,22 +192,22 @@ function LawmindAppSidebarImpl({
           />
         ) : null}
 
-        {actionSummaryTotal > 0 || recentCollabCompleted > 0 ? (
-          <div className="lm-side-footer">
-            {actionSummaryTotal > 0 ? (
-              <button
-                type="button"
-                className="lm-btn lm-btn-sm lm-side-needs-decision-btn lm-side-needs-decision-btn--brass"
-                onClick={onOpenNeedsDecisionDesk}
-                data-testid="lm-side-needs-decision"
-                title="打开「在办」处理澄清、批准与待审"
-              >
-                <span>待我拍板</span>
+        <div className="lm-side-footer">
+            <button
+              type="button"
+              className={`lm-btn lm-btn-sm lm-side-needs-decision-btn ${actionSummaryTotal > 0 ? "lm-side-needs-decision-btn--brass" : "lm-btn-secondary"}`}
+              onClick={onOpenNeedsDecisionDesk}
+              data-testid="lm-side-needs-decision"
+              title="打开「在办」处理澄清、批准与待审"
+              aria-label={`待我拍板${actionSummaryTotal > 0 ? `（${actionSummaryTotal} 项待处理）` : "（当前无待处理）"}`}
+            >
+              <span>待我拍板</span>
+              {actionSummaryTotal > 0 ? (
                 <span className="lm-side-needs-decision-badge" aria-label={`${actionSummaryTotal} 项待处理`}>
                   {actionSummaryTotal > 99 ? "99+" : actionSummaryTotal}
                 </span>
-              </button>
-            ) : null}
+              ) : null}
+            </button>
             {recentCollabCompleted > 0 ? (
               <button
                 type="button"
@@ -223,7 +223,6 @@ function LawmindAppSidebarImpl({
               </button>
             ) : null}
           </div>
-        ) : null}
       </aside>
       {!sidebarCollapsed ? (
         <div

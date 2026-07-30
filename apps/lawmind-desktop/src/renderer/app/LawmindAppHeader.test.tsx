@@ -204,9 +204,8 @@ describe("LawmindAppHeader", () => {
         />,
       );
     });
-    expect(host.querySelector('[data-testid="lm-tab-matter"]')?.textContent).toContain("案件");
-    expect(host.querySelector('[aria-current="page"]')?.textContent).toContain("案件");
-    expect(host.querySelector('[data-testid="lm-tab-workspace"]')?.getAttribute("aria-current")).toBeNull();
+    expect(host.querySelector('[data-testid="lm-tab-matter"]')).toBeNull();
+    expect(host.querySelector('[data-testid="lm-tab-workspace"]')?.getAttribute("aria-current")).toBe("page");
     expect(host.textContent).not.toContain("返回对话");
 
     await act(async () => {

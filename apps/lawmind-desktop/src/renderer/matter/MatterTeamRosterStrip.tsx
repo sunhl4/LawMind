@@ -38,6 +38,7 @@ export function MatterTeamRosterStrip({
   const [openDelegations, setOpenDelegations] = useState<DelegationRow[]>([]);
   const [nameById, setNameById] = useState<Record<string, string>>({});
   const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!apiBase?.trim() || !matterId?.trim()) {
@@ -47,6 +48,7 @@ export function MatterTeamRosterStrip({
     setRoster(null);
     setOpenDelegations([]);
     setErr(null);
+    setLoading(true);
     void (async () => {
       try {
         const [r, d, a] = await Promise.all([
@@ -82,6 +84,10 @@ export function MatterTeamRosterStrip({
         if (!cancelled) {
           setErr(errorMessage(e, "无法加载本案团队"));
         }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     })();
     return () => {
@@ -103,9 +109,13 @@ export function MatterTeamRosterStrip({
       <div className="lm-matter-team-strip-copy">
         <strong>本案团队</strong>
         <span className="lm-meta">
-          {names.length > 0
-            ? `编制 ${names.join("、")}${synth ? ` · 结论：${synth}` : ""}`
-            : "尚未记住会议编制 — 可在会议室勾选后点「记住本案编制」"}
+          {loading
+            ? "加载中…"
+            : err
+              ? null
+              : names.length > 0
+                ? `编制 ${names.join("、")}${synth ? ` · 结论：${synth}` : ""}`
+                : "尚未记住会议编制 — 可在会议室勾选后点「记住本案编制」"}
           {openDelegations.length > 0
             ? ` · ${openDelegations.length} 项未闭环委派`
             : ""}

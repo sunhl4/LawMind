@@ -386,12 +386,10 @@ export function LawmindAppRoot() {
    * 文书台 / 在办：不展示全局侧栏（页内自有目录）。
    * 会议室与对话共用全局左栏（材料树 + 会话列表），便于拖入议题材料。
    */
-  // 在办与对话共用全局左栏（会话 + 材料树）；审核台仍全宽无侧栏。
-  const showAppSidebar = mainView !== "review";
+  const showAppSidebar = mainView === "workspace" || mainView === "meeting";
   const showSidebarWorkbenchFiles =
     canUseFilesystemBridge &&
-    showAppSidebar &&
-    (mainView === "workspace" || mainView === "meeting" || mainView === "agents");
+    showAppSidebar;
   const previewArtifact = (outputPath?: string) => {
     if (!config) {
       return;

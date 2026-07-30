@@ -149,8 +149,8 @@ function LawmindAppHeaderImpl({
               <nav className="lm-tabs lm-main-nav lm-main-nav-compact" aria-label="功能模块">
                 <button
                   type="button"
-                  className={`lm-tab ${mainView === "workspace" && !matterCockpitOpen ? "active" : ""}`}
-                  aria-current={mainView === "workspace" && !matterCockpitOpen ? "page" : undefined}
+                  className={`lm-tab ${mainView === "workspace" ? "active" : ""}`}
+                  aria-current={mainView === "workspace" ? "page" : undefined}
                   data-testid="lm-tab-workspace"
                   onClick={() => {
                     onClearNeedsDecisionFocus?.();
@@ -163,17 +163,6 @@ function LawmindAppHeaderImpl({
                 >
                   对话
                 </button>
-                {mainView === "workspace" && matterCockpitOpen ? (
-                  <button
-                    type="button"
-                    className="lm-tab active"
-                    aria-current="page"
-                    data-testid="lm-tab-matter"
-                    title="本案办案台：概览、档案、任务与审查"
-                  >
-                    案件
-                  </button>
-                ) : null}
                 <button
                   type="button"
                   className={`lm-tab ${mainView === "agents" ? "active" : ""}`}

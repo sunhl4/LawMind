@@ -166,11 +166,14 @@ describe("LawmindAppSidebar", () => {
     expect(host.querySelector(".lm-side-explorer-skeleton")).not.toBeNull();
   });
 
-  it("shows 待我拍板 only when there are pending decisions", async () => {
+  it("always shows 待我拍板 (badge only when pending > 0)", async () => {
     await act(async () => {
       root.render(<LawmindAppSidebar {...baseProps({ mainView: "workspace", actionSummaryTotal: 0 })} />);
     });
-    expect(host.querySelector('[data-testid="lm-side-needs-decision"]')).toBeNull();
+    const btn = host.querySelector('[data-testid="lm-side-needs-decision"]');
+    expect(btn).not.toBeNull();
+    expect(btn?.textContent).toContain("待我拍板");
+    expect(btn?.querySelector(".lm-side-needs-decision-badge")).toBeNull();
 
     await act(async () => {
       root.render(<LawmindAppSidebar {...baseProps({ mainView: "agents", actionSummaryTotal: 2 })} />);

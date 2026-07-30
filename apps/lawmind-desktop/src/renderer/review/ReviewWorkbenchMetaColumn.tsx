@@ -310,6 +310,24 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
           />
         </label>
 
+        {onCampaignChange ? (
+          <LawmindReviewCampaignPanel
+            apiBase={apiBase}
+            taskId={selectedTaskId}
+            matterId={detail.matterId}
+            campaign={campaign}
+            onCampaignChange={onCampaignChange}
+          />
+        ) : null}
+        {checklistView && checklistChecked && onChecklistToggle ? (
+          <LawmindVerificationChecklist
+            view={checklistView}
+            checked={checklistChecked}
+            onToggle={onChecklistToggle}
+            disableApproveHint={checklistBlocksApprove}
+          />
+        ) : null}
+
         <details className="lm-review-advanced">
           <summary className="lm-review-advanced-summary">高级</summary>
           <div className="lm-review-advanced-body">
@@ -342,15 +360,7 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
                 />
               </div>
             ) : null}
-            {onCampaignChange ? (
-              <LawmindReviewCampaignPanel
-                apiBase={apiBase}
-                taskId={selectedTaskId}
-                matterId={detail.matterId}
-                campaign={campaign}
-                onCampaignChange={onCampaignChange}
-              />
-            ) : null}
+            {onCampaignChange ? null : null}
             <LawmindReviewSelfCheckSummary
               acceptance={acceptance}
               citation={citationIntegrity}
@@ -486,14 +496,6 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
                   </button>
                 ) : null}
               </>
-            ) : null}
-            {checklistView && checklistChecked && onChecklistToggle ? (
-              <LawmindVerificationChecklist
-                view={checklistView}
-                checked={checklistChecked}
-                onToggle={onChecklistToggle}
-                disableApproveHint={checklistBlocksApprove}
-              />
             ) : null}
             <label className="lm-review-profile-toggle">
               <input
