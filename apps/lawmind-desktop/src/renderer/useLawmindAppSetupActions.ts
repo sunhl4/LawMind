@@ -1,11 +1,58 @@
 import { useCallback, useState, type Dispatch, type SetStateAction } from "react";
 import type { AppConfig } from "./lawmind-app-bootstrap";
-import { loadAppBootstrapSnapshot } from "./lawmind-app-bootstrap";
+import { loadAppBootstrapSnapshot, refreshLocalAppConfig } from "./lawmind-app-bootstrap";
+import { setLoopbackApiAuthToken } from "./lawmind-api-auth";
 import { setDraftWithModelEnabled } from "./lawmind-models-api";
 import { errorMessage } from "./api-client";
 import { clearProjectDirectory } from "./lawmind-settings-shell";
 import { mapHealthState, type LawmindHealthState } from "./useLawmindAppBootstrapEffects";
 import type { HealthPayload } from "./lawmind-app-data.js";
+
+/** After backend restart, adopt the new loopback port/token before further API calls. */
+async function adoptConfigAfterBackendRestart(
+  previous: AppConfig | null,
+  response: { apiBase?: string; apiAuthToken?: string; retrievalMode?: "single" | "dual" },
+  setConfig: (value: AppConfig | null) => void,
+): Promise<AppConfig | null> {
+  if (typeof response.apiAuthToken === "string" && response.apiAuthToken.trim()) {
+    setLoopbackApiAuthToken(response.apiAuthToken);
+  }
+  const fresh = await refreshLocalAppConfig(previous);
+  if (fresh) {
+    const nextMode =
+      response.retrievalMode === "dual" || response.retrievalMode === "single"
+        ? response.retrievalMode
+        : fresh.retrievalMode;
+    const merged: AppConfig = {
+      ...fresh,
+      apiBase: response.apiBase?.trim() || fresh.apiBase,
+      apiAuthToken: response.apiAuthToken?.trim() || fresh.apiAuthToken,
+      retrievalMode: nextMode,
+    };
+    if (merged.apiAuthToken) {
+      setLoopbackApiAuthToken(merged.apiAuthToken);
+    }
+    setConfig(merged);
+    return merged;
+  }
+  if (previous && response.apiBase?.trim()) {
+    const merged: AppConfig = {
+      ...previous,
+      apiBase: response.apiBase.trim(),
+      apiAuthToken: response.apiAuthToken?.trim() || previous.apiAuthToken,
+      retrievalMode:
+        response.retrievalMode === "dual" || response.retrievalMode === "single"
+          ? response.retrievalMode
+          : previous.retrievalMode,
+    };
+    if (merged.apiAuthToken) {
+      setLoopbackApiAuthToken(merged.apiAuthToken);
+    }
+    setConfig(merged);
+    return merged;
+  }
+  return previous;
+}
 
 export type UseLawmindAppSetupActionsParams = {
   config: AppConfig | null;
@@ -78,17 +125,11 @@ export function useLawmindAppSetupActions(params: UseLawmindAppSetupActionsParam
       setError(null);
       try {
         const response = await bridge.setRetrievalMode(mode);
+        const adopted = await adoptConfigAfterBackendRestart(config, response, setConfig);
         if (!response.ok) {
           throw new Error(response.error || "切换失败");
         }
-        const nextBase = response.apiBase ?? config.apiBase;
-        const nextMode: "single" | "dual" =
-          response.retrievalMode === "dual"
-            ? "dual"
-            : response.retrievalMode === "single"
-              ? "single"
-              : mode;
-        setConfig({ ...config, apiBase: nextBase, retrievalMode: nextMode });
+        const nextBase = adopted?.apiBase ?? response.apiBase ?? config.apiBase;
         const snapshot = await loadAppBootstrapSnapshot(nextBase);
         setHealth(mapHealthState(snapshot.health));
         setHealthPayload(snapshot.health);
@@ -147,19 +188,31 @@ export function useLawmindAppSetupActions(params: UseLawmindAppSetupActionsParam
         workspaceDir: wizWorkspace.trim() || undefined,
         retrievalMode: wizRetrievalMode,
       });
+      // saveSetup restarts the local server (new port + bearer). Refresh before any follow-up fetch.
+      const adopted = await adoptConfigAfterBackendRestart(
+        config,
+        {
+          apiBase: response.apiBase,
+          apiAuthToken: response.apiAuthToken,
+          retrievalMode: response.retrievalMode,
+        },
+        setConfig,
+      );
       if (!response.ok) {
         throw new Error(response.error || "保存或验证失败");
       }
       if (response.verified === false) {
         throw new Error(response.error || "模型连接验证未通过");
       }
-      if (response.apiBase && response.workspaceDir && response.envFilePath) {
+      if (response.workspaceDir && response.envFilePath) {
         const nextMode =
           response.retrievalMode === "dual" || wizRetrievalMode === "dual" ? "dual" : "single";
         setConfig({
-          apiBase: response.apiBase,
+          ...(adopted ?? config),
+          apiBase: adopted?.apiBase ?? response.apiBase ?? config?.apiBase ?? "",
+          apiAuthToken: adopted?.apiAuthToken ?? response.apiAuthToken ?? config?.apiAuthToken,
           workspaceDir: response.workspaceDir,
-          projectDir: config?.projectDir ?? null,
+          projectDir: adopted?.projectDir ?? config?.projectDir ?? null,
           envFilePath: response.envFilePath,
           retrievalMode: nextMode,
         });
@@ -182,7 +235,7 @@ export function useLawmindAppSetupActions(params: UseLawmindAppSetupActionsParam
           : "模型已验证可用，配置已保存到本机。";
       setComposeModelHint(verifyNote);
       clearComposeModelHintSoon(12_000);
-      const apiBaseNext = response.apiBase ?? config?.apiBase;
+      const apiBaseNext = adopted?.apiBase ?? response.apiBase ?? config?.apiBase;
       if (!apiBaseNext) {
         throw new Error("missing api base after save");
       }
