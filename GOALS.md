@@ -65,6 +65,7 @@
 - [x] **Desk W7–13 加深**：独立 `pnpm lawmind:daemon`（默认 4312 + `lawmind/lawmindd.json`）；有凭据时模型 critic 只追加「复核：」备注；侧车 pending 回桌面对话（填入 + 钉 inbox 文件）
 - [x] **Desk 单表面收口**：Solo 案件驾驶舱嵌在对话列（`lm-solo-matter-rail`），文件留在左侧；Firm 仍可整页打开案件工作台
 - [x] **Desk 90 天律师可见闭环**：审核栏展示条款图 / 「复核：」备注 / 骨架稿；模型按条款回写意见（不改章节）；对话条提示骨架稿；Word 侧车可取回复核并插入选区或批注（不上商店、不改原文）
+- [x] **Desk 试点优化**：侧车路径绑定、Word 批注优先、长稿二次复核、审核栏先看红的、需修改可一键交给助手、案件任务/队列拆分；`pnpm lawmind:pilot` 可复现门禁与绑定。脚本可复现，真人一周仍待客户。
 - [x] **P2 验收门禁（核心）**：`src/lawmind/deliverables/` 注册表 + `validateDraftAgainstSpec()` + 6 类内置 spec（rental/general 合同、demand letter、合同审查、通用文书）
 - [x] **P2.1 桌面/HTTP/Agent 接入**：`ReviewWorkbench` 挂 `<AcceptanceGate>`；`GET /api/drafts/:taskId` 携带 `acceptance`；`POST /render` 默认 strict 返回 422；agent `render_document` 内置 gate（可 `bypass_acceptance_gate=true` 越权）
 - [x] **P3 来源锚点**：`GET /api/sources/:id/preview?taskId=` 返回原文 + 支撑结论 + 引用章节；桌面 `LawmindSourcePreview.tsx` 在审核台正文 / Citation Banner / 详情对话内提供 hover popover（对标 Harvey/Spellbook）
@@ -182,4 +183,4 @@ queue.jsonl,deadlines.jsonl}`；engine hot path 全程双写；`/api/matters` /
 
 ---
 
-_最后更新：2026-08-18（Desk 90 天：条款图 / 复核 / 骨架稿可见，Word 可取回复核）。_
+_最后更新：2026-08-18（Desk 试点优化：绑定 / 批注 / 二次复核 / 先看红的 / 需修改一键交给助手；`pnpm lawmind:pilot` 可复现，真人一周仍待客户）。_

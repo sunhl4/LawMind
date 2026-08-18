@@ -356,9 +356,15 @@
 - **独立 lawmindd + 侧车回桌面 + 模型 critic**：已落地。`pnpm lawmind:daemon` 复用 `lawmind-local-server.ts`；`GET /api/sidecar/pending` 供对话条轮询；`applyDraftCriticAsync` 有凭据时追加备注、不改写章节。`LAWMIND_REASONING_MODE=keyword` 仍只走规则。
 - **条款图 + 复核进审核栏**：`GET /api/drafts/:id` 带 `clauses` / `scaffold`；Solo / Firm 审核台都渲染条款图与「复核：」备注。骨架密度高时对话条也提示，不当成稿。
 - **条款级模型意见**：有凭据时一次 JSON 调用按条款 id 回写 `criticNotes` 并汇总；不改 `sections`。`LAWMIND_REASONING_MODE=keyword` 仍只走规则。
-- **Word 回写**：成稿后写 `lawmind/sidecar-outbox.json`；任务窗格「取回复核」后插入选区或批注。不自动改原文，不上 Office 商店，不是系统级常驻服务。
+- **Word 回写**：成稿后写 `lawmind/sidecar-outbox.json`；任务窗格默认「作为批注插入」打在当前选区，失败不覆盖选区。不自动改原文，不上 Office 商店，不是系统级常驻服务。
+- **侧车对稿**：`lawmind/sidecar-bindings.json` 把 `inbox/sidecar-*.md` 绑到 `taskId`；outbox 带同一 `ingestRelativePath`。
+- **长稿二次复核**：条款 > 8 / 章节 > 24 / 正文过长且有 flagged 时，同一次 `runDraftCriticAsync` 再打一轮 JSON，只笔记、不改 `sections`。
+- **审核栏先看红的**：渲染时 flagged 在前，干净条款默认收起；不改 snapshot 顺序。
+- **需修改即交给助手改**：有补充说明或审核备注时同一次请求派发 `revision-job`；失败可手动补发。不自动通过 / 渲染。
+- **试点包**：`workspace/fixtures/desk-pilot/` + `pnpm lawmind:pilot`。无 key 走 keyword/规则，断言骨架 `dense` 且不得 ready、规则 critic 写出「复核：」、ingest→bind→outbox 同路径、未签批不得当外发。不断言模型质量分。
+- **律师手测只记三问**：模型是否在写、骨架能否一眼看出、外发前是否漏签。
 - **仍不做**：Office 商店加载项、系统级常驻服务、用更多 `headingKeywords` / `【标签】` 代替模型成稿、把 `第×条` 当 ready 阻断。
-- **仍薄**：律师试点与真实 Word 宿主手测不在本仓库自动化范围内；critic 仍只加意见、不改写。Desk / Firm 仍是同一安装包 + 功能开关，不是两套安装程序。
+- **仍薄**：`pnpm lawmind:pilot` 可复现门禁与绑定；真人一周仍待客户。critic 仍只加意见、不改写。Desk / Firm 仍是同一安装包 + 功能开关，不是两套安装程序。
 
 ## 6) 下一步（优先级）
 

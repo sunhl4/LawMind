@@ -23,6 +23,7 @@
     "lawmind:gate": "node --import tsx scripts/lawmind/lawmind-deliverable-check.ts",
     "lawmind:onboard": "node --import tsx scripts/lawmind/lawmind-onboard.ts",
     "lawmind:ops": "node --import tsx scripts/lawmind/lawmind-ops.ts",
+    "lawmind:pilot": "node --import tsx scripts/lawmind/lawmind-pilot.ts",
     "lawmind:quarterly-demo": "node --import tsx scripts/lawmind/lawmind-quarterly-demo.ts",
     "lawmind:review": "node --import tsx scripts/lawmind/lawmind-review.ts",
     "lawmind:sbom": "node scripts/lawmind/lawmind-sbom.mjs",
