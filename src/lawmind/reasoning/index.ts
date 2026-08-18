@@ -30,4 +30,10 @@ export {
   type ClauseGraph,
   type ClauseNode,
 } from "./clause-graph.js";
-export { applyDraftCritic, critiqueDraft } from "./draft-critic.js";
+export {
+  applyDraftCritic,
+  applyDraftCriticAsync,
+  critiqueDraft,
+  critiqueDraftWithModel,
+  isModelCriticEnabled,
+} from "./draft-critic.js";

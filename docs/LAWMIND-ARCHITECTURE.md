@@ -86,6 +86,11 @@ workspace/
     ppt/
   artifacts/
   audit/
+  inbox/
+    sidecar-*.md
+  lawmind/
+    lawmindd.json
+    sidecar-acked.json
 ```
 
 说明：
@@ -97,6 +102,8 @@ workspace/
 - `templates/`：交付模板。
 - `artifacts/`：最终产物。
 - `audit/`：审计事件和回放数据。
+- `inbox/sidecar-*.md`：Word/WPS 侧车写入的选区；桌面对话条「填入对话」后仍留在 inbox，供助手按路径阅读。
+- `lawmind/lawmindd.json`：本机守护进程广告（host/port/pid）。独立入口：`pnpm lawmind:daemon`（默认 `127.0.0.1:4312`，与桌面同一套 HTTP，不另开协议）。
 
 ---
 

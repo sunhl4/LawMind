@@ -7,7 +7,7 @@
 
 import { getAssistantById, resolveLawMindRoot } from "../assistants/store.js";
 import { getRoleById, roleAllowsDeliverable } from "../core/role.js";
-import { buildDraft, buildDraftAsync } from "../reasoning/index.js";
+import { applyDraftCriticAsync, buildDraft, buildDraftAsync } from "../reasoning/index.js";
 import type { ArtifactDraft, ResearchBundle, TaskIntent } from "../types.js";
 import type { EngineContext } from "./context.js";
 import { classifyDeliverableKindFromIntent } from "./role-helpers.js";
@@ -74,8 +74,9 @@ export async function draftAsyncImpl(
     title: opts.title,
     templateId: opts.templateId,
   });
-  persistDraftPipeline(ctx, draft, bundle);
-  return draft;
+  const critiqued = await applyDraftCriticAsync(draft);
+  persistDraftPipeline(ctx, critiqued, bundle);
+  return critiqued;
 }
 
 export { DraftCreationError };

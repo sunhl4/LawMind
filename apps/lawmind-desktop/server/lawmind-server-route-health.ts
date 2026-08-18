@@ -74,6 +74,7 @@ export function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindRouteCo
         ready: true,
         ingestPath: "/api/sidecar/ingest",
         statusPath: "/api/sidecar/status",
+        pendingPath: "/api/sidecar/pending",
       },
       workspaceDir,
       lawMindRoot,

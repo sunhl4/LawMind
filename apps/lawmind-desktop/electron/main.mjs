@@ -102,15 +102,24 @@ function resolveNodeExecutable() {
   return "node";
 }
 
-function pickPort() {
-  return new Promise((resolve) => {
+function tryListenPort(port) {
+  return new Promise((resolve, reject) => {
     const s = net.createServer();
-    s.listen(0, "127.0.0.1", () => {
+    s.once("error", reject);
+    s.listen(port, "127.0.0.1", () => {
       const addr = s.address();
-      const p = typeof addr === "object" && addr && "port" in addr ? addr.port : 0;
+      const p = typeof addr === "object" && addr && "port" in addr ? addr.port : port;
       s.close(() => resolve(p));
     });
   });
+}
+
+async function pickPort() {
+  try {
+    return await tryListenPort(4312);
+  } catch {
+    return tryListenPort(0);
+  }
 }
 
 async function waitForLocalServerReady(port, timeoutMs = 15000) {

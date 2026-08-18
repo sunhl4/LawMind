@@ -37,6 +37,10 @@ function postRequest(payload: unknown): http.IncomingMessage {
   return Object.assign(stream, { method: "POST" }) as unknown as http.IncomingMessage;
 }
 
+function getRequest(): http.IncomingMessage {
+  return { method: "GET" } as http.IncomingMessage;
+}
+
 describe("lawmind-server-route-sidecar", () => {
   it("reports lawmindd status for Desk", async () => {
     const capture = createResponseCapture();
@@ -90,5 +94,40 @@ describe("lawmind-server-route-sidecar", () => {
     expect(payload.verb).toBe("draft");
     expect(String(payload.prompt)).toContain("写这封");
     expect(fs.existsSync(path.join(workspaceDir, String(payload.relativePath)))).toBe(true);
+
+    const pendingCapture = createResponseCapture();
+    await handleSidecarRoutes({
+      ctx,
+      req: getRequest(),
+      res: pendingCapture.res,
+      url: new URL("http://127.0.0.1/api/sidecar/pending"),
+      pathname: "/api/sidecar/pending",
+      c: {},
+    });
+    const pending = pendingCapture.json() as { items?: Array<{ relativePath?: string; verb?: string }> };
+    expect(pending.items?.[0]?.relativePath).toBe(payload.relativePath);
+    expect(pending.items?.[0]?.verb).toBe("draft");
+
+    const ackCapture = createResponseCapture();
+    await handleSidecarRoutes({
+      ctx,
+      req: postRequest({ relativePath: payload.relativePath }),
+      res: ackCapture.res,
+      url: new URL("http://127.0.0.1/api/sidecar/pending/ack"),
+      pathname: "/api/sidecar/pending/ack",
+      c: {},
+    });
+    expect(ackCapture.json()).toMatchObject({ ok: true, relativePath: payload.relativePath });
+
+    const emptyCapture = createResponseCapture();
+    await handleSidecarRoutes({
+      ctx,
+      req: getRequest(),
+      res: emptyCapture.res,
+      url: new URL("http://127.0.0.1/api/sidecar/pending"),
+      pathname: "/api/sidecar/pending",
+      c: {},
+    });
+    expect((emptyCapture.json() as { items?: unknown[] }).items).toEqual([]);
   });
 });

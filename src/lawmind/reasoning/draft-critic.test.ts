@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ArtifactDraft } from "../types.js";
-import { applyDraftCritic, critiqueDraft } from "./draft-critic.js";
+import { applyDraftCritic, applyDraftCriticAsync, critiqueDraft } from "./draft-critic.js";
 
 function draft(partial: Partial<ArtifactDraft> = {}): ArtifactDraft {
   return {
@@ -42,5 +42,56 @@ describe("draft-critic", () => {
       }),
     );
     expect(notes.some((n) => n.includes("履行期限"))).toBe(true);
+  });
+
+  describe("model critic", () => {
+    const prev = { ...process.env };
+
+    afterEach(() => {
+      process.env = { ...prev };
+      vi.unstubAllGlobals();
+    });
+
+    it("stays on rules when LAWMIND_REASONING_MODE=keyword", async () => {
+      process.env.LAWMIND_REASONING_MODE = "keyword";
+      process.env.LAWMIND_AGENT_BASE_URL = "https://example.com/v1";
+      process.env.LAWMIND_AGENT_API_KEY = "sk-test";
+      process.env.LAWMIND_AGENT_MODEL = "qwen-plus";
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      const next = await applyDraftCriticAsync(draft());
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(next.reviewNotes.some((n) => n.includes("争议解决"))).toBe(true);
+      expect(next.sections).toEqual(draft().sections);
+    });
+
+    it("appends model notes without rewriting sections", async () => {
+      delete process.env.LAWMIND_REASONING_MODE;
+      process.env.LAWMIND_AGENT_BASE_URL = "https://example.com/v1";
+      process.env.LAWMIND_AGENT_API_KEY = "sk-test";
+      process.env.LAWMIND_AGENT_MODEL = "qwen-plus";
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => ({
+          ok: true,
+          json: async () => ({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    notes: ["押金退还条件写得太笼统，执行时容易争。"],
+                  }),
+                },
+              },
+            ],
+          }),
+        })),
+      );
+      const original = draft();
+      const next = await applyDraftCriticAsync(original);
+      expect(next.sections).toEqual(original.sections);
+      expect(next.reviewNotes.some((n) => n.includes("争议解决"))).toBe(true);
+      expect(next.reviewNotes.some((n) => n.startsWith("复核：") && n.includes("押金"))).toBe(true);
+    });
   });
 });

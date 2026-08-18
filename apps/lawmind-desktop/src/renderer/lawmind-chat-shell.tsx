@@ -192,6 +192,8 @@ export type LawmindChatWorkspaceProps = {
   composeModelConfigured?: boolean;
   /** Solo 不展示尚未落地的 Plan 模式 */
   showPlanPicker?: boolean;
+  /** Word/WPS 侧车待处理选区 */
+  sidecarNotice?: ReactNode;
 };
 
 export type LawmindChatMessagesColumnProps = Pick<
@@ -379,6 +381,7 @@ export function LawmindChatComposeFooter({
   onOpenComposeSettings,
   composeModelConfigured,
   showPlanPicker = true,
+  sidecarNotice,
 }: Pick<
   LawmindChatWorkspaceProps,
   | "currentMessages"
@@ -397,6 +400,7 @@ export function LawmindChatComposeFooter({
   | "onOpenComposeSettings"
   | "composeModelConfigured"
   | "showPlanPicker"
+  | "sidecarNotice"
 >) {
   const [modelPick, setModelPick] = useState("default");
   const { height: composeHeight, onResizePointerDown: onComposeResizePointerDown } = usePaneResizeVerticalPx({
@@ -440,6 +444,7 @@ export function LawmindChatComposeFooter({
             <p className="lm-callout-body">{error}</p>
           </div>
         ) : null}
+        {sidecarNotice ?? null}
         {pendingClarify.pending && (
           <div className="lm-clarify-session-bar" role="status">
             <span className="lm-clarify-session-bar-text">
@@ -596,6 +601,7 @@ export function LawmindChatShell(props: LawmindChatWorkspaceProps) {
         onOpenComposeSettings={props.onOpenComposeSettings}
         composeModelConfigured={props.composeModelConfigured}
         showPlanPicker={props.showPlanPicker}
+        sidecarNotice={props.sidecarNotice}
       />
     </div>
   );

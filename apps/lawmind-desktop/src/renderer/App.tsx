@@ -35,6 +35,8 @@ import { usePaneResizePx } from "./use-pane-resize";
 import { apiGetJson, apiSendJson, errorMessage, messageFromOkFalseBody } from "./api-client";
 import { displayNameFromImportBasename, suggestMatterIdForImport } from "../../../../src/lawmind/cases/matter-label.ts";
 import { useLawyerReviewDesktopNotify } from "./lawmind-lawyer-review-notify";
+import { sidecarInboxBannerText } from "./lawmind-sidecar-inbox";
+import { useSidecarInbox } from "./use-sidecar-inbox";
 
 function resolveWorkspacePath(workspaceDir: string, rel: string): string {
   const r = rel.replace(/\\/g, "/").replace(/^\//, "");
@@ -545,6 +547,7 @@ export function App() {
   const edition = useEdition(config?.apiBase ?? "");
   const soloDesk = shouldEmbedSoloReviewRail(edition.edition);
   const showCollabTab = shouldShowCollaborationTab(edition.edition);
+  const sidecarInbox = useSidecarInbox(config?.apiBase,  edition.features.wordSidecar);
 
   const openDeskReview = useCallback(
     (opts?: {
@@ -1237,6 +1240,48 @@ export function App() {
                               : undefined
                         }
                         showPlanPicker={shouldShowComposePlanPicker(edition.edition)}
+                        sidecarNotice={
+                          sidecarInbox.latest ? (
+                            <div className="lm-context-banner" data-testid="lm-sidecar-inbox-banner">
+                              <span>{sidecarInboxBannerText(sidecarInbox.latest)}</span>
+                              <span className="lm-sidecar-inbox-actions">
+                                <button
+                                  type="button"
+                                  className="lm-btn"
+                                  onClick={() => {
+                                    const item = sidecarInbox.latest;
+                                    if (!item) {
+                                      return;
+                                    }
+                                    setInput(item.prompt);
+                                    addFileToChatContext({
+                                      root: "workspace",
+                                      relPath: item.relativePath,
+                                      kind: "file",
+                                    });
+                                    void sidecarInbox.ack(item.relativePath);
+                                    textareaRef.current?.focus();
+                                  }}
+                                >
+                                  填入对话
+                                </button>
+                                <button
+                                  type="button"
+                                  className="lm-btn lm-btn-secondary"
+                                  onClick={() => {
+                                    const item = sidecarInbox.latest;
+                                    if (!item) {
+                                      return;
+                                    }
+                                    void sidecarInbox.ack(item.relativePath);
+                                  }}
+                                >
+                                  忽略
+                                </button>
+                              </span>
+                            </div>
+                          ) : null
+                        }
                       />
                     )}
                   </div>

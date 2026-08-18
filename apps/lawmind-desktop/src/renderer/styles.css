@@ -2937,6 +2937,13 @@ samp {
 
 .lm-context-banner strong { color: var(--text); }
 
+.lm-sidecar-inbox-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 /* Clarification session strip (compose) — warn tone, distinct from context task banner */
 .lm-clarify-session-bar {
   display: flex;

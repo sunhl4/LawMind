@@ -44,8 +44,18 @@
     <button type="button" data-verb="research">查这个问题</button>
     <div id="status">等待选区…</div>
     <script>
+      window.LAWMIDD_PORT = window.LAWMIDD_PORT || "";
+      function resolveApiBase() {
+        if (window.LAWMIDD_PORT) {
+          return "http://127.0.0.1:" + window.LAWMIDD_PORT;
+        }
+        if (location.protocol.indexOf("http") === 0 && location.port) {
+          return location.protocol + "//" + location.hostname + ":" + location.port;
+        }
+        return "http://127.0.0.1:4312";
+      }
       const status = document.getElementById("status");
-      const apiBase = "http://127.0.0.1:" + (location.port || "4312");
+      const apiBase = resolveApiBase();
 
       function readSelection() {
         return new Promise(function (resolve, reject) {
@@ -76,7 +86,7 @@
           if (!json.ok) {
             throw new Error(json.error || "发送失败");
           }
-          status.textContent = "已写入 " + json.relativePath + "。打开 LawMind 桌面，用同一动词继续。";
+          status.textContent = "已送到本机 LawMind。打开桌面对话，用「填入对话」继续。";
         } catch (err) {
           status.textContent = err instanceof Error ? err.message : String(err);
         }

@@ -18,6 +18,10 @@ import http from "node:http";
 import path from "node:path";
 import { loadLawMindEnv } from "../../../scripts/lawmind/lawmind-env-loader.js";
 import { restoreDelegationsFromDisk } from "../../../src/lawmind/agent/collaboration/index.js";
+import {
+  clearLawminddAdvertisement,
+  writeLawminddAdvertisement,
+} from "../../../src/lawmind/sidecar/advertise.js";
 import { loadAndApplyLawMindPolicy } from "./lawmind-policy.js";
 import { LAWMIND_LOCAL_HOST } from "./lawmind-server-helpers.js";
 import { lawmindHandleHttpRequest } from "./lawmind-server-dispatch.js";
@@ -66,8 +70,17 @@ async function main() {
   });
 
   server.listen(port, LAWMIND_LOCAL_HOST, () => {
-    console.error(`[lawmind-local-server] http://${LAWMIND_LOCAL_HOST}:${port} workspace=${workspaceDir}`);
+    writeLawminddAdvertisement(workspaceDir, port);
+    console.error(`[lawmindd] http://${LAWMIND_LOCAL_HOST}:${port} workspace=${workspaceDir}`);
   });
+
+  const stop = () => {
+    clearLawminddAdvertisement(workspaceDir);
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 1500).unref();
+  };
+  process.once("SIGINT", stop);
+  process.once("SIGTERM", stop);
 }
 
 void main();

@@ -10,6 +10,7 @@
     "lawmind:agent": "node --import tsx scripts/lawmind/lawmind-agent.ts",
     "lawmind:bundle:desktop-server": "npx --yes esbuild apps/lawmind-desktop/server/lawmind-local-server.ts --bundle --platform=node --format=cjs --target=node22 --outfile=apps/lawmind-desktop/server/dist/lawmind-local-server.cjs",
     "lawmind:case": "node --import tsx scripts/lawmind/lawmind-case.ts",
+    "lawmind:daemon": "node --import tsx scripts/lawmind/lawmindd.ts",
     "lawmind:demo": "node --import tsx scripts/lawmind/lawmind-demo.ts",
     "lawmind:desktop": "pnpm --filter lawmind-desktop dev",
     "lawmind:desktop:dist": "pnpm --filter lawmind-desktop run dist:electron",

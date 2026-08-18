@@ -4,7 +4,12 @@ import { fileURLToPath } from "node:url";
 import { DESK_VERBS } from "../../../src/lawmind/desk/verbs.js";
 import { productLineOf, resolveEdition } from "../../../src/lawmind/policy/edition.js";
 import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspace-policy.js";
-import { ingestSidecarSelection } from "../../../src/lawmind/sidecar/ingest.js";
+import { DEFAULT_LAWMIDD_PORT } from "../../../src/lawmind/sidecar/advertise.js";
+import {
+  acknowledgeSidecarIngest,
+  ingestSidecarSelection,
+  listPendingSidecarIngests,
+} from "../../../src/lawmind/sidecar/ingest.js";
 import { readJsonBody, sendJson } from "./lawmind-server-helpers.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 
@@ -17,12 +22,31 @@ function sidecarWordDir(): string {
   return candidates.find((dir) => fs.existsSync(dir)) ?? candidates[0];
 }
 
-function sendSidecarFile(res: LawmindRouteContext["res"], filename: string, type: string, c: Record<string, string>): boolean {
+function listenPort(): string {
+  const raw = process.env.LAWMIND_DESKTOP_PORT?.trim();
+  return raw && /^\d+$/.test(raw) ? raw : String(DEFAULT_LAWMIDD_PORT);
+}
+
+function sendSidecarFile(
+  res: LawmindRouteContext["res"],
+  filename: string,
+  type: string,
+  c: Record<string, string>,
+): boolean {
   const file = path.join(sidecarWordDir(), filename);
   if (!fs.existsSync(file)) {
     return false;
   }
-  const body = fs.readFileSync(file);
+  let body: Buffer | string = fs.readFileSync(file);
+  const port = listenPort();
+  if (filename === "taskpane.html") {
+    body = body
+      .toString("utf8")
+      .replace(/window\.LAWMIDD_PORT\s*=\s*window\.LAWMIDD_PORT\s*\|\|\s*""\s*;/, `window.LAWMIDD_PORT = ${JSON.stringify(port)};`);
+  }
+  if (filename === "manifest.xml") {
+    body = body.toString("utf8").replace(/127\.0\.0\.1:\d+/g, `127.0.0.1:${port}`);
+  }
   res.writeHead(200, {
     ...c,
     "content-type": type,
@@ -56,6 +80,8 @@ export async function handleSidecarRoutes({
         ready: true,
         productLine: productLineOf(edition.edition),
         ingestPath: "/api/sidecar/ingest",
+        pendingPath: "/api/sidecar/pending",
+        port: Number(listenPort()),
         verbs: DESK_VERBS.map((v) => ({ id: v.verb, label: v.label })),
       },
       c,
@@ -81,6 +107,27 @@ export async function handleSidecarRoutes({
     } catch (err) {
       const code = err instanceof Error ? err.message : "ingest_failed";
       const status = code === "empty_selection" ? 400 : code === "selection_too_large" ? 413 : 400;
+      sendJson(res, status, { ok: false, error: code }, c);
+    }
+    return true;
+  }
+
+  if (pathname === "/api/sidecar/pending" && req.method === "GET") {
+    sendJson(res, 200, { ok: true, items: listPendingSidecarIngests(ctx.workspaceDir) }, c);
+    return true;
+  }
+
+  if (pathname === "/api/sidecar/pending/ack" && req.method === "POST") {
+    const body = (await readJsonBody(req)) as { relativePath?: string };
+    try {
+      const result = acknowledgeSidecarIngest(
+        ctx.workspaceDir,
+        typeof body.relativePath === "string" ? body.relativePath : "",
+      );
+      sendJson(res, 200, { ok: true, ...result }, c);
+    } catch (err) {
+      const code = err instanceof Error ? err.message : "ack_failed";
+      const status = code === "sidecar_not_found" ? 404 : 400;
       sendJson(res, status, { ok: false, error: code }, c);
     }
     return true;
