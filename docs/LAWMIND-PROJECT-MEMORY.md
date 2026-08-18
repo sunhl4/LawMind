@@ -351,11 +351,11 @@
 
 ## 5b) Desk 90 天（2026-08）
 
-- **模型成稿 / 骨架诚实 / Solo 单表面**：已落地（`model-draft.ts`、验收骨架密度、`lm-solo-review-rail`）。
+- **模型成稿 / 骨架诚实 / Solo 单表面**：已落地（`model-draft.ts`、验收骨架密度、`lm-solo-review-rail`、`lm-solo-matter-rail`）。
 - **三个动词 + 条款图 + 规则 critic**：已落地（`desk/verbs.ts`、`clause-graph.ts`、`draft-critic.ts`）。
 - **独立 lawmindd + 侧车回桌面 + 模型 critic**：已落地。`pnpm lawmind:daemon` 复用 `lawmind-local-server.ts`；`GET /api/sidecar/pending` 供对话条轮询；`applyDraftCriticAsync` 有凭据时追加备注、不改写章节。`LAWMIND_REASONING_MODE=keyword` 仍只走规则。
 - **仍不做**：Office 商店加载项、系统级常驻服务、用更多 `headingKeywords` / `【标签】` 代替模型成稿、把 `第×条` 当 ready 阻断。
-- **仍薄**：Solo 案件驾驶舱仍会盖住整页工作台（单表面泄漏，下一刀再收）。
+- **仍薄**：无。Solo 案件驾驶舱已嵌进对话列（`lm-solo-matter-rail`），不再盖住整页工作台。Firm 仍可整页打开案件工作台。
 
 ## 6) 下一步（优先级）
 
@@ -526,6 +526,11 @@ LawMind 下一阶段不再只是“法律 AI 工作台”，而要逐步成为**
 ---
 
 ## 8) 更新日志
+
+### 2026-08-18 — Desk 90 天：Solo 案件列不再盖住工作台
+
+- Solo 点「案件工作台」时 `MatterWorkbench` 嵌在对话列（`data-testid="lm-solo-matter-rail"`），左侧文件树/编辑器留下。改稿轨优先于案件轨，再才是对话。
+- Firm 仍可用整页 `lm-main-workbench` 打开案件工作台。
 
 ### 2026-08-18 — Desk 90 天：lawmindd / 模型 critic / 侧车回桌面
 

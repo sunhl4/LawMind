@@ -1,5 +1,5 @@
 /**
- * Solo Desk：个人律师默认不换房间。审核嵌在工作台右轨，不进独立「审核」页。
+ * Solo Desk：个人律师默认不换房间。审核与案件驾驶舱都嵌在工作台右列，不进独立页。
  */
 
 export type DeskMainView = "workspace" | "collaboration" | "review";
@@ -8,9 +8,41 @@ export function isSoloDeskEdition(edition: string | undefined): boolean {
   return edition === "solo";
 }
 
+export type SoloDeskSurfacePane = "chat" | "review" | "matter";
+
 /** Solo 打开改稿时留在工作台，右轨嵌审核台。Firm 仍切 review 页。 */
 export function shouldEmbedSoloReviewRail(edition: string | undefined): boolean {
   return isSoloDeskEdition(edition);
+}
+
+/** Solo 打开案件时留在工作台，对话列嵌驾驶舱。Firm 仍整页替换。 */
+export function shouldEmbedSoloMatterRail(edition: string | undefined): boolean {
+  return isSoloDeskEdition(edition);
+}
+
+export function soloDeskSurfacePane(input: {
+  edition?: string;
+  reviewRail: boolean;
+  matterOpen: boolean;
+}): SoloDeskSurfacePane {
+  if (!isSoloDeskEdition(input.edition)) {
+    return "chat";
+  }
+  if (input.reviewRail) {
+    return "review";
+  }
+  if (input.matterOpen) {
+    return "matter";
+  }
+  return "chat";
+}
+
+/** Firm 才用整页案件工作台盖住文件+对话。 */
+export function shouldReplaceWorkspaceWithMatterPage(
+  edition: string | undefined,
+  matterOpen: boolean,
+): boolean {
+  return matterOpen && !isSoloDeskEdition(edition);
 }
 
 export function soloPrimaryTabLabel(tab: "workspace" | "review"): string {

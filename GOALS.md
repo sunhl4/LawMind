@@ -63,6 +63,7 @@
 - [x] **Desk W3–6（单表面）**：Solo 不进独立审核/协作页；等待用律师能读的句子；设置只留连模型与工作区
 - [x] **Desk W7–13**：三个动词；条款图 + critic；本机 lawmindd / Word 侧车；Desk 与 Firm 产品分界
 - [x] **Desk W7–13 加深**：独立 `pnpm lawmind:daemon`（默认 4312 + `lawmind/lawmindd.json`）；有凭据时模型 critic 只追加「复核：」备注；侧车 pending 回桌面对话（填入 + 钉 inbox 文件）
+- [x] **Desk 单表面收口**：Solo 案件驾驶舱嵌在对话列（`lm-solo-matter-rail`），文件留在左侧；Firm 仍可整页打开案件工作台
 - [x] **P2 验收门禁（核心）**：`src/lawmind/deliverables/` 注册表 + `validateDraftAgainstSpec()` + 6 类内置 spec（rental/general 合同、demand letter、合同审查、通用文书）
 - [x] **P2.1 桌面/HTTP/Agent 接入**：`ReviewWorkbench` 挂 `<AcceptanceGate>`；`GET /api/drafts/:taskId` 携带 `acceptance`；`POST /render` 默认 strict 返回 422；agent `render_document` 内置 gate（可 `bypass_acceptance_gate=true` 越权）
 - [x] **P3 来源锚点**：`GET /api/sources/:id/preview?taskId=` 返回原文 + 支撑结论 + 引用章节；桌面 `LawmindSourcePreview.tsx` 在审核台正文 / Citation Banner / 详情对话内提供 hover popover（对标 Harvey/Spellbook）
@@ -180,4 +181,4 @@ queue.jsonl,deadlines.jsonl}`；engine hot path 全程双写；`/api/matters` /
 
 ---
 
-_最后更新：2026-08-18（Desk 90 天：lawmindd / 模型 critic / 侧车回桌面）。_
+_最后更新：2026-08-18（Desk 单表面：Solo 案件列嵌对话列）。_

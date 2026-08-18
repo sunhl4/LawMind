@@ -4,8 +4,11 @@ import {
   settingsAssistantsEmptyCopy,
   settingsLeadCopy,
   shouldBounceSoloOffRoom,
+  shouldEmbedSoloMatterRail,
   shouldEmbedSoloReviewRail,
+  shouldReplaceWorkspaceWithMatterPage,
   shouldShowCollaborationTab,
+  soloDeskSurfacePane,
   shouldShowComposePlanPicker,
   shouldShowEditionBadge,
   shouldShowSettingsSection,
@@ -16,6 +19,7 @@ describe("lawmind-solo-desk", () => {
   it("embeds review in the workspace for Solo only", () => {
     expect(isSoloDeskEdition("solo")).toBe(true);
     expect(shouldEmbedSoloReviewRail("solo")).toBe(true);
+    expect(shouldEmbedSoloMatterRail("solo")).toBe(true);
     expect(shouldShowCollaborationTab("solo")).toBe(false);
     expect(soloPrimaryTabLabel("workspace")).toBe("对话");
     expect(soloPrimaryTabLabel("review")).toBe("改稿");
@@ -23,6 +27,9 @@ describe("lawmind-solo-desk", () => {
 
   it("keeps Firm on the three-room shell", () => {
     expect(shouldEmbedSoloReviewRail("firm")).toBe(false);
+    expect(shouldEmbedSoloMatterRail("firm")).toBe(false);
+    expect(shouldReplaceWorkspaceWithMatterPage("firm", true)).toBe(true);
+    expect(shouldReplaceWorkspaceWithMatterPage("solo", true)).toBe(false);
     expect(shouldShowCollaborationTab("firm")).toBe(true);
     expect(shouldBounceSoloOffRoom("firm", "review")).toBe(false);
     expect(shouldShowSettingsSection("firm", "collaboration")).toBe(true);
@@ -48,5 +55,20 @@ describe("lawmind-solo-desk", () => {
     expect(settingsAssistantsEmptyCopy("solo")).not.toContain("协作");
     expect(shouldShowEditionBadge("solo")).toBe(false);
     expect(shouldShowComposePlanPicker("solo")).toBe(false);
+  });
+
+  it("keeps Solo on one surface: review before matter before chat", () => {
+    expect(soloDeskSurfacePane({ edition: "solo", reviewRail: true, matterOpen: true })).toBe(
+      "review",
+    );
+    expect(soloDeskSurfacePane({ edition: "solo", reviewRail: false, matterOpen: true })).toBe(
+      "matter",
+    );
+    expect(soloDeskSurfacePane({ edition: "solo", reviewRail: false, matterOpen: false })).toBe(
+      "chat",
+    );
+    expect(soloDeskSurfacePane({ edition: "firm", reviewRail: false, matterOpen: true })).toBe(
+      "chat",
+    );
   });
 });

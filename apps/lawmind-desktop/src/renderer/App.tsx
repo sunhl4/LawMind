@@ -20,7 +20,9 @@ import { useEdition } from "./use-edition";
 import {
   shouldBounceSoloOffRoom,
   shouldEmbedSoloReviewRail,
+  shouldReplaceWorkspaceWithMatterPage,
   shouldShowCollaborationTab,
+  soloDeskSurfacePane,
   shouldShowComposePlanPicker,
   shouldShowEditionBadge,
   soloPrimaryTabLabel,
@@ -547,6 +549,12 @@ export function App() {
   const edition = useEdition(config?.apiBase ?? "");
   const soloDesk = shouldEmbedSoloReviewRail(edition.edition);
   const showCollabTab = shouldShowCollaborationTab(edition.edition);
+  const soloSurface = soloDeskSurfacePane({
+    edition: edition.edition,
+    reviewRail: soloReviewRail,
+    matterOpen: matterCockpitOpen,
+  });
+  const showFirmMatterPage = shouldReplaceWorkspaceWithMatterPage(edition.edition, matterCockpitOpen);
   const sidecarInbox = useSidecarInbox(config?.apiBase,  edition.features.wordSidecar);
 
   const openDeskReview = useCallback(
@@ -567,7 +575,9 @@ export function App() {
       }
       if (shouldEmbedSoloReviewRail(edition.edition)) {
         setSoloReviewRail(true);
-        setMatterCockpitOpen(false);
+        if (!opts?.fromMatter) {
+          setMatterCockpitOpen(false);
+        }
         setWsShowChat(true);
         if (canUseFilesystemBridge) {
           setWsShowEditor(true);
@@ -720,6 +730,50 @@ export function App() {
     const full = resolveWorkspacePath(config.workspaceDir, outputPath);
     void window.lawmindDesktop?.showItemInFolder?.(full);
   };
+
+  const openSoloMatterRail = useCallback(() => {
+    setSoloReviewRail(false);
+    setMatterCockpitOpen(true);
+    setWsShowChat(true);
+    setMainView("workspace");
+  }, [setMainView]);
+
+  const matterWorkbenchNode =
+    config ? (
+      <MatterWorkbench
+        apiBase={config.apiBase}
+        refreshVersion={matterRefreshVersion}
+        assistantId={selectedAssistantId}
+        matterListPlacement="app-sidebar"
+        selectedMatterKey={recordsDeskMatters.selectedKey}
+        shellTasks={tasks}
+        shellHistory={history}
+        onOpenShellDetail={(kind, id) => void openDetail(kind, id)}
+        formatShellRelativeTime={formatRelativeTime}
+        shellAssistantDisplayById={Object.fromEntries(
+          assistants.map((a) => [a.assistantId, a.displayName]),
+        )}
+        shellLegalStatusLabel={legalStatusLabel}
+        shellTaskBadgeClass={taskBadgeClass}
+        shellHistoryBadgeClass={historyBadgeClass}
+        onMatterCreated={(matterId) => {
+          setMatterRefreshVersion((v) => v + 1);
+          recordsDeskMatters.setSelectedKey(matterId);
+        }}
+        workspaceDir={config.workspaceDir ?? null}
+        projectDir={projectDir}
+        onUseInChat={linkMatterToChat}
+        onOpenReview={({ taskId, matterId, statusFilter = "all", listMode = "all" }) => {
+          openDeskReview({
+            taskId,
+            matterId,
+            statusFilter,
+            listMode,
+            fromMatter: true,
+          });
+        }}
+      />
+    ) : null;
 
   return (
     <div className="lm-shell">
@@ -935,10 +989,13 @@ export function App() {
           <nav className="lm-tabs lm-main-nav lm-main-nav-compact" aria-label="功能模块">
             <button
               type="button"
-              className={`lm-tab ${mainView === "workspace" && !soloReviewRail ? "active" : ""}`}
-              aria-current={mainView === "workspace" && !soloReviewRail ? "page" : undefined}
+              className={`lm-tab ${mainView === "workspace" && soloSurface === "chat" ? "active" : ""}`}
+              aria-current={mainView === "workspace" && soloSurface === "chat" ? "page" : undefined}
               onClick={() => {
                 setSoloReviewRail(false);
+                if (soloDesk) {
+                  setMatterCockpitOpen(false);
+                }
                 setMainView("workspace");
               }}
             >
@@ -1030,42 +1087,8 @@ export function App() {
           ) : null}
         </div>
         <div className="lm-main-body">
-          {mainView === "workspace" && matterCockpitOpen && config ? (
-            <div className="lm-main-workbench">
-              <MatterWorkbench
-                apiBase={config.apiBase}
-                refreshVersion={matterRefreshVersion}
-                assistantId={selectedAssistantId}
-                matterListPlacement="app-sidebar"
-                selectedMatterKey={recordsDeskMatters.selectedKey}
-                shellTasks={tasks}
-                shellHistory={history}
-                onOpenShellDetail={(kind, id) => void openDetail(kind, id)}
-                formatShellRelativeTime={formatRelativeTime}
-                shellAssistantDisplayById={Object.fromEntries(
-                  assistants.map((a) => [a.assistantId, a.displayName]),
-                )}
-                shellLegalStatusLabel={legalStatusLabel}
-                shellTaskBadgeClass={taskBadgeClass}
-                shellHistoryBadgeClass={historyBadgeClass}
-                onMatterCreated={(matterId) => {
-                  setMatterRefreshVersion((v) => v + 1);
-                  recordsDeskMatters.setSelectedKey(matterId);
-                }}
-                workspaceDir={config.workspaceDir ?? null}
-                projectDir={projectDir}
-                onUseInChat={linkMatterToChat}
-                onOpenReview={({ taskId, matterId, statusFilter = "all", listMode = "all" }) => {
-                  openDeskReview({
-                    taskId,
-                    matterId,
-                    statusFilter,
-                    listMode,
-                    fromMatter: true,
-                  });
-                }}
-              />
-            </div>
+          {showFirmMatterPage && config ? (
+            <div className="lm-main-workbench">{matterWorkbenchNode}</div>
           ) : !soloDesk && mainView === "review" && config ? (
             <div className="lm-main-workbench">
               <ReviewWorkbench
@@ -1150,7 +1173,7 @@ export function App() {
                     }}
                   >
                     <div className="lm-chat-workspace lm-chat-workspace-messages-only">
-                      {soloDesk && soloReviewRail && config ? (
+                      {soloSurface === "review" && config ? (
                         <div className="lm-solo-review-rail" data-testid="lm-solo-review-rail">
                           <ReviewWorkbench
                             apiBase={config.apiBase}
@@ -1166,7 +1189,7 @@ export function App() {
                                 setFocusMatterIdFromReview(reviewFocusMatterId);
                               }
                               setReviewLaunchedFromMatter(false);
-                              setMatterCockpitOpen(true);
+                              openSoloMatterRail();
                             }}
                             onShowArtifact={(relPath) => openOutputInFolder(relPath)}
                             onRecordsChanged={() => {
@@ -1176,7 +1199,12 @@ export function App() {
                           />
                         </div>
                       ) : null}
-                      {soloDesk && soloReviewRail ? null : (
+                      {soloSurface === "matter" && config ? (
+                        <div className="lm-solo-matter-rail" data-testid="lm-solo-matter-rail">
+                          {matterWorkbenchNode}
+                        </div>
+                      ) : null}
+                      {soloSurface === "chat" ? (
                         <>
                           <LawmindChatSessionTabs
                             sessions={chatSessionList.map((row) => ({
@@ -1211,9 +1239,9 @@ export function App() {
                             onClearFileChatPills={clearFileChatContext}
                           />
                         </>
-                      )}
+                      ) : null}
                     </div>
-                    {soloDesk && soloReviewRail ? null : (
+                    {soloSurface === "chat" ? (
                       <LawmindChatComposeFooter
                         currentMessages={currentMessages}
                         input={input}
@@ -1283,7 +1311,7 @@ export function App() {
                           ) : null
                         }
                       />
-                    )}
+                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -1318,7 +1346,11 @@ export function App() {
                   title="打开案件工作台并筛选「未关联对话」案件"
                   onClick={() => {
                     recordsDeskMatters.setSelectedKey(RECORDS_DESK_UNLINKED);
-                    setMatterCockpitOpen(true);
+                    if (soloDesk) {
+                      openSoloMatterRail();
+                    } else {
+                      setMatterCockpitOpen(true);
+                    }
                   }}
                 >
                   未关联
@@ -1327,10 +1359,30 @@ export function App() {
                   type="button"
                   className="lm-btn lm-btn-secondary lm-btn-small"
                   disabled={!config.apiBase}
-                  title={matterCockpitOpen ? "关闭主区案件工作台，回到文件与对话" : "在主区打开案件工作台（驾驶舱）"}
-                  onClick={() => setMatterCockpitOpen((v) => !v)}
+                  title={
+                    matterCockpitOpen && soloSurface !== "review"
+                      ? soloDesk
+                        ? "关闭案件列，回到对话"
+                        : "关闭主区案件工作台，回到文件与对话"
+                      : soloDesk
+                        ? "在对话列打开案件，左侧文件留下"
+                        : "在主区打开案件工作台（驾驶舱）"
+                  }
+                  onClick={() => {
+                    if (soloDesk) {
+                      if (soloSurface === "matter") {
+                        setMatterCockpitOpen(false);
+                      } else {
+                        openSoloMatterRail();
+                      }
+                      return;
+                    }
+                    setMatterCockpitOpen((v) => !v);
+                  }}
                 >
-                  {matterCockpitOpen ? "隐藏工作台" : "案件工作台"}
+                  {(soloDesk ? soloSurface === "matter" : matterCockpitOpen)
+                    ? "隐藏工作台"
+                    : "案件工作台"}
                 </button>
               </>
             }

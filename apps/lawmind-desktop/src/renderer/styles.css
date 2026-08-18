@@ -4700,7 +4700,8 @@ fieldset.lm-field-reset > legend.lm-meta {
 }
 
 /* Solo：改稿嵌在对话列，审核台占满该列 */
-.lm-chat-workspace-messages-only > .lm-solo-review-rail {
+.lm-chat-workspace-messages-only > .lm-solo-review-rail,
+.lm-chat-workspace-messages-only > .lm-solo-matter-rail {
   flex: 1;
   flex-shrink: 1;
   min-height: 0;
@@ -4710,9 +4711,11 @@ fieldset.lm-field-reset > legend.lm-meta {
   overflow: hidden;
 }
 
-.lm-solo-review-rail > .lm-review-workbench-root {
+.lm-solo-review-rail > .lm-review-workbench-root,
+.lm-solo-matter-rail > .lm-workbench.lm-matter-workbench {
   flex: 1;
   min-height: 0;
+  height: auto;
   display: flex;
   flex-direction: column;
   overflow: hidden;
