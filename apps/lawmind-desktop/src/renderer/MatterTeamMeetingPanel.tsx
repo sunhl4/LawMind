@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import type { TeamMeetingLine } from "../../../../src/lawmind/cases/index.ts";
+import type { TeamMeetingLine } from "../../../../src/lawmind/cases/team-meeting.ts";
 import type { ClarificationQuestion } from "../../../../src/lawmind/types.ts";
 import { ApiRequestError, apiGetJson, errorMessage } from "./api-client";
 import { LawmindClarificationForm } from "./LawmindClarificationForm";

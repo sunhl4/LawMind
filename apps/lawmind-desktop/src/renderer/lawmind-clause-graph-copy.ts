@@ -1,5 +1,6 @@
-import { DRAFT_CRITIC_PREFIX } from "../../../../src/lawmind/reasoning/draft-critic.ts";
 import { clauseGraphHeadline, type ClauseGraph } from "../../../../src/lawmind/reasoning/clause-graph.ts";
+
+const DRAFT_CRITIC_PREFIX = "复核：";
 
 export function criticNotesFromReview(notes: string[] | undefined): string[] {
   return (notes ?? []).filter((note) => note.startsWith(DRAFT_CRITIC_PREFIX));

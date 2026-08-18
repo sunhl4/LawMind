@@ -2,7 +2,7 @@ import type { ArtifactDraft } from "../../../../src/lawmind/types.ts";
 import {
   describeDraftScaffold,
   type DraftScaffoldView,
-} from "../../../../src/lawmind/deliverables/index.ts";
+} from "../../../../src/lawmind/deliverables/scaffold-status.ts";
 
 export function pickLatestScaffoldDraft(drafts: ArtifactDraft[]): ArtifactDraft | null {
   for (const draft of drafts) {
