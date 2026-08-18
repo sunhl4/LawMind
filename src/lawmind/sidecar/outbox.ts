@@ -9,6 +9,7 @@ import { describeDraftScaffold, type DraftScaffoldView } from "../deliverables/s
 import type { ClauseGraph } from "../reasoning/clause-graph.js";
 import { DRAFT_CRITIC_PREFIX } from "../reasoning/draft-critic.js";
 import type { ArtifactDraft } from "../types.js";
+import { findSidecarIngestPathForTask } from "./bindings.js";
 
 export const SIDECAR_OUTBOX_REL = "lawmind/sidecar-outbox.json";
 
@@ -20,6 +21,7 @@ export type SidecarOutboxItem = {
   scaffoldDense: boolean;
   createdAt: string;
   ackedAt?: string;
+  ingestRelativePath?: string;
 };
 
 export function sidecarOutboxPath(workspaceDir: string): string {
@@ -69,6 +71,7 @@ export function persistSidecarOutboxFromDraft(
     criticNotes: criticNotesFromDraft(draft),
     scaffoldDense: scaffold.dense,
     createdAt: new Date().toISOString(),
+    ingestRelativePath: findSidecarIngestPathForTask(workspaceDir, draft.taskId),
   };
   const file = sidecarOutboxPath(workspaceDir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -94,6 +97,8 @@ export function readSidecarOutbox(workspaceDir: string): SidecarOutboxItem | und
       scaffoldDense: parsed.scaffoldDense === true,
       createdAt: typeof parsed.createdAt === "string" ? parsed.createdAt : "",
       ackedAt: typeof parsed.ackedAt === "string" ? parsed.ackedAt : undefined,
+      ingestRelativePath:
+        typeof parsed.ingestRelativePath === "string" ? parsed.ingestRelativePath : undefined,
     };
   } catch {
     return undefined;

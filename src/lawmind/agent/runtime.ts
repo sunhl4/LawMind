@@ -224,6 +224,7 @@ export async function runTurn(opts: {
   projectDir?: string;
   /** 案件工作台团队会议室：写入 system prompt 行为约束 */
   teamMeetingMode?: boolean;
+  sidecarIngestPaths?: string[];
 }): Promise<{ turn: AgentTurn; reply: string; sessionId: string; memoryContext: MemoryContext }> {
   const { config, registry, instruction, matterId, sessionTitleHint } = opts;
   const projectDirResolved = (opts.projectDir ?? config.projectDir)?.trim() || undefined;
@@ -277,6 +278,7 @@ export async function runTurn(opts: {
     collaborationEnabled: config.enableCollaboration === true,
     clarificationBlockingHeavyTools: false,
     strictDangerousToolApproval,
+    sidecarIngestPaths: opts.sidecarIngestPaths,
   };
 
   // 2. 构建 system prompt

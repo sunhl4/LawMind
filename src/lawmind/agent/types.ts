@@ -83,6 +83,8 @@ export type AgentContext = {
   clarificationBlockingHeavyTools?: boolean;
   /** 与 `AgentConfig.strictDangerousToolApproval` 对齐，供工具层读取 */
   strictDangerousToolApproval?: boolean;
+  /** 本轮钉上的 Word/WPS 选区路径 */
+  sidecarIngestPaths?: string[];
 };
 
 // ─────────────────────────────────────────────

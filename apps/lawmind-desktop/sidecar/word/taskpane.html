@@ -29,6 +29,10 @@
         cursor: pointer;
         font-size: 14px;
       }
+      button.secondary {
+        background: #fff;
+        color: #5c5348;
+      }
       #status {
         margin-top: 12px;
         font-size: 12px;
@@ -52,15 +56,15 @@
     <button type="button" data-verb="draft">写这封</button>
     <button type="button" data-verb="research">查这个问题</button>
     <button type="button" id="pull-reply">取回复核</button>
-    <button type="button" id="insert-text">插入到选区</button>
-    <button type="button" id="insert-comment">作为批注插入</button>
+    <button type="button" id="insert-comment">作为批注插入（推荐）</button>
+    <button type="button" id="insert-text" class="secondary">插入到选区（会覆盖选中文字）</button>
     <div id="status">等待选区…</div>
     <div id="reply"></div>
     <script>
       window.LAWMIDD_PORT = window.LAWMIDD_PORT || "";
       let cachedApiBase = "";
       let latestPaste = "";
-      let ingestAt = 0;
+      let ingestPath = "";
       let pollTimer = 0;
 
       function unique(items) {
@@ -154,19 +158,20 @@
 
       async function writeComment(text) {
         if (typeof Word === "undefined" || !Word.run) {
-          await writeSelection("【LawMind 复核】\n" + text);
-          return "text";
+          throw new Error("当前宿主不支持批注");
         }
+        await Word.run(async function (context) {
+          const range = context.document.getSelection();
+          range.insertComment(String(text).slice(0, 1000));
+          await context.sync();
+        });
+      }
+
+      async function ackOutbox(apiBase) {
         try {
-          await Word.run(async function (context) {
-            const range = context.document.getSelection();
-            range.insertComment(String(text).slice(0, 1000));
-            await context.sync();
-          });
-          return "comment";
+          await fetch(apiBase + "/api/sidecar/outbox/ack", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
         } catch (err) {
-          await writeSelection("【LawMind 复核】\n" + text);
-          return "text";
+          // ack is best-effort
         }
       }
 
@@ -177,11 +182,15 @@
         if (!json.ok || !json.item || !json.item.pasteText) {
           return null;
         }
-        if (ingestAt && json.item.createdAt && Date.parse(json.item.createdAt) < ingestAt) {
+        if (ingestPath && json.item.ingestRelativePath && json.item.ingestRelativePath !== ingestPath) {
+          return null;
+        }
+        if (ingestPath && !json.item.ingestRelativePath) {
           return null;
         }
         latestPaste = json.item.pasteText;
         reply.textContent = latestPaste;
+        await ackOutbox(apiBase);
         return json.item;
       }
 
@@ -193,7 +202,7 @@
           try {
             const item = await pullOutbox();
             if (item) {
-              status.textContent = "已取回复核。可插入选区或作为批注。";
+              status.textContent = "已取回复核。请先选中原文条款，再作为批注插入。也可复制下方摘要。";
               window.clearInterval(pollTimer);
               pollTimer = 0;
             }
@@ -217,7 +226,7 @@
           if (!json.ok) {
             throw new Error(json.error || "发送失败");
           }
-          ingestAt = Date.now();
+          ingestPath = json.relativePath || "";
           latestPaste = "";
           reply.textContent = "";
           status.textContent = "已送到本机 LawMind。打开桌面对话继续，或在此取回复核。";
@@ -237,20 +246,9 @@
         status.textContent = "正在取回复核…";
         try {
           const item = await pullOutbox();
-          status.textContent = item ? "已取回复核。可插入选区或作为批注。" : "还没有新的复核摘要。请先在桌面成稿。";
-        } catch (err) {
-          status.textContent = err instanceof Error ? err.message : String(err);
-        }
-      });
-
-      document.getElementById("insert-text").addEventListener("click", async function () {
-        if (!latestPaste) {
-          status.textContent = "请先取回复核。";
-          return;
-        }
-        try {
-          await writeSelection(latestPaste);
-          status.textContent = "已插入到选区。";
+          status.textContent = item
+            ? "已取回复核。请先选中原文条款，再作为批注插入。也可复制下方摘要。"
+            : "还没有对应这一份选区的复核摘要。请先在桌面成稿。";
         } catch (err) {
           status.textContent = err instanceof Error ? err.message : String(err);
         }
@@ -262,8 +260,22 @@
           return;
         }
         try {
-          const mode = await writeComment(latestPaste);
-          status.textContent = mode === "comment" ? "已作为批注插入。" : "当前宿主不支持批注，已插入到选区。";
+          await writeComment(latestPaste);
+          status.textContent = "已作为批注插入到当前选区。";
+        } catch (err) {
+          status.textContent =
+            (err instanceof Error ? err.message : String(err)) + "。请复制下方摘要，不要覆盖原文。";
+        }
+      });
+
+      document.getElementById("insert-text").addEventListener("click", async function () {
+        if (!latestPaste) {
+          status.textContent = "请先取回复核。";
+          return;
+        }
+        try {
+          await writeSelection(latestPaste);
+          status.textContent = "已插入到选区（原文选中部分已被覆盖）。";
         } catch (err) {
           status.textContent = err instanceof Error ? err.message : String(err);
         }

@@ -27,6 +27,10 @@ import {
 } from "../../../src/lawmind/assistants/store.js";
 import { reportedRouterMode } from "../../../src/lawmind/router/model-route.js";
 import { reportedReasoningMode } from "../../../src/lawmind/reasoning/model-draft.js";
+import {
+  extractSidecarIngestPathsFromPins,
+  extractSidecarIngestPathsFromText,
+} from "../../../src/lawmind/sidecar/bindings.js";
 import { sendJsonError } from "./lawmind-api-error.js";
 import { isWebSearchForcedOffByPolicy } from "./lawmind-policy.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
@@ -197,6 +201,10 @@ export async function handleChatRoute({
       projectDir: projectDirForAgent,
       teamMeetingMode: meetingMode,
       sessionTitleHint,
+      sidecarIngestPaths: [
+        ...extractSidecarIngestPathsFromPins(body.contextPins),
+        ...extractSidecarIngestPathsFromText(instructionForAgent),
+      ],
     });
     bumpAssistantStats(lawMindRoot, profile.assistantId, {
       newSession: !hadSession,

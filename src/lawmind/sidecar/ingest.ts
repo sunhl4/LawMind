@@ -32,7 +32,15 @@ export type SidecarPendingItem = {
   mtimeMs: number;
 };
 
-const SIDECAR_FILE_RE = /^sidecar-(word|wps|paste)-.+\.md$/;
+export const SIDECAR_FILE_RE = /^sidecar-(word|wps|paste)-.+\.md$/;
+
+export function isSidecarInboxRelativePath(value: string): boolean {
+  const normalized = value.replace(/\\/g, "/").replace(/^\//, "");
+  if (!normalized.startsWith("inbox/") || normalized.includes("..")) {
+    return false;
+  }
+  return SIDECAR_FILE_RE.test(path.basename(normalized));
+}
 const ACK_REL = "lawmind/sidecar-acked.json";
 const ACK_CAP = 200;
 

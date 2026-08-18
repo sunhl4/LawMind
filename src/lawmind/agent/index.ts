@@ -47,6 +47,8 @@ export type LawMindAgent = {
       teamMeetingMode?: boolean;
       /** 自动会话标题：输入框原文（不含前缀），用于取提问前几个字命名 */
       sessionTitleHint?: string;
+      /** 本轮钉上的 Word/WPS 选区路径 */
+      sidecarIngestPaths?: string[];
     },
   ) => Promise<{
     reply: string;
@@ -120,6 +122,7 @@ export function createLawMindAgent(config: AgentConfig): LawMindAgent {
         matterId: opts?.matterId,
         projectDir: opts?.projectDir,
         teamMeetingMode: opts?.teamMeetingMode === true,
+        sidecarIngestPaths: opts?.sidecarIngestPaths,
       });
 
       return {

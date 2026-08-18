@@ -24,6 +24,7 @@ import { appendCaseProgress, appendTodayLog, ensureCaseWorkspace } from "../memo
 import { buildClauseGraphFromDraft, type ClauseGraph } from "../reasoning/clause-graph.js";
 import { applyDraftCritic } from "../reasoning/draft-critic.js";
 import { buildLegalReasoningGraph } from "../reasoning/index.js";
+import { maybeBindSidecarIngests } from "../sidecar/bindings.js";
 import { persistSidecarOutboxFromDraft } from "../sidecar/outbox.js";
 import {
   ensureTaskRecord,
@@ -100,6 +101,10 @@ export function commitPlannedIntent(ctx: EngineContext, intent: TaskIntent): voi
     workspaceDir,
     `## 任务计划\n- ID: ${intent.taskId}\n- 类型: ${intent.kind}\n- 摘要: ${intent.summary}\n- 案件: ${intent.matterId ?? "无"}`,
   );
+  maybeBindSidecarIngests(workspaceDir, intent.taskId, [
+    ...(ctx.sidecarIngestPaths ?? []),
+    intent.summary,
+  ]);
 }
 
 /** 草稿生成后的统一持久化与审计。 */
@@ -124,6 +129,11 @@ export function persistDraftPipeline(
   persistResearchSnapshot(workspaceDir, bundle);
   const clauses = options?.clauseGraph ?? buildClauseGraphFromDraft(draft);
   persistClauseSnapshot(workspaceDir, clauses);
+  maybeBindSidecarIngests(workspaceDir, draft.taskId, [
+    ...(ctx.sidecarIngestPaths ?? []),
+    draft.summary,
+    draft.title,
+  ]);
   persistSidecarOutboxFromDraft(workspaceDir, draft, clauses);
   const tr = readTaskRecord(workspaceDir, draft.taskId);
   if (tr) {

@@ -15,6 +15,7 @@ export type EngineContext = {
   auditDir: string;
   adapters: RetrievalAdapter[];
   assistantId?: string;
+  sidecarIngestPaths?: string[];
 };
 
 export function buildEngineContext(config: LawMindEngineConfig): EngineContext {
@@ -27,5 +28,6 @@ export function buildEngineContext(config: LawMindEngineConfig): EngineContext {
     auditDir,
     adapters: config.adapters,
     assistantId: config.assistantId,
+    sidecarIngestPaths: config.sidecarIngestPaths,
   };
 }

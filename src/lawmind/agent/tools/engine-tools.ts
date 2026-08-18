@@ -203,6 +203,7 @@ function getEngine(ctx: AgentContext) {
     workspaceDir: ctx.workspaceDir,
     adapters,
     assistantId: ctx.assistantId,
+    sidecarIngestPaths: ctx.sidecarIngestPaths,
   };
   return createLawMindEngine(config);
 }

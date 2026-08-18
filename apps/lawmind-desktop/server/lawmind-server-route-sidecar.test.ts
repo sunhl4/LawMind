@@ -5,6 +5,8 @@ import { PassThrough } from "node:stream";
 import type http from "node:http";
 import { describe, expect, it } from "vitest";
 import { buildClauseGraphFromDraft } from "../../../src/lawmind/reasoning/clause-graph.js";
+import { bindSidecarIngestToTask } from "../../../src/lawmind/sidecar/bindings.js";
+import { ingestSidecarSelection } from "../../../src/lawmind/sidecar/ingest.js";
 import { persistSidecarOutboxFromDraft } from "../../../src/lawmind/sidecar/outbox.js";
 import { handleSidecarRoutes } from "./lawmind-server-route-sidecar.js";
 import type { LawmindDispatchContext } from "./lawmind-server-route-types.js";
@@ -165,6 +167,12 @@ describe("lawmind-server-route-sidecar", () => {
       reviewStatus: "pending" as const,
       createdAt: new Date().toISOString(),
     };
+    const ingested = ingestSidecarSelection(workspaceDir, {
+      source: "word",
+      text: "请于七日内付款。",
+      verb: "draft",
+    });
+    bindSidecarIngestToTask(workspaceDir, ingested.relativePath, draft.taskId);
     persistSidecarOutboxFromDraft(workspaceDir, draft, buildClauseGraphFromDraft(draft));
 
     const filled = createResponseCapture();
@@ -178,7 +186,7 @@ describe("lawmind-server-route-sidecar", () => {
     });
     expect(filled.json()).toMatchObject({
       ok: true,
-      item: { taskId: "t-side-outbox" },
+      item: { taskId: "t-side-outbox", ingestRelativePath: ingested.relativePath },
     });
 
     const ack = createResponseCapture();

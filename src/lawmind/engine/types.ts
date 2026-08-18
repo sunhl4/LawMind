@@ -27,6 +27,8 @@ export type LawMindEngineConfig = {
   adapters: RetrievalAdapter[];
   /** 多助手：写入任务记录归因 */
   assistantId?: string;
+  /** 本轮钉上的 Word/WPS 选区路径，用于绑定 outbox */
+  sidecarIngestPaths?: string[];
 };
 
 export type LawMindEngine = {

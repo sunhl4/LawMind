@@ -4,6 +4,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildClauseGraphFromDraft } from "../reasoning/clause-graph.js";
 import type { ArtifactDraft } from "../types.js";
+import { bindSidecarIngestToTask } from "./bindings.js";
+import { ingestSidecarSelection } from "./ingest.js";
 import {
   acknowledgeSidecarOutbox,
   buildSidecarPasteText,
@@ -47,5 +49,17 @@ describe("sidecar outbox", () => {
     const acked = acknowledgeSidecarOutbox(dir);
     expect(acked?.ackedAt).toBeTruthy();
     expect(readSidecarOutbox(dir)?.ackedAt).toBeTruthy();
+  });
+
+  it("writes the bound ingest path onto the outbox item", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-outbox-bind-"));
+    const ingested = ingestSidecarSelection(dir, {
+      source: "word",
+      text: "请于七日内付款。",
+      verb: "draft",
+    });
+    bindSidecarIngestToTask(dir, ingested.relativePath, "t-outbox-1");
+    persistSidecarOutboxFromDraft(dir, draft(), buildClauseGraphFromDraft(draft()));
+    expect(readSidecarOutbox(dir)?.ingestRelativePath).toBe(ingested.relativePath);
   });
 });
