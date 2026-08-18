@@ -443,6 +443,29 @@ export function ReviewWorkbench(props: Props) {
     }
   };
 
+  const postRevisionJob = useCallback(
+    async (instruction?: string) => {
+      if (!selectedTaskId?.trim()) {
+        throw new Error("未选择草稿");
+      }
+      return apiSendJson<
+        {
+          ok?: boolean;
+          queued?: boolean;
+          sessionId?: string;
+          assistantId?: string;
+          error?: string;
+          message?: string;
+        },
+        { instruction?: string; assistantId?: string }
+      >(apiBase, `/api/drafts/${encodeURIComponent(selectedTaskId)}/revision-job`, "POST", {
+        instruction: instruction?.trim() || undefined,
+        assistantId,
+      });
+    },
+    [apiBase, assistantId, selectedTaskId],
+  );
+
   const submitReview = async (status: "approved" | "rejected" | "modified") => {
     if (!selectedTaskId) {
       return;
@@ -487,8 +510,26 @@ export function ReviewWorkbench(props: Props) {
       if (status === "approved") {
         msg = "已通过审核。可点击「渲染交付物」生成文件。";
       } else if (status === "modified") {
-        msg =
-          "已保存为「需修改」及签批备注。请在下方「发给助手的补充说明」中完善意见后，点击「提交给助手（后台执行）」派发修订；未点击则不会启动后台改稿。";
+        const submittedNote = note.trim();
+        const extraInstruction = revisionDispatchNote.trim();
+        const existingNotes = j.draft?.reviewNotes ?? detail?.reviewNotes ?? [];
+        const shouldDispatch =
+          extraInstruction.length > 0 || submittedNote.length > 0 || existingNotes.length > 0;
+        if (shouldDispatch) {
+          try {
+            const rev = await postRevisionJob(extraInstruction || undefined);
+            if (!rev.ok) {
+              throw new Error(messageFromOkFalseBody(rev, "提交失败"));
+            }
+            msg =
+              "已保存为「需修改」并已交给助手后台改稿。请到工作区当前助手的会话列表打开「审核修订」查看进度；失败时可再点下方「提交给助手」补发。";
+          } catch (dispatchErr) {
+            msg = `已保存为「需修改」。交给助手失败（${errorMessage(dispatchErr, "提交失败")}），稿已是需修改，可再点「提交给助手」补发。`;
+          }
+        } else {
+          msg =
+            "已保存为「需修改」。没有补充说明或审核备注，未自动派发；需要时可填写后点「提交给助手」补发。";
+        }
       } else {
         msg =
           "已记录驳回。助手不会自动处理：请在主对话中说明后续如何办理或是否重做。";
@@ -562,32 +603,19 @@ export function ReviewWorkbench(props: Props) {
     setRevisionDispatchBusy(true);
     setActionMsg(null);
     try {
-      const j = await apiSendJson<
-        {
-          ok?: boolean;
-          queued?: boolean;
-          sessionId?: string;
-          assistantId?: string;
-          error?: string;
-          message?: string;
-        },
-        { instruction?: string; assistantId?: string }
-      >(apiBase, `/api/drafts/${encodeURIComponent(selectedTaskId)}/revision-job`, "POST", {
-        instruction: revisionDispatchNote.trim() || undefined,
-        assistantId,
-      });
+      const j = await postRevisionJob(revisionDispatchNote.trim() || undefined);
       if (!j.ok) {
         throw new Error(messageFromOkFalseBody(j, "提交失败"));
       }
       setActionMsg(
-        "已提交后台修订：助手会在新开会话中处理。请到工作区切换到当前助手，在会话列表中打开最新「审核修订」会话，确认是否成功调用写盘工具；完成后回到本页刷新。若刷新后正文仍几乎不变，多半是工具未把 JSON 写回 drafts/（可在该会话里查看工具返回的错误）。",
+        "已提交后台修订：助手会在新开会话中处理。请到工作区当前助手的会话列表打开「审核修订」查看进度；完成后回到本页刷新。",
       );
     } catch (e) {
       setActionMsg(errorMessage(e, "提交后台修订失败"));
     } finally {
       setRevisionDispatchBusy(false);
     }
-  }, [apiBase, assistantId, detail?.reviewStatus, revisionDispatchNote, selectedTaskId]);
+  }, [detail?.reviewStatus, postRevisionJob, revisionDispatchNote, selectedTaskId]);
 
   const submitRender = async () => {
     if (!selectedTaskId) {
@@ -1028,7 +1056,7 @@ export function ReviewWorkbench(props: Props) {
                   disabled={actionBusy || (detail.reviewStatus ?? "pending") !== "pending"}
                   onClick={() => void submitReview("modified")}
                 >
-                  需修改
+                  需修改即交给助手改
                 </button>
                 <button
                   type="button"
@@ -1087,9 +1115,9 @@ export function ReviewWorkbench(props: Props) {
                 role="region"
                 aria-label="交给助手后台修订"
               >
-                <p className="lm-callout-title">交给助手后台修订</p>
+                <p className="lm-callout-title">需修改即交给助手改</p>
                 <p className="lm-callout-body">
-                  签批为「需修改」后，正文不会自动变化。下方说明会与会话中已保存的审核备注一并发给助手；点击提交后由本机在**后台**新开一轮助手对话执行改稿（无需先切到工作区输入框）。
+                  签批为「需修改」且有补充说明或审核备注时，会同时交给助手后台改稿。正文不会自动变化，也不会自动通过或渲染。下方可补发。
                 </p>
                 <p className="lm-meta">
                   任务编号 <code>{detail.taskId}</code>
@@ -1117,11 +1145,11 @@ export function ReviewWorkbench(props: Props) {
                     disabled={revisionDispatchBusy || actionBusy}
                     onClick={() => void submitRevisionJob()}
                   >
-                    {revisionDispatchBusy ? "提交中…" : "提交给助手（后台执行）"}
+                    {revisionDispatchBusy ? "提交中…" : "提交给助手（补发）"}
                   </button>
                 </div>
                 <p className="lm-meta lm-review-revision-dispatch-foot">
-                  提交后请到工作区当前助手下打开会话列表中的「审核修订」新会话查看进度；改完后回到本页刷新草稿。若要重新使用签批按钮，请先「恢复待审核」。
+                  补发后请到工作区当前助手的会话列表打开「审核修订」查看进度；改完后回到本页刷新。若要重新使用签批按钮，请先「恢复待审核」。
                 </p>
               </div>
             ) : null}
