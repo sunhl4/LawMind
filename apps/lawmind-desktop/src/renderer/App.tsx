@@ -1280,14 +1280,14 @@ export function App() {
                                   type="button"
                                   className="lm-btn"
                                   onClick={() => {
-                                    const taskId = scaffoldDraft.draft?.taskId;
-                                    if (!taskId) {
+                                    const draft = scaffoldDraft.draft;
+                                    if (!draft) {
                                       return;
                                     }
                                     openDeskReview({
-                                      taskId,
-                                      matterId: scaffoldDraft.draft.matterId,
-                                      statusFilter: scaffoldDraft.draft.reviewStatus ?? "pending",
+                                      taskId: draft.taskId,
+                                      matterId: draft.matterId,
+                                      statusFilter: draft.reviewStatus ?? "pending",
                                       listMode: "all",
                                     });
                                   }}

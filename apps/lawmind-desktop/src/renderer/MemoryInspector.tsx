@@ -10,7 +10,7 @@
  *   - 推迟决定（关闭面板，不动状态）
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 const SCOPES = ["matter", "lawyer", "playbook", "client", "firm", "assistant", "opponent", "project"] as const;
 type Scope = (typeof SCOPES)[number];
@@ -68,7 +68,7 @@ type Props = {
   defaultScope?: Scope;
 };
 
-export default function MemoryInspector({ baseUrl, matterId, defaultScope }: Props): JSX.Element {
+export default function MemoryInspector({ baseUrl, matterId, defaultScope }: Props): ReactNode {
   const [scope, setScope] = useState<Scope | undefined>(defaultScope);
   const [items, setItems] = useState<Suggestion[]>([]);
   const [loading, setLoading] = useState(false);

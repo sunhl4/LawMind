@@ -577,7 +577,7 @@ export function ReviewWorkbench(props: Props) {
         assistantId,
       });
       if (!j.ok) {
-        throw new Error(userMessageFromApiError(j as ApiErrorJson, messageFromOkFalseBody(j, "提交失败")));
+        throw new Error(messageFromOkFalseBody(j, "提交失败"));
       }
       setActionMsg(
         "已提交后台修订：助手会在新开会话中处理。请到工作区切换到当前助手，在会话列表中打开最新「审核修订」会话，确认是否成功调用写盘工具；完成后回到本页刷新。若刷新后正文仍几乎不变，多半是工具未把 JSON 写回 drafts/（可在该会话里查看工具返回的错误）。",

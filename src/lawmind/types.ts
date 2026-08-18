@@ -373,6 +373,10 @@ export type AuditEventKind =
   | "learning.suggestion_queued" // 2.0：审核学习先入队
   | "learning.suggestion_adopted" // 2.0：学习建议已采纳写回
   | "learning.suggestion_dismissed" // 2.0：学习建议已忽略
+  | "memory.adoption_suggested" // 记忆采纳队列：新建待审建议
+  | "memory.adoption_auto_adopted" // 记忆采纳队列：自动采纳
+  | "memory.adoption_adopted" // 记忆采纳队列：律师采纳
+  | "memory.adoption_dismissed" // 记忆采纳队列：律师忽略
   | "ui.matter_action" // 2.0：桌面端案件工作台关键律师动作（计划季末 sunset，由 ux.matter_action 取代）
   | "ux.matter_action" // W10：与 ui.matter_action 双写，过渡期由 insights 模块统一消费
   | "ui.firstrun_wizard_completed" // 桌面首跑向导完成（转化漏斗）
