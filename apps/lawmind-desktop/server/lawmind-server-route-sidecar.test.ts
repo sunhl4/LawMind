@@ -4,6 +4,8 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import type http from "node:http";
 import { describe, expect, it } from "vitest";
+import { buildClauseGraphFromDraft } from "../../../src/lawmind/reasoning/clause-graph.js";
+import { persistSidecarOutboxFromDraft } from "../../../src/lawmind/sidecar/outbox.js";
 import { handleSidecarRoutes } from "./lawmind-server-route-sidecar.js";
 import type { LawmindDispatchContext } from "./lawmind-server-route-types.js";
 
@@ -64,6 +66,7 @@ describe("lawmind-server-route-sidecar", () => {
       daemon: "lawmindd",
       productLine: "desk",
       ingestPath: "/api/sidecar/ingest",
+      outboxPath: "/api/sidecar/outbox",
     });
   });
 
@@ -129,5 +132,64 @@ describe("lawmind-server-route-sidecar", () => {
       c: {},
     });
     expect((emptyCapture.json() as { items?: unknown[] }).items).toEqual([]);
+  });
+
+  it("returns empty outbox until a draft writes one", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-sidecar-outbox-"));
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env"),
+      policy: { loaded: false },
+    };
+    const empty = createResponseCapture();
+    await handleSidecarRoutes({
+      ctx,
+      req: getRequest(),
+      res: empty.res,
+      url: new URL("http://127.0.0.1/api/sidecar/outbox"),
+      pathname: "/api/sidecar/outbox",
+      c: {},
+    });
+    expect(empty.json()).toMatchObject({ ok: true, item: null });
+
+    const draft = {
+      taskId: "t-side-outbox",
+      title: "催款函",
+      output: "docx" as const,
+      templateId: "word/letter-default",
+      deliverableType: "letter.demand",
+      summary: "测",
+      sections: [{ heading: "主张", body: "请于七日内付款。" }],
+      reviewNotes: ["复核：律师函未见履行期限，对方难以按期响应。"],
+      reviewStatus: "pending" as const,
+      createdAt: new Date().toISOString(),
+    };
+    persistSidecarOutboxFromDraft(workspaceDir, draft, buildClauseGraphFromDraft(draft));
+
+    const filled = createResponseCapture();
+    await handleSidecarRoutes({
+      ctx,
+      req: getRequest(),
+      res: filled.res,
+      url: new URL("http://127.0.0.1/api/sidecar/outbox"),
+      pathname: "/api/sidecar/outbox",
+      c: {},
+    });
+    expect(filled.json()).toMatchObject({
+      ok: true,
+      item: { taskId: "t-side-outbox" },
+    });
+
+    const ack = createResponseCapture();
+    await handleSidecarRoutes({
+      ctx,
+      req: postRequest({}),
+      res: ack.res,
+      url: new URL("http://127.0.0.1/api/sidecar/outbox/ack"),
+      pathname: "/api/sidecar/outbox/ack",
+      c: {},
+    });
+    expect((ack.json() as { item?: { ackedAt?: string } }).item?.ackedAt).toBeTruthy();
   });
 });

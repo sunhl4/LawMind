@@ -58,6 +58,6 @@ export function lawminddHelpText(): string {
     "  pnpm lawmind:daemon -- [--port 4312] [--workspace ./workspace] [--env-file .env.lawmind]",
     "",
     "Word / WPS 侧载 manifest 指向 http://127.0.0.1:4312/sidecar/word/taskpane.html",
-    "请与桌面使用同一工作区，选区才会出现在对话条上。",
+    "请与桌面使用同一工作区。选区进对话条；成稿后可在任务窗格取回复核并插入选区或批注。",
   ].join("\n");
 }

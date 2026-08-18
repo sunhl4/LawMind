@@ -6,13 +6,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { ArtifactDraft } from "../../../../src/lawmind/types.ts";
 import type { AcceptanceReport } from "../../../../src/lawmind/deliverables/index.ts";
+import type { DraftScaffoldView } from "../../../../src/lawmind/deliverables/scaffold-status.ts";
 import type { DraftCitationIntegrityView } from "../../../../src/lawmind/drafts/citation-integrity.ts";
+import type { ClauseGraph } from "../../../../src/lawmind/reasoning/clause-graph.ts";
 import { ALL_REVIEW_LABELS } from "../../../../src/lawmind/review-labels.ts";
 import type { MemorySourceLayer } from "../../../../src/lawmind/memory/index.ts";
 import type { LearningSuggestionRecord } from "../../../../src/lawmind/learning/suggestion-queue.ts";
 import { LawmindAcceptanceGate } from "./LawmindAcceptanceGate";
+import { LawmindClauseGraph } from "./LawmindClauseGraph";
 import { LawmindCitationBanner } from "./LawmindCitationBanner";
 import { LawmindReviewSelfCheckSummary } from "./LawmindReviewSelfCheckSummary";
+import { criticNotesFromReview } from "./lawmind-clause-graph-copy";
+import { scaffoldReviewBannerText } from "./lawmind-scaffold-copy";
+import { reviewRejectedNextStepCopy, shouldShowReviewFirmLearningControls } from "./lawmind-solo-desk";
 import { LawmindSourcePillList } from "./LawmindSourcePreview";
 import { LawmindMemorySourcesPanel } from "./LawmindMemorySourcesPanel";
 import { LawmindReasoningCollapsible } from "./LawmindReasoningCollapsible";
@@ -160,6 +166,8 @@ export function ReviewWorkbench(props: Props) {
   const [detail, setDetail] = useState<ArtifactDraft | null>(null);
   const [citationIntegrity, setCitationIntegrity] = useState<DraftCitationIntegrityView | null>(null);
   const [acceptance, setAcceptance] = useState<AcceptanceReport | null>(null);
+  const [clauses, setClauses] = useState<ClauseGraph | null>(null);
+  const [scaffold, setScaffold] = useState<DraftScaffoldView | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [note, setNote] = useState("");
   /** 「需修改」后：发给助手的补充说明，随 revision-job 提交 */
@@ -186,6 +194,8 @@ export function ReviewWorkbench(props: Props) {
   /** 渲染时使用的 templateId，可与文书草稿上的默认模板不同 */
   const [renderTemplateId, setRenderTemplateId] = useState("");
   const edition = useEdition(apiBase);
+  const showFirmLearning = shouldShowReviewFirmLearningControls(edition.edition);
+  const criticNotes = criticNotesFromReview(detail?.reviewNotes);
 
   const { width: reviewListWidth, onResizePointerDown: onReviewListResize } = usePaneResizePx({
     storageKey: "lawmind.ui.reviewWorkbenchListWidth",
@@ -267,6 +277,8 @@ export function ReviewWorkbench(props: Props) {
       setDetail(null);
       setCitationIntegrity(null);
       setAcceptance(null);
+      setClauses(null);
+      setScaffold(null);
       setActionMsg(null);
       try {
         const j = await apiGetJson<{
@@ -276,6 +288,8 @@ export function ReviewWorkbench(props: Props) {
           reasoningMarkdown?: string | null;
           memorySources?: MemorySourceLayer[];
           acceptance?: AcceptanceReport;
+          clauses?: ClauseGraph;
+          scaffold?: DraftScaffoldView;
         }>(apiBase, `/api/drafts/${encodeURIComponent(taskId)}`);
         if (!j.ok || !j.draft) {
           throw new Error(messageFromOkFalseBody(j, "加载草稿失败"));
@@ -285,6 +299,8 @@ export function ReviewWorkbench(props: Props) {
         setReasoningMarkdown(typeof j.reasoningMarkdown === "string" ? j.reasoningMarkdown : null);
         setMemorySources(Array.isArray(j.memorySources) ? j.memorySources : null);
         setAcceptance(j.acceptance ?? null);
+        setClauses(j.clauses ?? null);
+        setScaffold(j.scaffold ?? null);
       } catch (e) {
         setActionMsg(errorMessage(e, "加载草稿失败"));
       } finally {
@@ -303,6 +319,8 @@ export function ReviewWorkbench(props: Props) {
       setReasoningMarkdown(null);
       setMemorySources(null);
       setAcceptance(null);
+      setClauses(null);
+      setScaffold(null);
     }
   }, [selectedTaskId, loadDetail]);
 
@@ -794,11 +812,19 @@ export function ReviewWorkbench(props: Props) {
               acceptance={acceptance}
               citation={citationIntegrity}
               deliverableType={detail.deliverableType}
+              clauses={clauses}
+              scaffold={scaffold}
+              criticCount={criticNotes.length}
             />
+            {scaffold?.dense ? (
+              <div className="lm-scaffold-banner" data-testid="lm-review-scaffold-banner" role="status">
+                {scaffoldReviewBannerText(scaffold)}
+              </div>
+            ) : null}
             <div id="lm-review-citation-banner">
               <LawmindCitationBanner view={citationIntegrity} apiBase={apiBase} taskId={selectedTaskId ?? undefined} />
             </div>
-            {learningQueue.length > 0 && (
+            {showFirmLearning && learningQueue.length > 0 && (
               <div className="lm-review-learning-queue">
                 <div className="lm-review-learning-queue-header">
                   <strong>学习队列</strong>
@@ -841,6 +867,18 @@ export function ReviewWorkbench(props: Props) {
               <LawmindMemorySourcesPanel layers={memorySources} variant="workbench" />
             ) : null}
             <LawmindAcceptanceGate report={acceptance} />
+            <LawmindClauseGraph graph={clauses} />
+            {criticNotes.length > 0 ? (
+              <div id="lm-review-critic-notes" className="lm-critic-notes" role="region" aria-label="复核备注">
+                <div className="lm-critic-notes-title">复核备注</div>
+                <p className="lm-meta">第二意见只指出缺口，没有改写正文。</p>
+                <ul className="lm-critic-notes-list">
+                  {criticNotes.map((note) => (
+                    <li key={note}>{note}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             <label className="lm-review-note">
               <span className="lm-review-note-title">审核备注（可选）</span>
               <span className="lm-meta lm-review-note-hint">
@@ -856,6 +894,8 @@ export function ReviewWorkbench(props: Props) {
               />
             </label>
 
+            {showFirmLearning ? (
+              <>
             <label className="lm-review-profile-toggle">
               <input
                 type="checkbox"
@@ -909,6 +949,8 @@ export function ReviewWorkbench(props: Props) {
                 <code>{`assistants/${assistantId}/PROFILE.md`}</code>）
               </span>
             </label>
+              </>
+            ) : null}
             <label className="lm-review-profile-toggle">
               <input
                 type="checkbox"
@@ -1092,8 +1134,7 @@ export function ReviewWorkbench(props: Props) {
               >
                 <p className="lm-callout-title">助手会不会自动改稿？</p>
                 <p className="lm-callout-body">
-                  不会。驳回后也不会自动删稿。若仍要交付，请在主对话中说明如何修改或重做；需要重新签批时，可先点「恢复待审核」。
-                  {detail.matterId ? <> 关联案件工作台可能出现「草稿待修订」类待办，便于跟进。</> : null}
+                  {reviewRejectedNextStepCopy(edition.edition, Boolean(detail.matterId))}
                 </p>
               </div>
             ) : null}

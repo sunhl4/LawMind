@@ -34,6 +34,15 @@
         font-size: 12px;
         color: #5c5348;
       }
+      #reply {
+        white-space: pre-wrap;
+        font-size: 12px;
+        line-height: 1.45;
+        background: #f4efe6;
+        border-radius: 8px;
+        padding: 10px;
+        min-height: 72px;
+      }
     </style>
   </head>
   <body>
@@ -42,20 +51,74 @@
     <button type="button" data-verb="review">审这份</button>
     <button type="button" data-verb="draft">写这封</button>
     <button type="button" data-verb="research">查这个问题</button>
+    <button type="button" id="pull-reply">取回复核</button>
+    <button type="button" id="insert-text">插入到选区</button>
+    <button type="button" id="insert-comment">作为批注插入</button>
     <div id="status">等待选区…</div>
+    <div id="reply"></div>
     <script>
       window.LAWMIDD_PORT = window.LAWMIDD_PORT || "";
-      function resolveApiBase() {
+      let cachedApiBase = "";
+      let latestPaste = "";
+      let ingestAt = 0;
+      let pollTimer = 0;
+
+      function unique(items) {
+        return items.filter(function (item, idx) {
+          return item && items.indexOf(item) === idx;
+        });
+      }
+
+      function candidateBases() {
+        const list = [];
         if (window.LAWMIDD_PORT) {
-          return "http://127.0.0.1:" + window.LAWMIDD_PORT;
+          list.push("http://127.0.0.1:" + window.LAWMIDD_PORT);
         }
         if (location.protocol.indexOf("http") === 0 && location.port) {
-          return location.protocol + "//" + location.hostname + ":" + location.port;
+          list.push(location.protocol + "//" + location.hostname + ":" + location.port);
         }
-        return "http://127.0.0.1:4312";
+        list.push("http://127.0.0.1:4312");
+        return unique(list);
       }
+
+      async function resolveApiBase() {
+        if (cachedApiBase) {
+          return cachedApiBase;
+        }
+        const candidates = candidateBases();
+        for (let i = 0; i < candidates.length; i += 1) {
+          try {
+            const res = await fetch(candidates[i] + "/api/sidecar/status");
+            const json = await res.json();
+            if (json && json.ok && json.ready) {
+              cachedApiBase = candidates[i];
+              return cachedApiBase;
+            }
+          } catch (err) {
+            // try next port
+          }
+        }
+        cachedApiBase = candidates[0];
+        return cachedApiBase;
+      }
+
+      function detectSource() {
+        try {
+          const host = String(
+            (Office && Office.context && (Office.context.host || (Office.context.diagnostics && Office.context.diagnostics.host))) ||
+              "",
+          ).toLowerCase();
+          if (host.indexOf("wps") >= 0) {
+            return "wps";
+          }
+        } catch (err) {
+          // default Word
+        }
+        return "word";
+      }
+
       const status = document.getElementById("status");
-      const apiBase = resolveApiBase();
+      const reply = document.getElementById("reply");
 
       function readSelection() {
         return new Promise(function (resolve, reject) {
@@ -73,20 +136,92 @@
         });
       }
 
+      function writeSelection(text) {
+        return new Promise(function (resolve, reject) {
+          if (typeof Office === "undefined" || !Office.context || !Office.context.document) {
+            reject(new Error("请在 Word 或 WPS 加载项中打开"));
+            return;
+          }
+          Office.context.document.setSelectedDataAsync(text, { coercionType: Office.CoercionType.Text }, function (result) {
+            if (result.status === Office.AsyncResultStatus.Succeeded) {
+              resolve();
+              return;
+            }
+            reject(new Error(result.error ? result.error.message : "写入选区失败"));
+          });
+        });
+      }
+
+      async function writeComment(text) {
+        if (typeof Word === "undefined" || !Word.run) {
+          await writeSelection("【LawMind 复核】\n" + text);
+          return "text";
+        }
+        try {
+          await Word.run(async function (context) {
+            const range = context.document.getSelection();
+            range.insertComment(String(text).slice(0, 1000));
+            await context.sync();
+          });
+          return "comment";
+        } catch (err) {
+          await writeSelection("【LawMind 复核】\n" + text);
+          return "text";
+        }
+      }
+
+      async function pullOutbox() {
+        const apiBase = await resolveApiBase();
+        const res = await fetch(apiBase + "/api/sidecar/outbox");
+        const json = await res.json();
+        if (!json.ok || !json.item || !json.item.pasteText) {
+          return null;
+        }
+        if (ingestAt && json.item.createdAt && Date.parse(json.item.createdAt) < ingestAt) {
+          return null;
+        }
+        latestPaste = json.item.pasteText;
+        reply.textContent = latestPaste;
+        return json.item;
+      }
+
+      function startPolling() {
+        if (pollTimer) {
+          window.clearInterval(pollTimer);
+        }
+        pollTimer = window.setInterval(async function () {
+          try {
+            const item = await pullOutbox();
+            if (item) {
+              status.textContent = "已取回复核。可插入选区或作为批注。";
+              window.clearInterval(pollTimer);
+              pollTimer = 0;
+            }
+          } catch (err) {
+            // keep polling
+          }
+        }, 4000);
+      }
+
       async function send(verb) {
         status.textContent = "正在送到本机 LawMind…";
         try {
+          const apiBase = await resolveApiBase();
           const text = await readSelection();
           const res = await fetch(apiBase + "/api/sidecar/ingest", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ source: "word", verb: verb, text: text }),
+            body: JSON.stringify({ source: detectSource(), verb: verb, text: text }),
           });
           const json = await res.json();
           if (!json.ok) {
             throw new Error(json.error || "发送失败");
           }
-          status.textContent = "已送到本机 LawMind。打开桌面对话，用「填入对话」继续。";
+          ingestAt = Date.now();
+          latestPaste = "";
+          reply.textContent = "";
+          status.textContent = "已送到本机 LawMind。打开桌面对话继续，或在此取回复核。";
+          startPolling();
         } catch (err) {
           status.textContent = err instanceof Error ? err.message : String(err);
         }
@@ -96,6 +231,42 @@
         btn.addEventListener("click", function () {
           void send(btn.getAttribute("data-verb"));
         });
+      });
+
+      document.getElementById("pull-reply").addEventListener("click", async function () {
+        status.textContent = "正在取回复核…";
+        try {
+          const item = await pullOutbox();
+          status.textContent = item ? "已取回复核。可插入选区或作为批注。" : "还没有新的复核摘要。请先在桌面成稿。";
+        } catch (err) {
+          status.textContent = err instanceof Error ? err.message : String(err);
+        }
+      });
+
+      document.getElementById("insert-text").addEventListener("click", async function () {
+        if (!latestPaste) {
+          status.textContent = "请先取回复核。";
+          return;
+        }
+        try {
+          await writeSelection(latestPaste);
+          status.textContent = "已插入到选区。";
+        } catch (err) {
+          status.textContent = err instanceof Error ? err.message : String(err);
+        }
+      });
+
+      document.getElementById("insert-comment").addEventListener("click", async function () {
+        if (!latestPaste) {
+          status.textContent = "请先取回复核。";
+          return;
+        }
+        try {
+          const mode = await writeComment(latestPaste);
+          status.textContent = mode === "comment" ? "已作为批注插入。" : "当前宿主不支持批注，已插入到选区。";
+        } catch (err) {
+          status.textContent = err instanceof Error ? err.message : String(err);
+        }
       });
     </script>
     <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>

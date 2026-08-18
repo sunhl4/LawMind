@@ -19,6 +19,7 @@ export type LawminddAdvertisement = {
   ingestPath: "/api/sidecar/ingest";
   statusPath: "/api/sidecar/status";
   pendingPath: "/api/sidecar/pending";
+  outboxPath: "/api/sidecar/outbox";
 };
 
 export function lawminddAdvertisePath(workspaceDir: string): string {
@@ -39,6 +40,7 @@ export function writeLawminddAdvertisement(
     ingestPath: "/api/sidecar/ingest",
     statusPath: "/api/sidecar/status",
     pendingPath: "/api/sidecar/pending",
+    outboxPath: "/api/sidecar/outbox",
   };
   const file = lawminddAdvertisePath(workspaceDir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -69,6 +71,7 @@ export function readLawminddAdvertisement(workspaceDir: string): LawminddAdverti
       ingestPath: "/api/sidecar/ingest",
       statusPath: "/api/sidecar/status",
       pendingPath: "/api/sidecar/pending",
+      outboxPath: "/api/sidecar/outbox",
     };
   } catch {
     return null;

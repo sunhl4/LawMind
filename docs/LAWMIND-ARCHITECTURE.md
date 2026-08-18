@@ -91,6 +91,10 @@ workspace/
   lawmind/
     lawmindd.json
     sidecar-acked.json
+    sidecar-outbox.json
+  drafts/
+    <taskId>.json
+    <taskId>.clauses.json
 ```
 
 说明：
@@ -104,6 +108,8 @@ workspace/
 - `audit/`：审计事件和回放数据。
 - `inbox/sidecar-*.md`：Word/WPS 侧车写入的选区；桌面对话条「填入对话」后仍留在 inbox，供助手按路径阅读。
 - `lawmind/lawmindd.json`：本机守护进程广告（host/port/pid）。独立入口：`pnpm lawmind:daemon`（默认 `127.0.0.1:4312`，与桌面同一套 HTTP，不另开协议）。
+- `drafts/<taskId>.clauses.json`：条款图（风险 / 缺项 / 逐条复核意见）。审核台展示；模型 critic 只加意见，不改章节正文。
+- `lawmind/sidecar-outbox.json`：给 Word/WPS 任务窗格的粘贴用复核摘要。侧车可插入选区或批注，不自动改原文。
 
 ---
 
@@ -271,6 +277,7 @@ LawMind 不绑定单一模型，而采用**路由 + 汇合**策略。
 3. 专用法律模型校正法律口径和引用
 4. 合并器生成统一草稿
 5. 进入人工审核点
+6. 成稿后拆条款图；有凭据时模型按条款给出复核意见并汇总，只追加「复核：」备注，不改写章节
 
 ### 模型路由原则
 

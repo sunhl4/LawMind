@@ -10,6 +10,10 @@ import {
   ingestSidecarSelection,
   listPendingSidecarIngests,
 } from "../../../src/lawmind/sidecar/ingest.js";
+import {
+  acknowledgeSidecarOutbox,
+  readSidecarOutbox,
+} from "../../../src/lawmind/sidecar/outbox.js";
 import { readJsonBody, sendJson } from "./lawmind-server-helpers.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 
@@ -81,6 +85,7 @@ export async function handleSidecarRoutes({
         productLine: productLineOf(edition.edition),
         ingestPath: "/api/sidecar/ingest",
         pendingPath: "/api/sidecar/pending",
+        outboxPath: "/api/sidecar/outbox",
         port: Number(listenPort()),
         verbs: DESK_VERBS.map((v) => ({ id: v.verb, label: v.label })),
       },
@@ -130,6 +135,21 @@ export async function handleSidecarRoutes({
       const status = code === "sidecar_not_found" ? 404 : 400;
       sendJson(res, status, { ok: false, error: code }, c);
     }
+    return true;
+  }
+
+  if (pathname === "/api/sidecar/outbox" && req.method === "GET") {
+    sendJson(res, 200, { ok: true, item: readSidecarOutbox(ctx.workspaceDir) ?? null }, c);
+    return true;
+  }
+
+  if (pathname === "/api/sidecar/outbox/ack" && req.method === "POST") {
+    const item = acknowledgeSidecarOutbox(ctx.workspaceDir);
+    if (!item) {
+      sendJson(res, 404, { ok: false, error: "outbox_empty" }, c);
+      return true;
+    }
+    sendJson(res, 200, { ok: true, item }, c);
     return true;
   }
 

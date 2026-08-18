@@ -605,4 +605,50 @@ describe("lawmind-server-route-review", () => {
       }
     }
   });
+
+  it("returns clause graph and scaffold status with draft detail", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-review-clauses-"));
+    tempDirs.push(workspaceDir);
+    fs.writeFileSync(path.join(workspaceDir, "MEMORY.md"), "# Memory\n", "utf8");
+    fs.writeFileSync(path.join(workspaceDir, "LAWYER_PROFILE.md"), "# Lawyer Profile\n", "utf8");
+    const taskId = "clause-detail-1";
+    persistDraft(workspaceDir, {
+      taskId,
+      title: "房屋租赁合同",
+      output: "docx",
+      templateId: "word/contract-default",
+      deliverableType: "contract.rental",
+      summary: "测",
+      sections: [{ heading: "合同", body: "【出租人】【承租人】【房屋地址】" }],
+      reviewNotes: ["复核：全文未见争议解决或管辖约定，外发前请补上。"],
+      reviewStatus: "pending",
+      createdAt: new Date().toISOString(),
+    });
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+    const capture = createResponseCapture();
+    await expect(
+      handleReviewRoute({
+        ctx,
+        req: { method: "GET" } as http.IncomingMessage,
+        res: capture.res,
+        url: new URL(`http://127.0.0.1/api/drafts/${taskId}`),
+        pathname: `/api/drafts/${taskId}`,
+        c: {},
+      }),
+    ).resolves.toBe(true);
+    const body = capture.json() as {
+      ok?: boolean;
+      clauses?: { clauses?: Array<{ heading?: string }> };
+      scaffold?: { dense?: boolean; label?: string };
+    };
+    expect(body.ok).toBe(true);
+    expect(body.clauses?.clauses?.length).toBeGreaterThan(0);
+    expect(body.scaffold?.dense).toBe(true);
+    expect(body.scaffold?.label).toBe("仍为骨架稿");
+  });
 });

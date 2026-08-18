@@ -1,5 +1,5 @@
 import path from "node:path";
-import { validateDraftAgainstSpec } from "../../../src/lawmind/deliverables/index.js";
+import { describeDraftScaffold, validateDraftAgainstSpec } from "../../../src/lawmind/deliverables/index.js";
 import {
   buildAgentMemorySourceReport,
   loadMemoryContext,
@@ -22,6 +22,7 @@ import {
 import {
   readDraft,
   readReasoningSnapshot,
+  resolveClauseGraphForDraft,
   resolveDraftCitationIntegrity,
 } from "../../../src/lawmind/drafts/index.js";
 import { applyContractRevisionAccumulationAfterApprovedReview } from "../../../src/lawmind/learning/contract-revision-on-review-approved.js";
@@ -411,6 +412,8 @@ export async function handleReviewRoute({
         engineMemory: toEngineClientMemorySnapshot(engineMem),
       });
       const acceptance = validateDraftAgainstSpec(draft);
+      const clauses = resolveClauseGraphForDraft(workspaceDir, draft);
+      const scaffold = describeDraftScaffold(draft);
       const auditDir = path.join(workspaceDir, "audit");
       await maybeEmitFirstrunAcceptanceReady(
         workspaceDir,
@@ -429,6 +432,8 @@ export async function handleReviewRoute({
           reasoningMarkdown,
           memorySources,
           acceptance,
+          clauses,
+          scaffold,
         },
         c,
       );

@@ -21,9 +21,10 @@ import {
   persistResearchSnapshot,
 } from "../drafts/index.js";
 import { appendCaseProgress, appendTodayLog, ensureCaseWorkspace } from "../memory/index.js";
-import { buildClauseGraphFromDraft } from "../reasoning/clause-graph.js";
+import { buildClauseGraphFromDraft, type ClauseGraph } from "../reasoning/clause-graph.js";
 import { applyDraftCritic } from "../reasoning/draft-critic.js";
 import { buildLegalReasoningGraph } from "../reasoning/index.js";
+import { persistSidecarOutboxFromDraft } from "../sidecar/outbox.js";
 import {
   ensureTaskRecord,
   readTaskRecord,
@@ -106,6 +107,7 @@ export function persistDraftPipeline(
   ctx: EngineContext,
   draft: ArtifactDraft,
   bundle: ResearchBundle,
+  options?: { clauseGraph?: ClauseGraph },
 ): void {
   applyDraftCriticInPlace(draft);
   const { workspaceDir, auditDir } = ctx;
@@ -120,14 +122,15 @@ export function persistDraftPipeline(
     detail: `模板：${draft.templateId}，格式：${draft.output}`,
   });
   persistResearchSnapshot(workspaceDir, bundle);
+  const clauses = options?.clauseGraph ?? buildClauseGraphFromDraft(draft);
+  persistClauseSnapshot(workspaceDir, clauses);
+  persistSidecarOutboxFromDraft(workspaceDir, draft, clauses);
   const tr = readTaskRecord(workspaceDir, draft.taskId);
   if (tr) {
     const intent = taskIntentFromRecord(tr, draft);
     const graph = buildLegalReasoningGraph({ intent, bundle });
-    const clauses = buildClauseGraphFromDraft(draft);
     graph.deliveryRisks = [...graph.deliveryRisks, ...clauses.clauses.flatMap((c) => c.missing)];
     persistReasoningSnapshot(workspaceDir, graph);
-    persistClauseSnapshot(workspaceDir, clauses);
     draft.hasLegalReasoningSnapshot = true;
   }
   const storedDraftPath = persistDraft(workspaceDir, draft);

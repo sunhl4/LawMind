@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { ArtifactDraft } from "../types.js";
-import { buildClauseGraphFromDraft, splitClauseText } from "./clause-graph.js";
+import {
+  attachClauseCriticNotes,
+  buildClauseGraphFromDraft,
+  clauseGraphHeadline,
+  splitClauseText,
+} from "./clause-graph.js";
 
 describe("clause-graph", () => {
   it("splits 第×条 into clause nodes", () => {
@@ -31,5 +36,13 @@ describe("clause-graph", () => {
     const graph = buildClauseGraphFromDraft(draft);
     expect(graph.clauses.length).toBeGreaterThanOrEqual(2);
     expect(graph.clauses.some((c) => c.missing.includes("有义务表述，但未写后果"))).toBe(true);
+    expect(graph.clauses.every((c) => Array.isArray(c.criticNotes))).toBe(true);
+    const withNotes = attachClauseCriticNotes(
+      graph,
+      new Map([[graph.clauses[0]?.id ?? "c1", ["模型只加意见"]]]),
+    );
+    expect(withNotes.clauses[0]?.criticNotes).toContain("模型只加意见");
+    expect(withNotes.clauses[0]?.body).toBe(graph.clauses[0]?.body);
+    expect(clauseGraphHeadline(withNotes)).toContain("复核 1");
   });
 });

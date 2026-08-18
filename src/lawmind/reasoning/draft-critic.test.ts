@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ArtifactDraft } from "../types.js";
-import { applyDraftCritic, applyDraftCriticAsync, critiqueDraft } from "./draft-critic.js";
+import {
+  applyDraftCritic,
+  applyDraftCriticAsync,
+  critiqueDraft,
+  runDraftCriticAsync,
+} from "./draft-critic.js";
 
 function draft(partial: Partial<ArtifactDraft> = {}): ArtifactDraft {
   return {
@@ -79,7 +84,8 @@ describe("draft-critic", () => {
               {
                 message: {
                   content: JSON.stringify({
-                    notes: ["押金退还条件写得太笼统，执行时容易争。"],
+                    clauses: [{ id: "c1", notes: ["押金退还条件写得太笼统，执行时容易争。"] }],
+                    summary: ["全文押金条款可执行性不足。"],
                   }),
                 },
               },
@@ -88,10 +94,13 @@ describe("draft-critic", () => {
         })),
       );
       const original = draft();
-      const next = await applyDraftCriticAsync(original);
+      const { draft: next, graph } = await runDraftCriticAsync(original);
       expect(next.sections).toEqual(original.sections);
       expect(next.reviewNotes.some((n) => n.includes("争议解决"))).toBe(true);
       expect(next.reviewNotes.some((n) => n.startsWith("复核：") && n.includes("押金"))).toBe(true);
+      expect(
+        graph.clauses.some((clause) => clause.criticNotes.some((note) => note.includes("押金"))),
+      ).toBe(true);
     });
   });
 });

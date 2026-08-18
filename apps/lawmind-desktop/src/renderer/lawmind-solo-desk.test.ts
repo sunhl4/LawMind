@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isSoloDeskEdition,
+  reviewRejectedNextStepCopy,
   settingsAssistantsEmptyCopy,
   settingsLeadCopy,
   shouldBounceSoloOffRoom,
@@ -8,6 +9,7 @@ import {
   shouldEmbedSoloReviewRail,
   shouldReplaceWorkspaceWithMatterPage,
   shouldShowCollaborationTab,
+  shouldShowReviewFirmLearningControls,
   soloDeskSurfacePane,
   shouldShowComposePlanPicker,
   shouldShowEditionBadge,
@@ -55,6 +57,10 @@ describe("lawmind-solo-desk", () => {
     expect(settingsAssistantsEmptyCopy("solo")).not.toContain("协作");
     expect(shouldShowEditionBadge("solo")).toBe(false);
     expect(shouldShowComposePlanPicker("solo")).toBe(false);
+    expect(shouldShowReviewFirmLearningControls("solo")).toBe(false);
+    expect(shouldShowReviewFirmLearningControls("firm")).toBe(true);
+    expect(reviewRejectedNextStepCopy("solo", true)).not.toContain("案件工作台");
+    expect(reviewRejectedNextStepCopy("firm", true)).toContain("案件工作台");
   });
 
   it("keeps Solo on one surface: review before matter before chat", () => {

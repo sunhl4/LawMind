@@ -19,6 +19,7 @@ describe("lawmindd advertisement", () => {
     const read = readLawminddAdvertisement(dir);
     expect(read?.port).toBe(4312);
     expect(read?.pendingPath).toBe("/api/sidecar/pending");
+    expect(read?.outboxPath).toBe("/api/sidecar/outbox");
     clearLawminddAdvertisement(dir);
     expect(readLawminddAdvertisement(dir)).toBeNull();
   });

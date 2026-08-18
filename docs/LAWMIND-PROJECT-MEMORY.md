@@ -354,8 +354,11 @@
 - **模型成稿 / 骨架诚实 / Solo 单表面**：已落地（`model-draft.ts`、验收骨架密度、`lm-solo-review-rail`、`lm-solo-matter-rail`）。
 - **三个动词 + 条款图 + 规则 critic**：已落地（`desk/verbs.ts`、`clause-graph.ts`、`draft-critic.ts`）。
 - **独立 lawmindd + 侧车回桌面 + 模型 critic**：已落地。`pnpm lawmind:daemon` 复用 `lawmind-local-server.ts`；`GET /api/sidecar/pending` 供对话条轮询；`applyDraftCriticAsync` 有凭据时追加备注、不改写章节。`LAWMIND_REASONING_MODE=keyword` 仍只走规则。
+- **条款图 + 复核进审核栏**：`GET /api/drafts/:id` 带 `clauses` / `scaffold`；Solo / Firm 审核台都渲染条款图与「复核：」备注。骨架密度高时对话条也提示，不当成稿。
+- **条款级模型意见**：有凭据时一次 JSON 调用按条款 id 回写 `criticNotes` 并汇总；不改 `sections`。`LAWMIND_REASONING_MODE=keyword` 仍只走规则。
+- **Word 回写**：成稿后写 `lawmind/sidecar-outbox.json`；任务窗格「取回复核」后插入选区或批注。不自动改原文，不上 Office 商店，不是系统级常驻服务。
 - **仍不做**：Office 商店加载项、系统级常驻服务、用更多 `headingKeywords` / `【标签】` 代替模型成稿、把 `第×条` 当 ready 阻断。
-- **仍薄**：无。Solo 案件驾驶舱已嵌进对话列（`lm-solo-matter-rail`），不再盖住整页工作台。Firm 仍可整页打开案件工作台。
+- **仍薄**：律师试点与真实 Word 宿主手测不在本仓库自动化范围内；critic 仍只加意见、不改写。Desk / Firm 仍是同一安装包 + 功能开关，不是两套安装程序。
 
 ## 6) 下一步（优先级）
 
@@ -526,6 +529,12 @@ LawMind 下一阶段不再只是“法律 AI 工作台”，而要逐步成为**
 ---
 
 ## 8) 更新日志
+
+### 2026-08-18 — Desk 90 天：条款图 / 骨架稿可见 + Word 回写
+
+- 审核台读取 `clauses` + `scaffold`，展示条款图、复核备注与骨架稿条。对话在未打开改稿时也提示骨架稿。
+- 模型 critic 按条款 id 回写 `criticNotes`，再汇总进 `reviewNotes`；`persistDraftPipeline` 落 `*.clauses.json` 与 `lawmind/sidecar-outbox.json`。
+- Word / WPS 任务窗格可探测 4312 / 注入端口，取回复核后插入选区或批注。Solo 审核栏不再露出律所学习队列与助手档案。
 
 ### 2026-08-18 — Desk 90 天：Solo 案件列不再盖住工作台
 

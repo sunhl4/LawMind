@@ -26,6 +26,8 @@ export {
   isHighScaffoldDensity,
   isScaffoldFieldLabel,
 } from "./placeholder-pattern.js";
+export { describeDraftScaffold, draftPlainTextLength } from "./scaffold-status.js";
+export type { DraftScaffoldView } from "./scaffold-status.js";
 export { validateReasoningAgainstSpec, validateReasoningForDraft } from "./reasoning-validator.js";
 export type {
   AcceptanceCheck,

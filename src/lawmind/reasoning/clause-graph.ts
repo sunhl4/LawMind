@@ -14,6 +14,8 @@ export type ClauseNode = {
   kind: ClauseKind;
   risks: string[];
   missing: string[];
+  /** 模型/规则逐条意见。只作备注，不改写 body。 */
+  criticNotes: string[];
 };
 
 export type ClauseGraph = {
@@ -81,6 +83,7 @@ export function splitClauseText(text: string, headingFallback = ""): ClauseNode[
       kind: classifyKind(heading),
       risks,
       missing,
+      criticNotes: [],
     };
   });
 }
@@ -101,6 +104,7 @@ export function buildClauseGraphFromDraft(draft: ArtifactDraft): ClauseGraph {
       kind: classifyKind(section.heading),
       risks,
       missing,
+      criticNotes: [],
     });
   }
   const numbered = clauses.map((clause, idx) => ({ ...clause, id: `c${idx + 1}` }));
@@ -121,4 +125,30 @@ export function clauseGraphRiskNotes(graph: ClauseGraph): string[] {
     }
   }
   return notes.slice(0, 12);
+}
+
+export function clauseGraphHeadline(graph: ClauseGraph): string {
+  const criticCount = graph.clauses.reduce((sum, clause) => sum + clause.criticNotes.length, 0);
+  return `条款 ${graph.clauses.length} · 风险 ${graph.riskCount} · 缺项 ${graph.missingCount} · 复核 ${criticCount}`;
+}
+
+export function attachClauseCriticNotes(
+  graph: ClauseGraph,
+  notesById: ReadonlyMap<string, string[]>,
+): ClauseGraph {
+  const clauses = graph.clauses.map((clause) => {
+    const extra = notesById.get(clause.id) ?? [];
+    if (extra.length === 0) {
+      return clause;
+    }
+    return {
+      ...clause,
+      criticNotes: uniqueStrings([...clause.criticNotes, ...extra]),
+    };
+  });
+  return { ...graph, clauses };
+}
+
+function uniqueStrings(items: string[]): string[] {
+  return [...new Set(items.map((item) => item.trim()).filter(Boolean))];
 }

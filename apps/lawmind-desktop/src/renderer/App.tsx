@@ -39,6 +39,8 @@ import { displayNameFromImportBasename, suggestMatterIdForImport } from "../../.
 import { useLawyerReviewDesktopNotify } from "./lawmind-lawyer-review-notify";
 import { sidecarInboxBannerText } from "./lawmind-sidecar-inbox";
 import { useSidecarInbox } from "./use-sidecar-inbox";
+import { scaffoldChatBannerText } from "./lawmind-scaffold-copy";
+import { useLatestScaffoldDraft } from "./use-latest-scaffold";
 
 function resolveWorkspacePath(workspaceDir: string, rel: string): string {
   const r = rel.replace(/\\/g, "/").replace(/^\//, "");
@@ -555,7 +557,8 @@ export function App() {
     matterOpen: matterCockpitOpen,
   });
   const showFirmMatterPage = shouldReplaceWorkspaceWithMatterPage(edition.edition, matterCockpitOpen);
-  const sidecarInbox = useSidecarInbox(config?.apiBase,  edition.features.wordSidecar);
+  const sidecarInbox = useSidecarInbox(config?.apiBase, edition.features.wordSidecar);
+  const scaffoldDraft = useLatestScaffoldDraft(config?.apiBase, soloSurface === "chat");
 
   const openDeskReview = useCallback(
     (opts?: {
@@ -1269,7 +1272,31 @@ export function App() {
                         }
                         showPlanPicker={shouldShowComposePlanPicker(edition.edition)}
                         sidecarNotice={
-                          sidecarInbox.latest ? (
+                          <>
+                            {scaffoldDraft.draft ? (
+                              <div className="lm-context-banner lm-scaffold-banner" data-testid="lm-chat-scaffold-banner">
+                                <span>{scaffoldChatBannerText(scaffoldDraft.draft.title)}</span>
+                                <button
+                                  type="button"
+                                  className="lm-btn"
+                                  onClick={() => {
+                                    const taskId = scaffoldDraft.draft?.taskId;
+                                    if (!taskId) {
+                                      return;
+                                    }
+                                    openDeskReview({
+                                      taskId,
+                                      matterId: scaffoldDraft.draft.matterId,
+                                      statusFilter: scaffoldDraft.draft.reviewStatus ?? "pending",
+                                      listMode: "all",
+                                    });
+                                  }}
+                                >
+                                  去改稿
+                                </button>
+                              </div>
+                            ) : null}
+                            {sidecarInbox.latest ? (
                             <div className="lm-context-banner" data-testid="lm-sidecar-inbox-banner">
                               <span>{sidecarInboxBannerText(sidecarInbox.latest)}</span>
                               <span className="lm-sidecar-inbox-actions">
@@ -1308,7 +1335,8 @@ export function App() {
                                 </button>
                               </span>
                             </div>
-                          ) : null
+                            ) : null}
+                          </>
                         }
                       />
                     ) : null}

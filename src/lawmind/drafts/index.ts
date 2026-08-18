@@ -83,4 +83,5 @@ export {
   clauseSnapshotPath,
   persistClauseSnapshot,
   readClauseSnapshot,
+  resolveClauseGraphForDraft,
 } from "./clause-snapshot.js";

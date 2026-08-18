@@ -110,3 +110,20 @@ export function shouldShowEditionBadge(edition: string | undefined): boolean {
 export function shouldShowComposePlanPicker(edition: string | undefined): boolean {
   return !isSoloDeskEdition(edition);
 }
+
+/** Solo 审核栏不展示律所学习队列 / 助手档案；律师个人积累仍保留。 */
+export function shouldShowReviewFirmLearningControls(edition: string | undefined): boolean {
+  return !isSoloDeskEdition(edition);
+}
+
+export function reviewRejectedNextStepCopy(edition: string | undefined, hasMatter: boolean): string {
+  const base =
+    "不会。驳回后也不会自动删稿。若仍要交付，请在主对话中说明如何修改或重做；需要重新签批时，可先点「恢复待审核」。";
+  if (!hasMatter) {
+    return base;
+  }
+  if (isSoloDeskEdition(edition)) {
+    return `${base} 本案对话列里的案件驾驶舱可能出现待修订条目。`;
+  }
+  return `${base} 关联案件工作台可能出现「草稿待修订」类待办，便于跟进。`;
+}

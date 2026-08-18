@@ -6950,6 +6950,65 @@ fieldset.lm-field-reset > legend.lm-meta {
   border-color: rgba(240, 101, 101, 0.45);
   background: var(--error-dim);
 }
+
+.lm-scaffold-banner {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(245, 166, 35, 0.45);
+  background: var(--warn-dim);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.lm-context-banner.lm-scaffold-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.lm-clause-graph,
+.lm-critic-notes {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 13px;
+}
+
+.lm-clause-graph-headline,
+.lm-critic-notes-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.lm-clause-graph-hint,
+.lm-critic-notes .lm-meta {
+  margin: 6px 0 8px;
+}
+
+.lm-clause-graph-list,
+.lm-critic-notes-list,
+.lm-clause-graph-notes {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lm-clause-graph-item.flagged {
+  color: var(--text);
+}
+
+.lm-clause-graph-heading {
+  font-weight: 600;
+}
 .lm-acceptance-headline {
   display: flex;
   align-items: baseline;

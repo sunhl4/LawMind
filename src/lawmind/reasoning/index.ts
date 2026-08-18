@@ -25,7 +25,9 @@ export {
   type BuildLegalGraphParams,
 } from "./legal-graph.js";
 export {
+  attachClauseCriticNotes,
   buildClauseGraphFromDraft,
+  clauseGraphHeadline,
   splitClauseText,
   type ClauseGraph,
   type ClauseNode,
@@ -33,7 +35,12 @@ export {
 export {
   applyDraftCritic,
   applyDraftCriticAsync,
+  critiqueClausesWithModel,
   critiqueDraft,
   critiqueDraftWithModel,
+  DRAFT_CRITIC_PREFIX,
   isModelCriticEnabled,
+  runDraftCritic,
+  runDraftCriticAsync,
+  type DraftCriticResult,
 } from "./draft-critic.js";
