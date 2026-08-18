@@ -10,6 +10,8 @@ type HealthShape = {
 type Props = {
   health: HealthShape;
   projectDir: string | null;
+  /** Solo：只留连模型 / 本机 / 材料夹，不堆检索双库。 */
+  compact?: boolean;
 };
 
 function retrievalModeLabel(mode: string | undefined): string {
@@ -27,7 +29,7 @@ function retrievalModeLabel(mode: string | undefined): string {
  * Settings panel block: first-run checklist (API, local service, optional project dir).
  */
 export function LawmindSettingsOnboarding(props: Props): ReactNode {
-  const { health, projectDir } = props;
+  const { health, projectDir, compact } = props;
   return (
     <div className="lm-settings-section">
       <div className="lm-settings-section-title">就绪情况</div>
@@ -50,43 +52,49 @@ export function LawmindSettingsOnboarding(props: Props): ReactNode {
             {projectDir ? "已选择" : "未选择"}
           </span>
         </div>
-        <div className="lm-settings-row">
-          <span className="lm-settings-key">法规检索</span>
-          <span
-            className={
-              health?.retrievalMode ? "lm-pill lm-pill-neutral" : "lm-pill lm-pill-warn"
-            }
-          >
-            {health ? retrievalModeLabel(health.retrievalMode) : "检测中…"}
-          </span>
-        </div>
-        <div className="lm-settings-row">
-          <span className="lm-settings-key">法规双库</span>
-          <span
-            className={
-              !health
-                ? "lm-pill lm-pill-neutral"
-                : health.dualLegalConfigured
-                  ? "lm-pill lm-pill-success"
-                  : "lm-pill lm-pill-warn"
-            }
-          >
-            {health ? (health.dualLegalConfigured ? "已就绪" : "未配齐") : "检测中…"}
-          </span>
-        </div>
-        <div className="lm-settings-row">
-          <span className="lm-settings-key">上网查法规</span>
-          <span
-            className={
-              health?.webSearchApiKeyConfigured ? "lm-pill lm-pill-success" : "lm-pill lm-pill-neutral"
-            }
-          >
-            {health ? (health.webSearchApiKeyConfigured ? "已配置" : "未配置") : "检测中…"}
-          </span>
-        </div>
+        {compact ? null : (
+          <>
+            <div className="lm-settings-row">
+              <span className="lm-settings-key">法规检索</span>
+              <span
+                className={
+                  health?.retrievalMode ? "lm-pill lm-pill-neutral" : "lm-pill lm-pill-warn"
+                }
+              >
+                {health ? retrievalModeLabel(health.retrievalMode) : "检测中…"}
+              </span>
+            </div>
+            <div className="lm-settings-row">
+              <span className="lm-settings-key">法规双库</span>
+              <span
+                className={
+                  !health
+                    ? "lm-pill lm-pill-neutral"
+                    : health.dualLegalConfigured
+                      ? "lm-pill lm-pill-success"
+                      : "lm-pill lm-pill-warn"
+                }
+              >
+                {health ? (health.dualLegalConfigured ? "已就绪" : "未配齐") : "检测中…"}
+              </span>
+            </div>
+            <div className="lm-settings-row">
+              <span className="lm-settings-key">上网查法规</span>
+              <span
+                className={
+                  health?.webSearchApiKeyConfigured ? "lm-pill lm-pill-success" : "lm-pill lm-pill-neutral"
+                }
+              >
+                {health ? (health.webSearchApiKeyConfigured ? "已配置" : "未配置") : "检测中…"}
+              </span>
+            </div>
+          </>
+        )}
         <div className="lm-callout lm-callout-muted lm-onboarding-hint" role="note">
           <p className="lm-callout-body">
-            可用「API 配置向导」填密钥；上表由软件自动检查，一般不必逐条研究。
+            {compact
+              ? "用「API 配置向导」填密钥即可。连上模型后，在这一页写和改稿。"
+              : "可用「API 配置向导」填密钥；上表由软件自动检查，一般不必逐条研究。"}
           </p>
         </div>
       </div>

@@ -11,6 +11,7 @@ import { LawmindSettingsTemplates } from "./LawmindSettingsTemplates";
 import { LawmindSettingsWorkspace } from "./LawmindSettingsWorkspace";
 import type { AppConfig } from "./lawmind-app-bootstrap";
 import type { AssistantRow } from "./lawmind-settings-models.ts";
+import { settingsLeadCopy, shouldShowSettingsSection } from "./lawmind-solo-desk";
 
 type SetProjectDirBridge = NonNullable<Window["lawmindDesktop"]>["setProjectDir"];
 
@@ -57,6 +58,7 @@ type Props = {
   onPickProject: () => void | Promise<void>;
   onClearProject: () => void | Promise<void>;
   onOpenCollaborationPage: () => void;
+  edition?: string;
 };
 
 export function LawmindSettingsDialog({
@@ -82,6 +84,7 @@ export function LawmindSettingsDialog({
   onPickProject,
   onClearProject,
   onOpenCollaborationPage,
+  edition,
 }: Props) {
   if (!open) {
     return null;
@@ -101,13 +104,17 @@ export function LawmindSettingsDialog({
             ×
           </button>
         </div>
-        <p className="lm-meta lm-settings-lead">
-          本机律师工作台：可建<strong>多个智能体</strong>各管一摊事；多步团队流程与后台任务在顶部<strong>协作</strong>页运行与查看。出具对外材料前，务必在顶部<strong>审核</strong>里通过把关。
-        </p>
+        <p className="lm-meta lm-settings-lead">{settingsLeadCopy(edition)}</p>
 
-        {config && <LawmindSettingsOnboarding health={health} projectDir={projectDir} />}
+        {config && shouldShowSettingsSection(edition, "onboarding") ? (
+          <LawmindSettingsOnboarding
+            health={health}
+            projectDir={projectDir}
+            compact={edition === "solo"}
+          />
+        ) : null}
 
-        {config && (
+        {config && shouldShowSettingsSection(edition, "collaboration") ? (
           <LawmindSettingsCollaborationBrief
             collabSummarySettings={collabSummarySettings}
             onOpenCollaborationPage={() => {
@@ -115,20 +122,23 @@ export function LawmindSettingsDialog({
               onOpenCollaborationPage();
             }}
           />
-        )}
+        ) : null}
 
-        <LawmindSettingsAssistants
-          assistants={assistants}
-          selectedAssistantId={selectedAssistantId}
-          onSelectAssistantId={onSelectAssistantId}
-          selectedAssistant={selectedAssistant}
-          selectedAssistantStats={selectedAssistantStats}
-          onOpenNew={onOpenNewAssistant}
-          onOpenEdit={onOpenEditAssistant}
-          onRemove={() => void onRemoveAssistant()}
-        />
+        {shouldShowSettingsSection(edition, "assistants") ? (
+          <LawmindSettingsAssistants
+            assistants={assistants}
+            selectedAssistantId={selectedAssistantId}
+            onSelectAssistantId={onSelectAssistantId}
+            selectedAssistant={selectedAssistant}
+            selectedAssistantStats={selectedAssistantStats}
+            onOpenNew={onOpenNewAssistant}
+            onOpenEdit={onOpenEditAssistant}
+            onRemove={() => void onRemoveAssistant()}
+            edition={edition}
+          />
+        ) : null}
 
-        {config && (
+        {config && shouldShowSettingsSection(edition, "model") ? (
           <LawmindSettingsModelRetrieval
             config={{
               workspaceDir: config.workspaceDir,
@@ -141,9 +151,9 @@ export function LawmindSettingsDialog({
             applyRetrievalMode={onApplyRetrievalMode}
             onOpenApiWizard={onOpenApiWizard}
           />
-        )}
+        ) : null}
 
-        {config && (
+        {config && shouldShowSettingsSection(edition, "workspace") ? (
           <LawmindSettingsWorkspace
             config={{
               workspaceDir: config.workspaceDir,
@@ -155,12 +165,18 @@ export function LawmindSettingsDialog({
             onPickProject={() => void onPickProject()}
             onClearProject={() => void onClearProject()}
           />
-        )}
-        {config && <LawmindSettingsRoles apiBase={config.apiBase} />}
-        {config && <LawmindSettingsTemplates apiBase={config.apiBase} />}
-        {config && <LawmindSettingsEdition apiBase={config.apiBase} />}
-        <LawmindSettingsAppUpdate config={config} />
-        <LawmindSettingsDisclaimer />
+        ) : null}
+        {config && shouldShowSettingsSection(edition, "roles") ? (
+          <LawmindSettingsRoles apiBase={config.apiBase} />
+        ) : null}
+        {config && shouldShowSettingsSection(edition, "templates") ? (
+          <LawmindSettingsTemplates apiBase={config.apiBase} />
+        ) : null}
+        {config && shouldShowSettingsSection(edition, "edition") ? (
+          <LawmindSettingsEdition apiBase={config.apiBase} />
+        ) : null}
+        {shouldShowSettingsSection(edition, "update") ? <LawmindSettingsAppUpdate config={config} /> : null}
+        {shouldShowSettingsSection(edition, "disclaimer") ? <LawmindSettingsDisclaimer /> : null}
       </div>
     </div>
   );

@@ -2652,6 +2652,11 @@ samp {
   flex-direction: row-reverse;
 }
 
+.lm-human-wait {
+  color: var(--muted);
+  font-style: italic;
+}
+
 .lm-msg-avatar {
   width: 28px;
   height: 28px;
@@ -2853,7 +2858,15 @@ samp {
 .lm-compose-toolbar-end {
   display: flex;
   align-items: center;
+  gap: 8px;
   flex-shrink: 0;
+}
+
+.lm-human-wait-compose {
+  max-width: 220px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--muted);
 }
 
 .lm-compose-bar-field {

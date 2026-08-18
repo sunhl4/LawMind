@@ -5,6 +5,7 @@
 
 import { useId, useState } from "react";
 import type { MemorySourceLayer } from "../../../../src/lawmind/memory/index.ts";
+import { humanToolLabel, humanToolSequenceLabel } from "./lawmind-human-wait";
 import { lawmindDocUrl } from "./lawmind-public-urls.js";
 
 const LAWMIND_USER_MANUAL = lawmindDocUrl("LAWMIND-USER-MANUAL");
@@ -93,13 +94,13 @@ function ChatChipStrip(props: {
             <li key={`${i}-${name}`} className="lm-context-tool-step">
               <span
                 className="lm-context-chip lm-context-chip--tool"
-                title={name}
-                aria-label={`第 ${i + 1} 步：${name}`}
+                title={humanToolLabel(name)}
+                aria-label={`第 ${i + 1} 步：${humanToolLabel(name)}`}
               >
                 <span className="lm-context-chip-step-num" aria-hidden>
                   {i + 1}
                 </span>
-                <span className="lm-context-chip-tool-name">{name}</span>
+                <span className="lm-context-chip-tool-name">{humanToolLabel(name)}</span>
               </span>
             </li>
           ))}
@@ -108,9 +109,9 @@ function ChatChipStrip(props: {
       {hasTools && plain ? (
         <span
           className="lm-context-chip lm-context-chip--tool lm-context-chip--plain-steps"
-          title={toolCallSequence.join(" → ")}
+          title={humanToolSequenceLabel(toolCallSequence)}
         >
-          {toolCallSequence.length} 个处理步骤
+          {humanToolSequenceLabel(toolCallSequence) || `${toolCallSequence.length} 个处理步骤`}
         </span>
       ) : null}
     </div>

@@ -3,6 +3,7 @@ import { useState } from "react";
 import { LawmindClarificationForm } from "./LawmindClarificationForm";
 import { LawmindMemorySourcesPanel } from "./LawmindMemorySourcesPanel";
 import { getPendingClarificationState, handleEnterSendShiftNewline, type ChatMsg } from "./lawmind-chat";
+import { useHumanWaitLine } from "./lawmind-human-wait";
 import {
   LM_CHAT_COMPOSE_DEFAULT_HEIGHT_PX,
   LM_CHAT_COMPOSE_MAX_HEIGHT_PX,
@@ -203,6 +204,8 @@ export type LawmindChatWorkspaceProps = {
   onOpenComposeSettings?: () => void;
   /** 主模型是否已在环境中配置；未加载 health 时可不传 */
   composeModelConfigured?: boolean;
+  /** Solo 不展示尚未落地的 Plan 模式 */
+  showPlanPicker?: boolean;
 };
 
 export type LawmindChatMessagesColumnProps = Pick<
@@ -220,6 +223,16 @@ export type LawmindChatMessagesColumnProps = Pick<
   | "onClearFileChatPills"
 >;
 
+function lastUserMessageText(messages: ChatMsg[]): string {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const row = messages[i];
+    if (row?.role === "user" && row.text.trim()) {
+      return row.text;
+    }
+  }
+  return "";
+}
+
 export function LawmindChatMessagesColumn({
   selectedAssistantId,
   currentMessages,
@@ -234,6 +247,7 @@ export function LawmindChatMessagesColumn({
   onClearFileChatPills,
 }: LawmindChatMessagesColumnProps) {
   const pendingClarify = getPendingClarificationState(currentMessages);
+  const waitLine = useHumanWaitLine(loading, lastUserMessageText(currentMessages));
 
   return (
     <>
@@ -345,6 +359,16 @@ export function LawmindChatMessagesColumn({
             </div>
           ))
         )}
+        {loading ? (
+          <div className="lm-msg-row" data-testid="lm-human-wait">
+            <div className="lm-msg-avatar lm-msg-avatar-ai">LM</div>
+            <div className="lm-msg-wrap">
+              <div className="lm-msg lm-msg-ai lm-human-wait" role="status" aria-live="polite">
+                {waitLine}
+              </div>
+            </div>
+          </div>
+        ) : null}
         <div ref={messagesEndRef} />
       </div>
     </>
@@ -368,6 +392,7 @@ export function LawmindChatComposeFooter({
   onClearContext,
   onOpenComposeSettings,
   composeModelConfigured,
+  showPlanPicker = true,
 }: Pick<
   LawmindChatWorkspaceProps,
   | "currentMessages"
@@ -385,6 +410,7 @@ export function LawmindChatComposeFooter({
   | "onClearContext"
   | "onOpenComposeSettings"
   | "composeModelConfigured"
+  | "showPlanPicker"
 >) {
   const [modelPick, setModelPick] = useState("default");
   const { height: composeHeight, onResizePointerDown: onComposeResizePointerDown } = usePaneResizeVerticalPx({
@@ -395,6 +421,7 @@ export function LawmindChatComposeFooter({
   });
 
   const pendingClarify = getPendingClarificationState(currentMessages);
+  const waitLine = useHumanWaitLine(loading, lastUserMessageText(currentMessages));
   const scrollToClarifyCard = () => {
     if (pendingClarify.assistantMessageIndex < 0) {
       return;
@@ -495,15 +522,17 @@ export function LawmindChatComposeFooter({
           />
           <div className="lm-compose-toolbar" aria-label="模式、模型与发送">
             <div className="lm-compose-toolbar-start">
-              <label className="lm-compose-bar-field">
-                <span className="lm-compose-bar-label">模式</span>
-                <select className="lm-compose-select" value="chat" aria-label="运行模式" title="Plan 等多步编排将陆续提供">
-                  <option value="chat">对话</option>
-                  <option value="plan" disabled>
-                    Plan（即将推出）
-                  </option>
-                </select>
-              </label>
+              {showPlanPicker ? (
+                <label className="lm-compose-bar-field">
+                  <span className="lm-compose-bar-label">模式</span>
+                  <select className="lm-compose-select" value="chat" aria-label="运行模式" title="Plan 等多步编排将陆续提供">
+                    <option value="chat">对话</option>
+                    <option value="plan" disabled>
+                      Plan（即将推出）
+                    </option>
+                  </select>
+                </label>
+              ) : null}
               <label className="lm-compose-bar-field">
                 <span className="lm-compose-bar-label">模型</span>
                 <select
@@ -530,13 +559,18 @@ export function LawmindChatComposeFooter({
             </div>
             <div className="lm-compose-toolbar-end">
               {loading ? (
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-secondary lm-chat-stop-btn"
-                  onClick={() => onAbortChat?.()}
-                >
-                  停止
-                </button>
+                <>
+                  <span className="lm-human-wait-compose" role="status" aria-live="polite">
+                    {waitLine}
+                  </span>
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-secondary lm-chat-stop-btn"
+                    onClick={() => onAbortChat?.()}
+                  >
+                    停止
+                  </button>
+                </>
               ) : (
                 <button
                   type="button"
@@ -575,6 +609,7 @@ export function LawmindChatShell(props: LawmindChatWorkspaceProps) {
         onClearContext={props.onClearContext}
         onOpenComposeSettings={props.onOpenComposeSettings}
         composeModelConfigured={props.composeModelConfigured}
+        showPlanPicker={props.showPlanPicker}
       />
     </div>
   );

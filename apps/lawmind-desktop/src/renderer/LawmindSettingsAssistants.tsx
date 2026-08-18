@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { DEFAULT_ASSISTANT_ID } from "../../../../src/lawmind/assistants/constants.ts";
 import type { AssistantRow } from "./lawmind-settings-models.ts";
+import { isSoloDeskEdition, settingsAssistantsEmptyCopy } from "./lawmind-solo-desk";
 
 function orgRoleLabel(role: AssistantRow["orgRole"]): string {
   if (!role) {
@@ -22,6 +23,7 @@ type Props = {
   onOpenNew: () => void;
   onOpenEdit: () => void;
   onRemove: () => void;
+  edition?: string;
 };
 
 export function LawmindSettingsAssistants(props: Props): ReactNode {
@@ -34,7 +36,9 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
     onOpenNew,
     onOpenEdit,
     onRemove,
+    edition,
   } = props;
+  const soloThin = isSoloDeskEdition(edition);
   const empty = assistants.length === 0;
   return (
     <div className="lm-settings-section">
@@ -43,9 +47,7 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
         {empty ? (
           <div className="lm-settings-empty" role="status">
             <div className="lm-collab-empty-title">还没有智能体</div>
-            <p className="lm-collab-empty-body">
-              可按岗位建多个（例如研究 / 起草 / 复核）；对话里随时切换。复杂事项还可在「协作」里跑多智能体工作流，交付前仍由您在审核台把关。
-            </p>
+            <p className="lm-collab-empty-body">{settingsAssistantsEmptyCopy(edition)}</p>
           </div>
         ) : (
           <>
@@ -71,7 +73,8 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
                 </span>
               </div>
             )}
-            {selectedAssistant &&
+            {!soloThin &&
+            selectedAssistant &&
             (selectedAssistant.orgRole ||
               (selectedAssistant.reportsToAssistantId ?? "").trim() ||
               (selectedAssistant.peerReviewDefaultAssistantId ?? "").trim()) ? (
@@ -113,9 +116,11 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
           </>
         )}
         <div className="lm-settings-actions">
-          <button type="button" className="lm-btn lm-btn-accent lm-btn-sm" onClick={onOpenNew}>
-            新建智能体
-          </button>
+          {soloThin && !empty ? null : (
+            <button type="button" className="lm-btn lm-btn-accent lm-btn-sm" onClick={onOpenNew}>
+              {soloThin ? "新建助手" : "新建智能体"}
+            </button>
+          )}
           <button
             type="button"
             className="lm-btn lm-btn-secondary lm-btn-sm"

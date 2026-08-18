@@ -18,8 +18,11 @@ import { useLawmindRecordsDeskMatters, RECORDS_DESK_UNLINKED } from "./lawmind-r
 import { LawmindSidebar } from "./lawmind-sidebar";
 import { useEdition } from "./use-edition";
 import {
+  shouldBounceSoloOffRoom,
   shouldEmbedSoloReviewRail,
   shouldShowCollaborationTab,
+  shouldShowComposePlanPicker,
+  shouldShowEditionBadge,
   soloPrimaryTabLabel,
 } from "./lawmind-solo-desk";
 import {
@@ -676,6 +679,21 @@ export function App() {
     }
   }, [mainView, setCollabExpanded]);
 
+  useEffect(() => {
+    if (edition.loading || !shouldBounceSoloOffRoom(edition.edition, mainView)) {
+      return;
+    }
+    if (mainView === "review") {
+      setSoloReviewRail(true);
+      setMatterCockpitOpen(false);
+      setWsShowChat(true);
+      if (canUseFilesystemBridge) {
+        setWsShowEditor(true);
+      }
+    }
+    setMainView("workspace");
+  }, [canUseFilesystemBridge, edition.edition, edition.loading, mainView, setMainView]);
+
   /** 审核页也需左栏材料树；此前仅工作台挂载 FileWorkbench，导致切到审核后左栏被卸掉。 */
   const showSidebarWorkbenchFiles =
     canUseFilesystemBridge && (mainView === "workspace" || mainView === "review");
@@ -796,6 +814,7 @@ export function App() {
           setCollaborationDeskTab("overview");
           setMainView("collaboration");
         }}
+        edition={edition.edition}
       />
       <aside
         className={`lm-side ${sidebarCollapsed ? "lm-side-collapsed" : ""} ${
@@ -998,14 +1017,14 @@ export function App() {
             </div>
           )}
           {currentMatterLabel && <div className="lm-header-meta">案件 {currentMatterLabel}</div>}
-          {!edition.loading && (
+          {!edition.loading && shouldShowEditionBadge(edition.edition) ? (
             <div
               className={`lm-header-meta lm-edition-badge lm-edition-${edition.edition}`}
               title={`版本来源：${edition.source}`}
             >
               {edition.label}
             </div>
-          )}
+          ) : null}
         </div>
         <div className="lm-main-body">
           {mainView === "workspace" && matterCockpitOpen && config ? (
@@ -1044,7 +1063,7 @@ export function App() {
                 }}
               />
             </div>
-          ) : mainView === "review" && config ? (
+          ) : !soloDesk && mainView === "review" && config ? (
             <div className="lm-main-workbench">
               <ReviewWorkbench
                 apiBase={config.apiBase}
@@ -1069,7 +1088,7 @@ export function App() {
                 }}
               />
             </div>
-          ) : mainView === "collaboration" ? (
+          ) : !soloDesk && mainView === "collaboration" ? (
             <div className="lm-main-workbench lm-desk-page lm-desk-page-collab">
               <div className="lm-side-scroll lm-desk-page-scroll lm-collab-page-stack">
                 <LawmindCollaborationDesk
@@ -1217,6 +1236,7 @@ export function App() {
                               ? false
                               : undefined
                         }
+                        showPlanPicker={shouldShowComposePlanPicker(edition.edition)}
                       />
                     )}
                   </div>

@@ -60,6 +60,7 @@
 > 本期把 LawMind 从「会写漂亮汇报」推进到「能交件」——参见 [LawMind DFA](/LAWMIND-DELIVERABLE-FIRST)。
 
 - [x] **P1 交付物本位（基础）**：`DeliverableType` 一等公民、`router/deliverable-meta.ts` 检测、有凭据时 `model-draft.ts` 成稿、`keyword-draft.ts` 仅作离线骨架
+- [x] **Desk W3–6（单表面）**：Solo 不进独立审核/协作页；等待用律师能读的句子；设置只留连模型与工作区
 - [x] **P2 验收门禁（核心）**：`src/lawmind/deliverables/` 注册表 + `validateDraftAgainstSpec()` + 6 类内置 spec（rental/general 合同、demand letter、合同审查、通用文书）
 - [x] **P2.1 桌面/HTTP/Agent 接入**：`ReviewWorkbench` 挂 `<AcceptanceGate>`；`GET /api/drafts/:taskId` 携带 `acceptance`；`POST /render` 默认 strict 返回 422；agent `render_document` 内置 gate（可 `bypass_acceptance_gate=true` 越权）
 - [x] **P3 来源锚点**：`GET /api/sources/:id/preview?taskId=` 返回原文 + 支撑结论 + 引用章节；桌面 `LawmindSourcePreview.tsx` 在审核台正文 / Citation Banner / 详情对话内提供 hover popover（对标 Harvey/Spellbook）
