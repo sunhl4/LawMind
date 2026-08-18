@@ -163,6 +163,7 @@ describe("lawmind-server-route-review", () => {
       title: "合同审查意见书",
       output: "docx",
       templateId: "word/contract-default",
+      deliverableType: "contract.review",
       summary: "已形成合同审查结论并提示主要风险。",
       sections: [
         {
@@ -173,6 +174,10 @@ describe("lawmind-server-route-review", () => {
         {
           heading: "主要风险提示",
           body: "- 违约责任约定偏轻\n- 解除条款触发条件不够明确",
+        },
+        {
+          heading: "修改建议",
+          body: "建议补强违约责任与解除条件，并写明争议解决方式。",
         },
       ],
       reviewNotes: [],
@@ -253,10 +258,12 @@ describe("lawmind-server-route-review", () => {
       title: "合同审查意见书",
       output: "docx",
       templateId: "word/contract-default",
+      deliverableType: "contract.review",
       summary: "摘要",
       sections: [
         { heading: "审查结论", body: "结论正文", citations: ["src-1"] },
         { heading: "风险提示", body: "风险正文" },
+        { heading: "修改建议", body: "建议补强违约条款。" },
       ],
       reviewNotes: [],
       reviewStatus: "pending",
