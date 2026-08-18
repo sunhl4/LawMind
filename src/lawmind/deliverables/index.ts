@@ -19,6 +19,13 @@ export {
 } from "./registry.js";
 export { isDraftReadyForRender, validateDraftAgainstSpec } from "./validator.js";
 export { countPlaceholderLikeMarkers, heuristicPlaceholderRatio } from "./draft-sanity.js";
+export {
+  countScaffoldPlaceholdersInDraft,
+  EXPLICIT_TODO_PLACEHOLDER,
+  findScaffoldPlaceholders,
+  isHighScaffoldDensity,
+  isScaffoldFieldLabel,
+} from "./placeholder-pattern.js";
 export { validateReasoningAgainstSpec, validateReasoningForDraft } from "./reasoning-validator.js";
 export type {
   AcceptanceCheck,

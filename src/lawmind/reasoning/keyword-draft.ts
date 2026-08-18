@@ -343,18 +343,11 @@ function buildDeliverableSections(
   ];
 }
 
-export function buildDraft(params: BuildDraftParams): ArtifactDraft {
+/** 元数据壳：不含占位骨架正文。模型成稿时用这个，避免先铺【标签】再改写。 */
+export function buildDraftShell(params: BuildDraftParams): ArtifactDraft {
   const { intent, bundle } = params;
   const title = params.title ?? defaultDraftTitle(intent);
-
   const templateId = params.templateId ?? intent.templateId ?? defaultTemplateId(intent);
-
-  const sections =
-    buildDeliverableSections(intent, bundle) ??
-    (isContractReviewIntent(intent)
-      ? buildContractReviewSections(bundle)
-      : buildGeneralSections(bundle));
-
   return {
     taskId: intent.taskId,
     matterId: intent.matterId,
@@ -364,11 +357,47 @@ export function buildDraft(params: BuildDraftParams): ArtifactDraft {
     deliverableType: intent.deliverableType,
     summary: summarizeBundle(bundle),
     audience: intent.audience,
-    sections,
+    sections: [],
     reviewNotes: [],
     clarificationQuestions: intent.clarificationQuestions,
     acceptanceCriteria: intent.acceptanceCriteria,
     reviewStatus: "pending",
     createdAt: new Date().toISOString(),
   };
+}
+
+/** 检索束上的风险 / 待补 / 冲突尾章（不含占位骨架）。 */
+export function buildBundleTailSections(bundle: ResearchBundle): ArtifactSection[] {
+  const tail: ArtifactSection[] = [];
+  if (bundle.riskFlags.length > 0) {
+    tail.push({
+      heading: "主要风险提示",
+      body: bundle.riskFlags.map((r) => `- ${r}`).join("\n"),
+    });
+  }
+  if (bundle.missingItems.length > 0) {
+    tail.push({
+      heading: "待确认事项",
+      body: bundle.missingItems.map((m) => `- ${m}`).join("\n"),
+    });
+  }
+  const conflicts = detectClaimConflicts(bundle);
+  if (conflicts.length > 0) {
+    tail.push({
+      heading: "冲突意见（需律师裁定）",
+      body: conflicts.map((c) => `- ${c}`).join("\n"),
+    });
+  }
+  return tail;
+}
+
+export function buildDraft(params: BuildDraftParams): ArtifactDraft {
+  const { intent, bundle } = params;
+  const shell = buildDraftShell(params);
+  const sections =
+    buildDeliverableSections(intent, bundle) ??
+    (isContractReviewIntent(intent)
+      ? buildContractReviewSections(bundle)
+      : buildGeneralSections(bundle));
+  return { ...shell, sections };
 }

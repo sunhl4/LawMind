@@ -32,7 +32,7 @@ export type LawMindEngineConfig = {
 export type LawMindEngine = {
   /** 步骤 1：解析指令，生成任务意图（供律师确认） */
   plan: (instruction: string, opts?: Omit<RouteInput, "instruction">) => TaskIntent;
-  /** 步骤 1（异步）：可选模型路由（LAWMIND_ROUTER_MODE=model） */
+  /** 步骤 1（异步）：有凭据时默认模型路由；LAWMIND_ROUTER_MODE=keyword 强制关键词 */
   planAsync: (instruction: string, opts?: Omit<RouteInput, "instruction">) => Promise<TaskIntent>;
   /** 步骤 1.5：律师确认任务后才允许进入高风险检索 */
   confirm: (taskId: string, opts?: { actorId?: string; note?: string }) => Promise<TaskRecord>;
@@ -44,7 +44,7 @@ export type LawMindEngine = {
     bundle: ResearchBundle,
     opts?: { title?: string; templateId?: string },
   ) => ArtifactDraft;
-  /** 步骤 3（异步）：可选模型推理（LAWMIND_REASONING_MODE=model） */
+  /** 步骤 3（异步）：有凭据时默认模型成稿；LAWMIND_REASONING_MODE=keyword 强制骨架 */
   draftAsync: (
     intent: TaskIntent,
     bundle: ResearchBundle,

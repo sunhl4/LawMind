@@ -25,6 +25,8 @@ import {
   loadAssistantProfiles,
   resolveLawMindRoot,
 } from "../../../src/lawmind/assistants/store.js";
+import { reportedRouterMode } from "../../../src/lawmind/router/model-route.js";
+import { reportedReasoningMode } from "../../../src/lawmind/reasoning/model-draft.js";
 import { sendJsonError } from "./lawmind-api-error.js";
 import { isWebSearchForcedOffByPolicy } from "./lawmind-policy.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
@@ -232,8 +234,8 @@ export async function handleChatRoute({
     };
     if (showRuntimeHints) {
       payload.runtimeHints = {
-        lawmindRouterMode: (process.env.LAWMIND_ROUTER_MODE ?? "").trim() || "keyword",
-        lawmindReasoningMode: (process.env.LAWMIND_REASONING_MODE ?? "").trim() || "off",
+        lawmindRouterMode: reportedRouterMode(),
+        lawmindReasoningMode: reportedReasoningMode(),
         toolCallsExecuted: result.turn.toolCallsExecuted,
       };
     }

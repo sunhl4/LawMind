@@ -34,7 +34,7 @@ Deliverable-First Architecture（以下简称 **DFA**）是把这一句产品判
 | 主张                | 状态        | 关键文件                                                                                                                                                                                                                                                        |
 | ------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | P1 交付物本位       | ✅ 起点完成 | `src/lawmind/types.ts`（`DeliverableType` / `acceptanceCriteria` / `clarificationQuestions`）、`src/lawmind/router/deliverable-meta.ts`、`src/lawmind/deliverables/registry.ts`（**本轮**）                                                                     |
-| P1 起草端           | ✅ 进行中   | `src/lawmind/reasoning/keyword-draft.ts`（按 deliverableType 生成结构化完整正文）                                                                                                                                                                               |
+| P1 起草端           | ✅ 进行中   | `src/lawmind/reasoning/model-draft.ts`（有凭据时模型成稿）+ `keyword-draft.ts`（离线/失败骨架，不能标 ready）                                                                                                                                                   |
 | P1 Agent 端         | ✅ 进行中   | `src/lawmind/agent/tools/engine-tools.ts`（`draft_document` 透传交付物字段；`render_document` 支持 `approve=true`）                                                                                                                                             |
 | P1 桌面端           | ✅ 进行中   | `apps/lawmind-desktop/src/renderer/lawmind-chat-shell.tsx`（待补充信息卡）、`lawmind-chat.ts`（解析 status / clarificationQuestions）                                                                                                                           |
 | P2 验收门禁         | ✅ 已通线   | `src/lawmind/deliverables/validator.ts`、`apps/lawmind-desktop/server/lawmind-server-route-review.ts`（HTTP 422 strict）、`src/lawmind/agent/tools/engine-tools.ts`（render_document 内置 gate）、`apps/lawmind-desktop/src/renderer/LawmindAcceptanceGate.tsx` |
@@ -240,7 +240,8 @@ GET /api/drafts/<taskId>/acceptance-pack?format=json # { ok, markdown }
 | 模块                         | 关系                                                                                                                   |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `router/deliverable-meta.ts` | **运行期检测器**：把指令翻译成 `deliverableType` 与默认追问。spec registry 是它的真相源。                              |
-| `reasoning/keyword-draft.ts` | **草稿生成器**：按 spec 的 `requiredSections` 生成完整章节（不止"摘要"）。                                             |
+| `reasoning/model-draft.ts`   | **默认草稿作者**（有 LLM 凭据）：模型直接成稿，不先铺 `【标签】` 骨架。                                                |
+| `reasoning/keyword-draft.ts` | **离线/失败回退**：按 spec 生成骨架章节；验收门禁不得把高密度骨架标成 ready。                                          |
 | `evaluation/metrics.ts`      | **质量指标**：DFA 验收报告可作为 `firstPassApproved` / `acceptance.ready` 等新指标的输入。                             |
 | `policy/index.ts`            | **门禁策略**：未来可在 `lawmind.policy.json` 中加 `deliverableGate.strict=true`，让 render 强制 acceptance gate 通过。 |
 | `desktop ReviewWorkbench`    | **审核 UI**：未来挂 `<AcceptanceGate />` 子组件直接消费报告。                                                          |
@@ -263,7 +264,7 @@ GET /api/drafts/<taskId>/acceptance-pack?format=json # { ok, markdown }
 2. `docs/LAWMIND-2.0-STRATEGY.md`
 3. `src/lawmind/deliverables/`（registry + validator + tests 是行为边界）
 4. `src/lawmind/router/deliverable-meta.ts`
-5. `src/lawmind/reasoning/keyword-draft.ts`
+5. `src/lawmind/reasoning/model-draft.ts` + `keyword-draft.ts`
 6. `apps/lawmind-desktop/src/renderer/lawmind-chat-shell.tsx`（前端追问 UI）
 
 ---

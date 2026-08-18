@@ -131,8 +131,8 @@
 - [x] 客户向导 + 运维命令（`lawmind:onboard`、`lawmind:ops`、交付手册）
 - [x] Windows/macOS 一键安装脚本（`scripts/install-lawmind.sh`、`scripts/install-lawmind.ps1`）
 - [x] 完整验收与演示脚本（`lawmind:acceptance`、`lawmind:demo`）
-- [x] 模型驱动的 Router（`LAWMIND_ROUTER_MODE=model`，`routeAsync` / `planAsync`）
-- [x] 模型驱动的 Reasoning（`LAWMIND_REASONING_MODE=model`，`buildDraftAsync` / `draftAsync`）
+- [x] 模型驱动的 Router（有凭据默认 `routeAsync` / `planAsync`；`LAWMIND_ROUTER_MODE=keyword` 强制关键词）
+- [x] 模型驱动的 Reasoning（有凭据默认 `buildDraftAsync` / `draftAsync`；`LAWMIND_REASONING_MODE=keyword` 强制骨架）
 - [x] 更多法律工具（`search_statute`、`search_case_law`、`check_conflict_of_interest`）
 
 ---
@@ -354,8 +354,8 @@
 ### M2 Agent 继续深化（已完成核心闭环，以下为增强项）
 
 1. ~~**Agent-Engine 统一调度**~~ ✅ — 已通过 engine-tools.ts 实现。Agent 通过 execute_workflow 等 5 个桥接工具调用 engine 全管线能力。
-2. ~~**模型驱动的路由**~~ — `routeAsync` + `LAWMIND_ROUTER_MODE=model`（凭据不足时回落关键词 `route`）。
-3. ~~**模型驱动的推理**~~ — `buildDraftAsync` + `LAWMIND_REASONING_MODE=model`（模型失败时回落 `buildDraft`）。
+2. ~~**模型驱动的路由**~~ — `routeAsync` 有凭据默认走模型（`LAWMIND_ROUTER_MODE=keyword` 强制关键词；失败回落 `route`）。
+3. ~~**模型驱动的推理**~~ — `buildDraftAsync` 有凭据默认模型成稿（`LAWMIND_REASONING_MODE=keyword` 强制骨架；失败回落 `buildDraft`）。
 4. ~~**更多法律工具（首期）**~~ — `search_statute`、`search_case_law`、`check_conflict_of_interest`（工作区启发式，不替代正式法规库/裁判文书网）。
 5. **Agent 多轮测试** — 用 mock LLM 测试 agent 的完整推理循环，验证工具调度、审批流程、session 恢复。
 6. **真实模型端到端验证** — 配置 Qwen/DeepSeek API key，测试 agent 完整对话流程。

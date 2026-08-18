@@ -18,6 +18,11 @@ import { useLawmindRecordsDeskMatters, RECORDS_DESK_UNLINKED } from "./lawmind-r
 import { LawmindSidebar } from "./lawmind-sidebar";
 import { useEdition } from "./use-edition";
 import {
+  shouldEmbedSoloReviewRail,
+  shouldShowCollaborationTab,
+  soloPrimaryTabLabel,
+} from "./lawmind-solo-desk";
+import {
   LM_PANE_MAX_WIDTH_PX,
   LM_PANE_MIN_WIDTH_PX,
   readStoredBool,
@@ -235,6 +240,8 @@ export function App() {
   });
   const [matterImportBusy, setMatterImportBusy] = useState(false);
   const [matterCockpitOpen, setMatterCockpitOpen] = useState(false);
+  const [wsShowEditor, setWsShowEditor] = useState(() => readStoredBool("lawmind.ui.wsPaneEditor", true));
+  const [wsShowChat, setWsShowChat] = useState(() => readStoredBool("lawmind.ui.wsPaneChat", true));
   const [createMatterOpen, setCreateMatterOpen] = useState(false);
   const [matterRenameOpen, setMatterRenameOpen] = useState<{ matterId: string; initialTitle: string } | null>(
     null,
@@ -340,6 +347,8 @@ export function App() {
   const [reviewLaunchedFromMatter, setReviewLaunchedFromMatter] = useState(false);
   /** 顶栏「协作」内分栏：状态一览 / 团队工作流 */
   const [collaborationDeskTab, setCollaborationDeskTab] = useState<CollaborationDeskTab>("overview");
+  /** Solo：改稿嵌在工作台右轨，不切独立审核页 */
+  const [soloReviewRail, setSoloReviewRail] = useState(false);
 
   useEffect(() => {
     const id = focusMatterIdFromReview?.trim();
@@ -531,16 +540,51 @@ export function App() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const edition = useEdition(config?.apiBase ?? "");
+  const soloDesk = shouldEmbedSoloReviewRail(edition.edition);
+  const showCollabTab = shouldShowCollaborationTab(edition.edition);
+
+  const openDeskReview = useCallback(
+    (opts?: {
+      taskId?: string | null;
+      matterId?: string | null;
+      statusFilter?: typeof reviewFocusStatus;
+      listMode?: typeof reviewFocusListMode;
+      fromMatter?: boolean;
+    }) => {
+      setReviewFocusTaskId(opts?.taskId ?? null);
+      setReviewFocusMatterId(opts?.matterId ?? null);
+      setReviewFocusStatus(opts?.statusFilter ?? "all");
+      setReviewFocusListMode(opts?.listMode ?? "pending");
+      setReviewLaunchedFromMatter(Boolean(opts?.fromMatter));
+      if (opts?.matterId) {
+        setContextMatterId(opts.matterId);
+      }
+      if (shouldEmbedSoloReviewRail(edition.edition)) {
+        setSoloReviewRail(true);
+        setMatterCockpitOpen(false);
+        setWsShowChat(true);
+        if (canUseFilesystemBridge) {
+          setWsShowEditor(true);
+        }
+        setMainView("workspace");
+        return;
+      }
+      setSoloReviewRail(false);
+      setMainView("review");
+    },
+    [canUseFilesystemBridge, edition.edition, setContextMatterId, setMainView],
+  );
 
   useEffect(() => {
     const unsub = window.lawmindDesktop?.onNotificationClick?.((payload) => {
       if (payload?.reason === "open_review") {
-        setReviewLaunchedFromMatter(false);
-        setMainView("review");
-        setReviewFocusTaskId(payload.reviewTaskId?.trim() ? payload.reviewTaskId : null);
-        setReviewFocusMatterId(payload.reviewMatterId?.trim() ? payload.reviewMatterId : null);
-        setReviewFocusStatus("pending");
-        setReviewFocusListMode("pending");
+        openDeskReview({
+          taskId: payload.reviewTaskId?.trim() ? payload.reviewTaskId : null,
+          matterId: payload.reviewMatterId?.trim() ? payload.reviewMatterId : null,
+          statusFilter: "pending",
+          listMode: "pending",
+          fromMatter: false,
+        });
         return;
       }
       if (payload?.reason === "open_workspace_chat") {
@@ -575,6 +619,7 @@ export function App() {
     };
   }, [
     assistants,
+    openDeskReview,
     setMainView,
     setCollaborationDeskTab,
     setReviewFocusListMode,
@@ -606,9 +651,6 @@ export function App() {
     max: LM_PANE_MAX_WIDTH_PX,
     widthRole: "shellSidebar",
   });
-
-  const [wsShowEditor, setWsShowEditor] = useState(() => readStoredBool("lawmind.ui.wsPaneEditor", true));
-  const [wsShowChat, setWsShowChat] = useState(() => readStoredBool("lawmind.ui.wsPaneChat", true));
 
   useEffect(() => {
     writeStoredBool("lawmind.ui.wsPaneEditor", wsShowEditor);
@@ -871,33 +913,37 @@ export function App() {
           <nav className="lm-tabs lm-main-nav lm-main-nav-compact" aria-label="功能模块">
             <button
               type="button"
-              className={`lm-tab ${mainView === "workspace" ? "active" : ""}`}
-              aria-current={mainView === "workspace" ? "page" : undefined}
-              onClick={() => setMainView("workspace")}
-            >
-              工作台
-            </button>
-            <button
-              type="button"
-              className={`lm-tab ${mainView === "collaboration" ? "active" : ""}`}
-              aria-current={mainView === "collaboration" ? "page" : undefined}
+              className={`lm-tab ${mainView === "workspace" && !soloReviewRail ? "active" : ""}`}
+              aria-current={mainView === "workspace" && !soloReviewRail ? "page" : undefined}
               onClick={() => {
-                setCollaborationDeskTab("overview");
-                setMainView("collaboration");
+                setSoloReviewRail(false);
+                setMainView("workspace");
               }}
             >
-              协作
+              {soloDesk ? soloPrimaryTabLabel("workspace") : "工作台"}
             </button>
+            {showCollabTab ? (
+              <button
+                type="button"
+                className={`lm-tab ${mainView === "collaboration" ? "active" : ""}`}
+                aria-current={mainView === "collaboration" ? "page" : undefined}
+                onClick={() => {
+                  setCollaborationDeskTab("overview");
+                  setMainView("collaboration");
+                }}
+              >
+                协作
+              </button>
+            ) : null}
             <button
               type="button"
-              className={`lm-tab ${mainView === "review" ? "active" : ""}`}
-              aria-current={mainView === "review" ? "page" : undefined}
+              className={`lm-tab ${mainView === "review" || soloReviewRail ? "active" : ""}`}
+              aria-current={mainView === "review" || soloReviewRail ? "page" : undefined}
               onClick={() => {
-                setReviewLaunchedFromMatter(false);
-                setMainView("review");
+                openDeskReview({ fromMatter: false, listMode: "pending" });
               }}
             >
-              审核
+              {soloDesk ? soloPrimaryTabLabel("review") : "审核"}
             </button>
           </nav>
           <div className="lm-header-spacer" aria-hidden />
@@ -988,15 +1034,13 @@ export function App() {
                 projectDir={projectDir}
                 onUseInChat={linkMatterToChat}
                 onOpenReview={({ taskId, matterId, statusFilter = "all", listMode = "all" }) => {
-                  setReviewLaunchedFromMatter(true);
-                  setReviewFocusTaskId(taskId);
-                  setReviewFocusMatterId(matterId ?? null);
-                  setReviewFocusStatus(statusFilter);
-                  setReviewFocusListMode(listMode);
-                  if (matterId) {
-                    setContextMatterId(matterId);
-                  }
-                  setMainView("review");
+                  openDeskReview({
+                    taskId,
+                    matterId,
+                    statusFilter,
+                    listMode,
+                    fromMatter: true,
+                  });
                 }}
               />
             </div>
@@ -1084,65 +1128,97 @@ export function App() {
                     }}
                   >
                     <div className="lm-chat-workspace lm-chat-workspace-messages-only">
-                      <LawmindChatSessionTabs
-                        sessions={chatSessionList.map((row) => ({
-                          sessionId: row.sessionId,
-                          title: row.title,
-                        }))}
-                        activeSessionId={activeChatSessionId}
-                        loading={chatSessionsLoading}
-                        busy={loading}
-                        onSelect={(id) => void selectChatSession(id)}
-                        onNewChat={() => void createNewChatSession()}
-                        onRename={(id, title) => void renameChatSession(id, title)}
-                        onDelete={(id) => void deleteChatSession(id)}
-                      />
-                      <LawmindChatMessagesColumn
-                        selectedAssistantId={selectedAssistantId}
+                      {soloDesk && soloReviewRail && config ? (
+                        <div className="lm-solo-review-rail" data-testid="lm-solo-review-rail">
+                          <ReviewWorkbench
+                            apiBase={config.apiBase}
+                            assistantId={selectedAssistantId}
+                            initialTaskId={reviewFocusTaskId}
+                            initialMatterId={reviewFocusMatterId}
+                            initialStatusFilter={reviewFocusStatus}
+                            initialListMode={reviewFocusListMode}
+                            returnMatterId={reviewLaunchedFromMatter ? reviewFocusMatterId : null}
+                            onReturnToMatter={() => {
+                              setSoloReviewRail(false);
+                              if (reviewFocusMatterId) {
+                                setFocusMatterIdFromReview(reviewFocusMatterId);
+                              }
+                              setReviewLaunchedFromMatter(false);
+                              setMatterCockpitOpen(true);
+                            }}
+                            onShowArtifact={(relPath) => openOutputInFolder(relPath)}
+                            onRecordsChanged={() => {
+                              setMatterRefreshVersion((v) => v + 1);
+                              void refreshLists();
+                            }}
+                          />
+                        </div>
+                      ) : null}
+                      {soloDesk && soloReviewRail ? null : (
+                        <>
+                          <LawmindChatSessionTabs
+                            sessions={chatSessionList.map((row) => ({
+                              sessionId: row.sessionId,
+                              title: row.title,
+                            }))}
+                            activeSessionId={activeChatSessionId}
+                            loading={chatSessionsLoading}
+                            busy={loading}
+                            onSelect={(id) => void selectChatSession(id)}
+                            onNewChat={() => void createNewChatSession()}
+                            onRename={(id, title) => void renameChatSession(id, title)}
+                            onDelete={(id) => void deleteChatSession(id)}
+                          />
+                          <LawmindChatMessagesColumn
+                            selectedAssistantId={selectedAssistantId}
+                            currentMessages={currentMessages}
+                            copiedMessageIndex={copiedMessageIndex}
+                            loading={loading}
+                            messagesEndRef={messagesEndRef}
+                            onCopyMessage={(text, index) => void copyMessage(text, index)}
+                            onApplyPrompt={(prompt) => {
+                              setInput(prompt);
+                              textareaRef.current?.focus();
+                            }}
+                            onSendClarificationMessage={(text) => void sendChatMessage(text)}
+                            fileChatPills={fileChatContextItems.map((it) => ({
+                              id: it.id,
+                              ...formatFileChatContextPill(it),
+                            }))}
+                            onRemoveFileChatPill={removeFileChatContextItem}
+                            onClearFileChatPills={clearFileChatContext}
+                          />
+                        </>
+                      )}
+                    </div>
+                    {soloDesk && soloReviewRail ? null : (
+                      <LawmindChatComposeFooter
                         currentMessages={currentMessages}
-                        copiedMessageIndex={copiedMessageIndex}
+                        input={input}
                         loading={loading}
-                        messagesEndRef={messagesEndRef}
-                        onCopyMessage={(text, index) => void copyMessage(text, index)}
+                        error={error}
+                        contextTaskId={contextTaskId}
+                        contextMatterId={contextMatterId}
+                        matterTitle={chatMatterHeadline}
+                        textareaRef={textareaRef}
+                        onInputChange={setInput}
+                        onSend={() => void send()}
+                        onAbortChat={abortChatSend}
                         onApplyPrompt={(prompt) => {
                           setInput(prompt);
                           textareaRef.current?.focus();
                         }}
-                        onSendClarificationMessage={(text) => void sendChatMessage(text)}
-                        fileChatPills={fileChatContextItems.map((it) => ({
-                          id: it.id,
-                          ...formatFileChatContextPill(it),
-                        }))}
-                        onRemoveFileChatPill={removeFileChatContextItem}
-                        onClearFileChatPills={clearFileChatContext}
+                        onClearContext={clearContext}
+                        onOpenComposeSettings={() => setShowSettings(true)}
+                        composeModelConfigured={
+                          health?.modelConfigured === true
+                            ? true
+                            : health?.modelConfigured === false
+                              ? false
+                              : undefined
+                        }
                       />
-                    </div>
-                    <LawmindChatComposeFooter
-                      currentMessages={currentMessages}
-                      input={input}
-                      loading={loading}
-                      error={error}
-                      contextTaskId={contextTaskId}
-                      contextMatterId={contextMatterId}
-                      matterTitle={chatMatterHeadline}
-                      textareaRef={textareaRef}
-                      onInputChange={setInput}
-                      onSend={() => void send()}
-                      onAbortChat={abortChatSend}
-                      onApplyPrompt={(prompt) => {
-                        setInput(prompt);
-                        textareaRef.current?.focus();
-                      }}
-                      onClearContext={clearContext}
-                      onOpenComposeSettings={() => setShowSettings(true)}
-                      composeModelConfigured={
-                        health?.modelConfigured === true
-                          ? true
-                          : health?.modelConfigured === false
-                            ? false
-                            : undefined
-                      }
-                    />
+                    )}
                   </div>
                 ) : null}
               </div>

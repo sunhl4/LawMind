@@ -13,6 +13,11 @@
 
 import type { ArtifactDraft, ArtifactSection } from "../types.js";
 import { heuristicPlaceholderRatio } from "./draft-sanity.js";
+import {
+  countScaffoldPlaceholdersInDraft,
+  EXPLICIT_TODO_PLACEHOLDER,
+  isHighScaffoldDensity,
+} from "./placeholder-pattern.js";
 import { getDeliverableSpec } from "./registry.js";
 import type {
   AcceptanceCheck,
@@ -21,7 +26,7 @@ import type {
   ValidateDraftOptions,
 } from "./types.js";
 
-const DEFAULT_PLACEHOLDER_PATTERN = /【待补充[:：][^】]*】/g;
+const DEFAULT_PLACEHOLDER_PATTERN = EXPLICIT_TODO_PLACEHOLDER;
 
 function normalizeHeading(heading: string): string {
   return heading.replace(/\s+/g, "").toLowerCase();
@@ -118,6 +123,24 @@ function buildBodySanityCheck(draft: ArtifactDraft): AcceptanceCheck | undefined
   };
 }
 
+function buildScaffoldDensityCheck(draft: ArtifactDraft): AcceptanceCheck | undefined {
+  const samples = countScaffoldPlaceholdersInDraft(draft.sections);
+  const plainLen = concatDraftPlainText(draft).trim().length;
+  if (samples.length === 0) {
+    return undefined;
+  }
+  const dense = isHighScaffoldDensity(samples, plainLen);
+  return {
+    key: "draft.scaffold_density",
+    label: dense ? "仍为骨架稿，须由模型或律师补全后再交付" : "文中仍有未填项",
+    passed: !dense,
+    severity: dense ? "blocker" : "warning",
+    hint: dense
+      ? `检出 ${samples.length} 处骨架占位（如 ${samples.slice(0, 3).join("、")}）。这是模板填空，不能当作已验收导出。`
+      : undefined,
+  };
+}
+
 function buildClarificationCheck(draft: ArtifactDraft): AcceptanceCheck | undefined {
   const open = draft.clarificationQuestions ?? [];
   if (open.length === 0) {
@@ -173,18 +196,18 @@ export const validateDraftAgainstSpec: ValidateDraftFn = (
     return {
       taskId: draft.taskId,
       deliverableType: draft.deliverableType,
-      ready: true,
+      ready: false,
       checks: [
         {
           key: "spec.not_found",
-          label: "未找到对应交付物规范，跳过结构化验收。",
-          passed: true,
-          severity: "warning",
-          hint: "可在 src/lawmind/deliverables/registry.ts 注册新的 DeliverableSpec。",
+          label: "未登记该类文书的验收规范，不能当作已验收导出。",
+          passed: false,
+          severity: "blocker",
+          hint: "请先指定已登记的交付物类型，或在工作区注册对应规范后再导出。",
         },
       ],
-      blockerCount: 0,
-      warningCount: 1,
+      blockerCount: 1,
+      warningCount: 0,
       placeholderCount: 0,
       placeholderSamples: [],
       generatedAt,
@@ -207,6 +230,10 @@ export const validateDraftAgainstSpec: ValidateDraftFn = (
   const bodySanity = buildBodySanityCheck(draft);
   if (bodySanity) {
     checks.push(bodySanity);
+  }
+  const scaffold = buildScaffoldDensityCheck(draft);
+  if (scaffold) {
+    checks.push(scaffold);
   }
 
   const blockerCount = checks.filter((c) => c.severity === "blocker" && !c.passed).length;

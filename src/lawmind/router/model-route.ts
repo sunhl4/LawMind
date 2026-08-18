@@ -108,13 +108,24 @@ function buildSummaryFallback(params: {
   return `任务类型：${kindLabel[kind]}。原始指令：「${instruction.slice(0, 60)}${instruction.length > 60 ? "…" : ""}」`;
 }
 
-/** LAWMIND_ROUTER_MODE=model 且具备 LLM 凭据时启用 */
+/**
+ * 有 LLM 凭据时默认走模型路由；keyword/off 才强制关键词。
+ * unset / model：凭据齐全即启用，失败回退 route()。
+ */
 export function isModelRouterEnabled(): boolean {
   const mode = (process.env.LAWMIND_ROUTER_MODE ?? "").trim().toLowerCase();
-  if (mode !== "model") {
+  if (mode === "keyword" || mode === "off" || mode === "0" || mode === "false" || mode === "no") {
     return false;
   }
-  return routerLlmConfigFromEnv() !== null;
+  if (mode === "model" || mode === "") {
+    return routerLlmConfigFromEnv() !== null;
+  }
+  return false;
+}
+
+/** 健康检查 / 聊天诊断用：实际会走哪条路由。 */
+export function reportedRouterMode(): "model" | "keyword" {
+  return isModelRouterEnabled() ? "model" : "keyword";
 }
 
 export async function routeWithModel(

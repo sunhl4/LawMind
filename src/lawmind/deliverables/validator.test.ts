@@ -98,11 +98,47 @@ describe("deliverables/validator", () => {
     expect(isDraftReadyForRender(draft)).toBe(true);
   });
 
-  it("returns spec.not_found warning when deliverableType missing", () => {
+  it("returns spec.not_found blocker when deliverableType missing", () => {
     const draft = makeDraft({ deliverableType: undefined, sections: [] });
     const report = validateDraftAgainstSpec(draft);
-    expect(report.ready).toBe(true);
+    expect(report.ready).toBe(false);
     expect(report.checks[0]?.key).toBe("spec.not_found");
+    expect(report.checks[0]?.severity).toBe("blocker");
+  });
+
+  it("blocks high-density scaffold drafts from counting as ready", () => {
+    const draft = makeDraft({
+      deliverableType: "letter.demand",
+      templateId: "letter-demand-default",
+      sections: [
+        { heading: "收函人", body: "致：【收函对象】" },
+        { heading: "事实背景", body: "【事实经过】" },
+        { heading: "本所主张", body: "【核心主张一】" },
+        { heading: "履行期限", body: "请于期限内履行" },
+        { heading: "落款", body: "律师事务所" },
+      ],
+    });
+    const report = validateDraftAgainstSpec(draft);
+    const scaffold = report.checks.find((c) => c.key === "draft.scaffold_density");
+    expect(scaffold?.severity).toBe("blocker");
+    expect(scaffold?.passed).toBe(false);
+    expect(report.ready).toBe(false);
+  });
+
+  it("does not treat statute brackets as scaffold blockers", () => {
+    const draft = makeDraft({
+      sections: [
+        ...FULL_RENTAL_SECTIONS.slice(0, 7),
+        {
+          heading: "八、签署页",
+          body: "适用【法释〔2023〕1号】相关规定。甲方签字：张三 乙方签字：李四 日期：2026-01-01",
+        },
+      ],
+    });
+    const report = validateDraftAgainstSpec(draft);
+    const scaffold = report.checks.find((c) => c.key === "draft.scaffold_density");
+    expect(scaffold).toBeUndefined();
+    expect(report.ready).toBe(true);
   });
 
   it("surfaces open clarification questions as a warning check", () => {

@@ -1,5 +1,6 @@
 /**
- * Model-assisted draft structuring (optional, env-gated).
+ * Model-authored draft structuring.
+ * 有凭据时模型直接成稿；失败或强制 keyword 时回退 keyword-draft 骨架。
  */
 
 import {
@@ -8,7 +9,12 @@ import {
   type OpenAiJsonClientConfig,
 } from "../llm/openai-json.js";
 import type { ArtifactDraft, ArtifactSection, ResearchBundle } from "../types.js";
-import { buildDraft, type BuildDraftParams } from "./keyword-draft.js";
+import {
+  buildBundleTailSections,
+  buildDraft,
+  buildDraftShell,
+  type BuildDraftParams,
+} from "./keyword-draft.js";
 
 type ModelSectionsJson = {
   title?: string;
@@ -59,13 +65,48 @@ function sanitizeSections(raw: ModelSectionsJson["sections"]): ArtifactSection[]
   return out.slice(0, 40);
 }
 
-/** LAWMIND_REASONING_MODE=model 且具备 LLM 凭据时启用 */
+/**
+ * 有 LLM 凭据时默认模型撰稿；keyword/off 才强制骨架。
+ */
 export function isModelReasoningEnabled(): boolean {
   const mode = (process.env.LAWMIND_REASONING_MODE ?? "").trim().toLowerCase();
-  if (mode !== "model") {
+  if (mode === "keyword" || mode === "off" || mode === "0" || mode === "false" || mode === "no") {
     return false;
   }
-  return reasoningLlmConfigFromEnv() !== null;
+  if (mode === "model" || mode === "") {
+    return reasoningLlmConfigFromEnv() !== null;
+  }
+  return false;
+}
+
+export function reportedReasoningMode(): "model" | "off" {
+  return isModelReasoningEnabled() ? "model" : "off";
+}
+
+function draftSystemPrompt(intent: BuildDraftParams["intent"]): string {
+  const kind = intent.deliverableType ?? intent.kind;
+  return [
+    "你是执业律师助理。根据检索要点与律师指令，直接写成可审阅的完整文书章节，不要输出填空骨架。",
+    "必须基于给定要点与来源，不得编造未出现的法条、判例或统计数据。",
+    "缺关键事实时用完整句子说明「待律师确认：…」，不要写【标签】占位。",
+    "只输出 JSON，不要 markdown。",
+    "JSON schema:",
+    '{ "title": "string", "sections": [ { "heading": "string", "body": "string", "citations": ["可选来源编号"] } ] }',
+    `交付类型提示：${kind}。章节用中文小标题；正文为完整段落，可含编号列表。`,
+  ].join("\n");
+}
+
+function draftUserPrompt(intent: BuildDraftParams["intent"], bundle: ResearchBundle): string {
+  return [
+    `交付类型: ${intent.deliverableType ?? "未指定"}`,
+    `任务类型: ${intent.kind}`,
+    `原始指令: ${intent.instruction}`,
+    `任务摘要: ${intent.summary}`,
+    `受众: ${intent.audience ?? "未指定"}`,
+    "",
+    "检索材料摘要:",
+    bundleDigest(bundle),
+  ].join("\n");
 }
 
 export async function buildDraftWithModel(
@@ -73,28 +114,9 @@ export async function buildDraftWithModel(
   cfg: OpenAiJsonClientConfig,
 ): Promise<ArtifactDraft | null> {
   const { intent, bundle } = params;
-  const base = buildDraft(params);
-
-  const system = [
-    "你是法律助理，将检索结果整理为可审阅的文书章节。必须基于给定要点，不得编造未出现的法条或判例。",
-    "只输出 JSON，不要 markdown。",
-    "JSON schema:",
-    '{ "title": "string", "sections": [ { "heading": "string", "body": "string", "citations": ["可选来源编号或引用"] } ] }',
-    "章节应用中文小标题；正文可包含列表；citations 尽量对应检索来源或 claim 编号。",
-  ].join("\n");
-
-  const user = [
-    `任务类型: ${intent.kind}`,
-    `任务摘要: ${intent.summary}`,
-    `受众: ${intent.audience ?? "未指定"}`,
-    "",
-    "检索材料摘要:",
-    bundleDigest(bundle),
-  ].join("\n");
-
   const parsed = await completeJsonObject<ModelSectionsJson>(cfg, [
-    { role: "system", content: system },
-    { role: "user", content: user },
+    { role: "system", content: draftSystemPrompt(intent) },
+    { role: "user", content: draftUserPrompt(intent, bundle) },
   ]);
 
   if (!parsed || !Array.isArray(parsed.sections) || parsed.sections.length === 0) {
@@ -106,36 +128,16 @@ export async function buildDraftWithModel(
     return null;
   }
 
-  const ruleSections = base.sections;
-  const riskIdx = ruleSections.findIndex(
-    (s) => s.heading === "风险提示" || s.heading === "主要风险提示",
-  );
-  const missingIdx = ruleSections.findIndex(
-    (s) => s.heading === "待补充事项" || s.heading === "待确认事项",
-  );
-  const conflictIdx = ruleSections.findIndex(
-    (s) => s.heading === "冲突结论（需律师裁定）" || s.heading === "冲突意见（需律师裁定）",
-  );
-
-  const tail: ArtifactSection[] = [];
-  if (riskIdx >= 0) {
-    tail.push(ruleSections[riskIdx]);
-  }
-  if (missingIdx >= 0) {
-    tail.push(ruleSections[missingIdx]);
-  }
-  if (conflictIdx >= 0) {
-    tail.push(ruleSections[conflictIdx]);
-  }
-
+  const shell = buildDraftShell(params);
+  const modelHeadings = new Set(modelSections.map((s) => s.heading));
+  const tail = buildBundleTailSections(bundle).filter((s) => !modelHeadings.has(s.heading));
   const title =
-    typeof parsed.title === "string" && parsed.title.trim() ? parsed.title.trim() : base.title;
+    typeof parsed.title === "string" && parsed.title.trim() ? parsed.title.trim() : shell.title;
 
   return {
-    ...base,
+    ...shell,
     title,
     sections: [...modelSections, ...tail],
-    summary: base.summary,
   };
 }
 

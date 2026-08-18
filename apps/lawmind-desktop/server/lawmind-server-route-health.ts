@@ -20,6 +20,8 @@ import {
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import { buildAgentConfig, sendJson } from "./lawmind-server-helpers.js";
 import { LAWMIND_AGENT_BEHAVIOR_EPOCH } from "../../../src/lawmind/agent/system-prompt.js";
+import { reportedRouterMode } from "../../../src/lawmind/router/model-route.js";
+import { reportedReasoningMode } from "../../../src/lawmind/reasoning/model-draft.js";
 
 export function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindRouteContext): boolean {
   if (!(pathname === "/api/health" && req.method === "GET")) {
@@ -44,8 +46,8 @@ export function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindRouteCo
     : null;
   const edition = resolveEdition({ policy: policyForEdition });
   const mandatoryRules = resolveAgentMandatoryRulesForPrompt(workspaceDir, policyForEdition);
-  const lawmindRouterMode = (process.env.LAWMIND_ROUTER_MODE ?? "").trim() || "keyword";
-  const lawmindReasoningMode = (process.env.LAWMIND_REASONING_MODE ?? "").trim() || "off";
+  const lawmindRouterMode = reportedRouterMode();
+  const lawmindReasoningMode = reportedReasoningMode();
   const lawmindAgentMaxToolCalls = resolveAgentMaxToolCallsPerTurn(workspaceDir);
 
   sendJson(

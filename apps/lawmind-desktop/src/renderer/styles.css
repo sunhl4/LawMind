@@ -4679,6 +4679,25 @@ fieldset.lm-field-reset > legend.lm-meta {
   min-height: 0;
 }
 
+/* Solo：改稿嵌在对话列，审核台占满该列 */
+.lm-chat-workspace-messages-only > .lm-solo-review-rail {
+  flex: 1;
+  flex-shrink: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.lm-solo-review-rail > .lm-review-workbench-root {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .lm-chat-session-tabs {
   display: flex;
   align-items: center;
