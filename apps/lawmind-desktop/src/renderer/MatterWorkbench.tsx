@@ -3,7 +3,6 @@
  */
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
 import type { DraftCitationIntegrityView } from "../../../../src/lawmind/drafts/citation-integrity.ts";
 import type { ArtifactDraft, MatterOverview, MatterSummary, TaskRecord } from "../../../../src/lawmind/types.ts";
 import type { ApprovalRequest, WorkQueueItem } from "../../../../src/lawmind/core/contracts.ts";
@@ -20,6 +19,13 @@ import { RECORDS_DESK_UNLINKED } from "./lawmind-records-desk-state";
 import { LawmindMatterContextMenu } from "./LawmindMatterContextMenu";
 import { LawmindCreateMatterDialog } from "./LawmindCreateMatterDialog";
 import { MatterTeamMeetingPanel } from "./MatterTeamMeetingPanel";
+import {
+  DraftAcceptanceBadge,
+  DraftCitationBadge,
+  MatterReviewQueuePanel,
+  MatterTasksPanel,
+  type AcceptanceSummaryItem,
+} from "./matter";
 
 export type MatterWorkbenchHandle = {
   openCreateMatter: () => void;
@@ -29,20 +35,6 @@ type MatterSearchHit = {
   section: string;
   text: string;
   taskId?: string;
-};
-
-type AcceptanceSummaryItem = {
-  taskId: string;
-  matterId: string | null;
-  title: string;
-  deliverableType: string | null;
-  reviewStatus: ArtifactDraft["reviewStatus"];
-  ready: boolean;
-  placeholderCount: number;
-  blockerCount: number;
-  warningCount: number;
-  hasSpec: boolean;
-  outputPath: string | null;
 };
 
 type AuditEventRow = { kind?: string; detail?: string; timestamp?: string; taskId?: string };
@@ -230,67 +222,6 @@ type Props = {
   projectDir?: string | null;
   onMatterCreated?: (matterId: string) => void;
 };
-
-function DraftCitationBadge(props: { cit: DraftCitationIntegrityView | undefined }): ReactNode {
-  const { cit } = props;
-  if (!cit) {
-    return null;
-  }
-  if (!cit.checked) {
-    return (
-      <span className="lm-matter-cit lm-matter-cit-skip" title="无检索快照，无法对照 bundle">
-        无快照
-      </span>
-    );
-  }
-  if (cit.ok) {
-    return (
-      <span className="lm-matter-cit lm-matter-cit-ok" title="章节引用 ID 均在本次检索 bundle 内">
-        引用OK
-      </span>
-    );
-  }
-  return (
-    <span
-      className="lm-matter-cit lm-matter-cit-warn"
-      title={`以下 ID 不在检索 bundle：${cit.missingSourceIds.join(", ")}`}
-    >
-      引用待核
-    </span>
-  );
-}
-
-function DraftAcceptanceBadge(props: { acc: AcceptanceSummaryItem | undefined }): ReactNode {
-  const { acc } = props;
-  if (!acc) {
-    return null;
-  }
-  if (!acc.hasSpec) {
-    return (
-      <span className="lm-acc-badge lm-acc-badge--none" title="该草稿未关联 DeliverableSpec">
-        无门禁
-      </span>
-    );
-  }
-  if (acc.ready) {
-    return (
-      <span
-        className="lm-acc-badge lm-acc-badge--ok"
-        title={`通过验收门禁（占位符 ${acc.placeholderCount}）`}
-      >
-        ✓ 验收通过
-      </span>
-    );
-  }
-  const tip =
-    `阻断 ${acc.blockerCount} · 警告 ${acc.warningCount}` +
-    (acc.placeholderCount > 0 ? ` · 占位符 ${acc.placeholderCount}` : "");
-  return (
-    <span className="lm-acc-badge lm-acc-badge--err" title={tip}>
-      ✗ 待修复
-    </span>
-  );
-}
 
 function queueKindLabel(kind: WorkQueueItem["kind"]): string {
   switch (kind) {
@@ -2133,6 +2064,7 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
         <>
           <div
             className="lm-workbench-list"
+            data-testid="lm-matter-list"
             style={{ width: workbenchListWidth, flexShrink: 0 }}
           >
         <div className="lm-workbench-list-header">
@@ -2208,7 +2140,7 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
         </>
       ) : null}
 
-      <div className="lm-workbench-main">
+      <div className="lm-workbench-main" data-testid="lm-matter-cockpit">
         {!navKey && (
           <div className="lm-meta lm-workbench-placeholder">{isAppSidebar ? "在左栏选择案件" : "选择案件"}</div>
         )}
@@ -2355,7 +2287,7 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
               </div>
             </div>
 
-            <div className="lm-tabs lm-workbench-tabs">
+            <div className="lm-tabs lm-workbench-tabs" data-testid="lm-matter-tabs">
               <button
                 type="button"
                 className={`lm-tab ${panelTab === "overview" ? "active" : ""}`}
@@ -2925,91 +2857,66 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
                     )}
                   </section>
 
-                  <section className="lm-matter-cockpit-card">
-                    <h3>工作队列</h3>
-                    {filteredQueueItems.length === 0 ? (
-                      <p className="lm-meta">无</p>
-                    ) : (
-                      <ul className="lm-matter-ops-list">
-                        {filteredQueueItems.slice(0, 8).map((item) => (
-                          <li key={item.queueItemId}>
-                            <div className="lm-matter-ops-title">
-                              <span>{item.title}</span>
-                              <div className="lm-matter-ops-actions">
-                                <span className={`lm-matter-pill lm-matter-pill-priority-${item.priority}`}>
-                                  {priorityLabel(item.priority)}
-                                </span>
-                                {onOpenReview && item.relatedTaskId ? (
-                                  <button
-                                    type="button"
-                                    className="lm-btn lm-btn-secondary lm-btn-small"
-                                    onClick={() =>
-                                      openReviewFromMatter(item.relatedTaskId!, {
-                                        statusFilter: item.kind === "ready_to_render" ? "approved" : "pending",
-                                        listMode: item.kind === "ready_to_render" ? "all" : "pending",
-                                        sourceSurface: "queue",
-                                        sourceLabel: item.title,
-                                      })
-                                    }
-                                  >
-                                    去审核
-                                  </button>
-                                ) : null}
-                              </div>
-                            </div>
-                            <div className="lm-matter-ops-meta">
-                              {queueKindLabel(item.kind)}
-                              {item.detail ? ` · ${item.detail}` : ""}
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </section>
-
-                  <section className="lm-matter-cockpit-card">
-                    <h3>审批节点</h3>
-                    {filteredApprovalRequests.length === 0 ? (
-                      <p className="lm-meta">无</p>
-                    ) : (
-                      <ul className="lm-matter-ops-list">
-                        {filteredApprovalRequests.slice(0, 8).map((item) => (
-                          <li key={item.approvalId}>
-                            <div className="lm-matter-ops-title">
-                              <span>{approvalStatusLabel(item.status)}</span>
-                              <div className="lm-matter-ops-actions">
-                                <span className={`lm-matter-pill lm-matter-pill-status-${item.status}`}>
-                                  {item.riskLevel.toUpperCase()}
-                                </span>
-                                {onOpenReview && item.deliverableId ? (
-                                  <button
-                                    type="button"
-                                    className="lm-btn lm-btn-secondary lm-btn-small"
-                                    onClick={() =>
-                                      openReviewFromMatter(item.deliverableId!, {
-                                        statusFilter:
-                                          item.status === "approved"
-                                            ? "approved"
-                                            : item.status === "needs_changes"
-                                              ? "modified"
-                                              : "all",
-                                        listMode: item.status === "pending" ? "pending" : "all",
-                                        sourceSurface: "approval",
-                                        sourceLabel: item.reason,
-                                      })
-                                    }
-                                  >
-                                    去审核
-                                  </button>
-                                ) : null}
-                              </div>
-                            </div>
-                            <div className="lm-matter-ops-meta">{item.reason}</div>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </section>
+                  <MatterReviewQueuePanel
+                    matterId={matterId}
+                    queueItems={filteredQueueItems.slice(0, 8).map((item) => ({
+                      queueItemId: item.queueItemId,
+                      title: item.title,
+                      kind: item.kind,
+                      kindLabel: queueKindLabel(item.kind),
+                      priority: item.priority,
+                      priorityLabel: priorityLabel(item.priority),
+                      status: item.status,
+                      updatedAt: item.updatedAt,
+                      relatedTaskId: item.relatedTaskId,
+                      detail: item.detail,
+                    }))}
+                    approvals={filteredApprovalRequests.slice(0, 8).map((item) => ({
+                      approvalId: item.approvalId,
+                      reason: item.reason,
+                      status: item.status,
+                      statusLabel: approvalStatusLabel(item.status),
+                      riskLevel: item.riskLevel,
+                      targetRole: item.targetRole,
+                      requestedAt: item.requestedAt,
+                      deliverableId: item.deliverableId,
+                    }))}
+                    onOpenQueueReview={
+                      onOpenReview
+                        ? (item) => {
+                            if (!item.relatedTaskId) {
+                              return;
+                            }
+                            openReviewFromMatter(item.relatedTaskId, {
+                              statusFilter: item.kind === "ready_to_render" ? "approved" : "pending",
+                              listMode: item.kind === "ready_to_render" ? "all" : "pending",
+                              sourceSurface: "queue",
+                              sourceLabel: item.title,
+                            });
+                          }
+                        : undefined
+                    }
+                    onOpenApprovalReview={
+                      onOpenReview
+                        ? (item) => {
+                            if (!item.deliverableId) {
+                              return;
+                            }
+                            openReviewFromMatter(item.deliverableId, {
+                              statusFilter:
+                                item.status === "approved"
+                                  ? "approved"
+                                  : item.status === "needs_changes"
+                                    ? "modified"
+                                    : "all",
+                              listMode: item.status === "pending" ? "pending" : "all",
+                              sourceSurface: "approval",
+                              sourceLabel: item.reason,
+                            });
+                          }
+                        : undefined
+                    }
+                  />
 
                   <section className="lm-matter-cockpit-card">
                     <h3>交付物状态</h3>
@@ -3195,57 +3102,14 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
             )}
 
             {panelTab === "tasks" && (
-              <div className="lm-workbench-panel lm-two-col">
-                <div>
-                  <h3>任务</h3>
-                  <ul className="lm-bullet-list">
-                    {tasks.map((t) => (
-                      <li key={t.taskId}>
-                        <strong>{t.status}</strong> — {t.summary.slice(0, 200)}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <div>
-                  <h3>草稿</h3>
-                  <ul className="lm-bullet-list lm-matter-draft-list">
-                    {drafts.map((d) => {
-                      const acc = acceptanceByTask[d.taskId];
-                      const dataReady = acc && acc.hasSpec ? (acc.ready ? "true" : "false") : undefined;
-                      return (
-                        <li
-                          key={d.taskId}
-                          className="lm-matter-draft-row"
-                          data-ready={dataReady}
-                        >
-                          <div className="lm-matter-draft-title">
-                            <span>{d.title}</span>
-                            <em className="lm-matter-draft-status">{d.reviewStatus}</em>
-                            <DraftCitationBadge cit={draftCitationByTask[d.taskId]} />
-                            <DraftAcceptanceBadge acc={acc} />
-                          </div>
-                          {onOpenReview && (
-                            <button
-                              type="button"
-                              className="lm-btn lm-btn-secondary lm-btn-small lm-matter-draft-action"
-                              onClick={() =>
-                                onOpenReview({
-                                  taskId: d.taskId,
-                                  matterId: d.matterId ?? matterId ?? undefined,
-                                  statusFilter: "all",
-                                  listMode: "all",
-                                })
-                              }
-                            >
-                              去审核
-                            </button>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              </div>
+              <MatterTasksPanel
+                tasks={tasks}
+                drafts={drafts}
+                matterId={matterId}
+                draftCitationByTask={draftCitationByTask}
+                acceptanceByTask={acceptanceByTask}
+                onOpenReview={onOpenReview}
+              />
             )}
 
             {panelTab === "timeline" && (

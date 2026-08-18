@@ -12,6 +12,12 @@
 export { MatterCockpit } from "./MatterCockpit";
 export { MatterReviewQueuePanel } from "./MatterReviewQueuePanel";
 export type { ReviewQueueRow, ApprovalRow } from "./MatterReviewQueuePanel";
+export {
+  DraftAcceptanceBadge,
+  DraftCitationBadge,
+  MatterTasksPanel,
+} from "./MatterTasksPanel";
+export type { AcceptanceSummaryItem } from "./MatterTasksPanel";
 export { MatterMemoryInspector } from "./MatterMemoryInspector";
 export { MatterReasoningBoard } from "./MatterReasoningBoard";
 export { MatterQualityCockpit } from "./MatterQualityCockpit";
