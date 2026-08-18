@@ -42,6 +42,7 @@ import {
 import { persistAgentInstructionTask } from "../tasks/index.js";
 import type { ClarificationQuestion } from "../types.js";
 import { getAssistantPreset } from "./assistant-presets.js";
+import { describeModelApiFailure, ModelApiError } from "./model-api-error.js";
 import {
   appendTurn,
   compactHistory,
@@ -173,11 +174,7 @@ async function callModelOnce(
 
   if (!response.ok) {
     const text = await response.text();
-    const hint =
-      response.status === 404
-        ? " 常见原因：模型名错误（如 qwen-max 需与 DashScope 一致）或 baseUrl 路径错误。请检查 .env.lawmind 中 LAWMIND_QWEN_MODEL / LAWMIND_AGENT_MODEL。"
-        : "";
-    throw new Error(`Model API error ${response.status}: ${text.slice(0, 300)}${hint}`);
+    throw new ModelApiError(describeModelApiFailure(response.status, text));
   }
 
   return (await response.json()) as ChatCompletionResponse;

@@ -20,6 +20,17 @@ describe("api-client", () => {
     expect(t).toContain("API Key");
   });
 
+  it("scrubs provider billing JSON from chat errors", () => {
+    const t = userMessageFromApiError(400, {
+      code: "model_account_blocked",
+      message:
+        'Model API error 400: {"error":{"message":"Access denied","type":"Arrearage","code":"Arrearage"}}',
+    });
+    expect(t).toContain("欠费");
+    expect(t).not.toContain("Arrearage");
+    expect(t).not.toContain("{");
+  });
+
   it("apiGetJson returns parsed json body", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ ok: true, value: 3 }), {

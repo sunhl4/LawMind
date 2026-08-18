@@ -436,6 +436,7 @@ export function App() {
     pickProject,
     clearProject,
     send,
+    dismissChatError,
     abortChatSend,
     sendChatMessage,
     openNewAssistant,
@@ -1256,6 +1257,7 @@ export function App() {
                         textareaRef={textareaRef}
                         onInputChange={setInput}
                         onSend={() => void send()}
+                        onDismissError={dismissChatError}
                         onAbortChat={abortChatSend}
                         onApplyPrompt={(prompt) => {
                           setInput(prompt);

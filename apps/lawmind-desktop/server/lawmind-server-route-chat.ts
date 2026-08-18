@@ -1,4 +1,5 @@
 import { createLawMindAgent } from "../../../src/lawmind/agent/index.js";
+import { isModelApiError } from "../../../src/lawmind/agent/model-api-error.js";
 import type { AgentConfig, AgentTurn } from "../../../src/lawmind/agent/types.js";
 import {
   buildAgentMemorySourceReport,
@@ -270,6 +271,10 @@ export async function handleChatRoute({
         "该会话属于其他助手，请新开对话或清空会话后重试。",
         c,
       );
+      return true;
+    }
+    if (isModelApiError(err)) {
+      sendJsonError(res, err.httpStatus, err.code, err.message, c);
       return true;
     }
     throw err;

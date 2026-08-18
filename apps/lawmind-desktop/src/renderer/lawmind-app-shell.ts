@@ -1279,6 +1279,7 @@ export function useLawmindAppShell() {
       pickProject,
       clearProject,
       send,
+      dismissChatError: () => setError(null),
       abortChatSend,
       sendChatMessage,
       openNewAssistant,

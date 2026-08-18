@@ -2,6 +2,8 @@
  * Parse LawMind local API error responses for display hints (chat retry guidance).
  */
 
+import { sanitizeModelApiErrorText } from "../../../../src/lawmind/agent/model-api-error.ts";
+
 export type ApiErrorJson = {
   ok?: boolean;
   code?: string;
@@ -127,6 +129,8 @@ const CODE_HINTS: Record<string, string> = {
   invalid_matter_id_chat: "当前关联的案件 ID 无效，请清空或更正后再试。",
   session_assistant_mismatch: "该会话属于其他助手，请新开对话或清空会话后重试。",
   model_unavailable: "模型服务暂时不可用。请检查网络、API Key 与模型服务商状态。",
+  model_account_blocked: "请到设置检查 API Key 与服务商账户；账户恢复前模型无法作答。",
+  invalid_api_key: "请到设置重新填写有效的模型 API Key。",
 };
 
 export function userMessageFromApiError(status: number, body: ApiErrorJson): string {
@@ -157,7 +161,8 @@ export function userMessageFromApiError(status: number, body: ApiErrorJson): str
   if (typeof body.hint === "string" && body.hint.trim()) {
     push(body.hint.trim());
   }
-  const base = chunks.length > 0 ? chunks.join(" — ") : `请求失败（HTTP ${status}）`;
+  const joined = chunks.length > 0 ? chunks.join(" — ") : `请求失败（HTTP ${status}）`;
+  const base = sanitizeModelApiErrorText(joined);
   const hint = code && CODE_HINTS[code] ? ` ${CODE_HINTS[code]}` : "";
   if (status === 503 || status === 502) {
     return `${base}${hint || " 请检查 API Key、网络与本地服务是否正常。"}`;
@@ -233,7 +238,7 @@ export async function apiSendJson<TResponse, TBody>(
 
 export function errorMessage(error: unknown, fallback: string): string {
   if (error instanceof ApiRequestError) {
-    const msg = error.message.trim();
+    const msg = sanitizeModelApiErrorText(error.message.trim());
     if (!msg) {
       return fallback;
     }
@@ -243,7 +248,7 @@ export function errorMessage(error: unknown, fallback: string): string {
     return msg;
   }
   if (error instanceof Error && error.message.trim()) {
-    return error.message;
+    return sanitizeModelApiErrorText(error.message);
   }
   return fallback;
 }

@@ -194,6 +194,8 @@ export type LawmindChatWorkspaceProps = {
   showPlanPicker?: boolean;
   /** Word/WPS 侧车待处理选区 */
   sidecarNotice?: ReactNode;
+  /** 关闭输入区错误条（不删对话里的失败气泡） */
+  onDismissError?: () => void;
 };
 
 export type LawmindChatMessagesColumnProps = Pick<
@@ -382,6 +384,7 @@ export function LawmindChatComposeFooter({
   composeModelConfigured,
   showPlanPicker = true,
   sidecarNotice,
+  onDismissError,
 }: Pick<
   LawmindChatWorkspaceProps,
   | "currentMessages"
@@ -401,6 +404,7 @@ export function LawmindChatComposeFooter({
   | "composeModelConfigured"
   | "showPlanPicker"
   | "sidecarNotice"
+  | "onDismissError"
 >) {
   const [modelPick, setModelPick] = useState("default");
   const { height: composeHeight, onResizePointerDown: onComposeResizePointerDown } = usePaneResizeVerticalPx({
@@ -442,6 +446,16 @@ export function LawmindChatComposeFooter({
         {error ? (
           <div className="lm-callout lm-callout-danger" role="alert">
             <p className="lm-callout-body">{error}</p>
+            {onDismissError ? (
+              <button
+                type="button"
+                className="lm-error-dismiss"
+                aria-label="关闭错误提示"
+                onClick={onDismissError}
+              >
+                关闭
+              </button>
+            ) : null}
           </div>
         ) : null}
         {sidecarNotice ?? null}
@@ -602,6 +616,7 @@ export function LawmindChatShell(props: LawmindChatWorkspaceProps) {
         composeModelConfigured={props.composeModelConfigured}
         showPlanPicker={props.showPlanPicker}
         sidecarNotice={props.sidecarNotice}
+        onDismissError={props.onDismissError}
       />
     </div>
   );
