@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { describeModelApiFailure, sanitizeModelApiErrorText } from "./model-api-error.js";
+import {
+  describeModelApiFailure,
+  isNonRetryableModelApiError,
+  ModelApiError,
+  sanitizeModelApiErrorText,
+} from "./model-api-error.js";
 
 describe("model-api-error", () => {
   it("maps Aliyun arrearage JSON to a lawyer-facing account message", () => {
@@ -25,5 +30,14 @@ describe("model-api-error", () => {
     expect(cleaned).toContain("欠费");
     expect(cleaned).not.toContain("Model API error");
     expect(cleaned).not.toContain("Arrearage");
+  });
+
+  it("treats billing and key failures as non-retryable", () => {
+    const blocked = new ModelApiError(describeModelApiFailure(400, '{"code":"Arrearage"}'));
+    const badKey = new ModelApiError(describeModelApiFailure(401, "Unauthorized"));
+    const unavailable = new ModelApiError(describeModelApiFailure(502, "bad gateway"));
+    expect(isNonRetryableModelApiError(blocked)).toBe(true);
+    expect(isNonRetryableModelApiError(badKey)).toBe(true);
+    expect(isNonRetryableModelApiError(unavailable)).toBe(false);
   });
 });

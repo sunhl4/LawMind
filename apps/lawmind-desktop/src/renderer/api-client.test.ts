@@ -31,6 +31,17 @@ describe("api-client", () => {
     expect(t).not.toContain("{");
   });
 
+  it("does not repeat the settings hint for a 503 account block", () => {
+    const message = "模型账户不可用（欠费或无权调用）。请到设置检查 API Key 与服务商账户。";
+    const t = userMessageFromApiError(503, {
+      code: "model_account_blocked",
+      message,
+      error: message,
+    });
+    expect(t).toBe(message);
+    expect(t.match(/请到设置/g)?.length).toBe(1);
+  });
+
   it("apiGetJson returns parsed json body", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ ok: true, value: 3 }), {

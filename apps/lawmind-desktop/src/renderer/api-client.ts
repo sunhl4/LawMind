@@ -163,6 +163,15 @@ export function userMessageFromApiError(status: number, body: ApiErrorJson): str
   }
   const joined = chunks.length > 0 ? chunks.join(" — ") : `请求失败（HTTP ${status}）`;
   const base = sanitizeModelApiErrorText(joined);
+  // Server already wrote a complete 设置 sentence for these codes.
+  if (
+    chunks.length > 0 &&
+    (code === "model_account_blocked" ||
+      code === "invalid_api_key" ||
+      code === "model_unavailable")
+  ) {
+    return base;
+  }
   const hint = code && CODE_HINTS[code] ? ` ${CODE_HINTS[code]}` : "";
   if (status === 503 || status === 502) {
     return `${base}${hint || " 请检查 API Key、网络与本地服务是否正常。"}`;

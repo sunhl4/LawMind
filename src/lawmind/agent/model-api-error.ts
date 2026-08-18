@@ -62,6 +62,14 @@ export function isModelApiError(error: unknown): error is ModelApiError {
   return error instanceof ModelApiError;
 }
 
+/** Billing and key failures will not recover on retry; do not stall the chat pane. */
+export function isNonRetryableModelApiError(error: unknown): error is ModelApiError {
+  return (
+    isModelApiError(error) &&
+    (error.code === "model_account_blocked" || error.code === "invalid_api_key")
+  );
+}
+
 /** Defense in depth: strip leftover provider JSON if it still reaches the UI. */
 export function sanitizeModelApiErrorText(text: string): string {
   const raw = text.trim();

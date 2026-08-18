@@ -42,7 +42,11 @@ import {
 import { persistAgentInstructionTask } from "../tasks/index.js";
 import type { ClarificationQuestion } from "../types.js";
 import { getAssistantPreset } from "./assistant-presets.js";
-import { describeModelApiFailure, ModelApiError } from "./model-api-error.js";
+import {
+  describeModelApiFailure,
+  isNonRetryableModelApiError,
+  ModelApiError,
+} from "./model-api-error.js";
 import {
   appendTurn,
   compactHistory,
@@ -197,7 +201,7 @@ async function callModelWithRetry(
       return await callModelOnce(config, messages, tools);
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
-      if (attempt >= maxRetries) {
+      if (isNonRetryableModelApiError(lastError) || attempt >= maxRetries) {
         break;
       }
       await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));

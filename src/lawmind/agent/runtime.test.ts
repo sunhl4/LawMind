@@ -449,3 +449,43 @@ describe("runTurn strict dangerous tool approval", () => {
     expect(result.reply).toContain("已完成");
   });
 });
+
+describe("runTurn model account failures", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("does not retry an Arrearage response", async () => {
+    const workspaceDir = tmpWorkspace();
+    const registry = new ToolRegistry();
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 400,
+      text: async () =>
+        '{"error":{"message":"Access denied","type":"Arrearage","code":"Arrearage"}}',
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const config: AgentConfig = {
+      workspaceDir,
+      model: {
+        provider: "openai-compatible",
+        baseUrl: "https://example.com/v1",
+        apiKey: "sk-test",
+        model: "demo",
+      },
+    };
+
+    await expect(
+      runTurn({
+        config,
+        registry,
+        instruction: "你好",
+      }),
+    ).rejects.toMatchObject({
+      name: "ModelApiError",
+      code: "model_account_blocked",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
