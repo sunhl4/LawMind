@@ -7,6 +7,9 @@ import type { TaskIntent, TaskKind, RiskLevel } from "../types.js";
 import { enrichIntentWithDeliverableMeta } from "./deliverable-meta.js";
 
 const TASK_KIND_PATTERNS: Array<{ pattern: RegExp; kind: TaskKind }> = [
+  { pattern: /审这份|审查这份|审一下这份/i, kind: "analyze.contract" },
+  { pattern: /写这封|起草这封/i, kind: "draft.word" },
+  { pattern: /查这个问题|查一下这个问题/i, kind: "research.legal" },
   {
     pattern:
       /(起草|拟定|拟写|撰写|生成|制作|输出).*(合同|协议|补充协议|保密协议|授权书|条款)|(合同|协议).*(起草|拟定|拟写|撰写|生成|制作|输出)/i,

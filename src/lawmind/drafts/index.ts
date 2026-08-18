@@ -43,7 +43,8 @@ export function listDrafts(workspaceDir: string): ArtifactDraft[] {
         (name) =>
           name.endsWith(".json") &&
           !name.endsWith(".research.json") &&
-          !name.endsWith(".reasoning.json"),
+          !name.endsWith(".reasoning.json") &&
+          !name.endsWith(".clauses.json"),
       )
       .toSorted();
     return files
@@ -78,3 +79,8 @@ export {
   reasoningSnapshotPath,
 } from "./reasoning-snapshot.js";
 export { resolveDraftCitationIntegrity } from "./citation-resolve.js";
+export {
+  clauseSnapshotPath,
+  persistClauseSnapshot,
+  readClauseSnapshot,
+} from "./clause-snapshot.js";

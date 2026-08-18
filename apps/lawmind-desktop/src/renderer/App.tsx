@@ -831,7 +831,7 @@ export function App() {
           <div className="lm-logo-mark">L</div>
           <div className="lm-brand-copy">
             <div className="lm-brand-title">LawMind</div>
-            <div className="lm-brand-subtitle">Legal Workbench</div>
+            <div className="lm-brand-subtitle">{soloDesk ? "Desk" : "Firm"}</div>
           </div>
           <button
             type="button"

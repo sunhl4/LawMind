@@ -22,6 +22,7 @@ import { buildAgentConfig, sendJson } from "./lawmind-server-helpers.js";
 import { LAWMIND_AGENT_BEHAVIOR_EPOCH } from "../../../src/lawmind/agent/system-prompt.js";
 import { reportedRouterMode } from "../../../src/lawmind/router/model-route.js";
 import { reportedReasoningMode } from "../../../src/lawmind/reasoning/model-draft.js";
+import { productLineOf } from "../../../src/lawmind/policy/edition.js";
 
 export function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindRouteContext): boolean {
   if (!(pathname === "/api/health" && req.method === "GET")) {
@@ -67,6 +68,12 @@ export function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindRouteCo
         label: edition.label,
         source: edition.source,
         features: edition.features,
+        productLine: productLineOf(edition.edition),
+      },
+      lawmindd: {
+        ready: true,
+        ingestPath: "/api/sidecar/ingest",
+        statusPath: "/api/sidecar/status",
       },
       workspaceDir,
       lawMindRoot,

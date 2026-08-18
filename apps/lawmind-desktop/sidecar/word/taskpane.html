@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>LawMind Desk</title>
+    <style>
+      body {
+        font-family: "Segoe UI", "PingFang SC", sans-serif;
+        margin: 16px;
+        color: #1a1410;
+      }
+      h1 {
+        font-size: 16px;
+        margin: 0 0 8px;
+      }
+      p {
+        font-size: 13px;
+        line-height: 1.5;
+        color: #5c5348;
+      }
+      button {
+        display: block;
+        width: 100%;
+        margin: 8px 0;
+        padding: 10px 12px;
+        border: 1px solid #c7ab79;
+        background: #f7f1e6;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 14px;
+      }
+      #status {
+        margin-top: 12px;
+        font-size: 12px;
+        color: #5c5348;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>LawMind Desk</h1>
+    <p>选中 Word / WPS 里的段落，再选一个动词。文字会送到本机 LawMind，不会上传到我们的云。</p>
+    <button type="button" data-verb="review">审这份</button>
+    <button type="button" data-verb="draft">写这封</button>
+    <button type="button" data-verb="research">查这个问题</button>
+    <div id="status">等待选区…</div>
+    <script>
+      const status = document.getElementById("status");
+      const apiBase = "http://127.0.0.1:" + (location.port || "4312");
+
+      function readSelection() {
+        return new Promise(function (resolve, reject) {
+          if (typeof Office === "undefined" || !Office.context || !Office.context.document) {
+            reject(new Error("请在 Word 或 WPS 加载项中打开"));
+            return;
+          }
+          Office.context.document.getSelectedDataAsync(Office.CoercionType.Text, function (result) {
+            if (result.status === Office.AsyncResultStatus.Succeeded) {
+              resolve(String(result.value || ""));
+              return;
+            }
+            reject(new Error(result.error ? result.error.message : "读选区失败"));
+          });
+        });
+      }
+
+      async function send(verb) {
+        status.textContent = "正在送到本机 LawMind…";
+        try {
+          const text = await readSelection();
+          const res = await fetch(apiBase + "/api/sidecar/ingest", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ source: "word", verb: verb, text: text }),
+          });
+          const json = await res.json();
+          if (!json.ok) {
+            throw new Error(json.error || "发送失败");
+          }
+          status.textContent = "已写入 " + json.relativePath + "。打开 LawMind 桌面，用同一动词继续。";
+        } catch (err) {
+          status.textContent = err instanceof Error ? err.message : String(err);
+        }
+      }
+
+      document.querySelectorAll("button[data-verb]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          void send(btn.getAttribute("data-verb"));
+        });
+      });
+    </script>
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  </body>
+</html>

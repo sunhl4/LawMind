@@ -64,6 +64,8 @@ export function corsHeaders(origin: string | undefined): Record<string, string> 
     origin === "null" ||
     origin?.startsWith("http://localhost:") ||
     origin?.startsWith("http://127.0.0.1:") ||
+    origin?.startsWith("https://localhost") ||
+    origin?.startsWith("https://127.0.0.1") ||
     origin?.startsWith("file://")
       ? origin ?? "null"
       : "http://127.0.0.1:5174";

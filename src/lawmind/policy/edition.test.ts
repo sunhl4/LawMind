@@ -4,10 +4,20 @@ import {
   EDITION_LABELS,
   isFeatureEnabled,
   listEditions,
+  productLineOf,
   resolveEdition,
 } from "./edition.js";
 
 describe("policy/edition", () => {
+  it("maps editions onto Desk vs Firm product lines", () => {
+    expect(productLineOf("solo")).toBe("desk");
+    expect(productLineOf("firm")).toBe("firm");
+    expect(productLineOf("private_deploy")).toBe("firm");
+    expect(EDITION_LABELS.solo).toBe("LawMind Desk");
+    expect(EDITION_LABELS.firm).toBe("LawMind Firm");
+    expect(EDITION_FEATURES.wordSidecar.solo).toBe(true);
+  });
+
   it("falls back to solo when no policy and no env hint", () => {
     const ctx = resolveEdition({ policy: null, env: {} });
     expect(ctx.edition).toBe("solo");

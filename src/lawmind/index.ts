@@ -173,6 +173,7 @@ export {
   evaluateBenchmarkGate,
   isFeatureEnabled,
   listEditions,
+  productLineOf,
   readWorkspacePolicyFile,
   resolveAgentMandatoryRulesForPrompt,
   resolveEdition,

@@ -3,6 +3,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { inferDeskVerb } from "../../../../src/lawmind/desk/verbs.ts";
 
 export type WaitIntent = "draft" | "review" | "research" | "general";
 
@@ -43,12 +44,22 @@ const TOOL_LABELS: Record<string, string> = {
 };
 
 export function inferWaitIntent(text: string): WaitIntent {
+  const verb = inferDeskVerb(text);
+  if (verb === "review") {
+    return "review";
+  }
+  if (verb === "draft") {
+    return "draft";
+  }
+  if (verb === "research") {
+    return "research";
+  }
   const t = text.replace(/\s+/g, "");
   if (!t) {
     return "general";
   }
-  const reviewish = /(审查|审核|审这份|风险点|逐条)/.test(t);
-  const draftish = /(起草|律师函|诉状|写一封|写这封|合同草案|公函)/.test(t);
+  const reviewish = /(审查|审核|风险点|逐条)/.test(t);
+  const draftish = /(起草|律师函|诉状|写一封|合同草案|公函)/.test(t);
   if (reviewish && !draftish) {
     return "review";
   }

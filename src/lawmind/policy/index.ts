@@ -15,6 +15,7 @@ export {
   EDITION_LABELS,
   isFeatureEnabled,
   listEditions,
+  productLineOf,
   resolveEdition,
   type EditionContext,
   type EditionFeatureKey,

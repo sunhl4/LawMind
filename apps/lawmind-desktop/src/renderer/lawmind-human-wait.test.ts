@@ -8,6 +8,7 @@ import {
 
 describe("lawmind-human-wait", () => {
   it("maps user text to wait intents", () => {
+    expect(inferWaitIntent("审这份租赁合同")).toBe("review");
     expect(inferWaitIntent("请对以下合同进行风险审查")).toBe("review");
     expect(inferWaitIntent("请帮我起草一封律师函")).toBe("draft");
     expect(inferWaitIntent("请检索违约责任相关法规")).toBe("research");

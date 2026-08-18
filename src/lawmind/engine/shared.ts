@@ -15,11 +15,14 @@ import { taskProgressPrefix } from "../cases/task-display.js";
 import { buildDeliverableFromDraft } from "../core/contracts.js";
 import type { WorkspaceSpecWarning } from "../deliverables/index.js";
 import {
+  persistClauseSnapshot,
   persistDraft,
   persistReasoningSnapshot,
   persistResearchSnapshot,
 } from "../drafts/index.js";
 import { appendCaseProgress, appendTodayLog, ensureCaseWorkspace } from "../memory/index.js";
+import { buildClauseGraphFromDraft } from "../reasoning/clause-graph.js";
+import { applyDraftCritic } from "../reasoning/draft-critic.js";
 import { buildLegalReasoningGraph } from "../reasoning/index.js";
 import {
   ensureTaskRecord,
@@ -31,6 +34,11 @@ import {
 import type { ArtifactDraft, ResearchBundle, TaskIntent } from "../types.js";
 import type { EngineContext } from "./context.js";
 import { classifyAudienceFromIntent, classifyDeliverableKindFromIntent } from "./role-helpers.js";
+
+function applyDraftCriticInPlace(draft: ArtifactDraft): void {
+  const next = applyDraftCritic(draft);
+  draft.reviewNotes = next.reviewNotes;
+}
 
 /** 把工作区交付物规范解析中的 warnings 写入审计日志（best-effort）。 */
 export async function emitWorkspaceSpecWarnings(
@@ -99,6 +107,7 @@ export function persistDraftPipeline(
   draft: ArtifactDraft,
   bundle: ResearchBundle,
 ): void {
+  applyDraftCriticInPlace(draft);
   const { workspaceDir, auditDir } = ctx;
   void appendTodayLog(
     workspaceDir,
@@ -115,7 +124,10 @@ export function persistDraftPipeline(
   if (tr) {
     const intent = taskIntentFromRecord(tr, draft);
     const graph = buildLegalReasoningGraph({ intent, bundle });
+    const clauses = buildClauseGraphFromDraft(draft);
+    graph.deliveryRisks = [...graph.deliveryRisks, ...clauses.clauses.flatMap((c) => c.missing)];
     persistReasoningSnapshot(workspaceDir, graph);
+    persistClauseSnapshot(workspaceDir, clauses);
     draft.hasLegalReasoningSnapshot = true;
   }
   const storedDraftPath = persistDraft(workspaceDir, draft);

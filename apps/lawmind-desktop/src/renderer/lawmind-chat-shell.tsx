@@ -3,6 +3,7 @@ import { useState } from "react";
 import { LawmindClarificationForm } from "./LawmindClarificationForm";
 import { LawmindMemorySourcesPanel } from "./LawmindMemorySourcesPanel";
 import { getPendingClarificationState, handleEnterSendShiftNewline, type ChatMsg } from "./lawmind-chat";
+import { DESK_VERBS } from "../../../../src/lawmind/desk/verbs.ts";
 import { useHumanWaitLine } from "./lawmind-human-wait";
 import {
   LM_CHAT_COMPOSE_DEFAULT_HEIGHT_PX,
@@ -15,31 +16,16 @@ import { internalIdsTitle } from "./display-ids";
 /** 底部「模型」下拉：打开设置 */
 const COMPOSE_MODEL_OPEN_SETTINGS = "__lawmind_compose_settings__";
 
-const QUICK_ACTIONS: Array<{ label: string; prompt: string }> = [
-  { label: "起草律师函", prompt: "请帮我起草一封律师函，就以下事项发出法律警告：\n\n" },
-  { label: "合同审查", prompt: "请对以下合同进行风险审查，逐条标注重点风险点：\n\n" },
-  { label: "法规检索", prompt: "请检索以下法律问题的相关法规、司法解释和典型判例：\n\n" },
-  { label: "起草诉状", prompt: "请帮我起草民事起诉状，案情简述如下：\n\n" },
-  { label: "案例查询", prompt: "请查找与以下纠纷类似的典型判例及裁判要旨：\n\n" },
-];
+const QUICK_ACTIONS = DESK_VERBS.map((card) => ({
+  label: card.label,
+  prompt: card.prompt,
+}));
 
-const SCENARIO_CARDS: Array<{ title: string; description: string; prompt: string }> = [
-  {
-    title: "起草文书",
-    description: "律师函、诉状、公函",
-    prompt: "请帮我起草一份律师函，核心事实与诉求如下：\n\n",
-  },
-  {
-    title: "法规检索",
-    description: "条文、判例、政策文件",
-    prompt: "请检索以下法律问题的相关法规、司法解释与裁判要旨：\n\n",
-  },
-  {
-    title: "合同审查",
-    description: "逐条标注风险与建议",
-    prompt: "请对以下合同进行逐条审查，并列出关键风险点与修改建议：\n\n",
-  },
-];
+const SCENARIO_CARDS = DESK_VERBS.map((card) => ({
+  title: card.label,
+  description: card.description,
+  prompt: card.prompt,
+}));
 
 function renderInlineLegalMarkdown(text: string): ReactNode[] {
   const nodes: ReactNode[] = [];

@@ -18,10 +18,16 @@ const EDITION_VALUES: ReadonlyArray<LawMindEdition> = ["solo", "firm", "private_
 
 /** 各 edition 的人类可读标签（设置面板 / 状态条使用）。 */
 export const EDITION_LABELS: Readonly<Record<LawMindEdition, string>> = {
-  solo: "独立律师版",
-  firm: "律所协作版",
-  private_deploy: "私有化部署版",
+  solo: "LawMind Desk",
+  firm: "LawMind Firm",
+  private_deploy: "LawMind Firm（私有化）",
 };
+
+export type ProductLine = "desk" | "firm";
+
+export function productLineOf(edition: LawMindEdition): ProductLine {
+  return edition === "solo" ? "desk" : "firm";
+}
 
 /**
  * Feature flag 集中表。新增能力时**只**在这里添加，不在调用点硬编码。
@@ -51,6 +57,8 @@ export const EDITION_FEATURES = {
    * 并对 `execute_workflow` 等未标 `requiresApproval` 的长链路工具追加门禁。
    */
   strictDangerousToolApproval: { solo: false, firm: true, private_deploy: true },
+  /** Word/WPS 侧车把选中文字送进本机 lawmindd */
+  wordSidecar: { solo: true, firm: true, private_deploy: true },
 } as const satisfies Record<string, Record<LawMindEdition, boolean>>;
 
 export type EditionFeatureKey = keyof typeof EDITION_FEATURES;

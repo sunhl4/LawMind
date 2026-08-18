@@ -28,6 +28,7 @@ import {
 import { handleMemoryAndTemplateRoutes } from "./lawmind-server-route-memory-templates.js";
 import { handleMemoryAdoptionRoutes } from "./lawmind-server-route-memory-adoption.js";
 import { handleRolesRoutes } from "./lawmind-server-route-roles.js";
+import { handleSidecarRoutes } from "./lawmind-server-route-sidecar.js";
 
 export async function lawmindHandleHttpRequest(
   ctx: LawmindDispatchContext,
@@ -48,6 +49,10 @@ export async function lawmindHandleHttpRequest(
 
   try {
       if (handleHealthRoute({ ctx, req, res, url, pathname, c })) {
+        return;
+      }
+
+      if (await handleSidecarRoutes({ ctx, req, res, url, pathname, c })) {
         return;
       }
 

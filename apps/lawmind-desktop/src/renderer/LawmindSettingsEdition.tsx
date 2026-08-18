@@ -36,6 +36,7 @@ const FEATURE_ROWS: FeatureRow[] = [
   { key: "collaborationSummary", label: "协作摘要" },
   { key: "strictDangerousToolApproval", label: "危险工具须显式批准（律所版）" },
   { key: "securitySbomPanel", label: "安全组件清单（技术）" },
+  { key: "wordSidecar", label: "Word/WPS 侧车（本机选区）" },
 ];
 
 type Props = {
@@ -203,6 +204,6 @@ function editionSourceLabel(source: ReturnType<typeof useEdition>["source"]): st
     case "env":
       return "环境变量";
     case "default":
-      return "默认（独立律师版）";
+      return "默认（LawMind Desk）";
   }
 }

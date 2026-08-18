@@ -24,3 +24,10 @@ export {
   serializeLegalReasoningGraph,
   type BuildLegalGraphParams,
 } from "./legal-graph.js";
+export {
+  buildClauseGraphFromDraft,
+  splitClauseText,
+  type ClauseGraph,
+  type ClauseNode,
+} from "./clause-graph.js";
+export { applyDraftCritic, critiqueDraft } from "./draft-critic.js";

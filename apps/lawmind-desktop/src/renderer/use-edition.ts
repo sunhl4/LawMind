@@ -24,6 +24,7 @@ export type EditionFeatures = {
   customDeliverableSpec: boolean;
   acceptancePackExport: boolean;
   strictDangerousToolApproval: boolean;
+  wordSidecar: boolean;
 };
 
 export type EditionInfo = {
@@ -36,7 +37,7 @@ export type EditionInfo = {
 
 const SOLO_DEFAULT: EditionInfo = {
   edition: "solo",
-  label: "独立律师版",
+  label: "LawMind Desk",
   source: "default",
   features: {
     acceptanceGateStrict: false,
@@ -49,6 +50,7 @@ const SOLO_DEFAULT: EditionInfo = {
     customDeliverableSpec: false,
     acceptancePackExport: false,
     strictDangerousToolApproval: false,
+    wordSidecar: true,
   },
   loading: true,
 };
