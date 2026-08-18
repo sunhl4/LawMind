@@ -7004,6 +7004,14 @@ fieldset.lm-field-reset > legend.lm-meta {
 
 .lm-clause-graph-item.flagged {
   color: var(--text);
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(245, 166, 35, 0.45);
+  background: var(--warn-dim);
+}
+
+.lm-clause-graph-item details > summary {
+  cursor: pointer;
 }
 
 .lm-clause-graph-heading {
