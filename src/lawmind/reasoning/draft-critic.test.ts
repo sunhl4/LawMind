@@ -75,24 +75,22 @@ describe("draft-critic", () => {
       process.env.LAWMIND_AGENT_BASE_URL = "https://example.com/v1";
       process.env.LAWMIND_AGENT_API_KEY = "sk-test";
       process.env.LAWMIND_AGENT_MODEL = "qwen-plus";
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async () => ({
-          ok: true,
-          json: async () => ({
-            choices: [
-              {
-                message: {
-                  content: JSON.stringify({
-                    clauses: [{ id: "c1", notes: ["押金退还条件写得太笼统，执行时容易争。"] }],
-                    summary: ["全文押金条款可执行性不足。"],
-                  }),
-                },
+      const fetchMock = vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  clauses: [{ id: "c1", notes: ["押金退还条件写得太笼统，执行时容易争。"] }],
+                  summary: ["全文押金条款可执行性不足。"],
+                }),
               },
-            ],
-          }),
-        })),
-      );
+            },
+          ],
+        }),
+      }));
+      vi.stubGlobal("fetch", fetchMock);
       const original = draft();
       const { draft: next, graph } = await runDraftCriticAsync(original);
       expect(next.sections).toEqual(original.sections);
@@ -101,6 +99,61 @@ describe("draft-critic", () => {
       expect(
         graph.clauses.some((clause) => clause.criticNotes.some((note) => note.includes("押金"))),
       ).toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("runs a second notes-only pass on flagged clauses of a long draft", async () => {
+      delete process.env.LAWMIND_REASONING_MODE;
+      process.env.LAWMIND_AGENT_BASE_URL = "https://example.com/v1";
+      process.env.LAWMIND_AGENT_API_KEY = "sk-test";
+      process.env.LAWMIND_AGENT_MODEL = "qwen-plus";
+      const fetchMock = vi.fn(async (_url: string, init?: { body?: string }) => {
+        const body = typeof init?.body === "string" ? init.body : "";
+        const isSecond = body.includes("需二次复核的条款");
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify(
+                    isSecond
+                      ? {
+                          clauses: [{ id: "c1", notes: ["长稿第二轮：义务条款仍缺后果。"] }],
+                          summary: [],
+                        }
+                      : {
+                          clauses: [{ id: "c1", notes: ["第一轮：租金义务偏软。"] }],
+                          summary: [],
+                        },
+                  ),
+                },
+              },
+            ],
+          }),
+        };
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const numerals = ["一", "二", "三", "四", "五", "六", "七", "八", "九"];
+      const articles = numerals
+        .map((n, idx) =>
+          idx === 0
+            ? `第${n}条 条款1\n乙方应当履行第1项义务。`
+            : `第${n}条 条款${idx + 1}\n本条确认房屋坐落与租赁用途。`,
+        )
+        .join("\n");
+      const original = draft({
+        sections: [{ heading: "合同正文", body: articles }],
+      });
+      const { draft: next, graph } = await runDraftCriticAsync(original);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(next.sections).toEqual(original.sections);
+      expect(graph.clauses.length).toBeGreaterThan(8);
+      expect(next.reviewNotes.some((note) => note.includes("长稿第二轮"))).toBe(true);
+      const secondBody = String(fetchMock.mock.calls[1]?.[1]?.body ?? "");
+      expect(secondBody).toContain("需二次复核的条款");
+      expect(secondBody).toContain("c1");
+      expect(secondBody).not.toContain("c9");
     });
   });
 });

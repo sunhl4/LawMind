@@ -3,6 +3,7 @@
  * 有凭据时按条款 map、再全文 reduce；keyword/off 只走规则。
  */
 
+import { draftPlainTextLength } from "../deliverables/scaffold-status.js";
 import {
   completeJsonObject,
   reasoningLlmConfigFromEnv,
@@ -19,7 +20,9 @@ import { isModelReasoningEnabled } from "./model-draft.js";
 
 export const DRAFT_CRITIC_PREFIX = "复核：";
 const CRITIC_PREFIX = DRAFT_CRITIC_PREFIX;
-const CLAUSE_MAP_CAP = 8;
+export const CLAUSE_MAP_CAP = 8;
+const LONG_DRAFT_SECTION_CAP = 24;
+const LONG_DRAFT_CHAR_CAP = 24 * 1200;
 
 export type DraftCriticResult = {
   draft: ArtifactDraft;
@@ -78,6 +81,22 @@ export function runDraftCritic(draft: ArtifactDraft): DraftCriticResult {
 
 export function isModelCriticEnabled(): boolean {
   return isModelReasoningEnabled();
+}
+
+export function isClauseFlaggedForCritic(clause: ClauseGraph["clauses"][number]): boolean {
+  return clause.risks.length > 0 || clause.missing.length > 0 || clause.criticNotes.length > 0;
+}
+
+export function flaggedClausesForCriticPass(graph: ClauseGraph): ClauseGraph["clauses"] {
+  return graph.clauses.filter(isClauseFlaggedForCritic);
+}
+
+export function isLongDraftForCritic(draft: ArtifactDraft, graph: ClauseGraph): boolean {
+  return (
+    graph.clauses.length > CLAUSE_MAP_CAP ||
+    draft.sections.length > LONG_DRAFT_SECTION_CAP ||
+    draftPlainTextLength(draft) > LONG_DRAFT_CHAR_CAP
+  );
 }
 
 function clauseGraphDigest(graph: ClauseGraph): string {
@@ -156,6 +175,13 @@ export async function critiqueClausesWithModel(
       ].join("\n"),
     },
   ]);
+  return applyModelClauseNotes(clauseGraph, parsed);
+}
+
+function applyModelClauseNotes(
+  graph: ClauseGraph,
+  parsed: { clauses?: unknown; summary?: unknown; notes?: unknown } | null,
+): { graph: ClauseGraph; summaryNotes: string[] } | null {
   if (!parsed) {
     return null;
   }
@@ -178,7 +204,7 @@ export async function critiqueClausesWithModel(
       }
     }
   }
-  const enriched = attachClauseCriticNotes(clauseGraph, notesById);
+  const enriched = attachClauseCriticNotes(graph, notesById);
   const clauseReviewNotes = enriched.clauses.flatMap((clause) =>
     clause.criticNotes.map((note) => prefixCriticNote(`${clause.heading}：${note}`)),
   );
@@ -190,6 +216,47 @@ export async function critiqueClausesWithModel(
     [...summary.map(prefixCriticNote), ...clauseReviewNotes].filter(Boolean),
   ).slice(0, 16);
   return { graph: enriched, summaryNotes };
+}
+
+export async function critiqueFlaggedClausesWithModel(
+  draft: ArtifactDraft,
+  cfg: OpenAiJsonClientConfig,
+  graph: ClauseGraph,
+): Promise<{ graph: ClauseGraph; summaryNotes: string[] } | null> {
+  const flagged = flaggedClausesForCriticPass(graph).slice(0, 12);
+  if (flagged.length === 0) {
+    return null;
+  }
+  const parsed = await completeJsonObject<{
+    clauses?: unknown;
+    summary?: unknown;
+    notes?: unknown;
+  }>(cfg, [
+    {
+      role: "system",
+      content: [
+        "你是执业律师的第二审阅人。只针对已标风险或缺项的条款补充意见，不要改写正文，不要输出【标签】。",
+        '只输出 JSON：{ "clauses": [{ "id": "c1", "notes": ["中文短句"] }], "summary": ["全文短句"] }。',
+        "没有新问题时对应数组为空。每条不超过 80 字。",
+      ].join("\n"),
+    },
+    {
+      role: "user",
+      content: [
+        `标题: ${draft.title}`,
+        `交付类型: ${draft.deliverableType ?? "未指定"}`,
+        "",
+        "需二次复核的条款:",
+        flagged
+          .map(
+            (clause) =>
+              `- ${clause.id} ${clause.heading}: ${clause.body.slice(0, 2000)} [${[...clause.risks, ...clause.missing, ...clause.criticNotes].join("；")}]`,
+          )
+          .join("\n"),
+      ].join("\n"),
+    },
+  ]);
+  return applyModelClauseNotes(graph, parsed);
 }
 
 export async function runDraftCriticAsync(draft: ArtifactDraft): Promise<DraftCriticResult> {
@@ -207,6 +274,16 @@ export async function runDraftCriticAsync(draft: ArtifactDraft): Promise<DraftCr
       if (mapped) {
         modelGraph = mapped.graph;
         modelNotes = mapped.summaryNotes;
+      }
+      if (
+        isLongDraftForCritic(draft, modelGraph) &&
+        flaggedClausesForCriticPass(modelGraph).length > 0
+      ) {
+        const second = await critiqueFlaggedClausesWithModel(draft, cfg, modelGraph);
+        if (second) {
+          modelGraph = second.graph;
+          modelNotes = unique([...modelNotes, ...second.summaryNotes]).slice(0, 16);
+        }
       }
     }
   }
