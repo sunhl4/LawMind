@@ -88,6 +88,8 @@ export function collectWorldStateHashes(text: string): WorldStateBaseline {
 /**
  * When a section hash matches the previous baseline, keep the prior bytes
  * so identical pins/policy/permission do not churn the system tail.
+ * Measured: two assemble rounds with unchanged hashes yield identical prefix
+ * bytes. Do not add RFC 7386 merge-patch until this assertion fails.
  */
 export function stabilizeUnchangedWorldState(
   assembled: string,
