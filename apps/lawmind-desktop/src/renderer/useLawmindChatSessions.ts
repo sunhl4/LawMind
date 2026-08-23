@@ -1,6 +1,13 @@
 import { useCallback, useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
-import { errorMessage } from "./api-client";
+import { errorMessage, userMessageFromApiError, type ApiErrorJson } from "./api-client";
 import { apiAuthHeaders } from "./lawmind-api-auth.ts";
+
+function sessionCreateErrorMessage(
+  status: number,
+  body: { ok?: boolean; sessionId?: string; message?: string; error?: string; code?: string },
+): string {
+  return userMessageFromApiError(status, body as ApiErrorJson);
+}
 import { fetchChatLiveTurnProgress } from "./lawmind-chat-trace.js";
 import type { AppConfig } from "./lawmind-app-bootstrap";
 import type { DelegationRow } from "./lawmind-app-data";
@@ -107,16 +114,19 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
             body: JSON.stringify({ assistantId }),
             signal,
           });
-          const cj = (await cr.json()) as { ok?: boolean; sessionId?: string; message?: string };
+          const cj = (await cr.json()) as {
+            ok?: boolean;
+            sessionId?: string;
+            message?: string;
+            error?: string;
+            code?: string;
+          };
           if (signal.aborted) {
             return;
           }
           if (!cr.ok || !cj.sessionId) {
             setError(
-              errorMessage(
-                new Error(typeof cj.message === "string" ? cj.message : "create session failed"),
-                "创建对话失败",
-              ),
+              errorMessage(new Error(sessionCreateErrorMessage(cr.status, cj)), "创建对话失败"),
             );
             return;
           }
@@ -267,13 +277,16 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
             headers: { "content-type": "application/json", ...apiAuthHeaders() },
             body: JSON.stringify({ assistantId: toId }),
           });
-          const cj = (await cr.json()) as { ok?: boolean; sessionId?: string; message?: string };
+          const cj = (await cr.json()) as {
+            ok?: boolean;
+            sessionId?: string;
+            message?: string;
+            error?: string;
+            code?: string;
+          };
           if (!cr.ok || !cj.sessionId) {
             setError(
-              errorMessage(
-                new Error(typeof cj.message === "string" ? cj.message : "create session failed"),
-                "打开子助手对话失败",
-              ),
+              errorMessage(new Error(sessionCreateErrorMessage(cr.status, cj)), "打开子助手对话失败"),
             );
             return;
           }
@@ -358,9 +371,15 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         headers: { "content-type": "application/json", ...apiAuthHeaders() },
         body: JSON.stringify({ assistantId }),
       });
-      const cj = (await cr.json()) as { ok?: boolean; sessionId?: string; message?: string };
+      const cj = (await cr.json()) as {
+        ok?: boolean;
+        sessionId?: string;
+        message?: string;
+        error?: string;
+        code?: string;
+      };
       if (!cr.ok || !cj.sessionId) {
-        throw new Error(typeof cj.message === "string" ? cj.message : "create session failed");
+        throw new Error(sessionCreateErrorMessage(cr.status, cj));
       }
       await refreshChatSessionListForAssistant(assistantId);
       persistActiveChatSessionId(chatSessionStoreKey(config.workspaceDir), assistantId, cj.sessionId);

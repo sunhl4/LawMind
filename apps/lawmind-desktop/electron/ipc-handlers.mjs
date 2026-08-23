@@ -186,7 +186,8 @@ export function registerIpcHandlers(deps) {
     fs.writeFileSync(envFilePath, body, "utf8");
   }
 
-  function _writeLawmindEnvSubset(envFilePath, removeKeys) {
+  /** Remove plaintext secrets from `.env.lawmind` after they are stored in the OS keychain. */
+  function writeLawmindEnvWithoutKeys(envFilePath, removeKeys) {
     if (!fs.existsSync(envFilePath)) {return;}
     const prev = parseEnvAssignmentsTopLevel(fs.readFileSync(envFilePath, "utf8"));
     let changed = false;
@@ -208,6 +209,14 @@ export function registerIpcHandlers(deps) {
     ].join("\n");
     fs.writeFileSync(envFilePath, body, "utf8");
   }
+
+  const WIZARD_ENV_SECRET_KEYS = [
+    "LAWMIND_AGENT_API_KEY",
+    "LAWMIND_QWEN_API_KEY",
+    "LAWMIND_CHATLAW_API_KEY",
+    "LAWMIND_WEB_SEARCH_API_KEY",
+    "BRAVE_API_KEY",
+  ];
 
   ipcMain.handle("lawmind:read-model-settings", async () => {
     const paths = lawMindPaths();
@@ -357,6 +366,9 @@ export function registerIpcHandlers(deps) {
           }
         }
         writeMergedLawmindEnv(paths.envFilePath, envAssignments);
+        // Env-file keys win over keychain at server bootstrap; strip so the new keychain
+        // secret is not shadowed by a stale plaintext key from an earlier save.
+        writeLawmindEnvWithoutKeys(paths.envFilePath, WIZARD_ENV_SECRET_KEYS);
       } catch (err) {
         return {
           ok: false,
@@ -381,7 +393,13 @@ export function registerIpcHandlers(deps) {
     try {
       await restartBackendInternal();
     } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e), verified: false };
+      return {
+        ok: false,
+        error: e instanceof Error ? e.message : String(e),
+        verified: false,
+        apiBase: `http://127.0.0.1:${apiPort}`,
+        apiAuthToken,
+      };
     }
 
     const serverProbe = await postLocalModelTest("env:current");
@@ -392,6 +410,7 @@ export function registerIpcHandlers(deps) {
         code: serverProbe.code,
         error: `配置已写入 ${paths.envFilePath}，但本地服务验证失败：${serverProbe.error}`,
         apiBase: `http://127.0.0.1:${apiPort}`,
+        apiAuthToken,
         envFilePath: paths.envFilePath,
         keyStorage,
       };
@@ -402,6 +421,7 @@ export function registerIpcHandlers(deps) {
       verified: true,
       latencyMs: serverProbe.latencyMs ?? inlineProbe.latencyMs,
       apiBase: `http://127.0.0.1:${apiPort}`,
+      apiAuthToken,
       workspaceDir: paths.workspaceDir,
       envFilePath: paths.envFilePath,
       retrievalMode,
@@ -478,12 +498,18 @@ export function registerIpcHandlers(deps) {
     try {
       await restartBackendInternal();
     } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return {
+        ok: false,
+        error: e instanceof Error ? e.message : String(e),
+        apiBase: `http://127.0.0.1:${apiPort}`,
+        apiAuthToken,
+      };
     }
     return {
       ok: true,
       retrievalMode: next,
       apiBase: `http://127.0.0.1:${apiPort}`,
+      apiAuthToken,
     };
   });
 

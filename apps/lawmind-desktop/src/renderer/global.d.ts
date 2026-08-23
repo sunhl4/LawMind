@@ -78,6 +78,7 @@ declare global {
         latencyMs?: number;
         code?: string;
         apiBase?: string;
+        apiAuthToken?: string;
         workspaceDir?: string;
         envFilePath?: string;
         retrievalMode?: "single" | "dual";
@@ -99,6 +100,7 @@ declare global {
       setRetrievalMode: (mode: "single" | "dual") => Promise<{
         ok: boolean;
         apiBase?: string;
+        apiAuthToken?: string;
         retrievalMode?: "single" | "dual";
         error?: string;
       }>;
