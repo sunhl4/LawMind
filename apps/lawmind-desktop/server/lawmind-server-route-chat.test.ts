@@ -1093,6 +1093,7 @@ describe("lawmind-server-route-chat", () => {
       const events = parseNamedSseEvents(cap.chunks).map((e) => e.name);
       expect(events).toContain("round_start");
       expect(events).toContain("delta");
+      expect(events).toContain("final");
       expect(events).toContain("final_reply");
       expect(events.some((n) => n === "payload")).toBe(true);
       expect(events[events.length - 1]).toBe("done");
@@ -1146,6 +1147,7 @@ describe("lawmind-server-route-chat", () => {
         c: {},
       });
       expect(capture.status).toBe(200);
+      expect(capture.json().inboxKind).toBe("followup");
       expect(mockChat.mock.calls[0][1]).toMatchObject({ onEvent: undefined });
       fs.rmSync(workspaceDir, { recursive: true, force: true });
     });

@@ -1,6 +1,7 @@
 /** Document analyze and write tools. */
 import fs from "node:fs/promises";
 import path from "node:path";
+import { readBinaryWordDocText, isBinaryWordDocPath } from "../../../mail/read-word-binary.js";
 import type { IngestSourceType, IngestStage } from "../../../platform/contracts.js";
 import {
   ingestFailure,
@@ -8,9 +9,13 @@ import {
   toolDataFromIngestSuccess,
   toolFailureFromIngest,
 } from "../../../platform/ingest-helpers.js";
+import {
+  RESEARCH_WRITE_BYPASS_REFUSAL,
+  shouldRefuseResearchWriteBypass,
+} from "../../../research/research-write-bypass-gate.js";
+import { resolveWorkspaceRelativePath } from "../../../runtime/workspace-path.js";
 import type { AgentTool } from "../../types.js";
 import {
-  isPathInsideRoot,
   readSafe,
   readDocxText,
   readXlsxPlainText,
@@ -35,7 +40,7 @@ export const analyzeDocument: AgentTool = {
   definition: {
     name: "analyze_document",
     description:
-      "读取工作区内的指定文件（路径相对工作区根），返回内容供后续分析。支持 Markdown/txt、PDF（文本层→OCR→可选视觉）、.docx、.xlsx（表格转 TSV，有界）、常见图片 OCR；不支持 .doc/.xls/.ppt 与 .pptx。大文件请用 offset/limit（字符）分页续读；若 hasMore=true，用 nextOffset 再调一次。",
+      "读取工作区内的指定文件（路径相对工作区根），返回内容供后续分析。支持 Markdown/txt、PDF（文本层→OCR→可选视觉）、.docx、二进制 .doc（直接提取正文，无需转换）、.xlsx（表格转 TSV，有界）、常见图片 OCR；不支持 .xls/.ppt 与 .pptx。大文件请用 offset/limit（字符）分页续读；若 hasMore=true，用 nextOffset 再调一次。",
     category: "analyze",
     parameters: {
       file_path: { type: "string", description: "相对于工作区的文件路径", required: true },
@@ -50,7 +55,14 @@ export const analyzeDocument: AgentTool = {
     },
   },
   async execute(params, ctx) {
-    const filePath = path.resolve(ctx.workspaceDir, params.file_path as string);
+    const claimed = typeof params.file_path === "string" ? params.file_path : "";
+    const resolved = resolveWorkspaceRelativePath(ctx.workspaceDir, claimed);
+    if (!resolved.ok) {
+      return toolFailureFromIngest(
+        ingestFailure("INGEST_INVALID_PATH", "path_validation", "不允许读取工作区外的文件。"),
+      );
+    }
+    const filePath = resolved.abs;
     const toAnalyzeSuccess = (
       sourceType: IngestSourceType,
       content: string,
@@ -75,11 +87,6 @@ export const analyzeDocument: AgentTool = {
         { contentTrust: "untrusted_user_document" },
       );
     };
-    if (!isPathInsideRoot(ctx.workspaceDir, filePath)) {
-      return toolFailureFromIngest(
-        ingestFailure("INGEST_INVALID_PATH", "path_validation", "不允许读取工作区外的文件。"),
-      );
-    }
     const st = await fs.stat(filePath).catch(() => null);
     if (!st?.isFile()) {
       return toolFailureFromIngest(
@@ -89,6 +96,40 @@ export const analyzeDocument: AgentTool = {
           `文件不存在或为空：${String(params.file_path)}`,
         ),
       );
+    }
+    if (isBinaryWordDocPath(filePath)) {
+      if (st.size > MAX_DOCX_READ_BYTES) {
+        return toolFailureFromIngest(
+          ingestFailure(
+            "INGEST_FILE_TOO_LARGE",
+            "office_extract",
+            `DOC 文件过大（>${MAX_DOCX_READ_BYTES} bytes）`,
+          ),
+        );
+      }
+      try {
+        const content = await readBinaryWordDocText(filePath);
+        if (!content) {
+          return toolFailureFromIngest(
+            ingestFailure(
+              "INGEST_EMPTY_CONTENT",
+              "office_extract",
+              "DOC 无可提取文本",
+              "请确认该文档不是纯图片或受保护文档。",
+            ),
+          );
+        }
+        return toAnalyzeSuccess("docx", content, st.size, "office_extract");
+      } catch (err) {
+        return toolFailureFromIngest(
+          ingestFailure(
+            "INGEST_PARSE_FAILED",
+            "office_extract",
+            `无法直接读取 .doc：${err instanceof Error ? err.message : String(err)}`,
+            "可安装 LibreOffice，或另存为 .docx 后重试。",
+          ),
+        );
+      }
     }
     const officeBlock = unsupportedOfficeIngestReason(filePath);
     if (officeBlock) {
@@ -238,7 +279,7 @@ export const writeDocument: AgentTool = {
   definition: {
     name: "write_document",
     description:
-      "将内容写入工作区的指定文件。用于保存分析结果、草稿等。参数须含 file_path（也可用 path）与 content；若会话已关联草稿且只传 content，默认写入 drafts/<taskId>.json。",
+      "将内容写入工作区的指定文件。用于保存分析结果、工作笔记等。研究类正文（合规卷宗/调研简报/培训课件）禁止用本工具写入 artifacts 旁路交付，须走 draft_document。参数须含 file_path（也可用 path）与 content；若会话已关联草稿且只传 content，默认写入 drafts/<taskId>.json。",
     category: "draft",
     parameters: {
       file_path: { type: "string", description: "相对于工作区的文件路径", required: true },
@@ -248,15 +289,43 @@ export const writeDocument: AgentTool = {
     riskLevel: "medium",
   },
   async execute(params, ctx) {
-    const filePath = path.resolve(ctx.workspaceDir, params.file_path as string);
-    if (!filePath.startsWith(ctx.workspaceDir)) {
+    const claimed =
+      typeof params.file_path === "string"
+        ? params.file_path
+        : typeof params.path === "string"
+          ? params.path
+          : "";
+    const resolved = resolveWorkspaceRelativePath(ctx.workspaceDir, claimed);
+    if (!resolved.ok) {
       return { ok: false, error: "不允许写入工作区外的文件。" };
+    }
+    const filePath = resolved.abs;
+    const rel = resolved.rel;
+    const bypass = shouldRefuseResearchWriteBypass({
+      workspaceDir: ctx.workspaceDir,
+      filePath: rel,
+      linkedTaskId: ctx.linkedTaskId,
+    });
+    if (bypass.refuse) {
+      return {
+        ok: false,
+        error: bypass.reason ?? RESEARCH_WRITE_BYPASS_REFUSAL,
+        data: {
+          gateDecision: {
+            gate: "research_write_bypass_gate",
+            decision: "block",
+            reason: bypass.reason ?? RESEARCH_WRITE_BYPASS_REFUSAL,
+          },
+          existingTaskId: bypass.taskId,
+          hint: "请 draft_document（传入 task_id）经大纲确认与证据门禁后，再走审核台导出。",
+        },
+      };
     }
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.writeFile(filePath, params.content as string, "utf8");
     return {
       ok: true,
-      data: { filePath: params.file_path, bytes: (params.content as string).length },
+      data: { filePath: rel, bytes: (params.content as string).length },
     };
   },
 };

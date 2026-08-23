@@ -8,6 +8,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { parentGatesFromContext } from "../../child-gates.js";
 import { emitCollaborationEvent } from "../../collaboration/audit.js";
 import { fireAndForget } from "../../collaboration/message-bus.js";
 import type { AgentTool, AgentConfig } from "../../types.js";
@@ -63,6 +64,7 @@ export function createNotifyAssistantTool(opts: { baseConfig: AgentConfig }): Ag
         message,
         matterId: ctx.matterId,
         kind: "notify",
+        ...parentGatesFromContext(ctx),
       });
 
       return {

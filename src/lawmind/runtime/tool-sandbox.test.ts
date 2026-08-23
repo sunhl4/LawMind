@@ -3,7 +3,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ToolCallContext } from "./tool-pipeline.js";
-import { buildToolSandboxPayload, executeToolSandboxInline } from "./tool-sandbox.js";
+import {
+  assertSandboxRunnerOrRefuse,
+  buildToolSandboxPayload,
+  executeToolSandboxInline,
+  resolveSandboxExecutionMode,
+  SANDBOX_UNAVAILABLE,
+} from "./tool-sandbox.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -68,6 +74,20 @@ describe("tool-sandbox", () => {
       timeoutMs: 1000,
     });
     expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/Unknown tool/);
+    expect(result.error).toMatch(/未知工具/);
+  });
+
+  it("refuses when the child runner is missing (no in-process fallback)", () => {
+    const missing = path.join(os.tmpdir(), "lm-no-sandbox-runner", "missing-child.js");
+    const refused = assertSandboxRunnerOrRefuse(missing);
+    expect(refused?.ok).toBe(false);
+    expect(refused?.error).toContain(SANDBOX_UNAVAILABLE);
+    expect(refused?.sandboxed).toBe(false);
+  });
+
+  it("child mode is default outside tests and explicit inline", () => {
+    expect(resolveSandboxExecutionMode({})).toBe("child");
+    expect(resolveSandboxExecutionMode({ LAWMIND_TOOL_SANDBOX_INLINE: "1" })).toBe("inline");
+    expect(resolveSandboxExecutionMode({ VITEST: "true" })).toBe("inline");
   });
 });

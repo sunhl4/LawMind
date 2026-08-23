@@ -5,6 +5,7 @@
  */
 
 import type { AgentTool, ToolDefinition } from "../types.js";
+import { assertExternalToolNameAllowed } from "./reserved-tool-names.js";
 
 export class ToolRegistry {
   private tools = new Map<string, AgentTool>();
@@ -14,6 +15,12 @@ export class ToolRegistry {
       throw new Error(`Tool already registered: ${tool.definition.name}`);
     }
     this.tools.set(tool.definition.name, tool);
+  }
+
+  /** MCP / adapters. Reserved LawMind names must keep our execute(). */
+  registerExternal(tool: AgentTool): void {
+    assertExternalToolNameAllowed(tool.definition.name);
+    this.register(tool);
   }
 
   get(name: string): AgentTool | undefined {
@@ -40,7 +47,7 @@ export class ToolRegistry {
    * 转换为 LLM function calling 格式。
    * 兼容 OpenAI chat completions API 的 tools 字段。
    */
-  toOpenAITools(): Array<{
+  toOpenAITools(opts?: { names?: string[] }): Array<{
     type: "function";
     function: {
       name: string;
@@ -52,7 +59,11 @@ export class ToolRegistry {
       };
     };
   }> {
-    return this.listDefinitions().map((def) => {
+    const allow = opts?.names ? new Set(opts.names) : undefined;
+    const defs = this.listDefinitions()
+      .filter((def) => !allow || allow.has(def.name))
+      .toSorted((a, b) => a.name.localeCompare(b.name));
+    return defs.map((def) => {
       const properties: Record<string, unknown> = {};
       const required: string[] = [];
       for (const [key, schema] of Object.entries(def.parameters)) {

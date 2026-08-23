@@ -9,6 +9,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { parentGatesFromContext } from "../../child-gates.js";
 import { emitCollaborationEvent } from "../../collaboration/audit.js";
 import { sendAndWait, wrapUntrustedResult } from "../../collaboration/message-bus.js";
 import type { CollaborationPolicy, ReviewType } from "../../collaboration/types.js";
@@ -83,6 +84,7 @@ export function createConsultAssistantTool(opts: {
           message: fullMessage,
           matterId: ctx.matterId,
           timeoutMs: policy.defaultConsultTimeoutMs,
+          ...parentGatesFromContext(ctx),
         });
 
         emitCollaborationEvent(ctx.workspaceDir, {
@@ -197,6 +199,8 @@ ${content}`;
           message: reviewMessage,
           matterId: ctx.matterId,
           timeoutMs: reviewTimeoutMs,
+          kind: "review_request",
+          ...parentGatesFromContext(ctx),
         });
 
         emitCollaborationEvent(ctx.workspaceDir, {

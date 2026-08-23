@@ -3,6 +3,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { applyCompactReinjectionToSession } from "./compact-reinjection.js";
 import { autoCompactSessionHistory } from "./compact.js";
 import { estimateTokenBudget } from "./context-budget.js";
 import { resolveToolSandboxEnabled } from "./dangerous-tool-policy.js";
@@ -13,8 +14,12 @@ import {
 } from "./live-turn-progress.js";
 import { tryBuildModelConnectivityCheckReply } from "./model-connectivity-check.js";
 import { tryBuildModelIdentityReply } from "./model-identity-reply.js";
-import { filterToolsForPermissionMode, type AgentPermissionMode } from "./permission-mode.js";
+import { type AgentPermissionMode } from "./permission-mode.js";
+import { appendSessionEvent } from "./session-event-log.js";
+import { isSessionPersistError } from "./session-persist.js";
+import { withSessionTurnGate } from "./session-turn-gate.js";
 import { appendTurn, createSession, loadSession, saveSession } from "./session.js";
+import { collectDisclosedToolNames, resolveModelToolNames } from "./tools/governance.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import {
   bindTurnAbortSignal,
@@ -25,7 +30,14 @@ import {
 import type { RunTurnEvent } from "./turn-orchestrator-events.js";
 export type { RunTurnEvent } from "./turn-orchestrator-events.js";
 import type { MemoryContext } from "../memory/index.js";
-import { readWorkspacePolicyFile } from "../policy/workspace-policy.js";
+import { buildRequiresActionsFromTurn } from "../platform/requires-action.js";
+import {
+  readWorkspacePolicyFile,
+  resolveAgentMandatoryRulesForPrompt,
+} from "../policy/workspace-policy.js";
+import { ensureLawyerWorkForTurn } from "../work/goal.js";
+import { intersectAllowedToolNames } from "./child-gates.js";
+import { resolveToolCallBudgets } from "./tool-budget.js";
 import {
   cleanupFailedTurn,
   finalizeAgentTurn,
@@ -38,9 +50,10 @@ import {
   tryAutoDeliverableWorkflowShortcut,
   tryIntakeClarificationShortcut,
 } from "./turn-orchestrator-shortcuts.js";
+import { freezeTurnContext } from "./turn-step-context.js";
 import type { AgentConfig, AgentContext, AgentTurn } from "./types.js";
 
-const DEFAULT_MAX_TOOL_CALLS = 25;
+const DEFAULT_MAX_TOOL_CALLS = 40;
 const DEFAULT_MAX_HISTORY_MESSAGES = 100;
 /** Used only when `AgentConfig.toolExecutionTimeoutMs` is unset — prefer model timeout. */
 const DEFAULT_TOOL_TIMEOUT_MS = 120_000;
@@ -68,17 +81,32 @@ export async function runTurn(opts: {
   /** resumeTurn：自动为同名工具注入 __approved */
   preApproveToolName?: string;
   preApproveToolArgs?: Record<string, unknown>;
+  /** 模板级预批准（协作 executor 白名单过滤后的工具名列表）。 */
+  preApproveToolNames?: string[];
   permissionMode?: AgentPermissionMode;
   /** Structured compose `@` pins from desktop chat. */
   contextPins?: import("../platform/compose-context-pin.js").ComposeContextPin[];
+  /** Internal: caller already holds `withSessionTurnGate` (resume paths). */
+  skipSessionTurnGate?: boolean;
+  /** Lawyer already approved a continue_tools checkpoint this thread. */
+  skipToolBudgetCheckpoint?: boolean;
+  /** Resume from a checkpoint: keep the prior tool-call count (hard ceiling stays cumulative). */
+  initialToolCallsExecuted?: number;
 }): Promise<{ turn: AgentTurn; reply: string; sessionId: string; memoryContext: MemoryContext }> {
+  const existingSessionId = opts.sessionId?.trim();
+  if (existingSessionId && !opts.skipSessionTurnGate) {
+    return withSessionTurnGate(opts.config.workspaceDir, existingSessionId, () =>
+      runTurn({ ...opts, skipSessionTurnGate: true }),
+    );
+  }
   const { config, registry, instruction, matterId, sessionTitleHint } = opts;
   const linkedTaskIdForCtx =
     typeof opts.linkedTaskId === "string" && opts.linkedTaskId.trim()
       ? opts.linkedTaskId.trim()
       : undefined;
   const projectDirResolved = (opts.projectDir ?? config.projectDir)?.trim() || undefined;
-  const maxToolCalls = config.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS;
+  const toolBudgets = resolveToolCallBudgets(config.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS);
+  const maxToolCalls = toolBudgets.soft;
   const maxHistory = config.maxHistoryMessages ?? DEFAULT_MAX_HISTORY_MESSAGES;
   const toolTimeoutMs = config.toolExecutionTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
   const allowDangerousToolsWithoutApproval = config.allowDangerousToolsWithoutApproval ?? false;
@@ -110,6 +138,18 @@ export async function runTurn(opts: {
     session.matterId = matterId;
   }
 
+  try {
+    ensureLawyerWorkForTurn({
+      workspaceDir: config.workspaceDir,
+      sessionId: session.sessionId,
+      instruction,
+      matterId: session.matterId,
+      source: /文件页|file chat|read_project_file/i.test(instruction) ? "file" : "chat",
+    });
+  } catch {
+    /* overlay is best-effort */
+  }
+
   // D8: keep pendingClarificationKeys across the turn so the prompt can list them;
   // finalize clears or refreshes when the turn ends.
 
@@ -130,10 +170,17 @@ export async function runTurn(opts: {
     permissionMode,
     collaborationEnabled: config.enableCollaboration === true,
     envFile: config.envFile,
-    clarificationBlockingHeavyTools: false,
+    // 跨轮澄清硬门禁：上一轮以 awaiting_clarification 结束时，本轮默认拦截
+    // 起草/工作流/渲染等重工具；结构化 resume（律师逐条作答）在 runtime-resume
+    // 中显式清键放行；普通新消息若未再提出澄清，finalize 清键后下一轮放行。
+    clarificationBlockingHeavyTools: (session.pendingClarificationKeys?.length ?? 0) > 0,
     strictDangerousToolApproval,
     preApproveToolName: opts.preApproveToolName?.trim() || undefined,
     preApproveToolArgs: opts.preApproveToolArgs,
+    preApproveToolNames:
+      opts.preApproveToolNames && opts.preApproveToolNames.length > 0
+        ? [...opts.preApproveToolNames]
+        : undefined,
     contextPins: opts.contextPins,
   };
 
@@ -148,9 +195,11 @@ export async function runTurn(opts: {
     projectDirResolved,
     teamMeetingMode: opts.teamMeetingMode,
     contextPins: opts.contextPins,
+    permissionMode,
   });
 
-  const toolSandboxEnabled = resolveToolSandboxEnabled(config.workspaceDir);
+  const toolSandboxEnabled =
+    config.toolSandboxEnabled === true || resolveToolSandboxEnabled(config.workspaceDir);
 
   // 4. 添加用户消息
   session.conversationHistory.push({
@@ -160,21 +209,43 @@ export async function runTurn(opts: {
   });
 
   // W7：Role.allowedToolNames 优先；回退到 preset.allowedToolNames。
-  const allowNamesRaw = roleForTools?.allowedToolNames ?? presetForTools?.allowedToolNames;
-  const baseNames =
-    allowNamesRaw && allowNamesRaw.length > 0
-      ? allowNamesRaw
-      : registry.toOpenAITools().map((t) => t.function.name);
-  const filteredNames = filterToolsForPermissionMode(baseNames, permissionMode);
-  const openAITools = registry
-    .toOpenAITools()
-    .filter((t) => filteredNames.includes(t.function.name));
+  // Parent inherit (child-gates) caps the list and must not widen it.
+  const allowNamesRaw = intersectAllowedToolNames(
+    config.allowedToolNames,
+    roleForTools?.allowedToolNames ?? presetForTools?.allowedToolNames,
+  );
+  ctx.allowedToolNames = allowNamesRaw;
+  ctx.toolSandboxEnabled = toolSandboxEnabled;
+  session.disclosedToolNames = collectDisclosedToolNames(session);
+  const modelToolNames = resolveModelToolNames({
+    registeredNames: registry.listDefinitions().map((def) => def.name),
+    allowNames: allowNamesRaw,
+    permissionMode,
+    disclosedNames: session.disclosedToolNames,
+  });
+  const openAITools = registry.toOpenAITools({ names: modelToolNames });
+  const turnContext = freezeTurnContext({
+    sessionId: session.sessionId,
+    turnId,
+    permissionMode,
+    matterId: session.matterId,
+    model: config.model.model,
+    actorId,
+    sandboxEnabled: toolSandboxEnabled,
+    allowNames: allowNamesRaw,
+  });
+  ctx.permissionMode = turnContext.permissionMode;
+  const priorUsed = opts.initialToolCallsExecuted;
+  const seededToolCalls =
+    typeof priorUsed === "number" && Number.isFinite(priorUsed) && priorUsed > 0
+      ? Math.floor(priorUsed)
+      : 0;
   const turn: AgentTurn = {
     turnId,
     sessionId: session.sessionId,
     instruction,
     messages: [],
-    toolCallsExecuted: 0,
+    toolCallsExecuted: seededToolCalls,
     status: "running",
     gateDecisions: [],
     startedAt,
@@ -183,6 +254,7 @@ export async function runTurn(opts: {
   const liveProgressKey = opts.liveProgressSessionId?.trim() || session.sessionId;
   clearTurnAbort(session.sessionId);
   const turnAbortSignal = bindTurnAbortSignal(session.sessionId);
+  ctx.abortSignal = turnAbortSignal;
   // Mirror shouldAbort (e.g. SSE disconnect) onto the AbortSignal so in-flight fetch cancels.
   const abortMirror = setInterval(() => {
     if (opts.shouldAbort?.() === true && !turnAbortSignal.aborted) {
@@ -199,6 +271,7 @@ export async function runTurn(opts: {
     turnAbortSignal.aborted;
 
   const emitEvent = (event: RunTurnEvent): void => {
+    appendSessionEvent(config.workspaceDir, session.sessionId, event, { turnId });
     if (liveProgressKey) {
       applyLiveTurnEvent(liveProgressKey, event);
     }
@@ -212,32 +285,6 @@ export async function runTurn(opts: {
     }
   };
 
-  const policyForCompact = readWorkspacePolicyFile(config.workspaceDir);
-  const budgetOpts = {
-    contextTokens: config.model.contextTokens ?? policyForCompact?.context?.contextTokens,
-  };
-  const tokenBudget = estimateTokenBudget(session, policyForCompact, budgetOpts);
-  emitEvent({
-    type: "token_budget",
-    used: tokenBudget.used,
-    effectiveLimit: tokenBudget.effectiveLimit,
-    level: tokenBudget.level,
-  });
-  const compactResult = autoCompactSessionHistory(session, config.workspaceDir, {
-    maxHistoryMessages: maxHistory,
-    policy: policyForCompact,
-    linkedTaskId: linkedTaskIdForCtx,
-    contextTokens: budgetOpts.contextTokens,
-  });
-  session.conversationHistory = compactResult.messages;
-  if (compactResult.compacted) {
-    emitEvent({
-      type: "compact_boundary",
-      sessionSummaryPath: compactResult.sessionSummaryPath,
-      droppedMessageCount: compactResult.droppedMessageCount,
-    });
-  }
-
   let liveProgressFinished = false;
   const ensureLiveProgressFinished = (status: "completed" | "failed"): void => {
     if (!liveProgressKey || liveProgressFinished) {
@@ -247,89 +294,133 @@ export async function runTurn(opts: {
     finishLiveTurnProgress(liveProgressKey, status);
   };
 
-  const finishAbortedByUser = (): {
-    turn: typeof turn;
-    reply: string;
-    sessionId: string;
-    memoryContext: typeof memory;
-  } => {
-    clearTurnAbort(session.sessionId);
-    const hasProgress = turn.toolCallsExecuted > 0 || turn.messages.length > 0;
+  try {
+    appendSessionEvent(config.workspaceDir, session.sessionId, { type: "turn_begin" }, { turnId });
 
-    // Soft stop with progress → checkpoint (paused) so lawyer can resume.
-    if (hasProgress) {
-      turn.status = "paused";
-      turn.error = undefined;
-      const reply = `已暂停（已完成 ${turn.toolCallsExecuted} 次工具调用）。可「继续」从检查点接着做，或发送新指令。`;
-      turn.result = reply;
-      turn.completedAt = new Date().toISOString();
-      const agentMsg = {
-        role: "assistant" as const,
-        content: reply,
-        timestamp: new Date().toISOString(),
-      };
-      session.conversationHistory.push(agentMsg);
-      turn.messages.push(agentMsg);
-      session.turns.push({ ...turn });
-      try {
-        appendTurn(config.workspaceDir, turn);
-      } catch {
-        /* ignore disk */
+    const policyForCompact = readWorkspacePolicyFile(config.workspaceDir);
+    const budgetOpts = {
+      contextTokens: config.model.contextTokens ?? policyForCompact?.context?.contextTokens,
+    };
+    const tokenBudget = estimateTokenBudget(session, policyForCompact, budgetOpts);
+    emitEvent({
+      type: "token_budget",
+      used: tokenBudget.used,
+      effectiveLimit: tokenBudget.effectiveLimit,
+      level: tokenBudget.level,
+    });
+    const compactResult = autoCompactSessionHistory(session, config.workspaceDir, {
+      maxHistoryMessages: maxHistory,
+      policy: policyForCompact,
+      linkedTaskId: linkedTaskIdForCtx,
+      contextTokens: budgetOpts.contextTokens,
+    });
+    session.conversationHistory = compactResult.messages;
+    if (compactResult.compacted) {
+      session.needsCompactReinjection = true;
+      // Same-turn reinjection: prepare already ran; patch system message before model loop.
+      const mandatory = resolveAgentMandatoryRulesForPrompt(config.workspaceDir, policyForCompact);
+      applyCompactReinjectionToSession(session, { mandatoryRulesActive: mandatory.active });
+      emitEvent({
+        type: "compact_boundary",
+        sessionSummaryPath: compactResult.sessionSummaryPath,
+        droppedMessageCount: compactResult.droppedMessageCount,
+      });
+    }
+
+    const finishAbortedByUser = (): {
+      turn: typeof turn;
+      reply: string;
+      sessionId: string;
+      memoryContext: typeof memory;
+    } => {
+      clearTurnAbort(session.sessionId);
+      const hasProgress = turn.toolCallsExecuted > 0 || turn.messages.length > 0;
+
+      // Soft stop with progress → checkpoint (paused) so lawyer can resume.
+      if (hasProgress) {
+        turn.status = "paused";
+        turn.error = undefined;
+        const reply = `已暂停（已完成 ${turn.toolCallsExecuted} 次工具调用）。可「继续」从检查点接着做，或发送新指令。`;
+        turn.result = reply;
+        turn.completedAt = new Date().toISOString();
+        const agentMsg = {
+          role: "assistant" as const,
+          content: reply,
+          timestamp: new Date().toISOString(),
+        };
+        session.conversationHistory.push(agentMsg);
+        turn.messages.push(agentMsg);
+        turn.requiresAction = buildRequiresActionsFromTurn({
+          status: turn.status,
+          clarificationQuestions: turn.clarificationQuestions,
+          turnId: turn.turnId,
+          sessionId: turn.sessionId,
+          toolCallsExecuted: turn.toolCallsExecuted,
+          matterId: session.matterId,
+          pendingToolApproval: turn.pendingToolApproval,
+        });
+        if (turn.requiresAction.length > 0) {
+          session.pendingRequiresAction = turn.requiresAction;
+        }
+        session.turns.push({ ...turn });
+        try {
+          appendTurn(config.workspaceDir, turn);
+        } catch {
+          /* ignore disk */
+        }
+        emitEvent({ type: "final", status: "paused", reply });
+        ensureLiveProgressFinished("failed");
+        try {
+          saveSession(config.workspaceDir, session);
+        } catch {
+          /* ignore */
+        }
+        return {
+          turn,
+          reply,
+          sessionId: session.sessionId,
+          memoryContext: memory,
+        };
       }
-      emitEvent({ type: "final", status: "paused", reply });
-      ensureLiveProgressFinished("failed");
-      try {
-        saveSession(config.workspaceDir, session);
-      } catch {
-        /* ignore */
+
+      turn.status = "error";
+      turn.error = "aborted_by_user";
+      // Match desktop Stop: drop this turn's user row when no assistant content yet.
+      if (turn.messages.length === 0) {
+        const last = session.conversationHistory[session.conversationHistory.length - 1];
+        if (last?.role === "user" && last.content === instruction) {
+          session.conversationHistory.pop();
+        }
       }
+      const reply = "已停止生成。";
+      emitEvent({ type: "final", status: "error", reply });
+      cleanupFailedTurn({
+        workspaceDir: config.workspaceDir,
+        session,
+        turn,
+        liveProgressKey,
+        ensureLiveProgressFinished,
+      });
       return {
         turn,
         reply,
         sessionId: session.sessionId,
         memoryContext: memory,
       };
-    }
+    };
 
-    turn.status = "error";
-    turn.error = "aborted_by_user";
-    // Match desktop Stop: drop this turn's user row when no assistant content yet.
-    if (turn.messages.length === 0) {
-      const last = session.conversationHistory[session.conversationHistory.length - 1];
-      if (last?.role === "user" && last.content === instruction) {
-        session.conversationHistory.pop();
-      }
-    }
-    const reply = "已停止生成。";
-    emitEvent({ type: "final", status: "error", reply });
-    cleanupFailedTurn({
+    const finalizeShared = (): TurnFinalizeShared => ({
       workspaceDir: config.workspaceDir,
       session,
       turn,
+      emitEvent,
+      sessionTitleHint,
       liveProgressKey,
+      linkedTaskIdForCtx,
+      memory,
       ensureLiveProgressFinished,
     });
-    return {
-      turn,
-      reply,
-      sessionId: session.sessionId,
-      memoryContext: memory,
-    };
-  };
 
-  const finalizeShared = (): TurnFinalizeShared => ({
-    workspaceDir: config.workspaceDir,
-    session,
-    turn,
-    emitEvent,
-    sessionTitleHint,
-    liveProgressKey,
-    linkedTaskIdForCtx,
-    memory,
-    ensureLiveProgressFinished,
-  });
-
-  try {
     const modelIdentityReply = tryBuildModelIdentityReply(instruction, config.runtimeModel);
     if (modelIdentityReply) {
       return finishShortCircuitTurn(finalizeShared(), modelIdentityReply);
@@ -347,6 +438,7 @@ export async function runTurn(opts: {
 
     const intakePolicy = readWorkspacePolicyFile(config.workspaceDir);
     const intakeResult = tryIntakeClarificationShortcut({
+      hasContextPins: Array.isArray(opts.contextPins) && opts.contextPins.length > 0,
       instruction,
       session,
       turn,
@@ -365,11 +457,22 @@ export async function runTurn(opts: {
       instruction,
       session,
       ctx,
+      turn,
+      registry,
       shared: finalizeShared(),
       emitEvent,
       abortRequested,
       onAborted: finishAbortedByUser,
       autoDeliverableWorkflow: intakePolicy?.autoDeliverableWorkflow,
+      actorId,
+      maxToolCalls,
+      toolTimeoutMs,
+      strictDangerousToolApproval,
+      allowDangerousToolsWithoutApproval,
+      toolSandboxEnabled,
+      allowedToolNames: roleForTools?.allowedToolNames ?? presetForTools?.allowedToolNames,
+      roleId: roleForTools?.roleId,
+      riskCeiling: roleForTools?.riskCeiling ?? presetForTools?.riskCeiling,
     });
     if (autoWfResult) {
       return autoWfResult;
@@ -382,7 +485,10 @@ export async function runTurn(opts: {
       turn,
       ctx,
       openAITools,
+      turnContext,
       maxToolCalls,
+      hardToolCallCeiling: toolBudgets.hard,
+      skipToolBudgetCheckpoint: opts.skipToolBudgetCheckpoint === true,
       toolTimeoutMs,
       strictDangerousToolApproval,
       allowDangerousToolsWithoutApproval,
@@ -422,6 +528,16 @@ export async function runTurn(opts: {
       liveProgressKey,
       ensureLiveProgressFinished,
     });
+    if (isSessionPersistError(err)) {
+      turn.status = "error";
+      turn.error = err.message;
+      return {
+        turn,
+        reply: err.message,
+        sessionId: session.sessionId,
+        memoryContext: memory,
+      };
+    }
     throw err;
   } finally {
     clearInterval(abortMirror);

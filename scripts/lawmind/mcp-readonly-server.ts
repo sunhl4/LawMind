@@ -12,6 +12,7 @@
  */
 
 import readline from "node:readline";
+import { isReservedAgentToolName } from "../../src/lawmind/agent/tools/reserved-tool-names.js";
 import {
   mcpGetDraftAcceptancePack,
   mcpGetReviewMatrix,
@@ -110,6 +111,9 @@ async function handleToolCall(
   name: string,
   args: Record<string, unknown>,
 ): Promise<{ content: Array<{ type: "text"; text: string }> }> {
+  if (isReservedAgentToolName(name)) {
+    throw new Error(`RESERVED_TOOL_NAME: ${name} is implemented only by LawMind execute()`);
+  }
   if (name === "list_matters") {
     const result = await mcpListMatters(workspaceDir);
     return { content: [{ type: "text", text: toolText(result) }] };

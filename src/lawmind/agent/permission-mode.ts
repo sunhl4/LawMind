@@ -7,11 +7,16 @@ export function parsePermissionMode(raw: unknown): AgentPermissionMode {
   return "standard";
 }
 
-/** Tools allowed when compose permission mode is readonly (plan-first). */
+/**
+ * Tools allowed when compose permission mode is readonly (plan-first).
+ * This is a tool-name allowlist, not an OS jail — writes are blocked, but
+ * reads still use isPathInsideRoot. Do not advertise readonly as “cannot read ~/.env”.
+ */
 export const READONLY_AGENT_TOOL_NAMES = new Set<string>([
   "search_workspace",
   "read_project_file",
   "analyze_document",
+  "compare_documents",
   "search_matter",
   "search_statute",
   "search_case_law",
@@ -26,6 +31,7 @@ export const READONLY_AGENT_TOOL_NAMES = new Set<string>([
   "list_delegations",
   "get_delegation_result",
   "check_conflict_of_interest",
+  "list_more_tools",
 ]);
 
 /**
