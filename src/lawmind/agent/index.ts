@@ -39,7 +39,26 @@ export {
   loadTurns,
   appendTurn,
   compactHistory,
+  deriveModelMessages,
+  toModelMessages,
 } from "./session.js";
+export type { ModelChatMessage } from "./session.js";
+export { SessionPersistError, isSessionPersistError } from "./session-persist.js";
+export { inheritChildGates, restrictPermissionMode } from "./child-gates.js";
+export { freezeTurnContext, rebuildStepContext } from "./turn-step-context.js";
+export type { TurnContext, StepContext } from "./turn-step-context.js";
+export {
+  WORLD_STATE_SECTION_IDS,
+  upsertWorldStateSection,
+  collectWorldStateHashes,
+} from "./world-state.js";
+export type { WorldStateSectionId, WorldStateBaseline } from "./world-state.js";
+export {
+  ARGS_BOUND_APPROVAL_TOOLS,
+  buildApprovalCacheKey,
+  hashToolApprovalArgs,
+  resolvePreApprovalInjection,
+} from "./approval-cache-key.js";
 export { buildSystemPrompt } from "./system-prompt.js";
 
 // Collaboration (inter-assistant communication)

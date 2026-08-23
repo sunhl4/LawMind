@@ -17,6 +17,10 @@ import {
 } from "../../../src/lawmind/agent/compact-llm-digest.js";
 import { estimateTokenBudget } from "../../../src/lawmind/agent/context-budget.js";
 import { getLiveTurnProgress } from "../../../src/lawmind/agent/live-turn-progress.js";
+import { queuePendingContextPins } from "../../../src/lawmind/agent/session-context-inject.js";
+import { queuePendingSteer } from "../../../src/lawmind/agent/session-context-steer.js";
+import { classifySessionInbox } from "../../../src/lawmind/agent/session-inbox.js";
+import { parseContextPins } from "../../../src/lawmind/platform/compose-context-pin.js";
 import {
   deleteSessionMessagePairAtUiIndex,
   truncateSessionFromUiIndex,
@@ -59,6 +63,14 @@ const messagesMutateSchema = z.object({
 const planHandoffPutSchema = z.object({
   planText: z.string().max(4000),
   updatedAt: z.string().trim().min(1).optional(),
+});
+
+const injectBodySchema = z.object({
+  contextPins: z.array(z.unknown()).max(16),
+});
+
+const steerBodySchema = z.object({
+  text: z.string().trim().min(1).max(2000),
 });
 
 function dialogueKey(msg: AgentMessage): string {
@@ -114,6 +126,83 @@ export async function handleSessionExtendedRoutes({
         ...budget,
         contextTokens: envelope.contextTokens,
         maxOutputTokens: envelope.maxOutputTokens,
+      },
+      c,
+    );
+    return true;
+  }
+
+  const injectMatch = /^\/api\/sessions\/([^/]+)\/inject$/.exec(pathname);
+  if (injectMatch && req.method === "POST") {
+    const sessionId = injectMatch[1] ?? "";
+    const session = loadSession(workspaceDir, sessionId);
+    if (!session) {
+      sendJson(res, 404, { ok: false, code: "not_found", message: "session not found" }, c);
+      return true;
+    }
+    let body: z.infer<typeof injectBodySchema>;
+    try {
+      body = await parseJsonBodyZod(req, injectBodySchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid_body", issues: err.issues }, c);
+        return true;
+      }
+      throw err;
+    }
+    const pins = parseContextPins(body.contextPins);
+    if (!Array.isArray(pins)) {
+      sendJson(res, 400, { ok: false, error: "invalid_body", message: pins.error }, c);
+      return true;
+    }
+    if (pins.length === 0) {
+      sendJson(res, 400, { ok: false, error: "empty_pins", message: "请至少选择一份材料" }, c);
+      return true;
+    }
+    const queued = queuePendingContextPins(workspaceDir, sessionId, pins);
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        sessionId,
+        queued: queued.queued,
+        pendingCount: queued.pendingCount,
+        inboxKind: classifySessionInbox("inject"),
+      },
+      c,
+    );
+    return true;
+  }
+
+  const steerMatch = /^\/api\/sessions\/([^/]+)\/steer$/.exec(pathname);
+  if (steerMatch && req.method === "POST") {
+    const sessionId = steerMatch[1] ?? "";
+    const session = loadSession(workspaceDir, sessionId);
+    if (!session) {
+      sendJson(res, 404, { ok: false, code: "not_found", message: "session not found" }, c);
+      return true;
+    }
+    let body: z.infer<typeof steerBodySchema>;
+    try {
+      body = await parseJsonBodyZod(req, steerBodySchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid_body", issues: err.issues }, c);
+        return true;
+      }
+      throw err;
+    }
+    const queued = queuePendingSteer(workspaceDir, sessionId, body.text);
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        sessionId,
+        queued: queued.queued,
+        pendingCount: queued.pendingCount,
+        inboxKind: classifySessionInbox("steer"),
       },
       c,
     );

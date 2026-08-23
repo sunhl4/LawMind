@@ -48,13 +48,31 @@ import {
   resolveIntakeClarificationQuestions,
 } from "../router/intake-gate.js";
 import { buildContextPlan, buildContextPlanMarkdown } from "../runtime/context-plan.js";
-import { resolvePinnedContextSummary } from "../runtime/pinned-context.js";
+import { resolvePinnedContextSummary, withContractPlaybookPin } from "../runtime/pinned-context.js";
 import { getAssistantPreset } from "./assistant-presets.js";
 import { buildDeliverablePipelineSystemNote } from "./deliverable-pipeline.js";
-import { buildSystemPrompt } from "./system-prompt.js";
+import type { AgentPermissionMode } from "./permission-mode.js";
+import { applySystemPromptToHistory, buildSystemPrompt } from "./system-prompt.js";
+import { promptCatalogToolNames } from "./tools/governance.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import { collectRecentToolNamesFromSession } from "./turn-orchestrator-events.js";
 import type { AgentConfig, AgentContext, AgentSession } from "./types.js";
+import {
+  collectWorldStateHashes,
+  formatMatterWorldState,
+  formatPermissionWorldState,
+  stabilizeUnchangedWorldState,
+  WORLD_STATE_SECTION_IDS,
+  wrapWorldStateSection,
+  type WorldStateSectionId,
+} from "./world-state.js";
+
+function pushWorldStateExtra(extraBlocks: string[], id: WorldStateSectionId, body: string): void {
+  const wrapped = wrapWorldStateSection(id, body);
+  if (wrapped) {
+    extraBlocks.push(`\n\n${wrapped}`);
+  }
+}
 
 export async function prepareTurnPromptContext(opts: {
   config: AgentConfig;
@@ -66,6 +84,7 @@ export async function prepareTurnPromptContext(opts: {
   projectDirResolved: string | undefined;
   teamMeetingMode?: boolean;
   contextPins?: ComposeContextPin[];
+  permissionMode?: AgentPermissionMode;
 }): Promise<{
   memory: MemoryContext;
   systemPromptFinal: string;
@@ -86,7 +105,7 @@ export async function prepareTurnPromptContext(opts: {
 
   const pinnedContextSummary = resolvePinnedContextSummary({
     workspaceDir: config.workspaceDir,
-    pins: opts.contextPins ?? [],
+    pins: withContractPlaybookPin(opts.contextPins, instruction),
   });
 
   const memory = await loadMemoryContext(config.workspaceDir, { matterId: session.matterId });
@@ -150,12 +169,20 @@ export async function prepareTurnPromptContext(opts: {
     session.matterId,
   );
 
-  const intakeQsForPipeline = resolveIntakeClarificationQuestions(instruction, {
+  const { resolveIntakeAdvisoryQuestions } = await import("../router/intake-gate.js");
+  const hasContextPins = Array.isArray(opts.contextPins) && opts.contextPins.length > 0;
+  const intakeHardQs = resolveIntakeClarificationQuestions(instruction, {
     caseMemory: memory.caseMemory,
     intakeHeuristicsEnabled: workspacePolicy?.intakeHeuristicsEnabled,
+    hasContextPins,
+  });
+  const intakeAdvisoryQs = resolveIntakeAdvisoryQuestions(instruction, {
+    caseMemory: memory.caseMemory,
+    intakeHeuristicsEnabled: workspacePolicy?.intakeHeuristicsEnabled,
+    hasContextPins,
   });
   const deliverablePipelineNote =
-    intakeQsForPipeline.length === 0 || instructionLooksLikeFilledIntake(instruction)
+    intakeHardQs.length === 0 || instructionLooksLikeFilledIntake(instruction)
       ? buildDeliverablePipelineSystemNote(instruction)
       : undefined;
   const executablePrefs = loadExecutablePreferences(config.workspaceDir, memory.profile ?? "", 6);
@@ -165,6 +192,7 @@ export async function prepareTurnPromptContext(opts: {
     Boolean(appliedPreferencesHint) &&
     (footerMode === "always" || (footerMode === "first" && session.turns.length === 0));
   const agentPromptVerbosity = resolveAgentPromptVerbosity(workspacePolicy);
+  const promptCatalog = new Set(promptCatalogToolNames());
   const envelope = resolveCapabilityEnvelope({
     contextTokens: config.model.contextTokens ?? workspacePolicy?.context?.contextTokens,
     timeoutMs: config.model.timeoutMs,
@@ -200,7 +228,10 @@ export async function prepareTurnPromptContext(opts: {
     matterContext:
       windowCaseMarkdownForPrompt(memory.caseMemory, promptWindow.matterContextChars) || undefined,
     todayLog: truncateForPrompt(memory.todayLog, promptWindow.dayLogChars) || undefined,
-    availableTools: registry.listDefinitions(),
+    availableTools: registry
+      .listDefinitions()
+      .filter((def) => promptCatalog.has(def.name))
+      .toSorted((a, b) => a.name.localeCompare(b.name)),
     matterId: session.matterId,
     roleTitle: config.roleTitle,
     roleIntroduction: config.roleIntroduction,
@@ -231,13 +262,21 @@ export async function prepareTurnPromptContext(opts: {
   let systemPromptFinal = systemPrompt;
   const extraBlocks: string[] = [];
   if (pinnedContextSummary.markdownBlock) {
-    extraBlocks.push(`\n\n${pinnedContextSummary.markdownBlock}`);
+    pushWorldStateExtra(extraBlocks, "pins", pinnedContextSummary.markdownBlock);
   }
+  pushWorldStateExtra(extraBlocks, "matter", formatMatterWorldState(session.matterId));
+  pushWorldStateExtra(
+    extraBlocks,
+    "permission",
+    formatPermissionWorldState(opts.permissionMode ?? "standard"),
+  );
 
   if (session.pendingClarificationKeys?.length) {
-    extraBlocks.push(
+    pushWorldStateExtra(
+      extraBlocks,
+      "policy",
       [
-        "\n\n## 未决澄清要点（跨轮保留）",
+        "## 未决澄清要点（跨轮保留）",
         "",
         "律师尚未完全回答下列关键缺口；继续时可先用只读/`research_task` 收集材料，但**不得**在缺口未对齐时调用 `draft_document` / `execute_workflow` / `render_document`。",
         "",
@@ -325,6 +364,63 @@ export async function prepareTurnPromptContext(opts: {
   }
 
   try {
+    const { INTAKE_CRAFT_SKILL, formatIntakeSoftAskBlock } =
+      await import("../router/intake-craft.js");
+    if (intakeAdvisoryQs.length > 0) {
+      extraBlocks.push(`\n\n${INTAKE_CRAFT_SKILL}`);
+      extraBlocks.push(`\n\n${formatIntakeSoftAskBlock(intakeAdvisoryQs)}`);
+    }
+  } catch {
+    /* optional */
+  }
+
+  try {
+    const { isMailContractFastPathInstruction, MAIL_CONTRACT_FAST_PATH_PROMPT } =
+      await import("./mail-contract-fast-path.js");
+    if (isMailContractFastPathInstruction(instruction)) {
+      extraBlocks.push(`\n\n${MAIL_CONTRACT_FAST_PATH_PROMPT}`);
+    }
+  } catch {
+    /* optional */
+  }
+
+  try {
+    const { bindLawyerCapability, formatBoundCapabilityBlock, readSkillPromptBodies } =
+      await import("../skills/lawyer-capabilities.js");
+    const { isMailContractFastPathInstruction } =
+      await import("../platform/mail-contract-short-path-instruction.js");
+    const mailFast = isMailContractFastPathInstruction(instruction);
+    const bound = bindLawyerCapability({ instruction, mailFastPath: mailFast });
+    if (bound) {
+      const bodies = readSkillPromptBodies(config.workspaceDir, bound.skillIds);
+      extraBlocks.push(`\n\n${formatBoundCapabilityBlock(bound, bodies)}`);
+    }
+    const dt = deliverableTypeFromInstruction(instruction);
+    const looksOpinion =
+      /意见书短路径|Opinion Craft|审查意见书|合同审查意见/.test(instruction) ||
+      ((dt === "contract.review" || /contract\.review/.test(instruction)) &&
+        /prepare_outbound_mail|意见书/.test(instruction));
+    if (looksOpinion) {
+      const { OPINION_CRAFT_SKILL } = await import("../drafts/opinion-craft.js");
+      if (!extraBlocks.some((b) => b.includes("合同审查意见书"))) {
+        extraBlocks.push(`\n\n${OPINION_CRAFT_SKILL}`);
+      }
+    }
+  } catch {
+    /* optional */
+  }
+
+  if (session.needsCompactReinjection) {
+    const { formatCompactReinjectionBlock } = await import("./compact-reinjection.js");
+    pushWorldStateExtra(
+      extraBlocks,
+      "craft",
+      formatCompactReinjectionBlock({ mandatoryRulesActive: mandatoryRules.active }),
+    );
+    session.needsCompactReinjection = false;
+  }
+
+  try {
     const similar = await findSimilarCaseMemories({
       workspaceDir: config.workspaceDir,
       instruction,
@@ -359,6 +455,29 @@ export async function prepareTurnPromptContext(opts: {
     systemPromptFinal = systemPrompt + extraBlocks.join("");
   }
 
+  const existingSystem =
+    session.conversationHistory[0]?.role === "system"
+      ? session.conversationHistory[0].content
+      : undefined;
+  systemPromptFinal = applySystemPromptToHistory(existingSystem, systemPromptFinal);
+  const nextHashes = collectWorldStateHashes(systemPromptFinal);
+  systemPromptFinal = stabilizeUnchangedWorldState(
+    systemPromptFinal,
+    existingSystem,
+    session.worldStateBaseline,
+    nextHashes,
+  );
+  const committedHashes = collectWorldStateHashes(systemPromptFinal);
+  const prevBaseline = session.worldStateBaseline;
+  const worldStateChanged = WORLD_STATE_SECTION_IDS.some(
+    (id) => prevBaseline?.[id] !== committedHashes[id],
+  );
+  session.worldStateBaseline = committedHashes;
+  if (worldStateChanged) {
+    session.worldStateEpoch = (session.worldStateEpoch ?? 0) + 1;
+  }
+
+  // Write history first; runModelToolLoop may only derive via deriveModelMessages.
   if (
     session.conversationHistory.length === 0 ||
     session.conversationHistory[0].role !== "system"

@@ -48,6 +48,10 @@ export type ToolCallResult = {
   pendingApproval?: boolean;
   /** P2：是否在子进程沙箱中执行 */
   sandboxed?: boolean;
+  /** 用户 Stop：与 timeout / ok 正交，不混用一个 error 字符串判断 */
+  aborted?: boolean;
+  /** 工具执行超时：与用户停止正交 */
+  timedOut?: boolean;
 };
 
 export type ToolExecutor = (
@@ -107,8 +111,17 @@ export type AgentContext = {
   preApproveToolName?: string;
   /** Merged into the next call of `preApproveToolName` (lawyer-edited args). */
   preApproveToolArgs?: Record<string, unknown>;
+  /**
+   * 模板级预批准（协作 executor 白名单过滤后的工具名列表，仅限待拍板类工具）。
+   * `apply_surgical_edits` 仍须 `preApproveToolArgs` 与本次 hunks 哈希一致。
+   */
+  preApproveToolNames?: string[];
   /** Desktop compose `@` pins for this turn (structured truth sources). */
   contextPins?: ComposeContextPin[];
+  /** Turn-resolved tool allowlist (role ∩ parent inherit). */
+  allowedToolNames?: string[];
+  /** Whether high-risk tools must run in the subprocess sandbox this turn. */
+  toolSandboxEnabled?: boolean;
   /**
    * Per-tool-call cancellation signal set by the tool-pipeline timeout middleware.
    * Tools that perform long-running work (fetch, model calls, subprocesses) SHOULD
@@ -179,6 +192,8 @@ export type AgentTurn = {
   instruction: string;
   messages: AgentMessage[];
   toolCallsExecuted: number;
+  /** Per-tool call counts within this turn (for discovery-loop guards). */
+  toolNameCallCounts?: Record<string, number>;
   status: AgentTurnStatus;
   clarificationQuestions?: ClarificationQuestion[];
   /** Big-Bang: 执行状态机快照（供 API/UI 统一消费） */
@@ -236,6 +251,16 @@ export type AgentSession = {
   /** 上次自动写入 session-summary 时的 turn 数（用于节流） */
   lastSessionSummaryTurnCount?: number;
   /**
+   * Set when auto-compact drops history; next prepareTurnPromptContext reinjects
+   * RULES / deliverable / Craft reminder, then clears the flag.
+   */
+  needsCompactReinjection?: boolean;
+  /**
+   * Tools disclosed this session via `list_more_tools`. OpenAI tools may grow;
+   * the static system-prompt prefix stays the core catalog.
+   */
+  disclosedToolNames?: string[];
+  /**
    * Plan→Execute 交接（「先计划」产出）：写入 session.json，便于刷新 / 跨端同工作区恢复。
    * 桌面仍可镜像到 localStorage 作离线缓存。
    */
@@ -243,6 +268,15 @@ export type AgentSession = {
     planText: string;
     updatedAt: string;
   };
+  /**
+   * Hashes of named world-state sections in the system message.
+   * Unchanged sections are byte-stabilized instead of rewritten.
+   */
+  worldStateBaseline?: Partial<
+    Record<"policy" | "craft" | "deliverable" | "pins" | "permission" | "matter", string>
+  >;
+  /** Bumped when a world-state section is patched (pins, compact craft, …). */
+  worldStateEpoch?: number;
 };
 
 // ─────────────────────────────────────────────
@@ -314,6 +348,10 @@ export type AgentConfig = {
   allowWebSearch?: boolean;
   /** 桌面 compose 权限模式 */
   permissionMode?: "standard" | "strict" | "readonly" | "research";
+  /** Parent-inherited tool allowlist cap (intersected with role/preset). */
+  allowedToolNames?: string[];
+  /** Force subprocess sandbox on for this agent (child inherit). */
+  toolSandboxEnabled?: boolean;
   /** 是否注册助手间协作工具（delegate_task, consult_assistant 等） */
   enableCollaboration?: boolean;
   /** 当前委派嵌套深度（子 agent 工具注册用） */

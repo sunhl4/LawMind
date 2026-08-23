@@ -52,8 +52,12 @@ import {
 } from "./lawmind-chat-trace.js";
 import type { ModelCatalogEntry } from "./lawmind-models-api";
 import { chatSessionStoreKey, persistActiveChatSessionId } from "./useLawmindChatShell";
-import { readComposePermissionMode } from "./lawmind-compose-prefs";
+import { readComposePermissionMode, writeComposeStash } from "./lawmind-compose-prefs";
 import { abortSessionTurn, mutateSessionMessages } from "./lawmind-chat-message-mutate";
+import { detectMailChatIntent } from "../../../../src/lawmind/platform/mail-chat-intent.ts";
+import { promptMailIntentConfirm } from "./lawmind-mail-intent-bus";
+import { requestOpenAutomationsSettings } from "./lawmind-automations-nav-bus";
+import { runMailAutomationNow } from "./lawmind-mail-automation-run";
 
 export type UseLawmindChatSendInput = {
   config: AppConfig | null;
@@ -92,7 +96,9 @@ export type UseLawmindChatSendInput = {
   onStreamCompactBoundary?: (info: {
     sessionSummaryPath?: string;
     droppedMessageCount?: number;
+    overflowPrune?: boolean;
   }) => void;
+  onStreamToolBudget?: (info: { used: number; maxToolCalls: number }) => void;
   /** After a turn finishes (success or failure) — e.g. refresh action-summary / sticky review. */
   onTurnComplete?: () => void;
 };
@@ -128,6 +134,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
     refreshCollaboration,
     applyStreamTokenBudget,
     onStreamCompactBoundary,
+    onStreamToolBudget,
     onTurnComplete,
   } = opts;
 
@@ -196,6 +203,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
         return;
       }
       if ((loading || chatInFlightRef.current) && !opts2?.fromQueue) {
+        // Inbox followup: next turn after the live one. Do not POST /steer.
         sendQueueRef.current.push(text);
         setQueuedMessages([...sendQueueRef.current]);
         setInput("");
@@ -217,8 +225,54 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
         setComposeModelHint(MODEL_NOT_VERIFIED_HINT);
         return;
       }
+      // Mail / meta intent: offer automations short path before free-chat thrash.
+      if (!opts2?.fromQueue) {
+        const mailIntent = detectMailChatIntent(text);
+        if (mailIntent) {
+          setInput("");
+          writeComposeStash(contextMatterId, "");
+          const decision = await promptMailIntentConfirm(mailIntent);
+          if (decision === "dismiss" || decision === "open-settings") {
+            if (decision === "open-settings") {
+              requestOpenAutomationsSettings();
+            }
+            setInput(text);
+            return;
+          }
+          if (decision === "run") {
+            if (
+              (mailIntent.kind === "mail-contract-review" ||
+                mailIntent.kind === "mail-inbox-digest") &&
+              mailIntent.presetId
+            ) {
+              try {
+                if (!contextMatterId?.trim()) {
+                  setError("请先选择案件，再跑邮件短路径。");
+                  setInput(text);
+                  return;
+                }
+                await runMailAutomationNow({
+                  apiBase: config.apiBase,
+                  matterId: contextMatterId.trim(),
+                  presetId: mailIntent.presetId,
+                });
+                setComposeModelHint("已启动邮件短路径，结果将出现在「待我拍板」。");
+                setError(null);
+              } catch (cause) {
+                setError(errorMessage(cause, "启动短路径失败"));
+                setInput(text);
+              }
+              return;
+            }
+            requestOpenAutomationsSettings();
+            return;
+          }
+          // decision === "continue" → fall through to normal chat
+        }
+      }
       const assistantId = selectedAssistantId;
       const ac = new AbortController();
+      let stoppedByUser = false;
       chatAbortControllerRef.current = ac;
       chatInFlightRef.current = { assistantId, userText: text };
       const excerpts = await fetchFileChatExcerpts({
@@ -244,6 +298,8 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       }
       setError(null);
       setInput("");
+      // 发送成功后清空该案件的草稿暂存，避免 compose 恢复效应把刚发出的文本回填。
+      writeComposeStash(contextMatterId, "");
       let assistantPlaceholderIndex = -1;
       setMessagesByAssistant((previous) => {
         const next = appendChatMessage(previous, assistantId, { role: "user", text });
@@ -354,10 +410,20 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
                 }),
                 ...(gapNotice ? { authorityGapNotice: gapNotice } : {}),
                 ...(demoNotice ? { demoCorpusNotice: demoNotice } : {}),
+                ...(info.nextActions?.length
+                  ? {
+                      researchNextActions: [
+                        ...new Set([...(msg.researchNextActions ?? []), ...info.nextActions]),
+                      ],
+                    }
+                  : {}),
               }));
             },
             onTokenBudget: (info) => {
               applyStreamTokenBudget?.(info);
+            },
+            onToolBudget: (info) => {
+              onStreamToolBudget?.(info);
             },
             onCompactBoundary: (info) => {
               onStreamCompactBoundary?.(info);
@@ -393,7 +459,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
             text:
               useFinal
                 ? finalText
-                : activityText || placeholderText || finalText || "本轮未返回可见回复，请查看文书台或重试。",
+                : activityText || placeholderText || finalText || "本轮未返回可见回复，请查看改稿页或重试。",
             activity: activityDone,
             activityActive: false,
             liveTrace: finalizeLiveTrace(prev?.liveTrace ?? createEmptyLiveTrace()),
@@ -416,6 +482,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
           return { ...msgs, [assistantId]: nextList };
         };
         if (isFetchAbortError(cause)) {
+          stoppedByUser = true;
           const inflight = chatInFlightRef.current;
           setMessagesByAssistant((previous) => removePlaceholder(previous));
           if (inflight && inflight.assistantId === assistantId) {
@@ -471,10 +538,16 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
         chatInFlightRef.current = null;
         setLoading(false);
         onTurnComplete?.();
-        const nextQueued = sendQueueRef.current.shift();
-        setQueuedMessages([...sendQueueRef.current]);
-        if (nextQueued?.trim()) {
-          queueMicrotask(() => void sendChatMessage(nextQueued, { fromQueue: true }));
+        // 用户主动「停止」＝停掉整轮：清空发送队列，不再自动续发下一条。
+        if (stoppedByUser) {
+          sendQueueRef.current = [];
+          setQueuedMessages([]);
+        } else {
+          const nextQueued = sendQueueRef.current.shift();
+          setQueuedMessages([...sendQueueRef.current]);
+          if (nextQueued?.trim()) {
+            queueMicrotask(() => void sendChatMessage(nextQueued, { fromQueue: true }));
+          }
         }
       }
     },
@@ -499,6 +572,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       sessionByAssistant,
       applyStreamTokenBudget,
       onStreamCompactBoundary,
+      onStreamToolBudget,
       onTurnComplete,
     ],
   );

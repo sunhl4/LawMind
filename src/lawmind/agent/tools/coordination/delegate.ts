@@ -12,6 +12,7 @@
 
 import { appendTeamMeetingLinesSync, createTeamMeetingSystemLine } from "../../../cases/index.js";
 import { getRoleById } from "../../../core/role.js";
+import { parentGatesFromContext } from "../../child-gates.js";
 import { emitCollaborationEvent } from "../../collaboration/audit.js";
 import {
   registerDelegation,
@@ -28,6 +29,7 @@ import {
 import { fireAndForget, wrapUntrustedResult } from "../../collaboration/message-bus.js";
 import type { CollaborationPolicy, DelegationRecord } from "../../collaboration/types.js";
 import { DEFAULT_COLLABORATION_POLICY } from "../../collaboration/types.js";
+import type { AgentPermissionMode } from "../../permission-mode.js";
 import { appendSyntheticAssistantReply } from "../../session.js";
 import { requestTurnAbort } from "../../turn-abort.js";
 import type { AgentTool, AgentConfig } from "../../types.js";
@@ -72,7 +74,7 @@ export function createDelegateTaskTool(opts: {
     async execute(params, ctx) {
       const targetInput = params.target_assistant as string;
       const task = params.task as string;
-      const matterId = (params.matter_id as string) || ctx.matterId;
+      const matterId = ctx.matterId?.trim() || (params.matter_id as string | undefined)?.trim();
       const priority = (params.priority as "normal" | "high" | "low") || "normal";
 
       const targetId = resolveAssistantId(ctx.workspaceDir, targetInput, ctx.envFile);
@@ -104,6 +106,7 @@ export function createDelegateTaskTool(opts: {
         priority,
         depth: currentDepth + 1,
         parentSessionId: ctx.sessionId,
+        ...parentGatesFromContext(ctx),
       });
     },
   };
@@ -171,7 +174,7 @@ export function createDelegateToRoleTool(opts: {
     async execute(params, ctx) {
       const roleId = (params.role_id as string)?.trim();
       const task = params.task as string;
-      const matterId = (params.matter_id as string) || ctx.matterId;
+      const matterId = ctx.matterId?.trim() || (params.matter_id as string | undefined)?.trim();
       const priority = (params.priority as "normal" | "high" | "low") || "normal";
 
       const role = getRoleById(roleId);
@@ -209,6 +212,7 @@ export function createDelegateToRoleTool(opts: {
         depth: currentDepth + 1,
         targetRoleId: role.roleId,
         parentSessionId: ctx.sessionId,
+        ...parentGatesFromContext(ctx),
       });
     },
   };
@@ -226,6 +230,9 @@ export function startDelegation(args: {
   depth: number;
   targetRoleId?: string;
   parentSessionId?: string;
+  permissionMode?: AgentPermissionMode;
+  allowedToolNames?: string[];
+  toolSandboxEnabled?: boolean;
 }): { ok: true; data: Record<string, unknown> } {
   const record = registerDelegation({
     workspaceDir: args.workspaceDir,
@@ -264,7 +271,9 @@ export function startDelegation(args: {
     kind: "delegate",
     delegationId: record.delegationId,
     collaborationDepth: args.depth + 1,
-    permissionMode: args.baseConfig.permissionMode,
+    permissionMode: args.permissionMode ?? args.baseConfig.permissionMode,
+    allowedToolNames: args.allowedToolNames,
+    toolSandboxEnabled: args.toolSandboxEnabled === true,
     timeoutMs,
     onTimeout: (sid) => {
       markDelegationTimeout(args.workspaceDir, record.delegationId);

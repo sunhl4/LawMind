@@ -5,6 +5,7 @@ import { validateDraftAgainstSpec } from "../deliverables/index.js";
 import { readDraft } from "../drafts/index.js";
 import { caseFilePath } from "../memory/index.js";
 import type { LawMindWorkspacePolicy } from "../policy/workspace-policy.js";
+import { insertBeforeLastUserMessage } from "./compact-insert.js";
 import { estimateTokenBudget, resolveContextPolicy } from "./context-budget.js";
 import { compactHistory } from "./session.js";
 import type { AgentMessage, AgentSession } from "./types.js";
@@ -278,14 +279,14 @@ export function autoCompactSessionHistory(
   const summaryBlock: AgentMessage[] = [];
   if (droppedDigest) {
     summaryBlock.push({
-      role: "system",
+      role: "user",
       content: droppedDigest,
       timestamp: new Date().toISOString(),
     });
   }
   if (summaryText) {
     summaryBlock.push({
-      role: "system",
+      role: "user",
       content: `【案件会话摘要】\n${summaryText.slice(0, summaryCharCap)}`,
       timestamp: new Date().toISOString(),
     });
@@ -294,7 +295,7 @@ export function autoCompactSessionHistory(
     try {
       const caseSnippet = fs.readFileSync(casePath, "utf8").slice(0, caseSnippetCap);
       summaryBlock.push({
-        role: "system",
+        role: "user",
         content: `【案件记忆摘录】\n${caseSnippet}`,
         timestamp: new Date().toISOString(),
       });
@@ -304,7 +305,7 @@ export function autoCompactSessionHistory(
   }
 
   summaryBlock.push({
-    role: "system",
+    role: "user",
     content: buildPostCompactSystemNote({
       matterId: session.matterId,
       linkedTaskId: opts.linkedTaskId,
@@ -314,7 +315,8 @@ export function autoCompactSessionHistory(
     timestamp: new Date().toISOString(),
   });
 
-  const merged = [...systemMessages.slice(0, 1), ...summaryBlock, ...nonSystem];
+  const keptHead = [...systemMessages.slice(0, 1), ...nonSystem];
+  const merged = insertBeforeLastUserMessage(keptHead, summaryBlock);
   const dropped = Math.max(0, beforeLen - merged.length);
 
   void autoCompactBufferTokens;

@@ -12,7 +12,9 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { writeJsonAtomic } from "../adapters/matter-storage/io.js";
 import { appendTranscriptLines } from "../adapters/session-transcript/index.js";
+import { persistOrThrow } from "./session-persist.js";
 import type { AgentMessage, AgentSession, AgentTurn, PersistedChatLiveTrace } from "./types.js";
 
 const SESSIONS_DIR = "sessions";
@@ -154,13 +156,9 @@ export function createSession(opts: {
     updatedAt: new Date().toISOString(),
   };
 
-  const dir = sessionsDir(opts.workspaceDir);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(
-    sessionFilePath(opts.workspaceDir, session.sessionId),
-    JSON.stringify(session, null, 2),
-    "utf8",
-  );
+  persistOrThrow("session", () => {
+    writeJsonAtomic(sessionFilePath(opts.workspaceDir, session.sessionId), session);
+  });
 
   return session;
 }
@@ -177,33 +175,40 @@ export function loadSession(workspaceDir: string, sessionId: string): AgentSessi
 
 export function saveSession(workspaceDir: string, session: AgentSession): void {
   session.updatedAt = new Date().toISOString();
-  const dir = sessionsDir(workspaceDir);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(
-    sessionFilePath(workspaceDir, session.sessionId),
-    JSON.stringify(session, null, 2),
-    "utf8",
-  );
-  const last = session.conversationHistory[session.conversationHistory.length - 1];
-  if (last) {
-    const transcriptOpts = session.collaborationDelegationId
-      ? { delegationId: session.collaborationDelegationId }
-      : undefined;
-    appendTranscriptLines(workspaceDir, session.sessionId, [last], transcriptOpts);
-  }
+  // 原子写（temp+rename）：崩溃不留半写 session.json。
+  // 保持同步语义：resume/级联等调用方依赖「返回即落盘」。失败必须抛出，禁止继续采样。
+  persistOrThrow("session", () => {
+    writeJsonAtomic(sessionFilePath(workspaceDir, session.sessionId), session);
+    const last = session.conversationHistory[session.conversationHistory.length - 1];
+    if (last) {
+      const transcriptOpts = session.collaborationDelegationId
+        ? { delegationId: session.collaborationDelegationId }
+        : undefined;
+      appendTranscriptLines(workspaceDir, session.sessionId, [last], transcriptOpts);
+    }
+  });
 }
 
-/** 删除会话磁盘文件（`<id>.json` 与 `<id>.turns.jsonl`）。至少删掉一个文件则返回 true。 */
+/** 删除会话磁盘文件（json / turns / transcript / events / pending sidecars / spills）。至少删掉一个文件则返回 true。 */
 export function deleteSession(workspaceDir: string, sessionId: string): boolean {
   const jsonPath = sessionFilePath(workspaceDir, sessionId);
   const turnsPath = turnsFilePath(workspaceDir, sessionId);
+  const transcript = path.join(sessionsDir(workspaceDir), `${sessionId}.transcript.jsonl`);
+  const eventsPath = path.join(sessionsDir(workspaceDir), `${sessionId}.events.jsonl`);
+  const pendingPins = path.join(sessionsDir(workspaceDir), `${sessionId}.pending-pins.json`);
+  const pendingSteer = path.join(sessionsDir(workspaceDir), `${sessionId}.pending-steer.json`);
+  const spillsDir = path.join(sessionsDir(workspaceDir), `${sessionId}.spills`);
   try {
     let did = false;
-    for (const p of [jsonPath, turnsPath]) {
+    for (const p of [jsonPath, turnsPath, transcript, eventsPath, pendingPins, pendingSteer]) {
       if (fs.existsSync(p)) {
         fs.unlinkSync(p);
         did = true;
       }
+    }
+    if (fs.existsSync(spillsDir)) {
+      fs.rmSync(spillsDir, { recursive: true, force: true });
+      did = true;
     }
     return did;
   } catch {
@@ -374,10 +379,12 @@ export function appendSyntheticAssistantReply(
  * 追加一个完整的 turn 到 JSONL 文件（用于全量审计和回放）
  */
 export function appendTurn(workspaceDir: string, turn: AgentTurn): void {
-  const dir = sessionsDir(workspaceDir);
-  fs.mkdirSync(dir, { recursive: true });
-  const filePath = turnsFilePath(workspaceDir, turn.sessionId);
-  fs.appendFileSync(filePath, JSON.stringify(turn) + "\n", "utf8");
+  persistOrThrow("turns", () => {
+    const dir = sessionsDir(workspaceDir);
+    fs.mkdirSync(dir, { recursive: true });
+    const filePath = turnsFilePath(workspaceDir, turn.sessionId);
+    fs.appendFileSync(filePath, JSON.stringify(turn) + "\n", "utf8");
+  });
 }
 
 /**
@@ -400,6 +407,12 @@ export function loadTurns(workspaceDir: string, sessionId: string): AgentTurn[] 
 /**
  * 列出所有 session，按 updatedAt 倒序
  */
+/** listSessions 的逐文件 (mtime,size) 缓存：长会话目录下不再每次全量重读+解析。 */
+const listSessionsFileCache = new Map<
+  string,
+  { mtimeMs: number; size: number; session: AgentSession }
+>();
+
 export function listSessions(workspaceDir: string): AgentSession[] {
   const dir = sessionsDir(workspaceDir);
   try {
@@ -408,8 +421,23 @@ export function listSessions(workspaceDir: string): AgentSession[] {
       .filter((f) => f.endsWith(".json") && !f.endsWith(".turns.jsonl"));
     return files
       .map((file) => {
+        const full = path.join(dir, file);
         try {
-          return JSON.parse(fs.readFileSync(path.join(dir, file), "utf8")) as AgentSession;
+          const stat = fs.statSync(full);
+          const cached = listSessionsFileCache.get(full);
+          if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+            return cached.session;
+          }
+          const session = JSON.parse(fs.readFileSync(full, "utf8")) as AgentSession;
+          // 防御性上限：大量历史会话时只保留最近一批（LRU 近似——Map 插入序）。
+          if (listSessionsFileCache.size > 512) {
+            const oldest = listSessionsFileCache.keys().next().value;
+            if (oldest) {
+              listSessionsFileCache.delete(oldest);
+            }
+          }
+          listSessionsFileCache.set(full, { mtimeMs: stat.mtimeMs, size: stat.size, session });
+          return session;
         } catch {
           return null;
         }
@@ -441,10 +469,7 @@ export function compactHistory(
   return [...systemMessages, ...keptMessages];
 }
 
-/**
- * 将 session 的 conversationHistory 转换为发送给 LLM 的消息格式
- */
-export function toModelMessages(session: AgentSession): Array<{
+export type ModelChatMessage = {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
   tool_calls?: Array<{
@@ -453,18 +478,15 @@ export function toModelMessages(session: AgentSession): Array<{
     function: { name: string; arguments: string };
   }>;
   tool_call_id?: string;
-}> {
+};
+
+/**
+ * Sole session → LLM history mapper for runTurn.
+ * Callers must write `conversationHistory` first (prompt / compact / tools), then derive.
+ */
+export function deriveModelMessages(session: AgentSession): ModelChatMessage[] {
   return session.conversationHistory.map((msg) => {
-    const base: {
-      role: "system" | "user" | "assistant" | "tool";
-      content: string;
-      tool_calls?: Array<{
-        id: string;
-        type: "function";
-        function: { name: string; arguments: string };
-      }>;
-      tool_call_id?: string;
-    } = {
+    const base: ModelChatMessage = {
       role: msg.role,
       content: msg.content,
     };
@@ -485,3 +507,6 @@ export function toModelMessages(session: AgentSession): Array<{
     return base;
   });
 }
+
+/** Alias kept for existing imports; same function as {@link deriveModelMessages}. */
+export const toModelMessages = deriveModelMessages;

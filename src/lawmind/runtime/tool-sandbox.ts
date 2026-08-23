@@ -1,8 +1,10 @@
 /**
  * P2 POC: run high-risk tools in a child process when tool sandbox is enabled.
+ * Missing runner refuses — never silently fall back to in-process.
  */
 
 import { fork, type ChildProcess } from "node:child_process";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createLegalToolRegistry } from "../agent/tools/legal-tools.js";
 import type { AgentContext, ToolCallResult } from "../agent/types.js";
@@ -67,7 +69,7 @@ export async function executeToolSandboxInline(
   });
   const tool = registry.get(payload.toolName);
   if (!tool) {
-    return { ok: false, error: `Unknown tool: ${payload.toolName}` };
+    return { ok: false, error: `未知工具：${payload.toolName}。该工具未注册，请核对请求。` };
   }
   try {
     const ctx = buildAgentContextFromPayload(payload);
@@ -80,23 +82,48 @@ export async function executeToolSandboxInline(
   }
 }
 
-function childEntryPath(): string {
+export const SANDBOX_UNAVAILABLE = "SANDBOX_UNAVAILABLE";
+
+export function sandboxUnavailableResult(reason: string): ToolCallResult {
+  return {
+    ok: false,
+    error: `${SANDBOX_UNAVAILABLE}: ${reason}`,
+    sandboxed: false,
+  };
+}
+
+export function childEntryPath(): string {
   return fileURLToPath(new URL("./tool-sandbox-child.js", import.meta.url));
 }
 
-function useInlineSandbox(): boolean {
-  return (
-    process.env.LAWMIND_TOOL_SANDBOX_INLINE?.trim() === "1" ||
-    process.env.VITEST === "true" ||
-    process.env.VITEST === "1"
-  );
+export function resolveSandboxExecutionMode(
+  env: NodeJS.ProcessEnv = process.env,
+): "inline" | "child" {
+  if (env.LAWMIND_TOOL_SANDBOX_INLINE?.trim() === "1") {
+    return "inline";
+  }
+  if (env.VITEST === "true" || env.VITEST === "1") {
+    return "inline";
+  }
+  return "child";
+}
+
+export function assertSandboxRunnerOrRefuse(runnerPath: string): ToolCallResult | undefined {
+  if (fs.existsSync(runnerPath)) {
+    return undefined;
+  }
+  return sandboxUnavailableResult(`runner missing (${runnerPath}). Refusing in-process fallback.`);
 }
 
 export async function runToolInSubprocessSandbox(call: ToolCallContext): Promise<ToolCallResult> {
   const payload = buildToolSandboxPayload(call);
-  if (useInlineSandbox()) {
+  if (resolveSandboxExecutionMode() === "inline") {
     const result = await executeToolSandboxInline(payload);
     return { ...result, sandboxed: true };
+  }
+  const refuse = assertSandboxRunnerOrRefuse(childEntryPath());
+  if (refuse) {
+    return refuse;
   }
 
   return new Promise<ToolCallResult>((resolve) => {
@@ -133,11 +160,11 @@ export async function runToolInSubprocessSandbox(call: ToolCallContext): Promise
         env: { ...process.env },
       });
     } catch (err) {
-      finish({
-        ok: false,
-        error: `Tool sandbox fork failed: ${err instanceof Error ? err.message : String(err)}`,
-        sandboxed: true,
-      });
+      finish(
+        sandboxUnavailableResult(
+          `fork failed: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
       return;
     }
 

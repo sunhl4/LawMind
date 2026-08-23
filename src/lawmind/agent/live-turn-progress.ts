@@ -1,7 +1,15 @@
 import type { TaskExecutionState } from "../platform/contracts.js";
-import { toolDisplayNameZh } from "../platform/requires-action.js";
+import { MAX_LIVE_TURN_STEPS } from "./embed-turn-events.js";
 import type { RunTurnEvent } from "./runtime.js";
+import { presentLawyerToolCall, presentLawyerToolResult } from "./tool-lawyer-card.js";
 import type { PersistedChatLiveTrace } from "./types.js";
+
+function boundLiveTurnSteps(steps: LiveTurnStep[]): LiveTurnStep[] {
+  if (steps.length <= MAX_LIVE_TURN_STEPS) {
+    return steps;
+  }
+  return steps.slice(-MAX_LIVE_TURN_STEPS);
+}
 
 export type LiveTurnStep = {
   id: string;
@@ -20,10 +28,6 @@ export type LiveTurnProgress = {
 };
 
 const store = new Map<string, LiveTurnProgress>();
-
-function toolLabel(toolName: string): string {
-  return toolDisplayNameZh(toolName);
-}
 
 export function beginLiveTurnProgress(sessionId: string): void {
   store.set(sessionId, {
@@ -56,14 +60,17 @@ export function applyLiveTurnEvent(sessionId: string, event: RunTurnEvent): void
         status: "running",
       });
       break;
-    case "tool_call_start":
+    case "tool_call_start": {
+      const card = presentLawyerToolCall(event.toolName, event.args ?? {});
       next.steps.push({
         id: event.toolCallId || `tool-${next.steps.length}`,
         kind: "tool",
-        label: toolLabel(event.toolName),
+        label: card.title,
         status: "running",
+        detail: card.detail,
       });
       break;
+    }
     case "tool_progress":
       next.steps.push({
         id: `wf-${next.steps.length}-${Date.now()}`,
@@ -73,6 +80,15 @@ export function applyLiveTurnEvent(sessionId: string, event: RunTurnEvent): void
       });
       break;
     case "tool_call_end": {
+      const resultCard = presentLawyerToolResult(
+        event.toolName,
+        {},
+        {
+          ok: event.ok,
+          error: event.error,
+        },
+      );
+      const detail = event.error?.trim() || event.resultPreview || resultCard.detail;
       const idx = [...next.steps]
         .toReversed()
         .findIndex((s) => s.kind === "tool" && s.status === "running");
@@ -82,7 +98,7 @@ export function applyLiveTurnEvent(sessionId: string, event: RunTurnEvent): void
         next.steps[realIdx] = {
           ...row,
           status: event.ok ? "done" : "failed",
-          detail: event.error,
+          detail,
         };
       }
       for (let i = 0; i < next.steps.length; i++) {
@@ -107,10 +123,30 @@ export function applyLiveTurnEvent(sessionId: string, event: RunTurnEvent): void
       break;
     case "clarification":
       break;
+    case "tool_budget":
+      if (event.level === "warn") {
+        next.steps.push({
+          id: `tool-budget-${next.steps.length}`,
+          kind: "round",
+          label: `工具调用将触顶（${event.used}/${event.maxToolCalls}）`,
+          status: "done",
+        });
+      }
+      break;
+    case "overflow_prune":
+      next.steps.push({
+        id: `overflow-prune-${next.steps.length}`,
+        kind: "round",
+        label: "上下文较满，已精简后继续",
+        status: "done",
+        detail: event.prunedCount > 0 ? `精简 ${event.prunedCount} 条工具结果` : undefined,
+      });
+      break;
     default:
       break;
   }
 
+  next.steps = boundLiveTurnSteps(next.steps);
   store.set(sessionId, next);
 }
 

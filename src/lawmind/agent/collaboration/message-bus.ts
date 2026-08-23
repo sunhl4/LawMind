@@ -17,6 +17,8 @@ import {
   resolveLawMindRoot,
 } from "../../assistants/store.js";
 import { createLawMindAgent } from "../agent-factory.js";
+import { inheritChildGates } from "../child-gates.js";
+import type { AgentPermissionMode } from "../permission-mode.js";
 import { saveSession } from "../session.js";
 import type { AgentConfig } from "../types.js";
 import type { CollaborationMessage, CollaborationMessageKind } from "./types.js";
@@ -84,6 +86,13 @@ export async function sendAndWait(params: {
   message: string;
   matterId?: string;
   timeoutMs?: number;
+  /** 模板级工具预批准（executor 已按白名单过滤）。 */
+  preApproveToolNames?: string[];
+  /** 指令头标签：consult（默认）或 review_request（request_review 专用）。 */
+  kind?: "consult" | "review_request";
+  permissionMode?: AgentPermissionMode;
+  allowedToolNames?: string[];
+  toolSandboxEnabled?: boolean;
 }): Promise<SendAndWaitResult> {
   const { baseConfig, fromAssistantId, toAssistantId, message, matterId } = params;
   const timeoutMs = params.timeoutMs ?? 60_000;
@@ -100,21 +109,50 @@ export async function sendAndWait(params: {
     );
   }
 
-  const agent = createLawMindAgent(targetConfig);
+  const gates = inheritChildGates({
+    parent: {
+      permissionMode: params.permissionMode ?? targetConfig.permissionMode ?? "standard",
+      matterId,
+      allowedToolNames: params.allowedToolNames,
+      toolSandboxEnabled: params.toolSandboxEnabled === true,
+    },
+    childPermissionMode: targetConfig.permissionMode,
+  });
+  const childConfig: AgentConfig = {
+    ...targetConfig,
+    permissionMode: gates.permissionMode,
+    allowedToolNames: gates.allowedToolNames,
+    ...(gates.toolSandboxEnabled ? { toolSandboxEnabled: true } : {}),
+  };
+  const agent = createLawMindAgent(childConfig);
 
   const instruction = buildCollaborationInstruction({
-    kind: "consult",
+    kind: params.kind ?? "consult",
     fromAssistantId,
     message,
   });
 
-  const resultPromise = agent.chat(instruction, { matterId });
+  const abortController = new AbortController();
+  const resultPromise = agent.chat(instruction, {
+    matterId: gates.matterId ?? matterId,
+    permissionMode: childConfig.permissionMode,
+    preApproveToolNames: params.preApproveToolNames,
+    shouldAbort: () => abortController.signal.aborted,
+  });
 
-  const result = await withTimeout(
-    resultPromise,
-    timeoutMs,
-    `Consult to ${toAssistantId} timed out after ${timeoutMs}ms`,
-  );
+  let result: Awaited<typeof resultPromise>;
+  try {
+    result = await withTimeout(
+      resultPromise,
+      timeoutMs,
+      `Consult to ${toAssistantId} timed out after ${timeoutMs}ms`,
+    );
+  } catch (err) {
+    // 超时后协作式中止底层子会话（模型轮间生效），避免子 agent 继续跑到完成。
+    abortController.abort();
+    void resultPromise.catch(() => undefined);
+    throw err;
+  }
 
   return {
     reply: result.reply,
@@ -143,6 +181,8 @@ export function fireAndForget(params: {
   collaborationDepth?: number;
   /** Inherit parent's compose permission mode when set. */
   permissionMode?: AgentConfig["permissionMode"];
+  allowedToolNames?: string[];
+  toolSandboxEnabled?: boolean;
   /** Abort child turn after this many ms (0 = no timer). */
   timeoutMs?: number;
   onTimeout?: (targetSessionId: string) => void;
@@ -163,16 +203,27 @@ export function fireAndForget(params: {
     );
   }
 
+  const gates = inheritChildGates({
+    parent: {
+      permissionMode: params.permissionMode ?? targetConfig.permissionMode ?? "standard",
+      matterId,
+      allowedToolNames: params.allowedToolNames,
+      toolSandboxEnabled: params.toolSandboxEnabled === true,
+    },
+    childPermissionMode: targetConfig.permissionMode,
+  });
   const childConfig: AgentConfig = {
     ...targetConfig,
-    permissionMode: params.permissionMode ?? targetConfig.permissionMode,
+    permissionMode: gates.permissionMode,
+    allowedToolNames: gates.allowedToolNames,
+    ...(gates.toolSandboxEnabled ? { toolSandboxEnabled: true } : {}),
     collaborationDepth,
   };
   const agent = createLawMindAgent(childConfig);
 
   const kindResolved = kind ?? "delegate";
   const preSession = agent.newSession({
-    matterId,
+    matterId: gates.matterId ?? matterId,
     title: `[协作] ${kindResolved} · ${fromAssistantId}`.slice(0, 200),
   });
   preSession.collaborationDelegationId = delegationId;
@@ -195,7 +246,7 @@ export function fireAndForget(params: {
 
   const completion = agent
     .chat(instruction, {
-      matterId,
+      matterId: gates.matterId ?? matterId,
       sessionId: targetSessionId,
       liveProgressSessionId: targetSessionId,
       permissionMode: childConfig.permissionMode,
