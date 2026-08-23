@@ -111,6 +111,7 @@ export type RunTurnEvent =
       toolName: string;
       ok: boolean;
       error?: string;
+      resultPreview?: string;
       /** Statute/case search returned no authority — UI should show 缺源 banner. */
       authorityGap?: boolean;
       /** Open sample / demo CORPUS hits — UI should show 演示语料 watermark. */
@@ -138,6 +139,17 @@ export type RunTurnEvent =
       used: number;
       effectiveLimit: number;
       level: "ok" | "warn" | "compact";
+    }
+  | {
+      type: "tool_budget";
+      used: number;
+      maxToolCalls: number;
+      level: "warn" | "hard";
+    }
+  | {
+      type: "overflow_prune";
+      prunedCount: number;
+      charsRemoved: number;
     }
   | {
       type: "compact_boundary";

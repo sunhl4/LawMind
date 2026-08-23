@@ -27,6 +27,17 @@ import { findAssistantsByRole } from "../tools/coordination/utils.js";
 import type { AgentConfig } from "../types.js";
 import type { CollaborationWorkflow, WorkflowStep, WorkflowEvent } from "./types.js";
 
+const TEMPLATE_PREAPPROVABLE_TOOLS = new Set([
+  "apply_surgical_edits",
+  "render_tracked_draft",
+  "prepare_outbound_mail",
+]);
+
+export function templatePreApprovableTools(names: string[] | undefined): string[] | undefined {
+  const filtered = (names ?? []).filter((n) => TEMPLATE_PREAPPROVABLE_TOOLS.has(n));
+  return filtered.length > 0 ? filtered : undefined;
+}
+
 /**
  * W8：在派发前根据 step.assigneeRoleId 重新解析 assignee。
  * 若 roleId 有效且工作区存在对应助手，则覆盖 step.assignee；否则保持原 assignee 字符串。

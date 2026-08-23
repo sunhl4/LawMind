@@ -3,6 +3,23 @@ import path from "node:path";
 import { CLAUSE_PLAYBOOK_RELATIVE } from "../memory/playbook-learning.js";
 import type { ComposeContextPin } from "../platform/compose-context-pin.js";
 import { getFleetPlaybook } from "../review-campaign/playbooks.js";
+import { deliverableTypeFromInstruction } from "../router/intake-gate.js";
+
+/** Contract works always see the clause playbook — lawyer does not hunt settings. */
+export function withContractPlaybookPin(
+  pins: ComposeContextPin[] | undefined,
+  instruction: string,
+): ComposeContextPin[] {
+  const current = pins ?? [];
+  if (current.some((pin) => pin.pinKind === "clause")) {
+    return current;
+  }
+  const type = deliverableTypeFromInstruction(instruction);
+  if (!type?.startsWith("contract.")) {
+    return current;
+  }
+  return [...current, { pinKind: "clause", scope: "full" }];
+}
 
 const PINNED_EXCERPT_MAX_CHARS = 8_000;
 

@@ -211,6 +211,15 @@ export function chatErrorUserText(status: number, body: ApiErrorJson): string {
   return userMessageFromApiError(status, body);
 }
 
+/** Re-issue a loopback fetch. Auth refresh lives on the product tree; here just run once. */
+export async function fetchWithLoopbackAuthRetry(
+  apiBase: string,
+  run: (base: string) => Promise<Response>,
+): Promise<{ response: Response; apiBase: string }> {
+  const startBase = apiBase.replace(/\/$/, "");
+  return { response: await run(startBase), apiBase: startBase };
+}
+
 /** 读取响应正文并解析 JSON；失败时抛出 ApiRequestError（含片段原文，便于排查网关/HTML 报错页）。 */
 export async function readJsonFromResponse<T>(response: Response): Promise<T & ApiErrorJson> {
   const text = await response.text();

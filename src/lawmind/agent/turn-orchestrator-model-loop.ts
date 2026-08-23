@@ -10,7 +10,6 @@ import {
 import { makeContextPinId } from "../platform/compose-context-pin.js";
 import type { ToolCallRef } from "../runtime/tool-concurrency.js";
 import type { ClarificationQuestion } from "../types.js";
-import { claimAndApplyWorkGoal } from "../work/goal.js";
 import { callModelWithRetry, ModelCallUserAbortError } from "./runtime-model-call.js";
 import { claimAndApplyPendingContextPins } from "./session-context-inject.js";
 import { claimAndApplyPendingSteer } from "./session-context-steer.js";
@@ -128,7 +127,6 @@ export async function runModelToolLoop(opts: {
       }
     }
     claimAndApplyPendingSteer(opts.session, opts.config.workspaceDir);
-    claimAndApplyWorkGoal(opts.session, opts.config.workspaceDir);
     opts.ctx.permissionMode = opts.turnContext.permissionMode;
     if (opts.turnContext.matterId) {
       opts.ctx.matterId = opts.turnContext.matterId;

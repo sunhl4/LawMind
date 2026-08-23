@@ -35,7 +35,6 @@ import {
   readWorkspacePolicyFile,
   resolveAgentMandatoryRulesForPrompt,
 } from "../policy/workspace-policy.js";
-import { ensureLawyerWorkForTurn } from "../work/goal.js";
 import { intersectAllowedToolNames } from "./child-gates.js";
 import { resolveToolCallBudgets } from "./tool-budget.js";
 import {
@@ -138,18 +137,6 @@ export async function runTurn(opts: {
     session.matterId = matterId;
   }
 
-  try {
-    ensureLawyerWorkForTurn({
-      workspaceDir: config.workspaceDir,
-      sessionId: session.sessionId,
-      instruction,
-      matterId: session.matterId,
-      source: /文件页|file chat|read_project_file/i.test(instruction) ? "file" : "chat",
-    });
-  } catch {
-    /* overlay is best-effort */
-  }
-
   // D8: keep pendingClarificationKeys across the turn so the prompt can list them;
   // finalize clears or refreshes when the turn ends.
 
@@ -171,9 +158,10 @@ export async function runTurn(opts: {
     collaborationEnabled: config.enableCollaboration === true,
     envFile: config.envFile,
     // 跨轮澄清硬门禁：上一轮以 awaiting_clarification 结束时，本轮默认拦截
-    // 起草/工作流/渲染等重工具；结构化 resume（律师逐条作答）在 runtime-resume
-    // 中显式清键放行；普通新消息若未再提出澄清，finalize 清键后下一轮放行。
-    clarificationBlockingHeavyTools: (session.pendingClarificationKeys?.length ?? 0) > 0,
+    // 起草/工作流/渲染等重工具。结构化 resume / 输入栏 followup 都带【补充信息】，
+    // 视为律师已作答，本轮放行；finalize 在不再提问时清键。
+    clarificationBlockingHeavyTools:
+      (session.pendingClarificationKeys?.length ?? 0) > 0 && !/【补充信息】/.test(instruction),
     strictDangerousToolApproval,
     preApproveToolName: opts.preApproveToolName?.trim() || undefined,
     preApproveToolArgs: opts.preApproveToolArgs,

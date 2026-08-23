@@ -1,13 +1,92 @@
 import type { RiskLevel } from "../../types.js";
 import { toolRequiresSubprocessSandbox } from "../dangerous-tool-policy.js";
-import type { AgentTool, ToolDefinition } from "../types.js";
-import { ToolRegistry } from "./registry.js";
+import { filterToolsForPermissionMode, type AgentPermissionMode } from "../permission-mode.js";
 import {
   BACKGROUND_JOB_TOOLS,
   IDEMPOTENT_READ_TOOLS,
   MATTER_SCOPE_REQUIRED,
   WRITE_TOOLS,
 } from "../tool-name-sets.js";
+import type { AgentTool, ToolDefinition } from "../types.js";
+import { ToolRegistry } from "./registry.js";
+
+/** Always-on model tools. Source of truth for prompt catalog + OpenAI tools. */
+export const CORE_MODEL_TOOL_NAMES = [
+  "analyze_document",
+  "apply_surgical_edits",
+  "list_mail_inbox",
+  "prepare_outbound_mail",
+  "read_project_file",
+  "render_document",
+  "request_approval",
+  "research_task",
+  "search_matter",
+  "search_statute",
+  "update_draft",
+  "write_document",
+] as const;
+
+export const LIST_MORE_TOOLS_NAME = "list_more_tools";
+
+export function promptCatalogToolNames(): string[] {
+  return [...CORE_MODEL_TOOL_NAMES, LIST_MORE_TOOLS_NAME].toSorted((a, b) => a.localeCompare(b));
+}
+
+export function resolveModelToolNames(opts: {
+  registeredNames: Iterable<string>;
+  allowNames?: string[];
+  permissionMode?: AgentPermissionMode;
+  disclosedNames?: string[];
+}): string[] {
+  const registered = new Set(opts.registeredNames);
+  const core = promptCatalogToolNames().filter((name) => registered.has(name));
+  const disclosed = (opts.disclosedNames ?? [])
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0 && registered.has(name) && !core.includes(name));
+  let names = [...core, ...disclosed];
+  if (opts.allowNames && opts.allowNames.length > 0) {
+    const allow = new Set(opts.allowNames);
+    names = names.filter((name) => allow.has(name) || name === LIST_MORE_TOOLS_NAME);
+  }
+  names = filterToolsForPermissionMode(names, opts.permissionMode ?? "standard");
+  if (registered.has(LIST_MORE_TOOLS_NAME) && !names.includes(LIST_MORE_TOOLS_NAME)) {
+    const mode = opts.permissionMode ?? "standard";
+    if (mode === "standard" || mode === "strict") {
+      names.push(LIST_MORE_TOOLS_NAME);
+    }
+  }
+  return [...new Set(names)].toSorted((a, b) => a.localeCompare(b));
+}
+
+export function collectDisclosedToolNames(input: {
+  disclosedToolNames?: string[];
+  conversationHistory?: Array<{
+    toolCallResponses?: Array<{ name?: string; result?: { data?: unknown } }>;
+  }>;
+}): string[] {
+  const found: string[] = [];
+  for (const name of input.disclosedToolNames ?? []) {
+    if (typeof name === "string" && name.trim()) {
+      found.push(name.trim());
+    }
+  }
+  for (const msg of input.conversationHistory ?? []) {
+    for (const resp of msg.toolCallResponses ?? []) {
+      if (resp.name !== LIST_MORE_TOOLS_NAME) {
+        continue;
+      }
+      const data = resp.result?.data;
+      if (!data || typeof data !== "object") {
+        continue;
+      }
+      const disclosed = (data as { disclosedName?: unknown }).disclosedName;
+      if (typeof disclosed === "string" && disclosed.trim()) {
+        found.push(disclosed.trim());
+      }
+    }
+  }
+  return [...new Set(found)];
+}
 
 export type ToolRuntimeMode = "readonly" | "lawyer_approved_write" | "background_job";
 export type ToolMatterScope = "required" | "optional" | "not_applicable";

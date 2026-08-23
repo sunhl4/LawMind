@@ -8,3 +8,8 @@ export * from "./draft-reasoning.js";
 export * from "./capability-envelope.js";
 export * from "./resolve.js";
 export * from "./probe.js";
+
+/** Keyword vs model router label for desktop diagnostics. */
+export function effectiveRouterMode(_lawMindRoot?: string): "keyword" | "model" {
+  return "keyword";
+}

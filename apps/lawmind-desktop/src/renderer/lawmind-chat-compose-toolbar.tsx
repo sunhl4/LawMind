@@ -16,8 +16,6 @@ import {
   type ComposePermissionMode,
 } from "./lawmind-compose-prefs";
 import type { ModelCatalogEntry } from "./lawmind-models-api";
-import { LawmindDeskWorkPanel } from "./LawmindDeskWorkPanel";
-import { requestOpenMeetingView } from "./lawmind-meeting-nav-bus";
 
 export type LawmindChatComposeToolbarProps = {
   loading: boolean;
@@ -79,10 +77,6 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
     onComposeModelQuickTest,
     composeModelQuickTestBusy,
     onOpenWriteMaterials,
-    onFillComposer,
-    hasMaterials = false,
-    onCreateMatter,
-    onOpenWorkflows,
     contextBudget = null,
     compactBusy = false,
     compactHint = null,
@@ -93,30 +87,22 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
   } = props;
 
   const [composeOptionsOpen, setComposeOptionsOpen] = useState(false);
-  const [deskWorkOpen, setDeskWorkOpen] = useState(false);
   const composeOptionsRef = useRef<HTMLDivElement | null>(null);
-  const deskWorkRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!composeOptionsOpen && !deskWorkOpen) {
+    if (!composeOptionsOpen) {
       return;
     }
     const onDoc = (event: MouseEvent) => {
       const t = event.target as Node | null;
-      if (
-        !t ||
-        composeOptionsRef.current?.contains(t) ||
-        deskWorkRef.current?.contains(t)
-      ) {
+      if (!t || composeOptionsRef.current?.contains(t)) {
         return;
       }
       setComposeOptionsOpen(false);
-      setDeskWorkOpen(false);
     };
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setComposeOptionsOpen(false);
-        setDeskWorkOpen(false);
       }
     };
     document.addEventListener("mousedown", onDoc);
@@ -125,7 +111,7 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
       document.removeEventListener("mousedown", onDoc);
       document.removeEventListener("keydown", onKey);
     };
-  }, [composeOptionsOpen, deskWorkOpen]);
+  }, [composeOptionsOpen]);
 
   return (
     <div className="lm-compose-toolbar" aria-label="模型与发送">
@@ -172,7 +158,6 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
             aria-haspopup="dialog"
             title="联网与其它选项"
             onClick={() => {
-              setDeskWorkOpen(false);
               setComposeOptionsOpen((v) => !v);
             }}
           >
@@ -220,21 +205,6 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
                 <option value="web">联网</option>
               </select>
             </label>
-            <button
-              type="button"
-              className="lm-compose-options-action"
-              data-testid="lm-compose-open-meeting"
-              disabled={loading}
-              onClick={() => {
-                setComposeOptionsOpen(false);
-                requestOpenMeetingView();
-              }}
-            >
-              <span className="lm-compose-options-action-k" aria-hidden>
-                议
-              </span>
-              会议室
-            </button>
             {loading && input.trim() && onEnqueueNextTurn ? (
               <button
                 type="button"
@@ -278,35 +248,20 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
             onOpenMemory={onOpenMemoryInspector}
           />
         ) : null}
-        <div className="lm-compose-desk-work" ref={deskWorkRef}>
-          <button
-            type="button"
-            className="lm-btn lm-btn-ghost lm-btn-small lm-compose-templates-btn"
-            data-testid="lm-compose-desk-work"
-            aria-label="办件"
-            aria-expanded={deskWorkOpen}
-            aria-haspopup="menu"
-            title="先附材料，再选流程"
-            onClick={() => {
-              setComposeOptionsOpen(false);
-              setDeskWorkOpen((v) => !v);
-            }}
-          >
-            办件
-          </button>
-          <div className="lm-compose-desk-work-pop" hidden={!deskWorkOpen}>
-            <LawmindDeskWorkPanel
-              onFillComposer={(prompt) => {
-                onFillComposer?.(prompt);
-              }}
-              onOpenWriteMaterials={onOpenWriteMaterials}
-              onCreateMatter={onCreateMatter}
-              onOpenWorkflows={onOpenWorkflows}
-              hasMaterials={hasMaterials}
-              onPick={() => setDeskWorkOpen(false)}
-            />
-          </div>
-        </div>
+        <button
+          type="button"
+          className="lm-btn lm-btn-ghost lm-btn-small lm-compose-templates-btn"
+          data-testid="lm-compose-write-materials"
+          aria-label="写材料"
+          title="打开文书模板"
+          disabled={loading}
+          onClick={() => {
+            setComposeOptionsOpen(false);
+            onOpenWriteMaterials();
+          }}
+        >
+          写材料
+        </button>
       </div>
       <div className="lm-compose-toolbar-end">
         {loading ? (

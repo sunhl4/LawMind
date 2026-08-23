@@ -12,7 +12,6 @@ import {
   toolFailureFromIngest,
 } from "../../../platform/ingest-helpers.js";
 import { resolveWorkspaceRelativePath } from "../../../runtime/workspace-path.js";
-import { searchLawyerWorks } from "../../../work/search.js";
 import type { AgentTool } from "../../types.js";
 import { matterRequiredResult } from "../matter-required.js";
 import {
@@ -56,18 +55,14 @@ export const searchMatter: AgentTool = {
     const index = await buildMatterIndex(ctx.workspaceDir, matterId);
     const query = typeof params.query === "string" ? params.query : "";
     const hits = searchMatterIndex(index, query);
-    const workHits = searchLawyerWorks(ctx.workspaceDir, query, {
-      matterId,
-      limit: 8,
-    });
     return {
       ok: true,
       data: {
         matterId,
         query: params.query,
         hits: hits.slice(0, 20),
-        workHits,
-        total: hits.length + workHits.length,
+        workHits: [],
+        total: hits.length,
       },
     };
   },
@@ -173,19 +168,6 @@ export const searchWorkspace: AgentTool = {
       }
     }
 
-    const workHits = searchLawyerWorks(ctx.workspaceDir, queryRaw, {
-      matterId: ctx.matterId,
-      limit: 8,
-    });
-    for (const work of workHits) {
-      results.push({
-        source: `work:${work.workId}`,
-        path: `lawmind/works/${work.workId}.json`,
-        docKind: "work",
-        snippet: work.snippet,
-      });
-    }
-
     const merged = [...results, ...projectHits].slice(0, 60);
 
     return {
@@ -193,7 +175,7 @@ export const searchWorkspace: AgentTool = {
       data: {
         query: params.query,
         results: merged,
-        workHits,
+        workHits: [],
         total: merged.length,
         projectScanned: Boolean(ctx.projectDir?.trim()),
         crossMatterScanned: crossMatterAllowed,
