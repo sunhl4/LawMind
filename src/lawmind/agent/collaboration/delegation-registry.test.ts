@@ -1,5 +1,5 @@
-import fs from "node:fs/promises";
 import fsSync from "node:fs";
+import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -149,5 +149,27 @@ describe("delegation-registry", () => {
     const evt = buildDelegationEvent(completed, "delegation.completed");
     expect(evt.kind).toBe("delegation.completed");
     expect(readDelegationResultFile(workspaceDir, completed)).toBeUndefined();
+  });
+
+  it("readDelegationResultFile stays inside the workspace fence", () => {
+    const rec = registerDelegation({
+      workspaceDir,
+      fromAssistantId: "lead",
+      toAssistantId: "research",
+      task: "spill path",
+    });
+    const insideRel = path.join("delegations", `${rec.delegationId}.result.md`);
+    fsSync.mkdirSync(path.join(workspaceDir, "delegations"), { recursive: true });
+    fsSync.writeFileSync(path.join(workspaceDir, insideRel), "inside-ok", "utf8");
+    rec.resultPath = insideRel;
+    expect(readDelegationResultFile(workspaceDir, rec)).toBe("inside-ok");
+
+    const outside = path.join(os.tmpdir(), `lawmind-deleg-escape-${rec.delegationId}.md`);
+    fsSync.writeFileSync(outside, "secret", "utf8");
+    rec.resultPath = outside;
+    expect(readDelegationResultFile(workspaceDir, rec)).toBeUndefined();
+    rec.resultPath = "../etc/passwd";
+    expect(readDelegationResultFile(workspaceDir, rec)).toBeUndefined();
+    fsSync.rmSync(outside, { force: true });
   });
 });

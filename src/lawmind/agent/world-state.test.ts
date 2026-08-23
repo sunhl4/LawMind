@@ -27,6 +27,40 @@ describe("world-state sections", () => {
     expect(hashWorldStateBody("案件：m1")).toBe(hashWorldStateBody("  案件：m1\n"));
   });
 
+  it("two assemble rounds with unchanged hashes keep system prefix bytes stable", () => {
+    const prefix = "You are LawMind.\n\n## Static policy\nDo not leak.";
+    const first = [
+      prefix,
+      wrapWorldStateSection("pins", "- pin-a"),
+      wrapWorldStateSection("permission", formatPermissionWorldState("standard")),
+    ].join("\n\n");
+    const firstHashes = collectWorldStateHashes(first);
+
+    const secondAssembled = [
+      prefix,
+      wrapWorldStateSection("pins", "  - pin-a  "),
+      wrapWorldStateSection("permission", `${formatPermissionWorldState("standard")}\n`),
+    ].join("\n\n");
+    const secondHashes = collectWorldStateHashes(secondAssembled);
+    expect(secondHashes).toEqual(firstHashes);
+
+    const second = stabilizeUnchangedWorldState(secondAssembled, first, firstHashes, secondHashes);
+    expect(second).toBe(first);
+
+    const thirdAssembled = [
+      prefix,
+      wrapWorldStateSection("pins", "- pin-a"),
+      wrapWorldStateSection("permission", formatPermissionWorldState("standard")),
+    ].join("\n\n");
+    const third = stabilizeUnchangedWorldState(
+      thirdAssembled,
+      second,
+      collectWorldStateHashes(second),
+      collectWorldStateHashes(thirdAssembled),
+    );
+    expect(third).toBe(first);
+  });
+
   it("stabilizes unchanged sections from the previous system text", () => {
     const prev = [
       "HEAD",

@@ -1,7 +1,14 @@
 /**
  * One embed contract: Desktop HTTP + SSE is the App Server.
  * Chat, resume, second window, and live-turn all speak RunTurnEvent types.
- * Job/automation SSE is `{ ok, job }` snapshots — not a second turn dialect.
+ *
+ * Jobs SSE stays `{ ok, job }` snapshots on purpose (steal-now #12 leftover):
+ * automations poll job state; that is not a second RunTurnEvent dialect.
+ *
+ * Elicitation (steal-now #8): stage the tool batch, then flush atomically so a
+ * later sample never sees a prefix of results. After the lawyer answers
+ * (【补充信息】 followup / resume), sampling continues — we do not withhold
+ * history until every question is answered.
  */
 
 import type { RunTurnEvent } from "./turn-orchestrator-events.js";

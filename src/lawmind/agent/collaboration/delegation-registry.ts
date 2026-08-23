@@ -13,6 +13,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { resolveWorkspaceRelativePath } from "../../runtime/workspace-path.js";
 import type {
   CollaborationEvent,
   CollaborationPolicy,
@@ -109,9 +110,12 @@ export function readDelegationResultFile(
   if (!rel) {
     return undefined;
   }
-  const abs = path.isAbsolute(rel) ? rel : path.join(workspaceDir, rel);
+  const resolved = resolveWorkspaceRelativePath(workspaceDir, rel);
+  if (!resolved.ok) {
+    return undefined;
+  }
   try {
-    return fs.readFileSync(abs, "utf8");
+    return fs.readFileSync(resolved.abs, "utf8");
   } catch {
     return undefined;
   }
