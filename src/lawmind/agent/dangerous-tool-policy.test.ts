@@ -97,7 +97,14 @@ describe("dangerous-tool-policy", () => {
     // In strict mode, WRITE_TOOLS membership enforces approval — aligning
     // runtime enforcement with governance metadata (which marks these
     // requiresApproval: true via resolveRuntimeMode).
-    for (const toolName of ["write_document", "update_draft", "add_case_note"] as const) {
+    for (const toolName of [
+      "write_document",
+      "update_draft",
+      "add_case_note",
+      "apply_surgical_edits",
+      "render_tracked_draft",
+      "prepare_outbound_mail",
+    ] as const) {
       const definition: ToolDefinition = {
         ...defApproved,
         name: toolName,

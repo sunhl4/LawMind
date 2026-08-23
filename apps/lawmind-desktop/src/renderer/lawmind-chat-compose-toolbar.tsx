@@ -12,9 +12,7 @@ import {
 } from "./LawmindComposeContextUsage";
 import {
   readExecutePermissionMode,
-  readShowToolTrace,
   writeExecutePermissionMode,
-  writeShowToolTrace,
   type ComposePermissionMode,
 } from "./lawmind-compose-prefs";
 import type { ModelCatalogEntry } from "./lawmind-models-api";
@@ -23,6 +21,8 @@ export type LawmindChatComposeToolbarProps = {
   loading: boolean;
   input: string;
   onSend: () => void | Promise<void>;
+  /** While a turn is running: queue this text as the next full turn (not a mid-turn correction). */
+  onEnqueueNextTurn?: () => void | Promise<void>;
   onAbortChat?: () => void;
   permissionMode: ComposePermissionMode;
   onPermissionModeChange: (mode: ComposePermissionMode) => void;
@@ -42,6 +42,11 @@ export type LawmindChatComposeToolbarProps = {
   onComposeModelQuickTest?: () => void | Promise<void>;
   composeModelQuickTestBusy?: boolean;
   onOpenWriteMaterials: () => void;
+  onFillComposer?: (prompt: string) => void;
+  /** 已有附件 / 钉源：办件里的合同审查 / 检索可直接锁流程。 */
+  hasMaterials?: boolean;
+  onCreateMatter?: () => void;
+  onOpenWorkflows?: () => void;
   contextBudget?: ComposeContextBudget | null;
   compactBusy?: boolean;
   compactHint?: string | null;
@@ -56,6 +61,7 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
     loading,
     input,
     onSend,
+    onEnqueueNextTurn,
     onAbortChat,
     permissionMode,
     onPermissionModeChange,
@@ -81,7 +87,6 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
   } = props;
 
   const [composeOptionsOpen, setComposeOptionsOpen] = useState(false);
-  const [showToolTrace, setShowToolTrace] = useState(() => readShowToolTrace());
   const composeOptionsRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -111,38 +116,13 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
   return (
     <div className="lm-compose-toolbar" aria-label="模型与发送">
       <div className="lm-compose-toolbar-start">
-        <label className="lm-compose-bar-field lm-compose-permission-inline">
-          <span className="lm-compose-bar-label">权限</span>
-          <select
-            className="lm-compose-select"
-            value={permissionMode}
-            aria-label="工具权限模式"
-            data-testid="lm-compose-permission-mode"
-            disabled={loading}
-            title={
-              permissionMode === "readonly"
-                ? "先计划：只检索与分析，不写盘；确认后再执行（默认严格审批）"
-                : permissionMode === "research"
-                  ? "仅调研：只读工具 + research_task，不可起草/渲染/工作流"
-                  : permissionMode === "strict"
-                    ? "严格审批：危险工具必须先拍板"
-                    : "标准：可按策略调用工具"
-            }
-            onChange={(e) => onPermissionModeChange(e.target.value as ComposePermissionMode)}
-          >
-            <option value="readonly">先计划</option>
-            <option value="research">仅调研</option>
-            <option value="standard">标准</option>
-            <option value="strict">严格审批</option>
-          </select>
-        </label>
         {permissionMode === "readonly" ? (
           <button
             type="button"
             className="lm-btn lm-btn-accent lm-btn-small"
             data-testid="lm-compose-start-execute"
             disabled={loading}
-            title="切换到执行权限并带入计划确认交办，允许起草与写盘"
+            title="按计划开始执行"
             onClick={() => {
               if (onStartExecuteFromPlan) {
                 onStartExecuteFromPlan();
@@ -160,7 +140,7 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
             className="lm-btn lm-btn-ghost lm-btn-small"
             data-testid="lm-compose-restore-standard"
             disabled={loading}
-            title="改回标准权限（危险工具仍可能按策略要求批准）"
+            title="改回标准权限"
             onClick={() => {
               writeExecutePermissionMode("standard");
               onPermissionModeChange("standard");
@@ -177,7 +157,9 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
             aria-expanded={composeOptionsOpen}
             aria-haspopup="dialog"
             title="联网与其它选项"
-            onClick={() => setComposeOptionsOpen((v) => !v)}
+            onClick={() => {
+              setComposeOptionsOpen((v) => !v);
+            }}
           >
             <span aria-hidden>+</span>
           </button>
@@ -192,7 +174,8 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
               <select
                 className="lm-compose-select"
                 value={permissionMode}
-                aria-label="工具权限模式（详细）"
+                aria-label="工具权限模式"
+                data-testid="lm-compose-permission-mode"
                 disabled={loading}
                 onChange={(e) => onPermissionModeChange(e.target.value as ComposePermissionMode)}
               >
@@ -213,7 +196,7 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
                   webSearchPolicyBlocked
                     ? "工作区策略已禁止联网检索"
                     : allowWebSearch
-                      ? "已开启：助手可调用 web_search（Brave）"
+                      ? "已开启：助手可联网搜索"
                       : "关闭：仅使用工作区、案件记忆与本地工具"
                 }
                 onChange={(e) => onAllowWebSearchChange(e.target.value === "web")}
@@ -222,31 +205,21 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
                 <option value="web">联网</option>
               </select>
             </label>
-            <span className="lm-compose-bar-field" title="当前为对话模式；多步流程请用「写材料」或在办「按流程」">
-              <span className="lm-compose-bar-label">模式</span>
-              <span className="lm-compose-mode-chip" data-testid="lm-compose-mode-chat">
-                对话
-              </span>
-            </span>
-            <label className="lm-compose-bar-field">
-              <span className="lm-compose-bar-label">工具轨迹</span>
-              <select
-                className="lm-compose-select"
-                value={showToolTrace ? "on" : "off"}
-                disabled={loading}
-                aria-label="显示工具轨迹"
-                data-testid="lm-compose-show-tool-trace"
-                title="展开助手消息中的工具步骤与轨迹"
-                onChange={(e) => {
-                  const on = e.target.value === "on";
-                  setShowToolTrace(on);
-                  writeShowToolTrace(on);
+            {loading && input.trim() && onEnqueueNextTurn ? (
+              <button
+                type="button"
+                className="lm-btn lm-btn-ghost lm-btn-small"
+                data-testid="lm-compose-enqueue-next"
+                aria-label="下一轮再发"
+                title="followup：等本轮结束后再作为新一轮发送（不是中途 steer）"
+                onClick={() => {
+                  setComposeOptionsOpen(false);
+                  void onEnqueueNextTurn();
                 }}
               >
-                <option value="off">折叠</option>
-                <option value="on">展开</option>
-              </select>
-            </label>
+                下一轮再发
+              </button>
+            ) : null}
           </div>
         </div>
         <LawmindModelPicker
@@ -260,7 +233,10 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
           disabled={loading}
           disabledTitle={loading ? "回复生成中，请稍后再切换模型" : undefined}
         />
-        {contextBudget && onCompactContext && onDistillLearning ? (
+        {contextBudget &&
+        onCompactContext &&
+        onDistillLearning &&
+        (contextBudget.level === "warn" || contextBudget.level === "compact") ? (
           <LawmindComposeContextUsage
             budget={contextBudget}
             compactBusy={compactBusy}
@@ -276,8 +252,9 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
           type="button"
           className="lm-btn lm-btn-ghost lm-btn-small lm-compose-templates-btn"
           data-testid="lm-compose-write-materials"
-          title="打开模板库：填表交办文书与材料"
-          aria-label="写材料，打开填表交办"
+          aria-label="写材料"
+          title="打开文书模板"
+          disabled={loading}
           onClick={() => {
             setComposeOptionsOpen(false);
             onOpenWriteMaterials();
@@ -288,15 +265,28 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
       </div>
       <div className="lm-compose-toolbar-end">
         {loading ? (
-          <button
-            type="button"
-            className="lm-btn lm-btn-secondary lm-chat-stop-btn"
-            aria-label="停止生成"
-            title="停止对话输出；若已关联指派任务会尽量一并取消"
-            onClick={() => onAbortChat?.()}
-          >
-            停止
-          </button>
+          <>
+            {input.trim() ? (
+              <button
+                type="button"
+                className="lm-btn"
+                aria-label="发送"
+                title="带入本轮，不必等结束再重讲"
+                onClick={() => void onSend()}
+              >
+                发送
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="lm-btn lm-btn-secondary lm-chat-stop-btn"
+              aria-label="停止生成"
+              title="停止对话输出；若已关联指派任务会尽量一并取消"
+              onClick={() => onAbortChat?.()}
+            >
+              停止
+            </button>
+          </>
         ) : (
           <button
             type="button"

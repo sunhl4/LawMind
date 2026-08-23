@@ -250,4 +250,82 @@ describe("lawmind-server-route-sessions extended", () => {
     });
     expect(loadSession(ws, session.sessionId)?.planHandoff).toBeUndefined();
   });
+
+  it("POST inject queues mid-turn pins on sidecar", async () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-sess-inject-"));
+    const session = createSession({
+      workspaceDir: ws,
+      actorId: "lawyer",
+      assistantId: "default",
+    });
+    saveSession(ws, session);
+    const { res, get } = mockRes();
+    const ctx: LawmindDispatchContext = {
+      workspaceDir: ws,
+      envFile: undefined,
+      userEnvPath: path.join(ws, ".env"),
+      policy: { loaded: false },
+    };
+    const handled = await handleSessionExtendedRoutes({
+      ctx,
+      req: jsonReq("POST", {
+        contextPins: [{ pinKind: "file", root: "workspace", relPath: "cases/m1/a.docx", kind: "file" }],
+      }),
+      res,
+      url: new URL(`http://127.0.0.1/api/sessions/${session.sessionId}/inject`),
+      pathname: `/api/sessions/${session.sessionId}/inject`,
+      c: {},
+    });
+    expect(handled).toBe(true);
+    expect(get().status).toBe(200);
+    const body = JSON.parse(get().raw) as {
+      ok: boolean;
+      pendingCount: number;
+      inboxKind?: string;
+    };
+    expect(body.ok).toBe(true);
+    expect(body.pendingCount).toBe(1);
+    expect(body.inboxKind).toBe("inject");
+    expect(fs.existsSync(path.join(ws, "sessions", `${session.sessionId}.pending-pins.json`))).toBe(
+      true,
+    );
+  });
+
+  it("POST steer queues mid-turn notes on sidecar", async () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-sess-steer-"));
+    const session = createSession({
+      workspaceDir: ws,
+      actorId: "lawyer",
+      assistantId: "default",
+    });
+    saveSession(ws, session);
+    const { res, get } = mockRes();
+    const ctx: LawmindDispatchContext = {
+      workspaceDir: ws,
+      envFile: undefined,
+      userEnvPath: path.join(ws, ".env"),
+      policy: { loaded: false },
+    };
+    const handled = await handleSessionExtendedRoutes({
+      ctx,
+      req: jsonReq("POST", { text: "不要写结论，先对责任上限" }),
+      res,
+      url: new URL(`http://127.0.0.1/api/sessions/${session.sessionId}/steer`),
+      pathname: `/api/sessions/${session.sessionId}/steer`,
+      c: {},
+    });
+    expect(handled).toBe(true);
+    expect(get().status).toBe(200);
+    const body = JSON.parse(get().raw) as {
+      ok: boolean;
+      pendingCount: number;
+      inboxKind?: string;
+    };
+    expect(body.ok).toBe(true);
+    expect(body.pendingCount).toBe(1);
+    expect(body.inboxKind).toBe("steer");
+    expect(fs.existsSync(path.join(ws, "sessions", `${session.sessionId}.pending-steer.json`))).toBe(
+      true,
+    );
+  });
 });

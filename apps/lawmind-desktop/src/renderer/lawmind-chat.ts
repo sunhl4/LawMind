@@ -5,7 +5,12 @@ import type { GateDecision, TaskExecutionState } from "../../../../src/lawmind/p
 import type { LawMindRequiresAction } from "../../../../src/lawmind/platform/requires-action.ts";
 import { parseRequiresActionsFromResponse } from "./lawmind-requires-action";
 import { isAwaitingClarification } from "../../../../src/lawmind/platform/execution-state.ts";
-import { chatErrorUserText, readJsonFromResponse, type ApiErrorJson } from "./api-client";
+import {
+  chatErrorUserText,
+  fetchWithLoopbackAuthRetry,
+  readJsonFromResponse,
+  type ApiErrorJson,
+} from "./api-client";
 import { apiAuthHeaders } from "./lawmind-api-auth.ts";
 import { readIncludeTurnDiagnostics } from "./lawmind-chat-diagnostics-pref";
 import type { ChatLiveTrace } from "./lawmind-chat-trace-types.js";
@@ -66,6 +71,8 @@ export type ChatMsg = {
   authorityGapNotice?: string;
   /** 命中开源演示 sample / 标记为 demo 的 CORPUS 时的语料水印 */
   demoCorpusNotice?: string;
+  /** Recovery CTAs from research_evidence_gate / demo_corpus_gate (SSE tool_call_end). */
+  researchNextActions?: string[];
 };
 
 export function parseRuntimeHintsFromResponse(raw: unknown): ChatRuntimeHints | undefined {
@@ -208,7 +215,12 @@ export function dropTrailingUserMessageIfText(
 
 export type StreamingChatCallbacks = {
   onRoundStart?: (roundIndex: number) => void;
-  onToolCallStart?: (info: { toolCallId: string; toolName: string; roundIndex: number }) => void;
+  onToolCallStart?: (info: {
+    toolCallId: string;
+    toolName: string;
+    roundIndex: number;
+    args?: Record<string, unknown>;
+  }) => void;
   onToolCallEnd?: (info: {
     toolCallId: string;
     toolName: string;
@@ -217,6 +229,8 @@ export type StreamingChatCallbacks = {
     error?: string;
     authorityGap?: boolean;
     demoCorpus?: boolean;
+    nextActions?: string[];
+    resultPreview?: string;
   }) => void;
   onToolProgress?: (info: {
     toolCallId: string;
@@ -230,9 +244,15 @@ export type StreamingChatCallbacks = {
     effectiveLimit: number;
     level: "ok" | "warn" | "compact";
   }) => void;
+  onToolBudget?: (info: {
+    used: number;
+    maxToolCalls: number;
+    level: "warn";
+  }) => void;
   onCompactBoundary?: (info: {
     sessionSummaryPath?: string;
     droppedMessageCount?: number;
+    overflowPrune?: boolean;
   }) => void;
 };
 
@@ -250,29 +270,31 @@ export async function sendChatTurnStream(
   callbacks: StreamingChatCallbacks = {},
 ): Promise<{ sessionId?: string; assistantMessage: ChatMsg }> {
   const includeTurnDiagnostics = readIncludeTurnDiagnostics();
-  const response = await fetch(`${args.apiBase}/api/chat`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      accept: "text/event-stream",
-      ...apiAuthHeaders(),
-    },
-    signal: args.signal,
-    body: JSON.stringify({
-      message: args.message,
-      ...(args.modelId ? { modelId: args.modelId } : {}),
-      sessionId: args.sessionId,
-      assistantId: args.assistantId,
-      allowWebSearch: args.allowWebSearch,
-      ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
-      ...(args.matterId ? { matterId: args.matterId } : {}),
-      ...(args.projectDir ? { projectDir: args.projectDir } : {}),
-      ...(args.contextPins && args.contextPins.length > 0 ? { contextPins: args.contextPins } : {}),
-      ...(args.linkedTaskId ? { linkedTaskId: args.linkedTaskId } : {}),
-      ...(args.sessionTitleHint?.trim() ? { sessionTitleHint: args.sessionTitleHint.trim() } : {}),
-      ...(includeTurnDiagnostics ? { includeTurnDiagnostics: true } : {}),
+  const { response } = await fetchWithLoopbackAuthRetry(args.apiBase, (base) =>
+    fetch(`${base}/api/chat`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "text/event-stream",
+        ...apiAuthHeaders(),
+      },
+      signal: args.signal,
+      body: JSON.stringify({
+        message: args.message,
+        ...(args.modelId ? { modelId: args.modelId } : {}),
+        sessionId: args.sessionId,
+        assistantId: args.assistantId,
+        allowWebSearch: args.allowWebSearch,
+        ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
+        ...(args.matterId ? { matterId: args.matterId } : {}),
+        ...(args.projectDir ? { projectDir: args.projectDir } : {}),
+        ...(args.contextPins && args.contextPins.length > 0 ? { contextPins: args.contextPins } : {}),
+        ...(args.linkedTaskId ? { linkedTaskId: args.linkedTaskId } : {}),
+        ...(args.sessionTitleHint?.trim() ? { sessionTitleHint: args.sessionTitleHint.trim() } : {}),
+        ...(includeTurnDiagnostics ? { includeTurnDiagnostics: true } : {}),
+      }),
     }),
-  });
+  );
   const contentType = response.headers.get("content-type") ?? "";
   if (!response.ok || !contentType.includes("text/event-stream") || !response.body) {
     const body = await readJsonFromResponse<ChatResponse>(response);
@@ -307,10 +329,17 @@ export async function sendChatTurnStream(
             toolCallId: lawmindCoerceToolField(parsed.toolCallId),
             toolName: lawmindCoerceToolField(parsed.toolName),
             roundIndex: typeof parsed.roundIndex === "number" ? parsed.roundIndex : 0,
+            args:
+              parsed.args && typeof parsed.args === "object" && !Array.isArray(parsed.args)
+                ? (parsed.args as Record<string, unknown>)
+                : undefined,
           });
           break;
         }
         case "tool_call_end": {
+          const nextActions = Array.isArray(parsed.nextActions)
+            ? parsed.nextActions.filter((x): x is string => typeof x === "string")
+            : undefined;
           callbacks.onToolCallEnd?.({
             toolCallId: lawmindCoerceToolField(parsed.toolCallId),
             toolName: lawmindCoerceToolField(parsed.toolName),
@@ -319,6 +348,10 @@ export async function sendChatTurnStream(
             error: typeof parsed.error === "string" ? parsed.error : undefined,
             authorityGap: parsed.authorityGap === true,
             demoCorpus: parsed.demoCorpus === true,
+            ...(nextActions && nextActions.length > 0 ? { nextActions } : {}),
+            ...(typeof parsed.resultPreview === "string" && parsed.resultPreview.trim()
+              ? { resultPreview: parsed.resultPreview.trim() }
+              : {}),
           });
           break;
         }
@@ -351,6 +384,20 @@ export async function sendChatTurnStream(
           }
           break;
         }
+        case "tool_budget": {
+          if (
+            typeof parsed.used === "number" &&
+            typeof parsed.maxToolCalls === "number" &&
+            parsed.level === "warn"
+          ) {
+            callbacks.onToolBudget?.({
+              used: parsed.used,
+              maxToolCalls: parsed.maxToolCalls,
+              level: "warn",
+            });
+          }
+          break;
+        }
         case "compact_boundary": {
           callbacks.onCompactBoundary?.({
             sessionSummaryPath:
@@ -362,6 +409,19 @@ export async function sendChatTurnStream(
                 ? parsed.droppedMessageCount
                 : undefined,
           });
+          break;
+        }
+        case "overflow_prune": {
+          const pruned =
+            typeof parsed.prunedCount === "number" ? parsed.prunedCount : undefined;
+          callbacks.onCompactBoundary?.({
+            droppedMessageCount: pruned,
+            overflowPrune: true,
+          });
+          break;
+        }
+        case "final":
+        case "final_reply": {
           break;
         }
         case "payload": {
@@ -460,7 +520,7 @@ function buildChatTurnResult(body: ChatResponse): {
         (body.status === "awaiting_approval"
           ? "有操作等待您的确认，请打开待我拍板或继续对话。"
           : body.toolCalls && body.toolCalls > 0
-            ? "本轮已执行工具但未返回文字说明，请查看上方工具状态或文书台草稿。"
+            ? "本轮已执行工具但未返回文字说明，请查看上方工具状态或改稿页草稿。"
             : "本轮未返回可见回复，请重试或检查模型配置。"),
       ...(typeof body.status === "string" && body.status.trim() ? { status: body.status } : {}),
       ...(body.executionState ? { executionState: body.executionState } : {}),
@@ -479,25 +539,27 @@ export async function sendChatTurn(args: SendChatTurnArgs): Promise<{
   assistantMessage: ChatMsg;
 }> {
   const includeTurnDiagnostics = readIncludeTurnDiagnostics();
-  const response = await fetch(`${args.apiBase}/api/chat`, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...apiAuthHeaders() },
-    signal: args.signal,
-    body: JSON.stringify({
-      message: args.message,
-      ...(args.modelId ? { modelId: args.modelId } : {}),
-      sessionId: args.sessionId,
-      assistantId: args.assistantId,
-      allowWebSearch: args.allowWebSearch,
-      ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
-      ...(args.matterId ? { matterId: args.matterId } : {}),
-      ...(args.projectDir ? { projectDir: args.projectDir } : {}),
-      ...(args.contextPins && args.contextPins.length > 0 ? { contextPins: args.contextPins } : {}),
-      ...(args.linkedTaskId ? { linkedTaskId: args.linkedTaskId } : {}),
-      ...(args.sessionTitleHint?.trim() ? { sessionTitleHint: args.sessionTitleHint.trim() } : {}),
-      ...(includeTurnDiagnostics ? { includeTurnDiagnostics: true } : {}),
+  const { response } = await fetchWithLoopbackAuthRetry(args.apiBase, (base) =>
+    fetch(`${base}/api/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...apiAuthHeaders() },
+      signal: args.signal,
+      body: JSON.stringify({
+        message: args.message,
+        ...(args.modelId ? { modelId: args.modelId } : {}),
+        sessionId: args.sessionId,
+        assistantId: args.assistantId,
+        allowWebSearch: args.allowWebSearch,
+        ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
+        ...(args.matterId ? { matterId: args.matterId } : {}),
+        ...(args.projectDir ? { projectDir: args.projectDir } : {}),
+        ...(args.contextPins && args.contextPins.length > 0 ? { contextPins: args.contextPins } : {}),
+        ...(args.linkedTaskId ? { linkedTaskId: args.linkedTaskId } : {}),
+        ...(args.sessionTitleHint?.trim() ? { sessionTitleHint: args.sessionTitleHint.trim() } : {}),
+        ...(includeTurnDiagnostics ? { includeTurnDiagnostics: true } : {}),
+      }),
     }),
-  });
+  );
   const body = await readJsonFromResponse<ChatResponse>(response);
   if (args.signal?.aborted) {
     throw new DOMException("The user aborted a request.", "AbortError");

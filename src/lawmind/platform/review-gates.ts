@@ -49,6 +49,11 @@ export function gateDecisionLabel(gate: GateDecision["gate"]): string {
     approval_gate: "审批门禁",
     acceptance_gate: "验收门禁",
     reasoning_gate: "推理门禁",
+    redline_hunks_gate: "痕迹稿门禁",
+    surgical_span_gate: "按词修订门禁",
+    citation_integrity_gate: "引用完整性门禁",
+    outbound_privilege_gate: "外发特权门禁",
+    outbound_recipient_gate: "外发收件人门禁",
   };
   return labels[gate];
 }

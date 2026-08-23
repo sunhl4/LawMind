@@ -1,4 +1,5 @@
 import { describe, expect, it, afterEach } from "vitest";
+import { MAX_LIVE_TURN_STEPS } from "./embed-turn-events.js";
 import {
   applyLiveTurnEvent,
   beginLiveTurnProgress,
@@ -76,5 +77,16 @@ describe("live-turn-progress", () => {
     });
     const snap = liveProgressToPersistedTrace("persist-1");
     expect(snap?.steps[0]?.label).toContain("办案流程");
+  });
+
+  it("keeps only the tail of live-turn steps", () => {
+    beginLiveTurnProgress("bound");
+    for (let i = 1; i <= MAX_LIVE_TURN_STEPS + 20; i++) {
+      applyLiveTurnEvent("bound", { type: "round_start", roundIndex: i });
+    }
+    const p = getLiveTurnProgress("bound");
+    expect(p?.steps).toHaveLength(MAX_LIVE_TURN_STEPS);
+    expect(p?.steps.at(-1)?.id).toBe(`round-${MAX_LIVE_TURN_STEPS + 20}`);
+    expect(p?.steps[0]?.id).toBe("round-21");
   });
 });

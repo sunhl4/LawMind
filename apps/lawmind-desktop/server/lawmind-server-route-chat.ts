@@ -3,6 +3,12 @@ import { resumeTurn } from "../../../src/lawmind/agent/runtime-resume.js";
 import { createLegalToolRegistry } from "../../../src/lawmind/agent/tools/index.js";
 import type { ResumeRequiresActionInput } from "../../../src/lawmind/platform/requires-action.js";
 import type { RunTurnEvent } from "../../../src/lawmind/agent/index.js";
+import { classifySessionInbox } from "../../../src/lawmind/agent/session-inbox.js";
+import { isSessionTurnInProgressError } from "../../../src/lawmind/agent/session-turn-gate.js";
+import {
+  embedSseEventName,
+  LEGACY_FINAL_SSE_ALIAS,
+} from "../../../src/lawmind/agent/embed-turn-events.js";
 import {
   clearTurnAbort,
   isTurnAbortRequested,
@@ -27,6 +33,7 @@ import {
   readTeamMeetingTail,
   TEAM_MEETING_TAIL_LIMIT_DEFAULT,
 } from "../../../src/lawmind/cases/index.js";
+import { effectiveRouterMode } from "../../../src/lawmind/models/index.js";
 import { resolveEdition } from "../../../src/lawmind/policy/edition.js";
 import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspace-policy.js";
 import { deriveInstructionTitle } from "../../../src/lawmind/tasks/index.js";
@@ -180,6 +187,7 @@ async function handleChatResumeRoute({
       requiresAction: result.turn.requiresAction,
       clarificationQuestions: result.turn.clarificationQuestions,
       taskId: result.turn.turnId,
+      inboxKind: classifySessionInbox("chat"),
     };
     if (PLATFORM_CONTRACTS_V1) {
       payload.executionState = result.turn.executionState;
@@ -190,6 +198,16 @@ async function handleChatResumeRoute({
     const msg = err instanceof Error ? err.message : String(err);
     if (msg === "session_not_found") {
       sendJsonError(res, 404, "session_not_found", "会话不存在或已过期。", c);
+      return true;
+    }
+    if (isSessionTurnInProgressError(err) || msg.startsWith("SESSION_TURN_IN_PROGRESS")) {
+      sendJsonError(
+        res,
+        409,
+        "session_turn_in_progress",
+        "该会话已有一轮在执行。请等待完成或中止后再试。",
+        c,
+      );
       return true;
     }
     if (msg === "action_not_found") {
@@ -502,7 +520,11 @@ export async function handleChatRoute({
               sseWriteEvent("clarification", { questions: event.questions });
               break;
             case "final":
-              sseWriteEvent("final_reply", { status: event.status, reply: event.reply });
+              sseWriteEvent(embedSseEventName(event.type), {
+                status: event.status,
+                reply: event.reply,
+              });
+              sseWriteEvent(LEGACY_FINAL_SSE_ALIAS, { status: event.status, reply: event.reply });
               break;
             case "token_budget":
               sseWriteEvent("token_budget", {
@@ -511,10 +533,23 @@ export async function handleChatRoute({
                 level: event.level,
               });
               break;
+            case "tool_budget":
+              sseWriteEvent("tool_budget", {
+                used: event.used,
+                maxToolCalls: event.maxToolCalls,
+                level: event.level,
+              });
+              break;
             case "compact_boundary":
               sseWriteEvent("compact_boundary", {
                 sessionSummaryPath: event.sessionSummaryPath,
                 droppedMessageCount: event.droppedMessageCount,
+              });
+              break;
+            case "overflow_prune":
+              sseWriteEvent("overflow_prune", {
+                prunedCount: event.prunedCount,
+                charsRemoved: event.charsRemoved,
               });
               break;
             default:
@@ -586,6 +621,7 @@ export async function handleChatRoute({
       taskId: result.turn.turnId,
       taskTitle: deriveInstructionTitle(message),
       memorySources,
+      inboxKind: classifySessionInbox("chat"),
     };
     if (PLATFORM_CONTRACTS_V1) {
       payload.executionState = result.turn.executionState;
@@ -599,7 +635,7 @@ export async function handleChatRoute({
     }
     if (showRuntimeHints) {
       payload.runtimeHints = {
-        lawmindRouterMode: (process.env.LAWMIND_ROUTER_MODE ?? "").trim() || "keyword",
+        lawmindRouterMode: effectiveRouterMode(lawMindRoot),
         lawmindReasoningMode: (process.env.LAWMIND_REASONING_MODE ?? "").trim() || "off",
         toolCallsExecuted: result.turn.toolCallsExecuted,
         platformContractsV1: PLATFORM_CONTRACTS_V1,
@@ -651,6 +687,24 @@ export async function handleChatRoute({
         }
       }
     };
+    if (isSessionTurnInProgressError(err) || msg.startsWith("SESSION_TURN_IN_PROGRESS")) {
+      if (wantsStream && res.headersSent) {
+        writeStreamError(
+          409,
+          "session_turn_in_progress",
+          "该会话已有一轮在执行。请等待完成或中止后再试。",
+        );
+        return true;
+      }
+      sendJsonError(
+        res,
+        409,
+        "session_turn_in_progress",
+        "该会话已有一轮在执行。请等待完成或中止后再试。",
+        c,
+      );
+      return true;
+    }
     if (msg === "session_assistant_mismatch") {
       if (wantsStream && res.headersSent) {
         writeStreamError(

@@ -1,6 +1,6 @@
 import { readWorkspacePolicyFile } from "../policy/workspace-policy.js";
-import type { ToolDefinition } from "./types.js";
 import { WRITE_TOOLS } from "./tool-name-sets.js";
+import type { ToolDefinition } from "./types.js";
 
 /**
  * Tools that do not set `requiresApproval` on the definition but must still
@@ -11,6 +11,7 @@ export const STRICT_EXTRA_APPROVAL_TOOL_NAMES = new Set<string>(["execute_workfl
 /** High-risk tools isolated in a child process when tool sandbox is enabled (P2 POC). */
 export const SUBPROCESS_SANDBOX_TOOL_NAMES = new Set<string>([
   "render_document",
+  "render_tracked_draft",
   "execute_workflow",
   "draft_document",
   "add_case_note",

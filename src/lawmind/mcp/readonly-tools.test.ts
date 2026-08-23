@@ -34,6 +34,9 @@ describe("mcp readonly-tools", () => {
     const preview = mcpGetSourcePreview(ws, "s1", taskId);
     expect(preview.ok).toBe(true);
     expect(preview.text).toMatch(/违约责任/);
+    const escaped = mcpGetSourcePreview(ws, "s1", "../../outside");
+    expect(escaped.ok).toBe(false);
+    expect(escaped.error).toBe("invalid_path");
   });
 
   it("returns review matrix for matter", () => {

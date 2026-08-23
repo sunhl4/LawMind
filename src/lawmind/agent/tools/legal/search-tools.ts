@@ -1,6 +1,5 @@
 /** Matter, workspace, statute, case-law, and project file search tools. */
 import fs from "node:fs/promises";
-import path from "node:path";
 import { loadMatter } from "../../../adapters/matter-storage/index.js";
 import { buildMatterIndex, listMatterIds, searchMatterIndex } from "../../../cases/index.js";
 import { searchPersonalKnowledge } from "../../../indexing/knowledge-search.js";
@@ -12,10 +11,10 @@ import {
   toolDataFromIngestSuccess,
   toolFailureFromIngest,
 } from "../../../platform/ingest-helpers.js";
+import { resolveWorkspaceRelativePath } from "../../../runtime/workspace-path.js";
 import type { AgentTool } from "../../types.js";
 import { matterRequiredResult } from "../matter-required.js";
 import {
-  isPathInsideRoot,
   isPdfPath,
   isDocxPath,
   isXlsxPath,
@@ -54,10 +53,17 @@ export const searchMatter: AgentTool = {
       return matterRequiredResult(ctx.workspaceDir);
     }
     const index = await buildMatterIndex(ctx.workspaceDir, matterId);
-    const hits = searchMatterIndex(index, params.query as string);
+    const query = typeof params.query === "string" ? params.query : "";
+    const hits = searchMatterIndex(index, query);
     return {
       ok: true,
-      data: { matterId, query: params.query, hits: hits.slice(0, 20), total: hits.length },
+      data: {
+        matterId,
+        query: params.query,
+        hits: hits.slice(0, 20),
+        workHits: [],
+        total: hits.length,
+      },
     };
   },
 };
@@ -169,6 +175,7 @@ export const searchWorkspace: AgentTool = {
       data: {
         query: params.query,
         results: merged,
+        workHits: [],
         total: merged.length,
         projectScanned: Boolean(ctx.projectDir?.trim()),
         crossMatterScanned: crossMatterAllowed,
@@ -182,7 +189,7 @@ export const readProjectFile: AgentTool = {
   definition: {
     name: "read_project_file",
     description:
-      "读取律师在桌面端关联的「项目目录」下的文本文件、PDF、.docx、.xlsx（表格转 TSV 纯文本，有界）、常见图片（OCR，可选视觉兜底）（相对路径）。不支持旧式 .doc/.xls/.ppt 与 .pptx。用于合同、证据清单、说明等本地材料；未关联项目时不可用。大文件请用 offset/limit（字符）分页；hasMore=true 时用 nextOffset 续读。",
+      "读取律师在桌面端关联的「项目目录」下的文本文件、PDF、.docx、.xlsx（表格转 TSV 纯文本，有界）、常见图片（OCR，可选视觉兜底）（相对路径）。二进制 .doc 请用 analyze_document（直接提取，无需转格式）；不支持 .xls/.ppt 与 .pptx。用于合同、证据清单、说明等本地材料；未关联项目时不可用。大文件请用 offset/limit（字符）分页；hasMore=true 时用 nextOffset 续读。",
     category: "search",
     parameters: {
       relative_path: {
@@ -237,17 +244,22 @@ export const readProjectFile: AgentTool = {
         { contentTrust: "untrusted_user_document" },
       );
     };
-    if (!rel || rel.includes("..")) {
+    if (!rel) {
       return toolFailureFromIngest(
         ingestFailure("INGEST_INVALID_PATH", "path_validation", "非法路径"),
       );
     }
-    const full = path.resolve(root, rel);
-    if (!isPathInsideRoot(root, full)) {
+    const resolved = resolveWorkspaceRelativePath(root, rel);
+    if (!resolved.ok) {
       return toolFailureFromIngest(
-        ingestFailure("INGEST_INVALID_PATH", "path_validation", "路径越界"),
+        ingestFailure(
+          "INGEST_INVALID_PATH",
+          "path_validation",
+          resolved.error === "empty" ? "非法路径" : "路径越界",
+        ),
       );
     }
+    const full = resolved.abs;
     const st = await fs.stat(full).catch(() => null);
     if (!st?.isFile()) {
       return toolFailureFromIngest(

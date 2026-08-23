@@ -18,6 +18,8 @@ export type IntakeGateOptions = {
   caseMemory?: string;
   /** When false, never gate (policy / Doctor / LAWMIND_INTAKE=0). */
   intakeHeuristicsEnabled?: boolean;
+  /** Pins already answered intake facts; unused on this tree (hard gate only). */
+  hasContextPins?: boolean;
 };
 
 /** Structured job forms already answered the intake; do not re-ask. */
@@ -90,6 +92,17 @@ export function resolveIntakeClarificationQuestions(
     return [];
   }
   return qs;
+}
+
+/**
+ * Soft-ask questions for the system prompt. On this tree the hard gate already
+ * returns every intake question, so advisory stays empty to avoid double-ask.
+ */
+export function resolveIntakeAdvisoryQuestions(
+  _instruction: string,
+  _opts?: IntakeGateOptions,
+): ClarificationQuestion[] {
+  return [];
 }
 
 export function deliverableTypeFromInstruction(instruction: string): DeliverableType | undefined {

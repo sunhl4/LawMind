@@ -66,6 +66,8 @@ export type TaskExecutionState = {
   detail?: string;
 };
 
+export type GateCategory = "safety_hard" | "judgment_soft";
+
 export type GateDecision = {
   gate:
     | "clarification_gate"
@@ -73,10 +75,18 @@ export type GateDecision = {
     | "dangerous_tool_gate"
     | "approval_gate"
     | "acceptance_gate"
-    | "reasoning_gate";
+    | "reasoning_gate"
+    | "redline_hunks_gate"
+    | "surgical_span_gate"
+    | "citation_integrity_gate"
+    | "outbound_privilege_gate"
+    | "outbound_recipient_gate";
   decision: "allow" | "block" | "awaiting_confirmation";
   reason?: string;
+  category?: GateCategory;
 };
+
+export type GateDecisionKind = GateDecision["gate"];
 
 export type DeliveryOutcome = {
   taskId: string;

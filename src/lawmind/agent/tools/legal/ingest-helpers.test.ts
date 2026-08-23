@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { describe, expect, it } from "vitest";
 import {
   DOCUMENT_PAGE_DEFAULT_CHARS,
   DOCUMENT_PAGE_MAX_CHARS,
@@ -23,6 +23,7 @@ describe("isPathInsideRoot", () => {
     expect(isPathInsideRoot(root, "/tmp/lawmind-workspace/notes.txt")).toBe(true);
     expect(isPathInsideRoot(root, "/tmp/other/notes.txt")).toBe(false);
     expect(isPathInsideRoot(root, "/tmp/lawmind-workspace/../secret.txt")).toBe(false);
+    expect(isPathInsideRoot(root, "/tmp/lawmind-workspace-evil/notes.txt")).toBe(false);
   });
 });
 

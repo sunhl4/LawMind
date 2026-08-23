@@ -53,9 +53,10 @@ describe("LawMind Matter Index", () => {
     await engine.confirm(intent.taskId, { actorId: "lawyer:test" });
     const bundle = await engine.research(intent);
     const draft = engine.draft(intent, bundle, { title: "案件 900 法律意见" });
+    draft.deliverableType = "document.general";
     await engine.review(draft, { actorId: "lawyer:test", status: "approved" });
-    // Index aggregation test needs a successful render; citation gate is on by default.
-    const rendered = await engine.render(draft, { citationGateStrict: false });
+    // Index aggregation needs a successful render; skip acceptance/citation export gates.
+    const rendered = await engine.render(draft, { strictGates: false, citationGateStrict: false });
     expect(rendered.ok).toBe(true);
 
     const index = await engine.getMatterIndex("matter-900");

@@ -1,3 +1,7 @@
+/**
+ * Job/automation SSE is `{ ok, job }` snapshots — not a second RunTurnEvent dialect.
+ * Chat / resume / live-turn speak embed-turn-events.ts.
+ */
 import path from "node:path";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import { sendJson } from "./lawmind-server-helpers.js";
@@ -87,6 +91,13 @@ function publicWorkflowJobWithContracts(job: ReturnType<typeof publicWorkflowJob
   };
 }
 
+function jobBelongsToWorkspace(
+  job: { workspaceDir: string },
+  workspaceDir: string,
+): boolean {
+  return path.resolve(job.workspaceDir) === path.resolve(workspaceDir);
+}
+
 function parseJobRouteId(encodedSegment: string): string | null {
   let raw: string;
   try {
@@ -119,7 +130,7 @@ export function handleJobRoutes({
         sendJson(res, 404, { ok: false, error: "job_not_found" }, c);
         return true;
       }
-      if (path.resolve(job.workspaceDir) !== path.resolve(ctx.workspaceDir)) {
+      if (!jobBelongsToWorkspace(job, ctx.workspaceDir)) {
         sendJson(res, 404, { ok: false, error: "job_not_found" }, c);
         return true;
       }
@@ -189,6 +200,11 @@ export function handleJobRoutes({
         sendJson(res, 400, { ok: false, error: "invalid_job_id" }, c);
         return true;
       }
+      const job = getWorkflowJob(id);
+      if (!job || !jobBelongsToWorkspace(job, ctx.workspaceDir)) {
+        sendJson(res, 404, { ok: false, error: "job_not_found" }, c);
+        return true;
+      }
       const result = requestCancelWorkflowJob(id);
       if (!result.ok) {
         const status =
@@ -235,7 +251,7 @@ export function handleJobRoutes({
       return true;
     }
     const job = getWorkflowJob(id);
-    if (!job) {
+    if (!job || !jobBelongsToWorkspace(job, ctx.workspaceDir)) {
       sendJson(res, 404, { ok: false, error: "job_not_found" }, c);
       return true;
     }

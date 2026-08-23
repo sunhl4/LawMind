@@ -9,6 +9,7 @@ import { buildDraftAcceptancePackMarkdown } from "../delivery/draft-acceptance-p
 import { readDraft } from "../drafts/index.js";
 import { searchWorkspaceIndex } from "../indexing/index.js";
 import { buildMatterReviewMatrix } from "../matter/review-matrix.js";
+import { resolveWorkspaceRelativePath } from "../runtime/workspace-path.js";
 import { listSourceAnnotations } from "../sources/source-annotation.js";
 import { listTaskRecords } from "../tasks/index.js";
 
@@ -60,8 +61,14 @@ export function mcpGetSourcePreview(
   sourceId: string,
   taskId: string,
 ): McpToolResult {
-  const root = resolveRoot(workspaceDir);
-  const snap = path.join(root, "drafts", `${taskId}.research.json`);
+  const snapResolved = resolveWorkspaceRelativePath(
+    workspaceDir,
+    `drafts/${taskId.trim()}.research.json`,
+  );
+  if (!snapResolved.ok) {
+    return { ok: false, error: "invalid_path" };
+  }
+  const snap = snapResolved.abs;
   if (!fs.existsSync(snap)) {
     return { ok: false, error: "research_snapshot_missing" };
   }

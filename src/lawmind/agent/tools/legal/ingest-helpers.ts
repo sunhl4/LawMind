@@ -3,19 +3,13 @@ import { readdirSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import JSZip from "jszip";
+import { isPathInsideRoot } from "../../../runtime/workspace-path.js";
 async function readSafe(filePath: string): Promise<string> {
   try {
     return await fs.readFile(filePath, "utf8");
   } catch {
     return "";
   }
-}
-
-function isPathInsideRoot(root: string, candidate: string): boolean {
-  const rootAbs = path.resolve(root);
-  const candidateAbs = path.resolve(candidate);
-  const rel = path.relative(rootAbs, candidateAbs);
-  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
 }
 
 function isPdfPath(filePath: string): boolean {
@@ -36,16 +30,25 @@ function isOcrImagePath(filePath: string): boolean {
   return OCR_IMAGE_EXT.has(path.extname(filePath).toLowerCase());
 }
 
-/** 在走 UTF-8 直读或误进二进制前给出明确说明（.docx/.xlsx/.pdf/图片仍走专用分支）。 */
+/** 在走 UTF-8 直读或误进二进制前给出明确说明（.docx/.xlsx/.pdf/图片/.doc 仍走专用分支）。 */
 function unsupportedOfficeIngestReason(filePath: string): string | null {
   const ext = path.extname(filePath).toLowerCase();
-  if (ext === ".doc" || ext === ".xls" || ext === ".ppt") {
-    return "暂不支持从旧式 Office 二进制（.doc/.xls/.ppt）提取文本；请另存为 .docx/.xlsx/.pptx 后再读取。";
+  // .doc：analyze_document 走 readBinaryWordDocText（直接提取，不转格式）
+  if (ext === ".xls" || ext === ".ppt") {
+    return "暂不支持从旧式 Office 二进制（.xls/.ppt）提取文本；请另存为 .xlsx/.pptx 后再读取。";
+  }
+  if (ext === ".wps" || ext === ".rtf" || ext === ".odt") {
+    return "暂不支持直接读取该文字格式；请另存为 .doc/.docx 后重试。";
   }
   if (ext === ".pptx") {
     return "暂不支持从 PowerPoint（.pptx）抽取正文；请将内容导出为 .md/.txt，或转为 .docx 后使用本工具。";
   }
   return null;
+}
+
+function isConvertibleWordPath(filePath: string): boolean {
+  const ext = path.extname(filePath).toLowerCase();
+  return ext === ".wps" || ext === ".rtf" || ext === ".odt";
 }
 
 function mimeFromImagePath(filePath: string): string {
@@ -519,6 +522,7 @@ export {
   isDocxPath,
   isXlsxPath,
   isOcrImagePath,
+  isConvertibleWordPath,
   unsupportedOfficeIngestReason,
   normalizeRelPath,
   readDocxText,

@@ -8,9 +8,9 @@ import {
   toolDataFromIngestSuccess,
   toolFailureFromIngest,
 } from "../../../platform/ingest-helpers.js";
+import { resolveWorkspaceRelativePath } from "../../../runtime/workspace-path.js";
 import type { AgentTool } from "../../types.js";
 import {
-  isPathInsideRoot,
   readSafe,
   readDocxText,
   readXlsxPlainText,
@@ -35,7 +35,7 @@ export const analyzeDocument: AgentTool = {
   definition: {
     name: "analyze_document",
     description:
-      "读取工作区内的指定文件（路径相对工作区根），返回内容供后续分析。支持 Markdown/txt、PDF（文本层→OCR→可选视觉）、.docx、.xlsx（表格转 TSV，有界）、常见图片 OCR；不支持 .doc/.xls/.ppt 与 .pptx。大文件请用 offset/limit（字符）分页续读；若 hasMore=true，用 nextOffset 再调一次。",
+      "读取工作区内的指定文件（路径相对工作区根），返回内容供后续分析。支持 Markdown/txt、PDF（文本层→OCR→可选视觉）、.docx、二进制 .doc（直接提取正文，无需转换）、.xlsx（表格转 TSV，有界）、常见图片 OCR；不支持 .xls/.ppt 与 .pptx。大文件请用 offset/limit（字符）分页续读；若 hasMore=true，用 nextOffset 再调一次。",
     category: "analyze",
     parameters: {
       file_path: { type: "string", description: "相对于工作区的文件路径", required: true },
@@ -50,7 +50,14 @@ export const analyzeDocument: AgentTool = {
     },
   },
   async execute(params, ctx) {
-    const filePath = path.resolve(ctx.workspaceDir, params.file_path as string);
+    const claimed = typeof params.file_path === "string" ? params.file_path : "";
+    const resolved = resolveWorkspaceRelativePath(ctx.workspaceDir, claimed);
+    if (!resolved.ok) {
+      return toolFailureFromIngest(
+        ingestFailure("INGEST_INVALID_PATH", "path_validation", "不允许读取工作区外的文件。"),
+      );
+    }
+    const filePath = resolved.abs;
     const toAnalyzeSuccess = (
       sourceType: IngestSourceType,
       content: string,
@@ -75,11 +82,6 @@ export const analyzeDocument: AgentTool = {
         { contentTrust: "untrusted_user_document" },
       );
     };
-    if (!isPathInsideRoot(ctx.workspaceDir, filePath)) {
-      return toolFailureFromIngest(
-        ingestFailure("INGEST_INVALID_PATH", "path_validation", "不允许读取工作区外的文件。"),
-      );
-    }
     const st = await fs.stat(filePath).catch(() => null);
     if (!st?.isFile()) {
       return toolFailureFromIngest(
@@ -87,6 +89,15 @@ export const analyzeDocument: AgentTool = {
           "INGEST_NOT_FOUND",
           "file_stat",
           `文件不存在或为空：${String(params.file_path)}`,
+        ),
+      );
+    }
+    if (/\.doc$/i.test(filePath) && !/\.docx$/i.test(filePath)) {
+      return toolFailureFromIngest(
+        ingestFailure(
+          "INGEST_UNSUPPORTED_FORMAT",
+          "office_extract",
+          unsupportedOfficeIngestReason(filePath) ?? "暂不直接读取二进制 .doc",
         ),
       );
     }
@@ -238,7 +249,7 @@ export const writeDocument: AgentTool = {
   definition: {
     name: "write_document",
     description:
-      "将内容写入工作区的指定文件。用于保存分析结果、草稿等。参数须含 file_path（也可用 path）与 content；若会话已关联草稿且只传 content，默认写入 drafts/<taskId>.json。",
+      "将内容写入工作区的指定文件。用于保存分析结果、工作笔记等。研究类正文（合规卷宗/调研简报/培训课件）禁止用本工具写入 artifacts 旁路交付，须走 draft_document。参数须含 file_path（也可用 path）与 content；若会话已关联草稿且只传 content，默认写入 drafts/<taskId>.json。",
     category: "draft",
     parameters: {
       file_path: { type: "string", description: "相对于工作区的文件路径", required: true },
@@ -248,15 +259,23 @@ export const writeDocument: AgentTool = {
     riskLevel: "medium",
   },
   async execute(params, ctx) {
-    const filePath = path.resolve(ctx.workspaceDir, params.file_path as string);
-    if (!filePath.startsWith(ctx.workspaceDir)) {
+    const claimed =
+      typeof params.file_path === "string"
+        ? params.file_path
+        : typeof params.path === "string"
+          ? params.path
+          : "";
+    const resolved = resolveWorkspaceRelativePath(ctx.workspaceDir, claimed);
+    if (!resolved.ok) {
       return { ok: false, error: "不允许写入工作区外的文件。" };
     }
+    const filePath = resolved.abs;
+    const rel = resolved.rel;
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.writeFile(filePath, params.content as string, "utf8");
     return {
       ok: true,
-      data: { filePath: params.file_path, bytes: (params.content as string).length },
+      data: { filePath: rel, bytes: (params.content as string).length },
     };
   },
 };
