@@ -331,7 +331,7 @@ describe("LawmindAppRootView", () => {
     expect(main?.classList.contains("lm-main-settings")).toBe(true);
     expect(main?.querySelector(".lm-settings-page")).toBeTruthy();
     expect(main?.querySelector(".lm-main-body")?.children.length).toBe(1);
-    expect(main?.querySelector(".lm-settings-content-title")?.textContent).toContain("模型/API");
+    expect(main?.querySelector(".lm-settings-content-title")?.textContent).toContain("模型与连接");
     // Full-page settings: workspace left rail must not remain beside the settings nav.
     expect(host.querySelector(".lm-side")).toBeNull();
   });
