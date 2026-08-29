@@ -23,17 +23,7 @@ export function MatterQualityCockpit({
   acceptanceBlockedCount,
 }: Props): ReactNode {
   if (!enabled) {
-    return (
-      <section
-        className="lm-matter-quality-cockpit lm-matter-quality-cockpit--disabled"
-        data-testid="lm-matter-quality-cockpit"
-        data-matter-id={matterId}
-      >
-        <div className="lm-callout lm-callout-muted">
-          质量驾驶舱仅对 Firm / Private Deploy edition 可见。Solo edition 可在设置→版本中切换。
-        </div>
-      </section>
-    );
+    return null;
   }
   return (
     <section

@@ -1,0 +1,1497 @@
+/* ── File workbench ─────────────────────────────────────────── */
+.lm-files-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  position: relative;
+}
+
+/* 左栏工作台：上区资源树 + 编辑器（横排），下区在办等 */
+.lm-side-resources-row {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  flex: 0 0 auto;
+  min-height: 72px;
+  overflow: hidden;
+}
+
+.lm-side-resources-tree-host {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.lm-side-resources-editor-host {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.lm-workspace-chat-only {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Cursor 式工作台：左栏资源树 + 主区 编辑器 | 对话 */
+.lm-cursor-workspace {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.lm-cursor-panes-row {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  align-items: stretch;
+  overflow: hidden;
+}
+
+.lm-cursor-files-group {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+}
+
+.lm-cursor-pane-tree-host {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.lm-cursor-pane-editor-host {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.lm-cursor-chat-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 80% 40% at 50% 0%, rgba(166, 124, 82, 0.05), transparent 55%),
+    var(--bg);
+}
+
+.lm-cursor-pane-editor-host:not([style*="display: none"]) {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.lm-desk-page .lm-desk-page-scroll {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-3) var(--space-4);
+}
+
+.lm-collab-page-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.lm-collab-hub-in-page.lm-settings-section {
+  margin-bottom: 0;
+}
+
+.lm-collab-readonly-block {
+  margin-top: var(--space-1);
+}
+
+.lm-collab-subsection-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 var(--space-2);
+}
+
+/* 顶栏「协作」：状态一览 / 团队工作流 */
+.lm-collab-desk {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.lm-collab-desk-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.lm-collab-desk-intro {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.lm-collab-desk-title {
+  font-size: 1.25rem;
+  font-weight: 650;
+  margin: 0 0 var(--space-1);
+}
+
+.lm-collab-desk-lead {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.lm-collab-desk-tabs {
+  flex: 0 0 auto;
+}
+
+/* 协作页：与主对话条同源的模型横条（委派 / 子助手对话 / 后台工作流 multitask） */
+.lm-collab-model-rail {
+  flex-shrink: 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--border);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01)),
+    var(--bg-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.lm-collab-model-rail-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.lm-collab-model-rail-copy-block {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.lm-collab-model-rail-title {
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 var(--space-1);
+}
+
+.lm-collab-model-rail-lead {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.lm-collab-model-rail-picker {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.lm-collab-model-rail-hint {
+  padding-inline: 0;
+}
+
+.lm-collab-model-rail-warn {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.lm-collab-model-rail-warn-text.lm-callout-body {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.lm-collab-model-rail-warn-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.lm-collab-desk-overview,
+.lm-collab-desk-workflows {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.lm-collab-status-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+}
+
+.lm-collab-status-strip-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1 1 auto;
+}
+
+.lm-collab-status-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lm-collab-status-hint {
+  width: 100%;
+  margin: var(--space-1) 0 0;
+}
+
+.lm-collab-status-callout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.lm-collab-status-shimmer {
+  max-width: 240px;
+}
+
+.lm-collab-desk-panel-heading {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 var(--space-2);
+}
+
+.lm-collab-desk-panel-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.lm-collab-gate-history-lead {
+  margin: 0 0 var(--space-2);
+}
+
+.lm-collab-gate-history-empty {
+  margin: 0;
+  padding: 0 var(--space-1);
+}
+
+.lm-collab-gate-history-list {
+  max-height: min(36vh, 320px);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg);
+}
+
+.lm-collab-gate-history-row {
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.lm-collab-gate-history-row:first-child {
+  border-top: none;
+}
+
+.lm-collab-gate-history-row-top,
+.lm-collab-gate-history-row-bottom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.lm-collab-gate-history-row-bottom {
+  margin-top: 4px;
+}
+
+.lm-collab-gate-history-time {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lm-collab-gate-history-detail {
+  flex: 1 1 100%;
+}
+
+.lm-collab-gate-history-gates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.lm-collab-panel-desk {
+  flex: 1 1 0%;
+  min-height: 200px;
+  max-height: min(52vh, 480px);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg);
+}
+
+.lm-collab-workflows-lead {
+  margin-top: 0;
+}
+
+.lm-collab-desk-integrations {
+  margin-top: var(--space-3);
+}
+
+.lm-collab-desk-integrations-body {
+  margin: var(--space-2) 0 0;
+}
+
+@media (min-width: 960px) {
+  .lm-collab-panel-desk {
+    max-height: none;
+  }
+}
+
+.lm-tab-inline-count {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.75;
+}
+
+.lm-side-with-collab-context {
+  display: flex;
+  flex-direction: column;
+}
+
+.lm-side-with-collab-context .lm-collab-sidebar {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-bottom: 8px;
+}
+
+.lm-collab-sidebar-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 10px 10px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.lm-collab-sidebar-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 52px;
+  padding: 6px 4px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+}
+
+.lm-collab-sidebar-stat-value {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.lm-collab-sidebar-stat-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.lm-collab-sidebar-hint {
+  margin: 8px 10px 0;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface) 40%, transparent);
+  line-height: 1.35;
+}
+
+.lm-collab-sidebar-matters .lm-matter-sidebar-list {
+  max-height: min(22vh, 200px);
+  border-bottom: 1px solid var(--border);
+}
+
+.lm-collab-sidebar-panel,
+.lm-collab-sidebar-tasks {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.lm-collab-sidebar-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px 4px;
+}
+
+.lm-collab-sidebar-panel-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.lm-collab-sidebar-panel .lm-records-body {
+  padding: 0 8px 8px;
+}
+
+.lm-collab-sidebar-panel .lm-tabs {
+  margin-bottom: 4px;
+}
+
+.lm-collab-sidebar-task-list {
+  padding: 0 8px 10px;
+  max-height: min(36vh, 320px);
+  overflow-y: auto;
+}
+
+.lm-matter-badge-inline {
+  display: inline;
+  font-size: inherit;
+  padding: 0 4px;
+  vertical-align: baseline;
+}
+
+.lm-side-footer {
+  flex-shrink: 0;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--side-bg) 92%, transparent);
+  margin-top: auto;
+}
+
+.lm-side-needs-decision-btn,
+.lm-side-action-hub-btn {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* epic-shell-before: full-width brass CTA */
+.lm-side-needs-decision-btn--brass {
+  background: var(--grad-brand);
+  border: 1px solid var(--accent-border);
+  color: var(--on-accent);
+  font-weight: 700;
+  min-height: 40px;
+  box-shadow: var(--shadow-brass);
+}
+
+.lm-side-needs-decision-btn--brass:hover {
+  filter: brightness(1.04);
+}
+
+.lm-side-needs-decision-btn--brass .lm-side-needs-decision-badge {
+  background: color-mix(in srgb, var(--on-accent) 88%, #fff);
+  color: var(--accent-hover);
+}
+
+.lm-side-needs-decision-badge,
+.lm-side-action-hub-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  background: var(--accent);
+  color: #1a1510;
+}
+
+.lm-matter-sidebar-list {
+  flex-shrink: 0;
+  max-height: min(32vh, 280px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 40%, transparent);
+}
+
+.lm-matter-sidebar-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.lm-matter-sidebar-create {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.lm-matter-sidebar-list-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.lm-matter-sidebar-list-count {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.lm-matter-sidebar-search {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.lm-matter-sidebar-search:focus {
+  outline: none;
+  border-color: var(--accent-border);
+  box-shadow: var(--ring-accent);
+}
+
+.lm-matter-sidebar-list-ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.lm-matter-sidebar-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.lm-matter-sidebar-row:hover {
+  background: var(--surface-hover, rgba(255, 255, 255, 0.06));
+}
+
+.lm-matter-sidebar-row.active {
+  background: var(--accent-dim);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.lm-matter-sidebar-row-title {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.lm-matter-sidebar-row-meta {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.lm-matter-sidebar-empty-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 0 0 8px;
+}
+
+.lm-matter-sidebar-empty {
+  padding: 8px 10px;
+  margin: 0;
+}
+
+.lm-matter-sidebar-empty-wrap > .lm-btn {
+  margin-left: 10px;
+}
+
+/* 左栏一体：品牌下 = 工作区资源（可选）+ 在办 / 协作等 */
+.lm-side-stack {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+}
+
+/* 工作台：品牌下为材料资源树（可拖左栏总宽），底部为项目胶囊等 */
+.lm-side-explorer-host {
+  flex: 1 1 0%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+  border-bottom: 1px solid var(--border);
+}
+
+/* With chat list: materials tree shrinks; 对话 section takes remaining height.
+   用 flex 比例拿确定高度（勿用 flex-basis:auto），否则子树 height:100% 无法约束，滚轮无效。 */
+.lm-side-with-chat-sessions .lm-side-explorer-host {
+  flex: 1 1 0%;
+  max-height: 48%;
+  min-height: 0;
+}
+
+.lm-side-chat-sessions {
+  flex: 1 1 0%;
+  min-height: 140px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border);
+  padding: 4px 10px 8px;
+}
+
+.lm-side-chat-sessions-header {
+  flex-shrink: 0;
+  padding: 2px 2px 6px;
+}
+
+.lm-side-chat-sessions-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px 0 4px;
+}
+
+.lm-side-chat-sessions-empty {
+  padding: 10px 8px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+.lm-side-chat-session-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: var(--r, 8px);
+  background: transparent;
+  color: var(--text);
+  padding: 9px 10px;
+  cursor: pointer;
+  font: inherit;
+  transition: background var(--t) var(--ease), border-color var(--t) var(--ease);
+}
+
+.lm-side-chat-session-row:hover {
+  background: var(--wash);
+  border-color: var(--border);
+}
+
+.lm-side-chat-session-row.is-active {
+  background: color-mix(in srgb, var(--accent-dim) 85%, var(--surface));
+  border-color: var(--accent-border);
+  box-shadow: inset 0 1px 0 var(--inset-highlight);
+}
+
+.lm-side-chat-session-row:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.lm-side-chat-session-row:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.lm-side-chat-session-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lm-side-chat-session-row.is-active .lm-side-chat-session-title {
+  color: var(--text);
+}
+
+.lm-side-chat-session-preview {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.35;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lm-side-chat-session-edit {
+  padding: 4px 6px;
+}
+
+.lm-side-chat-session-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--accent-border, var(--border));
+  border-radius: var(--r-sm, 6px);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+}
+
+.lm-side-explorer-skeleton {
+  flex: 1;
+  min-height: 120px;
+  padding: 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lm-side-explorer-skeleton-line {
+  height: 10px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.04));
+  background-size: 200% 100%;
+  animation: lm-shimmer 1.2s ease-in-out infinite;
+}
+
+.lm-side-explorer-skeleton-line--short {
+  width: 42%;
+}
+
+.lm-side-explorer-skeleton-line--medium {
+  width: 68%;
+}
+
+.lm-matter-sidebar-list--stacked {
+  flex: 0 0 auto;
+  max-height: min(38vh, 280px);
+  min-height: 72px;
+}
+
+/* Chat workspace: keep 我的案件 compact so 对话记录 can breathe (shell-before). */
+.lm-matter-sidebar-list--chat {
+  flex: 0 1 auto;
+  max-height: min(28vh, 220px);
+  min-height: 72px;
+}
+
+.lm-matter-sidebar-list--fill {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.lm-matter-sidebar-list--fill.lm-matter-sidebar-list--chat {
+  flex: 0 1 auto;
+}
+
+.lm-side-explorer-host--under-matters {
+  border-top: 1px solid var(--border);
+}
+
+.lm-side-with-workbench-files .lm-side-stack {
+  flex: 0 0 auto;
+}
+
+.lm-side-with-workbench-files .lm-side-stack > .lm-side-scroll {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+.lm-side-files-host {
+  flex: 0 0 auto;
+  min-height: 72px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 无工作区时仅 .lm-side-scroll，占满左栏下半区以上全部 */
+.lm-side-stack > .lm-side-scroll:only-child {
+  flex: 1;
+  min-height: 0;
+}
+
+.lm-side-stack > .lm-side-scroll {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 独立「文件轨」模式：仍支持带 split 的三列 portal（若将来传 split） */
+.lm-files-explorer.lm-file-explorer-rail {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+/* 嵌入左栏：与侧栏同宽，无额外竖线；滚动交给内层 .lm-files-explorer-scroll */
+.lm-files-explorer.lm-file-explorer-embedded {
+  border-right: none;
+  width: 100% !important;
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  padding: 6px 8px 8px;
+}
+
+/* Main column: editor host + other views share one row */
+.lm-main-body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  overflow: hidden;
+  position: relative;
+}
+
+.lm-file-editor-host {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.lm-main-body > .lm-main-workbench,
+.lm-main-body > .lm-chat-workspace,
+.lm-main-body > .lm-workspace-unified,
+.lm-main-body > .lm-settings-page {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* 工作台：材料列 | 对话列；底部输入区全宽固定 */
+.lm-workspace-unified {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.lm-workspace-panes-row {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  align-items: stretch;
+  overflow: hidden;
+}
+
+.lm-ws-files-group {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+}
+
+.lm-ws-pane-chat {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.lm-ws-split-anchor {
+  flex-shrink: 0;
+  align-self: stretch;
+  min-height: 0;
+  position: relative;
+}
+
+/* 仅消息区（无底部主输入框时） */
+.lm-chat-workspace-messages-only {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.lm-chat-workspace-messages-only > *:not(.lm-messages) {
+  flex-shrink: 0;
+}
+
+.lm-chat-workspace-messages-only .lm-messages {
+  flex: 1;
+  min-height: 0;
+}
+
+.lm-chat-session-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  min-height: 26px;
+  height: 26px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--bg-elevated, var(--bg));
+}
+
+.lm-chat-session-tabs-trailing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: auto;
+  position: relative;
+}
+
+.lm-chat-session-tabs-scroll {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+  align-items: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding: 0;
+}
+
+.lm-chat-session-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.lm-chat-session-tabs-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+.lm-chat-session-tab-wrap {
+  display: inline-flex;
+  align-items: stretch;
+  flex-shrink: 0;
+  max-width: 180px;
+  height: 22px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.lm-chat-session-tab-wrap:hover {
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.lm-chat-session-tab-wrap-active {
+  background: rgba(255, 255, 255, 0.075);
+  border-color: var(--accent-border);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.lm-chat-session-tab {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  padding: 0 8px;
+  text-align: left;
+  border-radius: 6px;
+  line-height: 20px;
+}
+
+.lm-chat-session-tab-wrap-active .lm-chat-session-tab {
+  color: var(--text);
+}
+
+.lm-chat-session-tab:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.lm-chat-session-tab-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lm-chat-session-tab-menu {
+  min-width: 132px;
+  padding: 4px 0;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated, var(--bg));
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  /* 与案件右键菜单同级；勿用内联 99999 */
+  z-index: 2000;
+}
+
+.lm-chat-session-tab-menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lm-chat-session-tab-menu-item:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.lm-chat-session-tab-menu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.lm-chat-session-tab-menu-item-danger {
+  color: #e57373;
+}
+
+.lm-chat-session-tab-menu-item-danger:hover:not(:disabled) {
+  background: rgba(229, 115, 115, 0.12);
+  color: #ff8a80;
+}
+
+.lm-chat-session-tab-edit-wrap {
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.lm-chat-session-tab-new {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px dashed var(--accent-border);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.lm-chat-session-tab-new:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.lm-chat-session-tab-new:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.lm-chat-session-tab-input {
+  min-width: 100px;
+  max-width: 180px;
+  height: 22px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 6px;
+  border: 1px solid var(--accent-border);
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+  box-shadow: 0 0 0 1px var(--accent-dim);
+}
+
+.lm-files-explorer {
+  flex-shrink: 0;
+  width: 300px;
+  border-right: 1px solid var(--border);
+  padding: 8px;
+  overflow: hidden;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 与侧栏对话列表 / 消息区同一套滚动：内层吃剩余高度，滚轮与细滚动条可用 */
+.lm-files-explorer-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(40, 32, 22, 0.18) transparent;
+}
+
+/*
+ * 子项（工作区 / 案件材料）带 overflow:hidden 时，flex 会把 min-size 当成 0，
+ * 目录展开后被压扁裁切而不是把滚动交给本容器。禁止收缩，行为与「对话记录」一致。
+ */
+.lm-files-explorer-scroll > * {
+  flex-shrink: 0;
+}
+
+.lm-files-explorer-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.lm-files-explorer-scroll::-webkit-scrollbar-thumb {
+  background: rgba(40, 32, 22, 0.14);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.lm-files-explorer-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(40, 32, 22, 0.22);
+  background-clip: padding-box;
+}
+
+html.lm-theme-dark .lm-files-explorer-scroll {
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+
+html.lm-theme-dark .lm-files-explorer-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  background-clip: padding-box;
+}
+
+html.lm-theme-dark .lm-files-explorer-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+  background-clip: padding-box;
+}
+
+.lm-files-editor {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 12px 12px;
+  gap: 6px;
+}
+
+.lm-office-doc-pane {
+  min-height: 0;
+}
+
+.lm-office-doc-body {
+  flex: 1;
+  min-height: 0;
+  padding: 12px 4px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lm-office-doc-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.lm-office-doc-copy {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+
+.lm-office-doc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.lm-image-preview-pane {
+  min-height: 0;
+}
+
+.lm-image-preview-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px 12px;
+}
+
+.lm-image-preview-img {
+  max-width: 100%;
+  max-height: min(70vh, 720px);
+  object-fit: contain;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-2, var(--surface));
+}
+
+.lm-image-preview-caption {
+  margin: 0;
+  text-align: center;
+}
+
+.lm-fs-side-preview {
+  margin-top: auto;
+  padding: 10px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--surface);
+}
+
+.lm-fs-side-preview-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.lm-fs-side-preview-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.lm-fs-side-preview-img {
+  width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-2, var(--bg));
+}
+
+.lm-fs-side-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.lm-fs-section {
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+
+.lm-fs-root-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  cursor: context-menu;
+  user-select: none;
+}
+
+.lm-fs-root-path {
+  flex: 1;
+  font-size: 12px;
+  color: var(--muted);
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lm-fs-root-add {
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-xs);
+  flex-shrink: 0;
+}
+.lm-fs-root-add:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+
+.lm-fs-node {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font);
+  font-size: 12px;
+  padding: 4px 6px 4px 8px;
+  border-radius: var(--r-xs);
+  cursor: pointer;
+  text-align: left;
+  min-width: 0;
+}
+.lm-fs-node:hover { background: rgba(255,255,255,0.04); color: var(--text); }
+.lm-fs-node.active { background: var(--accent-dim); color: var(--accent); }
+.lm-fs-node.protected { opacity: 0.9; }
+.lm-fs-node.protected .lm-fs-name { font-weight: 500; }
+
+.lm-fs-arrow {
+  width: 11px;
+  flex-shrink: 0;
+  display: inline-flex;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 12px;
+  transition: transform var(--t) var(--ease);
+}
+.lm-fs-arrow.open { transform: rotate(90deg); }
+
+.lm-fs-icon { flex-shrink: 0; font-size: 13px; }
+.lm-fs-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.lm-fs-lock { flex-shrink: 0; font-size: 12px; opacity: 0.6; }
+
+.lm-fs-inline-input {
+  padding: 3px 8px;
+}
+.lm-fs-inline-input input {
+  width: 100%;
+  background: var(--surface-2);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-size: 12px;
+  font-family: var(--font);
+  padding: 4px 8px;
+  outline: none;
+}
+
+/* ── Context menu ──────────────────────────────────────────── */
+.lm-context-menu {
+  position: fixed;
+  z-index: 2000;
+  background: var(--surface-2);
+  border: 1px solid var(--border-md);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-lg);
+  min-width: 160px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+
+.lm-context-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: var(--r-sm);
+  text-align: left;
+  white-space: nowrap;
+  transition: all var(--t) var(--ease);
+}
+.lm-context-menu button:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+.lm-context-menu button.danger { color: var(--error); }
+.lm-context-menu button.danger:hover { background: var(--error-dim); }
+
+.lm-context-menu-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 3px 4px;
+}

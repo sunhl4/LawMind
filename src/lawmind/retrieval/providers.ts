@@ -131,10 +131,13 @@ export function createOpenSourceLegalAdaptersFromEnv(): RetrievalAdapter[] {
 }
 
 /**
- * LexEdge 适配入口（框架集成接口）。
+ * LexEdge **opt-in** adapter（env 门控）。
  *
- * 假设 LexEdge 服务暴露一个 HTTP endpoint 返回与 ModelRetrievalOutput 同结构 JSON。
- * 可由后续团队按真实接口替换为更具体的 client。
+ * - 桌面引擎 `buildAdaptersFromEnv`（`engine-tool-shared.ts`）与 CLI adapters 均会 push。
+ * - 未设置 `LAWMIND_LEXEDGE_ENDPOINT` 时恒返回 `[]`。
+ *
+ * 假设 LexEdge 服务暴露 HTTP endpoint，返回与 `ModelRetrievalOutput` 同结构 JSON；
+ * 后续团队可按真实接口替换为更具体的 client。
  */
 export function createLexEdgeAdapterFromEnv(): RetrievalAdapter[] {
   const endpoint = env("LAWMIND_LEXEDGE_ENDPOINT");

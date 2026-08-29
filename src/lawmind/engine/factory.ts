@@ -6,10 +6,8 @@
  * 旧入口 `src/lawmind/index.ts` 仍然 re-export 本函数以保持向后兼容。
  */
 
-import {
-  loadWorkspaceDeliverableSpecs,
-  registerExtraDeliverableSpecs,
-} from "../deliverables/index.js";
+import { registerExtraDeliverableSpecs } from "../deliverables/index.js";
+import { loadWorkspaceDeliverableSpecs } from "../deliverables/workspace-loader.js";
 import { buildEngineContext } from "./context.js";
 import { draftAsyncImpl, draftSync } from "./drafting.js";
 import { confirmTask, planAsyncImpl, planSync } from "./planning.js";
@@ -50,8 +48,8 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
     confirm(taskId, opts = {}) {
       return confirmTask(ctx, taskId, opts);
     },
-    research(intent) {
-      return researchTask(ctx, intent);
+    research(intent, opts = {}) {
+      return researchTask(ctx, intent, opts);
     },
     draft(intent, bundle, opts = {}) {
       return draftSync(ctx, intent, bundle, opts);
@@ -59,8 +57,9 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
     draftAsync(intent, bundle, opts = {}) {
       return draftAsyncImpl(ctx, intent, bundle, opts);
     },
-    review(draft, opts = {}) {
-      return reviewDraft(ctx, draft, opts);
+    async review(draft, opts = {}) {
+      const result = await reviewDraft(ctx, draft, opts);
+      return result.draft;
     },
     reopenDraftReview(taskId, opts = {}) {
       return reopenDraftReviewImpl(ctx, taskId, opts);

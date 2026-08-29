@@ -222,7 +222,9 @@ describe("lawmind-server-route-sources", () => {
     expect(body.source.id).toBe("s-001");
     expect(body.source.citation).toBe("《民法典》第七百零三条");
     expect(body.supportingClaims.length).toBe(2);
-    expect(body.sectionsCiting).toEqual([{ heading: "结论" }]);
+    expect(body.sectionsCiting[0]?.heading).toBe("结论");
+    expect(body.sectionsCiting[0]?.anchorId).toMatch(/^lm-source-anchor-/);
+    expect(body.sectionsCiting[0]?.excerpt).toBeTruthy();
     expect(body.taskId).toBe(taskId);
   });
 

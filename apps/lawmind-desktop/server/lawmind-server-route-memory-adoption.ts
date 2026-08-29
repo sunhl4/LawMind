@@ -3,10 +3,10 @@
  *
  * - GET    /api/memory/adoption?scope=&state=&matterId=
  * - POST   /api/memory/adoption/suggest
- * - POST   /api/memory/adoption/adopt    { id }
+ * - POST   /api/memory/adoption/adopt    { id, note? }  note = 改写后写入时的落盘正文覆盖
  * - POST   /api/memory/adoption/dismiss  { id, note? }
  *
- * 用于 Inspector UI 列出 / 采纳 / 撤回 / 暂存 / 永久忽略 待审记忆建议。
+ * 用于 Inspector UI 列出 / 采纳 / 忽略 待审记忆建议。「稍后再说」仅前端会话内搁置，不写库。
  */
 
 import {
@@ -17,8 +17,16 @@ import {
   type MemoryAdoptionState,
   type MemoryScope,
 } from "../../../src/lawmind/memory/adoption-service.js";
+import { applyMemoryAdoptionWrite } from "../../../src/lawmind/memory/adoption-apply.js";
+import { listPendingAdoptionsUnified } from "../../../src/lawmind/memory/unified-pending-adoptions.js";
+import { buildAdoptionPreviewDiff } from "../../../src/lawmind/memory/adoption-preview-diff.js";
+import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
+import {
+  memoryAdoptionIdSchema,
+  memoryAdoptionSuggestSchema,
+} from "./lawmind-api-schemas.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
-import { readJsonBody, resolveDesktopActorId, sendJson } from "./lawmind-server-helpers.js";
+import { resolveDesktopActorId, sendJson } from "./lawmind-server-helpers.js";
 
 const VALID_SCOPES: ReadonlyArray<MemoryScope> = [
   "firm",
@@ -60,36 +68,67 @@ export async function handleMemoryAdoptionRoutes({
 }: LawmindRouteContext): Promise<boolean> {
   const { workspaceDir } = ctx;
   const auditDir = `${workspaceDir}/audit`;
+
+  const previewDiffMatch = pathname.match(/^\/api\/memory\/adoption\/([^/]+)\/preview-diff$/);
+  if (previewDiffMatch && req.method === "GET") {
+    const id = decodeURIComponent(previewDiffMatch[1] ?? "");
+    const matterId = url.searchParams.get("matterId")?.trim() || undefined;
+    const result = await buildAdoptionPreviewDiff(workspaceDir, id, { matterId });
+    if (!result.ok) {
+      const status = result.error === "not_found" ? 404 : 400;
+      sendJson(res, status, result, c);
+      return true;
+    }
+    sendJson(res, 200, result, c);
+    return true;
+  }
+
   if (pathname === "/api/memory/adoption" && req.method === "GET") {
     const scope = asScope(url.searchParams.get("scope"));
     const state = asState(url.searchParams.get("state"));
     const targetId = url.searchParams.get("matterId") ?? url.searchParams.get("targetId") ?? undefined;
+    const unified = url.searchParams.get("unified") !== "0";
+    if (unified && (!state || state === "pending")) {
+      let items = await listPendingAdoptionsUnified(workspaceDir);
+      if (scope) {
+        items = items.filter((i) => i.scope === scope);
+      }
+      if (targetId) {
+        items = items.filter((i) => i.targetId === targetId);
+      }
+      sendJson(res, 200, { ok: true, items, unified: true }, c);
+      return true;
+    }
     const items = await listMemorySuggestions(workspaceDir, {
       scope,
       state,
       targetId: targetId ?? undefined,
     });
-    sendJson(res, 200, { ok: true, items }, c);
+    sendJson(res, 200, { ok: true, items, unified: false }, c);
     return true;
   }
 
   if (pathname === "/api/memory/adoption/suggest" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as Record<string, unknown> | null;
-    if (!body || typeof body !== "object") {
-      sendJson(res, 400, { ok: false, error: "missing body" }, c);
-      return true;
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, memoryAdoptionSuggestSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        const msg = err.issues.join("; ");
+        if (msg.includes("scope")) {
+          sendJson(res, 400, { ok: false, error: "invalid scope" }, c);
+          return true;
+        }
+        if (msg.includes("kind") || msg.includes("payload")) {
+          sendJson(res, 400, { ok: false, error: "missing kind or payload" }, c);
+          return true;
+        }
+        sendJson(res, 400, { ok: false, error: "missing body" }, c);
+        return true;
+      }
+      throw err;
     }
-    const scope = asScope(typeof body.scope === "string" ? body.scope : null);
-    if (!scope) {
-      sendJson(res, 400, { ok: false, error: "invalid scope" }, c);
-      return true;
-    }
-    const kind = typeof body.kind === "string" ? body.kind : undefined;
-    const payload = typeof body.payload === "string" ? body.payload : undefined;
-    if (!kind || !payload) {
-      sendJson(res, 400, { ok: false, error: "missing kind or payload" }, c);
-      return true;
-    }
+    const scope = body.scope;
     try {
       const rec = await suggestMemoryAdoption(
         workspaceDir,
@@ -97,12 +136,12 @@ export async function handleMemoryAdoptionRoutes({
         {
           scope,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          kind: kind as any,
-          payload,
-          targetId: typeof body.targetId === "string" ? body.targetId : undefined,
-          sourceTaskId: typeof body.sourceTaskId === "string" ? body.sourceTaskId : undefined,
+          kind: body.kind as any,
+          payload: body.payload,
+          targetId: body.targetId,
+          sourceTaskId: body.sourceTaskId,
           origin: "lawyer",
-          note: typeof body.note === "string" ? body.note : undefined,
+          note: body.note,
         },
         { autoAdopt: body.autoAdopt === true },
       );
@@ -116,31 +155,54 @@ export async function handleMemoryAdoptionRoutes({
   }
 
   if (pathname === "/api/memory/adoption/adopt" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as Record<string, unknown> | null;
-    if (!body || typeof body.id !== "string") {
-      sendJson(res, 400, { ok: false, error: "missing id" }, c);
-      return true;
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, memoryAdoptionIdSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "missing id" }, c);
+        return true;
+      }
+      throw err;
     }
-    const result = await adoptMemorySuggestion(workspaceDir, auditDir, body.id, () => {
-      // Inspector adoption is informational by default — actual writeback paths are
-      // already handled by their respective writers (case markdown, profile md).
-    }, {
-      actorId: resolveDesktopActorId(),
-      note: typeof body.note === "string" ? body.note : undefined,
-    });
-    sendJson(res, result.ok ? 200 : 400, result, c);
+    try {
+      const rewritten = body.note?.trim();
+      const result = await adoptMemorySuggestion(
+        workspaceDir,
+        auditDir,
+        body.id,
+        async (rec) => {
+          // 改写后写入：note 覆盖落盘正文；否则写原 payload。
+          const toWrite = rewritten ? { ...rec, payload: rewritten } : rec;
+          await applyMemoryAdoptionWrite(workspaceDir, toWrite, { envFile: ctx.envFile });
+        },
+        {
+          actorId: resolveDesktopActorId(),
+          note: rewritten ? "rewritten" : body.note,
+        },
+      );
+      sendJson(res, result.ok ? 200 : 400, result, c);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      sendJson(res, 400, { ok: false, error: msg }, c);
+    }
     return true;
   }
 
   if (pathname === "/api/memory/adoption/dismiss" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as Record<string, unknown> | null;
-    if (!body || typeof body.id !== "string") {
-      sendJson(res, 400, { ok: false, error: "missing id" }, c);
-      return true;
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, memoryAdoptionIdSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "missing id" }, c);
+        return true;
+      }
+      throw err;
     }
     const result = await dismissMemorySuggestion(workspaceDir, auditDir, body.id, {
       actorId: resolveDesktopActorId(),
-      note: typeof body.note === "string" ? body.note : undefined,
+      note: body.note,
     });
     sendJson(res, result.ok ? 200 : 400, result, c);
     return true;

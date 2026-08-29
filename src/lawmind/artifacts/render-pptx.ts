@@ -1,23 +1,26 @@
 /**
  * Artifact Layer — PowerPoint 汇报渲染
  *
- * 把 ArtifactDraft 渲染为 .pptx（每节一章幻灯片 + 标题页）。
+ * Structured layouts (agenda / bullets / two-column / matrix / checklist)
+ * instead of a single free-floating text box per section.
  */
 
 import fs from "node:fs/promises";
 import path from "node:path";
 import PptxGenJS from "pptxgenjs";
+import {
+  formatSectionSeeAlsoLine,
+  type CitationDisplaySource,
+} from "../sources/citation-display.js";
 import type { UploadedTemplateRecord } from "../templates/index.js";
 import type { ArtifactDraft, ArtifactSection } from "../types.js";
+import { parseSectionToSlideContent, type ParsedSlideContent } from "./pptx-slide-layouts.js";
 import type { RenderResult } from "./render-docx.js";
 
-/**
- * pptxgenjs typings + NodeNext treat the default export as non-constructable; at runtime it is a class.
- * We keep a narrow surface for this file so `new` and slide APIs stay typechecked.
- */
 type PptxTextOpts = Record<string, string | number | boolean | undefined>;
 type PptxSlide = {
   addText: (text: string | unknown[], options?: PptxTextOpts) => unknown;
+  addShape?: (shape: unknown, options?: Record<string, unknown>) => unknown;
 };
 type PptxPresentation = {
   layout: string;
@@ -30,57 +33,8 @@ type PptxConstructor = new () => PptxPresentation;
 export type RenderPptxOptions = {
   templateVariant?: string;
   uploadedTemplate?: UploadedTemplateRecord;
+  sources?: CitationDisplaySource[];
 };
-
-function addSectionSlide(pptx: PptxPresentation, section: ArtifactSection): void {
-  const slide = pptx.addSlide();
-  slide.addText(section.heading, {
-    x: 0.5,
-    y: 0.35,
-    w: 9,
-    h: 0.75,
-    fontSize: 24,
-    bold: true,
-    color: "1a1a1a",
-  });
-
-  const body = section.body
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0)
-    .join("\n");
-
-  slide.addText(body || "（无正文）", {
-    x: 0.5,
-    y: 1.2,
-    w: 9,
-    h: 5.4,
-    fontSize: 13,
-    color: "333333",
-    valign: "top",
-    wrap: true,
-  });
-
-  if (section.citations && section.citations.length > 0) {
-    slide.addText(`来源：${section.citations.join("、")}`, {
-      x: 0.5,
-      y: 6.75,
-      w: 9,
-      h: 0.55,
-      fontSize: 10,
-      italic: true,
-      color: "666666",
-    });
-  }
-}
-
-/**
- * 把 ArtifactDraft 渲染为 PPT (.pptx) 并写入 outputDir。
- * 渲染前会检查 reviewStatus。
- */
-export async function renderPptx(draft: ArtifactDraft, outputDir: string): Promise<RenderResult> {
-  return renderPptxWithOptions(draft, outputDir, {});
-}
 
 function resolveDeckStyle(variant: string): {
   accent: string;
@@ -108,6 +62,34 @@ function resolveDeckStyle(variant: string): {
       footerLabel: "Template: Uploaded",
     };
   }
+  if (variant === "trainingCle") {
+    return {
+      accent: "0f3d5c",
+      subtitle: "Compliance / CLE Training",
+      footerLabel: "Template: Training CLE",
+    };
+  }
+  if (variant === "crossborderMatrix") {
+    return {
+      accent: "1a4a6b",
+      subtitle: "Cross-border Jurisdiction Briefing",
+      footerLabel: "Template: Cross-border Matrix",
+    };
+  }
+  if (variant === "internalKnowledge") {
+    return {
+      accent: "2c3e50",
+      subtitle: "Internal Knowledge Share",
+      footerLabel: "Template: Internal Knowledge",
+    };
+  }
+  if (variant === "caseClinic") {
+    return {
+      accent: "4a3728",
+      subtitle: "Case Clinic (Redacted)",
+      footerLabel: "Template: Case Clinic",
+    };
+  }
   return {
     accent: "1a1a1a",
     subtitle: "Client Brief",
@@ -128,15 +110,172 @@ function uploadedTemplateNotes(uploaded: UploadedTemplateRecord | undefined): st
   return [`Uploaded template: ${uploaded.label} v${uploaded.version}`, ...mappings].join("\n");
 }
 
+function addHeading(slide: PptxSlide, text: string, accent: string): void {
+  slide.addText(text, {
+    x: 0.5,
+    y: 0.3,
+    w: 9,
+    h: 0.65,
+    fontSize: 22,
+    bold: true,
+    color: accent,
+  });
+}
+
+function addFooter(slide: PptxSlide, footer?: string): void {
+  if (!footer) {
+    return;
+  }
+  slide.addText(footer, {
+    x: 0.5,
+    y: 6.85,
+    w: 9,
+    h: 0.45,
+    fontSize: 10,
+    italic: true,
+    color: "666666",
+  });
+}
+
+function bulletBlock(
+  items: string[],
+  opts: { x: number; y: number; w: number; h: number; fontSize?: number },
+): unknown[] {
+  return items.map((t, i) => ({
+    text: `${i + 1}. ${t}`,
+    options: { breakLine: true, fontSize: opts.fontSize ?? 14, color: "333333" },
+  }));
+}
+
+function renderStructuredSlide(
+  pptx: PptxPresentation,
+  content: ParsedSlideContent,
+  accent: string,
+): void {
+  const slide = pptx.addSlide();
+  addHeading(slide, content.heading, accent);
+
+  if (content.layout === "matrix" && content.matrix && content.matrix.length > 0) {
+    const cols = content.matrix[0]?.length ?? 1;
+    const colW = Math.min(9 / cols, 2.2);
+    content.matrix.slice(0, 8).forEach((row, ri) => {
+      row.slice(0, cols).forEach((cell, ci) => {
+        slide.addText(cell.slice(0, 80), {
+          x: 0.45 + ci * colW,
+          y: 1.15 + ri * 0.7,
+          w: colW - 0.08,
+          h: 0.65,
+          fontSize: ri === 0 ? 11 : 12,
+          bold: ri === 0,
+          color: ri === 0 ? accent : "333333",
+          valign: "middle",
+        });
+      });
+    });
+    addFooter(slide, content.footer);
+    return;
+  }
+
+  if (content.layout === "twoColumn" && content.left && content.right) {
+    slide.addText(bulletBlock(content.left, { x: 0.5, y: 1.15, w: 4.4, h: 5.2 }), {
+      x: 0.5,
+      y: 1.15,
+      w: 4.4,
+      h: 5.2,
+      valign: "top",
+    });
+    slide.addText(bulletBlock(content.right, { x: 5.2, y: 1.15, w: 4.4, h: 5.2 }), {
+      x: 5.2,
+      y: 1.15,
+      w: 4.4,
+      h: 5.2,
+      valign: "top",
+    });
+    addFooter(slide, content.footer);
+    return;
+  }
+
+  if (
+    content.layout === "agenda" ||
+    content.layout === "checklist" ||
+    content.layout === "bullets"
+  ) {
+    const prefix = content.layout === "checklist" ? "☐ " : content.layout === "agenda" ? "" : "• ";
+    const items = content.bullets.map((t, i) => ({
+      text: content.layout === "agenda" ? `${i + 1}. ${t}` : `${prefix}${t}`,
+      options: {
+        breakLine: true,
+        fontSize: 16,
+        color: "333333",
+        bold: content.layout === "agenda",
+      },
+    }));
+    slide.addText(items, {
+      x: 0.7,
+      y: 1.2,
+      w: 8.6,
+      h: 5.3,
+      valign: "top",
+    });
+    addFooter(slide, content.footer);
+    return;
+  }
+
+  if (content.layout === "quote") {
+    const quote = content.bullets.join("\n") || "（无正文）";
+    slide.addText(quote, {
+      x: 1,
+      y: 2,
+      w: 8,
+      h: 3.5,
+      fontSize: 18,
+      color: "222222",
+      italic: true,
+      valign: "middle",
+      align: "center",
+    });
+    addFooter(slide, content.footer);
+    return;
+  }
+
+  // titleBody fallback
+  slide.addText(content.bullets.join("\n\n") || "（无正文）", {
+    x: 0.5,
+    y: 1.2,
+    w: 9,
+    h: 5.3,
+    fontSize: 14,
+    color: "333333",
+    valign: "top",
+    wrap: true,
+  });
+  addFooter(slide, content.footer);
+}
+
+function addSectionSlide(
+  pptx: PptxPresentation,
+  section: ArtifactSection,
+  accent: string,
+  sources?: CitationDisplaySource[],
+): void {
+  const seeAlso = formatSectionSeeAlsoLine(section.citations, sources);
+  const content = parseSectionToSlideContent(section.heading, section.body, seeAlso || undefined);
+  renderStructuredSlide(pptx, content, accent);
+}
+
+export async function renderPptx(draft: ArtifactDraft, outputDir: string): Promise<RenderResult> {
+  return renderPptxWithOptions(draft, outputDir, {});
+}
+
 export async function renderPptxWithOptions(
   draft: ArtifactDraft,
   outputDir: string,
   options: RenderPptxOptions,
 ): Promise<RenderResult> {
-  if (draft.reviewStatus !== "approved") {
+  if (draft.reviewStatus === "rejected") {
     return {
       ok: false,
-      error: `文书未通过审核（当前状态：${draft.reviewStatus}），不能渲染。请律师确认后再执行。`,
+      error: `文书已驳回（当前状态：${draft.reviewStatus}），不能渲染。`,
     };
   }
 
@@ -146,6 +285,14 @@ export async function renderPptxWithOptions(
   pptx.author = "LawMind";
 
   const titleSlide = pptx.addSlide();
+  titleSlide.addText(style.subtitle, {
+    x: 0.6,
+    y: 0.9,
+    w: 8.8,
+    h: 0.4,
+    fontSize: 14,
+    color: "666666",
+  });
   titleSlide.addText(draft.title, {
     x: 0.6,
     y: 1.4,
@@ -154,14 +301,6 @@ export async function renderPptxWithOptions(
     fontSize: 32,
     bold: true,
     color: style.accent,
-  });
-  titleSlide.addText(style.subtitle, {
-    x: 0.6,
-    y: 0.9,
-    w: 8.8,
-    h: 0.4,
-    fontSize: 14,
-    color: "666666",
   });
   if (draft.summary.trim()) {
     titleSlide.addText(draft.summary, {
@@ -208,31 +347,19 @@ export async function renderPptxWithOptions(
   });
 
   for (const section of draft.sections) {
-    addSectionSlide(pptx, section);
+    addSectionSlide(pptx, section, style.accent, options.sources);
   }
 
   if (draft.reviewNotes.length > 0) {
-    const slide = pptx.addSlide();
-    slide.addText("审阅备注", {
-      x: 0.5,
-      y: 0.35,
-      w: 9,
-      h: 0.65,
-      fontSize: 22,
-      bold: true,
-      color: "1a1a1a",
-    });
-    slide.addText(draft.reviewNotes.map((n) => `• ${n}`).join("\n"), {
-      x: 0.5,
-      y: 1.1,
-      w: 9,
-      h: 5.8,
-      fontSize: 12,
-      italic: true,
-      color: "333333",
-      valign: "top",
-      wrap: true,
-    });
+    renderStructuredSlide(
+      pptx,
+      {
+        layout: "bullets",
+        heading: "审阅备注",
+        bullets: draft.reviewNotes.map((n) => n),
+      },
+      style.accent,
+    );
   }
 
   await fs.mkdir(outputDir, { recursive: true });

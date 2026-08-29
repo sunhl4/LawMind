@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { findLawyerWork } from "../work/store.js";
 import { deriveInstructionTitle, persistAgentInstructionTask, readTaskRecord } from "./index.js";
 
 describe("deriveInstructionTitle", () => {
@@ -54,5 +55,6 @@ describe("persistAgentInstructionTask", () => {
 
     const loaded = readTaskRecord(dir, "turn-uuid-1");
     expect(loaded?.summary).toBe("请审查附件合同");
+    expect(findLawyerWork(dir, { sessionId: "sess-1" })?.taskId).toBe("turn-uuid-1");
   });
 });

@@ -18,8 +18,18 @@ export {
   registerExtraDeliverableSpecs,
 } from "./registry.js";
 export { isDraftReadyForRender, validateDraftAgainstSpec } from "./validator.js";
+export {
+  describeDraftScaffold,
+  draftPlainTextLength,
+  type DraftScaffoldView,
+} from "./scaffold-status.js";
 export { countPlaceholderLikeMarkers, heuristicPlaceholderRatio } from "./draft-sanity.js";
-export { validateReasoningAgainstSpec, validateReasoningForDraft } from "./reasoning-validator.js";
+export {
+  specRequiresReasoningGraphAtDraft,
+  validateReasoningAgainstSpec,
+  validateReasoningForDraft,
+  validateReasoningGraphAtDraft,
+} from "./reasoning-validator.js";
 export type {
   AcceptanceCheck,
   AcceptanceReport,
@@ -32,5 +42,26 @@ export type {
   ValidateDraftFn,
   ValidateDraftOptions,
 } from "./types.js";
-export { loadWorkspaceDeliverableSpecs, parseDeliverableSpec } from "./workspace-loader.js";
-export type { WorkspaceSpecLoadResult, WorkspaceSpecWarning } from "./workspace-loader.js";
+export type { ReasoningGraphAtDraftReport } from "./reasoning-validator.js";
+/**
+ * Node-only workspace JSON loader lives in `./workspace-loader.js`.
+ * Do not re-export it here — the desktop renderer imports this barrel, and
+ * pulling `node:fs` into Vite client breaks the shell (blank page).
+ */
+export {
+  assertChecklistCompleteForApprove,
+  buildChecklistView,
+  checkAllRequiredChecklistItems,
+  emptyChecklistState,
+  listVerificationChecklistSpecs,
+  resolveVerificationChecklistSpec,
+  type VerificationChecklistItemSpec,
+  type VerificationChecklistSpec,
+  type VerificationChecklistState,
+  type VerificationChecklistView,
+} from "./verification-checklist.js";
+export {
+  assessDeliverableReadiness,
+  type DeliverableReadiness,
+  type DeliverableReadinessBlocker,
+} from "./deliverable-readiness.js";

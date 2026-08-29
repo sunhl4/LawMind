@@ -3,23 +3,34 @@ import {
   getDelegation,
   listDelegations,
   listDelegationFollowUpsForSession,
+  listRunningDelegationsForSession,
   listWorkspaceWorkflowTemplates,
   readCollaborationEvents,
   readWorkspaceWorkflowTemplate,
   instantiateCollaborationWorkflowFromTemplate,
+  validateDelegation,
+  DEFAULT_COLLABORATION_POLICY,
 } from "../../../src/lawmind/agent/collaboration/index.js";
+import { startDelegation } from "../../../src/lawmind/agent/tools/coordination/delegate.js";
+import { resolveAssistantId } from "../../../src/lawmind/agent/tools/coordination/utils.js";
 import { loadSession } from "../../../src/lawmind/agent/session.js";
+import { getLiveTurnProgressOrReplay } from "../../../src/lawmind/agent/session-event-log.js";
+import { requestTurnAbort } from "../../../src/lawmind/agent/turn-abort.js";
 import {
   buildWorkflowReport,
   executeWorkflow as runCollaborationWorkflow,
 } from "../../../src/lawmind/agent/orchestrator/index.js";
 import { isValidMatterId } from "../../../src/lawmind/cases/index.js";
+import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
+import { delegationCreateRequestSchema, workflowRunRequestSchema } from "./lawmind-api-schemas.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import {
   buildAgentConfig,
-  readJsonBody,
+  resolveModelCallHttpError,
   sendJson,
 } from "./lawmind-server-helpers.js";
+import { collectWorkflowMemoryBundle } from "../../../src/lawmind/agent/collaboration/workflow-memory-bundle.js";
+import { resolveLawMindRoot } from "../../../src/lawmind/assistants/store.js";
 import { enqueueWorkflowRun } from "./lawmind-server-jobs.js";
 
 export async function handleCollaborationRoutes({
@@ -102,12 +113,155 @@ export async function handleCollaborationRoutes({
     return true;
   }
 
+  if (pathname === "/api/delegations/session-progress" && req.method === "GET") {
+    const sessionId = url.searchParams.get("sessionId")?.trim() ?? "";
+    const assistantId = url.searchParams.get("assistantId")?.trim() ?? "";
+    if (!sessionId || !assistantId) {
+      sendJson(res, 400, { ok: false, error: "sessionId_and_assistantId_required" }, c);
+      return true;
+    }
+    const session = loadSession(workspaceDir, sessionId);
+    if (!session) {
+      sendJson(res, 404, { ok: false, error: "session_not_found" }, c);
+      return true;
+    }
+    if (session.assistantId && session.assistantId !== assistantId) {
+      sendJson(res, 403, { ok: false, error: "session_assistant_mismatch" }, c);
+      return true;
+    }
+    const rows = listRunningDelegationsForSession({
+      parentSessionId: sessionId,
+      fromAssistantId: assistantId,
+    });
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        items: rows.map((r) => ({
+          delegationId: r.delegationId,
+          status: r.status,
+          toAssistant: r.toAssistantId,
+          targetSessionId: r.targetSessionId,
+          progress: r.targetSessionId
+            ? getLiveTurnProgressOrReplay(workspaceDir, r.targetSessionId) ?? null
+            : null,
+        })),
+      },
+      c,
+    );
+    return true;
+  }
+
+  if (pathname === "/api/delegations" && req.method === "POST") {
+    const collaborationEnabled =
+      process.env.LAWMIND_ENABLE_COLLABORATION?.trim().toLowerCase() !== "false";
+    if (!collaborationEnabled) {
+      sendJson(
+        res,
+        503,
+        {
+          ok: false,
+          code: "collaboration_disabled",
+          message: "多助手协作已关闭，无法创建委派。",
+        },
+        c,
+      );
+      return true;
+    }
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, delegationCreateRequestSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "from_to_task_required" }, c);
+        return true;
+      }
+      throw err;
+    }
+    const fromRaw = body.fromAssistantId;
+    const toRaw = body.toAssistantId;
+    const task = body.task;
+    const requestModelRaw = body.modelId ?? "";
+    const built = buildAgentConfig(workspaceDir, {
+      envFile: ctx.envFile,
+      ...(requestModelRaw ? { modelId: requestModelRaw } : {}),
+    });
+    if (
+      !built.config ||
+      built.error === "missing_api_key" ||
+      built.error === "missing_provider_api_key" ||
+      built.error === "missing_platform_api_key"
+    ) {
+      sendJson(
+        res,
+        503,
+        {
+          ok: false,
+          error: "missing_api_key",
+          message: "未配置或未验证模型 API，无法创建委派。",
+        },
+        c,
+      );
+      return true;
+    }
+    const fromId = resolveAssistantId(workspaceDir, fromRaw, ctx.envFile) ?? fromRaw;
+    const toId = resolveAssistantId(workspaceDir, toRaw, ctx.envFile);
+    if (!toId) {
+      sendJson(res, 404, { ok: false, error: "target_assistant_not_found", message: `找不到助手「${toRaw}」` }, c);
+      return true;
+    }
+    const validationError = validateDelegation({
+      fromAssistantId: fromId,
+      toAssistantId: toId,
+      depth: 0,
+      policy: DEFAULT_COLLABORATION_POLICY,
+    });
+    if (validationError) {
+      sendJson(res, 400, { ok: false, error: "delegation_rejected", message: validationError }, c);
+      return true;
+    }
+    const matterId = body.matterId?.trim() || undefined;
+    const priority = body.priority ?? "normal";
+    const parentSessionId = body.parentSessionId?.trim() || undefined;
+    const result = startDelegation({
+      baseConfig: { ...built.config, assistantId: fromId, actorId: `assistant:${fromId}` },
+      workspaceDir,
+      fromId,
+      toId,
+      task,
+      matterId: matterId || undefined,
+      priority,
+      depth: 0,
+      parentSessionId: parentSessionId || undefined,
+    });
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        delegationId: result.data.delegationId,
+        targetAssistant: result.data.targetAssistant,
+        status: result.data.status,
+        message: result.data.note,
+      },
+      c,
+    );
+    return true;
+  }
+
   if (pathname === "/api/delegations" && req.method === "GET") {
     const statusFilter = url.searchParams.get("status") ?? undefined;
     const assistantFilter = url.searchParams.get("assistantId") ?? undefined;
+    const matterFilterRaw = url.searchParams.get("matterId")?.trim() ?? "";
+    if (matterFilterRaw && !isValidMatterId(matterFilterRaw)) {
+      sendJson(res, 400, { ok: false, error: "invalid_matter_id" }, c);
+      return true;
+    }
     const records = listDelegations({
       fromAssistantId: assistantFilter || undefined,
       status: statusFilter as "pending" | "running" | "completed" | "failed" | undefined,
+      matterId: matterFilterRaw || undefined,
     });
     sendJson(
       res,
@@ -155,6 +309,9 @@ export async function handleCollaborationRoutes({
         sendJson(res, 404, { ok: false, error: "delegation not found" }, c);
         return true;
       }
+      if (record.targetSessionId) {
+        requestTurnAbort(record.targetSessionId);
+      }
       sendJson(res, 200, { ok: true, delegation: record }, c);
       return true;
     }
@@ -182,20 +339,18 @@ export async function handleCollaborationRoutes({
       );
       return true;
     }
-    const body = (await readJsonBody(req)) as {
-      templateId?: string;
-      matterId?: string;
-      assistantId?: string;
-      vars?: Record<string, string>;
-      async?: boolean;
-      idempotencyKey?: string;
-    };
-    const templateId = typeof body.templateId === "string" ? body.templateId.trim() : "";
-    if (!templateId) {
-      sendJson(res, 400, { ok: false, error: "templateId_required" }, c);
-      return true;
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, workflowRunRequestSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "templateId_required" }, c);
+        return true;
+      }
+      throw err;
     }
-    const matterRaw = typeof body.matterId === "string" ? body.matterId.trim() : "";
+    const templateId = body.templateId;
+    const matterRaw = body.matterId ?? "";
     if (matterRaw && !isValidMatterId(matterRaw)) {
       sendJson(res, 400, { ok: false, error: "invalid_matter_id" }, c);
       return true;
@@ -205,17 +360,38 @@ export async function handleCollaborationRoutes({
       sendJson(res, 404, { ok: false, error: "template_not_found", templateId }, c);
       return true;
     }
-    const built = buildAgentConfig(workspaceDir);
-    if (built.error === "missing_api_key" || !built.config) {
+    const workflowGateHint =
+      template.acceptancePackRequired === true
+        ? "本流程完成后需律师验收：对外发出前请在文书台审稿通过。"
+        : (template.requiredSources?.length ?? 0) > 0
+          ? `本工作流建议绑定来源：${template.requiredSources!.join("、")}。`
+          : undefined;
+    const requestModelRaw = body.modelId ?? "";
+    const built = buildAgentConfig(workspaceDir, {
+      envFile: ctx.envFile,
+      ...(requestModelRaw ? { modelId: requestModelRaw } : {}),
+    });
+    const missingAgentModel =
+      !built.config ||
+      built.error === "missing_api_key" ||
+      built.error === "missing_provider_api_key" ||
+      built.error === "missing_platform_api_key";
+    if (missingAgentModel) {
       sendJson(
         res,
         503,
-        { ok: false, error: "missing_api_key", message: "未配置模型 API，无法执行工作流。" },
+        {
+          ok: false,
+          error: "missing_api_key",
+          message: requestModelRaw
+            ? "所选模型不可用或未配置 Key，无法执行工作流。"
+            : "未配置模型 API，无法执行工作流。",
+        },
         c,
       );
       return true;
     }
-    const assistantId = typeof body.assistantId === "string" ? body.assistantId.trim() : "";
+    const assistantId = body.assistantId ?? "";
     const baseConfig = {
       ...built.config,
       ...(assistantId ? { assistantId, actorId: `assistant:${assistantId}` } : {}),
@@ -223,13 +399,27 @@ export async function handleCollaborationRoutes({
     const workflow = instantiateCollaborationWorkflowFromTemplate(template, {
       matterId: matterRaw || undefined,
       createdBy: assistantId || baseConfig.assistantId || baseConfig.actorId,
-      vars: body.vars && typeof body.vars === "object" ? body.vars : undefined,
+      vars: body.vars,
     });
     if (body.async === true) {
-      const idempotencyKey =
-        typeof body.idempotencyKey === "string" ? body.idempotencyKey : undefined;
-      const jobId = enqueueWorkflowRun(baseConfig, workflow, { idempotencyKey });
-      sendJson(res, 202, { ok: true, jobId, async: true }, c);
+      const idempotencyKey = body.idempotencyKey;
+      const scheduleRunAt = body.scheduleRunAt;
+      const lawMindRoot = resolveLawMindRoot(workspaceDir, ctx.envFile);
+      const memoryBundleSnapshot = collectWorkflowMemoryBundle(lawMindRoot, workflow);
+      const jobId = enqueueWorkflowRun(baseConfig, workflow, {
+        idempotencyKey,
+        scheduleRunAt,
+        templateId,
+        workflowVars: body.vars,
+        createdByAssistantId: assistantId || baseConfig.assistantId,
+        memoryBundleSnapshot,
+      });
+      sendJson(
+        res,
+        202,
+        { ok: true, jobId, async: true, ...(workflowGateHint ? { gateHint: workflowGateHint } : {}) },
+        c,
+      );
       return true;
     }
     try {
@@ -243,6 +433,7 @@ export async function handleCollaborationRoutes({
           workflowId: finished.workflowId,
           status: finished.status,
           report,
+          ...(workflowGateHint ? { gateHint: workflowGateHint } : {}),
           steps: finished.steps.map((s) => ({
             stepId: s.stepId,
             assignee: s.assignee,
@@ -253,6 +444,22 @@ export async function handleCollaborationRoutes({
         c,
       );
     } catch (err) {
+      const modelErr = resolveModelCallHttpError(err);
+      if (modelErr) {
+        sendJson(
+          res,
+          modelErr.status,
+          {
+            ok: false,
+            code: modelErr.code,
+            error: "workflow_run_failed",
+            message: modelErr.message,
+            workflowId: workflow.workflowId,
+          },
+          c,
+        );
+        return true;
+      }
       const msg = err instanceof Error ? err.message : String(err);
       sendJson(
         res,

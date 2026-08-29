@@ -24,30 +24,42 @@ function run(command: string, args: string[]): void {
 
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
-  console.log("[Acceptance] Step 1/6: tests");
+  console.log("[Acceptance] Step 1/8: tests");
   run("pnpm", ["exec", "vitest", "run", "src/lawmind"]);
 
-  console.log("[Acceptance] Step 2/6: env check");
+  console.log("[Acceptance] Step 2/8: env check");
   const envArgs = ["run", "lawmind:env:check"];
   if (opts.strictEnv) {
     envArgs.push("--", "--strict");
   }
   run("pnpm", envArgs);
 
-  console.log("[Acceptance] Step 3/6: smoke");
+  console.log("[Acceptance] Step 3/8: smoke");
   const smokeArgs = ["run", "lawmind:smoke"];
   if (opts.strictEnv) {
     smokeArgs.push("--", "--fail-on-empty-claims");
   }
   run("pnpm", smokeArgs);
 
-  console.log("[Acceptance] Step 4/6: demo");
+  console.log("[Acceptance] Step 4/8: demo");
   run("pnpm", ["run", "lawmind:demo"]);
 
-  console.log("[Acceptance] Step 5/6: quarterly demo (W3+W4+W5+W7+W9 端到端)");
+  console.log("[Acceptance] Step 5/8: quarterly demo (W3+W4+W5+W7+W9 端到端)");
   run("pnpm", ["run", "lawmind:quarterly-demo"]);
 
-  console.log("[Acceptance] Step 6/6: ops status");
+  console.log("[Acceptance] Step 6/8: benchmark");
+  run("pnpm", ["run", "lawmind:benchmark", "--", "--out", "dist/lawmind-benchmark.json"]);
+
+  console.log("[Acceptance] Step 7/8: release readiness report");
+  run("pnpm", [
+    "run",
+    "lawmind:release-readiness",
+    "--",
+    "--out",
+    "dist/lawmind-release-readiness.md",
+  ]);
+
+  console.log("[Acceptance] Step 8/8: ops status");
   run("pnpm", ["run", "lawmind:ops", "--", "status"]);
 
   console.log("\n✅ LawMind acceptance completed.");

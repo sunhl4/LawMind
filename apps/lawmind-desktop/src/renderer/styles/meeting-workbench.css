@@ -1,0 +1,234 @@
+/* 会议室 — 全局左栏（与对话同构）+ 页内场次栏 + 右栏讨论办理 */
+
+.lm-meeting-wb {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  font-family: var(--font);
+  background: var(--bg);
+}
+
+.lm-meeting-wb-split {
+  display: grid;
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.lm-meeting-wb-list {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+  background: color-mix(in srgb, var(--side-bg) 65%, var(--surface));
+}
+
+.lm-meeting-wb-list-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 14px 20px;
+}
+
+.lm-meeting-wb-group {
+  border-radius: var(--r);
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--accent-border) 35%, var(--border));
+  box-shadow: var(--shadow-xs);
+  overflow: hidden;
+}
+
+.lm-meeting-wb-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 0;
+  padding: 13px 14px 13px 16px;
+  border: 0;
+  border-left: 3px solid color-mix(in srgb, var(--accent-cool) 65%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--surface) 96%, #fff) 0%,
+    var(--surface) 100%
+  );
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--t) var(--ease);
+}
+
+.lm-meeting-wb-group-toggle[data-kind="adhoc"] {
+  border-left-color: color-mix(in srgb, var(--accent) 72%, transparent);
+}
+
+.lm-meeting-wb-group-toggle[data-kind="matter"] {
+  border-left-color: color-mix(in srgb, var(--accent-cool) 70%, transparent);
+}
+
+.lm-meeting-wb-group-toggle:hover {
+  background: color-mix(in srgb, var(--accent-dim) 45%, var(--surface));
+}
+
+.lm-meeting-wb-group-toggle:focus-visible {
+  outline: 2px solid var(--accent-border);
+  outline-offset: -2px;
+}
+
+.lm-meeting-wb-group--open .lm-meeting-wb-group-toggle {
+  background: color-mix(in srgb, var(--accent-dim) 55%, var(--surface));
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.lm-meeting-wb-group-label-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  line-height: 1.3;
+  color: var(--text);
+}
+
+.lm-meeting-wb-group-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.6rem;
+  height: 1.6rem;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--accent);
+  background: var(--accent-dim);
+  border: 1px solid color-mix(in srgb, var(--accent-border) 65%, transparent);
+}
+
+.lm-meeting-wb-group-toggle[data-kind="matter"] .lm-meeting-wb-group-count {
+  color: color-mix(in srgb, var(--accent-cool) 75%, var(--text));
+  background: var(--accent-cool-dim);
+  border-color: var(--accent-cool-border);
+}
+
+.lm-meeting-wb-group-chevron {
+  flex-shrink: 0;
+  width: 0.45rem;
+  height: 0.45rem;
+  margin-right: 2px;
+  border-right: 1.5px solid color-mix(in srgb, var(--muted) 80%, transparent);
+  border-bottom: 1.5px solid color-mix(in srgb, var(--muted) 80%, transparent);
+  transform: rotate(-45deg);
+  transition: transform 160ms var(--ease);
+}
+
+.lm-meeting-wb-group--open .lm-meeting-wb-group-chevron {
+  transform: rotate(45deg);
+  margin-top: -2px;
+}
+
+.lm-meeting-wb-group-panel {
+  padding: 6px 8px 10px;
+  background: color-mix(in srgb, var(--side-bg) 30%, var(--surface));
+}
+
+.lm-meeting-wb-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  margin: 0 0 2px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--r);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--t) var(--ease),
+    border-color var(--t) var(--ease);
+}
+
+.lm-meeting-wb-row:hover {
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border-color: var(--border);
+}
+
+.lm-meeting-wb-row[aria-selected="true"] {
+  background: var(--surface);
+  border-color: color-mix(in srgb, var(--accent-border) 55%, var(--border));
+  box-shadow: var(--shadow-xs);
+}
+
+.lm-meeting-wb-row-title {
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.35;
+  color: var(--text);
+}
+
+.lm-meeting-wb-row-meta {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.lm-meeting-wb-detail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  background: var(--bg);
+}
+
+.lm-meeting-wb-detail-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 28px 32px;
+}
+
+/* Fill the detail column — setup is a workbench command surface, not a reading column. */
+.lm-meeting-wb-detail-inner {
+  width: 100%;
+  max-width: min(100%, 72rem);
+}
+
+.lm-meeting-wb-detail-inner .lm-matter-meeting-card,
+.lm-meeting-wb-detail-inner .lm-matter-cockpit-card {
+  margin: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  padding: 0;
+}
+
+.lm-meeting-wb-empty {
+  padding: 28px 20px;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .lm-meeting-wb-split {
+    grid-template-columns: 1fr;
+  }
+
+  .lm-meeting-wb-list {
+    max-height: 36vh;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+}

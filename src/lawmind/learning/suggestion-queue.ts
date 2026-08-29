@@ -1,5 +1,9 @@
 /**
  * 审核学习建议队列：先入队，律师在桌面或 CLI adopt 后再写回 PROFILE / Playbook。
+ *
+ * 写侧兼容：W5 起 enqueue 会镜像到 `memory/adoption-service`。
+ * 读侧真相源：请用 `listPendingAdoptionsUnified` / Inspector 的 `/api/memory/adoption`；
+ * 本模块的 list/adopt 仅保留给文书台 deferred 标签队列兼容路径。
  */
 
 import { randomUUID } from "node:crypto";
@@ -53,7 +57,9 @@ async function readQueue(workspaceDir: string): Promise<QueueFile> {
 async function writeQueue(workspaceDir: string, data: QueueFile): Promise<void> {
   const p = queuePath(workspaceDir);
   await fs.mkdir(path.dirname(p), { recursive: true });
-  await fs.writeFile(p, JSON.stringify(data, null, 2), "utf8");
+  // 原子写：temp + rename，避免并发 adopt/dismiss/enqueue 互相覆盖或崩溃撕档。
+  const { writeFileAtomicAsync } = await import("../adapters/matter-storage/io.js");
+  await writeFileAtomicAsync(p, JSON.stringify(data, null, 2));
 }
 
 export async function listLearningSuggestions(
@@ -147,6 +153,16 @@ export async function adoptLearningSuggestion(
     detail: JSON.stringify({ suggestionId: id }),
   });
 
+  // Keep mirrored MemoryAdoptionService review_label rows in sync.
+  try {
+    const { markAdoptedBySourceTaskId } = await import("../memory/adoption-service.js");
+    await markAdoptedBySourceTaskId(workspaceDir, auditDir, rec.taskId, {
+      kind: "review_label",
+    });
+  } catch {
+    // best-effort
+  }
+
   return { ok: true };
 }
 
@@ -174,5 +190,13 @@ export async function dismissLearningSuggestion(
     actor: "lawyer",
     detail: JSON.stringify({ suggestionId: id }),
   });
+  try {
+    const { markDismissedBySourceTaskId } = await import("../memory/adoption-service.js");
+    await markDismissedBySourceTaskId(workspaceDir, auditDir, rec.taskId, {
+      kind: "review_label",
+    });
+  } catch {
+    // best-effort
+  }
   return { ok: true };
 }

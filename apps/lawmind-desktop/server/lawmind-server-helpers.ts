@@ -8,11 +8,29 @@ import path from "node:path";
 import { createLawMindEngine } from "../../../src/lawmind/index.js";
 import { buildLawMindRetrievalAdaptersFromEnvForTest } from "../../../src/lawmind/agent/tools/engine-tools.js";
 import type { AgentConfig } from "../../../src/lawmind/agent/types.js";
+import { resolveLawMindRoot } from "../../../src/lawmind/assistants/store.js";
+import { readModelsStore } from "../../../src/lawmind/models/custom-store.js";
+import {
+  isAnyModelConfigured,
+  resolveAgentModelById,
+  resolveModelIdentityForPrompt,
+} from "../../../src/lawmind/models/index.js";
+import {
+  resolveCapabilityEnvelope,
+  resolveTemperatureForTask,
+} from "../../../src/lawmind/models/capability-envelope.js";
 import { resolveEdition } from "../../../src/lawmind/policy/edition.js";
 import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspace-policy.js";
-import { resolveAgentMaxToolCallsPerTurn } from "../../../src/lawmind/policy/workspace-policy.js";
+import {
+  resolveAgentMaxHistoryMessages,
+  resolveAgentMaxToolCallsPerTurn,
+} from "../../../src/lawmind/policy/workspace-policy.js";
 import { readLawMindPolicyFile } from "./lawmind-policy.js";
 import type { TaskRecord } from "../../../src/lawmind/types.js";
+import {
+  friendlyModelErrorMessage,
+  isModelProviderErrorMessage,
+} from "../../../src/lawmind/agent/model-error-message.js";
 
 export const LAWMIND_LOCAL_HOST = "127.0.0.1";
 export const MAX_TEXT_READ_BYTES = 1_000_000;
@@ -69,8 +87,9 @@ export function corsHeaders(origin: string | undefined): Record<string, string> 
       : "http://127.0.0.1:5174";
   return {
     "access-control-allow-origin": allow,
-    "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS",
-    "access-control-allow-headers": "Content-Type",
+    // PUT 用于 team-roster / routing defaults / plan-handoff 等路由；缺失会让浏览器预检失败。
+    "access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+    "access-control-allow-headers": "Content-Type, Authorization",
   };
 }
 
@@ -129,66 +148,173 @@ export function parsePositiveIntEnv(name: string, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
-export function buildAgentConfig(workspaceDir: string): { config: AgentConfig; error?: string } {
-  const defaultBaseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+export { friendlyModelErrorMessage, isModelProviderErrorMessage };
+
+export function resolveModelCallHttpError(err: unknown): {
+  status: number;
+  code: string;
+  message: string;
+} | null {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (!isModelProviderErrorMessage(msg)) {
+    return null;
+  }
+  const friendly = friendlyModelErrorMessage(msg);
+  if (
+    msg.includes("AbortError") ||
+    /aborted/i.test(msg) ||
+    /timed out/i.test(msg) ||
+    msg.startsWith("Model request timed out")
+  ) {
+    return {
+      status: 504,
+      code: "model_unavailable",
+      message: friendly,
+    };
+  }
+  if (msg.startsWith("Model network error") || /fetch failed/i.test(msg)) {
+    return {
+      status: 502,
+      code: "model_network_error",
+      message: friendly,
+    };
+  }
+  return {
+    status: 502,
+    code: "model_unavailable",
+    message: friendly,
+  };
+}
+
+export type BuildAgentConfigOptions = {
+  envFile?: string;
+  modelId?: string;
+};
+
+export function buildAgentConfig(
+  workspaceDir: string,
+  opts?: BuildAgentConfigOptions,
+): { config: AgentConfig; error?: string; modelId?: string } {
+  const lawMindRoot = resolveLawMindRoot(workspaceDir, opts?.envFile);
   const modelTimeoutMs = parsePositiveIntEnv("LAWMIND_AGENT_TIMEOUT_MS", 120000);
   const toolTimeoutMs = parsePositiveIntEnv("LAWMIND_TOOL_TIMEOUT_MS", modelTimeoutMs);
-  const modelConfig = {
-    provider: "openai-compatible" as const,
-    baseUrl:
-      process.env.LAWMIND_AGENT_BASE_URL ??
-      process.env.QWEN_BASE_URL ??
-      process.env.LAWMIND_QWEN_BASE_URL ??
-      defaultBaseUrl,
-    apiKey:
-      process.env.LAWMIND_AGENT_API_KEY ??
-      process.env.QWEN_API_KEY ??
-      process.env.LAWMIND_QWEN_API_KEY ??
-      "",
-    model:
-      process.env.LAWMIND_AGENT_MODEL ??
-      process.env.QWEN_MODEL ??
-      process.env.LAWMIND_QWEN_MODEL ??
-      "qwen-plus",
-    maxTokens: 4096,
-    temperature: 0.3,
+  const resolved = resolveAgentModelById(lawMindRoot, opts?.modelId);
+  const fallbackEnvelope = resolveCapabilityEnvelope({
+    contextTokens: resolved.model?.contextTokens,
     timeoutMs: modelTimeoutMs,
+  });
+  const modelConfig = resolved.model ?? {
+    provider: "openai-compatible" as const,
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    apiKey: "",
+    model: "qwen-plus",
+    maxTokens: fallbackEnvelope.maxOutputTokens,
+    temperature: 0.3,
+    timeoutMs: fallbackEnvelope.modelTimeoutMs,
+    contextTokens: fallbackEnvelope.contextTokens,
   };
 
   const actorId = resolveDesktopActorId();
 
   if (!modelConfig.apiKey) {
+    const err =
+      resolved.error === "missing_platform_api_key"
+        ? "missing_platform_api_key"
+        : resolved.error === "missing_provider_api_key"
+          ? "missing_provider_api_key"
+          : "missing_api_key";
     return {
-      config: { workspaceDir, model: modelConfig, actorId },
-      error: "missing_api_key",
+      config: {
+        workspaceDir,
+        model: modelConfig,
+        actorId,
+        ...(opts?.envFile ? { envFile: opts.envFile } : {}),
+      },
+      error: err,
+      modelId: resolved.resolvedModelId,
     };
   }
 
   const enableCollaboration = process.env.LAWMIND_ENABLE_COLLABORATION?.trim().toLowerCase() !== "false";
-  const maxToolCalls = resolveAgentMaxToolCallsPerTurn(workspaceDir);
+  const envelope = resolveCapabilityEnvelope({
+    contextTokens: modelConfig.contextTokens,
+    timeoutMs: modelConfig.timeoutMs ?? modelTimeoutMs,
+    taskKind: "chat",
+  });
+  if (!modelConfig.contextTokens) {
+    modelConfig.contextTokens = envelope.contextTokens;
+  }
+  if (!modelConfig.maxTokens || modelConfig.maxTokens < envelope.maxOutputTokens) {
+    // Prefer envelope when legacy 4096 (or lower) slipped through.
+    if (!modelConfig.maxTokens || modelConfig.maxTokens <= 4096) {
+      modelConfig.maxTokens = envelope.maxOutputTokens;
+    }
+  }
+  if (modelConfig.temperature === undefined || modelConfig.temperature === 0.3) {
+    // E2: chat default 0.35 (legacy hardcoded 0.3 treated as unset).
+    modelConfig.temperature = resolveTemperatureForTask("chat");
+  }
   const policyState = readLawMindPolicyFile(workspaceDir);
   const policyForEdition: LawMindWorkspacePolicy | null = policyState.loaded
     ? (policyState.policy as LawMindWorkspacePolicy)
     : null;
+  const explicitToolCap =
+    (typeof policyForEdition?.agentMaxToolCallsPerTurn === "number" &&
+      policyForEdition.agentMaxToolCallsPerTurn > 0) ||
+    Boolean(process.env.LAWMIND_AGENT_MAX_TOOL_CALLS?.trim());
+  const maxToolCalls = explicitToolCap
+    ? resolveAgentMaxToolCallsPerTurn(workspaceDir)
+    : envelope.toolCallsPerTurn;
   const edition = resolveEdition({ policy: policyForEdition });
   const allowDangerousRaw =
     process.env.LAWMIND_ALLOW_DANGEROUS_TOOLS_WITHOUT_APPROVAL?.trim().toLowerCase() ?? "";
   const allowDangerousToolsWithoutApproval =
     allowDangerousRaw === "true" || allowDangerousRaw === "1";
 
+  const runtimeModel = resolveModelIdentityForPrompt(
+    lawMindRoot,
+    resolved.resolvedModelId,
+    modelConfig,
+  );
+
+  // E7: optional worker (fast) model for tool rounds.
+  let workerModel = undefined as typeof modelConfig | undefined;
+  const workerId = readModelsStore(lawMindRoot).workerModelId?.trim();
+  if (workerId && workerId !== resolved.resolvedModelId) {
+    const workerResolved = resolveAgentModelById(lawMindRoot, workerId);
+    if (workerResolved.model?.apiKey) {
+      workerModel = workerResolved.model;
+    }
+  }
+
   return {
     config: {
       workspaceDir,
       model: modelConfig,
+      runtimeModel,
+      ...(workerModel ? { workerModel } : {}),
       maxToolCalls,
-      maxHistoryMessages: 50,
-      toolExecutionTimeoutMs: toolTimeoutMs,
+      maxHistoryMessages: resolveAgentMaxHistoryMessages(
+        workspaceDir,
+        envelope.maxHistoryMessages,
+      ),
+      toolExecutionTimeoutMs: toolTimeoutMs || envelope.toolTimeoutMs,
       actorId,
       enableCollaboration,
       allowDangerousToolsWithoutApproval,
       strictDangerousToolApproval: edition.features.strictDangerousToolApproval,
+      autoApproveSandboxWorkflowSteps:
+        policyForEdition?.autoApproveSandboxWorkflowSteps === true,
+      ...(opts?.envFile ? { envFile: opts.envFile } : {}),
     },
+    modelId: resolved.resolvedModelId,
   };
+}
+
+/** True when at least one built-in provider key or custom model key is available. */
+export function isDesktopModelConfigured(workspaceDir: string, envFile?: string): boolean {
+  const lawMindRoot = resolveLawMindRoot(workspaceDir, envFile);
+  return isAnyModelConfigured(lawMindRoot);
 }
 
 export function isUnderWorkspace(workspaceRoot: string, candidate: string): boolean {
@@ -287,13 +413,20 @@ export function isLikelyBinary(buffer: Buffer): boolean {
 export function taskToSummary(t: TaskRecord) {
   return {
     taskId: t.taskId,
+    instruction: t.instruction,
     summary: t.summary,
     title: t.title,
     kind: t.kind,
     status: t.status,
     output: t.output,
     riskLevel: t.riskLevel,
+    requiresConfirmation: t.requiresConfirmation,
+    audience: t.audience,
     matterId: t.matterId,
+    deliverableType: t.deliverableType,
+    acceptanceCriteria: t.acceptanceCriteria,
+    reviewStatus: t.reviewStatus,
+    executionPlan: t.executionPlan,
     outputPath: t.outputPath,
     assistantId: t.assistantId,
     sessionId: t.sessionId,

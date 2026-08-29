@@ -17,12 +17,22 @@ if (!fs.existsSync(srcDocs)) {
   process.exit(1);
 }
 
-let n = 0;
-for (const f of fs.readdirSync(srcDocs)) {
-  if (f.startsWith("LAWMIND-") && f.endsWith(".md")) {
-    fs.copyFileSync(path.join(srcDocs, f), path.join(destDocs, f));
-    n += 1;
+const srcLawmindMd = new Set(
+  fs.readdirSync(srcDocs).filter((f) => f.startsWith("LAWMIND-") && f.endsWith(".md")),
+);
+let pruned = 0;
+if (fs.existsSync(destDocs)) {
+  for (const f of fs.readdirSync(destDocs)) {
+    if (f.startsWith("LAWMIND-") && f.endsWith(".md") && !srcLawmindMd.has(f)) {
+      fs.rmSync(path.join(destDocs, f));
+      pruned += 1;
+    }
   }
+}
+let n = 0;
+for (const f of srcLawmindMd) {
+  fs.copyFileSync(path.join(srcDocs, f), path.join(destDocs, f));
+  n += 1;
 }
 
 const lmSrc = path.join(srcDocs, "lawmind");
@@ -32,4 +42,23 @@ if (fs.existsSync(lmSrc)) {
   fs.cpSync(lmSrc, lmDest, { recursive: true });
 }
 
-console.log(`sync-docs: copied ${n} LAWMIND-*.md + docs/lawmind/ → apps/lawmind-docs/docs/`);
+const assetsSrc = path.join(srcDocs, "assets");
+const assetsDest = path.join(destDocs, "assets");
+if (fs.existsSync(assetsSrc)) {
+  fs.rmSync(assetsDest, { recursive: true, force: true });
+  fs.cpSync(assetsSrc, assetsDest, { recursive: true });
+}
+
+/** Smart download page — source of truth is apps/lawmind-desktop/download/index.html */
+const downloadSrc = path.join(repoRoot, "apps/lawmind-desktop/download/index.html");
+const downloadDestDir = path.join(destDocs, "public/download");
+if (fs.existsSync(downloadSrc)) {
+  fs.mkdirSync(downloadDestDir, { recursive: true });
+  fs.copyFileSync(downloadSrc, path.join(downloadDestDir, "index.html"));
+}
+
+console.log(
+  `sync-docs: copied ${n} LAWMIND-*.md` +
+    (pruned ? ` (pruned ${pruned} stale)` : "") +
+    ` + docs/lawmind/ + docs/assets/ + download/ → apps/lawmind-docs/docs/`,
+);

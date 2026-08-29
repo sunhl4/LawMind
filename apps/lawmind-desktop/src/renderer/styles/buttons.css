@@ -1,0 +1,182 @@
+/* ── Buttons ───────────────────────────────────────────────── */
+.lm-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--r);
+  border: none;
+  background: var(--grad-brand);
+  color: #181410;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform var(--t) var(--ease), box-shadow var(--t-md) var(--ease), filter var(--t) var(--ease);
+  white-space: nowrap;
+  letter-spacing: -0.1px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.18),
+    0 2px 8px rgba(183, 154, 103, 0.22),
+    0 1px 2px rgba(0, 0, 0, 0.32);
+  position: relative;
+  overflow: hidden;
+}
+
+.lm-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 35%, rgba(255, 255, 255, 0.32) 50%, transparent 65%);
+  transform: translateX(-120%);
+  transition: transform 600ms var(--ease-out);
+  pointer-events: none;
+}
+
+.lm-btn:hover {
+  background: var(--grad-brand-strong);
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.18),
+    0 6px 16px rgba(183, 154, 103, 0.32),
+    0 2px 4px rgba(0, 0, 0, 0.32);
+}
+
+.lm-btn:hover::after { transform: translateX(120%); }
+
+.lm-btn:active { transform: translateY(0); filter: brightness(0.96); }
+
+.lm-btn:focus-visible:not(:disabled) {
+  outline: none;
+  box-shadow: var(--focus-ring), var(--ring-accent);
+}
+
+.lm-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+  background: var(--surface-3);
+  color: var(--muted);
+}
+.lm-btn:disabled::after { display: none; }
+
+.lm-btn-secondary {
+  /* 实底 + 描边：浅色主题下半透明白渐变几乎看不见，易被当成「禁用」 */
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-md);
+  box-shadow: var(--shadow-xs);
+}
+
+.lm-btn-secondary::after { display: none; }
+
+.lm-btn-secondary:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+}
+
+html.lm-theme-dark .lm-btn-secondary:not(:disabled) {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  color: var(--text-2);
+  border-color: var(--border);
+}
+
+html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.04));
+  color: var(--text);
+  border-color: var(--border-md);
+}
+
+.lm-btn-secondary:focus-visible:not(:disabled) {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Destructive confirmation (matches inline var(--error) CTAs; keeps readable contrast on dark chrome) */
+.lm-btn-destructive {
+  background: linear-gradient(180deg, #f28585, #e05555);
+  color: #181410;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.26),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.14),
+    0 2px 10px rgba(240, 101, 101, 0.38),
+    0 1px 2px rgba(0, 0, 0, 0.32);
+}
+
+.lm-btn-destructive::after {
+  background: linear-gradient(115deg, transparent 35%, rgba(255, 255, 255, 0.28) 50%, transparent 65%);
+}
+
+.lm-btn-destructive:hover:not(:disabled) {
+  background: linear-gradient(180deg, #f89595, #ea6565);
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.14),
+    0 6px 18px rgba(240, 101, 101, 0.42),
+    0 2px 4px rgba(0, 0, 0, 0.32);
+}
+
+.lm-btn-destructive:focus-visible:not(:disabled) {
+  outline: none;
+  box-shadow: var(--focus-ring), var(--ring-error);
+}
+
+.lm-btn-ghost {
+  background: transparent;
+  color: var(--text-2);
+  padding: 5px 9px;
+  font-size: 13px;
+  border: 1px solid transparent;
+  box-shadow: none;
+}
+
+.lm-btn-ghost::after { display: none; }
+
+.lm-btn-ghost:hover {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--border);
+  transform: none;
+}
+
+.lm-btn-ghost:focus-visible:not(:disabled) {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.lm-btn-sm,
+.lm-btn-small {
+  padding: 5px 10px;
+  font-size: 13px;
+  border-radius: var(--r-sm);
+}
+
+.lm-btn-accent {
+  background: linear-gradient(135deg, rgba(183, 154, 103, 0.25), rgba(183, 154, 103, 0.12));
+  border: 1px solid var(--accent-border);
+  color: var(--accent);
+  box-shadow: var(--shadow-xs);
+}
+
+.lm-btn-accent::after {
+  display: none;
+}
+
+.lm-btn-accent:hover:not(:disabled) {
+  background: rgba(183, 154, 103, 0.22);
+  color: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+.lm-btn-accent:focus-visible:not(:disabled) {
+  outline: none;
+  box-shadow: var(--focus-ring), var(--ring-accent);
+}
+

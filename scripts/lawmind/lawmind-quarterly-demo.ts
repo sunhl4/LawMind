@@ -38,6 +38,10 @@ import {
 import { getRoleById, listRoles, roleAllowsDeliverable } from "../../src/lawmind/core/role.js";
 import { validateReasoningAgainstSpec } from "../../src/lawmind/deliverables/index.js";
 import {
+  flushQualityDashboard,
+  seedQualitySnapshot,
+} from "../../src/lawmind/evaluation/quality-seed.js";
+import {
   listMemorySuggestions,
   suggestMemoryAdoption,
 } from "../../src/lawmind/memory/adoption-service.js";
@@ -118,7 +122,10 @@ async function main(): Promise<void> {
       `  ✓ deliverable=${deliverable.deliverableId} queue=${queueItem.queueItemId} approval=${approval.approvalId}`,
     );
 
-    step("4/7 W4 状态推进：deliverable → rendered, queue → resolved, approval → approved");
+    step("4/7 W4 状态推进：deliverable 完整生命周期 + queue → resolved + approval → approved");
+    transitionDeliverable(ws, matterId, deliverable.deliverableId, "drafting");
+    transitionDeliverable(ws, matterId, deliverable.deliverableId, "pending_review");
+    transitionDeliverable(ws, matterId, deliverable.deliverableId, "approved");
     const transitioned = transitionDeliverable(ws, matterId, deliverable.deliverableId, "rendered");
     if (transitioned?.status !== "rendered") {
       throw new Error("deliverable transition failed");
@@ -131,7 +138,10 @@ async function main(): Promise<void> {
       status: "approved",
       resolvedBy: "lawyer:partner",
     });
-    if (approvalResolved?.status !== "approved") {
+    if (
+      approvalResolved.outcome !== "written" ||
+      approvalResolved.approval.status !== "approved"
+    ) {
       throw new Error("approval transition failed");
     }
     console.log("  ✓ 三类状态机均完成 happy-path 跃迁。");
@@ -177,6 +187,24 @@ async function main(): Promise<void> {
         `deliverableIds=${matterPersisted.deliverableIds?.length ?? 0}, ` +
         `approvals=${approvals.length}, queueItems=${queue.length}`,
     );
+
+    seedQualitySnapshot(ws, "q12-task-1", ["质量范例"]);
+    await flushQualityDashboard(ws);
+    console.log("  ✓ quality snapshot + dashboard.json written for release-readiness");
+
+    const { checkMatterConsistency } =
+      await import("../../src/lawmind/application/matter-consistency.js");
+    const consistencyIssues = await checkMatterConsistency(ws);
+    if (consistencyIssues.length > 0) {
+      console.warn(
+        `  ⚠ matter consistency: ${consistencyIssues.length} issue(s) (non-blocking WARN)`,
+      );
+      for (const issue of consistencyIssues.slice(0, 5)) {
+        console.warn(`    - ${issue.matterId}: [${issue.code}] ${issue.message}`);
+      }
+    } else {
+      console.log("  ✓ matter JSON ↔ CASE.md consistency OK");
+    }
 
     console.log("\n✅ Quarterly demo passed — 新链路全程跑通，无旧 fallback。");
   } finally {

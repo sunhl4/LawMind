@@ -6,6 +6,8 @@
  * - 兼容 OpenAI 风格 /v1/chat/completions 接口
  */
 
+import { computeRetryDelayMs, isRetryableHttpFailure } from "../llm/http-retry.js";
+import { PROMPT_WINDOW, truncateForPrompt } from "../memory/prompt-windows.js";
 import type { RetrievalAdapter } from "./index.js";
 import { createGeneralModelAdapter, createLegalModelAdapter } from "./model-adapters.js";
 import type { ModelRetrievalInput, ModelRetrievalOutput } from "./model-adapters.js";
@@ -54,19 +56,19 @@ function buildMessages(input: ModelRetrievalInput, role: "general" | "legal"): C
     `目标受众: ${input.intent.audience ?? "未指定"}`,
     "",
     "通用长期记忆:",
-    input.memory.general || "(空)",
+    truncateForPrompt(input.memory.general, PROMPT_WINDOW.retrievalMemoryChars) || "(空)",
     "",
     "律师偏好记忆:",
-    input.memory.profile || "(空)",
+    truncateForPrompt(input.memory.profile, PROMPT_WINDOW.retrievalMemoryChars) || "(空)",
     "",
     "客户画像（长期合作，与单案事实区分；供检索整理时把握沟通与机构习惯）:",
-    input.memory.clientProfile || "(空)",
+    truncateForPrompt(input.memory.clientProfile, PROMPT_WINDOW.retrievalMemoryChars) || "(空)",
     "",
     "最近日志（今天）:",
-    input.memory.todayLog || "(空)",
+    truncateForPrompt(input.memory.todayLog, PROMPT_WINDOW.dayLogChars) || "(空)",
     "",
     "最近日志（昨天）:",
-    input.memory.yesterdayLog || "(空)",
+    truncateForPrompt(input.memory.yesterdayLog, PROMPT_WINDOW.dayLogChars) || "(空)",
   ].join("\n");
 
   return [
@@ -87,19 +89,68 @@ function safeJsonParse<T>(raw: string): T | null {
     try {
       return JSON.parse(cleaned) as T;
     } catch {
+      // Broader: first JSON object in the blob
+      const match = cleaned.match(/\{[\s\S]*\}/);
+      if (match) {
+        try {
+          return JSON.parse(match[0]) as T;
+        } catch {
+          return null;
+        }
+      }
       return null;
     }
   }
 }
 
-async function callOpenAICompatible(
+/**
+ * When the model ignores JSON mode, salvage markdown/plain text as a single
+ * low-confidence claim instead of returning empty claims.
+ */
+export function fallbackRetrievalFromNonJson(content: string): ModelRetrievalOutput {
+  const cleaned = content
+    .trim()
+    .replace(/^```(?:json|markdown|md|text)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  const claimText = cleaned.slice(0, 2_500);
+  if (!claimText) {
+    return {
+      claims: [],
+      riskFlags: ["模型返回非 JSON，且无可提取文本"],
+      missingItems: ["请重试并检查模型输出格式"],
+    };
+  }
+  return {
+    claims: [{ text: claimText, confidence: 0.35 }],
+    sources: [],
+    riskFlags: ["模型未返回合法 JSON，已降级为纯文本摘要（请人工核对，勿直接当权威出处）"],
+    missingItems: ["结构化来源缺失，请核对原文与法规库"],
+  };
+}
+
+const RETRIEVAL_MAX_RETRIES = 2;
+
+async function fetchOpenAICompatibleOnce(
   cfg: OpenAICompatibleClientConfig,
   input: ModelRetrievalInput,
   role: "general" | "legal",
+  externalSignal?: AbortSignal,
 ): Promise<ModelRetrievalOutput> {
   const timeoutMs = cfg.timeoutMs ?? 30000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  // Link external (turn-level) abort with the per-call timeout so either
+  // can cancel the underlying fetch — not just the timeout.
+  const onExternalAbort = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+    }
+  }
 
   try {
     const url = `${trimSlash(cfg.baseUrl)}/chat/completions`;
@@ -119,6 +170,10 @@ async function callOpenAICompatible(
     });
 
     if (!res.ok) {
+      const err = new Error(`模型调用失败: HTTP ${res.status}`);
+      if (isRetryableHttpFailure(err, res.status)) {
+        throw err;
+      }
       return {
         claims: [],
         riskFlags: [`模型调用失败: HTTP ${res.status}`],
@@ -140,11 +195,7 @@ async function callOpenAICompatible(
 
     const parsed = safeJsonParse<ModelRetrievalOutput>(content);
     if (!parsed) {
-      return {
-        claims: [],
-        riskFlags: ["模型返回非 JSON，已拒绝注入 claims"],
-        missingItems: ["请重试并检查模型输出格式"],
-      };
+      return fallbackRetrievalFromNonJson(content);
     }
 
     return {
@@ -154,6 +205,9 @@ async function callOpenAICompatible(
       missingItems: parsed.missingItems ?? [],
     };
   } catch (err) {
+    if (isRetryableHttpFailure(err)) {
+      throw err;
+    }
     return {
       claims: [],
       riskFlags: [`模型调用异常: ${String(err)}`],
@@ -161,7 +215,41 @@ async function callOpenAICompatible(
     };
   } finally {
     clearTimeout(timer);
+    if (externalSignal) {
+      externalSignal.removeEventListener("abort", onExternalAbort);
+    }
   }
+}
+
+async function callOpenAICompatible(
+  cfg: OpenAICompatibleClientConfig,
+  input: ModelRetrievalInput,
+  role: "general" | "legal",
+  signal?: AbortSignal,
+): Promise<ModelRetrievalOutput> {
+  let lastFailure: ModelRetrievalOutput | undefined;
+  for (let attempt = 0; attempt <= RETRIEVAL_MAX_RETRIES; attempt += 1) {
+    try {
+      return await fetchOpenAICompatibleOnce(cfg, input, role, signal);
+    } catch (err) {
+      if (attempt >= RETRIEVAL_MAX_RETRIES || !isRetryableHttpFailure(err)) {
+        lastFailure = {
+          claims: [],
+          riskFlags: [`模型调用异常: ${String(err)}`],
+          missingItems: ["模型调用失败，请稍后重试"],
+        };
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, computeRetryDelayMs(attempt)));
+    }
+  }
+  return (
+    lastFailure ?? {
+      claims: [],
+      riskFlags: ["模型调用失败"],
+      missingItems: ["模型调用失败，请稍后重试"],
+    }
+  );
 }
 
 /**
@@ -176,7 +264,7 @@ export function createOpenAICompatibleAdapters(
   if (params.general) {
     adapters.push(
       createGeneralModelAdapter((input) =>
-        callOpenAICompatible(params.general as OpenAICompatibleClientConfig, input, "general"),
+        callOpenAICompatible(params.general as OpenAICompatibleClientConfig, input, "general", input.signal),
       ),
     );
   }
@@ -184,7 +272,7 @@ export function createOpenAICompatibleAdapters(
   if (params.legal) {
     adapters.push(
       createLegalModelAdapter((input) =>
-        callOpenAICompatible(params.legal as OpenAICompatibleClientConfig, input, "legal"),
+        callOpenAICompatible(params.legal as OpenAICompatibleClientConfig, input, "legal", input.signal),
       ),
     );
   }

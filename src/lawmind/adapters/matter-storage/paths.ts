@@ -53,3 +53,13 @@ export function queueJsonlPath(workspaceDir: string, matterId: string): string {
 export function deadlinesJsonlPath(workspaceDir: string, matterId: string): string {
   return path.join(matterDir(workspaceDir, matterId), "deadlines.jsonl");
 }
+
+/** Skills E1：分诊会话目录 `matters/<id>/triage/` */
+export function triageDirPath(workspaceDir: string, matterId: string): string {
+  return path.join(matterDir(workspaceDir, matterId), "triage");
+}
+
+/** Skills E2：审查专案组目录 `matters/<id>/campaigns/` */
+export function campaignDirPath(workspaceDir: string, matterId: string): string {
+  return path.join(matterDir(workspaceDir, matterId), "campaigns");
+}

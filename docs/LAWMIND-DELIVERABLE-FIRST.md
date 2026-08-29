@@ -15,6 +15,8 @@ LawMind 的卖点不是「功能多」，而是 **「能交件」**。
 
 Deliverable-First Architecture（以下简称 **DFA**）是把这一句产品判断翻译成代码契约的方法。
 
+DFA 主要硬化律师产品三条铁律中的 **交付结果质量高** 与 **交付结果稳定性高**（验收 spec、严格 render、来源锚点）；**上手简单** 由 Solo 短路径 / 首跑承接，见 [SIMPLE-RELIABLE](LAWMIND-SIMPLE-RELIABLE-PLAN.md) 与 [SOLO 5 分钟合同](LAWMIND-SOLO-FIVE-MIN-CONTRACT.md)。
+
 ---
 
 ## 2. 五大商业化主张（按 ROI 排序）
@@ -141,19 +143,20 @@ AcceptanceReport { ready, checks, placeholderCount }
 
 ### 6.1 三档对照表（与 `EDITION_FEATURES` 一致）
 
-| 特性                          | Solo | Firm | Private Deploy |
-| ----------------------------- | ---- | ---- | -------------- |
-| 内置 5 类 spec                | ✅   | ✅   | ✅             |
-| 自定义 spec（事务所私有合同） | ⬜   | ✅   | ✅             |
-| 验收门禁 strict 模式          | ⬜   | ✅   | ✅             |
-| 跨案件验收质量看板            | ⬜   | ✅   | ✅             |
-| 验收交付包导出（per-draft）   | ⬜   | ✅   | ✅             |
-| 合规审计导出                  | ⬜   | ⬜   | ✅             |
-| Quality dashboard JSON        | ⬜   | ✅   | ✅             |
-| 协作汇总                      | ⬜   | ✅   | ✅             |
-| Security SBOM panel           | ⬜   | ⬜   | ✅             |
+| 特性                            | Solo | Firm | Private Deploy |
+| ------------------------------- | ---- | ---- | -------------- |
+| 内置 5 类 spec                  | ✅   | ✅   | ✅             |
+| 自定义 spec（事务所私有合同）   | ⬜   | ✅   | ✅             |
+| 验收门禁 strict 模式            | ⬜   | ✅   | ✅             |
+| 引用完整性硬门禁（缺源/未锚定） | ⬜   | ✅   | ✅             |
+| 跨案件验收质量看板              | ⬜   | ✅   | ✅             |
+| 验收交付包导出（per-draft）     | ⬜   | ✅   | ✅             |
+| 合规审计导出                    | ⬜   | ⬜   | ✅             |
+| Quality dashboard JSON          | ⬜   | ✅   | ✅             |
+| 协作汇总                        | ⬜   | ✅   | ✅             |
+| Security SBOM panel             | ⬜   | ⬜   | ✅             |
 
-> 「跨案件验收质量看板」对应 `EDITION_FEATURES.crossMatterAcceptanceDashboard`。真实开关定义见 `src/lawmind/policy/edition.ts` 中的 `EDITION_FEATURES`。
+> 「跨案件验收质量看板」对应 `EDITION_FEATURES.crossMatterAcceptanceDashboard`；引用硬门禁对应 `citationGateStrict`（有 research 快照时缺源 ID 或长段未锚定禁止 render）。真实开关定义见 `src/lawmind/policy/edition.ts` 中的 `EDITION_FEATURES`。
 > 桌面端通过 `useEdition()` 钩子读取后做面板显隐。
 
 ### 6.2 自定义 DeliverableSpec — 事务所如何添加私有合同
@@ -204,7 +207,7 @@ AcceptanceReport { ready, checks, placeholderCount }
 
 ### 6.3 验收交付包（per-draft Acceptance Pack）
 
-> 受 `acceptancePackExport` feature 控制；Solo 调用 `/acceptance-pack` 端点会得到 403。
+> 受 `acceptancePackExport` feature 控制；Solo/Firm/Private 默认开启；policy 关闭时返回 403。
 
 每份草稿都可生成一份"放心交付包"Markdown，建议随 `.docx` 一同发给客户：
 
@@ -272,5 +275,4 @@ GET /api/drafts/<taskId>/acceptance-pack?format=json # { ok, markdown }
 
 - [LawMind 2.0 战略](/LAWMIND-2.0-STRATEGY)
 - [LawMind 架构文档](/LAWMIND-ARCHITECTURE)
-- [LawMind 工程记忆](/LAWMIND-PROJECT-MEMORY)
 - [LawMind 用户手册](/LAWMIND-USER-MANUAL)

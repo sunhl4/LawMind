@@ -17,8 +17,14 @@ import {
   readContractReviewDraft,
   saveContractReviewDraft,
 } from "../../../src/lawmind/learning/contract-review-draft.js";
+import { suggestLearningFromDraftReview } from "../../../src/lawmind/learning/review-learning-suggest.js";
+import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
+import {
+  contractReviewAcceptPostSchema,
+  contractReviewDraftPostSchema,
+} from "./lawmind-api-schemas.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
-import { readJsonBody, sendJson } from "./lawmind-server-helpers.js";
+import { sendJson } from "./lawmind-server-helpers.js";
 
 export async function handleContractReviewRoutes({
   ctx,
@@ -36,39 +42,38 @@ export async function handleContractReviewRoutes({
   }
 
   if (pathname === "/api/learning/contract-review/drafts" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as {
-      draftId?: string;
-      initialPath?: string;
-      revisedPath?: string;
-      lawyerAnnotations?: string;
-      keyModificationsDraft?: unknown;
-      matterId?: string;
-      assistantId?: string;
-      status?: string;
-    };
-    const initialPath = typeof body.initialPath === "string" ? body.initialPath.trim() : "";
-    const revisedPath = typeof body.revisedPath === "string" ? body.revisedPath.trim() : "";
-    if (!initialPath || !revisedPath) {
-      sendJson(res, 400, { ok: false, code: "paths_required", message: "请提供 initialPath 与 revisedPath。" }, c);
-      return true;
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, contractReviewDraftPostSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        const msg = err.issues.join("; ");
+        if (msg.includes("initialPath") || msg.includes("revisedPath")) {
+          sendJson(res, 400, { ok: false, code: "paths_required", message: "请提供 initialPath 与 revisedPath。" }, c);
+          return true;
+        }
+        sendJson(res, 400, { ok: false, code: "invalid_request" }, c);
+        return true;
+      }
+      throw err;
     }
-    const matterRaw = typeof body.matterId === "string" ? body.matterId.trim() : "";
+    const initialPath = body.initialPath;
+    const revisedPath = body.revisedPath;
+    const matterRaw = body.matterId ?? "";
     if (matterRaw && !isValidMatterId(matterRaw)) {
       sendJson(res, 400, { ok: false, code: "invalid_matter_id" }, c);
       return true;
     }
-    const keys = Array.isArray(body.keyModificationsDraft)
-      ? body.keyModificationsDraft.filter((x): x is string => typeof x === "string")
-      : [];
+    const keys = body.keyModificationsDraft ?? [];
     try {
       const doc = await saveContractReviewDraft(workspaceDir, {
-        draftId: typeof body.draftId === "string" ? body.draftId : undefined,
+        draftId: body.draftId,
         initialPath,
         revisedPath,
-        lawyerAnnotations: typeof body.lawyerAnnotations === "string" ? body.lawyerAnnotations : "",
+        lawyerAnnotations: body.lawyerAnnotations ?? "",
         keyModificationsDraft: keys,
         matterId: matterRaw || undefined,
-        assistantId: typeof body.assistantId === "string" ? body.assistantId.trim() || undefined : undefined,
+        assistantId: body.assistantId || undefined,
         status: body.status === "withdrawn" ? "withdrawn" : "open",
       });
       sendJson(res, 200, { ok: true, draft: doc }, c);
@@ -79,17 +84,17 @@ export async function handleContractReviewRoutes({
   }
 
   if (pathname === "/api/learning/contract-review/drafts/accept" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as {
-      draftId?: string;
-      stableDocumentKey?: string;
-      appendLawyerProfileBullet?: boolean;
-      title?: string;
-    };
-    const draftId = typeof body.draftId === "string" ? body.draftId.trim() : "";
-    if (!draftId) {
-      sendJson(res, 400, { ok: false, code: "draft_id_required" }, c);
-      return true;
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, contractReviewAcceptPostSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, code: "draft_id_required" }, c);
+        return true;
+      }
+      throw err;
     }
+    const draftId = body.draftId;
     const draft = await readContractReviewDraft(workspaceDir, draftId);
     if (!draft || draft.status !== "open") {
       sendJson(res, 404, { ok: false, code: "draft_not_found" }, c);
@@ -98,22 +103,45 @@ export async function handleContractReviewRoutes({
     const auditDir = path.join(workspaceDir, "audit");
     try {
       const title =
-        (typeof body.title === "string" && body.title.trim()) ||
+        (body.title?.trim()) ||
         path.basename(draft.revisedPath) ||
         path.basename(draft.initialPath);
+      const keyMods = draft.keyModificationsDraft.length
+        ? draft.keyModificationsDraft
+        : ["（由验收草稿转入，未单独列要点）"];
       const result = await finalizeContractRevisionPack({
         workspaceDir,
         initialSourcePath: draft.initialPath,
         finalSourcePath: draft.revisedPath,
-        keyModifications: draft.keyModificationsDraft.length ? draft.keyModificationsDraft : ["（由验收草稿转入，未单独列要点）"],
+        keyModifications: keyMods,
         title,
         requirementsSummary: draft.lawyerAnnotations,
         matterId: draft.matterId,
         assistantId: draft.assistantId,
         appendLawyerProfileBullet: body.appendLawyerProfileBullet === true,
         auditDir: body.appendLawyerProfileBullet === true ? auditDir : undefined,
-        stableDocumentKey: typeof body.stableDocumentKey === "string" ? body.stableDocumentKey.trim() : undefined,
+        stableDocumentKey: body.stableDocumentKey,
       });
+      const learnNote = [
+        ...keyMods.map((k) => String(k).trim()).filter(Boolean).slice(0, 3),
+        typeof draft.lawyerAnnotations === "string" ? draft.lawyerAnnotations.trim() : "",
+      ]
+        .filter(Boolean)
+        .join("。");
+      if (learnNote && body.appendLawyerProfileBullet !== true) {
+        try {
+          await suggestLearningFromDraftReview({
+            workspaceDir,
+            auditDir,
+            taskId: result.revisionId,
+            status: "modified",
+            note: learnNote.slice(0, 600),
+            assistantId: draft.assistantId,
+          });
+        } catch {
+          /* 学习建议失败不阻断验收 */
+        }
+      }
       await markContractReviewDraftAccepted(workspaceDir, draftId);
       sendJson(
         res,

@@ -8,6 +8,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { parentGatesFromContext } from "../../child-gates.js";
 import { emitCollaborationEvent } from "../../collaboration/audit.js";
 import { fireAndForget } from "../../collaboration/message-bus.js";
 import type { AgentTool, AgentConfig } from "../../types.js";
@@ -36,11 +37,11 @@ export function createNotifyAssistantTool(opts: { baseConfig: AgentConfig }): Ag
       const targetInput = params.target_assistant as string;
       const message = params.message as string;
 
-      const targetId = resolveAssistantId(ctx.workspaceDir, targetInput);
+      const targetId = resolveAssistantId(ctx.workspaceDir, targetInput, ctx.envFile);
       if (!targetId) {
         return {
           ok: false,
-          error: `找不到助手「${targetInput}」。可用助手：${listAvailableAssistantNames(ctx.workspaceDir)}`,
+          error: `找不到助手「${targetInput}」。可用助手：${listAvailableAssistantNames(ctx.workspaceDir, ctx.envFile)}`,
         };
       }
 
@@ -63,6 +64,7 @@ export function createNotifyAssistantTool(opts: { baseConfig: AgentConfig }): Ag
         message,
         matterId: ctx.matterId,
         kind: "notify",
+        ...parentGatesFromContext(ctx),
       });
 
       return {

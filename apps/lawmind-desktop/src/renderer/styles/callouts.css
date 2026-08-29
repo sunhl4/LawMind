@@ -1,0 +1,120 @@
+/* Callouts — Linear / Stripe-style inline alerts */
+.lm-callout {
+  border-radius: var(--r-sm);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+  font-size: 13px;
+  line-height: var(--lh-snug);
+}
+
+.lm-callout-title {
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: var(--space-1);
+}
+
+.lm-callout-body {
+  margin: 0;
+  color: var(--text-2);
+}
+
+.lm-callout-body a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.lm-callout-body a:hover {
+  color: var(--accent-hover);
+}
+
+.lm-callout-muted {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+}
+
+.lm-callout-info {
+  background: var(--info-dim);
+  border: 1px solid var(--info-border);
+}
+
+.lm-callout-info .lm-callout-body {
+  color: var(--text);
+}
+
+.lm-callout-warn {
+  background: var(--warn-dim);
+  border: 1px solid var(--warn-border);
+  border-left: 3px solid var(--warn);
+  box-shadow: var(--shadow-xs);
+}
+
+.lm-callout-warn .lm-callout-title {
+  color: var(--warn);
+}
+
+.lm-callout-danger {
+  position: relative;
+  border: 1px solid var(--error-border);
+  border-left: 4px solid var(--error);
+  padding: var(--space-2) var(--space-3);
+  background:
+    linear-gradient(
+      160deg,
+      rgba(240, 101, 101, 0.22) 0%,
+      rgba(240, 101, 101, 0.08) 42%,
+      rgba(17, 19, 23, 0.92) 100%
+    );
+  box-shadow:
+    var(--shadow-xs),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  animation: lm-callout-danger-in 240ms var(--ease-out);
+}
+
+.lm-source-popover .lm-callout-danger {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lm-callout-danger {
+    animation: none;
+  }
+}
+
+@keyframes lm-callout-danger-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.lm-callout-danger .lm-callout-title {
+  color: var(--error-text);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.lm-callout-danger .lm-callout-body {
+  color: var(--error-text-body);
+  font-weight: 500;
+}
+
+.lm-callout-danger .lm-error-dismiss {
+  color: var(--text-2);
+  opacity: 0.9;
+}
+
+.lm-callout-danger .lm-error-dismiss:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+  opacity: 1;
+}
+
+.lm-callout-danger .lm-citation-warn-list {
+  color: var(--error-text-muted);
+}
+

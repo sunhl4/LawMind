@@ -1,13 +1,10 @@
 /**
- * Model-driven instruction routing (optional, env-gated).
+ * Model-driven instruction routing (default on when LLM credentials exist).
  */
 
 import { randomUUID } from "node:crypto";
-import {
-  completeJsonObject,
-  routerLlmConfigFromEnv,
-  type OpenAiJsonClientConfig,
-} from "../llm/openai-json.js";
+import { completeJsonObject, type OpenAiJsonClientConfig } from "../llm/openai-json.js";
+import { resolveRouterLlmConfig } from "../models/router-reasoning.js";
 import type { RiskLevel, TaskIntent, TaskKind } from "../types.js";
 import { enrichIntentWithDeliverableMeta } from "./deliverable-meta.js";
 import type { RouteInput } from "./keyword-route.js";
@@ -108,14 +105,7 @@ function buildSummaryFallback(params: {
   return `任务类型：${kindLabel[kind]}。原始指令：「${instruction.slice(0, 60)}${instruction.length > 60 ? "…" : ""}」`;
 }
 
-/** LAWMIND_ROUTER_MODE=model 且具备 LLM 凭据时启用 */
-export function isModelRouterEnabled(): boolean {
-  const mode = (process.env.LAWMIND_ROUTER_MODE ?? "").trim().toLowerCase();
-  if (mode !== "model") {
-    return false;
-  }
-  return routerLlmConfigFromEnv() !== null;
-}
+export { effectiveRouterMode, isModelRouterEnabled } from "../models/router-reasoning.js";
 
 export async function routeWithModel(
   input: RouteInput,
@@ -179,6 +169,7 @@ export async function routeWithModel(
     audience: input.audience,
     matterId: input.matterId,
     templateId: input.templateId,
+    deliverableType: input.deliverableType,
     riskLevel,
     models: models.length > 0 ? models : inferModels(kind),
     requiresConfirmation,
@@ -187,16 +178,14 @@ export async function routeWithModel(
 }
 
 /**
- * 异步路由：在启用模型路由且凭据齐全时走 LLM，否则回退关键词 route()。
+ * 异步路由：有凭据时走 LLM 分类，失败或未配置则回退关键词 route()。
  */
 export async function routeAsync(input: RouteInput): Promise<TaskIntent> {
-  if (isModelRouterEnabled()) {
-    const cfg = routerLlmConfigFromEnv();
-    if (cfg) {
-      const modelIntent = await routeWithModel(input, cfg);
-      if (modelIntent) {
-        return modelIntent;
-      }
+  const cfg = resolveRouterLlmConfig(input.lawMindRoot);
+  if (cfg) {
+    const modelIntent = await routeWithModel(input, cfg);
+    if (modelIntent) {
+      return modelIntent;
     }
   }
   return route(input);

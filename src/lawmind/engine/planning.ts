@@ -2,6 +2,7 @@
  * Engine — 步骤 1：plan / planAsync / confirm。
  */
 
+import { resolveLawMindRoot } from "../assistants/store.js";
 import { emit } from "../audit/index.js";
 import { taskProgressPrefix, shortTaskIdForDisplay } from "../cases/task-display.js";
 import { resolveDefaultEngineLawyerActorId } from "../engine-actor.js";
@@ -27,7 +28,8 @@ export async function planAsyncImpl(
   instruction: string,
   opts: Omit<RouteInput, "instruction"> = {},
 ): Promise<TaskIntent> {
-  const intent = await routeAsync({ instruction, ...opts });
+  const lawMindRoot = opts.lawMindRoot ?? resolveLawMindRoot(ctx.workspaceDir);
+  const intent = await routeAsync({ instruction, ...opts, lawMindRoot });
   commitPlannedIntent(ctx, intent);
   return intent;
 }

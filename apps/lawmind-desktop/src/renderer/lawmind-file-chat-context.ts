@@ -1,0 +1,253 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { apiAuthHeaders } from "./lawmind-api-auth";
+
+const MAX_FILE_CHAT_CONTEXT = 8;
+/** Auto-embed text bodies under this size so the model sees content, not only paths. */
+export const FILE_CHAT_EXCERPT_MAX_BYTES = 24_000;
+export const FILE_CHAT_EXCERPT_MAX_CHARS = 12_000;
+
+const TEXTISH_EXT =
+  /\.(md|txt|text|json|jsonl|csv|tsv|xml|html?|ya?ml|toml|ini|log|rst|tex|css|scss|less|js|jsx|mjs|cjs|ts|tsx|py|rb|go|rs|java|kt|swift|c|cc|cpp|h|hpp|sql|sh|bash|zsh|env|gitignore|dockerignore|editorconfig)$/i;
+
+export type FileChatContextItem = {
+  id: string;
+  root: "workspace" | "project";
+  relPath: string;
+  kind: "file" | "directory";
+};
+
+export type FileChatContextScope = {
+  assistantId: string;
+  sessionId?: string | null;
+};
+
+/** Stable map key: pins must not leak across assistants or chat sessions. */
+export function fileChatScopeKey(scope: FileChatContextScope): string {
+  const assistantId = scope.assistantId.trim() || "default";
+  const sessionId = scope.sessionId?.trim() || "__pending__";
+  return `${assistantId}::${sessionId}`;
+}
+
+export function formatFileChatContextPill(
+  it: FileChatContextItem,
+  maxPath = 24,
+): { shortLabel: string; title: string } {
+  const scope = it.root === "workspace" ? "工作区" : "项目";
+  const kind = it.kind === "directory" ? "目录" : "文件";
+  const path = it.relPath.trim() || scope;
+  const title = `${scope} ${kind}：${it.relPath || "（根）"}`;
+  const ellipsize = (s: string) => (s.length <= maxPath ? s : `…${s.slice(-(maxPath - 1))}`);
+  return { shortLabel: `${kind === "目录" ? "📁" : "📄"} ${ellipsize(path)}`, title };
+}
+
+export function makeFileContextItemId(
+  p: Pick<FileChatContextItem, "root" | "relPath" | "kind">,
+): string {
+  return `${p.root}|${p.kind}|${encodeURIComponent(p.relPath)}`;
+}
+
+/** docx/doc/pdf — Solo「送审本合同」/拖入短路径候选。 */
+export function isContractReviewCandidatePath(relPath: string | undefined | null): boolean {
+  return Boolean(relPath && /\.(docx?|pdf)$/i.test(relPath));
+}
+
+export function isFileChatExcerptCandidate(it: FileChatContextItem): boolean {
+  if (it.kind !== "file") {
+    return false;
+  }
+  const p = it.relPath.trim();
+  if (!p || p.includes("..")) {
+    return false;
+  }
+  const base = p.split(/[/\\]/).pop() ?? p;
+  if (TEXTISH_EXT.test(base)) {
+    return true;
+  }
+  // Extensionless short names (e.g. README, Makefile) — try embed; API rejects binary.
+  return !base.includes(".");
+}
+
+export function buildFileContextMessagePrefix(
+  items: FileChatContextItem[],
+  excerpts?: Record<string, string>,
+): string {
+  if (items.length === 0) {
+    return "";
+  }
+  const lines = items.map((it) => {
+    const scope = it.root === "workspace" ? "工作区" : "项目";
+    const p = it.relPath || "（工作区/项目根，谨慎操作）";
+    const excerpt = excerpts?.[it.id]?.trim();
+    if (excerpt) {
+      return `- [${scope} · 已嵌入正文] \`${p}\`\n\`\`\`\n${excerpt}\n\`\`\``;
+    }
+    const isWord = /\.docx?$/i.test(p);
+    const wordHint =
+      "改稿请通读后走 apply_surgical_edits → render_tracked_draft（拷贝原件 + 审阅痕迹，写入源文件同目录，原名_日期_01）。不要 render_document 重建，不要准备外发邮件。";
+    if (it.root === "workspace") {
+      const hint =
+        it.kind === "directory"
+          ? "请先在目录中定位要读的文件，用 analyze_document 读工作区相对路径。"
+          : isWord
+            ? `路径引用（未嵌入正文）：请用 analyze_document 读取。${wordHint}`
+            : "路径引用（未嵌入正文）：请用 analyze_document 读取以下工作区相对路径。";
+      return `- [${scope} · ${it.kind === "directory" ? "目录" : "路径引用"}] \`${p}\` — ${hint}`;
+    }
+    const hint =
+      it.kind === "directory"
+        ? "对项目内文件用 read_project_file(相对项目根的路径) 逐份阅读；目录下请先列举再选读。"
+        : isWord
+          ? `路径引用（未嵌入正文）：请用 analyze_document 读取（项目文件亦可）。${wordHint}`
+          : "路径引用（未嵌入正文）：请用 read_project_file 读取。";
+    return `- [${scope} · ${it.kind === "directory" ? "目录" : "路径引用"}] \`${p}\` — ${hint}`;
+  });
+  const embedded = items.filter((it) => Boolean(excerpts?.[it.id]?.trim())).length;
+  const head =
+    embedded > 0
+      ? `【用户将下列路径标为“本回合重点”；其中 ${embedded} 个小文本已嵌入正文，其余为路径引用】`
+      : `【用户在 LawMind 文件页将下列路径标为“本回合重点”（路径引用，需助手读取）】`;
+  return `${head}\n${lines.join("\n")}\n\n`;
+}
+
+/**
+ * Fetch small text file bodies via `/api/fs/read` for embed-into-prompt.
+ * Failures are ignored (falls back to path-only hints).
+ */
+export async function fetchFileChatExcerpts(opts: {
+  apiBase: string;
+  items: FileChatContextItem[];
+  signal?: AbortSignal;
+  maxBytes?: number;
+  maxChars?: number;
+}): Promise<Record<string, string>> {
+  const maxBytes = opts.maxBytes ?? FILE_CHAT_EXCERPT_MAX_BYTES;
+  const maxChars = opts.maxChars ?? FILE_CHAT_EXCERPT_MAX_CHARS;
+  const out: Record<string, string> = {};
+  const candidates = opts.items.filter(isFileChatExcerptCandidate).slice(0, MAX_FILE_CHAT_CONTEXT);
+  await Promise.all(
+    candidates.map(async (it) => {
+      try {
+        const q = new URLSearchParams({
+          root: it.root,
+          path: it.relPath,
+        });
+        const res = await fetch(`${opts.apiBase}/api/fs/read?${q}`, {
+          signal: opts.signal,
+          headers: { ...apiAuthHeaders() },
+        });
+        if (!res.ok) {
+          return;
+        }
+        const data = (await res.json()) as {
+          ok?: boolean;
+          content?: string;
+          size?: number;
+        };
+        if (!data.ok || typeof data.content !== "string") {
+          return;
+        }
+        if (typeof data.size === "number" && data.size > maxBytes) {
+          return;
+        }
+        const body = data.content.trim();
+        if (!body) {
+          return;
+        }
+        out[it.id] =
+          body.length > maxChars
+            ? `${body.slice(0, maxChars)}\n…[正文截断，完整内容请用工具读取]`
+            : body;
+      } catch {
+        /* ignore — path-only fallback */
+      }
+    }),
+  );
+  return out;
+}
+
+/**
+ * When a real session id appears, move any pins stored under `__pending__` for that
+ * assistant into the session bucket (once), so early “引用到对话” is not lost.
+ */
+export function migratePendingFileChatPins(
+  byScope: Record<string, FileChatContextItem[]>,
+  scope: FileChatContextScope,
+): Record<string, FileChatContextItem[]> {
+  const sessionId = scope.sessionId?.trim();
+  if (!sessionId) {
+    return byScope;
+  }
+  const pendingKey = fileChatScopeKey({ assistantId: scope.assistantId, sessionId: null });
+  const realKey = fileChatScopeKey({ assistantId: scope.assistantId, sessionId });
+  const pending = byScope[pendingKey];
+  if (!pending?.length) {
+    return byScope;
+  }
+  const existing = byScope[realKey];
+  const next = { ...byScope };
+  delete next[pendingKey];
+  if (!existing?.length) {
+    next[realKey] = pending;
+  }
+  return next;
+}
+
+export function useFileChatContext(
+  setError: (message: string | null) => void,
+  scope: FileChatContextScope,
+) {
+  const [byScope, setByScope] = useState<Record<string, FileChatContextItem[]>>({});
+  const scopeKey = fileChatScopeKey(scope);
+  const fileChatContextItems = byScope[scopeKey] ?? [];
+  const itemsRef = useRef<FileChatContextItem[]>(fileChatContextItems);
+  itemsRef.current = fileChatContextItems;
+  const scopeKeyRef = useRef(scopeKey);
+  scopeKeyRef.current = scopeKey;
+
+  useEffect(() => {
+    setByScope((prev) => migratePendingFileChatPins(prev, scope));
+  }, [scope.assistantId, scope.sessionId]);
+
+  const addFileToChatContext = useCallback(
+    (payload: Pick<FileChatContextItem, "root" | "relPath" | "kind">) => {
+      const key = scopeKeyRef.current;
+      const prev = itemsRef.current;
+      const id = makeFileContextItemId(payload);
+      if (prev.some((x) => x.id === id)) {
+        return;
+      }
+      if (prev.length >= MAX_FILE_CHAT_CONTEXT) {
+        setError(`最多同时引用 ${MAX_FILE_CHAT_CONTEXT} 个路径，请先在对话区移除部分。`);
+        return;
+      }
+      setError(null);
+      const nextItems = [...prev, { id, ...payload }];
+      itemsRef.current = nextItems;
+      setByScope((map) => ({ ...map, [key]: nextItems }));
+    },
+    [setError],
+  );
+
+  const removeFileChatContextItem = useCallback((id: string) => {
+    const key = scopeKeyRef.current;
+    setByScope((map) => {
+      const prev = map[key] ?? [];
+      const nextItems = prev.filter((x) => x.id !== id);
+      itemsRef.current = nextItems;
+      return { ...map, [key]: nextItems };
+    });
+  }, []);
+
+  const clearFileChatContext = useCallback(() => {
+    const key = scopeKeyRef.current;
+    itemsRef.current = [];
+    setByScope((map) => ({ ...map, [key]: [] }));
+  }, []);
+
+  return {
+    fileChatContextItems,
+    addFileToChatContext,
+    removeFileChatContextItem,
+    clearFileChatContext,
+  };
+}

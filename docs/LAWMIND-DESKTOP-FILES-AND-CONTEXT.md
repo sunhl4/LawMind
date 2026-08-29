@@ -2,7 +2,7 @@
 
 本文档详细说明 **LawMind Desktop**（`apps/lawmind-desktop`）中与 **材料浏览/编辑**、**把文件或目录交给对话处理**、**帮助链接在系统浏览器打开**、**主菜单「文件」保存** 相关的产品行为与实现位置。面向**用户**与**维护者**。
 
-相关文档：[LawMind 桌面端 UI 设计约定](/LAWMIND-DESKTOP-UI)、[LawMind 使用手册](/LAWMIND-USER-MANUAL) §1b、[LawMind 工程记忆](/LAWMIND-PROJECT-MEMORY)。
+相关文档：[LawMind 桌面端 UI 设计约定](/LAWMIND-DESKTOP-UI)、[LawMind 使用手册](/LAWMIND-USER-MANUAL) §1b。
 
 ---
 
@@ -156,10 +156,10 @@ LawMind 桌面壳**不是**内嵌 Word/通用富文本套件，**也不是**以�
 
 ## 9) 维护记录与续做入口
 
-| 日期 / 阶段 | 摘要                                                                                                                                                                                                                         |
-| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-04     | 本页与 M3 清单对齐：左栏材料台、对话引用、帮助外开、菜单保存、`open-with-system`、产品 §6.2d 与 README **Product intent**；工程侧见 [LawMind 工程记忆](/LAWMIND-PROJECT-MEMORY) M3 小节中 **「材料台、对话引用与系统协同」** |
-| 2026-04-27  | §3.6：合同修订积累索引前缀与 **desk-settings 无 UI** 决策；主入库路径为审核通过 + 草稿 `contractRevisionCapture`（见 [LAWMIND-CONTRACT-REVISION-ACCUMULATION](/LAWMIND-CONTRACT-REVISION-ACCUMULATION)）                     |
+| 日期 / 阶段 | 摘要                                                                                                                                                                                                     |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-04     | 本页与 M3 清单对齐：左栏材料台、对话引用、帮助外开、菜单保存、`open-with-system`、产品 §6.2d 与 README **Product intent**                                                                                |
+| 2026-04-27  | §3.6：合同修订积累索引前缀与 **desk-settings 无 UI** 决策；主入库路径为审核通过 + 草稿 `contractRevisionCapture`（见 [LAWMIND-CONTRACT-REVISION-ACCUMULATION](/LAWMIND-CONTRACT-REVISION-ACCUMULATION)） |
 
 **后续可迭代（未承诺排期）**：文件树多选后批量加入对话引用；更细的主区布局拖动（若仍反馈「对话区/文件区」需同屏可调，可再评是否增加主区内部 split，当前为顶栏切页）。
 

@@ -1,0 +1,7 @@
+{
+  "id": "shadow-deposit-30",
+  "instruction": "请审查买卖合同定金条款。",
+  "lawyerFinalText": "第一条 定金为本合同标的额的百分之十。卖方应在签约后收取定金。",
+  "engineDraftText": "第一条 定金为本合同标的额的 30%。卖方应在签约后收取定金。",
+  "plantedDefectRuleIds": ["statutory.deposit_cap"]
+}

@@ -44,23 +44,50 @@ export type RiskLevel = "low" | "medium" | "high";
  *
  * 内置常量提供编辑器自动补全；同时通过 `(string & {})` 允许工作区自定义
  * `lawmind/deliverables/*.json` 注册的私有类型（例如 `contract.employment`、
- * `litigation.complaint`），以支持事务所差异化交付规范。
+ * `contract.employment`），以支持事务所差异化交付规范。
  */
 export type DeliverableType =
   | "contract.review"
   | "contract.rental"
   | "contract.general"
   | "letter.demand"
+  | "letter.counsel"
+  | "letter.reply"
   | "litigation.outline"
+  | "litigation.complaint"
+  | "litigation.answer"
+  | "litigation.brief"
+  | "memo.opinion"
+  | "memo.internal"
+  | "matter.timeline"
+  | "matter.exhibit_list"
+  | "meeting.minutes"
+  | "contract.nda"
   | "document.general"
+  | "report.esg"
+  | "report.general"
+  | "report.compliance"
+  | "report.learning"
+  | "ppt.training"
   // eslint-disable-next-line @typescript-eslint/ban-types -- 保留 IDE 内置类型自动补全的同时允许工作区扩展类型。
   | (string & {});
 
 /** 信息不足时用于向律师追问的关键问题 */
+/** 澄清字段控件类型（缺省按 text；引擎可逐步标注）。 */
+export type ClarificationInputType = "text" | "textarea" | "enum" | "bool" | "date" | "file";
+
 export type ClarificationQuestion = {
   key: string;
   question: string;
   reason?: string;
+  /** 控件类型；未标时 UI 按 text */
+  inputType?: ClarificationInputType;
+  /** enum 选项（律师可读文案） */
+  options?: string[];
+  /** 默认 true；false 时可不填 */
+  required?: boolean;
+  /** file：建议扩展名提示，如 ".pdf,.docx" */
+  accept?: string;
 };
 
 /** 任务意图 — 由 Instruction Router 生成 */
@@ -127,6 +154,17 @@ export type ResearchSource = {
   court?: string;
   /** 案号（类案时填写） */
   caseNumber?: string;
+  /**
+   * True when hit came from open-law bundled sample or CORPUS marked demo.
+   * Acceptance/chat should surface「演示语料」— not a verified commercial statute.
+   */
+  demo?: boolean;
+  /** Provider id (e.g. open-law.local / open-law.npc_flk) — attribution, not 法宝. */
+  provider?: string;
+  /** Corpus / dump id for open sources. */
+  corpusId?: string;
+  /** Short license / attribution note for open dumps / live gov APIs. */
+  licenseNote?: string;
 };
 
 /** 单条结论 */
@@ -138,6 +176,8 @@ export type ResearchClaim = {
   confidence: number;
   /** 标注来源模型 */
   model: "general" | "legal";
+  /** True when claim text came from a demo/sample corpus hit. */
+  demo?: boolean;
 };
 
 /** 检索层输出 — 所有结论必须有 sourceIds */
@@ -179,6 +219,24 @@ export type ContractRevisionCapture = {
   revisedRelativePath: string;
   stableDocumentKey?: string;
   keyModifications?: string[];
+};
+
+/**
+ * 合同正文最小修改 / 原文件审阅导出上下文。
+ * - baseline：上传原合同相对工作区路径（.doc / .docx）
+ * - surgical：Redline 按字/句级 span 生成
+ */
+export type ContractEditMode = "surgical" | "section";
+
+export type ContractEditContext = {
+  /** 原合同相对工作区根或项目根的路径（用于 tracked 导出基线） */
+  baselineRelativePath: string;
+  /** 缺省 workspace。项目钉选的 Word 为 project。 */
+  baselineRoot?: "workspace" | "project";
+  /** 默认 surgical */
+  mode?: ContractEditMode;
+  /** 关联的审查意见书草稿 taskId（附带固定版式导出） */
+  opinionTaskId?: string;
 };
 
 /** 文书草稿 — 由推理层生成，渲染前须律师审核 */
@@ -228,6 +286,39 @@ export type ArtifactDraft = {
   contractRevisionCapture?: ContractRevisionCapture;
   /** 已通过 `contractRevisionCapture` 写入积累包后的 `revisionId`，防止重复落盘 */
   contractRevisionAccumulatedId?: string;
+  /**
+   * 合同正文最小修改：原文件基线 + surgical Redline / tracked 导出。
+   */
+  contractEdit?: ContractEditContext;
+  /**
+   * 最近一次改写幅度质控（字符/段落 delta）；幅度过大时供审核台提示。
+   */
+  rewriteAmplitude?: {
+    absCharDelta: number;
+    absParagraphDelta: number;
+    ratio?: number | null;
+    gated?: boolean;
+    at: string;
+  };
+  /**
+   * 律师必核清单落盘（签批通过时写入）。导出/复盘以这份为准，避免仅存在于 UI 内存。
+   * 形状与 `VerificationChecklistState` 对齐。
+   */
+  verificationChecklist?: {
+    specId: string;
+    checked: Record<string, boolean>;
+    updatedAt?: string;
+  };
+  /**
+   * Optional lawyer-facing decision header (改了什么 / 为什么 / 风险 / 可否直接用).
+   * Review workbench can also derive this from draft + lint when unset.
+   */
+  decisionHeader?: {
+    changed: string;
+    why: string;
+    risk: string;
+    ready: "usable" | "needs_decision";
+  };
 };
 
 // ─────────────────────────────────────────────
@@ -362,11 +453,23 @@ export type AuditEventKind =
   | "draft.review_labeled" // 2.0：审核附加结构化标签
   | "draft.revision_dispatched" // 审核台「提交给助手」后台修订已排队
   | "draft.revision_agent_failed" // 后台修订助手执行失败
+  | "draft.revision_completed" // 后台修订助手执行成功并已恢复待审核
+  | "draft.content_edited" // 审核台律师直接编辑正文并保存
+  | "draft.reasoning_graph_missing" // 草稿落盘时缺少 LegalReasoningGraph 快照
   | "artifact.rendered"
   | "artifact.render_failed"
+  | "artifact.render_blocked"
   | "artifact.sent"
+  | "matter.spec.invalid"
+  | "matter.write_failed"
+  | "matter.projection_failed" // JSON→CASE 投影失败（异步；Doctor 一致性可检出漂移）
+  | "contract_revision_accumulation_failed"
   | "memory.profile_updated" // 2.0：律师/助手偏好写回
   | "memory.playbook_updated" // Phase D：条款 playbook 审核学习写回
+  | "memory.adoption_suggested" // W5：记忆建议已入队（待律师采纳）
+  | "memory.adoption_auto_adopted" // W5：高置信建议已自动落盘
+  | "memory.adoption_adopted" // W5：律师手动采纳记忆建议
+  | "memory.adoption_dismissed" // W5：律师忽略记忆建议
   | "quality.benchmark_run" // 2.0：评测任务执行记录
   | "quality.snapshot" // Phase B：任务质量指标快照已写入
   | "golden.example_promoted" // Phase B：草稿晋升为黄金样本
@@ -378,8 +481,19 @@ export type AuditEventKind =
   | "ui.firstrun_wizard_completed" // 桌面首跑向导完成（转化漏斗）
   | "ui.firstrun_acceptance_ready" // 首跑关联案件下首次有草稿通过验收门禁
   | "deliverable.spec.invalid" // 工作区私有交付物规范解析失败
+  | "platform.gate_snapshot" // 平台契约：executionState + gateDecisions 快照
   | "tool_call"
-  | "agent_turn";
+  | "agent_turn"
+  | "triage.created" // Skills E1：分诊会话创建
+  | "triage.confirmed" // Skills E1：律师确认分诊
+  | "review_campaign.created" // Skills E2：审查专案组创建/跑完
+  | "review_campaign.role_rerun" // Skills E2：单角色重跑
+  | "routing.resolve_ok" // 默认路由：命中 defaults 解析到助手
+  | "routing.resolve_fallback" // 默认路由：role 无助手时回退 shell
+  | "routing.resolve_failed" // 默认路由无法解析 assignee
+  | "draft.peer_review_required" // 强制互审闸：已建 peer 委派
+  | "draft.peer_review_skipped" // 强制互审闸：无 peer / 自审跳过
+  | "automation.run_failed"; // 交办自动化运行失败（含结构化错误码）
 
 /** 审计事件 */
 export type AuditEvent = {

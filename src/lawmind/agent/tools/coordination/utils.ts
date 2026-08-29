@@ -5,20 +5,24 @@
  * `collaboration-tools.ts` (W8).
  */
 
-import { loadAssistantProfiles } from "../../../assistants/store.js";
+import { loadAssistantProfiles, resolveLawMindRoot } from "../../../assistants/store.js";
 
-export function lawMindRootFromWorkspace(workspaceDir: string): string {
-  return workspaceDir.replace(/[\\/]workspace$/, "") || workspaceDir;
+export function lawMindRootFromWorkspace(workspaceDir: string, envFile?: string): string {
+  return resolveLawMindRoot(workspaceDir, envFile);
 }
 
-export function listAvailableAssistantNames(workspaceDir: string): string {
-  const root = lawMindRootFromWorkspace(workspaceDir);
+export function listAvailableAssistantNames(workspaceDir: string, envFile?: string): string {
+  const root = lawMindRootFromWorkspace(workspaceDir, envFile);
   const profiles = loadAssistantProfiles(root);
   return profiles.map((p) => `${p.assistantId} (${p.displayName})`).join(", ");
 }
 
-export function resolveAssistantId(workspaceDir: string, nameOrId: string): string | undefined {
-  const root = lawMindRootFromWorkspace(workspaceDir);
+export function resolveAssistantId(
+  workspaceDir: string,
+  nameOrId: string,
+  envFile?: string,
+): string | undefined {
+  const root = lawMindRootFromWorkspace(workspaceDir, envFile);
   const profiles = loadAssistantProfiles(root);
   const byId = profiles.find((p) => p.assistantId === nameOrId);
   if (byId) {
@@ -27,7 +31,12 @@ export function resolveAssistantId(workspaceDir: string, nameOrId: string): stri
   const byName = profiles.find(
     (p) => p.displayName === nameOrId || p.displayName.includes(nameOrId),
   );
-  return byName?.assistantId;
+  if (byName) {
+    return byName.assistantId;
+  }
+  // Workflow templates often pass role/preset ids (e.g. contract_review).
+  const byRoleOrPreset = profiles.find((p) => p.roleId === nameOrId || p.presetKey === nameOrId);
+  return byRoleOrPreset?.assistantId;
 }
 
 /**
@@ -37,8 +46,9 @@ export function resolveAssistantId(workspaceDir: string, nameOrId: string): stri
 export function findAssistantsByRole(
   workspaceDir: string,
   roleId: string,
+  envFile?: string,
 ): Array<{ assistantId: string; displayName: string }> {
-  const root = lawMindRootFromWorkspace(workspaceDir);
+  const root = lawMindRootFromWorkspace(workspaceDir, envFile);
   const profiles = loadAssistantProfiles(root);
   const direct = profiles
     .filter((p) => p.roleId === roleId)

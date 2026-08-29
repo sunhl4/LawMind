@@ -136,3 +136,24 @@ export function reasoningLlmConfigFromEnv(): OpenAiJsonClientConfig | null {
       : 90_000,
   };
 }
+
+/** Only LAWMIND_REASONING_* vars — for a dedicated drafting model without chat fallback. */
+export function reasoningLlmConfigExplicitFromEnv(): OpenAiJsonClientConfig | null {
+  const baseUrl = process.env.LAWMIND_REASONING_BASE_URL?.trim();
+  const apiKey = process.env.LAWMIND_REASONING_API_KEY?.trim();
+  const model = process.env.LAWMIND_REASONING_MODEL?.trim();
+  if (!baseUrl || !apiKey || !model) {
+    return null;
+  }
+  return {
+    baseUrl,
+    apiKey,
+    model,
+    temperature: process.env.LAWMIND_REASONING_TEMPERATURE
+      ? Number(process.env.LAWMIND_REASONING_TEMPERATURE)
+      : 0.2,
+    timeoutMs: process.env.LAWMIND_REASONING_TIMEOUT_MS
+      ? Number(process.env.LAWMIND_REASONING_TIMEOUT_MS)
+      : 90_000,
+  };
+}

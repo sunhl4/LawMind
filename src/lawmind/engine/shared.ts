@@ -13,14 +13,25 @@ import { openQueueItem } from "../application/services/queue-write-service.js";
 import { emit } from "../audit/index.js";
 import { taskProgressPrefix } from "../cases/task-display.js";
 import { buildDeliverableFromDraft } from "../core/contracts.js";
-import type { WorkspaceSpecWarning } from "../deliverables/index.js";
 import {
+  specRequiresReasoningGraphAtDraft,
+  validateReasoningGraphAtDraft,
+} from "../deliverables/reasoning-validator.js";
+import { getDeliverableSpec } from "../deliverables/registry.js";
+import type { WorkspaceSpecWarning } from "../deliverables/workspace-loader.js";
+import {
+  persistClauseSnapshot,
   persistDraft,
   persistReasoningSnapshot,
   persistResearchSnapshot,
+  readClauseSnapshot,
+  readReasoningSnapshot,
 } from "../drafts/index.js";
-import { appendCaseProgress, appendTodayLog, ensureCaseWorkspace } from "../memory/index.js";
-import { buildLegalReasoningGraph } from "../reasoning/index.js";
+import { appendCaseProgress, appendTodayLog } from "../memory/index.js";
+import { hasCriticNotes, runDraftCritic } from "../reasoning/draft-critic.js";
+import { buildClauseGraphFromDraft, buildLegalReasoningGraph } from "../reasoning/index.js";
+import { resolveDefaultAssignee } from "../routing/defaults.js";
+import { maybeApplyForcedPeerReview } from "../routing/peer-review-gate.js";
 import {
   ensureTaskRecord,
   readTaskRecord,
@@ -29,6 +40,7 @@ import {
   updateTaskRecord,
 } from "../tasks/index.js";
 import type { ArtifactDraft, ResearchBundle, TaskIntent } from "../types.js";
+import { upsertLawyerWorkFromPersist } from "../work/store.js";
 import type { EngineContext } from "./context.js";
 import { classifyAudienceFromIntent, classifyDeliverableKindFromIntent } from "./role-helpers.js";
 
@@ -54,7 +66,18 @@ export async function emitWorkspaceSpecWarnings(
 /** 任务计划落盘 + 审计 + 案件目录初始化 + 当日日志 + matter/deliverable JSON 真相源（W4）。 */
 export function commitPlannedIntent(ctx: EngineContext, intent: TaskIntent): void {
   const { workspaceDir, auditDir, assistantId } = ctx;
-  const { created } = ensureTaskRecord(workspaceDir, intent, { assistantId });
+  const routed = resolveDefaultAssignee({
+    workspaceDir,
+    kind: intent.kind,
+    deliverableType: intent.deliverableType,
+    fallbackAssistantId: assistantId,
+    auditDir,
+    taskId: intent.taskId,
+  });
+  const resolvedAssistantId = routed.assistantId ?? assistantId;
+  const { created } = ensureTaskRecord(workspaceDir, intent, {
+    assistantId: resolvedAssistantId,
+  });
   if (created) {
     void emit(auditDir, {
       taskId: intent.taskId,
@@ -64,7 +87,6 @@ export function commitPlannedIntent(ctx: EngineContext, intent: TaskIntent): voi
     });
   }
   if (intent.matterId) {
-    void ensureCaseWorkspace(workspaceDir, intent.matterId);
     try {
       createMatterIfMissing(workspaceDir, {
         matterId: intent.matterId,
@@ -91,6 +113,13 @@ export function commitPlannedIntent(ctx: EngineContext, intent: TaskIntent): voi
     workspaceDir,
     `## 任务计划\n- ID: ${intent.taskId}\n- 类型: ${intent.kind}\n- 摘要: ${intent.summary}\n- 案件: ${intent.matterId ?? "无"}`,
   );
+  upsertLawyerWorkFromPersist(workspaceDir, {
+    taskId: intent.taskId,
+    matterId: intent.matterId,
+    title: intent.summary,
+    status: "running",
+    source: "chat",
+  });
 }
 
 /** 草稿生成后的统一持久化与审计。 */
@@ -112,19 +141,70 @@ export function persistDraftPipeline(
   });
   persistResearchSnapshot(workspaceDir, bundle);
   const tr = readTaskRecord(workspaceDir, draft.taskId);
-  if (tr) {
-    const intent = taskIntentFromRecord(tr, draft);
-    const graph = buildLegalReasoningGraph({ intent, bundle });
+  const spec = getDeliverableSpec(draft.deliverableType);
+  const requiresGraph = specRequiresReasoningGraphAtDraft(spec);
+
+  let graph = readReasoningSnapshot(workspaceDir, draft.taskId);
+  if (!graph && (requiresGraph || tr)) {
+    const intent = tr
+      ? taskIntentFromRecord(tr, draft)
+      : {
+          taskId: draft.taskId,
+          kind: "draft.word" as const,
+          output: draft.output,
+          instruction: draft.summary,
+          summary: draft.summary,
+          riskLevel: spec?.defaultRiskLevel ?? ("medium" as const),
+          models: ["legal" as const],
+          requiresConfirmation: false,
+          createdAt: draft.createdAt,
+          matterId: draft.matterId,
+          templateId: draft.templateId,
+          deliverableType: draft.deliverableType,
+        };
+    graph = buildLegalReasoningGraph({ intent, bundle });
     persistReasoningSnapshot(workspaceDir, graph);
+  }
+  if (graph) {
     draft.hasLegalReasoningSnapshot = true;
   }
+
+  if (!hasCriticNotes(draft)) {
+    const criticized = runDraftCritic(draft);
+    draft.reviewNotes = criticized.draft.reviewNotes;
+    persistClauseSnapshot(workspaceDir, criticized.graph);
+  } else if (!readClauseSnapshot(workspaceDir, draft.taskId)) {
+    persistClauseSnapshot(workspaceDir, buildClauseGraphFromDraft(draft));
+  }
+
+  if (requiresGraph) {
+    const graphReport = validateReasoningGraphAtDraft(draft, workspaceDir, { spec });
+    if (!graphReport.ready) {
+      void emit(auditDir, {
+        taskId: draft.taskId,
+        kind: "draft.reasoning_graph_missing",
+        actor: "system",
+        detail: graphReport.hint ?? "LegalReasoningGraph snapshot missing at draft persist.",
+      });
+    }
+  }
+
   const storedDraftPath = persistDraft(workspaceDir, draft);
   syncDraftToTaskRecord(workspaceDir, draft, "drafted");
   updateTaskRecord(workspaceDir, draft.taskId, {
     title: draft.title,
     draftPath: storedDraftPath,
   });
+  upsertLawyerWorkFromPersist(workspaceDir, {
+    taskId: draft.taskId,
+    draftId: draft.taskId,
+    matterId: draft.matterId,
+    title: draft.title,
+    status: "needs_signoff",
+    source: "chat",
+  });
   if (draft.matterId) {
+    // Serialized via withCaseMdLock; fire-and-forget OK for sync draft pipeline.
     void appendCaseProgress(
       workspaceDir,
       draft.matterId,
@@ -133,10 +213,20 @@ export function persistDraftPipeline(
     // W4：双轨写入 deliverables/queue JSON 真相源（best-effort）。
     try {
       linkDraftToDeliverable(workspaceDir, draft, tr ?? undefined);
+      const authorAssistantId = tr?.assistantId ?? ctx.assistantId;
+      const peerGate = maybeApplyForcedPeerReview({
+        workspaceDir,
+        auditDir,
+        draft,
+        authorAssistantId,
+      });
+      const queueTitle = peerGate.applied
+        ? `【先互审】草稿待签批：${draft.title}`
+        : `草稿待审核：${draft.title}`;
       openQueueItem(workspaceDir, {
         matterId: draft.matterId,
         kind: "need_lawyer_review",
-        title: `草稿待审核：${draft.title}`,
+        title: queueTitle,
         relatedTaskId: draft.taskId,
         relatedDeliverableId: draft.taskId,
       });

@@ -1,0 +1,22 @@
+{
+  "id": "cn-litigation-elements",
+  "name": "诉讼要素→争点（自研包）",
+  "namedAgent": "CN Litigation Intake",
+  "description": "从起诉/答辩材料抽取要件、争点与证据缺口，写入案件理论草稿。",
+  "practiceArea": "litigation",
+  "deliverableType": "memo.general",
+  "riskLevel": "high",
+  "audience": "solo",
+  "regionPack": "cn",
+  "starterPrompt": "请从诉讼材料抽取：当事人地位、诉讼请求、要件事实、证据缺口与开放问题。",
+  "acceptancePackRequired": true,
+  "steps": [
+    {
+      "stepId": "extract",
+      "assignee": "litigation_drafter",
+      "task": "诉讼要素提取（matterId={{matterId}}）",
+      "dependsOn": [],
+      "autoApprove": false
+    }
+  ]
+}

@@ -9,6 +9,21 @@
 export { buildDraft, type BuildDraftParams } from "./keyword-draft.js";
 export { buildDraftAsync, buildDraftWithModel, isModelReasoningEnabled } from "./model-draft.js";
 export {
+  applyDraftCritic,
+  applyDraftCriticAsync,
+  DRAFT_CRITIC_PREFIX,
+  hasCriticNotes,
+  runDraftCritic,
+  runDraftCriticAsync,
+} from "./draft-critic.js";
+export {
+  attachClauseCriticNotes,
+  buildClauseGraphFromDraft,
+  clauseGraphHeadline,
+  type ClauseGraph,
+  type ClauseNode,
+} from "./clause-graph.js";
+export {
   buildLegalReasoningGraph,
   parseLegalReasoningGraphMeta,
   serializeLegalReasoningGraph,

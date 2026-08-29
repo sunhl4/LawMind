@@ -5,11 +5,22 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { workflowTemplateIsOutbound } from "../../platform/lawyer-outbound-decision.js";
 import type { CollaborationWorkflow, WorkflowStep } from "../orchestrator/types.js";
+import {
+  resolveWorkflowTemplateKind,
+  workflowTemplateKindUiLabel,
+  type WorkflowTemplateKind,
+} from "./workspace-workflow-template-kind.js";
+
+export type { WorkflowTemplateKind };
+export { resolveWorkflowTemplateKind, workflowTemplateKindUiLabel };
 
 export type WorkspaceWorkflowTemplateStep = {
   stepId: string;
   assignee: string;
+  /** Prefer resolving live assistant via Role when present (Wave B). */
+  assigneeRoleId?: string;
   task: string;
   dependsOn: string[];
   reviewBy?: string;
@@ -20,15 +31,50 @@ export type WorkspaceWorkflowTemplateStep = {
 export type WorkspaceWorkflowTemplateFile = {
   id: string;
   name: string;
+  /** Lawyer-facing agent name (Claude for Legal style), optional display label */
+  namedAgent?: string;
   description?: string;
   steps: WorkspaceWorkflowTemplateStep[];
+  practiceArea?: string;
+  deliverableType?: string;
+  riskLevel?: "low" | "medium" | "high";
+  audience?: "solo" | "firm";
+  starterPrompt?: string;
+  acceptancePackRequired?: boolean;
+  requiredSources?: string[];
+  schedulable?: boolean;
+  /**
+   * 模板级工具预批准（仅限 executor 白名单内的「待拍板」类工具，如
+   * render_tracked_draft / prepare_outbound_mail）：
+   * 供自动化（邮件合同短路径等）在 strict Edition 下不必逐步等待律师批准；
+   * 不放宽 send_email 等有外部副作用的工具。
+   */
+  preApproveToolNames?: string[];
+  /** Glob patterns; desktop may suggest workflow when pinned paths match */
+  triggerPaths?: string[];
+  /** Explicit UI category; when omitted, resolved via `resolveWorkflowTemplateKind`. */
+  kind?: WorkflowTemplateKind;
 };
 
 export type WorkspaceWorkflowTemplateListItem = {
   id: string;
   name: string;
+  namedAgent?: string;
   description: string;
   stepCount: number;
+  practiceArea?: string;
+  deliverableType?: string;
+  riskLevel?: "low" | "medium" | "high";
+  audience?: string;
+  starterPrompt?: string;
+  acceptancePackRequired?: boolean;
+  requiredSources?: string[];
+  schedulable?: boolean;
+  /** Glob paths; when pinned chat context matches, UI may suggest this workflow */
+  triggerPaths?: string[];
+  kind?: WorkflowTemplateKind;
+  /** 会把材料发给客户/对方（配置时应提醒是否开签批审阅）。 */
+  outbound?: boolean;
 };
 
 function workflowsDir(workspaceDir: string): string {
@@ -59,8 +105,31 @@ export function listWorkspaceWorkflowTemplates(
         out.push({
           id: parsed.id,
           name: parsed.name,
+          namedAgent: typeof parsed.namedAgent === "string" ? parsed.namedAgent : undefined,
           description: typeof parsed.description === "string" ? parsed.description : "",
           stepCount: parsed.steps.length,
+          practiceArea: typeof parsed.practiceArea === "string" ? parsed.practiceArea : undefined,
+          deliverableType:
+            typeof parsed.deliverableType === "string" ? parsed.deliverableType : undefined,
+          riskLevel:
+            parsed.riskLevel === "low" ||
+            parsed.riskLevel === "medium" ||
+            parsed.riskLevel === "high"
+              ? parsed.riskLevel
+              : undefined,
+          audience: typeof parsed.audience === "string" ? parsed.audience : undefined,
+          starterPrompt:
+            typeof parsed.starterPrompt === "string" ? parsed.starterPrompt : undefined,
+          acceptancePackRequired: parsed.acceptancePackRequired === true,
+          requiredSources: Array.isArray(parsed.requiredSources)
+            ? parsed.requiredSources.filter((x): x is string => typeof x === "string")
+            : undefined,
+          schedulable: parsed.schedulable === true,
+          triggerPaths: Array.isArray(parsed.triggerPaths)
+            ? parsed.triggerPaths.filter((x): x is string => typeof x === "string")
+            : undefined,
+          kind: parsed.kind === "office" || parsed.kind === "matter" ? parsed.kind : undefined,
+          outbound: workflowTemplateIsOutbound(parsed),
         });
       }
     } catch {
@@ -97,7 +166,16 @@ function substituteTask(task: string, vars: Record<string, string>, matterId?: s
   if (matterId) {
     merged.matterId = matterId;
   }
-  return task.replace(/\{\{(\w+)\}\}/g, (_, key: string) => merged[key] ?? `{{${key}}}`);
+  return task.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
+    if (Object.prototype.hasOwnProperty.call(merged, key)) {
+      return merged[key] ?? "";
+    }
+    // Optional automation brief — omit rather than leave a raw token in the prompt.
+    if (key === "instruction" || key === "automationId") {
+      return "";
+    }
+    return `{{${key}}}`;
+  });
 }
 
 /**
@@ -117,6 +195,7 @@ export function instantiateCollaborationWorkflowFromTemplate(
   const steps: WorkflowStep[] = template.steps.map((t) => ({
     stepId: t.stepId,
     assignee: t.assignee,
+    assigneeRoleId: t.assigneeRoleId,
     task: substituteTask(t.task, opts.vars ?? {}, opts.matterId),
     dependsOn: [...t.dependsOn],
     reviewBy: t.reviewBy,
@@ -134,5 +213,8 @@ export function instantiateCollaborationWorkflowFromTemplate(
     createdBy: opts.createdBy,
     createdAt: now,
     updatedAt: now,
+    ...(Array.isArray(template.preApproveToolNames) && template.preApproveToolNames.length > 0
+      ? { preApproveToolNames: [...template.preApproveToolNames] }
+      : {}),
   };
 }

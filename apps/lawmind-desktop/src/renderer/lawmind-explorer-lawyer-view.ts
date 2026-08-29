@@ -1,10 +1,13 @@
 /**
- * 资源管理器（律师向）：只展示案件与材料相关树，隐藏系统目录与源码类文件。
+ * 资源管理器（律师向）：
+ * - 「工作区」：律师本机文件夹（project root），不展示软件内部数据目录
+ * - 「案件材料」：cases 下卷宗
+ * 系统/引擎目录与配置文件隐藏；可配置项走「设置」表单。
  */
 
 export type ExplorerRootKey = "workspace" | "project";
 
-/** 路径任一层出现这些目录名则整支隐藏（工作区 / 项目均适用）。 */
+/** 路径任一层出现这些目录名则整支隐藏。 */
 const HIDDEN_DIR_SEGMENTS = new Set(
   [
     "node_modules",
@@ -23,12 +26,24 @@ const HIDDEN_DIR_SEGMENTS = new Set(
     "memory",
     "sessions",
     "delegations",
+    /** 引擎 / 产品内部目录：不对律师在文件树中暴露。 */
+    "mail",
+    "deliverables",
+    "drafts",
+    "tasks",
+    "lawmind",
+    "templates",
+    "playbooks",
+    "artifacts",
   ].map((s) => s.toLowerCase()),
 );
 
+/** 工作区根上隐藏的配置/系统文件（非律师日常文档）。 */
 const HIDDEN_WORKSPACE_ROOT_FILES = new Set(
   [
     "assistants.json",
+    "integrations.json",
+    "memory.md",
     "package.json",
     "package-lock.json",
     "pnpm-lock.yaml",
@@ -41,10 +56,26 @@ const HIDDEN_WORKSPACE_ROOT_FILES = new Set(
     "eslint.config.js",
     ".eslintrc.cjs",
     ".npmrc",
+    "readme.md",
   ].map((s) => s.toLowerCase()),
 );
 
-const LAWYER_MATERIAL_PREFIXES = ["cases/", "artifacts/", "templates/", "playbooks/"];
+/** 案件目录下对律师隐藏的系统文件名。 */
+const HIDDEN_MATTER_LEAF_NAMES = new Set(
+  [
+    "matter.json",
+    "approvals.jsonl",
+    "queue.jsonl",
+    "deadlines.jsonl",
+    "assistants.json",
+    "package.json",
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "tsconfig.json",
+  ].map((s) => s.toLowerCase()),
+);
+
+const HIDDEN_LAWYER_LEAF_NAMES = new Set([".ds_store", "thumbs.db"]);
 
 const TECH_SOURCE_EXTENSIONS = new Set([
   ".ts",
@@ -65,42 +96,34 @@ const TECH_SOURCE_EXTENSIONS = new Set([
   ".kt",
   ".swift",
   ".map",
+  ".jsonl",
 ]);
 
-const HIDDEN_LAWYER_LEAF_NAMES = new Set([".ds_store", "thumbs.db"]);
+function normalizeRel(relPath: string): string {
+  return relPath.replace(/^\/+/, "").replace(/\\/g, "/");
+}
 
 export function pathHasHiddenSegment(relPath: string): boolean {
-  const norm = relPath.replace(/^\/+/, "").toLowerCase();
-  const segments = norm.split("/").filter(Boolean);
+  const segments = normalizeRel(relPath).toLowerCase().split("/").filter(Boolean);
   for (const seg of segments) {
-    const base = seg.split("\\").pop() ?? seg;
-    if (base.startsWith(".") && base !== "." && base !== "..") {
-      if (
-        base === ".lawmind-role.txt" ||
-        base.startsWith(".lawmind-") ||
-        base === ".trae" ||
-        base === ".cursor"
-      ) {
-        return true;
-      }
+    if (seg.startsWith(".") && seg !== "." && seg !== "..") {
+      return true;
     }
-    if (HIDDEN_DIR_SEGMENTS.has(base)) {
+    if (HIDDEN_DIR_SEGMENTS.has(seg)) {
       return true;
     }
   }
   return false;
 }
 
-function underLawyerMaterialPrefix(relPath: string): boolean {
-  const norm = relPath.replace(/^\/+/, "");
-  const low = norm.toLowerCase();
-  for (const p of LAWYER_MATERIAL_PREFIXES) {
-    if (low === p.slice(0, -1) || low.startsWith(p)) {
-      return true;
-    }
-  }
-  return false;
+/** 是否落在案件材料树（`cases/`）下。 */
+export function isLawyerCasesPath(relPath: string): boolean {
+  const norm = normalizeRel(relPath).toLowerCase();
+  return norm === "cases" || norm.startsWith("cases/");
 }
+
+/** @deprecated 使用 isLawyerCasesPath；保留别名以免旧引用断裂。 */
+export const isLawyerWorkspaceMaterialPath = isLawyerCasesPath;
 
 function techExtensionHidden(name: string): boolean {
   const i = name.lastIndexOf(".");
@@ -114,11 +137,15 @@ export function shouldShowExplorerFile(root: ExplorerRootKey, relPath: string): 
   if (pathHasHiddenSegment(relPath)) {
     return false;
   }
-  const name = relPath.split(/[/\\]/).filter(Boolean).pop() ?? relPath;
+  const name = normalizeRel(relPath).split("/").filter(Boolean).pop() ?? relPath;
   if (name && HIDDEN_LAWYER_LEAF_NAMES.has(name.toLowerCase())) {
     return false;
   }
-  const parent = relPath.replace(/^\/+/, "");
+  if (HIDDEN_MATTER_LEAF_NAMES.has(name.toLowerCase())) {
+    return false;
+  }
+
+  const parent = normalizeRel(relPath);
   const slash = parent.lastIndexOf("/");
   const dir = slash >= 0 ? parent.slice(0, slash) : "";
 
@@ -126,10 +153,6 @@ export function shouldShowExplorerFile(root: ExplorerRootKey, relPath: string): 
     if (name.startsWith(".") || HIDDEN_WORKSPACE_ROOT_FILES.has(name.toLowerCase())) {
       return false;
     }
-  }
-
-  if (underLawyerMaterialPrefix(relPath)) {
-    return true;
   }
 
   return !techExtensionHidden(name);

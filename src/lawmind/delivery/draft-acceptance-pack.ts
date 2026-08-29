@@ -18,6 +18,12 @@ import path from "node:path";
 import { readAllAuditLogs } from "../audit/index.js";
 import { validateDraftAgainstSpec } from "../deliverables/index.js";
 import { resolveDraftCitationIntegrity } from "../drafts/index.js";
+import { readResearchSnapshot } from "../drafts/research-snapshot.js";
+import { LAWMIND_ATTORNEY_DISCLAIMER_EXPORT_FOOTER } from "../legal/attorney-disclaimer.js";
+import {
+  DEMO_CORPUS_RISK_FLAG,
+  isDemoCorpusResult,
+} from "../retrieval/authority-gap.js";
 import type { ArtifactDraft, AuditEvent } from "../types.js";
 
 export type DraftAcceptancePackOptions = {
@@ -62,6 +68,8 @@ export async function buildDraftAcceptancePackMarkdown(
   const generatedAt = opts.generatedAt ?? new Date().toISOString();
   const acceptance = validateDraftAgainstSpec(draft);
   const citation = resolveDraftCitationIntegrity(workspaceDir, draft);
+  const research = readResearchSnapshot(workspaceDir, draft.taskId);
+  const demoCorpus = research ? isDemoCorpusResult(research) : false;
 
   const auditDir = path.join(workspaceDir, "audit");
   const allEvents = await readAllAuditLogs(auditDir).catch(() => [] as AuditEvent[]);
@@ -129,17 +137,28 @@ export async function buildDraftAcceptancePackMarkdown(
           ...acceptance.placeholderSamples.map((p) => `- \`${p}\``),
         ];
 
+  const demoBanner = demoCorpus
+    ? [
+        `> ⚠️ **演示语料水印**：${DEMO_CORPUS_RISK_FLAG}`,
+        "",
+        "- [ ] 签收前已核对：本包引用不得当作已核实商业法库结论",
+        "",
+      ]
+    : [];
+
   return [
     `# LawMind 交付验收包`,
     "",
     `> 本验收包随交付物（${draft.output.toUpperCase()}）一同发出，记录了草稿在 LawMind 内的合规、引用、审计与验收状态。`,
     "",
+    ...demoBanner,
     `- **任务 ID**: \`${draft.taskId}\``,
     `- **关联案件**: ${draft.matterId ? `\`${draft.matterId}\`` : "无"}`,
     `- **标题**: ${escapeMd(draft.title)}`,
     `- **交付物类型**: ${acceptance.deliverableType ?? "(未识别)"}`,
     `- **交付物格式**: ${draft.output}`,
     `- **审核状态**: \`${draft.reviewStatus}\``,
+    `- **权威语料**: ${demoCorpus ? "演示语料（非正式完整法库）" : research ? "已附检索快照" : "无检索快照"}`,
     `- **生成时间**: ${generatedAt}`,
     "",
     `## 1. 验收门禁`,
@@ -173,6 +192,8 @@ export async function buildDraftAcceptancePackMarkdown(
     `- [ ] 同意将本交付包随交付物提供给客户`,
     "",
     `_本验收包仅供律师及客户内部使用；不构成对法规、案例或第三方主张的独立法律意见。_`,
+    "",
+    LAWMIND_ATTORNEY_DISCLAIMER_EXPORT_FOOTER,
     "",
   ].join("\n");
 }

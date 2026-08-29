@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { removeTestWorkspaceDir } from "../../../../test/lawmind-workspace-cleanup.js";
 import {
   createLawMindEngine,
   createLegalModelAdapter,
@@ -22,7 +23,7 @@ describe("LawMind matter service", () => {
   });
 
   afterEach(async () => {
-    await fs.rm(workspaceDir, { recursive: true, force: true });
+    await removeTestWorkspaceDir(workspaceDir);
   });
 
   it("builds a matter read model from current workspace state", async () => {

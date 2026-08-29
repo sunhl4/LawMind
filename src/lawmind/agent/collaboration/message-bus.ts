@@ -11,8 +11,15 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { loadAssistantProfiles, buildRoleDirectiveFromProfile } from "../../assistants/store.js";
-import { createLawMindAgent } from "../index.js";
+import {
+  buildRoleDirectiveFromProfile,
+  loadAssistantProfiles,
+  resolveLawMindRoot,
+} from "../../assistants/store.js";
+import { createLawMindAgent } from "../agent-factory.js";
+import { inheritChildGates } from "../child-gates.js";
+import type { AgentPermissionMode } from "../permission-mode.js";
+import { saveSession } from "../session.js";
 import type { AgentConfig } from "../types.js";
 import type { CollaborationMessage, CollaborationMessageKind } from "./types.js";
 
@@ -48,8 +55,7 @@ function resolveAssistantConfig(
   baseConfig: AgentConfig,
   targetAssistantId: string,
 ): AgentConfig | undefined {
-  const lawMindRoot =
-    baseConfig.workspaceDir.replace(/[\\/]workspace$/, "") || baseConfig.workspaceDir;
+  const lawMindRoot = resolveLawMindRoot(baseConfig.workspaceDir, baseConfig.envFile);
   const profiles = loadAssistantProfiles(lawMindRoot);
   const profile = profiles.find((p) => p.assistantId === targetAssistantId);
   if (!profile) {
@@ -80,30 +86,73 @@ export async function sendAndWait(params: {
   message: string;
   matterId?: string;
   timeoutMs?: number;
+  /** 模板级工具预批准（executor 已按白名单过滤）。 */
+  preApproveToolNames?: string[];
+  /** 指令头标签：consult（默认）或 review_request（request_review 专用）。 */
+  kind?: "consult" | "review_request";
+  permissionMode?: AgentPermissionMode;
+  allowedToolNames?: string[];
+  toolSandboxEnabled?: boolean;
 }): Promise<SendAndWaitResult> {
   const { baseConfig, fromAssistantId, toAssistantId, message, matterId } = params;
   const timeoutMs = params.timeoutMs ?? 60_000;
 
   const targetConfig = resolveAssistantConfig(baseConfig, toAssistantId);
   if (!targetConfig) {
-    throw new Error(`Assistant not found: ${toAssistantId}`);
+    const root = resolveLawMindRoot(baseConfig.workspaceDir, baseConfig.envFile);
+    const names = loadAssistantProfiles(root)
+      .map((p) => p.displayName)
+      .join("、");
+    throw new Error(
+      `Assistant not found: ${toAssistantId}` +
+        (names ? `（当前可读助手：${names}；请确认桌面端助手配置与工作区路径一致）` : ""),
+    );
   }
 
-  const agent = createLawMindAgent(targetConfig);
+  const gates = inheritChildGates({
+    parent: {
+      permissionMode: params.permissionMode ?? targetConfig.permissionMode ?? "standard",
+      matterId,
+      allowedToolNames: params.allowedToolNames,
+      toolSandboxEnabled: params.toolSandboxEnabled === true,
+    },
+    childPermissionMode: targetConfig.permissionMode,
+  });
+  const childConfig: AgentConfig = {
+    ...targetConfig,
+    permissionMode: gates.permissionMode,
+    allowedToolNames: gates.allowedToolNames,
+    ...(gates.toolSandboxEnabled ? { toolSandboxEnabled: true } : {}),
+  };
+  const agent = createLawMindAgent(childConfig);
 
   const instruction = buildCollaborationInstruction({
-    kind: "consult",
+    kind: params.kind ?? "consult",
     fromAssistantId,
     message,
   });
 
-  const resultPromise = agent.chat(instruction, { matterId });
+  const abortController = new AbortController();
+  const resultPromise = agent.chat(instruction, {
+    matterId: gates.matterId ?? matterId,
+    permissionMode: childConfig.permissionMode,
+    preApproveToolNames: params.preApproveToolNames,
+    shouldAbort: () => abortController.signal.aborted,
+  });
 
-  const result = await withTimeout(
-    resultPromise,
-    timeoutMs,
-    `Consult to ${toAssistantId} timed out after ${timeoutMs}ms`,
-  );
+  let result: Awaited<typeof resultPromise>;
+  try {
+    result = await withTimeout(
+      resultPromise,
+      timeoutMs,
+      `Consult to ${toAssistantId} timed out after ${timeoutMs}ms`,
+    );
+  } catch (err) {
+    // 超时后协作式中止底层子会话（模型轮间生效），避免子 agent 继续跑到完成。
+    abortController.abort();
+    void resultPromise.catch(() => undefined);
+    throw err;
+  }
 
   return {
     reply: result.reply,
@@ -126,22 +175,59 @@ export function fireAndForget(params: {
   message: string;
   matterId?: string;
   kind?: CollaborationMessageKind;
+  /** Registry id — must match transcript / cancel / timeout (defaults to new UUID). */
+  delegationId?: string;
+  /** Nesting depth for child tool registry (parent depth + 1). */
+  collaborationDepth?: number;
+  /** Inherit parent's compose permission mode when set. */
+  permissionMode?: AgentConfig["permissionMode"];
+  allowedToolNames?: string[];
+  toolSandboxEnabled?: boolean;
+  /** Abort child turn after this many ms (0 = no timer). */
+  timeoutMs?: number;
+  onTimeout?: (targetSessionId: string) => void;
 }): FireAndForgetResult {
   const { baseConfig, fromAssistantId, toAssistantId, message, matterId, kind } = params;
-  const delegationId = randomUUID();
+  const delegationId = params.delegationId?.trim() || randomUUID();
+  const collaborationDepth = Math.max(0, params.collaborationDepth ?? 0);
 
   const targetConfig = resolveAssistantConfig(baseConfig, toAssistantId);
   if (!targetConfig) {
-    throw new Error(`Assistant not found: ${toAssistantId}`);
+    const root = resolveLawMindRoot(baseConfig.workspaceDir, baseConfig.envFile);
+    const names = loadAssistantProfiles(root)
+      .map((p) => p.displayName)
+      .join("、");
+    throw new Error(
+      `Assistant not found: ${toAssistantId}` +
+        (names ? `（当前可读助手：${names}；请确认桌面端助手配置与工作区路径一致）` : ""),
+    );
   }
 
-  const agent = createLawMindAgent(targetConfig);
+  const gates = inheritChildGates({
+    parent: {
+      permissionMode: params.permissionMode ?? targetConfig.permissionMode ?? "standard",
+      matterId,
+      allowedToolNames: params.allowedToolNames,
+      toolSandboxEnabled: params.toolSandboxEnabled === true,
+    },
+    childPermissionMode: targetConfig.permissionMode,
+  });
+  const childConfig: AgentConfig = {
+    ...targetConfig,
+    permissionMode: gates.permissionMode,
+    allowedToolNames: gates.allowedToolNames,
+    ...(gates.toolSandboxEnabled ? { toolSandboxEnabled: true } : {}),
+    collaborationDepth,
+  };
+  const agent = createLawMindAgent(childConfig);
 
   const kindResolved = kind ?? "delegate";
   const preSession = agent.newSession({
-    matterId,
+    matterId: gates.matterId ?? matterId,
     title: `[协作] ${kindResolved} · ${fromAssistantId}`.slice(0, 200),
   });
+  preSession.collaborationDelegationId = delegationId;
+  saveSession(baseConfig.workspaceDir, preSession);
   const targetSessionId = preSession.sessionId;
 
   const instruction = buildCollaborationInstruction({
@@ -150,13 +236,31 @@ export function fireAndForget(params: {
     message,
   });
 
+  let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutMs = params.timeoutMs ?? 0;
+  if (timeoutMs > 0) {
+    timeoutTimer = setTimeout(() => {
+      params.onTimeout?.(targetSessionId);
+    }, timeoutMs);
+  }
+
   const completion = agent
-    .chat(instruction, { matterId, sessionId: targetSessionId })
+    .chat(instruction, {
+      matterId: gates.matterId ?? matterId,
+      sessionId: targetSessionId,
+      liveProgressSessionId: targetSessionId,
+      permissionMode: childConfig.permissionMode,
+    })
     .then((result) => ({
       reply: result.reply,
       turnId: result.turn.turnId,
       sessionId: result.sessionId,
-    }));
+    }))
+    .finally(() => {
+      if (timeoutTimer) {
+        clearTimeout(timeoutTimer);
+      }
+    });
 
   return {
     delegationId,

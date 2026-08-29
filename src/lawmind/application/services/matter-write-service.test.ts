@@ -20,6 +20,8 @@ import {
   readQueueItems,
   loadDeliverable,
 } from "../../adapters/matter-storage/index.js";
+import { parseMatterDisplayNameFromCase } from "../../cases/matter-label.js";
+import { caseFilePath } from "../../memory/index.js";
 import type { ArtifactDraft } from "../../types.js";
 import { listPendingApprovals, requestApproval, resolveApproval } from "./approval-service.js";
 import { completeDeadline, recordDeadline } from "./deadline-service.js";
@@ -42,7 +44,26 @@ describe("Matter write services (W3)", () => {
     await fs.mkdir(path.join(workspaceDir, "audit"), { recursive: true });
   });
   afterEach(async () => {
-    await fs.rm(workspaceDir, { recursive: true, force: true });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    await fs.rm(workspaceDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  });
+
+  it("createMatterIfMissing schedules CASE.md projection", async () => {
+    createMatterIfMissing(workspaceDir, { matterId: "m-dual", title: "Dual Write" });
+    const casePath = caseFilePath(workspaceDir, "m-dual");
+    let raw = "";
+    for (let i = 0; i < 40; i++) {
+      try {
+        raw = await fs.readFile(casePath, "utf8");
+        if (parseMatterDisplayNameFromCase(raw) === "Dual Write") {
+          break;
+        }
+      } catch {
+        /* not written yet */
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    expect(parseMatterDisplayNameFromCase(raw)).toBe("Dual Write");
   });
 
   it("createMatterIfMissing is idempotent and persists JSON truth source", () => {
@@ -118,7 +139,10 @@ describe("Matter write services (W3)", () => {
       status: "approved",
       resolvedBy: "lawyer:partner",
     });
-    expect(resolved?.status).toBe("approved");
+    expect(resolved).toMatchObject({
+      outcome: "written",
+      approval: { status: "approved" },
+    });
     const all = readApprovals(workspaceDir, "m-5");
     expect(all[0].status).toBe("approved");
   });
@@ -134,6 +158,29 @@ describe("Matter write services (W3)", () => {
     transitionQueueItem(workspaceDir, "m-6", opened.queueItemId, "resolved");
     const items = readQueueItems(workspaceDir, "m-6");
     expect(items[0].status).toBe("resolved");
+  });
+
+  it("openQueueItem sets blockedReason when dependsOn is unresolved", () => {
+    const first = openQueueItem(workspaceDir, {
+      matterId: "m-6b",
+      kind: "need_lawyer_review",
+      title: "First",
+    });
+    const second = openQueueItem(workspaceDir, {
+      matterId: "m-6b",
+      kind: "need_lawyer_review",
+      title: "Second",
+      dependsOn: [first.queueItemId],
+    });
+    expect(second.blockedReason).toContain("等待前置待办");
+    transitionQueueItem(workspaceDir, "m-6b", first.queueItemId, "resolved");
+    const reopened = openQueueItem(workspaceDir, {
+      matterId: "m-6b",
+      kind: "need_lawyer_review",
+      title: "Third",
+      dependsOn: [first.queueItemId],
+    });
+    expect(reopened.blockedReason).toBeUndefined();
   });
 
   it("recordDeadline + completeDeadline appends and updates JSONL", () => {

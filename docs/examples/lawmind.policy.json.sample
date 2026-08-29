@@ -1,9 +1,19 @@
 {
   "schemaVersion": 1,
-  "description": "Sample LawMind policy file for firm IT review (draft).",
+  "description": "Sample LawMind policy file for firm IT review (draft). delivery / progressiveAutonomy are optional; omitted keys stay conservative (outbound never auto-delivers).",
   "allowWebSearch": false,
   "retrievalMode": "auto",
   "edition": "firm",
   "benchmarkGateMinScore": 0.7,
-  "auditExportCadenceHint": "P7D"
+  "auditExportCadenceHint": "P7D",
+  "delivery": {
+    "description": "Optional delivery tiering. Default: medium → one-tap signoff; high → full review; auto_deliver only if autonomy unlocked AND low AND not outbound.",
+    "firmForceFullReview": false
+  },
+  "progressiveAutonomy": {
+    "description": "Unlock thresholds. Defaults: minFirstPassRate 0.8, minSamples 20, maxLintEscapeRate 0.15. Missing lint-escape series refuses unlock.",
+    "minFirstPassRate": 0.8,
+    "minSamples": 20,
+    "maxLintEscapeRate": 0.15
+  }
 }

@@ -2,9 +2,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { upsertAssistant } from "../../assistants/store.js";
 import type { AgentConfig } from "../types.js";
-import { executeWorkflow } from "./executor.js";
-import type { CollaborationWorkflow } from "./types.js";
+import { executeWorkflow, resolveStepAssigneeByRole } from "./executor.js";
+import type { CollaborationWorkflow, WorkflowStep } from "./types.js";
 
 const mockSendAndWait = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ reply: "delegation-reply", sessionId: "sess-1" }),
@@ -78,6 +79,67 @@ const stubConfig = (workspaceDir: string): AgentConfig => ({
     apiKey: "k",
     model: "m",
   },
+});
+
+describe("resolveStepAssigneeByRole", () => {
+  it("resolves contract_review via envFile assistants (presetKey), not workspace sibling", () => {
+    const lawMindRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lm-root-"));
+    const workspaceDir = path.join(lawMindRoot, "workspace");
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    // Stale sibling assistants.json (what resolveLawMindRoot(workspace) alone would see)
+    fs.writeFileSync(
+      path.join(lawMindRoot, "..", "assistants-should-not-matter.json"),
+      "[]",
+      "utf8",
+    );
+    upsertAssistant(lawMindRoot, {
+      assistantId: "lvyx",
+      displayName: "吕盈修",
+      introduction: "",
+      presetKey: "contract_review",
+    });
+    const envFile = path.join(lawMindRoot, ".env.lawmind");
+    fs.writeFileSync(envFile, "x=1\n", "utf8");
+
+    const step: WorkflowStep = {
+      stepId: "redline",
+      assignee: "contract_review",
+      assigneeRoleId: "contract_review",
+      task: "edit",
+      dependsOn: [],
+      autoApprove: true,
+      status: "pending",
+    };
+    resolveStepAssigneeByRole(workspaceDir, step, envFile);
+    expect(step.assignee).toBe("lvyx");
+    fs.rmSync(lawMindRoot, { recursive: true, force: true });
+  });
+
+  it("falls back to default when role has no matching assistant", () => {
+    const lawMindRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lm-root2-"));
+    const workspaceDir = path.join(lawMindRoot, "workspace");
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    upsertAssistant(lawMindRoot, {
+      assistantId: "default",
+      displayName: "默认助手",
+      introduction: "",
+      presetKey: "general_default",
+    });
+    const envFile = path.join(lawMindRoot, ".env.lawmind");
+    fs.writeFileSync(envFile, "x=1\n", "utf8");
+    const step: WorkflowStep = {
+      stepId: "redline",
+      assignee: "contract_review",
+      assigneeRoleId: "contract_review",
+      task: "edit",
+      dependsOn: [],
+      autoApprove: true,
+      status: "pending",
+    };
+    resolveStepAssigneeByRole(workspaceDir, step, envFile);
+    expect(step.assignee).toBe("default");
+    fs.rmSync(lawMindRoot, { recursive: true, force: true });
+  });
 });
 
 describe("executeWorkflow shouldAbort", () => {

@@ -1,0 +1,153 @@
+/**
+ * Desktop helpers for LawMindRequiresAction (chat + action hub).
+ */
+
+import {
+  formatClarificationResumeMessage,
+  type LawMindRequiresAction,
+  type LawMindRequiresActionDecision,
+} from "../../../../src/lawmind/platform/requires-action.ts";
+
+export { formatClarificationResumeMessage };
+import { isValidMatterId } from "../../../../src/lawmind/cases/matter-id.ts";
+import type { ApprovalRequest, WorkQueueItem } from "../../../../src/lawmind/core/contracts.ts";
+import { apiGetJson } from "./api-client";
+import type { ApprovalResolvePostRequest, ChatResumeRequest } from "./lawmind-api-request-types.ts";
+import { apiPost } from "./lawmind-api-routes.ts";
+
+export type { LawMindRequiresAction, LawMindRequiresActionDecision };
+
+export function parseRequiresActionsFromResponse(raw: unknown): LawMindRequiresAction[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out: LawMindRequiresAction[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const o = item as Record<string, unknown>;
+    if (
+      typeof o.id !== "string" ||
+      typeof o.kind !== "string" ||
+      typeof o.title !== "string" ||
+      typeof o.summary !== "string" ||
+      !Array.isArray(o.decisions)
+    ) {
+      continue;
+    }
+    out.push(item as LawMindRequiresAction);
+  }
+  return out;
+}
+
+export type ActionSummaryPayload = {
+  ok?: boolean;
+  total?: number;
+  pendingApprovals?: number;
+  openQueueItems?: number;
+  activeJobs?: number;
+  /** Items that require a lawyer decision now (excludes merely-running jobs). */
+  requiresDecisionTotal?: number;
+  pendingReviewCount?: number;
+  pendingAutomationCount?: number;
+  chatRequiresActionCount?: number;
+  pendingToolApprovals?: number;
+  /** 近 48h 互审/委派完成（信息角标；不计入 requiresDecisionTotal） */
+  recentReviewCompleted?: number;
+  recentDelegationCompleted?: number;
+  recentCollabCompleted?: number;
+  toolApprovals?: Array<{
+    actionId: string;
+    sessionId: string;
+    matterId?: string;
+    toolName?: string;
+    title: string;
+    summary: string;
+    toolArgs?: Record<string, unknown>;
+    createdAt: string;
+  }>;
+  /** Workspace-wide pending chat interrupts (clarification / tool approval), not only active session. */
+  chatRequiresActions?: Array<{
+    sessionId: string;
+    title: string;
+    matterId?: string;
+    assistantId?: string;
+    actions: LawMindRequiresAction[];
+  }>;
+  /** 待处理案件审批（与工作队列/任务的契约对齐，消 renderer cast）。 */
+  approvals?: ApprovalRequest[];
+  /** 打开的工作队列条目（含律师拍板类与助手侧工作）。 */
+  queueItems?: WorkQueueItem[];
+  /** 排队/运行中的团队工作流任务。 */
+  jobs?: Array<{
+    jobId: string;
+    workflowId?: string;
+    status: string;
+    matterId?: string;
+    createdAt: string;
+    updatedAt?: string;
+  }>;
+  pendingReviewDrafts?: Array<{
+    taskId: string;
+    matterId?: string;
+    title: string;
+    reviewStatus: "pending" | "modified";
+    createdAt: string;
+    assistantId?: string;
+  }>;
+  automationInbox?: Array<{
+    id: string;
+    automationId: string;
+    matterId: string;
+    title: string;
+    summary: string;
+    status: string;
+    createdAt: string;
+    draftTaskId?: string;
+    jobId?: string;
+    pendingSend?: {
+      to: string;
+      subject: string;
+      body: string;
+      attachmentRelativePaths?: string[];
+    };
+  }>;
+};
+
+export async function loadActionSummary(
+  apiBase: string,
+  matterId?: string,
+): Promise<ActionSummaryPayload> {
+  const t = matterId?.trim() ?? "";
+  const q = t && isValidMatterId(t) ? `?matterId=${encodeURIComponent(t)}` : "";
+  return apiGetJson<ActionSummaryPayload>(apiBase, `/api/action-summary${q}`);
+}
+
+export async function resumeChatAction(
+  apiBase: string,
+  body: ChatResumeRequest,
+): Promise<{
+  ok?: boolean;
+  reply?: string;
+  sessionId?: string;
+  status?: string;
+  requiresAction?: LawMindRequiresAction[];
+}> {
+  return apiPost(apiBase, "/api/chat/resume", body) as Promise<{
+    ok?: boolean;
+    reply?: string;
+    sessionId?: string;
+    status?: string;
+    requiresAction?: LawMindRequiresAction[];
+  }>;
+}
+
+export async function resolveMatterApproval(
+  apiBase: string,
+  body: ApprovalResolvePostRequest,
+): Promise<{ ok?: boolean }> {
+  return apiPost(apiBase, "/api/approvals/resolve", body);
+}
+
+export { buildClarificationAnswerMap } from "../../../../src/lawmind/platform/clarification-fields.ts";

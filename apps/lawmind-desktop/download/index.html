@@ -3,31 +3,55 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>LawMind 下载</title>
+    <meta
+      name="description"
+      content="LawMind 律师本机工作台 — 下载桌面版安装包。合同审查、改稿签批与可交付文书。"
+    />
+    <title>下载桌面版 · LawMind</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap"
+      rel="stylesheet"
+    />
     <style>
       :root {
         color-scheme: light dark;
-        --bg: #f6f5f2;
-        --card: #fff;
-        --text: #1a1a1a;
-        --muted: #5c5c5c;
+        --ink: #1a1d24;
+        --brass: #8a7348;
+        --brass-soft: rgba(183, 154, 103, 0.16);
+        --bg: #f3f1ec;
+        --bg-accent: #e8eef4;
+        --card: #fffcf7;
+        --text: #1a1d24;
+        --muted: #5a5e68;
         --accent: #1e5a8a;
-        --accent-soft: #e8f1f8;
-        --border: #d8d6d0;
+        --accent-hover: #174a72;
+        --accent-soft: rgba(30, 90, 138, 0.1);
+        --border: #d4d0c8;
         --rec: #0d6b4d;
-        --rec-bg: #e6f5ef;
+        --rec-bg: #e4f3ec;
+        --danger: #9b2c2c;
+        --font-sans: "Instrument Sans", "PingFang SC", "Noto Sans SC", sans-serif;
+        --font-display: "Source Serif 4", "Songti SC", "Noto Serif SC", serif;
       }
       @media (prefers-color-scheme: dark) {
         :root {
-          --bg: #141414;
-          --card: #1e1e1e;
-          --text: #f2f2f2;
-          --muted: #a8a8a8;
+          --bg: #12141a;
+          --bg-accent: #1a2430;
+          --card: #1a1d24;
+          --text: #f0efe9;
+          --muted: #a4a8b0;
           --accent: #6eb3e8;
-          --accent-soft: #1a2f42;
-          --border: #3a3a3a;
+          --accent-hover: #8fc4ee;
+          --accent-soft: rgba(110, 179, 232, 0.12);
+          --border: #2e3340;
           --rec: #5ed4a8;
           --rec-bg: #12261f;
+          --brass: #b79a67;
+          --brass-soft: rgba(183, 154, 103, 0.14);
+          --danger: #f0a8a8;
         }
       }
       * {
@@ -35,43 +59,80 @@
       }
       body {
         margin: 0;
-        font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", sans-serif;
-        background: var(--bg);
+        min-height: 100vh;
+        font-family: var(--font-sans);
         color: var(--text);
-        line-height: 1.5;
+        line-height: 1.55;
+        background:
+          radial-gradient(ellipse 80% 50% at 10% -10%, var(--brass-soft), transparent 55%),
+          radial-gradient(ellipse 70% 45% at 100% 0%, var(--accent-soft), transparent 50%),
+          linear-gradient(180deg, var(--bg-accent) 0%, var(--bg) 42%, var(--bg) 100%);
       }
       .wrap {
-        max-width: 860px;
+        max-width: 880px;
         margin: 0 auto;
-        padding: 2rem 1.25rem 3rem;
+        padding: 2.25rem 1.25rem 3.5rem;
+      }
+      .brand {
+        display: flex;
+        align-items: baseline;
+        gap: 0.65rem;
+        margin-bottom: 1.75rem;
+      }
+      .brand-mark {
+        font-family: var(--font-display);
+        font-size: 1.65rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        background: linear-gradient(120deg, var(--ink) 25%, var(--accent) 65%, var(--brass));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      @media (prefers-color-scheme: dark) {
+        .brand-mark {
+          background: linear-gradient(120deg, #f0efe9 20%, var(--accent) 55%, var(--brass));
+          -webkit-background-clip: text;
+          background-clip: text;
+        }
+      }
+      .brand-tag {
+        font-size: 0.82rem;
+        color: var(--muted);
+        letter-spacing: 0.02em;
       }
       h1 {
-        font-size: 1.6rem;
-        font-weight: 650;
-        margin: 0 0 0.35rem;
+        font-family: var(--font-display);
+        font-size: clamp(1.75rem, 3.5vw, 2.15rem);
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        line-height: 1.2;
+        margin: 0 0 0.55rem;
       }
       .sub {
         color: var(--muted);
-        font-size: 0.95rem;
-        margin: 0 0 1.25rem;
+        font-size: 1.02rem;
+        max-width: 36em;
+        margin: 0 0 1.5rem;
       }
       .banner {
         background: var(--accent-soft);
         border: 1px solid var(--border);
         border-radius: 10px;
         padding: 0.85rem 1rem;
-        margin-bottom: 1.25rem;
+        margin-bottom: 1.15rem;
         font-size: 0.9rem;
       }
       .banner strong {
         color: var(--text);
       }
-      .card {
+      .panel {
         background: var(--card);
         border: 1px solid var(--border);
         border-radius: 12px;
         overflow: hidden;
         margin-bottom: 1.5rem;
+        box-shadow: 0 1px 0 rgba(26, 29, 36, 0.04);
       }
       table {
         width: 100%;
@@ -80,14 +141,23 @@
       }
       th,
       td {
-        padding: 0.65rem 0.85rem;
+        padding: 0.7rem 0.9rem;
         text-align: left;
         border-bottom: 1px solid var(--border);
         vertical-align: top;
       }
       th {
-        background: rgba(0, 0, 0, 0.03);
+        background: rgba(26, 29, 36, 0.03);
         font-weight: 600;
+        font-size: 0.78rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      @media (prefers-color-scheme: dark) {
+        th {
+          background: rgba(255, 255, 255, 0.03);
+        }
       }
       tr:last-child td {
         border-bottom: none;
@@ -102,48 +172,102 @@
       }
       a.btn {
         display: inline-block;
-        padding: 0.35rem 0.65rem;
-        border-radius: 6px;
+        padding: 0.4rem 0.75rem;
+        border-radius: 7px;
         background: var(--accent);
         color: #fff !important;
         text-decoration: none;
-        font-weight: 550;
+        font-weight: 600;
         font-size: 0.82rem;
       }
       a.btn:hover {
-        filter: brightness(1.08);
+        background: var(--accent-hover);
       }
       .muted {
         color: var(--muted);
-        font-size: 0.82rem;
+        font-size: 0.85rem;
       }
       .err {
-        color: #b42318;
+        color: var(--danger);
         padding: 1rem;
+        font-size: 0.9rem;
+      }
+      .links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem 1.25rem;
+        margin: 0 0 1.75rem;
+        font-size: 0.92rem;
+      }
+      .links a {
+        color: var(--accent);
+        text-decoration: none;
+        font-weight: 500;
+      }
+      .links a:hover {
+        text-decoration: underline;
       }
       footer {
         font-size: 0.8rem;
         color: var(--muted);
+        border-top: 1px solid var(--border);
+        padding-top: 1.25rem;
+      }
+      footer a {
+        color: var(--accent);
       }
       code {
         font-size: 0.85em;
-        background: rgba(0, 0, 0, 0.06);
+        background: rgba(26, 29, 36, 0.06);
         padding: 0.1em 0.35em;
         border-radius: 4px;
+      }
+      @media (prefers-color-scheme: dark) {
+        code {
+          background: rgba(255, 255, 255, 0.08);
+        }
+      }
+      @media (max-width: 640px) {
+        table {
+          font-size: 0.8rem;
+        }
+        th:nth-child(2),
+        td:nth-child(2) {
+          display: none;
+        }
       }
     </style>
   </head>
   <body>
     <div class="wrap">
-      <h1>LawMind 桌面版下载</h1>
+      <header class="brand" aria-label="LawMind">
+        <span class="brand-mark">LawMind</span>
+        <span class="brand-tag">律师本机工作台</span>
+      </header>
+
+      <h1>下载桌面版</h1>
       <p class="sub">
-        根据当前浏览器环境推测系统与架构，并高亮<strong>最可能适用</strong>的安装包；您仍可手动选择其他格式（如安装版 / 绿色版 / 压缩包）。
+        按当前环境推荐安装包。材料与审计留在本机；安装后即可走审查 → 改稿 → 签批 → 导出。
       </p>
+
+      <nav class="links" aria-label="相关说明">
+        <a href="https://docs.lawmind.ai/LAWMIND-USER-MANUAL">使用手册</a>
+        <a href="https://docs.lawmind.ai/LAWMIND-DATA-PROCESSING">数据处理</a>
+        <a href="https://docs.lawmind.ai/LAWMIND-DELIVERY">客户交付</a>
+        <a
+          href="https://github.com/lawmind/lawmind/blob/main/apps/lawmind-desktop/INSTALL.md"
+          rel="noopener"
+          target="_blank"
+          >安装说明</a
+        >
+      </nav>
+
       <div class="banner" id="detect-banner" hidden>
-        检测到您可能正在使用：<strong id="detect-label">—</strong>。若列表中「推荐」行与您电脑不符，请以系统信息为准或联系技术支持。
+        检测到：<strong id="detect-label">—</strong>。若与本机不符，请改选对应系统的安装包。
       </div>
-      <div class="card">
-        <div id="status" class="muted" style="padding: 0.75rem 1rem">正在读取发布信息…</div>
+
+      <div class="panel" role="region" aria-label="安装包列表">
+        <div id="status" class="muted" style="padding: 0.85rem 1rem">正在读取发布信息…</div>
         <div id="table-wrap" hidden>
           <table>
             <thead>
@@ -159,12 +283,16 @@
         </div>
         <div id="error" class="err" hidden></div>
       </div>
+
       <footer>
         <p>
-          详细安装步骤见仓库内
-          <a href="https://github.com/lawmind/lawmind/blob/main/apps/lawmind-desktop/INSTALL.md" target="_blank" rel="noopener">INSTALL.md</a
-          >。私有构建可将本页托管到企业内网，并用 <code>?repo=组织名/仓库名</code> 指向您的 GitHub Release。
+          正式域名：
+          <a href="https://docs.lawmind.ai/download/">docs.lawmind.ai/download</a>
+          。企业私有构建可用
+          <code>?repo=组织/仓库</code>
+          指向自有 GitHub Release；亦可将本页托管到内网。
         </p>
+        <p>输出须经执业律师审阅后方可对外。LawMind 不构成法律意见。</p>
       </footer>
     </div>
     <script>
@@ -182,7 +310,8 @@
 
         function detectClient() {
           var ua = navigator.userAgent || "";
-          var platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+          var platform =
+            (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
           var os = "unknown";
           var arch = "x64";
           if (/Win/i.test(platform) || /Windows/i.test(ua)) os = "win";
@@ -221,8 +350,16 @@
             return row;
           }
           if (lower.endsWith(".zip")) {
-            row.kind = lower.indexOf("win") >= 0 || lower.indexOf("windows") >= 0 ? "Windows 压缩包（解压运行）" : "压缩包（请看清 mac / win）";
-            row.os = lower.indexOf("win") >= 0 ? "win" : lower.indexOf("mac") >= 0 || lower.indexOf("darwin") >= 0 ? "mac" : null;
+            row.kind =
+              lower.indexOf("win") >= 0 || lower.indexOf("windows") >= 0
+                ? "Windows 压缩包（解压运行）"
+                : "压缩包（请看清 mac / win）";
+            row.os =
+              lower.indexOf("win") >= 0
+                ? "win"
+                : lower.indexOf("mac") >= 0 || lower.indexOf("darwin") >= 0
+                  ? "mac"
+                  : null;
             row.sort = row.os === "win" ? 22 : row.os === "mac" ? 11 : 30;
             return row;
           }
@@ -244,7 +381,11 @@
         function archFromName(name) {
           var lower = name.toLowerCase();
           if (lower.indexOf("arm64") >= 0 || lower.indexOf("aarch64") >= 0) return "arm64";
-          if (lower.indexOf("x64") >= 0 || lower.indexOf("x86_64") >= 0 || lower.indexOf("win32-x64") >= 0)
+          if (
+            lower.indexOf("x64") >= 0 ||
+            lower.indexOf("x86_64") >= 0 ||
+            lower.indexOf("win32-x64") >= 0
+          )
             return "x64";
           return null;
         }
@@ -274,7 +415,7 @@
           })
           .then(function (data) {
             document.getElementById("status").textContent =
-              "最新版本标签：" + (data.tag_name || "—") + "（仓库 " + repo + "）";
+              "最新版本：" + (data.tag_name || "—") + "（" + repo + "）";
             var assets = Array.isArray(data.assets) ? data.assets : [];
             var rows = [];
             for (var i = 0; i < assets.length; i++) {
@@ -291,7 +432,7 @@
             if (rows.length === 0) {
               document.getElementById("error").hidden = false;
               document.getElementById("error").textContent =
-                "未在最新 Release 中找到 LawMind 相关安装包。请确认已上传构建产物或使用正确的 repo 参数。";
+                "最新 Release 中未找到 LawMind 安装包。请确认已上传构建产物，或检查 ?repo= 参数。";
               return;
             }
             var bestIdx = -1;
@@ -337,7 +478,7 @@
             err.textContent =
               "无法加载发布信息（" +
               (e && e.message ? e.message : String(e)) +
-              "）。若为私有仓库，请使用可访问 Release 的下载渠道，或将本页与 JSON 镜像至内网。";
+              "）。私有仓库请使用可访问的分发渠道，或将本页与镜像托管至内网。";
           });
       })();
     </script>

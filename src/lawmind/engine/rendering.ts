@@ -5,6 +5,8 @@
  *   1. acceptance gate（章节/占位符/规范结构）— 已存在
  *   2. reasoning gate（IRAC 推理图谱）— W9 新增
  * 任一 blocker 未通过，render 拒绝并返回 reasoningReport 信息。
+ *
+ * citationGateStrict（Firm/Private）：有 research 快照时，缺失来源 ID 或长段未锚定引用禁止 render。
  */
 
 import { transitionDeliverable } from "../application/services/deliverable-service.js";
@@ -17,31 +19,53 @@ import {
   validateReasoningForDraft,
   type ReasoningReport,
 } from "../deliverables/index.js";
-import { persistDraft, readReasoningSnapshot } from "../drafts/index.js";
+import { formatCitationGateCoach } from "../drafts/citation-craft.js";
+import {
+  persistDraft,
+  readReasoningSnapshot,
+  readResearchSnapshot,
+  resolveDraftCitationIntegrity,
+  type DraftCitationIntegrityView,
+} from "../drafts/index.js";
 import { appendCaseArtifact, appendCaseProgress, appendTodayLog } from "../memory/index.js";
+import { citationModeBlocksRender, type CitationMode } from "../policy/citation-mode.js";
 import { isFeatureEnabled } from "../policy/edition.js";
 import { syncDraftToTaskRecord, updateTaskRecord } from "../tasks/index.js";
 import { resolveTemplateForDraft, templateResolvedPin } from "../templates/index.js";
 import type { ArtifactDraft } from "../types.js";
 import type { EngineContext } from "./context.js";
 
+function citationGateBlocksRender(view: DraftCitationIntegrityView): boolean {
+  if (!view.checked) {
+    return false;
+  }
+  return !view.ok || view.unanchoredSections.length > 0;
+}
+
 export async function renderDraft(
   ctx: EngineContext,
   draft: ArtifactDraft,
-  opts?: { templateIdOverride?: string; strictGates?: boolean },
+  opts?: {
+    templateIdOverride?: string;
+    strictGates?: boolean;
+    citationGateStrict?: boolean;
+    /** Skills E4 — when set, takes precedence over edition citationGateStrict alone */
+    citationMode?: CitationMode;
+  },
 ): Promise<{
   ok: boolean;
   outputPath?: string;
   error?: string;
   acceptanceReport?: ReturnType<typeof validateDraftAgainstSpec>;
   reasoningReport?: ReasoningReport;
+  citationIntegrity?: DraftCitationIntegrityView;
 }> {
   const { workspaceDir, outputDir, auditDir } = ctx;
 
-  if (draft.reviewStatus !== "approved") {
+  if (draft.reviewStatus === "rejected") {
     return {
       ok: false,
-      error: `文书未通过审核（${draft.reviewStatus}），请律师先确认草稿。`,
+      error: `文书已驳回（${draft.reviewStatus}），不能渲染。`,
     };
   }
 
@@ -68,6 +92,63 @@ export async function renderDraft(
     }
   }
 
+  const citationMode = opts?.citationMode;
+  const citationStrict = opts?.citationGateStrict ?? isFeatureEnabled("citationGateStrict");
+  const citationIntegrity = resolveDraftCitationIntegrity(workspaceDir, draft);
+  // Skills E3/E4 — high-risk grounded: matter theory must be anchored.
+  if (citationMode === "grounded" && draft.matterId) {
+    const { matterTheoryBlocksStrictExport } = await import("../matter-ops/index.js");
+    const highRisk =
+      draft.deliverableType?.startsWith("contract.") ||
+      draft.deliverableType === "letter.demand" ||
+      draft.deliverableType === "letter.counsel" ||
+      draft.deliverableType === "letter.reply" ||
+      draft.deliverableType?.startsWith("litigation.");
+    if (
+      highRisk &&
+      matterTheoryBlocksStrictExport(workspaceDir, draft.matterId, { requireAnchor: true })
+    ) {
+      await emit(auditDir, {
+        taskId: draft.taskId,
+        kind: "artifact.render_blocked",
+        actor: "system",
+        detail: "theory_anchor_missing",
+      });
+      return {
+        ok: false,
+        error: "严格导出被拦截：案件理论未锚定（争点/依据）。请在案件「理论」补齐并勾选已锚定。",
+        citationIntegrity,
+      };
+    }
+  }
+  const blockedByMode =
+    citationMode != null
+      ? citationModeBlocksRender(citationMode, citationIntegrity)
+      : citationStrict && citationGateBlocksRender(citationIntegrity);
+  if (blockedByMode) {
+    const missing =
+      citationIntegrity.checked && !citationIntegrity.ok
+        ? citationIntegrity.missingSourceIds.length
+        : 0;
+    const unanchored = citationIntegrity.checked ? citationIntegrity.unanchoredSections.length : 0;
+    await emit(auditDir, {
+      taskId: draft.taskId,
+      kind: "artifact.render_blocked",
+      actor: "system",
+      detail: `citationMode=${citationMode ?? "edition_strict"}: missingSourceIds=${missing}; unanchoredSections=${unanchored}`,
+    });
+    return {
+      ok: false,
+      error: [
+        citationMode === "grounded"
+          ? "严格援引模式：无检索快照、缺失来源或长段未锚定时不可导出 Word。对话中仍可继续展示/修改草稿正文；请补齐引用锚定，或将 citationMode 改为 assisted 后再 render_document。"
+          : "引用完整性门禁仅拦截正式 Word 导出（缺失来源 ID 或长段未锚定）。对话中的草稿正文仍可继续完善；请在文书台核对 Citation Banner 后补锚再导出。",
+        formatCitationGateCoach(`missingSourceIds=${missing}; unanchoredSections=${unanchored}`),
+      ].join("\n"),
+      citationIntegrity,
+    };
+  }
+
   const override = opts?.templateIdOverride?.trim();
   const effectiveDraft =
     override !== undefined && override.length > 0 ? { ...draft, templateId: override } : draft;
@@ -79,16 +160,19 @@ export async function renderDraft(
   const templatePin = templateResolvedPin(templateResolution);
   draft.templateVersion = templatePin;
 
+  const researchSources = readResearchSnapshot(workspaceDir, draft.taskId)?.sources;
   const result =
     draft.output === "pptx"
       ? await renderPptxWithOptions(draft, outputDir, {
           templateVariant: templateResolution.variant,
           uploadedTemplate: templateResolution.uploaded,
+          sources: researchSources,
         })
       : draft.output === "docx"
         ? await renderDocxWithOptions(draft, outputDir, {
             templateVariant: templateResolution.variant,
             uploadedTemplate: templateResolution.uploaded,
+            sources: researchSources,
           })
         : {
             ok: false,

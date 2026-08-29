@@ -2,7 +2,11 @@
  * Model reasoning tests (fetch mocked).
  */
 
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { setDraftWithModelEnabled } from "../models/custom-store.js";
 import type { ResearchBundle, TaskIntent } from "../types.js";
 import { buildDraftAsync } from "./index.js";
 
@@ -82,5 +86,64 @@ describe("buildDraftAsync model reasoning", () => {
     expect(draft.sections.some((s) => s.heading === "一、结论")).toBe(true);
     expect(draft.sections.some((s) => s.heading === "主要风险提示")).toBe(true);
     expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("uses store preference via lawMindRoot without LAWMIND_REASONING_MODE", async () => {
+    const lawMindRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-draft-async-"));
+    try {
+      setDraftWithModelEnabled(lawMindRoot, true);
+      delete process.env.LAWMIND_REASONING_MODE;
+      process.env.LAWMIND_AGENT_BASE_URL = "https://example.com/v1";
+      process.env.LAWMIND_AGENT_API_KEY = "sk-test";
+      process.env.LAWMIND_AGENT_MODEL = "qwen-plus";
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => ({
+          ok: true,
+          json: async () => ({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    title: "偏好开启标题",
+                    sections: [{ heading: "一、分析", body: "模型扩写正文。", citations: ["s1"] }],
+                  }),
+                },
+              },
+            ],
+          }),
+        })),
+      );
+
+      const draft = await buildDraftAsync({
+        intent: minimalIntent(),
+        bundle: minimalBundle(),
+        lawMindRoot,
+      });
+      expect(draft.title).toBe("偏好开启标题");
+      expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      fs.rmSync(lawMindRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("labels keyword fallback when the model call fails", async () => {
+    process.env.LAWMIND_REASONING_MODE = "model";
+    process.env.LAWMIND_AGENT_BASE_URL = "https://example.com/v1";
+    process.env.LAWMIND_AGENT_API_KEY = "sk-test";
+    process.env.LAWMIND_AGENT_MODEL = "qwen-plus";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 402,
+        json: async () => ({ error: { code: "Arrearage" } }),
+      })),
+    );
+    const { MODEL_DRAFT_FALLBACK_NOTE } = await import("./model-draft.js");
+    const draft = await buildDraftAsync({ intent: minimalIntent(), bundle: minimalBundle() });
+    expect(draft.reviewNotes).toContain(MODEL_DRAFT_FALLBACK_NOTE);
+    expect(draft.sections.some((s) => s.heading === "审查结论")).toBe(true);
   });
 });

@@ -1,4 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+function fetchCallUrl(input: unknown): string {
+  if (typeof input === "string") {
+    return input;
+  }
+  if (input instanceof URL) {
+    return input.href;
+  }
+  if (input && typeof input === "object" && "url" in input && typeof input.url === "string") {
+    return input.url;
+  }
+  return "";
+}
 import { LAWMIND_INCLUDE_TURN_DIAGNOSTICS_KEY } from "./lawmind-chat-diagnostics-pref.ts";
 import {
   appendChatMessage,
@@ -159,6 +172,57 @@ describe("lawmind-chat", () => {
       { role: "assistant", text: "ok" },
     ]);
     expect(dropTrailingUserMessageIfText(before, "a", "wrong")).toBe(before);
+  });
+
+  it("sendChatTurn retries once after loopback 401 with a fresh Electron token", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: false, error: "unauthorized", code: "invalid_api_token" }), {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true, reply: "已续上" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("window", {
+      lawmindDesktop: {
+        getConfig: async () => ({
+          apiBase: "http://127.0.0.1:59999",
+          apiAuthToken: "fresh-token",
+          workspaceDir: "/tmp/ws",
+          projectDir: null,
+          envFilePath: "",
+          retrievalMode: "single",
+        }),
+      },
+      dispatchEvent: () => true,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      localStorage: {
+        setItem: () => undefined,
+        removeItem: () => undefined,
+        getItem: () => null,
+      },
+    });
+
+    await expect(
+      sendChatTurn({
+        apiBase: "http://127.0.0.1:1234",
+        message: "续上",
+        assistantId: "a",
+        allowWebSearch: false,
+      }),
+    ).resolves.toMatchObject({
+      assistantMessage: { text: "已续上" },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchCallUrl(fetchMock.mock.calls[1]?.[0])).toContain("http://127.0.0.1:59999/api/chat");
+    vi.unstubAllGlobals();
   });
 
   it("sendChatTurn forwards AbortSignal to fetch", async () => {
@@ -357,6 +421,18 @@ describe("lawmind-chat", () => {
           },
         ]),
       ).toEqual({ pending: true, count: 1, assistantMessageIndex: idx });
+    });
+
+    it("is pending when executionState awaits clarification", () => {
+      expect(
+        getPendingClarificationState([
+          {
+            role: "assistant",
+            text: "a",
+            executionState: { phase: "clarify", status: "awaiting_clarification", recoverable: true },
+          },
+        ]),
+      ).toEqual({ pending: true, count: 0, assistantMessageIndex: 0 });
     });
 
     it("is pending on awaiting_clarification without structured questions", () => {

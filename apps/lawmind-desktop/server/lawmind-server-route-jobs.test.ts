@@ -49,6 +49,14 @@ function stubConfig(workspaceDir: string): AgentConfig {
   };
 }
 
+function rmTmpWorkspaceQuietly(dir: string): void {
+  try {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 20 });
+  } catch {
+    // ignore
+  }
+}
+
 function minimalWorkflow(): CollaborationWorkflow {
   const now = new Date().toISOString();
   return {
@@ -136,10 +144,17 @@ describe("lawmind-server-route-jobs", () => {
     expect(capture.status).toBe(200);
     const payload = capture.json();
     expect(payload.ok).toBe(true);
-    const job = payload.job as { status: string; result?: { report: string } };
+    const job = payload.job as {
+      status: string;
+      result?: { report: string };
+      executionState?: { phase: string; status: string };
+      gateDecisions?: unknown[];
+    };
     expect(job.status).toBe("completed");
     expect(job.result?.report).toBeTruthy();
-    fs.rmSync(ws, { recursive: true, force: true });
+    expect(job.executionState).toMatchObject({ phase: "complete", status: "completed" });
+    expect(Array.isArray(job.gateDecisions)).toBe(true);
+    rmTmpWorkspaceQuietly(ws);
   });
 
   it("GET /api/jobs/:id/stream sends SSE and closes for terminal job", async () => {
@@ -189,7 +204,7 @@ describe("lawmind-server-route-jobs", () => {
     expect(written[0]).toContain("data:");
     expect(written[0]).toContain(jobId);
     expect(written.some((w) => w === "__END__")).toBe(true);
-    fs.rmSync(ws, { recursive: true, force: true });
+    rmTmpWorkspaceQuietly(ws);
   });
 
   it("GET /api/jobs/:id/stream 404 when workspaceDir does not match", async () => {
@@ -216,7 +231,7 @@ describe("lawmind-server-route-jobs", () => {
     });
     expect(handled).toBe(true);
     expect(capture.status).toBe(404);
-    fs.rmSync(ws, { recursive: true, force: true });
+    rmTmpWorkspaceQuietly(ws);
   });
 
   it("GET /api/jobs filters by status and workspaceDir", async () => {
@@ -250,7 +265,7 @@ describe("lawmind-server-route-jobs", () => {
     const rows = payload.jobs as Array<{ status: string }>;
     expect(rows.every((j) => j.status === "completed")).toBe(true);
     expect(rows.length).toBe(1);
-    fs.rmSync(ws, { recursive: true, force: true });
+    rmTmpWorkspaceQuietly(ws);
   });
 
   it("POST /api/jobs/:id/cancel returns 200 then 409", () => {
@@ -288,7 +303,46 @@ describe("lawmind-server-route-jobs", () => {
     });
     expect(handled2).toBe(true);
     expect(cap2.status).toBe(409);
-    fs.rmSync(ws, { recursive: true, force: true });
+    rmTmpWorkspaceQuietly(ws);
+  });
+
+  it("GET /api/jobs/:id and cancel 404 when workspaceDir does not match", () => {
+    const ws = tmpWorkspace();
+    const jobId = enqueueWorkflowRun(stubConfig(ws), minimalWorkflow(), {
+      run: async () => new Promise(() => {}),
+    });
+    const otherCtx: LawmindDispatchContext = {
+      workspaceDir: path.join(os.tmpdir(), "other-ws-not-real"),
+      envFile: undefined,
+      userEnvPath: path.join(os.tmpdir(), "x.env"),
+      policy: { loaded: false },
+    };
+    const getCap = createResponseCapture();
+    expect(
+      handleJobRoutes({
+        ctx: otherCtx,
+        req: { method: "GET" } as http.IncomingMessage,
+        res: getCap.res,
+        url: new URL(`http://127.0.0.1/api/jobs/${jobId}`),
+        pathname: `/api/jobs/${jobId}`,
+        c: {},
+      }),
+    ).toBe(true);
+    expect(getCap.status).toBe(404);
+
+    const cancelCap = createResponseCapture();
+    expect(
+      handleJobRoutes({
+        ctx: otherCtx,
+        req: { method: "POST" } as http.IncomingMessage,
+        res: cancelCap.res,
+        url: new URL(`http://127.0.0.1/api/jobs/${jobId}/cancel`),
+        pathname: `/api/jobs/${jobId}/cancel`,
+        c: {},
+      }),
+    ).toBe(true);
+    expect(cancelCap.status).toBe(404);
+    rmTmpWorkspaceQuietly(ws);
   });
 
   it("returns false for unrelated path", () => {

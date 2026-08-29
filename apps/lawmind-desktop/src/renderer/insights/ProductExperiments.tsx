@@ -9,6 +9,8 @@ import type { ProductExperimentItem } from "../../../../../src/lawmind/insights/
 
 type Props = {
   items: ProductExperimentItem[];
+  onAction?: (item: ProductExperimentItem) => void;
+  actionLabelForItem?: (item: ProductExperimentItem) => string;
 };
 
 const PRIORITY_BADGE: Record<ProductExperimentItem["priority"], string> = {
@@ -17,11 +19,11 @@ const PRIORITY_BADGE: Record<ProductExperimentItem["priority"], string> = {
   low: "lm-badge",
 };
 
-export function ProductExperiments({ items }: Props): ReactNode {
+export function ProductExperiments({ items, onAction, actionLabelForItem }: Props): ReactNode {
   if (items.length === 0) {
     return (
       <div className="lm-callout lm-callout-muted">
-        当前信号不足以推导产品实验候选；持续使用即可形成积累。
+        暂无实验。
       </div>
     );
   }
@@ -36,6 +38,13 @@ export function ProductExperiments({ items }: Props): ReactNode {
           <div className="lm-meta">假设：{it.hypothesis}</div>
           <div className="lm-meta">验证：{it.validation}</div>
           <div className="lm-meta">信号：{it.signal}</div>
+          {onAction ? (
+            <div className="lm-matter-ops-actions lm-matter-convergence-actions" style={{ marginTop: 6 }}>
+              <button type="button" className="lm-btn lm-btn-secondary lm-btn-small" onClick={() => onAction(it)}>
+                {actionLabelForItem?.(it) ?? "打开对应入口"}
+              </button>
+            </div>
+          ) : null}
         </div>
       ))}
     </div>
@@ -43,7 +52,11 @@ export function ProductExperiments({ items }: Props): ReactNode {
 }
 
 function labelForPriority(p: ProductExperimentItem["priority"]): string {
-  if (p === "high") {return "高优";}
-  if (p === "medium") {return "中优";}
+  if (p === "high") {
+    return "高优";
+  }
+  if (p === "medium") {
+    return "中优";
+  }
   return "观察";
 }

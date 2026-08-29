@@ -10,6 +10,18 @@ describe("lawmind-assistant-editor", () => {
     vi.restoreAllMocks();
   });
 
+  it("prefills create draft from practice-area presetKey", () => {
+    const draft = createAssistantDraft(
+      "create",
+      [{ id: "contract_review", displayName: "合同审查", promptSection: "审查要点" }],
+      undefined,
+      { presetKey: "contract_review" },
+    );
+    expect(draft.presetKey).toBe("contract_review");
+    expect(draft.displayName).toBe("合同审查");
+    expect(draft.customRoleTitle).toBe("合同审查");
+  });
+
   it("builds edit draft from an existing assistant", () => {
     expect(
       createAssistantDraft("edit", [], {

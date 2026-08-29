@@ -1,0 +1,21 @@
+{
+  "id": "demand-letter",
+  "name": "律师函起草",
+  "namedAgent": "Demand Letter Drafter",
+  "description": "根据事实与诉求生成结构化律师函草稿，含待补充项清单。",
+  "practiceArea": "litigation",
+  "deliverableType": "letter.demand",
+  "riskLevel": "high",
+  "audience": "solo",
+  "starterPrompt": "请为本案起草律师函：先列出需律师确认的事实与诉求，再生成完整正文框架。",
+  "acceptancePackRequired": true,
+  "steps": [
+    {
+      "stepId": "draft",
+      "assignee": "litigation_drafter",
+      "task": "起草律师函（matterId={{matterId}}），交付类型 letter.demand",
+      "dependsOn": [],
+      "autoApprove": false
+    }
+  ]
+}

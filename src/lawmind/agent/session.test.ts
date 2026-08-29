@@ -3,15 +3,19 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   AUTO_CHAT_TITLE_MAX_LENGTH,
+  clearSessionPlanHandoff,
   createSession,
   DEFAULT_CHAT_SESSION_TITLE,
   deleteSession,
   deriveAutoChatTitleFromFirstUserMessage,
+  deriveModelMessages,
   displayChatSessionTitle,
   extractFirstSentenceFromUserMessageParagraph,
+  loadSession,
   maybeUpdateSessionTitleFromInstruction,
   renameSession,
   sessionHistoryToSimpleMessages,
+  setSessionPlanHandoff,
 } from "./session.js";
 import type { AgentSession } from "./types.js";
 
@@ -27,6 +31,9 @@ describe("session title and history helpers", () => {
     const s = createSession({ workspaceDir: ws, actorId: "a" });
     expect(s.title).toBe(DEFAULT_CHAT_SESSION_TITLE);
     expect(displayChatSessionTitle(s)).toBe("New Chat");
+    const file = path.join(ws, "sessions", `${s.sessionId}.json`);
+    expect(JSON.parse(fs.readFileSync(file, "utf8")).sessionId).toBe(s.sessionId);
+    expect(fs.readdirSync(path.join(ws, "sessions")).some((n) => n.includes(".tmp-"))).toBe(false);
   });
 
   it("displayChatSessionTitle falls back for legacy sessions", () => {
@@ -66,14 +73,24 @@ describe("session title and history helpers", () => {
     expect(s.title).toBe("真正的问题在这里展开");
   });
 
-  it("deleteSession removes json and turns files", () => {
+  it("deleteSession removes json, turns, and transcript files", () => {
     const ws = tmpDir();
     const s = createSession({ workspaceDir: ws, actorId: "a" });
     const turns = path.join(ws, "sessions", `${s.sessionId}.turns.jsonl`);
+    const transcript = path.join(ws, "sessions", `${s.sessionId}.transcript.jsonl`);
     fs.writeFileSync(turns, "{}\n", "utf8");
+    fs.writeFileSync(transcript, "{}\n", "utf8");
+    const steer = path.join(ws, "sessions", `${s.sessionId}.pending-steer.json`);
+    const spills = path.join(ws, "sessions", `${s.sessionId}.spills`);
+    fs.writeFileSync(steer, "{}\n", "utf8");
+    fs.mkdirSync(spills, { recursive: true });
+    fs.writeFileSync(path.join(spills, "c1.json"), "{}\n", "utf8");
     expect(deleteSession(ws, s.sessionId)).toBe(true);
     expect(fs.existsSync(path.join(ws, "sessions", `${s.sessionId}.json`))).toBe(false);
     expect(fs.existsSync(turns)).toBe(false);
+    expect(fs.existsSync(transcript)).toBe(false);
+    expect(fs.existsSync(steer)).toBe(false);
+    expect(fs.existsSync(spills)).toBe(false);
     expect(deleteSession(ws, "00000000-0000-4000-8000-000000000000")).toBe(false);
   });
 
@@ -86,6 +103,20 @@ describe("session title and history helpers", () => {
       fs.readFileSync(path.join(ws, "sessions", `${s.sessionId}.json`), "utf8"),
     ) as AgentSession;
     expect(loaded.title).toBe("My matter");
+  });
+
+  it("setSessionPlanHandoff / clearSessionPlanHandoff persist on session.json", () => {
+    const ws = tmpDir();
+    const s = createSession({ workspaceDir: ws, actorId: "a" });
+    const withPlan = setSessionPlanHandoff(ws, s.sessionId, "执行计划：\n1. 检索");
+    expect(withPlan?.planHandoff?.planText).toContain("检索");
+    const loaded = JSON.parse(
+      fs.readFileSync(path.join(ws, "sessions", `${s.sessionId}.json`), "utf8"),
+    ) as AgentSession;
+    expect(loaded.planHandoff?.planText).toContain("检索");
+    clearSessionPlanHandoff(ws, s.sessionId);
+    const cleared = loadSession(ws, s.sessionId);
+    expect(cleared?.planHandoff).toBeUndefined();
   });
 
   it("sessionHistoryToSimpleMessages maps user and assistant only", () => {
@@ -101,5 +132,96 @@ describe("session title and history helpers", () => {
       { role: "user", text: "hi" },
       { role: "assistant", text: "yo" },
     ]);
+  });
+
+  it("sessionHistoryToSimpleMessages includes persisted liveTrace", () => {
+    const ws = tmpDir();
+    const s = createSession({ workspaceDir: ws, actorId: "a" });
+    s.conversationHistory.push(
+      { role: "user", content: "task", timestamp: new Date().toISOString() },
+      {
+        role: "assistant",
+        content: "done",
+        timestamp: new Date().toISOString(),
+        liveTrace: {
+          currentRound: 1,
+          steps: [{ id: "t1", kind: "tool", label: "执行工作流", status: "done" }],
+        },
+      },
+    );
+    const rows = sessionHistoryToSimpleMessages(s);
+    expect(rows[1]?.liveTrace?.active).toBe(false);
+    expect(rows[1]?.liveTrace?.steps[0]?.label).toBe("执行工作流");
+  });
+
+  it("sessionHistoryToSimpleMessages attaches pendingRequiresAction to last assistant", () => {
+    const ws = tmpDir();
+    const s = createSession({ workspaceDir: ws, actorId: "a" });
+    s.conversationHistory.push(
+      { role: "user", content: "go", timestamp: new Date().toISOString() },
+      { role: "assistant", content: "wait", timestamp: new Date().toISOString() },
+    );
+    s.pendingRequiresAction = [
+      {
+        id: "ra-1",
+        kind: "tool_approval",
+        threadId: "t1",
+        title: "approve",
+        summary: "s",
+        toolName: "execute_workflow",
+        toolArgs: {},
+        decisions: ["approve", "reject"],
+        createdAt: new Date().toISOString(),
+      },
+    ];
+    const rows = sessionHistoryToSimpleMessages(s);
+    expect(rows[1]?.requiresAction?.[0]?.id).toBe("ra-1");
+  });
+
+  it("sessionHistoryToSimpleMessages keeps trace-only assistant rows", () => {
+    const ws = tmpDir();
+    const s = createSession({ workspaceDir: ws, actorId: "a" });
+    s.conversationHistory.push(
+      { role: "user", content: "task", timestamp: new Date().toISOString() },
+      {
+        role: "assistant",
+        content: "",
+        timestamp: new Date().toISOString(),
+        liveTrace: {
+          currentRound: 1,
+          steps: [{ id: "t1", kind: "tool", label: "写回草稿", status: "running" }],
+        },
+      },
+    );
+    const rows = sessionHistoryToSimpleMessages(s);
+    expect(rows).toHaveLength(2);
+    expect(rows[1]?.text).toBe("");
+    expect(rows[1]?.liveTrace?.steps[0]?.label).toBe("写回草稿");
+  });
+
+  it("deriveModelMessages is the session→LLM projection", () => {
+    const ws = tmpDir();
+    const s = createSession({ workspaceDir: ws, actorId: "a" });
+    s.conversationHistory.push(
+      { role: "system", content: "rules", timestamp: "t0" },
+      { role: "user", content: "审合同", timestamp: "t1" },
+      {
+        role: "assistant",
+        content: "",
+        timestamp: "t2",
+        toolCalls: [{ id: "c1", name: "analyze_document", arguments: { path: "a.docx" } }],
+      },
+      {
+        role: "tool",
+        content: "",
+        timestamp: "t3",
+        toolCallResponses: [{ toolCallId: "c1", name: "analyze_document", result: { ok: true } }],
+      },
+    );
+    const derived = deriveModelMessages(s);
+    expect(derived.map((m) => m.role)).toEqual(["system", "user", "assistant", "tool"]);
+    expect(derived[2]?.tool_calls?.[0]?.function.name).toBe("analyze_document");
+    expect(derived[3]?.tool_call_id).toBe("c1");
+    expect(derived[3]?.content).toBe(JSON.stringify({ ok: true }));
   });
 });

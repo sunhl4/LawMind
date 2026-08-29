@@ -4,7 +4,8 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
-import { caseFilePath, ensureCaseWorkspace, upsertMatterDisplayName } from "../memory/index.js";
+import { ensureMatterWithProjection } from "../application/matter-dual-write.js";
+import { caseFilePath } from "../memory/index.js";
 import { isValidMatterId } from "./matter-id.js";
 
 export type CreateMatterResult = {
@@ -20,7 +21,12 @@ export type CreateMatterResult = {
 export async function createMatterIfAbsent(
   workspaceDir: string,
   matterId: string,
-  opts?: { displayName?: string },
+  opts?: {
+    displayName?: string;
+    clientId?: string;
+    sensitivity?: "normal" | "high" | "restricted";
+    status?: "intake" | "active";
+  },
 ): Promise<CreateMatterResult> {
   const id = matterId.trim();
   if (!isValidMatterId(id)) {
@@ -31,11 +37,14 @@ export async function createMatterIfAbsent(
     .access(fp)
     .then(() => true)
     .catch(() => false);
-  await ensureCaseWorkspace(workspaceDir, id);
   const dn = opts?.displayName?.trim();
-  if (dn) {
-    await upsertMatterDisplayName(workspaceDir, id, dn);
-  }
+  await ensureMatterWithProjection(workspaceDir, {
+    matterId: id,
+    ...(dn ? { title: dn } : {}),
+    ...(opts?.clientId?.trim() ? { clientId: opts.clientId.trim() } : {}),
+    ...(opts?.sensitivity ? { sensitivity: opts.sensitivity } : {}),
+    ...(opts?.status ? { status: opts.status } : {}),
+  });
   return {
     matterId: id,
     caseFilePath: path.resolve(fp),

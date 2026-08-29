@@ -1,15 +1,16 @@
-# Manual only: Playwright smoke for LawMind renderer + mock API (no Electron).
-# Requires Chromium download; not run on every PR to avoid CI noise/flake.
+# Playwright smoke (mock API + Vite) and weekly Electron golden path.
 name: LawMind desktop E2E
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
 
 permissions:
   contents: read
 
 jobs:
-  lawmind-desktop-e2e:
+  lawmind-desktop-e2e-mock:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -31,5 +32,36 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm --filter lawmind-desktop exec playwright install chromium --with-deps
 
-      - name: E2E smoke
+      - name: E2E smoke (mock API)
         run: pnpm lawmind:desktop:e2e
+
+  lawmind-desktop-e2e-electron:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm --filter lawmind-desktop exec playwright install chromium --with-deps
+
+      - name: Bundle server and build renderer
+        run: pnpm lawmind:bundle:desktop-server && pnpm --filter lawmind-desktop build:renderer
+
+      - name: Electron golden path
+        uses: coactions/setup-xvfb@v1
+
+      - name: Run Electron E2E
+        run: pnpm --filter lawmind-desktop test:e2e:electron

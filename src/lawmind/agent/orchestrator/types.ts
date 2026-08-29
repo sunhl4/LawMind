@@ -51,6 +51,8 @@ export type CollaborationWorkflow = {
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
+  /** 模板级工具预批准（executor 仅放行白名单内工具）。 */
+  preApproveToolNames?: string[];
 };
 
 // ─────────────────────────────────────────────

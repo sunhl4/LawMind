@@ -10,6 +10,7 @@
  *   - 与 acceptance gate 不重复：reasoning 关注"思考过程"，acceptance 关注"成品结构"。
  */
 
+import { readReasoningSnapshot } from "../drafts/reasoning-snapshot.js";
 import type { ArtifactDraft, DeliverableType, LegalReasoningGraph } from "../types.js";
 import { getDeliverableSpec } from "./registry.js";
 import type {
@@ -26,6 +27,56 @@ export type ValidateReasoningOptions = {
   /** 显式指定 spec（不传时按 deliverableType / draft.deliverableType 查询） */
   spec?: DeliverableSpec;
 };
+
+/** P1-A：草稿阶段是否必须附带 LegalReasoningGraph 侧车。 */
+export function specRequiresReasoningGraphAtDraft(spec?: DeliverableSpec): boolean {
+  const gate = spec?.reasoningGate;
+  if (!gate) {
+    return false;
+  }
+  if (gate.requiresReasoningGraphAtDraft !== undefined) {
+    return gate.requiresReasoningGraphAtDraft;
+  }
+  return gate.required;
+}
+
+export type ReasoningGraphAtDraftReport = {
+  taskId: string;
+  deliverableType?: DeliverableType;
+  required: boolean;
+  ready: boolean;
+  hasSnapshot: boolean;
+  hint?: string;
+  generatedAt: string;
+};
+
+/**
+ * 校验草稿是否满足「草稿阶段必须写入 reasoning graph」要求。
+ * 与 render-time `validateReasoningAgainstSpec` 互补：此处只检查侧车是否存在。
+ */
+export function validateReasoningGraphAtDraft(
+  draft: ArtifactDraft,
+  workspaceDir: string,
+  opts?: ValidateReasoningOptions,
+): ReasoningGraphAtDraftReport {
+  const spec = opts?.spec ?? getDeliverableSpec(draft.deliverableType);
+  const required = specRequiresReasoningGraphAtDraft(spec);
+  const graph = readReasoningSnapshot(workspaceDir, draft.taskId);
+  const hasSnapshot = Boolean(graph) || draft.hasLegalReasoningSnapshot === true;
+
+  return {
+    taskId: draft.taskId,
+    deliverableType: draft.deliverableType ?? spec?.type,
+    required,
+    ready: !required || hasSnapshot,
+    hasSnapshot,
+    hint:
+      required && !hasSnapshot
+        ? "高风控交付物须在草稿阶段生成 LegalReasoningGraph 侧车（drafts/<taskId>.reasoning.json）。"
+        : undefined,
+    generatedAt: new Date().toISOString(),
+  };
+}
 
 /**
  * 校验推理图谱是否满足 spec.reasoningGate。

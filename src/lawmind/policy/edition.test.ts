@@ -13,7 +13,10 @@ describe("policy/edition", () => {
     expect(ctx.edition).toBe("solo");
     expect(ctx.source).toBe("default");
     expect(ctx.label).toBe(EDITION_LABELS.solo);
-    expect(ctx.features.acceptanceGateStrict).toBe(false);
+    expect(ctx.features.acceptanceGateStrict).toBe(true);
+    expect(ctx.features.citationGateStrict).toBe(true);
+    expect(ctx.features.auditIntegrityExport).toBe(true);
+    expect(ctx.features.acceptancePackExport).toBe(true);
     expect(ctx.features.strictDangerousToolApproval).toBe(false);
   });
 
@@ -22,6 +25,7 @@ describe("policy/edition", () => {
     expect(ctx.edition).toBe("firm");
     expect(ctx.source).toBe("env");
     expect(ctx.features.acceptanceGateStrict).toBe(true);
+    expect(ctx.features.citationGateStrict).toBe(true);
     expect(ctx.features.collaborationSummary).toBe(true);
     expect(ctx.features.strictDangerousToolApproval).toBe(true);
   });
@@ -48,7 +52,7 @@ describe("policy/edition", () => {
       isFeatureEnabled("acceptanceGateStrict", {
         policy: { schemaVersion: 1, edition: "solo" },
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       isFeatureEnabled("acceptanceGateStrict", {
         policy: { schemaVersion: 1, edition: "firm" },

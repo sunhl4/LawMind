@@ -14,6 +14,10 @@ coverage/
 .env
 .env.*
 !.env.example
+**/.signing-secret
+
+# LawMind workspace — lawyer matter data (runtime truth source, never commit)
+/matters/
 
 # OS / editor
 .DS_Store
@@ -26,6 +30,8 @@ tmp/
 # VitePress — 同步副本（正文以仓库根目录 docs/ 为准）
 apps/lawmind-docs/docs/LAWMIND-*.md
 apps/lawmind-docs/docs/lawmind/
+apps/lawmind-docs/docs/assets/
+apps/lawmind-docs/docs/public/download/
 
 # LawMind desktop — 打包与本地服务器 bundle
 apps/lawmind-desktop/release/
@@ -42,6 +48,7 @@ bun.lock
 bun.lockb
 
 # Tooling & agent local state
+.cursor/
 .claude/
 .agents/
 .agent/

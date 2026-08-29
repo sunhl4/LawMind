@@ -1,0 +1,22 @@
+{
+  "id": "vendor-agreement-review",
+  "name": "供应商协议审查",
+  "namedAgent": "Vendor Agreement Reviewer",
+  "description": "针对采购/服务协议的重点条款、责任上限与终止权做结构化审查。",
+  "practiceArea": "commercial",
+  "deliverableType": "contract.review",
+  "riskLevel": "medium",
+  "audience": "firm",
+  "starterPrompt": "请审查供应商协议：付款、交付、赔偿上限、知识产权与终止条款。",
+  "acceptancePackRequired": true,
+  "requiredSources": ["供应商协议"],
+  "steps": [
+    {
+      "stepId": "review",
+      "assignee": "contract_reviewer",
+      "task": "供应商协议条款审查与风险清单（matterId={{matterId}}）",
+      "dependsOn": [],
+      "autoApprove": false
+    }
+  ]
+}

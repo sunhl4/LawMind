@@ -23,9 +23,9 @@ describe("validateToolArguments", () => {
     expect(error).toBeUndefined();
   });
 
-  it("rejects unknown keys", () => {
+  it("ignores unknown keys at validate layer (stripped earlier in pipeline)", () => {
     const error = validateToolArguments(def, { query: "abc", unknown: 1 });
-    expect(error).toContain("unknown keys");
+    expect(error).toBeUndefined();
   });
 
   it("rejects missing required key", () => {
@@ -139,10 +139,14 @@ describe("runTurn clarification handling", () => {
       instruction: "请起草一份房屋租赁合同",
     });
 
+    // Soft Ask: intake no longer freezes rental drafts; tools may run.
+    // Tool-returned draft_with_placeholders still pauses for remaining gaps.
     expect(result.turn.status).toBe("awaiting_clarification");
-    expect(result.turn.clarificationQuestions?.[0]?.key).toBe("rent_and_deposit");
-    expect(result.reply).toContain("我已经先生成了一份正式草稿。");
-    expect(result.reply).toContain("请补充租金、押金和支付周期");
+    expect(result.turn.clarificationQuestions?.some((q) => q.key === "rent_and_deposit")).toBe(
+      true,
+    );
+    expect(result.turn.gateDecisions?.some((g) => g.gate === "intake_gate")).toBeFalsy();
+    expect(result.reply).toMatch(/补充|租金|押金/);
     expect(result.memoryContext).toBeDefined();
     expect(typeof result.memoryContext.profile).toBe("string");
   });
@@ -244,6 +248,35 @@ describe("runTurn clarification handling", () => {
           },
         ],
       },
+      {
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: "",
+              tool_calls: [
+                {
+                  id: "call-t3a",
+                  type: "function",
+                  function: { name: "draft_document", arguments: "{}" },
+                },
+              ],
+            },
+            finish_reason: "tool_calls",
+          },
+        ],
+      },
+      {
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: "起草完成。",
+            },
+            finish_reason: "stop",
+          },
+        ],
+      },
     ];
 
     vi.stubGlobal(
@@ -270,10 +303,17 @@ describe("runTurn clarification handling", () => {
       },
     };
 
+    // Structured intake skips intake-gate; tool may still ask remaining placeholder fields.
     const first = await runTurn({
       config,
       registry,
-      instruction: "请起草一份房屋租赁合同",
+      instruction: `【交办】房屋租赁合同
+交付物类型：contract.rental
+交办要点：
+- 双方主体：出租人张三，承租人李四
+- 房屋地址：某市某区某路 1 号
+- 租期：2026-01-01 至 2026-12-31
+请起草完整合同。`,
     });
     expect(first.turn.status).toBe("awaiting_clarification");
     expect(first.sessionId).toMatch(/[0-9a-f-]{36}/i);
@@ -290,7 +330,9 @@ describe("runTurn clarification handling", () => {
       instruction: "【补充信息】租金 5000 元/月，押一付三。请继续完善。",
     });
 
-    expect(draftCalls).toBe(2);
+    // 跨轮硬门禁：普通消息轮中 draft_document 被拦截（本轮不真正执行起草）；
+    // 本轮以 completed 结束后 finalize 清键，下一轮自动放行。
+    expect(draftCalls).toBe(1);
     expect(second.turn.status).toBe("completed");
     expect(second.reply).toContain("已按补充更新合同正文");
 
@@ -298,6 +340,16 @@ describe("runTurn clarification handling", () => {
       fs.readFileSync(path.join(workspaceDir, "sessions", `${first.sessionId}.json`), "utf8"),
     ) as { pendingClarificationKeys?: string[] };
     expect(after.pendingClarificationKeys).toBeUndefined();
+
+    const third = await runTurn({
+      config,
+      registry,
+      sessionId: first.sessionId,
+      instruction: "请继续完成起草。",
+    });
+    expect(draftCalls).toBe(2);
+    expect(third.turn.status).toBe("completed");
+    expect(third.reply).toContain("起草完成");
   });
 });
 
@@ -311,7 +363,7 @@ describe("runTurn strict dangerous tool approval", () => {
     const registry = new ToolRegistry();
     registry.register({
       definition: {
-        name: "risky",
+        name: "send_email",
         description: "r",
         category: "system",
         parameters: {},
@@ -336,7 +388,7 @@ describe("runTurn strict dangerous tool approval", () => {
                   {
                     id: "c1",
                     type: "function",
-                    function: { name: "risky", arguments: "{}" },
+                    function: { name: "send_email", arguments: "{}" },
                   },
                 ],
               },
@@ -368,13 +420,13 @@ describe("runTurn strict dangerous tool approval", () => {
     expect(result.turn.status).toBe("awaiting_approval");
   });
 
-  it("runs requiresApproval tool when strict is off and allowDangerous bypass is on", async () => {
+  it("runs send_email when strict is off and allowDangerous bypass is on", async () => {
     const workspaceDir = tmpWorkspace();
     const registry = new ToolRegistry();
     let ran = false;
     registry.register({
       definition: {
-        name: "risky",
+        name: "send_email",
         description: "r",
         category: "system",
         parameters: {},
@@ -397,7 +449,7 @@ describe("runTurn strict dangerous tool approval", () => {
                 {
                   id: "c1",
                   type: "function",
-                  function: { name: "risky", arguments: "{}" },
+                  function: { name: "send_email", arguments: "{}" },
                 },
               ],
             },
@@ -447,5 +499,45 @@ describe("runTurn strict dangerous tool approval", () => {
     expect(ran).toBe(true);
     expect(result.turn.status).toBe("completed");
     expect(result.reply).toContain("已完成");
+  });
+});
+
+describe("runTurn model identity short-circuit", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("answers「你是什么模型」without calling the model API", async () => {
+    const workspaceDir = tmpWorkspace();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const registry = new ToolRegistry();
+    const config: AgentConfig = {
+      workspaceDir,
+      model: {
+        provider: "openai-compatible",
+        baseUrl: "https://example.com/v1",
+        apiKey: "sk-test",
+        model: "qwen-max",
+      },
+      runtimeModel: {
+        catalogLabel: "通义千问 Max",
+        providerLabel: "阿里云 DashScope / 通义",
+        upstreamModel: "qwen-max",
+        catalogId: "builtin:qwen-max",
+      },
+    };
+
+    const result = await runTurn({
+      config,
+      registry,
+      instruction: "你是什么模型",
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.reply).toContain("通义千问 Max");
+    expect(result.reply).toContain("`qwen-max`");
+    expect(result.reply).not.toContain("看不到配置");
   });
 });

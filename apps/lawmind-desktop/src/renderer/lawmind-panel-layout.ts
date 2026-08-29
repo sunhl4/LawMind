@@ -3,12 +3,13 @@
 export const LM_PANE_MIN_WIDTH_PX = 240;
 export const LM_PANE_MAX_WIDTH_PX = 560;
 
-export const LM_CHAT_COMPOSE_MIN_HEIGHT_PX = 140;
-export const LM_CHAT_COMPOSE_MAX_HEIGHT_PX = 480;
-export const LM_CHAT_COMPOSE_DEFAULT_HEIGHT_PX = 220;
+/** Slim Cursor-style compose: textarea + one toolbar row; chrome above is optional. */
+export const LM_CHAT_COMPOSE_MIN_HEIGHT_PX = 108;
+export const LM_CHAT_COMPOSE_MAX_HEIGHT_PX = 360;
+export const LM_CHAT_COMPOSE_DEFAULT_HEIGHT_PX = 120;
 
-/** 对话输入区在极矮窗口下的最低高度 */
-export const LM_COMPOSE_HARD_MIN_PX = 100;
+/** 对话输入区在极矮窗口下的最低高度（须 ≤ DEFAULT，否则默认会被抬高） */
+export const LM_COMPOSE_HARD_MIN_PX = 96;
 
 /** 左栏：文件树 与 下方在办/助手区 之间可拖动的分区高度 */
 export const LM_SIDE_FILE_TREE_MIN_HEIGHT_PX = 72;

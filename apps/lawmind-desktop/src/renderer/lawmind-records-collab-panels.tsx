@@ -1,4 +1,5 @@
 import type { CollabEvent, DelegationRow, HistoryItem, TaskRow } from "./lawmind-app-data";
+import { delegationStatusBadgeClass, delegationStatusLabel } from "./lawmind-delegation-status";
 import { internalIdsTitle, pathBasename } from "./display-ids";
 import type { TimeRangeFilter } from "./lawmind-time-range";
 
@@ -210,7 +211,7 @@ export function LawmindCollabPanel({
           className={`lm-tab ${collabTab === "timeline" ? "active" : ""}`}
           onClick={() => onSelectCollabTab("timeline")}
         >
-          协作动态
+          委派动态
         </button>
       </div>
       {collabTab === "delegations" && (
@@ -219,30 +220,8 @@ export function LawmindCollabPanel({
           {delegations.map((delegation) => (
             <li key={delegation.delegationId} className="lm-list-clickable" tabIndex={0}>
               <div className="lm-list-row">
-                <span
-                  className={`lm-badge ${
-                    delegation.status === "completed"
-                      ? "lm-badge-done"
-                      : delegation.status === "running"
-                        ? "lm-badge-running"
-                        : delegation.status === "failed" || delegation.status === "timeout"
-                          ? "lm-badge-error"
-                          : ""
-                  }`}
-                >
-                  {delegation.status === "completed"
-                    ? "已完成"
-                    : delegation.status === "running"
-                      ? "进行中"
-                      : delegation.status === "failed"
-                        ? "失败"
-                        : delegation.status === "timeout"
-                          ? "超时"
-                          : delegation.status === "pending"
-                            ? "等待中"
-                            : delegation.status === "cancelled"
-                              ? "已取消"
-                              : delegation.status}
+                <span className={delegationStatusBadgeClass(delegation.status)}>
+                  {delegationStatusLabel(delegation.status)}
                 </span>
                 <span className="lm-list-title">{delegation.task.slice(0, 80)}</span>
               </div>
@@ -279,7 +258,7 @@ export function LawmindCollabPanel({
       )}
       {collabTab === "timeline" && (
         <ul className="lm-list">
-          {collabEvents.length === 0 && <li className="lm-list-empty">暂无协作动态</li>}
+          {collabEvents.length === 0 && <li className="lm-list-empty">暂无委派动态</li>}
           {[...collabEvents].toReversed().slice(0, 30).map((event) => (
             <li key={event.eventId}>
               <div className="lm-list-row">

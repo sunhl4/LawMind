@@ -31,12 +31,13 @@ function minimalDraft(sections: ArtifactDraft["sections"]): ArtifactDraft {
 }
 
 describe("validateDraftCitationsAgainstBundle", () => {
-  it("ok when no citations", () => {
+  it("ok when no citations on short body", () => {
     const b = minimalBundle({ sources: [{ id: "s1", title: "a", kind: "web" }] });
     const d = minimalDraft([{ heading: "H", body: "x" }]);
     const r = validateDraftCitationsAgainstBundle(d, b);
     expect(r.ok).toBe(true);
     expect(r.missingSourceIds).toEqual([]);
+    expect(r.unanchoredSections).toEqual([]);
   });
 
   it("ok when all citation ids exist", () => {
@@ -49,6 +50,7 @@ describe("validateDraftCitationsAgainstBundle", () => {
     const d = minimalDraft([{ heading: "H", body: "x", citations: ["s2", "s1"] }]);
     const r = validateDraftCitationsAgainstBundle(d, b);
     expect(r.ok).toBe(true);
+    expect(r.unanchoredSections).toEqual([]);
   });
 
   it("flags missing ids", () => {
@@ -61,5 +63,27 @@ describe("validateDraftCitationsAgainstBundle", () => {
     expect(r.ok).toBe(false);
     expect(r.missingSourceIds).toEqual(["ghost"]);
     expect(r.sectionsWithIssues).toHaveLength(2);
+  });
+
+  it("warns unanchored long sections when bundle has sources (ok still true)", () => {
+    const b = minimalBundle({ sources: [{ id: "s1", title: "a", kind: "web" }] });
+    const longBody = "甲".repeat(81);
+    const d = minimalDraft([
+      { heading: "结论", body: longBody },
+      { heading: "短段", body: "短" },
+      { heading: "已引用", body: longBody, citations: ["s1"] },
+    ]);
+    const r = validateDraftCitationsAgainstBundle(d, b);
+    expect(r.ok).toBe(true);
+    expect(r.missingSourceIds).toEqual([]);
+    expect(r.unanchoredSections).toEqual([{ heading: "结论", reason: "section_lacks_citations" }]);
+  });
+
+  it("does not flag unanchored when bundle has no sources", () => {
+    const b = minimalBundle({ sources: [] });
+    const d = minimalDraft([{ heading: "H", body: "甲".repeat(81) }]);
+    const r = validateDraftCitationsAgainstBundle(d, b);
+    expect(r.ok).toBe(true);
+    expect(r.unanchoredSections).toEqual([]);
   });
 });

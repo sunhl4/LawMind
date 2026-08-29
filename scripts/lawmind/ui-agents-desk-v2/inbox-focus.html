@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>在办 V2 · Decision Inbox</title>
+  <style>
+    :root {
+      --bg: #f4f2ee;
+      --side: #ebe7e0;
+      --surface: #fffdf9;
+      --text: #1c1915;
+      --text-2: #5c554c;
+      --muted: #8a8278;
+      --border: rgba(40, 32, 22, 0.1);
+      --brass: #a67c52;
+      --brass-deep: #8f6a45;
+      --warn: #c47d12;
+      --ok: #1f9d6e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 13px/1.45 "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
+      color: var(--text);
+      background: #1c1b19;
+    }
+    .shell { position: relative; width: 1440px; }
+    .badge {
+      position: absolute; top: 10px; right: 12px; z-index: 3;
+      background: var(--brass-deep); color: #fff; font-size: 11px;
+      padding: 4px 8px; border-radius: 6px;
+    }
+    .frame {
+      width: 1440px; height: 900px;
+      display: grid;
+      grid-template-columns: 248px 1fr;
+      background: var(--bg);
+    }
+    .rail {
+      background: linear-gradient(180deg, #f2efe9, var(--side));
+      border-right: 1px solid var(--border);
+      padding: 14px 12px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .brand { font-weight: 700; font-size: 14px; }
+    .brand span { display: block; font-size: 11px; color: var(--muted); font-weight: 500; }
+    .case { padding: 9px 10px; border-radius: 10px; background: #efe4d4; font-weight: 600; }
+    .case-muted { padding: 8px 10px; color: var(--text-2); border-radius: 10px; }
+    .decide {
+      margin-top: auto; border: 0; border-radius: 12px; padding: 12px 14px;
+      background: linear-gradient(180deg, #b89568, #8f6a3f); color: #fff; font-weight: 700;
+      display: flex; justify-content: space-between;
+      box-shadow: 0 6px 16px rgba(127, 92, 50, 0.22);
+    }
+    .main {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-width: 0;
+      background:
+        radial-gradient(ellipse 70% 40% at 60% 0%, rgba(166, 124, 82, 0.07), transparent 55%),
+        var(--bg);
+    }
+    .header {
+      padding: 18px 28px 14px;
+      border-bottom: 1px solid color-mix(in srgb, var(--brass) 25%, var(--border));
+      display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: flex-end;
+      justify-content: space-between;
+    }
+    .title-block h1 { margin: 0 0 6px; font-size: 26px; letter-spacing: -0.03em; }
+    .title-block p { margin: 0; color: var(--text-2); max-width: 34rem; }
+    .cta-chat {
+      border: 0; border-radius: 999px; padding: 10px 18px; font-weight: 700;
+      background: linear-gradient(135deg, #c4a06e, #a67c52); color: #fffaf3;
+      box-shadow: 0 6px 18px rgba(166, 124, 82, 0.28);
+    }
+    .segments {
+      display: flex; gap: 4px; padding: 3px; border-radius: 999px;
+      background: rgba(255,253,249,0.85); border: 1px solid color-mix(in srgb, var(--brass) 30%, var(--border));
+      width: 100%; max-width: 420px;
+    }
+    .seg {
+      flex: 1; text-align: center; padding: 7px 10px; border-radius: 999px;
+      color: var(--text-2); font-weight: 600; font-size: 12px;
+    }
+    .seg.on {
+      background: linear-gradient(135deg, #c4a06e, #a67c52); color: #fffaf3;
+      box-shadow: 0 4px 12px rgba(166, 124, 82, 0.25);
+    }
+    .seg em { font-style: normal; opacity: 0.85; margin-left: 4px; }
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(280px, 34%) 1fr;
+      min-height: 0;
+    }
+    .index {
+      border-right: 1px solid var(--border);
+      padding: 14px 12px 18px;
+      overflow: hidden;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .group-label {
+      font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+      color: var(--muted); text-transform: uppercase; padding: 8px 8px 4px;
+    }
+    .row {
+      text-align: left; border: 1px solid transparent; background: transparent;
+      border-radius: 12px; padding: 11px 12px; cursor: default; width: 100%;
+    }
+    .row.on {
+      background: color-mix(in srgb, rgba(166,124,82,0.12) 80%, #fff);
+      border-color: color-mix(in srgb, var(--brass) 40%, var(--border));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
+    }
+    .row .st {
+      display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px;
+      border-radius: 999px; background: rgba(196,125,18,0.12); color: var(--warn);
+      margin-bottom: 6px;
+    }
+    .row .st.ok { background: rgba(31,157,110,0.1); color: var(--ok); }
+    .row strong { display: block; font-size: 14px; margin-bottom: 4px; }
+    .row .next { color: var(--brass-deep); font-weight: 600; font-size: 12px; }
+    .focus {
+      padding: 22px 36px 28px;
+      display: flex; flex-direction: column; gap: 16px; min-width: 0;
+    }
+    .kicker { font-size: 12px; font-weight: 700; color: var(--warn); letter-spacing: 0.04em; }
+    .focus h2 { margin: 0; font-size: 28px; letter-spacing: -0.03em; line-height: 1.25; }
+    .why {
+      margin: 0; font-size: 15px; color: var(--text-2); line-height: 1.55; max-width: 36rem;
+    }
+    .hero-cta {
+      margin-top: 4px; border: 0; border-radius: 14px; padding: 16px 22px;
+      font-size: 16px; font-weight: 700; text-align: left;
+      background: linear-gradient(135deg, #c4a06e, #a67c52 55%, #8a6540);
+      color: #fffaf3;
+      box-shadow: 0 10px 28px rgba(166, 124, 82, 0.32);
+      display: flex; justify-content: space-between; align-items: center;
+      max-width: 420px;
+    }
+    .hero-cta small { display: block; font-weight: 500; opacity: 0.9; font-size: 12px; margin-top: 4px; }
+    .secondary {
+      display: flex; gap: 8px; flex-wrap: wrap;
+    }
+    .secondary button {
+      border: 1px solid var(--border); background: var(--surface); border-radius: 999px;
+      padding: 8px 14px; color: var(--text-2); font-weight: 600;
+    }
+    details {
+      border: 1px solid var(--border); border-radius: 12px; background: var(--surface);
+      padding: 10px 14px; max-width: 520px;
+    }
+    details summary { cursor: pointer; font-weight: 650; color: var(--text-2); }
+    details p { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+    .footnote { margin-top: auto; color: var(--muted); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="badge">TARGET · Decision Inbox + Focus Stage</div>
+    <div class="frame">
+      <aside class="rail">
+        <div class="brand">LawMind<span>法律工作台</span></div>
+        <div class="case">股权转让纠纷</div>
+        <div class="case-muted">劳动争议仲裁</div>
+        <div class="case-muted">借款合同纠纷</div>
+        <button class="decide"><span>待我拍板</span><span>3</span></button>
+      </aside>
+      <section class="main">
+        <header class="header">
+          <div class="title-block">
+            <h1>在办</h1>
+            <p>今日有 3 件需要您确认。处理完自动进入下一件。新任务请回对话下达。</p>
+            <div class="segments" style="margin-top:12px">
+              <div class="seg on">待我确认<em>3</em></div>
+              <div class="seg">办理中<em>5</em></div>
+              <div class="seg">已交办<em>2</em></div>
+            </div>
+          </div>
+          <button class="cta-chat">回对话下达</button>
+        </header>
+        <div class="workspace">
+          <div class="index">
+            <div class="group-label">待签批</div>
+            <div class="row on">
+              <span class="st">待我签批</span>
+              <strong>股权转让协议 · 修订稿</strong>
+              <div class="next">下一步：进入文书台签批</div>
+            </div>
+            <div class="group-label">待补充</div>
+            <div class="row">
+              <span class="st">待我补充</span>
+              <strong>对方主体资格材料</strong>
+              <div class="next">下一步：去对话说明</div>
+            </div>
+            <div class="group-label">待批准</div>
+            <div class="row">
+              <span class="st">待我批准</span>
+              <strong>对外发送催告函</strong>
+              <div class="next">下一步：批准或驳回</div>
+            </div>
+            <div class="group-label">办理中（可稍后看）</div>
+            <div class="row">
+              <span class="st ok">办理中</span>
+              <strong>证据清单整理</strong>
+              <div class="next" style="color:var(--muted)">助手处理中</div>
+            </div>
+          </div>
+          <div class="focus">
+            <div class="kicker">第 1 / 3 件 · 待您签批</div>
+            <h2>股权转让协议 · 修订稿</h2>
+            <p class="why">助手已完成条款对照与风险标注。请您核验引用并完成签批——这是唯一需要您做的事。</p>
+            <button class="hero-cta">
+              <span>进入文书台签批<small>核验来源 · 修改正文 · 通过审核</small></span>
+              <span aria-hidden>→</span>
+            </button>
+            <div class="secondary">
+              <button>稍后处理</button>
+              <button>打开对话</button>
+              <button>停止办理</button>
+            </div>
+            <details>
+              <summary>本案要点</summary>
+              <p>当事人：甲公司 / 乙公司 · 核心争议：股权比例与对价支付节点 · 保密等级：内部。</p>
+            </details>
+            <details>
+              <summary>办理过程（一般无需展开）</summary>
+              <p>对话摘要、助手步骤与技术轨迹默认收起，需要时再看。</p>
+            </details>
+            <p class="footnote">灵感：Linear Triage 单队列拍板 · Asana「我的任务」分段 · 邮件式主从阅读（详情为主舞台）</p>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</body>
+</html>

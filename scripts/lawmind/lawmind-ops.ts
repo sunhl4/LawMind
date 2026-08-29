@@ -2,13 +2,23 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { listSessions } from "../../src/lawmind/agent/session.js";
+import {
+  formatMatterConsistencyReport,
+  repairMatterProjections,
+} from "../../src/lawmind/application/matter-consistency.js";
 import { listMatterIds } from "../../src/lawmind/cases/index.js";
 import { buildAcceptancePackMarkdown } from "../../src/lawmind/delivery/acceptance-pack.js";
 import { listDrafts } from "../../src/lawmind/drafts/index.js";
 import { writeQualityDashboardJson } from "../../src/lawmind/evaluation/export-json.js";
 import { listTaskRecords } from "../../src/lawmind/tasks/index.js";
 
-type Command = "status" | "doctor" | "export-dashboard" | "acceptance-pack";
+type Command =
+  | "status"
+  | "doctor"
+  | "export-dashboard"
+  | "acceptance-pack"
+  | "matter-consistency"
+  | "matter-repair-projection";
 
 function parseArgs(argv: string[]): { command: Command; workspaceDir: string; deep: boolean } {
   let workspaceDir = path.resolve(process.cwd(), "workspace");
@@ -150,11 +160,25 @@ async function acceptancePack(workspaceDir: string): Promise<void> {
   console.log(`Wrote ${outPath}`);
 }
 
+async function matterConsistency(workspaceDir: string): Promise<number> {
+  const report = await formatMatterConsistencyReport(workspaceDir);
+  console.log(report);
+  return report.startsWith("Matter consistency: OK") ? 0 : 1;
+}
+
+async function matterRepairProjection(workspaceDir: string): Promise<number> {
+  const count = await repairMatterProjections(workspaceDir);
+  console.log(`Repaired CASE.md projection for ${count} matter(s).`);
+  return 0;
+}
+
 const KNOWN_COMMANDS: ReadonlySet<Command> = new Set([
   "status",
   "doctor",
   "export-dashboard",
   "acceptance-pack",
+  "matter-consistency",
+  "matter-repair-projection",
 ]);
 
 async function main() {
@@ -162,7 +186,7 @@ async function main() {
   const opts = parseArgs(argv);
   if (!KNOWN_COMMANDS.has(opts.command)) {
     console.error(
-      `Unknown command: ${opts.command}. Use: status | doctor | export-dashboard | acceptance-pack`,
+      `Unknown command: ${opts.command}. Use: status | doctor | export-dashboard | acceptance-pack | matter-consistency | matter-repair-projection`,
     );
     process.exitCode = 1;
     return;
@@ -177,6 +201,14 @@ async function main() {
   }
   if (opts.command === "acceptance-pack") {
     await acceptancePack(opts.workspaceDir);
+    return;
+  }
+  if (opts.command === "matter-consistency") {
+    process.exitCode = await matterConsistency(opts.workspaceDir);
+    return;
+  }
+  if (opts.command === "matter-repair-projection") {
+    process.exitCode = await matterRepairProjection(opts.workspaceDir);
     return;
   }
   const exitCode = await doctor(opts.workspaceDir, opts.deep);

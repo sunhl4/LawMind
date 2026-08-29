@@ -1,11 +1,15 @@
 /**
- * Per-matter team meeting transcript (JSONL under cases/<matterId>/).
+ * Team meeting transcript (JSONL).
+ * Bound matters: `cases/<matterId>/team-meeting.jsonl`
+ * Ad-hoc (临时讨论): `meetings/adhoc/team-meeting.jsonl` (not a fake CASE matter)
  */
 
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { isValidMatterId } from "./matter-id.js";
+export { ADHOC_MEETING_MATTER_ID, isAdhocMeetingMatterId } from "./team-meeting-ids.js";
+import { ADHOC_MEETING_MATTER_ID, isAdhocMeetingMatterId } from "./team-meeting-ids.js";
 
 export type TeamMeetingLineKind = "user" | "assistant" | "system";
 
@@ -23,9 +27,9 @@ export type TeamMeetingLine = {
 
 const TEAM_MEETING_FILENAME = "team-meeting.jsonl";
 export const TEAM_MEETING_MAX_LINE_TEXT = 48_000;
-export const TEAM_MEETING_TAIL_LIMIT_DEFAULT = 80;
-export const TEAM_MEETING_TAIL_LIMIT_CAP = 200;
-export const TEAM_MEETING_TRANSCRIPT_MAX_CHARS = 12_000;
+export const TEAM_MEETING_TAIL_LIMIT_DEFAULT = 120;
+export const TEAM_MEETING_TAIL_LIMIT_CAP = 240;
+export const TEAM_MEETING_TRANSCRIPT_MAX_CHARS = 18_000;
 const TEAM_MEETING_READ_MAX_BYTES = 4 * 1024 * 1024;
 
 function resolvedMatterCaseDir(workspaceDir: string, matterId: string): string {
@@ -38,11 +42,57 @@ function resolvedMatterCaseDir(workspaceDir: string, matterId: string): string {
   return target;
 }
 
-export function teamMeetingFilePath(workspaceDir: string, matterId: string): string {
+function resolvedAdhocMeetingDir(workspaceDir: string): string {
+  const meetingsRoot = path.resolve(workspaceDir, "meetings");
+  const target = path.resolve(meetingsRoot, "adhoc");
+  const rel = path.relative(meetingsRoot, target);
+  if (rel.startsWith("..") || path.isAbsolute(rel) || rel === "") {
+    throw new Error("invalid meeting path");
+  }
+  return target;
+}
+
+/** Directory that holds team-meeting.jsonl for this scope. */
+export function resolvedTeamMeetingDir(workspaceDir: string, matterId: string): string {
   if (!isValidMatterId(matterId)) {
     throw new Error("invalid matter id");
   }
-  return path.join(resolvedMatterCaseDir(workspaceDir, matterId), TEAM_MEETING_FILENAME);
+  if (isAdhocMeetingMatterId(matterId)) {
+    return resolvedAdhocMeetingDir(workspaceDir);
+  }
+  return resolvedMatterCaseDir(workspaceDir, matterId);
+}
+
+/**
+ * One-shot migrate legacy `cases/临时讨论/team-meeting.jsonl` → `meetings/adhoc/`.
+ * Best-effort; never throws to callers.
+ */
+export function migrateLegacyAdhocTeamMeetingIfNeeded(workspaceDir: string): void {
+  try {
+    const nextDir = resolvedAdhocMeetingDir(workspaceDir);
+    const nextPath = path.join(nextDir, TEAM_MEETING_FILENAME);
+    if (fs.existsSync(nextPath)) {
+      return;
+    }
+    const legacyPath = path.join(
+      resolvedMatterCaseDir(workspaceDir, ADHOC_MEETING_MATTER_ID),
+      TEAM_MEETING_FILENAME,
+    );
+    if (!fs.existsSync(legacyPath)) {
+      return;
+    }
+    fs.mkdirSync(nextDir, { recursive: true });
+    fs.renameSync(legacyPath, nextPath);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function teamMeetingFilePath(workspaceDir: string, matterId: string): string {
+  if (isAdhocMeetingMatterId(matterId)) {
+    migrateLegacyAdhocTeamMeetingIfNeeded(workspaceDir);
+  }
+  return path.join(resolvedTeamMeetingDir(workspaceDir, matterId), TEAM_MEETING_FILENAME);
 }
 
 function parseLine(raw: string): TeamMeetingLine | null {
@@ -149,7 +199,7 @@ export function formatTeamMeetingTranscriptPrefix(lines: TeamMeetingLine[]): str
       row.kind === "user"
         ? "用户"
         : row.kind === "system"
-          ? "系统"
+          ? "主持人"
           : row.displayName?.trim() || row.assistantId?.trim() || "助手";
     const line = `[${label}] ${row.text.trim()}`;
     const nextLen = line.length + (parts.length > 0 ? 1 : 0);
@@ -170,6 +220,71 @@ export function formatTeamMeetingTranscriptPrefix(lines: TeamMeetingLine[]): str
   ].join("\n");
 }
 
+const MEETING_SUMMARY_FILENAME = "meeting-summary.md";
+const MEETING_SUMMARY_MAX_CHARS = 12_000;
+
+export function meetingSummaryPath(workspaceDir: string, matterId: string): string {
+  return path.join(resolvedTeamMeetingDir(workspaceDir, matterId), MEETING_SUMMARY_FILENAME);
+}
+
+/** Best-effort rolling summary of older meeting lines (A6↑). */
+export function rewriteMeetingSummaryFile(workspaceDir: string, matterId: string): void {
+  try {
+    const all = readTeamMeetingLines(workspaceDir, matterId);
+    if (all.length <= TEAM_MEETING_TAIL_LIMIT_DEFAULT) {
+      return;
+    }
+    const head = all.slice(0, Math.max(0, all.length - TEAM_MEETING_TAIL_LIMIT_DEFAULT));
+    const bullets: string[] = [];
+    for (const row of head.slice(-40)) {
+      const label =
+        row.kind === "user"
+          ? "律师"
+          : row.kind === "system"
+            ? "主持"
+            : row.displayName?.trim() || "助手";
+      const text = row.text.replace(/\s+/g, " ").trim().slice(0, 160);
+      if (text) {
+        bullets.push(`- [${label}] ${text}`);
+      }
+    }
+    if (bullets.length === 0) {
+      return;
+    }
+    const body = [
+      `# 会议室滚动摘要`,
+      ``,
+      `_Updated: ${new Date().toISOString()}_`,
+      ``,
+      `共归档较早发言约 ${head.length} 条；近期对话见 transcript 尾窗。`,
+      ``,
+      ...bullets,
+      ``,
+    ].join("\n");
+    const abs = meetingSummaryPath(workspaceDir, matterId);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, body.slice(0, MEETING_SUMMARY_MAX_CHARS), "utf8");
+  } catch {
+    /* non-fatal */
+  }
+}
+
+export function readMeetingSummaryExcerpt(
+  workspaceDir: string,
+  matterId: string,
+  maxChars = 4_000,
+): string {
+  try {
+    const raw = fs.readFileSync(meetingSummaryPath(workspaceDir, matterId), "utf8").trim();
+    if (!raw) {
+      return "";
+    }
+    return raw.slice(0, maxChars);
+  } catch {
+    return "";
+  }
+}
+
 export function appendTeamMeetingLinesSync(
   workspaceDir: string,
   matterId: string,
@@ -178,7 +293,10 @@ export function appendTeamMeetingLinesSync(
   if (rows.length === 0) {
     return;
   }
-  const dir = resolvedMatterCaseDir(workspaceDir, matterId);
+  if (isAdhocMeetingMatterId(matterId)) {
+    migrateLegacyAdhocTeamMeetingIfNeeded(workspaceDir);
+  }
+  const dir = resolvedTeamMeetingDir(workspaceDir, matterId);
   fs.mkdirSync(dir, { recursive: true });
   const filePath = path.join(dir, TEAM_MEETING_FILENAME);
   const chunk =
@@ -191,6 +309,7 @@ export function appendTeamMeetingLinesSync(
       )
       .join("\n") + "\n";
   fs.appendFileSync(filePath, chunk, "utf8");
+  rewriteMeetingSummaryFile(workspaceDir, matterId);
 }
 
 export function createTeamMeetingUserLine(text: string): TeamMeetingLine {

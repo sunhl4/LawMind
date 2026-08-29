@@ -1,0 +1,14 @@
+{
+  "matterId": "smoke-verify-matter",
+  "title": "Smoke",
+  "status": "intake",
+  "sensitivity": "normal",
+  "strategyStatus": "draft",
+  "openQuestionIds": [],
+  "nextActions": [],
+  "deadlineIds": [],
+  "deliverableIds": [],
+  "queueItemIds": [],
+  "createdAt": "2026-05-21T09:56:49.864Z",
+  "updatedAt": "2026-05-21T09:56:49.864Z"
+}

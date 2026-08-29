@@ -10,6 +10,8 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { DEFAULT_ASSISTANT_ID } from "../../assistants/constants.js";
+import { loadAssistantProfiles, resolveLawMindRoot } from "../../assistants/store.js";
 import { getRoleById } from "../../core/role.js";
 import { emitCollaborationEvent } from "../collaboration/audit.js";
 import {
@@ -19,30 +21,53 @@ import {
   markDelegationFailed,
 } from "../collaboration/delegation-registry.js";
 import { sendAndWait, wrapUntrustedResult } from "../collaboration/message-bus.js";
-import { findAssistantsByRole } from "../tools/coordination/utils.js";
+import {
+  appendMemoryBundleToTask,
+  type WorkflowMemoryBundleSnapshot,
+} from "../collaboration/workflow-memory-bundle.js";
+import { findAssistantsByRole, resolveAssistantId } from "../tools/coordination/utils.js";
 import type { AgentConfig } from "../types.js";
 import type { CollaborationWorkflow, WorkflowStep, WorkflowEvent } from "./types.js";
 
 /**
  * W8：在派发前根据 step.assigneeRoleId 重新解析 assignee。
- * 若 roleId 有效且工作区存在对应助手，则覆盖 step.assignee；否则保持原 assignee 字符串。
+ * 必须传入与桌面端一致的 `envFile`，否则会误读 workspace 旁路的空 assistants.json，
+ * 导致 mail-contract 等模板卡在 `Assistant not found: contract_review`。
  */
-function resolveStepAssigneeByRole(workspaceDir: string, step: WorkflowStep): void {
+export function resolveStepAssigneeByRole(
+  workspaceDir: string,
+  step: WorkflowStep,
+  envFile?: string,
+): void {
   const roleId = step.assigneeRoleId?.trim();
-  if (!roleId) {
+  if (roleId) {
+    const role = getRoleById(roleId);
+    if (role) {
+      const candidates = findAssistantsByRole(workspaceDir, role.roleId, envFile);
+      if (candidates.length > 0) {
+        if (!step.assignee || !candidates.some((c) => c.assistantId === step.assignee)) {
+          step.assignee = candidates[0].assistantId;
+        }
+        return;
+      }
+    }
+  }
+
+  // Role miss / literal role id as assignee ("contract_review"): map to real assistant id.
+  const raw = step.assignee?.trim() || roleId || "";
+  if (!raw) {
+    step.assignee = DEFAULT_ASSISTANT_ID;
     return;
   }
-  const role = getRoleById(roleId);
-  if (!role) {
+  const resolved = resolveAssistantId(workspaceDir, raw, envFile);
+  if (resolved) {
+    step.assignee = resolved;
     return;
   }
-  const candidates = findAssistantsByRole(workspaceDir, role.roleId);
-  if (candidates.length === 0) {
-    return;
-  }
-  if (!step.assignee || !candidates.some((c) => c.assistantId === step.assignee)) {
-    step.assignee = candidates[0].assistantId;
-  }
+  // Last resort: first profile in LawMind root, else default.
+  const root = resolveLawMindRoot(workspaceDir, envFile);
+  const profiles = loadAssistantProfiles(root);
+  step.assignee = profiles[0]?.assistantId ?? DEFAULT_ASSISTANT_ID;
 }
 
 function emitWorkflowEvent(
@@ -112,6 +137,21 @@ function gatherDependencyContext(workflow: CollaborationWorkflow, step: Workflow
 }
 
 /**
+ * 模板级预批准白名单：只允许「待拍板」类工具（产出仍须律师在在办拍板，
+ * 无外部副作用）。send_email / render_document 等交付/外发工具永远不在此列。
+ */
+const TEMPLATE_PREAPPROVABLE_TOOLS = new Set([
+  "apply_surgical_edits",
+  "render_tracked_draft",
+  "prepare_outbound_mail",
+]);
+
+export function templatePreApprovableTools(names: string[] | undefined): string[] | undefined {
+  const filtered = (names ?? []).filter((n) => TEMPLATE_PREAPPROVABLE_TOOLS.has(n));
+  return filtered.length > 0 ? filtered : undefined;
+}
+
+/**
  * Execute a single workflow step: delegate to assignee, optionally review.
  */
 async function executeStep(
@@ -120,7 +160,7 @@ async function executeStep(
   step: WorkflowStep,
   options?: ExecuteWorkflowOptions,
 ): Promise<void> {
-  resolveStepAssigneeByRole(baseConfig.workspaceDir, step);
+  resolveStepAssigneeByRole(baseConfig.workspaceDir, step, baseConfig.envFile);
   step.status = "running";
   step.startedAt = new Date().toISOString();
 
@@ -128,7 +168,8 @@ async function executeStep(
   emitProgress(workflow, options);
 
   const contextFromDeps = gatherDependencyContext(workflow, step);
-  const fullTask = `${step.task}${contextFromDeps}`;
+  const taskWithMemory = appendMemoryBundleToTask(step.task, options?.memoryBundle, step.assignee);
+  const fullTask = `${taskWithMemory}${contextFromDeps}`;
 
   const delegation = registerDelegation({
     workspaceDir: baseConfig.workspaceDir,
@@ -147,6 +188,9 @@ async function executeStep(
       message: fullTask,
       matterId: workflow.matterId,
       timeoutMs: 300_000,
+      // Name list only; apply_surgical_edits / prepare_outbound_mail still need
+      // matching preApproveToolArgs (hunks or to+attachments).
+      preApproveToolNames: templatePreApprovableTools(workflow.preApproveToolNames),
     });
 
     markDelegationRunning(baseConfig.workspaceDir, delegation.delegationId, result.sessionId);
@@ -209,6 +253,8 @@ export type ExecuteWorkflowOptions = {
   shouldAbort?: () => boolean;
   /** Called when step statuses change (start/end of steps, and once at workflow start). */
   onProgress?: (snapshot: WorkflowRunProgress) => void;
+  /** Enqueue-time assistant PROFILE excerpts for assignees (scheduled job distribution). */
+  memoryBundle?: WorkflowMemoryBundleSnapshot;
 };
 
 function abortRequested(options?: ExecuteWorkflowOptions): boolean {

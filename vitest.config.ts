@@ -19,7 +19,23 @@ export default defineConfig({
       "src/lawmind/**/*.test.ts",
       "apps/lawmind-desktop/server/**/*.test.ts",
       "apps/lawmind-desktop/src/**/*.test.ts",
+      "apps/lawmind-desktop/src/**/*.test.tsx",
+      "apps/lawmind-desktop/electron/**/*.test.ts",
     ],
     exclude: ["**/node_modules/**", "**/dist/**", "**/release/**"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "json-summary", "html"],
+      include: [
+        "src/lawmind/**/*.ts",
+        "apps/lawmind-desktop/server/**/*.ts",
+        "apps/lawmind-desktop/src/renderer/**/*.ts",
+        "apps/lawmind-desktop/src/renderer/**/*.tsx",
+      ],
+      exclude: ["**/*.test.ts", "**/*.test.tsx", "**/index.ts", "**/types.ts"],
+      thresholds: {
+        statements: 40,
+      },
+    },
   },
 });

@@ -2,13 +2,207 @@ import type { AssistantRow } from "./lawmind-settings-models.ts";
 import type { MatterOverview } from "../../../../src/lawmind/types.ts";
 import { apiGetJson } from "./api-client";
 
+export type WorkspaceStandardCheck = {
+  id: string;
+  label: string;
+  state: "ok" | "warn" | "missing";
+  hint: string;
+};
+
 export type HealthPayload = {
   ok?: boolean;
   /** 主对话模型 API 是否已配置（来自 GET /api/health） */
   modelConfigured?: boolean;
+  /** 是否允许「用模型起草」偏好（设置→模型检索） */
+  draftWithModelEnabled?: boolean;
+  /** 当前运行态是否已激活「用模型起草」（需已配置模型） */
+  draftWithModelActive?: boolean;
   retrievalMode?: string;
   dualLegalConfigured?: boolean;
   webSearchApiKeyConfigured?: boolean;
+  modelName?: string | null;
+  modelEnvFileExists?: boolean;
+  lawmindDaemon?: {
+    enabled?: boolean;
+    running?: boolean;
+    pid?: number;
+    lastTickAt?: string;
+  };
+  edition?: {
+    id?: string;
+    label?: string;
+    features?: {
+      strictDangerousToolApproval?: boolean;
+      auditIntegrityExport?: boolean;
+    };
+  };
+  policy?: {
+    networkAllowlist?: string[] | null;
+    networkAllowlistEnforced?: boolean | null;
+    loaded?: boolean;
+    allowWebSearch?: boolean | null;
+  };
+  usageSummary?: {
+    entries?: number;
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+    since?: string;
+    until?: string;
+    byModel?: Array<{ model: string; entries: number; totalTokens: number }>;
+  };
+  doctor?: {
+    taskCount?: number;
+    draftCount?: number;
+    auditJsonlFileCount?: number;
+    researchSnapshotCount?: number;
+    nodeVersion?: string;
+    lawmindPackageVersion?: string | null;
+    memoryTruthSources?: {
+      memoryMd?: boolean;
+      lawyerProfile?: boolean;
+      firmProfile?: boolean;
+      clientProfileRoot?: boolean;
+      clientProfileFilesUnderClients?: number;
+    };
+    workspaceStandard?: {
+      ok?: boolean;
+      checks?: WorkspaceStandardCheck[];
+    };
+    sessionHealth?: {
+      score?: number;
+      grade?: "good" | "attention" | "risk";
+      summary?: string;
+      signals?: Array<{ id: string; label: string; severity: string }>;
+    };
+    usageSummary?: HealthPayload["usageSummary"];
+    integrations?: {
+      connectors?: Array<{
+        id: string;
+        label: string;
+        phase: "M1" | "M2" | "M3";
+        status: "active" | "disabled" | "unconfigured";
+        hint?: string;
+      }>;
+    };
+    searchIndex?: {
+      ready?: boolean;
+      rowCount?: number;
+      auditRows?: number;
+      sessionRows?: number;
+      knowledgeRows?: number;
+      lastRebuildAt?: string;
+      truncated?: boolean;
+      stale?: boolean;
+      staleReason?: "index_missing" | "last_rebuild_unknown" | "older_than_24h";
+    };
+    p2?: {
+      toolSandbox?: {
+        enabled?: boolean;
+        source?: "env" | "policy" | "off";
+        sandboxedToolNames?: string[];
+      };
+      teamMemorySync?: {
+        allowed?: boolean;
+        reason?: string;
+      };
+    };
+    matterConsistency?: {
+      ok?: boolean;
+      issueCount?: number;
+      issues?: Array<{ matterId: string; code: string; message: string }>;
+    };
+    taskDraftConsistency?: {
+      ok?: boolean;
+      issueCount?: number;
+      issues?: Array<{ taskId: string; code: string; message: string }>;
+    };
+    /** 权威库端点契约（同步；未配置 / 无效 / 已配置 / 演示语料就绪 / 适配器未实现） */
+    authorityCorpus?: {
+      configured?: boolean;
+      status?: "unset" | "invalid" | "configured" | "sample-ready" | "unimplemented";
+      endpointHost?: string | null;
+      authConfigured?: boolean;
+      provider?: "open" | "generic" | "pkulaw" | "lexis";
+      providerLabel?: string;
+      message?: string;
+      envKey?: string;
+      authEnvKey?: string;
+      providerEnvKey?: string;
+    };
+    authorityUsage?: {
+      day?: string;
+      ok?: number;
+      error?: number;
+      total?: number;
+      message?: string;
+    };
+    multitaskObservability?: {
+      windowDays?: number;
+      jobsTotal?: number;
+      jobsInWindow?: number;
+      leadTimeP50Ms?: number | null;
+      leadTimeP90Ms?: number | null;
+      retryRate?: number;
+      cancelRate?: number;
+      failureRate?: number;
+      conflictRate?: number;
+      notes?: string[];
+    };
+    reasoningGraphCoverage?: {
+      requiredDraftCount?: number;
+      withSnapshotCount?: number;
+      ratio?: number | null;
+    };
+    /** Skills E4 / E10-lite */
+    citationMode?: "grounded" | "assisted" | "off";
+    citationModeActive?: boolean;
+    triageRulesLoaded?: boolean;
+    triageRuleCount?: number;
+    productMetricsSummary?: {
+      total?: number;
+      triageConfirmed?: number;
+      gateFailures?: number;
+      firstPassOk?: number;
+      rewrites?: number;
+      rewriteAmplitudeSamples?: number;
+    };
+    privateDeployChecklist?: {
+      applicable?: boolean;
+      passCount?: number;
+      total?: number;
+      items?: Array<{ id: string; label: string; ok: boolean; detail?: string }>;
+    };
+    fleetPlaybooksLoaded?: boolean;
+    fleetPlaybookCount?: number;
+    judgmentHardControls?: {
+      intakeSoftAsk?: boolean;
+      updateDraftAmplitudeSoft?: boolean;
+      emptyRedlineHard?: boolean;
+      sendEmailApprovalHard?: boolean;
+    };
+  };
+  citationMode?: "grounded" | "assisted" | "off";
+  citationModeActive?: boolean;
+  triageRulesLoaded?: boolean;
+  triageRuleCount?: number;
+  fleetPlaybooksLoaded?: boolean;
+  fleetPlaybookCount?: number;
+  agentMandatoryRulesActive?: boolean;
+  agentMandatoryRulesTruncated?: boolean;
+  promptSections?: Array<{
+    id: string;
+    title: string;
+    always: boolean;
+    cache?: "static" | "session" | "turn";
+  }>;
+  capabilityEnvelope?: {
+    contextTokens?: number | null;
+    maxOutputTokens?: number | null;
+    temperature?: number | null;
+    toolCallsPerTurn?: number | null;
+    maxHistoryMessages?: number | null;
+  };
 };
 
 export type TaskRow = {
@@ -67,6 +261,26 @@ export type CollabEvent = {
   timestamp: string;
 };
 
+export type GateHistoryItem = {
+  eventId: string;
+  taskId: string;
+  timestamp: string;
+  actor: string;
+  actorId?: string;
+  source: string;
+  executionState?: {
+    phase: string;
+    status: string;
+    detail?: string;
+  };
+  gateDecisions: Array<{
+    gate: string;
+    decision: string;
+    reason?: string;
+    category?: "safety_hard" | "judgment_soft";
+  }>;
+};
+
 export type PresetRow = {
   id: string;
   displayName: string;
@@ -116,14 +330,17 @@ export async function loadAssistantsPayload(apiBase: string): Promise<{
 export async function loadCollaborationPayload(apiBase: string): Promise<{
   delegations: DelegationRow[];
   events: CollabEvent[];
+  gateHistory: GateHistoryItem[];
 }> {
-  const [dr, er] = await Promise.all([
+  const [dr, er, gh] = await Promise.all([
     apiGetJson<{ ok?: boolean; delegations?: DelegationRow[] }>(apiBase, "/api/delegations"),
     apiGetJson<{ ok?: boolean; events?: CollabEvent[] }>(apiBase, "/api/collaboration-events"),
+    apiGetJson<{ ok?: boolean; items?: GateHistoryItem[] }>(apiBase, "/api/platform/gate-history?limit=60"),
   ]);
   return {
     delegations: dr.ok && Array.isArray(dr.delegations) ? dr.delegations : [],
     events: er.ok && Array.isArray(er.events) ? er.events : [],
+    gateHistory: gh.ok && Array.isArray(gh.items) ? gh.items : [],
   };
 }
 

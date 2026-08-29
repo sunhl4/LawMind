@@ -132,4 +132,46 @@ describe("handleTemplateRoutes", () => {
     expect(cap.status).toBe(400);
     expect(cap.json()).toMatchObject({ ok: false });
   });
+
+  it("POST /api/templates/register accepts absolutePath outside workspace", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-tpl-abs-ws-"));
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-tpl-abs-src-"));
+    tempDirs.push(workspaceDir, outsideDir);
+    fs.mkdirSync(path.join(workspaceDir, "lawmind", "templates"), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspaceDir, "lawmind", "templates", "index.json"),
+      JSON.stringify({ templates: [] }),
+      "utf8",
+    );
+    const absDocx = path.join(outsideDir, "firm-letter.docx");
+    // Minimal zip-like bytes are enough for copy; fill/scan not exercised here.
+    fs.writeFileSync(absDocx, "PK\u0003\u0004fake-docx");
+
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+    const cap = createResponseCapture();
+    const ok = await handleTemplateRoutes({
+      ctx,
+      req: createJsonRequest("POST", {
+        id: "upload/firm-letter",
+        label: "所函",
+        format: "docx",
+        absolutePath: absDocx,
+      }),
+      res: cap.res,
+      url: new URL("http://127.0.0.1/api/templates/register"),
+      pathname: "/api/templates/register",
+      c: {},
+    });
+    expect(ok).toBe(true);
+    expect(cap.status).toBe(200);
+    expect(cap.json()).toMatchObject({
+      ok: true,
+      template: { id: "upload/firm-letter", label: "所函", format: "docx" },
+    });
+  });
 });

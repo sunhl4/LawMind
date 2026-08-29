@@ -1,4 +1,30 @@
 import type { AuditEvent, ArtifactDraft, MatterIndex, ReviewStatus, TaskRecord } from "../types.js";
+import type { DeliverableLifecycleStatus } from "./deliverable-lifecycle.js";
+import {
+  classifyAudience,
+  classifyDeliverableKind,
+  deriveDeliverableStatus,
+  deriveMatterSensitivity,
+  deriveMatterStatus,
+  deriveMatterTitle,
+  deriveNextActions,
+  deriveStrategyStatus,
+  needsEvidenceFollowup,
+  queuePriorityFromRisk,
+} from "./derive.js";
+
+export {
+  classifyAudience,
+  classifyDeliverableKind,
+  deriveDeliverableStatus,
+  deriveMatterSensitivity,
+  deriveMatterStatus,
+  deriveMatterTitle,
+  deriveNextActions,
+  deriveStrategyStatus,
+  needsEvidenceFollowup,
+  queuePriorityFromRisk,
+} from "./derive.js";
 
 export type MatterStatus =
   | "intake"
@@ -42,10 +68,16 @@ export type Deliverable = {
   taskId?: string;
   kind: DeliverableKind;
   audience: "internal" | "client" | "counterparty" | "court" | "unknown";
-  status: "planned" | "drafting" | "pending_review" | "approved" | "rendered" | "blocked";
+  status: DeliverableLifecycleStatus;
   templateId?: string;
   currentDraftTaskId?: string;
   currentReviewStatus?: ReviewStatus;
+  /** Human responsibility chain; optional for legacy records. */
+  ownerLawyerId?: string;
+  reviewerId?: string;
+  approvedBy?: string;
+  deliveredBy?: string;
+  deliveredAt?: string;
   blockingReasons: string[];
   createdAt: string;
   updatedAt: string;
@@ -99,6 +131,11 @@ export type WorkQueueItem = {
   detail?: string;
   relatedTaskId?: string;
   relatedDeliverableId?: string;
+  dependsOn?: string[];
+  blockedBy?: string[];
+  blockedReason?: string;
+  /** Ralph-style phase label (plan / research / draft / review / render). */
+  phase?: "plan" | "research" | "draft" | "review" | "render";
   createdAt: string;
   updatedAt: string;
 };
@@ -129,125 +166,6 @@ export type MatterReadModel = {
   source: MatterIndex;
 };
 
-function classifyDeliverableKind(draft: ArtifactDraft): DeliverableKind {
-  const templateId = draft.templateId.toLowerCase();
-  const text = `${draft.title}\n${draft.summary}\n${templateId}`.toLowerCase();
-  if (text.includes("contract")) {
-    return "contract-review";
-  }
-  if (text.includes("demand") || text.includes("律师函")) {
-    return "demand-letter";
-  }
-  if (text.includes("litigation") || text.includes("诉讼")) {
-    return "litigation-outline";
-  }
-  if (text.includes("brief") || draft.output === "pptx") {
-    return "client-brief";
-  }
-  if (text.includes("timeline") || text.includes("时间线")) {
-    return "evidence-timeline";
-  }
-  if (text.includes("memo") || text.includes("意见")) {
-    return "legal-memo";
-  }
-  return "general-document";
-}
-
-function classifyAudience(audience?: string): Deliverable["audience"] {
-  const value = audience?.trim().toLowerCase();
-  if (!value) {
-    return "unknown";
-  }
-  if (value.includes("client") || value.includes("客户")) {
-    return "client";
-  }
-  if (value.includes("court") || value.includes("法院")) {
-    return "court";
-  }
-  if (value.includes("counterparty") || value.includes("对方")) {
-    return "counterparty";
-  }
-  if (value.includes("internal") || value.includes("内部") || value.includes("lawyer")) {
-    return "internal";
-  }
-  return "unknown";
-}
-
-function deriveDeliverableStatus(draft: ArtifactDraft): Deliverable["status"] {
-  if (draft.outputPath) {
-    return "rendered";
-  }
-  if (draft.reviewStatus === "approved") {
-    return "approved";
-  }
-  if (draft.reviewStatus === "pending") {
-    return "pending_review";
-  }
-  if (draft.reviewStatus === "rejected" || draft.reviewStatus === "modified") {
-    return "blocked";
-  }
-  return "drafting";
-}
-
-function deriveMatterStatus(index: MatterIndex): MatterStatus {
-  if (index.tasks.length === 0 && index.drafts.length === 0) {
-    return "intake";
-  }
-  if (index.drafts.some((draft) => draft.reviewStatus === "pending")) {
-    return "under_review";
-  }
-  if (index.openTasks.length > 0) {
-    return "active";
-  }
-  if (index.renderedTasks.length > 0) {
-    return "delivered";
-  }
-  return "active";
-}
-
-function deriveStrategyStatus(index: MatterIndex): Matter["strategyStatus"] {
-  if (!index.caseMemory.trim()) {
-    return "missing";
-  }
-  if (index.coreIssues.length === 0 && index.taskGoals.length === 0) {
-    return "draft";
-  }
-  return "approved";
-}
-
-function deriveMatterTitle(index: MatterIndex): string {
-  return index.coreIssues[0] ?? index.taskGoals[0] ?? index.matterId;
-}
-
-function deriveMatterSensitivity(index: MatterIndex): Matter["sensitivity"] {
-  if (index.riskNotes.length >= 3) {
-    return "high";
-  }
-  return "normal";
-}
-
-function deriveNextActions(index: MatterIndex): string[] {
-  const fromTasks = index.openTasks.slice(0, 5).map((task) => `${task.status}: ${task.summary}`);
-  if (fromTasks.length > 0) {
-    return fromTasks;
-  }
-  return index.taskGoals.slice(0, 5);
-}
-
-function queuePriorityFromRisk(riskLevel?: TaskRecord["riskLevel"]): WorkQueueItem["priority"] {
-  if (riskLevel === "high") {
-    return "critical";
-  }
-  if (riskLevel === "medium") {
-    return "high";
-  }
-  return "normal";
-}
-
-function needsEvidenceFollowup(text: string): boolean {
-  return /(待补充|待确认|缺失|补充|核对|证据)/.test(text);
-}
-
 export function buildDeliverableFromDraft(
   draft: ArtifactDraft,
   task?: TaskRecord,
@@ -277,6 +195,8 @@ export function buildDeliverableFromDraft(
     templateId: draft.templateId,
     currentDraftTaskId: draft.taskId,
     currentReviewStatus: draft.reviewStatus,
+    reviewerId: draft.reviewedBy,
+    approvedBy: draft.reviewStatus === "approved" ? draft.reviewedBy : undefined,
     blockingReasons,
     createdAt,
     updatedAt,

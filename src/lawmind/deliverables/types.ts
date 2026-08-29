@@ -45,6 +45,11 @@ export type PlaceholderRule = {
 export type ReasoningGateSpec = {
   /** 是否必须通过 reasoning gate（默认 false） */
   required: boolean;
+  /**
+   * 草稿落盘前是否必须写入 LegalReasoningGraph 侧车（`*.reasoning.json`）。
+   * 未显式设置时：`required === true` 则默认为 true。
+   */
+  requiresReasoningGraphAtDraft?: boolean;
   /** 至少包含的 IRAC 争点数（默认 1） */
   minIssues?: number;
   /** 必须解决权威冲突（authorityConflicts.unresolved 必须为空，默认 false） */

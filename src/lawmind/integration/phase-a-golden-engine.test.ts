@@ -54,6 +54,7 @@ describe("Phase A golden engine path", () => {
       title: "Golden memo",
       output: "docx",
       templateId: "word/legal-memo-default",
+      deliverableType: "document.general",
       summary: "Golden summary",
       sections: [{ heading: "结论", body: "测试正文", citations: ["s1"] }],
       reviewNotes: [],

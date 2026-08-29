@@ -4,7 +4,9 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
 } from "react";
 
 export type LawmindChatSessionTab = {
@@ -21,6 +23,8 @@ export type LawmindChatSessionTabsProps = {
   onNewChat: () => void | Promise<void>;
   onRename: (sessionId: string, title: string) => void | Promise<void>;
   onDelete: (sessionId: string) => void | Promise<void>;
+  /** Right-side tools (history, filters) — keeps one chrome row. */
+  trailing?: ReactNode;
 };
 
 type ContextMenuState = { x: number; y: number; sessionId: string; title: string };
@@ -28,8 +32,8 @@ type ContextMenuState = { x: number; y: number; sessionId: string; title: string
 function PlusIcon() {
   return (
     <svg
-      width="14"
-      height="14"
+      width="12"
+      height="12"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -51,7 +55,10 @@ export function LawmindChatSessionTabs({
   onNewChat,
   onRename,
   onDelete,
+  trailing,
 }: LawmindChatSessionTabsProps) {
+  const tabListId = "lawmind-chat-session-tabs";
+  const panelId = "lawmind-chat-messages-panel";
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -150,8 +157,35 @@ export function LawmindChatSessionTabs({
     [onSelect],
   );
 
+  const handleTabKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLButtonElement>, currentSessionId: string) => {
+      if (sessions.length <= 1) {
+        return;
+      }
+      const currentIndex = sessions.findIndex((item) => item.sessionId === currentSessionId);
+      if (currentIndex < 0) {
+        return;
+      }
+      if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+        event.preventDefault();
+        const step = event.key === "ArrowRight" ? 1 : -1;
+        const nextIndex = (currentIndex + step + sessions.length) % sessions.length;
+        void onSelect(sessions[nextIndex]?.sessionId ?? currentSessionId);
+      }
+      if (event.key === "Home") {
+        event.preventDefault();
+        void onSelect(sessions[0]?.sessionId ?? currentSessionId);
+      }
+      if (event.key === "End") {
+        event.preventDefault();
+        void onSelect(sessions[sessions.length - 1]?.sessionId ?? currentSessionId);
+      }
+    },
+    [onSelect, sessions],
+  );
+
   return (
-    <div className="lm-chat-session-tabs" role="tablist" aria-label="对话">
+    <div className="lm-chat-session-tabs" role="tablist" aria-label="对话" id={tabListId}>
       <div ref={scrollRef} className="lm-chat-session-tabs-scroll">
         {loading && sessions.length === 0 ? (
           <span className="lm-chat-session-tabs-hint">加载中…</span>
@@ -192,11 +226,16 @@ export function LawmindChatSessionTabs({
               <button
                 type="button"
                 role="tab"
+                id={`lawmind-chat-tab-${s.sessionId}`}
                 aria-selected={active}
+                aria-controls={panelId}
                 aria-haspopup="menu"
+                aria-label={`切换到对话：${s.title}`}
                 className="lm-chat-session-tab"
                 title={`${s.title} — 左键切换；右键可重命名或删除`}
                 disabled={Boolean(busy)}
+                tabIndex={active ? 0 : -1}
+                onKeyDown={(event) => handleTabKeyDown(event, s.sessionId)}
                 onClick={() => void onSelect(s.sessionId)}
               >
                 <span className="lm-chat-session-tab-label">{s.title}</span>
@@ -216,6 +255,8 @@ export function LawmindChatSessionTabs({
         <PlusIcon />
       </button>
 
+      {trailing ? <div className="lm-chat-session-tabs-trailing">{trailing}</div> : null}
+
       {contextMenu ? (
         <div
           ref={menuRef}
@@ -226,7 +267,6 @@ export function LawmindChatSessionTabs({
             position: "fixed",
             left: contextMenu.x,
             top: contextMenu.y,
-            zIndex: 99_999,
           }}
           onMouseDown={(e) => e.stopPropagation()}
         >

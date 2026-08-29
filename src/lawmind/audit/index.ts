@@ -12,8 +12,11 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { isFeatureEnabled } from "../policy/edition.js";
+import { readWorkspacePolicyFile } from "../policy/workspace-policy.js";
 import { listTaskRecords } from "../tasks/index.js";
 import type { AuditEvent, AuditEventKind } from "../types.js";
+import { attachHashChain, type AuditEventWithIntegrity } from "./hash-chain.js";
 
 // ─────────────────────────────────────────────
 // 工具
@@ -37,14 +40,30 @@ export type EmitParams = {
   actor: AuditEvent["actor"];
   actorId?: string;
   detail?: string;
+  /** Firm/Private: append SHA-256 hash chain fields for tamper detection. */
+  integrityChain?: boolean;
 };
 
 /**
  * 生成并持久化一条审计事件。
  * 调用方不需要管 eventId 和 timestamp，由此函数填写。
  */
+/** Default hash-chain when Firm/Private and caller did not set integrityChain explicitly. */
+export function resolveDefaultAuditIntegrityChain(auditDir: string): boolean {
+  const workspaceDir = path.dirname(path.resolve(auditDir));
+  const policy = readWorkspacePolicyFile(workspaceDir);
+  return isFeatureEnabled("auditIntegrityExport", { policy });
+}
+
 export async function emit(auditDir: string, params: EmitParams): Promise<AuditEvent> {
-  const event: AuditEvent = {
+  const integrityChain =
+    params.integrityChain === true
+      ? true
+      : params.integrityChain === false
+        ? false
+        : resolveDefaultAuditIntegrityChain(auditDir);
+
+  let event: AuditEvent = {
     eventId: randomUUID(),
     taskId: params.taskId,
     kind: params.kind,
@@ -54,14 +73,49 @@ export async function emit(auditDir: string, params: EmitParams): Promise<AuditE
     timestamp: new Date().toISOString(),
   };
 
-  await persist(auditDir, event);
+  await persist(auditDir, event, integrityChain);
   return event;
 }
 
-async function persist(auditDir: string, event: AuditEvent): Promise<void> {
-  await fs.mkdir(auditDir, { recursive: true });
-  const line = JSON.stringify(event) + "\n";
-  await fs.appendFile(todayAuditPath(auditDir), line, "utf8");
+/**
+ * 按日文件串行写：hash-chain 的计算（attach）与 append 必须保持调用序，
+ * 否则并发 emit 可能让文件行序与链序不一致（链分叉、校验误报）。
+ */
+const writeQueueByFile = new Map<string, Promise<void>>();
+
+async function persist(auditDir: string, event: AuditEvent, integrityChain = false): Promise<void> {
+  const filePath = todayAuditPath(auditDir);
+  const previous = writeQueueByFile.get(filePath) ?? Promise.resolve();
+  const next = previous.then(() => appendAuditLine(filePath, event, integrityChain));
+  // 队列承载永不 reject（错误仍通过返回值抛给调用方）。
+  writeQueueByFile.set(
+    filePath,
+    next.catch(() => undefined),
+  );
+  return next;
+}
+
+async function appendAuditLine(
+  filePath: string,
+  event: AuditEvent,
+  integrityChain: boolean,
+): Promise<void> {
+  try {
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    const stored: AuditEvent | AuditEventWithIntegrity = integrityChain
+      ? attachHashChain(filePath, event)
+      : event;
+    const line = JSON.stringify(stored) + "\n";
+    await fs.appendFile(filePath, line, "utf8");
+  } catch (err: unknown) {
+    const e = err as NodeJS.ErrnoException | undefined;
+    // Concurrent workspace teardown / temp dir removal may delete `audit/` between
+    // mkdir and append; treat as best-effort loss instead of bubbling unhandled rejects.
+    if (e?.code === "ENOENT") {
+      return;
+    }
+    throw err;
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -83,13 +137,27 @@ export async function readAuditLog(auditDir: string, date?: string): Promise<Aud
 }
 
 export async function readAllAuditLogs(auditDir: string): Promise<AuditEvent[]> {
+  return readRecentAuditLogs(auditDir, { maxDays: undefined, maxEvents: undefined });
+}
+
+/**
+ * 读取近期审计（按文件名日期倒序），避免多年工作区每次扫完全部 jsonl。
+ * maxDays 未设时读全部日期文件；maxEvents 未设时不截断条数。
+ */
+export async function readRecentAuditLogs(
+  auditDir: string,
+  opts?: { maxDays?: number; maxEvents?: number },
+): Promise<AuditEvent[]> {
   const files = await fs
     .readdir(auditDir)
     .then((entries) => entries.filter((name) => name.endsWith(".jsonl")).sort())
     .catch(() => [] as string[]);
 
+  const maxDays = opts?.maxDays;
+  const selected = typeof maxDays === "number" && maxDays > 0 ? files.slice(-maxDays) : files;
+
   const batches = await Promise.all(
-    files.map(async (name) => {
+    selected.map(async (name) => {
       const content = await fs.readFile(path.join(auditDir, name), "utf8").catch(() => "");
       return content
         .split("\n")
@@ -98,7 +166,12 @@ export async function readAllAuditLogs(auditDir: string): Promise<AuditEvent[]> 
     }),
   );
 
-  return batches.flat().toSorted((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const all = batches.flat().toSorted((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const maxEvents = opts?.maxEvents;
+  if (typeof maxEvents === "number" && maxEvents > 0 && all.length > maxEvents) {
+    return all.slice(-maxEvents);
+  }
+  return all;
 }
 
 // ─────────────────────────────────────────────
@@ -266,4 +339,57 @@ export async function buildComplianceAuditMarkdown(
   ].join("\n");
   const body = formatAuditExportMarkdown(workspaceDir, filtered, filters);
   return `${cover}\n${body}`;
+}
+
+// ─────────────────────────────────────────────
+// Replay JSON export (Agent Replay style)
+// ─────────────────────────────────────────────
+
+export type AuditReplayExport = {
+  schemaVersion: 1;
+  generatedAt: string;
+  workspaceDir: string;
+  filters: AuditExportFilters;
+  summary: { total: number; byKind: Record<string, number> };
+  events: AuditEvent[];
+  tasks: Record<string, AuditEvent[]>;
+};
+
+function countByKind(events: AuditEvent[]): Record<string, number> {
+  const m: Record<string, number> = {};
+  for (const e of events) {
+    m[e.kind] = (m[e.kind] ?? 0) + 1;
+  }
+  return m;
+}
+
+function groupByTaskId(events: AuditEvent[]): Record<string, AuditEvent[]> {
+  const tasks: Record<string, AuditEvent[]> = {};
+  for (const e of events) {
+    const list = tasks[e.taskId] ?? [];
+    list.push(e);
+    tasks[e.taskId] = list;
+  }
+  return tasks;
+}
+
+/**
+ * Machine-readable audit timeline for replay tooling (read-only).
+ */
+export async function buildAuditReplayExport(
+  workspaceDir: string,
+  filters: AuditExportFilters = {},
+): Promise<AuditReplayExport> {
+  const auditDir = path.join(workspaceDir, "audit");
+  const all = await readAllAuditLogs(auditDir);
+  const filtered = filterAuditEventsForExport(all, workspaceDir, filters);
+  return {
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    workspaceDir,
+    filters,
+    summary: { total: filtered.length, byKind: countByKind(filtered) },
+    events: filtered,
+    tasks: groupByTaskId(filtered),
+  };
 }

@@ -1,9 +1,20 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { z } from "zod";
 import {
   listApprovalRequests,
   listWorkQueueItems,
 } from "../../../src/lawmind/application/services/queue-service.js";
+import {
+  listQueueItemsForMatter,
+  openQueueItem,
+  transitionQueueItem,
+} from "../../../src/lawmind/application/services/queue-write-service.js";
+import { updateMatterProfile } from "../../../src/lawmind/application/services/matter-write-service.js";
+import {
+  buildMatterProfileView,
+  parseMatterCaseProfileFields,
+} from "../../../src/lawmind/cases/matter-profile.js";
 import {
   buildMatterIndex,
   buildMatterOverview,
@@ -20,9 +31,15 @@ import {
   writeCaseSubdirRole,
   type CaseSubdirRole,
 } from "../../../src/lawmind/cases/index.js";
+import { readTeamRoster, writeTeamRoster } from "../../../src/lawmind/cases/team-roster.js";
+import { isAdhocMeetingMatterId } from "../../../src/lawmind/cases/team-meeting-ids.js";
 import type { DraftCitationIntegrityView } from "../../../src/lawmind/drafts/index.js";
 import { resolveDraftCitationIntegrity } from "../../../src/lawmind/drafts/index.js";
-import { emit } from "../../../src/lawmind/audit/index.js";
+import { emit, readRecentAuditLogs } from "../../../src/lawmind/audit/index.js";
+import {
+  buildMatterReviewMatrix,
+  exportReviewMatrixCsv,
+} from "../../../src/lawmind/matter/review-matrix.js";
 import {
   appendCaseArtifact,
   appendCaseCoreIssue,
@@ -30,11 +47,57 @@ import {
   appendCaseTaskGoal,
   upsertMatterDisplayName,
 } from "../../../src/lawmind/memory/index.js";
+import { loadMatter, saveMatter } from "../../../src/lawmind/adapters/matter-storage/index.js";
+import { repairMatterProjections } from "../../../src/lawmind/application/matter-consistency.js";
 import { isProductInsightsCollectionEnabled } from "../../../src/lawmind/policy/edition.js";
 import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspace-policy.js";
+import { buildMatterSessionTimeline } from "../../../src/lawmind/insights/session-timeline.js";
 import { listTaskRecords } from "../../../src/lawmind/tasks/index.js";
+import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
+import {
+  matterCaseNoteRequestSchema,
+  matterCreatePostSchema,
+  matterDeletePostSchema,
+  matterDisplayNamePostSchema,
+  matterInteractionRequestSchema,
+  matterProfilePostSchema,
+  matterRolePostSchema,
+} from "./lawmind-api-schemas.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
-import { readJsonBody, resolveDesktopActorId, sendJson } from "./lawmind-server-helpers.js";
+import { resolveDesktopActorId, sendJson } from "./lawmind-server-helpers.js";
+
+const teamRosterPutSchema = z.object({
+  matterId: z.string().min(1),
+  participantAssistantIds: z.array(z.string()),
+  synthesizerAssistantId: z.string().nullable().optional(),
+});
+
+function matterGovernanceLabel(record: ReturnType<typeof loadMatter>): string {
+  if (!record) {
+    return "";
+  }
+  const status =
+    record.status === "intake"
+      ? "接洽中"
+      : record.status === "active"
+        ? "办理中"
+        : record.status === "under_review"
+          ? "审核中"
+          : record.status === "delivered"
+            ? "已交付"
+            : record.status === "closed"
+              ? "已结案"
+              : record.status === "waiting_on_client"
+                ? "等待客户"
+                : "等待团队";
+  const sensitivity =
+    record.sensitivity === "restricted"
+      ? "严格隔离"
+      : record.sensitivity === "high"
+        ? "高度敏感"
+        : "普通保密";
+  return `${status} · ${sensitivity}`;
+}
 
 /** 解析 `<workspace>/cases/<matterId>` 并防止穿越 `cases` 根目录。 */
 function resolvedMatterCaseDir(workspaceDir: string, matterId: string): string {
@@ -79,7 +142,7 @@ function describeMatterInteraction(params: {
   const surface = params.surface?.trim() || "matter-workbench";
   const label = params.label?.trim() || "未命名动作";
   if (params.action === "open_review") {
-    return `案件工作台动作：从 ${surface} 进入审核台；来源 ${label}。`;
+    return `案件工作台动作：从 ${surface} 打开改稿；来源 ${label}。`;
   }
   if (params.action === "save_upgrade_suggestion") {
     const targetLabel = params.target === "assistant" ? "助手档案" : "律师档案";
@@ -104,7 +167,7 @@ function describeMatterInteraction(params: {
 
 function parseMatterInteractionDetail(detail?: string): MatterInteractionParsed {
   const raw = detail?.trim() ?? "";
-  const reviewMatch = /^案件工作台动作：从 (.+?) 进入审核台；来源 (.+)。$/.exec(raw);
+  const reviewMatch = /^案件工作台动作：从 (.+?) (?:打开改稿(?:预览)?|进入(?:审核台|文书台|改稿))；来源 (.+)。$/.exec(raw);
   if (reviewMatch) {
     return {
       action: "open_review",
@@ -145,15 +208,35 @@ async function buildMatterInteractionRollup(workspaceDir: string): Promise<{
   }>;
 }> {
   const matterIds = await listMatterIds(workspaceDir);
-  const indexes = await Promise.all(matterIds.map((matterId) => buildMatterIndex(workspaceDir, matterId)));
+  const taskToMatter = new Map(
+    listTaskRecords(workspaceDir)
+      .filter((t) => t.matterId)
+      .map((t) => [t.taskId, t.matterId as string]),
+  );
+  // 一次读近期 audit，再按 matter 分桶——避免 N× buildMatterIndex 全量扫盘
+  const recentAudit = await readRecentAuditLogs(`${workspaceDir}/audit`, {
+    maxDays: 180,
+    maxEvents: 20_000,
+  });
+  const byMatter = new Map<string, typeof recentAudit>();
+  for (const event of recentAudit) {
+    const mid = taskToMatter.get(event.taskId);
+    if (!mid) {
+      continue;
+    }
+    const list = byMatter.get(mid) ?? [];
+    list.push(event);
+    byMatter.set(mid, list);
+  }
   const buckets = new Map<
     string,
     { title: string; matterIds: Set<string>; totalEvents: number; latestAt?: string }
   >();
-  for (const index of indexes) {
+  for (const matterId of matterIds) {
+    const auditEvents = byMatter.get(matterId) ?? [];
     // W10：兼容新旧 kind；同 taskId+detail+timestamp 视为重复，仅取一条。
     const seen = new Set<string>();
-    const interactions = index.auditEvents
+    const interactions = auditEvents
       .filter((event) => event.kind === "ui.matter_action" || event.kind === "ux.matter_action")
       .filter((event) => {
         const sig = `${event.taskId ?? ""}|${event.timestamp ?? ""}|${event.detail ?? ""}`;
@@ -217,7 +300,7 @@ async function buildMatterInteractionRollup(workspaceDir: string): Promise<{
         totalEvents: 0,
         latestAt: undefined,
       };
-      current.matterIds.add(index.matterId);
+      current.matterIds.add(matterId);
       current.totalEvents += theme.totalEvents;
       const latest = interactions.map((item) => item.event.timestamp).filter(Boolean).toSorted().at(-1);
       if (latest && (!current.latestAt || latest > current.latestAt)) {
@@ -257,6 +340,171 @@ export async function handleMatterRoutes({
 }: LawmindRouteContext): Promise<boolean> {
   const { workspaceDir } = ctx;
 
+  {
+    const opsMatch = pathname.match(/^\/api\/matters\/([^/]+)\/ops$/);
+    if (opsMatch) {
+      const matterId = decodeURIComponent(opsMatch[1] ?? "");
+      if (!isValidMatterId(matterId)) {
+        sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+        return true;
+      }
+      const {
+        appendMatterRaid,
+        readMatterOpsSummary,
+        writeMatterOpsPlan,
+        writeMatterOpsScope,
+      } = await import("../../../src/lawmind/matter-ops/index.js");
+      if (req.method === "GET") {
+        sendJson(res, 200, { ok: true, ops: readMatterOpsSummary(workspaceDir, matterId) }, c);
+        return true;
+      }
+      if (req.method === "PATCH" || req.method === "POST") {
+        const { parseJsonBodyZod, isInvalidRequestBodyError } = await import("./lawmind-api-parse.js");
+        const { z } = await import("zod");
+        const schema = z.object({
+          baseline: z.string().optional(),
+          plan: z
+            .object({
+              phases: z.array(
+                z.object({
+                  id: z.string(),
+                  title: z.string(),
+                  owner: z.string().optional(),
+                  dueAt: z.string().optional(),
+                }),
+              ),
+              milestones: z.array(
+                z.object({
+                  id: z.string(),
+                  title: z.string(),
+                  dueAt: z.string().optional(),
+                }),
+              ),
+            })
+            .optional(),
+          raid: z
+            .object({
+              kind: z.enum(["risk", "assumption", "issue", "decision"]),
+              text: z.string().min(1),
+              status: z.enum(["open", "closed"]).optional(),
+            })
+            .optional(),
+        });
+        try {
+          const body = await parseJsonBodyZod(req, schema);
+          if (body.baseline != null) {
+            writeMatterOpsScope(workspaceDir, matterId, body.baseline);
+          }
+          if (body.plan) {
+            writeMatterOpsPlan(workspaceDir, matterId, body.plan);
+          }
+          if (body.raid) {
+            appendMatterRaid(workspaceDir, matterId, body.raid);
+          }
+          sendJson(res, 200, { ok: true, ops: readMatterOpsSummary(workspaceDir, matterId) }, c);
+        } catch (err) {
+          if (isInvalidRequestBodyError(err)) {
+            sendJson(res, 400, { ok: false, error: "invalid ops body" }, c);
+            return true;
+          }
+          throw err;
+        }
+        return true;
+      }
+    }
+  }
+
+  {
+    const theoryMatch = pathname.match(/^\/api\/matters\/([^/]+)\/theory$/);
+    if (theoryMatch) {
+      const matterId = decodeURIComponent(theoryMatch[1] ?? "");
+      if (!isValidMatterId(matterId)) {
+        sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+        return true;
+      }
+      const { readMatterTheoryLite, writeMatterTheoryLite } = await import(
+        "../../../src/lawmind/matter-ops/index.js"
+      );
+      if (req.method === "GET") {
+        sendJson(res, 200, { ok: true, theory: readMatterTheoryLite(workspaceDir, matterId) }, c);
+        return true;
+      }
+      if (req.method === "PUT" || req.method === "POST") {
+        const { parseJsonBodyZod, isInvalidRequestBodyError } = await import("./lawmind-api-parse.js");
+        const { z } = await import("zod");
+        try {
+          const body = await parseJsonBodyZod(
+            req,
+            z.object({
+              issues: z.string(),
+              authorities: z.string(),
+              openQuestions: z.string(),
+              anchored: z.boolean().optional(),
+            }),
+          );
+          const theory = writeMatterTheoryLite(workspaceDir, matterId, {
+            issues: body.issues,
+            authorities: body.authorities,
+            openQuestions: body.openQuestions,
+            anchored: body.anchored ?? false,
+          });
+          sendJson(res, 200, { ok: true, theory }, c);
+        } catch (err) {
+          if (isInvalidRequestBodyError(err)) {
+            sendJson(res, 400, { ok: false, error: "invalid theory body" }, c);
+            return true;
+          }
+          throw err;
+        }
+        return true;
+      }
+    }
+  }
+
+  if (pathname === "/api/matters/team-roster" && req.method === "GET") {
+    const matterId = url.searchParams.get("matterId")?.trim() ?? "";
+    if (!isValidMatterId(matterId)) {
+      sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+      return true;
+    }
+    if (isAdhocMeetingMatterId(matterId)) {
+      sendJson(res, 200, { ok: true, roster: null, adhoc: true }, c);
+      return true;
+    }
+    const roster = readTeamRoster(workspaceDir, matterId);
+    sendJson(res, 200, { ok: true, roster }, c);
+    return true;
+  }
+
+  if (pathname === "/api/matters/team-roster" && req.method === "PUT") {
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, teamRosterPutSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid request" }, c);
+        return true;
+      }
+      throw err;
+    }
+    const matterId = body.matterId.trim();
+    if (!isValidMatterId(matterId) || isAdhocMeetingMatterId(matterId)) {
+      sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+      return true;
+    }
+    try {
+      const roster = writeTeamRoster(workspaceDir, matterId, {
+        participantAssistantIds: body.participantAssistantIds,
+        synthesizerAssistantId: body.synthesizerAssistantId,
+      });
+      sendJson(res, 200, { ok: true, roster }, c);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      sendJson(res, 400, { ok: false, error: msg }, c);
+    }
+    return true;
+  }
+
   if (pathname === "/api/matters/team-meeting" && req.method === "GET") {
     const matterId = url.searchParams.get("matterId")?.trim() ?? "";
     if (!isValidMatterId(matterId)) {
@@ -285,24 +533,19 @@ export async function handleMatterRoutes({
   }
 
   if (pathname === "/api/matters/case-note" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as {
-      matterId?: string;
-      section?: "core_issue" | "risk" | "artifact" | "task_goal";
-      note?: string;
-    };
-    const matterId = typeof body.matterId === "string" ? body.matterId.trim() : "";
-    const section = typeof body.section === "string" ? body.section.trim() : "";
-    const note = typeof body.note === "string" ? body.note.trim() : "";
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, matterCaseNoteRequestSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid request" }, c);
+        return true;
+      }
+      throw err;
+    }
+    const { matterId, section, note } = body;
     if (!isValidMatterId(matterId)) {
       sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
-      return true;
-    }
-    if (!note) {
-      sendJson(res, 400, { ok: false, error: "note required" }, c);
-      return true;
-    }
-    if (!["core_issue", "risk", "artifact", "task_goal"].includes(section)) {
-      sendJson(res, 400, { ok: false, error: "invalid section" }, c);
       return true;
     }
     if (section === "core_issue") {
@@ -319,25 +562,21 @@ export async function handleMatterRoutes({
   }
 
   if (pathname === "/api/matters/interaction" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as {
-      matterId?: string;
-      taskId?: string;
-      action?: MatterInteractionAction;
-      surface?: string;
-      label?: string;
-      target?: "lawyer" | "assistant";
-      variant?: "conservative" | "standard" | "assertive";
-      section?: "core_issue" | "risk" | "artifact" | "task_goal";
-    };
-    const matterId = typeof body.matterId === "string" ? body.matterId.trim() : "";
-    const taskId = typeof body.taskId === "string" ? body.taskId.trim() : "";
-    const action = typeof body.action === "string" ? body.action.trim() : "";
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, matterInteractionRequestSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid request" }, c);
+        return true;
+      }
+      throw err;
+    }
+    const matterId = body.matterId;
+    const taskId = body.taskId ?? "";
+    const action = body.action;
     if (!isValidMatterId(matterId)) {
       sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
-      return true;
-    }
-    if (!["open_review", "save_upgrade_suggestion", "write_case_note"].includes(action)) {
-      sendJson(res, 400, { ok: false, error: "invalid action" }, c);
       return true;
     }
     const resolvedTaskId = resolveMatterInteractionTaskId(workspaceDir, matterId, taskId);
@@ -347,23 +586,11 @@ export async function handleMatterRoutes({
     }
     const detail = describeMatterInteraction({
       action: action as MatterInteractionAction,
-      surface: typeof body.surface === "string" ? body.surface : undefined,
-      label: typeof body.label === "string" ? body.label : undefined,
-      target:
-        body.target === "assistant" ? "assistant" : body.target === "lawyer" ? "lawyer" : undefined,
-      variant:
-        body.variant === "conservative" ||
-        body.variant === "assertive" ||
-        body.variant === "standard"
-          ? body.variant
-          : undefined,
-      section:
-        body.section === "artifact" ||
-        body.section === "core_issue" ||
-        body.section === "risk" ||
-        body.section === "task_goal"
-          ? body.section
-          : undefined,
+      surface: body.surface,
+      label: body.label,
+      target: body.target,
+      variant: body.variant,
+      section: body.section,
     });
     const auditDir = path.join(workspaceDir, "audit");
     const event = await emit(auditDir, {
@@ -421,9 +648,18 @@ export async function handleMatterRoutes({
   }
 
   if (pathname === "/api/matters/role" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as { matterId?: string; role?: string };
-    const mid = typeof body.matterId === "string" ? body.matterId.trim() : "";
-    const roleRaw = typeof body.role === "string" ? body.role.trim().toLowerCase() : "";
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, matterRolePostSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid request" }, c);
+        return true;
+      }
+      throw err;
+    }
+    const mid = body.matterId;
+    const roleRaw = body.role.toLowerCase();
     if (!mid || !isValidMatterId(mid)) {
       sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
       return true;
@@ -452,16 +688,126 @@ export async function handleMatterRoutes({
   }
 
   if (pathname === "/api/matters/create" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as { matterId?: string; displayName?: string };
-    const mid = typeof body.matterId === "string" ? body.matterId.trim() : "";
-    const displayName = typeof body.displayName === "string" ? body.displayName.trim() : "";
-    if (!mid) {
-      sendJson(res, 400, { ok: false, error: "matterId required" }, c);
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, matterCreatePostSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "matterId required" }, c);
+        return true;
+      }
+      throw err;
+    }
+    const mid = body.matterId;
+    const displayName = body.displayName ?? "";
+    const conflictCheckConfirmed = body.conflictCheckConfirmed === true;
+    const engagementAccepted = body.engagementAccepted === true;
+    try {
+      const result = await createMatterIfAbsent(workspaceDir, mid, {
+        ...(displayName ? { displayName } : {}),
+        ...(body.clientId ? { clientId: body.clientId } : {}),
+        ...(body.sensitivity ? { sensitivity: body.sensitivity } : {}),
+        status: conflictCheckConfirmed && engagementAccepted ? "active" : "intake",
+      });
+      if (!conflictCheckConfirmed) {
+        const existing = await listWorkQueueItems(workspaceDir, {
+          matterId: mid,
+          kind: "need_conflict_check",
+          status: "open",
+        });
+        if (existing.length === 0) {
+          openQueueItem(workspaceDir, {
+            matterId: mid,
+            kind: "need_conflict_check",
+            title: "完成利益冲突检查",
+            detail: "在正式接受委托和处理客户材料前，确认客户及相关方不存在利益冲突。",
+            priority: "high",
+          });
+        }
+      }
+      sendJson(res, 200, {
+        ok: true,
+        ...result,
+        status: conflictCheckConfirmed && engagementAccepted ? "active" : "intake",
+        conflictCheckRequired: !conflictCheckConfirmed,
+      }, c);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      sendJson(res, 400, { ok: false, error: msg }, c);
+    }
+    return true;
+  }
+
+  if (pathname === "/api/matters/profile" && req.method === "POST") {
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, matterProfilePostSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid profile body" }, c);
+        return true;
+      }
+      throw err;
+    }
+    const mid = body.matterId;
+    if (!isValidMatterId(mid)) {
+      sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
       return true;
     }
     try {
-      const result = await createMatterIfAbsent(workspaceDir, mid, displayName ? { displayName } : undefined);
-      sendJson(res, 200, { ok: true, ...result }, c);
+      const conflictOk = body.conflictCheckConfirmed === true;
+      const engagementOk = body.engagementAccepted === true;
+      let nextStatus = body.status;
+      if (conflictOk && engagementOk) {
+        nextStatus = "active";
+      }
+      const updated = await updateMatterProfile(workspaceDir, {
+        matterId: mid,
+        ...(body.title ? { title: body.title } : {}),
+        ...(body.clientId !== undefined ? { clientId: body.clientId } : {}),
+        ...(body.sensitivity ? { sensitivity: body.sensitivity } : {}),
+        ...(nextStatus ? { status: nextStatus } : {}),
+        ...(body.causeOfAction !== undefined ? { causeOfAction: body.causeOfAction } : {}),
+        ...(body.counterparty !== undefined ? { counterparty: body.counterparty } : {}),
+      });
+      if (!updated) {
+        sendJson(res, 404, { ok: false, error: "matter not found" }, c);
+        return true;
+      }
+      if (conflictOk) {
+        for (const item of listQueueItemsForMatter(workspaceDir, mid, {
+          kind: "need_conflict_check",
+          status: "open",
+        })) {
+          transitionQueueItem(workspaceDir, mid, item.queueItemId, "resolved");
+        }
+      } else if (body.conflictCheckConfirmed === false) {
+        const existing = listQueueItemsForMatter(workspaceDir, mid, {
+          kind: "need_conflict_check",
+          status: "open",
+        });
+        if (existing.length === 0) {
+          openQueueItem(workspaceDir, {
+            matterId: mid,
+            kind: "need_conflict_check",
+            title: "完成利益冲突检查",
+            detail: "在正式接受委托和处理客户材料前，确认客户及相关方不存在利益冲突。",
+            priority: "high",
+          });
+        }
+      }
+      const caseMemory = (await buildMatterIndex(workspaceDir, mid)).caseMemory;
+      const fromCase = parseMatterCaseProfileFields(caseMemory);
+      const profile = buildMatterProfileView({
+        matterId: updated.matterId,
+        title: updated.title,
+        clientId: updated.clientId ?? fromCase.clientIdFromCase,
+        sensitivity: updated.sensitivity,
+        status: updated.status,
+        causeOfAction: fromCase.causeOfAction,
+        counterparty: fromCase.counterparty,
+      });
+      sendJson(res, 200, { ok: true, profile, statusLine: matterGovernanceLabel(updated) }, c);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       sendJson(res, 400, { ok: false, error: msg }, c);
@@ -470,15 +816,20 @@ export async function handleMatterRoutes({
   }
 
   if (pathname === "/api/matters/display-name" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as { matterId?: string; displayName?: string };
-    const mid = typeof body.matterId === "string" ? body.matterId.trim() : "";
-    const label = typeof body.displayName === "string" ? body.displayName.trim() : "";
-    if (!mid || !isValidMatterId(mid)) {
-      sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
-      return true;
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, matterDisplayNamePostSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "displayName required" }, c);
+        return true;
+      }
+      throw err;
     }
-    if (!label) {
-      sendJson(res, 400, { ok: false, error: "displayName required" }, c);
+    const mid = body.matterId;
+    const label = body.displayName;
+    if (!isValidMatterId(mid)) {
+      sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
       return true;
     }
     if (label.length > 200) {
@@ -487,6 +838,10 @@ export async function handleMatterRoutes({
     }
     try {
       await upsertMatterDisplayName(workspaceDir, mid, label);
+      const record = loadMatter(workspaceDir, mid);
+      if (record && record.title.trim() !== label) {
+        saveMatter(workspaceDir, { ...record, title: label });
+      }
       sendJson(res, 200, { ok: true, matterId: mid, displayName: label }, c);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -495,10 +850,30 @@ export async function handleMatterRoutes({
     return true;
   }
 
+  if (pathname === "/api/matters/repair-projections" && req.method === "POST") {
+    try {
+      const repaired = await repairMatterProjections(workspaceDir);
+      sendJson(res, 200, { ok: true, repaired }, c);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      sendJson(res, 500, { ok: false, error: msg }, c);
+    }
+    return true;
+  }
+
   if (pathname === "/api/matters/delete" && req.method === "POST") {
-    const body = (await readJsonBody(req)) as { matterId?: string };
-    const mid = typeof body.matterId === "string" ? body.matterId.trim() : "";
-    if (!mid || !isValidMatterId(mid)) {
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, matterDeletePostSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+        return true;
+      }
+      throw err;
+    }
+    const mid = body.matterId;
+    if (!isValidMatterId(mid)) {
       sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
       return true;
     }
@@ -534,6 +909,42 @@ export async function handleMatterRoutes({
     return true;
   }
 
+  if (pathname === "/api/matters/review-matrix" && req.method === "GET") {
+    const matterId = url.searchParams.get("matterId")?.trim() ?? "";
+    if (!isValidMatterId(matterId)) {
+      sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+      return true;
+    }
+    const matrix = buildMatterReviewMatrix(workspaceDir, matterId);
+    sendJson(res, 200, { ok: true, matrix }, c);
+    return true;
+  }
+
+  if (pathname === "/api/matters/review-matrix/export" && req.method === "GET") {
+    const matterId = url.searchParams.get("matterId")?.trim() ?? "";
+    if (!isValidMatterId(matterId)) {
+      sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+      return true;
+    }
+    const matrix = buildMatterReviewMatrix(workspaceDir, matterId);
+    const csv = exportReviewMatrixCsv(matrix);
+    sendJson(res, 200, { ok: true, matterId, format: "csv", csv }, c);
+    return true;
+  }
+
+  if (pathname === "/api/matters/session-timeline" && req.method === "GET") {
+    const matterId = url.searchParams.get("matterId")?.trim() ?? "";
+    if (!isValidMatterId(matterId)) {
+      sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+      return true;
+    }
+    const limitRaw = Number(url.searchParams.get("limit") ?? "40");
+    const limit = Number.isFinite(limitRaw) ? Math.min(100, Math.max(5, Math.floor(limitRaw))) : 40;
+    const entries = await buildMatterSessionTimeline(workspaceDir, matterId, limit);
+    sendJson(res, 200, { ok: true, matterId, entries }, c);
+    return true;
+  }
+
   if (pathname === "/api/matters/detail" && req.method === "GET") {
     const matterId = url.searchParams.get("matterId")?.trim() ?? "";
     if (!isValidMatterId(matterId)) {
@@ -543,10 +954,26 @@ export async function handleMatterRoutes({
     const index = await buildMatterIndex(workspaceDir, matterId);
     const approvalRequests = await listApprovalRequests(workspaceDir, { matterId });
     const queueItems = await listWorkQueueItems(workspaceDir, { matterId });
-    const summary = summarizeMatterIndex(index);
+    const record = loadMatter(workspaceDir, matterId);
+    const summary = {
+      ...summarizeMatterIndex(index),
+      statusLine: matterGovernanceLabel(record),
+    };
     const overview = buildMatterOverview(index);
     const truncated = index.caseMemory.length > 120_000;
     const caseMemory = truncated ? `${index.caseMemory.slice(0, 120_000)}\n\n…[truncated]` : index.caseMemory;
+    const fromCase = parseMatterCaseProfileFields(index.caseMemory);
+    const profile = record
+      ? buildMatterProfileView({
+          matterId: record.matterId,
+          title: record.title,
+          clientId: record.clientId ?? fromCase.clientIdFromCase,
+          sensitivity: record.sensitivity,
+          status: record.status,
+          causeOfAction: fromCase.causeOfAction,
+          counterparty: fromCase.counterparty,
+        })
+      : null;
     const draftCitationIntegrity: Record<string, DraftCitationIntegrityView> = {};
     for (const draft of index.drafts) {
       draftCitationIntegrity[draft.taskId] = resolveDraftCitationIntegrity(workspaceDir, draft);
@@ -559,6 +986,7 @@ export async function handleMatterRoutes({
         matterId,
         summary,
         overview,
+        profile,
         caseMemory,
         caseMemoryTruncated: truncated,
         coreIssues: index.coreIssues,

@@ -1,0 +1,22 @@
+{
+  "id": "contract-review",
+  "name": "合同审查意见",
+  "namedAgent": "Contract Review Analyst",
+  "description": "生成带章节结构的合同审查意见，便于进入审核台验收。",
+  "practiceArea": "commercial",
+  "deliverableType": "contract.review",
+  "riskLevel": "medium",
+  "audience": "solo",
+  "starterPrompt": "请审查本案主合同，输出分章节审查意见与风险等级。",
+  "acceptancePackRequired": true,
+  "requiredSources": ["主合同"],
+  "steps": [
+    {
+      "stepId": "review",
+      "assignee": "contract_reviewer",
+      "task": "生成合同审查意见（matterId={{matterId}}）",
+      "dependsOn": [],
+      "autoApprove": false
+    }
+  ]
+}

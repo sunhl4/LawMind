@@ -1,0 +1,22 @@
+{
+  "id": "nda-triage",
+  "name": "保密协议初审",
+  "namedAgent": "NDA Triager",
+  "description": "对 inbound NDA 做风险分级与要点摘要，供律师决定是否深入审查。",
+  "practiceArea": "commercial",
+  "deliverableType": "contract.review",
+  "riskLevel": "medium",
+  "audience": "solo",
+  "starterPrompt": "请对当前案件中的保密协议做初审：列出对己方不利条款、缺失定义与建议追问项。",
+  "acceptancePackRequired": true,
+  "requiredSources": ["NDA 文本"],
+  "steps": [
+    {
+      "stepId": "review",
+      "assignee": "contract_reviewer",
+      "task": "审查 NDA 并输出 GREEN/YELLOW/RED 分级与条款摘要（matterId={{matterId}}）",
+      "dependsOn": [],
+      "autoApprove": false
+    }
+  ]
+}

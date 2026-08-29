@@ -6,8 +6,10 @@ import path from "node:path";
 import fs from "node:fs";
 import { isValidMatterId } from "../../../src/lawmind/cases/index.js";
 import { recordFirstrunWizardCompleted } from "../../../src/lawmind/onboarding/firstrun-state.js";
+import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
+import { firstrunWizardPostSchema } from "./lawmind-api-schemas.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
-import { readJsonBody, resolveDesktopActorId, sendJson } from "./lawmind-server-helpers.js";
+import { resolveDesktopActorId, sendJson } from "./lawmind-server-helpers.js";
 
 export async function handleOnboardingRoutes({
   ctx,
@@ -22,9 +24,18 @@ export async function handleOnboardingRoutes({
     return false;
   }
 
-  const body = (await readJsonBody(req)) as { matterId?: string };
-  const matterId = typeof body.matterId === "string" ? body.matterId.trim() : "";
-  if (!matterId || !isValidMatterId(matterId)) {
+  let body;
+  try {
+    body = await parseJsonBodyZod(req, firstrunWizardPostSchema);
+  } catch (err) {
+    if (isInvalidRequestBodyError(err)) {
+      sendJson(res, 400, { ok: false, error: "invalid matterId" }, c);
+      return true;
+    }
+    throw err;
+  }
+  const matterId = body.matterId;
+  if (!isValidMatterId(matterId)) {
     sendJson(res, 400, { ok: false, error: "invalid matterId" }, c);
     return true;
   }

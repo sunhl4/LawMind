@@ -63,13 +63,14 @@ export async function handleMemoryAndTemplateRoutes({
     const assistantId = url.searchParams.get("assistantId")?.trim() || undefined;
     const lawMindRoot = resolveLawMindRoot(workspaceDir, envFile);
     const engineMem = await loadMemoryContext(workspaceDir, { matterId });
-    const memorySources = await buildAgentMemorySourceReport(workspaceDir, {
+    const layers = await buildAgentMemorySourceReport(workspaceDir, {
       matterId,
       assistantId,
       lawMindRoot,
       engineMemory: toEngineClientMemorySnapshot(engineMem),
     });
-    sendJson(res, 200, { ok: true, memorySources }, c);
+    // `layers` is the UI contract; keep `memorySources` alias for older clients.
+    sendJson(res, 200, { ok: true, layers, memorySources: layers }, c);
     return true;
   }
 

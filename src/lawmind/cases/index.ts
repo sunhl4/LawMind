@@ -6,7 +6,7 @@
  */
 
 import fs from "node:fs/promises";
-import { readAllAuditLogs } from "../audit/index.js";
+import { readRecentAuditLogs } from "../audit/index.js";
 import { listDrafts } from "../drafts/index.js";
 import { caseFilePath } from "../memory/index.js";
 import { listTaskRecords } from "../tasks/index.js";
@@ -16,6 +16,7 @@ import {
   resolveMatterHeadline,
   resolveMatterSidebarLabel,
 } from "./matter-label.js";
+import { ADHOC_MEETING_MATTER_ID } from "./team-meeting-ids.js";
 
 function uniq(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
@@ -47,9 +48,10 @@ export async function buildMatterIndex(
   const tasks = listTaskRecords(workspaceDir).filter((task) => task.matterId === matterId);
   const drafts = listDrafts(workspaceDir).filter((draft) => draft.matterId === matterId);
   const taskIds = new Set(tasks.map((task) => task.taskId));
-  const auditEvents = (await readAllAuditLogs(`${workspaceDir}/audit`)).filter((event) =>
-    taskIds.has(event.taskId),
-  );
+  // 详情/工具仍要 audit，但限制最近天数与条数，避免多年工作区全量扫盘
+  const auditEvents = (
+    await readRecentAuditLogs(`${workspaceDir}/audit`, { maxDays: 120, maxEvents: 8_000 })
+  ).filter((event) => taskIds.has(event.taskId));
 
   const coreIssues = extractSectionEntries(caseMemory, "## 4. 核心争点");
   const taskGoals = extractSectionEntries(caseMemory, "## 6. 当前任务目标");
@@ -96,7 +98,10 @@ export async function listMatterIds(workspaceDir: string): Promise<string[]> {
     .map((task) => task.matterId)
     .filter((value): value is string => Boolean(value));
 
-  return uniq([...fromCases, ...fromTasks]).toSorted();
+  // Ad-hoc meetings are not matters; hide legacy cases/临时讨论 if still on disk.
+  return uniq([...fromCases, ...fromTasks])
+    .filter((id) => id !== ADHOC_MEETING_MATTER_ID)
+    .toSorted();
 }
 
 function byLatestUpdatedDesc(a?: string, b?: string): number {
@@ -117,14 +122,46 @@ export function buildMatterOverview(index: MatterIndex): MatterOverview {
   };
 }
 
+/**
+ * 列表/侧栏用：只读 CASE + 任务文件，不扫 audit（避免 O(案件×审计全量)）。
+ */
+export async function buildMatterOverviewLite(
+  workspaceDir: string,
+  matterId: string,
+): Promise<MatterOverview> {
+  const filePath = caseFilePath(workspaceDir, matterId);
+  const caseMemory = await fs.readFile(filePath, "utf8").catch(() => "");
+  const tasks = listTaskRecords(workspaceDir).filter((task) => task.matterId === matterId);
+  const openTasks = tasks.filter(
+    (task) => task.status !== "rendered" && task.status !== "rejected",
+  );
+  const renderedTasks = tasks.filter((task) => task.status === "rendered");
+  const riskNotes = extractSectionEntries(caseMemory, "## 7. 风险与待确认事项");
+  const artifacts = extractSectionEntries(caseMemory, "## 9. 生成产物");
+  const coreIssues = extractSectionEntries(caseMemory, "## 4. 核心争点");
+  const latestUpdatedAt = tasks
+    .map((task) => task.updatedAt)
+    .toSorted()
+    .at(-1);
+  return {
+    matterId,
+    displayName: resolveMatterSidebarLabel(caseMemory, matterId),
+    latestUpdatedAt,
+    openTaskCount: openTasks.length,
+    renderedTaskCount: renderedTasks.length,
+    riskCount: riskNotes.length,
+    artifactCount: artifacts.length,
+    topIssue: coreIssues[0],
+    topRisk: riskNotes[0],
+  };
+}
+
 export async function listMatterOverviews(workspaceDir: string): Promise<MatterOverview[]> {
   const matterIds = await listMatterIds(workspaceDir);
-  const indexes = await Promise.all(
-    matterIds.map((matterId) => buildMatterIndex(workspaceDir, matterId)),
+  const overviews = await Promise.all(
+    matterIds.map((matterId) => buildMatterOverviewLite(workspaceDir, matterId)),
   );
-  return indexes
-    .map(buildMatterOverview)
-    .toSorted((a, b) => byLatestUpdatedDesc(a.latestUpdatedAt, b.latestUpdatedAt));
+  return overviews.toSorted((a, b) => byLatestUpdatedDesc(a.latestUpdatedAt, b.latestUpdatedAt));
 }
 
 export function summarizeMatterIndex(index: MatterIndex): MatterSummary {
@@ -217,14 +254,21 @@ export {
 } from "./workspace-node-role.js";
 export type { CaseSubdirRole } from "./workspace-node-role.js";
 export {
+  ADHOC_MEETING_MATTER_ID,
   appendTeamMeetingLinesSync,
   createTeamMeetingAssistantLine,
   createTeamMeetingSystemLine,
   createTeamMeetingUserLine,
   formatTeamMeetingTranscriptPrefix,
+  isAdhocMeetingMatterId,
+  meetingSummaryPath,
+  migrateLegacyAdhocTeamMeetingIfNeeded,
+  readMeetingSummaryExcerpt,
   readTeamMeetingTail,
   readTeamMeetingWindow,
   readTeamMeetingLines,
+  resolvedTeamMeetingDir,
+  rewriteMeetingSummaryFile,
   teamMeetingFilePath,
   TEAM_MEETING_MAX_LINE_TEXT,
   TEAM_MEETING_TAIL_LIMIT_CAP,

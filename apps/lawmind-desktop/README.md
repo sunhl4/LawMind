@@ -14,7 +14,7 @@ If you received a **zip** (macOS `.app`) or **portable / installer** (Windows):
 
 **Advanced:** set `LAWMIND_NODE_BIN` to force a different Node executable.
 
-**End users (简体中文):** 安装与系统说明见同目录 [**INSTALL.md**](./INSTALL.md)；对外发布前团队自查见 [**RELEASE-CHECKLIST.md**](./RELEASE-CHECKLIST.md)。**智能下载页**（按浏览器推断系统并高亮推荐包）见 [`download/index.html`](./download/index.html)（可经 jsDelivr/内网托管；`?repo=组织/仓库` 指向贵司 GitHub Release）。
+**End users (简体中文):** 安装与系统说明见同目录 [**INSTALL.md**](./INSTALL.md)；对外发布前团队自查见 [**RELEASE-CHECKLIST.md**](./RELEASE-CHECKLIST.md)。**智能下载页**（按浏览器推断系统并高亮推荐包）：[docs.lawmind.ai/download](https://docs.lawmind.ai/download/)（源文件 [`download/index.html`](./download/index.html)；`?repo=组织/仓库` 可指向贵司 GitHub Release）。
 
 ## 终端用户：更新与下载页
 
@@ -25,7 +25,7 @@ If you received a **zip** (macOS `.app`) or **portable / installer** (Windows):
 
 - Clone the monorepo and `pnpm install` from the repo root.
 - **Node.js 22+** on `PATH` for **dev** (`tsx` + `lawmind-local-server.ts`).
-- If you see **Electron failed to install correctly** (pnpm v10 may skip `postinstall` until approved): from the **repo root** run `pnpm rebuild electron` (or `pnpm approve-builds` and allow `electron`, then `pnpm install` again). Root script: `pnpm rebuild:electron`.
+- If you see **Electron failed to install correctly** (pnpm v10 may skip `postinstall` until approved): from the **repo root** run `pnpm install` again (runs `postinstall` → `scripts/lawmind/lawmind-electron-rebuild.mjs`) or `pnpm approve-builds` and allow `electron`, then reinstall.
 
 ## Develop
 
@@ -119,4 +119,4 @@ Default workspace: `app.getPath('userData')/LawMind/workspace`.
 
 - <https://docs.lawmind.ai/LAWMIND-DELIVERY>
 - <https://docs.lawmind.ai/LAWMIND-USER-MANUAL>
-- <https://docs.lawmind.ai/LAWMIND-PROJECT-MEMORY>
+- <https://docs.lawmind.ai/LAWMIND-FUTURE-ISSUES>

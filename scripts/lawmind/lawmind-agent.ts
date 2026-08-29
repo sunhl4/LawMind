@@ -13,6 +13,8 @@ import path from "node:path";
 import readline from "node:readline";
 import { createLawMindAgent } from "../../src/lawmind/agent/index.js";
 import type { AgentConfig } from "../../src/lawmind/agent/types.js";
+import { resolveCapabilityEnvelope } from "../../src/lawmind/models/capability-envelope.js";
+import { LAWMIND_BUILTIN_MODELS } from "../../src/lawmind/models/catalog.js";
 import { loadLawMindEnv } from "./lawmind-env-loader.js";
 
 loadLawMindEnv();
@@ -46,8 +48,18 @@ const listSessionsMode = hasFlag("list-sessions");
 
 // 从环境变量读取模型配置（与 .env.lawmind 中 LAWMIND_QWEN_* 一致，无需重复配置）
 const defaultBaseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1";
-const modelTimeoutMs = parsePositiveIntEnv("LAWMIND_AGENT_TIMEOUT_MS", 60000);
-const toolTimeoutMs = parsePositiveIntEnv("LAWMIND_TOOL_TIMEOUT_MS", modelTimeoutMs);
+const modelTimeoutMs = parsePositiveIntEnv("LAWMIND_AGENT_TIMEOUT_MS", 120000);
+const upstreamModel =
+  process.env.LAWMIND_AGENT_MODEL ??
+  process.env.QWEN_MODEL ??
+  process.env.LAWMIND_QWEN_MODEL ??
+  "qwen-plus";
+const catalogContext = LAWMIND_BUILTIN_MODELS.find((m) => m.model === upstreamModel)?.contextTokens;
+const envelope = resolveCapabilityEnvelope({
+  contextTokens: catalogContext,
+  timeoutMs: modelTimeoutMs,
+});
+const toolTimeoutMs = parsePositiveIntEnv("LAWMIND_TOOL_TIMEOUT_MS", envelope.toolTimeoutMs);
 const modelConfig = {
   provider: "openai-compatible" as const,
   baseUrl:
@@ -60,14 +72,11 @@ const modelConfig = {
     process.env.QWEN_API_KEY ??
     process.env.LAWMIND_QWEN_API_KEY ??
     "",
-  model:
-    process.env.LAWMIND_AGENT_MODEL ??
-    process.env.QWEN_MODEL ??
-    process.env.LAWMIND_QWEN_MODEL ??
-    "qwen-plus",
-  maxTokens: 4096,
+  model: upstreamModel,
+  maxTokens: envelope.maxOutputTokens,
   temperature: 0.3,
-  timeoutMs: modelTimeoutMs,
+  timeoutMs: envelope.modelTimeoutMs,
+  contextTokens: envelope.contextTokens,
 };
 
 if (!modelConfig.apiKey) {
@@ -86,8 +95,8 @@ console.error(
 const config: AgentConfig = {
   workspaceDir,
   model: modelConfig,
-  maxToolCalls: 15,
-  maxHistoryMessages: 50,
+  maxToolCalls: envelope.toolCallsPerTurn,
+  maxHistoryMessages: envelope.maxHistoryMessages,
   toolExecutionTimeoutMs: toolTimeoutMs,
   actorId: "lawyer",
 };

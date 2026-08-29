@@ -6,7 +6,10 @@ import {
   AGENT_MANDATORY_RULES_MAX_CHARS,
   readWorkspacePolicyFile,
   resolveAgentMandatoryRulesForPrompt,
+  resolveAgentMaxHistoryMessages,
   resolveAgentMaxToolCallsPerTurn,
+  resolveAgentPromptVerbosity,
+  resolveMatterMandatoryRulesForPrompt,
   workspacePolicyPath,
 } from "./workspace-policy.js";
 
@@ -117,6 +120,66 @@ describe("resolveAgentMandatoryRulesForPrompt", () => {
   });
 });
 
+describe("resolveMatterMandatoryRulesForPrompt", () => {
+  let dir = "";
+
+  afterEach(() => {
+    if (dir) {
+      fs.rmSync(dir, { recursive: true, force: true });
+      dir = "";
+    }
+  });
+
+  it("reads matters/<id>/RULES.md", () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-matter-rules-"));
+    fs.mkdirSync(path.join(dir, "matters", "m1"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "matters", "m1", "RULES.md"), "本案不得对外承诺胜诉。\n");
+    const r = resolveMatterMandatoryRulesForPrompt(dir, "m1");
+    expect(r.active).toBe(true);
+    expect(r.text).toContain("不得对外承诺胜诉");
+  });
+
+  it("falls back to cases/<id>/RULES.md", () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-matter-rules-"));
+    fs.mkdirSync(path.join(dir, "cases", "c1"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "cases", "c1", "RULES.md"), "优先引用合同原文。\n");
+    const r = resolveMatterMandatoryRulesForPrompt(dir, "c1");
+    expect(r.active).toBe(true);
+    expect(r.text).toContain("合同原文");
+  });
+});
+
+describe("resolveAgentMaxHistoryMessages (F6)", () => {
+  it("uses policy value when set (clamped)", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-mhist-"));
+    try {
+      fs.writeFileSync(
+        path.join(dir, "lawmind.policy.json"),
+        JSON.stringify({ schemaVersion: 1, agentMaxHistoryMessages: 40 }),
+        "utf8",
+      );
+      expect(resolveAgentMaxHistoryMessages(dir, 100)).toBe(40);
+      fs.writeFileSync(
+        path.join(dir, "lawmind.policy.json"),
+        JSON.stringify({ schemaVersion: 1, agentMaxHistoryMessages: 999 }),
+        "utf8",
+      );
+      expect(resolveAgentMaxHistoryMessages(dir, 100)).toBe(200);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to envelope default when policy unset", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-mhist2-"));
+    try {
+      expect(resolveAgentMaxHistoryMessages(dir, 88)).toBe(88);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("resolveAgentMaxToolCallsPerTurn", () => {
   it("uses policy value when set", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-mtc-"));
@@ -153,5 +216,31 @@ describe("resolveAgentMaxToolCallsPerTurn", () => {
       }
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("resolveAgentPromptVerbosity", () => {
+  it("defaults to compact when policy and env are unset", () => {
+    const prev = process.env.LAWMIND_PROMPT_VERBOSITY;
+    try {
+      delete process.env.LAWMIND_PROMPT_VERBOSITY;
+      expect(resolveAgentPromptVerbosity(null, {})).toBe("compact");
+      expect(resolveAgentPromptVerbosity({ schemaVersion: 1 }, {})).toBe("compact");
+    } finally {
+      if (prev !== undefined) {
+        process.env.LAWMIND_PROMPT_VERBOSITY = prev;
+      } else {
+        delete process.env.LAWMIND_PROMPT_VERBOSITY;
+      }
+    }
+  });
+
+  it("honors env over policy", () => {
+    expect(
+      resolveAgentPromptVerbosity(
+        { schemaVersion: 1, agentPromptVerbosity: "compact" },
+        { LAWMIND_PROMPT_VERBOSITY: "full" },
+      ),
+    ).toBe("full");
   });
 });

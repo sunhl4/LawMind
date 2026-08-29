@@ -6,7 +6,7 @@
  *
  *   GET /api/drafts/:taskId/acceptance-pack
  *     -> Markdown 验收包（默认 text/markdown）；?format=json 时返回 { ok, markdown }
- *        受 edition.features.acceptancePackExport 控制（Solo 不可用，返回 403）。
+ *        受 edition.features.acceptancePackExport 控制（未开时返回 403；Solo/Firm/Private 默认均开）。
  *
  *   GET /api/deliverables/specs
  *     -> { ok, specs: Array<{ type, displayName, description, defaultOutput, defaultRiskLevel }> }
@@ -18,7 +18,9 @@
  * 注意：放在独立文件里，挂在 dispatch 中即可。
  */
 
+import { acceptanceTopBlockers } from "../../../src/lawmind/platform/review-gates.js";
 import {
+  buildChecklistView,
   getDeliverableSpec,
   listDeliverableSpecs,
   listExtraDeliverableSpecs,
@@ -27,11 +29,16 @@ import {
 } from "../../../src/lawmind/deliverables/index.js";
 import { buildDraftAcceptancePackMarkdown } from "../../../src/lawmind/delivery/draft-acceptance-pack.js";
 import { listDrafts, readDraft, readReasoningSnapshot } from "../../../src/lawmind/drafts/index.js";
+import { resolveCitationMode } from "../../../src/lawmind/policy/citation-mode.js";
 import { resolveEdition } from "../../../src/lawmind/policy/index.js";
 import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/index.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import { sendJson } from "./lawmind-server-helpers.js";
 import { isSafeTaskIdSegment } from "./safe-task-id.js";
+import {
+  isAuthorityCitationValidateEnabled,
+  validateCitationsWithAuthority,
+} from "../../../src/lawmind/retrieval/providers/pkulaw/citation-validate.js";
 
 /**
  * Bridge the desktop's `LawMindPolicyFile` to the engine's `LawMindWorkspacePolicy`
@@ -52,6 +59,7 @@ function policyForEdition(
     ...(p.retrievalMode ? { retrievalMode: p.retrievalMode } : {}),
     ...(p.enableCollaboration !== undefined ? { enableCollaboration: p.enableCollaboration } : {}),
     ...(p.edition ? { edition: p.edition } : {}),
+    ...(p.citationMode ? { citationMode: p.citationMode } : {}),
   };
 }
 
@@ -102,6 +110,7 @@ export async function handleAcceptanceRoutes({
         placeholderCount: report.placeholderCount,
         blockerCount,
         warningCount,
+        topBlockers: acceptanceTopBlockers(report, 3),
         hasSpec: report.deliverableType != null,
         outputPath: draft.outputPath ?? null,
       };
@@ -123,7 +132,9 @@ export async function handleAcceptanceRoutes({
   }
 
   if (pathname === "/api/policy/edition" && req.method === "GET") {
-    const edition = resolveEdition({ policy: policyForEdition(policy) });
+    const pol = policyForEdition(policy);
+    const edition = resolveEdition({ policy: pol });
+    const citationMode = resolveCitationMode(pol, edition.edition);
     sendJson(
       res,
       200,
@@ -133,10 +144,30 @@ export async function handleAcceptanceRoutes({
         label: edition.label,
         source: edition.source,
         features: edition.features,
+        citationMode,
       },
       c,
     );
     return true;
+  }
+
+  {
+    const checklistMatch = pathname.match(/^\/api\/drafts\/([^/]+)\/checklist$/);
+    if (checklistMatch && req.method === "GET") {
+      const raw = decodeURIComponent(checklistMatch[1] ?? "");
+      if (!isSafeTaskIdSegment(raw)) {
+        sendJson(res, 400, { ok: false, error: "invalid task id" }, c);
+        return true;
+      }
+      const draft = readDraft(workspaceDir, raw);
+      if (!draft) {
+        sendJson(res, 404, { ok: false, error: "not found" }, c);
+        return true;
+      }
+      const checklist = buildChecklistView(draft.deliverableType, null);
+      sendJson(res, 200, { ok: true, checklist }, c);
+      return true;
+    }
   }
 
   const packMatch = pathname.match(/^\/api\/drafts\/([^/]+)\/acceptance-pack$/);
@@ -156,7 +187,7 @@ export async function handleAcceptanceRoutes({
           error: "feature_disabled",
           feature: "acceptancePackExport",
           edition: edition.edition,
-          hint: "Acceptance pack export 仅对 Firm / Private Deploy 可用。",
+          hint: `当前版本（${edition.edition}）未开启验收材料包导出。请检查「设置 → 版本」中的功能开关。`,
         },
         c,
       );
@@ -200,6 +231,18 @@ export async function handleAcceptanceRoutes({
     const spec = getDeliverableSpec(draft.deliverableType);
     const graph = readReasoningSnapshot(workspaceDir, raw);
     const reasoning = validateReasoningForDraft(draft, graph ?? undefined);
+    const bodyText = draft.sections.map((s) => s.body ?? "").join("\n");
+    const citationHints = (
+      bodyText.match(/《[^》]+》第?[零一二三四五六七八九十百千0-9]+条/g) ?? []
+    ).slice(0, 20);
+    const authorityCitationValidate = isAuthorityCitationValidateEnabled()
+      ? await validateCitationsWithAuthority({ citations: citationHints })
+      : {
+          ok: true,
+          skipped: true,
+          issues: [],
+          message: "未启用 LAWMIND_AUTHORITY_CITATION_VALIDATE。",
+        };
     sendJson(
       res,
       200,
@@ -208,6 +251,7 @@ export async function handleAcceptanceRoutes({
         draft,
         acceptance: report,
         reasoning,
+        authorityCitationValidate,
         ...(spec
           ? {
               spec: {

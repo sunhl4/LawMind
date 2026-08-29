@@ -1,0 +1,269 @@
+/* Lawyer Automations (交办任务) page */
+
+.lm-automations-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 16px 20px 32px;
+  max-width: 920px;
+}
+
+.lm-automations-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.lm-automations-section-head .lm-settings-subtitle {
+  margin: 0;
+}
+
+.lm-automations-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--accent-dim);
+  border: 1px solid var(--accent-border);
+}
+
+.lm-automations-loading {
+  margin: 0;
+}
+
+.lm-callout-success {
+  border-color: color-mix(in srgb, var(--ok, #2f7d4a) 45%, var(--border));
+  background: color-mix(in srgb, var(--ok, #2f7d4a) 12%, var(--surface));
+}
+
+.lm-action-hub-auto-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.lm-action-hub-auto-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.lm-automations-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lm-automations-header-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.lm-automations-create,
+.lm-automations-list,
+.lm-automations-inbox,
+.lm-automations-mail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface);
+}
+
+.lm-automations-mail-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 560px;
+}
+
+.lm-mail-watch-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.lm-mail-watch-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lm-mail-watch-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+}
+
+.lm-mail-watch-draft {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+
+.lm-mail-send-format {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.lm-mail-send-signature {
+  min-height: 6.5rem;
+  resize: vertical;
+}
+
+.lm-mail-send-preview-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lm-mail-send-preview {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-sm);
+  white-space: pre-wrap;
+  font-family: var(--font);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+}
+
+.lm-automations-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+}
+
+.lm-automations-preset-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.lm-automations-preset-card.is-selected {
+  border-color: var(--accent-border);
+  background: rgba(183, 154, 103, 0.1);
+}
+
+.lm-automations-schedule-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.lm-automations-time {
+  width: 52px;
+  display: inline-block;
+  margin: 0 4px;
+}
+
+.lm-automations-interval-select {
+  margin-left: 8px;
+  min-width: 7rem;
+}
+
+.lm-automations-create-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lm-automations-ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lm-automations-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.lm-automations-row:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.lm-automations-row.is-focused {
+  background: var(--accent-dim);
+  box-shadow: inset 2px 0 0 var(--accent);
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.lm-automations-sidebar-list.lm-matter-sidebar-list--fill {
+  max-height: none;
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.lm-automations-row-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.lm-automations-summary {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  font-family: var(--font);
+  font-size: 12px;
+  color: var(--text-2);
+  max-height: 160px;
+  overflow: auto;
+}
+
+.lm-automations-last {
+  margin-top: 4px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}

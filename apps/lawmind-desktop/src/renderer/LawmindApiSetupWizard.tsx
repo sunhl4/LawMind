@@ -3,9 +3,42 @@ import { lawmindDocUrl } from "./lawmind-public-urls.js";
 
 type RetrievalMode = "single" | "dual";
 
+/** One-click recommended stacks for lawyers (not power users). */
+const RECOMMENDED_STACKS: Array<{
+  id: string;
+  label: string;
+  hint: string;
+  baseUrl: string;
+  model: string;
+}> = [
+  {
+    id: "qwen",
+    label: "通义千问（推荐）",
+    hint: "日常法律对话默认",
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    model: "qwen-plus",
+  },
+  {
+    id: "deepseek",
+    label: "DeepSeek",
+    hint: "性价比备选",
+    baseUrl: "https://api.deepseek.com/v1",
+    model: "deepseek-chat",
+  },
+  {
+    id: "openai",
+    label: "OpenAI 兼容",
+    hint: "自备网关",
+    baseUrl: "https://api.openai.com/v1",
+    model: "gpt-4o-mini",
+  },
+];
+
 type Props = {
   wizApiKey: string;
   setWizApiKey: (v: string) => void;
+  /** When true, saving with an empty key field keeps the existing key on disk. */
+  wizHasExistingKey?: boolean;
   wizBaseUrl: string;
   setWizBaseUrl: (v: string) => void;
   wizModel: string;
@@ -27,6 +60,7 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
   const {
     wizApiKey,
     setWizApiKey,
+    wizHasExistingKey = false,
     wizBaseUrl,
     setWizBaseUrl,
     wizModel,
@@ -46,9 +80,30 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
       <div className="lm-wizard">
         <h2>欢迎使用 LawMind</h2>
         <p className="lm-wizard-lead lm-settings-hint">
-          请配置模型 API（写入用户目录下的 <code className="lm-md-code">.env.lawmind</code>
-          ），可选自定义工作区路径。
+          填好 API Key，点一次推荐方案即可开始。保存时会写入本机{" "}
+          <code className="lm-md-code">.env.lawmind</code>，并真实调用一次模型验证。
         </p>
+        <div className="lm-wizard-recommended" role="group" aria-label="推荐模型">
+          <span className="lm-meta">一键选用</span>
+          <div className="lm-wizard-recommended-row">
+            {RECOMMENDED_STACKS.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className={`lm-btn lm-btn-secondary lm-btn-sm${
+                  wizModel === s.model ? " lm-btn-selected" : ""
+                }`}
+                title={s.hint}
+                onClick={() => {
+                  setWizBaseUrl(s.baseUrl);
+                  setWizModel(s.model);
+                }}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
         <label className="lm-field">
           <span>API Key</span>
           <input
@@ -56,22 +111,27 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
             autoComplete="off"
             value={wizApiKey}
             onChange={(e) => setWizApiKey(e.target.value)}
-            placeholder="LAWMIND / Qwen 等"
+            placeholder={
+              wizHasExistingKey ? "留空则保留已保存的 Key" : "粘贴 Key 即可，配合上方推荐方案"
+            }
           />
         </label>
-        <label className="lm-field">
-          <span>Base URL（可选）</span>
-          <input
-            type="text"
-            value={wizBaseUrl}
-            onChange={(e) => setWizBaseUrl(e.target.value)}
-            placeholder="OpenAI-compatible /v1"
-          />
-        </label>
-        <label className="lm-field">
-          <span>模型名（可选）</span>
-          <input type="text" value={wizModel} onChange={(e) => setWizModel(e.target.value)} />
-        </label>
+        <details className="lm-wizard-advanced" open={!wizBaseUrl && !wizModel}>
+          <summary className="lm-meta">进阶：手动填写 Base URL / 模型名</summary>
+          <label className="lm-field">
+            <span>Base URL（可选）</span>
+            <input
+              type="text"
+              value={wizBaseUrl}
+              onChange={(e) => setWizBaseUrl(e.target.value)}
+              placeholder="OpenAI-compatible /v1"
+            />
+          </label>
+          <label className="lm-field">
+            <span>模型名（可选）</span>
+            <input type="text" value={wizModel} onChange={(e) => setWizModel(e.target.value)} />
+          </label>
+        </details>
         <label className="lm-field">
           <span>工作区目录（可选）</span>
           <div className="lm-wizard-row">
@@ -81,30 +141,33 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
             </button>
           </div>
         </label>
-        <fieldset className="lm-field lm-field-reset">
-          <legend className="lm-meta">检索策略（引擎工具 research / 工作流）</legend>
-          <label className="lm-field-radio lm-field-radio-row">
-            <input
-              type="radio"
-              name="wiz-retrieval"
-              checked={wizRetrievalMode === "single"}
-              onChange={() => setWizRetrievalMode("single")}
-            />
-            <span>统一模型 — 通用与法律检索用同一套 API</span>
-          </label>
-          <label className="lm-field-radio">
-            <input
-              type="radio"
-              name="wiz-retrieval"
-              checked={wizRetrievalMode === "dual"}
-              onChange={() => setWizRetrievalMode("dual")}
-            />
-            <span>
-              通用 + 法律专用 — 通用用上方 Key；法律检索需在 <code>.env.lawmind</code> 配置{" "}
-              <code>LAWMIND_CHATLAW_*</code> / <code>LAWMIND_LAWGPT_*</code> 等（未配时仍回退为通用模型）。
-            </span>
-          </label>
-        </fieldset>
+        <p className="lm-meta lm-settings-hint">检索默认与上方模型共用。</p>
+        <details className="lm-wizard-advanced">
+          <summary className="lm-meta">高级：检索策略</summary>
+          <fieldset className="lm-field lm-field-reset">
+            <label className="lm-field-radio lm-field-radio-row">
+              <input
+                type="radio"
+                name="wiz-retrieval"
+                checked={wizRetrievalMode === "single"}
+                onChange={() => setWizRetrievalMode("single")}
+              />
+              <span>统一模型 — 通用与法律检索用同一套 API</span>
+            </label>
+            <label className="lm-field-radio">
+              <input
+                type="radio"
+                name="wiz-retrieval"
+                checked={wizRetrievalMode === "dual"}
+                onChange={() => setWizRetrievalMode("dual")}
+              />
+              <span>
+                通用 + 法律专用 — 通用用上方 Key；法律检索需在模型设置文件中配置{" "}
+                <code>LAWMIND_CHATLAW_*</code> / <code>LAWMIND_LAWGPT_*</code> 等（未配时仍回退为通用模型）。
+              </span>
+            </label>
+          </fieldset>
+        </details>
         {wizError ? (
           <div className="lm-callout lm-callout-danger" role="alert">
             <p className="lm-callout-body">{wizError}</p>
@@ -126,10 +189,10 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
           <button
             type="button"
             className="lm-btn"
-            disabled={wizBusy || !wizApiKey.trim()}
+            disabled={wizBusy || (!wizApiKey.trim() && !wizHasExistingKey)}
             onClick={onSave}
           >
-            {wizBusy ? "保存中…" : "保存并重启服务"}
+            {wizBusy ? "验证并保存…" : "验证并保存"}
           </button>
         </div>
       </div>

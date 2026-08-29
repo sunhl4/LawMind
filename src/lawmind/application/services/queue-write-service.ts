@@ -8,12 +8,14 @@
  */
 
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 import {
   appendQueueItem,
   readQueueItems,
   rewriteQueueItems,
   type QueueItemRecord,
 } from "../../adapters/matter-storage/index.js";
+import { matterDir, withExclusiveFileLock } from "../../adapters/matter-storage/io.js";
 import { attachQueueItemId, createMatterIfMissing } from "./matter-write-service.js";
 
 function newTimestamp(): string {
@@ -29,11 +31,42 @@ export type OpenQueueItemInput = {
   relatedTaskId?: string;
   relatedDeliverableId?: string;
   queueItemId?: string;
+  dependsOn?: string[];
+  blockedReason?: string;
 };
+
+function resolveQueueBlockedReason(
+  workspaceDir: string,
+  matterId: string,
+  dependsOn: string[] | undefined,
+  explicit?: string,
+): string | undefined {
+  if (explicit?.trim()) {
+    return explicit.trim();
+  }
+  if (!dependsOn?.length) {
+    return undefined;
+  }
+  const items = readQueueItems(workspaceDir, matterId);
+  const unresolved = dependsOn.filter((id) => {
+    const dep = items.find((q) => q.queueItemId === id);
+    return !dep || dep.status !== "resolved";
+  });
+  if (unresolved.length === 0) {
+    return undefined;
+  }
+  return `等待前置待办：${unresolved.join(", ")}`;
+}
 
 export function openQueueItem(workspaceDir: string, input: OpenQueueItemInput): QueueItemRecord {
   createMatterIfMissing(workspaceDir, { matterId: input.matterId });
   const now = newTimestamp();
+  const blockedReason = resolveQueueBlockedReason(
+    workspaceDir,
+    input.matterId,
+    input.dependsOn,
+    input.blockedReason,
+  );
   const record: QueueItemRecord = {
     queueItemId: input.queueItemId ?? randomUUID(),
     matterId: input.matterId,
@@ -44,10 +77,16 @@ export function openQueueItem(workspaceDir: string, input: OpenQueueItemInput): 
     detail: input.detail,
     relatedTaskId: input.relatedTaskId,
     relatedDeliverableId: input.relatedDeliverableId,
+    dependsOn: input.dependsOn,
+    blockedReason,
     createdAt: now,
     updatedAt: now,
   };
-  appendQueueItem(workspaceDir, record);
+  // append 与 transitionQueueItem 的全量 rewrite 共用同一把锁，避免「开新项 + 解析旧项」并发丢条目。
+  const lockPath = path.join(matterDir(workspaceDir, input.matterId), "queue.jsonl.lock");
+  withExclusiveFileLock(lockPath, () => {
+    appendQueueItem(workspaceDir, record);
+  });
   attachQueueItemId(workspaceDir, input.matterId, record.queueItemId);
   return record;
 }
@@ -58,19 +97,22 @@ export function transitionQueueItem(
   queueItemId: string,
   status: QueueItemRecord["status"],
 ): QueueItemRecord | undefined {
-  const all = readQueueItems(workspaceDir, matterId);
-  const idx = all.findIndex((q) => q.queueItemId === queueItemId);
-  if (idx < 0) {
-    return undefined;
-  }
-  const next: QueueItemRecord = {
-    ...all[idx],
-    status,
-    updatedAt: newTimestamp(),
-  };
-  all[idx] = next;
-  rewriteQueueItems(workspaceDir, matterId, all);
-  return next;
+  const lockPath = path.join(matterDir(workspaceDir, matterId), "queue.jsonl.lock");
+  return withExclusiveFileLock(lockPath, () => {
+    const all = readQueueItems(workspaceDir, matterId);
+    const idx = all.findIndex((q) => q.queueItemId === queueItemId);
+    if (idx < 0) {
+      return undefined;
+    }
+    const next: QueueItemRecord = {
+      ...all[idx],
+      status,
+      updatedAt: newTimestamp(),
+    };
+    all[idx] = next;
+    rewriteQueueItems(workspaceDir, matterId, all);
+    return next;
+  });
 }
 
 export function listQueueItemsForMatter(

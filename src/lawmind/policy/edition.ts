@@ -28,8 +28,16 @@ export const EDITION_LABELS: Readonly<Record<LawMindEdition, string>> = {
  * `true` = 该 edition 默认开启；`false` = 隐藏或禁用。
  */
 export const EDITION_FEATURES = {
-  /** 验收门禁（Acceptance Gate）的 strict 模式：未通过禁止 render */
-  acceptanceGateStrict: { solo: false, firm: true, private_deploy: true },
+  /**
+   * 验收门禁（Acceptance Gate）的 strict 模式：未通过禁止 render。
+   * Solo 亦默认开启：个人律师交件底线与「能交件」叙事一致；试用可在 policy 中关闭。
+   */
+  acceptanceGateStrict: { solo: true, firm: true, private_deploy: true },
+  /**
+   * 引用完整性硬门禁：有 research 快照时，缺失来源 ID 或长段未锚定引用禁止 render。
+   * Solo 与 Firm/Private 对齐，避免「提醒式」交件。
+   */
+  citationGateStrict: { solo: true, firm: true, private_deploy: true },
   /** 跨案件实验/Roadmap 决策卡（产品自我进化层） */
   crossMatterRoadmap: { solo: false, firm: true, private_deploy: true },
   /** 跨案件验收就绪概览（工作区级 `GET /api/acceptance-summary` 聚合 UI） */
@@ -38,19 +46,37 @@ export const EDITION_FEATURES = {
   collaborationSummary: { solo: false, firm: true, private_deploy: true },
   /** 合规审计导出（compliance=true） */
   complianceAuditExport: { solo: false, firm: false, private_deploy: true },
+  /**
+   * 审计 JSONL hash-chain 校验导出（integrity=true）。
+   * Solo 亦开启：个人律师需能一键核对办案审计链（轻量信任包装，非 Firm 合规报表）。
+   */
+  auditIntegrityExport: { solo: true, firm: true, private_deploy: true },
   /** SBOM 与安全自检面板入口 */
   securitySbomPanel: { solo: false, firm: false, private_deploy: true },
   /** Quality dashboard JSON 自动导出 */
   qualityDashboardJsonExport: { solo: false, firm: true, private_deploy: true },
   /** 自定义 DeliverableSpec（律所专属合同/律师函） */
   customDeliverableSpec: { solo: false, firm: true, private_deploy: true },
-  /** 客户验收包导出（acceptance-pack.md） */
-  acceptancePackExport: { solo: false, firm: true, private_deploy: true },
+  /**
+   * 客户验收包导出（acceptance-pack.md）。
+   * Solo 亦开启：交件前可下载轻量证据包；合规批量审计仍仅 Private。
+   */
+  acceptancePackExport: { solo: true, firm: true, private_deploy: true },
   /**
    * 危险工具一律要求显式 `__approved: true`，不因开发环境 `allowDangerousToolsWithoutApproval` 绕过。
    * 并对 `execute_workflow` 等未标 `requiresApproval` 的长链路工具追加门禁。
    */
   strictDangerousToolApproval: { solo: false, firm: true, private_deploy: true },
+  /**
+   * Skills S6：审查专案组 `executionMode=parallel`。
+   * Solo 亦默认开启（本机启发式并行），避免人为压低审查吞吐；policy/UI 仍可按需关闭。
+   */
+  reviewCampaignParallel: { solo: true, firm: true, private_deploy: true },
+  /**
+   * 草稿交律师签批前强制互审（作者配置了 peerReviewDefaultAssistantId 时建委派）。
+   * Solo 默认关；Firm / Private 默认开。工作区 routing/defaults.json 可覆盖。
+   */
+  forcePeerReview: { solo: false, firm: true, private_deploy: true },
 } as const satisfies Record<string, Record<LawMindEdition, boolean>>;
 
 export type EditionFeatureKey = keyof typeof EDITION_FEATURES;

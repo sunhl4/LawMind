@@ -21,6 +21,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import type { DeliverableType, RiskLevel } from "../types.js";
+import { EXPLICIT_TODO_PLACEHOLDER_SOURCE } from "./placeholder-pattern.js";
 import type { DeliverableSpec, RequiredSection } from "./types.js";
 
 /** 单个文件 JSON 表示形式（外部输入，宽松类型）。 */
@@ -56,14 +57,31 @@ const RESERVED_BUILTIN_TYPES = new Set<string>([
   "contract.rental",
   "contract.general",
   "letter.demand",
+  "letter.counsel",
+  "letter.reply",
+  "litigation.outline",
+  "litigation.complaint",
+  "litigation.answer",
+  "litigation.brief",
+  "memo.opinion",
+  "memo.internal",
+  "matter.timeline",
+  "matter.exhibit_list",
+  "meeting.minutes",
+  "contract.nda",
   "document.general",
+  "report.esg",
+  "report.general",
+  "report.compliance",
+  "report.learning",
+  "ppt.training",
 ]);
 
 const VALID_OUTPUT = new Set(["docx", "pptx", "markdown"]);
 const VALID_RISK = new Set(["low", "medium", "high"]);
 const VALID_SEVERITY = new Set(["blocker", "warning"]);
 
-const DEFAULT_PLACEHOLDER_SOURCE = "【待补充[:：][^】]*】";
+const DEFAULT_PLACEHOLDER_SOURCE = EXPLICIT_TODO_PLACEHOLDER_SOURCE;
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;

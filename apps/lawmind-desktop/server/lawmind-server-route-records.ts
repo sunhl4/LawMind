@@ -2,21 +2,31 @@ import { DEFAULT_ASSISTANT_ID } from "../../../src/lawmind/assistants/constants.
 import type { AgentSession } from "../../../src/lawmind/agent/types.js";
 import {
   createSession,
-  deleteSession,
   displayChatSessionTitle,
   listSessions,
   loadSession,
   renameSession,
   sessionHistoryToSimpleMessages,
 } from "../../../src/lawmind/agent/session.js";
+import {
+  deleteSessionWithCascade,
+  type SessionDeleteCascadeOptions,
+} from "../../../src/lawmind/agent/session-delete-cascade.js";
 import { listDrafts } from "../../../src/lawmind/drafts/index.js";
 import { listTaskRecords } from "../../../src/lawmind/tasks/index.js";
+import { taskRecordStatusLabel } from "../../../src/lawmind/tasks/status-label.js";
+import { getLiveTurnProgressOrReplay } from "../../../src/lawmind/agent/session-event-log.js";
+import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
+import {
+  sessionCreatePostSchema,
+  sessionDeletePostSchema,
+  sessionPatchTitleSchema,
+} from "./lawmind-api-schemas.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import {
   filterTaskSummaries,
   isLawMindHttpError,
   parseQueryTimeMs,
-  readJsonBody,
   resolveDesktopActorId,
   sendJson,
   taskToSummary,
@@ -36,24 +46,42 @@ function performSessionDelete(
   workspaceDir: string,
   sessionId: string,
   assistantId: string,
+  cascade: SessionDeleteCascadeOptions = {},
 ):
-  | { status: 200; payload: { ok: true; sessionId: string } }
+  | {
+      status: 200;
+      payload: {
+        ok: true;
+        sessionId: string;
+        alreadyDeleted?: boolean;
+        cascade?: ReturnType<typeof deleteSessionWithCascade>;
+      };
+    }
   | { status: 404; payload: { ok: false; code: string; message: string } }
   | { status: 500; payload: { ok: false; code: string; message: string } } {
   const session = loadSession(workspaceDir, sessionId);
+  // Idempotent: tab UI may retry after a successful delete if list refresh failed.
   if (!session) {
-    return { status: 404, payload: { ok: false, code: "not_found", message: "session not found" } };
+    return { status: 200, payload: { ok: true, sessionId, alreadyDeleted: true } };
   }
   if (!sessionMatchesAssistantFilter(session, assistantId)) {
-    return { status: 404, payload: { ok: false, code: "not_found", message: "session not found" } };
+    return {
+      status: 404,
+      payload: {
+        ok: false,
+        code: "session_assistant_mismatch",
+        message: "该会话属于其他助手，无法在此删除。请切换到对应助手后再试。",
+      },
+    };
   }
-  if (!deleteSession(workspaceDir, sessionId)) {
+  const cascadeResult = deleteSessionWithCascade(workspaceDir, sessionId, cascade);
+  if (!cascadeResult.deletedSession) {
     return {
       status: 500,
       payload: { ok: false, code: "delete_failed", message: "could not delete session files" },
     };
   }
-  return { status: 200, payload: { ok: true, sessionId } };
+  return { status: 200, payload: { ok: true, sessionId, cascade: cascadeResult } };
 }
 
 export async function handleRecordRoutes({
@@ -70,9 +98,28 @@ export async function handleRecordRoutes({
     const q = url.searchParams.get("q") ?? "";
     const since = parseQueryTimeMs(url.searchParams.get("since"));
     const until = parseQueryTimeMs(url.searchParams.get("until"));
-    const rows = listTaskRecords(workspaceDir).map(taskToSummary);
+    const rows = listTaskRecords(workspaceDir).map((t) => ({
+      ...taskToSummary(t),
+      statusLabel: taskRecordStatusLabel(t),
+    }));
     const tasks = filterTaskSummaries(rows, q, since, until);
     sendJson(res, 200, { ok: true, tasks }, c);
+    return true;
+  }
+
+  // GET /api/tasks/:id 的权威实现在 route-review（含 checkpoints；先注册先匹配）。
+  // 此处不再保留重复实现，避免两版响应形状漂移。
+
+  const sessionLiveMatch = /^\/api\/sessions\/([^/]+)\/live-turn$/.exec(pathname);
+  if (sessionLiveMatch && req.method === "GET") {
+    const sessionId = sessionLiveMatch[1];
+    const progress = getLiveTurnProgressOrReplay(workspaceDir, sessionId);
+    sendJson(
+      res,
+      200,
+      progress ? { ok: true, progress } : { ok: true, progress: null, status: "idle" },
+      c,
+    );
     return true;
   }
 
@@ -80,19 +127,10 @@ export async function handleRecordRoutes({
 
   if (pathname === "/api/sessions" && req.method === "POST") {
     try {
-      const body = (await readJsonBody(req)) as {
-        assistantId?: unknown;
-        matterId?: unknown;
-        title?: unknown;
-      };
-      const assistantId =
-        typeof body.assistantId === "string" && body.assistantId.trim()
-          ? body.assistantId.trim()
-          : DEFAULT_ASSISTANT_ID;
-      const matterId =
-        typeof body.matterId === "string" && body.matterId.trim() ? body.matterId.trim() : undefined;
-      const title =
-        typeof body.title === "string" && body.title.trim() ? body.title.trim().slice(0, 200) : undefined;
+      const body = await parseJsonBodyZod(req, sessionCreatePostSchema);
+      const assistantId = body.assistantId?.trim() || DEFAULT_ASSISTANT_ID;
+      const matterId = body.matterId?.trim() || undefined;
+      const title = body.title?.trim() ? body.title.trim().slice(0, 200) : undefined;
       const session = createSession({
         workspaceDir,
         matterId,
@@ -122,28 +160,25 @@ export async function handleRecordRoutes({
 
   /** 与 DELETE 等价；桌面端用 POST 避免部分环境下 DELETE 预检失败（Failed to fetch）。 */
   if (pathname === "/api/sessions/delete" && req.method === "POST") {
-    let body: { sessionId?: unknown; assistantId?: unknown };
+    let body;
     try {
-      body = (await readJsonBody(req)) as { sessionId?: unknown; assistantId?: unknown };
+      body = await parseJsonBodyZod(req, sessionDeletePostSchema);
     } catch (e) {
       if (isLawMindHttpError(e)) {
         sendJson(res, e.status, { ok: false, message: e.message }, c);
+      } else if (isInvalidRequestBodyError(e)) {
+        sendJson(res, 400, { ok: false, code: "session_id_required", message: "sessionId is required" }, c);
       } else {
         sendJson(res, 400, { ok: false, message: "invalid_request" }, c);
       }
       return true;
     }
-    const sessionId =
-      typeof body.sessionId === "string" && body.sessionId.trim() ? body.sessionId.trim() : "";
-    if (!sessionId) {
-      sendJson(res, 400, { ok: false, code: "session_id_required", message: "sessionId is required" }, c);
-      return true;
-    }
-    const assistantId =
-      typeof body.assistantId === "string" && body.assistantId.trim()
-        ? body.assistantId.trim()
-        : DEFAULT_ASSISTANT_ID;
-    const out = performSessionDelete(workspaceDir, sessionId, assistantId);
+    const sessionId = body.sessionId;
+    const assistantId = body.assistantId?.trim() || DEFAULT_ASSISTANT_ID;
+    const out = performSessionDelete(workspaceDir, sessionId, assistantId, {
+      cascadeDelegations: body.cascadeDelegations === true,
+      cascadeUnapprovedDrafts: body.cascadeUnapprovedDrafts === true,
+    });
     sendJson(res, out.status, out.payload, c);
     return true;
   }
@@ -177,9 +212,9 @@ export async function handleRecordRoutes({
   if (sessionItemMatch && req.method === "PATCH") {
     const sessionId = sessionItemMatch[1];
     const assistantId = url.searchParams.get("assistantId")?.trim() || DEFAULT_ASSISTANT_ID;
-    let body: { title?: unknown };
+    let body;
     try {
-      body = (await readJsonBody(req)) as { title?: unknown };
+      body = await parseJsonBodyZod(req, sessionPatchTitleSchema);
     } catch (e) {
       if (isLawMindHttpError(e)) {
         sendJson(res, e.status, { ok: false, message: e.message }, c);
@@ -188,7 +223,7 @@ export async function handleRecordRoutes({
       }
       return true;
     }
-    const nextTitle = typeof body.title === "string" ? body.title : "";
+    const nextTitle = body.title;
     const session = loadSession(workspaceDir, sessionId);
     if (!session) {
       sendJson(res, 404, { ok: false, code: "not_found", message: "session not found" }, c);
@@ -215,7 +250,10 @@ export async function handleRecordRoutes({
   if (sessionItemMatch && req.method === "DELETE") {
     const sessionId = sessionItemMatch[1];
     const assistantId = url.searchParams.get("assistantId")?.trim() || DEFAULT_ASSISTANT_ID;
-    const out = performSessionDelete(workspaceDir, sessionId, assistantId);
+    const out = performSessionDelete(workspaceDir, sessionId, assistantId, {
+      cascadeDelegations: url.searchParams.get("cascadeDelegations") === "1",
+      cascadeUnapprovedDrafts: url.searchParams.get("cascadeUnapprovedDrafts") === "1",
+    });
     sendJson(res, out.status, out.payload, c);
     return true;
   }
@@ -226,15 +264,25 @@ export async function handleRecordRoutes({
     if (assistantFilter) {
       rows = rows.filter((session) => sessionMatchesAssistantFilter(session, assistantFilter));
     }
-    const sessions = rows.map((session) => ({
-      sessionId: session.sessionId,
-      title: displayChatSessionTitle(session),
-      matterId: session.matterId,
-      assistantId: session.assistantId,
-      createdAt: session.createdAt,
-      updatedAt: session.updatedAt,
-      turnCount: session.turns.length,
-    }));
+    const sessions = rows.map((session) => {
+      const tail = [...session.conversationHistory]
+        .toReversed()
+        .find((m) => m.role === "user" || m.role === "assistant");
+      const preview =
+        typeof tail?.content === "string"
+          ? tail.content.replace(/\s+/g, " ").trim().slice(0, 120)
+          : "";
+      return {
+        sessionId: session.sessionId,
+        title: displayChatSessionTitle(session),
+        matterId: session.matterId,
+        assistantId: session.assistantId,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+        turnCount: session.turns.length,
+        lastPreview: preview || undefined,
+      };
+    });
     sendJson(res, 200, { ok: true, sessions }, c);
     return true;
   }

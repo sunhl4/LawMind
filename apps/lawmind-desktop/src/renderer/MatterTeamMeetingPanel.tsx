@@ -1,103 +1,184 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { TeamMeetingLine } from "../../../../src/lawmind/cases/index.ts";
-import type { ClarificationQuestion } from "../../../../src/lawmind/types.ts";
-import { ApiRequestError, apiGetJson, errorMessage } from "./api-client";
-import { LawmindClarificationForm } from "./LawmindClarificationForm";
-import { handleEnterSendShiftNewline } from "./lawmind-chat";
-import { sendMeetingChatTurn } from "./lawmind-meeting-chat";
+import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
+import type { FileChatContextItem } from "./lawmind-file-chat-context";
+import { isAdhocMeetingMatterId } from "./lawmind-meeting-scope";
+import {
+  readMeetingParticipants as readParticipants,
+  writeMeetingParticipants as writeParticipants,
+} from "./lawmind-meeting-session-storage";
+import {
+  MatterTeamMeetingRunActions,
+  MatterTeamMeetingSetupSection,
+} from "./MatterTeamMeetingSetupSection";
+import { MatterTeamMeetingThreadSection } from "./MatterTeamMeetingThreadSection";
+import {
+  useMatterTeamMeetingDeliberation,
+  type MeetingAssistantRow,
+} from "./useMatterTeamMeetingDeliberation";
 
-type AssistantRow = { assistantId: string; displayName: string };
-
-const SESSION_STORAGE_PREFIX = "lawmind.teamMeeting.session.";
 const TIMELINE_PAGE_LIMIT = 120;
-
-function readMeetingSessionMap(matterId: string): Record<string, string | undefined> {
-  try {
-    const raw = sessionStorage.getItem(`${SESSION_STORAGE_PREFIX}${matterId}`);
-    if (!raw) {
-      return {};
-    }
-    const o = JSON.parse(raw) as Record<string, unknown>;
-    const out: Record<string, string | undefined> = {};
-    if (o && typeof o === "object") {
-      for (const [k, v] of Object.entries(o)) {
-        if (typeof v === "string" && v.trim()) {
-          out[k] = v.trim();
-        }
-      }
-    }
-    return out;
-  } catch {
-    return {};
-  }
-}
-
-function writeMeetingSessionMap(matterId: string, map: Record<string, string | undefined>): void {
-  try {
-    sessionStorage.setItem(`${SESSION_STORAGE_PREFIX}${matterId}`, JSON.stringify(map));
-  } catch {
-    /* ignore quota */
-  }
-}
 
 type Props = {
   apiBase: string;
   matterId: string;
-  /** 外壳当前助手：默认「谁来答」 */
+  /** 外壳当前助手：默认列入参会 */
   shellAssistantId: string;
   projectDir?: string | null;
+  /** Pins from 对话「引用到对话」— injected into meetingAgenda for each turn. */
+  agendaFilePins?: FileChatContextItem[];
+  onAddAgendaFile?: (payload: Pick<FileChatContextItem, "root" | "relPath" | "kind">) => void;
+  onRemoveAgendaFile?: (id: string) => void;
 };
 
 export function MatterTeamMeetingPanel(props: Props): ReactNode {
-  const { apiBase, matterId, shellAssistantId, projectDir } = props;
+  const {
+    apiBase,
+    matterId,
+    shellAssistantId,
+    projectDir,
+    agendaFilePins = [],
+    onAddAgendaFile,
+    onRemoveAgendaFile,
+  } = props;
 
-  const [assistants, setAssistants] = useState<AssistantRow[]>([]);
+  const [assistants, setAssistants] = useState<MeetingAssistantRow[]>([]);
+  const [participantIds, setParticipantIds] = useState<string[]>(() => {
+    const stored = readParticipants(matterId);
+    return stored?.length ? stored : [shellAssistantId];
+  });
   const [lines, setLines] = useState<TeamMeetingLine[]>([]);
   const [totalLines, setTotalLines] = useState<number | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const [loadingEarlier, setLoadingEarlier] = useState(false);
-  const [sendErr, setSendErr] = useState<string | null>(null);
-  const [input, setInput] = useState("");
-  const [agendaDraft, setAgendaDraft] = useState("");
-
-  const [speakerId, setSpeakerId] = useState(shellAssistantId);
-  const [sessionByAssistant, setSessionByAssistant] = useState<Record<string, string | undefined>>(
-    () => readMeetingSessionMap(matterId),
-  );
-  const [pendingClarification, setPendingClarification] = useState<{
-    questions: ClarificationQuestion[];
-    formKey: string;
-    status?: string;
-  } | null>(null);
+  const [synthesizerId, setSynthesizerId] = useState(shellAssistantId);
+  const [rosterBusy, setRosterBusy] = useState(false);
+  const [rosterHint, setRosterHint] = useState<string | null>(null);
 
   useEffect(() => {
-    setSessionByAssistant(readMeetingSessionMap(matterId));
-    setSpeakerId(shellAssistantId);
+    let cancelled = false;
+    setRosterHint(null);
     setLoadErr(null);
-    setSendErr(null);
-    setAgendaDraft("");
     setTotalLines(null);
-    setPendingClarification(null);
-  }, [matterId, shellAssistantId]);
+
+    const applyParticipants = (ids: string[], synthesizer?: string) => {
+      if (cancelled) {
+        return;
+      }
+      const next = ids.length > 0 ? ids : [shellAssistantId];
+      setParticipantIds(next);
+      const synth =
+        synthesizer && next.includes(synthesizer)
+          ? synthesizer
+          : next.includes(shellAssistantId)
+            ? shellAssistantId
+            : next[0];
+      setSynthesizerId(synth);
+    };
+
+    void (async () => {
+      if (!apiBase?.trim() || isAdhocMeetingMatterId(matterId)) {
+        const stored = readParticipants(matterId);
+        applyParticipants(stored?.length ? stored : [shellAssistantId]);
+        return;
+      }
+      try {
+        const j = await apiGetJson<{
+          ok?: boolean;
+          roster?: {
+            participantAssistantIds?: string[];
+            synthesizerAssistantId?: string;
+          } | null;
+        }>(apiBase, `/api/matters/team-roster?matterId=${encodeURIComponent(matterId)}`);
+        if (cancelled) {
+          return;
+        }
+        const rosterIds = j.roster?.participantAssistantIds?.filter(Boolean) ?? [];
+        if (rosterIds.length > 0) {
+          applyParticipants(rosterIds, j.roster?.synthesizerAssistantId);
+          return;
+        }
+      } catch {
+        /* fall through to sessionStorage */
+      }
+      const stored = readParticipants(matterId);
+      applyParticipants(stored?.length ? stored : [shellAssistantId]);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, matterId, shellAssistantId]);
+
+  const rememberRoster = async () => {
+    if (!apiBase?.trim() || isAdhocMeetingMatterId(matterId)) {
+      setRosterHint("临时讨论不保存本案编制");
+      return;
+    }
+    setRosterBusy(true);
+    setRosterHint(null);
+    try {
+      await apiSendJson(apiBase, "/api/matters/team-roster", "PUT", {
+        matterId,
+        participantAssistantIds: participantIds,
+        synthesizerAssistantId: synthesizerId,
+      });
+      setRosterHint("已记住本案编制");
+    } catch (e) {
+      setRosterHint(errorMessage(e, "保存编制失败"));
+    } finally {
+      setRosterBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    writeParticipants(matterId, participantIds);
+  }, [matterId, participantIds]);
+
+  const participantAssistants = useMemo(() => {
+    const set = new Set(participantIds);
+    return assistants.filter((a) => set.has(a.assistantId));
+  }, [assistants, participantIds]);
 
   useEffect(() => {
     if (assistants.length === 0) {
       return;
     }
-    const ids = new Set(assistants.map((a) => a.assistantId));
-    if (!ids.has(speakerId)) {
-      setSpeakerId(assistants[0].assistantId);
-    }
-  }, [assistants, speakerId]);
+    const valid = new Set(assistants.map((a) => a.assistantId));
+    setParticipantIds((prev) => {
+      const kept = prev.filter((id) => valid.has(id));
+      if (kept.length > 0) {
+        return kept;
+      }
+      const fallback = valid.has(shellAssistantId) ? shellAssistantId : assistants[0].assistantId;
+      return [fallback];
+    });
+  }, [assistants, shellAssistantId]);
 
   useEffect(() => {
-    setPendingClarification(null);
-  }, [speakerId]);
+    if (participantIds.length === 0) {
+      return;
+    }
+    if (!participantIds.includes(synthesizerId)) {
+      setSynthesizerId(participantIds[participantIds.length - 1]);
+    }
+  }, [participantIds, synthesizerId]);
+
+  const toggleParticipant = useCallback((id: string) => {
+    setParticipantIds((prev) => {
+      if (prev.includes(id)) {
+        if (prev.length <= 1) {
+          return prev;
+        }
+        return prev.filter((x) => x !== id);
+      }
+      return [...prev, id];
+    });
+  }, []);
 
   const loadAssistants = useCallback(async () => {
     try {
-      const j = await apiGetJson<{ ok?: boolean; assistants?: AssistantRow[] }>(
+      const j = await apiGetJson<{ ok?: boolean; assistants?: MeetingAssistantRow[] }>(
         apiBase,
         "/api/assistants",
       );
@@ -181,269 +262,114 @@ export function MatterTeamMeetingPanel(props: Props): ReactNode {
     void refreshTimeline();
   }, [refreshTimeline]);
 
-  const persistSessions = useCallback(
-    (next: Record<string, string | undefined>) => {
-      setSessionByAssistant(next);
-      writeMeetingSessionMap(matterId, next);
-    },
-    [matterId],
-  );
-
-  const applyTurnResult = useCallback(
-    (
-      result: Awaited<ReturnType<typeof sendMeetingChatTurn>>,
-      sessionBase: Record<string, string | undefined>,
-    ) => {
-      let nextSessions = sessionBase;
-      if (result.sessionId) {
-        nextSessions = { ...sessionBase, [speakerId]: result.sessionId };
-        persistSessions(nextSessions);
-      }
-      const msg = result.assistantMessage;
-      const qs = msg.clarificationQuestions ?? [];
-      if (qs.length > 0 || msg.status === "awaiting_clarification") {
-        setPendingClarification({
-          questions: qs,
-          formKey: `${speakerId}-${Date.now()}`,
-          status: msg.status,
-        });
-      } else {
-        setPendingClarification(null);
-      }
-    },
-    [persistSessions, speakerId],
-  );
-
-  const runSendMeetingMessage = useCallback(
-    async (rawMessage: string): Promise<boolean> => {
-      const text = rawMessage.trim();
-      if (!text || busy) {
-        return false;
-      }
-      setBusy(true);
-      setSendErr(null);
-      const agenda = agendaDraft.trim() || undefined;
-      const turnArgs = (sessions: Record<string, string | undefined>) => ({
-        apiBase,
-        message: text,
-        matterId,
-        assistantId: speakerId,
-        sessionId: sessions[speakerId],
-        allowWebSearch: false as const,
-        projectDir: projectDir ?? undefined,
-        meetingAgenda: agenda,
-      });
-      try {
-        const result = await sendMeetingChatTurn(turnArgs(sessionByAssistant));
-        applyTurnResult(result, sessionByAssistant);
-        await refreshTimeline();
-        return true;
-      } catch (e) {
-        if (e instanceof ApiRequestError && e.body?.code === "session_assistant_mismatch") {
-          const cleared = { ...sessionByAssistant, [speakerId]: undefined };
-          persistSessions(cleared);
-          try {
-            const result = await sendMeetingChatTurn(turnArgs(cleared));
-            applyTurnResult(result, cleared);
-            await refreshTimeline();
-            return true;
-          } catch (e2) {
-            setSendErr(errorMessage(e2, "发送失败"));
-            return false;
-          }
-        }
-        setSendErr(errorMessage(e, "发送失败"));
-        return false;
-      } finally {
-        setBusy(false);
-      }
-    },
-    [
-      agendaDraft,
-      apiBase,
-      applyTurnResult,
-      busy,
-      matterId,
-      persistSessions,
-      projectDir,
-      refreshTimeline,
-      sessionByAssistant,
-      speakerId,
-    ],
-  );
-
-  const onSend = useCallback(async () => {
-    const text = input.trim();
-    if (!text) {
-      return;
-    }
-    const ok = await runSendMeetingMessage(text);
-    if (ok) {
-      setInput("");
-    }
-  }, [input, runSendMeetingMessage]);
+  const deliberation = useMatterTeamMeetingDeliberation({
+    apiBase,
+    matterId,
+    projectDir,
+    agendaFilePins,
+    participantAssistants,
+    synthesizerId,
+    refreshTimeline,
+  });
 
   const hasEarlier =
     totalLines !== null ? totalLines > lines.length : lines.length >= TIMELINE_PAGE_LIMIT;
 
+  const runActions = (
+    <MatterTeamMeetingRunActions
+      phase={deliberation.phase}
+      planLength={deliberation.plan.length}
+      nextCueIndex={deliberation.nextCueIndex}
+      canStart={deliberation.canStart}
+      busy={deliberation.busy}
+      participantCount={participantAssistants.length}
+      linesCount={lines.length}
+      startDeliberation={deliberation.startDeliberation}
+      interruptDeliberation={deliberation.interruptDeliberation}
+      resumeDeliberation={deliberation.resumeDeliberation}
+      concludeNow={deliberation.concludeNow}
+      endDeliberation={deliberation.endDeliberation}
+    />
+  );
+
   return (
-    <div className="lm-matter-meeting">
-      <p className="lm-matter-meeting-intro">
-        <strong>怎么用：</strong>先选「谁来答」，在下面写好你的话，点<strong>发送</strong>。你和助手的来回会留在
-        <strong>本案</strong>里，下次打开还能看到。若助手反问几条待确认事项，会在下面出现<strong>待补充说明</strong>框，请按项填写后再发。
-      </p>
-
-      <div className="lm-matter-meeting-toolbar">
-        <label className="lm-matter-meeting-field">
-          <span className="lm-matter-meeting-label">谁来答</span>
-          <select
-            value={speakerId}
-            onChange={(e) => setSpeakerId(e.target.value)}
-            aria-label="由哪位助手回答"
-          >
-            {assistants.length === 0 ? (
-              <option value={speakerId}>加载助手列表…</option>
-            ) : (
-              assistants.map((a) => (
-                <option key={a.assistantId} value={a.assistantId}>
-                  {a.displayName}
-                </option>
-              ))
-            )}
-          </select>
-        </label>
-        <button
-          type="button"
-          className="lm-btn lm-btn-ghost lm-btn-sm lm-matter-meeting-refresh"
-          disabled={busy}
-          onClick={() => void refreshTimeline()}
-        >
-          刷新
-        </button>
-      </div>
-
-      <details className="lm-matter-meeting-details">
-        <summary>有时需要：给助手多看几句背景（可不填）</summary>
-        <textarea
-          className="lm-matter-meeting-agenda"
-          rows={2}
-          value={agendaDraft}
-          onChange={(e) => setAgendaDraft(e.target.value)}
-          placeholder="例如：今天主要想讨论和解方案"
-          disabled={busy}
-        />
-      </details>
-
-      <details className="lm-matter-meeting-details lm-matter-meeting-details-muted">
-        <summary>固定流程、备份在哪？</summary>
-        <p className="lm-meta lm-matter-meeting-details-body">
-          重复性工作请用顶部<strong>协作 → 团队工作流</strong>。本页适合临时商量。
-        </p>
-        <p className="lm-meta lm-matter-meeting-details-body">
-          记录文件（备份工作区时可一并带走）：{" "}
-          <code className="lm-md-code">cases/{matterId}/team-meeting.jsonl</code>
-        </p>
-      </details>
-
-      {loadErr ? (
-        <div className="lm-callout lm-callout-warn" role="alert">
-          <p className="lm-callout-body">{loadErr}</p>
-        </div>
-      ) : null}
-
-      {hasEarlier ? (
-        <div className="lm-matter-meeting-load-earlier">
-          <button
-            type="button"
-            className="lm-btn lm-btn-ghost lm-btn-sm"
-            disabled={loadingEarlier || busy}
-            onClick={() => void loadEarlier()}
-          >
-            {loadingEarlier ? "加载中…" : "显示更早的对话"}
-          </button>
-        </div>
-      ) : null}
-
-      <ul className="lm-matter-meeting-feed" aria-label="本案讨论记录">
-        {lines.length === 0 && !loadErr ? (
-          <li className="lm-meta">还没有内容。写好上面的话，发一条试试。</li>
-        ) : null}
-        {lines.map((row) => (
-          <li key={row.id} className={`lm-matter-meeting-row lm-matter-meeting-row-${row.kind}`}>
-            <div className="lm-matter-meeting-row-meta">
-              <time dateTime={row.ts}>{new Date(row.ts).toLocaleString()}</time>
-              <span className="lm-matter-meeting-author">
-                {row.kind === "user"
-                  ? "您"
-                  : row.kind === "system"
-                    ? "系统"
-                    : row.displayName?.trim() || row.assistantId || "助手"}
-              </span>
+    <div
+      className={`lm-matter-meeting${deliberation.deliberationActive ? " lm-matter-meeting--live" : ""}`}
+    >
+      {deliberation.deliberationActive ? (
+        <div className="lm-matter-meeting-runbar" data-testid="lm-meeting-runbar">
+          {deliberation.statusLabel || deliberation.plan.length > 0 ? (
+            <div className="lm-matter-meeting-status" role="status" aria-live="polite">
+              {deliberation.statusLabel
+                ? deliberation.statusLabel
+                : deliberation.phase === "running"
+                  ? "讨论进行中"
+                  : deliberation.phase === "paused"
+                    ? "讨论已暂停"
+                    : null}
+              {deliberation.plan.length > 0 ? (
+                <span className="lm-matter-meeting-progress" data-testid="lm-meeting-progress">
+                  {` · 发言进度 ${Math.min(deliberation.nextCueIndex, deliberation.plan.length)}/${deliberation.plan.length}`}
+                </span>
+              ) : null}
             </div>
-            <div className="lm-matter-meeting-text">{row.text}</div>
-          </li>
-        ))}
-      </ul>
-
-      {sendErr ? (
-        <div className="lm-callout lm-callout-danger" role="alert">
-          <p className="lm-callout-body">{sendErr}</p>
+          ) : null}
+          <div className="lm-matter-meeting-cta lm-matter-meeting-cta--runbar">{runActions}</div>
         </div>
       ) : null}
 
-      {pendingClarification ? (
-        <div className="lm-clarify-card lm-matter-meeting-clarify" role="region" aria-label="待补充说明">
-          <div className="lm-clarify-card-title">
-            {pendingClarification.status === "awaiting_clarification"
-              ? "还差这些信息"
-              : "建议补充这些"}
-          </div>
-          <div className="lm-clarify-card-hint">
-            {pendingClarification.status === "awaiting_clarification" &&
-            (pendingClarification.questions?.length ?? 0) === 0
-              ? "请把情况写在下面大框里，再点「发送」。"
-              : "填好后可点「填好并发送」，或把内容放到下面大框自行修改后再发。"}
-          </div>
-          {pendingClarification.questions.length > 0 ? (
-            <LawmindClarificationForm
-              formKey={pendingClarification.formKey}
-              questions={pendingClarification.questions}
-              loading={busy}
-              onApplyToInput={(t) => setInput((prev) => (prev.trim() ? `${prev.trim()}\n\n${t}` : t))}
-              onSend={(payload) => void runSendMeetingMessage(payload)}
-            />
-          ) : (
-            <p className="lm-clarify-card-fallback">请在下方输入并发送。</p>
-          )}
-        </div>
-      ) : null}
+      <MatterTeamMeetingSetupSection
+        matterId={matterId}
+        apiBase={apiBase}
+        assistants={assistants}
+        participantIds={participantIds}
+        participantAssistants={participantAssistants}
+        agendaFilePins={agendaFilePins}
+        onAddAgendaFile={onAddAgendaFile}
+        onRemoveAgendaFile={onRemoveAgendaFile}
+        busy={deliberation.busy}
+        phase={deliberation.phase}
+        deliberationActive={deliberation.deliberationActive}
+        statusLabel={deliberation.statusLabel}
+        topic={deliberation.topic}
+        onTopicChange={deliberation.setTopic}
+        rounds={deliberation.rounds}
+        onRoundsChange={deliberation.setRounds}
+        synthesizerId={synthesizerId}
+        onSynthesizerChange={setSynthesizerId}
+        lawyerMode={deliberation.lawyerMode}
+        onLawyerModeChange={deliberation.setLawyerMode}
+        allowMeetingWebSearch={deliberation.allowMeetingWebSearch}
+        onAllowMeetingWebSearchChange={deliberation.setAllowMeetingWebSearch}
+        rosterBusy={rosterBusy}
+        rosterHint={rosterHint}
+        onRememberRoster={() => void rememberRoster()}
+        toggleParticipant={toggleParticipant}
+        startBlockedHint={deliberation.startBlockedHint}
+        runActions={runActions}
+      />
 
-      <div className="lm-matter-meeting-compose">
-        <textarea
-          className="lm-matter-meeting-input"
-          rows={3}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="写你想让助手做的事，例如：请把本案争议焦点整理成三条"
-          disabled={busy}
-          onKeyDown={(e) =>
-            handleEnterSendShiftNewline(e, () => void onSend().catch(() => undefined))
-          }
-        />
-        <div className="lm-matter-meeting-compose-actions">
-          <button
-            type="button"
-            className="lm-btn lm-btn-accent lm-btn-sm"
-            disabled={busy || !input.trim()}
-            onClick={() => void onSend().catch(() => undefined)}
-          >
-            {busy ? "发送中…" : "发送"}
-          </button>
-          <span className="lm-meta lm-matter-meeting-kbd-hint" title="Enter 发送，Shift+Enter 换行">
-            Enter 发送 · Shift+Enter 换行
-          </span>
-        </div>
-      </div>
+      <MatterTeamMeetingThreadSection
+        lines={lines}
+        loadErr={loadErr}
+        sendErr={deliberation.sendErr}
+        hasEarlier={hasEarlier}
+        loadingEarlier={loadingEarlier}
+        busy={deliberation.busy}
+        phase={deliberation.phase}
+        lawyerMode={deliberation.lawyerMode}
+        composeEnabled={deliberation.composeEnabled}
+        input={deliberation.input}
+        onInputChange={deliberation.setInput}
+        onRefreshTimeline={() => void refreshTimeline()}
+        onLoadEarlier={() => void loadEarlier()}
+        pendingClarification={deliberation.pendingClarification}
+        onApplyClarificationToInput={(t) =>
+          deliberation.setInput((prev) => (prev.trim() ? `${prev.trim()}\n\n${t}` : t))
+        }
+        onSendClarificationReply={(payload) => void deliberation.sendClarificationReply(payload)}
+        onSendLawyerIntervene={deliberation.sendLawyerIntervene}
+      />
     </div>
   );
 }

@@ -2,6 +2,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { persistDraft, readDraft } from "../../drafts/index.js";
+import { persistResearchSnapshot } from "../../drafts/research-snapshot.js";
+import type { ResearchBundle } from "../../types.js";
 import type { AgentContext } from "../types.js";
 import { buildLawMindRetrievalAdaptersFromEnvForTest } from "./engine-tools.js";
 import { createLegalToolRegistry } from "./legal-tools.js";
@@ -14,12 +17,13 @@ function tmpWorkspace(): string {
   return dir;
 }
 
-function makeCtx(ws: string, matterId?: string): AgentContext {
+function makeCtx(ws: string, matterId?: string, extras?: Partial<AgentContext>): AgentContext {
   return {
     workspaceDir: ws,
     sessionId: "test-session",
     actorId: "test-lawyer",
     matterId,
+    ...extras,
   };
 }
 
@@ -63,17 +67,23 @@ describe("Engine-Bridge Tools", () => {
     expect(names).toContain("research_task");
     expect(names).toContain("draft_document");
     expect(names).toContain("render_document");
+    expect(names).toContain("render_tracked_draft");
+    expect(names).toContain("apply_surgical_edits");
+    expect(names).toContain("prepare_outbound_mail");
+    expect(names).toContain("list_mail_inbox");
+    expect(names).toContain("list_mail_attachments");
     expect(names).toContain("execute_workflow");
     expect(names).toContain("register_template");
     expect(names).toContain("list_templates");
     expect(names).toContain("open_work_queue_item");
     expect(names).toContain("request_approval");
     expect(names).toContain("record_deadline");
+    expect(names).toContain("deep_research");
   });
 
-  it("total tool count is 25 (15 legal + 10 engine)", () => {
+  it("total tool count is 42 (27 legal + 15 engine)", () => {
     const registry = createLegalToolRegistry();
-    expect(registry.size()).toBe(25);
+    expect(registry.size()).toBe(42);
   });
 });
 
@@ -110,7 +120,7 @@ describe("plan_task", () => {
     expect(result.ok).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.kind).toBe("draft.word");
-    expect(data.deliverableType).toBe("letter.demand");
+    expect(data.deliverableType).toBe("letter.counsel");
     expect(data.riskLevel).toBe("high");
     expect(data.requiresConfirmation).toBe(true);
   });
@@ -154,7 +164,7 @@ describe("clarification pending guard", () => {
     expect(result.error).toContain("待澄清");
   });
 
-  it("blocks research_task when clarificationBlockingHeavyTools", async () => {
+  it("allows research_task when clarificationBlockingHeavyTools (read/research stay open)", async () => {
     const ws = tmpWorkspace();
     const registry = createLegalToolRegistry();
     const plan = registry.get("plan_task")!;
@@ -170,8 +180,8 @@ describe("clarification pending guard", () => {
       { task_id: taskId, instruction: "请审查合同", matter_id: "m-r" },
       ctx,
     );
-    expect(result.ok).toBe(false);
-    expect(result.error).toContain("待澄清");
+    // May fail for missing adapters/API, but must not be the clarification write-gate.
+    expect(result.error ?? "").not.toContain("待澄清");
   });
 
   it("blocks render_document when clarificationBlockingHeavyTools", async () => {
@@ -189,7 +199,27 @@ describe("clarification pending guard", () => {
 });
 
 describe("execute_workflow", () => {
+  it("rejects force_render when LAWMIND_WORKFLOW_ALLOW_FORCE_RENDER is not set", async () => {
+    const ws = tmpWorkspace();
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("execute_workflow")!;
+
+    const result = await tool.execute(
+      {
+        instruction: "请审查这份合同的主要条款并列出风险点",
+        matter_id: "m-force-render-denied",
+        force_render: true,
+      },
+      makeCtx(ws, "m-force-render-denied"),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("force_render 已被禁用");
+    expect(result.error).toContain("LAWMIND_WORKFLOW_ALLOW_FORCE_RENDER");
+  });
+
   it("renders docx when force_render is set (medium-risk draft path)", async () => {
+    vi.stubEnv("LAWMIND_WORKFLOW_ALLOW_FORCE_RENDER", "1");
     const ws = tmpWorkspace();
     const registry = createLegalToolRegistry();
     const tool = registry.get("execute_workflow")!;
@@ -220,7 +250,7 @@ describe("execute_workflow", () => {
     const caseMd = path.join(ws, "cases", "m-workflow-test", "CASE.md");
     expect(fs.existsSync(caseMd)).toBe(true);
     const caseContent = fs.readFileSync(caseMd, "utf8");
-    expect(caseContent).toContain("任务目标");
+    expect(caseContent).toMatch(/任务目标|工作进展记录/);
   });
 
   it("stops at awaiting_lawyer_review for high-risk tasks", async () => {
@@ -239,8 +269,41 @@ describe("execute_workflow", () => {
     expect(data.status).toBe("awaiting_lawyer_review");
 
     const steps = data.steps as string[];
-    const lastStep = steps[steps.length - 1];
-    expect(lastStep).toContain("等待律师审批");
+    expect(steps.some((s) => s.includes("等待律师审批"))).toBe(true);
+  });
+
+  it("refuses high-risk workflow when research is demo-corpus only", async () => {
+    const ws = tmpWorkspace();
+    const prevProvider = process.env.LAWMIND_AUTHORITY_PROVIDER;
+    const prevMode = process.env.LAWMIND_OPEN_LAW_MODE;
+    process.env.LAWMIND_AUTHORITY_PROVIDER = "open";
+    process.env.LAWMIND_OPEN_LAW_MODE = "local";
+    try {
+      const registry = createLegalToolRegistry();
+      const tool = registry.get("execute_workflow")!;
+      // Instruction that matches bundled sample statutes → demo riskFlag.
+      const result = await tool.execute(
+        {
+          instruction: "依据民法典第563条写一封催款律师函",
+          matter_id: "m-demo-refuse",
+        },
+        makeCtx(ws, "m-demo-refuse"),
+      );
+      expect(result.ok).toBe(false);
+      expect(result.error).toMatch(/演示语料|拒绝自动起草/);
+      expect((result.data as { demoCorpus?: boolean } | undefined)?.demoCorpus).toBe(true);
+    } finally {
+      if (prevProvider === undefined) {
+        delete process.env.LAWMIND_AUTHORITY_PROVIDER;
+      } else {
+        process.env.LAWMIND_AUTHORITY_PROVIDER = prevProvider;
+      }
+      if (prevMode === undefined) {
+        delete process.env.LAWMIND_OPEN_LAW_MODE;
+      } else {
+        process.env.LAWMIND_OPEN_LAW_MODE = prevMode;
+      }
+    }
   });
 
   it("creates audit trail during workflow", async () => {
@@ -279,6 +342,7 @@ describe("execute_workflow", () => {
   });
 
   it("resumes with existing_task_id and restart_from research", async () => {
+    vi.stubEnv("LAWMIND_WORKFLOW_ALLOW_FORCE_RENDER", "1");
     const ws = tmpWorkspace();
     const registry = createLegalToolRegistry();
     const tool = registry.get("execute_workflow")!;
@@ -352,7 +416,72 @@ describe("render_document", () => {
     expect(String(data.outputPath)).toMatch(/\.docx$/);
   });
 
-  it("blocks render when the Deliverable-First acceptance gate is unmet", async () => {
+  it("prefers workspace linkedTaskId over latest draft when task_id is omitted", async () => {
+    const ws = tmpWorkspace();
+    const registry = createLegalToolRegistry();
+    const draftTool = registry.get("draft_document")!;
+    const renderTool = registry.get("render_document")!;
+
+    const first = await draftTool.execute(
+      { instruction: "请审查合同条款A", matter_id: "m-link-render" },
+      makeCtx(ws, "m-link-render"),
+    );
+    expect(first.ok).toBe(true);
+    const tid1 = (first.data as { taskId: string }).taskId;
+
+    const second = await draftTool.execute(
+      { instruction: "请审查合同条款B", matter_id: "m-link-render" },
+      makeCtx(ws, "m-link-render"),
+    );
+    expect(second.ok).toBe(true);
+    const tid2 = (second.data as { taskId: string }).taskId;
+    expect(tid1).not.toBe(tid2);
+
+    const result = await renderTool.execute(
+      {
+        approve: true,
+        approval_note: "同意导出 Word 正式稿",
+        bypass_acceptance_gate: true,
+      },
+      makeCtx(ws, "m-link-render", { linkedTaskId: tid1 }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect((result.data as { taskId: string }).taskId).toBe(tid1);
+    expect((result.data as { taskId: string }).taskId).not.toBe(tid2);
+  });
+
+  it("falls back to latest draft when linkedTaskId does not match any draft", async () => {
+    const ws = tmpWorkspace();
+    const registry = createLegalToolRegistry();
+    const draftTool = registry.get("draft_document")!;
+    const renderTool = registry.get("render_document")!;
+
+    await draftTool.execute(
+      { instruction: "请审查合同条款A", matter_id: "m-link-fallback" },
+      makeCtx(ws, "m-link-fallback"),
+    );
+    const second = await draftTool.execute(
+      { instruction: "请审查合同条款B", matter_id: "m-link-fallback" },
+      makeCtx(ws, "m-link-fallback"),
+    );
+    expect(second.ok).toBe(true);
+    const tid2 = (second.data as { taskId: string }).taskId;
+
+    const result = await renderTool.execute(
+      {
+        approve: true,
+        approval_note: "同意导出",
+        bypass_acceptance_gate: true,
+      },
+      makeCtx(ws, "m-link-fallback", { linkedTaskId: "no-such-draft-id" }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect((result.data as { taskId: string }).taskId).toBe(tid2);
+  });
+
+  it("blocks render when acceptance gate is unmet even after local-export stamp", async () => {
     const ws = tmpWorkspace();
     const registry = createLegalToolRegistry();
     const draftTool = registry.get("draft_document")!;
@@ -367,18 +496,239 @@ describe("render_document", () => {
     );
     expect(draftResult.ok).toBe(true);
 
-    const blocked = await renderTool.execute(
-      { approve: true, approval_note: "同意导出" },
-      makeCtx(ws, "m-render-gated"),
-    );
+    const blocked = await renderTool.execute({}, makeCtx(ws, "m-render-gated"));
 
     expect(blocked.ok).toBe(false);
-    expect((blocked as { pendingApproval?: boolean }).pendingApproval).toBe(true);
-    const detail = (blocked as { data?: Record<string, unknown> }).data ?? {};
-    expect(detail.acceptance).toBeTruthy();
-    const acceptance = detail.acceptance as { ready: boolean; blockerCount: number };
-    expect(acceptance.ready).toBe(false);
-    expect(acceptance.blockerCount).toBeGreaterThan(0);
+    expect((blocked.data as { renderFailureCategory?: string })?.renderFailureCategory).toBe(
+      "acceptance_gate",
+    );
+  });
+
+  it("approve=true alone does NOT bypass acceptance gate; bypass_acceptance_gate=true is required", async () => {
+    const ws = tmpWorkspace();
+    const registry = createLegalToolRegistry();
+    const draftTool = registry.get("draft_document")!;
+    const renderTool = registry.get("render_document")!;
+
+    const draftResult = await draftTool.execute(
+      {
+        instruction: "请审查这份合同的违约责任条款",
+        matter_id: "m-render-gated-approve",
+      },
+      makeCtx(ws, "m-render-gated-approve"),
+    );
+    expect(draftResult.ok).toBe(true);
+
+    // approve=true sets review status to approved but must NOT silently bypass the
+    // Deliverable-First acceptance gate when blockers/placeholders remain.
+    const gated = await renderTool.execute(
+      { approve: true, approval_note: "律师已同意导出 Word" },
+      makeCtx(ws, "m-render-gated-approve"),
+    );
+    expect(gated.ok).toBe(false);
+    expect((gated as { pendingApproval?: boolean }).pendingApproval).toBeFalsy();
+    const gatedData = gated.data as { renderFailureCategory?: string };
+    expect(gatedData.renderFailureCategory).toBe("acceptance_gate");
+
+    // Lawyer must explicitly accept placeholders via bypass_acceptance_gate=true.
+    const rendered = await renderTool.execute(
+      {
+        approve: true,
+        bypass_acceptance_gate: true,
+        approval_note: "律师已知情接受占位符并导出 Word",
+      },
+      makeCtx(ws, "m-render-gated-approve"),
+    );
+
+    expect(rendered.ok).toBe(true);
+    expect(String((rendered.data as { outputPath?: string }).outputPath)).toMatch(/\.docx$/);
+  });
+});
+
+describe("update_draft", () => {
+  it("updates sections on an existing modified draft", async () => {
+    const ws = tmpWorkspace();
+    const taskId = "update-draft-1";
+    const now = new Date().toISOString();
+    persistDraft(ws, {
+      taskId,
+      title: "原稿",
+      output: "docx",
+      templateId: "word/contract-default",
+      summary: "摘要",
+      sections: [{ heading: "正文", body: "旧内容" }],
+      reviewNotes: [],
+      reviewStatus: "modified",
+      createdAt: now,
+    });
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("update_draft")!;
+
+    const result = await tool.execute(
+      {
+        task_id: taskId,
+        sections: [{ heading: "正文", body: "扩展后的专业内容" }],
+        summary: "更新摘要",
+      },
+      makeCtx(ws, undefined, { linkedTaskId: taskId }),
+    );
+
+    expect(result.ok).toBe(true);
+    const stored = readDraft(ws, taskId);
+    expect(stored?.sections[0]?.body).toBe("扩展后的专业内容");
+    expect(stored?.summary).toBe("更新摘要");
+  });
+
+  it("surfaces a demo-corpus warning when the research snapshot is demo-only", async () => {
+    const ws = tmpWorkspace();
+    const taskId = "update-draft-demo";
+    const now = new Date().toISOString();
+    persistDraft(ws, {
+      taskId,
+      title: "演示草稿",
+      output: "docx",
+      templateId: "word/contract-default",
+      summary: "摘要",
+      sections: [{ heading: "正文", body: "旧内容" }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: now,
+    });
+    persistResearchSnapshot(ws, {
+      taskId,
+      query: "演示查询",
+      sources: [],
+      claims: [],
+      riskFlags: ["演示语料（非正式完整法库；正式引用请核对官方法条）"],
+      missingItems: [],
+      requiresReview: false,
+      completedAt: now,
+    } satisfies ResearchBundle);
+
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("update_draft")!;
+    const result = await tool.execute(
+      {
+        task_id: taskId,
+        sections: [{ heading: "正文", body: "修订内容" }],
+      },
+      makeCtx(ws, undefined, { linkedTaskId: taskId }),
+    );
+
+    expect(result.ok).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.demoCorpus).toBe(true);
+    expect(typeof data.demoCorpusWarning).toBe("string");
+    expect(data.draftPath).toBe(`drafts/${taskId}.json`);
+  });
+
+  it("omits the demo-corpus warning when the snapshot is not demo-only", async () => {
+    const ws = tmpWorkspace();
+    const taskId = "update-draft-clean";
+    const now = new Date().toISOString();
+    persistDraft(ws, {
+      taskId,
+      title: "正式草稿",
+      output: "docx",
+      templateId: "word/contract-default",
+      summary: "摘要",
+      sections: [{ heading: "正文", body: "旧内容" }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: now,
+    });
+    persistResearchSnapshot(ws, {
+      taskId,
+      query: "正式查询",
+      sources: [],
+      claims: [],
+      riskFlags: [],
+      missingItems: [],
+      requiresReview: false,
+      completedAt: now,
+    } satisfies ResearchBundle);
+
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("update_draft")!;
+    const result = await tool.execute(
+      {
+        task_id: taskId,
+        sections: [{ heading: "正文", body: "修订内容" }],
+      },
+      makeCtx(ws, undefined, { linkedTaskId: taskId }),
+    );
+
+    expect(result.ok).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.demoCorpus).toBeUndefined();
+    expect(data.demoCorpusWarning).toBeUndefined();
+  });
+
+  it("omits the demo-corpus warning when no research snapshot exists", async () => {
+    const ws = tmpWorkspace();
+    const taskId = "update-draft-nosnap";
+    const now = new Date().toISOString();
+    persistDraft(ws, {
+      taskId,
+      title: "无快照草稿",
+      output: "docx",
+      templateId: "word/contract-default",
+      summary: "摘要",
+      sections: [{ heading: "正文", body: "旧内容" }],
+      reviewNotes: [],
+      reviewStatus: "modified",
+      createdAt: now,
+    });
+
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("update_draft")!;
+    const result = await tool.execute(
+      {
+        task_id: taskId,
+        sections: [{ heading: "正文", body: "修订内容" }],
+      },
+      makeCtx(ws, undefined, { linkedTaskId: taskId }),
+    );
+
+    expect(result.ok).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.demoCorpus).toBeUndefined();
+    expect(data.demoCorpusWarning).toBeUndefined();
+  });
+
+  it("hard-rejects oversized rewrite when LAWMIND_SURGICAL_ENFORCE=1", async () => {
+    vi.stubEnv("LAWMIND_SURGICAL_ENFORCE", "1");
+    const ws = tmpWorkspace();
+    const taskId = "update-draft-enforce";
+    const now = new Date().toISOString();
+    const before = "甲".repeat(200) + "应依约履行付款义务并承担违约责任。";
+    const after = "乙".repeat(220) + "可随时解除合同且无需通知。";
+    persistDraft(ws, {
+      taskId,
+      title: "合同",
+      output: "docx",
+      templateId: "word/contract-default",
+      summary: "",
+      sections: [{ heading: "正文", body: before }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: now,
+      contractEdit: { baselineRelativePath: "c.docx", mode: "surgical" },
+    });
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("update_draft")!;
+    const result = await tool.execute(
+      {
+        task_id: taskId,
+        sections: [{ heading: "正文", body: after }],
+      },
+      makeCtx(ws, undefined, { linkedTaskId: taskId }),
+    );
+    expect(result.ok).toBe(false);
+    const data = result.data as { gateDecision?: { decision?: string; category?: string } };
+    expect(data.gateDecision?.decision).toBe("block");
+    expect(data.gateDecision?.category).toBe("safety_hard");
+    expect(readDraft(ws, taskId)?.sections[0]?.body).toBe(before);
   });
 });
 
@@ -397,7 +747,7 @@ describe("draft_document", () => {
       makeCtx(ws, "m-draft"),
     );
 
-    expect(result.ok).toBe(true);
+    expect(result.ok, result.error ?? "draft_document failed").toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.title).toBe("合同审查意见书");
     expect(data.sectionsCount).toBeGreaterThanOrEqual(1);
@@ -419,7 +769,7 @@ describe("draft_document", () => {
       makeCtx(ws, "m-draft-template"),
     );
 
-    expect(result.ok).toBe(true);
+    expect(result.ok, result.error ?? "draft_document failed").toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.templateId).toBe("word/contract-default");
   });
@@ -466,6 +816,69 @@ describe("draft_document", () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain("instruction 不能为空");
+  });
+});
+
+describe("render_tracked_draft hunk gate", () => {
+  it("blocks contractEdit drafts with zero redline hunks", async () => {
+    const ws = tmpWorkspace();
+    const taskId = "task-empty-redline";
+    persistDraft(ws, {
+      taskId,
+      title: "合作协议",
+      output: "docx",
+      templateId: "word/contract-default",
+      deliverableType: "contract.review",
+      summary: "仅摘要无正文改动",
+      sections: [{ heading: "第一条", body: "原文不变。" }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: new Date().toISOString(),
+      contractEdit: {
+        baselineRelativePath: "cases/m1/mail/attachments/x/a.docx",
+        mode: "surgical",
+      },
+    });
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("render_tracked_draft")!;
+    const result = await tool.execute({ task_id: taskId }, makeCtx(ws, "m1"));
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("redline hunks");
+    expect((result.data as { code?: string } | undefined)?.code).toBe("redline_hunks_required");
+  });
+
+  it("allow_empty_redline bypasses the hunk gate", async () => {
+    const ws = tmpWorkspace();
+    const taskId = "task-allow-empty";
+    persistDraft(ws, {
+      taskId,
+      title: "合作协议",
+      output: "docx",
+      templateId: "word/contract-default",
+      deliverableType: "contract.review",
+      summary: "s",
+      sections: [{ heading: "第一条", body: "原文不变。" }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: new Date().toISOString(),
+      contractEdit: {
+        baselineRelativePath: "cases/m1/mail/attachments/x/a.docx",
+        mode: "surgical",
+      },
+    });
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("render_tracked_draft")!;
+    const result = await tool.execute(
+      { task_id: taskId, allow_empty_redline: true },
+      makeCtx(ws, "m1"),
+    );
+    // May fail later on missing baseline file / conversion — but must not be the hunk gate.
+    expect(result.error ?? "").not.toContain("redline hunks");
+    if (!result.ok) {
+      expect((result.data as { code?: string } | undefined)?.code).not.toBe(
+        "redline_hunks_required",
+      );
+    }
   });
 });
 

@@ -1,0 +1,29 @@
+{
+  "id": "due-diligence-review",
+  "name": "尽调审查表",
+  "namedAgent": "Due Diligence Reviewer",
+  "description": "多文档尽调：合同、函件与公开信息对照审查矩阵问题列。",
+  "practiceArea": "due_diligence",
+  "deliverableType": "contract.review",
+  "riskLevel": "high",
+  "audience": "firm",
+  "starterPrompt": "请启动尽调审查：先列出材料清单，再按尽调问题列逐项标注风险与来源。",
+  "acceptancePackRequired": true,
+  "requiredSources": ["目标公司材料包"],
+  "steps": [
+    {
+      "stepId": "inventory",
+      "assignee": "case_analyst",
+      "task": "整理尽调材料清单与缺口（matterId={{matterId}}）",
+      "dependsOn": [],
+      "autoApprove": true
+    },
+    {
+      "stepId": "review",
+      "assignee": "contract_reviewer",
+      "task": "按尽调审查表输出分文档风险摘要（matterId={{matterId}}）",
+      "dependsOn": ["inventory"],
+      "autoApprove": false
+    }
+  ]
+}

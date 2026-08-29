@@ -8,9 +8,62 @@
  */
 
 import path from "node:path";
+import { receiveMessageOnPort, MessageChannel } from "node:worker_threads";
 import { loadMatter, saveMatter, type MatterRecord } from "../../adapters/matter-storage/index.js";
 import { matterSchema } from "../../adapters/matter-storage/schemas.js";
+import { matterDir, withExclusiveFileLock } from "../../adapters/matter-storage/io.js";
 import { emit } from "../../audit/index.js";
+import { projectMatterToCaseMd, upsertMatterCaseProfileBullets } from "../matter-projection.js";
+
+const pendingMatterProjections = new Set<Promise<void>>();
+
+/**
+ * Per-matter exclusive lock around `matter.json` read-modify-write.
+ * Prevents concurrent writers from clobbering each other's array fields
+ * (deliverableIds / queueItemIds / deadlineIds) and profile mutations.
+ */
+function withMatterLock<T>(workspaceDir: string, matterId: string, fn: () => T): T {
+  const lockPath = path.join(matterDir(workspaceDir, matterId), "matter.json.lock");
+  return withExclusiveFileLock(lockPath, fn);
+}
+
+function awaitMatterProjectionInVitest(task: Promise<void>): void {
+  const { port1, port2 } = new MessageChannel();
+  void task.finally(() => {
+    port2.postMessage("done");
+  });
+  receiveMessageOnPort(port1);
+}
+
+function scheduleMatterProjection(workspaceDir: string, record: MatterRecord): void {
+  const auditDir = path.join(workspaceDir, "audit");
+  const task = projectMatterToCaseMd(workspaceDir, record)
+    .catch((err) => {
+      // projection must not block business logic — but surface silent drift via audit
+      void emit(auditDir, {
+        taskId: record.matterId,
+        kind: "matter.projection_failed",
+        actor: "system",
+        detail: JSON.stringify({
+          matterId: record.matterId,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      }).catch(() => {
+        /* ignore */
+      });
+    })
+    .finally(() => {
+      pendingMatterProjections.delete(task);
+    });
+  pendingMatterProjections.add(task);
+  if (process.env.VITEST === "true") {
+    awaitMatterProjectionInVitest(task);
+  }
+}
+
+export async function drainMatterProjections(): Promise<void> {
+  await Promise.all(pendingMatterProjections);
+}
 
 function auditDir(workspaceDir: string): string {
   return path.join(workspaceDir, "audit");
@@ -44,39 +97,103 @@ export type MatterCreateInput = {
   clientId?: string;
 };
 
+type MatterCreateOptions = {
+  /** When false, caller will project CASE.md separately (avoids duplicate async work). */
+  projectCase?: boolean;
+};
+
 /** 创建 matter；若已存在直接返回（幂等）。 */
 export function createMatterIfMissing(
   workspaceDir: string,
   input: MatterCreateInput,
+  opts?: MatterCreateOptions,
 ): MatterRecord {
-  const existing = loadMatter(workspaceDir, input.matterId);
-  if (existing) {
-    return existing;
+  return withMatterLock(workspaceDir, input.matterId, () => {
+    const existing = loadMatter(workspaceDir, input.matterId);
+    if (existing) {
+      return existing;
+    }
+    const now = newTimestamp();
+    const draft: MatterRecord = {
+      matterId: input.matterId,
+      clientId: input.clientId,
+      title: input.title ?? input.matterId,
+      status: input.status ?? "intake",
+      sensitivity: input.sensitivity ?? "normal",
+      ownerLawyerId: input.ownerLawyerId,
+      primaryAssistantRoleId: input.primaryAssistantRoleId,
+      strategyStatus: input.strategyStatus ?? "draft",
+      openQuestionIds: [],
+      nextActions: [],
+      deadlineIds: [],
+      deliverableIds: [],
+      queueItemIds: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    const parsed = matterSchema.safeParse(draft);
+    if (!parsed.success) {
+      void emitInvalid(workspaceDir, input.matterId, parsed.error.message);
+      throw new Error(`Invalid matter draft for ${input.matterId}: ${parsed.error.message}`);
+    }
+    const saved = saveMatter(workspaceDir, parsed.data);
+    if (opts?.projectCase !== false) {
+      scheduleMatterProjection(workspaceDir, saved);
+    }
+    return saved;
+  });
+}
+
+export type MatterProfileUpdateInput = {
+  matterId: string;
+  title?: string;
+  clientId?: string;
+  sensitivity?: MatterRecord["sensitivity"];
+  status?: MatterRecord["status"];
+  causeOfAction?: string;
+  counterparty?: string;
+};
+
+/**
+ * 事后补全案件档案（展示名、客户、密级、阶段、案由、对方）。
+ * 建案时只建文件夹；属性在此写入 JSON 真相源并投影到 CASE.md。
+ */
+export async function updateMatterProfile(
+  workspaceDir: string,
+  input: MatterProfileUpdateInput,
+): Promise<MatterRecord | undefined> {
+  const saved = withMatterLock(workspaceDir, input.matterId, () => {
+    const existing = loadMatter(workspaceDir, input.matterId);
+    if (!existing) {
+      return undefined;
+    }
+    const title = input.title?.trim() || existing.title;
+    const clientId =
+      input.clientId !== undefined ? input.clientId.trim() || undefined : existing.clientId;
+    const next: MatterRecord = {
+      ...existing,
+      title,
+      clientId,
+      sensitivity: input.sensitivity ?? existing.sensitivity,
+      status: input.status ?? existing.status,
+      updatedAt: newTimestamp(),
+    };
+    const parsed = matterSchema.safeParse(next);
+    if (!parsed.success) {
+      void emitInvalid(workspaceDir, input.matterId, parsed.error.message);
+      throw new Error(`Invalid matter profile for ${input.matterId}: ${parsed.error.message}`);
+    }
+    return saveMatter(workspaceDir, parsed.data);
+  });
+  if (!saved) {
+    return undefined;
   }
-  const now = newTimestamp();
-  const draft: MatterRecord = {
-    matterId: input.matterId,
-    clientId: input.clientId,
-    title: input.title ?? input.matterId,
-    status: input.status ?? "intake",
-    sensitivity: input.sensitivity ?? "normal",
-    ownerLawyerId: input.ownerLawyerId,
-    primaryAssistantRoleId: input.primaryAssistantRoleId,
-    strategyStatus: input.strategyStatus ?? "draft",
-    openQuestionIds: [],
-    nextActions: [],
-    deadlineIds: [],
-    deliverableIds: [],
-    queueItemIds: [],
-    createdAt: now,
-    updatedAt: now,
-  };
-  const parsed = matterSchema.safeParse(draft);
-  if (!parsed.success) {
-    void emitInvalid(workspaceDir, input.matterId, parsed.error.message);
-    throw new Error(`Invalid matter draft for ${input.matterId}: ${parsed.error.message}`);
-  }
-  return saveMatter(workspaceDir, parsed.data);
+  await projectMatterToCaseMd(workspaceDir, saved);
+  await upsertMatterCaseProfileBullets(workspaceDir, saved.matterId, {
+    causeOfAction: input.causeOfAction,
+    counterparty: input.counterparty,
+  });
+  return saved;
 }
 
 export function updateMatterStatus(
@@ -84,11 +201,15 @@ export function updateMatterStatus(
   matterId: string,
   status: MatterRecord["status"],
 ): MatterRecord | undefined {
-  const existing = loadMatter(workspaceDir, matterId);
-  if (!existing) {
-    return undefined;
-  }
-  return saveMatter(workspaceDir, { ...existing, status, updatedAt: newTimestamp() });
+  return withMatterLock(workspaceDir, matterId, () => {
+    const existing = loadMatter(workspaceDir, matterId);
+    if (!existing) {
+      return undefined;
+    }
+    const saved = saveMatter(workspaceDir, { ...existing, status, updatedAt: newTimestamp() });
+    scheduleMatterProjection(workspaceDir, saved);
+    return saved;
+  });
 }
 
 export function setMatterStrategy(
@@ -97,16 +218,20 @@ export function setMatterStrategy(
   strategyStatus: MatterRecord["strategyStatus"],
   opts?: { nextActions?: string[]; openQuestionIds?: string[] },
 ): MatterRecord | undefined {
-  const existing = loadMatter(workspaceDir, matterId);
-  if (!existing) {
-    return undefined;
-  }
-  return saveMatter(workspaceDir, {
-    ...existing,
-    strategyStatus,
-    nextActions: opts?.nextActions ?? existing.nextActions,
-    openQuestionIds: opts?.openQuestionIds ?? existing.openQuestionIds,
-    updatedAt: newTimestamp(),
+  return withMatterLock(workspaceDir, matterId, () => {
+    const existing = loadMatter(workspaceDir, matterId);
+    if (!existing) {
+      return undefined;
+    }
+    const saved = saveMatter(workspaceDir, {
+      ...existing,
+      strategyStatus,
+      nextActions: opts?.nextActions ?? existing.nextActions,
+      openQuestionIds: opts?.openQuestionIds ?? existing.openQuestionIds,
+      updatedAt: newTimestamp(),
+    });
+    scheduleMatterProjection(workspaceDir, saved);
+    return saved;
   });
 }
 
@@ -115,17 +240,19 @@ export function attachDeliverableId(
   matterId: string,
   deliverableId: string,
 ): MatterRecord | undefined {
-  const existing = loadMatter(workspaceDir, matterId);
-  if (!existing) {
-    return undefined;
-  }
-  if (existing.deliverableIds.includes(deliverableId)) {
-    return existing;
-  }
-  return saveMatter(workspaceDir, {
-    ...existing,
-    deliverableIds: [...existing.deliverableIds, deliverableId],
-    updatedAt: newTimestamp(),
+  return withMatterLock(workspaceDir, matterId, () => {
+    const existing = loadMatter(workspaceDir, matterId);
+    if (!existing) {
+      return undefined;
+    }
+    if (existing.deliverableIds.includes(deliverableId)) {
+      return existing;
+    }
+    return saveMatter(workspaceDir, {
+      ...existing,
+      deliverableIds: [...existing.deliverableIds, deliverableId],
+      updatedAt: newTimestamp(),
+    });
   });
 }
 
@@ -134,17 +261,19 @@ export function attachQueueItemId(
   matterId: string,
   queueItemId: string,
 ): MatterRecord | undefined {
-  const existing = loadMatter(workspaceDir, matterId);
-  if (!existing) {
-    return undefined;
-  }
-  if (existing.queueItemIds.includes(queueItemId)) {
-    return existing;
-  }
-  return saveMatter(workspaceDir, {
-    ...existing,
-    queueItemIds: [...existing.queueItemIds, queueItemId],
-    updatedAt: newTimestamp(),
+  return withMatterLock(workspaceDir, matterId, () => {
+    const existing = loadMatter(workspaceDir, matterId);
+    if (!existing) {
+      return undefined;
+    }
+    if (existing.queueItemIds.includes(queueItemId)) {
+      return existing;
+    }
+    return saveMatter(workspaceDir, {
+      ...existing,
+      queueItemIds: [...existing.queueItemIds, queueItemId],
+      updatedAt: newTimestamp(),
+    });
   });
 }
 
@@ -153,17 +282,19 @@ export function attachDeadlineId(
   matterId: string,
   deadlineId: string,
 ): MatterRecord | undefined {
-  const existing = loadMatter(workspaceDir, matterId);
-  if (!existing) {
-    return undefined;
-  }
-  if (existing.deadlineIds.includes(deadlineId)) {
-    return existing;
-  }
-  return saveMatter(workspaceDir, {
-    ...existing,
-    deadlineIds: [...existing.deadlineIds, deadlineId],
-    updatedAt: newTimestamp(),
+  return withMatterLock(workspaceDir, matterId, () => {
+    const existing = loadMatter(workspaceDir, matterId);
+    if (!existing) {
+      return undefined;
+    }
+    if (existing.deadlineIds.includes(deadlineId)) {
+      return existing;
+    }
+    return saveMatter(workspaceDir, {
+      ...existing,
+      deadlineIds: [...existing.deadlineIds, deadlineId],
+      updatedAt: newTimestamp(),
+    });
   });
 }
 

@@ -82,11 +82,18 @@ describe("lawmind-app-data", () => {
           status: 200,
           headers: { "content-type": "application/json" },
         }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true, items: [{ eventId: "g1", taskId: "t1", timestamp: "2026-01-01", actor: "lawyer", source: "review", gateDecisions: [] }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
       );
 
     await expect(loadCollaborationPayload("http://127.0.0.1:1234")).resolves.toEqual({
       delegations: [{ delegationId: "d1", fromAssistant: "a", toAssistant: "b", task: "t", status: "pending", priority: "high", startedAt: "2026-01-01" }],
       events: [{ eventId: "e1", kind: "delegated", fromAssistantId: "a", toAssistantId: "b", timestamp: "2026-01-01" }],
+      gateHistory: [{ eventId: "g1", taskId: "t1", timestamp: "2026-01-01", actor: "lawyer", source: "review", gateDecisions: [] }],
     });
   });
 

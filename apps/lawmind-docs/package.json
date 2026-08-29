@@ -2,7 +2,7 @@
   "name": "lawmind-docs",
   "private": true,
   "type": "module",
-  "description": "LawMind documentation site (VitePress) — synced from docs/LAWMIND-*.md",
+  "description": "LawMind product docs site (VitePress) — lawyer-facing landing + synced docs/LAWMIND-*.md",
   "scripts": {
     "sync": "node ./scripts/sync-docs.mjs",
     "dev": "pnpm run sync && vitepress dev docs",

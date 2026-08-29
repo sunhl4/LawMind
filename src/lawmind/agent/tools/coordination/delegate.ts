@@ -12,21 +12,26 @@
 
 import { appendTeamMeetingLinesSync, createTeamMeetingSystemLine } from "../../../cases/index.js";
 import { getRoleById } from "../../../core/role.js";
+import { parentGatesFromContext } from "../../child-gates.js";
 import { emitCollaborationEvent } from "../../collaboration/audit.js";
 import {
   registerDelegation,
   markDelegationRunning,
   markDelegationCompleted,
   markDelegationFailed,
+  markDelegationTimeout,
   validateDelegation,
   listDelegations,
   getDelegation,
   buildDelegationEvent,
+  readDelegationResultFile,
 } from "../../collaboration/delegation-registry.js";
 import { fireAndForget, wrapUntrustedResult } from "../../collaboration/message-bus.js";
 import type { CollaborationPolicy, DelegationRecord } from "../../collaboration/types.js";
 import { DEFAULT_COLLABORATION_POLICY } from "../../collaboration/types.js";
+import type { AgentPermissionMode } from "../../permission-mode.js";
 import { appendSyntheticAssistantReply } from "../../session.js";
+import { requestTurnAbort } from "../../turn-abort.js";
 import type { AgentTool, AgentConfig } from "../../types.js";
 import { findAssistantsByRole, listAvailableAssistantNames, resolveAssistantId } from "./utils.js";
 
@@ -69,14 +74,14 @@ export function createDelegateTaskTool(opts: {
     async execute(params, ctx) {
       const targetInput = params.target_assistant as string;
       const task = params.task as string;
-      const matterId = (params.matter_id as string) || ctx.matterId;
+      const matterId = ctx.matterId?.trim() || (params.matter_id as string | undefined)?.trim();
       const priority = (params.priority as "normal" | "high" | "low") || "normal";
 
-      const targetId = resolveAssistantId(ctx.workspaceDir, targetInput);
+      const targetId = resolveAssistantId(ctx.workspaceDir, targetInput, ctx.envFile);
       if (!targetId) {
         return {
           ok: false,
-          error: `找不到助手「${targetInput}」。可用助手：${listAvailableAssistantNames(ctx.workspaceDir)}`,
+          error: `找不到助手「${targetInput}」。可用助手：${listAvailableAssistantNames(ctx.workspaceDir, ctx.envFile)}`,
         };
       }
 
@@ -91,7 +96,7 @@ export function createDelegateTaskTool(opts: {
         return { ok: false, error: validationError };
       }
 
-      return runDelegation({
+      return startDelegation({
         baseConfig: opts.baseConfig,
         workspaceDir: ctx.workspaceDir,
         fromId,
@@ -101,6 +106,7 @@ export function createDelegateTaskTool(opts: {
         priority,
         depth: currentDepth + 1,
         parentSessionId: ctx.sessionId,
+        ...parentGatesFromContext(ctx),
       });
     },
   };
@@ -168,14 +174,14 @@ export function createDelegateToRoleTool(opts: {
     async execute(params, ctx) {
       const roleId = (params.role_id as string)?.trim();
       const task = params.task as string;
-      const matterId = (params.matter_id as string) || ctx.matterId;
+      const matterId = ctx.matterId?.trim() || (params.matter_id as string | undefined)?.trim();
       const priority = (params.priority as "normal" | "high" | "low") || "normal";
 
       const role = getRoleById(roleId);
       if (!role) {
         return { ok: false, error: `未知 Role：${roleId}` };
       }
-      const candidates = findAssistantsByRole(ctx.workspaceDir, role.roleId);
+      const candidates = findAssistantsByRole(ctx.workspaceDir, role.roleId, ctx.envFile);
       if (candidates.length === 0) {
         return {
           ok: false,
@@ -195,7 +201,7 @@ export function createDelegateToRoleTool(opts: {
         return { ok: false, error: validationError };
       }
 
-      return runDelegation({
+      return startDelegation({
         baseConfig: opts.baseConfig,
         workspaceDir: ctx.workspaceDir,
         fromId,
@@ -206,13 +212,14 @@ export function createDelegateToRoleTool(opts: {
         depth: currentDepth + 1,
         targetRoleId: role.roleId,
         parentSessionId: ctx.sessionId,
+        ...parentGatesFromContext(ctx),
       });
     },
   };
 }
 
-/** 真正发起委派的内部函数（delegate_task 与 delegate_to_role 共享）。 */
-function runDelegation(args: {
+/** 真正发起委派（delegate_task、delegate_to_role、桌面 API 共用）。 */
+export function startDelegation(args: {
   baseConfig: AgentConfig;
   workspaceDir: string;
   fromId: string;
@@ -223,6 +230,9 @@ function runDelegation(args: {
   depth: number;
   targetRoleId?: string;
   parentSessionId?: string;
+  permissionMode?: AgentPermissionMode;
+  allowedToolNames?: string[];
+  toolSandboxEnabled?: boolean;
 }): { ok: true; data: Record<string, unknown> } {
   const record = registerDelegation({
     workspaceDir: args.workspaceDir,
@@ -251,6 +261,7 @@ function runDelegation(args: {
     }
   }
 
+  const timeoutMs = DEFAULT_COLLABORATION_POLICY.defaultDelegationTimeoutMs;
   const { completion, targetSessionId } = fireAndForget({
     baseConfig: args.baseConfig,
     fromAssistantId: args.fromId,
@@ -258,8 +269,18 @@ function runDelegation(args: {
     message: args.task,
     matterId: args.matterId,
     kind: "delegate",
+    delegationId: record.delegationId,
+    collaborationDepth: args.depth + 1,
+    permissionMode: args.permissionMode ?? args.baseConfig.permissionMode,
+    allowedToolNames: args.allowedToolNames,
+    toolSandboxEnabled: args.toolSandboxEnabled === true,
+    timeoutMs,
+    onTimeout: (sid) => {
+      markDelegationTimeout(args.workspaceDir, record.delegationId);
+      requestTurnAbort(sid);
+      emitCollaborationEvent(args.workspaceDir, buildDelegationEvent(record, "delegation.timeout"));
+    },
   });
-
   markDelegationRunning(args.workspaceDir, record.delegationId, targetSessionId);
   emitCollaborationEvent(args.workspaceDir, buildDelegationEvent(record, "delegation.started"));
 
@@ -399,12 +420,15 @@ export const getDelegationResultTool: AgentTool = {
       },
     },
   },
-  async execute(params) {
+  async execute(params, ctx) {
     const delegationId = params.delegation_id as string;
     const record = getDelegation(delegationId);
     if (!record) {
       return { ok: false, error: `未找到委派记录：${delegationId}` };
     }
+
+    const fullFromDisk = readDelegationResultFile(ctx.workspaceDir, record);
+    const resultText = fullFromDisk ?? record.result;
 
     return {
       ok: true,
@@ -417,7 +441,9 @@ export const getDelegationResultTool: AgentTool = {
         targetSessionId: record.targetSessionId,
         task: record.task,
         status: record.status,
-        result: record.result ? wrapUntrustedResult(record.result) : undefined,
+        result: resultText ? wrapUntrustedResult(resultText) : undefined,
+        resultTruncated: record.resultTruncated === true && !fullFromDisk,
+        resultPath: record.resultPath,
         error: record.error,
         startedAt: record.startedAt,
         completedAt: record.completedAt,

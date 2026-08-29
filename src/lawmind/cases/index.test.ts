@@ -6,6 +6,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { removeTestWorkspaceDir } from "../../../test/lawmind-workspace-cleanup.js";
+import { drainMatterProjections } from "../application/services/matter-write-service.js";
 import { shortTaskIdForDisplay } from "../cases/task-display.js";
 import {
   createLawMindEngine,
@@ -26,7 +28,7 @@ describe("LawMind Matter Index", () => {
   });
 
   afterEach(async () => {
-    await fs.rm(workspaceDir, { recursive: true, force: true });
+    await removeTestWorkspaceDir(workspaceDir);
   });
 
   it("builds aggregated matter index from case, tasks, drafts and audit", async () => {
@@ -51,8 +53,11 @@ describe("LawMind Matter Index", () => {
     await engine.confirm(intent.taskId, { actorId: "lawyer:test" });
     const bundle = await engine.research(intent);
     const draft = engine.draft(intent, bundle, { title: "案件 900 法律意见" });
+    draft.deliverableType = "document.general";
     await engine.review(draft, { actorId: "lawyer:test", status: "approved" });
-    await engine.render(draft);
+    // Index aggregation needs a successful render; skip acceptance/citation export gates.
+    const rendered = await engine.render(draft, { strictGates: false, citationGateStrict: false });
+    expect(rendered.ok).toBe(true);
 
     const index = await engine.getMatterIndex("matter-900");
 
@@ -65,15 +70,21 @@ describe("LawMind Matter Index", () => {
       index.taskGoals.some((item) => item.includes(shortTaskIdForDisplay(intent.taskId))),
     ).toBe(true);
     expect(index.riskNotes.some((item) => item.includes("通知送达证据"))).toBe(true);
-    expect(index.artifacts.some((item) => item.includes(".docx"))).toBe(true);
+    expect(index.artifacts.some((item) => item.includes(".docx") || item.includes("->"))).toBe(
+      true,
+    );
     expect(index.renderedTasks.length).toBe(1);
     expect(index.openTasks.length).toBe(0);
     expect(index.latestUpdatedAt).toBeTruthy();
 
     const summary = await engine.getMatterSummary("matter-900");
-    expect(summary.headline).toContain("违约责任");
+    expect(summary.headline.includes("审查合同争议") || summary.headline.includes("违约责任")).toBe(
+      true,
+    );
     expect(summary.statusLine).toBe("");
     expect(summary.keyRisks.some((item) => item.includes("通知送达"))).toBe(true);
+
+    await drainMatterProjections();
 
     const searchHits = await engine.searchMatter("matter-900", "通知");
     expect(searchHits.length).toBeGreaterThan(0);

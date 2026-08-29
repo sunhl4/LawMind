@@ -33,6 +33,7 @@ import { openQueueItem, transitionQueueItem } from "../application/services/queu
 import { getRoleById, listRoles, roleAllowsDeliverable } from "../core/role.js";
 import { validateReasoningAgainstSpec } from "../deliverables/index.js";
 import { listMemorySuggestions, suggestMemoryAdoption } from "../memory/adoption-service.js";
+import { caseFilePath } from "../memory/index.js";
 
 function tmpWorkspace(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-q-acc-"));
@@ -47,10 +48,13 @@ describe("Quarterly acceptance (W3 + W4 + W5 + W7 + W9)", () => {
     }
   });
 
-  it("write services persist matter / deliverable / queue / approval", () => {
+  it("write services persist matter / deliverable / queue / approval", async () => {
     ws = tmpWorkspace();
+    fs.mkdirSync(path.join(ws, "audit"), { recursive: true });
     const matterId = "q-acc-1";
     createMatterIfMissing(ws, { matterId, title: "季末验收案件" });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(fs.existsSync(caseFilePath(ws, matterId))).toBe(true);
     const deliverable = createPlannedDeliverable(ws, {
       matterId,
       deliverableId: "d-1",
@@ -79,6 +83,9 @@ describe("Quarterly acceptance (W3 + W4 + W5 + W7 + W9)", () => {
     expect(readQueueItems(ws, matterId).map((q) => q.queueItemId)).toContain(queueItem.queueItemId);
     expect(readApprovals(ws, matterId).map((a) => a.approvalId)).toContain(approval.approvalId);
 
+    transitionDeliverable(ws, matterId, deliverable.deliverableId, "drafting");
+    transitionDeliverable(ws, matterId, deliverable.deliverableId, "pending_review");
+    transitionDeliverable(ws, matterId, deliverable.deliverableId, "approved");
     const transitioned = transitionDeliverable(ws, matterId, deliverable.deliverableId, "rendered");
     expect(transitioned?.status).toBe("rendered");
     const queueClosed = transitionQueueItem(ws, matterId, queueItem.queueItemId, "resolved");
@@ -87,7 +94,10 @@ describe("Quarterly acceptance (W3 + W4 + W5 + W7 + W9)", () => {
       status: "approved",
       resolvedBy: "lawyer-x",
     });
-    expect(approvalResolved?.status).toBe("approved");
+    expect(approvalResolved).toMatchObject({
+      outcome: "written",
+      approval: { status: "approved" },
+    });
   });
 
   it("Role first-class wiring constrains deliverable types", () => {

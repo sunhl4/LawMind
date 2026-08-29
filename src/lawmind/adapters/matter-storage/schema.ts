@@ -55,6 +55,8 @@ export const DeliverableStatusSchema = z.enum([
   "pending_review",
   "approved",
   "rendered",
+  "delivered",
+  "learned",
   "blocked",
 ]);
 
@@ -70,6 +72,11 @@ export const DeliverableRecordSchema = z.object({
   currentReviewStatus: z
     .enum(["pending", "approved", "rejected", "modified", "redacted"])
     .optional(),
+  ownerLawyerId: z.string().optional(),
+  reviewerId: z.string().optional(),
+  approvedBy: z.string().optional(),
+  deliveredBy: z.string().optional(),
+  deliveredAt: z.string().optional(),
   blockingReasons: z.array(z.string()).default([]),
   createdAt: z.string(),
   updatedAt: z.string(),

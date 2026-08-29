@@ -12,9 +12,15 @@
  */
 
 import type { DeliverableType } from "../types.js";
+import { LAWYER_WORK_SPECS } from "./lawyer-work-specs.js";
+import { EXPLICIT_TODO_PLACEHOLDER, SCAFFOLD_PLACEHOLDER_PATTERN } from "./placeholder-pattern.js";
 import type { DeliverableSpec } from "./types.js";
 
-const PLACEHOLDER_PATTERN = /【待补充[:：][^】]*】/g;
+const PLACEHOLDER_PATTERN = EXPLICIT_TODO_PLACEHOLDER;
+const CONTRACT_FIELD_PLACEHOLDER = {
+  pattern: SCAFFOLD_PLACEHOLDER_PATTERN,
+  mustResolveBeforeRender: true,
+};
 
 const RENTAL_CONTRACT_SPEC: DeliverableSpec = {
   type: "contract.rental",
@@ -47,27 +53,39 @@ const RENTAL_CONTRACT_SPEC: DeliverableSpec = {
     "至少包含主体、房屋信息、租期、租金押金、维修费用、违约责任、解除续租、争议解决和签署页。",
     "缺失关键变量必须以显式占位符标记，不得静默编造。",
   ],
-  placeholderRule: { pattern: PLACEHOLDER_PATTERN, mustResolveBeforeRender: false },
+  placeholderRule: CONTRACT_FIELD_PLACEHOLDER,
   defaultClarificationQuestions: [
     {
       key: "parties",
       question: "请补充出租人和承租人的姓名/名称及身份信息。",
       reason: "租赁合同必须明确双方主体。",
+      inputType: "textarea",
     },
     {
       key: "property_address",
       question: "请补充房屋地址、面积和用途。",
       reason: "标的描述不完整影响合同可执行性。",
+      inputType: "textarea",
     },
     {
       key: "lease_term",
       question: "请补充租赁期限和起止时间。",
       reason: "租期是租赁合同核心条款。",
+      inputType: "textarea",
     },
     {
       key: "rent_and_deposit",
       question: "请补充租金、押金和支付周期。",
       reason: "价款与支付安排是完整交付必需信息。",
+      inputType: "textarea",
+    },
+    {
+      key: "lease_scan",
+      question: "如有房屋租赁合同或权属证明扫描件，请挂接材料。",
+      reason: "原件材料可减少主体与标的核对误差。",
+      inputType: "file",
+      required: false,
+      accept: ".pdf,.docx,.png,.jpg",
     },
   ],
 };
@@ -101,7 +119,7 @@ const GENERAL_CONTRACT_SPEC: DeliverableSpec = {
     "包含主体、标的、价款/对价、履行方式、违约责任、争议解决和签署条款。",
     "缺失关键变量使用显式占位符。",
   ],
-  placeholderRule: { pattern: PLACEHOLDER_PATTERN, mustResolveBeforeRender: false },
+  placeholderRule: CONTRACT_FIELD_PLACEHOLDER,
   defaultClarificationQuestions: [
     {
       key: "parties_and_subject",
@@ -113,6 +131,7 @@ const GENERAL_CONTRACT_SPEC: DeliverableSpec = {
 
 const REASONING_GATE_HIGH_RISK = {
   required: true as const,
+  requiresReasoningGraphAtDraft: true as const,
   minIssues: 2,
   mustResolveAuthorityConflicts: true,
   minFacts: 2,
@@ -142,7 +161,7 @@ const DEMAND_LETTER_SPEC: DeliverableSpec = {
     "必须包含事实背景、主张、履行期限、法律后果和落款。",
     "口吻克制、表达专业，不掺杂内部分析。",
   ],
-  placeholderRule: { pattern: PLACEHOLDER_PATTERN, mustResolveBeforeRender: true },
+  placeholderRule: CONTRACT_FIELD_PLACEHOLDER,
   defaultClarificationQuestions: [
     {
       key: "claim_deadline",
@@ -227,6 +246,224 @@ const LITIGATION_OUTLINE_SPEC: DeliverableSpec = {
   reasoningGate: REASONING_GATE_HIGH_RISK,
 };
 
+const REPORT_ESG_SPEC: DeliverableSpec = {
+  type: "report.esg",
+  displayName: "ESG / 可持续发展报告",
+  description:
+    "环境、社会与治理（ESG）或可持续发展类报告；章节结构因披露框架而异，验收以建议项为主。",
+  defaultTemplateId: "report-esg-default",
+  defaultOutput: "docx",
+  defaultRiskLevel: "medium",
+  requiredSections: [
+    {
+      headingKeywords: ["概述", "摘要", "前言", "执行", "introduction", "overview"],
+      purpose: "报告概述",
+      severity: "warning",
+    },
+    {
+      headingKeywords: ["环境", "气候", "碳", "排放", "能源", "e ", "environmental"],
+      purpose: "环境（E）维度",
+      severity: "warning",
+    },
+    {
+      headingKeywords: ["社会", "员工", "供应链", "社区", "劳工", "s ", "social"],
+      purpose: "社会（S）维度",
+      severity: "warning",
+    },
+    {
+      headingKeywords: ["治理", "合规", "董事会", "内控", "g ", "governance"],
+      purpose: "治理（G）维度",
+      severity: "warning",
+    },
+    {
+      headingKeywords: ["指标", "数据", "绩效", "kpi", "披露"],
+      purpose: "关键指标与披露",
+      severity: "warning",
+    },
+    {
+      headingKeywords: ["结论", "展望", "建议", "下一步", "未来"],
+      purpose: "结论与展望",
+      severity: "warning",
+    },
+  ],
+  acceptanceCriteria: [
+    "输出可直接对外使用的报告正文，而非工作备忘录。",
+    "ESG 三维度（环境、社会、治理）宜有对应章节；框架差异大时以律师终稿为准。",
+    "数据与指标宜标注来源或统计口径；缺失处使用显式占位符。",
+  ],
+  placeholderRule: { pattern: PLACEHOLDER_PATTERN, mustResolveBeforeRender: false },
+  defaultClarificationQuestions: [],
+};
+
+const REPORT_GENERAL_SPEC: DeliverableSpec = {
+  type: "report.general",
+  displayName: "研究报告 / 专项报告",
+  description: "研究报告、白皮书、尽职调查等长文报告；结构因题材而异，验收以建议项为主。",
+  defaultTemplateId: "report-general-default",
+  defaultOutput: "docx",
+  defaultRiskLevel: "low",
+  requiredSections: [
+    {
+      headingKeywords: ["概述", "摘要", "背景", "前言"],
+      purpose: "背景与概述",
+      severity: "warning",
+    },
+    {
+      headingKeywords: ["分析", "发现", "论证", "讨论", "正文"],
+      purpose: "主体分析",
+      severity: "warning",
+    },
+    {
+      headingKeywords: ["结论", "建议", "展望", "总结"],
+      purpose: "结论与建议",
+      severity: "warning",
+    },
+  ],
+  acceptanceCriteria: [
+    "输出完整报告正文，结构清晰、可直接编辑。",
+    "若信息不足，先给出带占位符的正式框架。",
+  ],
+  placeholderRule: { pattern: PLACEHOLDER_PATTERN, mustResolveBeforeRender: false },
+  defaultClarificationQuestions: [],
+};
+
+const REPORT_COMPLIANCE_SPEC: DeliverableSpec = {
+  type: "report.compliance",
+  displayName: "涉外合规卷宗备忘录",
+  description:
+    "面向跨境/监管合规项目的可复核卷宗：问题陈述、简要结论、管辖效力矩阵、按风险域发现、行动建议与来源附录。",
+  defaultTemplateId: "word/legal-memo-default",
+  defaultOutput: "docx",
+  defaultRiskLevel: "medium",
+  requiredSections: [
+    {
+      headingKeywords: ["问题", "陈述", "议题"],
+      purpose: "问题陈述",
+      severity: "blocker",
+    },
+    {
+      headingKeywords: ["简要结论", "结论", "brief"],
+      purpose: "简要结论",
+      severity: "blocker",
+    },
+    {
+      headingKeywords: ["管辖", "效力", "矩阵"],
+      purpose: "管辖区效力矩阵",
+      severity: "blocker",
+    },
+    {
+      headingKeywords: ["风险", "发现", "数据", "隐私", "管制", "市场"],
+      purpose: "风险域发现",
+      severity: "blocker",
+    },
+    {
+      headingKeywords: ["行动", "建议", "下一步"],
+      purpose: "行动建议",
+      severity: "warning",
+    },
+    {
+      headingKeywords: ["来源", "附录", "引用"],
+      purpose: "来源附录",
+      severity: "blocker",
+    },
+  ],
+  acceptanceCriteria: [
+    "输出可复核合规备忘录，而非网页摘要堆砌。",
+    "必须包含问题陈述、简要结论、管辖效力矩阵、风险域发现与来源附录。",
+    "不确定处显式标 [VERIFY]；新闻不得写成现行法。",
+    "strict 渲染前须解决关键占位符与来源可回溯。",
+  ],
+  placeholderRule: { pattern: PLACEHOLDER_PATTERN, mustResolveBeforeRender: true },
+  defaultClarificationQuestions: [
+    {
+      key: "compliance_scope",
+      question: "请补充监管问题、涉及管辖区，以及是否已有 URL/官网清单。",
+      reason: "合规卷宗需要明确问题边界与来源范围。",
+      inputType: "textarea",
+    },
+  ],
+};
+
+const REPORT_LEARNING_SPEC: DeliverableSpec = {
+  type: "report.learning",
+  displayName: "学习型调研简报",
+  description: "国内外制度/趋势学习简报：背景、概念、制度要点（效力分级）、比较与实务启示。",
+  defaultTemplateId: "word/legal-memo-default",
+  defaultOutput: "docx",
+  defaultRiskLevel: "low",
+  requiredSections: [
+    {
+      headingKeywords: ["背景", "概述"],
+      purpose: "背景概述",
+      severity: "warning",
+    },
+    {
+      headingKeywords: ["概念", "制度", "要点"],
+      purpose: "制度要点",
+      severity: "blocker",
+    },
+    {
+      headingKeywords: ["比较", "启示", "实务"],
+      purpose: "比较与实务启示",
+      severity: "warning",
+    },
+    {
+      headingKeywords: ["结论", "建议"],
+      purpose: "结论与建议",
+      severity: "warning",
+    },
+    {
+      headingKeywords: ["来源", "参考"],
+      purpose: "来源",
+      severity: "warning",
+    },
+  ],
+  acceptanceCriteria: [
+    "输出适合律师学习/内部分享的调研简报。",
+    "制度要点须区分效力层级；新闻不得写成现行法。",
+  ],
+  placeholderRule: { pattern: PLACEHOLDER_PATTERN, mustResolveBeforeRender: false },
+  defaultClarificationQuestions: [],
+};
+
+const PPT_TRAINING_SPEC: DeliverableSpec = {
+  type: "ppt.training",
+  displayName: "培训课件 / PPT",
+  description: "面向客户培训、所内分享或案件诊所式带教的可编辑 PPT；短句可讲，详细法条进备注。",
+  defaultTemplateId: "ppt/training-cle-default",
+  defaultOutput: "pptx",
+  defaultRiskLevel: "low",
+  requiredSections: [
+    {
+      headingKeywords: ["议程", "大纲", "封面"],
+      purpose: "议程/大纲",
+      severity: "warning",
+    },
+    {
+      headingKeywords: ["要点", "规则", "制度"],
+      purpose: "规则要点",
+      severity: "blocker",
+    },
+    {
+      headingKeywords: ["行动", "清单", "红旗", "教训"],
+      purpose: "行动/红旗清单",
+      severity: "warning",
+    },
+  ],
+  acceptanceCriteria: [
+    "输出可讲解的培训课件结构，而非长文粘贴。",
+    "使用案件材料前须完成脱敏或声明已脱敏。",
+  ],
+  placeholderRule: { pattern: PLACEHOLDER_PATTERN, mustResolveBeforeRender: false },
+  defaultClarificationQuestions: [
+    {
+      key: "training_audience",
+      question: "请补充培训主题、受众与预计时长。",
+      reason: "受众与时长决定页数与密度。",
+    },
+  ],
+};
+
 const GENERAL_DOCUMENT_SPEC: DeliverableSpec = {
   type: "document.general",
   displayName: "通用法律文书",
@@ -236,7 +473,7 @@ const GENERAL_DOCUMENT_SPEC: DeliverableSpec = {
   defaultRiskLevel: "low",
   requiredSections: [
     { headingKeywords: ["概述", "背景", "事项"], purpose: "事项概述", severity: "warning" },
-    { headingKeywords: ["分析", "意见", "说明"], purpose: "正文/分析", severity: "blocker" },
+    { headingKeywords: ["分析", "意见", "说明"], purpose: "正文/分析", severity: "warning" },
     { headingKeywords: ["结论", "建议", "下一步"], purpose: "结论与建议", severity: "warning" },
   ],
   acceptanceCriteria: [
@@ -253,6 +490,12 @@ export const BUILT_IN_DELIVERABLE_SPECS: readonly DeliverableSpec[] = Object.fre
   DEMAND_LETTER_SPEC,
   CONTRACT_REVIEW_SPEC,
   LITIGATION_OUTLINE_SPEC,
+  REPORT_ESG_SPEC,
+  REPORT_GENERAL_SPEC,
+  REPORT_COMPLIANCE_SPEC,
+  REPORT_LEARNING_SPEC,
+  PPT_TRAINING_SPEC,
+  ...LAWYER_WORK_SPECS,
   GENERAL_DOCUMENT_SPEC,
 ]);
 

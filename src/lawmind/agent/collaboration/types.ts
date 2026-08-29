@@ -44,7 +44,9 @@ export type DelegationStatus =
   | "completed"
   | "failed"
   | "timeout"
-  | "cancelled";
+  | "cancelled"
+  /** 已判超时后底层任务仍跑完并交回结果（保留结果，但不翻转「超时」事实）。 */
+  | "completed_after_timeout";
 
 export type DelegationRecord = {
   delegationId: string;
@@ -61,8 +63,12 @@ export type DelegationRecord = {
   status: DelegationStatus;
   /** The session created on the target assistant for this delegation */
   targetSessionId?: string;
-  /** Frozen result text captured on completion (max 100KB, like reference stack's frozenResultText) */
+  /** Frozen result text captured on completion (inline cap; longer spills to resultPath) */
   result?: string;
+  /** When result was truncated, full text lives at this workspace-relative path. */
+  resultPath?: string;
+  /** True when inline result was truncated and spilled to resultPath. */
+  resultTruncated?: boolean;
   error?: string;
   /** Nesting depth — prevents runaway recursive delegation */
   depth: number;

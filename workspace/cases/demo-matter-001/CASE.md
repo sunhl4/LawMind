@@ -26,4 +26,4 @@
 
 ## 9. 生成产物
 
-- 客户案件进展汇报 -> /Users/shl/nvidia/openclaw/workspace/artifacts/客户案件进展汇报\_66def1ae.pptx
+- 客户案件进展汇报 -> workspace/artifacts/客户案件进展汇报\_66def1ae.pptx

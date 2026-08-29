@@ -32,9 +32,7 @@ LawMind 分为五个核心模块：
 
 ### Matter-centered 写侧 与 Role 编制（2026-Q3 起）
 
-在前述五层之上，2026 年第三季度的架构升级又叠加了三条横向骨架（详见
-`.cursor/plans/lawmind-3-month-refactor_abc3d086.plan.md` 与
-`docs/LAWMIND-PROJECT-MEMORY.md` §8）：
+在前述五层之上，2026 年第三季度的架构升级又叠加了三条横向骨架：
 
 - **Matter 写侧 application services**：`src/lawmind/application/services/`
   下 `matter-write / deliverable / approval / queue-write / deadline` 五个
@@ -62,6 +60,27 @@ queue.jsonl, deadlines.jsonl}` 这一组 JSON / JSONL 真相源（与原 Markdow
 季末验收脚本 `pnpm lawmind:acceptance` 会调用 `pnpm lawmind:quarterly-demo`
 （`scripts/lawmind/lawmind-quarterly-demo.ts`）跑完上述新链路，并以
 `src/lawmind/integration/quarterly-acceptance.test.ts` 作为回归网关。
+
+### 卓越产品平台化（2026-Q2，第十一期）
+
+在既有 Matter / Role / Gate 骨架之上，第十一期把「功能已具备」推进为「平台可演进」：
+
+- **Q1 黄金旅程**：`src/lawmind/product/golden-journeys.ts` 冻结 matter production、contract review trust、role delegation memory 三条验收旅程。
+- **Runtime harness 元数据**：`src/lawmind/agent/tools/governance.ts` 为工具 registry 补齐风险、matter scope、运行模式、幂等/重试与审计说明；`GET /api/tools/registry` 返回 `governance`。
+- **ContextPlan**：`src/lawmind/runtime/context-plan.ts` 分层描述 matter state、MATTER_STRATEGY、pending actions、transcript、memory recall、source anchors、role context。
+- **Deliverable lifecycle**：`src/lawmind/core/deliverable-lifecycle.ts` 扩展至 planned → … → delivered → learned；写侧 `transitionDeliverable` 拒绝跳过 review 的 shortcut。
+- **Workflow playbook**：`src/lawmind/agent/collaboration/playbook-summary.ts` 将 workflow 模板摘要为来源要求、审批点与验收包要求。
+- **质量飞轮与发布报告**：`src/lawmind/evaluation/replay-fixtures.ts`（12 个回放样本）、`release-report.ts`、`pnpm lawmind:release-readiness`；`pnpm lawmind:verify` 写入 `dist/lawmind-release-readiness.md`。
+
+详见 [LAWMIND-EXCELLENCE-ROADMAP.md](LAWMIND-EXCELLENCE-ROADMAP.md)。
+
+### 第十二期工程对齐（2026-05-28）
+
+- **发布证据**：`scripts/lawmind/lawmind-benchmark.ts`、`lawmind-release-readiness.ts`（benchmark 灌数 + strict gate）。
+- **集成**：`src/lawmind/integrations/sharepoint-graph.ts`（Graph 只读）；`src/lawmind/artifacts/render-docx-tracked.ts`（officecli 修订轨）。
+- **可观测**：`src/lawmind/insights/session-timeline.ts` 扩展 approval/job；桌面 Matter「时间线」一级 Tab。
+- **Runtime**：`buildContextPlan` 注入 `agent/runtime.ts`；`scripts/lawmind/lawmind-platform-contracts-check.ts`。
+- **桌面 seam**：`matter/MatterTimelinePanel.tsx`、`MatterWorkbenchListPane.tsx`、`useMatterSessionTimeline.ts`。
 
 ---
 
@@ -164,7 +183,7 @@ workspace/
 - **「红线 / 所规必现」**：若律师期望某类规则在**每一轮主对话**中都像 `LAWYER_PROFILE` 一样不可绕过，仅靠写入 `MEMORY.md` 不足；需依赖检索与工具命中、或将关键规则纳入策略层 / prompt 显式段，而不是假设 `MEMORY.md` 已整段进入 Agent system。
 - **工作区强制规则（Phase 5.2）**：可在 `lawmind.policy.json` 中配置 `agentMandatoryRules`（内联短文本）或 `agentMandatoryRulesPath`（工作区内相对路径文件）；`resolveAgentMandatoryRulesForPrompt()` 解析后由 `buildSystemPrompt()` 在「核心原则」之后注入「工作区强制规则」段，与 `MEMORY.md` 检索解耦。
 
-**Clarify–Execute（Phase 5.1）**：工具返回待澄清问题后，同轮次内禁止并行调用 `research_task` / `draft_document` / `execute_workflow` / `render_document`；详见 `AgentContext.clarificationBlockingHeavyTools` 与工程记忆 `LAWMIND-PROJECT-MEMORY.md` 对应条。
+**Clarify–Execute（Phase 5.1）**：工具返回待澄清问题后，同轮次内禁止并行调用 `research_task` / `draft_document` / `execute_workflow` / `render_document`；详见 `AgentContext.clarificationBlockingHeavyTools`。
 
 **多助手团队流（Phase 6.2）**：工作区可放置 `lawmind/workflows/<id>.json`，由桌面 `GET /api/collaboration/workflow-templates` 列出、`POST /api/collaboration/workflow-run` 驱动 `orchestrator/executeWorkflow`。与 Clarify–Execute 的关系：单助手对话仍受 `awaiting_clarification` 门禁；团队流在协作开启时按步骤委派各助手，**建议在启动前由律师完成范围对齐**，避免中途暂停难以自动合并。
 
@@ -400,7 +419,7 @@ Electron 主进程 (main.mjs)
   ├── 文件工作台（FileWorkbench）
   ├── 案件工作台（MatterWorkbench：案件列表、CASE、任务/草稿、审计、会议室时间线）
   ├── 审核台（ReviewWorkbench：草稿审阅、签批、渲染）
-  ├── 设置面板（模态：助手 / 模型检索 / 工作区项目）
+  ├── 设置（主栏全页：侧栏分组导航 + 内容区；助手 / 模型检索 / 记忆库 / 工作区等）
   ├── 侧边栏（助手选择器 / 项目药丸 / 折叠工作记录）
   └── 配置向导（首次启动 API Key 设置流）
 ```
@@ -416,11 +435,12 @@ Electron 主进程 (main.mjs)
 
 ### 设置面板架构
 
-设置由齿轮图标（`lm-gear-btn`）触发，打开 `lm-settings-panel` 模态，分三个区：
+设置由顶栏齿轮（`lm-gear-btn`）触发，在主工作栏以 **全页** `LawmindSettingsPage`（`lm-settings-page`）展示，左侧分组导航 + 右侧内容区（非模态叠层）。主要分区包括：
 
-1. **助手管理**：当前助手详情、新建/编辑/删除、使用统计
-2. **模型与检索**：模型状态、检索策略切换（统一/双模型）、API 配置向导入口
-3. **工作区与项目**：工作区路径、项目目录选择/关闭
+1. **概览与体检**：就绪情况、用量、系统体检（含记忆真相源文件检查）
+2. **记忆库**：待采纳记忆建议队列（`MemoryInspector`）
+3. **智能体 / 模型与检索 / 工作区与项目** 等（见 `lawmind-settings-nav.ts`）
+4. **团队工作流**：设置内摘要 +「在在办中打开按流程办」（完整运行 UI 在顶栏「在办」→「按流程办」）
 
 ### 项目目录（IPC 流）
 
@@ -570,7 +590,7 @@ ui.matter_action 原始动作
 - [x] 项目目录注入 Agent（`read_project_file` / `search_workspace` 扩展）与桌面项目切换后重启 API
 - [x] 案件面板 UI（MatterWorkbench）
 - [x] 审核台 UI（ReviewWorkbench）
-- [x] 律师偏好学习（per-assistant `PROFILE.md` + 桌面认知页显式写入等；与 [LawMind 工程记忆](/LAWMIND-PROJECT-MEMORY) M3 / 2.0 P0 对齐，持续迭代）
+- [x] 律师偏好学习（per-assistant `PROFILE.md` + 桌面认知页显式写入等；与 [LawMind 2.0 战略](/LAWMIND-2.0-STRATEGY) 对齐，持续迭代）
 - [ ] 更细粒度模板体系（含模板版本与历史产物一致性，见工程记忆风险项）
 
 第三阶段：
@@ -590,6 +610,15 @@ ui.matter_action 原始动作
 2. 固定 `TaskIntent` / `ResearchBundle` / `ArtifactDraft`
 3. 先打通 Word 输出链路
 4. 保证每一步都有审计记录
+
+### 平台重构契约（Big-Bang 期间）
+
+为避免 ingest、执行状态、门禁与交付语义漂移，平台级重构阶段统一参照：
+
+- `docs/lawmind/LAWMIND-PLATFORM-CONTRACTS.md`
+- `src/lawmind/platform/contracts.ts`
+
+新字段优先做“兼容式补充”，避免直接破坏现有 API/UI 消费链。
 
 只要这几个基础契约稳住，后面新增功能都只是挂模块，而不是推倒重来。
 

@@ -1,9 +1,17 @@
+import { apiAuthHeaders } from "./lawmind-api-auth.ts";
+
 type ContractChatPin = { root: "workspace" | "project"; relPath: string; kind: "file" | "directory" };
+
+const CONTRACTISH_RE = /(合同|协议|审查|修订|改稿|红线|NDA|保密协议|租赁)/i;
 
 export function shouldAttachContractRevisionIndex(
   items: ContractChatPin[],
   contractBatchRelativeDir: string | undefined,
+  instruction?: string,
 ): boolean {
+  if (instruction && CONTRACTISH_RE.test(instruction)) {
+    return true;
+  }
   if (items.some((it) => it.kind === "directory")) {
     return true;
   }
@@ -26,7 +34,10 @@ export function shouldAttachContractRevisionIndex(
 
 export async function fetchContractRevisionIndexPrefix(apiBase: string, signal?: AbortSignal): Promise<string> {
   try {
-    const r = await fetch(`${apiBase}/api/learning/contract-revisions?limit=18`, { signal });
+    const r = await fetch(`${apiBase}/api/learning/contract-revisions?limit=18`, {
+      signal,
+      headers: apiAuthHeaders(),
+    });
     if (!r.ok) {
       return "";
     }

@@ -1,0 +1,61 @@
+# Nightly release-readiness + strict benchmark (optional model key).
+name: LawMind nightly
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  nightly-readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.23.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Core verify
+        run: pnpm lawmind:verify
+
+      - name: Require model API key (scheduled main)
+        if: github.event_name == 'schedule' && github.ref == 'refs/heads/main'
+        env:
+          LAWMIND_MODEL_API_KEY: ${{ secrets.LAWMIND_MODEL_API_KEY }}
+        run: |
+          if [ -z "${LAWMIND_MODEL_API_KEY}" ]; then
+            echo "::error::LAWMIND_MODEL_API_KEY secret is required for nightly scheduled runs on main"
+            exit 1
+          fi
+
+      - name: Real-model benchmark (strict)
+        env:
+          LAWMIND_BENCHMARK_STRICT: "1"
+          LAWMIND_MODEL_API_KEY: ${{ secrets.LAWMIND_MODEL_API_KEY }}
+        run: pnpm lawmind:benchmark -- --real-model --strict --out dist/lawmind-benchmark.json
+
+      - name: Strict release readiness
+        env:
+          LAWMIND_BENCHMARK_STRICT: "1"
+          LAWMIND_MODEL_API_KEY: ${{ secrets.LAWMIND_MODEL_API_KEY }}
+        run: pnpm lawmind:release-readiness -- --benchmark-in dist/lawmind-benchmark.json
+
+      - name: Upload readiness report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-readiness-report
+          path: dist/lawmind-release-readiness.md
+          if-no-files-found: warn

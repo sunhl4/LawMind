@@ -146,4 +146,27 @@ describe("LawMind Memory", () => {
     expect(content).toContain("memo.docx");
     expect(content.match(/memo\.docx/g)?.length).toBe(1);
   });
+
+  it("rotates CASE §8 progress when exceeding max bullets", async () => {
+    const { PROMPT_WINDOW } = await import("./prompt-windows.js");
+    const matterId = "matter-progress-rotate";
+    const filePath = await ensureCaseWorkspace(workspaceDir, matterId);
+    const max = PROMPT_WINDOW.caseProgressMaxBullets;
+    for (let i = 0; i < max + 5; i++) {
+      await appendCaseProgress(workspaceDir, matterId, `进展条目 ${i}`);
+    }
+    const content = await fs.readFile(filePath, "utf8");
+    const progressBullets = content
+      .split("## 8. 工作进展记录")[1]
+      ?.split(/##\s+\d+\./)[0]
+      ?.split("\n")
+      .filter((l) => l.trim().startsWith("-") && !l.includes("已轮转省略"));
+    expect(progressBullets?.length ?? 0).toBeLessThanOrEqual(max);
+    expect(content).toContain(`进展条目 ${max + 4}`);
+    const archive = await fs.readFile(
+      path.join(workspaceDir, "cases", matterId, "progress-archive.md"),
+      "utf8",
+    );
+    expect(archive).toContain("进展条目 0");
+  });
 });

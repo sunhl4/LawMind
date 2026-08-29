@@ -82,6 +82,8 @@ LexEdge 作为多智能体框架参考，LawMind 当前预留了 HTTP 适配入�
 
 - `createLexEdgeAdapterFromEnv()`
 
+> **桌面默认不接线**：LawMind Desktop agent 检索经 `buildAdaptersFromEnv` 装配，**不含** LexEdge。仅当显式设置 `LAWMIND_LEXEDGE_ENDPOINT` 且通过 CLI `scripts/lawmind/lawmind-engine-adapters.ts` 跑引擎适配器脚本时才会纳入。
+
 ---
 
 ## 五、合作方本地部署接入位

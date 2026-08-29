@@ -11,6 +11,7 @@ import { LawmindCitationBanner } from "./LawmindCitationBanner";
 import { LawmindTaskCheckpoints } from "./LawmindTaskCheckpoints";
 import { internalIdsTitle, pathBasename } from "./display-ids";
 import { messageFromOkFalseBody, readJsonFromResponse, userMessageFromApiError } from "./api-client";
+import { apiAuthHeaders } from "./lawmind-api-auth.ts";
 
 function taskKindCn(kind: TaskKind): string {
   const map: Record<TaskKind, string> = {
@@ -66,7 +67,7 @@ export async function loadAppDetail(
   executionPlan?: TaskExecutionPlanStep[];
 }> {
   const rel = kind === "task" ? `/api/tasks/${encodeURIComponent(id)}` : `/api/drafts/${encodeURIComponent(id)}`;
-  const response = await fetch(`${apiBase}${rel}`);
+  const response = await fetch(`${apiBase}${rel}`, { headers: apiAuthHeaders() });
   const json = await readJsonFromResponse<{
     ok?: boolean;
     error?: string;
@@ -147,7 +148,7 @@ export function LawmindDetailDialog(props: Props) {
               : undefined
           }
         >
-          {detailKind === "task" ? "任务详情" : "草稿详情"}
+          {detailKind === "task" ? "事项说明" : "草稿说明"}
         </h2>
         {detailLoading && <div className="lm-meta">加载中…</div>}
         {detailError ? (
@@ -212,9 +213,9 @@ export function LawmindDetailDialog(props: Props) {
             )}
             <LawmindTaskCheckpoints checkpoints={detailCheckpoints} />
             <details className="lm-detail-tech">
-              <summary>技术信息（排查、对接用）</summary>
+              <summary>内部编号（一般无需查看）</summary>
               <div className="lm-detail-kv">
-                <span>内部编号</span>
+                <span>事项编号</span>
                 {detailTask.taskId}
               </div>
               {detailTask.matterId ? (
@@ -223,29 +224,9 @@ export function LawmindDetailDialog(props: Props) {
                   {detailTask.matterId}
                 </div>
               ) : null}
-              {detailTask.sessionId ? (
-                <div className="lm-detail-kv">
-                  <span>会话编号</span>
-                  {detailTask.sessionId}
-                </div>
-              ) : null}
-              {detailTask.assistantId ? (
-                <div className="lm-detail-kv">
-                  <span>助手配置 ID</span>
-                  {detailTask.assistantId}
-                </div>
-              ) : null}
-              <div className="lm-detail-kv">
-                <span>引擎类型值</span>
-                {detailTask.kind}
-              </div>
-              <div className="lm-detail-kv">
-                <span>引擎状态值</span>
-                {detailTask.status}
-              </div>
               {detailTask.outputPath ? (
                 <div className="lm-detail-kv">
-                  <span>完整路径</span>
+                  <span>文件位置</span>
                   {detailTask.outputPath}
                 </div>
               ) : null}
@@ -284,9 +265,9 @@ export function LawmindDetailDialog(props: Props) {
               {detailDraft.summary}
             </div>
             <details className="lm-detail-tech">
-              <summary>技术信息（排查、对接用）</summary>
+              <summary>内部编号（一般无需查看）</summary>
               <div className="lm-detail-kv">
-                <span>草稿 taskId</span>
+                <span>草稿编号</span>
                 {detailDraft.taskId}
               </div>
               {detailDraft.matterId ? (
@@ -295,23 +276,9 @@ export function LawmindDetailDialog(props: Props) {
                   {detailDraft.matterId}
                 </div>
               ) : null}
-              <div className="lm-detail-kv">
-                <span>模板 ID</span>
-                {detailDraft.templateId}
-              </div>
-              <div className="lm-detail-kv">
-                <span>输出格式</span>
-                {detailDraft.output}
-              </div>
-              {detailDraft.deliverableType ? (
-                <div className="lm-detail-kv">
-                  <span>交付物类型</span>
-                  {detailDraft.deliverableType}
-                </div>
-              ) : null}
               {detailDraft.outputPath ? (
                 <div className="lm-detail-kv">
-                  <span>完整路径</span>
+                  <span>文件位置</span>
                   {detailDraft.outputPath}
                 </div>
               ) : null}

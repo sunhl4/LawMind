@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { upsertAssistant } from "../../../assistants/store.js";
 import type { AgentConfig, AgentContext } from "../../types.js";
-import { createDelegateToRoleTool } from "./delegate.js";
+import { createDelegateTaskTool, createDelegateToRoleTool } from "./delegate.js";
 import { findAssistantsByRole } from "./utils.js";
 
 function tmpRoot(): string {
@@ -50,6 +50,8 @@ afterEach(() => {
 
 describe("coordination/delegate", () => {
   it("findAssistantsByRole prefers roleId then falls back to presetKey", () => {
+    const ws = path.join(tmp, "workspace");
+    fs.mkdirSync(ws, { recursive: true });
     upsertAssistant(tmp, {
       assistantId: "a-1",
       displayName: "Alice",
@@ -62,7 +64,7 @@ describe("coordination/delegate", () => {
       introduction: "",
       roleId: "contract_review",
     });
-    const matches = findAssistantsByRole(tmp, "contract_review");
+    const matches = findAssistantsByRole(ws, "contract_review");
     // The roleId match should be preferred when present
     expect(matches.map((m) => m.assistantId)).toContain("a-2");
   });
@@ -101,5 +103,15 @@ describe("coordination/delegate", () => {
     );
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/没有承担/);
+  });
+
+  it("delegate_task schema has no parent-gate bypass flag", () => {
+    const tool = createDelegateTaskTool({ baseConfig: buildBaseConfig(tmp) });
+    const keys = Object.keys(tool.definition.parameters);
+    expect(keys).toEqual(expect.arrayContaining(["target_assistant", "task"]));
+    expect(keys).not.toContain("bypass");
+    expect(keys).not.toContain("permission_mode");
+    expect(keys).not.toContain("unrestricted");
+    expect(keys).not.toContain("skip_parent_gates");
   });
 });

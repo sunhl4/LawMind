@@ -2,9 +2,41 @@ import fs from "node:fs";
 import type http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { upsertAssistant } from "../../../src/lawmind/assistants/store.js";
 import { handleCollaborationRoutes } from "./lawmind-server-route-collaboration.js";
 import type { LawmindDispatchContext } from "./lawmind-server-route-types.js";
+
+vi.mock("../../../src/lawmind/agent/tools/coordination/delegate.js", () => ({
+  startDelegation: vi.fn(() => ({
+    ok: true,
+    data: {
+      delegationId: "del-test-1",
+      targetAssistant: "assistant-b",
+      status: "running",
+      note: "mock delegation",
+    },
+  })),
+}));
+
+vi.mock("./lawmind-server-helpers.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./lawmind-server-helpers.js")>();
+  return {
+    ...actual,
+    buildAgentConfig: vi.fn(() => ({
+      config: {
+        workspaceDir: "/tmp",
+        model: {
+          provider: "openai-compatible" as const,
+          baseUrl: "http://127.0.0.1:9",
+          apiKey: "test",
+          model: "test-model",
+        },
+      },
+      modelId: "builtin:qwen-plus",
+    })),
+  };
+});
 
 function createResponseCapture() {
   let status = 0;
@@ -87,6 +119,245 @@ describe("lawmind-server-route-collaboration", () => {
     const templates = payload.templates as Array<{ id: string }>;
     expect(Array.isArray(templates)).toBe(true);
     expect(templates.some((t) => t.id === "demo")).toBe(true);
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+  });
+
+  it("GET /api/delegations filters by matterId", async () => {
+    const { registerDelegation } = await import(
+      "../../../src/lawmind/agent/collaboration/index.js"
+    );
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-collab-list-"));
+    const suffix = Date.now().toString(36);
+    const matterA = `matter_a_${suffix}`;
+    const matterB = `matter_b_${suffix}`;
+    registerDelegation({
+      workspaceDir,
+      fromAssistantId: "a1",
+      toAssistantId: "a2",
+      task: "for A",
+      matterId: matterA,
+    });
+    registerDelegation({
+      workspaceDir,
+      fromAssistantId: "a1",
+      toAssistantId: "a3",
+      task: "for B",
+      matterId: matterB,
+    });
+    const capture = createResponseCapture();
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+    const handled = await handleCollaborationRoutes({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res: capture.res,
+      url: new URL(
+        `http://127.0.0.1/api/delegations?matterId=${encodeURIComponent(matterA)}`,
+      ),
+      pathname: "/api/delegations",
+      c: {},
+    });
+    expect(handled).toBe(true);
+    expect(capture.status).toBe(200);
+    const payload = capture.json();
+    expect(payload.ok).toBe(true);
+    const dels = payload.delegations as Array<{ matterId?: string; task: string }>;
+    expect(dels.every((d) => d.matterId === matterA)).toBe(true);
+    expect(dels.some((d) => d.task === "for A")).toBe(true);
+    expect(dels.some((d) => d.task === "for B")).toBe(false);
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+  });
+
+  it("rejects POST /api/delegations without required fields", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-collab-del-"));
+    const capture = createResponseCapture();
+    const req = {
+      method: "POST",
+      headers: {},
+    } as http.IncomingMessage;
+    Object.assign(req, {
+      on(event: string, handler: (...args: unknown[]) => void) {
+        if (event === "data") {
+          handler(Buffer.from(JSON.stringify({ fromAssistantId: "a" })));
+        }
+        if (event === "end") {
+          handler();
+        }
+        return this;
+      },
+    });
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+    const handled = await handleCollaborationRoutes({
+      ctx,
+      req,
+      res: capture.res,
+      url: new URL("http://127.0.0.1/api/delegations"),
+      pathname: "/api/delegations",
+      c: {},
+    });
+    expect(handled).toBe(true);
+    expect(capture.status).toBe(400);
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+  });
+
+  describe("POST /api/delegations success path", () => {
+    let lawMindRoot = "";
+    let workspaceDir = "";
+    const prevCollab = process.env.LAWMIND_ENABLE_COLLABORATION;
+
+    beforeEach(() => {
+      lawMindRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-collab-del-root-"));
+      workspaceDir = path.join(lawMindRoot, "workspace");
+      fs.mkdirSync(workspaceDir, { recursive: true });
+      upsertAssistant(lawMindRoot, {
+        assistantId: "assistant-a",
+        displayName: "助手 A",
+        introduction: "",
+      });
+      upsertAssistant(lawMindRoot, {
+        assistantId: "assistant-b",
+        displayName: "助手 B",
+        introduction: "",
+      });
+      const envPath = path.join(lawMindRoot, ".env.lawmind");
+      fs.writeFileSync(envPath, "DASHSCOPE_API_KEY=test-key\n", "utf8");
+      process.env.LAWMIND_ENABLE_COLLABORATION = "true";
+    });
+
+    afterEach(() => {
+      if (lawMindRoot) {
+        fs.rmSync(lawMindRoot, { recursive: true, force: true });
+      }
+      if (prevCollab === undefined) {
+        delete process.env.LAWMIND_ENABLE_COLLABORATION;
+      } else {
+        process.env.LAWMIND_ENABLE_COLLABORATION = prevCollab;
+      }
+    });
+
+    it("creates delegation when model and assistants are available", async () => {
+      const capture = createResponseCapture();
+      const body = {
+        fromAssistantId: "assistant-a",
+        toAssistantId: "assistant-b",
+        task: "请审查合同第三章违约责任",
+      };
+      const req = {
+        method: "POST",
+        headers: {},
+      } as http.IncomingMessage;
+      Object.assign(req, {
+        on(event: string, handler: (...args: unknown[]) => void) {
+          if (event === "data") {
+            handler(Buffer.from(JSON.stringify(body)));
+          }
+          if (event === "end") {
+            handler();
+          }
+          return this;
+        },
+      });
+      const ctx: LawmindDispatchContext = {
+        workspaceDir,
+        envFile: path.join(lawMindRoot, ".env.lawmind"),
+        userEnvPath: path.join(lawMindRoot, ".env.lawmind"),
+        policy: { loaded: false },
+      };
+      const handled = await handleCollaborationRoutes({
+        ctx,
+        req,
+        res: capture.res,
+        url: new URL("http://127.0.0.1/api/delegations"),
+        pathname: "/api/delegations",
+        c: {},
+      });
+      expect(handled).toBe(true);
+      expect(capture.status).toBe(200);
+      const payload = capture.json();
+      expect(payload.ok).toBe(true);
+      expect(payload.delegationId).toBe("del-test-1");
+    });
+  });
+
+  it("GET /api/collaboration/summary returns delegation snapshot", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-collab-summary-"));
+    const capture = createResponseCapture();
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+    const handled = await handleCollaborationRoutes({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res: capture.res,
+      url: new URL("http://127.0.0.1/api/collaboration/summary"),
+      pathname: "/api/collaboration/summary",
+      c: {},
+    });
+    expect(handled).toBe(true);
+    expect(capture.status).toBe(200);
+    expect(capture.json()).toMatchObject({
+      ok: true,
+      delegationCount: expect.any(Number),
+      recentCollaborationEvents: expect.any(Array),
+    });
+    fs.rmSync(workspaceDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  });
+
+  it("GET /api/delegations/follow-up validates session params", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-collab-follow-"));
+    const capture = createResponseCapture();
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+    await handleCollaborationRoutes({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res: capture.res,
+      url: new URL("http://127.0.0.1/api/delegations/follow-up"),
+      pathname: "/api/delegations/follow-up",
+      c: {},
+    });
+    expect(capture.status).toBe(400);
+    expect(capture.json()).toMatchObject({ ok: false, error: "sessionId_and_assistantId_required" });
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+  });
+
+  it("GET /api/delegations/session-progress returns 404 for missing session", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-collab-progress-"));
+    const capture = createResponseCapture();
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+    await handleCollaborationRoutes({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res: capture.res,
+      url: new URL(
+        "http://127.0.0.1/api/delegations/session-progress?sessionId=missing&assistantId=a1",
+      ),
+      pathname: "/api/delegations/session-progress",
+      c: {},
+    });
+    expect(capture.status).toBe(404);
+    expect(capture.json()).toMatchObject({ ok: false, error: "session_not_found" });
     fs.rmSync(workspaceDir, { recursive: true, force: true });
   });
 });

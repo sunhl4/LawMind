@@ -4,7 +4,7 @@
 
 **重要声明**：LawMind 输出为**辅助草稿与研判材料**，**不构成法律意见**。对外提交、签署或送达前，须由执业律师完成复核与定稿。数据处理边界见 [LawMind 数据处理说明](/LAWMIND-DATA-PROCESSING)。
 
-**与工程文档的关系**：本手册在「律师可操作面」之外，增加了**实现级索引**（源码路径、路由、数据文件），便于企业内集成与排障。纯研发路线图见 [LawMind 工程开发记忆](/LAWMIND-PROJECT-MEMORY)（**不等于**工作区内的 `MEMORY.md`）。
+**与工程文档的关系**：本手册在「律师可操作面」之外，增加了**实现级索引**（源码路径、路由、数据文件），便于企业内集成与排障。研发目标与回看项见 [GOALS.md](../GOALS.md) 与 [未来问题](/LAWMIND-FUTURE-ISSUES)（**不等于**工作区内的 `MEMORY.md`）。
 
 ---
 
@@ -25,7 +25,7 @@
 
 7. [案件工作台与各面板（含 Insights）](#7-案件工作台与各面板含-insights)
    - [7.1 案件团队会议室](#71-案件团队会议室)
-8. [审核台、验收门禁、推理门禁与来源预览](#8-审核台验收门禁推理门禁与来源预览)
+8. [改稿、验收门禁、推理门禁与来源预览](#8-改稿验收门禁推理门禁与来源预览)
 9. [合同修订积累与学习队列](#9-合同修订积累与学习队列)
 
 ### C. 工程与集成
@@ -93,11 +93,11 @@
 
 ### 2.1 获取与安装
 
-| 方式           | 说明                                                                                                                                                          |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **智能下载页** | 浏览器打开 [桌面下载页](https://cdn.jsdelivr.net/gh/lawmind/lawmind@main/apps/lawmind-desktop/download/index.html)；企业 fork 可在 URL 加 `?repo=组织/仓库`。 |
-| **安装说明**   | [`apps/lawmind-desktop/INSTALL.md`](https://github.com/lawmind/lawmind/blob/main/apps/lawmind-desktop/INSTALL.md)。                                           |
-| **交付包**     | 自 [LawMind 客户交付](/LAWMIND-DELIVERY) 或供应商处获取 **Windows / macOS / Linux** 安装介质。                                                                |
+| 方式           | 说明                                                                                                                |
+| -------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **智能下载页** | 浏览器打开 [桌面下载页](https://docs.lawmind.ai/download/)；企业 fork 可在 URL 加 `?repo=组织/仓库`。               |
+| **安装说明**   | [`apps/lawmind-desktop/INSTALL.md`](https://github.com/lawmind/lawmind/blob/main/apps/lawmind-desktop/INSTALL.md)。 |
+| **交付包**     | 自 [LawMind 客户交付](/LAWMIND-DELIVERY) 或供应商处获取 **Windows / macOS / Linux** 安装介质。                      |
 
 **打包版无需单独安装 Node.js**：安装包内含运行本地 API 所需的 Node 运行时。
 
@@ -110,24 +110,48 @@
 2. **开发模式**（`pnpm lawmind:desktop`）：本地服务会合并 **仓库根目录** 与 **用户目录** 的环境配置，**后者覆盖前者**；若命令行正常而桌面报 **401 / API Key 无效**，请优先核对用户目录 `.env.lawmind`。
 3. **首次引导（P5）**：无案件时可能弹出 `LawmindFirstRunDialog`（角色 → 模板 → 自动建案 + seed prompt）；可永久关闭。产品说明见 [Deliverable-First 与首跑](/LAWMIND-DELIVERABLE-FIRST)。
 
-### 2.3 主界面：四大模块
+### 2.3 主界面：默认交办、在办总览与改稿
 
 桌面端为 **左侧边栏 + 右侧主工作台**（详见 [桌面端 UI 约定](/LAWMIND-DESKTOP-UI)）。
 
-| 模块     | 用途                                                       | 主要渲染入口（实现参考）                                                    |
-| -------- | ---------------------------------------------------------- | --------------------------------------------------------------------------- |
-| **对话** | 与当前 **智能体** 协作；可附带「本回合重点材料」           | `lawmind-chat-shell.tsx`、`lawmind-chat.ts`                                 |
-| **文件** | 浏览、编辑工作区内文本，标记对话上下文                     | `FileWorkbench.tsx`；服务端 `GET/POST /api/fs/*` 与 Electron `lawmind:fs:*` |
-| **案件** | **案件驾驶舱**：材料、任务、草稿、CASE、进度与 Insights    | `MatterWorkbench.tsx` 与 `matter/*` 子视图                                  |
-| **审核** | 对外交付前把关：批准/退回/修改、引用完整性、验收与推理门禁 | `ReviewWorkbench.tsx`、`LawmindAcceptanceGate.tsx`                          |
+| 表面           | 用途                                                                                                                        | 主要渲染入口（实现参考）                                                           |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| **对话**       | **默认入口**：向 Agent 下达任务、引用材料、澄清和中途调整                                                                   | `lawmind-chat-shell.tsx`、`LawmindAssignmentCommitmentCard.tsx`                    |
+| **在办**       | 并行总览：待拍板 / 交出去的活 / 按流程办（含原协作能力）                                                                    | `AgentFleetView.tsx`、`LawmindAgentFleetPanel.tsx`、`LawmindCollaborationDesk.tsx` |
+| **自动办件**   | 定时或邮件触发的办件；签批通过后可「存成自动办件」。关桌面后续跑见设置 → 工作区「关桌面后继续办件」（只在这台电脑，不上云） | `LawmindAutomationsPanel.tsx`、`lawmind-daemon.ts`                                 |
+| **会议室**     | 多助手讨论（可绑案件或临时开会）；从在办「更多」或输入条 **+** 进入                                                         | `MeetingView.tsx`、`MatterTeamMeetingPanel.tsx`                                    |
+| **案件工作台** | 材料、任务、期限、草稿、CASE、进度与 Insights 的长期真相源                                                                  | `MatterWorkbench.tsx` 与 `matter/*` 子视图                                         |
+| **改稿**       | 场景页（原「文书台」）：正文修改、批注、来源核验、交付预览与导出；正式签批主路径在「在办」                                  | `ReviewWorkbench.tsx`、`LawmindAcceptanceGate.tsx`                                 |
+| **待我拍板**   | 跳转「在办」并只看待决（`awaiting_*`）；缺信息时在办表格「提交补充并继续」；对话多为弱引导/短确认                           | `AgentFleetView.tsx`、`LawmindAgentFleetPanel.tsx`、`LawmindClarificationForm.tsx` |
+| **文件**       | 浏览、编辑工作区内文本，标记本回合重点材料                                                                                  | `FileWorkbench.tsx`；服务端 `GET/POST /api/fs/*` 与 Electron `lawmind:fs:*`        |
 
-**侧边栏**：帮助「?」、设置、文件树、助手切换、项目药丸、工作记录（按助手过滤）、协作折叠块。
+**顶栏常驻**：**对话**、**在办**。**改稿 / 文书台 / 会议室不占一级对等 Tab**，从在办或输入条 **+** 进入（打开后顶栏可出现次级定位：Solo「改稿」、Firm「文书台」、会议室）。自动办件在 **在办 → 更多 → 自动办件**（设置页）。对话区在有待审草稿时固定显示「打开此稿」条，可直达改稿页对应任务。案件工作台首页有 **「本案下一步」** 轨（打开本案对话 / 待我拍板 / 去改稿）。侧栏待办角标共用 action-summary，对话回合结束后会即时刷新。
 
-### 2.4 交付、验收门禁与审核台
+正式签批主路径仍在「在办」；改稿页侧重改稿、批注、验收检查与交付预览。系统不会因为后台修订完成而强制打断当前页面。
+
+空对话提示：先附上材料，再点输入栏 **办件** 选流程（合同审查 / 函件 / 检索 / 诉讼 / 写材料）。不必记住激活词。选定后写入能力锁，走对应 Skill + 流水线。签批在「在办」。邮件里识别到合同附件时，用 **一键审邮件合同** 走同一套审查门禁。
+
+**侧边栏**：设置齿轮、案件材料树（或案件列表）、有待决时底部 **待我拍板**。
+
+### 2.4 交付、验收门禁与改稿
 
 - **Deliverable-First**：每类交付物有 **规格（DeliverableSpec）** 与 **验收清单**；渲染前默认 **strict 验收门禁**（HTTP `422 acceptance_gate_blocked`）。架构见 [Deliverable-First](/LAWMIND-DELIVERABLE-FIRST)。
 - **推理门禁（Reasoning Gate）**：部分高风险内置 spec 配置 `reasoningGate`；`reasoning-validator` 在 strict 渲染路径与 acceptance **并联**校验。桌面 `LawmindAcceptanceGate` 同列展示 reasoning 报告。
-- **审核台学习勾选**：可将摘要写入 **助手** `PROFILE.md` 或 **律师** `LAWYER_PROFILE.md`；失败时接口区分 `profileAppendFailed` / `lawyerProfileAppendFailed` 等标志；审核通过且草稿带 `contractRevisionCapture` 时可能触发 **合同修订积累**（见 §9）。
+- **改稿页学习勾选**：可将摘要写入 **助手** `PROFILE.md` 或 **律师** `LAWYER_PROFILE.md`；失败时接口区分 `profileAppendFailed` / `lawyerProfileAppendFailed` 等标志；审核通过且草稿带 `contractRevisionCapture` 时可能触发 **合同修订积累**（见 §9）。
+
+### 2.4.1 Skills 主路径（分诊 · 必核 · 专案组 · 矩阵 · 技能）
+
+| 能力                | 怎么用                                    | 说明                                                                  |
+| ------------------- | ----------------------------------------- | --------------------------------------------------------------------- |
+| **分诊**            | 对话「写材料」→ 填表交办 → 确认黄/红档    | 推荐工作流（含中国包 `cn-*`）；确认后写入分诊会话                     |
+| **律师必核**        | 改稿页右侧清单                            | 未勾完时在办「通过」或改稿页高级签批返回 `422 checklist_incomplete`   |
+| **严格援引**        | 设置 / Edition 的 `citationMode=grounded` | 无源或无理论锚点时严格导出可被拦截                                    |
+| **审查专案组**      | 改稿页 Sticky「用审查专案组」             | ≥4 角色 + Safety Score；报告可 Markdown 下载；可选「更快模式」        |
+| **案件简报 / 理论** | 案件概览                                  | Ops 可追加阶段与 RAID；理论三块可锚定；改稿页可将推理图「采纳到理论」 |
+| **审查矩阵**        | 案件工作台 → 审查矩阵                     | CSV 导出含 citation；版本比对看危险变更摘要                           |
+| **技能库**          | 设置 → 技能库                             | 本地 `SKILL.md` + 签名校验；中国法务包状态；篡改签名拒载              |
+
+Edition 矩阵见 [Edition 功能矩阵](/LAWMIND-EDITION-FEATURE-MATRIX)。
 
 ### 2.5 更新与支持
 
@@ -145,22 +169,44 @@
 5. **沉淀（可选）**：审核勾选写入档案；学习队列 `GET /api/learning/suggestions` 可后续采纳/忽略。
 6. **（进阶）Matter 写侧**：审批、待办队列、节点记录落在 `workspace/matters/<id>/` JSON/JSONL，与 CASE.md 双轨；Agent 工具 `request_approval`、`open_work_queue_item`、`record_deadline` 等（见 §13）。
 
+### 3.1 日流程自检（IT / 培训用）
+
+上线或版本升级后，可用下列 **5 分钟** 清单确认主链可用（无需逐条读 API 文档）：
+
+| 步骤 | 操作                                                                       | 预期                                                       |
+| ---- | -------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| 1    | 工作台对话产出带 `taskId` 的助手回复                                       | 消息下方显示「当前交办」和 gate 摘要或「改稿」入口         |
+| 2    | 侧栏 **待我拍板** 进入「在办」处理 `requiresAction`（或会话内澄清/批准卡） | 批准/拒绝后任务继续                                        |
+| 3    | 在办点 **改稿** → 选草稿 → 回到在办签批 → 渲染                             | strict 模式下未过 gate 时渲染返回 422                      |
+| 4    | 案件工作台 → **认知** → 记忆采纳「预览变更」                               | diff 预览可用；采纳写入 CASE/PROFILE                       |
+| 5    | 改稿页 Redline：**将当前稿设为基准** → 改正文 → **生成修订提案** → 接受    | 段落写回草稿正文                                           |
+| 6    | 案件 **案件** Tab 搜索关键词                                               | 无索引时提示到 **设置→系统健康** 重建；重建后命中出现      |
+| 7    | 左栏 `cases/` 或 **案件** 快捷列表选案                                     | cockpit 打开；有待决时底栏 **待我拍板** 跳转「在办」决策区 |
+
+索引未建立时，本机开发可在 loopback 环境设置 `LAWMIND_ALLOW_INDEX_REBUILD=1` 后于体检页重建（见 [工作区标准](/LAWMIND-WORKSPACE-STANDARD)）。
+
 ---
 
 ## 4. 设置、多助手、角色（Role）与版本
 
-打开 **设置**（齿轮图标）：
+打开 **设置**（齿轮图标）；**默认进「模型与连接」**。分组：工作台 / 知识 / 专业控制 / 关于。Solo 侧栏先露模型、工作区、外观、免责；其余进「更多设置」。
 
-| 设置区              | 用户能力                                           | 实现要点                                                                                     |
-| ------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| **就绪 / 首次引导** | API 与路径自检                                     | 健康检查 `GET /api/health`                                                                   |
-| **协作与多智能体**  | 摘要 + 打开顶栏「协作」页                          | `LawmindSettingsCollaborationBrief`；完整面板在 `LawmindSettingsCollaboration.tsx`           |
-| **智能体（助手）**  | CRUD、`assistantId`、岗位预设、关系统计            | `GET/POST /api/assistants`、`PATCH/DELETE /api/assistants/:id`、`GET /api/assistant-presets` |
-| **角色（Role）**    | 岗位级工具白名单、交付物类型、风险上限、记忆 scope | `GET /api/roles`、`GET /api/roles/:id`；定义 `src/lawmind/core/role.ts`                      |
-| **模型与检索**      | single/dual、`dualLegalConfigured` 等              | `GET /api/health`；适配器见 `src/lawmind/retrieval/`                                         |
-| **工作区与项目**    | `workspaceDir`、`projectDir` 传入对话请求          | `lawmind-server-route-chat.ts` 中 `projectDir`                                               |
-| **模板 / Edition**  | 内置 + 上传模板；Solo/Firm/Private 功能开关        | `GET /api/templates`、`GET /api/policy/edition`                                              |
-| **应用更新**        | 版本与更新通道                                     | Electron `lawmind:check-updates`                                                             |
+| 设置区                    | 用户能力                                                  | 实现要点                                                  |
+| ------------------------- | --------------------------------------------------------- | --------------------------------------------------------- |
+| **模型与连接**            | API 向导、验证、权威语料；高级含起草/Worker/检索          | `LawmindSettingsModelRetrieval`；`GET /api/health`        |
+| **工作区**                | `workspaceDir`、材料夹、合同批次目录（折叠）              | `LawmindSettingsWorkspace`                                |
+| **外观**                  | 主题/字号/密度；签批后自动导出；**展开工具轨迹**          | `LawmindSettingsAppearance`；原独立「签批与导出」叶已并入 |
+| **记忆 / 技能**           | 专业控制；Solo 进「更多设置」                             | `LawmindSettingsMemory` / `LawmindSettingsSkills`         |
+| **文书模板**              | 知识组；Solo 进「更多设置」                               | `LawmindSettingsTemplates`                                |
+| **助手编制**              | Firm 专业控制；Solo 侧栏隐藏（深链仍可用）                | `LawmindSettingsAssistants`                               |
+| **系统健康**              | 连接摘要 + 运维折叠（硬控/指标/修复）                     | `LawmindSettingsDoctor`；`GET /api/health`                |
+| **自动办件**              | 定时/邮件办件（结果进在办）                               | `LawmindAutomationsPanel`                                 |
+| **安全与工具**            | 高安全、白名单；MCP 仅文档说明                            | `LawmindSettingsTools`                                    |
+| **团队工作流 / 角色说明** | Firm 侧栏可见；Solo 侧栏隐藏（深链仍可用）                | Brief → 在办；Roles → `/api/roles`                        |
+| **版本与授权**            | 关于组。Solo：徽章 + 一句，矩阵/导出进单一折叠；Firm 完整 | `LawmindSettingsEdition`；`GET /api/policy/edition`       |
+| **应用更新 / 免责**       | 版本通道与责任边界                                        | Electron `lawmind:check-updates`                          |
+
+快捷入口「在办」会关闭设置并打开在办桌（不再链到 Solo 已藏的「团队工作流」设置叶）。
 
 **超时**：模型默认约 **120s**（`LAWMIND_AGENT_TIMEOUT_MS`）；工具超时 `LAWMIND_TOOL_TIMEOUT_MS`（见 §18）。
 
@@ -172,17 +218,17 @@
 
 **推荐顺序**（与原版一致，补充实现索引）：
 
-1. 在 **设置 → 智能体** 至少配置两名助手（`assistants.json` + `assistants/<id>/PROFILE.md`）。
-2. 侧栏选中 **主办助手 A**（`assistantId` 进入 `POST /api/chat`）。
+1. 在 **设置 → 助手与岗位** 至少配置两名助手（`assistants.json` + `assistants/<id>/PROFILE.md`）。
+2. 顶栏选中 **主办助手 A**（`assistantId` 进入 `POST /api/chat`）。
 3. **关联案件**、任务/草稿，并添加 **本回合重点**，便于模型派活。
-4. 自然语言交办；**无单独「委派」按钮**——由模型调用 `delegate_task` / 协调类工具。
-5. **顶栏「协作」** 或侧栏 **「协作」** 查看 `GET /api/delegations` / `GET /api/collaboration-events`；**刷新**走壳层 `refreshCollaboration()`（见 [协作 UI ↔ API 对照](/LAWMIND-COLLABORATION-UI-API-MAP)）。
+4. 自然语言下达；也可在对话或「在办」工作台使用 **委派给助手**；模型可调用 `delegate_task` / 协调类工具。
+5. 在 **顶栏「在办」→「交出去的活」** 查看委派进度（`GET /api/delegations` / `GET /api/collaboration-events`）；**刷新**走壳层 `refreshCollaboration()`（见 [协作 UI ↔ API 对照](/LAWMIND-COLLABORATION-UI-API-MAP)）。
 
 **状态**：等待中 / 进行中 / 已完成 / 失败 / 超时——与委派注册表字段一致。
 
 **护栏（默认）**：不可委派给自己；并发委派上限与链路深度见 orchestrator 配置（工程记忆与 `delegate.ts`）；定向白名单为可选企业特性。
 
-**API 补充**：`GET /api/delegations/:id` 详情、`DELETE /api/delegations/:id` 取消委派——**桌面当前未绑按钮**，可通过 API 或后续产品化。
+**API 补充**：`GET /api/delegations/:id` 详情、`DELETE /api/delegations/:id` 取消委派——桌面「交出去的活」已支持撤销；详情以列表与打开目标对话为主。
 
 ### 4.2 团队工作流与异步 Job
 
@@ -241,16 +287,18 @@
 
 **`lawmind.policy.json` 常用键**（完整类型见 `src/lawmind/policy/workspace-policy.ts`）：
 
-| 键                                                | 作用                                                           |
-| ------------------------------------------------- | -------------------------------------------------------------- |
-| `schemaVersion`                                   | 必填                                                           |
-| `allowWebSearch`                                  | 是否允许联网                                                   |
-| `retrievalMode`                                   | 提示检索模式（与 env 协同）                                    |
-| `enableCollaboration`                             | 是否允许协作工具链                                             |
-| `edition`                                         | `solo` / `firm` / `private_deploy`                             |
-| `agentMandatoryRules` / `agentMandatoryRulesPath` | 注入 Agent system prompt 的强制规则（上限 8192 字符）          |
-| `agentMaxToolCallsPerTurn`                        | 单轮工具调用上限（与 `LAWMIND_AGENT_MAX_TOOL_CALLS` 协同）     |
-| `productInsightsCollection`                       | `off` / `local-only` / `synced` — 控制 `ux.matter_action` 采集 |
+| 键                                                | 作用                                                            |
+| ------------------------------------------------- | --------------------------------------------------------------- |
+| `schemaVersion`                                   | 必填                                                            |
+| `allowWebSearch`                                  | 是否允许联网                                                    |
+| `retrievalMode`                                   | 提示检索模式（与 env 协同）                                     |
+| `enableCollaboration`                             | 是否允许协作工具链                                              |
+| `edition`                                         | `solo` / `firm` / `private_deploy`                              |
+| `agentMandatoryRules` / `agentMandatoryRulesPath` | 注入 Agent system prompt 的强制规则（上限 8192 字符）           |
+| `agentMaxToolCallsPerTurn`                        | 单轮工具软预算（触顶询问是否继续；硬顶约 2 倍以防 runaway）     |
+| `productInsightsCollection`                       | `off` / `local-only` / `synced` — 控制 `ux.matter_action` 采集  |
+| `highSecurityMode`                                | 为 `true` 时倾向关闭联网与产品遥测（设置 → 工具治理可一键写入） |
+| `context.*`                                       | 自动 compact 缓冲、`maxConsecutiveCompactFailures` 等           |
 
 选型说明：[LawMind 联网检索路径](/LAWMIND-NETWORK-OPTIONS)。
 
@@ -275,17 +323,20 @@
 
 **子视图（`matter/` 目录）**：如 `MatterCockpit.tsx`、`MatterMemoryInspector.tsx`、`MatterQualityCockpit.tsx`、`MatterReasoningBoard.tsx`、`MatterReviewQueuePanel.tsx`、`MatterRoleBoard.tsx` 等，用于拆分原巨型工作台能力。
 
-### 7.1 案件团队会议室
+### 7.1 团队会议室
 
+- **入口**：在办「更多」或输入条 **+**（`mainView = "meeting"` → `MeetingView`）。可绑定案件，或选「不绑定案件 · 临时讨论」（API 仍用哨兵 id `临时讨论`，磁盘落在 `meetings/adhoc/team-meeting.jsonl`，不占用案件列表）。
+- **案件侧深链**：案件概览「打开会议室」跳到会议室视图并带上本案。
 - **UI**：`MatterTeamMeetingPanel.tsx`；**数据**：`GET /api/matters/team-meeting?matterId=&limit=&skipFromEnd=` → `readTeamMeetingWindow`（`src/lawmind/cases/team-meeting.ts`）。
 - **发言**：`POST /api/chat`，`meetingMode: true` 且 **必须**合法 `matterId`；否则 **400** `meeting_matter_required`。
 - **`meetingAgenda`**：注入系统侧上下文，**不**写入 JSONL 用户行。
 - **磁盘**：`workspace/cases/<matterId>/team-meeting.jsonl`（`user` / `assistant` / `system`）。
 - **委派系统条**：`delegate_task` 带 `matter_id` 时在 JSONL 追加 **system** 行。
+- **材料**：可先在「对话」附上文件再进会议室；页内会提示当前已附带材料（议程仍由律师/助手在会中使用）。
 
 ---
 
-## 8. 审核台、验收门禁、推理门禁与来源预览
+## 8. 改稿、验收门禁、推理门禁与来源预览
 
 | 步骤         | 用户操作       | API / 引擎                                                                                                                                                   |
 | ------------ | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -297,7 +348,10 @@
 | 审核决定     | 批准/退回/修改 | `POST /api/drafts/:taskId/review`；body 含 `status`、`note`、`appendToProfile`、`appendToLawyerProfile`、`profileAssistantId`、`labels`、`deferMemoryWrites` |
 | 重新打开审核 | 修正后再审     | `POST /api/drafts/:taskId/reopen-review`                                                                                                                     |
 | 渲染         | 导出 Word/PPT  | `POST /api/drafts/:taskId/render?strict=`（默认 strict；`false` 为显式弱化门禁，**不推荐**）                                                                 |
-| 验收包       | 对外证明       | `GET /api/drafts/:taskId/acceptance-pack`（Markdown 或 `?format=json`）；受 Edition `acceptancePackExport` 控制（Solo 可能 **403**）                         |
+| 带修订 Word  | 改稿按钮       | `POST /api/drafts/:taskId/render-tracked`：将 Redline 提案写入 Word 修订痕迹；需本机 **officecli**，未安装时回退为普通 docx 并提示                           |
+| 验收包       | 对外证明       | `GET /api/drafts/:taskId/acceptance-pack`（Markdown 或 `?format=json`）；受 Edition `acceptancePackExport` 控制（Solo/Firm/Private 默认开启）                |
+
+**Word 修订导出限制**：`render-tracked` 依赖主机已安装 `officecli` 且草稿具备 Redline 基准/提案；无 CLI 时仍会得到 docx 文件但不含原生修订痕迹。清洁版请用「导出 Word」（`/render` strict 路径）。
 
 **内置交付物类型（DeliverableSpec.type）**（工作区可追加自定义 spec，见 `workspace/lawmind/deliverables/*.json`）：
 
@@ -313,6 +367,19 @@
 注册表：`src/lawmind/deliverables/registry.ts`；校验：`validateDraftAgainstSpec`、`validateReasoningForDraft`。
 
 **字段级说明**：`AcceptanceReport` / `ReasoningReport` 各键、acceptance-pack 的 `format` 与 **403** 条件，见附录 [§36](#36-验收与推理报告-json-语义)。Edition 下各 **`features`** 布尔含义见 [§37](#37-edition-features-全量对照)。
+
+### 8.1 与 Harvey 式引用对照（简表）
+
+LawMind 不复制 Harvey 等企业云台的部署形态，但在**可核对来源**上对齐律师预期：
+
+| 能力           | Harvey 类企业台  | LawMind                                                           |
+| -------------- | ---------------- | ----------------------------------------------------------------- |
+| 段落级来源锚点 | 强（企业语料库） | 强：`source preview` + 审查矩阵 + acceptance pack                 |
+| 点击回原文     | 依赖 DMS / 语料  | 本机 `cases/` + 检索索引；SharePoint 外链（若已配置）             |
+| 对外交付证明   | 企业审计栈       | 本地 JSONL + hash-chain + 验收包导出                              |
+| Word 修订痕迹  | 常经 DMS / 插件  | 审核台 `render-tracked`（`officecli`；无 CLI 时 plain docx 回退） |
+
+**律师可读结论**：Harvey 优势在律所级语料与 DMS 一体部署；LawMind 优势在**本机闭环**——同一 matter 内从研判 → 审核门禁 → 带来源的可交付件，无需把案件材料默认上传第三方 SaaS。详见 [集成路线图](/LAWMIND-INTEGRATIONS#与-harvey--spellbook-对照phase-12)。
 
 ---
 
@@ -351,87 +418,95 @@
 
 ### 11.1 路由速查表
 
-| 方法     | 路径                                          | 说明                                                                     |
-| -------- | --------------------------------------------- | ------------------------------------------------------------------------ |
-| GET      | `/api/health`                                 | 工作区、模型、策略、doctor 计数、edition 等                              |
-| GET      | `/api/templates`                              | 内置 + 已上传模板列表                                                    |
-| GET      | `/api/templates/built-in`                     | 内置模板（含 `category`）                                                |
-| POST     | `/api/templates/scan`                         | 扫描工作区内 `.docx` 占位符                                              |
-| POST     | `/api/templates/register`                     | 登记上传模板；`id` 须匹配 `upload/<segment>`；`format`：`docx` \| `pptx` |
-| POST     | `/api/templates/enabled`                      | body：`id`、`enabled` 布尔，启停已登记模板                               |
-| GET      | `/api/templates/uploaded`                     | 仅列出上传模板                                                           |
-| DELETE   | `/api/templates/uploaded?id=`                 | 删除上传模板（query `id`）                                               |
-| GET      | `/api/deliverables/specs`                     | 所有 DeliverableSpec 摘要（含 workspace 扩展标记）                       |
-| GET      | `/api/acceptance-summary`                     | 按 matter 或全工作区汇总草稿验收状态                                     |
-| GET      | `/api/policy/edition`                         | Edition 与功能开关                                                       |
-| GET      | `/api/drafts/:taskId/acceptance`              | 单草稿验收报告                                                           |
-| GET      | `/api/drafts/:taskId/acceptance-pack`         | 验收包 Markdown 或 JSON                                                  |
-| GET      | `/api/sources/:id/preview`                    | 来源预览（可选 `taskId`）                                                |
-| GET      | `/api/learning/suggestions`                   | 学习建议；`?filter=all`                                                  |
-| POST     | `/api/learning/suggestions/:id/adopt`         | 采纳建议                                                                 |
-| POST     | `/api/learning/suggestions/:id/dismiss`       | 忽略建议                                                                 |
-| POST     | `/api/lawyer-profile/learning`                | 追加 `LAWYER_PROFILE.md`                                                 |
-| POST     | `/api/assistants/profile/learning`            | 追加助手 `PROFILE.md`                                                    |
-| GET      | `/api/tasks/:taskId`                          | 任务详情 + checkpoints + executionPlan                                   |
-| GET      | `/api/drafts/:taskId`                         | 草稿详情 + citation + reasoningMarkdown + memorySources + acceptance     |
-| POST     | `/api/drafts/:taskId/review`                  | 审核                                                                     |
-| POST     | `/api/drafts/:taskId/render`                  | 渲染交付物                                                               |
-| POST     | `/api/drafts/:taskId/reopen-review`           | 重开审核                                                                 |
-| POST     | `/api/chat`                                   | Agent 单轮对话（含 meetingMode 等）                                      |
-| GET      | `/api/assistant-presets`                      | 岗位预设列表                                                             |
-| GET      | `/api/assistants`                             | 助手列表 + 统计                                                          |
-| POST     | `/api/assistants`                             | 创建助手                                                                 |
-| PATCH    | `/api/assistants/:id`                         | 更新助手                                                                 |
-| DELETE   | `/api/assistants/:id`                         | 删除助手（不可删 `default`）                                             |
-| GET      | `/api/assistants/:id/profile-sections`        | PROFILE.md 分段解析展示                                                  |
-| GET      | `/api/matters`                                | 列表 matterId                                                            |
-| GET      | `/api/matters/search`                         | 搜索案件索引                                                             |
-| GET      | `/api/matters/detail`                         | 详情 + 任务 + 草稿 + `draftCitationIntegrity`                            |
-| GET      | `/api/matters/team-meeting`                   | 会议室窗口                                                               |
-| POST     | `/api/matters/create`                         | 建案（幂等）                                                             |
-| POST     | `/api/matters/display-name`                   | 展示名称；可创建 CASE.md                                                 |
-| POST     | `/api/matters/delete`                         | 删除 `cases/<matterId>`                                                  |
-| POST     | `/api/matters/case-note`                      | 写回 CASE 结构块                                                         |
-| POST     | `/api/matters/interaction`                    | 记录工作台交互（审计/Insights）                                          |
-| GET      | `/api/matters/overviews`                      | 多案件摘要列表                                                           |
-| GET      | `/api/matters/interaction-rollup`             | 交互汇总                                                                 |
-| GET/POST | `/api/matters/role`                           | 子目录角色读/写                                                          |
-| GET      | `/api/approvals`                              | 审批请求列表（Matter JSON 真相源优先）                                   |
-| GET      | `/api/queues`                                 | 待办队列列表                                                             |
-| POST     | `/api/onboarding/firstrun-wizard`             | 首次引导完成记录                                                         |
-| GET/POST | `/api/workspace/desk-settings`                | 桌面偏好 JSON                                                            |
-| GET/POST | `/api/learning/contract-review/drafts`        | 合同审查草稿                                                             |
-| POST     | `/api/learning/contract-review/drafts/accept` | 验收通过写入积累                                                         |
-| GET      | `/api/learning/contract-revisions`            | 列出修订包                                                               |
-| POST     | `/api/learning/contract-revision/finalize`    | 定稿修订包                                                               |
-| GET      | `/api/tasks`                                  | 任务列表（records 路由）                                                 |
-| GET      | `/api/sessions`                               | 会话列表                                                                 |
-| GET      | `/api/drafts`                                 | 草稿列表                                                                 |
-| GET      | `/api/history`                                | 历史                                                                     |
-| GET      | `/api/jobs`                                   | 异步 Job 列表；支持 `limit`、`since`、重复 `status`                      |
-| GET      | `/api/jobs/:id`                               | Job 详情                                                                 |
-| GET      | `/api/jobs/:id/stream`                        | SSE                                                                      |
-| POST     | `/api/jobs/:id/cancel`                        | 取消 Job                                                                 |
-| GET      | `/api/collaboration/summary`                  | 协作摘要                                                                 |
-| GET      | `/api/delegations`                            | 委派列表；可选 `status`、`assistantId`                                   |
-| GET      | `/api/delegations/:id`                        | 委派详情                                                                 |
-| DELETE   | `/api/delegations/:id`                        | 取消委派                                                                 |
-| GET      | `/api/collaboration/workflow-templates`       | 工作流模板                                                               |
-| POST     | `/api/collaboration/workflow-run`             | 运行工作流                                                               |
-| GET      | `/api/collaboration-events`                   | 协作事件时间线；`?since=`                                                |
-| GET      | `/api/audit/export`                           | Markdown 审计导出；支持合规模式与过滤                                    |
-| GET      | `/api/memory/sources`                         | 记忆来源报告                                                             |
-| GET      | `/api/memory/adoptions`                       | （与 adoption 路由并存时见实现）                                         |
-| GET      | `/api/memory/adoption`                        | 列出记忆采纳建议；`scope`、`state`、`matterId`/`targetId`                |
-| POST     | `/api/memory/adoption/suggest`                | 新建建议                                                                 |
-| POST     | `/api/memory/adoption/adopt`                  | 采纳                                                                     |
-| POST     | `/api/memory/adoption/dismiss`                | 拒绝/忽略                                                                |
-| GET      | `/api/roles`                                  | Role 列表                                                                |
-| GET      | `/api/roles/:roleId`                          | Role 详情                                                                |
-| GET      | `/api/artifact`                               | 下载/定位渲染产物（参数见路由实现）                                      |
-| GET      | `/api/fs/tree`                                | 工作区文件树                                                             |
-| GET      | `/api/fs/read`                                | 读文件                                                                   |
-| POST     | `/api/fs/write`                               | 写文件                                                                   |
+| 方法      | 路径                                          | 说明                                                                     |
+| --------- | --------------------------------------------- | ------------------------------------------------------------------------ |
+| GET       | `/api/health`                                 | 工作区、模型、策略、doctor 计数、edition 等                              |
+| GET       | `/api/metrics/team-growth`                    | 团队成长内测指标快照；`?windowDays=`（默认 30）                          |
+| POST      | `/api/metrics/team-growth/baseline`           | 冻结当前窗口为基线（body：`windowDays?`、`note?`）                       |
+| GET       | `/api/templates`                              | 内置 + 已上传模板列表                                                    |
+| GET       | `/api/templates/built-in`                     | 内置模板（含 `category`）                                                |
+| POST      | `/api/templates/scan`                         | 扫描工作区内 `.docx` 占位符                                              |
+| POST      | `/api/templates/register`                     | 登记上传模板；`id` 须匹配 `upload/<segment>`；`format`：`docx` \| `pptx` |
+| POST      | `/api/templates/enabled`                      | body：`id`、`enabled` 布尔，启停已登记模板                               |
+| GET       | `/api/templates/uploaded`                     | 仅列出上传模板                                                           |
+| DELETE    | `/api/templates/uploaded?id=`                 | 删除上传模板（query `id`）                                               |
+| GET       | `/api/deliverables/specs`                     | 所有 DeliverableSpec 摘要（含 workspace 扩展标记）                       |
+| GET       | `/api/acceptance-summary`                     | 按 matter 或全工作区汇总草稿验收状态                                     |
+| GET       | `/api/policy/edition`                         | Edition 与功能开关                                                       |
+| GET       | `/api/drafts/:taskId/acceptance`              | 单草稿验收报告                                                           |
+| GET       | `/api/drafts/:taskId/acceptance-pack`         | 验收包 Markdown 或 JSON                                                  |
+| GET       | `/api/sources/:id/preview`                    | 来源预览（可选 `taskId`）                                                |
+| GET       | `/api/learning/suggestions`                   | 学习建议；`?filter=all`                                                  |
+| POST      | `/api/learning/suggestions/:id/adopt`         | 采纳建议                                                                 |
+| POST      | `/api/learning/suggestions/:id/dismiss`       | 忽略建议                                                                 |
+| POST      | `/api/lawyer-profile/learning`                | 追加 `LAWYER_PROFILE.md`                                                 |
+| POST      | `/api/assistants/profile/learning`            | 追加助手 `PROFILE.md`                                                    |
+| GET       | `/api/tasks/:taskId`                          | 任务详情 + checkpoints + executionPlan                                   |
+| GET       | `/api/drafts/:taskId`                         | 草稿详情 + citation + reasoningMarkdown + memorySources + acceptance     |
+| POST      | `/api/drafts/:taskId/review`                  | 审核                                                                     |
+| POST      | `/api/drafts/:taskId/render`                  | 渲染交付物                                                               |
+| POST      | `/api/drafts/:taskId/reopen-review`           | 重开审核                                                                 |
+| POST      | `/api/chat`                                   | Agent 单轮对话（含 meetingMode 等）                                      |
+| GET       | `/api/assistant-presets`                      | 岗位预设列表                                                             |
+| GET       | `/api/assistants`                             | 助手列表 + 统计                                                          |
+| POST      | `/api/assistants`                             | 创建助手                                                                 |
+| PATCH     | `/api/assistants/:id`                         | 更新助手                                                                 |
+| DELETE    | `/api/assistants/:id`                         | 删除助手（不可删 `default`）                                             |
+| GET       | `/api/assistants/:id/profile-sections`        | PROFILE.md 分段解析展示                                                  |
+| GET       | `/api/matters`                                | 列表 matterId                                                            |
+| GET       | `/api/matters/search`                         | 搜索案件索引                                                             |
+| GET       | `/api/matters/detail`                         | 详情 + 任务 + 草稿 + `draftCitationIntegrity`                            |
+| GET       | `/api/matters/team-meeting`                   | 会议室窗口                                                               |
+| POST      | `/api/matters/create`                         | 建案（幂等）                                                             |
+| POST      | `/api/matters/display-name`                   | 展示名称；可创建 CASE.md                                                 |
+| POST      | `/api/matters/delete`                         | 删除 `cases/<matterId>`                                                  |
+| POST      | `/api/matters/case-note`                      | 写回 CASE 结构块                                                         |
+| POST      | `/api/matters/interaction`                    | 记录工作台交互（审计/Insights）                                          |
+| GET       | `/api/matters/overviews`                      | 多案件摘要列表                                                           |
+| GET       | `/api/matters/interaction-rollup`             | 交互汇总                                                                 |
+| GET/POST  | `/api/matters/role`                           | 子目录角色读/写                                                          |
+| GET       | `/api/approvals`                              | 审批请求列表（Matter JSON 真相源优先）                                   |
+| GET       | `/api/queues`                                 | 待办队列列表                                                             |
+| POST      | `/api/onboarding/firstrun-wizard`             | 首次引导完成记录                                                         |
+| GET/POST  | `/api/workspace/desk-settings`                | 桌面偏好 JSON                                                            |
+| GET/POST  | `/api/learning/contract-review/drafts`        | 合同审查草稿                                                             |
+| POST      | `/api/learning/contract-review/drafts/accept` | 验收通过写入积累                                                         |
+| GET       | `/api/learning/contract-revisions`            | 列出修订包                                                               |
+| POST      | `/api/learning/contract-revision/finalize`    | 定稿修订包                                                               |
+| GET       | `/api/tasks`                                  | 任务列表（records 路由）                                                 |
+| GET       | `/api/sessions`                               | 会话列表（含 `lastPreview`）                                             |
+| GET       | `/api/sessions/:id/context-budget`            | 当前会话 token 用量与 compact 级别                                       |
+| POST      | `/api/sessions/:id/compact`                   | 手动压缩对话历史（可选 `distill` 沉淀学习）                              |
+| POST      | `/api/sessions/:id/messages/mutate`           | 按气泡下标截断/删除问答对                                                |
+| POST      | `/api/sessions/:id/abort`                     | 协作式停止进行中的对话轮                                                 |
+| POST      | `/api/sessions/:id/resume`                    | 从 JSONL transcript 修复并加载会话                                       |
+| GET/PATCH | `/api/policy/workspace`                       | 读取/更新工作区策略（含 **高安全模式**）                                 |
+| GET       | `/api/drafts`                                 | 草稿列表                                                                 |
+| GET       | `/api/history`                                | 历史                                                                     |
+| GET       | `/api/jobs`                                   | 异步 Job 列表；支持 `limit`、`since`、重复 `status`                      |
+| GET       | `/api/jobs/:id`                               | Job 详情                                                                 |
+| GET       | `/api/jobs/:id/stream`                        | SSE                                                                      |
+| POST      | `/api/jobs/:id/cancel`                        | 取消 Job                                                                 |
+| GET       | `/api/collaboration/summary`                  | 协作摘要                                                                 |
+| GET       | `/api/delegations`                            | 委派列表；可选 `status`、`assistantId`、`matterId`                       |
+| GET       | `/api/delegations/:id`                        | 委派详情                                                                 |
+| DELETE    | `/api/delegations/:id`                        | 取消委派                                                                 |
+| GET       | `/api/collaboration/workflow-templates`       | 工作流模板                                                               |
+| POST      | `/api/collaboration/workflow-run`             | 运行工作流                                                               |
+| GET       | `/api/collaboration-events`                   | 协作事件时间线；`?since=`                                                |
+| GET       | `/api/audit/export`                           | Markdown 审计导出；支持合规模式与过滤                                    |
+| GET       | `/api/memory/sources`                         | 记忆来源报告                                                             |
+| GET       | `/api/memory/adoptions`                       | （与 adoption 路由并存时见实现）                                         |
+| GET       | `/api/memory/adoption`                        | 列出记忆采纳建议；`scope`、`state`、`matterId`/`targetId`                |
+| POST      | `/api/memory/adoption/suggest`                | 新建建议                                                                 |
+| POST      | `/api/memory/adoption/adopt`                  | 采纳                                                                     |
+| POST      | `/api/memory/adoption/dismiss`                | 拒绝/忽略                                                                |
+| GET       | `/api/roles`                                  | Role 列表                                                                |
+| GET       | `/api/roles/:roleId`                          | Role 详情                                                                |
+| GET       | `/api/artifact`                               | 下载/定位渲染产物（参数见路由实现）                                      |
+| GET       | `/api/fs/tree`                                | 工作区文件树                                                             |
+| GET       | `/api/fs/read`                                | 读文件                                                                   |
+| POST      | `/api/fs/write`                               | 写文件                                                                   |
 
 ### 11.2 `POST /api/chat` 请求体（核心字段）
 
@@ -630,18 +705,48 @@
 
 ---
 
+### 11.8.1 从工作流库启动任务（律师路径）
+
+1. 在 **案件工作台** 选中案件 → **任务** Tab；若无进行中项，可点 **从工作流库启动**（或打开 **协作** → 工作流库）。
+2. 在 **工作流库** 中按领域筛选模板，点击 **在本案件运行**（`POST /api/collaboration/workflow-run`，`async: true`）。
+3. 运行中的团队流出现在任务看板 **Jobs** 行（`GET /api/jobs?matterId=`）；完成后草稿进入 **审核** 验收。
+4. 标记 **需验收包** 的模板会在启动响应中带 `gateHint`；对外交付前请完成验收包导出。
+
+模板文件位于 **`<workspace>/lawmind/workflows/`**。首次启动本机 LawMind 服务时，若目录为空会自动写入**内置命名工作流**（不覆盖已有文件）。
+
+**内置命名工作流一览**（`namedAgent` 为律师可读的岗位名）：
+
+| 模板 ID                    | 名称           | Named agent                 | 领域           |
+| -------------------------- | -------------- | --------------------------- | -------------- |
+| `nda-triage`               | 保密协议初审   | NDA Triager                 | 商事           |
+| `contract-review`          | 合同审查意见   | Contract Review Analyst     | 商事           |
+| `vendor-agreement-review`  | 供应商协议审查 | Vendor Agreement Reviewer   | 商事           |
+| `demand-letter`            | 律师函起草     | Demand Letter Drafter       | 诉讼           |
+| `matter-chronology`        | 案件时间线     | Chronology Builder          | 诉讼           |
+| `evidence-index`           | 证据索引       | Evidence Indexer            | 诉讼           |
+| `due-diligence-review`     | 尽调审查表     | Due Diligence Reviewer      | 尽调           |
+| `client-update-memo`       | 客户邮件摘要   | Client Update Writer        | 客户           |
+| `compliance-research-memo` | 合规研究报告   | Regulatory Research Analyst | 合规           |
+| `renewal-monitor`          | 合同续签监控   | Contract Renewal Monitor    | 商事（可预约） |
+
+预约后台运行：对 `schedulable: true` 的模板（如 `renewal-monitor`），`POST /api/collaboration/workflow-run` 请求体增加 `"scheduleRunAt": "2026-05-21T09:00:00.000Z"`（见 [LAWMIND-INTEGRATIONS.md](LAWMIND-INTEGRATIONS.md)）。工作流库卡片会显示 **可预约执行** 标签。
+
 ### 11.9 团队工作流模板 JSON
 
 文件目录：**`<workspace>/lawmind/workflows/<templateId>.json`**。`templateId` 读取时经字符白名单净化；禁止路径穿越（`../evil` 无效）。
 
 **顶层字段**（类型见 `workspace-workflow-templates.ts`）：
 
-| 字段          | 必填 | 说明             |
-| ------------- | ---- | ---------------- |
-| `id`          | 是   | 与文件名建议一致 |
-| `name`        | 是   | 列表展示         |
-| `description` | 否   | 列表展示         |
-| `steps`       | 是   | 步骤数组         |
+| 字段                     | 必填 | 说明                                                             |
+| ------------------------ | ---- | ---------------------------------------------------------------- |
+| `id`                     | 是   | 与文件名建议一致                                                 |
+| `name`                   | 是   | 列表展示                                                         |
+| `namedAgent`             | 否   | 律师可读岗位名（如 NDA Triager）                                 |
+| `description`            | 否   | 列表展示                                                         |
+| `steps`                  | 是   | 步骤数组                                                         |
+| `acceptancePackRequired` | 否   | 为 true 时 UI 显示「需验收包」，运行后返回 `gateHint`            |
+| `requiredSources`        | 否   | 建议绑定的来源标签（展示用）                                     |
+| `schedulable`            | 否   | 为 true 时工作流库显示「可预约执行」；运行时可传 `scheduleRunAt` |
 
 **每步 `WorkspaceWorkflowTemplateStep`**：
 
@@ -865,7 +970,7 @@
 | [Deliverable-First](/LAWMIND-DELIVERABLE-FIRST)             | 交付物规格与门禁                         |
 | [愿景与边界](/LAWMIND-VISION)                               | 产品方向                                 |
 | [架构](./LAWMIND-ARCHITECTURE.md)                           | 五层模型、Job、Clarify–Execute、记忆规则 |
-| [工程开发记忆](/LAWMIND-PROJECT-MEMORY)                     | 研发断点续作                             |
+| [未来问题](/LAWMIND-FUTURE-ISSUES)                          | 已识别、长期回看项                       |
 | [桌面端 UI](/LAWMIND-DESKTOP-UI)                            | 布局与组件                               |
 | [桌面文件与上下文](/LAWMIND-DESKTOP-FILES-AND-CONTEXT)      | 引用与上限                               |
 | [协作 UI ↔ API 对照](/LAWMIND-COLLABORATION-UI-API-MAP)     | 协作页数据源                             |
@@ -903,15 +1008,36 @@
 
 **路由**：`apps/lawmind-desktop/server/lawmind-server-route-audit-export.ts`。
 
-| 查询参数     | 说明                                                                |
-| ------------ | ------------------------------------------------------------------- |
-| `matterId`   | 可选；非法 ID → **400** `invalid matter id`                         |
-| `taskId`     | 可选；过滤单任务相关事件                                            |
-| `since`      | 可选；时间下界（传入 `buildAuditExportMarkdown` / compliance 变体） |
-| `until`      | 可选；时间上界                                                      |
-| `compliance` | `1` 或 `true`（大小写不敏感）→ 使用 `buildComplianceAuditMarkdown`  |
+| 查询参数     | 说明                                                                                  |
+| ------------ | ------------------------------------------------------------------------------------- |
+| `matterId`   | 可选；非法 ID → **400** `invalid matter id`                                           |
+| `taskId`     | 可选；过滤单任务相关事件                                                              |
+| `since`      | 可选；时间下界（传入 `buildAuditExportMarkdown` / compliance 变体）                   |
+| `until`      | 可选；时间上界                                                                        |
+| `compliance` | `1` 或 `true`（大小写不敏感）→ 使用 `buildComplianceAuditMarkdown`                    |
+| `integrity`  | `1` 或 `true` → JSON 完整性链摘要（`auditIntegrityExport`，Solo/Firm/Private 默认开） |
+| `replay`     | `1` 或 `true` → **JSON** 机器可读时间线（Agent Replay 风格；与 Markdown 互斥）        |
 
-**响应**：`200`，`Content-Type: text/markdown; charset=utf-8`；**不是 JSON**。适合直接落盘为 `.md` 或进入 DMS。
+**响应**：
+
+- 默认：`200`，`Content-Type: text/markdown; charset=utf-8`；适合落盘为 `.md`。
+- `?replay=true`：`200`，`application/json`，body 含 `{ ok, replay: { schemaVersion, events, tasks, summary } }`。
+
+示例：`GET /api/audit/export?replay=true&matterId=matter-001`
+
+**记忆采纳预览 diff**（Inspector）：`GET /api/memory/adoption/<suggestionId>/preview-diff?matterId=` 返回行级 `hunks`（采纳前模拟写入）。
+
+**工作区全文检索（FTS）**：
+
+- `GET /api/search/workspace?q=&matterId=&source=audit,session,knowledge|all&limit=30` — 查询 `lawmind/search-index.sqlite`（审计 + 会话 turns + 个人知识库 FTS hybrid；`source=knowledge` 仅知识语料）。
+- `POST /api/search/workspace/rebuild` — 全量重建含知识语料（需环境变量 `LAWMIND_ALLOW_INDEX_REBUILD=1`）。
+- `GET /api/health` → `doctor.searchIndex` — 行数、上次重建时间。
+- 案件工作台搜索会并行合并 `GET /api/matters/search` 与 FTS 命中（「审计」「会话」分组）。
+
+**审核台修订提案（Redline MVP）**：
+
+- `GET /api/drafts/<taskId>/redline` · `POST .../redline/generate` · `POST .../hunks/<hunkId>/resolve`（`decision`: `accept` | `reject`）。
+- 真相源：`drafts/<taskId>.redline.json`；接受后写回 `draft.sections`。
 
 ---
 
@@ -1317,7 +1443,7 @@
 
 - **`?format=markdown`（默认）**：**200** 流式 **`text/markdown`**，头 `Content-Disposition: attachment; filename="lawmind-acceptance-pack-<taskId>.md"`。
 - **`?format=json`**：**200** JSON `{ ok, taskId, markdown }`（便于二次加工）。
-- **403**：当前 Edition **`acceptancePackExport`** 为 false（典型为 **Solo**），body 含 `feature_disabled` 与 `hint`。
+- **403**：当前 Edition **`acceptancePackExport`** 为 false（policy 显式关闭时），body 含 `feature_disabled` 与 `hint`。
 - 依赖 `buildDraftAcceptancePackMarkdown`（`src/lawmind/delivery/draft-acceptance-pack.ts`）。
 
 ---
@@ -1330,7 +1456,8 @@
 
 | Feature key                      | solo  | firm  | private_deploy | 产品含义（摘要）                                           |
 | -------------------------------- | ----- | ----- | -------------- | ---------------------------------------------------------- |
-| `acceptanceGateStrict`           | false | true  | true           | 未过验收则 strict 渲染拦截（与路由 `strict` 默认行为协同） |
+| `acceptanceGateStrict`           | true  | true  | true           | 未过验收则 strict 渲染拦截（与路由 `strict` 默认行为协同） |
+| `citationGateStrict`             | true  | true  | true           | 有研究快照时，缺来源/未锚定长引用则拦截渲染                |
 | `crossMatterRoadmap`             | false | true  | true           | 跨案件 Roadmap / 决策卡类 UI                               |
 | `crossMatterAcceptanceDashboard` | false | true  | true           | 工作区级验收聚合面板 / `acceptance-summary` 重度使用       |
 | `collaborationSummary`           | false | true  | true           | 多律师协作摘要类面板                                       |
@@ -1338,7 +1465,7 @@
 | `securitySbomPanel`              | false | false | true           | SBOM / 安全自检入口                                        |
 | `qualityDashboardJsonExport`     | false | true  | true           | Quality dashboard JSON 导出                                |
 | `customDeliverableSpec`          | false | true  | true           | 工作区 `lawmind/deliverables/*.json` 私有 spec             |
-| `acceptancePackExport`           | false | true  | true           | 验收包 `.md` / `format=json`                               |
+| `acceptancePackExport`           | true  | true  | true           | 验收包 `.md` / `format=json`                               |
 | `strictDangerousToolApproval`    | false | true  | true           | 危险工具须显式批准；`execute_workflow` 等长链路收紧        |
 
 **人类可读标签**：`EDITION_LABELS` — `solo`→「独立律师版」、`firm`→「律所协作版」、`private_deploy`→「私有化部署版」。
@@ -1362,7 +1489,15 @@
 
 ### 38.2 `GET /api/sessions`
 
-响应：`sessions[]`，每项含 `sessionId`、`matterId`、`assistantId`、`createdAt`、`updatedAt`、**`turnCount`**（`session.turns.length`）。
+响应：`sessions[]`，每项含 `sessionId`、`matterId`、`assistantId`、`createdAt`、`updatedAt`、**`turnCount`**（`session.turns.length`）、可选 **`lastPreview`**（末条 user/assistant 摘要，≤120 字）。
+
+**扩展（第十期）**：
+
+- **`GET /api/sessions/:id/context-budget`**：`{ ok, used, effectiveLimit, level }`，`level` 为 `ok` | `warn` | `compact`；Compose 模型行旁圆环用量与此一致。
+- **`POST /api/sessions/:id/compact`**：手动触发 `autoCompactSessionHistory`；响应含 `compacted`、`sessionSummaryPath`、`droppedMessageCount`、`messages`。可选 body `{ distill: true }`（圆环菜单「沉淀到知识库」）会提炼律师偏好建议与案件摘要写入记忆采纳队列。
+- **`POST /api/sessions/:id/messages/mutate`**：按桌面气泡下标修改历史。`{ uiIndex, mode: "truncate" | "delete_pair" }` — `truncate` 从该条起截断（原地改问后重发）；`delete_pair` 删除提问及其紧随回答（保留其后轮次）。响应含更新后的 `messages`。
+- **`POST /api/sessions/:id/abort`**：协作式停止进行中的对话轮（与 Compose「停止」配合；轮间检查，不强制中断单次模型 HTTP）。
+- **`POST /api/sessions/:id/resume`**：从 `sessions/<id>.transcript.jsonl` 修复链并写回 `conversationHistory`；响应含 `messages`（简版）与 `pendingApprovals` 计数。
 
 ### 38.3 `GET /api/drafts`
 

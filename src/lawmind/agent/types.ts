@@ -12,6 +12,9 @@
  *   但 tool 定义、policy 规则、system prompt 完全面向法律场景。
  */
 
+import type { ComposeContextPin } from "../platform/compose-context-pin.js";
+import type { GateDecision, TaskExecutionState } from "../platform/contracts.js";
+import type { LawMindRequiresAction } from "../platform/requires-action.js";
 import type { ClarificationQuestion, RiskLevel, MatterIndex } from "../types.js";
 
 // ─────────────────────────────────────────────
@@ -32,6 +35,9 @@ export type ToolDefinition = {
   parameters: Record<string, ToolParameterSchema>;
   requiresApproval?: boolean;
   riskLevel?: RiskLevel;
+  /** 可与同批只读工具并发执行 */
+  isConcurrencySafe?: boolean;
+  approvalTemplate?: "diff" | "readonly" | "acceptance" | "workflow" | "network" | "generic";
 };
 
 export type ToolCallResult = {
@@ -40,6 +46,12 @@ export type ToolCallResult = {
   error?: string;
   /** 该工具调用是否需要人工确认后才能生效 */
   pendingApproval?: boolean;
+  /** P2：是否在子进程沙箱中执行 */
+  sandboxed?: boolean;
+  /** 用户 Stop：与 timeout / ok 正交，不混用一个 error 字符串判断 */
+  aborted?: boolean;
+  /** 工具执行超时：与用户停止正交 */
+  timedOut?: boolean;
 };
 
 export type ToolExecutor = (
@@ -70,19 +82,63 @@ export type AgentContext = {
   projectDir?: string;
   /** 本轮是否允许调用 web_search 等联网工具 */
   allowWebSearch?: boolean;
+  /** 桌面 compose 权限模式（只读/严格/标准） */
+  permissionMode?: "standard" | "strict" | "readonly" | "research";
+  /**
+   * 桌面工作台当前关联的草稿/任务 ID（可选）。
+   * 工具在未显式传入 `task_id` 时可将此作为隐式默认（例如 `render_document` 优先于「最近草稿」）。
+   */
+  linkedTaskId?: string;
   /** 当前案件的索引快照（按需加载） */
   matterIndex?: MatterIndex;
   /** 是否启用助手间协作工具（delegate_task, consult_assistant 等） */
   collaborationEnabled?: boolean;
+  /** 与桌面 local server 一致，解析 assistants.json 所在 LawMind 根目录 */
+  envFile?: string;
   /** 当前委派嵌套深度（防止递归失控） */
   collaborationDepth?: number;
   /**
    * 本轮内已有工具返回 clarificationQuestions 且尚未结束 turn 时为 true；
-   * research_task / draft_document / execute_workflow / render_document 应拒绝执行。
+   * draft_document / execute_workflow / render_document 应拒绝执行。
+   * 只读 / research_task 仍允许，便于先收集事实再请律师澄清。
    */
   clarificationBlockingHeavyTools?: boolean;
   /** 与 `AgentConfig.strictDangerousToolApproval` 对齐，供工具层读取 */
   strictDangerousToolApproval?: boolean;
+  /** 长耗时工具（如 execute_workflow）向对话 SSE 推送子步骤 */
+  emitToolProgress?: (label: string) => void;
+  /** resumeTurn：下一笔同名工具调用自动视为已批准 */
+  preApproveToolName?: string;
+  /** Merged into the next call of `preApproveToolName` (lawyer-edited args). */
+  preApproveToolArgs?: Record<string, unknown>;
+  /**
+   * 模板级预批准（协作 executor 白名单过滤后的工具名列表，仅限待拍板类工具）。
+   * `apply_surgical_edits` / `prepare_outbound_mail` 仍须 `preApproveToolArgs`
+   * 与本次动作哈希一致（hunks 或 to+附件）。
+   */
+  preApproveToolNames?: string[];
+  /** Desktop compose `@` pins for this turn (structured truth sources). */
+  contextPins?: ComposeContextPin[];
+  /**
+   * This turn is existing-Word tracked revision (file page or dialog).
+   * Tools must not emit opinion memos or template rebuilds.
+   */
+  wordRevisionTurn?: boolean;
+  /** Turn-resolved tool allowlist (role ∩ parent inherit ∩ playbook). */
+  allowedToolNames?: string[];
+  /** Short-path pin: prepare_outbound_mail `to` must match when set. */
+  outboundPinnedTo?: string;
+  /** Whether high-risk tools must run in the subprocess sandbox this turn. */
+  toolSandboxEnabled?: boolean;
+  /**
+   * Per-tool-call cancellation signal set by the tool-pipeline timeout middleware.
+   * Tools that perform long-running work (fetch, model calls, subprocesses) SHOULD
+   * read `ctx.abortSignal` and pass it through (e.g. `fetch(url, { signal })`) so the
+   * pipeline can cancel the underlying work when the per-call timeout fires — instead
+   * of letting it run to completion after the caller already received a timeout error.
+   * Optional: tools that ignore it simply keep the historical behavior.
+   */
+  abortSignal?: AbortSignal;
 };
 
 // ─────────────────────────────────────────────
@@ -109,6 +165,21 @@ export type AgentMessage = {
   toolCalls?: ToolCall[];
   toolCallResponses?: ToolCallResponse[];
   timestamp: string;
+  /** 持久化的执行轨迹（assistant 消息，供桌面 reload 后展示） */
+  liveTrace?: PersistedChatLiveTrace;
+  executionState?: TaskExecutionState;
+};
+
+/** 已完成 turn 的执行轨迹快照（不含 active 字段） */
+export type PersistedChatLiveTrace = {
+  currentRound?: number;
+  steps: Array<{
+    id: string;
+    kind: "round" | "tool" | "workflow";
+    label: string;
+    status: "running" | "done" | "failed";
+    detail?: string;
+  }>;
 };
 
 // ─────────────────────────────────────────────
@@ -120,6 +191,7 @@ export type AgentTurnStatus =
   | "completed"
   | "awaiting_approval"
   | "awaiting_clarification"
+  | "paused"
   | "error";
 
 export type AgentTurn = {
@@ -128,10 +200,30 @@ export type AgentTurn = {
   instruction: string;
   messages: AgentMessage[];
   toolCallsExecuted: number;
+  /** Per-tool call counts within this turn (for discovery-loop guards). */
+  toolNameCallCounts?: Record<string, number>;
   status: AgentTurnStatus;
   clarificationQuestions?: ClarificationQuestion[];
+  /** Big-Bang: 执行状态机快照（供 API/UI 统一消费） */
+  executionState?: TaskExecutionState;
+  /** Big-Bang: 本轮门禁判定轨迹 */
+  gateDecisions?: GateDecision[];
+  /** 律师待处理动作（澄清、工具批准等） */
+  requiresAction?: LawMindRequiresAction[];
+  /** 中断时待批准的工具调用（用于 resume） */
+  pendingToolApproval?: {
+    toolName: string;
+    toolCallId: string;
+    toolArgs: Record<string, unknown>;
+  };
   result?: string;
   error?: string;
+  /** Provider token usage for this turn (when reported). */
+  modelUsage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
   startedAt: string;
   completedAt?: string;
 };
@@ -158,6 +250,41 @@ export type AgentSession = {
    * 以便同一轮内可继续调用重型工具。
    */
   pendingClarificationKeys?: string[];
+  /** 当前会话待 resume 的动作（与最后一轮 awaiting_* turn 对齐） */
+  pendingRequiresAction?: LawMindRequiresAction[];
+  /** 本轮/本会话已注入 prompt 的记忆文件路径（findRelevantMemories 去重） */
+  alreadySurfacedMemoryPaths?: string[];
+  /** 协作委派子会话：写入独立 transcript（`delegations/<id>.transcript.jsonl`） */
+  collaborationDelegationId?: string;
+  /** 上次自动写入 session-summary 时的 turn 数（用于节流） */
+  lastSessionSummaryTurnCount?: number;
+  /**
+   * Set when auto-compact drops history; next prepareTurnPromptContext reinjects
+   * RULES / deliverable / Craft reminder, then clears the flag.
+   */
+  needsCompactReinjection?: boolean;
+  /**
+   * Tools disclosed this session via `list_more_tools`. OpenAI tools may grow;
+   * the static system-prompt prefix stays the core catalog.
+   */
+  disclosedToolNames?: string[];
+  /**
+   * Plan→Execute 交接（「先计划」产出）：写入 session.json，便于刷新 / 跨端同工作区恢复。
+   * 桌面仍可镜像到 localStorage 作离线缓存。
+   */
+  planHandoff?: {
+    planText: string;
+    updatedAt: string;
+  };
+  /**
+   * Hashes of named world-state sections in the system message.
+   * Unchanged sections are byte-stabilized instead of rewritten.
+   */
+  worldStateBaseline?: Partial<
+    Record<"policy" | "craft" | "deliverable" | "pins" | "permission" | "matter", string>
+  >;
+  /** Bumped when a world-state section is patched (pins, compact craft, …). */
+  worldStateEpoch?: number;
 };
 
 // ─────────────────────────────────────────────
@@ -173,11 +300,28 @@ export type AgentModelConfig = {
   temperature?: number;
   timeoutMs?: number;
   maxRetries?: number;
+  /** Catalog / custom context window; drives compact budget when set. */
+  contextTokens?: number;
+  /** Optional OpenAI-compatible stop sequences (custom profiles). */
+  stop?: string[];
+};
+
+/** Non-secret model identity for system prompt (lawyer may ask「你是什么模型」). */
+export type AgentRuntimeModelIdentity = {
+  /** Label shown in desktop model picker / settings. */
+  catalogLabel: string;
+  /** Human-readable provider name (no API keys). */
+  providerLabel: string;
+  /** Upstream model id sent to chat/completions. */
+  upstreamModel: string;
+  catalogId?: string;
 };
 
 export type AgentConfig = {
   workspaceDir: string;
   model: AgentModelConfig;
+  /** Resolved model identity for honest「你是什么模型」answers (no secrets). */
+  runtimeModel?: AgentRuntimeModelIdentity;
   /** 最大单次 turn 的工具调用次数 */
   maxToolCalls?: number;
   /** 最大对话历史消息数（超过时压缩） */
@@ -191,6 +335,14 @@ export type AgentConfig = {
    * 即使 `allowDangerousToolsWithoutApproval` 为 true。
    */
   strictDangerousToolApproval?: boolean;
+  /**
+   * C3：Solo / policy 允许时，对沙箱内 `execute_workflow` 预填 `__approved`（永不自动批 render）。
+   */
+  autoApproveSandboxWorkflowSteps?: boolean;
+  /**
+   * E7：可选「快模型」——工具轮优先使用；缺省回退 `model`。
+   */
+  workerModel?: AgentModelConfig;
   actorId?: string;
   /** 多助手：助手档案 ID，与 actorId `assistant:<id>` 对应 */
   assistantId?: string;
@@ -202,8 +354,18 @@ export type AgentConfig = {
   roleDirective?: string;
   /** 是否注册并允许使用联网检索工具（web_search，Brave API） */
   allowWebSearch?: boolean;
+  /** 桌面 compose 权限模式 */
+  permissionMode?: "standard" | "strict" | "readonly" | "research";
+  /** Parent-inherited tool allowlist cap (intersected with role/preset). */
+  allowedToolNames?: string[];
+  /** Force subprocess sandbox on for this agent (child inherit). */
+  toolSandboxEnabled?: boolean;
   /** 是否注册助手间协作工具（delegate_task, consult_assistant 等） */
   enableCollaboration?: boolean;
+  /** 当前委派嵌套深度（子 agent 工具注册用） */
+  collaborationDepth?: number;
+  /** 与桌面 local server 一致，用于解析 assistants.json 所在 LawMind 根目录 */
+  envFile?: string;
   /**
    * 可选：当前会话关联的「项目目录」（本机路径），与 Electron 侧 projectDir 对齐。
    * 供工具检索项目内文本文件；不设则仅搜索 LawMind workspace 记忆文件。
