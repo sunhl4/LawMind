@@ -81,6 +81,28 @@ export function buildReasoningGraphCoverage(workspaceDir: string): ReasoningGrap
   };
 }
 
+/** Phase-13 Doctor: judgment vs safety hard-control inventory (read-only). */
+export type JudgmentHardControlsReport = {
+  intakeSoftAsk: boolean;
+  updateDraftAmplitudeSoft: boolean;
+  emptyRedlineHard: boolean;
+  sendEmailApprovalHard: boolean;
+};
+
+export function buildJudgmentHardControlsReport(
+  env: NodeJS.ProcessEnv = process.env,
+): JudgmentHardControlsReport {
+  const enforceAmplitude =
+    env.LAWMIND_SURGICAL_ENFORCE?.trim() === "1" ||
+    env.LAWMIND_SURGICAL_ENFORCE?.trim()?.toLowerCase() === "true";
+  return {
+    intakeSoftAsk: true,
+    updateDraftAmplitudeSoft: !enforceAmplitude,
+    emptyRedlineHard: true,
+    sendEmailApprovalHard: true,
+  };
+}
+
 export type LawMindDoctorStats = {
   auditJsonlFileCount: number;
   researchSnapshotCount: number;

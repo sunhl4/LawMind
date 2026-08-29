@@ -90,10 +90,14 @@ export type LawmindMainBodyContentProps = {
   onClearNeedsDecisionFocus?: () => void;
   agentsDeskFocusTarget?: import("../lawmind-agents-desk").NeedsDecisionDeskTarget | null;
   onAgentsDeskFocusTargetConsumed?: () => void;
+  agentsWorkflowFocus?: import("../lawmind-agents-desk").AgentsWorkflowFocusTarget | null;
+  onAgentsWorkflowFocusConsumed?: () => void;
   modelCatalog: ModelCatalogEntry[];
   selectedModelId: string;
   onModelSelect: (id: string) => void;
   onOpenComposeSettings: () => void;
+  onOpenSettings?: () => void;
+  onOpenDoctor?: () => void;
   /** Open Settings → memory (compose context usage “注入记忆”). */
   onOpenMemoryInspector?: () => void;
   onOpenApiWizard: () => void;
@@ -169,7 +173,7 @@ export type LawmindMainBodyContentProps = {
     target?: import("../lawmind-agents-desk").NeedsDecisionDeskTarget,
   ) => void;
   onOpenReviewFromAutomation?: (taskId: string, matterId?: string) => void;
-  onOpenAgentsWorkflows?: (matterId?: string) => void;
+  onOpenAgentsWorkflows?: (matterId?: string, jobId?: string) => void;
   composeExtras: LawmindComposeExtras;
   onCreateMatter?: () => void;
   showEmptyMatterGuide?: boolean;

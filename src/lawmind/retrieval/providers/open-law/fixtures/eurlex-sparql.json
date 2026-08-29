@@ -1,0 +1,22 @@
+{
+  "head": { "vars": ["work", "title", "celex"] },
+  "results": {
+    "bindings": [
+      {
+        "work": {
+          "type": "uri",
+          "value": "http://publications.europa.eu/resource/cellar/cebd9058-0b3d-11e6-ba9a-01aa75ed71a1"
+        },
+        "title": {
+          "type": "literal",
+          "xml:lang": "eng",
+          "value": "Regulation (EU) 2016/679 of the European Parliament and of the Council (General Data Protection Regulation)"
+        },
+        "celex": {
+          "type": "literal",
+          "value": "32016R0679"
+        }
+      }
+    ]
+  }
+}

@@ -2,14 +2,19 @@ import fs from "node:fs";
 import path from "node:path";
 
 const REQUIRED_SYMBOLS = [
+  "TaskExecutionState",
   "ExecutionState",
-  "RequiresAction",
   "GateDecision",
   "GateDecisionKind",
-  "PlatformGateSnapshot",
+  "GateCategory",
 ];
 
-const REQUIRED_HEALTH_DOCTOR_FIELDS = ["matterConsistency", "rateLimit", "skipApiAuthWarn"];
+const REQUIRED_HEALTH_DOCTOR_FIELDS = [
+  "matterConsistency",
+  "rateLimit",
+  "skipApiAuthWarn",
+  "judgmentHardControls",
+];
 
 function main(): void {
   const repoRoot = process.cwd();

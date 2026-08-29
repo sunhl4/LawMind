@@ -13,6 +13,8 @@ import {
   RESEARCH_WRITE_BYPASS_REFUSAL,
   shouldRefuseResearchWriteBypass,
 } from "../../../research/research-write-bypass-gate.js";
+import { isProtectedAnalysisScriptRel } from "../../../runtime/analysis-script-path.js";
+import { resolveLawyerLocalFile } from "../../../runtime/lawyer-local-file.js";
 import { resolveWorkspaceRelativePath } from "../../../runtime/workspace-path.js";
 import type { AgentTool } from "../../types.js";
 import {
@@ -40,10 +42,14 @@ export const analyzeDocument: AgentTool = {
   definition: {
     name: "analyze_document",
     description:
-      "读取工作区内的指定文件（路径相对工作区根），返回内容供后续分析。支持 Markdown/txt、PDF（文本层→OCR→可选视觉）、.docx、二进制 .doc（直接提取正文，无需转换）、.xlsx（表格转 TSV，有界）、常见图片 OCR；不支持 .xls/.ppt 与 .pptx。大文件请用 offset/limit（字符）分页续读；若 hasMore=true，用 nextOffset 再调一次。",
+      "读取律师本机文件并返回正文。路径可以是工作区相对路径，也可以是项目目录相对路径（文件页钉选的 Word 通常在项目根）。支持 Markdown/txt、PDF、.docx、二进制 .doc、.xlsx、常见图片 OCR。大文件请用 offset/limit 分页；hasMore=true 时用 nextOffset 续读。",
     category: "analyze",
     parameters: {
-      file_path: { type: "string", description: "相对于工作区的文件路径", required: true },
+      file_path: {
+        type: "string",
+        description: "相对工作区或项目根的路径，或文件名（将在工作区/项目内定位）",
+        required: true,
+      },
       offset: {
         type: "number",
         description: "从提取文本的第几个字符开始（默认 0）。用于分页续读长合同。",
@@ -56,13 +62,33 @@ export const analyzeDocument: AgentTool = {
   },
   async execute(params, ctx) {
     const claimed = typeof params.file_path === "string" ? params.file_path : "";
-    const resolved = resolveWorkspaceRelativePath(ctx.workspaceDir, claimed);
-    if (!resolved.ok) {
+    const located = resolveLawyerLocalFile({
+      workspaceDir: ctx.workspaceDir,
+      projectDir: ctx.projectDir,
+      raw: claimed,
+      pins: ctx.contextPins,
+    });
+    if (!located) {
+      const wsPath = resolveWorkspaceRelativePath(ctx.workspaceDir, claimed);
+      const projPath = ctx.projectDir?.trim()
+        ? resolveWorkspaceRelativePath(ctx.projectDir.trim(), claimed)
+        : undefined;
+      const escaped =
+        !wsPath.ok &&
+        wsPath.error === "escape" &&
+        (projPath == null || (!projPath.ok && projPath.error === "escape"));
       return toolFailureFromIngest(
-        ingestFailure("INGEST_INVALID_PATH", "path_validation", "不允许读取工作区外的文件。"),
+        ingestFailure(
+          escaped ? "INGEST_INVALID_PATH" : "INGEST_NOT_FOUND",
+          "path_validation",
+          escaped
+            ? "不允许读取工作区外的文件。"
+            : `找不到文件：${claimed || "（空路径）"}。已查工作区与项目目录。请确认桌面已选择项目文件夹；项目内 Word 也可用 read_project_file（相对项目根）。`,
+        ),
       );
     }
-    const filePath = resolved.abs;
+    const filePath = located.abs;
+    const canonicalRel = located.rel;
     const toAnalyzeSuccess = (
       sourceType: IngestSourceType,
       content: string,
@@ -71,10 +97,18 @@ export const analyzeDocument: AgentTool = {
     ) => {
       const page = sliceDocumentPage(content, params.offset, params.limit);
       const result = ingestSuccess(sourceType, page.content, page.hasMore, bytes, stage);
+      const locateHint =
+        located.root === "project"
+          ? `已定位到项目文件 \`${canonicalRel}\`，请将此路径作为 contract_edit_baseline_path。`
+          : claimed !== canonicalRel
+            ? `已定位到工作区文件 \`${canonicalRel}\`。`
+            : undefined;
       return toolDataFromIngestSuccess(
         result,
         {
-          filePath: params.file_path,
+          filePath: canonicalRel,
+          fileRoot: located.root,
+          requestedPath: claimed !== canonicalRel ? claimed : undefined,
           totalChars: page.totalChars,
           offset: page.offset,
           limit: page.limit,
@@ -82,7 +116,7 @@ export const analyzeDocument: AgentTool = {
           nextOffset: page.nextOffset,
           hint: page.hasMore
             ? `文本未读完：请再用 analyze_document(file_path, offset=${page.nextOffset}) 续读。`
-            : undefined,
+            : locateHint,
         },
         { contentTrust: "untrusted_user_document" },
       );
@@ -93,7 +127,7 @@ export const analyzeDocument: AgentTool = {
         ingestFailure(
           "INGEST_NOT_FOUND",
           "file_stat",
-          `文件不存在或为空：${String(params.file_path)}`,
+          `找不到文件：${claimed || "（空路径）"}。已查工作区与项目目录。`,
         ),
       );
     }
@@ -301,6 +335,12 @@ export const writeDocument: AgentTool = {
     }
     const filePath = resolved.abs;
     const rel = resolved.rel;
+    if (isProtectedAnalysisScriptRel(rel)) {
+      return {
+        ok: false,
+        error: "不能用写文书投放分析脚本。脚本须放在已签名技能或律师确认的分析脚本目录。",
+      };
+    }
     const bypass = shouldRefuseResearchWriteBypass({
       workspaceDir: ctx.workspaceDir,
       filePath: rel,

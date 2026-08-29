@@ -69,7 +69,7 @@ export function buildTurnReplyFallback(turn: AgentTurn): string {
             continue;
           }
           if (typeof rec.taskId === "string" && rec.taskId.trim()) {
-            lines.push(`草稿任务 ID：${rec.taskId.trim()}（可在文书台打开）`);
+            lines.push(`草稿任务 ID：${rec.taskId.trim()}（可在改稿页打开）`);
             continue;
           }
         }
@@ -86,13 +86,13 @@ export function buildTurnReplyFallback(turn: AgentTurn): string {
       ...lines.slice(-8),
       turn.status === "awaiting_approval"
         ? "\n有步骤等待您确认；请打开待我拍板或通过对话继续。"
-        : "\n如需 Word，请在文书台对已通过草稿点击「渲染交付物」或「仍要导出 Word」。",
+        : "\n如需 Word，请到「在办」签批通过后，在改稿页点击「渲染交付物」或「仍要导出 Word」。",
     ].join("\n");
   }
   if (turn.status === "awaiting_approval") {
-    return "有操作等待您的确认。请查看工具结果，或在文书台继续签批与导出。";
+    return "有操作等待您的确认。请查看工具结果，或到「在办」签批、到改稿页导出。";
   }
-  return "本轮未生成文字说明。若您要求完善并导出 Word，请到文书台打开对应草稿：已通过签批的可点「仍要导出 Word」；或在对话中说明 task_id 让我调用 render_document。";
+  return "本轮未生成文字说明。若您要求完善并导出 Word，请到改稿页打开对应草稿：已在「在办」签批通过的可点「仍要导出 Word」；或在对话中说明 task_id 让我调用 render_document。";
 }
 
 export type RunTurnEvent =
@@ -115,6 +115,10 @@ export type RunTurnEvent =
       authorityGap?: boolean;
       /** Open sample / demo CORPUS hits — UI should show 演示语料 watermark. */
       demoCorpus?: boolean;
+      /** Structured recovery CTAs from research/evidence gates. */
+      nextActions?: string[];
+      /** Lawyer-facing one-line result (Chinese card); optional. */
+      resultPreview?: string;
     }
   | {
       type: "tool_progress";
@@ -140,9 +144,20 @@ export type RunTurnEvent =
       level: "ok" | "warn" | "compact";
     }
   | {
+      type: "tool_budget";
+      used: number;
+      maxToolCalls: number;
+      level: "ok" | "warn";
+    }
+  | {
       type: "compact_boundary";
       sessionSummaryPath?: string;
       droppedMessageCount?: number;
+    }
+  | {
+      type: "overflow_prune";
+      prunedCount: number;
+      charsRemoved: number;
     }
   | {
       type: "requires_action";

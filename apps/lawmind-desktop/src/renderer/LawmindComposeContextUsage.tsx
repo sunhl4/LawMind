@@ -152,7 +152,7 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
       <button
         type="button"
         className={`lm-compose-ctx-usage-trigger lm-compose-ctx-usage-trigger--${tone}`}
-        aria-label={`上下文约 ${budget.used} / ${budget.effectiveLimit} 字，打开用量与整理`}
+        aria-label={`上下文约 ${budget.used} / ${budget.effectiveLimit} 额度，打开用量与整理`}
         aria-expanded={open}
         aria-haspopup="dialog"
         title="上下文用量 · 点击整理或沉淀"
@@ -192,7 +192,7 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
             <h3 id={titleId}>上下文用量</h3>
             <p className="lm-meta">
               约 {budget.used.toLocaleString("zh-CN")} / {budget.effectiveLimit.toLocaleString("zh-CN")}{" "}
-              字（{Math.round(pct)}%）
+              额度（{Math.round(pct)}%）
               {tone === "warn" ? " · 接近上限" : tone === "danger" ? " · 建议压缩" : ""}
             </p>
             {compactHint ? (
@@ -213,10 +213,10 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
             <div className="lm-compose-ctx-usage-confirm" data-testid="lm-compose-compact-confirm">
               <p className="lm-meta">
                 {confirm.preview?.compacted
-                  ? `预计移除约 ${confirm.preview.droppedMessageCount} 条消息（~${confirm.preview.estimatedDroppedTokens.toLocaleString("zh-CN")} 字）${
+                  ? `预计移除约 ${confirm.preview.droppedMessageCount} 条消息（约 ${confirm.preview.estimatedDroppedTokens.toLocaleString("zh-CN")} 额度）${
                       confirm.preview.useLlmDigestAvailable
-                        ? "；将尝试 LLM 连贯摘要（失败则回退提取式）"
-                        : "；使用提取式要点"
+                        ? "；将尝试智能连贯摘要（失败则回退要点提取）"
+                        : "；使用要点提取"
                     }。`
                   : confirm.kind === "distill"
                     ? "当前无需压缩；仍可从现有对话沉淀偏好/案件要点到记忆检查。"
@@ -258,7 +258,7 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
                   <span className="lm-compose-ctx-usage-action-title">
                     {compactBusy || previewBusy ? "整理中…" : "整理上下文"}
                   </span>
-                  <span className="lm-meta">压缩过长对话，保留近期轮次与案件摘要</span>
+                  <span className="lm-meta">压缩对话</span>
                 </button>
               </li>
               <li>
@@ -269,8 +269,8 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
                   disabled={compactBusy || previewBusy || disabled}
                   onClick={() => void beginAction("distill")}
                 >
-                  <span className="lm-compose-ctx-usage-action-title">沉淀到知识库</span>
-                  <span className="lm-meta">压缩并提炼偏好/案件要点，供记忆检查采纳</span>
+                  <span className="lm-compose-ctx-usage-action-title">整理并沉淀</span>
+                  <span className="lm-meta">压缩并沉淀</span>
                 </button>
               </li>
               {onOpenMemory ? (
@@ -286,7 +286,7 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
                     }}
                   >
                     <span className="lm-compose-ctx-usage-action-title">注入记忆给助手</span>
-                    <span className="lm-meta">打开记忆检查，将建议写入律师或助手档案</span>
+                    <span className="lm-meta">写入记忆</span>
                   </button>
                 </li>
               ) : null}

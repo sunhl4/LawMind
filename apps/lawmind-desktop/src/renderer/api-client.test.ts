@@ -1,5 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { apiGetJson, apiSendJson, messageFromOkFalseBody, userMessageFromApiError } from "./api-client.js";
+import { getLoopbackApiAuthToken, setLoopbackApiAuthToken } from "./lawmind-api-auth.ts";
+
+function fetchCallUrl(input: unknown): string {
+  if (typeof input === "string") {
+    return input;
+  }
+  if (input instanceof URL) {
+    return input.href;
+  }
+  if (input && typeof input === "object" && "url" in input && typeof input.url === "string") {
+    return input.url;
+  }
+  return "";
+}
 
 describe("api-client", () => {
   afterEach(() => {
@@ -89,6 +103,73 @@ describe("api-client", () => {
       name: "ApiRequestError",
       status: 502,
     });
+  });
+
+  it("apiGetJson retries once after loopback 401 with fresh Electron token", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: false, error: "unauthorized", code: "invalid_api_token" }), {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true, value: 7 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("window", {
+      lawmindDesktop: {
+        getConfig: async () => ({
+          apiBase: "http://127.0.0.1:59999",
+          apiAuthToken: "fresh-token",
+          workspaceDir: "/tmp/ws",
+          projectDir: null,
+          envFilePath: "",
+          retrievalMode: "single",
+        }),
+      },
+      dispatchEvent: () => true,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      localStorage: {
+        setItem: () => undefined,
+        removeItem: () => undefined,
+        getItem: () => null,
+      },
+    });
+
+    await expect(apiGetJson<{ ok: boolean; value: number }>("http://127.0.0.1:1234", "/api/test")).resolves.toEqual({
+      ok: true,
+      value: 7,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchCallUrl(fetchMock.mock.calls[1]?.[0])).toContain("http://127.0.0.1:59999/api/test");
+    vi.unstubAllGlobals();
+  });
+
+  it("apiGetJson does not wipe the bearer or retry when Electron config is unavailable", async () => {
+    setLoopbackApiAuthToken("keep-me");
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: false, error: "unauthorized", code: "invalid_api_token" }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("window", {
+      dispatchEvent: () => true,
+      localStorage: { setItem: () => undefined, removeItem: () => undefined, getItem: () => null },
+    });
+
+    await expect(apiGetJson("http://127.0.0.1:1234", "/api/test")).rejects.toMatchObject({
+      status: 401,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(getLoopbackApiAuthToken()).toBe("keep-me");
+    setLoopbackApiAuthToken(null);
+    vi.unstubAllGlobals();
   });
 
   it("apiSendJson throws ApiRequestError with parsed body", async () => {

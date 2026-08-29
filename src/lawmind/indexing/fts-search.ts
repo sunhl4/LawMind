@@ -199,6 +199,27 @@ export function searchWorkspaceIndex(
   return { ok: true, query: q, hits };
 }
 
+/** 索引新鲜度阈值：lastRebuildAt 早于此毫秒数即视为过期。 */
+export const SEARCH_INDEX_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
+
+/** 由 getSearchIndexStatus 结果推导新鲜度（Doctor 提醒与自动重建共用口径）。 */
+export function computeSearchIndexFreshness(
+  status: { ready: boolean; lastRebuildAt?: string },
+  now: number = Date.now(),
+): { stale: boolean; staleReason?: string } {
+  if (!status.ready) {
+    return { stale: true, staleReason: "index_missing" };
+  }
+  const t = status.lastRebuildAt ? Date.parse(status.lastRebuildAt) : Number.NaN;
+  if (!Number.isFinite(t)) {
+    return { stale: true, staleReason: "last_rebuild_unknown" };
+  }
+  if (now - t > SEARCH_INDEX_STALE_AFTER_MS) {
+    return { stale: true, staleReason: "older_than_24h" };
+  }
+  return { stale: false };
+}
+
 export function getSearchIndexStatus(workspaceDir: string): {
   ready: boolean;
   schemaVersion?: number;

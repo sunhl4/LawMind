@@ -72,10 +72,27 @@ describe("turn-orchestrator-shortcuts", () => {
     expect(result).toBeNull();
   });
 
-  it("tryIntakeClarificationShortcut finalizes awaiting_clarification when gated", () => {
+  it("tryIntakeClarificationShortcut does not freeze soft-ask drafts (rental)", () => {
     const session = baseSession();
     const turn = baseTurn();
     const instruction = "请起草一份租赁合同";
+    expect(wouldIntakeClarify(instruction).length).toBe(0);
+    const result = tryIntakeClarificationShortcut({
+      instruction,
+      session,
+      turn,
+      shared: sharedStub(session, turn),
+      actorId: "system",
+      resolvedAssistantId: "default",
+      modelName: "m",
+    });
+    expect(result).toBeNull();
+  });
+
+  it("tryIntakeClarificationShortcut hard-gates demand letter without materials", () => {
+    const session = baseSession();
+    const turn = baseTurn();
+    const instruction = "请写一份律师函催款";
     expect(wouldIntakeClarify(instruction).length).toBeGreaterThan(0);
     const result = tryIntakeClarificationShortcut({
       instruction,

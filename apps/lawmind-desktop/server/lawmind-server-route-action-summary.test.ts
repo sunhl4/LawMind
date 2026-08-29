@@ -3,6 +3,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import http from "node:http";
 import { requestApproval } from "../../../src/lawmind/application/services/approval-service.js";
+import { openQueueItem } from "../../../src/lawmind/application/services/queue-write-service.js";
+import { saveAutomationInboxItem } from "../../../src/lawmind/platform/lawyer-automations.js";
 import { handleActionSummaryRoutes } from "./lawmind-server-route-action-summary.js";
 import type { LawmindDispatchContext } from "./lawmind-server-route-types.js";
 
@@ -87,13 +89,113 @@ describe("lawmind-server-route-action-summary", () => {
     expect(res.body).toMatchObject({
       ok: true,
       total: expect.any(Number),
-      requiresDecisionTotal: 1,
+      requiresDecisionTotal: 0,
       pendingReviewCount: 1,
       pendingReviewDrafts: [
         expect.objectContaining({ taskId: "task-review", title: "待审意见书" }),
       ],
       chatRequiresActions: expect.any(Array),
     });
+  });
+
+  it("requiresDecisionTotal matches fleet queue merge semantics (lawyer queue kinds + inbox dedupe)", async () => {
+    // 待审文书（与 inbox 同 taskId 的那条应被去重）。
+    await fs.mkdir(path.join(workspaceDir, "drafts"), { recursive: true });
+    await fs.writeFile(
+      path.join(workspaceDir, "drafts", "task-dup.json"),
+      JSON.stringify({
+        taskId: "task-dup",
+        title: "待审合同",
+        output: "docx",
+        templateId: "general",
+        summary: "",
+        sections: [],
+        reviewNotes: [],
+        reviewStatus: "pending",
+        createdAt: new Date().toISOString(),
+      }),
+    );
+    // 律师拍板类队列项（计入）+ 助手侧队列项（不计入）。
+    openQueueItem(workspaceDir, {
+      matterId: "m1",
+      kind: "need_lawyer_review",
+      title: "待签批",
+      relatedTaskId: "task-dup",
+    });
+    openQueueItem(workspaceDir, {
+      matterId: "m1",
+      kind: "ready_to_draft",
+      title: "助手待起草",
+    });
+    // 同 draftTaskId 的交办 inbox（去重）+ 待发信 inbox（独立保留）。
+    saveAutomationInboxItem(workspaceDir, {
+      id: "inb-dup",
+      automationId: "auto-1",
+      matterId: "m1",
+      title: "交办结果",
+      summary: "完成",
+      status: "open",
+      draftTaskId: "task-dup",
+      createdAt: new Date().toISOString(),
+    });
+    saveAutomationInboxItem(workspaceDir, {
+      id: "inb-send",
+      automationId: "auto-1",
+      matterId: "m1",
+      title: "待发信",
+      summary: "完成",
+      status: "open",
+      pendingSend: { to: "client@x.com", subject: "审阅稿", body: "请查收" },
+      createdAt: new Date().toISOString(),
+    });
+
+    const res = mockRes();
+    const handled = await handleActionSummaryRoutes({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res,
+      url: new URL("http://127.0.0.1/api/action-summary"),
+      pathname: "/api/action-summary",
+      c: {},
+    });
+    expect(handled).toBe(true);
+    expect(res.status).toBe(200);
+    // 仅待发信计入待拍板；内部审稿 / 交办结果 / 队列审稿不计。
+    expect((res.body as { requiresDecisionTotal?: number }).requiresDecisionTotal).toBe(1);
+  });
+
+  it("does not truncate automationInbox below the badge count (在办 list source)", async () => {
+    const created = new Date().toISOString();
+    for (let i = 0; i < 35; i += 1) {
+      saveAutomationInboxItem(workspaceDir, {
+        id: `inb-full-${i}`,
+        automationId: "auto-1",
+        matterId: "m1",
+        title: `交办结果 ${i}`,
+        summary: "完成",
+        status: "open",
+        createdAt: created,
+      });
+    }
+    const res = mockRes();
+    const handled = await handleActionSummaryRoutes({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res,
+      url: new URL("http://127.0.0.1/api/action-summary"),
+      pathname: "/api/action-summary",
+      c: {},
+    });
+    expect(handled).toBe(true);
+    expect(res.status).toBe(200);
+    const body = res.body as {
+      requiresDecisionTotal?: number;
+      pendingAutomationCount?: number;
+      automationInbox?: unknown[];
+    };
+    expect(body.pendingAutomationCount).toBe(35);
+    expect(body.automationInbox).toHaveLength(35);
+    expect(body.requiresDecisionTotal).toBe(0);
   });
 
   it("GET /api/action-summary rejects invalid matterId", async () => {

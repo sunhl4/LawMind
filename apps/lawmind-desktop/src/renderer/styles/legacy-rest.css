@@ -521,6 +521,17 @@
   flex-direction: column;
   gap: var(--space-2);
 }
+.lm-collab-recent-row--focus {
+  outline: 2px solid var(--lm-accent, #2f6fed);
+  outline-offset: 1px;
+  background: color-mix(in srgb, var(--lm-accent, #2f6fed) 8%, transparent);
+}
+
+.lm-collab-recent-row--focus {
+  outline: 2px solid var(--lm-accent, #2f6fed);
+  outline-offset: 1px;
+  background: color-mix(in srgb, var(--lm-accent, #2f6fed) 8%, transparent);
+}
 .lm-collab-recent-row {
   padding: var(--space-2) var(--space-3);
   background: var(--surface-2);
@@ -750,9 +761,9 @@
   border-color: var(--accent-border);
 }
 .lm-context-chip--memory.lm-context-chip--engine {
-  color: #a5b4fc;
-  border-color: rgba(129, 140, 248, 0.45);
-  background: rgba(99, 102, 241, 0.1);
+  color: var(--info);
+  border-color: var(--info-border);
+  background: var(--info-dim);
 }
 .lm-context-chip--tool {
   display: inline-flex;
@@ -843,9 +854,9 @@
   background: rgba(255, 255, 255, 0.04);
 }
 .lm-badge-soft--engine {
-  color: #a5b4fc;
-  border-color: rgba(129, 140, 248, 0.4);
-  background: rgba(99, 102, 241, 0.12);
+  color: var(--info);
+  border-color: var(--info-border);
+  background: var(--info-dim);
 }
 .lm-context-panel-chevron--open {
   transform: rotate(90deg);
@@ -897,8 +908,8 @@
   font-size: 13px;
 }
 .lm-context-table tbody tr.lm-context-tr--engine {
-  background: rgba(99, 102, 241, 0.08);
-  outline: 1px solid rgba(129, 140, 248, 0.25);
+  background: var(--info-dim);
+  outline: 1px solid var(--info-border);
   outline-offset: -1px;
 }
 .lm-context-cell-label {
@@ -912,7 +923,7 @@
   color: var(--text-2);
 }
 .lm-pill--ok {
-  color: #7dffb3;
+  color: var(--success);
   background: rgba(34, 197, 94, 0.12);
   border: 1px solid rgba(34, 197, 94, 0.35);
 }
@@ -922,9 +933,9 @@
   border: 1px solid var(--accent-border);
 }
 .lm-pill--engine {
-  color: #a5b4fc;
-  background: rgba(99, 102, 241, 0.12);
-  border: 1px solid rgba(129, 140, 248, 0.45);
+  color: var(--info);
+  background: var(--info-dim);
+  border: 1px solid var(--info-border);
 }
 .lm-pill--muted {
   color: var(--muted);
@@ -1377,7 +1388,7 @@
 .lm-edition-spec-badge.lm-edition-spec-workspace {
   background:
     linear-gradient(180deg, rgba(120, 170, 255, 0.18), rgba(120, 170, 255, 0.04));
-  color: #cfe0ff;
+  color: var(--info);
   border: 1px solid rgba(120, 170, 255, 0.45);
 }
 .lm-edition-spec-badge.lm-edition-spec-builtin {

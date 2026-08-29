@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import { apiPatch } from "./lawmind-api-routes.ts";
+import { LawmindSettingsMcp } from "./LawmindSettingsMcp";
 
 type ToolRow = {
   name: string;
@@ -24,6 +25,7 @@ export function LawmindSettingsTools(props: Props): ReactNode {
   const [tools, setTools] = useState<ToolRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [highSecurityMode, setHighSecurityMode] = useState(false);
+  const [allowAnalysisScripts, setAllowAnalysisScripts] = useState(false);
   const [policyBusy, setPolicyBusy] = useState(false);
   const [allowlistHint, setAllowlistHint] = useState<string | null>(null);
 
@@ -34,8 +36,14 @@ export function LawmindSettingsTools(props: Props): ReactNode {
     void apiGetJson<{ ok?: boolean; tools?: ToolRow[] }>(apiBase, "/api/tools/registry")
       .then((r) => setTools(r.tools ?? []))
       .catch((e) => setError(errorMessage(e, "无法加载工具列表")));
-    void apiGetJson<{ ok?: boolean; highSecurityMode?: boolean }>(apiBase, "/api/policy/workspace")
-      .then((r) => setHighSecurityMode(r.highSecurityMode === true))
+    void apiGetJson<{ ok?: boolean; highSecurityMode?: boolean; allowAnalysisScripts?: boolean }>(
+      apiBase,
+      "/api/policy/workspace",
+    )
+      .then((r) => {
+        setHighSecurityMode(r.highSecurityMode === true);
+        setAllowAnalysisScripts(r.allowAnalysisScripts === true);
+      })
       .catch(() => setHighSecurityMode(false));
   }, [apiBase]);
 
@@ -48,6 +56,7 @@ export function LawmindSettingsTools(props: Props): ReactNode {
       const next = !highSecurityMode;
       const r = await apiPatch(apiBase, "/api/policy/workspace", { highSecurityMode: next });
       setHighSecurityMode(r.highSecurityMode === true);
+      setAllowAnalysisScripts(r.allowAnalysisScripts === true);
     } catch (e) {
       setError(errorMessage(e, "更新高安全模式失败"));
     } finally {
@@ -89,7 +98,7 @@ export function LawmindSettingsTools(props: Props): ReactNode {
 
   return (
     <div className="lm-settings-section lm-settings-advanced-page">
-      <p className="lm-settings-lead">控制联网与敏感操作；日常办案一般保持默认即可。</p>
+      <p className="lm-settings-lead">联网与敏感操作。</p>
 
       <div className="lm-settings-group lm-settings-surface">
         <div className="lm-settings-row">
@@ -123,6 +132,38 @@ export function LawmindSettingsTools(props: Props): ReactNode {
             onClick={() => void applyRecommendedAllowlist()}
           >
             写入推荐主机
+          </button>
+        </div>
+        <div className="lm-settings-row">
+          <div className="lm-settings-row-stack">
+            <span className="lm-settings-key">分析脚本</span>
+            <span className="lm-settings-caption" style={{ margin: 0 }}>
+              允许运行你确认过的表格分析脚本（只读表、统计、落表、出图）。默认关闭；高安全模式下强制关闭。
+            </span>
+          </div>
+          <button
+            type="button"
+            className={`lm-btn lm-btn-sm ${allowAnalysisScripts ? "lm-btn-accent" : "lm-btn-secondary"}`}
+            data-testid="lm-settings-analysis-scripts"
+            disabled={policyBusy || highSecurityMode}
+            onClick={() => {
+              void (async () => {
+                setPolicyBusy(true);
+                try {
+                  const next = !allowAnalysisScripts;
+                  const r = await apiPatch(apiBase, "/api/policy/workspace", {
+                    allowAnalysisScripts: next,
+                  });
+                  setAllowAnalysisScripts(r.allowAnalysisScripts === true);
+                } catch (e) {
+                  setError(errorMessage(e, "更新分析脚本政策失败"));
+                } finally {
+                  setPolicyBusy(false);
+                }
+              })();
+            }}
+          >
+            {policyBusy ? "保存中…" : allowAnalysisScripts ? "已开启" : "未开启"}
           </button>
         </div>
         {allowlistHint ? (
@@ -179,18 +220,7 @@ export function LawmindSettingsTools(props: Props): ReactNode {
         </div>
       </details>
 
-      <details className="lm-settings-advanced">
-        <summary>
-          <span className="lm-settings-advanced__label">外部对接（MCP）</span>
-          <span className="lm-settings-advanced__hint">管理员</span>
-        </summary>
-        <div className="lm-settings-advanced-body">
-          <p className="lm-settings-caption">日常办案无需配置。管理员可用本机只读入口对接外部工具。</p>
-          <p className="lm-settings-caption">
-            <code>pnpm lawmind:mcp:readonly</code>
-          </p>
-        </div>
-      </details>
+      <LawmindSettingsMcp apiBase={apiBase} />
     </div>
   );
 }

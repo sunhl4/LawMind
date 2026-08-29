@@ -11,12 +11,8 @@ import { MatterLocalDocIndex } from "./MatterLocalDocIndex";
 import { MatterOverviewExtras } from "./MatterOverviewExtras";
 import { MatterProfileCard, type MatterProfilePayload } from "./MatterProfileCard";
 import { MatterTeamRosterStrip } from "./MatterTeamRosterStrip";
-import {
-  InteractionConvergence,
-  LawyerActionFeed,
-  ProductExperiments,
-} from "../insights";
-import type { ConvergenceHint, InteractionEvent, ProductExperimentItem } from "../../../../../src/lawmind/insights/index.ts";
+import { InteractionConvergence, LawyerActionFeed } from "../insights";
+import type { ConvergenceHint, InteractionEvent } from "../../../../../src/lawmind/insights/index.ts";
 import {
   MatterReviewQueuePanel,
   type ApprovalRow,
@@ -31,6 +27,8 @@ import {
   reviewStatusLabel,
 } from "./matter-display-labels.js";
 import { parseMatterInteractionEvent } from "./matter-interaction";
+import { lawyerRiskLevelLabel } from "../lawmind-lawyer-labels";
+import { useRequireSignoffReview } from "../lawmind-review-prefs";
 import type {
   AdoptionHistoryInsight,
   AdoptedSuggestionRecord,
@@ -46,24 +44,13 @@ import type {
   OperationsSort,
 } from "./matter-interaction";
 
-function toConvergenceHint(item: MatterConvergenceSuggestion | MatterProductAdaptationSuggestion): ConvergenceHint {
+function toConvergenceHint(item: MatterConvergenceSuggestion): ConvergenceHint {
   return {
     key: item.key,
     title: item.title,
     detail: item.detail,
     actionLabel: item.actionLabel,
     tone: item.tone,
-  };
-}
-
-function toExperimentItem(item: MatterProductExperimentItem): ProductExperimentItem {
-  return {
-    key: item.key,
-    title: item.title,
-    hypothesis: item.hypothesis,
-    validation: item.validation,
-    signal: item.signal,
-    priority: item.priority,
   };
 }
 
@@ -209,14 +196,14 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
     showCrossMatterRoadmap,
     convergenceSuggestions,
     handleConvergenceSuggestion,
-    productAdaptationSuggestions,
-    productExperimentChecklist,
-    crossMatterExperimentBoard,
-    roadmapCandidates,
+    productAdaptationSuggestions: _productAdaptationSuggestions,
+    productExperimentChecklist: _productExperimentChecklist,
+    crossMatterExperimentBoard: _crossMatterExperimentBoard,
+    roadmapCandidates: _roadmapCandidates,
     _adoptionHistoryInsight,
     _visiblePersistentAdoptions,
     _adoptedSuggestions,
-    roadmapPressureSummary,
+    roadmapPressureSummary: _roadmapPressureSummary,
     recentMatterInteractions,
     filteredQueueItems,
     filteredApprovalRequests,
@@ -225,6 +212,7 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
     acceptanceByTask,
   } = props;
 
+  const requireSignoffReview = useRequireSignoffReview();
   const acceptanceItems = Object.values(acceptanceByTask).filter(
     (x): x is AcceptanceSummaryItem => Boolean(x),
   );
@@ -278,10 +266,10 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
           <MatterProfileCard apiBase={apiBase} profile={profile} onSaved={onProfileSaved} />
         ) : null}
         {matterId && apiBase ? <MatterLocalDocIndex apiBase={apiBase} matterId={matterId} /> : null}
-        {matterId ? (
+        {matterId && showWorkspaceAcceptanceDashboard ? (
           <MatterQualityCockpit
             matterId={matterId}
-            enabled={showWorkspaceAcceptanceDashboard}
+            enabled
             qualityScore={qualityScore}
             acceptanceReadyCount={acceptanceReadyCount}
             acceptanceBlockedCount={acceptanceBlockedCount}
@@ -299,7 +287,9 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
                 const pending = reviewSummaryCards.find((c) => c.key === "pending-review")?.count ?? 0;
                 const approvals = approvalRequests.filter((a) => a.status === "pending").length;
                 if (pending > 0) {
-                  return `${pending} 份待审文书可签批`;
+                  return requireSignoffReview
+                    ? `${pending} 份待审文书可签批`
+                    : `${pending} 份待审文书可改稿`;
                 }
                 if (approvals > 0) {
                   return `${approvals} 项案件审批待处理`;
@@ -353,7 +343,7 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
                     })
                   }
                 >
-                  进入文书台
+                  改稿
                 </button>
               );
             })()}
@@ -394,9 +384,6 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
                 打开会议室
               </button>
             </div>
-            <p className="lm-meta">
-              打开顶栏「会议室」并绑定本案；也可开临时讨论。多位助手轮流发言，律师可开场或中途介入。
-            </p>
           </section>
         ) : null}
          <section className="lm-matter-cockpit-card lm-matter-ops-focus-card">
@@ -414,7 +401,7 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
                   <option value="all">全部</option>
                   <option value="review">待审核 / 待审批</option>
                   <option value="modified">需修改返回</option>
-                  <option value="delivery">可交付 / 可渲染</option>
+                  <option value="delivery">可交付</option>
                   <option value="highRisk">高风险优先</option>
                 </select>
               </label>
@@ -433,7 +420,7 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
           </div>
         </section>
          <section className="lm-matter-cockpit-card lm-matter-blocking-card">
-          <h3>Blocked By</h3>
+          <h3>卡点与前置</h3>
           {blockingExplanations.length === 0 ? (
             <p className="lm-meta">无</p>
           ) : (
@@ -461,6 +448,7 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
          <MatterOverviewExtras
           expanded={matterOverviewExtrasOpen}
           onExpand={() => setMatterOverviewExtrasOpen(true)}
+          onCollapse={() => setMatterOverviewExtrasOpen(false)}
         >
         <section className="lm-matter-cockpit-card lm-matter-behavior-card">
           <h3>律师行为摘要</h3>
@@ -477,13 +465,13 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
                 </div>
                 <div className="lm-matter-summary-card lm-matter-summary-card-warn">
                   <div className="lm-matter-summary-top">
-                    <span className="lm-matter-summary-title">进入文书台</span>
+                    <span className="lm-matter-summary-title">改稿</span>
                     <span className="lm-matter-summary-count">{matterInteractionSummary.reviewOpenCount}</span>
                   </div>
                 </div>
                 <div className="lm-matter-summary-card lm-matter-summary-card-info">
                   <div className="lm-matter-summary-top">
-                    <span className="lm-matter-summary-title">补 CASE</span>
+                    <span className="lm-matter-summary-title">补案件档案</span>
                     <span className="lm-matter-summary-count">{matterInteractionSummary.caseWriteCount}</span>
                   </div>
                 </div>
@@ -519,10 +507,9 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
             </>
           )}
         </section>
-         {showCrossMatterRoadmap ? (
-        <>
+         {showCrossMatterRoadmap && convergenceSuggestions.length > 0 ? (
         <section className="lm-matter-cockpit-card lm-matter-convergence-card">
-          <h3>交互收敛建议</h3>
+          <h3>办案建议</h3>
           <InteractionConvergence
             hints={convergenceSuggestions.map(toConvergenceHint)}
             onAction={(hint) => {
@@ -533,157 +520,6 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
             }}
           />
         </section>
-         <section className="lm-matter-cockpit-card lm-matter-product-card">
-          <h3>产品改造建议</h3>
-          <InteractionConvergence
-            hints={productAdaptationSuggestions.map(toConvergenceHint)}
-            onAction={(hint) => {
-              const item = productAdaptationSuggestions.find((s) => s.key === hint.key);
-              if (item) {
-                handleConvergenceSuggestion(item);
-              }
-            }}
-          />
-        </section>
-         <section className="lm-matter-cockpit-card lm-matter-experiment-card">
-          <h3>产品实验清单</h3>
-          <ProductExperiments
-            items={productExperimentChecklist.map(toExperimentItem)}
-            actionLabelForItem={(it) =>
-              productExperimentChecklist.find((s) => s.key === it.key)?.actionLabel ?? "打开对应入口"
-            }
-            onAction={(it) => {
-              const item = productExperimentChecklist.find((s) => s.key === it.key);
-              if (item && item.target.type !== "none") {
-                handleConvergenceSuggestion(item);
-              }
-            }}
-          />
-        </section>
-         <section className="lm-matter-cockpit-card lm-matter-cross-experiment-card">
-          <h3>跨案件实验累积板</h3>
-          {crossMatterExperimentBoard.length === 0 ? (
-            <p className="lm-meta">暂无</p>
-          ) : (
-            <ul className="lm-matter-ops-list">
-              {crossMatterExperimentBoard.map((item) => (
-                <li key={item.key}>
-                  <div className="lm-matter-ops-title">
-                    <span>{item.title}</span>
-                    <span className="lm-matter-pill">
-                      {item.matterCount} 案件 · {item.totalEvents} 次
-                    </span>
-                  </div>
-                  <div className="lm-matter-ops-meta" title={item.exampleMatterIds.join("、")}>
-                    {item.matterCount} 案 · {formatShortDateTime(item.latestAt)}
-                    {item.includesCurrentMatter ? " · 含本案" : ""}
-                  </div>
-                  {item.localSuggestion ? (
-                    <div className="lm-matter-ops-actions lm-matter-convergence-actions">
-                      <button
-                        type="button"
-                        className="lm-btn lm-btn-secondary lm-btn-small"
-                        onClick={() => {
-                          if (item.localSuggestion) {
-                            handleConvergenceSuggestion(item.localSuggestion);
-                          }
-                        }}
-                      >
-                        查看本案对应建议
-                      </button>
-                    </div>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-         <section className="lm-matter-cockpit-card lm-matter-roadmap-card">
-          <h3>Roadmap 候选池</h3>
-          {roadmapCandidates.length === 0 ? (
-            <p className="lm-meta">暂无</p>
-          ) : (
-            <>
-              <div className="lm-matter-roadmap-summary-grid">
-                <div className="lm-matter-roadmap-summary-card">
-                  <span className="lm-meta">候选方向</span>
-                  <strong>{roadmapPressureSummary.candidateCount}</strong>
-                </div>
-                <div className="lm-matter-roadmap-summary-card">
-                  <span className="lm-meta">现在做</span>
-                  <strong>{roadmapPressureSummary.nowCount}</strong>
-                </div>
-                <div className="lm-matter-roadmap-summary-card">
-                  <span className="lm-meta">已验证共性</span>
-                  <strong>{roadmapPressureSummary.validatedCount}</strong>
-                </div>
-                <div className="lm-matter-roadmap-summary-card">
-                  <span className="lm-meta">当前最高压力</span>
-                  <strong>{roadmapPressureSummary.topCandidate?.title ?? "暂无"}</strong>
-                </div>
-              </div>
-              <ul className="lm-matter-ops-list">
-                {roadmapCandidates.map((item) => (
-                  <li key={item.key} className="lm-matter-roadmap-decision-card">
-                    <div className="lm-matter-ops-title">
-                      <span>{item.title}</span>
-                      <div className="lm-matter-ops-actions">
-                        <span className={`lm-matter-pill lm-matter-roadmap-pill-${item.urgency}`}>
-                          {item.urgency === "now" ? "现在做" : item.urgency === "next" ? "下一波" : "后续观察"}
-                        </span>
-                        <span className={`lm-matter-pill lm-matter-roadmap-readiness-${item.readiness}`}>
-                          {item.readiness === "validated"
-                            ? "已验证"
-                            : item.readiness === "emerging"
-                              ? "正在成形"
-                              : "继续观察"}
-                        </span>
-                        <span className="lm-matter-pill">分数 {item.score}</span>
-                      </div>
-                    </div>
-                    <div className="lm-matter-ops-meta">{item.rationale}</div>
-                    <div className="lm-matter-ops-meta">
-                      覆盖 {item.matterCount} 个案件 · 累计 {item.totalEvents} 次信号
-                      {item.latestAt ? ` · 最近信号 ${formatShortDateTime(item.latestAt)}` : ""}
-                    </div>
-                    <div className="lm-matter-roadmap-detail-grid">
-                      <div>
-                        <span className="lm-meta">预期收益</span>
-                        <div className="lm-matter-ops-meta">{item.benefit}</div>
-                      </div>
-                      <div>
-                        <span className="lm-meta">主要风险</span>
-                        <div className="lm-matter-ops-meta">{item.risk}</div>
-                      </div>
-                      <div>
-                        <span className="lm-meta">建议 owner</span>
-                        <div className="lm-matter-ops-meta">{item.owner}</div>
-                      </div>
-                    </div>
-                    {item.localSuggestion ? (
-                      <div className="lm-matter-ops-actions lm-matter-convergence-actions">
-                        <button
-                          type="button"
-                          className="lm-btn lm-btn-secondary lm-btn-small"
-                          onClick={() => {
-                            const suggestion = item.localSuggestion;
-                            if (!suggestion) {
-                              return;
-                            }
-                            handleConvergenceSuggestion(suggestion);
-                          }}
-                        >
-                          打开本案对应入口
-                        </button>
-                      </div>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </section>
-        </>
         ) : null}
         {showCrossMatterRoadmap ? (
           <section className="lm-matter-cockpit-card">
@@ -694,6 +530,9 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
             />
           </section>
         ) : null}
+         </MatterOverviewExtras>
+         {/* 日用待办四卡（下一步/工作队列/审批节点/交付物）默认露出，
+             折叠区只收行为摘要与洞察实验 */}
          <div className="lm-matter-cockpit-grid">
           <section className="lm-matter-cockpit-card" data-testid="lm-matter-next-actions">
             <h3>下一步</h3>
@@ -730,7 +569,7 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
                             })
                           }
                         >
-                          去文书台
+                          去改稿
                         </button>
                       ) : null}
                       {isChatHint && onUseInChat ? (
@@ -775,7 +614,7 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
                               })
                             }
                           >
-                            进入文书台
+                            改稿
                           </button>
                         ) : null}
                       </div>
@@ -801,7 +640,7 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
                       <span>{approvalStatusLabel(item.status)}</span>
                       <div className="lm-matter-ops-actions">
                         <span className={`lm-matter-pill lm-matter-pill-status-${item.status}`}>
-                          {item.riskLevel.toUpperCase()}
+                          {lawyerRiskLevelLabel(item.riskLevel) ?? item.riskLevel}
                         </span>
                         {onOpenReview && item.deliverableId ? (
                           <button
@@ -821,7 +660,7 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
                               })
                             }
                           >
-                            进入文书台
+                            改稿
                           </button>
                         ) : null}
                       </div>
@@ -860,7 +699,7 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
                               })
                             }
                           >
-                            进入文书台
+                            改稿
                           </button>
                         ) : null}
                       </div>
@@ -875,7 +714,6 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
             )}
           </section>
         </div>
-         </MatterOverviewExtras>
          <section className="lm-matter-cockpit-card">
           <h3>关键风险</h3>
           {summary.keyRisks.length === 0 ? (

@@ -199,10 +199,10 @@ export function LawmindToolArgsEditDialog(props: LawmindToolArgsEditDialogProps)
             <h2 id={titleId}>{documentWrite ? "改参数" : "改拟稿"}</h2>
             <p className="lm-meta lm-tool-args-edit-lead">
               {documentWrite
-                ? "全文请用「文书台」。此处仅改标题等短字段；日常请直接「批准」或「驳回」。"
+                ? "短字段；全文请改稿"
                 : editFullBody
-                  ? "调整正文或短字段后批准。"
-                  : "调整短字段后批准。日常请直接「批准」；仅在需要改细节时使用。"}
+                  ? "调整后批准"
+                  : "调整短字段后批准"}
             </p>
           </div>
           <button
@@ -220,8 +220,7 @@ export function LawmindToolArgsEditDialog(props: LawmindToolArgsEditDialogProps)
           <div className="lm-tool-args-edit-doc" data-testid="lm-tool-args-edit-doc-redirect">
             {onOpenReview && linkedTaskId ? (
               <div className="lm-callout lm-callout-muted" role="note">
-                <p className="lm-callout-title">全文改稿请用文书台</p>
-                <p className="lm-callout-body">大改请驳回后回对话说明，或批准写入后到文书台改稿。</p>
+                <p className="lm-callout-title">全文请到改稿页编辑</p>
                 <button
                   type="button"
                   className="lm-btn lm-btn-secondary lm-btn-sm"
@@ -232,7 +231,7 @@ export function LawmindToolArgsEditDialog(props: LawmindToolArgsEditDialogProps)
                     onOpenReview(linkedTaskId, matterId);
                   }}
                 >
-                  打开文书台
+                  打开改稿
                 </button>
               </div>
             ) : null}

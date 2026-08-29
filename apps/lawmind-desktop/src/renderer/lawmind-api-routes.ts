@@ -122,7 +122,7 @@ export type LawmindApiPatchRoutes = {
   };
   "/api/policy/workspace": {
     body: WorkspacePolicyPatchRequest;
-    response: OkResponse & { highSecurityMode?: boolean };
+    response: OkResponse & { highSecurityMode?: boolean; allowAnalysisScripts?: boolean };
   };
 };
 
@@ -138,6 +138,7 @@ export type LawmindDraftReviewResponse = OkResponse & {
   lawyerProfileLearningSkipped?: boolean;
   executionState?: Record<string, unknown>;
   gateDecisions?: unknown[];
+  matterWriteFailed?: boolean;
 };
 
 export type LawmindDraftContentPatchResponse = OkResponse & {

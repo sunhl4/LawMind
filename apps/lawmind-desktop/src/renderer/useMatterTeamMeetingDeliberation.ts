@@ -234,7 +234,16 @@ export function useMatterTeamMeetingDeliberation(params: UseMatterTeamMeetingDel
       const next = applyTurnResult(result, sessions, assistantId);
       return toOut(result, next);
     },
-    [agendaFilePins, apiBase, applyTurnResult, matterId, persistSessions, projectDir, topic],
+    [
+      agendaFilePins,
+      allowMeetingWebSearch,
+      apiBase,
+      applyTurnResult,
+      matterId,
+      persistSessions,
+      projectDir,
+      topic,
+    ],
   );
 
   const executeQueue = useCallback(

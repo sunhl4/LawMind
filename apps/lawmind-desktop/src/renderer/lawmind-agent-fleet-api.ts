@@ -10,12 +10,35 @@ import type { NeedsDecisionDeskTarget } from "./lawmind-agents-desk";
 
 export type { AgentFleetSummary, AgentPreset, AgentRunSummary, AssistantGrowthReportView };
 
-/** Match queue row for deep-link from chat「去在办补充». */
+/** Match queue row for deep-link from chat「去在办补充» / 交办结果. */
 export function matchNeedsDecisionFocusId(
   queue: AgentRunSummary[],
   target: NeedsDecisionDeskTarget | null | undefined,
 ): string | null {
   if (!target || queue.length === 0) {
+    return null;
+  }
+  const qid = target.queueItemId?.trim();
+  if (qid) {
+    const byQueue = queue.find(
+      (r) =>
+        r.queueItemId === qid ||
+        r.id === `automation-send:${qid}` ||
+        r.id === `automation-inbox:${qid}` ||
+        r.id === `queue:${qid}`,
+    );
+    if (byQueue) {
+      return byQueue.id;
+    }
+    // queueItemId 已指定但队列里还没有：勿用 preferStatus / taskId 误选其它票
+    return null;
+  }
+  const jid = target.jobId?.trim();
+  if (jid) {
+    const byJob = queue.find((r) => r.jobId === jid || r.id === `job:${jid}`);
+    if (byJob) {
+      return byJob.id;
+    }
     return null;
   }
   const sid = target.sessionId?.trim();
@@ -97,11 +120,6 @@ export async function loadAgentFleet(
     growth: res.growth,
     counts: res.counts ?? { total: 0, active: 0, awaitingAction: 0, byKind: {} as AgentFleetSummary["counts"]["byKind"] },
   };
-}
-
-export async function loadAgentPresets(apiBase: string): Promise<AgentPreset[]> {
-  const res = await apiGetJson<{ ok?: boolean; presets?: AgentPreset[] }>(apiBase, "/api/agent-presets");
-  return res.presets ?? [];
 }
 
 export async function loadFleetTranscript(

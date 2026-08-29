@@ -111,4 +111,10 @@ export type ReviewCampaign = {
   executionModeUsed?: "serial" | "parallel";
   /** Solo「更快模式」：跳过低权重角色 */
   preferFast?: boolean;
+  /** 从交办保留的立场/重点/深度，升专案组时不得丢失 */
+  reviewBrief?: {
+    stance?: string;
+    focus?: string;
+    depth?: string;
+  };
 };

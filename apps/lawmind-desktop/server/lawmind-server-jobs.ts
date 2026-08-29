@@ -17,6 +17,7 @@ import type { AgentConfig } from "../../../src/lawmind/agent/types.js";
 import { emitCollaborationEvent } from "../../../src/lawmind/agent/collaboration/audit.js";
 import { emitPlatformGateSnapshot } from "../../../src/lawmind/platform/audit-gate.js";
 import type { GateDecision, TaskExecutionState } from "../../../src/lawmind/platform/contracts.js";
+import { withExclusiveFileLock } from "../../../src/lawmind/adapters/matter-storage/io.js";
 
 export type WorkflowJobStatus =
   | "scheduled"
@@ -150,6 +151,75 @@ function jobsDir(workspaceDir: string): string {
 
 function jobFilePath(workspaceDir: string, jobId: string): string {
   return path.join(jobsDir(workspaceDir), `${jobId}.json`);
+}
+
+function readWorkflowJobFromDisk(workspaceDir: string, jobId: string): WorkflowJobRecord | null {
+  try {
+    const raw = JSON.parse(fs.readFileSync(jobFilePath(workspaceDir, jobId), "utf8")) as Omit<
+      WorkflowJobRecord,
+      "workspaceDir"
+    >;
+    return {
+      ...raw,
+      jobId: raw.jobId || jobId,
+      workspaceDir: path.resolve(workspaceDir),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function rememberWorkflowJob(rec: WorkflowJobRecord): void {
+  const existing = jobs.get(rec.jobId);
+  if (existing && existing.status !== "scheduled" && rec.status === "scheduled") {
+    return;
+  }
+  if (!existing) {
+    jobOrder.push(rec.jobId);
+  }
+  jobs.set(rec.jobId, rec);
+}
+
+/** Load scheduled jobs written by another process (desktop ↔ lawmindd). */
+function refreshScheduledJobsFromDisk(workspaceDir: string): void {
+  const dir = jobsDir(workspaceDir);
+  if (!fs.existsSync(dir)) {
+    return;
+  }
+  for (const name of fs.readdirSync(dir).filter((f) => f.endsWith(".json"))) {
+    const jobId = name.replace(/\.json$/u, "");
+    const rec = readWorkflowJobFromDisk(workspaceDir, jobId);
+    if (!rec || rec.status !== "scheduled") {
+      continue;
+    }
+    rememberWorkflowJob(rec);
+  }
+}
+
+/**
+ * Atomically claim a due scheduled job so desktop + lawmindd cannot double-fire.
+ * Returns null if another process already claimed it or it is not due.
+ */
+export function claimDueScheduledJob(
+  workspaceDir: string,
+  jobId: string,
+  nowMs = Date.now(),
+): WorkflowJobRecord | null {
+  const root = path.resolve(workspaceDir);
+  const file = jobFilePath(root, jobId);
+  if (!fs.existsSync(file)) {
+    return null;
+  }
+  return withExclusiveFileLock(`${file}.lock`, () => {
+    const rec = readWorkflowJobFromDisk(root, jobId);
+    if (!rec || !isDueScheduledJob(rec, nowMs)) {
+      return null;
+    }
+    rec.status = "queued";
+    persistWorkflowJob(rec);
+    rememberWorkflowJob(rec);
+    return rec;
+  });
 }
 
 function normalizeIdempotencyKey(raw: string | undefined): string | null {
@@ -648,30 +718,35 @@ export function processDueScheduledJobs(workspaceDir: string): number {
   if (!config) {
     return 0;
   }
+  refreshScheduledJobsFromDisk(root);
   let fired = 0;
-  for (const rec of jobs.values()) {
+  for (const rec of Array.from(jobs.values())) {
     if (path.resolve(rec.workspaceDir) !== root) {
       continue;
     }
     if (!isDueScheduledJob(rec)) {
       continue;
     }
-    const workflow = resolveWorkflowForJob(rec);
-    if (!workflow) {
-      rec.status = "failed";
-      rec.error = "missing_workflow_snapshot";
-      rec.completedAt = new Date().toISOString();
-      persistWorkflowJob(rec);
+    const claimed = claimDueScheduledJob(root, rec.jobId);
+    if (!claimed) {
       continue;
     }
-    if (!rec.workflowSnapshot) {
-      rec.workflowSnapshot = workflow;
-      persistWorkflowJob(rec);
+    const workflow = resolveWorkflowForJob(claimed);
+    if (!workflow) {
+      claimed.status = "failed";
+      claimed.error = "missing_workflow_snapshot";
+      claimed.completedAt = new Date().toISOString();
+      persistWorkflowJob(claimed);
+      rememberWorkflowJob(claimed);
+      continue;
     }
-    rec.status = "queued";
-    delete rec.scheduledTrigger;
-    persistWorkflowJob(rec);
-    startWorkflowJobExecution(rec.jobId, config, workflow, runCollaborationWorkflow);
+    if (!claimed.workflowSnapshot) {
+      claimed.workflowSnapshot = workflow;
+      persistWorkflowJob(claimed);
+    }
+    delete claimed.scheduledTrigger;
+    persistWorkflowJob(claimed);
+    startWorkflowJobExecution(claimed.jobId, config, workflow, runCollaborationWorkflow);
     fired += 1;
   }
   return fired;

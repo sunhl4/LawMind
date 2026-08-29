@@ -67,7 +67,7 @@ export function MatterTheoryLitePanel(props: Props): ReactNode {
           <span className="lm-assignment-kicker">案件理论</span>
           <strong>争点 · 依据 · 开放问题</strong>
         </div>
-        <p className="lm-meta">结构化推理板，不是对话。严格援引导出前请勾选已锚定。</p>
+        <p className="lm-meta">导出前勾选「已锚定」。</p>
       </header>
 
       <div className="lm-matter-theory-panes">

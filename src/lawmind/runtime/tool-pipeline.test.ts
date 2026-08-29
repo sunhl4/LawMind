@@ -16,6 +16,9 @@ import {
   buildDefaultToolPipeline,
   clarificationGateMiddleware,
   composeToolPipeline,
+  discoveryLoopMiddleware,
+  dropSaturatedDiscoveryTools,
+  wouldHitDiscoveryCap,
   executeMiddleware,
   subprocessSandboxMiddleware,
   matterScopeMiddleware,
@@ -130,7 +133,7 @@ describe("tool-pipeline middlewares", () => {
   it("unknownToolMiddleware rejects when tool missing", async () => {
     const result = await unknownToolMiddleware(buildCall(workspaceDir), async () => ({ ok: true }));
     expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/Unknown tool/);
+    expect(result.error).toMatch(/未知工具/);
   });
 
   it("budgetMiddleware rejects when usedToolCalls > maxToolCalls", async () => {
@@ -140,13 +143,119 @@ describe("tool-pipeline middlewares", () => {
     expect(result.error).toMatch(/Tool budget exhausted/);
   });
 
+  it("discoveryLoopMiddleware caps search_workspace repeats", async () => {
+    const ok = await discoveryLoopMiddleware(
+      buildCall(workspaceDir, {
+        toolName: "search_workspace",
+        policyOverride: { toolNameCallCounts: { search_workspace: 0 } },
+      }),
+      async () => ({ ok: true }),
+    );
+    expect(ok.ok).toBe(true);
+    const blocked = await discoveryLoopMiddleware(
+      buildCall(workspaceDir, {
+        toolName: "search_workspace",
+        policyOverride: { toolNameCallCounts: { search_workspace: 1 } },
+      }),
+      async () => ({ ok: true }),
+    );
+    expect(blocked.ok).toBe(false);
+    expect(blocked.error).toMatch(/search_workspace/);
+    expect(blocked.error).toMatch(/正确根目录|read_project_file|不要反复/);
+  });
+
+  it("discoveryLoopMiddleware uses Word-revision hint, not mail outbound", async () => {
+    const blocked = await discoveryLoopMiddleware(
+      buildCall(workspaceDir, {
+        toolName: "search_workspace",
+        policyOverride: {
+          toolNameCallCounts: { search_workspace: 1 },
+          allowlistDenyHint: "本回合是原 Word 改稿：请按通读 → seed 基线执行。不要准备外发邮件。",
+        },
+      }),
+      async () => ({ ok: true }),
+    );
+    expect(blocked.ok).toBe(false);
+    expect(blocked.error).toContain("read_project_file");
+    expect(blocked.error).toContain("不要 prepare_outbound_mail");
+    expect(blocked.error).not.toContain("自动办件");
+  });
+
+  it("discoveryLoopMiddleware tells the model to draft after a successful Word read", async () => {
+    const blocked = await discoveryLoopMiddleware(
+      buildCall(workspaceDir, {
+        toolName: "analyze_document",
+        policyOverride: {
+          toolNameCallCounts: { analyze_document: 1 },
+          allowlistDenyHint: "本回合是原 Word 改稿：请按通读 → seed 基线执行。不要准备外发邮件。",
+        },
+      }),
+      async () => ({ ok: true }),
+    );
+    expect(blocked.ok).toBe(false);
+    expect(blocked.error).toContain("文书已通读");
+    expect(blocked.error).toContain("不要再 analyze_document");
+    expect(blocked.error).not.toContain("自动办件");
+  });
+
+  it("wouldHitDiscoveryCap and dropSaturatedDiscoveryTools match the middleware quota", () => {
+    expect(wouldHitDiscoveryCap("analyze_document", {})).toBe(false);
+    expect(wouldHitDiscoveryCap("analyze_document", { analyze_document: 1 })).toBe(true);
+    expect(wouldHitDiscoveryCap("update_draft", { analyze_document: 1 })).toBe(false);
+    expect(
+      dropSaturatedDiscoveryTools(["analyze_document", "read_project_file", "update_draft"], {
+        analyze_document: 1,
+      }),
+    ).toEqual(["read_project_file", "update_draft"]);
+    expect(
+      dropSaturatedDiscoveryTools(
+        ["analyze_document", "read_project_file", "update_draft"],
+        { analyze_document: 1 },
+        { dropDocumentReaders: true },
+      ),
+    ).toEqual(["update_draft"]);
+  });
+
+  it("discoveryLoopMiddleware enforces total discovery cap", async () => {
+    const blocked = await discoveryLoopMiddleware(
+      buildCall(workspaceDir, {
+        toolName: "read_project_file",
+        policyOverride: {
+          toolNameCallCounts: {
+            search_workspace: 1,
+            search_matter: 1,
+            get_matter_summary: 1,
+            analyze_document: 1,
+          },
+        },
+      }),
+      async () => ({ ok: true }),
+    );
+    expect(blocked.ok).toBe(false);
+    expect(blocked.error).toMatch(/合计/);
+  });
+
   it("roleAllowlistMiddleware rejects when tool not in allowlist", async () => {
     const call = buildCall(workspaceDir, {
       policyOverride: { allowedToolNames: ["other_tool"] },
     });
     const result = await roleAllowlistMiddleware(call, async () => ({ ok: true }));
     expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/not allowed for current role/);
+    expect(result.error).toMatch(/当前办件不能使用/);
+  });
+
+  it("roleAllowlistMiddleware appends the playbook deny hint", async () => {
+    const call = buildCall(workspaceDir, {
+      toolName: "search_workspace",
+      policyOverride: {
+        allowedToolNames: ["analyze_document"],
+        allowlistDenyHint: "不要再检索案卷。",
+      },
+    });
+    const result = await roleAllowlistMiddleware(call, async () => ({ ok: true }));
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("search_workspace");
+    expect(result.error).toContain("不要再检索案卷");
   });
 
   it("clarificationGateMiddleware rejects write tools when blocking", async () => {
@@ -168,15 +277,83 @@ describe("tool-pipeline middlewares", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("approvalMiddleware demands __approved for dangerous tools", async () => {
+  it("approvalMiddleware demands __approved for send_email", async () => {
     const tool: AgentTool = {
-      definition: { ...baseDef, requiresApproval: true },
+      definition: { ...baseDef, name: "send_email", requiresApproval: true },
       execute: async () => ({ ok: true }),
     };
     const call = buildCall(workspaceDir, { tool, args: { query: "x" } });
     const result = await approvalMiddleware(call, async () => ({ ok: true }));
     expect(result.ok).toBe(false);
     expect(result.pendingApproval).toBe(true);
+  });
+
+  it("approvalMiddleware does not pause internal production tools", async () => {
+    const tool: AgentTool = {
+      definition: {
+        ...baseDef,
+        name: "render_document",
+        requiresApproval: true,
+        riskLevel: "high",
+      },
+      execute: async () => ({ ok: true }),
+    };
+    const result = await approvalMiddleware(
+      buildCall(workspaceDir, {
+        tool,
+        policyOverride: { riskCeiling: "medium", strictDangerousToolApproval: true },
+      }),
+      async () => ({ ok: true }),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("approvalMiddleware enforces riskCeiling only for outbound send", async () => {
+    const highRiskTool: AgentTool = {
+      definition: { ...baseDef, name: "send_email", riskLevel: "high" },
+      execute: async () => ({ ok: true }),
+    };
+    const blocked = await approvalMiddleware(
+      buildCall(workspaceDir, {
+        tool: highRiskTool,
+        policyOverride: { riskCeiling: "medium" },
+      }),
+      async () => ({ ok: true }),
+    );
+    expect(blocked.ok).toBe(false);
+    expect(blocked.pendingApproval).toBe(true);
+
+    // 发信即使风险上限够高也仍要拍板。
+    const stillPaused = await approvalMiddleware(
+      buildCall(workspaceDir, {
+        tool: highRiskTool,
+        policyOverride: { riskCeiling: "high" },
+      }),
+      async () => ({ ok: true }),
+    );
+    expect(stillPaused.ok).toBe(false);
+    expect(stillPaused.pendingApproval).toBe(true);
+
+    // ceiling=medium 但律师已 __approved → 放行。
+    const approved = await approvalMiddleware(
+      buildCall(workspaceDir, {
+        tool: highRiskTool,
+        args: { query: "x", __approved: true },
+        policyOverride: { riskCeiling: "medium" },
+      }),
+      async () => ({ ok: true }),
+    );
+    expect(approved.ok).toBe(true);
+
+    // 未设 riskCeiling → 不改变既有行为（只读低风险工具直通）。
+    const lowTool: AgentTool = {
+      definition: { ...baseDef, name: "plain_read_tool" },
+      execute: async () => ({ ok: true }),
+    };
+    const pass = await approvalMiddleware(buildCall(workspaceDir, { tool: lowTool }), async () => ({
+      ok: true,
+    }));
+    expect(pass.ok).toBe(true);
   });
 
   it("argSchemaMiddleware strips unknown args instead of failing", async () => {
@@ -208,13 +385,32 @@ describe("tool-pipeline middlewares", () => {
     expect(result.error).toMatch(/Invalid arguments|missing required/);
   });
 
-  it("timeoutMiddleware rejects when tool exceeds timeout (audit catches downstream)", async () => {
+  it("timeoutMiddleware returns timedOut when tool exceeds timeout", async () => {
     const call = buildCall(workspaceDir, { policyOverride: { toolTimeoutMs: 50 } });
     const slow: ToolMiddleware = async () =>
       new Promise<ToolCallResult>((resolve) => setTimeout(() => resolve({ ok: true }), 200));
-    await expect(
-      timeoutMiddleware(call, () => slow(call, async () => ({ ok: true }))),
-    ).rejects.toThrow(/timed out/);
+    const result = await timeoutMiddleware(call, () => slow(call, async () => ({ ok: true })));
+    expect(result.ok).toBe(false);
+    expect(result.timedOut).toBe(true);
+    expect(result.aborted).toBeUndefined();
+    expect(result.error).toMatch(/timed out/);
+  });
+
+  it("timeoutMiddleware returns aborted when turn abortSignal fires before timeout", async () => {
+    const turnAbort = new AbortController();
+    const call = buildCall(workspaceDir, {
+      policyOverride: { toolTimeoutMs: 5_000 },
+      ctxOverride: { abortSignal: turnAbort.signal },
+    });
+    const hangingTool: ToolMiddleware = async () =>
+      new Promise<ToolCallResult>(() => {
+        /* relies on middleware race */
+      });
+    const pending = timeoutMiddleware(call, () => hangingTool(call, async () => ({ ok: true })));
+    turnAbort.abort();
+    const result = await pending;
+    expect(result).toEqual({ ok: false, error: "已停止", aborted: true });
+    expect(call.ctx.abortSignal).toBe(turnAbort.signal);
   });
 
   it("timeoutMiddleware aborts ctx.abortSignal on timeout so tools can cancel underlying work", async () => {
@@ -235,9 +431,12 @@ describe("tool-pipeline middlewares", () => {
         }
       });
     };
-    await expect(
-      timeoutMiddleware(call, () => hangingTool(call, async () => ({ ok: true }))),
-    ).rejects.toThrow(/timed out/);
+    const result = await timeoutMiddleware(call, () =>
+      hangingTool(call, async () => ({ ok: true })),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.timedOut).toBe(true);
+    expect(result.aborted).toBeUndefined();
     // The signal was injected into ctx for this call...
     expect(observedSignal).toBeDefined();
     // ...and it flipped to aborted, which the tool observed (cancellation propagated).

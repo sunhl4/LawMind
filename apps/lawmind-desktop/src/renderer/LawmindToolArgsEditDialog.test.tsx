@@ -3,8 +3,14 @@
  */
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { LawmindToolArgsEditDialog } from "./LawmindToolArgsEditDialog";
+
+afterEach(() => {
+  document.body.querySelectorAll('[data-testid="lm-tool-args-edit-backdrop"]').forEach((el) => {
+    el.remove();
+  });
+});
 
 describe("LawmindToolArgsEditDialog", () => {
   it("document write does not expose full content editor and keeps original content", async () => {
@@ -33,8 +39,10 @@ describe("LawmindToolArgsEditDialog", () => {
       document.body.querySelector('[data-testid="lm-tool-args-edit-doc-redirect"]'),
     ).toBeTruthy();
     expect(document.body.querySelector('[data-size="compact"]')).toBeTruthy();
-    expect(document.body.textContent).toContain("全文请用「文书台」");
-    expect(document.body.querySelector("h2")?.textContent).toBe("改参数");
+    expect(document.body.textContent).toContain("短字段；全文请改稿");
+    expect(
+      document.body.querySelector('[data-testid="lm-tool-args-edit-dialog"] h2')?.textContent,
+    ).toBe("改参数");
     expect(document.body.querySelector('textarea[aria-label="文书正文"]')).toBeNull();
     expect(document.body.querySelector('textarea[aria-label="正文"]')).toBeNull();
     expect(document.body.querySelector('input[aria-label="保存位置"]')).toBeNull();
@@ -68,7 +76,9 @@ describe("LawmindToolArgsEditDialog", () => {
         />,
       );
     });
-    expect(document.body.querySelector("h2")?.textContent).toBe("改拟稿");
+    expect(
+      document.body.querySelector('[data-testid="lm-tool-args-edit-dialog"] h2')?.textContent,
+    ).toBe("改拟稿");
     expect(document.body.querySelector('[data-document-write="true"]')).toBeNull();
     root.unmount();
     host.remove();

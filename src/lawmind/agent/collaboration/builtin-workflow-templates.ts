@@ -17,13 +17,27 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
     audience: "solo",
     kind: "office",
     starterPrompt:
-      "请帮我做一份培训 PPT。主题是：\n\n受众是：\n预计时长：\n希望风格：专业、清楚、适合律师讲解。\n\n请先给出目录和每页要点，再生成可导出的 PPT 草稿。",
+      "请帮我做一份培训 PPT。主题是：\n\n受众是：\n预计时长：\n希望风格：专业、清楚、适合律师讲解。\n\n请先 deep_research 或整理要点并给出课件大纲（待我确认），再 draft_document / execute_workflow 生成可导出 PPT。若使用案件材料请先脱敏并注明「已脱敏」。",
     steps: [
+      {
+        stepId: "research",
+        assignee: "client_communicator",
+        task: "收集培训要点与公开来源（可用 deep_research；案件材料须已脱敏）",
+        dependsOn: [],
+        autoApprove: false,
+      },
+      {
+        stepId: "outline_confirm",
+        assignee: "client_communicator",
+        task: "输出课件大纲并等待律师确认（research_outline_confirm）；未确认不得扩写幻灯片正文",
+        dependsOn: ["research"],
+        autoApprove: false,
+      },
       {
         stepId: "deck",
         assignee: "client_communicator",
-        task: "生成培训 PPT 大纲与页面要点",
-        dependsOn: [],
+        task: "大纲确认后 draft_document（ppt.training）并走验收清单",
+        dependsOn: ["outline_confirm"],
         autoApprove: false,
       },
     ],
@@ -32,20 +46,34 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
     id: "office-research-report",
     name: "研究报告 / 内部分享",
     namedAgent: "Research Memo Writer",
-    description: "把一个法律或行业主题整理成结构化报告、内部分享或研究 memo。",
+    description: "把一个法律或行业主题整理成学习型调研简报或内部分享材料。",
     practiceArea: "compliance",
-    deliverableType: "document.report",
+    deliverableType: "report.learning",
     riskLevel: "medium",
     audience: "solo",
     kind: "office",
     starterPrompt:
-      "请帮我写一份研究报告/内部分享材料。主题是：\n\n用途是：\n读者是：\n需要覆盖的重点：\n\n请先列提纲，再起草正文，语言要适合律师对外或内部使用。",
+      "请帮我写一份学习型调研简报/内部分享材料。主题是：\n\n用途是：\n读者是：\n需要覆盖的重点：\n\n请先 deep_research 并列出研究大纲（待我确认），再起草正文；制度要点请区分效力层级。",
     steps: [
+      {
+        stepId: "research",
+        assignee: "compliance_researcher",
+        task: "深度研究并落盘证据大纲（deep_research / research_task）",
+        dependsOn: [],
+        autoApprove: false,
+      },
+      {
+        stepId: "outline_confirm",
+        assignee: "compliance_researcher",
+        task: "等待律师确认研究大纲（research_outline_confirm）",
+        dependsOn: ["research"],
+        autoApprove: false,
+      },
       {
         stepId: "report",
         assignee: "compliance_researcher",
-        task: "生成研究报告或内部分享材料",
-        dependsOn: [],
+        task: "大纲确认后起草学习型调研简报（report.learning）并附来源",
+        dependsOn: ["outline_confirm"],
         autoApprove: false,
       },
     ],
@@ -138,6 +166,49 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
     ],
   },
   {
+    id: "mail-contract-redline",
+    name: "邮件合同审阅改稿",
+    namedAgent: "Mail Contract Redliner",
+    description:
+      "以邮件合同附件为基线：.doc/.docx 一等公民，短路径最小改稿 + 审阅痕迹；PDF/图片等走意见书。准备待律师批准的外发（不自动发送）。",
+    practiceArea: "commercial",
+    deliverableType: "contract.general",
+    riskLevel: "medium",
+    audience: "solo",
+    kind: "matter",
+    starterPrompt:
+      "短路径：基线路径已给 → 最小改 → render_tracked_draft → prepare_outbound_mail。禁止反复检索案卷/项目文件。",
+    acceptancePackRequired: true,
+    requiredSources: ["邮件合同附件"],
+    // 自动化短路径：仅预批准「待拍板」类工具（strict Edition 下不打断短路径）；
+    // send_email 仍须律师在在办拍板，不在此列。
+    preApproveToolNames: ["apply_surgical_edits", "render_tracked_draft", "prepare_outbound_mail"],
+    steps: [
+      {
+        stepId: "redline",
+        assignee: "contract_review",
+        assigneeRoleId: "contract_review",
+        task: [
+          "{{instruction}}",
+          "",
+          "短路径执行约束（勿 search_workspace/read_project_file/list_mail_*；勿再问审查重点/己方立场）：",
+          "analyze_document 一次（通读）→ draft/update_draft（contract_edit_baseline_path + seed）→ apply_surgical_edits（跨度硬门禁：最短字/词锚定 + craft_check；能改几个字就只改几个字；段内只改有问题的句子；条数不限；其余 deferred）→ render_tracked_draft 写入源文件同目录（原名_日期_01.docx，不打开 Word）。",
+          "整句/整段/整节删除重写会被硬门禁跳过。空修订不得 render（redlinePending=0）。勿另开完整意见书流程。",
+        ].join("\n"),
+        dependsOn: [],
+        autoApprove: true,
+      },
+      {
+        stepId: "handoff",
+        assignee: "contract_review",
+        assigneeRoleId: "contract_review",
+        task: "prepare_outbound_mail（附件=上一步 cases/{{matterId}}/ 审阅稿路径）；禁止 send_email；交律师签批。",
+        dependsOn: ["redline"],
+        autoApprove: false,
+      },
+    ],
+  },
+  {
     id: "vendor-agreement-review",
     name: "供应商协议审查",
     namedAgent: "Vendor Agreement Reviewer",
@@ -153,7 +224,8 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
     steps: [
       {
         stepId: "review",
-        assignee: "contract_reviewer",
+        assignee: "contract_review",
+        assigneeRoleId: "contract_review",
         task: "供应商协议条款审查与风险清单（matterId={{matterId}}）",
         dependsOn: [],
         autoApprove: false,
@@ -247,7 +319,8 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
       },
       {
         stepId: "review",
-        assignee: "contract_reviewer",
+        assignee: "contract_review",
+        assigneeRoleId: "contract_review",
         task: "按尽调审查表输出分文档风险摘要（matterId={{matterId}}）",
         dependsOn: ["inventory"],
         autoApprove: false,
@@ -280,19 +353,35 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
     id: "compliance-research-memo",
     name: "合规研究报告",
     namedAgent: "Regulatory Research Analyst",
-    description: "针对监管问题检索规范层级并输出可复核合规备忘录。",
+    description:
+      "针对监管问题做 URL/权威检索，输出可复核涉外合规卷宗备忘录（含管辖矩阵与来源附录）。",
     practiceArea: "compliance",
-    deliverableType: "document.general",
+    deliverableType: "report.compliance",
     riskLevel: "medium",
     audience: "firm",
     kind: "matter",
-    starterPrompt: "请就本案监管问题做合规研究：规范层级、适用边界与结论清单。",
+    starterPrompt:
+      "请就本案监管问题做合规研究卷宗：问题陈述、简要结论、管辖区效力矩阵、按风险域发现、行动建议与来源附录。若有官网/法规 URL 请先 url_dossier / deep_research；不确定处标 [VERIFY]。请先给大纲待我确认后再写正文。",
     steps: [
       {
         stepId: "research",
         assignee: "compliance_researcher",
-        task: "合规检索与备忘录（matterId={{matterId}}）",
+        task: "URL/权威检索与深度研究（matterId={{matterId}}；deep_research / url_dossier；deliverableType=report.compliance）",
         dependsOn: [],
+        autoApprove: false,
+      },
+      {
+        stepId: "outline_confirm",
+        assignee: "compliance_researcher",
+        task: "输出研究大纲并等待律师确认（research_outline_confirm）；未确认不得扩写正文",
+        dependsOn: ["research"],
+        autoApprove: false,
+      },
+      {
+        stepId: "memo",
+        assignee: "compliance_researcher",
+        task: "大纲确认后起草合规卷宗备忘录（含管辖矩阵与来源附录）；可用 existing_task_id 续跑",
+        dependsOn: ["outline_confirm"],
         autoApprove: false,
       },
     ],
@@ -313,7 +402,8 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
     steps: [
       {
         stepId: "scan",
-        assignee: "contract_reviewer",
+        assignee: "contract_review",
+        assigneeRoleId: "contract_review",
         task: "提取到期与续签条款并输出提醒备忘（matterId={{matterId}}）",
         dependsOn: [],
         autoApprove: false,

@@ -7,11 +7,12 @@ import { describe, expect, it, vi } from "vitest";
 import { LawmindReviewDeliveryBar } from "./LawmindReviewDeliveryBar";
 
 describe("LawmindReviewDeliveryBar", () => {
-  it("writing variant routes signoff to 在办 and hides 通过/驳回/需修改", async () => {
+  it("writing variant exports locally and hides 通过/驳回/需修改", async () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const root = createRoot(host);
     const onOpenAgentsDesk = vi.fn();
+    const onExportWord = vi.fn();
     await act(async () => {
       root.render(
         <LawmindReviewDeliveryBar
@@ -22,26 +23,29 @@ describe("LawmindReviewDeliveryBar", () => {
           onReject={() => undefined}
           onModify={() => undefined}
           onReopen={() => undefined}
-          onExportWord={() => undefined}
+          onExportWord={onExportWord}
           variant="writing"
           onOpenAgentsDesk={onOpenAgentsDesk}
         />,
       );
     });
-    expect(host.textContent).toContain("回到在办签批");
-    expect(host.textContent).toContain("改稿、批注并预览");
+    expect(host.textContent).not.toContain("回到在办签批");
+    expect(host.textContent).not.toContain("改稿、批注并预览");
     const labels = Array.from(host.querySelectorAll("button")).map((b) => b.textContent?.trim());
     expect(labels).not.toContain("通过");
     expect(labels).not.toContain("驳回");
     expect(labels).not.toContain("需修改");
-    const back = Array.from(host.querySelectorAll("button")).find((b) =>
-      b.textContent?.includes("回到在办签批"),
+    expect(labels).not.toContain("恢复待审核");
+    expect(labels).toContain("导出审查意见书");
+    const exportBtn = Array.from(host.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("导出审查意见书"),
     );
-    expect(back).toBeTruthy();
+    expect(exportBtn).toBeTruthy();
     await act(async () => {
-      back?.click();
+      exportBtn?.click();
     });
-    expect(onOpenAgentsDesk).toHaveBeenCalledTimes(1);
+    expect(onExportWord).toHaveBeenCalledWith({ strict: false });
+    expect(onOpenAgentsDesk).not.toHaveBeenCalled();
     root.unmount();
     host.remove();
   });

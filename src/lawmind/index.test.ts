@@ -74,7 +74,7 @@ describe("LawMind Engine", () => {
     expect(draft.reviewStatus).toBe("pending");
     expect(draft.title).toBe("Integration Test 律师函草稿");
     expect(draft.sections.length).toBeGreaterThanOrEqual(1);
-    expect(draft.sections[0].heading).toBe("抬头");
+    expect(draft.sections[0].heading).toBe("收函人");
     expect(draft.sections.map((s) => s.heading)).toContain("事实背景");
     expect(engine.getDraft(intent.taskId)?.title).toBe("Integration Test 律师函草稿");
 
@@ -197,7 +197,7 @@ describe("LawMind Engine", () => {
     expect(bundle.claims.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("render returns error when draft is not approved", async () => {
+  it("render returns error when draft is rejected", async () => {
     const mockGeneral = createGeneralModelAdapter(async () => ({
       claims: [],
       sources: [],
@@ -210,11 +210,12 @@ describe("LawMind Engine", () => {
     const intent = engine.plan("审查合同");
     const bundle = await engine.research(intent);
     const draft = engine.draft(intent, bundle);
+    const rejected = await engine.review(draft, { actorId: "lawyer:test", status: "rejected" });
 
-    expect(draft.reviewStatus).toBe("pending");
-    const result = await engine.render(draft);
+    expect(rejected.reviewStatus).toBe("rejected");
+    const result = await engine.render(rejected);
     expect(result.ok).toBe(false);
-    expect(result.error).toContain("未通过审核");
+    expect(result.error).toContain("已驳回");
 
     const auditDir = path.join(workspaceDir, "audit");
     const auditEvents = await readAllAuditLogs(auditDir);

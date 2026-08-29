@@ -20,5 +20,7 @@ describe("deliverable-pipeline", () => {
     const note = buildDeliverablePipelineSystemNote("撰写 ESG 年度报告");
     expect(note).toContain("execute_workflow");
     expect(note).toContain("审核");
+    expect(note).toContain("原则指针");
+    expect(note).not.toContain("禁止仅在对话里粘贴");
   });
 });

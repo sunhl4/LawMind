@@ -694,9 +694,10 @@
   border-bottom: 1px solid var(--border);
 }
 
-/* With chat list: materials tree shrinks; 对话 section takes remaining height. */
+/* With chat list: materials tree shrinks; 对话 section takes remaining height.
+   用 flex 比例拿确定高度（勿用 flex-basis:auto），否则子树 height:100% 无法约束，滚轮无效。 */
 .lm-side-with-chat-sessions .lm-side-explorer-host {
-  flex: 0 1 auto;
+  flex: 1 1 0%;
   max-height: 48%;
   min-height: 0;
 }
@@ -899,13 +900,14 @@
   height: 100%;
 }
 
-/* 嵌入左栏：与侧栏同宽，无额外竖线 */
+/* 嵌入左栏：与侧栏同宽，无额外竖线；滚动交给内层 .lm-files-explorer-scroll */
 .lm-files-explorer.lm-file-explorer-embedded {
   border-right: none;
   width: 100% !important;
   height: 100%;
   min-height: 0;
-  flex: 1;
+  flex: 1 1 auto;
+  overflow: hidden;
   padding: 6px 8px 8px;
 }
 
@@ -1102,6 +1104,8 @@
   border: 1px solid var(--border);
   background: var(--bg-elevated, var(--bg));
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  /* 与案件右键菜单同级；勿用内联 99999 */
+  z-index: 2000;
 }
 
 .lm-chat-session-tab-menu-item {
@@ -1187,17 +1191,65 @@
   width: 300px;
   border-right: 1px solid var(--border);
   padding: 8px;
-  overflow-y: auto;
-  overflow-x: hidden;
-  overscroll-behavior: contain;
+  overflow: hidden;
   min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.lm-files-explorer::-webkit-scrollbar { width: 3px; }
-.lm-files-explorer::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 2px; }
+/* 与侧栏对话列表 / 消息区同一套滚动：内层吃剩余高度，滚轮与细滚动条可用 */
+.lm-files-explorer-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(40, 32, 22, 0.18) transparent;
+}
+
+/*
+ * 子项（工作区 / 案件材料）带 overflow:hidden 时，flex 会把 min-size 当成 0，
+ * 目录展开后被压扁裁切而不是把滚动交给本容器。禁止收缩，行为与「对话记录」一致。
+ */
+.lm-files-explorer-scroll > * {
+  flex-shrink: 0;
+}
+
+.lm-files-explorer-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.lm-files-explorer-scroll::-webkit-scrollbar-thumb {
+  background: rgba(40, 32, 22, 0.14);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.lm-files-explorer-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(40, 32, 22, 0.22);
+  background-clip: padding-box;
+}
+
+html.lm-theme-dark .lm-files-explorer-scroll {
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+
+html.lm-theme-dark .lm-files-explorer-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  background-clip: padding-box;
+}
+
+html.lm-theme-dark .lm-files-explorer-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+  background-clip: padding-box;
+}
 
 .lm-files-editor {
   flex: 1;

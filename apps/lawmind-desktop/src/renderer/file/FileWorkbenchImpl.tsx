@@ -34,6 +34,13 @@ import {
 import { LM_PANE_MAX_WIDTH_PX, LM_PANE_MIN_WIDTH_PX } from "../lawmind-panel-layout";
 import { usePaneResizePx } from "../use-pane-resize";
 import { FileWorkbenchView } from "./FileWorkbenchView";
+import {
+  consumePendingOpenWorkspaceFile,
+  LAWMIND_OPEN_WORKSPACE_FILE_EVENT,
+  type OpenWorkspaceFileDetail,
+} from "../lawmind-workspace-file-open";
+import { setActiveWorkbenchWordFile } from "../lawmind-active-word-file";
+import { rememberFileContextPath } from "../lawmind-compose-context";
 
 export function FileWorkbench(props: FileWorkbenchProps) {
   const {
@@ -43,6 +50,7 @@ export function FileWorkbench(props: FileWorkbenchProps) {
     canUseFilesystemBridge,
     onAddToChatContext,
     addToContextLabel,
+    onSendContractForReview,
     portalHosts,
     workspaceExplorerToolbar,
     casesNodeActions,
@@ -70,6 +78,25 @@ export function FileWorkbench(props: FileWorkbenchProps) {
     name: string;
     mode?: "office" | "binary";
   } | null>(null);
+  useEffect(() => {
+    const fromOffice =
+      officeBlock && /\.docx?$/i.test(officeBlock.relPath)
+        ? { root: officeBlock.root, relPath: officeBlock.relPath }
+        : null;
+    const fromSelected =
+      selected?.kind === "file" && /\.docx?$/i.test(selected.path)
+        ? { root: selected.root, relPath: selected.path }
+        : null;
+    const next = fromOffice ?? fromSelected;
+    setActiveWorkbenchWordFile(next);
+    if (next) {
+      rememberFileContextPath({ ...next, kind: "file" });
+    }
+    return () => {
+      setActiveWorkbenchWordFile(null);
+    };
+  }, [officeBlock, selected]);
+
   const [imagePreview, setImagePreview] = useState<{
     root: RootKey;
     relPath: string;
@@ -412,6 +439,74 @@ export function FileWorkbench(props: FileWorkbenchProps) {
       setBusy(false);
     }
   }, [tabs]);
+
+  /** Deep-link from 交办结果 / 文书台：打开工作区相对路径并展开父目录。 */
+  const openWorkspaceRelPath = useCallback(
+    async (rawPath: string) => {
+      const relPath = rawPath.trim().replace(/^[/\\]+/, "");
+      if (!relPath) {
+        return;
+      }
+      const parts = relPath.split(/[/\\]/).filter(Boolean);
+      let walk = "";
+      const expand: Record<string, boolean> = {};
+      for (let i = 0; i < parts.length - 1; i++) {
+        walk = walk ? `${walk}/${parts[i]}` : parts[i];
+        expand[keyOf("workspace", walk)] = true;
+        try {
+          await refreshDir("workspace", walk);
+        } catch {
+          /* parent may be missing; openFile still surfaces error */
+        }
+      }
+      if (parts[0] === "cases") {
+        setCasesSectionOpen(true);
+        expand[keyOf("workspace", "cases")] = true;
+        try {
+          await refreshDir("workspace", "cases");
+        } catch {
+          /* ignore */
+        }
+      } else {
+        setWorkSectionOpen(true);
+      }
+      setExpanded((prev) => ({ ...prev, ...expand }));
+      await openFile("workspace", relPath);
+    },
+    [openFile, refreshDir],
+  );
+
+  // 串行消费深链请求：连点不再被 in-flight 去重吞掉；挂载时消费 pending 路径。
+  const openWorkspaceFileChainRef = useRef<Promise<void>>(Promise.resolve());
+  const enqueueWorkspaceFileOpen = useCallback(
+    (relPath: string) => {
+      const run = () => openWorkspaceRelPath(relPath).catch(() => undefined);
+      openWorkspaceFileChainRef.current = openWorkspaceFileChainRef.current.then(run, run);
+    },
+    [openWorkspaceRelPath],
+  );
+
+  useEffect(() => {
+    if (!canUseFilesystemBridge) {
+      return;
+    }
+    // 挂载消费：深链在本组件挂载前发出时，事件已错过但 pending 仍在。
+    const pending = consumePendingOpenWorkspaceFile();
+    if (pending) {
+      enqueueWorkspaceFileOpen(pending);
+    }
+    const onOpen = (ev: Event) => {
+      const detail = (ev as CustomEvent<OpenWorkspaceFileDetail>).detail;
+      const relPath = detail?.relPath?.trim().replace(/^[/\\]+/, "") ?? "";
+      if (!relPath) {
+        return;
+      }
+      consumePendingOpenWorkspaceFile();
+      enqueueWorkspaceFileOpen(relPath);
+    };
+    window.addEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onOpen);
+    return () => window.removeEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onOpen);
+  }, [canUseFilesystemBridge, enqueueWorkspaceFileOpen]);
 
   // ── Close tab ────────────────────────────────────────────────
   const closeTab = (tabId: string) => {
@@ -764,6 +859,7 @@ export function FileWorkbench(props: FileWorkbenchProps) {
       canUseFilesystemBridge={canUseFilesystemBridge}
       onAddToChatContext={onAddToChatContext}
       addToContextLabel={addToContextLabel}
+      onSendContractForReview={onSendContractForReview}
       portalHosts={portalHosts}
       workspaceExplorerToolbar={workspaceExplorerToolbar}
       casesNodeActions={casesNodeActionsResolved}

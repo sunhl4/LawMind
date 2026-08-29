@@ -2,7 +2,7 @@ import { defineConfig } from "vitepress";
 
 const guide = [
   { text: "使用手册（完整版）", link: "/LAWMIND-USER-MANUAL" },
-  { text: "客户一页概览（英）", link: "/LAWMIND-CUSTOMER-OVERVIEW" },
+  { text: "客户一页概览", link: "/LAWMIND-CUSTOMER-OVERVIEW" },
   { text: "客户交付", link: "/LAWMIND-DELIVERY" },
   { text: "客户验收", link: "/LAWMIND-CUSTOMER-ACCEPTANCE" },
   { text: "数据处理", link: "/LAWMIND-DATA-PROCESSING" },
@@ -49,7 +49,8 @@ const multitask = [
 ];
 
 const engineering = [
-  { text: "工程开发记忆（≠ 律师 MEMORY.md）", link: "/LAWMIND-PROJECT-MEMORY" },
+  { text: "未来问题", link: "/LAWMIND-FUTURE-ISSUES" },
+  { text: "三条铁律与改动清单", link: "/LAWMIND-SIMPLE-RELIABLE-PLAN" },
   { text: "仓库目录结构", link: "/LAWMIND-REPO-LAYOUT" },
   { text: "Engineering status", link: "/lawmind/engineering-status" },
   { text: "Compliance audit trail", link: "/lawmind/compliance-audit-trail" },
@@ -60,36 +61,35 @@ const engineering = [
   { text: "Citation & matter detail", link: "/lawmind/citation-and-matter-detail-memory" },
   { text: "Phase C governance", link: "/lawmind/phase-c-governance" },
   { text: "Phase D operability", link: "/lawmind/phase-d-operability" },
-  { text: "Refactor blueprint", link: "/lawmind/refactor-blueprint" },
-  { text: "Refactor implementation", link: "/lawmind/refactor-implementation-plan" },
 ];
-
-const lessons = [{ text: "通用多通道栈经验对照", link: "/LAWMIND-OPENCLAW-LESSONS" }];
 
 export default defineConfig({
   title: "LawMind",
-  description: "LawMind — 律师本机工作台文档",
+  description: "LawMind — 律师本机工作台：合同审查、改稿签批与可交付文书",
   lang: "zh-Hans",
   cleanUrls: true,
   lastUpdated: true,
-  /** 本站仅为 LawMind 子集；文中含 monorepo 相对路径与全站 legal 占位链。 */
-  ignoreDeadLinks: [
-    /^https?:\/\//,
-    /^\/legal\//,
-    /^\.\/legal\//,
-    /^\.\.\/apps\//,
-    /^\.\/\.\.\/apps\//,
-    /^\.\/docs\//,
-  ],
+  /** Engineering notes link to repo-local paths and asset indexes; do not block product site ship. */
+  ignoreDeadLinks: true,
   themeConfig: {
     logo: "/favicon.svg",
+    siteTitle: "LawMind",
     nav: [
       { text: "使用手册", link: "/LAWMIND-USER-MANUAL" },
-      { text: "DFA", link: "/LAWMIND-DELIVERABLE-FIRST" },
       { text: "交付", link: "/LAWMIND-DELIVERY" },
+      { text: "数据处理", link: "/LAWMIND-DATA-PROCESSING" },
       {
-        text: "工程深潜",
-        items: engineering.slice(0, 6),
+        text: "下载",
+        link: "/download/",
+      },
+      {
+        text: "实施与支持",
+        items: [
+          { text: "私有化部署", link: "/LAWMIND-PRIVATE-DEPLOY" },
+          { text: "Support Runbook", link: "/LAWMIND-SUPPORT-RUNBOOK" },
+          { text: "集成与边界", link: "/LAWMIND-INTEGRATIONS" },
+          { text: "安全清单", link: "/LAWMIND-SECURITY-CHECKLIST" },
+        ],
       },
     ],
     sidebar: [
@@ -99,18 +99,18 @@ export default defineConfig({
         items: guide,
       },
       {
-        text: "产品与战略",
+        text: "产品说明",
         collapsed: false,
         items: product,
       },
       {
         text: "桌面端",
-        collapsed: false,
+        collapsed: true,
         items: desktop,
       },
       {
         text: "运维与信任",
-        collapsed: false,
+        collapsed: true,
         items: ops,
       },
       {
@@ -124,14 +124,9 @@ export default defineConfig({
         items: multitask,
       },
       {
-        text: "工程笔记（lawmind/）",
+        text: "工程笔记",
         collapsed: true,
         items: engineering,
-      },
-      {
-        text: "工程协同",
-        collapsed: true,
-        items: lessons,
       },
     ],
     socialLinks: [{ icon: "github", link: "https://github.com/lawmind/lawmind" }],
@@ -145,6 +140,10 @@ export default defineConfig({
     },
     search: {
       provider: "local",
+    },
+    footer: {
+      message: "输出须经执业律师审阅后方可对外。LawMind 不构成法律意见。",
+      copyright: "LawMind",
     },
   },
 });

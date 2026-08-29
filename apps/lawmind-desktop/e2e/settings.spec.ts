@@ -12,7 +12,7 @@ test.describe("LawMind settings page", () => {
     await page.getByRole("complementary").getByRole("button", { name: "设置" }).click({ timeout: 60_000 });
     await expect(page.getByRole("region", { name: "设置" })).toBeVisible();
     await expect(page.locator(".lm-main-header-settings")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "开始使用", level: 2 })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "模型与连接", level: 2 })).toBeVisible();
 
     const search = page.getByRole("searchbox", { name: "搜索设置项" });
     await search.fill("外观");
@@ -25,20 +25,34 @@ test.describe("LawMind settings page", () => {
 
     await search.fill("模型");
     await search.press("Enter");
-    await expect(page.getByRole("heading", { name: "模型/API", level: 2 })).toBeVisible({
+    await expect(page.getByRole("heading", { name: "模型与连接", level: 2 })).toBeVisible({
       timeout: 15_000,
     });
 
     await search.fill("内测");
     await search.press("Enter");
-    await expect(page.getByRole("heading", { name: "开始使用", level: 2 })).toBeVisible({
+    await expect(page.getByRole("heading", { name: "系统健康", level: 2 })).toBeVisible({
       timeout: 15_000,
     });
+    const doctorAdmin = page.getByTestId("lm-doctor-admin");
+    if ((await doctorAdmin.getAttribute("open")) === null) {
+      await doctorAdmin.locator("summary").first().click();
+    }
     const teamGrowth = page.getByTestId("lm-doctor-team-growth");
     await expect(teamGrowth).toBeVisible({ timeout: 15_000 });
     await expect(teamGrowth).toContainText("团队成长 · 内测指标");
     await expect(teamGrowth).toContainText("主力一次过率");
     await expect(page.getByTestId("lm-doctor-team-growth-baseline")).toBeVisible();
+    await expect(page.getByTestId("lm-doctor-north-star")).toBeVisible();
+    await expect(page.getByTestId("lm-doctor-north-star")).toContainText("交付北极星");
+
+    await search.fill("扫描");
+    await search.press("Enter");
+    await expect(page.getByRole("heading", { name: "工作区", level: 2 })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId("lm-historical-scan")).toBeVisible();
+    await expect(page.getByTestId("lm-historical-scan")).toContainText("扫描历史材料");
 
     await page.getByRole("button", { name: "关闭设置并返回" }).first().click();
     await expect(page.getByRole("region", { name: "设置" })).toHaveCount(0, { timeout: 15_000 });

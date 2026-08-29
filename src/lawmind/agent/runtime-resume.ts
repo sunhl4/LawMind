@@ -10,7 +10,9 @@ import {
   type ResumeRequiresActionInput,
 } from "../platform/requires-action.js";
 import { runTurn } from "./runtime.js";
+import { withSessionTurnGate } from "./session-turn-gate.js";
 import { loadSession, saveSession } from "./session.js";
+import { resolveToolCallBudgets } from "./tool-budget.js";
 import type { ToolRegistry } from "./tools/index.js";
 import type { AgentConfig, AgentMessage, AgentTurn } from "./types.js";
 
@@ -37,6 +39,17 @@ export async function resumeTurn(
   input: ResumeRequiresActionInput,
   opts: ResumeTurnOpts,
 ): Promise<ResumeTurnResult> {
+  return withSessionTurnGate(config.workspaceDir, input.sessionId, () =>
+    resumeTurnUngated(config, registry, input, opts),
+  );
+}
+
+async function resumeTurnUngated(
+  config: AgentConfig,
+  registry: ToolRegistry,
+  input: ResumeRequiresActionInput,
+  opts: ResumeTurnOpts,
+): Promise<ResumeTurnResult> {
   const session = loadSession(config.workspaceDir, input.sessionId);
   if (!session) {
     throw new Error("session_not_found");
@@ -49,6 +62,8 @@ export async function resumeTurn(
 
   if (action.kind === "clarification" && input.decision === "respond") {
     session.pendingRequiresAction = undefined;
+    // 律师已通过结构化卡片逐条作答：清除跨轮澄清键，解除本轮重工具硬门禁。
+    session.pendingClarificationKeys = undefined;
     saveSession(config.workspaceDir, session);
     const qs = action.clarificationQuestions ?? [];
     const msg = formatClarificationResumeMessage(input.clarificationAnswers ?? {}, qs);
@@ -62,6 +77,7 @@ export async function resumeTurn(
       linkedTaskId: opts.linkedTaskId,
       onEvent: opts.onEvent,
       liveProgressSessionId: opts.liveProgressSessionId,
+      skipSessionTurnGate: true,
     });
   }
 
@@ -130,6 +146,74 @@ export async function resumeTurn(
         preApproveToolArgs: edited ?? action.toolArgs,
         onEvent: opts.onEvent,
         liveProgressSessionId: opts.liveProgressSessionId,
+        skipSessionTurnGate: true,
+      });
+    }
+  }
+
+  if (action.kind === "continue_tools") {
+    if (input.decision === "reject") {
+      session.pendingRequiresAction = undefined;
+      const reply = "已先停在这里。需要时再打开对话继续。";
+      const agentMsg: AgentMessage = {
+        role: "assistant",
+        content: reply,
+        timestamp: new Date().toISOString(),
+      };
+      session.conversationHistory.push(agentMsg);
+      const lastTurn = session.turns[session.turns.length - 1];
+      if (lastTurn) {
+        lastTurn.status = "completed";
+        lastTurn.result = reply;
+        lastTurn.requiresAction = undefined;
+        lastTurn.completedAt = new Date().toISOString();
+        lastTurn.executionState = executionStateFromTurn(lastTurn);
+      }
+      saveSession(config.workspaceDir, session);
+      const turn: AgentTurn = lastTurn ?? {
+        turnId: action.taskId ?? "resume",
+        sessionId: session.sessionId,
+        instruction: "",
+        messages: [agentMsg],
+        toolCallsExecuted: 0,
+        status: "completed",
+        result: reply,
+        startedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+      };
+      return {
+        turn,
+        reply,
+        sessionId: session.sessionId,
+        memoryContext: await loadMemoryContext(config.workspaceDir, {
+          matterId: session.matterId,
+        }),
+      };
+    }
+
+    if (input.decision === "approve") {
+      session.pendingRequiresAction = undefined;
+      saveSession(config.workspaceDir, session);
+      const lastTurn = session.turns[session.turns.length - 1];
+      const priorUsed =
+        typeof action.toolCallsExecuted === "number" && action.toolCallsExecuted > 0
+          ? action.toolCallsExecuted
+          : (lastTurn?.toolCallsExecuted ?? 0);
+      const budgets = resolveToolCallBudgets(config.maxToolCalls);
+      return runTurn({
+        config: { ...config, maxToolCalls: budgets.soft },
+        registry,
+        instruction:
+          "【从检查点继续】律师同意继续本轮。请在已有对话与工具结果上接着完成，不要重复已成功的步骤。",
+        sessionId: session.sessionId,
+        matterId: session.matterId ?? opts.matterId,
+        projectDir: opts.projectDir,
+        linkedTaskId: opts.linkedTaskId,
+        onEvent: opts.onEvent,
+        liveProgressSessionId: opts.liveProgressSessionId,
+        skipSessionTurnGate: true,
+        skipToolBudgetCheckpoint: true,
+        initialToolCallsExecuted: priorUsed,
       });
     }
   }
@@ -141,6 +225,17 @@ export async function resumeTurn(
  * Resume after user Stop when the last turn was checkpointed as `paused`.
  */
 export async function resumePausedTurn(
+  config: AgentConfig,
+  registry: ToolRegistry,
+  sessionId: string,
+  opts?: ResumeTurnOpts & { extraInstruction?: string },
+): Promise<ResumeTurnResult> {
+  return withSessionTurnGate(config.workspaceDir, sessionId, () =>
+    resumePausedTurnUngated(config, registry, sessionId, opts),
+  );
+}
+
+async function resumePausedTurnUngated(
   config: AgentConfig,
   registry: ToolRegistry,
   sessionId: string,
@@ -183,5 +278,8 @@ export async function resumePausedTurn(
     linkedTaskId: opts?.linkedTaskId,
     onEvent: opts?.onEvent,
     liveProgressSessionId: opts?.liveProgressSessionId,
+    skipSessionTurnGate: true,
+    skipToolBudgetCheckpoint: true,
+    initialToolCallsExecuted: last.toolCallsExecuted,
   });
 }

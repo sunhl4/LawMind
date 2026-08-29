@@ -122,6 +122,7 @@ export function pickAgentFleetViewProps(props: LawmindMainBodyContentProps): Age
       props.onOpenReviewFromWorkspace({ matterId });
     },
     onOpenMemoryInspector: props.onOpenMemoryInspector,
+    onOpenDoctor: props.onOpenDoctor,
     onShowArtifact: props.onShowArtifact,
     agentsDeskTab: props.agentsDeskTab,
     onAgentsDeskTabChange: props.onAgentsDeskTabChange,
@@ -129,6 +130,8 @@ export function pickAgentFleetViewProps(props: LawmindMainBodyContentProps): Age
     onClearNeedsDecisionFocus: props.onClearNeedsDecisionFocus,
     focusTarget: props.agentsDeskFocusTarget,
     onFocusTargetConsumed: props.onAgentsDeskFocusTargetConsumed,
+    workflowFocus: props.agentsWorkflowFocus,
+    onWorkflowFocusConsumed: props.onAgentsWorkflowFocusConsumed,
     collabSummarySettings: props.collabSummarySettings,
     selectedAssistantId: props.selectedAssistantId,
     delegations: props.delegations,

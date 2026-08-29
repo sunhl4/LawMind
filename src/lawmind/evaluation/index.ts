@@ -32,6 +32,18 @@ export {
   type LegalReplayFixture,
 } from "./replay-fixtures.js";
 export {
+  BUILTIN_SHADOW_FIXTURES,
+  loadShadowFixtures,
+  runShadowReplay,
+  textOverlapRatio,
+} from "./shadow-replay.js";
+export type {
+  ShadowReplayCaseResult,
+  ShadowReplayFixture,
+  ShadowReplayReport,
+  ShadowReplaySummary,
+} from "./shadow-replay.js";
+export {
   buildReleaseReadinessReportMarkdown,
   type ReleaseReadinessInput,
 } from "./release-report.js";

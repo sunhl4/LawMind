@@ -14,7 +14,7 @@ Built-in template metadata lives in `src/lawmind/templates/index.ts` (`BuiltInTe
 
 ## Placeholders
 
-- Word: use `{{field.path}}` style placeholders; run `scanDocxPlaceholders` when registering uploads.
+- Word: use mustache placeholders (double curly braces around a dotted path such as `field.path`); run `scanDocxPlaceholders` when registering uploads.
 - PPT: slide layouts follow the same registry; see `render-pptx.ts` for output wiring.
 - Draft fields are mapped via `suggestPlaceholderFieldPaths` and template `placeholderMap` on uploaded records.
 

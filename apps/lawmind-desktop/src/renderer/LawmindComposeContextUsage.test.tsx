@@ -32,7 +32,7 @@ describe("LawmindComposeContextUsage", () => {
     });
     expect(host.querySelector('[data-testid="lm-compose-ctx-usage-panel"]')).toBeTruthy();
     expect(host.textContent).toContain("整理上下文");
-    expect(host.textContent).toContain("沉淀到知识库");
+    expect(host.textContent).toContain("整理并沉淀");
     await act(async () => {
       host.querySelector<HTMLButtonElement>('[data-testid="lm-compose-open-memory"]')?.click();
     });

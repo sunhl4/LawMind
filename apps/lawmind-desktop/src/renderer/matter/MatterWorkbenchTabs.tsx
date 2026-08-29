@@ -10,7 +10,7 @@ const MATTER_TABS: TabDef[] = [
   { id: "tasks", label: "任务" },
   { id: "timeline", label: "时间线" },
   { id: "matrix", label: "审查矩阵" },
-  { id: "cognition", label: "认知" },
+  { id: "cognition", label: "经验" },
 ];
 
 const SHELL_OPS_TABS: TabDef[] = [

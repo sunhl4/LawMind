@@ -30,7 +30,7 @@ function usage(): never {
   console.error(`Usage: open-law-corpus-convert --in <path> --out <path.jsonl> [options]
 
 Options:
-  --format auto|flk_json|article_line   (default: auto)
+  --format auto|flk_json|article_line|hf_china_laws   (default: auto)
   --limit N                             max records
   --demo                                mark all records demo:true
 `);
@@ -46,7 +46,10 @@ function main(): void {
   }
   const formatRaw = (argValue(argv, "--format") ?? "auto").trim().toLowerCase();
   const format =
-    formatRaw === "flk_json" || formatRaw === "article_line" || formatRaw === "auto"
+    formatRaw === "flk_json" ||
+    formatRaw === "article_line" ||
+    formatRaw === "hf_china_laws" ||
+    formatRaw === "auto"
       ? formatRaw
       : "auto";
   const limitRaw = argValue(argv, "--limit");

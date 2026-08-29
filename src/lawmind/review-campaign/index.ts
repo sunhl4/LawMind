@@ -16,6 +16,14 @@ export {
   resolveDefaultPlaybookId,
 } from "./playbooks.js";
 export { aggregateSafetyScore } from "./safety-score.js";
+export {
+  appendCampaignUpgradeInstruction,
+  extractReviewBrief,
+  formatReviewBriefHeader,
+  mergeReviewBriefs,
+  mergeSourceTextWithBrief,
+  type ReviewBrief,
+} from "./review-brief.js";
 export { rerunCampaignRole, runCampaignRolesSerial } from "./serial-runner.js";
 export {
   cancelReviewCampaign,

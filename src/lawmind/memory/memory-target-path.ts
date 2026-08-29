@@ -47,6 +47,9 @@ export function resolveMemoryTargetRelativePath(
     case "opponent":
       return "playbooks/COURT_AND_OPPONENT_PROFILE.md";
     case "project":
+      if (record.kind === "historical.knowledge") {
+        return "memory/topics/historical-scan.md";
+      }
       return null;
     default:
       return null;

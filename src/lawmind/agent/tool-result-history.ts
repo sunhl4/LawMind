@@ -3,11 +3,14 @@
  * cannot consume the whole context window.
  */
 
+import { writeToolResultSpill, type ToolResultSpillContext } from "./tool-result-spill.js";
 import type { ToolCallResult } from "./types.js";
 
 export type ToolResultHistoryOpts = {
   /** Soft char budget for stringified tool content (default 16k ≈ 4k tokens @ chars/4). */
   maxChars?: number;
+  /** When set and the payload is truncated, persist the full result beside the session. */
+  spill?: ToolResultSpillContext;
 };
 
 const DEFAULT_MAX_CHARS = 16_000;
@@ -18,6 +21,30 @@ function estimateChars(value: unknown): number {
   } catch {
     return String(value).length;
   }
+}
+
+function pickCraftDataFields(data: unknown): Record<string, unknown> | undefined {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return undefined;
+  }
+  const src = data as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of [
+    "taskId",
+    "warning",
+    "craftSignals",
+    "gateDecision",
+    "redlinePending",
+    "deliveryReadiness",
+    "clarificationQuestions",
+    "code",
+    "message",
+  ] as const) {
+    if (key in src) {
+      out[key] = src[key];
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function pickKeyFields(result: Record<string, unknown>): Record<string, unknown> {
@@ -31,12 +58,23 @@ function pickKeyFields(result: Record<string, unknown>): Record<string, unknown>
     "needsMatter",
     "taskId",
     "path",
+    "spillPath",
     "truncated",
+    "aborted",
+    "timedOut",
     "clarificationQuestions",
+    "warning",
+    "craftSignals",
+    "gateDecision",
+    "redlinePending",
   ] as const) {
     if (key in result) {
       out[key] = result[key];
     }
+  }
+  const nested = pickCraftDataFields(result.data);
+  if (nested) {
+    out.data = nested;
   }
   return out;
 }
@@ -63,12 +101,16 @@ export function summarizeToolResultForHistory(
     if ((raw?.length ?? 0) <= maxChars) {
       return result;
     }
+    const spillPath = opts.spill ? writeToolResultSpill(opts.spill, result) : undefined;
     return {
       ok: false,
       truncated: true,
       error: "tool_result_truncated",
-      message: `工具结果过长（约 ${raw?.length ?? 0} 字符），已截断。请用专用工具按需重读。`,
+      message: spillPath
+        ? `工具结果过长（约 ${raw?.length ?? 0} 字符），已截断。全文另存 ${spillPath}，需要细节时用 analyze_document 读取该路径。`
+        : `工具结果过长（约 ${raw?.length ?? 0} 字符），已截断。请用专用工具按需重读。`,
       preview: String(raw).slice(0, Math.min(2_000, maxChars)),
+      ...(spillPath ? { spillPath } : {}),
     };
   }
 
@@ -79,10 +121,21 @@ export function summarizeToolResultForHistory(
 
   const slim = pickKeyFields(record);
   slim.truncated = true;
+  const spillPath =
+    typeof record.spillPath === "string" && record.spillPath.trim()
+      ? record.spillPath.trim()
+      : opts.spill
+        ? writeToolResultSpill(opts.spill, result)
+        : undefined;
+  if (spillPath) {
+    slim.spillPath = spillPath;
+  }
   slim.message =
     typeof record.message === "string"
       ? record.message
-      : "工具结果过长，已截断写入会话；完整细节请用工具重读。";
+      : spillPath
+        ? `工具结果过长，已截断写入会话；全文另存 ${spillPath}，需要细节时用 analyze_document 读取该路径。`
+        : "工具结果过长，已截断写入会话；完整细节请用工具重读。";
   // Keep a short preview of common text-bearing fields when present.
   for (const key of ["text", "content", "excerpt", "summary", "markdown"] as const) {
     const v = record[key];

@@ -22,6 +22,6 @@ describe("buildRenderGateSummary", () => {
           warningCount: 1,
         } as never,
       }),
-    ).toContain("验收门禁");
+    ).toContain("出稿检查");
   });
 });

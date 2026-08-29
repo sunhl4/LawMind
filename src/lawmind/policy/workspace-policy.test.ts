@@ -8,6 +8,7 @@ import {
   resolveAgentMandatoryRulesForPrompt,
   resolveAgentMaxHistoryMessages,
   resolveAgentMaxToolCallsPerTurn,
+  resolveAgentPromptVerbosity,
   resolveMatterMandatoryRulesForPrompt,
   workspacePolicyPath,
 } from "./workspace-policy.js";
@@ -215,5 +216,31 @@ describe("resolveAgentMaxToolCallsPerTurn", () => {
       }
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("resolveAgentPromptVerbosity", () => {
+  it("defaults to compact when policy and env are unset", () => {
+    const prev = process.env.LAWMIND_PROMPT_VERBOSITY;
+    try {
+      delete process.env.LAWMIND_PROMPT_VERBOSITY;
+      expect(resolveAgentPromptVerbosity(null, {})).toBe("compact");
+      expect(resolveAgentPromptVerbosity({ schemaVersion: 1 }, {})).toBe("compact");
+    } finally {
+      if (prev !== undefined) {
+        process.env.LAWMIND_PROMPT_VERBOSITY = prev;
+      } else {
+        delete process.env.LAWMIND_PROMPT_VERBOSITY;
+      }
+    }
+  });
+
+  it("honors env over policy", () => {
+    expect(
+      resolveAgentPromptVerbosity(
+        { schemaVersion: 1, agentPromptVerbosity: "compact" },
+        { LAWMIND_PROMPT_VERBOSITY: "full" },
+      ),
+    ).toBe("full");
   });
 });

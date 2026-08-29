@@ -1,10 +1,16 @@
 /**
  * Approval is action-shaped: tool + matter + canonical args.
- * Name-only template pre-approve must not cover hunk-shaped writes.
+ * Name-only template pre-approve must not cover hunk-shaped writes
+ * or outbound recipient/attachments.
  */
 
-/** Tools whose approval binds find/replace (or equivalent) content, not just the tool name. */
-export const ARGS_BOUND_APPROVAL_TOOLS = new Set<string>(["apply_surgical_edits"]);
+import { normalizeOutboundRecipient } from "../platform/lawyer-outbound-decision.js";
+
+/** Tools whose approval binds action content, not just the tool name. */
+export const ARGS_BOUND_APPROVAL_TOOLS = new Set<string>([
+  "apply_surgical_edits",
+  "prepare_outbound_mail",
+]);
 
 export type ApprovalCacheKey = {
   tool: string;
@@ -39,6 +45,21 @@ export function stableJson(value: unknown): string {
   return "null";
 }
 
+function normalizeAttachmentPaths(raw: unknown): string[] {
+  const items = Array.isArray(raw) ? raw : typeof raw === "string" ? [raw] : [];
+  const out: string[] = [];
+  for (const item of items) {
+    if (typeof item !== "string") {
+      continue;
+    }
+    const path = item.trim().replace(/\\/g, "/").replace(/^\.\//, "");
+    if (path) {
+      out.push(path);
+    }
+  }
+  return out.toSorted();
+}
+
 function normalizeSurgicalEdits(raw: unknown): Array<{ find: string; replace: string }> {
   if (!Array.isArray(raw)) {
     return [];
@@ -58,6 +79,7 @@ function normalizeSurgicalEdits(raw: unknown): Array<{ find: string; replace: st
 /**
  * Schema fields that bind the approval. Drops `__approved`, commentary, and
  * for apply_surgical_edits keeps task_id + find/replace hunks only.
+ * prepare_outbound_mail binds recipient + attachment paths (not subject/body).
  */
 export function canonicalApprovalArgs(
   toolName: string,
@@ -74,6 +96,13 @@ export function canonicalApprovalArgs(
       ...(taskId ? { task_id: taskId } : {}),
       ...(baseline ? { contract_edit_baseline_path: baseline } : {}),
       edits: normalizeSurgicalEdits(src.edits),
+    };
+  }
+  if (toolName === "prepare_outbound_mail") {
+    const to = typeof src.to === "string" ? normalizeOutboundRecipient(src.to) : "";
+    return {
+      ...(to ? { to } : {}),
+      attachment_paths: normalizeAttachmentPaths(src.attachment_paths),
     };
   }
   const out: Record<string, unknown> = {};

@@ -167,6 +167,7 @@ export function useLawmindCollaborationWatch(input: {
               body: shortBody,
               openChatOnClick: true,
               chatAssistantId: assistantId,
+              chatSessionId: sessionId,
             });
           }
         }

@@ -3,6 +3,7 @@ import type { ClarificationQuestion } from "../../../../src/lawmind/types.ts";
 import {
   ApiRequestError,
   chatErrorUserText,
+  fetchWithLoopbackAuthRetry,
   readJsonFromResponse,
   type ApiErrorJson,
 } from "./api-client";
@@ -102,22 +103,24 @@ export async function sendMeetingChatTurn(args: {
   assistantMessage: ChatMsg;
 }> {
   const meetingTurnKind = args.meetingTurnKind ?? "lawyer";
-  const response = await fetch(`${args.apiBase}/api/chat`, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...apiAuthHeaders() },
-    signal: args.signal,
-    body: JSON.stringify({
-      message: args.message,
-      sessionId: args.sessionId,
-      assistantId: args.assistantId,
-      matterId: args.matterId,
-      meetingMode: true,
-      meetingTurnKind,
-      allowWebSearch: args.allowWebSearch === true,
-      ...(args.projectDir ? { projectDir: args.projectDir } : {}),
-      ...(args.meetingAgenda?.trim() ? { meetingAgenda: args.meetingAgenda.trim() } : {}),
+  const { response } = await fetchWithLoopbackAuthRetry(args.apiBase, (base) =>
+    fetch(`${base}/api/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...apiAuthHeaders() },
+      signal: args.signal,
+      body: JSON.stringify({
+        message: args.message,
+        sessionId: args.sessionId,
+        assistantId: args.assistantId,
+        matterId: args.matterId,
+        meetingMode: true,
+        meetingTurnKind,
+        allowWebSearch: args.allowWebSearch === true,
+        ...(args.projectDir ? { projectDir: args.projectDir } : {}),
+        ...(args.meetingAgenda?.trim() ? { meetingAgenda: args.meetingAgenda.trim() } : {}),
+      }),
     }),
-  });
+  );
   const body = await readJsonFromResponse<MeetingChatResponse>(response);
   if (!response.ok || body.ok === false) {
     throw new ApiRequestError(

@@ -41,11 +41,12 @@ describe("openLawRetrieve", () => {
     process.env.LAWMIND_OPEN_LAW_NPC = "1";
     const fixture = fs.readFileSync(path.join(fixtures, "npc-flk-list.json"), "utf8");
     try {
-      const fetchImpl = vi.fn(async () =>
-        new Response(fixture, {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
+      const fetchImpl = vi.fn(
+        async () =>
+          new Response(fixture, {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
       );
       const { result, source } = await openLawRetrieve({
         query: "民法典",
@@ -70,11 +71,12 @@ describe("openLawRetrieve", () => {
     process.env.LAWMIND_OPEN_LAW_CASEOPEN = "1";
     const fixture = fs.readFileSync(path.join(fixtures, "caseopen-search.json"), "utf8");
     try {
-      const fetchImpl = vi.fn(async () =>
-        new Response(fixture, {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
+      const fetchImpl = vi.fn(
+        async () =>
+          new Response(fixture, {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
       );
       const { result, source } = await openLawRetrieve({
         query: "买卖合同",
@@ -96,5 +98,91 @@ describe("openLawRetrieve", () => {
   it("resolves caseopen mode aliases", () => {
     expect(resolveOpenLawMode({ mode: "cncases" })).toBe("caseopen");
     expect(resolveOpenLawMode({ mode: "hybrid" })).toBe("hybrid");
+  });
+
+  it("resolves foreign live mode aliases including retired CAP → CourtListener", () => {
+    expect(resolveOpenLawMode({ mode: "cl" })).toBe("courtlistener");
+    expect(resolveOpenLawMode({ mode: "harvard_cap" })).toBe("courtlistener");
+    expect(resolveOpenLawMode({ mode: "cellar" })).toBe("eurlex");
+    expect(resolveOpenLawMode({ mode: "jp" })).toBe("egov_jp");
+  });
+
+  it("hybrid tries CourtListener after local miss when enabled", async () => {
+    const prevMode = process.env.LAWMIND_OPEN_LAW_MODE;
+    const prevCl = process.env.LAWMIND_OPEN_LAW_COURTLISTENER;
+    const prevNpc = process.env.LAWMIND_OPEN_LAW_NPC;
+    const prevCase = process.env.LAWMIND_OPEN_LAW_CASEOPEN;
+    process.env.LAWMIND_OPEN_LAW_MODE = "hybrid";
+    process.env.LAWMIND_OPEN_LAW_COURTLISTENER = "1";
+    delete process.env.LAWMIND_OPEN_LAW_NPC;
+    delete process.env.LAWMIND_OPEN_LAW_CASEOPEN;
+    const fixture = fs.readFileSync(path.join(fixtures, "courtlistener-search.json"), "utf8");
+    try {
+      const fetchImpl = vi.fn(
+        async () =>
+          new Response(fixture, {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+      );
+      const { result, source } = await openLawRetrieve({
+        query: "qualified immunity",
+        mode: "hybrid",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+      expect(source).toBe("courtlistener");
+      expect(result.sources[0]?.title).toMatch(/Miranda/);
+      expect(fetchImpl).toHaveBeenCalled();
+    } finally {
+      if (prevMode === undefined) {
+        delete process.env.LAWMIND_OPEN_LAW_MODE;
+      } else {
+        process.env.LAWMIND_OPEN_LAW_MODE = prevMode;
+      }
+      if (prevCl === undefined) {
+        delete process.env.LAWMIND_OPEN_LAW_COURTLISTENER;
+      } else {
+        process.env.LAWMIND_OPEN_LAW_COURTLISTENER = prevCl;
+      }
+      if (prevNpc === undefined) {
+        delete process.env.LAWMIND_OPEN_LAW_NPC;
+      } else {
+        process.env.LAWMIND_OPEN_LAW_NPC = prevNpc;
+      }
+      if (prevCase === undefined) {
+        delete process.env.LAWMIND_OPEN_LAW_CASEOPEN;
+      } else {
+        process.env.LAWMIND_OPEN_LAW_CASEOPEN = prevCase;
+      }
+    }
+  });
+
+  it("courtlistener maps fixture through openLawRetrieve", async () => {
+    const prev = process.env.LAWMIND_OPEN_LAW_COURTLISTENER;
+    process.env.LAWMIND_OPEN_LAW_COURTLISTENER = "1";
+    const fixture = fs.readFileSync(path.join(fixtures, "courtlistener-search.json"), "utf8");
+    try {
+      const fetchImpl = vi.fn(
+        async () =>
+          new Response(fixture, {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+      );
+      const { result, source } = await openLawRetrieve({
+        query: "Miranda",
+        mode: "courtlistener",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+      expect(source).toBe("courtlistener");
+      expect(result.sources[0]?.kind).toBe("case");
+      expect(result.sources[0]?.provider).toBe("open-law.courtlistener");
+    } finally {
+      if (prev === undefined) {
+        delete process.env.LAWMIND_OPEN_LAW_COURTLISTENER;
+      } else {
+        process.env.LAWMIND_OPEN_LAW_COURTLISTENER = prev;
+      }
+    }
   });
 });

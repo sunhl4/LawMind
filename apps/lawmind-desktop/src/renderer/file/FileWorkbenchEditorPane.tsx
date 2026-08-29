@@ -1,6 +1,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import { type RootKey, type OpenFileTab } from "./file-workbench-types";
 import { getFileIcon } from "./file-workbench-fs";
+import { isContractReviewCandidatePath } from "../lawmind-file-chat-context";
 
 export type FileWorkbenchEditorPaneProps = {
   tabs: OpenFileTab[];
@@ -10,6 +11,7 @@ export type FileWorkbenchEditorPaneProps = {
   activeDirty: boolean;
   busy: boolean;
   onAddToChatContext?: (payload: { root: RootKey; relPath: string; kind: "file" | "directory" }) => void;
+  onSendContractForReview?: (payload: { root: RootKey; relPath: string }) => void;
   imagePreview: { root: RootKey; relPath: string; name: string; dataUrl: string } | null;
   setImagePreview: Dispatch<
     SetStateAction<{ root: RootKey; relPath: string; name: string; dataUrl: string } | null>
@@ -34,6 +36,7 @@ export function FileWorkbenchEditorPane({
   activeDirty,
   busy,
   onAddToChatContext,
+  onSendContractForReview,
   imagePreview,
   setImagePreview,
   officeBlock,
@@ -47,37 +50,48 @@ export function FileWorkbenchEditorPane({
 }: FileWorkbenchEditorPaneProps) {
   return (
     <section className="lm-files-editor" onClick={(e) => e.stopPropagation()}>
-      <div className="lm-file-tabs">
+      <div className="lm-file-tabs" role="tablist" aria-label="打开的文件">
         {tabs.map((tab) => {
           const dirty = tab.content !== tab.savedContent;
+          const selected = activeTabId === tab.id;
+          const activate = () => {
+            setOfficeBlock(null);
+            setImagePreview(null);
+            setActiveTabId(tab.id);
+          };
           return (
-            <button
+            <div
               key={tab.id}
-              type="button"
-              className={`lm-file-tab ${activeTabId === tab.id ? "active" : ""}`}
+              role="tab"
+              aria-selected={selected}
+              aria-controls="lm-file-editor-panel"
+              tabIndex={selected ? 0 : -1}
+              className={`lm-file-tab ${selected ? "active" : ""}`}
               title={`${tab.root}:${tab.path}`}
-              onClick={() => {
-                setOfficeBlock(null);
-                setImagePreview(null);
-                setActiveTabId(tab.id);
+              onClick={activate}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  activate();
+                }
               }}
             >
               <span className="lm-fs-icon">{getFileIcon(tab.name, "file")}</span>
               <span>{tab.name}{dirty ? " ●" : ""}</span>
-              <span
+              <button
+                type="button"
                 className="lm-file-tab-close"
-                role="button"
-                tabIndex={0}
-                onMouseDown={(e) => { e.stopPropagation(); closeTab(tab.id); }}
-                onKeyDown={(e) => { if (e.key === "Enter") {closeTab(tab.id);} }}
-              >×</span>
-            </button>
+                aria-label={`关闭 ${tab.name}`}
+                onMouseDown={(e) => { e.stopPropagation(); }}
+                onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
+              >×</button>
+            </div>
           );
         })}
       </div>
 
       {activeTab ? (
-        <div className="lm-editor-pane">
+        <div className="lm-editor-pane" role="tabpanel" id="lm-file-editor-panel" aria-label={activeTab.name}>
           <div className="lm-editor-header">
             <div className="lm-editor-breadcrumb">
               <span className="lm-editor-root-badge">{activeTab.root}</span>
@@ -92,6 +106,20 @@ export function FileWorkbenchEditorPane({
                   onClick={() => onAddToChatContext({ root: activeTab.root, relPath: activeTab.path, kind: "file" })}
                 >
                   加入对话引用
+                </button>
+              ) : null}
+              {onSendContractForReview &&
+              activeTab &&
+              isContractReviewCandidatePath(activeTab.path) ? (
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-accent lm-btn-sm"
+                  data-testid="lm-editor-send-contract-review"
+                  onClick={() =>
+                    onSendContractForReview({ root: activeTab.root, relPath: activeTab.path })
+                  }
+                >
+                  送审本合同
                 </button>
               ) : null}
               <button
@@ -219,6 +247,21 @@ export function FileWorkbenchEditorPane({
                   在对话中引用
                 </button>
               ) : null}
+              {onSendContractForReview && isContractReviewCandidatePath(officeBlock.relPath) ? (
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-accent lm-btn-sm"
+                  data-testid="lm-editor-send-contract-review"
+                  onClick={() =>
+                    onSendContractForReview({
+                      root: officeBlock.root,
+                      relPath: officeBlock.relPath,
+                    })
+                  }
+                >
+                  送审本合同
+                </button>
+              ) : null}
             </div>
           </div>
         </div>
@@ -226,7 +269,7 @@ export function FileWorkbenchEditorPane({
         <div className="lm-editor-empty">
           <div className="lm-messages-empty-icon">📂</div>
           <div className="lm-messages-empty-title">选择文件开始编辑</div>
-          <div className="lm-messages-empty-hint">在左栏资源树中点击文件，或按 ⌘P 快速搜索。图片可预览；Word 文档请用系统应用打开。</div>
+          <div className="lm-messages-empty-hint">点文件或 ⌘P。</div>
         </div>
       )}
     </section>

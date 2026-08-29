@@ -4,6 +4,11 @@
 
 LawMind 的主线仍然不变：**面向个人律师优先的法律生产系统**，以 **澄清 -> 执行 -> 交付 -> 审核 -> 审计** 为闭环，以 Deliverable-First Architecture（DFA）为商业化核心。所有借鉴都应服务于这个主线，而不是把 LawMind 拉回通用聊天助手或插件市场。
 
+## 〇、Cursor / Claude 引导哲学（总目标）
+
+全工程默认：**高级引导（Skill / 原则 / 量规 / 软教练 / 提案–接受）优先于判断类硬控**；硬门禁只留给安全、空交付与律师权威；**不改变现有产品通路**。  
+债表：[LAWMIND-CURSOR-CLAUDE-CRAFT-REVIEW.md](LAWMIND-CURSOR-CLAUDE-CRAFT-REVIEW.md) · [GOALS.md](../GOALS.md) 第十三期。
+
 ## 一、评估标尺
 
 ### 1. LawMind 已有优势
@@ -514,9 +519,4 @@ LawMind 目前最不缺的是“再接一个 agent 框架”，最缺的是把�
 
 ## 十四、Claude Code 专项借鉴（2026）
 
-基于公开源码与分析文档的 LawMind 对照手册（含 UI、memory、compact、权限、实施矩阵）：
-
-| 文档                                                                                           | 来源链接                                                                    | 侧重                                     |
-| ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ---------------------------------------- |
-| [LAWMIND-CLAUDE-CODE-ANALYSIS-REPO-LESSONS.md](./LAWMIND-CLAUDE-CODE-ANALYSIS-REPO-LESSONS.md) | [liuup/claude-code-analysis](https://github.com/liuup/claude-code-analysis) | 分析文档章节目录 → 架构/安全/UI 产品映射 |
-| [LAWMIND-CLAUDE-CODE-SOURCE-REPO-LESSONS.md](./LAWMIND-CLAUDE-CODE-SOURCE-REPO-LESSONS.md)     | [maikebing/claude-code（Gitee）](https://gitee.com/maikebing/claude-code)   | 源码目录体量、常量、文件级 PR 规格与验收 |
+对照结论已并入本文与 [LAWMIND-CURSOR-CLAUDE-CRAFT-REVIEW.md](LAWMIND-CURSOR-CLAUDE-CRAFT-REVIEW.md)；不再另存源码镜像课笔记。

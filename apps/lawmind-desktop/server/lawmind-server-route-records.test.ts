@@ -66,7 +66,14 @@ describe("lawmind-server-route-records", () => {
     const handled = await p;
     expect(handled).toBe(true);
     expect(status).toBe(200);
-    expect(JSON.parse(raw)).toEqual({ ok: true, sessionId: session.sessionId });
+    const parsed = JSON.parse(raw) as {
+      ok?: boolean;
+      sessionId?: string;
+      cascade?: { deletedSession?: boolean };
+    };
+    expect(parsed.ok).toBe(true);
+    expect(parsed.sessionId).toBe(session.sessionId);
+    expect(parsed.cascade?.deletedSession).toBe(true);
     expect(fs.existsSync(path.join(ws, "sessions", `${session.sessionId}.json`))).toBe(false);
   });
 
@@ -144,7 +151,14 @@ describe("lawmind-server-route-records", () => {
     });
     expect(handled).toBe(true);
     expect(status).toBe(200);
-    expect(JSON.parse(raw)).toEqual({ ok: true, sessionId: session.sessionId });
+    const parsed = JSON.parse(raw) as {
+      ok?: boolean;
+      sessionId?: string;
+      cascade?: { deletedSession?: boolean };
+    };
+    expect(parsed.ok).toBe(true);
+    expect(parsed.sessionId).toBe(session.sessionId);
+    expect(parsed.cascade?.deletedSession).toBe(true);
     expect(fs.existsSync(path.join(ws, "sessions", `${session.sessionId}.json`))).toBe(false);
   });
 

@@ -62,7 +62,7 @@ export function LawmindReviewPaneToggles(props: Props) {
     .join(" ");
 
   return (
-    <div className={rootClass} role="toolbar" aria-label="文书台分栏">
+    <div className={rootClass} role="toolbar" aria-label="改稿分栏">
       {REVIEW_PANE_SPECS.map((pane) => {
         const visible = visibility[pane.id];
         return (

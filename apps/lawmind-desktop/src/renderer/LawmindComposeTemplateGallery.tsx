@@ -114,7 +114,6 @@ export function LawmindComposeTemplateGallery(props: Props): ReactNode {
             <header className="lm-compose-template-gallery-head">
               <div>
                 <h3>写文稿 / 做材料</h3>
-                <p className="lm-meta">选任务后填几项关键信息即可交办，不必写提示词。</p>
               </div>
               <button type="button" className="lm-btn lm-btn-ghost lm-btn-small" onClick={onClose}>
                 关闭

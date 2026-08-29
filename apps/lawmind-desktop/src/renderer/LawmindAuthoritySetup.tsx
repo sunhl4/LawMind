@@ -1,6 +1,5 @@
 /**
- * 权威库连接说明向导（C1-6）— 展示 Doctor live 状态与 env 契约；
- * 写入密钥仍走本机 `.env.lawmind` / API 配置向导（不在此粘贴落盘密钥）。
+ * 权威库连接 — 律师可见状态与向导；环境变量契约折叠给管理员。
  */
 
 import type { ReactNode } from "react";
@@ -9,6 +8,7 @@ import {
   isAuthorityCorpusUiReady,
   type LawmindSettingsAuthorityCorpus,
 } from "./lawmind-settings-models";
+import { lawmindDocUrl } from "./lawmind-public-urls.js";
 
 export type LawmindAuthorityUsageSummary = {
   day?: string;
@@ -43,9 +43,7 @@ export function LawmindAuthoritySetup({
     >
       <h3 className="lm-settings-subtitle">连接权威库</h3>
       <p className="lm-settings-caption" role="status">
-        默认 <code className="lm-md-code">open</code>
-        ：本地开源语料（内置少量 sample，非正式完整法库；可扩充 CORPUS）。闭源法宝/Lexis
-        仅作手动 BYOK 占位（Lexis 适配器尚未实现时显示「适配器未实现」，不是端点配错）。无命中则拒答/缺源，不会编造法条。
+        未命中则不编造。闭源库由管理员配置。
       </p>
       <div className="lm-settings-row">
         <span className="lm-settings-key">状态</span>
@@ -59,9 +57,9 @@ export function LawmindAuthoritySetup({
           }
           title={
             status === "unimplemented"
-              ? "该 provider 适配器尚未实现；端点可能已记录但不会探测报绿"
+              ? "适配器未就绪"
               : status === "sample-ready"
-                ? "内置演示 sample，非正式完整法库"
+                ? "演示语料"
                 : undefined
           }
           data-testid="lm-authority-setup-status"
@@ -80,25 +78,6 @@ export function LawmindAuthoritySetup({
           {authorityUsage.message}
         </p>
       ) : null}
-      <ul className="lm-settings-caption">
-        <li>
-          <code className="lm-md-code">LAWMIND_AUTHORITY_PROVIDER</code> = open | generic | pkulaw |
-          lexis
-        </li>
-        <li>
-          开源：<code className="lm-md-code">LAWMIND_OPEN_LAW_CORPUS</code>（可选 JSONL）、
-          <code className="lm-md-code">LAWMIND_OPEN_LAW_MODE</code>=local|hybrid|npc_flk
-        </li>
-        <li>
-          闭源手动：<code className="lm-md-code">LAWMIND_AUTHORITY_ENDPOINT</code> +{" "}
-          <code className="lm-md-code">LAWMIND_AUTHORITY_API_KEY</code>
-        </li>
-      </ul>
-      {envFilePath ? (
-        <p className="lm-settings-caption">
-          配置文件：<code className="lm-md-code">{envFilePath}</code>
-        </p>
-      ) : null}
       <div className="lm-settings-actions">
         {onOpenApiWizard ? (
           <button type="button" className="lm-btn lm-btn-accent lm-btn-sm" onClick={onOpenApiWizard}>
@@ -108,11 +87,45 @@ export function LawmindAuthoritySetup({
         {probeControl}
       </div>
       <p className="lm-settings-caption lm-settings-caption--warn" role="note">
-        开源路径开箱即用（演示 sample ≠ 完整法库）。扩充：设置{" "}
-        <code className="lm-md-code">LAWMIND_OPEN_LAW_CORPUS</code>
-        （JSONL 格式见 open-law README）。闭源法宝/Lexis：见{" "}
-        <code className="lm-md-code">docs/LAWMIND-EXTERNAL-INTEGRATIONS.md</code> §10 手动清单。
+        演示语料不等于完整法库。正式引用请核对权威来源。
       </p>
+      <details className="lm-settings-hint">
+        <summary>管理员：环境变量</summary>
+        <ul className="lm-settings-caption">
+          <li>
+            <code className="lm-md-code">LAWMIND_AUTHORITY_PROVIDER</code> = open | generic | pkulaw |
+            lexis
+          </li>
+          <li>
+            开源：<code className="lm-md-code">LAWMIND_OPEN_LAW_CORPUS</code>、
+            <code className="lm-md-code">LAWMIND_OPEN_LAW_MODE</code>、
+            <code className="lm-md-code">LAWMIND_OPEN_LAW_NPC</code>、
+            <code className="lm-md-code">LAWMIND_OPEN_LAW_COURTLISTENER</code>、
+            <code className="lm-md-code">LAWMIND_OPEN_LAW_EURLEX</code>、
+            <code className="lm-md-code">LAWMIND_OPEN_LAW_EGOV_JP</code>
+          </li>
+          <li>
+            闭源：<code className="lm-md-code">LAWMIND_AUTHORITY_ENDPOINT</code> +{" "}
+            <code className="lm-md-code">LAWMIND_AUTHORITY_API_KEY</code>
+          </li>
+        </ul>
+        {envFilePath ? (
+          <p className="lm-settings-caption">
+            配置文件：<code className="lm-md-code">{envFilePath}</code>
+          </p>
+        ) : null}
+        <p className="lm-settings-caption">
+          详见{" "}
+          <a
+            href={lawmindDocUrl("LAWMIND-INTEGRATIONS")}
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            集成与边界
+          </a>
+          。
+        </p>
+      </details>
     </section>
   );
 }

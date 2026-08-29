@@ -88,6 +88,68 @@ describe("resumeTurn editedArgs", () => {
   });
 });
 
+describe("resumeTurn continue_tools", () => {
+  const workspaceDir = "/tmp/lm-resume-continue";
+  const sessionId = "sess-continue";
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("approving continue_tools resumes with skipToolBudgetCheckpoint", async () => {
+    const session: AgentSession = {
+      sessionId,
+      matterId: "matter-a",
+      conversationHistory: [],
+      turns: [],
+      pendingRequiresAction: [
+        {
+          id: "ra-c",
+          kind: "continue_tools",
+          threadId: "t:1",
+          title: "本轮步骤较多",
+          summary: "继续？",
+          toolCallsExecuted: 40,
+          decisions: ["approve", "reject"],
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    vi.spyOn(sessionMod, "loadSession").mockReturnValue(session);
+    vi.spyOn(sessionMod, "saveSession").mockImplementation(() => {});
+    const runTurnSpy = vi.spyOn(runtimeMod, "runTurn").mockResolvedValue({
+      turn: {
+        turnId: "t",
+        sessionId,
+        instruction: "",
+        messages: [],
+        toolCallsExecuted: 40,
+        status: "completed",
+        startedAt: new Date().toISOString(),
+      },
+      reply: "ok",
+      sessionId,
+      memoryContext: { layers: [] },
+    });
+
+    await resumeTurn(
+      { workspaceDir } as AgentConfig,
+      { list: () => [], get: () => undefined } as never,
+      { sessionId, actionId: "ra-c", decision: "approve" },
+      {},
+    );
+
+    expect(runTurnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skipToolBudgetCheckpoint: true,
+        initialToolCallsExecuted: 40,
+      }),
+    );
+  });
+});
+
 describe("resumePausedTurn", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -138,6 +200,7 @@ describe("resumePausedTurn", () => {
       expect.objectContaining({
         sessionId,
         instruction: expect.stringContaining("【从检查点继续】"),
+        initialToolCallsExecuted: 2,
       }),
     );
     expect(runTurnSpy.mock.calls[0]?.[0]?.instruction).toContain("审查这份合同");

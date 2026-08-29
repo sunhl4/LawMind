@@ -77,8 +77,29 @@ export async function emit(auditDir: string, params: EmitParams): Promise<AuditE
   return event;
 }
 
+/**
+ * 按日文件串行写：hash-chain 的计算（attach）与 append 必须保持调用序，
+ * 否则并发 emit 可能让文件行序与链序不一致（链分叉、校验误报）。
+ */
+const writeQueueByFile = new Map<string, Promise<void>>();
+
 async function persist(auditDir: string, event: AuditEvent, integrityChain = false): Promise<void> {
   const filePath = todayAuditPath(auditDir);
+  const previous = writeQueueByFile.get(filePath) ?? Promise.resolve();
+  const next = previous.then(() => appendAuditLine(filePath, event, integrityChain));
+  // 队列承载永不 reject（错误仍通过返回值抛给调用方）。
+  writeQueueByFile.set(
+    filePath,
+    next.catch(() => undefined),
+  );
+  return next;
+}
+
+async function appendAuditLine(
+  filePath: string,
+  event: AuditEvent,
+  integrityChain: boolean,
+): Promise<void> {
   try {
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     const stored: AuditEvent | AuditEventWithIntegrity = integrityChain

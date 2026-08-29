@@ -332,6 +332,12 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
     reviewTargetForFocus,
   } = useMatterWorkbenchOps({ queueItems, approvalRequests, drafts, opsFocus, opsSort });
 
+  // 卡片计数与可点「去查看」对齐：无 deliverableId 的审批不计入可操作票。
+  const actionableElevatedApprovals = useMemo(
+    () => elevatedApprovals.filter((a) => Boolean(a.deliverableId?.trim())),
+    [elevatedApprovals],
+  );
+
   const {
     recentMatterInteractions,
     matterInteractionSummary,
@@ -458,10 +464,10 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
     },
     {
       key: "ready-to-render",
-      title: "可渲染交付",
+      title: "可交付",
       count: approvedDrafts.length,
       tone: "success",
-      hint: approvedDrafts[0]?.title ?? "当前没有可直接交付草稿",
+      hint: approvedDrafts[0]?.title ?? "暂无可交付草稿",
       actionLabel: approvedDrafts.length > 0 ? "去交付" : "暂无",
       actionTaskId: approvedDrafts[0]?.taskId,
       statusFilter: "approved",
@@ -469,12 +475,13 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
     },
     {
       key: "pending-approval",
-      title: "高风险审批",
-      count: elevatedApprovals.length,
+      // 计数口径 = 待审批且风险 medium/high；卡片标题直接说「待审批」，避免与「待拍板」混淆。
+      title: "待审批（中高风险）",
+      count: actionableElevatedApprovals.length,
       tone: "neutral",
-      hint: elevatedApprovals[0]?.reason ?? "当前没有高风险审批项",
-      actionLabel: elevatedApprovals.length > 0 ? "去查看" : "正常",
-      actionTaskId: elevatedApprovals[0]?.deliverableId,
+      hint: actionableElevatedApprovals[0]?.reason ?? "暂无待审批项",
+      actionLabel: actionableElevatedApprovals.length > 0 ? "去查看" : "正常",
+      actionTaskId: actionableElevatedApprovals[0]?.deliverableId,
       statusFilter: "all",
       listMode: "all",
     },

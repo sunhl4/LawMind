@@ -5,7 +5,10 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 import { CLARIFY_ATTACHMENTS_KEY } from "../../../../src/lawmind/platform/clarification-fields.ts";
-import { LawmindClarificationForm } from "./LawmindClarificationForm";
+import {
+  extractOutlineSeedFromQuestion,
+  LawmindClarificationForm,
+} from "./LawmindClarificationForm";
 
 describe("LawmindClarificationForm", () => {
   it("desk variant uses compact textarea and shows attachments strip", async () => {
@@ -86,6 +89,63 @@ describe("LawmindClarificationForm", () => {
         scan: encoded,
       }),
     );
+    root.unmount();
+    host.remove();
+  });
+
+  it("outline confirm buttons set clear decisions and enable submit", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onSubmit = vi.fn();
+    await act(async () => {
+      root.render(
+        <LawmindClarificationForm
+          formKey="outline-1"
+          variant="desk"
+          questions={[
+            {
+              key: "research_outline_confirm",
+              question: "请确认或调整研究大纲\n\n# 大纲\n\n## 章一\n- a\n- b",
+              inputType: "textarea",
+              required: true,
+            },
+          ]}
+          onSubmitAnswers={onSubmit}
+        />,
+      );
+    });
+    expect(host.querySelector('[data-testid="lm-outline-confirm"]')).toBeTruthy();
+    expect(extractOutlineSeedFromQuestion({
+      key: "research_outline_confirm",
+      question: "请确认或调整研究大纲\n\n# 大纲\n\n## 章一\n- a",
+    })).toContain("# 大纲");
+
+    const submit = host.querySelector<HTMLButtonElement>('[data-testid="lm-clarify-submit"]');
+    expect(submit?.disabled).toBe(true);
+
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[data-testid="lm-outline-approve"]')?.click();
+    });
+    expect(host.querySelector('[data-testid="lm-outline-decision"]')?.getAttribute("data-decision")).toBe(
+      "approved",
+    );
+    expect(submit?.disabled).toBe(false);
+
+    await act(async () => {
+      submit?.click();
+    });
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ research_outline_confirm: "大纲已确认" }),
+    );
+
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[data-testid="lm-outline-reject"]')?.click();
+    });
+    expect(host.querySelector('[data-testid="lm-outline-decision"]')?.getAttribute("data-decision")).toBe(
+      "rejected",
+    );
+
     root.unmount();
     host.remove();
   });

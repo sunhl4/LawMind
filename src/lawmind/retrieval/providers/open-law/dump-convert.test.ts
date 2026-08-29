@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   convertArticleLinesToOpenLawRecords,
   convertFlkDumpToOpenLawRecords,
+  convertHfChinaLawsToOpenLawRecords,
   detectAndConvertOpenLawDump,
   openLawRecordsToJsonl,
 } from "./dump-convert.js";
@@ -42,5 +43,20 @@ describe("open-law/dump-convert", () => {
       fs.readFileSync(path.join(dir, "fixtures/article-line-sample.txt"), "utf8"),
     );
     expect(lines.format).toBe("article_line");
+    const hf = detectAndConvertOpenLawDump(
+      fs.readFileSync(path.join(dir, "fixtures/hf-china-laws-sample.json"), "utf8"),
+    );
+    expect(hf.format).toBe("hf_china_laws");
+  });
+
+  it("converts HF china-effective-laws documents JSON", () => {
+    const raw = fs.readFileSync(path.join(dir, "fixtures/hf-china-laws-sample.json"), "utf8");
+    const records = convertHfChinaLawsToOpenLawRecords(raw);
+    expect(records.length).toBe(1);
+    expect(records[0]?.title).toContain("网络安全法");
+    expect(records[0]?.kind).toBe("statute");
+    expect(records[0]?.corpusId).toBe("hf_china_laws");
+    expect(records[0]?.url).toContain("flk.npc.gov.cn");
+    expect(records[0]?.body).toMatch(/第一条/);
   });
 });

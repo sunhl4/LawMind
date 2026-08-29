@@ -14,7 +14,31 @@
 /* ── Modals, forms, wizard ── */
 /* ── Modal backdrop ────────────────────────────────────────── */
 .lm-help-panel {
-  max-width: 420px;
+  max-width: 380px;
+}
+
+.lm-help-primary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 14px 0 0;
+}
+
+.lm-help-primary .lm-btn {
+  justify-content: center;
+  text-align: center;
+  text-decoration: none;
+}
+
+.lm-help-compliance {
+  margin: 14px 0 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.lm-help-compliance summary {
+  cursor: pointer;
+  color: var(--muted);
 }
 
 .lm-help-links {

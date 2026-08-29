@@ -23,6 +23,27 @@ describe("LawmindSettingsDoctor", () => {
             : input instanceof URL
               ? input.href
               : input.url;
+        if (url.includes("/api/metrics/north-star")) {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              schemaVersion: 1,
+              firstPassRate: 0.5,
+              unattendedCompleteRate: null,
+              reviewDurationMsMedian: null,
+              lintEscapeRate: null,
+              samples: {
+                firstPassOk: 1,
+                firstPassFail: 1,
+                unattended: 0,
+                attended: 0,
+                lintEscapes: 0,
+                deliveries: 2,
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
         if (url.includes("/api/metrics/team-growth")) {
           return new Response(
             JSON.stringify({
@@ -252,9 +273,50 @@ describe("LawmindSettingsDoctor", () => {
     await act(async () => {
       await Promise.resolve();
     });
+    expect(host.textContent).toContain("交付北极星");
+    expect(host.querySelector('[data-testid="lm-doctor-delivery-autonomy"]')?.textContent).toContain(
+      "一键签批",
+    );
+    expect(host.querySelector('[data-testid="lm-doctor-north-star-first-pass"]')?.textContent).toContain(
+      "50%",
+    );
     expect(host.textContent).toContain("团队成长 · 内测指标");
     expect(host.textContent).toContain("主力一次过率");
     expect(host.textContent).toContain("50%");
     expect(host.querySelector('[data-testid="lm-doctor-team-growth-baseline"]')).toBeTruthy();
+  });
+
+  it("keeps judgment hard-controls inside collapsed admin details", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindSettingsDoctor
+          apiBase="http://127.0.0.1:8765"
+          health={{
+            modelConfigured: true,
+            doctor: {
+              judgmentHardControls: {
+                intakeSoftAsk: true,
+                updateDraftAmplitudeSoft: true,
+                emptyRedlineHard: true,
+                sendEmailApprovalHard: true,
+              },
+            },
+          }}
+          onOpenApiWizard={vi.fn()}
+          onOpenCollaborationPage={vi.fn()}
+        />,
+      );
+    });
+    const admin = host.querySelector('[data-testid="lm-doctor-admin"]') as HTMLDetailsElement | null;
+    expect(admin).toBeTruthy();
+    expect(admin?.open).toBe(false);
+    expect(admin?.querySelector('[data-testid="lm-doctor-judgment-hard-controls"]')).toBeTruthy();
+    expect(admin?.querySelector('[data-testid="lm-doctor-authority-boundary"]')).toBeTruthy();
+    expect(host.querySelector('[data-testid="lm-doctor-skills-trust"]')).toBeTruthy();
+    expect(
+      host
+        .querySelector('[data-testid="lm-doctor-skills-trust"]')
+        ?.contains(host.querySelector('[data-testid="lm-doctor-judgment-hard-controls"]')),
+    ).toBe(false);
   });
 });

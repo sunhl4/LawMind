@@ -59,6 +59,8 @@ export function pickWorkspaceMainPaneProps(
     onClearContext: props.onClearContext,
     onContextMatterChange: props.onContextMatterChange,
     onOpenComposeSettings: props.onOpenComposeSettings,
+    onOpenSettings: props.onOpenSettings,
+    onOpenDoctor: props.onOpenDoctor,
     onOpenMemoryInspector: props.onOpenMemoryInspector,
     onOpenApiWizard: props.onOpenApiWizard,
     composeModelHint: props.composeModelHint,

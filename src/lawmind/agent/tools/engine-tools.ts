@@ -6,11 +6,17 @@ export {
   planTask,
   researchTask,
   updateDraft,
+  applySurgicalEdits,
   draftDocument,
   renderDocument,
+  renderTrackedDraft,
 } from "./engine/engine-pipeline-tools.js";
 export { executeWorkflow } from "./engine/engine-workflow-tool.js";
-export { registerTemplate, listTemplates, setTemplateEnabled } from "./engine/engine-template-tools.js";
+export {
+  registerTemplate,
+  listTemplates,
+  setTemplateEnabled,
+} from "./engine/engine-template-tools.js";
 export {
   openWorkQueueItem,
   requestApprovalTool,
@@ -28,18 +34,26 @@ import {
   planTask,
   researchTask,
   updateDraft,
+  applySurgicalEdits,
   draftDocument,
   renderDocument,
+  renderTrackedDraft,
 } from "./engine/engine-pipeline-tools.js";
-import { registerTemplate, listTemplates, setTemplateEnabled } from "./engine/engine-template-tools.js";
+import {
+  registerTemplate,
+  listTemplates,
+  setTemplateEnabled,
+} from "./engine/engine-template-tools.js";
 import { executeWorkflow } from "./engine/engine-workflow-tool.js";
 
 export const engineTools: AgentTool[] = [
   planTask,
   researchTask,
   updateDraft,
+  applySurgicalEdits,
   draftDocument,
   renderDocument,
+  renderTrackedDraft,
   executeWorkflow,
   registerTemplate,
   listTemplates,

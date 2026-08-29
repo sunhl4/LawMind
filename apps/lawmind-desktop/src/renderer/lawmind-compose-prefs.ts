@@ -48,8 +48,14 @@ export function writeExecutePermissionMode(mode: "standard" | "strict"): void {
   }
 }
 
-/** Call when first-run wizard completes: seed plan-first, prefer strict on execute. */
-export function applyPostFirstrunPermissionDefaults(): void {
+/** Call when first-run wizard completes.
+ *  `executable: true`（如合同审查）跳过「先计划」，直接标准权限可执行。 */
+export function applyPostFirstrunPermissionDefaults(opts?: { executable?: boolean }): void {
+  if (opts?.executable) {
+    writeComposePermissionMode("standard");
+    writeExecutePermissionMode("strict");
+    return;
+  }
   writeComposePermissionMode("readonly");
   writeExecutePermissionMode("strict");
 }

@@ -5,28 +5,106 @@
  * - local (default): bundled sample + LAWMIND_OPEN_LAW_CORPUS
  * - npc_flk: live 国家法律法规数据库 list API (opt-in LAWMIND_OPEN_LAW_NPC=1)
  * - caseopen: self-hosted cncases /api/search (opt-in LAWMIND_OPEN_LAW_CASEOPEN=1)
- * - hybrid: local first; then NPC if enabled; then caseopen if enabled
+ * - courtlistener: Free Law Project REST v4 (opt-in LAWMIND_OPEN_LAW_COURTLISTENER=1)
+ * - eurlex: EU CELLAR SPARQL (opt-in LAWMIND_OPEN_LAW_EURLEX=1)
+ * - egov_jp: Japan e-Gov 法令 API v2 (opt-in LAWMIND_OPEN_LAW_EGOV_JP=1)
+ * - hybrid: local first; then each enabled live source in China → US/EU/JP order
  */
 
-import type { RetrievalResult } from "../../index.js";
-import { mapHitsToRetrievalResult } from "../../authority-hits.js";
+import { mapHitsToRetrievalResult, type AuthorityHit } from "../../authority-hits.js";
 import type { AuthorityDnsLookupFn } from "../../authority-url-guard.js";
+import type { RetrievalResult } from "../../index.js";
 import { isCaseopenLiveEnabled, searchCaseopenLive } from "./caseopen.js";
+import { isCourtListenerLiveEnabled, searchCourtListenerLive } from "./courtlistener.js";
+import { isEgovJpLiveEnabled, searchEgovJpLive } from "./egov-jp.js";
+import { isEurlexLiveEnabled, searchEurlexLive } from "./eurlex.js";
 import { searchOpenLawCorpus } from "./local-corpus.js";
 import { isNpcFlkLiveEnabled, searchNpcFlkLive } from "./npc-flk.js";
 import type { OpenLawMode } from "./types.js";
 
-export type OpenLawRetrieveSource = "local" | "npc_flk" | "caseopen" | "none";
+export type OpenLawRetrieveSource =
+  | "local"
+  | "npc_flk"
+  | "caseopen"
+  | "courtlistener"
+  | "eurlex"
+  | "egov_jp"
+  | "none";
+
+type LiveSearchFn = (opts: {
+  query: string;
+  fetchImpl?: typeof fetch;
+  lookup?: AuthorityDnsLookupFn;
+}) => Promise<{ hits: AuthorityHit[]; httpStatus?: number; error?: string }>;
+
+type LiveLane = {
+  source: Exclude<OpenLawRetrieveSource, "local" | "none">;
+  enabled: () => boolean;
+  missingFlag: string;
+  emptyLabel: string;
+  search: LiveSearchFn;
+};
+
+const LIVE_LANES: LiveLane[] = [
+  {
+    source: "npc_flk",
+    enabled: isNpcFlkLiveEnabled,
+    missingFlag: "LAWMIND_OPEN_LAW_NPC=1",
+    emptyLabel: "NPC FLK",
+    search: searchNpcFlkLive,
+  },
+  {
+    source: "caseopen",
+    enabled: isCaseopenLiveEnabled,
+    missingFlag: "LAWMIND_OPEN_LAW_CASEOPEN=1",
+    emptyLabel: "caseopen",
+    search: searchCaseopenLive,
+  },
+  {
+    source: "courtlistener",
+    enabled: isCourtListenerLiveEnabled,
+    missingFlag: "LAWMIND_OPEN_LAW_COURTLISTENER=1",
+    emptyLabel: "CourtListener",
+    search: searchCourtListenerLive,
+  },
+  {
+    source: "eurlex",
+    enabled: isEurlexLiveEnabled,
+    missingFlag: "LAWMIND_OPEN_LAW_EURLEX=1",
+    emptyLabel: "EUR-Lex",
+    search: searchEurlexLive,
+  },
+  {
+    source: "egov_jp",
+    enabled: isEgovJpLiveEnabled,
+    missingFlag: "LAWMIND_OPEN_LAW_EGOV_JP=1",
+    emptyLabel: "e-Gov",
+    search: searchEgovJpLive,
+  },
+];
 
 export function resolveOpenLawMode(opts?: { mode?: string }): OpenLawMode {
-  const raw = (opts?.mode ?? process.env.LAWMIND_OPEN_LAW_MODE ?? "local")
-    .trim()
-    .toLowerCase();
+  const raw = (opts?.mode ?? process.env.LAWMIND_OPEN_LAW_MODE ?? "local").trim().toLowerCase();
   if (raw === "npc_flk" || raw === "npc" || raw === "flk") {
     return "npc_flk";
   }
   if (raw === "caseopen" || raw === "cncases" || raw === "cases") {
     return "caseopen";
+  }
+  if (
+    raw === "courtlistener" ||
+    raw === "cl" ||
+    raw === "flp" ||
+    raw === "harvard_cap" ||
+    raw === "cap"
+  ) {
+    return "courtlistener";
+  }
+  if (raw === "eurlex" || raw === "cellar" || raw === "eu") {
+    return "eurlex";
+  }
+  if (raw === "egov_jp" || raw === "egov" || raw === "jp") {
+    return "egov_jp";
   }
   if (raw === "hybrid") {
     return "hybrid";
@@ -34,68 +112,36 @@ export function resolveOpenLawMode(opts?: { mode?: string }): OpenLawMode {
   return "local";
 }
 
-async function retrieveNpcFlk(opts: {
-  query: string;
-  fetchImpl?: typeof fetch;
-  lookup?: AuthorityDnsLookupFn;
-}): Promise<{ result: RetrievalResult; httpStatus?: number; source: OpenLawRetrieveSource }> {
-  if (!isNpcFlkLiveEnabled()) {
-    return {
-      result: {
-        sources: [],
-        claims: [],
-        riskFlags: ["开源权威：NPC FLK 未启用"],
-        missingItems: [
-          "已选 npc_flk/hybrid 但未设置 LAWMIND_OPEN_LAW_NPC=1；请启用或改用 local 语料。不得编造法条。",
-        ],
-      },
-      source: "none",
-    };
+function laneBySource(source: LiveLane["source"]): LiveLane {
+  const lane = LIVE_LANES.find((l) => l.source === source);
+  if (!lane) {
+    throw new Error(`unknown open-law lane: ${source}`);
   }
-  const live = await searchNpcFlkLive({
-    query: opts.query,
-    fetchImpl: opts.fetchImpl,
-    lookup: opts.lookup,
-  });
-  if (live.hits.length > 0) {
-    return {
-      result: mapHitsToRetrievalResult(live.hits),
-      httpStatus: live.httpStatus,
-      source: "npc_flk",
-    };
-  }
-  return {
-    result: {
-      ...mapHitsToRetrievalResult([]),
-      riskFlags: [
-        ...(mapHitsToRetrievalResult([]).riskFlags ?? []),
-        live.error ? `NPC FLK：${live.error}` : "NPC FLK 无命中",
-      ],
-    },
-    httpStatus: live.httpStatus,
-    source: "none",
-  };
+  return lane;
 }
 
-async function retrieveCaseopen(opts: {
-  query: string;
-  fetchImpl?: typeof fetch;
-  lookup?: AuthorityDnsLookupFn;
-}): Promise<{ result: RetrievalResult; httpStatus?: number; source: OpenLawRetrieveSource }> {
-  if (!isCaseopenLiveEnabled()) {
+async function retrieveLiveLane(
+  lane: LiveLane,
+  opts: {
+    query: string;
+    fetchImpl?: typeof fetch;
+    lookup?: AuthorityDnsLookupFn;
+  },
+): Promise<{ result: RetrievalResult; httpStatus?: number; source: OpenLawRetrieveSource }> {
+  if (!lane.enabled()) {
     return {
       result: {
         sources: [],
         claims: [],
-        riskFlags: ["开源权威：caseopen 未启用"],
+        riskFlags: [`开源权威：${lane.emptyLabel} 未启用`],
         missingItems: [
-          "已选 caseopen/hybrid 但未设置 LAWMIND_OPEN_LAW_CASEOPEN=1；请自建 cncases 后启用，或改用 local 语料。不得编造裁判要旨。",
+          `已选 ${lane.source}/hybrid 但未设置 ${lane.missingFlag}；请启用或改用 local 语料。不得编造法条。`,
         ],
       },
       source: "none",
     };
   }
-  const live = await searchCaseopenLive({
+  const live = await lane.search({
     query: opts.query,
     fetchImpl: opts.fetchImpl,
     lookup: opts.lookup,
@@ -104,7 +150,7 @@ async function retrieveCaseopen(opts: {
     return {
       result: mapHitsToRetrievalResult(live.hits),
       httpStatus: live.httpStatus,
-      source: "caseopen",
+      source: lane.source,
     };
   }
   return {
@@ -112,7 +158,7 @@ async function retrieveCaseopen(opts: {
       ...mapHitsToRetrievalResult([]),
       riskFlags: [
         ...(mapHitsToRetrievalResult([]).riskFlags ?? []),
-        live.error ? `caseopen：${live.error}` : "caseopen 无命中",
+        live.error ? `${lane.emptyLabel}：${live.error}` : `${lane.emptyLabel} 无命中`,
       ],
     },
     httpStatus: live.httpStatus,
@@ -144,25 +190,20 @@ export async function openLawRetrieve(opts: {
     }
   }
 
-  if (mode === "npc_flk") {
-    return retrieveNpcFlk(opts);
-  }
-
-  if (mode === "caseopen") {
-    return retrieveCaseopen(opts);
+  if (mode !== "hybrid" && mode !== "local") {
+    return retrieveLiveLane(laneBySource(mode), opts);
   }
 
   if (mode === "hybrid") {
-    if (isNpcFlkLiveEnabled()) {
-      const npc = await retrieveNpcFlk(opts);
-      if (npc.source === "npc_flk" && npc.result.sources.length > 0) {
-        return npc;
+    const tried: string[] = [];
+    for (const lane of LIVE_LANES) {
+      if (!lane.enabled()) {
+        continue;
       }
-    }
-    if (isCaseopenLiveEnabled()) {
-      const co = await retrieveCaseopen(opts);
-      if (co.source === "caseopen" && co.result.sources.length > 0) {
-        return co;
+      tried.push(lane.emptyLabel);
+      const outcome = await retrieveLiveLane(lane, opts);
+      if (outcome.source === lane.source && outcome.result.sources.length > 0) {
+        return outcome;
       }
     }
     return {
@@ -170,7 +211,9 @@ export async function openLawRetrieve(opts: {
         ...mapHitsToRetrievalResult([]),
         riskFlags: [
           ...(mapHitsToRetrievalResult([]).riskFlags ?? []),
-          "hybrid：本地无命中，且 NPC/caseopen 未启用或无命中",
+          tried.length > 0
+            ? `hybrid：本地无命中，且已试 ${tried.join("/")} 无命中`
+            : "hybrid：本地无命中，且 NPC/caseopen/CourtListener/EUR-Lex/e-Gov 均未启用",
         ],
       },
       source: "none",

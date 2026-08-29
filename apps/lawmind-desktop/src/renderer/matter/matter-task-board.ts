@@ -1,6 +1,13 @@
 import type { ApprovalRequest, WorkQueueItem } from "../../../../../src/lawmind/core/contracts.ts";
 import type { ArtifactDraft, TaskRecord } from "../../../../../src/lawmind/types.ts";
 import { lawyerDeliverableTypeLabel } from "../lawmind-lawyer-labels";
+import {
+  approvalStatusLabel,
+  queueKindLabel,
+  reviewStatusLabel,
+  taskLifecycleLabel,
+  workQueueStatusLabel,
+} from "./matter-display-labels";
 
 export type TaskBoardRowKind = "task" | "queue" | "approval" | "draft" | "job";
 
@@ -34,22 +41,6 @@ const QUEUE_PHASE_ZH: Record<string, string> = {
   render: "渲染",
 };
 
-const QUEUE_KIND_ZH: Record<string, string> = {
-  need_client_input: "待客户补充",
-  need_evidence: "待证据",
-  need_conflict_check: "利益冲突核查",
-  need_lawyer_review: "待律师复核",
-  need_partner_approval: "待合伙人批准",
-  ready_to_draft: "可起草",
-  ready_to_render: "可渲染",
-  blocked_by_deadline: "节点阻塞",
-  blocked_by_missing_strategy: "策略未明",
-};
-
-export function queueKindLabel(kind: string): string {
-  return QUEUE_KIND_ZH[kind] ?? kind;
-}
-
 const JOB_STATUS_ZH: Record<string, string> = {
   scheduled: "已预约",
   queued: "排队中",
@@ -78,7 +69,7 @@ export function mergeTaskBoardRows(input: {
       kind: "task",
       title: t.summary.slice(0, 120) || t.taskId,
       subtitle: t.kind,
-      statusLabel: t.status,
+      statusLabel: taskLifecycleLabel(t.status),
       sortKey: t.updatedAt ?? t.createdAt ?? "",
       priority: 2,
       taskId: t.taskId,
@@ -100,7 +91,7 @@ export function mergeTaskBoardRows(input: {
       kind: "queue",
       title: q.title,
       subtitle: subtitleParts.length ? subtitleParts.join(" · ") : kindLabel,
-      statusLabel: q.status,
+      statusLabel: workQueueStatusLabel(q.status),
       sortKey: q.updatedAt ?? q.createdAt ?? "",
       priority: q.priority === "critical" ? 0 : q.priority === "high" ? 1 : 3,
       taskId: q.relatedTaskId,
@@ -135,9 +126,11 @@ export function mergeTaskBoardRows(input: {
       kind: "approval",
       title: a.reason.slice(0, 120),
       subtitle: a.targetRole ? `→ ${a.targetRole}` : "审批",
-      statusLabel: a.status,
+      statusLabel: approvalStatusLabel(a.status),
       sortKey: a.requestedAt,
       priority: 0,
+      draftTaskId: a.deliverableId,
+      taskId: a.deliverableId,
     });
   }
 
@@ -147,7 +140,7 @@ export function mergeTaskBoardRows(input: {
       kind: "draft",
       title: d.title,
       subtitle: lawyerDeliverableTypeLabel(d.deliverableType) ?? d.output ?? "草稿",
-      statusLabel: d.reviewStatus,
+      statusLabel: reviewStatusLabel(d.reviewStatus),
       sortKey: d.createdAt ?? "",
       priority: d.reviewStatus === "pending" ? 1 : 4,
       draftTaskId: d.taskId,

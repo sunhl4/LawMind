@@ -1,5 +1,9 @@
 import { useMemo } from "react";
-import type { AgentsDeskTab } from "../lawmind-agents-desk";
+import type {
+  AgentsDeskTab,
+  AgentsWorkflowFocusTarget,
+  NeedsDecisionDeskTarget,
+} from "../lawmind-agents-desk";
 import type { AppConfig } from "../lawmind-app-bootstrap";
 import type { LawmindHealthState } from "../useLawmindAppBootstrapEffects";
 import type { CollabSummaryState } from "../LawmindSettingsCollaboration";
@@ -11,6 +15,7 @@ import type {
   LawmindSettingsSectionId,
 } from "../lawmind-settings-shell";
 import type { LawmindAppSettingsPanelProps } from "./LawmindAppSettingsPanel";
+import { requestOpenWorkspaceFile } from "../lawmind-workspace-file-open";
 
 export type UseLawmindAppSettingsPanelPropsInput = {
   showSettings: boolean;
@@ -47,6 +52,10 @@ export type UseLawmindAppSettingsPanelPropsInput = {
   clearProject: () => void | Promise<void>;
   setAgentsDeskTab: (tab: AgentsDeskTab) => void;
   setAgentsNeedsDecisionFocus?: (focus: boolean) => void;
+  setAgentsDeskFocusTarget?: (target: NeedsDecisionDeskTarget | null) => void;
+  setAgentsWorkflowFocus?: (target: AgentsWorkflowFocusTarget | null) => void;
+  setContextMatterId?: (matterId: string | null) => void;
+  setWsShowEditor?: (show: boolean) => void;
   setMainView: (view: LawmindMainView) => void;
   assistants: AssistantRow[];
   onPrefsChange: () => void;
@@ -93,6 +102,10 @@ export function useLawmindAppSettingsPanelProps(
     clearProject,
     setAgentsDeskTab,
     setAgentsNeedsDecisionFocus,
+    setAgentsDeskFocusTarget,
+    setAgentsWorkflowFocus,
+    setContextMatterId,
+    setWsShowEditor,
     setMainView,
     assistants,
     onPrefsChange,
@@ -169,7 +182,22 @@ export function useLawmindAppSettingsPanelProps(
       onPrefsChange,
       automationMatterId,
       automationMatterOptions,
-      onOpenAutomationsNeedsDecision: () => {
+      onOpenAutomationsNeedsDecision: (target?: NeedsDecisionDeskTarget) => {
+        const hasTarget = Boolean(
+          target?.sessionId?.trim() ||
+            target?.taskId?.trim() ||
+            target?.queueItemId?.trim() ||
+            target?.jobId?.trim() ||
+            target?.preferStatus,
+        );
+        if (hasTarget && target) {
+          setAgentsDeskFocusTarget?.(target);
+          if (target.matterId?.trim()) {
+            setContextMatterId?.(target.matterId.trim());
+          }
+        } else {
+          setAgentsDeskFocusTarget?.(null);
+        }
         setAgentsNeedsDecisionFocus?.(true);
         setAgentsDeskTab("active");
         setMainView("agents");
@@ -179,10 +207,33 @@ export function useLawmindAppSettingsPanelProps(
         setShowSettings(false);
         onOpenReviewFromAutomation?.(taskId, matterId);
       },
-      onOpenAutomationsCollaboration: () => {
+      onOpenAutomationsCollaboration: (matterId?: string, jobId?: string) => {
+        const mid = matterId?.trim();
+        const jid = jobId?.trim();
+        if (mid) {
+          setContextMatterId?.(mid);
+        }
+        setAgentsWorkflowFocus?.(
+          mid || jid ? { matterId: mid || undefined, jobId: jid || undefined } : null,
+        );
         setAgentsDeskTab("workflows");
         setMainView("agents");
         setShowSettings(false);
+      },
+      onOpenAutomationsWorkspaceFile: (relPath: string, matterId?: string) => {
+        const path = relPath.trim();
+        if (!path) {
+          return;
+        }
+        const mid = matterId?.trim();
+        if (mid) {
+          setContextMatterId?.(mid);
+        }
+        setShowSettings(false);
+        setMainView("workspace");
+        setWsShowEditor?.(true);
+        // 登记 pending + 立即派发：FileWorkbench 未挂载时挂载后消费，不再靠 setTimeout 竞速。
+        requestOpenWorkspaceFile(path);
       },
     }),
     [
@@ -221,6 +272,10 @@ export function useLawmindAppSettingsPanelProps(
       clearProject,
       setAgentsDeskTab,
       setAgentsNeedsDecisionFocus,
+      setAgentsDeskFocusTarget,
+      setAgentsWorkflowFocus,
+      setContextMatterId,
+      setWsShowEditor,
       setMainView,
       onPrefsChange,
       automationMatterId,

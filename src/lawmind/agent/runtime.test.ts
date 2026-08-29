@@ -139,12 +139,14 @@ describe("runTurn clarification handling", () => {
       instruction: "请起草一份房屋租赁合同",
     });
 
-    // Intake-first: thin lease asks pause before tools (no mid-flight draft).
+    // Soft Ask: intake no longer freezes rental drafts; tools may run.
+    // Tool-returned draft_with_placeholders still pauses for remaining gaps.
     expect(result.turn.status).toBe("awaiting_clarification");
-    expect(result.turn.clarificationQuestions?.some((q) => q.key === "parties")).toBe(true);
-    expect(result.turn.gateDecisions?.some((g) => g.gate === "intake_gate")).toBe(true);
-    expect(result.reply).toContain("少花几轮聊天");
-    expect(result.reply).toContain("出租人");
+    expect(result.turn.clarificationQuestions?.some((q) => q.key === "rent_and_deposit")).toBe(
+      true,
+    );
+    expect(result.turn.gateDecisions?.some((g) => g.gate === "intake_gate")).toBeFalsy();
+    expect(result.reply).toMatch(/补充|租金|押金/);
     expect(result.memoryContext).toBeDefined();
     expect(typeof result.memoryContext.profile).toBe("string");
   });
@@ -246,6 +248,35 @@ describe("runTurn clarification handling", () => {
           },
         ],
       },
+      {
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: "",
+              tool_calls: [
+                {
+                  id: "call-t3a",
+                  type: "function",
+                  function: { name: "draft_document", arguments: "{}" },
+                },
+              ],
+            },
+            finish_reason: "tool_calls",
+          },
+        ],
+      },
+      {
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: "起草完成。",
+            },
+            finish_reason: "stop",
+          },
+        ],
+      },
     ];
 
     vi.stubGlobal(
@@ -299,7 +330,9 @@ describe("runTurn clarification handling", () => {
       instruction: "【补充信息】租金 5000 元/月，押一付三。请继续完善。",
     });
 
-    expect(draftCalls).toBe(2);
+    // 跨轮硬门禁：普通消息轮中 draft_document 被拦截（本轮不真正执行起草）；
+    // 本轮以 completed 结束后 finalize 清键，下一轮自动放行。
+    expect(draftCalls).toBe(1);
     expect(second.turn.status).toBe("completed");
     expect(second.reply).toContain("已按补充更新合同正文");
 
@@ -307,6 +340,16 @@ describe("runTurn clarification handling", () => {
       fs.readFileSync(path.join(workspaceDir, "sessions", `${first.sessionId}.json`), "utf8"),
     ) as { pendingClarificationKeys?: string[] };
     expect(after.pendingClarificationKeys).toBeUndefined();
+
+    const third = await runTurn({
+      config,
+      registry,
+      sessionId: first.sessionId,
+      instruction: "请继续完成起草。",
+    });
+    expect(draftCalls).toBe(2);
+    expect(third.turn.status).toBe("completed");
+    expect(third.reply).toContain("起草完成");
   });
 });
 
@@ -320,7 +363,7 @@ describe("runTurn strict dangerous tool approval", () => {
     const registry = new ToolRegistry();
     registry.register({
       definition: {
-        name: "risky",
+        name: "send_email",
         description: "r",
         category: "system",
         parameters: {},
@@ -345,7 +388,7 @@ describe("runTurn strict dangerous tool approval", () => {
                   {
                     id: "c1",
                     type: "function",
-                    function: { name: "risky", arguments: "{}" },
+                    function: { name: "send_email", arguments: "{}" },
                   },
                 ],
               },
@@ -377,13 +420,13 @@ describe("runTurn strict dangerous tool approval", () => {
     expect(result.turn.status).toBe("awaiting_approval");
   });
 
-  it("runs requiresApproval tool when strict is off and allowDangerous bypass is on", async () => {
+  it("runs send_email when strict is off and allowDangerous bypass is on", async () => {
     const workspaceDir = tmpWorkspace();
     const registry = new ToolRegistry();
     let ran = false;
     registry.register({
       definition: {
-        name: "risky",
+        name: "send_email",
         description: "r",
         category: "system",
         parameters: {},
@@ -406,7 +449,7 @@ describe("runTurn strict dangerous tool approval", () => {
                 {
                   id: "c1",
                   type: "function",
-                  function: { name: "risky", arguments: "{}" },
+                  function: { name: "send_email", arguments: "{}" },
                 },
               ],
             },

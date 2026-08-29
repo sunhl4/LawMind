@@ -20,7 +20,11 @@ import {
 } from "./lawmind-chat-trace.js";
 import type { AppConfig } from "./lawmind-app-bootstrap";
 import type { ChatSessionListEntry } from "./useLawmindChatShell";
-import { chatSessionStoreKey, persistActiveChatSessionId } from "./useLawmindChatShell";
+import {
+  chatSessionStoreKey,
+  DEFAULT_CHAT_SESSION_TITLE,
+  persistActiveChatSessionId,
+} from "./useLawmindChatShell";
 import type { ArtifactDraft } from "../../../../src/lawmind/types.ts";
 
 export type BackgroundWatchOpts = {
@@ -171,7 +175,7 @@ export function useLawmindBackgroundWatch(input: UseLawmindBackgroundWatchInput)
             setChatSessionList(
               listJ.sessions.map((s) => ({
                 sessionId: s.sessionId,
-                title: typeof s.title === "string" && s.title.trim() ? s.title : "New Chat",
+                title: typeof s.title === "string" && s.title.trim() ? s.title : DEFAULT_CHAT_SESSION_TITLE,
                 updatedAt: s.updatedAt,
               })),
             );
@@ -365,7 +369,7 @@ export function useLawmindBackgroundWatch(input: UseLawmindBackgroundWatchInput)
               setChatSessionList(
                 listJ2.sessions.map((s) => ({
                   sessionId: s.sessionId,
-                  title: typeof s.title === "string" && s.title.trim() ? s.title : "New Chat",
+                  title: typeof s.title === "string" && s.title.trim() ? s.title : DEFAULT_CHAT_SESSION_TITLE,
                   updatedAt: s.updatedAt,
                 })),
               );
@@ -486,7 +490,7 @@ export function useLawmindBackgroundWatch(input: UseLawmindBackgroundWatchInput)
         ...opts,
         kind: "revision",
         hints: {
-          complete: "修订已完成，可进入文书台改稿；正式签批请回在办",
+          complete: "修订完成，可打开改稿核对",
           failed: "后台修订未完成，请查看对话中的错误信息",
           timeout: "后台修订轮询超时，请手动刷新会话查看结果",
         },

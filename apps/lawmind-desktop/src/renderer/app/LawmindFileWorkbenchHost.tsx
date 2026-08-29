@@ -13,6 +13,8 @@ export type LawmindFileWorkbenchHostProps = {
   onAddToChatContext: (payload: { root: RootKey; relPath: string; kind: "file" | "directory" }) => void;
   /** workspace = chat materials; meeting = agenda; agents = 在办补充带入 */
   explorerVariant?: "workspace" | "meeting" | "agents";
+  /** 文件台「送审本合同」：引用 + 填入合同审查交办 */
+  onSendContractForReview?: (payload: { root: RootKey; relPath: string }) => void;
   mattersPickList: Array<{ id: string; label: string }>;
   workspaceTreeRefreshKey: number;
   casesNodeActions: FileWorkbenchCasesNodeActions | null;
@@ -28,6 +30,7 @@ function LawmindFileWorkbenchHostImpl({
   onExplorerPortaled,
   onAddToChatContext,
   explorerVariant = "workspace",
+  onSendContractForReview,
   mattersPickList,
   workspaceTreeRefreshKey,
   casesNodeActions,
@@ -58,6 +61,7 @@ function LawmindFileWorkbenchHostImpl({
       canUseFilesystemBridge
       onAddToChatContext={onAddToChatContext}
       addToContextLabel={addToContextLabel}
+      onSendContractForReview={isMeeting || isAgents ? undefined : onSendContractForReview}
       portalHosts={{
         explorer: fileExplorerHost,
         editor: isMeeting || isAgents ? null : (fileEditorHost ?? null),

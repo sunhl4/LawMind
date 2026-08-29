@@ -400,8 +400,9 @@ export function useLawmindAppShell() {
     onStreamCompactBoundary: (info) => {
       const dropped =
         typeof info.droppedMessageCount === "number" ? info.droppedMessageCount : 0;
-      const label =
-        dropped > 0
+      const label = info.overflowPrune
+        ? "上下文较满，已精简后继续"
+        : dropped > 0
           ? `对话已自动压缩（约 ${dropped} 条较早消息已折叠）`
           : "对话已自动压缩以腾出上下文空间";
       setStreamCompactNoticesByAssistant((prev) => ({
@@ -409,6 +410,13 @@ export function useLawmindAppShell() {
         [selectedAssistantId]: [...(prev[selectedAssistantId] ?? []), label],
       }));
       void composeExtras.refreshContextBudget();
+    },
+    onStreamToolBudget: (info) => {
+      const label = `本轮已办理 ${info.used} 步（软预算 ${info.maxToolCalls}），将询问是否继续`;
+      setStreamCompactNoticesByAssistant((prev) => ({
+        ...prev,
+        [selectedAssistantId]: [...(prev[selectedAssistantId] ?? []), label],
+      }));
     },
     onTurnComplete: () => {
       void composeExtras.refreshPending();

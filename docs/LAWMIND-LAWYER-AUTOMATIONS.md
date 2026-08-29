@@ -6,16 +6,16 @@
 
 **设置 → 自动办件** → `LawmindAutomationsPanel`（顶栏不再有独立「交办 / Automations」一级页）。
 
-页内分区顺序：**待拍板结果** → **我的交办任务** → **创建** → **邮箱配置**。侧栏 **待我拍板** 跳转「在办」处理澄清/批准；交办结果也可在本页「待拍板」直接「已知悉 / 忽略 / 批准发送」。
+页内分区顺序：**我的交办任务** → **创建** → **邮箱配置**。本页只做配置；外发待发信与签批在侧栏 **待我拍板** / **在办** 处理，不在设置里重复列出结果。
 
 ## 能力对照
 
-| 阶段 | 能力                                        | 状态                                                                |
-| ---- | ------------------------------------------- | ------------------------------------------------------------------- |
-| P0   | 独立页、列表/开关、每天/每周、立即跑一次    | 已实现                                                              |
-| P1   | 合同续签盯梢、客户进展周报 → 运行结果进拍板 | 已实现（走工作流 Job + automation-inbox；周报需真实 `notifyEmail`） |
-| P2   | 真实邮箱同步 + 收件整理 / 邮件合同初审      | 已实现（IMAP/SMTP；合同初审入队 `contract-review` 工作流）          |
-| P3   | 一句话创建；批准后真实发信                  | 已实现（`approve_send` → SMTP/Graph + 本地 sent 归档）              |
+| 阶段 | 能力                                              | 状态                                                                     |
+| ---- | ------------------------------------------------- | ------------------------------------------------------------------------ |
+| P0   | 独立页、列表/开关、每天/每周/**间隔**、立即跑一次 | 已实现（邮件类默认每 30 分钟；可改 15 分钟～24 小时）                    |
+| P1   | 合同续签盯梢、客户进展周报 → 运行结果进拍板       | 已实现（走工作流 Job + automation-inbox；周报需真实 `notifyEmail`）      |
+| P2   | 真实邮箱同步 + 收件整理 / 邮件合同审阅改稿        | 已实现（IMAP/SMTP；入队 `mail-contract-redline`：基线最小改 + 审阅痕迹） |
+| P3   | 一句话创建；批准后真实发信（可带附件）            | 已实现（`approve_send` / `send_email` → SMTP/Graph + 附件 + sent 归档）  |
 
 ## 邮箱配置（交办页）
 
@@ -32,6 +32,7 @@
 - 账号元数据：`lawmind/mail-accounts.json`（无密码）
 - 授权码/密钥：LawMind 根目录 `mail-secrets.json`（与 `.env.lawmind` 同级，不进案件仓库）
 - **对方往来名单**（`watchContacts`）：0 个 = 同步全部来信；1+ 个 = 只同步与这些人相关的邮件（每人可填简称与备注）
+- **发送格式 / 落款**（`sendFormat`）：按账号设置发件显示名、结束语（此致敬礼 / 顺颂商祺 / 此复 / 自定义）与落款正文。`prepare_outbound_mail` / `send_email` / 批准发送时，正文未含同样落款则自动附加；SMTP/Graph 的 From 使用显示名
 - **测试连接** / **立即同步** 写入 `cases/<matterId>/mail/inbox/` 与附件目录
 - 邮件类交办任务到期时会先尝试远程同步，再生成拍板摘要
 
@@ -64,9 +65,19 @@
 1. 打开 **设置 → 自动办件**。
 2. 在 **邮箱配置** 选类型（如 QQ / Gmail）→ 填地址与授权码 → **保存并连接** → **测试连接**。
 3. 选案件后 **立即同步**，或创建「邮箱收件整理」等交办任务后点 **立即跑一次**。
-4. 结果出现在本页「待拍板」；侧栏 **待我拍板** 进入「在办」处理其它待确认项。
+4. 外发待发信出现在侧栏 **待我拍板** / **在办**；本页只显示交办任务与上次摘要。
 5. 客户周报：创建时填写真实收件邮箱（禁止 `example.com`）；批准发送走已配置账号的 SMTP/Graph，并归档 `mail/sent/`。
-6. 邮件合同初审：同步后启动 `contract-review` 工作流；结果行可「查看在办」/有草稿时「打开文书台」。
+6. 邮件合同审阅改稿：同步后启动 `mail-contract-redline` **短路径**工作流（指令已含附件路径）。两步：`redline`（分析基线 → 最小改 → `render_tracked_draft` 写入 `cases/<matterId>/<原名>_<日期>.docx`）→ `handoff`（`prepare_outbound_mail`，**不**自动外发）。**禁止**反复 `search_workspace` / `read_project_file`；审查要点写入草稿 summary，不另开冗长意见书流程。律师签批后于待拍板「批准发送」。
+
+### 邮件合同审阅改稿（要点）
+
+- 附件落盘：`cases/<matterId>/mail/attachments/<messageId>/…`（`.docx` / `.doc` / `.pdf` / 图片等）
+- **Tracked 路径**：`.doc` 与 `.docx` 同为一等基线（**不要求律师先转格式**）；直接 `analyze_document` / `contract_edit_baseline_path`；导出审阅痕迹时引擎可对 `.doc` 使用临时工作副本调用 OpenXML 工具，原件旁不会落盘强制转换的 `.docx`
+- **Opinion 路径**：PDF / 扫描图片 / 其它无法做 Word 痕迹的格式 → `analyze_document` + `contract.review` 意见书
+- 基线字段：草稿 `contractEdit.baselineRelativePath`（可为 `.doc` 或 `.docx`）
+- 格式保留：Agent **不**解析 OOXML 样式；最小改走 surgical Redline + 改写幅度闸门
+- 导出落盘：`cases/<matterId>/<原附件名>_<YYYYMMDD>.docx`（不自动打开 Word；律师自行打开）
+- 外发：始终需律师 `approve_send` / `__approved`；`pendingSend.attachmentRelativePaths` 可挂上述案件目录路径或意见书产物
 
 ## 本地匣兜底
 
@@ -74,5 +85,5 @@
 
 ## 外发门禁
 
-- 交办任务结果：`approve_send` → 本地 sent + 尝试真实发信
-- Agent 工具：`send_email`（`requiresApproval: true`），批准后同样走账号 SMTP/Graph
+- 交办任务结果：`approve_send` → 本地 sent + 尝试真实发信（含附件）
+- Agent 工具：`send_email`（`requiresApproval: true`，可选 `attachment_paths`）；`prepare_outbound_mail` 只写入待拍板、不发送

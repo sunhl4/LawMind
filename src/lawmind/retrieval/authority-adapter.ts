@@ -2,20 +2,12 @@
  * Authority retrieval adapter (P2-1 / R-P0-4 / Track B).
  *
  * Routes by LAWMIND_AUTHORITY_PROVIDER:
- * - open (default): local open corpus (+ optional NPC FLK) — no commercial key
+ * - open (default): local open corpus (+ optional NPC / caseopen / CourtListener / EUR-Lex / e-Gov)
  * - generic: GET ?q= → hits/items
  * - pkulaw / lexis: commercial BYOK / placeholder（手动接入）
  */
 
 import type { TaskIntent } from "../types.js";
-import type { RetrievalAdapter, RetrievalResult } from "./index.js";
-import {
-  authorityHttpErrorResult,
-  invalidAuthorityEndpointResult,
-  mapHitsToRetrievalResult,
-  type AuthorityHit,
-  unsetAuthorityResult,
-} from "./authority-hits.js";
 import {
   assertAuthorityEndpointSafeToFetch,
   buildAuthorityRequestHeaders,
@@ -23,6 +15,13 @@ import {
   resolveAuthorityEndpointRaw,
   validateAuthorityEndpointUrl,
 } from "./authority-health.js";
+import {
+  authorityHttpErrorResult,
+  invalidAuthorityEndpointResult,
+  mapHitsToRetrievalResult,
+  type AuthorityHit,
+  unsetAuthorityResult,
+} from "./authority-hits.js";
 import { createPinnedAuthorityFetch } from "./authority-pinned-fetch.js";
 import {
   authorityProviderNeedsEndpoint,
@@ -31,6 +30,7 @@ import {
 } from "./authority-provider.js";
 import type { AuthorityDnsLookupFn } from "./authority-url-guard.js";
 import { recordAuthorityUsage } from "./authority-usage.js";
+import type { RetrievalAdapter, RetrievalResult } from "./index.js";
 import { lexisAdapterMessage } from "./providers/lexis/placeholder.js";
 import { openLawRetrieve } from "./providers/open-law/client.js";
 import { pkulawRetrieve, resolvePkulawMode } from "./providers/pkulaw/client.js";
@@ -46,7 +46,10 @@ function needsAuthority(intent: TaskIntent): boolean {
 }
 
 function isLoopbackHostname(hostname: string): boolean {
-  const h = hostname.trim().toLowerCase().replace(/^\[|\]$/g, "");
+  const h = hostname
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "");
   return (
     h === "localhost" ||
     h === "127.0.0.1" ||
@@ -63,7 +66,10 @@ function isLoopbackHostname(hostname: string): boolean {
  * loopback by design). This closes the DNS-rebinding TOCTOU for non-loopback
  * open-law endpoints without breaking the local self-hosted use case.
  */
-function createOpenLawPinnedFetch(plainFetch: typeof fetch, pinnedFetch: typeof fetch): typeof fetch {
+function createOpenLawPinnedFetch(
+  plainFetch: typeof fetch,
+  pinnedFetch: typeof fetch,
+): typeof fetch {
   return async (input, init) => {
     let hostname: string;
     if (typeof input === "string") {
@@ -146,7 +152,8 @@ export function createAuthorityAdapterFromEnv(opts?: {
   const validated = raw ? validateAuthorityEndpointUrl(raw) : null;
   const provider: AuthorityProviderId = resolveAuthorityProvider({ provider: opts?.provider });
   const apiKey = opts?.apiKey ?? resolveAuthorityApiKey();
-  const workspaceDir = opts?.workspaceDir?.trim() || process.env.LAWMIND_WORKSPACE_DIR?.trim() || "";
+  const workspaceDir =
+    opts?.workspaceDir?.trim() || process.env.LAWMIND_WORKSPACE_DIR?.trim() || "";
   const lookup = opts?.lookup;
 
   return {

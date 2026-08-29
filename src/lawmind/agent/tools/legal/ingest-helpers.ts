@@ -4,6 +4,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import JSZip from "jszip";
 import { isPathInsideRoot } from "../../../runtime/workspace-path.js";
+import { loadXlsxAsTsv } from "./xlsx-workbook.js";
+
+export { MAX_XLSX_READ_BYTES } from "./xlsx-workbook.js";
 async function readSafe(filePath: string): Promise<string> {
   try {
     return await fs.readFile(filePath, "utf8");
@@ -205,40 +208,8 @@ async function readDocxText(filePath: string): Promise<string> {
   return extractTextFromDocxXml(docXml);
 }
 
-export const MAX_XLSX_READ_BYTES = 20_000_000;
-const MAX_XLSX_SHEETS = 32;
-const MAX_XLSX_ROWS_PER_SHEET = 5000;
-
 async function readXlsxPlainText(filePath: string): Promise<string> {
-  const ExcelJS = await import("exceljs");
-  const buffer = await fs.readFile(filePath);
-  const workbook = new ExcelJS.Workbook();
-  const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
-  await workbook.xlsx.load(arrayBuffer);
-  const sheets = workbook.worksheets.slice(0, MAX_XLSX_SHEETS);
-  const parts: string[] = [];
-  for (const worksheet of sheets) {
-    const rows: string[] = [];
-    let rowCount = 0;
-    worksheet.eachRow({ includeEmpty: false }, (row) => {
-      if (rowCount >= MAX_XLSX_ROWS_PER_SHEET) {
-        return;
-      }
-      const cells: string[] = [];
-      row.eachCell({ includeEmpty: true }, (cell) => {
-        cells.push(String(cell.text ?? ""));
-      });
-      if (cells.some((c) => c.trim())) {
-        rows.push(cells.join("\t"));
-      }
-      rowCount++;
-    });
-    const body = rows.join("\n");
-    if (body.trim()) {
-      parts.push(`### ${worksheet.name}\n${body}`);
-    }
-  }
-  return normalizeExtractedText(parts.join("\n\n"));
+  return normalizeExtractedText(await loadXlsxAsTsv(filePath));
 }
 
 async function createOcrWorker() {

@@ -12,6 +12,7 @@ import {
   type FleetQueueGroup,
 } from "./lawmind-fleet-queue";
 import { sanitizeLawyerFacingText } from "../../../../src/lawmind/platform/requires-action.ts";
+import { lawyerFacingQueueScopeHint, useRequireSignoffReview } from "./lawmind-review-prefs";
 
 export const FLEET_TAB_TEAM_ID = "lm-fleet-tab-team";
 export const FLEET_TAB_QUEUE_ID = "lm-fleet-tab-queue";
@@ -25,6 +26,7 @@ export type LawmindAgentFleetListAsideProps = {
   queueGroups: FleetQueueGroup[];
   teamRows: FleetTeamRow[];
   matterChoices: string[];
+  matterLabelById?: Record<string, string>;
   matterFilter: string;
   onMatterFilterChange: (value: string) => void;
   listMode: "team" | "queue";
@@ -50,6 +52,7 @@ export function LawmindAgentFleetListAside(props: LawmindAgentFleetListAsideProp
     queueGroups,
     teamRows,
     matterChoices,
+    matterLabelById = {},
     matterFilter,
     onMatterFilterChange,
     listMode,
@@ -66,6 +69,7 @@ export function LawmindAgentFleetListAside(props: LawmindAgentFleetListAsideProp
     needsDecisionFocus,
     onClearNeedsDecisionFocus,
   } = props;
+  const requireSignoffReview = useRequireSignoffReview();
 
   return (
     <aside className="lm-agents-wb-list" aria-label="在办团队目录">
@@ -74,7 +78,7 @@ export function LawmindAgentFleetListAside(props: LawmindAgentFleetListAsideProp
           className="lm-agents-wb-pill"
           data-tone="warn"
           data-testid="lm-fleet-decision-focus-lead"
-          title="当前筛选下待您拍板的事项数"
+          title={`待拍板：${lawyerFacingQueueScopeHint(requireSignoffReview)}`}
         >
           待拍板 {matterScopedQueue.length}
           {assistantFilter
@@ -95,7 +99,7 @@ export function LawmindAgentFleetListAside(props: LawmindAgentFleetListAsideProp
               <option value="all">全部案件</option>
               {matterChoices.map((mid) => (
                 <option key={mid} value={mid}>
-                  {mid}
+                  {matterLabelById[mid]?.trim() || mid}
                 </option>
               ))}
             </select>
@@ -118,7 +122,7 @@ export function LawmindAgentFleetListAside(props: LawmindAgentFleetListAsideProp
               className="lm-agents-wb-pill"
               data-tone="info"
               data-testid="lm-fleet-pending-teach"
-              title="记忆采纳队列中待确认的团队学习建议"
+              title="待确认的团队学习建议"
             >
               待教 {pendingTeachCount}
             </span>

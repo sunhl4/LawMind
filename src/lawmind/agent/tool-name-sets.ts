@@ -19,6 +19,8 @@ export const MATTER_SCOPE_REQUIRED = new Set<string>([
   "read_case_file",
   "add_case_note",
   "get_matter_summary",
+  "list_mail_inbox",
+  "list_mail_attachments",
 ]);
 
 export const BACKGROUND_JOB_TOOLS = new Set<string>(["execute_workflow"]);
@@ -34,21 +36,30 @@ export const IDEMPOTENT_READ_TOOLS = new Set<string>([
   "check_conflict_of_interest",
   "read_case_file",
   "analyze_document",
+  "compare_documents",
   "list_tasks",
   "list_drafts",
   "get_audit_trail",
   "get_delegation_result",
   "list_delegations",
   "list_templates",
+  "list_mail_inbox",
+  "list_mail_attachments",
+  "list_more_tools",
+  "analyze_spreadsheet",
+  "calculate",
 ]);
 
 export const WRITE_TOOLS = new Set<string>([
   "add_case_note",
   "write_document",
   "send_email",
+  "prepare_outbound_mail",
   "draft_document",
   "update_draft",
+  "apply_surgical_edits",
   "render_document",
+  "render_tracked_draft",
   "execute_workflow",
   "request_review",
   "delegate_task",
@@ -60,4 +71,7 @@ export const WRITE_TOOLS = new Set<string>([
   "append_session_summary",
   "register_template",
   "set_template_enabled",
+  "write_spreadsheet",
+  "render_chart",
+  "run_analysis",
 ]);

@@ -2,11 +2,10 @@ import { expect, test } from "@playwright/test";
 import {
   approveToolViaDialog,
   e2eMockApiBase,
-  ensureReviewMetaPaneVisible,
   gotoShell,
   installE2eBrowserPrefs,
   openComposeOptions,
-  openReviewWorkbench,
+  openReviewDraft,
   openWorkspaceChat,
 } from "./e2e-helpers";
 
@@ -28,18 +27,8 @@ test.describe("LawMind golden path", () => {
   test("review workbench shows acceptance gate region when opened", async ({ page }) => {
     test.setTimeout(120_000);
     await gotoShell(page);
-    await openReviewWorkbench(page);
+    await openReviewDraft(page);
     await expect(page.locator(".lm-review-workbench-root")).toBeVisible({ timeout: 30_000 });
-    const draftSelect = page.locator("select.lm-review-draft-select");
-    if (await draftSelect.isVisible().catch(() => false)) {
-      const options = await draftSelect.locator("option").all();
-      if (options.length > 1) {
-        await draftSelect.selectOption({ index: 1 }).catch(async () => {
-          await draftSelect.selectOption("e2e-draft-1").catch(() => undefined);
-        });
-      }
-    }
-    await ensureReviewMetaPaneVisible(page);
     await expect(page.locator("#lm-review-acceptance-gate")).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/出稿检查/).first()).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("lm-review-export-blockers")).toBeVisible({ timeout: 15_000 });
@@ -63,6 +52,7 @@ test.describe("LawMind golden path", () => {
   });
 
   test("tool approval edit resume sends editedArgs via API", async ({ page }) => {
+    await page.request.post(`${e2eMockApiBase()}/__e2e__/reset`);
     await gotoShell(page);
     await openWorkspaceChat(page);
     await expect(page.getByRole("button", { name: "改拟稿…" })).toBeVisible({ timeout: 15_000 });
@@ -104,9 +94,19 @@ test.describe("LawMind golden path", () => {
     await page.getByRole("button", { name: "发送" }).click();
     await slowRequest;
     await expect(page.getByRole("button", { name: "停止" })).toBeVisible({ timeout: 5_000 });
-    await composer.fill("e2e-queued-second");
+    await composer.fill("e2e-steer-mid-turn");
+    const steerWait = page.waitForResponse(
+      (res) => res.url().includes("/steer") && res.request().method() === "POST",
+      { timeout: 5_000 },
+    );
     await composer.press("Enter");
-    await expect(page.locator(".lm-compose-queue")).toContainText("排队中", { timeout: 5_000 });
+    await steerWait;
+    await expect(composer).toHaveValue("");
+    await expect(page.locator(".lm-compose-queue")).toHaveCount(0);
+    await composer.fill("e2e-queued-second");
+    await openComposeOptions(page);
+    await page.getByTestId("lm-compose-enqueue-next").click();
+    await expect(page.locator(".lm-compose-queue")).toContainText("排队", { timeout: 5_000 });
     await slowResponse;
   });
 
@@ -131,7 +131,7 @@ test.describe("LawMind golden path", () => {
     expect(body.acceptance?.deliverableType).toBe("contract.review");
     expect(body.gateDecisions?.length).toBeGreaterThan(0);
     expect(
-      body.gateDecisions?.some((g) => /等待律师签批|验收门禁|审批门禁/.test(g.reason ?? "")),
+      body.gateDecisions?.some((g) => /等待律师签批|出稿检查|待签批|验收门禁|审批门禁/.test(g.reason ?? "")),
     ).toBe(true);
   });
 });

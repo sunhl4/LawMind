@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { resolvePinnedContextSummary } from "./pinned-context.js";
+import { resolvePinnedContextSummary, withContractPlaybookPin } from "./pinned-context.js";
 
 describe("pinned-context", () => {
   it("builds markdown for theory and evidence pins", () => {
@@ -30,5 +30,27 @@ describe("pinned-context", () => {
     expect(summary.markdownBlock).toContain("Focus on liability cap");
 
     fs.rmSync(workspaceDir, { recursive: true, force: true });
+  });
+
+  it("auto-pins the clause playbook for contract work", () => {
+    const pins = withContractPlaybookPin([], "请起草一份保密协议");
+    expect(pins).toEqual([{ pinKind: "clause", scope: "full" }]);
+    expect(withContractPlaybookPin(pins, "请起草一份保密协议")).toEqual(pins);
+    expect(withContractPlaybookPin([], "查一下民法典相关法条")).toEqual([]);
+  });
+
+  it("does not auto-pin CLAUSE_PLAYBOOK on Word revision turns", () => {
+    const pins = withContractPlaybookPin(
+      [
+        {
+          pinKind: "file",
+          root: "project",
+          relPath: "设备采购合同.docx",
+          kind: "file",
+        },
+      ],
+      "改合同，代表甲方",
+    );
+    expect(pins.some((pin) => pin.pinKind === "clause")).toBe(false);
   });
 });

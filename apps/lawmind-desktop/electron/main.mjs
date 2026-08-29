@@ -7,6 +7,7 @@ import {
   ensureBackend,
   killLocalServer,
   getAllowedRoots,
+  spawnWorkspaceDaemon,
 } from "./local-server.mjs";
 import {
   setupApplicationMenu,
@@ -14,6 +15,11 @@ import {
   runAutoUpdateCheckWithNotify,
 } from "./app-menu.mjs";
 import { registerIpcHandlers } from "./ipc-handlers.mjs";
+import {
+  isAuxPopoutWindowUrl,
+  isDevToolsWindowUrl,
+  shouldKeepLocalServerAlive,
+} from "./app-windows.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -25,6 +31,37 @@ const auxWindows = new Map();
 
 const fsBridge = createFsBridge(getAllowedRoots);
 
+function windowUrl(win) {
+  try {
+    return win.webContents.getURL();
+  } catch {
+    return "";
+  }
+}
+
+function isDevToolsWindow(win) {
+  return Boolean(win) && !win.isDestroyed() && isDevToolsWindowUrl(windowUrl(win));
+}
+
+function listAppWindows() {
+  return BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed() && !isDevToolsWindow(win));
+}
+
+function findReusableMainWindow() {
+  if (mainWindowRef && !mainWindowRef.isDestroyed()) {
+    return mainWindowRef;
+  }
+  return listAppWindows().find((win) => !isAuxPopoutWindowUrl(windowUrl(win))) ?? null;
+}
+
+function focusExistingWindow(win) {
+  if (win.isMinimized()) {
+    win.restore();
+  }
+  win.show();
+  win.focus();
+}
+
 function installIpcHandlers() {
   registerIpcHandlers({
     getMainWindowRef: () => mainWindowRef,
@@ -33,7 +70,30 @@ function installIpcHandlers() {
   });
 }
 
+function denyInAppWindowOpen(contents) {
+  // target=_blank / window.open to http(s) must open in the system browser, not an in-app window (often blank).
+  contents.setWindowOpenHandler(({ url }) => {
+    try {
+      const u = new URL(url);
+      if (u.protocol === "http:" || u.protocol === "https:") {
+        void shell.openExternal(url);
+        return { action: "deny" };
+      }
+    } catch {
+      /* ignore bad URLs */
+    }
+    return { action: "deny" };
+  });
+}
+
 async function createWindow() {
+  const existing = findReusableMainWindow();
+  if (existing) {
+    mainWindowRef = existing;
+    focusExistingWindow(existing);
+    return;
+  }
+
   await ensureBackend();
 
   const mainWindow = new BrowserWindow({
@@ -55,26 +115,19 @@ async function createWindow() {
 
   mainWindowRef = mainWindow;
   mainWindow.on("closed", () => {
-    mainWindowRef = null;
+    if (mainWindowRef === mainWindow) {
+      mainWindowRef = null;
+    }
   });
 
-  // target=_blank / window.open to http(s) must open in the system browser, not an in-app window (often blank).
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    try {
-      const u = new URL(url);
-      if (u.protocol === "http:" || u.protocol === "https:") {
-        void shell.openExternal(url);
-        return { action: "deny" };
-      }
-    } catch {
-      /* ignore bad URLs */
-    }
-    return { action: "deny" };
-  });
+  denyInAppWindowOpen(mainWindow.webContents);
 
   await loadRendererIntoWindow(mainWindow);
-  if (!app.isPackaged && process.env.LAWMIND_E2E !== "1") {
-    mainWindow.webContents.openDevTools({ mode: "detach" });
+  // Never auto-open *detached* DevTools: that window is easy to mistake for a
+  // new chat, and closing it can kill the local API (see window-all-closed).
+  // Opt-in docked tools: LAWMIND_DEVTOOLS=1. View → Toggle Developer Tools always works.
+  if (!app.isPackaged && process.env.LAWMIND_E2E !== "1" && process.env.LAWMIND_DEVTOOLS === "1") {
+    mainWindow.webContents.openDevTools({ mode: "bottom" });
   }
 }
 
@@ -94,6 +147,14 @@ void app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
+  const keep = shouldKeepLocalServerAlive({
+    mainAlive: Boolean(mainWindowRef && !mainWindowRef.isDestroyed()),
+    auxAliveCount: [...auxWindows.values()].filter((win) => !win.isDestroyed()).length,
+    remainingAppWindowCount: listAppWindows().length,
+  });
+  if (keep) {
+    return;
+  }
   killLocalServer();
   if (process.platform !== "darwin") {
     app.quit();
@@ -102,10 +163,21 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   killLocalServer();
+  try {
+    spawnWorkspaceDaemon();
+  } catch {
+    /* best-effort */
+  }
 });
 
 app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
+  const existing = findReusableMainWindow();
+  if (existing) {
+    mainWindowRef = existing;
+    focusExistingWindow(existing);
+    return;
+  }
+  if (listAppWindows().length === 0) {
     void createWindow();
   }
 });

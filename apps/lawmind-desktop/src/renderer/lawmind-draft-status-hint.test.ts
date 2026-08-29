@@ -6,24 +6,24 @@ describe("shouldShowDraftStatusHint", () => {
     expect(shouldShowDraftStatusHint({ role: "assistant", linkedTaskId: null }).show).toBe(false);
   });
 
-  it("shows pending hint", () => {
+  it("shows short pending hint", () => {
     const h = shouldShowDraftStatusHint({
       role: "assistant",
       linkedTaskId: "t1",
       reviewStatus: "pending",
     });
     expect(h.show).toBe(true);
-    expect(h.message).toContain("审核");
+    expect(h.message).toBe("已出结果，可改稿");
   });
 
-  it("flags overconfident EMS phrasing when still pending", () => {
+  it("does not lecture on overconfident phrasing", () => {
     const h = shouldShowDraftStatusHint({
       role: "assistant",
       linkedTaskId: "t1",
       reviewStatus: "pending",
       assistantText: "EMS 已全部就绪，可直接对外发送。",
     });
-    expect(h.heuristic).toBe(true);
-    expect(h.show).toBe(true);
+    expect(h.heuristic).toBeFalsy();
+    expect(h.message).toBe("已出结果，可改稿");
   });
 });

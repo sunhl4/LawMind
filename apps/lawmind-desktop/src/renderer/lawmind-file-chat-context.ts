@@ -46,6 +46,11 @@ export function makeFileContextItemId(
   return `${p.root}|${p.kind}|${encodeURIComponent(p.relPath)}`;
 }
 
+/** docx/doc/pdf — Solo「送审本合同」/拖入短路径候选。 */
+export function isContractReviewCandidatePath(relPath: string | undefined | null): boolean {
+  return Boolean(relPath && /\.(docx?|pdf)$/i.test(relPath));
+}
+
 export function isFileChatExcerptCandidate(it: FileChatContextItem): boolean {
   if (it.kind !== "file") {
     return false;
@@ -76,17 +81,24 @@ export function buildFileContextMessagePrefix(
     if (excerpt) {
       return `- [${scope} · 已嵌入正文] \`${p}\`\n\`\`\`\n${excerpt}\n\`\`\``;
     }
+    const isWord = /\.docx?$/i.test(p);
+    const wordHint =
+      "改稿请通读后走 apply_surgical_edits → render_tracked_draft（拷贝原件 + 审阅痕迹，写入源文件同目录，原名_日期_01）。不要 render_document 重建，不要准备外发邮件。";
     if (it.root === "workspace") {
       const hint =
         it.kind === "directory"
           ? "请先在目录中定位要读的文件，用 analyze_document 读工作区相对路径。"
-          : "路径引用（未嵌入正文）：请用 analyze_document 读取以下工作区相对路径。";
+          : isWord
+            ? `路径引用（未嵌入正文）：请用 analyze_document 读取。${wordHint}`
+            : "路径引用（未嵌入正文）：请用 analyze_document 读取以下工作区相对路径。";
       return `- [${scope} · ${it.kind === "directory" ? "目录" : "路径引用"}] \`${p}\` — ${hint}`;
     }
     const hint =
       it.kind === "directory"
         ? "对项目内文件用 read_project_file(相对项目根的路径) 逐份阅读；目录下请先列举再选读。"
-        : "路径引用（未嵌入正文）：请用 read_project_file 读取。";
+        : isWord
+          ? `路径引用（未嵌入正文）：请用 analyze_document 读取（项目文件亦可）。${wordHint}`
+          : "路径引用（未嵌入正文）：请用 read_project_file 读取。";
     return `- [${scope} · ${it.kind === "directory" ? "目录" : "路径引用"}] \`${p}\` — ${hint}`;
   });
   const embedded = items.filter((it) => Boolean(excerpts?.[it.id]?.trim())).length;

@@ -39,4 +39,96 @@ describe("ensureBuiltinWorkflowSeeds", () => {
     expect(raw.steps.length).toBeGreaterThanOrEqual(2);
     expect(raw.steps.some((s) => s.assigneeRoleId === "contract_review")).toBe(true);
   });
+
+  it("upgrades legacy 5-step mail-contract-redline to short path", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-wf-mail-"));
+    const dir = path.join(ws, "lawmind", "workflows");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "mail-contract-redline.json"),
+      JSON.stringify({
+        id: "mail-contract-redline",
+        name: "邮件合同审阅改稿",
+        steps: [
+          { stepId: "ingest", assignee: "contract_review", task: "a", dependsOn: [] },
+          {
+            stepId: "surgical_edit",
+            assignee: "contract_review",
+            task: "b",
+            dependsOn: ["ingest"],
+          },
+          {
+            stepId: "opinion",
+            assignee: "contract_review",
+            task: "c",
+            dependsOn: ["surgical_edit"],
+          },
+          {
+            stepId: "export_tracked",
+            assignee: "contract_review",
+            task: "d",
+            dependsOn: ["surgical_edit"],
+          },
+          {
+            stepId: "handoff",
+            assignee: "contract_review",
+            task: "e",
+            dependsOn: ["export_tracked", "opinion"],
+          },
+        ],
+      }),
+      "utf8",
+    );
+    const r = ensureBuiltinWorkflowSeeds(ws);
+    expect(r.upgraded).toContain("mail-contract-redline");
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(dir, "mail-contract-redline.json"), "utf8"),
+    ) as { steps: Array<{ stepId: string; task?: string }> };
+    expect(raw.steps.map((s) => s.stepId)).toEqual(["redline", "handoff"]);
+    expect(raw.steps.find((s) => s.stepId === "redline")?.task ?? "").toContain("redlinePending");
+  });
+
+  it("upgrades short-path mail-contract-redline missing hunk-gate wording", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-wf-mail-hunk-"));
+    const dir = path.join(ws, "lawmind", "workflows");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "mail-contract-redline.json"),
+      JSON.stringify({
+        id: "mail-contract-redline",
+        name: "邮件合同审阅改稿",
+        steps: [
+          {
+            stepId: "redline",
+            assignee: "contract_review",
+            task: "{{instruction}}\n旧短路径：直接 render_tracked_draft",
+            dependsOn: [],
+          },
+          {
+            stepId: "handoff",
+            assignee: "contract_review",
+            task: "prepare_outbound_mail",
+            dependsOn: ["redline"],
+          },
+        ],
+      }),
+      "utf8",
+    );
+    const r = ensureBuiltinWorkflowSeeds(ws);
+    expect(r.upgraded).toContain("mail-contract-redline");
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(dir, "mail-contract-redline.json"), "utf8"),
+    ) as { steps: Array<{ stepId: string; task?: string }> };
+    const redlineTask = raw.steps.find((s) => s.stepId === "redline")?.task ?? "";
+    expect(redlineTask).toContain("redlinePending");
+    expect(redlineTask).toContain("空修订");
+    expect(redlineTask).toContain("apply_surgical_edits");
+    expect(redlineTask).toContain("craft_check");
+    expect(redlineTask).toContain("能改几个字就只改几个字");
+    expect(redlineTask).toContain("硬门禁");
+    expect(redlineTask).toContain("条数不限");
+    expect(redlineTask).not.toContain("最多 24");
+    expect(redlineTask).not.toContain("应改尽改");
+    expect(redlineTask).not.toContain("2–3 处");
+  });
 });

@@ -50,6 +50,14 @@ describe("deliverable lifecycle", () => {
 
   it("allows noop transition to same status", () => {
     expect(canTransitionDeliverable("drafting", "drafting")).toBe(true);
-    expect(nextDeliverableStatuses("approved")).toEqual(["rendered"]);
+    expect(nextDeliverableStatuses("approved")).toEqual(["rendered", "pending_review"]);
+  });
+
+  it("allows reopening review from approved / blocked / rendered, but not skipping to delivered", () => {
+    expect(canTransitionDeliverable("approved", "pending_review")).toBe(true);
+    expect(canTransitionDeliverable("blocked", "pending_review")).toBe(true);
+    expect(canTransitionDeliverable("rendered", "pending_review")).toBe(true);
+    expect(canTransitionDeliverable("approved", "delivered")).toBe(false);
+    expect(canTransitionDeliverable("pending_review", "rendered")).toBe(false);
   });
 });

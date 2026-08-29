@@ -2,7 +2,8 @@
  * Parse LawMind local API error responses for display hints (chat retry guidance).
  */
 
-import { apiAuthHeaders } from "./lawmind-api-auth.ts";
+import { apiAuthHeaders, getLoopbackApiAuthToken } from "./lawmind-api-auth.ts";
+import { refreshLoopbackAuthFromDesktop } from "./lawmind-dev-config-cache.ts";
 
 import {
   friendlyModelErrorMessage,
@@ -129,7 +130,7 @@ export function messageFromOkFalseBody(body: unknown, fallback: string): string 
 
 /** Shared copy for compose banner, readiness strip, and send-time errors. */
 export const MODEL_NOT_CONFIGURED_USER_HINT =
-  "请在设置中打开「API 配置向导」，或编辑用户目录下的 .env.lawmind 填写模型 API Key。";
+  "请在设置中打开「API 配置向导」填写模型 API Key（保存到本机模型设置文件）。";
 
 const CODE_HINTS: Record<string, string> = {
   missing_api_key: MODEL_NOT_CONFIGURED_USER_HINT,
@@ -187,7 +188,19 @@ export function userMessageFromApiError(status: number, body: ApiErrorJson): str
   if (joined && isModelProviderErrorMessage(joined)) {
     return friendlyModelErrorMessage(joined);
   }
-  const base = joined || `请求失败（HTTP ${status}）`;
+  const statusHint =
+    status === 404
+      ? "未找到资源"
+      : status === 408 || status === 504
+        ? "请求超时"
+        : status === 429
+          ? "请求过于频繁"
+          : status >= 500
+            ? "服务暂时不可用"
+            : status >= 400
+              ? "请求未成功"
+              : "请求失败";
+  const base = joined || statusHint;
   const hint = code && CODE_HINTS[code] ? CODE_HINTS[code] : "";
   if (code === "invalid_api_token") {
     return hint;
@@ -225,16 +238,61 @@ export async function readJsonFromResponse<T>(response: Response): Promise<T & A
     throw new ApiRequestError(
       response.status,
       snippet
-        ? `无法解析 JSON 响应（HTTP ${response.status}）：${snippet}${tail}`
-        : `无法解析 JSON 响应（HTTP ${response.status}）`,
+        ? `服务返回了无法识别的内容：${snippet}${tail}`
+        : "服务返回了无法识别的内容，请稍后重试或检查本地服务。",
       null,
     );
   }
 }
 
+function isLoopbackAuthFailure(status: number, body: ApiErrorJson): boolean {
+  return status === 401 && (body.code === "invalid_api_token" || body.error === "unauthorized");
+}
+
+async function maybeRetryLoopbackAuth(apiBase: string): Promise<string | null> {
+  const beforeToken = getLoopbackApiAuthToken();
+  const beforeBase = apiBase.replace(/\/$/, "");
+  const fresh = await refreshLoopbackAuthFromDesktop();
+  if (!fresh) {
+    return null;
+  }
+  const nextBase = fresh.apiBase.replace(/\/$/, "");
+  const tokenChanged = (fresh.apiAuthToken ?? "") !== (beforeToken ?? "");
+  const baseChanged = nextBase !== beforeBase;
+  if (!tokenChanged && !baseChanged) {
+    return null;
+  }
+  return nextBase;
+}
+
+/** Re-issue a loopback fetch after Electron hands over a new port/token. */
+export async function fetchWithLoopbackAuthRetry(
+  apiBase: string,
+  run: (base: string) => Promise<Response>,
+): Promise<{ response: Response; apiBase: string }> {
+  const startBase = apiBase.replace(/\/$/, "");
+  const response = await run(startBase);
+  if (response.status !== 401) {
+    return { response, apiBase: startBase };
+  }
+  const nextBase = await maybeRetryLoopbackAuth(startBase);
+  if (!nextBase) {
+    return { response, apiBase: startBase };
+  }
+  return { response: await run(nextBase), apiBase: nextBase };
+}
+
 export async function apiGetJson<T>(apiBase: string, path: string): Promise<T> {
-  const response = await fetch(`${apiBase}${path}`, { headers: apiAuthHeaders() });
-  const body = await readJsonFromResponse<T>(response);
+  const run = (base: string) => fetch(`${base}${path}`, { headers: apiAuthHeaders() });
+  let response = await run(apiBase);
+  let body = await readJsonFromResponse<T>(response);
+  if (!response.ok && isLoopbackAuthFailure(response.status, body)) {
+    const nextBase = await maybeRetryLoopbackAuth(apiBase);
+    if (nextBase) {
+      response = await run(nextBase);
+      body = await readJsonFromResponse<T>(response);
+    }
+  }
   if (!response.ok) {
     throw new ApiRequestError(
       response.status,
@@ -251,12 +309,21 @@ export async function apiSendJson<TResponse, TBody>(
   method: "POST" | "PUT" | "PATCH" | "DELETE",
   body?: TBody,
 ): Promise<TResponse> {
-  const response = await fetch(`${apiBase}${path}`, {
-    method,
-    headers: { "content-type": "application/json", ...apiAuthHeaders() },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const responseBody = await readJsonFromResponse<TResponse>(response);
+  const run = (base: string) =>
+    fetch(`${base}${path}`, {
+      method,
+      headers: { "content-type": "application/json", ...apiAuthHeaders() },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  let response = await run(apiBase);
+  let responseBody = await readJsonFromResponse<TResponse>(response);
+  if (!response.ok && isLoopbackAuthFailure(response.status, responseBody)) {
+    const nextBase = await maybeRetryLoopbackAuth(apiBase);
+    if (nextBase) {
+      response = await run(nextBase);
+      responseBody = await readJsonFromResponse<TResponse>(response);
+    }
+  }
   if (!response.ok) {
     throw new ApiRequestError(
       response.status,
@@ -290,8 +357,9 @@ export function errorMessage(error: unknown, fallback: string): string {
     if (isModelFailureError(error)) {
       return friendlyModelErrorMessage(msg);
     }
-    if (error.status >= 400 && !msg.includes(`HTTP ${error.status}`) && !msg.includes(`无法解析 JSON`)) {
-      return `[HTTP ${error.status}] ${msg}`;
+    // 不落工程师前缀 [HTTP N]：状态码并入中文语境。
+    if (error.status >= 400 && !msg.includes("服务暂时不可用") && !msg.includes("请求未成功") && !msg.includes(`HTTP ${error.status}`) && !msg.includes("无法识别的内容") && !msg.includes(`无法解析 JSON`)) {
+      return `${msg}（服务返回 ${error.status}）`;
     }
     return msg;
   }

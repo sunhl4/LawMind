@@ -10,7 +10,6 @@ import { LawmindSettingsOnboarding } from "./LawmindSettingsOnboarding";
 import { LawmindSettingsRoles } from "./LawmindSettingsRoles";
 import { LawmindSettingsTemplates } from "./LawmindSettingsTemplates";
 import { LawmindSettingsAppearance } from "./LawmindSettingsAppearance";
-import { LawmindSettingsReviewPrefs } from "./LawmindSettingsReviewPrefs";
 import { LawmindSettingsWorkspace } from "./LawmindSettingsWorkspace";
 import { LawmindSettingsDoctor } from "./LawmindSettingsDoctor";
 import { LawmindSettingsMemory } from "./LawmindSettingsMemory";
@@ -26,9 +25,9 @@ import {
   LAWMIND_SETTINGS_DEFAULT_SECTION,
   type LawmindSettingsScrollAnchorId,
   type LawmindSettingsSectionId,
-  filterSettingsNavGroups,
   firstSettingsNavMatch,
   readStoredSettingsSection,
+  settingsNavGroupsForEdition,
   settingsNavItem,
   writeStoredSettingsSection,
 } from "./lawmind-settings-nav";
@@ -123,9 +122,12 @@ type Props = {
   /** Automations (settings section) */
   automationMatterId?: string | null;
   automationMatterOptions?: Array<{ id: string; title: string }>;
-  onOpenAutomationsNeedsDecision?: () => void;
+  onOpenAutomationsNeedsDecision?: (
+    target?: import("./lawmind-agents-desk").NeedsDecisionDeskTarget,
+  ) => void;
   onOpenAutomationsReview?: (taskId: string, matterId?: string) => void;
-  onOpenAutomationsCollaboration?: (matterId?: string) => void;
+  onOpenAutomationsCollaboration?: (matterId?: string, jobId?: string) => void;
+  onOpenAutomationsWorkspaceFile?: (relPath: string, matterId?: string) => void;
 };
 
 function LawmindSettingsContentHeader(props: { title: string; description: string }): ReactNode {
@@ -182,6 +184,7 @@ export function LawmindSettingsPage({
   onOpenAutomationsNeedsDecision,
   onOpenAutomationsReview,
   onOpenAutomationsCollaboration,
+  onOpenAutomationsWorkspaceFile,
 }: Props) {
   const [activeSectionId, setActiveSectionId] = useState<LawmindSettingsSectionId>(initialSectionId);
   const [navQuery, setNavQuery] = useState("");
@@ -225,8 +228,13 @@ export function LawmindSettingsPage({
     return () => window.clearTimeout(timer);
   }, [open, scrollAnchorId, activeSectionId]);
 
-  const filteredGroups = useMemo(() => filterSettingsNavGroups(navQuery), [navQuery]);
-  const activeMeta = settingsNavItem(activeSectionId);
+  const filteredGroups = useMemo(
+    () => settingsNavGroupsForEdition(edition, navQuery),
+    [edition, navQuery],
+  );
+  const activeMeta =
+    settingsNavItem(activeSectionId) ??
+    (activeSectionId === "review-prefs" ? settingsNavItem("appearance") : undefined);
   const navSearching = navQuery.trim().length > 0;
 
   if (!open) {
@@ -279,6 +287,7 @@ export function LawmindSettingsPage({
     onOpenAutomationsNeedsDecision,
     onOpenAutomationsReview,
     onOpenAutomationsCollaboration,
+    onOpenAutomationsWorkspaceFile,
     navigateToSection,
   });
 
@@ -300,7 +309,7 @@ export function LawmindSettingsPage({
                   return;
                 }
                 e.preventDefault();
-                const match = firstSettingsNavMatch(navQuery);
+                const match = firstSettingsNavMatch(navQuery, edition);
                 if (match) {
                   navigateToSection(match);
                   setNavQuery("");
@@ -329,17 +338,24 @@ export function LawmindSettingsPage({
                   </button>
                 ));
                 const collapseAdvanced =
-                  group.id === "advanced" && collapseAdvancedByDefault && !navSearching;
+                  (group.id === "advanced" || group.id === "more") &&
+                  collapseAdvancedByDefault &&
+                  !navSearching;
                 if (collapseAdvanced) {
                   const forceOpen = group.items.some((item) => item.id === activeSectionId);
                   return (
                     <details
                       key={group.id}
                       className="lm-settings-nav-group lm-settings-nav-group--collapsible"
-                      data-testid="lm-settings-nav-advanced"
+                      data-testid={
+                        group.id === "more" ? "lm-settings-nav-more" : "lm-settings-nav-advanced"
+                      }
                       {...(forceOpen ? { open: true } : {})}
                     >
-                      <summary className="lm-settings-nav-group-label">{group.label}</summary>
+                      <summary className="lm-settings-nav-group-label">
+                        {group.label}
+                        <span className="lm-settings-nav-group-cap">按需展开</span>
+                      </summary>
                       {items}
                     </details>
                   );
@@ -461,8 +477,6 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
     automationMatterId,
     automationMatterOptions,
     onOpenAutomationsNeedsDecision,
-    onOpenAutomationsReview,
-    onOpenAutomationsCollaboration,
     navigateToSection,
   } = args;
 
@@ -481,6 +495,10 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
                 projectDir={projectDir}
                 onOpenApiWizard={onOpenApiWizard}
                 onNavigateToSection={navigateToSection}
+                onOpenAgentsDesk={() => {
+                  onClose();
+                  onOpenCollaborationPage();
+                }}
               />
               <LawmindSettingsUsageStats apiBase={config.apiBase} />
               <LawmindSettingsDoctor
@@ -501,9 +519,8 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
         </>
       );
     case "appearance":
-      return <LawmindSettingsAppearance onPrefsChange={onPrefsChange} />;
     case "review-prefs":
-      return <LawmindSettingsReviewPrefs />;
+      return <LawmindSettingsAppearance onPrefsChange={onPrefsChange} />;
     case "memory":
       return config ? <LawmindSettingsMemory apiBase={config.apiBase} /> : notReady;
     case "collaboration":
@@ -522,15 +539,18 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
       );
     case "automations":
       return config?.apiBase ? (
-        <LawmindAutomationsPanel
-          apiBase={config.apiBase}
-          matterId={automationMatterId}
-          matterOptions={automationMatterOptions}
-          hideTitleChrome
-          onOpenNeedsDecisionDesk={onOpenAutomationsNeedsDecision}
-          onOpenReview={onOpenAutomationsReview}
-          onOpenCollaboration={onOpenAutomationsCollaboration}
-        />
+        <>
+          <p className="lm-settings-lead">
+            配置定时任务与邮箱。待办请到「待我拍板」处理。
+          </p>
+          <LawmindAutomationsPanel
+            apiBase={config.apiBase}
+            matterId={automationMatterId}
+            matterOptions={automationMatterOptions}
+            hideTitleChrome
+            onOpenNeedsDecisionDesk={onOpenAutomationsNeedsDecision}
+          />
+        </>
       ) : (
         notReady
       );

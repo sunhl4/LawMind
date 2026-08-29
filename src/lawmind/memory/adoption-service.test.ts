@@ -111,4 +111,30 @@ describe("MemoryAdoptionService (W5)", () => {
     expect(second.ok).toBe(false);
     expect(second.error).toBe("not_pending");
   });
+
+  it("concurrent suggest (append) and adopt (rewrite) never lose records", async () => {
+    // 互斥前：adopt 的读-改-全量重写可用旧快照覆盖并发 suggest 的 append。
+    const first = await suggestMemoryAdoption(workspaceDir, auditDir, {
+      scope: "matter",
+      kind: "case.risk_note",
+      payload: "risk A",
+    });
+    await Promise.all([
+      suggestMemoryAdoption(workspaceDir, auditDir, {
+        scope: "matter",
+        kind: "case.risk_note",
+        payload: "risk B",
+      }),
+      suggestMemoryAdoption(workspaceDir, auditDir, {
+        scope: "matter",
+        kind: "case.risk_note",
+        payload: "risk C",
+      }),
+      adoptMemorySuggestion(workspaceDir, auditDir, first.id, () => {}),
+    ]);
+    const all = await listMemorySuggestions(workspaceDir);
+    expect(all).toHaveLength(3);
+    expect(all.find((r) => r.id === first.id)?.state).toBe("adopted");
+    expect(all.filter((r) => r.state === "pending")).toHaveLength(2);
+  });
 });

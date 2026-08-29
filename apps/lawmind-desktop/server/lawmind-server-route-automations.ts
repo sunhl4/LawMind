@@ -30,21 +30,25 @@ import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import { sendJson } from "./lawmind-server-helpers.js";
 import { z } from "zod";
 
-const scheduleSchema = z.union([
+const scheduleSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("daily"),
-    hour: z.number().int().min(0).max(23),
-    minute: z.number().int().min(0).max(59),
+    hour: z.coerce.number().int().min(0).max(23),
+    minute: z.coerce.number().int().min(0).max(59),
   }),
   z.object({
     kind: z.literal("weekly"),
-    weekday: z.number().int().min(0).max(6),
-    hour: z.number().int().min(0).max(23),
-    minute: z.number().int().min(0).max(59),
+    weekday: z.coerce.number().int().min(0).max(6),
+    hour: z.coerce.number().int().min(0).max(23),
+    minute: z.coerce.number().int().min(0).max(59),
   }),
   z.object({
     kind: z.literal("once"),
     runAt: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal("interval"),
+    everyMinutes: z.coerce.number().int().min(5).max(7 * 24 * 60),
   }),
 ]);
 
@@ -180,6 +184,17 @@ export async function handleAutomationsRoutes({
   }
 
   if (pathname === "/api/automations/mail/seed" && req.method === "POST") {
+    // 假数据注入口：仅开发/演示显式开启（LAWMIND_MAIL_SEED=1），打包/生产默认 403。
+    if (process.env.LAWMIND_MAIL_SEED !== "1") {
+      sendJsonError(
+        res,
+        403,
+        "mail_seed_disabled",
+        "演示邮件注入口默认关闭；仅在开发/演示环境设置 LAWMIND_MAIL_SEED=1 后可用。",
+        c,
+      );
+      return true;
+    }
     let body;
     try {
       body = await parseJsonBodyZod(req, seedMailSchema);
@@ -317,7 +332,8 @@ export async function handleAutomationsRoutes({
         item.matterId,
         item.pendingSend,
       );
-      item.status = "approved_send";
+      // 状态区分「远程已发出」与「仅本地归档」——approved_send 的旧语义会误导为已外发成功。
+      item.status = remote.ok ? "sent_remote" : "approved_local_only";
       if (remote.ok) {
         item.summary = `${item.summary}\n\n已批准并通过 ${remote.via} 发送（归档 sent/${sentId}）。`;
       } else {

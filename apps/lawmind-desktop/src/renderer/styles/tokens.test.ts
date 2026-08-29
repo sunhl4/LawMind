@@ -31,6 +31,14 @@ function readRendererCssFiles(): Array<{ path: string; content: string }> {
     join(stylesDir, "legacy-rest.css"),
     join(stylesDir, "model-picker.css"),
     join(stylesDir, "workflow-hub.css"),
+    // 在办/自动化/指挥台样式模块此前漏扫，token 漂移会静默进包。
+    join(stylesDir, "agents-workbench.css"),
+    join(stylesDir, "automations.css"),
+    join(stylesDir, "agent-fleet.css"),
+    // 案件导航/决策仪式/会议室同样纳入 token 扫描。
+    join(stylesDir, "cockpit-nav.css"),
+    join(stylesDir, "decision-ceremony.css"),
+    join(stylesDir, "meeting-workbench.css"),
   ];
   return cssFiles.map((path) => ({ path, content: readFileSync(path, "utf8") }));
 }
@@ -76,5 +84,14 @@ describe("styles/tokens.css", () => {
         true,
       );
     }
+  });
+
+  it("side file explorer scroll children keep natural height (no flex-shrink clip)", () => {
+    const stylesDir = dirname(fileURLToPath(import.meta.url));
+    const moduleCss = readFileSync(join(stylesDir, "file-workbench.css"), "utf8");
+    const bundledCss = readFileSync(join(stylesDir, "../styles.css"), "utf8");
+    const rule = /\.lm-files-explorer-scroll\s*>\s*\*\s*\{[^}]*flex-shrink:\s*0/;
+    expect(moduleCss, "file-workbench.css").toMatch(rule);
+    expect(bundledCss, "styles.css (run pnpm lawmind:sync:renderer-css)").toMatch(rule);
   });
 });

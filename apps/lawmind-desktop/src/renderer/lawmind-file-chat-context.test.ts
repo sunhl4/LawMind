@@ -102,4 +102,22 @@ describe("file chat excerpts", () => {
     expect(pathOnly).toContain("路径引用");
     expect(pathOnly).not.toContain("已嵌入正文");
   });
+
+  it("hints tracked Word revision for pinned .docx", () => {
+    const item: FileChatContextItem = {
+      id: makeFileContextItemId({
+        root: "project",
+        relPath: "泰国医疗人工智能战略合作框架协.docx",
+        kind: "file",
+      }),
+      root: "project",
+      relPath: "泰国医疗人工智能战略合作框架协.docx",
+      kind: "file",
+    };
+    const prefix = buildFileContextMessagePrefix([item]);
+    expect(prefix).toContain("analyze_document");
+    expect(prefix).toContain("render_tracked_draft");
+    expect(prefix).toContain("不要 render_document 重建");
+    expect(prefix).toContain("不要准备外发邮件");
+  });
 });

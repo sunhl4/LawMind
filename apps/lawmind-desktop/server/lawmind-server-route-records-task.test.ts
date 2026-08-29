@@ -3,10 +3,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { handleRecordRoutes } from "./lawmind-server-route-records.js";
+import { handleReviewRoute } from "./lawmind-server-route-review.js";
 import type { LawmindDispatchContext } from "./lawmind-server-route-types.js";
 
-describe("GET /api/tasks/:id", () => {
+describe("GET /api/tasks/:id (review 权威实现，含 checkpoints)", () => {
   const dirs: string[] = [];
 
   afterEach(() => {
@@ -15,7 +15,7 @@ describe("GET /api/tasks/:id", () => {
     }
   });
 
-  it("returns task with statusLabel", async () => {
+  it("returns task with checkpoints and execution plan", async () => {
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-task-route-"));
     dirs.push(ws);
     const tasksDir = path.join(ws, "tasks");
@@ -47,7 +47,7 @@ describe("GET /api/tasks/:id", () => {
       },
     } as unknown as http.ServerResponse;
 
-    const handled = await handleRecordRoutes({
+    const handled = await handleReviewRoute({
       ctx: {
         workspaceDir: ws,
         envFile: undefined,
@@ -63,8 +63,16 @@ describe("GET /api/tasks/:id", () => {
 
     expect(handled).toBe(true);
     expect(status).toBe(200);
-    const j = JSON.parse(raw) as { ok?: boolean; task?: { statusLabel?: string } };
+    const j = JSON.parse(raw) as {
+      ok?: boolean;
+      task?: { taskId?: string; status?: string };
+      checkpoints?: unknown[];
+      executionPlan?: unknown[];
+    };
     expect(j.ok).toBe(true);
-    expect(j.task?.statusLabel).toBe("可渲染");
+    expect(j.task?.taskId).toBe("task-e2e-1");
+    expect(j.task?.status).toBe("completed");
+    expect(Array.isArray(j.checkpoints)).toBe(true);
+    expect(Array.isArray(j.executionPlan)).toBe(true);
   });
 });

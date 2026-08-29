@@ -5,6 +5,50 @@
 import type { ArtifactDraft } from "../../../../../src/lawmind/types.ts";
 import type { ApprovalRequest, WorkQueueItem } from "../../../../../src/lawmind/core/contracts.ts";
 
+/** 任务生命周期中文化（看板/时间线统一口径）。 */
+export function taskLifecycleLabel(status: string): string {
+  switch (status) {
+    case "created":
+      return "已创建";
+    case "confirmed":
+      return "已确认";
+    case "researching":
+      return "检索中";
+    case "researched":
+      return "已检索";
+    case "drafted":
+      return "已起草";
+    case "reviewed":
+      return "已签批";
+    case "rejected":
+      return "已驳回";
+    case "rendered":
+      return "已导出";
+    case "completed":
+      return "已完成";
+    default:
+      return typeof status === "string" && status.trim()
+        ? status.replace(/[_-]+/g, " ")
+        : "未知状态";
+  }
+}
+
+/** 工作队列条目中文化（open/in_progress/resolved/dismissed）。 */
+export function workQueueStatusLabel(status: string): string {
+  switch (status) {
+    case "open":
+      return "待处理";
+    case "in_progress":
+      return "进行中";
+    case "resolved":
+      return "已解决";
+    case "dismissed":
+      return "已忽略";
+    default:
+      return status;
+  }
+}
+
 export function queueKindLabel(kind: WorkQueueItem["kind"]): string {
   switch (kind) {
     case "need_client_input":
@@ -20,7 +64,7 @@ export function queueKindLabel(kind: WorkQueueItem["kind"]): string {
     case "ready_to_draft":
       return "可继续起草";
     case "ready_to_render":
-      return "可渲染交付";
+      return "可交付";
     case "blocked_by_deadline":
       return "期限阻塞";
     case "blocked_by_missing_strategy":

@@ -43,11 +43,15 @@ describe("search_matter", () => {
         "# 租赁合同纠纷\n\n## 4. 核心争点\n\n- 押金退还\n",
         "utf8",
       );
-      const result = await searchMatter.execute({ query: "押金" }, makeCtx(workspaceDir, { matterId }));
+      const result = await searchMatter.execute(
+        { query: "押金" },
+        makeCtx(workspaceDir, { matterId }),
+      );
       expect(result.ok).toBe(true);
-      const data = result.data as { hits: unknown[]; matterId: string };
+      const data = result.data as { hits: unknown[]; matterId: string; workHits?: unknown };
       expect(data.matterId).toBe(matterId);
       expect(data.hits.length).toBeGreaterThan(0);
+      expect(Array.isArray(data.workHits)).toBe(true);
     } finally {
       await fs.rm(workspaceDir, { recursive: true, force: true });
     }
@@ -93,16 +97,41 @@ describe("read_project_file", () => {
     }
   });
 
-  it("rejects unsupported legacy office formats", async () => {
+  it("rejects unsupported legacy office formats (.xls/.ppt)", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "lm-proj-doc-"));
     try {
-      await fs.writeFile(path.join(root, "legacy.doc"), "binary", "utf8");
+      await fs.writeFile(path.join(root, "legacy.xls"), "binary", "utf8");
+      const result = await readProjectFile.execute(
+        { relative_path: "legacy.xls" },
+        makeCtx("/tmp", { projectDir: root }),
+      );
+      expect(result.ok).toBe(false);
+      expect(String(result.error)).toMatch(/\.xls/);
+
+      await fs.writeFile(path.join(root, "slides.ppt"), "binary", "utf8");
+      const ppt = await readProjectFile.execute(
+        { relative_path: "slides.ppt" },
+        makeCtx("/tmp", { projectDir: root }),
+      );
+      expect(ppt.ok).toBe(false);
+      expect(String(ppt.error)).toMatch(/\.ppt/);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it(".doc 不再硬拒：二进制正文主路径是 analyze_document，文本可读时 read_project_file 也可读", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "lm-proj-doc-read-"));
+    try {
+      // 纯文本伪装 .doc：read_project_file 按文本路径读取不报错；
+      // 真实 OLE2 .doc 的正文提取由 analyze_document（readBinaryWordDocText）承担。
+      await fs.writeFile(path.join(root, "legacy.doc"), "租赁合同纠纷补充说明", "utf8");
       const result = await readProjectFile.execute(
         { relative_path: "legacy.doc" },
         makeCtx("/tmp", { projectDir: root }),
       );
-      expect(result.ok).toBe(false);
-      expect(String(result.error)).toMatch(/\.doc/);
+      expect(result.ok).toBe(true);
+      expect(JSON.stringify(result.data)).toContain("租赁合同");
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

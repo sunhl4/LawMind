@@ -8,6 +8,16 @@ export const RESERVED_AGENT_TOOL_NAMES = [
   "write_document",
   "send_email",
   "render_tracked_draft",
+  "draft_document",
+  "update_draft",
+  "prepare_outbound_mail",
+  "render_document",
+  "analyze_document",
+  "write_spreadsheet",
+  "render_chart",
+  "run_analysis",
+  "calculate",
+  "execute_workflow",
 ] as const;
 
 export type ReservedAgentToolName = (typeof RESERVED_AGENT_TOOL_NAMES)[number];

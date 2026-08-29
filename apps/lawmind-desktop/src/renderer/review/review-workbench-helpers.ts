@@ -86,11 +86,11 @@ export function isOfficecliMissingResponse(body: OfficecliResponseBody): boolean
 }
 
 export function officecliMissingBannerMessage(): string {
-  return "未检测到 officecli，已尝试回退为普通 docx；请安装 officecli 以获得完整修订痕迹。";
+  return "未检测到 Word 修订痕迹组件，已导出为普通 Word 文档；安装修订组件后可获得完整审阅痕迹。";
 }
 
 export function officecliPlainFallbackNote(mode?: string): string {
-  return mode === "plain_fallback" ? "（无 officecli，已回退普通 docx）" : "";
+  return mode === "plain_fallback" ? "（未检测到修订痕迹组件，已回退普通 Word）" : "";
 }
 
 export function officecliMissingErrorMessage(

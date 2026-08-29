@@ -13,14 +13,42 @@ const TASK_KIND_PATTERNS: Array<{ pattern: RegExp; kind: TaskKind }> = [
     kind: "draft.word",
   },
   {
+    pattern:
+      /修改合同|合同改稿|改稿本合同|修改这份(?:合同|协议)|审阅痕迹|红线稿|出修订|在原(?:合同|文件|Word)/i,
+    kind: "draft.word",
+  },
+  {
     pattern: /合同审查|审查.*(合同|协议|条款)|审阅.*(合同|协议|条款)|条款审查|review/i,
     kind: "analyze.contract",
   },
-  { pattern: /合同|协议|条款/i, kind: "analyze.contract" },
+  {
+    pattern: /催告函|催款函|违约通知|demand letter|(催告|催款).{0,8}(函|律师)/i,
+    kind: "draft.word",
+  },
+  {
+    pattern:
+      /(写|起草|拟定|拟写|撰写|生成|制作|输出|整理|列|出具).{0,20}(法律意见书|法律意见|答辩状|代理词|辩护词|回函|答复函|回复函|会议纪要|会议记录|证据目录|证据清单|时间线|大事记|备忘录|保密协议|NDA)|(答辩状|代理词|辩护词|法律意见书|会议纪要|证据目录|证据清单)/i,
+    kind: "draft.word",
+  },
+  {
+    pattern: /(?!.*(?:催告函|催款函|demand letter|催告))(?:合同|协议|条款)/i,
+    kind: "analyze.contract",
+  },
   { pattern: /法律意见|法规|法条|类案|裁判|司法解释/i, kind: "research.legal" },
-  { pattern: /律师函|催款|通知函|警告信|demand/i, kind: "draft.word" },
+  { pattern: /律师函|催告函|催款|通知函|警告信|demand|回函|答复函/i, kind: "draft.word" },
+  {
+    pattern:
+      /(起诉状|答辩状|代理词|辩护词|诉讼大纲|诉讼提纲|诉请大纲|立案材料)|(写|起草|撰写|生成).{0,12}(起诉|诉讼).{0,8}(大纲|提纲|要点)/i,
+    kind: "draft.word",
+  },
   { pattern: /摘要|案情|案件概述|summarize/i, kind: "summarize.case" },
-  { pattern: /汇报|PPT|幻灯片|演示|slides/i, kind: "draft.ppt" },
+  { pattern: /汇报|PPT|幻灯片|演示|slides|培训课件|CLE培训/i, kind: "draft.ppt" },
+  // Deliverable-shaped research memos (before generic 检索/调研 → research.hybrid)
+  {
+    pattern:
+      /(合规卷宗|调研简报|学习简报|合规备忘录)|(做|写|起草|撰写|生成|制作|输出).{0,24}(合规卷宗|调研简报|学习简报|合规备忘录)/i,
+    kind: "draft.word",
+  },
   { pattern: /检索|调研|整理|背景|研究/i, kind: "research.hybrid" },
   { pattern: /文件|文书|报告|word|docx/i, kind: "draft.word" },
 ];
@@ -62,10 +90,14 @@ export type RouteInput = {
   matterId?: string;
   templateId?: string;
   audience?: string;
+  /** When set (e.g. execute_workflow.deliverable_type), enrich must not re-guess. */
+  deliverableType?: TaskIntent["deliverableType"];
+  /** Desktop `models.json` root; enables model route when env router creds are absent. */
+  lawMindRoot?: string;
 };
 
 export function route(input: RouteInput): TaskIntent {
-  const { instruction, matterId, templateId, audience } = input;
+  const { instruction, matterId, templateId, audience, deliverableType } = input;
 
   const matched = TASK_KIND_PATTERNS.find((p) => p.pattern.test(instruction));
   const kind: TaskKind = matched?.kind ?? "unknown";
@@ -92,6 +124,7 @@ export function route(input: RouteInput): TaskIntent {
     audience,
     matterId,
     templateId,
+    deliverableType,
     riskLevel,
     models,
     requiresConfirmation,

@@ -55,6 +55,6 @@ test.describe("Contract review trust flow", () => {
     );
     expect(res.ok()).toBe(true);
     const body = (await res.json()) as { outputPath?: string };
-    expect(body.outputPath).toContain("e2e-tracked");
+    expect(body.outputPath).toContain("e2e-draft-1-tracked");
   });
 });

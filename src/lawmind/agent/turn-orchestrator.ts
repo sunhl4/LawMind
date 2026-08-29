@@ -3,6 +3,8 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { attachEnabledMcpServers } from "../mcp/mcp-client-bridge.js";
+import { hiddenPolicyToolNames } from "../policy/analysis-scripts.js";
 import { applyCompactReinjectionToSession } from "./compact-reinjection.js";
 import { autoCompactSessionHistory } from "./compact.js";
 import { estimateTokenBudget } from "./context-budget.js";
@@ -19,7 +21,8 @@ import { appendSessionEvent } from "./session-event-log.js";
 import { isSessionPersistError } from "./session-persist.js";
 import { withSessionTurnGate } from "./session-turn-gate.js";
 import { appendTurn, createSession, loadSession, saveSession } from "./session.js";
-import { collectDisclosedToolNames, resolveModelToolNames } from "./tools/governance.js";
+import { mergeTurnDisclosedToolNames } from "./tools/disclosed-turn-tools.js";
+import { resolveModelToolNames } from "./tools/governance.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import {
   bindTurnAbortSignal,
@@ -30,7 +33,10 @@ import {
 import type { RunTurnEvent } from "./turn-orchestrator-events.js";
 export type { RunTurnEvent } from "./turn-orchestrator-events.js";
 import type { MemoryContext } from "../memory/index.js";
+import { extractSuggestedReplyTo } from "../platform/mail-contract-short-path-instruction.js";
+import { resolvePlaybookToolLock } from "../platform/playbook-tool-lock.js";
 import { buildRequiresActionsFromTurn } from "../platform/requires-action.js";
+import { isWordRevisionTurn } from "../platform/word-revision-instruction.js";
 import {
   readWorkspacePolicyFile,
   resolveAgentMandatoryRulesForPrompt,
@@ -100,6 +106,13 @@ export async function runTurn(opts: {
     );
   }
   const { config, registry, instruction, matterId, sessionTitleHint } = opts;
+  let mcpSessions: Awaited<ReturnType<typeof attachEnabledMcpServers>>["sessions"] = [];
+  try {
+    const attached = await attachEnabledMcpServers({ registry, workspaceDir: config.workspaceDir });
+    mcpSessions = attached.sessions;
+  } catch {
+    /* MCP must not break the core tool table */
+  }
   const linkedTaskIdForCtx =
     typeof opts.linkedTaskId === "string" && opts.linkedTaskId.trim()
       ? opts.linkedTaskId.trim()
@@ -157,6 +170,15 @@ export async function runTurn(opts: {
   const startedAt = new Date().toISOString();
 
   const resolvedAssistantId = config.assistantId ?? session.assistantId;
+  const historyText = session.conversationHistory
+    .slice(-8)
+    .map((m) => (typeof m.content === "string" ? m.content : ""))
+    .join("\n");
+  const wordRevisionTurn = isWordRevisionTurn({
+    instruction,
+    pins: opts.contextPins,
+    historyText,
+  });
 
   const ctx: AgentContext = {
     workspaceDir: config.workspaceDir,
@@ -182,6 +204,8 @@ export async function runTurn(opts: {
         ? [...opts.preApproveToolNames]
         : undefined,
     contextPins: opts.contextPins,
+    outboundPinnedTo: extractSuggestedReplyTo(instruction),
+    wordRevisionTurn,
   };
 
   // 2. 构建 system prompt
@@ -210,19 +234,33 @@ export async function runTurn(opts: {
 
   // W7：Role.allowedToolNames 优先；回退到 preset.allowedToolNames。
   // Parent inherit (child-gates) caps the list and must not widen it.
+  // High-frequency playbooks then lock to the dead-path tool table.
+  const playbookLock = resolvePlaybookToolLock(instruction, opts.contextPins);
   const allowNamesRaw = intersectAllowedToolNames(
-    config.allowedToolNames,
-    roleForTools?.allowedToolNames ?? presetForTools?.allowedToolNames,
+    intersectAllowedToolNames(
+      config.allowedToolNames,
+      roleForTools?.allowedToolNames ?? presetForTools?.allowedToolNames,
+    ),
+    playbookLock?.allowNames,
   );
+  const lockToAllowNames = Boolean(playbookLock);
   ctx.allowedToolNames = allowNamesRaw;
   ctx.toolSandboxEnabled = toolSandboxEnabled;
-  session.disclosedToolNames = collectDisclosedToolNames(session);
+  const hiddenTools = hiddenPolicyToolNames(config.workspaceDir);
+  session.disclosedToolNames = mergeTurnDisclosedToolNames({
+    session,
+    workspaceDir: config.workspaceDir,
+    pins: opts.contextPins,
+    registry,
+    hiddenNames: hiddenTools,
+  });
   const modelToolNames = resolveModelToolNames({
     registeredNames: registry.listDefinitions().map((def) => def.name),
     allowNames: allowNamesRaw,
     permissionMode,
     disclosedNames: session.disclosedToolNames,
-  });
+    lockToAllowNames,
+  }).filter((name) => !hiddenTools.includes(name));
   const openAITools = registry.toOpenAITools({ names: modelToolNames });
   const turnContext = freezeTurnContext({
     sessionId: session.sessionId,
@@ -233,6 +271,9 @@ export async function runTurn(opts: {
     actorId,
     sandboxEnabled: toolSandboxEnabled,
     allowNames: allowNamesRaw,
+    lockToAllowNames,
+    wordRevisionTurn,
+    hiddenToolNames: hiddenTools,
   });
   ctx.permissionMode = turnContext.permissionMode;
   const priorUsed = opts.initialToolCallsExecuted;
@@ -494,7 +535,10 @@ export async function runTurn(opts: {
       allowDangerousToolsWithoutApproval,
       toolSandboxEnabled,
       policyHints: {
-        allowedToolNames: roleForTools?.allowedToolNames ?? presetForTools?.allowedToolNames,
+        allowedToolNames: lockToAllowNames
+          ? allowNamesRaw
+          : (roleForTools?.allowedToolNames ?? presetForTools?.allowedToolNames),
+        allowlistDenyHint: playbookLock?.denyHint,
         roleId: roleForTools?.roleId,
         riskCeiling: roleForTools?.riskCeiling ?? presetForTools?.riskCeiling,
         autoApproveSandboxWorkflowSteps: config.autoApproveSandboxWorkflowSteps === true,
@@ -511,9 +555,24 @@ export async function runTurn(opts: {
       return finishAbortedByUser();
     }
 
+    let finalReply = loop.finalReply;
+    try {
+      const { autoDeliverWordRevisionIfNeeded } = await import("./word-revision-auto-deliver.js");
+      const delivered = await autoDeliverWordRevisionIfNeeded({
+        ctx,
+        registry,
+        turn,
+      });
+      if (delivered) {
+        finalReply = [finalReply, delivered].filter((s) => s?.trim()).join("\n\n");
+      }
+    } catch {
+      /* delivery is best-effort; the model path already ran */
+    }
+
     return finalizeAgentTurn({
       shared: finalizeShared(),
-      finalReply: loop.finalReply,
+      finalReply,
       pendingClarificationQuestions: loop.pendingClarificationQuestions,
       turnUsage: loop.turnUsage,
       actorId,
@@ -542,5 +601,6 @@ export async function runTurn(opts: {
   } finally {
     clearInterval(abortMirror);
     clearTurnAbort(session.sessionId);
+    await Promise.all(mcpSessions.map((s) => s.close().catch(() => undefined)));
   }
 }

@@ -9,6 +9,7 @@ type SkillRow = {
   enabled: boolean;
   signatureOk: boolean;
   signatureError?: string;
+  toolNames?: string[];
 };
 
 type CnPack = {
@@ -17,6 +18,14 @@ type CnPack = {
   workflowIds?: string[];
   notes?: string;
   description?: string;
+};
+
+const SKILL_TOOL_LABEL_ZH: Record<string, string> = {
+  analyze_spreadsheet: "分析表格",
+  write_spreadsheet: "写出表格",
+  render_chart: "出图",
+  calculate: "法律计算",
+  run_analysis: "分析脚本",
 };
 
 type Props = {
@@ -113,6 +122,14 @@ export function LawmindSettingsSkills(props: Props): ReactNode {
                   {s.signatureOk ? " · 签名通过" : ` · 签名失败${s.signatureError ? ` (${s.signatureError})` : ""}`}
                 </span>
                 {s.description ? <p className="lm-meta">{s.description}</p> : null}
+                {s.toolNames && s.toolNames.length > 0 ? (
+                  <p className="lm-meta" data-testid={`lm-skill-tools-${s.id}`}>
+                    解锁能力：
+                    {s.toolNames
+                      .map((name) => SKILL_TOOL_LABEL_ZH[name] ?? name)
+                      .join("、")}
+                  </p>
+                ) : null}
               </div>
               <button
                 type="button"

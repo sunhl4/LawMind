@@ -127,4 +127,23 @@ describe("buildDraftAsync model reasoning", () => {
       fs.rmSync(lawMindRoot, { recursive: true, force: true });
     }
   });
+
+  it("labels keyword fallback when the model call fails", async () => {
+    process.env.LAWMIND_REASONING_MODE = "model";
+    process.env.LAWMIND_AGENT_BASE_URL = "https://example.com/v1";
+    process.env.LAWMIND_AGENT_API_KEY = "sk-test";
+    process.env.LAWMIND_AGENT_MODEL = "qwen-plus";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 402,
+        json: async () => ({ error: { code: "Arrearage" } }),
+      })),
+    );
+    const { MODEL_DRAFT_FALLBACK_NOTE } = await import("./model-draft.js");
+    const draft = await buildDraftAsync({ intent: minimalIntent(), bundle: minimalBundle() });
+    expect(draft.reviewNotes).toContain(MODEL_DRAFT_FALLBACK_NOTE);
+    expect(draft.sections.some((s) => s.heading === "审查结论")).toBe(true);
+  });
 });

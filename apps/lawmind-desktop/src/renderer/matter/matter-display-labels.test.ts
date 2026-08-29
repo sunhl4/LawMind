@@ -10,7 +10,7 @@ import {
 describe("matter-display-labels", () => {
   it("labels queue kinds", () => {
     expect(queueKindLabel("need_lawyer_review")).toBe("待律师审核");
-    expect(queueKindLabel("ready_to_render")).toBe("可渲染交付");
+    expect(queueKindLabel("ready_to_render")).toBe("可交付");
   });
 
   it("labels approval and review status", () => {

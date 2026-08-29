@@ -82,7 +82,11 @@ export function openQueueItem(workspaceDir: string, input: OpenQueueItemInput): 
     createdAt: now,
     updatedAt: now,
   };
-  appendQueueItem(workspaceDir, record);
+  // append 与 transitionQueueItem 的全量 rewrite 共用同一把锁，避免「开新项 + 解析旧项」并发丢条目。
+  const lockPath = path.join(matterDir(workspaceDir, input.matterId), "queue.jsonl.lock");
+  withExclusiveFileLock(lockPath, () => {
+    appendQueueItem(workspaceDir, record);
+  });
   attachQueueItemId(workspaceDir, input.matterId, record.queueItemId);
   return record;
 }

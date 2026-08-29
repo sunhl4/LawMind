@@ -24,10 +24,7 @@ describe("LawmindChatMessagesColumn empty guide", () => {
     host.remove();
   });
 
-  it("promotes write-materials ahead of matter/workflow actions", async () => {
-    const onCreateMatter = vi.fn();
-    const onOpenAgentsWorkflows = vi.fn();
-    const onOpenWriteMaterials = vi.fn();
+  it("keeps empty chat clean and points to 办件", async () => {
     await act(async () => {
       root.render(
         <LawmindChatMessagesColumn
@@ -45,19 +42,16 @@ describe("LawmindChatMessagesColumn empty guide", () => {
           contextTaskId={null}
           apiBase="http://127.0.0.1:1"
           onResumeRequiresAction={vi.fn()}
-          showEmptyMatterGuide
-          onCreateMatter={onCreateMatter}
-          onOpenAgentsWorkflows={onOpenAgentsWorkflows}
-          onOpenWriteMaterials={onOpenWriteMaterials}
         />,
       );
     });
-    expect(host.textContent).toContain("写材料（填表）");
-    expect(host.textContent).toContain("新建案件");
-    expect(host.textContent).toContain("按流程办");
-    const writeBtn = host.querySelector('[data-testid="lm-empty-write-materials"]') as HTMLButtonElement;
-    expect(writeBtn).toBeTruthy();
-    writeBtn.click();
-    expect(onOpenWriteMaterials).toHaveBeenCalledOnce();
+    expect(host.querySelector('[data-testid="lm-chat-empty"]')).toBeTruthy();
+    expect(host.textContent).toContain("开始对话");
+    expect(host.textContent).toContain("拖入或点「办件」");
+    expect(host.textContent).not.toMatch(/拖入或 \+/);
+    expect(host.querySelector('[data-testid="lm-contract-fast-lane"]')).toBeNull();
+    expect(host.querySelector('[data-testid="lm-empty-desk-verbs"]')).toBeNull();
+    expect(host.querySelector('[data-testid="lm-empty-more"]')).toBeNull();
+    expect(host.querySelector(".lm-scenario-card")).toBeNull();
   });
 });

@@ -150,11 +150,57 @@
   gap: 8px;
   margin-top: 6px;
 }
+.lm-review-redline-resolved {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+.lm-review-redline-resolved > summary {
+  cursor: pointer;
+  user-select: none;
+}
+.lm-review-redline-list--resolved {
+  margin-top: 8px;
+  opacity: 0.72;
+}
+.lm-review-redline-item--accepted {
+  border-left: 3px solid color-mix(in srgb, var(--success, #3d8b5a) 70%, transparent);
+  padding-left: 8px;
+}
+.lm-review-redline-item--rejected {
+  border-left: 3px solid color-mix(in srgb, var(--muted) 55%, transparent);
+  padding-left: 8px;
+}
+.lm-diff-muted {
+  opacity: 0.85;
+  font-size: 12px;
+}
 .lm-doctor-memory-grid {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   margin: 8px 0;
+}
+
+.lm-doctor-prompt-sections {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.lm-doctor-prompt-sections li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.lm-doctor-prompt-sections em {
+  font-style: normal;
+  opacity: 0.7;
+  flex-shrink: 0;
 }
 
 .lm-source-anchor-highlight {
@@ -512,6 +558,12 @@
   color: var(--lm-danger-text, #991b1b);
   background: var(--lm-danger-bg);
   display: block;
+}
+
+.lm-diff-span {
+  background: color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 2px;
+  padding: 0 2px;
 }
 
 .lm-diff-equal {

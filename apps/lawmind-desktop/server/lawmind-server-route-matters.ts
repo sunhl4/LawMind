@@ -142,7 +142,7 @@ function describeMatterInteraction(params: {
   const surface = params.surface?.trim() || "matter-workbench";
   const label = params.label?.trim() || "未命名动作";
   if (params.action === "open_review") {
-    return `案件工作台动作：从 ${surface} 进入文书台；来源 ${label}。`;
+    return `案件工作台动作：从 ${surface} 打开改稿；来源 ${label}。`;
   }
   if (params.action === "save_upgrade_suggestion") {
     const targetLabel = params.target === "assistant" ? "助手档案" : "律师档案";
@@ -167,7 +167,7 @@ function describeMatterInteraction(params: {
 
 function parseMatterInteractionDetail(detail?: string): MatterInteractionParsed {
   const raw = detail?.trim() ?? "";
-  const reviewMatch = /^案件工作台动作：从 (.+?) 进入(?:审核台|文书台)；来源 (.+)。$/.exec(raw);
+  const reviewMatch = /^案件工作台动作：从 (.+?) (?:打开改稿(?:预览)?|进入(?:审核台|文书台|改稿))；来源 (.+)。$/.exec(raw);
   if (reviewMatch) {
     return {
       action: "open_review",

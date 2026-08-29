@@ -4,6 +4,7 @@ import {
   e2eMockApiBase,
   gotoShell,
   installE2eBrowserPrefs,
+  openDeskWork,
 } from "./e2e-helpers";
 
 test.describe("Job intake & template gallery", () => {
@@ -14,6 +15,7 @@ test.describe("Job intake & template gallery", () => {
   test("compose gallery form-first fills 【交办】 prompt", async ({ page }) => {
     await gotoShell(page);
 
+    await openDeskWork(page);
     await page.getByTestId("lm-compose-write-materials").click();
     const gallery = page.getByRole("dialog", { name: /写文稿|做材料/i });
     await expect(gallery).toBeVisible({ timeout: 15_000 });
@@ -42,6 +44,7 @@ test.describe("Job intake & template gallery", () => {
 
   test("intake triage confirm path fills composer", async ({ page }) => {
     await gotoShell(page);
+    await openDeskWork(page);
     await page.getByTestId("lm-compose-write-materials").click();
     const gallery = page.getByRole("dialog", { name: /写文稿|做材料/i });
     await expect(gallery).toBeVisible({ timeout: 15_000 });
@@ -70,6 +73,7 @@ test.describe("Job intake & template gallery", () => {
   test("golden journey: 填表交办 → 文书台 → 验收门禁可见", async ({ page }) => {
     await gotoShell(page);
 
+    await openDeskWork(page);
     await page.getByTestId("lm-compose-write-materials").click();
     const gallery = page.getByRole("dialog", { name: /写文稿|做材料/i });
     await expect(gallery).toBeVisible({ timeout: 15_000 });

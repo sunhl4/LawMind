@@ -3,6 +3,8 @@
  * Word 渲染走本地 docx 引擎，不调用大模型 API。
  */
 
+import { formatCitationGateCoach } from "../../drafts/citation-craft.js";
+
 export type RenderFailureCategory =
   | "approval_required"
   | "acceptance_gate"
@@ -40,11 +42,13 @@ export function classifyRenderFailure(error: string | undefined): RenderFailureC
 
 const CATEGORY_HINT: Record<RenderFailureCategory, string> = {
   approval_required:
-    "草稿尚未在文书台通过。请在对话中请律师明确同意导出后，用 render_document 并传 approve=true；或先在桌面「文书台」批准该草稿。",
+    "草稿尚未在「在办」签批通过。请在对话中请律师明确同意导出后，用 render_document 并传 approve=true；或请律师到桌面「在办」批准该草稿（需全文时点「改稿」）。",
   acceptance_gate:
     "草稿未通过交付验收门禁（缺章节或占位符等）。请补齐后重试 render_document；若律师已确认可带占位符交付，可传 bypass_acceptance_gate=true（与 approve=true 联用）。",
-  citation_gate:
-    "这只挡住正式 Word 导出，不阻止你在对话里继续写/改草稿。请向律师展示当前正文与缺锚说明，补齐 citations 或文书台 Citation Banner 后再 render_document。",
+  citation_gate: [
+    "这只挡住正式 Word 导出，不阻止你在对话里继续写/改草稿。请向律师展示当前正文与缺锚说明，补齐 citations 或在改稿页核对 Citation Banner 后再 render_document。",
+    formatCitationGateCoach(),
+  ].join("\n"),
   missing_draft:
     "尚无可用草稿。请先 execute_workflow 或 draft_document 生成草稿，再调用 render_document。",
   render_engine:

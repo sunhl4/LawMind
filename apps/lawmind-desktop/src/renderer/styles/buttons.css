@@ -65,19 +65,32 @@
 .lm-btn:disabled::after { display: none; }
 
 .lm-btn-secondary {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01));
-  color: var(--text-2);
-  border: 1px solid var(--border);
+  /* 实底 + 描边：浅色主题下半透明白渐变几乎看不见，易被当成「禁用」 */
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-md);
   box-shadow: var(--shadow-xs);
 }
 
 .lm-btn-secondary::after { display: none; }
 
-.lm-btn-secondary:hover {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.03));
+.lm-btn-secondary:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+}
+
+html.lm-theme-dark .lm-btn-secondary:not(:disabled) {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  color: var(--text-2);
+  border-color: var(--border);
+}
+
+html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.04));
   color: var(--text);
   border-color: var(--border-md);
-  transform: translateY(-1px);
 }
 
 .lm-btn-secondary:focus-visible:not(:disabled) {

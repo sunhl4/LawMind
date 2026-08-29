@@ -124,6 +124,39 @@
   gap: 6px;
 }
 
+.lm-mail-send-format {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.lm-mail-send-signature {
+  min-height: 6.5rem;
+  resize: vertical;
+}
+
+.lm-mail-send-preview-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lm-mail-send-preview {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-sm);
+  white-space: pre-wrap;
+  font-family: var(--font);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+}
+
 .lm-automations-preset-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -160,6 +193,11 @@
   width: 52px;
   display: inline-block;
   margin: 0 4px;
+}
+
+.lm-automations-interval-select {
+  margin-left: 8px;
+  min-width: 7rem;
 }
 
 .lm-automations-create-actions {
@@ -224,4 +262,8 @@
 
 .lm-automations-last {
   margin-top: 4px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }

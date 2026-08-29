@@ -73,6 +73,8 @@ export type LawmindWorkspaceMainPaneProps = {
   onClearContext: () => void;
   onContextMatterChange?: (matterId: string | null) => void;
   onOpenComposeSettings: () => void;
+  onOpenSettings?: () => void;
+  onOpenDoctor?: () => void;
   /** Open Settings → memory inspector. */
   onOpenMemoryInspector?: () => void;
   onOpenApiWizard: () => void;
@@ -154,6 +156,8 @@ function LawmindWorkspaceMainPaneImpl({
   onClearContext,
   onContextMatterChange,
   onOpenComposeSettings,
+  onOpenSettings,
+  onOpenDoctor,
   onOpenMemoryInspector,
   onOpenApiWizard,
   composeModelHint,
@@ -296,9 +300,16 @@ function LawmindWorkspaceMainPaneImpl({
                 onCreateMatter={onCreateMatter}
                 onOpenAgentsWorkflows={openAgentsWorkflows}
                 onOpenWriteMaterials={() => setTemplateGalleryOpen(true)}
+                onDispatchPrompt={(prompt) => void onSendClarificationMessage(prompt)}
                 showEmptyMatterGuide={showEmptyMatterGuide}
                 onDeleteChatMessage={onDeleteChatMessage}
                 onEditChatMessage={onEditChatMessage}
+                allowWebSearch={allowWebSearch}
+                webSearchPolicyBlocked={webSearchPolicyBlocked}
+                onOpenComposeSettings={onOpenComposeSettings}
+                onOpenSettings={onOpenSettings}
+                onOpenDoctor={onOpenDoctor}
+                workspaceDir={config?.workspaceDir}
               />
             </div>
             <LawmindChatComposeFooter
@@ -321,6 +332,8 @@ function LawmindWorkspaceMainPaneImpl({
               onClearContext={onClearContext}
               onContextMatterChange={onContextMatterChange}
               onOpenComposeSettings={onOpenComposeSettings}
+              onOpenSettings={onOpenSettings}
+              onOpenDoctor={onOpenDoctor}
               onOpenApiWizard={onOpenApiWizard}
               composeModelHint={composeModelHint}
               composeModelQuickTestBusy={composeModelQuickTestBusy}

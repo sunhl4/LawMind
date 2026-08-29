@@ -41,9 +41,9 @@ export function extractPlanHandoffText(messages: PlanHandoffMessage[]): string |
 export function buildExecuteConfirmPrompt(planText: string): string {
   const body = planText.trim();
   if (!body) {
-    return "【确认执行】请按刚才约定的计划开始执行（可起草与写盘）。信息不足时先结构化追问。";
+    return "【确认执行】请按刚才约定的计划开始执行。信息不足时先结构化追问。";
   }
-  return `【确认执行】\n按下列计划开始执行（已切换到「标准」权限，可起草与写盘）：\n\n${body}\n\n请开始执行；缺关键事实时再用结构化问题追问。`;
+  return `【确认执行】\n按下列计划开始执行：\n\n${body}\n\n请开始执行；缺关键事实时再用结构化问题追问。`;
 }
 
 /** True when composer should prefer injecting handoff (empty or only whitespace). */

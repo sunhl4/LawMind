@@ -6,7 +6,9 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { ApprovalRequest } from "../../../../src/lawmind/core/contracts.ts";
 import { isValidMatterId } from "../../../../src/lawmind/cases/matter-id.ts";
 import { apiGetJson, errorMessage } from "./api-client";
+import { resolveMatterApproval } from "./lawmind-requires-action";
 import { toolDisplayNameZh } from "../../../../src/lawmind/platform/requires-action.js";
+import { useRequireSignoffReview } from "./lawmind-review-prefs";
 
 export type ToolApprovalRow = {
   actionId: string;
@@ -59,11 +61,13 @@ function summarizeArgs(args?: Record<string, unknown>): string {
 
 export function LawmindApprovalQueue(props: Props): ReactNode {
   const { apiBase, matterId, onOpenSession, onOpenReview, compact = false } = props;
+  const requireSignoffReview = useRequireSignoffReview();
   const [rows, setRows] = useState<ToolApprovalRow[]>([]);
   const [matterApprovals, setMatterApprovals] = useState<ApprovalRequest[]>([]);
   const [reviewDrafts, setReviewDrafts] = useState<PendingReviewDraft[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!apiBase) {
@@ -89,7 +93,8 @@ export function LawmindApprovalQueue(props: Props): ReactNode {
     void refresh();
   }, [refresh]);
 
-  const empty = rows.length === 0 && matterApprovals.length === 0 && reviewDrafts.length === 0;
+  const visibleReviewDrafts = requireSignoffReview ? reviewDrafts : [];
+  const empty = rows.length === 0 && matterApprovals.length === 0 && visibleReviewDrafts.length === 0;
 
   return (
     <section
@@ -105,14 +110,14 @@ export function LawmindApprovalQueue(props: Props): ReactNode {
       {loading ? <p className="lm-meta" aria-busy="true">加载中…</p> : null}
       {error ? <p className="lm-meta lm-callout-warn">{error}</p> : null}
       {empty && !loading ? (
-        <p className="lm-meta">暂无待批准的工具调用、案件审批或待审文书。</p>
+        <p className="lm-meta">暂无待批。</p>
       ) : null}
 
-      {reviewDrafts.length > 0 ? (
+      {visibleReviewDrafts.length > 0 ? (
         <div className="lm-approval-queue-block">
           <h5 className="lm-meta">待审文书</h5>
           <ul className="lm-approval-queue-list">
-            {reviewDrafts.map((d) => (
+            {visibleReviewDrafts.map((d) => (
               <li key={d.taskId} className="lm-approval-queue-row">
                 <div className="lm-approval-queue-row-head">
                   <strong>{d.title?.trim() || d.taskId}</strong>
@@ -126,7 +131,7 @@ export function LawmindApprovalQueue(props: Props): ReactNode {
                     className="lm-btn lm-btn-sm"
                     onClick={() => onOpenReview(d.taskId, d.matterId)}
                   >
-                    进入文书台
+                    改稿
                   </button>
                 ) : null}
               </li>
@@ -137,7 +142,7 @@ export function LawmindApprovalQueue(props: Props): ReactNode {
 
       {rows.length > 0 ? (
         <div className="lm-approval-queue-block">
-          <h5 className="lm-meta">危险工具（须在对话中批准或修改参数）</h5>
+          <h5 className="lm-meta">需确认的操作</h5>
           <ul className="lm-approval-queue-list">
             {rows.map((r) => (
               <li key={`${r.sessionId}:${r.actionId}`} className="lm-approval-queue-row">
@@ -177,10 +182,92 @@ export function LawmindApprovalQueue(props: Props): ReactNode {
                 <span className="lm-meta">
                   {a.targetRole ? `→ ${a.targetRole}` : ""} · {a.riskLevel ?? "normal"}
                 </span>
+                <div className="lm-approval-queue-row-actions">
+                  {a.deliverableId && onOpenReview ? (
+                    <button
+                      type="button"
+                      className="lm-btn lm-btn-sm"
+                      onClick={() => onOpenReview(a.deliverableId ?? "", a.matterId)}
+                    >
+                      去在办
+                    </button>
+                  ) : onOpenReview ? (
+                    <button
+                      type="button"
+                      className="lm-btn lm-btn-sm"
+                      onClick={() => onOpenReview("", a.matterId)}
+                    >
+                      去在办
+                    </button>
+                  ) : onOpenSession ? (
+                    <button
+                      type="button"
+                      className="lm-btn lm-btn-sm"
+                      onClick={() => onOpenSession("", a.matterId)}
+                    >
+                      去对话处理
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-accent lm-btn-sm"
+                    disabled={resolvingId === a.approvalId}
+                    onClick={() => {
+                      void (async () => {
+                        setResolvingId(a.approvalId);
+                        setError(null);
+                        try {
+                          const j = await resolveMatterApproval(apiBase, {
+                            matterId: a.matterId,
+                            approvalId: a.approvalId,
+                            status: "approved",
+                          });
+                          if (!j.ok) {
+                            throw new Error("通过失败");
+                          }
+                          await refresh();
+                        } catch (e) {
+                          setError(errorMessage(e, "通过失败"));
+                        } finally {
+                          setResolvingId(null);
+                        }
+                      })();
+                    }}
+                  >
+                    通过
+                  </button>
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-sm"
+                    disabled={resolvingId === a.approvalId}
+                    onClick={() => {
+                      void (async () => {
+                        setResolvingId(a.approvalId);
+                        setError(null);
+                        try {
+                          const j = await resolveMatterApproval(apiBase, {
+                            matterId: a.matterId,
+                            approvalId: a.approvalId,
+                            status: "rejected",
+                          });
+                          if (!j.ok) {
+                            throw new Error("驳回失败");
+                          }
+                          await refresh();
+                        } catch (e) {
+                          setError(errorMessage(e, "驳回失败"));
+                        } finally {
+                          setResolvingId(null);
+                        }
+                      })();
+                    }}
+                  >
+                    驳回
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
-          <p className="lm-meta">请在侧栏「待我拍板」或案件任务看板中签批。</p>
         </div>
       ) : null}
     </section>

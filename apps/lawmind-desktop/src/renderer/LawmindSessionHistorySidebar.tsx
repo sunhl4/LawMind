@@ -90,10 +90,10 @@ export function LawmindSessionHistorySidebar({
                     type="button"
                     className="lm-btn lm-btn-ghost lm-btn-small"
                     disabled={busy || resumeBusyId === row.sessionId}
-                    title="从 JSONL transcript 修复并加载会话"
+                    title="修复并加载会话"
                     onClick={() => void resumeSession(row.sessionId)}
                   >
-                    {resumeBusyId === row.sessionId ? "恢复中…" : "从 transcript 恢复"}
+                    {resumeBusyId === row.sessionId ? "恢复中…" : "恢复会话"}
                   </button>
                 </div>
               </li>

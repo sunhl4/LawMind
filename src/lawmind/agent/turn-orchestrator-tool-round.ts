@@ -14,8 +14,10 @@ import {
   type ToolCallRef,
 } from "../runtime/tool-concurrency.js";
 import {
+  DISCOVERY_LOOP_TOOL_LIMITS,
   buildDefaultToolPipeline,
   composeToolPipeline,
+  wouldHitDiscoveryCap,
   type ToolCallContext,
 } from "../runtime/tool-pipeline.js";
 import type { RiskLevel } from "../types.js";
@@ -46,6 +48,7 @@ export function getRunToolPipeline(): ReturnType<typeof composeToolPipeline> {
 
 export type ToolRoundPolicyHints = {
   allowedToolNames?: string[];
+  allowlistDenyHint?: string;
   roleId?: string;
   riskCeiling?: RiskLevel;
   autoApproveSandboxWorkflowSteps?: boolean;
@@ -273,6 +276,7 @@ export async function executeToolBatches(
       turn.toolNameCallCounts = turn.toolNameCallCounts ?? {};
       turn.toolNameCallCounts[toolName] = (turn.toolNameCallCounts[toolName] ?? 0) + 1;
       const toolArgs = { ...ref.arguments };
+      const hideFromLiveTrace = wouldHitDiscoveryCap(toolName, toolNameCallCountsBefore);
       const preApproval = resolvePreApprovalInjection({
         toolName,
         modelArgs: toolArgs,
@@ -296,22 +300,26 @@ export async function executeToolBatches(
         // C3: Solo/opt-in sandbox steps — never when Firm strict approval is on.
         toolArgs.__approved = true;
       }
-      emitEvent({
-        type: "tool_call_start",
-        roundIndex,
-        toolCallId: tc.id,
-        toolName,
-        args: toolArgs,
-      });
-      ctx.emitToolProgress = (label: string) => {
+      if (!hideFromLiveTrace) {
         emitEvent({
-          type: "tool_progress",
+          type: "tool_call_start",
           roundIndex,
           toolCallId: tc.id,
           toolName,
-          label,
+          args: toolArgs,
         });
-      };
+      }
+      ctx.emitToolProgress = hideFromLiveTrace
+        ? undefined
+        : (label: string) => {
+            emitEvent({
+              type: "tool_progress",
+              roundIndex,
+              toolCallId: tc.id,
+              toolName,
+              label,
+            });
+          };
       const callCtx: ToolCallContext = {
         toolCallId: tc.id,
         toolName,
@@ -327,6 +335,7 @@ export async function executeToolBatches(
           allowDangerousToolsWithoutApproval,
           toolSandboxEnabled,
           allowedToolNames: policyHints?.allowedToolNames,
+          allowlistDenyHint: policyHints?.allowlistDenyHint,
           roleId: policyHints?.roleId,
           riskCeiling: policyHints?.riskCeiling,
           toolNameCallCounts: toolNameCallCountsBefore,
@@ -337,6 +346,16 @@ export async function executeToolBatches(
         },
       };
       const result = await getRunToolPipeline()(callCtx);
+      if (!result.ok) {
+        if (DISCOVERY_LOOP_TOOL_LIMITS[toolName] != null) {
+          const nextCount = (turn.toolNameCallCounts[toolName] ?? 1) - 1;
+          if (nextCount <= 0) {
+            delete turn.toolNameCallCounts[toolName];
+          } else {
+            turn.toolNameCallCounts[toolName] = nextCount;
+          }
+        }
+      }
       const { authorityGapFromToolResult, demoCorpusFromToolResult } =
         await import("../retrieval/authority-gap.js");
       const nextActionsRaw =
@@ -348,18 +367,20 @@ export async function executeToolBatches(
             )
           : [];
       const resultCard = presentLawyerToolResult(toolName, toolArgs, result);
-      emitEvent({
-        type: "tool_call_end",
-        roundIndex,
-        toolCallId: tc.id,
-        toolName,
-        ok: result.ok,
-        error: result.ok ? undefined : extractToolErrorMessage(result),
-        ...(authorityGapFromToolResult(result) ? { authorityGap: true } : {}),
-        ...(demoCorpusFromToolResult(result) ? { demoCorpus: true } : {}),
-        ...(nextActionsRaw.length > 0 ? { nextActions: nextActionsRaw } : {}),
-        ...(resultCard.detail ? { resultPreview: resultCard.detail } : {}),
-      });
+      if (!hideFromLiveTrace) {
+        emitEvent({
+          type: "tool_call_end",
+          roundIndex,
+          toolCallId: tc.id,
+          toolName,
+          ok: result.ok,
+          error: result.ok ? undefined : extractToolErrorMessage(result),
+          ...(authorityGapFromToolResult(result) ? { authorityGap: true } : {}),
+          ...(demoCorpusFromToolResult(result) ? { demoCorpus: true } : {}),
+          ...(nextActionsRaw.length > 0 ? { nextActions: nextActionsRaw } : {}),
+          ...(resultCard.detail ? { resultPreview: resultCard.detail } : {}),
+        });
+      }
       ctx.emitToolProgress = undefined;
 
       const historyResult = summarizeToolResultForHistory(result, {

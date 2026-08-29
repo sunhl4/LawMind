@@ -59,8 +59,14 @@ export type UseReviewWorkbenchActionsParams = {
   onRevisionJobQueued?: (opts: { sessionId: string; assistantId: string; taskId: string }) => void;
   syncEditorFromDraft: (draft: ArtifactDraft) => void;
   clearEditorSaveError: () => void;
+  /** Clear selection after draft delete. */
+  setSelectedTaskId: (taskId: string | null) => void;
   /** Skills E6 — checklist ticks for approve gate */
   checklistChecked?: Record<string, boolean>;
+  /** 正文存在未保存修改（导出前必须先落盘，保证所见=所出）。 */
+  editorDirty?: boolean;
+  /** 保存正文；返回是否成功（false 时导出应中止）。 */
+  saveDraftContent?: () => Promise<boolean>;
 };
 
 export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParams) {
@@ -82,6 +88,8 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
     revisionDispatchNote,
     revisionPrefilledForTaskRef,
     checklistChecked,
+    editorDirty,
+    saveDraftContent,
     setRevisionDispatchNote,
     setActionMsg,
     setLastExportPath,
@@ -94,6 +102,7 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
     onRevisionJobQueued,
     syncEditorFromDraft,
     clearEditorSaveError,
+    setSelectedTaskId,
   } = params;
 
   const [actionBusy, setActionBusy] = useState(false);
@@ -108,9 +117,20 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
       setActionBusy(true);
       setActionMsg(null);
       try {
+        // 导出前先落盘未保存修改：/render 读盘上草稿，所见必须=所出。
+        if (editorDirty && saveDraftContent) {
+          const saved = await saveDraftContent();
+          if (!saved) {
+            setActionMsg("正文有未保存修改且保存失败，请先手动保存后再导出。");
+            return;
+          }
+        }
         const renderBody: { templateId?: string } = {};
         if (renderTemplateId.trim()) {
           renderBody.templateId = renderTemplateId.trim();
+        } else if ((detail?.deliverableType ?? "").startsWith("contract.")) {
+          // Fixed-format contract review opinion Word.
+          renderBody.templateId = "word/contract-default";
         }
         const strictQs = opts?.strict === false ? "?strict=false" : "";
         const j = await apiSendJson<
@@ -154,6 +174,7 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
     [
       apiBase,
       applyDetailFromResponse,
+      detail?.deliverableType,
       loadDrafts,
       onRecordsChanged,
       onShowArtifact,
@@ -190,7 +211,7 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
       if (!j.ok) {
         throw new Error(messageFromOkFalseBody(j, "恢复待审核失败"));
       }
-      setActionMsg("已恢复为待审核。可再次使用通过 / 驳回 / 需修改；通过后可用「渲染交付物」。");
+      setActionMsg("已恢复为待审核。可再次使用通过 / 驳回 / 需修改；通过后可用「导出审查意见书」。");
       revisionPrefilledForTaskRef.current = null;
       setRevisionDispatchNote("");
       await loadDrafts();
@@ -233,6 +254,7 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
         const labels = Array.from(selectedLabels);
         const reviewBody: DraftReviewPostRequest = {
           status,
+          ...(detail?.reviewStatus ? { expectedReviewStatus: detail.reviewStatus } : {}),
           note: note.trim() || undefined,
           appendToProfile: deferMemoryWrites ? false : appendToProfile,
           appendToLawyerProfile: deferMemoryWrites ? false : appendToLawyerProfile,
@@ -271,7 +293,7 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
           msg = "已通过签批。可点击下方「导出 Word」生成本地文件。";
         } else if (status === "modified") {
           msg =
-            "已保存为「需修改」及签批备注。请在下方「发给助手的补充说明」中完善意见后，点击「提交给助手（后台执行）」派发修订；未点击则不会启动后台改稿。";
+            "已保存为「需修改」及签批备注。请在下方「发给助手的补充说明」中完善意见后，点击「提交改稿」派发给助手后台执行；未点击则不会启动改稿。";
         } else {
           msg = "已记录驳回。助手不会自动处理：请在主对话中说明后续如何办理或是否重做。";
         }
@@ -312,6 +334,7 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
       appendToProfile,
       applyDetailFromResponse,
       assistantId,
+      checklistChecked,
       deferMemoryWrites,
       loadDrafts,
       loadLearningQueue,
@@ -411,14 +434,14 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
           assistantId: queuedAssistantId,
           taskId: selectedTaskId,
         });
-        setActionMsg("已提交后台修订，正在工作区对话中展示执行过程；完成后可进入文书台，草稿将恢复为待审核。");
+        setActionMsg("已提交改稿；完成后可再打开改稿，草稿将恢复为待审核。");
       } else {
         setActionMsg(
-          "已提交后台修订：请到工作区切换到当前助手，在会话列表中打开最新「审核修订」会话查看进度；完成后回到本页刷新。",
+          "已提交改稿：请到工作区切换到当前助手，在会话列表中打开最新「审核修订」会话查看进度；完成后回到本页刷新。",
         );
       }
     } catch (e) {
-      setActionMsg(errorMessage(e, "提交后台修订失败"));
+      setActionMsg(errorMessage(e, "提交改稿失败"));
     } finally {
       setRevisionDispatchBusy(false);
     }
@@ -439,6 +462,14 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
     setActionBusy(true);
     setActionMsg(null);
     try {
+      // 导出前先落盘未保存修改（与普通导出同规则）。
+      if (editorDirty && saveDraftContent) {
+        const saved = await saveDraftContent();
+        if (!saved) {
+          setActionMsg("正文有未保存修改且保存失败，请先手动保存后再导出。");
+          return;
+        }
+      }
       const j = await apiSendJson<
         {
           ok?: boolean;
@@ -447,29 +478,83 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
           outputPath?: string;
           mode?: string;
           code?: string;
+          baselineSource?: string;
         },
         Record<string, never>
       >(apiBase, `/api/drafts/${encodeURIComponent(selectedTaskId)}/render-tracked`, "POST", {});
       if (!j.ok) {
+        if (j.code === "baseline_missing") {
+          throw new Error(
+            "原合同基线文件缺失或不可读。请确认草稿已设置 contractEdit.baselineRelativePath，或改用草稿渲染基线。",
+          );
+        }
         throw new Error(
-          officecliMissingErrorMessage(j, messageFromOkFalseBody(j, "导出带修订 Word 失败")),
+          officecliMissingErrorMessage(j, messageFromOkFalseBody(j, "导出合同审阅稿失败")),
         );
       }
       const out = j.outputPath?.trim() ?? "";
       setLastExportPath(out || null);
       const modeNote = officecliPlainFallbackNote(j.mode);
-      setActionMsg(out ? `已生成带修订 Word：${out}${modeNote}` : `已生成交付物${modeNote}`);
+      const baseNote =
+        j.baselineSource === "contract_file"
+          ? "（原合同基线）"
+          : j.baselineSource === "rendered_draft"
+            ? "（草稿渲染基线）"
+            : "";
+      setActionMsg(
+        out ? `已生成合同审阅稿：${out}${baseNote}${modeNote}` : `已生成交付物${modeNote}`,
+      );
       await loadDrafts();
       if (j.outputPath && onShowArtifact) {
         onShowArtifact(j.outputPath);
       }
       onRecordsChanged?.();
     } catch (e) {
-      setActionMsg(errorMessage(e, "导出带修订 Word 失败"));
+      setActionMsg(errorMessage(e, "导出合同审阅稿失败"));
     } finally {
       setActionBusy(false);
     }
   }, [apiBase, loadDrafts, onRecordsChanged, onShowArtifact, selectedTaskId, setActionMsg, setLastExportPath]);
+
+  const deleteSelectedDraft = useCallback(async () => {
+    if (!selectedTaskId || !detail) {
+      return;
+    }
+    const status = detail.reviewStatus ?? "pending";
+    const exported = Boolean(detail.outputPath?.trim());
+    // 与服务端 409 门禁对齐：已签批/已导出的交付稿不在前端放行走 confirm，
+    // 直接给出可行动指引（先恢复待审核）。
+    if (status === "approved" || exported) {
+      setActionMsg(
+        "已签批或已导出的交付稿不能删除。请先点「恢复待审核」，再回到待审核状态后删除。",
+      );
+      return;
+    }
+    const warn = `确定删除草稿「${detail.title?.trim() || selectedTaskId}」？\n\n将移除文书台记录与关联任务，且不可恢复。`;
+    if (!window.confirm(warn)) {
+      return;
+    }
+    setActionBusy(true);
+    setActionMsg(null);
+    try {
+      const j = await apiSendJson<{ ok?: boolean; error?: string; message?: string }, undefined>(
+        apiBase,
+        `/api/drafts/${encodeURIComponent(selectedTaskId)}`,
+        "DELETE",
+      );
+      if (!j.ok) {
+        throw new Error(messageFromOkFalseBody(j, j.message || "删除失败"));
+      }
+      setSelectedTaskId(null);
+      setActionMsg("草稿已删除");
+      await loadDrafts();
+      onRecordsChanged?.();
+    } catch (e) {
+      setActionMsg(errorMessage(e, "删除草稿失败"));
+    } finally {
+      setActionBusy(false);
+    }
+  }, [apiBase, detail, loadDrafts, onRecordsChanged, selectedTaskId, setActionMsg, setSelectedTaskId]);
 
   const downloadAcceptancePack = useCallback(async () => {
     if (!selectedTaskId || !detail) {
@@ -521,6 +606,7 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
     submitRender,
     submitRenderTracked,
     submitRevisionJob,
+    deleteSelectedDraft,
     downloadAcceptancePack,
     adoptSuggestion,
     dismissSuggestion,

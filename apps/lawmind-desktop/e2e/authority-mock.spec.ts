@@ -17,7 +17,7 @@ test.describe("authority settings mock", () => {
     const search = page.getByRole("searchbox", { name: "搜索设置项" });
     await search.fill("模型");
     await search.press("Enter");
-    await expect(page.getByRole("heading", { name: "模型/API", level: 2 })).toBeVisible({
+    await expect(page.getByRole("heading", { name: "模型与连接", level: 2 })).toBeVisible({
       timeout: 15_000,
     });
     const boundary = page.getByTestId("lm-settings-authority-boundary");

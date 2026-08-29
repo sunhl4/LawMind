@@ -1,5 +1,5 @@
-import fs from "node:fs/promises";
 import fsSync from "node:fs";
+import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -9,6 +9,7 @@ import {
   markDelegationCompleted,
   markDelegationFailed,
   markDelegationRunning,
+  markDelegationTimeout,
   registerDelegation,
   cancelDelegation,
   countActiveDelegations,
@@ -149,5 +150,84 @@ describe("delegation-registry", () => {
     const evt = buildDelegationEvent(completed, "delegation.completed");
     expect(evt.kind).toBe("delegation.completed");
     expect(readDelegationResultFile(workspaceDir, completed)).toBeUndefined();
+  });
+
+  it("terminal guard: late completion after timeout becomes completed_after_timeout with result kept", () => {
+    const rec = registerDelegation({
+      workspaceDir,
+      fromAssistantId: "lead",
+      toAssistantId: "research",
+      task: "可能超时的任务",
+    });
+    markDelegationRunning(workspaceDir, rec.delegationId, "sess-child");
+    markDelegationTimeout(workspaceDir, rec.delegationId);
+    expect(getDelegation(rec.delegationId)?.status).toBe("timeout");
+
+    const late = markDelegationCompleted(workspaceDir, rec.delegationId, "迟到的结果");
+    expect(late?.status).toBe("completed_after_timeout");
+    expect(late?.result).toBe("迟到的结果");
+    expect(getDelegation(rec.delegationId)?.status).toBe("completed_after_timeout");
+
+    // 已是终态后，再次完成/失败/取消均不再翻转。
+    const again = markDelegationCompleted(workspaceDir, rec.delegationId, "又一次");
+    expect(again?.status).toBe("completed_after_timeout");
+    expect(again?.result).toBe("迟到的结果");
+    const failed = markDelegationFailed(workspaceDir, rec.delegationId, "迟到的失败");
+    expect(failed?.status).toBe("completed_after_timeout");
+    const cancelled = cancelDelegation(workspaceDir, rec.delegationId);
+    expect(cancelled?.status).toBe("completed_after_timeout");
+  });
+
+  it("terminal guard: late failure after timeout does not flip status", () => {
+    const rec = registerDelegation({
+      workspaceDir,
+      fromAssistantId: "lead",
+      toAssistantId: "research",
+      task: "超时后失败的任务",
+    });
+    markDelegationTimeout(workspaceDir, rec.delegationId);
+    const failed = markDelegationFailed(workspaceDir, rec.delegationId, "late error");
+    expect(failed?.status).toBe("timeout");
+    expect(getDelegation(rec.delegationId)?.status).toBe("timeout");
+  });
+
+  it("terminal guard: completed record ignores later completion/failure writes", () => {
+    const rec = registerDelegation({
+      workspaceDir,
+      fromAssistantId: "lead",
+      toAssistantId: "research",
+      task: "正常完成的任务",
+    });
+    markDelegationCompleted(workspaceDir, rec.delegationId, "首个结果");
+    const dup = markDelegationCompleted(workspaceDir, rec.delegationId, "覆盖尝试");
+    expect(dup?.status).toBe("completed");
+    expect(dup?.result).toBe("首个结果");
+    const failed = markDelegationFailed(workspaceDir, rec.delegationId, "失败尝试");
+    expect(failed?.status).toBe("completed");
+    const timedOut = markDelegationTimeout(workspaceDir, rec.delegationId);
+    expect(timedOut?.status).toBe("completed");
+    expect(getDelegation(rec.delegationId)?.status).toBe("completed");
+  });
+
+  it("completed_after_timeout is terminal for parent-session follow-ups", () => {
+    const parentSessionId = "sess-late";
+    const rec = registerDelegation({
+      workspaceDir,
+      fromAssistantId: "lead",
+      toAssistantId: "research",
+      task: "超时但交回",
+      parentSessionId,
+    });
+    markDelegationTimeout(workspaceDir, rec.delegationId);
+    markDelegationCompleted(workspaceDir, rec.delegationId, "late result");
+    const followUps = listDelegationFollowUpsForSession({
+      parentSessionId,
+      fromAssistantId: "lead",
+    });
+    expect(followUps).toHaveLength(1);
+    expect(followUps[0]?.status).toBe("completed_after_timeout");
+    expect(
+      listRunningDelegationsForSession({ parentSessionId, fromAssistantId: "lead" }),
+    ).toHaveLength(0);
   });
 });

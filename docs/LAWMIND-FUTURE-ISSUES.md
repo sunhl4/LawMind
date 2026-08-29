@@ -9,7 +9,6 @@
 | 文档                                                                         | 关系                                             |
 | ---------------------------------------------------------------------------- | ------------------------------------------------ |
 | [LAWMIND-PERSISTENCE-SCALE-REVIEW.md](./LAWMIND-PERSISTENCE-SCALE-REVIEW.md) | 持久化膨胀 / token / 扫盘审查与 P0–P2 已实施细节 |
-| [LAWMIND-DEFERRED.md](./LAWMIND-DEFERRED.md)                                 | 暂缓项索引（指向本册或保留短列表）               |
 | [LAWMIND-OPTIMIZATION-BACKLOG.md](./LAWMIND-OPTIMIZATION-BACKLOG.md)         | 产品远景与能力 backlog                           |
 | [LAWMIND-ENGINEERING-REVIEW.md](./LAWMIND-ENGINEERING-REVIEW.md)             | 工程评审与已落地附录                             |
 
@@ -45,16 +44,20 @@
 
 ## 2. Agent / 上下文与成本
 
-- [ ] System prompt 工具列表随 registry 膨胀 → 按角色/场景裁剪工具定义
+- [x] System prompt 工具列表随 registry 膨胀 → 默认 compact + 核心 12 + `list_more_tools` 本会话披露（2026-08-16 W1-C；registry 仍保留全部 execute）
 - [ ] 相关记忆召回与 system 注入的统一 budget 账本（单一计数器）
 - [ ] 检索链路（research）与对话链路共享同一套窗口常量（避免两套漂移）
 - [ ] 多 agent 并行时的上下文隔离配额（避免会议室 + 多委派同时灌满）
+- [x] **同 session 并行 turn**：进程内按 `workspaceDir+sessionId` 串行（`session-turn-gate.ts`，2026-08-14）；跨进程双开本地 server 仍可能竞态（桌面默认单进程）
+- [x] **律师可见工具卡 / Stop 打到工具 / 轮中补材料 / 结构事件日志 / prompt 段表**（2026-08-14 DeepSeek 三刀；`session.json` 仍为权威，events.jsonl 并行）
+- [x] **纠正本轮 / 检索邮件 spill / 溢出先剪再试 / 停止与超时正交**（2026-08-16 DeepSeek 第二遍；见 ENGINEERING-REVIEW 附录）
+- [ ] **事件日志升格为会话权威**：今日 `events.jsonl` 只投影 live-turn；完整替换可变 `session.json` + 流式 delta 回放仍待做
 
 ---
 
-## 3. 产品与治理（从 DEFERRED / 评审迁移）
+## 3. 产品与治理（从评审迁移）
 
-- [ ] **文档站自动发布到托管**（Pages / Cloudflare）：见原 [DEFERRED](./LAWMIND-DEFERRED.md)
+- [ ] **文档站自动发布到托管**（Pages / Cloudflare）
 - [ ] **智能体层级强制策略**（仅可向汇报线委派等）写进 `validateDelegation` / `lawmind.policy.json`
 - [ ] **互审多轮与版本时间线**（`request_review` 现为单轮）
 - [ ] Firm 级伦理墙与客户披露的独立治理流程（Edition 模板已有；真墙未完）
@@ -72,11 +75,13 @@
 - [x] 无文件系统桥接时的建案/材料树降级体验（侧栏「新建」CTA + 对话空态不再依赖 FS 桥，2026-07-20；材料树本身仍需桥接）
 - [ ] 超大工作区（数千案件）下的侧栏虚拟化与搜索索引
 - [x] 文书台预览窗与主窗状态同步：`sync-request` + 未保存 live 不被 8s 磁盘轮询覆盖
+- **不做**：对话消息区改 `role="tabpanel"`。会话 Tab 已有 `aria-controls`，面板保持 `region` + `aria-busy` + `#lawmind-chat-messages-panel`。改 tabpanel 会拆多份 e2e `getByRole("region", { name: "对话消息" })`，律师可感知收益接近零。
 
 ---
 
 ## 5. 安全与运维
 
+- [ ] **邮件密钥进 OS 钥匙串**：现为 LawMind 根目录 `mail-secrets.json`（0o600）。模型 Key 已走 `safeStorage`；邮件密钥要进钥匙串需 main 注入 + 迁移，且自动办件跑在 server 子进程。未做：不是 Day-1 主路径，磁盘权限已挡普通泄露。
 - [ ] 工作区备份 / 迁移工具（含 progress-archive、day-split audit）
 - [ ] 审计完整性链在「按天窗口读取」下的校验策略说明
 - [ ] Doctor：检测 CASE/audit/session 体积异常并建议轮转
@@ -86,6 +91,8 @@
 
 ## 6. 工程卫生
 
+- [ ] **脏树按主题拆 PR（N-A0）**：组织/合并面，不是代码缺陷。要发 PR 时再切，勿在功能轮顺手拆。
+- [ ] **`engine-pipeline-tools.ts` 按工具族拆文件**：现约 1300 行、7 个工具定义。下次改起草/渲染工具时顺手拆，不单独开重构轮。
 - [x] `memory/index.ts` ↔ `case-writes.ts` 循环依赖拆干净（ensureCaseWorkspace 下沉 → `memory/case-workspace.ts`，2026-07-20）
 - [ ] 桌面 server 路由与引擎查询层对「lite vs full index」API 命名统一
 - [ ] CI：为 prompt-windows / overview-lite 增加回归门禁（已有单测则挂到 PR 集）
@@ -97,8 +104,9 @@
 
 ## 变更记录
 
-| 日期       | 说明                                                                        |
-| ---------- | --------------------------------------------------------------------------- |
-| 2026-07-18 | 建册；并入持久化审查未尽项与 DEFERRED 类问题；链到 PERSISTENCE-SCALE-REVIEW |
-| 2026-07-18 | 标记 CASE.md 写锁已落地；补充日日志/画像写锁与 async draft pipeline 待做项  |
-| 2026-07-25 | 链到工程 9.5 冲刺：R-P1-9 atomic rewriteJsonl、R-P2-7 写路径收敛（短中期） |
+| 日期       | 说明                                                                                                       |
+| ---------- | ---------------------------------------------------------------------------------------------------------- |
+| 2026-07-18 | 建册；并入持久化审查未尽项与 DEFERRED 类问题；链到 PERSISTENCE-SCALE-REVIEW                                |
+| 2026-07-18 | 标记 CASE.md 写锁已落地；补充日日志/画像写锁与 async draft pipeline 待做项                                 |
+| 2026-07-25 | 链到工程 9.5 冲刺：R-P1-9 atomic rewriteJsonl、R-P2-7 写路径收敛（短中期）                                 |
+| 2026-08-14 | DeepSeek 三刀落地（中文卡 / Stop+工具信号 / 轮中注入 / events.jsonl / prompt 段表）；session.json 仍为权威 |

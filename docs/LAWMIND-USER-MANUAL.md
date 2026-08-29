@@ -4,7 +4,7 @@
 
 **重要声明**：LawMind 输出为**辅助草稿与研判材料**，**不构成法律意见**。对外提交、签署或送达前，须由执业律师完成复核与定稿。数据处理边界见 [LawMind 数据处理说明](/LAWMIND-DATA-PROCESSING)。
 
-**与工程文档的关系**：本手册在「律师可操作面」之外，增加了**实现级索引**（源码路径、路由、数据文件），便于企业内集成与排障。纯研发路线图见 [LawMind 工程开发记忆](/LAWMIND-PROJECT-MEMORY)（**不等于**工作区内的 `MEMORY.md`）。
+**与工程文档的关系**：本手册在「律师可操作面」之外，增加了**实现级索引**（源码路径、路由、数据文件），便于企业内集成与排障。研发目标与回看项见 [GOALS.md](../GOALS.md) 与 [未来问题](/LAWMIND-FUTURE-ISSUES)（**不等于**工作区内的 `MEMORY.md`）。
 
 ---
 
@@ -25,7 +25,7 @@
 
 7. [案件工作台与各面板（含 Insights）](#7-案件工作台与各面板含-insights)
    - [7.1 案件团队会议室](#71-案件团队会议室)
-8. [审核台、验收门禁、推理门禁与来源预览](#8-审核台验收门禁推理门禁与来源预览)
+8. [改稿、验收门禁、推理门禁与来源预览](#8-改稿验收门禁推理门禁与来源预览)
 9. [合同修订积累与学习队列](#9-合同修订积累与学习队列)
 
 ### C. 工程与集成
@@ -93,11 +93,11 @@
 
 ### 2.1 获取与安装
 
-| 方式           | 说明                                                                                                                                                          |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **智能下载页** | 浏览器打开 [桌面下载页](https://cdn.jsdelivr.net/gh/lawmind/lawmind@main/apps/lawmind-desktop/download/index.html)；企业 fork 可在 URL 加 `?repo=组织/仓库`。 |
-| **安装说明**   | [`apps/lawmind-desktop/INSTALL.md`](https://github.com/lawmind/lawmind/blob/main/apps/lawmind-desktop/INSTALL.md)。                                           |
-| **交付包**     | 自 [LawMind 客户交付](/LAWMIND-DELIVERY) 或供应商处获取 **Windows / macOS / Linux** 安装介质。                                                                |
+| 方式           | 说明                                                                                                                |
+| -------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **智能下载页** | 浏览器打开 [桌面下载页](https://docs.lawmind.ai/download/)；企业 fork 可在 URL 加 `?repo=组织/仓库`。               |
+| **安装说明**   | [`apps/lawmind-desktop/INSTALL.md`](https://github.com/lawmind/lawmind/blob/main/apps/lawmind-desktop/INSTALL.md)。 |
+| **交付包**     | 自 [LawMind 客户交付](/LAWMIND-DELIVERY) 或供应商处获取 **Windows / macOS / Linux** 安装介质。                      |
 
 **打包版无需单独安装 Node.js**：安装包内含运行本地 API 所需的 Node 运行时。
 
@@ -110,46 +110,48 @@
 2. **开发模式**（`pnpm lawmind:desktop`）：本地服务会合并 **仓库根目录** 与 **用户目录** 的环境配置，**后者覆盖前者**；若命令行正常而桌面报 **401 / API Key 无效**，请优先核对用户目录 `.env.lawmind`。
 3. **首次引导（P5）**：无案件时可能弹出 `LawmindFirstRunDialog`（角色 → 模板 → 自动建案 + seed prompt）；可永久关闭。产品说明见 [Deliverable-First 与首跑](/LAWMIND-DELIVERABLE-FIRST)。
 
-### 2.3 主界面：默认交办、在办总览与文书台
+### 2.3 主界面：默认交办、在办总览与改稿
 
 桌面端为 **左侧边栏 + 右侧主工作台**（详见 [桌面端 UI 约定](/LAWMIND-DESKTOP-UI)）。
 
-| 表面           | 用途                                                                                              | 主要渲染入口（实现参考）                                                           |
-| -------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| **对话**       | **默认入口**：向 Agent 下达任务、引用材料、澄清和中途调整                                         | `lawmind-chat-shell.tsx`、`LawmindAssignmentCommitmentCard.tsx`                    |
-| **在办**       | 并行总览：待拍板 / 交出去的活 / 按流程办（含原协作能力）                                          | `AgentFleetView.tsx`、`LawmindAgentFleetPanel.tsx`、`LawmindCollaborationDesk.tsx` |
-| **自动办件**   | 定时或邮件触发的办件（配置向）；在 **设置 → 自动办件** 管理；结果进「待我拍板」                   | `LawmindAutomationsPanel.tsx`（设置分区）                                          |
-| **会议室**     | 多助手讨论（可绑案件或临时开会）；经顶栏 **会议室** 进入                                          | `MeetingView.tsx`、`MatterTeamMeetingPanel.tsx`                                    |
-| **案件工作台** | 材料、任务、期限、草稿、CASE、进度与 Insights 的长期真相源                                        | `MatterWorkbench.tsx` 与 `matter/*` 子视图                                         |
-| **文书台**     | 有稿可审时进入：正文修改、批注、来源核验、交付预览与导出；正式签批主路径在「在办」                | `ReviewWorkbench.tsx`、`LawmindAcceptanceGate.tsx`                                 |
-| **待我拍板**   | 跳转「在办」并只看待决（`awaiting_*`）；缺信息时在办表格「提交补充并继续」；对话多为弱引导/短确认 | `AgentFleetView.tsx`、`LawmindAgentFleetPanel.tsx`、`LawmindClarificationForm.tsx` |
-| **文件**       | 浏览、编辑工作区内文本，标记本回合重点材料                                                        | `FileWorkbench.tsx`；服务端 `GET/POST /api/fs/*` 与 Electron `lawmind:fs:*`        |
+| 表面           | 用途                                                                                                                        | 主要渲染入口（实现参考）                                                           |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| **对话**       | **默认入口**：向 Agent 下达任务、引用材料、澄清和中途调整                                                                   | `lawmind-chat-shell.tsx`、`LawmindAssignmentCommitmentCard.tsx`                    |
+| **在办**       | 并行总览：待拍板 / 交出去的活 / 按流程办（含原协作能力）                                                                    | `AgentFleetView.tsx`、`LawmindAgentFleetPanel.tsx`、`LawmindCollaborationDesk.tsx` |
+| **自动办件**   | 定时或邮件触发的办件；签批通过后可「存成自动办件」。关桌面后续跑见设置 → 工作区「关桌面后继续办件」（只在这台电脑，不上云） | `LawmindAutomationsPanel.tsx`、`lawmind-daemon.ts`                                 |
+| **会议室**     | 多助手讨论（可绑案件或临时开会）；从在办「更多」或输入条 **+** 进入                                                         | `MeetingView.tsx`、`MatterTeamMeetingPanel.tsx`                                    |
+| **案件工作台** | 材料、任务、期限、草稿、CASE、进度与 Insights 的长期真相源                                                                  | `MatterWorkbench.tsx` 与 `matter/*` 子视图                                         |
+| **改稿**       | 场景页（原「文书台」）：正文修改、批注、来源核验、交付预览与导出；正式签批主路径在「在办」                                  | `ReviewWorkbench.tsx`、`LawmindAcceptanceGate.tsx`                                 |
+| **待我拍板**   | 跳转「在办」并只看待决（`awaiting_*`）；缺信息时在办表格「提交补充并继续」；对话多为弱引导/短确认                           | `AgentFleetView.tsx`、`LawmindAgentFleetPanel.tsx`、`LawmindClarificationForm.tsx` |
+| **文件**       | 浏览、编辑工作区内文本，标记本回合重点材料                                                                                  | `FileWorkbench.tsx`；服务端 `GET/POST /api/fs/*` 与 Electron `lawmind:fs:*`        |
 
-**顶栏一级**：**对话**、**在办**、**文书台**、**会议室**（对等 Tab；亦可从在办「进入文书台」场景按钮进入）。自动办件在 **设置 → 自动办件**。对话区在有待审草稿时固定显示「打开此稿」条，可直达文书台对应任务。案件工作台首页有 **「本案下一步」** 轨（打开本案对话 / 待我拍板 / 进入文书台）。侧栏待办角标共用 action-summary，对话回合结束后会即时刷新。
+**顶栏常驻**：**对话**、**在办**。**改稿 / 文书台 / 会议室不占一级对等 Tab**，从在办或输入条 **+** 进入（打开后顶栏可出现次级定位：Solo「改稿」、Firm「文书台」、会议室）。自动办件在 **在办 → 更多 → 自动办件**（设置页）。对话区在有待审草稿时固定显示「打开此稿」条，可直达改稿页对应任务。案件工作台首页有 **「本案下一步」** 轨（打开本案对话 / 待我拍板 / 去改稿）。侧栏待办角标共用 action-summary，对话回合结束后会即时刷新。
 
-正式签批主路径仍在「在办」；文书台侧重改稿、批注、验收检查与交付预览。系统不会因为后台修订完成而强制打断当前页面。
+正式签批主路径仍在「在办」；改稿页侧重改稿、批注、验收检查与交付预览。系统不会因为后台修订完成而强制打断当前页面。
+
+空对话提示：先附上材料，再点输入栏 **办件** 选流程（合同审查 / 函件 / 检索 / 诉讼 / 写材料）。不必记住激活词。选定后写入能力锁，走对应 Skill + 流水线。签批在「在办」。邮件里识别到合同附件时，用 **一键审邮件合同** 走同一套审查门禁。
 
 **侧边栏**：设置齿轮、案件材料树（或案件列表）、有待决时底部 **待我拍板**。
 
-### 2.4 交付、验收门禁与文书台
+### 2.4 交付、验收门禁与改稿
 
 - **Deliverable-First**：每类交付物有 **规格（DeliverableSpec）** 与 **验收清单**；渲染前默认 **strict 验收门禁**（HTTP `422 acceptance_gate_blocked`）。架构见 [Deliverable-First](/LAWMIND-DELIVERABLE-FIRST)。
 - **推理门禁（Reasoning Gate）**：部分高风险内置 spec 配置 `reasoningGate`；`reasoning-validator` 在 strict 渲染路径与 acceptance **并联**校验。桌面 `LawmindAcceptanceGate` 同列展示 reasoning 报告。
-- **文书台学习勾选**：可将摘要写入 **助手** `PROFILE.md` 或 **律师** `LAWYER_PROFILE.md`；失败时接口区分 `profileAppendFailed` / `lawyerProfileAppendFailed` 等标志；审核通过且草稿带 `contractRevisionCapture` 时可能触发 **合同修订积累**（见 §9）。
+- **改稿页学习勾选**：可将摘要写入 **助手** `PROFILE.md` 或 **律师** `LAWYER_PROFILE.md`；失败时接口区分 `profileAppendFailed` / `lawyerProfileAppendFailed` 等标志；审核通过且草稿带 `contractRevisionCapture` 时可能触发 **合同修订积累**（见 §9）。
 
 ### 2.4.1 Skills 主路径（分诊 · 必核 · 专案组 · 矩阵 · 技能）
 
 | 能力                | 怎么用                                    | 说明                                                                  |
 | ------------------- | ----------------------------------------- | --------------------------------------------------------------------- |
 | **分诊**            | 对话「写材料」→ 填表交办 → 确认黄/红档    | 推荐工作流（含中国包 `cn-*`）；确认后写入分诊会话                     |
-| **律师必核**        | 文书台右侧清单                            | 未勾完时在办「通过」或文书台高级签批返回 `422 checklist_incomplete`   |
+| **律师必核**        | 改稿页右侧清单                            | 未勾完时在办「通过」或改稿页高级签批返回 `422 checklist_incomplete`   |
 | **严格援引**        | 设置 / Edition 的 `citationMode=grounded` | 无源或无理论锚点时严格导出可被拦截                                    |
-| **审查专案组**      | 文书台 Sticky「用审查专案组」             | ≥4 角色 + Safety Score；报告可 Markdown 下载；可选「更快模式」        |
-| **案件简报 / 理论** | 案件概览                                  | Ops 可追加阶段与 RAID；理论三块可锚定；文书台可将推理图「采纳到理论」 |
+| **审查专案组**      | 改稿页 Sticky「用审查专案组」             | ≥4 角色 + Safety Score；报告可 Markdown 下载；可选「更快模式」        |
+| **案件简报 / 理论** | 案件概览                                  | Ops 可追加阶段与 RAID；理论三块可锚定；改稿页可将推理图「采纳到理论」 |
 | **审查矩阵**        | 案件工作台 → 审查矩阵                     | CSV 导出含 citation；版本比对看危险变更摘要                           |
 | **技能库**          | 设置 → 技能库                             | 本地 `SKILL.md` + 签名校验；中国法务包状态；篡改签名拒载              |
 
-更多工程闸门见 [500 人周计划](/LAWMIND-AGENT-SKILLS-500PW-PLAN) §9.1；Edition 矩阵见 [Edition 功能矩阵](/LAWMIND-EDITION-FEATURE-MATRIX)。
+Edition 矩阵见 [Edition 功能矩阵](/LAWMIND-EDITION-FEATURE-MATRIX)。
 
 ### 2.5 更新与支持
 
@@ -173,12 +175,12 @@
 
 | 步骤 | 操作                                                                       | 预期                                                       |
 | ---- | -------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| 1    | 工作台对话产出带 `taskId` 的助手回复                                       | 消息下方显示「当前交办」和 gate 摘要或「进入文书台」       |
+| 1    | 工作台对话产出带 `taskId` 的助手回复                                       | 消息下方显示「当前交办」和 gate 摘要或「改稿」入口         |
 | 2    | 侧栏 **待我拍板** 进入「在办」处理 `requiresAction`（或会话内澄清/批准卡） | 批准/拒绝后任务继续                                        |
-| 3    | 点 **进入文书台** → 选草稿 → 签批 → 渲染                                   | strict 模式下未过 gate 时渲染返回 422                      |
+| 3    | 在办点 **改稿** → 选草稿 → 回到在办签批 → 渲染                             | strict 模式下未过 gate 时渲染返回 422                      |
 | 4    | 案件工作台 → **认知** → 记忆采纳「预览变更」                               | diff 预览可用；采纳写入 CASE/PROFILE                       |
-| 5    | 审核台 Redline：**将当前稿设为基准** → 改正文 → **生成修订提案** → 接受    | 段落写回草稿正文                                           |
-| 6    | 案件 **案件** Tab 搜索关键词                                               | 无索引时提示到 **设置→系统体检** 重建；重建后命中出现      |
+| 5    | 改稿页 Redline：**将当前稿设为基准** → 改正文 → **生成修订提案** → 接受    | 段落写回草稿正文                                           |
+| 6    | 案件 **案件** Tab 搜索关键词                                               | 无索引时提示到 **设置→系统健康** 重建；重建后命中出现      |
 | 7    | 左栏 `cases/` 或 **案件** 快捷列表选案                                     | cockpit 打开；有待决时底栏 **待我拍板** 跳转「在办」决策区 |
 
 索引未建立时，本机开发可在 loopback 环境设置 `LAWMIND_ALLOW_INDEX_REBUILD=1` 后于体检页重建（见 [工作区标准](/LAWMIND-WORKSPACE-STANDARD)）。
@@ -187,18 +189,24 @@
 
 ## 4. 设置、多助手、角色（Role）与版本
 
-打开 **设置**（齿轮图标）：
+打开 **设置**（齿轮图标）；**默认进「模型与连接」**。分组：工作台 / 知识 / 专业控制 / 关于。Solo 侧栏先露模型、工作区、外观、免责；其余进「更多设置」。
 
-| 设置区              | 用户能力                                           | 实现要点                                                                                     |
-| ------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| **就绪 / 首次引导** | API 与路径自检                                     | 健康检查 `GET /api/health`                                                                   |
-| **团队工作流**      | 摘要 +「在在办中打开按流程办」                     | `LawmindSettingsCollaborationBrief`；完整运行 UI 在 **在办 · 按流程办**                      |
-| **助手与岗位**      | CRUD、`assistantId`、岗位预设、关系统计            | `GET/POST /api/assistants`、`PATCH/DELETE /api/assistants/:id`、`GET /api/assistant-presets` |
-| **角色（Role）**    | 岗位级工具白名单、交付物类型、风险上限、记忆 scope | `GET /api/roles`、`GET /api/roles/:id`；定义 `src/lawmind/core/role.ts`                      |
-| **模型与检索**      | single/dual、`dualLegalConfigured` 等              | `GET /api/health`；适配器见 `src/lawmind/retrieval/`                                         |
-| **工作区与项目**    | `workspaceDir`、`projectDir` 传入对话请求          | `lawmind-server-route-chat.ts` 中 `projectDir`                                               |
-| **模板 / Edition**  | 内置 + 上传模板；Solo/Firm/Private 功能开关        | `GET /api/templates`、`GET /api/policy/edition`                                              |
-| **应用更新**        | 版本与更新通道                                     | Electron `lawmind:check-updates`                                                             |
+| 设置区                    | 用户能力                                                  | 实现要点                                                  |
+| ------------------------- | --------------------------------------------------------- | --------------------------------------------------------- |
+| **模型与连接**            | API 向导、验证、权威语料；高级含起草/Worker/检索          | `LawmindSettingsModelRetrieval`；`GET /api/health`        |
+| **工作区**                | `workspaceDir`、材料夹、合同批次目录（折叠）              | `LawmindSettingsWorkspace`                                |
+| **外观**                  | 主题/字号/密度；签批后自动导出；**展开工具轨迹**          | `LawmindSettingsAppearance`；原独立「签批与导出」叶已并入 |
+| **记忆 / 技能**           | 专业控制；Solo 进「更多设置」                             | `LawmindSettingsMemory` / `LawmindSettingsSkills`         |
+| **文书模板**              | 知识组；Solo 进「更多设置」                               | `LawmindSettingsTemplates`                                |
+| **助手编制**              | Firm 专业控制；Solo 侧栏隐藏（深链仍可用）                | `LawmindSettingsAssistants`                               |
+| **系统健康**              | 连接摘要 + 运维折叠（硬控/指标/修复）                     | `LawmindSettingsDoctor`；`GET /api/health`                |
+| **自动办件**              | 定时/邮件办件（结果进在办）                               | `LawmindAutomationsPanel`                                 |
+| **安全与工具**            | 高安全、白名单；MCP 仅文档说明                            | `LawmindSettingsTools`                                    |
+| **团队工作流 / 角色说明** | Firm 侧栏可见；Solo 侧栏隐藏（深链仍可用）                | Brief → 在办；Roles → `/api/roles`                        |
+| **版本与授权**            | 关于组。Solo：徽章 + 一句，矩阵/导出进单一折叠；Firm 完整 | `LawmindSettingsEdition`；`GET /api/policy/edition`       |
+| **应用更新 / 免责**       | 版本通道与责任边界                                        | Electron `lawmind:check-updates`                          |
+
+快捷入口「在办」会关闭设置并打开在办桌（不再链到 Solo 已藏的「团队工作流」设置叶）。
 
 **超时**：模型默认约 **120s**（`LAWMIND_AGENT_TIMEOUT_MS`）；工具超时 `LAWMIND_TOOL_TIMEOUT_MS`（见 §18）。
 
@@ -287,7 +295,7 @@
 | `enableCollaboration`                             | 是否允许协作工具链                                              |
 | `edition`                                         | `solo` / `firm` / `private_deploy`                              |
 | `agentMandatoryRules` / `agentMandatoryRulesPath` | 注入 Agent system prompt 的强制规则（上限 8192 字符）           |
-| `agentMaxToolCallsPerTurn`                        | 单轮工具调用上限（与 `LAWMIND_AGENT_MAX_TOOL_CALLS` 协同）      |
+| `agentMaxToolCallsPerTurn`                        | 单轮工具软预算（触顶询问是否继续；硬顶约 2 倍以防 runaway）     |
 | `productInsightsCollection`                       | `off` / `local-only` / `synced` — 控制 `ux.matter_action` 采集  |
 | `highSecurityMode`                                | 为 `true` 时倾向关闭联网与产品遥测（设置 → 工具治理可一键写入） |
 | `context.*`                                       | 自动 compact 缓冲、`maxConsecutiveCompactFailures` 等           |
@@ -317,7 +325,7 @@
 
 ### 7.1 团队会议室
 
-- **入口**：顶栏 **会议室**（`mainView = "meeting"` → `MeetingView`）。可绑定案件，或选「不绑定案件 · 临时讨论」（API 仍用哨兵 id `临时讨论`，磁盘落在 `meetings/adhoc/team-meeting.jsonl`，不占用案件列表）。
+- **入口**：在办「更多」或输入条 **+**（`mainView = "meeting"` → `MeetingView`）。可绑定案件，或选「不绑定案件 · 临时讨论」（API 仍用哨兵 id `临时讨论`，磁盘落在 `meetings/adhoc/team-meeting.jsonl`，不占用案件列表）。
 - **案件侧深链**：案件概览「打开会议室」跳到会议室视图并带上本案。
 - **UI**：`MatterTeamMeetingPanel.tsx`；**数据**：`GET /api/matters/team-meeting?matterId=&limit=&skipFromEnd=` → `readTeamMeetingWindow`（`src/lawmind/cases/team-meeting.ts`）。
 - **发言**：`POST /api/chat`，`meetingMode: true` 且 **必须**合法 `matterId`；否则 **400** `meeting_matter_required`。
@@ -328,7 +336,7 @@
 
 ---
 
-## 8. 审核台、验收门禁、推理门禁与来源预览
+## 8. 改稿、验收门禁、推理门禁与来源预览
 
 | 步骤         | 用户操作       | API / 引擎                                                                                                                                                   |
 | ------------ | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -340,7 +348,7 @@
 | 审核决定     | 批准/退回/修改 | `POST /api/drafts/:taskId/review`；body 含 `status`、`note`、`appendToProfile`、`appendToLawyerProfile`、`profileAssistantId`、`labels`、`deferMemoryWrites` |
 | 重新打开审核 | 修正后再审     | `POST /api/drafts/:taskId/reopen-review`                                                                                                                     |
 | 渲染         | 导出 Word/PPT  | `POST /api/drafts/:taskId/render?strict=`（默认 strict；`false` 为显式弱化门禁，**不推荐**）                                                                 |
-| 带修订 Word  | 审核台按钮     | `POST /api/drafts/:taskId/render-tracked`：将 Redline 提案写入 Word 修订痕迹；需本机 **officecli**，未安装时回退为普通 docx 并提示                           |
+| 带修订 Word  | 改稿按钮       | `POST /api/drafts/:taskId/render-tracked`：将 Redline 提案写入 Word 修订痕迹；需本机 **officecli**，未安装时回退为普通 docx 并提示                           |
 | 验收包       | 对外证明       | `GET /api/drafts/:taskId/acceptance-pack`（Markdown 或 `?format=json`）；受 Edition `acceptancePackExport` 控制（Solo/Firm/Private 默认开启）                |
 
 **Word 修订导出限制**：`render-tracked` 依赖主机已安装 `officecli` 且草稿具备 Redline 基准/提案；无 CLI 时仍会得到 docx 文件但不含原生修订痕迹。清洁版请用「导出 Word」（`/render` strict 路径）。
@@ -962,7 +970,7 @@ LawMind 不复制 Harvey 等企业云台的部署形态，但在**可核对来�
 | [Deliverable-First](/LAWMIND-DELIVERABLE-FIRST)             | 交付物规格与门禁                         |
 | [愿景与边界](/LAWMIND-VISION)                               | 产品方向                                 |
 | [架构](./LAWMIND-ARCHITECTURE.md)                           | 五层模型、Job、Clarify–Execute、记忆规则 |
-| [工程开发记忆](/LAWMIND-PROJECT-MEMORY)                     | 研发断点续作                             |
+| [未来问题](/LAWMIND-FUTURE-ISSUES)                          | 已识别、长期回看项                       |
 | [桌面端 UI](/LAWMIND-DESKTOP-UI)                            | 布局与组件                               |
 | [桌面文件与上下文](/LAWMIND-DESKTOP-FILES-AND-CONTEXT)      | 引用与上限                               |
 | [协作 UI ↔ API 对照](/LAWMIND-COLLABORATION-UI-API-MAP)     | 协作页数据源                             |
@@ -1000,15 +1008,15 @@ LawMind 不复制 Harvey 等企业云台的部署形态，但在**可核对来�
 
 **路由**：`apps/lawmind-desktop/server/lawmind-server-route-audit-export.ts`。
 
-| 查询参数     | 说明                                                                           |
-| ------------ | ------------------------------------------------------------------------------ |
-| `matterId`   | 可选；非法 ID → **400** `invalid matter id`                                    |
-| `taskId`     | 可选；过滤单任务相关事件                                                       |
-| `since`      | 可选；时间下界（传入 `buildAuditExportMarkdown` / compliance 变体）            |
-| `until`      | 可选；时间上界                                                                 |
-| `compliance` | `1` 或 `true`（大小写不敏感）→ 使用 `buildComplianceAuditMarkdown`             |
+| 查询参数     | 说明                                                                                  |
+| ------------ | ------------------------------------------------------------------------------------- |
+| `matterId`   | 可选；非法 ID → **400** `invalid matter id`                                           |
+| `taskId`     | 可选；过滤单任务相关事件                                                              |
+| `since`      | 可选；时间下界（传入 `buildAuditExportMarkdown` / compliance 变体）                   |
+| `until`      | 可选；时间上界                                                                        |
+| `compliance` | `1` 或 `true`（大小写不敏感）→ 使用 `buildComplianceAuditMarkdown`                    |
 | `integrity`  | `1` 或 `true` → JSON 完整性链摘要（`auditIntegrityExport`，Solo/Firm/Private 默认开） |
-| `replay`     | `1` 或 `true` → **JSON** 机器可读时间线（Agent Replay 风格；与 Markdown 互斥） |
+| `replay`     | `1` 或 `true` → **JSON** 机器可读时间线（Agent Replay 风格；与 Markdown 互斥）        |
 
 **响应**：
 

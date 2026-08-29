@@ -14,14 +14,17 @@ export function humanizeAcceptanceLabel(key: string, fallback: string): string {
     "section.termination": "还缺：终止与解除章节",
     "section.confidentiality": "还缺：保密条款章节",
     "section.force_majeure": "还缺：不可抗力章节",
-    "placeholder.todo": "文中仍有【待补充】类占位符",
-    "placeholder.bracket": "文中仍有方括号占位符",
+    "placeholder.todo": "文中仍有未填项（【…】）",
+    "placeholder.bracket": "文中仍有未填项（【…】）",
     "deliverable.sections": "必备章节未齐",
     "deliverable.placeholders": "占位符未清理完毕",
-    "placeholders.resolved": "文中仍有【待补充】占位符",
+    "placeholders.resolved": "文中仍有未填项（【…】）",
+    "spec.not_found": "未登记该类文书的验收规范",
     "criteria.coverage": "验收标准结构性覆盖",
     "clarifications.closed": "仍有未关闭的追问",
     "draft.body.placeholder_density_heuristic": "正文待填密度偏高（建议项）",
+    "draft.scaffold_density": "仍为骨架稿，须补全后再交付",
+    "contract.review.clause_anchor": "主要风险须锚定条款",
   };
   if (map[k]) {
     return map[k];
@@ -41,7 +44,7 @@ export function buildAcceptanceChatPrompt(report: AcceptanceReport): string {
   const lines = failed.slice(0, 5).map((c) => humanizeAcceptanceLabel(c.key, c.label));
   const head =
     lines.length > 0
-      ? `请根据文书台验收清单补齐以下内容：\n${lines.map((l) => `- ${l}`).join("\n")}`
-      : "请根据文书台验收清单补齐草稿中的缺失项与占位符。";
+      ? `请根据改稿页验收清单补齐以下内容：\n${lines.map((l) => `- ${l}`).join("\n")}`
+      : "请根据改稿页验收清单补齐草稿中的缺失项与占位符。";
   return `${head}\n\n（关联草稿已在对话上下文中，请直接修改正文。）`;
 }

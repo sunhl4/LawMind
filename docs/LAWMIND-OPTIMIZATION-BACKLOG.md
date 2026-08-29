@@ -8,11 +8,21 @@
 
 ## 0. 给后续 Agent 的读法
 
-1. 先读 **§1 产品远景**（用户口述的北极星，高于竞品模仿）。
+1. 先读 **§0.1 三条铁律**与 **§1 产品远景**（用户口述的北极星，高于竞品模仿）。
 2. 再读 **§2–§3** 了解行业方向与现状差距（用于论证，不要跑偏去做「又一个法律 ChatGPT」）。
-3. 落地时按 **§4 优先级** 拆工程任务；每项应对齐 §1 的某一条能力，而不是堆功能。
+3. 落地时按 **§4 优先级** 拆工程任务；每项须同时不违背三条铁律，并对齐 §1 的某一条能力，而不是堆功能。
 4. 实现须保持 LawMind 既有默认值：本地优先、澄清→执行→交付→审核→审计、交付物可验收。
 5. **不要**在未获用户明确指示时开始写代码；本文是 backlog，不是当前 sprint。
+
+### 0.1 律师产品三条铁律（过滤一切 backlog）
+
+| #   | 铁律                 | 一句话                           |
+| --- | -------------------- | -------------------------------- |
+| 1   | **上手简单**         | Solo 默认路径短、词律师能懂      |
+| 2   | **交付结果质量高**   | 可验收、可核对、敢外发前仍可控   |
+| 3   | **交付结果稳定性高** | 同交办可预期；失败可解释、可续跑 |
+
+当前改动清单：[LAWMIND-SIMPLE-RELIABLE-PLAN.md](LAWMIND-SIMPLE-RELIABLE-PLAN.md) §0.1。愿景正文：[LAWMIND-VISION.md](LAWMIND-VISION.md#律师产品三条铁律)。
 
 ---
 
@@ -70,6 +80,30 @@
 2. 多个 agent 分工检索、出 issue tree、互审、合并；律师在批准队列里只处理需拍板项。
 3. 律师改了两处语气与风险表述 → 系统写入该律师偏好与合同 agent 的学习记忆。
 4. 半年后，同一类任务首过通过率明显上升；材料与案件整理自动进个人知识库，可被后续事项检索。
+
+### 1.6 律师版 Cursor / Claude Code / Codex（实现口径 · 2026-08-19）
+
+对齐编码智能体的 **harness**（工具循环、Skill、检查点），但**不要把正式交付完全交给模型现场发挥**——那会质量不稳。律师高频活要收成 LawMind **产品化能力**：
+
+```text
+律师附上材料（拖入 / + / 钉源）
+   → 在「办件」列表选流程（合同审查 / 函件 / 检索 / 诉讼 / 写材料 / 邮件合同）
+   → 指令写入【办件】能力锁
+   → 模型在该能力内执行（Skill + 固定流水线）
+   → 验收门禁 + 「在办」签批
+```
+
+律师**不必记住激活词**。没附材料时，合同审查 / 检索仍可打开选文件或填主题的卡片。
+
+| 层         | 做什么                                                  | 不做什么                          |
+| ---------- | ------------------------------------------------------- | --------------------------------- |
+| Harness    | 像 Cursor / Claude Code：读材料、用工具、Soft Ask、续跑 | 不搬 IDE 仪式、权限四档、程序员词 |
+| 产品化能力 | 高频 Skill 写成 LawMind 功能（规格、流水线、Craft）     | 不靠模型每次从零发明审查/函件结构 |
+| 末端门禁   | 空交付、未批准、危险工具、引用锚                        | 不用字数/关键词冒充质量           |
+
+- **上手简单** = 先附材料，再在「办件」点流程；不必打激活词，也不靠关键词猜任务。
+- **质量与稳定** = 能力内的 Skill / 流水线 / 验收，不是「全部交给模型」也不是入口硬控。
+- 能力目录：`src/lawmind/skills/lawyer-capabilities.ts`。
 
 ---
 
@@ -291,17 +325,17 @@
 
 ## 附录 A. 已落地对照
 
-| 项                           | 落地日期   | PR / 说明                                                                                                                                              |
-| ---------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Skills S0–S6 MVP 闸门切片    | 2026-07-20 | 见 `LAWMIND-AGENT-SKILLS-500PW-PLAN.md` §9.1；遗留：**字面 500 人周精修**（PDF 版式、LLM 真并行、全量 a11y、Storybook、Firm Ops 全密度、技能远程市场） |
-| P0-3 团队协作可视 / 指挥台   | 2026-07-12 | Header+MainBody+CSS+spawn；见 ENGINEERING-REVIEW                                                                                                       |
-| P0-4 批准队列                | 2026-07-12 | Action Hub 队列 Tab 嵌入 LawmindApprovalQueue                                                                                                          |
-| P0-1 无源拒答（工作区）      | 2026-07-12 | search_statute/case_law `refusalRequired`；**2026-07-27** OSS 默认 open-law sample；闭源法宝/Lexis 仍待手动/商业接入                                   |
-| P0-2 未锚定引用              | 2026-07-12 | citation-integrity unanchoredSections + banner                                                                                                         |
-| P1-1 进化飞轮                | 2026-07-12 | 双队列同步 + agent-specialization 指标                                                                                                                 |
-| P1-2 特化轨迹                | 2026-07-12 | `learning/agent-specialization.ts`                                                                                                                     |
-| P0-5 Workflow Library        | 既有       | LawmindWorkflowLibrary 已存在；指挥台可跳转                                                                                                            |
-| 权威法规库适配               | 部分完成   | **OSS**：默认 `provider=open`（内置 sample + 可选 CORPUS/NPC）。**闭源**：法宝/Lexis 仍为手动占位。**Track B**（不阻塞工程 9.5）：见 [`LAWMIND-NEXT-EXECUTION-PLAN.md`](LAWMIND-NEXT-EXECUTION-PLAN.md)；矩阵见 [`LAWMIND-EXTERNAL-INTEGRATIONS.md`](LAWMIND-EXTERNAL-INTEGRATIONS.md) |
-| 易上手+交付可靠包（T0 切片） | 2026-07-23 | 先计划默认 / 首跑捷径；必核落盘+导出闸；`deliverable-readiness` 一览；见 CHANGELOG Unreleased                                                          |
-| 易上手+交付可靠 · 第三波     | 2026-07-23 | 在办通过后导出条；Plan 交接会话持久化 + Compose 填入条；见 `LAWMIND-SIMPLE-RELIABLE-PLAN.md` §4                                                        |
-| 易上手+交付可靠 · 第四波     | 2026-07-23 | Plan→`session.json` API；导出后「用 Word 打开」；见 `LAWMIND-SIMPLE-RELIABLE-PLAN.md` §6                                                               |
+| 项                           | 落地日期   | PR / 说明                                                                                                                                                                                                                                                                  |
+| ---------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Skills S0–S6 MVP 闸门切片    | 2026-07-20 | 闸门 MVP 已齐；字面 500 人周精修（PDF 版式、LLM 真并行、全量 a11y、Storybook、Firm Ops 全密度、技能远程市场）不作为现行排期                                                                                                                                                |
+| P0-3 团队协作可视 / 指挥台   | 2026-07-12 | Header+MainBody+CSS+spawn；见 ENGINEERING-REVIEW                                                                                                                                                                                                                           |
+| P0-4 批准队列                | 2026-07-12 | Action Hub 队列 Tab 嵌入 LawmindApprovalQueue                                                                                                                                                                                                                              |
+| P0-1 无源拒答（工作区）      | 2026-07-12 | search_statute/case_law `refusalRequired`；**2026-07-27** OSS 默认 open-law sample；闭源法宝/Lexis 仍待手动/商业接入                                                                                                                                                       |
+| P0-2 未锚定引用              | 2026-07-12 | citation-integrity unanchoredSections + banner                                                                                                                                                                                                                             |
+| P1-1 进化飞轮                | 2026-07-12 | 双队列同步 + agent-specialization 指标                                                                                                                                                                                                                                     |
+| P1-2 特化轨迹                | 2026-07-12 | `learning/agent-specialization.ts`                                                                                                                                                                                                                                         |
+| P0-5 Workflow Library        | 既有       | LawmindWorkflowLibrary 已存在；指挥台可跳转                                                                                                                                                                                                                                |
+| 权威法规库适配               | 部分完成   | **OSS**：默认 `provider=open`（内置 sample + 可选 CORPUS/NPC）。**闭源**：法宝/Lexis 仍为手动占位。**Track B**（不阻塞工程水位）：见 [`LAWMIND-FUTURE-ISSUES.md`](LAWMIND-FUTURE-ISSUES.md)；矩阵见 [`LAWMIND-EXTERNAL-INTEGRATIONS.md`](LAWMIND-EXTERNAL-INTEGRATIONS.md) |
+| 易上手+交付可靠包（T0 切片） | 2026-07-23 | 先计划默认 / 首跑捷径；必核落盘+导出闸；`deliverable-readiness` 一览；见 CHANGELOG Unreleased                                                                                                                                                                              |
+| 易上手+交付可靠 · 第三波     | 2026-07-23 | 在办通过后导出条；Plan 交接会话持久化 + Compose 填入条；见 `LAWMIND-SIMPLE-RELIABLE-PLAN.md` §4                                                                                                                                                                            |
+| 易上手+交付可靠 · 第四波     | 2026-07-23 | Plan→`session.json` API；导出后「用 Word 打开」；见 `LAWMIND-SIMPLE-RELIABLE-PLAN.md` §6                                                                                                                                                                                   |

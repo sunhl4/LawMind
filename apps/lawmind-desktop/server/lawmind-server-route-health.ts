@@ -17,6 +17,7 @@ import { buildWorkspaceSessionHealth } from "../../../src/lawmind/insights/sessi
 import {
   buildAuthorityCorpusHealthSummary,
   buildDoctorStats,
+  buildJudgmentHardControlsReport,
   buildMemoryTruthSourceFlags,
   buildMatterConsistencySummary,
   buildMultitaskObservabilitySummary,
@@ -33,11 +34,20 @@ import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import { isLoopbackApiAuthSkipped } from "./lawmind-local-api-auth.js";
 import { getRateLimitStats } from "./lawmind-local-rate-limit.js";
 import { buildAgentConfig, isDesktopModelConfigured, sendJson } from "./lawmind-server-helpers.js";
-import { buildModelCatalog, resolveDraftReasoningLlmConfig, readDraftWithModelStoreFlag } from "../../../src/lawmind/models/index.js";
-import { LAWMIND_AGENT_BEHAVIOR_EPOCH } from "../../../src/lawmind/agent/system-prompt.js";
+import {
+  buildModelCatalog,
+  effectiveRouterMode,
+  resolveDraftReasoningLlmConfig,
+  readDraftWithModelStoreFlag,
+} from "../../../src/lawmind/models/index.js";
+import {
+  LAWMIND_AGENT_BEHAVIOR_EPOCH,
+  listSystemPromptSectionCatalog,
+} from "../../../src/lawmind/agent/system-prompt.js";
 import { summarizeModelUsage } from "../../../src/lawmind/models/model-usage.js";
 import { buildIntegrationsHealthSummary } from "../../../src/lawmind/integrations/index.js";
 import { getSearchIndexStatus } from "../../../src/lawmind/indexing/index.js";
+import { computeSearchIndexFreshness } from "../../../src/lawmind/indexing/fts-search.js";
 import {
   buildAuthorityCorpusSummary,
   isAuthorityCorpusReady,
@@ -55,6 +65,7 @@ import {
 import { getGraphOAuthStatus } from "../../../src/lawmind/integrations/graph-oauth-placeholder.js";
 import { getEsignIntegrationStatus } from "../../../src/lawmind/integrations/esign-placeholder.js";
 import { getEmbeddingIndexConfig } from "../../../src/lawmind/indexing/embeddings/index.js";
+import { getDaemonStatus } from "../../../src/lawmind/platform/lawmind-daemon.js";
 import { sendJsonError } from "./lawmind-api-error.js";
 
 export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindRouteContext): Promise<boolean> {
@@ -188,7 +199,7 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
   const productMetrics = summarizeProductMetrics(workspaceDir);
   const privateDeployChecklist = runPrivateDeployChecklist(workspaceDir);
   const mandatoryRules = resolveAgentMandatoryRulesForPrompt(workspaceDir, policyForEdition);
-  const lawmindRouterMode = (process.env.LAWMIND_ROUTER_MODE ?? "").trim() || "keyword";
+  const lawmindRouterMode = effectiveRouterMode(lawMindRoot);
   const reasoningModeRaw = (process.env.LAWMIND_REASONING_MODE ?? "").trim().toLowerCase();
   const draftWithModelEnabled = readDraftWithModelStoreFlag(lawMindRoot);
   const draftWithModelActive = resolveDraftReasoningLlmConfig(lawMindRoot) !== null;
@@ -221,8 +232,10 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
       buildChannel,
       platformAuthorityProxyEnabled: isPlatformAuthorityProxyEnabled(),
       lawmindAgentBehaviorEpoch: LAWMIND_AGENT_BEHAVIOR_EPOCH,
+      promptSections: listSystemPromptSectionCatalog(),
       lawmindClarificationProtocol: "v1",
       lawmindAgentMaxToolCalls,
+      lawmindDaemon: getDaemonStatus(workspaceDir),
       capabilityEnvelope,
       agentMandatoryRulesActive: mandatoryRules.active,
       agentMandatoryRulesTruncated: mandatoryRules.truncated,
@@ -268,6 +281,7 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
         integrations: buildIntegrationsHealthSummary(workspaceDir),
         searchIndex: (() => {
           const s = getSearchIndexStatus(workspaceDir);
+          const freshness = computeSearchIndexFreshness(s);
           return {
             ready: s.ready,
             schemaVersion: s.schemaVersion,
@@ -277,6 +291,8 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
             knowledgeRows: s.knowledgeRows,
             rowCount: (s.auditRows ?? 0) + (s.sessionRows ?? 0) + (s.knowledgeRows ?? 0),
             truncated: s.truncated,
+            stale: freshness.stale,
+            staleReason: freshness.staleReason,
           };
         })(),
         p2: buildP2DoctorReport(workspaceDir),
@@ -322,6 +338,7 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
           total: privateDeployChecklist.items.length,
           items: privateDeployChecklist.items,
         },
+        judgmentHardControls: buildJudgmentHardControlsReport(),
       },
       envHint: {
         userDataEnvPath: userEnvPath,

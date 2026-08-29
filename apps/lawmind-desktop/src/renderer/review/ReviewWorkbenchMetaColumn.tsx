@@ -18,11 +18,19 @@ import { LawmindAcceptanceGate } from "../LawmindAcceptanceGate";
 import { LawmindCitationBanner } from "../LawmindCitationBanner";
 import { LawmindVerificationChecklist } from "../LawmindVerificationChecklist";
 import { LawmindReviewCampaignPanel } from "../LawmindReviewCampaignPanel";
+import { LawmindClauseGraph } from "../LawmindClauseGraph";
+import { scaffoldReviewBannerText } from "../lawmind-scaffold-copy";
+import type { ClauseGraph } from "../../../../../src/lawmind/reasoning/clause-graph.ts";
+import type { DraftScaffoldView } from "../../../../../src/lawmind/deliverables/index.ts";
 import type { VerificationChecklistView } from "../../../../../src/lawmind/deliverables/verification-checklist.ts";
 import type { ReviewCampaign } from "../lawmind-review-campaign-api";
 import { LawmindReasoningCollapsible } from "../LawmindReasoningCollapsible";
 import { LawmindReviewDeliveryBar } from "../LawmindReviewDeliveryBar";
+import { draftTextFromUnknown, runLegalLint } from "../../../../../src/lawmind/lint/run-lint.ts";
+import { previewSelfRevise } from "../../../../../src/lawmind/lint/self-revise.ts";
 import { LawmindReviewSelfCheckSummary } from "../LawmindReviewSelfCheckSummary";
+import { LawmindDecisionHeader } from "../LawmindDecisionHeader";
+import { resolveDecisionHeader } from "../../../../../src/lawmind/delivery/decision-header.ts";
 import { LawmindMemorySourcesPanel } from "../LawmindMemorySourcesPanel";
 import { LawmindRedlinePanel } from "../LawmindRedlinePanel";
 import { internalIdsTitle, pathBasename } from "../display-ids";
@@ -52,6 +60,8 @@ export type ReviewWorkbenchMetaColumnProps = {
   /** Skills E2 */
   campaign?: ReviewCampaign | null;
   onCampaignChange?: (c: ReviewCampaign | null) => void;
+  clauses?: ClauseGraph | null;
+  scaffold?: DraftScaffoldView | null;
   gateDecisions: GateDecision[];
   executionState: TaskExecutionState | null;
   memorySources: MemorySourceLayer[] | null;
@@ -77,6 +87,8 @@ export type ReviewWorkbenchMetaColumnProps = {
   onReject: () => void;
   onModify: () => void;
   onReopen: () => void;
+  /** Delete draft from 文书台 (any status; confirm in caller). */
+  onDeleteDraft?: () => void;
   onExportWord: (opts?: { strict?: boolean }) => void;
   onExportTrackedWord: () => void;
   onShowArtifact?: (outputPath: string) => void;
@@ -115,6 +127,8 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
     readiness = null,
     campaign = null,
     onCampaignChange,
+    clauses = null,
+    scaffold = null,
     gateDecisions,
     executionState,
     memorySources,
@@ -139,6 +153,7 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
     onReject,
     onModify,
     onReopen,
+    onDeleteDraft,
     onExportWord,
     onExportTrackedWord,
     onShowArtifact,
@@ -158,6 +173,23 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
   } = props;
 
   const reviewPending = (detail.reviewStatus ?? "pending") === "pending";
+  const draftText = draftTextFromUnknown(detail);
+  const lintReport = runLegalLint(draftText);
+  const selfRevisePreview = draftText.trim().length >= 20 ? previewSelfRevise(draftText) : null;
+  const decisionHeader = resolveDecisionHeader({
+    persisted: detail.decisionHeader,
+    title: detail.title,
+    lint: lintReport,
+    selfRevise: selfRevisePreview
+      ? {
+          rounds: selfRevisePreview.rounds,
+          appliedCount: selfRevisePreview.applied.length,
+          residualCount: selfRevisePreview.residual.length,
+          appliedSummaries: selfRevisePreview.applied.map((a) => a.ruleId),
+          residualSummaries: selfRevisePreview.residual.map((r) => r.message),
+        }
+      : null,
+  });
 
   return (
     <div className={paneClassName} style={paneStyle}>
@@ -178,14 +210,16 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
             </span>
           </div>
           <div className="lm-review-doc-head-actions">
-            {onOpenAgentsDesk ? (
+            {onDeleteDraft ? (
               <button
                 type="button"
-                className="lm-btn lm-btn-secondary lm-btn-small"
-                onClick={onOpenAgentsDesk}
-                title="正式通过 / 驳回 / 需修改在「在办」完成"
+                className="lm-btn lm-btn-ghost lm-btn-small"
+                onClick={onDeleteDraft}
+                disabled={actionBusy}
+                title="删除此草稿（仅待审核/需修改/已驳回可删；已签批或已导出的交付稿请先恢复待审核）"
+                data-testid="lm-review-delete-draft"
               >
-                回到在办
+                删除草稿
               </button>
             ) : null}
             {detail.output ? (
@@ -195,6 +229,8 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
             ) : null}
           </div>
         </div>
+
+        <LawmindDecisionHeader header={decisionHeader} />
 
         <div id="lm-review-citation-banner">
           <LawmindCitationBanner
@@ -228,20 +264,70 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
           readiness={readiness}
         />
 
-        <LawmindAcceptanceGate
-          report={acceptance}
-          reasoning={reasoningReport}
-          onGoFillInChat={
-            onGoToChat
-              ? (prompt) =>
-                  onGoToChat({
-                    taskId: selectedTaskId,
-                    matterId: detail.matterId,
-                    prompt,
-                  })
-              : undefined
+        {scaffold?.dense ? (
+          <div className="lm-callout lm-callout-warn" role="status" data-testid="lm-review-scaffold-banner">
+            <p className="lm-callout-title">仍为骨架稿</p>
+            <p className="lm-callout-body">{scaffoldReviewBannerText(scaffold)}</p>
+          </div>
+        ) : null}
+
+        <LawmindClauseGraph graph={clauses} deliverableType={detail.deliverableType} />
+
+        <details
+          className="lm-review-check-pack"
+          data-testid="lm-review-check-pack"
+          open={
+            Boolean(scaffold?.dense) ||
+            Boolean(acceptance && acceptance.deliverableType && !acceptance.ready) ||
+            Boolean(checklistBlocksApprove) ||
+            Boolean(citationIntegrity?.checked && !citationIntegrity.ok)
           }
-        />
+        >
+          <summary className="lm-review-check-pack-summary">
+            <LawmindReviewSelfCheckSummary
+              acceptance={acceptance}
+              citation={citationIntegrity}
+              deliverableType={detail.deliverableType}
+              gateDecisions={gateDecisions}
+              variant="summary"
+              checklistBlocksApprove={checklistBlocksApprove}
+              lintReport={lintReport}
+              selfRevise={selfRevisePreview}
+            />
+          </summary>
+          <LawmindAcceptanceGate
+            report={acceptance}
+            reasoning={reasoningReport}
+            onGoFillInChat={
+              onGoToChat
+                ? (prompt) =>
+                    onGoToChat({
+                      taskId: selectedTaskId,
+                      matterId: detail.matterId,
+                      prompt,
+                    })
+                : undefined
+            }
+          />
+
+          {checklistBlocksApprove ? (
+            <p className="lm-meta lm-review-checklist-desk-hint" data-testid="lm-review-checklist-desk-hint">
+              律师必核未齐，请
+              {onOpenAgentsDesk ? (
+                <button
+                  type="button"
+                  className="lm-review-self-check-link"
+                  onClick={onOpenAgentsDesk}
+                >
+                  回在办勾必核
+                </button>
+              ) : (
+                "回在办勾必核"
+              )}
+              。本台高级里也可勾。
+            </p>
+          ) : null}
+        </details>
 
         {detail.reviewStatus === "modified" ? (
           <div
@@ -298,28 +384,44 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
           </div>
         ) : null}
 
-        <label className="lm-review-note">
-          <span className="lm-review-note-title">批注</span>
-          <textarea
-            value={note}
-            onChange={(e) => onNoteChange(e.target.value)}
-            placeholder="批注（可选；在下方「完成签批」或回在办批复时一并提交）"
-            rows={3}
-            disabled={actionBusy || !reviewPending}
-            aria-disabled={actionBusy || !reviewPending}
-          />
-        </label>
+        <details className="lm-review-note-pack" open={Boolean(note.trim())}>
+          <summary className="lm-review-note-pack-summary">
+            批注{note.trim() ? " · 已填写" : ""}
+          </summary>
+          <label className="lm-review-note">
+            <span className="lm-sr-only">批注</span>
+            <textarea
+              value={note}
+              onChange={(e) => onNoteChange(e.target.value)}
+              placeholder="批注（可选；回在办批复时一并提交）"
+              rows={3}
+              disabled={actionBusy || !reviewPending}
+              aria-disabled={actionBusy || !reviewPending}
+            />
+          </label>
+        </details>
+
+        <LawmindRedlinePanel
+          apiBase={apiBase}
+          taskId={selectedTaskId}
+          onDraftUpdated={onDraftUpdated}
+          hideIfEmpty
+        />
 
         <details className="lm-review-advanced">
-          <summary className="lm-review-advanced-summary">高级</summary>
+          <summary className="lm-review-advanced-summary">高级 · 本台直接签批</summary>
           <div className="lm-review-advanced-body">
+            {checklistView && checklistChecked && onChecklistToggle ? (
+              <LawmindVerificationChecklist
+                view={checklistView}
+                checked={checklistChecked}
+                onToggle={onChecklistToggle}
+                disableApproveHint={checklistBlocksApprove}
+              />
+            ) : null}
             {reviewPending ? (
               <div className="lm-callout lm-callout-muted" role="region" aria-label="完成签批">
-                <p className="lm-callout-title">完成签批（兜底）</p>
-                <p className="lm-callout-body">
-                  主路径请回「在办」批复。若已在此勾完律师必核、不想跳转，可在此直接通过 / 驳回 /
-                  需修改。
-                </p>
+                <p className="lm-callout-title">本台直接签批</p>
                 <LawmindReviewDeliveryBar
                   reviewStatus={detail.reviewStatus}
                   acceptance={acceptance}
@@ -351,12 +453,6 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
                 onCampaignChange={onCampaignChange}
               />
             ) : null}
-            <LawmindReviewSelfCheckSummary
-              acceptance={acceptance}
-              citation={citationIntegrity}
-              deliverableType={detail.deliverableType}
-              gateDecisions={gateDecisions}
-            />
             <div className="lm-callout lm-callout-muted" role="status" aria-live="polite">
               <p className="lm-callout-title">执行状态看板</p>
               <p className="lm-callout-body">
@@ -366,8 +462,24 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
               {gateDecisions.length > 0 ? (
                 <div className="lm-review-gate-list">
                   {gateDecisions.map((gate, idx) => (
-                    <span key={`${gate.gate}-${idx}`} className={gateDecisionBadgeClass(gate.decision)}>
+                    <span
+                      key={`${gate.gate}-${idx}`}
+                      className={gateDecisionBadgeClass(gate.decision)}
+                      data-gate-category={gate.category ?? undefined}
+                      title={
+                        gate.category === "judgment_soft"
+                          ? "判断类（软）"
+                          : gate.category === "safety_hard"
+                            ? "安全硬门禁"
+                            : undefined
+                      }
+                    >
                       {gateDecisionLabel(gate.gate)}
+                      {gate.category === "judgment_soft"
+                        ? " · 软"
+                        : gate.category === "safety_hard"
+                          ? " · 硬"
+                          : ""}
                       {gate.reason ? `：${gate.reason}` : ""}
                     </span>
                   ))}
@@ -384,10 +496,27 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
                   : "未授权"}
               </p>
               {detail.reviewStatus !== "approved" ? (
-                <p className="lm-meta">生成或渲染不等于批准；未完成律师签批前不得作为定稿对外发送。</p>
+                <p className="lm-meta">未签批不得对外定稿。</p>
               ) : null}
             </div>
-            <LawmindRedlinePanel apiBase={apiBase} taskId={selectedTaskId} onDraftUpdated={onDraftUpdated} />
+            {detail.rewriteAmplitude &&
+            (detail.rewriteAmplitude.gated ||
+              (typeof detail.rewriteAmplitude.ratio === "number" &&
+                detail.rewriteAmplitude.ratio > 0.25)) ? (
+              <p className="lm-meta lm-text-danger" data-testid="lm-rewrite-amplitude-warn">
+                改写幅度偏大
+                {typeof detail.rewriteAmplitude.ratio === "number"
+                  ? `（约 ${(detail.rewriteAmplitude.ratio * 100).toFixed(0)}%）`
+                  : ""}
+                。请尽量做最小修改。
+              </p>
+            ) : null}
+            {detail.contractEdit?.baselineRelativePath ? (
+              <p className="lm-meta" data-testid="lm-contract-baseline-path" title={detail.contractEdit.baselineRelativePath}>
+                原合同基线：{pathBasename(detail.contractEdit.baselineRelativePath)}
+                {detail.contractEdit.mode === "section" ? " · 整节对比" : " · 最小修改"}
+              </p>
+            ) : null}
             {learningQueue.length > 0 && (
               <div className="lm-review-learning-queue">
                 <div className="lm-review-learning-queue-header">
@@ -486,14 +615,6 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
                   </button>
                 ) : null}
               </>
-            ) : null}
-            {checklistView && checklistChecked && onChecklistToggle ? (
-              <LawmindVerificationChecklist
-                view={checklistView}
-                checked={checklistChecked}
-                onToggle={onChecklistToggle}
-                disableApproveHint={checklistBlocksApprove}
-              />
             ) : null}
             <label className="lm-review-profile-toggle">
               <input

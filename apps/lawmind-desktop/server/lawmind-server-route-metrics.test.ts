@@ -56,6 +56,26 @@ describe("lawmind-server-route-metrics", () => {
     await fs.rm(workspaceDir, { recursive: true, force: true });
   });
 
+  it("GET /api/metrics/north-star returns snapshot", async () => {
+    const res = mockRes();
+    const handled = await handleMetricsRoutes({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res,
+      url: new URL("http://127.0.0.1/api/metrics/north-star"),
+      pathname: "/api/metrics/north-star",
+      c: {},
+    });
+    expect(handled).toBe(true);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      ok: true,
+      schemaVersion: 1,
+      firstPassRate: null,
+      lintEscapeRate: null,
+    });
+  });
+
   it("GET /api/metrics/team-growth returns dashboard", async () => {
     const res = mockRes();
     const handled = await handleMetricsRoutes({

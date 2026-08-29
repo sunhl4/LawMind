@@ -267,7 +267,6 @@ export function LawmindChatSessionTabs({
             position: "fixed",
             left: contextMenu.x,
             top: contextMenu.y,
-            zIndex: 99_999,
           }}
           onMouseDown={(e) => e.stopPropagation()}
         >

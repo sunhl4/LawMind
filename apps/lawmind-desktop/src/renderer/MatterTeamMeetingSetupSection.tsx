@@ -222,7 +222,7 @@ export function MatterTeamMeetingSetupSection(props: MatterTeamMeetingSetupSecti
               className="lm-btn lm-btn-secondary lm-btn-sm"
               data-testid="lm-meeting-remember-roster"
               disabled={busy || rosterBusy || phase === "running" || participantIds.length === 0}
-              onClick={() => void onRememberRoster()}
+              onClick={() =>  onRememberRoster()}
             >
               记住本案编制
             </button>
@@ -324,7 +324,7 @@ export function MatterTeamMeetingSetupSection(props: MatterTeamMeetingSetupSecti
         </>
       ) : (
         <p className="lm-matter-meeting-setup-live-hint lm-meta">
-          主看置顶操作与下方记录；议题材料仍可追加。
+          议题材料可追加。
         </p>
       )}
     </section>

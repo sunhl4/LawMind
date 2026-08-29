@@ -12,6 +12,11 @@ describe("reserved-tool-names", () => {
     expect(RESERVED_AGENT_TOOL_NAMES).toContain("write_document");
     expect(RESERVED_AGENT_TOOL_NAMES).toContain("send_email");
     expect(RESERVED_AGENT_TOOL_NAMES).toContain("render_tracked_draft");
+    expect(RESERVED_AGENT_TOOL_NAMES).toContain("prepare_outbound_mail");
+    expect(RESERVED_AGENT_TOOL_NAMES).toContain("draft_document");
+    expect(RESERVED_AGENT_TOOL_NAMES).toContain("write_spreadsheet");
+    expect(RESERVED_AGENT_TOOL_NAMES).toContain("run_analysis");
+    expect(RESERVED_AGENT_TOOL_NAMES).toContain("execute_workflow");
     expect(isReservedAgentToolName("list_matters")).toBe(false);
     expect(() => assertExternalToolNameAllowed("write_document")).toThrow(/RESERVED_TOOL_NAME/);
   });

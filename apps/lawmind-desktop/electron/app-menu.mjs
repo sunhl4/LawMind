@@ -6,8 +6,7 @@ import { fileURLToPath } from "node:url";
 const __electronDir = path.dirname(fileURLToPath(import.meta.url));
 
 /** Public download landing (browser). Override with env `LAWMIND_DOWNLOAD_PAGE_URL`. */
-const DEFAULT_LAWMIND_DOWNLOAD_PAGE_URL =
-  "https://cdn.jsdelivr.net/gh/lawmind/lawmind@main/apps/lawmind-desktop/download/index.html";
+const DEFAULT_LAWMIND_DOWNLOAD_PAGE_URL = "https://docs.lawmind.ai/download/";
 
 export function resolveLawmindDownloadPageUrl() {
   const fromEnv = process.env.LAWMIND_DOWNLOAD_PAGE_URL?.trim();
@@ -146,9 +145,9 @@ export function setupApplicationMenu() {
             { role: "quit" },
           ],
         },
-        { label: "File", submenu: fileSubmenu },
+        { label: "文件", submenu: fileSubmenu },
         {
-          label: "Edit",
+          label: "编辑",
           submenu: [
             { role: "undo" },
             { role: "redo" },
@@ -159,7 +158,7 @@ export function setupApplicationMenu() {
           ],
         },
         {
-          label: "View",
+          label: "显示",
           submenu: [
             { role: "reload" },
             { role: "toggleDevTools" },

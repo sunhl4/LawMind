@@ -6,7 +6,9 @@ import {
   loadAppBootstrapSnapshot,
   loadInitialAppConfig,
   loadSettingsCollaborationState,
+  refreshLocalAppConfig,
 } from "./lawmind-app-bootstrap.js";
+import { getLoopbackApiAuthToken, setLoopbackApiAuthToken } from "./lawmind-api-auth.ts";
 
 describe("lawmind-app-bootstrap", () => {
   const getWindow = () => globalThis.window as Window;
@@ -182,5 +184,31 @@ describe("lawmind-app-bootstrap", () => {
       collaborationHint: "enabled",
       delegationCount: 3,
     });
+  });
+
+  it("refreshLocalAppConfig keeps previous config when getConfig is unusable", async () => {
+    setLoopbackApiAuthToken("keep-me");
+    vi.stubGlobal("window", {} as Window);
+    getWindow().lawmindDesktop = {
+      getConfig: vi.fn().mockResolvedValue({
+        apiBase: "http://127.0.0.1:0",
+        apiAuthToken: "",
+        workspaceDir: "/tmp/workspace",
+        projectDir: null,
+        envFilePath: "",
+        retrievalMode: "single",
+      }),
+    } as unknown as NonNullable<Window["lawmindDesktop"]>;
+    const previous = {
+      apiBase: "http://127.0.0.1:4312",
+      apiAuthToken: "keep-me",
+      workspaceDir: "/tmp/workspace",
+      projectDir: null,
+      envFilePath: "",
+      retrievalMode: "single" as const,
+    };
+    await expect(refreshLocalAppConfig(previous)).resolves.toEqual(previous);
+    expect(getLoopbackApiAuthToken()).toBe("keep-me");
+    setLoopbackApiAuthToken(null);
   });
 });

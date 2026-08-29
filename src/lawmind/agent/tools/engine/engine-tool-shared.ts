@@ -1,3 +1,4 @@
+import { isValidMatterId } from "../../../cases/matter-id.js";
 import { listDrafts } from "../../../drafts/index.js";
 /**
  * Engine tool shared helpers and engine factory.
@@ -13,13 +14,13 @@ import {
   createOpenSourceLegalAdaptersFromEnv,
   createPartnerLegalAdapterFromEnv,
 } from "../../../retrieval/providers.js";
+import { createUrlDossierAdapter } from "../../../retrieval/url-dossier-adapter.js";
 import type { AgentContext, ToolCallResult } from "../../types.js";
 
 export const MAX_INSTRUCTION_LENGTH = 4000;
 export const MAX_TITLE_LENGTH = 200;
 export const MAX_AUDIENCE_LENGTH = 100;
 export const MAX_TEMPLATE_ID_LENGTH = 96;
-const MATTER_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{1,127}$/;
 const TEMPLATE_ID_RE = /^(word|ppt|upload)\/[a-zA-Z0-9][a-zA-Z0-9._-]{1,95}$/;
 
 export function asNonEmptyString(value: unknown, field: string, maxLength: number): string {
@@ -48,12 +49,13 @@ export function asOptionalString(
 }
 
 export function resolveMatterId(raw: unknown, fallback?: string): string | undefined {
-  const candidate = typeof raw === "string" ? raw.trim() : fallback;
+  const candidate = typeof raw === "string" ? raw.trim() : fallback?.trim();
   if (!candidate) {
     return undefined;
   }
-  if (!MATTER_ID_RE.test(candidate)) {
-    throw new Error("matter_id 格式不合法，只允许字母/数字/._-");
+  // Align with desktop / isValidMatterId (Unicode matter folder names, e.g. 临时讨论).
+  if (!isValidMatterId(candidate)) {
+    throw new Error("matter_id 格式不合法（勿含路径分隔符；支持中文案件名）");
   }
   return candidate;
 }
@@ -96,7 +98,11 @@ export function canDraftWithoutResearch(intent: {
   if (!intent.deliverableType) {
     return false;
   }
-  return intent.kind === "draft.word" || intent.kind === "analyze.contract";
+  return (
+    intent.kind === "draft.word" ||
+    intent.kind === "analyze.contract" ||
+    (intent.kind === "draft.ppt" && intent.deliverableType === "ppt.training")
+  );
 }
 
 /**
@@ -104,9 +110,7 @@ export function canDraftWithoutResearch(intent: {
  * 空检索是另一条路径（`canDraftWithoutResearch`）；本闸门只挡「仅命中演示语料」。
  * 保守默认：medium 也拒（N-A3）——避免中风险文书基于演示法条自动成稿。
  */
-export function shouldRefuseDraftOnDemoCorpus(intent: {
-  riskLevel?: string;
-}): boolean {
+export function shouldRefuseDraftOnDemoCorpus(intent: { riskLevel?: string }): boolean {
   return intent.riskLevel === "high" || intent.riskLevel === "medium";
 }
 
@@ -198,11 +202,18 @@ export function resolveGeneralOpenAICompatibleFromEnv(): {
  * - 默认 `LAWMIND_RETRIEVAL_MODE=single`：通用与法律检索共用同一 OpenAI-compatible 端点。
  * - `dual`：通用用 LAWMIND_AGENT_* / QWEN_*，法律用 CHATLAW / LAWGPT / PARTNER 等（见 providers.ts）；未配置法律端点时回退为通用模型做法务检索。
  */
-export function buildAdaptersFromEnv(workspaceDir: string): RetrievalAdapter[] {
+export function buildAdaptersFromEnv(
+  workspaceDir: string,
+  opts?: { allowWebSearch?: boolean },
+): RetrievalAdapter[] {
   const adapters: RetrievalAdapter[] = [
     createWorkspaceAdapter(workspaceDir),
     createAuthorityAdapterFromEnv({ workspaceDir }),
   ];
+  // URL dossier is outbound HTTP — only when the turn explicitly allows web search.
+  if (opts?.allowWebSearch === true) {
+    adapters.push(createUrlDossierAdapter(workspaceDir));
+  }
 
   // C11: LexEdge when LAWMIND_LEXEDGE_ENDPOINT is set (no-op otherwise).
   adapters.push(...createLexEdgeAdapterFromEnv());
@@ -245,12 +256,15 @@ export function buildAdaptersFromEnv(workspaceDir: string): RetrievalAdapter[] {
  */
 export function buildLawMindRetrievalAdaptersFromEnvForTest(
   workspaceDir: string,
+  opts?: { allowWebSearch?: boolean },
 ): RetrievalAdapter[] {
-  return buildAdaptersFromEnv(workspaceDir);
+  return buildAdaptersFromEnv(workspaceDir, opts);
 }
 
 export function getEngine(ctx: AgentContext) {
-  const adapters = buildAdaptersFromEnv(ctx.workspaceDir);
+  const adapters = buildAdaptersFromEnv(ctx.workspaceDir, {
+    allowWebSearch: ctx.allowWebSearch === true,
+  });
   const config: LawMindEngineConfig = {
     workspaceDir: ctx.workspaceDir,
     adapters,

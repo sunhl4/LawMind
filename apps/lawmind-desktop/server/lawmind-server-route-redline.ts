@@ -18,10 +18,32 @@ import {
 import { readDraft, resolveDraftCitationIntegrity } from "../../../src/lawmind/drafts/index.js";
 import { validateDraftAgainstSpec } from "../../../src/lawmind/deliverables/index.js";
 import { deriveReviewGateDecisions } from "../../../src/lawmind/platform/review-gates.js";
+import { captureStanceFromRedline } from "../../../src/lawmind/stance/index.js";
 import { isSafeTaskIdSegment } from "./safe-task-id.js";
 import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
 import { redlineHunkResolvePostSchema } from "./lawmind-api-schemas.js";
 import { sendJson } from "./lawmind-server-helpers.js";
+
+function captureStanceAfterAccept(
+  workspaceDir: string,
+  hunks: Array<{ before: string; after: string; sectionHeading?: string; status: string }>,
+): void {
+  try {
+    for (const hunk of hunks) {
+      captureStanceFromRedline({
+        workspaceDir,
+        hunk: {
+          before: hunk.before,
+          after: hunk.after,
+          heading: hunk.sectionHeading,
+          status: hunk.status,
+        },
+      });
+    }
+  } catch {
+    /* stance capture must never fail the HTTP resolve */
+  }
+}
 
 export async function handleRedlineRoutes({
   ctx,
@@ -50,11 +72,25 @@ export async function handleRedlineRoutes({
       }
       throw err;
     }
+    const pendingForStance =
+      body.decision === "accept"
+        ? new Set(
+            (readRedlineProposal(workspaceDir, taskId)?.hunks ?? [])
+              .filter((h) => h.status === "pending")
+              .map((h) => h.hunkId),
+          )
+        : null;
     const result = resolveAllRedlineHunks(workspaceDir, taskId, body.decision);
     if (!result.ok) {
       const status = result.error === "redline_not_found" ? 404 : 409;
       sendJson(res, status, result, c);
       return true;
+    }
+    if (pendingForStance) {
+      captureStanceAfterAccept(
+        workspaceDir,
+        result.proposal.hunks.filter((h) => pendingForStance.has(h.hunkId)),
+      );
     }
     const draft = result.draft ?? readDraft(workspaceDir, taskId);
     const acceptance = draft ? validateDraftAgainstSpec(draft) : undefined;
@@ -100,6 +136,12 @@ export async function handleRedlineRoutes({
       const status = result.error === "hunk_not_found" || result.error === "redline_not_found" ? 404 : 409;
       sendJson(res, status, result, c);
       return true;
+    }
+    if (decision === "accept") {
+      const hunk = result.proposal.hunks.find((h) => h.hunkId === hunkId);
+      if (hunk) {
+        captureStanceAfterAccept(workspaceDir, [hunk]);
+      }
     }
     const draft = result.draft ?? readDraft(workspaceDir, taskId);
     const acceptance = draft ? validateDraftAgainstSpec(draft) : undefined;

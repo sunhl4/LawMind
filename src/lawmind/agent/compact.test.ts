@@ -111,6 +111,16 @@ describe("autoCompactSessionHistory", () => {
     expect(out.droppedDigest).toBeTruthy();
     expect(out.messages.some((m) => m.content?.includes("压缩前对话蒸馏"))).toBe(true);
     expect(fs.existsSync(path.join(ws, "cases", matterId, "compact-digest.md"))).toBe(true);
+    const lastRealUser = [...out.messages]
+      .toReversed()
+      .find((m) => m.role === "user" && m.content.includes("律师问题"));
+    const digestIdx = out.messages.findIndex((m) => m.content?.includes("压缩前对话蒸馏"));
+    const lastUserIdx = out.messages.findIndex((m) => m === lastRealUser);
+    expect(out.messages[0]?.role).toBe("system");
+    expect(out.messages[0]?.content).toBe("sys");
+    expect(out.messages.filter((m) => m.role === "system")).toHaveLength(1);
+    expect(digestIdx).toBeGreaterThan(0);
+    expect(digestIdx).toBeLessThan(lastUserIdx);
   });
 
   it("buildPostCompactSystemNote includes draft and queue attachments", () => {

@@ -23,6 +23,8 @@
 
 目的：统一 runTurn / engine workflow / desktop 展示的执行阶段。
 
+别名：`ExecutionState`（与 `TaskExecutionState` 同义）。
+
 - `phase`: `clarify | plan | research | draft | approval | render | complete | error`
 - `status`: `running | awaiting_approval | awaiting_clarification | completed | failed`
 - `linkedTaskId` / `existingTaskId`: 续跑与工作台关联语义
@@ -32,9 +34,10 @@
 
 目的：统一门禁判断输出，避免审批/澄清/验收在不同模块重复解释。
 
-- `gate`: `clarification_gate | dangerous_tool_gate | approval_gate | acceptance_gate | reasoning_gate`
+- `GateDecisionKind` / `gate`: `clarification_gate | intake_gate | dangerous_tool_gate | approval_gate | acceptance_gate | reasoning_gate | redline_hunks_gate`
 - `decision`: `allow | block | awaiting_confirmation`
 - `reason`: 可选，供 UI 与审计展示
+- `GateCategory` / `category`（可选）: `safety_hard | judgment_soft` — 安全/空交付/未批准/空修订为 `safety_hard`；改稿幅度教练等为 `judgment_soft`
 
 ## 4. DeliveryOutcome
 
@@ -73,10 +76,11 @@
 
 `doctor` 对象在桌面健康检查中扩展以下字段，供 Settings → Doctor 与 readiness strip 消费：
 
-| 字段                | 含义                                                                      |
-| ------------------- | ------------------------------------------------------------------------- |
-| `matterConsistency` | 案件投影与 `cases/` 目录一致性摘要（`ok`、`issueCount`、可选 `issues[]`） |
-| `rateLimit`         | 本地 API 速率限制统计；未启用时为 `null`                                  |
-| `skipApiAuthWarn`   | 开发/打包环境是否跳过 loopback API 鉴权（`true` 时在 Doctor 显示 WARN）   |
+| 字段                   | 含义                                                                                                        |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `matterConsistency`    | 案件投影与 `cases/` 目录一致性摘要（`ok`、`issueCount`、可选 `issues[]`）                                   |
+| `rateLimit`            | 本地 API 速率限制统计；未启用时为 `null`                                                                    |
+| `skipApiAuthWarn`      | 开发/打包环境是否跳过 loopback API 鉴权（`true` 时在 Doctor 显示 WARN）                                     |
+| `judgmentHardControls` | 判断类硬控清单：`intakeSoftAsk` / `updateDraftAmplitudeSoft` / `emptyRedlineHard` / `sendEmailApprovalHard` |
 
 实现：`apps/lawmind-desktop/server/lawmind-health-payload.ts`、`lawmind-server-route-health.ts`。

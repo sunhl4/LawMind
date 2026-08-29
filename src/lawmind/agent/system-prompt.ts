@@ -14,7 +14,7 @@ import { wrapWorldStateSection } from "./world-state.js";
  * Bumped when LawMind core agent *behavior* (system prompt, clarification rules) changes materially.
  * Exposed on GET /api/health as `lawmindAgentBehaviorEpoch` for support and regression notes.
  */
-export const LAWMIND_AGENT_BEHAVIOR_EPOCH = "2026-08-desk-lock-v1";
+export const LAWMIND_AGENT_BEHAVIOR_EPOCH = "2026-08-mail-send-format-v1";
 
 /** Stable split between cacheable prefix and per-session / per-turn suffix. */
 export const LAWMIND_PROMPT_DYNAMIC_BOUNDARY = "---LAWMIND_PROMPT_DYNAMIC_BOUNDARY---";
@@ -126,6 +126,13 @@ export const SYSTEM_PROMPT_SECTION_CATALOG: Array<{
     title: "当前律师",
     always: false,
     headingMatch: "当前律师",
+    cache: "session",
+  },
+  {
+    id: "mail_send_format",
+    title: "外发邮件落款",
+    always: false,
+    headingMatch: "外发邮件落款",
     cache: "session",
   },
   {
@@ -334,6 +341,8 @@ export type SystemPromptContext = {
    * 用于在全文 profile 之外显式要求「按习惯写」。
    */
   appliedPreferencesHint?: string;
+  /** 本案发信账号的落款 / 结束语（写入待发信时也会再附加一次）。 */
+  mailSendFormatHint?: string;
 };
 
 function formatToolFull(tool: ToolDefinition): string {
@@ -629,6 +638,11 @@ ${ctx.lawyerName ? `**${ctx.lawyerName}**` : ""}
 ${ctx.lawyerProfile ? `\n${ctx.lawyerProfile}` : ""}`);
   }
 
+  const mailSendFormatHint = ctx.mailSendFormatHint?.trim();
+  if (mailSendFormatHint) {
+    sessionSections.push(mailSendFormatHint);
+  }
+
   const prefsHint = ctx.appliedPreferencesHint?.trim();
   if (prefsHint) {
     const footerLine =
@@ -728,6 +742,7 @@ ${ctx.todayLog}`);
 - 最后用 \`render_document\` 渲染交付物
 - **仅当**律师已明示与工作区门禁一致的情形：例如「本条对话明确要求立刻导出」「审核台已对应该草稿显示通过」，或草稿未过审但律师本条对话明确同意且你按需传 \`approve=true\`（须符合策略）——否则**先引导律师走审核**，不要为「省事」而把「复制到 Word」当成正式交付替代品
 - 如果律师明确要求“导出 Word / 输出成文档 / 直接生成最终文书”，在满足上一条门禁前提时可调用 \`render_document\`
+- **已有 Word 改稿**（文件页钉选 .doc/.docx + 修改/改稿）：必须 \`apply_surgical_edits\` → \`render_tracked_draft\`（拷贝原件、源文件同目录、原名_日期_01）。禁止用 \`render_document\` 按模板重建，禁止走邮件外发短路径。
 - **Word 文件由本机 docx 渲染引擎生成**，不经过模型 API；\`render_document\` 或工作流渲染步骤失败时，**禁止**向用户说成「模型 API 异常 / 系统 API 无法生成 Word」——应如实转述工具返回的错误（审核未过、验收门禁、引用未锚定、模板缺失、目录不可写等）
 - **聊天草稿 ≠ Word 导出**：引用/验收门禁只拦截正式 \`render_document\`；对话中仍可继续展示、修订草稿正文，并向律师说明「缺锚仅影响导出」
 - 若当前草稿尚未审批，但律师已在当前对话中明确同意导出，可在 \`render_document\` 中传 \`approve=true\`（同时视为律师接受带占位符交付时可过验收门禁）

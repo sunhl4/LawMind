@@ -15,6 +15,8 @@ LawMind 的卖点不是「功能多」，而是 **「能交件」**。
 
 Deliverable-First Architecture（以下简称 **DFA**）是把这一句产品判断翻译成代码契约的方法。
 
+DFA 主要硬化律师产品三条铁律中的 **交付结果质量高** 与 **交付结果稳定性高**（验收 spec、严格 render、来源锚点）；**上手简单** 由 Solo 短路径 / 首跑承接，见 [SIMPLE-RELIABLE](LAWMIND-SIMPLE-RELIABLE-PLAN.md) 与 [SOLO 5 分钟合同](LAWMIND-SOLO-FIVE-MIN-CONTRACT.md)。
+
 ---
 
 ## 2. 五大商业化主张（按 ROI 排序）
@@ -273,5 +275,4 @@ GET /api/drafts/<taskId>/acceptance-pack?format=json # { ok, markdown }
 
 - [LawMind 2.0 战略](/LAWMIND-2.0-STRATEGY)
 - [LawMind 架构文档](/LAWMIND-ARCHITECTURE)
-- [LawMind 工程记忆](/LAWMIND-PROJECT-MEMORY)
 - [LawMind 用户手册](/LAWMIND-USER-MANUAL)

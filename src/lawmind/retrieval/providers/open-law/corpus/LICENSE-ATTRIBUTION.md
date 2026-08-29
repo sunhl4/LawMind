@@ -20,6 +20,18 @@ Official National Database of Laws and Regulations public search API. Government
 - Software: [cncases/cases](https://github.com/cncases/cases) — MPL-2.0.
 - Judgment texts: publicly published court documents hosted by the operator (often large; not shipped here).
 
+## CourtListener / Free Law Project (`LAWMIND_OPEN_LAW_COURTLISTENER=1`)
+
+Official REST v4 search. Optional token is a rate-limit credential, not a commercial corpus license. Harvard CAP live API is retired; historical CAP opinions are searched via this endpoint.
+
+## EUR-Lex / CELLAR (`LAWMIND_OPEN_LAW_EURLEX=1`)
+
+EU Publications Office public SPARQL. Government / official publication metadata; site rate limits apply.
+
+## Japan e-Gov 法令 API (`LAWMIND_OPEN_LAW_EGOV_JP=1`)
+
+Official Japanese statute keyword API (`laws.e-gov.go.jp`). Government public information.
+
 ## Community dumps (manual convert)
 
 Converters accept FLK-style JSON and article-line text. Popular GitHub/HF packs without a clear LICENSE are **manual-only** — convert yourself after verifying rights; do not commit megabyte dumps into this repo.

@@ -30,6 +30,7 @@ export const KEYCHAIN_ACCOUNTS = {
   wizardApiKey: "wizard.default.apiKey",
   webSearchApiKey: "wizard.webSearch.apiKey",
   customApiKey: (modelId) => `custom.${String(modelId).replace(/^custom:/, "")}.apiKey`,
+  mcpSecret: (serverId) => `mcp.${String(serverId).replace(/[^a-zA-Z0-9_-]/g, "_")}.secret`,
 };
 
 export { keyVault };
@@ -62,6 +63,15 @@ export async function collectSecretsForServerEnv(parsedEnvVars) {
       const value = await keyVault.readSecret(entry.account);
       if (value) {
         const envName = `LAWMIND_CUSTOM_${uuid.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase()}_API_KEY`;
+        out[envName] = value;
+      }
+    }
+    for (const entry of all) {
+      const mcp = /^mcp\.([^.]+)\.secret$/.exec(entry.account);
+      if (!mcp) {continue;}
+      const value = await keyVault.readSecret(entry.account);
+      if (value) {
+        const envName = `LAWMIND_MCP_${mcp[1].replace(/[^a-zA-Z0-9]/g, "_").toUpperCase()}_SECRET`;
         out[envName] = value;
       }
     }
@@ -271,6 +281,26 @@ async function waitForLocalServerReady(port, timeoutMs = 15000) {
 }
 
 async function startLocalServer(repoRoot, wsDir, envPath, retrievalMode, projectPath) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      return await startLocalServerOnce(repoRoot, wsDir, envPath, retrievalMode, projectPath);
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      // pickPort→bind 竞态（listen(0)+close 后端口被抢注）：杀残留子进程、换端口重试。
+      try {
+        serverProcess?.kill();
+      } catch {
+        /* ignore */
+      }
+      serverProcess = null;
+      await new Promise((resolve) => setTimeout(resolve, 150 * attempt));
+    }
+  }
+  throw lastError;
+}
+
+async function startLocalServerOnce(repoRoot, wsDir, envPath, retrievalMode, projectPath) {
   const port = await pickPort();
   apiPort = port;
   apiAuthToken = randomBytes(32).toString("hex");
@@ -492,4 +522,94 @@ export function killLocalServer() {
     serverProcess = null;
   }
   serverStarted = false;
+}
+
+export function isWorkspaceDaemonEnabled(wsDir = workspaceDir) {
+  if (!wsDir) {
+    return false;
+  }
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(wsDir, "lawmind", "daemon.json"), "utf8"));
+    return raw.enabled === true;
+  } catch {
+    return false;
+  }
+}
+
+function isWorkspaceDaemonPidAlive(wsDir) {
+  try {
+    const pid = Number(fs.readFileSync(path.join(wsDir, "lawmind", "daemon.pid"), "utf8").trim());
+    if (!Number.isInteger(pid) || pid <= 0) {
+      return false;
+    }
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Keep in sync with `buildDaemonProcessEnv` in `src/lawmind/platform/lawmind-daemon.ts`. */
+function buildDaemonProcessEnv(source, extra) {
+  const hostKeys = new Set(["PATH", "HOME", "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL", "NODE_PATH"]);
+  const deny = new Set(["LAWMIND_LOCAL_API_TOKEN", "LAWMIND_SKIP_API_AUTH", "LAWMIND_DESKTOP_PORT"]);
+  const out = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (value == null || value === "") {
+      continue;
+    }
+    if (deny.has(key)) {
+      continue;
+    }
+    if (hostKeys.has(key) || key.startsWith("LAWMIND_") || key.startsWith("BRAVE_")) {
+      out[key] = value;
+    }
+  }
+  if (extra) {
+    for (const [key, value] of Object.entries(extra)) {
+      if (value != null && value !== "") {
+        out[key] = value;
+      }
+    }
+  }
+  out.LAWMIND_DAEMON = "1";
+  delete out.LAWMIND_LOCAL_API_TOKEN;
+  delete out.LAWMIND_SKIP_API_AUTH;
+  delete out.LAWMIND_DESKTOP_PORT;
+  return out;
+}
+
+/** After the desktop quits, keep automations ticking on this machine. */
+export function spawnWorkspaceDaemon() {
+  const wsDir = workspaceDir;
+  if (!wsDir || !isWorkspaceDaemonEnabled(wsDir) || isWorkspaceDaemonPidAlive(wsDir)) {
+    return false;
+  }
+  const bundled = getBundledServerScript();
+  const cmd = resolveNodeExecutable();
+  const repoRoot = bundled ? path.dirname(bundled) : resolveRepoRoot();
+  let args;
+  let cwd = repoRoot;
+  if (bundled) {
+    args = [bundled];
+    cwd = path.dirname(bundled);
+  } else {
+    const serverScript = path.join(repoRoot, "apps", "lawmind-desktop", "server", "lawmind-local-server.ts");
+    if (!fs.existsSync(serverScript)) {
+      return false;
+    }
+    args = ["--import", "tsx", serverScript];
+  }
+  const child = spawn(cmd, args, {
+    cwd,
+    detached: true,
+    stdio: "ignore",
+    env: buildDaemonProcessEnv(process.env, {
+      LAWMIND_WORKSPACE_DIR: wsDir,
+      LAWMIND_ENV_FILE: envFilePath || "",
+      LAWMIND_REPO_ROOT: repoRoot,
+    }),
+  });
+  child.unref();
+  return true;
 }

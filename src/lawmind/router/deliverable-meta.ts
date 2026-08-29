@@ -1,3 +1,5 @@
+import { isMailContractFastPathInstruction } from "../platform/mail-contract-short-path-instruction.js";
+import { isWordRevisionInstruction } from "../platform/word-revision-instruction.js";
 import type { ClarificationQuestion, DeliverableType, TaskIntent, TaskKind } from "../types.js";
 
 function hasCurrency(text: string): boolean {
@@ -16,9 +18,47 @@ function hasPartyInfo(text: string): boolean {
   return /(出租人|承租人|甲方|乙方|姓名|名称|身份证|统一社会信用代码)/.test(text);
 }
 
+const EXPLICIT_DELIVERABLE_TYPE_RE =
+  /交付物类型代码\s*[:：]\s*(report\.compliance|report\.learning|ppt\.training|report\.esg|report\.general)/i;
+
+const COMPLIANCE_DOSSIER_RE = /(合规卷宗|监管研究|涉外合规|跨境合规|合规备忘录|合规研究)/;
+
+function parseExplicitDeliverableTypeCode(instruction: string): DeliverableType | undefined {
+  const m = instruction.match(EXPLICIT_DELIVERABLE_TYPE_RE);
+  return m?.[1] ? (m[1].toLowerCase() as DeliverableType) : undefined;
+}
+
+function hasComplianceDossierMarkers(instruction: string): boolean {
+  return (
+    COMPLIANCE_DOSSIER_RE.test(instruction) ||
+    (/(合规报告)/.test(instruction) && /(管辖|URL|官网|监管|效力|矩阵)/.test(instruction))
+  );
+}
+
+/** Preset research types must not be overwritten by keyword heuristics. */
+export function isLockedResearchDeliverableType(
+  type: DeliverableType | undefined,
+): type is "report.compliance" | "report.learning" | "ppt.training" {
+  return type === "report.compliance" || type === "report.learning" || type === "ppt.training";
+}
+
 function detectDeliverableType(kind: TaskKind, instruction: string): DeliverableType | undefined {
+  const explicit = parseExplicitDeliverableTypeCode(instruction);
+  if (explicit) {
+    return explicit;
+  }
+  if (isWordRevisionInstruction(instruction)) {
+    return "contract.general";
+  }
   if (kind === "analyze.contract") {
     return "contract.review";
+  }
+  if (kind === "draft.ppt") {
+    // Keep legacy client-brief path when not clearly a training deck.
+    if (/(培训|课件|CLE|讲座|分享会|带教|诊所式|knowledge share)/i.test(instruction)) {
+      return "ppt.training";
+    }
+    return undefined;
   }
   if (kind !== "draft.word") {
     return undefined;
@@ -26,20 +66,75 @@ function detectDeliverableType(kind: TaskKind, instruction: string): Deliverable
   if (/(房屋|住宅|商铺|门面|写字楼|办公室).{0,8}(租赁合同|租房合同)|租赁合同/.test(instruction)) {
     return "contract.rental";
   }
-  if (/(律师函|催款函|通知函|告知函)/.test(instruction)) {
+  if (/(回函|答复函|回复函)/.test(instruction) && !/(合同|协议)/.test(instruction)) {
+    return "letter.reply";
+  }
+  if (
+    /(催款函|催告函|违约通知|demand letter)/i.test(instruction) ||
+    (/(催款|催告)/.test(instruction) && /(函|律师)/.test(instruction))
+  ) {
     return "letter.demand";
+  }
+  if (/(律师函|通知函|告知函)/.test(instruction)) {
+    return "letter.counsel";
+  }
+  if (/(答辩状)/.test(instruction)) {
+    return "litigation.answer";
+  }
+  if (/(代理词|辩护词)/.test(instruction)) {
+    return "litigation.brief";
+  }
+  if (/(起诉状)/.test(instruction) && !/(大纲|提纲)/.test(instruction)) {
+    return "litigation.complaint";
+  }
+  if (
+    /(诉讼大纲|诉讼提纲|诉请大纲|立案材料大纲|起诉要点)/.test(instruction) ||
+    (/(诉讼|起诉)/.test(instruction) && /(大纲|提纲|要点清单)/.test(instruction))
+  ) {
+    return "litigation.outline";
+  }
+  if (/(法律意见书|法律意见)/.test(instruction) && !/(查一下|检索|法条)/.test(instruction)) {
+    return "memo.opinion";
+  }
+  if (
+    /(内部备忘|工作备忘)/.test(instruction) ||
+    (/(备忘录)/.test(instruction) && !/(合规)/.test(instruction))
+  ) {
+    return "memo.internal";
+  }
+  if (/(时间线|大事记)/.test(instruction)) {
+    return "matter.timeline";
+  }
+  if (/(证据目录|证据清单)/.test(instruction)) {
+    return "matter.exhibit_list";
+  }
+  if (/(会议纪要|会议记录)/.test(instruction)) {
+    return "meeting.minutes";
+  }
+  if (/(保密协议|NDA)/i.test(instruction)) {
+    return "contract.nda";
+  }
+  // Compliance dossier before ESG heuristics — EU/NEV +「合规」must not become report.esg.
+  if (hasComplianceDossierMarkers(instruction)) {
+    return "report.compliance";
   }
   if (/(ESG|可持续发展|环境.?社会.?治理|csr|碳中和|社会责任报告)/i.test(instruction)) {
     return "report.esg";
   }
   if (
     /(欧盟|EU\b|欧洲).{0,48}(新能源汽车|电动车|NEV|纯电动|动力电池|汽车)/i.test(instruction) &&
-    /(ESG|可持续|报告|披露|合规)/i.test(instruction)
+    /(ESG|可持续|披露|碳中和)/i.test(instruction)
   ) {
     return "report.esg";
   }
-  if (/(新能源汽车|电动车|NEV).{0,32}(ESG|可持续|报告)/i.test(instruction)) {
+  if (/(新能源汽车|电动车|NEV).{0,32}(ESG|可持续|碳中和)/i.test(instruction)) {
     return "report.esg";
+  }
+  if (
+    /(调研简报|学习简报|制度速览|比较法调研|内部分享材料)/.test(instruction) ||
+    (/(调研|学习).{0,12}(报告|简报)/.test(instruction) && !/(合同|协议|律师函)/.test(instruction))
+  ) {
+    return "report.learning";
   }
   if (
     /(研究报告|分析报告|年度报告|白皮书|尽职调查报告|合规报告|专项报告)/.test(instruction) &&
@@ -103,6 +198,28 @@ function acceptanceCriteriaFor(type: DeliverableType | undefined): string[] | un
       ];
     case "letter.demand":
       return ["输出完整律师函/通知函正文。", "必须包含事实背景、主张、履行期限、法律后果和落款。"];
+    case "letter.counsel":
+      return ["输出完整律师函正文。", "须有收件人、请求、期限与落款。"];
+    case "letter.reply":
+      return ["输出完整回函正文。", "须回应来函要点并写明我方立场。"];
+    case "litigation.complaint":
+      return ["须有当事人、诉讼请求与事实陈述章节。"];
+    case "litigation.answer":
+      return ["须有答辩要点与事实陈述章节。"];
+    case "litigation.brief":
+      return ["须有争点与代理意见章节。"];
+    case "memo.opinion":
+      return ["争点、结论、引用、保留意见均为必要章节。"];
+    case "memo.internal":
+      return ["须有事项与结论；不得写成可对外签发件。"];
+    case "matter.timeline":
+      return ["输出日期—事实对照表。"];
+    case "matter.exhibit_list":
+      return ["每条证据须有名称与证明目的。"];
+    case "meeting.minutes":
+      return ["须有决议与待办。"];
+    case "contract.nda":
+      return ["须有主体、保密范围与期限。"];
     case "contract.review":
       return [
         "输出正式审查意见，而不是仅罗列检索点。",
@@ -118,6 +235,18 @@ function acceptanceCriteriaFor(type: DeliverableType | undefined): string[] | un
         "输出完整研究报告/专项报告正文。",
         "宜包含背景概述、主体分析与结论建议；信息不足时先给出可编辑框架。",
       ];
+    case "report.compliance":
+      return [
+        "输出可复核合规备忘录，包含问题陈述、简要结论、管辖效力矩阵、风险域发现与来源附录。",
+        "不确定处标 [VERIFY]；新闻不得写成现行法。",
+      ];
+    case "report.learning":
+      return [
+        "输出学习型调研简报，区分效力层级，并给出比较/实务启示。",
+        "信息不足时先给出可编辑框架。",
+      ];
+    case "ppt.training":
+      return ["输出可讲解的培训课件结构（短句可讲）。", "使用案件材料前须脱敏或声明已脱敏。"];
     case "document.general":
       return ["优先输出可直接交付的正式正文。", "若信息不足，先给出可编辑正式草稿并明确待补充项。"];
     default:
@@ -141,6 +270,9 @@ function clarificationQuestionsFor(
     case "contract.rental":
       return buildRentalContractQuestions(instruction);
     case "contract.general": {
+      if (isWordRevisionInstruction(instruction)) {
+        return undefined;
+      }
       const questions: ClarificationQuestion[] = [];
       if (!hasPartyInfo(instruction)) {
         questions.push({
@@ -183,17 +315,43 @@ function clarificationQuestionsFor(
       }
       return questions.length > 0 ? questions : undefined;
     }
-    case "contract.review": {
+    case "litigation.outline": {
       const questions: ClarificationQuestion[] = [];
-      if (instruction.length < 40 || !hasReviewFocus(instruction)) {
+      if (!hasPartyInfo(instruction)) {
+        questions.push({
+          key: "parties",
+          question: "请补充原被告/当事人名称与诉讼地位。",
+          reason: "诉讼大纲须先对齐主体，避免空跑外发。",
+        });
+      }
+      if (!/(诉请|诉讼请求|请求判令|事实|案由)/.test(instruction)) {
+        questions.push({
+          key: "claims",
+          question: "请补充案由、核心事实与主要诉讼请求。",
+          reason: "无诉请骨架无法形成可核验大纲。",
+        });
+      }
+      return questions.length > 0 ? questions : undefined;
+    }
+    case "contract.review": {
+      // Mail-contract short path already has baseline path + mail; infer stance/focus — no pause.
+      if (
+        isMailContractFastPathInstruction(instruction) ||
+        isWordRevisionInstruction(instruction)
+      ) {
+        return undefined;
+      }
+      const questions: ClarificationQuestion[] = [];
+      // Soft Ask only when focus is truly absent — do not use length alone.
+      if (!hasReviewFocus(instruction)) {
         questions.push({
           key: "review_focus",
           question:
-            "请补充审查重点（例如付款、违约、管辖、知识产权、竞业等），以及己方立场（甲方/乙方/中立）。",
-          reason: "有重点才能少轮沟通、直接出可审意见。",
+            "若尚未明确：审查重点（付款、违约、管辖等）与己方立场（甲方/乙方/中立）可补充；有材料时可先推断执行。",
+          reason: "有重点可减少返工；材料已钉选时勿空等。",
         });
       }
-      if (!/(合同|协议|文本|附件|材料)/.test(instruction)) {
+      if (!/(合同|协议|文本|附件|材料|baseline|cases\/)/.test(instruction)) {
         questions.push({
           key: "review_materials",
           question: "请说明要审查的合同/材料在哪里（已引用文件、案件材料，或粘贴关键条款）。",
@@ -203,8 +361,10 @@ function clarificationQuestionsFor(
       return questions.length > 0 ? questions : undefined;
     }
     case "report.esg":
-    case "report.general": {
-      if (/(主题|读者|用途|覆盖|框架|章节)/.test(instruction) && instruction.length >= 40) {
+    case "report.general":
+    case "report.learning": {
+      // Skip Soft Ask only when Required Inputs signals are present (not length alone).
+      if (/(主题|读者|用途)/.test(instruction) && /(覆盖|框架|章节|指标)/.test(instruction)) {
         return undefined;
       }
       return [
@@ -215,8 +375,33 @@ function clarificationQuestionsFor(
         },
       ];
     }
+    case "report.compliance": {
+      if (/(管辖|URL|官网)/.test(instruction) && /(监管|问题|清单)/.test(instruction)) {
+        return undefined;
+      }
+      return [
+        {
+          key: "compliance_scope",
+          question: "请补充监管问题、涉及管辖区，以及是否已有 URL/官网清单。",
+          reason: "合规卷宗需要明确问题边界与来源范围。",
+          inputType: "textarea",
+        },
+      ];
+    }
+    case "ppt.training": {
+      if (/(受众|听众)/.test(instruction) && /(时长|主题)/.test(instruction)) {
+        return undefined;
+      }
+      return [
+        {
+          key: "training_audience",
+          question: "请补充培训主题、受众与预计时长。",
+          reason: "受众与时长决定页数与密度。",
+        },
+      ];
+    }
     case "document.general": {
-      if (instruction.length >= 60) {
+      if (/(用途|读者|对象)/.test(instruction) && /(要点|必须|包含)/.test(instruction)) {
         return undefined;
       }
       return [
@@ -233,11 +418,22 @@ function clarificationQuestionsFor(
 }
 
 export function enrichIntentWithDeliverableMeta(baseIntent: TaskIntent): TaskIntent {
-  const deliverableType = detectDeliverableType(baseIntent.kind, baseIntent.instruction);
+  const detected = detectDeliverableType(baseIntent.kind, baseIntent.instruction);
+  // Workflow/route preset or locked research type wins over keyword re-guess.
+  const deliverableType =
+    baseIntent.deliverableType &&
+    (isLockedResearchDeliverableType(baseIntent.deliverableType) ||
+      baseIntent.deliverableType === "report.esg" ||
+      baseIntent.deliverableType === "report.general")
+      ? baseIntent.deliverableType
+      : detected;
+  const baseQuestions = clarificationQuestionsFor(deliverableType, baseIntent.instruction) ?? [];
+  // Outline HITL is asked after deep-research / draft gate persists an evidence outline —
+  // not at plan time (template-only outlines must not be rubber-stamped).
   return {
     ...baseIntent,
     deliverableType,
     acceptanceCriteria: acceptanceCriteriaFor(deliverableType),
-    clarificationQuestions: clarificationQuestionsFor(deliverableType, baseIntent.instruction),
+    clarificationQuestions: baseQuestions.length > 0 ? baseQuestions : undefined,
   };
 }

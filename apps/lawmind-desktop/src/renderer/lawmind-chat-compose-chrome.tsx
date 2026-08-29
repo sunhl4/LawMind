@@ -5,6 +5,8 @@
 
 import { useMemo, type ReactNode } from "react";
 import { LawmindComposeAttachments } from "./LawmindComposeAttachments";
+import { LawmindSpreadsheetHintBar } from "./LawmindSpreadsheetHintBar";
+import { LawmindWordRevisionBar } from "./LawmindWordRevisionBar";
 import { composeModelHintCalloutClass } from "./lawmind-compose-model-hint";
 import { isPrivilegeTipUiEnabled, scanPrivilegeTip } from "./lawmind-privilege-tip";
 
@@ -18,6 +20,7 @@ export type LawmindChatComposeChromeProps = {
   composeModelQuickTestBusy?: boolean;
   /** Draft text for privilege preflight tip (E10). */
   composeInput?: string;
+  onComposeInputChange?: (text: string) => void;
   queuedMessages: string[];
   cancelQueuedMessage?: (index: number) => void;
   fileChatPills: Array<{ id: string; shortLabel: string; title: string; relPath?: string }>;
@@ -35,6 +38,8 @@ export type LawmindChatComposeChromeProps = {
   planHandoffSummary?: string | null;
   onFillPlanHandoff?: () => void;
   onClearPlanHandoff?: () => void;
+  /** 快审卡打开时收起改稿条，避免两套立场叠在一起。 */
+  hideWordRevisionBar?: boolean;
 };
 
 export function LawmindChatComposeChrome(props: LawmindChatComposeChromeProps): ReactNode {
@@ -47,6 +52,7 @@ export function LawmindChatComposeChrome(props: LawmindChatComposeChromeProps): 
     composeModelHint,
     composeModelQuickTestBusy,
     composeInput,
+    onComposeInputChange,
     queuedMessages,
     cancelQueuedMessage,
     fileChatPills,
@@ -63,6 +69,7 @@ export function LawmindChatComposeChrome(props: LawmindChatComposeChromeProps): 
     planHandoffSummary = null,
     onFillPlanHandoff,
     onClearPlanHandoff,
+    hideWordRevisionBar = false,
   } = props;
 
   const privilegeTip = useMemo(() => {
@@ -128,16 +135,27 @@ export function LawmindChatComposeChrome(props: LawmindChatComposeChromeProps): 
         <div className="lm-callout lm-callout-warn lm-compose-model-warn" role="status">
           <p className="lm-callout-body lm-compose-model-warn-text">
             尚未配置可用的主模型 API，对话暂时无法发送。请先完成向导或添加自定义模型。
+            {onOpenApiWizard && onOpenComposeSettings ? (
+              <>
+                {" "}
+                <button
+                  type="button"
+                  className="lm-link-btn"
+                  onClick={() => onOpenComposeSettings()}
+                >
+                  模型设置
+                </button>
+              </>
+            ) : null}
           </p>
           <div className="lm-compose-model-warn-actions">
             {onOpenApiWizard ? (
               <button type="button" className="lm-btn lm-btn-secondary lm-btn-small" onClick={() => onOpenApiWizard()}>
-                API 配置向导…
+                配置模型
               </button>
-            ) : null}
-            {onOpenComposeSettings ? (
-              <button type="button" className="lm-btn lm-btn-small" onClick={() => onOpenComposeSettings()}>
-                模型设置…
+            ) : onOpenComposeSettings ? (
+              <button type="button" className="lm-btn lm-btn-secondary lm-btn-small" onClick={() => onOpenComposeSettings()}>
+                配置模型
               </button>
             ) : null}
           </div>
@@ -158,7 +176,7 @@ export function LawmindChatComposeChrome(props: LawmindChatComposeChromeProps): 
       ) : null}
       {queuedMessages.length > 0 ? (
         <div className="lm-compose-queue" role="status">
-          <span className="lm-meta">排队中 {queuedMessages.length} 条</span>
+          <span className="lm-meta">排队 {queuedMessages.length} 条</span>
           <ul>
             {queuedMessages.map((q, i) => (
               <li key={`q-${i}`}>
@@ -175,6 +193,14 @@ export function LawmindChatComposeChrome(props: LawmindChatComposeChromeProps): 
           </ul>
         </div>
       ) : null}
+      {onComposeInputChange && !hideWordRevisionBar ? (
+        <LawmindWordRevisionBar
+          composeInput={composeInput ?? ""}
+          filePills={fileChatPills}
+          onComposeInputChange={onComposeInputChange}
+        />
+      ) : null}
+      <LawmindSpreadsheetHintBar filePills={fileChatPills} />
       <LawmindComposeAttachments
         filePills={fileChatPills}
         truthPills={truthPills}

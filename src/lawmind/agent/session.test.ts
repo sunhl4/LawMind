@@ -8,6 +8,7 @@ import {
   DEFAULT_CHAT_SESSION_TITLE,
   deleteSession,
   deriveAutoChatTitleFromFirstUserMessage,
+  deriveModelMessages,
   displayChatSessionTitle,
   extractFirstSentenceFromUserMessageParagraph,
   loadSession,
@@ -30,6 +31,9 @@ describe("session title and history helpers", () => {
     const s = createSession({ workspaceDir: ws, actorId: "a" });
     expect(s.title).toBe(DEFAULT_CHAT_SESSION_TITLE);
     expect(displayChatSessionTitle(s)).toBe("New Chat");
+    const file = path.join(ws, "sessions", `${s.sessionId}.json`);
+    expect(JSON.parse(fs.readFileSync(file, "utf8")).sessionId).toBe(s.sessionId);
+    expect(fs.readdirSync(path.join(ws, "sessions")).some((n) => n.includes(".tmp-"))).toBe(false);
   });
 
   it("displayChatSessionTitle falls back for legacy sessions", () => {
@@ -69,14 +73,24 @@ describe("session title and history helpers", () => {
     expect(s.title).toBe("真正的问题在这里展开");
   });
 
-  it("deleteSession removes json and turns files", () => {
+  it("deleteSession removes json, turns, and transcript files", () => {
     const ws = tmpDir();
     const s = createSession({ workspaceDir: ws, actorId: "a" });
     const turns = path.join(ws, "sessions", `${s.sessionId}.turns.jsonl`);
+    const transcript = path.join(ws, "sessions", `${s.sessionId}.transcript.jsonl`);
     fs.writeFileSync(turns, "{}\n", "utf8");
+    fs.writeFileSync(transcript, "{}\n", "utf8");
+    const steer = path.join(ws, "sessions", `${s.sessionId}.pending-steer.json`);
+    const spills = path.join(ws, "sessions", `${s.sessionId}.spills`);
+    fs.writeFileSync(steer, "{}\n", "utf8");
+    fs.mkdirSync(spills, { recursive: true });
+    fs.writeFileSync(path.join(spills, "c1.json"), "{}\n", "utf8");
     expect(deleteSession(ws, s.sessionId)).toBe(true);
     expect(fs.existsSync(path.join(ws, "sessions", `${s.sessionId}.json`))).toBe(false);
     expect(fs.existsSync(turns)).toBe(false);
+    expect(fs.existsSync(transcript)).toBe(false);
+    expect(fs.existsSync(steer)).toBe(false);
+    expect(fs.existsSync(spills)).toBe(false);
     expect(deleteSession(ws, "00000000-0000-4000-8000-000000000000")).toBe(false);
   });
 
@@ -183,5 +197,31 @@ describe("session title and history helpers", () => {
     expect(rows).toHaveLength(2);
     expect(rows[1]?.text).toBe("");
     expect(rows[1]?.liveTrace?.steps[0]?.label).toBe("写回草稿");
+  });
+
+  it("deriveModelMessages is the session→LLM projection", () => {
+    const ws = tmpDir();
+    const s = createSession({ workspaceDir: ws, actorId: "a" });
+    s.conversationHistory.push(
+      { role: "system", content: "rules", timestamp: "t0" },
+      { role: "user", content: "审合同", timestamp: "t1" },
+      {
+        role: "assistant",
+        content: "",
+        timestamp: "t2",
+        toolCalls: [{ id: "c1", name: "analyze_document", arguments: { path: "a.docx" } }],
+      },
+      {
+        role: "tool",
+        content: "",
+        timestamp: "t3",
+        toolCallResponses: [{ toolCallId: "c1", name: "analyze_document", result: { ok: true } }],
+      },
+    );
+    const derived = deriveModelMessages(s);
+    expect(derived.map((m) => m.role)).toEqual(["system", "user", "assistant", "tool"]);
+    expect(derived[2]?.tool_calls?.[0]?.function.name).toBe("analyze_document");
+    expect(derived[3]?.tool_call_id).toBe("c1");
+    expect(derived[3]?.content).toBe(JSON.stringify({ ok: true }));
   });
 });

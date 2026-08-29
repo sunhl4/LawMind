@@ -3,11 +3,28 @@ import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import { useLawmindAutomationsNavContext } from "./app/LawmindShellContexts";
 import { loadMatterOverviewsPayload } from "./lawmind-app-data";
 import { LawmindMailAccountsSection } from "./LawmindMailAccountsSection";
+import { LawmindOutboundSignoffCallout } from "./LawmindOutboundSignoffCallout";
+import { formatAutomationLastResultForLawyer } from "./lawmind-automation-last-result";
+import { formatRelativeTime } from "./lawmind-app-utils";
+import { isOutboundAutomationContext } from "../../../../src/lawmind/platform/lawyer-outbound-decision.ts";
 
 type Schedule =
   | { kind: "daily"; hour: number; minute: number }
   | { kind: "weekly"; weekday: number; hour: number; minute: number }
-  | { kind: "once"; runAt: string };
+  | { kind: "once"; runAt: string }
+  | { kind: "interval"; everyMinutes: number };
+
+type ScheduleMode = "weekly" | "daily" | "interval";
+
+const INTERVAL_PRESETS = [
+  { minutes: 15, label: "15 分钟" },
+  { minutes: 30, label: "30 分钟" },
+  { minutes: 60, label: "1 小时" },
+  { minutes: 120, label: "2 小时" },
+  { minutes: 360, label: "6 小时" },
+  { minutes: 720, label: "12 小时" },
+  { minutes: 1440, label: "24 小时" },
+] as const;
 
 type Preset = {
   id: string;
@@ -16,6 +33,7 @@ type Preset = {
   needsMail: boolean;
   defaultSchedule: Schedule;
   defaultAllowSend: boolean;
+  templateId?: string;
 };
 
 type Automation = {
@@ -33,18 +51,6 @@ type Automation = {
   notifyEmail?: string;
 };
 
-type InboxItem = {
-  id: string;
-  automationId: string;
-  matterId: string;
-  title: string;
-  summary: string;
-  draftTaskId?: string;
-  jobId?: string;
-  pendingSend?: { to: string; subject: string; body: string };
-  createdAt: string;
-};
-
 type Props = {
   apiBase: string;
   matterId?: string | null;
@@ -54,13 +60,21 @@ type Props = {
   ) => void;
   /** @deprecated Use onOpenNeedsDecisionDesk */
   onOpenActionHub?: () => void;
-  onOpenReview?: (taskId: string, matterId?: string) => void;
-  onOpenCollaboration?: (matterId?: string) => void;
   /** Settings page already shows section title — hide duplicate chrome. */
   hideTitleChrome?: boolean;
 };
 
 function scheduleLabel(s: Schedule): string {
+  if (s.kind === "interval") {
+    const m = s.everyMinutes;
+    if (m % 1440 === 0) {
+      return `每 ${m / 1440} 天`;
+    }
+    if (m % 60 === 0) {
+      return `每 ${m / 60} 小时`;
+    }
+    return `每 ${m} 分钟`;
+  }
   if (s.kind === "daily") {
     return `每天 ${String(s.hour).padStart(2, "0")}:${String(s.minute).padStart(2, "0")}`;
   }
@@ -69,6 +83,21 @@ function scheduleLabel(s: Schedule): string {
     return `每周${days[s.weekday] ?? "?"} ${String(s.hour).padStart(2, "0")}:${String(s.minute).padStart(2, "0")}`;
   }
   return `单次 ${s.runAt.slice(0, 16).replace("T", " ")}`;
+}
+
+function buildCreateSchedule(
+  mode: ScheduleMode,
+  hour: number,
+  minute: number,
+  everyMinutes: number,
+): Schedule {
+  if (mode === "interval") {
+    return { kind: "interval", everyMinutes: Math.max(5, Math.floor(everyMinutes) || 30) };
+  }
+  if (mode === "weekly") {
+    return { kind: "weekly", weekday: 1, hour, minute };
+  }
+  return { kind: "daily", hour, minute };
 }
 
 function looksLikeEmail(raw: string): boolean {
@@ -83,15 +112,12 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
     matterOptions: matterOptionsProp = [],
     onOpenNeedsDecisionDesk,
     onOpenActionHub,
-    onOpenReview,
-    onOpenCollaboration,
     hideTitleChrome = false,
   } = props;
   const openNeedsDecisionDesk = onOpenNeedsDecisionDesk ?? onOpenActionHub;
   const { selectedAutomationId, setSelectedAutomationId } = useLawmindAutomationsNavContext();
   const [presets, setPresets] = useState<Preset[]>([]);
   const [automations, setAutomations] = useState<Automation[]>([]);
-  const [inbox, setInbox] = useState<InboxItem[]>([]);
   const [loadedMatters, setLoadedMatters] = useState<Array<{ id: string; title: string }>>([]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -103,7 +129,8 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
   const [notifyEmail, setNotifyEmail] = useState("");
   const [hour, setHour] = useState(9);
   const [minute, setMinute] = useState(0);
-  const [weekly, setWeekly] = useState(true);
+  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>("weekly");
+  const [everyMinutes, setEveryMinutes] = useState(30);
 
   const matterOptions = useMemo(() => {
     const byId = new Map<string, { id: string; title: string }>();
@@ -121,6 +148,12 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
   const needsNotifyEmail =
     selectedPreset === "client-weekly-update" ||
     (selectedPresetMeta?.defaultAllowSend ?? false);
+  const outboundCreate = isOutboundAutomationContext({
+    presetId: selectedPreset,
+    defaultAllowSend: selectedPresetMeta?.defaultAllowSend,
+    notifyEmail,
+    instruction: customText,
+  });
 
   useEffect(() => {
     if (matterId?.trim()) {
@@ -146,12 +179,11 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
       try {
         const [p, list, overviews] = await Promise.all([
           apiGetJson<{ presets: Preset[] }>(apiBase, "/api/automations/presets"),
-          apiGetJson<{ automations: Automation[]; inbox: InboxItem[] }>(apiBase, "/api/automations"),
+          apiGetJson<{ automations: Automation[] }>(apiBase, "/api/automations"),
           loadMatterOverviewsPayload(apiBase).catch(() => []),
         ]);
         setPresets(p.presets ?? []);
         setAutomations(list.automations ?? []);
-        setInbox(list.inbox ?? []);
         setLoadedMatters(
           overviews.map((o) => ({
             id: o.matterId,
@@ -171,6 +203,21 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // 页面可见时静默轮询（对齐在办 5s）：「立即运行」后刷新任务上次结果；隐藏时停止。
+  useEffect(() => {
+    if (!apiBase) {
+      return;
+    }
+    const tick = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
+      void refresh({ quiet: true });
+    };
+    const t = window.setInterval(tick, 5000);
+    return () => window.clearInterval(t);
+  }, [apiBase, refresh]);
 
   useEffect(() => {
     if (!selectedAutomationId) {
@@ -209,9 +256,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
     setBusy(true);
     setSuccess(null);
     try {
-      const schedule: Schedule = weekly
-        ? { kind: "weekly", weekday: 1, hour, minute }
-        : { kind: "daily", hour, minute };
+      const schedule = buildCreateSchedule(scheduleMode, hour, minute, everyMinutes);
       await apiSendJson(apiBase, "/api/automations", "POST", {
         presetId: selectedPreset,
         matterId: selectedMatter.trim(),
@@ -225,7 +270,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
       const msg = errorMessage(e, "创建失败");
       setError(
         /failed to fetch|networkerror|load failed/i.test(msg)
-          ? "本地服务已断开（常见原因：邮箱连接超时拖垮了后台）。请重启桌面应用后再试。"
+          ? "服务断开，请重启。"
           : msg,
       );
     } finally {
@@ -249,9 +294,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
     setBusy(true);
     setSuccess(null);
     try {
-      const schedule: Schedule = weekly
-        ? { kind: "weekly", weekday: 1, hour, minute }
-        : { kind: "daily", hour, minute };
+      const schedule = buildCreateSchedule(scheduleMode, hour, minute, everyMinutes);
       await apiSendJson(apiBase, "/api/automations/from-instruction", "POST", {
         matterId: selectedMatter.trim(),
         instruction: customText.trim(),
@@ -298,7 +341,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
       });
       await refresh({ quiet: true });
       setError(null);
-      setSuccess("已触发立即运行；结果将出现在下方「待拍板」。");
+      setSuccess("已触发立即运行；外发待发信进「待我拍板」，内部结果看任务上次摘要。");
     } catch (e) {
       setError(errorMessage(e, "触发失败"));
     } finally {
@@ -320,26 +363,6 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
       await refresh({ quiet: true });
     } catch (e) {
       setError(errorMessage(e, "删除失败"));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const inboxAction = async (id: string, action: "acknowledge" | "dismiss" | "approve_send") => {
-    setBusy(true);
-    try {
-      await apiSendJson(
-        apiBase,
-        `/api/automations/inbox/${encodeURIComponent(id)}/action`,
-        "POST",
-        { action },
-      );
-      await refresh({ quiet: true });
-      setSuccess(
-        action === "approve_send" ? "已批准发送。" : action === "dismiss" ? "已忽略。" : "已标记已知悉。",
-      );
-    } catch (e) {
-      setError(errorMessage(e, "处理失败"));
     } finally {
       setBusy(false);
     }
@@ -373,17 +396,12 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
       data-testid="lm-automations-panel"
       aria-busy={loading || busy || undefined}
     >
-      {hideTitleChrome ? (
-        <p className="lm-settings-lead">
-          定时或邮件触发自动办件；日常下达请用对话。结果进「待我拍板」。
-        </p>
-      ) : null}
       <header className="lm-automations-header">
         {hideTitleChrome ? null : (
           <div>
             <h2 className="lm-agent-fleet-title">自动办件</h2>
             <p className="lm-meta">
-              此处为定时或邮件触发的自动办件；日常下达请用「对话」。选模板或写一句话，到点自动跑，结果进「待我拍板」。
+              配置定时与邮箱。外发待发信进「待我拍板」；这里只改任务与邮箱，不处理待办。
             </p>
           </div>
         )}
@@ -424,85 +442,6 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
         </p>
       ) : null}
 
-      <section className="lm-automations-inbox" aria-label="交办任务结果">
-        <div className="lm-automations-section-head">
-          <h3 className="lm-settings-subtitle">待拍板的运行结果</h3>
-          {inbox.length > 0 ? (
-            <span className="lm-automations-count">{inbox.length}</span>
-          ) : null}
-        </div>
-        {inbox.length === 0 ? (
-          <p className="lm-meta">暂无。运行后会显示在这里，并计入侧栏「待我拍板」。</p>
-        ) : (
-          <ul className="lm-automations-ul">
-            {inbox.map((item) => (
-              <li key={item.id} className="lm-automations-row">
-                <div>
-                  <strong>{item.title}</strong>
-                  <pre className="lm-automations-summary">{item.summary}</pre>
-                  {item.pendingSend ? (
-                    <p className="lm-meta">
-                      待发信：{item.pendingSend.to} · {item.pendingSend.subject}
-                    </p>
-                  ) : null}
-                  {item.jobId ? (
-                    <p className="lm-meta">工作流任务：{item.jobId.slice(0, 8)}…</p>
-                  ) : null}
-                </div>
-                <div className="lm-automations-row-actions">
-                  {item.draftTaskId && onOpenReview ? (
-                    <button
-                      type="button"
-                      className="lm-btn lm-btn-sm"
-                      disabled={busy}
-                      onClick={() => onOpenReview(item.draftTaskId!, item.matterId)}
-                    >
-                      打开文书台
-                    </button>
-                  ) : null}
-                  {item.jobId && onOpenCollaboration ? (
-                    <button
-                      type="button"
-                      className="lm-btn lm-btn-secondary lm-btn-sm"
-                      disabled={busy}
-                      onClick={() => onOpenCollaboration(item.matterId)}
-                    >
-                      查看在办
-                    </button>
-                  ) : null}
-                  {item.pendingSend ? (
-                    <button
-                      type="button"
-                      className="lm-btn lm-btn-sm"
-                      disabled={busy}
-                      onClick={() => void inboxAction(item.id, "approve_send")}
-                    >
-                      批准发送
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="lm-btn lm-btn-secondary lm-btn-sm"
-                    disabled={busy}
-                    onClick={() => void inboxAction(item.id, "acknowledge")}
-                  >
-                    已知悉
-                  </button>
-                  <button
-                    type="button"
-                    className="lm-btn lm-btn-ghost lm-btn-sm"
-                    disabled={busy}
-                    onClick={() => void inboxAction(item.id, "dismiss")}
-                  >
-                    忽略
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
       <section className="lm-automations-list" aria-label="我的交办任务">
         <div className="lm-automations-section-head">
           <h3 className="lm-settings-subtitle">我的交办任务</h3>
@@ -518,6 +457,8 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
               const matterTitle =
                 matterOptions.find((m) => m.id === a.matterId)?.title ?? a.matterId;
               const focused = selectedAutomationId === a.id;
+              const lastLine = formatAutomationLastResultForLawyer(a.lastResultSummary);
+              const lastWhen = a.lastRunAt ? formatRelativeTime(a.lastRunAt) : null;
               return (
                 <li
                   key={a.id}
@@ -533,8 +474,12 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
                       {matterTitle ? ` · ${matterTitle}` : ""}
                       {a.notifyEmail ? ` · 收件 ${a.notifyEmail}` : ""}
                     </div>
-                    {a.lastResultSummary ? (
-                      <p className="lm-meta lm-automations-last">{a.lastResultSummary}</p>
+                    {lastLine || lastWhen ? (
+                      <p className="lm-meta lm-automations-last">
+                        {lastWhen && lastLine
+                          ? `${lastWhen} · ${lastLine}`
+                          : (lastLine ?? `上次 ${lastWhen}`)}
+                      </p>
                     ) : null}
                   </div>
                   <div className="lm-automations-row-actions">
@@ -602,12 +547,12 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
               className="lm-input"
               value={selectedMatter}
               onChange={(e) => setSelectedMatter(e.target.value)}
-              placeholder="案件 ID（若列表为空请先新建案件）"
+              placeholder="案件 ID"
             />
           )}
         </label>
         {matterOptions.length === 0 ? (
-          <p className="lm-meta">当前工作区还没有案件。请先在侧栏点「新建」或对话空态「新建案件」，再创建交办任务。</p>
+          <p className="lm-meta">请先新建案件。</p>
         ) : null}
 
         <div className="lm-automations-preset-grid">
@@ -616,7 +561,22 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
               key={p.id}
               type="button"
               className={`lm-automations-preset-card${selectedPreset === p.id ? " is-selected" : ""}`}
-              onClick={() => setSelectedPreset(p.id)}
+              onClick={() => {
+                setSelectedPreset(p.id);
+                // Mail presets default to interval polling.
+                if (p.id === "mail-contract-review" || p.id === "mail-inbox-digest") {
+                  setScheduleMode("interval");
+                  const def =
+                    p.defaultSchedule?.kind === "interval"
+                      ? p.defaultSchedule.everyMinutes
+                      : 30;
+                  setEveryMinutes(def);
+                } else if (p.defaultSchedule?.kind === "daily") {
+                  setScheduleMode("daily");
+                } else {
+                  setScheduleMode("weekly");
+                }
+              }}
             >
               <strong>{p.title}</strong>
               <span className="lm-meta">{p.description}</span>
@@ -624,34 +584,78 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
           ))}
         </div>
 
-        <div className="lm-automations-schedule-row">
+        <div className="lm-automations-schedule-row" role="group" aria-label="运行频率">
           <label className="lm-meta">
-            <input type="radio" checked={weekly} onChange={() => setWeekly(true)} /> 每周一
+            <input
+              type="radio"
+              name="lm-auto-schedule"
+              checked={scheduleMode === "interval"}
+              onChange={() => setScheduleMode("interval")}
+            />{" "}
+            每隔一段时间
           </label>
           <label className="lm-meta">
-            <input type="radio" checked={!weekly} onChange={() => setWeekly(false)} /> 每天
+            <input
+              type="radio"
+              name="lm-auto-schedule"
+              checked={scheduleMode === "daily"}
+              onChange={() => setScheduleMode("daily")}
+            />{" "}
+            每天
           </label>
           <label className="lm-meta">
-            时间
             <input
-              type="number"
-              min={0}
-              max={23}
-              value={hour}
-              onChange={(e) => setHour(Number(e.target.value))}
-              className="lm-input lm-automations-time"
-            />
-            :
-            <input
-              type="number"
-              min={0}
-              max={59}
-              value={minute}
-              onChange={(e) => setMinute(Number(e.target.value))}
-              className="lm-input lm-automations-time"
-            />
+              type="radio"
+              name="lm-auto-schedule"
+              checked={scheduleMode === "weekly"}
+              onChange={() => setScheduleMode("weekly")}
+            />{" "}
+            每周一
           </label>
         </div>
+        {scheduleMode === "interval" ? (
+          <div className="lm-automations-schedule-row">
+            <label className="lm-meta">
+              读取/处理间隔
+              <select
+                className="lm-compose-select lm-automations-interval-select"
+                value={everyMinutes}
+                onChange={(e) => setEveryMinutes(Number(e.target.value))}
+                aria-label="邮件处理间隔"
+              >
+                {INTERVAL_PRESETS.map((opt) => (
+                  <option key={opt.minutes} value={opt.minutes}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span className="lm-meta">创建后约 1 分钟内先跑一次，之后按间隔重复（最短 5 分钟）。</span>
+          </div>
+        ) : (
+          <div className="lm-automations-schedule-row">
+            <label className="lm-meta">
+              时间
+              <input
+                type="number"
+                min={0}
+                max={23}
+                value={hour}
+                onChange={(e) => setHour(Number(e.target.value))}
+                className="lm-input lm-automations-time"
+              />
+              :
+              <input
+                type="number"
+                min={0}
+                max={59}
+                value={minute}
+                onChange={(e) => setMinute(Number(e.target.value))}
+                className="lm-input lm-automations-time"
+              />
+            </label>
+          </div>
+        )}
 
         {needsNotifyEmail || customText.length > 0 ? (
           <label className="lm-compose-bar-field">
@@ -666,6 +670,8 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
             />
           </label>
         ) : null}
+
+        {outboundCreate ? <LawmindOutboundSignoffCallout /> : null}
 
         <div className="lm-automations-create-actions">
           <button
@@ -682,7 +688,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
             disabled={busy}
             onClick={() => void seedDemoMail()}
           >
-            写入演示邮件（测邮箱类）
+            写入演示邮件
           </button>
         </div>
 

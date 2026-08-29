@@ -7,6 +7,7 @@ import type { LawmindMainView } from "../lawmind-main-view";
 import type { ModelCatalogEntry } from "../lawmind-models-api";
 import type { ReviewPaneId, ReviewPaneVisibility } from "../lawmind-review-pane-prefs";
 import type { AssistantRow } from "../lawmind-settings-models.ts";
+import { useEdition } from "../use-edition";
 
 export type LawmindAppHeaderProps = {
   mainView: LawmindMainView;
@@ -83,6 +84,9 @@ function LawmindAppHeaderImpl({
 }: LawmindAppHeaderProps) {
   /** Sidebar already hosts the settings gear; keep one gear in the header only when the sidebar is unavailable. */
   const showHeaderSettingsGear = sidebarCollapsed || mainView === "review";
+  const { edition } = useEdition(apiBase ?? "");
+  const soloShell = edition === "solo";
+  const showAssistantSwitcher = assistants.length > 1;
 
   return (
     <>
@@ -128,7 +132,7 @@ function LawmindAppHeaderImpl({
             </>
           ) : (
             <>
-              {assistants.length > 0 ? (
+              {showAssistantSwitcher ? (
                 <div className="lm-main-title-block">
                   <div className="lm-main-assistant-line">
                     <select
@@ -183,36 +187,42 @@ function LawmindAppHeaderImpl({
                     onClearNeedsDecisionFocus?.();
                     onSetMainView("agents");
                   }}
-                  title="进度与待办"
+                  title="待拍板与办理进度"
                 >
                   在办
                 </button>
-                <button
-                  type="button"
-                  className={`lm-tab ${mainView === "review" ? "active" : ""}`}
-                  aria-current={mainView === "review" ? "page" : undefined}
-                  data-testid="lm-tab-review"
-                  onClick={() => {
-                    onClearNeedsDecisionFocus?.();
-                    onSetMainView("review");
-                  }}
-                  title="撰写、预览与导出文书"
-                >
-                  文书台
-                </button>
-                <button
-                  type="button"
-                  className={`lm-tab ${mainView === "meeting" ? "active" : ""}`}
-                  aria-current={mainView === "meeting" ? "page" : undefined}
-                  data-testid="lm-tab-meeting"
-                  onClick={() => {
-                    onClearNeedsDecisionFocus?.();
-                    onSetMainView("meeting");
-                  }}
-                  title="多助手讨论"
-                >
-                  会议室
-                </button>
+                {/* 改稿/文书台不占一级对等 Tab；从在办「改稿」或对话深链进入。已打开时显示次级以便定位。 */}
+                {mainView === "review" ? (
+                  <button
+                    type="button"
+                    className="lm-tab lm-tab-secondary active"
+                    aria-current="page"
+                    data-testid="lm-tab-review"
+                    onClick={() => {
+                      onClearNeedsDecisionFocus?.();
+                      onSetMainView("review");
+                    }}
+                    title="改稿、预览与导出（通常从在办进入）"
+                  >
+                    {soloShell ? "改稿" : "文书台"}
+                  </button>
+                ) : null}
+                {/* 会议室不占一级对等 Tab；从对话输入条 + 或案件「开会议室」进入。已打开时显示次级以便定位。 */}
+                {mainView === "meeting" ? (
+                  <button
+                    type="button"
+                    className="lm-tab lm-tab-secondary active"
+                    aria-current="page"
+                    data-testid="lm-tab-meeting"
+                    onClick={() => {
+                      onClearNeedsDecisionFocus?.();
+                      onSetMainView("meeting");
+                    }}
+                    title="多助手讨论"
+                  >
+                    会议室
+                  </button>
+                ) : null}
               </nav>
               {!matterCockpitOpen && currentMatterLabel && onOpenMatterCockpit ? (
                 <button
@@ -323,7 +333,8 @@ function LawmindAppHeaderImpl({
         <LawmindReadinessStrip
           health={health ?? undefined}
           workspaceDir={workspaceDir}
-          apiReachable={!localServiceReconnecting}
+          // health 拉取成功且不在重连窗口才算服务可达（不再仅按重连反转判断）。
+          apiReachable={Boolean(health) && !localServiceReconnecting}
           modelCatalog={modelCatalog}
           selectedModelId={selectedModelId}
           onOpenApiWizard={onOpenApiWizard}

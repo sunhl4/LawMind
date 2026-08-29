@@ -19,6 +19,8 @@ export type SkillMeta = {
   workflowIds?: string[];
   /** Comma-separated in frontmatter `tags:` */
   tags?: string[];
+  /** Comma-separated in frontmatter `tools:` — disclosed when the skill is enabled. */
+  toolNames?: string[];
 };
 
 function csvField(v: string | undefined): string[] {
@@ -168,6 +170,7 @@ export function listLocalSkills(workspaceDir: string): SkillMeta[] {
       signatureError: verified.error,
       workflowIds: csvField(fm.workflows),
       tags: csvField(fm.tags),
+      toolNames: csvField(fm.tools),
     });
   }
   return out.toSorted((a, b) => a.id.localeCompare(b.id));

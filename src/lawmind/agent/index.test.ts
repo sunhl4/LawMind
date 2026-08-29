@@ -162,6 +162,7 @@ describe("Legal Tool Registry", () => {
     expect(names).toContain("list_tasks");
     expect(names).toContain("list_drafts");
     expect(names).toContain("get_audit_trail");
+    expect(names).toContain("list_more_tools");
   });
 
   it("can execute list_matters tool", async () => {
@@ -259,14 +260,34 @@ describe("Legal Tool Registry", () => {
     expect((result.data as { content: string }).content).toContain("LawMind XLSX Cell");
   });
 
-  it("analyze_document rejects legacy .doc with clear message", async () => {
+  it("analyze_document reads legacy .doc via native text extraction", async () => {
     const ws = tmpDir();
     const registry = createLegalToolRegistry();
     const tool = registry.get("analyze_document")!;
+    // 纯文本伪装 .doc：macOS textutil 可直接读出；本机无转换工具时也应返回结构化错误。
     fs.writeFileSync(path.join(ws, "legacy.doc"), "placeholder", "utf8");
 
     const result = await tool.execute(
       { file_path: "legacy.doc" },
+      { workspaceDir: ws, sessionId: "s", actorId: "a" },
+    );
+
+    if (result.ok) {
+      expect(JSON.stringify(result.data)).toContain("placeholder");
+    } else {
+      // 无 textutil/soffice 的环境：明确提示，而不是「另存为」旧口径。
+      expect(String(result.error)).toMatch(/\.doc|LibreOffice|textutil/);
+    }
+  });
+
+  it("analyze_document still rejects legacy .xls with clear message", async () => {
+    const ws = tmpDir();
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("analyze_document")!;
+    fs.writeFileSync(path.join(ws, "legacy.xls"), "placeholder", "utf8");
+
+    const result = await tool.execute(
+      { file_path: "legacy.xls" },
       { workspaceDir: ws, sessionId: "s", actorId: "a" },
     );
 
@@ -530,8 +551,10 @@ describe("System Prompt", () => {
   it("requires clear draft vs post-review delivery wording in system prompt", () => {
     const prompt = buildSystemPrompt({ availableTools: [] });
     expect(prompt).toContain("律师审核与交付闭环（对用户可见话术强制）");
-    expect(prompt).toContain("禁止的表述");
-    expect(prompt).toContain("EMS");
+    expect(prompt).toContain("交付原则");
+    expect(prompt).toContain("初稿/讨论稿/供审核稿");
+    expect(prompt).toContain("安全硬红线");
+    expect(prompt).toContain("send_email");
   });
 
   it("exports a stable lawmind behavior epoch for health and support", () => {

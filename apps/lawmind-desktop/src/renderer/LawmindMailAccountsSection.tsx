@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
+import { LawmindMailSendFormatFields } from "./LawmindMailSendFormatFields";
+import {
+  hasMailSendFormat,
+  type MailSendFormat,
+} from "../../../../src/lawmind/mail/mail-send-format.ts";
 
 type Provider = {
   id: string;
@@ -29,6 +34,7 @@ type Account = {
   enabled: boolean;
   hasSecret: boolean;
   watchContacts?: WatchContact[];
+  sendFormat?: MailSendFormat;
   lastTestOk?: boolean;
   lastTestAt?: string;
   lastSyncAt?: string;
@@ -83,6 +89,7 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
   const [imapHost, setImapHost] = useState("");
   const [smtpHost, setSmtpHost] = useState("");
   const [watchContacts, setWatchContacts] = useState<WatchContact[]>([]);
+  const [sendFormat, setSendFormat] = useState<MailSendFormat>({});
   const [draftEmail, setDraftEmail] = useState("");
   const [draftLabel, setDraftLabel] = useState("");
   const [draftNote, setDraftNote] = useState("");
@@ -133,6 +140,7 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
     setEmail("");
     setLabel("");
     setWatchContacts([]);
+    setSendFormat({});
     setDraftEmail("");
     setDraftLabel("");
     setDraftNote("");
@@ -154,6 +162,7 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
     setImapHost(a.imapHost || "");
     setSmtpHost(a.smtpHost || "");
     setWatchContacts(Array.isArray(a.watchContacts) ? a.watchContacts : []);
+    setSendFormat(a.sendFormat ?? {});
     setPassword("");
     setClientSecret("");
     setError(null);
@@ -222,6 +231,7 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
         imapHost: imapHost.trim() || undefined,
         smtpHost: smtpHost.trim() || undefined,
         watchContacts,
+        sendFormat,
         enabled: true,
       });
       resetForm();
@@ -307,10 +317,7 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
   return (
     <section className="lm-automations-mail" aria-label="邮箱配置" data-testid="lm-mail-accounts">
       <h3 className="lm-settings-subtitle">邮箱配置</h3>
-      <p className="lm-meta">
-        连接<strong>你自己的邮箱</strong>，并可设置<strong>对方往来邮箱</strong>（带备注）。对方名单为空 = 关注全部来信；填写 1
-        个或多个 = 只同步与这些人的往来。
-      </p>
+      <p className="lm-meta">空名单=全部来信；填写=仅这些人。发送格式可设落款，批准发送时自动带上。</p>
 
       {error ? (
         <div className="lm-callout lm-callout-danger" role="alert">
@@ -524,6 +531,8 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
           </div>
         </div>
 
+        <LawmindMailSendFormatFields value={sendFormat} onChange={setSendFormat} disabled={busy} />
+
         <div className="lm-automations-create-actions">
           <button type="button" className="lm-btn lm-btn-sm" disabled={busy} onClick={() => void saveAccount()}>
             {editingId ? "保存修改" : "保存并连接邮箱"}
@@ -562,6 +571,11 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
                       : `对方名单（${contacts.length}）：${contacts
                           .map((c) => `${c.label}<${c.email}>`)
                           .join("；")}`}
+                    {hasMailSendFormat(a.sendFormat)
+                      ? a.sendFormat?.fromName
+                        ? ` · 已设落款（${a.sendFormat.fromName}）`
+                        : " · 已设落款"
+                      : " · 未设落款"}
                   </div>
                   {a.lastSyncError ? <p className="lm-meta lm-automations-last">{a.lastSyncError}</p> : null}
                 </div>

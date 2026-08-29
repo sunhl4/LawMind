@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { buildReadinessSnapshot } from "../lawmind-readiness";
 import type { HealthPayload } from "../lawmind-app-data";
 import type { LawmindMainView } from "../lawmind-main-view";
 import type { ModelCatalogEntry } from "../lawmind-models-api";
@@ -115,9 +116,18 @@ export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): 
       onOpenSettings: () => setShowSettings(true),
       onCloseSettings: () => setShowSettings(false),
       settingsOpen: showSettings,
-      // Only nag until the model is ready — configured Solo lawyers stay in chat chrome.
+      // 未全部就绪即提示（模型未配置/未验证、本地服务断连、工作区异常），
+      // 与 LawmindReadinessStrip 的 allReady 口径一致，不再仅「模型未配置」才提示。
       showReadinessStrip: Boolean(
-        apiBase && mainView !== "review" && health && health.modelConfigured !== true,
+        apiBase &&
+          mainView !== "review" &&
+          !buildReadinessSnapshot({
+            health: health ?? null,
+            workspaceDir,
+            apiReachable: Boolean(health) && !localServiceReconnecting,
+            modelCatalog,
+            selectedModelId,
+          }).allReady,
       ),
       health,
       workspaceDir,

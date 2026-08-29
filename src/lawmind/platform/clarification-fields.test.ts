@@ -13,6 +13,7 @@ import {
   encodeClarificationSessionRef,
   formatClarificationResumeMessage,
   isClarificationShortConfirm,
+  shouldInlineClarificationInChat,
   normalizeClarificationInputType,
   parseClarificationFileAnswer,
   parseClarificationSessionRef,
@@ -89,6 +90,40 @@ describe("clarification-fields", () => {
     expect(msg).toContain("合同审查");
     expect(msg).toContain("docs");
     expect(removeEncodedLine(answers[CLARIFY_ATTACHMENTS_KEY], a)).toContain("docs");
+  });
+
+  it("inlines outline HITL in chat", () => {
+    expect(
+      shouldInlineClarificationInChat([
+        {
+          key: "research_outline_confirm",
+          question: "请确认大纲\n\n# x",
+          inputType: "textarea",
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      shouldInlineClarificationInChat([
+        { key: "rent", question: "月租金？" },
+        { key: "deposit", question: "押金？" },
+        { key: "extra1", question: "三" },
+        { key: "extra2", question: "四" },
+      ]),
+    ).toBe(false);
+  });
+
+  it("requires a clear outline decision, not free prose", () => {
+    const qs = [
+      {
+        key: "research_outline_confirm",
+        question: "请确认大纲",
+        required: true,
+        inputType: "textarea" as const,
+      },
+    ];
+    expect(clarificationAnswersComplete(qs, { research_outline_confirm: "随便看看" })).toBe(false);
+    expect(clarificationAnswersComplete(qs, { research_outline_confirm: "大纲已确认" })).toBe(true);
+    expect(clarificationAnswersComplete(qs, { research_outline_confirm: "不同意大纲" })).toBe(true);
   });
 
   it("requires all required fields", () => {

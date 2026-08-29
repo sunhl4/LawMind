@@ -17,10 +17,14 @@ import {
   type MatterRoadmapCandidate,
   type MatterSearchHit,
   type PersistentAdoptionItem,
-  matterInteractionSurfaceLabel,
   memoryUpgradeRecommendation,
 } from "./matter-interaction";
 import type { MatterPanelTab } from "./useMatterWorkbench";
+import {
+  buildConvergenceSuggestions,
+  buildProductAdaptationSuggestions,
+  type SuggestionDerivationInput,
+} from "./matter-product-suggestions";
 
 type BlockingExplanationInput = {
   actionTab?: "case" | "tasks";
@@ -95,7 +99,7 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
   const [cognitionActionBusy, setCognitionActionBusy] = useState<string | null>(null);
   const [cognitionActionMsg, setCognitionActionMsg] = useState<string | null>(null);
   const [crossExperimentRollup, setCrossExperimentRollup] = useState<MatterCrossExperimentRollupItem[]>([]);
-  const [adoptedSuggestions, setAdoptedSuggestions] = useState<AdoptedSuggestionRecord[]>([]);
+  const [adoptedSuggestions] = useState<AdoptedSuggestionRecord[]>([]);
   const [persistentAdoptions, setPersistentAdoptions] = useState<AdoptedSuggestionRecord[]>([]);
   const prevSelectedMatterForCognitionRef = useRef<string | null>(null);
 
@@ -145,173 +149,36 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
     [cognitionBoardDrafts, draftCitationByTask],
   );
 
-  const convergenceSuggestions = useMemo<MatterConvergenceSuggestion[]>(() => {
-    const suggestions: MatterConvergenceSuggestion[] = [];
+  const suggestionDerivationInput = useMemo<SuggestionDerivationInput>(
+    () => ({
+      matterInteractionSummary,
+      pendingDrafts,
+      modifiedDrafts,
+      approvedDrafts,
+      drafts,
+      blockingExplanations,
+      caseFocusContext,
+    }),
+    [
+      approvedDrafts,
+      blockingExplanations,
+      caseFocusContext,
+      drafts,
+      matterInteractionSummary,
+      modifiedDrafts,
+      pendingDrafts,
+    ],
+  );
 
-    if (matterInteractionSummary.reviewOpenCount >= 3) {
-      const targetDraft = pendingDrafts[0] ?? modifiedDrafts[0] ?? approvedDrafts[0] ?? drafts[0];
-      suggestions.push({
-        key: "review-loop",
-        title: "审核入口仍是主工作面",
-        detail:
-          "当前案件多次从案件概览进入文书台，说明律师还在围绕草稿把关来回切换。可以继续把关键审核决策前置到案件概览。",
-        actionLabel: targetDraft ? "打开当前审核焦点" : "等待草稿",
-        tone: "warn",
-        target: targetDraft
-          ? {
-              type: "review",
-              taskId: targetDraft.taskId,
-              sourceSurface: "behavior-summary",
-              sourceLabel: "审核入口仍是主工作面",
-              statusFilter: targetDraft.reviewStatus,
-              listMode: targetDraft.reviewStatus === "pending" ? "pending" : "all",
-            }
-          : { type: "none" },
-      });
-    }
+  const convergenceSuggestions = useMemo<MatterConvergenceSuggestion[]>(
+    () => buildConvergenceSuggestions(suggestionDerivationInput),
+    [suggestionDerivationInput],
+  );
 
-    if (matterInteractionSummary.caseWriteCount >= 2) {
-      const blockerContext =
-        blockingExplanations.find((item) => item.actionTab === "case")?.caseFocusContext ??
-        caseFocusContext ??
-        undefined;
-      suggestions.push({
-        key: "case-loop",
-        title: "CASE 已成为推进主入口",
-        detail:
-          "律师反复把阻塞信息写回案件档案，说明当前更需要结构化案件记录，而不只是列表式提醒。优先把争点、风险和证据补齐会更高效。",
-        actionLabel: "回到 CASE 焦点",
-        tone: "info",
-        target: { type: "case", context: blockerContext },
-      });
-    }
-
-    if (matterInteractionSummary.memorySaveCount >= 2) {
-      suggestions.push({
-        key: "memory-loop",
-        title: "高频经验值得前置沉淀",
-        detail:
-          "当前案件已经开始重复采纳认知升级建议，说明有一部分经验正在从单案技巧变成稳定规则，适合继续在认知页审视并提升为长期记忆。",
-        actionLabel: "查看认知升级线索",
-        tone: "success",
-        target: { type: "cognition" },
-      });
-    }
-
-    if (
-      suggestions.length === 0 &&
-      matterInteractionSummary.total > 0 &&
-      matterInteractionSummary.dominantSurface &&
-      matterInteractionSummary.dominantSurface.count >= 2
-    ) {
-      suggestions.push({
-        key: "observe-pattern",
-        title: "继续观察当前操作重心",
-        detail: `当前最常进入的入口是 ${matterInteractionSurfaceLabel(
-          matterInteractionSummary.dominantSurface.label,
-        )}，建议继续积累 2-3 个案件样本后再决定是否做更激进的交互收敛。`,
-        actionLabel: "暂无动作",
-        tone: "neutral",
-        target: { type: "none" },
-      });
-    }
-
-    return suggestions.slice(0, 3);
-  }, [
-    approvedDrafts,
-    blockingExplanations,
-    caseFocusContext,
-    drafts,
-    matterInteractionSummary,
-    modifiedDrafts,
-    pendingDrafts,
-  ]);
-
-  const productAdaptationSuggestions = useMemo<MatterProductAdaptationSuggestion[]>(() => {
-    const suggestions: MatterProductAdaptationSuggestion[] = [];
-
-    if (matterInteractionSummary.reviewOpenCount >= 3) {
-      const targetDraft = pendingDrafts[0] ?? modifiedDrafts[0] ?? approvedDrafts[0] ?? drafts[0];
-      suggestions.push({
-        key: "adapt-review-surface",
-        title: "把审核决策前置到案件概览",
-        detail:
-          "当前案件多次从案件概览进入文书台，说明概览页还缺少足够的审核上下文。下一版应把审核理由、修改标签和引用状态更早暴露出来。",
-        actionLabel: targetDraft ? "查看当前审核焦点" : "等待草稿",
-        tone: "warn",
-        target: targetDraft
-          ? {
-              type: "review",
-              taskId: targetDraft.taskId,
-              sourceSurface: "product-adaptation",
-              sourceLabel: "把审核决策前置到案件概览",
-              statusFilter: targetDraft.reviewStatus,
-              listMode: targetDraft.reviewStatus === "pending" ? "pending" : "all",
-            }
-          : { type: "none" },
-      });
-    }
-
-    if (
-      matterInteractionSummary.caseWriteCount >= 2 ||
-      matterInteractionSummary.dominantSurface?.label === "blocked-by" ||
-      matterInteractionSummary.dominantSurface?.label === "case-focus"
-    ) {
-      const blockerContext =
-        blockingExplanations.find((item) => item.actionTab === "case")?.caseFocusContext ??
-        caseFocusContext ??
-        undefined;
-      suggestions.push({
-        key: "adapt-case-form",
-        title: "为 CASE 补录增加结构化表单",
-        detail:
-          "律师反复回到 CASE 补档，说明自由文本入口不够顺手。下一版应把事实缺口、风险确认、策略目标拆成更显式的结构化输入，而不是只靠文本写回。",
-        actionLabel: "查看当前 CASE 焦点",
-        tone: "info",
-        target: { type: "case", context: blockerContext },
-      });
-    }
-
-    if (matterInteractionSummary.memorySaveCount >= 2) {
-      suggestions.push({
-        key: "adapt-memory-fastlane",
-        title: "把认知升级做成快捷采纳通道",
-        detail:
-          "当前案件已经多次把建议写入长期记忆，说明认知沉淀不是偶发动作。下一版适合把高频升级建议做成更靠前的快捷采纳区，而不是藏在认知深层。",
-        actionLabel: "查看认知页",
-        tone: "success",
-        target: { type: "cognition" },
-      });
-    }
-
-    if (
-      suggestions.length === 0 &&
-      matterInteractionSummary.total > 0 &&
-      matterInteractionSummary.dominantSurface &&
-      matterInteractionSummary.dominantSurface.count >= 3
-    ) {
-      suggestions.push({
-        key: "adapt-default-focus",
-        title: "默认视图可能需要重新排序",
-        detail: `当前最常进入的入口是 ${matterInteractionSurfaceLabel(
-          matterInteractionSummary.dominantSurface.label,
-        )}。如果这个模式持续出现在更多案件，下一版可以考虑让相关区域更早出现或默认展开。`,
-        actionLabel: "继续观察",
-        tone: "neutral",
-        target: { type: "none" },
-      });
-    }
-
-    return suggestions.slice(0, 3);
-  }, [
-    approvedDrafts,
-    blockingExplanations,
-    caseFocusContext,
-    drafts,
-    matterInteractionSummary,
-    modifiedDrafts,
-    pendingDrafts,
-  ]);
+  const productAdaptationSuggestions = useMemo<MatterProductAdaptationSuggestion[]>(
+    () => buildProductAdaptationSuggestions(suggestionDerivationInput),
+    [suggestionDerivationInput],
+  );
 
   const productExperimentChecklist = useMemo<MatterProductExperimentItem[]>(() => {
     const items: MatterProductExperimentItem[] = [];
@@ -321,7 +188,7 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
         items.push({
           key: "exp-review-context",
           title: "实验：把审核上下文前置到概览",
-          hypothesis: "如果在概览页提前暴露审核理由、引用状态和修改标签，律师进入文书台的往返次数会下降。",
+          hypothesis: "如果概览更早暴露审核理由与引用状态，去改稿的往返会下降。",
           validation: "观察后续同类案件里“进入审核”次数是否下降，以及是否减少从概览跳审核后的立即返回。",
           signal: `当前案件已出现 ${matterInteractionSummary.reviewOpenCount} 次进入审核动作。`,
           priority: "high",
@@ -848,26 +715,39 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
       const currentDraft = drafts.find((draft) => draft.taskId === cognitionTaskId) ?? null;
       const sourceMatter = matterId ? `来源案件 ${matterId}` : "来源案件未知";
       const sourceDraft = currentDraft ? `观察草稿《${currentDraft.title}》` : "观察草稿未知";
-      const note = `${sourceMatter}；${sourceDraft}。认知升级建议：${item.label} 在当前案件关键草稿中命中 ${item.count} 次。${item.recommendation}`;
+      const payload = `${sourceMatter}；${sourceDraft}。认知升级建议：${item.label} 在当前案件关键草稿中命中 ${item.count} 次。${item.recommendation}`;
       const busyKey = `${target}:${item.label}`;
       setCognitionActionBusy(busyKey);
       setCognitionActionMsg(null);
       try {
-        const path =
-          target === "lawyer" ? "/api/lawyer-profile/learning" : "/api/assistants/profile/learning";
-        const requestBody =
-          target === "lawyer"
-            ? { note, source: "manual" as const }
-            : { assistantId: assistantId ?? "default", note };
+        // 统一走记忆采纳队列：先入队 pending，经律师在记忆检查确认后才写入档案。
         const j = await apiSendJson<
-          { ok?: boolean; error?: string; message?: string },
-          { note: string; source?: string; assistantId?: string }
-        >(apiBase, path, "POST", requestBody);
+          { ok?: boolean; error?: string; message?: string; suggestion?: { id?: string } },
+          {
+            scope: "lawyer" | "assistant";
+            kind: string;
+            payload: string;
+            targetId?: string;
+            sourceTaskId?: string;
+            note?: string;
+            autoAdopt?: boolean;
+          }
+        >(apiBase, "/api/memory/adoption/suggest", "POST", {
+          scope: target,
+          kind: target === "lawyer" ? "lawyer.profile_learning" : "assistant.profile_section",
+          payload,
+          targetId: target === "assistant" ? (assistantId ?? "default") : undefined,
+          sourceTaskId: currentDraft?.taskId,
+          note: item.label,
+          autoAdopt: false,
+        });
         if (!j.ok) {
-          throw new Error(messageFromOkFalseBody(j, "写入失败"));
+          throw new Error(messageFromOkFalseBody(j, "加入采纳队列失败"));
         }
         setCognitionActionMsg(
-          target === "lawyer" ? "已写入律师档案。后续案件将可复用该升级建议。" : "已写入当前助手档案。",
+          target === "lawyer"
+            ? "已加入待确认（律师档案）。"
+            : "已加入待确认（助手档案）。",
         );
         await logMatterInteraction({
           action: "save_upgrade_suggestion",
@@ -876,23 +756,9 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
           label: item.label,
           target,
         });
-        setAdoptedSuggestions((prev) =>
-          [
-            {
-              key: `${target}:${item.label}:${Date.now()}`,
-              target,
-              label: item.label,
-              matterId: matterId,
-              taskId: currentDraft?.taskId ?? null,
-              draftTitle: currentDraft?.title ?? null,
-              savedAt: new Date().toISOString(),
-            },
-            ...prev,
-          ].slice(0, 8),
-        );
         void loadPersistentAdoptions();
       } catch (e) {
-        setCognitionActionMsg(errorMessage(e, "写入失败"));
+        setCognitionActionMsg(errorMessage(e, "加入采纳队列失败"));
       } finally {
         setCognitionActionBusy(null);
       }

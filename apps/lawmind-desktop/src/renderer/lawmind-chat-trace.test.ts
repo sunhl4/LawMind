@@ -19,6 +19,18 @@ describe("lawmind-chat-trace", () => {
     expect(humanToolLabel("unknown_tool")).toBe("办理中");
   });
 
+  it("applyToolStart uses lawyer cards with argument detail", () => {
+    let trace = createEmptyLiveTrace();
+    trace = applyToolStart(trace, {
+      toolCallId: "tc-mail",
+      toolName: "list_mail_inbox",
+      args: { matter_id: "m1" },
+    });
+    expect(trace.steps[0]?.label).toBe("查看邮件匣");
+    expect(trace.steps[0]?.detail).toContain("m1");
+    expect(JSON.stringify(trace.steps[0])).not.toMatch(/list_mail_inbox/);
+  });
+
   it("accumulates round, tool, and workflow steps", () => {
     let trace = createEmptyLiveTrace();
     trace = applyRoundStart(trace, 1);
@@ -154,10 +166,17 @@ describe("lawmind-chat-trace", () => {
       currentRound: 1,
       steps: [
         { id: "r1", kind: "round", label: "第 1 轮推理", status: "failed" },
-        { id: "t1", kind: "tool", label: "写回草稿", status: "failed" },
+        {
+          id: "t1",
+          kind: "tool",
+          label: "写回草稿",
+          status: "failed",
+          detail: "权限不足",
+        },
       ],
     });
-    expect(summarizeLiveTrace(trace)).toBe("未能完成本轮处理");
+    expect(summarizeLiveTrace(trace)).toContain("未能完成本轮处理");
+    expect(summarizeLiveTrace(trace)).toContain("写回草稿");
   });
 
   it("summarizeLiveTrace produces one-line summary", () => {

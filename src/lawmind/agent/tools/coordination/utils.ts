@@ -31,7 +31,12 @@ export function resolveAssistantId(
   const byName = profiles.find(
     (p) => p.displayName === nameOrId || p.displayName.includes(nameOrId),
   );
-  return byName?.assistantId;
+  if (byName) {
+    return byName.assistantId;
+  }
+  // Workflow templates often pass role/preset ids (e.g. contract_review).
+  const byRoleOrPreset = profiles.find((p) => p.roleId === nameOrId || p.presetKey === nameOrId);
+  return byRoleOrPreset?.assistantId;
 }
 
 /**

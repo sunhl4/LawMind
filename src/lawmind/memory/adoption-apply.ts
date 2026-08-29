@@ -3,10 +3,14 @@
  * Called from Inspector adopt — must not silent-write before this path.
  */
 
+import fs from "node:fs";
+import path from "node:path";
 import { appendAssistantProfileMarkdown } from "../assistants/profile-md.js";
 import { resolveLawMindRoot } from "../assistants/store.js";
+import { writeStanceFromHabit } from "../stance/capture.js";
 import type { MemoryAdoptionRecord } from "./adoption-service.js";
 import { appendCaseSectionBullet } from "./case-writes.js";
+import { writeExecutablePreference } from "./executable-preferences.js";
 import { appendLawyerProfileLearning } from "./lawyer-profile-learning.js";
 import { appendClausePlaybookLearning } from "./playbook-learning.js";
 import { appendSessionSummary } from "./session-summary.js";
@@ -114,6 +118,33 @@ export async function applyMemoryAdoptionWrite(
     case "playbook.clause_learning": {
       await appendClausePlaybookLearning(workspaceDir, payload);
       written.push("playbooks/CLAUSE_PLAYBOOK.md");
+      return { written };
+    }
+    case "historical.knowledge": {
+      const dir = path.join(workspaceDir, "memory", "topics");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.appendFileSync(path.join(dir, "historical-scan.md"), `${payload.trim()}\n\n`, "utf8");
+      written.push("memory/topics/historical-scan.md");
+      return { written };
+    }
+    case "lawyer.habit_pattern": {
+      await appendLawyerProfileLearning(workspaceDir, payload, "manual", {
+        idempotencyKey: rec.id,
+      });
+      writeExecutablePreference(workspaceDir, {
+        id: rec.id,
+        text: payload,
+        tags: ["habit", "historical-scan"],
+      });
+      written.push("LAWYER_PROFILE.md");
+      written.push("lawmind/lawyer-preferences.json");
+      try {
+        if (writeStanceFromHabit(workspaceDir, payload)) {
+          written.push("lawmind/stance/items.json");
+        }
+      } catch {
+        /* stance is additive; adopt still succeeds */
+      }
       return { written };
     }
     default:

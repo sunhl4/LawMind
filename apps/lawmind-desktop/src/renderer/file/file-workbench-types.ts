@@ -89,6 +89,8 @@ export type Props = {
   onPickProject?: () => void | Promise<void>;
   /** 将路径加入对话/议题引用（发送时把路径说明一并给模型） */
   onAddToChatContext?: (payload: { root: RootKey; relPath: string; kind: "file" | "directory" }) => void;
+  /** docx/doc/pdf：引用并跳转对话填入「5 分钟合同审查」交办 */
+  onSendContractForReview?: (payload: { root: RootKey; relPath: string }) => void;
   /** 右键「引用」菜单文案；默认「在对话中引用」 */
   addToContextLabel?: string;
   /** When set, 资源管理器 / 分割条 / 编辑器分别挂到这些节点（用于侧栏资源区 + 主区对话等布局） */

@@ -16,10 +16,10 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, appendFileSync, readFileSync } from "node:fs";
-import fs from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
+import { appendJsonl, rewriteJsonl, withExclusiveFileLock } from "../adapters/matter-storage/io.js";
 import { emit } from "../audit/index.js";
 
 export const MEMORY_SCOPES = [
@@ -48,6 +48,8 @@ export const MEMORY_ADOPTION_KINDS = [
   "client.profile_note",
   "opponent.note",
   "project.note",
+  "historical.knowledge",
+  "lawyer.habit_pattern",
   "review_label",
   "source.annotation",
 ] as const;
@@ -82,10 +84,6 @@ function suggestionsFile(workspaceDir: string): string {
   return path.join(workspaceDir, "memory-adoption", "suggestions.jsonl");
 }
 
-async function ensureDir(filePath: string): Promise<void> {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-}
-
 function readAllSync(workspaceDir: string): MemoryAdoptionRecord[] {
   const file = suggestionsFile(workspaceDir);
   if (!existsSync(file)) {
@@ -117,24 +115,36 @@ async function readAll(workspaceDir: string): Promise<MemoryAdoptionRecord[]> {
   return readAllSync(workspaceDir);
 }
 
-async function writeAll(workspaceDir: string, records: MemoryAdoptionRecord[]): Promise<void> {
-  const file = suggestionsFile(workspaceDir);
-  await ensureDir(file);
-  const body = records.map((r) => JSON.stringify(r)).join("\n");
-  // 原子写：temp + rename，避免崩溃留下撕档文件（对齐 matter-storage io.ts 模式）。
-  const { writeFileAtomicAsync } = await import("../adapters/matter-storage/io.js");
-  await writeFileAtomicAsync(file, body ? `${body}\n` : "");
+/**
+ * 进程内互斥：suggest（append）与 adopt/dismiss/mark（读-改-全量重写）必须串行，
+ * 否则 adopt 的 rewrite 会用旧快照覆盖并发 suggest 的 append，静默丢记录。
+ * （桌面单进程写入模型下足够；跨进程写不在当前部署形态内。）
+ */
+let adoptionMutationQueue: Promise<unknown> = Promise.resolve();
+
+function withAdoptionMutationLock<T>(fn: () => Promise<T>): Promise<T> {
+  const next = adoptionMutationQueue.then(fn, fn);
+  adoptionMutationQueue = next.catch(() => undefined);
+  return next;
 }
 
 /**
- * 同步追加一条 suggestion，避免 fire-and-forget 与测试 rmSync 竞速。
- * （JSONL 单行 append 在小并发下仍然安全。）
+ * suggestions.jsonl 的跨进程排他锁：append 与「读-改-全量重写」共用同一把
+ * O_EXCL 文件锁（对齐 approvals/queue 的既有模式），避免 rewrite 覆盖并发 append。
  */
+function withSuggestionsFileLock<T>(workspaceDir: string, fn: () => T): T {
+  return withExclusiveFileLock(`${suggestionsFile(workspaceDir)}.lock`, fn);
+}
+
+function rewriteAllLocked(workspaceDir: string, records: MemoryAdoptionRecord[]): void {
+  rewriteJsonl(suggestionsFile(workspaceDir), recordSchema, records);
+}
+
+/** 锁内 append 一条 suggestion（schema 校验 + 目录保证）。 */
 function appendOneSync(workspaceDir: string, rec: MemoryAdoptionRecord): void {
-  recordSchema.parse(rec);
-  const file = suggestionsFile(workspaceDir);
-  mkdirSync(path.dirname(file), { recursive: true });
-  appendFileSync(file, `${JSON.stringify(rec)}\n`, "utf8");
+  withSuggestionsFileLock(workspaceDir, () => {
+    appendJsonl(suggestionsFile(workspaceDir), recordSchema, rec);
+  });
 }
 
 export type SuggestInput = {
@@ -164,33 +174,35 @@ export async function suggestMemoryAdoption(
   input: SuggestInput,
   opts?: SuggestOptions,
 ): Promise<MemoryAdoptionRecord> {
-  const now = new Date().toISOString();
-  const rec: MemoryAdoptionRecord = {
-    id: randomUUID(),
-    createdAt: now,
-    state: opts?.autoAdopt ? "auto_adopted" : "pending",
-    scope: input.scope,
-    kind: input.kind,
-    targetId: input.targetId,
-    payload: input.payload,
-    sourceTaskId: input.sourceTaskId,
-    origin: input.origin ?? "engine",
-    note: input.note,
-    resolvedAt: opts?.autoAdopt ? now : undefined,
-  };
-  appendOneSync(workspaceDir, rec);
-  await emit(auditDir, {
-    taskId: input.sourceTaskId ?? "system",
-    kind: opts?.autoAdopt ? "memory.adoption_auto_adopted" : "memory.adoption_suggested",
-    actor: input.origin === "lawyer" ? "lawyer" : "system",
-    detail: JSON.stringify({
-      suggestionId: rec.id,
-      scope: rec.scope,
-      kind: rec.kind,
-      targetId: rec.targetId,
-    }),
+  return withAdoptionMutationLock(async () => {
+    const now = new Date().toISOString();
+    const rec: MemoryAdoptionRecord = {
+      id: randomUUID(),
+      createdAt: now,
+      state: opts?.autoAdopt ? "auto_adopted" : "pending",
+      scope: input.scope,
+      kind: input.kind,
+      targetId: input.targetId,
+      payload: input.payload,
+      sourceTaskId: input.sourceTaskId,
+      origin: input.origin ?? "engine",
+      note: input.note,
+      resolvedAt: opts?.autoAdopt ? now : undefined,
+    };
+    appendOneSync(workspaceDir, rec);
+    await emit(auditDir, {
+      taskId: input.sourceTaskId ?? "system",
+      kind: opts?.autoAdopt ? "memory.adoption_auto_adopted" : "memory.adoption_suggested",
+      actor: input.origin === "lawyer" ? "lawyer" : "system",
+      detail: JSON.stringify({
+        suggestionId: rec.id,
+        scope: rec.scope,
+        kind: rec.kind,
+        targetId: rec.targetId,
+      }),
+    });
+    return rec;
   });
-  return rec;
 }
 
 /**
@@ -203,32 +215,54 @@ export async function adoptMemorySuggestion(
   writer: (rec: MemoryAdoptionRecord) => Promise<void> | void,
   opts?: { actorId?: string; note?: string },
 ): Promise<{ ok: boolean; error?: string; record?: MemoryAdoptionRecord }> {
-  const all = await readAll(workspaceDir);
-  const idx = all.findIndex((r) => r.id === id);
-  if (idx < 0) {
-    return { ok: false, error: "not_found" };
-  }
-  const rec = all[idx];
-  if (rec.state !== "pending") {
-    return { ok: false, error: "not_pending" };
-  }
-  await writer(rec);
-  const next: MemoryAdoptionRecord = {
-    ...rec,
-    state: "adopted",
-    resolvedAt: new Date().toISOString(),
-    note: opts?.note ?? rec.note,
-  };
-  all[idx] = next;
-  await writeAll(workspaceDir, all);
-  await emit(auditDir, {
-    taskId: rec.sourceTaskId ?? "system",
-    kind: "memory.adoption_adopted",
-    actor: "lawyer",
-    actorId: opts?.actorId,
-    detail: JSON.stringify({ suggestionId: id, scope: rec.scope, kind: rec.kind }),
+  return withAdoptionMutationLock(async () => {
+    // 1) 锁内读 + 校验（跨进程 CAS 的读侧）
+    const check = withSuggestionsFileLock(workspaceDir, () => {
+      const all = readAllSync(workspaceDir);
+      const rec = all.find((r) => r.id === id);
+      if (!rec) {
+        return { error: "not_found" as const };
+      }
+      if (rec.state !== "pending") {
+        return { error: "not_pending" as const };
+      }
+      return { rec };
+    });
+    if (!check.rec) {
+      return { ok: false, error: check.error };
+    }
+    const rec = check.rec;
+    // 2) writer（markdown 落盘，不涉 jsonl）
+    await writer(rec);
+    const next: MemoryAdoptionRecord = {
+      ...rec,
+      state: "adopted",
+      resolvedAt: new Date().toISOString(),
+      note: opts?.note ?? rec.note,
+    };
+    // 3) 锁内二次读 + 条件写入：仍是 pending 才翻转（并发翻转者胜出，本请求报 not_pending）
+    const written = withSuggestionsFileLock(workspaceDir, () => {
+      const all = readAllSync(workspaceDir);
+      const idx = all.findIndex((r) => r.id === id);
+      if (idx < 0 || all[idx].state !== "pending") {
+        return false;
+      }
+      all[idx] = next;
+      rewriteAllLocked(workspaceDir, all);
+      return true;
+    });
+    if (!written) {
+      return { ok: false, error: "not_pending" };
+    }
+    await emit(auditDir, {
+      taskId: rec.sourceTaskId ?? "system",
+      kind: "memory.adoption_adopted",
+      actor: "lawyer",
+      actorId: opts?.actorId,
+      detail: JSON.stringify({ suggestionId: id, scope: rec.scope, kind: rec.kind }),
+    });
+    return { ok: true, record: next };
   });
-  return { ok: true, record: next };
 }
 
 export async function dismissMemorySuggestion(
@@ -237,31 +271,39 @@ export async function dismissMemorySuggestion(
   id: string,
   opts?: { actorId?: string; note?: string },
 ): Promise<{ ok: boolean; error?: string; record?: MemoryAdoptionRecord }> {
-  const all = await readAll(workspaceDir);
-  const idx = all.findIndex((r) => r.id === id);
-  if (idx < 0) {
-    return { ok: false, error: "not_found" };
-  }
-  const rec = all[idx];
-  if (rec.state !== "pending") {
-    return { ok: false, error: "not_pending" };
-  }
-  const next: MemoryAdoptionRecord = {
-    ...rec,
-    state: "dismissed",
-    resolvedAt: new Date().toISOString(),
-    note: opts?.note ?? rec.note,
-  };
-  all[idx] = next;
-  await writeAll(workspaceDir, all);
-  await emit(auditDir, {
-    taskId: rec.sourceTaskId ?? "system",
-    kind: "memory.adoption_dismissed",
-    actor: "lawyer",
-    actorId: opts?.actorId,
-    detail: JSON.stringify({ suggestionId: id, scope: rec.scope }),
+  return withAdoptionMutationLock(async () => {
+    const written = withSuggestionsFileLock(workspaceDir, () => {
+      const all = readAllSync(workspaceDir);
+      const idx = all.findIndex((r) => r.id === id);
+      if (idx < 0) {
+        return { error: "not_found" as const };
+      }
+      const rec = all[idx];
+      if (rec.state !== "pending") {
+        return { error: "not_pending" as const };
+      }
+      const next: MemoryAdoptionRecord = {
+        ...rec,
+        state: "dismissed",
+        resolvedAt: new Date().toISOString(),
+        note: opts?.note ?? rec.note,
+      };
+      all[idx] = next;
+      rewriteAllLocked(workspaceDir, all);
+      return { next };
+    });
+    if (!written.next) {
+      return { ok: false, error: written.error };
+    }
+    await emit(auditDir, {
+      taskId: written.next.sourceTaskId ?? "system",
+      kind: "memory.adoption_dismissed",
+      actor: "lawyer",
+      actorId: opts?.actorId,
+      detail: JSON.stringify({ suggestionId: id, scope: written.next.scope }),
+    });
+    return { ok: true, record: written.next };
   });
-  return { ok: true, record: next };
 }
 
 /**
@@ -276,41 +318,48 @@ export async function markAdoptedBySourceTaskId(
   sourceTaskId: string,
   opts?: { kind?: MemoryAdoptionKind },
 ): Promise<{ updated: number }> {
-  const all = await readAll(workspaceDir);
-  const now = new Date().toISOString();
-  let updated = 0;
-  for (let i = 0; i < all.length; i++) {
-    const rec = all[i];
-    if (rec.state !== "pending") {
-      continue;
-    }
-    if (rec.sourceTaskId !== sourceTaskId) {
-      continue;
-    }
-    if (opts?.kind && rec.kind !== opts.kind) {
-      continue;
-    }
-    all[i] = {
-      ...rec,
-      state: "adopted",
-      resolvedAt: now,
-    };
-    updated += 1;
-  }
-  if (updated > 0) {
-    await writeAll(workspaceDir, all);
-    await emit(auditDir, {
-      taskId: sourceTaskId,
-      kind: "memory.adoption_adopted",
-      actor: "lawyer",
-      detail: JSON.stringify({
-        bySourceTaskId: true,
-        updated,
-        kind: opts?.kind ?? null,
-      }),
+  return withAdoptionMutationLock(async () => {
+    const updated = withSuggestionsFileLock(workspaceDir, () => {
+      const all = readAllSync(workspaceDir);
+      const now = new Date().toISOString();
+      let n = 0;
+      for (let i = 0; i < all.length; i++) {
+        const rec = all[i];
+        if (rec.state !== "pending") {
+          continue;
+        }
+        if (rec.sourceTaskId !== sourceTaskId) {
+          continue;
+        }
+        if (opts?.kind && rec.kind !== opts.kind) {
+          continue;
+        }
+        all[i] = {
+          ...rec,
+          state: "adopted",
+          resolvedAt: now,
+        };
+        n += 1;
+      }
+      if (n > 0) {
+        rewriteAllLocked(workspaceDir, all);
+      }
+      return n;
     });
-  }
-  return { updated };
+    if (updated > 0) {
+      await emit(auditDir, {
+        taskId: sourceTaskId,
+        kind: "memory.adoption_adopted",
+        actor: "lawyer",
+        detail: JSON.stringify({
+          bySourceTaskId: true,
+          updated,
+          kind: opts?.kind ?? null,
+        }),
+      });
+    }
+    return { updated };
+  });
 }
 
 /**
@@ -323,41 +372,48 @@ export async function markDismissedBySourceTaskId(
   sourceTaskId: string,
   opts?: { kind?: MemoryAdoptionKind },
 ): Promise<{ updated: number }> {
-  const all = await readAll(workspaceDir);
-  const now = new Date().toISOString();
-  let updated = 0;
-  for (let i = 0; i < all.length; i++) {
-    const rec = all[i];
-    if (rec.state !== "pending") {
-      continue;
-    }
-    if (rec.sourceTaskId !== sourceTaskId) {
-      continue;
-    }
-    if (opts?.kind && rec.kind !== opts.kind) {
-      continue;
-    }
-    all[i] = {
-      ...rec,
-      state: "dismissed",
-      resolvedAt: now,
-    };
-    updated += 1;
-  }
-  if (updated > 0) {
-    await writeAll(workspaceDir, all);
-    await emit(auditDir, {
-      taskId: sourceTaskId,
-      kind: "memory.adoption_dismissed",
-      actor: "lawyer",
-      detail: JSON.stringify({
-        bySourceTaskId: true,
-        updated,
-        kind: opts?.kind ?? null,
-      }),
+  return withAdoptionMutationLock(async () => {
+    const updated = withSuggestionsFileLock(workspaceDir, () => {
+      const all = readAllSync(workspaceDir);
+      const now = new Date().toISOString();
+      let n = 0;
+      for (let i = 0; i < all.length; i++) {
+        const rec = all[i];
+        if (rec.state !== "pending") {
+          continue;
+        }
+        if (rec.sourceTaskId !== sourceTaskId) {
+          continue;
+        }
+        if (opts?.kind && rec.kind !== opts.kind) {
+          continue;
+        }
+        all[i] = {
+          ...rec,
+          state: "dismissed",
+          resolvedAt: now,
+        };
+        n += 1;
+      }
+      if (n > 0) {
+        rewriteAllLocked(workspaceDir, all);
+      }
+      return n;
     });
-  }
-  return { updated };
+    if (updated > 0) {
+      await emit(auditDir, {
+        taskId: sourceTaskId,
+        kind: "memory.adoption_dismissed",
+        actor: "lawyer",
+        detail: JSON.stringify({
+          bySourceTaskId: true,
+          updated,
+          kind: opts?.kind ?? null,
+        }),
+      });
+    }
+    return { updated };
+  });
 }
 
 export async function listMemorySuggestions(

@@ -3,6 +3,7 @@
  */
 
 import { z } from "zod";
+import { ensureBuiltinSkillSeeds } from "../../../src/lawmind/skills/ensure-builtin-skill-seeds.js";
 import {
   listLocalSkills,
   writeSkillEnabled,
@@ -21,6 +22,8 @@ export async function handleSkillsRoutes(args: LawmindRouteContext): Promise<boo
   const { workspaceDir } = ctx;
 
   if (pathname === "/api/skills" && req.method === "GET") {
+    // Idempotent: Settings Skills visible even if local-server boot seed was skipped.
+    ensureBuiltinSkillSeeds(workspaceDir);
     const skills = listLocalSkills(workspaceDir);
     const packPath = path.join(workspaceDir, "lawmind", "packs", "cn-legal-pack.json");
     let cnPack = null;

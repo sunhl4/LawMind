@@ -53,7 +53,7 @@ export function MatterTasksPanel(props: Props): ReactNode {
       if (!byAssistant.has(aid)) {
         byAssistant.set(aid, {
           assistantId: aid,
-          displayName: aid,
+          displayName: aid === "default" ? "默认助手" : aid,
           pendingApprovalCount: 0,
         });
       }
@@ -78,9 +78,6 @@ export function MatterTasksPanel(props: Props): ReactNode {
   return (
     <div className="lm-workbench-panel">
       <h3>任务与待办</h3>
-      <p className="lm-meta">
-        汇总任务进度、工作队列、待审批与草稿验收状态；优先处理标为待审批与待复核项。
-      </p>
       <LawmindApprovalQueue
         apiBase={apiBase}
         matterId={matterId}

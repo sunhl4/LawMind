@@ -34,6 +34,11 @@ type Props = {
   apiBase: string;
   taskId: string;
   onOpenReview?: (target?: { taskId?: string; matterId?: string }) => void;
+  onOpenNeedsDecisionDesk?: (target?: {
+    taskId?: string;
+    matterId?: string;
+    preferStatus?: "awaiting_review";
+  }) => void;
   /** Latest assistant reply — used to surface「本轮已应用」核对. */
   assistantReply?: string;
 };
@@ -49,7 +54,7 @@ function riskLabel(risk: RiskLevel): string {
 }
 
 export function LawmindAssignmentCommitmentCard(props: Props): ReactNode {
-  const { apiBase, taskId, onOpenReview, assistantReply } = props;
+  const { apiBase, taskId, onOpenReview, onOpenNeedsDecisionDesk, assistantReply } = props;
   const [task, setTask] = useState<AssignmentSummary | null>(null);
   const [prefs, setPrefs] = useState<AppliedPreference[]>([]);
   const [clearBusyId, setClearBusyId] = useState<string | null>(null);
@@ -216,20 +221,34 @@ export function LawmindAssignmentCommitmentCard(props: Props): ReactNode {
         </div>
       ) : null}
       <div className="lm-assignment-actions">
-        {task.requiresConfirmation ? (
-          <span className="lm-meta">高影响动作将先征得你的确认</span>
-        ) : (
-          <span className="lm-meta">完成标准：形成可核验、可审核的交付物</span>
-        )}
-        {reviewable && onOpenReview ? (
-          <button
-            type="button"
-            className="lm-btn lm-btn-sm"
-            data-testid="lm-commitment-open-review"
-            onClick={() => onOpenReview({ taskId, matterId: task.matterId })}
-          >
-            进入文书台
-          </button>
+        {reviewable && (onOpenNeedsDecisionDesk || onOpenReview) ? (
+          <>
+            {onOpenReview ? (
+              <button
+                type="button"
+                className="lm-btn lm-btn-accent lm-btn-sm"
+                data-testid="lm-commitment-signoff"
+                onClick={() => onOpenReview({ taskId, matterId: task.matterId })}
+              >
+                打开结果
+              </button>
+            ) : onOpenNeedsDecisionDesk ? (
+              <button
+                type="button"
+                className="lm-btn lm-btn-accent lm-btn-sm"
+                data-testid="lm-commitment-signoff"
+                onClick={() =>
+                  onOpenNeedsDecisionDesk({
+                    taskId,
+                    matterId: task.matterId,
+                    preferStatus: "awaiting_review",
+                  })
+                }
+              >
+                打开结果
+              </button>
+            ) : null}
+          </>
         ) : null}
       </div>
     </section>

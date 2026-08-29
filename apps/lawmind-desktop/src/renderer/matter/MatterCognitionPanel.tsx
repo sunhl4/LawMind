@@ -90,7 +90,7 @@ export function MatterCognitionPanel(props: MatterCognitionPanelProps) {
       <section className="lm-matter-cockpit-card lm-matter-cognition-card">
         <div className="lm-matter-cognition-head">
           <div>
-            <h3>认知</h3>
+            <h3>经验</h3>
           </div>
           <label className="lm-field lm-matter-cognition-select">
             <span>观察草稿</span>
@@ -188,7 +188,8 @@ export function MatterCognitionPanel(props: MatterCognitionPanelProps) {
               )}
             </section>
             <section className="lm-matter-cockpit-card">
-              <h3>升级建议</h3>
+              <h3>经验升级线索</h3>
+              <p className="lm-meta">建议确认后才入库。</p>
               {cognitionBoard.upgradeSuggestions.length === 0 ? (
                 <p className="lm-meta">无</p>
               ) : (
@@ -207,7 +208,7 @@ export function MatterCognitionPanel(props: MatterCognitionPanelProps) {
                           disabled={cognitionActionBusy === `lawyer:${item.label}`}
                           onClick={() => void saveUpgradeSuggestion("lawyer", item)}
                         >
-                          写入律师档案
+                          加入律师档案队列
                         </button>
                         <button
                           type="button"
@@ -215,7 +216,7 @@ export function MatterCognitionPanel(props: MatterCognitionPanelProps) {
                           disabled={cognitionActionBusy === `assistant:${item.label}`}
                           onClick={() => void saveUpgradeSuggestion("assistant", item)}
                         >
-                          写入助手档案
+                          加入助手档案队列
                         </button>
                       </div>
                     </li>
@@ -442,7 +443,7 @@ export function MatterCognitionPanel(props: MatterCognitionPanelProps) {
                   })
                 }
               >
-                进入文书台
+                改稿
               </button>
             ) : null}
           </div>
@@ -474,7 +475,7 @@ export function MatterCognitionPanel(props: MatterCognitionPanelProps) {
             <MatterReasoningBoard matterId={matterId} reasoning={reasoningReport} />
             <section className="lm-matter-cockpit-card lm-matter-memory-inspector-card">
               <h3>记忆采纳队列</h3>
-              <p className="lm-meta">预览并采纳模型建议写入案件/律师记忆（只读预览 diff）。</p>
+              <p className="lm-meta">预览后采纳。</p>
               <MatterMemoryInspector apiBase={apiBase} matterId={matterId} />
             </section>
           </div>

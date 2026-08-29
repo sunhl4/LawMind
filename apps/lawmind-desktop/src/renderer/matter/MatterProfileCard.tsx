@@ -99,8 +99,8 @@ export function MatterProfileCard(props: Props): ReactNode {
         <div className="lm-callout lm-callout-warn" role="status">
           <p className="lm-callout-body">
             {profile.status === "intake"
-              ? "本案仍为「接洽中」。补全客户/案由并完成冲突检查与正式接案后，可进入办理中。"
-              : "建议补全客户与案由，便于跨案记忆、模板推荐与冲突检查。"}
+              ? "接洽中：补全客户/案由并完成接案后可办理。"
+              : "请补全客户与案由。"}
           </p>
         </div>
       ) : null}

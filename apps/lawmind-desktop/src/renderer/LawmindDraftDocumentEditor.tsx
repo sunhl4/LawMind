@@ -1,5 +1,5 @@
 /**
- * 审核台文档正文编辑区 — 类似 Cursor 文档栏的可编辑面板。
+ * 改稿文档正文编辑区 — 类似 Cursor 文档栏的可编辑面板。
  */
 
 import { useCallback, useEffect, useId } from "react";
@@ -243,7 +243,7 @@ export function LawmindDraftDocumentEditor(props: Props) {
               onClick={addSection}
               title={
                 reviewStatus === "modified"
-                  ? "也可回「在办」标需修改，或在侧栏派发助手改稿"
+                  ? "也可派改稿"
                   : undefined
               }
             >

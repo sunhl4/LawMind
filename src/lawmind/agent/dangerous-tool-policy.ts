@@ -1,6 +1,6 @@
+import { toolRequiresLawyerPause } from "../platform/lawyer-outbound-decision.js";
 import { readWorkspacePolicyFile } from "../policy/workspace-policy.js";
 import type { ToolDefinition } from "./types.js";
-import { WRITE_TOOLS } from "./tool-name-sets.js";
 
 /**
  * Tools that do not set `requiresApproval` on the definition but must still
@@ -11,9 +11,11 @@ export const STRICT_EXTRA_APPROVAL_TOOL_NAMES = new Set<string>(["execute_workfl
 /** High-risk tools isolated in a child process when tool sandbox is enabled (P2 POC). */
 export const SUBPROCESS_SANDBOX_TOOL_NAMES = new Set<string>([
   "render_document",
+  "render_tracked_draft",
   "execute_workflow",
   "draft_document",
   "add_case_note",
+  "run_analysis",
   // read_project_file / analyze_document stay in-process (C8): readonly, latency-sensitive
 ]);
 
@@ -45,14 +47,8 @@ export function resolveToolSandboxEnabled(workspaceDir: string): boolean {
 /**
  * Whether the tool call must include `__approved: true` before execution.
  *
- * In **strict** mode, consults the per-definition `requiresApproval` flag, the
- * `STRICT_EXTRA` set, AND the shared `WRITE_TOOLS` governance set — so that any
- * tool classified as a write tool in governance metadata requires explicit
- * approval, keeping governance classification and runtime enforcement aligned.
- *
- * In **non-strict** mode, only the per-definition `requiresApproval` flag is
- * consulted (mid-work draft tools like `write_document` / `update_draft`
- * intentionally run without `__approved` so the lawyer is not interrupted).
+ * 待拍板只拦「从律师这边发出去」：写合同 / 审合同 / 本地导出直接出结果。
+ * `prepare_outbound_mail` 只写入待发信，拍板在 inbox；真正发信才打断回合。
  */
 export function toolRequiresExplicitApproval(args: {
   toolName: string;
@@ -60,14 +56,12 @@ export function toolRequiresExplicitApproval(args: {
   allowDangerousToolsWithoutApproval: boolean;
   strictDangerousToolApproval: boolean;
 }): boolean {
-  const { toolName, definition, allowDangerousToolsWithoutApproval, strictDangerousToolApproval } =
-    args;
-  const marked = definition?.requiresApproval === true;
-  const strictExtra = STRICT_EXTRA_APPROVAL_TOOL_NAMES.has(toolName);
-  const governanceWrite = WRITE_TOOLS.has(toolName);
-
-  if (strictDangerousToolApproval) {
-    return marked || strictExtra || governanceWrite;
+  const { toolName, allowDangerousToolsWithoutApproval, strictDangerousToolApproval } = args;
+  if (!toolRequiresLawyerPause(toolName)) {
+    return false;
   }
-  return marked && !allowDangerousToolsWithoutApproval;
+  if (strictDangerousToolApproval) {
+    return true;
+  }
+  return !allowDangerousToolsWithoutApproval;
 }

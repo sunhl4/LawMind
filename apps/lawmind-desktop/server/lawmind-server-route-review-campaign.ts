@@ -7,13 +7,17 @@ import { z } from "zod";
 import { emit } from "../../../src/lawmind/audit/index.js";
 import { appendProductMetric } from "../../../src/lawmind/metrics/product-metrics.js";
 import { readDraft } from "../../../src/lawmind/drafts/index.js";
+import { readTaskRecord } from "../../../src/lawmind/tasks/index.js";
 import {
   cancelReviewCampaign,
   createReviewCampaign,
+  extractReviewBrief,
   findCampaignByTaskId,
   getFleetPlaybook,
   loadFleetPlaybooksFromWorkspace,
   listBundledFleetPlaybooks,
+  mergeReviewBriefs,
+  mergeSourceTextWithBrief,
   readReviewCampaign,
   renderCampaignReportMarkdown,
   rerunReviewCampaignRole,
@@ -120,10 +124,17 @@ export async function handleReviewCampaignRoutes(args: LawmindRouteContext): Pro
       }
       throw err;
     }
-    const sourceText =
-      body.sourceText?.trim() ||
-      draftSourceText(workspaceDir, body.taskId) ||
-      "";
+    const taskRec = body.taskId?.trim()
+      ? readTaskRecord(workspaceDir, body.taskId.trim())
+      : undefined;
+    const brief = mergeReviewBriefs(
+      extractReviewBrief(body.sourceText ?? ""),
+      extractReviewBrief(taskRec?.instruction ?? ""),
+    );
+    const sourceText = mergeSourceTextWithBrief(
+      body.sourceText?.trim() || draftSourceText(workspaceDir, body.taskId) || "",
+      brief,
+    );
     try {
       const campaign = createReviewCampaign(workspaceDir, {
         matterId: body.matterId,
@@ -131,6 +142,7 @@ export async function handleReviewCampaignRoutes(args: LawmindRouteContext): Pro
         playbookId: body.playbookId,
         deliverableTypeHint: body.deliverableTypeHint,
         sourceText,
+        reviewBrief: brief,
         idempotencyKey: body.idempotencyKey,
         runNow: body.runNow,
         preferParallel: body.preferParallel,

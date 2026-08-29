@@ -39,7 +39,6 @@ export function LawmindVerificationChecklist(props: Props): ReactNode {
       <div className="lm-verification-checklist-bar" aria-hidden="true">
         <span style={{ width: `${pct}%` }} />
       </div>
-      <p className="lm-meta">完成必核后方可通过签批。可选项目供记录，不阻断。</p>
       <ul className="lm-verification-checklist-list">
         {items.map((item) => (
           <li key={item.id}>
@@ -52,6 +51,12 @@ export function LawmindVerificationChecklist(props: Props): ReactNode {
               <span>
                 {item.label}
                 {item.required ? <abbr title="必核">*</abbr> : null}
+                {item.skillHint ? (
+                  <span className="lm-meta lm-verification-skill-hint" title={item.skillId}>
+                    {" "}
+                    {item.skillHint}
+                  </span>
+                ) : null}
               </span>
             </label>
           </li>
@@ -61,11 +66,7 @@ export function LawmindVerificationChecklist(props: Props): ReactNode {
         <p className="lm-text-warn lm-verification-checklist-gate" role="status">
           完成必核后方可签批
         </p>
-      ) : (
-        <p className="lm-meta lm-verification-checklist-gate" role="status">
-          必核已完成，可以签批。
-        </p>
-      )}
+      ) : null}
     </section>
   );
 }

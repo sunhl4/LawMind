@@ -105,7 +105,7 @@ export function MatterTeamRosterStrip({
         <span className="lm-meta">
           {names.length > 0
             ? `编制 ${names.join("、")}${synth ? ` · 结论：${synth}` : ""}`
-            : "尚未记住会议编制 — 可在会议室勾选后点「记住本案编制」"}
+            : "未设编制"}
           {openDelegations.length > 0
             ? ` · ${openDelegations.length} 项未闭环委派`
             : ""}

@@ -3,9 +3,14 @@
  *
  * 负责把律师的自然语言指令映射为结构化 TaskIntent。
  * 扩展方式：
- *   - 默认：keyword-route 关键字映射
- *   - 可选：LAWMIND_ROUTER_MODE=model + LLM 凭据，使用 routeAsync()
+ *   - routeAsync()：有 LLM 凭据时模型分类，失败回退关键词
+ *   - LAWMIND_ROUTER_MODE=keyword 可强制关键词
  */
 
 export { route, type RouteInput } from "./keyword-route.js";
-export { routeAsync, routeWithModel, isModelRouterEnabled } from "./model-route.js";
+export {
+  routeAsync,
+  routeWithModel,
+  isModelRouterEnabled,
+  effectiveRouterMode,
+} from "./model-route.js";

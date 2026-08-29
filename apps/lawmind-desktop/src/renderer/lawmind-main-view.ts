@@ -20,6 +20,6 @@ export function lawmindMainViewLabel(view: LawmindMainView): string {
     case "meeting":
       return "会议室";
     case "review":
-      return "文书台";
+      return "改稿";
   }
 }

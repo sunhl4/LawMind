@@ -138,6 +138,7 @@ export async function runModelToolLoop(opts: {
       registry: opts.registry,
       turnContext: opts.turnContext,
       pinIds,
+      discoveryCallCounts: opts.turn.toolNameCallCounts,
     });
     openAITools = opts.registry.toOpenAITools({ names: step.toolNames });
     opts.emitEvent({ type: "round_start", roundIndex });
@@ -354,7 +355,8 @@ export async function runModelToolLoop(opts: {
       shouldCheckpointToolBudget({
         used: opts.turn.toolCallsExecuted,
         soft: opts.maxToolCalls,
-        skipCheckpoint: opts.skipToolBudgetCheckpoint,
+        // 内部办理不因步数打断律师；硬顶仍停。外发仍走 send_email 拍板。
+        skipCheckpoint: true,
       })
     ) {
       opts.turn.status = "paused";

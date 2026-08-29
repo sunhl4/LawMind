@@ -48,6 +48,8 @@ export type LawMindAgent = {
       contextPins?: import("../platform/compose-context-pin.js").ComposeContextPin[];
       /** Inherit compose permission mode into this turn. */
       permissionMode?: AgentConfig["permissionMode"];
+      /** 模板级工具预批准（协作 executor 已按白名单过滤，仅限待拍板类工具）。 */
+      preApproveToolNames?: string[];
     },
   ) => Promise<{
     reply: string;
@@ -131,6 +133,7 @@ export function createLawMindAgent(config: AgentConfig): LawMindAgent {
         shouldAbort: opts?.shouldAbort,
         contextPins: opts?.contextPins,
         permissionMode: mergedConfig.permissionMode,
+        preApproveToolNames: opts?.preApproveToolNames,
       });
 
       return {

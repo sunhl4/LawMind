@@ -103,7 +103,39 @@ function scanTopicHeaders(workspaceDir: string): MemoryManifestEntry[] {
   return out;
 }
 
+/** 按 (mtime,size) 签名的 manifest 缓存：签名只花 readdir+stat，不再每轮重读 MEMORY.md 与全部 topic 头。 */
+const manifestCache = new Map<string, { signature: string; entries: MemoryManifestEntry[] }>();
+
+function manifestSignature(workspaceDir: string): string {
+  const parts: string[] = [];
+  try {
+    const st = fs.statSync(path.join(workspaceDir, "MEMORY.md"));
+    parts.push(`idx:${st.mtimeMs}:${st.size}`);
+  } catch {
+    parts.push("idx:none");
+  }
+  try {
+    const dir = memoryTopicsDir(workspaceDir);
+    const names = fs
+      .readdirSync(dir)
+      .filter((n) => n.endsWith(".md"))
+      .toSorted();
+    for (const n of names) {
+      const st = fs.statSync(path.join(dir, n));
+      parts.push(`${n}:${st.mtimeMs}:${st.size}`);
+    }
+  } catch {
+    parts.push("topics:none");
+  }
+  return parts.join("|");
+}
+
 export function scanMemoryManifest(workspaceDir: string): MemoryManifestEntry[] {
+  const signature = manifestSignature(workspaceDir);
+  const cached = manifestCache.get(workspaceDir);
+  if (cached && cached.signature === signature) {
+    return cached.entries;
+  }
   const seen = new Set<string>();
   const merged: MemoryManifestEntry[] = [];
   for (const e of [...parseMemoryIndex(workspaceDir), ...scanTopicHeaders(workspaceDir)]) {
@@ -116,6 +148,11 @@ export function scanMemoryManifest(workspaceDir: string): MemoryManifestEntry[] 
     }
     merged.push(e);
   }
+  // 防御性上限：单进程多工作区测试场景下不至于无界增长。
+  if (manifestCache.size > 32) {
+    manifestCache.clear();
+  }
+  manifestCache.set(workspaceDir, { signature, entries: merged });
   return merged;
 }
 

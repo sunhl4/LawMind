@@ -141,7 +141,7 @@ describe("LawmindSettingsModelRetrieval", () => {
     expect(host.textContent).not.toMatch(/配置无效$/);
   });
 
-  it("shows unset authority status and default 缺源 caption", async () => {
+  it("shows unset authority status and fail-closed caption", async () => {
     await act(async () => {
       root.render(
         <LawmindSettingsModelRetrieval
@@ -153,7 +153,6 @@ describe("LawmindSettingsModelRetrieval", () => {
     const pill = host.querySelector('[data-testid="lm-settings-authority-boundary"]');
     expect(pill?.getAttribute("data-status")).toBe("unset");
     expect(pill?.textContent).toContain("未配置");
-    expect(host.textContent).toContain("缺源");
-    expect(host.textContent).toContain("不会编造");
+    expect(host.textContent).toContain("未命中则不编造");
   });
 });

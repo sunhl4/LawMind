@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { persistDraft, readDraft } from "../../../src/lawmind/drafts/index.js";
-import { ensureTaskRecord } from "../../../src/lawmind/tasks/index.js";
+import { ensureTaskRecord, readTaskRecord } from "../../../src/lawmind/tasks/index.js";
 import { LAWMIND_MODEL_PROVIDERS } from "../../../src/lawmind/models/providers.js";
 import type { ArtifactDraft, TaskIntent } from "../../../src/lawmind/types.js";
 import { handleDraftRevisionJobRoute } from "./lawmind-server-route-draft-revision.js";
@@ -210,6 +210,7 @@ describe("lawmind-server-route-review", () => {
       title: "合同审查意见书",
       output: "docx",
       templateId: "word/contract-default",
+      deliverableType: "document.general",
       summary: "已形成合同审查结论并提示主要风险。",
       sections: [
         {
@@ -254,9 +255,32 @@ describe("lawmind-server-route-review", () => {
     expect(reviewCapture.status).toBe(200);
     expect(reviewCapture.json()).toMatchObject({
       ok: true,
+      matterWriteFailed: false,
       draft: { taskId, reviewStatus: "approved", templateId: "word/contract-default" },
       executionState: { phase: expect.any(String), status: expect.any(String) },
       gateDecisions: expect.any(Array),
+    });
+
+    const staleCas = createResponseCapture();
+    await expect(
+      handleReviewRoute({
+        ctx,
+        req: createJsonRequest("POST", {
+          status: "approved",
+          expectedReviewStatus: "pending",
+          bypassChecklist: true,
+        }),
+        res: staleCas.res,
+        url: new URL(`http://127.0.0.1/api/drafts/${taskId}/review`),
+        pathname: `/api/drafts/${taskId}/review`,
+        c: {},
+      }),
+    ).resolves.toBe(true);
+    expect(staleCas.status).toBe(409);
+    expect(staleCas.json()).toMatchObject({
+      ok: false,
+      error: "review_status_conflict",
+      draft: { reviewStatus: "approved" },
     });
 
     const renderCapture = createResponseCapture();
@@ -310,6 +334,7 @@ describe("lawmind-server-route-review", () => {
       title: "合同审查意见书",
       output: "docx",
       templateId: "word/contract-default",
+      deliverableType: "document.general",
       summary: "摘要",
       sections: [
         { heading: "审查结论", body: "结论正文", citations: ["src-1"] },
@@ -484,6 +509,96 @@ describe("lawmind-server-route-review", () => {
     const stored = readDraft(workspaceDir, taskId);
     expect(stored?.summary).toBe("更新摘要");
     expect(body.acceptance).toBeDefined();
+  });
+
+  it("DELETE /api/drafts/:id removes draft and task record", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-draft-delete-"));
+    tempDirs.push(workspaceDir);
+    const taskId = "draft-delete-1";
+    const now = new Date().toISOString();
+    ensureTaskRecord(workspaceDir, {
+      taskId,
+      kind: "analyze.contract",
+      output: "docx",
+      summary: "合同",
+      riskLevel: "low",
+      models: ["general"],
+      requiresConfirmation: false,
+      createdAt: now,
+      templateId: "word/legal-memo-default",
+    });
+    persistDraft(workspaceDir, {
+      taskId,
+      title: "待删",
+      output: "docx",
+      templateId: "word/legal-memo-default",
+      summary: "s",
+      sections: [{ heading: "正文", body: "x" }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: now,
+    });
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+    const cap = createResponseCapture();
+    await expect(
+      handleReviewRoute({
+        ctx,
+        req: createJsonRequest("DELETE"),
+        res: cap.res,
+        url: new URL(`http://127.0.0.1/api/drafts/${taskId}`),
+        pathname: `/api/drafts/${taskId}`,
+        c: {},
+      }),
+    ).resolves.toBe(true);
+    expect(cap.status).toBe(200);
+    expect((cap.json() as { ok?: boolean }).ok).toBe(true);
+    expect(readDraft(workspaceDir, taskId)).toBeUndefined();
+    expect(readTaskRecord(workspaceDir, taskId)).toBeUndefined();
+  });
+
+  it("DELETE /api/drafts/:id returns 409 for approved drafts (delivery archive kept)", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-draft-delete-409-"));
+    tempDirs.push(workspaceDir);
+    const taskId = "draft-delete-approved";
+    const now = new Date().toISOString();
+    persistDraft(workspaceDir, {
+      taskId,
+      title: "已签批",
+      output: "docx",
+      templateId: "word/legal-memo-default",
+      summary: "s",
+      sections: [{ heading: "正文", body: "x" }],
+      reviewNotes: [],
+      reviewStatus: "approved",
+      createdAt: now,
+    });
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+    };
+    const cap = createResponseCapture();
+    await expect(
+      handleReviewRoute({
+        ctx,
+        req: createJsonRequest("DELETE"),
+        res: cap.res,
+        url: new URL(`http://127.0.0.1/api/drafts/${taskId}`),
+        pathname: `/api/drafts/${taskId}`,
+        c: {},
+      }),
+    ).resolves.toBe(true);
+    expect(cap.status).toBe(409);
+    const body = cap.json() as { ok?: boolean; error?: string; reviewStatus?: string };
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe("draft_not_deletable");
+    expect(body.reviewStatus).toBe("approved");
+    expect(readDraft(workspaceDir, taskId)?.reviewStatus).toBe("approved");
   });
 
   it("PATCH /api/drafts/:id/content rejects approved drafts", async () => {

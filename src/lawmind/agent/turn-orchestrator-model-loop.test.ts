@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { resolveStrictUpstreamToolStreaming } from "./turn-orchestrator-model-loop.js";
+import {
+  resolveStrictUpstreamToolStreaming,
+  shouldWarnToolBudget,
+} from "./turn-orchestrator-model-loop.js";
+
+describe("shouldWarnToolBudget", () => {
+  it("warns at 80% of max (ceil)", () => {
+    expect(shouldWarnToolBudget(31, 40)).toBe(false);
+    expect(shouldWarnToolBudget(32, 40)).toBe(true);
+    expect(shouldWarnToolBudget(0, 40)).toBe(false);
+    expect(shouldWarnToolBudget(10, 0)).toBe(false);
+  });
+});
 
 describe("resolveStrictUpstreamToolStreaming", () => {
   it("is false without onEvent", () => {

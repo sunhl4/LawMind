@@ -26,7 +26,12 @@ import type { TruthSourceContextPin } from "../../../../src/lawmind/platform/com
 import {
   buildFileContextMessagePrefix,
   fetchFileChatExcerpts,
+  makeFileContextItemId,
 } from "./lawmind-file-chat-context";
+import {
+  chatLooksLikeWordEdit,
+  resolveImplicitWordPinsForChat,
+} from "./lawmind-active-word-file";
 import {
   appendActivityDelta,
   appendActivityToolProgress,
@@ -275,18 +280,35 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       let stoppedByUser = false;
       chatAbortControllerRef.current = ac;
       chatInFlightRef.current = { assistantId, userText: text };
+      const implicitWordPins = resolveImplicitWordPinsForChat({
+        text,
+        existing: fileChatContextItems,
+      });
+      const sendFilePins: FileChatContextItem[] = [
+        ...fileChatContextItems,
+        ...implicitWordPins.map((it) => ({
+          id: makeFileContextItemId(it),
+          ...it,
+        })),
+      ];
       const excerpts = await fetchFileChatExcerpts({
         apiBase: config.apiBase,
-        items: fileChatContextItems,
+        items: sendFilePins,
         signal: ac.signal,
       });
-      const prefix = buildFileContextMessagePrefix(fileChatContextItems, excerpts);
+      const prefix = buildFileContextMessagePrefix(sendFilePins, excerpts);
       let learnPrefix = "";
-      if (shouldAttachContractRevisionIndex(fileChatContextItems, deskContractBatchDir || undefined, text)) {
+      if (shouldAttachContractRevisionIndex(sendFilePins, deskContractBatchDir || undefined, text)) {
         learnPrefix = await fetchContractRevisionIndexPrefix(config.apiBase, ac.signal);
       }
       let messageForApi = text;
       const headParts: string[] = [];
+      if (
+        chatLooksLikeWordEdit(text) &&
+        sendFilePins.some((it) => it.kind === "file" && /\.docx?$/i.test(it.relPath))
+      ) {
+        headParts.push("【Word 改稿】");
+      }
       if (prefix.trim()) {
         headParts.push(prefix.trimEnd());
       }
@@ -333,7 +355,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       try {
         const effectiveModelId = resolveComposeModelSelectValue(modelCatalog, selectedModelId);
         const contextPins = buildContextPinsPayload({
-          filePins: fileChatContextItems.map((it) => ({
+          filePins: sendFilePins.map((it) => ({
             root: it.root,
             relPath: it.relPath,
             kind: it.kind,

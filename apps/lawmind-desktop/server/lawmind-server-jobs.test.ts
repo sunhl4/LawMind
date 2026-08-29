@@ -13,6 +13,7 @@ import {
   loadJobsFromDiskOnStartup,
   persistWorkflowJob,
   processDueScheduledJobs,
+  claimDueScheduledJob,
   requestCancelWorkflowJob,
   setWorkflowJobSchedulerContext,
   subscribeWorkflowJobUpdates,
@@ -284,6 +285,37 @@ describe("lawmind-server-jobs", () => {
     const failed = getWorkflowJob(jobId);
     expect(failed?.status).toBe("failed");
     expect(failed?.error).toBe("missing_workflow_snapshot");
+    rmTmpWorkspaceQuietly(ws);
+  });
+
+  it("claimDueScheduledJob returns null on a second claim", () => {
+    const ws = tmpWorkspace();
+    const wf = minimalWorkflow({ workflowId: "sched-claim" });
+    const future = new Date(Date.now() + 3_600_000).toISOString();
+    const jobId = enqueueWorkflowRun(stubConfig(ws), wf, { scheduleRunAt: future });
+    const rec = getWorkflowJob(jobId)!;
+    rec.scheduledTrigger = { runAt: new Date(Date.now() - 60_000).toISOString(), source: "local_schedule" };
+    persistWorkflowJob(rec);
+    expect(claimDueScheduledJob(ws, jobId)?.jobId).toBe(jobId);
+    expect(claimDueScheduledJob(ws, jobId)).toBeNull();
+    rmTmpWorkspaceQuietly(ws);
+  });
+
+  it("processDueScheduledJobs does not restart a job already running in memory", () => {
+    const ws = tmpWorkspace();
+    const wf = minimalWorkflow({ workflowId: "sched-running" });
+    const future = new Date(Date.now() + 3_600_000).toISOString();
+    const jobId = enqueueWorkflowRun(stubConfig(ws), wf, { scheduleRunAt: future });
+    const rec = getWorkflowJob(jobId)!;
+    rec.scheduledTrigger = {
+      runAt: new Date(Date.now() - 60_000).toISOString(),
+      source: "local_schedule",
+    };
+    persistWorkflowJob(rec);
+    rec.status = "running";
+    setWorkflowJobSchedulerContext(() => stubConfig(ws));
+    expect(processDueScheduledJobs(ws)).toBe(0);
+    expect(getWorkflowJob(jobId)?.status).toBe("running");
     rmTmpWorkspaceQuietly(ws);
   });
 

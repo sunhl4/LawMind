@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import {
   approveToolViaDialog,
+  e2eMockApiBase,
   gotoShell,
   installE2eBrowserPrefs,
   openComposeOptions,
@@ -14,6 +15,7 @@ import {
 test.describe("LawMind approval queue", () => {
   test.beforeEach(async ({ page }) => {
     await installE2eBrowserPrefs(page);
+    await page.request.post(`${e2eMockApiBase()}/__e2e__/reset`);
   });
 
   test("tool approval card resumes without manual __approved JSON", async ({ page }) => {

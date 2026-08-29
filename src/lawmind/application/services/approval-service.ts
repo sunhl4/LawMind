@@ -72,7 +72,11 @@ export function requestApproval(workspaceDir: string, input: RequestApprovalInpu
     riskLevel: input.riskLevel,
     status: "pending",
   };
-  appendApproval(workspaceDir, record);
+  // append 与 resolveApproval 的 CAS rewrite 共用同一把锁，避免并发「新建 + 解析」丢条目。
+  const lockPath = path.join(matterDir(workspaceDir, input.matterId), "approvals.jsonl.lock");
+  withExclusiveFileLock(lockPath, () => {
+    appendApproval(workspaceDir, record);
+  });
   return record;
 }
 
@@ -103,7 +107,7 @@ export function resolveApproval(
     if (idx < 0) {
       return { outcome: "not_found" as const };
     }
-    const current = all[idx]!;
+    const current = all[idx];
     // Compare-and-swap: only pending may transition; concurrent losers keep winner status.
     if (current.status !== "pending") {
       return { outcome: "already_resolved" as const, approval: current };

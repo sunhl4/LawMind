@@ -31,17 +31,31 @@ export type OpenLawRecord = {
 };
 
 /** Retrieval modes for openLawRetrieve. */
-export type OpenLawMode = "local" | "npc_flk" | "caseopen" | "hybrid";
+export type OpenLawMode =
+  | "local"
+  | "npc_flk"
+  | "caseopen"
+  | "courtlistener"
+  | "eurlex"
+  | "egov_jp"
+  | "hybrid";
 
 /** Live / local source ids used in Doctor + hit metadata. */
 export type OpenLawSourceId =
   | "local_sample"
   | "local_corpus"
   | "npc_flk"
-  | "caseopen";
+  | "caseopen"
+  | "courtlistener"
+  | "harvard_cap"
+  | "eurlex"
+  | "egov_jp";
 
 export const OPEN_LAW_PROVIDER = {
   local: "open-law.local",
   npcFlk: "open-law.npc_flk",
   caseopen: "open-law.caseopen",
+  courtlistener: "open-law.courtlistener",
+  eurlex: "open-law.eurlex",
+  egovJp: "open-law.egov_jp",
 } as const;

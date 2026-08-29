@@ -143,9 +143,7 @@ export function LawmindSettingsRoles({ apiBase }: Props): ReactNode {
 
   return (
     <div className="lm-settings-section lm-settings-advanced-page lm-roles-page">
-      <p className="lm-settings-lead">
-        查看内置岗位做什么。新建/改助手请到「助手与岗位」。
-      </p>
+      <p className="lm-settings-lead">内置岗位说明。</p>
 
       {loadError ? (
         <p className="lm-settings-caption lm-settings-caption--warn" role="alert">
@@ -185,9 +183,7 @@ export function LawmindSettingsRoles({ apiBase }: Props): ReactNode {
           <span className="lm-settings-advanced__hint">管理员</span>
         </summary>
         <div className="lm-settings-advanced-body">
-          <p className="lm-settings-caption">
-            新建任务时按类型指定默认助手。强制互审：有互审对象时，落稿会自动建互审委派。
-          </p>
+          <p className="lm-settings-caption">落稿可强制互审。</p>
           <label className="lm-roles-field">
             <span>强制互审</span>
             <select
@@ -244,9 +240,7 @@ export function LawmindSettingsRoles({ apiBase }: Props): ReactNode {
           <span className="lm-settings-advanced__hint">近 {windowDays} 日</span>
         </summary>
         <div className="lm-settings-advanced-body">
-          <p className="lm-settings-caption">
-            一次过签批越高、改写越少，该助手越稳。「待教」来自记忆库待确认数。
-          </p>
+          <p className="lm-settings-caption">签批反馈。</p>
           {specializationRows.length === 0 && growthRows.every((g) => g.lifetime.tasksReviewed === 0) ? (
             <p className="lm-settings-caption">暂无签批反馈。</p>
           ) : (

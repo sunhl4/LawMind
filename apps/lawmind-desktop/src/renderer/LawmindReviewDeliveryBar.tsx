@@ -27,11 +27,11 @@ type Props = {
   onDownloadPack?: () => void;
   packBusy?: boolean;
   /**
-   * writing：文书台 — 改稿/预览/导出；正式通过·驳回·需修改在「在办」；
+   * writing：文书台 — 改稿/预览/导出；本地出稿不进待拍板；
    * signoff：完整签批条（高级区或兜底路径）。
    */
   variant?: "writing" | "signoff";
-  /** 文书台 → 在办：正式签批入口 */
+  /** 文书台 → 在办：外发拍板入口 */
   onOpenAgentsDesk?: () => void;
   /** 一览：签批 / 验收 / 必核 / 引用是否可交付 */
   readiness?: DeliverableReadiness | null;
@@ -56,7 +56,6 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
     onDownloadPack,
     packBusy,
     variant = "writing",
-    onOpenAgentsDesk,
     readiness = null,
   } = props;
 
@@ -68,19 +67,38 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
   const gateSummary = buildRenderGateSummary({ reviewStatus: status, acceptance });
 
   const step2Done = status !== "pending";
-  const step3Ready = approved && !gateBlocked && readiness?.readyToExport !== false;
+  const step3Ready = !gateBlocked && readiness?.readyToExport !== false;
 
   let primaryLabel = writing ? "导出" : "请先签批";
   let primaryAction: (() => void) | null = null;
   let primaryDisabled = true;
 
   const hardBlockExport =
+    !writing &&
     approved &&
     readiness != null &&
     !readiness.readyToExport &&
     readiness.blockers.some((b) => b.code === "checklist" || b.code === "citation");
 
-  if (!approved) {
+  if (writing) {
+    if (gateBlocked) {
+      primaryLabel = "仍要导出";
+      primaryDisabled = actionBusy;
+      primaryAction = () => {
+        const blockers = acceptance?.blockerCount ?? 0;
+        const ok = window.confirm(
+          `出稿检查仍有 ${blockers} 项未通过。\n\n确认仍导出 Word？律师可再改或吩咐助手再做一轮。`,
+        );
+        if (ok) {
+          onExportWord({ strict: false });
+        }
+      };
+    } else {
+      primaryLabel = actionBusy ? "导出中…" : "导出审查意见书";
+      primaryDisabled = actionBusy;
+      primaryAction = () => onExportWord({ strict: false });
+    }
+  } else if (!approved) {
     primaryLabel = "导出";
     primaryDisabled = true;
   } else if (hardBlockExport) {
@@ -92,14 +110,14 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
     primaryAction = () => {
       const blockers = acceptance?.blockerCount ?? 0;
       const ok = window.confirm(
-        `验收清单仍有 ${blockers} 项阻塞。\n\n您已签批「通过」。确认在知晓待补项的前提下仍导出 Word？`,
+        `出稿检查仍有 ${blockers} 项未通过。\n\n确认仍导出 Word？`,
       );
       if (ok) {
         onExportWord({ strict: false });
       }
     };
   } else {
-    primaryLabel = actionBusy ? "导出中…" : "导出 Word";
+    primaryLabel = actionBusy ? "导出中…" : "导出审查意见书";
     primaryDisabled = actionBusy;
     primaryAction = () => onExportWord({ strict: true });
   }
@@ -112,9 +130,9 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
       <div className="lm-review-delivery-head">
         <span className="lm-review-delivery-status" role="status">
           {reviewStatusDisplayLabel(status)}
-          {step3Ready ? " · 可导出" : step2Done ? " · 待导出" : writing ? " · 改稿预览" : ""}
+          {step3Ready ? " · 可导出" : step2Done ? " · 待导出" : writing ? " · 改稿" : ""}
         </span>
-        {gateSummary && approved ? (
+        {gateSummary && (writing || approved) ? (
           <span className="lm-review-delivery-gate-hint" title={gateSummary}>
             {gateSummary}
           </span>
@@ -144,33 +162,7 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
         </p>
       ) : null}
 
-      {writing && status === "pending" ? (
-        <p className="lm-meta lm-review-writing-hint" role="note">
-          此处改稿、批注并预览交付样式；正式通过 / 驳回 / 需修改请回「在办」。
-        </p>
-      ) : null}
-
       <div className="lm-review-delivery-actions">
-        {writing && status === "pending" && onOpenAgentsDesk ? (
-          <button
-            type="button"
-            className="lm-review-toolbar-primary"
-            onClick={onOpenAgentsDesk}
-            title="在办处理通过、驳回或需修改；无需打开全文预览的批复也在那里"
-          >
-            回到在办签批
-          </button>
-        ) : null}
-        {status !== "pending" ? (
-          <button
-            type="button"
-            className="lm-review-toolbar-ghost"
-            disabled={actionBusy}
-            onClick={onReopen}
-          >
-            恢复待审核
-          </button>
-        ) : null}
         {!writing && status === "pending" ? (
           <>
             <button
@@ -200,65 +192,84 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
             </button>
           </>
         ) : null}
-        <button
-          type="button"
-          className="lm-review-toolbar-primary lm-review-toolbar-primary-accent"
-          disabled={primaryDisabled}
-          title={
-            !approved
-              ? writing
-                ? "导出需先在「在办」完成签批通过"
-                : "需先将签批标为「通过」"
-              : hardBlockExport
-                ? readiness?.summaryZh ?? "必核或引用未就绪，不可导出"
-                : undefined
-          }
-          onClick={() => primaryAction?.()}
-        >
-          {primaryLabel}
-        </button>
-        {onExportTrackedWord ? (
+        {writing || approved ? (
+          <button
+            type="button"
+            className="lm-review-toolbar-primary lm-review-toolbar-primary-accent"
+            disabled={primaryDisabled}
+            title={
+              writing
+                ? "导出到本机，不发给对方"
+                : !approved
+                  ? "需先将签批标为「通过」"
+                  : hardBlockExport
+                    ? readiness?.summaryZh ?? "必核或引用未就绪，不可导出"
+                    : undefined
+            }
+            onClick={() => primaryAction?.()}
+          >
+            {primaryLabel}
+          </button>
+        ) : null}
+        {onExportTrackedWord && (writing || approved) ? (
           <button
             type="button"
             className="lm-review-toolbar-ghost"
-            disabled={actionBusy || !approved}
-            title="将 Redline 提案写入 Word 修订痕迹；需本机 officecli，否则回退为普通 docx"
+            disabled={actionBusy}
+            title="导出修订稿"
             onClick={() => onExportTrackedWord()}
           >
-            {actionBusy ? "导出中…" : "带修订"}
+            {actionBusy ? "导出中…" : "导出合同审阅稿"}
           </button>
         ) : null}
-        {packExportEnabled && onDownloadPack ? (
-          <button
-            type="button"
-            className="lm-review-toolbar-ghost"
-            disabled={packBusy || !approved || gateBlocked}
-            onClick={() => onDownloadPack()}
-          >
-            {packBusy ? "打包中…" : "材料包"}
-          </button>
-        ) : null}
-        {lastOutputPath?.trim() && onShowInFolder ? (
-          <button
-            type="button"
-            className="lm-review-toolbar-ghost"
-            onClick={() => onShowInFolder(lastOutputPath)}
-            title={lastOutputPath}
-          >
-            文件夹
-          </button>
-        ) : null}
-        {lastOutputPath?.trim() &&
-        onOpenWithSystem &&
-        /\.docx?$/i.test(lastOutputPath) ? (
-          <button
-            type="button"
-            className="lm-review-toolbar-ghost"
-            title="用本机 Word / WPS 打开（不回写）"
-            onClick={() => void onOpenWithSystem(lastOutputPath)}
-          >
-            Word
-          </button>
+        {packExportEnabled || lastOutputPath?.trim() || (writing && status !== "pending") ? (
+          <details className="lm-review-delivery-more" data-testid="lm-review-delivery-more">
+            <summary className="lm-review-toolbar-ghost">更多交付</summary>
+            <div className="lm-review-delivery-more-menu">
+              {status !== "pending" ? (
+                <button
+                  type="button"
+                  className="lm-review-toolbar-ghost"
+                  disabled={actionBusy}
+                  onClick={onReopen}
+                >
+                  恢复待审核
+                </button>
+              ) : null}
+              {packExportEnabled && onDownloadPack ? (
+                <button
+                  type="button"
+                  className="lm-review-toolbar-ghost"
+                  disabled={packBusy || !approved || gateBlocked}
+                  onClick={() => onDownloadPack()}
+                >
+                  {packBusy ? "打包中…" : "材料包"}
+                </button>
+              ) : null}
+              {lastOutputPath?.trim() && onShowInFolder ? (
+                <button
+                  type="button"
+                  className="lm-review-toolbar-ghost"
+                  onClick={() => onShowInFolder(lastOutputPath)}
+                  title={lastOutputPath}
+                >
+                  文件夹
+                </button>
+              ) : null}
+              {lastOutputPath?.trim() &&
+              onOpenWithSystem &&
+              /\.docx?$/i.test(lastOutputPath) ? (
+                <button
+                  type="button"
+                  className="lm-review-toolbar-ghost"
+                  title="用本机 Word / WPS 打开（不回写）"
+                  onClick={() => void onOpenWithSystem(lastOutputPath)}
+                >
+                  Word
+                </button>
+              ) : null}
+            </div>
+          </details>
         ) : null}
       </div>
 

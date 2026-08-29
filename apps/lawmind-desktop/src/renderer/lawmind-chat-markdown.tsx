@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { LawmindAnalysisChart } from "./LawmindAnalysisChart";
 
 export function renderInlineLegalMarkdown(text: string): ReactNode[] {
   const nodes: ReactNode[] = [];
@@ -39,6 +40,22 @@ export function renderLegalMarkdown(text: string): ReactNode {
     if (trimmed === "") {
       blocks.push(<div key={`space-${index}`} className="lm-md-space" />);
       index += 1;
+      continue;
+    }
+
+    if (/^```lm-chart\s*$/.test(trimmed)) {
+      const jsonLines: string[] = [];
+      index += 1;
+      while (index < lines.length && !/^\s*```/.test(lines[index] ?? "")) {
+        jsonLines.push(lines[index] ?? "");
+        index += 1;
+      }
+      if (index < lines.length && /^\s*```/.test(lines[index] ?? "")) {
+        index += 1;
+      }
+      blocks.push(
+        <LawmindAnalysisChart key={`chart-${index}`} specText={jsonLines.join("\n")} />,
+      );
       continue;
     }
 

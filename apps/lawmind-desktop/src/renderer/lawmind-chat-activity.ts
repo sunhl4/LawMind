@@ -1,4 +1,5 @@
 import type { ChatLiveTrace } from "./lawmind-chat-trace-types.js";
+import { presentLawyerToolCall } from "../../../../src/lawmind/agent/tool-lawyer-card.ts";
 import { humanToolLabel } from "./lawmind-chat-trace.js";
 
 export type ChatActivityTextBlock = {
@@ -40,12 +41,13 @@ export function appendActivityDelta(blocks: ChatActivityBlock[], text: string): 
 
 export function startActivityTool(
   blocks: ChatActivityBlock[],
-  info: { toolCallId: string; toolName: string },
+  info: { toolCallId: string; toolName: string; args?: Record<string, unknown> },
 ): ChatActivityBlock[] {
   const toolCallId = info.toolCallId?.trim() || `tool-${blocks.length}`;
   if (blocks.some((b) => b.kind === "tool" && b.toolCallId === toolCallId && b.status === "running")) {
     return blocks;
   }
+  const card = presentLawyerToolCall(info.toolName, info.args ?? {});
   return [
     ...blocks,
     {
@@ -53,8 +55,9 @@ export function startActivityTool(
       kind: "tool",
       toolCallId,
       toolName: info.toolName,
-      label: humanToolLabel(info.toolName),
+      label: card.title,
       status: "running",
+      detail: card.detail,
       progress: [],
     },
   ];

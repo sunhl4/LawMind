@@ -32,6 +32,22 @@ describe("renderDocxWithOptions", () => {
     await fs.rm(outputDir, { recursive: true, force: true });
   });
 
+  it("renders a pending draft for local export", async () => {
+    const result = await renderDocxWithOptions(makeDraft({ reviewStatus: "pending" }), outputDir, {
+      templateVariant: "contractReview",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.outputPath).toMatch(/\.docx$/);
+  });
+
+  it("rejects a rejected draft", async () => {
+    const result = await renderDocxWithOptions(makeDraft({ reviewStatus: "rejected" }), outputDir, {
+      templateVariant: "contractReview",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("已驳回");
+  });
+
   it("renders with built-in contract review variant", async () => {
     const result = await renderDocxWithOptions(makeDraft(), outputDir, {
       templateVariant: "contractReview",

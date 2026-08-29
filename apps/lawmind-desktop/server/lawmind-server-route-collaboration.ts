@@ -14,7 +14,7 @@ import {
 import { startDelegation } from "../../../src/lawmind/agent/tools/coordination/delegate.js";
 import { resolveAssistantId } from "../../../src/lawmind/agent/tools/coordination/utils.js";
 import { loadSession } from "../../../src/lawmind/agent/session.js";
-import { getLiveTurnProgress } from "../../../src/lawmind/agent/live-turn-progress.js";
+import { getLiveTurnProgressOrReplay } from "../../../src/lawmind/agent/session-event-log.js";
 import { requestTurnAbort } from "../../../src/lawmind/agent/turn-abort.js";
 import {
   buildWorkflowReport,
@@ -143,7 +143,9 @@ export async function handleCollaborationRoutes({
           status: r.status,
           toAssistant: r.toAssistantId,
           targetSessionId: r.targetSessionId,
-          progress: r.targetSessionId ? getLiveTurnProgress(r.targetSessionId) ?? null : null,
+          progress: r.targetSessionId
+            ? getLiveTurnProgressOrReplay(workspaceDir, r.targetSessionId) ?? null
+            : null,
         })),
       },
       c,

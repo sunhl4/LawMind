@@ -13,6 +13,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { writeJsonAtomic } from "../../adapters/matter-storage/io.js";
 import type {
   CollaborationEvent,
   CollaborationPolicy,
@@ -34,13 +35,7 @@ function delegationFilePath(workspaceDir: string, delegationId: string): string 
 }
 
 function persistRecord(workspaceDir: string, record: DelegationRecord): void {
-  const dir = delegationsDir(workspaceDir);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(
-    delegationFilePath(workspaceDir, record.delegationId),
-    JSON.stringify(record, null, 2),
-    "utf8",
-  );
+  writeJsonAtomic(delegationFilePath(workspaceDir, record.delegationId), record);
 }
 
 // ─────────────────────────────────────────────
@@ -81,6 +76,18 @@ export function registerDelegation(params: {
 // ─────────────────────────────────────────────
 // Lifecycle updates
 // ─────────────────────────────────────────────
+
+const TERMINAL_DELEGATION_STATUSES = new Set<DelegationStatus>([
+  "completed",
+  "failed",
+  "timeout",
+  "cancelled",
+  "completed_after_timeout",
+]);
+
+function isTerminalDelegationStatus(status: DelegationStatus): boolean {
+  return TERMINAL_DELEGATION_STATUSES.has(status);
+}
 
 export function markDelegationRunning(
   workspaceDir: string,
@@ -127,7 +134,16 @@ export function markDelegationCompleted(
   if (!record) {
     return undefined;
   }
-  record.status = "completed";
+  // 终态守卫：completed/failed/cancelled 后到达的迟到完成直接忽略；
+  // timeout 后到达的迟到完成保留结果，但状态标 completed_after_timeout（不再翻转回 completed）。
+  if (isTerminalDelegationStatus(record.status)) {
+    if (record.status !== "timeout") {
+      return record;
+    }
+    record.status = "completed_after_timeout";
+  } else {
+    record.status = "completed";
+  }
   if (result.length > MAX_FROZEN_RESULT_BYTES) {
     const abs = delegationResultMarkdownPath(workspaceDir, delegationId);
     fs.mkdirSync(path.dirname(abs), { recursive: true });
@@ -160,6 +176,10 @@ export function markDelegationFailed(
   if (!record) {
     return undefined;
   }
+  // 终态守卫：completed/timeout/cancelled 等终态不被迟到的失败回写覆盖。
+  if (isTerminalDelegationStatus(record.status)) {
+    return record;
+  }
   record.status = "failed";
   record.error = error;
   record.completedAt = new Date().toISOString();
@@ -174,6 +194,10 @@ export function markDelegationTimeout(
   const record = registry.get(delegationId);
   if (!record) {
     return undefined;
+  }
+  // 终态守卫：completed / failed / cancelled 不被迟到的超时回写覆盖。
+  if (isTerminalDelegationStatus(record.status)) {
+    return record;
   }
   record.status = "timeout";
   record.error = "Delegation timed out";
@@ -190,13 +214,44 @@ export function cancelDelegation(
   if (!record) {
     return undefined;
   }
-  if (record.status === "completed" || record.status === "failed") {
+  if (isTerminalDelegationStatus(record.status)) {
     return record;
   }
   record.status = "cancelled";
   record.completedAt = new Date().toISOString();
   persistRecord(workspaceDir, record);
   return record;
+}
+
+/** Remove a delegation from memory + disk (after cancel or when cascading chat delete). */
+export function deleteDelegationRecord(workspaceDir: string, delegationId: string): boolean {
+  const id = delegationId.trim();
+  if (!id) {
+    return false;
+  }
+  const record = registry.get(id);
+  registry.delete(id);
+  let deleted = false;
+  const p = delegationFilePath(workspaceDir, id);
+  try {
+    if (fs.existsSync(p)) {
+      fs.unlinkSync(p);
+      deleted = true;
+    }
+  } catch {
+    /* best-effort */
+  }
+  // 同步清理 spill 的全文结果（.result.md），避免删除记录后残留结果文件。
+  const relResult = record?.resultPath?.trim() || path.join(DELEGATIONS_DIR, `${id}.result.md`);
+  const absResult = path.isAbsolute(relResult) ? relResult : path.join(workspaceDir, relResult);
+  try {
+    if (fs.existsSync(absResult)) {
+      fs.unlinkSync(absResult);
+    }
+  } catch {
+    /* best-effort */
+  }
+  return deleted;
 }
 
 // ─────────────────────────────────────────────
@@ -232,8 +287,6 @@ export function listDelegations(opts?: {
   }
   return records.toSorted((a, b) => b.startedAt.localeCompare(a.startedAt));
 }
-
-const TERMINAL_DELEGATION_STATUSES = new Set<DelegationStatus>(["completed", "failed", "timeout"]);
 
 /**
  * 供桌面轮询：某主会话下已终态的委派（含完整 result / error），按完成时间倒序。

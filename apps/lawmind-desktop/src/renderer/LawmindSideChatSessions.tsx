@@ -158,7 +158,7 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
       </div>
 
       {sectionOpen ? (
-        <div className="lm-side-chat-sessions-body" role="list" aria-label="对话列表">
+        <div className="lm-side-chat-sessions-body" role="listbox" aria-label="对话列表">
           {loading && sessions.length === 0 ? (
             <p className="lm-meta lm-side-chat-sessions-empty">加载中…</p>
           ) : null}
@@ -169,7 +169,12 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
             const active = row.sessionId === activeSessionId;
             if (editingId === row.sessionId) {
               return (
-                <div key={row.sessionId} className="lm-side-chat-session-edit" role="listitem">
+                <div
+                  key={row.sessionId}
+                  className="lm-side-chat-session-edit"
+                  role="option"
+                  aria-selected
+                >
                   <input
                     ref={inputRef}
                     className="lm-side-chat-session-input"
@@ -195,7 +200,8 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
               <button
                 key={row.sessionId}
                 type="button"
-                role="listitem"
+                role="option"
+                aria-selected={active}
                 className={`lm-side-chat-session-row${active ? " is-active" : ""}`}
                 data-testid={`lm-side-chat-session-${row.sessionId}`}
                 disabled={Boolean(busy)}
@@ -223,7 +229,6 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
             position: "fixed",
             left: contextMenu.x,
             top: contextMenu.y,
-            zIndex: 99_999,
           }}
           onMouseDown={(e) => e.stopPropagation()}
         >

@@ -44,10 +44,16 @@ describe("buildAuthorityCorpusSummary", () => {
     const prevCorpus = process.env.LAWMIND_OPEN_LAW_CORPUS;
     const prevNpc = process.env.LAWMIND_OPEN_LAW_NPC;
     const prevCase = process.env.LAWMIND_OPEN_LAW_CASEOPEN;
+    const prevCl = process.env.LAWMIND_OPEN_LAW_COURTLISTENER;
+    const prevEu = process.env.LAWMIND_OPEN_LAW_EURLEX;
+    const prevJp = process.env.LAWMIND_OPEN_LAW_EGOV_JP;
     delete process.env.LAWMIND_AUTHORITY_PROVIDER;
     delete process.env.LAWMIND_OPEN_LAW_CORPUS;
     delete process.env.LAWMIND_OPEN_LAW_NPC;
     delete process.env.LAWMIND_OPEN_LAW_CASEOPEN;
+    delete process.env.LAWMIND_OPEN_LAW_COURTLISTENER;
+    delete process.env.LAWMIND_OPEN_LAW_EURLEX;
+    delete process.env.LAWMIND_OPEN_LAW_EGOV_JP;
     try {
       const s = buildAuthorityCorpusSummary({ endpoint: "" });
       expect(s.provider).toBe("open");
@@ -79,6 +85,21 @@ describe("buildAuthorityCorpusSummary", () => {
         delete process.env.LAWMIND_OPEN_LAW_CASEOPEN;
       } else {
         process.env.LAWMIND_OPEN_LAW_CASEOPEN = prevCase;
+      }
+      if (prevCl === undefined) {
+        delete process.env.LAWMIND_OPEN_LAW_COURTLISTENER;
+      } else {
+        process.env.LAWMIND_OPEN_LAW_COURTLISTENER = prevCl;
+      }
+      if (prevEu === undefined) {
+        delete process.env.LAWMIND_OPEN_LAW_EURLEX;
+      } else {
+        process.env.LAWMIND_OPEN_LAW_EURLEX = prevEu;
+      }
+      if (prevJp === undefined) {
+        delete process.env.LAWMIND_OPEN_LAW_EGOV_JP;
+      } else {
+        process.env.LAWMIND_OPEN_LAW_EGOV_JP = prevJp;
       }
     }
   });
@@ -175,16 +196,16 @@ describe("probeAuthorityEndpoint", () => {
   it("not ok on HTTP error or malformed body", async () => {
     const httpFail = await probeAuthorityEndpoint({
       endpoint: "https://authority.example/search",
-      fetchImpl: vi.fn(async () => new Response("nope", { status: 503 })) as unknown as typeof fetch,
+      fetchImpl: vi.fn(
+        async () => new Response("nope", { status: 503 }),
+      ) as unknown as typeof fetch,
     });
     expect(httpFail.ok).toBe(false);
     expect(httpFail.httpStatus).toBe(503);
 
     const badJson = await probeAuthorityEndpoint({
       endpoint: "https://authority.example/search",
-      fetchImpl: vi.fn(async () =>
-        Response.json({ results: [] }),
-      ) as unknown as typeof fetch,
+      fetchImpl: vi.fn(async () => Response.json({ results: [] })) as unknown as typeof fetch,
     });
     expect(badJson.ok).toBe(false);
     expect(badJson.error).toMatch(/hits\/items/);

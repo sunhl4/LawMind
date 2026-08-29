@@ -108,7 +108,7 @@ export function LawmindSourceAnnotations({ apiBase, sourceId, taskId, matterId }
         <p className="lm-meta">暂无标注。</p>
       )}
       <label className="lm-source-annotations__form">
-        <span className="lm-meta">添加审查意见（将同步为待采纳记忆建议）</span>
+        <span className="lm-meta">添加批注</span>
         <textarea
           rows={2}
           value={comment}

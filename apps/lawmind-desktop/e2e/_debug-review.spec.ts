@@ -13,7 +13,7 @@ test("debug open review", async ({ page }) => {
   await expect(page.locator(".lm-agent-fleet-page")).toBeVisible({ timeout: 30_000 });
   const openWorkbench = page
     .getByTestId("lm-fleet-primary-review")
-    .or(page.getByRole("button", { name: /进入文书台/ }))
+    .or(page.getByRole("button", { name: /改稿|文书台/ }))
     .first();
   console.log("btn text", await openWorkbench.innerText());
   console.log("btn testid", await openWorkbench.getAttribute("data-testid"));

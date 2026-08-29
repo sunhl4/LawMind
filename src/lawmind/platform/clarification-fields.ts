@@ -2,6 +2,7 @@
  * Clarification field helpers — shared by engine resume + desktop forms.
  */
 
+import { outlineAnswerDecision } from "../research/outline-hitl.js";
 import type { ClarificationInputType, ClarificationQuestion } from "../types.js";
 
 const INPUT_TYPES = new Set<ClarificationInputType>([
@@ -61,6 +62,24 @@ export function isClarificationShortConfirm(questions: ClarificationQuestion[]):
     const t = normalizeClarificationInputType(q);
     return t === "text" || t === "bool" || t === "enum" || t === "date";
   });
+}
+
+/**
+ * Whether chat should inline the clarification form (vs 「去在办」hint).
+ * Outline HITL always inlines — lawyers must confirm with one click in the thread.
+ */
+export function shouldInlineClarificationInChat(questions: ClarificationQuestion[]): boolean {
+  if (isClarificationShortConfirm(questions)) {
+    return true;
+  }
+  if (
+    questions.length > 0 &&
+    questions.length <= 3 &&
+    questions.some((q) => q.key === "research_outline_confirm")
+  ) {
+    return true;
+  }
+  return false;
 }
 
 export type ClarificationFilePin = {
@@ -273,7 +292,16 @@ export function clarificationAnswersComplete(
     if (!clarificationQuestionRequired(q)) {
       return true;
     }
-    return Boolean(values[q.key]?.trim());
+    const raw = values[q.key]?.trim() ?? "";
+    if (!raw) {
+      return false;
+    }
+    // Outline HITL: non-empty free text is not enough — need a clear decision.
+    if (q.key === "research_outline_confirm") {
+      const decision = outlineAnswerDecision(raw);
+      return decision === "approved" || decision === "revise" || decision === "rejected";
+    }
+    return true;
   });
 }
 
@@ -292,6 +320,17 @@ export function formatClarificationResumeMessage(
       continue;
     }
     lines.push(`${q.question}\n答：${displayClarificationAnswer(q, a)}`);
+  }
+  // Outline HITL: only explicit approve/revise marks approved (not any non-empty answer).
+  if (answers.research_outline_confirm?.trim()) {
+    const decision = outlineAnswerDecision(answers.research_outline_confirm);
+    if (decision === "approved" || decision === "revise") {
+      lines.push("大纲已确认");
+    } else if (decision === "rejected") {
+      lines.push("大纲未通过，请重新生成大纲");
+    } else {
+      lines.push("大纲答复待明确：请写「大纲已确认」，或粘贴修订后的 ## 大纲 条目");
+    }
   }
   if (lines.length === 1 && !prefix) {
     return "【补充信息】（律师已确认继续）";

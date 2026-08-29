@@ -8,7 +8,9 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { writeJsonAtomic, withExclusiveFileLock } from "../adapters/matter-storage/io.js";
 import type { ArtifactDraft, TaskIntent, TaskLifecycleStatus, TaskRecord } from "../types.js";
+import { upsertLawyerWorkFromPersist } from "../work/store.js";
 import {
   buildInitialExecutionPlan,
   buildInitialExecutionPlanFromRecord,
@@ -22,9 +24,13 @@ export function taskRecordPath(workspaceDir: string, taskId: string): string {
   return path.join(tasksDir(workspaceDir), `${taskId}.json`);
 }
 
+function taskRecordLockPath(workspaceDir: string, taskId: string): string {
+  return path.join(tasksDir(workspaceDir), `${taskId}.json.lock`);
+}
+
+/** 原子写（temp+rename），避免崩溃留下半写 JSON。 */
 function persistTaskRecord(workspaceDir: string, record: TaskRecord): TaskRecord {
-  fs.mkdirSync(tasksDir(workspaceDir), { recursive: true });
-  fs.writeFileSync(taskRecordPath(workspaceDir, record.taskId), JSON.stringify(record, null, 2));
+  writeJsonAtomic(taskRecordPath(workspaceDir, record.taskId), record);
   return record;
 }
 
@@ -35,6 +41,24 @@ export function readTaskRecord(workspaceDir: string, taskId: string): TaskRecord
   } catch {
     return undefined;
   }
+}
+
+/** Remove a task JSON file. Returns true if a file was deleted. */
+export function deleteTaskRecord(workspaceDir: string, taskId: string): boolean {
+  const id = taskId.trim();
+  if (!id) {
+    return false;
+  }
+  const p = taskRecordPath(workspaceDir, id);
+  try {
+    if (fs.existsSync(p)) {
+      fs.unlinkSync(p);
+      return true;
+    }
+  } catch {
+    /* best-effort */
+  }
+  return false;
 }
 
 export function listTaskRecords(workspaceDir: string): TaskRecord[] {
@@ -65,53 +89,55 @@ export function ensureTaskRecord(
   intent: TaskIntent,
   opts?: { assistantId?: string },
 ): { record: TaskRecord; created: boolean } {
-  const existing = readTaskRecord(workspaceDir, intent.taskId);
-  if (existing) {
-    if (!existing.executionPlan?.length) {
-      return {
-        record: persistTaskRecord(workspaceDir, {
-          ...existing,
-          executionPlan: buildInitialExecutionPlanFromRecord(existing),
-          updatedAt: new Date().toISOString(),
-        }),
-        created: false,
-      };
+  return withExclusiveFileLock(taskRecordLockPath(workspaceDir, intent.taskId), () => {
+    const existing = readTaskRecord(workspaceDir, intent.taskId);
+    if (existing) {
+      if (!existing.executionPlan?.length) {
+        return {
+          record: persistTaskRecord(workspaceDir, {
+            ...existing,
+            executionPlan: buildInitialExecutionPlanFromRecord(existing),
+            updatedAt: new Date().toISOString(),
+          }),
+          created: false,
+        };
+      }
+      if (opts?.assistantId && !existing.assistantId) {
+        return {
+          record: persistTaskRecord(workspaceDir, {
+            ...existing,
+            assistantId: opts.assistantId,
+            updatedAt: new Date().toISOString(),
+          }),
+          created: false,
+        };
+      }
+      return { record: existing, created: false };
     }
-    if (opts?.assistantId && !existing.assistantId) {
-      return {
-        record: persistTaskRecord(workspaceDir, {
-          ...existing,
-          assistantId: opts.assistantId,
-          updatedAt: new Date().toISOString(),
-        }),
-        created: false,
-      };
-    }
-    return { record: existing, created: false };
-  }
 
-  const record: TaskRecord = {
-    taskId: intent.taskId,
-    kind: intent.kind,
-    instruction: intent.instruction,
-    summary: intent.summary,
-    output: intent.output,
-    riskLevel: intent.riskLevel,
-    requiresConfirmation: intent.requiresConfirmation,
-    audience: intent.audience,
-    matterId: intent.matterId,
-    templateId: intent.templateId,
-    deliverableType: intent.deliverableType,
-    acceptanceCriteria: intent.acceptanceCriteria,
-    clarificationQuestions: intent.clarificationQuestions,
-    status: "created",
-    createdAt: intent.createdAt,
-    updatedAt: intent.createdAt,
-    executionPlan: buildInitialExecutionPlan(intent),
-    ...(opts?.assistantId ? { assistantId: opts.assistantId } : {}),
-  };
+    const record: TaskRecord = {
+      taskId: intent.taskId,
+      kind: intent.kind,
+      instruction: intent.instruction,
+      summary: intent.summary,
+      output: intent.output,
+      riskLevel: intent.riskLevel,
+      requiresConfirmation: intent.requiresConfirmation,
+      audience: intent.audience,
+      matterId: intent.matterId,
+      templateId: intent.templateId,
+      deliverableType: intent.deliverableType,
+      acceptanceCriteria: intent.acceptanceCriteria,
+      clarificationQuestions: intent.clarificationQuestions,
+      status: "created",
+      createdAt: intent.createdAt,
+      updatedAt: intent.createdAt,
+      executionPlan: buildInitialExecutionPlan(intent),
+      ...(opts?.assistantId ? { assistantId: opts.assistantId } : {}),
+    };
 
-  return { record: persistTaskRecord(workspaceDir, record), created: true };
+    return { record: persistTaskRecord(workspaceDir, record), created: true };
+  });
 }
 
 export function updateTaskRecord(
@@ -119,18 +145,21 @@ export function updateTaskRecord(
   taskId: string,
   patch: Partial<Omit<TaskRecord, "taskId" | "createdAt">>,
 ): TaskRecord | undefined {
-  const current = readTaskRecord(workspaceDir, taskId);
-  if (!current) {
-    return undefined;
-  }
+  // per-task 排他锁包住读-改-写：并行 update（如 update_draft 与 review 同发）不丢字段。
+  return withExclusiveFileLock(taskRecordLockPath(workspaceDir, taskId), () => {
+    const current = readTaskRecord(workspaceDir, taskId);
+    if (!current) {
+      return undefined;
+    }
 
-  const next: TaskRecord = {
-    ...current,
-    ...patch,
-    updatedAt: new Date().toISOString(),
-  };
+    const next: TaskRecord = {
+      ...current,
+      ...patch,
+      updatedAt: new Date().toISOString(),
+    };
 
-  return persistTaskRecord(workspaceDir, next);
+    return persistTaskRecord(workspaceDir, next);
+  });
 }
 
 export function syncDraftToTaskRecord(
@@ -229,5 +258,14 @@ export function persistAgentInstructionTask(
     }),
   };
 
-  return persistTaskRecord(workspaceDir, record);
+  const saved = persistTaskRecord(workspaceDir, record);
+  upsertLawyerWorkFromPersist(workspaceDir, {
+    taskId: saved.taskId,
+    sessionId: params.sessionId,
+    matterId: params.matterId,
+    title: saved.title,
+    status: "running",
+    source: "chat",
+  });
+  return saved;
 }

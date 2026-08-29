@@ -57,4 +57,16 @@ describe("LawmindSettingsAppearance", () => {
     });
     expect(document.documentElement.classList.contains("lm-density-compact")).toBe(true);
   });
+
+  it("hosts 签批后自动导出 on appearance page", async () => {
+    await act(async () => {
+      root.render(<LawmindSettingsAppearance onPrefsChange={vi.fn()} />);
+    });
+    expect(host.querySelector('[data-testid="lm-require-signoff-review"]')).toBeTruthy();
+    expect(host.textContent).toContain("审核签批审阅");
+    expect(host.querySelector('[data-testid="lm-auto-export-on-approve"]')).toBeTruthy();
+    expect(host.textContent).toContain("签批后自动导出 Word");
+    expect(host.querySelector('[data-testid="lm-show-tool-trace"]')).toBeTruthy();
+    expect(host.textContent).toContain("展开工具轨迹");
+  });
 });

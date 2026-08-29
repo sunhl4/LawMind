@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import type http from "node:http";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createAutomation,
   getAutomationInboxItem,
@@ -169,7 +169,22 @@ describe("lawmind-server-route-automations", () => {
     });
   });
 
-  it("POST /api/automations/mail/seed writes matter mail", async () => {
+  it("POST /api/automations/mail/seed is 403 by default (demo seeding gated)", async () => {
+    const res = mockRes();
+    await handleAutomationsRoutes({
+      ctx,
+      req: mockJsonReq({ matterId: "matter-mail", subject: "x" }),
+      res,
+      url: new URL("http://127.0.0.1/api/automations/mail/seed"),
+      pathname: "/api/automations/mail/seed",
+      c: {},
+    });
+    expect(res.status).toBe(403);
+    expect(res.body).toMatchObject({ ok: false, code: "mail_seed_disabled" });
+  });
+
+  it("POST /api/automations/mail/seed writes matter mail when LAWMIND_MAIL_SEED=1", async () => {
+    vi.stubEnv("LAWMIND_MAIL_SEED", "1");
     const res = mockRes();
     await handleAutomationsRoutes({
       ctx,

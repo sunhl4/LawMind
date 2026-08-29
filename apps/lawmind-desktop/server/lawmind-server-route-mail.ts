@@ -14,6 +14,10 @@ import {
   upsertMailAccount,
   type MailProviderId,
 } from "../../../src/lawmind/mail/index.js";
+import {
+  listMatterMailMessages,
+  toWorkspaceMailAttachmentPath,
+} from "../../../src/lawmind/platform/lawyer-automations.js";
 import { resolveLawMindRoot } from "../../../src/lawmind/assistants/store.js";
 import { isValidMatterId } from "../../../src/lawmind/cases/matter-id.js";
 import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
@@ -28,6 +32,14 @@ const watchContactSchema = z.object({
   email: z.string().trim().email(),
   label: z.string().trim().min(1).max(80),
   note: z.string().trim().max(200).optional(),
+});
+
+const sendFormatSchema = z.object({
+  fromName: z.string().max(80).optional(),
+  closingStyle: z.enum(["none", "formal", "business", "reply", "custom"]).optional(),
+  customClosing: z.string().max(200).optional(),
+  signature: z.string().max(2000).optional(),
+  appendIfMissing: z.boolean().optional(),
 });
 
 const upsertSchema = z.object({
@@ -46,6 +58,7 @@ const upsertSchema = z.object({
   clientId: z.string().trim().max(120).optional(),
   graphMailbox: z.string().trim().max(200).optional(),
   watchContacts: z.array(watchContactSchema).max(40).optional(),
+  sendFormat: sendFormatSchema.nullable().optional(),
   enabled: z.boolean().optional(),
   password: z.string().max(500).optional(),
   clientSecret: z.string().max(500).optional(),
@@ -68,6 +81,53 @@ export async function handleMailRoutes({
 
   if (pathname === "/api/mail/providers" && req.method === "GET") {
     sendJson(res, 200, { ok: true, providers: MAIL_PROVIDER_PRESETS }, c);
+    return true;
+  }
+
+  const matterAttachmentsMatch = pathname.match(
+    /^\/api\/mail\/matters\/([^/]+)\/attachments$/,
+  );
+  if (matterAttachmentsMatch && req.method === "GET") {
+    const matterId = decodeURIComponent(matterAttachmentsMatch[1] ?? "");
+    if (!isValidMatterId(matterId)) {
+      sendJsonError(res, 400, "invalid_matter_id", "案件 ID 格式不正确。", c);
+      return true;
+    }
+    const attachments: Array<{
+      messageId: string;
+      subject: string;
+      name: string;
+      workspaceRelativePath: string;
+    }> = [];
+    for (const m of listMatterMailMessages(workspaceDir, matterId)) {
+      for (const a of m.attachments) {
+        const workspaceRelativePath = toWorkspaceMailAttachmentPath(
+          matterId,
+          a.relativePath,
+          a.name,
+        );
+        if (!workspaceRelativePath) {
+          continue;
+        }
+        attachments.push({
+          messageId: m.id,
+          subject: m.subject,
+          name: a.name,
+          workspaceRelativePath,
+        });
+      }
+    }
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        matterId,
+        messages: listMatterMailMessages(workspaceDir, matterId).slice(0, 40),
+        attachments,
+      },
+      c,
+    );
     return true;
   }
 
@@ -113,6 +173,7 @@ export async function handleMailRoutes({
         clientId: body.clientId,
         graphMailbox: body.graphMailbox,
         watchContacts: body.watchContacts,
+        sendFormat: body.sendFormat,
         enabled: body.enabled,
         secret: {
           password: body.password,

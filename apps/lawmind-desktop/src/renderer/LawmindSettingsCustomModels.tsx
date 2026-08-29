@@ -227,7 +227,7 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
             autoComplete="off"
             data-testid="lm-custom-model-stop"
           />
-          <p className="lm-settings-caption">逗号分隔，最多 8 个；写入上游 chat/completions 的 stop。</p>
+          <p className="lm-settings-caption">停用词，≤8。</p>
         </div>
 
         {error ? (

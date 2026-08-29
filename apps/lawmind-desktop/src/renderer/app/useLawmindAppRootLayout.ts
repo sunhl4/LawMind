@@ -52,6 +52,10 @@ export type LawmindAppRootLayoutInput = {
   setAgentsDeskFocusTarget: (
     t: import("../lawmind-agents-desk").NeedsDecisionDeskTarget | null,
   ) => void;
+  agentsWorkflowFocus: import("../lawmind-agents-desk").AgentsWorkflowFocusTarget | null;
+  setAgentsWorkflowFocus: (
+    t: import("../lawmind-agents-desk").AgentsWorkflowFocusTarget | null,
+  ) => void;
   setFocusMatterIdFromReview: (id: string | null) => void;
   sidebarCollapsed: boolean;
   setSidebarCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
@@ -311,6 +315,8 @@ export function useLawmindAppRootLayout(
     agentsNeedsDecisionFocus: input.agentsNeedsDecisionFocus,
     agentsDeskFocusTarget: input.agentsDeskFocusTarget,
     setAgentsDeskFocusTarget: input.setAgentsDeskFocusTarget,
+    agentsWorkflowFocus: input.agentsWorkflowFocus,
+    setAgentsWorkflowFocus: input.setAgentsWorkflowFocus,
     setMainView,
     setContextMatterId,
     setMatterCockpitOpen: input.setMatterCockpitOpen,
@@ -503,6 +509,10 @@ export function useLawmindAppRootLayout(
     clearProject,
     setAgentsDeskTab: input.setAgentsDeskTab,
     setAgentsNeedsDecisionFocus: input.setAgentsNeedsDecisionFocus,
+    setAgentsDeskFocusTarget: input.setAgentsDeskFocusTarget,
+    setAgentsWorkflowFocus: input.setAgentsWorkflowFocus,
+    setContextMatterId,
+    setWsShowEditor: input.setWsShowEditor,
     setMainView,
     assistants,
     onPrefsChange: () => input.setUiPrefsVersion((v) => v + 1),
@@ -616,6 +626,10 @@ export function useLawmindAppRootLayout(
     addFileToChatContext,
     setMainView,
     mainView,
+    setInput,
+    focusComposer: () => {
+      input.textareaRef.current?.focus();
+    },
     fileWorkbenchMattersPickList: input.fileWorkbenchMattersPickList,
     matterRefreshVersion,
     workspaceCasesMenu: input.workspaceCasesMenu,

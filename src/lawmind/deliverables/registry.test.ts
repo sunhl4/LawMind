@@ -21,6 +21,20 @@ describe("deliverables/registry", () => {
       "litigation.outline",
       "report.esg",
       "report.general",
+      "report.compliance",
+      "report.learning",
+      "ppt.training",
+      "letter.counsel",
+      "letter.reply",
+      "litigation.complaint",
+      "litigation.answer",
+      "litigation.brief",
+      "memo.opinion",
+      "memo.internal",
+      "matter.timeline",
+      "matter.exhibit_list",
+      "meeting.minutes",
+      "contract.nda",
       "document.general",
     ]);
   });
@@ -56,9 +70,9 @@ describe("deliverables/registry", () => {
     expect(demand?.placeholderRule.mustResolveBeforeRender).toBe(true);
   });
 
-  it("rental contract allows placeholders to remain (signed offline)", () => {
+  it("rental contract requires field placeholders to be resolved before render", () => {
     const rental = getDeliverableSpec("contract.rental");
-    expect(rental?.placeholderRule.mustResolveBeforeRender).toBe(false);
+    expect(rental?.placeholderRule.mustResolveBeforeRender).toBe(true);
   });
 });
 

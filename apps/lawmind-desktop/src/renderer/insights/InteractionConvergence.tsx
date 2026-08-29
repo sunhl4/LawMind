@@ -30,7 +30,7 @@ export function InteractionConvergence({
   if (hints.length === 0) {
     return (
       <div className="lm-callout lm-callout-muted">
-        当前案件律师动作不足以触发收敛建议；继续使用即可形成产品信号。
+        样本不足。
       </div>
     );
   }

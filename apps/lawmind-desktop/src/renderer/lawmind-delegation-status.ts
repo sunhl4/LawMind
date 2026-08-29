@@ -12,6 +12,8 @@ export function delegationStatusLabel(status: string): string {
       return "失败";
     case "timeout":
       return "超时";
+    case "completed_after_timeout":
+      return "超时后交回";
     case "cancelled":
       return "已取消";
     default:
@@ -20,7 +22,7 @@ export function delegationStatusLabel(status: string): string {
 }
 
 export function delegationStatusBadgeClass(status: string): string {
-  if (status === "completed") {
+  if (status === "completed" || status === "completed_after_timeout") {
     return "lm-badge lm-badge-done";
   }
   if (status === "running") {
@@ -48,6 +50,8 @@ export function delegationSummaryLine(
       return `「${toName}」处理中 · ${task}`;
     case "completed":
       return `「${toName}」已完成 · ${task}`;
+    case "completed_after_timeout":
+      return `「${toName}」超时后交回结果 · ${task}`;
     case "failed":
     case "timeout":
       return `「${toName}」未成功 · ${task}`;

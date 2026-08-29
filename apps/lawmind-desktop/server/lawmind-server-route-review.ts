@@ -2,6 +2,7 @@ import path from "node:path";
 import {
   assertChecklistCompleteForApprove,
   buildChecklistView,
+  describeDraftScaffold,
   validateDraftAgainstSpec,
   validateReasoningForDraft,
 } from "../../../src/lawmind/deliverables/index.js";
@@ -36,19 +37,30 @@ import {
   formatAppliedPreferencesHint,
 } from "../../../src/lawmind/memory/applied-preferences.js";
 import {
+  deleteDraft,
   persistDraft,
   readDraft,
   readReasoningSnapshot,
+  resolveClauseGraphForDraft,
   resolveDraftCitationIntegrity,
 } from "../../../src/lawmind/drafts/index.js";
-import { linkDraftToDeliverable } from "../../../src/lawmind/application/services/deliverable-service.js";
+import {
+  isDeliverableReviewStampCurrent,
+  linkDraftToDeliverable,
+} from "../../../src/lawmind/application/services/deliverable-service.js";
 import { emit } from "../../../src/lawmind/audit/index.js";
 import type { ArtifactSection, ArtifactDraft } from "../../../src/lawmind/types.js";
 import { applyContractRevisionAccumulationAfterApprovedReview } from "../../../src/lawmind/learning/contract-revision-on-review-approved.js";
 import { maybeEmitFirstrunAcceptanceReady } from "../../../src/lawmind/onboarding/firstrun-state.js";
 import { serializeLegalReasoningGraph } from "../../../src/lawmind/reasoning/index.js";
 import { parseReviewLabels } from "../../../src/lawmind/review-labels.js";
-import { deriveExecutionPlanSteps, listTaskCheckpoints, readTaskRecord, updateTaskRecord } from "../../../src/lawmind/tasks/index.js";
+import {
+  deleteTaskRecord,
+  deriveExecutionPlanSteps,
+  listTaskCheckpoints,
+  readTaskRecord,
+  updateTaskRecord,
+} from "../../../src/lawmind/tasks/index.js";
 import type { AcceptanceReport } from "../../../src/lawmind/deliverables/index.js";
 import type { TaskExecutionState } from "../../../src/lawmind/platform/contracts.js";
 import {
@@ -422,6 +434,21 @@ export async function handleReviewRoute({
         sendJson(res, 404, { ok: false, error: "not found" }, c);
         return true;
       }
+      const currentReviewStatus = draft.reviewStatus ?? "pending";
+      if (body.expectedReviewStatus && body.expectedReviewStatus !== currentReviewStatus) {
+        sendJson(
+          res,
+          409,
+          {
+            ok: false,
+            error: "review_status_conflict",
+            message: "草稿签批状态已变化，请刷新后再试。",
+            draft,
+          },
+          c,
+        );
+        return true;
+      }
       let approvedChecklistView: ReturnType<typeof buildChecklistView> | undefined;
       if (st === "approved") {
         const checklistBody = body as {
@@ -570,6 +597,7 @@ export async function handleReviewRoute({
         }
       }
       await auditReviewGateSnapshot(workspaceDir, updated, "review", undefined, updated.reviewedBy);
+      const matterWriteFailed = !isDeliverableReviewStampCurrent(workspaceDir, updated);
       sendJson(
         res,
         200,
@@ -581,6 +609,7 @@ export async function handleReviewRoute({
           gateDecisions: deriveReviewGateDecisions(updated),
           profileLearningSkipped,
           lawyerProfileLearningSkipped,
+          matterWriteFailed,
           ...(contractRevisionAccumulatedId ? { contractRevisionAccumulatedId } : {}),
           ...(contractRevisionAccumulationWarning
             ? { contractRevisionAccumulationWarning }
@@ -617,18 +646,27 @@ export async function handleReviewRoute({
         "../../../src/lawmind/artifacts/render-docx-tracked.js"
       );
       const proposal = readRedlineProposal(workspaceDir, raw);
-      const proposals = proposal?.hunks ?? [];
+      const proposals = (proposal?.hunks ?? []).filter((h) => h.status !== "rejected");
       const outDir = path.join(workspaceDir, "artifacts");
+      const preferContractReview =
+        (draft.deliverableType ?? "").startsWith("contract.") || Boolean(draft.contractEdit);
       const result = await renderDocxWithTrackedChanges({
         draft,
         outputDir: outDir,
         proposals,
+        workspaceDir,
+        templateVariant: preferContractReview ? "contractReview" : undefined,
       });
       sendJson(
         res,
         result.ok ? 200 : 400,
         result.ok
-          ? { ok: true, outputPath: result.outputPath, mode: result.mode }
+          ? {
+              ok: true,
+              outputPath: result.outputPath,
+              mode: result.mode,
+              baselineSource: result.baselineSource,
+            }
           : { ok: false, error: result.error, code: result.code },
         c,
       );
@@ -707,7 +745,7 @@ export async function handleReviewRoute({
             {
               ok: false,
               error: "checklist_incomplete",
-              message: "导出被拦截：草稿缺少已落盘的律师必核清单，请重新在「在办」完成必核并签批通过。",
+              message: "导出被拦截：出稿检查未齐，请在改稿页补齐后再导出，或使用 ?strict=false。",
               missingRequiredIds: checklistAtExport.missingRequiredIds,
               checklist: checklistAtExport,
             },
@@ -867,6 +905,44 @@ export async function handleReviewRoute({
     }
 
     const draftDetailMatch = pathname.match(/^\/api\/drafts\/([^/]+)$/);
+    if (draftDetailMatch && req.method === "DELETE") {
+      const raw = decodeURIComponent(draftDetailMatch[1] ?? "");
+      if (!isSafeTaskIdSegment(raw)) {
+        sendJson(res, 400, { ok: false, error: "invalid task id" }, c);
+        return true;
+      }
+      const draft = readDraft(workspaceDir, raw);
+      if (!draft) {
+        sendJson(res, 404, { ok: false, error: "not found" }, c);
+        return true;
+      }
+      // 状态门禁：已签批的交付稿必须保留归档（防止误删已通过签批的交付）。
+      // 仅 pending / rejected / modified 可删；approved 需先恢复待审核。
+      const reviewStatus = draft.reviewStatus ?? "pending";
+      if (reviewStatus !== "pending" && reviewStatus !== "rejected" && reviewStatus !== "modified") {
+        sendJson(
+          res,
+          409,
+          {
+            ok: false,
+            error: "draft_not_deletable",
+            message: `草稿当前状态为「${reviewStatus}」，不能删除。已签批的交付稿应保留归档；如确需删除，请先在审核台恢复为待审核。`,
+            reviewStatus,
+          },
+          c,
+        );
+        return true;
+      }
+      const deletedDraft = deleteDraft(workspaceDir, raw);
+      const deletedTask = deleteTaskRecord(workspaceDir, raw);
+      if (!deletedDraft && !deletedTask) {
+        sendJson(res, 500, { ok: false, error: "delete_failed" }, c);
+        return true;
+      }
+      sendJson(res, 200, { ok: true, taskId: raw, deletedDraft, deletedTask }, c);
+      return true;
+    }
+
     if (draftDetailMatch && req.method === "GET") {
       const raw = decodeURIComponent(draftDetailMatch[1] ?? "");
       if (!isSafeTaskIdSegment(raw)) {
@@ -891,6 +967,8 @@ export async function handleReviewRoute({
         engineMemory: toEngineClientMemorySnapshot(engineMem),
       });
       const acceptance = validateDraftAgainstSpec(draft);
+      const clauses = resolveClauseGraphForDraft(workspaceDir, draft);
+      const scaffold = describeDraftScaffold(draft);
       const reasoningReport = validateReasoningForDraft(draft, graph ?? undefined);
       const executionState = deriveReviewExecutionState(draft, acceptance);
       const gateDecisions = deriveReviewGateDecisions(draft, acceptance);
@@ -913,6 +991,8 @@ export async function handleReviewRoute({
           reasoningReport,
           memorySources,
           acceptance,
+          clauses,
+          scaffold,
           executionState,
           gateDecisions,
         },

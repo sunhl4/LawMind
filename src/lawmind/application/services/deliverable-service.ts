@@ -59,24 +59,31 @@ export function createPlannedDeliverable(
   input: CreatePlannedDeliverableInput,
 ): DeliverableRecord {
   createMatterIfMissing(workspaceDir, { matterId: input.matterId });
-  const now = newTimestamp();
-  const record: DeliverableRecord = {
-    deliverableId: input.deliverableId,
-    matterId: input.matterId,
-    taskId: input.taskId,
-    kind: input.kind,
-    audience: input.audience ?? "unknown",
-    status: "planned",
-    templateId: input.templateId,
-    ownerLawyerId: input.ownerLawyerId,
-    reviewerId: input.reviewerId,
-    blockingReasons: [],
-    createdAt: now,
-    updatedAt: now,
-  };
-  saveDeliverable(workspaceDir, record);
-  attachDeliverableId(workspaceDir, input.matterId, input.deliverableId);
-  return record;
+  // 与 transition/stamp 同一把 per-deliverable 锁：并发双创建/边建边读不撕档。
+  return withDeliverableLock(workspaceDir, input.matterId, input.deliverableId, () => {
+    const existing = loadDeliverable(workspaceDir, input.matterId, input.deliverableId);
+    if (existing) {
+      return existing;
+    }
+    const now = newTimestamp();
+    const record: DeliverableRecord = {
+      deliverableId: input.deliverableId,
+      matterId: input.matterId,
+      taskId: input.taskId,
+      kind: input.kind,
+      audience: input.audience ?? "unknown",
+      status: "planned",
+      templateId: input.templateId,
+      ownerLawyerId: input.ownerLawyerId,
+      reviewerId: input.reviewerId,
+      blockingReasons: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    saveDeliverable(workspaceDir, record);
+    attachDeliverableId(workspaceDir, input.matterId, input.deliverableId);
+    return record;
+  });
 }
 
 export function transitionDeliverable(
@@ -193,7 +200,10 @@ export function applyDeliverableReviewStamp(
     if (!existing) {
       return undefined;
     }
-    if (existing.status !== stamp.status && !canTransitionDeliverable(existing.status, stamp.status)) {
+    if (
+      existing.status !== stamp.status &&
+      !canTransitionDeliverable(existing.status, stamp.status)
+    ) {
       // Still converge the review stamp even if lifecycle skip is illegal —
       // stamp is the high-risk dual-truth field; lifecycle stays guarded elsewhere.
       const stamped: DeliverableRecord = {
@@ -215,7 +225,9 @@ export function applyDeliverableReviewStamp(
       approvedBy: stamp.approvedBy ?? existing.approvedBy,
       blockingReasons: stamp.blockingReasons ?? existing.blockingReasons,
       deliveredAt:
-        stamp.status === "delivered" ? (existing.deliveredAt ?? newTimestamp()) : existing.deliveredAt,
+        stamp.status === "delivered"
+          ? (existing.deliveredAt ?? newTimestamp())
+          : existing.deliveredAt,
       updatedAt: newTimestamp(),
     };
     saveDeliverable(workspaceDir, next);
@@ -236,5 +248,60 @@ export function syncDraftReviewStatusFromDeliverable(
   return draft;
 }
 
+/**
+ * 重开审核的对称写口（与 reviewDraft 的 stamp SSOT 对应）：
+ * stamp → pending、生命周期 → pending_review，并清空审核归属（reviewerId/approvedBy），
+ * 避免 draft 已重开而 deliverable JSON 仍显示 approved 的双真相漂移。
+ */
+export function reopenDeliverableReviewStamp(
+  workspaceDir: string,
+  matterId: string,
+  deliverableId: string,
+): DeliverableRecord | undefined {
+  return withDeliverableLock(workspaceDir, matterId, deliverableId, () => {
+    const existing = loadDeliverable(workspaceDir, matterId, deliverableId);
+    if (!existing) {
+      return undefined;
+    }
+    const hasStamp =
+      existing.currentReviewStatus != null ||
+      existing.status === "approved" ||
+      existing.status === "blocked" ||
+      existing.status === "rendered";
+    if (!hasStamp) {
+      return existing;
+    }
+    const nextStatus: DeliverableRecord["status"] =
+      existing.status === "pending_review" ||
+      canTransitionDeliverable(existing.status, "pending_review")
+        ? "pending_review"
+        : existing.status;
+    const next: DeliverableRecord = {
+      ...existing,
+      status: nextStatus,
+      currentReviewStatus: "pending",
+      reviewerId: undefined,
+      approvedBy: undefined,
+      blockingReasons: [],
+      updatedAt: newTimestamp(),
+    };
+    saveDeliverable(workspaceDir, next);
+    return next;
+  });
+}
+
 export { loadDeliverable as readDeliverable };
 export type { DeliverableRecord };
+
+/** True when the draft has no matter, or the deliverable JSON stamp matches draft.reviewStatus. */
+export function isDeliverableReviewStampCurrent(
+  workspaceDir: string,
+  draft: ArtifactDraft,
+): boolean {
+  const matterId = draft.matterId?.trim();
+  if (!matterId) {
+    return true;
+  }
+  const rec = loadDeliverable(workspaceDir, matterId, draft.taskId);
+  return rec?.currentReviewStatus === draft.reviewStatus;
+}

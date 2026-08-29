@@ -2,7 +2,7 @@
 
 LawMind 2.0 is the step where **LawMind stops being only a legal AI tool and becomes a legal production system**. The goal is not simply "better answers". The goal is to make LawMind behave more like a well-run legal team: remember context, structure reasoning, surface risk, learn from review, and deliver work in a way that firms can trust, buy, and govern.
 
-This document is the product and architecture bridge for that upgrade. It complements [LawMind architecture](/LAWMIND-ARCHITECTURE), [LawMind project memory](/LAWMIND-PROJECT-MEMORY), and [Agent Workbench Memory](/lawmind/agent-workbench-memory).
+This document is the product and architecture bridge for that upgrade. It complements [LawMind architecture](/LAWMIND-ARCHITECTURE) and [Agent Workbench Memory](/lawmind/agent-workbench-memory).
 
 ## 1. North star
 
@@ -231,6 +231,5 @@ If LawMind 2.0 starts now, the first three high-leverage investments should be:
 ## Related
 
 - [LawMind architecture](/LAWMIND-ARCHITECTURE)
-- [LawMind project memory](/LAWMIND-PROJECT-MEMORY)
 - [LawMind user manual](/LAWMIND-USER-MANUAL)
 - [Agent Workbench Memory](/lawmind/agent-workbench-memory)

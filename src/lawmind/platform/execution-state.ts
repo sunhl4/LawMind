@@ -18,6 +18,14 @@ export function executionStateFromTurn(
       detail: "等待律师审批后继续执行。",
     };
   }
+  if (gate === "paused") {
+    return {
+      phase: "approval",
+      status: "awaiting_approval",
+      recoverable: true,
+      detail: "本轮步骤较多，待您决定是否继续。",
+    };
+  }
   if (gate === "awaiting_clarification") {
     return {
       phase: "clarify",

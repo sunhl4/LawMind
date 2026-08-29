@@ -16,10 +16,12 @@ import type { ChatSessionListEntry } from "./useLawmindChatShell";
 import type { LawmindMainView } from "./lawmind-main-view";
 import {
   chatSessionStoreKey,
+  DEFAULT_CHAT_SESSION_TITLE,
   getStoredActiveChatSessionId,
   persistActiveChatSessionId,
 } from "./useLawmindChatShell";
 import { readSelectedModelId } from "./lawmind-selected-model-pref";
+import { clearPlanHandoff, deleteSessionPlanHandoff } from "./lawmind-plan-handoff";
 import type { BackgroundWatchOpts } from "./useLawmindBackgroundWatch";
 
 export type UseLawmindChatSessionsInput = {
@@ -96,7 +98,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         const mapped: ChatSessionListEntry[] = (Array.isArray(listJ.sessions) ? listJ.sessions : []).map(
           (s) => ({
             sessionId: s.sessionId,
-            title: typeof s.title === "string" && s.title.trim() ? s.title : "New Chat",
+            title: typeof s.title === "string" && s.title.trim() ? s.title : DEFAULT_CHAT_SESSION_TITLE,
             updatedAt: s.updatedAt,
             lastPreview: typeof s.lastPreview === "string" ? s.lastPreview : undefined,
           }),
@@ -151,7 +153,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
             Array.isArray(listJ2.sessions) ? listJ2.sessions : []
           ).map((s) => ({
             sessionId: s.sessionId,
-            title: typeof s.title === "string" && s.title.trim() ? s.title : "New Chat",
+            title: typeof s.title === "string" && s.title.trim() ? s.title : DEFAULT_CHAT_SESSION_TITLE,
             updatedAt: s.updatedAt,
             lastPreview: typeof s.lastPreview === "string" ? s.lastPreview : undefined,
           }));
@@ -257,7 +259,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         const mapped: ChatSessionListEntry[] = (Array.isArray(listJ.sessions) ? listJ.sessions : []).map(
           (s) => ({
             sessionId: s.sessionId,
-            title: typeof s.title === "string" && s.title.trim() ? s.title : "New Chat",
+            title: typeof s.title === "string" && s.title.trim() ? s.title : DEFAULT_CHAT_SESSION_TITLE,
             updatedAt: s.updatedAt,
             lastPreview: typeof s.lastPreview === "string" ? s.lastPreview : undefined,
           }),
@@ -308,7 +310,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
             Array.isArray(listJ2.sessions) ? listJ2.sessions : []
           ).map((s) => ({
             sessionId: s.sessionId,
-            title: typeof s.title === "string" && s.title.trim() ? s.title : "New Chat",
+            title: typeof s.title === "string" && s.title.trim() ? s.title : DEFAULT_CHAT_SESSION_TITLE,
             updatedAt: s.updatedAt,
             lastPreview: typeof s.lastPreview === "string" ? s.lastPreview : undefined,
           }));
@@ -435,20 +437,34 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
       }
       const assistantId = selectedAssistantId;
       const sessionStoreKey = chatSessionStoreKey(config.workspaceDir);
-      if (!window.confirm("确定删除此对话？该会话将从本工作区移除且不可恢复。")) {
+      if (
+        !window.confirm(
+          "确定删除此对话？\n\n将移除会话记录、回合与实时进度；已签批或已导出的草稿不会自动删除。",
+        )
+      ) {
         return;
       }
+      const cascadeRelated = window.confirm(
+        "是否同时清理本对话关联内容？\n\n· 委派子会话与委派记录\n· 尚未签批、且未导出的草稿与任务\n\n选「取消」则只删除对话本身；关联草稿仍可在文书台 / 在办中单独删除。",
+      );
       setError(null);
       try {
         const r = await fetch(`${config.apiBase}/api/sessions/delete`, {
           method: "POST",
           headers: { "content-type": "application/json", ...apiAuthHeaders() },
-          body: JSON.stringify({ sessionId, assistantId }),
+          body: JSON.stringify({
+            sessionId,
+            assistantId,
+            cascadeDelegations: cascadeRelated,
+            cascadeUnapprovedDrafts: cascadeRelated,
+          }),
         });
         const j = (await r.json()) as { ok?: boolean; message?: string };
         if (!r.ok || j.ok === false) {
           throw new Error(typeof j.message === "string" ? j.message : "delete failed");
         }
+        clearPlanHandoff(sessionId);
+        void deleteSessionPlanHandoff(config.apiBase, sessionId);
         const wasActive = sessionByAssistant[assistantId] === sessionId;
         // Optimistic local update so a failed list refresh cannot leave a zombie tab.
         setChatSessionList((prev) => prev.filter((row) => row.sessionId !== sessionId));

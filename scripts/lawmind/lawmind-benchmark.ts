@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { loadShadowFixtures, runShadowReplay } from "../../src/lawmind/evaluation/shadow-replay.js";
 import {
   BUILTIN_BENCHMARK_TASKS,
   benchmarkPassesThreshold,
@@ -17,6 +18,7 @@ type Options = {
   realModel: boolean;
   threshold: number;
   strict: boolean;
+  shadow: boolean;
 };
 
 function parseArgs(argv: string[]): Options {
@@ -25,6 +27,7 @@ function parseArgs(argv: string[]): Options {
   let realModel = false;
   let threshold = 0.8;
   let strict = false;
+  let shadow = false;
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -41,6 +44,8 @@ function parseArgs(argv: string[]): Options {
       i += 1;
     } else if (arg === "--strict") {
       strict = true;
+    } else if (arg === "--shadow") {
+      shadow = true;
     }
   }
 
@@ -48,7 +53,7 @@ function parseArgs(argv: string[]): Options {
     strict = true;
   }
 
-  return { workspaceDir, outputJsonPath, realModel, threshold, strict };
+  return { workspaceDir, outputJsonPath, realModel, threshold, strict, shadow };
 }
 
 async function main(): Promise<void> {
@@ -73,6 +78,8 @@ async function main(): Promise<void> {
     results.length > 0 ? results.reduce((sum, r) => sum + r.score, 0) / results.length : 0;
   const gatePass = benchmarkPassesThreshold(results, opts.threshold);
 
+  const shadowReport = opts.shadow ? runShadowReplay(loadShadowFixtures()) : undefined;
+
   const payload = {
     generatedAt: new Date().toISOString(),
     workspaceDir: opts.workspaceDir,
@@ -88,12 +95,16 @@ async function main(): Promise<void> {
       category: t.category,
       description: t.description,
     })),
+    ...(shadowReport ? { shadow: shadowReport.summary } : {}),
   };
 
   await fs.mkdir(path.dirname(opts.outputJsonPath), { recursive: true });
   await fs.writeFile(opts.outputJsonPath, JSON.stringify(payload, null, 2), "utf8");
 
   console.log(buildBenchmarkReportMarkdown(results, BUILTIN_BENCHMARK_TASKS));
+  if (shadowReport) {
+    console.log(shadowReport.summary.reportZh);
+  }
   console.log(`[LawMind Benchmark] wrote ${opts.outputJsonPath}`);
   console.log(
     `[LawMind Benchmark] avg=${(avgScore * 100).toFixed(1)}% gate=${gatePass ? "pass" : "fail"} threshold=${(opts.threshold * 100).toFixed(0)}%`,

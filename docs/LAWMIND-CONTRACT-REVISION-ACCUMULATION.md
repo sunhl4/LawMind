@@ -54,7 +54,7 @@ workspace/learning/contract-revisions/<revisionId>/
 
 **用途**：配置「批量合同材料」所在目录（相对工作区根）。桌面壳在启动时会拉取该值；当对话引用为**整目录**或路径落在该目录下时，**发送消息**可在发往模型的正文前附加 **「合同修订积累索引」**（来自 `GET /api/learning/contract-revisions`），便于 Agent 对照历史定稿与要点（用户气泡仍显示原文）。
 
-**刻意不做**：在 **设置 → 工作区与项目** 或文件树右键提供「批量合同目录」编辑器（避免功能堆叠；与 [LawMind 工程记忆](/LAWMIND-PROJECT-MEMORY) 中「合同修订积累与 UI 克制」一致）。需要该能力时由运维/脚本调用 `POST /api/workspace/desk-settings`，或直接编辑上述 JSON。
+**刻意不做**：在 **设置 → 工作区与项目** 或文件树右键提供「批量合同目录」编辑器（避免功能堆叠）。需要该能力时由运维/脚本调用 `POST /api/workspace/desk-settings`，或直接编辑上述 JSON。
 
 ---
 

@@ -13,11 +13,21 @@ export type HealthPayload = {
   ok?: boolean;
   /** 主对话模型 API 是否已配置（来自 GET /api/health） */
   modelConfigured?: boolean;
+  /** 是否允许「用模型起草」偏好（设置→模型检索） */
+  draftWithModelEnabled?: boolean;
+  /** 当前运行态是否已激活「用模型起草」（需已配置模型） */
+  draftWithModelActive?: boolean;
   retrievalMode?: string;
   dualLegalConfigured?: boolean;
   webSearchApiKeyConfigured?: boolean;
   modelName?: string | null;
   modelEnvFileExists?: boolean;
+  lawmindDaemon?: {
+    enabled?: boolean;
+    running?: boolean;
+    pid?: number;
+    lastTickAt?: string;
+  };
   edition?: {
     id?: string;
     label?: string;
@@ -83,6 +93,8 @@ export type HealthPayload = {
       knowledgeRows?: number;
       lastRebuildAt?: string;
       truncated?: boolean;
+      stale?: boolean;
+      staleReason?: "index_missing" | "last_rebuild_unknown" | "older_than_24h";
     };
     p2?: {
       toolSandbox?: {
@@ -163,6 +175,12 @@ export type HealthPayload = {
     };
     fleetPlaybooksLoaded?: boolean;
     fleetPlaybookCount?: number;
+    judgmentHardControls?: {
+      intakeSoftAsk?: boolean;
+      updateDraftAmplitudeSoft?: boolean;
+      emptyRedlineHard?: boolean;
+      sendEmailApprovalHard?: boolean;
+    };
   };
   citationMode?: "grounded" | "assisted" | "off";
   citationModeActive?: boolean;
@@ -172,6 +190,12 @@ export type HealthPayload = {
   fleetPlaybookCount?: number;
   agentMandatoryRulesActive?: boolean;
   agentMandatoryRulesTruncated?: boolean;
+  promptSections?: Array<{
+    id: string;
+    title: string;
+    always: boolean;
+    cache?: "static" | "session" | "turn";
+  }>;
   capabilityEnvelope?: {
     contextTokens?: number | null;
     maxOutputTokens?: number | null;
@@ -253,6 +277,7 @@ export type GateHistoryItem = {
     gate: string;
     decision: string;
     reason?: string;
+    category?: "safety_hard" | "judgment_soft";
   }>;
 };
 

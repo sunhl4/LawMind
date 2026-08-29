@@ -45,7 +45,8 @@ export async function reviewDraftInCli(
     }
 
     const reviewer = (await rl.question("审核人标识(默认 lawyer:cli): ")).trim() || "lawyer:cli";
-    draft.reviewStatus = "approved";
+    // 审核态权威写口是 deliverable stamp（engine.review / applyDeliverableReviewStamp）；
+    // CLI 只回传「通过 + 审核人」意图，不直接改写 reviewStatus——由调用方走 engine.review 落戳。
     draft.reviewedBy = reviewer;
     draft.reviewedAt = new Date().toISOString();
     return { ok: true, draft };

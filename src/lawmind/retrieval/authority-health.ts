@@ -56,9 +56,7 @@ export type AuthorityCorpusSummary = {
 };
 
 /** Ready for Doctor probe / settings actions (sample-ready or commercial configured). */
-export function isAuthorityCorpusReady(
-  status: AuthorityCorpusConfigStatus | string | undefined | null,
-): boolean {
+export function isAuthorityCorpusReady(status: string | undefined | null): boolean {
   return status === "configured" || status === "sample-ready";
 }
 
@@ -185,9 +183,15 @@ export function buildAuthorityCorpusSummary(opts?: {
       : stats.externalCorpus
         ? "configured"
         : "sample-ready";
-    const liveReady = openSummary.readyIds.filter((id) => id === "npc_flk" || id === "caseopen");
-    const liveNote =
-      liveReady.length > 0 ? ` 已启用直播：${liveReady.join("+")}。` : "";
+    const liveReady = openSummary.readyIds.filter(
+      (id) =>
+        id === "npc_flk" ||
+        id === "caseopen" ||
+        id === "courtlistener" ||
+        id === "eurlex" ||
+        id === "egov_jp",
+    );
+    const liveNote = liveReady.length > 0 ? ` 已启用直播：${liveReady.join("+")}。` : "";
     return {
       configured: ok,
       status,
@@ -198,7 +202,7 @@ export function buildAuthorityCorpusSummary(opts?: {
       message: ok
         ? stats.externalCorpus
           ? `开源权威已就绪：本地语料 ${stats.recordCount} 条（含外部 CORPUS；许可由你自行确认）。${openSummary.message}.${liveNote}闭源法宝/Lexis 另见手动接入。`
-          : `演示语料就绪：内置 sample ${stats.recordCount} 条（非正式完整法库；许可仅供演示检索，正式引用请核对官方法条）。可选 LAWMIND_OPEN_LAW_CORPUS 扩充；LAWMIND_OPEN_LAW_NPC=1 / LAWMIND_OPEN_LAW_CASEOPEN=1 启用直播。${liveNote}`
+          : `演示语料就绪：内置 sample ${stats.recordCount} 条（非正式完整法库；许可仅供演示检索，正式引用请核对官方法条）。可选 LAWMIND_OPEN_LAW_CORPUS 扩充；NPC/caseopen/CourtListener/EUR-Lex/e-Gov 直播均需显式启用。${liveNote}`
         : "开源语料未加载：请检查内置 sample 或 LAWMIND_OPEN_LAW_CORPUS。",
       envKey: ENV_KEY,
       authEnvKey: AUTH_ENV_KEY,

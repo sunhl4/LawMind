@@ -34,11 +34,18 @@ describe("renderPptx", () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
-  it("rejects when not approved", async () => {
-    const draft = minimalDraft({ reviewStatus: "pending" });
+  it("rejects when rejected", async () => {
+    const draft = minimalDraft({ reviewStatus: "rejected" });
     const result = await renderPptx(draft, tmpDir);
     expect(result.ok).toBe(false);
-    expect(result.error).toContain("未通过审核");
+    expect(result.error).toContain("已驳回");
+  });
+
+  it("writes a .pptx file when pending", async () => {
+    const draft = minimalDraft({ reviewStatus: "pending" });
+    const result = await renderPptx(draft, tmpDir);
+    expect(result.ok).toBe(true);
+    expect(result.outputPath).toMatch(/\.pptx$/);
   });
 
   it("writes a .pptx file when approved", async () => {

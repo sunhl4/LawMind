@@ -44,6 +44,7 @@ describe("workspace-workflow-templates", () => {
         schedulable: false,
         triggerPaths: undefined,
         kind: "office",
+        outbound: false,
       },
     ]);
 
@@ -56,6 +57,24 @@ describe("workspace-workflow-templates", () => {
     });
     expect(w.steps[0].task).toBe("Hello m-1");
     expect(w.createdBy).toBe("boss");
+  });
+
+  it("marks outbound templates when steps leave the lawyer", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "lm-wf-out-"));
+    const wfDir = path.join(root, "lawmind", "workflows");
+    fs.mkdirSync(wfDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(wfDir, "send.json"),
+      JSON.stringify({
+        id: "send-out",
+        name: "外发",
+        description: "准备外发",
+        steps: [{ stepId: "a", assignee: "asst1", task: "prepare_outbound_mail", dependsOn: [] }],
+      }),
+      "utf8",
+    );
+    const list = listWorkspaceWorkflowTemplates(root);
+    expect(list[0]?.outbound).toBe(true);
   });
 
   it("rejects path traversal in template id", () => {

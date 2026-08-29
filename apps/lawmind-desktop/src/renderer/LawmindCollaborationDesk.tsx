@@ -10,7 +10,7 @@ import {
 } from "./LawmindCollaborationComposeModelRail";
 import { LawmindCollabDelegationCards } from "./LawmindCollabDelegationCards";
 import { isSelectedModelVerified } from "./lawmind-model-verify";
-import type { CollaborationDeskTab } from "./lawmind-agents-desk";
+import type { AgentsWorkflowFocusTarget, CollaborationDeskTab } from "./lawmind-agents-desk";
 
 export type { CollaborationDeskTab } from "./lawmind-agents-desk";
 
@@ -31,6 +31,9 @@ type Props = {
   assistantDisplayById?: Record<string, string>;
   onReconnectLocalService?: () => void | Promise<void>;
   localServiceReconnecting?: boolean;
+  /** 交办结果「查看流程」深链。 */
+  workflowFocus?: AgentsWorkflowFocusTarget | null;
+  onWorkflowFocusConsumed?: () => void;
   /** When true, chrome (title + tabs) is owned by「在办」parent. */
   embedded?: boolean;
 };
@@ -53,6 +56,8 @@ export function LawmindCollaborationDesk(props: Props): ReactNode {
     assistantDisplayById,
     onReconnectLocalService,
     localServiceReconnecting = false,
+    workflowFocus = null,
+    onWorkflowFocusConsumed,
     embedded = false,
   } = props;
 
@@ -89,9 +94,6 @@ export function LawmindCollaborationDesk(props: Props): ReactNode {
         <header className="lm-collab-desk-header">
           <div className="lm-collab-desk-intro">
             <h1 className="lm-collab-desk-title">交出去的活</h1>
-            <p className="lm-collab-desk-lead">
-              看交办办到哪一步、拿结果或撤销重派。请从顶部「在办」进入本页。
-            </p>
           </div>
           <nav className="lm-tabs lm-collab-desk-tabs" aria-label="在办分区">
             <button
@@ -164,9 +166,6 @@ export function LawmindCollaborationDesk(props: Props): ReactNode {
               </ul>
               <h2 className="lm-collab-desk-panel-heading">审批与拦截记录</h2>
               <LawmindGateHistoryTimeline items={gateHistory} formatRelativeTime={formatRelativeTime} />
-              <p className="lm-meta lm-collab-meeting-hint">
-                案件或临时讨论请到顶栏「会议室」；此处是跨会话交办与审批拦截的流水记录。
-              </p>
             </section>
           ) : null}
         </div>
@@ -182,10 +181,12 @@ export function LawmindCollaborationDesk(props: Props): ReactNode {
               workflowModelLabel={workflowModelLabel}
               onReconnectLocalService={onReconnectLocalService}
               localServiceReconnecting={localServiceReconnecting}
+              workflowFocus={workflowFocus}
+              onWorkflowFocusConsumed={onWorkflowFocusConsumed}
             />
           ) : (
             <div className="lm-callout lm-callout-warn lm-collab-desk-workflows-config" role="status">
-              <p className="lm-callout-body">请先完成本地 API 与项目连接，再按流程办理。</p>
+              <p className="lm-callout-body">请先连接。</p>
             </div>
           )}
         </div>
@@ -219,10 +220,15 @@ function gateDecisionBadgeClass(decision: string): string {
 function gateNameLabel(gate: string): string {
   const map: Record<string, string> = {
     clarification_gate: "澄清",
-    dangerous_tool_gate: "危险工具",
+    intake_gate: "交办问清",
+    dangerous_tool_gate: "需确认操作",
     approval_gate: "审批",
     acceptance_gate: "出稿检查",
     reasoning_gate: "推理",
+    redline_hunks_gate: "空修订",
+    citation_integrity_gate: "引用核对",
+    outbound_privilege_gate: "特权确认",
+    outbound_recipient_gate: "收件人确认",
   };
   return map[gate] ?? gate;
 }
@@ -249,8 +255,21 @@ function LawmindGateHistoryTimeline(props: {
                 <span
                   key={`${row.eventId}-${gate.gate}-${idx}`}
                   className={gateDecisionBadgeClass(gate.decision)}
+                  title={
+                    gate.category === "judgment_soft"
+                      ? "判断类（软）"
+                      : gate.category === "safety_hard"
+                        ? "安全硬门禁"
+                        : undefined
+                  }
+                  data-gate-category={gate.category ?? undefined}
                 >
                   {gateNameLabel(gate.gate)}
+                  {gate.category === "judgment_soft"
+                    ? " · 软"
+                    : gate.category === "safety_hard"
+                      ? " · 硬"
+                      : ""}
                 </span>
               ))}
             </div>

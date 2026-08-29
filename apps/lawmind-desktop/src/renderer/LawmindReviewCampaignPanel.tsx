@@ -225,8 +225,16 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
     <section className="lm-review-campaign" aria-label="审查专案组" data-testid="lm-review-campaign">
       <header className="lm-review-campaign-head">
         <div>
-          <span className="lm-assignment-kicker">文书台 · 专案组</span>
+          <span className="lm-assignment-kicker">改稿 · 专案组</span>
           <strong>审查专案组</strong>
+          {campaign?.reviewBrief && (campaign.reviewBrief.stance || campaign.reviewBrief.focus) ? (
+            <p className="lm-meta" data-testid="lm-review-campaign-brief">
+              沿用交办口径
+              {campaign.reviewBrief.stance ? ` · 立场 ${campaign.reviewBrief.stance}` : ""}
+              {campaign.reviewBrief.focus ? ` · 重点 ${campaign.reviewBrief.focus}` : ""}
+              {campaign.reviewBrief.depth ? ` · ${campaign.reviewBrief.depth}` : ""}
+            </p>
+          ) : null}
         </div>
         <div className="lm-review-campaign-actions">
           <button
@@ -322,7 +330,7 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
           </div>
         </div>
       ) : (
-        <p className="lm-meta">选择 Playbook 后一键跑多角色，聚合 Safety Score 与谈判优先级。</p>
+        <p className="lm-meta">选 Playbook 开跑。</p>
       )}
 
       <label className="lm-settings-row lm-settings-row-check lm-review-campaign-fast">

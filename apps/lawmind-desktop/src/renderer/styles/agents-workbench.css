@@ -284,8 +284,11 @@ button.lm-agents-wb-pill:hover {
   /* 左栏即拍板目录（全局案件侧栏已隐藏）；给足宽度给分组与案件副标 */
   display: grid;
   grid-template-columns: minmax(260px, 300px) minmax(0, 1fr);
+  /* 单行吃满剩余高度，避免右栏随清单内容撑高后把底部签批 dock 裁出视口 */
+  grid-template-rows: minmax(0, 1fr);
   flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
 }
 
 /* 待补充：队列 | 带入轨 | 办理表单 */
@@ -654,6 +657,8 @@ button.lm-agents-wb-pill:hover {
   flex-direction: column;
   min-height: 0;
   min-width: 0;
+  height: 100%;
+  overflow: hidden;
   background: var(--bg);
 }
 
@@ -1029,6 +1034,26 @@ button.lm-agents-wb-pill:hover {
   min-width: 9.5rem;
 }
 
+.lm-fleet-dock-more {
+  position: relative;
+}
+
+.lm-fleet-dock-more > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.lm-fleet-dock-more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.lm-fleet-dock-more-menu {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
 .lm-tool-args-edit-backdrop {
   z-index: 80;
 }
@@ -1334,4 +1359,8 @@ html.lm-theme-dark .lm-tool-args-edit-textarea {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 8px;
+}
+
+.lm-agents-wb-loading {
+  padding: 16px 20px;
 }

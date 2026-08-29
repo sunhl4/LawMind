@@ -32,6 +32,8 @@ export const READONLY_AGENT_TOOL_NAMES = new Set<string>([
   "get_delegation_result",
   "check_conflict_of_interest",
   "list_more_tools",
+  "analyze_spreadsheet",
+  "calculate",
 ]);
 
 /**

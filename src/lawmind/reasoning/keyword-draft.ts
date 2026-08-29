@@ -2,12 +2,32 @@
  * Rule-based reasoning: ResearchBundle -> ArtifactDraft
  */
 
+import type { ResearchOutline } from "../research/research-outline.js";
+import { outlineClarificationQuestion } from "../research/research-outline.js";
 import type { ArtifactDraft, ArtifactSection, ResearchBundle, TaskIntent } from "../types.js";
+import {
+  buildComplianceReportSections,
+  buildLearningBriefSections,
+  inferComplianceTitle,
+  inferLearningTitle,
+} from "./compliance-learning-draft.js";
 import {
   buildEsgReportSections,
   buildGeneralReportSections,
   inferEsgReportTitle,
 } from "./esg-report-draft.js";
+import {
+  buildOutlineOnlySections,
+  isOutlineGatedDeliverable,
+  resolveOutlineForDraft,
+  trainingDesenseGateOrThrow,
+} from "./research-draft-gates.js";
+import {
+  buildTrainingPptSections,
+  inferTrainingDeckVariant,
+  inferTrainingTitle,
+  trainingTemplateIdForVariant,
+} from "./training-ppt-draft.js";
 
 export type BuildDraftParams = {
   intent: TaskIntent;
@@ -16,6 +36,8 @@ export type BuildDraftParams = {
   templateId?: string;
   /** LawMind data root for draft-with-model preference (desktop models.json). */
   lawMindRoot?: string;
+  /** Workspace root — enables outline persistence + matter desense scan. */
+  workspaceDir?: string;
 };
 
 function sectionFromClaims(
@@ -107,7 +129,10 @@ function clarificationTail(intent: TaskIntent): string {
 }
 
 function defaultDraftTitle(intent: TaskIntent): string {
-  if (intent.kind === "draft.ppt") {
+  if (intent.deliverableType === "ppt.training" || intent.kind === "draft.ppt") {
+    if (intent.deliverableType === "ppt.training") {
+      return inferTrainingTitle(intent);
+    }
     return "LawMind 客户汇报草稿";
   }
   if (intent.deliverableType === "contract.rental") {
@@ -117,13 +142,52 @@ function defaultDraftTitle(intent: TaskIntent): string {
     return "合同草案";
   }
   if (intent.deliverableType === "letter.demand") {
+    return "催告函";
+  }
+  if (intent.deliverableType === "letter.counsel") {
     return "律师函";
+  }
+  if (intent.deliverableType === "letter.reply") {
+    return "回函稿";
+  }
+  if (intent.deliverableType === "litigation.complaint") {
+    return "民事起诉状";
+  }
+  if (intent.deliverableType === "litigation.answer") {
+    return "民事答辩状";
+  }
+  if (intent.deliverableType === "litigation.brief") {
+    return "代理词";
+  }
+  if (intent.deliverableType === "memo.opinion") {
+    return "法律意见书";
+  }
+  if (intent.deliverableType === "memo.internal") {
+    return "内部备忘";
+  }
+  if (intent.deliverableType === "matter.timeline") {
+    return "案件时间线";
+  }
+  if (intent.deliverableType === "matter.exhibit_list") {
+    return "证据目录";
+  }
+  if (intent.deliverableType === "meeting.minutes") {
+    return "会议纪要";
+  }
+  if (intent.deliverableType === "contract.nda") {
+    return "保密协议";
   }
   if (isContractReviewIntent(intent)) {
     return "合同审查意见书";
   }
   if (intent.deliverableType === "report.esg") {
     return inferEsgReportTitle(intent);
+  }
+  if (intent.deliverableType === "report.compliance") {
+    return inferComplianceTitle(intent);
+  }
+  if (intent.deliverableType === "report.learning") {
+    return inferLearningTitle(intent);
   }
   if (intent.deliverableType === "report.general") {
     const trimmed = intent.summary?.trim();
@@ -133,11 +197,38 @@ function defaultDraftTitle(intent: TaskIntent): string {
 }
 
 function defaultTemplateId(intent: TaskIntent): string {
+  if (intent.deliverableType === "ppt.training") {
+    return trainingTemplateIdForVariant(inferTrainingDeckVariant(intent));
+  }
   if (intent.output === "pptx") {
     return "ppt/client-brief-default";
   }
-  if (intent.deliverableType === "letter.demand") {
+  if (
+    intent.deliverableType === "letter.demand" ||
+    intent.deliverableType === "letter.counsel" ||
+    intent.deliverableType === "letter.reply"
+  ) {
     return "word/demand-letter-default";
+  }
+  if (
+    intent.deliverableType === "litigation.outline" ||
+    intent.deliverableType === "litigation.complaint" ||
+    intent.deliverableType === "litigation.answer" ||
+    intent.deliverableType === "litigation.brief"
+  ) {
+    return "word/legal-memo-default";
+  }
+  if (intent.deliverableType === "contract.nda") {
+    return "word/contract-default";
+  }
+  if (
+    intent.deliverableType === "memo.opinion" ||
+    intent.deliverableType === "memo.internal" ||
+    intent.deliverableType === "matter.timeline" ||
+    intent.deliverableType === "matter.exhibit_list" ||
+    intent.deliverableType === "meeting.minutes"
+  ) {
+    return "word/legal-memo-default";
   }
   if (
     intent.deliverableType === "contract.rental" ||
@@ -148,7 +239,12 @@ function defaultTemplateId(intent: TaskIntent): string {
   if (isContractReviewIntent(intent)) {
     return "word/contract-default";
   }
-  if (intent.deliverableType === "report.esg" || intent.deliverableType === "report.general") {
+  if (
+    intent.deliverableType === "report.esg" ||
+    intent.deliverableType === "report.general" ||
+    intent.deliverableType === "report.compliance" ||
+    intent.deliverableType === "report.learning"
+  ) {
     return "word/legal-memo-default";
   }
   return "word/legal-memo-default";
@@ -242,24 +338,231 @@ function buildDemandLetterSections(intent: TaskIntent): ArtifactSection[] {
   const supplement = clarificationTail(intent);
   return [
     {
-      heading: "抬头",
-      body: `${buildPlaceholder("收函对象")}:`,
+      heading: "收函人",
+      body: `致：${buildPlaceholder("收函对象")}`,
+    },
+    {
+      heading: "事实背景",
+      body: `我方接受 ${buildPlaceholder("委托人名称")} 的委托，现就 ${buildPlaceholder("违约或催告事由")} 函告如下：\n\n${buildPlaceholder("事实经过")} ${supplement}`,
+    },
+    {
+      heading: "本所主张",
+      body: `请你方立即：\n1. ${buildPlaceholder("核心主张一")}\n2. ${buildPlaceholder("核心主张二")}`,
+    },
+    {
+      heading: "履行期限",
+      body: `请你方于收到本函之日起 ${buildPlaceholder("履行期限")} 内完成上述事项。`,
+    },
+    {
+      heading: "法律后果",
+      body: `逾期未履行的，我方将依法采取进一步措施，并保留追索违约责任、解除合同及索赔的权利。${buildPlaceholder("其他权利保留")}`,
+    },
+    {
+      heading: "落款",
+      body: `${buildPlaceholder("律师事务所名称")}\n经办律师：${buildPlaceholder("律师姓名")}\n日期：${buildPlaceholder("发函日期")}`,
+    },
+  ];
+}
+
+function buildCounselLetterSections(intent: TaskIntent): ArtifactSection[] {
+  const supplement = clarificationTail(intent);
+  return [
+    {
+      heading: "收函人",
+      body: `致：${buildPlaceholder("收函对象")}`,
     },
     {
       heading: "事实背景",
       body: `我方接受 ${buildPlaceholder("委托人名称")} 的委托，现就 ${buildPlaceholder("争议事项")} 正式函告如下：\n\n${buildPlaceholder("事实经过")} ${supplement}`,
     },
     {
-      heading: "我方主张",
-      body: `基于双方合同/法律关系及现有证据，你方应立即履行以下义务：\n1. ${buildPlaceholder("核心主张一")}\n2. ${buildPlaceholder("核心主张二")}`,
+      heading: "请求事项",
+      body: `基于双方法律关系及现有证据，请你方：\n1. ${buildPlaceholder("核心请求一")}\n2. ${buildPlaceholder("核心请求二")}`,
     },
     {
-      heading: "履行期限与法律后果",
-      body: `请你方于收到本函之日起 ${buildPlaceholder("履行期限")} 内完成上述义务。逾期未履行的，我方将根据法律规定及委托人授权，采取包括但不限于诉讼、仲裁、财产保全等措施，由此产生的一切不利后果由你方承担。`,
+      heading: "履行期限",
+      body: `请你方于收到本函之日起 ${buildPlaceholder("履行期限")} 内完成上述事项。逾期未履行的，我方将依法采取进一步措施。`,
     },
     {
       heading: "落款",
       body: `${buildPlaceholder("律师事务所名称")}\n经办律师：${buildPlaceholder("律师姓名")}\n日期：${buildPlaceholder("发函日期")}`,
+    },
+  ];
+}
+
+function buildReplyLetterSections(intent: TaskIntent): ArtifactSection[] {
+  const supplement = clarificationTail(intent);
+  return [
+    {
+      heading: "来函要点",
+      body: `贵方于 ${buildPlaceholder("来函日期")} 来函所涉主要事项：${buildPlaceholder("来函要点")} ${supplement}`,
+    },
+    {
+      heading: "我方立场",
+      body: `经核查，我方意见如下：\n1. ${buildPlaceholder("答复意见一")}\n2. ${buildPlaceholder("答复意见二")}`,
+    },
+    {
+      heading: "下一步",
+      body: `请贵方于 ${buildPlaceholder("期限")} 内确认上述安排。`,
+    },
+    {
+      heading: "落款",
+      body: `${buildPlaceholder("律师事务所名称")}\n经办律师：${buildPlaceholder("律师姓名")}\n日期：${buildPlaceholder("发函日期")}`,
+    },
+  ];
+}
+
+function buildComplaintSections(intent: TaskIntent): ArtifactSection[] {
+  const supplement = clarificationTail(intent);
+  return [
+    {
+      heading: "当事人",
+      body: `原告：${buildPlaceholder("原告名称")}\n被告：${buildPlaceholder("被告名称")}${supplement}`,
+    },
+    {
+      heading: "诉讼请求",
+      body: `请求判令：\n1. ${buildPlaceholder("诉讼请求一")}\n2. ${buildPlaceholder("诉讼请求二")}`,
+    },
+    {
+      heading: "事实与理由",
+      body: buildPlaceholder("事实与理由"),
+    },
+    {
+      heading: "此致",
+      body: `${buildPlaceholder("人民法院名称")}\n\n具状人：${buildPlaceholder("原告名称")}\n日期：${buildPlaceholder("具状日期")}`,
+    },
+  ];
+}
+
+function buildAnswerSections(intent: TaskIntent): ArtifactSection[] {
+  const supplement = clarificationTail(intent);
+  return [
+    {
+      heading: "当事人",
+      body: `答辩人：${buildPlaceholder("答辩人名称")}\n被答辩人：${buildPlaceholder("被答辩人名称")}${supplement}`,
+    },
+    {
+      heading: "答辩意见",
+      body: `针对诉请，答辩意见如下：\n1. ${buildPlaceholder("答辩要点一")}\n2. ${buildPlaceholder("答辩要点二")}`,
+    },
+    {
+      heading: "事实与理由",
+      body: buildPlaceholder("事实与理由"),
+    },
+  ];
+}
+
+function buildBriefSections(intent: TaskIntent): ArtifactSection[] {
+  const supplement = clarificationTail(intent);
+  return [
+    {
+      heading: "争点",
+      body: `本案主要争点：\n1. ${buildPlaceholder("争点一")}\n2. ${buildPlaceholder("争点二")}${supplement}`,
+    },
+    {
+      heading: "代理意见",
+      body: buildPlaceholder("代理意见正文"),
+    },
+    {
+      heading: "法律依据",
+      body: buildPlaceholder("主要依据与证据"),
+    },
+  ];
+}
+
+function buildOpinionMemoSections(intent: TaskIntent): ArtifactSection[] {
+  const supplement = clarificationTail(intent);
+  return [
+    {
+      heading: "争点",
+      body: `需分析的问题：${buildPlaceholder("法律问题")}${supplement}`,
+    },
+    {
+      heading: "结论",
+      body: buildPlaceholder("简要结论"),
+    },
+    {
+      heading: "依据与引用",
+      body: buildPlaceholder("法条/案例/材料引用"),
+    },
+    {
+      heading: "保留意见",
+      body: `本意见基于现有材料；若事实有变或另有权威文本，结论可能调整。假设：${buildPlaceholder("关键假设")}`,
+    },
+  ];
+}
+
+function buildInternalMemoSections(intent: TaskIntent): ArtifactSection[] {
+  const supplement = clarificationTail(intent);
+  return [
+    {
+      heading: "事项",
+      body: `${buildPlaceholder("事项背景")}${supplement}`,
+    },
+    {
+      heading: "结论",
+      body: `${buildPlaceholder("内部结论")}（本稿不对客户/对方签发）`,
+    },
+    {
+      heading: "待办",
+      body: `- ${buildPlaceholder("下一步待办")}`,
+    },
+  ];
+}
+
+function buildTimelineSections(_intent: TaskIntent): ArtifactSection[] {
+  return [
+    {
+      heading: "时间线",
+      body: `| 日期 | 事实 |\n| --- | --- |\n| ${buildPlaceholder("日期1")} | ${buildPlaceholder("事实1")} |\n| ${buildPlaceholder("日期2")} | ${buildPlaceholder("事实2")} |`,
+    },
+  ];
+}
+
+function buildExhibitListSections(_intent: TaskIntent): ArtifactSection[] {
+  return [
+    {
+      heading: "证据目录",
+      body: `1. ${buildPlaceholder("证据名称")}——证明目的：${buildPlaceholder("证明目的")}\n2. ${buildPlaceholder("证据名称")}——证明目的：${buildPlaceholder("证明目的")}`,
+    },
+  ];
+}
+
+function buildMinutesSections(_intent: TaskIntent): ArtifactSection[] {
+  return [
+    {
+      heading: "出席",
+      body: buildPlaceholder("出席人员"),
+    },
+    {
+      heading: "决议",
+      body: buildPlaceholder("会议决议"),
+    },
+    {
+      heading: "待办",
+      body: `- ${buildPlaceholder("行动项")}（负责人：${buildPlaceholder("负责人")}）`,
+    },
+  ];
+}
+
+function buildNdaSections(intent: TaskIntent): ArtifactSection[] {
+  const supplement = clarificationTail(intent);
+  return [
+    {
+      heading: "合同主体",
+      body: `甲方：${buildPlaceholder("甲方名称")}\n乙方：${buildPlaceholder("乙方名称")}${supplement}`,
+    },
+    {
+      heading: "保密范围",
+      body: `保密信息包括：${buildPlaceholder("保密信息范围")}`,
+    },
+    {
+      heading: "保密期限",
+      body: `保密义务期限：${buildPlaceholder("期限")}`,
+    },
+    {
+      heading: "违约责任",
+      body: buildPlaceholder("违约责任条款"),
     },
   ];
 }
@@ -338,7 +641,11 @@ function buildGeneralSections(bundle: ResearchBundle): ArtifactSection[] {
 function buildDeliverableSections(
   intent: TaskIntent,
   bundle: ResearchBundle,
+  approvedOutline?: ResearchOutline | null,
 ): ArtifactSection[] | null {
+  if (intent.deliverableType === "ppt.training") {
+    return buildTrainingPptSections(intent, bundle, approvedOutline);
+  }
   if (!isDeliverableDraftIntent(intent)) {
     return null;
   }
@@ -351,8 +658,47 @@ function buildDeliverableSections(
   if (intent.deliverableType === "letter.demand") {
     return buildDemandLetterSections(intent);
   }
+  if (intent.deliverableType === "letter.counsel") {
+    return buildCounselLetterSections(intent);
+  }
+  if (intent.deliverableType === "letter.reply") {
+    return buildReplyLetterSections(intent);
+  }
+  if (intent.deliverableType === "litigation.complaint") {
+    return buildComplaintSections(intent);
+  }
+  if (intent.deliverableType === "litigation.answer") {
+    return buildAnswerSections(intent);
+  }
+  if (intent.deliverableType === "litigation.brief") {
+    return buildBriefSections(intent);
+  }
+  if (intent.deliverableType === "memo.opinion") {
+    return buildOpinionMemoSections(intent);
+  }
+  if (intent.deliverableType === "memo.internal") {
+    return buildInternalMemoSections(intent);
+  }
+  if (intent.deliverableType === "matter.timeline") {
+    return buildTimelineSections(intent);
+  }
+  if (intent.deliverableType === "matter.exhibit_list") {
+    return buildExhibitListSections(intent);
+  }
+  if (intent.deliverableType === "meeting.minutes") {
+    return buildMinutesSections(intent);
+  }
+  if (intent.deliverableType === "contract.nda") {
+    return buildNdaSections(intent);
+  }
   if (intent.deliverableType === "report.esg") {
     return buildEsgReportSections(intent, bundle);
+  }
+  if (intent.deliverableType === "report.compliance") {
+    return buildComplianceReportSections(intent, bundle, approvedOutline);
+  }
+  if (intent.deliverableType === "report.learning") {
+    return buildLearningBriefSections(intent, bundle, approvedOutline);
   }
   if (intent.deliverableType === "report.general") {
     return buildGeneralReportSections(intent, bundle);
@@ -372,16 +718,56 @@ export function buildDraft(params: BuildDraftParams): ArtifactDraft {
 
   const templateId = params.templateId ?? intent.templateId ?? defaultTemplateId(intent);
 
-  const sections =
-    buildDeliverableSections(intent, bundle) ??
-    (isContractReviewIntent(intent)
-      ? buildContractReviewSections(bundle)
-      : buildGeneralSections(bundle));
+  if (intent.deliverableType === "ppt.training") {
+    trainingDesenseGateOrThrow({
+      workspaceDir: params.workspaceDir,
+      intent,
+    });
+  }
+
+  let sections: ArtifactSection[];
+  let clarificationQuestions = intent.clarificationQuestions;
+  let draftTitle = title;
+
+  if (isOutlineGatedDeliverable(intent.deliverableType)) {
+    const { outline, approved } = resolveOutlineForDraft({
+      workspaceDir: params.workspaceDir,
+      intent,
+      bundle,
+    });
+    if (!approved) {
+      sections = buildOutlineOnlySections(outline);
+      draftTitle = `${title}（大纲待确认）`;
+      const outlineQ = outlineClarificationQuestion(outline);
+      clarificationQuestions = [
+        ...(clarificationQuestions ?? []).filter((q) => q.key !== "research_outline_confirm"),
+        ...(outlineQ ? [outlineQ] : []),
+      ];
+    } else {
+      clarificationQuestions = clarificationQuestions?.filter(
+        (q) => q.key !== "research_outline_confirm",
+      );
+      if (clarificationQuestions && clarificationQuestions.length === 0) {
+        clarificationQuestions = undefined;
+      }
+      sections =
+        buildDeliverableSections(intent, bundle, outline) ??
+        (isContractReviewIntent(intent)
+          ? buildContractReviewSections(bundle)
+          : buildGeneralSections(bundle));
+    }
+  } else {
+    sections =
+      buildDeliverableSections(intent, bundle) ??
+      (isContractReviewIntent(intent)
+        ? buildContractReviewSections(bundle)
+        : buildGeneralSections(bundle));
+  }
 
   return {
     taskId: intent.taskId,
     matterId: intent.matterId,
-    title,
+    title: draftTitle,
     output: intent.output === "pptx" ? "pptx" : intent.output === "markdown" ? "markdown" : "docx",
     templateId,
     deliverableType: intent.deliverableType,
@@ -389,7 +775,7 @@ export function buildDraft(params: BuildDraftParams): ArtifactDraft {
     audience: intent.audience,
     sections,
     reviewNotes: [],
-    clarificationQuestions: intent.clarificationQuestions,
+    clarificationQuestions,
     acceptanceCriteria: intent.acceptanceCriteria,
     reviewStatus: "pending",
     createdAt: new Date().toISOString(),

@@ -2,7 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { CLAUSE_PLAYBOOK_RELATIVE } from "../memory/playbook-learning.js";
 import type { ComposeContextPin } from "../platform/compose-context-pin.js";
+import { isWordRevisionTurn } from "../platform/word-revision-instruction.js";
 import { getFleetPlaybook } from "../review-campaign/playbooks.js";
+import { deliverableTypeFromInstruction } from "../router/intake-gate.js";
 
 const PINNED_EXCERPT_MAX_CHARS = 8_000;
 
@@ -42,6 +44,25 @@ function extractMarkdownSection(content: string, heading: string): string | null
   const section = nextHeading >= 0 ? rest.slice(0, nextHeading) : rest;
   const trimmed = section.trim();
   return trimmed || null;
+}
+
+/** Contract works always see the clause playbook — lawyer does not hunt settings. */
+export function withContractPlaybookPin(
+  pins: ComposeContextPin[] | undefined,
+  instruction: string,
+): ComposeContextPin[] {
+  const current = pins ?? [];
+  if (current.some((pin) => pin.pinKind === "clause")) {
+    return current;
+  }
+  if (isWordRevisionTurn({ instruction, pins: current })) {
+    return current;
+  }
+  const type = deliverableTypeFromInstruction(instruction);
+  if (!type?.startsWith("contract.")) {
+    return current;
+  }
+  return [...current, { pinKind: "clause", scope: "full" }];
 }
 
 export function resolvePinnedContextSummary(opts: {

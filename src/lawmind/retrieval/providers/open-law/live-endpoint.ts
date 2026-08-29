@@ -1,5 +1,5 @@
 /**
- * URL safety for open-law live adapters (NPC / caseopen).
+ * URL safety for open-law live adapters (NPC / caseopen / CourtListener / EUR-Lex / e-Gov).
  * Reuses commercial SSRF guards; optionally allows loopback for self-hosted caseopen.
  */
 
@@ -14,7 +14,10 @@ import {
 } from "../../authority-url-guard.js";
 
 function isLoopbackHostname(hostname: string): boolean {
-  const h = hostname.trim().toLowerCase().replace(/^\[|\]$/g, "");
+  const h = hostname
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "");
   return (
     h === "localhost" ||
     h === "127.0.0.1" ||

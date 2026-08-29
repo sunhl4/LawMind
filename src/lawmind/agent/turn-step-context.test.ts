@@ -79,4 +79,105 @@ describe("turn-step-context", () => {
     expect(step.toolNames).toContain("analyze_document");
     expect(step.toolNames).not.toContain("write_document");
   });
+
+  it("lockToAllowNames keeps playbook tools and drops disclosed search", () => {
+    const registry = new ToolRegistry();
+    for (const name of [
+      "analyze_document",
+      "update_draft",
+      "search_workspace",
+      "list_more_tools",
+    ]) {
+      registry.register({
+        definition: { name, description: name, category: "system", parameters: {} },
+        async execute() {
+          return { ok: true };
+        },
+      });
+    }
+    const session: AgentSession = {
+      sessionId: "s",
+      actorId: "a",
+      turns: [],
+      conversationHistory: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      disclosedToolNames: ["search_workspace"],
+    };
+    const step = rebuildStepContext({
+      session,
+      registry,
+      turnContext: freezeTurnContext({
+        sessionId: "s",
+        turnId: "t",
+        permissionMode: "standard",
+        model: "demo",
+        actorId: "a",
+        sandboxEnabled: false,
+        allowNames: ["analyze_document", "update_draft"],
+        lockToAllowNames: true,
+      }),
+    });
+    expect(step.toolNames).toEqual(["analyze_document", "update_draft"]);
+  });
+
+  it("drops a successful analyze_document from later Word-revision rounds", () => {
+    const registry = new ToolRegistry();
+    for (const name of [
+      "analyze_document",
+      "read_project_file",
+      "update_draft",
+      "apply_surgical_edits",
+      "render_tracked_draft",
+    ]) {
+      registry.register({
+        definition: { name, description: name, category: "system", parameters: {} },
+        async execute() {
+          return { ok: true };
+        },
+      });
+    }
+    const session: AgentSession = {
+      sessionId: "s",
+      actorId: "a",
+      turns: [],
+      conversationHistory: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const turnContext = freezeTurnContext({
+      sessionId: "s",
+      turnId: "t",
+      permissionMode: "standard",
+      model: "demo",
+      actorId: "a",
+      sandboxEnabled: false,
+      allowNames: [
+        "analyze_document",
+        "read_project_file",
+        "update_draft",
+        "apply_surgical_edits",
+        "render_tracked_draft",
+      ],
+      lockToAllowNames: true,
+      wordRevisionTurn: true,
+    });
+    const afterRead = rebuildStepContext({
+      session,
+      registry,
+      turnContext,
+      discoveryCallCounts: { analyze_document: 1 },
+    });
+    expect(afterRead.toolNames).not.toContain("analyze_document");
+    expect(afterRead.toolNames).not.toContain("read_project_file");
+    expect(afterRead.toolNames).toEqual([
+      "apply_surgical_edits",
+      "render_tracked_draft",
+      "update_draft",
+    ]);
+
+    const firstRound = rebuildStepContext({ session, registry, turnContext });
+    expect(firstRound.toolNames).toContain("analyze_document");
+    expect(firstRound.toolNames).toContain("read_project_file");
+  });
 });

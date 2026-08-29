@@ -10,6 +10,7 @@ import {
 
 export { formatClarificationResumeMessage };
 import { isValidMatterId } from "../../../../src/lawmind/cases/matter-id.ts";
+import type { ApprovalRequest, WorkQueueItem } from "../../../../src/lawmind/core/contracts.ts";
 import { apiGetJson } from "./api-client";
 import type { ApprovalResolvePostRequest, ChatResumeRequest } from "./lawmind-api-request-types.ts";
 import { apiPost } from "./lawmind-api-routes.ts";
@@ -74,6 +75,19 @@ export type ActionSummaryPayload = {
     assistantId?: string;
     actions: LawMindRequiresAction[];
   }>;
+  /** 待处理案件审批（与工作队列/任务的契约对齐，消 renderer cast）。 */
+  approvals?: ApprovalRequest[];
+  /** 打开的工作队列条目（含律师拍板类与助手侧工作）。 */
+  queueItems?: WorkQueueItem[];
+  /** 排队/运行中的团队工作流任务。 */
+  jobs?: Array<{
+    jobId: string;
+    workflowId?: string;
+    status: string;
+    matterId?: string;
+    createdAt: string;
+    updatedAt?: string;
+  }>;
   pendingReviewDrafts?: Array<{
     taskId: string;
     matterId?: string;
@@ -92,7 +106,12 @@ export type ActionSummaryPayload = {
     createdAt: string;
     draftTaskId?: string;
     jobId?: string;
-    pendingSend?: { to: string; subject: string; body: string };
+    pendingSend?: {
+      to: string;
+      subject: string;
+      body: string;
+      attachmentRelativePaths?: string[];
+    };
   }>;
 };
 

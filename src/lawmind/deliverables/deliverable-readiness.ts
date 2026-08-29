@@ -5,8 +5,10 @@
 
 import type { DraftCitationIntegrityView } from "../drafts/citation-integrity.js";
 import { citationModeBlocksRender, type CitationMode } from "../policy/citation-mode.js";
-import type { ArtifactDraft } from "../types.js";
-import type { AcceptanceReport } from "./types.js";
+import type { ArtifactDraft, LegalReasoningGraph } from "../types.js";
+import { validateReasoningAgainstSpec } from "./reasoning-validator.js";
+import { getDeliverableSpec } from "./registry.js";
+import type { AcceptanceReport, ReasoningReport } from "./types.js";
 import { validateDraftAgainstSpec } from "./validator.js";
 import {
   buildChecklistView,
@@ -15,7 +17,7 @@ import {
 } from "./verification-checklist.js";
 
 export type DeliverableReadinessBlocker = {
-  code: "not_approved" | "acceptance" | "checklist" | "citation" | "review_pending";
+  code: "not_approved" | "acceptance" | "checklist" | "citation" | "review_pending" | "reasoning";
   message: string;
 };
 
@@ -37,6 +39,8 @@ export function assessDeliverableReadiness(opts: {
   citationMode?: CitationMode;
   /** When true, missing/unanchored citations block export (edition citationGateStrict path). */
   citationGateStrict?: boolean;
+  reasoningGraph?: LegalReasoningGraph;
+  reasoningReport?: ReasoningReport | null;
 }): DeliverableReadiness {
   const {
     draft,
@@ -44,6 +48,8 @@ export function assessDeliverableReadiness(opts: {
     citationIntegrity,
     citationMode = "assisted",
     citationGateStrict = false,
+    reasoningGraph,
+    reasoningReport,
   } = opts;
 
   const acceptance = validateDraftAgainstSpec(draft);
@@ -97,9 +103,27 @@ export function assessDeliverableReadiness(opts: {
     });
   }
 
+  const spec = getDeliverableSpec(draft.deliverableType);
+  let reasoningBlocks = false;
+  if (spec?.reasoningGate?.required) {
+    const report =
+      reasoningReport ?? validateReasoningAgainstSpec(reasoningGraph, draft.deliverableType);
+    if (report.blockerCount > 0 || !report.ready) {
+      reasoningBlocks = true;
+      blockers.push({
+        code: "reasoning",
+        message: "推理检查未过",
+      });
+    }
+  }
+
   const readyToApprove = checklist.complete;
   const readyToExport =
-    status === "approved" && acceptance.ready && checklist.complete && !citationBlocks;
+    status === "approved" &&
+    acceptance.ready &&
+    checklist.complete &&
+    !citationBlocks &&
+    !reasoningBlocks;
 
   let summaryZh: string;
   if (readyToExport) {
@@ -112,6 +136,8 @@ export function assessDeliverableReadiness(opts: {
     summaryZh = "已签批，但验收仍有阻塞——导出将受阻或需明示绕过";
   } else if (status === "approved" && citationBlocks) {
     summaryZh = "已签批，但引用未就绪——严格导出将被拦截";
+  } else if (reasoningBlocks) {
+    summaryZh = "推理检查未过";
   } else {
     summaryZh = blockers.map((b) => b.message).join("；") || "尚未就绪";
   }

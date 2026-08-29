@@ -4,7 +4,12 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { emit } from "../audit/index.js";
 import { rebuildWorkspaceSearchIndex, indexExists } from "./fts-ingest.js";
-import { searchWorkspaceIndex, getSearchIndexStatus } from "./fts-search.js";
+import {
+  computeSearchIndexFreshness,
+  searchWorkspaceIndex,
+  getSearchIndexStatus,
+  SEARCH_INDEX_STALE_AFTER_MS,
+} from "./fts-search.js";
 
 describe("workspace search index", () => {
   const dirs: string[] = [];
@@ -33,5 +38,29 @@ describe("workspace search index", () => {
     expect(search.hits[0]?.source).toBe("audit");
     const status = getSearchIndexStatus(ws);
     expect(status.ready).toBe(true);
+  });
+
+  it("computeSearchIndexFreshness flags missing / old / fresh correctly", () => {
+    const now = Date.parse("2026-08-02T00:00:00.000Z");
+    expect(computeSearchIndexFreshness({ ready: false }, now)).toEqual({
+      stale: true,
+      staleReason: "index_missing",
+    });
+    expect(computeSearchIndexFreshness({ ready: true, lastRebuildAt: undefined }, now).stale).toBe(
+      true,
+    );
+    const old = computeSearchIndexFreshness(
+      {
+        ready: true,
+        lastRebuildAt: new Date(now - SEARCH_INDEX_STALE_AFTER_MS - 1000).toISOString(),
+      },
+      now,
+    );
+    expect(old).toEqual({ stale: true, staleReason: "older_than_24h" });
+    const fresh = computeSearchIndexFreshness(
+      { ready: true, lastRebuildAt: new Date(now - 60_000).toISOString() },
+      now,
+    );
+    expect(fresh.stale).toBe(false);
   });
 });

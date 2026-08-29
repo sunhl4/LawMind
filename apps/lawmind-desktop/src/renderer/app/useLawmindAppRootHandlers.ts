@@ -3,11 +3,11 @@ import type { FileWorkbenchCasesNodeActions } from "../FileWorkbench";
 import {
   resumeChatAction,
   parseRequiresActionsFromResponse,
-  formatClarificationResumeMessage,
+  buildClarificationAnswerMap,
   type LawMindRequiresAction,
   type LawMindRequiresActionDecision,
 } from "../lawmind-requires-action";
-import { errorMessage, messageFromOkFalseBody } from "../api-client";
+import { apiGetJson, errorMessage, messageFromOkFalseBody } from "../api-client";
 import { apiPost } from "../lawmind-api-routes.ts";
 import { displayNameFromImportBasename, suggestMatterIdForImport } from "../../../../../src/lawmind/cases/matter-label.ts";
 import type { AppConfig } from "../lawmind-app-bootstrap";
@@ -93,39 +93,89 @@ export function useLawmindAppRootHandlers(input: UseLawmindAppRootHandlersInput)
       if (!sid) {
         return;
       }
-      if (action.kind === "clarification" && decision === "respond") {
-        const msg = formatClarificationResumeMessage(
-          clarificationDraft ?? {},
-          action.clarificationQuestions ?? [],
-        );
-        await sendChatMessage(msg);
-        void refreshActionSummary();
-        return;
-      }
       setLoading(true);
       setError(null);
       try {
+        // 澄清与工具批准统一走 /api/chat/resume：服务端按 actionId 关闭 interrupt
+        // 并清除跨轮澄清键（普通 chat 消息做不到，会形成双轨）。
         const res = await resumeChatAction(config.apiBase, {
           sessionId: sid,
           actionId: action.id,
           decision,
+          ...(decision === "respond"
+            ? {
+                clarificationAnswers: buildClarificationAnswerMap(
+                  action.clarificationQuestions ?? [],
+                  clarificationDraft ?? {},
+                ),
+              }
+            : {}),
           ...(editedArgs && decision === "edit" ? { editedArgs } : {}),
         });
         const requiresAction = parseRequiresActionsFromResponse(res.requiresAction);
-        setMessagesByAssistant((prev) => ({
-          ...prev,
-          [selectedAssistantId]: [
-            ...(prev[selectedAssistantId] ?? []),
-            {
-              role: "assistant",
-              text: res.reply?.trim() || "已处理您的确认。",
-              ...(res.status ? { status: res.status } : {}),
-              ...(requiresAction.length > 0 ? { requiresAction } : {}),
-            },
-          ],
-        }));
+        const appendFallback = () => {
+          setMessagesByAssistant((prev) => ({
+            ...prev,
+            [selectedAssistantId]: [
+              ...(prev[selectedAssistantId] ?? []),
+              {
+                role: "assistant",
+                text: res.reply?.trim() || "已处理您的确认。",
+                ...(res.status ? { status: res.status } : {}),
+                ...(requiresAction.length > 0 ? { requiresAction } : {}),
+              },
+            ],
+          }));
+        };
         if (res.sessionId) {
           setSessionByAssistant((prev) => ({ ...prev, [selectedAssistantId]: res.sessionId }));
+        }
+        // resume 后用服务端权威 transcript 重载会话（而非仅追加一条合成消息），
+        // 保证 resume 产生的新轮次/工具轨迹完整呈现；失败时回退合成消息。
+        const reloadSid = res.sessionId ?? sid;
+        let reloaded = false;
+        if (reloadSid) {
+          try {
+            const j = await apiGetJson<{
+              ok?: boolean;
+              messages?: Array<{
+                role: string;
+                text?: string;
+                content?: string;
+                requiresAction?: unknown;
+                liveTrace?: import("../lawmind-chat").ChatMsg["liveTrace"];
+                executionState?: import("../lawmind-chat").ChatMsg["executionState"];
+              }>;
+            }>(
+              config.apiBase,
+              `/api/sessions/${encodeURIComponent(reloadSid)}?assistantId=${encodeURIComponent(selectedAssistantId)}`,
+            );
+            if (j.ok && Array.isArray(j.messages)) {
+              const msgs = j.messages
+                .filter((m) => m.role === "user" || m.role === "assistant")
+                .map((m) => ({
+                  role: m.role as "user" | "assistant",
+                  text:
+                    typeof m.text === "string"
+                      ? m.text
+                      : typeof m.content === "string"
+                        ? m.content
+                        : "",
+                  ...(m.liveTrace ? { liveTrace: m.liveTrace } : {}),
+                  ...(m.executionState ? { executionState: m.executionState } : {}),
+                  ...(parseRequiresActionsFromResponse(m.requiresAction).length > 0
+                    ? { requiresAction: parseRequiresActionsFromResponse(m.requiresAction) }
+                    : {}),
+                }));
+              setMessagesByAssistant((prev) => ({ ...prev, [selectedAssistantId]: msgs }));
+              reloaded = true;
+            }
+          } catch {
+            /* fall through to synthetic append */
+          }
+        }
+        if (!reloaded) {
+          appendFallback();
         }
         void refreshActionSummary();
       } catch (cause) {
@@ -164,7 +214,7 @@ export function useLawmindAppRootHandlers(input: UseLawmindAppRootHandlersInput)
     if (!api?.trim()) {
       void desk?.showNotification?.({
         title: "LawMind",
-        body: "请先完成连接设置，确保本地 API 可用后再导入案件。",
+        body: "请先连接本地服务。",
       });
       return;
     }
@@ -219,7 +269,7 @@ export function useLawmindAppRootHandlers(input: UseLawmindAppRootHandlersInput)
       } else if (r.filePaths.length > 0) {
         void desk?.showNotification?.({
           title: "LawMind",
-          body: "未能创建案件（可能网络或服务异常）。请查看开发工具控制台或稍后重试。",
+          body: "未能创建案件。请检查本地服务。",
         });
       }
     } finally {

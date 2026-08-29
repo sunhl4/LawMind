@@ -28,7 +28,7 @@ type FeatureRow = {
 
 const FEATURE_ROWS: FeatureRow[] = [
   { key: "acceptanceGateStrict", label: "出稿前检查更严（缺项先拦）" },
-  { key: "citationGateStrict", label: "引用完整性硬门禁（导出 Word 时拦缺源/未锚定；不拦签批）" },
+  { key: "citationGateStrict", label: "导出拦缺源引用" },
   { key: "customDeliverableSpec", label: "本所自己加文书类型" },
   { key: "acceptancePackExport", label: "一键打包验收材料" },
   { key: "qualityDashboardJsonExport", label: "质量数据导出（JSON）" },
@@ -226,11 +226,179 @@ AI 辅助不能预测诉讼/仲裁/谈判结果。本所服务仍受委托合同
   };
 
   const enabledFeatureCount = FEATURE_ROWS.filter((row) => edition.features[row.key]).length;
+  const soloEdition = !edition.loading && edition.edition === "solo";
+
+  const advancedBody = (
+    <>
+      <div className="lm-settings-group lm-settings-surface">
+        <h4 className="lm-doctor-group-title">本版能力</h4>
+        <p className="lm-settings-caption">灰色项需律所版或私有化部署。</p>
+        <ul className="lm-edition-feature-list">
+          {FEATURE_ROWS.map((row) => {
+            const enabled = edition.features[row.key];
+            return (
+              <li key={row.key} className={`lm-edition-feature ${enabled ? "on" : "off"}`}>
+                <span className="lm-edition-feature-mark" aria-hidden="true">
+                  {enabled ? "✓" : "·"}
+                </span>
+                <span>
+                  {row.label}
+                  {!enabled ? (
+                    <span className="lm-meta lm-edition-feature-locked">（未开）</span>
+                  ) : null}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+        {!edition.loading ? (
+          <p className="lm-settings-caption">配置来源：{editionSourceLabel(edition.source)}</p>
+        ) : null}
+      </div>
+
+      {(canExportAudit ||
+        edition.features.qualityDashboardJsonExport ||
+        edition.features.securitySbomPanel) && (
+        <div className="lm-settings-group lm-settings-surface">
+          <h4 className="lm-doctor-group-title">导出与审计</h4>
+          <div className="lm-settings-actions lm-settings-actions--flush">
+            {edition.features.qualityDashboardJsonExport ? (
+              <button
+                type="button"
+                className="lm-btn lm-btn-secondary lm-btn-sm"
+                disabled={exportBusy}
+                data-testid="lm-export-quality-json"
+                onClick={() => void downloadQualityDashboard()}
+              >
+                导出质量 JSON
+              </button>
+            ) : null}
+            {canExportAudit ? (
+              <>
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-secondary lm-btn-sm"
+                  disabled={exportBusy}
+                  onClick={() => void downloadAuditMarkdown(false)}
+                >
+                  导出审计
+                </button>
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-secondary lm-btn-sm"
+                  disabled={exportBusy || !edition.features.complianceAuditExport}
+                  title={
+                    !edition.features.complianceAuditExport
+                      ? "合规审计导出仅私有部署版开放"
+                      : undefined
+                  }
+                  onClick={() => void downloadAuditMarkdown(true)}
+                >
+                  导出合规审计
+                </button>
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-ghost lm-btn-sm"
+                  disabled={exportBusy || !edition.features.auditIntegrityExport}
+                  onClick={() => void fetchIntegritySummary()}
+                >
+                  校验完整性
+                </button>
+              </>
+            ) : null}
+          </div>
+          {edition.features.securitySbomPanel ? (
+            <p className="lm-settings-caption" data-testid="lm-sbom-cli-hint">
+              组件清单（CLI）：<code>pnpm lawmind:sbom</code>
+            </p>
+          ) : null}
+          {exportHint ? (
+            <p className="lm-meta" role="status">
+              {exportHint}
+            </p>
+          ) : null}
+        </div>
+      )}
+
+      {!canExportAudit &&
+      !edition.features.qualityDashboardJsonExport &&
+      !edition.features.securitySbomPanel ? (
+        <p className="lm-settings-caption">当前版本暂无可用的导出项。</p>
+      ) : null}
+
+      {showEthicsSection ? (
+        <div className="lm-settings-group lm-settings-surface">
+          <h4 className="lm-doctor-group-title">伦理与披露</h4>
+          <p className="lm-settings-caption">利益冲突与保密见案件设置。</p>
+          <div className="lm-settings-actions lm-settings-actions--flush">
+            <button
+              type="button"
+              className="lm-btn lm-btn-secondary lm-btn-sm"
+              onClick={() => downloadDisclosureTemplate()}
+            >
+              下载披露模板
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="lm-settings-group lm-settings-surface">
+        <h4 className="lm-doctor-group-title">
+          可用文书类型
+          {specs ? (
+            <span className="lm-meta" style={{ fontWeight: 400, marginLeft: 8 }}>
+              {specs.length} 类
+            </span>
+          ) : null}
+        </h4>
+        {error ? (
+          <p className="lm-settings-caption lm-settings-caption--warn" role="alert">
+            {error}
+          </p>
+        ) : null}
+        {!error && !specs ? (
+          <div className="lm-settings-loading" aria-busy="true" aria-label="加载文书清单">
+            <div className="lm-shimmer lm-shimmer-line" />
+            <div className="lm-shimmer lm-shimmer-line lm-shimmer-short" />
+          </div>
+        ) : null}
+        {specs ? (
+          <>
+            {workspaceSpecs.length > 0 ? (
+              <div className="lm-edition-spec-block">
+                <div className="lm-meta lm-edition-spec-block-head">
+                  本所自定义（{workspaceSpecs.length}）
+                </div>
+                <ul className="lm-edition-spec-list">
+                  {workspaceSpecs.map((s) => (
+                    <SpecRow key={s.type} spec={s} />
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            <div className="lm-edition-spec-block">
+              <div className="lm-meta lm-edition-spec-block-head">内置（{builtinSpecs.length}）</div>
+              <ul className="lm-edition-spec-list">
+                {builtinSpecs.map((s) => (
+                  <SpecRow key={s.type} spec={s} />
+                ))}
+              </ul>
+            </div>
+            {!edition.features.customDeliverableSpec ? (
+              <p className="lm-settings-caption">当前版本未开放自定义文书类型。</p>
+            ) : null}
+          </>
+        ) : null}
+      </div>
+    </>
+  );
 
   return (
     <div className="lm-settings-section lm-settings-advanced-page">
       <p className="lm-settings-lead">
-        当前产品版本与能力。独立律师版亦可导出审计摘要与验收包；合规批量审计需私有化部署。
+        {soloEdition
+          ? "当前为独立律师版。交付门禁与签批路径默认可用。"
+          : "本版能力一览。"}
       </p>
 
       <div className="lm-settings-group lm-settings-surface">
@@ -247,185 +415,27 @@ AI 辅助不能预测诉讼/仲裁/谈判结果。本所服务仍受委托合同
             )}
           </span>
         </div>
+        <div className="lm-settings-row" data-testid="lm-edition-delivery-autonomy">
+          <span className="lm-settings-key">交付与自主</span>
+          <span className="lm-settings-val">
+            外发一律签批；高风险须通篇复核。渐进自主默认关闭，直至一次通过与逃逸指标达标。
+          </span>
+        </div>
       </div>
 
-      <details className="lm-settings-advanced">
-        <summary>
-          <span className="lm-settings-advanced__label">本版能力</span>
-          <span className="lm-settings-advanced__hint">
-            {edition.loading ? "…" : `${enabledFeatureCount}/${FEATURE_ROWS.length} 已开`}
-          </span>
-        </summary>
-        <div className="lm-settings-advanced-body">
-          <p className="lm-settings-caption">灰色项需律所版或私有化部署。</p>
-          <ul className="lm-edition-feature-list">
-            {FEATURE_ROWS.map((row) => {
-              const enabled = edition.features[row.key];
-              return (
-                <li key={row.key} className={`lm-edition-feature ${enabled ? "on" : "off"}`}>
-                  <span className="lm-edition-feature-mark" aria-hidden="true">
-                    {enabled ? "✓" : "·"}
-                  </span>
-                  <span>
-                    {row.label}
-                    {!enabled ? (
-                      <span className="lm-meta lm-edition-feature-locked">（未开）</span>
-                    ) : null}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-          {!edition.loading ? (
-            <p className="lm-settings-caption">配置来源：{editionSourceLabel(edition.source)}</p>
-          ) : null}
-        </div>
-      </details>
-
-      {(canExportAudit ||
-        edition.features.qualityDashboardJsonExport ||
-        edition.features.securitySbomPanel) && (
-        <details className="lm-settings-advanced">
+      {soloEdition ? (
+        <details className="lm-settings-advanced" data-testid="lm-edition-admin">
           <summary>
-            <span className="lm-settings-advanced__label">导出与审计</span>
-            <span className="lm-settings-advanced__hint">管理员</span>
+            <span className="lm-settings-advanced__label">能力矩阵与导出</span>
+            <span className="lm-settings-advanced__hint">
+              {edition.loading ? "…" : `${enabledFeatureCount}/${FEATURE_ROWS.length} 已开`}
+            </span>
           </summary>
-          <div className="lm-settings-advanced-body">
-            <div className="lm-settings-actions lm-settings-actions--flush">
-              {edition.features.qualityDashboardJsonExport ? (
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-secondary lm-btn-sm"
-                  disabled={exportBusy}
-                  data-testid="lm-export-quality-json"
-                  onClick={() => void downloadQualityDashboard()}
-                >
-                  导出质量 JSON
-                </button>
-              ) : null}
-              {canExportAudit ? (
-                <>
-                  <button
-                    type="button"
-                    className="lm-btn lm-btn-secondary lm-btn-sm"
-                    disabled={exportBusy}
-                    onClick={() => void downloadAuditMarkdown(false)}
-                  >
-                    导出审计
-                  </button>
-                  <button
-                    type="button"
-                    className="lm-btn lm-btn-secondary lm-btn-sm"
-                    disabled={exportBusy || !edition.features.complianceAuditExport}
-                    title={
-                      !edition.features.complianceAuditExport
-                        ? "合规审计导出仅私有部署版开放"
-                        : undefined
-                    }
-                    onClick={() => void downloadAuditMarkdown(true)}
-                  >
-                    导出合规审计
-                  </button>
-                  <button
-                    type="button"
-                    className="lm-btn lm-btn-ghost lm-btn-sm"
-                    disabled={exportBusy || !edition.features.auditIntegrityExport}
-                    onClick={() => void fetchIntegritySummary()}
-                  >
-                    校验完整性
-                  </button>
-                </>
-              ) : null}
-            </div>
-            {edition.features.securitySbomPanel ? (
-              <p className="lm-settings-caption" data-testid="lm-sbom-cli-hint">
-                组件清单（CLI）：<code>pnpm lawmind:sbom</code>
-              </p>
-            ) : null}
-            {exportHint ? (
-              <p className="lm-meta" role="status">
-                {exportHint}
-              </p>
-            ) : null}
-          </div>
+          <div className="lm-settings-advanced-body">{advancedBody}</div>
         </details>
+      ) : (
+        <div data-testid="lm-edition-admin">{advancedBody}</div>
       )}
-
-      {!canExportAudit &&
-      !edition.features.qualityDashboardJsonExport &&
-      !edition.features.securitySbomPanel ? (
-        <p className="lm-settings-caption">当前版本暂无可用的导出项。</p>
-      ) : null}
-
-      {showEthicsSection ? (
-        <details className="lm-settings-advanced">
-          <summary>
-            <span className="lm-settings-advanced__label">伦理与披露</span>
-            <span className="lm-settings-advanced__hint">模板</span>
-          </summary>
-          <div className="lm-settings-advanced-body">
-            <p className="lm-settings-caption">利益冲突与保密见案件设置。</p>
-            <div className="lm-settings-actions lm-settings-actions--flush">
-              <button
-                type="button"
-                className="lm-btn lm-btn-secondary lm-btn-sm"
-                onClick={() => downloadDisclosureTemplate()}
-              >
-                下载披露模板
-              </button>
-            </div>
-          </div>
-        </details>
-      ) : null}
-
-      <details className="lm-settings-advanced">
-        <summary>
-          <span className="lm-settings-advanced__label">可用文书类型</span>
-          <span className="lm-settings-advanced__hint">
-            {specs ? `${specs.length} 类` : "加载中"}
-          </span>
-        </summary>
-        <div className="lm-settings-advanced-body">
-          {error ? (
-            <p className="lm-settings-caption lm-settings-caption--warn" role="alert">
-              {error}
-            </p>
-          ) : null}
-          {!error && !specs ? (
-            <div className="lm-settings-loading" aria-busy="true" aria-label="加载文书清单">
-              <div className="lm-shimmer lm-shimmer-line" />
-              <div className="lm-shimmer lm-shimmer-line lm-shimmer-short" />
-            </div>
-          ) : null}
-          {specs ? (
-            <>
-              {workspaceSpecs.length > 0 ? (
-                <div className="lm-edition-spec-block">
-                  <div className="lm-meta lm-edition-spec-block-head">
-                    本所自定义（{workspaceSpecs.length}）
-                  </div>
-                  <ul className="lm-edition-spec-list">
-                    {workspaceSpecs.map((s) => (
-                      <SpecRow key={s.type} spec={s} />
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-              <div className="lm-edition-spec-block">
-                <div className="lm-meta lm-edition-spec-block-head">内置（{builtinSpecs.length}）</div>
-                <ul className="lm-edition-spec-list">
-                  {builtinSpecs.map((s) => (
-                    <SpecRow key={s.type} spec={s} />
-                  ))}
-                </ul>
-              </div>
-              {!edition.features.customDeliverableSpec ? (
-                <p className="lm-settings-caption">当前版本未开放自定义文书类型。</p>
-              ) : null}
-            </>
-          ) : null}
-        </div>
-      </details>
     </div>
   );
 }

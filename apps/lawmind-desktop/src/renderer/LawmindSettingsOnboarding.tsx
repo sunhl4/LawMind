@@ -8,17 +8,27 @@ type HealthShape = {
   webSearchApiKeyConfigured?: boolean;
 } | null;
 
-type QuickLink = {
+type SectionQuickLink = {
+  kind: "section";
   sectionId: LawmindSettingsSectionId;
   label: string;
   hint: string;
 };
 
+type AgentsQuickLink = {
+  kind: "agents";
+  label: string;
+  hint: string;
+};
+
+type QuickLink = SectionQuickLink | AgentsQuickLink;
+
+/** 不链到 Solo 已藏的「团队工作流」设置叶；「在办」走主桌签批入口。 */
 const QUICK_LINKS: QuickLink[] = [
-  { sectionId: "models", label: "模型/API", hint: "密钥与检索" },
-  { sectionId: "workspace", label: "工作区", hint: "数据与材料夹" },
-  { sectionId: "memory", label: "记忆库", hint: "待采纳建议" },
-  { sectionId: "collaboration", label: "团队工作流", hint: "委派摘要" },
+  { kind: "section", sectionId: "models", label: "模型/API", hint: "密钥与检索" },
+  { kind: "section", sectionId: "workspace", label: "工作区", hint: "数据与材料夹" },
+  { kind: "section", sectionId: "memory", label: "记忆库", hint: "待采纳建议" },
+  { kind: "agents", label: "在办", hint: "签批与委派" },
 ];
 
 type Props = {
@@ -26,6 +36,8 @@ type Props = {
   projectDir: string | null;
   onOpenApiWizard?: () => void;
   onNavigateToSection?: (sectionId: LawmindSettingsSectionId) => void;
+  /** 关闭设置并打开在办。 */
+  onOpenAgentsDesk?: () => void;
 };
 
 function retrievalModeLabel(mode: string | undefined): string {
@@ -43,24 +55,46 @@ function retrievalModeLabel(mode: string | undefined): string {
  * Settings panel block: first-run checklist (API, local service, optional project dir).
  */
 export function LawmindSettingsOnboarding(props: Props): ReactNode {
-  const { health, projectDir, onOpenApiWizard, onNavigateToSection } = props;
+  const { health, projectDir, onOpenApiWizard, onNavigateToSection, onOpenAgentsDesk } = props;
   return (
     <>
-      {onNavigateToSection ? (
+      {onNavigateToSection || onOpenAgentsDesk ? (
         <div className="lm-settings-section">
           <div className="lm-settings-section-title">快捷入口</div>
           <div className="lm-settings-quick-links">
-            {QUICK_LINKS.map((link) => (
-              <button
-                key={link.sectionId}
-                type="button"
-                className="lm-settings-quick-link"
-                onClick={() => onNavigateToSection(link.sectionId)}
-              >
-                <span className="lm-settings-quick-link-label">{link.label}</span>
-                <span className="lm-settings-quick-link-hint">{link.hint}</span>
-              </button>
-            ))}
+            {QUICK_LINKS.map((link) => {
+              if (link.kind === "agents") {
+                if (!onOpenAgentsDesk) {
+                  return null;
+                }
+                return (
+                  <button
+                    key="agents"
+                    type="button"
+                    className="lm-settings-quick-link"
+                    data-testid="lm-settings-quick-agents"
+                    onClick={() => onOpenAgentsDesk()}
+                  >
+                    <span className="lm-settings-quick-link-label">{link.label}</span>
+                    <span className="lm-settings-quick-link-hint">{link.hint}</span>
+                  </button>
+                );
+              }
+              if (!onNavigateToSection) {
+                return null;
+              }
+              return (
+                <button
+                  key={link.sectionId}
+                  type="button"
+                  className="lm-settings-quick-link"
+                  onClick={() => onNavigateToSection(link.sectionId)}
+                >
+                  <span className="lm-settings-quick-link-label">{link.label}</span>
+                  <span className="lm-settings-quick-link-hint">{link.hint}</span>
+                </button>
+              );
+            })}
             {!health?.modelConfigured && onOpenApiWizard ? (
               <button
                 type="button"

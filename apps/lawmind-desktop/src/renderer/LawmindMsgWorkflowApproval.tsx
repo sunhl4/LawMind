@@ -53,7 +53,7 @@ export function LawmindMsgWorkflowApproval({
   const detail =
     action?.summary?.trim() ||
     workflowArgsSummary(action?.toolArgs) ||
-    "执行前请确认步骤与交付物类型。批准后将注入 __approved 并继续本轮。";
+    "请确认后批准或拒绝。";
 
   return (
     <div className="lm-msg lm-msg-ai lm-msg-workflow-approval" data-testid="lm-msg-workflow-approval">
@@ -85,7 +85,7 @@ export function LawmindMsgWorkflowApproval({
           ) : null}
         </div>
       ) : (
-        <p className="lm-meta">请在上方待办条中批准或拒绝该工作流工具。</p>
+        <p className="lm-meta">请在待办中批准或拒绝。</p>
       )}
     </div>
   );

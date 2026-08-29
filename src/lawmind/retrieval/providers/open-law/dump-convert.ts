@@ -4,6 +4,7 @@
  * Supported:
  * 1. FLK-style JSON array / JSONL (twang2218 law-datasets shape: title, content, office, …)
  * 2. Article-line text: 《法名》第N条规定，……
+ * 3. HF china-effective-laws JSON/JSONL（title + text + category + status；不读 parquet）
  *
  * Does NOT download megabyte dumps. Users convert locally; unclear-license
  * GitHub/HF corpora are manual-only (see README).
@@ -16,8 +17,27 @@ import { OPEN_LAW_PROVIDER } from "./types.js";
 const FLK_DUMP_LICENSE =
   "用户自备 FLK/官方法规 dump；文本源自政府公开法规，整理包许可须自行确认（LawMind 不捆绑大型第三方包）";
 
-const ARTICLE_LINE_LICENSE =
-  "用户自备条文行文本；许可须自行确认；不得当作北大法宝转授权";
+const ARTICLE_LINE_LICENSE = "用户自备条文行文本；许可须自行确认；不得当作北大法宝转授权";
+
+const HF_CHINA_LAWS_LICENSE =
+  "用户自备 HF 全国现行法律法规快照（如 senry5433/china-effective-laws-regulations）；汇编声明须自行核对；正式引用回链 flk.npc.gov.cn；LawMind 不自动下载";
+
+type HfChinaLawRow = {
+  id?: string;
+  title?: string;
+  name?: string;
+  text?: string;
+  body?: string;
+  content?: string;
+  category?: string;
+  status?: string;
+  issuer?: string;
+  office?: string;
+  document_number?: string;
+  source_url?: string;
+  source?: string;
+  url?: string;
+};
 
 type FlkDumpRow = {
   id?: string;
@@ -147,9 +167,9 @@ export function convertArticleLinesToOpenLawRecords(
     if (!m) {
       continue;
     }
-    const law = m[1]!.trim();
-    const article = m[2]!.trim();
-    const text = m[3]!.trim();
+    const law = m[1].trim();
+    const article = m[2].trim();
+    const text = m[3].trim();
     const citation = `《${law}》${article}`;
     const title = `${law}${article}`;
     out.push({
@@ -170,15 +190,67 @@ export function convertArticleLinesToOpenLawRecords(
   return out;
 }
 
+function looksLikeHfChinaLawRow(row: unknown): boolean {
+  if (!row || typeof row !== "object") {
+    return false;
+  }
+  const r = row as HfChinaLawRow;
+  return Boolean(
+    (r.title ?? r.name)?.trim() && (r.text ?? r.body)?.trim() && (r.category || r.status),
+  );
+}
+
+/** Convert HF china-effective-laws documents JSON/JSONL → OpenLawRecord[]. */
+export function convertHfChinaLawsToOpenLawRecords(
+  raw: string,
+  opts?: { markDemo?: boolean; limit?: number },
+): OpenLawRecord[] {
+  const rows = parseJsonOrJsonl(raw);
+  const limit = opts?.limit ?? Number.POSITIVE_INFINITY;
+  const out: OpenLawRecord[] = [];
+  for (const row of rows) {
+    if (out.length >= limit) {
+      break;
+    }
+    if (!looksLikeHfChinaLawRow(row)) {
+      continue;
+    }
+    const r = row as HfChinaLawRow;
+    const title = (r.title ?? r.name ?? "").trim();
+    const body = (r.text ?? r.body ?? r.content ?? "").trim();
+    const id = (r.id ?? "").trim() || stableId("hf-cn", `${title}\n${body.slice(0, 80)}`);
+    const category = (r.category ?? "").trim();
+    out.push({
+      id: id.includes(":") ? id : `hf-cn:${id}`,
+      title,
+      kind: mapTypeToKind(category),
+      citation: title,
+      excerpt: body.slice(0, 500),
+      body: body || undefined,
+      url: (r.source_url ?? r.url ?? r.source ?? "").trim() || "https://flk.npc.gov.cn/",
+      status: r.status?.trim() || undefined,
+      office: (r.issuer ?? r.office ?? "").trim() || undefined,
+      tags: [category, r.document_number].filter((x): x is string => Boolean(x?.trim())),
+      demo: opts?.markDemo === true ? true : undefined,
+      provider: OPEN_LAW_PROVIDER.local,
+      corpusId: "hf_china_laws",
+      licenseNote: HF_CHINA_LAWS_LICENSE,
+    });
+  }
+  return out;
+}
+
 /** Serialize records as JSONL (one object per line). */
 export function openLawRecordsToJsonl(records: OpenLawRecord[]): string {
   return records.map((r) => JSON.stringify(r)).join("\n") + (records.length ? "\n" : "");
 }
 
+export type OpenLawDumpFormat = "flk_json" | "article_line" | "hf_china_laws";
+
 export function detectAndConvertOpenLawDump(
   raw: string,
-  opts?: { format?: "auto" | "flk_json" | "article_line"; markDemo?: boolean; limit?: number },
-): { format: "flk_json" | "article_line"; records: OpenLawRecord[] } {
+  opts?: { format?: "auto" | OpenLawDumpFormat; markDemo?: boolean; limit?: number },
+): { format: OpenLawDumpFormat; records: OpenLawRecord[] } {
   const format = opts?.format ?? "auto";
   if (format === "flk_json") {
     return { format, records: convertFlkDumpToOpenLawRecords(raw, opts) };
@@ -186,8 +258,15 @@ export function detectAndConvertOpenLawDump(
   if (format === "article_line") {
     return { format, records: convertArticleLinesToOpenLawRecords(raw, opts) };
   }
+  if (format === "hf_china_laws") {
+    return { format, records: convertHfChinaLawsToOpenLawRecords(raw, opts) };
+  }
   const trimmed = raw.trim();
   if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+    const parsed = parseJsonOrJsonl(raw);
+    if (parsed.some(looksLikeHfChinaLawRow)) {
+      return { format: "hf_china_laws", records: convertHfChinaLawsToOpenLawRecords(raw, opts) };
+    }
     return { format: "flk_json", records: convertFlkDumpToOpenLawRecords(raw, opts) };
   }
   const article = convertArticleLinesToOpenLawRecords(raw, opts);

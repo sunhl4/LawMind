@@ -1,6 +1,6 @@
 # 在办 Desk V2 — mockup assets
 
-Design truth: [`docs/LAWMIND-AGENTS-DESK-V2.md`](../../LAWMIND-AGENTS-DESK-V2.md)
+Design truth: [`docs/LAWMIND-DESKTOP-UI.md`](../../LAWMIND-DESKTOP-UI.md)
 
 | File | Meaning |
 |------|---------|

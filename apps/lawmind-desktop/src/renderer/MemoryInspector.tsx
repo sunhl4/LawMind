@@ -556,7 +556,7 @@ export default function MemoryInspector({
       {!loading && items.length === 0 ? (
         <div className="lm-memory-empty lm-memory-empty--compact">
           <p className="lm-memory-empty__title">暂无待确认项</p>
-          <p className="lm-memory-empty__desc">对话或审查中出现的建议会列在这里。</p>
+          <p className="lm-memory-empty__desc">暂无建议。</p>
         </div>
       ) : null}
       {!loading && items.length > 0 && visibleItems.length === 0 ? (

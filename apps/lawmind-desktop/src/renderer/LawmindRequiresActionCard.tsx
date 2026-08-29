@@ -42,6 +42,35 @@ type Props = {
   clarificationVariant?: "desk" | "compact" | "hint";
 };
 
+function RecommendationLine(props: { text: string }): ReactNode {
+  const [copied, setCopied] = useState(false);
+  return (
+    <p className="lm-meta" data-testid="lm-requires-action-recommendation">
+      建议：{props.text}{" "}
+      <button
+        type="button"
+        className="lm-link-btn"
+        data-testid="lm-requires-action-recommendation-copy"
+        onClick={() => {
+          const clip = navigator.clipboard;
+          if (!clip?.writeText) {
+            return;
+          }
+          void clip.writeText(props.text).then(
+            () => {
+              setCopied(true);
+              window.setTimeout(() => setCopied(false), 1500);
+            },
+            () => undefined,
+          );
+        }}
+      >
+        {copied ? "已复制" : "复制"}
+      </button>
+    </p>
+  );
+}
+
 function ToolApprovalActions(props: {
   action: LawMindRequiresAction;
   busy: boolean;
@@ -53,6 +82,7 @@ function ToolApprovalActions(props: {
     editedArgs: Record<string, unknown>,
   ) => void | Promise<void>;
   onRejectTool?: (action: LawMindRequiresAction) => void | Promise<void>;
+  onOpenNeedsDecisionDesk?: (target?: NeedsDecisionDeskTarget) => void;
   onOpenReview?: (taskId?: string, matterId?: string) => void;
 }): ReactNode {
   const {
@@ -63,6 +93,7 @@ function ToolApprovalActions(props: {
     onApproveTool,
     onApproveToolEdit,
     onRejectTool,
+    onOpenNeedsDecisionDesk,
     onOpenReview,
   } = props;
   const [editing, setEditing] = useState(false);
@@ -119,14 +150,25 @@ function ToolApprovalActions(props: {
             </button>
           </>
         ) : null}
-        {docWrite && linkedTaskId && onOpenReview ? (
+        {docWrite && linkedTaskId && (onOpenReview || onOpenNeedsDecisionDesk) ? (
           <button
             type="button"
-            className="lm-btn lm-btn-ghost lm-btn-sm"
+            className="lm-btn lm-btn-accent lm-btn-sm"
             disabled={busy}
-            onClick={() => onOpenReview(linkedTaskId, action.matterId)}
+            data-testid="lm-requires-action-signoff"
+            onClick={() => {
+              if (onOpenReview) {
+                onOpenReview(linkedTaskId, action.matterId);
+                return;
+              }
+              onOpenNeedsDecisionDesk?.({
+                taskId: linkedTaskId,
+                matterId: action.matterId,
+                preferStatus: "awaiting_review",
+              });
+            }}
           >
-            进入文书台
+            打开结果
           </button>
         ) : null}
         {showEdit ? (
@@ -212,13 +254,15 @@ export function LawmindRequiresActionCard(props: Props): ReactNode {
               <p className="lm-meta lm-requires-action-summary">{summary}</p>
             </>
           )}
+          {action.recommendation?.trim() ? (
+            <RecommendationLine text={action.recommendation.trim()} />
+          ) : null}
 
           {action.kind === "clarification" ? (
             clarificationVariant === "hint" ? (
               <div className="lm-clarify-hint" data-testid="lm-clarify-hint">
                 <p className="lm-meta">
-                  还差 {(action.clarificationQuestions ?? []).length}{" "}
-                  项，请到「在办」表格补充（可挂材料）。
+                  还差 {(action.clarificationQuestions ?? []).length} 项，去在办补充。
                 </p>
                 <ul className="lm-clarify-weak-list">
                   {(action.clarificationQuestions ?? []).slice(0, 6).map((q) => (
@@ -278,6 +322,29 @@ export function LawmindRequiresActionCard(props: Props): ReactNode {
             )
           ) : null}
 
+          {action.kind === "continue_tools" && !hideActions ? (
+            <div className="lm-requires-action-actions">
+              <button
+                type="button"
+                className="lm-btn lm-btn-accent lm-btn-sm"
+                data-testid="lm-continue-tools-approve"
+                disabled={busy}
+                onClick={() => void onApproveTool?.(action)}
+              >
+                继续
+              </button>
+              <button
+                type="button"
+                className="lm-btn lm-btn-secondary lm-btn-sm"
+                data-testid="lm-continue-tools-stop"
+                disabled={busy}
+                onClick={() => void onRejectTool?.(action)}
+              >
+                先停在这里
+              </button>
+            </div>
+          ) : null}
+
           {action.kind === "tool_approval" ? (
             <ToolApprovalActions
               action={action}
@@ -287,6 +354,7 @@ export function LawmindRequiresActionCard(props: Props): ReactNode {
               onApproveTool={onApproveTool}
               onApproveToolEdit={onApproveToolEdit}
               onRejectTool={onRejectTool}
+              onOpenNeedsDecisionDesk={onOpenNeedsDecisionDesk}
               onOpenReview={onOpenReview}
             />
           ) : null}
@@ -322,7 +390,7 @@ export function LawmindRequiresActionCard(props: Props): ReactNode {
             data-testid="lm-decision-card-open-desk"
             onClick={() => onOpenNeedsDecisionDesk?.()}
           >
-            也可在侧栏「待我拍板」集中处理
+            待我拍板
           </button>
         </p>
       ) : null}

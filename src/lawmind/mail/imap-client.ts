@@ -17,8 +17,19 @@ export type FetchedMailMessage = {
   subject: string;
   receivedAt: string;
   bodyText: string;
-  attachments: Array<{ name: string; content: Buffer; contentType?: string }>;
+  attachments: Array<{
+    name: string;
+    content: Buffer;
+    contentType?: string;
+    /** 抓取端已知超限（如 Graph size 预检），只记元数据、不写盘。 */
+    oversized?: boolean;
+  }>;
 };
+
+/** 单附件落盘上限（对齐 ingest 侧 ~20MB）。 */
+export const MAX_MAIL_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+/** 单封邮件全部附件合计落盘上限。 */
+export const MAX_MAIL_ATTACHMENTS_TOTAL_BYTES = 60 * 1024 * 1024;
 
 export type MailConnectResult =
   | { ok: true; mailbox: string; messageCount?: number }
@@ -196,11 +207,12 @@ export async function fetchImapMessages(
   });
 }
 
-/** Document-like attachments worth persisting for lawyer workflows; skip inline noise. */
+/** Document-like attachments worth persisting for lawyer workflows; skip audio/video noise. */
 const PERSIST_ATTACHMENT_EXTENSIONS = new Set([
   ".pdf",
   ".doc",
   ".docx",
+  ".docm",
   ".wps",
   ".rtf",
   ".odt",
@@ -214,6 +226,14 @@ const PERSIST_ATTACHMENT_EXTENSIONS = new Set([
   ".zip",
   ".7z",
   ".rar",
+  // Contract scans / photo pages (OCR in analyze_document)
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".bmp",
+  ".tif",
+  ".tiff",
 ]);
 
 const PERSIST_ATTACHMENT_CONTENT_TYPES = [
@@ -226,17 +246,26 @@ const PERSIST_ATTACHMENT_CONTENT_TYPES = [
   "text/csv",
   "application/zip",
   "application/x-zip",
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/bmp",
+  "image/tiff",
 ];
 
 export function shouldPersistMailAttachment(name: string, contentType?: string): boolean {
   const base = name.trim().toLowerCase();
-  const dot = base.lastIndexOf(".");
-  if (dot > 0 && PERSIST_ATTACHMENT_EXTENSIONS.has(base.slice(dot))) {
+  const leaf = base.includes("/") ? (base.split("/").pop() ?? base) : base;
+  const dot = leaf.lastIndexOf(".");
+  if (dot > 0 && PERSIST_ATTACHMENT_EXTENSIONS.has(leaf.slice(dot))) {
     return true;
   }
   const ct = (contentType ?? "").trim().toLowerCase();
-  if (!ct || ct.startsWith("image/") || ct.startsWith("audio/") || ct.startsWith("video/")) {
+  if (!ct || ct.startsWith("audio/") || ct.startsWith("video/")) {
     return false;
+  }
+  if (ct.startsWith("image/")) {
+    return PERSIST_ATTACHMENT_CONTENT_TYPES.some((p) => ct.startsWith(p));
   }
   return PERSIST_ATTACHMENT_CONTENT_TYPES.some((p) => ct.startsWith(p));
 }
@@ -245,34 +274,58 @@ export type PersistedMailAttachmentRef = {
   name: string;
   /** Present only when binary was written under matter mail/attachments. */
   relativePath?: string;
+  /** 附件被跳过的原因（类型不持久 / 单附件超限 / 单封合计超限）。 */
+  skippedReason?: "type_not_persisted" | "too_large" | "too_large_total";
 };
+
+/**
+ * 邮件消息 ID → 安全目录/文件名片段。
+ * Graph 的 message.id 是 base64（含 `/`、`+`、`=`），直接拼路径会产生
+ * 非预期子目录或非法文件名；IMAP 侧 id 已受限但同走此口兜底。
+ */
+export function sanitizeMailMessageIdForPath(messageId: string): string {
+  const cleaned = messageId.replace(/[^A-Za-z0-9._-]+/g, "_");
+  return cleaned.slice(0, 160) || "msg";
+}
 
 /**
  * Persist document attachments under matter mail/attachments.
  * Inline images / non-document parts are recorded by name only (not copied to disk).
+ * Oversized binaries are recorded with skippedReason instead of being written,
+ * so a hostile/accidental giant attachment cannot fill the disk.
  */
 export function writeFetchedAttachments(
   workspaceDir: string,
   matterId: string,
   messageId: string,
   attachments: FetchedMailMessage["attachments"],
+  opts?: { maxFileBytes?: number; maxTotalBytes?: number },
 ): PersistedMailAttachmentRef[] {
   if (attachments.length === 0) {
     return [];
   }
+  const maxFileBytes = opts?.maxFileBytes ?? MAX_MAIL_ATTACHMENT_BYTES;
+  const maxTotalBytes = opts?.maxTotalBytes ?? MAX_MAIL_ATTACHMENTS_TOTAL_BYTES;
   let dirCreated = false;
+  let persistedBytes = 0;
   const dir = path.join(
     path.resolve(workspaceDir),
     "cases",
     matterId,
     "mail",
     "attachments",
-    messageId,
+    sanitizeMailMessageIdForPath(messageId),
   );
   return attachments.map((att, i) => {
     const displayName = att.name.trim() || `附件-${i + 1}`;
     if (!shouldPersistMailAttachment(displayName, att.contentType)) {
-      return { name: displayName };
+      return { name: displayName, skippedReason: "type_not_persisted" as const };
+    }
+    if (att.oversized === true || att.content.length > maxFileBytes) {
+      return { name: displayName, skippedReason: "too_large" as const };
+    }
+    if (persistedBytes + att.content.length > maxTotalBytes) {
+      return { name: displayName, skippedReason: "too_large_total" as const };
     }
     if (!dirCreated) {
       fs.mkdirSync(dir, { recursive: true });
@@ -282,9 +335,15 @@ export function writeFetchedAttachments(
       displayName.replace(/[^\w.\u4e00-\u9fff-]+/g, "_").slice(0, 120) || `file-${i}`;
     const full = path.join(dir, safeName);
     fs.writeFileSync(full, att.content);
+    persistedBytes += att.content.length;
     return {
       name: displayName,
-      relativePath: path.join("mail", "attachments", messageId, safeName),
+      relativePath: path.join(
+        "mail",
+        "attachments",
+        sanitizeMailMessageIdForPath(messageId),
+        safeName,
+      ),
     };
   });
 }

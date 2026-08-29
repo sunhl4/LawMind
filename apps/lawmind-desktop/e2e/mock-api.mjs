@@ -14,6 +14,21 @@ const defaultModelId = "builtin:qwen-plus";
 const draftStateById = new Map();
 /** sessionId → { planText, updatedAt } */
 const planHandoffBySession = new Map();
+/** sessionId → chat messages (empty sessions for Solo golden path) */
+const sessionMessagesById = new Map();
+let sessionCreateSeq = 1;
+/** Contract handoff creates real draft ids (not invent-draft to seed-only e2e-draft-1). */
+let handoffDraftSeq = 1;
+/** Pending-review fleet rows created by chat contract handoff. */
+const handoffFleetRuns = [];
+
+/** Client-side `validateDraftAgainstSpec` must be ready, or 在办「一键勾选必核」保持禁用。 */
+const E2E_CONTRACT_REVIEW_SECTIONS = [
+  { heading: "审查结论", body: "整体可签，风险可控，建议按下列条款微调后签署。" },
+  { heading: "主要风险", body: "第 8 条违约金约定偏低，解除条件不够清楚。" },
+  { heading: "修改建议", body: "建议提高违约金并写明解除触发条件。" },
+  { heading: "待确认事项", body: "管辖法院是否改为上海。" },
+];
 
 function getDraftState(taskId) {
   const id = String(taskId || "").trim() || "e2e-draft-1";
@@ -22,9 +37,32 @@ function getDraftState(taskId) {
       reviewStatus: "pending",
       verificationChecklist: null,
       deliverableType: "contract.review",
+      deleted: false,
+      title: id === "e2e-draft-1" ? "E2E draft" : "合同审查意见",
     });
   }
   return draftStateById.get(id);
+}
+
+function createHandoffDraft() {
+  const taskId = `e2e-handoff-${handoffDraftSeq++}`;
+  getDraftState(taskId);
+  handoffFleetRuns.unshift({
+    id: `run-handoff-${taskId}`,
+    kind: "pending_review",
+    status: "awaiting_review",
+    title: "合同审查意见（交办）",
+    subtitle: "由对话交办登记",
+    matterId: "e2e-matter-1",
+    assistantId: "default",
+    assigneeLabel: "默认助手",
+    sessionId,
+    taskId,
+    updatedAt: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+    priority: 5,
+  });
+  return taskId;
 }
 
 const e2eRequiresAction = [
@@ -42,6 +80,103 @@ const e2eRequiresAction = [
   },
 ];
 
+function seededSignoffMessages() {
+  return [
+    {
+      role: "assistant",
+      text: "合同审查意见草稿已就绪，请在「在办」签批后再对外使用。",
+      requiresAction: e2eRequiresAction,
+      executionState: {
+        phase: "approval",
+        status: "awaiting_approval",
+        linkedTaskId: "e2e-draft-1",
+        recoverable: true,
+        detail: "等待律师签批。",
+      },
+    },
+  ];
+}
+
+function ensureDefaultSessionSeeded() {
+  if (!sessionMessagesById.has(sessionId)) {
+    sessionMessagesById.set(sessionId, seededSignoffMessages());
+  }
+}
+
+function isResearchHandoffMessage(msg) {
+  const t = String(msg || "");
+  return (
+    t.includes("合规研究卷宗") ||
+    t.includes("学习型调研简报") ||
+    t.includes("交付物类型：培训课件") ||
+    (t.includes("deep_research") && t.includes("大纲"))
+  );
+}
+
+function isContractHandoffMessage(msg) {
+  const t = String(msg || "");
+  if (isResearchHandoffMessage(t)) {
+    return false;
+  }
+  return (
+    t.includes("【交办】") ||
+    t.includes("5 分钟合同审查") ||
+    t.includes("合同/材料说明") ||
+    (t.includes("合同审查") && t.includes("审查深度"))
+  );
+}
+
+function researchOutlineRequiresAction(sid) {
+  return [
+    {
+      id: "ra-outline-1",
+      kind: "clarification",
+      threadId: `${sid}:turn`,
+      title: "待确认：研究大纲",
+      summary: "请确认大纲后再撰写正文。",
+      clarificationQuestions: [
+        {
+          key: "research_outline_confirm",
+          question:
+            "请确认或调整研究大纲\n\n# E2E 研究大纲\n\n## 问题陈述\n- 监管范围\n- 简要结论\n\n## 管辖矩阵\n- 中国内地\n- 相关境外",
+          reason: "先确认大纲再写正文",
+          inputType: "textarea",
+          required: true,
+        },
+      ],
+      decisions: ["respond"],
+      createdAt: now,
+    },
+  ];
+}
+
+function contractHandoffAssistantMessage(taskId) {
+  return {
+    role: "assistant",
+    text: "合同审查意见草稿已就绪，请在「在办」签批后再对外使用。",
+    status: "awaiting_approval",
+    executionState: {
+      phase: "approval",
+      status: "awaiting_approval",
+      linkedTaskId: taskId,
+      recoverable: true,
+      detail: "等待律师签批。",
+    },
+    gateDecisions: [
+      {
+        gate: "approval_gate",
+        decision: "awaiting_confirmation",
+        reason: "等待律师签批。",
+      },
+      {
+        gate: "acceptance_gate",
+        decision: "pass",
+        reason: "出稿检查已通过（mock）。",
+      },
+    ],
+  };
+}
+
 const assistant = {
   assistantId: "default",
   displayName: "默认助手",
@@ -51,6 +186,22 @@ const assistant = {
   updatedAt: now,
   stats: { lastUsedAt: "", turnCount: 0, sessionCount: 0 },
 };
+
+/** 会议室链路需要 ≥2 位参与者。 */
+const contractReviewAssistant = {
+  assistantId: "contract_review",
+  displayName: "合同审查",
+  introduction: "E2E mock contract reviewer",
+  presetKey: "contract",
+  createdAt: now,
+  updatedAt: now,
+  stats: { lastUsedAt: "", turnCount: 0, sessionCount: 0 },
+};
+const allAssistants = [assistant, contractReviewAssistant];
+const meetingLinesByMatter = new Map();
+const createdAutomations = [];
+const resumedChatSessions = new Set();
+let meetingLineSeq = 1;
 
 const catalogModel = {
   id: defaultModelId,
@@ -175,7 +326,66 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (path === "/api/health" && req.method === "GET") {
-    json(res, 200, healthPayload);
+    json(res, 200, { ...healthPayload, lawmindDaemon: { enabled: false, running: false } });
+    return;
+  }
+
+  if (path === "/api/historical-scan" && req.method === "GET") {
+    json(res, 200, { ok: true, roots: [], latest: null });
+    return;
+  }
+  if (path === "/api/historical-scan/run" && req.method === "POST") {
+    json(res, 200, { ok: true, job: { scanId: "scan-mock", stats: { cataloged: 0 } } });
+    return;
+  }
+  if (path === "/api/historical-scan/roots" && req.method === "POST") {
+    json(res, 200, { ok: true, roots: [] });
+    return;
+  }
+  if (path === "/api/historical-scan/roots/remove" && req.method === "POST") {
+    json(res, 200, { ok: true, removed: true, roots: [] });
+    return;
+  }
+  if (path === "/api/metrics/north-star" && req.method === "GET") {
+    json(res, 200, {
+      ok: true,
+      schemaVersion: 1,
+      firstPassRate: null,
+      unattendedCompleteRate: null,
+      reviewDurationMsMedian: null,
+      lintEscapeRate: null,
+      samples: {
+        firstPassOk: 0,
+        firstPassFail: 0,
+        unattended: 0,
+        attended: 0,
+        lintEscapes: 0,
+        deliveries: 0,
+      },
+    });
+    return;
+  }
+
+  if (path === "/api/daemon" && req.method === "GET") {
+    json(res, 200, { ok: true, daemon: { enabled: false, running: false } });
+    return;
+  }
+
+  if (path === "/api/daemon" && req.method === "POST") {
+    json(res, 200, { ok: true, daemon: { enabled: true, running: false } });
+    return;
+  }
+
+  if (path === "/api/works/automation" && req.method === "POST") {
+    json(res, 201, {
+      ok: true,
+      automation: {
+        id: "auto-from-work-1",
+        title: "例行 · 审查供货合同",
+        matterId: "matter-acme",
+        enabled: true,
+      },
+    });
     return;
   }
 
@@ -555,7 +765,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (path === "/api/assistants" && req.method === "GET") {
-    json(res, 200, { ok: true, assistants: [assistant], presets: [] });
+    json(res, 200, { ok: true, assistants: allAssistants, presets: [] });
     return;
   }
 
@@ -746,19 +956,42 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (path === "/api/sessions" && req.method === "GET") {
+    ensureDefaultSessionSeeded();
+    const sessions = [...sessionMessagesById.keys()].map((id) => ({
+      sessionId: id,
+      title: id === sessionId ? "New Chat" : "Solo 空会话",
+      updatedAt: now,
+    }));
     json(res, 200, {
       ok: true,
-      sessions: [{ sessionId, title: "New Chat", updatedAt: now }],
+      sessions: sessions.length > 0 ? sessions : [{ sessionId, title: "New Chat", updatedAt: now }],
     });
     return;
   }
 
   if (path === "/api/sessions" && req.method === "POST") {
-    json(res, 200, { ok: true, sessionId });
+    const id = `e2e-session-empty-${sessionCreateSeq++}`;
+    sessionMessagesById.set(id, []);
+    json(res, 200, { ok: true, sessionId: id });
     return;
   }
 
   if (path === "/api/sessions/delete" && req.method === "POST") {
+    json(res, 200, { ok: true });
+    return;
+  }
+
+  // E2E-only: 单 mock 服务器跨 spec 共享状态，spec 结束后可调用本路由复位草稿状态。
+  if (path === "/__e2e__/reset" && req.method === "POST") {
+    draftStateById.clear();
+    meetingLinesByMatter.clear();
+    createdAutomations.length = 0;
+    resumedChatSessions.clear();
+    sessionMessagesById.clear();
+    sessionCreateSeq = 1;
+    handoffDraftSeq = 1;
+    handoffFleetRuns.length = 0;
+    ensureDefaultSessionSeeded();
     json(res, 200, { ok: true });
     return;
   }
@@ -800,39 +1033,69 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  const injectMatch = /^\/api\/sessions\/([^/]+)\/inject$/.exec(path);
+  if (injectMatch && req.method === "POST") {
+    json(res, 200, { ok: true, sessionId: injectMatch[1], queued: 1, pendingCount: 1 });
+    return;
+  }
+
+  const steerMatch = /^\/api\/sessions\/([^/]+)\/steer$/.exec(path);
+  if (steerMatch && req.method === "POST") {
+    json(res, 200, { ok: true, sessionId: steerMatch[1], queued: 1, pendingCount: 1 });
+    return;
+  }
+
   const sessionMatch = /^\/api\/sessions\/([^/]+)$/.exec(path);
   if (sessionMatch && req.method === "GET") {
-    json(res, 200, {
-      ok: true,
-      messages: [
-        {
-          role: "assistant",
-          text: "需要您确认后我才能继续执行。",
-          requiresAction: e2eRequiresAction,
-        },
-      ],
-    });
+    const sid = sessionMatch[1];
+    // resume 后的那次重载应呈现「已继续」状态；标记一次性消费，
+    // 之后的会话加载（页面刷新/新用例）回到默认待批准卡片，避免跨用例污染。
+    if (resumedChatSessions.delete(sid)) {
+      const resumed = [
+        { role: "user", text: "请继续完成文书工作。" },
+        { role: "assistant", text: "已按您的确认继续处理。" },
+      ];
+      sessionMessagesById.set(sid, resumed);
+      json(res, 200, { ok: true, messages: resumed });
+      return;
+    }
+    if (sid === sessionId) {
+      ensureDefaultSessionSeeded();
+    }
+    const messages = sessionMessagesById.has(sid)
+      ? sessionMessagesById.get(sid)
+      : sid === sessionId
+        ? seededSignoffMessages()
+        : [];
+    json(res, 200, { ok: true, messages });
     return;
   }
 
   if (path === "/api/drafts" && req.method === "GET") {
-    json(res, 200, {
-      ok: true,
-      drafts: [
-        {
-          taskId: "e2e-draft-1",
-          title: "E2E draft",
-          summary: "E2E summary",
-          output: "docx",
-          templateId: "review-contract-default",
-          reviewStatus: "pending",
-          matterId: "e2e-matter-1",
-          reviewNotes: [],
-          sections: [{ heading: "摘要", body: "E2E body" }],
-          createdAt: now,
-        },
-      ],
-    });
+    const drafts = [];
+    const seen = new Set();
+    const pushDraft = (taskId, st) => {
+      if (st.deleted || seen.has(taskId)) {return;}
+      seen.add(taskId);
+      drafts.push({
+        taskId,
+        title: st.title || (taskId === "e2e-draft-1" ? "E2E draft" : "合同审查意见"),
+        summary: "E2E summary",
+        output: "docx",
+        templateId: "review-contract-default",
+        reviewStatus: st.reviewStatus || "pending",
+        matterId: "e2e-matter-1",
+        reviewNotes: [],
+        sections: E2E_CONTRACT_REVIEW_SECTIONS,
+        createdAt: now,
+      });
+    };
+    // Suite specs (redline / trust) rely on stable seed draft; handoff ids are additive.
+    pushDraft("e2e-draft-1", getDraftState("e2e-draft-1"));
+    for (const [taskId, st] of draftStateById.entries()) {
+      pushDraft(taskId, st);
+    }
+    json(res, 200, { ok: true, drafts });
     return;
   }
 
@@ -840,15 +1103,107 @@ const server = http.createServer(async (req, res) => {
   if (renderTrackedMatch && req.method === "POST") {
     json(res, 200, {
       ok: true,
-      outputPath: "artifacts/e2e-tracked.docx",
+      outputPath: `artifacts/${renderTrackedMatch[1]}-tracked.docx`,
       mode: "officecli",
     });
     return;
   }
 
+  const redlineHunkResolveMatch = /^\/api\/drafts\/([^/]+)\/redline\/hunks\/([^/]+)\/resolve$/.exec(
+    path,
+  );
+  if (redlineHunkResolveMatch && req.method === "POST") {
+    json(res, 200, {
+      ok: true,
+      proposal: {
+        taskId: redlineHunkResolveMatch[1],
+        baselineSections: [{ heading: "付款", body: "甲方应在十五日内支付全部价款。" }],
+        hunks: [
+          {
+            hunkId: redlineHunkResolveMatch[2],
+            sectionIndex: 0,
+            sectionHeading: "付款",
+            before: "三十",
+            after: "十五",
+            spanStart: 4,
+            spanEnd: 6,
+            granularity: "surgical",
+            status: "accepted",
+          },
+        ],
+      },
+      redlineSummary: { pending: 0, accepted: 1, rejected: 0 },
+    });
+    return;
+  }
+
+  const redlineResolveAllMatch = /^\/api\/drafts\/([^/]+)\/redline\/resolve-all$/.exec(path);
+  if (redlineResolveAllMatch && req.method === "POST") {
+    json(res, 200, {
+      ok: true,
+      resolved: 1,
+      proposal: {
+        taskId: redlineResolveAllMatch[1],
+        baselineSections: [{ heading: "付款", body: "甲方应在十五日内支付全部价款。" }],
+        hunks: [],
+      },
+      redlineSummary: { pending: 0, accepted: 1, rejected: 0 },
+    });
+    return;
+  }
+
+  const redlineMatch = /^\/api\/drafts\/([^/]+)\/redline$/.exec(path);
+  if (redlineMatch && req.method === "GET") {
+    json(res, 200, {
+      ok: true,
+      proposal: {
+        taskId: redlineMatch[1],
+        baselineSections: [{ heading: "付款", body: "甲方应在三十日内支付全部价款。" }],
+        hunks: [
+          {
+            hunkId: "e2e-hunk-1",
+            sectionIndex: 0,
+            sectionHeading: "付款",
+            before: "三十",
+            after: "十五",
+            spanStart: 4,
+            spanEnd: 6,
+            granularity: "surgical",
+            status: "pending",
+          },
+        ],
+      },
+      redlineSummary: { pending: 1, accepted: 0, rejected: 0 },
+    });
+    return;
+  }
+
   const draftMatch = /^\/api\/drafts\/([^/]+)$/.exec(path);
+  if (draftMatch && req.method === "DELETE") {
+    const st = getDraftState(draftMatch[1]);
+    if (st.deleted) {
+      json(res, 404, { ok: false, error: "not found" });
+      return;
+    }
+    if ((st.reviewStatus || "pending") === "approved") {
+      json(res, 409, {
+        ok: false,
+        error: "draft_not_deletable",
+        message: "已签批的交付稿应保留归档；如确需删除，请先恢复待审核。",
+        reviewStatus: "approved",
+      });
+      return;
+    }
+    st.deleted = true;
+    json(res, 200, { ok: true, taskId: draftMatch[1], deletedDraft: true, deletedTask: true });
+    return;
+  }
   if (draftMatch && req.method === "GET") {
     const st = getDraftState(draftMatch[1]);
+    if (st.deleted) {
+      json(res, 404, { ok: false, error: "not found" });
+      return;
+    }
     json(res, 200, {
       ok: true,
       draft: {
@@ -861,11 +1216,13 @@ const server = http.createServer(async (req, res) => {
         reviewStatus: st.reviewStatus || "pending",
         matterId: "e2e-matter-1",
         reviewNotes: [],
-        sections: [{ heading: "摘要", body: "E2E body" }],
+        sections: E2E_CONTRACT_REVIEW_SECTIONS,
         createdAt: now,
         ...(st.verificationChecklist ? { verificationChecklist: st.verificationChecklist } : {}),
       },
       acceptance: {
+        // 改稿条看这份报告：未就绪才露出「出稿检查未通过」与核对明细。
+        // 在办「一键勾选必核」不读此字段，只对 draft.sections 做客户端 validateDraftAgainstSpec。
         ready: false,
         blockerCount: 1,
         warningCount: 0,
@@ -878,7 +1235,7 @@ const server = http.createServer(async (req, res) => {
             label: "当事人信息",
             passed: false,
             severity: "blocker",
-            hint: "请补齐相对方全称。",
+            hint: "E2E：出稿检查仍有待补项。",
           },
         ],
       },
@@ -896,7 +1253,7 @@ const server = http.createServer(async (req, res) => {
         {
           gate: "acceptance_gate",
           decision: "block",
-          reason: "验收门禁存在阻塞项。",
+          reason: "出稿检查尚有待补项。",
         },
         {
           gate: "reasoning_gate",
@@ -926,7 +1283,7 @@ const server = http.createServer(async (req, res) => {
         reviewStatus: "pending",
         deliverableType: "contract.review",
         matterId: "e2e-matter-1",
-        sections: [{ heading: "摘要", body: "E2E body" }],
+        sections: E2E_CONTRACT_REVIEW_SECTIONS,
       },
       gateDecisions: [
         {
@@ -937,7 +1294,7 @@ const server = http.createServer(async (req, res) => {
         {
           gate: "acceptance_gate",
           decision: "block",
-          reason: "验收门禁存在阻塞项。",
+          reason: "出稿检查尚有待补项。",
         },
       ],
     });
@@ -977,7 +1334,7 @@ const server = http.createServer(async (req, res) => {
         reviewStatus: st.reviewStatus,
         deliverableType: "contract.review",
         matterId: "e2e-matter-1",
-        sections: [{ heading: "摘要", body: "E2E body" }],
+        sections: E2E_CONTRACT_REVIEW_SECTIONS,
         ...(st.verificationChecklist ? { verificationChecklist: st.verificationChecklist } : {}),
       },
     });
@@ -1010,7 +1367,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
     }
-    json(res, 200, { ok: true, outputPath: "artifacts/e2e.docx" });
+    json(res, 200, { ok: true, outputPath: `artifacts/${renderMatch[1]}.docx` });
     return;
   }
 
@@ -1018,7 +1375,7 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, {
       ok: true,
       total: 2,
-      requiresDecisionTotal: 2,
+      requiresDecisionTotal: 1,
       pendingApprovals: 0,
       openQueueItems: 0,
       activeJobs: 0,
@@ -1031,6 +1388,21 @@ const server = http.createServer(async (req, res) => {
           title: "测试法律意见书",
           reviewStatus: "pending",
           createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+      automationInbox: [
+        {
+          id: "e2e-inbox-send",
+          status: "open",
+          title: "E2E 待发信",
+          summary: "发给对方",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          matterId: "e2e-matter-1",
+          pendingSend: {
+            to: "other@example.com",
+            subject: "审阅稿",
+            body: "请查收",
+          },
         },
       ],
     });
@@ -1087,16 +1459,135 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (path === "/api/matters/team-roster" && req.method === "GET") {
+    json(res, 200, {
+      ok: true,
+      roster: {
+        participantAssistantIds: ["default", "contract_review"],
+        synthesizerAssistantId: "contract_review",
+      },
+    });
+    return;
+  }
+
+  if (path === "/api/matters/team-roster" && req.method === "PUT") {
+    json(res, 200, { ok: true });
+    return;
+  }
+
+  if (path === "/api/matters/team-meeting" && req.method === "GET") {
+    const matterId = url.searchParams.get("matterId") ?? "";
+    const limit = Number(url.searchParams.get("limit") ?? "120") || 120;
+    const all = meetingLinesByMatter.get(matterId) ?? [];
+    json(res, 200, { ok: true, lines: all.slice(-limit), total: all.length });
+    return;
+  }
+
   if (path === "/api/chat" && req.method === "POST") {
     const body = await readJsonBody(req);
     const msg = typeof body?.message === "string" ? body.message : "";
+    if (body?.meetingMode === true) {
+      const aid = typeof body?.assistantId === "string" ? body.assistantId : "default";
+      const displayName = aid === "contract_review" ? "合同审查" : "默认助手";
+      const reply = `【${displayName}发言】围绕本案要点给出本岗意见：条款风险分级、必改项与引用锚定均已覆盖（mock 会议第 ${meetingLineSeq} 轮）。`;
+      const matterId = typeof body?.matterId === "string" ? body.matterId : "";
+      const kind = body?.meetingTurnKind === "lawyer" ? "user" : "assistant";
+      const list = meetingLinesByMatter.get(matterId) ?? [];
+      list.push({
+        id: `meeting-line-${meetingLineSeq++}`,
+        ts: new Date().toISOString(),
+        kind,
+        text: kind === "user" ? msg : reply,
+        assistantId: aid,
+        displayName,
+        sessionId,
+      });
+      meetingLinesByMatter.set(matterId, list);
+      const payload = {
+        ok: true,
+        sessionId,
+        reply,
+        status: "completed",
+        requiresAction: [],
+      };
+      if (msg.includes("e2e-slow")) {
+        setTimeout(() => json(res, 200, payload), 1500);
+        return;
+      }
+      json(res, 200, payload);
+      return;
+    }
     const delayMs = msg.includes("e2e-slow") ? 2500 : 0;
-    const payload = {
-      ok: true,
-      sessionId,
-      reply: delayMs > 0 ? "E2E 慢速回复完成。" : "需要您确认后我才能继续执行。",
-      requiresAction: delayMs > 0 ? [] : e2eRequiresAction,
-    };
+    const sid =
+      typeof body?.sessionId === "string" && body.sessionId.trim()
+        ? body.sessionId.trim()
+        : sessionId;
+    let payload;
+    if (isResearchHandoffMessage(msg)) {
+      const outlineActions = researchOutlineRequiresAction(sid);
+      payload = {
+        ok: true,
+        sessionId: sid,
+        reply: "已整理研究大纲，请在澄清卡片确认后再撰写正文。",
+        status: "needs_clarification",
+        requiresAction: outlineActions,
+      };
+      const prev = sessionMessagesById.get(sid) ?? [];
+      sessionMessagesById.set(sid, [
+        ...prev,
+        { role: "user", text: msg },
+        {
+          role: "assistant",
+          text: payload.reply,
+          requiresAction: outlineActions,
+          status: "needs_clarification",
+        },
+      ]);
+    } else if (isContractHandoffMessage(msg)) {
+      const handoffTaskId = createHandoffDraft();
+      const assistantMsg = contractHandoffAssistantMessage(handoffTaskId);
+      payload = {
+        ok: true,
+        sessionId: sid,
+        reply: assistantMsg.text,
+        status: "awaiting_approval",
+        requiresAction: [],
+        executionState: assistantMsg.executionState,
+        gateDecisions: assistantMsg.gateDecisions,
+        linkedTaskId: handoffTaskId,
+      };
+      const prev = sessionMessagesById.get(sid) ?? [];
+      sessionMessagesById.set(sid, [
+        ...prev,
+        { role: "user", text: msg },
+        assistantMsg,
+      ]);
+    } else {
+      payload = {
+        ok: true,
+        sessionId: sid,
+        reply: delayMs > 0 ? "E2E 慢速回复完成。" : "需要您确认后我才能继续执行。",
+        requiresAction: delayMs > 0 ? [] : e2eRequiresAction,
+      };
+    }
+    if (msg.includes("e2e-clarify")) {
+      payload.reply = "还需要两项信息才能继续。";
+      payload.requiresAction = [
+        {
+          id: "ra-clarify-1",
+          kind: "clarification",
+          threadId: `${sid}:turn`,
+          title: "待澄清：租金与押金",
+          summary: "请补充租金金额与押金方式后再起草。",
+          clarificationQuestions: [
+            { key: "rent", question: "月租金是多少？" },
+            { key: "deposit", question: "押金如何约定？" },
+          ],
+          decisions: ["respond"],
+          createdAt: now,
+        },
+      ];
+    }
     if (delayMs > 0) {
       setTimeout(() => json(res, 200, payload), delayMs);
       return;
@@ -1107,6 +1598,7 @@ const server = http.createServer(async (req, res) => {
 
   if (path === "/api/chat/resume" && req.method === "POST") {
     const body = await readJsonBody(req);
+    resumedChatSessions.add(sessionId);
     json(res, 200, {
       ok: true,
       sessionId,
@@ -1115,6 +1607,7 @@ const server = http.createServer(async (req, res) => {
       resumeEcho: {
         decision: body?.decision ?? null,
         editedArgs: body?.editedArgs ?? null,
+        clarificationAnswers: body?.clarificationAnswers ?? null,
       },
     });
     return;
@@ -1124,48 +1617,67 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, {
       ok: true,
       health: healthPayload,
-      assistants: [assistant],
+      assistants: allAssistants,
       presets: [],
     });
     return;
   }
 
   if (path === "/api/agent-fleet" && req.method === "GET") {
-    // Keep pending_review stable across the Playwright suite (shared mock process).
-    // Approve→export e2e relies on React post-approve strip, not fleet removal.
+    // Seed pending_review for suite specs; handoff runs prepend when chat registered a draft.
+    const seedPending = {
+      id: "run-pending-review-1",
+      kind: "pending_review",
+      status: "awaiting_review",
+      title: "E2E 待签批草稿",
+      subtitle: "合同审查意见",
+      matterId: "e2e-matter-1",
+      assistantId: "default",
+      assigneeLabel: "默认助手",
+      sessionId,
+      taskId: "e2e-draft-1",
+      updatedAt: now,
+      createdAt: now,
+      priority: 10,
+    };
+    const seedSend = {
+      id: "run-send-1",
+      kind: "automation_send",
+      status: "awaiting_approval",
+      title: "E2E 待发信",
+      subtitle: "other@example.com · 审阅稿",
+      matterId: "e2e-matter-1",
+      assistantId: "default",
+      assigneeLabel: "默认助手",
+      queueItemId: "e2e-inbox-send",
+      toolName: "prepare_outbound_mail",
+      updatedAt: now,
+      createdAt: now,
+      priority: 1,
+    };
+    const runs = [
+      seedSend,
+      ...handoffFleetRuns,
+      seedPending,
+      {
+        id: "run-chat-1",
+        kind: "chat",
+        status: "awaiting_approval",
+        title: "E2E 待批准对话",
+        matterId: "e2e-matter-1",
+        assistantId: "default",
+        sessionId,
+        actionId: "ra-tool-1",
+        toolName: "execute_workflow",
+        updatedAt: now,
+        createdAt: now,
+        priority: 20,
+      },
+    ];
+    const pendingReviewCount = 1 + handoffFleetRuns.length;
     json(res, 200, {
       ok: true,
-      runs: [
-        {
-          id: "run-pending-review-1",
-          kind: "pending_review",
-          status: "awaiting_review",
-          title: "E2E 待签批草稿",
-          subtitle: "合同审查意见",
-          matterId: "e2e-matter-1",
-          assistantId: "default",
-          assigneeLabel: "默认助手",
-          sessionId,
-          taskId: "e2e-draft-1",
-          updatedAt: now,
-          createdAt: now,
-          priority: 10,
-        },
-        {
-          id: "run-chat-1",
-          kind: "chat",
-          status: "awaiting_approval",
-          title: "E2E 待批准对话",
-          matterId: "e2e-matter-1",
-          assistantId: "default",
-          sessionId,
-          actionId: "ra-tool-1",
-          toolName: "execute_workflow",
-          updatedAt: now,
-          createdAt: now,
-          priority: 20,
-        },
-      ],
+      runs,
       specialization: {
         default: {
           assistantId: "default",
@@ -1202,9 +1714,9 @@ const server = http.createServer(async (req, res) => {
         ],
       },
       counts: {
-        total: 2,
-        active: 2,
-        awaitingAction: 2,
+        total: runs.length,
+        active: runs.length,
+        awaitingAction: runs.length,
         byKind: {
           chat: 1,
           delegation: 0,
@@ -1212,7 +1724,7 @@ const server = http.createServer(async (req, res) => {
           queue_item: 0,
           tool_approval: 0,
           matter_approval: 0,
-          pending_review: 1,
+          pending_review: pendingReviewCount,
         },
       },
     });
@@ -1284,23 +1796,123 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ── Jobs (background workflow jobs) ─────────────────────────────────────────
+  if (path === "/api/automations/presets" && req.method === "GET") {
+    json(res, 200, {
+      ok: true,
+      presets: [
+        {
+          id: "mail-contract-review",
+          title: "邮件合同审阅",
+          description: "定时同步邮箱并把合同附件做最小改稿审阅",
+          needsMail: true,
+          defaultSchedule: { kind: "interval", everyMinutes: 30 },
+          defaultAllowSend: false,
+          templateId: "mail-contract-redline",
+        },
+        {
+          id: "renewal-monitor",
+          title: "续签监控",
+          description: "扫描合同到期日与续签条款",
+          needsMail: false,
+          defaultSchedule: { kind: "daily", hour: 8, minute: 30 },
+          defaultAllowSend: false,
+        },
+        {
+          id: "custom",
+          title: "自定义交办",
+          description: "按自然语言指令定时执行",
+          needsMail: false,
+          defaultSchedule: { kind: "daily", hour: 9, minute: 0 },
+          defaultAllowSend: false,
+        },
+      ],
+    });
+    return;
+  }
+
+  if (path === "/api/automations" && req.method === "GET") {
+    json(res, 200, {
+      ok: true,
+      automations: createdAutomations,
+      inbox: [
+        {
+          id: "inb-e2e-1",
+          automationId: "auto-e2e-1",
+          matterId: "e2e-matter-1",
+          title: "邮件合同审阅 · 运行结果",
+          summary: "已按基线完成最小改稿并生成审阅稿（cases/e2e-matter-1/合同_2026-08-02.docx）。",
+          status: "open",
+          jobId: "e2e-wf-run",
+          createdAt: now,
+        },
+      ],
+    });
+    return;
+  }
+
+  if (path === "/api/automations" && req.method === "POST") {
+    const body = await readJsonBody(req);
+    const presetTitles = {
+      "mail-contract-review": "邮件合同审阅",
+      "renewal-monitor": "续签监控",
+    };
+    const automation = {
+      id: `auto-${createdAutomations.length + 1}`,
+      title: body?.title ?? presetTitles[body?.presetId] ?? "自定义交办",
+      enabled: true,
+      presetId: body?.presetId ?? "custom",
+      matterId: body?.matterId ?? "e2e-matter-1",
+      instruction: body?.instruction,
+      schedule: body?.schedule ?? { kind: "daily", hour: 9, minute: 0 },
+      nextRunAt: now,
+      allowSendEmailAfterApproval: body?.allowSendEmailAfterApproval !== false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    createdAutomations.push(automation);
+    json(res, 201, { ok: true, automation });
+    return;
+  }
+
   if (path === "/api/jobs" && req.method === "GET") {
-    json(res, 200, { ok: true, jobs: [] });
+    json(res, 200, {
+      ok: true,
+      jobs: [
+        {
+          jobId: "e2e-wf-run",
+          status: "running",
+          workflowId: "mail-contract-redline",
+          matterId: "e2e-matter-1",
+          createdAt: now,
+          progress: { totalSteps: 2, completedSteps: 1, failedSteps: 0, runningStepIds: ["s2"] },
+        },
+      ],
+    });
     return;
   }
 
   const jobMatch = /^\/api\/jobs\/([^/]+)$/.exec(path);
   if (jobMatch && req.method === "GET") {
+    const isRun = jobMatch[1] === "e2e-wf-run";
     json(res, 200, {
       ok: true,
-      job: {
-        id: jobMatch[1],
-        status: "completed",
-        kind: "workflow",
-        matterId: "e2e-matter-1",
-        createdAt: now,
-        updatedAt: now,
-      },
+      job: isRun
+        ? {
+            jobId: "e2e-wf-run",
+            status: "running",
+            workflowId: "mail-contract-redline",
+            matterId: "e2e-matter-1",
+            createdAt: now,
+            progress: { totalSteps: 2, completedSteps: 1, failedSteps: 0, runningStepIds: ["s2"] },
+          }
+        : {
+            id: jobMatch[1],
+            status: "completed",
+            kind: "workflow",
+            matterId: "e2e-matter-1",
+            createdAt: now,
+            updatedAt: now,
+          },
     });
     return;
   }
@@ -1314,6 +1926,30 @@ const server = http.createServer(async (req, res) => {
       connection: "keep-alive",
       "access-control-allow-origin": "*",
     });
+    if (jobStreamMatch[1] === "e2e-wf-run") {
+      res.write(
+        `data: ${JSON.stringify({
+          ok: true,
+          job: {
+            jobId: "e2e-wf-run",
+            status: "running",
+            progress: { totalSteps: 2, completedSteps: 1, failedSteps: 0, runningStepIds: ["s2"] },
+          },
+        })}\n\n`,
+      );
+      res.write(
+        `data: ${JSON.stringify({
+          ok: true,
+          job: {
+            jobId: "e2e-wf-run",
+            status: "completed",
+            result: { status: "completed", report: "邮件合同审阅已完成（mock）：审阅稿已写入案件目录。" },
+          },
+        })}\n\n`,
+      );
+      res.end();
+      return;
+    }
     res.write(`data: ${JSON.stringify({ ok: true, job: { id: jobStreamMatch[1], status: "completed" } })}\n\n`);
     res.end();
     return;
@@ -1352,6 +1988,7 @@ const server = http.createServer(async (req, res) => {
   json(res, 404, { ok: false, error: "e2e mock: not found" });
 });
 
+ensureDefaultSessionSeeded();
 server.listen(PORT, "127.0.0.1", () => {
   process.stderr.write(`lawmind e2e mock listening on http://127.0.0.1:${PORT}\n`);
 });

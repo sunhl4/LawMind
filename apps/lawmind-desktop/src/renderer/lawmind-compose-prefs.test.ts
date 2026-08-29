@@ -46,6 +46,12 @@ describe("lawmind-compose-prefs", () => {
     expect(readExecutePermissionMode()).toBe("strict");
   });
 
+  it("post-firstrun executable path uses standard compose for contract Day-1", () => {
+    applyPostFirstrunPermissionDefaults({ executable: true });
+    expect(readComposePermissionMode()).toBe("standard");
+    expect(readExecutePermissionMode()).toBe("strict");
+  });
+
   it("restore-standard path can clear execute preference", () => {
     applyPostFirstrunPermissionDefaults();
     writeExecutePermissionMode("standard");

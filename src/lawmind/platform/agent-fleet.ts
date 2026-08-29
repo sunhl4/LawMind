@@ -10,7 +10,9 @@ export type AgentRunKind =
   | "queue_item"
   | "tool_approval"
   | "matter_approval"
-  | "pending_review";
+  | "pending_review"
+  /** Automation inbox item awaiting lawyer approve_send (may include tracked docx). */
+  | "automation_send";
 
 export type AgentRunStatus =
   | "queued"
@@ -44,6 +46,7 @@ export type AgentRunSummary = {
   approvalId?: string;
   queueItemId?: string;
   taskId?: string;
+  workId?: string;
   actionId?: string;
   toolName?: string;
   progress?: AgentRunProgress;

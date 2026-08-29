@@ -13,9 +13,33 @@ import { buildRequiresActionsFromTurn } from "../platform/requires-action.js";
 import { persistAgentInstructionTask } from "../tasks/index.js";
 import type { ClarificationQuestion } from "../types.js";
 import { attachPersistedLiveTraceToLastAssistant } from "./live-turn-progress.js";
+import { inspectPersistedSessionHistoryAlignment } from "./session-history-alignment.js";
 import { appendTurn, maybeUpdateSessionTitleFromInstruction, saveSession } from "./session.js";
 import { buildClarificationReply, type RunTurnEvent } from "./turn-orchestrator-events.js";
 import type { AgentMessage, AgentSession, AgentTurn } from "./types.js";
+
+function auditSessionHistoryAlignment(
+  workspaceDir: string,
+  session: AgentSession,
+  actorId: string,
+  turnId: string,
+): void {
+  try {
+    const alignment = inspectPersistedSessionHistoryAlignment(workspaceDir, session);
+    if (alignment.ok) {
+      return;
+    }
+    void emit(`${workspaceDir}/audit`, {
+      kind: "agent_turn",
+      actor: "system",
+      actorId,
+      detail: `session_history_drift ${JSON.stringify(alignment.issues)}`,
+      taskId: turnId,
+    });
+  } catch {
+    /* inspect never blocks the turn */
+  }
+}
 
 export type TurnFinalizeShared = {
   workspaceDir: string;
@@ -89,6 +113,7 @@ export function finishShortCircuitTurn(
     });
   }
   saveSession(workspaceDir, session);
+  auditSessionHistoryAlignment(workspaceDir, session, "system", turn.turnId);
   return { turn, reply: shortReply, sessionId: session.sessionId, memoryContext: memory };
 }
 
@@ -165,6 +190,7 @@ export function finalizeAgentTurn(opts: {
     clarificationQuestions: turn.clarificationQuestions,
     turnId: turn.turnId,
     sessionId: turn.sessionId,
+    toolCallsExecuted: turn.toolCallsExecuted,
     matterId: session.matterId,
     pendingToolApproval: turn.pendingToolApproval,
   });
@@ -245,6 +271,7 @@ export function finalizeAgentTurn(opts: {
     detail: `turn=${turn.turnId} tools=${turn.toolCallsExecuted} status=${turn.status}`,
     taskId: turn.turnId,
   });
+  auditSessionHistoryAlignment(workspaceDir, session, actorId, turn.turnId);
 
   if (turn.executionState || (turn.gateDecisions?.length ?? 0) > 0) {
     void emitPlatformGateSnapshot(`${workspaceDir}/audit`, {

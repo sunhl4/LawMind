@@ -3,13 +3,19 @@ import { LawmindAgentFleetPanel } from "../LawmindAgentFleetPanel";
 import { LawmindCollaborationDesk } from "../LawmindCollaborationDesk";
 import type { AppConfig } from "../lawmind-app-bootstrap";
 import type { CollabEvent, DelegationRow, GateHistoryItem } from "../lawmind-app-data";
-import type { AgentsDeskTab, NeedsDecisionDeskTarget } from "../lawmind-agents-desk";
+import type {
+  AgentsDeskTab,
+  AgentsWorkflowFocusTarget,
+  NeedsDecisionDeskTarget,
+} from "../lawmind-agents-desk";
 import { countActiveDelegations } from "../lawmind-records-collab-panels";
 import type { LawMindRequiresAction } from "../lawmind-requires-action";
 import type { CollabSummaryState } from "../LawmindSettingsCollaboration";
 import type { ModelCatalogEntry } from "../lawmind-models-api";
 import { isSelectedModelVerified } from "../lawmind-model-verify";
 import { LawmindCollaborationComposeModelRail } from "../LawmindCollaborationComposeModelRail";
+import { useEdition } from "../use-edition";
+import { lawyerFacingQueueTabTitle, useRequireSignoffReview } from "../lawmind-review-prefs";
 
 export type AgentFleetViewProps = {
   config: AppConfig | null;
@@ -22,12 +28,15 @@ export type AgentFleetViewProps = {
   onOpenReview: (taskId?: string, matterId?: string) => void;
   onShowArtifact?: (outputPath: string) => void;
   onOpenMemoryInspector?: () => void;
+  onOpenDoctor?: () => void;
   agentsDeskTab: AgentsDeskTab;
   onAgentsDeskTabChange: (tab: AgentsDeskTab) => void;
   needsDecisionFocus?: boolean;
   onClearNeedsDecisionFocus?: () => void;
   focusTarget?: NeedsDecisionDeskTarget | null;
   onFocusTargetConsumed?: () => void;
+  workflowFocus?: AgentsWorkflowFocusTarget | null;
+  onWorkflowFocusConsumed?: () => void;
   collabSummarySettings: CollabSummaryState | null | undefined;
   selectedAssistantId: string;
   delegations: DelegationRow[];
@@ -51,20 +60,17 @@ export type AgentFleetViewProps = {
   localServiceReconnecting: boolean;
 };
 
-function deskTabTitle(tab: AgentsDeskTab): string {
-  switch (tab) {
-    case "workflows":
-      return "按流程办";
-    case "delegations":
-      return "交出去的活";
-    default:
-      return "待拍板";
-  }
-}
-
 function AgentFleetViewImpl(props: AgentFleetViewProps) {
   const onActive = props.agentsDeskTab === "active";
   const activeDel = countActiveDelegations(props.delegations);
+  const requireSignoffReview = useRequireSignoffReview();
+  const { edition } = useEdition(props.config?.apiBase ?? "");
+  const soloDesk = edition === "solo";
+  const showAdvancedTabs =
+    !soloDesk ||
+    props.agentsDeskTab === "delegations" ||
+    props.agentsDeskTab === "workflows" ||
+    activeDel > 0;
 
   const composeModel =
     props.config?.apiBase
@@ -103,9 +109,6 @@ function AgentFleetViewImpl(props: AgentFleetViewProps) {
         <header className="lm-agents-wb-bar" data-testid="lm-agents-desk-chrome">
           <div className="lm-agents-wb-bar-meta">
             <h1>在办</h1>
-            <span className="lm-meta lm-agents-desk-chrome-sub" aria-live="polite">
-              {deskTabTitle(props.agentsDeskTab)}
-            </span>
           </div>
           <nav className="lm-tabs lm-agents-desk-tabs" aria-label="在办分区">
             <button
@@ -114,35 +117,72 @@ function AgentFleetViewImpl(props: AgentFleetViewProps) {
               aria-current={props.agentsDeskTab === "active" ? "page" : undefined}
               data-testid="lm-agents-tab-active"
               onClick={() => props.onAgentsDeskTabChange("active")}
-              title="谁在忙、待签批 / 补充 / 批准"
+              title={lawyerFacingQueueTabTitle(requireSignoffReview)}
             >
               待拍板
             </button>
             <button
               type="button"
-              className={`lm-tab ${props.agentsDeskTab === "delegations" ? "active" : ""}`}
-              aria-current={props.agentsDeskTab === "delegations" ? "page" : undefined}
-              data-testid="lm-agents-tab-delegations"
-              onClick={() => props.onAgentsDeskTabChange("delegations")}
-              title="已交办给助手的事项进度"
+              className="lm-tab lm-tab-secondary"
+              data-testid="lm-agents-open-review"
+              title="打开已出的审查稿、合同稿，自行改或再吩咐一轮"
+              onClick={() => props.onOpenReview()}
             >
-              交出去的活
-              {activeDel > 0 ? (
-                <span className="lm-tab-inline-count" title="进行中的交办">
-                  {activeDel}
-                </span>
-              ) : null}
+              改稿
             </button>
-            <button
-              type="button"
-              className={`lm-tab ${props.agentsDeskTab === "workflows" ? "active" : ""}`}
-              aria-current={props.agentsDeskTab === "workflows" ? "page" : undefined}
-              data-testid="lm-agents-tab-workflows"
-              onClick={() => props.onAgentsDeskTabChange("workflows")}
-              title="按模板跑多步团队流程"
-            >
-              按流程办
-            </button>
+            {showAdvancedTabs ? (
+              <>
+                <button
+                  type="button"
+                  className={`lm-tab ${props.agentsDeskTab === "delegations" ? "active" : ""}`}
+                  aria-current={props.agentsDeskTab === "delegations" ? "page" : undefined}
+                  data-testid="lm-agents-tab-delegations"
+                  onClick={() => props.onAgentsDeskTabChange("delegations")}
+                  title="已交办给助手的事项进度"
+                >
+                  交出去的活
+                  {activeDel > 0 ? (
+                    <span className="lm-tab-inline-count" title="进行中的交办">
+                      {activeDel}
+                    </span>
+                  ) : null}
+                </button>
+                <button
+                  type="button"
+                  className={`lm-tab ${props.agentsDeskTab === "workflows" ? "active" : ""}`}
+                  aria-current={props.agentsDeskTab === "workflows" ? "page" : undefined}
+                  data-testid="lm-agents-tab-workflows"
+                  onClick={() => props.onAgentsDeskTabChange("workflows")}
+                  title="按模板跑多步团队流程"
+                >
+                  按流程办
+                </button>
+              </>
+            ) : (
+              <details className="lm-agents-desk-more" data-testid="lm-agents-desk-more">
+                <summary className="lm-tab lm-tab-secondary">更多</summary>
+                <div className="lm-agents-desk-more-menu" role="menu">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="lm-agents-desk-more-item"
+                    data-testid="lm-agents-tab-delegations"
+                    onClick={() => props.onAgentsDeskTabChange("delegations")}
+                  >
+                    交出去的活
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="lm-agents-desk-more-item"
+                    data-testid="lm-agents-tab-workflows"
+                    onClick={() => props.onAgentsDeskTabChange("workflows")}
+                  >
+                    按流程办
+                  </button>
+                </div>
+              </details>
+            )}
           </nav>
         </header>
 
@@ -168,6 +208,7 @@ function AgentFleetViewImpl(props: AgentFleetViewProps) {
             onOpenReview={props.onOpenReview}
             onShowArtifact={props.onShowArtifact}
             onOpenMemoryInspector={props.onOpenMemoryInspector}
+            onOpenHealth={props.onOpenDoctor}
           />
         ) : null}
 
@@ -191,6 +232,8 @@ function AgentFleetViewImpl(props: AgentFleetViewProps) {
             assistantDisplayById={props.assistantDisplayById}
             onReconnectLocalService={props.onReconnectLocalService}
             localServiceReconnecting={props.localServiceReconnecting}
+            workflowFocus={props.workflowFocus}
+            onWorkflowFocusConsumed={props.onWorkflowFocusConsumed}
             embedded
           />
         ) : null}

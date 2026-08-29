@@ -1,6 +1,6 @@
 # 在办 Desk V3 — Decision Ceremony mockups
 
-Design truth: [`docs/LAWMIND-AGENTS-DESK-V3.md`](../../LAWMIND-AGENTS-DESK-V3.md)
+Design truth: [`docs/LAWMIND-DESKTOP-UI.md`](../../LAWMIND-DESKTOP-UI.md)
 
 | File | Meaning |
 |------|---------|

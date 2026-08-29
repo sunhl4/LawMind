@@ -39,6 +39,11 @@ import type { ReviewOpenTarget } from "./LawmindChatReviewSticky";
 import type { FileChatContextItem } from "./lawmind-app-shell";
 import { apiSendJson } from "./api-client";
 import {
+  lawyerFacingDecisionTotal,
+  lawyerFacingQueueScopeHint,
+  useRequireSignoffReview,
+} from "./lawmind-review-prefs";
+import {
   encodeFileContextPin,
   type ComposeContextPin,
   type TruthSourceContextPin,
@@ -289,8 +294,13 @@ export function LawmindChatComposeFooter({
   };
   const openNeedsDecisionDesk = onOpenNeedsDecisionDesk ?? onOpenActionHub;
   const extras = composeExtras;
-  const pendingDecisionTotal =
-    extras.actionSummary?.requiresDecisionTotal ?? extras.actionSummary?.total ?? 0;
+  const requireSignoffReview = useRequireSignoffReview();
+  const pendingDecisionTotal = lawyerFacingDecisionTotal({
+    requiresDecisionTotal: extras.actionSummary?.requiresDecisionTotal,
+    total: extras.actionSummary?.total,
+    pendingReviewCount: extras.actionSummary?.pendingReviewCount,
+    requireSignoffReview,
+  });
 
   const contractMaterialsHint = useMemo(() => {
     const paths = fileChatPills
@@ -530,7 +540,7 @@ export function LawmindChatComposeFooter({
         id: "hub",
         slash: "/hub",
         label: pendingDecisionTotal > 0 ? `待我拍板 (${pendingDecisionTotal})` : "待我拍板",
-        hint: "跨会话收件箱：澄清、批准、待审文书",
+        hint: lawyerFacingQueueScopeHint(requireSignoffReview),
         run: () => openNeedsDecisionDesk?.(),
       },
       {
@@ -805,6 +815,7 @@ export function LawmindChatComposeFooter({
         composeModelHint={composeModelHint}
         composeModelQuickTestBusy={composeModelQuickTestBusy}
         composeInput={input}
+        onComposeInputChange={handleComposeInputChange}
         queuedMessages={queuedMessages}
         cancelQueuedMessage={cancelQueuedMessage}
         fileChatPills={fileChatPills}
@@ -821,6 +832,7 @@ export function LawmindChatComposeFooter({
         planHandoffSummary={planHandoffText ? planHandoffSummary(planHandoffText) : null}
         onFillPlanHandoff={planHandoffText ? fillPlanHandoff : undefined}
         onClearPlanHandoff={planHandoffText ? dismissPlanHandoff : undefined}
+        hideWordRevisionBar={compactFastLaneOpen}
       />
       <div
         className="lm-compose lm-compose-resizable"

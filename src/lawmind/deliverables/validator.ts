@@ -14,6 +14,11 @@
 import type { ArtifactDraft, ArtifactSection } from "../types.js";
 import { inferDeliverableTypeForAcceptance } from "./draft-deliverable-infer.js";
 import { heuristicPlaceholderRatio } from "./draft-sanity.js";
+import {
+  countScaffoldPlaceholdersInDraft,
+  DEFAULT_PLACEHOLDER_PATTERN,
+  isHighScaffoldDensity,
+} from "./placeholder-pattern.js";
 import { getDeliverableSpec } from "./registry.js";
 import type {
   AcceptanceCheck,
@@ -21,8 +26,6 @@ import type {
   ValidateDraftFn,
   ValidateDraftOptions,
 } from "./types.js";
-
-const DEFAULT_PLACEHOLDER_PATTERN = /【待补充[:：][^】]*】/g;
 
 function normalizeHeading(heading: string): string {
   return heading.replace(/\s+/g, "").toLowerCase();
@@ -79,12 +82,12 @@ function buildPlaceholderCheck(
   const passed = must ? placeholders.length === 0 : true;
   return {
     key: "placeholders.resolved",
-    label: must ? "所有【待补充：xxx】占位符已替换" : "占位符可保留至客户最终签署前",
+    label: must ? "文中仍有未填项（【…】）须替换后再导出" : "占位符可保留至客户最终签署前",
     passed,
     severity: must ? "blocker" : "warning",
     hint: passed
       ? undefined
-      : `仍有 ${placeholders.length} 个待补充占位符，需在最终交付前替换为实际内容。`,
+      : `仍有 ${placeholders.length} 个未填项（【…】），需在最终交付前替换为实际内容。`,
   };
 }
 
@@ -99,7 +102,30 @@ function concatDraftPlainText(draft: ArtifactDraft): string {
   return parts.join("");
 }
 
-/** Warn when heuristic placeholder density is high vs finished prose (supplement to explicit 【待补充】). */
+const CONTRACT_REVIEW_CLAUSE_RE =
+  /第\s*[一二三四五六七八九十百千0-9]+\s*条|Article\s*\d+|〔待核实〕|\[待核实\]/i;
+
+function buildContractReviewClauseAnchorCheck(
+  draft: ArtifactDraft,
+  spec: DeliverableSpec,
+): AcceptanceCheck | undefined {
+  if (spec.type !== "contract.review") {
+    return undefined;
+  }
+  const riskSections = draft.sections.filter((section) =>
+    sectionMatches(section, ["风险", "问题"]),
+  );
+  const body = riskSections.map((section) => section.body).join("\n");
+  const passed = CONTRACT_REVIEW_CLAUSE_RE.test(body);
+  return {
+    key: "contract.review.clause_anchor",
+    label: "主要风险须锚定条款（第×条 / Article / 〔待核实〕）",
+    passed,
+    severity: "blocker",
+    hint: passed ? undefined : "风险章节须引用「第×条」或 Article N；无法核实时写〔待核实〕。",
+  };
+}
+
 function buildBodySanityCheck(draft: ArtifactDraft): AcceptanceCheck | undefined {
   const text = concatDraftPlainText(draft);
   if (text.trim().length < 400) {
@@ -116,6 +142,24 @@ function buildBodySanityCheck(draft: ArtifactDraft): AcceptanceCheck | undefined
     hint: passed
       ? undefined
       : `启发式评分 ${ratio.toFixed(2)} 超过建议阈值 ${threshold}，草稿可能仍含大量占位或待填内容；请核对后再交付。`,
+  };
+}
+
+function buildScaffoldDensityCheck(draft: ArtifactDraft): AcceptanceCheck | undefined {
+  const samples = countScaffoldPlaceholdersInDraft(draft.sections);
+  const plainLen = concatDraftPlainText(draft).trim().length;
+  if (samples.length === 0) {
+    return undefined;
+  }
+  const dense = isHighScaffoldDensity(samples, plainLen);
+  return {
+    key: "draft.scaffold_density",
+    label: dense ? "仍为骨架稿，须由模型或律师补全后再交付" : "文中仍有未填项",
+    passed: !dense,
+    severity: dense ? "blocker" : "warning",
+    hint: dense
+      ? `检出 ${samples.length} 处骨架占位（如 ${samples.slice(0, 3).join("、")}）。这是模板填空，不能当作已验收导出。`
+      : undefined,
   };
 }
 
@@ -175,18 +219,18 @@ export const validateDraftAgainstSpec: ValidateDraftFn = (
     return {
       taskId: draft.taskId,
       deliverableType: effectiveType ?? draft.deliverableType,
-      ready: true,
+      ready: false,
       checks: [
         {
           key: "spec.not_found",
-          label: "未找到对应交付物规范，跳过结构化验收。",
-          passed: true,
-          severity: "warning",
-          hint: "可在 src/lawmind/deliverables/registry.ts 注册新的 DeliverableSpec。",
+          label: "未登记该类文书的验收规范，不能当作已验收导出。",
+          passed: false,
+          severity: "blocker",
+          hint: "请先指定已登记的交付物类型，或在工作区注册对应规范后再导出。",
         },
       ],
-      blockerCount: 0,
-      warningCount: 1,
+      blockerCount: 1,
+      warningCount: 0,
       placeholderCount: 0,
       placeholderSamples: [],
       generatedAt,
@@ -209,6 +253,14 @@ export const validateDraftAgainstSpec: ValidateDraftFn = (
   const bodySanity = buildBodySanityCheck(draft);
   if (bodySanity) {
     checks.push(bodySanity);
+  }
+  const clauseAnchor = buildContractReviewClauseAnchorCheck(draft, spec);
+  if (clauseAnchor) {
+    checks.push(clauseAnchor);
+  }
+  const scaffold = buildScaffoldDensityCheck(draft);
+  if (scaffold) {
+    checks.push(scaffold);
   }
 
   const blockerCount = checks.filter((c) => c.severity === "blocker" && !c.passed).length;

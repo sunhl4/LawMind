@@ -11,6 +11,7 @@ import {
   upsertMailAccountSecret,
   type MailAccountSecret,
 } from "./mail-secrets.js";
+import { sanitizeMailSendFormat, type MailSendFormat } from "./mail-send-format.js";
 import {
   getMailProviderPreset,
   type MailAuthKind,
@@ -18,7 +19,7 @@ import {
 } from "./provider-presets.js";
 import { sanitizeWatchContacts, type MailWatchContact } from "./watch-contacts.js";
 
-export type { MailWatchContact };
+export type { MailWatchContact, MailSendFormat };
 
 export type MailAccount = {
   id: string;
@@ -42,6 +43,8 @@ export type MailAccount = {
    * Non-empty = only sync messages involving these addresses.
    */
   watchContacts: MailWatchContact[];
+  /** 发件显示名 / 结束语 / 落款。无则发信不附加格式。 */
+  sendFormat?: MailSendFormat;
   enabled: boolean;
   lastSyncAt?: string;
   lastSyncError?: string;
@@ -127,6 +130,7 @@ function normalizeAccount(row: unknown): MailAccount | null {
     clientId: o.clientId,
     graphMailbox: o.graphMailbox,
     watchContacts: sanitizeWatchContacts(o.watchContacts),
+    sendFormat: sanitizeMailSendFormat(o.sendFormat),
     enabled: o.enabled,
     lastSyncAt: o.lastSyncAt,
     lastSyncError: o.lastSyncError,
@@ -181,6 +185,8 @@ export type UpsertMailAccountInput = {
   graphMailbox?: string;
   /** Pass `[]` to clear; omit to keep existing on update. */
   watchContacts?: MailWatchContact[];
+  /** Pass `null`/`{}` to clear; omit to keep existing on update. */
+  sendFormat?: MailSendFormat | null;
   enabled?: boolean;
   secret?: MailAccountSecret;
 };
@@ -225,6 +231,10 @@ export function upsertMailAccount(
       input.watchContacts !== undefined
         ? sanitizeWatchContacts(input.watchContacts)
         : sanitizeWatchContacts(existing?.watchContacts),
+    sendFormat:
+      input.sendFormat !== undefined
+        ? sanitizeMailSendFormat(input.sendFormat)
+        : existing?.sendFormat,
     enabled: input.enabled ?? existing?.enabled ?? true,
     lastSyncAt: existing?.lastSyncAt,
     lastSyncError: existing?.lastSyncError,

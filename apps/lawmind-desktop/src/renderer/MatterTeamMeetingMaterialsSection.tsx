@@ -113,7 +113,7 @@ export function MatterTeamMeetingMaterialsSection(
           <p className="lm-meeting-file-hint">
             {materialsDragOver
               ? "松开以加入议题"
-              : "从左侧材料树拖入，或点「搜索」；讨论中也可追加"}
+              : "拖入或搜索"}
           </p>
         )}
       </div>

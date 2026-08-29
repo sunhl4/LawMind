@@ -6,6 +6,7 @@ import path from "node:path";
 import { emit, readAllAuditLogs } from "../audit/index.js";
 import type { AuditEvent } from "../types.js";
 import type { GateDecision, TaskExecutionState } from "./contracts.js";
+import { withGateCategories } from "./gate-category.js";
 
 export const PLATFORM_GATE_AUDIT_KIND = "platform.gate_snapshot" as const;
 
@@ -78,6 +79,7 @@ export async function emitPlatformGateSnapshot(
   auditDir: string,
   params: EmitPlatformGateSnapshotParams,
 ): Promise<AuditEvent> {
+  const gateDecisions = withGateCategories(params.gateDecisions);
   return emit(auditDir, {
     taskId: params.taskId,
     kind: PLATFORM_GATE_AUDIT_KIND,
@@ -86,7 +88,7 @@ export async function emitPlatformGateSnapshot(
     detail: serializePlatformGateSnapshotDetail({
       source: params.source,
       executionState: params.executionState,
-      gateDecisions: params.gateDecisions,
+      gateDecisions: gateDecisions.length > 0 ? gateDecisions : params.gateDecisions,
       context: params.context,
     }),
   });

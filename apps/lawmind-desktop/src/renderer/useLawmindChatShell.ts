@@ -17,6 +17,9 @@ export {
   readChatActiveStore,
 } from "./lawmind-chat-active-storage";
 
+/** 无标题会话的默认显示名（律师向中文，统一一处）。 */
+export const DEFAULT_CHAT_SESSION_TITLE = "新对话";
+
 export type LawmindChatShellState = {
   messagesByAssistant: Record<string, ChatMsg[]>;
   setMessagesByAssistant: Dispatch<SetStateAction<Record<string, ChatMsg[]>>>;
@@ -150,7 +153,7 @@ export function useLawmindChatShell(input: {
       }
       const mapped: ChatSessionListEntry[] = j.sessions.map((s) => ({
         sessionId: s.sessionId,
-        title: typeof s.title === "string" && s.title.trim() ? s.title : "New Chat",
+        title: typeof s.title === "string" && s.title.trim() ? s.title : DEFAULT_CHAT_SESSION_TITLE,
         updatedAt: s.updatedAt,
         lastPreview: typeof s.lastPreview === "string" ? s.lastPreview : undefined,
       }));

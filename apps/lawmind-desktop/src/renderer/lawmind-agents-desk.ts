@@ -11,7 +11,17 @@ export type NeedsDecisionDeskTarget = {
   sessionId?: string;
   taskId?: string;
   matterId?: string;
+  /** 交办 inbox 条目 id（fleet 行 `automation-send:<id>` / `queueItemId`）。 */
+  queueItemId?: string;
+  /** 工作流 job id（fleet 行 `jobId`，或「按流程办」深链）。 */
+  jobId?: string;
   preferStatus?: "awaiting_clarification" | "awaiting_approval" | "awaiting_review";
+};
+
+/** 「按流程办」深链：预填案件并高亮/接上对应 job。 */
+export type AgentsWorkflowFocusTarget = {
+  matterId?: string;
+  jobId?: string;
 };
 
 /** @deprecated Prefer AgentsDeskTab; kept for short migration of collaboration desk props. */

@@ -27,6 +27,10 @@ export const DELIVERABLE_LIFECYCLE_TRANSITIONS: DeliverableLifecycleTransition[]
   { from: "drafting", to: "blocked", label: "Block draft" },
   { from: "pending_review", to: "blocked", label: "Request changes" },
   { from: "blocked", to: "drafting", label: "Resume drafting" },
+  // 重开审核（reopenDraftReview）：律师把已签批/已阻塞/已渲染的交付物退回待审核。
+  { from: "approved", to: "pending_review", label: "Reopen review" },
+  { from: "blocked", to: "pending_review", label: "Reopen review" },
+  { from: "rendered", to: "pending_review", label: "Reopen review" },
 ];
 
 export function isDeliverableLifecycleStatus(value: string): value is DeliverableLifecycleStatus {

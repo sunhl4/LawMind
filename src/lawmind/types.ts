@@ -44,17 +44,31 @@ export type RiskLevel = "low" | "medium" | "high";
  *
  * 内置常量提供编辑器自动补全；同时通过 `(string & {})` 允许工作区自定义
  * `lawmind/deliverables/*.json` 注册的私有类型（例如 `contract.employment`、
- * `litigation.complaint`），以支持事务所差异化交付规范。
+ * `contract.employment`），以支持事务所差异化交付规范。
  */
 export type DeliverableType =
   | "contract.review"
   | "contract.rental"
   | "contract.general"
   | "letter.demand"
+  | "letter.counsel"
+  | "letter.reply"
   | "litigation.outline"
+  | "litigation.complaint"
+  | "litigation.answer"
+  | "litigation.brief"
+  | "memo.opinion"
+  | "memo.internal"
+  | "matter.timeline"
+  | "matter.exhibit_list"
+  | "meeting.minutes"
+  | "contract.nda"
   | "document.general"
   | "report.esg"
   | "report.general"
+  | "report.compliance"
+  | "report.learning"
+  | "ppt.training"
   // eslint-disable-next-line @typescript-eslint/ban-types -- 保留 IDE 内置类型自动补全的同时允许工作区扩展类型。
   | (string & {});
 
@@ -207,6 +221,24 @@ export type ContractRevisionCapture = {
   keyModifications?: string[];
 };
 
+/**
+ * 合同正文最小修改 / 原文件审阅导出上下文。
+ * - baseline：上传原合同相对工作区路径（.doc / .docx）
+ * - surgical：Redline 按字/句级 span 生成
+ */
+export type ContractEditMode = "surgical" | "section";
+
+export type ContractEditContext = {
+  /** 原合同相对工作区根或项目根的路径（用于 tracked 导出基线） */
+  baselineRelativePath: string;
+  /** 缺省 workspace。项目钉选的 Word 为 project。 */
+  baselineRoot?: "workspace" | "project";
+  /** 默认 surgical */
+  mode?: ContractEditMode;
+  /** 关联的审查意见书草稿 taskId（附带固定版式导出） */
+  opinionTaskId?: string;
+};
+
 /** 文书草稿 — 由推理层生成，渲染前须律师审核 */
 export type ArtifactDraft = {
   taskId: string;
@@ -255,6 +287,20 @@ export type ArtifactDraft = {
   /** 已通过 `contractRevisionCapture` 写入积累包后的 `revisionId`，防止重复落盘 */
   contractRevisionAccumulatedId?: string;
   /**
+   * 合同正文最小修改：原文件基线 + surgical Redline / tracked 导出。
+   */
+  contractEdit?: ContractEditContext;
+  /**
+   * 最近一次改写幅度质控（字符/段落 delta）；幅度过大时供审核台提示。
+   */
+  rewriteAmplitude?: {
+    absCharDelta: number;
+    absParagraphDelta: number;
+    ratio?: number | null;
+    gated?: boolean;
+    at: string;
+  };
+  /**
    * 律师必核清单落盘（签批通过时写入）。导出/复盘以这份为准，避免仅存在于 UI 内存。
    * 形状与 `VerificationChecklistState` 对齐。
    */
@@ -262,6 +308,16 @@ export type ArtifactDraft = {
     specId: string;
     checked: Record<string, boolean>;
     updatedAt?: string;
+  };
+  /**
+   * Optional lawyer-facing decision header (改了什么 / 为什么 / 风险 / 可否直接用).
+   * Review workbench can also derive this from draft + lint when unset.
+   */
+  decisionHeader?: {
+    changed: string;
+    why: string;
+    risk: string;
+    ready: "usable" | "needs_decision";
   };
 };
 
@@ -436,7 +492,8 @@ export type AuditEventKind =
   | "routing.resolve_fallback" // 默认路由：role 无助手时回退 shell
   | "routing.resolve_failed" // 默认路由无法解析 assignee
   | "draft.peer_review_required" // 强制互审闸：已建 peer 委派
-  | "draft.peer_review_skipped"; // 强制互审闸：无 peer / 自审跳过
+  | "draft.peer_review_skipped" // 强制互审闸：无 peer / 自审跳过
+  | "automation.run_failed"; // 交办自动化运行失败（含结构化错误码）
 
 /** 审计事件 */
 export type AuditEvent = {

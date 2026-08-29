@@ -3,6 +3,7 @@
  * Firm parallel LLM runners come later (S6).
  */
 
+import { extractReviewBrief, formatReviewBriefHeader, hasReviewBrief } from "./review-brief.js";
 import { aggregateSafetyScore } from "./safety-score.js";
 import type {
   FleetPlaybook,
@@ -43,6 +44,15 @@ function findingsForRole(
   }
 
   if (roleId === "risk") {
+    const brief = extractReviewBrief(t);
+    if (hasReviewBrief(brief)) {
+      findings.push({
+        severity: "low",
+        title: "沿用原审查口径",
+        detail: `专案组按交办口径复核：${formatReviewBriefHeader(brief).replace("【审查口径】", "")}。风险与责任须对照此立场与重点，不得改成中立默认。`,
+        negotiatePriority: 1,
+      });
+    }
     if (!/责任上限|赔偿上限|limitation of liability|累计责任/i.test(t)) {
       findings.push({
         severity: "high",

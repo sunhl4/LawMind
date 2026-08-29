@@ -4,7 +4,6 @@ import type { ArtifactDraft, TaskRecord } from "../../../../../src/lawmind/types
 import type { AcceptanceSummaryItem } from "./matter-acceptance-display";
 import { DraftAcceptanceBadge } from "./matter-acceptance-display";
 import { mergeTaskBoardRows, type TaskBoardJobInput } from "./matter-task-board";
-import { approvalStatusLabel } from "./matter-display-labels";
 
 type ReviewOpenArgs = {
   taskId: string;
@@ -69,13 +68,37 @@ export function MatterTaskBoard(props: Props): ReactNode {
                     onOpenReview({ taskId: row.draftTaskId!, matterId: undefined })
                   }
                 >
-                  进入文书台
+                  改稿
                 </button>
               ) : null}
             </div>
           ) : null}
+          {row.kind === "queue" && row.taskId && onOpenReview ? (
+            <div className="lm-task-board-row-actions">
+              <button
+                type="button"
+                className="lm-btn lm-btn-secondary lm-btn-sm"
+                onClick={() => onOpenReview({ taskId: row.taskId!, matterId: undefined })}
+              >
+                打开关联文书
+              </button>
+            </div>
+          ) : null}
           {row.kind === "approval" ? (
-            <span className="lm-meta">{approvalStatusLabel(row.statusLabel as never)}</span>
+            <div className="lm-task-board-row-actions">
+              <span className="lm-meta">{row.statusLabel}</span>
+              {row.draftTaskId && onOpenReview ? (
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-secondary lm-btn-sm"
+                  onClick={() =>
+                    onOpenReview({ taskId: row.draftTaskId!, matterId: undefined })
+                  }
+                >
+                  改稿
+                </button>
+              ) : null}
+            </div>
           ) : null}
         </li>
       ))}

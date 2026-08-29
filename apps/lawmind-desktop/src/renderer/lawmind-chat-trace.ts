@@ -1,5 +1,6 @@
 import type { ChatLiveTrace, ChatTraceStep } from "./lawmind-chat-trace-types.js";
 import { apiAuthHeaders } from "./lawmind-api-auth.ts";
+import { presentLawyerToolCall, presentLawyerToolResult } from "../../../../src/lawmind/agent/tool-lawyer-card.ts";
 import { toolDisplayNameZh } from "../../../../src/lawmind/platform/requires-action.ts";
 
 export type { ChatLiveTrace, ChatTraceStep };
@@ -25,7 +26,23 @@ export function summarizeLiveTrace(trace: ChatLiveTrace | undefined): string | n
     return running ? `正在：${running.label}` : `已执行 ${doneCount} 步`;
   }
   if (failed) {
-    return "未能完成本轮处理";
+    const failedStep = [...steps]
+      .toReversed()
+      .find((s) => s.status === "failed" && (s.kind === "tool" || s.kind === "workflow"));
+    const label = failedStep?.label?.trim();
+    const detail = failedStep?.detail?.trim();
+    const detailBit = detail
+      ? detail.length > 48
+        ? `${detail.slice(0, 48)}…`
+        : detail
+      : "";
+    if (label && detailBit) {
+      return `未能完成本轮处理 · ${label}：${detailBit}`;
+    }
+    if (label) {
+      return `未能完成本轮处理 · ${label}`;
+    }
+    return "未能完成本轮处理 · 可改用自动办件「邮件合同审阅」";
   }
   return `已完成 ${doneCount} 步 · ${lastLabel}`;
 }
@@ -53,8 +70,9 @@ export function applyRoundStart(trace: ChatLiveTrace, roundIndex: number): ChatL
 
 export function applyToolStart(
   trace: ChatLiveTrace,
-  info: { toolCallId: string; toolName: string },
+  info: { toolCallId: string; toolName: string; args?: Record<string, unknown> },
 ): ChatLiveTrace {
+  const card = presentLawyerToolCall(info.toolName, info.args ?? {});
   return {
     ...trace,
     steps: [
@@ -62,8 +80,9 @@ export function applyToolStart(
       {
         id: info.toolCallId || `tool-${trace.steps.length}`,
         kind: "tool",
-        label: humanToolLabel(info.toolName),
+        label: card.title,
         status: "running",
+        detail: card.detail,
       },
     ],
   };
@@ -86,10 +105,15 @@ export function applyToolProgress(trace: ChatLiveTrace, label: string): ChatLive
 
 export function applyToolEnd(
   trace: ChatLiveTrace,
-  info: { toolCallId: string; toolName: string; ok: boolean; error?: string },
+  info: { toolCallId: string; toolName: string; ok: boolean; error?: string; resultPreview?: string },
 ): ChatLiveTrace {
   const steps = [...trace.steps];
   const toolId = info.toolCallId?.trim();
+  const resultCard = presentLawyerToolResult(info.toolName, {}, {
+    ok: info.ok,
+    error: info.error,
+  });
+  const detail = info.error?.trim() || info.resultPreview || resultCard.detail;
   let toolClosed = false;
   if (toolId) {
     const byId = steps.findIndex((row) => row.kind === "tool" && row.id === toolId);
@@ -97,7 +121,7 @@ export function applyToolEnd(
       steps[byId] = {
         ...steps[byId],
         status: info.ok ? "done" : "failed",
-        detail: info.error,
+        detail,
       };
       toolClosed = true;
     }
@@ -109,7 +133,7 @@ export function applyToolEnd(
         steps[i] = {
           ...row,
           status: info.ok ? "done" : "failed",
-          detail: info.error,
+          detail,
         };
         break;
       }

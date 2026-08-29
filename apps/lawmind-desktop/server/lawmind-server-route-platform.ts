@@ -25,6 +25,7 @@ export async function handlePlatformRoutes({
       {
         ok: true,
         highSecurityMode: policy?.highSecurityMode === true,
+        allowAnalysisScripts: policy?.allowAnalysisScripts === true,
         allowWebSearch: policy?.allowWebSearch,
       },
       c,
@@ -47,9 +48,12 @@ export async function handlePlatformRoutes({
       return true;
     }
     const merged = mergeWorkspacePolicyFile(ctx.workspaceDir, {
-      highSecurityMode: body.highSecurityMode,
+      ...(body.highSecurityMode !== undefined ? { highSecurityMode: body.highSecurityMode } : {}),
+      ...(body.allowAnalysisScripts !== undefined
+        ? { allowAnalysisScripts: body.highSecurityMode === true ? false : body.allowAnalysisScripts }
+        : {}),
       ...(body.highSecurityMode
-        ? { allowWebSearch: false, productInsightsCollection: "off" as const }
+        ? { allowWebSearch: false, productInsightsCollection: "off" as const, allowAnalysisScripts: false }
         : {}),
     });
     if (!merged.ok) {
@@ -59,7 +63,11 @@ export async function handlePlatformRoutes({
     sendJson(
       res,
       200,
-      { ok: true, highSecurityMode: merged.policy.highSecurityMode === true },
+      {
+        ok: true,
+        highSecurityMode: merged.policy.highSecurityMode === true,
+        allowAnalysisScripts: merged.policy.allowAnalysisScripts === true,
+      },
       c,
     );
     return true;

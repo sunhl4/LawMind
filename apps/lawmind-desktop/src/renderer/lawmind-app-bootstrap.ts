@@ -8,7 +8,11 @@ import {
 } from "./lawmind-app-data";
 import { LAWMIND_DOWNLOAD_PAGE_URL } from "./lawmind-public-urls.js";
 import { apiAuthHeaders, setLoopbackApiAuthToken } from "./lawmind-api-auth.ts";
-import { loadCachedDevAppConfig, persistDevAppConfig } from "./lawmind-dev-config-cache.ts";
+import {
+  isUsableLoopbackBase,
+  loadCachedDevAppConfig,
+  persistDevAppConfig,
+} from "./lawmind-dev-config-cache.ts";
 
 export type AppConfig = {
   apiBase: string;
@@ -127,10 +131,17 @@ export async function refreshLocalAppConfig(
     return previous ?? null;
   }
   const config = await bridge.getConfig();
-  setLoopbackApiAuthToken(config.apiAuthToken);
+  const apiBase = (config.apiBase ?? "").replace(/\/$/, "");
+  const apiAuthToken = config.apiAuthToken?.trim() || undefined;
+  if (!isUsableLoopbackBase(apiBase)) {
+    return previous ?? null;
+  }
+  if (apiAuthToken) {
+    setLoopbackApiAuthToken(apiAuthToken);
+  }
   return {
-    apiBase: config.apiBase,
-    apiAuthToken: config.apiAuthToken,
+    apiBase,
+    apiAuthToken: apiAuthToken ?? previous?.apiAuthToken,
     workspaceDir: config.workspaceDir,
     projectDir: config.projectDir ?? null,
     envFilePath: config.envFilePath,

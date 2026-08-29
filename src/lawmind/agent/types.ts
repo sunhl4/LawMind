@@ -113,13 +113,21 @@ export type AgentContext = {
   preApproveToolArgs?: Record<string, unknown>;
   /**
    * 模板级预批准（协作 executor 白名单过滤后的工具名列表，仅限待拍板类工具）。
-   * `apply_surgical_edits` 仍须 `preApproveToolArgs` 与本次 hunks 哈希一致。
+   * `apply_surgical_edits` / `prepare_outbound_mail` 仍须 `preApproveToolArgs`
+   * 与本次动作哈希一致（hunks 或 to+附件）。
    */
   preApproveToolNames?: string[];
   /** Desktop compose `@` pins for this turn (structured truth sources). */
   contextPins?: ComposeContextPin[];
-  /** Turn-resolved tool allowlist (role ∩ parent inherit). */
+  /**
+   * This turn is existing-Word tracked revision (file page or dialog).
+   * Tools must not emit opinion memos or template rebuilds.
+   */
+  wordRevisionTurn?: boolean;
+  /** Turn-resolved tool allowlist (role ∩ parent inherit ∩ playbook). */
   allowedToolNames?: string[];
+  /** Short-path pin: prepare_outbound_mail `to` must match when set. */
+  outboundPinnedTo?: string;
   /** Whether high-risk tools must run in the subprocess sandbox this turn. */
   toolSandboxEnabled?: boolean;
   /**

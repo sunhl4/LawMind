@@ -37,6 +37,53 @@ describe("matchNeedsDecisionFocusId", () => {
     expect(matchNeedsDecisionFocusId(queue, { taskId: "t-1" })).toBe("review:t-1");
   });
 
+  it("matches by queueItemId for automation send", () => {
+    const withAuto = [
+      ...queue,
+      run({
+        id: "automation-send:inbox-9",
+        status: "awaiting_approval",
+        kind: "automation_send",
+        queueItemId: "inbox-9",
+      }),
+    ];
+    expect(matchNeedsDecisionFocusId(withAuto, { queueItemId: "inbox-9" })).toBe(
+      "automation-send:inbox-9",
+    );
+  });
+
+  it("does not fall back when queueItemId is missing from queue", () => {
+    expect(
+      matchNeedsDecisionFocusId(queue, {
+        queueItemId: "inbox-missing",
+        taskId: "t-1",
+        preferStatus: "awaiting_approval",
+      }),
+    ).toBeNull();
+  });
+
+  it("matches by jobId for workflow runs", () => {
+    const withJob = [
+      ...queue,
+      run({
+        id: "job:j-22",
+        status: "running",
+        kind: "workflow_job",
+        jobId: "j-22",
+      }),
+    ];
+    expect(matchNeedsDecisionFocusId(withJob, { jobId: "j-22" })).toBe("job:j-22");
+  });
+
+  it("does not fall back when jobId is missing from queue", () => {
+    expect(
+      matchNeedsDecisionFocusId(queue, {
+        jobId: "j-missing",
+        preferStatus: "awaiting_approval",
+      }),
+    ).toBeNull();
+  });
+
   it("falls back to preferStatus", () => {
     expect(
       matchNeedsDecisionFocusId(queue, { preferStatus: "awaiting_clarification" }),

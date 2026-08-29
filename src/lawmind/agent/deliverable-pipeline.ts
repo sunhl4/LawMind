@@ -9,7 +9,12 @@ import { isModelConnectivityCheckQuestion } from "./model-connectivity-check.js"
 import { isModelIdentityQuestion } from "./model-identity-reply.js";
 
 /** Auto-run engine workflow for long-form reports (ESG etc.), not contracts that need fact gathering. */
-const DELIVERABLE_TYPES_AUTO_WORKFLOW = new Set<DeliverableType>(["report.esg", "report.general"]);
+const DELIVERABLE_TYPES_AUTO_WORKFLOW = new Set<DeliverableType>([
+  "report.esg",
+  "report.general",
+  "report.compliance",
+  "report.learning",
+]);
 
 const DRAFT_VERB_RE = /(写|起草|撰写|生成|拟写|拟定|制作|输出|编写)/;
 const DRAFT_NOUN_RE = /(报告|合同|律师函|文书|ESG|可持续|意见|起诉|答辩|租赁|协议|白皮书|备忘录)/i;
@@ -70,17 +75,16 @@ export function buildDeliverablePipelineSystemNote(instruction: string): string 
   if (!shouldAutoRunDeliverableWorkflow(instruction)) {
     return undefined;
   }
-  return `## 本条指令：正式交付物（强制走审核台）
+  return `## 本条指令：正式交付物（原则指针）
 
-律师本条要求产出**可审阅的正式文稿**（非聊天摘要）。你必须：
+律师本条要求产出**可审阅的正式文稿**（非聊天摘要）。按交付用语 Skill：
 
-1. **优先**调用 \`execute_workflow\`（推荐）或 \`plan_task\` → \`draft_document\`，把结构化草稿写入工作区任务。
-2. **禁止**仅在对话里粘贴长篇正文后声称「已保存到工作区」；未调用工具成功则不得说已保存。
-3. **禁止**因检索为空就放弃工具链：ESG/报告类任务检索失败时仍应继续起草（带【待补充】与框架章节），状态为待律师审核。
-4. 草稿生成后，明确指引律师打开桌面 **「审核」** 页签审阅；**通过前不得**声称可对外交付或已导出 Word。
-5. 仅在律师审核通过（或本条对话且策略允许 \`approve=true\`）后，再 \`render_document\` 导出 .docx。
+1. **优先** \`execute_workflow\`（或 \`plan_task\` → \`draft_document\`）写入工作区；未成功调用工具不得声称已保存。
+2. 检索为空仍应降级起草（【待补充】+ 框架），待律师审核；勿因空检索放弃工具链。
+3. 指引律师打开 **「审核」**；通过前不得声称可对外或已导出 Word。
+4. 审核通过（或本条对话且策略允许 \`approve=true\`）后再 \`render_document\`。
 
-检索失败时勿编造「检索后端持续无法返回」而放弃；应说明已降级起草并给出 taskId。`;
+安全硬红线不变：未批准外发、空修订、密钥与假完成。`;
 }
 
 export function formatDeliverableWorkflowReply(data: {

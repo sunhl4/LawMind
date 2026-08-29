@@ -87,7 +87,8 @@ export function corsHeaders(origin: string | undefined): Record<string, string> 
       : "http://127.0.0.1:5174";
   return {
     "access-control-allow-origin": allow,
-    "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS",
+    // PUT 用于 team-roster / routing defaults / plan-handoff 等路由；缺失会让浏览器预检失败。
+    "access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
     "access-control-allow-headers": "Content-Type, Authorization",
   };
 }

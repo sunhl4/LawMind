@@ -298,9 +298,20 @@ export function MatterTeamMeetingPanel(props: Props): ReactNode {
     >
       {deliberation.deliberationActive ? (
         <div className="lm-matter-meeting-runbar" data-testid="lm-meeting-runbar">
-          {deliberation.statusLabel ? (
+          {deliberation.statusLabel || deliberation.plan.length > 0 ? (
             <div className="lm-matter-meeting-status" role="status" aria-live="polite">
-              {deliberation.statusLabel}
+              {deliberation.statusLabel
+                ? deliberation.statusLabel
+                : deliberation.phase === "running"
+                  ? "讨论进行中"
+                  : deliberation.phase === "paused"
+                    ? "讨论已暂停"
+                    : null}
+              {deliberation.plan.length > 0 ? (
+                <span className="lm-matter-meeting-progress" data-testid="lm-meeting-progress">
+                  {` · 发言进度 ${Math.min(deliberation.nextCueIndex, deliberation.plan.length)}/${deliberation.plan.length}`}
+                </span>
+              ) : null}
             </div>
           ) : null}
           <div className="lm-matter-meeting-cta lm-matter-meeting-cta--runbar">{runActions}</div>

@@ -60,17 +60,18 @@ export type CollectFleetActionsInput = {
  */
 export function collectFleetActions(input: CollectFleetActionsInput): LawMindRequiresAction[] {
   const workspaceChatActions = flattenWorkspaceChatActions(input.summary);
-  const approvals = (input.summary as { approvals?: ApprovalRequest[] } | null | undefined)
-    ?.approvals;
+  const approvals = input.summary?.approvals;
   const matterActions = matterApprovalsToActions(approvals);
   const sid = input.currentSessionId?.trim();
+  // 无会话绑定的行（案件审批/待审文书/交办）不灌入全工作区 chat 动作——
+  // 动作池只含该行自身审批，避免「点 A 批 B」。
   const chatPool = sid
     ? [
         ...input.runActions,
         ...workspaceChatActions.filter((a) => a.sessionId === sid),
         ...(input.shellSessionId === sid ? input.sessionRequiresActions : []),
       ]
-    : [...workspaceChatActions, ...input.sessionRequiresActions];
+    : [];
   const seen = new Set<string>();
   const out: LawMindRequiresAction[] = [];
   for (const a of [...chatPool, ...matterActions]) {
@@ -81,4 +82,34 @@ export function collectFleetActions(input: CollectFleetActionsInput): LawMindReq
     out.push(a);
   }
   return out;
+}
+
+/**
+ * 绑定当前行要选中的动作：chat 动作按 run.actionId、案件审批按 run.approvalId。
+ * 返回 null 表示该行没有可直接绑定的动作（调用方可回退到池内首个）。
+ */
+export function pickFleetActionForRun(
+  actions: LawMindRequiresAction[],
+  run: { actionId?: string; approvalId?: string } | null | undefined,
+): LawMindRequiresAction | null {
+  if (!run) {
+    return null;
+  }
+  const actionId = run.actionId?.trim();
+  if (actionId) {
+    const hit = actions.find((a) => a.id === actionId);
+    if (hit) {
+      return hit;
+    }
+  }
+  const approvalId = run.approvalId?.trim();
+  if (approvalId) {
+    const hit = actions.find(
+      (a) => a.kind === "matter_approval" && (a.approvalId?.trim() || a.id) === approvalId,
+    );
+    if (hit) {
+      return hit;
+    }
+  }
+  return null;
 }

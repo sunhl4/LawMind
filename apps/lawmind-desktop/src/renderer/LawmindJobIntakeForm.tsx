@@ -5,6 +5,15 @@ import {
   type JobIntakeFieldDef,
 } from "./lawmind-job-intake";
 import {
+  buildContractFastLanePrompt,
+  CONTRACT_REVIEW_DEPTH_OPTIONS,
+  CONTRACT_REVIEW_STANCE_OPTIONS,
+  stanceIntakeValue,
+  type ContractReviewDepth,
+  type ContractReviewStance,
+} from "./lawmind-contract-fast-lane";
+import { appendCampaignUpgradeInstruction } from "../../../../src/lawmind/review-campaign/review-brief.ts";
+import {
   apiPostTriageConfirm,
   apiPostTriagePreview,
   type TriageMatchedSkill,
@@ -53,7 +62,17 @@ export function LawmindJobIntakeForm(props: Props): ReactNode {
     [template.intakeFields, template.deliverableType],
   );
   const [values, setValues] = useState<Record<string, string>>(() =>
-    Object.fromEntries(fields.map((f) => [f.key, ""])),
+    Object.fromEntries(
+      fields.map((f) => {
+        if (f.key === "stance" && template.deliverableType === "contract.review") {
+          return [f.key, "client"];
+        }
+        if (f.key === "depth" && template.deliverableType === "contract.review") {
+          return [f.key, "standard"];
+        }
+        return [f.key, ""];
+      }),
+    ),
   );
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<Step>("form");
@@ -65,8 +84,20 @@ export function LawmindJobIntakeForm(props: Props): ReactNode {
 
   const missingRequired = fields.filter((f) => f.required && !values[f.key]?.trim());
 
-  const buildPrompt = (): string =>
-    buildJobIntakeDispatchPrompt({
+  const isContractReview = template.deliverableType === "contract.review";
+
+  const buildPrompt = (): string => {
+    if (isContractReview) {
+      const stance = (values.stance || "client") as ContractReviewStance;
+      const depth = (values.depth || "standard") as ContractReviewDepth;
+      return buildContractFastLanePrompt({
+        materials: values.materials ?? "",
+        focus: values.focus,
+        stance: CONTRACT_REVIEW_STANCE_OPTIONS.some((o) => o.id === stance) ? stance : "client",
+        depth: CONTRACT_REVIEW_DEPTH_OPTIONS.some((o) => o.id === depth) ? depth : "standard",
+      });
+    }
+    return buildJobIntakeDispatchPrompt({
       templateName: template.name,
       deliverableType: template.deliverableType,
       fields: fields.map((f) => ({
@@ -75,6 +106,7 @@ export function LawmindJobIntakeForm(props: Props): ReactNode {
         value: values[f.key] ?? "",
       })),
     });
+  };
 
   const tryBuild = (): string | null => {
     if (missingRequired.length > 0) {
@@ -178,7 +210,6 @@ export function LawmindJobIntakeForm(props: Props): ReactNode {
           <div>
             <span className="lm-assignment-kicker">分诊结果</span>
             <strong>{template.name}</strong>
-            <p className="lm-meta">交办摘要已就绪，请确认分诊层级后再执行。</p>
           </div>
           <button
             type="button"
@@ -198,19 +229,19 @@ export function LawmindJobIntakeForm(props: Props): ReactNode {
                   {
                     tier: "green",
                     title: "绿灯 · 可自动推进",
-                    body: "信息较齐，AI 可先处理并给出建议，律师抽检即可。",
+                    body: "",
                     badge: "AI 可处理",
                   },
                   {
                     tier: "yellow",
                     title: "黄灯 · 需律师确认",
-                    body: "含需执业判断的条款或缺口，建议确认澄清项后再执行。",
+                    body: "",
                     badge: "需律师确认",
                   },
                   {
                     tier: "red",
                     title: "红灯 · 建议完整审查",
-                    body: "风险或复杂度较高，建议走完整审查专案组。",
+                    body: "",
                     badge: "建议完整审查",
                   },
                 ] as const
@@ -228,7 +259,9 @@ export function LawmindJobIntakeForm(props: Props): ReactNode {
                   >
                     <div className="lm-triage-tier-row-main">
                       <strong>{on ? result.tierLabel : row.title}</strong>
-                      <p className="lm-meta">{on ? result.reasons[0] ?? row.body : row.body}</p>
+                      {on && result.reasons[0] ? (
+                        <p className="lm-meta">{result.reasons[0]}</p>
+                      ) : null}
                     </div>
                     <span className="lm-triage-tier-badge">{on ? "当前选择" : row.badge}</span>
                   </div>
@@ -324,7 +357,16 @@ export function LawmindJobIntakeForm(props: Props): ReactNode {
               if (!pendingPrompt) {
                 return;
               }
-              const upgraded = `${pendingPrompt}\n\n【律师指示】请按完整合同审查专案组（标准五角色）执行，勿走轻量路径。`;
+              const stance = (values.stance || "client") as ContractReviewStance;
+              const depth = (values.depth || "standard") as ContractReviewDepth;
+              const upgraded = appendCampaignUpgradeInstruction(pendingPrompt, {
+                stance: stanceIntakeValue(
+                  CONTRACT_REVIEW_STANCE_OPTIONS.some((o) => o.id === stance) ? stance : "client",
+                ),
+                focus: values.focus,
+                depth:
+                  depth === "deep" ? "深度" : depth === "quick" ? "快速" : "标准",
+              });
               setPendingPrompt(upgraded);
               void confirmTriage(false, upgraded);
             }}
@@ -349,35 +391,83 @@ export function LawmindJobIntakeForm(props: Props): ReactNode {
           返回
         </button>
       </header>
-      <p className="lm-meta lm-job-intake-hint">
-        填好关键项后进入分诊确认，再交办执行。系统会按你的习惯与案件记忆执行。
-      </p>
       <div className="lm-job-intake-fields">
-        {fields.map((f) => (
-          <label key={f.key} className="lm-job-intake-field">
-            <span>
-              {f.label}
-              {f.required ? <abbr title="必填">*</abbr> : null}
-            </span>
-            {f.multiline ? (
-              <textarea
-                className="lm-input"
-                rows={3}
-                placeholder={f.placeholder}
-                value={values[f.key] ?? ""}
-                onChange={(e) => setValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
-              />
-            ) : (
-              <input
-                className="lm-input"
-                type="text"
-                placeholder={f.placeholder}
-                value={values[f.key] ?? ""}
-                onChange={(e) => setValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
-              />
-            )}
-          </label>
-        ))}
+        {fields.map((f) => {
+          if (isContractReview && f.key === "stance") {
+            return (
+              <div key={f.key} className="lm-job-intake-field" role="group" aria-label={f.label}>
+                <span>
+                  {f.label}
+                  {f.required ? <abbr title="必填">*</abbr> : null}
+                </span>
+                <div className="lm-contract-fast-lane-chips">
+                  {CONTRACT_REVIEW_STANCE_OPTIONS.map((o) => (
+                    <button
+                      key={o.id}
+                      type="button"
+                      className={`lm-chip${values.stance === o.id ? " lm-chip-active" : ""}`}
+                      data-testid={`lm-job-intake-stance-${o.id}`}
+                      aria-pressed={values.stance === o.id}
+                      onClick={() => setValues((prev) => ({ ...prev, stance: o.id }))}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          }
+          if (isContractReview && f.key === "depth") {
+            return (
+              <div key={f.key} className="lm-job-intake-field" role="group" aria-label={f.label}>
+                <span>
+                  {f.label}
+                  {f.required ? <abbr title="必填">*</abbr> : null}
+                </span>
+                <div className="lm-contract-fast-lane-chips">
+                  {CONTRACT_REVIEW_DEPTH_OPTIONS.map((o) => (
+                    <button
+                      key={o.id}
+                      type="button"
+                      className={`lm-chip${values.depth === o.id ? " lm-chip-active" : ""}`}
+                      title={o.hint}
+                      data-testid={`lm-job-intake-depth-${o.id}`}
+                      aria-pressed={values.depth === o.id}
+                      onClick={() => setValues((prev) => ({ ...prev, depth: o.id }))}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          }
+          return (
+            <label key={f.key} className="lm-job-intake-field">
+              <span>
+                {f.label}
+                {f.required ? <abbr title="必填">*</abbr> : null}
+              </span>
+              {f.multiline ? (
+                <textarea
+                  className="lm-input"
+                  rows={3}
+                  placeholder={f.placeholder}
+                  value={values[f.key] ?? ""}
+                  onChange={(e) => setValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                />
+              ) : (
+                <input
+                  className="lm-input"
+                  type="text"
+                  placeholder={f.placeholder}
+                  value={values[f.key] ?? ""}
+                  onChange={(e) => setValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                />
+              )}
+            </label>
+          );
+        })}
       </div>
       {error ? <p className="lm-error">{error}</p> : null}
       <div className="lm-job-intake-actions">

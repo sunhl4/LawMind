@@ -11,7 +11,8 @@ export type LawMindRequiresActionKind =
   | "clarification"
   | "tool_approval"
   | "matter_approval"
-  | "workflow_blocked";
+  | "workflow_blocked"
+  | "continue_tools";
 
 export type LawMindRequiresActionDecision = "approve" | "edit" | "reject" | "respond";
 
@@ -30,8 +31,16 @@ export type LawMindRequiresAction = {
   toolArgs?: Record<string, unknown>;
   clarificationQuestions?: ClarificationQuestion[];
   approvalId?: string;
+  /** Soft-budget checkpoint: tools already used this thread (continue_tools). */
+  toolCallsExecuted?: number;
   decisions: LawMindRequiresActionDecision[];
   createdAt: string;
+  /** Escalate hint, e.g. outbound mail: 先核对收件人再发 */
+  recommendation?: string;
+  rationale?: string;
+  riskFlags?: string[];
+  /** Never true for send_email / outbound. */
+  readyToUse?: boolean;
 };
 
 export type ResumeRequiresActionInput = {
@@ -50,8 +59,13 @@ const TOOL_DISPLAY_ZH: Record<string, string> = {
   draft_document: "起草文书",
   research_task: "法规检索",
   update_draft: "更新草稿",
+  apply_surgical_edits: "按词修订",
   write_document: "审定文书",
   send_email: "发送邮件",
+  prepare_outbound_mail: "准备外发邮件",
+  list_mail_inbox: "查看邮件匣",
+  list_mail_attachments: "查看邮件附件",
+  render_tracked_draft: "生成审阅痕迹稿",
   delegate_task: "交办事项",
   delegate_to_role: "交办给同事",
   web_search: "联网检索",
@@ -63,6 +77,7 @@ const TOOL_DISPLAY_ZH: Record<string, string> = {
   read_project_file: "查阅项目文件",
   read_case_file: "查阅案卷",
   analyze_document: "分析文书",
+  compare_documents: "对比文本",
   plan_task: "安排办理步骤",
   request_approval: "提请审批",
   request_review: "提请复核",
@@ -83,9 +98,28 @@ const TOOL_DISPLAY_ZH: Record<string, string> = {
   list_templates: "查看模板",
   set_template_enabled: "启用/停用模板",
   check_conflict_of_interest: "利益冲突检索",
+  list_more_tools: "更多能力",
 };
 
 const SNAKE_TOOL_RE = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/;
+
+const OUTBOUND_MAIL_TOOLS = new Set(["send_email", "prepare_outbound_mail"]);
+
+function outboundMailEscalateFields(
+  toolName: string,
+):
+  | Pick<LawMindRequiresAction, "recommendation" | "rationale" | "riskFlags" | "readyToUse">
+  | undefined {
+  if (!OUTBOUND_MAIL_TOOLS.has(toolName)) {
+    return undefined;
+  }
+  return {
+    recommendation: "先核对收件人再发",
+    rationale: "外发前请核对收件人、正文与附件。系统不会自动发送。",
+    riskFlags: ["outbound"],
+    readyToUse: false,
+  };
+}
 
 export function toolDisplayNameZh(toolName: string): string {
   const key = toolName.trim();
@@ -180,6 +214,7 @@ export function buildToolApprovalAction(input: {
     toolArgs: input.toolArgs,
     decisions: ["approve", "reject"],
     createdAt: new Date().toISOString(),
+    ...outboundMailEscalateFields(input.toolName),
   };
 }
 
@@ -233,9 +268,34 @@ export function buildMatterApprovalAction(input: {
   };
 }
 
+export function buildContinueToolsAction(input: {
+  sessionId: string;
+  matterId?: string;
+  taskId?: string;
+  used?: number;
+}): LawMindRequiresAction {
+  const used = input.used && input.used > 0 ? input.used : undefined;
+  return {
+    id: newRequiresActionId(),
+    kind: "continue_tools",
+    threadId: buildThreadId(input),
+    title: "本轮步骤较多",
+    summary: used
+      ? `已经办理 ${used} 步。继续，还是先停在这里？`
+      : "本轮步骤较多。继续，还是先停在这里？",
+    matterId: input.matterId,
+    sessionId: input.sessionId,
+    taskId: input.taskId,
+    toolCallsExecuted: used,
+    decisions: ["approve", "reject"],
+    createdAt: new Date().toISOString(),
+  };
+}
+
 /** Build requires-action list from a completed or interrupted turn. */
 export function buildRequiresActionsFromTurn(
   turn: Pick<AgentTurn, "status" | "clarificationQuestions" | "turnId" | "sessionId"> & {
+    toolCallsExecuted?: number;
     pendingToolApproval?: {
       toolName: string;
       toolCallId: string;
@@ -268,6 +328,15 @@ export function buildRequiresActionsFromTurn(
         toolName: turn.pendingToolApproval.toolName,
         toolCallId: turn.pendingToolApproval.toolCallId,
         toolArgs: turn.pendingToolApproval.toolArgs,
+      }),
+    );
+  }
+
+  if (turn.status === "paused") {
+    out.push(
+      buildContinueToolsAction({
+        ...base,
+        used: turn.toolCallsExecuted,
       }),
     );
   }

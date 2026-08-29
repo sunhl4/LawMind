@@ -348,7 +348,7 @@ export function LawmindModelPicker(props: Props): ReactNode {
           <ProviderIcon kind={iconKeyForSelected} />
         </span>
         <span className="lm-model-picker-trigger-label">
-          {selectedEntry ? modelPickerDisplayName(selectedEntry) : "Select model"}
+          {selectedEntry ? modelPickerDisplayName(selectedEntry) : "选择模型"}
         </span>
         <span className="lm-model-picker-caret" aria-hidden>
           ▾
@@ -361,7 +361,7 @@ export function LawmindModelPicker(props: Props): ReactNode {
           style={position}
           role="listbox"
           id={listboxId}
-          aria-label="Models"
+          aria-label="模型列表"
           onKeyDown={onKeyDown}
         >
           <div className="lm-model-picker-search-row">
@@ -369,7 +369,7 @@ export function LawmindModelPicker(props: Props): ReactNode {
               ref={searchRef}
               className="lm-model-picker-search"
               type="search"
-              placeholder="Search models…"
+              placeholder="搜索模型…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={onKeyDown}
@@ -377,7 +377,7 @@ export function LawmindModelPicker(props: Props): ReactNode {
           </div>
           <div className="lm-model-picker-body">
             {groups.length === 0 ? (
-              <div className="lm-model-picker-empty">No models</div>
+              <div className="lm-model-picker-empty">暂无可用模型</div>
             ) : (
               groups.map(([group, rows]) => {
                 const isOpen = searching || (groupOpen[group] ?? defaultGroupOpen(group));
@@ -411,7 +411,7 @@ export function LawmindModelPicker(props: Props): ReactNode {
                   close();
                 }}
               >
-                Add models
+                添加模型
               </button>
             ) : null}
             {onOpenSettings ? (
@@ -423,7 +423,7 @@ export function LawmindModelPicker(props: Props): ReactNode {
                   close();
                 }}
               >
-                Open settings
+                打开设置
               </button>
             ) : null}
             {onTestCurrent ? (
@@ -435,7 +435,7 @@ export function LawmindModelPicker(props: Props): ReactNode {
                   void onTestCurrent();
                 }}
               >
-                {quickTestBusy ? "Testing…" : "Test connection"}
+                {quickTestBusy ? "测试中…" : "测试连接"}
               </button>
             ) : null}
           </div>

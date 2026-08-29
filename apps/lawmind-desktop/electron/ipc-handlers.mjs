@@ -95,6 +95,8 @@ export function registerIpcHandlers(deps) {
       const openChatOnClick = payload?.openChatOnClick === true;
       const chatAssistantId =
         typeof payload?.chatAssistantId === "string" ? payload.chatAssistantId.trim() : "";
+      const chatSessionId =
+        typeof payload?.chatSessionId === "string" ? payload.chatSessionId.trim() : "";
       const reviewTaskId =
         typeof payload?.reviewTaskId === "string" ? payload.reviewTaskId.trim() : "";
       const reviewMatterIdRaw = payload?.reviewMatterId;
@@ -144,6 +146,7 @@ export function registerIpcHandlers(deps) {
             w.webContents.send("lawmind:notification-click", {
               reason: "open_workspace_chat",
               chatAssistantId: chatAssistantId || undefined,
+              chatSessionId: chatSessionId || undefined,
             });
           }
         });
@@ -469,6 +472,45 @@ export function registerIpcHandlers(deps) {
     }
   });
 
+  ipcMain.handle("lawmind:save-mcp-server-secret", async (_evt, payload) => {
+    const id =
+      typeof payload?.id === "string" && payload.id.trim() ? payload.id.trim() : "";
+    const secret =
+      typeof payload?.secret === "string" ? payload.secret.trim() : "";
+    if (!id) {
+      return { ok: false, error: "server_id_required" };
+    }
+    if (!secret) {
+      return { ok: false, error: "secret_required" };
+    }
+    if (!keyVault.isAvailable()) {
+      return { ok: false, error: "keychain_unavailable" };
+    }
+    try {
+      await keyVault.saveSecret(KEYCHAIN_ACCOUNTS.mcpSecret(id), secret);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle("lawmind:delete-mcp-server-secret", async (_evt, payload) => {
+    const id =
+      typeof payload?.id === "string" && payload.id.trim() ? payload.id.trim() : "";
+    if (!id) {
+      return { ok: false, error: "server_id_required" };
+    }
+    if (!keyVault.isAvailable()) {
+      return { ok: true, removed: false };
+    }
+    try {
+      const removed = await keyVault.deleteSecret(KEYCHAIN_ACCOUNTS.mcpSecret(id));
+      return { ok: true, removed };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
   ipcMain.handle("lawmind:keychain-status", async () => {
     if (!keyVault.isAvailable()) {
       return { available: false, error: keyVault.lastError?.() };
@@ -516,6 +558,17 @@ export function registerIpcHandlers(deps) {
   ipcMain.handle("lawmind:pick-project", async () => {
     const res = await dialog.showOpenDialog({
       title: "选择项目目录",
+      properties: ["openDirectory"],
+    });
+    if (res.canceled || res.filePaths.length === 0) {
+      return { ok: false };
+    }
+    return { ok: true, path: res.filePaths[0] };
+  });
+
+  ipcMain.handle("lawmind:pick-folder", async () => {
+    const res = await dialog.showOpenDialog({
+      title: "选择要扫描的历史材料文件夹",
       properties: ["openDirectory"],
     });
     if (res.canceled || res.filePaths.length === 0) {
@@ -844,6 +897,16 @@ export function registerIpcHandlers(deps) {
       return { ok: false, error: "path required" };
     }
     const resolved = path.resolve(fullPath.trim());
+    // 与 fs-bridge 同型根守卫：只允许展示 workspace / project 内的文件，
+    // 避免渲染进程被控时探测或暴露任意磁盘路径。
+    const roots = [workspaceDir, projectDir].filter((r) => typeof r === "string" && r.trim());
+    const insideAllowedRoot = roots.some((root) => {
+      const abs = path.resolve(root);
+      return resolved === abs || resolved.startsWith(abs + path.sep);
+    });
+    if (!insideAllowedRoot) {
+      return { ok: false, error: "outside_allowed_roots" };
+    }
     if (!fs.existsSync(resolved)) {
       return { ok: false, error: "not found" };
     }

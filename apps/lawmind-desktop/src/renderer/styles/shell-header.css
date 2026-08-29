@@ -406,6 +406,12 @@ html.lm-theme-dark .lm-main-header {
   box-shadow: var(--shadow-brass);
 }
 
+.lm-main-header-compact .lm-main-nav-compact .lm-tab-secondary:not(.active):not([aria-current="page"]) {
+  color: var(--muted);
+  opacity: 0.82;
+  font-weight: 500;
+}
+
 .lm-exit-cockpit-btn {
   flex-shrink: 0;
   margin-right: 4px;

@@ -22,7 +22,7 @@
 
 - [x] 用户可见：**数据处理**、**免责声明**（应用内 + 文档站点）。
 - [ ] 客户合同中的责任边界与「非法律意见」表述与产品一致。
-- [ ] 对外下载页：**INSTALL.md** 或等效安装说明；含 **智能下载落地页**（`apps/lawmind-desktop/download/index.html`，可经 jsDelivr 或内网托管）及 **`?repo=组织/仓库`** 说明。
+- [ ] 对外下载页：**INSTALL.md** 或等效安装说明；含 **智能下载落地页**（正式 URL：`https://docs.lawmind.ai/download/`，源文件 `apps/lawmind-desktop/download/index.html`）及 **`?repo=组织/仓库`** 说明。
 - [ ] **文档站**：按需部署 `pnpm lawmind:docs:build` 产物（VitePress，见 `apps/lawmind-docs/README.md`），或继续沿用 `docs.lawmind.ai` 等现有域名策略。
 
 ## 支持

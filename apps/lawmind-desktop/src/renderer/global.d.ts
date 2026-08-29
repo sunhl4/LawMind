@@ -37,6 +37,8 @@ declare global {
         openChatOnClick?: boolean;
         /** 与 `openChatOnClick` 配合：切到该助手对话（若存在）。 */
         chatAssistantId?: string;
+        /** 与 `openChatOnClick` 配合：深链切到该会话（委派完成通知等）。 */
+        chatSessionId?: string;
         reviewTaskId?: string;
         reviewMatterId?: string;
       }) => Promise<{ ok: boolean; error?: string }>;
@@ -46,10 +48,13 @@ declare global {
           reviewTaskId?: string;
           reviewMatterId?: string;
           chatAssistantId?: string;
+          chatSessionId?: string;
         }) => void,
       ) => () => void;
       pickWorkspace: () => Promise<{ ok: boolean; path?: string }>;
       pickProject: () => Promise<{ ok: boolean; path?: string }>;
+      /** Pick a folder without changing the sidebar project dir. */
+      pickFolder?: () => Promise<{ ok: boolean; path?: string }>;
       setProjectDir: (projectDir: string | null) => Promise<{
         ok: boolean;
         projectDir?: string | null;
@@ -90,6 +95,13 @@ declare global {
         apiKey: string;
       }) => Promise<{ ok: boolean; error?: string }>;
       deleteCustomModelKey: (payload: {
+        id: string;
+      }) => Promise<{ ok: boolean; removed?: boolean; error?: string }>;
+      saveMcpServerSecret: (payload: {
+        id: string;
+        secret: string;
+      }) => Promise<{ ok: boolean; error?: string }>;
+      deleteMcpServerSecret: (payload: {
         id: string;
       }) => Promise<{ ok: boolean; removed?: boolean; error?: string }>;
       keychainStatus: () => Promise<{

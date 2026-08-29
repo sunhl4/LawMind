@@ -20,13 +20,16 @@ import {
 import { getDeliverableSpec } from "../deliverables/registry.js";
 import type { WorkspaceSpecWarning } from "../deliverables/workspace-loader.js";
 import {
+  persistClauseSnapshot,
   persistDraft,
   persistReasoningSnapshot,
   persistResearchSnapshot,
+  readClauseSnapshot,
   readReasoningSnapshot,
 } from "../drafts/index.js";
 import { appendCaseProgress, appendTodayLog } from "../memory/index.js";
-import { buildLegalReasoningGraph } from "../reasoning/index.js";
+import { hasCriticNotes, runDraftCritic } from "../reasoning/draft-critic.js";
+import { buildClauseGraphFromDraft, buildLegalReasoningGraph } from "../reasoning/index.js";
 import { resolveDefaultAssignee } from "../routing/defaults.js";
 import { maybeApplyForcedPeerReview } from "../routing/peer-review-gate.js";
 import {
@@ -37,6 +40,7 @@ import {
   updateTaskRecord,
 } from "../tasks/index.js";
 import type { ArtifactDraft, ResearchBundle, TaskIntent } from "../types.js";
+import { upsertLawyerWorkFromPersist } from "../work/store.js";
 import type { EngineContext } from "./context.js";
 import { classifyAudienceFromIntent, classifyDeliverableKindFromIntent } from "./role-helpers.js";
 
@@ -109,6 +113,13 @@ export function commitPlannedIntent(ctx: EngineContext, intent: TaskIntent): voi
     workspaceDir,
     `## 任务计划\n- ID: ${intent.taskId}\n- 类型: ${intent.kind}\n- 摘要: ${intent.summary}\n- 案件: ${intent.matterId ?? "无"}`,
   );
+  upsertLawyerWorkFromPersist(workspaceDir, {
+    taskId: intent.taskId,
+    matterId: intent.matterId,
+    title: intent.summary,
+    status: "running",
+    source: "chat",
+  });
 }
 
 /** 草稿生成后的统一持久化与审计。 */
@@ -158,6 +169,14 @@ export function persistDraftPipeline(
     draft.hasLegalReasoningSnapshot = true;
   }
 
+  if (!hasCriticNotes(draft)) {
+    const criticized = runDraftCritic(draft);
+    draft.reviewNotes = criticized.draft.reviewNotes;
+    persistClauseSnapshot(workspaceDir, criticized.graph);
+  } else if (!readClauseSnapshot(workspaceDir, draft.taskId)) {
+    persistClauseSnapshot(workspaceDir, buildClauseGraphFromDraft(draft));
+  }
+
   if (requiresGraph) {
     const graphReport = validateReasoningGraphAtDraft(draft, workspaceDir, { spec });
     if (!graphReport.ready) {
@@ -175,6 +194,14 @@ export function persistDraftPipeline(
   updateTaskRecord(workspaceDir, draft.taskId, {
     title: draft.title,
     draftPath: storedDraftPath,
+  });
+  upsertLawyerWorkFromPersist(workspaceDir, {
+    taskId: draft.taskId,
+    draftId: draft.taskId,
+    matterId: draft.matterId,
+    title: draft.title,
+    status: "needs_signoff",
+    source: "chat",
   });
   if (draft.matterId) {
     // Serialized via withCaseMdLock; fire-and-forget OK for sync draft pipeline.

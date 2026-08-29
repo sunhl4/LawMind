@@ -165,7 +165,7 @@ export function LawmindContractReviewLearningPanel({
       {!loading && !loadError && items.length === 0 ? (
         <div className="lm-memory-empty lm-memory-empty--compact">
           <p className="lm-memory-empty__title">暂无待积累改稿</p>
-          <p className="lm-memory-empty__desc">文书台签批通过后会出现在这里。</p>
+          <p className="lm-memory-empty__desc">在办签批通过后会出现在这里。</p>
         </div>
       ) : null}
 

@@ -16,8 +16,124 @@ import {
   type ClarificationFilePin,
   type ClarificationSessionRef,
 } from "../../../../src/lawmind/platform/clarification-fields.ts";
+import { outlineAnswerDecision } from "../../../../src/lawmind/research/outline-hitl.ts";
 import { readLawmindFsDragFromDataTransfer } from "./lawmind-file-drag";
 import { formatClarificationPromptSummary, formatClarificationReply } from "./lawmind-chat";
+
+const OUTLINE_CONFIRM_KEY = "research_outline_confirm";
+
+/** Pull markdown outline body embedded in the clarification question. */
+export function extractOutlineSeedFromQuestion(question: ClarificationQuestion): string {
+  const text = question.question.replace(/\r\n/g, "\n");
+  const hash = text.search(/\n#\s+/);
+  if (hash >= 0) {
+    return text.slice(hash + 1).trim();
+  }
+  const h2 = text.search(/\n##\s+/);
+  if (h2 >= 0) {
+    return text.slice(h2 + 1).trim();
+  }
+  if (question.reason && /^#+\s+/m.test(question.reason)) {
+    return question.reason.trim();
+  }
+  return "";
+}
+
+function OutlineConfirmField(props: {
+  question: ClarificationQuestion;
+  value: string;
+  disabled: boolean;
+  onChange: (v: string) => void;
+}): ReactNode {
+  const { question, value, disabled, onChange } = props;
+  const seed = extractOutlineSeedFromQuestion(question);
+  const [draft, setDraft] = useState(() => value.trim() || seed);
+  const decision = outlineAnswerDecision(value.trim() || draft.trim());
+
+  useEffect(() => {
+    if (!value.trim() && seed) {
+      setDraft(seed);
+    }
+  }, [seed, value]);
+
+  const setDecision = (next: "approve" | "revise" | "reject") => {
+    if (next === "approve") {
+      onChange("大纲已确认");
+      return;
+    }
+    if (next === "reject") {
+      onChange("不同意大纲");
+      return;
+    }
+    const body = draft.trim() || seed;
+    onChange(body.includes("大纲已确认") ? body : `${body}\n\n大纲已确认`);
+  };
+
+  return (
+    <div className="lm-outline-confirm" data-testid="lm-outline-confirm">
+      <p className="lm-meta lm-outline-confirm-hint">
+        确认后按此大纲写正文；可改章节后再确认，或不同意以重建大纲。
+      </p>
+      <textarea
+        className="lm-clarify-field-input lm-clarify-field-input--compact lm-outline-confirm-editor"
+        rows={10}
+        value={draft}
+        disabled={disabled}
+        aria-label="研究大纲（可编辑）"
+        data-testid="lm-outline-confirm-editor"
+        onChange={(e) => {
+          setDraft(e.target.value);
+          // Keep answer in sync while editing so「按修订确认」可用当前稿。
+          if (value && outlineAnswerDecision(value) === "revise") {
+            onChange(e.target.value);
+          }
+        }}
+      />
+      <div className="lm-outline-confirm-actions" role="group" aria-label="大纲决定">
+        <button
+          type="button"
+          className="lm-btn lm-btn-accent lm-btn-sm"
+          data-testid="lm-outline-approve"
+          disabled={disabled}
+          onClick={() => setDecision("approve")}
+        >
+          确认大纲
+        </button>
+        <button
+          type="button"
+          className="lm-btn lm-btn-secondary lm-btn-sm"
+          data-testid="lm-outline-revise"
+          disabled={disabled || !(draft.trim() || seed)}
+          onClick={() => setDecision("revise")}
+        >
+          按修订确认
+        </button>
+        <button
+          type="button"
+          className="lm-btn lm-btn-ghost lm-btn-sm"
+          data-testid="lm-outline-reject"
+          disabled={disabled}
+          onClick={() => setDecision("reject")}
+        >
+          不同意重做
+        </button>
+      </div>
+      {value.trim() ? (
+        <p className="lm-meta" data-testid="lm-outline-decision" data-decision={decision}>
+          {decision === "approved"
+            ? "已选择：确认大纲"
+            : decision === "revise"
+              ? "已选择：按修订确认"
+              : decision === "rejected"
+                ? "已选择：不同意，将重建大纲"
+                : "请点上方按钮明确决定"}
+        </p>
+      ) : (
+        <p className="lm-meta">请点上方按钮完成决定（不可只填空话提交）</p>
+      )}
+    </div>
+  );
+}
 
 export type ClarificationFormVariant = "desk" | "compact" | "chat";
 
@@ -277,6 +393,16 @@ function FieldControl(props: {
   desk?: boolean;
 }): ReactNode {
   const { question, value, disabled, onChange, desk = false } = props;
+  if (question.key === OUTLINE_CONFIRM_KEY) {
+    return (
+      <OutlineConfirmField
+        question={question}
+        value={value}
+        disabled={disabled}
+        onChange={onChange}
+      />
+    );
+  }
   const t = normalizeClarificationInputType(question);
 
   if (t === "file") {
@@ -450,6 +576,8 @@ export function LawmindClarificationForm(props: LawmindClarificationFormProps): 
           >
             {questions.map((item) => {
               const t = normalizeClarificationInputType(item);
+              const isOutline = item.key === OUTLINE_CONFIRM_KEY;
+              const label = isOutline ? "请确认研究大纲" : item.question;
               return (
                 <div
                   key={item.key}
@@ -459,7 +587,7 @@ export function LawmindClarificationForm(props: LawmindClarificationFormProps): 
                 >
                   <div className="lm-clarify-stack-label">
                     <span className="lm-clarify-field-label">
-                      {item.question}
+                      {label}
                       {item.required === false ? (
                         <span className="lm-meta"> （选填）</span>
                       ) : (
@@ -468,8 +596,12 @@ export function LawmindClarificationForm(props: LawmindClarificationFormProps): 
                         </span>
                       )}
                     </span>
-                    {item.reason ? (
+                    {item.reason && !isOutline ? (
                       <span className="lm-clarify-field-reason">{item.reason}</span>
+                    ) : isOutline ? (
+                      <span className="lm-clarify-field-reason">
+                        先确认大纲再写正文；可编辑章节后按修订确认。
+                      </span>
                     ) : null}
                   </div>
                   <FieldControl
@@ -497,11 +629,13 @@ export function LawmindClarificationForm(props: LawmindClarificationFormProps): 
             <tbody>
               {questions.map((item) => {
                 const t = normalizeClarificationInputType(item);
+                const isOutline = item.key === OUTLINE_CONFIRM_KEY;
+                const label = isOutline ? "请确认研究大纲" : item.question;
                 return (
                   <tr key={item.key} data-input-type={t}>
                     <th scope="row">
                       <span className="lm-clarify-field-label">
-                        {item.question}
+                        {label}
                         {item.required === false ? (
                           <span className="lm-meta"> （选填）</span>
                         ) : (
@@ -510,8 +644,12 @@ export function LawmindClarificationForm(props: LawmindClarificationFormProps): 
                           </span>
                         )}
                       </span>
-                      {item.reason ? (
+                      {item.reason && !isOutline ? (
                         <span className="lm-clarify-field-reason">{item.reason}</span>
+                      ) : isOutline ? (
+                        <span className="lm-clarify-field-reason">
+                          先确认大纲再写正文；可编辑章节后按修订确认。
+                        </span>
                       ) : null}
                     </th>
                     <td>

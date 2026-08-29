@@ -14,6 +14,7 @@ export type WorkflowTemplateRow = {
   name: string;
   description: string;
   stepCount: number;
+  outbound?: boolean;
 };
 
 export type WorkflowJobListItem = {

@@ -4,7 +4,10 @@ import { caseFilePath } from "../../../memory/index.js";
 import { writeCaseMemorySection, type CaseMemorySection } from "../../../memory/write-gateway.js";
 import type { AgentTool } from "../../types.js";
 import { matterRequiredResult } from "../matter-required.js";
-import { readSafe } from "./ingest-helpers.js";
+import { readSafe, sliceDocumentPage } from "./ingest-helpers.js";
+
+const CASE_FILE_DEFAULT_CHARS = 8_000;
+const CASE_FILE_MAX_CHARS = 40_000;
 
 export const getMatterSummary: AgentTool = {
   definition: {
@@ -53,10 +56,13 @@ export const listMatters: AgentTool = {
 export const readCaseFile: AgentTool = {
   definition: {
     name: "read_case_file",
-    description: "读取案件的 CASE.md 完整内容。",
+    description:
+      "读取案件 CASE.md。默认只返回前一段窗口；hasMore=true 时用 offset 续读，不要一次拉全文。",
     category: "matter",
     parameters: {
       matter_id: { type: "string", description: "案件 ID（默认使用当前案件）" },
+      offset: { type: "number", description: "从第几个字符开始（默认 0）" },
+      limit: { type: "number", description: "本页最多字符（默认 8000）" },
     },
   },
   async execute(params, ctx) {
@@ -69,7 +75,22 @@ export const readCaseFile: AgentTool = {
     if (!content) {
       return { ok: false, error: `案件 ${matterId} 的 CASE.md 不存在或为空。` };
     }
-    return { ok: true, data: { matterId, content } };
+    const page = sliceDocumentPage(content, params.offset, params.limit, {
+      defaultLimit: CASE_FILE_DEFAULT_CHARS,
+      maxLimit: CASE_FILE_MAX_CHARS,
+    });
+    return {
+      ok: true,
+      data: {
+        matterId,
+        content: page.content,
+        totalChars: page.totalChars,
+        offset: page.offset,
+        limit: page.limit,
+        hasMore: page.hasMore,
+        nextOffset: page.nextOffset,
+      },
+    };
   },
 };
 

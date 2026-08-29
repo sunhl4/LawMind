@@ -13,6 +13,11 @@ export function installE2eBrowserPrefs(page: { addInitScript: Page["addInitScrip
   return page.addInitScript((firstRunKey) => {
     localStorage.setItem(firstRunKey, "1");
     localStorage.setItem("lawmind.ui.sidebarCollapsed", "0");
+    // E3′：不强制写入；靠产品默认（未设置 = 签批后自动导出）
+    localStorage.removeItem("lawmind.review.autoExportOnApprove");
+    localStorage.removeItem("lawmind.review.requireSignoffReview");
+    localStorage.setItem("lawmind.ui.wsPaneEditor", "1");
+    localStorage.setItem("lawmind.ui.wsPaneChat", "1");
     const reviewPaneKeys = [
       "lawmind.ui.reviewPaneMeta",
       "lawmind.ui.reviewPaneEditor",
@@ -22,6 +27,59 @@ export function installE2eBrowserPrefs(page: { addInitScript: Page["addInitScrip
       localStorage.setItem(key, "1");
     }
   }, E2E_FIRST_RUN_DISMISS_KEY);
+}
+
+/**
+ * Browser E2E stub for Electron preload: enables 文件台 + 「送审本合同」真按钮路径。
+ * Call before gotoShell when the test must exercise file→fast-lane CTA (not bus hook).
+ */
+export function installE2eDesktopBridge(page: { addInitScript: Page["addInitScript"] }): Promise<void> {
+  const apiBase = e2eMockApiBase();
+  return page.addInitScript((api) => {
+    const mtime = Date.now();
+    const tree: Record<string, Array<{ name: string; path: string; kind: "file" | "directory"; size?: number; mtimeMs: number }>> = {
+      "": [
+        { name: "contracts", path: "contracts", kind: "directory", mtimeMs: mtime },
+        { name: "cases", path: "cases", kind: "directory", mtimeMs: mtime },
+      ],
+      contracts: [
+        {
+          name: "nda.docx",
+          path: "contracts/nda.docx",
+          kind: "file",
+          size: 2048,
+          mtimeMs: mtime,
+        },
+      ],
+      cases: [
+        { name: "e2e-matter-1", path: "cases/e2e-matter-1", kind: "directory", mtimeMs: mtime },
+      ],
+      "cases/e2e-matter-1": [],
+    };
+    // Minimal bridge: getConfig without "(" so canUseFilesystemBridge=true; office open needs no fsRead.
+    (window as unknown as { lawmindDesktop: Record<string, unknown> }).lawmindDesktop = {
+      getConfig: async () => ({
+        apiBase: api,
+        workspaceDir: "/tmp/lawmind-e2e-ws",
+        projectDir: null,
+        envFilePath: "",
+        retrievalMode: "single",
+        packaged: false,
+        appVersion: "e2e",
+        downloadPageUrl: "https://docs.lawmind.ai/download/",
+      }),
+      fsList: async (payload: { path?: string }) => {
+        const key = String(payload?.path ?? "");
+        return { ok: true, entries: tree[key] ?? [] };
+      },
+      fsRead: async () => ({ ok: false, error: "binary file" }),
+      fsWrite: async () => ({ ok: false, error: "e2e stub read-only" }),
+      showItemInFolder: async () => ({ ok: true }),
+      openWithSystem: async () => ({ ok: true }),
+      openExternal: async () => undefined,
+      showNotification: async () => undefined,
+    };
+  }, apiBase);
 }
 
 /** @deprecated Use installE2eBrowserPrefs */
@@ -34,6 +92,8 @@ export async function bootstrapE2ePage(page: Page): Promise<void> {
   await page.evaluate((firstRunKey) => {
     localStorage.setItem(firstRunKey, "1");
     localStorage.setItem("lawmind.ui.sidebarCollapsed", "0");
+    // E3′：与 installE2eBrowserPrefs 对齐 — 依赖产品默认自动导出
+    localStorage.removeItem("lawmind.review.autoExportOnApprove");
     const reviewPaneKeys = [
       "lawmind.ui.reviewPaneMeta",
       "lawmind.ui.reviewPaneEditor",
@@ -48,28 +108,57 @@ export async function bootstrapE2ePage(page: Page): Promise<void> {
   await dismissBlockingDialogs(page);
 }
 
+/** Open review workbench, wait for the draft list, then select `taskId`. */
+export async function openReviewDraft(page: Page, taskId = "e2e-draft-1"): Promise<void> {
+  await openReviewWorkbench(page);
+  const count = page.locator(".lm-review-draft-toolbar-count");
+  await expect(count).not.toHaveText("…", { timeout: 20_000 });
+
+  const allTab = page.getByRole("tab", { name: "全部", exact: true });
+  await expect(allTab).toBeVisible({ timeout: 15_000 });
+  await allTab.click();
+  await expect(allTab).toHaveAttribute("aria-selected", "true", { timeout: 10_000 });
+
+  const statusSelect = page.getByRole("combobox", { name: "签批状态" });
+  if (await statusSelect.isVisible().catch(() => false)) {
+    await statusSelect.selectOption("all");
+  }
+
+  const draftSelect = page.getByRole("combobox", { name: "选择草稿" });
+  await expect(draftSelect).toBeEnabled({ timeout: 20_000 });
+  await expect(draftSelect.locator(`option[value="${taskId}"]`)).toBeAttached({
+    timeout: 15_000,
+  });
+  await draftSelect.selectOption(taskId);
+  await expect(draftSelect).toHaveValue(taskId);
+  await expect(page.getByText("在上方选择草稿后开始改稿与预览")).toHaveCount(0, {
+    timeout: 20_000,
+  });
+  await ensureReviewMetaPaneVisible(page);
+}
+
 /** Ensure review meta side pane + advanced section are open (acceptance gate / gate list live there). */
 export async function ensureReviewMetaPaneVisible(page: Page): Promise<void> {
   const acceptanceGate = page.locator("#lm-review-acceptance-gate").first();
   const gateList = page.locator(".lm-review-gate-list").first();
-  if (
-    (await acceptanceGate.isVisible().catch(() => false)) ||
-    (await gateList.isVisible().catch(() => false))
-  ) {
-    return;
-  }
   const metaToggle = page.getByRole("button", { name: "更多", exact: true });
-  if (!(await metaToggle.isVisible().catch(() => false))) {
-    return;
+  if (await metaToggle.isVisible().catch(() => false)) {
+    if ((await metaToggle.getAttribute("aria-pressed")) !== "true") {
+      await metaToggle.click({ force: true });
+    }
   }
-  if ((await metaToggle.getAttribute("aria-pressed")) !== "true") {
-    await metaToggle.click({ force: true });
+  const checkPack = page.getByTestId("lm-review-check-pack");
+  await expect(checkPack.or(acceptanceGate).or(gateList).first()).toBeVisible({ timeout: 20_000 });
+  if (await checkPack.isVisible().catch(() => false)) {
+    if ((await checkPack.getAttribute("open")) === null) {
+      await checkPack.locator("summary.lm-review-check-pack-summary").click({ force: true });
+    }
   }
   const advanced = page.locator("details.lm-review-advanced").first();
   if (await advanced.isVisible().catch(() => false)) {
     const open = await advanced.getAttribute("open");
     if (open === null) {
-      await advanced.locator("summary").click({ force: true });
+      await advanced.locator("summary.lm-review-advanced-summary").click({ force: true });
     }
   }
   await expect(acceptanceGate.or(gateList).first()).toBeVisible({ timeout: 15_000 });
@@ -131,7 +220,7 @@ export async function openReviewWorkbench(page: Page): Promise<void> {
   await dismissBlockingDialogs(page);
   await leaveSettingsIfOpen(page);
 
-  // 文书台为顶栏一级入口；亦可从「在办」主 CTA 进入。
+  // 改稿/文书台不占一级；从「在办」主 CTA「改稿」进入（已打开时顶栏才有次级定位）。
   const mainNav = page.getByRole("navigation", { name: "功能模块" });
   await expect(mainNav).toBeVisible({ timeout: 30_000 });
   const reviewTab = mainNav.getByTestId("lm-tab-review");
@@ -142,9 +231,11 @@ export async function openReviewWorkbench(page: Page): Promise<void> {
     await agentsTab.click();
     await expect(page.locator(".lm-agent-fleet-page")).toBeVisible({ timeout: 30_000 });
     const openWorkbench = page
-      .getByTestId("lm-fleet-primary-review")
+      .getByTestId("lm-agents-open-review")
+      .or(page.getByTestId("lm-fleet-primary-review"))
       .or(page.getByTestId("lm-ceremony-open-review"))
-      .or(page.getByRole("button", { name: /文书台/ }))
+      .or(page.getByTestId("lm-fleet-empty-review"))
+      .or(page.getByRole("button", { name: /改稿|文书台/ }))
       .first();
     await expect(openWorkbench).toBeVisible({ timeout: 30_000 });
     await openWorkbench.click();
@@ -175,6 +266,16 @@ export async function openMatterCockpit(page: Page): Promise<void> {
     await headerMatter.click();
   }
   await expect(page.locator(".lm-matter-workbench").first()).toBeVisible({ timeout: 30_000 });
+}
+
+/** Open compose 「办件」 process list. */
+export async function openDeskWork(page: Page): Promise<void> {
+  const btn = page.getByTestId("lm-compose-desk-work");
+  await expect(btn).toBeVisible({ timeout: 15_000 });
+  if ((await btn.getAttribute("aria-expanded")) !== "true") {
+    await btn.click();
+  }
+  await expect(page.getByTestId("lm-desk-work-panel")).toBeVisible({ timeout: 5_000 });
 }
 
 /** Open compose 「+」 so permission / web / mode controls are in the DOM. */
@@ -218,13 +319,17 @@ export async function openWorkspaceChat(page: Page): Promise<void> {
 
 /** Open review tab, load mock draft detail, assert gate copy is visible. */
 export async function assertReviewGateList(page: Page): Promise<void> {
-  const detailWait = page.waitForResponse(
-    (res) =>
-      res.request().method() === "GET" &&
-      new URL(res.url()).pathname.endsWith('/api/drafts/e2e-draft-1') &&
-      res.ok(),
-    { timeout: 30_000 },
-  );
+  // 工作台可能已被调用方打开（Electron golden-path）：此时详情早已加载，
+  // 不会再有新的 detail 响应；容忍拿不到，改用 DOM 断言兜底。
+  const detailWait = page
+    .waitForResponse(
+      (res) =>
+        res.request().method() === "GET" &&
+        new URL(res.url()).pathname.endsWith('/api/drafts/e2e-draft-1') &&
+        res.ok(),
+      { timeout: 30_000 },
+    )
+    .catch(() => null);
   await openReviewWorkbench(page);
   await page
     .waitForResponse(
@@ -237,10 +342,14 @@ export async function assertReviewGateList(page: Page): Promise<void> {
     .catch(() => undefined);
 
   const detailRes = await detailWait;
-  const detailJson = (await detailRes.json()) as { gateDecisions?: Array<{ reason?: string }> };
-  expect(
-    detailJson.gateDecisions?.some((g) => /等待律师签批|验收门禁|审批门禁/.test(g.reason ?? "")),
-  ).toBe(true);
+  if (detailRes) {
+    const detailJson = (await detailRes.json()) as {
+      gateDecisions?: Array<{ reason?: string }>;
+    };
+    expect(
+      detailJson.gateDecisions?.some((g) => /等待律师签批|出稿检查|待签批|验收门禁|审批门禁/.test(g.reason ?? "")),
+    ).toBe(true);
+  }
 
   await ensureReviewMetaPaneVisible(page);
   await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench").first()).toBeVisible({
@@ -248,7 +357,7 @@ export async function assertReviewGateList(page: Page): Promise<void> {
   });
   await expect(page.getByText("执行状态看板")).toBeVisible({ timeout: 30_000 });
   await expect(page.locator(".lm-review-detail-row")).toContainText(
-    /等待律师签批|验收门禁|审批门禁/,
+    /等待律师签批|出稿检查|待签批|验收门禁|审批门禁/,
     { timeout: 30_000 },
   );
 }

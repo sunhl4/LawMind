@@ -67,17 +67,23 @@ describe("Engine-Bridge Tools", () => {
     expect(names).toContain("research_task");
     expect(names).toContain("draft_document");
     expect(names).toContain("render_document");
+    expect(names).toContain("render_tracked_draft");
+    expect(names).toContain("apply_surgical_edits");
+    expect(names).toContain("prepare_outbound_mail");
+    expect(names).toContain("list_mail_inbox");
+    expect(names).toContain("list_mail_attachments");
     expect(names).toContain("execute_workflow");
     expect(names).toContain("register_template");
     expect(names).toContain("list_templates");
     expect(names).toContain("open_work_queue_item");
     expect(names).toContain("request_approval");
     expect(names).toContain("record_deadline");
+    expect(names).toContain("deep_research");
   });
 
-  it("total tool count is 29 (16 legal + 13 engine)", () => {
+  it("total tool count is 42 (27 legal + 15 engine)", () => {
     const registry = createLegalToolRegistry();
-    expect(registry.size()).toBe(29);
+    expect(registry.size()).toBe(42);
   });
 });
 
@@ -114,7 +120,7 @@ describe("plan_task", () => {
     expect(result.ok).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.kind).toBe("draft.word");
-    expect(data.deliverableType).toBe("letter.demand");
+    expect(data.deliverableType).toBe("letter.counsel");
     expect(data.riskLevel).toBe("high");
     expect(data.requiresConfirmation).toBe(true);
   });
@@ -193,7 +199,27 @@ describe("clarification pending guard", () => {
 });
 
 describe("execute_workflow", () => {
+  it("rejects force_render when LAWMIND_WORKFLOW_ALLOW_FORCE_RENDER is not set", async () => {
+    const ws = tmpWorkspace();
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("execute_workflow")!;
+
+    const result = await tool.execute(
+      {
+        instruction: "请审查这份合同的主要条款并列出风险点",
+        matter_id: "m-force-render-denied",
+        force_render: true,
+      },
+      makeCtx(ws, "m-force-render-denied"),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("force_render 已被禁用");
+    expect(result.error).toContain("LAWMIND_WORKFLOW_ALLOW_FORCE_RENDER");
+  });
+
   it("renders docx when force_render is set (medium-risk draft path)", async () => {
+    vi.stubEnv("LAWMIND_WORKFLOW_ALLOW_FORCE_RENDER", "1");
     const ws = tmpWorkspace();
     const registry = createLegalToolRegistry();
     const tool = registry.get("execute_workflow")!;
@@ -316,6 +342,7 @@ describe("execute_workflow", () => {
   });
 
   it("resumes with existing_task_id and restart_from research", async () => {
+    vi.stubEnv("LAWMIND_WORKFLOW_ALLOW_FORCE_RENDER", "1");
     const ws = tmpWorkspace();
     const registry = createLegalToolRegistry();
     const tool = registry.get("execute_workflow")!;
@@ -454,7 +481,7 @@ describe("render_document", () => {
     expect((result.data as { taskId: string }).taskId).toBe(tid2);
   });
 
-  it("blocks render when acceptance gate is unmet and lawyer has not approved export", async () => {
+  it("blocks render when acceptance gate is unmet even after local-export stamp", async () => {
     const ws = tmpWorkspace();
     const registry = createLegalToolRegistry();
     const draftTool = registry.get("draft_document")!;
@@ -472,8 +499,9 @@ describe("render_document", () => {
     const blocked = await renderTool.execute({}, makeCtx(ws, "m-render-gated"));
 
     expect(blocked.ok).toBe(false);
-    expect((blocked as { pendingApproval?: boolean }).pendingApproval).toBe(true);
-    expect(String(blocked.error)).toContain("模型 API");
+    expect((blocked.data as { renderFailureCategory?: string })?.renderFailureCategory).toBe(
+      "acceptance_gate",
+    );
   });
 
   it("approve=true alone does NOT bypass acceptance gate; bypass_acceptance_gate=true is required", async () => {
@@ -498,7 +526,7 @@ describe("render_document", () => {
       makeCtx(ws, "m-render-gated-approve"),
     );
     expect(gated.ok).toBe(false);
-    expect((gated as { pendingApproval?: boolean }).pendingApproval).toBe(true);
+    expect((gated as { pendingApproval?: boolean }).pendingApproval).toBeFalsy();
     const gatedData = gated.data as { renderFailureCategory?: string };
     expect(gatedData.renderFailureCategory).toBe("acceptance_gate");
 
@@ -667,6 +695,41 @@ describe("update_draft", () => {
     expect(data.demoCorpus).toBeUndefined();
     expect(data.demoCorpusWarning).toBeUndefined();
   });
+
+  it("hard-rejects oversized rewrite when LAWMIND_SURGICAL_ENFORCE=1", async () => {
+    vi.stubEnv("LAWMIND_SURGICAL_ENFORCE", "1");
+    const ws = tmpWorkspace();
+    const taskId = "update-draft-enforce";
+    const now = new Date().toISOString();
+    const before = "甲".repeat(200) + "应依约履行付款义务并承担违约责任。";
+    const after = "乙".repeat(220) + "可随时解除合同且无需通知。";
+    persistDraft(ws, {
+      taskId,
+      title: "合同",
+      output: "docx",
+      templateId: "word/contract-default",
+      summary: "",
+      sections: [{ heading: "正文", body: before }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: now,
+      contractEdit: { baselineRelativePath: "c.docx", mode: "surgical" },
+    });
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("update_draft")!;
+    const result = await tool.execute(
+      {
+        task_id: taskId,
+        sections: [{ heading: "正文", body: after }],
+      },
+      makeCtx(ws, undefined, { linkedTaskId: taskId }),
+    );
+    expect(result.ok).toBe(false);
+    const data = result.data as { gateDecision?: { decision?: string; category?: string } };
+    expect(data.gateDecision?.decision).toBe("block");
+    expect(data.gateDecision?.category).toBe("safety_hard");
+    expect(readDraft(ws, taskId)?.sections[0]?.body).toBe(before);
+  });
 });
 
 describe("draft_document", () => {
@@ -753,6 +816,69 @@ describe("draft_document", () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain("instruction 不能为空");
+  });
+});
+
+describe("render_tracked_draft hunk gate", () => {
+  it("blocks contractEdit drafts with zero redline hunks", async () => {
+    const ws = tmpWorkspace();
+    const taskId = "task-empty-redline";
+    persistDraft(ws, {
+      taskId,
+      title: "合作协议",
+      output: "docx",
+      templateId: "word/contract-default",
+      deliverableType: "contract.review",
+      summary: "仅摘要无正文改动",
+      sections: [{ heading: "第一条", body: "原文不变。" }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: new Date().toISOString(),
+      contractEdit: {
+        baselineRelativePath: "cases/m1/mail/attachments/x/a.docx",
+        mode: "surgical",
+      },
+    });
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("render_tracked_draft")!;
+    const result = await tool.execute({ task_id: taskId }, makeCtx(ws, "m1"));
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("redline hunks");
+    expect((result.data as { code?: string } | undefined)?.code).toBe("redline_hunks_required");
+  });
+
+  it("allow_empty_redline bypasses the hunk gate", async () => {
+    const ws = tmpWorkspace();
+    const taskId = "task-allow-empty";
+    persistDraft(ws, {
+      taskId,
+      title: "合作协议",
+      output: "docx",
+      templateId: "word/contract-default",
+      deliverableType: "contract.review",
+      summary: "s",
+      sections: [{ heading: "第一条", body: "原文不变。" }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: new Date().toISOString(),
+      contractEdit: {
+        baselineRelativePath: "cases/m1/mail/attachments/x/a.docx",
+        mode: "surgical",
+      },
+    });
+    const registry = createLegalToolRegistry();
+    const tool = registry.get("render_tracked_draft")!;
+    const result = await tool.execute(
+      { task_id: taskId, allow_empty_redline: true },
+      makeCtx(ws, "m1"),
+    );
+    // May fail later on missing baseline file / conversion — but must not be the hunk gate.
+    expect(result.error ?? "").not.toContain("redline hunks");
+    if (!result.ok) {
+      expect((result.data as { code?: string } | undefined)?.code).not.toBe(
+        "redline_hunks_required",
+      );
+    }
   });
 });
 

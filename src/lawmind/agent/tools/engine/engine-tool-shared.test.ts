@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canDraftWithoutResearch,
+  resolveMatterId,
   shouldRefuseDraftOnDemoCorpus,
 } from "./engine-tool-shared.js";
 
@@ -29,5 +30,17 @@ describe("shouldRefuseDraftOnDemoCorpus", () => {
     expect(shouldRefuseDraftOnDemoCorpus({ riskLevel: "medium" })).toBe(true);
     expect(shouldRefuseDraftOnDemoCorpus({ riskLevel: "low" })).toBe(false);
     expect(shouldRefuseDraftOnDemoCorpus({})).toBe(false);
+  });
+});
+
+describe("resolveMatterId", () => {
+  it("accepts Unicode matter folder names", () => {
+    expect(resolveMatterId("临时讨论")).toBe("临时讨论");
+    expect(resolveMatterId(undefined, "张三买卖合同纠纷")).toBe("张三买卖合同纠纷");
+  });
+
+  it("rejects path traversal and separators", () => {
+    expect(() => resolveMatterId("../x")).toThrow(/matter_id/);
+    expect(() => resolveMatterId("甲/乙")).toThrow(/matter_id/);
   });
 });

@@ -30,6 +30,8 @@ tmp/
 # VitePress — 同步副本（正文以仓库根目录 docs/ 为准）
 apps/lawmind-docs/docs/LAWMIND-*.md
 apps/lawmind-docs/docs/lawmind/
+apps/lawmind-docs/docs/assets/
+apps/lawmind-docs/docs/public/download/
 
 # LawMind desktop — 打包与本地服务器 bundle
 apps/lawmind-desktop/release/

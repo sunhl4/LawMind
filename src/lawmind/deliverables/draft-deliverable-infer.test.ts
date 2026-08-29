@@ -48,4 +48,16 @@ describe("draft-deliverable-infer", () => {
     });
     expect(inferDeliverableTypeForAcceptance(draft)).toBe("contract.rental");
   });
+
+  it("keeps explicit report.compliance even when body mentions ESG terms", () => {
+    const draft = makeDraft({
+      deliverableType: "report.compliance",
+      title: "新能源汽车出口欧盟合规卷宗",
+      sections: [
+        { heading: "管辖区效力矩阵", body: "中国内地与欧盟监管要点…" },
+        { heading: "附注", body: "对方可能同时要求 ESG 披露，但不改变本卷宗类型。" },
+      ],
+    });
+    expect(inferDeliverableTypeForAcceptance(draft)).toBe("report.compliance");
+  });
 });

@@ -150,7 +150,7 @@ async function main() {
     await browser.close();
   }
   console.log("\nDone. Open docs/assets/ui-agents-desk-v2/00-compare.png");
-  console.log("Design: docs/LAWMIND-AGENTS-DESK-V2.md");
+  console.log("Design: docs/LAWMIND-DESKTOP-UI.md");
 }
 
 main().catch((err) => {

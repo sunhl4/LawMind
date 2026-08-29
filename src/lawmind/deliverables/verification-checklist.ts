@@ -10,6 +10,10 @@ export type VerificationChecklistItemSpec = {
   label: string;
   /** When true, must be checked before approve */
   required: boolean;
+  /** Optional Skill id for UI「见 Skill：…」 */
+  skillId?: string;
+  /** Short hint shown next to the item */
+  skillHint?: string;
 };
 
 export type VerificationChecklistSpec = {
@@ -39,23 +43,135 @@ const SPECS: VerificationChecklistSpec[] = [
     id: "contract-review-v1",
     deliverableTypes: ["contract.review", "contract.general", "contract.rental", "contract.nda"],
     items: [
-      { id: "parties", label: "已核对当事人名称与签约主体一致性", required: true },
-      { id: "liability", label: "已审阅责任限制 / 赔偿上限条款", required: true },
-      { id: "ip", label: "已审阅知识产权与保密条款（如适用）", required: true },
-      { id: "terminate", label: "已审阅解除/终止与违约后果", required: true },
-      { id: "citations", label: "高风险结论已核对引用或标注待核实", required: true },
+      {
+        id: "parties",
+        label: "已核对当事人名称与签约主体一致性",
+        required: true,
+        skillId: "contract-redline-craft",
+        skillHint: "见 Skill：合同审阅改稿手艺",
+      },
+      {
+        id: "liability",
+        label: "已审阅责任限制 / 赔偿上限条款",
+        required: true,
+        skillId: "contract-redline-craft",
+        skillHint: "见 Skill：合同审阅改稿手艺",
+      },
+      {
+        id: "ip",
+        label: "已审阅知识产权与保密条款（如适用）",
+        required: true,
+        skillId: "contract-redline-craft",
+        skillHint: "见 Skill：合同审阅改稿手艺",
+      },
+      {
+        id: "terminate",
+        label: "已审阅解除/终止与违约后果",
+        required: true,
+        skillId: "contract-redline-craft",
+        skillHint: "见 Skill：合同审阅改稿手艺",
+      },
+      {
+        id: "citations",
+        label: "高风险结论已核对引用或标注待核实",
+        required: true,
+        skillId: "citation-grounding",
+        skillHint: "见 Skill：引用锚定",
+      },
       { id: "negotiate", label: "已形成谈判优先级或接受理由", required: false },
-      { id: "client", label: "可对外摘要不含未核实断言", required: false },
+      {
+        id: "client",
+        label: "可对外摘要不含未核实断言",
+        required: false,
+        skillId: "delivery-language",
+        skillHint: "见 Skill：交付用语",
+      },
     ],
   },
   {
     id: "demand-letter-v1",
     deliverableTypes: ["letter.demand"],
     items: [
-      { id: "facts", label: "关键事实与证据指向一致", required: true },
-      { id: "claim", label: "主张内容与金额可核对", required: true },
-      { id: "deadline", label: "履行期限与后果表述准确", required: true },
-      { id: "tone", label: "语气与送达意图符合办案策略", required: false },
+      {
+        id: "facts",
+        label: "关键事实与证据指向一致",
+        required: true,
+        skillId: "intake-required-inputs",
+        skillHint: "见 Skill：交办 Intake",
+      },
+      {
+        id: "claim",
+        label: "主张内容与金额可核对",
+        required: true,
+        skillId: "intake-required-inputs",
+        skillHint: "见 Skill：交办 Intake",
+      },
+      {
+        id: "deadline",
+        label: "履行期限与后果表述准确",
+        required: true,
+        skillId: "intake-required-inputs",
+        skillHint: "见 Skill：交办 Intake",
+      },
+      {
+        id: "tone",
+        label: "语气与送达意图符合办案策略",
+        required: false,
+        skillId: "delivery-language",
+        skillHint: "见 Skill：交付用语",
+      },
+    ],
+  },
+  {
+    id: "compliance-dossier-v1",
+    deliverableTypes: ["report.compliance"],
+    items: [
+      { id: "jurisdiction", label: "管辖区与效力层级已核对（非新闻冒充现行法）", required: true },
+      {
+        id: "verify",
+        label: "不确定处已标 [VERIFY] 或已核实",
+        required: true,
+        skillId: "citation-grounding",
+        skillHint: "见 Skill：引用锚定",
+      },
+      {
+        id: "sources",
+        label: "来源附录可回溯（URL/权威库）",
+        required: true,
+        skillId: "citation-grounding",
+        skillHint: "见 Skill：引用锚定",
+      },
+      { id: "actions", label: "行动建议可执行且已区分客户/所内", required: false },
+    ],
+  },
+  {
+    id: "learning-brief-v1",
+    deliverableTypes: ["report.learning", "document.report"],
+    items: [
+      { id: "authority", label: "制度要点已按效力层级区分", required: true },
+      {
+        id: "citations",
+        label: "关键依据已标注来源或待检索",
+        required: true,
+        skillId: "citation-grounding",
+        skillHint: "见 Skill：引用锚定",
+      },
+      { id: "practice", label: "实务启示与读者用途匹配", required: false },
+    ],
+  },
+  {
+    id: "training-ppt-v1",
+    deliverableTypes: ["ppt.training"],
+    items: [
+      { id: "desense", label: "案件材料已脱敏或确认不含未公开敏感信息", required: true },
+      { id: "speakable", label: "幻灯片短句可讲，未整页粘贴长文", required: true },
+      {
+        id: "sources",
+        label: "关键依据可指向来源或附录 memo",
+        required: false,
+        skillId: "citation-grounding",
+        skillHint: "见 Skill：引用锚定",
+      },
     ],
   },
   {
@@ -64,7 +180,13 @@ const SPECS: VerificationChecklistSpec[] = [
     items: [
       { id: "scope", label: "交付范围与律师指令一致", required: true },
       { id: "placeholders", label: "无未处理的【待补充】占位（或已明示）", required: true },
-      { id: "citations", label: "关键依据已标注来源或待检索", required: true },
+      {
+        id: "citations",
+        label: "关键依据已标注来源或待检索",
+        required: true,
+        skillId: "citation-grounding",
+        skillHint: "见 Skill：引用锚定",
+      },
       { id: "risk", label: "已知风险已向律师可见", required: false },
     ],
   },

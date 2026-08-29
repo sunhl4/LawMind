@@ -45,113 +45,48 @@ describe("dangerous-tool-policy", () => {
     fs.rmSync(ws, { recursive: true, force: true });
   });
 
-  it("non-strict: requiresApproval respects allowDangerous bypass", () => {
+  it("only send_email pauses the lawyer; internal production runs through", () => {
     expect(
       toolRequiresExplicitApproval({
-        toolName: "write_document",
-        definition: defApproved,
+        toolName: "send_email",
+        definition: { ...defApproved, name: "send_email" },
         allowDangerousToolsWithoutApproval: false,
         strictDangerousToolApproval: false,
       }),
     ).toBe(true);
     expect(
       toolRequiresExplicitApproval({
-        toolName: "write_document",
-        definition: defApproved,
+        toolName: "send_email",
+        definition: { ...defApproved, name: "send_email" },
         allowDangerousToolsWithoutApproval: true,
         strictDangerousToolApproval: false,
       }),
     ).toBe(false);
-  });
-
-  it("strict: requiresApproval always needs explicit approval even when allowDangerous is true", () => {
     expect(
       toolRequiresExplicitApproval({
-        toolName: "write_document",
-        definition: defApproved,
+        toolName: "send_email",
+        definition: { ...defApproved, name: "send_email" },
         allowDangerousToolsWithoutApproval: true,
         strictDangerousToolApproval: true,
       }),
     ).toBe(true);
-  });
-
-  it("mid-work draft tools do not require approval by default (non-strict)", () => {
-    for (const toolName of ["write_document", "update_draft"] as const) {
-      const definition: ToolDefinition = {
-        ...defApproved,
-        name: toolName,
-        requiresApproval: false,
-      };
+    for (const toolName of [
+      "write_document",
+      "update_draft",
+      "draft_document",
+      "render_document",
+      "prepare_outbound_mail",
+      "execute_workflow",
+      "add_case_note",
+    ] as const) {
       expect(
         toolRequiresExplicitApproval({
           toolName,
-          definition,
+          definition: { ...defApproved, name: toolName, requiresApproval: true },
           allowDangerousToolsWithoutApproval: false,
-          strictDangerousToolApproval: false,
+          strictDangerousToolApproval: true,
         }),
       ).toBe(false);
     }
-  });
-
-  it("strict: governance-classified write tools require approval even without definition flag", () => {
-    // In strict mode, WRITE_TOOLS membership enforces approval — aligning
-    // runtime enforcement with governance metadata (which marks these
-    // requiresApproval: true via resolveRuntimeMode).
-    for (const toolName of ["write_document", "update_draft", "add_case_note"] as const) {
-      const definition: ToolDefinition = {
-        ...defApproved,
-        name: toolName,
-        requiresApproval: false,
-      };
-      expect(
-        toolRequiresExplicitApproval({
-          toolName,
-          definition,
-          allowDangerousToolsWithoutApproval: true,
-          strictDangerousToolApproval: true,
-        }),
-      ).toBe(true);
-    }
-  });
-
-  it("non-strict: read tools never require approval", () => {
-    const definition: ToolDefinition = {
-      ...defApproved,
-      name: "search_statute",
-      requiresApproval: false,
-    };
-    expect(
-      toolRequiresExplicitApproval({
-        toolName: "search_statute",
-        definition,
-        allowDangerousToolsWithoutApproval: false,
-        strictDangerousToolApproval: true,
-      }),
-    ).toBe(false);
-  });
-
-  it("strict: execute_workflow needs explicit approval without requiresApproval on definition", () => {
-    const defExec: ToolDefinition = {
-      name: "execute_workflow",
-      description: "x",
-      category: "draft",
-      parameters: { instruction: { type: "string", description: "i", required: true } },
-    };
-    expect(
-      toolRequiresExplicitApproval({
-        toolName: "execute_workflow",
-        definition: defExec,
-        allowDangerousToolsWithoutApproval: true,
-        strictDangerousToolApproval: true,
-      }),
-    ).toBe(true);
-    expect(
-      toolRequiresExplicitApproval({
-        toolName: "execute_workflow",
-        definition: defExec,
-        allowDangerousToolsWithoutApproval: true,
-        strictDangerousToolApproval: false,
-      }),
-    ).toBe(false);
   });
 });

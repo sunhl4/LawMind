@@ -239,6 +239,10 @@ export type SessionCreatePostRequest = z.infer<typeof sessionCreatePostSchema>;
 export const sessionDeletePostSchema = z.object({
   sessionId: trimmedNonEmptyString,
   assistantId: z.string().trim().optional(),
+  /** Also cancel/remove child delegations + their sessions. */
+  cascadeDelegations: z.boolean().optional(),
+  /** Also remove unapproved / unexported drafts tied to this session. */
+  cascadeUnapprovedDrafts: z.boolean().optional(),
 });
 
 export type SessionDeletePostRequest = z.infer<typeof sessionDeletePostSchema>;
@@ -293,9 +297,14 @@ export const deskSettingsPostSchema = z.object({
 
 export type DeskSettingsPostRequest = z.infer<typeof deskSettingsPostSchema>;
 
-export const workspacePolicyPatchSchema = z.object({
-  highSecurityMode: z.boolean(),
-});
+export const workspacePolicyPatchSchema = z
+  .object({
+    highSecurityMode: z.boolean().optional(),
+    allowAnalysisScripts: z.boolean().optional(),
+  })
+  .refine((v) => v.highSecurityMode !== undefined || v.allowAnalysisScripts !== undefined, {
+    message: "at least one policy field required",
+  });
 
 export type WorkspacePolicyPatchRequest = z.infer<typeof workspacePolicyPatchSchema>;
 
@@ -332,6 +341,11 @@ export const draftReviewPostSchema = z.object({
   checklistChecked: z.record(z.string(), z.boolean()).optional(),
   /** Escape hatch (audited separately if used by tests / Firm override) */
   bypassChecklist: z.boolean().optional(),
+  /** CAS: reject if current draft.reviewStatus does not match. */
+  expectedReviewStatus: z.preprocess(
+    (v) => (v == null || v === "" ? undefined : typeof v === "string" ? v.trim().toLowerCase() : v),
+    z.enum(["pending", "approved", "rejected", "modified"]).optional(),
+  ),
 });
 
 export type DraftReviewPostRequest = z.infer<typeof draftReviewPostSchema>;

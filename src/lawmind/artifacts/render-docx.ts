@@ -4,7 +4,7 @@
  * 职责：
  *   - 把 ArtifactDraft 渲染为 .docx 文件
  *   - 不包含任何检索或推理逻辑
- *   - 渲染前必须确认 draft.reviewStatus === "approved"
+ *   - 本地出稿：pending / modified / approved 均可；仅 rejected 拒绝
  *
  * 版式：见 docx-legal-typography.ts（律所/合同类常见 Black 体、标题黑体、正文宋体、边距与行距）
  *
@@ -106,10 +106,10 @@ export async function renderDocxWithOptions(
   outputDir: string,
   options: RenderDocxOptions,
 ): Promise<RenderResult> {
-  if (draft.reviewStatus !== "approved") {
+  if (draft.reviewStatus === "rejected") {
     return {
       ok: false,
-      error: `文书未通过审核（当前状态：${draft.reviewStatus}），不能渲染。请律师确认后再执行。`,
+      error: `文书已驳回（当前状态：${draft.reviewStatus}），不能渲染。`,
     };
   }
 

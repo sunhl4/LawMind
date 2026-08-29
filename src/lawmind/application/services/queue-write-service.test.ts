@@ -17,6 +17,50 @@ import {
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WORKER_PATH = path.join(HERE, "queue-transition-worker.mjs");
+const OPEN_WORKER_PATH = path.join(HERE, "queue-open-worker.mjs");
+
+function openInChild(input: {
+  workspaceDir: string;
+  matterId: string;
+  kind: string;
+  title: string;
+}): Promise<QueueItemRecord | null> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        OPEN_WORKER_PATH,
+        input.workspaceDir,
+        input.matterId,
+        input.kind,
+        input.title,
+      ],
+      { cwd: path.resolve(HERE, "../../../.."), env: process.env },
+    );
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.stderr.on("data", (d) => (err += d));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(`open worker exit ${code}: ${err}`));
+        return;
+      }
+      try {
+        resolve(out ? (JSON.parse(out) as QueueItemRecord) : null);
+      } catch (e) {
+        reject(
+          new Error(
+            `open worker parse: ${e instanceof Error ? e.message : "error"}\nout=${out}\nerr=${err}`,
+          ),
+        );
+      }
+    });
+  });
+}
 
 function transitionInChild(input: {
   workspaceDir: string;
@@ -51,7 +95,11 @@ function transitionInChild(input: {
       try {
         resolve(out ? (JSON.parse(out) as QueueItemRecord) : null);
       } catch (e) {
-        reject(new Error(`worker parse: ${e}\nout=${out}\nerr=${err}`));
+        reject(
+          new Error(
+            `worker parse: ${e instanceof Error ? e.message : "error"}\nout=${out}\nerr=${err}`,
+          ),
+        );
       }
     });
   });
@@ -114,8 +162,18 @@ describe("queue-write-service", () => {
     });
 
     const results = await Promise.all([
-      transitionInChild({ workspaceDir, matterId: "m-race", queueItemId: a.queueItemId, status: "resolved" }),
-      transitionInChild({ workspaceDir, matterId: "m-race", queueItemId: b.queueItemId, status: "resolved" }),
+      transitionInChild({
+        workspaceDir,
+        matterId: "m-race",
+        queueItemId: a.queueItemId,
+        status: "resolved",
+      }),
+      transitionInChild({
+        workspaceDir,
+        matterId: "m-race",
+        queueItemId: b.queueItemId,
+        status: "resolved",
+      }),
     ]);
 
     expect(results).toHaveLength(2);
@@ -126,6 +184,38 @@ describe("queue-write-service", () => {
       new Set([a.queueItemId, b.queueItemId]),
     );
   });
+
+  it("concurrent append (open) and locked rewrite (transition): both entries survive", async () => {
+    // append 与 rewrite 共用同一把锁前，「开新项 + 解析旧项」并发会让 rewrite
+    // 用旧快照覆盖 append 后的文件，静默丢掉新条目。
+    const existing = openQueueItem(workspaceDir, {
+      matterId: "m-append-race",
+      kind: "need_lawyer_review",
+      title: "待解析条目",
+    });
+
+    const [openedInChild] = await Promise.all([
+      openInChild({
+        workspaceDir,
+        matterId: "m-append-race",
+        kind: "need_evidence",
+        title: "并发新条目",
+      }),
+      (async () => {
+        // 让子进程先进 critical section 的概率更高：稍等再解析旧条目。
+        await new Promise((r) => setTimeout(r, 30));
+        transitionQueueItem(workspaceDir, "m-append-race", existing.queueItemId, "resolved");
+      })(),
+    ]);
+
+    expect(openedInChild?.queueItemId).toBeTruthy();
+    const all = listQueueItemsForMatter(workspaceDir, "m-append-race");
+    expect(all).toHaveLength(2);
+    expect(all.some((q) => q.queueItemId === existing.queueItemId && q.status === "resolved")).toBe(
+      true,
+    );
+    expect(
+      all.some((q) => q.queueItemId === openedInChild!.queueItemId && q.status === "open"),
+    ).toBe(true);
+  });
 });
-
-

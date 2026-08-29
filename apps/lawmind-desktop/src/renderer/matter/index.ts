@@ -6,7 +6,7 @@
  *
  * MatterWorkbench 的目标形态：tab 容器 + 路由这些视图，单文件 < 300 行。
  * 当前 PR 仅完成"组件 seam + 黄金路径 e2e"，正式迁入由后续 PR 渐进完成
- * （详见 docs/lawmind/refactor-blueprint.md）。
+ * （详见 docs/LAWMIND-ARCHITECTURE.md）。
  */
 
 export { MatterCockpit } from "./MatterCockpit";

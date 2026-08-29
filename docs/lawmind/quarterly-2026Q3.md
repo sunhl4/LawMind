@@ -1,7 +1,7 @@
 # LawMind 2026-Q3 季末决策与 Sunset 列表
 
 > 与 `.cursor/plans/lawmind-3-month-refactor_abc3d086.plan.md` 一一对应。
-> 12 周计划的全过程工程记录见 `docs/LAWMIND-PROJECT-MEMORY.md` §8 2026-05-02 节。
+> 12 周计划的架构落点见 `docs/LAWMIND-ARCHITECTURE.md` §二。
 
 ## 1. 本季节核心决策
 

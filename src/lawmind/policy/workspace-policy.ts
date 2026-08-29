@@ -60,6 +60,11 @@ export type LawMindWorkspacePolicy = {
   networkAllowlist?: string[];
   /** When true, web search tools require a non-empty networkAllowlist in firm/strict modes. */
   networkAllowlistEnforced?: boolean;
+  /**
+   * Allowed recipient email domains for prepare_outbound_mail (e.g. `["client.com"]`).
+   * Empty or omitted = no extra domain restriction (privilege sentinel still applies).
+   */
+  outboundAllowedDomains?: string[];
   /** Context window / auto-compact tuning (Claude Code–style defaults). */
   context?: {
     autoCompactBufferTokens?: number;
@@ -70,6 +75,11 @@ export type LawMindWorkspacePolicy = {
   };
   /** High-security desktop preset: disable web + auto memory adopt hints. */
   highSecurityMode?: boolean;
+  /**
+   * P2：允许 run_analysis 受控脚本。默认 false。
+   * 高安全模式下强制关闭。
+   */
+  allowAnalysisScripts?: boolean;
   /**
    * P2：高风险工具在子进程内执行（POC）。也可用 `LAWMIND_TOOL_SANDBOX=1`。
    * 默认关闭。
@@ -98,8 +108,8 @@ export type LawMindWorkspacePolicy = {
   citationMode?: "grounded" | "assisted" | "off";
   /**
    * System prompt tool catalogue verbosity.
-   * - full（默认）：完整工具参数列表
-   * - compact：分类摘要 + 常用工具短列表（省 context）
+   * - compact（默认）：核心工具短列表（省 context）
+   * - full：完整工具参数列表
    * 也可用 `LAWMIND_PROMPT_VERBOSITY=compact|full`。
    */
   agentPromptVerbosity?: "compact" | "full";
@@ -108,6 +118,11 @@ export type LawMindWorkspacePolicy = {
    * Also `LAWMIND_INTAKE=0`.
    */
   intakeHeuristicsEnabled?: boolean;
+  /**
+   * true 时本地服务定时器会在索引缺失/过期（>24h）时自动轻量重建 FTS 索引。
+   * 默认关闭（false/缺省）——重建仍需手动（Doctor）或启动缺失兜底。
+   */
+  searchIndexAutoRebuild?: boolean;
   /**
    * Whether the model must emit「本轮已应用」footer for executable preferences.
    * - first（默认）：仅会话首轮要求
@@ -131,6 +146,28 @@ export type LawMindWorkspacePolicy = {
    * Default false.
    */
   autoApproveSandboxWorkflowSteps?: boolean;
+  /** When false, skip privilege-sentinel preflight on compose / outbound mail. */
+  privilegeSentinel?: boolean;
+  /**
+   * W2-3：分级交付。全部可选；缺省保守（外发永不自动交付）。
+   * medium → one_tap_signoff；high → full_review；
+   * auto_deliver 仅当渐进自主已解锁且 low 且非外发。
+   */
+  delivery?: {
+    description?: string;
+    /** When true, every draft is full_review (firm / IT override). */
+    firmForceFullReview?: boolean;
+  };
+  /**
+   * W2-3：渐进自主阈值。缺省 minFirstPassRate 0.8、minSamples 20、maxLintEscapeRate 0.15。
+   * 缺 lint-escape 序列时不得解锁（仅一次通过不足）。
+   */
+  progressiveAutonomy?: {
+    description?: string;
+    minFirstPassRate?: number;
+    minSamples?: number;
+    maxLintEscapeRate?: number;
+  };
 };
 
 export function resolveAgentMaxHistoryMessages(
@@ -159,7 +196,7 @@ export function resolveAgentPromptVerbosity(
   if (policy?.agentPromptVerbosity === "compact" || policy?.agentPromptVerbosity === "full") {
     return policy.agentPromptVerbosity;
   }
-  return "full";
+  return "compact";
 }
 
 export function resolveAppliedPreferencesFooterMode(

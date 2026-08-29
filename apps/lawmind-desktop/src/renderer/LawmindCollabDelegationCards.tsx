@@ -32,6 +32,8 @@ function statusHint(d: DelegationRow): string | null {
       return "对方正在处理中。可打开会话查看进展或补充说明。";
     case "completed":
       return "对方已交回结果，可打开会话查看完整内容。";
+    case "completed_after_timeout":
+      return "本次交办曾判超时，但对方后来仍交回了结果，可打开会话查看。";
     case "failed":
     case "timeout":
       return "本次交办未成功完成，可打开会话了解情况后重新交办。";
@@ -70,7 +72,10 @@ export function LawmindCollabDelegationCards(props: Props): ReactNode {
           const fromName = assistantLabel(d.fromAssistant, assistantDisplayById);
           const hint = statusHint(d);
           const openLabel =
-            d.status === "completed" || d.status === "failed" || d.status === "timeout"
+            d.status === "completed" ||
+            d.status === "completed_after_timeout" ||
+            d.status === "failed" ||
+            d.status === "timeout"
               ? "查看结果"
               : "查看进展";
           return (

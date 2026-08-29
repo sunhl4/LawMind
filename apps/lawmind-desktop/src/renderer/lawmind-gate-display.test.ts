@@ -10,7 +10,7 @@ describe("lawmind-gate-display", () => {
     const summary = buildGateStatusSummary([
       { gate: "acceptance_gate", decision: "block", reason: "缺必备章节" },
     ]);
-    expect(summary).toContain("验收门禁");
+    expect(summary).toContain("出稿检查");
     expect(summary).toContain("缺必备章节");
   });
 

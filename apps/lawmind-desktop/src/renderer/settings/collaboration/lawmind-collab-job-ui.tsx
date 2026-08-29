@@ -50,9 +50,13 @@ export function workflowJobStatusPillClass(status: string): string {
       return "lm-pill lm-pill-info";
     case "queued":
       return "lm-pill lm-pill-neutral";
+    case "scheduled":
+      return "lm-pill lm-pill-info";
     case "failed":
       return "lm-pill lm-pill-danger";
     case "cancelled":
+      return "lm-pill lm-pill-warn";
+    case "interrupted_by_restart":
       return "lm-pill lm-pill-warn";
     default:
       return "lm-pill lm-pill-neutral";

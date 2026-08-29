@@ -8,13 +8,13 @@ import {
   formatAuthorityProbeSuccessMsg,
   isAuthorityCorpusUiReady,
 } from "./lawmind-settings-models";
-
-type WorkspaceCheck = {
-  id: string;
-  label: string;
-  state: "ok" | "warn" | "missing";
-  hint: string;
-};
+import {
+  DoctorConnectionGroup,
+  DoctorIntegrationsGroup,
+  DoctorPromptSectionsGroup,
+  DoctorWorkspaceTruthGroup,
+} from "./settings-doctor-groups";
+import { isAutonomyUnlocked } from "../../../../src/lawmind/delivery/progressive-autonomy.ts";
 
 type TeamGrowthMetricRow = {
   id: string;
@@ -25,6 +25,22 @@ type TeamGrowthMetricRow = {
   targetNote: string;
   baselineValue: number | null;
   deltaPts: number | null;
+};
+
+type NorthStarPayload = {
+  ok?: boolean;
+  firstPassRate?: number | null;
+  unattendedCompleteRate?: number | null;
+  reviewDurationMsMedian?: number | null;
+  lintEscapeRate?: number | null;
+  samples?: {
+    firstPassOk?: number;
+    firstPassFail?: number;
+    unattended?: number;
+    attended?: number;
+    lintEscapes?: number;
+    deliveries?: number;
+  };
 };
 
 type TeamGrowthDashboardPayload = {
@@ -44,33 +60,18 @@ type Props = {
   onOpenMemorySection?: () => void;
 };
 
-function checkRowClass(state: WorkspaceCheck["state"]): string {
-  switch (state) {
-    case "ok":
-      return "lm-doctor-check lm-doctor-check-ok";
-    case "warn":
-      return "lm-doctor-check lm-doctor-check-warn";
-    default:
-      return "lm-doctor-check lm-doctor-check-missing";
-  }
-}
-
-function stateLabel(state: WorkspaceCheck["state"]): string {
-  switch (state) {
-    case "ok":
-      return "正常";
-    case "warn":
-      return "建议完善";
-    default:
-      return "缺失";
-  }
-}
-
 function pct(rate: number | undefined | null): string {
   if (rate == null || Number.isNaN(rate)) {
     return "n/a";
   }
   return `${Math.round(rate * 1000) / 10}%`;
+}
+
+function starPct(rate: number | undefined | null): string {
+  if (rate == null || Number.isNaN(rate)) {
+    return "尚无";
+  }
+  return pct(rate);
 }
 
 function formatDeltaPts(delta: number | null | undefined): string {
@@ -102,6 +103,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
   const [teamGrowth, setTeamGrowth] = useState<TeamGrowthDashboardPayload | null>(null);
   const [teamGrowthBusy, setTeamGrowthBusy] = useState(false);
   const [teamGrowthMsg, setTeamGrowthMsg] = useState<string | null>(null);
+  const [northStar, setNorthStar] = useState<NorthStarPayload | null>(null);
   const [auditExportBusy, setAuditExportBusy] = useState(false);
   const [auditExportMsg, setAuditExportMsg] = useState<string | null>(null);
   const [authorityProbeBusy, setAuthorityProbeBusy] = useState(false);
@@ -169,12 +171,34 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
           setTeamGrowth(null);
         }
       });
+    void apiGetJson<NorthStarPayload>(apiBase, "/api/metrics/north-star")
+      .then((j) => {
+        if (!cancelled && j.ok) {
+          setNorthStar(j);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setNorthStar(null);
+        }
+      });
     return () => {
       cancelled = true;
     };
   }, [apiBase]);
 
   const health = healthProp ?? fetchedHealth;
+  const autonomyCaption = northStar
+    ? isAutonomyUnlocked({
+        firstPassRate: northStar.firstPassRate ?? null,
+        firstPassSamples:
+          (northStar.samples?.firstPassOk ?? 0) + (northStar.samples?.firstPassFail ?? 0),
+        lintEscapeRate: northStar.lintEscapeRate ?? null,
+        lintEscapeSamples: northStar.lintEscapeRate == null ? null : (northStar.samples?.deliveries ?? 0),
+      })
+      ? " 当前：内部低风险可放宽。"
+      : " 当前：尚未放宽（样本或逃逸未达标）。"
+    : "";
   const doctor = health?.doctor;
   const ws = doctor?.workspaceStandard;
   const mem = doctor?.memoryTruthSources;
@@ -359,135 +383,76 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
     }
   }
 
-  function connectorPillClass(status: string): string {
-    if (status === "active") {
-      return "lm-pill lm-pill-success";
-    }
-    if (status === "disabled") {
-      return "lm-pill lm-pill-neutral";
-    }
-    return "lm-pill lm-pill-warn";
-  }
-
-  function connectorStatusLabel(status: string): string {
-    if (status === "active") {
-      return "已启用";
-    }
-    if (status === "disabled") {
-      return "已禁用";
-    }
-    return "待配置";
-  }
-
   return (
     <div className="lm-settings-section lm-settings-doctor" id="lawmind-settings-doctor">
-      <div className="lm-settings-section-title lm-settings-section-title--duplicate">系统体检</div>
+      <DoctorConnectionGroup health={health} doctor={doctor} onOpenApiWizard={onOpenApiWizard} />
 
-      <div className="lm-settings-group lm-settings-surface">
-        <h4 className="lm-doctor-group-title">连接与模型</h4>
-        <div className="lm-settings-row">
-          <span className="lm-settings-key">AI 服务</span>
-          <span className={health?.modelConfigured ? "lm-pill lm-pill-success" : "lm-pill lm-pill-warn"}>
-            {health?.modelConfigured ? "已配置" : "待配置"}
+      <DoctorWorkspaceTruthGroup
+        ws={ws}
+        mem={mem}
+        onOpenMemorySection={onOpenMemorySection}
+        onScrollToWorkspace={onScrollToWorkspace}
+      />
+
+      <div className="lm-settings-group lm-settings-surface" data-testid="lm-doctor-skills-trust">
+        <h4 className="lm-doctor-group-title">信任与门禁</h4>
+        <div className="lm-doctor-security-grid">
+          <span className="lm-settings-key">引用模式</span>
+          <span
+            className={
+              (doctor?.citationModeActive ?? health?.citationModeActive)
+                ? "lm-pill lm-pill-success"
+                : "lm-pill lm-pill-neutral"
+            }
+          >
+            {doctor?.citationMode ?? health?.citationMode ?? "assisted"}
           </span>
-          {!health?.modelConfigured ? (
-            <button type="button" className="lm-btn lm-btn-sm" onClick={onOpenApiWizard}>
-              配置 API
-            </button>
-          ) : null}
+          <span className="lm-settings-key">强制规则</span>
+          <span
+            className={
+              health?.agentMandatoryRulesTruncated
+                ? "lm-pill lm-pill-warn"
+                : health?.agentMandatoryRulesActive
+                  ? "lm-pill lm-pill-success"
+                  : "lm-pill lm-pill-neutral"
+            }
+            data-testid="lm-doctor-mandatory-rules"
+          >
+            {health?.agentMandatoryRulesTruncated
+              ? "已截断"
+              : health?.agentMandatoryRulesActive
+                ? "已注入"
+                : "未配置"}
+          </span>
+          <span className="lm-settings-key">模型能力</span>
+          <span className="lm-meta" data-testid="lm-doctor-capability-envelope">
+            {health?.capabilityEnvelope?.contextTokens
+              ? `上下文 ${health.capabilityEnvelope.contextTokens.toLocaleString("zh-CN")}`
+              : "未配置模型"}
+          </span>
         </div>
-        {health?.modelName ? (
-          <div className="lm-settings-row">
-            <span className="lm-settings-key">当前模型</span>
-            <span className="lm-meta">{health.modelName}</span>
-          </div>
-        ) : null}
-        {doctor?.nodeVersion ? (
-          <div className="lm-settings-row">
-            <span className="lm-settings-key">运行环境</span>
-            <span className="lm-meta">
-              Node {doctor.nodeVersion}
-              {doctor.lawmindPackageVersion ? ` · LawMind ${doctor.lawmindPackageVersion}` : ""}
-            </span>
-          </div>
-        ) : null}
+        <div className="lm-doctor-actions" style={{ marginTop: 8 }}>
+          <button
+            type="button"
+            className="lm-btn lm-btn-secondary lm-btn-sm"
+            onClick={onOpenCollaborationPage}
+          >
+            打开在办
+          </button>
+        </div>
       </div>
 
-      <div className="lm-settings-group lm-settings-surface" id="lawmind-settings-memory-truth">
-        <h4 className="lm-doctor-group-title">工作区与记忆真相源</h4>
-        <p className="lm-settings-caption">
-          真相源文件状态
-          {onOpenMemorySection ? (
-            <>
-              {" · "}
-              <button type="button" className="lm-link-btn" onClick={() => onOpenMemorySection()}>
-                记忆库
-              </button>
-            </>
-          ) : null}
-        </p>
-        {ws?.checks?.map((c) => (
-          <div key={c.id} className={checkRowClass(c.state)}>
-            <div className="lm-doctor-check-head">
-              <span>{c.label}</span>
-              <em>{stateLabel(c.state)}</em>
-            </div>
-            <p className="lm-meta">{c.hint}</p>
-          </div>
-        )) ?? (
-          <p className="lm-meta">正在检测工作区标准…</p>
-        )}
-        {mem ? (
-          <div className="lm-doctor-memory-grid">
-            <span className={mem.memoryMd ? "lm-pill lm-pill-success" : "lm-pill lm-pill-warn"}>
-              MEMORY.md
-            </span>
-            <span className={mem.lawyerProfile ? "lm-pill lm-pill-success" : "lm-pill lm-pill-warn"}>
-              律师偏好
-            </span>
-            <span className={mem.firmProfile ? "lm-pill lm-pill-success" : "lm-pill lm-pill-neutral"}>
-              律所档案
-            </span>
-            {(mem.clientProfileFilesUnderClients ?? 0) > 0 ? (
-              <span className="lm-pill lm-pill-neutral">
-                客户档案 {mem.clientProfileFilesUnderClients}
-              </span>
-            ) : null}
-          </div>
-        ) : null}
-        {onScrollToWorkspace ? (
-          <button type="button" className="lm-btn lm-btn-secondary lm-btn-sm" onClick={onScrollToWorkspace}>
-            工作区设置
-          </button>
-        ) : null}
-      </div>
+      <details className="lm-settings-advanced" data-testid="lm-doctor-admin">
+        <summary>
+          <span className="lm-settings-advanced__label">运维与高级体检</span>
+          <span className="lm-settings-advanced__hint">硬控 · 指标 · 修复</span>
+        </summary>
+        <div className="lm-settings-advanced-body">
+
+      <DoctorPromptSectionsGroup sections={health?.promptSections} />
 
       {integrationConnectors.length > 0 ? (
-        <div className="lm-settings-group lm-settings-surface">
-          <h4 className="lm-doctor-group-title">外部集成</h4>
-          <ul className="lm-doctor-integrations-list">
-            {integrationConnectors.map((conn) => {
-              const status = typeof conn.status === "string" ? conn.status : "";
-              return (
-                <li key={conn.id} className="lm-doctor-integration-row">
-                  <div className="lm-doctor-check-head">
-                    <span>
-                      {conn.label}{" "}
-                      <span className="lm-meta">({conn.phase})</span>
-                    </span>
-                    <span className={connectorPillClass(status)}>
-                      {connectorStatusLabel(status)}
-                    </span>
-                  </div>
-                  {conn.hint ? <p className="lm-meta">{conn.hint}</p> : null}
-                  {status === "active" && /fixture|演示|POC/i.test(conn.hint ?? "") ? (
-                    <p className="lm-settings-caption">演示数据，非真实 DMS</p>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        </div>
+        <DoctorIntegrationsGroup connectors={integrationConnectors} />
       ) : null}
 
       {p2 ? (
@@ -519,10 +484,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
             </p>
           ) : null}
           {!p2.toolSandbox?.enabled ? (
-            <p className="lm-meta">
-              启用：工作区 <code>lawmind.policy.json</code> 设 <code>toolSandbox: true</code>，或环境变量{" "}
-              <code>LAWMIND_TOOL_SANDBOX=1</code>。
-            </p>
+            <p className="lm-meta">见 policy 沙箱开关。</p>
           ) : null}
           {!p2.teamMemorySync?.allowed && p2.teamMemorySync?.reason ? (
             <p className="lm-meta">
@@ -533,50 +495,56 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
         </div>
       ) : null}
 
-      <div className="lm-settings-group lm-settings-surface" data-testid="lm-doctor-skills-trust">
-        <h4 className="lm-doctor-group-title">信任与分诊</h4>
+      <div
+        className="lm-settings-group lm-settings-surface"
+        data-testid="lm-doctor-judgment-hard-controls"
+      >
+        <h4 className="lm-doctor-group-title">判断类硬控</h4>
+        <p className="lm-meta">
+          判断类改为 Soft Ask / Craft；安全与空交付仍硬拦（只读清单）。
+        </p>
         <div className="lm-doctor-security-grid">
-          <span className="lm-settings-key">模型能力包络</span>
-          <span className="lm-meta" data-testid="lm-doctor-capability-envelope">
-            {health?.capabilityEnvelope?.contextTokens
-              ? `上下文 ${health.capabilityEnvelope.contextTokens.toLocaleString("zh-CN")} · 输出上限 ${
-                  health.capabilityEnvelope.maxOutputTokens?.toLocaleString("zh-CN") ?? "—"
-                } · 工具/轮 ${health.capabilityEnvelope.toolCallsPerTurn ?? "—"} · 历史 ${
-                  health.capabilityEnvelope.maxHistoryMessages ?? "—"
-                }`
-              : "未配置模型"}
-          </span>
-          <span className="lm-settings-key">强制规则</span>
+          <span className="lm-settings-key">Intake Soft Ask</span>
           <span
             className={
-              health?.agentMandatoryRulesTruncated
-                ? "lm-pill lm-pill-warn"
-                : health?.agentMandatoryRulesActive
-                  ? "lm-pill lm-pill-success"
-                  : "lm-pill lm-pill-neutral"
+              doctor?.judgmentHardControls?.intakeSoftAsk !== false
+                ? "lm-pill lm-pill-success"
+                : "lm-pill lm-pill-warn"
             }
-            data-testid="lm-doctor-mandatory-rules"
+            data-testid="lm-doctor-intake-soft"
           >
-            {health?.agentMandatoryRulesTruncated
-              ? "已截断（见 policy 全文）"
-              : health?.agentMandatoryRulesActive
-                ? "已注入"
-                : "未配置"}
+            {doctor?.judgmentHardControls?.intakeSoftAsk !== false ? "已软化" : "仍硬冻"}
           </span>
+          <span className="lm-settings-key">update_draft 幅度</span>
+          <span
+            className={
+              doctor?.judgmentHardControls?.updateDraftAmplitudeSoft !== false
+                ? "lm-pill lm-pill-success"
+                : "lm-pill lm-pill-warn"
+            }
+            data-testid="lm-doctor-amplitude-soft"
+          >
+            {doctor?.judgmentHardControls?.updateDraftAmplitudeSoft !== false
+              ? "soft 教练"
+              : "硬拒（enforce）"}
+          </span>
+          <span className="lm-settings-key">空修订导出</span>
+          <span className="lm-pill lm-pill-neutral" data-testid="lm-doctor-empty-redline-hard">
+            {doctor?.judgmentHardControls?.emptyRedlineHard !== false ? "仍硬拦" : "已软化"}
+          </span>
+          <span className="lm-settings-key">send_email 批准</span>
+          <span className="lm-pill lm-pill-neutral" data-testid="lm-doctor-send-email-hard">
+            {doctor?.judgmentHardControls?.sendEmailApprovalHard !== false ? "仍硬拦" : "已软化"}
+          </span>
+        </div>
+      </div>
+
+      <div className="lm-settings-group lm-settings-surface" data-testid="lm-doctor-triage-metrics">
+        <h4 className="lm-doctor-group-title">分诊与产品指标</h4>
+        <div className="lm-doctor-security-grid">
           <span className="lm-settings-key">本案规则</span>
           <span className="lm-meta" data-testid="lm-doctor-matter-rules-hint">
-            可选：在 <code>matters/&lt;id&gt;/RULES.md</code> 或{" "}
-            <code>cases/&lt;id&gt;/RULES.md</code> 写入本案强制规则（每轮硬注入）
-          </span>
-          <span className="lm-settings-key">引用模式</span>
-          <span
-            className={
-              (doctor?.citationModeActive ?? health?.citationModeActive)
-                ? "lm-pill lm-pill-success"
-                : "lm-pill lm-pill-neutral"
-            }
-          >
-            {doctor?.citationMode ?? health?.citationMode ?? "assisted"}
+            本案 RULES.md
           </span>
           <span className="lm-settings-key">分诊规则</span>
           <span
@@ -648,15 +616,62 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
         </details>
       </div>
 
+      <div className="lm-settings-group lm-settings-surface" data-testid="lm-doctor-north-star">
+        <h4 className="lm-doctor-group-title">交付北极星</h4>
+        <p className="lm-settings-caption">
+          无干预完成、一次通过、审阅时长、机械核对逃逸。样本不足显示「尚无」，不编造 0%。
+        </p>
+        <p className="lm-settings-caption" data-testid="lm-doctor-delivery-autonomy">
+          外发邮件与对外文书始终需您一键签批，不会因一次通过率自动放行。低风险内部稿仅在一次通过与机械核对逃逸均达标、且样本足够后，才可放宽交付。
+          {autonomyCaption}
+        </p>
+        <table className="lm-role-table" style={{ width: "100%", borderCollapse: "collapse", marginTop: 8 }}>
+          <thead>
+            <tr>
+              <th scope="col">指标</th>
+              <th scope="col">当前</th>
+              <th scope="col">样本</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr data-testid="lm-doctor-north-star-unattended">
+              <td>无干预完成</td>
+              <td>{starPct(northStar?.unattendedCompleteRate)}</td>
+              <td className="lm-meta">
+                {(northStar?.samples?.unattended ?? 0) + (northStar?.samples?.attended ?? 0)}
+              </td>
+            </tr>
+            <tr data-testid="lm-doctor-north-star-first-pass">
+              <td>一次通过</td>
+              <td>{starPct(northStar?.firstPassRate)}</td>
+              <td className="lm-meta">
+                {(northStar?.samples?.firstPassOk ?? 0) + (northStar?.samples?.firstPassFail ?? 0)}
+              </td>
+            </tr>
+            <tr data-testid="lm-doctor-north-star-review">
+              <td>审阅时长中位</td>
+              <td>
+                {northStar?.reviewDurationMsMedian == null
+                  ? "尚无"
+                  : `${Math.round(northStar.reviewDurationMsMedian / 1000)} 秒`}
+              </td>
+              <td className="lm-meta">—</td>
+            </tr>
+            <tr data-testid="lm-doctor-north-star-lint-escape">
+              <td>机械核对逃逸</td>
+              <td>{starPct(northStar?.lintEscapeRate)}</td>
+              <td className="lm-meta">{northStar?.samples?.deliveries ?? 0}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
       <div
         className="lm-settings-group lm-settings-surface"
         data-testid="lm-doctor-team-growth"
       >
         <h4 className="lm-doctor-group-title">团队成长 · 内测指标</h4>
-        <p className="lm-settings-caption">
-          近 {teamGrowth?.windowDays ?? 30} 天窗口；相对基线看一次过 / 改写 / 学习处理 / 路由命中 /
-          互审覆盖。样本不足时显示 n/a。
-        </p>
+        <p className="lm-settings-caption">近 {teamGrowth?.windowDays ?? 30} 天相对基线趋势。</p>
         {teamGrowth?.metrics && teamGrowth.metrics.length > 0 ? (
           <table
             className="lm-role-table"
@@ -765,8 +780,8 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
         <p className="lm-settings-caption" role="status">
           {authorityCorpus?.message?.trim()
             ? authorityCorpus.message
-            : "默认 provider=open：使用本地开源语料（内置演示 sample，非正式完整法库）。无命中则拒答并显示「缺源」，不会编造条文或案号。"}{" "}
-          闭源北大法宝 / Lexis 需手动设置 provider 与端点/Token（Lexis 未实现时为「适配器未实现」，非端点无效）；正式引用请律师核对官方法条与裁判文书。
+            : "开源语料；无命中拒答。"}{" "}
+          闭源库需手动配置；正式引用请核对官方法条。
         </p>
         <div className="lm-settings-actions">
           <button
@@ -855,7 +870,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
             </span>
           </div>
           {health.policy.networkAllowlistEnforced ? (
-            <p className="lm-meta">已启用强制 allowlist：未列入的主机将无法联网检索。</p>
+            <p className="lm-meta">仅允许名单主机。</p>
           ) : null}
         </div>
       ) : null}
@@ -905,10 +920,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
 
       <div className="lm-settings-group lm-settings-surface">
         <h4 className="lm-doctor-group-title">案件数据一致性</h4>
-        <p className="lm-settings-caption">
-          读侧以 <code>matters/&lt;id&gt;/matter.json</code> 为准；CASE.md 为投影。不一致时可用下方按钮从
-          JSON 重建。
-        </p>
+        <p className="lm-settings-caption">CASE 投影自 JSON；不一致可重建。</p>
         <div className="lm-settings-row">
           <span className="lm-settings-key">一致性</span>
           <span
@@ -943,12 +955,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
 
       <div className="lm-settings-group lm-settings-surface">
         <h4 className="lm-doctor-group-title">任务 / 草稿 / 交付物一致性</h4>
-        <p className="lm-settings-caption">
-          读侧优先 <code>tasks/</code>、<code>drafts/</code> 与{" "}
-          <code>matters/&lt;id&gt;/deliverables/</code>{" "}
-          JSON；含交付物指向缺失草稿、以及交付物审核态与草稿 <code>reviewStatus</code>{" "}
-          不一致的漂移计数。
-        </p>
+        <p className="lm-settings-caption">任务/草稿一致性。</p>
         <div className="lm-settings-row">
           <span className="lm-settings-key">一致性</span>
           <span
@@ -1029,6 +1036,17 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
             {searchIndex.truncated ? " · 已截断（工作区过大）" : ""}
           </p>
         ) : null}
+        {searchIndex?.stale ? (
+          <p className="lm-meta lm-doctor-stale-hint" role="status">
+            索引过期，请重建
+            {searchIndex.staleReason === "older_than_24h"
+              ? "（超 24h）"
+              : searchIndex.staleReason === "index_missing"
+                ? "（未建）"
+                : ""}
+            。
+          </p>
+        ) : null}
         <button
           type="button"
           className="lm-btn lm-btn-secondary lm-btn-sm"
@@ -1071,11 +1089,11 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
             <span>审计文件 {doctor.auditJsonlFileCount ?? 0}</span>
             <span>研究快照 {doctor.researchSnapshotCount ?? 0}</span>
           </div>
-          <button type="button" className="lm-btn lm-btn-secondary lm-btn-sm" onClick={onOpenCollaborationPage}>
-            打开在办
-          </button>
         </div>
       ) : null}
+
+        </div>
+      </details>
     </div>
   );
 }

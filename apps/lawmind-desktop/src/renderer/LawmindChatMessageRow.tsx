@@ -14,7 +14,10 @@ import { LawmindMsgWorkflowApproval } from "./LawmindMsgWorkflowApproval";
 import { renderLegalMarkdown } from "./lawmind-chat-markdown";
 import { hasChatDiagnostics, type ChatMsg, type PendingClarificationState } from "./lawmind-chat";
 import { formatLawyerGateChip, parseLawyerGateMessage } from "./lawmind-gate-message";
-import { isClarificationShortConfirm } from "../../../../src/lawmind/platform/clarification-fields.ts";
+import {
+  isClarificationShortConfirm,
+  shouldInlineClarificationInChat,
+} from "../../../../src/lawmind/platform/clarification-fields.ts";
 import type { NeedsDecisionDeskTarget } from "./lawmind-agents-desk";
 
 function hasClarificationQuestions(message: ChatMsg): boolean {
@@ -58,6 +61,8 @@ export type LawmindChatMessageRowProps = {
   dimmed?: boolean;
   onDeleteChatMessage?: (uiIndex: number) => void | Promise<void>;
   onEditChatMessage?: (uiIndex: number, nextText: string) => void | Promise<void>;
+  onOpenSettingsSection?: (section: "models" | "doctor") => void;
+  workspaceDir?: string;
 };
 
 export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactNode {
@@ -85,6 +90,8 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
     dimmed,
     onDeleteChatMessage,
     onEditChatMessage,
+    onOpenSettingsSection,
+    workspaceDir,
   } = props;
 
   const [editing, setEditing] = useState(false);
@@ -162,8 +169,10 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
     >
       <div
         className={`lm-msg-avatar ${msg.role === "user" ? "lm-msg-avatar-user" : "lm-msg-avatar-ai"}`}
+        aria-hidden="true"
+        title={msg.role === "user" ? "我" : "助手"}
       >
-        {msg.role === "user" ? "我" : "LM"}
+        {msg.role === "user" ? "我" : "助"}
       </div>
       <div className={`lm-msg-wrap ${msg.role === "user" ? "lm-msg-wrap-user" : ""}`}>
         {workflowPending ? (
@@ -220,6 +229,43 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
           >
             <div className="lm-callout-title">演示语料</div>
             <p className="lm-callout-body">{msg.demoCorpusNotice}</p>
+          </div>
+        ) : null}
+        {msg.role === "assistant" && (msg.researchNextActions?.length ?? 0) > 0 ? (
+          <div
+            className="lm-callout lm-callout-warn"
+            role="status"
+            data-testid="lm-research-recovery-banner"
+          >
+            <div className="lm-callout-title">研究证据未就绪</div>
+            <p className="lm-callout-body">
+              请先修好模型/联网并重跑研究，勿用旁路文件假装已交付。
+            </p>
+            {onOpenSettingsSection ? (
+              <div className="lm-draft-status-actions">
+                {msg.researchNextActions!.includes("open_settings_models") ||
+                msg.researchNextActions!.includes("enable_web_search") ? (
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-accent lm-btn-sm"
+                    data-testid="lm-research-recovery-models"
+                    onClick={() => onOpenSettingsSection("models")}
+                  >
+                    去模型与检索
+                  </button>
+                ) : null}
+                {msg.researchNextActions!.includes("open_settings_doctor") ? (
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-sm"
+                    data-testid="lm-research-recovery-doctor"
+                    onClick={() => onOpenSettingsSection("doctor")}
+                  >
+                    系统健康
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         ) : null}
         {msg.role === "user" ? (
@@ -400,7 +446,7 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
                   : undefined
               }
               clarificationVariant={
-                isClarificationShortConfirm(
+                shouldInlineClarificationInChat(
                   nonWorkflowRequiresActions.find((a) => a.kind === "clarification")
                     ?.clarificationQuestions ?? [],
                 )
@@ -427,9 +473,7 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
                 return (
                   <>
                     <div className="lm-clarify-card-title">还差 {qs.length} 项信息</div>
-                    <div className="lm-clarify-card-hint">
-                      请到「在办」用表格补充（可填表或挂材料）。对话里不必重复填大表。
-                    </div>
+                    <div className="lm-clarify-card-hint">请到在办补充。</div>
                     <ul className="lm-clarify-weak-list">
                       {qs.slice(0, 6).map((q) => (
                         <li key={q.key}>{q.question}</li>
@@ -527,6 +571,7 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
               apiBase={apiBase}
               taskId={linkedTaskId}
               onOpenReview={onOpenReview}
+              onOpenNeedsDecisionDesk={onOpenNeedsDecisionDesk}
               assistantReply={displayText}
             />
             <LawmindChatDraftStatusBar
@@ -534,7 +579,9 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
               linkedTaskId={linkedTaskId}
               assistantText={displayText}
               gateDecisions={msg.gateDecisions}
+              workspaceDir={workspaceDir}
               onOpenReview={onOpenReview}
+              onOpenNeedsDecisionDesk={onOpenNeedsDecisionDesk}
             />
           </>
         ) : null}

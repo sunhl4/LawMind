@@ -32,9 +32,7 @@ LawMind 分为五个核心模块：
 
 ### Matter-centered 写侧 与 Role 编制（2026-Q3 起）
 
-在前述五层之上，2026 年第三季度的架构升级又叠加了三条横向骨架（详见
-`.cursor/plans/lawmind-3-month-refactor_abc3d086.plan.md` 与
-`docs/LAWMIND-PROJECT-MEMORY.md` §8）：
+在前述五层之上，2026 年第三季度的架构升级又叠加了三条横向骨架：
 
 - **Matter 写侧 application services**：`src/lawmind/application/services/`
   下 `matter-write / deliverable / approval / queue-write / deadline` 五个
@@ -185,7 +183,7 @@ workspace/
 - **「红线 / 所规必现」**：若律师期望某类规则在**每一轮主对话**中都像 `LAWYER_PROFILE` 一样不可绕过，仅靠写入 `MEMORY.md` 不足；需依赖检索与工具命中、或将关键规则纳入策略层 / prompt 显式段，而不是假设 `MEMORY.md` 已整段进入 Agent system。
 - **工作区强制规则（Phase 5.2）**：可在 `lawmind.policy.json` 中配置 `agentMandatoryRules`（内联短文本）或 `agentMandatoryRulesPath`（工作区内相对路径文件）；`resolveAgentMandatoryRulesForPrompt()` 解析后由 `buildSystemPrompt()` 在「核心原则」之后注入「工作区强制规则」段，与 `MEMORY.md` 检索解耦。
 
-**Clarify–Execute（Phase 5.1）**：工具返回待澄清问题后，同轮次内禁止并行调用 `research_task` / `draft_document` / `execute_workflow` / `render_document`；详见 `AgentContext.clarificationBlockingHeavyTools` 与工程记忆 `LAWMIND-PROJECT-MEMORY.md` 对应条。
+**Clarify–Execute（Phase 5.1）**：工具返回待澄清问题后，同轮次内禁止并行调用 `research_task` / `draft_document` / `execute_workflow` / `render_document`；详见 `AgentContext.clarificationBlockingHeavyTools`。
 
 **多助手团队流（Phase 6.2）**：工作区可放置 `lawmind/workflows/<id>.json`，由桌面 `GET /api/collaboration/workflow-templates` 列出、`POST /api/collaboration/workflow-run` 驱动 `orchestrator/executeWorkflow`。与 Clarify–Execute 的关系：单助手对话仍受 `awaiting_clarification` 门禁；团队流在协作开启时按步骤委派各助手，**建议在启动前由律师完成范围对齐**，避免中途暂停难以自动合并。
 
@@ -592,7 +590,7 @@ ui.matter_action 原始动作
 - [x] 项目目录注入 Agent（`read_project_file` / `search_workspace` 扩展）与桌面项目切换后重启 API
 - [x] 案件面板 UI（MatterWorkbench）
 - [x] 审核台 UI（ReviewWorkbench）
-- [x] 律师偏好学习（per-assistant `PROFILE.md` + 桌面认知页显式写入等；与 [LawMind 工程记忆](/LAWMIND-PROJECT-MEMORY) M3 / 2.0 P0 对齐，持续迭代）
+- [x] 律师偏好学习（per-assistant `PROFILE.md` + 桌面认知页显式写入等；与 [LawMind 2.0 战略](/LAWMIND-2.0-STRATEGY) 对齐，持续迭代）
 - [ ] 更细粒度模板体系（含模板版本与历史产物一致性，见工程记忆风险项）
 
 第三阶段：

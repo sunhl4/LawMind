@@ -44,7 +44,9 @@ export type DelegationStatus =
   | "completed"
   | "failed"
   | "timeout"
-  | "cancelled";
+  | "cancelled"
+  /** 已判超时后底层任务仍跑完并交回结果（保留结果，但不翻转「超时」事实）。 */
+  | "completed_after_timeout";
 
 export type DelegationRecord = {
   delegationId: string;

@@ -123,7 +123,7 @@ describe("template-level preApproveToolNames", () => {
     expect(captured?.__approved).toBe(true);
   });
 
-  it("strict mode: same tool without preApproveToolNames awaits approval", async () => {
+  it("strict mode: local render does not pause the lawyer (待拍板 is outbound only)", async () => {
     const workspaceDir = tmpWorkspace();
     const registry = new ToolRegistry();
     let executed = false;
@@ -147,8 +147,8 @@ describe("template-level preApproveToolNames", () => {
       instruction: "请导出审阅稿",
     });
 
-    expect(result.turn.status).toBe("awaiting_approval");
-    expect(executed).toBe(false);
+    expect(result.turn.status).toBe("completed");
+    expect(executed).toBe(true);
   });
 
   it("strict mode: template list does not pre-approve tools outside the list", async () => {
@@ -181,10 +181,10 @@ describe("template-level preApproveToolNames", () => {
     expect(executed).toBe(false);
   });
 
-  it("strict mode: name-only template list does not pre-approve apply_surgical_edits", async () => {
+  it("strict mode: name-only list does not inject __approved for apply_surgical_edits", async () => {
     const workspaceDir = tmpWorkspace();
     const registry = new ToolRegistry();
-    let executed = false;
+    let captured: Record<string, unknown> | undefined;
     registry.register({
       definition: {
         name: "apply_surgical_edits",
@@ -192,8 +192,8 @@ describe("template-level preApproveToolNames", () => {
         category: "draft",
         parameters: {},
       },
-      async execute() {
-        executed = true;
+      async execute(args) {
+        captured = args;
         return { ok: true, data: {} };
       },
     });
@@ -209,8 +209,8 @@ describe("template-level preApproveToolNames", () => {
       preApproveToolNames: ["apply_surgical_edits"],
     });
 
-    expect(result.turn.status).toBe("awaiting_approval");
-    expect(executed).toBe(false);
+    expect(result.turn.status).toBe("completed");
+    expect(captured?.__approved).not.toBe(true);
   });
 
   it("strict mode: matching hunk hash does pre-approve apply_surgical_edits", async () => {

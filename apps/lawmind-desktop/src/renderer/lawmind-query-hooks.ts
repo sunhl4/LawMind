@@ -6,7 +6,12 @@ import { lawmindQueryKeys } from "./lawmind-query-keys";
 import type { SessionTimelineEntry } from "./matter/useMatterSessionTimeline";
 import type { AcceptanceSummaryItem } from "./matter/matter-acceptance-display";
 import type { ArtifactDraft, MatterOverview } from "../../../../src/lawmind/types.ts";
-import type { AcceptanceReport, ReasoningReport } from "../../../../src/lawmind/deliverables/index.ts";
+import type {
+  AcceptanceReport,
+  DraftScaffoldView,
+  ReasoningReport,
+} from "../../../../src/lawmind/deliverables/index.ts";
+import type { ClauseGraph } from "../../../../src/lawmind/reasoning/clause-graph.ts";
 import type { DraftCitationIntegrityView } from "../../../../src/lawmind/drafts/citation-integrity.ts";
 import type { GateDecision, TaskExecutionState } from "../../../../src/lawmind/platform/contracts.ts";
 import type { MemorySourceLayer } from "../../../../src/lawmind/memory/index.ts";
@@ -135,6 +140,8 @@ export type ReviewDraftDetailPayload = {
   reasoningMarkdown: string | null;
   executionState: TaskExecutionState | null;
   gateDecisions: GateDecision[];
+  clauses: ClauseGraph | null;
+  scaffold: DraftScaffoldView | null;
 };
 
 export function useReviewDraftListQuery(apiBase: string, enabled = true) {
@@ -166,6 +173,8 @@ export function useReviewDraftDetailQuery(apiBase: string, taskId: string | null
         reasoningMarkdown?: string | null;
         executionState?: TaskExecutionState;
         gateDecisions?: GateDecision[];
+        clauses?: ClauseGraph;
+        scaffold?: DraftScaffoldView;
       }>(apiBase, `/api/drafts/${encodeURIComponent(taskId!)}`);
       if (!j.ok || !j.draft) {
         throw new Error(messageFromOkFalseBody(j, "加载草稿失败"));
@@ -182,6 +191,8 @@ export function useReviewDraftDetailQuery(apiBase: string, taskId: string | null
             : null,
         executionState: j.executionState ?? null,
         gateDecisions: Array.isArray(j.gateDecisions) ? j.gateDecisions : [],
+        clauses: j.clauses ?? null,
+        scaffold: j.scaffold ?? null,
       };
     },
   });

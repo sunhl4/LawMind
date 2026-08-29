@@ -1,13 +1,31 @@
-import { validateDraftCitationsAgainstBundle } from "../../../drafts/index.js";
+import {
+  persistResearchSnapshot,
+  validateDraftCitationsAgainstBundle,
+} from "../../../drafts/index.js";
+import { loadMemoryContext } from "../../../memory/index.js";
+import { readWorkspacePolicyFile } from "../../../policy/workspace-policy.js";
+import { isOutlineGatedDeliverable } from "../../../reasoning/research-draft-gates.js";
+import { executeDeepResearchPlan } from "../../../research/execute-deep-research.js";
+import { persistResearchOutline, readResearchOutline } from "../../../research/outline-store.js";
+import {
+  evaluateResearchEvidenceGate,
+  RESEARCH_EVIDENCE_GATE_REFUSAL,
+} from "../../../research/research-evidence-gate.js";
 import { isDemoCorpusResult } from "../../../retrieval/authority-gap.js";
-import { readTaskRecord, taskIntentFromRecordOnly } from "../../../tasks/index.js";
-import type { TaskIntent } from "../../../types.js";
+import {
+  ensureTaskRecord,
+  readTaskRecord,
+  taskIntentFromRecordOnly,
+  updateTaskRecord,
+} from "../../../tasks/index.js";
+import type { ResearchBundle, TaskIntent } from "../../../types.js";
 import type { AgentTool } from "../../types.js";
 import { formatWorkflowRenderFailure } from "../render-tool-messages.js";
 import {
   asNonEmptyString,
   asOptionalString,
   blockHeavyPipelineIfClarificationPending,
+  buildAdaptersFromEnv,
   canDraftWithoutResearch,
   DEMO_CORPUS_DRAFT_REFUSAL,
   getEngine,
@@ -23,6 +41,31 @@ import {
 // ─────────────────────────────────────────────
 // execute_workflow — 一键完整流程
 // ─────────────────────────────────────────────
+
+/**
+ * force_render 是 demo/测试旁路（跳过律师审批与双门禁）。
+ * 默认关闭：必须显式设置 LAWMIND_WORKFLOW_ALLOW_FORCE_RENDER=1 才允许使用，
+ * 防止模型在生产环境凭一个参数绕过「中/高风险需律师拍板」的信任门。
+ */
+export function isForceRenderAllowed(): boolean {
+  return process.env.LAWMIND_WORKFLOW_ALLOW_FORCE_RENDER === "1";
+}
+
+const LOCKABLE_DELIVERABLE_TYPES = new Set([
+  "report.compliance",
+  "report.learning",
+  "ppt.training",
+  "report.esg",
+  "report.general",
+]);
+
+function parseLockedDeliverableType(raw: unknown): TaskIntent["deliverableType"] | undefined {
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  const t = raw.trim().toLowerCase();
+  return LOCKABLE_DELIVERABLE_TYPES.has(t) ? t : undefined;
+}
 
 export const executeWorkflow: AgentTool = {
   definition: {
@@ -46,7 +89,8 @@ export const executeWorkflow: AgentTool = {
       },
       force_render: {
         type: "boolean",
-        description: "仅用于 demo：中/高风险也自动批准并渲染，输出 .docx 路径。",
+        description:
+          "仅 demo/测试：中/高风险也自动批准并渲染，输出 .docx 路径。仅在进程环境变量 LAWMIND_WORKFLOW_ALLOW_FORCE_RENDER=1 时才生效，否则工具直接报错。",
       },
       existing_task_id: {
         type: "string",
@@ -57,6 +101,11 @@ export const executeWorkflow: AgentTool = {
         type: "string",
         description: '续跑起点：传 "research" 时跳过 plan，沿用该任务已持久化的意图。',
         enum: ["research"],
+      },
+      deliverable_type: {
+        type: "string",
+        description:
+          "锁定交付物类型（如 report.compliance / report.learning / ppt.training / report.esg）。传入后 plan 不再按关键词改写类型。",
       },
     },
   },
@@ -79,10 +128,19 @@ export const executeWorkflow: AgentTool = {
       const templateId = resolveTemplateId(params.template_id);
       const autoApprove = params.auto_approve !== false;
       const forceRender = params.force_render === true;
+      if (forceRender && !isForceRenderAllowed()) {
+        return {
+          ok: false,
+          error:
+            "force_render 已被禁用：该参数会跳过律师审批与验收门禁，仅在设置 LAWMIND_WORKFLOW_ALLOW_FORCE_RENDER=1 的 demo/测试环境可用。请去掉 force_render，让中/高风险任务等待律师审批，或改用 render_document 走正常签批流程。",
+          data: { stepsCompleted: steps, recoverable: false },
+        };
+      }
       const existingTaskIdRaw =
         typeof params.existing_task_id === "string" ? params.existing_task_id.trim() : "";
       const restartFrom =
         typeof params.restart_from === "string" ? params.restart_from.trim().toLowerCase() : "";
+      const lockedDeliverableType = parseLockedDeliverableType(params.deliverable_type);
 
       let intent: TaskIntent;
 
@@ -125,11 +183,14 @@ export const executeWorkflow: AgentTool = {
         intent = await engine.planAsync(instruction, {
           audience,
           matterId,
+          ...(lockedDeliverableType ? { deliverableType: lockedDeliverableType } : {}),
         });
         pushWorkflowProgress(
           ctx,
           steps,
-          `任务计划完成：${intent.summary}（风险：${intent.riskLevel}）`,
+          `任务计划完成：${intent.summary}（风险：${intent.riskLevel}${
+            intent.deliverableType ? `，类型：${intent.deliverableType}` : ""
+          }）`,
         );
       }
 
@@ -142,9 +203,58 @@ export const executeWorkflow: AgentTool = {
         pushWorkflowProgress(ctx, steps, "高风险任务已确认，进入检索阶段");
       }
 
-      // Step 3: Research
-      pushWorkflowProgress(ctx, steps, "正在检索法规和案例...");
-      const bundle = await engine.research(intent, { signal: ctx.abortSignal });
+      // Step 3: Research (outline-gated deliverables use deep-research + persist outline)
+      let bundle: ResearchBundle;
+      let outlinePending = false;
+      if (isOutlineGatedDeliverable(intent.deliverableType)) {
+        pushWorkflowProgress(ctx, steps, "正在执行深度研究（多视角检索 + 证据大纲）...");
+        ensureTaskRecord(ctx.workspaceDir, intent, { assistantId: ctx.assistantId });
+        updateTaskRecord(ctx.workspaceDir, intent.taskId, { status: "researching" });
+        const memory = await loadMemoryContext(ctx.workspaceDir, { matterId: intent.matterId });
+        const existingOutline = readResearchOutline(ctx.workspaceDir, intent.taskId);
+        const deep = await executeDeepResearchPlan({
+          intent,
+          memory,
+          adapters: buildAdaptersFromEnv(ctx.workspaceDir, {
+            allowWebSearch: ctx.allowWebSearch === true,
+          }),
+          workspacePolicy: readWorkspacePolicyFile(ctx.workspaceDir),
+          allowWebSearch: ctx.allowWebSearch === true,
+          signal: ctx.abortSignal,
+        });
+        bundle = {
+          ...deep.bundle,
+          taskId: intent.taskId,
+          query: deep.bundle.query || intent.summary,
+        };
+        persistResearchSnapshot(ctx.workspaceDir, bundle);
+        // Never clobber a lawyer-approved outline with a fresh pending plan.
+        if (existingOutline?.status === "approved") {
+          outlinePending = false;
+          pushWorkflowProgress(
+            ctx,
+            steps,
+            `深度研究完成：${bundle.sources.length} 条来源，${bundle.claims.length} 条结论；沿用已确认大纲`,
+          );
+        } else {
+          persistResearchOutline(ctx.workspaceDir, intent.taskId, deep.outline);
+          outlinePending = deep.outline.status !== "approved";
+          pushWorkflowProgress(
+            ctx,
+            steps,
+            `深度研究完成：${bundle.sources.length} 条来源，${bundle.claims.length} 条结论；大纲 ${deep.outline.status}`,
+          );
+        }
+        updateTaskRecord(ctx.workspaceDir, intent.taskId, { status: "researched" });
+      } else {
+        pushWorkflowProgress(ctx, steps, "正在检索法规和案例...");
+        bundle = await engine.research(intent, { signal: ctx.abortSignal });
+        pushWorkflowProgress(
+          ctx,
+          steps,
+          `检索完成：${bundle.sources.length} 条来源，${bundle.claims.length} 条结论，${bundle.riskFlags.length} 条风险标记`,
+        );
+      }
       let researchDegraded = false;
       if (bundle.claims.length === 0 && bundle.sources.length === 0) {
         if (canDraftWithoutResearch(intent)) {
@@ -168,13 +278,9 @@ export const executeWorkflow: AgentTool = {
           };
         }
       }
-      pushWorkflowProgress(
-        ctx,
-        steps,
-        `检索完成：${bundle.sources.length} 条来源，${bundle.claims.length} 条结论，${bundle.riskFlags.length} 条风险标记`,
-      );
 
-      if (shouldRefuseDraftOnDemoCorpus(intent) && isDemoCorpusResult(bundle)) {
+      // Allow outline-only drafts even on demo/empty evidence; block body expansion below.
+      if (!outlinePending && shouldRefuseDraftOnDemoCorpus(intent) && isDemoCorpusResult(bundle)) {
         return {
           ok: false,
           error: DEMO_CORPUS_DRAFT_REFUSAL,
@@ -189,17 +295,79 @@ export const executeWorkflow: AgentTool = {
               decision: "block",
               reason: "high-risk workflow with demo-only authority hits",
             },
+            nextActions: [
+              "enable_web_search",
+              "open_settings_models",
+              "open_settings_doctor",
+              "restart_research",
+            ],
             hint: "配置正式权威库或非演示 CORPUS 后，可带 existing_task_id 从 research 续跑。",
           },
         };
       }
 
+      // Body expansion (outline already approved) must not proceed on empty/demo/failed evidence.
+      if (!outlinePending) {
+        const evidenceGate = evaluateResearchEvidenceGate({
+          deliverableType: intent.deliverableType,
+          bundle,
+          allowWebSearch: ctx.allowWebSearch === true,
+        });
+        if (evidenceGate.block) {
+          return {
+            ok: false,
+            error: RESEARCH_EVIDENCE_GATE_REFUSAL,
+            data: {
+              stepsCompleted: steps,
+              recoverable: true,
+              existingTaskId: intent.taskId,
+              restartFrom: "research",
+              restart_from: "research",
+              demoCorpus: isDemoCorpusResult(bundle),
+              gateDecision: evidenceGate.gateDecision,
+              nextActions: evidenceGate.nextActions,
+              nextStep: evidenceGate.nextStep,
+              hint: evidenceGate.nextStep,
+            },
+          };
+        }
+      }
+
       // Step 4: Draft
       pushWorkflowProgress(ctx, steps, "正在生成文书草稿...");
-      const draft = await engine.draftAsync(intent, bundle, {
-        title,
-        templateId,
-      });
+      let draft;
+      try {
+        draft = await engine.draftAsync(intent, bundle, {
+          title,
+          templateId,
+        });
+      } catch (draftErr) {
+        const msg = draftErr instanceof Error ? draftErr.message : String(draftErr);
+        const code =
+          draftErr && typeof draftErr === "object" && "code" in draftErr
+            ? String((draftErr as { code?: string }).code ?? "")
+            : "";
+        if (code === "training_desense_gate" || /脱敏/.test(msg)) {
+          return {
+            ok: false,
+            error: msg,
+            data: {
+              stepsCompleted: steps,
+              taskId: intent.taskId,
+              gateDecision: {
+                gate: "training_desense_gate",
+                decision: "block",
+                reason: msg,
+              },
+              recoverable: true,
+              existingTaskId: intent.taskId,
+              restartFrom: "research",
+              hint: "请脱敏当事人/电话/未公开事实后重试，或改用非培训交付物。",
+            },
+          };
+        }
+        throw draftErr;
+      }
       pushWorkflowProgress(
         ctx,
         steps,
@@ -212,6 +380,44 @@ export const executeWorkflow: AgentTool = {
           steps,
           `引用校验：有 ${citationIntegrity.missingSourceIds.length} 个来源 ID 不在本次检索结果中（${citationIntegrity.missingSourceIds.join(", ")}），请人工核对。`,
         );
+      }
+
+      // Halt only on real outline-pending drafts (not sticky clarification keys after approve).
+      const awaitingOutline = outlinePending || /大纲待确认/.test(draft.title);
+      if (awaitingOutline) {
+        pushWorkflowProgress(
+          ctx,
+          steps,
+          "大纲待律师确认：本轮仅输出大纲，确认后再撰写正文（勿自动渲染）。",
+        );
+        return {
+          ok: true,
+          data: {
+            taskId: intent.taskId,
+            title: draft.title,
+            kind: intent.kind,
+            deliverableType: intent.deliverableType,
+            riskLevel: intent.riskLevel,
+            output: draft.output,
+            matterId: intent.matterId,
+            status: "awaiting_outline_confirmation",
+            sectionsCount: draft.sections.length,
+            sections: draft.sections.map((s) => s.heading),
+            riskFlags: bundle.riskFlags,
+            missingItems: bundle.missingItems,
+            claimsCount: bundle.claims.length,
+            sourcesCount: bundle.sources.length,
+            outputPath: undefined,
+            steps,
+            researchDegraded,
+            citationIntegrity,
+            acceptanceCriteria: draft.acceptanceCriteria,
+            clarificationQuestions: draft.clarificationQuestions,
+            deliveryReadiness: "outline_pending",
+            outlinePending: true,
+            hint: "请在澄清卡片确认大纲（「大纲已确认」或粘贴修订 ## 章节）后，再 draft_document / execute_workflow。",
+          },
+        };
       }
 
       // Step 5: Auto-review or mark for approval (or force_render for demo)

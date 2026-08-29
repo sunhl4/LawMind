@@ -487,14 +487,14 @@ flowchart LR
 2. **澄清–执行–审批** 栈优先律师控权而非自主深度（**B2、B7、C2、C3、D4**）——应按 edition/mode 调参，而非一刀切拆除。
 3. **ContextPlan 已设计未接线**（**A11**）——与架构文档对齐的快赢。
 4. **多代理路径**有意不信任 peer 输出（**B4、A8**）——应用更丰富的交接产物平衡。
-5. 文档已记「流式 compact 未进聊天区」（`docs/LAWMIND-CLAUDE-GAPS-PLAN.md`）—— UI 对 mid-turn compact 仍可能突兀。
+5. UI 对 mid-turn compact 仍可能突兀（流式 compact 未进聊天区）。
 
 ---
 
 ## 5. 建议落地顺序（讨论排期用）
 
 > **2026-07-23**：P0–P1 核心与多项 P2/P3 已落地。  
-> **剩余项详细排期** → [`LAWMIND-MODEL-CAPABILITY-REMAINING-PLAN.md`](LAWMIND-MODEL-CAPABILITY-REMAINING-PLAN.md)（Wave W1–W7）。
+> 未完项见 [`LAWMIND-FUTURE-ISSUES.md`](LAWMIND-FUTURE-ISSUES.md)。
 
 | 优先级 | 改什么                                            | 对应 ID            | 预期收益                                   |
 | ------ | ------------------------------------------------- | ------------------ | ------------------------------------------ |
@@ -747,10 +747,9 @@ export function resolveCapabilityEnvelope(opts: {
 
 ## 9. 相关文档
 
-- **`docs/LAWMIND-MODEL-CAPABILITY-REMAINING-PLAN.md`** — 剩余项 Wave W1–W7 详细执行计划（2026-07-23）
 - `docs/LAWMIND-MODEL-ADAPTERS.md` — 接入与适配器
 - `docs/LAWMIND-ENGINEERING-REVIEW.md` — 工程评分与 backlog
-- `docs/LAWMIND-CLAUDE-GAPS-PLAN.md` — Claude Code 借鉴缺口（含流式 compact）
+- `docs/LAWMIND-FUTURE-ISSUES.md` — 未完项
 - `docs/LAWMIND-OPTIMIZATION-BACKLOG.md` — 产品北极星
 - `docs/LAWMIND-ARCHITECTURE.md` — 含 ContextPlan 相关表述
 

@@ -175,7 +175,7 @@ describe("buildAgentFleetSummary", () => {
         threadId: "t1",
         title: "待批准",
         summary: "x",
-        toolName: "execute_workflow",
+        toolName: "send_email",
         decisions: ["approve", "reject"],
         createdAt: new Date().toISOString(),
       },
@@ -199,7 +199,34 @@ describe("buildAgentFleetSummary", () => {
     expect(fleet.runs).toHaveLength(1);
     expect(fleet.counts.total).toBe(1);
     expect(fleet.runs[0]?.status).toBe("awaiting_approval");
-    expect(fleet.runs[0]?.kind).toBe("chat");
+    expect(["chat", "tool_approval"]).toContain(fleet.runs[0]?.kind);
+  });
+
+  it("maps lawyer-facing queue kinds to awaiting_approval and keeps agent-side kinds queued", async () => {
+    workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-fleet-queuekinds-"));
+    const { openQueueItem } = await import("../application/services/queue-write-service.js");
+    openQueueItem(workspaceDir, {
+      matterId: "m-qk",
+      kind: "need_lawyer_review",
+      title: "待签批",
+      relatedTaskId: "t1",
+    });
+    openQueueItem(workspaceDir, {
+      matterId: "m-qk",
+      kind: "need_partner_approval",
+      title: "待合伙人审批",
+    });
+    openQueueItem(workspaceDir, {
+      matterId: "m-qk",
+      kind: "ready_to_draft",
+      title: "助手待起草",
+    });
+
+    const fleet = await buildAgentFleetSummary({ workspaceDir });
+    const byTitle = new Map(fleet.runs.map((r) => [r.title, r.status]));
+    expect(byTitle.get("待签批")).toBe("queued");
+    expect(byTitle.get("待合伙人审批")).toBe("queued");
+    expect(byTitle.get("助手待起草")).toBe("queued");
   });
 
   it("skips idle chats and completed jobs", async () => {

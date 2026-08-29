@@ -23,7 +23,7 @@ export function ProductExperiments({ items, onAction, actionLabelForItem }: Prop
   if (items.length === 0) {
     return (
       <div className="lm-callout lm-callout-muted">
-        当前信号不足以推导产品实验候选；持续使用即可形成积累。
+        暂无实验。
       </div>
     );
   }

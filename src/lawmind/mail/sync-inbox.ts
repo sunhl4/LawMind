@@ -18,6 +18,7 @@ import {
   saveMailAccount,
   type MailAccount,
 } from "./mail-accounts.js";
+import { applyMailSendFormat } from "./mail-send-format.js";
 import { sendSmtpMail } from "./smtp-client.js";
 import { messageMatchesWatchContacts } from "./watch-contacts.js";
 
@@ -36,9 +37,10 @@ async function fetchForAccount(
   account: MailAccount,
   lawMindRoot: string,
   limit: number,
+  opts?: { includeBody?: boolean },
 ): Promise<FetchedMailMessage[]> {
   if (account.authKind === "graph_client") {
-    return fetchGraphMessages(account, lawMindRoot, { limit });
+    return fetchGraphMessages(account, lawMindRoot, { limit, includeBody: opts?.includeBody });
   }
   return fetchImapMessages(account, lawMindRoot, { limit });
 }
@@ -83,7 +85,7 @@ export async function syncMailAccountToMatter(
   lawMindRoot: string,
   accountId: string,
   matterId: string,
-  opts: { limit?: number } = {},
+  opts: { limit?: number; includeBody?: boolean } = {},
 ): Promise<SyncInboxResult> {
   const account = getMailAccount(workspaceDir, accountId);
   if (!account) {
@@ -93,7 +95,9 @@ export async function syncMailAccountToMatter(
     return { ok: false, error: "account_disabled", hint: "请先启用该邮箱账号。", accountId };
   }
   try {
-    const messages = await fetchForAccount(account, lawMindRoot, opts.limit ?? 25);
+    const messages = await fetchForAccount(account, lawMindRoot, opts.limit ?? 25, {
+      includeBody: opts.includeBody,
+    });
     const contacts = account.watchContacts ?? [];
     const matched = messages.filter((m) => messageMatchesWatchContacts(m, contacts));
     const written = persistFetchedMessages(workspaceDir, matterId, matched);
@@ -132,7 +136,7 @@ export async function syncMatterMailbox(
   workspaceDir: string,
   lawMindRoot: string,
   matterId: string,
-  opts: { limit?: number } = {},
+  opts: { limit?: number; includeBody?: boolean } = {},
 ): Promise<SyncInboxResult | { ok: true; skipped: true; reason: string }> {
   const account = resolveMailAccountForMatter(workspaceDir, matterId);
   if (!account) {
@@ -145,7 +149,12 @@ export async function sendMailViaAccount(
   workspaceDir: string,
   lawMindRoot: string,
   matterId: string,
-  mail: { to: string; subject: string; body: string },
+  mail: {
+    to: string;
+    subject: string;
+    body: string;
+    attachmentRelativePaths?: string[];
+  },
   accountId?: string,
 ): Promise<
   { ok: true; via: string; messageId?: string } | { ok: false; error: string; hint?: string }
@@ -160,10 +169,21 @@ export async function sendMailViaAccount(
       hint: "未配置邮箱。请在「交办 → 邮箱配置」中添加账号。",
     };
   }
+  const { resolveOutboundAttachmentPaths } = await import("./mail-attachments.js");
+  const resolved = resolveOutboundAttachmentPaths(workspaceDir, mail.attachmentRelativePaths);
+  if (!resolved.ok) {
+    return { ok: false, error: "bad_attachment", hint: resolved.error };
+  }
+  const payload = {
+    to: mail.to,
+    subject: mail.subject,
+    body: applyMailSendFormat(mail.body, account.sendFormat),
+    attachments: resolved.files,
+  };
   const result =
     account.authKind === "graph_client"
-      ? await sendGraphMail(account, lawMindRoot, mail)
-      : await sendSmtpMail(account, lawMindRoot, mail);
+      ? await sendGraphMail(account, lawMindRoot, payload)
+      : await sendSmtpMail(account, lawMindRoot, payload);
   if (!result.ok) {
     return result;
   }

@@ -66,17 +66,35 @@ export type TaskExecutionState = {
   detail?: string;
 };
 
+export type GateCategory = "safety_hard" | "judgment_soft";
+
+export type GateDecisionKind =
+  | "clarification_gate"
+  | "intake_gate"
+  | "dangerous_tool_gate"
+  | "approval_gate"
+  | "acceptance_gate"
+  | "reasoning_gate"
+  | "redline_hunks_gate"
+  /** Contract surgical find/replace must be span-local (short anchor; not whole sentence/paragraph). */
+  | "surgical_span_gate"
+  /** Draft citations do not match the research bundle source ids. */
+  | "citation_integrity_gate"
+  /** Outbound text looks privileged; lawyer must confirm before queueing send. */
+  | "outbound_privilege_gate"
+  /** Recipient domain is outside workspace outboundAllowedDomains. */
+  | "outbound_recipient_gate";
+
 export type GateDecision = {
-  gate:
-    | "clarification_gate"
-    | "intake_gate"
-    | "dangerous_tool_gate"
-    | "approval_gate"
-    | "acceptance_gate"
-    | "reasoning_gate";
+  gate: GateDecisionKind;
   decision: "allow" | "block" | "awaiting_confirmation";
   reason?: string;
+  /** safety_hard = empty deliverable / approval / dangerous tools; judgment_soft = advisory coaching */
+  category?: GateCategory;
 };
+
+/** Alias retained for platform-contracts check / older docs. */
+export type ExecutionState = TaskExecutionState;
 
 export type DeliveryOutcome = {
   taskId: string;

@@ -4,6 +4,9 @@
  */
 
 import { isCaseopenLiveEnabled, resolveCaseopenEndpoint } from "./caseopen.js";
+import { isCourtListenerLiveEnabled, resolveCourtListenerEndpoint } from "./courtlistener.js";
+import { isEgovJpLiveEnabled, resolveEgovJpEndpoint } from "./egov-jp.js";
+import { isEurlexLiveEnabled, resolveEurlexEndpoint } from "./eurlex.js";
 import { openLawCorpusStats } from "./local-corpus.js";
 import { isNpcFlkLiveEnabled, resolveNpcFlkEndpoint } from "./npc-flk.js";
 import type { OpenLawSourceId } from "./types.js";
@@ -13,7 +16,7 @@ export type OpenLawSourceStatus = {
   label: string;
   /** configured / ready for use (sync; live APIs = flag+valid URL, not probed) */
   ready: boolean;
-  access: "embedded" | "local_file" | "live_http" | "self_hosted_http";
+  access: "embedded" | "local_file" | "live_http" | "self_hosted_http" | "retired_via_peer";
   licenseNote: string;
   howToEnable: string;
   detail?: string;
@@ -25,6 +28,12 @@ export function listOpenLawSourceStatuses(opts?: { corpusPath?: string }): OpenL
   const npcEp = resolveNpcFlkEndpoint();
   const caseEnabled = isCaseopenLiveEnabled();
   const caseEp = resolveCaseopenEndpoint();
+  const clEnabled = isCourtListenerLiveEnabled();
+  const clEp = resolveCourtListenerEndpoint();
+  const euEnabled = isEurlexLiveEnabled();
+  const euEp = resolveEurlexEndpoint();
+  const jpEnabled = isEgovJpLiveEnabled();
+  const jpEp = resolveEgovJpEndpoint();
 
   return [
     {
@@ -77,6 +86,60 @@ export function listOpenLawSourceStatuses(opts?: { corpusPath?: string }): OpenL
           ? `端点就绪：${caseEp.normalized}`
           : `端点无效：${caseEp.message}`,
     },
+    {
+      id: "courtlistener",
+      label: "CourtListener / Free Law Project（美国判例）",
+      ready: clEnabled && clEp.ok,
+      access: "live_http",
+      licenseNote:
+        "官方 REST v4；AGPL 服务仅 HTTP 调用、不入库其源码；无 Token 时限流很严；含 Harvard CAP 历史判例",
+      howToEnable:
+        "LAWMIND_OPEN_LAW_COURTLISTENER=1；可选 LAWMIND_OPEN_LAW_COURTLISTENER_TOKEN（Authorization: Token）",
+      detail: !clEnabled
+        ? "未启用"
+        : clEp.ok
+          ? `端点就绪：${clEp.normalized}`
+          : `端点无效：${clEp.message}`,
+    },
+    {
+      id: "harvard_cap",
+      label: "Harvard Caselaw Access Project",
+      ready: clEnabled && clEp.ok,
+      access: "retired_via_peer",
+      licenseNote:
+        "api.case.law 直播 API 已于 2024 停用；Harvard 仅保留 static.case.law 批量包；检索已并入 CourtListener",
+      howToEnable:
+        "不要再调 api.case.law；启用 LAWMIND_OPEN_LAW_COURTLISTENER=1（MODE=courtlistener 或 cap）",
+      detail: clEnabled
+        ? "CAP 直播已停；当前经 CourtListener 检索其历史语料"
+        : "CAP 直播已停；请改开 CourtListener",
+    },
+    {
+      id: "eurlex",
+      label: "EUR-Lex / CELLAR（欧盟法）",
+      ready: euEnabled && euEp.ok,
+      access: "live_http",
+      licenseNote: "欧盟出版物办公室公开 SPARQL；无 Key；查询已消毒，禁止注入；限流",
+      howToEnable: "LAWMIND_OPEN_LAW_EURLEX=1（可选 MODE=eurlex|hybrid）",
+      detail: !euEnabled
+        ? "未启用"
+        : euEp.ok
+          ? `端点就绪：${euEp.normalized}`
+          : `端点无效：${euEp.message}`,
+    },
+    {
+      id: "egov_jp",
+      label: "日本 e-Gov 法令 API v2",
+      ready: jpEnabled && jpEp.ok,
+      access: "live_http",
+      licenseNote: "官方公开法令 API；无 Key；尊重限流",
+      howToEnable: "LAWMIND_OPEN_LAW_EGOV_JP=1（可选 MODE=egov_jp|hybrid）",
+      detail: !jpEnabled
+        ? "未启用"
+        : jpEp.ok
+          ? `端点就绪：${jpEp.normalized}`
+          : `端点无效：${jpEp.message}`,
+    },
   ];
 }
 
@@ -94,6 +157,6 @@ export function summarizeOpenLawSources(opts?: { corpusPath?: string }): {
     message:
       labels.length > 0
         ? `开源权威来源就绪：${labels.join(" · ")}`
-        : "开源权威来源均未就绪：请检查内置 sample 或配置 CORPUS / NPC / caseopen。",
+        : "开源权威来源均未就绪：请检查内置 sample 或配置 CORPUS / NPC / caseopen / CourtListener / EUR-Lex / e-Gov。",
   };
 }

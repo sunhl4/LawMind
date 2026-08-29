@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { ArtifactDraft } from "../types.js";
 import { writeFileAtomicAsync } from "../adapters/matter-storage/io.js";
+import type { ArtifactDraft } from "../types.js";
 import { scanDocxPlaceholders } from "./docx-template-fill.js";
 import { suggestPlaceholderFieldPaths } from "./draft-template-values.js";
 
@@ -87,6 +87,34 @@ const BUILT_IN_TEMPLATES: BuiltInTemplateSpec[] = [
     format: "pptx",
     label: "Hearing Strategy",
     variant: "hearingStrategy",
+    category: "litigation",
+  },
+  {
+    id: "ppt/training-cle-default",
+    format: "pptx",
+    label: "Training CLE",
+    variant: "trainingCle",
+    category: "client",
+  },
+  {
+    id: "ppt/crossborder-matrix-default",
+    format: "pptx",
+    label: "Cross-border Matrix",
+    variant: "crossborderMatrix",
+    category: "client",
+  },
+  {
+    id: "ppt/internal-knowledge-default",
+    format: "pptx",
+    label: "Internal Knowledge Share",
+    variant: "internalKnowledge",
+    category: "internal",
+  },
+  {
+    id: "ppt/case-clinic-default",
+    format: "pptx",
+    label: "Case Clinic Training",
+    variant: "caseClinic",
     category: "litigation",
   },
 ];

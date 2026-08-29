@@ -306,6 +306,45 @@ describe("lawmind-server-route-jobs", () => {
     rmTmpWorkspaceQuietly(ws);
   });
 
+  it("GET /api/jobs/:id and cancel 404 when workspaceDir does not match", () => {
+    const ws = tmpWorkspace();
+    const jobId = enqueueWorkflowRun(stubConfig(ws), minimalWorkflow(), {
+      run: async () => new Promise(() => {}),
+    });
+    const otherCtx: LawmindDispatchContext = {
+      workspaceDir: path.join(os.tmpdir(), "other-ws-not-real"),
+      envFile: undefined,
+      userEnvPath: path.join(os.tmpdir(), "x.env"),
+      policy: { loaded: false },
+    };
+    const getCap = createResponseCapture();
+    expect(
+      handleJobRoutes({
+        ctx: otherCtx,
+        req: { method: "GET" } as http.IncomingMessage,
+        res: getCap.res,
+        url: new URL(`http://127.0.0.1/api/jobs/${jobId}`),
+        pathname: `/api/jobs/${jobId}`,
+        c: {},
+      }),
+    ).toBe(true);
+    expect(getCap.status).toBe(404);
+
+    const cancelCap = createResponseCapture();
+    expect(
+      handleJobRoutes({
+        ctx: otherCtx,
+        req: { method: "POST" } as http.IncomingMessage,
+        res: cancelCap.res,
+        url: new URL(`http://127.0.0.1/api/jobs/${jobId}/cancel`),
+        pathname: `/api/jobs/${jobId}/cancel`,
+        c: {},
+      }),
+    ).toBe(true);
+    expect(cancelCap.status).toBe(404);
+    rmTmpWorkspaceQuietly(ws);
+  });
+
   it("returns false for unrelated path", () => {
     const ctx: LawmindDispatchContext = {
       workspaceDir: os.tmpdir(),

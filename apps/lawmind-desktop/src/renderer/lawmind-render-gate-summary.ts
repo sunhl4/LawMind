@@ -19,7 +19,7 @@ export function buildRenderGateSummary(input: {
     if (acc.warningCount > 0) {
       parts.push(`警告 ${acc.warningCount}`);
     }
-    return `还差：验收门禁${parts.length ? `（${parts.join("，")}）` : ""}`;
+    return `还差：出稿检查${parts.length ? `（${parts.join("，")}）` : ""}`;
   }
   return null;
 }

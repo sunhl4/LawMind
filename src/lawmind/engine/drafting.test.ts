@@ -66,5 +66,7 @@ describe("engine/drafting", () => {
     const loaded = readDraft(workspaceDir, intent.taskId);
     expect(loaded?.title).toBe("测试保密协议");
     expect(loaded?.reviewStatus).toBe("pending");
+    expect(draft.sections).toEqual(loaded?.sections);
+    expect(draft.reviewNotes.some((note) => note.startsWith("复核："))).toBe(true);
   });
 });

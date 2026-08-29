@@ -20,6 +20,8 @@ export const MEMORY_KIND_LABELS: Record<string, string> = {
   "playbook.clause_learning": "条款审查要点",
   "firm.preference": "所内惯例",
   "assistant.profile_section": "助手补充",
+  "historical.knowledge": "历史材料整理",
+  "lawyer.habit_pattern": "重复改法（待确认）",
 };
 
 export function memoryKindLabel(kind: string): string {

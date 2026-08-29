@@ -147,8 +147,6 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
 
   return (
     <div className="lm-settings-section">
-      <div className="lm-settings-section-title lm-settings-section-title--duplicate">模型与检索</div>
-
       <div className="lm-settings-group lm-settings-surface">
         <div className="lm-settings-row">
           <span className="lm-settings-key">模型</span>
@@ -228,7 +226,7 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
           </p>
         ) : health?.modelEnvFileExists === false ? (
           <p className="lm-settings-caption lm-settings-caption--warn" role="status">
-            凭据可用但本机配置文件未写入，建议重新保存一次。
+            请重新保存。
           </p>
         ) : null}
 
@@ -266,78 +264,72 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
         ) : null}
       </div>
 
-      <div className="lm-settings-group lm-settings-surface">
-        <label className="lm-settings-row lm-settings-row-check">
-          <span className="lm-settings-key">起草使用大模型</span>
-          <input
-            type="checkbox"
-            checked={health?.draftWithModelEnabled === true}
-            disabled={!health?.modelConfigured || draftWithModelSaving || !applyDraftWithModelEnabled}
-            aria-label="起草阶段使用大模型"
-            onChange={(e) => {
-              if (applyDraftWithModelEnabled) {
-                void applyDraftWithModelEnabled(e.target.checked);
-              }
-            }}
-          />
-        </label>
-        <p className="lm-settings-caption">
-          {!health?.modelConfigured
-            ? "需先配置模型"
-            : "开启后用当前模型扩写；关闭则用规则模板。"}
-        </p>
-        {draftWithModelSaving ? (
-          <p className="lm-settings-caption" role="status" aria-live="polite">
-            正在保存…
-          </p>
-        ) : null}
-        {health?.draftWithModelEnabled && health?.draftWithModelActive === false ? (
-          <p className="lm-settings-caption lm-settings-caption--warn" role="status">
-            已开启但凭据不可用，将回退规则模板。
-          </p>
-        ) : null}
-      </div>
-
-      <div className="lm-settings-group lm-settings-surface">
-        <label className="lm-settings-row">
-          <span className="lm-settings-key">Worker 模型（工具轮）</span>
-          <select
-            className="lm-compose-select"
-            data-testid="lm-settings-worker-model"
-            disabled={!apiBase || !health?.modelConfigured || workerSaving}
-            value={workerModelId}
-            aria-label="工具轮 Worker 模型"
-            onChange={(e) => {
-              const next = e.target.value;
-              setWorkerModelId(next);
-              if (!apiBase) {
-                return;
-              }
-              setWorkerSaving(true);
-              void setWorkerModelIdApi(apiBase, next || null)
-                .then((id) => setWorkerModelId(id ?? ""))
-                .catch(() => undefined)
-                .finally(() => setWorkerSaving(false));
-            }}
-          >
-            <option value="">同主模型</option>
-            {modelCatalog
-              .filter((m) => m.configured)
-              .map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-          </select>
-        </label>
-        <p className="lm-settings-caption">
-          可选：工具调用轮用较快模型，主模型仍用于终稿合成（E7）。
-        </p>
-      </div>
-
       <details className="lm-settings-advanced">
-        <summary>高级：联网密钥、检索与自定义模型</summary>
+        <summary>高级：起草、Worker、联网密钥、检索与自定义模型</summary>
         <div className="lm-settings-advanced-body">
+          <label className="lm-settings-row lm-settings-row-check">
+            <span className="lm-settings-key">起草使用大模型</span>
+            <input
+              type="checkbox"
+              checked={health?.draftWithModelEnabled === true}
+              disabled={!health?.modelConfigured || draftWithModelSaving || !applyDraftWithModelEnabled}
+              aria-label="起草阶段使用大模型"
+              onChange={(e) => {
+                if (applyDraftWithModelEnabled) {
+                  void applyDraftWithModelEnabled(e.target.checked);
+                }
+              }}
+            />
+          </label>
+          <p className="lm-settings-caption">
+            {!health?.modelConfigured
+              ? "需先配置模型"
+              : "开启后用当前模型扩写；关闭则用规则模板。"}
+          </p>
+          {draftWithModelSaving ? (
+            <p className="lm-settings-caption" role="status" aria-live="polite">
+              正在保存…
+            </p>
+          ) : null}
+          {health?.draftWithModelEnabled && health?.draftWithModelActive === false ? (
+            <p className="lm-settings-caption lm-settings-caption--warn" role="status">
+              已开启但凭据不可用，将回退规则模板。
+            </p>
+          ) : null}
+
+          <label className="lm-settings-row">
+            <span className="lm-settings-key">Worker 模型（工具轮）</span>
+            <select
+              className="lm-compose-select"
+              data-testid="lm-settings-worker-model"
+              disabled={!apiBase || !health?.modelConfigured || workerSaving}
+              value={workerModelId}
+              aria-label="工具轮 Worker 模型"
+              onChange={(e) => {
+                const next = e.target.value;
+                setWorkerModelId(next);
+                if (!apiBase) {
+                  return;
+                }
+                setWorkerSaving(true);
+                void setWorkerModelIdApi(apiBase, next || null)
+                  .then((id) => setWorkerModelId(id ?? ""))
+                  .catch(() => undefined)
+                  .finally(() => setWorkerSaving(false));
+              }}
+            >
+              <option value="">同主模型</option>
+              {modelCatalog
+                .filter((m) => m.configured)
+                .map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <p className="lm-settings-caption">工具轮可用更快模型。</p>
+
           <p className="lm-settings-caption">
             联网检索需 Brave Key（
             <code className="lm-md-code">LAWMIND_WEB_SEARCH_API_KEY</code> 或{" "}

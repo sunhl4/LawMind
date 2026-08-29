@@ -18,7 +18,7 @@
 - 交付与验收：`docs/LAWMIND-DELIVERABLE-FIRST.md`、`docs/LAWMIND-DELIVERY.md`
 - 协作与异步工作流：`docs/LAWMIND-COLLABORATION-UI-API-MAP.md`
 - 运维与回退：`docs/LAWMIND-SUPPORT-RUNBOOK.md`
-- 工程续作：`docs/LAWMIND-PROJECT-MEMORY.md`
+- 工程续作：`GOALS.md`、`docs/LAWMIND-FUTURE-ISSUES.md`
 
 ## 2. 现状 vs Multitask 最佳实践
 
@@ -333,7 +333,7 @@
 - [ ] 用本手册模板创建首批 3 个 Task Contract（一个开发、一个故障、一个重构）
 - [ ] 从现有 jobs/audit 生成首版 Multitask 指标基线
 - [ ] 在一个真实协作 workflow 上试运行「并行边界 + 验收摘要 + 回退剧本」
-- [ ] 将复盘结论回写到 `docs/LAWMIND-PROJECT-MEMORY.md` 与 `GOALS.md`
+- [ ] 将复盘结论回写到 `GOALS.md` 与 `docs/LAWMIND-FUTURE-ISSUES.md`
 
 ## 9. v1 implementation pass（已落地入口）
 

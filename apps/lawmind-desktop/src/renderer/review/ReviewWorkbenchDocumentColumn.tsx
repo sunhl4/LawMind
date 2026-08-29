@@ -203,25 +203,15 @@ export function ReviewWorkbenchDocumentColumn(props: ReviewWorkbenchDocumentColu
                 {editorSaving ? "保存中…" : "保存"}
               </button>
             ) : null}
-            {onExportWord ? (
+            {onExportWord && exportReady ? (
               <button
                 type="button"
                 className="lm-btn lm-btn-accent lm-btn-small"
-                disabled={actionBusy || !exportReady}
-                title={exportReady ? "按当前模板导出 Word" : "导出需先完成签批（建议回在办）"}
+                disabled={actionBusy}
+                title="按当前模板导出 Word"
                 onClick={onExportWord}
               >
                 {actionBusy ? "导出中…" : "导出 Word"}
-              </button>
-            ) : null}
-            {onOpenAgentsDesk ? (
-              <button
-                type="button"
-                className="lm-btn lm-btn-secondary lm-btn-small"
-                onClick={onOpenAgentsDesk}
-                title="正式通过 / 驳回 / 需修改在「在办」完成；工具批准等无需预览的批复也在那里"
-              >
-                回到在办签批
               </button>
             ) : null}
           </div>

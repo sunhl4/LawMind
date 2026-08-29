@@ -15,6 +15,52 @@ import {
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WORKER_PATH = path.join(HERE, "approval-resolve-worker.mjs");
+const REQUEST_WORKER_PATH = path.join(HERE, "approval-request-worker.mjs");
+
+function requestInChild(input: {
+  workspaceDir: string;
+  matterId: string;
+  requestedBy: string;
+  reason: string;
+  riskLevel: "low" | "medium" | "high";
+}): Promise<{ approvalId: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        REQUEST_WORKER_PATH,
+        input.workspaceDir,
+        input.matterId,
+        input.requestedBy,
+        input.reason,
+        input.riskLevel,
+      ],
+      { cwd: path.resolve(HERE, "../../../.."), env: process.env },
+    );
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(`request child exited ${code}: ${stderr || stdout}`));
+        return;
+      }
+      try {
+        resolve(JSON.parse(stdout) as { approvalId: string });
+      } catch (e) {
+        reject(new Error(`invalid child JSON: ${stdout}\n${stderr}\n${String(e)}`));
+      }
+    });
+  });
+}
 
 function resolveInChild(input: {
   workspaceDir: string;
@@ -166,13 +212,51 @@ describe("application/services/approval-service", () => {
     expect(written).toHaveLength(1);
     expect(losers).toHaveLength(2);
 
-    const winnerStatus = written[0]!.approval.status;
+    const winnerStatus = written[0].approval.status;
     expect(["approved", "rejected", "needs_changes"]).toContain(winnerStatus);
     for (const loser of losers) {
       expect(loser.approval.status).toBe(winnerStatus);
-      expect(loser.approval.resolvedBy).toBe(written[0]!.approval.resolvedBy);
+      expect(loser.approval.resolvedBy).toBe(written[0].approval.resolvedBy);
     }
     expect(listPendingApprovals(workspaceDir, "m-race")).toHaveLength(0);
+  });
+
+  it("concurrent request (append) and resolve (locked rewrite): both entries survive", async () => {
+    // append 与 CAS rewrite 共用同一把锁前，「新建审批 + 解析旧审批」并发会让
+    // rewrite 用旧快照覆盖 append 后的文件，静默丢掉新建的审批。
+    const created = requestApproval(workspaceDir, {
+      matterId: "m-append-race",
+      requestedBy: "lawyer-1",
+      reason: "待解析审批",
+      riskLevel: "high",
+    });
+
+    const [requestedInChild] = await Promise.all([
+      requestInChild({
+        workspaceDir,
+        matterId: "m-append-race",
+        requestedBy: "lawyer-2",
+        reason: "并发新建审批",
+        riskLevel: "medium",
+      }),
+      (async () => {
+        await new Promise((r) => setTimeout(r, 30));
+        resolveApproval(workspaceDir, "m-append-race", created.approvalId, {
+          status: "approved",
+          resolvedBy: "lawyer-1",
+        });
+      })(),
+    ]);
+
+    expect(requestedInChild.approvalId).toBeTruthy();
+    const all = listApprovals(workspaceDir, "m-append-race");
+    expect(all).toHaveLength(2);
+    expect(all.some((a) => a.approvalId === created.approvalId && a.status === "approved")).toBe(
+      true,
+    );
+    expect(
+      all.some((a) => a.approvalId === requestedInChild.approvalId && a.status === "pending"),
+    ).toBe(true);
   });
 
   it("resolve unknown approval returns not_found", () => {

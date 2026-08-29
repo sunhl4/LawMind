@@ -25,6 +25,7 @@ export type FileWorkbenchViewModel = {
   canUseFilesystemBridge: boolean;
   onAddToChatContext?: (payload: { root: RootKey; relPath: string; kind: "file" | "directory" }) => void;
   addToContextLabel?: string;
+  onSendContractForReview?: (payload: { root: RootKey; relPath: string }) => void;
   portalHosts?: FilePortalHosts | null;
   workspaceExplorerToolbar?: ReactNode;
   casesNodeActions?: FileWorkbenchCasesNodeActions | null;
@@ -106,6 +107,7 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
     canUseFilesystemBridge,
     onAddToChatContext,
     addToContextLabel,
+    onSendContractForReview,
     portalHosts,
     workspaceExplorerToolbar,
     casesNodeActions,
@@ -262,160 +264,162 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
         <kbd>⌘P</kbd>
       </button>
 
-      <div className="lm-fs-section lm-fs-section-dual" data-testid="lm-fs-local-folder-section">
-        {renderExplorerSectionHeader({
-          label: "工作区",
-          root: "project",
-          menuPath: "",
-          sectionOpen: workSectionOpen,
-          setSectionOpen: setWorkSectionOpen,
-          onAddFile: () => {
-            if (!projectDir) {
-              void onPickProject?.();
-              return;
-            }
-            startCreate("project", "", "file");
-          },
-          addTitle: projectDir ? "在本机文件夹中新建文件" : "选择本机文件夹",
-        })}
-        {workSectionOpen ? (
-          projectDir ? (
-            <>
-              <p className="lm-fs-dual-path lm-meta" title={projectDir}>
-                {projectDir}
+      <div className="lm-files-explorer-scroll" data-testid="lm-files-explorer-scroll">
+        <div className="lm-fs-section lm-fs-section-dual" data-testid="lm-fs-local-folder-section">
+          {renderExplorerSectionHeader({
+            label: "工作区",
+            root: "project",
+            menuPath: "",
+            sectionOpen: workSectionOpen,
+            setSectionOpen: setWorkSectionOpen,
+            onAddFile: () => {
+              if (!projectDir) {
+                void onPickProject?.();
+                return;
+              }
+              startCreate("project", "", "file");
+            },
+            addTitle: projectDir ? "在本机文件夹中新建文件" : "选择本机文件夹",
+          })}
+          {workSectionOpen ? (
+            projectDir ? (
+              <>
+                <p className="lm-fs-dual-path lm-meta" title={projectDir}>
+                  {projectDir}
+                </p>
+                <FileWorkbenchTree root="project" dirPath="" {...treeProps} />
+              </>
+            ) : (
+              <div className="lm-fs-dual-empty">
+                <p>尚未选择本机文件夹。这里只显示您电脑上的材料，不会展示软件内部目录。</p>
+                {onPickProject ? (
+                  <button type="button" className="lm-btn lm-btn-accent lm-btn-sm" onClick={() => void onPickProject()}>
+                    选择本机文件夹…
+                  </button>
+                ) : null}
+              </div>
+            )
+          ) : null}
+        </div>
+
+        <div className="lm-fs-section lm-fs-section-dual">
+          {renderExplorerSectionHeader({
+            label: "案件材料",
+            root: "workspace",
+            menuPath: "cases",
+            sectionOpen: casesSectionOpen,
+            setSectionOpen: setCasesSectionOpen,
+            onAddFile: () => startCreate("workspace", "cases", "file"),
+            addTitle: "在案件材料区新建文件",
+          })}
+          {casesSectionOpen ? (
+            casesDirProbe === "missing" &&
+            !(
+              inlineInput?.root === "workspace" &&
+              inlineInput.parentDir === "cases" &&
+              inlineInput.kind === "folder"
+            ) ? (
+              <p className="lm-fs-dual-empty">
+                右键新建案件。
               </p>
-              <FileWorkbenchTree root="project" dirPath="" {...treeProps} />
-            </>
-          ) : (
-            <div className="lm-fs-dual-empty">
-              <p>尚未选择本机文件夹。这里只显示您电脑上的材料，不会展示软件内部目录。</p>
-              {onPickProject ? (
-                <button type="button" className="lm-btn lm-btn-accent lm-btn-sm" onClick={() => void onPickProject()}>
-                  选择本机文件夹…
-                </button>
-              ) : null}
+            ) : (
+              <FileWorkbenchTree root="workspace" dirPath="cases" {...treeProps} />
+            )
+          ) : null}
+        </div>
+
+        {!portalHosts?.editor && imagePreview ? (
+          <div className="lm-fs-side-preview" data-testid="lm-fs-image-preview-side">
+            <div className="lm-fs-side-preview-head">
+              <strong className="lm-fs-side-preview-title">{imagePreview.name}</strong>
+              <button
+                type="button"
+                className="lm-error-dismiss"
+                aria-label="关闭预览"
+                onClick={() => setImagePreview(null)}
+              >
+                ×
+              </button>
             </div>
-          )
+            <img className="lm-fs-side-preview-img" src={imagePreview.dataUrl} alt={imagePreview.name} />
+            <div className="lm-fs-side-preview-actions">
+              <button
+                type="button"
+                className="lm-btn lm-btn-sm"
+                disabled={busy}
+                onClick={async () => {
+                  setError(null);
+                  const r = await window.lawmindDesktop?.openWithSystem({
+                    root: imagePreview.root,
+                    path: imagePreview.relPath,
+                  });
+                  if (r && !r.ok) {
+                    setError(r.error ?? "无法用系统应用打开该文件。");
+                  }
+                }}
+              >
+                用本机应用打开
+              </button>
+              <button
+                type="button"
+                className="lm-btn lm-btn-ghost lm-btn-sm"
+                onClick={() => void doShowInFolder(imagePreview.root, imagePreview.relPath)}
+              >
+                访达中显示
+              </button>
+            </div>
+          </div>
         ) : null}
-      </div>
 
-      <div className="lm-fs-section lm-fs-section-dual">
-        {renderExplorerSectionHeader({
-          label: "案件材料",
-          root: "workspace",
-          menuPath: "cases",
-          sectionOpen: casesSectionOpen,
-          setSectionOpen: setCasesSectionOpen,
-          onAddFile: () => startCreate("workspace", "cases", "file"),
-          addTitle: "在案件材料区新建文件",
-        })}
-        {casesSectionOpen ? (
-          casesDirProbe === "missing" &&
-          !(
-            inlineInput?.root === "workspace" &&
-            inlineInput.parentDir === "cases" &&
-            inlineInput.kind === "folder"
-          ) ? (
-            <p className="lm-fs-dual-empty">
-              还没有案件。需要办案时，在本区标题上右键「新建案件…」即可；平时写文档可直接用上方「工作区」的本机文件夹。
+        {!portalHosts?.editor && officeBlock ? (
+          <div className="lm-fs-side-preview lm-fs-side-preview--binary" data-testid="lm-fs-binary-preview-side">
+            <div className="lm-fs-side-preview-head">
+              <strong className="lm-fs-side-preview-title">{officeBlock.name}</strong>
+              <button
+                type="button"
+                className="lm-error-dismiss"
+                aria-label="关闭"
+                onClick={() => setOfficeBlock(null)}
+              >
+                ×
+              </button>
+            </div>
+            <p className="lm-meta">
+              {officeBlock.mode === "binary"
+                ? "二进制文件无法在侧栏文本编辑。请用本机应用打开。"
+                : "Office/PDF 请用本机应用打开。"}
             </p>
-          ) : (
-            <FileWorkbenchTree root="workspace" dirPath="cases" {...treeProps} />
-          )
+            <div className="lm-fs-side-preview-actions">
+              <button
+                type="button"
+                className="lm-btn lm-btn-sm"
+                disabled={busy}
+                onClick={async () => {
+                  setError(null);
+                  const r = await window.lawmindDesktop?.openWithSystem({
+                    root: officeBlock.root,
+                    path: officeBlock.relPath,
+                  });
+                  if (r && !r.ok) {
+                    setError(r.error ?? "无法用系统应用打开该文件。");
+                  }
+                }}
+              >
+                用本机应用打开
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {error ? (
+          <div className="lm-callout lm-callout-danger lm-error--explorer" role="alert">
+            <p className="lm-callout-body">{error}</p>
+            <button type="button" className="lm-error-dismiss" aria-label="关闭错误提示" onClick={() => setError(null)}>
+              ×
+            </button>
+          </div>
         ) : null}
       </div>
-
-      {!portalHosts?.editor && imagePreview ? (
-        <div className="lm-fs-side-preview" data-testid="lm-fs-image-preview-side">
-          <div className="lm-fs-side-preview-head">
-            <strong className="lm-fs-side-preview-title">{imagePreview.name}</strong>
-            <button
-              type="button"
-              className="lm-error-dismiss"
-              aria-label="关闭预览"
-              onClick={() => setImagePreview(null)}
-            >
-              ×
-            </button>
-          </div>
-          <img className="lm-fs-side-preview-img" src={imagePreview.dataUrl} alt={imagePreview.name} />
-          <div className="lm-fs-side-preview-actions">
-            <button
-              type="button"
-              className="lm-btn lm-btn-sm"
-              disabled={busy}
-              onClick={async () => {
-                setError(null);
-                const r = await window.lawmindDesktop?.openWithSystem({
-                  root: imagePreview.root,
-                  path: imagePreview.relPath,
-                });
-                if (r && !r.ok) {
-                  setError(r.error ?? "无法用系统应用打开该文件。");
-                }
-              }}
-            >
-              用本机应用打开
-            </button>
-            <button
-              type="button"
-              className="lm-btn lm-btn-ghost lm-btn-sm"
-              onClick={() => void doShowInFolder(imagePreview.root, imagePreview.relPath)}
-            >
-              访达中显示
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {!portalHosts?.editor && officeBlock ? (
-        <div className="lm-fs-side-preview lm-fs-side-preview--binary" data-testid="lm-fs-binary-preview-side">
-          <div className="lm-fs-side-preview-head">
-            <strong className="lm-fs-side-preview-title">{officeBlock.name}</strong>
-            <button
-              type="button"
-              className="lm-error-dismiss"
-              aria-label="关闭"
-              onClick={() => setOfficeBlock(null)}
-            >
-              ×
-            </button>
-          </div>
-          <p className="lm-meta">
-            {officeBlock.mode === "binary"
-              ? "二进制文件无法在侧栏文本编辑。请用本机应用打开。"
-              : "Office/PDF 请用本机应用打开。"}
-          </p>
-          <div className="lm-fs-side-preview-actions">
-            <button
-              type="button"
-              className="lm-btn lm-btn-sm"
-              disabled={busy}
-              onClick={async () => {
-                setError(null);
-                const r = await window.lawmindDesktop?.openWithSystem({
-                  root: officeBlock.root,
-                  path: officeBlock.relPath,
-                });
-                if (r && !r.ok) {
-                  setError(r.error ?? "无法用系统应用打开该文件。");
-                }
-              }}
-            >
-              用本机应用打开
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {error ? (
-        <div className="lm-callout lm-callout-danger lm-error--explorer" role="alert">
-          <p className="lm-callout-body">{error}</p>
-          <button type="button" className="lm-error-dismiss" aria-label="关闭错误提示" onClick={() => setError(null)}>
-            ×
-          </button>
-        </div>
-      ) : null}
     </aside>
   );
 
@@ -439,6 +443,7 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
       activeDirty={activeDirty}
       busy={busy}
       onAddToChatContext={onAddToChatContext}
+      onSendContractForReview={onSendContractForReview}
       imagePreview={imagePreview}
       setImagePreview={setImagePreview}
       officeBlock={officeBlock}
@@ -464,6 +469,7 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
         busy={busy}
         onAddToChatContext={onAddToChatContext}
         addToContextLabel={addToContextLabel}
+        onSendContractForReview={onSendContractForReview}
         setAddToMatterManualDraft={setAddToMatterManualDraft}
         setAddToMatterLastError={setAddToMatterLastError}
         setAddToMatterPick={setAddToMatterPick}

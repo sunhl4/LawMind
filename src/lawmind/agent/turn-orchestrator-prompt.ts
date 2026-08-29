@@ -22,6 +22,8 @@ import {
   loadGoldenExamplesForDrafting,
 } from "../evaluation/golden-recall.js";
 import { buildContractRevisionRecallBlock } from "../learning/contract-revision-recall.js";
+import { resolveMailAccountForMatter } from "../mail/mail-accounts.js";
+import { buildMailSendFormatPrompt } from "../mail/mail-send-format.js";
 import { listPendingMemorySuggestions } from "../memory/adoption-service.js";
 import {
   formatExecutablePreferencesHint,
@@ -49,6 +51,7 @@ import {
 } from "../router/intake-gate.js";
 import { buildContextPlan, buildContextPlanMarkdown } from "../runtime/context-plan.js";
 import { resolvePinnedContextSummary, withContractPlaybookPin } from "../runtime/pinned-context.js";
+import { formatStanceHint } from "../stance/inject.js";
 import { getAssistantPreset } from "./assistant-presets.js";
 import { buildDeliverablePipelineSystemNote } from "./deliverable-pipeline.js";
 import type { AgentPermissionMode } from "./permission-mode.js";
@@ -186,7 +189,13 @@ export async function prepareTurnPromptContext(opts: {
       ? buildDeliverablePipelineSystemNote(instruction)
       : undefined;
   const executablePrefs = loadExecutablePreferences(config.workspaceDir, memory.profile ?? "", 6);
-  const appliedPreferencesHint = formatExecutablePreferencesHint(executablePrefs);
+  let appliedPreferencesHint = formatExecutablePreferencesHint(executablePrefs);
+  const stanceHint = formatStanceHint(config.workspaceDir);
+  if (stanceHint) {
+    appliedPreferencesHint = appliedPreferencesHint
+      ? `${appliedPreferencesHint}\n\n${stanceHint}`
+      : stanceHint;
+  }
   const footerMode = resolveAppliedPreferencesFooterMode(workspacePolicy);
   const requireAppliedPreferencesFooter =
     Boolean(appliedPreferencesHint) &&
@@ -218,6 +227,12 @@ export async function prepareTurnPromptContext(opts: {
       pinnedContext: pinnedContextSummary,
     }),
   );
+  const mailAccount = session.matterId
+    ? resolveMailAccountForMatter(config.workspaceDir, session.matterId)
+    : null;
+  const mailSendFormatHint = mailAccount?.sendFormat
+    ? buildMailSendFormatPrompt(mailAccount.sendFormat)
+    : undefined;
   const systemPrompt = buildSystemPrompt({
     lawyerProfile: truncateForPrompt(memory.profile, promptWindow.lawyerProfileChars) || undefined,
     assistantProfileMarkdown: assistantProfileMarkdown
@@ -257,12 +272,42 @@ export async function prepareTurnPromptContext(opts: {
     deliverablePipelineNote,
     appliedPreferencesHint,
     contextPlanMarkdown,
+    mailSendFormatHint,
   });
 
   let systemPromptFinal = systemPrompt;
   const extraBlocks: string[] = [];
   if (pinnedContextSummary.markdownBlock) {
     pushWorldStateExtra(extraBlocks, "pins", pinnedContextSummary.markdownBlock);
+  }
+  try {
+    const { pinsIncludeXlsx } = await import("./tools/disclosed-turn-tools.js");
+    if (pinsIncludeXlsx(opts.contextPins)) {
+      extraBlocks.push(
+        [
+          "",
+          "## 表格分析",
+          "已钉选电子表格。请先 `analyze_spreadsheet`，需要算术用 `calculate`（公式与输入必须带回）。",
+          "出图用 `render_chart`，并在助手正文用 ```lm-chart 围栏原样贴回完整 spec。落表用 `write_spreadsheet`。",
+          "数字必须写明来源列。不要把整表倒成 TSV。",
+        ].join("\n"),
+      );
+    }
+  } catch {
+    /* optional */
+  }
+  try {
+    const { formatLocatedWordBaselines } = await import("../runtime/lawyer-local-file.js");
+    const located = formatLocatedWordBaselines({
+      workspaceDir: config.workspaceDir,
+      projectDir: projectDirResolved,
+      pins: opts.contextPins,
+    });
+    if (located) {
+      extraBlocks.push(`\n\n${located}`);
+    }
+  } catch {
+    /* optional */
   }
   pushWorldStateExtra(extraBlocks, "matter", formatMatterWorldState(session.matterId));
   pushWorldStateExtra(
@@ -379,6 +424,45 @@ export async function prepareTurnPromptContext(opts: {
       await import("./mail-contract-fast-path.js");
     if (isMailContractFastPathInstruction(instruction)) {
       extraBlocks.push(`\n\n${MAIL_CONTRACT_FAST_PATH_PROMPT}`);
+    } else {
+      const { isWordRevisionTurn, WORD_REVISION_PROMPT } =
+        await import("../platform/word-revision-instruction.js");
+      const { CONTRACT_REDLINE_CRAFT_SKILL } = await import("../drafts/contract-redline-craft.js");
+      const { formatWordRevisionChecklistBlock } =
+        await import("../platform/word-revision-checklist.js");
+      const { readPinnedWordExcerpt } =
+        await import("../platform/word-revision-document-excerpt.js");
+      const documentText = await readPinnedWordExcerpt({
+        workspaceDir: config.workspaceDir,
+        projectDir: projectDirResolved,
+        pins: opts.contextPins,
+      }).catch(() => "");
+      if (isWordRevisionTurn({ instruction, pins: opts.contextPins })) {
+        extraBlocks.push(
+          `\n\n${WORD_REVISION_PROMPT}\n\n${formatWordRevisionChecklistBlock({
+            instruction,
+            pins: opts.contextPins,
+            workspaceDir: config.workspaceDir,
+            documentText,
+            purpose: "revise",
+          })}\n\n${CONTRACT_REDLINE_CRAFT_SKILL}`,
+        );
+      } else {
+        const { isContractFastLaneInstruction, CONTRACT_FAST_LANE_PROMPT } =
+          await import("../platform/contract-fast-lane-instruction.js");
+        if (isContractFastLaneInstruction(instruction)) {
+          extraBlocks.push(`\n\n${CONTRACT_FAST_LANE_PROMPT}`);
+          extraBlocks.push(
+            `\n\n${formatWordRevisionChecklistBlock({
+              instruction,
+              pins: opts.contextPins,
+              workspaceDir: config.workspaceDir,
+              documentText,
+              purpose: "review",
+            })}`,
+          );
+        }
+      }
     }
   } catch {
     /* optional */
@@ -389,17 +473,23 @@ export async function prepareTurnPromptContext(opts: {
       await import("../skills/lawyer-capabilities.js");
     const { isMailContractFastPathInstruction } =
       await import("../platform/mail-contract-short-path-instruction.js");
+    const { isWordRevisionTurn } = await import("../platform/word-revision-instruction.js");
     const mailFast = isMailContractFastPathInstruction(instruction);
-    const bound = bindLawyerCapability({ instruction, mailFastPath: mailFast });
+    const bound = bindLawyerCapability({
+      instruction,
+      mailFastPath: mailFast,
+      pins: opts.contextPins,
+    });
     if (bound) {
       const bodies = readSkillPromptBodies(config.workspaceDir, bound.skillIds);
       extraBlocks.push(`\n\n${formatBoundCapabilityBlock(bound, bodies)}`);
     }
     const dt = deliverableTypeFromInstruction(instruction);
     const looksOpinion =
-      /意见书短路径|Opinion Craft|审查意见书|合同审查意见/.test(instruction) ||
-      ((dt === "contract.review" || /contract\.review/.test(instruction)) &&
-        /prepare_outbound_mail|意见书/.test(instruction));
+      !isWordRevisionTurn({ instruction, pins: opts.contextPins }) &&
+      (/意见书短路径|Opinion Craft|审查意见书|合同审查意见/.test(instruction) ||
+        ((dt === "contract.review" || /contract\.review/.test(instruction)) &&
+          /prepare_outbound_mail|意见书/.test(instruction)));
     if (looksOpinion) {
       const { OPINION_CRAFT_SKILL } = await import("../drafts/opinion-craft.js");
       if (!extraBlocks.some((b) => b.includes("合同审查意见书"))) {

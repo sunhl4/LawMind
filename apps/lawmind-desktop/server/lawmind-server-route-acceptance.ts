@@ -187,7 +187,7 @@ export async function handleAcceptanceRoutes({
           error: "feature_disabled",
           feature: "acceptancePackExport",
           edition: edition.edition,
-          hint: "Acceptance pack export 仅对 Firm / Private Deploy 可用。",
+          hint: `当前版本（${edition.edition}）未开启验收材料包导出。请检查「设置 → 版本」中的功能开关。`,
         },
         c,
       );

@@ -23,7 +23,7 @@ type Props = {
  * Firm+ may hard-block export via citationGateStrict; Solo remains advisory unless grounded.
  */
 export function LawmindCitationBanner(props: Props): ReactNode {
-  const { view, apiBase, taskId, citationGateStrict, citationMode = "assisted" } = props;
+  const { view, apiBase, taskId, citationMode = "assisted" } = props;
   if (!view) {
     return null;
   }
@@ -32,22 +32,14 @@ export function LawmindCitationBanner(props: Props): ReactNode {
   const modeLabel =
     citationMode === "grounded" ? "严格援引" : citationMode === "off" ? "关闭" : "辅助标注";
 
-  const editionHint =
-    citationGateStrict === true
-      ? "律所版：缺源或长段未锚定将在导出 Word 时被拦截（不影响签批）。"
-      : citationGateStrict === false
-        ? "独立版：引用提示默认不阻断签批；严格援引模式下导出仍可能被拦截。"
-        : null;
-
   if (kind === "skip") {
-    return <div className="lm-meta lm-citation-skip">引用模式：关闭（不对照检索快照）。</div>;
+    return <div className="lm-meta lm-citation-skip">引用模式：关闭</div>;
   }
 
   if (kind === "memory") {
     return (
       <div className="lm-meta lm-citation-memory" data-testid="lm-citation-mode-memory">
-        引用：模型记忆 / 无检索快照对照 · 模式 {modeLabel}
-        {editionHint ? <span className="lm-citation-edition-hint"> — {editionHint}</span> : null}
+        引用：无检索快照 · {modeLabel}
       </div>
     );
   }
@@ -56,9 +48,7 @@ export function LawmindCitationBanner(props: Props): ReactNode {
     return (
       <div className="lm-callout lm-callout-warn lm-citation-pending" role="status" data-testid="lm-citation-mode-pending">
         <div className="lm-callout-title">缺源 · 待核实引用</div>
-        <p className="lm-callout-body">
-          严格援引模式：尚无检索快照，导出 Word 将被拦截。请先完成检索或改为辅助标注。
-        </p>
+        <p className="lm-callout-body">无检索快照·将拦导出</p>
       </div>
     );
   }
@@ -71,10 +61,7 @@ export function LawmindCitationBanner(props: Props): ReactNode {
         data-testid="lm-citation-mode-nosnapshot"
       >
         <div className="lm-callout-title">缺源 · 无检索快照</div>
-        <p className="lm-callout-body">
-          本草稿尚未对照检索结果，请勿将法条/类案当作已核实引用。完成检索后再定稿。
-        </p>
-        {editionHint ? <p className="lm-meta lm-citation-edition-hint">{editionHint}</p> : null}
+        <p className="lm-callout-body">未对照检索</p>
       </div>
     );
   }
@@ -95,9 +82,7 @@ export function LawmindCitationBanner(props: Props): ReactNode {
     return (
       <div className="lm-callout lm-callout-danger lm-citation-warn" role="alert" data-testid="lm-citation-mode-danger">
         <div className="lm-callout-title">引用待核实 · {modeLabel}</div>
-        <p className="lm-callout-body">
-          下列出处未出现在本次检索结果中，请核对法条 / 案号是否写对：
-        </p>
+        <p className="lm-callout-body">下列出处未出现在本次检索结果中：</p>
         <ul className="lm-citation-warn-list">
           {view.sectionsWithIssues.map((s) => (
             <li key={s.heading}>
@@ -110,7 +95,6 @@ export function LawmindCitationBanner(props: Props): ReactNode {
             </li>
           ))}
         </ul>
-        {editionHint ? <p className="lm-meta lm-citation-edition-hint">{editionHint}</p> : null}
       </div>
     );
   }
@@ -128,17 +112,13 @@ export function LawmindCitationBanner(props: Props): ReactNode {
         data-testid={pending ? "lm-citation-mode-pending" : "lm-citation-unanchored"}
       >
         <div className="lm-callout-title">
-          {pending ? "未锚定 · 部分章节缺少引用（将拦导出）" : "未锚定 · 部分章节缺少引用"}
+          {pending ? "未锚定 · 将拦导出" : "未锚定 · 部分章节缺引用"}
         </div>
-        <p className="lm-callout-body">
-          以下章节正文较长但未标注检索来源，请核对后再定稿：
-        </p>
         <ul className="lm-citation-warn-list">
           {(view.unanchoredSections ?? []).map((s) => (
             <li key={s.heading}>「{s.heading}」</li>
           ))}
         </ul>
-        {editionHint ? <p className="lm-meta lm-citation-edition-hint">{editionHint}</p> : null}
       </div>
     );
   }

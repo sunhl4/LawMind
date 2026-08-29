@@ -139,7 +139,7 @@ export function MatterReviewMatrixPanel({ apiBase, matterId, onOpenReview }: Pro
     return (
       <div className="lm-workbench-panel">
         <h3>审查矩阵</h3>
-        <p className="lm-hint">本案还没有可对照的材料。请先完善案件档案，或生成草稿后再来。</p>
+        <p className="lm-hint">暂无可对照材料。</p>
         <button type="button" className="lm-btn lm-btn-secondary lm-btn-sm" onClick={() => void reload()}>
           刷新
         </button>
@@ -152,7 +152,7 @@ export function MatterReviewMatrixPanel({ apiBase, matterId, onOpenReview }: Pro
       <header className="lm-review-matrix__header">
         <h3>审查矩阵</h3>
         <p className="lm-hint">
-          按问题对照本案材料。格子里是线索摘录，不是结论；请核实后批注，需要细审草稿时打开文书台。
+          按问题对照材料；格子是线索，请核实后批注。
         </p>
         {gapSummary ? (
           <p className="lm-meta lm-review-matrix__summary" role="status">
@@ -259,7 +259,7 @@ export function MatterReviewMatrixPanel({ apiBase, matterId, onOpenReview }: Pro
                       className="lm-btn lm-btn-ghost lm-btn-sm"
                       onClick={() => onOpenReview({ taskId: doc.taskId, matterId })}
                     >
-                      打开文书台
+                      改稿
                     </button>
                   ) : null}
                 </th>
@@ -267,9 +267,11 @@ export function MatterReviewMatrixPanel({ apiBase, matterId, onOpenReview }: Pro
                   const key = matrixCellKey(doc.documentId, q.id);
                   const cell = cellMap.get(key);
                   const note = notes[key] ?? "";
-                  const isVerified = Boolean(verified[key]);
+                  const isVerified = Boolean(verified[key]) || cell?.status === "verified";
                   const excerpt = cell?.excerpt?.trim() ?? "";
-                  const isEmpty = !excerpt;
+                  const serverEmpty = cell?.status === "empty" || (!cell && !excerpt);
+                  const isEmpty = serverEmpty || !excerpt;
+                  const isSuggested = !isVerified && !isEmpty && (cell?.status === "suggested" || Boolean(excerpt));
                   const isOpen = Boolean(expanded[key]);
                   const preview =
                     excerpt.length > PREVIEW_LEN ? `${excerpt.slice(0, PREVIEW_LEN)}…` : excerpt;
@@ -279,11 +281,13 @@ export function MatterReviewMatrixPanel({ apiBase, matterId, onOpenReview }: Pro
                       key={q.id}
                       className={[
                         "lm-review-matrix__cell",
-                        isEmpty ? "lm-review-matrix__empty" : "lm-review-matrix__suggested",
+                        isEmpty ? "lm-review-matrix__empty" : "",
+                        isSuggested ? "lm-review-matrix__suggested" : "",
                         isVerified ? "lm-review-matrix__verified" : "",
                       ]
                         .filter(Boolean)
                         .join(" ")}
+                      data-cell-status={cell?.status ?? (isEmpty ? "empty" : "suggested")}
                     >
                       <div className="lm-review-matrix__cell-status">
                         {isVerified ? (
@@ -291,7 +295,9 @@ export function MatterReviewMatrixPanel({ apiBase, matterId, onOpenReview }: Pro
                         ) : isEmpty ? (
                           <span className="lm-review-matrix__pill lm-review-matrix__pill--empty">未见</span>
                         ) : (
-                          <span className="lm-review-matrix__pill lm-review-matrix__pill--pending">待核实</span>
+                          <span className="lm-review-matrix__pill lm-review-matrix__pill--pending">
+                            {cell?.status === "suggested" ? "系统建议" : "待核实"}
+                          </span>
                         )}
                       </div>
                       {isEmpty ? (

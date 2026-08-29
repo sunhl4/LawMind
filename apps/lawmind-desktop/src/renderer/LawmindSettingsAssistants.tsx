@@ -116,9 +116,7 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
 
   return (
     <div className="lm-settings-section lm-assistants-settings" data-testid="lm-settings-assistants">
-      <p className="lm-settings-lead">
-        切换当前对话助手，或按业务领域快速新建。岗位职责说明见「高级 → 角色」。
-      </p>
+      <p className="lm-settings-lead">选助手或新建。</p>
 
       <section className="lm-assistants-block" aria-labelledby="lm-assistants-current-title">
         <header className="lm-assistants-block__head">

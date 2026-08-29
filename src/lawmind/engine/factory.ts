@@ -57,8 +57,9 @@ export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine 
     draftAsync(intent, bundle, opts = {}) {
       return draftAsyncImpl(ctx, intent, bundle, opts);
     },
-    review(draft, opts = {}) {
-      return reviewDraft(ctx, draft, opts);
+    async review(draft, opts = {}) {
+      const result = await reviewDraft(ctx, draft, opts);
+      return result.draft;
     },
     reopenDraftReview(taskId, opts = {}) {
       return reopenDraftReviewImpl(ctx, taskId, opts);

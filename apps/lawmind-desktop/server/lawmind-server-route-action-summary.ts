@@ -18,6 +18,7 @@ import { approvalResolvePostSchema } from "./lawmind-api-schemas.js";
 import { sendJsonError } from "./lawmind-api-error.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import { resolveDesktopActorId, sendJson } from "./lawmind-server-helpers.js";
+import { isLawyerOutboundDecision } from "../../../src/lawmind/platform/lawyer-outbound-decision.js";
 
 /** Info badges only — must not inflate requiresDecisionTotal (Wave D / T4.4). */
 const COLLAB_COMPLETION_WINDOW_MS = 48 * 60 * 60 * 1000;
@@ -108,6 +109,9 @@ export async function handleActionSummaryRoutes({
       return true;
     }
 
+    /** 待拍板只拦外发；问客户算出局。内部审稿 / 合伙人复核直接出结果。 */
+    const LAWYER_FACING_QUEUE_KINDS = new Set(["need_client_input"]);
+
     const [pendingApprovals, openQueueItems, jobs] = await Promise.all([
       listApprovalRequests(workspaceDir, { matterId: matterFilter, status: "pending" }),
       listWorkQueueItems(workspaceDir, { matterId: matterFilter, status: "open" }),
@@ -130,12 +134,26 @@ export async function handleActionSummaryRoutes({
         (draft.reviewStatus === "pending" || draft.reviewStatus === "modified"),
     );
     const automationInbox = listOpenAutomationInbox(workspaceDir, matterFilter);
+    // 徽章与在办队列同归并：队列项只计律师拍板类；交办 inbox 去掉
+    // 已被「待签批文书」覆盖的同 draftTaskId 项（pendingSend 发信票独立保留）。
+    const lawyerQueueItems = openQueueItems.filter((item) =>
+      LAWYER_FACING_QUEUE_KINDS.has(item.kind),
+    );
+    const outboundInbox = automationInbox.filter((item) => Boolean(item.pendingSend?.to));
+    const chatDecisionCount = chatRequiresActions.reduce((n, row) => {
+      return (
+        n +
+        row.actions.filter((a) =>
+          isLawyerOutboundDecision({
+            actionKind: a.kind,
+            toolName: a.toolName,
+            status: a.kind === "clarification" ? "awaiting_clarification" : undefined,
+          }),
+        ).length
+      );
+    }, 0);
     const requiresDecisionTotal =
-      pendingApprovals.length +
-      openQueueItems.length +
-      chatRequiresActionCount +
-      pendingReviewDrafts.length +
-      automationInbox.length;
+      lawyerQueueItems.length + chatDecisionCount + outboundInbox.length;
     const total =
       requiresDecisionTotal +
       jobs.length;
@@ -173,7 +191,8 @@ export async function handleActionSummaryRoutes({
         approvals: pendingApprovals.slice(0, 20),
         queueItems: openQueueItems.slice(0, 20),
         jobs: jobs.slice(0, 10),
-        pendingReviewDrafts: pendingReviewDrafts.slice(0, 20).map((draft) => {
+        // 完整列表：在办 mergeFleetQueueRows 用这两份数组；截断会导致侧栏「待我拍板」与队列条数对不上。
+        pendingReviewDrafts: pendingReviewDrafts.map((draft) => {
           const task = readTaskRecord(workspaceDir, draft.taskId);
           return {
             taskId: draft.taskId,
@@ -186,7 +205,7 @@ export async function handleActionSummaryRoutes({
         }),
         toolApprovals: toolApprovals.slice(0, 20),
         chatRequiresActions: chatRequiresActions.slice(0, 30),
-        automationInbox: automationInbox.slice(0, 30),
+        automationInbox,
       },
       c,
     );

@@ -13,7 +13,10 @@ export type ProductMetricKind =
   | "gate_failure"
   | "triage"
   | "checklist"
-  | "citation_mode";
+  | "citation_mode"
+  | "lint_escape"
+  | "delivery_autonomy"
+  | "review_duration";
 
 export type ProductMetricEvent = {
   ts: string;
@@ -54,8 +57,24 @@ export type ProductMetricSummary = {
   rewrites: number;
 };
 
-export function summarizeProductMetrics(workspaceDir: string, limit = 5000): ProductMetricSummary {
+export function listProductMetricEvents(workspaceDir: string, limit = 5000): ProductMetricEvent[] {
   const file = productMetricsPath(workspaceDir);
+  if (!fs.existsSync(file)) {
+    return [];
+  }
+  const events: ProductMetricEvent[] = [];
+  const lines = fs.readFileSync(file, "utf8").split("\n").filter(Boolean).slice(-limit);
+  for (const line of lines) {
+    try {
+      events.push(JSON.parse(line) as ProductMetricEvent);
+    } catch {
+      /* skip bad lines */
+    }
+  }
+  return events;
+}
+
+export function summarizeProductMetrics(workspaceDir: string, limit = 5000): ProductMetricSummary {
   const summary: ProductMetricSummary = {
     total: 0,
     byKind: {},
@@ -67,37 +86,28 @@ export function summarizeProductMetrics(workspaceDir: string, limit = 5000): Pro
     firstPassFail: 0,
     rewrites: 0,
   };
-  if (!fs.existsSync(file)) {
-    return summary;
-  }
-  const lines = fs.readFileSync(file, "utf8").split("\n").filter(Boolean).slice(-limit);
-  for (const line of lines) {
-    try {
-      const ev = JSON.parse(line) as ProductMetricEvent;
-      summary.total += 1;
-      summary.byKind[ev.kind] = (summary.byKind[ev.kind] ?? 0) + 1;
-      summary.byOutcome[ev.outcome] = (summary.byOutcome[ev.outcome] ?? 0) + 1;
-      if (ev.kind === "triage" && ev.outcome === "confirmed") {
-        summary.triageConfirmed += 1;
-      }
-      if (ev.kind === "triage" && ev.outcome === "preview") {
-        summary.triagePreview += 1;
-      }
-      if (ev.kind === "gate_failure") {
-        summary.gateFailures += 1;
-      }
-      if (ev.kind === "first_pass" && ev.outcome === "ok") {
-        summary.firstPassOk += 1;
-      }
-      if (ev.kind === "first_pass" && ev.outcome === "fail") {
-        summary.firstPassFail += 1;
-      }
-      if (ev.kind === "rewrite") {
-        summary.rewrites += 1;
-        summary.firstPassFail += 1;
-      }
-    } catch {
-      /* skip bad lines */
+  for (const ev of listProductMetricEvents(workspaceDir, limit)) {
+    summary.total += 1;
+    summary.byKind[ev.kind] = (summary.byKind[ev.kind] ?? 0) + 1;
+    summary.byOutcome[ev.outcome] = (summary.byOutcome[ev.outcome] ?? 0) + 1;
+    if (ev.kind === "triage" && ev.outcome === "confirmed") {
+      summary.triageConfirmed += 1;
+    }
+    if (ev.kind === "triage" && ev.outcome === "preview") {
+      summary.triagePreview += 1;
+    }
+    if (ev.kind === "gate_failure") {
+      summary.gateFailures += 1;
+    }
+    if (ev.kind === "first_pass" && ev.outcome === "ok") {
+      summary.firstPassOk += 1;
+    }
+    if (ev.kind === "first_pass" && ev.outcome === "fail") {
+      summary.firstPassFail += 1;
+    }
+    if (ev.kind === "rewrite") {
+      summary.rewrites += 1;
+      summary.firstPassFail += 1;
     }
   }
   return summary;

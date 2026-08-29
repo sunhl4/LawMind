@@ -6,8 +6,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { MailAccount } from "./mail-accounts.js";
 import { fetchGraphMessages, sendGraphMail, testGraphMailConnection } from "./graph-mail.js";
+import type { MailAccount } from "./mail-accounts.js";
+
+function fetchCallUrl(input: RequestInfo | URL): string {
+  if (typeof input === "string") {
+    return input;
+  }
+  if (input instanceof URL) {
+    return input.href;
+  }
+  return input.url;
+}
 
 const dirs: string[] = [];
 
@@ -37,10 +47,7 @@ describe("mail/graph-mail", () => {
 
   it("testGraphMailConnection fails when tenant/client missing", async () => {
     const root = tmpRoot();
-    const r = await testGraphMailConnection(
-      { ...baseAccount, tenantId: "", clientId: "" },
-      root,
-    );
+    const r = await testGraphMailConnection({ ...baseAccount, tenantId: "", clientId: "" }, root);
     expect(r.ok).toBe(false);
     expect(r.error).toBe("graph_tenant_client_required");
   });
@@ -58,7 +65,7 @@ describe("mail/graph-mail", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
+        const url = fetchCallUrl(input);
         if (url.includes("oauth2/v2.0/token")) {
           return Response.json({ access_token: "tok" });
         }
@@ -80,7 +87,7 @@ describe("mail/graph-mail", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
+        const url = fetchCallUrl(input);
         if (url.includes("oauth2/v2.0/token")) {
           return Response.json({ access_token: "tok" });
         }
@@ -112,25 +119,29 @@ describe("mail/graph-mail", () => {
   it("sendGraphMail posts sendMail when configured", async () => {
     const root = tmpRoot();
     process.env.LAWMIND_MAIL_GRAPH_CLIENT_SECRET = "secret";
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.includes("oauth2/v2.0/token")) {
-          return Response.json({ access_token: "tok" });
-        }
-        if (url.includes("/sendMail")) {
-          return new Response(null, { status: 202 });
-        }
-        return new Response("nope", { status: 404 });
-      }),
-    );
-    const r = await sendGraphMail(baseAccount, root, {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = fetchCallUrl(input);
+      if (url.includes("oauth2/v2.0/token")) {
+        return Response.json({ access_token: "tok" });
+      }
+      if (url.includes("/sendMail")) {
+        return new Response(null, { status: 202 });
+      }
+      return new Response("nope", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const r = await sendGraphMail({ ...baseAccount, sendFormat: { fromName: "张三律师" } }, root, {
       to: "client@example.com",
       subject: "更新",
       body: "正文",
     });
     expect(r.ok).toBe(true);
+    const sendCall = fetchMock.mock.calls.find((c) => fetchCallUrl(c[0]).includes("/sendMail"));
+    const rawBody = (sendCall?.[1] as RequestInit | undefined)?.body;
+    const sentBody = JSON.parse(typeof rawBody === "string" ? rawBody : "{}") as {
+      message?: { from?: { emailAddress?: { name?: string } } };
+    };
+    expect(sentBody.message?.from?.emailAddress?.name).toBe("张三律师");
     delete process.env.LAWMIND_MAIL_GRAPH_CLIENT_SECRET;
   });
 });

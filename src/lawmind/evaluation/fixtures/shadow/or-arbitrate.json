@@ -1,0 +1,7 @@
+{
+  "id": "shadow-or-arbitrate",
+  "instruction": "请审查争议解决条款。",
+  "lawyerFinalText": "第二条 因本合同引起的争议，提交北京仲裁委员会仲裁。",
+  "engineDraftText": "第二条 争议既可以申请仲裁也可以向人民法院起诉。",
+  "plantedDefectRuleIds": ["form.or_arbitrate_or_sue"]
+}

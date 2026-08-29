@@ -25,6 +25,12 @@ const REQUIRED_MARKERS = [
   "matter-review-workbench",
   "legacy-rest",
   "settings",
+  // 在办/自动化/指挥台/导航模块纳入同步标记检查。
+  // （decision-ceremony/agents-workbench 并入 agent-fleet 块；
+  //   meeting-workbench 并入 matter-review-workbench 块，由对应 marker 覆盖。）
+  "automations",
+  "agent-fleet",
+  "cockpit-nav",
 ];
 
 const MIN_BYTES = 150_000;

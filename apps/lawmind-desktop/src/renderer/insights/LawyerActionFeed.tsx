@@ -17,7 +17,7 @@ export function LawyerActionFeed({ events, formatRelative }: Props): ReactNode {
   if (events.length === 0) {
     return (
       <div className="lm-callout lm-callout-muted">
-        本案件还没有记录到律师动作。打开文书台、写入 CASE 或采纳认知建议后即可在此处看到。
+        暂无动作。
       </div>
     );
   }
@@ -48,7 +48,7 @@ export function LawyerActionFeed({ events, formatRelative }: Props): ReactNode {
 function actionLabel(a: InteractionEvent["action"]): string {
   switch (a) {
     case "open_review":
-      return "进入文书台";
+      return "改稿";
     case "save_upgrade_suggestion":
       return "采纳认知升级";
     case "write_case_note":

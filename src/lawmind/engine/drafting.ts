@@ -7,11 +7,43 @@
 
 import { getAssistantById, resolveLawMindRoot } from "../assistants/store.js";
 import { getRoleById, roleAllowsDeliverable } from "../core/role.js";
-import { buildDraft, buildDraftAsync } from "../reasoning/index.js";
+import { persistClauseSnapshot } from "../drafts/clause-snapshot.js";
+import {
+  draftLooksLikeContractBody,
+  enrichDraftWithContractEditBaseline,
+  stampContractEditBaselineIfNeeded,
+} from "../drafts/contract-edit-baseline.js";
+import { buildDraft, buildDraftAsync, runDraftCriticAsync } from "../reasoning/index.js";
 import type { ArtifactDraft, ResearchBundle, TaskIntent } from "../types.js";
 import type { EngineContext } from "./context.js";
 import { classifyDeliverableKindFromIntent } from "./role-helpers.js";
 import { persistDraftPipeline } from "./shared.js";
+
+async function attachContractEditContext(
+  ctx: EngineContext,
+  intent: TaskIntent,
+  bundle: ResearchBundle,
+  draft: ArtifactDraft,
+): Promise<ArtifactDraft> {
+  const seedSections = draftLooksLikeContractBody(draft, intent.instruction);
+  try {
+    const { draft: enriched } = await enrichDraftWithContractEditBaseline({
+      workspaceDir: ctx.workspaceDir,
+      draft,
+      instruction: intent.instruction,
+      bundle,
+      seedSections,
+    });
+    return enriched;
+  } catch {
+    return stampContractEditBaselineIfNeeded({
+      workspaceDir: ctx.workspaceDir,
+      draft,
+      instruction: intent.instruction,
+      bundle,
+    });
+  }
+}
 
 class DraftCreationError extends Error {
   readonly code = "draft_role_not_allowed";
@@ -51,11 +83,18 @@ export function draftSync(
   opts: { title?: string; templateId?: string } = {},
 ): ArtifactDraft {
   ensureRoleAllowsDraft(ctx, intent);
-  const draft = buildDraft({
+  let draft = buildDraft({
     intent,
     bundle,
     title: opts.title,
     templateId: opts.templateId,
+    workspaceDir: ctx.workspaceDir,
+  });
+  draft = stampContractEditBaselineIfNeeded({
+    workspaceDir: ctx.workspaceDir,
+    draft,
+    instruction: intent.instruction,
+    bundle,
   });
   persistDraftPipeline(ctx, draft, bundle);
   return draft;
@@ -69,13 +108,18 @@ export async function draftAsyncImpl(
 ): Promise<ArtifactDraft> {
   ensureRoleAllowsDraft(ctx, intent);
   const lawMindRoot = resolveLawMindRoot(ctx.workspaceDir);
-  const draft = await buildDraftAsync({
+  let draft = await buildDraftAsync({
     intent,
     bundle,
     title: opts.title,
     templateId: opts.templateId,
     lawMindRoot,
+    workspaceDir: ctx.workspaceDir,
   });
+  draft = await attachContractEditContext(ctx, intent, bundle, draft);
+  const criticized = await runDraftCriticAsync(draft);
+  draft = criticized.draft;
+  persistClauseSnapshot(ctx.workspaceDir, criticized.graph);
   persistDraftPipeline(ctx, draft, bundle);
   return draft;
 }

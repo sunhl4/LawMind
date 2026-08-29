@@ -45,14 +45,14 @@ export const PRACTICE_PERSONAS: PracticePersona[] = [
     label: "合规研究",
     description: "规范层级与适用边界",
     presetKey: "compliance_research",
-    suggestedWorkflowIds: ["compliance-research-memo"],
+    suggestedWorkflowIds: ["compliance-research-memo", "office-research-report", "training-ppt"],
   },
   {
     id: "client",
     label: "客户沟通",
     description: "面向客户的备忘录与进展说明",
     presetKey: "client_memo",
-    suggestedWorkflowIds: ["client-update-memo"],
+    suggestedWorkflowIds: ["client-update-memo", "training-ppt"],
   },
   {
     id: "due_diligence",

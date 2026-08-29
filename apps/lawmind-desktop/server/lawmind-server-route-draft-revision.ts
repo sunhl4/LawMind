@@ -1,5 +1,5 @@
 /**
- * POST /api/drafts/:taskId/revision-job — 文书台「提交给助手」后台修订（与 handleReviewRoute 解耦，便于 dispatch 显式挂载）。
+ * POST /api/drafts/:taskId/revision-job — 文书台「提交改稿」后台修订（与 handleReviewRoute 解耦，便于 dispatch 显式挂载）。
  */
 
 import path from "node:path";
@@ -17,8 +17,10 @@ import {
 } from "../../../src/lawmind/assistants/store.js";
 import {
   generateRedlineAfterWrite,
+  persistDraft,
   prepareRedlineBaselineBeforeWrite,
   readDraft,
+  stampContractEditBaselineIfNeeded,
 } from "../../../src/lawmind/drafts/index.js";
 import {
   buildRevisionRetryInstruction,
@@ -58,20 +60,26 @@ function buildRevisionDispatchInstruction(draft: ArtifactDraft, supplementary: s
   const matterLine = draft.matterId?.trim()
     ? `- 关联案件 matterId：\`${draft.matterId.trim()}\`\n`
     : "";
+  const baseline = draft.contractEdit?.baselineRelativePath?.trim();
+  const baselineLine = baseline
+    ? `- 原合同基线（导出 Word 审阅修订用）：\`${baseline}\` — 调用 \`update_draft\` 时请保留/传入 \`contract_edit_baseline_path\`=\`${baseline}\`，并对合同正文做**最小必要修改**（只改必须改的字词）。\n`
+    : (draft.deliverableType ?? "").startsWith("contract.")
+      ? `- 合同类草稿：若工作区有原合同 \`.docx\`，\`update_draft\` 须带 \`contract_edit_baseline_path\`；正文仅做最小必要修改。\n`
+      : "";
   const core = `【文书台 · 后台修订请求】
 
 律师已通过文书台将本草稿标为「需修改」，并请求你在**后台**根据下列意见修订交付草稿（任务 / 草稿 ID 与 taskId 一致）。
 
 - 草稿 taskId：\`${draft.taskId}\`
 - 标题：${draft.title}
-${matterLine}- 输出形态：${draft.output ?? "（未声明）"}
+${matterLine}${baselineLine}- 输出形态：${draft.output ?? "（未声明）"}
 - 已记入草稿的审核备注（按时间顺序）：
 ${notesBlock}
 
 - 律师本次在文书台填写的**补充说明**（发给助手）：
 ${extraBlock}
 
-**必须落盘，禁止只改聊天文字：** 律师已在文书台点击「提交给助手」，等同于已授权你写回工作区。你必须用工具把批注落实进 **同一条** 草稿（taskId \`${draft.taskId}\`），不能只写自然语言说明。
+**必须落盘，禁止只改聊天文字：** 律师已在文书台点击「提交改稿」，等同于已授权你写回工作区。你必须用工具把批注落实进 **同一条** 草稿（taskId \`${draft.taskId}\`），不能只写自然语言说明。
 
 **推荐步骤（缺一不可）：**
 1. 用 \`analyze_document\` 或 \`search_workspace\` 读取当前 \`drafts/${draft.taskId}.json\`，弄清现有结构（尤其 \`sections\`、\`summary\`）。
@@ -122,7 +130,7 @@ export async function handleDraftRevisionJobRoute({
       {
         ok: false,
         error: "revision_job_requires_modified",
-        message: "请先将签批标为「需修改」，再使用「提交给助手（后台执行）」。",
+        message: "请先将签批标为「需修改」，再使用「提交改稿」。",
       },
       c,
     );
@@ -180,16 +188,30 @@ export async function handleDraftRevisionJobRoute({
     allowWebSearch,
     enableCollaboration: built.config.enableCollaboration !== false,
     /**
-     * 文书台「提交给助手」为律师显式授权的后台修订：关闭 strict，并允许其余危险工具一次跑完。
-     * （write_document / update_draft 本身已不再要求工具批准。）
+     * 文书台「提交改稿」为律师显式授权的后台修订：关闭 strict 即可让
+     * update_draft / write_document 顺畅执行（二者本就无需工具批准）。
+     * 不再放开 allowDangerousToolsWithoutApproval——send_email / render_document 等
+     * 交付/外发类危险工具在后台修订中必须仍走批准，避免静默出稿/外发。
      */
     strictDangerousToolApproval: false,
-    allowDangerousToolsWithoutApproval: true,
+    allowDangerousToolsWithoutApproval: false,
     maxToolCalls: Math.max(built.config.maxToolCalls ?? 16, 24),
   };
   const auditDir = path.join(workspaceDir, "audit");
   const matterIdForChat = draft.matterId?.trim() || undefined;
-  const instruction = buildRevisionDispatchInstruction(draft, supplementary);
+  // Stamp contractEdit from notes / capture / supplementary paths before dispatch.
+  let draftForJob = stampContractEditBaselineIfNeeded({
+    workspaceDir,
+    draft,
+    instruction: [supplementary, ...(draft.reviewNotes ?? [])].join("\n"),
+  });
+  if (
+    draftForJob.contractEdit?.baselineRelativePath !== draft.contractEdit?.baselineRelativePath ||
+    draftForJob.contractEdit?.mode !== draft.contractEdit?.mode
+  ) {
+    persistDraft(workspaceDir, draftForJob);
+  }
+  const instruction = buildRevisionDispatchInstruction(draftForJob, supplementary);
   await emit(auditDir, {
     taskId: raw,
     kind: "draft.revision_dispatched",
@@ -319,6 +341,8 @@ export async function handleDraftRevisionJobRoute({
       queued: true,
       sessionId: preSession.sessionId,
       assistantId: profile.assistantId,
+      // 后台修订进度/失败均可查询：live-turn（进行中）与审计 draft.revision_*（终态）。
+      statusUrl: `/api/sessions/${encodeURIComponent(preSession.sessionId)}/live-turn`,
     },
     c,
   );

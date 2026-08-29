@@ -121,7 +121,7 @@ export function LawmindDelegateAssistDialog(props: Props): ReactNode {
           ))}
         </div>
         {peers.length === 0 ? (
-          <p className="lm-meta">暂无其他助手。请先在设置中新建智能体。</p>
+          <p className="lm-meta">请先新建助手。</p>
         ) : null}
         <label className="lm-delegate-task-label">
           <span>任务说明</span>

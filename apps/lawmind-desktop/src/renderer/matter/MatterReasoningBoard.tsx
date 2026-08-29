@@ -20,16 +20,16 @@ export function MatterReasoningBoard({ matterId, reasoning }: Props): ReactNode 
       <h3>推理图谱</h3>
       {!reasoning ? (
         <div className="lm-callout lm-callout-muted">
-          当前案件还没有 reasoning snapshot。生成草稿后会自动写入。
+          尚无推理快照。
         </div>
       ) : (
         <div className="lm-callout">
           <div>
-            <strong>推理门禁：{reasoning.ready ? "通过" : "未通过"}</strong>
+            <strong>依据检查：{reasoning.ready ? "通过" : "未通过"}</strong>
             <span className="lm-meta">
               {" "}
-              · {reasoning.required ? "强制" : "可选"} · blockers {reasoning.blockerCount} ·
-              warnings {reasoning.warningCount}
+              · {reasoning.required ? "必过" : "可选"} · 阻断 {reasoning.blockerCount} · 警告{" "}
+              {reasoning.warningCount}
             </span>
           </div>
           <ul style={{ paddingLeft: 18, marginTop: 8 }}>

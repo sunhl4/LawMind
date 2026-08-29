@@ -11,6 +11,11 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
 const localEsbuild = path.join(repoRoot, "node_modules", ".bin", "esbuild");
 const outfile = path.join(repoRoot, "apps/lawmind-desktop/server/dist/lawmind-local-server.cjs");
 const entry = path.join(repoRoot, "apps/lawmind-desktop/server/lawmind-local-server.ts");
+const childOutfile = path.join(
+  repoRoot,
+  "apps/lawmind-desktop/server/dist/analysis-sandbox-child.cjs",
+);
+const childEntry = path.join(repoRoot, "src/lawmind/agent/tools/legal/analysis-sandbox-child.ts");
 
 if (!fs.existsSync(localEsbuild)) {
   console.error(
@@ -31,4 +36,25 @@ const result = spawnSync(
   },
 );
 
-process.exit(result.status === 0 ? 0 : (result.status ?? 1));
+if (result.status !== 0) {
+  process.exit(result.status ?? 1);
+}
+
+const child = spawnSync(
+  localEsbuild,
+  [
+    childEntry,
+    "--bundle",
+    "--platform=node",
+    "--format=cjs",
+    "--target=node22",
+    `--outfile=${childOutfile}`,
+  ],
+  {
+    cwd: repoRoot,
+    stdio: "inherit",
+    env: process.env,
+  },
+);
+
+process.exit(child.status === 0 ? 0 : (child.status ?? 1));

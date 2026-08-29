@@ -26,6 +26,12 @@ import { scheduleScrollChatMessagesToLatest } from "./lawmind-chat-scroll";
 import { useLawmindAppRootHandlers } from "./app/useLawmindAppRootHandlers";
 import { useLawmindAppRootLayout } from "./app/useLawmindAppRootLayout";
 import { LawmindAppRootView } from "./app/LawmindAppRootView";
+import { subscribeOpenAutomationsSettings } from "./lawmind-automations-nav-bus";
+import { subscribeOpenMeetingView } from "./lawmind-meeting-nav-bus";
+import {
+  lawyerFacingDecisionTotal,
+  useRequireSignoffReview,
+} from "./lawmind-review-prefs";
 
 
 export function LawmindAppRoot() {
@@ -103,8 +109,13 @@ export function LawmindAppRoot() {
     null,
     Boolean(config?.apiBase),
   );
-  const actionSummaryTotal =
-    actionSummaryQuery.data?.requiresDecisionTotal ?? actionSummaryQuery.data?.total ?? 0;
+  const requireSignoffReview = useRequireSignoffReview();
+  const actionSummaryTotal = lawyerFacingDecisionTotal({
+    requiresDecisionTotal: actionSummaryQuery.data?.requiresDecisionTotal,
+    total: actionSummaryQuery.data?.total,
+    pendingReviewCount: actionSummaryQuery.data?.pendingReviewCount,
+    requireSignoffReview,
+  });
   const recentCollabCompleted = actionSummaryQuery.data?.recentCollabCompleted ?? 0;
   const actionSummaryActiveJobs = actionSummaryQuery.data?.activeJobs ?? 0;
   const refreshActionSummary = useCallback(async () => {
@@ -148,6 +159,9 @@ export function LawmindAppRoot() {
   /** 对话「去在办补充」深链到具体待办行 */
   const [agentsDeskFocusTarget, setAgentsDeskFocusTarget] =
     useState<import("./lawmind-agents-desk").NeedsDecisionDeskTarget | null>(null);
+  /** 「按流程办」深链：预填案件并高亮对应 job */
+  const [agentsWorkflowFocus, setAgentsWorkflowFocus] =
+    useState<import("./lawmind-agents-desk").AgentsWorkflowFocusTarget | null>(null);
 
   useEffect(() => {
     const id = focusMatterIdFromReview?.trim();
@@ -203,6 +217,7 @@ export function LawmindAppRoot() {
     setShowSettings,
     sendChatMessage,
     setSessionByAssistant,
+    selectChatSession,
   } = actions;
 
   const {
@@ -265,6 +280,17 @@ export function LawmindAppRoot() {
   const workflowModelLabel =
     modelCatalog.find((m) => m.id === selectedModelId)?.label ?? selectedModelId;
   useEffect(() => {
+    return subscribeOpenAutomationsSettings(() => {
+      setShowSettings(true, "automations");
+    });
+  }, [setShowSettings]);
+  useEffect(() => {
+    return subscribeOpenMeetingView(() => {
+      setMatterCockpitOpen(false);
+      setMainView("meeting");
+    });
+  }, [setMainView, setMatterCockpitOpen]);
+  useEffect(() => {
     const unsub = window.lawmindDesktop?.onNotificationClick?.((payload) => {
       if (payload?.reason === "open_review") {
         setReviewLaunchedFromMatter(false);
@@ -278,10 +304,16 @@ export function LawmindAppRoot() {
       if (payload?.reason === "open_workspace_chat") {
         setMainView("workspace");
         const aid = payload.chatAssistantId?.trim();
+        const sid = payload.chatSessionId?.trim();
         if (aid && assistants.some((a) => a.assistantId === aid)) {
           setSelectedAssistantId(aid);
         }
-        scheduleScrollChatMessagesToLatest({ behavior: "smooth" });
+        // 通知带会话 id 时直接切到该会话（深链），不再只滚到当前会话底部。
+        if (sid) {
+          void selectChatSession(sid, aid || undefined);
+        } else {
+          scheduleScrollChatMessagesToLatest({ behavior: "smooth" });
+        }
         return;
       }
       if (payload?.reason !== "open_settings_collaboration") {
@@ -302,6 +334,7 @@ export function LawmindAppRoot() {
     };
   }, [
     assistants,
+    selectChatSession,
     setMainView,
     setAgentsDeskTab,
     setReviewFocusListMode,
@@ -431,6 +464,8 @@ export function LawmindAppRoot() {
     setAgentsNeedsDecisionFocus,
     agentsDeskFocusTarget,
     setAgentsDeskFocusTarget,
+    agentsWorkflowFocus,
+    setAgentsWorkflowFocus,
     setFocusMatterIdFromReview,
     sidebarCollapsed,
     setSidebarCollapsed,

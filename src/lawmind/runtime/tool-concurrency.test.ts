@@ -115,4 +115,213 @@ describe("executeToolBatches approval race", () => {
     expect(turn.pendingToolApproval?.toolCallId).toBe("a");
     expect(turn.pendingToolApproval?.toolName).toBe("tool_a");
   });
+
+  it("skips tools that have not started after Stop, and still writes tool results", async () => {
+    const registry = new ToolRegistry();
+    const ran: string[] = [];
+    const makeTool = (name: string): AgentTool => ({
+      definition: {
+        name,
+        description: name,
+        category: "system",
+        parameters: {},
+      },
+      execute: async () => {
+        ran.push(name);
+        return { ok: true };
+      },
+    });
+    registry.register(makeTool("tool_first"));
+    registry.register(makeTool("tool_second"));
+
+    const turn: AgentTurn = {
+      turnId: "t-abort",
+      sessionId: "s1",
+      instruction: "x",
+      messages: [],
+      toolCallsExecuted: 0,
+      status: "running",
+      gateDecisions: [],
+      startedAt: new Date().toISOString(),
+    };
+    const abort = new AbortController();
+    const ctx = {
+      workspaceDir: "/tmp",
+      abortSignal: abort.signal,
+    } as AgentContext;
+    const pushed: Array<{ name?: string; ok?: boolean }> = [];
+
+    abort.abort();
+    await executeToolBatches({
+      toolRefs: [
+        { id: "a", name: "tool_first", arguments: {} },
+        { id: "b", name: "tool_second", arguments: {} },
+      ],
+      registry,
+      turn,
+      ctx,
+      roundIndex: 1,
+      assistantContent: "",
+      maxToolCalls: 10,
+      toolTimeoutMs: 5000,
+      strictDangerousToolApproval: false,
+      allowDangerousToolsWithoutApproval: true,
+      toolSandboxEnabled: false,
+      actorId: "test",
+      pendingClarificationQuestions: [],
+      emitEvent: () => {},
+      pushMessage: (msg) => {
+        const tr = msg.toolCallResponses?.[0];
+        pushed.push({ name: tr?.name, ok: tr?.result.ok });
+      },
+      abortRequested: () => true,
+    });
+
+    expect(ran).toEqual([]);
+    expect(turn.toolCallsExecuted).toBe(0);
+    expect(pushed).toEqual([
+      { name: "tool_first", ok: false },
+      { name: "tool_second", ok: false },
+    ]);
+  });
+
+  it("does not publish any tool result until the concurrent batch finishes", async () => {
+    const registry = new ToolRegistry();
+    const pushedDuring = { a: 0, b: 0 };
+    let pushed = 0;
+    registry.register({
+      definition: {
+        name: "search_ok",
+        description: "ok",
+        category: "search",
+        parameters: {},
+        isConcurrencySafe: true,
+      },
+      execute: async () => {
+        await new Promise((r) => setTimeout(r, 15));
+        pushedDuring.a = pushed;
+        return { ok: true, data: { hit: 1 } };
+      },
+    });
+    registry.register({
+      definition: {
+        name: "needs_ok",
+        description: "pending",
+        category: "search",
+        parameters: {},
+        isConcurrencySafe: true,
+      },
+      execute: async () => {
+        pushedDuring.b = pushed;
+        return { ok: true, pendingApproval: true };
+      },
+    });
+    const turn: AgentTurn = {
+      turnId: "t-hold",
+      sessionId: "s1",
+      instruction: "x",
+      messages: [],
+      toolCallsExecuted: 0,
+      status: "running",
+      gateDecisions: [],
+      startedAt: new Date().toISOString(),
+    };
+    const names: string[] = [];
+    const result = await executeToolBatches({
+      toolRefs: [
+        { id: "a", name: "search_ok", arguments: {} },
+        { id: "b", name: "needs_ok", arguments: {} },
+      ],
+      registry,
+      turn,
+      ctx: { workspaceDir: "/tmp" } as AgentContext,
+      roundIndex: 1,
+      assistantContent: "",
+      maxToolCalls: 10,
+      toolTimeoutMs: 5000,
+      strictDangerousToolApproval: false,
+      allowDangerousToolsWithoutApproval: true,
+      toolSandboxEnabled: false,
+      actorId: "test",
+      pendingClarificationQuestions: [],
+      emitEvent: () => {},
+      pushMessage: (msg) => {
+        pushed += 1;
+        names.push(msg.toolCallResponses?.[0]?.name ?? "");
+      },
+    });
+    expect(pushedDuring.a).toBe(0);
+    expect(pushedDuring.b).toBe(0);
+    expect(result.heldForElicitation).toBe(true);
+    expect(result.stoppedForApproval).toBe(true);
+    expect(names).toEqual(["search_ok", "needs_ok"]);
+    expect(turn.pendingToolApproval?.toolName).toBe("needs_ok");
+  });
+
+  it("publishes clarification results only after the whole batch returns", async () => {
+    const registry = new ToolRegistry();
+    registry.register({
+      definition: {
+        name: "search_ok",
+        description: "ok",
+        category: "search",
+        parameters: {},
+        isConcurrencySafe: true,
+      },
+      execute: async () => ({ ok: true }),
+    });
+    registry.register({
+      definition: {
+        name: "ask_more",
+        description: "clarify",
+        category: "draft",
+        parameters: {},
+        isConcurrencySafe: true,
+      },
+      execute: async () => ({
+        ok: true,
+        data: {
+          deliveryReadiness: "draft_with_placeholders",
+          clarificationQuestions: [{ key: "amount", question: "合同金额？" }],
+        },
+      }),
+    });
+    const turn: AgentTurn = {
+      turnId: "t-clar",
+      sessionId: "s1",
+      instruction: "x",
+      messages: [],
+      toolCallsExecuted: 0,
+      status: "running",
+      gateDecisions: [],
+      startedAt: new Date().toISOString(),
+    };
+    const pushed: string[] = [];
+    const result = await executeToolBatches({
+      toolRefs: [
+        { id: "a", name: "search_ok", arguments: {} },
+        { id: "b", name: "ask_more", arguments: {} },
+      ],
+      registry,
+      turn,
+      ctx: { workspaceDir: "/tmp" } as AgentContext,
+      roundIndex: 1,
+      assistantContent: "",
+      maxToolCalls: 10,
+      toolTimeoutMs: 5000,
+      strictDangerousToolApproval: false,
+      allowDangerousToolsWithoutApproval: true,
+      toolSandboxEnabled: false,
+      actorId: "test",
+      pendingClarificationQuestions: [],
+      emitEvent: () => {},
+      pushMessage: (msg) => {
+        pushed.push(msg.toolCallResponses?.[0]?.name ?? "");
+      },
+    });
+    expect(result.heldForElicitation).toBe(true);
+    expect(pushed).toEqual(["search_ok", "ask_more"]);
+    expect(turn.status).toBe("running");
+    expect(result.pendingClarificationQuestions).toHaveLength(1);
+  });
 });

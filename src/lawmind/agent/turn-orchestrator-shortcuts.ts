@@ -5,18 +5,22 @@
 
 import type { MemoryContext } from "../memory/index.js";
 import { resolveIntakeClarificationQuestions } from "../router/intake-gate.js";
+import type { ToolCallContext } from "../runtime/tool-pipeline.js";
+import type { RiskLevel } from "../types.js";
 import type { ClarificationQuestion } from "../types.js";
 import {
   formatDeliverableWorkflowReply,
   shouldAutoRunDeliverableWorkflow,
 } from "./deliverable-pipeline.js";
-import { executeWorkflow } from "./tools/engine-tools.js";
+import type { executeWorkflow } from "./tools/engine-tools.js";
+import type { ToolRegistry } from "./tools/registry.js";
 import { buildClarificationReply, type RunTurnEvent } from "./turn-orchestrator-events.js";
 import {
   finalizeAgentTurn,
   finishShortCircuitTurn,
   type TurnFinalizeShared,
 } from "./turn-orchestrator-finalize.js";
+import { getRunToolPipeline } from "./turn-orchestrator-tool-round.js";
 import type { AgentContext, AgentMessage, AgentSession, AgentTurn } from "./types.js";
 
 export type TurnRunResult = {
@@ -40,10 +44,12 @@ export function tryIntakeClarificationShortcut(opts: {
   modelName: string;
   caseMemory?: string;
   intakeHeuristicsEnabled?: boolean;
+  hasContextPins?: boolean;
 }): TurnRunResult | null {
   const intakeQs = resolveIntakeClarificationQuestions(opts.instruction, {
     caseMemory: opts.caseMemory,
     intakeHeuristicsEnabled: opts.intakeHeuristicsEnabled,
+    hasContextPins: opts.hasContextPins,
   });
   if (intakeQs.length === 0) {
     return null;
@@ -66,6 +72,7 @@ export function tryIntakeClarificationShortcut(opts: {
     gate: "intake_gate",
     decision: "awaiting_confirmation",
     reason: "开干前待澄清要点。",
+    category: "safety_hard",
   });
   return finalizeAgentTurn({
     shared: opts.shared,
@@ -87,11 +94,22 @@ export async function tryAutoDeliverableWorkflowShortcut(opts: {
   instruction: string;
   session: AgentSession;
   ctx: AgentContext;
+  turn: AgentTurn;
+  registry: ToolRegistry;
   shared: TurnFinalizeShared;
   emitEvent: (event: RunTurnEvent) => void;
   abortRequested: () => boolean;
   onAborted: () => TurnRunResult;
   autoDeliverableWorkflow?: boolean;
+  actorId: string;
+  maxToolCalls: number;
+  toolTimeoutMs: number;
+  strictDangerousToolApproval: boolean;
+  allowDangerousToolsWithoutApproval: boolean;
+  toolSandboxEnabled: boolean;
+  allowedToolNames?: string[];
+  roleId?: string;
+  riskCeiling?: RiskLevel;
 }): Promise<TurnRunResult | null> {
   if (
     !shouldAutoRunDeliverableWorkflow(opts.instruction, {
@@ -106,13 +124,18 @@ export async function tryAutoDeliverableWorkflowShortcut(opts: {
 
   const autoWfRound = 1;
   const autoWfToolId = "auto-deliverable-wf";
+  const toolArgs: Record<string, unknown> = {
+    instruction: opts.instruction,
+    matter_id: opts.session.matterId,
+    auto_approve: false,
+  };
   opts.emitEvent({ type: "round_start", roundIndex: autoWfRound });
   opts.emitEvent({
     type: "tool_call_start",
     roundIndex: autoWfRound,
     toolCallId: autoWfToolId,
     toolName: "execute_workflow",
-    args: { instruction: opts.instruction },
+    args: toolArgs,
   });
   opts.ctx.emitToolProgress = (label) =>
     opts.emitEvent({
@@ -125,14 +148,34 @@ export async function tryAutoDeliverableWorkflowShortcut(opts: {
 
   let wfResult: Awaited<ReturnType<typeof executeWorkflow.execute>>;
   try {
-    wfResult = await executeWorkflow.execute(
-      {
-        instruction: opts.instruction,
-        matter_id: opts.session.matterId,
-        auto_approve: false,
+    // 与模型循环同一条 tool-pipeline：approval / clarification / budget / audit /
+    // timeout 全部生效——shortcut 不再是绕过治理的后门（strict 版下会正常
+    // 落入 awaiting_approval，而不是静默执行）。
+    opts.turn.toolCallsExecuted++;
+    const callCtx: ToolCallContext = {
+      toolCallId: autoWfToolId,
+      toolName: "execute_workflow",
+      args: toolArgs,
+      tool: opts.registry.get("execute_workflow"),
+      ctx: opts.ctx,
+      turn: { turnId: opts.turn.turnId },
+      policy: {
+        usedToolCalls: opts.turn.toolCallsExecuted,
+        maxToolCalls: opts.maxToolCalls,
+        toolTimeoutMs: opts.toolTimeoutMs,
+        strictDangerousToolApproval: opts.strictDangerousToolApproval,
+        allowDangerousToolsWithoutApproval: opts.allowDangerousToolsWithoutApproval,
+        toolSandboxEnabled: opts.toolSandboxEnabled,
+        allowedToolNames: opts.allowedToolNames,
+        roleId: opts.roleId,
+        riskCeiling: opts.riskCeiling,
+        actorId: opts.actorId,
+        auditDir: `${opts.ctx.workspaceDir}/audit`,
+        sessionMatterId: opts.session.matterId,
+        sessionAssistantId: opts.session.assistantId,
       },
-      opts.ctx,
-    );
+    };
+    wfResult = await getRunToolPipeline()(callCtx);
   } finally {
     opts.ctx.emitToolProgress = undefined;
   }
@@ -149,6 +192,29 @@ export async function tryAutoDeliverableWorkflowShortcut(opts: {
     ok: wfResult.ok,
     error: wfResult.error,
   });
+
+  // 审批门禁（strict 版）：与模型循环同语义，挂起等律师拍板。
+  if (wfResult.pendingApproval) {
+    opts.turn.gateDecisions?.push({
+      gate: "approval_gate",
+      decision: "awaiting_confirmation",
+      reason: "工具 execute_workflow 返回 pendingApproval",
+    });
+    opts.turn.status = "awaiting_approval";
+    if (!opts.turn.pendingToolApproval) {
+      opts.turn.pendingToolApproval = {
+        toolName: "execute_workflow",
+        toolCallId: autoWfToolId,
+        toolArgs,
+      };
+    }
+    return finishShortCircuitTurn(opts.shared, "执行完整工作流需要您的确认。批准后将自动继续。");
+  }
+
+  // 澄清门禁：交回模型循环，由模型按澄清流程与律师对齐（而非直接报错收尾）。
+  if (!wfResult.ok && typeof wfResult.error === "string" && wfResult.error.includes("待澄清")) {
+    return null;
+  }
 
   const wfData =
     wfResult.data && typeof wfResult.data === "object"

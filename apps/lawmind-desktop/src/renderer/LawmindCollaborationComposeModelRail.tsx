@@ -71,7 +71,7 @@ export function LawmindCollaborationComposeModelRail(props: LawmindCollabCompose
       {composeModelConfigured === false && (onOpenApiWizard || onOpenComposeSettings) ? (
         <div className="lm-callout lm-callout-warn lm-collab-model-rail-warn" role="status">
           <p className="lm-callout-body lm-collab-model-rail-warn-text">
-            尚未配置可用的主模型 API：委派与工作流无法在模型侧执行，请先完成向导或添加自定义模型。
+            请先配置模型。
           </p>
           <div className="lm-collab-model-rail-warn-actions">
             {onOpenApiWizard ? (

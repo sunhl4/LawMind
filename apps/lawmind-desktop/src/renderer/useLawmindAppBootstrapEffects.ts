@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { CollabSummaryState } from "./LawmindSettingsCollaboration";
 import { errorMessage } from "./api-client";
 import { apiAuthHeaders } from "./lawmind-api-auth.ts";
+import { LOOPBACK_CONFIG_EVENT, type LoopbackConfigDetail } from "./lawmind-dev-config-cache.ts";
 import {
   loadAppBootstrapSnapshot,
   loadInitialAppConfig,
@@ -117,6 +118,21 @@ export function useLawmindAppBootstrapEffects(params: UseLawmindAppBootstrapEffe
       }
     })();
   }, [setConfig, setError, setWizRetrievalMode]);
+
+  useEffect(() => {
+    const onLoopback = (event: Event) => {
+      const detail = (event as CustomEvent<LoopbackConfigDetail>).detail;
+      if (!detail?.apiBase || !config) {
+        return;
+      }
+      if (config.apiBase.replace(/\/$/, "") === detail.apiBase) {
+        return;
+      }
+      setConfig({ ...config, apiBase: detail.apiBase, apiAuthToken: detail.apiAuthToken });
+    };
+    window.addEventListener(LOOPBACK_CONFIG_EVENT, onLoopback);
+    return () => window.removeEventListener(LOOPBACK_CONFIG_EVENT, onLoopback);
+  }, [config, setConfig]);
 
   useEffect(() => {
     if (!config) {

@@ -2,7 +2,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { resetAuditHashChainStateForTests } from "./hash-chain.js";
+import {
+  resetAuditHashChainStateForTests,
+  summarizeAuditIntegrity,
+  type AuditEventWithIntegrity,
+} from "./hash-chain.js";
 import { emit, readAuditLog, resolveDefaultAuditIntegrityChain } from "./index.js";
 
 describe("emit default integrityChain", () => {
@@ -39,5 +43,26 @@ describe("emit default integrityChain", () => {
     });
     const events = await readAuditLog(auditDir);
     expect(events[0] && "eventHash" in (events[0] as object)).toBe(false);
+  });
+
+  it("serializes concurrent chained emits so file order matches chain order", async () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-audit-conc-"));
+    const auditDir = path.join(ws, "audit");
+    const count = 24;
+    await Promise.all(
+      Array.from({ length: count }, (_, i) =>
+        emit(auditDir, {
+          taskId: `t${i}`,
+          kind: "task.created",
+          actor: "system",
+          integrityChain: true,
+        }),
+      ),
+    );
+    const events = (await readAuditLog(auditDir)) as AuditEventWithIntegrity[];
+    expect(events).toHaveLength(count);
+    const summary = summarizeAuditIntegrity(events);
+    expect(summary.ok).toBe(true);
+    expect(summary.chainedCount).toBe(count);
   });
 });

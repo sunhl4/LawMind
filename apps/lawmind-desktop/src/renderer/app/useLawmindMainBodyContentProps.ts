@@ -1,4 +1,9 @@
 import { useMemo, type RefObject } from "react";
+import {
+  buildChatDeepLinkHandlers,
+  buildMeetingDeepLinkHandlers,
+  buildReviewDeepLinkHandlers,
+} from "./main-body-deep-links";
 import type { ArtifactDraft } from "../../../../../src/lawmind/types.ts";
 import type { AppConfig } from "../lawmind-app-bootstrap";
 import type { LawmindMainView } from "../lawmind-main-view";
@@ -12,7 +17,11 @@ import type {
 import type { ModelCatalogEntry } from "../lawmind-models-api";
 import type { ReviewPaneVisibility, ReviewPaneId } from "../lawmind-review-pane-prefs";
 import type { CollabSummaryState } from "../LawmindSettingsCollaboration";
-import type { AgentsDeskTab, NeedsDecisionDeskTarget } from "../lawmind-agents-desk";
+import type {
+  AgentsDeskTab,
+  AgentsWorkflowFocusTarget,
+  NeedsDecisionDeskTarget,
+} from "../lawmind-agents-desk";
 import type { LawMindRequiresAction, LawMindRequiresActionDecision } from "../lawmind-requires-action";
 import type { ChatMsg } from "../lawmind-chat";
 import type { FileChatContextItem } from "../lawmind-file-chat-context";
@@ -46,6 +55,8 @@ export type UseLawmindMainBodyContentPropsInput = {
   agentsNeedsDecisionFocus: boolean;
   agentsDeskFocusTarget: NeedsDecisionDeskTarget | null;
   setAgentsDeskFocusTarget: (t: NeedsDecisionDeskTarget | null) => void;
+  agentsWorkflowFocus: AgentsWorkflowFocusTarget | null;
+  setAgentsWorkflowFocus: (t: AgentsWorkflowFocusTarget | null) => void;
   setMainView: (view: LawmindMainView) => void;
   setContextMatterId: (id: string | null) => void;
   setMatterCockpitOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -185,6 +196,8 @@ export function useLawmindMainBodyContentProps(
     agentsNeedsDecisionFocus,
     agentsDeskFocusTarget,
     setAgentsDeskFocusTarget,
+    agentsWorkflowFocus,
+    setAgentsWorkflowFocus,
     setMainView,
     setContextMatterId,
     setMatterCockpitOpen,
@@ -287,8 +300,36 @@ export function useLawmindMainBodyContentProps(
     chatSessionsInSidebar = false,
   } = input;
 
-  return useMemo(
-    (): LawmindMainBodyContentProps => ({
+  return useMemo((): LawmindMainBodyContentProps => {
+    const reviewLinks = buildReviewDeepLinkHandlers({
+      setReviewLaunchedFromMatter,
+      setReviewFocusTaskId,
+      setReviewFocusMatterId,
+      setReviewFocusStatus,
+      setReviewFocusListMode,
+      setContextMatterId,
+      setMainView,
+      setFocusMatterIdFromReview,
+      setMatterCockpitOpen,
+      reviewFocusMatterId,
+    });
+    const meetingLinks = buildMeetingDeepLinkHandlers({
+      setContextMatterId,
+      recordsDeskMattersSetSelectedKey,
+      setMatterCockpitOpen,
+      setMainView,
+    });
+    const chatLinks = buildChatDeepLinkHandlers({
+      setContextMatterId,
+      setMatterCockpitOpen,
+      setMainView,
+      setContextTaskId,
+      selectChatSession,
+      scheduleScrollChatMessagesToLatest,
+      setInput,
+      focusComposer: () => textareaRef.current?.focus(),
+    });
+    return {
       config,
       matterRefreshVersion,
       selectedAssistantId,
@@ -311,61 +352,17 @@ export function useLawmindMainBodyContentProps(
         setAgentsDeskTab("workflows");
         setMainView("agents");
       },
-      onOpenTopLevelMeeting: (matterId) => {
-        const mid = matterId.trim();
-        if (mid) {
-          setContextMatterId(mid);
-          recordsDeskMattersSetSelectedKey(mid);
-        }
-        setMatterCockpitOpen(false);
-        setMainView("meeting");
-      },
+      onOpenTopLevelMeeting: meetingLinks.onOpenTopLevelMeeting,
       meetingMatterOptions: matterSidebarRows
         .filter((r) => Boolean(r.matterId?.trim() || r.key.trim()))
         .map((r) => ({
           id: (r.matterId ?? r.key).trim(),
           title: r.title.trim() || (r.matterId ?? r.key).trim(),
         })),
-      onSelectMeetingMatterScope: (matterId) => {
-        const mid = matterId?.trim() || null;
-        setContextMatterId(mid);
-        if (mid) {
-          recordsDeskMattersSetSelectedKey(mid);
-        }
-      },
-      onOpenChatSession: (sessionId, matterId, assistantId) => {
-        if (matterId?.trim()) {
-          setContextMatterId(matterId.trim());
-        }
-        setMatterCockpitOpen(false);
-        setMainView("workspace");
-        void Promise.resolve(selectChatSession(sessionId, assistantId)).finally(() => {
-          // Session load is async; land on latest execution, not the turn start.
-          scheduleScrollChatMessagesToLatest({ behavior: "smooth" });
-        });
-      },
-      onOpenReviewFromMatter: ({ taskId, matterId, statusFilter = "all", listMode = "all" }) => {
-        setReviewLaunchedFromMatter(true);
-        setReviewFocusTaskId(taskId);
-        setReviewFocusMatterId(matterId ?? null);
-        setReviewFocusStatus(statusFilter ?? "all");
-        setReviewFocusListMode(listMode ?? "all");
-        if (matterId) {
-          setContextMatterId(matterId);
-        }
-        setMainView("review");
-      },
-      onOpenReviewFromWorkItem: (taskId, matterId) => {
-        setReviewLaunchedFromMatter(false);
-        setReviewFocusTaskId(taskId);
-        setReviewFocusMatterId(matterId ?? null);
-        setReviewFocusStatus("all");
-        setReviewFocusListMode("pending");
-        if (matterId) {
-          setContextMatterId(matterId);
-        }
-        setMainView("review");
-      },
+      onSelectMeetingMatterScope: meetingLinks.onSelectMeetingMatterScope,
+      onOpenChatSession: chatLinks.onOpenChatSession,
+      onOpenReviewFromMatter: reviewLinks.onOpenReviewFromMatter,
+      onOpenReviewFromWorkItem: reviewLinks.onOpenReviewFromWorkItem,
       reviewFocusTaskId,
       reviewFocusMatterId,
       reviewFocusStatus,
@@ -373,30 +370,13 @@ export function useLawmindMainBodyContentProps(
       reviewRefreshVersion,
       reviewLaunchedFromMatter,
       reviewPaneVisibility,
-      onReturnToMatter: () => {
-        if (reviewFocusMatterId) {
-          setFocusMatterIdFromReview(reviewFocusMatterId);
-        }
-        setReviewLaunchedFromMatter(false);
-        setMainView("workspace");
-        setMatterCockpitOpen(true);
-      },
+      onReturnToMatter: reviewLinks.onReturnToMatter,
       onShowArtifact: (relPath) => openOutputInFolder(relPath),
       onRecordsChanged: () => {
         setMatterRefreshVersion((v) => v + 1);
         void refreshLists();
       },
-      onGoToChat: ({ taskId, matterId, prompt }) => {
-        setContextTaskId(taskId);
-        if (matterId?.trim()) {
-          setContextMatterId(matterId.trim());
-        }
-        setMainView("workspace");
-        if (prompt?.trim()) {
-          setInput(prompt.trim());
-          textareaRef.current?.focus();
-        }
-      },
+      onGoToChat: chatLinks.onGoToChat,
       onOpenAgentsDeskFromReview: () => {
         setMatterCockpitOpen(false);
         setAgentsDeskFocusTarget(null);
@@ -430,10 +410,14 @@ export function useLawmindMainBodyContentProps(
       },
       agentsDeskFocusTarget,
       onAgentsDeskFocusTargetConsumed: () => setAgentsDeskFocusTarget(null),
+      agentsWorkflowFocus,
+      onAgentsWorkflowFocusConsumed: () => setAgentsWorkflowFocus(null),
       modelCatalog,
       selectedModelId,
       onModelSelect: handleModelSelect,
-      onOpenComposeSettings: () => setShowSettings(true),
+      onOpenComposeSettings: () => setShowSettings(true, "models"),
+      onOpenSettings: () => setShowSettings(true),
+      onOpenDoctor: () => setShowSettings(true, "doctor"),
       onOpenMemoryInspector: () => setShowSettings(true, "memory"),
       onOpenApiWizard: openApiWizard,
       composeModelHint,
@@ -502,8 +486,15 @@ export function useLawmindMainBodyContentProps(
       onOpenNeedsDecisionDesk: (target?: NeedsDecisionDeskTarget) => {
         setMatterCockpitOpen(false);
         const hasTarget = Boolean(
-          target?.sessionId?.trim() || target?.taskId?.trim() || target?.preferStatus,
+          target?.sessionId?.trim() ||
+            target?.taskId?.trim() ||
+            target?.queueItemId?.trim() ||
+            target?.jobId?.trim() ||
+            target?.preferStatus,
         );
+        if (hasTarget && target?.matterId?.trim()) {
+          setContextMatterId(target.matterId.trim());
+        }
         setAgentsDeskFocusTarget(hasTarget && target ? target : null);
         setAgentsNeedsDecisionFocus(true);
         setAgentsDeskTab("active");
@@ -512,8 +503,15 @@ export function useLawmindMainBodyContentProps(
       onOpenActionHub: (target?: NeedsDecisionDeskTarget) => {
         setMatterCockpitOpen(false);
         const hasTarget = Boolean(
-          target?.sessionId?.trim() || target?.taskId?.trim() || target?.preferStatus,
+          target?.sessionId?.trim() ||
+            target?.taskId?.trim() ||
+            target?.queueItemId?.trim() ||
+            target?.jobId?.trim() ||
+            target?.preferStatus,
         );
+        if (hasTarget && target?.matterId?.trim()) {
+          setContextMatterId(target.matterId.trim());
+        }
         setAgentsDeskFocusTarget(hasTarget && target ? target : null);
         setAgentsNeedsDecisionFocus(true);
         setAgentsDeskTab("active");
@@ -530,10 +528,13 @@ export function useLawmindMainBodyContentProps(
         }
         setMainView("review");
       },
-      onOpenAgentsWorkflows: (matterId) => {
-        if (matterId?.trim()) {
-          setContextMatterId(matterId.trim());
+      onOpenAgentsWorkflows: (matterId, jobId) => {
+        const mid = matterId?.trim();
+        const jid = jobId?.trim();
+        if (mid) {
+          setContextMatterId(mid);
         }
+        setAgentsWorkflowFocus(mid || jid ? { matterId: mid || undefined, jobId: jid || undefined } : null);
         setAgentsDeskTab("workflows");
         setMainView("agents");
       },
@@ -545,7 +546,8 @@ export function useLawmindMainBodyContentProps(
       sessionRequiresActions,
       onRefreshActionSummary: refreshActionSummary,
       onChatResumeComplete,
-    }),
+    };
+    },
     [
       config,
       matterRefreshVersion,
@@ -569,6 +571,8 @@ export function useLawmindMainBodyContentProps(
       agentsNeedsDecisionFocus,
       agentsDeskFocusTarget,
       setAgentsDeskFocusTarget,
+      agentsWorkflowFocus,
+      setAgentsWorkflowFocus,
       setMainView,
       setContextMatterId,
       setMatterCockpitOpen,

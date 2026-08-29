@@ -141,11 +141,9 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
             </button>
           </div>
         </label>
-        <p className="lm-meta lm-settings-hint">
-          检索策略默认与上方模型共用同一套 API；如需法律专用检索，可在高级选项中切换。
-        </p>
+        <p className="lm-meta lm-settings-hint">检索默认与上方模型共用。</p>
         <details className="lm-wizard-advanced">
-          <summary className="lm-meta">高级：检索策略（引擎 research / 工作流）</summary>
+          <summary className="lm-meta">高级：检索策略</summary>
           <fieldset className="lm-field lm-field-reset">
             <label className="lm-field-radio lm-field-radio-row">
               <input
@@ -164,7 +162,7 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
                 onChange={() => setWizRetrievalMode("dual")}
               />
               <span>
-                通用 + 法律专用 — 通用用上方 Key；法律检索需在 <code>.env.lawmind</code> 配置{" "}
+                通用 + 法律专用 — 通用用上方 Key；法律检索需在模型设置文件中配置{" "}
                 <code>LAWMIND_CHATLAW_*</code> / <code>LAWMIND_LAWGPT_*</code> 等（未配时仍回退为通用模型）。
               </span>
             </label>

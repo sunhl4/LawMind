@@ -3,8 +3,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { ArtifactDraft } from "../../../../../src/lawmind/types.ts";
 import type {
   AcceptanceReport,
+  DraftScaffoldView,
   ReasoningReport,
 } from "../../../../../src/lawmind/deliverables/index.ts";
+import type { ClauseGraph } from "../../../../../src/lawmind/reasoning/clause-graph.ts";
 import type { DraftCitationIntegrityView } from "../../../../../src/lawmind/drafts/citation-integrity.ts";
 import type { GateDecision, TaskExecutionState } from "../../../../../src/lawmind/platform/contracts.ts";
 import { deriveReviewGateDecisions } from "../../../../../src/lawmind/platform/review-gates.ts";
@@ -51,6 +53,9 @@ export function useReviewWorkbenchData(params: UseReviewWorkbenchDataParams) {
   const [matterFilter, setMatterFilter] = useState(() => (initialMatterId ?? "").trim());
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => initialTaskId);
 
+  /** Avoid re-applying deep-link defaults on unrelated parent re-renders (would yank lawyer off「全部」). */
+  const appliedFocusKeyRef = useRef<string | null>(null);
+
   const listQuery = useReviewDraftListQuery(apiBase);
   const detailQuery = useReviewDraftDetailQuery(apiBase, selectedTaskId);
 
@@ -68,6 +73,8 @@ export function useReviewWorkbenchData(params: UseReviewWorkbenchDataParams) {
   const reasoningReport = detailQuery.data?.reasoningReport ?? null;
   const reasoningMarkdown = detailQuery.data?.reasoningMarkdown ?? null;
   const executionState = detailQuery.data?.executionState ?? null;
+  const clauses = detailQuery.data?.clauses ?? null;
+  const scaffold = detailQuery.data?.scaffold ?? null;
 
   const gateDecisions = useMemo((): GateDecision[] => {
     if (!detailQuery.data) {
@@ -142,6 +149,8 @@ export function useReviewWorkbenchData(params: UseReviewWorkbenchDataParams) {
         executionState?: TaskExecutionState;
         gateDecisions?: GateDecision[];
         memorySources?: MemorySourceLayer[];
+        clauses?: ClauseGraph | null;
+        scaffold?: DraftScaffoldView | null;
       },
     ) => {
       if (!j.draft) {
@@ -163,12 +172,24 @@ export function useReviewWorkbenchData(params: UseReviewWorkbenchDataParams) {
         executionState: j.executionState ?? null,
         gateDecisions: gates,
         memorySources: Array.isArray(j.memorySources) ? j.memorySources : null,
+        clauses: j.clauses ?? null,
+        scaffold: j.scaffold ?? null,
       });
     },
     [patchDetailCache],
   );
 
   useEffect(() => {
+    const key = [
+      initialTaskId ?? "",
+      initialListMode,
+      initialMatterId ?? "",
+      initialStatusFilter,
+    ].join("|");
+    if (appliedFocusKeyRef.current === key) {
+      return;
+    }
+    appliedFocusKeyRef.current = key;
     if (initialTaskId) {
       setSelectedTaskId(initialTaskId);
     }
@@ -181,8 +202,10 @@ export function useReviewWorkbenchData(params: UseReviewWorkbenchDataParams) {
     if (!externalRefreshToken) {
       return;
     }
+    // Revision complete: return to pending inbox — intentional yank.
+    appliedFocusKeyRef.current = null;
     setFilter("pending");
-    setStatusFilter("pending");
+    setStatusFilter("all");
     revisionPrefilledForTaskRef.current = null;
     void (async () => {
       await loadDrafts({ silent: true });
@@ -244,6 +267,8 @@ export function useReviewWorkbenchData(params: UseReviewWorkbenchDataParams) {
     reasoningReport,
     reasoningMarkdown,
     executionState,
+    clauses,
+    scaffold,
     gateDecisions,
     detailLoading,
     detailError: detailQuery.error

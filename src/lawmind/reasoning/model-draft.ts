@@ -10,6 +10,7 @@ import {
 import { resolveDraftReasoningLlmConfig } from "../models/draft-reasoning.js";
 import type { ArtifactDraft, ArtifactSection, ResearchBundle } from "../types.js";
 import { buildDraft, type BuildDraftParams } from "./keyword-draft.js";
+import { isOutlineGatedDeliverable } from "./research-draft-gates.js";
 
 type ModelSectionsJson = {
   title?: string;
@@ -77,13 +78,23 @@ export function isModelReasoningEnabled(): boolean {
 
 function draftSystemPrompt(intent: BuildDraftParams["intent"]): string {
   const isEsg = intent.deliverableType === "report.esg";
-  const isReport = isEsg || intent.deliverableType === "report.general";
+  const isCompliance = intent.deliverableType === "report.compliance";
+  const isLearning = intent.deliverableType === "report.learning";
+  const isTraining = intent.deliverableType === "ppt.training";
+  const isReport =
+    isEsg || isCompliance || isLearning || intent.deliverableType === "report.general";
   const lines = [
     isEsg
       ? "你是资深 ESG 与欧盟监管合规法律助理，将检索结果扩写为可直接审阅的 ESG 报告章节。"
-      : isReport
-        ? "你是法律助理，将检索结果扩写为可直接审阅的研究报告章节。"
-        : "你是法律助理，将检索结果整理为可审阅的文书章节。",
+      : isCompliance
+        ? "你是合规研究律师助理，将检索结果扩写为可复核的涉外合规卷宗备忘录。"
+        : isLearning
+          ? "你是法律研究助理，将检索结果扩写为效力分级清晰的学习型调研简报。"
+          : isTraining
+            ? "你是律师培训课件助理，将要点扩写为短句可讲的幻灯片章节（勿整页粘贴长文）。"
+            : isReport
+              ? "你是法律助理，将检索结果扩写为可直接审阅的研究报告章节。"
+              : "你是法律助理，将检索结果整理为可审阅的文书章节。",
     "必须基于给定要点与来源，不得编造未出现的法条、判例或统计数据；缺失数据处用【待补充：…】占位。",
     "只输出 JSON，不要 markdown。",
     "JSON schema:",
@@ -95,6 +106,18 @@ function draftSystemPrompt(intent: BuildDraftParams["intent"]): string {
       "ESG 报告须至少包含：执行摘要、报告背景与范围、监管框架、环境（E）、社会（S）、治理（G）、关键指标与披露建议、结论与下一步。",
       "用户指令涉及欧盟/新能源汽车时，标题应体现该主题，勿使用泛称「法律文书草稿」。",
     );
+  }
+  if (isCompliance) {
+    lines.push(
+      "合规卷宗须包含：问题陈述、简要结论、管辖区效力矩阵、按风险域发现、行动建议、开放问题、来源附录。",
+      "不确定处标 [VERIFY]；新闻/博客不得写成现行法。",
+    );
+  }
+  if (isLearning) {
+    lines.push("须区分效力层级；宜含背景、制度要点、比较分析、实务启示、结论与来源。");
+  }
+  if (isTraining) {
+    lines.push("每节对应一页幻灯片；短句要点 + 可选来源；案件材料须已脱敏。");
   }
   return lines.join("\n");
 }
@@ -118,6 +141,17 @@ export async function buildDraftWithModel(
 ): Promise<ArtifactDraft | null> {
   const { intent, bundle } = params;
   const base = buildDraft(params);
+  // STORM gate: do not LLM-expand while outline is pending confirmation.
+  if (
+    base.title.includes("大纲待确认") ||
+    base.sections.some((s) => s.heading.includes("待确认 — 确认前不扩写"))
+  ) {
+    return base;
+  }
+  // Keep lawyer-approved outline expansion — model rewrite would discard section plan.
+  if (isOutlineGatedDeliverable(intent.deliverableType)) {
+    return base;
+  }
 
   const parsed = await completeJsonObject<ModelSectionsJson>(cfg, [
     { role: "system", content: draftSystemPrompt(intent) },
@@ -164,6 +198,10 @@ export async function buildDraftWithModel(
   };
 }
 
+/** 模型成稿失败时的标注回退：骨架可用，但不能假装已成稿。 */
+export const MODEL_DRAFT_FALLBACK_NOTE =
+  "骨架稿：模型未成稿，已用结构骨架。不能当作成稿外发，请补全或重试。";
+
 export async function buildDraftAsync(params: BuildDraftParams): Promise<ArtifactDraft> {
   let cfg: OpenAiJsonClientConfig | null = null;
   if (params.lawMindRoot) {
@@ -176,6 +214,14 @@ export async function buildDraftAsync(params: BuildDraftParams): Promise<Artifac
     if (enhanced) {
       return enhanced;
     }
+    const fallback = buildDraft(params);
+    if (fallback.reviewNotes.includes(MODEL_DRAFT_FALLBACK_NOTE)) {
+      return fallback;
+    }
+    return {
+      ...fallback,
+      reviewNotes: [...fallback.reviewNotes, MODEL_DRAFT_FALLBACK_NOTE],
+    };
   }
   return buildDraft(params);
 }

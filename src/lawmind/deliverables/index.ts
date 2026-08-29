@@ -18,6 +18,11 @@ export {
   registerExtraDeliverableSpecs,
 } from "./registry.js";
 export { isDraftReadyForRender, validateDraftAgainstSpec } from "./validator.js";
+export {
+  describeDraftScaffold,
+  draftPlainTextLength,
+  type DraftScaffoldView,
+} from "./scaffold-status.js";
 export { countPlaceholderLikeMarkers, heuristicPlaceholderRatio } from "./draft-sanity.js";
 export {
   specRequiresReasoningGraphAtDraft,

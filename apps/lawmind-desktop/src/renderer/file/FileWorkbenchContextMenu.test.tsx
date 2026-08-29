@@ -73,4 +73,50 @@ describe("FileWorkbenchContextMenu", () => {
     });
     expect(setContextMenu).toHaveBeenCalledWith(null);
   });
+
+  it("offers 送审本合同 for docx/pdf", async () => {
+    const onSend = vi.fn();
+    const setContextMenu = vi.fn();
+    await act(async () => {
+      root.render(
+        <FileWorkbenchContextMenu
+          menuRef={{ current: null }}
+          contextMenu={{
+            x: 10,
+            y: 20,
+            root: "workspace",
+            path: "contracts/nda.docx",
+            kind: "file",
+            isRoot: false,
+          }}
+          setContextMenu={setContextMenu}
+          fsClip={null}
+          canUseFilesystemBridge
+          busy={false}
+          onAddToChatContext={vi.fn()}
+          onSendContractForReview={onSend}
+          setAddToMatterManualDraft={() => {}}
+          setAddToMatterLastError={() => {}}
+          setAddToMatterPick={() => {}}
+          startCreate={() => {}}
+          pasteInto={() => {}}
+          copyPath={() => {}}
+          cutPath={() => {}}
+          startRename={() => {}}
+          requestDelete={() => {}}
+          doShowInFolder={() => {}}
+          refreshDir={() => {}}
+        />,
+      );
+    });
+    const btn = host.querySelector('[data-testid="lm-file-send-contract-review"]') as HTMLButtonElement;
+    expect(btn).toBeTruthy();
+    await act(async () => {
+      btn.click();
+    });
+    expect(onSend).toHaveBeenCalledWith({
+      root: "workspace",
+      relPath: "contracts/nda.docx",
+    });
+  });
 });

@@ -11,6 +11,7 @@ import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import { lawmindDocUrl } from "./lawmind-public-urls.js";
 import { LAWMIND_ATTORNEY_DISCLAIMER_SHORT } from "./lawmind-attorney-disclaimer";
 import { applyPostFirstrunPermissionDefaults } from "./lawmind-compose-prefs";
+import { buildContractFastLanePrompt } from "./lawmind-contract-fast-lane";
 
 const DISMISS_KEY = "lm.firstRun.dismissed";
 /** Set by API wizard after successful save to open first-run once suppress lifts. */
@@ -58,12 +59,28 @@ type SpecSummary = {
 
 const STARTER_PROMPT_BY_ROLE: Record<Role["id"], (specName: string) => string> = {
   solo: (name) =>
-    `【交办】首跑《${name}》\n交付物类型：首跑文书\n交办要点：\n- 要完成什么：按中国大陆法起草可审核初稿\n- 必须包含的要点：必备要素齐全，缺项用【待补充】标记\n\n【先计划】当前为「先计划」权限：请先给出执行步骤、所需材料与验收要点，不要直接写文件或出稿；等我切换到「标准」并确认后再起草。信息不足时用结构化问题追问。`,
+    `请按中国大陆法起草《${name}》可审核初稿；必备要素齐全，缺项用【待补充】标记。`,
   associate: (name) =>
-    `【交办】首跑《${name}》\n交付物类型：首跑文书\n交办要点：\n- 要完成什么：按所内通用范式生成初稿并标出须合伙人确认的留白\n- 必须包含的要点：关键风险与裁判倾向摘要\n\n【先计划】请先列执行计划与互审点，勿直接写盘；待我确认后再起草并进入文书台。`,
+    `请按所内通用范式起草《${name}》初稿，并标出须合伙人确认的留白与关键风险摘要。`,
   partner: (name) =>
-    `【交办】首跑《${name}》\n交付物类型：首跑文书\n交办要点：\n- 要完成什么：全要素复核样本\n- 必须包含的要点：结论附来源 ID；占位符用【待补充:xxx】\n\n【先计划】请先给出复核清单与验收门禁，勿直接出稿；待我确认后再执行，提交文书台前完成验收自查。`,
+    `请对《${name}》做全要素复核样本；结论注明依据，占位用【待补充】。`,
 };
+
+function isContractReviewSpec(spec: SpecSummary): boolean {
+  return spec.type === "contract.review";
+}
+
+function buildFirstrunSeedPrompt(role: Role["id"], spec: SpecSummary): string {
+  if (isContractReviewSpec(spec)) {
+    return buildContractFastLanePrompt({
+      materials: "请使用对话中已引用的合同材料；若尚无引用请追问我补充文件或粘贴关键条款。",
+      focus: "付款、违约、管辖、责任限制、终止与争议解决",
+      stance: "client",
+      depth: "standard",
+    });
+  }
+  return STARTER_PROMPT_BY_ROLE[role](spec.displayName);
+}
 
 type Props = {
   apiBase: string;
@@ -79,7 +96,9 @@ type Step = "role" | "prefs" | "spec" | "confirm";
 
 function autoMatterIdFromRole(role: Role["id"]): string {
   const stamp = new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 12);
-  return `firstrun-${role}-${stamp}`;
+  const roleLabel = ROLES.find((r) => r.id === role)?.label ?? role;
+  // 律师可见名：首跑-独立执业-202608021030（合法 matterId，避免 firstrun-* 工程师口吻）
+  return `首跑-${roleLabel}-${stamp}`;
 }
 
 function labelOf(choices: PrefChoice[], id: string | null): string {
@@ -196,9 +215,13 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
     if (!specs) {
       return [];
     }
-    const workspace = specs.filter((s) => s.source === "workspace");
-    const builtin = specs.filter((s) => s.source === "builtin");
-    return [...workspace, ...builtin].slice(0, 6);
+    const rank = (s: SpecSummary) => {
+      if (isContractReviewSpec(s)) {
+        return 0;
+      }
+      return s.source === "workspace" ? 1 : 2;
+    };
+    return [...specs].toSorted((a, b) => rank(a) - rank(b) || a.displayName.localeCompare(b.displayName, "zh")).slice(0, 6);
   }, [specs]);
 
   const dismissForever = useCallback(() => {
@@ -261,9 +284,9 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
           // 偏好写入失败不阻断首跑
         }
       }
-      const seedPrompt = STARTER_PROMPT_BY_ROLE[role](chosenSpec.displayName);
-      // 首跑默认「先计划」；确认执行后优先「严格审批」（Solo 信任包装）。
-      applyPostFirstrunPermissionDefaults();
+      const seedPrompt = buildFirstrunSeedPrompt(role, chosenSpec);
+      // 合同审查：直接可执行，避免 Day-1 卡在「先计划」；其它类型仍默认先计划。
+      applyPostFirstrunPermissionDefaults({ executable: isContractReviewSpec(chosenSpec) });
       onSeedReady({ matterId, seedPrompt });
       dismissForever();
     } catch (e) {
@@ -302,10 +325,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
       <div className="lm-wizard lm-firstrun">
         <div className="lm-firstrun-head">
           <h2>几步开始用</h2>
-            <p className="lm-meta">
-            选身份与文书即可上手；习惯可跳过。首跑默认「先计划」；点「开始执行」后进入「严格审批」。交付前在「
-            <strong>文书台</strong>」完成必核，正式签批请回「在办」。
-          </p>
+            <p className="lm-meta">选身份与文书即可上手。</p>
           <ol className="lm-firstrun-steps" aria-label="进度">
             <li className={step === "role" ? "active" : "done"}>1. 身份</li>
             <li
@@ -356,7 +376,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
 
         {step === "prefs" ? (
           <div className="lm-firstrun-prefs">
-            <p className="lm-meta">选三项即可，后面随时可在文书台继续沉淀。</p>
+            <p className="lm-meta">选三项即可，后面随时可在改稿页继续沉淀。</p>
             <p className="lm-firstrun-express">
               <button
                 type="button"
@@ -423,11 +443,9 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
 
         {step === "spec" && onOpenWorkflowLibrary ? (
           <p className="lm-meta lm-firstrun-workflow-hint">
-            也可先浏览{" "}
             <button type="button" className="lm-link-btn" onClick={onOpenWorkflowLibrary}>
               工作流库
             </button>
-            ，再选文书类型。
           </p>
         ) : null}
 
@@ -484,8 +502,11 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
             </div>
             <div className="lm-firstrun-confirm-row">
               <span className="lm-meta">将放进对话的第一句交办（可改）</span>
-              <pre className="lm-firstrun-seed">{STARTER_PROMPT_BY_ROLE[role](chosenSpec.displayName)}</pre>
+              <pre className="lm-firstrun-seed">{buildFirstrunSeedPrompt(role, chosenSpec)}</pre>
             </div>
+            <p className="lm-settings-caption">
+              开始后可随时在设置 → 工作区扫描历史材料（整理夹与杂烩目录均可，最多 3 个根）。不挡这次交办。
+            </p>
             {submitError ? (
               <div className="lm-callout lm-callout-danger" role="alert">
                 <p className="lm-callout-body">{submitError}</p>
@@ -497,19 +518,14 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
         <div className="lm-firstrun-footnote">
           <div className="lm-callout lm-callout-muted" role="note">
             <p className="lm-callout-body">
-              {LAWMIND_ATTORNEY_DISCLAIMER_SHORT}详见{" "}
+              {LAWMIND_ATTORNEY_DISCLAIMER_SHORT}
               <a href={lawmindDocUrl("LAWMIND-DATA-PROCESSING")} target="_blank" rel="noreferrer noopener">
                 数据处理说明
               </a>
-              与{" "}
-              <a href={lawmindDocUrl("LAWMIND-USER-MANUAL")} target="_blank" rel="noreferrer noopener">
-                完整使用手册
-              </a>
-              （推荐从「桌面版快速上手」读起）。
+              。
             </p>
             <p className="lm-callout-body" data-testid="lm-firstrun-authority-boundary">
-              默认使用开源权威语料（内置少量演示 sample，非正式完整法库；可扩充 CORPUS）。无命中会拒答并提示「缺源」；正式引用请核对官方法条。闭源法宝/Lexis
-              仅手动接入，请勿将模型口述当作已核实法条或案号。
+              演示语料·非正式法库。
             </p>
           </div>
         </div>
@@ -527,7 +543,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
               className="lm-btn lm-btn-secondary lm-btn-sm"
               onClick={onOpenAdvancedSettings}
             >
-              IT / 高级设置
+              高级设置
             </button>
           ) : null}
           <div className="lm-firstrun-spacer" />

@@ -127,6 +127,8 @@ export function ReviewWorkbench(props: Props) {
     reasoningReport,
     reasoningMarkdown,
     executionState,
+    clauses,
+    scaffold,
     gateDecisions,
     detailLoading,
     detailError,
@@ -230,9 +232,9 @@ export function ReviewWorkbench(props: Props) {
     return !draftDocumentEditorValuesEqual(editorValue, savedEditorValue);
   }, [editorValue, savedEditorValue]);
 
-  const saveDraftContent = useCallback(async () => {
+  const saveDraftContent = useCallback(async (): Promise<boolean> => {
     if (!selectedTaskId || !editorValue || !editorDirty) {
-      return;
+      return true;
     }
     setEditorSaving(true);
     setEditorSaveError(null);
@@ -257,11 +259,13 @@ export function ReviewWorkbench(props: Props) {
       const saved = draftDocumentEditorValueFromDraft(j.draft);
       setEditorValue(saved);
       setSavedEditorValue(saved);
-      setActionMsg("正文已保存。验收门禁已按最新内容重新计算。");
+      setActionMsg("正文已保存。出稿检查已按最新内容更新。");
       await loadDrafts({ silent: true });
       onRecordsChanged?.();
+      return true;
     } catch (e) {
       setEditorSaveError(errorMessage(e, "保存正文失败"));
+      return false;
     } finally {
       setEditorSaving(false);
     }
@@ -338,6 +342,7 @@ export function ReviewWorkbench(props: Props) {
     submitRender,
     submitRenderTracked,
     submitRevisionJob,
+    deleteSelectedDraft,
     downloadAcceptancePack,
     adoptSuggestion,
     dismissSuggestion,
@@ -374,7 +379,10 @@ export function ReviewWorkbench(props: Props) {
       setSavedEditorValue(nextEditor);
     },
     clearEditorSaveError: () => setEditorSaveError(null),
+    setSelectedTaskId,
     checklistChecked,
+    editorDirty,
+    saveDraftContent,
   });
 
   useEffect(() => {
@@ -414,6 +422,7 @@ export function ReviewWorkbench(props: Props) {
       citationIntegrity,
       citationMode: edition.citationMode,
       citationGateStrict: edition.features.citationGateStrict,
+      reasoningReport,
     });
   }, [
     detail,
@@ -422,6 +431,7 @@ export function ReviewWorkbench(props: Props) {
     citationIntegrity,
     edition.citationMode,
     edition.features.citationGateStrict,
+    reasoningReport,
   ]);
 
   const showMatterEntryBar = Boolean(returnMatterId?.trim() && onReturnToMatter);
@@ -499,7 +509,12 @@ export function ReviewWorkbench(props: Props) {
           </div>
         )}
         {selectedTaskId && detailLoading && (
-          <div className="lm-review-detail-row lm-review-detail-empty">
+          <div
+            className="lm-review-detail-row lm-review-detail-empty"
+            role="status"
+            aria-busy="true"
+            aria-label="草稿加载中"
+          >
             <div className="lm-meta">加载草稿…</div>
           </div>
         )}
@@ -526,6 +541,8 @@ export function ReviewWorkbench(props: Props) {
                 readiness={deliverableReadiness}
                 campaign={campaign}
                 onCampaignChange={setCampaign}
+                clauses={clauses}
+                scaffold={scaffold}
                 gateDecisions={gateDecisions}
                 executionState={executionState}
                 memorySources={memorySources}
@@ -556,6 +573,7 @@ export function ReviewWorkbench(props: Props) {
                 onReject={() => void submitReview("rejected")}
                 onModify={() => void submitReview("modified")}
                 onReopen={() => void submitReopenReview()}
+                onDeleteDraft={() => void deleteSelectedDraft()}
                 onExportWord={(opts) => void submitRender(opts)}
                 onExportTrackedWord={() => void submitRenderTracked()}
                 onShowArtifact={onShowArtifact}
@@ -617,9 +635,24 @@ export function ReviewWorkbench(props: Props) {
               renderTemplateId={renderTemplateId}
               onRenderTemplateIdChange={setRenderTemplateId}
               actionBusy={actionBusy}
-              onExportWord={() => void submitRender({ strict: true })}
+              onExportWord={() => {
+                // 与侧栏「仍要导出」同语义：验收未过时明示确认后可继续（strict:false）。
+                const acc = acceptance;
+                const gateBlocked = acc?.deliverableType != null && acc && !acc.ready;
+                if (gateBlocked) {
+                  const ok = window.confirm(
+                    `出稿检查仍有 ${acc?.blockerCount ?? 0} 项阻塞。\n\n仍要导出 Word？`,
+                  );
+                  if (!ok) {
+                    return;
+                  }
+                  void submitRender({ strict: false });
+                  return;
+                }
+                void submitRender({ strict: true });
+              }}
               onOpenAgentsDesk={onOpenAgentsDesk}
-              exportReady={(detail.reviewStatus ?? "pending") === "approved"}
+              exportReady
             />
           </div>
         ) : null}

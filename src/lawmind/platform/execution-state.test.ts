@@ -15,6 +15,14 @@ describe("platform/execution-state", () => {
     });
   });
 
+  it("maps paused tool-budget checkpoint to recoverable approval", () => {
+    expect(executionStateFromTurn({ status: "paused" })).toMatchObject({
+      phase: "approval",
+      status: "awaiting_approval",
+      recoverable: true,
+    });
+  });
+
   it("maps error turn status", () => {
     expect(executionStateFromTurn({ status: "error", error: "boom" })).toMatchObject({
       phase: "error",

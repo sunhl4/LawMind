@@ -37,7 +37,11 @@ export function recordDeadline(workspaceDir: string, input: RecordDeadlineInput)
     status: "open",
     notes: input.notes,
   };
-  appendDeadline(workspaceDir, record);
+  // append 与 updateDeadlineStatus 的全量 rewrite 共用同一把锁，避免并发「新建 + 更新」丢条目。
+  const lockPath = path.join(matterDir(workspaceDir, input.matterId), "deadlines.jsonl.lock");
+  withExclusiveFileLock(lockPath, () => {
+    appendDeadline(workspaceDir, record);
+  });
   attachDeadlineId(workspaceDir, input.matterId, record.deadlineId);
   return record;
 }

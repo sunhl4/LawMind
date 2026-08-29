@@ -185,3 +185,28 @@ select option {
   background-color: var(--surface);
   color: var(--text);
 }
+
+/* ── 空态归并（canonical .lm-empty）───────────────────────────────
+   新增空态一律用 .lm-empty；旧类（.lm-empty-state / .lm-review-detail-empty /
+   .lm-automation-inbox-empty / .lm-chat-history-empty / .lm-file-tree-empty /
+   .lm-files-empty / .lm-approval-list-empty / .lm-collab-empty / .lm-matrix-empty）
+   逐步迁移至此，禁止再各写一套 padding/居中/颜色。 */
+.lm-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-6);
+  color: var(--lm-muted, var(--muted));
+  text-align: center;
+}
+.lm-empty .lm-empty-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--lm-text, var(--text));
+}
+.lm-empty .lm-empty-body {
+  font-size: 12px;
+  line-height: 1.6;
+}

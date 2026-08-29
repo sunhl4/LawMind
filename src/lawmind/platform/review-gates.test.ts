@@ -43,6 +43,6 @@ describe("platform/review-gates", () => {
       { gate: "approval_gate", decision: "allow" },
     ]);
     expect(blocking).toHaveLength(1);
-    expect(formatGateDecisionLine(blocking[0])).toBe("验收门禁：缺章节");
+    expect(formatGateDecisionLine(blocking[0])).toBe("出稿检查：缺章节");
   });
 });

@@ -109,7 +109,8 @@ describe("mail accounts", () => {
     expect(listed).toHaveLength(1);
     expect(listed[0]?.attachments.map((a) => a.name)).toEqual(["nda.docx", "banner.jpg"]);
     expect(listed[0]?.attachments[0]?.relativePath).toContain("nda.docx");
-    expect(listed[0]?.attachments[1]?.relativePath).toBeUndefined();
+    // 图片附件（合同扫描件/照片页）按 OCR 路径持久化。
+    expect(listed[0]?.attachments[1]?.relativePath).toContain("banner.jpg");
     expect(
       fs.existsSync(
         path.join(workspaceDir, "cases", matterId, "mail", "attachments", "msg1", "nda.docx"),
@@ -119,7 +120,33 @@ describe("mail accounts", () => {
       fs.existsSync(
         path.join(workspaceDir, "cases", matterId, "mail", "attachments", "msg1", "banner.jpg"),
       ),
-    ).toBe(false);
+    ).toBe(true);
+  });
+
+  it("persists and can clear sendFormat", () => {
+    const { workspaceDir, lawMindRoot } = mkRoots();
+    const created = upsertMailAccount(workspaceDir, lawMindRoot, {
+      provider: "qq",
+      email: "me@qq.com",
+      sendFormat: {
+        fromName: "张三律师",
+        closingStyle: "formal",
+        signature: "某某律师事务所\n张三 律师",
+      },
+      secret: { password: "x" },
+    });
+    expect(created.sendFormat).toEqual({
+      fromName: "张三律师",
+      closingStyle: "formal",
+      signature: "某某律师事务所\n张三 律师",
+    });
+    const cleared = upsertMailAccount(workspaceDir, lawMindRoot, {
+      id: created.id,
+      provider: "qq",
+      email: "me@qq.com",
+      sendFormat: {},
+    });
+    expect(cleared.sendFormat).toBeUndefined();
   });
 
   it("exposes provider presets for UI", () => {

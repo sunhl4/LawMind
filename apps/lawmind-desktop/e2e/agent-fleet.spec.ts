@@ -1,9 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { gotoShell, installE2eBrowserPrefs } from "./e2e-helpers";
+import { e2eMockApiBase, gotoShell, installE2eBrowserPrefs } from "./e2e-helpers";
 
 test.describe("在办工作台", () => {
   test.beforeEach(async ({ page }) => {
     await installE2eBrowserPrefs(page);
+    await page.request.post(`${e2eMockApiBase()}/__e2e__/reset`);
   });
 
   test("opens rebuilt workbench", async ({ page }) => {
@@ -12,16 +13,16 @@ test.describe("在办工作台", () => {
     await page.getByTestId("lm-tab-agents").click();
     await expect(page.getByTestId("lm-agent-fleet-panel")).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole("heading", { name: "在办", exact: true })).toBeVisible();
+    await expect(page.getByTestId("lm-fleet-pick-hint")).toHaveCount(0);
   });
 
-  test("pending review shows primary action", async ({ page }) => {
+  test("outbound send shows approve-send action", async ({ page }) => {
     await gotoShell(page);
     await page.getByTestId("lm-tab-agents").click();
     await expect(page.getByTestId("lm-agent-fleet-panel")).toBeVisible({ timeout: 30_000 });
-    // 团队视图：点助手自动选中其首条待办
     await page.getByTestId("lm-fleet-team-default").click();
-    await expect(page.getByTestId("lm-fleet-primary-review")).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId("lm-fleet-primary-review")).toContainText(/签批|文书台/);
+    await expect(page.getByTestId("lm-ceremony-primary")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("lm-ceremony-primary")).toContainText(/批准发送/);
   });
 
   test("team mode lists assistants and queue filter still works", async ({ page }) => {
@@ -33,9 +34,9 @@ test.describe("在办工作台", () => {
     await expect(page.getByTestId("lm-fleet-team-all")).toBeVisible();
     await expect(page.getByTestId("lm-fleet-pending-teach")).toContainText("待教");
     await page.getByTestId("lm-fleet-team-default").click();
-    await expect(page.getByTestId("lm-fleet-primary-review")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("lm-ceremony-primary")).toBeVisible({ timeout: 15_000 });
     await page.getByTestId("lm-fleet-mode-queue").click();
-    await expect(page.getByTestId("lm-fleet-group-toggle-review")).toBeVisible();
+    await expect(page.getByTestId("lm-fleet-group-toggle-approve")).toBeVisible();
   });
 
   test("desk sections: 待拍板 / 交出去的活 / 按流程办", async ({ page }) => {
@@ -55,26 +56,16 @@ test.describe("在办工作台", () => {
 
     await page.getByTestId("lm-agents-tab-active").click();
     await expect(page.getByTestId("lm-agent-fleet-panel")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("lm-agents-open-meeting")).toHaveCount(0);
+    await expect(page.getByTestId("lm-agents-open-automations")).toHaveCount(0);
   });
 
-  test("必核勾选 → 通过 → 导出 Word 引导条", async ({ page }) => {
+  test("在办条可进改稿，待拍板不出现内部审稿", async ({ page }) => {
     await gotoShell(page);
     await page.getByTestId("lm-tab-agents").click();
     await expect(page.getByTestId("lm-agent-fleet-panel")).toBeVisible({ timeout: 30_000 });
-    await page.getByTestId("lm-fleet-team-default").click();
-    await expect(page.getByTestId("lm-fleet-desk-checklist")).toBeVisible({ timeout: 15_000 });
-    const checkAll = page.getByTestId("lm-fleet-checklist-check-all");
-    if (await checkAll.isEnabled()) {
-      await checkAll.click();
-    }
-    await expect(page.getByTestId("lm-fleet-draft-approve")).toBeEnabled({ timeout: 10_000 });
-    await page.getByTestId("lm-fleet-draft-approve").click();
-    await expect(page.getByTestId("lm-fleet-post-approve")).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId("lm-fleet-post-approve")).toContainText(/已通过/);
-    await page.getByTestId("lm-fleet-post-approve-export").click();
-    await expect(page.getByTestId("lm-fleet-post-approve")).toContainText(/已导出|e2e\.docx/, {
-      timeout: 15_000,
-    });
-    await expect(page.getByTestId("lm-fleet-post-approve-dismiss")).toBeVisible();
+    await expect(page.getByTestId("lm-agents-open-review")).toBeVisible();
+    await expect(page.getByTestId("lm-agent-fleet-panel")).toContainText("E2E 待发信");
+    await expect(page.getByTestId("lm-agent-fleet-panel")).not.toContainText("E2E 待签批草稿");
   });
 });

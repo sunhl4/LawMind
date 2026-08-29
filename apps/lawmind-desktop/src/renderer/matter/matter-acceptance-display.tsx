@@ -23,8 +23,8 @@ export function DraftAcceptanceBadge(props: { acc: AcceptanceSummaryItem | undef
   }
   if (!acc.hasSpec) {
     return (
-      <span className="lm-acc-badge lm-acc-badge--none" title="该草稿未关联 DeliverableSpec">
-        无门禁
+      <span className="lm-acc-badge lm-acc-badge--none" title="未挂出稿检查规则">
+        无验收规则
       </span>
     );
   }
@@ -32,9 +32,9 @@ export function DraftAcceptanceBadge(props: { acc: AcceptanceSummaryItem | undef
     return (
       <span
         className="lm-acc-badge lm-acc-badge--ok"
-        title={`通过验收门禁（占位符 ${acc.placeholderCount}）`}
+        title={`出稿检查已通过（占位符 ${acc.placeholderCount}）`}
       >
-        ✓ 验收通过
+        ✓ 出稿检查通过
       </span>
     );
   }

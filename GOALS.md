@@ -9,15 +9,40 @@
 
 - 本仓库为 **LawMind 单体代码库**：引擎 **`src/lawmind`**、桌面 **`apps/lawmind-desktop`**、文档站 **`apps/lawmind-docs`**。
 - 引擎模块与架构五层（Router / Memory / Retrieval / **Reasoning** / Artifact）及 Agent、Matter 写侧等扩展，见 **[docs/LAWMIND-ARCHITECTURE.md](docs/LAWMIND-ARCHITECTURE.md)** §二。
-- 不再包含 OpenClaw 网关、extensions 渠道树或移动/桌面伴侣应用目录。若需对照历史经验，见 **[docs/LAWMIND-OPENCLAW-LESSONS.md](docs/LAWMIND-OPENCLAW-LESSONS.md)**。
+- 不再包含 OpenClaw 网关、extensions 渠道树或移动/桌面伴侣应用目录。
 
 ---
 
 ## 二、愿景与原则（摘要）
 
+### 律师产品三条铁律（最高优先级 · 必须贯穿）
+
+面向**执业律师**的一切产品与工程取舍，必须同时满足下列三条；冲突时**不得**用功能面、炫技或「像聊天」牺牲其中任一条：
+
+| #   | 铁律                 | 律师侧含义                                   | 否决标准（一例）                                |
+| --- | -------------------- | -------------------------------------------- | ----------------------------------------------- |
+| 1   | **上手简单**         | 少配置、少迷路；默认路径就能交办与跟进       | 让 Day-1 / Solo 主路径变难 → 不做或收到次要入口 |
+| 2   | **交付结果质量高**   | 交件可审、可用、可担责；来源与验收可核       | 不能提高可验收交付质量 → 不做主路径             |
+| 3   | **交付结果稳定性高** | 同样交办结果不飘、流程不偶发翻车；失败可解释 | 同任务结果更飘 / 更偶发 → 先修稳态再扩面        |
+
+细则与当前改动清单见 **[docs/LAWMIND-SIMPLE-RELIABLE-PLAN.md](docs/LAWMIND-SIMPLE-RELIABLE-PLAN.md)** §0；叙事见 [愿景 · 三条铁律](docs/LAWMIND-VISION.md#律师产品三条铁律)。
+
+#### Agent 引导第四铁律（Cursor / Claude 级 · 贯穿工程）
+
+面向模型编排与工具门禁时，在三条铁律之下增加一条**工程铁律**——冲突时不得用「禁止清单 / 字数配额 / 关键词硬拒」冒充质量或稳定：
+
+| #   | 铁律                         | 含义                                                                                                  | 否决标准（一例）                                                           |
+| --- | ---------------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| 4   | **高级引导优先于判断类硬控** | 用 Skill、原则、自评量规、软教练、提案–接受发挥模型判断；硬拦截只留给安全、空交付、律师权威与滥用护栏 | 用句号/条数/Δ字符静默拒掉专业改稿，或靠「禁止…」spam 代替量规 → 不做主路径 |
+
+- **学什么**：Cursor（Rules / Skills / 提案式改稿 / @钉源 / 检查点）、Claude（Skill 工作流 + 交付前自检）、Codex（原则化系统提示 + 可续跑）。
+- **不学什么**：把产品做成通用 coding IDE；用机械硬控替代律师可审的专业判断。
+- **对照与债表**：**[docs/LAWMIND-CURSOR-CLAUDE-CRAFT-REVIEW.md](docs/LAWMIND-CURSOR-CLAUDE-CRAFT-REVIEW.md)**（全工程审查）；落地样板：`src/lawmind/drafts/contract-redline-craft.ts`。
+- Cursor L1–L5 与 Claude 工程波次已落地（见第十期 / 第十三期勾选）。法律一致性编译器 500 人天计划见第十四期与 [docs/LAWMIND-LEGAL-COMPILER-ROADMAP.md](docs/LAWMIND-LEGAL-COMPILER-ROADMAP.md)。
+
 - **产品定位（现阶段）**：优先面向**个人律师**的工作台——可审计、可追溯、责任边界清晰；北极星是**任务级可验收交付**。律所 / Firm / 协作等为延伸能力，默认体验按个人工作室设计。
 - **错位竞争**：把**律师日常可交办事项**纳入同一套任务闭环（检索整理、多类文书、材料组织、交付质检与审计等）；合同是高价值子集，不是产品边界。
-- **北极星**：LawMind **不是**以对话轮次为目标的聊天产品，而是**按指令执行直至可交付成果**的任务型系统；若对范围或事实存在实质不确定，应先与律师对齐再执行（见 [LawMind 愿景 §6.2b–6.2c](docs/LAWMIND-VISION.md) 与 `src/lawmind/agent/system-prompt.ts`）。
+- **任务北极星**：LawMind **不是**以对话轮次为目标的聊天产品，而是**按指令执行直至可交付成果**的任务型系统；若对范围或事实存在实质不确定，应先与律师对齐再执行（见 [LawMind 愿景 §6.2b–6.2c](docs/LAWMIND-VISION.md) 与 `src/lawmind/agent/system-prompt.ts`）。上述任务北极星从属于**三条铁律**（尤其质量与稳定性），并由**第四铁律**约束实现方式。
 - 详细叙事见 **[docs/LAWMIND-VISION.md](docs/LAWMIND-VISION.md)**、**[docs/LAWMIND-DECISION.md](docs/LAWMIND-DECISION.md)**、**[docs/LAWMIND-ARCHITECTURE.md](docs/LAWMIND-ARCHITECTURE.md)**。
 
 ---
@@ -93,14 +118,12 @@
 - [x] **7.3 Edition 收紧危险工具**：`EDITION_FEATURES.strictDangerousToolApproval`（Firm / Private 开启）；`buildAgentConfig` 注入；`toolRequiresExplicitApproval` + `execute_workflow` 扩展清单；`LAWMIND_ALLOW_DANGEROUS_TOOLS_WITHOUT_APPROVAL` 在严格版下不绕过（`src/lawmind/agent/dangerous-tool-policy.ts`、`runtime.ts`）
 - [x] **7.4 进度脚注**：`LAWMIND-VISION.md` Phase 7 工程注
 - [x] **7.5 异步 Job 加固**：`workspace/lawmind/jobs/*.json` 持久化与进程重启时将非终态 job 标为 `interrupted_by_restart`；`POST /api/jobs/:id/cancel`（队列内立即取消，运行中在步骤批次间协作式中止，不中断单次 `sendAndWait`）；`idempotencyKey` 防重复提交；`executeWorkflow` 可选 `shouldAbort`；通知点击聚焦并滚动至设置协作区；协作面板取消按钮与通知不可用提示
-- [x] **7.6 合同修订积累主路径与文档同步**：审核通过后按草稿 `contractRevisionCapture` 写入 `learning/contract-revisions/`（`contract-revision-on-review-approved.ts`）；桌面不增加批量合同目录设置 UI（`desk-settings` 仍 API/手工 JSON + 启动时加载供可选对话前缀）；[LAWMIND-CONTRACT-REVISION-ACCUMULATION.md](docs/LAWMIND-CONTRACT-REVISION-ACCUMULATION.md)、[LAWMIND-PROJECT-MEMORY.md](docs/LAWMIND-PROJECT-MEMORY.md)、[LAWMIND-DESKTOP-FILES-AND-CONTEXT.md](docs/LAWMIND-DESKTOP-FILES-AND-CONTEXT.md)、[LAWMIND-ARCHITECTURE.md](docs/LAWMIND-ARCHITECTURE.md)、使用手册 §12 与 `GOALS` 本条对齐
+- [x] **7.6 合同修订积累主路径与文档同步**：审核通过后按草稿 `contractRevisionCapture` 写入 `learning/contract-revisions/`（`contract-revision-on-review-approved.ts`）；桌面不增加批量合同目录设置 UI（`desk-settings` 仍 API/手工 JSON + 启动时加载供可选对话前缀）；[LAWMIND-CONTRACT-REVISION-ACCUMULATION.md](docs/LAWMIND-CONTRACT-REVISION-ACCUMULATION.md)、[LAWMIND-DESKTOP-FILES-AND-CONTEXT.md](docs/LAWMIND-DESKTOP-FILES-AND-CONTEXT.md)、[LAWMIND-ARCHITECTURE.md](docs/LAWMIND-ARCHITECTURE.md)、使用手册 §12 与 `GOALS` 本条对齐
 
 ### 第八期 — Matter-centered 写侧 + Role 编制 + Reasoning Gate（2026-Q3）
 
 > 本期把 LawMind 从「派生只读 Matter」推进到「matter-centered 写侧 + 岗位化 +
-> 推理门禁 + 显式记忆采纳 + UI 收敛」。完整实施计划见
-> `.cursor/plans/lawmind-3-month-refactor_abc3d086.plan.md`，工程详记见
-> `docs/LAWMIND-PROJECT-MEMORY.md` §8 2026-05-02 节。
+> 推理门禁 + 显式记忆采纳 + UI 收敛」。架构见 [LAWMIND-ARCHITECTURE.md](docs/LAWMIND-ARCHITECTURE.md) §二。
 
 - [x] **8.1 Engine + ToolPolicy pipeline 重构**：`src/lawmind/index.ts` 拆为
       `engine/{factory,planning,researching,drafting,reviewing,rendering,queries,
@@ -140,8 +163,8 @@ queue.jsonl,deadlines.jsonl}`；engine hot path 全程双写；`/api/matters` /
       `pnpm lawmind:quarterly-demo`（`scripts/lawmind/lawmind-quarterly-demo.ts`）跑
       matter → planned deliverable → 高风险 approval → 状态推进 → reasoning gate →
       memory adoption → JSON 真相源回读 全链路；新增
-      `src/lawmind/integration/quarterly-acceptance.test.ts`；同步本节、
-      `LAWMIND-ARCHITECTURE.md` 二、新增段、`LAWMIND-PROJECT-MEMORY.md` §8（W12）
+      `src/lawmind/integration/quarterly-acceptance.test.ts`；同步本节与
+      `LAWMIND-ARCHITECTURE.md` 二、新增段
 
 ### 第九期 UX 硬化（2026-05，90 天体验计划）
 
@@ -176,6 +199,7 @@ queue.jsonl,deadlines.jsonl}`；engine hot path 全程双写；`/api/matters` /
 - 在未通过律师审核（`reviewStatus` / 验收门禁）时**对外宣称终稿已生效**或自动绕行渲染/导出。
 - 为「功能演示」弱化审计、归因或工作区隔离等合规默认值。
 - 引入与 **127.0.0.1 本地桌面 API** 安全模型不匹配的隐式远程控制面（除非单独设计并文档化）。
+- 用**判断类硬控**（改点配额、句号即拒、关键词长度冻结写路径、禁止名单 spam）冒充交付质量或稳定性——应走 Skill/量规（见第四铁律与 [CURSOR-CLAUDE-CRAFT-REVIEW](docs/LAWMIND-CURSOR-CLAUDE-CRAFT-REVIEW.md)）。安全/空交付/律师权威硬门禁不在此列。
 
 有强用户需求或明确合规背书时，可再评审调整。
 
@@ -190,8 +214,8 @@ queue.jsonl,deadlines.jsonl}`；engine hot path 全程双写；`/api/matters` /
 - **LawMind 文档站（VitePress）**：[apps/lawmind-docs/README.md](apps/lawmind-docs/README.md)（`pnpm lawmind:docs:dev` / `lawmind:docs:build`）
 - **LawMind 使用手册**：[docs/LAWMIND-USER-MANUAL.md](docs/LAWMIND-USER-MANUAL.md)
 - **LawMind 桌面端 UI 约定**：[docs/LAWMIND-DESKTOP-UI.md](docs/LAWMIND-DESKTOP-UI.md)
-- **LawMind 工程开发记忆**（研发续作，≠ 律师 `MEMORY.md`）：[docs/LAWMIND-PROJECT-MEMORY.md](docs/LAWMIND-PROJECT-MEMORY.md)
-- **与 OpenClaw 取长补短的工程约定**：[docs/LAWMIND-OPENCLAW-LESSONS.md](docs/LAWMIND-OPENCLAW-LESSONS.md)
+- **长期回看项**：[docs/LAWMIND-FUTURE-ISSUES.md](docs/LAWMIND-FUTURE-ISSUES.md)
+- **Cursor / Claude 高级引导 vs 硬控（债表）**：[docs/LAWMIND-CURSOR-CLAUDE-CRAFT-REVIEW.md](docs/LAWMIND-CURSOR-CLAUDE-CRAFT-REVIEW.md)
 - **Deliverable-First**：[docs/LAWMIND-DELIVERABLE-FIRST.md](docs/LAWMIND-DELIVERABLE-FIRST.md)
 - **商业化与合规索引**：[docs/LAWMIND-DELIVERY.md](docs/LAWMIND-DELIVERY.md)、[docs/LAWMIND-SECURITY-CHECKLIST.md](docs/LAWMIND-SECURITY-CHECKLIST.md)、[docs/LAWMIND-CUSTOMER-OVERVIEW.md](docs/LAWMIND-CUSTOMER-OVERVIEW.md)
 - **模型适配**：[docs/LAWMIND-MODEL-ADAPTERS.md](docs/LAWMIND-MODEL-ADAPTERS.md)
@@ -343,7 +367,7 @@ queue.jsonl,deadlines.jsonl}`；engine hot path 全程双写；`/api/matters` /
 - [x] **ContextPlan 集成测**：`context-plan.integration.test.ts`；`runtime.ts` 注入 ContextPlan markdown
 - [x] **REFERENCE 状态表**：`LAWMIND-REFERENCE-PROJECT-LESSONS.md` §落地状态矩阵
 - [x] **Queue dependsOn**：`queue-write-service` + 任务看板 subtitle
-- [x] **架构目录对齐**：`LAWMIND-ARCHITECTURE.md` §二 + `LAWMIND-PROJECT-MEMORY.md` 第十二期注记
+- [x] **架构目录对齐**：`LAWMIND-ARCHITECTURE.md` §二
 
 #### 第十二期合并验收
 
@@ -357,6 +381,53 @@ pnpm lawmind:quarterly-demo
 - [x] 发布报告：`Benchmark gate: pass`（mock 对齐模式）+ Quality Dashboard 可灌数
 - [x] `pnpm lawmind:verify` + `LAWMIND_BENCHMARK_STRICT=1 pnpm lawmind:release-readiness` + `pnpm lawmind:desktop:e2e:pr`（38 过 / 2 跳 / 0 败）+ `pnpm lawmind:quarterly-demo`
 
+### 第十三期 — Cursor / Claude / Codex 式高级引导（判断力优先 · 不改通路 · 2026-Q3）
+
+> 把「高级引导优先于判断类硬控」写入全产品目标；硬门禁只保留安全 / 空交付 / 律师权威。  
+> 硬控债表：[docs/LAWMIND-CURSOR-CLAUDE-CRAFT-REVIEW.md](docs/LAWMIND-CURSOR-CLAUDE-CRAFT-REVIEW.md)。
+
+- [x] **13.0 入宪 + 全通路计划**：第四铁律；Craft 样板；A–L 通路对照与 W0–W4 分期（已落地，见债表）
+- [x] **13.1 / W1.1 改稿双轨合一**：`update_draft` amplitude 硬拒 → soft 或大改走 Redline 提案（通路仍为 `update_draft`）
+- [x] **13.2 / W1.2–W1.3 Intake 软化**：关键词·长度冻结 → Soft Ask + Intake Skill；钉源/邮件齐备不假澄清（交办表单保留）
+- [x] **13.3 / W1.4 意见书与自动化禁语**：opinion 路径 `## 禁止` → 原则 + Opinion Craft（automations 入口不变）
+- [x] **13.4 / W2 系统提示分层 + Citation Skill**：禁止名单瘦身；research/render 教练
+- [x] **13.5 / W2 内置 Skill 面**：Intake、Citation、交付用语与合同 Craft 可发现可签名
+- [x] **13.6 / W3 工具预算检查点 + Compact 重注红线**：软预算续跑；压缩后 RULES/deliverable 仍在
+- [x] **13.7 / W4 可观测收口 + 回归**：gate-history 区分 safety/judgment；空修订/未批准/危险工具仍硬拒
+- [x] **13.8 律师版 Cursor 默认姿势（2026-08-19）**：有凭据时模型路由默认开启；系统提示勿等律师先选通道；办件降为可选快捷。不新增入口、不削弱末端硬门禁。
+- [x] **13.9 产品化能力（2026-08-19）**：高频办件（合同审查 / 函件 / 检索 / 诉讼 / 写材料 / 邮件合同）收成 Skill + 流水线，本轮自动绑定；禁止把正式交付交给模型自由发挥。
+- [x] **13.10 办件选流程（2026-08-19）**：律师先附材料，再在「办件」列表选流程；指令写能力锁，不必记激活词。
+
+```bash
+pnpm exec vitest run src/lawmind/drafts/contract-redline-craft.test.ts \
+  src/lawmind/drafts/apply-surgical-edits.test.ts \
+  src/lawmind/agent/mail-contract-fast-path.test.ts
+```
+
+### 第十四期 — 法律一致性编译器奠基（历史扫描 + lint + 北极星 · 2026-Q3）
+
+> 计划全文：[docs/LAWMIND-LEGAL-COMPILER-ROADMAP.md](docs/LAWMIND-LEGAL-COMPILER-ROADMAP.md)（500 人天 / 12 个月）。  
+> Phase 0 + Wave 2 工程切片已落地；**人/数据债见 14.10，不是 500 人天全部完成**。lint 通过 ≠ 法律正确。外发仍须签批。
+
+- [x] **14.0 计划入宪**：WS0–WS6 重校准（扫描 90 / lint 120 / 自修订 50 / 分级交付 55 / 立场 60 / benchmark 55 / 北极星 25 / 横切 45）；决策头延后
+- [x] **14.1 历史扫描**：最多 3 根；整理夹建议建案、杂烩不自动建案；设置 + 首跑入口；`GET/POST /api/historical-scan*`
+- [x] **14.2 习惯阈值**：红线 accept ≥5 入待确认；冲突取最新 mtime；不静默写 profile
+- [x] **14.3 lint 内核**：10 条机械规则 + 参数库骨架（定金 20% / 时效 3 年 / 4×LPR 倍数）；起草/改稿 advisory；改稿台「机械核对」一行
+- [x] **14.4 北极星基线**：`north-star.json` + Doctor「交付北极星」（空样本为「尚无」）
+- [x] **14.5 增量扫描**：cursor + 二次扫描跳过未变文件；指纹不变不重复入队知识（WS0）
+- [x] **14.6 自修订闭环**：≤3 轮；目前仅自动改超法定上限定金比例；或裁或诉进残留（WS2）
+- [x] **14.7 买卖+借款族包 + 引用有效性骨架**：规则合计 ≥20；离线废止/无法核验（WS1）
+- [x] **14.8 分级交付 + 渐进自主函数 + 决策头 + 升级建议**：外发永不自动；缺逃逸序列不解锁（WS3）
+- [x] **14.9 结构化立场库 + 合成影子 benchmark**：红线 accept 入库；审阅时长 / lint 逃逸写侧（WS4–WS6）
+- [ ] **14.10 人/数据债（500 人天未完成部分）**：法律顾问抽审族包、真实已结案影子、LLM 评审校准、法宝联调、M4 生产指标、其余族包、approve 路径真正 auto_deliver
+
+```bash
+pnpm exec vitest run src/lawmind/lint src/lawmind/historical-scan src/lawmind/metrics/north-star.test.ts \
+  apps/lawmind-desktop/server/lawmind-server-route-historical-scan.test.ts \
+  apps/lawmind-desktop/server/lawmind-server-route-metrics.test.ts
+pnpm --filter lawmind-desktop typecheck
+```
+
 ---
 
-_最后更新：2026-07-29（独立复评第三轮 + 优化落地：compose-picker 漏鉴权已修、vendor 脚本已补、并发加锁/AbortSignal/治理拆分/SSRF pin/CI 门禁/a11y/文案/信任默认全部收敛；工程可合并 ≈8.9 / 产品信任 ≈8.5，详见 `docs/LAWMIND-ENGINEERING-REVIEW.md` 附录；外接权威库仍依赖凭证）。_
+_最后更新：2026-08-30（第十四期 Wave 2：增量扫描 / 族包 / 自修订 / 分级交付 / 立场库 / 影子与北极星写侧。500 人天的人与数据债见 14.10）。_

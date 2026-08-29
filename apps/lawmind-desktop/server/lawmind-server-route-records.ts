@@ -2,18 +2,20 @@ import { DEFAULT_ASSISTANT_ID } from "../../../src/lawmind/assistants/constants.
 import type { AgentSession } from "../../../src/lawmind/agent/types.js";
 import {
   createSession,
-  deleteSession,
   displayChatSessionTitle,
   listSessions,
   loadSession,
   renameSession,
   sessionHistoryToSimpleMessages,
 } from "../../../src/lawmind/agent/session.js";
+import {
+  deleteSessionWithCascade,
+  type SessionDeleteCascadeOptions,
+} from "../../../src/lawmind/agent/session-delete-cascade.js";
 import { listDrafts } from "../../../src/lawmind/drafts/index.js";
-import { listTaskRecords, readTaskRecord } from "../../../src/lawmind/tasks/index.js";
+import { listTaskRecords } from "../../../src/lawmind/tasks/index.js";
 import { taskRecordStatusLabel } from "../../../src/lawmind/tasks/status-label.js";
-import { getLiveTurnProgress } from "../../../src/lawmind/agent/live-turn-progress.js";
-import { isSafeTaskIdSegment } from "./safe-task-id.js";
+import { getLiveTurnProgressOrReplay } from "../../../src/lawmind/agent/session-event-log.js";
 import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
 import {
   sessionCreatePostSchema,
@@ -44,8 +46,17 @@ function performSessionDelete(
   workspaceDir: string,
   sessionId: string,
   assistantId: string,
+  cascade: SessionDeleteCascadeOptions = {},
 ):
-  | { status: 200; payload: { ok: true; sessionId: string; alreadyDeleted?: boolean } }
+  | {
+      status: 200;
+      payload: {
+        ok: true;
+        sessionId: string;
+        alreadyDeleted?: boolean;
+        cascade?: ReturnType<typeof deleteSessionWithCascade>;
+      };
+    }
   | { status: 404; payload: { ok: false; code: string; message: string } }
   | { status: 500; payload: { ok: false; code: string; message: string } } {
   const session = loadSession(workspaceDir, sessionId);
@@ -63,13 +74,14 @@ function performSessionDelete(
       },
     };
   }
-  if (!deleteSession(workspaceDir, sessionId)) {
+  const cascadeResult = deleteSessionWithCascade(workspaceDir, sessionId, cascade);
+  if (!cascadeResult.deletedSession) {
     return {
       status: 500,
       payload: { ok: false, code: "delete_failed", message: "could not delete session files" },
     };
   }
-  return { status: 200, payload: { ok: true, sessionId } };
+  return { status: 200, payload: { ok: true, sessionId, cascade: cascadeResult } };
 }
 
 export async function handleRecordRoutes({
@@ -95,34 +107,13 @@ export async function handleRecordRoutes({
     return true;
   }
 
-  const taskItemMatch = /^\/api\/tasks\/([^/]+)$/.exec(pathname);
-  if (taskItemMatch && req.method === "GET") {
-    const taskId = taskItemMatch[1];
-    if (!isSafeTaskIdSegment(taskId)) {
-      sendJson(res, 400, { ok: false, code: "invalid_task_id", message: "invalid task id" }, c);
-      return true;
-    }
-    const record = readTaskRecord(workspaceDir, taskId);
-    if (!record) {
-      sendJson(res, 404, { ok: false, code: "not_found", message: "task not found" }, c);
-      return true;
-    }
-    sendJson(
-      res,
-      200,
-      {
-        ok: true,
-        task: { ...taskToSummary(record), statusLabel: taskRecordStatusLabel(record) },
-      },
-      c,
-    );
-    return true;
-  }
+  // GET /api/tasks/:id 的权威实现在 route-review（含 checkpoints；先注册先匹配）。
+  // 此处不再保留重复实现，避免两版响应形状漂移。
 
   const sessionLiveMatch = /^\/api\/sessions\/([^/]+)\/live-turn$/.exec(pathname);
   if (sessionLiveMatch && req.method === "GET") {
     const sessionId = sessionLiveMatch[1];
-    const progress = getLiveTurnProgress(sessionId);
+    const progress = getLiveTurnProgressOrReplay(workspaceDir, sessionId);
     sendJson(
       res,
       200,
@@ -184,7 +175,10 @@ export async function handleRecordRoutes({
     }
     const sessionId = body.sessionId;
     const assistantId = body.assistantId?.trim() || DEFAULT_ASSISTANT_ID;
-    const out = performSessionDelete(workspaceDir, sessionId, assistantId);
+    const out = performSessionDelete(workspaceDir, sessionId, assistantId, {
+      cascadeDelegations: body.cascadeDelegations === true,
+      cascadeUnapprovedDrafts: body.cascadeUnapprovedDrafts === true,
+    });
     sendJson(res, out.status, out.payload, c);
     return true;
   }
@@ -256,7 +250,10 @@ export async function handleRecordRoutes({
   if (sessionItemMatch && req.method === "DELETE") {
     const sessionId = sessionItemMatch[1];
     const assistantId = url.searchParams.get("assistantId")?.trim() || DEFAULT_ASSISTANT_ID;
-    const out = performSessionDelete(workspaceDir, sessionId, assistantId);
+    const out = performSessionDelete(workspaceDir, sessionId, assistantId, {
+      cascadeDelegations: url.searchParams.get("cascadeDelegations") === "1",
+      cascadeUnapprovedDrafts: url.searchParams.get("cascadeUnapprovedDrafts") === "1",
+    });
     sendJson(res, out.status, out.payload, c);
     return true;
   }

@@ -61,7 +61,7 @@ pnpm lawmind:release-readiness -- --out dist/lawmind-release-readiness.md
 
 - [x] `docs/lawmind/LAWMIND-PLATFORM-CONTRACTS.md` 与 `src/lawmind/platform/contracts.ts` 字段 diff 纳入 `pnpm lawmind:multitask:validate`（或等价脚本），CI 失败即阻断。
 - [x] `ContextPlan` 与 `runtime` 注入：新增 `src/lawmind/runtime/context-plan.integration.test.ts`（或 golden snapshot），覆盖 matter + recall + pending actions 至少 3 层。
-- [x] 架构图/模块表（`LAWMIND-ARCHITECTURE.md` §二）与 `src/lawmind/` 顶层目录季度对齐一次并记入 `LAWMIND-PROJECT-MEMORY.md`。
+- [x] 架构图/模块表（`LAWMIND-ARCHITECTURE.md` §二）与 `src/lawmind/` 顶层目录季度对齐一次。
 
 **不做**：为 5 分再拆 repo 或引入 LangGraph 全量迁移。
 

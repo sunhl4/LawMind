@@ -66,4 +66,25 @@ describe("review-campaign storage", () => {
     expect(md).toContain("Safety Score");
     expect(md).toContain("谈判优先级");
   });
+
+  it("keeps stance and focus when escalating a deep review", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-campaign-brief-"));
+    dirs.push(ws);
+    const campaign = createReviewCampaign(ws, {
+      taskId: "t-deep",
+      sourceText: "合同正文。无责任上限。",
+      reviewBrief: { stance: "委托方（保护我方利益）", focus: "付款与违约", depth: "深度" },
+      runNow: true,
+    });
+    expect(campaign.reviewBrief?.stance).toContain("委托方");
+    expect(campaign.reviewBrief?.focus).toBe("付款与违约");
+    expect(campaign.sourceText).toContain("【审查口径】");
+    expect(campaign.sourceText).toContain("付款与违约");
+    expect(
+      campaign.roles
+        .find((r) => r.roleId === "risk")
+        ?.findings.some((f) => f.title === "沿用原审查口径"),
+    ).toBe(true);
+    expect(renderCampaignReportMarkdown(campaign)).toContain("审查口径");
+  });
 });

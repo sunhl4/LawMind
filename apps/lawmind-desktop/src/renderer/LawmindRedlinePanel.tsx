@@ -9,21 +9,81 @@ type RedlineHunk = {
   before: string;
   after: string;
   status: "pending" | "accepted" | "rejected";
+  spanStart?: number;
+  spanEnd?: number;
+  granularity?: "surgical" | "section";
 };
 
 type RedlineProposal = {
   taskId: string;
   hunks: RedlineHunk[];
+  baselineSections?: Array<{ heading: string; body: string }>;
 };
+
+/** 上下文字数：surgical hunk 在基线正文中的前后展示窗口。 */
+const SURGICAL_CONTEXT_CHARS = 30;
+
+/**
+ * surgical hunk 的上下文内联渲染：从基线正文截取 span 前后各 N 字，
+ * 只把实际改动的字/句放进 <mark>（而非整段 mark，避免误导审阅幅度）。
+ */
+function surgicalContextRows(
+  h: RedlineHunk,
+  baselineBody: string | undefined,
+): { beforeRow: ReactNode; afterRow: ReactNode } | null {
+  if (
+    h.granularity !== "surgical" ||
+    !baselineBody ||
+    typeof h.spanStart !== "number" ||
+    typeof h.spanEnd !== "number"
+  ) {
+    return null;
+  }
+  if (h.spanStart < 0 || h.spanEnd > baselineBody.length || h.spanEnd < h.spanStart) {
+    return null;
+  }
+  const head = baselineBody.slice(
+    Math.max(0, h.spanStart - SURGICAL_CONTEXT_CHARS),
+    h.spanStart,
+  );
+  const tail = baselineBody.slice(
+    h.spanEnd,
+    Math.min(baselineBody.length, h.spanEnd + SURGICAL_CONTEXT_CHARS),
+  );
+  const prefix = h.spanStart - SURGICAL_CONTEXT_CHARS > 0 ? "…" : "";
+  const suffix = h.spanEnd + SURGICAL_CONTEXT_CHARS < baselineBody.length ? "…" : "";
+  return {
+    beforeRow: (
+      <>
+        {prefix}
+        {head}
+        <mark className="lm-diff-span">{h.before || "（空）"}</mark>
+        {tail}
+        {suffix}
+      </>
+    ),
+    afterRow: (
+      <>
+        {prefix}
+        {head}
+        <mark className="lm-diff-span">{h.after || "（空）"}</mark>
+        {tail}
+        {suffix}
+      </>
+    ),
+  };
+}
 
 type Props = {
   apiBase: string;
   taskId: string;
   onDraftUpdated?: () => void;
+  /** 改稿主区：无 hunk 时不占位。 */
+  hideIfEmpty?: boolean;
 };
 
 export function LawmindRedlinePanel(props: Props): ReactNode {
-  const { apiBase, taskId, onDraftUpdated } = props;
+  const { apiBase, taskId, onDraftUpdated, hideIfEmpty = false } = props;
   const [proposal, setProposal] = useState<RedlineProposal | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -127,6 +187,10 @@ export function LawmindRedlinePanel(props: Props): ReactNode {
   };
 
   const pending = proposal?.hunks.filter((h) => h.status === "pending") ?? [];
+  const resolved = proposal?.hunks.filter((h) => h.status !== "pending") ?? [];
+  if (hideIfEmpty && pending.length === 0 && resolved.length === 0) {
+    return null;
+  }
 
   return (
     <div className="lm-review-redline-panel">
@@ -173,25 +237,48 @@ export function LawmindRedlinePanel(props: Props): ReactNode {
           ) : null}
         </div>
       </div>
-      <p className="lm-meta">
-        助手改稿后会自动生成待决提案；「接受」写入、「拒绝」回滚到基准。亦可手动设基准后编辑再「生成提案」。
-      </p>
+      <p className="lm-meta">改稿后出提案。</p>
       {error ? <p className="lm-meta lm-text-danger">{error}</p> : null}
       {pending.length === 0 ? (
-        <p className="lm-meta">
-          暂无待处理修订段。若已修改正文，请先点「将当前稿设为基准」再编辑，或点「生成提案」刷新对比。
-        </p>
+        <p className="lm-meta">暂无修订。</p>
       ) : (
         <ul className="lm-review-redline-list">
-          {pending.map((h) => (
+          {pending.map((h) => {
+            const ctxRows = surgicalContextRows(
+              h,
+              proposal?.baselineSections?.[h.sectionIndex]?.body,
+            );
+            return (
             <li key={h.hunkId} className="lm-review-redline-item">
               {h.sectionHeading ? (
-                <div className="lm-meta">{h.sectionHeading}</div>
+                <div className="lm-meta">
+                  {h.sectionHeading}
+                  {h.granularity === "surgical" ? " · 最小修改" : ""}
+                </div>
               ) : (
-                <div className="lm-meta">第 {h.sectionIndex + 1} 节</div>
+                <div className="lm-meta">
+                  第 {h.sectionIndex + 1} 节
+                  {h.granularity === "surgical" ? " · 最小修改" : ""}
+                </div>
               )}
-              <pre className="lm-diff-remove">{h.before || "（空）"}</pre>
-              <pre className="lm-diff-add">{h.after || "（空）"}</pre>
+              <pre className="lm-diff-remove">
+                {ctxRows ? (
+                  ctxRows.beforeRow
+                ) : h.granularity === "surgical" ? (
+                  <mark className="lm-diff-span">{h.before || "（空）"}</mark>
+                ) : (
+                  h.before || "（空）"
+                )}
+              </pre>
+              <pre className="lm-diff-add">
+                {ctxRows ? (
+                  ctxRows.afterRow
+                ) : h.granularity === "surgical" ? (
+                  <mark className="lm-diff-span">{h.after || "（空）"}</mark>
+                ) : (
+                  h.after || "（空）"
+                )}
+              </pre>
               <div className="lm-review-redline-actions">
                 <button
                   type="button"
@@ -211,9 +298,35 @@ export function LawmindRedlinePanel(props: Props): ReactNode {
                 </button>
               </div>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
+      {resolved.length > 0 ? (
+        <details className="lm-review-redline-resolved" data-testid="lm-redline-resolved">
+          <summary className="lm-meta">
+            已处理 {resolved.length} 段（{resolved.filter((h) => h.status === "accepted").length}{" "}
+            接受 · {resolved.filter((h) => h.status === "rejected").length} 拒绝）
+          </summary>
+          <ul className="lm-review-redline-list lm-review-redline-list--resolved">
+            {resolved.map((h) => (
+              <li
+                key={h.hunkId}
+                className={`lm-review-redline-item lm-review-redline-item--${h.status}`}
+              >
+                <div className="lm-meta">
+                  {h.status === "accepted" ? "已接受" : "已拒绝"}
+                  {h.sectionHeading
+                    ? ` · ${h.sectionHeading}`
+                    : ` · 第 ${h.sectionIndex + 1} 节`}
+                </div>
+                <pre className="lm-diff-remove lm-diff-muted">{h.before || "（空）"}</pre>
+                <pre className="lm-diff-add lm-diff-muted">{h.after || "（空）"}</pre>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
     </div>
   );
 }

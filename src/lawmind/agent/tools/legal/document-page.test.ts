@@ -60,4 +60,25 @@ describe("analyze_document pagination", () => {
     expect(d2.offset).toBe(4000);
     expect(d2.hasMore).toBe(true);
   });
+
+  it("finds a project file that is not in the workspace", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-analyze-ws-"));
+    const project = await fs.mkdtemp(path.join(os.tmpdir(), "lm-analyze-proj-"));
+    const leaf = "泰国医疗人工智能战略合作框架协议.txt";
+    await fs.writeFile(path.join(project, leaf), "甲方权利义务\n", "utf8");
+    const ctx: AgentContext = {
+      workspaceDir: ws,
+      sessionId: "s",
+      actorId: "lawyer",
+      projectDir: project,
+    };
+    const result = await analyzeDocument.execute({ file_path: leaf }, ctx);
+    expect(result.ok).toBe(true);
+    const data = result.data as { filePath?: string; fileRoot?: string; content?: string };
+    expect(data.fileRoot).toBe("project");
+    expect(data.filePath).toBe(leaf);
+    expect(data.content).toContain("甲方");
+    await fs.rm(ws, { recursive: true, force: true });
+    await fs.rm(project, { recursive: true, force: true });
+  });
 });

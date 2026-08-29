@@ -15,7 +15,9 @@ test.describe("LawMind workspace chat", () => {
     const seededTurn = page.getByText(/需要您确认|待批准|工作流待确认/);
     await expect(emptyHero.or(seededTurn).first()).toBeVisible({ timeout: 15_000 });
     if (await emptyHero.isVisible().catch(() => false)) {
-      await expect(page.locator(".lm-scenario-card").first()).toBeVisible();
+      await expect(page.getByTestId("lm-chat-empty")).toBeVisible();
+      await expect(page.getByTestId("lm-chat-empty")).toContainText("拖入或点「办件」");
+      await expect(page.getByTestId("lm-compose-desk-work")).toBeVisible();
     }
     await expect(page.locator(".lm-compose-toolbar, .lm-compose-box").first()).toBeVisible();
     await expect(page.locator(".lm-model-picker-trigger")).toBeVisible({ timeout: 15_000 });

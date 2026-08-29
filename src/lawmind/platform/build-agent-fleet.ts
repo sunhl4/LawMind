@@ -3,12 +3,14 @@ import type { DelegationStatus } from "../agent/collaboration/types.js";
 import { listSessions, displayChatSessionTitle } from "../agent/session.js";
 import { listApprovalRequests, listWorkQueueItems } from "../application/services/queue-service.js";
 import { listDrafts } from "../drafts/index.js";
+import { listLawyerWorks } from "../work/store.js";
 import type {
   AgentFleetSummary,
   AgentRunKind,
   AgentRunStatus,
   AgentRunSummary,
 } from "./agent-fleet.js";
+import { isOutboundToolName } from "./lawyer-outbound-decision.js";
 import { listPendingToolApprovals } from "./pending-tool-approvals.js";
 import { sanitizeLawyerFacingText, toolDisplayNameZh } from "./requires-action.js";
 import { extractApprovalDocumentPreview } from "./tool-approval-diff.js";
@@ -100,13 +102,41 @@ function lastTurnStatus(session: ReturnType<typeof listSessions>[number]): Agent
   if (last.status === "awaiting_clarification") {
     return "awaiting_clarification";
   }
-  if (last.status === "awaiting_approval" || last.executionState?.status === "awaiting_approval") {
+  if (
+    last.status === "awaiting_approval" ||
+    last.status === "paused" ||
+    last.executionState?.status === "awaiting_approval"
+  ) {
     return "awaiting_approval";
   }
   if (last.status === "running" || last.executionState?.status === "running") {
     return "running";
   }
   return null;
+}
+
+function attachLawyerWorkOverlay(workspaceDir: string, runs: AgentRunSummary[]): void {
+  const works = listLawyerWorks(workspaceDir);
+  if (works.length === 0) {
+    return;
+  }
+  for (const run of runs) {
+    const work = works.find(
+      (item) =>
+        (run.sessionId && item.sessionId === run.sessionId) ||
+        (run.taskId && (item.taskId === run.taskId || item.draftId === run.taskId)),
+    );
+    if (!work) {
+      continue;
+    }
+    run.workId = work.workId;
+    if (work.title.trim()) {
+      run.title = work.title;
+    }
+    if (work.goal.trim()) {
+      run.subtitle = `本件：${work.goal}`;
+    }
+  }
 }
 
 function chatPriority(status: AgentRunStatus): number {
@@ -143,9 +173,17 @@ export async function buildAgentFleetSummary(
     if (!showSession) {
       continue;
     }
-    const status: AgentRunStatus = pending.some((a) => a.kind === "tool_approval")
+    const outboundTool = pending.find(
+      (a) => a.kind === "tool_approval" && isOutboundToolName(a.toolName),
+    );
+    const clarify = hasPendingClarification || pending.some((a) => a.kind === "clarification");
+    const status: AgentRunStatus = outboundTool
       ? "awaiting_approval"
-      : (turnStatus ?? (hasPendingClarification ? "awaiting_clarification" : "running"));
+      : clarify
+        ? "awaiting_clarification"
+        : turnStatus === "awaiting_approval"
+          ? "running"
+          : (turnStatus ?? "running");
     runs.push({
       id: `chat:${session.sessionId}`,
       kind: "chat",
@@ -156,6 +194,7 @@ export async function buildAgentFleetSummary(
       assistantId: session.assistantId,
       assigneeLabel: assistantLabel(assistantLabels, session.assistantId),
       sessionId: session.sessionId,
+      toolName: outboundTool?.toolName,
       updatedAt: session.updatedAt,
       createdAt: session.createdAt,
       priority: chatPriority(status),
@@ -218,11 +257,17 @@ export async function buildAgentFleetSummary(
     listApprovalRequests(workspaceDir, { matterId, status: "pending" }),
   ]);
 
+  /** 待拍板只拦外发；问客户算出局。内部审稿不进待拍板。 */
+  const LAWYER_FACING_QUEUE_KINDS = new Set(["need_client_input"]);
+
   for (const item of queueItems) {
+    // 律师拍板类队列项映射为 awaiting_approval（进入待拍板队列）；
+    // 其余（ready_to_draft / blocked_* 等助手侧工作）保持 queued，由过滤层排除。
+    const lawyerFacing = LAWYER_FACING_QUEUE_KINDS.has(item.kind);
     runs.push({
       id: `queue:${item.queueItemId}`,
       kind: "queue_item",
-      status: "queued",
+      status: lawyerFacing ? "awaiting_approval" : "queued",
       title: item.title,
       subtitle: item.phase ?? "工作队列",
       matterId: item.matterId,
@@ -249,6 +294,9 @@ export async function buildAgentFleetSummary(
   }
 
   for (const tool of listPendingToolApprovals(workspaceDir, { matterId })) {
+    if (!isOutboundToolName(tool.toolName)) {
+      continue;
+    }
     if (runs.some((r) => r.actionId === tool.actionId)) {
       continue;
     }
@@ -293,6 +341,7 @@ export async function buildAgentFleetSummary(
     });
   }
 
+  attachLawyerWorkOverlay(workspaceDir, runs);
   runs.sort((a, b) => a.priority - b.priority || b.updatedAt.localeCompare(a.updatedAt));
   const sliced = runs.slice(0, limit);
 

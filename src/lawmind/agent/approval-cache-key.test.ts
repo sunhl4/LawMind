@@ -85,6 +85,67 @@ describe("approval-cache-key", () => {
     expect(approvalArgsMatch("apply_surgical_edits", hunks, { ...hunks, summary: "x" })).toBe(true);
   });
 
+  it("hashes prepare_outbound_mail by to + attachments, not subject/body", () => {
+    const a = hashToolApprovalArgs("prepare_outbound_mail", {
+      to: "Counsel <Opp@Firm.CN>",
+      subject: "审阅稿",
+      body: "请查收",
+      attachment_paths: ["./cases/m/b.docx", "cases/m/a.docx"],
+      title: "old",
+      __approved: true,
+    });
+    const b = hashToolApprovalArgs("prepare_outbound_mail", {
+      to: "opp@firm.cn",
+      subject: "另一主题",
+      body: "另一正文",
+      attachment_paths: ["cases/m/a.docx", "cases/m/b.docx"],
+    });
+    expect(a).toBe(b);
+    expect(
+      hashToolApprovalArgs("prepare_outbound_mail", {
+        to: "other@firm.cn",
+        attachment_paths: ["cases/m/a.docx", "cases/m/b.docx"],
+      }),
+    ).not.toBe(a);
+    expect(
+      hashToolApprovalArgs("prepare_outbound_mail", {
+        to: "opp@firm.cn",
+        attachment_paths: ["cases/m/other.docx"],
+      }),
+    ).not.toBe(a);
+  });
+
+  it("template name-only does not approve prepare_outbound_mail", () => {
+    expect(ARGS_BOUND_APPROVAL_TOOLS.has("prepare_outbound_mail")).toBe(true);
+    expect(
+      resolvePreApprovalInjection({
+        toolName: "prepare_outbound_mail",
+        modelArgs: { to: "opp@firm.cn", attachment_paths: ["cases/m/a.docx"] },
+        preApproveToolNames: ["prepare_outbound_mail"],
+      }).inject,
+    ).toBe(false);
+  });
+
+  it("template approves prepare_outbound_mail only when to + attachments match", () => {
+    const pin = { to: "opp@firm.cn", attachment_paths: ["cases/m/a.docx"] };
+    expect(
+      resolvePreApprovalInjection({
+        toolName: "prepare_outbound_mail",
+        modelArgs: { to: "Opp@Firm.CN", subject: "x", attachment_paths: ["cases/m/a.docx"] },
+        preApproveToolNames: ["prepare_outbound_mail"],
+        preApproveToolArgs: pin,
+      }).inject,
+    ).toBe(true);
+    expect(
+      resolvePreApprovalInjection({
+        toolName: "prepare_outbound_mail",
+        modelArgs: { to: "other@firm.cn", attachment_paths: ["cases/m/a.docx"] },
+        preApproveToolNames: ["prepare_outbound_mail"],
+        preApproveToolArgs: pin,
+      }).inject,
+    ).toBe(false);
+  });
+
   it("template still name-approves non-hunk tools", () => {
     expect(
       resolvePreApprovalInjection({

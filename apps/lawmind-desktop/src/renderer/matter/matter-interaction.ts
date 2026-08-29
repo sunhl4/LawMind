@@ -159,6 +159,9 @@ export type OperationsFocus = "all" | "review" | "modified" | "delivery" | "high
 export type OperationsSort = "priority" | "recent" | "title";
 
 export function auditKindLabel(kind?: string): string {
+  if (!kind) {
+    return "系统记录";
+  }
   if (kind === "ui.matter_action") {
     return "律师动作";
   }
@@ -168,7 +171,41 @@ export function auditKindLabel(kind?: string): string {
   if (kind === "ui.firstrun_acceptance_ready") {
     return "首跑验收就绪";
   }
-  return kind ?? "audit";
+  const map: Record<string, string> = {
+    "review.completed": "签批完成",
+    "review.submitted": "提交签批",
+    "delegation.completed": "委派完成",
+    "delegation.failed": "委派失败",
+    "delegation.timeout": "委派超时",
+    "draft.rendered": "已导出文书",
+    "draft.approved": "草稿已通过",
+    "draft.rejected": "草稿已驳回",
+    "draft.modified": "草稿需修改",
+    "tool.approved": "工具已批准",
+    "tool.rejected": "工具已拒绝",
+    "approval.requested": "发起审批",
+    "approval.resolved": "审批已决",
+    "matter.created": "新建案件",
+    "matter.updated": "更新案件",
+    "mail.synced": "邮件已同步",
+    "mail.sent": "邮件已发送",
+    "automation.run": "交办运行",
+    "memory.adopted": "记忆已采纳",
+    "memory.suggested": "记忆建议",
+    "workflow.completed": "流程完成",
+    "workflow.failed": "流程失败",
+  };
+  if (map[kind]) {
+    return map[kind];
+  }
+  // Soften dotted engish codes: tool.execute → tool · execute
+  if (kind.includes(".")) {
+    return kind
+      .split(".")
+      .map((p) => p.replace(/[_-]+/g, " "))
+      .join(" · ");
+  }
+  return kind;
 }
 
 export function parseMatterInteractionEvent(event: AuditEventRow): {
@@ -177,7 +214,8 @@ export function parseMatterInteractionEvent(event: AuditEventRow): {
   label?: string;
 } {
   const detail = event.detail?.trim() ?? "";
-  const reviewMatch = /^案件工作台动作：从 (.+?) 进入(?:审核台|文书台)；来源 (.+)。$/.exec(detail);
+  const reviewMatch =
+    /^案件工作台动作：从 (.+?) (?:打开改稿(?:预览)?|进入(?:审核台|文书台|改稿))；来源 (.+)。$/.exec(detail);
   if (reviewMatch) {
     return {
       action: "open_review",
@@ -215,11 +253,11 @@ export function matterInteractionSurfaceLabel(surface?: string): string {
     case "draft-status":
       return "交付物状态";
     case "blocked-by":
-      return "Blocked By";
+      return "卡点原因";
     case "cognition":
       return "认知页";
     case "case-focus":
-      return "CASE 焦点";
+      return "案件焦点";
     case "overview":
       return "案件概览";
     default:
@@ -255,17 +293,17 @@ export function blockingReasonLabel(kind: WorkQueueItem["kind"]): string {
 export function blockingNextAction(kind: WorkQueueItem["kind"]): string {
   switch (kind) {
     case "need_client_input":
-      return "先向客户发起补充提问，并把缺口写入 CASE 或任务备注。";
+      return "先向客户发起补充提问，并把缺口写入案件档案或任务备注。";
     case "need_evidence":
       return "先补证据目录或事实清单，再继续推理和交付。";
     case "need_conflict_check":
       return "先完成冲突检查并记录结果，避免后续工作无效。";
     case "need_lawyer_review":
-      return "先进入文书台完成律师审阅，再决定是否渲染交付。";
+      return "先打开改稿并审阅，再决定是否导出。";
     case "need_partner_approval":
       return "先提交高风险审批或请示上级，再继续执行。";
     case "ready_to_draft":
-      return "先根据审核意见修订草稿，再回到文书台或交付动作。";
+      return "先根据审核意见修订草稿，再回到改稿页或交付动作。";
     case "ready_to_render":
       return "已满足交付前置条件，下一步应执行渲染和发送。";
     case "blocked_by_deadline":
@@ -279,18 +317,18 @@ export function blockingNextAction(kind: WorkQueueItem["kind"]): string {
 
 export function memoryUpgradeRecommendation(label: string): string {
   if (label.includes("律师")) {
-    return "如果这类偏好反复出现，建议提升为律师级核心记忆，减少每次重复检索。";
+    return "可升律师级记忆。";
   }
   if (label.includes("律所")) {
-    return "如果这是稳定交付规则，建议整理进律所级规则并考虑进入核心提示。";
+    return "可升律所规则。";
   }
   if (label.includes("条款") || label.includes("Playbook")) {
-    return "如果这类条款模式持续高频出现，建议升级为常用 playbook 并考虑核心注入。";
+    return "可升常用 playbook。";
   }
   if (label.includes("案件") || label.includes("策略")) {
-    return "如果案件策略反复被检索，建议把关键决策沉淀为 MATTER_STRATEGY 核心段落。";
+    return "可沉淀案件策略。";
   }
-  return "如果这层信息持续高频命中，建议升级为更稳定的核心记忆而不是临时检索。";
+  return "可升长期记忆。";
 }
 
 export function sectionWriteTarget(

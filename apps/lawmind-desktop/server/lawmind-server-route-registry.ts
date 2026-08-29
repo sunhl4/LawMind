@@ -15,9 +15,11 @@ import { handleAcceptanceRoutes } from "./lawmind-server-route-acceptance.js";
 import { handleOnboardingRoutes } from "./lawmind-server-route-onboarding.js";
 import { handleLearningContractRoutes } from "./lawmind-server-route-learning-contract.js";
 import { handleContractReviewRoutes } from "./lawmind-server-route-contract-review.js";
+import { handleDaemonRoutes } from "./lawmind-server-route-daemon.js";
 import { handleDeskSettingsRoutes } from "./lawmind-server-route-desk-settings.js";
 import { handleRecordRoutes } from "./lawmind-server-route-records.js";
 import { handleSessionExtendedRoutes } from "./lawmind-server-route-sessions.js";
+import { handleWorksRoutes } from "./lawmind-server-route-works.js";
 import { handleDraftRevisionJobRoute } from "./lawmind-server-route-draft-revision.js";
 import { handleReviewRoute } from "./lawmind-server-route-review.js";
 import { handleRedlineRoutes } from "./lawmind-server-route-redline.js";
@@ -32,11 +34,13 @@ import { handleMemoryAndTemplateRoutes } from "./lawmind-server-route-memory-tem
 import { handleMemorySourceTextRoute } from "./lawmind-server-route-memory-preview.js";
 import { handleMemoryAdoptionRoutes } from "./lawmind-server-route-memory-adoption.js";
 import { handleMetricsRoutes } from "./lawmind-server-route-metrics.js";
+import { handleHistoricalScanRoutes } from "./lawmind-server-route-historical-scan.js";
 import { handleRolesRoutes } from "./lawmind-server-route-roles.js";
 import { handleRoutingRoutes } from "./lawmind-server-route-routing.js";
 import { handleTriageRoutes } from "./lawmind-server-route-triage.js";
 import { handleReviewCampaignRoutes } from "./lawmind-server-route-review-campaign.js";
 import { handleSkillsRoutes } from "./lawmind-server-route-skills.js";
+import { handleMcpRoutes } from "./lawmind-server-route-mcp.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 
 export type LawmindRouteHandler = (args: LawmindRouteContext) => boolean | Promise<boolean>;
@@ -50,6 +54,7 @@ export const LAWMIND_ROUTE_HANDLERS: LawmindRouteHandler[] = [
   (args) => handleTriageRoutes(args),
   (args) => handleReviewCampaignRoutes(args),
   (args) => handleSkillsRoutes(args),
+  (args) => handleMcpRoutes(args),
   (args) => handleSourceRoutes(args),
   (args) => handleIntegrationsRoutes(args),
   (args) => handleToolsRegistryRoute(args),
@@ -66,10 +71,12 @@ export const LAWMIND_ROUTE_HANDLERS: LawmindRouteHandler[] = [
   (args) => handleAssistantRoutes(args),
   (args) => handleMatterRoutes(args),
   (args) => handleOnboardingRoutes(args),
+  (args) => handleDaemonRoutes(args),
   (args) => handleDeskSettingsRoutes(args),
   (args) => handleContractReviewRoutes(args),
   (args) => handleLearningContractRoutes(args),
   (args) => handleSessionExtendedRoutes(args),
+  (args) => handleWorksRoutes(args),
   (args) => handleRecordRoutes(args),
   (args) => handleJobRoutes(args),
   (args) => handleCollaborationRoutes(args),
@@ -79,6 +86,7 @@ export const LAWMIND_ROUTE_HANDLERS: LawmindRouteHandler[] = [
   (args) => handleMemorySourceTextRoute(args),
   (args) => handleMemoryAdoptionRoutes(args),
   (args) => handleMetricsRoutes(args),
+  (args) => handleHistoricalScanRoutes(args),
   (args) => handleRolesRoutes(args),
   (args) => handleRoutingRoutes(args),
   (args) => handleFilesystemRoute(args),

@@ -19,6 +19,7 @@ import {
   validateReasoningForDraft,
   type ReasoningReport,
 } from "../deliverables/index.js";
+import { formatCitationGateCoach } from "../drafts/citation-craft.js";
 import {
   persistDraft,
   readReasoningSnapshot,
@@ -61,10 +62,10 @@ export async function renderDraft(
 }> {
   const { workspaceDir, outputDir, auditDir } = ctx;
 
-  if (draft.reviewStatus !== "approved") {
+  if (draft.reviewStatus === "rejected") {
     return {
       ok: false,
-      error: `文书未通过审核（${draft.reviewStatus}），请律师先确认草稿。`,
+      error: `文书已驳回（${draft.reviewStatus}），不能渲染。`,
     };
   }
 
@@ -98,7 +99,11 @@ export async function renderDraft(
   if (citationMode === "grounded" && draft.matterId) {
     const { matterTheoryBlocksStrictExport } = await import("../matter-ops/index.js");
     const highRisk =
-      draft.deliverableType?.startsWith("contract.") || draft.deliverableType === "letter.demand";
+      draft.deliverableType?.startsWith("contract.") ||
+      draft.deliverableType === "letter.demand" ||
+      draft.deliverableType === "letter.counsel" ||
+      draft.deliverableType === "letter.reply" ||
+      draft.deliverableType?.startsWith("litigation.");
     if (
       highRisk &&
       matterTheoryBlocksStrictExport(workspaceDir, draft.matterId, { requireAnchor: true })
@@ -134,10 +139,12 @@ export async function renderDraft(
     });
     return {
       ok: false,
-      error:
+      error: [
         citationMode === "grounded"
           ? "严格援引模式：无检索快照、缺失来源或长段未锚定时不可导出 Word。对话中仍可继续展示/修改草稿正文；请补齐引用锚定，或将 citationMode 改为 assisted 后再 render_document。"
           : "引用完整性门禁仅拦截正式 Word 导出（缺失来源 ID 或长段未锚定）。对话中的草稿正文仍可继续完善；请在文书台核对 Citation Banner 后补锚再导出。",
+        formatCitationGateCoach(`missingSourceIds=${missing}; unanchoredSections=${unanchored}`),
+      ].join("\n"),
       citationIntegrity,
     };
   }

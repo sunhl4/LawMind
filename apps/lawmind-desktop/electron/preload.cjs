@@ -23,9 +23,14 @@ contextBridge.exposeInMainWorld("lawmindDesktop", {
     ipcRenderer.invoke("lawmind:save-custom-model-key", payload ?? {}),
   deleteCustomModelKey: (payload) =>
     ipcRenderer.invoke("lawmind:delete-custom-model-key", payload ?? {}),
+  saveMcpServerSecret: (payload) =>
+    ipcRenderer.invoke("lawmind:save-mcp-server-secret", payload ?? {}),
+  deleteMcpServerSecret: (payload) =>
+    ipcRenderer.invoke("lawmind:delete-mcp-server-secret", payload ?? {}),
   keychainStatus: () => ipcRenderer.invoke("lawmind:keychain-status"),
   setRetrievalMode: (mode) => ipcRenderer.invoke("lawmind:set-retrieval-mode", mode),
   pickProject: () => ipcRenderer.invoke("lawmind:pick-project"),
+  pickFolder: () => ipcRenderer.invoke("lawmind:pick-folder"),
   setProjectDir: (projectDir) => ipcRenderer.invoke("lawmind:set-project-dir", projectDir),
   openExternal: (url) => ipcRenderer.invoke("lawmind:open-external", url),
   showItemInFolder: (fullPath) => ipcRenderer.invoke("lawmind:show-item-in-folder", fullPath),

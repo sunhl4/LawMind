@@ -2,19 +2,29 @@
  * SMTP send via nodemailer (after lawyer approval).
  */
 
+import fs from "node:fs";
 import nodemailer from "nodemailer";
 import type { MailAccount } from "./mail-accounts.js";
+import type { ResolvedMailAttachment } from "./mail-attachments.js";
 import { getMailAccountSecret } from "./mail-secrets.js";
+import { formatMailFromAddress } from "./mail-send-format.js";
 import { resolveSmtpEndpoints } from "./provider-presets.js";
 
 export type SmtpSendResult =
   | { ok: true; messageId?: string }
   | { ok: false; error: string; hint?: string };
 
+export type SmtpMailPayload = {
+  to: string;
+  subject: string;
+  body: string;
+  attachments?: ResolvedMailAttachment[];
+};
+
 export async function sendSmtpMail(
   account: MailAccount,
   lawMindRoot: string,
-  mail: { to: string; subject: string; body: string },
+  mail: SmtpMailPayload,
 ): Promise<SmtpSendResult> {
   const secret = getMailAccountSecret(lawMindRoot, account.id);
   const password = secret?.password?.trim();
@@ -36,12 +46,23 @@ export async function sendSmtpMail(
       secure,
       auth: { user: account.email, pass: password },
       requireTLS: !secure && port === 587,
+      // 与 IMAP 同型超时，避免 SMTP 主机挂起时卡住 automation tick。
+      connectionTimeout: 15_000,
+      greetingTimeout: 15_000,
+      socketTimeout: 30_000,
     });
+    const attachments = (mail.attachments ?? []).map((a) => ({
+      filename: a.filename,
+      content: fs.readFileSync(a.absolutePath),
+      contentType: a.contentType,
+    }));
+    const from = formatMailFromAddress(account.email, account.sendFormat);
     const info = await transport.sendMail({
-      from: account.email,
+      from: from.name ? { name: from.name, address: from.address } : from.address,
       to: mail.to,
       subject: mail.subject,
       text: mail.body,
+      attachments: attachments.length > 0 ? attachments : undefined,
     });
     return { ok: true, messageId: info.messageId };
   } catch (err) {

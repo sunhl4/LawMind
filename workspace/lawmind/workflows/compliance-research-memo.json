@@ -2,17 +2,18 @@
   "id": "compliance-research-memo",
   "name": "合规研究报告",
   "namedAgent": "Regulatory Research Analyst",
-  "description": "针对监管问题检索规范层级并输出可复核合规备忘录。",
+  "description": "针对监管问题做 URL/权威检索，输出可复核涉外合规卷宗备忘录（含管辖矩阵与来源附录）。",
   "practiceArea": "compliance",
-  "deliverableType": "document.general",
+  "deliverableType": "report.compliance",
   "riskLevel": "medium",
   "audience": "firm",
-  "starterPrompt": "请就本案监管问题做合规研究：规范层级、适用边界与结论清单。",
+  "kind": "matter",
+  "starterPrompt": "请就本案监管问题做合规研究卷宗：问题陈述、简要结论、管辖区效力矩阵、按风险域发现、行动建议与来源附录。若有官网/法规 URL 请先抓取卷宗；不确定处标 [VERIFY]。请先给大纲待我确认。",
   "steps": [
     {
       "stepId": "research",
       "assignee": "compliance_researcher",
-      "task": "合规检索与备忘录（matterId={{matterId}}）",
+      "task": "合规卷宗检索与备忘录（matterId={{matterId}}；deliverableType=report.compliance）",
       "dependsOn": [],
       "autoApprove": false
     }

@@ -12,6 +12,12 @@ import { readWorkspacePolicyFile } from "../policy/workspace-policy.js";
 import { bindPlaybookRolesToAssistants } from "./bind-assistants.js";
 import { getFleetPlaybook, resolveDefaultPlaybookId } from "./playbooks.js";
 import {
+  extractReviewBrief,
+  hasReviewBrief,
+  mergeReviewBriefs,
+  mergeSourceTextWithBrief,
+} from "./review-brief.js";
+import {
   runCampaignRolesParallel,
   runCampaignRolesSerial,
   rerunCampaignRole,
@@ -189,6 +195,12 @@ export type CreateReviewCampaignInput = {
   preferParallel?: boolean;
   /** Drop roles with weight &lt; 0.18 for faster Solo runs (keep ≥4 when possible) */
   preferFast?: boolean;
+  /** 交办立场/重点/深度；缺省时从 sourceText 抽取 */
+  reviewBrief?: {
+    stance?: string;
+    focus?: string;
+    depth?: string;
+  };
 };
 
 export function createReviewCampaign(
@@ -214,6 +226,8 @@ export function createReviewCampaign(
   }
   const effective = input.preferFast ? playbookForFastMode(playbook) : playbook;
 
+  const brief = mergeReviewBriefs(input.reviewBrief, extractReviewBrief(input.sourceText ?? ""));
+  const sourceText = mergeSourceTextWithBrief(input.sourceText ?? "", brief).slice(0, 200_000);
   const now = new Date().toISOString();
   const id = `campaign_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
   let campaign: ReviewCampaign = {
@@ -226,7 +240,8 @@ export function createReviewCampaign(
     createdAt: now,
     updatedAt: now,
     roles: rolesFromPlaybook(workspaceDir, effective),
-    sourceText: (input.sourceText ?? "").slice(0, 200_000),
+    sourceText,
+    ...(hasReviewBrief(brief) ? { reviewBrief: brief } : {}),
     ...(input.preferFast ? { preferFast: true } : {}),
     ...(input.idempotencyKey?.trim() ? { idempotencyKey: input.idempotencyKey.trim() } : {}),
   };
@@ -377,6 +392,11 @@ export function renderCampaignReportMarkdown(campaign: ReviewCampaign): string {
     ``,
     `- 专案组：${campaign.playbookLabel}（\`${campaign.id}\`）`,
     `- 状态：${campaign.status}`,
+    ...(campaign.reviewBrief
+      ? [
+          `- 审查口径：立场 ${campaign.reviewBrief.stance ?? "—"} · 重点 ${campaign.reviewBrief.focus ?? "—"} · 深度 ${campaign.reviewBrief.depth ?? "—"}`,
+        ]
+      : []),
     `- Safety Score：${score?.score ?? "—"} / 100`,
     `- 风险计数：高 ${score?.high ?? 0} · 中 ${score?.medium ?? 0} · 低 ${score?.low ?? 0}`,
     ``,

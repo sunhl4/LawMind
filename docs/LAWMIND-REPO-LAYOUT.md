@@ -24,6 +24,8 @@
 - **`artifacts/`** — DOCX/PPTX 渲染与法律排版辅助。
 - **`audit/`** — 审计事件写入约定。
 - **`deliverables/`、`drafts/`、`delivery/`** — 交付物注册、草稿与验收包等。
+- **`lint/`** — 机械一致性核对（advisory；通过 ≠ 法律正确）。
+- **`historical-scan/`** — 历史材料多根扫描与习惯入队。
 - **`memory/`** — 工作区记忆加载与来源报告。
 - **`policy/`** — 版本、工作区策略、治理报告。
 - **`reasoning/`、`retrieval/`、`router/`、`tasks/`、`templates/`** — 推理、检索、路由、任务状态、模板填充。
@@ -48,18 +50,19 @@ Git 克隆后的**父文件夹名称可以随意**（例如 `lawmind` 或仍名�
 
 ## 文档索引
 
-| 文档                                                                             | 说明                                               |
-| -------------------------------------------------------------------------------- | -------------------------------------------------- |
-| [LAWMIND-ARCHITECTURE.md](./LAWMIND-ARCHITECTURE.md)                             | 架构与模块边界                                     |
-| [LAWMIND-DESKTOP-UI.md](./LAWMIND-DESKTOP-UI.md)                                 | 桌面 UI 与 renderer 拆分约定                       |
-| [LAWMIND-EXCELLENCE-ROADMAP.md](./LAWMIND-EXCELLENCE-ROADMAP.md)                 | 第十二期优化路线                                   |
+| 文档                                                                             | 说明                                                   |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| [LAWMIND-ARCHITECTURE.md](./LAWMIND-ARCHITECTURE.md)                             | 架构与模块边界                                         |
+| [LAWMIND-DESKTOP-UI.md](./LAWMIND-DESKTOP-UI.md)                                 | 桌面 UI 与 renderer 拆分约定                           |
+| [LAWMIND-SIMPLE-RELIABLE-PLAN.md](./LAWMIND-SIMPLE-RELIABLE-PLAN.md)             | 三条铁律与当前改动清单                                 |
+| [LAWMIND-FUTURE-ISSUES.md](./LAWMIND-FUTURE-ISSUES.md)                           | 已识别、长期回看项（sprint 以外）                      |
 | [LAWMIND-EXTERNAL-INTEGRATIONS.md](./LAWMIND-EXTERNAL-INTEGRATIONS.md)           | 外接能力开源/闭源矩阵与闭源商业路线（权威/OCR/邮件等） |
-| [LAWMIND-REFERENCE-PROJECT-LESSONS.md](./LAWMIND-REFERENCE-PROJECT-LESSONS.md)   | 借鉴项与落地状态矩阵                               |
-| [LAWMIND-AGENT-SKILLS-OPTIMIZATION.md](./LAWMIND-AGENT-SKILLS-OPTIMIZATION.md)   | Agent Skills 生态调研与产品力优化史诗（持续更新）  |
-| [LAWMIND-AGENT-SKILLS-EPIC-PLANS.md](./LAWMIND-AGENT-SKILLS-EPIC-PLANS.md)       | 十二史诗详细工作包与 UI 前后示意图（决策用）       |
-| [LAWMIND-AGENT-SKILLS-500PW-PLAN.md](./LAWMIND-AGENT-SKILLS-500PW-PLAN.md)       | 500 人周周级执行计划（W01–W100，排期真相源）       |
-| [LAWMIND-SKILLS-LICENSE-TABLE.md](./LAWMIND-SKILLS-LICENSE-TABLE.md)             | 第三方 skill 许可证白名单（禁止 NC/AGPL 原文进包） |
-| [lawmind/LAWMIND-PLATFORM-CONTRACTS.md](./lawmind/LAWMIND-PLATFORM-CONTRACTS.md) | 平台契约（health / rate limit）                    |
+| [LAWMIND-REFERENCE-PROJECT-LESSONS.md](./LAWMIND-REFERENCE-PROJECT-LESSONS.md)   | 借鉴项与落地状态矩阵                                   |
+| [LAWMIND-SKILLS-LICENSE-TABLE.md](./LAWMIND-SKILLS-LICENSE-TABLE.md)             | 第三方 skill 许可证白名单（禁止 NC/AGPL 原文进包）     |
+| [lawmind/LAWMIND-PLATFORM-CONTRACTS.md](./lawmind/LAWMIND-PLATFORM-CONTRACTS.md) | 平台契约（health / rate limit）                        |
+| [LAWMIND-LEGAL-COMPILER-ROADMAP.md](./LAWMIND-LEGAL-COMPILER-ROADMAP.md)         | 法律一致性编译器 500 人天计划（WS0–WS6）               |
+
+现行入口是 `GOALS.md`、本文、`LAWMIND-FUTURE-ISSUES.md`、`LAWMIND-SIMPLE-RELIABLE-PLAN.md`、`LAWMIND-LEGAL-COMPILER-ROADMAP.md`。
 
 ## CI 相关
 
