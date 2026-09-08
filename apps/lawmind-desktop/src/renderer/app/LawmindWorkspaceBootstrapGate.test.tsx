@@ -39,6 +39,6 @@ describe("LawmindWorkspaceBootstrapGate", () => {
         />,
       );
     });
-    expect(host.textContent).toContain("Electron 桌面窗口");
+    expect(host.textContent).toContain("已安装的 LawMind 桌面应用");
   });
 });

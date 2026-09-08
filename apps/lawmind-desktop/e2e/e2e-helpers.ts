@@ -8,9 +8,13 @@ export function e2eMockApiBase(): string {
   return `http://127.0.0.1:${port}`;
 }
 
-/** Skip auto-opening LawMind first-run wizard and reset UI prefs that break E2E layout. */
-export function installE2eBrowserPrefs(page: { addInitScript: Page["addInitScript"] }): Promise<void> {
-  return page.addInitScript((firstRunKey) => {
+/** Skip auto-opening LawMind first-run wizard and reset UI prefs that break E2E layout.
+ * Also injects the Electron preload boot stub — the renderer no longer boots as a web page. */
+export async function installE2eBrowserPrefs(page: {
+  addInitScript: Page["addInitScript"];
+}): Promise<void> {
+  await installE2eDesktopBootStub(page);
+  await page.addInitScript((firstRunKey) => {
     localStorage.setItem(firstRunKey, "1");
     localStorage.setItem("lawmind.ui.sidebarCollapsed", "0");
     // E3′：不强制写入；靠产品默认（未设置 = 签批后自动导出）
@@ -30,8 +34,31 @@ export function installE2eBrowserPrefs(page: { addInitScript: Page["addInitScrip
 }
 
 /**
- * Browser E2E stub for Electron preload: enables 文件台 + 「送审本合同」真按钮路径。
- * Call before gotoShell when the test must exercise file→fast-lane CTA (not bus hook).
+ * Minimal Electron preload so the desktop renderer can boot in Playwright.
+ * Does not expose fsList — file tree stays off unless installE2eDesktopBridge is used.
+ */
+export function installE2eDesktopBootStub(page: { addInitScript: Page["addInitScript"] }): Promise<void> {
+  const apiBase = e2eMockApiBase();
+  return page.addInitScript((api) => {
+    (window as unknown as { lawmindDesktop: Record<string, unknown> }).lawmindDesktop = {
+      getConfig: async () => ({
+        apiBase: api,
+        workspaceDir: "/tmp/lawmind-e2e-ws",
+        projectDir: null,
+        envFilePath: "",
+        retrievalMode: "single",
+        packaged: false,
+        appVersion: "e2e",
+        downloadPageUrl: "https://docs.lawmind.ai/download/",
+      }),
+      openExternal: async () => undefined,
+      showNotification: async () => undefined,
+    };
+  }, apiBase);
+}
+
+/**
+ * Electron preload stub with a fake file tree. Opt-in for file→fast-lane paths.
  */
 export function installE2eDesktopBridge(page: { addInitScript: Page["addInitScript"] }): Promise<void> {
   const apiBase = e2eMockApiBase();
@@ -247,7 +274,7 @@ export async function openReviewWorkbench(page: Page): Promise<void> {
   );
 }
 
-/** Open matter cockpit in browser E2E (no Electron filesystem bridge). */
+/** Open matter cockpit (sidebar 在办 → first matter). */
 export async function openMatterCockpit(page: Page): Promise<void> {
   await dismissBlockingDialogs(page);
   const mainNav = page.getByRole("navigation", { name: "功能模块" });

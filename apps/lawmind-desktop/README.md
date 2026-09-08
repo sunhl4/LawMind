@@ -2,7 +2,7 @@
 
 Windows / macOS shell for LawMind: tasks, matters, review, chat with the legal agent, and delivery history. The local API binds **127.0.0.1** only.
 
-**Product intent:** This app is **not** a Word replacement or a generic LLM chat window. It is a **lawyer workbench** for task-driven work: clarify intent, use workspace/project files, call into the local OS where appropriate (for example open a document in the system default app or reveal a path in the file manager), and drive toward **reviewable deliverables**—not maximum chat volume. See <https://docs.lawmind.ai/LAWMIND-VISION> (section **6.2d**).
+**Product intent:** This app is **not** a Word replacement or a generic LLM chat window. It is a **lawyer workbench** for task-driven work: clarify intent, use workspace/project files, call into the local OS where appropriate (for example open a document in the system default app or reveal a path in the file manager), and drive toward **reviewable deliverables**—not maximum chat volume. See <https://docs.lawmind.ai/archive/LAWMIND-VISION> (section **6.2d**).
 
 ## End users (packaged app)
 
@@ -41,7 +41,7 @@ Or from this directory:
 pnpm dev
 ```
 
-This starts Vite on port **5174** and Electron. Use the **Electron** window only; opening `http://127.0.0.1:5174` in a normal browser shows “Preload bridge missing” (no `contextBridge`). Optional: create `.env.development.local` in `apps/lawmind-desktop` with `VITE_LAWMIND_DEV_API=http://127.0.0.1:<lawmind-server-port>` to point the UI at a running LawMind API when the Electron preload bridge is absent (browser dev or Playwright E2E).
+This starts Vite on port **5174** as the **Electron renderer** and opens the desktop window. There is no web workbench: opening `http://127.0.0.1:5174` in a browser is not supported. End users download and open the packaged LawMind app.
 
 ### E2E (Playwright)
 
@@ -52,7 +52,7 @@ pnpm --filter lawmind-desktop test:e2e:install   # once: Chromium for Playwright
 pnpm lawmind:desktop:e2e
 ```
 
-This starts a tiny mock API plus Vite dev with `VITE_LAWMIND_DEV_API` and runs `apps/lawmind-desktop/e2e/*.spec.ts`.
+This starts a mock API plus Vite (test bundler only) and runs `apps/lawmind-desktop/e2e/*.spec.ts` against an **Electron preload stub**. It is not a shipped web UI.
 
 The main process resolves the monorepo root (must contain the workspace `package.json` named `lawmind` or legacy `openclaw`). Override with:
 
@@ -118,5 +118,6 @@ Default workspace: `app.getPath('userData')/LawMind/workspace`.
 ## Docs
 
 - <https://docs.lawmind.ai/LAWMIND-DELIVERY>
-- <https://docs.lawmind.ai/LAWMIND-USER-MANUAL>
+- <https://docs.lawmind.ai/LAWMIND-LAWYER-QUICKSTART>
+- <https://docs.lawmind.ai/archive/LAWMIND-USER-MANUAL>
 - <https://docs.lawmind.ai/LAWMIND-FUTURE-ISSUES>

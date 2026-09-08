@@ -42,10 +42,10 @@ describe("buildReadinessSnapshot", () => {
     expect(model?.title).toBe(MODEL_NOT_CONFIGURED_USER_HINT);
   });
 
-  it("treats browser-only dev workspace as ready without a workspace pill", () => {
+  it("treats placeholder workspace paths as not connected", () => {
     const s = buildReadinessSnapshot({
       health: { modelConfigured: true, modelName: "qwen-plus" },
-      workspaceDir: "(browser dev / E2E - use Electron for full config)",
+      workspaceDir: "(missing desktop workspace)",
       apiReachable: true,
       modelCatalog: [
         {
@@ -62,8 +62,8 @@ describe("buildReadinessSnapshot", () => {
       ],
       selectedModelId: "builtin:qwen-plus",
     });
-    expect(s.allReady).toBe(true);
-    expect(s.pills.some((p) => p.id === "workspace")).toBe(false);
+    expect(s.allReady).toBe(false);
+    expect(s.pills.find((p) => p.id === "workspace")?.label).toBe("工作区未连接");
   });
 
   it("shows pending verification when configured but not verified", () => {

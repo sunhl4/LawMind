@@ -28,6 +28,10 @@ This repository is **LawMind only** (legal workbench: `src/lawmind`, `apps/lawmi
 | VitePress docs app                       | `apps/lawmind-docs/`                                                                      |
 | LawMind CLI scripts                      | `scripts/lawmind/`（`pnpm lawmind:*` 入口）· `scripts/pre-commit/`（本地 git hooks 辅助） |
 
+## Product UI (this machine only)
+
+The product UI is the **local Electron desktop app** on this computer. There is no web or cloud workbench. Never open Vite (`http://127.0.0.1:5174`), the docs site, or a browser tab as LawMind. To open: the installed `LawMind.app`, or `pnpm lawmind:desktop` in development. Playwright specs inject an Electron preload stub; they are tests only.
+
 ## Build, test, format
 
 - **Node 22+**; install: `pnpm install`

@@ -23,8 +23,7 @@ function LawmindWorkspaceBootstrapGateImpl({ error, onOpenApiWizard }: LawmindWo
         <p className="lm-callout-body lm-workspace-bootstrap-gate-lead">{error}</p>
         {preloadHint ? (
           <p className="lm-meta lm-workspace-bootstrap-gate-hint">
-            请使用 Electron 桌面窗口（运行 <code>pnpm lawmind:desktop</code>
-            ），不要在 Chrome/Safari 中直接打开开发地址。
+            请打开本机已安装的 LawMind 桌面应用。LawMind 没有网页版工作台。
           </p>
         ) : null}
         <div className="lm-workspace-bootstrap-gate-actions">

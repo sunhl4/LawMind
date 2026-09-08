@@ -281,7 +281,11 @@ export function useLawmindAppShell() {
     });
 
   const currentMessages = messagesByAssistant[selectedAssistantId] ?? [];
-  const canUseFilesystemBridge = Boolean(config && !config.workspaceDir.trim().startsWith("("));
+  const canUseFilesystemBridge = Boolean(
+    config &&
+      !config.workspaceDir.trim().startsWith("(") &&
+      typeof window.lawmindDesktop?.fsList === "function",
+  );
   const projectDir = config?.projectDir ?? null;
 
   const watchBackgroundSessionFnRef = useRef<
