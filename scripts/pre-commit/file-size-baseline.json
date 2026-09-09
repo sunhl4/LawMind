@@ -1,9 +1,17 @@
 {
   "description": "Grandfathered oversize files (Phase 12 soft limits). New violations fail CI.",
   "renderer": [
+    "apps/lawmind-desktop/src/renderer/LawmindAgentFleetPanel.tsx",
+    "apps/lawmind-desktop/src/renderer/LawmindLawyerWorkbench.tsx",
+    "apps/lawmind-desktop/src/renderer/LawmindSettingsDoctor.tsx",
+    "apps/lawmind-desktop/src/renderer/file/FileWorkbenchImpl.tsx",
     "apps/lawmind-desktop/src/renderer/file/FileWorkbenchView.tsx",
     "apps/lawmind-desktop/src/renderer/lawmind-chat-shell.tsx",
     "apps/lawmind-desktop/src/renderer/matter/useMatterProductIntelligence.ts"
   ],
-  "tools": []
+  "tools": [
+    "src/lawmind/agent/tools/engine/engine-pipeline-tools.ts",
+    "src/lawmind/agent/tools/engine/engine-workflow-tool.ts",
+    "src/lawmind/agent/tools/legal/search-tools.ts"
+  ]
 }

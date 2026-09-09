@@ -4,5 +4,5 @@ contact_links:
     url: https://docs.lawmind.ai/LAWMIND-LAWYER-QUICKSTART
     about: Read the LawMind lawyer quickstart (desktop-first workflow); full manual archived at /archive/LAWMIND-USER-MANUAL.
   - name: Security
-    url: https://github.com/lawmind/lawmind/blob/main/SECURITY.md
+    url: https://github.com/sunhl4/LawMind/blob/main/SECURITY.md
     about: Report security issues per SECURITY.md (do not file public security issues as regular bugs).

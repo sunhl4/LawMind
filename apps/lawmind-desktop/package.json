@@ -11,7 +11,7 @@
     "bundle:server": "pnpm -w lawmind:bundle:desktop-server",
     "vendor:node": "pnpm -w lawmind:vendor:desktop-node",
     "typecheck": "tsc --noEmit",
-    "dist:electron": "pnpm bundle:server && pnpm vendor:node && pnpm build:renderer && electron-builder",
+    "dist:electron": "pnpm bundle:server && pnpm vendor:node && pnpm build:renderer && electron-builder --publish never",
     "test:e2e": "playwright test",
     "test:e2e:electron": "playwright test --config playwright.electron.config.ts",
     "test:e2e:install": "playwright install chromium"
@@ -46,6 +46,7 @@
     },
     "files": [
       "electron/**/*",
+      "!electron/**/*.test.ts",
       "dist/**/*",
       "!**/*.map"
     ],
@@ -65,15 +66,19 @@
         ]
       }
     ],
+    "afterPack": "electron/after-pack-mac.mjs",
+    "afterAllArtifactBuild": "electron/after-all-artifact-build-mac.mjs",
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
         "dmg",
         "zip"
       ],
-      "identity": null,
       "hardenedRuntime": true,
-      "entitlements": "electron/entitlements.mac.plist"
+      "gatekeeperAssess": false,
+      "notarize": false,
+      "entitlements": "electron/entitlements.mac.plist",
+      "entitlementsInherit": "electron/entitlements.mac.inherit.plist"
     },
     "win": {
       "target": [

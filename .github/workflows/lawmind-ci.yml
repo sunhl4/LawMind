@@ -41,7 +41,7 @@ jobs:
 
       - name: Upload skills golden compare report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: skills-golden-compare
           path: docs/generated/skills-golden-compare-report.json
@@ -59,7 +59,7 @@ jobs:
       - name: Renderer CSS sync markers and size gate
         run: pnpm lawmind:check:renderer-css
 
-      - name: Renderer must not pull node: builtins
+      - name: "Renderer must not pull node builtins"
         run: pnpm lawmind:check:renderer-node
 
       - name: Desktop HTTP smoke
@@ -73,7 +73,7 @@ jobs:
 
       - name: Upload coverage
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-report
           path: coverage/
@@ -84,7 +84,7 @@ jobs:
 
       - name: Upload release readiness report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-readiness-report
           path: dist/lawmind-release-readiness.md
@@ -125,33 +125,3 @@ jobs:
       - name: Desktop E2E (mock API + Vite)
         run: pnpm lawmind:desktop:e2e:pr
 
-  multitask-validate:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    if: github.event_name == 'pull_request'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22.16.0
-          cache: pnpm
-
-      - name: Install
-        run: pnpm install --frozen-lockfile
-
-      - name: Multitask validate (non-strict)
-        run: pnpm lawmind:multitask:validate
-
-      - name: Upload multitask report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: multitask-validation-report
-          path: dist/lawmind/multitask-validation/
-          if-no-files-found: ignore

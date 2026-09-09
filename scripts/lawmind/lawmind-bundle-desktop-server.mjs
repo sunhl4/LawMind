@@ -8,7 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const localEsbuild = path.join(repoRoot, "node_modules", ".bin", "esbuild");
+const esbuildCli = path.join(repoRoot, "node_modules", "esbuild", "bin", "esbuild");
 const outfile = path.join(repoRoot, "apps/lawmind-desktop/server/dist/lawmind-local-server.cjs");
 const entry = path.join(repoRoot, "apps/lawmind-desktop/server/lawmind-local-server.ts");
 const childOutfile = path.join(
@@ -17,9 +17,9 @@ const childOutfile = path.join(
 );
 const childEntry = path.join(repoRoot, "src/lawmind/agent/tools/legal/analysis-sandbox-child.ts");
 
-if (!fs.existsSync(localEsbuild)) {
+if (!fs.existsSync(esbuildCli)) {
   console.error(
-    "esbuild not found at node_modules/.bin/esbuild — run `pnpm install` at repo root.",
+    "esbuild not found at node_modules/esbuild/bin/esbuild — run `pnpm install` at repo root.",
   );
   process.exit(1);
 }
@@ -27,8 +27,16 @@ if (!fs.existsSync(localEsbuild)) {
 fs.mkdirSync(path.dirname(outfile), { recursive: true });
 
 const result = spawnSync(
-  localEsbuild,
-  [entry, "--bundle", "--platform=node", "--format=cjs", "--target=node22", `--outfile=${outfile}`],
+  process.execPath,
+  [
+    esbuildCli,
+    entry,
+    "--bundle",
+    "--platform=node",
+    "--format=cjs",
+    "--target=node22",
+    `--outfile=${outfile}`,
+  ],
   {
     cwd: repoRoot,
     stdio: "inherit",
@@ -41,8 +49,9 @@ if (result.status !== 0) {
 }
 
 const child = spawnSync(
-  localEsbuild,
+  process.execPath,
   [
+    esbuildCli,
     childEntry,
     "--bundle",
     "--platform=node",

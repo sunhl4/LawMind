@@ -1,22 +1,11 @@
-# Dependabot configuration — LawMind-only tree.
-# Removed OpenClaw/Moltbot ecosystems (swift / gradle / docker) whose directories
-# (apps/macos, apps/android, Swabble, MoltbotKit, root Dockerfile) do not exist here.
-
+# Dependabot — LawMind npm workspace + GitHub Actions only.
 version: 2
 
-registries:
-  npm-npmjs:
-    type: npm-registry
-    url: https://registry.npmjs.org
-    token: ${{secrets.NPM_NPMJS_TOKEN}}
-    replaces-base: true
-
 updates:
-  # npm dependencies (root workspace)
   - package-ecosystem: npm
     directory: /
     schedule:
-      interval: daily
+      interval: weekly
     cooldown:
       default-days: 2
     groups:
@@ -30,15 +19,12 @@ updates:
         update-types:
           - minor
           - patch
-    open-pull-requests-limit: 10
-    registries:
-      - npm-npmjs
+    open-pull-requests-limit: 5
 
-  # GitHub Actions
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: daily
+      interval: weekly
     cooldown:
       default-days: 2
     groups:

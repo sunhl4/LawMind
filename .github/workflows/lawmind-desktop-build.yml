@@ -46,6 +46,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Package desktop app
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          LAWMIND_DESKTOP_NODE_VERSION: "22.23.2"
         run: pnpm lawmind:desktop:dist
 
       - name: Upload artifacts
@@ -62,7 +69,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Download packaged artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           path: dist-artifacts
           pattern: lawmind-desktop-*
@@ -87,9 +94,9 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --title "LawMind Desktop ${version}" \
             --notes "$(cat <<EOF
-          LawMind 桌面安装包 ${version}（未签名测试构建）。
+          LawMind 桌面安装包 ${version}。
 
-          - macOS：若 Gatekeeper 拦截，请右键应用选择「打开」。
+          - macOS：已用 Developer ID 签名并公证的包可直接双击；未公证的测试包请右键应用选择「打开」。
           - 安装后按向导填写本机模型 API Key。
           - 输出须经执业律师审阅，不构成法律意见。
           EOF
