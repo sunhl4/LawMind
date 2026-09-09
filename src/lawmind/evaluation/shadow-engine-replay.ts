@@ -289,6 +289,14 @@ function prepareShadowWorkspace(): string {
   return workspaceDir;
 }
 
+function removeShadowWorkspace(workspaceDir: string): void {
+  try {
+    fs.rmSync(workspaceDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 25 });
+  } catch {
+    // Linux CI can hit ENOTEMPTY while a handle is still closing; tmp is disposable.
+  }
+}
+
 function finalizeCaseMetrics(
   base: EngineShadowCaseResult,
   fixture: ShadowReplayFixture,
@@ -401,7 +409,7 @@ async function runScriptedCase(
   } finally {
     await server.close();
     if (!opts.keepWorkspaceDir) {
-      fs.rmSync(workspaceDir, { recursive: true, force: true });
+      removeShadowWorkspace(workspaceDir);
     }
   }
 }
@@ -456,7 +464,7 @@ async function runRealModelCase(
     return result;
   } finally {
     if (!opts.keepWorkspaceDir) {
-      fs.rmSync(workspaceDir, { recursive: true, force: true });
+      removeShadowWorkspace(workspaceDir);
     }
   }
 }
