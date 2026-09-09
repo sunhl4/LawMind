@@ -1,5 +1,5 @@
 import type { TriageSession } from "../../../../src/lawmind/triage/types.ts";
-import { apiAuthHeaders } from "./lawmind-api-auth.ts";
+import { fetchApi } from "./api-client-proxy.ts";
 
 export type TriageMatchedSkill = { id: string; name: string; version?: string };
 
@@ -19,9 +19,9 @@ export async function apiPostTriagePreview(
   matchedSkills?: TriageMatchedSkill[];
   error?: string;
 }> {
-  const res = await fetch(`${apiBase.replace(/\/$/, "")}/api/triage`, {
+  const res = await fetchApi(`${apiBase.replace(/\/$/, "")}/api/triage`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...apiAuthHeaders() },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
   return (await res.json()) as {
@@ -36,8 +36,8 @@ export async function apiPostTriagePreview(
 export async function apiGetTriageRules(
   apiBase: string,
 ): Promise<{ ok: boolean; ruleIds?: string[]; error?: string }> {
-  const res = await fetch(`${apiBase.replace(/\/$/, "")}/api/triage/rules`, {
-    headers: { Accept: "application/json", ...apiAuthHeaders() },
+  const res = await fetchApi(`${apiBase.replace(/\/$/, "")}/api/triage/rules`, {
+    headers: { accept: "application/json" },
   });
   return (await res.json()) as { ok: boolean; ruleIds?: string[]; error?: string };
 }
@@ -52,9 +52,9 @@ export async function apiPostTriageConfirm(
     saveOnly?: boolean;
   },
 ): Promise<{ ok: boolean; session?: TriageSession; error?: string; key?: string }> {
-  const res = await fetch(`${apiBase.replace(/\/$/, "")}/api/triage/confirm`, {
+  const res = await fetchApi(`${apiBase.replace(/\/$/, "")}/api/triage/confirm`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...apiAuthHeaders() },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
   return (await res.json()) as {

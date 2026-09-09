@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useSettingsPanelStore } from "./stores/settings-panel-store";
 import {
   appendChatMessage,
   dropTrailingUserMessageIfText,
@@ -18,6 +19,7 @@ import {
 } from "./api-client";
 import { isSelectedModelVerified, MODEL_NOT_VERIFIED_HINT } from "./lawmind-model-verify";
 import { resolveComposeModelSelectValue } from "./lawmind-model-picker-utils";
+import { confirmDialog } from "./lawmind-confirm-dialog";
 import type { AppConfig } from "./lawmind-app-bootstrap";
 import type { LawmindHealthState } from "./lawmind-app-shell";
 import type { FileChatContextItem } from "./lawmind-app-shell";
@@ -73,7 +75,6 @@ export type UseLawmindChatSendInput = {
   setError: Dispatch<SetStateAction<string | null>>;
   setInput: Dispatch<SetStateAction<string>>;
   setShowWizard: Dispatch<SetStateAction<boolean>>;
-  setShowSettings: import("./lawmind-settings-shell").SetShowSettings;
   setComposeModelHint: Dispatch<SetStateAction<string | null>>;
   selectedAssistantId: string;
   selectedModelId: string;
@@ -118,7 +119,6 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
     setError,
     setInput,
     setShowWizard,
-    setShowSettings,
     setComposeModelHint,
     selectedAssistantId,
     selectedModelId,
@@ -223,7 +223,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       }
       if (picked && !picked.configured) {
         setError(`「${picked.label}」尚未配置 API Key。请打开 API 配置向导或添加自定义模型。`);
-        setShowSettings(true, "models");
+        useSettingsPanelStore.getState().setSettingsPanel(true, "models");
         return;
       }
       if (health?.modelConfigured === true && !isSelectedModelVerified(modelCatalog, selectedModelId)) {
@@ -614,9 +614,11 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
         return;
       }
       // F2: warn that truncate drops later turns including tool evidence.
-      const ok = window.confirm(
-        "编辑并重发将截断该条之后的对话（含工具调用与结果证据）。确定继续？",
-      );
+      const ok = await confirmDialog({
+        title: "编辑并重发将截断该条之后的对话（含工具调用与结果证据）。确定继续？",
+        confirmLabel: "继续",
+        tone: "danger",
+      });
       if (!ok) {
         return;
       }

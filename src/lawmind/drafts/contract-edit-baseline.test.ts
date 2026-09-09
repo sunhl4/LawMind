@@ -5,6 +5,7 @@ import JSZip from "jszip";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ArtifactDraft } from "../types.js";
 import {
+  collectContractBaselineCandidates,
   enrichDraftWithContractEditBaseline,
   extractDocxRelativePathsFromText,
   normalizeWorkspaceRelativePath,
@@ -107,6 +108,33 @@ describe("contract-edit-baseline", () => {
     expect(paths).toContain("uploads/甲方协议.docx");
   });
 
+  it("stamps contractEdit from a compose Word pin without a path in the instruction", async () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-baseline-pin-"));
+    dirs.push(ws);
+    const rel = "uploads/pin-buy.docx";
+    await writeMinimalDocx(path.join(ws, rel), ["甲方应付款。"]);
+    const pin = {
+      pinKind: "file" as const,
+      root: "workspace" as const,
+      relPath: rel,
+      kind: "file" as const,
+    };
+    expect(collectContractBaselineCandidates({ draft: minimalDraft(), pins: [pin] })).toContain(
+      rel,
+    );
+    const stamped = stampContractEditBaselineIfNeeded({
+      workspaceDir: ws,
+      draft: minimalDraft({
+        deliverableType: "contract.review",
+        title: "合同审查意见书",
+        summary: "请审查这份采购合同",
+      }),
+      instruction: "请审查这份采购合同",
+      pins: [pin],
+    });
+    expect(stamped.contractEdit?.baselineRelativePath).toBe(rel);
+  });
+
   it("stamps contractEdit when candidate docx exists under workspace", async () => {
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-baseline-"));
     dirs.push(ws);
@@ -141,6 +169,9 @@ describe("contract-edit-baseline", () => {
     expect(enriched.contractEdit?.baselineRelativePath).toBe(rel);
     expect(enriched.sections.length).toBeGreaterThanOrEqual(2);
     expect(enriched.sections.some((s) => s.body.includes("第一段"))).toBe(true);
+    const seeded = enriched.sections.find((s) => s.body.includes("第一段"));
+    expect(seeded?.provenance?.events.some((e) => e.type === "upload")).toBe(true);
+    expect(seeded?.provenance?.events[0]?.comment).toBe("body");
   });
 
   it("does not overwrite substantial opinion sections when seeding soft", async () => {

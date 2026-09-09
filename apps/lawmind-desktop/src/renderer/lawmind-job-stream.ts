@@ -1,4 +1,4 @@
-import { apiAuthHeaders } from "./lawmind-api-auth";
+import { fetchApi } from "./api-client-proxy";
 
 export type JobStreamPayload = {
   ok?: boolean;
@@ -24,10 +24,14 @@ export function openJobEventStream(args: {
   void (async () => {
     let ended = false;
     try {
-      const res = await fetch(url, {
-        headers: { accept: "text/event-stream", ...apiAuthHeaders() },
-        signal: controller.signal,
-      });
+      const res = await fetchApi(
+        url,
+        {
+          headers: { accept: "text/event-stream" },
+          signal: controller.signal,
+        },
+        { timeoutMs: 0, tag: "job-stream" },
+      );
       if (!res.ok || !res.body) {
         ended = true;
         args.onError?.();

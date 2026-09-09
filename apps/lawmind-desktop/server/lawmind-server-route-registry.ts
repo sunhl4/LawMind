@@ -1,7 +1,14 @@
-import { handleAuditExportRoute } from "./lawmind-server-route-audit-export.js";
+import { handleAuditEventRoute } from "./lawmind-server-route-audit-event.js";
+import {
+  handleAuditExportRoute,
+  handleAuditExportSummaryRoute,
+  handleAuditVerifyExternalRoute,
+} from "./lawmind-server-route-audit-export.js";
 import { handleBootstrapRoute } from "./lawmind-server-route-bootstrap.js";
+import { handleE2eTestRoute } from "./lawmind-server-route-e2e.js";
 import { handleChatRoute } from "./lawmind-server-route-chat.js";
 import { handleActionSummaryRoutes } from "./lawmind-server-route-action-summary.js";
+import { handleApprovalRoutes } from "./lawmind-server-route-approvals.js";
 import { handleAgentFleetRoutes } from "./lawmind-server-route-agent-fleet.js";
 import { handleAutomationsRoutes } from "./lawmind-server-route-automations.js";
 import { handleMailRoutes } from "./lawmind-server-route-mail.js";
@@ -17,6 +24,8 @@ import { handleLearningContractRoutes } from "./lawmind-server-route-learning-co
 import { handleContractReviewRoutes } from "./lawmind-server-route-contract-review.js";
 import { handleDaemonRoutes } from "./lawmind-server-route-daemon.js";
 import { handleDeskSettingsRoutes } from "./lawmind-server-route-desk-settings.js";
+import { handlePracticePlaybookRoutes } from "./lawmind-server-route-practice-playbook.js";
+import { handleLawyerDeskRoutes } from "./lawmind-server-route-lawyer-desk.js";
 import { handleRecordRoutes } from "./lawmind-server-route-records.js";
 import { handleSessionExtendedRoutes } from "./lawmind-server-route-sessions.js";
 import { handleWorksRoutes } from "./lawmind-server-route-works.js";
@@ -41,12 +50,15 @@ import { handleTriageRoutes } from "./lawmind-server-route-triage.js";
 import { handleReviewCampaignRoutes } from "./lawmind-server-route-review-campaign.js";
 import { handleSkillsRoutes } from "./lawmind-server-route-skills.js";
 import { handleMcpRoutes } from "./lawmind-server-route-mcp.js";
+import { handleSseRoute } from "./lawmind-server-route-sse.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 
 export type LawmindRouteHandler = (args: LawmindRouteContext) => boolean | Promise<boolean>;
 
 /** Ordered route handlers; first match wins (same semantics as the legacy if-chain). */
 export const LAWMIND_ROUTE_HANDLERS: LawmindRouteHandler[] = [
+  (args) => handleE2eTestRoute(args),
+  (args) => handleSseRoute(args),
   (args) => handleHealthRoute(args),
   (args) => handleBootstrapRoute(args),
   (args) => handleTemplateRoutes(args),
@@ -64,15 +76,18 @@ export const LAWMIND_ROUTE_HANDLERS: LawmindRouteHandler[] = [
   (args) => handleReviewRoute(args),
   (args) => handleModelsRoutes(args),
   (args) => handleChatRoute(args),
+  (args) => handleApprovalRoutes(args),
   (args) => handleActionSummaryRoutes(args),
   (args) => handleAgentFleetRoutes(args),
   (args) => handleMailRoutes(args),
   (args) => handleAutomationsRoutes(args),
   (args) => handleAssistantRoutes(args),
+  (args) => handleLawyerDeskRoutes(args),
   (args) => handleMatterRoutes(args),
   (args) => handleOnboardingRoutes(args),
   (args) => handleDaemonRoutes(args),
   (args) => handleDeskSettingsRoutes(args),
+  (args) => handlePracticePlaybookRoutes(args),
   (args) => handleContractReviewRoutes(args),
   (args) => handleLearningContractRoutes(args),
   (args) => handleSessionExtendedRoutes(args),
@@ -81,6 +96,8 @@ export const LAWMIND_ROUTE_HANDLERS: LawmindRouteHandler[] = [
   (args) => handleJobRoutes(args),
   (args) => handleCollaborationRoutes(args),
   (args) => handlePlatformRoutes(args),
+  (args) => handleAuditExportSummaryRoute(args),
+  (args) => handleAuditVerifyExternalRoute(args),
   (args) => handleAuditExportRoute(args),
   (args) => handleMemoryAndTemplateRoutes(args),
   (args) => handleMemorySourceTextRoute(args),
@@ -89,6 +106,7 @@ export const LAWMIND_ROUTE_HANDLERS: LawmindRouteHandler[] = [
   (args) => handleHistoricalScanRoutes(args),
   (args) => handleRolesRoutes(args),
   (args) => handleRoutingRoutes(args),
+  (args) => handleAuditEventRoute(args),
   (args) => handleFilesystemRoute(args),
 ];
 

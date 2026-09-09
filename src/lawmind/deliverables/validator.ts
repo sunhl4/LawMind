@@ -126,6 +126,29 @@ function buildContractReviewClauseAnchorCheck(
   };
 }
 
+const CONTRACT_REVIEW_WORDING_RE = /推荐措辞|建议改为|改为[「「“"]|修订为/;
+
+function buildContractReviewWordingCheck(
+  draft: ArtifactDraft,
+  spec: DeliverableSpec,
+): AcceptanceCheck | undefined {
+  if (spec.type !== "contract.review") {
+    return undefined;
+  }
+  const suggest = draft.sections.filter((section) =>
+    sectionMatches(section, ["建议", "修改", "调整"]),
+  );
+  const body = suggest.map((section) => section.body).join("\n");
+  const passed = CONTRACT_REVIEW_WORDING_RE.test(body);
+  return {
+    key: "contract.review.recommended_wording",
+    label: "修改建议须含推荐措辞",
+    passed,
+    severity: "warning",
+    hint: passed ? undefined : "每个风险点写可替换原句；仅意见时写明「仅意见」。",
+  };
+}
+
 function buildBodySanityCheck(draft: ArtifactDraft): AcceptanceCheck | undefined {
   const text = concatDraftPlainText(draft);
   if (text.trim().length < 400) {
@@ -257,6 +280,10 @@ export const validateDraftAgainstSpec: ValidateDraftFn = (
   const clauseAnchor = buildContractReviewClauseAnchorCheck(draft, spec);
   if (clauseAnchor) {
     checks.push(clauseAnchor);
+  }
+  const wording = buildContractReviewWordingCheck(draft, spec);
+  if (wording) {
+    checks.push(wording);
   }
   const scaffold = buildScaffoldDensityCheck(draft);
   if (scaffold) {

@@ -1,0 +1,33 @@
+{
+  "date": "2026-09-09",
+  "items": [
+    {
+      "id": "sample-desk-plan-evidence",
+      "text": "核对本案证据清单是否齐（星辉诉环宇）",
+      "done": false,
+      "source": "lawyer",
+      "sourceRef": "sample-desk-seed",
+      "matterId": "xinghui-sale-876",
+      "createdAt": "2026-09-09T12:38:07.730Z"
+    },
+    {
+      "id": "sample-desk-plan-reply",
+      "text": "给星辉法务回今晚代理意见三页要点",
+      "done": false,
+      "source": "lawyer",
+      "sourceRef": "sample-desk-seed",
+      "matterId": "xinghui-sale-876",
+      "createdAt": "2026-09-09T12:38:07.730Z"
+    },
+    {
+      "id": "sample-desk-plan-conflict",
+      "text": "冲突检索（星辉诉环宇）",
+      "done": true,
+      "source": "lawyer",
+      "sourceRef": "sample-desk-seed",
+      "matterId": "xinghui-sale-876",
+      "createdAt": "2026-09-09T12:38:07.730Z"
+    }
+  ],
+  "updatedAt": "2026-09-09T12:38:07.793Z"
+}

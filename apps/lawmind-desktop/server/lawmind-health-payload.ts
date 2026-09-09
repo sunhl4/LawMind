@@ -223,10 +223,10 @@ export function buildWorkspaceStandardReport(workspaceDir: string): WorkspaceSta
     }
   };
 
-  fileCheck("memory_md", "通用记忆 MEMORY.md", "MEMORY.md", "建议保留 workspace/MEMORY.md 作为长期规则。");
+  fileCheck("memory_md", "通用记忆", "MEMORY.md", "建议保留通用记忆文件作为长期规则。");
   fileCheck(
     "lawyer_profile",
-    "律师偏好 LAWYER_PROFILE.md",
+    "律师偏好",
     "LAWYER_PROFILE.md",
     "可在首跑向导中生成律师偏好文件。",
   );
@@ -250,7 +250,7 @@ export function buildWorkspaceStandardReport(workspaceDir: string): WorkspaceSta
     id: "policy",
     label: "工作区策略",
     state: policyOk ? "ok" : "warn",
-    hint: policyOk ? "已就绪" : "可选：添加 lawmind/policy.json 或 lawmind.policy.json。",
+    hint: policyOk ? "已就绪" : "可选：添加工作区策略文件。",
   });
 
   const wfOk = dirHasJson("lawmind/workflows");

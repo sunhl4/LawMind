@@ -86,9 +86,17 @@ export function LawmindAuthoritySetup({
         ) : null}
         {probeControl}
       </div>
-      <p className="lm-settings-caption lm-settings-caption--warn" role="note">
-        演示语料不等于完整法库。正式引用请核对权威来源。
-      </p>
+      {status === "configured" &&
+      (authorityCorpus?.provider === "pkulaw" || authorityCorpus?.provider === "generic") ? (
+        <p className="lm-settings-caption" role="note">
+          对话检索走这里的权威库。设置 → 安全与工具 → 外部对接里的法宝 MCP
+          是同一网关的进阶入口，不是另一套未接上的库。正式引用请核对原文。
+        </p>
+      ) : (
+        <p className="lm-settings-caption lm-settings-caption--warn" role="note">
+          演示语料不等于完整法库。正式引用请核对权威来源。
+        </p>
+      )}
       <details className="lm-settings-hint">
         <summary>管理员：环境变量</summary>
         <ul className="lm-settings-caption">
@@ -108,6 +116,10 @@ export function LawmindAuthoritySetup({
             闭源：<code className="lm-md-code">LAWMIND_AUTHORITY_ENDPOINT</code> +{" "}
             <code className="lm-md-code">LAWMIND_AUTHORITY_API_KEY</code>
           </li>
+          <li>
+            法宝 MCP：<code className="lm-md-code">LAWMIND_PKULAW_MODE=mcp_tools_call</code>、
+            <code className="lm-md-code">LAWMIND_PKULAW_CASE_ENDPOINT</code>
+          </li>
         </ul>
         {envFilePath ? (
           <p className="lm-settings-caption">
@@ -117,7 +129,7 @@ export function LawmindAuthoritySetup({
         <p className="lm-settings-caption">
           详见{" "}
           <a
-            href={lawmindDocUrl("LAWMIND-INTEGRATIONS")}
+            href={lawmindDocUrl("archive/LAWMIND-INTEGRATIONS")}
             target="_blank"
             rel="noreferrer noopener"
           >

@@ -4,8 +4,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 MOCK_PORT="${LAWMIND_E2E_MOCK_PORT:-48888}"
 VITE_PORT="${LAWMIND_E2E_VITE_PORT:-52473}"
-export VITE_LAWMIND_DEV_API="http://127.0.0.1:${MOCK_PORT}"
-# Avoid EADDRINUSE when a previous Playwright run left listeners behind.
+# Renderer boots only via the Electron preload stub injected by Playwright.
 for p in "${MOCK_PORT}" "${VITE_PORT}"; do
   if command -v lsof >/dev/null 2>&1; then
     pids="$(lsof -ti "tcp:${p}" 2>/dev/null || true)"

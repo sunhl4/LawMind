@@ -73,6 +73,12 @@ describe("resolveCapabilityEnvelope", () => {
     expect(plan.maxOutputTokens).not.toBe(chat.maxOutputTokens);
   });
 
+  it("defaults tool timeout to unlimited (0)", () => {
+    clearEnv();
+    const env = resolveCapabilityEnvelope({ contextTokens: 128_000 });
+    expect(env.toolTimeoutMs).toBe(0);
+  });
+
   it("applyEnvelopeToAgentModelDefaults attaches contextTokens", () => {
     clearEnv();
     const defaults = applyEnvelopeToAgentModelDefaults({ contextTokens: 64_000 });

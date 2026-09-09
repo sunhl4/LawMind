@@ -6,6 +6,7 @@
 
 @import "./styles/tokens.css";
 @import "./styles/animations.css";
+@import "./styles/lawyer-workbench.css";
 
 .lm-skip-nav {
   position: absolute;
@@ -40,8 +41,8 @@ body {
     var(--bg);
   color: var(--text);
   height: 100vh;
-  font-size: 14px;
-  line-height: 1.55;
+  font-size: var(--fs-md);
+  line-height: var(--lh-body);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -1868,9 +1869,9 @@ samp {
 }
 
 .lm-badge-error, .lm-badge-failed {
-  background: var(--error-dim);
-  color: var(--error);
-  border-color: rgba(240, 101, 101, 0.22);
+  background: var(--danger-dim);
+  color: var(--danger-text);
+  border-color: var(--danger-border);
 }
 
 .lm-badge-chat {
@@ -2024,126 +2025,6 @@ samp {
 
 .lm-collab-actions {
   border-top-color: var(--border-md);
-}
-
-/* Callouts — Linear / Stripe-style inline alerts */
-.lm-callout {
-  border-radius: var(--r-sm);
-  padding: var(--space-2) var(--space-3);
-  margin-bottom: var(--space-3);
-  font-size: 13px;
-  line-height: var(--lh-snug);
-}
-
-.lm-callout-title {
-  font-weight: 600;
-  color: var(--text);
-  margin-bottom: var(--space-1);
-}
-
-.lm-callout-body {
-  margin: 0;
-  color: var(--text-2);
-}
-
-.lm-callout-body a {
-  color: var(--accent);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.lm-callout-body a:hover {
-  color: var(--accent-hover);
-}
-
-.lm-callout-muted {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--border);
-}
-
-.lm-callout-info {
-  background: var(--info-dim);
-  border: 1px solid var(--info-border);
-}
-
-.lm-callout-info .lm-callout-body {
-  color: var(--text);
-}
-
-.lm-callout-warn {
-  background: var(--warn-dim);
-  border: 1px solid var(--warn-border);
-  border-left: 3px solid var(--warn);
-  box-shadow: var(--shadow-xs);
-}
-
-.lm-callout-warn .lm-callout-title {
-  color: var(--warn);
-}
-
-.lm-callout-danger {
-  position: relative;
-  border: 1px solid var(--error-border);
-  border-left: 4px solid var(--error);
-  padding: var(--space-2) var(--space-3);
-  background:
-    linear-gradient(
-      160deg,
-      rgba(240, 101, 101, 0.22) 0%,
-      rgba(240, 101, 101, 0.08) 42%,
-      rgba(17, 19, 23, 0.92) 100%
-    );
-  box-shadow:
-    var(--shadow-xs),
-    inset 0 1px 0 rgba(255, 255, 255, 0.07);
-  animation: lm-callout-danger-in 240ms var(--ease-out);
-}
-
-.lm-source-popover .lm-callout-danger {
-  animation: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .lm-callout-danger {
-    animation: none;
-  }
-}
-
-@keyframes lm-callout-danger-in {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.lm-callout-danger .lm-callout-title {
-  color: #ff9494;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.lm-callout-danger .lm-callout-body {
-  color: #f2e9e6;
-  font-weight: 500;
-}
-
-.lm-callout-danger .lm-error-dismiss {
-  color: var(--text-2);
-  opacity: 0.9;
-}
-
-.lm-callout-danger .lm-error-dismiss:hover {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.08);
-  opacity: 1;
-}
-
-.lm-callout-danger .lm-citation-warn-list {
-  color: #d4cbc4;
 }
 
 /* Status pills */
@@ -3460,6 +3341,11 @@ html.lm-theme-dark .lm-main-header {
   animation: lm-fade-in-up var(--t-md) var(--ease-out);
 }
 
+.lm-msg-row:not(.lm-msg-row-user) {
+  max-width: 80rem;
+  margin-inline: auto;
+}
+
 .lm-msg-row-user {
   align-self: flex-end;
   flex-direction: row-reverse;
@@ -4271,11 +4157,6 @@ html.lm-theme-dark .lm-main-header {
   font-weight: 550;
 }
 
-.lm-compose-ctx-usage-action .lm-meta {
-  font-size: 11px;
-  line-height: 1.35;
-}
-
 /* ── end imported: shell-header+chat-main ── */
 /* ── imported: modal-forms ── */
 .lm-check-row {
@@ -4427,8 +4308,15 @@ html.lm-theme-dark .lm-main-header {
   width: min(400px, 100%);
 }
 
+/* 品牌确认弹窗须压过其它弹层（文件台拣选器 21000 之上）。 */
+.lm-wizard-backdrop.lm-confirm-dialog-backdrop {
+  z-index: 32000;
+}
+
 .lm-wizard.lm-wizard--danger {
   width: min(440px, 100%);
+  border-color: var(--danger-border);
+  box-shadow: var(--shadow-lg), 0 0 0 1px color-mix(in srgb, var(--danger) 28%, transparent);
 }
 
 .lm-wizard.lm-wizard--detail {
@@ -4449,17 +4337,17 @@ html.lm-theme-dark .lm-main-header {
 }
 
 .lm-wizard h2.lm-wizard-title-danger {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--error);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
+  color: var(--danger-text);
   margin-bottom: 10px;
-  letter-spacing: -0.2px;
+  letter-spacing: var(--ls-tight);
 }
 
 .lm-wizard-body-pre {
   white-space: pre-line;
   color: var(--text-2);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   line-height: 1.7;
   margin-bottom: 16px;
 }
@@ -4674,11 +4562,11 @@ fieldset.lm-field-reset > legend.lm-meta {
 
 /* ── imported: utilities ── */
 .lm-error {
-  color: var(--error);
-  font-size: 12px;
-  padding: 8px 12px;
-  background: var(--error-dim);
-  border: 1px solid rgba(240, 101, 101, 0.2);
+  color: var(--danger-text);
+  font-size: var(--fs-xs);
+  padding: var(--space-2) var(--space-3);
+  background: var(--danger-dim);
+  border: 1px solid var(--danger-border);
   border-radius: var(--r);
 }
 
@@ -4688,7 +4576,7 @@ fieldset.lm-field-reset > legend.lm-meta {
   justify-content: space-between;
   gap: var(--space-2);
   margin-top: var(--space-2);
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 .lm-error--explorer > .lm-callout-body {
@@ -4705,13 +4593,13 @@ fieldset.lm-field-reset > legend.lm-meta {
   border: none;
   background: none;
   color: inherit;
-  font-size: 14px;
+  font-size: var(--fs-md);
   line-height: 1;
   border-radius: var(--r-xs);
 }
 
 .lm-error-dismiss:hover {
-  background: rgba(240, 101, 101, 0.15);
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
 }
 
 .lm-error-dismiss:focus-visible {
@@ -4721,21 +4609,21 @@ fieldset.lm-field-reset > legend.lm-meta {
 
 /* ── Meta (legacy compat) ──────────────────────────────────── */
 .lm-meta {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--text-2);
-  line-height: 1.55;
+  line-height: var(--lh-body);
 }
 
 html {
-  font-size: 14px;
+  font-size: var(--fs-md);
 }
 
 html[data-lm-font-scale="comfortable"] {
-  font-size: 16px;
+  font-size: var(--fs-xl);
 }
 
 html.lm-density-compact[data-lm-font-scale="comfortable"] {
-  font-size: 16px;
+  font-size: var(--fs-xl);
 }
 
 /* Shared text field (toolbar search, wizard inputs, etc.) */
@@ -4748,7 +4636,7 @@ html.lm-density-compact[data-lm-font-scale="comfortable"] {
   color: var(--text);
   padding: 9px 11px;
   font-family: var(--font);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   transition: border-color var(--t) var(--ease), box-shadow var(--t) var(--ease);
 }
 
@@ -4764,7 +4652,7 @@ html.lm-density-compact[data-lm-font-scale="comfortable"] {
 
 .lm-input--mono {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   letter-spacing: 0.01em;
 }
 
@@ -4778,8 +4666,8 @@ html.lm-density-compact[data-lm-font-scale="comfortable"] {
   background: transparent;
   color: var(--accent);
   font: inherit;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
   cursor: pointer;
   text-decoration: none;
   transition: color var(--t) var(--ease);
@@ -4801,8 +4689,8 @@ html.lm-density-compact[data-lm-font-scale="comfortable"] {
 .lm-tag {
   display: inline-flex;
   align-items: center;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
   letter-spacing: 0.02em;
   padding: 2px 8px;
   border-radius: 999px;
@@ -4876,14 +4764,23 @@ select option {
   text-align: center;
 }
 .lm-empty .lm-empty-title {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
   color: var(--lm-text, var(--text));
 }
 .lm-empty .lm-empty-body {
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
 }
+
+/* Type scale + danger text utilities */
+.lm-type-2xs { font-size: var(--fs-2xs); line-height: var(--lh-snug); }
+.lm-type-xs { font-size: var(--fs-xs); line-height: var(--lh-snug); }
+.lm-type-sm { font-size: var(--fs-sm); line-height: var(--lh-snug); }
+.lm-type-md { font-size: var(--fs-md); line-height: var(--lh-body); }
+.lm-type-lg { font-size: var(--fs-lg); line-height: var(--lh-snug); }
+.lm-type-xl { font-size: var(--fs-xl); line-height: var(--lh-snug); }
+.lm-danger-text { color: var(--danger-text); }
 
 /* ── end imported: utilities ── */
 
@@ -5666,6 +5563,11 @@ select option {
   border-color: rgba(108, 182, 177, 0.35);
   color: var(--accent-cool);
 }
+.lm-compose-ctx-usage-action .lm-meta {
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .lm-compose-mode-chip {
   display: inline-flex;
   align-items: center;
@@ -7754,19 +7656,19 @@ select option {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 8px 16px;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
   border-radius: var(--r);
   border: none;
   background: var(--grad-brand);
-  color: #181410;
+  color: var(--on-brand);
   font-family: var(--font);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
   cursor: pointer;
   transition: transform var(--t) var(--ease), box-shadow var(--t-md) var(--ease), filter var(--t) var(--ease);
   white-space: nowrap;
-  letter-spacing: -0.1px;
+  letter-spacing: var(--ls-ui);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.28),
     inset 0 -1px 0 rgba(0, 0, 0, 0.18),
@@ -7849,15 +7751,11 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
   box-shadow: var(--focus-ring);
 }
 
-/* Destructive confirmation (matches inline var(--error) CTAs; keeps readable contrast on dark chrome) */
+/* Destructive confirmation — 印泥朱强调色，与 --danger token 同源 */
 .lm-btn-destructive {
-  background: linear-gradient(180deg, #f28585, #e05555);
-  color: #181410;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.26),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.14),
-    0 2px 10px rgba(240, 101, 101, 0.38),
-    0 1px 2px rgba(0, 0, 0, 0.32);
+  background: var(--grad-danger);
+  color: var(--danger-on);
+  box-shadow: var(--shadow-danger);
 }
 
 .lm-btn-destructive::after {
@@ -7865,13 +7763,9 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
 }
 
 .lm-btn-destructive:hover:not(:disabled) {
-  background: linear-gradient(180deg, #f89595, #ea6565);
+  background: var(--grad-danger-hover);
   transform: translateY(-1px);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.3),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.14),
-    0 6px 18px rgba(240, 101, 101, 0.42),
-    0 2px 4px rgba(0, 0, 0, 0.32);
+  box-shadow: var(--shadow-danger-hover);
 }
 
 .lm-btn-destructive:focus-visible:not(:disabled) {
@@ -7882,8 +7776,8 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
 .lm-btn-ghost {
   background: transparent;
   color: var(--text-2);
-  padding: 5px 9px;
-  font-size: 13px;
+  padding: var(--space-1) 9px;
+  font-size: var(--fs-sm);
   border: 1px solid transparent;
   box-shadow: none;
 }
@@ -7904,8 +7798,8 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
 
 .lm-btn-sm,
 .lm-btn-small {
-  padding: 5px 10px;
-  font-size: 13px;
+  padding: var(--space-1) 10px;
+  font-size: var(--fs-sm);
   border-radius: var(--r-sm);
 }
 
@@ -8221,12 +8115,12 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
   border-radius: var(--r-sm);
   padding: var(--space-2) var(--space-3);
   margin-bottom: var(--space-3);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   line-height: var(--lh-snug);
 }
 
 .lm-callout-title {
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--text);
   margin-bottom: var(--space-1);
 }
@@ -8273,19 +8167,18 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
 
 .lm-callout-danger {
   position: relative;
-  border: 1px solid var(--error-border);
-  border-left: 4px solid var(--error);
+  border: 1px solid var(--danger-border);
+  border-left: 4px solid var(--danger);
   padding: var(--space-2) var(--space-3);
   background:
     linear-gradient(
       160deg,
-      rgba(240, 101, 101, 0.22) 0%,
-      rgba(240, 101, 101, 0.08) 42%,
-      rgba(17, 19, 23, 0.92) 100%
+      color-mix(in srgb, var(--danger) 16%, var(--surface)) 0%,
+      color-mix(in srgb, var(--danger) 6%, var(--surface)) 100%
     );
   box-shadow:
     var(--shadow-xs),
-    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+    inset 0 1px 0 var(--inset-highlight);
   animation: lm-callout-danger-in 240ms var(--ease-out);
 }
 
@@ -8311,9 +8204,9 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
 }
 
 .lm-callout-danger .lm-callout-title {
-  color: var(--error-text);
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  color: var(--danger-text);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--ls-tight);
 }
 
 .lm-callout-danger .lm-callout-body {
@@ -10957,7 +10850,7 @@ html.lm-theme-dark .lm-files-explorer-scroll::-webkit-scrollbar-thumb:hover {
 .lm-matter-experiment-pill-high {
   color: var(--error);
   background: var(--error-dim);
-  border-color: rgba(240, 101, 101, 0.3);
+  border-color: var(--danger-border);
 }
 
 .lm-matter-experiment-pill-medium {
@@ -10973,7 +10866,7 @@ html.lm-theme-dark .lm-files-explorer-scroll::-webkit-scrollbar-thumb:hover {
 .lm-matter-roadmap-pill-now {
   color: var(--error);
   background: var(--error-dim);
-  border-color: rgba(240, 101, 101, 0.3);
+  border-color: var(--danger-border);
 }
 
 .lm-matter-roadmap-pill-next {
@@ -11088,7 +10981,7 @@ html.lm-theme-dark .lm-files-explorer-scroll::-webkit-scrollbar-thumb:hover {
 .lm-matter-pill-priority-critical {
   color: var(--error);
   background: var(--error-dim);
-  border-color: rgba(240, 101, 101, 0.3);
+  border-color: var(--danger-border);
 }
 
 .lm-matter-pill-priority-high {
@@ -11119,7 +11012,7 @@ html.lm-theme-dark .lm-files-explorer-scroll::-webkit-scrollbar-thumb:hover {
 .lm-matter-pill-status-rejected {
   color: var(--error);
   background: var(--error-dim);
-  border-color: rgba(240, 101, 101, 0.3);
+  border-color: var(--danger-border);
 }
 
 .lm-matter-cognition-card {
@@ -12600,7 +12493,7 @@ html.lm-theme-dark .lm-files-explorer-scroll::-webkit-scrollbar-thumb:hover {
   background: rgba(45, 212, 160, 0.06);
 }
 .lm-acceptance-gate.lm-acceptance-blocked {
-  border-color: rgba(240, 101, 101, 0.45);
+  border-color: var(--danger-border);
   background: var(--error-dim);
 }
 .lm-acceptance-headline {
@@ -12644,7 +12537,7 @@ html.lm-theme-dark .lm-files-explorer-scroll::-webkit-scrollbar-thumb:hover {
 .lm-badge-blocker {
   background: var(--error-dim);
   color: var(--error);
-  border: 1px solid rgba(240, 101, 101, 0.4);
+  border: 1px solid var(--danger-border);
   border-radius: 4px;
   padding: 1px 6px;
   font-size: 13px;
@@ -13276,9 +13169,9 @@ html.lm-theme-dark .lm-files-explorer-scroll::-webkit-scrollbar-thumb:hover {
   border-color: rgba(75, 145, 247, 0.22);
 }
 .lm-badge-error, .lm-badge-failed {
-  background: var(--error-dim);
-  color: var(--error);
-  border-color: rgba(240, 101, 101, 0.22);
+  background: var(--danger-dim);
+  color: var(--danger-text);
+  border-color: var(--danger-border);
 }
 .lm-badge-chat {
   background: var(--accent-dim);
@@ -20377,3 +20270,318 @@ html.lm-theme-dark .lm-tool-args-edit-textarea {
   font-weight: 600;
   color: var(--text);
 }
+
+/* ── LawMind 律师可观测性仪表盘 ── */
+
+.lm-matter-health-card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.lm-matter-health-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.lm-matter-health-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.lm-matter-health-card-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lm-matter-health-card-phase {
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.lm-matter-health-card-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.lm-matter-health-card-pill {
+  font-size: 12px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+}
+
+.lm-matter-health-card-pill--warn {
+  background: var(--warn-dim);
+  color: var(--warn);
+  border-color: var(--warn-border);
+}
+
+.lm-matter-health-card-meta {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.lm-desk-dashboard-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: var(--space-3);
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.lm-desk-dashboard-summary-item {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.lm-desk-dashboard-summary-item strong {
+  font-size: 16px;
+  color: var(--text);
+}
+
+.lm-desk-dashboard-summary-item--warn strong {
+  color: var(--warn);
+}
+
+.lm-review-campaign-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  font-size: 13px;
+}
+
+.lm-review-campaign-metrics strong {
+  color: var(--text);
+}
+
+/* ── end: lawyer observability dashboard ── */
+
+/* ── provenance indicator ── */
+.lm-provenance-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.lm-provenance-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.lm-provenance-trigger:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.lm-provenance-card {
+  position: absolute;
+  z-index: 10;
+  max-width: 320px;
+  margin-top: 22px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.lm-provenance-card-body {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.lm-draft-doc-section-head {
+  position: relative;
+}
+
+/* ── end: provenance indicator ── */
+
+/* ── export dock option ── */
+.lm-review-writing-dock-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+}
+
+.lm-review-writing-dock-option input[type="checkbox"] {
+  margin: 0;
+}
+
+/* ── end: export dock option ── */
+
+/* ── approval request host (待我拍板) ── */
+.lm-approval-float {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 1000;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  border: none;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.lm-approval-float:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.lm-approval-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1001;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.lm-approval-panel {
+  width: min(420px, 100vw);
+  height: 100vh;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+
+.lm-approval-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.lm-approval-panel-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.lm-approval-error {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  background: var(--error-dim);
+  color: var(--error-text);
+  font-size: 13px;
+}
+
+.lm-approval-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.lm-approval-item {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.lm-approval-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: 6px;
+}
+
+.lm-approval-item-title {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.lm-approval-risk {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.lm-approval-risk-low {
+  background: var(--ok-dim);
+  color: var(--ok);
+  border-color: var(--ok-border);
+}
+
+.lm-approval-risk-medium {
+  background: var(--warn-dim);
+  color: var(--warn);
+  border-color: var(--warn-border);
+}
+
+.lm-approval-risk-high {
+  background: var(--error-dim);
+  color: var(--error);
+  border-color: var(--error-border);
+}
+
+.lm-approval-summary,
+.lm-approval-args,
+.lm-approval-expiry {
+  margin: 0 0 6px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.lm-approval-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: 10px;
+}
+
+/* ── end: approval request host ── */

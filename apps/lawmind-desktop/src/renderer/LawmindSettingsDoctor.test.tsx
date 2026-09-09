@@ -99,9 +99,9 @@ describe("LawmindSettingsDoctor", () => {
         />,
       );
     });
-    expect(host.textContent).toContain("推理图覆盖率");
+    expect(host.textContent).toContain("推理留痕覆盖");
     expect(host.textContent).toContain("75%");
-    expect(host.textContent).toContain("需侧车 4 份");
+    expect(host.textContent).toContain("应留痕 4 份");
   });
 
   it("shows no-sample label when ratio is null", async () => {

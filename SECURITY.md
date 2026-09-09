@@ -22,7 +22,7 @@ This tree is **LawMind-only** (no OpenClaw gateway, ClawHub, or mobile apps). Do
 
 LawMind’s desktop **local HTTP API** is intended to bind to **loopback** and to operate on the **lawyer’s workspace** on their machine. Findings that assume full Internet exposure of that API, or that equate “operator can do X locally” with privilege escalation without crossing an unexpected boundary, may be classified as **hardening** rather than a vulnerability—but please report anyway if unsure.
 
-Product-facing security checklists and deployment notes: **`docs/LAWMIND-SECURITY-CHECKLIST.md`**, **`docs/LAWMIND-DATA-PROCESSING.md`**.
+Product-facing security checklists and deployment notes (archived snapshots): **`docs/archive/LAWMIND-SECURITY-CHECKLIST.md`**, **`docs/archive/LAWMIND-DATA-PROCESSING.md`**.
 
 ## Hardening notes (local API)
 
@@ -60,6 +60,8 @@ Mechanical lint (`src/lawmind/lint/`) is an **advisory consistency check**, not 
 - Statute parameters (caps, limitation periods, LPR multiples) are versioned with `source` + `effectiveFrom`. A wrong parameter is worse than no rule—do not silently invent rates or treat the skeleton LPR multiple as a live rate series.
 - Historical scan reads lawyer-chosen local folders (max 3 roots). It does not auto-create matters, does not silently write habits, and must not follow symlinks out of the chosen root.
 - Outbound send (`send_email` and client-facing delivery) stays on the human sign-off path. Lint green never unlocks send.
+- Internal `auto_deliver` only unlocks when progressive autonomy is already open (first-pass + lint-escape + sample N) **and** the draft is not outbound. Missing lint-escape series refuses unlock. Rubber-stamp first-pass alone is not enough.
+- Structured stance (`workspace/lawmind/stance/`) is written only from explicit lawyer actions (redline accept, habit adopt, approved KEY_MODIFICATIONS). Historical scan never silent-writes profile or stance.
 
 ## Bug bounty
 

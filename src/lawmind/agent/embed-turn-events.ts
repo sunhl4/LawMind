@@ -19,6 +19,7 @@ export const EMBED_TURN_EVENT_TYPES = [
   "compact_boundary",
   "overflow_prune",
   "requires_action",
+  "approval_request",
 ] as const satisfies ReadonlyArray<RunTurnEvent["type"]>;
 
 export type EmbedTurnEventType = (typeof EMBED_TURN_EVENT_TYPES)[number];

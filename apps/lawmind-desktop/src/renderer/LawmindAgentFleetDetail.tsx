@@ -322,7 +322,7 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
                   data-testid="lm-fleet-primary-review"
                   disabled={busy}
                   onClick={() => onOpenReview?.(current.taskId, current.matterId)}
-                  title="改稿、批注与交付预览；正式批复仍在本页签批"
+                  title="改稿、批注与交付预览；签批在本页或文书台高级区均可，同一记录"
                 >
                   改稿
                 </button>

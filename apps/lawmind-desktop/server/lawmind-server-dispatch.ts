@@ -7,7 +7,10 @@ import {
   isLawMindHttpError,
   sendJson,
 } from "./lawmind-server-helpers.js";
-import { validateLoopbackApiAuth } from "./lawmind-local-api-auth.js";
+import {
+  validateLoopbackApiAuth,
+  validateLoopbackMutationContentType,
+} from "./lawmind-local-api-auth.js";
 import { dispatchLawmindRoute } from "./lawmind-server-route-registry.js";
 
 export async function lawmindHandleHttpRequest(
@@ -29,6 +32,22 @@ export async function lawmindHandleHttpRequest(
 
   if (!validateLoopbackApiAuth(req)) {
     sendJson(res, 401, { ok: false, error: "unauthorized", code: "invalid_api_token" }, c);
+    return;
+  }
+
+  // dev skip-auth 下的 CSRF 收口：变更类请求必须是 application/json（simple request
+  // 无法伪造该头而不触发预检）。认证开启时 bearer 头本身已要求预检，无需再查。
+  if (!validateLoopbackMutationContentType(req)) {
+    sendJson(
+      res,
+      415,
+      {
+        ok: false,
+        error: "unsupported_media_type",
+        code: "mutation_requires_json_content_type",
+      },
+      c,
+    );
     return;
   }
 

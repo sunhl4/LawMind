@@ -1,10 +1,10 @@
 /* ── Error ─────────────────────────────────────────────────── */
 .lm-error {
-  color: var(--error);
-  font-size: 12px;
-  padding: 8px 12px;
-  background: var(--error-dim);
-  border: 1px solid rgba(240, 101, 101, 0.2);
+  color: var(--danger-text);
+  font-size: var(--fs-xs);
+  padding: var(--space-2) var(--space-3);
+  background: var(--danger-dim);
+  border: 1px solid var(--danger-border);
   border-radius: var(--r);
 }
 
@@ -14,7 +14,7 @@
   justify-content: space-between;
   gap: var(--space-2);
   margin-top: var(--space-2);
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 .lm-error--explorer > .lm-callout-body {
@@ -31,13 +31,13 @@
   border: none;
   background: none;
   color: inherit;
-  font-size: 14px;
+  font-size: var(--fs-md);
   line-height: 1;
   border-radius: var(--r-xs);
 }
 
 .lm-error-dismiss:hover {
-  background: rgba(240, 101, 101, 0.15);
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
 }
 
 .lm-error-dismiss:focus-visible {
@@ -47,21 +47,21 @@
 
 /* ── Meta (legacy compat) ──────────────────────────────────── */
 .lm-meta {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--text-2);
-  line-height: 1.55;
+  line-height: var(--lh-body);
 }
 
 html {
-  font-size: 14px;
+  font-size: var(--fs-md);
 }
 
 html[data-lm-font-scale="comfortable"] {
-  font-size: 16px;
+  font-size: var(--fs-xl);
 }
 
 html.lm-density-compact[data-lm-font-scale="comfortable"] {
-  font-size: 16px;
+  font-size: var(--fs-xl);
 }
 
 /* Shared text field (toolbar search, wizard inputs, etc.) */
@@ -74,7 +74,7 @@ html.lm-density-compact[data-lm-font-scale="comfortable"] {
   color: var(--text);
   padding: 9px 11px;
   font-family: var(--font);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   transition: border-color var(--t) var(--ease), box-shadow var(--t) var(--ease);
 }
 
@@ -90,7 +90,7 @@ html.lm-density-compact[data-lm-font-scale="comfortable"] {
 
 .lm-input--mono {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   letter-spacing: 0.01em;
 }
 
@@ -104,8 +104,8 @@ html.lm-density-compact[data-lm-font-scale="comfortable"] {
   background: transparent;
   color: var(--accent);
   font: inherit;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
   cursor: pointer;
   text-decoration: none;
   transition: color var(--t) var(--ease);
@@ -127,8 +127,8 @@ html.lm-density-compact[data-lm-font-scale="comfortable"] {
 .lm-tag {
   display: inline-flex;
   align-items: center;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
   letter-spacing: 0.02em;
   padding: 2px 8px;
   border-radius: 999px;
@@ -202,11 +202,20 @@ select option {
   text-align: center;
 }
 .lm-empty .lm-empty-title {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
   color: var(--lm-text, var(--text));
 }
 .lm-empty .lm-empty-body {
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
 }
+
+/* Type scale + danger text utilities */
+.lm-type-2xs { font-size: var(--fs-2xs); line-height: var(--lh-snug); }
+.lm-type-xs { font-size: var(--fs-xs); line-height: var(--lh-snug); }
+.lm-type-sm { font-size: var(--fs-sm); line-height: var(--lh-snug); }
+.lm-type-md { font-size: var(--fs-md); line-height: var(--lh-body); }
+.lm-type-lg { font-size: var(--fs-lg); line-height: var(--lh-snug); }
+.lm-type-xl { font-size: var(--fs-xl); line-height: var(--lh-snug); }
+.lm-danger-text { color: var(--danger-text); }

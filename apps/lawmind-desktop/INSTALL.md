@@ -34,7 +34,7 @@
 
 ## 隐私与责任
 
-数据处理说明见 [LAWMIND-DATA-PROCESSING](https://docs.lawmind.ai/LAWMIND-DATA-PROCESSING)。输出为辅助草稿，**不构成法律意见**。
+数据处理说明见 [LAWMIND-DATA-PROCESSING](https://docs.lawmind.ai/archive/LAWMIND-DATA-PROCESSING)。输出为辅助草稿，**不构成法律意见**。
 
 ## 企业批量部署（IT）
 

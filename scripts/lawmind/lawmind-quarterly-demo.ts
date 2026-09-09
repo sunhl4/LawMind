@@ -138,10 +138,7 @@ async function main(): Promise<void> {
       status: "approved",
       resolvedBy: "lawyer:partner",
     });
-    if (
-      approvalResolved.outcome !== "written" ||
-      approvalResolved.approval.status !== "approved"
-    ) {
+    if (approvalResolved.outcome !== "written" || approvalResolved.approval.status !== "approved") {
       throw new Error("approval transition failed");
     }
     console.log("  ✓ 三类状态机均完成 happy-path 跃迁。");
@@ -188,7 +185,7 @@ async function main(): Promise<void> {
         `approvals=${approvals.length}, queueItems=${queue.length}`,
     );
 
-    seedQualitySnapshot(ws, "q12-task-1", ["质量范例"]);
+    await seedQualitySnapshot(ws, "q12-task-1", ["质量范例"]);
     await flushQualityDashboard(ws);
     console.log("  ✓ quality snapshot + dashboard.json written for release-readiness");
 

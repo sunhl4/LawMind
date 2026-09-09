@@ -37,6 +37,8 @@ import {
   formatAppliedPreferencesHint,
 } from "../../../src/lawmind/memory/applied-preferences.js";
 import {
+  appendProvenanceEvent,
+  createProvenanceEvent,
   deleteDraft,
   persistDraft,
   readDraft,
@@ -140,7 +142,7 @@ function deriveReviewExecutionState(
       status: "awaiting_approval",
       linkedTaskId: draft.taskId,
       recoverable: true,
-      detail: "验收门禁未通过，暂不可渲染。",
+      detail: "出稿检查未通过，暂不可渲染。",
     };
   }
   return {
@@ -178,7 +180,7 @@ function mapDraftContentPatchError(err: LawmindRequestParseError): string {
 function toDraftContentPatch(body: {
   title?: string;
   summary?: string;
-  sections?: Array<{ heading: string; body: string; citations?: string[] }>;
+  sections?: Array<{ heading: string; body: string; citations?: string[]; provenance?: ArtifactSection["provenance"] }>;
 }): { title?: string; summary?: string; sections?: ArtifactSection[] } {
   const patch: { title?: string; summary?: string; sections?: ArtifactSection[] } = {};
   if (body.title !== undefined) {
@@ -192,9 +194,65 @@ function toDraftContentPatch(body: {
       heading: section.heading,
       body: section.body,
       ...(section.citations?.length ? { citations: section.citations } : {}),
+      ...(section.provenance ? { provenance: section.provenance } : {}),
     }));
   }
   return patch;
+}
+
+function patchSectionsWithLawyerEditProvenance(
+  oldSections: ArtifactSection[],
+  newSections: ArtifactSection[],
+  actorId: string,
+): ArtifactSection[] {
+  return newSections.map((section, index) => {
+    const old = oldSections[index];
+    if (!old) {
+      // New section added by the lawyer.
+      return {
+        ...section,
+        provenance: appendProvenanceEvent(
+          section.provenance,
+          createProvenanceEvent("lawyer_edit", "user", {
+            userId: actorId,
+            diffSummary: "新增章节",
+          }),
+        ),
+      };
+    }
+    const headingChanged = old.heading !== section.heading;
+    const bodyChanged = old.body !== section.body;
+    const citationsChanged =
+      JSON.stringify(old.citations ?? []) !== JSON.stringify(section.citations ?? []);
+    if (!headingChanged && !bodyChanged && !citationsChanged) {
+      // Preserve the existing provenance chain if the client did not send it.
+      return { ...section, provenance: section.provenance ?? old.provenance };
+    }
+    const changedParts: string[] = [];
+    if (headingChanged) {
+      changedParts.push("标题");
+    }
+    if (bodyChanged) {
+      changedParts.push("正文");
+    }
+    if (citationsChanged) {
+      changedParts.push("引用");
+    }
+    const diffSummary = bodyChanged
+      ? `编辑正文：${changedParts.join("、")}`
+      : changedParts.join("、");
+    return {
+      ...section,
+      provenance: appendProvenanceEvent(
+        old.provenance,
+        createProvenanceEvent("lawyer_edit", "user", {
+          userId: actorId,
+          diffSummary,
+          reason: changedParts.join(","),
+        }),
+      ),
+    };
+  });
 }
 
 async function auditReviewGateSnapshot(
@@ -203,6 +261,7 @@ async function auditReviewGateSnapshot(
   source: PlatformGateAuditSource,
   acceptance?: AcceptanceReport,
   actorId?: string,
+  extraContext?: Record<string, string>,
 ): Promise<void> {
   const executionState = deriveReviewExecutionState(draft, acceptance);
   const gateDecisions = deriveReviewGateDecisions(draft, acceptance);
@@ -213,8 +272,18 @@ async function auditReviewGateSnapshot(
     actorId: actorId ?? resolveDesktopActorId(),
     executionState,
     gateDecisions,
-    context: { reviewStatus: draft.reviewStatus ?? "pending" },
+    context: { reviewStatus: draft.reviewStatus ?? "pending", ...extraContext },
   });
+}
+
+/**
+ * ?strict=false 的 env 门：与 approve 路径 LAWMIND_ALLOW_CHECKLIST_BYPASS 同级的
+ * 显式「破窗」开关。未开启时 URL 参数一律按 strict 处理，验收门禁不被查询参数绕过。
+ * （刻意不含 VITEST 捷径：测试须显式设 env，负向用例才能成立。）
+ */
+export function isRenderGateBypassAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = env.LAWMIND_ALLOW_RENDER_GATE_BYPASS?.trim().toLowerCase();
+  return raw === "1" || raw === "true";
 }
 
 export async function handleReviewRoute({
@@ -598,6 +667,8 @@ export async function handleReviewRoute({
       }
       await auditReviewGateSnapshot(workspaceDir, updated, "review", undefined, updated.reviewedBy);
       const matterWriteFailed = !isDeliverableReviewStampCurrent(workspaceDir, updated);
+      ctx.sseBus?.emit({ type: "review:status", data: { taskId: raw, reviewStatus: updated.reviewStatus } });
+      ctx.sseBus?.emit({ type: "task:update", data: { taskId: raw, reviewStatus: updated.reviewStatus } });
       sendJson(
         res,
         200,
@@ -641,6 +712,17 @@ export async function handleReviewRoute({
           return true;
         }
       }
+      let renderTrackedBody: { includeProvenance?: boolean } = {};
+      try {
+        const body = await parseJsonBodyZod(req, draftRenderPostSchema);
+        renderTrackedBody = { includeProvenance: body.includeProvenance };
+      } catch (e) {
+        if (isInvalidRequestBodyError(e)) {
+          sendJson(res, 400, { ok: false, error: "invalid request" }, c);
+          return true;
+        }
+        throw e;
+      }
       const { readRedlineProposal } = await import("../../../src/lawmind/drafts/redline-proposal.js");
       const { renderDocxWithTrackedChanges } = await import(
         "../../../src/lawmind/artifacts/render-docx-tracked.js"
@@ -656,6 +738,7 @@ export async function handleReviewRoute({
         proposals,
         workspaceDir,
         templateVariant: preferContractReview ? "contractReview" : undefined,
+        includeProvenance: renderTrackedBody.includeProvenance,
       });
       sendJson(
         res,
@@ -686,11 +769,13 @@ export async function handleReviewRoute({
         return true;
       }
       let templateIdOverride: string | undefined;
+      let includeProvenance: boolean | undefined;
       try {
         const body = await parseJsonBodyZod(req, draftRenderPostSchema);
         if (body.templateId) {
           templateIdOverride = body.templateId;
         }
+        includeProvenance = body.includeProvenance;
       } catch (e) {
         if (isInvalidRequestBodyError(e)) {
           sendJson(res, 400, { ok: false, error: "invalid request" }, c);
@@ -702,9 +787,23 @@ export async function handleReviewRoute({
         return true;
       }
       // Acceptance Gate (Deliverable-First Architecture).
-      // Default = strict (block render if not ready). Caller may opt out via ?strict=false.
+      // 默认 strict（未就绪即拦截）。?strict=false 仅在 env 门
+      // LAWMIND_ALLOW_RENDER_GATE_BYPASS 显式开启时生效，且每次生效落
+      // gate_decision=bypass 审计；否则忽略该参数按 strict 执行。
       const strictParam = url.searchParams.get("strict")?.trim().toLowerCase();
-      const strict = strictParam !== "false" && strictParam !== "0";
+      const bypassRequested = strictParam === "false" || strictParam === "0";
+      const bypass = bypassRequested && isRenderGateBypassAllowed();
+      const strict = !bypass;
+      if (bypass) {
+        await auditReviewGateSnapshot(
+          workspaceDir,
+          draft,
+          "render_bypass",
+          validateDraftAgainstSpec(draft),
+          undefined,
+          { gateDecision: "bypass", via: "strict_query_param" },
+        );
+      }
       if (strict) {
         const acceptance = validateDraftAgainstSpec(draft);
         if (!acceptance.ready) {
@@ -718,7 +817,7 @@ export async function handleReviewRoute({
               ok: false,
               error: "acceptance_gate_blocked",
               message:
-                "草稿未通过验收门禁，存在阻塞项；请补齐缺失章节或回答待确认问题，或使用 ?strict=false 临时绕过（不推荐）。",
+                "草稿未通过出稿检查，存在阻塞项；请补齐缺失章节或回答待确认问题后再导出。",
               acceptance,
               executionState,
               gateDecisions,
@@ -745,7 +844,7 @@ export async function handleReviewRoute({
             {
               ok: false,
               error: "checklist_incomplete",
-              message: "导出被拦截：出稿检查未齐，请在改稿页补齐后再导出，或使用 ?strict=false。",
+              message: "导出被拦截：出稿检查未齐，请在改稿页补齐后再导出。",
               missingRequiredIds: checklistAtExport.missingRequiredIds,
               checklist: checklistAtExport,
             },
@@ -765,6 +864,7 @@ export async function handleReviewRoute({
         citationMode,
         citationGateStrict: edition.features.citationGateStrict,
         strictGates: strict,
+        includeProvenance,
       });
       const refreshed = readDraft(workspaceDir, raw);
       const citationIntegrity = refreshed
@@ -809,6 +909,8 @@ export async function handleReviewRoute({
       const executionState = deriveReviewExecutionState(updated, acceptance);
       const gateDecisions = deriveReviewGateDecisions(updated, acceptance);
       await auditReviewGateSnapshot(workspaceDir, updated, "reopen_review", acceptance);
+      ctx.sseBus?.emit({ type: "review:status", data: { taskId: raw, reviewStatus: updated.reviewStatus } });
+      ctx.sseBus?.emit({ type: "task:update", data: { taskId: raw, reviewStatus: updated.reviewStatus } });
       sendJson(
         res,
         200,
@@ -853,13 +955,15 @@ export async function handleReviewRoute({
         throw err;
       }
       const patch = toDraftContentPatch(patchBody);
+      const actorId = resolveDesktopActorId();
       const nextDraft: ArtifactDraft = {
         ...draft,
         ...(patch.title !== undefined ? { title: patch.title } : {}),
         ...(patch.summary !== undefined ? { summary: patch.summary } : {}),
-        ...(patch.sections !== undefined ? { sections: patch.sections } : {}),
+        ...(patch.sections !== undefined
+          ? { sections: patchSectionsWithLawyerEditProvenance(draft.sections, patch.sections, actorId) }
+          : {}),
       };
-      const actorId = resolveDesktopActorId();
       const auditDir = path.join(workspaceDir, "audit");
       await emit(auditDir, {
         taskId: raw,
@@ -888,6 +992,7 @@ export async function handleReviewRoute({
       const executionState = deriveReviewExecutionState(nextDraft, acceptance);
       const gateDecisions = deriveReviewGateDecisions(nextDraft, acceptance);
       await auditReviewGateSnapshot(workspaceDir, nextDraft, "review", acceptance, actorId);
+      ctx.sseBus?.emit({ type: "task:update", data: { taskId: raw, reviewStatus: nextDraft.reviewStatus } });
       sendJson(
         res,
         200,
@@ -939,6 +1044,7 @@ export async function handleReviewRoute({
         sendJson(res, 500, { ok: false, error: "delete_failed" }, c);
         return true;
       }
+      ctx.sseBus?.emit({ type: "task:update", data: { taskId: raw, deleted: true } });
       sendJson(res, 200, { ok: true, taskId: raw, deletedDraft, deletedTask }, c);
       return true;
     }

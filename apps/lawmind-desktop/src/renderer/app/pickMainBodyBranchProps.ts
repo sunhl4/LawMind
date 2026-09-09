@@ -9,6 +9,7 @@ import type { MatterViewProps } from "./MatterView";
 import type { MeetingViewProps } from "./MeetingView";
 import type { ReviewViewProps } from "./ReviewView";
 import type { AgentFleetViewProps } from "./AgentFleetView";
+import type { LawmindLawyerWorkbenchProps } from "../LawmindLawyerWorkbench";
 
 function openAgentsWorkflows(props: LawmindMainBodyContentProps, matterId?: string): void {
   if (props.onOpenAgentsWorkflows) {
@@ -93,14 +94,41 @@ export function pickReviewViewProps(props: LawmindMainBodyContentProps): ReviewV
     initialListMode: props.reviewFocusListMode,
     externalRefreshToken: props.reviewRefreshVersion,
     returnMatterId: props.reviewLaunchedFromMatter ? props.reviewFocusMatterId : null,
-    paneVisibility: props.reviewPaneVisibility,
     onReturnToMatter: props.onReturnToMatter,
     onShowArtifact: props.onShowArtifact,
     onRecordsChanged: props.onRecordsChanged,
     onGoToChat: props.onGoToChat,
     onOpenAgentsDesk: props.onOpenAgentsDeskFromReview,
     onRevisionJobQueued: props.onRevisionJobQueued,
-    onToggleReviewPane: props.onToggleReviewPane,
+  };
+}
+
+export function pickLawyerWorkbenchProps(
+  props: LawmindMainBodyContentProps,
+): LawmindLawyerWorkbenchProps | null {
+  if (!props.config) {
+    return null;
+  }
+  return {
+    apiBase: props.config.apiBase,
+    selectedMatterId: normalizeMatterId(props, false),
+    onSelectMatter: (matterId) => {
+      props.onSelectMatterKey?.(matterId);
+    },
+    onGoToChat: (opts) => {
+      props.onGoToChat({ taskId: "", matterId: opts.matterId, prompt: opts.prompt });
+    },
+    onOpenNeedsDecision: (matterId) => openNeedsDecisionDesk(props, matterId ? { matterId } : undefined),
+    onCreateMatter: props.onCreateMatter,
+    onOpenReview: ({ matterId, taskId }) => {
+      const tid = taskId?.trim();
+      if (tid) {
+        props.onOpenReviewFromMatter({ taskId: tid, matterId });
+        return;
+      }
+      props.onOpenReviewFromWorkspace({ matterId });
+    },
+    onShowArtifact: props.onShowArtifact,
   };
 }
 

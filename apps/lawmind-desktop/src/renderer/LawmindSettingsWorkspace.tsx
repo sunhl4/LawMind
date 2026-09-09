@@ -1,5 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
+import { LawmindSettingsPracticePlaybook } from "./LawmindSettingsPracticePlaybook";
+import { LawmindSettingsUserStandards } from "./LawmindSettingsUserStandards";
 import type { LawmindSettingsAppConfig } from "./lawmind-settings-models.ts";
 
 type Props = {
@@ -14,8 +16,11 @@ type Props = {
 export function LawmindSettingsWorkspace(props: Props): ReactNode {
   const { config, apiBase, workspaceLabel, projectDir, onPickProject, onClearProject } = props;
   const [batchDir, setBatchDir] = useState("");
+  const [anchorUrl, setAnchorUrl] = useState("");
   const [deskBusy, setDeskBusy] = useState(false);
   const [deskHint, setDeskHint] = useState<string | null>(null);
+  const [verifyBusy, setVerifyBusy] = useState(false);
+  const [verifyMsg, setVerifyMsg] = useState<string | null>(null);
   const [daemonBusy, setDaemonBusy] = useState(false);
   const [daemonHint, setDaemonHint] = useState<string | null>(null);
   const [daemon, setDaemon] = useState<{
@@ -31,11 +36,12 @@ export function LawmindSettingsWorkspace(props: Props): ReactNode {
     let cancelled = false;
     void apiGetJson<{
       ok?: boolean;
-      settings?: { contractBatchRelativeDir?: string };
+      settings?: { contractBatchRelativeDir?: string; auditExternalAnchorUrl?: string };
     }>(apiBase, "/api/workspace/desk-settings")
       .then((j) => {
         if (!cancelled && j.ok) {
           setBatchDir(j.settings?.contractBatchRelativeDir ?? "");
+          setAnchorUrl(j.settings?.auditExternalAnchorUrl ?? "");
         }
       })
       .catch(() => {
@@ -68,24 +74,59 @@ export function LawmindSettingsWorkspace(props: Props): ReactNode {
       const j = await apiSendJson<
         {
           ok?: boolean;
-          settings?: { contractBatchRelativeDir?: string };
+          settings?: { contractBatchRelativeDir?: string; auditExternalAnchorUrl?: string };
           message?: string;
           error?: string;
         },
-        { contractBatchRelativeDir: string }
+        { contractBatchRelativeDir: string; auditExternalAnchorUrl: string }
       >(apiBase, "/api/workspace/desk-settings", "POST", {
         contractBatchRelativeDir: batchDir.trim(),
+        auditExternalAnchorUrl: anchorUrl.trim(),
       });
       if (!j.ok) {
         setDeskHint(j.message ?? j.error ?? "保存失败");
         return;
       }
       setBatchDir(j.settings?.contractBatchRelativeDir ?? batchDir.trim());
+      setAnchorUrl(j.settings?.auditExternalAnchorUrl ?? anchorUrl.trim());
       setDeskHint("已保存");
     } catch (e) {
       setDeskHint(errorMessage(e, "保存失败"));
     } finally {
       setDeskBusy(false);
+    }
+  }
+
+  async function verifyAuditExternalAnchor(): Promise<void> {
+    if (!apiBase?.trim() || !anchorUrl.trim()) {
+      setVerifyMsg("请先填写外部锚 URL");
+      return;
+    }
+    setVerifyBusy(true);
+    setVerifyMsg(null);
+    try {
+      const j = await apiSendJson<
+        {
+          ok?: boolean;
+          status?: string;
+          detail?: string;
+          report?: string;
+          error?: string;
+          message?: string;
+        },
+        { externalAnchorUrl: string }
+      >(apiBase, "/api/audit/verify-external", "POST", {
+        externalAnchorUrl: anchorUrl.trim(),
+      });
+      if (!j.ok) {
+        setVerifyMsg(j.message ?? j.error ?? j.detail ?? "验证失败");
+        return;
+      }
+      setVerifyMsg(`[${j.status}] ${j.detail ?? ""}${j.report ? `\n${j.report}` : ""}`);
+    } catch (e) {
+      setVerifyMsg(errorMessage(e, "验证失败"));
+    } finally {
+      setVerifyBusy(false);
     }
   }
 
@@ -215,6 +256,9 @@ export function LawmindSettingsWorkspace(props: Props): ReactNode {
         </div>
       ) : null}
 
+      {apiBase ? <LawmindSettingsPracticePlaybook apiBase={apiBase} /> : null}
+      {apiBase ? <LawmindSettingsUserStandards apiBase={apiBase} /> : null}
+
       {apiBase ? (
         <details className="lm-settings-advanced" data-testid="lm-desk-settings">
           <summary>
@@ -247,6 +291,67 @@ export function LawmindSettingsWorkspace(props: Props): ReactNode {
               <p className="lm-settings-caption" role="status">
                 {deskHint}
               </p>
+            ) : null}
+          </div>
+        </details>
+      ) : null}
+
+      {apiBase ? (
+        <details className="lm-settings-advanced" data-testid="lm-audit-external-anchor">
+          <summary>
+            <span className="lm-settings-advanced__label">审计外部锚</span>
+            <span className="lm-settings-advanced__hint">防篡改摘要</span>
+          </summary>
+          <div className="lm-settings-advanced-body">
+            <p className="lm-settings-caption">
+              将审计链摘要同步到工作区外（U 盘、iCloud/OneDrive 本地目录，或 HTTPS 只写 URL）。
+              摘要包含链尾 root hash 与 HMAC 签名，可用于事后验证链是否被截断或篡改。
+              保存后需重启本地服务方可生效。
+            </p>
+            <label className="lm-settings-field">
+              <span className="lm-settings-key">外部锚 URL / 路径</span>
+              <input
+                className="lm-input"
+                value={anchorUrl}
+                data-testid="lm-audit-external-anchor-url"
+                placeholder="例如 file:///Users/您/备份/lawmind-anchor.json 或 https://..."
+                onChange={(e) => setAnchorUrl(e.target.value)}
+              />
+            </label>
+            <div className="lm-settings-actions">
+              <button
+                type="button"
+                className="lm-btn lm-btn-secondary lm-btn-sm"
+                disabled={deskBusy}
+                data-testid="lm-audit-external-anchor-save"
+                onClick={() => void saveDeskSettings()}
+              >
+                {deskBusy ? "保存中…" : "保存"}
+              </button>
+              <button
+                type="button"
+                className="lm-btn lm-btn-accent lm-btn-sm"
+                disabled={verifyBusy || !anchorUrl.trim()}
+                data-testid="lm-audit-external-anchor-verify"
+                onClick={() => void verifyAuditExternalAnchor()}
+              >
+                {verifyBusy ? "验证中…" : "验证审计链"}
+              </button>
+            </div>
+            {deskHint ? (
+              <p className="lm-settings-caption" role="status">
+                {deskHint}
+              </p>
+            ) : null}
+            {verifyMsg ? (
+              <pre
+                className="lm-settings-caption"
+                role="status"
+                data-testid="lm-audit-external-anchor-verify-msg"
+                style={{ whiteSpace: "pre-wrap", maxHeight: 240, overflow: "auto" }}
+              >
+                {verifyMsg}
+              </pre>
             ) : null}
           </div>
         </details>

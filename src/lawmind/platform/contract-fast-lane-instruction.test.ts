@@ -46,5 +46,6 @@ describe("contract-fast-lane-instruction", () => {
     expect(CONTRACT_FAST_LANE_TOOL_NAMES).not.toContain("prepare_outbound_mail");
     expect(CONTRACT_FAST_LANE_TOOL_NAMES).not.toContain("apply_surgical_edits");
     expect(CONTRACT_FAST_LANE_PROMPT).toContain("直接拒绝");
+    expect(CONTRACT_FAST_LANE_PROMPT).toContain("宏观交易结构");
   });
 });

@@ -9,6 +9,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { fetchGraphMessages, sendGraphMail, testGraphMailConnection } from "./graph-mail.js";
 import type { MailAccount } from "./mail-accounts.js";
 
+const dirs: string[] = [];
+
 function fetchCallUrl(input: RequestInfo | URL): string {
   if (typeof input === "string") {
     return input;
@@ -19,7 +21,10 @@ function fetchCallUrl(input: RequestInfo | URL): string {
   return input.url;
 }
 
-const dirs: string[] = [];
+function jsonBody(raw: unknown): Record<string, unknown> {
+  const text = typeof raw === "string" ? raw : JSON.stringify(raw ?? {});
+  return JSON.parse(text) as Record<string, unknown>;
+}
 
 function tmpRoot(): string {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), "lm-graph-mail-"));
@@ -137,8 +142,7 @@ describe("mail/graph-mail", () => {
     });
     expect(r.ok).toBe(true);
     const sendCall = fetchMock.mock.calls.find((c) => fetchCallUrl(c[0]).includes("/sendMail"));
-    const rawBody = (sendCall?.[1] as RequestInit | undefined)?.body;
-    const sentBody = JSON.parse(typeof rawBody === "string" ? rawBody : "{}") as {
+    const sentBody = jsonBody((sendCall?.[1] as RequestInit | undefined)?.body) as {
       message?: { from?: { emailAddress?: { name?: string } } };
     };
     expect(sentBody.message?.from?.emailAddress?.name).toBe("张三律师");

@@ -17,6 +17,11 @@ export type McpServerRecord = {
   url?: string;
   enabled: boolean;
   allowWrites: boolean;
+  /**
+   * 显式例外：允许非本机 http:// 明文传输（Bearer secret 会走明文，有风险）。
+   * 缺省拒绝；仅 localhost/127.0.0.1/::1 的 http 无需此开关。
+   */
+  allowInsecureHttp?: boolean;
   /** Keychain / env reference, e.g. mcp:<id> */
   secretRef?: string;
 };
@@ -76,8 +81,15 @@ export function mcpStdioCommandError(command: string, args?: string[]): string |
   return undefined;
 }
 
+/** http 明文只允许本机回环（本机开发自托管）；远程 http 需显式 allowInsecureHttp。 */
+export function isLoopbackMcpHttpHostname(hostname: string): boolean {
+  const host = hostname.trim().toLowerCase();
+  return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+}
+
 export function normalizeMcpHttpUrl(
   raw: string,
+  opts?: { allowInsecureHttp?: boolean },
 ): { ok: true; url: string } | { ok: false; error: string } {
   let parsed: URL;
   try {
@@ -87,6 +99,17 @@ export function normalizeMcpHttpUrl(
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     return { ok: false, error: "http 对接只允许 http 或 https。" };
+  }
+  if (
+    parsed.protocol === "http:" &&
+    !isLoopbackMcpHttpHostname(parsed.hostname) &&
+    opts?.allowInsecureHttp !== true
+  ) {
+    return {
+      ok: false,
+      error:
+        "http 明文对接仅允许本机（localhost/127.0.0.1）；远程 http 会明文暴露 Bearer secret。确需例外请显式设置 allowInsecureHttp: true。",
+    };
   }
   return { ok: true, url: parsed.href };
 }
@@ -132,6 +155,9 @@ function asRecord(raw: unknown): McpServerRecord | undefined {
   if (typeof o.url === "string" && o.url.trim()) {
     rec.url = o.url.trim();
   }
+  if (o.allowInsecureHttp === true) {
+    rec.allowInsecureHttp = true;
+  }
   if (typeof o.secretRef === "string" && o.secretRef.trim()) {
     rec.secretRef = o.secretRef.trim();
   }
@@ -167,9 +193,10 @@ export function readMcpServersConfig(workspaceDir: string): McpServerRecord[] {
 export function writeMcpServersConfig(
   workspaceDir: string,
   servers: McpServerRecord[],
-): { ok: true } | { ok: false; error: string } {
+): { ok: true; warnings?: string[] } | { ok: false; error: string } {
   const parsed: McpServerRecord[] = [];
   const seen = new Set<string>();
+  const warnings: string[] = [];
   for (const row of servers) {
     const rec = asRecord(row);
     if (!rec) {
@@ -191,11 +218,23 @@ export function writeMcpServersConfig(
       if (!rec.url) {
         return { ok: false, error: `${rec.id}：http 需要 url。` };
       }
-      const url = normalizeMcpHttpUrl(rec.url);
+      const url = normalizeMcpHttpUrl(rec.url, {
+        allowInsecureHttp: rec.allowInsecureHttp === true,
+      });
       if (!url.ok) {
         return { ok: false, error: `${rec.id}：${url.error}` };
       }
       rec.url = url.url;
+      if (
+        rec.allowInsecureHttp === true &&
+        !isLoopbackMcpHttpHostname(new URL(url.url).hostname) &&
+        new URL(url.url).protocol === "http:"
+      ) {
+        // 显式例外落日志 + 返回值标注：远程明文 http 会暴露 Bearer secret。
+        const warning = `${rec.id}：已按 allowInsecureHttp 放行远程 http 明文对接（${new URL(url.url).host}），Bearer secret 将走明文，请确认网络可信。`;
+        warnings.push(warning);
+        console.warn(`[LawMind][mcp] ${warning}`);
+      }
     }
     seen.add(rec.id);
     parsed.push(rec);
@@ -204,7 +243,7 @@ export function writeMcpServersConfig(
   try {
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, `${JSON.stringify({ servers: parsed }, null, 2)}\n`, "utf8");
-    return { ok: true };
+    return warnings.length > 0 ? { ok: true, warnings } : { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

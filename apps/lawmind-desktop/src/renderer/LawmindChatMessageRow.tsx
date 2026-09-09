@@ -19,6 +19,7 @@ import {
   shouldInlineClarificationInChat,
 } from "../../../../src/lawmind/platform/clarification-fields.ts";
 import type { NeedsDecisionDeskTarget } from "./lawmind-agents-desk";
+import { confirmDialog } from "./lawmind-confirm-dialog";
 
 function hasClarificationQuestions(message: ChatMsg): boolean {
   return (message.clarificationQuestions?.length ?? 0) > 0;
@@ -305,21 +306,23 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
                       return;
                     }
                     // truncate-from-here removes this bubble and everything after (Cursor-style).
-                    if (
-                      typeof window !== "undefined" &&
-                      !window.confirm(
-                        "发送修改后，将从此条起截断后续对话并重新生成。是否继续？",
-                      )
-                    ) {
-                      return;
-                    }
-                    setMutateBusy(true);
-                    void Promise.resolve(onEditChatMessage(index, editDraft))
-                      .catch(() => undefined)
-                      .finally(() => {
-                        setMutateBusy(false);
-                        setEditing(false);
+                    void (async () => {
+                      const ok = await confirmDialog({
+                        title: "发送修改后，将从此条起截断后续对话并重新生成。是否继续？",
+                        confirmLabel: "发送修改",
+                        tone: "danger",
                       });
+                      if (!ok) {
+                        return;
+                      }
+                      setMutateBusy(true);
+                      void Promise.resolve(onEditChatMessage(index, editDraft))
+                        .catch(() => undefined)
+                        .finally(() => {
+                          setMutateBusy(false);
+                          setEditing(false);
+                        });
+                    })();
                   }}
                 >
                   {mutateBusy ? "发送中…" : "发送修改"}
@@ -361,16 +364,20 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
                 data-testid="lm-msg-delete"
                 disabled={loading || mutateBusy}
                 onClick={() => {
-                  if (
-                    typeof window !== "undefined" &&
-                    !window.confirm("删除这条提问及其回答？之后的对话会保留。")
-                  ) {
-                    return;
-                  }
-                  setMutateBusy(true);
-                  void Promise.resolve(onDeleteChatMessage(index))
-                    .catch(() => undefined)
-                    .finally(() => setMutateBusy(false));
+                  void (async () => {
+                    const ok = await confirmDialog({
+                      title: "删除这条提问及其回答？之后的对话会保留。",
+                      confirmLabel: "删除",
+                      tone: "danger",
+                    });
+                    if (!ok) {
+                      return;
+                    }
+                    setMutateBusy(true);
+                    void Promise.resolve(onDeleteChatMessage(index))
+                      .catch(() => undefined)
+                      .finally(() => setMutateBusy(false));
+                  })();
                 }}
               >
                 删除
@@ -394,16 +401,20 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
                 data-testid="lm-msg-delete-assistant"
                 disabled={loading || mutateBusy}
                 onClick={() => {
-                  if (
-                    typeof window !== "undefined" &&
-                    !window.confirm("删除这条回答？")
-                  ) {
-                    return;
-                  }
-                  setMutateBusy(true);
-                  void Promise.resolve(onDeleteChatMessage(index))
-                    .catch(() => undefined)
-                    .finally(() => setMutateBusy(false));
+                  void (async () => {
+                    const ok = await confirmDialog({
+                      title: "删除这条回答？",
+                      confirmLabel: "删除",
+                      tone: "danger",
+                    });
+                    if (!ok) {
+                      return;
+                    }
+                    setMutateBusy(true);
+                    void Promise.resolve(onDeleteChatMessage(index))
+                      .catch(() => undefined)
+                      .finally(() => setMutateBusy(false));
+                  })();
                 }}
               >
                 删除

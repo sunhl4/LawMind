@@ -1,3 +1,4 @@
+import { LEGAL_LINT_RULES } from "../lint/rules.js";
 import {
   LAWMIND_Q1_GOLDEN_JOURNEYS,
   buildGoldenJourneysMarkdown,
@@ -5,6 +6,7 @@ import {
 import type { BenchmarkResult, BenchmarkTask } from "../types.js";
 import { buildBenchmarkReportMarkdown } from "./benchmark.js";
 import { BUILTIN_LEGAL_REPLAY_FIXTURES } from "./replay-fixtures.js";
+import { BUILTIN_SHADOW_FIXTURES } from "./shadow-replay.js";
 
 export type ReleaseReadinessInput = {
   benchmarkResults?: BenchmarkResult[];
@@ -28,6 +30,7 @@ export function buildReleaseReadinessReportMarkdown(input: ReleaseReadinessInput
   const summary = benchmarkSummary(benchmarkResults);
   const commands = input.verifyCommands ?? [
     "pnpm lawmind:verify",
+    "pnpm lawmind:compiler-gate",
     "pnpm lawmind:desktop:e2e:pr",
     "pnpm lawmind:quarterly-demo",
     "pnpm lawmind:docs:build",
@@ -42,7 +45,9 @@ export function buildReleaseReadinessReportMarkdown(input: ReleaseReadinessInput
     "## Readiness Snapshot",
     "",
     `- Golden journeys: ${LAWMIND_Q1_GOLDEN_JOURNEYS.length}`,
-    `- Replay fixtures: ${BUILTIN_LEGAL_REPLAY_FIXTURES.length}`,
+    `- Replay fixtures (synthetic regression, non-engine): ${BUILTIN_LEGAL_REPLAY_FIXTURES.length}`,
+    `- Legal lint rules: ${LEGAL_LINT_RULES.length}`,
+    `- Shadow fixtures (synthetic, draftSource=fixture-static): ${BUILTIN_SHADOW_FIXTURES.length}`,
     `- Benchmark average: ${(summary.avgScore * 100).toFixed(1)}%`,
     `- Benchmark gate target: 80%`,
     `- Benchmark gate: ${summary.pass ? "pass" : "not proven"}`,

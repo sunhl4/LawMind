@@ -4,6 +4,7 @@
  */
 
 import type { ComposeContextPin } from "../../platform/compose-context-pin.js";
+import { bindLawyerCapability } from "../../skills/lawyer-capabilities.js";
 import { listLocalSkills } from "../../skills/skill-runtime.js";
 import { collectDisclosedToolNames } from "./governance.js";
 import type { ToolRegistry } from "./registry.js";
@@ -51,6 +52,39 @@ export function collectEnabledSkillToolNames(workspaceDir: string): string[] {
   }
 }
 
+/** Extra tools for a bound 办件 — never used on mail/word locks (those freeze allowNames). */
+const CAPABILITY_EXTRA_TOOLS: Record<string, readonly string[]> = {
+  "contract.review": ["search_case_law"],
+  "labor.calc": ["calculate"],
+  "period.calc": ["calculate"],
+  "research.memo": ["search_case_law"],
+  "analysis.quick": ["search_case_law"],
+  "litigation.draft": ["search_case_law", "calculate"],
+  "litigation.talk": ["search_case_law"],
+  "ops.invoice": ["calculate", "analyze_spreadsheet"],
+  "ops.court_sms": ["calculate"],
+  "ip.dispute": ["search_case_law"],
+  "deal.ma": ["search_case_law"],
+  "compliance.data": ["search_case_law"],
+  "compliance.ads": ["search_case_law"],
+  "matter.status": ["calculate"],
+  "family.matter": ["search_case_law", "calculate"],
+  "capital.markets": ["search_case_law"],
+  "corp.governance": ["search_case_law"],
+};
+
+export function extraToolsForInstruction(instruction: string | undefined): string[] {
+  const text = instruction?.trim() ?? "";
+  if (text.length < 4) {
+    return [];
+  }
+  const bound = bindLawyerCapability({ instruction: text });
+  if (!bound || bound.pipeline === "tracked_redline" || bound.id === "mail.contract") {
+    return [];
+  }
+  return [...(CAPABILITY_EXTRA_TOOLS[bound.id] ?? [])];
+}
+
 export function collectRegisteredMcpToolNames(registry: ToolRegistry): string[] {
   return registry
     .listDefinitions()
@@ -69,12 +103,14 @@ export function mergeTurnDisclosedToolNames(opts: {
   pins?: ComposeContextPin[];
   registry?: ToolRegistry;
   hiddenNames?: Iterable<string>;
+  instruction?: string;
 }): string[] {
   const found = collectDisclosedToolNames(opts.session);
   if (pinsIncludeXlsx(opts.pins)) {
     found.push(...PINNED_SPREADSHEET_TOOL_NAMES);
   }
   found.push(...collectEnabledSkillToolNames(opts.workspaceDir));
+  found.push(...extraToolsForInstruction(opts.instruction));
   if (opts.registry) {
     found.push(...collectRegisteredMcpToolNames(opts.registry));
   }

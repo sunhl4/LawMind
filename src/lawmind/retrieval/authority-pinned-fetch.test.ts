@@ -4,7 +4,11 @@
  *  that inject fetchImpl. Here we assert the pin re-validates at connect time.)
  */
 import { describe, expect, it } from "vitest";
-import { createPinnedAuthorityFetch } from "./authority-pinned-fetch.js";
+import {
+  createPinnedAgentLookup,
+  createPinnedAuthorityFetch,
+  headersInitToNodeRecord,
+} from "./authority-pinned-fetch.js";
 
 describe("createPinnedAuthorityFetch — DNS rebinding pin", () => {
   it("rejects when DNS resolves to a private IP (rebinding defense, fail-closed)", async () => {
@@ -75,8 +79,38 @@ describe("createPinnedAuthorityFetch — DNS rebinding pin", () => {
         { address: "172.16.0.1", family: 4 },
       ],
     });
-    await expect(pinned("https://authority.example/q?q=x")).rejects.toThrow(
-      /解析到不可达地址/,
-    );
+    await expect(pinned("https://authority.example/q?q=x")).rejects.toThrow(/解析到不可达地址/);
+  });
+
+  it("copies fetch Headers into a plain object for http.request", () => {
+    const rec = headersInitToNodeRecord({
+      Authorization: "Bearer tok-test",
+      Accept: "application/json, text/event-stream",
+    });
+    expect(rec.authorization).toBe("Bearer tok-test");
+    expect(rec.accept).toContain("application/json");
+  });
+
+  it("Agent lookup returns an address list when Node asks for all:true", () => {
+    const lookup = createPinnedAgentLookup("203.0.113.10", 4);
+    let listed: unknown;
+    lookup("authority.example", { all: true }, ((err, addresses) => {
+      expect(err).toBeNull();
+      listed = addresses;
+    }) as (
+      err: NodeJS.ErrnoException | null,
+      addresses: Array<{ address: string; family: number }>,
+    ) => void);
+    expect(listed).toEqual([{ address: "203.0.113.10", family: 4 }]);
+
+    let single: string | undefined;
+    let family: number | undefined;
+    lookup("authority.example", {}, ((err, address, fam) => {
+      expect(err).toBeNull();
+      single = address;
+      family = fam;
+    }) as (err: NodeJS.ErrnoException | null, address: string, family: number) => void);
+    expect(single).toBe("203.0.113.10");
+    expect(family).toBe(4);
   });
 });

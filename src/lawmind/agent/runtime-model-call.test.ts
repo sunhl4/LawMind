@@ -12,6 +12,13 @@ describe("combineAbortSignals", () => {
     combined.cleanup();
   });
 
+  it("timeoutMs 0 does not auto-abort without external signal", async () => {
+    const combined = combineAbortSignals(0);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(combined.signal.aborted).toBe(false);
+    combined.cleanup();
+  });
+
   it("ModelCallUserAbortError has stable name", () => {
     const err = new ModelCallUserAbortError();
     expect(err.name).toBe("ModelCallUserAbortError");

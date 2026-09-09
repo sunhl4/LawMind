@@ -16,6 +16,7 @@ function report(partial: Partial<LegalLintReport>): LegalLintReport {
     findings: [],
     blockerCount: 0,
     warningCount: 0,
+    failedRules: [],
     summaryZh: "机械核对未见已知缺陷。",
     ...partial,
   };
@@ -54,12 +55,12 @@ describe("LawmindReviewSelfCheckSummary", () => {
           acceptance={null}
           citation={null}
           lintReport={report({ blockerCount: 0, warningCount: 1 })}
-          selfRevise={{ summaryZh: "已自检 2 轮，修掉 1 处机械问题；3 处需你定夺" }}
+          selfRevise={{ summaryZh: "已做格式规范化 1 处；3 处需你定夺" }}
         />,
       );
     });
     expect(host.querySelector('[data-testid="lm-review-self-revise-line"]')?.textContent).toBe(
-      "已自检 2 轮，修掉 1 处机械问题；3 处需你定夺",
+      "已做格式规范化 1 处；3 处需你定夺",
     );
     act(() => {
       root.unmount();

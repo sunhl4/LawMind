@@ -1,3 +1,4 @@
+// TODO(renderer-fetch-proxy): migrate remaining fetch calls to fetchApi / api-client-proxy.
 import type { CollabSummaryState } from "./LawmindSettingsCollaboration";
 import {
   loadAssistantsPayload,
@@ -6,13 +7,8 @@ import {
   loadHealthPayload,
   loadRecordsPayload,
 } from "./lawmind-app-data";
-import { LAWMIND_DOWNLOAD_PAGE_URL } from "./lawmind-public-urls.js";
 import { apiAuthHeaders, setLoopbackApiAuthToken } from "./lawmind-api-auth.ts";
-import {
-  isUsableLoopbackBase,
-  loadCachedDevAppConfig,
-  persistDevAppConfig,
-} from "./lawmind-dev-config-cache.ts";
+import { isUsableLoopbackBase, persistDevAppConfig } from "./lawmind-dev-config-cache.ts";
 
 export type AppConfig = {
   apiBase: string;
@@ -50,27 +46,8 @@ export async function loadInitialAppConfig(): Promise<AppConfig> {
     persistDevAppConfig(loaded);
     return loaded;
   }
-  const devApi = (import.meta.env.VITE_LAWMIND_DEV_API as string | undefined)?.trim();
-  if (devApi) {
-    const fromEnv: AppConfig = {
-      apiBase: devApi.replace(/\/$/, ""),
-      workspaceDir: "(browser dev / E2E - use Electron for full config)",
-      projectDir: null,
-      envFilePath: "",
-      retrievalMode: "single",
-      packaged: false,
-      appVersion: "dev",
-      downloadPageUrl: LAWMIND_DOWNLOAD_PAGE_URL,
-    };
-    persistDevAppConfig(fromEnv);
-    return fromEnv;
-  }
-  const cached = await loadCachedDevAppConfig();
-  if (cached) {
-    return cached;
-  }
   throw new Error(
-    "Preload bridge missing: run `pnpm lawmind:desktop` and use the Electron window (do not open this tab in Chrome/Safari).",
+    "Preload bridge missing: LawMind only runs as the local desktop app. Open the installed LawMind app (or `pnpm lawmind:desktop` in development).",
   );
 }
 

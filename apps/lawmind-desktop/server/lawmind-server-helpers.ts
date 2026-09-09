@@ -19,6 +19,7 @@ import {
   resolveCapabilityEnvelope,
   resolveTemperatureForTask,
 } from "../../../src/lawmind/models/capability-envelope.js";
+import { parseToolTimeoutMsEnv } from "../../../src/lawmind/runtime/tool-timeout-env.js";
 import { resolveEdition } from "../../../src/lawmind/policy/edition.js";
 import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspace-policy.js";
 import {
@@ -64,7 +65,7 @@ export function isLawMindHttpError(error: unknown): error is LawMindHttpError {
   );
 }
 
-/** Desktop operator identity for audit/review (see docs/LAWMIND-ACTOR-ATTRIBUTION). */
+/** Desktop operator identity for audit/review (see docs/archive/LAWMIND-ACTOR-ATTRIBUTION.md). */
 export function resolveDesktopActorId(): string {
   const raw = process.env.LAWMIND_DESKTOP_ACTOR_ID?.trim();
   return raw ? raw : "lawyer:desktop";
@@ -197,7 +198,7 @@ export function buildAgentConfig(
 ): { config: AgentConfig; error?: string; modelId?: string } {
   const lawMindRoot = resolveLawMindRoot(workspaceDir, opts?.envFile);
   const modelTimeoutMs = parsePositiveIntEnv("LAWMIND_AGENT_TIMEOUT_MS", 120000);
-  const toolTimeoutMs = parsePositiveIntEnv("LAWMIND_TOOL_TIMEOUT_MS", modelTimeoutMs);
+  const toolTimeoutMs = parseToolTimeoutMsEnv(0);
   const resolved = resolveAgentModelById(lawMindRoot, opts?.modelId);
   const fallbackEnvelope = resolveCapabilityEnvelope({
     contextTokens: resolved.model?.contextTokens,
@@ -298,7 +299,7 @@ export function buildAgentConfig(
         workspaceDir,
         envelope.maxHistoryMessages,
       ),
-      toolExecutionTimeoutMs: toolTimeoutMs || envelope.toolTimeoutMs,
+      toolExecutionTimeoutMs: toolTimeoutMs,
       actorId,
       enableCollaboration,
       allowDangerousToolsWithoutApproval,

@@ -63,7 +63,7 @@ export type LawmindAppOverlaysProps = {
   onCloseHelp: () => void;
   onOpenWorkflowLibrary: (() => void) | undefined;
   onOpenAdvancedSettings: () => void;
-  onFirstRunSeedReady: (opts: { matterId: string; seedPrompt: string }) => void;
+  onFirstRunSeedReady: (opts: { matterId?: string; seedPrompt: string }) => void;
   /** When true, FirstRun waits until API wizard finishes / model is configured. */
   suppressFirstRunAutoOpen?: boolean;
   composeTextareaRef: RefObject<HTMLTextAreaElement | null>;

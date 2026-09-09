@@ -10,7 +10,6 @@
     "build:renderer": "vite build",
     "bundle:server": "pnpm -w lawmind:bundle:desktop-server",
     "vendor:node": "pnpm -w lawmind:vendor:desktop-node",
-    "preview": "vite preview --port 5174",
     "typecheck": "tsc --noEmit",
     "dist:electron": "pnpm bundle:server && pnpm vendor:node && pnpm build:renderer && electron-builder",
     "test:e2e": "playwright test",
@@ -35,7 +34,8 @@
     "@tanstack/react-virtual": "^3.13.12",
     "electron-updater": "^6.8.3",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "zustand": "^5.0.15"
   },
   "build": {
     "appId": "ai.lawmind.desktop",

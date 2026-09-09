@@ -285,7 +285,7 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
                       onOpenMemory();
                     }}
                   >
-                    <span className="lm-compose-ctx-usage-action-title">注入记忆给助手</span>
+                    <span className="lm-compose-ctx-usage-action-title">让助手记住</span>
                     <span className="lm-meta">写入记忆</span>
                   </button>
                 </li>

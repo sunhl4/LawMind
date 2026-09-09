@@ -235,6 +235,10 @@ export async function handleCollaborationRoutes({
       depth: 0,
       parentSessionId: parentSessionId || undefined,
     });
+    ctx.sseBus?.emit({
+      type: "delegation:update",
+      data: { delegationId: result.data.delegationId, status: result.data.status, matterId },
+    });
     sendJson(
       res,
       200,
@@ -312,6 +316,10 @@ export async function handleCollaborationRoutes({
       if (record.targetSessionId) {
         requestTurnAbort(record.targetSessionId);
       }
+      ctx.sseBus?.emit({
+        type: "delegation:update",
+        data: { delegationId: id, status: record.status, matterId: record.matterId },
+      });
       sendJson(res, 200, { ok: true, delegation: record }, c);
       return true;
     }

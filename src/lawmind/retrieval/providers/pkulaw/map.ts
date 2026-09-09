@@ -3,7 +3,8 @@
  * Supports:
  * - LawMind generic: { hits|items: AuthorityHit[] }
  * - Shim list: { data: { list: [...] } } or { result: [...] }
- * - MCP tools/call content JSON string with hits
+ * - Official MCP tools/call: structuredContent.result[] + content JSON array
+ *   ({ gid, title, article, url } / case_number)
  */
 
 import type { AuthorityHit } from "../../authority-hits.js";
@@ -30,9 +31,25 @@ function asHit(raw: unknown): AuthorityHit | null {
     kind = "case";
   } else if (/reg|规章/i.test(kindRaw)) {
     kind = "regulation";
+  } else if (typeof o.case_number === "string" || typeof o.caseName === "string") {
+    kind = "case";
+  } else if (typeof o.article === "string" || typeof o.tiao_num === "string") {
+    kind = "statute";
   }
+  const article = typeof o.article === "string" ? o.article.trim() : "";
+  const excerpt =
+    (typeof o.excerpt === "string" && o.excerpt.trim()) ||
+    (typeof o.summary === "string" && o.summary.trim()) ||
+    (typeof o.content === "string" && o.content.trim()) ||
+    article ||
+    undefined;
+  const id =
+    (typeof o.id === "string" && o.id) ||
+    (typeof o.docId === "string" && o.docId) ||
+    (typeof o.gid === "string" && o.gid) ||
+    undefined;
   return {
-    id: typeof o.id === "string" ? o.id : typeof o.docId === "string" ? o.docId : undefined,
+    id,
     title: title.trim(),
     kind,
     citation:
@@ -40,62 +57,82 @@ function asHit(raw: unknown): AuthorityHit | null {
         ? o.citation
         : typeof o.fullName === "string"
           ? o.fullName
-          : undefined,
-    excerpt:
-      typeof o.excerpt === "string"
-        ? o.excerpt
-        : typeof o.summary === "string"
-          ? o.summary
-          : typeof o.content === "string"
-            ? o.content
+          : typeof o.case_number === "string"
+            ? o.case_number
             : undefined,
+    excerpt,
     url: typeof o.url === "string" ? o.url : typeof o.link === "string" ? o.link : undefined,
+    provider: "pkulaw",
   };
 }
 
-export function mapPkulawResponseBody(body: unknown): AuthorityHit[] {
+function collectRows(body: unknown, into: unknown[]): void {
+  if (Array.isArray(body)) {
+    into.push(...body);
+    return;
+  }
   if (!body || typeof body !== "object") {
-    return [];
+    return;
   }
   const o = body as Record<string, unknown>;
-  const arrays: unknown[] = [];
   if (Array.isArray(o.hits)) {
-    arrays.push(...o.hits);
+    into.push(...o.hits);
   }
   if (Array.isArray(o.items)) {
-    arrays.push(...o.items);
+    into.push(...o.items);
   }
   if (Array.isArray(o.result)) {
-    arrays.push(...o.result);
+    into.push(...o.result);
   }
   if (o.data && typeof o.data === "object") {
     const data = o.data as Record<string, unknown>;
     if (Array.isArray(data.list)) {
-      arrays.push(...data.list);
+      into.push(...data.list);
     }
     if (Array.isArray(data.hits)) {
-      arrays.push(...data.hits);
+      into.push(...data.hits);
+    }
+    if (Array.isArray(data.result)) {
+      into.push(...data.result);
     }
   }
-  // MCP tools/call: { content: [{ type: "text", text: "{...json...}" }] }
+  if (o.structuredContent && typeof o.structuredContent === "object") {
+    collectRows(o.structuredContent, into);
+  }
+  // MCP tools/call: { content: [{ type: "text", text: "{...json...}" | "[...]" }] }
   if (Array.isArray(o.content)) {
     for (const part of o.content) {
-      if (part && typeof part === "object" && typeof (part as { text?: string }).text === "string") {
+      if (
+        part &&
+        typeof part === "object" &&
+        typeof (part as { text?: string }).text === "string"
+      ) {
         try {
-          const nested = JSON.parse((part as { text: string }).text) as unknown;
-          arrays.push(...mapPkulawResponseBody(nested));
+          collectRows(JSON.parse((part as { text: string }).text) as unknown, into);
         } catch {
-          /* ignore */
+          /* ignore non-JSON tool text */
         }
       }
     }
   }
+}
+
+export function mapPkulawResponseBody(body: unknown): AuthorityHit[] {
+  const arrays: unknown[] = [];
+  collectRows(body, arrays);
   const hits: AuthorityHit[] = [];
+  const seen = new Set<string>();
   for (const row of arrays) {
     const hit = asHit(row);
-    if (hit) {
-      hits.push(hit);
+    if (!hit) {
+      continue;
     }
+    const key = `${hit.id ?? ""}|${hit.url ?? ""}|${hit.title}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    hits.push(hit);
   }
   return hits;
 }

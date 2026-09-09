@@ -1,18 +1,20 @@
 /**
  * 在办左栏：团队 / 队列 Tab + 目录列表。
+ * 视图状态（模式/筛选/分组展开）直接订阅 stores/fleet-desk-view-store（见 stores/README.md）；
+ * 数据与选中联动仍由面板经 props 传入。
  */
 import type { ReactNode } from "react";
 import type { AgentRunSummary } from "./lawmind-agent-fleet-api";
 import type { FleetTeamRow } from "./lawmind-fleet-team";
 import { fleetTeamBusyLabel } from "./lawmind-fleet-team";
 import {
-  type FleetGroupKind,
   fleetStatusKind as statusKind,
   fleetStatusLabel as statusLabel,
   type FleetQueueGroup,
 } from "./lawmind-fleet-queue";
 import { sanitizeLawyerFacingText } from "../../../../src/lawmind/platform/requires-action.ts";
 import { lawyerFacingQueueScopeHint, useRequireSignoffReview } from "./lawmind-review-prefs";
+import { useFleetDeskViewStore } from "./stores/fleet-desk-view-store";
 
 export const FLEET_TAB_TEAM_ID = "lm-fleet-tab-team";
 export const FLEET_TAB_QUEUE_ID = "lm-fleet-tab-queue";
@@ -27,17 +29,9 @@ export type LawmindAgentFleetListAsideProps = {
   teamRows: FleetTeamRow[];
   matterChoices: string[];
   matterLabelById?: Record<string, string>;
-  matterFilter: string;
-  onMatterFilterChange: (value: string) => void;
-  listMode: "team" | "queue";
-  onListModeChange: (mode: "team" | "queue") => void;
-  assistantFilter: string | null;
   onSelectAssistant: (assistantId: string) => void;
-  onSelectAllAssistants: () => void;
   selectedId: string | null;
   onSelectRun: (id: string) => void;
-  expandedGroups: Set<FleetGroupKind>;
-  onToggleGroup: (kind: FleetGroupKind) => void;
   pendingTeachCount: number;
   onOpenMemoryInspector?: () => void;
   needsDecisionFocus: boolean;
@@ -53,23 +47,23 @@ export function LawmindAgentFleetListAside(props: LawmindAgentFleetListAsideProp
     teamRows,
     matterChoices,
     matterLabelById = {},
-    matterFilter,
-    onMatterFilterChange,
-    listMode,
-    onListModeChange,
-    assistantFilter,
     onSelectAssistant,
-    onSelectAllAssistants,
     selectedId,
     onSelectRun,
-    expandedGroups,
-    onToggleGroup,
     pendingTeachCount,
     onOpenMemoryInspector,
     needsDecisionFocus,
     onClearNeedsDecisionFocus,
   } = props;
   const requireSignoffReview = useRequireSignoffReview();
+  const listMode = useFleetDeskViewStore((s) => s.listMode);
+  const matterFilter = useFleetDeskViewStore((s) => s.matterFilter);
+  const assistantFilter = useFleetDeskViewStore((s) => s.assistantFilter);
+  const expandedGroups = useFleetDeskViewStore((s) => s.expandedGroups);
+  const switchListMode = useFleetDeskViewStore((s) => s.switchListMode);
+  const setMatterFilter = useFleetDeskViewStore((s) => s.setMatterFilter);
+  const selectAllAssistants = useFleetDeskViewStore((s) => s.selectAllAssistants);
+  const toggleGroup = useFleetDeskViewStore((s) => s.toggleGroup);
 
   return (
     <aside className="lm-agents-wb-list" aria-label="在办团队目录">
@@ -94,7 +88,7 @@ export function LawmindAgentFleetListAside(props: LawmindAgentFleetListAsideProp
               className="lm-input lm-agents-wb-matter-select"
               data-testid="lm-fleet-matter-filter"
               value={matterFilter}
-              onChange={(e) => onMatterFilterChange(e.target.value)}
+              onChange={(e) => setMatterFilter(e.target.value)}
             >
               <option value="all">全部案件</option>
               {matterChoices.map((mid) => (
@@ -148,7 +142,7 @@ export function LawmindAgentFleetListAside(props: LawmindAgentFleetListAsideProp
           aria-selected={listMode === "team"}
           aria-controls={FLEET_TABPANEL_TEAM_ID}
           data-testid="lm-fleet-mode-team"
-          onClick={() => onListModeChange("team")}
+          onClick={() => switchListMode("team")}
         >
           团队
         </button>
@@ -160,7 +154,7 @@ export function LawmindAgentFleetListAside(props: LawmindAgentFleetListAsideProp
           aria-selected={listMode === "queue"}
           aria-controls={FLEET_TABPANEL_QUEUE_ID}
           data-testid="lm-fleet-mode-queue"
-          onClick={() => onListModeChange("queue")}
+          onClick={() => switchListMode("queue")}
         >
           队列
         </button>
@@ -178,7 +172,7 @@ export function LawmindAgentFleetListAside(props: LawmindAgentFleetListAsideProp
               className="lm-agents-wb-team-row lm-agents-wb-team-row--all"
               data-testid="lm-fleet-team-all"
               aria-selected={assistantFilter === null}
-              onClick={() => onSelectAllAssistants()}
+              onClick={() => selectAllAssistants()}
             >
               <span className="lm-agents-wb-team-name">全部成员</span>
               <span className="lm-agents-wb-team-meta">待拍板 {matterScopedQueue.length}</span>
@@ -271,7 +265,7 @@ export function LawmindAgentFleetListAside(props: LawmindAgentFleetListAsideProp
                   aria-expanded={expanded}
                   aria-controls={panelId}
                   title={expanded ? `收起${group.label}` : `展开${group.label}`}
-                  onClick={() => onToggleGroup(group.kind)}
+                  onClick={() => toggleGroup(group.kind)}
                 >
                   <span className="lm-agents-wb-group-label-text">{group.label}</span>
                   <span

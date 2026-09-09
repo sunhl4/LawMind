@@ -61,4 +61,26 @@ describe("calculate-lib", () => {
     expect(d.ok && d.result.value).toBe(30);
     expect(d.ok && String(d.result.notes)).toMatch(/调减/);
   });
+
+  it("computes economic compensation, overtime and legal period via the same tool", () => {
+    const n = calculateLegal("economic_compensation", {
+      yearsOfService: 3,
+      monthlyWageYuan: 10_000,
+      kind: "2N",
+    });
+    expect(n.ok && n.result.value).toBe(60_000);
+    const ot = calculateLegal("overtime_pay", {
+      hours: 8,
+      monthlyWageYuan: 8700,
+      kind: "weekday",
+    });
+    expect(ot.ok && typeof ot.result.value).toBe("number");
+    const dw = calculateLegal("double_wage", {
+      unsignedMonthsAfterFirst: 3,
+      monthlyWageYuan: 8000,
+    });
+    expect(dw.ok && dw.result.value).toBe(24_000);
+    const p = calculateLegal("legal_period", { kind: "civil_appeal", start: "2024-01-01" });
+    expect(p.ok && p.result.value).toBe("2024-01-16");
+  });
 });

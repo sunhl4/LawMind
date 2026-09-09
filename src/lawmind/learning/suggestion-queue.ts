@@ -14,6 +14,24 @@ import { readDraft } from "../drafts/index.js";
 import type { ReviewLabel, ReviewStatus } from "../types.js";
 import { applyReviewLabelsMemoryWrites } from "./apply-review-labels.js";
 
+export type LearningQueueWriteOpts = {
+  /** false 时不同步 MemoryAdoptionService（调用方正在翻转镜像行）。默认 true。 */
+  syncMemory?: boolean;
+};
+
+function parseReviewLabelPayload(payload: string): { labels: ReviewLabel[]; note?: string } {
+  try {
+    const parsed = JSON.parse(payload) as { labels?: unknown; note?: unknown };
+    const labels = Array.isArray(parsed.labels)
+      ? parsed.labels.filter((x): x is ReviewLabel => typeof x === "string" && x.trim().length > 0)
+      : [];
+    const note = typeof parsed.note === "string" ? parsed.note : undefined;
+    return { labels, note };
+  } catch {
+    return { labels: [] };
+  }
+}
+
 const FILE_VERSION = 1;
 
 export type LearningSuggestionState = "pending" | "adopted" | "dismissed";
@@ -115,10 +133,51 @@ export async function enqueueLearningSuggestion(
   return rec;
 }
 
+/**
+ * Inspector 采纳镜像 `review_label`：写回标签并把学习队列同 task 行标为 adopted。
+ * 不回调 MemoryAdoptionService，避免与 adoptMemorySuggestion 的进程锁互等。
+ */
+export async function applyReviewLabelFromAdoption(
+  workspaceDir: string,
+  auditDir: string,
+  rec: { sourceTaskId?: string; payload: string },
+): Promise<{ written: string[]; noopReason?: string }> {
+  const taskId = rec.sourceTaskId?.trim();
+  if (!taskId) {
+    throw new Error("review_label_source_task_required");
+  }
+  const pending = await listLearningSuggestions(workspaceDir, "pending");
+  const learn = pending.find((item) => item.taskId === taskId);
+  if (learn) {
+    const flipped = await adoptLearningSuggestion(workspaceDir, auditDir, learn.id, {
+      syncMemory: false,
+    });
+    if (!flipped.ok) {
+      throw new Error(flipped.error ?? "learning_adopt_failed");
+    }
+    return { written: ["LAWYER_PROFILE.md"] };
+  }
+  const draft = readDraft(workspaceDir, taskId);
+  if (!draft) {
+    throw new Error("draft_not_found");
+  }
+  const parsed = parseReviewLabelPayload(rec.payload);
+  if (parsed.labels.length === 0) {
+    return { written: [], noopReason: "review_label_empty" };
+  }
+  await applyReviewLabelsMemoryWrites(workspaceDir, auditDir, draft, {
+    status: "approved",
+    note: parsed.note,
+    labels: parsed.labels,
+  });
+  return { written: ["LAWYER_PROFILE.md"] };
+}
+
 export async function adoptLearningSuggestion(
   workspaceDir: string,
   auditDir: string,
   id: string,
+  opts?: LearningQueueWriteOpts,
 ): Promise<{ ok: boolean; error?: string }> {
   const data = await readQueue(workspaceDir);
   const idx = data.items.findIndex((i) => i.id === id);
@@ -153,14 +212,15 @@ export async function adoptLearningSuggestion(
     detail: JSON.stringify({ suggestionId: id }),
   });
 
-  // Keep mirrored MemoryAdoptionService review_label rows in sync.
-  try {
-    const { markAdoptedBySourceTaskId } = await import("../memory/adoption-service.js");
-    await markAdoptedBySourceTaskId(workspaceDir, auditDir, rec.taskId, {
-      kind: "review_label",
-    });
-  } catch {
-    // best-effort
+  if (opts?.syncMemory !== false) {
+    try {
+      const { markAdoptedBySourceTaskId } = await import("../memory/adoption-service.js");
+      await markAdoptedBySourceTaskId(workspaceDir, auditDir, rec.taskId, {
+        kind: "review_label",
+      });
+    } catch {
+      // best-effort
+    }
   }
 
   return { ok: true };
@@ -170,6 +230,7 @@ export async function dismissLearningSuggestion(
   workspaceDir: string,
   auditDir: string,
   id: string,
+  opts?: LearningQueueWriteOpts,
 ): Promise<{ ok: boolean; error?: string }> {
   const data = await readQueue(workspaceDir);
   const idx = data.items.findIndex((i) => i.id === id);
@@ -190,13 +251,33 @@ export async function dismissLearningSuggestion(
     actor: "lawyer",
     detail: JSON.stringify({ suggestionId: id }),
   });
-  try {
-    const { markDismissedBySourceTaskId } = await import("../memory/adoption-service.js");
-    await markDismissedBySourceTaskId(workspaceDir, auditDir, rec.taskId, {
-      kind: "review_label",
-    });
-  } catch {
-    // best-effort
+  if (opts?.syncMemory !== false) {
+    try {
+      const { markDismissedBySourceTaskId } = await import("../memory/adoption-service.js");
+      await markDismissedBySourceTaskId(workspaceDir, auditDir, rec.taskId, {
+        kind: "review_label",
+      });
+    } catch {
+      // best-effort
+    }
   }
   return { ok: true };
+}
+
+export async function dismissLearningSuggestionByTaskId(
+  workspaceDir: string,
+  auditDir: string,
+  taskId: string,
+): Promise<{ dismissed: number }> {
+  const pending = await listLearningSuggestions(workspaceDir, "pending");
+  let dismissed = 0;
+  for (const item of pending.filter((row) => row.taskId === taskId)) {
+    const out = await dismissLearningSuggestion(workspaceDir, auditDir, item.id, {
+      syncMemory: false,
+    });
+    if (out.ok) {
+      dismissed += 1;
+    }
+  }
+  return { dismissed };
 }

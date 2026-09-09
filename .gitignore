@@ -14,6 +14,10 @@ coverage/
 .env
 .env.*
 !.env.example
+!.env.lawmind.example
+!.env.lawmind.team.example
+!.env.lawmind.team.secrets.example
+.env.lawmind.team.secrets
 **/.signing-secret
 
 # LawMind workspace — lawyer matter data (runtime truth source, never commit)
@@ -30,6 +34,7 @@ tmp/
 # VitePress — 同步副本（正文以仓库根目录 docs/ 为准）
 apps/lawmind-docs/docs/LAWMIND-*.md
 apps/lawmind-docs/docs/lawmind/
+apps/lawmind-docs/docs/archive/
 apps/lawmind-docs/docs/assets/
 apps/lawmind-docs/docs/public/download/
 

@@ -10,6 +10,8 @@ export type ParentGates = {
   matterId?: string;
   allowedToolNames?: string[];
   toolSandboxEnabled: boolean;
+  /** 父 turn 剩余工具预算（委派时刻快照）；子助手分片不得超出。 */
+  remainingToolCallBudget?: number;
 };
 
 const PERMISSION_RANK: Record<AgentPermissionMode, number> = {
@@ -55,7 +57,33 @@ export function inheritChildGates(opts: {
       opts.childAllowedToolNames,
     ),
     toolSandboxEnabled: opts.parent.toolSandboxEnabled || opts.childToolSandboxEnabled === true,
+    // 预算分片只缩不扩：子继承父剩余快照，自身配置上限在 resolveChildToolCallBudget 再收紧。
+    ...(typeof opts.parent.remainingToolCallBudget === "number" &&
+    Number.isFinite(opts.parent.remainingToolCallBudget)
+      ? { remainingToolCallBudget: Math.max(0, Math.floor(opts.parent.remainingToolCallBudget)) }
+      : {}),
   };
+}
+
+/**
+ * 子助手工具预算分片：不超过父剩余预算，也不超过子自身配置上限（只缩不扩）。
+ * 父剩余未知（非委派上下文）时保持子配置不变。分片下限 1：即使父预算见底，
+ * 子助手也能至少给出文字回复（后续工具调用随即被 budget 中间件熔断）。
+ */
+export function resolveChildToolCallBudget(opts: {
+  parentRemaining?: number;
+  childConfigured?: number;
+}): number | undefined {
+  const { parentRemaining, childConfigured } = opts;
+  const configured =
+    typeof childConfigured === "number" && Number.isFinite(childConfigured) && childConfigured > 0
+      ? Math.floor(childConfigured)
+      : undefined;
+  if (typeof parentRemaining !== "number" || !Number.isFinite(parentRemaining)) {
+    return configured;
+  }
+  const shard = Math.max(1, Math.floor(parentRemaining));
+  return configured === undefined ? shard : Math.min(configured, shard);
 }
 
 export function parentGatesFromContext(input: {
@@ -63,6 +91,7 @@ export function parentGatesFromContext(input: {
   matterId?: string;
   allowedToolNames?: string[];
   toolSandboxEnabled?: boolean;
+  remainingToolCallBudget?: number;
 }): ParentGates {
   return {
     permissionMode: input.permissionMode ?? "standard",
@@ -71,5 +100,9 @@ export function parentGatesFromContext(input: {
       ? { allowedToolNames: [...input.allowedToolNames] }
       : {}),
     toolSandboxEnabled: input.toolSandboxEnabled === true,
+    ...(typeof input.remainingToolCallBudget === "number" &&
+    Number.isFinite(input.remainingToolCallBudget)
+      ? { remainingToolCallBudget: input.remainingToolCallBudget }
+      : {}),
   };
 }

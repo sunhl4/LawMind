@@ -9,7 +9,7 @@ Phase C turns LawMind from a capable assistant into something **firms can govern
 
 ## Workspace policy file
 
-The canonical file is **`lawmind.policy.json`** in the workspace root (same path as [LawMind policy file](/LAWMIND-POLICY-FILE)). The desktop server already applies `allowWebSearch`, `retrievalMode`, and `enableCollaboration`. The engine adds **optional** keys for analytics and CI:
+The canonical file is **`lawmind.policy.json`** in the workspace root (same path as [LawMind policy file](/archive/LAWMIND-POLICY-FILE)). The desktop server already applies `allowWebSearch`, `retrievalMode`, and `enableCollaboration`. The engine adds **optional** keys for analytics and CI:
 
 | Key                      | Type                                 | Purpose                                                                |
 | ------------------------ | ------------------------------------ | ---------------------------------------------------------------------- |
@@ -41,11 +41,11 @@ const md = await buildGovernanceReportMarkdown(workspaceDir);
 
 ## Related
 
-- [LawMind policy file](/LAWMIND-POLICY-FILE)
-- [LawMind private deploy](/LAWMIND-PRIVATE-DEPLOY)
+- [LawMind policy file](/archive/LAWMIND-POLICY-FILE)
+- [LawMind private deploy](/archive/LAWMIND-PRIVATE-DEPLOY)
 - [Quality and benchmarks](/lawmind/quality-and-benchmarks)
-- [LawMind 2.0 strategy](/LAWMIND-2.0-STRATEGY)
+- [LawMind 2.0 strategy](/archive/LAWMIND-2.0-STRATEGY)
 
 https://docs.lawmind.ai/lawmind/phase-c-governance  
-https://docs.lawmind.ai/LAWMIND-POLICY-FILE  
-https://docs.lawmind.ai/LAWMIND-PRIVATE-DEPLOY
+https://docs.lawmind.ai/archive/LAWMIND-POLICY-FILE  
+https://docs.lawmind.ai/archive/LAWMIND-PRIVATE-DEPLOY

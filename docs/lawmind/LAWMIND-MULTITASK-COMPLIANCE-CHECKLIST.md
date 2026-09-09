@@ -52,7 +52,7 @@
 - 状态：已满足
 - 文件证据：
   - `GOALS.md`
-  - `docs/LAWMIND-VISION.md`
+  - `docs/archive/LAWMIND-VISION.md`
   - `docs/lawmind/LAWMIND-MULTITASK-BASELINE-VALIDATION.md`
 - 脚本证据：`scripts/lawmind/lawmind-multitask-validate.ts`
 - 命令证据：`pnpm run lawmind:multitask:validate:strict`

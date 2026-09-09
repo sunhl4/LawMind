@@ -140,7 +140,6 @@ export type LawmindChatWorkspaceProps = {
   onComposeModelQuickTest?: () => void | Promise<void>;
   /** 打开「交给其他助手」对话框 */
   onDelegateAssist?: () => void;
-  delegateAssistEnabled?: boolean;
   chatSessionId?: string;
   onResumeRequiresAction?: (
     action: LawMindRequiresAction,
@@ -192,7 +191,6 @@ export function LawmindChatComposeFooter({
   onComposeModelQuickTest,
   composeModelConfigured,
   onDelegateAssist,
-  delegateAssistEnabled: _delegateAssistEnabled,
   allowWebSearch,
   webSearchPolicyBlocked,
   onAllowWebSearchChange,
@@ -248,7 +246,6 @@ export function LawmindChatComposeFooter({
   | "onComposeModelQuickTest"
   | "composeModelConfigured"
   | "onDelegateAssist"
-  | "delegateAssistEnabled"
   | "allowWebSearch"
   | "webSearchPolicyBlocked"
   | "onAllowWebSearchChange"
@@ -899,6 +896,7 @@ export function LawmindChatComposeFooter({
             onDistillLearning={() => void extras.distillSessionLearning()}
             onPreviewCompact={() => extras.previewCompact()}
             onOpenMemoryInspector={onOpenMemoryInspector}
+            apiBase={apiBase}
           />
         </div>
       </div>
@@ -978,7 +976,6 @@ export function LawmindChatShell(props: LawmindChatWorkspaceProps) {
         onComposeModelQuickTest={props.onComposeModelQuickTest}
         composeModelConfigured={props.composeModelConfigured}
         onDelegateAssist={props.onDelegateAssist}
-        delegateAssistEnabled={props.delegateAssistEnabled}
         allowWebSearch={props.allowWebSearch}
         webSearchPolicyBlocked={props.webSearchPolicyBlocked}
         onAllowWebSearchChange={props.onAllowWebSearchChange}

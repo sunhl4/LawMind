@@ -189,6 +189,7 @@ const CONTRACT_REVIEW_SPEC: DeliverableSpec = {
     "输出正式审查意见，而不是仅罗列检索点。",
     "至少包含审查结论、主要风险、修改建议和待确认事项。",
     "每条主要风险应附带条款引用或合同位置。",
+    "每个风险点应有推荐措辞或明确写仅意见。",
   ],
   placeholderRule: { pattern: PLACEHOLDER_PATTERN, mustResolveBeforeRender: false },
   defaultClarificationQuestions: [],

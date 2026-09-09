@@ -1,9 +1,9 @@
 import type { RefObject } from "react";
+import { useSettingsPanelStore } from "../stores/settings-panel-store";
 import type { FileWorkbenchCasesNodeActions } from "../FileWorkbench";
 import type { AgentsDeskTab } from "../lawmind-agents-desk";
 import type { useLawmindAppShell } from "../lawmind-app-shell";
 import type { useLawmindRecordsDeskMatters } from "../lawmind-records-desk-state";
-import type { ReviewPaneId, ReviewPaneVisibility } from "../lawmind-review-pane-prefs";
 import type { LawMindRequiresAction } from "../lawmind-requires-action";
 import {
   formatRelativeTime,
@@ -65,8 +65,6 @@ export type LawmindAppRootLayoutInput = {
   setWsShowEditor: React.Dispatch<React.SetStateAction<boolean>>;
   wsShowChat: boolean;
   setWsShowChat: React.Dispatch<React.SetStateAction<boolean>>;
-  reviewPaneVisibility: ReviewPaneVisibility;
-  toggleReviewPane: (id: ReviewPaneId) => void;
   onWsChatSplitResize: (e: React.PointerEvent) => void;
   wsChatColWidth: number;
   fileExplorerHost: HTMLDivElement | null;
@@ -86,7 +84,6 @@ export type LawmindAppRootLayoutInput = {
   openOutputInFolder: (outputPath?: string) => void;
   workflowModelLabel: string;
   actionSummaryTotal: number;
-  recentCollabCompleted?: number;
   actionSummaryActiveJobs: number;
   refreshActionSummary: () => void | Promise<void>;
   sessionRequiresActions: LawMindRequiresAction[];
@@ -108,6 +105,8 @@ export function useLawmindAppRootLayout(
 ): Omit<LawmindAppRootViewProps, "mainView"> {
   const { state, derived, actions } = input.shell;
   const { recordsDeskMatters } = input;
+
+  const settingsOpen = useSettingsPanelStore((s) => s.open);
 
   const {
     mainView,
@@ -140,9 +139,6 @@ export function useLawmindAppRootLayout(
     asstBusy,
     asstError,
     showHelp,
-    showSettings,
-    settingsSectionId,
-    settingsScrollAnchor,
     tasks,
     history,
     delegations,
@@ -206,7 +202,6 @@ export function useLawmindAppRootLayout(
     setInput,
     setContextTaskId,
     setContextMatterId,
-    setShowSettings,
     setShowHelp,
     setMatterRefreshVersion,
     setReviewFocusTaskId,
@@ -278,10 +273,6 @@ export function useLawmindAppRootLayout(
     wsShowChat: input.wsShowChat,
     setWsShowChat: input.setWsShowChat,
     canUseFilesystemBridge,
-    reviewPaneVisibility: input.reviewPaneVisibility,
-    toggleReviewPane: input.toggleReviewPane,
-    setShowSettings,
-    showSettings,
     health,
     workspaceDir: config?.workspaceDir,
     localServiceReconnecting,
@@ -332,7 +323,6 @@ export function useLawmindAppRootLayout(
     reviewFocusListMode,
     reviewRefreshVersion,
     reviewLaunchedFromMatter: input.reviewLaunchedFromMatter,
-    reviewPaneVisibility: input.reviewPaneVisibility,
     setFocusMatterIdFromReview: input.setFocusMatterIdFromReview,
     openOutputInFolder: input.openOutputInFolder,
     refreshLists,
@@ -340,7 +330,6 @@ export function useLawmindAppRootLayout(
     setInput,
     textareaRef: input.textareaRef,
     watchBackgroundRevisionSession,
-    toggleReviewPane: input.toggleReviewPane,
     collabSummarySettings,
     delegations,
     collabEvents,
@@ -351,7 +340,6 @@ export function useLawmindAppRootLayout(
     modelCatalog,
     selectedModelId,
     handleModelSelect,
-    setShowSettings,
     openApiWizard,
     composeModelHint,
     composeModelQuickTestBusy,
@@ -468,17 +456,12 @@ export function useLawmindAppRootLayout(
     config,
     setAgentsDeskTab: input.setAgentsDeskTab,
     setMainView,
-    setShowSettings,
     setInput,
     composeTextareaRef: input.textareaRef,
     suppressFirstRunAutoOpen: showWizard || health?.modelConfigured === false,
   });
 
   const settingsPanelProps = useLawmindAppSettingsPanelProps({
-    showSettings,
-    settingsSectionId,
-    settingsScrollAnchor,
-    setShowSettings,
     config,
     projectDir,
     workspaceLabel,
@@ -533,17 +516,14 @@ export function useLawmindAppRootLayout(
 
   const sidebarProps = useLawmindAppSidebarProps({
     // Settings is a full-page surface — hide the workspace left rail while open.
-    showAppSidebar: input.showAppSidebar && !showSettings,
+    showAppSidebar: input.showAppSidebar && !settingsOpen,
     sidebarCollapsed: input.sidebarCollapsed,
     sidebarWidth: input.sidebarWidth,
     showSidebarWorkbenchFiles: input.showSidebarWorkbenchFiles,
     showExplorerSkeleton: input.showSidebarWorkbenchFiles && !input.fileExplorerPortaled,
     onSidebarResizePointerDown: input.onSidebarResizePointerDown,
-    setShowSettings,
-    showSettings,
     setFileExplorerHost: input.setFileExplorerHost,
     actionSummaryTotal: input.actionSummaryTotal,
-    recentCollabCompleted: input.recentCollabCompleted ?? 0,
     matterSidebarRows: recordsDeskMatters.sidebarRows,
     selectedMatterKey: recordsDeskMatters.selectedKey,
     onSelectMatterKey: recordsDeskMatters.setSelectedKey,
@@ -552,10 +532,6 @@ export function useLawmindAppRootLayout(
       setContextMatterId(matterId);
       input.setMatterCockpitOpen(true);
       setMainView("workspace");
-    },
-    onSelectMatterScope: (matterId) => {
-      recordsDeskMatters.setSelectedKey(matterId);
-      setContextMatterId(matterId);
     },
     matterCockpitOpen: input.matterCockpitOpen,
     mainView,

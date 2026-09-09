@@ -23,6 +23,9 @@ export const RECOMMENDED_LEGAL_NETWORK_ALLOWLIST = [
   "moj.gov.cn",
   "samr.gov.cn",
   "pkulaw.com",
+  "www.pkulaw.com",
+  "apim-gateway.pkulaw.com",
+  "mcp.pkulaw.com",
   "chinalawinfo.com",
 ] as const;
 

@@ -137,6 +137,34 @@ describe("run_analysis", () => {
     expect(result.error).toMatch(/分析脚本/);
   });
 
+  it("rejects write_document rewriting governance/evidence files", async () => {
+    const ws = tmpWs();
+    for (const rel of [
+      "lawmind.policy.json",
+      "lawmind/mcp-servers.json",
+      "audit/2026-09-02.jsonl",
+      "sessions/s1/session.json",
+      "tasks/t1.json",
+      "matters/m1/RULES.md",
+      "cases/m1/.lawmind-dms.json",
+    ]) {
+      const result = await writeDocument.execute({ file_path: rel, content: "x" }, ctx(ws));
+      expect(result.ok, `expected refusal for ${rel}`).toBe(false);
+      expect(result.error).toMatch(/治理\/审计数据/);
+      expect(fs.existsSync(path.join(ws, rel)), `expected no file at ${rel}`).toBe(false);
+    }
+  });
+
+  it("still allows write_document on the data plane", async () => {
+    const ws = tmpWs();
+    const result = await writeDocument.execute(
+      { file_path: "notes/分析.md", content: "hello" },
+      ctx(ws),
+    );
+    expect(result.ok).toBe(true);
+    expect(fs.readFileSync(path.join(ws, "notes", "分析.md"), "utf8")).toBe("hello");
+  });
+
   it("rejects fs / fetch and constructor escapes in the guest script", async () => {
     await expect(
       runAnalysisScriptInVm({

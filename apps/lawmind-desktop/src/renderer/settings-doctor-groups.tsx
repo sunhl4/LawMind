@@ -117,7 +117,7 @@ export function DoctorWorkspaceTruthGroup(props: {
       {mem ? (
         <div className="lm-doctor-memory-grid">
           <span className={mem.memoryMd ? "lm-pill lm-pill-success" : "lm-pill lm-pill-warn"}>
-            MEMORY.md
+            助手记忆
           </span>
           <span className={mem.lawyerProfile ? "lm-pill lm-pill-success" : "lm-pill lm-pill-warn"}>
             律师偏好
@@ -152,7 +152,7 @@ export function DoctorPromptSectionsGroup(props: {
     <div className="lm-settings-group lm-settings-surface" id="lawmind-settings-prompt-sections">
       <h4 className="lm-doctor-group-title">助手说明装配（段表）</h4>
       <p className="lm-settings-caption">
-        与对话里实际装配的助手说明同一张段表。标「每轮」的段落始终注入；其余按案件、岗位、联网等条件装配。
+        与对话里实际装配的助手说明同一张段表。标「每轮」的段落每次都带上；其余按案件、岗位、联网等条件装配。
       </p>
       <ol className="lm-doctor-prompt-sections">
         {sections.map((row) => (

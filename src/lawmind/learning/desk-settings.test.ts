@@ -32,4 +32,16 @@ describe("desk-settings", () => {
     await writeDeskSettings(ws, { contractBatchRelativeDir: "" });
     expect((await readDeskSettings(ws)).contractBatchRelativeDir).toBeUndefined();
   });
+
+  it("roundtrips audit external anchor url", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-desk-anchor-"));
+    tmp.push(ws);
+    await writeDeskSettings(ws, {
+      auditExternalAnchorUrl: "file:///Volumes/backup/lawmind-anchor.json",
+    });
+    const r = await readDeskSettings(ws);
+    expect(r.auditExternalAnchorUrl).toBe("file:///Volumes/backup/lawmind-anchor.json");
+    await writeDeskSettings(ws, { auditExternalAnchorUrl: "" });
+    expect((await readDeskSettings(ws)).auditExternalAnchorUrl).toBeUndefined();
+  });
 });

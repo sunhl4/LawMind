@@ -5,13 +5,13 @@ export const calculateTool: AgentTool = {
   definition: {
     name: "calculate",
     description:
-      "确定性法律计算，结果带公式与输入便于入卷。op：interest / interest_lpr / date_span / limitation / column_sum / weighted_average / liquidated_damages。LPR 分段利率必须由律师提供。",
+      "确定性法律计算，结果带公式与输入便于入卷。op：interest / interest_lpr / date_span / limitation / column_sum / weighted_average / liquidated_damages / economic_compensation / overtime_pay / double_wage / legal_period。劳动金额与期限必须走本工具，不要口算。LPR 分段利率必须由律师提供。",
     category: "analyze",
     parameters: {
       op: {
         type: "string",
         description:
-          "interest | interest_lpr | date_span | limitation | column_sum | weighted_average | liquidated_damages",
+          "interest | interest_lpr | date_span | limitation | column_sum | weighted_average | liquidated_damages | economic_compensation | overtime_pay | double_wage | legal_period",
         required: true,
         enum: [
           "interest",
@@ -21,6 +21,10 @@ export const calculateTool: AgentTool = {
           "column_sum",
           "weighted_average",
           "liquidated_damages",
+          "economic_compensation",
+          "overtime_pay",
+          "double_wage",
+          "legal_period",
         ],
       },
       inputs: {

@@ -9,6 +9,8 @@ describe("lawmind-lawyer-labels", () => {
   it("maps workflow deliverable codes to lawyer Chinese", () => {
     expect(lawyerDeliverableTypeLabel("ppt.training")).toBe("培训课件 / PPT");
     expect(lawyerDeliverableTypeLabel("contract.review")).toBe("合同审查意见");
+    expect(lawyerDeliverableTypeLabel("labor.calc")).toBe("劳动补偿计算");
+    expect(lawyerDeliverableTypeLabel("memo.research")).toBe("检索研究备忘");
     expect(lawyerDeliverableTypeLabel("document.general")).toBe("通用文书");
   });
 

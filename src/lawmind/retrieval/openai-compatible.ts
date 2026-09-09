@@ -8,6 +8,7 @@
 
 import { computeRetryDelayMs, isRetryableHttpFailure } from "../llm/http-retry.js";
 import { PROMPT_WINDOW, truncateForPrompt } from "../memory/prompt-windows.js";
+import { createOutboundProxy } from "../platform/outbound-proxy.js";
 import type { RetrievalAdapter } from "./index.js";
 import { createGeneralModelAdapter, createLegalModelAdapter } from "./model-adapters.js";
 import type { ModelRetrievalInput, ModelRetrievalOutput } from "./model-adapters.js";
@@ -130,6 +131,7 @@ export function fallbackRetrievalFromNonJson(content: string): ModelRetrievalOut
 }
 
 const RETRIEVAL_MAX_RETRIES = 2;
+const retrievalProxy = createOutboundProxy({ requestTag: "retrieval-openai" });
 
 async function fetchOpenAICompatibleOnce(
   cfg: OpenAICompatibleClientConfig,
@@ -154,7 +156,7 @@ async function fetchOpenAICompatibleOnce(
 
   try {
     const url = `${trimSlash(cfg.baseUrl)}/chat/completions`;
-    const res = await fetch(url, {
+    const res = await retrievalProxy.fetch(url, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -264,7 +266,12 @@ export function createOpenAICompatibleAdapters(
   if (params.general) {
     adapters.push(
       createGeneralModelAdapter((input) =>
-        callOpenAICompatible(params.general as OpenAICompatibleClientConfig, input, "general", input.signal),
+        callOpenAICompatible(
+          params.general as OpenAICompatibleClientConfig,
+          input,
+          "general",
+          input.signal,
+        ),
       ),
     );
   }
@@ -272,7 +279,12 @@ export function createOpenAICompatibleAdapters(
   if (params.legal) {
     adapters.push(
       createLegalModelAdapter((input) =>
-        callOpenAICompatible(params.legal as OpenAICompatibleClientConfig, input, "legal", input.signal),
+        callOpenAICompatible(
+          params.legal as OpenAICompatibleClientConfig,
+          input,
+          "legal",
+          input.signal,
+        ),
       ),
     );
   }

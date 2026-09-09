@@ -313,6 +313,14 @@ describe("LawmindAppRootView", () => {
     expect(host.querySelector(".lm-shell-review")).toBeTruthy();
   });
 
+  it("adds desk shell class on desk mainView", async () => {
+    await act(async () => {
+      root.render(<LawmindAppRootView {...minimalProps({ mainView: "desk" })} />);
+    });
+    expect(host.querySelector(".lm-shell-desk")).toBeTruthy();
+    expect(host.querySelector(".lm-main-desk")).toBeTruthy();
+  });
+
   it("renders settings inside main body when open", async () => {
     await act(async () => {
       root.render(

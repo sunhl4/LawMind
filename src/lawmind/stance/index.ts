@@ -1,5 +1,6 @@
 export type {
   StanceClauseTypeId,
+  StanceEvidenceEntry,
   StanceFamily,
   StanceItem,
   StanceRedlineHunk,
@@ -13,8 +14,13 @@ export {
   detectStanceClauseType,
   normalizeStanceLanguage,
   parseHabitStancePayload,
-  stanceConfidence,
+  STANCE_SOURCE_WEIGHT,
+  stanceConfidenceFromEvidence,
+  upsertStanceFromKeyModification,
   upsertStanceFromRedline,
   writeStanceFromHabit,
 } from "./capture.js";
-export { formatStanceHint } from "./inject.js";
+export { formatStanceHint, selectInjectableStances } from "./inject.js";
+export type { StanceInjectionContext, StanceInjectionSkip } from "./inject.js";
+export { ensureFirmStanceDefaults } from "./firm-defaults.js";
+export { stanceSelfCheck } from "./self-check.js";

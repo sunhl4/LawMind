@@ -2,9 +2,56 @@
  * Rule-based reasoning: ResearchBundle -> ArtifactDraft
  */
 
+import {
+  extractComplaintCompileFill,
+  extractLiabilityCapCompileFill,
+} from "../compile/complaint-liability-adapters.js";
+import {
+  extractLaborCompileFill,
+  extractPeriodCompileFill,
+} from "../compile/labor-period-adapters.js";
+import { letterAddressSlots } from "../compile/letter-fill.js";
+import {
+  inferClosedContractType,
+  formatClosedContractTypeLine,
+  formatLayeredReviewBodies,
+} from "../contracts/closed-contract-type.js";
+import {
+  appendProvenanceEvent,
+  createProvenanceEvent,
+  type ProvenanceChain,
+} from "../drafts/provenance.js";
+import { formatSourceBoundaryBody, formatSignOffLine } from "../drafts/source-boundary.js";
+import {
+  formatLaborArbitrationBody,
+  formatLaborCalcBody,
+  type LaborCalcFill,
+} from "../labor/labor-calc-fill.js";
+import { formatPeriodCalcBody, type PeriodCalcFill } from "../labor/period-calc-fill.js";
+import {
+  formatComplaintClaimsBlock,
+  formatComplaintClosingBlock,
+  formatComplaintEvidenceBlock,
+  formatComplaintFactsBlock,
+  formatComplaintPartyBlock,
+  type ComplaintFillPlan,
+} from "../litigation/complaint-fill-plan.js";
+import { formatLitigationStageLine } from "../litigation/litigation-stage.js";
+import { inferDealRole, inferPaperSide } from "../practice/bilateral-review.js";
+import { formatLiabilityCapBody, type LiabilityCapFill } from "../practice/liability-cap.js";
+import {
+  buildLpmMemoSections,
+  buildMatterIntakeSections,
+  inferLpmMemoKind,
+  lpmMemoTitle,
+} from "../practice/lpm-matter-columns.js";
+import { buildQueryMatrix, formatQueryMatrixBody } from "../research/query-matrix.js";
 import type { ResearchOutline } from "../research/research-outline.js";
 import { outlineClarificationQuestion } from "../research/research-outline.js";
+import { formatUnretrievedStatuteBody } from "../research/research-protocol.js";
+import { QUICK_TRIAGE_RE } from "../skills/capability-patterns.js";
 import type { ArtifactDraft, ArtifactSection, ResearchBundle, TaskIntent } from "../types.js";
+import { formatChronologyBody } from "./chronology-extract.js";
 import {
   buildComplianceReportSections,
   buildLearningBriefSections,
@@ -16,12 +63,37 @@ import {
   buildGeneralReportSections,
   inferEsgReportTitle,
 } from "./esg-report-draft.js";
+import { extractEvidenceChain, formatEvidenceChainBlock } from "./evidence-chain.js";
+import { extractLegalElements, formatLegalElementsBody } from "./legal-elements.js";
+import { formatNormValidityBody } from "./norm-validity.js";
+import { formatQuickTriageBandLine } from "./quick-triage.js";
 import {
   buildOutlineOnlySections,
   isOutlineGatedDeliverable,
   resolveOutlineForDraft,
   trainingDesenseGateOrThrow,
 } from "./research-draft-gates.js";
+import {
+  CAPITAL_INSTRUCTION_RE,
+  FAMILY_INSTRUCTION_RE,
+  GOVERNANCE_INSTRUCTION_RE,
+  INTAKE_INSTRUCTION_RE,
+  CRIMINAL_INSTRUCTION_RE,
+  BANKRUPTCY_INSTRUCTION_RE,
+  ADS_COMPLIANCE_INSTRUCTION_RE,
+  APPEAL_INSTRUCTION_RE,
+  ENFORCEMENT_INSTRUCTION_RE,
+  FILING_PACK_INSTRUCTION_RE,
+  buildCapitalMarketsSections,
+  buildFamilyMatterSections,
+  buildGovernanceSections,
+  buildCriminalMatterSections,
+  buildBankruptcyMatterSections,
+  buildAdsComplianceSections,
+  buildAppealSections,
+  buildEnforcementObjectionSections,
+  buildFilingPackSections,
+} from "./scene-draft.js";
 import {
   buildTrainingPptSections,
   inferTrainingDeckVariant,
@@ -57,6 +129,46 @@ function sectionFromClaims(
     heading: headingBuilder(idx),
     body: `${claim.text}\n置信度：${Math.round(claim.confidence * 100)}%`,
     citations: claim.sourceIds,
+  }));
+}
+
+function buildSectionProvenance(
+  section: ArtifactSection,
+  bundle: ResearchBundle,
+  taskId: string,
+  deliverableType?: string,
+): ProvenanceChain {
+  let chain: ProvenanceChain = { events: [] };
+  for (const sourceId of section.citations ?? []) {
+    const source = bundle.sources.find((s) => s.id === sourceId);
+    chain = appendProvenanceEvent(
+      chain,
+      createProvenanceEvent("upload", "system", {
+        sourceId,
+        comment: source?.title?.trim() || "材料来源",
+      }),
+    );
+  }
+  chain = appendProvenanceEvent(
+    chain,
+    createProvenanceEvent("ai_suggest", "model", {
+      sourceId: taskId,
+      reason: deliverableType,
+      comment: section.heading,
+    }),
+  );
+  return chain;
+}
+
+export function attachProvenanceToSections(
+  sections: ArtifactSection[],
+  bundle: ResearchBundle,
+  taskId: string,
+  deliverableType?: string,
+): ArtifactSection[] {
+  return sections.map((section) => ({
+    ...section,
+    provenance: buildSectionProvenance(section, bundle, taskId, deliverableType),
   }));
 }
 
@@ -113,7 +225,13 @@ function isContractReviewIntent(intent: TaskIntent): boolean {
 }
 
 function isDeliverableDraftIntent(intent: TaskIntent): boolean {
-  return intent.kind === "draft.word";
+  if (intent.kind === "draft.word") {
+    return true;
+  }
+  const dt = intent.deliverableType;
+  return (
+    dt === "memo.research" || dt === "memo.internal" || dt === "labor.calc" || dt === "period.calc"
+  );
 }
 
 function buildPlaceholder(label: string): string {
@@ -153,6 +271,15 @@ function defaultDraftTitle(intent: TaskIntent): string {
   if (intent.deliverableType === "litigation.complaint") {
     return "民事起诉状";
   }
+  if (intent.deliverableType === "memo.research") {
+    return "检索研究备忘";
+  }
+  if (intent.deliverableType === "labor.calc") {
+    return "劳动补偿计算";
+  }
+  if (intent.deliverableType === "period.calc") {
+    return "程序期限计算";
+  }
   if (intent.deliverableType === "litigation.answer") {
     return "民事答辩状";
   }
@@ -163,6 +290,13 @@ function defaultDraftTitle(intent: TaskIntent): string {
     return "法律意见书";
   }
   if (intent.deliverableType === "memo.internal") {
+    const lpm = inferLpmMemoKind(intent.instruction);
+    if (lpm) {
+      return lpmMemoTitle(lpm);
+    }
+    if (GOVERNANCE_INSTRUCTION_RE.test(intent.instruction)) {
+      return "公司治理备忘";
+    }
     return "内部备忘";
   }
   if (intent.deliverableType === "matter.timeline") {
@@ -190,8 +324,22 @@ function defaultDraftTitle(intent: TaskIntent): string {
     return inferLearningTitle(intent);
   }
   if (intent.deliverableType === "report.general") {
+    if (ADS_COMPLIANCE_INSTRUCTION_RE.test(intent.instruction)) {
+      return "广告与产品合规备忘";
+    }
     const trimmed = intent.summary?.trim();
     return trimmed && trimmed.length <= 80 ? trimmed : "专项研究报告";
+  }
+  if (intent.deliverableType === "document.general") {
+    if (APPEAL_INSTRUCTION_RE.test(intent.instruction)) {
+      return "民事上诉状";
+    }
+    if (ENFORCEMENT_INSTRUCTION_RE.test(intent.instruction)) {
+      return "执行异议";
+    }
+    if (FILING_PACK_INSTRUCTION_RE.test(intent.instruction)) {
+      return "立案材料清单";
+    }
   }
   return "LawMind 法律文书草稿";
 }
@@ -224,6 +372,9 @@ function defaultTemplateId(intent: TaskIntent): string {
   if (
     intent.deliverableType === "memo.opinion" ||
     intent.deliverableType === "memo.internal" ||
+    intent.deliverableType === "memo.research" ||
+    intent.deliverableType === "labor.calc" ||
+    intent.deliverableType === "period.calc" ||
     intent.deliverableType === "matter.timeline" ||
     intent.deliverableType === "matter.exhibit_list" ||
     intent.deliverableType === "meeting.minutes"
@@ -336,14 +487,15 @@ function buildGeneralContractSections(intent: TaskIntent): ArtifactSection[] {
 
 function buildDemandLetterSections(intent: TaskIntent): ArtifactSection[] {
   const supplement = clarificationTail(intent);
+  const { to, client } = letterAddressSlots(intent.instruction);
   return [
     {
       heading: "收函人",
-      body: `致：${buildPlaceholder("收函对象")}`,
+      body: `致：${to}`,
     },
     {
       heading: "事实背景",
-      body: `我方接受 ${buildPlaceholder("委托人名称")} 的委托，现就 ${buildPlaceholder("违约或催告事由")} 函告如下：\n\n${buildPlaceholder("事实经过")} ${supplement}`,
+      body: `我方接受 ${client} 的委托，现就 ${buildPlaceholder("违约或催告事由")} 函告如下：\n\n${buildPlaceholder("事实经过")} ${supplement}`,
     },
     {
       heading: "本所主张",
@@ -366,14 +518,15 @@ function buildDemandLetterSections(intent: TaskIntent): ArtifactSection[] {
 
 function buildCounselLetterSections(intent: TaskIntent): ArtifactSection[] {
   const supplement = clarificationTail(intent);
+  const { to, client } = letterAddressSlots(intent.instruction);
   return [
     {
       heading: "收函人",
-      body: `致：${buildPlaceholder("收函对象")}`,
+      body: `致：${to}`,
     },
     {
       heading: "事实背景",
-      body: `我方接受 ${buildPlaceholder("委托人名称")} 的委托，现就 ${buildPlaceholder("争议事项")} 正式函告如下：\n\n${buildPlaceholder("事实经过")} ${supplement}`,
+      body: `我方接受 ${client} 的委托，现就 ${buildPlaceholder("争议事项")} 正式函告如下：\n\n${buildPlaceholder("事实经过")} ${supplement}`,
     },
     {
       heading: "请求事项",
@@ -413,23 +566,30 @@ function buildReplyLetterSections(intent: TaskIntent): ArtifactSection[] {
 }
 
 function buildComplaintSections(intent: TaskIntent): ArtifactSection[] {
+  const fill = extractComplaintCompileFill(intent.instruction);
+  const plan = fill.computed as ComplaintFillPlan;
   const supplement = clarificationTail(intent);
+  const stage = formatLitigationStageLine(intent.instruction);
   return [
     {
       heading: "当事人",
-      body: `原告：${buildPlaceholder("原告名称")}\n被告：${buildPlaceholder("被告名称")}${supplement}`,
+      body: `${stage}\n${formatComplaintPartyBlock(plan)}${supplement}`,
     },
     {
       heading: "诉讼请求",
-      body: `请求判令：\n1. ${buildPlaceholder("诉讼请求一")}\n2. ${buildPlaceholder("诉讼请求二")}`,
+      body: formatComplaintClaimsBlock(plan),
     },
     {
       heading: "事实与理由",
-      body: buildPlaceholder("事实与理由"),
+      body: formatComplaintFactsBlock(plan),
+    },
+    {
+      heading: "证据对照",
+      body: formatComplaintEvidenceBlock(plan),
     },
     {
       heading: "此致",
-      body: `${buildPlaceholder("人民法院名称")}\n\n具状人：${buildPlaceholder("原告名称")}\n日期：${buildPlaceholder("具状日期")}`,
+      body: formatComplaintClosingBlock(plan),
     },
   ];
 }
@@ -443,39 +603,62 @@ function buildAnswerSections(intent: TaskIntent): ArtifactSection[] {
     },
     {
       heading: "答辩意见",
-      body: `针对诉请，答辩意见如下：\n1. ${buildPlaceholder("答辩要点一")}\n2. ${buildPlaceholder("答辩要点二")}`,
+      body: `针对诉请逐项答辩：\n1. 对诉讼请求一：${buildPlaceholder("承认/否认/部分承认")}。理由：${buildPlaceholder("对应要件与事实")}\n2. 对诉讼请求二：${buildPlaceholder("承认/否认/部分承认")}。`,
     },
     {
       heading: "事实与理由",
-      body: buildPlaceholder("事实与理由"),
+      body: `抗辩要件：${buildPlaceholder("抗辩构成要件")}\n对应事实：${buildPlaceholder("事实")}\n对应证据：${buildPlaceholder("证据或待补充")}`,
     },
   ];
 }
 
 function buildBriefSections(intent: TaskIntent): ArtifactSection[] {
   const supplement = clarificationTail(intent);
+  const chain = formatEvidenceChainBlock(extractEvidenceChain(intent.instruction));
+  const stage = formatLitigationStageLine(intent.instruction);
+  if (CRIMINAL_INSTRUCTION_RE.test(intent.instruction) || /辩护词/.test(intent.instruction)) {
+    return [
+      {
+        heading: "争点",
+        body: `${stage}\n1. ${buildPlaceholder("争点一")}${supplement}`,
+      },
+      {
+        heading: "代理意见",
+        body: buildPlaceholder("辩护意见正文"),
+      },
+      {
+        heading: "证据",
+        body: chain,
+      },
+    ];
+  }
   return [
     {
       heading: "争点",
-      body: `本案主要争点：\n1. ${buildPlaceholder("争点一")}\n2. ${buildPlaceholder("争点二")}${supplement}`,
+      body: `${stage}\n本案主要争点：\n1. ${buildPlaceholder("争点一")}\n2. ${buildPlaceholder("争点二")}${supplement}`,
     },
     {
       heading: "代理意见",
       body: buildPlaceholder("代理意见正文"),
     },
     {
-      heading: "法律依据",
-      body: buildPlaceholder("主要依据与证据"),
+      heading: "证据",
+      body: chain,
     },
   ];
 }
 
 function buildOpinionMemoSections(intent: TaskIntent): ArtifactSection[] {
   const supplement = clarificationTail(intent);
+  const elements = extractLegalElements(intent.instruction);
   return [
     {
       heading: "争点",
       body: `需分析的问题：${buildPlaceholder("法律问题")}${supplement}`,
+    },
+    {
+      heading: "要件事实",
+      body: formatLegalElementsBody(elements),
     },
     {
       heading: "结论",
@@ -486,6 +669,10 @@ function buildOpinionMemoSections(intent: TaskIntent): ArtifactSection[] {
       body: buildPlaceholder("法条/案例/材料引用"),
     },
     {
+      heading: "来源边界",
+      body: "已核验 / 未核验 / 缺口分栏。材料原文与模型记忆不得当作已核验法条。",
+    },
+    {
       heading: "保留意见",
       body: `本意见基于现有材料；若事实有变或另有权威文本，结论可能调整。假设：${buildPlaceholder("关键假设")}`,
     },
@@ -494,6 +681,42 @@ function buildOpinionMemoSections(intent: TaskIntent): ArtifactSection[] {
 
 function buildInternalMemoSections(intent: TaskIntent): ArtifactSection[] {
   const supplement = clarificationTail(intent);
+  if (QUICK_TRIAGE_RE.test(intent.instruction)) {
+    const elements = extractLegalElements(intent.instruction);
+    return [
+      {
+        heading: "事项",
+        body: `${formatQuickTriageBandLine(intent.instruction)}\n${intent.instruction.trim().slice(0, 120)}${supplement}`,
+      },
+      {
+        heading: "结论",
+        body: `${buildPlaceholder("能判断的部分")}（先给结论，不要改成表单）`,
+      },
+      {
+        heading: "要件事实",
+        body: formatLegalElementsBody(elements),
+      },
+      {
+        heading: "依据",
+        body: "能检索则检索。本回合无检索标【待核实】，仍给分析框架。",
+      },
+      {
+        heading: "下一步",
+        body: `- ${buildPlaceholder("催告 / 仲裁前置 / 管辖 / 时效")}`,
+      },
+      {
+        heading: "缺口",
+        body: `- ${buildPlaceholder("会改变结论的一两项")}`,
+      },
+    ];
+  }
+  if (GOVERNANCE_INSTRUCTION_RE.test(intent.instruction)) {
+    return buildGovernanceSections(supplement);
+  }
+  const lpm = inferLpmMemoKind(intent.instruction);
+  if (lpm) {
+    return buildLpmMemoSections(lpm, supplement);
+  }
   return [
     {
       heading: "事项",
@@ -510,20 +733,119 @@ function buildInternalMemoSections(intent: TaskIntent): ArtifactSection[] {
   ];
 }
 
-function buildTimelineSections(_intent: TaskIntent): ArtifactSection[] {
+function buildResearchMemoSections(intent: TaskIntent, bundle: ResearchBundle): ArtifactSection[] {
+  const supplement = clarificationTail(intent);
+  const claims = bundle.claims.map((c) => `- ${c.text}`).join("\n");
+  const matrix = buildQueryMatrix(intent.instruction);
+  const retrieved = bundle.claims.length > 0 || bundle.sources.length > 0;
   return [
     {
-      heading: "时间线",
-      body: `| 日期 | 事实 |\n| --- | --- |\n| ${buildPlaceholder("日期1")} | ${buildPlaceholder("事实1")} |\n| ${buildPlaceholder("日期2")} | ${buildPlaceholder("事实2")} |`,
+      heading: "事项",
+      body: `${matrix.issue}${supplement}`,
+    },
+    {
+      heading: "命题矩阵",
+      body: formatQueryMatrixBody(matrix, retrieved),
+    },
+    {
+      heading: "现行法条",
+      body:
+        claims ||
+        (retrieved
+          ? `名称+条号：${buildPlaceholder("现行有效条文")}。查不到写【待核实】。`
+          : formatUnretrievedStatuteBody()),
+    },
+    {
+      heading: "效力层级",
+      body: formatNormValidityBody(`${intent.instruction}\n${claims}`),
+    },
+    {
+      heading: "正向类案",
+      body: `支持我方的结构事实与案号：${buildPlaceholder("正向类案或待核实")}`,
+    },
+    {
+      heading: "反向类案",
+      body: `对方案型 / 需排除：${buildPlaceholder("反向类案或待核实")}`,
+    },
+    {
+      heading: "来源边界",
+      body: formatSourceBoundaryBody(bundle),
+    },
+    {
+      heading: "结论",
+      body: `${buildPlaceholder("律师版结论")}（本稿不对客户签发，除非另指定意见书）`,
+    },
+    {
+      heading: "缺口",
+      body:
+        bundle.missingItems.length > 0
+          ? bundle.missingItems.map((m) => `- ${m}`).join("\n")
+          : `- ${buildPlaceholder("会改变结论的缺口")}`,
     },
   ];
 }
 
-function buildExhibitListSections(_intent: TaskIntent): ArtifactSection[] {
+function buildLaborCalcSections(intent: TaskIntent): ArtifactSection[] {
+  const supplement = clarificationTail(intent);
+  const compiled = extractLaborCompileFill(intent.instruction);
+  const fill = compiled.computed as LaborCalcFill;
+  return [
+    {
+      heading: "定性",
+      body: `解除/工时类型：${fill.kind === "2N" ? "违法解除（按 2N 试算）" : fill.kind === "N+1" ? "代通知金（N+1）" : fill.kind === "N" ? "经济补偿（N）" : buildPlaceholder("协商 / 预告 / 过失性 / 违法解除；标准或综合工时")}${supplement}`,
+    },
+    {
+      heading: "仲裁前置",
+      body: formatLaborArbitrationBody(fill),
+    },
+    {
+      heading: "计算",
+      body: formatLaborCalcBody(fill),
+    },
+    {
+      heading: "结论",
+      body: fill.compensation
+        ? `已算清：${fill.compensation.amountYuan} 元（${fill.compensation.kind}）。待补：${fill.gaps.length > 0 ? fill.gaps.join("、") : "无"}。`
+        : `已算清：${buildPlaceholder("金额")}\n待补流水后才能定：${buildPlaceholder("缺口")}`,
+    },
+  ];
+}
+
+function buildPeriodCalcSections(intent: TaskIntent): ArtifactSection[] {
+  const supplement = clarificationTail(intent);
+  const compiled = extractPeriodCompileFill(intent.instruction);
+  const fill = compiled.computed as PeriodCalcFill;
+  return [
+    {
+      heading: "起算",
+      body: `起算事实与日期：${fill.start ?? buildPlaceholder("送达日或知道权利被侵害之日")}${supplement}`,
+    },
+    {
+      heading: "届满日",
+      body: formatPeriodCalcBody(fill),
+    },
+    {
+      heading: "缺口",
+      body: `中断、中止、节假日顺延：${buildPlaceholder("待核实或不适用")}`,
+    },
+  ];
+}
+
+function buildTimelineSections(intent: TaskIntent): ArtifactSection[] {
+  return [
+    {
+      heading: "时间线",
+      body: formatChronologyBody(intent.instruction),
+    },
+  ];
+}
+
+function buildExhibitListSections(intent: TaskIntent): ArtifactSection[] {
+  const chain = formatEvidenceChainBlock(extractEvidenceChain(intent.instruction));
   return [
     {
       heading: "证据目录",
-      body: `1. ${buildPlaceholder("证据名称")}——证明目的：${buildPlaceholder("证明目的")}\n2. ${buildPlaceholder("证据名称")}——证明目的：${buildPlaceholder("证明目的")}`,
+      body: chain,
     },
   ];
 }
@@ -567,41 +889,100 @@ function buildNdaSections(intent: TaskIntent): ArtifactSection[] {
   ];
 }
 
-function buildContractReviewSections(bundle: ResearchBundle): ArtifactSection[] {
-  const sections: ArtifactSection[] = [
+function buildContractReviewSections(
+  intent: TaskIntent,
+  bundle: ResearchBundle,
+): ArtifactSection[] {
+  const claimBody =
+    bundle.claims.length > 0
+      ? bundle.claims.map((c, i) => `${i + 1}. ${c.text}`).join("\n")
+      : "当前尚未形成可引用的合同审查意见，请补充合同文本后重试。";
+  const riskBody =
+    bundle.riskFlags.length > 0
+      ? bundle.riskFlags.map((r) => `- ${r}`).join("\n")
+      : `- 〔待核实〕${buildPlaceholder("条款位置")}：风险与后果；推荐措辞：${buildPlaceholder("可谈判改法")}`;
+  const closed = inferClosedContractType(intent.instruction);
+  const paper = inferPaperSide(intent.instruction);
+  const role = inferDealRole(intent.instruction, closed.id);
+  const paperLine =
+    paper === "our_paper"
+      ? "己方纸"
+      : paper === "their_paper"
+        ? "对方纸"
+        : "未写明，按对方稿、中立偏委托方";
+  const roleLine =
+    role === "sell" ? "销售侧" : role === "buy" ? "采购侧" : "未写明，按交易结构审责任上限四个位置";
+  const elements = extractLegalElements(intent.instruction);
+  const capCompiled = extractLiabilityCapCompileFill(intent.instruction);
+  const cap = capCompiled.computed as LiabilityCapFill;
+  const capBody = formatLiabilityCapBody(cap);
+  const layered = formatLayeredReviewBodies(closed);
+  const editLead =
+    cap.neverHits.length > 0
+      ? `命中永不接受：${cap.neverHits.join("、")}。落地：改这几个字。\n`
+      : "";
+  return [
     {
       heading: "审查结论",
       body:
-        bundle.claims.length > 0
+        `${formatSignOffLine(bundle)}\n` +
+        `${formatClosedContractTypeLine(closed)}\n` +
+        (bundle.claims.length > 0
           ? summarizeBundle(bundle)
-          : "当前尚未形成可引用的合同审查意见，请补充合同文本或检索来源后重试。",
+          : "先按已读文本给出可交付意见；缺事实在待确认事项标明，不要空白暂停。"),
     },
-    ...sectionFromClaims(bundle, (index) => `审查意见 ${index + 1}`),
-  ];
-
-  if (bundle.riskFlags.length > 0) {
-    sections.push({
-      heading: "主要风险提示",
-      body: bundle.riskFlags.map((r) => `- ${r}`).join("\n"),
-    });
-  }
-
-  if (bundle.missingItems.length > 0) {
-    sections.push({
+    {
+      heading: "纸侧与角色",
+      body: `纸侧：${paperLine}。角色：${roleLine}。标准/回退/永不接受见执业口径。`,
+    },
+    {
+      heading: "责任上限",
+      body: capBody,
+    },
+    {
+      heading: "要件事实",
+      body: formatLegalElementsBody(elements),
+    },
+    {
+      heading: "宏观审查",
+      body: layered.macro,
+    },
+    {
+      heading: "中观审查",
+      body: layered.meso,
+    },
+    {
+      heading: "微观条款",
+      body: claimBody,
+    },
+    {
+      heading: "主要风险",
+      body: riskBody,
+    },
+    {
+      heading: "修改建议",
+      body: `${editLead}按 P0→P1→P2。每条写：条款锚定、后果、推荐措辞、落地（改哪几个字 / 仅意见）。\n1. 推荐措辞：${buildPlaceholder("可替换原句")}`,
+    },
+    {
+      heading: "改稿计划",
+      body: "有钉选合同时：find=最短锚定 → apply_surgical_edits → render_tracked_draft。导出后核 XML。无文件则本栏写「无红线，仅意见」。",
+    },
+    {
+      heading: "效力层级",
+      body: formatNormValidityBody(intent.instruction),
+    },
+    {
+      heading: "来源边界",
+      body: formatSourceBoundaryBody(bundle),
+    },
+    {
       heading: "待确认事项",
-      body: bundle.missingItems.map((m) => `- ${m}`).join("\n"),
-    });
-  }
-
-  const conflicts = detectClaimConflicts(bundle);
-  if (conflicts.length > 0) {
-    sections.push({
-      heading: "冲突意见（需律师裁定）",
-      body: conflicts.map((c) => `- ${c}`).join("\n"),
-    });
-  }
-
-  return sections;
+      body:
+        bundle.missingItems.length > 0
+          ? bundle.missingItems.map((m) => `- ${m}`).join("\n")
+          : `- ${buildPlaceholder("会改变签署结论的缺口")}`,
+    },
+  ];
 }
 
 function buildGeneralSections(bundle: ResearchBundle): ArtifactSection[] {
@@ -673,11 +1054,32 @@ function buildDeliverableSections(
   if (intent.deliverableType === "litigation.brief") {
     return buildBriefSections(intent);
   }
+  if (
+    intent.deliverableType === "litigation.outline" &&
+    FAMILY_INSTRUCTION_RE.test(intent.instruction)
+  ) {
+    return buildFamilyMatterSections(clarificationTail(intent));
+  }
+  if (
+    intent.deliverableType === "litigation.outline" &&
+    CRIMINAL_INSTRUCTION_RE.test(intent.instruction)
+  ) {
+    return buildCriminalMatterSections(clarificationTail(intent));
+  }
   if (intent.deliverableType === "memo.opinion") {
     return buildOpinionMemoSections(intent);
   }
   if (intent.deliverableType === "memo.internal") {
     return buildInternalMemoSections(intent);
+  }
+  if (intent.deliverableType === "memo.research") {
+    return buildResearchMemoSections(intent, bundle);
+  }
+  if (intent.deliverableType === "labor.calc") {
+    return buildLaborCalcSections(intent);
+  }
+  if (intent.deliverableType === "period.calc") {
+    return buildPeriodCalcSections(intent);
   }
   if (intent.deliverableType === "matter.timeline") {
     return buildTimelineSections(intent);
@@ -701,7 +1103,43 @@ function buildDeliverableSections(
     return buildLearningBriefSections(intent, bundle, approvedOutline);
   }
   if (intent.deliverableType === "report.general") {
+    if (ADS_COMPLIANCE_INSTRUCTION_RE.test(intent.instruction)) {
+      return buildAdsComplianceSections(clarificationTail(intent));
+    }
+    if (CAPITAL_INSTRUCTION_RE.test(intent.instruction)) {
+      return buildCapitalMarketsSections(clarificationTail(intent));
+    }
     return buildGeneralReportSections(intent, bundle);
+  }
+  if (
+    intent.deliverableType === "document.general" &&
+    INTAKE_INSTRUCTION_RE.test(intent.instruction)
+  ) {
+    return buildMatterIntakeSections(clarificationTail(intent), intent.instruction);
+  }
+  if (
+    intent.deliverableType === "document.general" &&
+    BANKRUPTCY_INSTRUCTION_RE.test(intent.instruction)
+  ) {
+    return buildBankruptcyMatterSections(clarificationTail(intent));
+  }
+  if (
+    intent.deliverableType === "document.general" &&
+    APPEAL_INSTRUCTION_RE.test(intent.instruction)
+  ) {
+    return buildAppealSections(clarificationTail(intent), intent.instruction);
+  }
+  if (
+    intent.deliverableType === "document.general" &&
+    ENFORCEMENT_INSTRUCTION_RE.test(intent.instruction)
+  ) {
+    return buildEnforcementObjectionSections(clarificationTail(intent), intent.instruction);
+  }
+  if (
+    intent.deliverableType === "document.general" &&
+    FILING_PACK_INSTRUCTION_RE.test(intent.instruction)
+  ) {
+    return buildFilingPackSections(clarificationTail(intent), intent.instruction);
   }
   return [
     {
@@ -753,14 +1191,14 @@ export function buildDraft(params: BuildDraftParams): ArtifactDraft {
       sections =
         buildDeliverableSections(intent, bundle, outline) ??
         (isContractReviewIntent(intent)
-          ? buildContractReviewSections(bundle)
+          ? buildContractReviewSections(intent, bundle)
           : buildGeneralSections(bundle));
     }
   } else {
     sections =
       buildDeliverableSections(intent, bundle) ??
       (isContractReviewIntent(intent)
-        ? buildContractReviewSections(bundle)
+        ? buildContractReviewSections(intent, bundle)
         : buildGeneralSections(bundle));
   }
 
@@ -773,7 +1211,7 @@ export function buildDraft(params: BuildDraftParams): ArtifactDraft {
     deliverableType: intent.deliverableType,
     summary: summarizeBundle(bundle),
     audience: intent.audience,
-    sections,
+    sections: attachProvenanceToSections(sections, bundle, intent.taskId, intent.deliverableType),
     reviewNotes: [],
     clarificationQuestions,
     acceptanceCriteria: intent.acceptanceCriteria,

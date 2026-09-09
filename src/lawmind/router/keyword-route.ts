@@ -3,6 +3,24 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { LPM_MEMO_INSTRUCTION_RE } from "../practice/lpm-matter-columns.js";
+import {
+  ADS_COMPLIANCE_RE,
+  BANKRUPTCY_RE,
+  CAPITAL_MARKETS_RE,
+  CIVIL_STAGE_RE,
+  COURT_SMS_RE,
+  CRIMINAL_ROUTE_RE,
+  DATA_COMPLIANCE_RE,
+  FAMILY_MATTER_RE,
+  GOVERNANCE_RE,
+  INVOICE_RE,
+  IP_DISPUTE_RE,
+  MA_DILIGENCE_RE,
+  MATTER_INTAKE_RE,
+  PERIOD_CALC_RE,
+  QUICK_TRIAGE_RE,
+} from "../skills/capability-patterns.js";
 import type { TaskIntent, TaskKind, RiskLevel } from "../types.js";
 import { enrichIntentWithDeliverableMeta } from "./deliverable-meta.js";
 
@@ -10,6 +28,71 @@ const TASK_KIND_PATTERNS: Array<{ pattern: RegExp; kind: TaskKind }> = [
   {
     pattern:
       /(起草|拟定|拟写|撰写|生成|制作|输出).*(合同|协议|补充协议|保密协议|授权书|条款)|(合同|协议).*(起草|拟定|拟写|撰写|生成|制作|输出)/i,
+    kind: "draft.word",
+  },
+  {
+    pattern:
+      /(计算|核算).{0,16}(经济补偿|赔偿金|加班费|双倍工资|N\s*\+?\s*1|2N)|违法解除.{0,8}(经济补偿|赔偿)/,
+    kind: "draft.word",
+  },
+  {
+    pattern: PERIOD_CALC_RE,
+    kind: "draft.word",
+  },
+  {
+    pattern: MATTER_INTAKE_RE,
+    kind: "draft.word",
+  },
+  {
+    pattern: INVOICE_RE,
+    kind: "draft.word",
+  },
+  {
+    pattern: COURT_SMS_RE,
+    kind: "draft.word",
+  },
+  {
+    pattern: IP_DISPUTE_RE,
+    kind: "draft.word",
+  },
+  {
+    pattern: MA_DILIGENCE_RE,
+    kind: "draft.word",
+  },
+  {
+    pattern: DATA_COMPLIANCE_RE,
+    kind: "draft.word",
+  },
+  {
+    pattern: ADS_COMPLIANCE_RE,
+    kind: "draft.word",
+  },
+  {
+    pattern: LPM_MEMO_INSTRUCTION_RE,
+    kind: "draft.word",
+  },
+  {
+    pattern: FAMILY_MATTER_RE,
+    kind: "draft.word",
+  },
+  {
+    pattern: CAPITAL_MARKETS_RE,
+    kind: "draft.word",
+  },
+  {
+    pattern: BANKRUPTCY_RE,
+    kind: "draft.word",
+  },
+  {
+    pattern: CRIMINAL_ROUTE_RE,
+    kind: "draft.word",
+  },
+  {
+    pattern: CIVIL_STAGE_RE,
+    kind: "draft.word",
+  },
+  {
+    pattern: GOVERNANCE_RE,
     kind: "draft.word",
   },
   {
@@ -34,7 +117,8 @@ const TASK_KIND_PATTERNS: Array<{ pattern: RegExp; kind: TaskKind }> = [
     pattern: /(?!.*(?:催告函|催款函|demand letter|催告))(?:合同|协议|条款)/i,
     kind: "analyze.contract",
   },
-  { pattern: /法律意见|法规|法条|类案|裁判|司法解释/i, kind: "research.legal" },
+  { pattern: QUICK_TRIAGE_RE, kind: "research.legal" },
+  { pattern: /查一下|法律意见|法规|法条|类案|裁判|司法解释/i, kind: "research.legal" },
   { pattern: /律师函|催告函|催款|通知函|警告信|demand|回函|答复函/i, kind: "draft.word" },
   {
     pattern:

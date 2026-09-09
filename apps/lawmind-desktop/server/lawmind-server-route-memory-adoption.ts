@@ -18,7 +18,21 @@ import {
   type MemoryScope,
 } from "../../../src/lawmind/memory/adoption-service.js";
 import { applyMemoryAdoptionWrite } from "../../../src/lawmind/memory/adoption-apply.js";
+import {
+  adoptLearningSuggestion,
+  dismissLearningSuggestion,
+} from "../../../src/lawmind/learning/suggestion-queue.js";
 import { listPendingAdoptionsUnified } from "../../../src/lawmind/memory/unified-pending-adoptions.js";
+
+const LEARNING_ID_PREFIX = "learning:";
+
+function learningSuggestionId(id: string): string | undefined {
+  if (!id.startsWith(LEARNING_ID_PREFIX)) {
+    return undefined;
+  }
+  const raw = id.slice(LEARNING_ID_PREFIX.length).trim();
+  return raw || undefined;
+}
 import { buildAdoptionPreviewDiff } from "../../../src/lawmind/memory/adoption-preview-diff.js";
 import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
 import {
@@ -44,6 +58,7 @@ const VALID_STATES: ReadonlyArray<MemoryAdoptionState> = [
   "adopted",
   "auto_adopted",
   "dismissed",
+  "recorded_noop",
 ];
 
 function asScope(value: string | null): MemoryScope | undefined {
@@ -166,6 +181,12 @@ export async function handleMemoryAdoptionRoutes({
       throw err;
     }
     try {
+      const learnId = learningSuggestionId(body.id);
+      if (learnId) {
+        const result = await adoptLearningSuggestion(workspaceDir, auditDir, learnId);
+        sendJson(res, result.ok ? 200 : 400, result, c);
+        return true;
+      }
       const rewritten = body.note?.trim();
       const result = await adoptMemorySuggestion(
         workspaceDir,
@@ -173,8 +194,12 @@ export async function handleMemoryAdoptionRoutes({
         body.id,
         async (rec) => {
           // 改写后写入：note 覆盖落盘正文；否则写原 payload。
+          // writer 回执（含 noopReason）回流到状态机：无落盘面时记 recorded_noop。
           const toWrite = rewritten ? { ...rec, payload: rewritten } : rec;
-          await applyMemoryAdoptionWrite(workspaceDir, toWrite, { envFile: ctx.envFile });
+          return applyMemoryAdoptionWrite(workspaceDir, toWrite, {
+            envFile: ctx.envFile,
+            auditDir,
+          });
         },
         {
           actorId: resolveDesktopActorId(),
@@ -199,6 +224,12 @@ export async function handleMemoryAdoptionRoutes({
         return true;
       }
       throw err;
+    }
+    const learnId = learningSuggestionId(body.id);
+    if (learnId) {
+      const result = await dismissLearningSuggestion(workspaceDir, auditDir, learnId);
+      sendJson(res, result.ok ? 200 : 400, result, c);
+      return true;
     }
     const result = await dismissMemorySuggestion(workspaceDir, auditDir, body.id, {
       actorId: resolveDesktopActorId(),

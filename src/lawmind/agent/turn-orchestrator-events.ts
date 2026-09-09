@@ -162,6 +162,13 @@ export type RunTurnEvent =
   | {
       type: "requires_action";
       payload: import("../platform/requires-action.js").LawMindRequiresAction;
+    }
+  | {
+      type: "approval_request";
+      roundIndex: number;
+      toolCallId: string;
+      toolName: string;
+      gateDecision: import("../platform/contracts.js").GateDecision;
     };
 
 export function collectRecentToolNamesFromSession(session: AgentSession): string[] {

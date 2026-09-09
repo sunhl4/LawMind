@@ -1,5 +1,6 @@
 /* LawMind design tokens — surfaces, type, motion, semantic colors */
 /* Default: light brass workbench (skills epic mockups). Dark via html.lm-theme-dark */
+/* Visual system: --fs-* / --fw-* / --ls-* / --space-* / --lh-* ; danger = 印泥朱 --danger */
 
 :root {
   color-scheme: light;
@@ -44,20 +45,39 @@
   --wash-strong:       rgba(28, 25, 21, 0.07);
   --inset-highlight:   rgba(255, 255, 255, 0.72);
 
-  /* Semantic */
+  /* Semantic — 危险操作用印泥朱，不用糖果粉 */
   --ok:        #1f9d6e;
   --ok-dim:    rgba(31, 157, 110, 0.1);
   --ok-border: rgba(31, 157, 110, 0.28);
   --warn:      #c47d12;
   --warn-dim:  rgba(196, 125, 18, 0.1);
   --warn-border: rgba(196, 125, 18, 0.28);
-  --error:     #c94a4a;
-  --error-dim: rgba(201, 74, 74, 0.1);
-  --error-border: rgba(201, 74, 74, 0.28);
-  --error-text: #b53a3a;
+  --danger:            #b42318;
+  --danger-hover:      #8f1c14;
+  --danger-dim:        rgba(180, 35, 24, 0.1);
+  --danger-border:     rgba(180, 35, 24, 0.28);
+  --danger-text:       #9b1c14;
+  --danger-on:         #fffaf3;
+  --grad-danger:       linear-gradient(180deg, #c73328 0%, #b42318 100%);
+  --grad-danger-hover: linear-gradient(180deg, #d43c30 0%, #991b1b 100%);
+  --shadow-danger:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.18),
+    0 2px 10px rgba(180, 35, 24, 0.32),
+    0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-danger-hover:
+    inset 0 1px 0 rgba(255, 255, 255, 0.26),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.18),
+    0 6px 18px rgba(180, 35, 24, 0.38),
+    0 2px 4px rgba(0, 0, 0, 0.22);
+  --error:     var(--danger);
+  --error-dim: var(--danger-dim);
+  --error-border: var(--danger-border);
+  --error-text: var(--danger-text);
   --error-text-body: #3a2a28;
   --error-text-muted: #6e5c58;
   --on-accent: #fffaf3;
+  --on-brand: #181410;
   --info:      #2f6fd6;
   --info-dim:  rgba(47, 111, 214, 0.1);
   --info-border: rgba(47, 111, 214, 0.28);
@@ -77,16 +97,38 @@
   --mono: "SF Mono", "Cascadia Code", ui-monospace, "Consolas", monospace;
   --font-mono: var(--mono);
 
-  /* Spacing rhythm (4px base — Linear / Notion style) */
+  /* Type scale — 11/12/13/14/15/16/18/20；律师正文用 --fs-md，控件用 --fs-sm */
+  --fs-2xs: 11px;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-lg: 15px;
+  --fs-xl: 16px;
+  --fs-2xl: 18px;
+  --fs-3xl: 20px;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+  --ls-tight: -0.02em;
+  --ls-ui: -0.01em;
+  --ls-none: 0;
+
+  /* Spacing rhythm (4px 网格) */
+  --space-0: 0;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
   --space-5: 20px;
   --space-6: 24px;
+  --space-7: 28px;
   --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
 
-  /* Type scale */
+  /* Type leading */
   --lh-tight: 1.25;
   --lh-snug: 1.4;
   --lh-body: 1.55;
@@ -108,7 +150,7 @@
   --shadow-brass: 0 6px 20px rgba(166, 124, 82, 0.18);
   --ring:        0 0 0 3px rgba(40, 32, 22, 0.06);
   --ring-accent: 0 0 0 3px rgba(166, 124, 82, 0.22);
-  --ring-error:  0 0 0 3px rgba(201, 74, 74, 0.2);
+  --ring-error:  0 0 0 3px rgba(180, 35, 24, 0.22);
   --focus-ring:  0 0 0 2px rgba(166, 124, 82, 0.4);
   --focus-ring-inset: inset 0 0 0 1px rgba(166, 124, 82, 0.45);
 
@@ -124,7 +166,6 @@
   --radius-md:         var(--r);
   --r-md:              var(--r-lg);
   --t-sm:              var(--t);
-  --danger:            var(--error);
   --success:           var(--ok);
   --fg:                var(--text);
 
@@ -145,8 +186,9 @@
   --lm-warn:             var(--warn);
   --lm-warn-bg:          var(--warn-dim);
   --lm-warn-text:        var(--warn);
-  --lm-danger-bg:        var(--error-dim);
-  --lm-danger-text:      var(--error);
+  --lm-danger:           var(--danger);
+  --lm-danger-bg:        var(--danger-dim);
+  --lm-danger-text:      var(--danger-text);
   --lm-success-bg:       var(--ok-dim);
   --lm-success-text:     var(--ok);
 }
@@ -194,13 +236,32 @@ html.lm-theme-dark {
   --warn:      #f5a623;
   --warn-dim:  rgba(245, 166, 35, 0.1);
   --warn-border: rgba(245, 166, 35, 0.28);
-  --error:     #f06565;
-  --error-dim: rgba(240, 101, 101, 0.1);
-  --error-border: rgba(240, 101, 101, 0.28);
-  --error-text: #ff9494;
+  --danger:            #e05a4c;
+  --danger-hover:      #f07167;
+  --danger-dim:        rgba(224, 90, 76, 0.14);
+  --danger-border:     rgba(224, 90, 76, 0.36);
+  --danger-text:       #ff8a7c;
+  --danger-on:         #fffaf3;
+  --grad-danger:       linear-gradient(180deg, #d4483c 0%, #b42318 100%);
+  --grad-danger-hover: linear-gradient(180deg, #e05548 0%, #991b1b 100%);
+  --shadow-danger:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.22),
+    0 2px 10px rgba(180, 35, 24, 0.42),
+    0 1px 2px rgba(0, 0, 0, 0.32);
+  --shadow-danger-hover:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.22),
+    0 6px 18px rgba(180, 35, 24, 0.48),
+    0 2px 4px rgba(0, 0, 0, 0.32);
+  --error:     var(--danger);
+  --error-dim: var(--danger-dim);
+  --error-border: var(--danger-border);
+  --error-text: var(--danger-text);
   --error-text-body: #f2e9e6;
   --error-text-muted: #d4cbc4;
   --on-accent: #181410;
+  --on-brand: #181410;
   --info:      #4b91f7;
   --info-dim:  rgba(75, 145, 247, 0.1);
   --info-border: rgba(75, 145, 247, 0.28);
@@ -213,7 +274,7 @@ html.lm-theme-dark {
   --shadow-brass: 0 6px 24px rgba(183, 154, 103, 0.22);
   --ring:        0 0 0 3px rgba(255, 255, 255, 0.08);
   --ring-accent: 0 0 0 3px rgba(183, 154, 103, 0.22);
-  --ring-error:  0 0 0 3px rgba(240, 101, 101, 0.22);
+  --ring-error:  0 0 0 3px rgba(224, 90, 76, 0.28);
   --focus-ring:  0 0 0 2px rgba(183, 154, 103, 0.45);
   --focus-ring-inset: inset 0 0 0 1px rgba(183, 154, 103, 0.5);
 
@@ -223,7 +284,7 @@ html.lm-theme-dark {
 }
 
 html.lm-density-compact {
-  font-size: 14px;
+  font-size: var(--fs-md);
 }
 
 html.lm-density-compact .lm-main-header-compact {

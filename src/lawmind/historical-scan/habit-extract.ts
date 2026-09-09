@@ -23,6 +23,8 @@ export type RedlineFileLike = {
   updatedAt?: string;
   path?: string;
   mtimeMs?: number;
+  /** 所属案件（由同名 draft 文件解析），用于立场证据的跨案件门槛。 */
+  matterId?: string;
 };
 
 function detectClauseType(text: string): string | undefined {
@@ -49,11 +51,13 @@ export function extractHabitsFromRedlines(files: RedlineFileLike[]): HistoricalH
     occurrences: number;
     latestMtimeMs: number;
     samplePaths: string[];
+    matterIds: string[];
   };
   const byType = new Map<string, Acc>();
 
   for (const file of files) {
     const mtime = file.mtimeMs ?? (file.updatedAt ? Date.parse(file.updatedAt) : 0);
+    const matterId = file.matterId?.trim() || undefined;
     for (const hunk of file.hunks ?? []) {
       if (hunk.status !== "accepted") {
         continue;
@@ -72,6 +76,7 @@ export function extractHabitsFromRedlines(files: RedlineFileLike[]): HistoricalH
           occurrences: 1,
           latestMtimeMs: mtime,
           samplePaths: file.path ? [file.path] : [],
+          matterIds: matterId ? [matterId] : [],
         });
         continue;
       }
@@ -82,6 +87,9 @@ export function extractHabitsFromRedlines(files: RedlineFileLike[]): HistoricalH
         !existing.samplePaths.includes(file.path)
       ) {
         existing.samplePaths.push(file.path);
+      }
+      if (matterId && !existing.matterIds.includes(matterId)) {
+        existing.matterIds.push(matterId);
       }
       if (preferred !== existing.preferredLanguage && mtime >= existing.latestMtimeMs) {
         existing.preferredLanguage = preferred;
@@ -101,7 +109,26 @@ export function extractHabitsFromRedlines(files: RedlineFileLike[]): HistoricalH
       latestMtimeMs: row.latestMtimeMs,
       conflictResolved: true,
       samplePaths: row.samplePaths,
+      matterIds: row.matterIds.slice(0, 10),
     }));
+}
+
+/** Best-effort: drafts/<taskId>.redline.json 的所属案件取自同名 draft 文件。 */
+function readDraftMatterId(workspaceDir: string, redlineFileName: string): string | undefined {
+  const draftName = redlineFileName.replace(/\.redline\.json$/, ".json");
+  if (draftName === redlineFileName) {
+    return undefined;
+  }
+  try {
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(workspaceDir, "drafts", draftName), "utf8"),
+    ) as { matterId?: unknown };
+    return typeof raw.matterId === "string" && raw.matterId.trim()
+      ? raw.matterId.trim()
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function loadWorkspaceRedlineFiles(workspaceDir: string): RedlineFileLike[] {
@@ -118,10 +145,12 @@ export function loadWorkspaceRedlineFiles(workspaceDir: string): RedlineFileLike
     try {
       const raw = JSON.parse(fs.readFileSync(abs, "utf8")) as { hunks?: RedlineHunkLike[] };
       const st = fs.statSync(abs);
+      const matterId = readDraftMatterId(workspaceDir, name);
       out.push({
         hunks: Array.isArray(raw.hunks) ? raw.hunks : [],
         path: `drafts/${name}`,
         mtimeMs: st.mtimeMs,
+        ...(matterId ? { matterId } : {}),
       });
     } catch {
       /* skip */

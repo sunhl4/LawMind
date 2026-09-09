@@ -4,9 +4,71 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>LawMind</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: #f7f6f3;
+        color: #1a1a1a;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      #root:empty,
+      #lm-boot-fallback {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        padding: 24px;
+        box-sizing: border-box;
+        text-align: center;
+      }
+      #lm-boot-fallback[hidden] {
+        display: none !important;
+      }
+      #lm-boot-fallback p {
+        margin: 0;
+        max-width: 28rem;
+        line-height: 1.55;
+        color: #444;
+      }
+      #lm-boot-fallback strong {
+        display: block;
+        margin-bottom: 8px;
+        color: #111;
+        font-size: 1.05rem;
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="lm-boot-fallback" role="status" aria-live="polite">
+        <p>
+          <strong>LawMind 正在打开…</strong>
+          若超过十几秒仍是空白，请从菜单重新打开窗口，或重启桌面应用。
+        </p>
+      </div>
+    </div>
+    <script>
+      window.addEventListener("error", function (ev) {
+        var el = document.getElementById("lm-boot-fallback");
+        if (!el || el.hidden) return;
+        el.hidden = false;
+        el.innerHTML =
+          "<p><strong>LawMind 未能完成加载</strong>" +
+          String((ev && ev.message) || "脚本错误") +
+          "。请重新打开窗口。</p>";
+      });
+      window.addEventListener("unhandledrejection", function (ev) {
+        var el = document.getElementById("lm-boot-fallback");
+        if (!el || el.hidden) return;
+        var reason = ev && ev.reason;
+        var msg = reason && reason.message ? reason.message : String(reason || "未知错误");
+        el.hidden = false;
+        el.innerHTML =
+          "<p><strong>LawMind 未能完成加载</strong>" + msg + "。请重新打开窗口。</p>";
+      });
+    </script>
     <script type="module" src="./main.tsx"></script>
   </body>
 </html>

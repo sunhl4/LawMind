@@ -32,10 +32,7 @@ export type LawmindChatMessagesColumnProps = {
   onApplyPrompt: (prompt: string) => void;
   onSendClarificationMessage: (text: string) => void | Promise<void>;
   fileChatPills: Array<{ id: string; shortLabel: string; title: string; relPath?: string }>;
-  onRemoveFileChatPill: (id: string) => void;
-  onClearFileChatPills: () => void;
   contextTaskId: string | null;
-  contextMatterId?: string | null;
   apiBase?: string;
   onOpenReview?: (target?: ReviewOpenTarget) => void;
   onDelegateAssist?: () => void;
@@ -84,10 +81,7 @@ export function LawmindChatMessagesColumn({
   onApplyPrompt,
   onSendClarificationMessage,
   fileChatPills,
-  onRemoveFileChatPill: _onRemoveFileChatPill,
-  onClearFileChatPills: _onClearFileChatPills,
   contextTaskId,
-  contextMatterId: _contextMatterId = null,
   apiBase,
   onOpenReview,
   onDelegateAssist,

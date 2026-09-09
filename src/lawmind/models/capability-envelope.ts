@@ -3,6 +3,8 @@
  * budgets from the selected model's context window instead of fixed hard caps.
  */
 
+import { parseToolTimeoutMsEnv } from "../runtime/tool-timeout-env.js";
+
 export type CapabilityTaskKind = "chat" | "draft" | "review" | "classify" | "plan";
 
 export type ModelCapabilityEnvelope = {
@@ -106,7 +108,7 @@ export function resolveCapabilityEnvelope(opts: {
     maxOutputTokens,
     charsPerToken,
     toolCallsPerTurn: toolCallsForContext(contextTokens),
-    toolTimeoutMs: parsePositiveIntEnv("LAWMIND_TOOL_TIMEOUT_MS") ?? modelTimeoutMs,
+    toolTimeoutMs: parseToolTimeoutMsEnv(0),
     modelTimeoutMs,
     promptWindowScale,
     maxHistoryMessages: historyForContext(contextTokens),

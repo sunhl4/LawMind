@@ -5,7 +5,11 @@
 
 import type { ArtifactDraft, ArtifactSection } from "../types.js";
 import { craftSignalsForEdit, type SurgicalCraftSignal } from "./contract-redline-craft.js";
-import { commonAffixLength, explainSurgicalSpanViolation } from "./surgical-span-gate.js";
+import {
+  commonAffixLength,
+  explainSurgicalSpanViolation,
+  SURGICAL_MAX_FIND_WITH_TERMINATOR,
+} from "./surgical-span-gate.js";
 
 export { commonAffixLength };
 
@@ -50,6 +54,36 @@ export function explainInvalidSurgicalEdit(find: string, replace: string): strin
     return "find 与 replace 相同";
   }
   return explainSurgicalSpanViolation(find, replace);
+}
+
+/**
+ * If a pair fails the span gate, shrink to the shortest differing span.
+ * Used internally so the model does not need a lawyer-facing retry.
+ */
+export function tryNarrowSurgicalEdit(
+  find: string,
+  replace: string,
+): { find: string; replace: string } | undefined {
+  const { prefix, suffix } = commonAffixLength(find, replace);
+  if (prefix + suffix < 2) {
+    return undefined;
+  }
+  const end = find.length - suffix;
+  if (end <= prefix) {
+    return undefined;
+  }
+  const narrowFind = find.slice(prefix, end);
+  const narrowReplace = replace.slice(prefix, replace.length - suffix);
+  if (!narrowFind || narrowFind === narrowReplace) {
+    return undefined;
+  }
+  if (narrowFind.length > SURGICAL_MAX_FIND_WITH_TERMINATOR) {
+    return undefined;
+  }
+  if (explainInvalidSurgicalEdit(narrowFind, narrowReplace)) {
+    return undefined;
+  }
+  return { find: narrowFind, replace: narrowReplace };
 }
 
 /** @deprecated Alias — span gate is part of invalidity now. */
@@ -100,14 +134,23 @@ export function applySurgicalTextEdits(params: {
     const replace = typeof raw.replace === "string" ? raw.replace : "";
     const note = typeof raw.note === "string" ? raw.note.trim() : undefined;
     const invalid = explainInvalidSurgicalEdit(find, replace);
+    let useFind = find;
+    let useReplace = replace;
+    let narrowed = false;
     if (invalid) {
-      skipped.push({ find: find.slice(0, 40), replace: replace.slice(0, 40), reason: invalid });
-      continue;
+      const narrowedEdit = tryNarrowSurgicalEdit(find, replace);
+      if (!narrowedEdit) {
+        skipped.push({ find: find.slice(0, 40), replace: replace.slice(0, 40), reason: invalid });
+        continue;
+      }
+      useFind = narrowedEdit.find;
+      useReplace = narrowedEdit.replace;
+      narrowed = true;
     }
 
     let hitIndex = -1;
     for (let i = 0; i < sections.length; i += 1) {
-      if (sections[i].body.includes(find)) {
+      if (sections[i].body.includes(useFind)) {
         hitIndex = i;
         break;
       }
@@ -116,20 +159,23 @@ export function applySurgicalTextEdits(params: {
       skipped.push({
         find,
         replace,
-        reason: "正文中未找到 find 原文（请用 analyze 可见的精确原文）",
+        reason: narrowed
+          ? "收窄后仍未在正文找到锚定（请用 analyze 可见的精确原文）"
+          : "正文中未找到 find 原文（请用 analyze 可见的精确原文）",
       });
       continue;
     }
 
-    craftSignals.push(...craftSignalsForEdit(find, replace));
+    craftSignals.push(...craftSignalsForEdit(useFind, useReplace));
 
     const beforeBody = sections[hitIndex].body;
-    const afterBody = beforeBody.replace(find, replace); // first occurrence only
+    const afterBody = beforeBody.replace(useFind, useReplace);
     sections[hitIndex] = { ...sections[hitIndex], body: afterBody };
+    const appliedNote = [note, narrowed ? "已收窄锚定" : undefined].filter(Boolean).join("；");
     appliedList.push({
-      find,
-      replace,
-      ...(note ? { note } : {}),
+      find: useFind,
+      replace: useReplace,
+      ...(appliedNote ? { note: appliedNote } : {}),
       sectionIndex: hitIndex,
       sectionHeading: sections[hitIndex].heading,
     });

@@ -6,11 +6,11 @@ test.describe("LawMind dialogs", () => {
     await installE2eBrowserPrefs(page);
   });
 
-  test("新建案件 opens the create dialog from the sidebar (no FS bridge in browser E2E)", async ({
+  test("新建案件 opens the create dialog from the sidebar", async ({
     page,
   }) => {
     await gotoShell(page);
-    // 浏览器 mock 模式无 FS bridge：材料树不渲染，走侧栏「新建」弹窗路径（Electron 内联建目录路径见 e2e:electron）。
+    // 侧栏「新建」弹窗路径（与桌面壳一致）。
     const createBtn = page.getByTestId("lm-matter-sidebar-create");
     await expect(createBtn).toBeVisible({ timeout: 30_000 });
     await createBtn.click();

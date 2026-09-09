@@ -4,8 +4,10 @@ import { loanFamilyApplies } from "./loan.js";
 
 describe("loan family", () => {
   it("fires extra rules on 借款/借贷/贷款 contracts", () => {
-    const report = runLegalLint("借款合同。甲方出借，乙方收款。");
-    expect(loanFamilyApplies("借款合同")).toBe(true);
+    const report = runLegalLint("借款合同。甲方出借，乙方收款。", undefined, undefined, undefined, {
+      deliverableType: "contract.review",
+    });
+    expect(loanFamilyApplies("借款合同", { deliverableType: "contract.review" })).toBe(true);
     expect(report.findings.some((f) => f.family === "loan")).toBe(true);
     expect(report.findings.some((f) => f.ruleId === "loan.repayment")).toBe(true);
     expect(report.findings.some((f) => f.ruleId === "loan.interest")).toBe(true);

@@ -330,6 +330,18 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (path === "/api/desk/today" && req.method === "GET") {
+    json(res, 200, {
+      ok: true,
+      today: { date: now.slice(0, 10), items: [], progress: { done: 0, total: 0 } },
+    });
+    return;
+  }
+  if (path === "/api/desk/matters" && req.method === "GET") {
+    json(res, 200, { ok: true, matters: [] });
+    return;
+  }
+
   if (path === "/api/historical-scan" && req.method === "GET") {
     json(res, 200, { ok: true, roots: [], latest: null });
     return;
@@ -349,7 +361,7 @@ const server = http.createServer(async (req, res) => {
   if (path === "/api/metrics/north-star" && req.method === "GET") {
     json(res, 200, {
       ok: true,
-      schemaVersion: 1,
+      schemaVersion: 2,
       firstPassRate: null,
       unattendedCompleteRate: null,
       reviewDurationMsMedian: null,
@@ -882,7 +894,7 @@ const server = http.createServer(async (req, res) => {
           at: now,
           kind: "audit",
           title: "草稿进入待审核",
-          detail: "验收门禁已计算",
+          detail: "出稿检查已计算",
         },
       ],
     });
@@ -1075,7 +1087,9 @@ const server = http.createServer(async (req, res) => {
     const drafts = [];
     const seen = new Set();
     const pushDraft = (taskId, st) => {
-      if (st.deleted || seen.has(taskId)) {return;}
+      if (st.deleted || seen.has(taskId)) {
+        return;
+      }
       seen.add(taskId);
       drafts.push({
         taskId,
@@ -1405,7 +1419,21 @@ const server = http.createServer(async (req, res) => {
           },
         },
       ],
+      toolApprovals: [],
+      approvals: [],
+      chatRequiresActions: [],
     });
+    return;
+  }
+
+  if (path === "/api/approvals" && req.method === "GET") {
+    json(res, 200, { ok: true, items: [], decisionTotal: 0 });
+    return;
+  }
+
+  const approvalDecide = /^\/api\/approvals\/([^/]+)\/(approve|reject)$/.exec(path);
+  if (approvalDecide && req.method === "POST") {
+    json(res, 200, { ok: true });
     return;
   }
 

@@ -73,7 +73,8 @@ export function listDrafts(workspaceDir: string): ArtifactDraft[] {
           !name.endsWith(".research.json") &&
           !name.endsWith(".reasoning.json") &&
           !name.endsWith(".redline.json") &&
-          !name.endsWith(".clauses.json"),
+          !name.endsWith(".clauses.json") &&
+          !name.endsWith(".outline.json"),
       )
       .toSorted();
     return files
@@ -86,7 +87,7 @@ export function listDrafts(workspaceDir: string): ArtifactDraft[] {
         }
       })
       .filter((draft): draft is ArtifactDraft => Boolean(draft))
-      .toSorted((a, b) => b.createdAt.localeCompare(a.createdAt));
+      .toSorted((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
   } catch {
     return [];
   }
@@ -168,3 +169,17 @@ export {
   readClauseSnapshot,
   resolveClauseGraphForDraft,
 } from "./clause-snapshot.js";
+export {
+  appendProvenanceEvent,
+  createProvenanceEvent,
+  diffSummary,
+  findLatestProvenanceEvent,
+  findProvenanceBySource,
+  isAiGeneratedProvenance,
+  isUserModifiedProvenance,
+  renderProvenanceAsFootnote,
+  type ProvenanceActor,
+  type ProvenanceChain,
+  type ProvenanceEvent,
+  type ProvenanceEventType,
+} from "./provenance.js";

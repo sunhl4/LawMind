@@ -1,3 +1,4 @@
+// TODO(renderer-fetch-proxy): migrate remaining fetch calls to fetchApi / api-client-proxy.
 import { useState } from "react";
 import { useMatterWorkspaceAcceptanceQuery, type MatterWorkspaceAcceptance } from "../lawmind-query-hooks";
 

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { ToolCallContext } from "./tool-pipeline.js";
 import {
   assertSandboxRunnerOrRefuse,
+  buildToolSandboxChildEnv,
   buildToolSandboxPayload,
   executeToolSandboxInline,
   resolveSandboxExecutionMode,
@@ -89,5 +90,42 @@ describe("tool-sandbox", () => {
     expect(resolveSandboxExecutionMode({})).toBe("child");
     expect(resolveSandboxExecutionMode({ LAWMIND_TOOL_SANDBOX_INLINE: "1" })).toBe("inline");
     expect(resolveSandboxExecutionMode({ VITEST: "true" })).toBe("inline");
+  });
+
+  it("buildToolSandboxChildEnv 只带最小集，敏感变量不进子进程", () => {
+    const env = buildToolSandboxChildEnv({
+      PATH: "/usr/bin",
+      HOME: "/home/x",
+      TMPDIR: "/tmp",
+      LAWMIND_EDITION: "firm",
+      LAWMIND_WORKSPACE_DIR: "/ws",
+      LAWMIND_LOCAL_API_TOKEN: "loopback-secret",
+      LAWMIND_SKIP_API_AUTH: "1",
+      LAWMIND_AUTHORITY_API_KEY: "authority-secret",
+      LAWMIND_MCP_FOO_SECRET: "mcp-secret",
+      LAWMIND_AGENT_API_KEY: "agent-key",
+      OPENAI_API_KEY: "sk-openai",
+      ANTHROPIC_API_KEY: "sk-anthropic",
+      QWEN_API_KEY: "sk-qwen",
+      BRAVE_API_KEY: "brave-key",
+      SOME_RANDOM_VAR: "x",
+    });
+    expect(env.PATH).toBe("/usr/bin");
+    expect(env.HOME).toBe("/home/x");
+    expect(env.TMPDIR).toBe("/tmp");
+    // 非敏感 LAWMIND_* 配置保留（edition / 路径等影响工具行为）。
+    expect(env.LAWMIND_EDITION).toBe("firm");
+    expect(env.LAWMIND_WORKSPACE_DIR).toBe("/ws");
+    // 敏感变量一律不得出现在子进程 env。
+    expect(env.LAWMIND_LOCAL_API_TOKEN).toBeUndefined();
+    expect(env.LAWMIND_SKIP_API_AUTH).toBeUndefined();
+    expect(env.LAWMIND_AUTHORITY_API_KEY).toBeUndefined();
+    expect(env.LAWMIND_MCP_FOO_SECRET).toBeUndefined();
+    expect(env.LAWMIND_AGENT_API_KEY).toBeUndefined();
+    expect(env.OPENAI_API_KEY).toBeUndefined();
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(env.QWEN_API_KEY).toBeUndefined();
+    expect(env.BRAVE_API_KEY).toBeUndefined();
+    expect(env.SOME_RANDOM_VAR).toBeUndefined();
   });
 });

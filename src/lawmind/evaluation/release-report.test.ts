@@ -25,8 +25,11 @@ describe("release readiness report", () => {
     });
     expect(report).toContain("LawMind Release Readiness Report");
     expect(report).toContain("Golden journeys: 3");
-    expect(report).toContain("Replay fixtures: 12");
+    expect(report).toContain("Replay fixtures (synthetic regression, non-engine): 12");
+    expect(report).toContain("Legal lint rules:");
+    expect(report).toContain("Shadow fixtures");
     expect(report).toContain("Benchmark gate: pass");
     expect(report).toContain("pnpm lawmind:verify");
+    expect(report).toContain("pnpm lawmind:compiler-gate");
   });
 });

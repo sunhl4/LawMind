@@ -12,6 +12,7 @@ import {
 } from "react";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import { readLawmindFsDragFromDataTransfer } from "./lawmind-file-drag";
+import { confirmDialog } from "./lawmind-confirm-dialog";
 
 type UploadedRow = {
   id: string;
@@ -330,7 +331,17 @@ export function LawmindSettingsTemplates({ apiBase, projectDir }: Props): ReactN
   };
 
   const onDelete = async (id: string) => {
-    if (!apiBase?.trim() || !window.confirm(`确定移除模板「${id}」？\n已生成的文书不受影响。`)) {
+    if (!apiBase?.trim()) {
+      return;
+    }
+    if (
+      !(await confirmDialog({
+        title: `确定移除模板「${id}」？`,
+        body: "已生成的文书不受影响。",
+        confirmLabel: "移除",
+        tone: "danger",
+      }))
+    ) {
       return;
     }
     setBusy(true);

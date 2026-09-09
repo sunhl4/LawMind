@@ -34,6 +34,8 @@ export type HistoricalHabitCandidate = {
   latestMtimeMs: number;
   conflictResolved: boolean;
   samplePaths: string[];
+  /** 贡献接受 hunk 的不同案件（由 draft 文件解析），供立场证据跨案件门槛使用。 */
+  matterIds: string[];
 };
 
 export type HistoricalScanCursorFile = {

@@ -54,7 +54,7 @@ function pickKeyFields(result: Record<string, unknown>): Record<string, unknown>
     "error",
     "code",
     "message",
-    "pendingApproval",
+    "approvalRequest",
     "needsMatter",
     "taskId",
     "path",

@@ -6,6 +6,7 @@ import {
   delegationSummaryLine,
   isActiveDelegation,
 } from "./lawmind-delegation-status";
+import { confirmDialog } from "./lawmind-confirm-dialog";
 
 type Props = {
   delegations: DelegationRow[];
@@ -109,9 +110,15 @@ export function LawmindCollabDelegationCards(props: Props): ReactNode {
                     disabled={cancelBusyId === d.delegationId}
                     onClick={() => {
                       const preview = d.task.trim().slice(0, 40);
-                      if (window.confirm(`确定撤销交办「${preview}${d.task.trim().length > 40 ? "…" : ""}」？`)) {
-                        void onCancelDelegation(d);
-                      }
+                      void (async () => {
+                        const ok = await confirmDialog({
+                          title: `确定撤销交办「${preview}${d.task.trim().length > 40 ? "…" : ""}」？`,
+                          confirmLabel: "撤销",
+                        });
+                        if (ok) {
+                          await onCancelDelegation(d);
+                        }
+                      })();
                     }}
                   >
                     {cancelBusyId === d.delegationId ? "撤销中…" : "撤销"}

@@ -1,10 +1,11 @@
 import { useCallback, useState, type Dispatch, type SetStateAction } from "react";
+import { useSettingsPanelStore } from "./stores/settings-panel-store";
 import type { AppConfig } from "./lawmind-app-bootstrap";
 import { loadAppBootstrapSnapshot, refreshLocalAppConfig } from "./lawmind-app-bootstrap";
 import { setLoopbackApiAuthToken } from "./lawmind-api-auth";
 import { setDraftWithModelEnabled } from "./lawmind-models-api";
 import { errorMessage } from "./api-client";
-import { clearProjectDirectory } from "./lawmind-settings-shell";
+import { clearProjectDirectory } from "./lawmind-settings-project";
 import { mapHealthState, type LawmindHealthState } from "./useLawmindAppBootstrapEffects";
 import type { HealthPayload } from "./lawmind-app-data.js";
 
@@ -64,7 +65,6 @@ export type UseLawmindAppSetupActionsParams = {
   reloadCollabSummary: (apiBase: string, opts?: { refreshConfigOnFailure?: boolean }) => Promise<unknown>;
   showWizard: boolean;
   setShowWizard: (open: boolean) => void;
-  setShowSettings: (open: boolean) => void;
   wizApiKey: string;
   wizBaseUrl: string;
   wizModel: string;
@@ -93,7 +93,6 @@ export function useLawmindAppSetupActions(params: UseLawmindAppSetupActionsParam
     applyBootstrapSnapshot,
     reloadCollabSummary,
     setShowWizard,
-    setShowSettings,
     wizApiKey,
     wizBaseUrl,
     wizModel,
@@ -289,7 +288,7 @@ export function useLawmindAppSetupActions(params: UseLawmindAppSetupActionsParam
     setWizRetrievalMode(config.retrievalMode);
     setWizError(null);
     setShowWizard(true);
-    setShowSettings(false);
+    useSettingsPanelStore.getState().setSettingsPanel(false);
     void (async () => {
       const bridge = window.lawmindDesktop;
       if (!bridge?.readModelSettings) {
@@ -311,7 +310,7 @@ export function useLawmindAppSetupActions(params: UseLawmindAppSetupActionsParam
         /* ignore — wizard still usable with defaults */
       }
     })();
-  }, [config, setShowSettings, setShowWizard, setWizBaseUrl, setWizError, setWizHasExistingKey, setWizModel, setWizRetrievalMode]);
+  }, [config, setShowWizard, setWizBaseUrl, setWizError, setWizHasExistingKey, setWizModel, setWizRetrievalMode]);
 
   const pickProject = useCallback(async () => {
     const bridge = window.lawmindDesktop;

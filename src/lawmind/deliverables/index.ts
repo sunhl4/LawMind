@@ -6,7 +6,7 @@
  *   - agent（draft_document 工具结果可附 acceptance report）
  *   - desktop（审核台/案件 cockpit 显示验收清单）
  *
- * 详见 docs/LAWMIND-DELIVERABLE-FIRST.md。
+ * 详见 docs/archive/LAWMIND-DELIVERABLE-FIRST.md（归档）。
  */
 
 export {

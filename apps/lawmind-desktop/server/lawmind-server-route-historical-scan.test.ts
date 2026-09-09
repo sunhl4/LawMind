@@ -106,7 +106,7 @@ describe("lawmind-server-route-historical-scan", () => {
       ok: true,
       roots: [{ label: "历史卷宗" }],
       latest: { status: "complete" },
-      northStar: { schemaVersion: 1 },
+      northStar: { schemaVersion: 2 },
     });
     expect(fs.existsSync(path.join(workspaceDir, "lawmind", "metrics", "north-star.json"))).toBe(true);
   });

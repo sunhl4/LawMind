@@ -3,8 +3,11 @@ import { readdirSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import JSZip from "jszip";
+import { createOutboundProxy } from "../../../platform/outbound-proxy.js";
 import { isPathInsideRoot } from "../../../runtime/workspace-path.js";
 import { loadXlsxAsTsv } from "./xlsx-workbook.js";
+
+const visionProxy = createOutboundProxy({ requestTag: "vision-ocr" });
 
 export { MAX_XLSX_READ_BYTES } from "./xlsx-workbook.js";
 async function readSafe(filePath: string): Promise<string> {
@@ -154,15 +157,17 @@ async function readImageTextByVisionModel(
       },
     ],
   };
-  const response = await fetch(`${base}/chat/completions`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${cfg.apiKey}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify(payload),
-    signal,
-  }).catch(() => null);
+  const response = await visionProxy
+    .fetch(`${base}/chat/completions`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${cfg.apiKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      signal,
+    })
+    .catch(() => null);
   if (!response || !response.ok) {
     return "";
   }

@@ -26,8 +26,7 @@ import type { VerificationChecklistView } from "../../../../../src/lawmind/deliv
 import type { ReviewCampaign } from "../lawmind-review-campaign-api";
 import { LawmindReasoningCollapsible } from "../LawmindReasoningCollapsible";
 import { LawmindReviewDeliveryBar } from "../LawmindReviewDeliveryBar";
-import { draftTextFromUnknown, runLegalLint } from "../../../../../src/lawmind/lint/run-lint.ts";
-import { previewSelfRevise } from "../../../../../src/lawmind/lint/self-revise.ts";
+import { useReviewLintPreview } from "./review-lint-preview";
 import { LawmindReviewSelfCheckSummary } from "../LawmindReviewSelfCheckSummary";
 import { LawmindDecisionHeader } from "../LawmindDecisionHeader";
 import { resolveDecisionHeader } from "../../../../../src/lawmind/delivery/decision-header.ts";
@@ -35,7 +34,7 @@ import { LawmindMemorySourcesPanel } from "../LawmindMemorySourcesPanel";
 import { LawmindRedlinePanel } from "../LawmindRedlinePanel";
 import { internalIdsTitle, pathBasename } from "../display-ids";
 import { reviewStatusDisplayLabel } from "../lawmind-review-display";
-import { apiAuthHeaders } from "../lawmind-api-auth";
+import { fetchApiJson } from "../api-client-proxy";
 import { executionStateLabel } from "./review-workbench-helpers";
 
 export type ReviewWorkbenchMetaColumnProps = {
@@ -89,7 +88,7 @@ export type ReviewWorkbenchMetaColumnProps = {
   onReopen: () => void;
   /** Delete draft from 文书台 (any status; confirm in caller). */
   onDeleteDraft?: () => void;
-  onExportWord: (opts?: { strict?: boolean }) => void;
+  onExportWord: () => void;
   onExportTrackedWord: () => void;
   onShowArtifact?: (outputPath: string) => void;
   /** Open exported docx with system Word/WPS when Electron bridge is available. */
@@ -173,9 +172,7 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
   } = props;
 
   const reviewPending = (detail.reviewStatus ?? "pending") === "pending";
-  const draftText = draftTextFromUnknown(detail);
-  const lintReport = runLegalLint(draftText);
-  const selfRevisePreview = draftText.trim().length >= 20 ? previewSelfRevise(draftText) : null;
+  const { lintReport, selfRevisePreview } = useReviewLintPreview(detail);
   const decisionHeader = resolveDecisionHeader({
     persisted: detail.decisionHeader,
     title: detail.title,
@@ -260,7 +257,6 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
           onDownloadPack={onDownloadPack}
           packBusy={packBusy}
           variant="writing"
-          onOpenAgentsDesk={onOpenAgentsDesk}
           readiness={readiness}
         />
 
@@ -312,19 +308,19 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
 
           {checklistBlocksApprove ? (
             <p className="lm-meta lm-review-checklist-desk-hint" data-testid="lm-review-checklist-desk-hint">
-              律师必核未齐，请
+              律师必核未齐：可在下方「高级」区勾选，或
               {onOpenAgentsDesk ? (
                 <button
                   type="button"
                   className="lm-review-self-check-link"
                   onClick={onOpenAgentsDesk}
                 >
-                  回在办勾必核
+                  回在办勾选
                 </button>
               ) : (
-                "回在办勾必核"
+                "回在办勾选"
               )}
-              。本台高级里也可勾。
+              ；同一张必核清单，签批以勾选齐全为准。
             </p>
           ) : null}
         </details>
@@ -393,7 +389,7 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
             <textarea
               value={note}
               onChange={(e) => onNoteChange(e.target.value)}
-              placeholder="批注（可选；回在办批复时一并提交）"
+              placeholder="批注（可选；在本台签批时一并提交）"
               rows={3}
               disabled={actionBusy || !reviewPending}
               aria-disabled={actionBusy || !reviewPending}
@@ -409,7 +405,7 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
         />
 
         <details className="lm-review-advanced">
-          <summary className="lm-review-advanced-summary">高级 · 本台直接签批</summary>
+          <summary className="lm-review-advanced-summary">高级 · 签批（与在办同一记录）</summary>
           <div className="lm-review-advanced-body">
             {checklistView && checklistChecked && onChecklistToggle ? (
               <LawmindVerificationChecklist
@@ -421,7 +417,10 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
             ) : null}
             {reviewPending ? (
               <div className="lm-callout lm-callout-muted" role="region" aria-label="完成签批">
-                <p className="lm-callout-title">本台直接签批</p>
+                <p className="lm-callout-title">在此签批</p>
+                <p className="lm-callout-body">
+                  与「在办」的签批是同一记录：此处通过后，在办对应待办即办结；批注随签批一并提交。
+                </p>
                 <LawmindReviewDeliveryBar
                   reviewStatus={detail.reviewStatus}
                   acceptance={acceptance}
@@ -468,9 +467,9 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
                       data-gate-category={gate.category ?? undefined}
                       title={
                         gate.category === "judgment_soft"
-                          ? "判断类（软）"
+                          ? "判断类"
                           : gate.category === "safety_hard"
-                            ? "安全硬门禁"
+                            ? "安全类"
                             : undefined
                       }
                     >
@@ -489,7 +488,7 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
             <div className="lm-callout lm-callout-muted" role="status">
               <p className="lm-callout-title">责任与交付权限</p>
               <p className="lm-callout-body">
-                产出 Agent：{assistantId || "未记录"} · 复核人：
+                处理助手：{assistantId === "default" ? "默认助手" : assistantId || "未记录"} · 复核人：
                 {detail.reviewedBy?.trim() || "待执业律师确认"} · 对外交付：
                 {detail.reviewStatus === "approved"
                   ? `已由 ${detail.reviewedBy?.trim() || "律师"} 批准`
@@ -562,7 +561,7 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
                   markdown={reasoningMarkdown}
                   variant="workbench"
                   defaultOpen={false}
-                  title="法律推理图（只读争点）"
+                  title="法律分析（只读争点）"
                 />
                 <p className="lm-meta">
                   争点板只读；可将摘要采纳到案件「理论」轻量三块（争点/依据）。
@@ -575,39 +574,41 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
                     onClick={() => {
                       const mid = detail.matterId!.trim();
                       const snippet = (reasoningMarkdown ?? "").trim().slice(0, 2000);
-                      void fetch(`${apiBase}/api/matters/${encodeURIComponent(mid)}/theory`, {
-                        method: "GET",
-                        headers: { accept: "application/json", ...apiAuthHeaders() },
-                      })
-                        .then((r) => r.json())
-                        .then(
-                          (cur: {
-                            theory?: {
-                              issues?: string;
-                              authorities?: string;
-                              openQuestions?: string;
-                              anchored?: boolean;
-                            } | null;
-                          }) => {
-                            const prev = cur.theory;
-                            const issues = [
-                              prev?.issues?.trim(),
-                              snippet ? `【自推理图采纳】\n${snippet}` : "",
-                            ]
-                              .filter(Boolean)
-                              .join("\n\n");
-                            return fetch(`${apiBase}/api/matters/${encodeURIComponent(mid)}/theory`, {
+                      void fetchApiJson<{
+                        theory?: {
+                          issues?: string;
+                          authorities?: string;
+                          openQuestions?: string;
+                          anchored?: boolean;
+                        } | null;
+                      }>(
+                        `${apiBase}/api/matters/${encodeURIComponent(mid)}/theory`,
+                        { headers: { accept: "application/json" } },
+                        { tag: "review:theory-get" },
+                      )
+                        .then((cur) => {
+                          const prev = cur.theory;
+                          const issues = [
+                            prev?.issues?.trim(),
+                            snippet ? `【自法律分析采纳】\n${snippet}` : "",
+                          ]
+                            .filter(Boolean)
+                            .join("\n\n");
+                          return fetchApiJson<unknown>(
+                            `${apiBase}/api/matters/${encodeURIComponent(mid)}/theory`,
+                            {
                               method: "PUT",
-                              headers: { "content-type": "application/json", ...apiAuthHeaders() },
+                              headers: { "content-type": "application/json" },
                               body: JSON.stringify({
                                 issues,
                                 authorities: prev?.authorities ?? "",
                                 openQuestions: prev?.openQuestions ?? "",
                                 anchored: prev?.anchored ?? false,
                               }),
-                            });
-                          },
-                        )
+                            },
+                            { tag: "review:theory-put" },
+                          );
+                        })
                         .catch(() => undefined);
                     }}
                   >
@@ -656,10 +657,7 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
                 disabled={deferMemoryWrites || actionBusy || !reviewPending}
                 onChange={(e) => onAppendToProfileChange(e.target.checked)}
               />
-              <span>
-                将本条审核摘要记入本助手档案（
-                <code>{`assistants/${assistantId}/PROFILE.md`}</code>）
-              </span>
+              <span>将本条审核摘要记入本助手档案（供后续案件参考）</span>
             </label>
             <label className="lm-review-profile-toggle">
               <input
@@ -668,9 +666,7 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
                 disabled={deferMemoryWrites || actionBusy || !reviewPending}
                 onChange={(e) => onAppendToLawyerProfileChange(e.target.checked)}
               />
-              <span>
-                将本条审核摘要记入工作区律师档案「八、个人积累」（<code>LAWYER_PROFILE.md</code>）
-              </span>
+              <span>将本条审核摘要记入工作区律师档案「八、个人积累」</span>
             </label>
           </div>
         </details>

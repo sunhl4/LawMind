@@ -44,6 +44,8 @@ import {
   resolveAppliedPreferencesFooterMode,
   resolveMatterMandatoryRulesForPrompt,
 } from "../policy/workspace-policy.js";
+import { buildAuthorityCorpusSummary } from "../retrieval/authority-health.js";
+import { isAuthorityLive } from "../retrieval/authority-source-tier.js";
 import {
   deliverableTypeFromInstruction,
   instructionLooksLikeFilledIntake,
@@ -77,6 +79,41 @@ function pushWorldStateExtra(extraBlocks: string[], id: WorldStateSectionId, bod
   }
 }
 
+export type AssistantTooling = {
+  assistantProfileMarkdown: string;
+  presetForTools: ReturnType<typeof getAssistantPreset> | undefined;
+  roleForTools: ReturnType<typeof getRoleById> | undefined;
+};
+
+/**
+ * 解析当前助手的岗位/预设（含工具白名单口径）。runTurn 在构建 prompt 前调用：
+ * 「本轮生效工具集」必须先于 system prompt 定稿，prompt 工具目录才与之同源。
+ */
+export function resolveAssistantTooling(opts: {
+  workspaceDir: string;
+  resolvedAssistantId?: string;
+}): AssistantTooling {
+  let assistantProfileMarkdown = "";
+  let presetForTools: AssistantTooling["presetForTools"];
+  let roleForTools: AssistantTooling["roleForTools"];
+  if (opts.resolvedAssistantId) {
+    try {
+      const lawMindRootForProfile = resolveLawMindRoot(opts.workspaceDir);
+      assistantProfileMarkdown = readAssistantProfileMarkdown(
+        lawMindRootForProfile,
+        opts.resolvedAssistantId,
+      );
+      const prof = getAssistantById(lawMindRootForProfile, opts.resolvedAssistantId);
+      presetForTools = getAssistantPreset(prof?.presetKey);
+      // W7：优先用 Role；过渡期回退到 preset。
+      roleForTools = getRoleById(prof?.roleId ?? prof?.presetKey);
+    } catch {
+      assistantProfileMarkdown = "";
+    }
+  }
+  return { assistantProfileMarkdown, presetForTools, roleForTools };
+}
+
 export async function prepareTurnPromptContext(opts: {
   config: AgentConfig;
   registry: ToolRegistry;
@@ -88,6 +125,14 @@ export async function prepareTurnPromptContext(opts: {
   teamMeetingMode?: boolean;
   contextPins?: ComposeContextPin[];
   permissionMode?: AgentPermissionMode;
+  /**
+   * 本轮生效工具集（已经权限模式/角色/playbook lock/隐藏策略过滤）。
+   * 提供时「可用工具」一节由该集合生成：prompt 广告清单与管线可执行集单一真相源。
+   * 缺省回退到核心目录（仅供测试与无过滤场景）。
+   */
+  availableToolNames?: string[];
+  /** 调用方已解析的助手岗位/预设（避免重复读助手档案）。 */
+  assistantTooling?: AssistantTooling;
 }): Promise<{
   memory: MemoryContext;
   systemPromptFinal: string;
@@ -113,24 +158,12 @@ export async function prepareTurnPromptContext(opts: {
 
   const memory = await loadMemoryContext(config.workspaceDir, { matterId: session.matterId });
 
-  let assistantProfileMarkdown = "";
-  let presetForTools: ReturnType<typeof getAssistantPreset> | undefined;
-  let roleForTools: ReturnType<typeof getRoleById> | undefined;
-  if (resolvedAssistantId) {
-    try {
-      const lawMindRootForProfile = resolveLawMindRoot(config.workspaceDir);
-      assistantProfileMarkdown = readAssistantProfileMarkdown(
-        lawMindRootForProfile,
-        resolvedAssistantId,
-      );
-      const prof = getAssistantById(lawMindRootForProfile, resolvedAssistantId);
-      presetForTools = getAssistantPreset(prof?.presetKey);
-      // W7：优先用 Role；过渡期回退到 preset。
-      roleForTools = getRoleById(prof?.roleId ?? prof?.presetKey);
-    } catch {
-      assistantProfileMarkdown = "";
-    }
-  }
+  const { assistantProfileMarkdown, presetForTools, roleForTools } =
+    opts.assistantTooling ??
+    resolveAssistantTooling({
+      workspaceDir: config.workspaceDir,
+      resolvedAssistantId,
+    });
 
   let peerAssistants: Array<{ id: string; displayName: string; roleTitle: string }> | undefined;
   let peerAssistantsBusy: Array<{ id: string; displayName: string; roleTitle: string }> | undefined;
@@ -190,7 +223,7 @@ export async function prepareTurnPromptContext(opts: {
       : undefined;
   const executablePrefs = loadExecutablePreferences(config.workspaceDir, memory.profile ?? "", 6);
   let appliedPreferencesHint = formatExecutablePreferencesHint(executablePrefs);
-  const stanceHint = formatStanceHint(config.workspaceDir);
+  const stanceHint = formatStanceHint(config.workspaceDir, { matterId: session.matterId });
   if (stanceHint) {
     appliedPreferencesHint = appliedPreferencesHint
       ? `${appliedPreferencesHint}\n\n${stanceHint}`
@@ -202,6 +235,8 @@ export async function prepareTurnPromptContext(opts: {
     (footerMode === "always" || (footerMode === "first" && session.turns.length === 0));
   const agentPromptVerbosity = resolveAgentPromptVerbosity(workspacePolicy);
   const promptCatalog = new Set(promptCatalogToolNames());
+  // 单一真相源：调用方传入的本轮生效工具集优先；缺省才回退核心目录。
+  const availableNames = opts.availableToolNames ? new Set(opts.availableToolNames) : promptCatalog;
   const envelope = resolveCapabilityEnvelope({
     contextTokens: config.model.contextTokens ?? workspacePolicy?.context?.contextTokens,
     timeoutMs: config.model.timeoutMs,
@@ -245,7 +280,7 @@ export async function prepareTurnPromptContext(opts: {
     todayLog: truncateForPrompt(memory.todayLog, promptWindow.dayLogChars) || undefined,
     availableTools: registry
       .listDefinitions()
-      .filter((def) => promptCatalog.has(def.name))
+      .filter((def) => availableNames.has(def.name))
       .toSorted((a, b) => a.name.localeCompare(b.name)),
     matterId: session.matterId,
     roleTitle: config.roleTitle,
@@ -254,6 +289,10 @@ export async function prepareTurnPromptContext(opts: {
     roleRiskCeiling: presetForTools?.riskCeiling,
     roleAcceptanceChecklist: presetForTools?.acceptanceChecklist,
     allowWebSearch: config.allowWebSearch === true,
+    authorityLive: isAuthorityLive(),
+    authorityProviderLabel: isAuthorityLive()
+      ? buildAuthorityCorpusSummary().providerLabel
+      : undefined,
     collaborationEnabled: config.enableCollaboration === true,
     peerAssistants,
     peerAssistantsBusy,
@@ -481,8 +520,81 @@ export async function prepareTurnPromptContext(opts: {
       pins: opts.contextPins,
     });
     if (bound) {
-      const bodies = readSkillPromptBodies(config.workspaceDir, bound.skillIds);
-      extraBlocks.push(`\n\n${formatBoundCapabilityBlock(bound, bodies)}`);
+      const { planLeanSkillPrompt } = await import("../skills/skill-prompt-budget.js");
+      const lean = planLeanSkillPrompt(bound, instruction);
+      const bodies = readSkillPromptBodies(config.workspaceDir, lean.primaryIds);
+      extraBlocks.push(
+        `\n\n${formatBoundCapabilityBlock(bound, bodies, { indexLines: lean.indexLines })}`,
+      );
+      const {
+        formatPracticePlaybookPromptBlock,
+        loadPracticePlaybook,
+        shouldInjectPracticePlaybook,
+      } = await import("../practice/practice-playbook.js");
+      if (shouldInjectPracticePlaybook(bound)) {
+        extraBlocks.push(
+          `\n\n${formatPracticePlaybookPromptBlock(loadPracticePlaybook(config.workspaceDir))}`,
+        );
+      }
+      const { formatUserStandardsPromptBlock, matchUserStandards, shouldInjectUserStandards } =
+        await import("../practice/user-standards.js");
+      if (shouldInjectUserStandards(bound)) {
+        const { inferClosedContractType } = await import("../contracts/closed-contract-type.js");
+        const stdBlock = formatUserStandardsPromptBlock(
+          matchUserStandards(config.workspaceDir, {
+            instruction,
+            contractType: inferClosedContractType(instruction).id,
+          }),
+        );
+        if (stdBlock) {
+          extraBlocks.push(`\n\n${stdBlock}`);
+        }
+      }
+      const {
+        formatClosedContractTypePromptBlock,
+        inferClosedContractType,
+        shouldInjectClosedContractType,
+      } = await import("../contracts/closed-contract-type.js");
+      if (shouldInjectClosedContractType(bound)) {
+        extraBlocks.push(
+          `\n\n${formatClosedContractTypePromptBlock(inferClosedContractType(instruction))}`,
+        );
+      }
+      const { formatAudienceSplitPromptBlock, inferDraftAudience, shouldInjectAudienceSplit } =
+        await import("../drafts/audience-split.js");
+      if (shouldInjectAudienceSplit(bound)) {
+        extraBlocks.push(`\n\n${formatAudienceSplitPromptBlock(inferDraftAudience(instruction))}`);
+      }
+      const { shouldInjectRedlinePlanProtocol, formatRedlinePlanPromptBlock } =
+        await import("../drafts/redline-plan.js");
+      if (shouldInjectRedlinePlanProtocol(bound)) {
+        extraBlocks.push(`\n\n${formatRedlinePlanPromptBlock()}`);
+      }
+      const { shouldInjectPairedReviewDeliverable, formatPairedReviewDeliverablePromptBlock } =
+        await import("../drafts/paired-review-deliverable.js");
+      if (shouldInjectPairedReviewDeliverable(bound, opts.contextPins)) {
+        extraBlocks.push(`\n\n${formatPairedReviewDeliverablePromptBlock()}`);
+      }
+      const { shouldInjectResearchProtocol, formatResearchProtocolPromptBlock } =
+        await import("../research/research-protocol.js");
+      if (shouldInjectResearchProtocol(bound)) {
+        extraBlocks.push(`\n\n${formatResearchProtocolPromptBlock()}`);
+      }
+      const {
+        shouldInjectBilateralReview,
+        inferPaperSide,
+        inferDealRole,
+        formatBilateralReviewPromptBlock,
+      } = await import("../practice/bilateral-review.js");
+      if (shouldInjectBilateralReview(bound)) {
+        extraBlocks.push(
+          `\n\n${formatBilateralReviewPromptBlock({
+            paper: inferPaperSide(instruction),
+            role: inferDealRole(instruction, inferClosedContractType(instruction).id),
+            playbook: loadPracticePlaybook(config.workspaceDir),
+          })}`,
+        );
+      }
     }
     const dt = deliverableTypeFromInstruction(instruction);
     const looksOpinion =

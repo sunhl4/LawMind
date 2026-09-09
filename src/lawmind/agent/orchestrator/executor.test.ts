@@ -4,7 +4,11 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { upsertAssistant } from "../../assistants/store.js";
 import type { AgentConfig } from "../types.js";
-import { executeWorkflow, resolveStepAssigneeByRole } from "./executor.js";
+import {
+  executeWorkflow,
+  findWorkflowDependencyCycle,
+  resolveStepAssigneeByRole,
+} from "./executor.js";
 import type { CollaborationWorkflow, WorkflowStep } from "./types.js";
 
 const mockSendAndWait = vi.hoisted(() =>
@@ -194,6 +198,111 @@ describe("executeWorkflow shouldAbort", () => {
     expect(first?.runningStepIds?.length ?? 0).toBe(0);
     const last = onProgress.mock.calls[onProgress.mock.calls.length - 1]?.[0];
     expect(last?.completedSteps).toBe(2);
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+  });
+});
+
+function wfWithSteps(
+  steps: Array<Pick<WorkflowStep, "stepId" | "task"> & { dependsOn?: string[] }>,
+): CollaborationWorkflow {
+  const now = new Date().toISOString();
+  return {
+    workflowId: "wf-deps",
+    name: "Dependency test",
+    description: "",
+    steps: steps.map((s) => ({
+      stepId: s.stepId,
+      assignee: "asst-a",
+      task: s.task,
+      dependsOn: s.dependsOn ?? [],
+      autoApprove: true,
+      status: "pending" as const,
+    })),
+    status: "draft",
+    createdBy: "lawyer",
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+describe("executeWorkflow dependency graph hardening", () => {
+  beforeEach(() => {
+    mockSendAndWait.mockImplementation(async () => ({
+      reply: "delegation-reply",
+      sessionId: "sess-1",
+    }));
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it("detects a dependency cycle (A→B→A) and throws instead of silently stalling", async () => {
+    const workspaceDir = tmpWorkspace();
+    const workflow = wfWithSteps([
+      { stepId: "a", task: "step a", dependsOn: ["b"] },
+      { stepId: "b", task: "step b", dependsOn: ["a"] },
+    ]);
+    await expect(executeWorkflow(stubConfig(workspaceDir), workflow)).rejects.toThrow(/循环依赖/);
+    expect(mockSendAndWait).not.toHaveBeenCalled();
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+  });
+
+  it("detects a self-dependency cycle", () => {
+    const steps = wfWithSteps([{ stepId: "a", task: "step a", dependsOn: ["a"] }]).steps;
+    expect(findWorkflowDependencyCycle(steps)).toEqual(["a", "a"]);
+    expect(findWorkflowDependencyCycle(wfTwoStepChain().steps)).toBeNull();
+  });
+
+  it("propagates dependency failure: dependents are skipped (transitively) with a reason", async () => {
+    const workspaceDir = tmpWorkspace();
+    mockSendAndWait.mockImplementation(async (args: { message: string }) => {
+      if (args.message.includes("failing-step")) {
+        throw new Error("delegation failed");
+      }
+      return { reply: "delegation-reply", sessionId: "sess-1" };
+    });
+    const workflow = wfWithSteps([
+      { stepId: "s1", task: "failing-step" },
+      { stepId: "s2", task: "depends on s1", dependsOn: ["s1"] },
+      { stepId: "s3", task: "depends on s2", dependsOn: ["s2"] },
+      { stepId: "s4", task: "independent" },
+    ]);
+    const finished = await executeWorkflow(stubConfig(workspaceDir), workflow);
+
+    const byId = new Map(finished.steps.map((s) => [s.stepId, s]));
+    expect(byId.get("s1")?.status).toBe("failed");
+    expect(byId.get("s2")?.status).toBe("skipped");
+    expect(byId.get("s2")?.error).toContain("s1");
+    expect(byId.get("s3")?.status).toBe("skipped");
+    expect(byId.get("s4")?.status).toBe("completed");
+    // s2 / s3 不再派发：只有 s1 与 s4 真正执行。
+    expect(mockSendAndWait).toHaveBeenCalledTimes(2);
+    expect(finished.status).toBe("failed");
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+  });
+
+  it("caps parallel step dispatch at the configured concurrency", async () => {
+    const workspaceDir = tmpWorkspace();
+    vi.stubEnv("LAWMIND_MAX_TOOL_CONCURRENCY", "3");
+    let inFlight = 0;
+    let maxInFlight = 0;
+    mockSendAndWait.mockImplementation(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 10));
+      inFlight -= 1;
+      return { reply: "delegation-reply", sessionId: "sess-1" };
+    });
+    const workflow = wfWithSteps(
+      Array.from({ length: 7 }, (_, i) => ({ stepId: `p${i}`, task: `parallel ${i}` })),
+    );
+    const finished = await executeWorkflow(stubConfig(workspaceDir), workflow);
+
+    expect(finished.status).toBe("completed");
+    expect(mockSendAndWait).toHaveBeenCalledTimes(7);
+    expect(maxInFlight).toBe(3);
     fs.rmSync(workspaceDir, { recursive: true, force: true });
   });
 });

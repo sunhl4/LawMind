@@ -6,6 +6,7 @@ import { LawmindMailAccountsSection } from "./LawmindMailAccountsSection";
 import { LawmindOutboundSignoffCallout } from "./LawmindOutboundSignoffCallout";
 import { formatAutomationLastResultForLawyer } from "./lawmind-automation-last-result";
 import { formatRelativeTime } from "./lawmind-app-utils";
+import { confirmDialog } from "./lawmind-confirm-dialog";
 import { isOutboundAutomationContext } from "../../../../src/lawmind/platform/lawyer-outbound-decision.ts";
 
 type Schedule =
@@ -350,7 +351,14 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
   };
 
   const remove = async (a: Automation) => {
-    if (!window.confirm(`确定删除交办任务「${a.title}」？此操作不可撤销。`)) {
+    if (
+      !(await confirmDialog({
+        title: `确定删除交办任务「${a.title}」？`,
+        body: "此操作不可撤销。",
+        confirmLabel: "删除",
+        tone: "danger",
+      }))
+    ) {
       return;
     }
     setBusy(true);

@@ -1,268 +1,48 @@
 /**
  * Parse LawMind local API error responses for display hints (chat retry guidance).
+ *
+ * 实现已迁移至 api-client-proxy.ts：本文件保留 loopback 401 重试逻辑与
+ * apiGetJson / apiSendJson 兼容签名，并 re-export 代理层的错误与工具函数。
  */
 
-import { apiAuthHeaders, getLoopbackApiAuthToken } from "./lawmind-api-auth.ts";
 import { refreshLoopbackAuthFromDesktop } from "./lawmind-dev-config-cache.ts";
-
 import {
-  friendlyModelErrorMessage,
-  isModelProviderErrorMessage,
-} from "../../../../src/lawmind/agent/model-error-message.ts";
+  ApiRequestError,
+  type ApiErrorJson,
+  fetchApi,
+  type ProxyFetchOptions,
+  readJsonFromResponse,
+  userMessageFromApiError,
+} from "./api-client-proxy.ts";
 
-export type ApiErrorJson = {
-  ok?: boolean;
-  code?: string;
-  message?: string;
-  error?: string;
-  /** 服务端给出的可操作提示（如路由未匹配时的升级说明） */
-  hint?: string;
-  reason?: string;
-  description?: string;
-  /** FastAPI / Nest 等可能返回字符串、对象或校验项数组 */
-  detail?: string | unknown[] | Record<string, unknown>;
-};
-
-export class ApiRequestError extends Error {
-  status: number;
-  body: ApiErrorJson | null;
-
-  constructor(status: number, message: string, body: ApiErrorJson | null = null) {
-    super(message);
-    this.name = "ApiRequestError";
-    this.status = status;
-    this.body = body;
-  }
-}
-
-function normalizeDetail(detail: unknown): string {
-  if (detail == null) {
-    return "";
-  }
-  if (typeof detail === "string") {
-    return detail.trim();
-  }
-  if (Array.isArray(detail)) {
-    const parts = detail.map((item) => {
-      if (typeof item === "string") {
-        return item.trim();
-      }
-      if (item && typeof item === "object") {
-        const o = item as Record<string, unknown>;
-        const msg =
-          typeof o.msg === "string"
-            ? o.msg
-            : typeof o.message === "string"
-              ? o.message
-              : "";
-        const loc = o.loc;
-        const locStr = Array.isArray(loc)
-          ? loc
-              .filter((x) => typeof x === "string" || typeof x === "number")
-              .map(String)
-              .join(".")
-          : "";
-        if (msg && locStr) {
-          return `${locStr}: ${msg}`;
-        }
-        if (msg) {
-          return msg;
-        }
-      }
-      try {
-        return JSON.stringify(item);
-      } catch {
-        return String(item);
-      }
-    });
-    return parts.filter(Boolean).join("；");
-  }
-  if (typeof detail === "object") {
-    try {
-      return JSON.stringify(detail);
-    } catch {
-      return "[unserializable detail]";
-    }
-  }
-  if (typeof detail === "number" || typeof detail === "bigint" || typeof detail === "boolean") {
-    return String(detail);
-  }
-  if (typeof detail === "symbol") {
-    return detail.toString();
-  }
-  return "";
-}
-
-/** HTTP 200 且 JSON 里 `ok: false` 时，从常见字段拼可读说明（去重）。 */
-export function messageFromOkFalseBody(body: unknown, fallback: string): string {
-  if (!body || typeof body !== "object") {
-    return fallback;
-  }
-  const b = body as ApiErrorJson & Record<string, unknown>;
-  const chunks: string[] = [];
-  const push = (s: string) => {
-    const t = s.trim();
-    if (t && !chunks.includes(t)) {
-      chunks.push(t);
-    }
-  };
-  if (typeof b.message === "string") {
-    push(b.message);
-  }
-  if (typeof b.error === "string") {
-    push(b.error);
-  }
-  if (typeof b.reason === "string") {
-    push(b.reason);
-  }
-  if (typeof b.description === "string") {
-    push(b.description);
-  }
-  const d = normalizeDetail(b.detail);
-  if (d) {
-    push(d);
-  }
-  if (chunks.length > 0) {
-    return chunks.join(" — ");
-  }
-  return fallback;
-}
-
-/** Shared copy for compose banner, readiness strip, and send-time errors. */
-export const MODEL_NOT_CONFIGURED_USER_HINT =
-  "请在设置中打开「API 配置向导」填写模型 API Key（保存到本机模型设置文件）。";
-
-const CODE_HINTS: Record<string, string> = {
-  missing_api_key: MODEL_NOT_CONFIGURED_USER_HINT,
-  missing_provider_api_key:
-    "当前所选模型的服务商尚未配置 Key。请打开 API 配置向导填写对应服务商密钥，或添加自定义模型。",
-  invalid_api_token:
-    "本机服务鉴权失败（与模型 API Key 无关）。请完全退出并重启 LawMind 桌面端后再试。",
-  invalid_matter_id: "案件 ID 格式不正确。请使用字母或数字开头，2–128 字符，仅含字母、数字、点、下划线、连字符。",
-  message_required: "请输入有效内容后再发送。",
-  invalid_matter_id_chat: "当前关联的案件 ID 无效，请清空或更正后再试。",
-  session_assistant_mismatch: "该会话属于其他助手，请新开对话或清空会话后重试。",
-  approval_already_resolved: "该审批已被处理，请刷新待办后查看最新状态。",
-  model_unavailable: "模型暂时不可用。请检查 API Key、账户状态与网络连接。",
-  model_network_error: "无法连接模型服务。请检查 Base URL、本机网络/代理，或在设置中测试模型连接。",
-  missing_platform_api_key: "平台模型未开通。请使用 API 配置向导自备 Key，或联系管理员配置平台模型。",
-};
-
-const MODEL_ERROR_CODES = new Set(["model_unavailable", "model_network_error"]);
-
-export function userMessageFromApiError(status: number, body: ApiErrorJson): string {
-  const code = typeof body.code === "string" ? body.code : "";
-  const chunks: string[] = [];
-  const push = (s: string) => {
-    const t = s.trim();
-    if (t && !chunks.includes(t)) {
-      chunks.push(t);
-    }
-  };
-  if (typeof body.message === "string") {
-    push(body.message);
-  }
-  if (typeof body.error === "string") {
-    push(body.error);
-  }
-  if (typeof body.reason === "string") {
-    push(body.reason);
-  }
-  if (typeof body.description === "string") {
-    push(body.description);
-  }
-  const detailStr = normalizeDetail(body.detail);
-  if (detailStr) {
-    push(detailStr);
-  }
-  if (typeof body.hint === "string" && body.hint.trim()) {
-    push(body.hint.trim());
-  }
-  const joined = chunks.join(" — ");
-  if (MODEL_ERROR_CODES.has(code)) {
-    if (joined) {
-      return friendlyModelErrorMessage(joined);
-    }
-    return CODE_HINTS[code] ?? "模型暂时不可用。请检查 API Key、账户状态与网络连接。";
-  }
-  if (joined && isModelProviderErrorMessage(joined)) {
-    return friendlyModelErrorMessage(joined);
-  }
-  const statusHint =
-    status === 404
-      ? "未找到资源"
-      : status === 408 || status === 504
-        ? "请求超时"
-        : status === 429
-          ? "请求过于频繁"
-          : status >= 500
-            ? "服务暂时不可用"
-            : status >= 400
-              ? "请求未成功"
-              : "请求失败";
-  const base = joined || statusHint;
-  const hint = code && CODE_HINTS[code] ? CODE_HINTS[code] : "";
-  if (code === "invalid_api_token") {
-    return hint;
-  }
-  if (status === 503 || status === 502) {
-    return hint || `${base} 请检查 API Key、网络与本地服务是否正常。`;
-  }
-  if (status === 401 || status === 403) {
-    return hint || `${base} 请检查 API Key 是否有效、是否过期。`;
-  }
-  if (
-    status === 409 &&
-    (code === "session_assistant_mismatch" || code === "approval_already_resolved")
-  ) {
-    return hint ? `${base} ${hint}` : base;
-  }
-  return hint ? `${base} ${hint}` : base;
-}
-
-export function chatErrorUserText(status: number, body: ApiErrorJson): string {
-  return userMessageFromApiError(status, body);
-}
-
-/** 读取响应正文并解析 JSON；失败时抛出 ApiRequestError（含片段原文，便于排查网关/HTML 报错页）。 */
-export async function readJsonFromResponse<T>(response: Response): Promise<T & ApiErrorJson> {
-  const text = await response.text();
-  if (!text.trim()) {
-    return {} as T & ApiErrorJson;
-  }
-  try {
-    return JSON.parse(text) as T & ApiErrorJson;
-  } catch {
-    const snippet = text.slice(0, 240).replace(/\s+/g, " ").trim();
-    const tail = text.length > 240 ? "…" : "";
-    throw new ApiRequestError(
-      response.status,
-      snippet
-        ? `服务返回了无法识别的内容：${snippet}${tail}`
-        : "服务返回了无法识别的内容，请稍后重试或检查本地服务。",
-      null,
-    );
-  }
-}
+export {
+  ApiRequestError,
+  type ApiErrorJson,
+  chatErrorUserText,
+  errorMessage,
+  fetchApi,
+  type OutboundAuditDetail,
+  type ProxyFetchOptions,
+  isModelFailureError,
+  messageFromOkFalseBody,
+  MODEL_NOT_CONFIGURED_USER_HINT,
+  readJsonFromResponse,
+  userMessageFromApiError,
+  setDefaultApiBaseForTests,
+  setLoopbackApiAuthTokenForTests,
+  getLoopbackApiAuthTokenForTests,
+} from "./api-client-proxy.ts";
 
 function isLoopbackAuthFailure(status: number, body: ApiErrorJson): boolean {
   return status === 401 && (body.code === "invalid_api_token" || body.error === "unauthorized");
 }
 
-async function maybeRetryLoopbackAuth(apiBase: string): Promise<string | null> {
-  const beforeToken = getLoopbackApiAuthToken();
-  const beforeBase = apiBase.replace(/\/$/, "");
+async function maybeRetryLoopbackAuth(): Promise<{ apiBase: string } | null> {
   const fresh = await refreshLoopbackAuthFromDesktop();
   if (!fresh) {
     return null;
   }
-  const nextBase = fresh.apiBase.replace(/\/$/, "");
-  const tokenChanged = (fresh.apiAuthToken ?? "") !== (beforeToken ?? "");
-  const baseChanged = nextBase !== beforeBase;
-  if (!tokenChanged && !baseChanged) {
-    return null;
-  }
-  return nextBase;
+  return { apiBase: fresh.apiBase.replace(/\/$/, "") };
 }
 
 /** Re-issue a loopback fetch after Electron hands over a new port/token. */
@@ -275,21 +55,21 @@ export async function fetchWithLoopbackAuthRetry(
   if (response.status !== 401) {
     return { response, apiBase: startBase };
   }
-  const nextBase = await maybeRetryLoopbackAuth(startBase);
+  const nextBase = await maybeRetryLoopbackAuth();
   if (!nextBase) {
     return { response, apiBase: startBase };
   }
-  return { response: await run(nextBase), apiBase: nextBase };
+  return { response: await run(nextBase.apiBase), apiBase: nextBase.apiBase };
 }
 
 export async function apiGetJson<T>(apiBase: string, path: string): Promise<T> {
-  const run = (base: string) => fetch(`${base}${path}`, { headers: apiAuthHeaders() });
+  const run = (base: string) => fetchApi(`${base}${path}`, {}, { tag: "apiGetJson" });
   let response = await run(apiBase);
   let body = await readJsonFromResponse<T>(response);
   if (!response.ok && isLoopbackAuthFailure(response.status, body)) {
-    const nextBase = await maybeRetryLoopbackAuth(apiBase);
+    const nextBase = await maybeRetryLoopbackAuth();
     if (nextBase) {
-      response = await run(nextBase);
+      response = await run(nextBase.apiBase);
       body = await readJsonFromResponse<T>(response);
     }
   }
@@ -310,17 +90,21 @@ export async function apiSendJson<TResponse, TBody>(
   body?: TBody,
 ): Promise<TResponse> {
   const run = (base: string) =>
-    fetch(`${base}${path}`, {
-      method,
-      headers: { "content-type": "application/json", ...apiAuthHeaders() },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    fetchApi(
+      `${base}${path}`,
+      {
+        method,
+        headers: { "content-type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      },
+      { tag: "apiSendJson" },
+    );
   let response = await run(apiBase);
   let responseBody = await readJsonFromResponse<TResponse>(response);
   if (!response.ok && isLoopbackAuthFailure(response.status, responseBody)) {
-    const nextBase = await maybeRetryLoopbackAuth(apiBase);
+    const nextBase = await maybeRetryLoopbackAuth();
     if (nextBase) {
-      response = await run(nextBase);
+      response = await run(nextBase.apiBase);
       responseBody = await readJsonFromResponse<TResponse>(response);
     }
   }
@@ -332,43 +116,4 @@ export async function apiSendJson<TResponse, TBody>(
     );
   }
   return responseBody;
-}
-
-export function isModelFailureError(error: unknown): boolean {
-  if (error instanceof ApiRequestError) {
-    const code = typeof error.body?.code === "string" ? error.body.code : "";
-    if (MODEL_ERROR_CODES.has(code)) {
-      return true;
-    }
-    return isModelProviderErrorMessage(error.message);
-  }
-  if (error instanceof Error) {
-    return isModelProviderErrorMessage(error.message);
-  }
-  return false;
-}
-
-export function errorMessage(error: unknown, fallback: string): string {
-  if (error instanceof ApiRequestError) {
-    const msg = error.message.trim();
-    if (!msg) {
-      return fallback;
-    }
-    if (isModelFailureError(error)) {
-      return friendlyModelErrorMessage(msg);
-    }
-    // 不落工程师前缀 [HTTP N]：状态码并入中文语境。
-    if (error.status >= 400 && !msg.includes("服务暂时不可用") && !msg.includes("请求未成功") && !msg.includes(`HTTP ${error.status}`) && !msg.includes("无法识别的内容") && !msg.includes(`无法解析 JSON`)) {
-      return `${msg}（服务返回 ${error.status}）`;
-    }
-    return msg;
-  }
-  if (error instanceof Error && error.message.trim()) {
-    const msg = error.message.trim();
-    if (isModelProviderErrorMessage(msg)) {
-      return friendlyModelErrorMessage(msg);
-    }
-    return msg;
-  }
-  return fallback;
 }

@@ -3,25 +3,14 @@
  * Speaks the same initialize / tools/list / tools/call as scripts/lawmind/mcp-readonly-server.ts.
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
 import readline from "node:readline";
+import { createOutboundProxy } from "../platform/outbound-proxy.js";
+import { buildMinimalChildEnv, safeCommand } from "../platform/safe-command.js";
 import { normalizeMcpHttpUrl } from "./mcp-servers-config.js";
 
 /** MCP child must not inherit model keys or workspace secrets. */
 export function buildMcpChildEnv(extra?: NodeJS.ProcessEnv): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const key of ["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "USER", "LOGNAME"] as const) {
-    const value = process.env[key];
-    if (typeof value === "string" && value) {
-      out[key] = value;
-    }
-  }
-  for (const [key, value] of Object.entries(extra ?? {})) {
-    if (typeof value === "string" && value) {
-      out[key] = value;
-    }
-  }
-  return out;
+  return buildMinimalChildEnv(extra);
 }
 
 export type McpListedTool = {
@@ -57,14 +46,18 @@ export async function connectMcpStdio(opts: {
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
 }): Promise<McpSession> {
-  const child: ChildProcess = spawn(opts.command, opts.args ?? [], {
-    stdio: ["pipe", "pipe", "pipe"],
-    shell: false,
+  // 统一命令网关：校验命令、参数、环境，禁用 shell，并记录 safe_command 审计。
+  const handle = safeCommand({
+    command: opts.command,
+    args: opts.args,
     env: buildMcpChildEnv(opts.env),
+    stdio: ["pipe", "pipe", "pipe"],
+    timeoutMs: 0,
   });
+  const child = handle.child;
   child.stderr?.resume();
   if (!child.stdout || !child.stdin) {
-    child.kill();
+    handle.kill();
     throw new Error("stdio MCP 进程没有管道");
   }
   const pending = new Map<number, Pending>();
@@ -122,7 +115,7 @@ export async function connectMcpStdio(opts: {
     await send("notifications/initialized", undefined, false);
   } catch (err) {
     rl.close();
-    child.kill();
+    handle.kill();
     throw err;
   }
 
@@ -136,7 +129,7 @@ export async function connectMcpStdio(opts: {
     },
     async close() {
       rl.close();
-      child.kill();
+      handle.kill();
     },
   };
 }
@@ -145,8 +138,9 @@ export async function connectMcpHttp(opts: {
   url: string;
   secret?: string;
   timeoutMs?: number;
+  allowInsecureHttp?: boolean;
 }): Promise<McpSession> {
-  const url = normalizeMcpHttpUrl(opts.url);
+  const url = normalizeMcpHttpUrl(opts.url, { allowInsecureHttp: opts.allowInsecureHttp === true });
   if (!url.ok) {
     throw new Error(url.error);
   }
@@ -154,12 +148,17 @@ export async function connectMcpHttp(opts: {
   if (opts.secret) {
     headers.authorization = `Bearer ${opts.secret}`;
   }
+  // 统一出口代理：将 MCP HTTP 流量纳入审计与 SSRF 策略。
+  const proxy = createOutboundProxy({
+    allowInsecure: opts.allowInsecureHttp === true,
+    requestTag: "mcp-http",
+  });
   const rpc = async (method: string, params?: Record<string, unknown>) => {
     const id = nextId();
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), opts.timeoutMs ?? 12_000);
     try {
-      const res = await fetch(url.url, {
+      const res = await proxy.fetch(url.url, {
         method: "POST",
         headers,
         body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
@@ -233,8 +232,9 @@ export async function connectMcpStdioSdk(opts: {
 export async function connectMcpHttpSdk(opts: {
   url: string;
   secret?: string;
+  allowInsecureHttp?: boolean;
 }): Promise<McpSession> {
-  const url = normalizeMcpHttpUrl(opts.url);
+  const url = normalizeMcpHttpUrl(opts.url, { allowInsecureHttp: opts.allowInsecureHttp === true });
   if (!url.ok) {
     throw new Error(url.error);
   }
@@ -245,8 +245,14 @@ export async function connectMcpHttpSdk(opts: {
   if (opts.secret) {
     headers.authorization = `Bearer ${opts.secret}`;
   }
+  const proxy = createOutboundProxy({
+    allowInsecure: opts.allowInsecureHttp === true,
+    requestTag: "mcp-http-sdk",
+  });
   const transport = new StreamableHTTPClientTransport(new URL(url.url), {
     requestInit: { headers },
+    fetch: ((input: Parameters<typeof fetch>[0], init?: RequestInit) =>
+      proxy.fetch(input, init)) as typeof fetch,
   });
   const client = new Client({ name: "lawmind", version: "0.2.0" });
   await client.connect(transport);

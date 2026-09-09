@@ -33,7 +33,11 @@ import { recordAuthorityUsage } from "./authority-usage.js";
 import type { RetrievalAdapter, RetrievalResult } from "./index.js";
 import { lexisAdapterMessage } from "./providers/lexis/placeholder.js";
 import { openLawRetrieve } from "./providers/open-law/client.js";
-import { pkulawRetrieve, resolvePkulawMode } from "./providers/pkulaw/client.js";
+import {
+  pkulawRetrieve,
+  resolvePkulawMode,
+  type PkulawSearchKind,
+} from "./providers/pkulaw/client.js";
 
 export type { AuthorityHit };
 
@@ -139,6 +143,8 @@ export function createAuthorityAdapterFromEnv(opts?: {
   corpusPath?: string;
   fetchImpl?: typeof fetch;
   lookup?: AuthorityDnsLookupFn;
+  /** Force 法宝 law vs case gateway (chat tools). */
+  searchKind?: PkulawSearchKind;
 }): RetrievalAdapter {
   const raw = resolveAuthorityEndpointRaw(opts);
   const fetchImpl = opts?.fetchImpl ?? fetch;
@@ -194,6 +200,7 @@ export function createAuthorityAdapterFromEnv(opts?: {
             mode: resolvePkulawMode(),
             fetchImpl: commercialFetch,
             lookup,
+            searchKind: opts?.searchKind,
           });
         } else {
           outcome = await retrieveGeneric({

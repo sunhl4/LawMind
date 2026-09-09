@@ -1,7 +1,6 @@
 import React from "react";
 import type { ArtifactDraft } from "../../../../../src/lawmind/types.ts";
 import { ReviewWorkbench } from "../ReviewWorkbench";
-import type { ReviewPaneId } from "../lawmind-review-pane-prefs";
 
 export type ReviewViewProps = {
   apiBase: string;
@@ -12,7 +11,6 @@ export type ReviewViewProps = {
   initialListMode: "pending" | "all";
   externalRefreshToken: number;
   returnMatterId: string | null;
-  paneVisibility: Record<ReviewPaneId, boolean>;
   onReturnToMatter: () => void;
   onShowArtifact: (relPath: string) => void;
   onRecordsChanged: () => void;
@@ -23,7 +21,6 @@ export type ReviewViewProps = {
     assistantId: string;
     taskId: string;
   }) => void;
-  onToggleReviewPane: (id: ReviewPaneId) => void;
 };
 
 function ReviewViewImpl(props: ReviewViewProps) {
@@ -44,8 +41,6 @@ function ReviewViewImpl(props: ReviewViewProps) {
         onGoToChat={props.onGoToChat}
         onOpenAgentsDesk={props.onOpenAgentsDesk}
         onRevisionJobQueued={props.onRevisionJobQueued}
-        paneVisibility={props.paneVisibility}
-        _onToggleReviewPane={props.onToggleReviewPane}
       />
     </div>
   );

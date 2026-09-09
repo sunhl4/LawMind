@@ -2,7 +2,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { formatGoldenExamplesPromptBlock, loadGoldenExamplesForDrafting } from "./golden-recall.js";
+import {
+  formatGoldenExamplesPromptBlock,
+  loadGoldenExamplesForDrafting,
+  scoreGoldenAgainstQuery,
+} from "./golden-recall.js";
+import type { GoldenExampleEntry } from "./golden.js";
 
 const dirs: string[] = [];
 
@@ -99,5 +104,61 @@ describe("golden-recall", () => {
       limit: 2,
     });
     expect(hints[0]?.taskId).toBe("task-body");
+  });
+
+  function entryWithBody(taskId: string, body: string): GoldenExampleEntry {
+    return {
+      taskId,
+      promotedAt: new Date().toISOString(),
+      hasReasoningSnapshot: false,
+      draft: {
+        taskId,
+        title: "综合法律意见",
+        reviewStatus: "approved",
+        reviewNotes: [],
+        output: "docx",
+        sections: [{ heading: "结论", body }],
+        createdAt: new Date().toISOString(),
+      },
+    };
+  }
+
+  it("body substring match fires the +2 signal (title/heading miss)", () => {
+    const hit = entryWithBody("t-hit", "违约金上限不得超过主合同标的额百分之二十。");
+    const miss = entryWithBody("t-miss", "本意见仅供内部参考。");
+    // 标题/章节/模板均不含 token，只有正文命中：+2 必须真实触发
+    expect(scoreGoldenAgainstQuery(hit, "违约金")).toBe(2);
+    expect(scoreGoldenAgainstQuery(miss, "违约金")).toBe(0);
+  });
+
+  it("ranks body-matched golden above title-only match without type boost", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-gold-body-"));
+    dirs.push(ws);
+    const gdir = path.join(ws, "golden");
+    fs.mkdirSync(gdir, { recursive: true });
+    const titleOnly = entryWithBody("task-t", "无关内容。");
+    titleOnly.draft.title = "违约金审查备忘";
+    const bodyHit = entryWithBody("task-b", "违约金上限需修订。");
+    for (const entry of [titleOnly, bodyHit]) {
+      fs.writeFileSync(
+        path.join(gdir, `${entry.taskId}.golden.json`),
+        JSON.stringify(entry),
+        "utf8",
+      );
+    }
+    fs.writeFileSync(
+      path.join(gdir, "golden.jsonl"),
+      `${JSON.stringify({ taskId: "task-t" })}\n${JSON.stringify({ taskId: "task-b" })}\n`,
+      "utf8",
+    );
+    const hints = loadGoldenExamplesForDrafting({
+      workspaceDir: ws,
+      instruction: "违约金",
+      limit: 2,
+    });
+    // 正文命中（+2）必须压过标题命中（+1）
+    expect(hints.map((h) => h.taskId)).toEqual(["task-b", "task-t"]);
+    expect(hints[0]?.score).toBe(2);
+    expect(hints[1]?.score).toBe(1);
   });
 });

@@ -7,14 +7,14 @@ hero:
   tagline: 合同审查、改稿签批、可交付文书——材料与审计留在本机，对外出口前由律师确认。
   actions:
     - theme: brand
-      text: 使用手册
-      link: /LAWMIND-USER-MANUAL
+      text: 律师快速指南
+      link: /LAWMIND-LAWYER-QUICKSTART
     - theme: alt
       text: 下载桌面版
       link: /download/
     - theme: alt
       text: 客户一页概览
-      link: /LAWMIND-CUSTOMER-OVERVIEW
+      link: /archive/LAWMIND-CUSTOMER-OVERVIEW
 
 features:
   - title: 交付闭环
@@ -31,16 +31,16 @@ features:
 2. 打开一份合同，走审查 → 改稿 → 签批 → 导出。
 3. 需要定时或邮件触发时，在「自动办件」处理结果并拍板。
 
-详见 [完整使用手册](/LAWMIND-USER-MANUAL) 与 [Deliverable-First](/LAWMIND-DELIVERABLE-FIRST)。
+详见 [律师快速指南](/LAWMIND-LAWYER-QUICKSTART) 与 [完整使用手册（归档）](/archive/LAWMIND-USER-MANUAL)。
 
 ## 信任与边界
 
 | 主题 | 说明 |
 | --- | --- |
-| 数据 | [数据处理说明](/LAWMIND-DATA-PROCESSING) |
-| 交付验收 | [客户交付](/LAWMIND-DELIVERY) · [验收清单](/LAWMIND-CUSTOMER-ACCEPTANCE) |
-| 集成边界 | [集成与产品边界](/LAWMIND-INTEGRATIONS) |
-| 私有化 | [私有化部署](/LAWMIND-PRIVATE-DEPLOY) |
+| 数据 | [数据处理说明](/archive/LAWMIND-DATA-PROCESSING) |
+| 交付验收 | [客户交付](/LAWMIND-DELIVERY) · [验收清单](/archive/LAWMIND-CUSTOMER-ACCEPTANCE) |
+| 集成边界 | [集成与产品边界](/archive/LAWMIND-INTEGRATIONS) |
+| 私有化 | [私有化部署](/archive/LAWMIND-PRIVATE-DEPLOY) |
 
 输出需经执业律师审阅后方可对外或呈报；产品不构成法律意见。
 

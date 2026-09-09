@@ -64,5 +64,9 @@ describe("integration-registry", () => {
     const statuses = listIntegrationConnectorStatuses(ws);
     const fsConn = statuses.find((s) => s.id === "filesystem");
     expect(fsConn?.status).toBe("active");
+    const feishu = statuses.find((s) => s.id === "feishu");
+    expect(feishu?.label).toBe("飞书云文档");
+    expect(feishu?.status).toBe("disabled");
+    expect(feishu?.description).toContain("不会写入");
   });
 });

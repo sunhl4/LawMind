@@ -21,6 +21,12 @@ describe("canDraftWithoutResearch", () => {
     expect(
       canDraftWithoutResearch({ kind: "research.legal", deliverableType: "contract.review" }),
     ).toBe(false);
+    expect(
+      canDraftWithoutResearch({ kind: "research.legal", deliverableType: "memo.research" }),
+    ).toBe(true);
+    expect(canDraftWithoutResearch({ kind: "draft.word", deliverableType: "labor.calc" })).toBe(
+      true,
+    );
   });
 });
 

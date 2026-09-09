@@ -12,6 +12,9 @@
 
 import { randomUUID } from "node:crypto";
 import { loadAssistantProfiles } from "../../assistants/store.js";
+import { createOutboundProxy } from "../../platform/outbound-proxy.js";
+
+const directiveProxy = createOutboundProxy({ requestTag: "directive-plan" });
 import {
   resolveCapabilityEnvelope,
   resolveTemperatureForTask,
@@ -149,7 +152,7 @@ ${assistantList}
   const url = `${modelConfig.baseUrl.replace(/\/$/, "")}/chat/completions`;
 
   try {
-    const response = await fetch(url, {
+    const response = await directiveProxy.fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

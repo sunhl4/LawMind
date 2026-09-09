@@ -303,7 +303,8 @@ describe("LawMind Engine", () => {
 
     expect(result.ok).toBe(true);
     const auditDir = path.join(workspaceDir, "audit");
-    const auditFiles = await fs.readdir(auditDir);
+    // 只取按日 jsonl（目录里还有 audit-root.log 外锚与瞬态 .lock）。
+    const auditFiles = (await fs.readdir(auditDir)).filter((n) => n.endsWith(".jsonl"));
     const latestAudit = path.join(auditDir, auditFiles.toSorted()[auditFiles.length - 1]);
     const auditContent = await fs.readFile(latestAudit, "utf8");
     expect(auditContent).toContain("回退原因");

@@ -184,6 +184,12 @@ export function defaultCaseTemplate(matterId: string): string {
 - 案件名称（展示用）: _（侧栏显示；可与编号不同；新建时填写；导入未命名时可取自文件名）_
 - 客户 / clientId: _（与目录 clients/该id/ 下 CLIENT_PROFILE 对应；可与 matterId 同或单独指向常年客户主档案）_
 - 案由:
+- 工作门类:
+- 案号:
+- 法院:
+- 审级:
+- 诉讼地位:
+- 开庭日:
 - 当前阶段:
 - 负责人:
 

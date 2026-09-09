@@ -15,6 +15,7 @@ import path from "node:path";
 import { writeJsonAtomic } from "../adapters/matter-storage/io.js";
 import { appendTranscriptLines } from "../adapters/session-transcript/index.js";
 import { persistOrThrow } from "./session-persist.js";
+import { repairToolCallPairing } from "./session-tool-call-pairing.js";
 import type { AgentMessage, AgentSession, AgentTurn, PersistedChatLiveTrace } from "./types.js";
 
 const SESSIONS_DIR = "sessions";
@@ -483,8 +484,16 @@ export type ModelChatMessage = {
 /**
  * Sole session → LLM history mapper for runTurn.
  * Callers must write `conversationHistory` first (prompt / compact / tools), then derive.
+ *
+ * 送出前的最后一道配对修复：历史中的悬空 tool_call（旧版本中断残留、异常路径）
+ * 在此补占位 tool 消息并写回 session（随下一次 saveSession 落盘），保证
+ * 「不配对不得送出」——OpenAI 兼容 API 对缺配对的 tool_call 会整体 400。
  */
 export function deriveModelMessages(session: AgentSession): ModelChatMessage[] {
+  const pairing = repairToolCallPairing(session.conversationHistory);
+  if (pairing.repairedToolCallIds.length > 0) {
+    session.conversationHistory = pairing.messages;
+  }
   return session.conversationHistory.map((msg) => {
     const base: ModelChatMessage = {
       role: msg.role,

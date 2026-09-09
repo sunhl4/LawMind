@@ -8,7 +8,7 @@ import {
 describe("render-tool-messages", () => {
   it("classifies approval vs acceptance vs engine errors", () => {
     expect(classifyRenderFailure("草稿尚未通过审核（pending）")).toBe("approval_required");
-    expect(classifyRenderFailure("草稿未通过验收门禁（blockers=2）")).toBe("acceptance_gate");
+    expect(classifyRenderFailure("草稿未通过出稿检查（blockers=2）")).toBe("acceptance_gate");
     expect(classifyRenderFailure("上传的 Word 模板文件不存在")).toBe("render_engine");
   });
 

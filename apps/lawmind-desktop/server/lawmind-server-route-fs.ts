@@ -1,5 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
+import {
+  PROTECTED_WORKSPACE_WRITE_REFUSAL,
+  isProtectedWorkspaceRel,
+} from "../../../src/lawmind/runtime/protected-workspace-rels.js";
 import { parseJsonBodyZod } from "./lawmind-api-parse.js";
 import { fsWritePostSchema } from "./lawmind-api-schemas.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
@@ -114,7 +118,11 @@ export async function handleFilesystemRoute({
     const relPath = body.path ?? "";
     const content = body.content ?? "";
     const expectedMtimeMs = body.expectedMtimeMs;
-    const { full } = resolveFsPath(roots, root, relPath);
+    const { full, rel } = resolveFsPath(roots, root, relPath);
+    if (root === "workspace" && isProtectedWorkspaceRel(rel)) {
+      sendJson(res, 403, { ok: false, error: PROTECTED_WORKSPACE_WRITE_REFUSAL }, c);
+      return true;
+    }
 
     let priorMtime: number | undefined;
     if (fs.existsSync(full)) {
@@ -139,6 +147,10 @@ export async function handleFilesystemRoute({
 
     fs.writeFileSync(full, content, "utf8");
     const next = fs.statSync(full);
+    ctx.sseBus?.emit({
+      type: "fs:change",
+      data: { root, rel, mtimeMs: next.mtimeMs, size: next.size },
+    });
     sendJson(
       res,
       200,

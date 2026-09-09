@@ -59,6 +59,9 @@ jobs:
       - name: Renderer CSS sync markers and size gate
         run: pnpm lawmind:check:renderer-css
 
+      - name: Renderer must not pull node: builtins
+        run: pnpm lawmind:check:renderer-node
+
       - name: Desktop HTTP smoke
         run: pnpm lawmind:desktop:http-smoke
 

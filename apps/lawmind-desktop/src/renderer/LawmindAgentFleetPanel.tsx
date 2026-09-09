@@ -3,7 +3,7 @@
  * 职责：集中处理签批 / 补充 / 批准（含待审文书的通过·驳回·需修改，无需全文预览）；
  * 改稿与交付预览经「改稿」场景页（从本页 CTA 进入；Solo 不占顶栏一级 Tab）。
  */
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import {
   loadActionSummary,
   type LawMindRequiresAction,
@@ -52,13 +52,9 @@ import {
   filterRunsByAssistant,
 } from "./lawmind-fleet-team";
 import {
-  FLEET_GROUP_ORDER,
-  defaultExpandedFleetGroups,
   fleetApprovalDockLabels,
   fleetStatusKind as statusKind,
   groupFleetQueue,
-  persistFleetCollapsedGroups,
-  readFleetCollapsedGroups,
   resolveFleetSelectedId,
 } from "./lawmind-fleet-queue";
 import { mergeFleetQueueRows } from "./lawmind-fleet-queue-merge";
@@ -68,27 +64,7 @@ import { LawmindAgentFleetListAside } from "./LawmindAgentFleetListAside";
 import { LawmindAgentFleetDetail } from "./LawmindAgentFleetDetail";
 import { LawmindAgentFleetEmpty } from "./LawmindAgentFleetEmpty";
 import { createFleetCeremonyActions } from "./useLawmindFleetCeremonyActions";
-
-const FLEET_SNOOZE_STORAGE_KEY = "lawmind-agents-snooze:v1";
-
-function readFleetSnoozed(): Set<string> {
-  try {
-    const raw = localStorage.getItem(FLEET_SNOOZE_STORAGE_KEY);
-    const arr = raw ? (JSON.parse(raw) as string[]) : [];
-    return new Set(Array.isArray(arr) ? arr.filter((x) => typeof x === "string") : []);
-  } catch {
-    return new Set();
-  }
-}
-
-function persistFleetSnoozed(next: Set<string>): Set<string> {
-  try {
-    localStorage.setItem(FLEET_SNOOZE_STORAGE_KEY, JSON.stringify([...next]));
-  } catch {
-    /* quota/private mode */
-  }
-  return next;
-}
+import { useFleetDeskViewStore } from "./stores/fleet-desk-view-store";
 
 export type LawmindAgentFleetPanelProps = {
   apiBase: string;
@@ -97,8 +73,6 @@ export type LawmindAgentFleetPanelProps = {
   sessionId?: string;
   sessionRequiresActions?: LawMindRequiresAction[];
   assistantDisplayById: Record<string, string>;
-  /** 带入轨拉取会话列表用；缺省时用当前待办的 assistantId */
-  selectedAssistantId?: string;
   needsDecisionFocus?: boolean;
   onClearNeedsDecisionFocus?: () => void;
   /** 对话深链：选中具体待补充/待批准行 */
@@ -123,7 +97,6 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
     sessionId,
     sessionRequiresActions = [],
     assistantDisplayById,
-    selectedAssistantId: _selectedAssistantId,
     needsDecisionFocus = false,
     onClearNeedsDecisionFocus,
     focusTarget = null,
@@ -144,20 +117,21 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  // 「稍后看」持久化到 localStorage：刷新页面后不再全部跳回，减少重复拍板成本。
-  const [snoozed, setSnoozed] = useState<Set<string>>(() => readFleetSnoozed());
   const requireSignoffReview = useRequireSignoffReview();
-  const [matterFilter, setMatterFilter] = useState<string>("all");
-  /** 左栏：团队（按人）为默认；队列为状态分组下钻。 */
-  const [listMode, setListMode] = useState<"team" | "queue">("team");
-  const [assistantFilter, setAssistantFilter] = useState<string | null>(null);
-  /** 待签批 / 待补充 / 待批准：刷新后默认展开非空组；手折写入 localStorage。 */
-  const [userCollapsedGroups, setUserCollapsedGroups] = useState(() =>
-    readFleetCollapsedGroups(),
-  );
-  const [expandedGroups, setExpandedGroups] = useState<
-    Set<(typeof FLEET_GROUP_ORDER)[number]>
-  >(() => new Set());
+  // 左栏视图状态（团队/队列、筛选、分组展开、稍后看）在 zustand 域 store；见 stores/README.md。
+  const listMode = useFleetDeskViewStore((s) => s.listMode);
+  const matterFilter = useFleetDeskViewStore((s) => s.matterFilter);
+  const assistantFilter = useFleetDeskViewStore((s) => s.assistantFilter);
+  const snoozed = useFleetDeskViewStore((s) => s.snoozed);
+  const setListMode = useFleetDeskViewStore((s) => s.setListMode);
+  const setMatterFilter = useFleetDeskViewStore((s) => s.setMatterFilter);
+  const selectAssistant = useFleetDeskViewStore((s) => s.selectAssistant);
+  const resetFiltersForDeepLink = useFleetDeskViewStore((s) => s.resetFiltersForDeepLink);
+  const snoozeRun = useFleetDeskViewStore((s) => s.snooze);
+  const expandGroup = useFleetDeskViewStore((s) => s.expandGroup);
+  const expandOnlyGroup = useFleetDeskViewStore((s) => s.expandOnlyGroup);
+  const syncExpandedGroups = useFleetDeskViewStore((s) => s.syncExpandedGroups);
+  const resetFleetViewTransient = useFleetDeskViewStore((s) => s.resetTransient);
   const [clarificationDraft, setClarificationDraft] = useState<Record<string, string>>({});
   const [runActions, setRunActions] = useState<LawMindRequiresAction[]>([]);
   const [argsEditOpen, setArgsEditOpen] = useState(false);
@@ -176,6 +150,11 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
   const [trackedExportBusy, setTrackedExportBusy] = useState(false);
   const [saveAutomationBusy, setSaveAutomationBusy] = useState(false);
   const [saveAutomationHint, setSaveAutomationHint] = useState<string | null>(null);
+
+  // 重挂载复位瞬时视图态（对齐原 useState 初始语义）；持久化切片由 store 保留。
+  useLayoutEffect(() => {
+    resetFleetViewTransient();
+  }, [resetFleetViewTransient]);
 
   /**
    * 待办目录与侧栏「待我拍板」一致：始终拉全工作区，不跟对话 contextMatterId 过滤。
@@ -276,12 +255,8 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
   const queueGroups = useMemo(() => groupFleetQueue(queue), [queue]);
 
   useEffect(() => {
-    const next = defaultExpandedFleetGroups(queueGroups);
-    for (const kind of userCollapsedGroups) {
-      next.delete(kind);
-    }
-    setExpandedGroups(next);
-  }, [queueGroups, userCollapsedGroups]);
+    syncExpandedGroups(queueGroups);
+  }, [queueGroups, syncExpandedGroups]);
 
   const teamSourceRuns = useMemo(() => {
     const byId = new Map<string, AgentRunSummary>();
@@ -325,14 +300,8 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
       return;
     }
     const mid = focusTarget.matterId?.trim();
-    if (mid && isValidMatterId(mid)) {
-      setMatterFilter(mid);
-    } else {
-      setMatterFilter("all");
-    }
-    setAssistantFilter(null);
-    setListMode("queue");
-  }, [focusTarget]);
+    resetFiltersForDeepLink(mid && isValidMatterId(mid) ? mid : null);
+  }, [focusTarget, resetFiltersForDeepLink]);
 
   useEffect(() => {
     if (!focusTarget || allQueue.length === 0) {
@@ -344,15 +313,7 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
     }
     const focusedRun = allQueue.find((r) => r.id === focused);
     if (focusedRun) {
-      const kind = statusKind(focusedRun.status);
-      setExpandedGroups((prev) => {
-        if (prev.has(kind)) {
-          return prev;
-        }
-        const next = new Set(prev);
-        next.add(kind);
-        return next;
-      });
+      expandGroup(statusKind(focusedRun.status));
     }
     setSelectedId(focused);
     onFocusTargetConsumed?.();
@@ -365,7 +326,7 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
         behavior: "smooth",
       });
     });
-  }, [allQueue, focusTarget, onFocusTargetConsumed]);
+  }, [allQueue, focusTarget, onFocusTargetConsumed, expandGroup]);
 
   /** 侧栏「待我拍板」：有票时默认选中首项并切到队列，避免办理区空白。 */
   useEffect(() => {
@@ -380,16 +341,8 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
     }
     setListMode("queue");
     setSelectedId(matterScopedQueue[0].id);
-    const kind = statusKind(matterScopedQueue[0].status);
-    setExpandedGroups((prev) => {
-      if (prev.has(kind)) {
-        return prev;
-      }
-      const next = new Set(prev);
-      next.add(kind);
-      return next;
-    });
-  }, [needsDecisionFocus, focusTarget, matterScopedQueue, selectedId]);
+    expandGroup(statusKind(matterScopedQueue[0].status));
+  }, [needsDecisionFocus, focusTarget, matterScopedQueue, selectedId, setListMode, expandGroup]);
 
   const current = queue.find((r) => r.id === selectedId) ?? null;
 
@@ -495,24 +448,6 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
     return () => registerClarifyBringInHandlers(null);
   }, [current?.status, current?.id]);
 
-  const toggleGroup = (kind: (typeof FLEET_GROUP_ORDER)[number]) => {
-    setExpandedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(kind)) {
-        next.delete(kind);
-        setUserCollapsedGroups((collapsed) => persistFleetCollapsedGroups(new Set(collapsed).add(kind)));
-      } else {
-        next.add(kind);
-        setUserCollapsedGroups((collapsed) => {
-          const copy = new Set(collapsed);
-          copy.delete(kind);
-          return persistFleetCollapsedGroups(copy);
-        });
-      }
-      return next;
-    });
-  };
-
   useEffect(() => {
     const sid = current?.sessionId?.trim();
     if (!apiBase || !sid) {
@@ -560,18 +495,10 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
         )[0] ?? null;
       setSelectedId(next?.id ?? null);
       if (next) {
-        const kind = statusKind(next.status);
-        setExpandedGroups((prev) => {
-          if (prev.has(kind)) {
-            return prev;
-          }
-          const copy = new Set(prev);
-          copy.add(kind);
-          return copy;
-        });
+        expandGroup(statusKind(next.status));
       }
     },
-    [queue],
+    [queue, expandGroup],
   );
 
   const isDraftReview = current?.status === "awaiting_review";
@@ -866,26 +793,11 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
             teamRows={teamRows}
             matterChoices={matterChoices}
             matterLabelById={matterLabelById}
-            matterFilter={matterFilter}
-            onMatterFilterChange={setMatterFilter}
-            listMode={listMode}
-            onListModeChange={(mode) => {
-              setListMode(mode);
-              if (mode === "queue") {
-                setAssistantFilter(null);
-              }
-            }}
-            assistantFilter={assistantFilter}
-            onSelectAllAssistants={() => {
-              setAssistantFilter(null);
-            }}
             onSelectAssistant={(assistantId) => {
-              setAssistantFilter(assistantId);
-              setListMode("team");
+              selectAssistant(assistantId);
               const theirs = filterRunsByAssistant(matterScopedQueue, assistantId);
               if (theirs[0]) {
-                const kind = statusKind(theirs[0].status);
-                setExpandedGroups(new Set([kind]));
+                expandOnlyGroup(statusKind(theirs[0].status));
                 setSelectedId(theirs[0].id);
               } else {
                 setSelectedId(null);
@@ -893,8 +805,6 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
             }}
             selectedId={current?.id ?? null}
             onSelectRun={setSelectedId}
-            expandedGroups={expandedGroups}
-            onToggleGroup={toggleGroup}
             pendingTeachCount={pendingTeachCount}
             onOpenMemoryInspector={onOpenMemoryInspector}
             needsDecisionFocus={needsDecisionFocus}
@@ -945,7 +855,7 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
               if (!current) {
                 return;
               }
-              setSnoozed((prev) => persistFleetSnoozed(new Set(prev).add(current.id)));
+              snoozeRun(current.id);
             }}
             approvalAction={approvalAction}
             approvalIsDocWrite={approvalIsDocWrite}

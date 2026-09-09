@@ -25,7 +25,7 @@
 | senry5433/china-effective-laws-regulations               | 汇编声明 CC0 的 NPC 快照；**不**自动下载。自行导出 JSON 后 `--format hf_china_laws` |
 | dengcao/Chinese-Laws 等条文行语料                        | GitHub `license: null` → 同样 manual-only + `article_line` 转换器                   |
 | 元典 / 法研开放平台 / flfgsc API                         | 商业或需 Key → **不**接入开源默认路径                                               |
-| 北大法宝 / Lexis                                         | 闭源占位，见 `docs/LAWMIND-EXTERNAL-INTEGRATIONS.md` §10                            |
+| 北大法宝 / Lexis                                         | 闭源占位，见 `docs/archive/LAWMIND-EXTERNAL-INTEGRATIONS.md` §10                    |
 
 许可说明见 `corpus/LICENSE-ATTRIBUTION.md`。
 
@@ -101,4 +101,4 @@ export LAWMIND_OPEN_LAW_CORPUS=$PWD/laws.jsonl
 
 ## 闭源占位
 
-`LAWMIND_AUTHORITY_PROVIDER=pkulaw|lexis` 仍为商业/手动接入路径，见仓库根文档 `docs/LAWMIND-EXTERNAL-INTEGRATIONS.md` §10。
+`LAWMIND_AUTHORITY_PROVIDER=pkulaw|lexis` 仍为商业/手动接入路径，见仓库根文档 `docs/archive/LAWMIND-EXTERNAL-INTEGRATIONS.md` §10。

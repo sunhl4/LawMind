@@ -12,5 +12,6 @@ describe("meeting scope", () => {
 
   it("labels meeting main view", () => {
     expect(lawmindMainViewLabel("meeting")).toBe("会议室");
+    expect(lawmindMainViewLabel("desk")).toBe("工作台");
   });
 });

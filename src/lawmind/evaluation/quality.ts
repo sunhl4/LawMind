@@ -21,16 +21,20 @@ function qualityFilePath(workspaceDir: string, taskId: string): string {
  * 持久化单条质量快照。
  * 若同一 taskId 已存在记录则覆盖（最后一次审核结果为准）。
  */
-export function persistQualityRecord(workspaceDir: string, record: QualityRecord): void {
+export async function persistQualityRecord(
+  workspaceDir: string,
+  record: QualityRecord,
+): Promise<void> {
   const dir = qualityDir(workspaceDir);
-  // 同步写入（fire-and-forget，不阻塞 review 流程）
-  fs.mkdir(dir, { recursive: true })
-    .then(() =>
-      fs.writeFile(qualityFilePath(workspaceDir, record.taskId), JSON.stringify(record, null, 2)),
-    )
-    .catch(() => {
-      // 质量快照写入失败不应阻断主流程
-    });
+  try {
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(
+      qualityFilePath(workspaceDir, record.taskId),
+      JSON.stringify(record, null, 2),
+    );
+  } catch {
+    // 质量快照写入失败不应阻断主流程
+  }
 }
 
 /**

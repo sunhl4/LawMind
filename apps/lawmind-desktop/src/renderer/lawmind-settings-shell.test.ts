@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { clearProjectDirectory } from "./lawmind-settings-shell.js";
+import { clearProjectDirectory } from "./lawmind-settings-project.js";
 
-describe("lawmind-settings-shell", () => {
+describe("lawmind-settings-project", () => {
   it("clears the configured project directory", async () => {
     const setProjectDir = vi.fn().mockResolvedValue({
       ok: true,

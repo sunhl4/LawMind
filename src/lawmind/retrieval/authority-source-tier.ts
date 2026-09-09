@@ -31,5 +31,5 @@ export function isAuthorityLive(opts?: {
   return resolveAuthoritySourceTier(opts) === "live";
 }
 
-/** search_statute / search_case_law only scan workspace memory. */
+/** Fallback tier when search_statute / search_case_law only scanned workspace memory. */
 export const WORKSPACE_HEURISTIC_SOURCE_TIER: AuthoritySourceTier = "sample";

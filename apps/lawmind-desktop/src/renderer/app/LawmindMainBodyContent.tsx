@@ -9,7 +9,6 @@ import type {
   TaskRow,
 } from "../lawmind-app-data";
 import type { ModelCatalogEntry } from "../lawmind-models-api";
-import type { ReviewPaneVisibility, ReviewPaneId } from "../lawmind-review-pane-prefs";
 import type { CollabSummaryState } from "../LawmindSettingsCollaboration";
 import type { AgentsDeskTab } from "../lawmind-agents-desk";
 import type { LawMindRequiresAction, LawMindRequiresActionDecision } from "../lawmind-requires-action";
@@ -27,10 +26,13 @@ import { LawmindWorkspaceBootstrapGate } from "./LawmindWorkspaceBootstrapGate";
 import { pickWorkspaceMainPaneProps } from "./pickWorkspaceMainPaneProps";
 import {
   pickAgentFleetViewProps,
+  pickLawyerWorkbenchProps,
   pickMatterViewProps,
   pickMeetingViewProps,
   pickReviewViewProps,
 } from "./pickMainBodyBranchProps";
+import { LawmindLawyerWorkbench } from "../LawmindLawyerWorkbench";
+import { LawmindErrorBoundary } from "../LawmindErrorBoundary";
 import { useLawmindShellNavigationContext } from "./LawmindShellContexts";
 
 export type LawmindMainBodyContentProps = {
@@ -69,7 +71,6 @@ export type LawmindMainBodyContentProps = {
   reviewFocusListMode: "pending" | "all";
   reviewRefreshVersion: number;
   reviewLaunchedFromMatter: boolean;
-  reviewPaneVisibility: ReviewPaneVisibility;
   onReturnToMatter: () => void;
   onShowArtifact: (relPath: string) => void;
   onRecordsChanged: () => void;
@@ -77,7 +78,6 @@ export type LawmindMainBodyContentProps = {
   /** 文书台 → 在办：正式签批 */
   onOpenAgentsDeskFromReview?: () => void;
   onRevisionJobQueued: (opts: { sessionId: string; assistantId: string; taskId: string }) => void;
-  onToggleReviewPane: (id: ReviewPaneId) => void;
   collabSummarySettings: CollabSummaryState | null | undefined;
   delegations: DelegationRow[];
   collabEvents: CollabEvent[];
@@ -176,6 +176,8 @@ export type LawmindMainBodyContentProps = {
   onOpenAgentsWorkflows?: (matterId?: string, jobId?: string) => void;
   composeExtras: LawmindComposeExtras;
   onCreateMatter?: () => void;
+  /** 工作台选案：只切当前案件，不打开办案台。 */
+  onSelectMatterKey?: (matterId: string) => void;
   showEmptyMatterGuide?: boolean;
   /** Session switcher is in the left rail; hide top chat tabs. */
   chatSessionsInSidebar?: boolean;
@@ -201,6 +203,19 @@ export function LawmindMainBodyContent(props: LawmindMainBodyContentProps) {
   }
   if (mainView === "agents") {
     return <AgentFleetView {...pickAgentFleetViewProps(props)} />;
+  }
+  if (mainView === "desk") {
+    if (!props.config) {
+      return (
+        <LawmindWorkspaceBootstrapGate error={props.error} onOpenApiWizard={props.onOpenApiWizard} />
+      );
+    }
+    const deskProps = pickLawyerWorkbenchProps(props);
+    return deskProps ? (
+      <LawmindErrorBoundary label="工作台">
+        <LawmindLawyerWorkbench {...deskProps} />
+      </LawmindErrorBoundary>
+    ) : null;
   }
   if (mainView === "workspace" && !matterCockpitOpen && !props.config) {
     return (

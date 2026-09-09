@@ -147,6 +147,7 @@ export const matterCreatePostSchema = z.object({
   sensitivity: z.enum(["normal", "high", "restricted"]).optional(),
   engagementAccepted: z.boolean().optional(),
   conflictCheckConfirmed: z.boolean().optional(),
+  matterKind: z.enum(["contract", "litigation", "general"]).optional(),
 });
 
 export type MatterCreatePostRequest = z.infer<typeof matterCreatePostSchema>;
@@ -177,6 +178,17 @@ export const matterProfilePostSchema = z.object({
     .optional(),
   causeOfAction: z.string().trim().max(200).optional(),
   counterparty: z.string().trim().max(200).optional(),
+  matterKind: z.enum(["contract", "litigation", "general"]).optional(),
+  practiceTags: z.array(z.string().trim().min(1).max(40)).max(12).optional(),
+  docket: z
+    .object({
+      caseNo: z.string().trim().max(80).optional(),
+      court: z.string().trim().max(80).optional(),
+      instance: z.string().trim().max(40).optional(),
+      standing: z.string().trim().max(40).optional(),
+      hearingAt: z.string().trim().max(40).optional(),
+    })
+    .optional(),
   conflictCheckConfirmed: z.boolean().optional(),
   engagementAccepted: z.boolean().optional(),
 });
@@ -293,9 +305,19 @@ export type ApprovalResolvePostRequest = z.infer<typeof approvalResolvePostSchem
 
 export const deskSettingsPostSchema = z.object({
   contractBatchRelativeDir: z.string().nullable().optional(),
+  auditExternalAnchorUrl: z.string().nullable().optional(),
 });
 
 export type DeskSettingsPostRequest = z.infer<typeof deskSettingsPostSchema>;
+
+export const practicePlaybookPostSchema = z.object({
+  stanceDefault: z.enum(["protect_instructing", "our_paper", "neutral"]).optional(),
+  disputeForum: z.string().optional(),
+  neverAccept: z.array(z.string()).optional(),
+  notes: z.string().optional(),
+});
+
+export type PracticePlaybookPostRequest = z.infer<typeof practicePlaybookPostSchema>;
 
 export const workspacePolicyPatchSchema = z
   .object({
@@ -352,9 +374,34 @@ export type DraftReviewPostRequest = z.infer<typeof draftReviewPostSchema>;
 
 export const draftRenderPostSchema = z.object({
   templateId: z.string().trim().optional(),
+  includeProvenance: z.boolean().optional(),
 });
 
 export type DraftRenderPostRequest = z.infer<typeof draftRenderPostSchema>;
+
+const provenanceEventSchema = z.object({
+  type: z.enum([
+    "upload",
+    "extraction",
+    "ai_suggest",
+    "lawyer_edit",
+    "lawyer_accept",
+    "self_revise",
+    "import",
+    "export",
+  ]),
+  actor: z.enum(["user", "model", "system"]),
+  timestamp: z.string(),
+  sourceId: z.string().optional(),
+  userId: z.string().optional(),
+  reason: z.string().optional(),
+  comment: z.string().optional(),
+  diffSummary: z.string().optional(),
+});
+
+const provenanceChainSchema = z.object({
+  events: z.array(provenanceEventSchema),
+});
 
 const draftSectionSchema = z.object({
   heading: trimmedNonEmptyString,
@@ -371,6 +418,7 @@ const draftSectionSchema = z.object({
         .map((cite) => cite.trim());
       return filtered.length > 0 ? filtered : undefined;
     }),
+  provenance: provenanceChainSchema.optional(),
 });
 
 export const draftContentPatchBodySchema = z

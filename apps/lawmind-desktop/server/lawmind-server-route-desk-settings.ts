@@ -29,9 +29,10 @@ export async function handleDeskSettingsRoutes({
   if (req.method === "POST") {
     const body = await parseJsonBodyZod(req, deskSettingsPostSchema);
     try {
-      const settings = await writeDeskSettings(workspaceDir, {
-        contractBatchRelativeDir: body.contractBatchRelativeDir,
-      });
+    const settings = await writeDeskSettings(workspaceDir, {
+      contractBatchRelativeDir: body.contractBatchRelativeDir,
+      auditExternalAnchorUrl: body.auditExternalAnchorUrl,
+    });
       sendJson(res, 200, { ok: true, settings }, c);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

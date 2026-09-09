@@ -40,7 +40,7 @@ describe("lawmind-app-bootstrap", () => {
     delete getWindow().lawmindDesktop;
   });
 
-  it("loads initial config from cached dev API when preload is absent", async () => {
+  it("refuses to boot as a browser/web UI when the Electron preload is absent", async () => {
     vi.stubGlobal("window", {} as Window);
     vi.stubGlobal("localStorage", mockStorage());
     localStorage.setItem("lawmind.dev.apiBase", "http://127.0.0.1:4312");
@@ -51,10 +51,7 @@ describe("lawmind-app-bootstrap", () => {
       }),
     );
 
-    await expect(loadInitialAppConfig()).resolves.toMatchObject({
-      apiBase: "http://127.0.0.1:4312",
-      workspaceDir: "(browser dev — use Electron for file access)",
-    });
+    await expect(loadInitialAppConfig()).rejects.toThrow(/only runs as the local desktop app/);
   });
 
   it("loads initial config from the Electron bridge", async () => {

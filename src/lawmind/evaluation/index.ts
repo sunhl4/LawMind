@@ -1,11 +1,12 @@
 export {
   buildBenchmarkReportMarkdown,
   benchmarkPassesThreshold,
+  selectReleaseGateBenchmarkResults,
   runBenchmarks,
   BUILTIN_BENCHMARK_TASKS,
   type LawMindEngineForBenchmark,
 } from "./benchmark.js";
-export type { BenchmarkResult, BenchmarkTask } from "../types.js";
+export type { BenchmarkModelMode, BenchmarkResult, BenchmarkTask } from "../types.js";
 export {
   buildQualityDashboardMarkdown,
   buildQualityReportMarkdown,
@@ -33,11 +34,35 @@ export {
 } from "./replay-fixtures.js";
 export {
   BUILTIN_SHADOW_FIXTURES,
+  defaultShadowModelScript,
   loadShadowFixtures,
   runShadowReplay,
   textOverlapRatio,
 } from "./shadow-replay.js";
+export {
+  isShadowRealModelEnabled,
+  runEngineShadowReplay,
+  runEngineShadowReplayCase,
+} from "./shadow-engine-replay.js";
 export type {
+  EngineShadowCaseResult,
+  EngineShadowReplayOptions,
+  EngineShadowReplayReport,
+  EngineShadowReplaySummary,
+} from "./shadow-engine-replay.js";
+export {
+  loadWorkspaceEngineShadowFixtures,
+  loadWorkspaceShadowFixtures,
+  runWorkspaceEngineShadowReplay,
+  runWorkspaceShadowReplay,
+} from "./closed-matter-shadow.js";
+export {
+  scoreLlmReviewAgreement,
+  type LlmReviewAgreement,
+  type LlmReviewLabel,
+} from "./llm-review.js";
+export type {
+  ShadowModelScriptStep,
   ShadowReplayCaseResult,
   ShadowReplayFixture,
   ShadowReplayReport,

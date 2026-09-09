@@ -2,12 +2,7 @@
  * @vitest-environment jsdom
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getLoopbackApiAuthToken, setLoopbackApiAuthToken } from "./lawmind-api-auth.ts";
-import {
-  loadCachedDevAppConfig,
-  persistDevAppConfig,
-  refreshLoopbackAuthFromDesktop,
-} from "./lawmind-dev-config-cache.ts";
+import { persistDevAppConfig, refreshLoopbackAuthFromDesktop } from "./lawmind-dev-config-cache.ts";
 
 function mockStorage(): Storage {
   const map = new Map<string, string>();
@@ -37,7 +32,7 @@ describe("lawmind-dev-config-cache", () => {
     vi.unstubAllGlobals();
   });
 
-  it("persists and reloads loopback API when health responds", async () => {
+  it("persists loopback API coordinates", () => {
     persistDevAppConfig({
       apiBase: "http://127.0.0.1:4312",
       apiAuthToken: "secret",
@@ -46,37 +41,8 @@ describe("lawmind-dev-config-cache", () => {
       envFilePath: "",
       retrievalMode: "single",
     });
-
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
-    );
-
-    await expect(loadCachedDevAppConfig()).resolves.toMatchObject({
-      apiBase: "http://127.0.0.1:4312",
-      apiAuthToken: "secret",
-      workspaceDir: "(browser dev — use Electron for file access)",
-    });
-  });
-
-  it("returns null when cached API is unreachable", async () => {
-    localStorage.setItem("lawmind.dev.apiBase", "http://127.0.0.1:49999");
-    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("offline"));
-
-    await expect(loadCachedDevAppConfig()).resolves.toBeNull();
-  });
-
-  it("does not wipe an existing bearer when cached health is unreachable", async () => {
-    setLoopbackApiAuthToken("keep-me");
-    localStorage.setItem("lawmind.dev.apiBase", "http://127.0.0.1:49999");
-    localStorage.setItem("lawmind.dev.apiAuthToken", "stale");
-    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("offline"));
-
-    await expect(loadCachedDevAppConfig()).resolves.toBeNull();
-    expect(getLoopbackApiAuthToken()).toBe("keep-me");
-    setLoopbackApiAuthToken(null);
+    expect(localStorage.getItem("lawmind.dev.apiBase")).toBe("http://127.0.0.1:4312");
+    expect(localStorage.getItem("lawmind.dev.apiAuthToken")).toBe("secret");
   });
 
   it("refreshLoopbackAuthFromDesktop adopts Electron token", async () => {

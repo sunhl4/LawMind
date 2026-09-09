@@ -1,4 +1,5 @@
 import type { AgentModelConfig } from "../agent/types.js";
+import { createOutboundProxy } from "../platform/outbound-proxy.js";
 
 export type ModelProbeResult =
   | { ok: true; latencyMs: number; model: string; baseUrl: string }
@@ -36,6 +37,8 @@ export function parseProbeErrorBody(raw: string): string | null {
   return null;
 }
 
+const probeProxy = createOutboundProxy({ requestTag: "model-probe" });
+
 /**
  * Minimal upstream reachability check (one short completion).
  */
@@ -49,7 +52,7 @@ export async function probeAgentModel(config: AgentModelConfig): Promise<ModelPr
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, {
+    const response = await probeProxy.fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

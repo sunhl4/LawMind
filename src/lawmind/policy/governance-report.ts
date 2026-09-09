@@ -50,7 +50,7 @@ export async function buildGovernanceReportMarkdown(workspaceDir: string): Promi
     );
   } else {
     lines.push(
-      "_No valid `lawmind.policy.json` found. Optional; see [LawMind policy file](/LAWMIND-POLICY-FILE)._",
+      "_No valid `lawmind.policy.json` found. Optional; see [LawMind policy file](/archive/LAWMIND-POLICY-FILE)._",
       "",
     );
   }

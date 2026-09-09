@@ -9,11 +9,11 @@ import { persistQualityRecord } from "./quality.js";
 
 const DEFAULT_QUALITY_LABELS: ReviewLabel[] = ["质量范例"];
 
-export function seedQualitySnapshot(
+export async function seedQualitySnapshot(
   workspaceDir: string,
   taskId: string,
   labels: ReviewLabel[] = DEFAULT_QUALITY_LABELS,
-): void {
+): Promise<void> {
   const record: QualityRecord = {
     taskId,
     taskKind: "draft.word",
@@ -27,7 +27,7 @@ export function seedQualitySnapshot(
     latencyMs: 0,
     createdAt: new Date().toISOString(),
   };
-  persistQualityRecord(workspaceDir, record);
+  await persistQualityRecord(workspaceDir, record);
 }
 
 export async function seedQualityAfterTask(

@@ -50,11 +50,46 @@ describe("LawMind Router", () => {
     expect(route({ instruction: "写一份内部备忘录" }).deliverableType).toBe("memo.internal");
     expect(route({ instruction: "整理案件时间线" }).deliverableType).toBe("matter.timeline");
     expect(route({ instruction: "列证据目录" }).deliverableType).toBe("matter.exhibit_list");
+    expect(route({ instruction: "写一份债权申报" }).deliverableType).toBe("document.general");
+    expect(route({ instruction: "取保候审申请怎么写" }).deliverableType).toBe("litigation.outline");
     expect(route({ instruction: "写会议纪要" }).deliverableType).toBe("meeting.minutes");
     expect(route({ instruction: "写一份保密协议" }).deliverableType).toBe("contract.nda");
     expect(route({ instruction: "请写一份起诉状诉讼大纲" }).deliverableType).toBe(
       "litigation.outline",
     );
+    expect(route({ instruction: "计算违法解除的经济补偿" }).deliverableType).toBe("labor.calc");
+    expect(route({ instruction: "计算上诉期届满日" }).deliverableType).toBe("period.calc");
+    expect(route({ instruction: "整理这些进项发票" }).kind).toBe("draft.word");
+    expect(route({ instruction: "整理这些进项发票" }).deliverableType).toBe("document.general");
+    expect(route({ instruction: "把法院短信里的开庭时间整理出来" }).kind).toBe("draft.word");
+    expect(route({ instruction: "把法院短信里的开庭时间整理出来" }).deliverableType).toBe(
+      "matter.timeline",
+    );
+    expect(route({ instruction: "这份专利侵权材料怎么主张" }).deliverableType).toBe(
+      "litigation.outline",
+    );
+    expect(route({ instruction: "做一份股权收购尽调提纲" }).deliverableType).toBe("report.general");
+    expect(route({ instruction: "出一份数据合规备忘" }).deliverableType).toBe("report.compliance");
+    expect(route({ instruction: "出一份广告合规备忘" }).deliverableType).toBe("report.general");
+    expect(route({ instruction: "写上诉状" }).deliverableType).toBe("document.general");
+    expect(route({ instruction: "写一份执行异议" }).deliverableType).toBe("document.general");
+    expect(route({ instruction: "列立案材料清单" }).deliverableType).toBe("document.general");
+    expect(route({ instruction: "写本案办案周报" }).deliverableType).toBe("memo.internal");
+    expect(route({ instruction: "写一份结案备忘" }).deliverableType).toBe("memo.internal");
+    expect(route({ instruction: "写一份本地顾问对接" }).deliverableType).toBe("memo.internal");
+    expect(route({ instruction: "写办案人力安排" }).deliverableType).toBe("memo.internal");
+    expect(route({ instruction: "写干系人沟通计划" }).deliverableType).toBe("memo.internal");
+    expect(route({ instruction: "这份离婚诉讼材料怎么主张抚养权" }).deliverableType).toBe(
+      "litigation.outline",
+    );
+    expect(route({ instruction: "核对招股说明书信息披露备忘" }).deliverableType).toBe(
+      "report.general",
+    );
+    expect(route({ instruction: "起草这份董事会决议" }).deliverableType).toBe("memo.internal");
+    expect(route({ instruction: "他一直拖欠工资这算不算违法" }).deliverableType).toBe(
+      "memo.internal",
+    );
+    expect(route({ instruction: "他一直拖欠工资这算不算违法" }).kind).toBe("research.legal");
   });
 
   it("does not treat a contract with 催告条款 as a demand letter", () => {

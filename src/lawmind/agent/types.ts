@@ -44,8 +44,8 @@ export type ToolCallResult = {
   ok: boolean;
   data?: unknown;
   error?: string;
-  /** 该工具调用是否需要人工确认后才能生效 */
-  pendingApproval?: boolean;
+  /** 该工具调用需要律师在「待我拍板」中批准后才能生效（单一审批源）。 */
+  approvalRequest?: boolean;
   /** P2：是否在子进程沙箱中执行 */
   sandboxed?: boolean;
   /** 用户 Stop：与 timeout / ok 正交，不混用一个 error 字符串判断 */
@@ -124,14 +124,28 @@ export type AgentContext = {
    * Tools must not emit opinion memos or template rebuilds.
    */
   wordRevisionTurn?: boolean;
+  /**
+   * This turn is mail-read → Word revise short path.
+   * No opinion→redline compile and no XML QA auto-retry re-export.
+   */
+  mailContractTurn?: boolean;
   /** Turn-resolved tool allowlist (role ∩ parent inherit ∩ playbook). */
   allowedToolNames?: string[];
+  /**
+   * 委派预算分片：本 turn 剩余可执行工具调用数（hard ceiling − 已用，含本调用），
+   * 由 tool-round 在每次调用前刷新。delegate/consult 等协作工具据此给子助手
+   * 设分片上限（子只能更紧）。并发批内为近似值（共享 ctx，以最后写入为准）。
+   */
+  remainingToolCallBudget?: number;
   /** Short-path pin: prepare_outbound_mail `to` must match when set. */
   outboundPinnedTo?: string;
   /** Whether high-risk tools must run in the subprocess sandbox this turn. */
   toolSandboxEnabled?: boolean;
   /**
-   * Per-tool-call cancellation signal set by the tool-pipeline timeout middleware.
+   * Cancellation signal for the current turn (Stop button); during a tool call the
+   * tool-pipeline timeout middleware passes a per-call derived signal (timeout +
+   * turn abort) via a scoped ctx copy — the shared AgentContext is never mutated,
+   * so one tool's timeout cannot cancel other in-flight tools in a concurrent batch.
    * Tools that perform long-running work (fetch, model calls, subprocesses) SHOULD
    * read `ctx.abortSignal` and pass it through (e.g. `fetch(url, { signal })`) so the
    * pipeline can cancel the underlying work when the per-call timeout fires — instead

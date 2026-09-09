@@ -22,7 +22,7 @@ export function getMaxToolUseConcurrency(): number {
 
 export function isToolConcurrencySafe(registry: ToolRegistry, toolName: string): boolean {
   const tool = registry.get(toolName);
-  // Approval-gated tools must never share a concurrent batch (pendingApproval race).
+  // Approval-gated tools must never share a concurrent batch (approvalRequest race).
   if (tool?.definition.requiresApproval === true) {
     return false;
   }

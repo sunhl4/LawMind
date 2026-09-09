@@ -119,4 +119,35 @@ describe("lawmind-server-route-memory-adoption", () => {
     );
     expect(summary).toContain("仲裁");
   });
+
+  it("POST /api/memory/adoption/adopt 对无落盘面 kind 返回 recorded_noop（不宣称已生效）", async () => {
+    const { suggestMemoryAdoption } = await import(
+      "../../../src/lawmind/memory/adoption-service.js"
+    );
+    const rec = await suggestMemoryAdoption(
+      workspaceDir,
+      path.join(workspaceDir, "audit"),
+      {
+        scope: "project",
+        kind: "project.note",
+        payload: "项目级备注",
+        origin: "lawyer",
+      },
+      { autoAdopt: false },
+    );
+    const res = mockRes();
+    const handled = await handleMemoryAdoptionRoutes({
+      ctx,
+      req: mockPostReq({ id: rec.id }),
+      res,
+      url: new URL("http://127.0.0.1/api/memory/adoption/adopt"),
+      pathname: "/api/memory/adoption/adopt",
+      c: {},
+    });
+    expect(handled).toBe(true);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, record: { state: "recorded_noop" } });
+    const record = (res.body as { record?: { noopReason?: string } }).record;
+    expect(record?.noopReason).toBeTruthy();
+  });
 });

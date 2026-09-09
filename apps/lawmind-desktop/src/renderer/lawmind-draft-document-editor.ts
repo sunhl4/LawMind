@@ -4,6 +4,7 @@ export type DraftDocumentEditorSection = {
   heading: string;
   body: string;
   citations?: string[];
+  provenance?: ArtifactSection["provenance"];
 };
 
 export type DraftDocumentEditorValue = {
@@ -20,6 +21,7 @@ export function draftDocumentEditorValueFromDraft(draft: ArtifactDraft): DraftDo
       heading: section.heading,
       body: section.body,
       citations: section.citations?.length ? [...section.citations] : undefined,
+      provenance: section.provenance,
     })),
   };
 }
@@ -62,6 +64,7 @@ export function draftDocumentEditorValueToPatch(value: DraftDocumentEditorValue)
       heading: section.heading.trim(),
       body: section.body,
       ...(section.citations?.length ? { citations: [...section.citations] } : {}),
+      ...(section.provenance ? { provenance: section.provenance } : {}),
     })),
   };
 }

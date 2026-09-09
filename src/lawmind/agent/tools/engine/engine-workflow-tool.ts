@@ -27,7 +27,10 @@ import {
   blockHeavyPipelineIfClarificationPending,
   buildAdaptersFromEnv,
   canDraftWithoutResearch,
+  createWorkflowPhaseTimer,
   DEMO_CORPUS_DRAFT_REFUSAL,
+  finalizeWorkflowTiming,
+  formatWorkflowTimingSummary,
   getEngine,
   MAX_AUDIENCE_LENGTH,
   MAX_INSTRUCTION_LENGTH,
@@ -107,6 +110,11 @@ export const executeWorkflow: AgentTool = {
         description:
           "锁定交付物类型（如 report.compliance / report.learning / ppt.training / report.esg）。传入后 plan 不再按关键词改写类型。",
       },
+      contract_review_edits: {
+        type: "array",
+        description:
+          "合同审查结构化改稿计划：[{find,replace,priority?:P0|P1|P2,mode?:apply|opinion_only,reason?}]。精确计划优先于意见正文解析。",
+      },
     },
   },
   async execute(params, ctx) {
@@ -115,6 +123,19 @@ export const executeWorkflow: AgentTool = {
       return blocked;
     }
     const steps: string[] = [];
+    const workflowStartedAt = Date.now();
+    const phaseTimer = createWorkflowPhaseTimer();
+    const draftPhaseTiming: Record<string, number> = {};
+    const snapshotTimingMs = () =>
+      finalizeWorkflowTiming({ ...phaseTimer.snapshot(), ...draftPhaseTiming }, workflowStartedAt);
+    const appendTimingProgress = () => {
+      const timingMs = snapshotTimingMs();
+      const summary = formatWorkflowTimingSummary(timingMs);
+      if (summary) {
+        pushWorkflowProgress(ctx, steps, summary);
+      }
+      return timingMs;
+    };
     try {
       const engine = getEngine(ctx);
       const instruction = asNonEmptyString(
@@ -132,7 +153,7 @@ export const executeWorkflow: AgentTool = {
         return {
           ok: false,
           error:
-            "force_render 已被禁用：该参数会跳过律师审批与验收门禁，仅在设置 LAWMIND_WORKFLOW_ALLOW_FORCE_RENDER=1 的 demo/测试环境可用。请去掉 force_render，让中/高风险任务等待律师审批，或改用 render_document 走正常签批流程。",
+            "force_render 已被禁用：该参数会跳过律师审批与出稿检查，仅在设置 LAWMIND_WORKFLOW_ALLOW_FORCE_RENDER=1 的 demo/测试环境可用。请去掉 force_render，让中/高风险任务等待律师审批，或改用 render_document 走正常签批流程。",
           data: { stepsCompleted: steps, recoverable: false },
         };
       }
@@ -180,11 +201,13 @@ export const executeWorkflow: AgentTool = {
       } else {
         // Step 1: Plan
         pushWorkflowProgress(ctx, steps, "正在解析指令...");
+        let planStarted = Date.now();
         intent = await engine.planAsync(instruction, {
           audience,
           matterId,
           ...(lockedDeliverableType ? { deliverableType: lockedDeliverableType } : {}),
         });
+        phaseTimer.mark("plan", planStarted);
         pushWorkflowProgress(
           ctx,
           steps,
@@ -206,6 +229,7 @@ export const executeWorkflow: AgentTool = {
       // Step 3: Research (outline-gated deliverables use deep-research + persist outline)
       let bundle: ResearchBundle;
       let outlinePending = false;
+      const researchStarted = Date.now();
       if (isOutlineGatedDeliverable(intent.deliverableType)) {
         pushWorkflowProgress(ctx, steps, "正在执行深度研究（多视角检索 + 证据大纲）...");
         ensureTaskRecord(ctx.workspaceDir, intent, { assistantId: ctx.assistantId });
@@ -254,6 +278,31 @@ export const executeWorkflow: AgentTool = {
           steps,
           `检索完成：${bundle.sources.length} 条来源，${bundle.claims.length} 条结论，${bundle.riskFlags.length} 条风险标记`,
         );
+      }
+      phaseTimer.mark("research", researchStarted);
+      {
+        const { runAutoStatuteTrial } = await import("../../../research/auto-statute-trial.js");
+        const trial = await runAutoStatuteTrial({
+          intent,
+          bundle,
+          memory: await loadMemoryContext(ctx.workspaceDir, { matterId: intent.matterId }),
+          adapters: buildAdaptersFromEnv(ctx.workspaceDir, {
+            allowWebSearch: ctx.allowWebSearch === true,
+          }),
+          signal: ctx.abortSignal,
+          wordRevisionTurn: ctx.wordRevisionTurn,
+          mailContractTurn: ctx.mailContractTurn,
+        });
+        bundle = trial.bundle;
+        if (trial.attempted) {
+          pushWorkflowProgress(
+            ctx,
+            steps,
+            trial.sourceCount > 0
+              ? `法规自动试检完成：${trial.sourceCount} 条来源。`
+              : "法规自动试检无命中；正文条号保持【待核实】。",
+          );
+        }
       }
       let researchDegraded = false;
       if (bundle.claims.length === 0 && bundle.sources.length === 0) {
@@ -332,14 +381,15 @@ export const executeWorkflow: AgentTool = {
           };
         }
       }
-
       // Step 4: Draft
       pushWorkflowProgress(ctx, steps, "正在生成文书草稿...");
       let draft;
+      const draftStarted = Date.now();
       try {
         draft = await engine.draftAsync(intent, bundle, {
           title,
           templateId,
+          phaseTiming: draftPhaseTiming,
         });
       } catch (draftErr) {
         const msg = draftErr instanceof Error ? draftErr.message : String(draftErr);
@@ -368,6 +418,17 @@ export const executeWorkflow: AgentTool = {
         }
         throw draftErr;
       }
+      phaseTimer.mark("draft", draftStarted);
+      {
+        const { parseContractReviewEditProposals } =
+          await import("../../../drafts/contract-review-edits.js");
+        const contractReviewEdits = parseContractReviewEditProposals(params.contract_review_edits);
+        if (contractReviewEdits.length > 0 && draft.deliverableType === "contract.review") {
+          const { persistDraft } = await import("../../../drafts/index.js");
+          draft = { ...draft, contractReviewEdits };
+          persistDraft(ctx.workspaceDir, draft);
+        }
+      }
       pushWorkflowProgress(
         ctx,
         steps,
@@ -380,6 +441,32 @@ export const executeWorkflow: AgentTool = {
           steps,
           `引用校验：有 ${citationIntegrity.missingSourceIds.length} 个来源 ID 不在本次检索结果中（${citationIntegrity.missingSourceIds.join(", ")}），请人工核对。`,
         );
+      }
+
+      let redlinePlanPreview:
+        | { itemCount: number; items: Array<{ find: string; replace: string }> }
+        | undefined;
+      if (
+        ctx.wordRevisionTurn !== true &&
+        ctx.mailContractTurn !== true &&
+        draft.deliverableType === "contract.review"
+      ) {
+        try {
+          const { writeRedlinePlanFromOpinion } =
+            await import("../../../drafts/opinion-redline-plan.js");
+          const plan = writeRedlinePlanFromOpinion(ctx.workspaceDir, draft);
+          if (plan.items.length > 0) {
+            redlinePlanPreview = {
+              itemCount: plan.items.length,
+              items: plan.items.slice(0, 12).map((row) => ({
+                find: row.find,
+                replace: row.replace,
+              })),
+            };
+          }
+        } catch {
+          /* best-effort */
+        }
       }
 
       // Halt only on real outline-pending drafts (not sticky clarification keys after approve).
@@ -423,6 +510,7 @@ export const executeWorkflow: AgentTool = {
       // Step 5: Auto-review or mark for approval (or force_render for demo)
       let finalStatus = "awaiting_review";
       const shouldAutoRender = (intent.riskLevel === "low" && autoApprove) || forceRender;
+      const reviewRenderStarted = Date.now();
       if (shouldAutoRender) {
         await engine.review(draft, {
           actorId: ctx.actorId,
@@ -439,7 +527,10 @@ export const executeWorkflow: AgentTool = {
         pushWorkflowProgress(ctx, steps, "正在渲染最终文档...");
         // force_render / low-risk auto-approve is a demo/automation path: skip dual gates
         // so Word export matches tool-level approve/bypass semantics.
-        const result = await engine.render(draft, { strictGates: false });
+        const result = await engine.render(draft, {
+          strictGates: false,
+          citationGateStrict: false,
+        });
         if (result.ok) {
           finalStatus = "delivered";
           pushWorkflowProgress(ctx, steps, `交付完成（本地 Word）：${result.outputPath}`);
@@ -485,6 +576,9 @@ export const executeWorkflow: AgentTool = {
           "若律师本条对话已要求 Word：请调用 render_document（task_id 见上，approve=true），或在桌面「审核」页签批准后导出。",
         );
       }
+      phaseTimer.mark("review_render", reviewRenderStarted);
+
+      const timingMs = appendTimingProgress();
 
       return {
         ok: true,
@@ -513,13 +607,16 @@ export const executeWorkflow: AgentTool = {
             draft.clarificationQuestions && draft.clarificationQuestions.length > 0
               ? "draft_with_placeholders"
               : "draft_ready",
+          ...(redlinePlanPreview ? { redlinePlan: redlinePlanPreview } : {}),
+          timingMs,
         },
       };
     } catch (err) {
+      const timingMs = appendTimingProgress();
       return {
         ok: false,
         error: `工作流执行失败: ${err instanceof Error ? err.message : String(err)}`,
-        data: { stepsCompleted: steps },
+        data: { stepsCompleted: steps, timingMs },
       };
     }
   },

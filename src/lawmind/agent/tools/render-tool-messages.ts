@@ -25,7 +25,7 @@ export function classifyRenderFailure(error: string | undefined): RenderFailureC
   if (e.includes("引用") || e.includes("citation") || e.includes("未锚定") || e.includes("援引")) {
     return "citation_gate";
   }
-  if (e.includes("验收门禁") || e.includes("acceptance") || e.includes("blockers=")) {
+  if (e.includes("出稿检查") || e.includes("acceptance") || e.includes("blockers=")) {
     return "acceptance_gate";
   }
   if (e.includes("找不到") || e.includes("没有可渲染")) {
@@ -44,7 +44,7 @@ const CATEGORY_HINT: Record<RenderFailureCategory, string> = {
   approval_required:
     "草稿尚未在「在办」签批通过。请在对话中请律师明确同意导出后，用 render_document 并传 approve=true；或请律师到桌面「在办」批准该草稿（需全文时点「改稿」）。",
   acceptance_gate:
-    "草稿未通过交付验收门禁（缺章节或占位符等）。请补齐后重试 render_document；若律师已确认可带占位符交付，可传 bypass_acceptance_gate=true（与 approve=true 联用）。",
+    "草稿未通过出稿检查（缺章节或占位符等）。请补齐后重试 render_document；若律师已确认可带占位符交付，可传 bypass_acceptance_gate=true（与 approve=true 联用）。",
   citation_gate: [
     "这只挡住正式 Word 导出，不阻止你在对话里继续写/改草稿。请向律师展示当前正文与缺锚说明，补齐 citations 或在改稿页核对 Citation Banner 后再 render_document。",
     formatCitationGateCoach(),

@@ -7,6 +7,35 @@ on:
   workflow_dispatch:
 
 jobs:
+  e2e-mock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.23.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build renderer for Electron tests
+        run: pnpm --filter lawmind-desktop build:renderer
+
+      - name: Install display server
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Run E2E mock tests (Electron)
+        run: xvfb-run --auto-servernum pnpm --filter lawmind-desktop test:e2e:electron
+
   nightly-readiness:
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -29,6 +58,9 @@ jobs:
 
       - name: Core verify
         run: pnpm lawmind:verify
+
+      - name: Legal compiler offline gate
+        run: pnpm lawmind:compiler-gate
 
       - name: Require model API key (scheduled main)
         if: github.event_name == 'schedule' && github.ref == 'refs/heads/main'

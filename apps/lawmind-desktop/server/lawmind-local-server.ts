@@ -8,7 +8,7 @@
  * - LAWMIND_DESKTOP_ACTOR_ID (optional; default `lawyer:desktop`) — audit attribution for desktop review/agent
  * - LAWMIND_ENABLE_COLLABORATION (optional; default enabled) — set `false` to disable multi-assistant collaboration
  *
- * Optional workspace policy: `lawmind.policy.json` in the workspace root (see docs/LAWMIND-POLICY-FILE).
+ * Optional workspace policy: `lawmind.policy.json` in the workspace root (see docs/archive/LAWMIND-POLICY-FILE.md).
  *
  * Run from monorepo root: node --import tsx apps/lawmind-desktop/server/lawmind-local-server.ts
  */
@@ -19,6 +19,7 @@ import { bootstrapLawMindDesktopEnv } from "./lawmind-desktop-env-bootstrap.js";
 import { restoreDelegationsFromDisk } from "../../../src/lawmind/agent/collaboration/index.js";
 import { ensureBuiltinWorkflowSeeds } from "../../../src/lawmind/agent/collaboration/ensure-workflow-seeds.js";
 import { ensureBuiltinSkillSeeds } from "../../../src/lawmind/skills/ensure-builtin-skill-seeds.js";
+import { startAuditExternalAnchorSync } from "../../../src/lawmind/audit/external-anchor.js";
 import { loadAndApplyLawMindPolicy } from "./lawmind-policy.js";
 import { corsHeaders, LAWMIND_LOCAL_HOST } from "./lawmind-server-helpers.js";
 import { lawmindHandleHttpRequest } from "./lawmind-server-dispatch.js";
@@ -27,6 +28,11 @@ import {
   initLoopbackBearerFromEnv,
 } from "./lawmind-local-api-auth.js";
 import { registerRateLimitBucket, TokenBucket } from "./lawmind-local-rate-limit.js";
+import { getGlobalSseBus } from "./lawmind-sse-bus.js";
+import {
+  noteUncaughtException,
+  noteUnhandledRejection,
+} from "./lawmind-process-policy.js";
 import {
   enqueueWorkflowRun,
   loadJobsFromDiskOnStartup,
@@ -42,6 +48,7 @@ import {
 import { computeSearchIndexFreshness } from "../../../src/lawmind/indexing/fts-search.js";
 import { readWorkspacePolicyFile } from "../../../src/lawmind/policy/workspace-policy.js";
 import { processDueLawyerAutomations } from "../../../src/lawmind/platform/lawyer-automations-runner.js";
+import { processDueDeadlineReminders } from "../../../src/lawmind/desk/deadline-remind.js";
 import {
   clearDaemonPid,
   getDaemonStatus,
@@ -177,6 +184,11 @@ async function main() {
     } catch {
       /* best-effort */
     }
+    try {
+      processDueDeadlineReminders(workspaceDir);
+    } catch {
+      /* best-effort */
+    }
   };
   const autoRebuildSearchIndexIfStale = () => {
     try {
@@ -212,6 +224,18 @@ async function main() {
   const scheduleTimer = setInterval(tickScheduledWithIndex, 30_000);
   scheduleTimer.unref?.();
 
+  const externalAnchorUrl = process.env.LAWMIND_AUDIT_EXTERNAL_ANCHOR_URL?.trim();
+  if (externalAnchorUrl) {
+    // 每日同步最新审计摘要到外部锚；emit 路径已实时触发，此定时器覆盖静默日。
+    const anchorSync = startAuditExternalAnchorSync(
+      path.join(workspaceDir, "audit"),
+      externalAnchorUrl,
+    );
+    anchorSync.syncNow().catch(() => {
+      /* 失败只告警，不阻断启动 */
+    });
+  }
+
   if (!indexExists(workspaceDir)) {
     void rebuildWorkspaceSearchIndex(workspaceDir).catch(() => {
       /* best-effort background index */
@@ -228,7 +252,7 @@ async function main() {
     ensureLoopbackBearerToken();
   }
 
-  const ctx = { workspaceDir, envFile, userEnvPath, policy };
+  const ctx = { workspaceDir, envFile, userEnvPath, policy, sseBus: getGlobalSseBus() };
   const rateBucket = new TokenBucket({ rate: 100, capacity: 200 });
   registerRateLimitBucket(rateBucket);
 
@@ -249,9 +273,15 @@ async function main() {
 
 process.on("uncaughtException", (err) => {
   console.error("[lawmind-local-server] uncaughtException:", err);
+  noteUncaughtException();
+  // 状态可能已损坏：记录后干净退出，交给 Electron 监督层指数退避重启
+  // （取舍说明见 lawmind-process-policy.ts 顶部）。
+  process.exit(1);
 });
 process.on("unhandledRejection", (reason) => {
+  // 可用性优先的故意取舍：记录 + 计入健康信号（doctor.process.degraded），不退出。
   console.error("[lawmind-local-server] unhandledRejection:", reason);
+  noteUnhandledRejection();
 });
 
 void main();

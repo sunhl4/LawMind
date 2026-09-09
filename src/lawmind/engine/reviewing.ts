@@ -41,7 +41,9 @@ import { suggestLearningFromDraftReview } from "../learning/review-learning-sugg
 import { enqueueLearningSuggestion } from "../learning/suggestion-queue.js";
 import { draftTextFromUnknown, runLegalLint } from "../lint/run-lint.js";
 import { appendCaseProgress, appendCaseRiskNote, appendTodayLog } from "../memory/index.js";
+import { distributeLintEscape } from "../metrics/lint-escape-candidates.js";
 import { appendProductMetric } from "../metrics/product-metrics.js";
+import { recordLawyerEditEvent, recordLintRunEvent } from "../metrics/runtime-events.js";
 import { readTaskRecord, syncDraftToTaskRecord, updateTaskRecord } from "../tasks/index.js";
 import type { ArtifactDraft, QualityRecord, ReviewLabel, ReviewStatus } from "../types.js";
 import type { EngineContext } from "./context.js";
@@ -52,7 +54,18 @@ export function recordLintEscape(
   draft: ArtifactDraft,
   opts?: { lawyerEdited?: boolean },
 ): boolean {
-  const report = runLegalLint(draftTextFromUnknown(draft));
+  const report = runLegalLint(draftTextFromUnknown(draft), undefined, undefined, undefined, {
+    deliverableType: draft.deliverableType,
+  });
+  const lintRunEvent = recordLintRunEvent(workspaceDir, {
+    taskId: draft.taskId,
+    matterId: draft.matterId,
+    deliverableType: draft.deliverableType,
+    ruleIds: report.findings.map((f) => f.ruleId),
+    failCount: report.blockerCount + report.warningCount,
+    blockerCount: report.blockerCount,
+    warningCount: report.warningCount,
+  });
   const lintHits = report.blockerCount + report.warningCount;
   if (lintHits <= 0 && !opts?.lawyerEdited) {
     return false;
@@ -64,10 +77,16 @@ export function recordLintEscape(
       taskId: draft.taskId,
       matterId: draft.matterId,
       deliverableType: draft.deliverableType,
+      runtimeEventId: lintRunEvent.eventId,
       meta: {
         blockerCount: report.blockerCount,
         warningCount: report.warningCount,
       },
+    });
+    distributeLintEscape(workspaceDir, {
+      taskId: draft.taskId,
+      ruleIds: report.findings.map((f) => f.ruleId).slice(0, 12),
+      snippet: draftTextFromUnknown(draft).slice(0, 400),
     });
     return true;
   } catch {
@@ -143,25 +162,85 @@ export async function reviewDraft(
     });
   }
 
-  if ((status === "approved" || status === "modified") && labelAssistantId) {
-    const firstPass = status === "approved" && !opts.note?.trim();
+  // 律师编辑事件：接受/修改/拒绝均记录 runtime 事件，并关联到产品指标。
+  let lintEscape = false;
+  let lintRunEventId: string | undefined;
+  const rewriteDelta = rewriteAmplitudeDelta(draft);
+  const needsLintForEscape = status !== "approved" || (draft.rewriteAmplitude && rewriteDelta > 0);
+  if (needsLintForEscape) {
+    const report = runLegalLint(draftTextFromUnknown(draft), undefined, undefined, undefined, {
+      deliverableType: draft.deliverableType,
+    });
+    lintEscape = report.blockerCount + report.warningCount > 0;
+    const lintRunEvent = recordLintRunEvent(workspaceDir, {
+      taskId: draft.taskId,
+      matterId: draft.matterId,
+      deliverableType: draft.deliverableType,
+      ruleIds: report.findings.map((f) => f.ruleId),
+      failCount: report.blockerCount + report.warningCount,
+      blockerCount: report.blockerCount,
+      warningCount: report.warningCount,
+    });
+    lintRunEventId = lintRunEvent.eventId;
+    // 与 recordLintEscape 口径一致：只有真实 lint 命中或律师编辑（approved + rewrite）才记 lint_escape。
+    if (lintEscape || (draft.rewriteAmplitude && rewriteDelta > 0)) {
+      try {
+        appendProductMetric(workspaceDir, {
+          kind: "lint_escape",
+          outcome: lintEscape ? "lint_findings" : "lawyer_edit",
+          taskId: draft.taskId,
+          matterId: draft.matterId,
+          deliverableType: draft.deliverableType,
+          runtimeEventId: lintRunEventId,
+          meta: {
+            blockerCount: report.blockerCount,
+            warningCount: report.warningCount,
+          },
+        });
+        distributeLintEscape(workspaceDir, {
+          taskId: draft.taskId,
+          ruleIds: report.findings.map((f) => f.ruleId).slice(0, 12),
+          snippet: draftTextFromUnknown(draft).slice(0, 400),
+        });
+      } catch {
+        // 逃逸指标失败不阻断审核
+      }
+    }
+  }
+
+  const lawyerEditEvent = recordLawyerEditEvent(workspaceDir, {
+    taskId: draft.taskId,
+    matterId: draft.matterId,
+    deliverableType: draft.deliverableType,
+    outcome: status,
+    lintEscape,
+    note: opts.note,
+  });
+
+  if (status === "approved" || status === "modified") {
+    // 一次通过 = 批准 + 无备注 + 无编辑证据（rewriteAmplitude 增量为 0）；否则一律记 rewrite。
+    const firstPass =
+      status === "approved" && !opts.note?.trim() && rewriteAmplitudeDelta(draft) === 0;
     let roleId: string | undefined;
-    try {
-      const lawMindRoot = resolveLawMindRoot(workspaceDir);
-      roleId = getAssistantById(lawMindRoot, labelAssistantId)?.roleId;
-    } catch {
-      roleId = undefined;
+    if (labelAssistantId) {
+      try {
+        const lawMindRoot = resolveLawMindRoot(workspaceDir);
+        roleId = getAssistantById(lawMindRoot, labelAssistantId)?.roleId;
+      } catch {
+        roleId = undefined;
+      }
+      try {
+        recordAgentReviewOutcome({
+          workspaceDir,
+          assistantId: labelAssistantId,
+          roleId,
+          firstPass,
+        });
+      } catch {
+        // 特化指标失败不阻断审核
+      }
     }
-    try {
-      recordAgentReviewOutcome({
-        workspaceDir,
-        assistantId: labelAssistantId,
-        roleId,
-        firstPass,
-      });
-    } catch {
-      // 特化指标失败不阻断审核
-    }
+    // 产品指标不因 assistantId 缺席而漏记（避免选择偏差）；assistantId 仅作可选 meta。
     try {
       appendProductMetric(workspaceDir, {
         kind: firstPass ? "first_pass" : "rewrite",
@@ -169,8 +248,9 @@ export async function reviewDraft(
         taskId: draft.taskId,
         matterId: draft.matterId,
         deliverableType: draft.deliverableType,
+        runtimeEventId: lawyerEditEvent.eventId,
         meta: {
-          assistantId: labelAssistantId,
+          ...(labelAssistantId ? { assistantId: labelAssistantId } : {}),
           ...(roleId ? { roleId } : {}),
         },
       });
@@ -195,17 +275,6 @@ export async function reviewDraft(
     }
   } catch {
     // 审阅时长失败不阻断审核
-  }
-
-  try {
-    const rewriteDelta = rewriteAmplitudeDelta(draft);
-    if (status !== "approved") {
-      recordLintEscape(workspaceDir, draft);
-    } else if (draft.rewriteAmplitude && rewriteDelta > 0) {
-      recordLintEscape(workspaceDir, draft, { lawyerEdited: true });
-    }
-  } catch {
-    // 逃逸指标失败不阻断审核
   }
 
   // R-P2-7：审核态以 deliverables/*.json 为权威口；draft.reviewStatus 仅从该 stamp 同步后再落盘。
@@ -533,7 +602,11 @@ export async function recordQualityImpl(
     citationValidityRate,
     issueCoverageRate,
     riskRecallRate,
-    firstPassApproved: draft.reviewStatus === "approved" && draft.reviewNotes.length === 0,
+    // 与 reviewDraft 的 first_pass 口径一致：批准 + 无备注 + 无编辑证据才算一次通过。
+    firstPassApproved:
+      draft.reviewStatus === "approved" &&
+      draft.reviewNotes.length === 0 &&
+      rewriteAmplitudeDelta(draft) === 0,
     reviewStatus: draft.reviewStatus,
     reviewLabels: labels,
     isGoldenExample: labels.includes("质量范例"),
@@ -541,7 +614,7 @@ export async function recordQualityImpl(
     presetKey,
     createdAt: new Date().toISOString(),
   };
-  persistQualityRecord(workspaceDir, record);
+  await persistQualityRecord(workspaceDir, record);
   await emit(auditDir, {
     taskId,
     kind: "quality.snapshot",

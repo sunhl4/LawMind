@@ -10,10 +10,26 @@
 import path from "node:path";
 import { receiveMessageOnPort, MessageChannel } from "node:worker_threads";
 import { loadMatter, saveMatter, type MatterRecord } from "../../adapters/matter-storage/index.js";
-import { matterSchema } from "../../adapters/matter-storage/schemas.js";
 import { matterDir, withExclusiveFileLock } from "../../adapters/matter-storage/io.js";
+import { matterSchema } from "../../adapters/matter-storage/schemas.js";
 import { emit } from "../../audit/index.js";
+import type { MatterDocket, MatterKind } from "../../desk/matter-kind.js";
+import { parseMatterDocket, parseMatterKind, parsePracticeTags } from "../../desk/matter-kind.js";
 import { projectMatterToCaseMd, upsertMatterCaseProfileBullets } from "../matter-projection.js";
+
+export type MatterCreateInput = {
+  matterId: string;
+  title?: string;
+  status?: MatterRecord["status"];
+  sensitivity?: MatterRecord["sensitivity"];
+  ownerLawyerId?: string;
+  primaryAssistantRoleId?: string;
+  strategyStatus?: MatterRecord["strategyStatus"];
+  clientId?: string;
+  matterKind?: MatterKind;
+  practiceTags?: string[];
+  docket?: MatterDocket;
+};
 
 const pendingMatterProjections = new Set<Promise<void>>();
 
@@ -86,17 +102,6 @@ function newTimestamp(): string {
   return new Date().toISOString();
 }
 
-export type MatterCreateInput = {
-  matterId: string;
-  title?: string;
-  status?: MatterRecord["status"];
-  sensitivity?: MatterRecord["sensitivity"];
-  ownerLawyerId?: string;
-  primaryAssistantRoleId?: string;
-  strategyStatus?: MatterRecord["strategyStatus"];
-  clientId?: string;
-};
-
 type MatterCreateOptions = {
   /** When false, caller will project CASE.md separately (avoids duplicate async work). */
   projectCase?: boolean;
@@ -114,6 +119,9 @@ export function createMatterIfMissing(
       return existing;
     }
     const now = newTimestamp();
+    const kind = parseMatterKind(input.matterKind);
+    const docket = parseMatterDocket(input.docket);
+    const tags = parsePracticeTags(input.practiceTags);
     const draft: MatterRecord = {
       matterId: input.matterId,
       clientId: input.clientId,
@@ -128,6 +136,9 @@ export function createMatterIfMissing(
       deadlineIds: [],
       deliverableIds: [],
       queueItemIds: [],
+      matterKind: kind,
+      ...(tags.length > 0 ? { practiceTags: tags } : {}),
+      ...(docket ? { docket } : {}),
       createdAt: now,
       updatedAt: now,
     };
@@ -152,6 +163,9 @@ export type MatterProfileUpdateInput = {
   status?: MatterRecord["status"];
   causeOfAction?: string;
   counterparty?: string;
+  matterKind?: MatterKind;
+  practiceTags?: string[];
+  docket?: MatterDocket;
 };
 
 /**
@@ -176,6 +190,13 @@ export async function updateMatterProfile(
       clientId,
       sensitivity: input.sensitivity ?? existing.sensitivity,
       status: input.status ?? existing.status,
+      matterKind:
+        input.matterKind !== undefined ? parseMatterKind(input.matterKind) : existing.matterKind,
+      practiceTags:
+        input.practiceTags !== undefined
+          ? parsePracticeTags(input.practiceTags)
+          : existing.practiceTags,
+      docket: input.docket !== undefined ? parseMatterDocket(input.docket) : existing.docket,
       updatedAt: newTimestamp(),
     };
     const parsed = matterSchema.safeParse(next);
@@ -192,6 +213,8 @@ export async function updateMatterProfile(
   await upsertMatterCaseProfileBullets(workspaceDir, saved.matterId, {
     causeOfAction: input.causeOfAction,
     counterparty: input.counterparty,
+    docket: saved.docket,
+    matterKind: saved.matterKind,
   });
   return saved;
 }

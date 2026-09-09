@@ -15,6 +15,10 @@ import {
 } from "../../../research/research-write-bypass-gate.js";
 import { isProtectedAnalysisScriptRel } from "../../../runtime/analysis-script-path.js";
 import { resolveLawyerLocalFile } from "../../../runtime/lawyer-local-file.js";
+import {
+  PROTECTED_WORKSPACE_WRITE_REFUSAL,
+  isProtectedWorkspaceRel,
+} from "../../../runtime/protected-workspace-rels.js";
 import { resolveWorkspaceRelativePath } from "../../../runtime/workspace-path.js";
 import type { AgentTool } from "../../types.js";
 import {
@@ -340,6 +344,9 @@ export const writeDocument: AgentTool = {
         ok: false,
         error: "不能用写文书投放分析脚本。脚本须放在已签名技能或律师确认的分析脚本目录。",
       };
+    }
+    if (isProtectedWorkspaceRel(rel)) {
+      return { ok: false, error: PROTECTED_WORKSPACE_WRITE_REFUSAL };
     }
     const bypass = shouldRefuseResearchWriteBypass({
       workspaceDir: ctx.workspaceDir,

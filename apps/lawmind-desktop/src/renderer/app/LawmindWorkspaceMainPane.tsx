@@ -262,7 +262,6 @@ function LawmindWorkspaceMainPaneImpl({
                       <LawmindSessionHistorySidebar
                         compact
                         apiBase={config.apiBase}
-                        assistantId={selectedAssistantId}
                         sessions={chatSessionList}
                         activeSessionId={activeChatSessionId}
                         busy={loading || chatSessionsLoading}
@@ -286,8 +285,6 @@ function LawmindWorkspaceMainPaneImpl({
                 onSendClarificationMessage={(text) => void onSendClarificationMessage(text)}
                 streamCompactLabels={streamCompactLabels}
                 fileChatPills={fileChatPills}
-                onRemoveFileChatPill={onRemoveFileChatPill}
-                onClearFileChatPills={onClearFileChatPills}
                 contextTaskId={contextTaskId}
                 apiBase={config?.apiBase}
                 onOpenReview={onOpenReview}
@@ -343,7 +340,6 @@ function LawmindWorkspaceMainPaneImpl({
               selectedModelId={selectedModelId}
               onModelSelect={onModelSelect}
               onDelegateAssist={onDelegateAssist}
-              delegateAssistEnabled={delegateAssistEnabled}
               allowWebSearch={allowWebSearch}
               webSearchPolicyBlocked={webSearchPolicyBlocked}
               onAllowWebSearchChange={onAllowWebSearchChange}

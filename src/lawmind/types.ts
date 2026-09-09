@@ -20,6 +20,8 @@
  *   - 审核行为必须产生学习信号，不能只是状态切换
  */
 
+import type { ProvenanceChain } from "./drafts/provenance.js";
+
 // ─────────────────────────────────────────────
 // 1. TaskIntent — 任务路由层输出
 // ─────────────────────────────────────────────
@@ -59,6 +61,9 @@ export type DeliverableType =
   | "litigation.brief"
   | "memo.opinion"
   | "memo.internal"
+  | "memo.research"
+  | "labor.calc"
+  | "period.calc"
   | "matter.timeline"
   | "matter.exhibit_list"
   | "meeting.minutes"
@@ -205,6 +210,8 @@ export type ArtifactSection = {
   body: string;
   /** 该节引用的来源 ID */
   citations?: string[];
+  /** 轻量数据血缘：本段文字的来源与修改历史。 */
+  provenance?: ProvenanceChain;
 };
 
 /** 审核状态 */
@@ -290,6 +297,22 @@ export type ArtifactDraft = {
    * 合同正文最小修改：原文件基线 + surgical Redline / tracked 导出。
    */
   contractEdit?: ContractEditContext;
+  /**
+   * Unlocked 成套审查：`apply_surgical_edits` 把章节换成合同基线前保存的意见稿。
+   * 不参与 redline hunk。邮件短路径与指定目录 Word 改稿不会写入此字段。
+   */
+  pairedOpinionSections?: ArtifactSection[];
+  /**
+   * Structured opinion → redline handoff. Model/native callers provide exact
+   * shortest anchors; prose parsing remains a compatibility fallback.
+   */
+  contractReviewEdits?: Array<{
+    find: string;
+    replace: string;
+    priority?: "P0" | "P1" | "P2";
+    mode?: "apply" | "opinion_only";
+    reason?: string;
+  }>;
   /**
    * 最近一次改写幅度质控（字符/段落 delta）；幅度过大时供审核台提示。
    */
@@ -447,6 +470,7 @@ export type AuditEventKind =
   | "research.started"
   | "research.completed"
   | "draft.created"
+  | "draft.auto_delivered"
   | "draft.citation_integrity"
   | "draft.reviewed"
   | "draft.review_reopened" // 由「恢复待审核」等操作将草稿重置于 pending
@@ -469,6 +493,7 @@ export type AuditEventKind =
   | "memory.adoption_suggested" // W5：记忆建议已入队（待律师采纳）
   | "memory.adoption_auto_adopted" // W5：高置信建议已自动落盘
   | "memory.adoption_adopted" // W5：律师手动采纳记忆建议
+  | "memory.adoption_recorded_noop" // W5：采纳已记录但该 kind 无落盘存储面（如实 no-op）
   | "memory.adoption_dismissed" // W5：律师忽略记忆建议
   | "quality.benchmark_run" // 2.0：评测任务执行记录
   | "quality.snapshot" // Phase B：任务质量指标快照已写入
@@ -493,7 +518,9 @@ export type AuditEventKind =
   | "routing.resolve_failed" // 默认路由无法解析 assignee
   | "draft.peer_review_required" // 强制互审闸：已建 peer 委派
   | "draft.peer_review_skipped" // 强制互审闸：无 peer / 自审跳过
-  | "automation.run_failed"; // 交办自动化运行失败（含结构化错误码）
+  | "automation.run_failed" // 交办自动化运行失败（含结构化错误码）
+  | "outbound_http" // 统一出口代理发起的外部 HTTP 请求
+  | "safe_command"; // 统一命令网关启动的子进程
 
 /** 审计事件 */
 export type AuditEvent = {
@@ -501,7 +528,7 @@ export type AuditEvent = {
   taskId: string;
   kind: AuditEventKind;
   actor: "system" | "lawyer" | "model";
-  /** Optional operator identity, e.g. `lawyer:desktop` or `lawyer:<firm-id>` (see LAWMIND-ACTOR-ATTRIBUTION). */
+  /** Optional operator identity, e.g. `lawyer:desktop` or `lawyer:<firm-id>` (see docs/archive/LAWMIND-ACTOR-ATTRIBUTION.md). */
   actorId?: string;
   detail?: string;
   timestamp: string;
@@ -687,6 +714,9 @@ export type BenchmarkTask = {
   description?: string;
 };
 
+/** 评测来源口径。mock 仅作本地冒烟；scripted 跑真实引擎但用脚本化模型驱动；real 用真模型。 */
+export type BenchmarkModelMode = "mock" | "scripted" | "real";
+
 /** 单次评测结果 */
 export type BenchmarkResult = {
   benchmarkId: string;
@@ -695,6 +725,8 @@ export type BenchmarkResult = {
   ranAt: string;
   /** 使用的模型标识 */
   modelHint?: string;
+  /** 评测来源口径：mock 仅作本地冒烟，scripted/real 可进入发布 gate。 */
+  modelMode?: BenchmarkModelMode;
   /** 任务是否成功完成（无崩溃、有输出） */
   taskCompleted: boolean;
   /** 实际产生的任务类型是否与期望一致 */

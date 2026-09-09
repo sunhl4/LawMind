@@ -10,7 +10,7 @@ export function LocalServiceDisconnectCallout(props: {
     <div className="lm-callout lm-callout-warn" role="status" id={id}>
       <div className="lm-callout-title">无法连接到本地服务</div>
       <p className="lm-callout-body">
-        请确认 LawMind 是通过「Electron 窗口」运行（不要用浏览器打开 Vite 页面）。若刚保存 API
+        请确认 LawMind 桌面应用正在运行。若刚保存 API
         配置或切换项目，本地端口可能已变更，请点击下方重新连接。
       </p>
       {onReconnect ? (

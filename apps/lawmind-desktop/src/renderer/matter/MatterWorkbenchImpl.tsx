@@ -150,10 +150,6 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
     acceptanceByTask,
     auditEvents,
     setAuditEvents,
-    opsFocus,
-    setOpsFocus,
-    opsSort,
-    setOpsSort,
     searchQ,
     setSearchQ,
     searchHits,
@@ -175,7 +171,6 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
   );
   const isUnlinkedBucket = isAppSidebar && selectedMatterKeyProp === RECORDS_DESK_UNLINKED;
 
-  const [matterOverviewExtrasOpen, setMatterOverviewExtrasOpen] = useState(false);
   const [caseFocusContext, setCaseFocusContext] = useState<CaseFocusContext | null>(null);
   const [caseActionBusy, setCaseActionBusy] = useState(false);
   const [caseActionMsg, setCaseActionMsg] = useState<string | null>(null);
@@ -330,7 +325,7 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
     filteredApprovalRequests,
     filteredDrafts,
     reviewTargetForFocus,
-  } = useMatterWorkbenchOps({ queueItems, approvalRequests, drafts, opsFocus, opsSort });
+  } = useMatterWorkbenchOps({ queueItems, approvalRequests, drafts });
 
   // 卡片计数与可点「去查看」对齐：无 deliverableId 的审批不计入可操作票。
   const actionableElevatedApprovals = useMemo(
@@ -383,11 +378,6 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
     adoptionHistoryInsight,
     visiblePersistentAdoptions,
     convergenceSuggestions,
-    productAdaptationSuggestions,
-    productExperimentChecklist,
-    crossMatterExperimentBoard,
-    roadmapCandidates,
-    roadmapPressureSummary,
     handleConvergenceSuggestion,
     pendingDrafts,
     modifiedDrafts,
@@ -623,15 +613,9 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
     showWorkspaceAcceptanceDashboard,
     workspaceAcceptance,
     workspaceAcceptanceErr,
-    matterOverviewExtrasOpen,
-    setMatterOverviewExtrasOpen,
     reviewSummaryCards,
     onOpenReview,
     openReviewFromMatter,
-    opsFocus,
-    setOpsFocus,
-    opsSort,
-    setOpsSort,
     blockingExplanations,
     handleBlockingAction,
     queueItems,
@@ -640,14 +624,9 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
     showCrossMatterRoadmap,
     convergenceSuggestions,
     handleConvergenceSuggestion,
-    productAdaptationSuggestions,
-    productExperimentChecklist,
-    crossMatterExperimentBoard,
-    roadmapCandidates,
     adoptionHistoryInsight,
     visiblePersistentAdoptions,
     adoptedSuggestions,
-    roadmapPressureSummary,
     recentMatterInteractions,
     filteredQueueItems,
     filteredApprovalRequests,

@@ -22,15 +22,11 @@ export type ReadinessSnapshot = {
 function workspaceLabel(workspaceDir: string | undefined): {
   label: string;
   ok: boolean;
-  /** Browser-only dev / Playwright: no real workspace path — skip pill and do not block allReady. */
   omitPill: boolean;
 } {
   const raw = workspaceDir?.trim() ?? "";
   if (!raw) {
     return { label: "工作区未连接", ok: false, omitPill: false };
-  }
-  if (raw.startsWith("(browser dev")) {
-    return { label: "", ok: true, omitPill: true };
   }
   if (raw.startsWith("(")) {
     return { label: "工作区未连接", ok: false, omitPill: false };

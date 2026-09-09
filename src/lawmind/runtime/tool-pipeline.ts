@@ -21,6 +21,7 @@ import {
   toolRequiresExplicitApproval,
   toolRequiresSubprocessSandbox,
 } from "../agent/dangerous-tool-policy.js";
+import { READONLY_AGENT_TOOL_NAMES, RESEARCH_AGENT_TOOL_NAMES } from "../agent/permission-mode.js";
 import { combineAbortSignals } from "../agent/runtime-model-call.js";
 import { normalizeToolCallArguments } from "../agent/runtime-tool-arg-normalize.js";
 import {
@@ -31,9 +32,11 @@ import { MATTER_SCOPE_REQUIRED } from "../agent/tool-name-sets.js";
 import { resolveToolRiskLevel } from "../agent/tools/governance.js";
 import type { AgentContext, AgentTool, ToolCallResult, ToolDefinition } from "../agent/types.js";
 import { emit } from "../audit/index.js";
+import { withGateCategory } from "../platform/gate-category.js";
 import { toolRequiresLawyerPause } from "../platform/lawyer-outbound-decision.js";
 import { legalVerifyMiddleware } from "./legal-verify-middleware.js";
 import { runToolInSubprocessSandbox } from "./tool-sandbox.js";
+import { isUnlimitedToolTimeoutMs } from "./tool-timeout-env.js";
 
 /**
  * Write/export tools blocked while clarification is pending.
@@ -153,6 +156,47 @@ export const budgetMiddleware: ToolMiddleware = async (call, next) => {
     };
   }
   return next();
+};
+
+/**
+ * 权限模式硬门禁（执行层）：readonly / research 模式下，不在只读白名单内的工具
+ * （写/起草/渲染/外发/工作流等）在管线层直接拒绝，并附 dangerous_tool_gate 阻断决定。
+ *
+ * 发给模型的工具广告清单（resolveModelToolNames）只是提示层：模型幻觉、被注入的
+ * 模型输出或历史 tool_call 重放都可能绕过清单直接点名写工具，本中间件是唯一强制点。
+ * 与 roleAllowlistMiddleware 分开：allowlist 是「办件/岗位」业务口径，本门禁是
+ * 律师设置的会话级安全边界，拒绝话术需明确指向权限模式而非办件锁。
+ * 模式来源：AgentContext.permissionMode（turn 边界解析后写入，model loop 逐轮镜像；
+ * 子助手经 child-gates 继承，只会更严）。
+ */
+export const permissionModeMiddleware: ToolMiddleware = async (call, next) => {
+  const mode = call.ctx.permissionMode ?? "standard";
+  const allowed =
+    mode === "readonly"
+      ? READONLY_AGENT_TOOL_NAMES
+      : mode === "research"
+        ? RESEARCH_AGENT_TOOL_NAMES
+        : undefined;
+  if (!allowed || allowed.has(call.toolName)) {
+    return next();
+  }
+  const message =
+    mode === "readonly"
+      ? `当前权限模式为只读（readonly），不能使用「${call.toolName}」。` +
+        "请改用只读检索/分析工具收集材料；确需起草、导出或外发时，请律师把权限模式切换为标准后再执行。"
+      : `当前权限模式为研究（research），不能使用「${call.toolName}」。` +
+        "研究模式只允许只读工具与 research_task；确需起草、导出或外发时，请律师把权限模式切换为标准后再执行。";
+  return {
+    ok: false,
+    error: message,
+    data: {
+      gateDecision: withGateCategory({
+        gate: "dangerous_tool_gate",
+        decision: "block",
+        reason: message,
+      }),
+    },
+  };
 };
 
 /**
@@ -325,7 +369,13 @@ export const clarificationGateMiddleware: ToolMiddleware = async (call, next) =>
 
 const RISK_ORDER: Record<"low" | "medium" | "high", number> = { low: 0, medium: 1, high: 2 };
 
-/** 危险工具未 `__approved` → 拒绝（带 pendingApproval=true）。 */
+/**
+ * 危险工具未 `__approved` → 生成统一审批请求（approvalRequest=true），
+ * 不返回错误式 retry 提示。系统会把该 turn 置为 awaiting_approval 并在 UI
+ * 的「待我拍板」中展示；律师批准后由 resume 路径注入 `__approved` 再执行。
+ * `__approved` 是服务端能力位：只能由 turn 边界在律师预批准/沙箱策略下注入，
+ * 模型自填的副本在进入本管线前已被剥除（turn-orchestrator-tool-round）。
+ */
 export const approvalMiddleware: ToolMiddleware = async (call, next) => {
   if (!call.tool) {
     return next();
@@ -344,10 +394,19 @@ export const approvalMiddleware: ToolMiddleware = async (call, next) => {
     }
   }
   if (requires && call.args.__approved !== true) {
+    const reason = `操作「${call.toolName}」需要律师在「待我拍板」中确认。`;
     return {
       ok: false,
-      error: `Tool ${call.toolName} requires lawyer approval. Retry with "__approved": true after explicit confirmation.`,
-      pendingApproval: true,
+      error: reason,
+      approvalRequest: true,
+      data: {
+        gateDecision: withGateCategory({
+          gate: "approval_gate",
+          decision: "awaiting_confirmation",
+          reason,
+          category: "safety_hard",
+        }),
+      },
     };
   }
   return next();
@@ -385,13 +444,39 @@ export const argSchemaMiddleware: ToolMiddleware = async (call, next) => {
  * 单次工具执行超时（默认包在 execute 外层）。
  *
  * 用 AbortController + Promise.race：超时时既立即向调用方返回超时错误，
- * 又通过 `controller.abort()` 翻转 `ctx.abortSignal`，让读取该 signal 的工具
+ * 又通过 `controller.abort()` 翻转本次调用的派生 signal，让读取该 signal 的工具
  * （fetch / 模型调用 / 子进程）取消底层工作，而不是让它在超时后继续跑到完成。
+ *
+ * 并发批共享同一个 AgentContext：不能改写共享 `ctx.abortSignal`（一个工具超时
+ * 会把其他在途工具一起取消，或互相覆盖 signal）。因此超时 signal 以 per-call
+ * 浅拷贝的形式注入——仅本次调用的下游中间件/工具看到派生 signal。
  */
 export const timeoutMiddleware: ToolMiddleware = async (call, next) => {
+  if (isUnlimitedToolTimeoutMs(call.policy.toolTimeoutMs)) {
+    const prev = call.ctx.abortSignal;
+    if (prev?.aborted) {
+      return { ok: false, error: "已停止", aborted: true };
+    }
+    const prevCtx = call.ctx;
+    call.ctx = { ...prevCtx, abortSignal: prev };
+    try {
+      return await next().catch((err): ToolCallResult => {
+        if (prev?.aborted) {
+          return { ok: false, error: "已停止", aborted: true };
+        }
+        return {
+          ok: false,
+          error: `Tool error: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      });
+    } finally {
+      call.ctx = prevCtx;
+    }
+  }
   const prev = call.ctx.abortSignal;
   const combined = combineAbortSignals(call.policy.toolTimeoutMs, prev);
-  call.ctx.abortSignal = combined.signal;
+  const prevCtx = call.ctx;
+  call.ctx = { ...prevCtx, abortSignal: combined.signal };
   try {
     if (prev?.aborted) {
       return { ok: false, error: "已停止", aborted: true };
@@ -429,7 +514,7 @@ export const timeoutMiddleware: ToolMiddleware = async (call, next) => {
     ]);
   } finally {
     combined.cleanup();
-    call.ctx.abortSignal = prev;
+    call.ctx = prevCtx;
   }
 };
 
@@ -494,6 +579,7 @@ export function buildDefaultToolPipeline(): ToolMiddleware[] {
   return [
     unknownToolMiddleware,
     budgetMiddleware,
+    permissionModeMiddleware,
     discoveryLoopMiddleware,
     roleAllowlistMiddleware,
     matterScopeMiddleware,

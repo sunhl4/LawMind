@@ -12,6 +12,8 @@ import {
   resolveAuthorityEndpointRaw,
   validateAuthorityEndpointUrl,
 } from "../../authority-health.js";
+import { resolveAuthorityProvider } from "../../authority-provider.js";
+import { resolvePkulawMode } from "./client.js";
 
 export type AuthorityCitationIssue = {
   citation: string;
@@ -49,6 +51,20 @@ export async function validateCitationsWithAuthority(opts: {
   const citations = opts.citations.map((c) => c.trim()).filter(Boolean);
   if (citations.length === 0) {
     return { ok: true, skipped: false, issues: [], message: "无待校验引用。" };
+  }
+  const dedicatedPath = process.env.LAWMIND_AUTHORITY_CITATION_VALIDATE_PATH?.trim();
+  if (
+    resolveAuthorityProvider() === "pkulaw" &&
+    resolvePkulawMode() === "mcp_tools_call" &&
+    !dedicatedPath
+  ) {
+    return {
+      ok: true,
+      skipped: true,
+      issues: [],
+      message:
+        "法宝官方 MCP 无 POST /validate（应用 adjust_provisions）。未设置 LAWMIND_AUTHORITY_CITATION_VALIDATE_PATH，已跳过以免打到检索网关。",
+    };
   }
   const raw = resolveAuthorityEndpointRaw({ endpoint: opts.endpoint });
   if (!raw) {

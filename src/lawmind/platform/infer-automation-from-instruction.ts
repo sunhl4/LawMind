@@ -27,7 +27,7 @@ export function inferAutomationFromInstruction(text: string): {
       allowSendEmailAfterApproval: false,
     };
   }
-  if (/邮件|邮箱|收件|来信/.test(raw)) {
+  if (/邮件|邮箱|收件|来信|待回复/.test(raw)) {
     return {
       presetId: "mail-inbox-digest",
       title: "邮箱收件整理",

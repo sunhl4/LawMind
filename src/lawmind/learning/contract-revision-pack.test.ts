@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { readStanceItems } from "../stance/index.js";
 import {
   contractRevisionsRootDir,
   finalizeContractRevisionPack,
@@ -43,7 +44,7 @@ describe("contract-revision-pack", () => {
       workspaceDir: ws,
       initialSourcePath: "a.docx",
       finalSourcePath: "b.docx",
-      keyModifications: [" 将付款周期改为月结 ", ""],
+      keyModifications: [" 将付款周期改为月结 ", "管辖改为提交北京仲裁委员会仲裁"],
       title: "采购合同修订",
       requirementsSummary: "按客户要求收紧违约责任。",
       matterId: "m1",
@@ -68,6 +69,9 @@ describe("contract-revision-pack", () => {
     const finalCopy = await fs.readFile(path.join(packDir, "final", "b.docx"), "utf8");
     expect(initialCopy).toBe("v0");
     expect(finalCopy).toBe("v1-final");
+    expect(
+      readStanceItems(ws).some((it) => it.source === "revision_pack" && it.clauseType === "管辖"),
+    ).toBe(true);
   });
 
   it("finalize writes stableDocumentKey index", async () => {

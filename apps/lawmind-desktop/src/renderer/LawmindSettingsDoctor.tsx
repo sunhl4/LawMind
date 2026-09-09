@@ -1,7 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
+import { apiGetJson, apiSendJson, errorMessage, fetchApi } from "./api-client";
 import { loadHealthPayload, type HealthPayload } from "./lawmind-app-data";
-import { apiAuthHeaders } from "./lawmind-api-auth";
 import { apiGetTriageRules } from "./lawmind-triage-api";
 import {
   authorityCorpusStatusLabel,
@@ -263,7 +262,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
         error?: string;
       };
       if (j.ok) {
-        setMatterRepairMsg(`已从 matter.json 重建 ${j.repaired ?? 0} 个案件的 CASE.md 投影。`);
+        setMatterRepairMsg(`已从案件数据重建 ${j.repaired ?? 0} 个案件的档案。`);
         const h = await loadHealthPayload(apiBase);
         setFetchedHealth(h);
       } else {
@@ -314,7 +313,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
     setAuditExportBusy(true);
     setAuditExportMsg(null);
     try {
-      const res = await fetch(`${apiBase}/api/audit/export`, { headers: apiAuthHeaders() });
+      const res = await fetchApi(`${apiBase}/api/audit/export`, {}, { tag: "doctor:audit-export" });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string; message?: string } | null;
         throw new Error(body?.message ?? body?.error ?? `导出失败（HTTP ${res.status}）`);
@@ -395,7 +394,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
       />
 
       <div className="lm-settings-group lm-settings-surface" data-testid="lm-doctor-skills-trust">
-        <h4 className="lm-doctor-group-title">信任与门禁</h4>
+        <h4 className="lm-doctor-group-title">信任与核对</h4>
         <div className="lm-doctor-security-grid">
           <span className="lm-settings-key">引用模式</span>
           <span
@@ -416,12 +415,13 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
                   ? "lm-pill lm-pill-success"
                   : "lm-pill lm-pill-neutral"
             }
+            title={health?.agentMandatoryRulesTruncated ? "规则内容过长，仅部分生效" : undefined}
             data-testid="lm-doctor-mandatory-rules"
           >
             {health?.agentMandatoryRulesTruncated
-              ? "已截断"
+              ? "部分生效"
               : health?.agentMandatoryRulesActive
-                ? "已注入"
+                ? "已生效"
                 : "未配置"}
           </span>
           <span className="lm-settings-key">模型能力</span>
@@ -544,7 +544,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
         <div className="lm-doctor-security-grid">
           <span className="lm-settings-key">本案规则</span>
           <span className="lm-meta" data-testid="lm-doctor-matter-rules-hint">
-            本案 RULES.md
+            案件档案内的规则区
           </span>
           <span className="lm-settings-key">分诊规则</span>
           <span
@@ -561,7 +561,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
           <span className="lm-settings-key">产品指标</span>
           <span className="lm-meta">
             事件 {doctor?.productMetricsSummary?.total ?? 0} · 分诊确认{" "}
-            {doctor?.productMetricsSummary?.triageConfirmed ?? 0} · gate 失败{" "}
+            {doctor?.productMetricsSummary?.triageConfirmed ?? 0} · 核对失败{" "}
             {doctor?.productMetricsSummary?.gateFailures ?? 0} · 一次过{" "}
             {doctor?.productMetricsSummary?.firstPassOk ?? 0} · 改写{" "}
             {doctor?.productMetricsSummary?.rewrites ?? 0} · 改写幅度样本{" "}
@@ -819,7 +819,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
       <div className="lm-settings-group lm-settings-surface">
         <h4 className="lm-doctor-group-title">高安全核对</h4>
         <div className="lm-doctor-security-grid">
-          <span className="lm-settings-key">联网 allowlist</span>
+          <span className="lm-settings-key">联网白名单</span>
           <span
             className={
               health?.policy?.networkAllowlist?.length
@@ -861,9 +861,9 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
       {health?.policy && typeof health.policy === "object" && "loaded" in health.policy && health.policy.loaded ? (
         <div className="lm-settings-group lm-settings-surface">
           <h4 className="lm-doctor-group-title">联网策略</h4>
-          <div className="lm-settings-row">
-            <span className="lm-settings-key">networkAllowlist</span>
-            <span className="lm-meta">
+        <div className="lm-settings-row">
+          <span className="lm-settings-key">联网白名单</span>
+          <span className="lm-meta">
               {Array.isArray(health.policy.networkAllowlist) && health.policy.networkAllowlist.length > 0
                 ? health.policy.networkAllowlist.join(", ")
                 : "未配置"}
@@ -895,7 +895,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
       ) : null}
 
       <div className="lm-settings-group lm-settings-surface">
-        <h4 className="lm-doctor-group-title">推理图覆盖率</h4>
+        <h4 className="lm-doctor-group-title">推理留痕覆盖</h4>
         <div className="lm-settings-row">
           <span className="lm-settings-key">覆盖率</span>
           <span
@@ -913,14 +913,14 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
           </span>
         </div>
         <p className="lm-meta">
-          需侧车 {reasoningGraphCoverage?.requiredDraftCount ?? 0} 份 · 已写入{" "}
+          应留痕 {reasoningGraphCoverage?.requiredDraftCount ?? 0} 份 · 已留痕{" "}
           {reasoningGraphCoverage?.withSnapshotCount ?? 0} 份
         </p>
       </div>
 
       <div className="lm-settings-group lm-settings-surface">
         <h4 className="lm-doctor-group-title">案件数据一致性</h4>
-        <p className="lm-settings-caption">CASE 投影自 JSON；不一致可重建。</p>
+        <p className="lm-settings-caption">案件档案由系统数据生成；不一致时可重建。</p>
         <div className="lm-settings-row">
           <span className="lm-settings-key">一致性</span>
           <span
@@ -948,7 +948,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
           disabled={matterRepairBusy || !apiBase}
           onClick={() => void repairMatterProjections()}
         >
-          {matterRepairBusy ? "重建中…" : "从 JSON 重建 CASE.md"}
+          {matterRepairBusy ? "重建中…" : "重建案件档案"}
         </button>
         {matterRepairMsg ? <p className="lm-meta">{matterRepairMsg}</p> : null}
       </div>

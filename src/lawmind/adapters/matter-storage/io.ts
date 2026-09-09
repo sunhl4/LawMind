@@ -84,23 +84,101 @@ export function rewriteJsonl<T>(filePath: string, schema: z.ZodType<T>, values: 
   fs.renameSync(tmp, filePath);
 }
 
+/** 锁文件内容：持锁进程 pid + 获取时间，用于 stale 自愈。 */
+type FileLockMeta = { pid: number; acquiredAt: number };
+
+function isLockOwnerAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return false;
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    // EPERM = 进程存在但无权 signal —— 视为存活，不抢锁。
+    return (e as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+function readFileLockMeta(lockPath: string): { meta?: FileLockMeta; mtimeMs: number } | undefined {
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(lockPath);
+  } catch {
+    return undefined; // 已被释放
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(lockPath, "utf8")) as Partial<FileLockMeta>;
+    if (typeof parsed.pid === "number" && typeof parsed.acquiredAt === "number") {
+      return { meta: { pid: parsed.pid, acquiredAt: parsed.acquiredAt }, mtimeMs: stat.mtimeMs };
+    }
+  } catch {
+    /* legacy 空锁 / 半写：退回 mtime 锁龄判断 */
+  }
+  return { mtimeMs: stat.mtimeMs };
+}
+
+/** stale 判定：持锁 pid 已死，或锁龄超过阈值（legacy 空锁只看锁龄）。 */
+function isStaleFileLock(lockPath: string, staleMs: number, now: number): boolean {
+  const info = readFileLockMeta(lockPath);
+  if (!info) {
+    return false;
+  }
+  if (info.meta) {
+    if (!isLockOwnerAlive(info.meta.pid)) {
+      return true;
+    }
+    return now - info.meta.acquiredAt > staleMs;
+  }
+  return now - info.mtimeMs > staleMs;
+}
+
+/**
+ * 原子接管 stale 锁：rename 只有一个进程能成功，失败者返回 false 继续轮询；
+ * 随后仍走 O_EXCL 重建，保证接管不破坏互斥。
+ */
+function takeoverStaleFileLock(lockPath: string): boolean {
+  const trash = `${lockPath}.stale-${process.pid}-${Date.now()}`;
+  try {
+    fs.renameSync(lockPath, trash);
+  } catch {
+    return false;
+  }
+  try {
+    fs.unlinkSync(trash);
+  } catch {
+    /* ignore */
+  }
+  console.warn(`[LawMind] 自愈接管 stale 文件锁：${lockPath}`);
+  return true;
+}
+
 /**
  * Exclusive create lock (`O_EXCL`) with busy-wait poll.
  * Used for JSONL rewrite races (e.g. approval resolve).
+ *
+ * stale 自愈：持锁进程崩溃后锁文件残留会让该任务永久 file_lock_timeout。
+ * 获取失败时检查锁文件里的 pid / 锁龄——pid 已死或锁龄超 `staleMs`（默认 60s）
+ * 即判定 stale，原子接管后重试。
  */
 export function withExclusiveFileLock<T>(
   lockPath: string,
   fn: () => T,
-  opts?: { timeoutMs?: number; pollMs?: number },
+  opts?: { timeoutMs?: number; pollMs?: number; staleMs?: number },
 ): T {
   const timeoutMs = opts?.timeoutMs ?? 5_000;
   const pollMs = Math.max(1, opts?.pollMs ?? 5);
+  const staleMs = Math.max(1_000, opts?.staleMs ?? 60_000);
   const started = Date.now();
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   while (true) {
     try {
       const fd = fs.openSync(lockPath, "wx");
       try {
+        fs.writeSync(
+          fd,
+          JSON.stringify({ pid: process.pid, acquiredAt: Date.now() } satisfies FileLockMeta),
+        );
         return fn();
       } finally {
         try {
@@ -119,8 +197,12 @@ export function withExclusiveFileLock<T>(
       if (err.code !== "EEXIST") {
         throw e;
       }
+      // stale 优先于超时：能自愈就不让用户等死。
+      if (isStaleFileLock(lockPath, staleMs, Date.now()) && takeoverStaleFileLock(lockPath)) {
+        continue;
+      }
       if (Date.now() - started > timeoutMs) {
-        throw new Error(`file_lock_timeout:${path.basename(lockPath)}`);
+        throw new Error(`file_lock_timeout:${path.basename(lockPath)}`, { cause: e });
       }
       const end = Date.now() + pollMs;
       while (Date.now() < end) {

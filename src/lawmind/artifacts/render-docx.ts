@@ -13,7 +13,8 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
-import { Document, Packer, Paragraph } from "docx";
+import { Document, Packer, Paragraph, type ICommentOptions } from "docx";
+import { renderProvenanceAsFootnote } from "../drafts/provenance.js";
 import {
   formatSectionSeeAlsoLine,
   type CitationDisplaySource,
@@ -32,6 +33,7 @@ import {
   paragraphDocumentTitle,
   paragraphHeading1,
   paragraphHeading2,
+  paragraphHeading2WithComment,
   paragraphMetaCenter,
   paragraphReviewNoteItem,
 } from "./docx-legal-typography.js";
@@ -51,6 +53,8 @@ export type RenderDocxOptions = {
   uploadedTemplate?: UploadedTemplateRecord;
   /** Research sources for resolving citation ids into lawyer-facing 「参见」 text. */
   sources?: CitationDisplaySource[];
+  /** When true, include section provenance as Word comments. */
+  includeProvenance?: boolean;
 };
 
 // ─────────────────────────────────────────────
@@ -59,11 +63,25 @@ export type RenderDocxOptions = {
 
 function buildWordSection(
   section: ArtifactSection,
-  sources?: CitationDisplaySource[],
+  sources: CitationDisplaySource[] | undefined,
+  includeProvenance: boolean,
+  commentState: { nextId: number; comments: ICommentOptions[] },
 ): Paragraph[] {
   const paragraphs: Paragraph[] = [];
 
-  paragraphs.push(paragraphHeading2(section.heading));
+  if (includeProvenance && section.provenance?.events.length) {
+    const commentText = renderProvenanceAsFootnote(section.provenance);
+    const { paragraph, comment } = paragraphHeading2WithComment(
+      section.heading,
+      commentText,
+      commentState.nextId,
+    );
+    commentState.nextId += 1;
+    commentState.comments.push(comment);
+    paragraphs.push(paragraph);
+  } else {
+    paragraphs.push(paragraphHeading2(section.heading));
+  }
   paragraphs.push(...bodyLinesToParagraphs(section.body));
 
   const seeAlso = formatSectionSeeAlsoLine(section.citations, sources);
@@ -148,9 +166,17 @@ export async function renderDocxWithOptions(
     paragraphHeading1(summaryHeading),
     ...summaryToParagraphs(draft.summary),
   ];
+  const commentState = { nextId: 1, comments: [] as ICommentOptions[] };
 
   for (const section of draft.sections) {
-    allParagraphs.push(...buildWordSection(section, options.sources));
+    allParagraphs.push(
+      ...buildWordSection(
+        section,
+        options.sources,
+        options.includeProvenance ?? false,
+        commentState,
+      ),
+    );
   }
 
   if (draft.reviewNotes.length > 0) {
@@ -161,6 +187,7 @@ export async function renderDocxWithOptions(
   }
 
   const doc = new Document({
+    ...(commentState.comments.length > 0 ? { comments: { children: commentState.comments } } : {}),
     sections: [
       {
         properties: defaultSectionPageProps(),

@@ -8,6 +8,7 @@ import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import type { MailAccount } from "./mail-accounts.js";
 import { getMailAccountSecret } from "./mail-secrets.js";
+import { checkImapPortAllowed } from "./mail-transport-guard.js";
 import { resolveImapEndpoints } from "./provider-presets.js";
 
 export type FetchedMailMessage = {
@@ -71,10 +72,17 @@ async function withImapClient<T>(
   if (!host) {
     throw new Error("missing_imap_host");
   }
+  // 非 TLS 标准端口默认拒绝（显式 allowInsecure 例外），凭证不走明文。
+  const portCheck = checkImapPortAllowed(port, account.allowInsecure);
+  if (!portCheck.ok) {
+    throw new Error(portCheck.error);
+  }
   const client = new ImapFlow({
     host,
     port,
     secure: port === 993,
+    // 非 993 的显式例外端口仍尝试 STARTTLS 升级，尽量不落明文。
+    doSTARTTLS: port !== 993,
     auth: { user: account.email, pass: password },
     logger: false,
     tls: { rejectUnauthorized: true },
@@ -135,6 +143,13 @@ export async function testImapConnection(
     }
     if (msg.includes("missing_imap_host")) {
       return { ok: false, error: "missing_imap_host", hint: "自定义 IMAP 需填写主机地址。" };
+    }
+    if (msg.includes("insecure_imap_port")) {
+      return {
+        ok: false,
+        error: "insecure_imap_port",
+        hint: "IMAP 端口非加密标准端口（993），凭证可能明文传输。确需使用请在该账号上显式开启 allowInsecure。",
+      };
     }
     return {
       ok: false,

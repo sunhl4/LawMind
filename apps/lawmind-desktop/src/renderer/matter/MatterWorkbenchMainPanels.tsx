@@ -20,12 +20,7 @@ import { MatterCasePanel } from "./MatterCasePanel";
 import type { MatterWorkspaceAcceptance } from "../lawmind-query-hooks";
 import type { AcceptanceSummaryItem } from "./matter-acceptance-display";
 import type { CaseDraftVariant, CaseFocusContext } from "./matter-case-focus";
-import type {
-  AuditEventRow,
-  MatterInteractionSummary,
-  OperationsFocus,
-  OperationsSort,
-} from "./matter-interaction";
+import type { AuditEventRow, MatterInteractionSummary } from "./matter-interaction";
 import type { TaskBoardJobInput } from "./matter-task-board";
 import type { MatterPanelTab } from "./useMatterWorkbench";
 import type { SessionTimelineEntry } from "./useMatterSessionTimeline";
@@ -70,8 +65,6 @@ export type MatterWorkbenchMainPanelsProps = {
   showWorkspaceAcceptanceDashboard: boolean;
   workspaceAcceptance: MatterWorkspaceAcceptance | null;
   workspaceAcceptanceErr: string | null;
-  matterOverviewExtrasOpen: boolean;
-  setMatterOverviewExtrasOpen: (open: boolean) => void;
   reviewSummaryCards: ReviewSummaryCard[];
   onOpenReview?: (target: {
     taskId: string;
@@ -89,10 +82,6 @@ export type MatterWorkbenchMainPanelsProps = {
       sourceLabel?: string;
     },
   ) => void;
-  opsFocus: OperationsFocus;
-  setOpsFocus: (focus: OperationsFocus) => void;
-  opsSort: OperationsSort;
-  setOpsSort: (sort: OperationsSort) => void;
   blockingExplanations: Array<{
     key: string;
     title: string;
@@ -115,14 +104,9 @@ export type MatterWorkbenchMainPanelsProps = {
   showCrossMatterRoadmap: boolean;
   convergenceSuggestions: ProductIntelligence["convergenceSuggestions"];
   handleConvergenceSuggestion: ProductIntelligence["handleConvergenceSuggestion"];
-  productAdaptationSuggestions: ProductIntelligence["productAdaptationSuggestions"];
-  productExperimentChecklist: ProductIntelligence["productExperimentChecklist"];
-  crossMatterExperimentBoard: ProductIntelligence["crossMatterExperimentBoard"];
-  roadmapCandidates: ProductIntelligence["roadmapCandidates"];
   adoptionHistoryInsight: ProductIntelligence["adoptionHistoryInsight"];
   visiblePersistentAdoptions: ProductIntelligence["visiblePersistentAdoptions"];
   adoptedSuggestions: ProductIntelligence["adoptedSuggestions"];
-  roadmapPressureSummary: ProductIntelligence["roadmapPressureSummary"];
   recentMatterInteractions: AuditEventRow[];
   filteredQueueItems: WorkQueueItem[];
   filteredApprovalRequests: ApprovalRequest[];
@@ -209,15 +193,9 @@ export function MatterWorkbenchMainPanels(props: MatterWorkbenchMainPanelsProps)
     showWorkspaceAcceptanceDashboard,
     workspaceAcceptance,
     workspaceAcceptanceErr,
-    matterOverviewExtrasOpen,
-    setMatterOverviewExtrasOpen,
     reviewSummaryCards,
     onOpenReview,
     openReviewFromMatter,
-    opsFocus,
-    setOpsFocus,
-    opsSort,
-    setOpsSort,
     blockingExplanations,
     handleBlockingAction,
     queueItems,
@@ -226,14 +204,9 @@ export function MatterWorkbenchMainPanels(props: MatterWorkbenchMainPanelsProps)
     showCrossMatterRoadmap,
     convergenceSuggestions,
     handleConvergenceSuggestion,
-    productAdaptationSuggestions,
-    productExperimentChecklist,
-    crossMatterExperimentBoard,
-    roadmapCandidates,
     adoptionHistoryInsight,
     visiblePersistentAdoptions,
     adoptedSuggestions,
-    roadmapPressureSummary,
     recentMatterInteractions,
     filteredQueueItems,
     filteredApprovalRequests,
@@ -400,8 +373,6 @@ export function MatterWorkbenchMainPanels(props: MatterWorkbenchMainPanelsProps)
           showWorkspaceAcceptanceDashboard={showWorkspaceAcceptanceDashboard}
           workspaceAcceptance={workspaceAcceptance}
           workspaceAcceptanceErr={workspaceAcceptanceErr}
-          matterOverviewExtrasOpen={matterOverviewExtrasOpen}
-          setMatterOverviewExtrasOpen={setMatterOverviewExtrasOpen}
           reviewSummaryCards={reviewSummaryCards}
           onOpenReview={onOpenReview}
           openReviewFromMatter={openReviewFromMatter}
@@ -412,10 +383,6 @@ export function MatterWorkbenchMainPanels(props: MatterWorkbenchMainPanelsProps)
           }
           onUseInChat={onUseInChat}
           onOpenNeedsDecisionDesk={onOpenNeedsDecisionDesk}
-          opsFocus={opsFocus}
-          setOpsFocus={setOpsFocus}
-          opsSort={opsSort}
-          setOpsSort={setOpsSort}
           blockingExplanations={blockingExplanations}
           handleBlockingAction={handleBlockingAction}
           queueItems={queueItems}
@@ -424,14 +391,6 @@ export function MatterWorkbenchMainPanels(props: MatterWorkbenchMainPanelsProps)
           showCrossMatterRoadmap={showCrossMatterRoadmap}
           convergenceSuggestions={convergenceSuggestions}
           handleConvergenceSuggestion={handleConvergenceSuggestion}
-          productAdaptationSuggestions={productAdaptationSuggestions}
-          productExperimentChecklist={productExperimentChecklist}
-          crossMatterExperimentBoard={crossMatterExperimentBoard}
-          roadmapCandidates={roadmapCandidates}
-          _adoptionHistoryInsight={adoptionHistoryInsight}
-          _visiblePersistentAdoptions={visiblePersistentAdoptions}
-          _adoptedSuggestions={adoptedSuggestions}
-          roadmapPressureSummary={roadmapPressureSummary}
           recentMatterInteractions={recentMatterInteractions}
           filteredQueueItems={filteredQueueItems}
           filteredApprovalRequests={filteredApprovalRequests}

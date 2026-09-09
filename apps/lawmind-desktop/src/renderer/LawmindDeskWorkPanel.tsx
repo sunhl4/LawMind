@@ -1,6 +1,6 @@
 /**
  * 对话「办件」：先附材料，再选流程。选定后写入能力锁，不必记激活词。
- * 第一屏只留四件高频；诉讼 / 邮件 / 调度进「更多」。
+ * 第一屏：合同审查、诉讼文书、谈话整理、函件、快问；检索 / 写材料进「更多」。
  */
 import type { ReactNode } from "react";
 import {
@@ -12,12 +12,15 @@ import {
 import { requestContractFastLaneOpen } from "./lawmind-contract-fast-lane-bus";
 import { requestDeskLaneOpen } from "./lawmind-desk-lane-bus";
 import { requestOpenAutomationsSettings } from "./lawmind-automations-nav-bus";
+import { LawmindDeskDashboardSummary } from "./LawmindDeskDashboardSummary";
+import { useLawyerDeskDashboard } from "./useLawyerDeskDashboard";
 
-const PRIMARY_CAPABILITY_IDS: readonly LawyerCapabilityId[] = new Set([
+const PRIMARY_CAPABILITY_IDS = new Set<LawyerCapabilityId>([
   "contract.review",
+  "litigation.draft",
+  "litigation.talk",
   "letter.draft",
-  "research.memo",
-  "materials.draft",
+  "analysis.quick",
 ]);
 
 export type LawmindDeskWorkPanelProps = {
@@ -28,6 +31,8 @@ export type LawmindDeskWorkPanelProps = {
   onPick?: () => void;
   /** 已有附件 / 钉源时，合同与检索直接锁流程，不再先开快车道卡片。 */
   hasMaterials?: boolean;
+  /** 本地 API base，用于加载仪表盘汇总。 */
+  apiBase?: string;
 };
 
 function fillLock(item: LawyerCapabilityDeskItem, onFillComposer: (prompt: string) => void): void {
@@ -35,6 +40,8 @@ function fillLock(item: LawyerCapabilityDeskItem, onFillComposer: (prompt: strin
 }
 
 export function LawmindDeskWorkPanel(props: LawmindDeskWorkPanelProps): ReactNode {
+  const { dashboard, loading: dashboardLoading } = useLawyerDeskDashboard(props.apiBase);
+
   const pick = (run: () => void) => {
     run();
     props.onPick?.();
@@ -77,6 +84,7 @@ export function LawmindDeskWorkPanel(props: LawmindDeskWorkPanelProps): ReactNod
 
   return (
     <div className="lm-desk-work-panel" role="menu" aria-label="办件" data-testid="lm-desk-work-panel">
+      <LawmindDeskDashboardSummary dashboard={dashboard} loading={dashboardLoading} />
       <p className="lm-desk-work-kicker">先附材料，再选流程</p>
       {primaryItems.map((item) => (
         <button

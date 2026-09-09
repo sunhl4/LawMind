@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>为什么是 LawMind · 指令下去，文件出来</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=Noto+Serif+SC:wght@500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --ink: #122033;
+    --ink-2: #2a3848;
+    --muted: #5b6774;
+    --paper: #f4efe4;
+    --gold: #b0894a;
+    --gold-2: #8d6b30;
+    --seal: #8c2d2d;
+    --card: #fffdf8;
+    --line: #d6ccb6;
+    --ok: #2f5d47;
+    --ok-bg: #e7f0ea;
+    --warn: #8a5418;
+    --soft: #e8e0cf;
+    --s: 1;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    background: #0c1520;
+    color: var(--ink);
+    font-family: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    overflow: hidden;
+  }
+  .viewport { position: fixed; inset: 0; display: grid; place-items: center; }
+  .stage {
+    width: 1280px; height: 720px;
+    transform: scale(var(--s));
+    transform-origin: center center;
+    position: relative;
+    background: var(--paper);
+    box-shadow: 0 30px 80px rgba(0,0,0,.45);
+    overflow: hidden;
+  }
+  .slide {
+    position: absolute; inset: 0;
+    padding: 52px 68px 58px;
+    display: none;
+    flex-direction: column;
+  }
+  .slide.is-on { display: flex; }
+  .slide--ink {
+    background:
+      radial-gradient(1200px 500px at 110% -10%, rgba(176,137,74,.18), transparent 50%),
+      linear-gradient(165deg, #101b2a 0%, #182433 55%, #0f1824 100%);
+    color: #f3ead8;
+  }
+  h1, h2, .serif { font-family: "Noto Serif SC", "Songti SC", "STSong", serif; }
+  .kicker {
+    font-size: 13px; letter-spacing: .22em;
+    color: var(--gold-2); font-weight: 600;
+    margin-bottom: 12px;
+  }
+  .slide--ink .kicker { color: #d4b36a; }
+  h2 {
+    font-size: 38px; font-weight: 650; line-height: 1.22;
+    letter-spacing: .02em; margin-bottom: 18px;
+  }
+  .rule { width: 56px; height: 2px; background: var(--gold); margin: 0 0 22px; }
+  .lead { font-size: 19px; line-height: 1.7; color: var(--ink-2); max-width: 980px; }
+  .slide--ink .lead { color: #e4d9c4; }
+  .g2, .g3, .g4 { display: grid; gap: 16px; }
+  .g2 { grid-template-columns: 1fr 1fr; }
+  .g3 { grid-template-columns: 1fr 1fr 1fr; }
+  .g4 { grid-template-columns: repeat(4, 1fr); }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 18px 20px 16px;
+  }
+  .slide--ink .card {
+    background: rgba(255,253,248,.06);
+    border-color: rgba(212,179,106,.28);
+    color: #f3ead8;
+  }
+  .card h3 {
+    font-family: "Noto Serif SC", serif;
+    font-size: 18px; font-weight: 650; margin-bottom: 8px;
+  }
+  .card p, .card li { font-size: 14.5px; line-height: 1.62; color: var(--ink-2); }
+  .slide--ink .card p, .slide--ink .card li { color: #e4d9c4; }
+  .card ol, .card ul { padding-left: 18px; }
+  table.cmp {
+    width: 100%; border-collapse: collapse; font-size: 14px;
+    background: var(--card); border-radius: 10px; overflow: hidden;
+    border: 1px solid var(--line);
+  }
+  .cmp th, .cmp td {
+    padding: 12px 14px; text-align: left; vertical-align: top;
+    border-bottom: 1px solid var(--line); line-height: 1.5;
+  }
+  .cmp th {
+    background: #122033; color: #f3ead8; font-weight: 600; font-size: 13px;
+    letter-spacing: .04em;
+  }
+  .cmp th:first-child, .cmp td:first-child { width: 16%; font-weight: 600; }
+  .cmp th:last-child, .cmp td:last-child { background: #f3ead0; }
+  .cmp th:last-child { background: #8d6b30; color: #fff8ea; }
+  .cmp tr:last-child td { border-bottom: 0; }
+  .cmp .yes { color: var(--ok); font-weight: 650; }
+  .cmp .mid { color: var(--warn); }
+  .cmp .no { color: var(--seal); }
+  .flow { display: flex; align-items: stretch; gap: 0; margin-top: 4px; }
+  .flow-step {
+    flex: 1; background: var(--card); border: 1px solid var(--line);
+    padding: 16px 14px 14px; min-height: 132px;
+  }
+  .flow-step + .flow-step { margin-left: -1px; }
+  .flow-step:first-child { border-radius: 10px 0 0 10px; }
+  .flow-step:last-child { border-radius: 0 10px 10px 0; background: #f3ead0; }
+  .flow-step .n {
+    font-family: "Noto Serif SC", serif;
+    color: var(--gold-2); font-size: 12px; letter-spacing: .16em;
+    margin-bottom: 6px;
+  }
+  .flow-step b { display: block; font-size: 16px; margin-bottom: 6px; }
+  .flow-step span { display: block; font-size: 13px; color: var(--muted); line-height: 1.5; }
+  .footer {
+    position: absolute; left: 68px; right: 68px; bottom: 22px;
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 12px; color: #8a8170; letter-spacing: .04em;
+  }
+  .slide--ink .footer { color: rgba(243,234,216,.45); }
+  .chrome {
+    position: fixed; left: 0; right: 0; bottom: 0; height: 4px;
+    background: #1a2430; z-index: 20;
+  }
+  .chrome .bar {
+    height: 100%; width: 0; background: linear-gradient(90deg, #b0894a, #d4b36a);
+    transition: width .25s ease;
+  }
+  .hud {
+    position: fixed; right: 18px; bottom: 16px; z-index: 21;
+    color: #c9b896; font-size: 12px; letter-spacing: .08em;
+    font-variant-numeric: tabular-nums;
+  }
+  .help, .notes, .overview {
+    display: none; position: fixed; inset: 0; z-index: 30;
+    background: rgba(10,16,24,.72); color: #f3ead8;
+    padding: 48px 64px; overflow: auto;
+  }
+  .help.is-on, .notes.is-on, .overview.is-on { display: block; }
+  .help kbd, .notes kbd {
+    display: inline-block; min-width: 22px; padding: 1px 6px;
+    border: 1px solid #d4b36a; border-radius: 4px; font-size: 12px;
+    color: #d4b36a; margin-right: 6px;
+  }
+  .ov-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+  .ov-item {
+    background: #182433; border: 1px solid rgba(212,179,106,.25);
+    padding: 10px; border-radius: 6px; cursor: pointer; min-height: 72px;
+    font-size: 12px; line-height: 1.4;
+  }
+  .ov-item:hover, .ov-item.cur { border-color: #d4b36a; }
+  .ov-item b { display: block; color: #d4b36a; margin-bottom: 4px; }
+  .pillars { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; margin-top: 4px; }
+  .pillar {
+    background: var(--card); border-top: 3px solid var(--gold);
+    border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+    border-left: 1px solid var(--line); padding: 22px 20px 18px;
+  }
+  .pillar .idx {
+    font-family: "Noto Serif SC", serif; color: var(--gold-2);
+    font-size: 13px; letter-spacing: .2em; margin-bottom: 10px;
+  }
+  .pillar h3 { font-size: 20px; margin-bottom: 10px; }
+  .pillar p { font-size: 15px; line-height: 1.65; color: var(--ink-2); }
+  .cap {
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+    padding: 12px 14px; font-size: 14px; line-height: 1.45;
+  }
+  .cap b { display: block; font-size: 15px; margin-bottom: 4px; }
+  .cap span { color: var(--muted); font-size: 13px; }
+  .ex {
+    display: grid; grid-template-columns: 88px 1fr 1fr; gap: 0 16px;
+    padding: 14px 0; border-bottom: 1px solid var(--line);
+  }
+  .ex:last-child { border-bottom: 0; }
+  .ex .t {
+    font-family: "Noto Serif SC", serif; color: var(--gold-2);
+    font-size: 15px; padding-top: 2px;
+  }
+  .ex .q { font-size: 15px; line-height: 1.55; }
+  .ex .a { font-size: 15px; line-height: 1.55; color: var(--ok); font-weight: 600; }
+  .stop {
+    font-family: "Noto Serif SC", serif;
+    font-size: 13px; letter-spacing: .12em; color: var(--seal);
+    margin-top: 10px;
+  }
+  .slide--ink .stop { color: #e8b4a8; }
+  @media print {
+    html, body { overflow: visible; background: #fff; height: auto; }
+    .viewport { position: static; display: block; }
+    .stage {
+      transform: none !important; box-shadow: none;
+      width: 1280px; height: auto !important; overflow: visible !important;
+      margin: 0; position: static;
+    }
+    .slide {
+      display: flex !important; position: relative !important; inset: auto !important;
+      width: 1280px; height: 720px;
+      page-break-after: always; page-break-inside: avoid;
+    }
+    .slide:last-child { page-break-after: auto; }
+    .chrome, .hud, .help, .notes, .overview { display: none !important; }
+    @page { size: 1280px 720px; margin: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="viewport">
+  <div class="stage" id="stage">
+
+    <!-- 1 -->
+    <section class="slide slide--ink" data-title="封面" data-notes="开场只讲一句：律师买的不是对话，是发出去的那份文件。后面所有对照都围着『完成』二字。不要讲安全、审核、可信。">
+      <div class="kicker">LAWYER BRIEFING · 2026</div>
+      <div style="flex:1; display:flex; flex-direction:column; justify-content:center; max-width:1000px;">
+        <p style="letter-spacing:.28em; font-size:13px; color:#d4b36a; margin-bottom:18px;">执业工具 · 对照 WorkBuddy / Codex / 通用聊天</p>
+        <h1 class="serif" style="font-size:56px; line-height:1.16; font-weight:650; letter-spacing:.03em;">为什么是 LawMind</h1>
+        <div class="rule" style="margin:22px 0 20px;"></div>
+        <p class="serif" style="font-size:30px; color:#e8dcc4;">指令下去，文件出来</p>
+        <p class="lead" style="margin-top:22px; max-width:820px;">
+          律师要的不是再聪明一截的聊天框。<br />
+          要的是：交办一句，活干完，交件能直接发给客户、对方、法院。
+        </p>
+      </div>
+      <div class="footer"><span>LawMind · 为什么是我们</span><span>01 / 10</span></div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" data-title="律师要的" data-notes="用三个具体交件钉死完成定义。聊天、风险清单、代码仓库都不算完。完 = 对方打开就能用的办公文件。">
+      <p class="kicker">壹 · 完成定义</p>
+      <h2>律师要的不是回答，是发出去的纸</h2>
+      <div class="rule"></div>
+      <p class="lead" style="margin-bottom:22px;">一件事只有交到对方手里才算办完。中间过程再漂亮，律师仍要自己誊、自己改、自己排，就没有省下那一稿。</p>
+      <div class="g3">
+        <div class="card">
+          <h3>对方发来合同</h3>
+          <p>要回去的是带修订痕迹的 Word，条款改在原文上，意见写清改法。不是一份「风险很高」的摘要。</p>
+        </div>
+        <div class="card">
+          <h3>客户被拖欠工资</h3>
+          <p>要发出去的是算出数的补偿表，加上抬头、收件人已填的律师函。不是「建议主张 N+1」的口语。</p>
+        </div>
+        <div class="card">
+          <h3>明天要立案</h3>
+          <p>要提交的是要素式起诉状和按主张填好的证据目录。不是一段可以复制进空白模板的事实叙述。</p>
+        </div>
+      </div>
+      <p class="lead" style="margin-top:22px; font-size:17px;">选工具只问一句：<strong>指令下去之后，最后一公里是系统跑完，还是律师加班补完？</strong></p>
+      <div class="footer"><span>LawMind · 为什么是我们</span><span>02 / 10</span></div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" data-title="三种停点" data-notes="三种工具都有用，差在停点。WorkBuddy 出报告；Codex 出代码；LawMind 出可外发文件。不要贬低对方，点破最后一公里。">
+      <p class="kicker">贰 · 对照</p>
+      <h2>三种工具，三种停点</h2>
+      <div class="rule"></div>
+      <div class="g3">
+        <div class="card">
+          <h3>WorkBuddy</h3>
+          <p>通用办公 Agent。装技能、写提示词、出风险清单、HTML 报告、批注稿。批量扫合同很快。</p>
+          <p class="stop">停在报告。把报告变成可回的修订稿，仍是律师的活。</p>
+        </div>
+        <div class="card">
+          <h3>Codex / Cursor</h3>
+          <p>写代码的循环做到了极致：指令下去，改、测、再改，直到仓库里的东西能交。</p>
+          <p class="stop">停在代码。律师不把 GitHub 寄给客户，也不把终端当办案台。</p>
+        </div>
+        <div class="card">
+          <h3>LawMind</h3>
+          <p>律师工作台。交办一句，按法律任务把流程跑完：算、填、改、导出。</p>
+          <p class="stop" style="color:var(--ok);">停在文件。打开就是给对方、给客户、给法院的那一版。</p>
+        </div>
+      </div>
+      <p class="lead" style="margin-top:22px; font-size:17px;">通用聊天更早停：停在一段话。复制进 Word 之后，排版、落改、填栏、算金额，全还在。</p>
+      <div class="footer"><span>LawMind · 为什么是我们</span><span>03 / 10</span></div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" data-title="对照表" data-notes="本场核心页。逐行读『完成的意思』。WorkBuddy 要会装技能；Codex 要会在仓库里干活；LawMind 打开交办即可。">
+      <p class="kicker">贰 · 对照</p>
+      <h2>一张表看完差异</h2>
+      <div class="rule"></div>
+      <table class="cmp">
+        <thead>
+          <tr>
+            <th>看什么</th>
+            <th>WorkBuddy</th>
+            <th>Codex / Cursor</th>
+            <th>LawMind</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>你面对的</td>
+            <td>技能工作台</td>
+            <td>代码仓库</td>
+            <td>律师工作台</td>
+          </tr>
+          <tr>
+            <td>你要会的</td>
+            <td>装技能、编排、调提示词</td>
+            <td>把需求写成能跑的工程任务</td>
+            <td>交办一句话，把材料拖进去</td>
+          </tr>
+          <tr>
+            <td>交出来的</td>
+            <td>风险清单、审查报告、批注</td>
+            <td>代码、测试、Pull Request</td>
+            <td>Word 修订稿、函件、起诉状、金额表</td>
+          </tr>
+          <tr>
+            <td>完成的意思</td>
+            <td class="mid">报告看完，律师再做最后一公里</td>
+            <td class="mid">测试绿了，工程师可以合并</td>
+            <td class="yes">文件能发给对方</td>
+          </tr>
+          <tr>
+            <td>同样一句「审这份合同」</td>
+            <td>给你一份意见和风险分级</td>
+            <td>在仓库里写脚本或改文件</td>
+            <td>意见 + 原合同上的修订，成套出来</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="footer"><span>LawMind · 为什么是我们</span><span>04 / 10</span></div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" data-title="落在 Word 上" data-notes="合同审查的交件是修订模式，不是建议清单。最短锚定：改几个字就只改几个字，对方打开就能看差异。空修订不准导出。">
+      <p class="kicker">叁 · 特色</p>
+      <h2>特色一：改在原文上，不是写在旁边</h2>
+      <div class="rule"></div>
+      <div class="g2" style="flex:1;">
+        <div>
+          <p class="lead" style="font-size:18px; margin-bottom:18px;">合同审查真正能发出去的，是对方打开 Word 就能看见的修订。清单让律师再改一遍，等于活没干完。</p>
+          <div class="card" style="margin-bottom:14px;">
+            <h3>别人常见的交件</h3>
+            <p>高/中/低风险表，每条附「建议改为……」。律师打开原合同，自己找句子、自己打修订、自己对口径。</p>
+          </div>
+          <div class="card">
+            <h3>LawMind 的交件</h3>
+            <p>在原 Word 上做字词级落改，导出带审阅痕迹的稿。能改几个字就只改几个字，不整段删了重写。空修订出不了文件。</p>
+          </div>
+        </div>
+        <div class="card" style="display:flex; flex-direction:column; justify-content:center;">
+          <p class="kicker" style="margin-bottom:10px;">落改纪律</p>
+          <p style="font-size:16px; line-height:1.7; margin-bottom:12px;"><strong>甲方所在地人民法院</strong> → <strong>上海仲裁委员会</strong></p>
+          <p style="font-size:16px; line-height:1.7; margin-bottom:12px;"><strong>胜诉方</strong> → <strong>胜裁方</strong></p>
+          <p style="font-size:14.5px; color:var(--muted); line-height:1.65;">一段里有多处争点，就落多组最短替换。对方律师看到的是专业红线，不是一篇新拟的合同。</p>
+        </div>
+      </div>
+      <div class="footer"><span>LawMind · 为什么是我们</span><span>05 / 10</span></div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" data-title="成套交件" data-notes="完成 = 成套。合同审查缺修订稿不算完；劳动口算不算完；起诉状写成备忘录不算完。这是产品纪律，不是口号。">
+      <p class="kicker">叁 · 特色</p>
+      <h2>特色二：一件事成套做完，才叫完</h2>
+      <div class="rule"></div>
+      <div class="ex">
+        <div class="t">合同</div>
+        <div class="q">钉选了 Word 来审</div>
+        <div class="a">完成 = 宏观/中观/微观意见 + 推荐措辞 + 修订稿。只有文字意见，不算完。</div>
+      </div>
+      <div class="ex">
+        <div class="t">劳动</div>
+        <div class="q">「违法解除，工龄 3 年 4 个月，月工资 1.8 万」</div>
+        <div class="a">完成 = 规则引擎算出 N / N+1 / 2N，表格里有公式、数字、依据。口算交差不算完。</div>
+      </div>
+      <div class="ex">
+        <div class="t">诉讼</div>
+        <div class="q">「按谈话写起诉状」</div>
+        <div class="a">完成 = 要素栏目（当事人、诉请、要件事实、证据对照）+ 证据目录按主张填。不是一篇议论文。</div>
+      </div>
+      <div class="ex">
+        <div class="t">邮件</div>
+        <div class="q">对方来函要改合同</div>
+        <div class="a">完成 = 读邮件要求 → 最短锚定落改 → 同目录写出带修订的 Word。不让律师再去翻附件。</div>
+      </div>
+      <p class="lead" style="margin-top:18px; font-size:17px;">WorkBuddy 教程里常见「分模块生成，再人工整合」。LawMind 把整合写进完成条件：缺一块，就还没做完。</p>
+      <div class="footer"><span>LawMind · 为什么是我们</span><span>06 / 10</span></div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" data-title="自己跑完" data-notes="这一页讲『为什么能跑完』：封闭合同类型、计算引擎、模板填栏、修订自检失败就收窄重试。律师不用编排技能。">
+      <p class="kicker">叁 · 特色</p>
+      <h2>特色三：法律任务会自己跑完</h2>
+      <div class="rule"></div>
+      <p class="lead" style="margin-bottom:18px;">Codex 能连续干，是因为代码有编译和测试。法律活要同样连续，必须把「算、填、改、导出」做成固定流水线，而不是每回靠律师编提示词。</p>
+      <div class="g2">
+        <div class="card">
+          <h3>交办里能确定的，直接填上</h3>
+          <p>工龄、月工资、起算日在指令里，补偿和期限当场算出席满日和金额。函件写了致谁、代表谁，抬头就填进稿纸。律师不用再复制一遍。</p>
+        </div>
+        <div class="card">
+          <h3>合同按类型走检查单</h3>
+          <p>买卖、租赁、服务、劳动、建工、投资等十二类封闭路由。意见按类型开写，责任上限、破局条款有固定位置，不让模型每次自由发挥成另一份格式。</p>
+        </div>
+        <div class="card">
+          <h3>改不进去就收窄再改</h3>
+          <p>修订跨度太宽，引擎内把锚定缩短后重试。导出后发现 Word 里没有修订痕迹，从基线重建再导一次。失败不丢回给律师当半成品。</p>
+        </div>
+        <div class="card">
+          <h3>给谁看，稿就按谁写</h3>
+          <p>对内底稿、给客户、给法院，交件对象分流。给客户和法院的稿去掉内部策略话。律师拿到的就是那个对象能看的版本。</p>
+        </div>
+      </div>
+      <div class="footer"><span>LawMind · 为什么是我们</span><span>07 / 10</span></div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" data-title="开箱能力" data-notes="强调开箱配齐，不是合同插件。律师不必先装技能市场。点名十二类高频活即可，不必逐条解释。">
+      <p class="kicker">叁 · 特色</p>
+      <h2>打开就能办当天的活</h2>
+      <div class="rule"></div>
+      <p class="lead" style="margin-bottom:16px;">不是先逛技能市场、先拼工作流。高频办件已经做成产品能力：先附材料，再交办，系统自己选流程跑完。</p>
+      <div class="g4" style="margin-bottom:12px;">
+        <div class="cap"><b>合同审查</b><span>意见 + 修订稿</span></div>
+        <div class="cap"><b>合同起草</b><span>类型卡 + 条款骨架</span></div>
+        <div class="cap"><b>函件</b><span>抬头、请求、依据</span></div>
+        <div class="cap"><b>诉讼文书</b><span>要素起诉状 / 证据目录</span></div>
+        <div class="cap"><b>劳动计算</b><span>N / N+1 / 2N / 加班</span></div>
+        <div class="cap"><b>期限计算</b><span>届满日按规则算</span></div>
+        <div class="cap"><b>检索备忘</b><span>现行法条 + 正反类案</span></div>
+        <div class="cap"><b>邮件合同</b><span>来函到修订 Word</span></div>
+        <div class="cap"><b>时间轴</b><span>从材料抽日期事件</span></div>
+        <div class="cap"><b>整理案卷</b><span>当事人、案由、节点</span></div>
+        <div class="cap"><b>谈话整理</b><span>需求 / 要件 / 证据缺口</span></div>
+        <div class="cap"><b>法律快问</b><span>结论、依据、缺口</span></div>
+      </div>
+      <p class="lead" style="font-size:16px;">WorkBuddy 的强项是「你来编排」。LawMind 的强项是「律师日常那一套已经编排好」。并购尽调、数据合规、知产争议在「更多」里，不挡开箱主路径。</p>
+      <div class="footer"><span>LawMind · 为什么是我们</span><span>08 / 10</span></div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" data-title="不是套壳" data-notes="正面回答『你们不就是套了 Codex 吗』。循环学的是做到完；交件、界面、流水线是律师的。生态里的法律 Skill 被消化进产品，律师不用进那些工具。">
+      <p class="kicker">肆 · 一句话</p>
+      <h2>不是 WorkBuddy 加皮肤，也不是 Codex 套壳</h2>
+      <div class="rule"></div>
+      <div class="pillars">
+        <div class="pillar">
+          <div class="idx">对 WorkBuddy</div>
+          <h3 class="serif">入口可以像，终点不能像</h3>
+          <p>立场、深度、批量扫，谁都能做。律师买单的是：扫完之后修订已经落在文件上，函已经写成函，诉状已经按栏填好。报告不是终点。</p>
+        </div>
+        <div class="pillar">
+          <div class="idx">对 Codex</div>
+          <h3 class="serif">循环可以学，交件必须换</h3>
+          <p>「指令下去一直做到能交」这条循环，代码世界已经证明。律师交的是 Word、函件、起诉状、金额。把律师塞进仓库，是让主办去当工程师。</p>
+        </div>
+        <div class="pillar">
+          <div class="idx">对生态</div>
+          <h3 class="serif">好能力拿来用，不让律师去拼</h3>
+          <p>Cursor、Codex、Claude 上不断出现法律 Skill。LawMind 的工作是发现、验证、消化进同一条交办路径。律师不需要知道底层用了哪一套。</p>
+        </div>
+      </div>
+      <p class="lead" style="margin-top:22px; font-size:17px;">一句话：<strong>别人把律师变成提示词工程师；我们让提示词工程师的活，消失在律师工作台后面。</strong></p>
+      <div class="footer"><span>LawMind · 为什么是我们</span><span>09 / 10</span></div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide slide--ink" data-title="收束" data-notes="收在完成定义上。可演示：丢一份合同，走完意见+修订 Word。不要把诚实边界讲成卖点，也不要滑回审核叙事。">
+      <p class="kicker">收束</p>
+      <h2 class="serif" style="font-size:42px; line-height:1.28; max-width:940px;">选 LawMind，只因为这一件事</h2>
+      <div class="rule"></div>
+      <div class="flow" style="margin-top:8px;">
+        <div class="flow-step" style="background:rgba(255,253,248,.06); border-color:rgba(212,179,106,.28); color:#f3ead8;">
+          <div class="n">01</div>
+          <b>交办</b>
+          <span style="color:#e4d9c4;">一句话 + 材料。不必先选技能、先写工作流。</span>
+        </div>
+        <div class="flow-step" style="background:rgba(255,253,248,.06); border-color:rgba(212,179,106,.28); color:#f3ead8;">
+          <div class="n">02</div>
+          <b>跑完</b>
+          <span style="color:#e4d9c4;">算、填、改、成套。缺的标在稿里，不把半成品丢回给你。</span>
+        </div>
+        <div class="flow-step" style="background:#d4b36a; border-color:#d4b36a; color:#122033;">
+          <div class="n" style="color:#5a3e12;">03</div>
+          <b>交付</b>
+          <span style="color:#2a3848;">打开就是可发给客户、对方、法院的文件。</span>
+        </div>
+      </div>
+      <p class="serif" style="font-size:26px; line-height:1.5; margin-top:36px; max-width:880px;">
+        聊天停在话，WorkBuddy 停在报告，Codex 停在代码。<br />
+        LawMind 停在你要发出去的那一页。
+      </p>
+      <p style="margin-top:auto; padding-top:20px; letter-spacing:.18em; font-size:13px; color:#d4b36a;">指令下去，文件出来</p>
+      <div class="footer"><span>LawMind · 2026</span><span>10 / 10</span></div>
+    </section>
+
+  </div>
+</div>
+
+<div class="chrome"><div class="bar" id="bar"></div></div>
+<div class="hud" id="hud">01 / 10</div>
+
+<div class="help" id="help">
+  <p class="kicker">快捷键</p>
+  <h2 class="serif" style="margin-bottom:20px;">演示说明</h2>
+  <p style="line-height:2; font-size:16px;">
+    <kbd>→</kbd><kbd>空格</kbd> 下一页　　<kbd>←</kbd><kbd>退格</kbd> 上一页<br />
+    <kbd>Home</kbd> 封面　　<kbd>End</kbd> 末页　　<kbd>F</kbd> 全屏<br />
+    <kbd>O</kbd> 总览　　<kbd>N</kbd> 讲者提要　　<kbd>?</kbd> 本页<br />
+    打印：浏览器「打印」→ 目标选「存储为 PDF」，勾选背景图形，纸张横向。
+  </p>
+  <p style="margin-top:24px; color:#c9b896;">点击空白关闭。</p>
+</div>
+
+<div class="notes" id="notes">
+  <p class="kicker">讲者提要</p>
+  <h2 class="serif" id="notesTitle" style="margin-bottom:16px;"></h2>
+  <p id="notesBody" style="font-size:18px; line-height:1.7; max-width:880px;"></p>
+  <p style="margin-top:28px; color:#c9b896;">按 N 关闭。</p>
+</div>
+
+<div class="overview" id="overview">
+  <p class="kicker" style="margin-bottom:16px;">总览 · 点击跳转</p>
+  <div class="ov-grid" id="ovGrid"></div>
+</div>
+
+<script>
+const slides = [...document.querySelectorAll(".slide")];
+const stage = document.getElementById("stage");
+const bar = document.getElementById("bar");
+const hud = document.getElementById("hud");
+const help = document.getElementById("help");
+const notes = document.getElementById("notes");
+const overview = document.getElementById("overview");
+const ovGrid = document.getElementById("ovGrid");
+const notesTitle = document.getElementById("notesTitle");
+const notesBody = document.getElementById("notesBody");
+
+let i = 0;
+function fit() {
+  const s = Math.min(window.innerWidth / 1280, window.innerHeight / 720);
+  document.documentElement.style.setProperty("--s", String(s));
+}
+function go(n) {
+  i = Math.max(0, Math.min(slides.length - 1, n));
+  slides.forEach((el, idx) => el.classList.toggle("is-on", idx === i));
+  const t = String(i + 1).padStart(2, "0");
+  const tot = String(slides.length).padStart(2, "0");
+  hud.textContent = t + " / " + tot;
+  bar.style.width = ((i + 1) / slides.length * 100) + "%";
+  location.hash = String(i + 1);
+  notesTitle.textContent = slides[i].dataset.title || "";
+  notesBody.textContent = slides[i].dataset.notes || "";
+  [...ovGrid.children].forEach((c, idx) => c.classList.toggle("cur", idx === i));
+}
+function overlayOpen() {
+  return help.classList.contains("is-on") || notes.classList.contains("is-on") || overview.classList.contains("is-on");
+}
+function closeOverlays() {
+  help.classList.remove("is-on");
+  notes.classList.remove("is-on");
+  overview.classList.remove("is-on");
+}
+
+slides.forEach((el, idx) => {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "ov-item";
+  b.innerHTML = "<b>" + String(idx + 1).padStart(2, "0") + "</b>" + (el.dataset.title || "");
+  b.addEventListener("click", () => { closeOverlays(); go(idx); });
+  ovGrid.appendChild(b);
+});
+
+window.addEventListener("resize", fit);
+window.addEventListener("hashchange", () => {
+  const n = parseInt(location.hash.replace("#", ""), 10);
+  if (Number.isFinite(n) && n >= 1) go(n - 1);
+});
+fit();
+const fromHash = parseInt(location.hash.replace("#", ""), 10);
+go(Number.isFinite(fromHash) && fromHash >= 1 ? fromHash - 1 : 0);
+
+window.addEventListener("keydown", (e) => {
+  if (e.key === "?" || (e.key === "/" && e.shiftKey)) {
+    help.classList.toggle("is-on"); notes.classList.remove("is-on"); overview.classList.remove("is-on"); return;
+  }
+  if (e.key === "n" || e.key === "N") {
+    notes.classList.toggle("is-on"); help.classList.remove("is-on"); overview.classList.remove("is-on");
+    notesTitle.textContent = slides[i].dataset.title || "";
+    notesBody.textContent = slides[i].dataset.notes || "";
+    return;
+  }
+  if (e.key === "o" || e.key === "O") {
+    overview.classList.toggle("is-on"); help.classList.remove("is-on"); notes.classList.remove("is-on"); return;
+  }
+  if (e.key === "Escape") { closeOverlays(); return; }
+  if (e.key === "f" || e.key === "F") {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+    else document.exitFullscreen?.();
+    return;
+  }
+  if (overlayOpen() && e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+  if (["ArrowRight", "PageDown", " ", "Enter"].includes(e.key)) { e.preventDefault(); go(i + 1); }
+  if (["ArrowLeft", "PageUp", "Backspace"].includes(e.key)) { e.preventDefault(); go(i - 1); }
+  if (e.key === "Home") go(0);
+  if (e.key === "End") go(slides.length - 1);
+});
+
+stage.addEventListener("click", (e) => {
+  if (overlayOpen()) return;
+  const x = e.clientX / window.innerWidth;
+  if (x > 0.78) go(i + 1);
+  else if (x < 0.22) go(i - 1);
+});
+
+help.addEventListener("click", closeOverlays);
+notes.addEventListener("click", (e) => { if (e.target === notes) closeOverlays(); });
+</script>
+</body>
+</html>

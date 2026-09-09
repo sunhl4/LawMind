@@ -52,7 +52,6 @@ describe("LawmindChatComposeFooter model warn", () => {
           selectedModelId="m1"
           onModelSelect={vi.fn()}
           onDelegateAssist={vi.fn()}
-          delegateAssistEnabled={false}
           allowWebSearch={false}
           onAllowWebSearchChange={() => {}}
           apiBase="http://127.0.0.1:1"

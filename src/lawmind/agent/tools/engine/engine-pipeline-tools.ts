@@ -5,6 +5,7 @@ import {
   persistDraft,
   prepareRedlineBaselineBeforeWrite,
   readDraft,
+  resetRedlineBaselineFromDraft,
   validateDraftCitationsAgainstBundle,
 } from "../../../drafts/index.js";
 import { readResearchSnapshot } from "../../../drafts/research-snapshot.js";
@@ -31,6 +32,7 @@ import {
   blockHeavyPipelineIfClarificationPending,
   canDraftWithoutResearch,
   DEMO_CORPUS_DRAFT_REFUSAL,
+  buildAdaptersFromEnv,
   getEngine,
   MAX_AUDIENCE_LENGTH,
   MAX_INSTRUCTION_LENGTH,
@@ -291,6 +293,11 @@ export const updateDraft: AgentTool = {
         type: "array",
         description: "正文章节数组；每项为 { heading: string, body: string, citations?: string[] }",
       },
+      contract_review_edits: {
+        type: "array",
+        description:
+          "合同审查结构化改稿计划：[{find,replace,priority?:P0|P1|P2,mode?:apply|opinion_only,reason?}]。精确锚点作为主路径，意见正文正则仅兼容。",
+      },
       contract_edit_baseline_path: {
         type: "string",
         description:
@@ -333,6 +340,12 @@ export const updateDraft: AgentTool = {
           : undefined;
       const sections =
         params.sections !== undefined ? parseDraftSectionsInput(params.sections) : undefined;
+      const { parseContractReviewEditProposals } =
+        await import("../../../drafts/contract-review-edits.js");
+      const contractReviewEdits =
+        params.contract_review_edits !== undefined
+          ? parseContractReviewEditProposals(params.contract_review_edits)
+          : undefined;
       const baselinePath = asOptionalString(
         params.contract_edit_baseline_path,
         "contract_edit_baseline_path",
@@ -352,6 +365,7 @@ export const updateDraft: AgentTool = {
         title === undefined &&
         summary === undefined &&
         sections === undefined &&
+        contractReviewEdits === undefined &&
         baselinePath === undefined &&
         editMode === undefined &&
         !seedFromBaseline
@@ -363,6 +377,7 @@ export const updateDraft: AgentTool = {
         ...(title !== undefined ? { title } : {}),
         ...(summary !== undefined ? { summary } : {}),
         ...(sections !== undefined ? { sections } : {}),
+        ...(contractReviewEdits !== undefined ? { contractReviewEdits } : {}),
       };
       let contractBaselineWarnings: string[] = [];
       {
@@ -461,9 +476,38 @@ export const updateDraft: AgentTool = {
           };
         }
       }
-      // Proposal-first: lock baseline before write, then regenerate redline hunks.
       prepareRedlineBaselineBeforeWrite(ctx.workspaceDir, taskId);
       persistDraft(ctx.workspaceDir, next);
+      let redlinePlanPreview:
+        | {
+            itemCount: number;
+            skippedCount: number;
+            items: Array<{ find: string; replace: string }>;
+          }
+        | undefined;
+      if (
+        ctx.wordRevisionTurn !== true &&
+        ctx.mailContractTurn !== true &&
+        next.deliverableType === "contract.review"
+      ) {
+        try {
+          const { writeRedlinePlanFromOpinion } =
+            await import("../../../drafts/opinion-redline-plan.js");
+          const plan = writeRedlinePlanFromOpinion(ctx.workspaceDir, next);
+          if (plan.items.length > 0) {
+            redlinePlanPreview = {
+              itemCount: plan.items.length,
+              skippedCount: plan.skipped.length,
+              items: plan.items.slice(0, 12).map((row) => ({
+                find: row.find,
+                replace: row.replace,
+              })),
+            };
+          }
+        } catch {
+          /* best-effort */
+        }
+      }
       const redline = generateRedlineAfterWrite(ctx.workspaceDir, taskId);
       if (next.matterId) {
         try {
@@ -503,6 +547,7 @@ export const updateDraft: AgentTool = {
           acceptanceReady: acceptance.ready,
           draftPath: `drafts/${taskId}.json`,
           redlinePending,
+          ...(redlinePlanPreview ? { redlinePlan: redlinePlanPreview } : {}),
           ...(amplitudeCraftSignals.length > 0 ? { craftSignals: amplitudeCraftSignals } : {}),
           ...(contractBaselineWarnings.length > 0
             ? {
@@ -548,7 +593,7 @@ export const applySurgicalEdits: AgentTool = {
   definition: {
     name: "apply_surgical_edits",
     description:
-      "对已 seed 的合同草稿做精确 find/replace 落改。跨度硬门禁：能改几个字就只改几个字；段内只改有问题的句子；含句读的 find≤12 字；整句/整段删写会被跳过/拒绝。条数不限（全文可很多处）。附 craft_check。勿把整节塞进 update_draft.sections。成功后返回 redlinePending；≥1 后再 render_tracked_draft。",
+      "对已 seed 的合同草稿做精确 find/replace 落改。跨度硬门禁：能改几个字就只改几个字；段内只改有问题的句子；含句读的 find≤12 字；整句/整段删写会被跳过/拒绝。条数不限（全文可很多处）。附 craft_check。勿把整节塞进 update_draft.sections。成功后返回 redlinePending；≥1 后再 render_tracked_draft。非锁定路径若省略 edits，可回落 drafts/<taskId>.redline-plan.json（意见推荐措辞编译结果）。",
     category: "draft",
     parameters: {
       task_id: {
@@ -558,8 +603,8 @@ export const applySurgicalEdits: AgentTool = {
       edits: {
         type: "array",
         description:
-          "必填。[{ find, replace, note? }]；每处 find=最短锚定（正例：甲方所在地人民法院→上海仲裁委员会；句末加词：实际损失。→实际损失，但累计…。）。条数不限，勿整句/整段",
-        required: true,
+          "[{ find, replace, note? }]；每处 find=最短锚定。非锁定路径可省略并用 redline-plan sidecar。条数不限，勿整句/整段",
+        required: false,
       },
       craft_check: {
         type: "object",
@@ -583,11 +628,9 @@ export const applySurgicalEdits: AgentTool = {
       return blocked;
     }
     try {
-      const { parseSurgicalEditsInput, applySurgicalTextEdits } =
-        await import("../../../drafts/apply-surgical-edits.js");
+      const { applySurgicalTextEdits } = await import("../../../drafts/apply-surgical-edits.js");
       const { parseCraftCheckInput, evaluateCraftCheck } =
         await import("../../../drafts/contract-redline-craft.js");
-      const edits = parseSurgicalEditsInput(params.edits);
       const craftCheck = parseCraftCheckInput(params.craft_check);
       let taskId: string;
       try {
@@ -601,6 +644,27 @@ export const applySurgicalEdits: AgentTool = {
           };
         }
         taskId = fallback;
+      }
+      let edits;
+      let editsFromPlan = false;
+      try {
+        const { resolveSurgicalEditsForApply } =
+          await import("../../../drafts/resolve-surgical-edits.js");
+        const resolved = resolveSurgicalEditsForApply({
+          editsArg: params.edits,
+          workspaceDir: ctx.workspaceDir,
+          taskId,
+          wordRevisionTurn: ctx.wordRevisionTurn,
+          mailContractTurn: ctx.mailContractTurn,
+        });
+        edits = resolved.edits;
+        editsFromPlan = resolved.fromPlan;
+      } catch (err) {
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+          data: { taskId, code: "surgical_edits_missing" },
+        };
       }
       let draft = readDraft(ctx.workspaceDir, taskId);
       if (!draft) {
@@ -619,11 +683,16 @@ export const applySurgicalEdits: AgentTool = {
       if (baselinePath || needsSeed || !draft.contractEdit) {
         const { enrichDraftWithContractEditBaseline } =
           await import("../../../drafts/contract-edit-baseline.js");
+        const { wordFilePinRelPaths } =
+          await import("../../../drafts/paired-review-deliverable.js");
         const enriched = await enrichDraftWithContractEditBaseline({
           workspaceDir: ctx.workspaceDir,
           projectDir: ctx.projectDir,
           draft,
-          extraPaths: baselinePath ? [baselinePath] : [],
+          extraPaths: [
+            ...(baselinePath ? [baselinePath] : []),
+            ...wordFilePinRelPaths(ctx.contextPins),
+          ],
           mode: draft.contractEdit?.mode ?? "surgical",
           // Never pass undefined: that still auto-seeds "thin" bodies and can
           // desync amplitude comparison if the model also rewrites summary.
@@ -635,6 +704,21 @@ export const applySurgicalEdits: AgentTool = {
           draft = { ...draft, clarificationQuestions: undefined };
         }
         persistDraft(ctx.workspaceDir, draft);
+      }
+      {
+        const { preparePairedRedlineBody } = await import("../../../drafts/paired-review-body.js");
+        const prepared = await preparePairedRedlineBody({
+          workspaceDir: ctx.workspaceDir,
+          projectDir: ctx.projectDir,
+          draft,
+          wordRevisionTurn: ctx.wordRevisionTurn === true,
+          pins: ctx.contextPins,
+        });
+        draft = prepared.draft;
+        if (prepared.swapped) {
+          persistDraft(ctx.workspaceDir, draft);
+          resetRedlineBaselineFromDraft(ctx.workspaceDir, taskId);
+        }
       }
       // Amplitude gate for this tool is per-edit (find/replace). Do not run the
       // whole-draft rewrite gate — seed+summary noise was falsely blocking Δ~1 万字.
@@ -675,6 +759,21 @@ export const applySurgicalEdits: AgentTool = {
       // apply_surgical_edits keeps every accumulated edit in the export proposal.
       prepareRedlineBaselineBeforeWrite(ctx.workspaceDir, taskId);
       persistDraft(ctx.workspaceDir, next);
+      try {
+        const { writeRedlinePlan } = await import("../../../drafts/redline-plan.js");
+        writeRedlinePlan(ctx.workspaceDir, {
+          taskId,
+          items: applied.applied.map((row) => ({
+            find: row.find,
+            replace: row.replace,
+            note: row.note,
+          })),
+          skipped: applied.skipped,
+          updatedAt: new Date().toISOString(),
+        });
+      } catch {
+        /* plan sidecar is best-effort */
+      }
       const redline = generateRedlineAfterWrite(ctx.workspaceDir, taskId);
       if (!redline.ok) {
         return {
@@ -699,10 +798,12 @@ export const applySurgicalEdits: AgentTool = {
           craftCheck: craftCheck ?? null,
           craftSignals,
           draftPath: `drafts/${taskId}.json`,
+          ...(editsFromPlan ? { editsFromPlan: true as const } : {}),
           message:
             redlinePending >= 1
               ? [
                   `已落改 ${applied.applied.length} 处，redlinePending=${redlinePending}。`,
+                  editsFromPlan ? "（edits 来自 redline-plan sidecar）" : "",
                   spanSkipped.length
                     ? `${spanSkipped.length} 处因跨度硬门禁被跳过——请收窄 find 后补交（条数不限）。`
                     : "",
@@ -765,6 +866,11 @@ export const draftDocument: AgentTool = {
         type: "string",
         description:
           "原合同相对工作区或项目根的路径（.doc 或 .docx，无需先转格式）；合同改稿时写入 contractEdit 基线并尽量按段落切正文",
+      },
+      contract_review_edits: {
+        type: "array",
+        description:
+          "合同审查结构化改稿计划：[{find,replace,priority?:P0|P1|P2,mode?:apply|opinion_only,reason?}]。只传原文可精确命中的最短锚点。",
       },
     },
   },
@@ -917,6 +1023,22 @@ export const draftDocument: AgentTool = {
           },
         };
       }
+      {
+        const { runAutoStatuteTrial } = await import("../../../research/auto-statute-trial.js");
+        const { loadMemoryContext } = await import("../../../memory/index.js");
+        const trial = await runAutoStatuteTrial({
+          intent,
+          bundle,
+          memory: await loadMemoryContext(ctx.workspaceDir, { matterId: intent.matterId }),
+          adapters: buildAdaptersFromEnv(ctx.workspaceDir, {
+            allowWebSearch: ctx.allowWebSearch === true,
+          }),
+          signal: ctx.abortSignal,
+          wordRevisionTurn: ctx.wordRevisionTurn,
+          mailContractTurn: ctx.mailContractTurn,
+        });
+        bundle = trial.bundle;
+      }
       let draft;
       try {
         draft = await engine.draftAsync(intent, bundle, {
@@ -944,22 +1066,46 @@ export const draftDocument: AgentTool = {
         }
         throw draftErr;
       }
+      const { parseContractReviewEditProposals } =
+        await import("../../../drafts/contract-review-edits.js");
+      const contractReviewEdits = parseContractReviewEditProposals(params.contract_review_edits);
+      if (contractReviewEdits.length > 0 && draft.deliverableType === "contract.review") {
+        draft = { ...draft, contractReviewEdits };
+        persistDraft(ctx.workspaceDir, draft);
+      }
       const citationIntegrity = validateDraftCitationsAgainstBundle(draft, bundle);
       let contractBaselineWarnings: string[] = [];
       let pinnedWordBaseline = Boolean(baselinePath);
+      let pairedDeliverable = false;
       {
         const { isWordRevisionTurn } =
           await import("../../../platform/word-revision-instruction.js");
+        const { isMailContractFastPathInstruction } =
+          await import("../../../platform/mail-contract-short-path-instruction.js");
         const { extractDocxRelativePathsFromText, enrichDraftWithContractEditBaseline } =
           await import("../../../drafts/contract-edit-baseline.js");
+        const { pinsIncludeWordFile, wordFilePinRelPaths } =
+          await import("../../../drafts/paired-review-deliverable.js");
         const wordRev =
           ctx.wordRevisionTurn === true ||
           isWordRevisionTurn({ instruction, pins: ctx.contextPins });
         const extracted = extractDocxRelativePathsFromText(instruction);
-        pinnedWordBaseline = Boolean(baselinePath || wordRev || extracted.length > 0);
+        pairedDeliverable =
+          !wordRev &&
+          ctx.mailContractTurn !== true &&
+          !isMailContractFastPathInstruction(instruction) &&
+          draft.deliverableType === "contract.review" &&
+          pinsIncludeWordFile(ctx.contextPins);
+        pinnedWordBaseline = Boolean(
+          baselinePath || wordRev || extracted.length > 0 || pairedDeliverable,
+        );
         if (pinnedWordBaseline) {
           const { persistDraft } = await import("../../../drafts/index.js");
-          const extraPaths = [...(baselinePath ? [baselinePath] : []), ...extracted];
+          const extraPaths = [
+            ...(baselinePath ? [baselinePath] : []),
+            ...extracted,
+            ...(pairedDeliverable ? wordFilePinRelPaths(ctx.contextPins) : []),
+          ];
           const enriched = await enrichDraftWithContractEditBaseline({
             workspaceDir: ctx.workspaceDir,
             projectDir: ctx.projectDir,
@@ -976,6 +1122,33 @@ export const draftDocument: AgentTool = {
             draft = { ...draft, clarificationQuestions: undefined };
           }
           persistDraft(ctx.workspaceDir, draft);
+        }
+      }
+
+      let redlinePlanPreview:
+        | {
+            itemCount: number;
+            skippedCount: number;
+            items: Array<{ find: string; replace: string }>;
+          }
+        | undefined;
+      if (pairedDeliverable && ctx.wordRevisionTurn !== true && ctx.mailContractTurn !== true) {
+        try {
+          const { writeRedlinePlanFromOpinion } =
+            await import("../../../drafts/opinion-redline-plan.js");
+          const plan = writeRedlinePlanFromOpinion(ctx.workspaceDir, draft);
+          if (plan.items.length > 0) {
+            redlinePlanPreview = {
+              itemCount: plan.items.length,
+              skippedCount: plan.skipped.length,
+              items: plan.items.slice(0, 12).map((row) => ({
+                find: row.find,
+                replace: row.replace,
+              })),
+            };
+          }
+        } catch {
+          /* best-effort sidecar */
         }
       }
 
@@ -1010,6 +1183,8 @@ export const draftDocument: AgentTool = {
             openClarifications && openClarifications.length > 0
               ? "draft_with_placeholders"
               : "draft_ready",
+          ...(pairedDeliverable ? { pairedDeliverable: true as const } : {}),
+          ...(redlinePlanPreview ? { redlinePlan: redlinePlanPreview } : {}),
           ...(isDemoCorpusResult(bundle) ? { demoCorpus: true as const } : {}),
         },
       };
@@ -1039,7 +1214,7 @@ export const renderDocument: AgentTool = {
       bypass_acceptance_gate: {
         type: "boolean",
         description:
-          "默认 false：草稿未通过 Deliverable-First 验收门禁时拒绝渲染。仅在律师已确认草稿完整、知道接受占位符的前提下设为 true。",
+          "默认 false：草稿未通过 Deliverable-First 出稿检查时拒绝渲染。仅在律师已确认草稿完整、知道接受占位符的前提下设为 true。",
       },
     },
     riskLevel: "high",
@@ -1088,7 +1263,7 @@ export const renderDocument: AgentTool = {
       // Acceptance Gate：先拦后盖戳，避免未出稿就把草稿锁成 approved、律师改不了。
       const acceptance = validateDraftAgainstSpec(draft);
       if (!acceptance.ready && !bypassGate) {
-        const gateErr = `草稿未通过验收门禁（blockers=${acceptance.blockerCount}, placeholders=${acceptance.placeholderCount}）。请先补齐缺失内容再渲染；若律师已确认接受占位符，请使用 bypass_acceptance_gate=true 重新调用。`;
+        const gateErr = `草稿未通过出稿检查（blockers=${acceptance.blockerCount}, placeholders=${acceptance.placeholderCount}）。请先补齐缺失内容再渲染；若律师已确认接受占位符，请使用 bypass_acceptance_gate=true 重新调用。`;
         return {
           ok: false,
           error: formatRenderToolError(gateErr),
@@ -1117,6 +1292,7 @@ export const renderDocument: AgentTool = {
 
       const result = await engine.render(approvedDraft, {
         strictGates: bypassGate ? false : undefined,
+        citationGateStrict: bypassGate ? false : undefined,
       });
       if (result.ok) {
         return {
@@ -1285,7 +1461,7 @@ export const renderTrackedDraft: AgentTool = {
       const outputFileName = planned.outputFileName;
       const preferContract =
         (draft.deliverableType ?? "").startsWith("contract.") || Boolean(draft.contractEdit);
-      const result = await renderDocxWithTrackedChanges({
+      let result = await renderDocxWithTrackedChanges({
         draft,
         outputDir: outDir,
         proposals,
@@ -1303,8 +1479,79 @@ export const renderTrackedDraft: AgentTool = {
           data: { code: result.code, taskId },
         };
       }
+      const { shouldAutoRetryXmlQa, applyNarrowedPlanOnce } =
+        await import("../../../drafts/xml-qa-auto-retry.js");
+      let xmlQa: { ok: boolean; insCount: number; delCount: number; warning?: string } | undefined;
+      try {
+        const { qaTrackedDocxXml } = await import("../../../drafts/tracked-xml-qa.js");
+        xmlQa = await qaTrackedDocxXml(result.outputPath, result.appliedHunks ?? 0);
+      } catch {
+        xmlQa = undefined;
+      }
+      let xmlQaAutoRetried = false;
+      let xmlQaRetry:
+        | { action: "narrow_and_reapply"; edits: Array<{ find: string; replace: string }> }
+        | undefined;
+      if (xmlQa && !xmlQa.ok && shouldAutoRetryXmlQa(ctx)) {
+        const retry = applyNarrowedPlanOnce({ workspaceDir: ctx.workspaceDir, draft });
+        if (retry.attempted && retry.draft && retry.appliedCount > 0) {
+          prepareRedlineBaselineBeforeWrite(ctx.workspaceDir, taskId);
+          persistDraft(ctx.workspaceDir, retry.draft);
+          const redline = generateRedlineAfterWrite(ctx.workspaceDir, taskId);
+          if (redline.ok) {
+            draft = retry.draft;
+            const retryProposals = (redline.proposal.hunks ?? []).filter(
+              (h) => h.status !== "rejected",
+            );
+            const retryResult = await renderDocxWithTrackedChanges({
+              draft,
+              outputDir: outDir,
+              proposals: retryProposals,
+              workspaceDir: ctx.workspaceDir,
+              projectDir: ctx.projectDir,
+              pins: ctx.contextPins,
+              templateVariant: preferContract ? "contractReview" : undefined,
+              outputFileName,
+              requireContractBaseline: Boolean(draft.contractEdit),
+            });
+            if (retryResult.ok) {
+              result = retryResult;
+              xmlQaAutoRetried = true;
+              try {
+                const { qaTrackedDocxXml } = await import("../../../drafts/tracked-xml-qa.js");
+                xmlQa = await qaTrackedDocxXml(result.outputPath, result.appliedHunks ?? 0);
+              } catch {
+                xmlQa = undefined;
+              }
+            }
+          }
+        }
+        if (xmlQa && !xmlQa.ok) {
+          try {
+            const { readRedlinePlan, buildXmlQaRetryHint } =
+              await import("../../../drafts/redline-plan.js");
+            xmlQaRetry = buildXmlQaRetryHint(readRedlinePlan(ctx.workspaceDir, taskId));
+          } catch {
+            xmlQaRetry = { action: "narrow_and_reapply", edits: [] };
+          }
+        }
+      } else if (
+        xmlQa &&
+        !xmlQa.ok &&
+        ctx.wordRevisionTurn !== true &&
+        ctx.mailContractTurn !== true
+      ) {
+        try {
+          const { readRedlinePlan, buildXmlQaRetryHint } =
+            await import("../../../drafts/redline-plan.js");
+          xmlQaRetry = buildXmlQaRetryHint(readRedlinePlan(ctx.workspaceDir, taskId));
+        } catch {
+          xmlQaRetry = { action: "narrow_and_reapply", edits: [] };
+        }
+      }
       const rel = pathMod.relative(ctx.workspaceDir, result.outputPath).replace(/\\/g, "/");
       const degraded = result.mode === "plain_fallback" || Boolean(result.degraded);
+      const qaWarning = xmlQa && !xmlQa.ok ? xmlQa.warning : undefined;
       return {
         ok: true,
         data: {
@@ -1317,8 +1564,11 @@ export const renderTrackedDraft: AgentTool = {
           degraded: degraded || undefined,
           conversionTool: result.conversionTool,
           conversionFidelity: result.conversionFidelity,
-          warning: result.warning,
+          warning: [result.warning, qaWarning].filter(Boolean).join(" ") || undefined,
           appliedHunks: result.appliedHunks,
+          xmlQa,
+          ...(xmlQaRetry ? { xmlQaRetry } : {}),
+          ...(xmlQaAutoRetried ? { xmlQaAutoRetried: true as const } : {}),
           openWord: false,
           message: [
             degraded
@@ -1326,6 +1576,8 @@ export const renderTrackedDraft: AgentTool = {
               : `已写入源文件同目录审阅修订稿（保留原格式；新修改以修订显示；请自行用 Word 打开，不会自动打开）：${rel}`,
             typeof result.appliedHunks === "number" ? `已叠加修订条数：${result.appliedHunks}` : "",
             result.conversionTool ? `基线转换：${result.conversionTool}` : "",
+            xmlQaAutoRetried ? "XML 未见修订时已内部收窄并重导一次。" : "",
+            qaWarning ?? "",
           ]
             .filter(Boolean)
             .join(" · "),

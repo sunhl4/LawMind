@@ -34,6 +34,7 @@ import type { RunTurnEvent } from "./turn-orchestrator-events.js";
 export type { RunTurnEvent } from "./turn-orchestrator-events.js";
 import type { MemoryContext } from "../memory/index.js";
 import { extractSuggestedReplyTo } from "../platform/mail-contract-short-path-instruction.js";
+import { isMailContractFastPathInstruction } from "../platform/mail-contract-short-path-instruction.js";
 import { resolvePlaybookToolLock } from "../platform/playbook-tool-lock.js";
 import { buildRequiresActionsFromTurn } from "../platform/requires-action.js";
 import { isWordRevisionTurn } from "../platform/word-revision-instruction.js";
@@ -51,7 +52,7 @@ import {
   type TurnFinalizeShared,
 } from "./turn-orchestrator-finalize.js";
 import { runModelToolLoop } from "./turn-orchestrator-model-loop.js";
-import { prepareTurnPromptContext } from "./turn-orchestrator-prompt.js";
+import { prepareTurnPromptContext, resolveAssistantTooling } from "./turn-orchestrator-prompt.js";
 import {
   tryAutoDeliverableWorkflowShortcut,
   tryIntakeClarificationShortcut,
@@ -61,8 +62,8 @@ import type { AgentConfig, AgentContext, AgentTurn } from "./types.js";
 
 const DEFAULT_MAX_TOOL_CALLS = 40;
 const DEFAULT_MAX_HISTORY_MESSAGES = 100;
-/** Used only when `AgentConfig.toolExecutionTimeoutMs` is unset — prefer model timeout. */
-const DEFAULT_TOOL_TIMEOUT_MS = 120_000;
+/** Used only when `AgentConfig.toolExecutionTimeoutMs` is unset — 0 = no wall-clock tool kill. */
+const DEFAULT_TOOL_TIMEOUT_MS = 0;
 
 export async function runTurn(opts: {
   config: AgentConfig;
@@ -179,6 +180,7 @@ export async function runTurn(opts: {
     pins: opts.contextPins,
     historyText,
   });
+  const mailContractTurn = isMailContractFastPathInstruction(instruction);
 
   const ctx: AgentContext = {
     workspaceDir: config.workspaceDir,
@@ -206,10 +208,46 @@ export async function runTurn(opts: {
     contextPins: opts.contextPins,
     outboundPinnedTo: extractSuggestedReplyTo(instruction),
     wordRevisionTurn,
+    mailContractTurn,
   };
 
-  // 2. 构建 system prompt
-  const { memory, presetForTools, roleForTools, lawMindRoot } = await prepareTurnPromptContext({
+  // 2. 先定本轮生效工具集：W7 Role.allowedToolNames 优先，回退 preset；
+  //    parent inherit（child-gates）只缩不扩；高频 playbook 再锁死路径工具表；
+  //    最后经权限模式与隐藏策略过滤。system prompt 的工具目录与发给模型的
+  //    tools 都由这一份清单生成（单一真相源），执行层另有 permissionModeMiddleware 硬拦。
+  const assistantTooling = resolveAssistantTooling({
+    workspaceDir: config.workspaceDir,
+    resolvedAssistantId,
+  });
+  const { presetForTools, roleForTools } = assistantTooling;
+  const playbookLock = resolvePlaybookToolLock(instruction, opts.contextPins);
+  const allowNamesRaw = intersectAllowedToolNames(
+    intersectAllowedToolNames(
+      config.allowedToolNames,
+      roleForTools?.allowedToolNames ?? presetForTools?.allowedToolNames,
+    ),
+    playbookLock?.allowNames,
+  );
+  const lockToAllowNames = Boolean(playbookLock);
+  const hiddenTools = hiddenPolicyToolNames(config.workspaceDir);
+  session.disclosedToolNames = mergeTurnDisclosedToolNames({
+    session,
+    workspaceDir: config.workspaceDir,
+    pins: opts.contextPins,
+    registry,
+    hiddenNames: hiddenTools,
+    instruction,
+  });
+  const modelToolNames = resolveModelToolNames({
+    registeredNames: registry.listDefinitions().map((def) => def.name),
+    allowNames: allowNamesRaw,
+    permissionMode,
+    disclosedNames: session.disclosedToolNames,
+    lockToAllowNames,
+  }).filter((name) => !hiddenTools.includes(name));
+
+  // 3. 构建 system prompt（「可用工具」一节 = 本轮生效工具集）
+  const { memory, lawMindRoot } = await prepareTurnPromptContext({
     config,
     registry,
     session,
@@ -220,6 +258,8 @@ export async function runTurn(opts: {
     teamMeetingMode: opts.teamMeetingMode,
     contextPins: opts.contextPins,
     permissionMode,
+    assistantTooling,
+    availableToolNames: modelToolNames,
   });
 
   const toolSandboxEnabled =
@@ -232,35 +272,8 @@ export async function runTurn(opts: {
     timestamp: new Date().toISOString(),
   });
 
-  // W7：Role.allowedToolNames 优先；回退到 preset.allowedToolNames。
-  // Parent inherit (child-gates) caps the list and must not widen it.
-  // High-frequency playbooks then lock to the dead-path tool table.
-  const playbookLock = resolvePlaybookToolLock(instruction, opts.contextPins);
-  const allowNamesRaw = intersectAllowedToolNames(
-    intersectAllowedToolNames(
-      config.allowedToolNames,
-      roleForTools?.allowedToolNames ?? presetForTools?.allowedToolNames,
-    ),
-    playbookLock?.allowNames,
-  );
-  const lockToAllowNames = Boolean(playbookLock);
   ctx.allowedToolNames = allowNamesRaw;
   ctx.toolSandboxEnabled = toolSandboxEnabled;
-  const hiddenTools = hiddenPolicyToolNames(config.workspaceDir);
-  session.disclosedToolNames = mergeTurnDisclosedToolNames({
-    session,
-    workspaceDir: config.workspaceDir,
-    pins: opts.contextPins,
-    registry,
-    hiddenNames: hiddenTools,
-  });
-  const modelToolNames = resolveModelToolNames({
-    registeredNames: registry.listDefinitions().map((def) => def.name),
-    allowNames: allowNamesRaw,
-    permissionMode,
-    disclosedNames: session.disclosedToolNames,
-    lockToAllowNames,
-  }).filter((name) => !hiddenTools.includes(name));
   const openAITools = registry.toOpenAITools({ names: modelToolNames });
   const turnContext = freezeTurnContext({
     sessionId: session.sessionId,
@@ -556,18 +569,21 @@ export async function runTurn(opts: {
     }
 
     let finalReply = loop.finalReply;
-    try {
-      const { autoDeliverWordRevisionIfNeeded } = await import("./word-revision-auto-deliver.js");
-      const delivered = await autoDeliverWordRevisionIfNeeded({
-        ctx,
-        registry,
-        turn,
-      });
-      if (delivered) {
-        finalReply = [finalReply, delivered].filter((s) => s?.trim()).join("\n\n");
+    // 软预算检查点暂停（paused）时 turn 未完，不做 Word 改稿自动交付。
+    if (turn.status !== "paused") {
+      try {
+        const { autoDeliverWordRevisionIfNeeded } = await import("./word-revision-auto-deliver.js");
+        const delivered = await autoDeliverWordRevisionIfNeeded({
+          ctx,
+          registry,
+          turn,
+        });
+        if (delivered) {
+          finalReply = [finalReply, delivered].filter((s) => s?.trim()).join("\n\n");
+        }
+      } catch {
+        /* delivery is best-effort; the model path already ran */
       }
-    } catch {
-      /* delivery is best-effort; the model path already ran */
     }
 
     return finalizeAgentTurn({

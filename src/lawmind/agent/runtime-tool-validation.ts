@@ -21,7 +21,12 @@ function valueMatchesType(
   return typeof value === type;
 }
 
-/** Remove keys not in the tool schema (keeps `__approved`). Mutates `args`. */
+/**
+ * Remove keys not in the tool schema. Mutates `args`.
+ * Keeps `__approved` because it is a server-injected capability bit (not in any
+ * tool schema); model-supplied copies are stripped earlier at the turn boundary
+ * (turn-orchestrator-tool-round), so what survives here is server-set only.
+ */
 export function stripUnknownToolArguments(
   definition: ToolDefinition,
   args: Record<string, unknown>,

@@ -5,14 +5,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { LawmindMemoryTruthSources } from "./LawmindMemoryTruthSources.js";
-import { apiAuthHeaders } from "./lawmind-api-auth.ts";
+import { fetchApiJson } from "./api-client-proxy.ts";
 import { memoryKindLabel, memoryScopeLabel } from "./lawmind-memory-scope.js";
 
 const SCOPES = ["matter", "lawyer", "playbook", "client", "firm", "assistant", "opponent", "project"] as const;
 /** Lawyer-facing subset for manual suggest (simple mode). */
 const SIMPLE_SCOPES = ["lawyer", "matter", "firm"] as const;
 type Scope = (typeof SCOPES)[number];
-type State = "pending" | "adopted" | "auto_adopted" | "dismissed";
+type State = "pending" | "adopted" | "auto_adopted" | "dismissed" | "recorded_noop";
 
 type Suggestion = {
   id: string;
@@ -57,10 +57,11 @@ async function fetchSuggestions(opts: {
   if (opts.matterId) {
     params.set("matterId", opts.matterId);
   }
-  const res = await fetch(`${opts.baseUrl}/api/memory/adoption?${params.toString()}`, {
-    headers: { ...apiAuthHeaders() },
-  });
-  const json = (await res.json()) as ApiResult<{ items: Suggestion[] }>;
+  const json = await fetchApiJson<ApiResult<{ items: Suggestion[] }>>(
+    `${opts.baseUrl}/api/memory/adoption?${params.toString()}`,
+    {},
+    { tag: "memory-adoption:list" },
+  );
   return "items" in json && json.items ? json.items : [];
 }
 
@@ -69,12 +70,15 @@ async function postAction(
   action: "adopt" | "dismiss",
   body: { id: string; note?: string },
 ): Promise<ApiResult<unknown>> {
-  const res = await fetch(`${baseUrl}/api/memory/adoption/${action}`, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...apiAuthHeaders() },
-    body: JSON.stringify(body),
-  });
-  return (await res.json()) as ApiResult<unknown>;
+  return fetchApiJson<ApiResult<unknown>>(
+    `${baseUrl}/api/memory/adoption/${action}`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+    { tag: "memory-adoption:action" },
+  );
 }
 
 type Props = {
@@ -248,11 +252,7 @@ export default function MemoryInspector({
           params.set("matterId", matterId);
         }
         const q = params.toString();
-        const res = await fetch(
-          `${baseUrl}/api/memory/adoption/${encodeURIComponent(id)}/preview-diff${q ? `?${q}` : ""}`,
-          { headers: { ...apiAuthHeaders() } },
-        );
-        const json = (await res.json()) as {
+        const json = await fetchApiJson<{
           ok?: boolean;
           error?: string;
           hint?: string;
@@ -260,8 +260,12 @@ export default function MemoryInspector({
           beforeCharCount?: number;
           afterCharCount?: number;
           hunks?: DiffHunk[];
-        };
-        if (!json.ok || !json.targetPath || !json.hunks) {
+        }>(
+          `${baseUrl}/api/memory/adoption/${encodeURIComponent(id)}/preview-diff${q ? `?${q}` : ""}`,
+          {},
+          { tag: "memory-adoption:preview-diff" },
+        );
+        if (json.ok === false || !json.targetPath || !json.hunks) {
           setPreviewDiff(null);
           setPreviewErr(json.hint ?? json.error ?? "无法加载变更预览");
           return;
@@ -291,17 +295,20 @@ export default function MemoryInspector({
     setSuggestBusy(true);
     setError(undefined);
     try {
-      const res = await fetch(`${baseUrl}/api/memory/adoption/suggest`, {
-        method: "POST",
-        headers: { "content-type": "application/json", ...apiAuthHeaders() },
-        body: JSON.stringify({
-          scope: suggestScope,
-          kind: suggestKind,
-          payload,
-          targetId: matterId,
-        }),
-      });
-      const json = (await res.json()) as ApiResult<{ id?: string }>;
+      const json = await fetchApiJson<ApiResult<{ id?: string }>>(
+        `${baseUrl}/api/memory/adoption/suggest`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            scope: suggestScope,
+            kind: suggestKind,
+            payload,
+            targetId: matterId,
+          }),
+        },
+        { tag: "memory-adoption:suggest" },
+      );
       if (!json.ok) {
         setError(("error" in json && json.error) || "提交失败");
         return;

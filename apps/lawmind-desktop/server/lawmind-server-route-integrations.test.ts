@@ -64,6 +64,7 @@ describe("lawmind-server-route-integrations", () => {
     expect(payload.ok).toBe(true);
     const connectors = payload.connectors as Array<{ id: string }>;
     expect(connectors.some((c) => c.id === "filesystem")).toBe(true);
+    expect(connectors.some((c) => c.id === "feishu")).toBe(true);
   });
 
   it("GET documents requires matterId", async () => {

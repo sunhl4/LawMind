@@ -6,15 +6,12 @@ import type { DeliveryTier, ResolveDeliveryTierInput } from "./types.js";
  * auto_deliver only for low + unlocked + not outbound.
  */
 export function resolveDeliveryTier(input: ResolveDeliveryTierInput): DeliveryTier {
-  const { riskLevel, outbound, edition, autonomyUnlocked, firmForceFullReview } = input;
+  const { riskLevel, outbound, autonomyUnlocked, firmForceFullReview } = input;
 
   if (firmForceFullReview === true) {
     return "full_review";
   }
-  if (riskLevel === "high" || (edition === "firm" && riskLevel === "high")) {
-    return "full_review";
-  }
-  if (edition === "private_deploy" && riskLevel === "high") {
+  if (riskLevel === "high") {
     return "full_review";
   }
 

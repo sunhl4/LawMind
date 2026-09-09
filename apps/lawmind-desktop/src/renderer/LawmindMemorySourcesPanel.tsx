@@ -7,7 +7,7 @@ import { useId, useState } from "react";
 import type { MemorySourceLayer } from "../../../../src/lawmind/memory/index.ts";
 import { lawmindDocUrl } from "./lawmind-public-urls.js";
 
-const LAWMIND_USER_MANUAL = lawmindDocUrl("LAWMIND-USER-MANUAL");
+const LAWMIND_USER_MANUAL = lawmindDocUrl("archive/LAWMIND-USER-MANUAL");
 
 type Props = {
   layers: MemorySourceLayer[];
@@ -70,9 +70,9 @@ function ChatChipStrip(props: {
           </span>
           <span
             className="lm-context-chip lm-context-chip--memory lm-context-chip--accent"
-            title={plain ? "已把这部分写进给助手的总说明" : "已进入本助手主说明（system prompt）"}
+            title={plain ? "已把这部分写进给助手的总说明" : "已进入本助手主说明"}
           >
-            {plain ? `${s.inPrompt} 已写入说明` : `${s.inPrompt} 已注入提示`}
+            {plain ? `${s.inPrompt} 已写入说明` : `${s.inPrompt} 已记住`}
           </span>
           {s.engineClient > 0 ? (
             <span
@@ -166,7 +166,7 @@ export function LawmindMemorySourcesPanel(props: Props) {
             {showWorkbenchBadges && (
               <span className="lm-context-panel-badges" aria-hidden>
                 <span className="lm-badge-soft">{summary.total} 层</span>
-                <span className="lm-badge-soft lm-badge-soft--accent">{summary.inPrompt} 已注入提示</span>
+                <span className="lm-badge-soft lm-badge-soft--accent">{summary.inPrompt} 已记住</span>
                 {summary.engineClient > 0 ? (
                   <span className="lm-badge-soft lm-badge-soft--engine">客户画像·本回合</span>
                 ) : null}
@@ -234,7 +234,7 @@ export function LawmindMemorySourcesPanel(props: Props) {
                             m.inAgentSystemPrompt ? "lm-pill lm-pill--accent" : "lm-pill lm-pill--muted"
                           }
                         >
-                          {m.inAgentSystemPrompt ? "已注入" : "未注入"}
+                          {m.inAgentSystemPrompt ? "已记住" : "未记住"}
                         </span>
                       </td>
                       <td data-label={plain ? "本段" : "本回合"}>

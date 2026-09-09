@@ -12,6 +12,12 @@ export type AppliedPreference = {
   capturedAt?: string;
 };
 
+export type ExecutablePreference = AppliedPreference & {
+  id: string;
+  tags?: string[];
+  source: "json" | "profile";
+};
+
 /**
  * Extract recent bullets from LAWYER_PROFILE.md section「八、个人积累」.
  * Newest bullets are typically appended at the end of the section.
@@ -57,4 +63,29 @@ export function formatAppliedPreferencesHint(prefs: AppliedPreference[]): string
   }
   const lines = prefs.map((p) => `· ${p.text}`).slice(0, 5);
   return ["已按你的习惯（来自过往审核与偏好沉淀）：", ...lines].join("\n");
+}
+
+/**
+ * Detect which preference ids the assistant claim to have applied (best-effort).
+ * Browser-safe — no disk I/O.
+ */
+export function detectAppliedPreferenceIds(reply: string, prefs: ExecutablePreference[]): string[] {
+  if (!reply.trim() || prefs.length === 0) {
+    return [];
+  }
+  const applied: string[] = [];
+  for (const p of prefs) {
+    if (reply.includes(p.id) || reply.includes(p.text.slice(0, Math.min(24, p.text.length)))) {
+      applied.push(p.id);
+    }
+  }
+  const m = /本轮已应用[：:]\s*([^\n]+)/.exec(reply);
+  if (m) {
+    for (const p of prefs) {
+      if (m[1].includes(p.id) && !applied.includes(p.id)) {
+        applied.push(p.id);
+      }
+    }
+  }
+  return applied;
 }

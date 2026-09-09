@@ -27,7 +27,7 @@
 
 - 状态：已满足
 - 证据：
-  - `docs/LAWMIND-USER-MANUAL.md`
+  - `docs/archive/LAWMIND-USER-MANUAL.md`
   - `docs/lawmind/LAWMIND-MULTITASK-PLAYBOOK.md`
   - `scripts/lawmind/lawmind-multitask-validate.ts`
   - `scripts/lawmind/lawmind-multitask-guardrail-check.ts`
@@ -39,7 +39,7 @@
 - 状态：已满足
 - 证据：
   - `GOALS.md`
-  - `docs/LAWMIND-VISION.md`
+  - `docs/archive/LAWMIND-VISION.md`
   - `docs/lawmind/LAWMIND-MULTITASK-BASELINE-VALIDATION.md`
 - 补齐动作：继续以 `releaseReady=true` 作为本轮发布判定。
 - 验收命令：`pnpm lawmind:multitask:validate`

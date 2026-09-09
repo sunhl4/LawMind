@@ -36,4 +36,22 @@ describe("walkScanRoot", () => {
     expect(organized.every((i) => i.proposedMatterLabel === "华能采购案")).toBe(true);
     expect(walked.items.filter((i) => i.layout === "messy")).toHaveLength(1);
   });
+
+  it("does not follow a directory symlink whose real path only shares a prefix", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "lm-walk-"));
+    dirs.push(root);
+    const evil = `${root}-evil`;
+    dirs.push(evil);
+    fs.mkdirSync(evil, { recursive: true });
+    fs.writeFileSync(path.join(evil, "secret.docx"), "x");
+    fs.symlinkSync(evil, path.join(root, "escape"));
+    fs.writeFileSync(path.join(root, "local.pdf"), "y");
+    const walked = walkScanRoot({
+      id: "root_symlink",
+      absPath: root,
+      addedAt: new Date().toISOString(),
+    });
+    expect(walked.items.some((i) => i.fileName === "secret.docx")).toBe(false);
+    expect(walked.items.some((i) => i.fileName === "local.pdf")).toBe(true);
+  });
 });

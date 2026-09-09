@@ -2,13 +2,14 @@
  * Local lawmindd control — enable / start / stop. Spawn stays in-process of the desktop server.
  */
 
-import { spawn } from "node:child_process";
+import path from "node:path";
 import {
   buildDaemonProcessEnv,
   getDaemonStatus,
   setDaemonEnabled,
   stopDaemonProcess,
 } from "../../../src/lawmind/platform/lawmind-daemon.js";
+import { safeCommand } from "../../../src/lawmind/platform/safe-command.js";
 import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
 import { sendJsonError } from "./lawmind-api-error.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
@@ -19,17 +20,22 @@ const patchSchema = z.object({
   action: z.enum(["enable", "disable", "start", "stop"]),
 });
 
-function spawnDetachedDaemon(): { ok: boolean; error?: string } {
+function spawnDetachedDaemon(workspaceDir: string): { ok: boolean; error?: string } {
   if (process.env.LAWMIND_DAEMON === "1") {
     return { ok: false, error: "already_daemon" };
   }
   try {
-    const child = spawn(process.execPath, process.argv.slice(1), {
+    // 统一命令网关：校验绝对路径、禁止 shell、过滤 env、记录 safe_command 审计。
+    safeCommand({
+      command: process.execPath,
+      args: process.argv.slice(1),
       detached: true,
       stdio: "ignore",
       env: buildDaemonProcessEnv(process.env),
+      auditDir: path.join(workspaceDir, "audit"),
+      taskId: "daemon",
+      actor: "system",
     });
-    child.unref();
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -101,7 +107,7 @@ export async function handleDaemonRoutes({
     return true;
   }
   setDaemonEnabled(workspaceDir, true);
-  const spawned = spawnDetachedDaemon();
+  const spawned = spawnDetachedDaemon(workspaceDir);
   if (!spawned.ok) {
     sendJsonError(res, 500, "daemon_spawn_failed", spawned.error ?? "无法启动后台办件。", c);
     return true;

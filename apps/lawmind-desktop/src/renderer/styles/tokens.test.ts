@@ -56,6 +56,25 @@ describe("styles/tokens.css", () => {
       "lm-surface-elevated",
       "lm-text",
       "lm-muted",
+      "fs-2xs",
+      "fs-sm",
+      "fs-md",
+      "fs-3xl",
+      "fw-semibold",
+      "space-0",
+      "space-7",
+      "space-16",
+      "danger",
+      "danger-hover",
+      "danger-dim",
+      "danger-border",
+      "danger-text",
+      "danger-on",
+      "grad-danger",
+      "grad-danger-hover",
+      "shadow-danger",
+      "on-brand",
+      "lm-danger",
     ]) {
       expect(defined.has(token), `--${token}`).toBe(true);
     }
@@ -86,6 +105,14 @@ describe("styles/tokens.css", () => {
     }
   });
 
+  it("destructive buttons use seal-red danger tokens, not candy pink", () => {
+    const stylesDir = dirname(fileURLToPath(import.meta.url));
+    const buttons = readFileSync(join(stylesDir, "buttons.css"), "utf8");
+    expect(buttons).toContain("var(--grad-danger)");
+    expect(buttons).toContain("var(--danger-on)");
+    expect(buttons).not.toMatch(/#f28585|#e05555|#f89595/);
+  });
+
   it("side file explorer scroll children keep natural height (no flex-shrink clip)", () => {
     const stylesDir = dirname(fileURLToPath(import.meta.url));
     const moduleCss = readFileSync(join(stylesDir, "file-workbench.css"), "utf8");
@@ -93,5 +120,13 @@ describe("styles/tokens.css", () => {
     const rule = /\.lm-files-explorer-scroll\s*>\s*\*\s*\{[^}]*flex-shrink:\s*0/;
     expect(moduleCss, "file-workbench.css").toMatch(rule);
     expect(bundledCss, "styles.css (run pnpm lawmind:sync:renderer-css)").toMatch(rule);
+  });
+
+  it("bundled styles.css keeps a single tokenized danger callout", () => {
+    const bundledCss = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../styles.css"), "utf8");
+    const dangerBlocks = bundledCss.match(/\.lm-callout-danger\s*\{[^}]+\}/g) ?? [];
+    expect(dangerBlocks.length).toBeGreaterThanOrEqual(1);
+    expect(bundledCss).not.toMatch(/#ff9494|#f28585|#e05555/);
+    expect(bundledCss).toContain("color-mix(in srgb, var(--danger)");
   });
 });

@@ -11,7 +11,6 @@ describe("LawmindReviewDeliveryBar", () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const root = createRoot(host);
-    const onOpenAgentsDesk = vi.fn();
     const onExportWord = vi.fn();
     await act(async () => {
       root.render(
@@ -25,7 +24,6 @@ describe("LawmindReviewDeliveryBar", () => {
           onReopen={() => undefined}
           onExportWord={onExportWord}
           variant="writing"
-          onOpenAgentsDesk={onOpenAgentsDesk}
         />,
       );
     });
@@ -44,8 +42,7 @@ describe("LawmindReviewDeliveryBar", () => {
     await act(async () => {
       exportBtn?.click();
     });
-    expect(onExportWord).toHaveBeenCalledWith({ strict: false });
-    expect(onOpenAgentsDesk).not.toHaveBeenCalled();
+    expect(onExportWord).toHaveBeenCalledWith();
     root.unmount();
     host.remove();
   });

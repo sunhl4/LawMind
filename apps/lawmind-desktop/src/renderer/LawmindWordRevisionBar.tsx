@@ -12,7 +12,7 @@ import {
   WORD_REVISION_STANCES,
   type WordRevisionFamilyId,
   type WordRevisionStance,
-} from "../../../../src/lawmind/platform/word-revision-checklist.ts";
+} from "../../../../src/lawmind/platform/word-revision-core.ts";
 
 export type LawmindWordRevisionBarProps = {
   composeInput: string;

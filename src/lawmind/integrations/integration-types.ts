@@ -7,6 +7,7 @@ export const INTEGRATION_CONNECTOR_IDS = [
   "imanage",
   "netdocuments",
   "sharepoint",
+  "feishu",
 ] as const;
 
 export type IntegrationConnectorId = (typeof INTEGRATION_CONNECTOR_IDS)[number];

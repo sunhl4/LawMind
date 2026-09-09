@@ -5,7 +5,7 @@ description: How LawMind 2.0 strategy maps to code, and what is verified in CI.
 
 # LawMind engineering status
 
-This page links [LawMind 2.0 strategy](/LAWMIND-2.0-STRATEGY) to **what exists in the repository today** and how we keep **typecheck and tests** green. It is not a marketing roadmap; it is a maintainer alignment sheet.
+This page links [LawMind 2.0 strategy](/archive/LAWMIND-2.0-STRATEGY) to **what exists in the repository today** and how we keep **typecheck and tests** green. It is not a marketing roadmap; it is a maintainer alignment sheet.
 
 ## Typecheck and desktop app
 
@@ -21,7 +21,7 @@ This page links [LawMind 2.0 strategy](/LAWMIND-2.0-STRATEGY) to **what exists i
 | Legal reasoning substrate                       | `src/lawmind/reasoning/`, `docs/lawmind/legal-reasoning-graph`                                                                        |
 | Traceability and audit                          | `src/lawmind/audit/`, `docs/lawmind/compliance-audit-trail`                                                                           |
 | Quality measurement                             | `src/lawmind/evaluation/`, `docs/lawmind/quality-and-benchmarks`                                                                      |
-| Governance and policy                           | `src/lawmind/policy/`, `docs/lawmind/phase-c-governance`, `LAWMIND-POLICY-FILE`                                                       |
+| Governance and policy                           | `src/lawmind/policy/`, `docs/lawmind/phase-c-governance`, `docs/archive/LAWMIND-POLICY-FILE.md`                                       |
 | Operability and delivery                        | `src/lawmind/delivery/`, `docs/lawmind/phase-d-operability`, desktop HTTP API in `apps/lawmind-desktop/server/`                       |
 | Agent loop and tools                            | `src/lawmind/agent/`                                                                                                                  |
 | Learning from review                            | `src/lawmind/learning/`, `src/lawmind/memory/playbook-learning.ts`                                                                    |
@@ -35,6 +35,6 @@ When in doubt, prefer **tests and `pnpm tsgo`** over narrative completeness.
 ## Related docs
 
 - [Engine vs Agent entrypoints](/lawmind/engine-vs-agent) — `createLawMindEngine` vs `createLawMindAgent`
-- [LawMind 2.0 strategy](/LAWMIND-2.0-STRATEGY)
+- [LawMind 2.0 strategy](/archive/LAWMIND-2.0-STRATEGY)
 - [LawMind architecture](/LAWMIND-ARCHITECTURE)
-- [LawMind user manual](/LAWMIND-USER-MANUAL)
+- [LawMind user manual](/archive/LAWMIND-USER-MANUAL)

@@ -13,6 +13,7 @@ export {
   type SelfReviseSummary,
 } from "./types.js";
 export { resolveDeliveryTier, resolveFirmForceFullReview } from "./resolve-delivery-tier.js";
+export { evaluateAutoDeliver, isOutboundDraft, recordDeliveryAutonomy } from "./auto-deliver.js";
 export {
   isAutonomyUnlocked,
   resolveProgressiveAutonomyThresholds,

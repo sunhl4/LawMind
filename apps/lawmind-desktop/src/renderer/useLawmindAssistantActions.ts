@@ -5,6 +5,7 @@ import { clearStoredActiveChatSessionForAssistant } from "./useLawmindChatShell"
 import { DEFAULT_ASSISTANT_ID } from "../../../../src/lawmind/assistants/constants.ts";
 import type { AppConfig } from "./lawmind-app-bootstrap";
 import { errorMessage } from "./api-client";
+import { confirmDialog } from "./lawmind-confirm-dialog";
 
 export type UseLawmindAssistantActionsParams = {
   config: AppConfig | null;
@@ -109,7 +110,14 @@ export function useLawmindAssistantActions(params: UseLawmindAssistantActionsPar
     if (!config || selectedAssistantId === DEFAULT_ASSISTANT_ID) {
       return;
     }
-    if (!window.confirm("确定删除该助手？其会话记录仍保留在工作区。")) {
+    if (
+      !(await confirmDialog({
+        title: "确定删除该助手？",
+        body: "其会话记录仍保留在工作区。",
+        confirmLabel: "删除",
+        tone: "danger",
+      }))
+    ) {
       return;
     }
     try {

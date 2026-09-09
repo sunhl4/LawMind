@@ -5,11 +5,17 @@
  */
 
 import { readSessionEvents, type SessionEventLogRecord } from "./session-event-log.js";
+import { findUnpairedToolCallIds } from "./session-tool-call-pairing.js";
 import { deriveModelMessages, loadTurns } from "./session.js";
 import type { AgentSession, AgentTurn } from "./types.js";
 
 export type SessionHistoryAlignmentIssue = {
-  code: "derive_len" | "derive_role" | "final_reply_mismatch" | "turn_instruction_missing";
+  code:
+    | "derive_len"
+    | "derive_role"
+    | "final_reply_mismatch"
+    | "turn_instruction_missing"
+    | "dangling_tool_call";
   detail: string;
 };
 
@@ -34,6 +40,15 @@ export function inspectSessionHistoryAlignment(input: {
   turns?: AgentTurn[];
 }): SessionHistoryAlignment {
   const issues: SessionHistoryAlignmentIssue[] = [];
+  // 必须在 deriveModelMessages 之前检查：derive 会对悬空 tool_call 做配对修复并写回
+  // session，之后再看就永远是已修复序列。此处观测的是「落盘历史原本是否配对」。
+  const dangling = findUnpairedToolCallIds(input.session.conversationHistory);
+  if (dangling.length > 0) {
+    issues.push({
+      code: "dangling_tool_call",
+      detail: `unpaired tool_calls: ${dangling.slice(0, 5).join(",")}${dangling.length > 5 ? "…" : ""}`,
+    });
+  }
   const derived = deriveModelMessages(input.session);
   const history = input.session.conversationHistory;
   if (derived.length !== history.length) {

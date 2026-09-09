@@ -152,6 +152,31 @@ describe("LawmindAppSidebar", () => {
     expect(host.querySelector("[data-testid='lm-cockpit-nav']")).toBeNull();
   });
 
+  it("工作台不占用全局侧栏（案件在驾驶舱内）", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindAppSidebar
+          {...baseProps({
+            mainView: "desk",
+            showSidebarWorkbenchFiles: false,
+            matterSidebarRows: [
+              { key: "m1", matterId: "m1", title: "借贷案", subline: "诉讼" },
+            ],
+            chatSessions: [{ sessionId: "s1", title: "合同审查" }],
+            onSelectChatSession: () => undefined,
+            onCreateNewChatSession: () => undefined,
+            onRenameChatSession: async () => undefined,
+            onDeleteChatSession: async () => undefined,
+          })}
+        />,
+      );
+    });
+    expect(host.querySelector(".lm-matter-sidebar-list")).toBeNull();
+    expect(host.textContent).not.toContain("借贷案");
+    expect(host.querySelector('[aria-label="材料资源树"]')).toBeNull();
+    expect(host.querySelector('[data-testid="lm-side-chat-sessions"]')).toBeNull();
+  });
+
   it("shows explorer skeleton while file tree is mounting", async () => {
     await act(async () => {
       root.render(
@@ -177,6 +202,8 @@ describe("LawmindAppSidebar", () => {
     });
     expect(host.querySelector('[data-testid="lm-side-needs-decision"]')?.textContent).toContain("待我拍板");
     expect(host.querySelector('[data-testid="lm-side-needs-decision"]')?.textContent).toContain("2");
+    expect(host.querySelector('[data-testid="lm-side-collab-completed"]')).toBeNull();
+    expect(host.textContent).not.toContain("刚办完");
   });
 
   it("shows 对话 session list on workspace when chat handlers are provided", async () => {

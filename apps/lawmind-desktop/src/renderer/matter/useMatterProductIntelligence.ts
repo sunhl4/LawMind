@@ -25,6 +25,7 @@ import {
   buildProductAdaptationSuggestions,
   type SuggestionDerivationInput,
 } from "./matter-product-suggestions";
+import { isInternalExperimentUiEnabled } from "../lawmind-internal-flags";
 
 type BlockingExplanationInput = {
   actionTab?: "case" | "tasks";
@@ -420,7 +421,8 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
   }, [loadPersistentAdoptions, matterId]);
 
   useEffect(() => {
-    if (!showCrossMatterRoadmap) {
+    // 实验累积数据仅供内部实验台卡片；律师构建不发起该请求。
+    if (!showCrossMatterRoadmap || !isInternalExperimentUiEnabled()) {
       setCrossExperimentRollup([]);
       return;
     }
@@ -601,7 +603,7 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
           memoryCategories: [
             {
               key: "injected",
-              title: "已注入核心记忆",
+              title: "已记住的核心记忆",
               count: Array.from(layerCounts.values()).filter((entry) => entry.injected).length,
               hint: "这些层已经进入助手主说明，直接参与当前推理。",
             },

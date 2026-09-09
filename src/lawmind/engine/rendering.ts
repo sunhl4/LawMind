@@ -21,13 +21,17 @@ import {
 } from "../deliverables/index.js";
 import { formatCitationGateCoach } from "../drafts/citation-craft.js";
 import {
+  appendProvenanceEvent,
+  createProvenanceEvent,
   persistDraft,
   readReasoningSnapshot,
   readResearchSnapshot,
   resolveDraftCitationIntegrity,
   type DraftCitationIntegrityView,
 } from "../drafts/index.js";
+import { draftTextFromUnknown, runLegalLint } from "../lint/run-lint.js";
 import { appendCaseArtifact, appendCaseProgress, appendTodayLog } from "../memory/index.js";
+import { recordDeliverEvent, recordLintRunEvent } from "../metrics/runtime-events.js";
 import { citationModeBlocksRender, type CitationMode } from "../policy/citation-mode.js";
 import { isFeatureEnabled } from "../policy/edition.js";
 import { syncDraftToTaskRecord, updateTaskRecord } from "../tasks/index.js";
@@ -51,6 +55,7 @@ export async function renderDraft(
     citationGateStrict?: boolean;
     /** Skills E4 — when set, takes precedence over edition citationGateStrict alone */
     citationMode?: CitationMode;
+    includeProvenance?: boolean;
   },
 ): Promise<{
   ok: boolean;
@@ -173,6 +178,7 @@ export async function renderDraft(
             templateVariant: templateResolution.variant,
             uploadedTemplate: templateResolution.uploaded,
             sources: researchSources,
+            includeProvenance: opts?.includeProvenance,
           })
         : {
             ok: false,
@@ -184,6 +190,41 @@ export async function renderDraft(
     if (override !== undefined && override.length > 0) {
       draft.templateId = override;
     }
+    const finalLint = runLegalLint(draftTextFromUnknown(draft), undefined, undefined, undefined, {
+      deliverableType: draft.deliverableType,
+    });
+    const lintRunEvent = recordLintRunEvent(workspaceDir, {
+      taskId: draft.taskId,
+      matterId: draft.matterId,
+      deliverableType: draft.deliverableType,
+      ruleIds: finalLint.findings.map((f) => f.ruleId),
+      failCount: finalLint.blockerCount + finalLint.warningCount,
+      blockerCount: finalLint.blockerCount,
+      warningCount: finalLint.warningCount,
+    });
+    const firstPass =
+      draft.reviewStatus === "approved" &&
+      draft.reviewNotes.length === 0 &&
+      (!draft.rewriteAmplitude ||
+        (draft.rewriteAmplitude.absCharDelta === 0 &&
+          draft.rewriteAmplitude.absParagraphDelta === 0));
+    recordDeliverEvent(workspaceDir, {
+      taskId: draft.taskId,
+      matterId: draft.matterId,
+      deliverableType: draft.deliverableType,
+      firstPass,
+      lintEscape: finalLint.blockerCount + finalLint.warningCount > 0,
+      outputPath: result.outputPath,
+    });
+    void lintRunEvent;
+    const exportEvent = createProvenanceEvent("export", "system", {
+      sourceId: result.outputPath,
+      comment: draft.output,
+    });
+    draft.sections = draft.sections.map((section) => ({
+      ...section,
+      provenance: appendProvenanceEvent(section.provenance, exportEvent),
+    }));
     const storedDraftPath = persistDraft(workspaceDir, draft);
     const fallbackTail = templateResolution.fallbackReason
       ? `；回退原因：${templateResolution.fallbackReason}`

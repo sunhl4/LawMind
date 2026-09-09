@@ -18,6 +18,7 @@ export {
 export { listFilesystemDocuments } from "./filesystem-connector.js";
 export { listImanageDocuments, imanageConnectorReady } from "./imanage-connector.js";
 export { listSharepointDocuments, sharepointConnectorReady } from "./sharepoint-connector.js";
+export { listFeishuDocuments, feishuConnectorReady } from "./feishu-connector.js";
 export { readMatterDmsMapping, matterDmsMapPath } from "./dms-matter-map.js";
 export {
   INTEGRATION_CONNECTOR_CATALOG,

@@ -1,5 +1,8 @@
 /**
  * Maps replay fixture gate outcome strings to structural checks (no LLM).
+ *
+ * 口径：本层是合成回归 fixture 的结构断言层——minimalDraftForFixture 构造的是
+ * 验收用最小草稿，用于回归 gate 检查逻辑本身，不构成真实任务回放证据。
  */
 
 import { validateReasoningAgainstSpec } from "../deliverables/reasoning-validator.js";

@@ -10,8 +10,7 @@ import type { TaskCheckpoint } from "../../../../src/lawmind/tasks/checkpoints.t
 import { LawmindCitationBanner } from "./LawmindCitationBanner";
 import { LawmindTaskCheckpoints } from "./LawmindTaskCheckpoints";
 import { internalIdsTitle, pathBasename } from "./display-ids";
-import { messageFromOkFalseBody, readJsonFromResponse, userMessageFromApiError } from "./api-client";
-import { apiAuthHeaders } from "./lawmind-api-auth.ts";
+import { fetchApi, messageFromOkFalseBody, readJsonFromResponse, userMessageFromApiError } from "./api-client";
 
 function taskKindCn(kind: TaskKind): string {
   const map: Record<TaskKind, string> = {
@@ -67,7 +66,7 @@ export async function loadAppDetail(
   executionPlan?: TaskExecutionPlanStep[];
 }> {
   const rel = kind === "task" ? `/api/tasks/${encodeURIComponent(id)}` : `/api/drafts/${encodeURIComponent(id)}`;
-  const response = await fetch(`${apiBase}${rel}`, { headers: apiAuthHeaders() });
+  const response = await fetchApi(`${apiBase}${rel}`, {}, { tag: "app-detail" });
   const json = await readJsonFromResponse<{
     ok?: boolean;
     error?: string;

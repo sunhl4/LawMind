@@ -118,14 +118,16 @@ export async function runHistoricalScan(
     job.stats.knowledgeQueued = 1;
   }
   for (const habit of habits) {
-    await suggestMemoryAdoption(workspaceDir, auditDir, {
+    const rec = await suggestMemoryAdoption(workspaceDir, auditDir, {
       scope: "lawyer",
       kind: "lawyer.habit_pattern",
       payload: `审查「${habit.clauseType}」条款时，默认采用：${habit.preferredLanguage}（${habit.occurrences} 次，已取最新改法）`,
       origin: "engine",
       note: "habit_min_5",
     });
-    job.stats.habitsQueued += 1;
+    if (!rec.reusedPending) {
+      job.stats.habitsQueued += 1;
+    }
   }
 
   fs.mkdirSync(path.dirname(jobPath(workspaceDir, scanId)), { recursive: true });
