@@ -14,7 +14,7 @@
 
 ## 安全与信任
 
-- [ ] **macOS**：计划内分发则需 Apple Developer **签名 + notarization**；当前仓库 `identity: null` 为未签名开发构建。
+- [ ] **macOS**：对外分发需 Apple Developer **Developer ID Application 签名 + notarytool 公证 + staple**。把 `CSC_LINK` / `CSC_KEY_PASSWORD` 与 `APPLE_ID` / `APPLE_APP_SPECIFIC_PASSWORD` / `APPLE_TEAM_ID` 配进 GitHub Actions secrets（或本机钥匙串）。没有证书时本地包仍是 adhoc，别人下载后不能双击。可用 `LAWMIND_REQUIRE_NOTARIZED=1` 让未公证构建失败。
 - [ ] **Windows**：计划内分发则 **Authenticode** 签名 `exe` / 安装包。
 - [ ] 随发布提供或可索取：**SBOM**（`pnpm lawmind:sbom:cyclonedx`）、已知依赖 CVE 说明（按客户要求）。
 

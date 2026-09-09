@@ -10,7 +10,7 @@ If you received a **zip** (macOS `.app`) or **portable / installer** (Windows):
 
 - **No separate Node.js install is required** — the build vendors an official Node binary under `Resources/node-runtime/` and uses it to run the bundled `lawmind-local-server.cjs`.
 - Unzip or install, open the app, complete the **setup wizard** (API Key, optional Base URL/model/workspace).
-- macOS unsigned test builds: use **Right-click → Open** the first time if Gatekeeper blocks the app. For wide distribution, the `.app` and embedded `node` must be **code-signed and notarized** (see <https://docs.lawmind.ai/LAWMIND-DELIVERY> §6).
+- macOS: a **Developer ID + notarized** build double-clicks after download. Unsigned/adhoc test builds still need **Right-click → Open** the first time (see <https://docs.lawmind.ai/LAWMIND-DELIVERY> §6).
 
 **Advanced:** set `LAWMIND_NODE_BIN` to force a different Node executable.
 

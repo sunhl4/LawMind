@@ -121,13 +121,15 @@ cd apps/lawmind-desktop && pnpm run dist:electron
 
 ### 6.3 macOS 代码签名与公证（对外分发）
 
-当前仓库内 `electron-builder` 的 mac 配置可能为 `identity: null`（未签名）。未签名的 `.app` / `zip` 在客户机上可能被 Gatekeeper 拦截。
+浏览器下载的 `.app` / `.dmg` 要**双击就能开**，必须用 **Developer ID Application** 签名并对 dmg/zip 做 **notarytool 公证 + staple**。`identity: null` 已去掉：有证书时 electron-builder 自动签；没有证书时 `afterPack` 会做 adhoc 深签（仅本机可开，下载后仍会被 Gatekeeper 拦）。
 
-若需对公网用户分发：
+对外分发所需环境变量（不要写入仓库）：
 
-1. 为 **Electron 应用** 与 **内嵌的 `node` 二进制**（路径：`LawMind.app/Contents/Resources/node-runtime/<platform-arch>/bin/node`）使用同一开发者证书签名（与 LawMind 发布流程对齐）。
-2. 对 `.app` 做 **notarytool 公证**（Apple 要求）。
-3. 在交付手册中写明：若暂为测试包，用户可在「系统设置 - 隐私与安全性」中允许运行，或使用「右键 - 打开」首次放行。
+1. 签名：`CSC_LINK`（p12）+ `CSC_KEY_PASSWORD`，或钥匙串里的 Developer ID，或 `CSC_NAME`。
+2. 公证：`APPLE_ID` + `APPLE_APP_SPECIFIC_PASSWORD` + `APPLE_TEAM_ID`（或 `APPLE_KEYCHAIN_PROFILE` / App Store Connect API key）。
+3. 强制失败：`LAWMIND_REQUIRE_NOTARIZED=1`（没有 Developer ID 或公证凭证时直接退出）。
+
+内嵌 Node（`LawMind.app/Contents/Resources/node-runtime/<platform-arch>/bin/node`）与主程序使用同一身份签名。未公证的测试包仍可「右键 → 打开」。
 
 （内部发布细节以仓库内 `docs/platforms/mac/` 下签名与发布相关文档为准。）
 

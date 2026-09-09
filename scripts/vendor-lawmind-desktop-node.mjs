@@ -14,8 +14,8 @@
  * 本地独立二进制（离线/内网构建用）。
  *
  * 用法：
- *   node scripts/vendor-lawmind-desktop-node.mjs                 # 下载当前版本官方构建
- *   node scripts/vendor-lawmind-desktop-node.mjs --node-version 22.11.0
+ *   node scripts/vendor-lawmind-desktop-node.mjs                 # 下载默认 Node 22 LTS 官方构建
+ *   node scripts/vendor-lawmind-desktop-node.mjs --node-version 22.23.2
  *   node scripts/vendor-lawmind-desktop-node.mjs --node /path/to/standalone-node
  *   node scripts/vendor-lawmind-desktop-node.mjs --clean
  *
@@ -169,7 +169,9 @@ async function main() {
   const key = `${process.platform}-${process.arch}`;
   const destDir = path.join(RUNTIME_ROOT, key);
   const destBin =
-    process.platform === "win32" ? path.join(destDir, "node.exe") : path.join(destDir, "bin", "node");
+    process.platform === "win32"
+      ? path.join(destDir, "node.exe")
+      : path.join(destDir, "bin", "node");
 
   if (args.clean && fs.existsSync(RUNTIME_ROOT)) {
     fs.rmSync(RUNTIME_ROOT, { recursive: true, force: true });
@@ -186,10 +188,14 @@ async function main() {
     if (fs.existsSync(destBin)) {
       try {
         if (nodeVersionOf(destBin) === srcVersion) {
-          process.stdout.write(`✓ 已 vendored（版本一致，跳过）：${path.relative(REPO_ROOT, destBin)} [${srcVersion}]\n`);
+          process.stdout.write(
+            `✓ 已 vendored（版本一致，跳过）：${path.relative(REPO_ROOT, destBin)} [${srcVersion}]\n`,
+          );
           return;
         }
-      } catch { /* 损坏则覆盖 */ }
+      } catch {
+        /* 损坏则覆盖 */
+      }
     }
     copyStandaloneBinary(localBin, destBin);
     const got = nodeVersionOf(destBin);
@@ -197,29 +203,43 @@ async function main() {
       process.stderr.write(`✗ vendored 二进制版本不一致：源 ${srcVersion} / 目标 ${got}\n`);
       process.exit(1);
     }
-    process.stdout.write(`✓ vendored Node ${srcVersion}（本地复制）→ ${path.relative(REPO_ROOT, destBin)}\n  key=${key} src=${localBin}\n`);
+    process.stdout.write(
+      `✓ vendored Node ${srcVersion}（本地复制）→ ${path.relative(REPO_ROOT, destBin)}\n  key=${key} src=${localBin}\n`,
+    );
     return;
   }
 
-  // 模式 B：下载官方独立构建。默认与当前构建机版本一致。
-  const version = (args.nodeVersion || process.versions.node).replace(/^v/, "");
+  // 模式 B：下载官方独立构建。默认 Node 22 LTS，与 esbuild `--target=node22` 对齐。
+  const version = (
+    args.nodeVersion ||
+    process.env.LAWMIND_DESKTOP_NODE_VERSION ||
+    "22.23.2"
+  ).replace(/^v/, "");
   const wantTag = `v${version}`;
 
   if (fs.existsSync(destBin)) {
     try {
       if (nodeVersionOf(destBin) === wantTag) {
-        process.stdout.write(`✓ 已 vendored（版本一致，跳过）：${path.relative(REPO_ROOT, destBin)} [${wantTag}]\n`);
+        process.stdout.write(
+          `✓ 已 vendored（版本一致，跳过）：${path.relative(REPO_ROOT, destBin)} [${wantTag}]\n`,
+        );
         return;
       }
-    } catch { /* 损坏则重新下载 */ }
+    } catch {
+      /* 损坏则重新下载 */
+    }
   }
 
   try {
     await vendorFromDownload(version, key, destBin);
-    process.stdout.write(`✓ vendored Node ${wantTag} → ${path.relative(REPO_ROOT, destBin)}\n  key=${key}\n`);
+    process.stdout.write(
+      `✓ vendored Node ${wantTag} → ${path.relative(REPO_ROOT, destBin)}\n  key=${key}\n`,
+    );
   } catch (e) {
     process.stderr.write(`✗ 下载/解压失败：${e instanceof Error ? e.message : String(e)}\n`);
-    process.stderr.write(`  提示：内网/离线构建可用 --node /path/to/standalone-node 复制本地独立二进制。\n`);
+    process.stderr.write(
+      `  提示：内网/离线构建可用 --node /path/to/standalone-node 复制本地独立二进制。\n`,
+    );
     process.exit(1);
   }
 }
