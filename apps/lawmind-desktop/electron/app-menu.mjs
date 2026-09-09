@@ -8,7 +8,8 @@ import { safeOpenExternal } from "./safe-shell-command.mjs";
 const __electronDir = path.dirname(fileURLToPath(import.meta.url));
 
 /** Public download landing (browser). Override with env `LAWMIND_DOWNLOAD_PAGE_URL`. */
-const DEFAULT_LAWMIND_DOWNLOAD_PAGE_URL = "https://docs.lawmind.ai/download/";
+const DEFAULT_LAWMIND_DOWNLOAD_PAGE_URL =
+  "https://cdn.jsdelivr.net/gh/sunhl4/LawMind@main/apps/lawmind-desktop/download/index.html";
 
 export function resolveLawmindDownloadPageUrl() {
   const fromEnv = process.env.LAWMIND_DOWNLOAD_PAGE_URL?.trim();

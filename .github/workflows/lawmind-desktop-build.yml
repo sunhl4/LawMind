@@ -9,7 +9,7 @@ on:
       - "lawmind-desktop-v*"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: lawmind-desktop-build-${{ github.ref }}
@@ -54,3 +54,43 @@ jobs:
           name: lawmind-desktop-${{ matrix.label }}
           path: apps/lawmind-desktop/release/*
           if-no-files-found: error
+
+  release:
+    needs: package
+    if: always() && startsWith(github.ref, 'refs/tags/lawmind-desktop-v') && !cancelled()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
+          pattern: lawmind-desktop-*
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find dist-artifacts -type f \( \
+            -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.AppImage' \
+            -o -name '*.tar.gz' -o -name 'latest*.yml' -o -name '*.blockmap' \
+          \) | sort)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No installer assets found"
+            find dist-artifacts -type f | head -100
+            exit 1
+          fi
+          printf 'Attaching %s files\n' "${#files[@]}"
+          version="${GITHUB_REF_NAME#lawmind-desktop-}"
+          gh release create "${GITHUB_REF_NAME}" "${files[@]}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "LawMind Desktop ${version}" \
+            --notes "$(cat <<EOF
+          LawMind 桌面安装包 ${version}（未签名测试构建）。
+
+          - macOS：若 Gatekeeper 拦截，请右键应用选择「打开」。
+          - 安装后按向导填写本机模型 API Key。
+          - 输出须经执业律师审阅，不构成法律意见。
+          EOF
+          )"
