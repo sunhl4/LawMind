@@ -1,4 +1,4 @@
-import { app, BrowserWindow, session, shell } from "electron";
+import { app, BrowserWindow, session } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { installLawmindContentSecurityPolicy } from "./session-config.mjs";
@@ -8,18 +8,26 @@ import {
   killLocalServer,
   getAllowedRoots,
   spawnWorkspaceDaemon,
+  workspaceDir,
 } from "./local-server.mjs";
+import { safeOpenExternal } from "./safe-shell-command.mjs";
 import {
   setupApplicationMenu,
   loadRendererIntoWindow,
+  resolveLawmindDevServerUrl,
   runAutoUpdateCheckWithNotify,
 } from "./app-menu.mjs";
 import { registerIpcHandlers } from "./ipc-handlers.mjs";
 import {
+  isAllowedMainWindowNavigationUrl,
   isAuxPopoutWindowUrl,
   isDevToolsWindowUrl,
   shouldKeepLocalServerAlive,
 } from "./app-windows.mjs";
+import {
+  installAppRendererProcessGoneHandler,
+  installRendererRecovery,
+} from "./renderer-recovery.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -76,13 +84,31 @@ function denyInAppWindowOpen(contents) {
     try {
       const u = new URL(url);
       if (u.protocol === "http:" || u.protocol === "https:") {
-        void shell.openExternal(url);
+        void safeOpenExternal(url, workspaceDir);
         return { action: "deny" };
       }
     } catch {
       /* ignore bad URLs */
     }
     return { action: "deny" };
+  });
+}
+
+function denyUnexpectedMainWindowNavigation(contents) {
+  // will-navigate：同窗口导航可把远程页面装进带 preload 的主窗口（token + fs 桥随之暴露）。
+  // 只允许预期 origin（packaged file:// dist / dev Vite loopback 端口），其余一律拦下。
+  // 程序化 loadURL/loadFile 不触发 will-navigate，正常加载不受影响。
+  const distIndexPath = path.join(__dirname, "..", "dist", "index.html");
+  contents.on("will-navigate", (event, url) => {
+    if (
+      isAllowedMainWindowNavigationUrl(url, {
+        devServerUrl: resolveLawmindDevServerUrl(),
+        distIndexPath,
+      })
+    ) {
+      return;
+    }
+    event.preventDefault();
   });
 }
 
@@ -121,6 +147,8 @@ async function createWindow() {
   });
 
   denyInAppWindowOpen(mainWindow.webContents);
+  denyUnexpectedMainWindowNavigation(mainWindow.webContents);
+  installRendererRecovery(mainWindow, (win, hash) => loadRendererIntoWindow(win, hash));
 
   await loadRendererIntoWindow(mainWindow);
   // Never auto-open *detached* DevTools: that window is easy to mistake for a
@@ -135,14 +163,22 @@ void app.whenReady().then(async () => {
   try {
     installIpcHandlers();
     setupApplicationMenu();
+    installAppRendererProcessGoneHandler(() => createWindow());
     await createWindow();
     if (process.env.LAWMIND_E2E !== "1" && process.env.LAWMIND_SKIP_AUTO_UPDATE !== "1") {
       setTimeout(() => {
         void runAutoUpdateCheckWithNotify();
       }, 12_000);
     }
-  } catch {
-    app.quit();
+  } catch (err) {
+    console.error("[LawMind] startup failed:", err);
+    // Do not quit immediately — retry once so a transient Vite/port race does not kill the app.
+    try {
+      await createWindow();
+    } catch (retryErr) {
+      console.error("[LawMind] startup retry failed:", retryErr);
+      app.quit();
+    }
   }
 });
 

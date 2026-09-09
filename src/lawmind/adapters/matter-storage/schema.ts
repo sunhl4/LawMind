@@ -20,6 +20,16 @@ export const MatterStatusSchema = z.enum([
   "closed",
 ]);
 
+export const MatterKindSchema = z.enum(["contract", "litigation", "general"]);
+
+export const MatterDocketSchema = z.object({
+  caseNo: z.string().optional(),
+  court: z.string().optional(),
+  instance: z.string().optional(),
+  standing: z.string().optional(),
+  hearingAt: z.string().optional(),
+});
+
 export const MatterRecordSchema = z.object({
   matterId: z.string().min(1),
   clientId: z.string().optional(),
@@ -34,6 +44,9 @@ export const MatterRecordSchema = z.object({
   deadlineIds: z.array(z.string()).default([]),
   deliverableIds: z.array(z.string()).default([]),
   queueItemIds: z.array(z.string()).default([]),
+  matterKind: MatterKindSchema.optional(),
+  practiceTags: z.array(z.string()).optional(),
+  docket: MatterDocketSchema.optional(),
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
 });
@@ -133,8 +146,17 @@ export const DeadlineRecordSchema = z.object({
   title: z.string().min(1),
   dueAt: z.string(),
   severity: SeveritySchema,
-  source: z.enum(["manual", "case_memory", "project_file", "calendar_import"]),
+  source: z.enum(["manual", "case_memory", "project_file", "calendar_import", "document_extract"]),
   status: z.enum(["open", "snoozed", "completed", "missed"]),
   notes: z.string().optional(),
+  eventKind: z.enum(["hearing", "filing", "limitation", "reply", "custom"]).optional(),
+  remindBeforeHours: z
+    .number()
+    .int()
+    .min(0)
+    .max(24 * 30)
+    .optional(),
+  icsUid: z.string().optional(),
+  remindedAt: z.string().optional(),
 });
 export type DeadlineRecord = z.infer<typeof DeadlineRecordSchema>;

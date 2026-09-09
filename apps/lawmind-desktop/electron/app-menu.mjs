@@ -1,7 +1,9 @@
-import { app, BrowserWindow, dialog, Menu, shell } from "electron";
+import { app, BrowserWindow, dialog, Menu } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { workspaceDir } from "./local-server.mjs";
+import { safeOpenExternal } from "./safe-shell-command.mjs";
 
 const __electronDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -89,8 +91,13 @@ export async function checkUpdatesWithUi() {
   }
 }
 
+/** Dev renderer origin (Vite). Shared by window load and the will-navigate guard. */
+export function resolveLawmindDevServerUrl() {
+  return process.env.VITE_DEV_SERVER_URL || "http://127.0.0.1:5174";
+}
+
 export async function loadRendererIntoWindow(win, hash = "") {
-  const devUrl = process.env.VITE_DEV_SERVER_URL || "http://127.0.0.1:5174";
+  const devUrl = resolveLawmindDevServerUrl();
   const distIndex = path.join(__electronDir, "..", "dist", "index.html");
   const useDistInE2e =
     process.env.LAWMIND_E2E === "1" && fs.existsSync(distIndex);
@@ -180,7 +187,7 @@ export function setupApplicationMenu() {
             {
               label: "下载安装包…",
               click: () => {
-                void shell.openExternal(resolveLawmindDownloadPageUrl());
+                void safeOpenExternal(resolveLawmindDownloadPageUrl(), workspaceDir);
               },
             },
           ],
@@ -213,7 +220,7 @@ export function setupApplicationMenu() {
             {
               label: "下载安装包…",
               click: () => {
-                void shell.openExternal(resolveLawmindDownloadPageUrl());
+                void safeOpenExternal(resolveLawmindDownloadPageUrl(), workspaceDir);
               },
             },
           ],

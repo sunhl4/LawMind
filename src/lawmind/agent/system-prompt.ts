@@ -14,7 +14,7 @@ import { wrapWorldStateSection } from "./world-state.js";
  * Bumped when LawMind core agent *behavior* (system prompt, clarification rules) changes materially.
  * Exposed on GET /api/health as `lawmindAgentBehaviorEpoch` for support and regression notes.
  */
-export const LAWMIND_AGENT_BEHAVIOR_EPOCH = "2026-08-mail-send-format-v1";
+export const LAWMIND_AGENT_BEHAVIOR_EPOCH = "2026-09-authority-chat-search-v1";
 
 /** Stable split between cacheable prefix and per-session / per-turn suffix. */
 export const LAWMIND_PROMPT_DYNAMIC_BOUNDARY = "---LAWMIND_PROMPT_DYNAMIC_BOUNDARY---";
@@ -91,6 +91,13 @@ export const SYSTEM_PROMPT_SECTION_CATALOG: Array<{
     title: "本智能体在团队中的位置",
     always: false,
     headingMatch: "本智能体在团队中的位置",
+    cache: "session",
+  },
+  {
+    id: "authority_corpus",
+    title: "权威法规库",
+    always: false,
+    headingMatch: "权威法规库",
     cache: "session",
   },
   {
@@ -294,6 +301,10 @@ export type SystemPromptContext = {
   roleDirective?: string;
   /** 是否已开启联网检索（web_search） */
   allowWebSearch?: boolean;
+  /** 本机已配置闭源/generic 权威库（法宝等），search_statute 会实查 */
+  authorityLive?: boolean;
+  /** 律师可见的权威库名称，如「北大法宝（闭源·手动）」 */
+  authorityProviderLabel?: string;
   /** 是否已开启助手间协作 */
   collaborationEnabled?: boolean;
   /** 案件团队会议室对话（共享时间线讨论） */
@@ -352,7 +363,7 @@ function formatToolFull(tool: ToolDefinition): string {
         `    - ${key} (${schema.type}${schema.required ? ", 必填" : ""}): ${schema.description}`,
     )
     .join("\n");
-  const approval = tool.requiresApproval ? " ⚠️ 需要律师确认" : "";
+  const approval = tool.requiresApproval ? " ⚠️ 需经「待我拍板」批准" : "";
   return `  - **${tool.name}** [${tool.category}]${approval}\n    ${tool.description}\n${paramDesc}`;
 }
 
@@ -543,15 +554,32 @@ ${orgLine}
     }
   }
 
+  if (ctx.authorityLive) {
+    const label = ctx.authorityProviderLabel?.trim() || "权威法规库";
+    sessionSections.push(`## 权威法规库（已连接）
+
+本机已连接 **${label}**。\`search_statute\` / \`search_case_law\` 会实查该库，不只扫工作区记忆。
+
+- 律师问「有没有接北大法宝 / 能不能查现行法条」时：先调用上述工具，以返回的 \`authorityLive\` / \`authorityProvider\` / URL 为准；**不要**声称没有法宝接口。
+- 引用须保留工具返回的 URL（通常为 pkulaw.com），并请律师核对原文。
+- 不要编造桌面菜单路径。权威库状态在「设置 → 模型与连接」，没有「法规库 / 数据源」这一项。
+- 「设置 → 安全与工具 → 外部对接」里的法宝 MCP 与本权威库是同一套网关/Token，不是第二个未接上的库；查法条优先 \`search_statute\`，不要用 \`mcp__*\` 工具名对律师说没有接口。`);
+  }
+
   if (ctx.allowWebSearch) {
+    const statuteOrder = ctx.authorityLive
+      ? `1. \`search_statute\` / \`search_case_law\`（已连接的权威库 + 工作区）
+2. 若权威库无命中：\`search_statute_web\`（官方法规站点优先的联网检索）
+3. 其它公开事实：\`web_search\`（通用网页摘要）`
+      : `1. \`search_statute\`（工作区与案件记忆，最快）
+2. 若命中不足：\`search_statute_web\`（官方法规站点优先的联网检索）
+3. 其它公开事实：\`web_search\`（通用网页摘要）`;
     sessionSections.push(`## 联网检索（已开启）
 
 本轮对话已注册 \`web_search\`（Brave Search 公开网页摘要）。用法与 Cursor 联网类似：需要**可核对的事实**时先搜再答，不要凭记忆编造法条原文。
 
 **法条 / 法规类问题推荐顺序**：
-1. \`search_statute\`（工作区与案件记忆，最快）
-2. 若命中不足：\`search_statute_web\`（官方法规站点优先的联网检索）
-3. 其它公开事实：\`web_search\`（通用网页摘要）
+${statuteOrder}
 
 **应主动联网的情形**：
 - 用户询问具体法律、司法解释、规章或条款的**原文、修订、生效日期**；
@@ -800,7 +828,8 @@ ${toolList}`);
 
 - 不编造法条或案例
 - 不代替律师做最终决策
-- 渲染最终文档（\`render_document\`）须在门禁允许时调用；对用户说明时与审核台结论一致，不得谎称已渲染或已等价于对外正式件
+- 当需要执行可能改变外部状态或发送邮件的操作时，系统会暂停并请求律师在「待我拍板」中批准；不要自行重试，也不要把 \`__approved\` 当作可写参数
+- 渲染最终文档（\`render_document\`）须在审核台结论允许时调用；对用户说明时与审核台结论一致，不得谎称已渲染或已等价于对外正式件
 - 遇到利益冲突、重大风险时主动告知
 - 律师的指令若有法律风险，应当提醒而非盲从`);
 

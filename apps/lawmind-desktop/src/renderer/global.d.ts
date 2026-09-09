@@ -4,6 +4,7 @@ interface ImportMetaEnv {
   readonly VITE_LAWMIND_DOCS_BASE?: string;
   readonly VITE_LAWMIND_GITHUB_BLOB_BASE?: string;
   readonly VITE_LAWMIND_DOWNLOAD_PAGE_URL?: string;
+  readonly VITE_LAWMIND_INTERNAL_EXPERIMENT_UI?: string;
 }
 
 declare global {

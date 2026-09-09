@@ -9,6 +9,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { isValidMatterId } from "../cases/matter-id.js";
 import { appendLawyerProfileLearning } from "../memory/lawyer-profile-learning.js";
+import { upsertStanceFromKeyModification } from "../stance/capture.js";
 
 const SCHEMA_VERSION = 1 as const;
 
@@ -277,6 +278,18 @@ export async function finalizeContractRevisionPack(
 
   if (stableKey) {
     await upsertRevisionKeyIndex(input.workspaceDir, stableKey, revisionId);
+  }
+
+  try {
+    for (const bullet of input.keyModifications ?? []) {
+      upsertStanceFromKeyModification({
+        workspaceDir: input.workspaceDir,
+        bullet,
+        ...(matterId ? { matterId } : {}),
+      });
+    }
+  } catch {
+    /* stance write must not fail the revision pack */
   }
 
   if (input.appendLawyerProfileBullet) {

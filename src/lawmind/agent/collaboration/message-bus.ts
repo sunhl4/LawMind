@@ -17,7 +17,7 @@ import {
   resolveLawMindRoot,
 } from "../../assistants/store.js";
 import { createLawMindAgent } from "../agent-factory.js";
-import { inheritChildGates } from "../child-gates.js";
+import { inheritChildGates, resolveChildToolCallBudget } from "../child-gates.js";
 import type { AgentPermissionMode } from "../permission-mode.js";
 import { saveSession } from "../session.js";
 import type { AgentConfig } from "../types.js";
@@ -93,6 +93,8 @@ export async function sendAndWait(params: {
   permissionMode?: AgentPermissionMode;
   allowedToolNames?: string[];
   toolSandboxEnabled?: boolean;
+  /** 父 turn 剩余工具预算快照；子助手 maxToolCalls 取 min(自身配置, 分片)。 */
+  remainingToolCallBudget?: number;
 }): Promise<SendAndWaitResult> {
   const { baseConfig, fromAssistantId, toAssistantId, message, matterId } = params;
   const timeoutMs = params.timeoutMs ?? 60_000;
@@ -115,14 +117,20 @@ export async function sendAndWait(params: {
       matterId,
       allowedToolNames: params.allowedToolNames,
       toolSandboxEnabled: params.toolSandboxEnabled === true,
+      remainingToolCallBudget: params.remainingToolCallBudget,
     },
     childPermissionMode: targetConfig.permissionMode,
+  });
+  const childMaxToolCalls = resolveChildToolCallBudget({
+    parentRemaining: gates.remainingToolCallBudget,
+    childConfigured: targetConfig.maxToolCalls,
   });
   const childConfig: AgentConfig = {
     ...targetConfig,
     permissionMode: gates.permissionMode,
     allowedToolNames: gates.allowedToolNames,
     ...(gates.toolSandboxEnabled ? { toolSandboxEnabled: true } : {}),
+    ...(childMaxToolCalls !== undefined ? { maxToolCalls: childMaxToolCalls } : {}),
   };
   const agent = createLawMindAgent(childConfig);
 
@@ -183,6 +191,8 @@ export function fireAndForget(params: {
   permissionMode?: AgentConfig["permissionMode"];
   allowedToolNames?: string[];
   toolSandboxEnabled?: boolean;
+  /** 父 turn 剩余工具预算快照；子助手 maxToolCalls 取 min(自身配置, 分片)。 */
+  remainingToolCallBudget?: number;
   /** Abort child turn after this many ms (0 = no timer). */
   timeoutMs?: number;
   onTimeout?: (targetSessionId: string) => void;
@@ -209,14 +219,20 @@ export function fireAndForget(params: {
       matterId,
       allowedToolNames: params.allowedToolNames,
       toolSandboxEnabled: params.toolSandboxEnabled === true,
+      remainingToolCallBudget: params.remainingToolCallBudget,
     },
     childPermissionMode: targetConfig.permissionMode,
+  });
+  const childMaxToolCalls = resolveChildToolCallBudget({
+    parentRemaining: gates.remainingToolCallBudget,
+    childConfigured: targetConfig.maxToolCalls,
   });
   const childConfig: AgentConfig = {
     ...targetConfig,
     permissionMode: gates.permissionMode,
     allowedToolNames: gates.allowedToolNames,
     ...(gates.toolSandboxEnabled ? { toolSandboxEnabled: true } : {}),
+    ...(childMaxToolCalls !== undefined ? { maxToolCalls: childMaxToolCalls } : {}),
     collaborationDepth,
   };
   const agent = createLawMindAgent(childConfig);

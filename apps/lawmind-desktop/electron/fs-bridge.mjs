@@ -32,6 +32,31 @@ export function toPosix(relPath) {
     .replace(/\/+$/, "");
 }
 
+// ── 治理/证据面写保护（纯 JS 镜像） ──
+// 规范实现：src/lawmind/runtime/protected-workspace-rels.ts（Electron 主进程为 .mjs，
+// 无法直接 import TS）。修改该文件清单时必须同步修改此处。
+const EXACT_PROTECTED_RELS = new Set(["lawmind.policy.json", ".env", ".env.lawmind"]);
+const PROTECTED_REL_PREFIXES = ["lawmind/", "audit/", "sessions/", "tasks/", "matters/"];
+const PROTECTED_BASENAMES = new Set([".lawmind-dms.json"]);
+
+export function isProtectedWorkspaceRel(relPath) {
+  const norm = String(relPath || "")
+    .replace(/\\/g, "/")
+    .replace(/^\.\//, "")
+    .replace(/^\/+/, "");
+  if (EXACT_PROTECTED_RELS.has(norm)) {
+    return true;
+  }
+  if (PROTECTED_REL_PREFIXES.some((prefix) => norm.startsWith(prefix))) {
+    return true;
+  }
+  const parts = norm.split("/");
+  return PROTECTED_BASENAMES.has(parts[parts.length - 1] || norm);
+}
+
+export const PROTECTED_WORKSPACE_WRITE_REFUSAL =
+  "该路径属于 LawMind 治理/审计数据（策略、MCP 配置、审计、会话、任务、案件真相源），不能通过写文书或文件接口修改；请使用对应的设置入口。";
+
 function realpathSafe(p) {
   try {
     return fs.realpathSync(p);

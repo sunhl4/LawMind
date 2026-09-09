@@ -1,6 +1,12 @@
 import { useCallback, useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
-import { errorMessage, userMessageFromApiError, type ApiErrorJson } from "./api-client";
-import { apiAuthHeaders } from "./lawmind-api-auth.ts";
+import {
+  errorMessage,
+  userMessageFromApiError,
+  type ApiErrorJson,
+  fetchApi,
+  readJsonFromResponse,
+} from "./api-client";
+import { fetchApiJson } from "./api-client-proxy";
 
 function sessionCreateErrorMessage(
   status: number,
@@ -22,6 +28,7 @@ import {
 } from "./useLawmindChatShell";
 import { readSelectedModelId } from "./lawmind-selected-model-pref";
 import { clearPlanHandoff, deleteSessionPlanHandoff } from "./lawmind-plan-handoff";
+import { confirmDialog } from "./lawmind-confirm-dialog";
 import type { BackgroundWatchOpts } from "./useLawmindBackgroundWatch";
 
 export type UseLawmindChatSessionsInput = {
@@ -79,11 +86,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
       const sessionStoreKey = chatSessionStoreKey(config.workspaceDir);
       setChatSessionsLoading(true);
       try {
-        const listRes = await fetch(
-          `${config.apiBase}/api/sessions?assistantId=${encodeURIComponent(assistantId)}`,
-          { signal, headers: apiAuthHeaders() },
-        );
-        const listJ = (await listRes.json()) as {
+        const listJ = await fetchApiJson<{
           ok?: boolean;
           sessions?: Array<{
             sessionId: string;
@@ -91,7 +94,11 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
             updatedAt: string;
             lastPreview?: string;
           }>;
-        };
+        }>(
+          `${config.apiBase}/api/sessions?assistantId=${encodeURIComponent(assistantId)}`,
+          { signal },
+          { tag: "chat-sessions:list" },
+        );
         if (signal.aborted) {
           return;
         }
@@ -110,13 +117,17 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
           sessionId = mapped[0]?.sessionId;
         }
         if (!sessionId) {
-          const cr = await fetch(`${config.apiBase}/api/sessions`, {
-            method: "POST",
-            headers: { "content-type": "application/json", ...apiAuthHeaders() },
-            body: JSON.stringify({ assistantId }),
-            signal,
-          });
-          const cj = (await cr.json()) as {
+          const cr = await fetchApi(
+            `${config.apiBase}/api/sessions`,
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ assistantId }),
+              signal,
+            },
+            { tag: "chat-sessions:create" },
+          );
+          const cj = (await readJsonFromResponse(cr)) as {
             ok?: boolean;
             sessionId?: string;
             message?: string;
@@ -133,19 +144,19 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
             return;
           }
           sessionId = cj.sessionId;
-          const listRes2 = await fetch(
-            `${config.apiBase}/api/sessions?assistantId=${encodeURIComponent(assistantId)}`,
-            { signal, headers: apiAuthHeaders() },
-          );
-          const listJ2 = (await listRes2.json()) as {
+          const listJ2 = await fetchApiJson<{
             ok?: boolean;
             sessions?: Array<{
-            sessionId: string;
-            title?: string;
-            updatedAt: string;
-            lastPreview?: string;
-          }>;
-          };
+              sessionId: string;
+              title?: string;
+              updatedAt: string;
+              lastPreview?: string;
+            }>;
+          }>(
+            `${config.apiBase}/api/sessions?assistantId=${encodeURIComponent(assistantId)}`,
+            { signal },
+            { tag: "chat-sessions:list-after-create" },
+          );
           if (signal.aborted) {
             return;
           }
@@ -243,11 +254,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
       setChatSessionsLoading(true);
       setError(null);
       try {
-        const listRes = await fetch(
-          `${config.apiBase}/api/sessions?assistantId=${encodeURIComponent(toId)}`,
-          { headers: apiAuthHeaders() },
-        );
-        const listJ = (await listRes.json()) as {
+        const listJ = await fetchApiJson<{
           ok?: boolean;
           sessions?: Array<{
             sessionId: string;
@@ -255,7 +262,11 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
             updatedAt: string;
             lastPreview?: string;
           }>;
-        };
+        }>(
+          `${config.apiBase}/api/sessions?assistantId=${encodeURIComponent(toId)}`,
+          {},
+          { tag: "chat-sessions:delegation-list" },
+        );
         const mapped: ChatSessionListEntry[] = (Array.isArray(listJ.sessions) ? listJ.sessions : []).map(
           (s) => ({
             sessionId: s.sessionId,
@@ -274,12 +285,16 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
           sessionId = mapped[0]?.sessionId;
         }
         if (!sessionId) {
-          const cr = await fetch(`${config.apiBase}/api/sessions`, {
-            method: "POST",
-            headers: { "content-type": "application/json", ...apiAuthHeaders() },
-            body: JSON.stringify({ assistantId: toId }),
-          });
-          const cj = (await cr.json()) as {
+          const cr = await fetchApi(
+            `${config.apiBase}/api/sessions`,
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ assistantId: toId }),
+            },
+            { tag: "chat-sessions:delegation-create" },
+          );
+          const cj = (await readJsonFromResponse(cr)) as {
             ok?: boolean;
             sessionId?: string;
             message?: string;
@@ -293,19 +308,19 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
             return;
           }
           sessionId = cj.sessionId;
-          const listRes2 = await fetch(
-            `${config.apiBase}/api/sessions?assistantId=${encodeURIComponent(toId)}`,
-            { headers: apiAuthHeaders() },
-          );
-          const listJ2 = (await listRes2.json()) as {
+          const listJ2 = await fetchApiJson<{
             ok?: boolean;
             sessions?: Array<{
-            sessionId: string;
-            title?: string;
-            updatedAt: string;
-            lastPreview?: string;
-          }>;
-          };
+              sessionId: string;
+              title?: string;
+              updatedAt: string;
+              lastPreview?: string;
+            }>;
+          }>(
+            `${config.apiBase}/api/sessions?assistantId=${encodeURIComponent(toId)}`,
+            {},
+            { tag: "chat-sessions:delegation-list-after-create" },
+          );
           const mapped2: ChatSessionListEntry[] = (
             Array.isArray(listJ2.sessions) ? listJ2.sessions : []
           ).map((s) => ({
@@ -368,12 +383,16 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
     const assistantId = selectedAssistantId;
     setError(null);
     try {
-      const cr = await fetch(`${config.apiBase}/api/sessions`, {
-        method: "POST",
-        headers: { "content-type": "application/json", ...apiAuthHeaders() },
-        body: JSON.stringify({ assistantId }),
-      });
-      const cj = (await cr.json()) as {
+      const cr = await fetchApi(
+        `${config.apiBase}/api/sessions`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ assistantId }),
+        },
+        { tag: "chat-sessions:create-new" },
+      );
+      const cj = (await readJsonFromResponse(cr)) as {
         ok?: boolean;
         sessionId?: string;
         message?: string;
@@ -404,15 +423,16 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         return;
       }
       const assistantId = selectedAssistantId;
-      const r = await fetch(
+      const r = await fetchApi(
         `${config.apiBase}/api/sessions/${encodeURIComponent(sessionId)}?assistantId=${encodeURIComponent(assistantId)}`,
         {
           method: "PATCH",
-          headers: { "content-type": "application/json", ...apiAuthHeaders() },
+          headers: { "content-type": "application/json" },
           body: JSON.stringify({ title }),
         },
+        { tag: "chat-sessions:rename" },
       );
-      const j = (await r.json()) as { ok?: boolean; title?: string; message?: string };
+      const j = (await readJsonFromResponse(r)) as { ok?: boolean; title?: string; message?: string };
       if (!r.ok || j.ok === false) {
         setError(
           errorMessage(
@@ -438,28 +458,39 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
       const assistantId = selectedAssistantId;
       const sessionStoreKey = chatSessionStoreKey(config.workspaceDir);
       if (
-        !window.confirm(
-          "确定删除此对话？\n\n将移除会话记录、回合与实时进度；已签批或已导出的草稿不会自动删除。",
-        )
+        !(await confirmDialog({
+          title: "确定删除此对话？",
+          body: "将移除会话记录、回合与实时进度；已签批或已导出的草稿不会自动删除。",
+          confirmLabel: "删除",
+          tone: "danger",
+        }))
       ) {
         return;
       }
-      const cascadeRelated = window.confirm(
-        "是否同时清理本对话关联内容？\n\n· 委派子会话与委派记录\n· 尚未签批、且未导出的草稿与任务\n\n选「取消」则只删除对话本身；关联草稿仍可在文书台 / 在办中单独删除。",
-      );
+      const cascadeRelated = await confirmDialog({
+        title: "是否同时清理本对话关联内容？",
+        body: "· 委派子会话与委派记录\n· 尚未签批、且未导出的草稿与任务\n\n选「取消」则只删除对话本身；关联草稿仍可在文书台 / 在办中单独删除。",
+        confirmLabel: "同时清理",
+        cancelLabel: "仅删对话",
+        tone: "danger",
+      });
       setError(null);
       try {
-        const r = await fetch(`${config.apiBase}/api/sessions/delete`, {
-          method: "POST",
-          headers: { "content-type": "application/json", ...apiAuthHeaders() },
-          body: JSON.stringify({
-            sessionId,
-            assistantId,
-            cascadeDelegations: cascadeRelated,
-            cascadeUnapprovedDrafts: cascadeRelated,
-          }),
-        });
-        const j = (await r.json()) as { ok?: boolean; message?: string };
+        const r = await fetchApi(
+          `${config.apiBase}/api/sessions/delete`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              sessionId,
+              assistantId,
+              cascadeDelegations: cascadeRelated,
+              cascadeUnapprovedDrafts: cascadeRelated,
+            }),
+          },
+          { tag: "chat-sessions:delete" },
+        );
+        const j = (await readJsonFromResponse(r)) as { ok?: boolean; message?: string };
         if (!r.ok || j.ok === false) {
           throw new Error(typeof j.message === "string" ? j.message : "delete failed");
         }
@@ -474,12 +505,16 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
           return;
         }
         if (remaining.length === 0) {
-          const cr = await fetch(`${config.apiBase}/api/sessions`, {
-            method: "POST",
-            headers: { "content-type": "application/json", ...apiAuthHeaders() },
-            body: JSON.stringify({ assistantId }),
-          });
-          const cj = (await cr.json()) as { ok?: boolean; sessionId?: string; message?: string };
+          const cr = await fetchApi(
+            `${config.apiBase}/api/sessions`,
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ assistantId }),
+            },
+            { tag: "chat-sessions:create-after-delete" },
+          );
+          const cj = (await readJsonFromResponse(cr)) as { ok?: boolean; sessionId?: string; message?: string };
           if (!cr.ok || !cj.sessionId) {
             throw new Error(typeof cj.message === "string" ? cj.message : "create failed");
           }

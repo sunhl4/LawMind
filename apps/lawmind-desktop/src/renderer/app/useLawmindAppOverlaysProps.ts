@@ -1,4 +1,5 @@
 import { useMemo, type RefObject } from "react";
+import { useSettingsPanelStore } from "../stores/settings-panel-store";
 import type { AgentsDeskTab } from "../lawmind-agents-desk";
 import type { AssistantEditorDraft } from "../lawmind-assistant-editor";
 import type { AppConfig } from "../lawmind-app-bootstrap";
@@ -14,7 +15,6 @@ import type {
 import type { DraftCitationIntegrityView } from "../../../../../src/lawmind/drafts/citation-integrity.ts";
 import type { TaskCheckpoint } from "../../../../../src/lawmind/tasks/checkpoints.ts";
 import type { LawmindAppOverlaysProps } from "./LawmindAppOverlays";
-import type { SetShowSettings } from "../lawmind-settings-shell";
 
 export type UseLawmindAppOverlaysPropsInput = {
   showWizard: boolean;
@@ -67,7 +67,6 @@ export type UseLawmindAppOverlaysPropsInput = {
   config: AppConfig | null;
   setAgentsDeskTab: (tab: AgentsDeskTab) => void;
   setMainView: (view: LawmindMainView) => void;
-  setShowSettings: SetShowSettings;
   setInput: (value: string) => void;
   composeTextareaRef: RefObject<HTMLTextAreaElement | null>;
   /** Suppress FirstRun while API wizard is open or model is not configured. */
@@ -124,7 +123,6 @@ export function useLawmindAppOverlaysProps(input: UseLawmindAppOverlaysPropsInpu
     config,
     setAgentsDeskTab,
     setMainView,
-    setShowSettings,
     setInput,
     composeTextareaRef,
     suppressFirstRunAutoOpen = false,
@@ -187,10 +185,12 @@ export function useLawmindAppOverlaysProps(input: UseLawmindAppOverlaysPropsInpu
           }
         : undefined,
       onOpenAdvancedSettings: () => {
-        setShowSettings(true, "doctor");
+        useSettingsPanelStore.getState().setSettingsPanel(true, "doctor");
       },
       onFirstRunSeedReady: ({ matterId, seedPrompt }) => {
-        setContextMatterId(matterId);
+        if (matterId) {
+          setContextMatterId(matterId);
+        }
         setInput(seedPrompt);
       },
       suppressFirstRunAutoOpen,
@@ -246,7 +246,6 @@ export function useLawmindAppOverlaysProps(input: UseLawmindAppOverlaysPropsInpu
       config,
       setAgentsDeskTab,
       setMainView,
-      setShowSettings,
       setInput,
       composeTextareaRef,
       suppressFirstRunAutoOpen,

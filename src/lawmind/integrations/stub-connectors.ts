@@ -8,6 +8,7 @@ const STUB_HINTS: Record<Exclude<IntegrationConnectorId, "filesystem">, string> 
   imanage: "在 lawmind/integrations.json 启用并配置 baseUrl；需 Firm 版 API 密钥（host vault）。",
   netdocuments: "在 lawmind/integrations.json 启用；需 NetDocuments OAuth（M3 门控回写）。",
   sharepoint: "在 lawmind/integrations.json 启用；需 Microsoft Graph tenantId（M2 只读索引）。",
+  feishu: "在 lawmind/integrations.json 启用；只读索引云文档。不会写入飞书云文档、日历或台账。",
 };
 
 export function stubDocumentsError(

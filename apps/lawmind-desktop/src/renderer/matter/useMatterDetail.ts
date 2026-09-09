@@ -1,3 +1,4 @@
+// TODO(renderer-fetch-proxy): migrate remaining fetch calls to fetchApi / api-client-proxy.
 import { useCallback, useEffect, useState } from "react";
 import type { DraftCitationIntegrityView } from "../../../../../src/lawmind/drafts/citation-integrity.ts";
 import type { ArtifactDraft, MatterOverview, MatterSummary, TaskRecord } from "../../../../../src/lawmind/types.ts";
@@ -7,7 +8,7 @@ import { useMatterOverviewsQuery } from "../lawmind-query-hooks";
 import { RECORDS_DESK_UNLINKED } from "../lawmind-records-desk-state";
 import type { AcceptanceSummaryItem } from "./matter-acceptance-display";
 import type { MatterProfilePayload } from "./MatterProfileCard";
-import type { AuditEventRow, MatterSearchHit, OperationsFocus, OperationsSort } from "./matter-interaction";
+import type { AuditEventRow, MatterSearchHit } from "./matter-interaction";
 
 export type UseMatterDetailInput = {
   apiBase: string;
@@ -58,8 +59,6 @@ export function useMatterDetail(input: UseMatterDetailInput) {
   >({});
   const [acceptanceByTask, setAcceptanceByTask] = useState<Record<string, AcceptanceSummaryItem>>({});
   const [auditEvents, setAuditEvents] = useState<AuditEventRow[]>([]);
-  const [opsFocus, setOpsFocus] = useState<OperationsFocus>("all");
-  const [opsSort, setOpsSort] = useState<OperationsSort>("priority");
   const [searchQ, setSearchQ] = useState("");
   const [searchHits, setSearchHits] = useState<MatterSearchHit[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
@@ -194,10 +193,6 @@ export function useMatterDetail(input: UseMatterDetailInput) {
     acceptanceByTask,
     auditEvents,
     setAuditEvents,
-    opsFocus,
-    setOpsFocus,
-    opsSort,
-    setOpsSort,
     searchQ,
     setSearchQ,
     searchHits,

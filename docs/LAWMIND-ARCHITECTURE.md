@@ -18,17 +18,37 @@
 
 ## 二、总体架构
 
-LawMind 分为五个核心模块：
+LawMind 的代码组织按**运行域**分为四层。早期文档中的 Router / Memory / Retrieval / Reasoning / Artifact 五层仍可作为概念模型理解数据流，但实际实现与部署边界按以下四层落地：
 
-1. **Instruction Router**
-2. **Memory Layer**
-3. **Retrieval Layer**
-4. **Reasoning Layer**
-5. **Artifact Layer**
+1. **桌面壳（Electron shell）**：`apps/lawmind-desktop/electron/` 负责窗口、菜单、IPC、文件对话框、系统通知、本地 API 子进程 supervision 与深度链接。渲染进程不直接访问文件系统或网络，所有敏感动作经本地 API 完成。
+2. **本地 HTTP API**：`apps/lawmind-desktop/server/` 提供渲染进程可调用的 `/api/*` 端点，承担会话、任务、草稿、审核、案件、助手、模型、集成、记忆采纳等状态写侧。它是 Electron 本地可信边界向引擎的延伸。
+3. **引擎（Engine）**：`src/lawmind/` 包含 Agent 循环、工具注册与治理、lint、runtime、audit、adoption、memory、retrieval、router、deliverables、reasoning、templates、platform 安全层等。引擎不直接暴露 UI，只通过本地 API 被调用，输出结果与状态更新由 API 返回给渲染进程。
+4. **交付与文档**：`apps/lawmind-desktop/src/renderer/` 提供律师界面；`apps/lawmind-docs/` 提供文档站点；`workspace/` 与 `artifacts/` 承载最终交付物。
 
-数据主链路如下：
+数据主链路：
 
-`用户指令 -> 路由分类 -> 记忆加载 -> 检索 -> 结构化整理 -> 人工审核 -> 文书渲染 -> 审计记录`
+`律师指令（renderer） -> 本地 API -> 引擎运行（Agent / tools / lint / audit） -> 状态回写 -> renderer 同步 -> 律师审核/签批 -> 交付物渲染 -> 审计记录`
+
+### 安全层（Security Layer）
+
+安全不是单独进程，而是贯穿本地 API、引擎与平台契约的一组默认策略：
+
+- **出口代理（outbound proxy）**：外部网络请求默认经 `src/lawmind/platform/outbound-proxy.ts` 代理，按 `lawmind.policy.json` 中的 `networkAllowlist` 显式放行；未配置的 host/path 会被拒绝，律师可在 Doctor 或设置中查看当前 allowlist 状态。
+- **命令网关（command gateway）**：可能修改工作区或调用外部程序的操作由 `runtime/tool-pipeline.ts` 中间件与 `agent/dangerous-tool-policy.ts` 统一编排，支持显式律师批准、工具 allowlist、执行层化与审计前缀，避免模型或工作流直接执行任意命令。
+- **审计 HMAC 与 root-anchor**：`src/lawmind/audit/hash-chain.ts` 与 `src/lawmind/audit/root-anchor.ts` 为每个工作区维护审计根锚，关键事件写入 `audit/` 时计算完整性链；Firm/Private 版默认开启，支持导出并发现事后篡改。
+- **工作区写保护**：`.env*`、`lawmind.policy.json` 等关键文件受 `src/lawmind/runtime/protected-workspace-rels.ts` 保护，渲染进程与引擎工具无法直接覆盖；删除或重命名需显式授权。
+- **权限模式执行层化**：`src/lawmind/agent/permission-mode.ts` 把会话运行分为 `research_only`、`plan`、`compose`、`full` 等模式；低权限模式禁止起草、渲染、外发等重动作，并在 CLI/Doctor 中暴露当前模式，避免误操作。
+
+### 数据流与事件总线
+
+本地 API 与渲染进程之间的异步通知统一走 **SSE（Server-Sent Events）**：
+
+- `/api/chat` 长连接流式返回 `assistant` 消息、`tool_call_start/end`、`gate` 快照、`compact` 等事件；
+- `/api/jobs/:id/stream` 推送工作流/异步任务的进度、终态与心跳；
+- 设置页「协作」对非当前任务使用有限并发 SSE（默认 2 路）刷新列表，失败回退轮询；
+- 事件结构由 `src/lawmind/platform/contracts.ts` 中的 `RunTurnEvent` / `TaskExecutionState` 等契约统一描述，渲染进程与引擎共享同一份状态理解。
+
+对于尚未接入 SSE 的模块（如部分文件系统监听），预留接口为：渲染进程通过 `GET /api/health` 轮询 + 本地 API 在关键状态变更时主动推送 SSE；新增事件类型优先扩展 SSE 事件名，而不是另开 WebSocket。
 
 ### Matter-centered 写侧 与 Role 编制（2026-Q3 起）
 
@@ -72,7 +92,7 @@ queue.jsonl, deadlines.jsonl}` 这一组 JSON / JSONL 真相源（与原 Markdow
 - **Workflow playbook**：`src/lawmind/agent/collaboration/playbook-summary.ts` 将 workflow 模板摘要为来源要求、审批点与验收包要求。
 - **质量飞轮与发布报告**：`src/lawmind/evaluation/replay-fixtures.ts`（12 个回放样本）、`release-report.ts`、`pnpm lawmind:release-readiness`；`pnpm lawmind:verify` 写入 `dist/lawmind-release-readiness.md`。
 
-详见 [LAWMIND-EXCELLENCE-ROADMAP.md](LAWMIND-EXCELLENCE-ROADMAP.md)。
+详见 [LAWMIND-EXCELLENCE-ROADMAP.md](./archive/LAWMIND-EXCELLENCE-ROADMAP.md)（归档）。
 
 ### 第十二期工程对齐（2026-05-28）
 
@@ -407,7 +427,7 @@ Electron 主进程 (main.mjs)
   ├── /api/matters/team-meeting?matterId= — 案件「会议室」共享时间线（`limit` / `skipFromEnd`，响应含 `total`）
   ├── /api/drafts — 草稿列表（GET）
   ├── /api/drafts/:taskId — 单份草稿（GET）
-  ├── /api/drafts/:taskId/review — 审核签批（POST）；`approved` 后若草稿含 `contractRevisionCapture` 则异步写入合同修订积累包并回写 `contractRevisionAccumulatedId`（见 `contract-revision-on-review-approved.ts`、[LAWMIND-CONTRACT-REVISION-ACCUMULATION](/LAWMIND-CONTRACT-REVISION-ACCUMULATION)）
+  ├── /api/drafts/:taskId/review — 审核签批（POST）；`approved` 后若草稿含 `contractRevisionCapture` 则异步写入合同修订积累包并回写 `contractRevisionAccumulatedId`（见 `contract-revision-on-review-approved.ts`、[LAWMIND-CONTRACT-REVISION-ACCUMULATION](./archive/LAWMIND-CONTRACT-REVISION-ACCUMULATION.md)（归档））
   ├── /api/drafts/:taskId/render — 渲染交付物（POST，须已通过审核）
   ├── /api/assistants — 助手 CRUD
   ├── /api/assistant-presets — 岗位预设列表
@@ -426,7 +446,7 @@ Electron 主进程 (main.mjs)
 
 ### UI 设计系统
 
-**单一真相源**：`apps/lawmind-desktop/src/renderer/styles.css` 中 `:root` 设计令牌 + `lm-*` 工具/组件类。详细约定、模态防回归说明与内联样式使用边界见 **[LawMind 桌面端 UI 设计约定](/LAWMIND-DESKTOP-UI)**。
+**单一真相源**：`apps/lawmind-desktop/src/renderer/styles.css` 中 `:root` 设计令牌 + `lm-*` 工具/组件类。详细约定、模态防回归说明与内联样式使用边界见 **[LawMind 桌面端 UI 设计约定](./archive/LAWMIND-DESKTOP-UI.md)**（归档）。
 
 - **色彩**：深色面（`--bg`、`--surface` 等）、暖铜主强调（`--accent` `#b79a67` 及 `--grad-brand`），正文与次级文字（`--text` / `--text-2` / `--muted`），**语义色** `ok` / `warn` / `error` / `info`（**错误态用 `--error`，不要发明 `--danger` 等未定义变量**）
 - **排版**：`--font`（PingFang SC / -apple-system 等），行高见 `--lh-*`
@@ -590,7 +610,7 @@ ui.matter_action 原始动作
 - [x] 项目目录注入 Agent（`read_project_file` / `search_workspace` 扩展）与桌面项目切换后重启 API
 - [x] 案件面板 UI（MatterWorkbench）
 - [x] 审核台 UI（ReviewWorkbench）
-- [x] 律师偏好学习（per-assistant `PROFILE.md` + 桌面认知页显式写入等；与 [LawMind 2.0 战略](/LAWMIND-2.0-STRATEGY) 对齐，持续迭代）
+- [x] 律师偏好学习（per-assistant `PROFILE.md` + 桌面认知页显式写入等；与 [LawMind 2.0 战略](./archive/LAWMIND-2.0-STRATEGY.md)（归档）对齐，持续迭代）
 - [ ] 更细粒度模板体系（含模板版本与历史产物一致性，见工程记忆风险项）
 
 第三阶段：

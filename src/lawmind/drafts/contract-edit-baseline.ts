@@ -13,6 +13,7 @@ import {
 import type { ComposeContextPin } from "../platform/compose-context-pin.js";
 import { resolveWorkspaceRelativePath } from "../runtime/workspace-path.js";
 import type { ArtifactDraft, ResearchBundle } from "../types.js";
+import { appendProvenanceEvent, createProvenanceEvent } from "./provenance.js";
 import { withContractEditBaseline } from "./redline-proposal.js";
 import { buildContractBodySectionsFromText } from "./surgical-diff.js";
 
@@ -161,6 +162,7 @@ export function collectContractBaselineCandidates(params: {
   instruction?: string;
   bundle?: ResearchBundle;
   extraPaths?: string[];
+  pins?: ComposeContextPin[];
 }): string[] {
   const out: string[] = [];
   const push = (v: string | undefined | null) => {
@@ -173,6 +175,11 @@ export function collectContractBaselineCandidates(params: {
   push(params.draft.contractRevisionCapture?.initialRelativePath);
   for (const p of params.extraPaths ?? []) {
     push(p);
+  }
+  for (const pin of params.pins ?? []) {
+    if (pin.pinKind === "file" && pin.kind === "file" && isWordBaselinePath(pin.relPath)) {
+      push(pin.relPath);
+    }
   }
   for (const p of extractDocxRelativePathsFromText(params.instruction ?? "")) {
     push(p);
@@ -344,7 +351,18 @@ export async function seedDraftSectionsFromContractBaseline(params: {
         warning: `合同基线未能切出可用段落：${rel}`,
       };
     }
-    return { draft: { ...params.draft, sections } };
+    const sourceName = path.basename(rel).replace(/\.docx?$/i, "");
+    const seededSections = sections.map((section) => ({
+      ...section,
+      provenance: appendProvenanceEvent(
+        undefined,
+        createProvenanceEvent("upload", "system", {
+          sourceId: rel,
+          comment: sourceName,
+        }),
+      ),
+    }));
+    return { draft: { ...params.draft, sections: seededSections } };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return {

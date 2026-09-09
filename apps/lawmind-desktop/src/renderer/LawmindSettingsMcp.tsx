@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
+import { confirmDialog } from "./lawmind-confirm-dialog";
 
 type McpRow = {
   id: string;
@@ -156,7 +157,11 @@ export function LawmindSettingsMcp(props: Props): ReactNode {
 
   async function toggleWrites(row: McpRow): Promise<void> {
     if (!row.allowWrites) {
-      const ok = window.confirm("打开后，该外部对接可以改文件或外发。确定打开？");
+      const ok = await confirmDialog({
+        title: "打开后，该外部对接可以改文件或外发。确定打开？",
+        confirmLabel: "打开",
+        tone: "danger",
+      });
       if (!ok) {
         return;
       }
@@ -179,6 +184,8 @@ export function LawmindSettingsMcp(props: Props): ReactNode {
       <div className="lm-settings-advanced-body">
         <p className="lm-settings-caption">
           把外部只读服务接到 LawMind。默认不能改文件；要开写权限须你确认。高安全模式下强制关闭。
+          北大法宝请以「设置 → 模型与连接 → 连接权威库」为准；此处的法宝 MCP
+          与权威库是同一网关，不是第二套未接上的库。
         </p>
         <p className="lm-settings-caption">
           给 Cursor 等外部编辑器读本机卷宗，仍用只读服务：

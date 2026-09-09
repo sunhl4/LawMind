@@ -45,8 +45,16 @@ export {
   upsertMailAccountSecret,
   deleteMailAccountSecret,
   hasMailAccountSecret,
+  MAIL_SECRETS_KEY_ENV,
   type MailAccountSecret,
 } from "./mail-secrets.js";
+export {
+  checkImapPortAllowed,
+  checkSmtpPortAllowed,
+  SECURE_IMAP_PORTS,
+  SECURE_SMTP_PORTS,
+  type MailTransportPortCheck,
+} from "./mail-transport-guard.js";
 export {
   testMailAccountConnection,
   syncMailAccountToMatter,

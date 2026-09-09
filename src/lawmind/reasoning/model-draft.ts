@@ -9,6 +9,7 @@ import {
 } from "../llm/openai-json.js";
 import { resolveDraftReasoningLlmConfig } from "../models/draft-reasoning.js";
 import type { ArtifactDraft, ArtifactSection, ResearchBundle } from "../types.js";
+import { attachProvenanceToSections } from "./keyword-draft.js";
 import { buildDraft, type BuildDraftParams } from "./keyword-draft.js";
 import { isOutlineGatedDeliverable } from "./research-draft-gates.js";
 
@@ -162,7 +163,12 @@ export async function buildDraftWithModel(
     return null;
   }
 
-  const modelSections = sanitizeSections(parsed.sections);
+  const modelSections = attachProvenanceToSections(
+    sanitizeSections(parsed.sections),
+    bundle,
+    intent.taskId,
+    intent.deliverableType,
+  );
   if (modelSections.length === 0) {
     return null;
   }

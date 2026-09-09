@@ -48,8 +48,8 @@ export function HelpPanel(props: Props): ReactNode {
           <HelpLink href={LAWMIND_DOCS_BASE} className="lm-btn lm-btn-accent">
             打开产品站
           </HelpLink>
-          <HelpLink href={lawmindDocUrl("LAWMIND-USER-MANUAL")} className="lm-btn lm-btn-secondary">
-            使用手册
+          <HelpLink href={lawmindDocUrl("LAWMIND-LAWYER-QUICKSTART")} className="lm-btn lm-btn-secondary">
+            快速指南
           </HelpLink>
           <HelpLink href={LAWMIND_DOWNLOAD_PAGE_URL} className="lm-btn lm-btn-ghost">
             下载桌面版
@@ -59,13 +59,13 @@ export function HelpPanel(props: Props): ReactNode {
           <summary>合规与条款</summary>
           <ul className="lm-help-links lm-help-links-tight">
             <li>
-              <HelpLink href={lawmindDocUrl("LAWMIND-DATA-PROCESSING")}>数据处理说明</HelpLink>
+              <HelpLink href={lawmindDocUrl("archive/LAWMIND-DATA-PROCESSING")}>数据处理说明</HelpLink>
             </li>
             <li>
               <HelpLink href={lawmindDocUrl("legal/terms-of-service")}>服务条款</HelpLink>
             </li>
             <li>
-              <HelpLink href={lawmindDocUrl("LAWMIND-PRIVATE-DEPLOY")}>私有化部署</HelpLink>
+              <HelpLink href={lawmindDocUrl("archive/LAWMIND-PRIVATE-DEPLOY")}>私有化部署</HelpLink>
             </li>
           </ul>
         </details>

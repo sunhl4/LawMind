@@ -2,7 +2,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Document, Packer, Paragraph, TextRun } from "docx";
+import JSZip from "jszip";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createProvenanceEvent } from "../drafts/provenance.js";
 import type { ArtifactDraft } from "../types.js";
 import { renderDocxWithOptions } from "./render-docx.js";
 
@@ -89,5 +91,63 @@ describe("renderDocxWithOptions", () => {
     expect(result.ok).toBe(true);
     const stat = await fs.stat(result.outputPath!);
     expect(stat.size).toBeGreaterThan(1000);
+  });
+
+  it("includes provenance as Word comments when includeProvenance is true", async () => {
+    const draft = makeDraft({
+      sections: [
+        {
+          heading: "结论",
+          body: "正文",
+          citations: [],
+          provenance: {
+            events: [
+              createProvenanceEvent("ai_suggest", "model", {
+                timestamp: "2026-09-03T09:30:00.000Z",
+              }),
+            ],
+          },
+        },
+      ],
+    });
+    const result = await renderDocxWithOptions(draft, outputDir, { includeProvenance: true });
+    expect(result.ok).toBe(true);
+    const data = await fs.readFile(result.outputPath!);
+    const zip = await JSZip.loadAsync(data);
+    const commentsXml = await zip.file("word/comments.xml")?.async("string");
+    expect(commentsXml).toBeDefined();
+    expect(commentsXml).toContain("AI 建议");
+    expect(commentsXml).toContain("未再改动");
+    const documentXml = await zip.file("word/document.xml")?.async("string");
+    expect(documentXml).toContain("commentRangeStart");
+    expect(documentXml).toContain("commentRangeEnd");
+  });
+
+  it("does not embed provenance comment text by default", async () => {
+    const draft = makeDraft({
+      sections: [
+        {
+          heading: "结论",
+          body: "正文",
+          citations: [],
+          provenance: {
+            events: [
+              createProvenanceEvent("ai_suggest", "model", {
+                timestamp: "2026-09-03T09:30:00.000Z",
+              }),
+            ],
+          },
+        },
+      ],
+    });
+    const result = await renderDocxWithOptions(draft, outputDir, {});
+    expect(result.ok).toBe(true);
+    const data = await fs.readFile(result.outputPath!);
+    const zip = await JSZip.loadAsync(data);
+    const commentsXml = await zip.file("word/comments.xml")?.async("string");
+    expect(commentsXml).toBeDefined();
+    expect(commentsXml).not.toContain("AI 建议");
+    const documentXml = await zip.file("word/document.xml")?.async("string");
+    expect(documentXml).not.toContain("commentRangeStart");
   });
 });

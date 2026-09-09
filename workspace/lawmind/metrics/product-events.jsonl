@@ -1,0 +1,8 @@
+{"kind":"delivery_autonomy","outcome":"attended","taskId":"be8376e9-44e3-4645-bcac-f046ea85915d","deliverableType":"contract.review","ts":"2026-09-04T07:58:15.996Z"}
+{"kind":"delivery_autonomy","outcome":"attended","taskId":"135e5bde-e223-470b-9899-d3a42ac5cdac","deliverableType":"memo.opinion","ts":"2026-09-04T07:58:16.001Z"}
+{"kind":"delivery_autonomy","outcome":"attended","taskId":"898cc9bf-4526-462a-9853-06e7916feec1","deliverableType":"letter.counsel","ts":"2026-09-04T07:58:16.015Z"}
+{"kind":"delivery_autonomy","outcome":"attended","taskId":"0296f1de-59c9-4c7b-b70b-0700d6051c66","deliverableType":"litigation.outline","ts":"2026-09-04T07:58:16.019Z"}
+{"kind":"delivery_autonomy","outcome":"attended","taskId":"28e0d2ff-bf4b-4b90-bcf5-6fb438c82ac1","ts":"2026-09-04T07:58:16.023Z"}
+{"kind":"delivery_autonomy","outcome":"attended","taskId":"3f6ec880-aa25-4424-93e6-c99c1a311685","deliverableType":"letter.counsel","ts":"2026-09-04T07:59:06.395Z"}
+{"kind":"rewrite","outcome":"noted","taskId":"3f6ec880-aa25-4424-93e6-c99c1a311685","deliverableType":"letter.counsel","runtimeEventId":"274acabf-4a9c-4209-888e-1f60ab05f0f6","meta":{},"ts":"2026-09-04T07:59:06.398Z"}
+{"kind":"review_duration","outcome":"ok","taskId":"3f6ec880-aa25-4424-93e6-c99c1a311685","deliverableType":"letter.counsel","meta":{"durationMs":16},"ts":"2026-09-04T07:59:06.398Z"}

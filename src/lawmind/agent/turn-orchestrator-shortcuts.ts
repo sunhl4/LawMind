@@ -194,11 +194,11 @@ export async function tryAutoDeliverableWorkflowShortcut(opts: {
   });
 
   // 审批门禁（strict 版）：与模型循环同语义，挂起等律师拍板。
-  if (wfResult.pendingApproval) {
+  if (wfResult.approvalRequest) {
     opts.turn.gateDecisions?.push({
       gate: "approval_gate",
       decision: "awaiting_confirmation",
-      reason: "工具 execute_workflow 返回 pendingApproval",
+      reason: "执行完整工作流需要律师在「待我拍板」中确认。",
     });
     opts.turn.status = "awaiting_approval";
     if (!opts.turn.pendingToolApproval) {

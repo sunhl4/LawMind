@@ -50,7 +50,7 @@ export function LawmindAppRootView({
 
   return (
     <LawmindShellProviders navigation={providers.navigation} chatSession={providers.chatSession}>
-      <div className={`lm-shell${mainView === "review" ? " lm-shell-review" : ""}`}>
+      <div className={`lm-shell${mainView === "review" ? " lm-shell-review" : ""}${mainView === "desk" ? " lm-shell-desk" : ""}`}>
         <a href="#main-content" className="lm-skip-nav">
           跳到主内容
         </a>
@@ -58,7 +58,7 @@ export function LawmindAppRootView({
         {showSettings ? null : <LawmindAppSidebar {...sidebarProps} />}
         <main
           id="main-content"
-          className={`lm-main${mainView === "review" ? " lm-main-review" : ""}${showSettings ? " lm-main-settings" : ""}`}
+          className={`lm-main${mainView === "review" ? " lm-main-review" : ""}${mainView === "desk" ? " lm-main-desk" : ""}${showSettings ? " lm-main-settings" : ""}`}
         >
           <LawmindAppHeader {...headerProps} />
           <div className="lm-main-body">

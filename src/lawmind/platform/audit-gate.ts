@@ -15,6 +15,8 @@ export type PlatformGateAuditSource =
   | "reopen_review"
   | "render"
   | "render_blocked"
+  /** ?strict=false 在 env 门下生效（绕过验收/必核门禁）——每次生效必须落此审计。 */
+  | "render_bypass"
   | "workflow_job"
   | "agent_turn";
 

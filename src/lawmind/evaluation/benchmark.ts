@@ -14,6 +14,7 @@ import { randomUUID } from "node:crypto";
  */
 import type {
   ArtifactDraft,
+  BenchmarkModelMode,
   BenchmarkResult,
   BenchmarkTask,
   ResearchBundle,
@@ -100,10 +101,11 @@ export type RunBenchmarkOptions = {
   /** 模型标识（记录用） */
   modelHint?: string;
   /**
-   * Mock/CI 模式：将评分对齐到任务期望（路由/草稿仍真实执行，仅评分维度按期望计分）。
-   * 用于无真实模型时的发布门禁，避免 mock 检索数据导致 gate 误失败。
+   * 评测来源口径，随每条结果落盘。
+   * mock 的价值是回归管道冒烟而非质量证据；scripted 跑真实引擎（脚本化模型驱动）；
+   * real 用真模型。发布 gate 只接受 scripted/real 结果（见 selectReleaseGateBenchmarkResults）。
    */
-  mockScoreAlignment?: boolean;
+  modelMode?: BenchmarkModelMode;
 };
 
 /**
@@ -125,28 +127,13 @@ export async function runBenchmarks(
   return results;
 }
 
-function appendBenchmarkKeywordsToDraft(draft: ArtifactDraft, keywords: string[]): ArtifactDraft {
-  if (keywords.length === 0) {
-    return draft;
-  }
-  const line = keywords.join("、");
-  return {
-    ...draft,
-    summary: `${draft.summary ?? ""} ${line}`.trim(),
-    sections: [
-      ...draft.sections,
-      { heading: "基准验收摘要", body: `本段用于基准评测关键词覆盖：${line}。` },
-    ],
-  };
-}
-
 async function runSingleBenchmark(
   engine: LawMindEngineForBenchmark,
   task: BenchmarkTask,
   opts: RunBenchmarkOptions = {},
 ): Promise<BenchmarkResult> {
   const modelHint = opts.modelHint;
-  const mockAlign = opts.mockScoreAlignment === true;
+  const modelMode = opts.modelMode;
   const runId = `run-${randomUUID()}`;
   const ranAt = new Date().toISOString();
   const startMs = Date.now();
@@ -170,17 +157,13 @@ async function runSingleBenchmark(
       };
     }
 
-    let draft = engine.draft(intent, bundle);
-    if (mockAlign) {
-      draft = appendBenchmarkKeywordsToDraft(draft, task.expectedKeywords);
-    }
+    const draft = engine.draft(intent, bundle);
     const latencyMs = Date.now() - startMs;
 
-    const kindMatched = mockAlign ? true : intent.kind === task.expectedKind;
-    const riskLevelMatched = mockAlign ? true : intent.riskLevel === task.expectedRiskLevel;
-    const reviewGateMatched = mockAlign
-      ? true
-      : intent.requiresConfirmation === task.expectsReviewGate;
+    // 诚实评分：任何模式下都不注入期望关键词、不强制维度为 true。
+    const kindMatched = intent.kind === task.expectedKind;
+    const riskLevelMatched = intent.riskLevel === task.expectedRiskLevel;
+    const reviewGateMatched = intent.requiresConfirmation === task.expectsReviewGate;
 
     // 关键词命中：在草稿正文中检索
     const draftText = [
@@ -209,6 +192,7 @@ async function runSingleBenchmark(
       runId,
       ranAt,
       modelHint,
+      modelMode,
       taskCompleted: true,
       kindMatched,
       keywordHitRate,
@@ -225,6 +209,7 @@ async function runSingleBenchmark(
       runId,
       ranAt,
       modelHint,
+      modelMode,
       taskCompleted: false,
       kindMatched: false,
       keywordHitRate: 0,
@@ -277,6 +262,42 @@ export function benchmarkPassesThreshold(results: BenchmarkResult[], threshold =
   }
   const avg = results.reduce((sum, r) => sum + r.score, 0) / results.length;
   return avg >= threshold;
+}
+
+const RELEASE_GATE_ALLOWED_MODES = new Set<string>([
+  "scripted",
+  "real",
+  "scripted-model",
+  "real-model",
+]);
+
+function isReleaseGateAllowedModelMode(mode?: string): boolean {
+  return mode != null && RELEASE_GATE_ALLOWED_MODES.has(mode);
+}
+
+/**
+ * 发布 gate 口径：只接受 scripted / real 的 benchmark 结果。
+ * mock 结果的价值是回归管道冒烟，不是质量证据——modelMode 缺失或 mock 一律不计入，
+ * 调用方需把 reason 写进发布报告的 knownRisks，杜绝 mock 满分进入发布叙事。
+ */
+export function selectReleaseGateBenchmarkResults(payload: {
+  modelMode?: string;
+  results?: BenchmarkResult[];
+}): { results: BenchmarkResult[]; eligible: boolean; reason?: string } {
+  const results = Array.isArray(payload.results) ? payload.results : [];
+  if (!isReleaseGateAllowedModelMode(payload.modelMode)) {
+    return {
+      results: [],
+      eligible: false,
+      reason: `modelMode=${payload.modelMode ?? "missing"}（仅 scripted/real 结果计入发布 gate）`,
+    };
+  }
+  if (
+    results.some((r) => r.modelMode !== undefined && !isReleaseGateAllowedModelMode(r.modelMode))
+  ) {
+    return { results: [], eligible: false, reason: "结果中含非 scripted/real 行" };
+  }
+  return { results, eligible: true };
 }
 
 /**

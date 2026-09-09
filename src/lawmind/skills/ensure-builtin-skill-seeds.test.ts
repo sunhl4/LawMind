@@ -24,7 +24,17 @@ describe("ensureBuiltinSkillSeeds", () => {
 
     const listed = listLocalSkills(ws);
     const ids = listed.map((s) => s.id);
-    expect(ids).toContain("contract-redline-craft");
+    expect(first.created).toContain("practice-defaults");
+    expect(first.created).toContain("labor-compensation-calc");
+    expect(first.created).toContain("invoice-organizer");
+    expect(first.created).toContain("ip-dispute-route");
+    expect(first.created).toContain("matter-status-report");
+    expect(first.created).toContain("family-matter-route");
+    expect(first.created).toContain("capital-markets-route");
+    expect(first.created).toContain("governance-route");
+    expect(first.created).toContain("ads-compliance-route");
+    expect(first.created).toContain("criminal-stage-route");
+    expect(ids).toContain("quick-legal-triage");
     for (const id of ["contract-redline-craft", "intake-required-inputs", "citation-grounding"]) {
       const meta = listed.find((s) => s.id === id);
       expect(meta?.signatureOk).toBe(true);

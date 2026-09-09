@@ -83,7 +83,7 @@ function LawmindAppHeaderImpl({
   onVerifyModel,
 }: LawmindAppHeaderProps) {
   /** Sidebar already hosts the settings gear; keep one gear in the header only when the sidebar is unavailable. */
-  const showHeaderSettingsGear = sidebarCollapsed || mainView === "review";
+  const showHeaderSettingsGear = sidebarCollapsed || mainView === "review" || mainView === "desk";
   const { edition } = useEdition(apiBase ?? "");
   const soloShell = edition === "solo";
   const showAssistantSwitcher = assistants.length > 1;
@@ -91,7 +91,7 @@ function LawmindAppHeaderImpl({
   return (
     <>
       <div
-        className={`lm-main-header lm-main-header-compact${mainView === "review" ? " lm-main-header-review" : ""}${settingsOpen ? " lm-main-header-settings" : ""}`}
+        className={`lm-main-header lm-main-header-compact${mainView === "review" ? " lm-main-header-review" : ""}${mainView === "desk" ? " lm-main-header-desk" : ""}${settingsOpen ? " lm-main-header-settings" : ""}`}
       >
         <div className="lm-main-header-row">
           {settingsOpen ? (
@@ -180,6 +180,19 @@ function LawmindAppHeaderImpl({
                 ) : null}
                 <button
                   type="button"
+                  className={`lm-tab ${mainView === "desk" ? "active" : ""}`}
+                  aria-current={mainView === "desk" ? "page" : undefined}
+                  data-testid="lm-tab-desk"
+                  onClick={() => {
+                    onClearNeedsDecisionFocus?.();
+                    onSetMainView("desk");
+                  }}
+                  title="今日计划、案件、期限与邮件待回复"
+                >
+                  工作台
+                </button>
+                <button
+                  type="button"
                   className={`lm-tab ${mainView === "agents" ? "active" : ""}`}
                   aria-current={mainView === "agents" ? "page" : undefined}
                   data-testid="lm-tab-agents"
@@ -256,9 +269,7 @@ function LawmindAppHeaderImpl({
                           type="button"
                           className={`lm-panel-toggle ${sidebarCollapsed ? "lm-panel-toggle-off" : ""}`}
                           data-testid={
-                            mainView === "agents"
-                              ? "lm-agents-toggle-sidebar"
-                              : "lm-meeting-toggle-sidebar"
+                            mainView === "agents" ? "lm-agents-toggle-sidebar" : "lm-meeting-toggle-sidebar"
                           }
                           title={sidebarCollapsed ? "显示侧栏" : "隐藏侧栏"}
                           aria-label={sidebarCollapsed ? "显示侧栏" : "隐藏侧栏"}

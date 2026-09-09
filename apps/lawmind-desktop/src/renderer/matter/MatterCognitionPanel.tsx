@@ -139,7 +139,7 @@ export function MatterCognitionPanel(props: MatterCognitionPanelProps) {
             </div>
             <div className="lm-matter-summary-card lm-matter-summary-card-success">
               <div className="lm-matter-summary-top">
-                <span className="lm-matter-summary-title">已注入</span>
+                <span className="lm-matter-summary-title">已记住</span>
                 <span className="lm-matter-summary-count">{cognitionBoard.injectedMemoryLayerCount}</span>
               </div>
             </div>
@@ -152,7 +152,7 @@ export function MatterCognitionPanel(props: MatterCognitionPanelProps) {
               <ul className="lm-bullet-list">
                 <li>缺推理快照草稿：{cognitionBoard.missingReasoningCount}</li>
                 <li>引用待核或无快照草稿：{cognitionBoard.missingCitationCount}</li>
-                <li>高频但未注入提示的记忆层：{cognitionBoard.uncoveredFrequentLayerCount}</li>
+                <li>高频但未记住的记忆层：{cognitionBoard.uncoveredFrequentLayerCount}</li>
                 <li>
                   采样时间跨度：{formatShortDateTime(cognitionBoard.oldestDraftAt)} 至{" "}
                   {formatShortDateTime(cognitionBoard.newestDraftAt)}
@@ -370,7 +370,7 @@ export function MatterCognitionPanel(props: MatterCognitionPanelProps) {
                         <div className="lm-matter-ops-actions">
                           <span className="lm-matter-pill">{layer.count} 份草稿</span>
                           <span className={`lm-matter-pill ${layer.injected ? "lm-matter-pill-status-approved" : ""}`}>
-                            {layer.injected ? "已注入" : "仅检索"}
+                            {layer.injected ? "已记住" : "仅检索"}
                           </span>
                         </div>
                       </div>

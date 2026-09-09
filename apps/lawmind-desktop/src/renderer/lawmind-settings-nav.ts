@@ -56,7 +56,7 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
         id: "models",
         label: "模型与连接",
         description: "API、默认模型与检索通道",
-        keywords: "model api key 检索 retrieval brave 联网 密钥 连接",
+        keywords: "model api key 检索 retrieval brave 联网 密钥 连接 权威 法宝 法规库 数据源 pkulaw",
       },
       {
         id: "workspace",
@@ -91,7 +91,7 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
       {
         id: "doctor",
         label: "系统健康",
-        description: "连接、门禁与运行体检",
+        description: "连接、核对与运行体检",
         keywords:
           "doctor 体检 健康 用量 索引 memory truth 真相源 overview 概览 内测 团队成长 基线 一次过 开始使用 北极星 无干预 逃逸",
       },

@@ -19,7 +19,8 @@ type Props = {
   onReject: () => void;
   onModify: () => void;
   onReopen: () => void;
-  onExportWord: (opts?: { strict?: boolean }) => void;
+  /** 导出始终走 strict 验收门禁；UI 不再提供 ?strict=false 绕过入口。 */
+  onExportWord: () => void;
   onExportTrackedWord?: () => void;
   onShowInFolder?: (path: string) => void;
   onOpenWithSystem?: (path: string) => void | Promise<void>;
@@ -31,8 +32,6 @@ type Props = {
    * signoff：完整签批条（高级区或兜底路径）。
    */
   variant?: "writing" | "signoff";
-  /** 文书台 → 在办：外发拍板入口 */
-  onOpenAgentsDesk?: () => void;
   /** 一览：签批 / 验收 / 必核 / 引用是否可交付 */
   readiness?: DeliverableReadiness | null;
 };
@@ -82,21 +81,13 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
 
   if (writing) {
     if (gateBlocked) {
-      primaryLabel = "仍要导出";
-      primaryDisabled = actionBusy;
-      primaryAction = () => {
-        const blockers = acceptance?.blockerCount ?? 0;
-        const ok = window.confirm(
-          `出稿检查仍有 ${blockers} 项未通过。\n\n确认仍导出 Word？律师可再改或吩咐助手再做一轮。`,
-        );
-        if (ok) {
-          onExportWord({ strict: false });
-        }
-      };
+      // 验收门禁是核心卖点：UI 不提供绕过入口，阻塞时禁导出并提示补齐。
+      primaryLabel = "不可导出";
+      primaryDisabled = true;
     } else {
       primaryLabel = actionBusy ? "导出中…" : "导出审查意见书";
       primaryDisabled = actionBusy;
-      primaryAction = () => onExportWord({ strict: false });
+      primaryAction = () => onExportWord();
     }
   } else if (!approved) {
     primaryLabel = "导出";
@@ -105,21 +96,12 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
     primaryLabel = "不可导出";
     primaryDisabled = true;
   } else if (gateBlocked) {
-    primaryLabel = "仍要导出";
-    primaryDisabled = actionBusy;
-    primaryAction = () => {
-      const blockers = acceptance?.blockerCount ?? 0;
-      const ok = window.confirm(
-        `出稿检查仍有 ${blockers} 项未通过。\n\n确认仍导出 Word？`,
-      );
-      if (ok) {
-        onExportWord({ strict: false });
-      }
-    };
+    primaryLabel = "不可导出";
+    primaryDisabled = true;
   } else {
     primaryLabel = actionBusy ? "导出中…" : "导出审查意见书";
     primaryDisabled = actionBusy;
-    primaryAction = () => onExportWord({ strict: true });
+    primaryAction = () => onExportWord();
   }
 
   return (

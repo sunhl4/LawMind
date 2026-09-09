@@ -9,6 +9,7 @@ import {
   apiRerunCampaignRole,
 } from "./lawmind-review-campaign-api";
 import { useEdition } from "./use-edition";
+import { useMatterHealthMetrics } from "./matter/useMatterHealthMetrics";
 
 type Props = {
   apiBase: string;
@@ -22,12 +23,14 @@ type Props = {
 type PlaybookOption = { id: string; label: string; roleCount: number };
 
 /**
- * Skills E2 — Sticky Safety Score + role tabs (Workbench meta column).
+ * Skills E2 — 真实核对指标 + role tabs（工作台 meta column）。
+ * 不展示启发式 Safety Score，仅显示 runtime-events / lint / 律师编辑统计。
  */
 export function LawmindReviewCampaignPanel(props: Props): ReactNode {
   const { apiBase, taskId, matterId, campaign, onCampaignChange } = props;
   const edition = useEdition(apiBase);
-  const allowParallel =  edition.features.reviewCampaignParallel;
+  const allowParallel = edition.features.reviewCampaignParallel;
+  const { metrics: healthMetrics } = useMatterHealthMetrics(apiBase, matterId, taskId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
@@ -293,32 +296,21 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
       </label>
 
       {score ? (
-        <div className="lm-review-campaign-scoreboard" aria-label="Contract Safety Score">
-          <div
-            className="lm-review-campaign-score"
-            data-testid="lm-safety-score"
-            data-score={score.score}
-            title="Safety Score（越高越安全）"
-          >
-            <div className="lm-safety-gauge" aria-hidden="true">
-              <svg viewBox="0 0 72 72" width="72" height="72">
-                <circle cx="36" cy="36" r="30" className="lm-safety-gauge-track" />
-                <circle
-                  cx="36"
-                  cy="36"
-                  r="30"
-                  className="lm-safety-gauge-value"
-                  style={{
-                    strokeDasharray: `${(Math.max(0, Math.min(100, score.score)) / 100) * 188.4} 188.4`,
-                  }}
-                />
-              </svg>
-              <span className="lm-review-campaign-score-value">{score.score}</span>
-            </div>
-            <div>
-              <span className="lm-review-campaign-score-label">Safety Score</span>
-              <p className="lm-meta">/ 100 · 越高越安全</p>
-            </div>
+        <div
+          className="lm-review-campaign-scoreboard"
+          aria-label="本轮核对指标"
+          data-testid="lm-review-campaign-metrics"
+        >
+          <div className="lm-review-campaign-metrics">
+            <span className="lm-meta" data-testid="lm-review-campaign-coverage">
+              覆盖 <strong>{healthMetrics?.lintTriggerCount ?? score.high + score.medium + score.low}</strong> 条规则
+            </span>
+            <span className="lm-meta" data-testid="lm-review-campaign-issues">
+              发现 <strong>{healthMetrics?.lintFindingCount ?? score.high + score.medium + score.low}</strong> 处问题
+            </span>
+            <span className="lm-meta" data-testid="lm-review-campaign-processed">
+              已处理 <strong>{healthMetrics?.lawyerEditModifiedCount ?? 0}</strong> 处
+            </span>
           </div>
           <div className="lm-review-campaign-counts">
             <span className="lm-sev-high">高 {score.high}</span>
@@ -328,6 +320,7 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
               <span className="lm-meta">{campaign.playbookLabel}</span>
             ) : null}
           </div>
+          <p className="lm-meta">真实指标，基于 runtime-events 与 lint 结果，非启发式安全评分。</p>
         </div>
       ) : (
         <p className="lm-meta">选 Playbook 开跑。</p>

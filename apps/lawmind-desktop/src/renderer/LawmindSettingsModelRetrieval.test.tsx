@@ -50,6 +50,7 @@ describe("LawmindSettingsModelRetrieval", () => {
             authorityCorpus: {
               configured: true,
               status: "configured",
+              provider: "pkulaw",
               endpointHost: "legal-api.example",
               message: "已配置权威检索端点（legal-api.example）。",
               envKey: "LAWMIND_AUTHORITY_ENDPOINT",
@@ -63,6 +64,8 @@ describe("LawmindSettingsModelRetrieval", () => {
     expect(pill?.textContent).toContain("已配置");
     expect(pill?.textContent).toContain("legal-api.example");
     expect(host.textContent).toContain("已配置权威检索端点");
+    expect(host.textContent).toContain("同一网关");
+    expect(host.textContent).not.toContain("演示语料不等于完整法库");
   });
 
   it("shows invalid authority endpoint as fail-closed", async () => {

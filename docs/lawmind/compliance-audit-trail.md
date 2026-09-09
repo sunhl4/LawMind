@@ -1,6 +1,6 @@
 # LawMind compliance audit trail
 
-This page is the **machine- and human-facing contract** for what LawMind writes under `workspace/audit/*.jsonl` when you need **defensible delivery** (internal control, customer security review, or IT handoff). It complements the product-oriented [LawMind user manual](/LAWMIND-USER-MANUAL) and the [Agent Workbench Memory](/lawmind/agent-workbench-memory) acceptance criteria.
+This page is the **machine- and human-facing contract** for what LawMind writes under `workspace/audit/*.jsonl` when you need **defensible delivery** (internal control, customer security review, or IT handoff). It complements the product-oriented [LawMind user manual](/archive/LAWMIND-USER-MANUAL) and the [Agent Workbench Memory](/lawmind/agent-workbench-memory) acceptance criteria.
 
 ## Export schema version
 
@@ -71,6 +71,6 @@ Version 1 logs have no `Export schema version` metadata line and no `<!-- LawMin
 
 ## Related
 
-- [LawMind user manual](/LAWMIND-USER-MANUAL) (API and export parameters)
+- [LawMind user manual](/archive/LAWMIND-USER-MANUAL) (API and export parameters)
 - [LawMind task checkpoints](/lawmind/task-checkpoints) (`draft.citation_integrity` timing)
 - [Citation and matter detail memory](/lawmind/citation-and-matter-detail-memory) (desktop `draftCitationIntegrity`)

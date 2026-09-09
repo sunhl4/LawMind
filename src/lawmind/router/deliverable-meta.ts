@@ -1,5 +1,23 @@
 import { isMailContractFastPathInstruction } from "../platform/mail-contract-short-path-instruction.js";
 import { isWordRevisionInstruction } from "../platform/word-revision-instruction.js";
+import { LPM_MEMO_INSTRUCTION_RE } from "../practice/lpm-matter-columns.js";
+import {
+  ADS_COMPLIANCE_RE,
+  BANKRUPTCY_RE,
+  CAPITAL_MARKETS_RE,
+  CIVIL_STAGE_RE,
+  COURT_SMS_RE,
+  CRIMINAL_ROUTE_RE,
+  DATA_COMPLIANCE_RE,
+  FAMILY_MATTER_RE,
+  GOVERNANCE_RE,
+  INVOICE_RE,
+  IP_DISPUTE_RE,
+  MA_DILIGENCE_RE,
+  MATTER_INTAKE_RE,
+  PERIOD_CALC_RE,
+  QUICK_TRIAGE_RE,
+} from "../skills/capability-patterns.js";
 import type { ClarificationQuestion, DeliverableType, TaskIntent, TaskKind } from "../types.js";
 
 function hasCurrency(text: string): boolean {
@@ -60,8 +78,117 @@ function detectDeliverableType(kind: TaskKind, instruction: string): Deliverable
     }
     return undefined;
   }
+  if (kind === "research.legal" || kind === "research.hybrid") {
+    if (hasComplianceDossierMarkers(instruction)) {
+      return "report.compliance";
+    }
+    if (MATTER_INTAKE_RE.test(instruction)) {
+      return "document.general";
+    }
+    if (INVOICE_RE.test(instruction)) {
+      return "document.general";
+    }
+    if (COURT_SMS_RE.test(instruction)) {
+      return "matter.timeline";
+    }
+    if (IP_DISPUTE_RE.test(instruction)) {
+      return "litigation.outline";
+    }
+    if (MA_DILIGENCE_RE.test(instruction)) {
+      return "report.general";
+    }
+    if (DATA_COMPLIANCE_RE.test(instruction)) {
+      return "report.compliance";
+    }
+    if (ADS_COMPLIANCE_RE.test(instruction)) {
+      return "report.general";
+    }
+    if (LPM_MEMO_INSTRUCTION_RE.test(instruction)) {
+      return "memo.internal";
+    }
+    if (FAMILY_MATTER_RE.test(instruction)) {
+      return "litigation.outline";
+    }
+    if (CRIMINAL_ROUTE_RE.test(instruction)) {
+      return "litigation.outline";
+    }
+    if (BANKRUPTCY_RE.test(instruction)) {
+      return "document.general";
+    }
+    if (CIVIL_STAGE_RE.test(instruction)) {
+      return "document.general";
+    }
+    if (CAPITAL_MARKETS_RE.test(instruction)) {
+      return "report.general";
+    }
+    if (GOVERNANCE_RE.test(instruction)) {
+      return "memo.internal";
+    }
+    if (QUICK_TRIAGE_RE.test(instruction)) {
+      return "memo.internal";
+    }
+    return "memo.research";
+  }
   if (kind !== "draft.word") {
     return undefined;
+  }
+  if (
+    /(计算|核算).{0,16}(经济补偿|赔偿金|加班费|双倍工资|N\s*\+?\s*1|2N)|违法解除.{0,8}(经济补偿|赔偿)/.test(
+      instruction,
+    )
+  ) {
+    return "labor.calc";
+  }
+  if (PERIOD_CALC_RE.test(instruction)) {
+    return "period.calc";
+  }
+  if (/(检索备忘|检索研究备忘|正反类案)/.test(instruction)) {
+    return "memo.research";
+  }
+  if (MATTER_INTAKE_RE.test(instruction)) {
+    return "document.general";
+  }
+  if (INVOICE_RE.test(instruction)) {
+    return "document.general";
+  }
+  if (COURT_SMS_RE.test(instruction)) {
+    return "matter.timeline";
+  }
+  if (IP_DISPUTE_RE.test(instruction)) {
+    return "litigation.outline";
+  }
+  if (MA_DILIGENCE_RE.test(instruction)) {
+    return "report.general";
+  }
+  if (DATA_COMPLIANCE_RE.test(instruction)) {
+    return "report.compliance";
+  }
+  if (ADS_COMPLIANCE_RE.test(instruction)) {
+    return "report.general";
+  }
+  if (LPM_MEMO_INSTRUCTION_RE.test(instruction)) {
+    return "memo.internal";
+  }
+  if (FAMILY_MATTER_RE.test(instruction)) {
+    return "litigation.outline";
+  }
+  if (CRIMINAL_ROUTE_RE.test(instruction)) {
+    return "litigation.outline";
+  }
+  if (BANKRUPTCY_RE.test(instruction)) {
+    return "document.general";
+  }
+  if (CIVIL_STAGE_RE.test(instruction)) {
+    return "document.general";
+  }
+  if (CAPITAL_MARKETS_RE.test(instruction)) {
+    return "report.general";
+  }
+  if (GOVERNANCE_RE.test(instruction)) {
+    return "memo.internal";
+  }
+  if (QUICK_TRIAGE_RE.test(instruction)) {
+    return "memo.internal";
   }
   if (/(房屋|住宅|商铺|门面|写字楼|办公室).{0,8}(租赁合同|租房合同)|租赁合同/.test(instruction)) {
     return "contract.rental";
@@ -203,7 +330,10 @@ function acceptanceCriteriaFor(type: DeliverableType | undefined): string[] | un
     case "letter.reply":
       return ["输出完整回函正文。", "须回应来函要点并写明我方立场。"];
     case "litigation.complaint":
-      return ["须有当事人、诉讼请求与事实陈述章节。"];
+      return [
+        "须有当事人、诉讼请求、要件式事实与证据对照。",
+        "用线性栏目，不要 markdown 表冒充要素表。",
+      ];
     case "litigation.answer":
       return ["须有答辩要点与事实陈述章节。"];
     case "litigation.brief":
@@ -212,6 +342,12 @@ function acceptanceCriteriaFor(type: DeliverableType | undefined): string[] | un
       return ["争点、结论、引用、保留意见均为必要章节。"];
     case "memo.internal":
       return ["须有事项与结论；不得写成可对外签发件。"];
+    case "memo.research":
+      return ["须含命题、现行法条、正反类案与结论；无命中也保留栏目并标待核实。"];
+    case "labor.calc":
+      return ["金额必须带来源公式；缺流水标缺口，不得口算假数。"];
+    case "period.calc":
+      return ["届满日必须有公式；中断顺延标缺口。"];
     case "matter.timeline":
       return ["输出日期—事实对照表。"];
     case "matter.exhibit_list":

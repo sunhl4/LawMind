@@ -85,7 +85,7 @@ async function resumeTurnUngated(
     if (input.decision === "reject") {
       session.pendingRequiresAction = undefined;
       const label = action.toolName ? toolDisplayNameZh(action.toolName) : "该操作";
-      const reply = `已取消「${label}」，未执行相关步骤。`;
+      const reply = `已取消「${label}」，未执行相关步骤。用户已拒绝，不要重试。`;
       const agentMsg: AgentMessage = {
         role: "assistant",
         content: reply,
@@ -131,9 +131,10 @@ async function resumeTurnUngated(
         input.decision === "edit" && input.editedArgs && typeof input.editedArgs === "object"
           ? input.editedArgs
           : undefined;
+      // 批准态由服务端经 preApproveToolName/preApproveToolArgs 注入，模型无需（也无法）自填审批旗标。
       const instruction = edited
-        ? `【律师已修改参数并批准】请继续完成「${label}」。调用对应工具时请传 __approved: true，并使用律师确认后的参数。`
-        : `【律师已批准】请继续完成「${label}」。调用对应工具时请传 __approved: true。`;
+        ? `【律师已修改参数并批准】请继续完成「${label}」，使用律师确认后的参数。`
+        : `【律师已批准】请继续完成「${label}」。`;
       return runTurn({
         config,
         registry,

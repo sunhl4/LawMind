@@ -6,28 +6,30 @@
  * - search_post: POST { query, searchType } JSON body
  * - mcp_tools_call: POST MCP-style { method: "tools/call", params: { name, arguments } }
  *
- * Real vendor Token / gateway URL: USER placeholder (see LAWMIND-EXTERNAL-INTEGRATIONS).
+ * Official mcp.pkulaw.com gateways expect tool `search_article` / `search_case`
+ * with `{ text }` (query/q kept for LawMind shims).
  */
 
-import type { RetrievalResult } from "../../index.js";
+import { createOutboundProxy } from "../../../platform/outbound-proxy.js";
+import {
+  assertAuthorityEndpointSafeToFetch,
+  buildAuthorityRequestHeaders,
+} from "../../authority-health.js";
 import {
   authorityHttpErrorResult,
   invalidAuthorityEndpointResult,
   mapHitsToRetrievalResult,
 } from "../../authority-hits.js";
-import {
-  assertAuthorityEndpointSafeToFetch,
-  buildAuthorityRequestHeaders,
-} from "../../authority-health.js";
 import type { AuthorityDnsLookupFn } from "../../authority-url-guard.js";
-import { inferPkulawSearchKind, mapPkulawResponseBody } from "./map.js";
+import type { RetrievalResult } from "../../index.js";
+import { inferPkulawSearchKind, mapPkulawResponseBody, type PkulawSearchKind } from "./map.js";
+
+export type { PkulawSearchKind };
 
 export type PkulawMode = "rest_compat" | "search_post" | "mcp_tools_call";
 
 export function resolvePkulawMode(opts?: { mode?: string }): PkulawMode {
-  const raw = (opts?.mode ?? process.env.LAWMIND_PKULAW_MODE ?? "rest_compat")
-    .trim()
-    .toLowerCase();
+  const raw = (opts?.mode ?? process.env.LAWMIND_PKULAW_MODE ?? "rest_compat").trim().toLowerCase();
   if (raw === "search_post" || raw === "post") {
     return "search_post";
   }
@@ -35,6 +37,70 @@ export function resolvePkulawMode(opts?: { mode?: string }): PkulawMode {
     return "mcp_tools_call";
   }
   return "rest_compat";
+}
+
+export function resolvePkulawMcpTools(opts?: { lawTool?: string; caseTool?: string }): {
+  law: string;
+  case: string;
+} {
+  const law = (opts?.lawTool ?? process.env.LAWMIND_PKULAW_MCP_LAW_TOOL ?? "search_article").trim();
+  const caseTool = (
+    opts?.caseTool ??
+    process.env.LAWMIND_PKULAW_MCP_CASE_TOOL ??
+    "search_case"
+  ).trim();
+  return {
+    law: law || "search_article",
+    case: caseTool || "search_case",
+  };
+}
+
+export function resolvePkulawCaseEndpoint(lawEndpoint: string): string {
+  return process.env.LAWMIND_PKULAW_CASE_ENDPOINT?.trim() || lawEndpoint;
+}
+
+function mcpHeaders(apiKey?: string): Record<string, string> {
+  return {
+    ...buildAuthorityRequestHeaders({ apiKey }),
+    accept: "application/json, text/event-stream",
+    "content-type": "application/json",
+  };
+}
+
+/** Official mcp.pkulaw.com tools reject unknown fields (query/q → isError). */
+export function buildPkulawMcpArguments(query: string): Record<string, string | number> {
+  return { text: query, size: 10 };
+}
+
+async function readJsonRpcBody(res: Response): Promise<unknown> {
+  const text = await res.text();
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const ct = res.headers.get("content-type") ?? "";
+  if (ct.includes("text/event-stream") || trimmed.startsWith("event:")) {
+    const matches = [...trimmed.matchAll(/^data:\s*(.+)$/gm)].map((m) => m[1]?.trim() ?? "");
+    const last = matches.filter(Boolean).at(-1);
+    if (last) {
+      return JSON.parse(last) as unknown;
+    }
+  }
+  return JSON.parse(trimmed) as unknown;
+}
+
+function jsonRpcErrorMessage(body: unknown): string | undefined {
+  if (!body || typeof body !== "object") {
+    return undefined;
+  }
+  const o = body as { error?: { message?: string }; result?: { isError?: boolean } };
+  if (typeof o.error?.message === "string" && o.error.message.trim()) {
+    return o.error.message.trim();
+  }
+  if (o.result?.isError === true) {
+    return "法宝 MCP 工具返回 isError";
+  }
+  return undefined;
 }
 
 export async function pkulawRetrieve(opts: {
@@ -45,22 +111,30 @@ export async function pkulawRetrieve(opts: {
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   lookup?: AuthorityDnsLookupFn;
+  /** Force law vs case gateway; default infers from query text. */
+  searchKind?: PkulawSearchKind;
 }): Promise<{ result: RetrievalResult; httpStatus?: number }> {
-  const fetchImpl = opts.fetchImpl ?? fetch;
+  const pkulawProxy = createOutboundProxy({
+    fetchImpl: opts.fetchImpl,
+    allowLocalNetwork: true,
+    requestTag: "pkulaw",
+  });
+  const fetchImpl = pkulawProxy.fetch.bind(pkulawProxy);
   const mode = opts.mode ?? resolvePkulawMode();
-  const safe = await assertAuthorityEndpointSafeToFetch(opts.endpointNormalized, {
+  const searchType = opts.searchKind ?? inferPkulawSearchKind(opts.query);
+  const requestedEndpoint =
+    mode === "mcp_tools_call" && searchType === "case"
+      ? resolvePkulawCaseEndpoint(opts.endpointNormalized)
+      : opts.endpointNormalized;
+  const safe = await assertAuthorityEndpointSafeToFetch(requestedEndpoint, {
     lookup: opts.lookup,
   });
   if (!safe.ok) {
     return { result: invalidAuthorityEndpointResult(safe.message) };
   }
   const endpointNormalized = safe.normalized;
-  const headers = {
-    ...buildAuthorityRequestHeaders({ apiKey: opts.apiKey }),
-    "content-type": "application/json",
-  };
+  const headers = mcpHeaders(opts.apiKey);
   const timeoutMs = opts.timeoutMs ?? 12_000;
-  const searchType = inferPkulawSearchKind(opts.query);
 
   try {
     let res: Response;
@@ -74,14 +148,12 @@ export async function pkulawRetrieve(opts: {
       res = await fetchImpl(endpointNormalized, {
         method: "POST",
         headers,
-        body: JSON.stringify({ query: opts.query, searchType, q: opts.query }),
+        body: JSON.stringify({ query: opts.query, searchType, q: opts.query, text: opts.query }),
         signal: AbortSignal.timeout(timeoutMs),
       });
     } else {
-      const toolName =
-        searchType === "case"
-          ? (process.env.LAWMIND_PKULAW_MCP_CASE_TOOL ?? "case_search")
-          : (process.env.LAWMIND_PKULAW_MCP_LAW_TOOL ?? "law_search");
+      const tools = resolvePkulawMcpTools();
+      const toolName = searchType === "case" ? tools.case : tools.law;
       res = await fetchImpl(endpointNormalized, {
         method: "POST",
         headers,
@@ -91,7 +163,7 @@ export async function pkulawRetrieve(opts: {
           method: "tools/call",
           params: {
             name: toolName,
-            arguments: { query: opts.query, q: opts.query },
+            arguments: buildPkulawMcpArguments(opts.query),
           },
         }),
         signal: AbortSignal.timeout(timeoutMs),
@@ -101,10 +173,22 @@ export async function pkulawRetrieve(opts: {
     if (!res.ok) {
       return { result: authorityHttpErrorResult(res.status), httpStatus: res.status };
     }
-    const body = (await res.json()) as unknown;
-    // MCP envelope: { result: { content: [...] } }
+    const body = await readJsonRpcBody(res);
+    const rpcError = jsonRpcErrorMessage(body);
+    if (rpcError) {
+      return {
+        result: {
+          sources: [],
+          claims: [],
+          riskFlags: [`权威检索异常：${rpcError}`],
+          missingItems: ["权威检索不可用，请勿编造法条；请律师补充来源。"],
+        },
+        httpStatus: res.status,
+      };
+    }
+    // MCP envelope: { result: { content, structuredContent } }
     const envelope =
-      body && typeof body === "object" && "result" in (body as object)
+      body && typeof body === "object" && "result" in body
         ? (body as { result: unknown }).result
         : body;
     const hits = mapPkulawResponseBody(envelope);

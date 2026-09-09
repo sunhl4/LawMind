@@ -32,6 +32,7 @@ import {
 } from "../../../src/lawmind/policy/workspace-policy.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import { isLoopbackApiAuthSkipped } from "./lawmind-local-api-auth.js";
+import { getProcessHealthSignals } from "./lawmind-process-policy.js";
 import { getRateLimitStats } from "./lawmind-local-rate-limit.js";
 import { buildAgentConfig, isDesktopModelConfigured, sendJson } from "./lawmind-server-helpers.js";
 import {
@@ -52,6 +53,7 @@ import {
   buildAuthorityCorpusSummary,
   isAuthorityCorpusReady,
   probeAuthorityEndpoint,
+  resolveAuthorityApiKey,
   validateAuthorityEndpointUrl,
 } from "../../../src/lawmind/retrieval/authority-health.js";
 import { buildAuthorityUsageSummary } from "../../../src/lawmind/retrieval/authority-usage.js";
@@ -155,7 +157,10 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
       sendJsonError(res, 400, "authority_endpoint_invalid", validated.message, c);
       return true;
     }
-    const probe = await probeAuthorityEndpoint({ endpoint: validated.normalized });
+    const probe = await probeAuthorityEndpoint({
+      endpoint: validated.normalized,
+      apiKey: resolveAuthorityApiKey(),
+    });
     sendJson(
       res,
       probe.ok ? 200 : 502,
@@ -318,6 +323,9 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
         },
         rateLimit: getRateLimitStats(),
         skipApiAuthWarn: isLoopbackApiAuthSkipped(),
+        // 进程级异常信号：uncaughtException 会干净退出由监督层重启；
+        // unhandledRejection 带病继续（可用性优先），此处暴露恶化信号。
+        process: getProcessHealthSignals(),
         citationMode,
         citationModeActive: citationMode !== "off",
         triageRulesLoaded: triageRuleIds.length > 0,

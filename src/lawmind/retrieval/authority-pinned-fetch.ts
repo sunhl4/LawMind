@@ -30,6 +30,45 @@ function defaultLookup(hostname: string): Promise<Array<{ address: string; famil
 /** 默认响应体上限（防权威端点异常放大导致整缓冲 OOM）。 */
 export const DEFAULT_MAX_AUTHORITY_RESPONSE_BYTES = 8 * 1024 * 1024;
 
+type AgentLookupCallback = {
+  (err: NodeJS.ErrnoException | null, address: string, family: number): void;
+  (err: NodeJS.ErrnoException | null, addresses: Array<{ address: string; family: number }>): void;
+};
+
+/** Convert fetch HeadersInit into a plain object `http.request` can send. */
+export function headersInitToNodeRecord(init?: HeadersInit): Record<string, string> {
+  const out: Record<string, string> = {};
+  new Headers(init).forEach((value, key) => {
+    out[key] = value;
+  });
+  return out;
+}
+
+/**
+ * Node 22+ Agent lookup may request `{ all: true }` (Happy Eyeballs).
+ * Passing a bare IP string in that mode becomes `address.address === undefined`
+ * → `Invalid IP address: undefined`.
+ */
+export function createPinnedAgentLookup(
+  pinnedIp: string,
+  family: 4 | 6,
+): (hostname: string, options: unknown, callback?: AgentLookupCallback) => void {
+  return (_hostname, options, callback) => {
+    const cb = (typeof options === "function" ? options : callback) as
+      | AgentLookupCallback
+      | undefined;
+    if (!cb) {
+      return;
+    }
+    const opts = typeof options === "object" && options ? (options as { all?: boolean }) : {};
+    if (opts.all) {
+      cb(null, [{ address: pinnedIp, family }]);
+      return;
+    }
+    cb(null, pinnedIp, family);
+  };
+}
+
 /**
  * Returns a fetch-compatible function that pins each connection to a DNS-resolved
  * and SSRF-validated IP, defeating DNS rebinding between check and connect.
@@ -81,41 +120,26 @@ export function createPinnedAuthorityFetch(opts?: {
 
     // Connect via node:http(s) with a custom-lookup Agent pinned to the validated IP.
     const isHttps = url.protocol === "https:";
-    const family = addrs.find((a) => a.address === pinnedIp)?.family ?? 4;
+    const family = addrs.find((a) => a.address === pinnedIp)?.family === 6 ? 6 : 4;
+    const pinLookup = createPinnedAgentLookup(pinnedIp, family);
     const agent = isHttps
       ? new https.Agent({
           // Pin DNS: always resolve to the validated IP, ignoring real DNS at connect time.
-          lookup: (
-            _h: string,
-            _o: unknown,
-            cb: (err: NodeJS.ErrnoException | null, address: string, family: number) => void,
-          ) => cb(null, pinnedIp, family),
+          lookup: pinLookup,
           // Keep TLS SNI / cert validation against the original hostname (default).
         })
       : new http.Agent({
-          lookup: (
-            _h: string,
-            _o: unknown,
-            cb: (err: NodeJS.ErrnoException | null, address: string, family: number) => void,
-          ) => cb(null, pinnedIp, family),
+          lookup: pinLookup,
         });
 
     const method = init?.method ?? "GET";
-    const headers = new Headers(init?.headers);
+    const headers = headersInitToNodeRecord(init?.headers);
     const body = init?.body;
 
     return new Promise<Response>((resolve, reject) => {
       const req = isHttps
-        ? https.request(
-            url,
-            { method, headers: headers as unknown as Record<string, string>, agent },
-            onResponse,
-          )
-        : http.request(
-            url,
-            { method, headers: headers as unknown as Record<string, string>, agent },
-            onResponse,
-          );
+        ? https.request(url, { method, headers, agent }, onResponse)
+        : http.request(url, { method, headers, agent }, onResponse);
       const signal = init?.signal;
       if (signal) {
         if (signal.aborted) {

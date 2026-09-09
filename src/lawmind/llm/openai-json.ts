@@ -3,6 +3,8 @@
  * Used by model-driven router / reasoning when retrieval adapters are not involved.
  */
 
+import { createOutboundProxy } from "../platform/outbound-proxy.js";
+
 export type OpenAiJsonClientConfig = {
   baseUrl: string;
   apiKey: string;
@@ -12,6 +14,8 @@ export type OpenAiJsonClientConfig = {
 };
 
 type ChatRole = "system" | "user";
+
+const jsonProxy = createOutboundProxy({ requestTag: "llm-json" });
 
 function trimSlash(value: string): string {
   return value.endsWith("/") ? value.slice(0, -1) : value;
@@ -46,7 +50,7 @@ export async function completeJsonObject<T>(
 
   try {
     const url = `${trimSlash(cfg.baseUrl)}/chat/completions`;
-    const res = await fetch(url, {
+    const res = await jsonProxy.fetch(url, {
       method: "POST",
       headers: {
         "content-type": "application/json",

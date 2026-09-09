@@ -44,6 +44,16 @@ export type DeliverableKind =
   | "evidence-timeline"
   | "general-document";
 
+export type MatterKind = "contract" | "litigation" | "general";
+
+export type MatterDocket = {
+  caseNo?: string;
+  court?: string;
+  instance?: string;
+  standing?: string;
+  hearingAt?: string;
+};
+
 export type Matter = {
   matterId: string;
   clientId?: string;
@@ -58,6 +68,9 @@ export type Matter = {
   deadlineIds: string[];
   deliverableIds: string[];
   queueItemIds: string[];
+  matterKind?: MatterKind;
+  practiceTags?: string[];
+  docket?: MatterDocket;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -105,9 +118,13 @@ export type Deadline = {
   title: string;
   dueAt: string;
   severity: "soft" | "hard" | "critical";
-  source: "manual" | "case_memory" | "project_file" | "calendar_import";
+  source: "manual" | "case_memory" | "project_file" | "calendar_import" | "document_extract";
   status: "open" | "snoozed" | "completed" | "missed";
   notes?: string;
+  eventKind?: "hearing" | "filing" | "limitation" | "reply" | "custom";
+  remindBeforeHours?: number;
+  icsUid?: string;
+  remindedAt?: string;
 };
 
 export type QueueKind =

@@ -57,6 +57,8 @@ describe("redline-proposal", () => {
       return;
     }
     expect(resolved.draft.sections[0]?.body).toBe("Version B");
+    const events = resolved.draft.sections[0]?.provenance?.events ?? [];
+    expect(events.some((e) => e.type === "lawyer_accept")).toBe(true);
   });
 
   it("generates hunks when section body changes and accept applies to draft", () => {

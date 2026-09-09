@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useSettingsPanelStore } from "../stores/settings-panel-store";
 import type {
   AgentsDeskTab,
   AgentsWorkflowFocusTarget,
@@ -10,18 +11,10 @@ import type { CollabSummaryState } from "../LawmindSettingsCollaboration";
 import type { AssistantRow } from "../lawmind-settings-models.ts";
 import type { ModelCatalogEntry, ProviderKeyStatus } from "../lawmind-models-api";
 import type { LawmindMainView } from "../lawmind-main-view";
-import type {
-  LawmindSettingsScrollAnchorId,
-  LawmindSettingsSectionId,
-} from "../lawmind-settings-shell";
 import type { LawmindAppSettingsPanelProps } from "./LawmindAppSettingsPanel";
 import { requestOpenWorkspaceFile } from "../lawmind-workspace-file-open";
 
 export type UseLawmindAppSettingsPanelPropsInput = {
-  showSettings: boolean;
-  setShowSettings: (open: boolean) => void;
-  settingsSectionId: LawmindSettingsSectionId;
-  settingsScrollAnchor?: LawmindSettingsScrollAnchorId;
   config: AppConfig | null;
   projectDir: string | null;
   workspaceLabel: string;
@@ -67,11 +60,12 @@ export type UseLawmindAppSettingsPanelPropsInput = {
 export function useLawmindAppSettingsPanelProps(
   input: UseLawmindAppSettingsPanelPropsInput,
 ): LawmindAppSettingsPanelProps {
+  const showSettings = useSettingsPanelStore((s) => s.open);
+  const setShowSettings = useSettingsPanelStore((s) => s.setSettingsPanel);
+  const settingsSectionId = useSettingsPanelStore((s) => s.sectionId);
+  const settingsScrollAnchor = useSettingsPanelStore((s) => s.scrollAnchorId);
+
   const {
-    showSettings,
-    setShowSettings,
-    settingsSectionId,
-    settingsScrollAnchor,
     config,
     projectDir,
     workspaceLabel,

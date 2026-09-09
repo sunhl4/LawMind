@@ -34,7 +34,7 @@ const BLOCKS = [
   {
     marker: "shell-header+chat-main",
     // Keep closed through `.lm-compose-ctx-usage-action .lm-meta` (do not cut mid-rule).
-    chunks: [{ file: "shell-header.css" }, { file: "chat.css", start: 60, end: 1122 }],
+    chunks: [{ file: "shell-header.css" }, { file: "chat.css", start: 60, end: 1127 }],
   },
   {
     marker: "modal-forms",
@@ -46,7 +46,7 @@ const BLOCKS = [
   },
   {
     marker: "workflow-hub+chat-compose",
-    chunks: [{ file: "workflow-hub.css" }, { file: "chat.css", start: 1124 }],
+    chunks: [{ file: "workflow-hub.css" }, { file: "chat.css", start: 1129 }],
   },
   {
     marker: "agent-fleet",

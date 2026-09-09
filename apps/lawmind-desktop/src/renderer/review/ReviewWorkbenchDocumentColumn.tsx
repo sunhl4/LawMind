@@ -37,6 +37,8 @@ export type ReviewWorkbenchDocumentColumnProps = {
   onExportWord?: () => void;
   onOpenAgentsDesk?: () => void;
   exportReady?: boolean;
+  includeProvenance?: boolean;
+  onIncludeProvenanceChange?: (checked: boolean) => void;
 };
 
 function reviewPaneLayoutStyle(
@@ -103,6 +105,8 @@ export function ReviewWorkbenchDocumentColumn(props: ReviewWorkbenchDocumentColu
     onExportWord,
     onOpenAgentsDesk,
     exportReady = false,
+    includeProvenance = false,
+    onIncludeProvenanceChange,
   } = props;
 
   const growReviewPaneId = lastVisibleReviewPaneId(paneVisibility);
@@ -192,6 +196,17 @@ export function ReviewWorkbenchDocumentColumn(props: ReviewWorkbenchDocumentColu
             {" · "}
             {reviewStatusDisplayLabel(detail.reviewStatus)}
           </div>
+          {onIncludeProvenanceChange ? (
+            <label className="lm-review-writing-dock-option" title="导出时把每段来源作为 Word 批注">
+              <input
+                type="checkbox"
+                checked={includeProvenance}
+                onChange={(e) => onIncludeProvenanceChange(e.target.checked)}
+                disabled={actionBusy}
+              />
+              <span>导出来源批注</span>
+            </label>
+          ) : null}
           <div className="lm-review-writing-dock-actions">
             {editorDirty ? (
               <button

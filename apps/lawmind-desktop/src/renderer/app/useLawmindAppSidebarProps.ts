@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useSettingsPanelStore } from "../stores/settings-panel-store";
 import type { MatterSidebarRow } from "../lawmind-records-desk-state";
 import type { SideChatSessionRow } from "../LawmindSideChatSessions";
 import type { LawmindAppSidebarProps } from "./LawmindAppSidebar";
@@ -11,16 +12,12 @@ export type UseLawmindAppSidebarPropsInput = {
   showSidebarWorkbenchFiles: boolean;
   showExplorerSkeleton: boolean;
   onSidebarResizePointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
-  setShowSettings: (open: boolean) => void;
-  showSettings: boolean;
   setFileExplorerHost: (el: HTMLDivElement | null) => void;
   actionSummaryTotal: number;
-  recentCollabCompleted?: number;
   matterSidebarRows: MatterSidebarRow[];
   selectedMatterKey: string | null;
   onSelectMatterKey: (matterId: string) => void;
   onSelectMatterForCockpit: (matterId: string) => void;
-  onSelectMatterScope?: (matterId: string) => void;
   matterCockpitOpen: boolean;
   mainView: LawmindMainView;
   apiBase?: string;
@@ -40,6 +37,9 @@ export type UseLawmindAppSidebarPropsInput = {
 };
 
 export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput): LawmindAppSidebarProps {
+  const showSettings = useSettingsPanelStore((s) => s.open);
+  const setShowSettings = useSettingsPanelStore((s) => s.setSettingsPanel);
+
   const {
     showAppSidebar,
     sidebarCollapsed,
@@ -47,16 +47,12 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
     showSidebarWorkbenchFiles,
     showExplorerSkeleton,
     onSidebarResizePointerDown,
-    setShowSettings,
-    showSettings,
     setFileExplorerHost,
     actionSummaryTotal,
-    recentCollabCompleted = 0,
     matterSidebarRows,
     selectedMatterKey,
     onSelectMatterKey,
     onSelectMatterForCockpit,
-    onSelectMatterScope,
     matterCockpitOpen,
     mainView,
     apiBase,
@@ -88,12 +84,10 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
       settingsOpen: showSettings,
       setFileExplorerHost,
       actionSummaryTotal,
-      recentCollabCompleted,
       matterSidebarRows,
       selectedMatterKey,
       onSelectMatterKey,
       onSelectMatterForCockpit,
-      onSelectMatterScope,
       matterCockpitOpen,
       mainView,
       apiBase,
@@ -138,12 +132,10 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
       showSettings,
       setFileExplorerHost,
       actionSummaryTotal,
-      recentCollabCompleted,
       matterSidebarRows,
       selectedMatterKey,
       onSelectMatterKey,
       onSelectMatterForCockpit,
-      onSelectMatterScope,
       matterCockpitOpen,
       mainView,
       apiBase,

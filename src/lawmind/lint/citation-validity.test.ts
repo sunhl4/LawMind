@@ -33,6 +33,19 @@ describe("lintCitationValidity", () => {
     expect(contract.some((f) => f.ruleId === "citation.offline_validity")).toBe(false);
   });
 
+  it("flags known repealed titles such as 《合同法》 but not 劳动合同法", () => {
+    expect(
+      lintCitationValidity("依据《合同法》第107条请求支付。").some(
+        (f) => f.ruleId === "citation.known_repealed",
+      ),
+    ).toBe(true);
+    expect(
+      lintCitationValidity("依据《劳动合同法》第47条支付经济补偿。").some(
+        (f) => f.ruleId === "citation.known_repealed",
+      ),
+    ).toBe(false);
+  });
+
   it("accepts citation hits via runLegalLint second arg", () => {
     const report = runLegalLint("律师意见：引用《示例法》第1条。", [
       { title: "示例法", status: "已废止" },

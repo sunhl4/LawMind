@@ -44,7 +44,8 @@ export const DISCLOSED_TOOL_HINTS: ReadonlyArray<{ name: string; hint: string }>
   { name: "analyze_spreadsheet", hint: "分析钉选或工作区 Excel 的列、类型与统计" },
   { name: "write_spreadsheet", hint: "把二维表写入 artifacts 下的 xlsx" },
   { name: "render_chart", hint: "按声明式规格出图（助手正文用 lm-chart 围栏）" },
-  { name: "calculate", hint: "利息、时效、列求和等可入卷的确定性计算" },
+  { name: "calculate", hint: "利息、时效、劳动补偿、加班、程序期限等可入卷的确定性计算" },
+  { name: "search_case_law", hint: "检索类案裁判（正反各查）" },
   { name: "run_analysis", hint: "受控分析脚本（须政策开启）" },
 ];
 

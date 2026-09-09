@@ -1,5 +1,5 @@
 /**
- * First-run funnel: pending marker + audit hooks (see LAWMIND-DELIVERABLE-FIRST P5.1).
+ * First-run funnel: pending marker + audit hooks (see docs/archive/LAWMIND-DELIVERABLE-FIRST.md P5.1).
  * Last wizard completion wins if multiple runs overlap (single pending file).
  */
 

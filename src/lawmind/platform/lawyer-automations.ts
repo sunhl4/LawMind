@@ -956,6 +956,8 @@ export async function materializeMailContractReviewBaselines(
   });
 }
 
+import { classifyMailMessage, MAIL_TRIAGE_LABEL_ZH } from "../desk/mail-triage.js";
+
 export function buildMailDigestSummary(messages: LocalMailMessage[]): string {
   if (messages.length === 0) {
     return "本期邮箱匣无新邮件。请在「交办 → 邮箱配置」连接真实邮箱并点「立即同步」。";
@@ -963,7 +965,26 @@ export function buildMailDigestSummary(messages: LocalMailMessage[]): string {
   const lines = messages.slice(0, 12).map((m, i) => {
     const att =
       m.attachments.length > 0 ? `；附件 ${m.attachments.map((a) => a.name).join("、")}` : "";
-    return `${i + 1}. ${m.receivedAt.slice(0, 10)} · ${m.from} · ${m.subject}${att}`;
+    const label = classifyMailMessage({
+      from: m.from,
+      subject: m.subject,
+      bodyText: m.bodyText,
+      attachmentNames: m.attachments.map((a) => a.name),
+    });
+    return `${i + 1}. 【${MAIL_TRIAGE_LABEL_ZH[label]}】${m.receivedAt.slice(0, 10)} · ${m.from} · ${m.subject}${att}`;
   });
-  return `共 ${messages.length} 封邮件：\n${lines.join("\n")}`;
+  const replyCount = messages.filter(
+    (m) =>
+      classifyMailMessage({
+        from: m.from,
+        subject: m.subject,
+        bodyText: m.bodyText,
+        attachmentNames: m.attachments.map((a) => a.name),
+      }) === "needs_reply",
+  ).length;
+  const head =
+    replyCount > 0
+      ? `共 ${messages.length} 封，其中 ${replyCount} 封待回复。`
+      : `共 ${messages.length} 封邮件：`;
+  return `${head}\n${lines.join("\n")}`;
 }

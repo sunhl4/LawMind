@@ -3,7 +3,6 @@ import {
   BrowserWindow,
   ipcMain,
   dialog,
-  shell,
   Notification,
   screen,
 } from "electron";
@@ -14,8 +13,15 @@ import { fileURLToPath } from "node:url";
 import {
   MAX_IMAGE_READ_BYTES,
   MAX_TEXT_READ_BYTES,
+  PROTECTED_WORKSPACE_WRITE_REFUSAL,
+  isProtectedWorkspaceRel,
   mimeTypeForImagePath,
 } from "./fs-bridge.mjs";
+import {
+  safeOpenExternal,
+  safeOpenWithSystem,
+  safeShowItemInFolder,
+} from "./safe-shell-command.mjs";
 import { checkUpdatesWithUi, loadRendererIntoWindow, resolveLawmindDownloadPageUrl } from "./app-menu.mjs";
 import {
   KEYCHAIN_ACCOUNTS,
@@ -674,7 +680,10 @@ export function registerIpcHandlers(deps) {
       const content = typeof payload?.content === "string" ? payload.content : "";
       const expectedMtimeMs =
         typeof payload?.expectedMtimeMs === "number" ? payload.expectedMtimeMs : undefined;
-      const { absPath } = resolveFsPath(root, relPath, { mustExist: false, allowRoot: false });
+      const { absPath, rel } = resolveFsPath(root, relPath, { mustExist: false, allowRoot: false });
+      if (root === "workspace" && isProtectedWorkspaceRel(rel)) {
+        return { ok: false, error: PROTECTED_WORKSPACE_WRITE_REFUSAL };
+      }
 
       let priorStat = null;
       if (fs.existsSync(absPath)) {
@@ -876,23 +885,11 @@ export function registerIpcHandlers(deps) {
     return { ok: true, filePath: res.filePath };
   });
 
-  ipcMain.handle("lawmind:open-external", (_evt, url) => {
-    if (typeof url !== "string") {
-      return { ok: false, error: "invalid_url" };
-    }
-    try {
-      const parsed = new URL(url);
-      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-        return { ok: false, error: "protocol_not_allowed" };
-      }
-      void shell.openExternal(parsed.toString());
-      return { ok: true };
-    } catch {
-      return { ok: false, error: "invalid_url" };
-    }
+  ipcMain.handle("lawmind:open-external", async (_evt, url) => {
+    return safeOpenExternal(url, workspaceDir);
   });
 
-  ipcMain.handle("lawmind:show-item-in-folder", (_evt, fullPath) => {
+  ipcMain.handle("lawmind:show-item-in-folder", async (_evt, fullPath) => {
     if (typeof fullPath !== "string" || !fullPath.trim()) {
       return { ok: false, error: "path required" };
     }
@@ -910,8 +907,7 @@ export function registerIpcHandlers(deps) {
     if (!fs.existsSync(resolved)) {
       return { ok: false, error: "not found" };
     }
-    shell.showItemInFolder(resolved);
-    return { ok: true };
+    return safeShowItemInFolder(resolved, workspaceDir);
   });
 
   /** 用系统默认应用打开工作区/项目内文件（如 Word 文档） */
@@ -920,11 +916,7 @@ export function registerIpcHandlers(deps) {
       const root = payload?.root;
       const relPath = payload?.path ?? "";
       const { absPath } = resolveFsPath(root, relPath, { mustExist: true, allowRoot: false });
-      const err = await shell.openPath(absPath);
-      if (err) {
-        return { ok: false, error: err };
-      }
-      return { ok: true };
+      return safeOpenWithSystem(absPath, workspaceDir);
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
@@ -987,7 +979,7 @@ export function registerIpcHandlers(deps) {
         try {
           const u = new URL(url);
           if (u.protocol === "http:" || u.protocol === "https:") {
-            void shell.openExternal(url);
+            void safeOpenExternal(url, workspaceDir);
           }
         } catch {
           /* ignore */

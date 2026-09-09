@@ -26,9 +26,12 @@ import { sendJson } from "./lawmind-server-helpers.js";
 
 function captureStanceAfterAccept(
   workspaceDir: string,
+  taskId: string,
   hunks: Array<{ before: string; after: string; sectionHeading?: string; status: string }>,
 ): void {
   try {
+    // 证据账本记录来源案件；draft 缺失时留空，注入门槛按不可考处理
+    const matterId = readDraft(workspaceDir, taskId)?.matterId?.trim() || undefined;
     for (const hunk of hunks) {
       captureStanceFromRedline({
         workspaceDir,
@@ -38,6 +41,7 @@ function captureStanceAfterAccept(
           heading: hunk.sectionHeading,
           status: hunk.status,
         },
+        ...(matterId ? { matterId } : {}),
       });
     }
   } catch {
@@ -89,6 +93,7 @@ export async function handleRedlineRoutes({
     if (pendingForStance) {
       captureStanceAfterAccept(
         workspaceDir,
+        taskId,
         result.proposal.hunks.filter((h) => pendingForStance.has(h.hunkId)),
       );
     }
@@ -140,7 +145,7 @@ export async function handleRedlineRoutes({
     if (decision === "accept") {
       const hunk = result.proposal.hunks.find((h) => h.hunkId === hunkId);
       if (hunk) {
-        captureStanceAfterAccept(workspaceDir, [hunk]);
+        captureStanceAfterAccept(workspaceDir, taskId, [hunk]);
       }
     }
     const draft = result.draft ?? readDraft(workspaceDir, taskId);

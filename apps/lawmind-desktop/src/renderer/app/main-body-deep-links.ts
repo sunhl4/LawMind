@@ -114,7 +114,7 @@ export type ChatDeepLinkDeps = {
   setMatterCockpitOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setMainView: (view: LawmindMainView) => void;
   setContextTaskId: (id: string | null) => void;
-  selectChatSession: (sessionId: string, assistantId?: string) => Promise<void> | void;
+  selectChatSession: (sessionId: string, assistantId?: string) => unknown;
   scheduleScrollChatMessagesToLatest: (opts?: { behavior?: ScrollBehavior }) => void;
   setInput: (value: string) => void;
   focusComposer: () => void;
@@ -148,14 +148,18 @@ export function buildChatDeepLinkHandlers(deps: ChatDeepLinkDeps) {
       matterId,
       prompt,
     }: {
-      taskId: string;
+      taskId?: string;
       matterId?: string;
       prompt?: string;
     }) => {
-      setContextTaskId(taskId);
+      const tid = taskId?.trim();
+      if (tid) {
+        setContextTaskId(tid);
+      }
       if (matterId?.trim()) {
         setContextMatterId(matterId.trim());
       }
+      setMatterCockpitOpen(false);
       setMainView("workspace");
       if (prompt?.trim()) {
         setInput(prompt.trim());

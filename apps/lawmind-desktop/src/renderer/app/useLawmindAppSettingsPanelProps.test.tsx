@@ -5,6 +5,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLawmindAppSettingsPanelProps } from "./useLawmindAppSettingsPanelProps";
+import { useSettingsPanelStore } from "../stores/settings-panel-store";
 
 describe("useLawmindAppSettingsPanelProps", () => {
   let host: HTMLDivElement;
@@ -14,6 +15,11 @@ describe("useLawmindAppSettingsPanelProps", () => {
     host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
+    useSettingsPanelStore.setState({
+      open: true,
+      sectionId: "models",
+      scrollAnchorId: "lawmind-settings-memory-truth",
+    });
   });
 
   afterEach(() => {
@@ -29,10 +35,6 @@ describe("useLawmindAppSettingsPanelProps", () => {
     function Harness() {
       captured.push(
         useLawmindAppSettingsPanelProps({
-        showSettings: true,
-        setShowSettings: vi.fn(),
-        settingsSectionId: "models",
-        settingsScrollAnchor: "lawmind-settings-memory-truth",
         config: null,
         projectDir: null,
         workspaceLabel: "default",

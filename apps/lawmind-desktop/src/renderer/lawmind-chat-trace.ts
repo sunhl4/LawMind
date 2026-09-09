@@ -1,5 +1,5 @@
 import type { ChatLiveTrace, ChatTraceStep } from "./lawmind-chat-trace-types.js";
-import { apiAuthHeaders } from "./lawmind-api-auth.ts";
+import { fetchApiJson } from "./api-client-proxy.ts";
 import { presentLawyerToolCall, presentLawyerToolResult } from "../../../../src/lawmind/agent/tool-lawyer-card.ts";
 import { toolDisplayNameZh } from "../../../../src/lawmind/platform/requires-action.ts";
 
@@ -228,33 +228,46 @@ export function mergeDelegationLiveTraces(
   return { active: anyActive, currentRound, steps };
 }
 
+type ChatLiveTurnProgressData = {
+  status: string;
+  currentRound?: number;
+  steps?: Array<{ id: string; kind: string; label: string; status: string; detail?: string }>;
+} | null;
+
+export type ChatLiveTurnProgress = {
+  progress: ChatLiveTurnProgressData;
+  idle: boolean;
+};
+
+type DelegationSessionProgressItem = {
+  delegationId: string;
+  toAssistant: string;
+  targetSessionId?: string;
+  progress: ChatLiveTurnProgressData;
+};
+
+type DelegationSessionProgressResponse = {
+  ok?: boolean;
+  items?: Array<{
+    delegationId?: string;
+    toAssistant?: string;
+    targetSessionId?: string;
+    progress?: ChatLiveTurnProgressData;
+  }>;
+};
+
 export async function fetchDelegationSessionProgress(
   apiBase: string,
   sessionId: string,
   assistantId: string,
   signal?: AbortSignal,
-): Promise<{
-  items: Array<{
-    delegationId: string;
-    toAssistant: string;
-    targetSessionId?: string;
-    progress: Awaited<ReturnType<typeof fetchChatLiveTurnProgress>>["progress"];
-  }>;
-}> {
-  const r = await fetch(
+): Promise<{ items: DelegationSessionProgressItem[] }> {
+  const j = (await fetchApiJson(
     `${apiBase}/api/delegations/session-progress?sessionId=${encodeURIComponent(sessionId)}&assistantId=${encodeURIComponent(assistantId)}`,
-    { signal, headers: apiAuthHeaders() },
-  );
-  const j = (await r.json()) as {
-    ok?: boolean;
-    items?: Array<{
-      delegationId?: string;
-      toAssistant?: string;
-      targetSessionId?: string;
-      progress?: Awaited<ReturnType<typeof fetchChatLiveTurnProgress>>["progress"];
-    }>;
-  };
-  if (!r.ok || j.ok === false || !Array.isArray(j.items)) {
+    { signal },
+    { tag: "delegation-session-progress" },
+  )) as DelegationSessionProgressResponse;
+  if (j.ok === false || !Array.isArray(j.items)) {
     return { items: [] };
   }
   return {
@@ -271,28 +284,17 @@ export async function fetchChatLiveTurnProgress(
   apiBase: string,
   sessionId: string,
   signal?: AbortSignal,
-): Promise<{
-  progress: {
-    status: string;
-    currentRound?: number;
-    steps?: Array<{ id: string; kind: string; label: string; status: string; detail?: string }>;
-  } | null;
-  idle: boolean;
-}> {
-  const r = await fetch(
+): Promise<ChatLiveTurnProgress> {
+  const j = (await fetchApiJson(
     `${apiBase}/api/sessions/${encodeURIComponent(sessionId)}/live-turn`,
-    { signal, headers: apiAuthHeaders() },
-  );
-  const j = (await r.json()) as {
+    { signal },
+    { tag: "chat-live-turn" },
+  )) as {
     ok?: boolean;
-    progress?: {
-      status: string;
-      currentRound?: number;
-      steps?: Array<{ id: string; kind: string; label: string; status: string; detail?: string }>;
-    } | null;
+    progress?: ChatLiveTurnProgressData;
     status?: string;
   };
-  if (!r.ok || j.ok === false) {
+  if (j.ok === false) {
     throw new Error("live_turn_fetch_failed");
   }
   if (j.progress) {

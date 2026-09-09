@@ -8,6 +8,7 @@ import type { MailAccount } from "./mail-accounts.js";
 import type { ResolvedMailAttachment } from "./mail-attachments.js";
 import { getMailAccountSecret } from "./mail-secrets.js";
 import { formatMailFromAddress } from "./mail-send-format.js";
+import { checkSmtpPortAllowed } from "./mail-transport-guard.js";
 import { resolveSmtpEndpoints } from "./provider-presets.js";
 
 export type SmtpSendResult =
@@ -38,6 +39,11 @@ export async function sendSmtpMail(
   });
   if (!host) {
     return { ok: false, error: "missing_smtp_host", hint: "请填写 SMTP 主机。" };
+  }
+  // 非 TLS 标准端口（465/587）默认拒绝，显式 allowInsecure 例外放行。
+  const portCheck = checkSmtpPortAllowed(port, account.allowInsecure);
+  if (!portCheck.ok) {
+    return { ok: false, error: portCheck.error, hint: portCheck.hint };
   }
   try {
     const transport = nodemailer.createTransport({

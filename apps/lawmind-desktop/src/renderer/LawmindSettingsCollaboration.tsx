@@ -176,7 +176,7 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
                   <p>
                     详见{" "}
                     <a
-                      href={lawmindDocUrl("LAWMIND-INTEGRATIONS")}
+                      href={lawmindDocUrl("archive/LAWMIND-INTEGRATIONS")}
                       target="_blank"
                       rel="noreferrer noopener"
                     >
@@ -218,7 +218,7 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
                     <p className="lm-collab-empty-body">
                       请管理员配置办案流程后重试。说明见{" "}
                       <a
-                        href={lawmindDocUrl("LAWMIND-INTEGRATIONS")}
+                        href={lawmindDocUrl("archive/LAWMIND-INTEGRATIONS")}
                         target="_blank"
                         rel="noreferrer noopener"
                       >
@@ -446,7 +446,7 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
               <p className="lm-settings-hint">
                 集成与外部系统边界见{" "}
                 <a
-                  href={lawmindDocUrl("LAWMIND-INTEGRATIONS")}
+                  href={lawmindDocUrl("archive/LAWMIND-INTEGRATIONS")}
                   target="_blank"
                   rel="noreferrer noopener"
                 >

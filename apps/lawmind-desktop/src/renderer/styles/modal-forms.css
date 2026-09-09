@@ -147,8 +147,15 @@
   width: min(400px, 100%);
 }
 
+/* 品牌确认弹窗须压过其它弹层（文件台拣选器 21000 之上）。 */
+.lm-wizard-backdrop.lm-confirm-dialog-backdrop {
+  z-index: 32000;
+}
+
 .lm-wizard.lm-wizard--danger {
   width: min(440px, 100%);
+  border-color: var(--danger-border);
+  box-shadow: var(--shadow-lg), 0 0 0 1px color-mix(in srgb, var(--danger) 28%, transparent);
 }
 
 .lm-wizard.lm-wizard--detail {
@@ -169,17 +176,17 @@
 }
 
 .lm-wizard h2.lm-wizard-title-danger {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--error);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
+  color: var(--danger-text);
   margin-bottom: 10px;
-  letter-spacing: -0.2px;
+  letter-spacing: var(--ls-tight);
 }
 
 .lm-wizard-body-pre {
   white-space: pre-line;
   color: var(--text-2);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   line-height: 1.7;
   margin-bottom: 16px;
 }

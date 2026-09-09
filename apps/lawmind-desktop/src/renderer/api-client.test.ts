@@ -1,23 +1,29 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiGetJson, apiSendJson, messageFromOkFalseBody, userMessageFromApiError } from "./api-client.js";
 import { getLoopbackApiAuthToken, setLoopbackApiAuthToken } from "./lawmind-api-auth.ts";
+import { setAuditEnabledForTests } from "./api-client-proxy.ts";
 
-function fetchCallUrl(input: unknown): string {
+function fetchInputUrl(input: unknown): string {
   if (typeof input === "string") {
     return input;
   }
   if (input instanceof URL) {
     return input.href;
   }
-  if (input && typeof input === "object" && "url" in input && typeof input.url === "string") {
-    return input.url;
+  if (typeof input === "object" && input !== null && "url" in input) {
+    return String((input as { url: string }).url);
   }
-  return "";
+  return JSON.stringify(input);
 }
 
 describe("api-client", () => {
+  beforeEach(() => {
+    setAuditEnabledForTests(false);
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
+    setAuditEnabledForTests(true);
   });
 
   it("prefers message and appends hint for missing_api_key", () => {
@@ -146,7 +152,7 @@ describe("api-client", () => {
       value: 7,
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchCallUrl(fetchMock.mock.calls[1]?.[0])).toContain("http://127.0.0.1:59999/api/test");
+    expect(fetchInputUrl(fetchMock.mock.calls[1]?.[0])).toContain("http://127.0.0.1:59999/api/test");
     vi.unstubAllGlobals();
   });
 

@@ -7,6 +7,7 @@
  * - 为后续合作方本地部署模型预留统一扩展点
  */
 
+import { createOutboundProxy } from "../platform/outbound-proxy.js";
 import type { RetrievalAdapter } from "./index.js";
 import { createLegalModelAdapter, type ModelRetriever } from "./model-adapters.js";
 import { createOpenAICompatibleAdapters } from "./openai-compatible.js";
@@ -139,6 +140,8 @@ export function createOpenSourceLegalAdaptersFromEnv(): RetrievalAdapter[] {
  * 假设 LexEdge 服务暴露 HTTP endpoint，返回与 `ModelRetrievalOutput` 同结构 JSON；
  * 后续团队可按真实接口替换为更具体的 client。
  */
+const lexEdgeProxy = createOutboundProxy({ requestTag: "lexedge" });
+
 export function createLexEdgeAdapterFromEnv(): RetrievalAdapter[] {
   const endpoint = env("LAWMIND_LEXEDGE_ENDPOINT");
   if (!endpoint) {
@@ -148,7 +151,7 @@ export function createLexEdgeAdapterFromEnv(): RetrievalAdapter[] {
   const token = env("LAWMIND_LEXEDGE_TOKEN");
   const run: ModelRetriever = async ({ intent, memory }) => {
     try {
-      const res = await fetch(endpoint, {
+      const res = await lexEdgeProxy.fetch(endpoint, {
         method: "POST",
         headers: {
           "content-type": "application/json",

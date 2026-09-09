@@ -7,6 +7,7 @@ import {
   renderDocxWithTrackedChanges,
   resolveOfficeCliFindReplace,
 } from "./render-docx-tracked.js";
+import { renderDocxWithOptions } from "./render-docx.js";
 
 vi.mock("./render-docx.js", () => ({
   renderDocxWithOptions: vi.fn(async () => ({ ok: true, outputPath: "/tmp/out.docx" })),
@@ -17,6 +18,8 @@ const spawnState = vi.hoisted(() => ({
   setSucceeds: false,
   /** Optional override for matched count in JSON stdout. */
   matched: 1 as number,
+  /** Per-`set` matched overrides (shifted in call order); falls back to `matched`. */
+  matchedQueue: [] as number[],
   lastSetArgs: [] as string[],
 }));
 
@@ -27,15 +30,20 @@ vi.mock("node:child_process", () => ({
     if (isSet) {
       spawnState.lastSetArgs = [...args];
     }
+    const matched =
+      isSet && spawnState.matchedQueue.length > 0
+        ? (spawnState.matchedQueue.shift() ?? 1)
+        : spawnState.matched;
     const code = isClose ? 0 : isSet && spawnState.setSucceeds ? 0 : 1;
     const stdout =
-      isSet && spawnState.setSucceeds
-        ? JSON.stringify({ success: true, matched: spawnState.matched, data: "ok" })
-        : "";
+      isSet && spawnState.setSucceeds ? JSON.stringify({ success: true, matched, data: "ok" }) : "";
     let stdoutHandler: ((arg?: unknown) => void) | undefined;
     let closeHandler: ((arg?: unknown) => void) | undefined;
+    // stdout 只发一次：注册 data 与 close 时都会 flush，重复发送会让 JSON.parse 失败。
+    let stdoutSent = false;
     const flush = () => {
-      if (stdout && stdoutHandler) {
+      if (stdout && stdoutHandler && !stdoutSent) {
+        stdoutSent = true;
         stdoutHandler(stdout);
       }
       if (closeHandler) {
@@ -80,6 +88,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 afterEach(() => {
   spawnState.setSucceeds = false;
   spawnState.matched = 1;
+  spawnState.matchedQueue = [];
   spawnState.lastSetArgs = [];
 });
 
@@ -142,6 +151,44 @@ describe("renderDocxWithTrackedChanges", () => {
     if (!result.ok) {
       expect(result.code).toBe("baseline_missing");
     }
+  });
+
+  it("forwards includeProvenance to the plain fallback render", async () => {
+    spawnState.setSucceeds = false;
+    const draft = {
+      taskId: "task-3",
+      title: "Test",
+      summary: "",
+      templateId: "general",
+      output: "docx",
+      reviewStatus: "approved",
+      reviewNotes: [],
+      sections: [{ heading: "一", body: "甲", citations: [] }],
+      createdAt: new Date().toISOString(),
+    } as import("../types.js").ArtifactDraft;
+    const result = await renderDocxWithTrackedChanges({
+      draft,
+      outputDir: "/tmp",
+      proposals: [
+        {
+          hunkId: "h1",
+          sectionIndex: 0,
+          before: "甲",
+          after: "乙",
+          status: "pending",
+        },
+      ],
+      includeProvenance: true,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.mode).toBe("plain_fallback");
+    }
+    expect(renderDocxWithOptions).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId: "task-3" }),
+      "/tmp",
+      expect.objectContaining({ includeProvenance: true }),
+    );
   });
 });
 
@@ -293,6 +340,108 @@ describe("applyRedlineHunksWithOfficeCli", () => {
     const findIdx = spawnState.lastSetArgs.indexOf("--find");
     expect(spawnState.lastSetArgs[findIdx + 1]).toMatch(/^r"/);
     expect(spawnState.lastSetArgs[findIdx + 1]).toContain("二十四");
+  });
+
+  it("rolls back and skips a hunk when officecli reports matched > 1", async () => {
+    spawnState.setSucceeds = true;
+    spawnState.matched = 2;
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-apply-multi-"));
+    const working = path.join(dir, "w.docx");
+    fs.writeFileSync(working, "original");
+    const r = await applyRedlineHunksWithOfficeCli({
+      workingDocxPath: working,
+      proposals: [
+        {
+          hunkId: "m1",
+          sectionIndex: 0,
+          before: "甲",
+          after: "乙",
+          status: "pending",
+        },
+      ],
+    });
+    // 多处命中：该 hunk 不得落盘——不计 applied，记入 ambiguous 并回滚工作副本。
+    expect(r.applied).toBe(0);
+    expect(r.ambiguous).toBe(1);
+    expect(r.ambiguousHunkIds).toContain("m1");
+    expect(r.rollbackFailed).toBeUndefined();
+    expect(r.lastError).toMatch(/multi_match_skipped/);
+    expect(fs.readFileSync(working, "utf8")).toBe("original");
+    expect(fs.existsSync(`${working}.lm-bak`)).toBe(false);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("flags rollbackFailed when matched > 1 and no backup could be taken", async () => {
+    spawnState.setSucceeds = true;
+    spawnState.matched = 3;
+    const r = await applyRedlineHunksWithOfficeCli({
+      workingDocxPath: "/tmp/lm-no-such-working-copy.docx",
+      proposals: [
+        {
+          hunkId: "m2",
+          sectionIndex: 0,
+          before: "甲",
+          after: "乙",
+          status: "pending",
+        },
+      ],
+    });
+    expect(r.applied).toBe(0);
+    expect(r.ambiguous).toBe(1);
+    expect(r.ambiguousHunkIds).toContain("m2");
+    expect(r.rollbackFailed).toBe(true);
+    expect(r.lastError).toMatch(/multi_match_rollback_failed/);
+  });
+});
+
+describe("renderDocxWithTrackedChanges multi-match safety", () => {
+  it("delivers partial explicitly: multi-match hunk skipped, manifest and warning say so", async () => {
+    spawnState.setSucceeds = true;
+    // 第一个 hunk 正常命中 1 处；第二个在 docx 实际内容中命中 2 处（如页眉重复）。
+    spawnState.matchedQueue = [1, 2];
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-tracked-multi-"));
+    fs.writeFileSync(path.join(dir, "合同.docx"), "pk");
+    const result = await renderDocxWithTrackedChanges({
+      draft: {
+        taskId: "task-multi",
+        title: "Test",
+        summary: "",
+        templateId: "general",
+        output: "docx",
+        reviewStatus: "approved",
+        reviewNotes: [],
+        sections: [{ heading: "一", body: "甲和丙", citations: [] }],
+        createdAt: new Date().toISOString(),
+        contractEdit: {
+          baselineRelativePath: "合同.docx",
+          mode: "surgical",
+        },
+      } as import("../types.js").ArtifactDraft,
+      outputDir: dir,
+      proposals: [
+        { hunkId: "ok-1", sectionIndex: 0, before: "甲", after: "乙", status: "pending" },
+        { hunkId: "amb-1", sectionIndex: 0, before: "丙", after: "丁", status: "pending" },
+      ],
+      workspaceDir: dir,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.mode).toBe("officecli");
+      expect(result.appliedHunks).toBe(1);
+      expect(result.degraded).toBe(true);
+      expect(result.warning).toContain("未应用 1 处");
+      expect(result.warning).toContain("歧义跳过 1 处");
+    }
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(dir, ".task-multi.redline-manifest.json"), "utf8"),
+    ) as {
+      applyResult?: { applied: number; attempted: number; ambiguous: number };
+      proposals: Array<{ hunkId: string; applyStatus?: string }>;
+    };
+    expect(manifest.applyResult).toMatchObject({ applied: 1, attempted: 2, ambiguous: 1 });
+    expect(manifest.proposals.find((p) => p.hunkId === "amb-1")?.applyStatus).toBe("ambiguous");
+    expect(manifest.proposals.find((p) => p.hunkId === "ok-1")?.applyStatus).toBeUndefined();
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 });
 

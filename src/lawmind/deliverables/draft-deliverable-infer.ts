@@ -70,6 +70,9 @@ export function inferDeliverableTypeForAcceptance(
     explicit === "litigation.brief" ||
     explicit === "memo.opinion" ||
     explicit === "memo.internal" ||
+    explicit === "memo.research" ||
+    explicit === "labor.calc" ||
+    explicit === "period.calc" ||
     explicit === "matter.timeline" ||
     explicit === "matter.exhibit_list" ||
     explicit === "meeting.minutes" ||

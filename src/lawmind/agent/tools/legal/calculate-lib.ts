@@ -3,6 +3,13 @@
  * LPR / 牌价 must be supplied by the lawyer — never invented.
  */
 
+import {
+  computeEconomicCompensation,
+  type EconomicCompensationKind,
+} from "../../../labor/economic-compensation.js";
+import { computeLegalPeriod, isLegalPeriodKind } from "../../../labor/legal-period.js";
+import { computeOvertimePay, type OvertimeKind } from "../../../labor/overtime-pay.js";
+
 export type CalculateOp =
   | "interest"
   | "interest_lpr"
@@ -10,7 +17,11 @@ export type CalculateOp =
   | "limitation"
   | "column_sum"
   | "weighted_average"
-  | "liquidated_damages";
+  | "liquidated_damages"
+  | "economic_compensation"
+  | "overtime_pay"
+  | "double_wage"
+  | "legal_period";
 
 export type CalculateResult = {
   op: CalculateOp;
@@ -327,6 +338,165 @@ export function calculateLegal(
         formula: `${base.n} × ${ratio.n}`,
         inputs: { base: base.n, ratio: ratio.n },
         notes: "按约定比例试算。是否过高或过低、法院可否调减，只提示、不算死（民法典第 585 条）。",
+      },
+    };
+  }
+
+  if (op === "economic_compensation") {
+    const years = asNum(inputs.yearsOfService, "yearsOfService");
+    if (!years.ok) {
+      return years;
+    }
+    const wage = asNum(inputs.monthlyWageYuan, "monthlyWageYuan");
+    if (!wage.ok) {
+      return wage;
+    }
+    const kindRaw = typeof inputs.kind === "string" ? inputs.kind.trim() : "N";
+    if (kindRaw !== "N" && kindRaw !== "N+1" && kindRaw !== "2N") {
+      return { ok: false, error: "kind 必须是 N、N+1 或 2N。" };
+    }
+    let avg: number | undefined;
+    if (inputs.localAverageWageYuan != null) {
+      const a = asNum(inputs.localAverageWageYuan, "localAverageWageYuan");
+      if (!a.ok) {
+        return a;
+      }
+      avg = a.n;
+    }
+    const out = computeEconomicCompensation({
+      yearsOfService: years.n,
+      monthlyWageYuan: wage.n,
+      localAverageWageYuan: avg,
+      kind: kindRaw as EconomicCompensationKind,
+    });
+    return {
+      ok: true,
+      result: {
+        op,
+        value: out.amountYuan,
+        formula: out.formula,
+        inputs: {
+          yearsOfService: years.n,
+          monthlyWageYuan: wage.n,
+          localAverageWageYuan: avg,
+          kind: kindRaw,
+          nMonths: out.nMonths,
+          cappedWageYuan: out.cappedWageYuan,
+        },
+        notes: out.notes.join(" ") || undefined,
+      },
+    };
+  }
+
+  if (op === "overtime_pay") {
+    const hours = asNum(inputs.hours, "hours");
+    if (!hours.ok) {
+      return hours;
+    }
+    const wage = asNum(inputs.monthlyWageYuan, "monthlyWageYuan");
+    if (!wage.ok) {
+      return wage;
+    }
+    const kindRaw = typeof inputs.kind === "string" ? inputs.kind.trim() : "";
+    if (kindRaw !== "weekday" && kindRaw !== "rest_day" && kindRaw !== "statutory_holiday") {
+      return { ok: false, error: "kind 必须是 weekday、rest_day 或 statutory_holiday。" };
+    }
+    let workdaysPerMonth: number | undefined;
+    if (inputs.workdaysPerMonth != null) {
+      const w = asNum(inputs.workdaysPerMonth, "workdaysPerMonth");
+      if (!w.ok) {
+        return w;
+      }
+      workdaysPerMonth = w.n;
+    }
+    let hoursPerDay: number | undefined;
+    if (inputs.hoursPerDay != null) {
+      const h = asNum(inputs.hoursPerDay, "hoursPerDay");
+      if (!h.ok) {
+        return h;
+      }
+      hoursPerDay = h.n;
+    }
+    const out = computeOvertimePay({
+      kind: kindRaw as OvertimeKind,
+      hours: hours.n,
+      monthlyWageYuan: wage.n,
+      workdaysPerMonth,
+      hoursPerDay,
+    });
+    return {
+      ok: true,
+      result: {
+        op,
+        value: out.amountYuan,
+        formula: out.formula,
+        inputs: {
+          hours: hours.n,
+          monthlyWageYuan: wage.n,
+          kind: kindRaw,
+          hourlyWageYuan: out.hourlyWageYuan,
+          multiplier: out.multiplier,
+        },
+        notes: out.notes.join(" "),
+      },
+    };
+  }
+
+  if (op === "double_wage") {
+    const months = asNum(inputs.unsignedMonthsAfterFirst, "unsignedMonthsAfterFirst");
+    if (!months.ok) {
+      return months;
+    }
+    if (months.n < 0 || months.n > 11) {
+      return {
+        ok: false,
+        error: "unsignedMonthsAfterFirst 应在 0–11（未签合同第二个月起，最多十一个月）。",
+      };
+    }
+    const wage = asNum(inputs.monthlyWageYuan, "monthlyWageYuan");
+    if (!wage.ok) {
+      return wage;
+    }
+    const n = Math.min(months.n, 11);
+    const value = Number((wage.n * n).toFixed(2));
+    return {
+      ok: true,
+      result: {
+        op,
+        value,
+        formula: `${wage.n} × ${n}`,
+        inputs: { unsignedMonthsAfterFirst: months.n, monthlyWageYuan: wage.n, countedMonths: n },
+        notes:
+          "劳动合同法第 82 条：满一个月未订书面合同的，第二个月起付二倍工资差额，最多十一个月。是否成立劳动关系由材料判断。",
+      },
+    };
+  }
+
+  if (op === "legal_period") {
+    const kindRaw = typeof inputs.kind === "string" ? inputs.kind.trim() : "";
+    if (!isLegalPeriodKind(kindRaw)) {
+      return {
+        ok: false,
+        error:
+          "kind 必须是 civil_appeal / civil_answer / labor_award_sue / labor_arbitration_apply / civil_retrial / execution。",
+      };
+    }
+    const start = asYmd(inputs.start, "start");
+    if (!start.ok) {
+      return start;
+    }
+    const out = computeLegalPeriod(kindRaw, start.s);
+    if ("error" in out) {
+      return { ok: false, error: out.error };
+    }
+    return {
+      ok: true,
+      result: {
+        op,
+        value: out.expires,
+        formula: out.formula,
+        inputs: { kind: kindRaw, start: start.s, expires: out.expires },
+        notes: out.notes.join(" "),
       },
     };
   }

@@ -130,10 +130,11 @@ describe("legal-verify-middleware", () => {
     expect(next.ok).toBe(true);
     const data = next.data as { verify?: { message?: string; unverified?: boolean } };
     expect(data.verify?.unverified).toBe(true);
-    expect(data.verify?.message).toContain("未接真源");
+    // Offline: 未接真源；online but no this-turn trial: 尚未试检. Both are soft stamps.
+    expect(data.verify?.message).toMatch(/未接真源|尚未试检/);
   });
 
-  it("stamps workspace statute search as sample, never live", () => {
+  it("stamps workspace statute search as sample when the tool did not hit a live corpus", () => {
     const next = applyLegalVerifyToResult("search_statute", {
       ok: true,
       data: { hits: [{ snippet: "民法典" }] },
@@ -141,6 +142,28 @@ describe("legal-verify-middleware", () => {
     const data = next.data as { sourceTier?: string; authorityLive?: boolean };
     expect(data.sourceTier).toBe("sample");
     expect(data.authorityLive).toBe(false);
+  });
+
+  it("does not overwrite a live 法宝 search_statute result as sample", () => {
+    const next = applyLegalVerifyToResult("search_statute", {
+      ok: true,
+      data: {
+        hits: [{ source: "北大法宝", url: "https://www.pkulaw.com/chl/x" }],
+        authority: "live",
+        authorityLive: true,
+        authorityProvider: "pkulaw",
+      },
+    });
+    const data = next.data as {
+      sourceTier?: string;
+      authorityLive?: boolean;
+      authority?: string;
+      authorityProvider?: string;
+    };
+    expect(data.sourceTier).toBe("live");
+    expect(data.authorityLive).toBe(true);
+    expect(data.authority).toBe("live");
+    expect(data.authorityProvider).toBe("pkulaw");
   });
 
   it("attaches advisory lintReport when draft body is long enough", () => {
@@ -156,11 +179,69 @@ describe("legal-verify-middleware", () => {
     expect(next.ok).toBe(true);
     const data = next.data as {
       lintReport?: { blockerCount?: number; findings?: Array<{ ruleId: string }> };
-      selfRevise?: { applied?: Array<{ ruleId: string }>; summaryZh?: string };
+      selfRevise?: {
+        applied?: Array<{ ruleId: string }>;
+        proposals?: Array<{ ruleId: string; requiresLawyerDecision?: boolean }>;
+        summaryZh?: string;
+      };
     };
     expect(data.lintReport?.blockerCount).toBeGreaterThanOrEqual(1);
     expect(data.lintReport?.findings?.some((f) => f.ruleId === "statutory.deposit_cap")).toBe(true);
-    expect(data.selfRevise?.applied?.some((a) => a.ruleId === "statutory.deposit_cap")).toBe(true);
+    // 法定参数类不自动改：不出现在 applied，只产出建议式提案。
+    expect(data.selfRevise?.applied?.some((a) => a.ruleId === "statutory.deposit_cap")).toBe(false);
+    expect(
+      data.selfRevise?.proposals?.some(
+        (p) => p.ruleId === "statutory.deposit_cap" && p.requiresLawyerDecision === true,
+      ),
+    ).toBe(true);
+  });
+
+  it("soft-stamps missing statute trial on unlocked opinion drafts", () => {
+    const stamped = applyLegalVerifyToResult(
+      "draft_document",
+      {
+        ok: true,
+        data: {
+          deliverableType: "contract.review",
+          citationIntegrity: { checked: true, ok: true, missingSourceIds: [] },
+          sections: [{ heading: "依据", bodyPreview: "见《民法典》第577条" }],
+        },
+      },
+      { toolNameCallCounts: {} },
+    );
+    const data = stamped.data as { verify?: { statuteTrialMissing?: boolean; message?: string } };
+    expect(data.verify?.statuteTrialMissing).toBe(true);
+    expect(data.verify?.message).toContain("尚未试检");
+
+    const skipped = applyLegalVerifyToResult(
+      "draft_document",
+      {
+        ok: true,
+        data: {
+          deliverableType: "contract.review",
+          citationIntegrity: { checked: true, ok: true, missingSourceIds: [] },
+          sections: [{ heading: "依据", bodyPreview: "见《民法典》第577条" }],
+        },
+      },
+      { toolNameCallCounts: {}, mailContractTurn: true },
+    );
+    expect((skipped.data as { verify?: unknown }).verify).toBeUndefined();
+
+    const tried = applyLegalVerifyToResult(
+      "draft_document",
+      {
+        ok: true,
+        data: {
+          deliverableType: "contract.review",
+          citationIntegrity: { checked: true, ok: true, missingSourceIds: [] },
+          sections: [{ heading: "依据", bodyPreview: "见《民法典》第577条" }],
+        },
+      },
+      { toolNameCallCounts: { search_statute: 1 } },
+    );
+    expect(
+      (tried.data as { verify?: { statuteTrialMissing?: boolean } }).verify?.statuteTrialMissing,
+    ).toBeUndefined();
   });
 
   it("is a no-op for clean drafts and aborted tools", () => {

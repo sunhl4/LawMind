@@ -56,6 +56,8 @@ export type LawmindChatComposeToolbarProps = {
   onDistillLearning?: () => void | Promise<void>;
   onPreviewCompact?: () => Promise<CompactPreview | null>;
   onOpenMemoryInspector?: () => void;
+  /** 本地 API base，用于加载仪表盘等数据。 */
+  apiBase?: string;
 };
 
 export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps): ReactNode {
@@ -90,6 +92,7 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
     onDistillLearning,
     onPreviewCompact,
     onOpenMemoryInspector,
+    apiBase,
   } = props;
 
   const [composeOptionsOpen, setComposeOptionsOpen] = useState(false);
@@ -304,6 +307,7 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
               onOpenWorkflows={onOpenWorkflows}
               hasMaterials={hasMaterials}
               onPick={() => setDeskWorkOpen(false)}
+              apiBase={apiBase}
             />
           </div>
         </div>

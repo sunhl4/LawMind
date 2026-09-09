@@ -7,6 +7,7 @@ import path from "node:path";
 import { withExclusiveFileLock, writeJsonAtomic } from "../adapters/matter-storage/io.js";
 import {
   STANCE_SCHEMA_VERSION,
+  type StanceEvidenceEntry,
   type StanceItem,
   type StanceSource,
   type StanceStoreFile,
@@ -24,10 +25,37 @@ function clamp01(n: number): number {
 }
 
 function asSource(raw: unknown): StanceSource | undefined {
-  if (raw === "redline" || raw === "habit_adopt" || raw === "manual") {
+  if (raw === "redline" || raw === "habit_adopt" || raw === "manual" || raw === "revision_pack") {
     return raw;
   }
   return undefined;
+}
+
+/** 账本条目校验；上限防止无限增长（超出保留最近）。 */
+const MAX_EVIDENCE_ENTRIES = 50;
+
+function asEvidence(raw: unknown): StanceEvidenceEntry[] | undefined {
+  if (!Array.isArray(raw)) {
+    return undefined;
+  }
+  const out: StanceEvidenceEntry[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== "object") {
+      continue;
+    }
+    const r = row as Partial<StanceEvidenceEntry>;
+    const source = asSource(r.source);
+    const at = typeof r.at === "string" && r.at ? r.at : "";
+    if (!source || !at) {
+      continue;
+    }
+    const entry: StanceEvidenceEntry = { source, at };
+    if (typeof r.matterId === "string" && r.matterId.trim()) {
+      entry.matterId = r.matterId.trim();
+    }
+    out.push(entry);
+  }
+  return out.length > 0 ? out.slice(-MAX_EVIDENCE_ENTRIES) : undefined;
 }
 
 function asStanceItem(raw: unknown): StanceItem | undefined {
@@ -61,6 +89,10 @@ function asStanceItem(raw: unknown): StanceItem | undefined {
     updatedAt:
       typeof r.updatedAt === "string" && r.updatedAt ? r.updatedAt : new Date().toISOString(),
   };
+  const evidence = asEvidence((r as { evidence?: unknown }).evidence);
+  if (evidence) {
+    item.evidence = evidence;
+  }
   if (typeof r.family === "string" && r.family.trim()) {
     item.family = r.family.trim();
   }

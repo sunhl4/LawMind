@@ -9,6 +9,7 @@ import path from "node:path";
 import { writeJsonAtomic, withExclusiveFileLock } from "../adapters/matter-storage/io.js";
 import type { ArtifactDraft, ArtifactSection } from "../types.js";
 import { persistDraft, readDraft } from "./index.js";
+import { appendProvenanceEvent, createProvenanceEvent, diffSummary } from "./provenance.js";
 import { applySpanToBody, splitSurgicalEditSpans } from "./surgical-diff.js";
 
 export type RedlineHunkStatus = "pending" | "accepted" | "rejected";
@@ -291,6 +292,25 @@ function resolveRedlineHunkUnlocked(
   }
 
   draft = { ...draft, sections };
+
+  if (decision === "accept") {
+    const acceptedSection = sections[hunk.sectionIndex];
+    if (acceptedSection) {
+      sections[hunk.sectionIndex] = {
+        ...acceptedSection,
+        provenance: appendProvenanceEvent(
+          acceptedSection.provenance,
+          createProvenanceEvent("lawyer_accept", "user", {
+            sourceId: hunk.hunkId,
+            reason: hunk.rationale,
+            diffSummary: diffSummary(hunk.before, hunk.after),
+          }),
+        ),
+      };
+      draft = { ...draft, sections };
+    }
+  }
+
   persistDraft(workspaceDir, draft);
 
   if (decision === "accept") {

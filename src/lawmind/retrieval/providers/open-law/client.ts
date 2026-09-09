@@ -11,6 +11,7 @@
  * - hybrid: local first; then each enabled live source in China → US/EU/JP order
  */
 
+import { createOutboundProxy } from "../../../platform/outbound-proxy.js";
 import { mapHitsToRetrievalResult, type AuthorityHit } from "../../authority-hits.js";
 import type { AuthorityDnsLookupFn } from "../../authority-url-guard.js";
 import type { RetrievalResult } from "../../index.js";
@@ -177,6 +178,14 @@ export async function openLawRetrieve(opts: {
   httpStatus?: number;
   source: OpenLawRetrieveSource;
 }> {
+  // 统一出口代理：open-law live 适配器默认都经此代理，允许本地回环（caseopen 自建）。
+  const openLawProxy = createOutboundProxy({
+    fetchImpl: opts.fetchImpl,
+    allowLocalNetwork: true,
+    requestTag: "open-law",
+  });
+  const fetchImpl = openLawProxy.fetch.bind(openLawProxy);
+
   const mode = opts.mode ?? resolveOpenLawMode();
   const query = opts.query.trim();
 
@@ -190,8 +199,10 @@ export async function openLawRetrieve(opts: {
     }
   }
 
-  if (mode !== "hybrid" && mode !== "local") {
-    return retrieveLiveLane(laneBySource(mode), opts);
+  const laneOpts = { ...opts, fetchImpl };
+
+  if (mode !== "hybrid") {
+    return retrieveLiveLane(laneBySource(mode), laneOpts);
   }
 
   if (mode === "hybrid") {
@@ -201,7 +212,7 @@ export async function openLawRetrieve(opts: {
         continue;
       }
       tried.push(lane.emptyLabel);
-      const outcome = await retrieveLiveLane(lane, opts);
+      const outcome = await retrieveLiveLane(lane, laneOpts);
       if (outcome.source === lane.source && outcome.result.sources.length > 0) {
         return outcome;
       }

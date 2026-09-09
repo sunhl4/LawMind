@@ -47,8 +47,7 @@ describe("evaluation/quality", () => {
   }
 
   it("persistQualityRecord / readQualityRecord round-trip", async () => {
-    persistQualityRecord(workspaceDir, sampleRecord());
-    await new Promise((r) => setTimeout(r, 30));
+    await persistQualityRecord(workspaceDir, sampleRecord());
     const loaded = await readQualityRecord(workspaceDir, "task-q-1");
     expect(loaded?.taskId).toBe("task-q-1");
     expect(loaded?.firstPassApproved).toBe(true);
@@ -80,8 +79,8 @@ describe("evaluation/quality", () => {
   });
 
   it("buildQualityReportMarkdown aggregates labels and golden list", async () => {
-    persistQualityRecord(workspaceDir, sampleRecord());
-    persistQualityRecord(
+    await persistQualityRecord(workspaceDir, sampleRecord());
+    await persistQualityRecord(
       workspaceDir,
       sampleRecord({
         taskId: "task-q-2",
@@ -91,7 +90,6 @@ describe("evaluation/quality", () => {
         reviewLabels: ["需补充依据"],
       }),
     );
-    await new Promise((r) => setTimeout(r, 40));
     const md = await buildQualityReportMarkdown(workspaceDir);
     expect(md).toContain("任务总数 | 2");
     expect(md).toContain("质量范例");
@@ -101,8 +99,8 @@ describe("evaluation/quality", () => {
   });
 
   it("buildQualityDashboardMarkdown groups by kind/template/preset", async () => {
-    persistQualityRecord(workspaceDir, sampleRecord());
-    persistQualityRecord(
+    await persistQualityRecord(workspaceDir, sampleRecord());
+    await persistQualityRecord(
       workspaceDir,
       sampleRecord({
         taskId: "task-q-3",
@@ -117,7 +115,6 @@ describe("evaluation/quality", () => {
         riskRecallRate: null,
       }),
     );
-    await new Promise((r) => setTimeout(r, 40));
     const md = await buildQualityDashboardMarkdown(workspaceDir);
     expect(md).toContain("按任务类型");
     expect(md).toContain("draft.word");

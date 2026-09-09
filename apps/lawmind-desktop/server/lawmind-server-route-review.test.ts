@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { persistDraft, readDraft } from "../../../src/lawmind/drafts/index.js";
+import { listPlatformGateHistory } from "../../../src/lawmind/platform/audit-gate.js";
 import { ensureTaskRecord, readTaskRecord } from "../../../src/lawmind/tasks/index.js";
 import { LAWMIND_MODEL_PROVIDERS } from "../../../src/lawmind/models/providers.js";
 import type { ArtifactDraft, TaskIntent } from "../../../src/lawmind/types.js";
@@ -949,6 +950,110 @@ describe("lawmind-server-route-review", () => {
       ok: false,
       error: "acceptance_gate_blocked",
     });
+  });
+
+  function seedStrictBlockedDraft(workspaceDir: string, taskId: string): void {
+    fs.writeFileSync(path.join(workspaceDir, "MEMORY.md"), "# Memory\n", "utf8");
+    fs.writeFileSync(path.join(workspaceDir, "LAWYER_PROFILE.md"), "# Lawyer Profile\n", "utf8");
+    const now = new Date().toISOString();
+    ensureTaskRecord(workspaceDir, {
+      taskId,
+      kind: "analyze.contract",
+      output: "docx",
+      summary: "合同",
+      riskLevel: "medium",
+      models: ["general"],
+      requiresConfirmation: false,
+      createdAt: now,
+      matterId: "m-strict",
+    } as TaskIntent);
+    persistDraft(workspaceDir, {
+      taskId,
+      matterId: "m-strict",
+      title: "不完整草稿",
+      output: "docx",
+      templateId: "contract-rental-default",
+      deliverableType: "contract.rental",
+      summary: "摘要",
+      sections: [{ heading: "一、合同主体", body: "仅有一节，缺其余章节。", citations: [] }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: now,
+    } as ArtifactDraft);
+  }
+
+  function renderRequestCtx(workspaceDir: string): LawmindDispatchContext {
+    return {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+  }
+
+  it("?strict=false 无 env 门时被忽略，出稿检查照常拦截", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-review-strict-noenv-"));
+    tempDirs.push(workspaceDir);
+    seedStrictBlockedDraft(workspaceDir, "strict-noenv-task");
+    const prev = process.env.LAWMIND_ALLOW_RENDER_GATE_BYPASS;
+    delete process.env.LAWMIND_ALLOW_RENDER_GATE_BYPASS;
+    try {
+      const cap = createResponseCapture();
+      await expect(
+        handleReviewRoute({
+          ctx: renderRequestCtx(workspaceDir),
+          req: createJsonRequest("POST", {}),
+          res: cap.res,
+          url: new URL("http://127.0.0.1/api/drafts/strict-noenv-task/render?strict=false"),
+          pathname: "/api/drafts/strict-noenv-task/render",
+          c: {},
+        }),
+      ).resolves.toBe(true);
+      expect(cap.status).toBe(422);
+      expect(cap.json()).toMatchObject({ ok: false, error: "acceptance_gate_blocked" });
+      const history = await listPlatformGateHistory(workspaceDir);
+      expect(history.some((h) => h.source === "render_bypass")).toBe(false);
+    } finally {
+      if (prev === undefined) {
+        delete process.env.LAWMIND_ALLOW_RENDER_GATE_BYPASS;
+      } else {
+        process.env.LAWMIND_ALLOW_RENDER_GATE_BYPASS = prev;
+      }
+    }
+  });
+
+  it("?strict=false 在 LAWMIND_ALLOW_RENDER_GATE_BYPASS=1 下生效且落 bypass 审计", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-review-strict-bypass-"));
+    tempDirs.push(workspaceDir);
+    seedStrictBlockedDraft(workspaceDir, "strict-bypass-task");
+    const prev = process.env.LAWMIND_ALLOW_RENDER_GATE_BYPASS;
+    process.env.LAWMIND_ALLOW_RENDER_GATE_BYPASS = "1";
+    try {
+      const cap = createResponseCapture();
+      await expect(
+        handleReviewRoute({
+          ctx: renderRequestCtx(workspaceDir),
+          req: createJsonRequest("POST", {}),
+          res: cap.res,
+          url: new URL("http://127.0.0.1/api/drafts/strict-bypass-task/render?strict=false"),
+          pathname: "/api/drafts/strict-bypass-task/render",
+          c: {},
+        }),
+      ).resolves.toBe(true);
+      expect(cap.status).toBe(200);
+      expect(cap.json()).toMatchObject({ ok: true });
+      const history = await listPlatformGateHistory(workspaceDir);
+      const bypass = history.find((h) => h.source === "render_bypass");
+      expect(bypass).toBeTruthy();
+      expect(bypass?.context?.gateDecision).toBe("bypass");
+      expect(bypass?.context?.via).toBe("strict_query_param");
+    } finally {
+      if (prev === undefined) {
+        delete process.env.LAWMIND_ALLOW_RENDER_GATE_BYPASS;
+      } else {
+        process.env.LAWMIND_ALLOW_RENDER_GATE_BYPASS = prev;
+      }
+    }
   });
 
   it("POST /api/drafts/:id/review returns 422 when checklist incomplete", async () => {

@@ -127,14 +127,7 @@ function asWriteCell(value: unknown): string | number | boolean {
   if (typeof value === "string") {
     return value.slice(0, 2_000);
   }
-  if (typeof value === "bigint" || typeof value === "symbol") {
-    return value.toString().slice(0, 2_000);
-  }
-  try {
-    return JSON.stringify(value).slice(0, 2_000);
-  } catch {
-    return "";
-  }
+  return JSON.stringify(value).slice(0, 2_000);
 }
 
 export async function writeXlsxWorkbook(

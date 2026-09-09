@@ -38,13 +38,11 @@ function minimalWorkspaceProps(
     reviewFocusListMode: "all",
     reviewRefreshVersion: 0,
     reviewLaunchedFromMatter: false,
-    reviewPaneVisibility: { meta: true, editor: true, preview: true },
     onReturnToMatter: noop,
     onShowArtifact: noop,
     onRecordsChanged: noop,
     onGoToChat: noop,
     onRevisionJobQueued: noop,
-    onToggleReviewPane: noop,
     collabSummarySettings: null,
     delegations: [],
     collabEvents: [],
@@ -153,5 +151,30 @@ describe("LawmindMainBodyContent workspace bootstrap", () => {
     // Connecting: no splash strip; workspace chrome waits for config.
     expect(host.querySelector(".lm-workspace-bootstrap-gate")).toBeNull();
     expect(host.querySelector(".lm-workspace-unified")).toBeNull();
+  });
+
+  it("renders 工作台 when mainView is desk and config is ready", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindShellProviders
+          navigation={{
+            mainView: "desk",
+            matterCockpitOpen: false,
+            settingsOpen: false,
+          }}
+          chatSession={{
+            selectedAssistantId: "a1",
+            activeChatSessionId: undefined,
+          }}
+        >
+          <LawmindMainBodyContent
+            {...minimalWorkspaceProps({
+              config: { apiBase: "http://127.0.0.1:9", workspaceDir: "/tmp/ws" } as LawmindMainBodyContentProps["config"],
+            })}
+          />
+        </LawmindShellProviders>,
+      );
+    });
+    expect(host.querySelector('[data-testid="lm-lawyer-workbench"]')).toBeTruthy();
   });
 });

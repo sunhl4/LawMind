@@ -10,7 +10,7 @@ type DocRow = {
   source?: string;
 };
 
-type ConnectorId = "filesystem" | "imanage" | "sharepoint";
+type ConnectorId = "filesystem" | "imanage" | "sharepoint" | "feishu";
 
 type Props = {
   apiBase: string;
@@ -50,11 +50,13 @@ export function MatterLocalDocIndex(props: Props): ReactNode {
           return;
         }
         setDocs(r.documents ?? []);
-        if (connector === "imanage" || r.mode === "fixture" || r.hint?.includes("演示")) {
+        if (connector === "imanage" || connector === "feishu" || r.mode === "fixture" || r.hint?.includes("演示")) {
           setHint(
             connector === "imanage"
               ? "演示索引。"
-              : (r.hint ?? null),
+              : connector === "feishu"
+                ? "只读索引。不会写入飞书。"
+                : (r.hint ?? null),
           );
         }
       })
@@ -82,6 +84,7 @@ export function MatterLocalDocIndex(props: Props): ReactNode {
           <option value="filesystem">本机 cases 目录</option>
           <option value="imanage">iManage（演示）</option>
           <option value="sharepoint">SharePoint</option>
+          <option value="feishu">飞书云文档（只读）</option>
         </select>
       </label>
       {hint ? <p className="lm-callout lm-callout-muted lm-meta">{hint}</p> : null}

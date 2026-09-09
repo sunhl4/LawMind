@@ -1,3 +1,4 @@
+// TODO(renderer-fetch-proxy): migrate remaining fetch calls to fetchApi / api-client-proxy.
 /**
  * Plan → Execute handoff: extract plan text, persist per session, build confirm prompt.
  */
@@ -274,7 +275,8 @@ export async function deleteSessionPlanHandoff(
   try {
     await fetch(
       `${apiBase.replace(/\/$/, "")}/api/sessions/${encodeURIComponent(id)}/plan-handoff`,
-      { method: "DELETE", headers: { ...apiAuthHeaders() } },
+      // 变更类请求统一带 JSON Content-Type（dev skip-auth 的 CSRF 收口要求）。
+      { method: "DELETE", headers: { "content-type": "application/json", ...apiAuthHeaders() } },
     );
   } catch {
     /* ignore */

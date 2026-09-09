@@ -53,7 +53,7 @@ describe("partitionToolCalls", () => {
 });
 
 describe("executeToolBatches approval race", () => {
-  it("first-wins when two concurrent tools return pendingApproval", async () => {
+  it("first-wins when two concurrent tools return approvalRequest", async () => {
     const registry = new ToolRegistry();
     let calls = 0;
     const makePending = (name: string): AgentTool => ({
@@ -67,7 +67,7 @@ describe("executeToolBatches approval race", () => {
       execute: async () => {
         calls += 1;
         await new Promise((r) => setTimeout(r, name === "tool_a" ? 1 : 20));
-        return { ok: true, pendingApproval: true };
+        return { ok: true, approvalRequest: true };
       },
     });
     registry.register(makePending("tool_a"));
@@ -213,7 +213,7 @@ describe("executeToolBatches approval race", () => {
       },
       execute: async () => {
         pushedDuring.b = pushed;
-        return { ok: true, pendingApproval: true };
+        return { ok: true, approvalRequest: true };
       },
     });
     const turn: AgentTurn = {

@@ -5,7 +5,7 @@ import React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { upsertWordRevisionMarkers } from "../../../../src/lawmind/platform/word-revision-checklist.ts";
+import { upsertWordRevisionMarkers } from "../../../../src/lawmind/platform/word-revision-core.ts";
 import { LawmindWordRevisionBar, shouldShowWordRevisionBar } from "./LawmindWordRevisionBar";
 
 describe("LawmindWordRevisionBar", () => {

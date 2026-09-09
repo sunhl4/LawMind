@@ -104,10 +104,20 @@ export async function draftAsyncImpl(
   ctx: EngineContext,
   intent: TaskIntent,
   bundle: ResearchBundle,
-  opts: { title?: string; templateId?: string } = {},
+  opts: {
+    title?: string;
+    templateId?: string;
+    phaseTiming?: Record<string, number>;
+  } = {},
 ): Promise<ArtifactDraft> {
   ensureRoleAllowsDraft(ctx, intent);
   const lawMindRoot = resolveLawMindRoot(ctx.workspaceDir);
+  const record = (name: string, startedAt: number) => {
+    if (opts.phaseTiming) {
+      opts.phaseTiming[name] = Math.max(0, Date.now() - startedAt);
+    }
+  };
+  let t = Date.now();
   let draft = await buildDraftAsync({
     intent,
     bundle,
@@ -116,11 +126,18 @@ export async function draftAsyncImpl(
     lawMindRoot,
     workspaceDir: ctx.workspaceDir,
   });
+  record("draft_model", t);
+  t = Date.now();
   draft = await attachContractEditContext(ctx, intent, bundle, draft);
+  record("draft_contract_baseline", t);
+  t = Date.now();
   const criticized = await runDraftCriticAsync(draft);
+  record("draft_critic", t);
   draft = criticized.draft;
   persistClauseSnapshot(ctx.workspaceDir, criticized.graph);
+  t = Date.now();
   persistDraftPipeline(ctx, draft, bundle);
+  record("draft_persist", t);
   return draft;
 }
 

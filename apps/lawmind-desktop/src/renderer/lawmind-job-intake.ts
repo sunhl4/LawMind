@@ -52,7 +52,7 @@ export function defaultIntakeFieldsForDeliverable(
         {
           key: "desense",
           label: "脱敏声明",
-          placeholder: "已脱敏 / 仅用公开信息（培训硬门禁）",
+          placeholder: "已脱敏 / 仅用公开信息（培训硬核对）",
           required: true,
         },
         { key: "tone", label: "风格要求", placeholder: "专业、清楚、适合律师讲解", required: false },
@@ -121,7 +121,7 @@ function researchGateLines(deliverableType: string | undefined): string[] {
     case "ppt.training":
       return [
         "请先给出课件大纲待我确认，再生成可导出 PPT。",
-        "案件材料须已脱敏；未通过脱敏门禁不得出稿。",
+        "案件材料须已脱敏；未通过脱敏核对不得出稿。",
       ];
     default:
       return [

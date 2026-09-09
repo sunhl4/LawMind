@@ -1,6 +1,6 @@
 # LawMind citation and matter detail (handoff memory)
 
-本文供后续迭代或新会话快速对齐：**草稿引用完整性**在引擎、桌面 API、案件详情 UI、审计与文档中的落点。产品面向说明仍以 [LawMind 用户手册](/LAWMIND-USER-MANUAL) 为准。
+本文供后续迭代或新会话快速对齐：**草稿引用完整性**在引擎、桌面 API、案件详情 UI、审计与文档中的落点。产品面向说明仍以 [LawMind 用户手册](/archive/LAWMIND-USER-MANUAL) 为准。
 
 ## Objective
 
@@ -14,7 +14,7 @@
 3. **LawMind Desktop API**：单草稿 GET/POST 等路径响应中带 **`citationIntegrity`**；**`GET /api/matters/detail`** 在构建案件索引后填充 **`draftCitationIntegrity`**（`taskId` → 视图）。实现：`apps/lawmind-desktop/server/lawmind-server-dispatch.ts`。
 4. **桌面 UI**：案件详情「任务」列表中草稿行旁 **`DraftCitationBadge`**（无快照 / 引用 OK / 引用待核）。实现：`apps/lawmind-desktop/src/renderer/MatterWorkbench.tsx`；样式类名 `lm-matter-cit*` 在 `apps/lawmind-desktop/src/renderer/styles.css`。审核台等处的横幅/状态复用 `LawmindCitationBanner.tsx`、`ReviewWorkbench.tsx` 等，类型均从 `src/lawmind/drafts/citation-integrity.ts` 引用。
 5. **Health**：`doctor.researchSnapshotCount`（`drafts/` 下 `*.research.json` 数量）见 `apps/lawmind-desktop/server/lawmind-health-payload.ts` 与手册说明。
-6. **文档**：`docs/LAWMIND-USER-MANUAL.md`（`draftCitationIntegrity`、`researchSnapshotCount`、合规导出与 **`draft.citation_integrity`**）；任务检查点叙事见 [LawMind task checkpoints](/lawmind/task-checkpoints)。
+6. **文档**：`docs/archive/LAWMIND-USER-MANUAL.md`（`draftCitationIntegrity`、`researchSnapshotCount`、合规导出与 **`draft.citation_integrity`**）；任务检查点叙事见 [LawMind task checkpoints](/lawmind/task-checkpoints)。
 7. **合规导出测试**：`src/lawmind/audit/export-report.test.ts` 中含 **`draft.citation_integrity`** 的聚合计数/表格断言。
 
 ## Key files (quick index)
@@ -35,7 +35,7 @@
 
 ## Related docs
 
-- [LawMind user manual](/LAWMIND-USER-MANUAL)
+- [LawMind user manual](/archive/LAWMIND-USER-MANUAL)
 - [LawMind compliance audit trail](/lawmind/compliance-audit-trail)
 - [LawMind task checkpoints](/lawmind/task-checkpoints)
 - [Agent Workbench Memory](/lawmind/agent-workbench-memory)

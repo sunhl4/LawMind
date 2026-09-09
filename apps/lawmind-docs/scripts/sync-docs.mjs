@@ -42,6 +42,14 @@ if (fs.existsSync(lmSrc)) {
   fs.cpSync(lmSrc, lmDest, { recursive: true });
 }
 
+/** Archived (read-only) docs stay published under /archive/ so old links keep resolving. */
+const archSrc = path.join(srcDocs, "archive");
+const archDest = path.join(destDocs, "archive");
+if (fs.existsSync(archSrc)) {
+  fs.rmSync(archDest, { recursive: true, force: true });
+  fs.cpSync(archSrc, archDest, { recursive: true });
+}
+
 const assetsSrc = path.join(srcDocs, "assets");
 const assetsDest = path.join(destDocs, "assets");
 if (fs.existsSync(assetsSrc)) {
@@ -60,5 +68,5 @@ if (fs.existsSync(downloadSrc)) {
 console.log(
   `sync-docs: copied ${n} LAWMIND-*.md` +
     (pruned ? ` (pruned ${pruned} stale)` : "") +
-    ` + docs/lawmind/ + docs/assets/ + download/ → apps/lawmind-docs/docs/`,
+    ` + docs/lawmind/ + docs/archive/ + docs/assets/ + download/ → apps/lawmind-docs/docs/`,
 );

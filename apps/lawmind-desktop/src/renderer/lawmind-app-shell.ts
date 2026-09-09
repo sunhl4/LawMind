@@ -2,13 +2,6 @@ import { useCallback, useRef, useState } from "react";
 import type { ArtifactDraft } from "../../../../src/lawmind/types.ts";
 import { createAssistantDraft, type AssistantEditorDraft } from "./lawmind-assistant-editor";
 import type { LawmindMainView } from "./lawmind-main-view";
-import {
-  type LawmindSettingsScrollAnchorId,
-  type LawmindSettingsSectionId,
-  LAWMIND_SETTINGS_DEFAULT_SECTION,
-  readStoredSettingsSection,
-  type SetShowSettings,
-} from "./lawmind-settings-shell";
 import type { TimeRangeFilter } from "./lawmind-time-range";
 import { type AppConfig } from "./lawmind-app-bootstrap";
 import { useLawmindModelConfig } from "./useLawmindModelConfig";
@@ -63,7 +56,6 @@ export function useLawmindAppShell() {
     platformProviders,
     platformMode,
     selectedModelId,
-    setSelectedModelId: _setSelectedModelId,
     composeModelHint,
     setComposeModelHint,
     composeModelQuickTestBusy,
@@ -137,35 +129,6 @@ export function useLawmindAppShell() {
   });
   const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null);
   const [recordsExpanded, setRecordsExpanded] = useState(false);
-  const [showSettings, setShowSettingsState] = useState(false);
-  const [settingsSectionId, setSettingsSectionId] = useState<LawmindSettingsSectionId>(
-    LAWMIND_SETTINGS_DEFAULT_SECTION,
-  );
-  const [settingsScrollAnchor, setSettingsScrollAnchor] = useState<
-    LawmindSettingsScrollAnchorId | undefined
-  >(undefined);
-  const setShowSettings = useCallback<SetShowSettings>(
-    (open, sectionId, scrollAnchorId) => {
-      if (typeof open === "function") {
-        setShowSettingsState((prev) => {
-          const next = open(prev);
-          if (!next) {
-            setSettingsScrollAnchor(undefined);
-          }
-          return next;
-        });
-        return;
-      }
-      if (open) {
-        setSettingsSectionId(sectionId ?? readStoredSettingsSection());
-        setSettingsScrollAnchor(scrollAnchorId);
-      } else {
-        setSettingsScrollAnchor(undefined);
-      }
-      setShowSettingsState(open);
-    },
-    [],
-  );
   const [showHelp, setShowHelp] = useState(false);
   const [collabExpanded, setCollabExpanded] = useState(false);
   const [collabTab, setCollabTab] = useState<"delegations" | "timeline">("delegations");
@@ -218,7 +181,6 @@ export function useLawmindAppShell() {
     setError,
     applyBootstrapSnapshot,
     refreshModelsCatalog,
-    showSettings,
   });
 
   const {
@@ -241,7 +203,6 @@ export function useLawmindAppShell() {
     reloadCollabSummary,
     showWizard,
     setShowWizard,
-    setShowSettings,
     wizApiKey,
     wizBaseUrl,
     wizModel,
@@ -380,7 +341,6 @@ export function useLawmindAppShell() {
     setError,
     setInput,
     setShowWizard,
-    setShowSettings,
     setComposeModelHint,
     selectedAssistantId,
     selectedModelId,
@@ -520,9 +480,6 @@ export function useLawmindAppShell() {
       composeTruthPins,
       copiedMessageIndex,
       recordsExpanded,
-      showSettings,
-      settingsSectionId,
-      settingsScrollAnchor,
       showHelp,
       collabSummarySettings,
       localServiceReconnecting,
@@ -575,7 +532,6 @@ export function useLawmindAppShell() {
       setContextTaskId,
       setContextMatterId,
       setRecordsExpanded,
-      setShowSettings,
       setShowHelp,
       setCollabExpanded,
       setCollabTab,

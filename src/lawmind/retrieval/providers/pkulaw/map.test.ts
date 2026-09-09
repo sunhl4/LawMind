@@ -31,4 +31,17 @@ describe("pkulaw/map", () => {
     expect(inferPkulawSearchKind("民法典解除")).toBe("law");
     expect(inferPkulawSearchKind("类案 押金")).toBe("case");
   });
+
+  it("maps official MCP structuredContent + content JSON array", () => {
+    const body = JSON.parse(
+      readFileSync(path.join(HERE, "fixtures/official-search-article.json"), "utf8"),
+    ) as { result: unknown };
+    const hits = mapPkulawResponseBody(body.result);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.id).toBe("gid-labor-36");
+    expect(hits[0]?.kind).toBe("statute");
+    expect(hits[0]?.excerpt).toMatch(/第三十六条/);
+    expect(hits[0]?.url).toMatch(/pkulaw\.com/);
+    expect(hits[0]?.provider).toBe("pkulaw");
+  });
 });

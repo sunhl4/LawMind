@@ -10,6 +10,7 @@ import {
 } from "./lawmind-requires-action";
 import { apiSendJson, errorMessage, messageFromOkFalseBody } from "./api-client";
 import { apiPostDraftReview } from "./lawmind-api-routes";
+import { confirmDialog } from "./lawmind-confirm-dialog";
 import {
   applyPostApproveRenderResult,
   createPostApproveExport,
@@ -206,9 +207,12 @@ export function createFleetCeremonyActions(deps: FleetCeremonyActionsDeps) {
       return;
     }
     if (
-      !window.confirm(
-        `丢弃待签批草稿「${current.title?.trim() || taskId}」？\n\n将从文书台与在办移除，且不可恢复。已签批或已导出的草稿不会出现在此列表。`,
-      )
+      !(await confirmDialog({
+        title: `丢弃待签批草稿「${current.title?.trim() || taskId}」？`,
+        body: "将从文书台与在办移除，且不可恢复。已签批或已导出的草稿不会出现在此列表。",
+        confirmLabel: "丢弃",
+        tone: "danger",
+      }))
     ) {
       return;
     }

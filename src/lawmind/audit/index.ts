@@ -10,13 +10,17 @@
  */
 
 import { randomUUID } from "node:crypto";
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { withExclusiveFileLock } from "../adapters/matter-storage/io.js";
 import { isFeatureEnabled } from "../policy/edition.js";
 import { readWorkspacePolicyFile } from "../policy/workspace-policy.js";
 import { listTaskRecords } from "../tasks/index.js";
 import type { AuditEvent, AuditEventKind } from "../types.js";
-import { attachHashChain, type AuditEventWithIntegrity } from "./hash-chain.js";
+import { syncExternalAnchorForAuditDir } from "./external-anchor.js";
+import { attachHashChain } from "./hash-chain.js";
+import { appendAuditRootAnchor } from "./root-anchor.js";
 
 // ─────────────────────────────────────────────
 // 工具
@@ -102,11 +106,25 @@ async function appendAuditLine(
 ): Promise<void> {
   try {
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    const stored: AuditEvent | AuditEventWithIntegrity = integrityChain
-      ? attachHashChain(filePath, event)
-      : event;
-    const line = JSON.stringify(stored) + "\n";
-    await fs.appendFile(filePath, line, "utf8");
+    if (integrityChain) {
+      // 跨进程互斥：attach（读文件尾续链）+ append + 外锚必须在同一临界区，
+      // 否则桌面服务器与 lawmindd 双进程并发续链会分叉。锁原语自带 stale 自愈。
+      withExclusiveFileLock(`${filePath}.lock`, () => {
+        const stored = attachHashChain(filePath, event);
+        fsSync.appendFileSync(filePath, `${JSON.stringify(stored)}\n`, "utf8");
+        if (stored.eventHash) {
+          appendAuditRootAnchor(path.dirname(filePath), {
+            date: path.basename(filePath, ".jsonl"),
+            rootHash: stored.eventHash,
+            eventId: stored.eventId,
+          });
+        }
+      });
+      // 外部锚同步：失败只告警，不阻断审计；不纳入文件锁临界区以免网络/IO 阻塞 emit。
+      void syncExternalAnchorForAuditDir(path.dirname(filePath));
+      return;
+    }
+    await fs.appendFile(filePath, `${JSON.stringify(event)}\n`, "utf8");
   } catch (err: unknown) {
     const e = err as NodeJS.ErrnoException | undefined;
     // Concurrent workspace teardown / temp dir removal may delete `audit/` between

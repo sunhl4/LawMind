@@ -4,8 +4,16 @@ import { saleFamilyApplies } from "./sale.js";
 
 describe("sale family", () => {
   it("fires extra rules on 买卖/供货/采购 contracts", () => {
-    const report = runLegalLint("买卖合同。甲方出售货物，乙方付款。价款一万元。");
-    expect(saleFamilyApplies("买卖合同")).toBe(true);
+    const report = runLegalLint(
+      "买卖合同。甲方出售货物，乙方付款。价款一万元。",
+      undefined,
+      undefined,
+      undefined,
+      {
+        deliverableType: "contract.review",
+      },
+    );
+    expect(saleFamilyApplies("买卖合同", { deliverableType: "contract.review" })).toBe(true);
     expect(report.findings.some((f) => f.family === "sale")).toBe(true);
     expect(report.findings.some((f) => f.ruleId === "sale.acceptance")).toBe(true);
     expect(report.findings.some((f) => f.ruleId === "sale.delivery")).toBe(true);

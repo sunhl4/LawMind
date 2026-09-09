@@ -133,6 +133,28 @@ describe("url-dossier", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it("默认 fetch 走 pinned 路径：check 后 DNS 重绑定到私网在 connect 时被拒（TOCTOU）", async () => {
+    // 模拟 DNS rebinding：第一次解析（fetch 前校验）返回公网 IP，
+    // 第二次解析（pinned fetch 连接钉）返回私网 IP —— 连接层必须 fail-closed。
+    let calls = 0;
+    const lookup = async () => {
+      calls += 1;
+      return calls === 1
+        ? [{ address: "203.0.113.10", family: 4 }]
+        : [{ address: "10.0.0.5", family: 4 }];
+    };
+    const result = await fetchUrlDossier({
+      urls: ["https://rebind.example/notice"],
+      lookup,
+    });
+    expect(result.okCount).toBe(0);
+    expect(result.errorCount).toBe(1);
+    expect(result.entries[0]?.status).toBe("error");
+    expect(result.entries[0]?.error).toMatch(/解析到不可达地址|私网/);
+    // 校验与连接钉各自解析了一次（pin 确实在 fetch 路径上）。
+    expect(calls).toBeGreaterThanOrEqual(2);
+  });
+
   it("merges dossier into existing bundle parts without dup ids", () => {
     const dossier = {
       entries: [],

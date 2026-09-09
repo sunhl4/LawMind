@@ -32,6 +32,11 @@ export type MailAccount = {
   smtpHost?: string;
   smtpPort?: number;
   smtpSecure?: boolean;
+  /**
+   * 显式例外：允许 IMAP/SMTP 非 TLS 标准端口（非 993/465/587）连接，凭证可能明文传输。
+   * 缺省拒绝（对齐 MCP allowInsecureHttp 先例）。
+   */
+  allowInsecure?: boolean;
   /** When set, automations for this matter prefer this account. */
   matterId?: string;
   tenantId?: string;
@@ -125,6 +130,7 @@ function normalizeAccount(row: unknown): MailAccount | null {
     smtpHost: o.smtpHost,
     smtpPort: o.smtpPort,
     smtpSecure: o.smtpSecure,
+    allowInsecure: o.allowInsecure === true ? true : undefined,
     matterId: o.matterId,
     tenantId: o.tenantId,
     clientId: o.clientId,
@@ -179,6 +185,8 @@ export type UpsertMailAccountInput = {
   smtpHost?: string;
   smtpPort?: number;
   smtpSecure?: boolean;
+  /** 显式允许非 TLS 标准端口（非 993/465/587）；缺省拒绝。 */
+  allowInsecure?: boolean;
   matterId?: string | null;
   tenantId?: string;
   clientId?: string;
@@ -220,6 +228,7 @@ export function upsertMailAccount(
     smtpHost: input.smtpHost?.trim() || existing?.smtpHost || undefined,
     smtpPort: input.smtpPort ?? existing?.smtpPort,
     smtpSecure: input.smtpSecure ?? existing?.smtpSecure,
+    allowInsecure: input.allowInsecure ?? existing?.allowInsecure,
     matterId:
       input.matterId === null
         ? undefined

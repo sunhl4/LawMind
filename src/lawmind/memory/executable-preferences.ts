@@ -7,15 +7,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { writeJsonAtomic } from "../adapters/matter-storage/io.js";
 import {
+  detectAppliedPreferenceIds,
   extractAppliedPreferencesFromProfile,
-  type AppliedPreference,
+  type ExecutablePreference,
 } from "./applied-preferences.js";
 
-export type ExecutablePreference = AppliedPreference & {
-  id: string;
-  tags?: string[];
-  source: "json" | "profile";
-};
+export type { ExecutablePreference } from "./applied-preferences.js";
+export { detectAppliedPreferenceIds } from "./applied-preferences.js";
 
 type PrefsFileV1 = {
   schemaVersion: 1;
@@ -151,28 +149,4 @@ export function formatExecutablePreferencesHint(prefs: ExecutablePreference[]): 
   }
   const lines = prefs.map((p, i) => `${i + 1}. [${p.id}] ${p.text}`);
   return ["已按你的习惯（可执行偏好）：", ...lines].join("\n");
-}
-
-/**
- * Detect which preference ids the assistant claim to have applied (best-effort).
- */
-export function detectAppliedPreferenceIds(reply: string, prefs: ExecutablePreference[]): string[] {
-  if (!reply.trim() || prefs.length === 0) {
-    return [];
-  }
-  const applied: string[] = [];
-  for (const p of prefs) {
-    if (reply.includes(p.id) || reply.includes(p.text.slice(0, Math.min(24, p.text.length)))) {
-      applied.push(p.id);
-    }
-  }
-  const m = /本轮已应用[：:]\s*([^\n]+)/.exec(reply);
-  if (m) {
-    for (const p of prefs) {
-      if (m[1].includes(p.id) && !applied.includes(p.id)) {
-        applied.push(p.id);
-      }
-    }
-  }
-  return applied;
 }

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { LawmindMainBodyContentProps } from "./LawmindMainBodyContent";
 import {
   pickAgentFleetViewProps,
+  pickLawyerWorkbenchProps,
   pickMeetingViewProps,
   pickMatterViewProps,
   pickReviewViewProps,
@@ -47,7 +48,6 @@ function baseProps(
     onRecordsChanged: () => {},
     onGoToChat: () => {},
     onRevisionJobQueued: () => {},
-    onToggleReviewPane: () => {},
     activeChatSessionId: null,
     sessionRequiresActions: [],
     delegateAssistEnabled: false,
@@ -134,4 +134,47 @@ describe("pickMainBodyBranchProps", () => {
     expect(onOpenReviewFromWorkspace).toHaveBeenCalledWith({ matterId: "matter-2" });
   });
 
+  it("pickLawyerWorkbenchProps returns null without config and wires chat/create", () => {
+    expect(pickLawyerWorkbenchProps(baseProps({ config: null }))).toBeNull();
+    const onGoToChat = vi.fn();
+    const onSelectMatterKey = vi.fn();
+    const onCreateMatter = vi.fn();
+    const props = pickLawyerWorkbenchProps(
+      baseProps({ onGoToChat, onSelectMatterKey, onCreateMatter }),
+    );
+    expect(props?.apiBase).toBe("http://127.0.0.1:9");
+    props?.onSelectMatter("demo-matter");
+    expect(onSelectMatterKey).toHaveBeenCalledWith("demo-matter");
+    props?.onGoToChat({ matterId: "demo-matter", prompt: "【办件】" });
+    expect(onGoToChat).toHaveBeenCalledWith({
+      taskId: "",
+      matterId: "demo-matter",
+      prompt: "【办件】",
+    });
+    props?.onCreateMatter?.();
+    expect(onCreateMatter).toHaveBeenCalled();
+  });
+
+  it("pickLawyerWorkbenchProps wires review, artifact and needs-decision", () => {
+    const onOpenReviewFromMatter = vi.fn();
+    const onOpenReviewFromWorkspace = vi.fn();
+    const onOpenNeedsDecisionDesk = vi.fn();
+    const onShowArtifact = vi.fn();
+    const props = pickLawyerWorkbenchProps(
+      baseProps({
+        onOpenReviewFromMatter,
+        onOpenReviewFromWorkspace,
+        onOpenNeedsDecisionDesk,
+        onShowArtifact,
+      }),
+    );
+    props?.onOpenReview?.({ matterId: "m1", taskId: "t1" });
+    expect(onOpenReviewFromMatter).toHaveBeenCalledWith({ taskId: "t1", matterId: "m1" });
+    props?.onOpenReview?.({ matterId: "m2" });
+    expect(onOpenReviewFromWorkspace).toHaveBeenCalledWith({ matterId: "m2" });
+    props?.onOpenNeedsDecision?.("m1");
+    expect(onOpenNeedsDecisionDesk).toHaveBeenCalledWith({ matterId: "m1" });
+    props?.onShowArtifact?.("out/a.docx");
+    expect(onShowArtifact).toHaveBeenCalledWith("out/a.docx");
+  });
 });

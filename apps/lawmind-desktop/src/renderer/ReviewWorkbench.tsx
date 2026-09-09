@@ -32,8 +32,8 @@ import {
   hasVisibleReviewPaneAfter,
   lastVisibleReviewPaneId,
   type ReviewPaneId,
-  type ReviewPaneVisibility,
 } from "./lawmind-review-pane-prefs";
+import { useReviewPaneVisibilityStore } from "./stores/review-pane-visibility-store";
 import { LawmindReviewDraftPicker } from "./LawmindReviewDraftPicker";
 import { usePaneResizePx } from "./use-pane-resize";
 import { useReviewWorkbenchData } from "./review/useReviewWorkbenchData";
@@ -60,8 +60,6 @@ type Props = {
   onOpenAgentsDesk?: () => void;
   onRevisionJobQueued?: (opts: { sessionId: string; assistantId: string; taskId: string }) => void;
   externalRefreshToken?: number;
-  paneVisibility: ReviewPaneVisibility;
-  _onToggleReviewPane: (id: ReviewPaneId) => void;
 };
 
 export function ReviewWorkbench(props: Props) {
@@ -80,9 +78,9 @@ export function ReviewWorkbench(props: Props) {
     onOpenAgentsDesk,
     onRevisionJobQueued,
     externalRefreshToken = 0,
-    paneVisibility,
-    _onToggleReviewPane,
   } = props;
+
+  const paneVisibility = useReviewPaneVisibilityStore((s) => s.visibility);
 
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [note, setNote] = useState("");
@@ -102,6 +100,7 @@ export function ReviewWorkbench(props: Props) {
     uploaded: Array<{ id: string; format: string; label: string; enabled: boolean }>;
   } | null>(null);
   const [renderTemplateId, setRenderTemplateId] = useState("");
+  const [includeProvenance, setIncludeProvenance] = useState(false);
   const [editorValue, setEditorValue] = useState<DraftDocumentEditorValue | null>(null);
   const [savedEditorValue, setSavedEditorValue] = useState<DraftDocumentEditorValue | null>(null);
   const [editorSaving, setEditorSaving] = useState(false);
@@ -574,8 +573,8 @@ export function ReviewWorkbench(props: Props) {
                 onModify={() => void submitReview("modified")}
                 onReopen={() => void submitReopenReview()}
                 onDeleteDraft={() => void deleteSelectedDraft()}
-                onExportWord={(opts) => void submitRender(opts)}
-                onExportTrackedWord={() => void submitRenderTracked()}
+                onExportWord={() => void submitRender({ includeProvenance })}
+                onExportTrackedWord={() => void submitRenderTracked({ includeProvenance })}
                 onShowArtifact={onShowArtifact}
                 onOpenWithSystem={async (relPath) => {
                   if (!window.lawmindDesktop?.openWithSystem) {
@@ -636,22 +635,11 @@ export function ReviewWorkbench(props: Props) {
               onRenderTemplateIdChange={setRenderTemplateId}
               actionBusy={actionBusy}
               onExportWord={() => {
-                // 与侧栏「仍要导出」同语义：验收未过时明示确认后可继续（strict:false）。
-                const acc = acceptance;
-                const gateBlocked = acc?.deliverableType != null && acc && !acc.ready;
-                if (gateBlocked) {
-                  const ok = window.confirm(
-                    `出稿检查仍有 ${acc?.blockerCount ?? 0} 项阻塞。\n\n仍要导出 Word？`,
-                  );
-                  if (!ok) {
-                    return;
-                  }
-                  void submitRender({ strict: false });
-                  return;
-                }
-                void submitRender({ strict: true });
+                // 导出始终走 strict 验收门禁；被拦时由服务端 422 + 出稿检查面板呈现。
+                void submitRender({ includeProvenance });
               }}
-              onOpenAgentsDesk={onOpenAgentsDesk}
+              includeProvenance={includeProvenance}
+              onIncludeProvenanceChange={setIncludeProvenance}
               exportReady
             />
           </div>

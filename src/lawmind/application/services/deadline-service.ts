@@ -13,6 +13,8 @@ import {
   type DeadlineRecord,
 } from "../../adapters/matter-storage/index.js";
 import { matterDir, withExclusiveFileLock } from "../../adapters/matter-storage/io.js";
+import { deadlineIcsUid } from "../../desk/deadline-ics.js";
+import { defaultRemindBeforeHours } from "../../desk/legal-event-extract.js";
 import { attachDeadlineId, createMatterIfMissing } from "./matter-write-service.js";
 
 export type RecordDeadlineInput = {
@@ -23,20 +25,28 @@ export type RecordDeadlineInput = {
   source?: DeadlineRecord["source"];
   notes?: string;
   deadlineId?: string;
+  eventKind?: DeadlineRecord["eventKind"];
+  remindBeforeHours?: number;
+  icsUid?: string;
 };
 
 export function recordDeadline(workspaceDir: string, input: RecordDeadlineInput): DeadlineRecord {
   createMatterIfMissing(workspaceDir, { matterId: input.matterId });
+  const eventKind = input.eventKind;
   const record: DeadlineRecord = {
     deadlineId: input.deadlineId ?? randomUUID(),
     matterId: input.matterId,
     title: input.title,
     dueAt: input.dueAt,
-    severity: input.severity ?? "soft",
+    severity: input.severity ?? (eventKind === "hearing" ? "hard" : "soft"),
     source: input.source ?? "manual",
     status: "open",
     notes: input.notes,
+    ...(eventKind ? { eventKind } : {}),
+    remindBeforeHours: input.remindBeforeHours ?? defaultRemindBeforeHours(eventKind ?? "custom"),
+    icsUid: input.icsUid,
   };
+  record.icsUid = deadlineIcsUid(record);
   // append 与 updateDeadlineStatus 的全量 rewrite 共用同一把锁，避免并发「新建 + 更新」丢条目。
   const lockPath = path.join(matterDir(workspaceDir, input.matterId), "deadlines.jsonl.lock");
   withExclusiveFileLock(lockPath, () => {
@@ -85,6 +95,34 @@ function updateDeadlineStatus(
       ...all[idx],
       status,
       dueAt: opts?.dueAt ?? all[idx].dueAt,
+    };
+    all[idx] = next;
+    rewriteDeadlines(workspaceDir, matterId, all);
+    return next;
+  });
+}
+
+export function patchDeadline(
+  workspaceDir: string,
+  matterId: string,
+  deadlineId: string,
+  patch: Partial<
+    Pick<
+      DeadlineRecord,
+      "status" | "dueAt" | "notes" | "remindedAt" | "remindBeforeHours" | "title"
+    >
+  >,
+): DeadlineRecord | undefined {
+  const lockPath = path.join(matterDir(workspaceDir, matterId), "deadlines.jsonl.lock");
+  return withExclusiveFileLock(lockPath, () => {
+    const all = readDeadlines(workspaceDir, matterId);
+    const idx = all.findIndex((d) => d.deadlineId === deadlineId);
+    if (idx < 0) {
+      return undefined;
+    }
+    const next: DeadlineRecord = {
+      ...all[idx],
+      ...patch,
     };
     all[idx] = next;
     rewriteDeadlines(workspaceDir, matterId, all);

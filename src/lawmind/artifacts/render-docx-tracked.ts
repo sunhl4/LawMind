@@ -15,6 +15,7 @@ import { spawn } from "node:child_process";
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { appendProvenanceEvent, createProvenanceEvent } from "../drafts/provenance.js";
 import type { RedlineHunk } from "../drafts/redline-proposal.js";
 import { readRedlineProposal } from "../drafts/redline-proposal.js";
 import {
@@ -272,11 +273,15 @@ export async function applyRedlineHunksWithOfficeCli(params: {
   applied: number;
   attempted: number;
   ambiguous: number;
+  /** matched>1 被回滚跳过的 hunk——调用方须写入 manifest 并明示 partial。 */
+  ambiguousHunkIds: string[];
+  /** 多处命中且回滚失败：交付副本不可信，调用方不得交付。 */
+  rollbackFailed?: boolean;
   lastError?: string;
 }> {
   const hunks = actionableHunks(params.proposals);
   if (hunks.length === 0) {
-    return { applied: 0, attempted: 0, ambiguous: 0 };
+    return { applied: 0, attempted: 0, ambiguous: 0, ambiguousHunkIds: [] };
   }
   // Project / Finder Word files are often copied as read-only; officecli cannot
   // persist w:ins/w:del onto a 0444 working copy (io_error → 0 applied).
@@ -291,78 +296,114 @@ export async function applyRedlineHunksWithOfficeCli(params: {
     : params.sectionBodiesAfter;
   let applied = 0;
   let ambiguous = 0;
+  let rollbackFailed = false;
+  const ambiguousHunkIds: string[] = [];
   let lastError: string | undefined;
-  for (const h of hunks) {
-    const bodyAfter =
-      typeof h.sectionIndex === "number" ? params.sectionBodiesAfter?.[h.sectionIndex] : undefined;
-    const sectionBodyBefore =
-      typeof h.sectionIndex === "number" ? uniquenessBodies?.[h.sectionIndex] : undefined;
-    let fr = resolveOfficeCliFindReplace(h, bodyAfter);
-    if (!fr) {
-      lastError = `unresolvable_hunk:${(h.before || h.after).slice(0, 40)}`;
-      continue;
-    }
-    if (fr.regex) {
-      const n = countRegexInBodies(uniquenessBodies, fr.find);
-      if (n > 1) {
-        ambiguous += 1;
-        lastError = `ambiguous_match:${fr.find.slice(0, 40)}`;
+  // 每个 hunk 落盘前先备份工作副本：officecli 报 matched>1 时整体回滚，
+  // 歧义 hunk 绝不多处落盘（与 surgical-span-gate 的「不确定就不改」语义一致）。
+  const backupPath = `${params.workingDocxPath}.lm-bak`;
+  try {
+    for (const h of hunks) {
+      const bodyAfter =
+        typeof h.sectionIndex === "number"
+          ? params.sectionBodiesAfter?.[h.sectionIndex]
+          : undefined;
+      const sectionBodyBefore =
+        typeof h.sectionIndex === "number" ? uniquenessBodies?.[h.sectionIndex] : undefined;
+      let fr = resolveOfficeCliFindReplace(h, bodyAfter);
+      if (!fr) {
+        lastError = `unresolvable_hunk:${(h.before || h.after).slice(0, 40)}`;
         continue;
       }
-    } else if (countInBodies(uniquenessBodies, fr.find) > 1) {
-      const pinned = disambiguateLiteralFind({
-        find: fr.find,
-        replace: fr.replace,
-        sectionBody: sectionBodyBefore ?? "",
-        spanStart: h.spanStart,
-        uniquenessBodies: uniquenessBodies ?? [],
-      });
-      if (!pinned) {
-        ambiguous += 1;
-        lastError = `ambiguous_match:${fr.find.slice(0, 40)}`;
-        continue;
+      if (fr.regex) {
+        const n = countRegexInBodies(uniquenessBodies, fr.find);
+        if (n > 1) {
+          ambiguous += 1;
+          ambiguousHunkIds.push(h.hunkId);
+          lastError = `ambiguous_match:${fr.find.slice(0, 40)}`;
+          continue;
+        }
+      } else if (countInBodies(uniquenessBodies, fr.find) > 1) {
+        const pinned = disambiguateLiteralFind({
+          find: fr.find,
+          replace: fr.replace,
+          sectionBody: sectionBodyBefore ?? "",
+          spanStart: h.spanStart,
+          uniquenessBodies: uniquenessBodies ?? [],
+        });
+        if (!pinned) {
+          ambiguous += 1;
+          ambiguousHunkIds.push(h.hunkId);
+          lastError = `ambiguous_match:${fr.find.slice(0, 40)}`;
+          continue;
+        }
+        fr = pinned;
       }
-      fr = pinned;
-    }
-    try {
-      const findArg = formatOfficeCliFindArg(fr.find, fr.regex);
-      const result = await runOfficeCli([
-        "set",
-        params.workingDocxPath,
-        "/body",
-        "--find",
-        findArg,
-        "--replace",
-        fr.replace,
-        "--prop",
-        `revision.author=${author}`,
-        "--json",
-      ]);
-      let parsed: { matched?: number; success?: boolean } | undefined;
+      // 备份失败不阻塞正常单处替换（与既有无备份行为一致）；但一旦 matched>1
+      // 且无备份可回滚，只能整稿废弃（rollbackFailed），绝不让多处替换稿流出。
+      let backedUp = false;
       try {
-        parsed = JSON.parse(result.stdout) as { matched?: number; success?: boolean };
+        await fs.copyFile(params.workingDocxPath, backupPath);
+        backedUp = true;
       } catch {
-        /* non-json ok */
+        /* no safety net */
       }
-      if (result.code !== 0 || parsed?.success === false) {
-        lastError = (result.stderr || result.stdout || `exit_${result.code}`).slice(0, 400);
-        continue;
-      }
-      const matched = typeof parsed?.matched === "number" ? parsed.matched : undefined;
-      if (matched === 0) {
-        lastError = `no_match:${fr.find.slice(0, 40)}`;
-        continue;
-      }
-      if (typeof matched === "number" && matched > 1) {
-        // Already mutated — surface as ambiguous so callers mark degraded.
-        ambiguous += 1;
-        lastError = `multi_match_applied:${fr.find.slice(0, 40)}`;
+      try {
+        const findArg = formatOfficeCliFindArg(fr.find, fr.regex);
+        const result = await runOfficeCli([
+          "set",
+          params.workingDocxPath,
+          "/body",
+          "--find",
+          findArg,
+          "--replace",
+          fr.replace,
+          "--prop",
+          `revision.author=${author}`,
+          "--json",
+        ]);
+        let parsed: { matched?: number; success?: boolean } | undefined;
+        try {
+          parsed = JSON.parse(result.stdout) as { matched?: number; success?: boolean };
+        } catch {
+          /* non-json ok */
+        }
+        if (result.code !== 0 || parsed?.success === false) {
+          lastError = (result.stderr || result.stdout || `exit_${result.code}`).slice(0, 400);
+          continue;
+        }
+        const matched = typeof parsed?.matched === "number" ? parsed.matched : undefined;
+        if (matched === 0) {
+          lastError = `no_match:${fr.find.slice(0, 40)}`;
+          continue;
+        }
+        if (typeof matched === "number" && matched > 1) {
+          // 多处命中：该 hunk 整处跳过并明示（不得交付多处替换稿）。
+          ambiguous += 1;
+          ambiguousHunkIds.push(h.hunkId);
+          if (backedUp) {
+            try {
+              await fs.copyFile(backupPath, params.workingDocxPath);
+              lastError = `multi_match_skipped:${fr.find.slice(0, 40)}`;
+              continue;
+            } catch {
+              /* fall through to rollbackFailed */
+            }
+          }
+          rollbackFailed = true;
+          lastError = `multi_match_rollback_failed:${fr.find.slice(0, 40)}`;
+          break;
+        }
         applied += 1;
-        continue;
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
       }
-      applied += 1;
-    } catch (err) {
-      lastError = err instanceof Error ? err.message : String(err);
+    }
+  } finally {
+    try {
+      await fs.rm(backupPath, { force: true });
+    } catch {
+      /* ignore */
     }
   }
   try {
@@ -370,7 +411,14 @@ export async function applyRedlineHunksWithOfficeCli(params: {
   } catch {
     /* ignore — idle auto-flush still persists in most builds */
   }
-  return { applied, attempted: hunks.length, ambiguous, lastError };
+  return {
+    applied,
+    attempted: hunks.length,
+    ambiguous,
+    ambiguousHunkIds,
+    rollbackFailed: rollbackFailed || undefined,
+    lastError,
+  };
 }
 
 export async function renderDocxWithTrackedChanges(params: {
@@ -393,6 +441,8 @@ export async function renderDocxWithTrackedChanges(params: {
   outputFileName?: string;
   /** Existing-Word edit: never rebuild from a template into artifacts/. */
   requireContractBaseline?: boolean;
+  /** Include section provenance as Word comments in the rendered draft fallback. */
+  includeProvenance?: boolean;
 }): Promise<TrackedDocxRenderResult> {
   const baselineAbs = resolveContractBaselineAbsPath(
     params.workspaceDir,
@@ -441,6 +491,7 @@ export async function renderDocxWithTrackedChanges(params: {
     }
     const plain = await renderDocxWithOptions(params.draft, params.outputDir, {
       templateVariant: params.templateVariant,
+      includeProvenance: params.includeProvenance,
     });
     if (!plain.outputPath) {
       return { ok: false, error: "plain_render_failed", code: "plain_render_failed" };
@@ -456,34 +507,52 @@ export async function renderDocxWithTrackedChanges(params: {
   const trackedPath = path.join(params.outputDir, deliverableName);
   // Keep manifests under artifacts-style sidecar next to deliverable (same dir, hidden from lawyer naming).
   const manifestPath = path.join(params.outputDir, `.${params.draft.taskId}.redline-manifest.json`);
-  await fs.writeFile(
-    manifestPath,
-    JSON.stringify(
-      {
-        proposals: params.proposals.map((h) => ({
-          hunkId: h.hunkId,
-          sectionIndex: h.sectionIndex,
-          sectionHeading: h.sectionHeading,
-          before: h.before,
-          after: h.after,
-          status: h.status,
-          spanStart: h.spanStart,
-          spanEnd: h.spanEnd,
-          granularity: h.granularity,
-        })),
-        plainPath: inputPath,
-        baselineSource,
-        conversionTool,
-        conversionFidelity,
-        outputFileName: deliverableName,
-        // Explicit: engine must never shell-open Word; lawyer opens the file.
-        openWord: false,
-      },
-      null,
-      2,
-    ),
-    "utf8",
-  );
+  const writeManifest = async (applyResult?: {
+    applied: number;
+    attempted: number;
+    ambiguous: number;
+    ambiguousHunkIds: string[];
+    lastError?: string;
+  }) =>
+    fs.writeFile(
+      manifestPath,
+      JSON.stringify(
+        {
+          proposals: params.proposals.map((h) => ({
+            hunkId: h.hunkId,
+            sectionIndex: h.sectionIndex,
+            sectionHeading: h.sectionHeading,
+            before: h.before,
+            after: h.after,
+            status: h.status,
+            // 交付侧实际结果：多处命中被回滚跳过的 hunk 明示为 ambiguous。
+            applyStatus: applyResult?.ambiguousHunkIds.includes(h.hunkId) ? "ambiguous" : undefined,
+            spanStart: h.spanStart,
+            spanEnd: h.spanEnd,
+            granularity: h.granularity,
+          })),
+          plainPath: inputPath,
+          baselineSource,
+          conversionTool,
+          conversionFidelity,
+          outputFileName: deliverableName,
+          applyResult: applyResult
+            ? {
+                applied: applyResult.applied,
+                attempted: applyResult.attempted,
+                ambiguous: applyResult.ambiguous,
+                lastError: applyResult.lastError,
+              }
+            : undefined,
+          // Explicit: engine must never shell-open Word; lawyer opens the file.
+          openWord: false,
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+  await writeManifest();
 
   const cleanupEphemeral = async () => {
     if (!ephemeralWorkDir) {
@@ -507,6 +576,16 @@ export async function renderDocxWithTrackedChanges(params: {
     result: Extract<TrackedDocxRenderResult, { ok: true }>,
   ): Extract<TrackedDocxRenderResult, { ok: true }> => {
     const warning = [conversionWarning, result.warning].filter(Boolean).join("；") || undefined;
+    if (result.outputPath) {
+      const exportEvent = createProvenanceEvent("export", "system", {
+        sourceId: result.outputPath,
+        comment: "tracked_docx",
+      });
+      params.draft.sections = params.draft.sections.map((section) => ({
+        ...section,
+        provenance: appendProvenanceEvent(section.provenance, exportEvent),
+      }));
+    }
     return {
       ...result,
       conversionTool,
@@ -531,6 +610,7 @@ export async function renderDocxWithTrackedChanges(params: {
         };
         const rendered = await renderDocxWithOptions(draftForFallback, params.outputDir, {
           templateVariant: params.templateVariant,
+          includeProvenance: params.includeProvenance,
         });
         if (rendered.ok && rendered.outputPath) {
           if (path.resolve(rendered.outputPath) !== path.resolve(dest)) {
@@ -638,13 +718,27 @@ export async function renderDocxWithTrackedChanges(params: {
       sectionBodiesAfter: params.draft.sections?.map((s) => s.body ?? ""),
       sectionBodiesBefore,
     });
+    await writeManifest(apply);
+
+    if (apply.rollbackFailed) {
+      // 多处命中且回滚失败——交付副本已不可信，按写入失败处理，绝不交付。
+      try {
+        await fs.unlink(trackedPath);
+      } catch {
+        /* ignore */
+      }
+      if (refuseTemplateFallback) {
+        return await failTrackedApply(apply.lastError);
+      }
+      return await buildPlainFallback();
+    }
 
     if (apply.applied > 0) {
       const partial = apply.applied < apply.attempted || (apply.ambiguous ?? 0) > 0;
       const partialWarning = partial
         ? [
-            `已叠加 ${apply.applied}/${apply.attempted} 处修订`,
-            apply.ambiguous > 0 ? `跳过歧义 ${apply.ambiguous} 处` : "",
+            `已叠加 ${apply.applied}/${apply.attempted} 处修订，未应用 ${apply.attempted - apply.applied} 处`,
+            apply.ambiguous > 0 ? `其中歧义跳过 ${apply.ambiguous} 处` : "",
             apply.lastError ? `（${apply.lastError}）` : "",
           ]
             .filter(Boolean)

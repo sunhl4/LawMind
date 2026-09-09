@@ -6,9 +6,8 @@
  */
 
 import { useEffect, useState, type ReactNode } from "react";
-import { apiGetJson, errorMessage } from "./api-client";
+import { apiGetJson, errorMessage, fetchApi } from "./api-client";
 import { useEdition } from "./use-edition";
-import { apiAuthHeaders } from "./lawmind-api-auth";
 
 type DeliverableSpecSummary = {
   type: string;
@@ -92,7 +91,7 @@ export function LawmindSettingsEdition({ apiBase }: Props): ReactNode {
     setExportHint(null);
     try {
       const q = compliance ? "?compliance=true" : "";
-      const res = await fetch(`${apiBase}/api/audit/export${q}`, { headers: apiAuthHeaders() });
+      const res = await fetchApi(`${apiBase}/api/audit/export${q}`, {}, { tag: "settings:audit-export" });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string; message?: string } | null;
         throw new Error(body?.message ?? body?.error ?? `导出失败（HTTP ${res.status}）`);
@@ -159,9 +158,11 @@ export function LawmindSettingsEdition({ apiBase }: Props): ReactNode {
     setExportBusy(true);
     setExportHint(null);
     try {
-      const res = await fetch(`${apiBase}/api/artifact?path=${encodeURIComponent("quality/dashboard.json")}`, {
-        headers: apiAuthHeaders(),
-      });
+      const res = await fetchApi(
+        `${apiBase}/api/artifact?path=${encodeURIComponent("quality/dashboard.json")}`,
+        {},
+        { tag: "settings:quality-dashboard" },
+      );
       if (!res.ok) {
         throw new Error(
           res.status === 404
@@ -397,7 +398,7 @@ AI 辅助不能预测诉讼/仲裁/谈判结果。本所服务仍受委托合同
     <div className="lm-settings-section lm-settings-advanced-page">
       <p className="lm-settings-lead">
         {soloEdition
-          ? "当前为独立律师版。交付门禁与签批路径默认可用。"
+          ? "当前为独立律师版。交付核对与签批路径默认可用。"
           : "本版能力一览。"}
       </p>
 

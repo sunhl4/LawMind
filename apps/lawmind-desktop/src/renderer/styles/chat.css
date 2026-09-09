@@ -305,6 +305,11 @@
   animation: lm-fade-in-up var(--t-md) var(--ease-out);
 }
 
+.lm-msg-row:not(.lm-msg-row-user) {
+  max-width: 80rem;
+  margin-inline: auto;
+}
+
 .lm-msg-row-user {
   align-self: flex-end;
   flex-direction: row-reverse;

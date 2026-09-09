@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import { DEFAULT_ASSISTANT_ID } from "../../assistants/constants.js";
 import { loadAssistantProfiles, resolveLawMindRoot } from "../../assistants/store.js";
 import { getRoleById } from "../../core/role.js";
+import { getMaxToolUseConcurrency } from "../../runtime/tool-concurrency.js";
 import { emitCollaborationEvent } from "../collaboration/audit.js";
 import {
   registerDelegation,
@@ -110,6 +111,81 @@ function findReadySteps(workflow: CollaborationWorkflow): WorkflowStep[] {
       return dep?.status === "completed";
     });
   });
+}
+
+/**
+ * 拓扑环检测：返回构成循环依赖的 stepId 路径（如 ["a","b","a"]），无环返回 null。
+ * 缺失的依赖 id 不在此报错（该步骤会保持 pending，终态汇总为未完成）。
+ */
+export function findWorkflowDependencyCycle(steps: WorkflowStep[]): string[] | null {
+  const byId = new Map(steps.map((s) => [s.stepId, s]));
+  const state = new Map<string, "visiting" | "done">();
+  const stack: string[] = [];
+
+  const visit = (stepId: string): string[] | null => {
+    const mark = state.get(stepId);
+    if (mark === "done") {
+      return null;
+    }
+    if (mark === "visiting") {
+      return [...stack.slice(stack.indexOf(stepId)), stepId];
+    }
+    const step = byId.get(stepId);
+    if (!step) {
+      return null;
+    }
+    state.set(stepId, "visiting");
+    stack.push(stepId);
+    for (const depId of step.dependsOn) {
+      const cycle = visit(depId);
+      if (cycle) {
+        return cycle;
+      }
+    }
+    stack.pop();
+    state.set(stepId, "done");
+    return null;
+  };
+
+  for (const step of steps) {
+    const cycle = visit(step.stepId);
+    if (cycle) {
+      return cycle;
+    }
+  }
+  return null;
+}
+
+/**
+ * 依赖失败传播：依赖（含传递）失败/被跳过的 pending 步骤标记 skipped 并带原因，
+ * 不再执行。迭代到不动点以覆盖传递链（A 失败 → B 跳过 → 依赖 B 的 C 也跳过）。
+ */
+function propagateDependencySkips(workflow: CollaborationWorkflow): boolean {
+  let changed = false;
+  let again = true;
+  while (again) {
+    again = false;
+    for (const step of workflow.steps) {
+      if (step.status !== "pending") {
+        continue;
+      }
+      const blockers = step.dependsOn
+        .map((depId) => workflow.steps.find((s) => s.stepId === depId))
+        .filter(
+          (dep): dep is WorkflowStep =>
+            dep !== undefined && (dep.status === "failed" || dep.status === "skipped"),
+        );
+      if (blockers.length === 0) {
+        continue;
+      }
+      step.status = "skipped";
+      step.error = `依赖步骤未完成（${blockers.map((b) => b.stepId).join(", ")}），已跳过`;
+      step.completedAt = new Date().toISOString();
+      changed = true;
+      again = true;
+    }
+  }
+  return changed;
 }
 
 /**
@@ -276,6 +352,11 @@ export async function executeWorkflow(
   workflow: CollaborationWorkflow,
   options?: ExecuteWorkflowOptions,
 ): Promise<CollaborationWorkflow> {
+  // 加载/校验：循环依赖直接报错——否则步骤互相等待，workflow 静默停在 running。
+  const cycle = findWorkflowDependencyCycle(workflow.steps);
+  if (cycle) {
+    throw new Error(`工作流存在循环依赖：${cycle.join(" → ")}`);
+  }
   workflow.status = "running";
   workflow.updatedAt = new Date().toISOString();
   emitWorkflowEvent(baseConfig.workspaceDir, workflow, "workflow.started");
@@ -294,6 +375,11 @@ export async function executeWorkflow(
         "aborted",
       );
       break;
+    }
+
+    // 依赖失败传播：失败/跳过步骤的下游（含传递）标记 skipped，不再执行。
+    if (propagateDependencySkips(workflow)) {
+      emitProgress(workflow, options);
     }
 
     const readySteps = findReadySteps(workflow);
@@ -318,7 +404,19 @@ export async function executeWorkflow(
       break;
     }
 
-    await Promise.all(readySteps.map((step) => executeStep(baseConfig, workflow, step, options)));
+    // 并行派发上限（对齐工具并发策略 LAWMIND_MAX_TOOL_CONCURRENCY，默认 4）：
+    // 避免大量就绪步骤同时起子会话，对模型端/磁盘造成无节流压力。
+    const cap = Math.max(1, getMaxToolUseConcurrency());
+    for (let i = 0; i < readySteps.length; i += cap) {
+      if (abortRequested(options)) {
+        break;
+      }
+      await Promise.all(
+        readySteps
+          .slice(i, i + cap)
+          .map((step) => executeStep(baseConfig, workflow, step, options)),
+      );
+    }
 
     if (abortRequested(options)) {
       workflow.status = "cancelled";

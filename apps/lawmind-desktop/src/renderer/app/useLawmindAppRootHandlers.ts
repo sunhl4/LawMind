@@ -221,7 +221,7 @@ export function useLawmindAppRootHandlers(input: UseLawmindAppRootHandlersInput)
     if (!dlg) {
       void desk?.showNotification?.({
         title: "LawMind",
-        body: "当前页面未注入桌面桥接，请使用 LawMind 桌面应用导入。",
+        body: "当前页面不支持文件导入，请使用 LawMind 桌面应用导入。",
       });
       return;
     }

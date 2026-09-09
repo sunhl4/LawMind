@@ -103,16 +103,16 @@ export function scoreGoldenAgainstQuery(
     .map((s) => s.heading ?? "")
     .join(" ")
     .toLowerCase();
-  const bodyHay = new Set(
-    (entry.draft.sections ?? [])
-      .map((s) => s.body ?? "")
-      .join("\n")
-      .toLowerCase()
-      .slice(0, 4000),
-  );
+  // 正文匹配必须是子串匹配：new Set(string) 只会得到字符集，对长度 ≥2 的 token 恒为 false。
+  // oxlint-disable-next-line prefer-set-has -- bodyText 是字符串做子串匹配；Set 化正是被修掉的 bug。
+  const bodyText = (entry.draft.sections ?? [])
+    .map((s) => s.body ?? "")
+    .join("\n")
+    .toLowerCase()
+    .slice(0, 4000);
 
   for (const tok of tokens) {
-    if (bodyHay.has(tok)) {
+    if (bodyText.includes(tok)) {
       score += 2;
     } else if (headingHay.includes(tok)) {
       score += 1.5;

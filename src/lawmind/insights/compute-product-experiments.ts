@@ -11,8 +11,8 @@ export function computeProductExperiments(summary: BehaviorSummary): ProductExpe
   if (summary.reviewOpenCount >= 5) {
     items.push({
       key: "exp_inline_acceptance_score",
-      title: "在案件页内联验收门禁评分",
-      hypothesis: "如果律师在案件页就能看到验收门禁评分，进入审核台的次数会下降 ≥ 30%。",
+      title: "在案件页内联出稿检查评分",
+      hypothesis: "如果律师在案件页就能看到出稿检查评分，进入审核台的次数会下降 ≥ 30%。",
       validation: "对比上线前后 7 天 review_open 计数，预期下降。",
       signal: `当前 7 日 review_open 计数 ${summary.reviewOpenCount}（来自 BehaviorSummary）。`,
       priority: "high",

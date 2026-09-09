@@ -264,6 +264,7 @@ export async function handleActionSummaryRoutes({
       );
       return true;
     }
+    ctx.sseBus?.emit({ type: "approval:update", data: { matterId, approvalId, status: statusRaw } });
     sendJson(res, 200, { ok: true, approval: result.approval }, c);
     return true;
   }

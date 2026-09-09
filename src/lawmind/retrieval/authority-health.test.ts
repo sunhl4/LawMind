@@ -236,6 +236,47 @@ describe("probeAuthorityEndpoint", () => {
     expect(r.hitCount).toBe(1);
   });
 
+  it("pkulaw MCP mode probes initialize instead of GET ?q=", async () => {
+    const prevProvider = process.env.LAWMIND_AUTHORITY_PROVIDER;
+    const prevMode = process.env.LAWMIND_PKULAW_MODE;
+    process.env.LAWMIND_AUTHORITY_PROVIDER = "pkulaw";
+    process.env.LAWMIND_PKULAW_MODE = "mcp_tools_call";
+    try {
+      const fetchImpl = vi.fn(async () =>
+        Response.json({
+          jsonrpc: "2.0",
+          id: 1,
+          result: {
+            protocolVersion: "2024-11-05",
+            serverInfo: { name: "pkulaw-law-search" },
+          },
+        }),
+      );
+      const r = await probeAuthorityEndpoint({
+        endpoint: "https://apim-gateway.example/mcp-law-search-service",
+        apiKey: "probe-key",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+      expect(r.ok).toBe(true);
+      const calledUrl = String(fetchImpl.mock.calls[0]?.[0] ?? "");
+      expect(calledUrl).not.toContain("__lawmind_health__");
+      const init = fetchImpl.mock.calls[0]?.[1] as { method?: string; body?: string };
+      expect(init.method).toBe("POST");
+      expect(String(init.body)).toContain("initialize");
+    } finally {
+      if (prevProvider === undefined) {
+        delete process.env.LAWMIND_AUTHORITY_PROVIDER;
+      } else {
+        process.env.LAWMIND_AUTHORITY_PROVIDER = prevProvider;
+      }
+      if (prevMode === undefined) {
+        delete process.env.LAWMIND_PKULAW_MODE;
+      } else {
+        process.env.LAWMIND_PKULAW_MODE = prevMode;
+      }
+    }
+  });
+
   it("fail-closed before fetch when DNS resolves to private IP", async () => {
     const fetchImpl = vi.fn();
     const r = await probeAuthorityEndpoint({

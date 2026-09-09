@@ -9,6 +9,7 @@ import type { ToolRegistry } from "../agent/tools/registry.js";
 import { isReservedAgentToolName } from "../agent/tools/reserved-tool-names.js";
 import type { AgentTool, ToolCallResult } from "../agent/types.js";
 import { emit } from "../audit/index.js";
+import { OutboundProxyError } from "../platform/outbound-proxy.js";
 import { isMcpClientAllowed } from "../policy/analysis-scripts.js";
 import {
   connectMcpHttp,
@@ -65,17 +66,23 @@ async function openSession(record: McpServerRecord): Promise<McpSession> {
     }
   }
   if (record.transport === "http") {
-    const url = normalizeMcpHttpUrl(record.url ?? "");
+    const url = normalizeMcpHttpUrl(record.url ?? "", {
+      allowInsecureHttp: record.allowInsecureHttp === true,
+    });
     if (!url.ok) {
       throw new Error(url.error);
     }
   }
   const secret = resolveMcpSecret(record);
   if (record.transport === "http") {
+    const allowInsecureHttp = record.allowInsecureHttp === true;
     try {
-      return await connectMcpHttpSdk({ url: record.url ?? "", secret });
-    } catch {
-      return connectMcpHttp({ url: record.url ?? "", secret });
+      return await connectMcpHttp({ url: record.url ?? "", secret, allowInsecureHttp });
+    } catch (err) {
+      if (err instanceof OutboundProxyError) {
+        throw err;
+      }
+      return connectMcpHttpSdk({ url: record.url ?? "", secret, allowInsecureHttp });
     }
   }
   const stdio = {

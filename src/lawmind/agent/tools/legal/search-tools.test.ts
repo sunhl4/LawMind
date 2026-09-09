@@ -1,8 +1,9 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentContext } from "../../types.js";
+import * as searchAuthority from "./search-authority.js";
 import {
   checkConflictOfInterest,
   readProjectFile,
@@ -182,6 +183,33 @@ describe("read_project_file", () => {
 });
 
 describe("search_statute / search_case_law", () => {
+  const authKeys = [
+    "LAWMIND_AUTHORITY_PROVIDER",
+    "LAWMIND_AUTHORITY_ENDPOINT",
+    "LAWMIND_AUTHORITY_API_KEY",
+  ] as const;
+  const authSaved = new Map<string, string | undefined>();
+
+  beforeEach(() => {
+    authSaved.clear();
+    for (const key of authKeys) {
+      authSaved.set(key, process.env[key]);
+      delete process.env[key];
+    }
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    for (const key of authKeys) {
+      const prev = authSaved.get(key);
+      if (prev === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = prev;
+      }
+    }
+  });
+
   it("fails on empty query", async () => {
     const ctx = makeCtx("/tmp/lawmind-search-empty");
     const statute = await searchStatute.execute({ query: "  " }, ctx);
@@ -278,6 +306,44 @@ describe("search_statute / search_case_law", () => {
     } finally {
       await fs.rm(workspaceDir, { recursive: true, force: true });
     }
+  });
+
+  it("merges live 法宝 hits into search_statute and does not refuse", async () => {
+    vi.spyOn(searchAuthority, "retrieveAuthorityHitsForChat").mockResolvedValue({
+      live: true,
+      provider: "pkulaw",
+      providerLabel: "北大法宝（闭源·手动）",
+      sourceTier: "live",
+      hits: [
+        {
+          source: "北大法宝",
+          title: "中华人民共和国劳动合同法",
+          snippet: "第三十六条 · https://www.pkulaw.com/chl/x",
+          url: "https://www.pkulaw.com/chl/x",
+          provider: "pkulaw",
+        },
+      ],
+      riskFlags: [],
+      missingItems: [],
+    });
+    const statute = await searchStatute.execute(
+      { query: "劳动合同法第三十六条" },
+      makeCtx("/tmp/lawmind-search-pkulaw"),
+    );
+    expect(statute.ok).toBe(true);
+    const data = statute.data as {
+      hits: Array<{ source: string; url?: string }>;
+      refusalRequired?: boolean;
+      authority?: string;
+      authorityLive?: boolean;
+      authorityProvider?: string;
+    };
+    expect(data.authorityLive).toBe(true);
+    expect(data.authorityProvider).toBe("pkulaw");
+    expect(data.authority).toBe("live");
+    expect(data.refusalRequired).toBeUndefined();
+    expect(data.hits[0]?.source).toBe("北大法宝");
+    expect(data.hits[0]?.url).toContain("pkulaw.com");
   });
 });
 

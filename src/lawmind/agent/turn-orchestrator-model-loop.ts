@@ -335,6 +335,15 @@ export async function runModelToolLoop(opts: {
       break;
     }
 
+    if (opts.abortRequested() || opts.abortSignal?.aborted) {
+      return {
+        finalReply,
+        pendingClarificationQuestions,
+        turnUsage,
+        aborted: true,
+      };
+    }
+
     if (shouldHardStopToolBudget(opts.turn.toolCallsExecuted, hardCeiling)) {
       if (pendingClarificationQuestions.length > 0) {
         opts.turn.status = "awaiting_clarification";
@@ -355,8 +364,9 @@ export async function runModelToolLoop(opts: {
       shouldCheckpointToolBudget({
         used: opts.turn.toolCallsExecuted,
         soft: opts.maxToolCalls,
-        // 内部办理不因步数打断律师；硬顶仍停。外发仍走 send_email 拍板。
-        skipCheckpoint: true,
+        // 到达软预算暂停并询问律师（continue_tools 待办）；resume 路径
+        // （律师已选「继续」）带 skipToolBudgetCheckpoint，不再重复询问。硬顶仍停。
+        skipCheckpoint: opts.skipToolBudgetCheckpoint === true,
       })
     ) {
       opts.turn.status = "paused";
@@ -364,6 +374,15 @@ export async function runModelToolLoop(opts: {
         assistantMsg.content?.trim() || formatToolBudgetContinueReply(opts.turn.toolCallsExecuted);
       break;
     }
+  }
+
+  if (opts.abortRequested() || opts.abortSignal?.aborted) {
+    return {
+      finalReply,
+      pendingClarificationQuestions,
+      turnUsage,
+      aborted: true,
+    };
   }
 
   if (!finalReply.trim() && opts.turn.toolCallsExecuted > 0) {

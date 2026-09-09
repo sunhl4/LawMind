@@ -1,3 +1,4 @@
+// TODO(renderer-fetch-proxy): migrate remaining fetch calls to fetchApi / api-client-proxy.
 import { useCallback, useState, type MutableRefObject } from "react";
 import type { ArtifactDraft } from "../../../../../src/lawmind/types.ts";
 import type { AcceptanceReport } from "../../../../../src/lawmind/deliverables/index.ts";
@@ -13,6 +14,7 @@ import {
 import type { DraftReviewPostRequest } from "../lawmind-api-request-types.ts";
 import { apiPostDraftReview } from "../lawmind-api-routes.ts";
 import { apiAuthHeaders } from "../lawmind-api-auth.ts";
+import { confirmDialog } from "../lawmind-confirm-dialog";
 import { readAutoExportOnApprove } from "../lawmind-review-prefs";
 import {
   officecliMissingErrorMessage,
@@ -110,7 +112,7 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
   const [packBusy, setPackBusy] = useState(false);
 
   const submitRender = useCallback(
-    async (opts?: { strict?: boolean }) => {
+    async (opts?: { includeProvenance?: boolean }) => {
       if (!selectedTaskId) {
         return;
       }
@@ -125,14 +127,16 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
             return;
           }
         }
-        const renderBody: { templateId?: string } = {};
+        const renderBody: { templateId?: string; includeProvenance?: boolean } = {};
         if (renderTemplateId.trim()) {
           renderBody.templateId = renderTemplateId.trim();
         } else if ((detail?.deliverableType ?? "").startsWith("contract.")) {
           // Fixed-format contract review opinion Word.
           renderBody.templateId = "word/contract-default";
         }
-        const strictQs = opts?.strict === false ? "?strict=false" : "";
+        if (opts?.includeProvenance) {
+          renderBody.includeProvenance = true;
+        }
         const j = await apiSendJson<
           {
             ok?: boolean;
@@ -146,7 +150,7 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
           { templateId?: string }
         >(
           apiBase,
-          `/api/drafts/${encodeURIComponent(selectedTaskId)}/render${strictQs}`,
+          `/api/drafts/${encodeURIComponent(selectedTaskId)}/render`,
           "POST",
           renderBody,
         );
@@ -311,14 +315,12 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
           const acc = acceptance;
           const gateBlocked = acc?.deliverableType != null && acc && !acc.ready;
           if (gateBlocked) {
-            const ok = window.confirm(
-              `已开启「通过后自动导出 Word」，但出稿检查仍有 ${acc?.blockerCount ?? 0} 项阻塞。\n\n仍要导出？`,
+            // 验收门禁不再提供 UI 绕过：自动导出跳过，由律师补齐阻塞项后手动导出。
+            setActionMsg(
+              `已开启「通过后自动导出 Word」，但出稿检查仍有 ${acc?.blockerCount ?? 0} 项阻塞，已跳过自动导出；请补齐后再导出。`,
             );
-            if (ok) {
-              await submitRender({ strict: false });
-            }
           } else {
-            await submitRender({ strict: true });
+            await submitRender();
           }
         }
       } catch (e) {
@@ -455,7 +457,7 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
     setActionMsg,
   ]);
 
-  const submitRenderTracked = useCallback(async () => {
+  const submitRenderTracked = useCallback(async (opts?: { includeProvenance?: boolean }) => {
     if (!selectedTaskId) {
       return;
     }
@@ -470,6 +472,10 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
           return;
         }
       }
+      const renderBody: { includeProvenance?: boolean } = {};
+      if (opts?.includeProvenance) {
+        renderBody.includeProvenance = true;
+      }
       const j = await apiSendJson<
         {
           ok?: boolean;
@@ -480,8 +486,8 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
           code?: string;
           baselineSource?: string;
         },
-        Record<string, never>
-      >(apiBase, `/api/drafts/${encodeURIComponent(selectedTaskId)}/render-tracked`, "POST", {});
+        { includeProvenance?: boolean }
+      >(apiBase, `/api/drafts/${encodeURIComponent(selectedTaskId)}/render-tracked`, "POST", renderBody);
       if (!j.ok) {
         if (j.code === "baseline_missing") {
           throw new Error(
@@ -530,8 +536,15 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
       );
       return;
     }
-    const warn = `确定删除草稿「${detail.title?.trim() || selectedTaskId}」？\n\n将移除文书台记录与关联任务，且不可恢复。`;
-    if (!window.confirm(warn)) {
+    const warn = `确定删除草稿「${detail.title?.trim() || selectedTaskId}」？`;
+    if (
+      !(await confirmDialog({
+        title: warn,
+        body: "将移除文书台记录与关联任务，且不可恢复。",
+        confirmLabel: "删除",
+        tone: "danger",
+      }))
+    ) {
       return;
     }
     setActionBusy(true);

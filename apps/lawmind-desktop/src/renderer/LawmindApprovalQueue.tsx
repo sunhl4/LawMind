@@ -5,9 +5,9 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { ApprovalRequest } from "../../../../src/lawmind/core/contracts.ts";
 import { isValidMatterId } from "../../../../src/lawmind/cases/matter-id.ts";
-import { apiGetJson, errorMessage } from "./api-client";
-import { resolveMatterApproval } from "./lawmind-requires-action";
+import { ApiRequestError, apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import { toolDisplayNameZh } from "../../../../src/lawmind/platform/requires-action.js";
+import { confirmDialog } from "./lawmind-confirm-dialog";
 import { useRequireSignoffReview } from "./lawmind-review-prefs";
 
 export type ToolApprovalRow = {
@@ -47,16 +47,23 @@ type Props = {
   compact?: boolean;
 };
 
+function isAlreadyResolved(e: unknown): boolean {
+  return (
+    e instanceof ApiRequestError &&
+    e.status === 409 &&
+    e.body?.code === "approval_already_resolved"
+  );
+}
+
 function summarizeArgs(args?: Record<string, unknown>): string {
   if (!args || Object.keys(args).length === 0) {
-    return "（无参数）";
+    return "无附加参数";
   }
-  try {
-    const s = JSON.stringify(args);
-    return s.length > 120 ? `${s.slice(0, 120)}…` : s;
-  } catch {
-    return "（参数不可读）";
+  const keys = Object.keys(args).filter((k) => k !== "__approved");
+  if (keys.length === 0) {
+    return "无附加参数";
   }
+  return keys.map((k) => `${k}：…`).join("；");
 }
 
 export function LawmindApprovalQueue(props: Props): ReactNode {
@@ -83,7 +90,7 @@ export function LawmindApprovalQueue(props: Props): ReactNode {
       setMatterApprovals((s.approvals ?? []).filter((a) => a.status === "pending"));
       setReviewDrafts(s.pendingReviewDrafts ?? []);
     } catch (e) {
-      setError(errorMessage(e, "无法加载批准队列"));
+      setError(errorMessage(e, "无法加载待确认"));
     } finally {
       setLoading(false);
     }
@@ -99,10 +106,10 @@ export function LawmindApprovalQueue(props: Props): ReactNode {
   return (
     <section
       className={`lm-approval-queue${compact ? " lm-approval-queue-compact" : ""}`}
-      aria-label="集中待批准"
+      aria-label="本案待确认"
     >
       <div className="lm-approval-queue-head">
-        <h4>集中待批准</h4>
+        <h4>本案待确认</h4>
         <button type="button" className="lm-btn lm-btn-secondary lm-btn-sm" onClick={() => void refresh()}>
           刷新
         </button>
@@ -110,7 +117,7 @@ export function LawmindApprovalQueue(props: Props): ReactNode {
       {loading ? <p className="lm-meta" aria-busy="true">加载中…</p> : null}
       {error ? <p className="lm-meta lm-callout-warn">{error}</p> : null}
       {empty && !loading ? (
-        <p className="lm-meta">暂无待批。</p>
+        <p className="lm-meta">暂无待确认操作。</p>
       ) : null}
 
       {visibleReviewDrafts.length > 0 ? (
@@ -214,19 +221,28 @@ export function LawmindApprovalQueue(props: Props): ReactNode {
                     disabled={resolvingId === a.approvalId}
                     onClick={() => {
                       void (async () => {
+                        const ok = await confirmDialog({
+                          title: "通过此审批？",
+                          body: a.reason,
+                          confirmLabel: "通过",
+                        });
+                        if (!ok) {
+                          return;
+                        }
                         setResolvingId(a.approvalId);
                         setError(null);
                         try {
-                          const j = await resolveMatterApproval(apiBase, {
-                            matterId: a.matterId,
-                            approvalId: a.approvalId,
-                            status: "approved",
-                          });
-                          if (!j.ok) {
-                            throw new Error("通过失败");
-                          }
+                          await apiSendJson(
+                            apiBase,
+                            `/api/approvals/${encodeURIComponent(a.approvalId)}/approve`,
+                            "POST",
+                          );
                           await refresh();
                         } catch (e) {
+                          if (isAlreadyResolved(e)) {
+                            await refresh();
+                            return;
+                          }
                           setError(errorMessage(e, "通过失败"));
                         } finally {
                           setResolvingId(null);
@@ -242,19 +258,29 @@ export function LawmindApprovalQueue(props: Props): ReactNode {
                     disabled={resolvingId === a.approvalId}
                     onClick={() => {
                       void (async () => {
+                        const ok = await confirmDialog({
+                          title: "驳回此审批？",
+                          body: a.reason,
+                          confirmLabel: "驳回",
+                          tone: "danger",
+                        });
+                        if (!ok) {
+                          return;
+                        }
                         setResolvingId(a.approvalId);
                         setError(null);
                         try {
-                          const j = await resolveMatterApproval(apiBase, {
-                            matterId: a.matterId,
-                            approvalId: a.approvalId,
-                            status: "rejected",
-                          });
-                          if (!j.ok) {
-                            throw new Error("驳回失败");
-                          }
+                          await apiSendJson(
+                            apiBase,
+                            `/api/approvals/${encodeURIComponent(a.approvalId)}/reject`,
+                            "POST",
+                          );
                           await refresh();
                         } catch (e) {
+                          if (isAlreadyResolved(e)) {
+                            await refresh();
+                            return;
+                          }
                           setError(errorMessage(e, "驳回失败"));
                         } finally {
                           setResolvingId(null);

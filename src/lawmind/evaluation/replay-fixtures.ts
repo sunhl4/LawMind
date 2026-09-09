@@ -1,3 +1,9 @@
+/**
+ * 合成回归 fixture（结构/lint 回归层）：覆盖合同审查、律师函、客户更新等场景的门禁结构断言。
+ * 口径声明：这些 fixture 是手工构造的合成样本，不是「真实任务回放」证据；
+ * 真实已结案回放属于人/数据债（见 GOALS.md 14.11）。
+ */
+
 export type LegalReplayFixture = {
   fixtureId: string;
   matterId: string;

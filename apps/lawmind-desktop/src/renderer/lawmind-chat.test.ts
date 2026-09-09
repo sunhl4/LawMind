@@ -1,17 +1,4 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-
-function fetchCallUrl(input: unknown): string {
-  if (typeof input === "string") {
-    return input;
-  }
-  if (input instanceof URL) {
-    return input.href;
-  }
-  if (input && typeof input === "object" && "url" in input && typeof input.url === "string") {
-    return input.url;
-  }
-  return "";
-}
 import { LAWMIND_INCLUDE_TURN_DIAGNOSTICS_KEY } from "./lawmind-chat-diagnostics-pref.ts";
 import {
   appendChatMessage,
@@ -24,6 +11,19 @@ import {
   removeAssistantChatState,
   sendChatTurn,
 } from "./lawmind-chat.js";
+
+function fetchInputUrl(input: unknown): string {
+  if (typeof input === "string") {
+    return input;
+  }
+  if (input instanceof URL) {
+    return input.href;
+  }
+  if (typeof input === "object" && input !== null && "url" in input) {
+    return String((input as { url: string }).url);
+  }
+  return JSON.stringify(input);
+}
 
 describe("lawmind-chat", () => {
   afterEach(() => {
@@ -221,7 +221,7 @@ describe("lawmind-chat", () => {
       assistantMessage: { text: "已续上" },
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchCallUrl(fetchMock.mock.calls[1]?.[0])).toContain("http://127.0.0.1:59999/api/chat");
+    expect(fetchInputUrl(fetchMock.mock.calls[1]?.[0])).toContain("http://127.0.0.1:59999/api/chat");
     vi.unstubAllGlobals();
   });
 

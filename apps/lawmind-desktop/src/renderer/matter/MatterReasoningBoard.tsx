@@ -17,10 +17,10 @@ export function MatterReasoningBoard({ matterId, reasoning }: Props): ReactNode 
       data-testid="lm-matter-reasoning-board"
       data-matter-id={matterId}
     >
-      <h3>推理图谱</h3>
+      <h3>法律分析</h3>
       {!reasoning ? (
         <div className="lm-callout lm-callout-muted">
-          尚无推理快照。
+          尚无分析快照。
         </div>
       ) : (
         <div className="lm-callout">

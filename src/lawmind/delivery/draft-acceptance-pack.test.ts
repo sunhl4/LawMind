@@ -49,7 +49,7 @@ describe("buildDraftAcceptancePackMarkdown", () => {
     });
     expect(md).toContain("LawMind 交付验收包");
     expect(md).toContain("`task-rental-1`");
-    expect(md).toContain("## 1. 验收门禁");
+    expect(md).toContain("## 1. 出稿检查");
     expect(md).toContain("## 2. 引用完整性");
     expect(md).toContain("## 3. 草稿章节速览");
     expect(md).toContain("## 4. 与本任务相关的审计事件");
@@ -84,7 +84,9 @@ describe("buildDraftAcceptancePackMarkdown", () => {
       taskId: draft.taskId,
       query: "demo",
       sources: [{ id: "s1", title: "演示条文", kind: "statute", demo: true }],
-      claims: [{ text: "演示摘录", sourceIds: ["s1"], confidence: 0.5, model: "legal", demo: true }],
+      claims: [
+        { text: "演示摘录", sourceIds: ["s1"], confidence: 0.5, model: "legal", demo: true },
+      ],
       riskFlags: [DEMO_CORPUS_RISK_FLAG],
       missingItems: [],
       requiresReview: true,

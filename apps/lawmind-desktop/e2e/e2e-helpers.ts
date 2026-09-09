@@ -374,7 +374,7 @@ export async function assertReviewGateList(page: Page): Promise<void> {
       gateDecisions?: Array<{ reason?: string }>;
     };
     expect(
-      detailJson.gateDecisions?.some((g) => /等待律师签批|出稿检查|待签批|验收门禁|审批门禁/.test(g.reason ?? "")),
+      detailJson.gateDecisions?.some((g) => /等待律师签批|出稿检查|待签批/.test(g.reason ?? "")),
     ).toBe(true);
   }
 
@@ -384,7 +384,7 @@ export async function assertReviewGateList(page: Page): Promise<void> {
   });
   await expect(page.getByText("执行状态看板")).toBeVisible({ timeout: 30_000 });
   await expect(page.locator(".lm-review-detail-row")).toContainText(
-    /等待律师签批|出稿检查|待签批|验收门禁|审批门禁/,
+    /等待律师签批|出稿检查|待签批/,
     { timeout: 30_000 },
   );
 }

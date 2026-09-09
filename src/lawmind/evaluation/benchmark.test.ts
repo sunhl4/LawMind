@@ -3,11 +3,20 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { BenchmarkResult, BenchmarkTask } from "../types.js";
+import type {
+  ArtifactDraft,
+  BenchmarkResult,
+  BenchmarkTask,
+  ResearchBundle,
+  TaskIntent,
+} from "../types.js";
 import {
   BUILTIN_BENCHMARK_TASKS,
   benchmarkPassesThreshold,
   buildBenchmarkReportMarkdown,
+  runBenchmarks,
+  selectReleaseGateBenchmarkResults,
+  type LawMindEngineForBenchmark,
 } from "./benchmark.js";
 
 // ─────────────────────────────────────────────
@@ -160,5 +169,137 @@ describe("buildBenchmarkReportMarkdown", () => {
     const tasks = [makeTask({ description: "违约金条款审查基准" })];
     const report = buildBenchmarkReportMarkdown(results, tasks);
     expect(report).toContain("违约金条款审查基准");
+  });
+});
+
+// ─────────────────────────────────────────────
+// mock 诚实评分：不再必然满分
+// ─────────────────────────────────────────────
+
+function stubEngine(
+  over: { kind?: TaskIntent["kind"]; riskLevel?: TaskIntent["riskLevel"]; draftBody?: string } = {},
+): LawMindEngineForBenchmark {
+  return {
+    plan: (instruction: string): TaskIntent => ({
+      taskId: "task-stub",
+      // 默认故意答错任务类型，验证 mock 模式也不会被强制成 true
+      kind: over.kind ?? "research.general",
+      output: "docx",
+      instruction,
+      summary: "stub",
+      riskLevel: over.riskLevel ?? "low",
+      models: ["general"],
+      requiresConfirmation: false,
+      createdAt: new Date().toISOString(),
+    }),
+    research: async (intent: TaskIntent): Promise<ResearchBundle> => ({
+      taskId: intent.taskId,
+      query: intent.instruction,
+      sources: [],
+      claims: [],
+      riskFlags: [],
+      missingItems: [],
+      requiresReview: false,
+      completedAt: new Date().toISOString(),
+    }),
+    draft: (intent: TaskIntent): ArtifactDraft => ({
+      taskId: intent.taskId,
+      title: "stub 草稿",
+      summary: "与期望关键词无关的占位正文",
+      sections: [{ heading: "正文", body: over.draftBody ?? "与期望关键词无关的占位正文" }],
+      reviewStatus: "pending",
+      reviewNotes: [],
+      output: "docx",
+      createdAt: new Date().toISOString(),
+    }),
+  };
+}
+
+describe("runBenchmarks 诚实评分（mock 不再必然满分）", () => {
+  it("mock 模式下产物不含期望维度时得分 < 1", async () => {
+    const task = makeTask({
+      expectedKind: "analyze.contract",
+      expectedKeywords: ["违约金", "风险"],
+      expectedRiskLevel: "high",
+      expectsReviewGate: true,
+    });
+    const results = await runBenchmarks(stubEngine(), [task], { modelMode: "mock" });
+    expect(results).toHaveLength(1);
+    const r = results[0];
+    expect(r.modelMode).toBe("mock");
+    // 类型不匹配、风险等级不匹配、审核门不匹配、关键词 0 命中 → 0 分
+    expect(r.kindMatched).toBe(false);
+    expect(r.keywordHitRate).toBe(0);
+    expect(r.score).toBeLessThan(1);
+  });
+
+  it("真实命中期望时 mock 模式也能如实得分", async () => {
+    const task = makeTask({ expectedKind: "analyze.contract", expectedKeywords: ["违约金"] });
+    const engine = stubEngine({
+      kind: "analyze.contract",
+      riskLevel: "medium",
+      draftBody: "违约金条款审查意见",
+    });
+    const results = await runBenchmarks(engine, [task], { modelMode: "mock" });
+    expect(results[0]?.score).toBe(1);
+  });
+});
+
+// ─────────────────────────────────────────────
+// 发布 gate：mock 结果不得计入
+// ─────────────────────────────────────────────
+
+describe("selectReleaseGateBenchmarkResults", () => {
+  it("拒绝 modelMode=mock 的结果（不计入 gate）", () => {
+    const gate = selectReleaseGateBenchmarkResults({
+      modelMode: "mock",
+      results: [makeResult({ score: 1 })],
+    });
+    expect(gate.eligible).toBe(false);
+    expect(gate.results).toEqual([]);
+    expect(gate.reason).toContain("mock");
+  });
+
+  it("modelMode 缺失时 fail-closed（旧文件不得进 gate）", () => {
+    const gate = selectReleaseGateBenchmarkResults({ results: [makeResult({ score: 1 })] });
+    expect(gate.eligible).toBe(false);
+    expect(gate.results).toEqual([]);
+  });
+
+  it("real 结果原样通过", () => {
+    const results = [makeResult({ score: 0.9, modelMode: "real" })];
+    const gate = selectReleaseGateBenchmarkResults({ modelMode: "real", results });
+    expect(gate.eligible).toBe(true);
+    expect(gate.results).toHaveLength(1);
+  });
+
+  it("real 文件中混入 mock 行时整体拒绝", () => {
+    const gate = selectReleaseGateBenchmarkResults({
+      modelMode: "real",
+      results: [makeResult({ modelMode: "real" }), makeResult({ modelMode: "mock" })],
+    });
+    expect(gate.eligible).toBe(false);
+  });
+
+  it("scripted 结果可进入发布 gate", () => {
+    const results = [makeResult({ score: 0.85, modelMode: "scripted" })];
+    const gate = selectReleaseGateBenchmarkResults({ modelMode: "scripted", results });
+    expect(gate.eligible).toBe(true);
+    expect(gate.results).toHaveLength(1);
+  });
+
+  it("legacy scripted-model / real-model 仍被接受", () => {
+    expect(
+      selectReleaseGateBenchmarkResults({
+        modelMode: "scripted-model",
+        results: [makeResult({ modelMode: "scripted-model" })],
+      }).eligible,
+    ).toBe(true);
+    expect(
+      selectReleaseGateBenchmarkResults({
+        modelMode: "real-model",
+        results: [makeResult({ modelMode: "real-model" })],
+      }).eligible,
+    ).toBe(true);
   });
 });

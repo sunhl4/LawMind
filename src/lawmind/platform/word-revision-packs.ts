@@ -4,7 +4,7 @@
  * Not a second pipeline. Not mandatory full-document rewrites.
  */
 
-import type { WordRevisionPack } from "./word-revision-checklist.js";
+import type { WordRevisionPack } from "./word-revision-core.js";
 
 export const EQUITY_WORD_REVISION_PACK: WordRevisionPack = {
   id: "equity",

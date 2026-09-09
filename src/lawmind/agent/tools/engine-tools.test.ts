@@ -526,7 +526,7 @@ describe("render_document", () => {
       makeCtx(ws, "m-render-gated-approve"),
     );
     expect(gated.ok).toBe(false);
-    expect((gated as { pendingApproval?: boolean }).pendingApproval).toBeFalsy();
+    expect((gated as { approvalRequest?: boolean }).approvalRequest).toBeFalsy();
     const gatedData = gated.data as { renderFailureCategory?: string };
     expect(gatedData.renderFailureCategory).toBe("acceptance_gate");
 
@@ -816,6 +816,29 @@ describe("draft_document", () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain("instruction 不能为空");
+  });
+
+  it("stamps contractEdit from a compose Word pin on unlocked 合同审查", async () => {
+    const ws = tmpWorkspace();
+    const rel = "uploads/采购合同.docx";
+    fs.mkdirSync(path.join(ws, "uploads"), { recursive: true });
+    fs.writeFileSync(path.join(ws, rel), "placeholder");
+    const tool = createLegalToolRegistry().get("draft_document")!;
+    const result = await tool.execute(
+      { instruction: "请审查这份采购合同的违约责任" },
+      makeCtx(ws, undefined, {
+        contextPins: [{ pinKind: "file", root: "workspace", relPath: rel, kind: "file" }],
+      }),
+    );
+    expect(result.ok, result.error ?? "draft_document failed").toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.deliverableType).toBe("contract.review");
+    expect(data.pairedDeliverable).toBe(true);
+    expect(
+      (data.contractEdit as { baselineRelativePath?: string } | undefined)?.baselineRelativePath,
+    ).toBe(rel);
+    const headings = ((data.sections as Array<{ heading: string }>) ?? []).map((s) => s.heading);
+    expect(headings).toContain("宏观审查");
   });
 });
 

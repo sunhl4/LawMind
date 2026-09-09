@@ -9,11 +9,26 @@ import {
   summarizeAuditIntegrity,
   type AuditEventWithIntegrity,
 } from "../../../src/lawmind/audit/hash-chain.js";
+import { verifyAuditWorkspaceTailAnchors } from "../../../src/lawmind/audit/root-anchor.js";
+import {
+  buildSignedAuditExportSummary,
+  formatAuditSummaryPlainText,
+} from "../../../src/lawmind/audit/export-summary.js";
+import {
+  formatAuditExternalVerifyReport,
+  verifyExternalAuditAnchor,
+} from "../../../src/lawmind/audit/verify-external.js";
 import { isFeatureEnabled } from "../../../src/lawmind/policy/edition.js";
 import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspace-policy.js";
 import path from "node:path";
+import { z } from "zod";
+import { parseJsonBodyZod } from "./lawmind-api-parse.js";
 import { sendJson } from "./lawmind-server-helpers.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
+
+const verifyExternalPostSchema = z.object({
+  externalAnchorUrl: z.string().trim().min(1),
+});
 
 /**
  * GET /api/audit/export — Markdown 审计导出（可选 compliance 模式）。
@@ -56,7 +71,9 @@ export async function handleAuditExportRoute({
     const auditDir = path.join(workspaceDir, "audit");
     const all = await readAllAuditLogs(auditDir);
     const summary = summarizeAuditIntegrity(all as AuditEventWithIntegrity[]);
-    sendJson(res, 200, { ok: true, integrity: summary }, c);
+    // 外锚比对：按日文件维度检测尾部截断（summary 是跨日拼接视图，截断检测以锚为准）。
+    const tailAnchor = verifyAuditWorkspaceTailAnchors(auditDir);
+    sendJson(res, 200, { ok: true, integrity: { ...summary, tailAnchor } }, c);
     return true;
   }
   if (useReplay) {
@@ -72,5 +89,77 @@ export async function handleAuditExportRoute({
     ...c,
   });
   res.end(md);
+  return true;
+}
+
+/**
+ * GET /api/audit/export-summary — 可验证审计摘要（JSON 或纯文本）。
+ */
+export async function handleAuditExportSummaryRoute({
+  ctx,
+  req,
+  res,
+  url,
+  pathname,
+  c,
+}: LawmindRouteContext): Promise<boolean> {
+  if (pathname !== "/api/audit/export-summary" || req.method !== "GET") {
+    return false;
+  }
+  const auditDir = path.join(ctx.workspaceDir, "audit");
+  const { summary, signature, hmacKeyId } = buildSignedAuditExportSummary(auditDir);
+  const formatRaw = url.searchParams.get("format")?.trim().toLowerCase() ?? "";
+  if (formatRaw === "text" || formatRaw === "txt") {
+    res.writeHead(200, {
+      "content-type": "text/plain; charset=utf-8",
+      ...c,
+    });
+    res.end(formatAuditSummaryPlainText(summary, signature));
+    return true;
+  }
+  sendJson(
+    res,
+    200,
+    {
+      ok: true,
+      summary,
+      signature,
+      hmacKeyId,
+    },
+    c,
+  );
+  return true;
+}
+
+/**
+ * POST /api/audit/verify-external — 验证审计链与外部锚是否一致。
+ */
+export async function handleAuditVerifyExternalRoute({
+  ctx,
+  req,
+  res,
+  pathname,
+  c,
+}: LawmindRouteContext): Promise<boolean> {
+  if (pathname !== "/api/audit/verify-external" || req.method !== "POST") {
+    return false;
+  }
+  const body = await parseJsonBodyZod(req, verifyExternalPostSchema);
+  const auditDir = path.join(ctx.workspaceDir, "audit");
+  const result = await verifyExternalAuditAnchor(auditDir, body.externalAnchorUrl);
+  sendJson(
+    res,
+    200,
+    {
+      ok: result.ok,
+      status: result.status,
+      detail: result.detail,
+      chain: result.chain,
+      externalSummary: result.externalSummary,
+      chainRootHash: result.chainRootHash,
+      report: formatAuditExternalVerifyReport(result),
+    },
+    c,
+  );
   return true;
 }

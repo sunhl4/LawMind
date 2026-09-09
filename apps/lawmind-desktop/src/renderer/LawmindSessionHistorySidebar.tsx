@@ -10,7 +10,6 @@ export type SessionHistoryRow = {
 
 type Props = {
   apiBase: string;
-  assistantId: string;
   sessions: SessionHistoryRow[];
   activeSessionId?: string;
   busy?: boolean;
@@ -22,7 +21,6 @@ type Props = {
 
 export function LawmindSessionHistorySidebar({
   apiBase,
-  assistantId: _assistantId,
   sessions,
   activeSessionId,
   busy,

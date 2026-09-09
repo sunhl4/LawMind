@@ -10,6 +10,10 @@ import {
   captureTeamGrowthBaseline,
 } from "../../../src/lawmind/metrics/team-growth-dashboard.js";
 import { persistNorthStarSnapshot } from "../../../src/lawmind/metrics/north-star.js";
+import {
+  buildLawyerDeskDashboard,
+  readMatterHealthMetrics,
+} from "../../../src/lawmind/metrics/lawyer-dashboard.js";
 import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import { sendJson } from "./lawmind-server-helpers.js";
@@ -75,6 +79,19 @@ export async function handleMetricsRoutes({
         return true;
       }
       throw err;
+    }
+    return true;
+  }
+
+  if (pathname === "/api/metrics/lawyer-dashboard" && req.method === "GET") {
+    const matterId = url.searchParams.get("matterId")?.trim() ?? "";
+    const taskId = url.searchParams.get("taskId")?.trim() ?? undefined;
+    if (matterId) {
+      const metrics = readMatterHealthMetrics(workspaceDir, matterId, { taskId });
+      sendJson(res, 200, { ok: true, metrics }, c);
+    } else {
+      const dashboard = buildLawyerDeskDashboard(workspaceDir);
+      sendJson(res, 200, { ok: true, dashboard }, c);
     }
     return true;
   }

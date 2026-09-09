@@ -1,4 +1,4 @@
-import { apiAuthHeaders } from "./lawmind-api-auth.ts";
+import { fetchApiJson } from "./api-client-proxy.ts";
 
 type ContractChatPin = { root: "workspace" | "project"; relPath: string; kind: "file" | "directory" };
 
@@ -34,18 +34,15 @@ export function shouldAttachContractRevisionIndex(
 
 export async function fetchContractRevisionIndexPrefix(apiBase: string, signal?: AbortSignal): Promise<string> {
   try {
-    const r = await fetch(`${apiBase}/api/learning/contract-revisions?limit=18`, {
-      signal,
-      headers: apiAuthHeaders(),
-    });
-    if (!r.ok) {
-      return "";
-    }
-    const j = (await r.json()) as {
+    const j = await fetchApiJson<{
       ok?: boolean;
       items?: Array<{ revisionId: string; finalizedAt: string; title: string; matterId?: string }>;
-    };
-    if (!j.ok || !Array.isArray(j.items) || j.items.length === 0) {
+    }>(
+      `${apiBase}/api/learning/contract-revisions?limit=18`,
+      { signal },
+      { tag: "contract-revisions" },
+    );
+    if (j.ok === false || !Array.isArray(j.items) || j.items.length === 0) {
       return "";
     }
     const lines = j.items.map((it) => {

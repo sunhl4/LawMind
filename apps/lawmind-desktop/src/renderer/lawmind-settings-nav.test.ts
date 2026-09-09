@@ -60,6 +60,8 @@ describe("lawmind-settings-nav", () => {
 
   it("returns first nav match for search jump", () => {
     expect(firstSettingsNavMatch("模型")).toBe("models");
+    expect(firstSettingsNavMatch("法规库")).toBe("models");
+    expect(firstSettingsNavMatch("法宝")).toBe("models");
     expect(firstSettingsNavMatch("")).toBe("models");
   });
 

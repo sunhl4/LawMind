@@ -259,9 +259,9 @@
   border-color: rgba(75, 145, 247, 0.22);
 }
 .lm-badge-error, .lm-badge-failed {
-  background: var(--error-dim);
-  color: var(--error);
-  border-color: rgba(240, 101, 101, 0.22);
+  background: var(--danger-dim);
+  color: var(--danger-text);
+  border-color: var(--danger-border);
 }
 .lm-badge-chat {
   background: var(--accent-dim);

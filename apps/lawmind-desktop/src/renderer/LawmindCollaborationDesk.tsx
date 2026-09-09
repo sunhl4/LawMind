@@ -224,7 +224,7 @@ function gateNameLabel(gate: string): string {
     dangerous_tool_gate: "需确认操作",
     approval_gate: "审批",
     acceptance_gate: "出稿检查",
-    reasoning_gate: "推理",
+    reasoning_gate: "依据检查",
     redline_hunks_gate: "空修订",
     citation_integrity_gate: "引用核对",
     outbound_privilege_gate: "特权确认",
@@ -255,11 +255,11 @@ function LawmindGateHistoryTimeline(props: {
                 <span
                   key={`${row.eventId}-${gate.gate}-${idx}`}
                   className={gateDecisionBadgeClass(gate.decision)}
-                  title={
+                    title={
                     gate.category === "judgment_soft"
-                      ? "判断类（软）"
+                      ? "判断类"
                       : gate.category === "safety_hard"
-                        ? "安全硬门禁"
+                        ? "安全类"
                         : undefined
                   }
                   data-gate-category={gate.category ?? undefined}

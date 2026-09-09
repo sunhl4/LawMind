@@ -769,6 +769,9 @@ export async function handleMatterRoutes({
         ...(nextStatus ? { status: nextStatus } : {}),
         ...(body.causeOfAction !== undefined ? { causeOfAction: body.causeOfAction } : {}),
         ...(body.counterparty !== undefined ? { counterparty: body.counterparty } : {}),
+        ...(body.matterKind ? { matterKind: body.matterKind } : {}),
+        ...(body.practiceTags ? { practiceTags: body.practiceTags } : {}),
+        ...(body.docket ? { docket: body.docket } : {}),
       });
       if (!updated) {
         sendJson(res, 404, { ok: false, error: "matter not found" }, c);
@@ -806,6 +809,12 @@ export async function handleMatterRoutes({
         status: updated.status,
         causeOfAction: fromCase.causeOfAction,
         counterparty: fromCase.counterparty,
+        matterKind: updated.matterKind,
+        caseNo: updated.docket?.caseNo ?? fromCase.caseNo,
+        court: updated.docket?.court ?? fromCase.court,
+        instance: updated.docket?.instance ?? fromCase.instance,
+        standing: updated.docket?.standing ?? fromCase.standing,
+        hearingAt: updated.docket?.hearingAt ?? fromCase.hearingAt,
       });
       sendJson(res, 200, { ok: true, profile, statusLine: matterGovernanceLabel(updated) }, c);
     } catch (e) {
@@ -972,6 +981,12 @@ export async function handleMatterRoutes({
           status: record.status,
           causeOfAction: fromCase.causeOfAction,
           counterparty: fromCase.counterparty,
+          matterKind: record.matterKind,
+          caseNo: record.docket?.caseNo ?? fromCase.caseNo,
+          court: record.docket?.court ?? fromCase.court,
+          instance: record.docket?.instance ?? fromCase.instance,
+          standing: record.docket?.standing ?? fromCase.standing,
+          hearingAt: record.docket?.hearingAt ?? fromCase.hearingAt,
         })
       : null;
     const draftCitationIntegrity: Record<string, DraftCitationIntegrityView> = {};

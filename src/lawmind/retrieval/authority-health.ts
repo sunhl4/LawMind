@@ -295,9 +295,98 @@ export function buildAuthorityCorpusSummary(opts?: {
   };
 }
 
+function isPkulawMcpProbeMode(): boolean {
+  const mode = (process.env.LAWMIND_PKULAW_MODE ?? "").trim().toLowerCase();
+  return mode === "mcp_tools_call" || mode === "mcp";
+}
+
 /**
- * Lightweight GET health probe: `{endpoint}?q=__lawmind_health__`.
- * Expects JSON with hits/items array (may be empty). Non-OK HTTP → not ok.
+ * Official 法宝 MCP does not speak GET ?q=. Probe with initialize instead.
+ */
+async function probePkulawMcpEndpoint(opts: {
+  endpointNormalized: string;
+  apiKey?: string;
+  fetchImpl: typeof fetch;
+  timeoutMs: number;
+}): Promise<AuthorityProbeResult> {
+  const started = Date.now();
+  try {
+    const res = await opts.fetchImpl(opts.endpointNormalized, {
+      method: "POST",
+      headers: {
+        ...buildAuthorityRequestHeaders({ apiKey: opts.apiKey }),
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2024-11-05",
+          capabilities: {},
+          clientInfo: { name: "lawmind", version: "0.2.0" },
+        },
+      }),
+      signal: AbortSignal.timeout(opts.timeoutMs),
+    });
+    const latencyMs = Date.now() - started;
+    if (!res.ok) {
+      return {
+        ok: false,
+        httpStatus: res.status,
+        latencyMs,
+        error: `权威健康检查 HTTP ${res.status}`,
+      };
+    }
+    const text = (await res.text()).trim();
+    const jsonText =
+      text.startsWith("event:") ||
+      (res.headers.get("content-type") ?? "").includes("text/event-stream")
+        ? ([...text.matchAll(/^data:\s*(.+)$/gm)]
+            .map((m) => m[1]?.trim() ?? "")
+            .filter(Boolean)
+            .at(-1) ?? "")
+        : text;
+    let body: {
+      result?: { protocolVersion?: string; serverInfo?: { name?: string } };
+      error?: { message?: string };
+    };
+    try {
+      body = JSON.parse(jsonText) as typeof body;
+    } catch {
+      return {
+        ok: false,
+        httpStatus: res.status,
+        latencyMs,
+        error: "权威健康检查响应不是合法 JSON",
+      };
+    }
+    if (body.error?.message) {
+      return { ok: false, httpStatus: res.status, latencyMs, error: body.error.message };
+    }
+    if (!body.result?.protocolVersion && !body.result?.serverInfo) {
+      return {
+        ok: false,
+        httpStatus: res.status,
+        latencyMs,
+        error: "权威健康检查未返回 MCP initialize 结果",
+      };
+    }
+    return { ok: true, httpStatus: res.status, latencyMs, hitCount: 0 };
+  } catch (e) {
+    return {
+      ok: false,
+      latencyMs: Date.now() - started,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
+
+/**
+ * Lightweight health probe:
+ * - rest/generic: GET `{endpoint}?q=__lawmind_health__` expecting hits/items
+ * - pkulaw MCP: POST initialize (official gateways are not GET ?q=)
  */
 export async function probeAuthorityEndpoint(opts: {
   endpoint: string;
@@ -312,6 +401,14 @@ export async function probeAuthorityEndpoint(opts: {
   }
   const fetchImpl = opts.fetchImpl ?? fetch;
   const timeoutMs = opts.timeoutMs ?? 8_000;
+  if (resolveAuthorityProvider() === "pkulaw" && isPkulawMcpProbeMode()) {
+    return probePkulawMcpEndpoint({
+      endpointNormalized: v.normalized,
+      apiKey: opts.apiKey,
+      fetchImpl,
+      timeoutMs,
+    });
+  }
   const url = `${v.normalized}?q=${encodeURIComponent("__lawmind_health__")}`;
   const started = Date.now();
   try {

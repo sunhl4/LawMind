@@ -221,6 +221,13 @@ export {
   type LawmindDeskSettingsV1,
 } from "./learning/desk-settings.js";
 export {
+  DEFAULT_PRACTICE_PLAYBOOK,
+  loadPracticePlaybook,
+  savePracticePlaybook,
+  type LoadedPracticePlaybook,
+  type PracticePlaybook,
+} from "./practice/practice-playbook.js";
+export {
   listOpenContractReviewDrafts,
   readContractReviewDraft,
   saveContractReviewDraft,

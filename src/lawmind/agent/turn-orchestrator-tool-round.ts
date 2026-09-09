@@ -6,6 +6,7 @@
  * - Stop further batches once awaiting_approval
  */
 
+import { recordToolCallEvent } from "../metrics/runtime-events.js";
 import type { GateDecision, GateDecisionKind, GateCategory } from "../platform/contracts.js";
 import { withGateCategory } from "../platform/gate-category.js";
 import {
@@ -154,14 +155,14 @@ export type ExecuteToolBatchesResult = {
 type StagedToolOutcome = {
   toolResponseMsg: AgentMessage;
   clarificationQuestions: ClarificationQuestion[];
-  pendingApproval: boolean;
+  approvalRequest: boolean;
   toolName: string;
   toolCallId: string;
   toolArgs: Record<string, unknown>;
 };
 
 function outcomeNeedsElicitation(outcome: StagedToolOutcome): boolean {
-  return outcome.pendingApproval || outcome.clarificationQuestions.length > 0;
+  return outcome.approvalRequest || outcome.clarificationQuestions.length > 0;
 }
 
 export async function executeToolBatches(
@@ -194,7 +195,12 @@ export async function executeToolBatches(
 
   const isAborted = (): boolean => abortRequested?.() === true || ctx.abortSignal?.aborted === true;
 
+  // 已写入配对 tool 消息的 toolCallId。循环出口兜底用：assistant 消息里的每个
+  // tool_call 都必须有配对 tool 消息，缺配对的历史 resume 后直送 OpenAI 兼容 API 会 400。
+  const answeredToolCallIds = new Set<string>();
+
   const skipToolDueToAbort = (ref: ToolCallRef): void => {
+    answeredToolCallIds.add(ref.id);
     emitEvent({
       type: "tool_call_start",
       roundIndex,
@@ -225,6 +231,40 @@ export async function executeToolBatches(
     });
   };
 
+  /** 前序调用待律师处理（审批/澄清）而不再执行的调用：补写配对 tool 消息，避免悬空 tool_call。 */
+  const skipToolAwaitingLawyer = (ref: ToolCallRef): void => {
+    answeredToolCallIds.add(ref.id);
+    const error = "已跳过：等待律师处理前序操作";
+    emitEvent({
+      type: "tool_call_start",
+      roundIndex,
+      toolCallId: ref.id,
+      toolName: ref.name,
+      args: { ...ref.arguments },
+    });
+    emitEvent({
+      type: "tool_call_end",
+      roundIndex,
+      toolCallId: ref.id,
+      toolName: ref.name,
+      ok: false,
+      error,
+      resultPreview: error,
+    });
+    pushMessage({
+      role: "tool",
+      content: stringifyToolResultForHistory({ ok: false, error }),
+      toolCallResponses: [
+        {
+          toolCallId: ref.id,
+          name: ref.name,
+          result: { ok: false, error },
+        },
+      ],
+      timestamp: new Date().toISOString(),
+    });
+  };
+
   const toolBatches = partitionToolCalls(toolRefs, registry);
   toolBatchLoop: for (const batch of toolBatches) {
     const commitStagedBatch = (staged: StagedToolOutcome[]): boolean => {
@@ -234,15 +274,16 @@ export async function executeToolBatches(
       }
       // Barrier: publish the whole batch together so a later sample never sees a prefix.
       for (const outcome of staged) {
+        answeredToolCallIds.add(outcome.toolCallId);
         pushMessage(outcome.toolResponseMsg);
         if (outcome.clarificationQuestions.length > 0) {
           pendingClarificationQuestions = outcome.clarificationQuestions;
         }
-        if (outcome.pendingApproval) {
+        if (outcome.approvalRequest) {
           const gateDecision: GateDecision = {
             gate: "approval_gate",
             decision: "awaiting_confirmation",
-            reason: `工具 ${outcome.toolName} 返回 pendingApproval`,
+            reason: `操作「${outcome.toolName}」等待律师在「待我拍板」中确认。`,
             category: "safety_hard",
           };
           turn.gateDecisions?.push(gateDecision);
@@ -253,8 +294,16 @@ export async function executeToolBatches(
               toolCallId: outcome.toolCallId,
               toolArgs: outcome.toolArgs,
             };
-            finalReply = assistantContent || `操作 ${outcome.toolName} 需要您的确认。`;
+            finalReply =
+              assistantContent || `操作「${outcome.toolName}」已暂停，等待您在「待我拍板」中确认。`;
           }
+          emitEvent({
+            type: "approval_request",
+            roundIndex,
+            toolCallId: outcome.toolCallId,
+            toolName: outcome.toolName,
+            gateDecision,
+          });
         }
       }
       return turn.status === "awaiting_approval";
@@ -276,6 +325,9 @@ export async function executeToolBatches(
       turn.toolNameCallCounts = turn.toolNameCallCounts ?? {};
       turn.toolNameCallCounts[toolName] = (turn.toolNameCallCounts[toolName] ?? 0) + 1;
       const toolArgs = { ...ref.arguments };
+      // 审批旗标是服务端能力位，不是模型参数：模型自填的 __approved 一律剥除，
+      // 唯一合法来源是下方的服务端注入（律师预批准 / C3 沙箱策略）。
+      delete toolArgs.__approved;
       const hideFromLiveTrace = wouldHitDiscoveryCap(toolName, toolNameCallCountsBefore);
       const preApproval = resolvePreApprovalInjection({
         toolName,
@@ -286,6 +338,11 @@ export async function executeToolBatches(
       });
       if (preApproval.inject) {
         if (preApproval.mergedArgs) {
+          // 律师批准的是「这组参数」：整体替换而非浅合并，模型重发时追加的新键
+          // （如给已批邮件加附件）不会混入已批调用。
+          for (const key of Object.keys(toolArgs)) {
+            delete toolArgs[key];
+          }
           Object.assign(toolArgs, preApproval.mergedArgs);
         }
         toolArgs.__approved = true;
@@ -345,6 +402,9 @@ export async function executeToolBatches(
           sessionAssistantId,
         },
       };
+      // 委派预算分片：协作工具（delegate_task 等）在 execute 里读该值，
+      // 给子助手设置不超过父剩余的分片上限。maxToolCalls 此处为 hard ceiling。
+      ctx.remainingToolCallBudget = Math.max(0, maxToolCalls - turn.toolCallsExecuted);
       const result = await getRunToolPipeline()(callCtx);
       if (!result.ok) {
         if (DISCOVERY_LOOP_TOOL_LIMITS[toolName] != null) {
@@ -406,10 +466,56 @@ export async function executeToolBatches(
         turn.gateDecisions?.push(toolGate);
       }
 
+      const approvalRequest = result.approvalRequest === true;
+      recordToolCallEvent(ctx.workspaceDir, {
+        toolName,
+        toolCallId: tc.id,
+        roundIndex,
+        approvalRequired: approvalRequest,
+        resultStatus: result.ok
+          ? "ok"
+          : result.aborted
+            ? "aborted"
+            : result.timedOut
+              ? "error"
+              : approvalRequest
+                ? "skipped"
+                : "error",
+        taskId:
+          typeof toolArgs.taskId === "string" && toolArgs.taskId
+            ? toolArgs.taskId
+            : typeof toolArgs.task_id === "string" && toolArgs.task_id
+              ? toolArgs.task_id
+              : undefined,
+        matterId: ctx.matterId,
+      });
+      // 单一审批源：approval_request 结果写入会话历史时换成结构化暂停消息，
+      // 避免让模型读到错误式 retry 话术。
+      if (approvalRequest) {
+        const approvalHistoryResult = {
+          ok: false,
+          approvalRequest: true,
+          message: `操作「${toolName}」已暂停，等待律师在「待我拍板」中确认。`,
+        };
+        const approvalMsg: AgentMessage = {
+          role: "tool",
+          content: stringifyToolResultForHistory(approvalHistoryResult),
+          toolCallResponses: [{ toolCallId: tc.id, name: toolName, result: approvalHistoryResult }],
+          timestamp: new Date().toISOString(),
+        };
+        return {
+          toolResponseMsg: approvalMsg,
+          clarificationQuestions,
+          approvalRequest,
+          toolName,
+          toolCallId: tc.id,
+          toolArgs,
+        };
+      }
       return {
         toolResponseMsg,
         clarificationQuestions,
-        pendingApproval: result.pendingApproval === true,
+        approvalRequest,
         toolName,
         toolCallId: tc.id,
         toolArgs,
@@ -429,6 +535,14 @@ export async function executeToolBatches(
           continue;
         }
         const staged = await Promise.all(slice.map((ref) => runOne(ref)));
+        if (isAborted()) {
+          for (const ref of slice) {
+            if (!answeredToolCallIds.has(ref.id)) {
+              skipToolDueToAbort(ref);
+            }
+          }
+          continue;
+        }
         if (commitStagedBatch(staged)) {
           break toolBatchLoop;
         }
@@ -441,16 +555,35 @@ export async function executeToolBatches(
           continue;
         }
         staged.push(await runOne(ref));
+        if (isAborted()) {
+          break;
+        }
         if (staged.some(outcomeNeedsElicitation)) {
           break;
         }
       }
-      if (commitStagedBatch(staged)) {
+      if (isAborted()) {
+        for (const ref of batch.calls) {
+          if (!answeredToolCallIds.has(ref.id)) {
+            skipToolDueToAbort(ref);
+          }
+        }
+      } else if (commitStagedBatch(staged)) {
         break toolBatchLoop;
       }
     }
     if (turn.status === "awaiting_approval") {
       break toolBatchLoop;
+    }
+  }
+
+  // 悬空 tool_call 兜底：审批/澄清导致提前 break 时，同批剩余及后续批次的未执行
+  // 调用在此补齐配对 tool 消息（「已跳过」），保证 resume 后历史可直接回送模型。
+  // 正常路径下所有 ref 均已应答，本循环空转；异常路径由 deriveModelMessages 的
+  // 配对修复再兜一层。
+  for (const ref of toolRefs) {
+    if (!answeredToolCallIds.has(ref.id)) {
+      skipToolAwaitingLawyer(ref);
     }
   }
 

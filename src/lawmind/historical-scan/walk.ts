@@ -22,6 +22,11 @@ function isSkippedDir(name: string): boolean {
   return name.startsWith(".") || SKIP_DIR.has(name);
 }
 
+export function isPathInsideRoot(real: string, realRoot: string): boolean {
+  const root = realRoot.endsWith(path.sep) ? realRoot.slice(0, -1) : realRoot;
+  return real === root || real.startsWith(`${root}${path.sep}`);
+}
+
 export function walkScanRoot(root: HistoricalScanRoot): {
   items: HistoricalCatalogItem[];
   truncated: boolean;
@@ -51,13 +56,16 @@ export function walkScanRoot(root: HistoricalScanRoot): {
       }
       const abs = path.join(absDir, ent.name);
       const rel = relDir ? `${relDir}/${ent.name}` : ent.name;
+      if (ent.isSymbolicLink()) {
+        continue;
+      }
       if (ent.isDirectory()) {
         if (isSkippedDir(ent.name)) {
           continue;
         }
         try {
           const real = fs.realpathSync(abs);
-          if (!real.startsWith(realRoot)) {
+          if (!isPathInsideRoot(real, realRoot)) {
             continue;
           }
         } catch {

@@ -7,7 +7,7 @@ import type {
 import {
   detectAppliedPreferenceIds,
   type ExecutablePreference,
-} from "../../../../src/lawmind/memory/executable-preferences.ts";
+} from "../../../../src/lawmind/memory/applied-preferences.ts";
 import { apiGetJson, apiSendJson } from "./api-client";
 import { lawyerAudienceLabel, lawyerDeliverableTypeLabel } from "./lawmind-lawyer-labels";
 

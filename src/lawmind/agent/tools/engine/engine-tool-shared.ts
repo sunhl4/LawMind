@@ -101,7 +101,10 @@ export function canDraftWithoutResearch(intent: {
   return (
     intent.kind === "draft.word" ||
     intent.kind === "analyze.contract" ||
-    (intent.kind === "draft.ppt" && intent.deliverableType === "ppt.training")
+    (intent.kind === "draft.ppt" && intent.deliverableType === "ppt.training") ||
+    intent.deliverableType === "labor.calc" ||
+    intent.deliverableType === "period.calc" ||
+    intent.deliverableType === "memo.research"
   );
 }
 
@@ -120,6 +123,80 @@ export const DEMO_CORPUS_DRAFT_REFUSAL =
 export function pushWorkflowProgress(ctx: AgentContext, steps: string[], message: string): void {
   steps.push(message);
   ctx.emitToolProgress?.(message);
+}
+
+const WORKFLOW_TIMING_LABELS: Record<string, string> = {
+  plan: "规划",
+  research: "检索",
+  draft: "成稿",
+  draft_model: "模型成稿",
+  draft_contract_baseline: "合同基线",
+  draft_critic: "草稿评审",
+  draft_persist: "落盘",
+  review_render: "审核/渲染",
+  workflow_total: "合计",
+};
+
+/** Wall-clock ms for execute_workflow phases (diagnose model vs pipeline). */
+export type WorkflowTimingMs = Record<string, number>;
+
+export function createWorkflowPhaseTimer(): {
+  mark: (phase: string, startedAtMs: number) => void;
+  snapshot: () => WorkflowTimingMs;
+} {
+  const phases: WorkflowTimingMs = {};
+  return {
+    mark(phase, startedAtMs) {
+      phases[phase] = Math.max(0, Date.now() - startedAtMs);
+    },
+    snapshot() {
+      return { ...phases };
+    },
+  };
+}
+
+export function finalizeWorkflowTiming(
+  phases: WorkflowTimingMs,
+  workflowStartedAtMs: number,
+): WorkflowTimingMs {
+  return {
+    ...phases,
+    workflow_total: Math.max(0, Date.now() - workflowStartedAtMs),
+  };
+}
+
+/** Human-readable timing line for tool progress / logs. */
+export function formatWorkflowTimingSummary(timingMs: WorkflowTimingMs): string {
+  const order = [
+    "plan",
+    "research",
+    "draft_model",
+    "draft_contract_baseline",
+    "draft_critic",
+    "draft_persist",
+    "draft",
+    "review_render",
+    "workflow_total",
+  ];
+  const parts: string[] = [];
+  for (const key of order) {
+    const ms = timingMs[key];
+    if (typeof ms !== "number" || ms <= 0) {
+      continue;
+    }
+    const label = WORKFLOW_TIMING_LABELS[key] ?? key;
+    parts.push(`${label} ${(ms / 1000).toFixed(1)}s`);
+  }
+  if (parts.length === 0) {
+    return "";
+  }
+  const modelMs = (timingMs.draft_model ?? 0) + (timingMs.draft_critic ?? 0);
+  const pipelineMs = Math.max(0, (timingMs.workflow_total ?? 0) - modelMs);
+  const hint =
+    modelMs > 0
+      ? `（模型相关约 ${(modelMs / 1000).toFixed(1)}s，管线其它约 ${(pipelineMs / 1000).toFixed(1)}s）`
+      : "";
+  return `耗时诊断：${parts.join(" · ")}${hint}`;
 }
 
 /**

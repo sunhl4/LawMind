@@ -100,7 +100,7 @@ export function validateReasoningAgainstSpec(
   if (!graph) {
     checks.push({
       key: "graph_present",
-      label: "推理图谱已生成",
+      label: "法律分析已生成",
       passed: false,
       severity: required ? "blocker" : "warning",
       hint: "未发现 reasoning snapshot；请确认 engine 已为该任务构建 LegalReasoningGraph。",

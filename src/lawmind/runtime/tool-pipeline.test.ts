@@ -22,6 +22,7 @@ import {
   executeMiddleware,
   subprocessSandboxMiddleware,
   matterScopeMiddleware,
+  permissionModeMiddleware,
   roleAllowlistMiddleware,
   timeoutMiddleware,
   unknownToolMiddleware,
@@ -141,6 +142,119 @@ describe("tool-pipeline middlewares", () => {
     const result = await budgetMiddleware(call, async () => ({ ok: true }));
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/Tool budget exhausted/);
+  });
+
+  it("permissionModeMiddleware hard-blocks a write tool in readonly mode (ad-list bypass)", async () => {
+    // 对抗场景：模型（或被注入的模型）绕过工具广告清单直接点名写工具——
+    // 工具已注册、参数合法，管线仍必须在执行层拦截，tool.execute 不得被调用。
+    let executed = false;
+    const tool: AgentTool = {
+      definition: {
+        name: "write_document",
+        description: "write",
+        category: "draft",
+        parameters: {
+          file_path: { type: "string", description: "path", required: true },
+          content: { type: "string", description: "body", required: true },
+        },
+      },
+      execute: async () => {
+        executed = true;
+        return { ok: true };
+      },
+    };
+    const run = composeToolPipeline(buildDefaultToolPipeline());
+    const result = await run(
+      buildCall(workspaceDir, {
+        tool,
+        toolName: "write_document",
+        args: { file_path: "x.md", content: "hi" },
+        ctxOverride: { permissionMode: "readonly" },
+      }),
+    );
+    expect(result.ok).toBe(false);
+    expect(executed).toBe(false);
+    expect(result.error).toContain("只读");
+    expect(result.error).toContain("write_document");
+    expect(result.error).toContain("标准");
+    const gate = (result.data as { gateDecision?: Record<string, unknown> } | undefined)
+      ?.gateDecision;
+    expect(gate?.gate).toBe("dangerous_tool_gate");
+    expect(gate?.decision).toBe("block");
+    expect(gate?.category).toBe("safety_hard");
+  });
+
+  it("permissionModeMiddleware blocks write tools in research mode but allows research_task", async () => {
+    const blocked = await permissionModeMiddleware(
+      buildCall(workspaceDir, {
+        toolName: "render_document",
+        ctxOverride: { permissionMode: "research" },
+      }),
+      async () => ({ ok: true }),
+    );
+    expect(blocked.ok).toBe(false);
+    expect(blocked.error).toContain("研究");
+    expect(blocked.error).toContain("render_document");
+
+    let nextCalled = false;
+    const allowed = await permissionModeMiddleware(
+      buildCall(workspaceDir, {
+        toolName: "research_task",
+        ctxOverride: { permissionMode: "research" },
+      }),
+      async () => {
+        nextCalled = true;
+        return { ok: true };
+      },
+    );
+    expect(nextCalled).toBe(true);
+    expect(allowed.ok).toBe(true);
+  });
+
+  it("permissionModeMiddleware lets read tools run in readonly mode", async () => {
+    const tool: AgentTool = {
+      definition: { ...baseDef, name: "calculate" },
+      execute: async () => ({ ok: true, data: 42 }),
+    };
+    const run = composeToolPipeline(buildDefaultToolPipeline());
+    const result = await run(
+      buildCall(workspaceDir, {
+        tool,
+        toolName: "calculate",
+        ctxOverride: { permissionMode: "readonly" },
+      }),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.data).toBe(42);
+  });
+
+  it("permissionModeMiddleware does not restrict standard/strict/unset modes", async () => {
+    for (const mode of ["standard", "strict"] as const) {
+      let nextCalled = false;
+      const result = await permissionModeMiddleware(
+        buildCall(workspaceDir, {
+          toolName: "write_document",
+          ctxOverride: { permissionMode: mode },
+        }),
+        async () => {
+          nextCalled = true;
+          return { ok: true };
+        },
+      );
+      expect(nextCalled).toBe(true);
+      expect(result.ok).toBe(true);
+    }
+    // 旧式 ctx（未带 permissionMode 字段）按 standard 放行。
+    let legacyNext = false;
+    const legacy = await permissionModeMiddleware(
+      buildCall(workspaceDir, { toolName: "write_document" }),
+      async () => {
+        legacyNext = true;
+        return { ok: true };
+      },
+    );
+    expect(legacyNext).toBe(true);
+    expect(legacy.ok).toBe(true);
   });
 
   it("discoveryLoopMiddleware caps search_workspace repeats", async () => {
@@ -285,7 +399,7 @@ describe("tool-pipeline middlewares", () => {
     const call = buildCall(workspaceDir, { tool, args: { query: "x" } });
     const result = await approvalMiddleware(call, async () => ({ ok: true }));
     expect(result.ok).toBe(false);
-    expect(result.pendingApproval).toBe(true);
+    expect(result.approvalRequest).toBe(true);
   });
 
   it("approvalMiddleware does not pause internal production tools", async () => {
@@ -321,7 +435,7 @@ describe("tool-pipeline middlewares", () => {
       async () => ({ ok: true }),
     );
     expect(blocked.ok).toBe(false);
-    expect(blocked.pendingApproval).toBe(true);
+    expect(blocked.approvalRequest).toBe(true);
 
     // 发信即使风险上限够高也仍要拍板。
     const stillPaused = await approvalMiddleware(
@@ -332,7 +446,7 @@ describe("tool-pipeline middlewares", () => {
       async () => ({ ok: true }),
     );
     expect(stillPaused.ok).toBe(false);
-    expect(stillPaused.pendingApproval).toBe(true);
+    expect(stillPaused.approvalRequest).toBe(true);
 
     // ceiling=medium 但律师已 __approved → 放行。
     const approved = await approvalMiddleware(
@@ -385,6 +499,17 @@ describe("tool-pipeline middlewares", () => {
     expect(result.error).toMatch(/Invalid arguments|missing required/);
   });
 
+  it("timeoutMiddleware skips wall-clock kill when toolTimeoutMs is 0", async () => {
+    const call = buildCall(workspaceDir, { policyOverride: { toolTimeoutMs: 0 } });
+    const slow: ToolMiddleware = async () =>
+      new Promise<ToolCallResult>((resolve) =>
+        setTimeout(() => resolve({ ok: true, data: { slow: true } }), 80),
+      );
+    const result = await timeoutMiddleware(call, () => slow(call, async () => ({ ok: true })));
+    expect(result.ok).toBe(true);
+    expect(result.timedOut).toBeUndefined();
+  });
+
   it("timeoutMiddleware returns timedOut when tool exceeds timeout", async () => {
     const call = buildCall(workspaceDir, { policyOverride: { toolTimeoutMs: 50 } });
     const slow: ToolMiddleware = async () =>
@@ -411,6 +536,47 @@ describe("tool-pipeline middlewares", () => {
     const result = await pending;
     expect(result).toEqual({ ok: false, error: "已停止", aborted: true });
     expect(call.ctx.abortSignal).toBe(turnAbort.signal);
+  });
+
+  it("timeoutMiddleware scopes the timeout signal per call (shared ctx never polluted)", async () => {
+    // 两个并发调用共享同一个 AgentContext：call-2 先注入 signal，call-1 后注入并超时。
+    // 旧实现改写共享 ctx.abortSignal，call-1 的超时会把在途的 call-2 一起取消。
+    const sharedCtx = buildAgentContext(workspaceDir);
+    const call1: ToolCallContext = {
+      ...buildCall(workspaceDir, { policyOverride: { toolTimeoutMs: 40 } }),
+      ctx: sharedCtx,
+    };
+    const call2: ToolCallContext = {
+      ...buildCall(workspaceDir, { policyOverride: { toolTimeoutMs: 5_000 } }),
+      ctx: sharedCtx,
+    };
+    // call-2 的工具：慢但未超时（120ms < 5000ms）。像分阶段 fetch 的工具一样，
+    // 第二阶段才再读 ctx.abortSignal——旧实现此时读到的是 call-1 注入的 signal。
+    const slowCancelAware: ToolMiddleware = async (c) => {
+      await new Promise((r) => setTimeout(r, 10));
+      const sig = c.ctx.abortSignal;
+      return new Promise<ToolCallResult>((resolve, reject) => {
+        const timer = setTimeout(() => resolve({ ok: true }), 120);
+        sig?.addEventListener("abort", () => {
+          clearTimeout(timer);
+          reject(new Error("cancelled_by_signal"));
+        });
+      });
+    };
+    // call-1 的工具：挂起直到自己的超时 signal 翻转。
+    const hanging: ToolMiddleware = async (c) =>
+      new Promise<ToolCallResult>((_, reject) => {
+        c.ctx.abortSignal?.addEventListener("abort", () => reject(new Error("aborted_by_timeout")));
+      });
+    const p2 = timeoutMiddleware(call2, () => slowCancelAware(call2, async () => ({ ok: true })));
+    const p1 = timeoutMiddleware(call1, () => hanging(call1, async () => ({ ok: true })));
+    const [r1, r2] = await Promise.all([p1, p2]);
+    // 超时的只有 call-1；call-2 不受波及，正常完成。
+    expect(r1.ok).toBe(false);
+    expect(r1.timedOut).toBe(true);
+    expect(r2).toEqual({ ok: true });
+    // 共享 ctx 全程不被改写。
+    expect(sharedCtx.abortSignal).toBeUndefined();
   });
 
   it("timeoutMiddleware aborts ctx.abortSignal on timeout so tools can cancel underlying work", async () => {

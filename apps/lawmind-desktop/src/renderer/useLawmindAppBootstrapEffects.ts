@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
+import { useSettingsPanelStore } from "./stores/settings-panel-store";
 import type { CollabSummaryState } from "./LawmindSettingsCollaboration";
 import { errorMessage } from "./api-client";
-import { apiAuthHeaders } from "./lawmind-api-auth.ts";
+import { fetchApiJson } from "./api-client-proxy.ts";
 import { LOOPBACK_CONFIG_EVENT, type LoopbackConfigDetail } from "./lawmind-dev-config-cache.ts";
 import {
   loadAppBootstrapSnapshot,
@@ -85,7 +86,6 @@ export type UseLawmindAppBootstrapEffectsParams = {
   setError: (message: string | null) => void;
   applyBootstrapSnapshot: (snapshot: Awaited<ReturnType<typeof loadAppBootstrapSnapshot>>) => void;
   refreshModelsCatalog: (apiBase: string) => Promise<void>;
-  showSettings: boolean;
 };
 
 export function useLawmindAppBootstrapEffects(params: UseLawmindAppBootstrapEffectsParams) {
@@ -100,7 +100,6 @@ export function useLawmindAppBootstrapEffects(params: UseLawmindAppBootstrapEffe
     setError,
     applyBootstrapSnapshot,
     refreshModelsCatalog,
-    showSettings,
   } = params;
 
   const [collabSummarySettings, setCollabSummarySettings] = useState<CollabSummaryState>(undefined);
@@ -240,25 +239,23 @@ export function useLawmindAppBootstrapEffects(params: UseLawmindAppBootstrapEffe
     void reloadCollabSummary(config.apiBase, { refreshConfigOnFailure: true });
   }, [config?.apiBase, reloadCollabSummary]);
 
+  const settingsOpen = useSettingsPanelStore((s) => s.open);
   useEffect(() => {
-    if (!showSettings || !config?.apiBase) {
+    if (!settingsOpen || !config?.apiBase) {
       return;
     }
     void reloadCollabSummary(config.apiBase, { refreshConfigOnFailure: true });
-  }, [showSettings, config?.apiBase, reloadCollabSummary]);
+  }, [settingsOpen, config?.apiBase, reloadCollabSummary]);
 
   const reloadDeskSettings = useCallback(async () => {
     if (!config?.apiBase) {
       return;
     }
     try {
-      const r = await fetch(`${config.apiBase}/api/workspace/desk-settings`, {
-        headers: apiAuthHeaders(),
-      });
-      if (!r.ok) {
-        return;
-      }
-      const j = (await r.json()) as { ok?: boolean; settings?: { contractBatchRelativeDir?: string } };
+      const j = await fetchApiJson<{
+        ok?: boolean;
+        settings?: { contractBatchRelativeDir?: string };
+      }>(`${config.apiBase}/api/workspace/desk-settings`, {}, { tag: "desk-settings" });
       const dir = j.settings?.contractBatchRelativeDir;
       setDeskContractBatchDir(typeof dir === "string" ? dir : "");
     } catch {

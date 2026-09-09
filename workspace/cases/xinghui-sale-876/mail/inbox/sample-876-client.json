@@ -1,0 +1,9 @@
+{
+  "id": "sample-876-client",
+  "from": "王敏 <wang.min@xinghui.example>",
+  "to": "chen@firm.example",
+  "subject": "今晚代理意见三页要点请尽快确认",
+  "receivedAt": "2026-09-09T08:22:00",
+  "bodyText": "陈律师，您好。老板问今晚能否把代理意见的三页要点发我？烦请今日回复。另外付款凭证扫描件我下午四点前传到网盘。",
+  "attachments": []
+}

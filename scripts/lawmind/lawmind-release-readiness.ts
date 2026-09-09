@@ -5,6 +5,7 @@ import {
   benchmarkPassesThreshold,
   buildQualityDashboardMarkdown,
   buildReleaseReadinessReportMarkdown,
+  selectReleaseGateBenchmarkResults,
   type BenchmarkResult,
 } from "../../src/lawmind/evaluation/index.js";
 
@@ -46,12 +47,17 @@ function parseArgs(argv: string[]): Options {
 
 async function loadBenchmarkResults(
   filePath: string,
-): Promise<{ results: BenchmarkResult[]; loaded: boolean }> {
+): Promise<{ results: BenchmarkResult[]; loaded: boolean; excludedReason?: string }> {
   try {
     const raw = await fs.readFile(filePath, "utf8");
-    const parsed = JSON.parse(raw) as { results?: BenchmarkResult[] };
+    const parsed = JSON.parse(raw) as { modelMode?: string; results?: BenchmarkResult[] };
     if (Array.isArray(parsed.results) && parsed.results.length > 0) {
-      return { results: parsed.results, loaded: true };
+      // 发布 gate 只接受 real-model 结果；mock 满分不得进入发布叙事。
+      const gate = selectReleaseGateBenchmarkResults(parsed);
+      if (!gate.eligible) {
+        return { results: [], loaded: true, excludedReason: gate.reason };
+      }
+      return { results: gate.results, loaded: true };
     }
   } catch {
     // missing or invalid — release report will note benchmark not supplied
@@ -62,13 +68,20 @@ async function loadBenchmarkResults(
 async function main(): Promise<void> {
   const opts = parseArgs(process.argv.slice(2));
   const qualityDashboardMarkdown = await buildQualityDashboardMarkdown(opts.workspaceDir);
-  const { results: benchmarkResults, loaded: benchmarkLoaded } = await loadBenchmarkResults(
-    opts.benchmarkInPath,
-  );
+  const {
+    results: benchmarkResults,
+    loaded: benchmarkLoaded,
+    excludedReason: benchmarkExcludedReason,
+  } = await loadBenchmarkResults(opts.benchmarkInPath);
 
   const gatePass = benchmarkPassesThreshold(benchmarkResults, opts.benchmarkThreshold);
   const knownRisks: string[] = [];
-  if (!benchmarkLoaded) {
+  if (benchmarkExcludedReason) {
+    knownRisks.push(
+      `Benchmark results not counted toward release gate (${benchmarkExcludedReason}). ` +
+        "Re-run `pnpm lawmind:benchmark -- --mode scripted --out dist/lawmind-benchmark.json` (or --mode real) for gate evidence.",
+    );
+  } else if (!benchmarkLoaded) {
     knownRisks.push(
       "Benchmark results not found. Run `pnpm lawmind:benchmark -- --out dist/lawmind-benchmark.json` first.",
     );

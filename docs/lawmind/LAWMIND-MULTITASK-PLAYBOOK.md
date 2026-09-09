@@ -13,11 +13,11 @@
 本手册与以下文档保持一致：
 
 - 目标与阶段：`GOALS.md`
-- 产品北极星：`docs/LAWMIND-VISION.md`
+- 产品北极星：`docs/archive/LAWMIND-VISION.md`
 - 架构与工作区约定：`docs/LAWMIND-ARCHITECTURE.md`
-- 交付与验收：`docs/LAWMIND-DELIVERABLE-FIRST.md`、`docs/LAWMIND-DELIVERY.md`
-- 协作与异步工作流：`docs/LAWMIND-COLLABORATION-UI-API-MAP.md`
-- 运维与回退：`docs/LAWMIND-SUPPORT-RUNBOOK.md`
+- 交付与验收：`docs/archive/LAWMIND-DELIVERABLE-FIRST.md`、`docs/LAWMIND-DELIVERY.md`
+- 协作与异步工作流：`docs/archive/LAWMIND-COLLABORATION-UI-API-MAP.md`
+- 运维与回退：`docs/archive/LAWMIND-SUPPORT-RUNBOOK.md`
 - 工程续作：`GOALS.md`、`docs/LAWMIND-FUTURE-ISSUES.md`
 
 ## 2. 现状 vs Multitask 最佳实践
@@ -29,14 +29,14 @@
    - `GOALS.md` 已沉淀阶段性可验收里程碑，且不少条目有代码/测试对应。
 
 2. **异步长任务基础较好**
-   - 协作工作流支持 `async: true`、`jobId`、状态查询、SSE 推送、取消、幂等键（见 `GOALS.md` 第七期、`docs/LAWMIND-COLLABORATION-UI-API-MAP.md`）。
+   - 协作工作流支持 `async: true`、`jobId`、状态查询、SSE 推送、取消、幂等键（见 `GOALS.md` 第七期、`docs/archive/LAWMIND-COLLABORATION-UI-API-MAP.md`）。
 
 3. **验收门禁与可交付导向明确**
-   - `validateDraftAgainstSpec`、strict render、Acceptance Pack 已落地（见 `docs/LAWMIND-DELIVERABLE-FIRST.md`）。
-   - 形成了「可交付优先」而非「聊天轮次优先」的工程共识（见 `docs/LAWMIND-VISION.md`）。
+   - `validateDraftAgainstSpec`、strict render、Acceptance Pack 已落地（见 `docs/archive/LAWMIND-DELIVERABLE-FIRST.md`）。
+   - 形成了「可交付优先」而非「聊天轮次优先」的工程共识（见 `docs/archive/LAWMIND-VISION.md`）。
 
 4. **治理和可运维能力有骨架**
-   - `lawmind.policy.json`、benchmark gate、治理报告、quality dashboard、support runbook 已具备（见 `docs/lawmind/phase-c-governance.md`、`docs/lawmind/phase-d-operability.md`、`docs/LAWMIND-SUPPORT-RUNBOOK.md`）。
+   - `lawmind.policy.json`、benchmark gate、治理报告、quality dashboard、support runbook 已具备（见 `docs/lawmind/phase-c-governance.md`、`docs/lawmind/phase-d-operability.md`、`docs/archive/LAWMIND-SUPPORT-RUNBOOK.md`）。
 
 5. **风险控制有默认护栏**
    - Clarify-Execute、危险工具审批、审计链、人工审核点、版本特性开关（Solo/Firm/Private）已形成组合拳。

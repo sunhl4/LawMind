@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -5,6 +6,7 @@ import { describe, expect, it, beforeEach } from "vitest";
 import type { AuditEvent } from "../types.js";
 import {
   attachHashChain,
+  AUDIT_HASH_ALG_HMAC,
   resetAuditHashChainStateForTests,
   summarizeAuditIntegrity,
   verifyAuditHashChain,
@@ -44,7 +46,11 @@ describe("audit hash chain", () => {
     const e0 = attachHashChain(file, baseEvent(0));
     const e1 = attachHashChain(file, baseEvent(1));
     const tampered = { ...e1, eventHash: "deadbeef" };
-    expect(verifyAuditHashChain([e0, tampered])).toEqual({ ok: false, brokenAt: 1 });
+    expect(verifyAuditHashChain([e0, tampered])).toEqual({
+      ok: false,
+      brokenAt: 1,
+      reason: "hash_mismatch",
+    });
   });
 
   it("recovers chain from file tail after simulated process restart", () => {
@@ -92,5 +98,93 @@ describe("audit hash chain", () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("audit hash chain HMAC", () => {
+  beforeEach(() => {
+    resetAuditHashChainStateForTests();
+  });
+
+  it("marks new events as hmac-sha256 and verifies with the local key", () => {
+    const file = "/tmp/test-audit-hmac.jsonl";
+    const e0 = attachHashChain(file, baseEvent(0));
+    expect(e0.hashAlg).toBe(AUDIT_HASH_ALG_HMAC);
+    expect(verifyAuditHashChain([e0])).toEqual({ ok: true });
+    const summary = summarizeAuditIntegrity([e0]);
+    expect(summary.ok).toBe(true);
+    expect(summary.hmacCount).toBe(1);
+    expect(summary.legacyCount).toBe(0);
+    expect(summary.keyAvailable).toBe(true);
+  });
+
+  it("detects payload tampering (keyed hash cannot be recomputed without key)", () => {
+    const file = "/tmp/test-audit-hmac.jsonl";
+    const e0 = attachHashChain(file, baseEvent(0));
+    const e1 = attachHashChain(file, baseEvent(1));
+    const tampered = { ...e1, detail: "已篡改" };
+    const result = verifyAuditHashChain([e0, tampered]);
+    expect(result).toEqual({ ok: false, brokenAt: 1, reason: "hash_mismatch" });
+  });
+
+  it("rejects verification under a wrong key", () => {
+    const file = "/tmp/test-audit-hmac.jsonl";
+    const e0 = attachHashChain(file, baseEvent(0));
+    const wrongKey = randomBytes(32);
+    expect(verifyAuditHashChain([e0], { key: wrongKey })).toEqual({
+      ok: false,
+      brokenAt: 0,
+      reason: "hash_mismatch",
+    });
+  });
+
+  it("reports key_unavailable when hmac events exist but no key is provided", () => {
+    const file = "/tmp/test-audit-hmac.jsonl";
+    const e0 = attachHashChain(file, baseEvent(0));
+    expect(verifyAuditHashChain([e0], { key: null })).toEqual({
+      ok: false,
+      reason: "key_unavailable",
+    });
+    const summary = summarizeAuditIntegrity([e0], { key: null });
+    expect(summary.ok).toBe(false);
+    expect(summary.keyAvailable).toBe(false);
+  });
+
+  it("verifies legacy plain-SHA256 events without a key", () => {
+    const file = "/tmp/test-audit-legacy.jsonl";
+    // key:null 强制 legacy 降级路径，产出与加固前格式一致的链记录。
+    const e0 = attachHashChain(file, baseEvent(0), { key: null });
+    const e1 = attachHashChain(file, baseEvent(1), { key: null });
+    expect(e0.hashAlg).toBeUndefined();
+    expect(verifyAuditHashChain([e0, e1], { key: null })).toEqual({ ok: true });
+    const summary = summarizeAuditIntegrity([e0, e1], { key: null });
+    expect(summary.ok).toBe(true);
+    expect(summary.legacyCount).toBe(2);
+  });
+
+  it("verifies a mixed legacy → hmac chain (migration boundary stays readable)", () => {
+    const file = "/tmp/test-audit-mixed.jsonl";
+    const legacy0 = attachHashChain(file, baseEvent(0), { key: null });
+    const legacy1 = attachHashChain(file, baseEvent(1), { key: null });
+    const hmac2 = attachHashChain(file, baseEvent(2));
+    expect(hmac2.previousHash).toBe(legacy1.eventHash);
+    const chain = [legacy0, legacy1, hmac2];
+    expect(verifyAuditHashChain(chain)).toEqual({ ok: true });
+    const summary = summarizeAuditIntegrity(chain);
+    expect(summary.ok).toBe(true);
+    expect(summary.legacyCount).toBe(2);
+    expect(summary.hmacCount).toBe(1);
+  });
+
+  it("detects continuity break in a mixed chain", () => {
+    const file = "/tmp/test-audit-mixed.jsonl";
+    const legacy0 = attachHashChain(file, baseEvent(0), { key: null });
+    const hmac1 = attachHashChain(file, baseEvent(1));
+    const broken = { ...hmac1, previousHash: "0".repeat(64) };
+    expect(verifyAuditHashChain([legacy0, broken])).toEqual({
+      ok: false,
+      brokenAt: 1,
+      reason: "chain_break",
+    });
   });
 });

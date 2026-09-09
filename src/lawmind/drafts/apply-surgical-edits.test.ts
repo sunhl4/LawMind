@@ -52,6 +52,31 @@ describe("applySurgicalTextEdits", () => {
     }
   });
 
+  it("internally narrows a long find to the shortest differing span", () => {
+    const r = applySurgicalTextEdits({
+      sections: [
+        {
+          heading: "管辖",
+          body: "适用中华人民共和国法律，争议提交上海仲裁委员会。",
+        },
+      ],
+      edits: [
+        {
+          find: "适用中华人民共和国法律，争议提交上海仲裁委员会。",
+          replace: "适用中华人民共和国法律，争议提交北京仲裁委员会。",
+        },
+      ],
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) {
+      return;
+    }
+    expect(r.applied[0]?.find).toBe("上海");
+    expect(r.applied[0]?.replace).toBe("北京");
+    expect(r.applied[0]?.note).toContain("已收窄锚定");
+    expect(r.sections[0]?.body).toBe("适用中华人民共和国法律，争议提交北京仲裁委员会。");
+  });
+
   it("allows many short edits and short end-anchor inserts", () => {
     const body = "甲乙丙丁。并赔偿甲方因此而造成的实际损失。受损方有权要求对方赔偿超过部分。";
     const r = applySurgicalTextEdits({

@@ -4,6 +4,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { createOutboundProxy } from "../platform/outbound-proxy.js";
 import { resolveEdition } from "../policy/edition.js";
 import { checkNetworkAllowlist, hostnameFromUrl } from "../policy/network-allowlist.js";
 import type { LawMindWorkspacePolicy } from "../policy/workspace-policy.js";
@@ -11,6 +12,8 @@ import {
   assertAuthorityEndpointSafeToFetch,
   validateAuthorityEndpointUrl,
 } from "../retrieval/authority-health.js";
+import { createPinnedAuthorityFetch } from "../retrieval/authority-pinned-fetch.js";
+import type { AuthorityDnsLookupFn } from "../retrieval/authority-url-guard.js";
 import type { ResearchClaim, ResearchSource } from "../types.js";
 
 export type UrlDossierFetchStatus = "ok" | "blocked" | "error" | "empty";
@@ -125,13 +128,25 @@ export async function fetchUrlDossier(opts: {
   urls: string | string[];
   workspacePolicy?: LawMindWorkspacePolicy | null;
   fetchImpl?: typeof fetch;
+  /** DNS 解析注入（测试）；同时作用于 fetch 前校验与 pinned fetch 连接钉。 */
+  lookup?: AuthorityDnsLookupFn;
   timeoutMs?: number;
   maxUrls?: number;
   modelLabel?: string;
   signal?: AbortSignal;
 }): Promise<UrlDossierResult> {
   const urls = parseUrlList(opts.urls).slice(0, opts.maxUrls ?? 20);
-  const fetchImpl = opts.fetchImpl ?? fetch;
+  // 默认走连接层 DNS pin（authority-pinned-fetch）：连接钉到已校验 IP，
+  // 消除 check-then-fetch 之间的 DNS rebinding TOCTOU 窗口；每个重定向跳同理。
+  // 测试注入 fetchImpl 时沿用 mock（与 authority-adapter 同口径）。
+  // 用统一出口代理包一层，增加审计与 SSRF 二次校验，同时保留 pinned fetch 的防重绑定能力。
+  const urlProxy = createOutboundProxy({
+    fetchImpl: opts.fetchImpl ?? createPinnedAuthorityFetch({ lookup: opts.lookup }),
+    allowLocalNetwork: true,
+    redirect: "manual",
+    requestTag: "url-dossier",
+  });
+  const fetchImpl = urlProxy.fetch.bind(urlProxy);
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const edition = resolveEdition({ policy: opts.workspacePolicy ?? null }).edition;
   const claimModel: ResearchClaim["model"] =
@@ -182,7 +197,7 @@ export async function fetchUrlDossier(opts: {
       }
     }
 
-    const safe = await assertAuthorityEndpointSafeToFetch(url);
+    const safe = await assertAuthorityEndpointSafeToFetch(url, { lookup: opts.lookup });
     if (!safe.ok) {
       blockedCount += 1;
       entries.push({
@@ -231,7 +246,7 @@ export async function fetchUrlDossier(opts: {
           break;
         }
         const nextUrl = new URL(loc, currentUrl).toString();
-        const nextSafe = await assertAuthorityEndpointSafeToFetch(nextUrl);
+        const nextSafe = await assertAuthorityEndpointSafeToFetch(nextUrl, { lookup: opts.lookup });
         if (!nextSafe.ok) {
           redirectBlocked = `redirect blocked: ${nextSafe.message}`;
           break;
@@ -297,7 +312,7 @@ export async function fetchUrlDossier(opts: {
       if (/html/i.test(contentType) || buf.subarray(0, 32).toString("utf8").includes("<")) {
         text = stripHtmlToText(buf.toString("utf8"));
       } else {
-        text = buf.toString("utf8").split(String.fromCharCode(0)).join("").trim();
+        text = buf.toString("utf8").replaceAll("\0", "").trim();
       }
       const excerpt = text.slice(0, MAX_EXCERPT);
       if (!res.ok) {

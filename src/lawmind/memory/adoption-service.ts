@@ -56,12 +56,18 @@ export const MEMORY_ADOPTION_KINDS = [
 
 export type MemoryAdoptionKind = (typeof MEMORY_ADOPTION_KINDS)[number];
 
-export type MemoryAdoptionState = "pending" | "adopted" | "auto_adopted" | "dismissed";
+export type MemoryAdoptionState =
+  | "pending"
+  | "adopted"
+  | "auto_adopted"
+  | "dismissed"
+  /** 采纳动作已记录，但该 kind 无落盘面（或已由他处落盘）——不得宣称已生效。 */
+  | "recorded_noop";
 
 const recordSchema = z.object({
   id: z.string(),
   createdAt: z.string(),
-  state: z.enum(["pending", "adopted", "auto_adopted", "dismissed"]),
+  state: z.enum(["pending", "adopted", "auto_adopted", "dismissed", "recorded_noop"]),
   scope: z.enum(MEMORY_SCOPES),
   kind: z.enum(MEMORY_ADOPTION_KINDS),
   /** 关联资源（matterId / lawyerId / clientId 等），便于 Inspector 分组。 */
@@ -74,7 +80,9 @@ const recordSchema = z.object({
   origin: z.enum(["engine", "lawyer", "agent", "migration", "external"]).default("engine"),
   /** 可选：律师备注（dismiss 原因等）。 */
   note: z.string().optional(),
-  /** 落盘时间（adopted/auto_adopted/dismissed 才有）。 */
+  /** recorded_noop 的如实原因（为什么采纳没有落盘）。 */
+  noopReason: z.string().optional(),
+  /** 落盘时间（adopted/auto_adopted/dismissed/recorded_noop 才有）。 */
   resolvedAt: z.string().optional(),
 });
 
@@ -140,10 +148,37 @@ function rewriteAllLocked(workspaceDir: string, records: MemoryAdoptionRecord[])
   rewriteJsonl(suggestionsFile(workspaceDir), recordSchema, records);
 }
 
-/** 锁内 append 一条 suggestion（schema 校验 + 目录保证）。 */
+/**
+ * suggestions.jsonl 有界口径：已决（非 pending）历史最多保留最近 1000 条，
+ * 未决（pending）全量保留——pending 是可行动项，不得静默丢弃。
+ * 超过 1000+200 滞后阈值时才在锁内压缩一次，避免每次 append 全量重写（O(n²)）。
+ */
+export const MAX_RESOLVED_SUGGESTIONS = 1000;
+const COMPACT_SLACK = 200;
+
+function compactSuggestionsIfNeededLocked(workspaceDir: string): void {
+  const all = readAllSync(workspaceDir);
+  if (all.length <= MAX_RESOLVED_SUGGESTIONS + COMPACT_SLACK) {
+    return;
+  }
+  const resolved = all.filter((r) => r.state !== "pending");
+  const pendingCount = all.length - resolved.length;
+  const budget = Math.max(0, MAX_RESOLVED_SUGGESTIONS - pendingCount);
+  if (resolved.length <= budget) {
+    return;
+  }
+  const keepResolvedIds = new Set(resolved.slice(-budget).map((r) => r.id));
+  rewriteAllLocked(
+    workspaceDir,
+    all.filter((r) => r.state === "pending" || keepResolvedIds.has(r.id)),
+  );
+}
+
+/** 锁内 append 一条 suggestion（schema 校验 + 目录保证 + 有界压缩）。 */
 function appendOneSync(workspaceDir: string, rec: MemoryAdoptionRecord): void {
   withSuggestionsFileLock(workspaceDir, () => {
     appendJsonl(suggestionsFile(workspaceDir), recordSchema, rec);
+    compactSuggestionsIfNeededLocked(workspaceDir);
   });
 }
 
@@ -173,8 +208,24 @@ export async function suggestMemoryAdoption(
   auditDir: string,
   input: SuggestInput,
   opts?: SuggestOptions,
-): Promise<MemoryAdoptionRecord> {
+): Promise<MemoryAdoptionRecord & { reusedPending?: boolean }> {
   return withAdoptionMutationLock(async () => {
+    const payloadKey = input.payload.trim();
+    const targetKey = input.targetId?.trim() ?? "";
+    if (!opts?.autoAdopt && payloadKey) {
+      const existing = withSuggestionsFileLock(workspaceDir, () =>
+        readAllSync(workspaceDir).find(
+          (r) =>
+            r.state === "pending" &&
+            r.kind === input.kind &&
+            (r.targetId ?? "") === targetKey &&
+            r.payload.trim() === payloadKey,
+        ),
+      );
+      if (existing) {
+        return { ...existing, reusedPending: true };
+      }
+    }
     const now = new Date().toISOString();
     const rec: MemoryAdoptionRecord = {
       id: randomUUID(),
@@ -205,14 +256,24 @@ export async function suggestMemoryAdoption(
   });
 }
 
+/** writer 的落盘回执：noopReason 存在时本次采纳记为 recorded_noop（不宣称已生效）。 */
+export type AdoptionWriteOutcome = {
+  written?: string[];
+  noopReason?: string;
+};
+
 /**
  * 律师在 Inspector 上手动 adopt：调用方 writer 完成实际落盘。
+ * writer 返回 noopReason 时状态记为 recorded_noop 而非 adopted——
+ * 状态机必须区分「真的落盘了」与「仅记录了采纳决策」。
  */
 export async function adoptMemorySuggestion(
   workspaceDir: string,
   auditDir: string,
   id: string,
-  writer: (rec: MemoryAdoptionRecord) => Promise<void> | void,
+  writer: (
+    rec: MemoryAdoptionRecord,
+  ) => Promise<AdoptionWriteOutcome | void> | AdoptionWriteOutcome | void,
   opts?: { actorId?: string; note?: string },
 ): Promise<{ ok: boolean; error?: string; record?: MemoryAdoptionRecord }> {
   return withAdoptionMutationLock(async () => {
@@ -233,12 +294,14 @@ export async function adoptMemorySuggestion(
     }
     const rec = check.rec;
     // 2) writer（markdown 落盘，不涉 jsonl）
-    await writer(rec);
+    const outcome = await writer(rec);
+    const noopReason = outcome?.noopReason?.trim() || undefined;
     const next: MemoryAdoptionRecord = {
       ...rec,
-      state: "adopted",
+      state: noopReason ? "recorded_noop" : "adopted",
       resolvedAt: new Date().toISOString(),
       note: opts?.note ?? rec.note,
+      ...(noopReason ? { noopReason } : {}),
     };
     // 3) 锁内二次读 + 条件写入：仍是 pending 才翻转（并发翻转者胜出，本请求报 not_pending）
     const written = withSuggestionsFileLock(workspaceDir, () => {
@@ -256,10 +319,15 @@ export async function adoptMemorySuggestion(
     }
     await emit(auditDir, {
       taskId: rec.sourceTaskId ?? "system",
-      kind: "memory.adoption_adopted",
+      kind: noopReason ? "memory.adoption_recorded_noop" : "memory.adoption_adopted",
       actor: "lawyer",
       actorId: opts?.actorId,
-      detail: JSON.stringify({ suggestionId: id, scope: rec.scope, kind: rec.kind }),
+      detail: JSON.stringify({
+        suggestionId: id,
+        scope: rec.scope,
+        kind: rec.kind,
+        ...(noopReason ? { noopReason } : {}),
+      }),
     });
     return { ok: true, record: next };
   });
@@ -302,6 +370,15 @@ export async function dismissMemorySuggestion(
       actorId: opts?.actorId,
       detail: JSON.stringify({ suggestionId: id, scope: written.next.scope }),
     });
+    if (written.next.kind === "review_label" && written.next.sourceTaskId) {
+      try {
+        const { dismissLearningSuggestionByTaskId } =
+          await import("../learning/suggestion-queue.js");
+        await dismissLearningSuggestionByTaskId(workspaceDir, auditDir, written.next.sourceTaskId);
+      } catch {
+        // best-effort：学习队列翻转失败不回滚记忆行
+      }
+    }
     return { ok: true, record: written.next };
   });
 }

@@ -20,10 +20,7 @@ import { validateDraftAgainstSpec } from "../deliverables/index.js";
 import { resolveDraftCitationIntegrity } from "../drafts/index.js";
 import { readResearchSnapshot } from "../drafts/research-snapshot.js";
 import { LAWMIND_ATTORNEY_DISCLAIMER_EXPORT_FOOTER } from "../legal/attorney-disclaimer.js";
-import {
-  DEMO_CORPUS_RISK_FLAG,
-  isDemoCorpusResult,
-} from "../retrieval/authority-gap.js";
+import { DEMO_CORPUS_RISK_FLAG, isDemoCorpusResult } from "../retrieval/authority-gap.js";
 import type { ArtifactDraft, AuditEvent } from "../types.js";
 
 export type DraftAcceptancePackOptions = {
@@ -161,7 +158,7 @@ export async function buildDraftAcceptancePackMarkdown(
     `- **权威语料**: ${demoCorpus ? "演示语料（非正式完整法库）" : research ? "已附检索快照" : "无检索快照"}`,
     `- **生成时间**: ${generatedAt}`,
     "",
-    `## 1. 验收门禁`,
+    `## 1. 出稿检查`,
     "",
     `- **总体结论**: ${acceptance.ready ? "✅ 已通过（可交付）" : "⛔ 未通过（仍有阻断项）"}`,
     `- 阻断项: ${acceptance.blockerCount}　提示项: ${acceptance.warningCount}　占位符: ${acceptance.placeholderCount}`,
@@ -186,7 +183,7 @@ export async function buildDraftAcceptancePackMarkdown(
     "",
     `## 5. 律师签收`,
     "",
-    `- [ ] 已核对验收门禁结论与本所交付标准一致`,
+    `- [ ] 已核对出稿检查结论与本所交付标准一致`,
     `- [ ] 已检查引用完整性，缺失/多余引用已确认`,
     `- [ ] 已审阅审计事件，无未授权动作`,
     `- [ ] 同意将本交付包随交付物提供给客户`,

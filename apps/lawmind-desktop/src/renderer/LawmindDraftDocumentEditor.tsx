@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useId } from "react";
 import type { ArtifactDraft } from "../../../../src/lawmind/types.ts";
 import { LawmindSourcePillList } from "./LawmindSourcePreview";
+import { LawmindProvenanceIndicator } from "./review/LawmindProvenanceIndicator";
 import type { DraftDocumentEditorSection, DraftDocumentEditorValue } from "./lawmind-draft-document-editor";
 
 type Props = {
@@ -193,6 +194,10 @@ export function LawmindDraftDocumentEditor(props: Props) {
                       <div className="lm-draft-doc-readonly lm-draft-doc-section-title">{section.heading}</div>
                     )}
                   </label>
+                  <LawmindProvenanceIndicator
+                    provenance={section.provenance}
+                    headingLabel={`第 ${index + 1} 节 ${section.heading}`}
+                  />
                   {editable && value.sections.length > 1 ? (
                     <button
                       type="button"

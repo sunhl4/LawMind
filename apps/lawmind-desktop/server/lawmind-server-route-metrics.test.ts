@@ -70,7 +70,7 @@ describe("lawmind-server-route-metrics", () => {
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
       ok: true,
-      schemaVersion: 1,
+      schemaVersion: 2,
       firstPassRate: null,
       lintEscapeRate: null,
     });
@@ -114,6 +114,55 @@ describe("lawmind-server-route-metrics", () => {
       windowDays: 7,
       baseline: { note: "v1", windowDays: 7 },
       baselineFile: { version: 1, note: "v1" },
+    });
+  });
+
+  it("GET /api/metrics/lawyer-dashboard returns matter metrics", async () => {
+    const res = mockRes();
+    const handled = await handleMetricsRoutes({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res,
+      url: new URL("http://127.0.0.1/api/metrics/lawyer-dashboard?matterId=m-1"),
+      pathname: "/api/metrics/lawyer-dashboard",
+      c: {},
+    });
+    expect(handled).toBe(true);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      ok: true,
+      metrics: {
+        matterId: "m-1",
+        lintCoverageRate: null,
+        editRate: null,
+        firstPassRate: null,
+        pendingApprovals: 0,
+        overdueTasks: 0,
+      },
+    });
+  });
+
+  it("GET /api/metrics/lawyer-dashboard returns global desk dashboard", async () => {
+    const res = mockRes();
+    const handled = await handleMetricsRoutes({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res,
+      url: new URL("http://127.0.0.1/api/metrics/lawyer-dashboard"),
+      pathname: "/api/metrics/lawyer-dashboard",
+      c: {},
+    });
+    expect(handled).toBe(true);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      ok: true,
+      dashboard: {
+        items: expect.any(Array),
+        totalPendingApprovals: expect.any(Number),
+        totalOverdueTasks: expect.any(Number),
+        todayActivityCount: expect.any(Number),
+        thisWeekFirstPassCount: expect.any(Number),
+      },
     });
   });
 });

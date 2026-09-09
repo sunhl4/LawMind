@@ -70,7 +70,7 @@ test.describe("Job intake & template gallery", () => {
     });
   });
 
-  test("golden journey: 填表交办 → 文书台 → 验收门禁可见", async ({ page }) => {
+  test("golden journey: 填表交办 → 文书台 → 出稿检查可见", async ({ page }) => {
     await gotoShell(page);
 
     await openDeskWork(page);

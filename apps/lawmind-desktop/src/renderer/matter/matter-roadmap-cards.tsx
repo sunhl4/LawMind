@@ -1,5 +1,6 @@
 /**
  * 案件概览「跨案件实验累积板 / Roadmap 候选池」两张卡（拆自 MatterOverviewBody，纯提取无行为变化）。
+ * 产品内省仪器：仅团队自用，律师构建不渲染（见 lawmind-internal-flags）。
  */
 import type { ReactNode } from "react";
 import type {
@@ -8,6 +9,7 @@ import type {
   MatterRoadmapCandidate,
 } from "./matter-interaction";
 import { formatShortDateTime } from "./matter-display-labels.js";
+import { isInternalExperimentUiEnabled } from "../lawmind-internal-flags";
 
 export type CrossExperimentBoardItem = MatterCrossExperimentRollupItem & {
   includesCurrentMatter?: boolean;
@@ -26,6 +28,9 @@ export function MatterCrossExperimentBoardCard(props: {
   onOpenSuggestion: (suggestion: { target: MatterRecommendationTarget }) => void;
 }): ReactNode {
   const { items, onOpenSuggestion } = props;
+  if (!isInternalExperimentUiEnabled()) {
+    return null;
+  }
   return (
     <section className="lm-matter-cockpit-card lm-matter-cross-experiment-card">
       <h3>跨案件实验累积板</h3>
@@ -74,6 +79,9 @@ export function MatterRoadmapCandidatesCard(props: {
   onOpenSuggestion: (suggestion: { target: MatterRecommendationTarget }) => void;
 }): ReactNode {
   const { candidates, summary, onOpenSuggestion } = props;
+  if (!isInternalExperimentUiEnabled()) {
+    return null;
+  }
   return (
     <section className="lm-matter-cockpit-card lm-matter-roadmap-card">
       <h3>Roadmap 候选池</h3>

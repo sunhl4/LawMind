@@ -1,6 +1,11 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { errorMessage, messageFromOkFalseBody } from "../api-client";
 import { apiPost } from "../lawmind-api-routes.ts";
+import {
+  MATTER_KIND_LABELS,
+  parseMatterKind,
+  type MatterKind,
+} from "../../../../../src/lawmind/desk/matter-kind.ts";
 
 export type MatterProfilePayload = {
   matterId: string;
@@ -10,6 +15,12 @@ export type MatterProfilePayload = {
   status: string;
   causeOfAction?: string;
   counterparty?: string;
+  matterKind?: string;
+  caseNo?: string;
+  court?: string;
+  instance?: string;
+  standing?: string;
+  hearingAt?: string;
   needsEnrichment: boolean;
 };
 
@@ -26,6 +37,12 @@ export function MatterProfileCard(props: Props): ReactNode {
   const [clientId, setClientId] = useState(profile.clientId ?? "");
   const [causeOfAction, setCauseOfAction] = useState(profile.causeOfAction ?? "");
   const [counterparty, setCounterparty] = useState(profile.counterparty ?? "");
+  const [matterKind, setMatterKind] = useState<MatterKind>(parseMatterKind(profile.matterKind));
+  const [caseNo, setCaseNo] = useState(profile.caseNo ?? "");
+  const [court, setCourt] = useState(profile.court ?? "");
+  const [instance, setInstance] = useState(profile.instance ?? "");
+  const [standing, setStanding] = useState(profile.standing ?? "");
+  const [hearingAt, setHearingAt] = useState(profile.hearingAt ?? "");
   const [sensitivity, setSensitivity] = useState(profile.sensitivity);
   const [conflictCheckConfirmed, setConflictCheckConfirmed] = useState(profile.status !== "intake");
   const [engagementAccepted, setEngagementAccepted] = useState(profile.status !== "intake");
@@ -38,6 +55,12 @@ export function MatterProfileCard(props: Props): ReactNode {
     setClientId(profile.clientId ?? "");
     setCauseOfAction(profile.causeOfAction ?? "");
     setCounterparty(profile.counterparty ?? "");
+    setMatterKind(parseMatterKind(profile.matterKind));
+    setCaseNo(profile.caseNo ?? "");
+    setCourt(profile.court ?? "");
+    setInstance(profile.instance ?? "");
+    setStanding(profile.standing ?? "");
+    setHearingAt(profile.hearingAt ?? "");
     setSensitivity(profile.sensitivity);
     setConflictCheckConfirmed(profile.status !== "intake");
     setEngagementAccepted(profile.status !== "intake");
@@ -57,6 +80,14 @@ export function MatterProfileCard(props: Props): ReactNode {
         clientId: clientId.trim(),
         causeOfAction: causeOfAction.trim(),
         counterparty: counterparty.trim(),
+        matterKind,
+        docket: {
+          caseNo: caseNo.trim(),
+          court: court.trim(),
+          instance: instance.trim(),
+          standing: standing.trim(),
+          hearingAt: hearingAt.trim(),
+        },
         sensitivity,
         conflictCheckConfirmed,
         engagementAccepted,
@@ -123,6 +154,14 @@ export function MatterProfileCard(props: Props): ReactNode {
             <dt>对方</dt>
             <dd>{profile.counterparty?.trim() || "—"}</dd>
           </div>
+          <div>
+            <dt>门类</dt>
+            <dd>{MATTER_KIND_LABELS[parseMatterKind(profile.matterKind)]}</dd>
+          </div>
+          <div>
+            <dt>案号</dt>
+            <dd>{profile.caseNo?.trim() || "—"}</dd>
+          </div>
         </dl>
       ) : (
         <div className="lm-matter-profile-form">
@@ -170,6 +209,76 @@ export function MatterProfileCard(props: Props): ReactNode {
               autoComplete="off"
             />
           </label>
+          <div className="lm-matter-profile-grid">
+            <label className="lm-field">
+              <span>工作门类</span>
+              <select
+                value={matterKind}
+                onChange={(e) => setMatterKind(e.target.value as MatterKind)}
+                disabled={busy}
+              >
+                {(Object.keys(MATTER_KIND_LABELS) as MatterKind[]).map((k) => (
+                  <option key={k} value={k}>
+                    {MATTER_KIND_LABELS[k]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="lm-field">
+              <span>案号</span>
+              <input
+                type="text"
+                value={caseNo}
+                onChange={(e) => setCaseNo(e.target.value)}
+                placeholder="例如 （2026）京01民初1号"
+                disabled={busy}
+                autoComplete="off"
+              />
+            </label>
+            <label className="lm-field">
+              <span>法院</span>
+              <input
+                type="text"
+                value={court}
+                onChange={(e) => setCourt(e.target.value)}
+                disabled={busy}
+                autoComplete="off"
+              />
+            </label>
+            <label className="lm-field">
+              <span>审级</span>
+              <input
+                type="text"
+                value={instance}
+                onChange={(e) => setInstance(e.target.value)}
+                placeholder="一审 / 二审"
+                disabled={busy}
+                autoComplete="off"
+              />
+            </label>
+            <label className="lm-field">
+              <span>诉讼地位</span>
+              <input
+                type="text"
+                value={standing}
+                onChange={(e) => setStanding(e.target.value)}
+                placeholder="原告 / 被告 / 代理人"
+                disabled={busy}
+                autoComplete="off"
+              />
+            </label>
+            <label className="lm-field">
+              <span>开庭日</span>
+              <input
+                type="text"
+                value={hearingAt}
+                onChange={(e) => setHearingAt(e.target.value)}
+                placeholder="YYYY-MM-DD"
+                disabled={busy}
+                autoComplete="off"
+              />
+            </label>
+          </div>
           <label className="lm-field">
             <span>密级</span>
             <select

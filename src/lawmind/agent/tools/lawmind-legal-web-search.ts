@@ -93,7 +93,7 @@ export const lawMindStatuteWebSearchTool: AgentTool = {
   definition: {
     name: "search_statute_web",
     description:
-      "在互联网上检索法律法规、司法解释、规章的公开网页（官方法规站点优先）。仅当对话已开启「联网检索」且已配置 Brave Search API Key 时可用。用于 `search_statute` 工作区检索无结果或需核对条文原文时；结果须标注 URL 并请律师核对权威文本。",
+      "在互联网上检索法律法规、司法解释、规章的公开网页（官方法规站点优先，Brave Search）。仅当对话已开启「联网检索」且已配置 Brave Search API Key 时可用。已配置北大法宝等权威库时，应先用 `search_statute` / `search_case_law`；本工具是网页摘要兜底，不是法宝接口。结果须标注 URL 并请律师核对权威文本。",
     category: "search",
     parameters: {
       query: {

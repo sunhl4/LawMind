@@ -6,17 +6,17 @@
 
 **交叉引用**
 
-| 文档                                                                         | 关系                                             |
-| ---------------------------------------------------------------------------- | ------------------------------------------------ |
-| [LAWMIND-PERSISTENCE-SCALE-REVIEW.md](./LAWMIND-PERSISTENCE-SCALE-REVIEW.md) | 持久化膨胀 / token / 扫盘审查与 P0–P2 已实施细节 |
-| [LAWMIND-OPTIMIZATION-BACKLOG.md](./LAWMIND-OPTIMIZATION-BACKLOG.md)         | 产品远景与能力 backlog                           |
-| [LAWMIND-ENGINEERING-REVIEW.md](./LAWMIND-ENGINEERING-REVIEW.md)             | 工程评审与已落地附录                             |
+| 文档                                                                                         | 关系                                             |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| [LAWMIND-PERSISTENCE-SCALE-REVIEW.md](./archive/LAWMIND-PERSISTENCE-SCALE-REVIEW.md)（归档） | 持久化膨胀 / token / 扫盘审查与 P0–P2 已实施细节 |
+| [LAWMIND-OPTIMIZATION-BACKLOG.md](./archive/LAWMIND-OPTIMIZATION-BACKLOG.md)（归档）         | 产品远景与能力 backlog                           |
+| [LAWMIND-ENGINEERING-REVIEW.md](./archive/LAWMIND-ENGINEERING-REVIEW.md)（归档）             | 工程评审与已落地附录                             |
 
 ---
 
 ## 1. 持久化与扩展性（长期使用 / 多案件）
 
-> 背景审查：2026-07-18 → [PERSISTENCE-SCALE-REVIEW](./LAWMIND-PERSISTENCE-SCALE-REVIEW.md)
+> 背景审查：2026-07-18 → [PERSISTENCE-SCALE-REVIEW](./archive/LAWMIND-PERSISTENCE-SCALE-REVIEW.md)（归档）
 
 ### 已缓解（勿重复开坑）
 

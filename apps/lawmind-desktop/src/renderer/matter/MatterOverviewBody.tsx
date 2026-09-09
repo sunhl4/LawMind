@@ -6,6 +6,8 @@ import { MatterOverviewPanel } from "./MatterOverviewPanel";
 import { MatterOpsBrief } from "./MatterOpsBrief";
 import { MatterTheoryLitePanel } from "./MatterTheoryLitePanel";
 import { MatterQualityCockpit } from "./MatterQualityCockpit";
+import { LawmindMatterHealthCard } from "./LawmindMatterHealthCard";
+import { useMatterHealthMetrics } from "./useMatterHealthMetrics";
 import { type AcceptanceSummaryItem } from "./matter-acceptance-display";
 import { MatterLocalDocIndex } from "./MatterLocalDocIndex";
 import { MatterOverviewExtras } from "./MatterOverviewExtras";
@@ -29,17 +31,12 @@ import {
 import { parseMatterInteractionEvent } from "./matter-interaction";
 import { lawyerRiskLevelLabel } from "../lawmind-lawyer-labels";
 import { useRequireSignoffReview } from "../lawmind-review-prefs";
+import { useMatterOverviewViewStore } from "../stores/matter-overview-view-store";
 import type {
-  AdoptionHistoryInsight,
-  AdoptedSuggestionRecord,
   AuditEventRow,
   MatterConvergenceSuggestion,
-  MatterCrossExperimentRollupItem,
   MatterInteractionSummary,
-  MatterProductAdaptationSuggestion,
-  MatterProductExperimentItem,
   MatterRecommendationTarget,
-  MatterRoadmapCandidate,
   OperationsFocus,
   OperationsSort,
 } from "./matter-interaction";
@@ -79,8 +76,6 @@ export type MatterOverviewBodyProps = {
   showWorkspaceAcceptanceDashboard: boolean;
   workspaceAcceptance: MatterWorkspaceAcceptance | null;
   workspaceAcceptanceErr: string | null;
-  matterOverviewExtrasOpen: boolean;
-  setMatterOverviewExtrasOpen: (open: boolean) => void;
   reviewSummaryCards: Array<{
     key: string;
     title: string;
@@ -116,10 +111,6 @@ export type MatterOverviewBodyProps = {
   onOpenNeedsDecisionDesk?: (
     target?: import("../lawmind-agents-desk").NeedsDecisionDeskTarget,
   ) => void;
-  opsFocus: OperationsFocus;
-  setOpsFocus: (v: OperationsFocus) => void;
-  opsSort: OperationsSort;
-  setOpsSort: (v: OperationsSort) => void;
   blockingExplanations: Array<{
     key: string;
     title: string;
@@ -142,21 +133,6 @@ export type MatterOverviewBodyProps = {
   showCrossMatterRoadmap: boolean;
   convergenceSuggestions: MatterConvergenceSuggestion[];
   handleConvergenceSuggestion: (item: { target: MatterRecommendationTarget }) => void;
-  productAdaptationSuggestions: MatterProductAdaptationSuggestion[];
-  productExperimentChecklist: MatterProductExperimentItem[];
-  crossMatterExperimentBoard: Array<
-    MatterCrossExperimentRollupItem & { includesCurrentMatter?: boolean; localSuggestion?: { target: MatterRecommendationTarget } }
-  >;
-  roadmapCandidates: MatterRoadmapCandidate[];
-  _adoptionHistoryInsight: AdoptionHistoryInsight;
-  _visiblePersistentAdoptions: AdoptedSuggestionRecord[];
-  _adoptedSuggestions: AdoptedSuggestionRecord[];
-  roadmapPressureSummary: {
-    candidateCount: number;
-    nowCount: number;
-    validatedCount: number;
-    topCandidate: MatterRoadmapCandidate | null;
-  };
   recentMatterInteractions: AuditEventRow[];
   filteredQueueItems: WorkQueueItem[];
   filteredApprovalRequests: ApprovalRequest[];
@@ -164,6 +140,18 @@ export type MatterOverviewBodyProps = {
   draftCitationByTask: Record<string, DraftCitationIntegrityView>;
   acceptanceByTask: Record<string, AcceptanceSummaryItem | undefined>;
 };
+
+function useMatterOverviewViewSelectors() {
+  return {
+    opsFocus: useMatterOverviewViewStore((s) => s.opsFocus),
+    setOpsFocus: useMatterOverviewViewStore((s) => s.setOpsFocus),
+    opsSort: useMatterOverviewViewStore((s) => s.opsSort),
+    setOpsSort: useMatterOverviewViewStore((s) => s.setOpsSort),
+    extrasOpen: useMatterOverviewViewStore((s) => s.extrasOpen),
+    openExtras: useMatterOverviewViewStore((s) => s.openExtras),
+    closeExtras: useMatterOverviewViewStore((s) => s.closeExtras),
+  };
+}
 
 export function MatterOverviewBody(props: MatterOverviewBodyProps) {
   const {
@@ -176,18 +164,12 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
     showWorkspaceAcceptanceDashboard,
     workspaceAcceptance,
     workspaceAcceptanceErr,
-    matterOverviewExtrasOpen,
-    setMatterOverviewExtrasOpen,
     reviewSummaryCards,
     onOpenReview,
     openReviewFromMatter,
     onOpenMeeting,
     onUseInChat,
     onOpenNeedsDecisionDesk,
-    opsFocus,
-    setOpsFocus,
-    opsSort,
-    setOpsSort,
     blockingExplanations,
     handleBlockingAction,
     queueItems,
@@ -196,14 +178,6 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
     showCrossMatterRoadmap,
     convergenceSuggestions,
     handleConvergenceSuggestion,
-    productAdaptationSuggestions: _productAdaptationSuggestions,
-    productExperimentChecklist: _productExperimentChecklist,
-    crossMatterExperimentBoard: _crossMatterExperimentBoard,
-    roadmapCandidates: _roadmapCandidates,
-    _adoptionHistoryInsight,
-    _visiblePersistentAdoptions,
-    _adoptedSuggestions,
-    roadmapPressureSummary: _roadmapPressureSummary,
     recentMatterInteractions,
     filteredQueueItems,
     filteredApprovalRequests,
@@ -211,6 +185,14 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
     draftCitationByTask,
     acceptanceByTask,
   } = props;
+
+  const { opsFocus, setOpsFocus, opsSort, setOpsSort, extrasOpen, openExtras, closeExtras } =
+    useMatterOverviewViewSelectors();
+
+  const { metrics: healthMetrics, loading: healthLoading } = useMatterHealthMetrics(
+    apiBase,
+    matterId,
+  );
 
   const requireSignoffReview = useRequireSignoffReview();
   const acceptanceItems = Object.values(acceptanceByTask).filter(
@@ -240,6 +222,14 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
 
   return (
     <div className="lm-workbench-panel">
+        {matterId && healthMetrics && !healthLoading ? (
+          <LawmindMatterHealthCard
+            matterId={matterId}
+            displayName={selectedOverview?.displayName?.trim() || matterId}
+            metrics={healthMetrics}
+            testId="lm-matter-overview-health-card"
+          />
+        ) : null}
         {matterId ? (
           <MatterOverviewPanel
             matterId={matterId}
@@ -446,9 +436,9 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
           <MatterReviewQueuePanel matterId={matterId} queueItems={reviewQueueRows} approvals={approvalRows} />
         </section>
          <MatterOverviewExtras
-          expanded={matterOverviewExtrasOpen}
-          onExpand={() => setMatterOverviewExtrasOpen(true)}
-          onCollapse={() => setMatterOverviewExtrasOpen(false)}
+          expanded={extrasOpen}
+          onExpand={() => openExtras()}
+          onCollapse={() => closeExtras()}
         >
         <section className="lm-matter-cockpit-card lm-matter-behavior-card">
           <h3>律师行为摘要</h3>

@@ -8,7 +8,7 @@
  * Env:
  *   LAWMIND_WORKSPACE_DIR — required workspace root
  *
- * Cursor MCP config example in docs/LAWMIND-INTEGRATIONS.md
+ * Cursor MCP config example (archived) in docs/archive/LAWMIND-INTEGRATIONS.md
  */
 
 import readline from "node:readline";

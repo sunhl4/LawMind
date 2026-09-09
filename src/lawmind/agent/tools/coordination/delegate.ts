@@ -233,6 +233,8 @@ export function startDelegation(args: {
   permissionMode?: AgentPermissionMode;
   allowedToolNames?: string[];
   toolSandboxEnabled?: boolean;
+  /** 父 turn 剩余工具预算快照（parentGatesFromContext 带入）。 */
+  remainingToolCallBudget?: number;
 }): { ok: true; data: Record<string, unknown> } {
   const record = registerDelegation({
     workspaceDir: args.workspaceDir,
@@ -274,6 +276,7 @@ export function startDelegation(args: {
     permissionMode: args.permissionMode ?? args.baseConfig.permissionMode,
     allowedToolNames: args.allowedToolNames,
     toolSandboxEnabled: args.toolSandboxEnabled === true,
+    remainingToolCallBudget: args.remainingToolCallBudget,
     timeoutMs,
     onTimeout: (sid) => {
       markDelegationTimeout(args.workspaceDir, record.delegationId);

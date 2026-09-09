@@ -1,16 +1,16 @@
 import { useMemo } from "react";
 import type { ArtifactDraft } from "../../../../../src/lawmind/types.ts";
 import type { ApprovalRequest, WorkQueueItem } from "../../../../../src/lawmind/core/contracts.ts";
-import type { OperationsFocus, OperationsSort } from "./matter-interaction";
+import { useMatterOverviewViewStore } from "../stores/matter-overview-view-store";
 
 export function useMatterWorkbenchOps(input: {
   queueItems: WorkQueueItem[];
   approvalRequests: ApprovalRequest[];
   drafts: ArtifactDraft[];
-  opsFocus: OperationsFocus;
-  opsSort: OperationsSort;
 }) {
-  const { queueItems, approvalRequests, drafts, opsFocus, opsSort } = input;
+  const { queueItems, approvalRequests, drafts } = input;
+  const opsFocus = useMatterOverviewViewStore((s) => s.opsFocus);
+  const opsSort = useMatterOverviewViewStore((s) => s.opsSort);
 
   const elevatedApprovals = useMemo(
     () =>

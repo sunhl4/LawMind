@@ -6,7 +6,7 @@ Thanks for helping improve LawMind. This tree is **intentionally small**: the en
 
 - Read **`AGENTS.md`** (commands, paths, style).
 - Read **`docs/LAWMIND-REPO-LAYOUT.md`** for directory roles and what not to commit.
-- Read **`docs/LAWMIND-VISION.md`** if you change product-visible behavior.
+- Read **`GOALS.md` §二**（产品原则现行口径）if you change product-visible behavior; historical narrative: `docs/archive/LAWMIND-VISION.md`.
 - For security-sensitive changes, read **`SECURITY.md`**.
 
 ## Development

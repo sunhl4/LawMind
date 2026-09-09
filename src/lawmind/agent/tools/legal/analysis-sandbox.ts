@@ -153,13 +153,10 @@ export async function runAnalysisScriptInVm(opts: {
   const api = createAnalysisApi(opts.workspaceDir, out);
   const logs: string[] = [];
   const sandbox: Record<string, unknown> = {
-    readTable: (filePath: string, sheet?: string) => api.readTable(filePath, sheet),
-    stats: (table: AnalysisTable, column: string) => api.stats(table, column),
-    writeTable: (
-      filePath: string,
-      payload: { sheet?: string; headers: string[]; rows: unknown[][] },
-    ) => api.writeTable(filePath, payload),
-    emitChart: (raw: unknown) => api.emitChart(raw),
+    readTable: api.readTable.bind(api),
+    stats: api.stats.bind(api),
+    writeTable: api.writeTable.bind(api),
+    emitChart: api.emitChart.bind(api),
     console: {
       log: (...args: unknown[]) => {
         logs.push(args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" "));

@@ -1,3 +1,4 @@
+import { formatRepealedCitationWarning, scanRepealedStatutes } from "../reasoning/norm-validity.js";
 import { lintFinding as finding } from "./finding.js";
 import type { LegalLintFinding } from "./types.js";
 
@@ -6,13 +7,14 @@ export type LegalLintCitationHit = {
   status?: string;
 };
 
-export const CITATION_VALIDITY_RULE_COUNT = 2;
+export const CITATION_VALIDITY_RULE_COUNT = 3;
 
 const CITE_RE = /《([^》]{1,40})》\s*第\s*([0-9一二三四五六七八九十百]+)\s*条/g;
 const REPEALED_STATUS = /已废止|失效|废止/;
 const IN_FORCE_STATUS = /现行有效/;
 
 const repealedRule = { id: "citation.repealed_nearby", family: "citation" as const };
+const knownRepealedRule = { id: "citation.known_repealed", family: "citation" as const };
 const offlineRule = { id: "citation.offline_validity", family: "citation" as const };
 
 function looksLikeOpinion(text: string): boolean {
@@ -50,6 +52,7 @@ export function lintCitationValidity(
 
   const findings: LegalLintFinding[] = [];
   const seenRepeal = new Set<string>();
+  const knownRepealed = scanRepealedStatutes(body);
 
   for (const m of cites) {
     const title = (m[1] ?? "").trim();
@@ -71,6 +74,29 @@ export function lintCitationValidity(
         repealedRule,
         "warning",
         `引用《${title}》第${article}条旁出现废止/失效标记，请核对该条是否仍有效。`,
+        { anchor: m[0], statuteRef: `《${title}》第${article}条` },
+      ),
+    );
+  }
+
+  const seenKnown = new Set<string>();
+  for (const m of cites) {
+    const title = (m[1] ?? "").trim();
+    const article = (m[2] ?? "").trim();
+    const hit = knownRepealed.find((h) => title === h.title || title.endsWith(h.title));
+    if (!hit) {
+      continue;
+    }
+    const key = `${hit.title}#${article}`;
+    if (seenKnown.has(key) || seenRepeal.has(key)) {
+      continue;
+    }
+    seenKnown.add(key);
+    findings.push(
+      finding(
+        knownRepealedRule,
+        "warning",
+        formatRepealedCitationWarning(hit.title, article, hit.replaceWith),
         { anchor: m[0], statuteRef: `《${title}》第${article}条` },
       ),
     );

@@ -4,6 +4,8 @@ import type { LawmindAppOverlaysProps } from "./LawmindAppOverlays";
 import { LawmindAppOverlays } from "./LawmindAppOverlays";
 import type { LawmindAppRootDialogsProps } from "./LawmindAppRootDialogs";
 import { LawmindAppRootDialogs } from "./LawmindAppRootDialogs";
+import { LawmindConfirmDialogHost } from "../LawmindConfirmDialogHost";
+import { LawmindApprovalRequestHost } from "../LawmindApprovalRequestHost";
 
 export type LawmindModalHostProps = {
   overlayProps: LawmindAppOverlaysProps;
@@ -19,10 +21,13 @@ function LawmindModalHostImpl({ overlayProps, dialogProps }: LawmindModalHostPro
   if (typeof document === "undefined") {
     return null;
   }
+  const { apiBase, contextMatterId } = dialogProps;
   return createPortal(
     <>
       <LawmindAppOverlays {...overlayProps} />
       <LawmindAppRootDialogs {...dialogProps} />
+      <LawmindConfirmDialogHost />
+      <LawmindApprovalRequestHost apiBase={apiBase} matterId={contextMatterId} />
     </>,
     document.body,
   );

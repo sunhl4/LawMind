@@ -1,3 +1,4 @@
+// TODO(renderer-fetch-proxy): migrate remaining fetch calls to fetchApi / api-client-proxy.
 import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { errorMessage } from "./api-client";
 import { apiAuthHeaders } from "./lawmind-api-auth";

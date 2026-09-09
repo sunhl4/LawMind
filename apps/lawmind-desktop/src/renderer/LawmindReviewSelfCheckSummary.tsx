@@ -82,7 +82,7 @@ export function LawmindReviewSelfCheckSummary(props: Props): ReactNode {
     researchHints.push("核对：大纲已确认 · 已脱敏 · 短句可讲");
   }
 
-  const checkLine = checklistBlocksApprove ? "必核：回在办" : null;
+  const checkLine = checklistBlocksApprove ? "必核：未齐" : null;
   const lintLine = !lintReport
     ? null
     : lintReport.blockerCount > 0

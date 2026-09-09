@@ -5,6 +5,8 @@
 
 import fs from "node:fs/promises";
 import type { MatterRecord } from "../adapters/matter-storage/index.js";
+import type { MatterDocket } from "../desk/matter-kind.js";
+import { MATTER_KIND_LABELS, parseMatterKind } from "../desk/matter-kind.js";
 import { caseFilePath, ensureCaseWorkspace, upsertMatterDisplayName } from "../memory/index.js";
 
 const MATTER_STATUS_LABELS: Record<MatterRecord["status"], string> = {
@@ -90,13 +92,40 @@ export async function projectMatterToCaseMd(
       record.clientId.trim(),
     );
   }
+  await upsertCaseBasicBullet(
+    workspaceDir,
+    record.matterId,
+    "工作门类",
+    MATTER_KIND_LABELS[parseMatterKind(record.matterKind)],
+  );
+  const docket = record.docket;
+  if (docket?.caseNo) {
+    await upsertCaseBasicBullet(workspaceDir, record.matterId, "案号", docket.caseNo);
+  }
+  if (docket?.court) {
+    await upsertCaseBasicBullet(workspaceDir, record.matterId, "法院", docket.court);
+  }
+  if (docket?.instance) {
+    await upsertCaseBasicBullet(workspaceDir, record.matterId, "审级", docket.instance);
+  }
+  if (docket?.standing) {
+    await upsertCaseBasicBullet(workspaceDir, record.matterId, "诉讼地位", docket.standing);
+  }
+  if (docket?.hearingAt) {
+    await upsertCaseBasicBullet(workspaceDir, record.matterId, "开庭日", docket.hearingAt);
+  }
 }
 
 /** Upsert optional CASE §1 narrative fields used by the matter profile form. */
 export async function upsertMatterCaseProfileBullets(
   workspaceDir: string,
   matterId: string,
-  fields: { causeOfAction?: string; counterparty?: string },
+  fields: {
+    causeOfAction?: string;
+    counterparty?: string;
+    docket?: MatterDocket;
+    matterKind?: string;
+  },
 ): Promise<void> {
   const cause = fields.causeOfAction?.trim();
   if (cause) {
@@ -105,5 +134,29 @@ export async function upsertMatterCaseProfileBullets(
   const counterparty = fields.counterparty?.trim();
   if (counterparty) {
     await upsertCaseBasicBullet(workspaceDir, matterId, "对方当事人", counterparty);
+  }
+  if (fields.matterKind) {
+    await upsertCaseBasicBullet(
+      workspaceDir,
+      matterId,
+      "工作门类",
+      MATTER_KIND_LABELS[parseMatterKind(fields.matterKind)],
+    );
+  }
+  const docket = fields.docket;
+  if (docket?.caseNo) {
+    await upsertCaseBasicBullet(workspaceDir, matterId, "案号", docket.caseNo);
+  }
+  if (docket?.court) {
+    await upsertCaseBasicBullet(workspaceDir, matterId, "法院", docket.court);
+  }
+  if (docket?.instance) {
+    await upsertCaseBasicBullet(workspaceDir, matterId, "审级", docket.instance);
+  }
+  if (docket?.standing) {
+    await upsertCaseBasicBullet(workspaceDir, matterId, "诉讼地位", docket.standing);
+  }
+  if (docket?.hearingAt) {
+    await upsertCaseBasicBullet(workspaceDir, matterId, "开庭日", docket.hearingAt);
   }
 }

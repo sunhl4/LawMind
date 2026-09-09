@@ -40,6 +40,7 @@ const AUDIT_KIND_ZH: Record<string, string> = {
   "research.started": "检索开始",
   "research.completed": "检索完成",
   "draft.created": "草稿已生成",
+  "draft.auto_delivered": "内部低风险已自动交付",
   "draft.reviewed": "草稿已签批",
   "draft.review_reopened": "草稿恢复待审核",
   "draft.review_labeled": "草稿已打标签",

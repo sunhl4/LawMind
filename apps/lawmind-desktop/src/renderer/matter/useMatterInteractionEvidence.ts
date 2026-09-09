@@ -9,7 +9,7 @@ import {
   type MatterInteractionSummary,
   type MatterSearchHit,
 } from "./matter-interaction";
-import { apiAuthHeaders } from "../lawmind-api-auth.ts";
+import { fetchApiJson } from "../api-client-proxy.ts";
 import type { MatterPanelTab } from "./useMatterWorkbench";
 
 export function useMatterInteractionEvidence(input: {
@@ -125,22 +125,25 @@ export function useMatterInteractionEvidence(input: {
         return;
       }
       try {
-        const r = await fetch(`${apiBase}/api/matters/interaction`, {
-          method: "POST",
-          headers: { "content-type": "application/json", ...apiAuthHeaders() },
-          body: JSON.stringify({
-            matterId,
-            taskId: params.taskId,
-            action: params.action,
-            surface: params.surface,
-            label: params.label,
-            target: params.target,
-            variant: params.variant,
-            section: params.section,
-          }),
-        });
-        const j = (await r.json()) as { ok?: boolean; event?: AuditEventRow };
-        if (r.ok && j.ok && j.event) {
+        const j = await fetchApiJson<{ ok?: boolean; event?: AuditEventRow }>(
+          `${apiBase}/api/matters/interaction`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              matterId,
+              taskId: params.taskId,
+              action: params.action,
+              surface: params.surface,
+              label: params.label,
+              target: params.target,
+              variant: params.variant,
+              section: params.section,
+            }),
+          },
+          { tag: "matter-interaction" },
+        );
+        if (j.ok && j.event) {
           const event = j.event;
           setAuditEvents((prev) =>
             [...prev, event].toSorted((a, b) => (a.timestamp ?? "").localeCompare(b.timestamp ?? "")),

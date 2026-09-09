@@ -87,18 +87,20 @@ type Props = {
   open?: boolean;
   suppressAutoOpen?: boolean;
   onClose: () => void;
-  onSeedReady: (params: { matterId: string; seedPrompt: string }) => void;
+  onSeedReady: (params: { matterId?: string; seedPrompt: string }) => void;
   onOpenWorkflowLibrary?: () => void;
   onOpenAdvancedSettings?: () => void;
 };
 
 type Step = "role" | "prefs" | "spec" | "confirm";
 
-function autoMatterIdFromRole(role: Role["id"]): string {
-  const stamp = new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 12);
-  const roleLabel = ROLES.find((r) => r.id === role)?.label ?? role;
-  // 律师可见名：首跑-独立执业-202608021030（合法 matterId，避免 firstrun-* 工程师口吻）
-  return `首跑-${roleLabel}-${stamp}`;
+/**
+ * 首跑演示案件名：稳定、律师友好、不带时间戳。
+ * 字符集对齐服务端 MATTER_ID_PATTERN（字母/数字/._- 与空格），其余字符剔除。
+ */
+function autoMatterIdFromSpec(spec: SpecSummary): string {
+  const safe = spec.displayName.replace(/[^\p{L}\p{N}._\- ]/gu, "").trim();
+  return `演示案件-${safe || "示例"}`;
 }
 
 function labelOf(choices: PrefChoice[], id: string | null): string {
@@ -128,6 +130,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
   const [submitBusy, setSubmitBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+  const [createDemoMatter, setCreateDemoMatter] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -221,7 +224,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
       }
       return s.source === "workspace" ? 1 : 2;
     };
-    return [...specs].toSorted((a, b) => rank(a) - rank(b) || a.displayName.localeCompare(b.displayName, "zh")).slice(0, 6);
+    return specs.toSorted((a, b) => rank(a) - rank(b) || a.displayName.localeCompare(b.displayName, "zh")).slice(0, 6);
   }, [specs]);
 
   const dismissForever = useCallback(() => {
@@ -246,25 +249,28 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
     setSubmitBusy(true);
     setSubmitError(null);
     try {
-      const matterId = autoMatterIdFromRole(role);
-      const created = await apiSendJson<{ ok?: boolean; error?: string }, { matterId: string }>(
-        apiBase,
-        "/api/matters/create",
-        "POST",
-        { matterId },
-      );
-      if (!created.ok) {
-        throw new Error(created.error ?? "无法创建案件");
-      }
-      try {
-        await apiSendJson<{ ok?: boolean; error?: string }, { matterId: string }>(
+      let matterId: string | undefined;
+      if (createDemoMatter) {
+        matterId = autoMatterIdFromSpec(chosenSpec);
+        const created = await apiSendJson<{ ok?: boolean; error?: string }, { matterId: string }>(
           apiBase,
-          "/api/onboarding/firstrun-wizard",
+          "/api/matters/create",
           "POST",
           { matterId },
         );
-      } catch {
-        // 首跑审计失败不阻断进入对话
+        if (!created.ok) {
+          throw new Error(created.error ?? "无法创建案件");
+        }
+        try {
+          await apiSendJson<{ ok?: boolean; error?: string }, { matterId: string }>(
+            apiBase,
+            "/api/onboarding/firstrun-wizard",
+            "POST",
+            { matterId },
+          );
+        } catch {
+          // 首跑审计失败不阻断进入对话
+        }
       }
       const prefNotes = [
         `冷启动偏好：行文风格=${labelOf(WRITING_STYLE, writingStyle)}`,
@@ -290,7 +296,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
       onSeedReady({ matterId, seedPrompt });
       dismissForever();
     } catch (e) {
-      setSubmitError(errorMessage(e, "无法创建案件"));
+      setSubmitError(errorMessage(e, createDemoMatter ? "无法创建案件" : "无法开始交办"));
     } finally {
       setSubmitBusy(false);
     }
@@ -304,6 +310,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
     apiBase,
     onSeedReady,
     dismissForever,
+    createDemoMatter,
   ]);
 
   if (!visible) {
@@ -473,7 +480,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
                 }}
               >
                 <div className="lm-firstrun-card-title">{spec.displayName}</div>
-                <div className="lm-firstrun-card-hint">{spec.description ?? spec.type}</div>
+                <div className="lm-firstrun-card-hint">{spec.description ?? "常用文书"}</div>
                 <div className="lm-firstrun-card-foot">
                   <span>{spec.defaultOutput.toUpperCase()}</span>
                   <span>{spec.source === "workspace" ? "本所自定义" : "内置"}</span>
@@ -504,8 +511,17 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
               <span className="lm-meta">将放进对话的第一句交办（可改）</span>
               <pre className="lm-firstrun-seed">{buildFirstrunSeedPrompt(role, chosenSpec)}</pre>
             </div>
+            <label className="lm-firstrun-confirm-row">
+              <input
+                type="checkbox"
+                checked={createDemoMatter}
+                onChange={(e) => setCreateDemoMatter(e.target.checked)}
+                data-testid="lm-firstrun-create-matter"
+              />
+              <span>同时创建演示案件（可选）</span>
+            </label>
             <p className="lm-settings-caption">
-              开始后可随时在设置 → 工作区扫描历史材料（整理夹与杂烩目录均可，最多 3 个根）。不挡这次交办。
+              默认先进对话。开始后可随时在设置 → 工作区扫描历史材料（整理夹与杂烩目录均可，最多 3 个根）。
             </p>
             {submitError ? (
               <div className="lm-callout lm-callout-danger" role="alert">
@@ -519,13 +535,13 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
           <div className="lm-callout lm-callout-muted" role="note">
             <p className="lm-callout-body">
               {LAWMIND_ATTORNEY_DISCLAIMER_SHORT}
-              <a href={lawmindDocUrl("LAWMIND-DATA-PROCESSING")} target="_blank" rel="noreferrer noopener">
+              <a href={lawmindDocUrl("archive/LAWMIND-DATA-PROCESSING")} target="_blank" rel="noreferrer noopener">
                 数据处理说明
               </a>
               。
             </p>
             <p className="lm-callout-body" data-testid="lm-firstrun-authority-boundary">
-              演示语料·非正式法库。
+              未接权威库时只用演示语料；正式引用请核对原文。
             </p>
           </div>
         </div>
@@ -574,7 +590,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
               disabled={submitBusy || !role || !chosenSpec || !prefsReady}
               onClick={() => void submit()}
             >
-              {submitBusy ? "正在创建…" : "建案件并开始交办"}
+              {submitBusy ? "正在开始…" : createDemoMatter ? "建案件并开始交办" : "开始交办"}
             </button>
           ) : null}
         </div>

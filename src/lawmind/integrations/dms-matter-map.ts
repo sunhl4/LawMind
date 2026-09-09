@@ -8,6 +8,7 @@ import path from "node:path";
 export type MatterDmsMapping = {
   imanage?: { matterKey?: string };
   sharepoint?: { siteId?: string; driveId?: string };
+  feishu?: { folderToken?: string };
 };
 
 export function matterDmsMapPath(workspaceDir: string, matterId: string): string {

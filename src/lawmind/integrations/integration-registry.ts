@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { loadMatter } from "../adapters/matter-storage/index.js";
 import { isValidMatterId } from "../cases/matter-id.js";
+import { listFeishuDocuments, feishuConnectorReady } from "./feishu-connector.js";
 import { listFilesystemDocuments } from "./filesystem-connector.js";
 import { imanageConnectorReady, listImanageDocuments } from "./imanage-connector.js";
 import { isConnectorEnabled, loadIntegrationsConfig } from "./integration-config.js";
@@ -44,6 +45,12 @@ export const INTEGRATION_CONNECTOR_CATALOG: IntegrationConnectorCatalogEntry[] =
     label: "SharePoint",
     phase: "M2",
     description: "Microsoft Graph 只读文档元数据（规划）。",
+  },
+  {
+    id: "feishu",
+    label: "飞书云文档",
+    phase: "M2",
+    description: "只读索引事项云文档。不会写入飞书云文档、日历或台账。",
   },
 ];
 
@@ -134,6 +141,24 @@ export function resolveConnectorStatus(
       hint: ready.hint ?? "需配置 tenantId 与 LAWMIND_SHAREPOINT_CLIENT_SECRET",
     };
   }
+  if (entry.id === "feishu") {
+    const ready = feishuConnectorReady(cfg);
+    if (ready.mode === "fixture" || ready.mode === "api") {
+      return {
+        ...entry,
+        status: "active",
+        hint:
+          ready.mode === "fixture"
+            ? "Fixture 模式（LAWMIND_FEISHU_FIXTURE=1）；只读，不会写入"
+            : "飞书凭据已配置（只读列表，不会写入）",
+      };
+    }
+    return {
+      ...entry,
+      status: "unconfigured",
+      hint: ready.hint ?? "需配置 clientId 与 LAWMIND_FEISHU_APP_SECRET",
+    };
+  }
   const hasBase = Boolean(cfg?.baseUrl?.trim() || cfg?.tenantId?.trim());
   return {
     ...entry,
@@ -193,6 +218,15 @@ export async function listIntegrationDocuments(
   if (connectorId === "sharepoint") {
     const cfg = config.connectors.sharepoint;
     const docs = await listSharepointDocuments(workspaceDir, trimmed, cfg);
+    if (Array.isArray(docs)) {
+      return { ok: true, connectorId, matterId: trimmed, documents: docs };
+    }
+    return docs;
+  }
+
+  if (connectorId === "feishu") {
+    const cfg = config.connectors.feishu;
+    const docs = listFeishuDocuments(workspaceDir, trimmed, cfg);
     if (Array.isArray(docs)) {
       return { ok: true, connectorId, matterId: trimmed, documents: docs };
     }

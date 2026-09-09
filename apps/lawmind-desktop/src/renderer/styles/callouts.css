@@ -3,12 +3,12 @@
   border-radius: var(--r-sm);
   padding: var(--space-2) var(--space-3);
   margin-bottom: var(--space-3);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   line-height: var(--lh-snug);
 }
 
 .lm-callout-title {
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--text);
   margin-bottom: var(--space-1);
 }
@@ -55,19 +55,18 @@
 
 .lm-callout-danger {
   position: relative;
-  border: 1px solid var(--error-border);
-  border-left: 4px solid var(--error);
+  border: 1px solid var(--danger-border);
+  border-left: 4px solid var(--danger);
   padding: var(--space-2) var(--space-3);
   background:
     linear-gradient(
       160deg,
-      rgba(240, 101, 101, 0.22) 0%,
-      rgba(240, 101, 101, 0.08) 42%,
-      rgba(17, 19, 23, 0.92) 100%
+      color-mix(in srgb, var(--danger) 16%, var(--surface)) 0%,
+      color-mix(in srgb, var(--danger) 6%, var(--surface)) 100%
     );
   box-shadow:
     var(--shadow-xs),
-    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+    inset 0 1px 0 var(--inset-highlight);
   animation: lm-callout-danger-in 240ms var(--ease-out);
 }
 
@@ -93,9 +92,9 @@
 }
 
 .lm-callout-danger .lm-callout-title {
-  color: var(--error-text);
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  color: var(--danger-text);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--ls-tight);
 }
 
 .lm-callout-danger .lm-callout-body {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
+import { confirmDialog } from "./lawmind-confirm-dialog";
 
 type ContractReviewDraftItem = {
   draftId: string;
@@ -73,9 +74,11 @@ export function LawmindContractReviewLearningPanel({
 
   async function acceptDraft(draft: ContractReviewDraftItem): Promise<void> {
     const label = formatPathLabel(draft.revisedPath || draft.initialPath);
-    const ok = window.confirm(
-      `确认将「${label}」写入修订学习库？\n\n批注与改点会用于后续同类合同参考。`,
-    );
+    const ok = await confirmDialog({
+      title: `确认将「${label}」写入修订学习库？`,
+      body: "批注与改点会用于后续同类合同参考。",
+      confirmLabel: "写入",
+    });
     if (!ok) {
       return;
     }

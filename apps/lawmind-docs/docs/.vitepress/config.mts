@@ -1,36 +1,39 @@
 import { defineConfig } from "vitepress";
 
+/** 现行文档（与 docs/LAWMIND-REPO-LAYOUT.md 顶部「现行文档清单」一致）；历史文档在 /archive/ 下只读封存。 */
 const guide = [
-  { text: "使用手册（完整版）", link: "/LAWMIND-USER-MANUAL" },
-  { text: "客户一页概览", link: "/LAWMIND-CUSTOMER-OVERVIEW" },
+  { text: "律师快速指南", link: "/LAWMIND-LAWYER-QUICKSTART" },
   { text: "客户交付", link: "/LAWMIND-DELIVERY" },
-  { text: "客户验收", link: "/LAWMIND-CUSTOMER-ACCEPTANCE" },
-  { text: "数据处理", link: "/LAWMIND-DATA-PROCESSING" },
-  { text: "操作者与归因", link: "/LAWMIND-ACTOR-ATTRIBUTION" },
+  { text: "使用手册（完整版 · 归档）", link: "/archive/LAWMIND-USER-MANUAL" },
+  { text: "客户一页概览（归档）", link: "/archive/LAWMIND-CUSTOMER-OVERVIEW" },
+  { text: "客户验收（归档）", link: "/archive/LAWMIND-CUSTOMER-ACCEPTANCE" },
+  { text: "数据处理（归档）", link: "/archive/LAWMIND-DATA-PROCESSING" },
+  { text: "操作者与归因（归档）", link: "/archive/LAWMIND-ACTOR-ATTRIBUTION" },
 ];
 
 const product = [
-  { text: "愿景", link: "/LAWMIND-VISION" },
-  { text: "Deliverable-First（DFA）", link: "/LAWMIND-DELIVERABLE-FIRST" },
-  { text: "决策文档", link: "/LAWMIND-DECISION" },
-  { text: "2.0 战略", link: "/LAWMIND-2.0-STRATEGY" },
   { text: "架构", link: "/LAWMIND-ARCHITECTURE" },
+  { text: "术语表", link: "/LAWMIND-TERMINOLOGY" },
+  { text: "愿景（归档）", link: "/archive/LAWMIND-VISION" },
+  { text: "Deliverable-First（归档）", link: "/archive/LAWMIND-DELIVERABLE-FIRST" },
+  { text: "决策文档（归档）", link: "/archive/LAWMIND-DECISION" },
+  { text: "2.0 战略（归档）", link: "/archive/LAWMIND-2.0-STRATEGY" },
 ];
 
 const desktop = [
-  { text: "桌面端 UI 约定", link: "/LAWMIND-DESKTOP-UI" },
-  { text: "桌面文件与上下文", link: "/LAWMIND-DESKTOP-FILES-AND-CONTEXT" },
+  { text: "桌面端 UI 约定（归档）", link: "/archive/LAWMIND-DESKTOP-UI" },
+  { text: "桌面文件与上下文（归档）", link: "/archive/LAWMIND-DESKTOP-FILES-AND-CONTEXT" },
 ];
 
 const ops = [
-  { text: "Support Runbook", link: "/LAWMIND-SUPPORT-RUNBOOK" },
-  { text: "私有化部署", link: "/LAWMIND-PRIVATE-DEPLOY" },
-  { text: "安全清单", link: "/LAWMIND-SECURITY-CHECKLIST" },
-  { text: "包清单与校验", link: "/LAWMIND-BUNDLES" },
-  { text: "Policy 文件", link: "/LAWMIND-POLICY-FILE" },
-  { text: "联网检索", link: "/LAWMIND-NETWORK-OPTIONS" },
-  { text: "模型适配", link: "/LAWMIND-MODEL-ADAPTERS" },
-  { text: "集成与边界", link: "/LAWMIND-INTEGRATIONS" },
+  { text: "Support Runbook（归档）", link: "/archive/LAWMIND-SUPPORT-RUNBOOK" },
+  { text: "私有化部署（归档）", link: "/archive/LAWMIND-PRIVATE-DEPLOY" },
+  { text: "安全清单（归档）", link: "/archive/LAWMIND-SECURITY-CHECKLIST" },
+  { text: "包清单与校验（归档）", link: "/archive/LAWMIND-BUNDLES" },
+  { text: "Policy 文件（归档）", link: "/archive/LAWMIND-POLICY-FILE" },
+  { text: "联网检索（归档）", link: "/archive/LAWMIND-NETWORK-OPTIONS" },
+  { text: "模型适配（归档）", link: "/archive/LAWMIND-MODEL-ADAPTERS" },
+  { text: "集成与边界（归档）", link: "/archive/LAWMIND-INTEGRATIONS" },
 ];
 
 const platform = [
@@ -38,7 +41,7 @@ const platform = [
   { text: "Platform Proxy", link: "/lawmind/LAWMIND-PLATFORM-PROXY" },
   { text: "Document Ingest", link: "/lawmind/LAWMIND-DOCUMENT-INGEST" },
   { text: "Big-Bang Cutover", link: "/lawmind/LAWMIND-BIGBANG-CUTOVER-ROLLBACK" },
-  { text: "Collaboration UI/API", link: "/LAWMIND-COLLABORATION-UI-API-MAP" },
+  { text: "Collaboration UI/API（归档）", link: "/archive/LAWMIND-COLLABORATION-UI-API-MAP" },
 ];
 
 const multitask = [
@@ -50,8 +53,10 @@ const multitask = [
 
 const engineering = [
   { text: "未来问题", link: "/LAWMIND-FUTURE-ISSUES" },
-  { text: "三条铁律与改动清单", link: "/LAWMIND-SIMPLE-RELIABLE-PLAN" },
   { text: "仓库目录结构", link: "/LAWMIND-REPO-LAYOUT" },
+  { text: "法律编译器路线图", link: "/LAWMIND-LEGAL-COMPILER-ROADMAP" },
+  { text: "归档区说明", link: "/archive/README" },
+  { text: "三条铁律与改动清单（归档）", link: "/archive/LAWMIND-SIMPLE-RELIABLE-PLAN" },
   { text: "Engineering status", link: "/lawmind/engineering-status" },
   { text: "Compliance audit trail", link: "/lawmind/compliance-audit-trail" },
   { text: "Legal reasoning graph", link: "/lawmind/legal-reasoning-graph" },
@@ -75,9 +80,9 @@ export default defineConfig({
     logo: "/favicon.svg",
     siteTitle: "LawMind",
     nav: [
-      { text: "使用手册", link: "/LAWMIND-USER-MANUAL" },
+      { text: "快速指南", link: "/LAWMIND-LAWYER-QUICKSTART" },
       { text: "交付", link: "/LAWMIND-DELIVERY" },
-      { text: "数据处理", link: "/LAWMIND-DATA-PROCESSING" },
+      { text: "数据处理", link: "/archive/LAWMIND-DATA-PROCESSING" },
       {
         text: "下载",
         link: "/download/",
@@ -85,10 +90,10 @@ export default defineConfig({
       {
         text: "实施与支持",
         items: [
-          { text: "私有化部署", link: "/LAWMIND-PRIVATE-DEPLOY" },
-          { text: "Support Runbook", link: "/LAWMIND-SUPPORT-RUNBOOK" },
-          { text: "集成与边界", link: "/LAWMIND-INTEGRATIONS" },
-          { text: "安全清单", link: "/LAWMIND-SECURITY-CHECKLIST" },
+          { text: "私有化部署", link: "/archive/LAWMIND-PRIVATE-DEPLOY" },
+          { text: "Support Runbook", link: "/archive/LAWMIND-SUPPORT-RUNBOOK" },
+          { text: "集成与边界", link: "/archive/LAWMIND-INTEGRATIONS" },
+          { text: "安全清单", link: "/archive/LAWMIND-SECURITY-CHECKLIST" },
         ],
       },
     ],

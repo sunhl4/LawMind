@@ -1,0 +1,1330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>青年律师与 AI · 从会问到能交件</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=Noto+Serif+SC:wght@500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --ink: #122033;
+    --ink-2: #2a3848;
+    --muted: #5b6774;
+    --paper: #f4efe4;
+    --paper-2: #ebe4d3;
+    --gold: #b0894a;
+    --gold-2: #8d6b30;
+    --seal: #8c2d2d;
+    --card: #fffdf8;
+    --line: #d6ccb6;
+    --ok: #2f5d47;
+    --ok-bg: #e7f0ea;
+    --warn: #8a5418;
+    --warn-bg: #f6eedf;
+    --soft: #e8e0cf;
+    --s: 1;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    background: #0c1520;
+    color: var(--ink);
+    font-family: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    overflow: hidden;
+  }
+  .viewport {
+    position: fixed; inset: 0;
+    display: grid; place-items: center;
+  }
+  .stage {
+    width: 1280px; height: 720px;
+    transform: scale(var(--s));
+    transform-origin: center center;
+    position: relative;
+    background: var(--paper);
+    box-shadow: 0 30px 80px rgba(0,0,0,.45);
+    overflow: hidden;
+  }
+  .slide {
+    position: absolute; inset: 0;
+    padding: 52px 68px 58px;
+    display: none;
+    flex-direction: column;
+  }
+  .slide.is-on { display: flex; }
+  .slide--ink {
+    background:
+      radial-gradient(1200px 500px at 110% -10%, rgba(176,137,74,.18), transparent 50%),
+      linear-gradient(165deg, #101b2a 0%, #182433 55%, #0f1824 100%);
+    color: #f3ead8;
+  }
+  .slide--chapter {
+    justify-content: center;
+    padding-left: 96px;
+  }
+  h1, h2, .serif { font-family: "Noto Serif SC", "Songti SC", "STSong", serif; }
+  .kicker {
+    font-size: 13px; letter-spacing: .22em;
+    color: var(--gold-2); font-weight: 600;
+    text-transform: none; margin-bottom: 12px;
+  }
+  .slide--ink .kicker { color: #d4b36a; }
+  h2 {
+    font-size: 40px; font-weight: 650; line-height: 1.22;
+    letter-spacing: .02em; margin-bottom: 18px;
+  }
+  .rule {
+    width: 56px; height: 2px; background: var(--gold);
+    margin: 0 0 22px;
+  }
+  .lead { font-size: 19px; line-height: 1.7; color: var(--ink-2); max-width: 980px; }
+  .slide--ink .lead { color: #e4d9c4; }
+  .sub { font-size: 15px; line-height: 1.65; color: var(--muted); }
+  .grid, .g2, .g3, .g4, .g23, .g32 { display: grid; gap: 16px; }
+  .g2 { grid-template-columns: 1fr 1fr; }
+  .g3 { grid-template-columns: 1fr 1fr 1fr; }
+  .g4 { grid-template-columns: repeat(4, 1fr); }
+  .g23 { grid-template-columns: 1.15fr .85fr; }
+  .g32 { grid-template-columns: .9fr 1.1fr; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 18px 20px 16px;
+  }
+  .slide--ink .card {
+    background: rgba(255,253,248,.06);
+    border-color: rgba(212,179,106,.28);
+    color: #f3ead8;
+  }
+  .card h3 {
+    font-family: "Noto Serif SC", serif;
+    font-size: 18px; font-weight: 650; margin-bottom: 8px;
+  }
+  .card p, .card li { font-size: 14.5px; line-height: 1.62; color: var(--ink-2); }
+  .slide--ink .card p, .slide--ink .card li { color: #e4d9c4; }
+  .card ol, .card ul { padding-left: 18px; }
+  .num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--ink); color: #f4efe4;
+    font-size: 13px; font-weight: 700; margin-right: 8px;
+    flex: 0 0 26px;
+  }
+  .gold-num { background: var(--gold-2); }
+  .seal-num { background: var(--seal); }
+  .chip {
+    display: inline-block; padding: 3px 9px; border-radius: 99px;
+    font-size: 12px; letter-spacing: .04em;
+    border: 1px solid var(--line); color: var(--muted); background: #fff;
+  }
+  .chip--ok { background: var(--ok-bg); border-color: #c5d8cc; color: var(--ok); }
+  .chip--warn { background: var(--warn-bg); border-color: #e6d3b0; color: var(--warn); }
+  .chip--seal { background: #f6e8e6; border-color: #e3c4c1; color: var(--seal); }
+  table.cmp {
+    width: 100%; border-collapse: collapse; font-size: 14px;
+    background: var(--card); border-radius: 10px; overflow: hidden;
+    border: 1px solid var(--line);
+  }
+  .cmp th, .cmp td {
+    padding: 11px 12px; text-align: left; vertical-align: top;
+    border-bottom: 1px solid var(--line); line-height: 1.5;
+  }
+  .cmp th {
+    background: #122033; color: #f3ead8; font-weight: 600; font-size: 13px;
+    letter-spacing: .04em;
+  }
+  .cmp th:first-child, .cmp td:first-child { width: 18%; font-weight: 600; }
+  .cmp tr:last-child td { border-bottom: 0; }
+  .cmp td.hi { background: #f3ead0; }
+  .cmp .yes { color: var(--ok); font-weight: 650; }
+  .cmp .mid { color: var(--warn); }
+  .cmp .no { color: var(--seal); }
+  .flow {
+    display: flex; align-items: stretch; gap: 0; margin-top: 8px;
+  }
+  .flow-step {
+    flex: 1; background: var(--card); border: 1px solid var(--line);
+    padding: 14px 12px 12px; position: relative;
+    min-height: 118px;
+  }
+  .flow-step + .flow-step { margin-left: -1px; }
+  .flow-step:first-child { border-radius: 10px 0 0 10px; }
+  .flow-step:last-child { border-radius: 0 10px 10px 0; }
+  .flow-step .n {
+    font-family: "Noto Serif SC", serif;
+    color: var(--gold-2); font-size: 12px; letter-spacing: .16em;
+    margin-bottom: 6px;
+  }
+  .flow-step b { display: block; font-size: 16px; margin-bottom: 6px; }
+  .flow-step span { display: block; font-size: 13px; color: var(--muted); line-height: 1.5; }
+  .arrow-row {
+    display: flex; align-items: center; justify-content: center;
+    color: var(--gold-2); font-size: 20px; padding: 0 2px;
+  }
+  .footer {
+    position: absolute; left: 68px; right: 68px; bottom: 22px;
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 12px; color: #8a8170; letter-spacing: .04em;
+  }
+  .slide--ink .footer { color: rgba(243,234,216,.45); }
+  .chrome {
+    position: fixed; left: 0; right: 0; bottom: 0; height: 4px;
+    background: #1a2430; z-index: 20;
+  }
+  .chrome .bar {
+    height: 100%; width: 0; background: linear-gradient(90deg, #b0894a, #d4b36a);
+    transition: width .25s ease;
+  }
+  .hud {
+    position: fixed; right: 18px; bottom: 16px; z-index: 21;
+    color: #c9b896; font-size: 12px; letter-spacing: .08em;
+    font-variant-numeric: tabular-nums;
+  }
+  .help, .notes, .overview {
+    display: none; position: fixed; inset: 0; z-index: 30;
+    background: rgba(10,16,24,.72); color: #f3ead8;
+    padding: 48px 64px; overflow: auto;
+  }
+  .help.is-on, .notes.is-on, .overview.is-on { display: block; }
+  .help kbd, .notes kbd {
+    display: inline-block; min-width: 22px; padding: 1px 6px;
+    border: 1px solid #d4b36a; border-radius: 4px; font-size: 12px;
+    color: #d4b36a; margin-right: 6px;
+  }
+  .ov-grid {
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px;
+  }
+  .ov-item {
+    background: #182433; border: 1px solid rgba(212,179,106,.25);
+    padding: 10px; border-radius: 6px; cursor: pointer; min-height: 72px;
+    font-size: 12px; line-height: 1.4;
+  }
+  .ov-item:hover, .ov-item.cur { border-color: #d4b36a; }
+  .ov-item b { display: block; color: #d4b36a; margin-bottom: 4px; }
+  .quote {
+    font-family: "Noto Serif SC", serif;
+    font-size: 28px; line-height: 1.45; max-width: 920px;
+  }
+  .pillars { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; margin-top: 8px; }
+  .pillar {
+    background: var(--card); border-top: 3px solid var(--gold);
+    border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+    border-left: 1px solid var(--line); padding: 22px 20px 18px;
+  }
+  .pillar .idx {
+    font-family: "Noto Serif SC", serif; color: var(--gold-2);
+    font-size: 13px; letter-spacing: .2em; margin-bottom: 10px;
+  }
+  .pillar h3 { font-size: 22px; margin-bottom: 10px; }
+  .pillar p { font-size: 15px; line-height: 1.65; color: var(--ink-2); }
+  .list-plain { list-style: none; }
+  .list-plain li {
+    display: flex; gap: 12px; align-items: flex-start;
+    margin-bottom: 12px; font-size: 16px; line-height: 1.6;
+  }
+  .tiny { font-size: 13px; color: var(--muted); line-height: 1.55; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; flex: 1; }
+  .day {
+    display: grid; grid-template-columns: 88px 1fr; gap: 0 18px;
+  }
+  .day .t {
+    font-family: "Noto Serif SC", serif; color: var(--gold-2);
+    font-size: 15px; padding-top: 2px;
+  }
+  .day .d {
+    border-left: 2px solid var(--line); padding: 0 0 18px 16px;
+    font-size: 15.5px; line-height: 1.55;
+  }
+  .day .d b { display: block; margin-bottom: 2px; }
+  svg.diagram { width: 100%; height: auto; display: block; }
+  .badge-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0; }
+  @media print {
+    html, body { overflow: visible; background: #fff; height: auto; }
+    .viewport { position: static; display: block; }
+    .stage {
+      transform: none !important; box-shadow: none;
+      width: 1280px; height: auto !important; overflow: visible !important;
+      margin: 0; position: static;
+    }
+    .slide {
+      display: flex !important; position: relative !important; inset: auto !important;
+      width: 1280px; height: 720px;
+      page-break-after: always; page-break-inside: avoid;
+    }
+    .slide:last-child { page-break-after: auto; }
+    .chrome, .hud, .help, .notes, .overview { display: none !important; }
+    @page { size: 1280px 720px; margin: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="viewport">
+  <div class="stage" id="stage">
+
+    <!-- 1 -->
+    <section class="slide slide--ink" data-title="封面">
+      <div class="kicker">INTERNAL BRIEFING · 2026</div>
+      <div style="flex:1; display:flex; flex-direction:column; justify-content:center; max-width:980px;">
+        <p style="letter-spacing:.28em; font-size:13px; color:#d4b36a; margin-bottom:18px;">青年律师 · 执业方法 · 工作台</p>
+        <h1 class="serif" style="font-size:58px; line-height:1.18; font-weight:650; letter-spacing:.04em;">青年律师与 AI</h1>
+        <div class="rule" style="margin:22px 0 20px;"></div>
+        <p class="serif" style="font-size:28px; color:#e8dcc4;">从「会问一句」到「能交一件」</p>
+        <p class="lead" style="margin-top:22px; max-width:760px;">
+          不讲模型名词。讲一件事：青年律师怎样把助手用成可托付的办案力量，<br />
+          以及 LawMind 与常见问答工具、通用助手，究竟差在哪里。
+        </p>
+      </div>
+      <div class="footer"><span>面向执业律师的交流稿 · 非法律意见</span><span>01 / 30</span></div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" data-title="今天谈什么" data-notes="用三分钟立规矩：今天不评模型榜，不谈安装部署。听众带走的是工作方法 + 对 LawMind 的判断框架。">
+      <p class="kicker">目录</p>
+      <h2>今天只谈四件事</h2>
+      <div class="rule"></div>
+      <div class="g2" style="flex:1; align-content:start;">
+        <div class="card">
+          <h3><span class="num">1</span>处境</h3>
+          <p>青年律师的时间，真正耗在何处；为什么「会用聊天框」还不够。</p>
+        </div>
+        <div class="card">
+          <h3><span class="num">2</span>对照</h3>
+          <p>问答工具、垂直法律搜索、通用电脑助手——各能做什么，各自会在哪一步失守。</p>
+        </div>
+        <div class="card">
+          <h3><span class="num">3</span>工作台</h3>
+          <p>LawMind 的交办闭环：能办哪些事、律师在哪拍板、交件长什么样。</p>
+        </div>
+        <div class="card">
+          <h3><span class="num">4</span>前方</h3>
+          <p>接下来要做成的事，以及我们明确不碰的边界。方便各位判断「值不值得跟」。</p>
+        </div>
+      </div>
+      <p class="tiny" style="margin-top:14px;">口径声明：LawMind 输出须经执业律师审阅后方可对外。系统不构成法律意见。对外效力永远由律师承担。</p>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>02 / 30</span></div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" data-title="青年律师被什么困住">
+      <p class="kicker">壹 · 处境</p>
+      <h2>青年律师并不缺「会问 AI」</h2>
+      <div class="rule"></div>
+      <p class="lead" style="margin-bottom:22px;">缺的是：把一件交办做成可审核、可改、可签字的成品，并且事后说得清「依据从哪来」。</p>
+      <div class="g3">
+        <div class="card">
+          <h3>上手很快，交件很慢</h3>
+          <p>聊天框三分钟出一段话。真正耗时的是：对事实、补材料、改口径、排版、给合伙人看、再改一版。</p>
+        </div>
+        <div class="card">
+          <h3>答案好看，责任落在自己</h3>
+          <p>模型不会出庭，也不会在函件上落款。编造法条、漏掉期限、把内部分析写进律师函——事故记在律师名下。</p>
+        </div>
+        <div class="card">
+          <h3>越用越碎，形不成习惯</h3>
+          <p>每次从空白对话框开始。所里口径、自己改过的表述、本案已经确认的事实，都不会自动跟着下一件走。</p>
+        </div>
+      </div>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>03 / 30</span></div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" data-title="时间耗在何处">
+      <p class="kicker">壹 · 处境</p>
+      <h2>一天里，真正吃时间的不是「想法律」</h2>
+      <div class="rule"></div>
+      <div class="g23" style="flex:1;">
+        <div>
+          <svg class="diagram" viewBox="0 0 620 390" xmlns="http://www.w3.org/2000/svg" aria-label="青年律师时间结构">
+            <rect x="8" y="8" width="604" height="374" rx="10" fill="#fffdf8" stroke="#d6ccb6"/>
+            <text x="28" y="42" fill="#8d6b30" font-size="13" font-family="Noto Sans SC,sans-serif" letter-spacing="2">示意 · 青年律师常见一周（非精确统计）</text>
+            <g font-family="Noto Sans SC,sans-serif">
+              <rect x="28" y="68" width="430" height="44" rx="4" fill="#122033"/>
+              <text x="42" y="96" fill="#f3ead8" font-size="15">材料搬运、格式、对照前后稿</text>
+              <text x="470" y="96" fill="#8d6b30" font-size="14">约三成</text>
+              <rect x="28" y="124" width="360" height="44" rx="4" fill="#2a3848"/>
+              <text x="42" y="152" fill="#f3ead8" font-size="15">检索、摘录、做时间线与目录</text>
+              <text x="400" y="152" fill="#8d6b30" font-size="14">约两成半</text>
+              <rect x="28" y="180" width="300" height="44" rx="4" fill="#3d4f42"/>
+              <text x="42" y="208" fill="#f3ead8" font-size="15">按所内口径改稿、对齐合伙人</text>
+              <text x="340" y="208" fill="#8d6b30" font-size="14">约两成</text>
+              <rect x="28" y="236" width="210" height="44" rx="4" fill="#b0894a"/>
+              <text x="42" y="264" fill="#122033" font-size="15">真正的法律判断</text>
+              <text x="250" y="264" fill="#8d6b30" font-size="14">约一成半</text>
+              <rect x="28" y="292" width="160" height="44" rx="4" fill="#8c2d2d"/>
+              <text x="42" y="320" fill="#f3ead8" font-size="15">等待材料 / 返工</text>
+              <text x="200" y="320" fill="#8d6b30" font-size="14">约一成</text>
+            </g>
+          </svg>
+        </div>
+        <div>
+          <p class="lead" style="font-size:17px; margin-bottom:16px;">AI 若只帮你「再写一段」，解决的是最短的那截。</p>
+          <ul class="list-plain">
+            <li><span class="num gold-num">1</span><span>青年律师的竞争力，往往不在记得更多法条，而在<strong>少返工、少漏点、交得出去</strong>。</span></li>
+            <li><span class="num gold-num">2</span><span>助手该接手的，是搬运、对照、起草、整理、盯梢；<strong>策略、对外口径、签批</strong>必须留在律师手里。</span></li>
+            <li><span class="num gold-num">3</span><span>好的工具，应把你从「材料工」里解放出来，而不是再添一个要你盯着的对话框。</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>04 / 30</span></div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" data-title="三类常见AI">
+      <p class="kicker">贰 · 对照</p>
+      <h2>律师桌上，常见三类 AI</h2>
+      <div class="rule"></div>
+      <div class="g3" style="flex:1;">
+        <div class="card">
+          <p class="chip">问答</p>
+          <h3 style="margin-top:10px;">聊天式法律问答</h3>
+          <p>通用大模型，或带法规库的「问一句回一段」。快，适合打开思路、起草稿、解释概念。</p>
+          <p style="margin-top:10px;"><strong>停在哪：</strong>没有案件、没有版本、没有签批。下一件从零开始。</p>
+        </div>
+        <div class="card">
+          <p class="chip">插件</p>
+          <h3 style="margin-top:10px;">Word 里的改稿插件</h3>
+          <p>对着一篇合同出红线、出意见。适合「就这一份文件」的深加工。</p>
+          <p style="margin-top:10px;"><strong>停在哪：</strong>案件材料、函件、检索、邮件、期限，仍散落在别处。</p>
+        </div>
+        <div class="card">
+          <p class="chip chip--warn">通用助手</p>
+          <h3 style="margin-top:10px;">能操作电脑的通用助手</h3>
+          <p>会点文件夹、会发邮件、会自己拆任务。看起来最像「真人助理」。</p>
+          <p style="margin-top:10px;"><strong>停在哪：</strong>权限过大、责任不清、容易把「能做」当成「该做」。</p>
+        </div>
+      </div>
+      <p class="tiny" style="margin-top:16px;">企业级云端法律平台（大型所采购的那一类）另算：能力强、治理重、默认把材料放在服务商侧。对个人工作室与多数中小所，不是同一条路。</p>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>05 / 30</span></div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" data-title="通用助手的四个坑">
+      <p class="kicker">贰 · 对照</p>
+      <h2>通用助手为什么难托付办案</h2>
+      <div class="rule"></div>
+      <div class="g2">
+        <div class="card">
+          <h3>一、信任默认打开</h3>
+          <p>设计假设是「用户已经授权它做事」。法律场景里，误发一封函、误删一份证据、对外承诺一个期限，都不是「重来一遍」能收场的。</p>
+        </div>
+        <div class="card">
+          <h3>二、责任落在真空里</h3>
+          <p>平台可以说「最终由用户负责」。律师不能对客户、法院、律协说「是助手自己做的」。看不见过程，就无法担这个责。</p>
+        </div>
+        <div class="card">
+          <h3>三、没有「交件」这个终点</h3>
+          <p>通用助手的成功标准是「任务跑完了」。律师的成功标准是「这一版敢给客户、敢入卷、敢签字」。中间隔着审核、来源、口径。</p>
+        </div>
+        <div class="card">
+          <h3>四、事实会漂、规则会忘</h3>
+          <p>会话一长，关键限制被冲淡；法条和类案可能被编造。律师要的不是「更会聊」，而是<strong>同样的交办，结果别飘</strong>。</p>
+        </div>
+      </div>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>06 / 30</span></div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide slide--ink" data-title="LawMind是什么">
+      <p class="kicker">叁 · 工作台</p>
+      <h2 class="serif" style="font-size:44px; max-width:1000px; line-height:1.28;">LawMind 是装在自己电脑上的律师工作台</h2>
+      <div class="rule"></div>
+      <p class="quote" style="font-size:26px; margin:8px 0 28px;">你交办，它按流程去做；做完交给你审核；<br />你签批之后，才算数。</p>
+      <div class="g3">
+        <div class="card">
+          <h3>不是聊天产品</h3>
+          <p>对话只是交代与澄清的窗口。北极星是一件可验收的交件，不是多聊几轮。</p>
+        </div>
+        <div class="card">
+          <h3>不是合同生成器</h3>
+          <p>合同是高频子集。函件、诉讼稿、意见书、时间线、证据目录、邮件来件，走同一套闭环。</p>
+        </div>
+        <div class="card">
+          <h3>不是无人值守律师</h3>
+          <p>律师是领导。对外发送、最终策略、签字发函，永远停在你拍板之前。</p>
+        </div>
+      </div>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>07 / 30</span></div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" data-title="三条铁律">
+      <p class="kicker">叁 · 工作台</p>
+      <h2>验收我们，只用三条铁律</h2>
+      <div class="rule"></div>
+      <div class="pillars">
+        <div class="pillar">
+          <div class="idx">铁律 一</div>
+          <h3 class="serif">上手简单</h3>
+          <p>默认路径就能交办与跟进。不必先学配置，不必背口令。拖进材料，用大白话说事即可。</p>
+        </div>
+        <div class="pillar">
+          <div class="idx">铁律 二</div>
+          <h3 class="serif">交付质量高</h3>
+          <p>交上来的稿子可审、可用、可担责。缺的信息标出来，不悄悄编造。来源能回看原文。</p>
+        </div>
+        <div class="pillar">
+          <div class="idx">铁律 三</div>
+          <h3 class="serif">结果要稳</h3>
+          <p>同样的交办，结构别今天一个样明天一个样。失败了要说得清为什么，可以接着做，而不是从头猜。</p>
+        </div>
+      </div>
+      <p class="tiny" style="margin-top:22px;">冲突时的裁决：多功能、多入口、「显得更智能」，一律让位于这三条。青年律师选工具，也可以用这三条当尺子。</p>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>08 / 30</span></div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" data-title="工作闭环">
+      <p class="kicker">叁 · 工作台</p>
+      <h2>主路径只有一条闭环</h2>
+      <div class="rule"></div>
+      <div class="flow">
+        <div class="flow-step"><div class="n">01</div><b>交办</b><span>大白话说事，把材料拖进去。选「合同审查 / 函件 / 检索…」即可，不必背指令。</span></div>
+        <div class="flow-step"><div class="n">02</div><b>澄清</b><span>材料或关键事实不够，先问你。问清再大规模动笔，避免先写一版碰运气。</span></div>
+        <div class="flow-step"><div class="n">03</div><b>执行</b><span>按该类文书的固定结构去做：检索、对照、起草、自检。过程可在对话里跟进。</span></div>
+        <div class="flow-step"><div class="n">04</div><b>审核</b><span>看正文、看来源、看「必核清单」。点来源可回到材料原文段落。</span></div>
+        <div class="flow-step"><div class="n">05</div><b>改稿</b><span>按你的意见改，或你自己改。每版留痕，可对比、可回退。</span></div>
+        <div class="flow-step"><div class="n">06</div><b>签批 · 交付</b><span>你点签批，再导出 Word。未签批不是终稿，更不会被发出去。</span></div>
+      </div>
+      <div class="g2" style="margin-top:18px;">
+        <div class="card">
+          <h3>和问答工具的差别</h3>
+          <p>问答停在「一段回答」。这里停在「一份入得了卷的稿」：有版本、有来源、有你的签字动作。</p>
+        </div>
+        <div class="card">
+          <h3>和通用助手的差别</h3>
+          <p>通用助手可能直接发信、直接改文件。这里把「能干」和「准许干」拆开：外发必须经过签批。</p>
+        </div>
+      </div>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>09 / 30</span></div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" data-title="先问清再动手">
+      <p class="kicker">叁 · 工作台</p>
+      <h2>先问清，再动手——像一个靠谱助理</h2>
+      <div class="rule"></div>
+      <div class="g23" style="flex:1;">
+        <svg class="diagram" viewBox="0 0 640 400" xmlns="http://www.w3.org/2000/svg">
+          <rect width="640" height="400" rx="10" fill="#fffdf8" stroke="#d6ccb6"/>
+          <rect x="36" y="36" width="200" height="72" rx="8" fill="#122033"/>
+          <text x="136" y="68" text-anchor="middle" fill="#f3ead8" font-size="16" font-family="Noto Serif SC,serif">律师交办</text>
+          <text x="136" y="90" text-anchor="middle" fill="#d4b36a" font-size="12" font-family="Noto Sans SC,sans-serif">指令 + 材料</text>
+          <path d="M236 72 H300" stroke="#b0894a" stroke-width="2"/>
+          <polygon points="300,68 312,72 300,76" fill="#b0894a"/>
+          <rect x="316" y="28" width="288" height="88" rx="8" fill="#f6eedf" stroke="#e6d3b0"/>
+          <text x="460" y="62" text-anchor="middle" fill="#8a5418" font-size="16" font-family="Noto Serif SC,serif">范围或事实不清？</text>
+          <text x="460" y="86" text-anchor="middle" fill="#5b6774" font-size="12" font-family="Noto Sans SC,sans-serif">主体、期限、诉请、收件人…</text>
+          <path d="M460 116 V150" stroke="#b0894a" stroke-width="2"/>
+          <text x="476" y="142" fill="#8a5418" font-size="12" font-family="Noto Sans SC,sans-serif">是</text>
+          <rect x="336" y="154" width="248" height="70" rx="8" fill="#fff" stroke="#d6ccb6"/>
+          <text x="460" y="184" text-anchor="middle" fill="#122033" font-size="15" font-family="Noto Serif SC,serif">停下来问你</text>
+          <text x="460" y="206" text-anchor="middle" fill="#5b6774" font-size="12" font-family="Noto Sans SC,sans-serif">给选项或假设，不硬写</text>
+          <path d="M336 189 H250" stroke="#b0894a" stroke-width="2"/>
+          <path d="M460 224 V256" stroke="#2f5d47" stroke-width="2"/>
+          <text x="40" y="250" fill="#2f5d47" font-size="12" font-family="Noto Sans SC,sans-serif">已对齐 / 已补齐</text>
+          <rect x="36" y="268" width="568" height="96" rx="8" fill="#e7f0ea" stroke="#c5d8cc"/>
+          <text x="320" y="308" text-anchor="middle" fill="#2f5d47" font-size="18" font-family="Noto Serif SC,serif">连续执行，直到可审核的稿</text>
+          <text x="320" y="334" text-anchor="middle" fill="#2a3848" font-size="13" font-family="Noto Sans SC,sans-serif">不为每一步向你讨「下一步指令」 · 高风险动作仍会暂停</text>
+        </svg>
+        <div>
+          <p class="lead" style="font-size:17px; margin-bottom:14px;">资深助理不会在事实不明时先交一版碰运气。</p>
+          <ul class="list-plain">
+            <li><span class="num">1</span><span><strong>实质不确定：</strong>先列需确认的点，再检索、再长文起草。</span></li>
+            <li><span class="num">2</span><span><strong>范围已齐：</strong>自己往下做，不把你聊累。</span></li>
+            <li><span class="num">3</span><span><strong>缺的先标出来：</strong>用「待补充」，不静默编一个主体或日期。</span></li>
+          </ul>
+          <p class="tiny" style="margin-top:8px;">这是质量与稳定的来源，不是「更会聊天」。</p>
+        </div>
+      </div>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>10 / 30</span></div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" data-title="待我拍板">
+      <p class="kicker">叁 · 工作台</p>
+      <h2>「待我拍板」：你只处理必须由你决定的事</h2>
+      <div class="rule"></div>
+      <p class="lead" style="margin-bottom:18px;">侧栏一个入口。处理完一条少一条。没有积压时，它是空的——你不必满屏找「还有什么要我定」。</p>
+      <div class="g3">
+        <div class="card">
+          <p class="chip chip--ok">待签批</p>
+          <h3 style="margin-top:10px;">稿子做好了</h3>
+          <p>初稿、改稿已经可看。你通篇审核，勾完必核清单，点签批。这是终局动作。</p>
+        </div>
+        <div class="card">
+          <p class="chip chip--warn">待补充</p>
+          <h3 style="margin-top:10px;">它缺信息</h3>
+          <p>缺一份材料、缺一个日期、缺收件人。你补上，它继续干。不拿半成品冒充完成。</p>
+        </div>
+        <div class="card">
+          <p class="chip chip--seal">待批准</p>
+          <h3 style="margin-top:10px;">它想做一件要授权的事</h3>
+          <p>例如向外发信。你点头它才做。没有「助手自行发出去了」这种故事。</p>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px;">
+        <h3>给青年律师的用法</h3>
+        <p>把上午第一件事设成：打开「待我拍板」。像带助理一样——先处理卡点，再开新交办。你的角色从「自己写到深夜」变成「派活、看稿、拍板」。</p>
+      </div>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>11 / 30</span></div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" data-title="能办哪些事">
+      <p class="kicker">叁 · 工作台</p>
+      <h2>今天能交办的事（律师语言）</h2>
+      <div class="rule"></div>
+      <div class="g3" style="flex:1;">
+        <div class="card">
+          <h3>合同审查</h3>
+          <p>按已附合同走审查：风险、改法、待确认事项。可出意见书，也可在原稿上做最小改、带审阅痕迹。</p>
+        </div>
+        <div class="card">
+          <h3>函件起草</h3>
+          <p>律师函、催告函、回函。要有收件人、事实、主张、期限与落款。口吻克制，不把内部分析写进正文。</p>
+        </div>
+        <div class="card">
+          <h3>诉讼文书</h3>
+          <p>起诉状、答辩状、代理词及诉讼提纲。当事人、诉请、事实理由按结构齐，缺口标「待补充」。</p>
+        </div>
+        <div class="card">
+          <h3>检索研究</h3>
+          <p>按问题检索并出备忘。引用须能回到来源，不凭记忆编造法条原文。</p>
+        </div>
+        <div class="card">
+          <h3>写材料</h3>
+          <p>法律意见书、内部备忘、会议纪要、保密协议、通用合同草案。同一套审核与签批。</p>
+        </div>
+        <div class="card">
+          <h3>邮件合同审阅</h3>
+          <p>邮箱来件里的合同，走同一套审查门禁。改完等你批准，才发回对方。不自动外发。</p>
+        </div>
+      </div>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>12 / 30</span></div>
+    </section>
+
+    <!-- 13 -->
+    <section class="slide" data-title="合同审查路径">
+      <p class="kicker">叁 · 工作台</p>
+      <h2>把「审一份租赁合同」走一遍</h2>
+      <div class="rule"></div>
+      <svg class="diagram" viewBox="0 0 1144 430" xmlns="http://www.w3.org/2000/svg" aria-label="合同审查路径">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0 0 L10 5 L0 10 z" fill="#b0894a"/>
+          </marker>
+        </defs>
+        <rect x="0" y="0" width="1144" height="430" rx="10" fill="#fffdf8" stroke="#d6ccb6"/>
+        <g font-family="Noto Sans SC,sans-serif">
+          <rect x="24" y="28" width="210" height="110" rx="8" fill="#122033"/>
+          <text x="129" y="68" text-anchor="middle" fill="#d4b36a" font-size="12">交办</text>
+          <text x="129" y="94" text-anchor="middle" fill="#f3ead8" font-size="15">「重点看押金和违约」</text>
+          <text x="129" y="116" text-anchor="middle" fill="#c9b896" font-size="12">拖入合同 PDF / Word</text>
+          <line x1="234" y1="83" x2="286" y2="83" stroke="#b0894a" stroke-width="2" marker-end="url(#arr)"/>
+          <rect x="290" y="28" width="210" height="110" rx="8" fill="#fff" stroke="#d6ccb6"/>
+          <text x="395" y="68" text-anchor="middle" fill="#8d6b30" font-size="12">澄清</text>
+          <text x="395" y="94" text-anchor="middle" fill="#122033" font-size="15">主体、租期是否齐全</text>
+          <text x="395" y="116" text-anchor="middle" fill="#5b6774" font-size="12">不齐先问，齐了就审</text>
+          <line x1="500" y1="83" x2="552" y2="83" stroke="#b0894a" stroke-width="2" marker-end="url(#arr)"/>
+          <rect x="556" y="28" width="210" height="110" rx="8" fill="#fff" stroke="#d6ccb6"/>
+          <text x="661" y="68" text-anchor="middle" fill="#8d6b30" font-size="12">执行</text>
+          <text x="661" y="94" text-anchor="middle" fill="#122033" font-size="15">条款对照 · 风险分级</text>
+          <text x="661" y="116" text-anchor="middle" fill="#5b6774" font-size="12">机械项：定金上限等</text>
+          <line x1="766" y1="83" x2="818" y2="83" stroke="#b0894a" stroke-width="2" marker-end="url(#arr)"/>
+          <rect x="822" y="28" width="298" height="110" rx="8" fill="#e7f0ea" stroke="#c5d8cc"/>
+          <text x="971" y="68" text-anchor="middle" fill="#2f5d47" font-size="12">审核</text>
+          <text x="971" y="94" text-anchor="middle" fill="#122033" font-size="15">意见 + 来源 + 必核清单</text>
+          <text x="971" y="116" text-anchor="middle" fill="#5b6774" font-size="12">点来源，回到合同原句</text>
+          <line x1="971" y1="138" x2="971" y2="188" stroke="#b0894a" stroke-width="2" marker-end="url(#arr)"/>
+          <rect x="556" y="196" width="564" height="96" rx="8" fill="#fff" stroke="#d6ccb6"/>
+          <text x="838" y="236" text-anchor="middle" fill="#8d6b30" font-size="12">改稿</text>
+          <text x="838" y="262" text-anchor="middle" fill="#122033" font-size="15">你改语气、补风险、退回一条建议 —— 每版留痕</text>
+          <line x1="556" y1="244" x2="234" y2="244" stroke="#b0894a" stroke-width="2" marker-end="url(#arr)"/>
+          <rect x="24" y="196" width="210" height="96" rx="8" fill="#f6e8e6" stroke="#e3c4c1"/>
+          <text x="129" y="236" text-anchor="middle" fill="#8c2d2d" font-size="12">签批</text>
+          <text x="129" y="262" text-anchor="middle" fill="#122033" font-size="15">你点头，才是终稿</text>
+          <line x1="129" y1="292" x2="129" y2="330" stroke="#b0894a" stroke-width="2" marker-end="url(#arr)"/>
+          <rect x="24" y="334" width="1096" height="72" rx="8" fill="#122033"/>
+          <text x="572" y="364" text-anchor="middle" fill="#d4b36a" font-size="13">交付</text>
+          <text x="572" y="388" text-anchor="middle" fill="#f3ead8" font-size="15">导出 Word · 可选把每段来源做成批注交给客户备查</text>
+        </g>
+      </svg>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>13 / 30</span></div>
+    </section>
+
+    <!-- 14 -->
+    <section class="slide" data-title="文书谱系">
+      <p class="kicker">叁 · 工作台</p>
+      <h2>同一闭环，覆盖日常文书谱系</h2>
+      <div class="rule"></div>
+      <table class="cmp">
+        <thead>
+          <tr>
+            <th>类型</th>
+            <th>今天能出的成品</th>
+            <th>律师仍须盯的点</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>合同</td>
+            <td>审查意见；租赁/通用合同草案；保密协议；原稿上的最小改 + 审阅痕迹</td>
+            <td>商务取舍、风险是否接受、对方地位</td>
+          </tr>
+          <tr>
+            <td>函件</td>
+            <td>律师函、催告函、回函稿</td>
+            <td>是否发、发给谁、期限与后果是否过猛</td>
+          </tr>
+          <tr>
+            <td>诉讼</td>
+            <td>起诉状、答辩状、代理词、诉讼提纲</td>
+            <td>请求是否可执行、管辖与时效、证据是否撑得住</td>
+          </tr>
+          <tr>
+            <td>研究与内部</td>
+            <td>法律意见书、内部备忘、会议纪要、培训用稿</td>
+            <td>结论是否可对外、内部分析是否误入客户稿</td>
+          </tr>
+          <tr>
+            <td>卷宗整理</td>
+            <td>案件时间线、证据目录</td>
+            <td>关联性、证明目的、原件核对</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="tiny" style="margin-top:12px;">事务所也可把自己的文书规格加进去（本所模板）。结构先齐，再谈文采——青年律师最容易在「结构不齐」上被退稿。</p>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>14 / 30</span></div>
+    </section>
+
+    <!-- 15 -->
+    <section class="slide" data-title="检索与卷宗">
+      <p class="kicker">叁 · 工作台</p>
+      <h2>检索与整理：先把案子摊在桌上</h2>
+      <div class="rule"></div>
+      <div class="g2" style="flex:1;">
+        <div class="card">
+          <h3>检索研究</h3>
+          <p>你给出争点或主题，系统检索后起草备忘。引用要能点回去源。正式意见走完整交办，不只停在聊天摘要。</p>
+          <div class="badge-row">
+            <span class="chip">争点备忘</span>
+            <span class="chip">类案摘要</span>
+            <span class="chip">依据可回看</span>
+          </div>
+        </div>
+        <div class="card">
+          <h3>一案一台</h3>
+          <p>每个案件有自己的材料、草稿、期限与活动记录。不是「所有对话堆在一个聊天窗」。</p>
+          <div class="badge-row">
+            <span class="chip">当事人与关键日期</span>
+            <span class="chip">逾期提醒（标黄，不制造恐慌）</span>
+          </div>
+        </div>
+        <div class="card">
+          <h3>时间线 · 证据目录</h3>
+          <p>把一摞往来函件、合同、聊天记录，整理成可给自己或给法院看的骨架。证明目的仍由你定。</p>
+        </div>
+        <div class="card">
+          <h3>历史材料扫描</h3>
+          <p>你可以指定本机文件夹：整理好的案件夹建议建案；桌面杂烩只进未分类，<strong>不自动造案</strong>。避免助手「自作主张建了一堆空案」。</p>
+        </div>
+      </div>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>15 / 30</span></div>
+    </section>
+
+    <!-- 16 -->
+    <section class="slide" data-title="邮箱与自动办件">
+      <p class="kicker">叁 · 工作台</p>
+      <h2>盯梢与来件：助手按点上班</h2>
+      <div class="rule"></div>
+      <div class="g23">
+        <div>
+          <svg class="diagram" viewBox="0 0 640 360" xmlns="http://www.w3.org/2000/svg">
+            <rect width="640" height="360" rx="10" fill="#fffdf8" stroke="#d6ccb6"/>
+            <g font-family="Noto Sans SC,sans-serif">
+              <rect x="24" y="28" width="160" height="64" rx="8" fill="#122033"/>
+              <text x="104" y="66" text-anchor="middle" fill="#f3ead8" font-size="15">邮箱来件</text>
+              <rect x="240" y="28" width="160" height="64" rx="8" fill="#122033"/>
+              <text x="320" y="66" text-anchor="middle" fill="#f3ead8" font-size="15">续签盯梢</text>
+              <rect x="456" y="28" width="160" height="64" rx="8" fill="#122033"/>
+              <text x="536" y="66" text-anchor="middle" fill="#f3ead8" font-size="15">客户周报</text>
+              <path d="M104 92 V130 H536 V92" fill="none" stroke="#b0894a" stroke-width="2"/>
+              <rect x="190" y="130" width="260" height="56" rx="8" fill="#f6eedf" stroke="#e6d3b0"/>
+              <text x="320" y="164" text-anchor="middle" fill="#8a5418" font-size="16">进入「待我拍板」</text>
+              <path d="M240 186 V220" stroke="#b0894a" stroke-width="2"/>
+              <path d="M400 186 V220" stroke="#b0894a" stroke-width="2"/>
+              <rect x="80" y="220" width="200" height="100" rx="8" fill="#fff" stroke="#d6ccb6"/>
+              <text x="180" y="262" text-anchor="middle" fill="#122033" font-size="15">合同：最小改 + 痕迹</text>
+              <text x="180" y="286" text-anchor="middle" fill="#5b6774" font-size="12">你批准后才发回</text>
+              <rect x="360" y="220" width="200" height="100" rx="8" fill="#fff" stroke="#d6ccb6"/>
+              <text x="460" y="262" text-anchor="middle" fill="#122033" font-size="15">周报 / 提醒</text>
+              <text x="460" y="286" text-anchor="middle" fill="#5b6774" font-size="12">发信必须你点头</text>
+            </g>
+          </svg>
+        </div>
+        <div>
+          <ul class="list-plain">
+            <li><span class="num gold-num">1</span><span>设置里交代「自动办件」，像交代助理：每天、每周、或隔一段时间。</span></li>
+            <li><span class="num gold-num">2</span><span>可限定只看某些往来对象，避免把整个收件箱倒进案件。</span></li>
+            <li><span class="num gold-num">3</span><span>邮件合同：能改的改在原稿痕迹上；扫描件则出审查意见。两条路都要过签批。</span></li>
+            <li><span class="num gold-num">4</span><span>这是青年律师最容易被打断的战场——来一件、改一版、等合伙人。助手先做完脏活，你上午集中拍板。</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>16 / 30</span></div>
+    </section>
+
+    <!-- 17 -->
+    <section class="slide" data-title="一天怎么过">
+      <p class="kicker">叁 · 工作台</p>
+      <h2>青年律师的一天（用工作台之后）</h2>
+      <div class="rule"></div>
+      <div class="two-col">
+        <div class="day">
+          <div class="t">08:40</div>
+          <div class="d"><b>先看「待我拍板」</b>昨夜自动办件留下的来件合同、一封待发周报。先处理卡点，不开新战场。</div>
+          <div class="t">10:00</div>
+          <div class="d"><b>交办审查</b>新到的供应商协议拖进本案，交代「按我方口径，争议解决先从严」。材料不齐它先问。</div>
+          <div class="t">11:20</div>
+          <div class="d"><b>审核 · 改稿 · 签批</b>看来源，勾必核清单，改两处语气。导出带批注的 Word 给合伙人。</div>
+          <div class="t">14:30</div>
+          <div class="d"><b>检索 + 备忘</b>下午开庭争点交办检索。你改结论句，系统记下「待确认」的表述习惯。</div>
+          <div class="t">16:40</div>
+          <div class="d"><b>函件</b>催告函出稿。你决定今晚发还是等客户确认——发信键只在签批之后。</div>
+        </div>
+        <div>
+          <div class="card" style="height:100%;">
+            <h3>变的是角色，不是标准</h3>
+            <p>你仍对客户、对法院负责。变的是：重复劳动被收走，判断被集中到少数拍板时刻。</p>
+            <p style="margin-top:12px;">合伙人要看的，不再是「你今天问了 AI 多少句」，而是「这一版能不能过」。工作台按后一个标准设计。</p>
+            <p style="margin-top:12px;" class="tiny">案件卡片上的数字也按此理解：已核对多少机械项、几件待拍板、几件逾期。它们回答「现在忙到什么程度」，<strong>不替代你的法律判断</strong>。</p>
+          </div>
+        </div>
+      </div>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>17 / 30</span></div>
+    </section>
+
+    <!-- 18 -->
+    <section class="slide" data-title="四方对比">
+      <p class="kicker">肆 · 区别</p>
+      <h2>放在一张桌上比较</h2>
+      <div class="rule"></div>
+      <table class="cmp">
+        <thead>
+          <tr>
+            <th></th>
+            <th>聊天问答</th>
+            <th>通用电脑助手</th>
+            <th>云端企业法律 AI</th>
+            <th class="hi">LawMind</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>终点是什么</td>
+            <td class="mid">一段回答</td>
+            <td class="mid">任务跑完</td>
+            <td>所级流程里的稿</td>
+            <td class="hi yes">可审核、可签批的交件</td>
+          </tr>
+          <tr>
+            <td>材料默认在哪</td>
+            <td class="no">对方的云</td>
+            <td class="mid">看你怎么装</td>
+            <td class="mid">服务商侧（通常）</td>
+            <td class="hi yes">你自己电脑的工作区</td>
+          </tr>
+          <tr>
+            <td>对外发送</td>
+            <td class="no">你自己复制去发</td>
+            <td class="no">可能自行发出</td>
+            <td>看所内配置</td>
+            <td class="hi yes">必须你签批</td>
+          </tr>
+          <tr>
+            <td>依据能否回看</td>
+            <td class="mid">偶有链接，难入卷</td>
+            <td class="no">通常没有</td>
+            <td class="yes">较好</td>
+            <td class="hi yes">段落来源 + 可选 Word 批注</td>
+          </tr>
+          <tr>
+            <td>记不记得你</td>
+            <td class="no">下次从零</td>
+            <td class="mid">通用记忆，易漂</td>
+            <td>所级知识库</td>
+            <td class="hi yes">须你确认才写入习惯</td>
+          </tr>
+          <tr>
+            <td>适合谁</td>
+            <td>打开思路</td>
+            <td>杂务、低责任操作</td>
+            <td>大所、预算与治理齐备</td>
+            <td class="hi">个人律师 / 工作室，并可延伸到所</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>18 / 30</span></div>
+    </section>
+
+    <!-- 19 -->
+    <section class="slide" data-title="区别·交件">
+      <p class="kicker">肆 · 区别</p>
+      <h2>区别一：我们卖的是「交件」，不是「更会说」</h2>
+      <div class="rule"></div>
+      <div class="g2" style="flex:1;">
+        <div class="card">
+          <h3>常见助手</h3>
+          <p>成功 = 回复流畅、步骤看起来聪明。律师仍要自己：补章节、对事实、转 Word、写邮件、入卷。</p>
+          <p style="margin-top:10px;" class="tiny">半成品越多，青年律师越像「模型的质检员」，而不是办案人。</p>
+        </div>
+        <div class="card">
+          <h3>LawMind</h3>
+          <p>每类文书有必要章节与验收清单。缺主体、缺诉请、缺落款，过不了「可以导出终稿」。占位必须写明，不能假装写全了。</p>
+          <p style="margin-top:10px;" class="tiny">律师付钱买的不是漂亮检索，而是一份可签署、可外发、可担责的成品——在你签批之后。</p>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px;">
+        <p><strong>一句话：</strong>通用助手优化「像人一样忙」；我们优化「像助理一样交得了差」。</p>
+      </div>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>19 / 30</span></div>
+    </section>
+
+    <!-- 20 -->
+    <section class="slide" data-title="区别·本机与责任">
+      <p class="kicker">肆 · 区别</p>
+      <h2>区别二：材料在自己桌上，责任链写得清</h2>
+      <div class="rule"></div>
+      <div class="g3">
+        <div class="card">
+          <h3>本地工作区</h3>
+          <p>案件材料、草稿、记忆、记录，默认在你自己的电脑。换电脑不会「云端自动跟着」，备份就是拷工作区。</p>
+        </div>
+        <div class="card">
+          <h3>模型由你指定</h3>
+          <p>用哪家模型、钥匙放在哪，由你或律所决定。离开本机的，只有你允许发给该模型的问答内容。</p>
+        </div>
+        <div class="card">
+          <h3>关键动作留痕</h3>
+          <p>交办、改稿、签批、导出可按案件、按时间回看。给所内合规，或给未来的自己解释「当时为什么这样出稿」。</p>
+        </div>
+      </div>
+      <p class="lead" style="margin-top:20px; font-size:17px;">青年律师最怕的不是「AI 不够聪明」，而是<strong>说不清自己用过什么、改过什么</strong>。出事时，过程比文采重要。</p>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>20 / 30</span></div>
+    </section>
+
+    <!-- 21 -->
+    <section class="slide" data-title="区别·来源">
+      <p class="kicker">肆 · 区别</p>
+      <h2>区别三：每一段话，要能回到出处</h2>
+      <div class="rule"></div>
+      <div class="g32">
+        <div>
+          <p class="lead" style="margin-bottom:16px;">审核时，段落旁可以看来源：材料原文、助手建议、你的修改、导出记录。</p>
+          <ul class="list-plain">
+            <li><span class="num">1</span><span>点来源，回到那一页、那一段。不是「模型说好像有这个法条」。</span></li>
+            <li><span class="num">2</span><span>导出时可把来源做成 Word 批注，交给客户或合伙人备查。</span></li>
+            <li><span class="num">3</span><span>这是对幻觉最朴素的约束：写得出来，也要指得回去。</span></li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>青年律师怎么用这一点</h3>
+          <p>向合伙人汇报时，不要只贴结论。把「结论 + 依据段落」一起交。你的可信度来自可核对，不是来自自信的语气。</p>
+          <p style="margin-top:12px;">若一段话指不回去，就当它还不是法律判断——最多算草稿念头。</p>
+        </div>
+      </div>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>21 / 30</span></div>
+    </section>
+
+    <!-- 22 -->
+    <section class="slide" data-title="区别·记忆">
+      <p class="kicker">肆 · 区别</p>
+      <h2>区别四：越用越像你——但须你点头</h2>
+      <div class="rule"></div>
+      <div class="g3">
+        <div class="card">
+          <h3>记住什么</h3>
+          <p>你的表述习惯、惯用落款、常坚持的条款口径；以及本案已确认的当事人、关键日期、事实。</p>
+        </div>
+        <div class="card">
+          <h3>怎么记住</h3>
+          <p>系统觉得值得记，先放进「待确认」。你点头才写入。不悄悄改你的档案，不把一次情绪化改稿写成所里规矩。</p>
+        </div>
+        <div class="card">
+          <h3>和通用记忆的差别</h3>
+          <p>通用助手把聊天摘要当记忆，容易记错、记串案。这里分：你的习惯、本案事实、所里口径。串了，就是事故。</p>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px;">
+        <p><strong>带教隐喻：</strong>你改了两处语气，它学会「下次先这样写」，但仍要你确认。像带助理，不像被助理擅自代表。</p>
+      </div>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>22 / 30</span></div>
+    </section>
+
+    <!-- 23 -->
+    <section class="slide" data-title="区别·小团队">
+      <p class="kicker">肆 · 区别</p>
+      <h2>区别五：你带的是一支小团队，不是一只聊天窗</h2>
+      <div class="rule"></div>
+      <div class="g23">
+        <svg class="diagram" viewBox="0 0 620 360" xmlns="http://www.w3.org/2000/svg">
+          <rect width="620" height="360" rx="10" fill="#fffdf8" stroke="#d6ccb6"/>
+          <rect x="210" y="16" width="200" height="56" rx="8" fill="#8c2d2d"/>
+          <text x="310" y="50" text-anchor="middle" fill="#f3ead8" font-size="16" font-family="Noto Serif SC,serif">律师 · 领导</text>
+          <path d="M310 72 V104" stroke="#b0894a" stroke-width="2"/>
+          <rect x="20" y="108" width="180" height="70" rx="8" fill="#122033"/>
+          <text x="110" y="138" text-anchor="middle" fill="#f3ead8" font-size="14">合同助手</text>
+          <text x="110" y="160" text-anchor="middle" fill="#d4b36a" font-size="12">审查 / 改稿</text>
+          <rect x="220" y="108" width="180" height="70" rx="8" fill="#122033"/>
+          <text x="310" y="138" text-anchor="middle" fill="#f3ead8" font-size="14">诉讼助手</text>
+          <text x="310" y="160" text-anchor="middle" fill="#d4b36a" font-size="12">诉状 / 代理词</text>
+          <rect x="420" y="108" width="180" height="70" rx="8" fill="#122033"/>
+          <text x="510" y="138" text-anchor="middle" fill="#f3ead8" font-size="14">研究 / 质控</text>
+          <text x="510" y="160" text-anchor="middle" fill="#d4b36a" font-size="12">检索 / 互看一眼</text>
+          <path d="M110 178 V214 H510 V178" fill="none" stroke="#b0894a" stroke-width="2"/>
+          <rect x="150" y="218" width="320" height="56" rx="8" fill="#f6eedf" stroke="#e6d3b0"/>
+          <text x="310" y="252" text-anchor="middle" fill="#8a5418" font-size="15">合并成果 · 进入待我拍板</text>
+          <rect x="40" y="292" width="540" height="48" rx="8" fill="#e7f0ea" stroke="#c5d8cc"/>
+          <text x="310" y="322" text-anchor="middle" fill="#2f5d47" font-size="14">你看到谁在做、卡在哪、要你定什么</text>
+        </svg>
+        <div>
+          <p class="lead" style="font-size:17px; margin-bottom:12px;">远景一句话：一位超强律师 + 数字团队 ≈ 过去「超强律师 + 若干专员」。</p>
+          <p class="sub">今天已经能：分角色办事、把卡点集中到待拍板、把你的反馈收成待确认的习惯。</p>
+          <p class="sub" style="margin-top:12px;">还在加强的：分方向越用越稳、所内互审与伦理墙。不把它说成「已经是一家无人律所」。</p>
+        </div>
+      </div>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>23 / 30</span></div>
+    </section>
+
+    <!-- 24 -->
+    <section class="slide" data-title="诚实边界">
+      <p class="kicker">肆 · 区别</p>
+      <h2>必须说清的一句：核对通过 ≠ 法律正确</h2>
+      <div class="rule"></div>
+      <div class="g2">
+        <div class="card">
+          <h3>系统愿意代劳的</h3>
+          <p>定金是否明显超上限、条款编号是否连续、金额大小写是否对得上、引用是否能指回材料、必要章节是否写了。</p>
+          <p style="margin-top:10px;" class="tiny">这是「机械核对」：减少低级漏。通过 = 已知机械项没有漏网，不是本案必胜。</p>
+        </div>
+        <div class="card">
+          <h3>系统永远不代劳的</h3>
+          <p>赔偿上限接不接受、要不要让步、这个管辖对委托人是否有利、函件今晚该不该发、庭上策略怎么取舍。</p>
+          <p style="margin-top:10px;" class="tiny">主观裁量只升级到「待你定夺」，可以带建议，<strong>不替你决定</strong>。</p>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px; border-top:3px solid var(--seal);">
+        <p>有的产品爱给「安全分」。我们不这么做。分数会制造虚假安心。青年律师若把「核对通过」写成「已无法律风险」，这是执业事故，不是功能胜利。</p>
+      </div>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>24 / 30</span></div>
+    </section>
+
+    <!-- 25 -->
+    <section class="slide" data-title="明确不做">
+      <p class="kicker">肆 · 区别</p>
+      <h2>我们明确不做的事</h2>
+      <div class="rule"></div>
+      <div class="g2">
+        <div class="card">
+          <h3>不宣称自己是法律意见</h3>
+          <p>对外效力、签字、发函，永远是律师的。产品文案与界面都按此写。</p>
+        </div>
+        <div class="card">
+          <h3>不把产品收成「只会写合同」</h3>
+          <p>合同值钱，但律师的日常远宽于此。窄化会让青年律师继续在五个软件之间搬运。</p>
+        </div>
+        <div class="card">
+          <h3>不默认把核心能力交给黑箱市场</h3>
+          <p>不可审计的远程技能链，不做主路径。你要能解释「这一稿怎么出来的」。</p>
+        </div>
+        <div class="card">
+          <h3>不把未签批稿当成终稿</h3>
+          <p>不为了演示好看而绕过审核。未签批的东西，不能当已生效，更不能自动外发。</p>
+        </div>
+      </div>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>25 / 30</span></div>
+    </section>
+
+    <!-- 26 -->
+    <section class="slide slide--ink" data-title="对青年律师">
+      <p class="kicker">伍 · 对你意味着什么</p>
+      <h2 class="serif" style="font-size:40px; max-width:980px; line-height:1.28;">青年律师的机会，不是「比谁问得快」</h2>
+      <div class="rule"></div>
+      <div class="g3">
+        <div class="card">
+          <h3>从写手变成带队的人</h3>
+          <p>更早练习派活、看稿、拍板。这是合伙人每天在做的事，只是以前没有助手可派。</p>
+        </div>
+        <div class="card">
+          <h3>把判断力用在刀刃上</h3>
+          <p>时间从搬运里省下来，应用在争点、谈判、客户谈话——这些模型替不了，也是你涨收费的地方。</p>
+        </div>
+        <div class="card">
+          <h3>让自己的口径可积累</h3>
+          <p>改过的表述、坚持过的条款，变成可确认的习惯。三年后，你带的是「被你教过的班子」，不是空白对话框。</p>
+        </div>
+      </div>
+      <p class="lead" style="margin-top:28px; font-size:18px;">风险也清楚：谁把助手的草稿直接外发，谁先出局。工具放大的是习惯——好的更好，急的更险。</p>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>26 / 30</span></div>
+    </section>
+
+    <!-- 27 -->
+    <section class="slide" data-title="未来总览">
+      <p class="kicker">陆 · 前方</p>
+      <h2>接下来要做成的三件事</h2>
+      <div class="rule"></div>
+      <p class="lead" style="margin-bottom:18px;">工程底座已经铺了。对人讲，只看这三条会不会改变你的工作日。</p>
+      <div class="g3" style="flex:1;">
+        <div class="card">
+          <p class="chip">其一</p>
+          <h3 style="margin-top:10px;">机械核对再往深做</h3>
+          <p>利率上限、时效、管辖形式、金额与定义词、交叉引用。目标：低级漏越来越少。仍然：通过 ≠ 法律正确。</p>
+        </div>
+        <div class="card">
+          <p class="chip">其二</p>
+          <h3 style="margin-top:10px;">从你自己的旧案里学</h3>
+          <p>扫描过往改稿，同一类改法出现多次，进入「待确认」。越用越像这位律师，而不是像「网上的平均律师」。</p>
+        </div>
+        <div class="card">
+          <p class="chip">其三</p>
+          <h3 style="margin-top:10px;">内部更快，外发仍要你</h3>
+          <p>内部草稿可以少打断你；对外发送、给客户、给法院的，永远留一键签批。目标是把签批压缩到半分钟，不是取消签批。</p>
+        </div>
+      </div>
+      <p class="tiny">尚未做完、不会假装做完的：权威法规库联调、大量真实已结案抽审、所级伦理墙的完整治理。这些需要法律顾问与所里数据，不是再写一段程序就能宣布胜利。</p>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>27 / 30</span></div>
+    </section>
+
+    <!-- 28 -->
+    <section class="slide" data-title="未来·核对与学习">
+      <p class="kicker">陆 · 前方</p>
+      <h2>核对加深，学习变「这位律师的」</h2>
+      <div class="rule"></div>
+      <div class="g2">
+        <div class="card">
+          <h3>核对三层（律师能懂的分法）</h3>
+          <ol>
+            <li style="margin-bottom:8px;"><strong>客观规则</strong>——法定上限、时效、要式、或裁或诉这类形式问题：系统应当会拦。</li>
+            <li style="margin-bottom:8px;"><strong>文书一致性</strong>——金额、定义词、交叉引用、日期逻辑：系统应当会标。</li>
+            <li><strong>主观裁量</strong>——接不接受、让不让步：只升级给你，永不「编译」成自动结论。</li>
+          </ol>
+        </div>
+        <div class="card">
+          <h3>学习怎么冷启动</h3>
+          <p>新装的工作台是空的，这是诚实的。冷启动靠两件事：你在改稿里接受或驳回的改法；以及你愿意纳入的历史案件夹。</p>
+          <p style="margin-top:10px;">同一类改法多次出现，才进入待确认。冲突时以你最近的改法为准。不把旧所口径偷偷写进新所。</p>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px;">
+        <p><strong>所内协作的下一步：</strong>互审、跨案件的质量概览、真正的利益冲突墙。个人工作室先好用，律所能力留口子，不把 LawMind 先讲成「所务管理系统」。</p>
+      </div>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>28 / 30</span></div>
+    </section>
+
+    <!-- 29 -->
+    <section class="slide" data-title="三条建议">
+      <p class="kicker">陆 · 前方</p>
+      <h2>给青年律师的三条建议</h2>
+      <div class="rule"></div>
+      <div class="pillars">
+        <div class="pillar">
+          <div class="idx">建议 一</div>
+          <h3 class="serif">用交件检验工具</h3>
+          <p>不要问「它聪不聪明」。问：同样一件事，它能不能稳定交出可审的一版？来源指不指得回去？外发过不过你？</p>
+        </div>
+        <div class="pillar">
+          <div class="idx">建议 二</div>
+          <h3 class="serif">把助手当助理带</h3>
+          <p>交代范围，先补材料，再让它写。改它的稿，像改助理的稿：指出口径，而不是自己从零重写。确认习惯，才谈得上积累。</p>
+        </div>
+        <div class="pillar">
+          <div class="idx">建议 三</div>
+          <h3 class="serif">把判断力练在拍板上</h3>
+          <p>每天固定处理「待我拍板」。这是在练未来合伙人的肌肉：什么能过、什么必须问客户、什么今晚不能发。</p>
+        </div>
+      </div>
+      <p class="lead" style="margin-top:24px; font-size:17px;">AI 不会让差的律师变好。它会让<strong>肯看稿、肯担责、肯积累口径</strong>的人，把一个人的台子撑得像一个小组。</p>
+      <div class="footer"><span>LawMind · 青年律师与 AI</span><span>29 / 30</span></div>
+    </section>
+
+    <!-- 30 -->
+    <section class="slide slide--ink" data-title="讨论">
+      <p class="kicker">讨论</p>
+      <h2 class="serif" style="font-size:48px; line-height:1.25; max-width:920px;">把问题留给房间</h2>
+      <div class="rule"></div>
+      <div class="g2" style="margin-top:8px;">
+        <div class="card">
+          <h3>可以一起想的</h3>
+          <p style="margin-bottom:10px;">青年律师的哪些工作，必须永远留在人手里？</p>
+          <p style="margin-bottom:10px;">所里若允许用助手，最低限度的签批与留痕，应该是什么？</p>
+          <p>一年后，你们希望少掉的是加班，还是返工？两者不是同一件事。</p>
+        </div>
+        <div class="card">
+          <h3>我们守住的一句</h3>
+          <p class="serif" style="font-size:22px; line-height:1.5; margin-top:8px;">你交办，它去办；你审核，你签批。<br />对外的东西，永远由你拍板。</p>
+        </div>
+      </div>
+      <p style="margin-top:auto; padding-top:28px; letter-spacing:.18em; font-size:13px; color:#d4b36a;">谢谢 · 欢迎追问 · LawMind 不构成法律意见</p>
+      <div class="footer"><span>LawMind · 青年律师与 AI · 2026</span><span>30 / 30</span></div>
+    </section>
+
+  </div>
+</div>
+
+<div class="chrome"><div class="bar" id="bar"></div></div>
+<div class="hud" id="hud">01 / 30</div>
+
+<div class="help" id="help">
+  <p class="kicker">快捷键</p>
+  <h2 class="serif" style="margin-bottom:20px;">演示说明</h2>
+  <p style="line-height:2; font-size:16px;">
+    <kbd>→</kbd><kbd>空格</kbd> 下一页　　<kbd>←</kbd><kbd>退格</kbd> 上一页<br />
+    <kbd>Home</kbd> 封面　　<kbd>End</kbd> 末页　　<kbd>F</kbd> 全屏<br />
+    <kbd>O</kbd> 总览　　<kbd>N</kbd> 讲者提要　　<kbd>?</kbd> 本页<br />
+    打印：浏览器「打印」→ 目标选「存储为 PDF」，打开背景图形，纸张横向。
+  </p>
+  <p style="margin-top:24px; color:#c9b896;">点击空白或按任意键关闭。</p>
+</div>
+
+<div class="notes" id="notes">
+  <p class="kicker">讲者提要</p>
+  <h2 class="serif" id="notesTitle" style="margin-bottom:16px;"></h2>
+  <p id="notesBody" style="font-size:18px; line-height:1.7; max-width:880px;"></p>
+  <p style="margin-top:28px; color:#c9b896;">按 N 关闭。</p>
+</div>
+
+<div class="overview" id="overview">
+  <p class="kicker" style="margin-bottom:16px;">总览 · 点击跳转</p>
+  <div class="ov-grid" id="ovGrid"></div>
+</div>
+
+<script>
+const slides = [...document.querySelectorAll(".slide")];
+const stage = document.getElementById("stage");
+const bar = document.getElementById("bar");
+const hud = document.getElementById("hud");
+const help = document.getElementById("help");
+const notes = document.getElementById("notes");
+const overview = document.getElementById("overview");
+const ovGrid = document.getElementById("ovGrid");
+const notesTitle = document.getElementById("notesTitle");
+const notesBody = document.getElementById("notesBody");
+
+const DEFAULT_NOTES = [
+  "开场：今天不评模型榜。听众带走工作方法，和对 LawMind 的判断框架。",
+  "四件事立规矩，并读一遍口径声明：不构成法律意见。",
+  "共情：青年律师已会用聊天框。痛点是交件、责任、习惯积累。",
+  "时间结构是示意。强调 AI 若只写一段，解决的是最短那截。",
+  "三类工具各有停点。企业云平台点到即可，避免变成竞品撕扯。",
+  "四个坑对应责任：误发、说不清、没有交件、结果会漂。",
+  "金句：交办—审核—签批才算数。不是聊天，不是合同生成器，不是无人律师。",
+  "三条铁律可当选工具的尺子。冲突时功能让位于这三条。",
+  "指着闭环走一遍。对比问答停在回答、通用助手可能直接发信。",
+  "先问清再动手。不确定就停，对齐了就连续做。",
+  "待我拍板只有三类。建议听众把上午第一件事设成打开它。",
+  "六类交办点名即可。强调合同只是子集。",
+  "用租赁合同例子走路径。停在签批和带批注导出。",
+  "文书表快速扫。强调结构先齐，青年律师常在结构上被退稿。",
+  "检索、一案一台、时间线、扫描不自动造案。",
+  "自动办件像交代助理。外发必须点头。",
+  "一天叙事：角色从写手变成带队。数字不替代判断。",
+  "对比表是本场核心。慢慢读「终点 / 材料 / 外发 / 来源 / 记忆」。",
+  "交件本位。半成品让青年律师沦为质检员。",
+  "本地与留痕。出事时过程比文采重要。",
+  "来源可回看。指不回去的段落只是念头。",
+  "记忆须点头。分习惯、本案、所里口径，防串案。",
+  "小团队隐喻。诚实说所内互审和伦理墙还在加强。",
+  "最重要的诚实页：核对通过不是法律正确。不要安全分。",
+  "四件不做。用来建立信任，不是示弱。",
+  "机会与风险：工具放大习惯。急着外发的人先出局。",
+  "未来三条，不把未完的事说成已完。权威库、抽审、伦理墙点名。",
+  "核对三层 + 学习冷启动。所内协作留口子，不先讲成所务系统。",
+  "三条建议收束。最后一句：放大的是肯看稿、肯担责的人。",
+  "把问题抛回房间。结束在「永远由你拍板」。"
+];
+
+let i = 0;
+function fit() {
+  const s = Math.min(window.innerWidth / 1280, window.innerHeight / 720);
+  document.documentElement.style.setProperty("--s", String(s));
+}
+function go(n) {
+  i = Math.max(0, Math.min(slides.length - 1, n));
+  slides.forEach((el, idx) => el.classList.toggle("is-on", idx === i));
+  const t = String(i + 1).padStart(2, "0");
+  const tot = String(slides.length).padStart(2, "0");
+  hud.textContent = t + " / " + tot;
+  bar.style.width = ((i + 1) / slides.length * 100) + "%";
+  location.hash = String(i + 1);
+  notesTitle.textContent = slides[i].dataset.title || "";
+  notesBody.textContent = slides[i].dataset.notes || DEFAULT_NOTES[i] || "";
+  [...ovGrid.children].forEach((c, idx) => c.classList.toggle("cur", idx === i));
+}
+function overlayOpen() {
+  return help.classList.contains("is-on") || notes.classList.contains("is-on") || overview.classList.contains("is-on");
+}
+function closeOverlays() {
+  help.classList.remove("is-on");
+  notes.classList.remove("is-on");
+  overview.classList.remove("is-on");
+}
+
+slides.forEach((el, idx) => {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "ov-item";
+  b.innerHTML = "<b>" + String(idx + 1).padStart(2, "0") + "</b>" + (el.dataset.title || "");
+  b.addEventListener("click", () => { closeOverlays(); go(idx); });
+  ovGrid.appendChild(b);
+});
+
+window.addEventListener("resize", fit);
+window.addEventListener("hashchange", () => {
+  const n = parseInt(location.hash.replace("#", ""), 10);
+  if (Number.isFinite(n) && n >= 1) go(n - 1);
+});
+fit();
+const fromHash = parseInt(location.hash.replace("#", ""), 10);
+go(Number.isFinite(fromHash) && fromHash >= 1 ? fromHash - 1 : 0);
+
+window.addEventListener("keydown", (e) => {
+  if (e.key === "?" || (e.key === "/" && e.shiftKey)) {
+    help.classList.toggle("is-on"); notes.classList.remove("is-on"); overview.classList.remove("is-on"); return;
+  }
+  if (e.key === "n" || e.key === "N") {
+    notes.classList.toggle("is-on"); help.classList.remove("is-on"); overview.classList.remove("is-on");
+    notesTitle.textContent = slides[i].dataset.title || "";
+    notesBody.textContent = slides[i].dataset.notes || DEFAULT_NOTES[i] || "";
+    return;
+  }
+  if (e.key === "o" || e.key === "O") {
+    overview.classList.toggle("is-on"); help.classList.remove("is-on"); notes.classList.remove("is-on"); return;
+  }
+  if (e.key === "Escape") { closeOverlays(); return; }
+  if (e.key === "f" || e.key === "F") {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+    else document.exitFullscreen?.();
+    return;
+  }
+  if (overlayOpen() && e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+  if (["ArrowRight", "PageDown", " ", "Enter"].includes(e.key)) { e.preventDefault(); go(i + 1); }
+  if (["ArrowLeft", "PageUp", "Backspace"].includes(e.key)) { e.preventDefault(); go(i - 1); }
+  if (e.key === "Home") go(0);
+  if (e.key === "End") go(slides.length - 1);
+});
+
+stage.addEventListener("click", (e) => {
+  if (overlayOpen()) return;
+  const x = e.clientX / window.innerWidth;
+  if (x > 0.78) go(i + 1);
+  else if (x < 0.22) go(i - 1);
+});
+
+help.addEventListener("click", closeOverlays);
+notes.addEventListener("click", (e) => { if (e.target === notes) closeOverlays(); });
+</script>
+</body>
+</html>

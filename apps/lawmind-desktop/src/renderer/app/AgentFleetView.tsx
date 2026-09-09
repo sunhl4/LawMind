@@ -197,7 +197,6 @@ function AgentFleetViewImpl(props: AgentFleetViewProps) {
             sessionId={props.sessionId}
             sessionRequiresActions={props.sessionRequiresActions}
             assistantDisplayById={props.assistantDisplayById}
-            selectedAssistantId={props.selectedAssistantId}
             needsDecisionFocus={props.needsDecisionFocus}
             onClearNeedsDecisionFocus={props.onClearNeedsDecisionFocus}
             focusTarget={props.focusTarget}

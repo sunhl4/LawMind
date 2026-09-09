@@ -1,6 +1,6 @@
 /**
  * Unified interrupt / resume payload for clarification, tool approval, and matter approvals.
- * Aligns with docs/LAWMIND-INTERRUPT-RESUME.md (LangGraph-style human-in-the-loop).
+ * Aligns with docs/archive/LAWMIND-INTERRUPT-RESUME.md (LangGraph-style human-in-the-loop).
  */
 
 import type { AgentTurn } from "../agent/types.js";

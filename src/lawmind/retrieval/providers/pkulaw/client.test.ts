@@ -68,5 +68,65 @@ describe("pkulawRetrieve", () => {
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
     expect(result.sources).toHaveLength(1);
+    const sent = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body ?? "{}")) as {
+      params?: { name?: string; arguments?: { text?: string; query?: string; size?: number } };
+    };
+    expect(sent.params?.name).toBe("search_article");
+    expect(sent.params?.arguments?.text).toBe("民法典");
+    expect(sent.params?.arguments?.query).toBeUndefined();
+    expect(sent.params?.arguments?.size).toBe(10);
+  });
+
+  it("searchKind case overrides a law-looking query", async () => {
+    const prevCase = process.env.LAWMIND_PKULAW_CASE_ENDPOINT;
+    process.env.LAWMIND_PKULAW_CASE_ENDPOINT = "https://apim-gateway.example/mcp-case";
+    try {
+      const fetchImpl = vi.fn(async () => new Response(caseFixture, { status: 200 }));
+      await pkulawRetrieve({
+        endpointNormalized: "https://apim-gateway.example/mcp-law",
+        query: "劳动合同解除",
+        mode: "mcp_tools_call",
+        searchKind: "case",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+      expect(String(fetchImpl.mock.calls[0]?.[0])).toBe("https://apim-gateway.example/mcp-case");
+      const sent = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body ?? "{}")) as {
+        params?: { name?: string };
+      };
+      expect(sent.params?.name).toBe("search_case");
+    } finally {
+      if (prevCase === undefined) {
+        delete process.env.LAWMIND_PKULAW_CASE_ENDPOINT;
+      } else {
+        process.env.LAWMIND_PKULAW_CASE_ENDPOINT = prevCase;
+      }
+    }
+  });
+
+  it("mcp_tools_call maps official structuredContent and uses case endpoint", async () => {
+    const official = readFileSync(path.join(HERE, "fixtures/official-search-article.json"), "utf8");
+    const prevCase = process.env.LAWMIND_PKULAW_CASE_ENDPOINT;
+    process.env.LAWMIND_PKULAW_CASE_ENDPOINT = "https://apim-gateway.example/mcp-case";
+    try {
+      const fetchImpl = vi.fn(async () => new Response(official, { status: 200 }));
+      const { result } = await pkulawRetrieve({
+        endpointNormalized: "https://apim-gateway.example/mcp-law",
+        query: "类案 押金返还",
+        mode: "mcp_tools_call",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+      expect(String(fetchImpl.mock.calls[0]?.[0])).toBe("https://apim-gateway.example/mcp-case");
+      const sent = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body ?? "{}")) as {
+        params?: { name?: string };
+      };
+      expect(sent.params?.name).toBe("search_case");
+      expect(result.sources[0]?.id).toBe("gid-labor-36");
+    } finally {
+      if (prevCase === undefined) {
+        delete process.env.LAWMIND_PKULAW_CASE_ENDPOINT;
+      } else {
+        process.env.LAWMIND_PKULAW_CASE_ENDPOINT = prevCase;
+      }
+    }
   });
 });

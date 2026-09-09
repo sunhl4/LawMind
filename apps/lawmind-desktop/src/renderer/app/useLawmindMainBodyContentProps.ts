@@ -15,7 +15,6 @@ import type {
   TaskRow,
 } from "../lawmind-app-data";
 import type { ModelCatalogEntry } from "../lawmind-models-api";
-import type { ReviewPaneVisibility, ReviewPaneId } from "../lawmind-review-pane-prefs";
 import type { CollabSummaryState } from "../LawmindSettingsCollaboration";
 import type {
   AgentsDeskTab,
@@ -29,7 +28,7 @@ import type { TruthSourceContextPin } from "../../../../../src/lawmind/platform/
 import type { LawmindComposeExtras } from "../useLawmindComposeExtras";
 import type { LawmindHealthState } from "../useLawmindAppBootstrapEffects";
 import type { LawmindMainBodyContentProps } from "./LawmindMainBodyContent";
-import type { SetShowSettings } from "../lawmind-settings-shell";
+import { useSettingsPanelStore } from "../stores/settings-panel-store";
 import { scheduleScrollChatMessagesToLatest } from "../lawmind-chat-scroll";
 
 export type UseLawmindMainBodyContentPropsInput = {
@@ -72,7 +71,6 @@ export type UseLawmindMainBodyContentPropsInput = {
   reviewFocusListMode: "pending" | "all";
   reviewRefreshVersion: number;
   reviewLaunchedFromMatter: boolean;
-  reviewPaneVisibility: ReviewPaneVisibility;
   setFocusMatterIdFromReview: (id: string | null) => void;
   openOutputInFolder: (relPath?: string) => void;
   refreshLists: () => void | Promise<void>;
@@ -84,7 +82,6 @@ export type UseLawmindMainBodyContentPropsInput = {
     assistantId: string;
     taskId: string;
   }) => void | Promise<void>;
-  toggleReviewPane: (id: ReviewPaneId) => void;
   collabSummarySettings: CollabSummaryState | null | undefined;
   delegations: DelegationRow[];
   collabEvents: CollabEvent[];
@@ -95,7 +92,6 @@ export type UseLawmindMainBodyContentPropsInput = {
   modelCatalog: ModelCatalogEntry[];
   selectedModelId: string;
   handleModelSelect: (id: string) => void;
-  setShowSettings: SetShowSettings;
   openApiWizard: () => void;
   composeModelHint: string | null;
   composeModelQuickTestBusy: boolean;
@@ -213,7 +209,6 @@ export function useLawmindMainBodyContentProps(
     reviewFocusListMode,
     reviewRefreshVersion,
     reviewLaunchedFromMatter,
-    reviewPaneVisibility,
     setFocusMatterIdFromReview,
     openOutputInFolder,
     refreshLists,
@@ -221,7 +216,6 @@ export function useLawmindMainBodyContentProps(
     setInput,
     textareaRef,
     watchBackgroundRevisionSession,
-    toggleReviewPane,
     collabSummarySettings,
     delegations,
     collabEvents,
@@ -232,7 +226,6 @@ export function useLawmindMainBodyContentProps(
     modelCatalog,
     selectedModelId,
     handleModelSelect,
-    setShowSettings,
     openApiWizard,
     composeModelHint,
     composeModelQuickTestBusy,
@@ -369,7 +362,6 @@ export function useLawmindMainBodyContentProps(
       reviewFocusListMode,
       reviewRefreshVersion,
       reviewLaunchedFromMatter,
-      reviewPaneVisibility,
       onReturnToMatter: reviewLinks.onReturnToMatter,
       onShowArtifact: (relPath) => openOutputInFolder(relPath),
       onRecordsChanged: () => {
@@ -387,7 +379,6 @@ export function useLawmindMainBodyContentProps(
       onRevisionJobQueued: ({ sessionId, assistantId, taskId }) => {
         void watchBackgroundRevisionSession({ sessionId, assistantId, taskId });
       },
-      onToggleReviewPane: toggleReviewPane,
       collabSummarySettings,
       delegations,
       collabEvents,
@@ -415,10 +406,10 @@ export function useLawmindMainBodyContentProps(
       modelCatalog,
       selectedModelId,
       onModelSelect: handleModelSelect,
-      onOpenComposeSettings: () => setShowSettings(true, "models"),
-      onOpenSettings: () => setShowSettings(true),
-      onOpenDoctor: () => setShowSettings(true, "doctor"),
-      onOpenMemoryInspector: () => setShowSettings(true, "memory"),
+      onOpenComposeSettings: () => useSettingsPanelStore.getState().setSettingsPanel(true, "models"),
+      onOpenSettings: () => useSettingsPanelStore.getState().setSettingsPanel(true),
+      onOpenDoctor: () => useSettingsPanelStore.getState().setSettingsPanel(true, "doctor"),
+      onOpenMemoryInspector: () => useSettingsPanelStore.getState().setSettingsPanel(true, "memory"),
       onOpenApiWizard: openApiWizard,
       composeModelHint,
       composeModelQuickTestBusy,
@@ -540,6 +531,14 @@ export function useLawmindMainBodyContentProps(
       },
       composeExtras,
       onCreateMatter: () => setCreateMatterOpen(true),
+      onSelectMatterKey: (matterId) => {
+        const mid = matterId.trim();
+        if (!mid) {
+          return;
+        }
+        recordsDeskMattersSetSelectedKey(mid);
+        setContextMatterId(mid);
+      },
       showEmptyMatterGuide: matterSidebarRowCount === 0 && Boolean(config?.apiBase?.trim()),
       chatSessionsInSidebar,
       activeChatSessionId,
@@ -588,7 +587,6 @@ export function useLawmindMainBodyContentProps(
       reviewFocusListMode,
       reviewRefreshVersion,
       reviewLaunchedFromMatter,
-      reviewPaneVisibility,
       setFocusMatterIdFromReview,
       openOutputInFolder,
       refreshLists,
@@ -596,7 +594,6 @@ export function useLawmindMainBodyContentProps(
       setInput,
       textareaRef,
       watchBackgroundRevisionSession,
-      toggleReviewPane,
       collabSummarySettings,
       delegations,
       collabEvents,
@@ -607,7 +604,6 @@ export function useLawmindMainBodyContentProps(
       modelCatalog,
       selectedModelId,
       handleModelSelect,
-      setShowSettings,
       openApiWizard,
       composeModelHint,
       composeModelQuickTestBusy,

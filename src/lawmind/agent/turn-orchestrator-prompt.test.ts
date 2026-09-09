@@ -50,10 +50,56 @@ describe("turn-orchestrator-prompt", () => {
     expect(result.memory.profile).toContain("Lawyer profile");
     expect(result.systemPromptFinal).toContain("本轮 LawMind 能力：合同审查");
     expect(result.systemPromptFinal).toContain("产品化办件");
+    expect(result.systemPromptFinal).toContain("合同分层审查");
+    expect(result.systemPromptFinal).toContain("合同审阅改稿手艺");
+    expect(result.systemPromptFinal).toContain("其余技能（索引，不要通读）");
+    expect(result.systemPromptFinal).toContain("legal-element-extraction");
+    expect(result.systemPromptFinal).not.toContain("## 九类事实");
+    expect(result.systemPromptFinal).toContain("## 改稿计划");
+    expect(result.systemPromptFinal).toContain("纸侧与交易角色");
+    expect(result.systemPromptFinal).toContain("## 检索协议");
+    expect(result.systemPromptFinal).not.toContain("## 成套交件");
+    expect(result.systemPromptFinal).toContain("## 执业口径");
+    expect(result.systemPromptFinal).toContain("## 封闭合同类型");
+    expect(result.systemPromptFinal).toContain("## 交件对象");
     expect(result.systemPromptFinal.length).toBeGreaterThan(0);
     expect(session.conversationHistory).toHaveLength(1);
     expect(session.conversationHistory[0]?.role).toBe("system");
     expect(session.conversationHistory[0]?.content).toBe(result.systemPromptFinal);
+  });
+
+  it("pairs opinion and tracked redline when 合同审查 has a Word pin but is not the Word lock", async () => {
+    const session: AgentSession = {
+      sessionId: "sess-paired",
+      actorId: "system",
+      turns: [],
+      conversationHistory: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const result = await prepareTurnPromptContext({
+      config: {
+        workspaceDir,
+        model: { provider: "openai", model: "gpt-4o-mini", apiKey: "test" },
+      },
+      registry: new ToolRegistry(),
+      session,
+      instruction: "请审查这份采购合同的违约责任",
+      resolvedAssistantId: undefined,
+      linkedTaskIdForCtx: undefined,
+      projectDirResolved: "/tmp/project",
+      contextPins: [
+        {
+          pinKind: "file",
+          root: "project",
+          relPath: "采购合同.docx",
+          kind: "file",
+        },
+      ],
+    });
+    expect(result.systemPromptFinal).toContain("## 成套交件");
+    expect(result.systemPromptFinal).toContain("## 检索协议");
+    expect(result.systemPromptFinal).not.toContain("Word 改稿 · 原文件审阅痕迹");
   });
 
   it("reinjects RULES/Craft reminder after compact flag", async () => {
@@ -252,6 +298,48 @@ describe("turn-orchestrator-prompt", () => {
     expect(result.systemPromptFinal).toContain("### tech.scope");
     expect(result.systemPromptFinal).not.toContain("### pr.pay");
     expect(result.systemPromptFinal).not.toContain("邮件合同审阅 · 短路径");
+    expect(result.systemPromptFinal).not.toContain("## 执业口径");
+    expect(result.systemPromptFinal).not.toContain("## 封闭合同类型");
+    expect(result.systemPromptFinal).not.toContain("## 交件对象");
+    expect(result.systemPromptFinal).not.toContain("## 改稿计划");
+    expect(result.systemPromptFinal).not.toContain("纸侧与交易角色");
+    expect(result.systemPromptFinal).not.toContain("## 检索协议");
+    expect(result.systemPromptFinal).not.toContain("## 成套交件");
+  });
+
+  it("does not inject practice playbook on the mail-contract short path", async () => {
+    const session: AgentSession = {
+      sessionId: "sess-mail-short",
+      actorId: "system",
+      turns: [],
+      conversationHistory: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const result = await prepareTurnPromptContext({
+      config: {
+        workspaceDir,
+        model: { provider: "openai", model: "gpt-4o-mini", apiKey: "test" },
+      },
+      registry: new ToolRegistry(),
+      session,
+      instruction: [
+        "【邮件合同审阅改稿 · 短路径 · 原文件审阅痕迹】",
+        "matterId=`m1`",
+        "默认 contract_edit_baseline_path=`cases/m/a.docx`",
+      ].join("\n"),
+      resolvedAssistantId: undefined,
+      linkedTaskIdForCtx: undefined,
+      projectDirResolved: undefined,
+    });
+    expect(result.systemPromptFinal).toContain("邮件合同审阅");
+    expect(result.systemPromptFinal).not.toContain("## 执业口径");
+    expect(result.systemPromptFinal).not.toContain("## 封闭合同类型");
+    expect(result.systemPromptFinal).not.toContain("## 交件对象");
+    expect(result.systemPromptFinal).not.toContain("## 改稿计划");
+    expect(result.systemPromptFinal).not.toContain("纸侧与交易角色");
+    expect(result.systemPromptFinal).not.toContain("## 检索协议");
+    expect(result.systemPromptFinal).not.toContain("## 成套交件");
   });
 
   it("injects the Word revision ops block for dialog 导出 with a Word pin", async () => {
@@ -287,6 +375,13 @@ describe("turn-orchestrator-prompt", () => {
     expect(result.systemPromptFinal).toContain("唯一交付物");
     expect(result.systemPromptFinal).toContain("己方立场：甲方");
     expect(result.systemPromptFinal).not.toContain("邮件合同审阅 · 短路径");
+    expect(result.systemPromptFinal).not.toContain("## 执业口径");
+    expect(result.systemPromptFinal).not.toContain("## 封闭合同类型");
+    expect(result.systemPromptFinal).not.toContain("## 交件对象");
+    expect(result.systemPromptFinal).not.toContain("## 改稿计划");
+    expect(result.systemPromptFinal).not.toContain("纸侧与交易角色");
+    expect(result.systemPromptFinal).not.toContain("## 检索协议");
+    expect(result.systemPromptFinal).not.toContain("## 成套交件");
   });
 
   it("injects a confirmed procurement checklist on Word revision", async () => {
@@ -326,6 +421,85 @@ describe("turn-orchestrator-prompt", () => {
     expect(result.systemPromptFinal).toContain("律师选定「采购供货」");
     expect(result.systemPromptFinal).toContain("尾款与验收合格挂钩");
     expect(result.systemPromptFinal).not.toContain("条款 Playbook");
+    expect(result.systemPromptFinal).not.toContain("## 执业口径");
+    expect(result.systemPromptFinal).not.toContain("## 封闭合同类型");
+    expect(result.systemPromptFinal).not.toContain("## 交件对象");
+    expect(result.systemPromptFinal).not.toContain("## 改稿计划");
+    expect(result.systemPromptFinal).not.toContain("纸侧与交易角色");
+    expect(result.systemPromptFinal).not.toContain("## 检索协议");
+    expect(result.systemPromptFinal).not.toContain("## 成套交件");
+  });
+
+  it("renders the available-tools section from the caller-supplied effective tool set", async () => {
+    const session: AgentSession = {
+      sessionId: "sess-tools",
+      actorId: "system",
+      turns: [],
+      conversationHistory: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const registry = new ToolRegistry();
+    for (const name of ["analyze_document", "write_document", "list_more_tools"]) {
+      registry.register({
+        definition: { name, description: name, category: "system", parameters: {} },
+        async execute() {
+          return { ok: true };
+        },
+      });
+    }
+    // 本轮生效工具集（如 readonly 过滤后）——prompt 目录必须由它生成。
+    const result = await prepareTurnPromptContext({
+      config: {
+        workspaceDir,
+        model: { provider: "openai", model: "gpt-4o-mini", apiKey: "test" },
+      },
+      registry,
+      session,
+      instruction: "请审查合同",
+      resolvedAssistantId: undefined,
+      linkedTaskIdForCtx: undefined,
+      projectDirResolved: undefined,
+      availableToolNames: ["analyze_document", "list_more_tools"],
+    });
+    expect(result.systemPromptFinal).toContain("**analyze_document**");
+    expect(result.systemPromptFinal).toContain("**list_more_tools**");
+    expect(result.systemPromptFinal).not.toContain("**write_document**");
+  });
+
+  it("falls back to the core catalog when no effective tool set is supplied", async () => {
+    const session: AgentSession = {
+      sessionId: "sess-tools-default",
+      actorId: "system",
+      turns: [],
+      conversationHistory: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const registry = new ToolRegistry();
+    for (const name of ["analyze_document", "write_document"]) {
+      registry.register({
+        definition: { name, description: name, category: "system", parameters: {} },
+        async execute() {
+          return { ok: true };
+        },
+      });
+    }
+    const result = await prepareTurnPromptContext({
+      config: {
+        workspaceDir,
+        model: { provider: "openai", model: "gpt-4o-mini", apiKey: "test" },
+      },
+      registry,
+      session,
+      instruction: "请审查合同",
+      resolvedAssistantId: undefined,
+      linkedTaskIdForCtx: undefined,
+      projectDirResolved: undefined,
+    });
+    // 缺省路径（测试/无过滤场景）仍展示核心目录，含写工具。
+    expect(result.systemPromptFinal).toContain("**analyze_document**");
+    expect(result.systemPromptFinal).toContain("**write_document**");
   });
 
   it("injects spreadsheet analysis discipline when an xlsx is pinned", async () => {

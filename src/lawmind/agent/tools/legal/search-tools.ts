@@ -37,6 +37,7 @@ import {
   MAX_IMAGE_OCR_READ_BYTES,
   MAX_XLSX_READ_BYTES,
 } from "./ingest-helpers.js";
+import * as searchAuthority from "./search-authority.js";
 
 export const searchMatter: AgentTool = {
   definition: {
@@ -439,7 +440,7 @@ export const searchStatute: AgentTool = {
   definition: {
     name: "search_statute",
     description:
-      "在工作区记忆与案件摘要中检索与法律法规、条文编号相关的内容（启发式：法条、法规名称等）。不替代正式法规库。",
+      "检索法律法规与条文。先查工作区记忆；若本机已配置权威库（如北大法宝），会同时查询权威库并返回带 URL 的命中。未配置权威库时仅为工作区启发式检索，不替代正式法规库。律师问是否已接法宝时，必须先调用本工具，以返回的 authority / provider 为准，不得仅凭描述声称没有接口。",
     category: "search",
     parameters: {
       query: { type: "string", description: "关键词（如法律名称、条款主题）", required: true },
@@ -500,24 +501,35 @@ export const searchStatute: AgentTool = {
       }
     }
 
-    const hits = results.slice(0, 25);
-    const empty = hits.length === 0;
+    const workspaceHits = results.slice(0, 25);
+    const authority = await searchAuthority.retrieveAuthorityHitsForChat({
+      query: ((params.query as string) ?? "").trim(),
+      workspaceDir: ctx.workspaceDir,
+      searchKind: "law",
+    });
+    const merged = [...authority.hits, ...workspaceHits].slice(0, 25);
+    const verdict = searchAuthority.mergeStatuteSearchNote({
+      live: authority.live,
+      providerLabel: authority.providerLabel,
+      authorityHitCount: authority.hits.length,
+      workspaceHitCount: workspaceHits.length,
+      kind: "law",
+    });
     return {
       ok: true,
       data: {
         query: params.query,
         matterId: matterId ?? null,
-        hits,
-        total: results.length,
-        ...(empty
-          ? {
-              refusalRequired: true,
-              authority: "none" as const,
-              note: "未检索到相关法条线索。模型不得编造法规条文或条文编号；如可用，请改用 search_statute_web 或请律师提供权威文本。",
-            }
-          : {
-              note: "结果为工作区启发式检索，引用前请核对官方法规文本。",
-            }),
+        hits: merged,
+        workspaceHits,
+        authorityHits: authority.hits,
+        authorityLive: authority.live,
+        authorityProvider: authority.provider,
+        total: merged.length,
+        note: verdict.note,
+        ...(verdict.refusalRequired
+          ? { refusalRequired: true as const, authority: verdict.authority }
+          : { authority: verdict.authority }),
       },
     };
   },
@@ -530,7 +542,7 @@ export const searchCaseLaw: AgentTool = {
   definition: {
     name: "search_case_law",
     description:
-      "在工作区案件摘要与记忆中检索裁判文书、案号、法院名称等案例线索（启发式）。不替代裁判文书网等专业库。",
+      "检索裁判文书、案号、类案。先查工作区；若本机已配置权威库（如北大法宝），会同时查询权威案例库。未配置时仅为工作区启发式检索，不替代专业库。",
     category: "search",
     parameters: {
       query: {
@@ -583,24 +595,35 @@ export const searchCaseLaw: AgentTool = {
       }
     }
 
-    const hits = results.slice(0, 25);
-    const empty = hits.length === 0;
+    const workspaceHits = results.slice(0, 25);
+    const authority = await searchAuthority.retrieveAuthorityHitsForChat({
+      query: ((params.query as string) ?? "").trim(),
+      workspaceDir: ctx.workspaceDir,
+      searchKind: "case",
+    });
+    const merged = [...authority.hits, ...workspaceHits].slice(0, 25);
+    const verdict = searchAuthority.mergeStatuteSearchNote({
+      live: authority.live,
+      providerLabel: authority.providerLabel,
+      authorityHitCount: authority.hits.length,
+      workspaceHitCount: workspaceHits.length,
+      kind: "case",
+    });
     return {
       ok: true,
       data: {
         query: params.query,
         matterId: matterId ?? null,
-        hits,
-        total: results.length,
-        ...(empty
-          ? {
-              refusalRequired: true,
-              authority: "none" as const,
-              note: "未检索到相关案例线索。模型不得编造案号、裁判要旨或判决原文；请使用专业案例库或请律师提供权威文书，勿凭空杜撰。",
-            }
-          : {
-              note: "结果为工作区线索汇总，正式引用请核实原始裁判文书。",
-            }),
+        hits: merged,
+        workspaceHits,
+        authorityHits: authority.hits,
+        authorityLive: authority.live,
+        authorityProvider: authority.provider,
+        total: merged.length,
+        note: verdict.note,
+        ...(verdict.refusalRequired
+          ? { refusalRequired: true as const, authority: verdict.authority }
+          : { authority: verdict.authority }),
       },
     };
   },

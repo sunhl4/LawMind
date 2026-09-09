@@ -20,6 +20,11 @@ import {
 import { getDeliverableSpec } from "../deliverables/registry.js";
 import type { WorkspaceSpecWarning } from "../deliverables/workspace-loader.js";
 import {
+  buildDecisionHeader,
+  evaluateAutoDeliver,
+  recordDeliveryAutonomy,
+} from "../delivery/index.js";
+import {
   persistClauseSnapshot,
   persistDraft,
   persistReasoningSnapshot,
@@ -27,11 +32,15 @@ import {
   readClauseSnapshot,
   readReasoningSnapshot,
 } from "../drafts/index.js";
+import { draftTextFromUnknown, runLegalLint } from "../lint/run-lint.js";
+import { applySelfReviseToDraft } from "../lint/self-revise.js";
 import { appendCaseProgress, appendTodayLog } from "../memory/index.js";
+import { recordLintRunEvent } from "../metrics/runtime-events.js";
 import { hasCriticNotes, runDraftCritic } from "../reasoning/draft-critic.js";
 import { buildClauseGraphFromDraft, buildLegalReasoningGraph } from "../reasoning/index.js";
 import { resolveDefaultAssignee } from "../routing/defaults.js";
 import { maybeApplyForcedPeerReview } from "../routing/peer-review-gate.js";
+import { stanceSelfCheck } from "../stance/self-check.js";
 import {
   ensureTaskRecord,
   readTaskRecord,
@@ -189,8 +198,56 @@ export function persistDraftPipeline(
     }
   }
 
+  const riskLevel = spec?.defaultRiskLevel ?? "medium";
+  const selfRevise = applySelfReviseToDraft(draft);
+  const stanceHits = stanceSelfCheck(workspaceDir, draftTextFromUnknown(draft));
+  if (stanceHits.length > 0) {
+    selfRevise.residual.push(...stanceHits);
+    selfRevise.summaryZh = `已做格式规范化 ${selfRevise.applied.length} 处；${selfRevise.residual.length} 处需你定夺`;
+  }
+  const lint = runLegalLint(draftTextFromUnknown(draft), undefined, undefined, undefined, {
+    deliverableType: draft.deliverableType,
+  });
+  recordLintRunEvent(workspaceDir, {
+    taskId: draft.taskId,
+    matterId: draft.matterId,
+    deliverableType: draft.deliverableType,
+    ruleIds: lint.findings.map((f) => f.ruleId),
+    failCount: lint.blockerCount + lint.warningCount,
+    blockerCount: lint.blockerCount,
+    warningCount: lint.warningCount,
+  });
+  if (!draft.decisionHeader) {
+    draft.decisionHeader = buildDecisionHeader({
+      title: draft.title,
+      lint,
+      selfRevise: {
+        rounds: selfRevise.rounds,
+        appliedCount: selfRevise.applied.length,
+        residualCount: selfRevise.residual.length,
+      },
+      riskLevel,
+    });
+  }
+  const auto = evaluateAutoDeliver({ workspaceDir, draft, riskLevel });
+  const shouldAutoDeliver = auto.shouldAutoDeliver && draft.decisionHeader?.ready === "usable";
+  if (shouldAutoDeliver) {
+    draft.reviewStatus = "approved";
+    draft.reviewedBy = draft.reviewedBy ?? "system:auto_deliver";
+    draft.reviewedAt = draft.reviewedAt ?? new Date().toISOString();
+    recordDeliveryAutonomy(workspaceDir, draft, "unattended");
+    void emit(auditDir, {
+      taskId: draft.taskId,
+      kind: "draft.auto_delivered",
+      actor: "system",
+      detail: "内部低风险且渐进自主已解锁，机械核对无硬伤。外发仍须签批。",
+    });
+  } else {
+    recordDeliveryAutonomy(workspaceDir, draft, "attended");
+  }
+
   const storedDraftPath = persistDraft(workspaceDir, draft);
-  syncDraftToTaskRecord(workspaceDir, draft, "drafted");
+  syncDraftToTaskRecord(workspaceDir, draft, shouldAutoDeliver ? "reviewed" : "drafted");
   updateTaskRecord(workspaceDir, draft.taskId, {
     title: draft.title,
     draftPath: storedDraftPath,
@@ -200,7 +257,7 @@ export function persistDraftPipeline(
     draftId: draft.taskId,
     matterId: draft.matterId,
     title: draft.title,
-    status: "needs_signoff",
+    status: shouldAutoDeliver ? "done" : "needs_signoff",
     source: "chat",
   });
   if (draft.matterId) {
@@ -220,16 +277,18 @@ export function persistDraftPipeline(
         draft,
         authorAssistantId,
       });
-      const queueTitle = peerGate.applied
-        ? `【先互审】草稿待签批：${draft.title}`
-        : `草稿待审核：${draft.title}`;
-      openQueueItem(workspaceDir, {
-        matterId: draft.matterId,
-        kind: "need_lawyer_review",
-        title: queueTitle,
-        relatedTaskId: draft.taskId,
-        relatedDeliverableId: draft.taskId,
-      });
+      if (!shouldAutoDeliver) {
+        const queueTitle = peerGate.applied
+          ? `【先互审】草稿待签批：${draft.title}`
+          : `草稿待审核：${draft.title}`;
+        openQueueItem(workspaceDir, {
+          matterId: draft.matterId,
+          kind: "need_lawyer_review",
+          title: queueTitle,
+          relatedTaskId: draft.taskId,
+          relatedDeliverableId: draft.taskId,
+        });
+      }
     } catch (err) {
       void emit(auditDir, {
         taskId: draft.taskId,

@@ -3,10 +3,10 @@ import { buildReadinessSnapshot } from "../lawmind-readiness";
 import type { HealthPayload } from "../lawmind-app-data";
 import type { LawmindMainView } from "../lawmind-main-view";
 import type { ModelCatalogEntry } from "../lawmind-models-api";
-import type { ReviewPaneId, ReviewPaneVisibility } from "../lawmind-review-pane-prefs";
 import type { AssistantRow } from "../lawmind-settings-models.ts";
-import type { SetShowSettings } from "../lawmind-settings-shell";
 import type { LawmindAppHeaderProps } from "./LawmindAppHeader";
+import { useReviewPaneVisibilityStore } from "../stores/review-pane-visibility-store";
+import { useSettingsPanelStore } from "../stores/settings-panel-store";
 
 export type UseLawmindAppHeaderPropsInput = {
   mainView: LawmindMainView;
@@ -28,10 +28,6 @@ export type UseLawmindAppHeaderPropsInput = {
   wsShowChat: boolean;
   setWsShowChat: React.Dispatch<React.SetStateAction<boolean>>;
   canUseFilesystemBridge: boolean;
-  reviewPaneVisibility: ReviewPaneVisibility;
-  toggleReviewPane: (id: ReviewPaneId) => void;
-  setShowSettings: SetShowSettings;
-  showSettings: boolean;
   health: HealthPayload | null | undefined;
   workspaceDir: string | undefined;
   localServiceReconnecting: boolean;
@@ -43,6 +39,11 @@ export type UseLawmindAppHeaderPropsInput = {
 };
 
 export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): LawmindAppHeaderProps {
+  const reviewPaneVisibility = useReviewPaneVisibilityStore((s) => s.visibility);
+  const toggleReviewPane = useReviewPaneVisibilityStore((s) => s.togglePane);
+  const showSettings = useSettingsPanelStore((s) => s.open);
+  const setShowSettings = useSettingsPanelStore((s) => s.setSettingsPanel);
+
   const {
     mainView,
     assistants,
@@ -63,10 +64,6 @@ export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): 
     wsShowChat,
     setWsShowChat,
     canUseFilesystemBridge,
-    reviewPaneVisibility,
-    toggleReviewPane,
-    setShowSettings,
-    showSettings,
     health,
     workspaceDir,
     localServiceReconnecting,
@@ -161,10 +158,6 @@ export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): 
       wsShowChat,
       setWsShowChat,
       canUseFilesystemBridge,
-      reviewPaneVisibility,
-      toggleReviewPane,
-      setShowSettings,
-      showSettings,
       health,
       workspaceDir,
       localServiceReconnecting,
@@ -173,6 +166,10 @@ export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): 
       openApiWizard,
       composeModelQuickTest,
       composeModelQuickTestBusy,
+      reviewPaneVisibility,
+      toggleReviewPane,
+      setShowSettings,
+      showSettings,
     ],
   );
 }

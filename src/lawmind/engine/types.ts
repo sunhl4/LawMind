@@ -48,7 +48,12 @@ export type LawMindEngine = {
   draftAsync: (
     intent: TaskIntent,
     bundle: ResearchBundle,
-    opts?: { title?: string; templateId?: string },
+    opts?: {
+      title?: string;
+      templateId?: string;
+      /** Populated with draft sub-phase wall times (ms) when set. */
+      phaseTiming?: Record<string, number>;
+    },
   ) => Promise<ArtifactDraft>;
   /**
    * 步骤 4：记录律师审核结果并写入任务状态。
@@ -85,6 +90,7 @@ export type LawMindEngine = {
       templateIdOverride?: string;
       strictGates?: boolean;
       citationGateStrict?: boolean;
+      includeProvenance?: boolean;
     },
   ) => Promise<{ ok: boolean; outputPath?: string; error?: string }>;
   /** 读取持久化任务状态 */

@@ -72,4 +72,36 @@ describe("learning suggestion queue", () => {
     const pending = await listLearningSuggestions(tmp, "pending");
     expect(pending.some((p) => p.id === rec.id)).toBe(false);
   });
+
+  it("Inspector review_label adopt writes labels via applyReviewLabelFromAdoption", async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), "lm-lq-inspect-"));
+    await fs.mkdir(auditDir(), { recursive: true });
+    const draft: ArtifactDraft = {
+      taskId: "task-inspect-1",
+      title: "T",
+      output: "docx",
+      templateId: "default",
+      summary: "s",
+      sections: [],
+      reviewNotes: [],
+      reviewStatus: "approved",
+      reviewedBy: "lawyer",
+      reviewedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+    };
+    persistDraft(tmp, draft);
+    await enqueueLearningSuggestion(tmp, auditDir(), {
+      taskId: draft.taskId,
+      reviewStatus: "approved",
+      labels: ["语气过弱"],
+    });
+    const { applyReviewLabelFromAdoption } = await import("./suggestion-queue.js");
+    const out = await applyReviewLabelFromAdoption(tmp, auditDir(), {
+      sourceTaskId: draft.taskId,
+      payload: JSON.stringify({ labels: ["语气过弱"], note: null }),
+    });
+    expect(out.noopReason).toBeUndefined();
+    const after = await listLearningSuggestions(tmp, "pending");
+    expect(after).toHaveLength(0);
+  });
 });

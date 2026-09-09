@@ -35,6 +35,9 @@ describe("deliverables/registry", () => {
       "matter.exhibit_list",
       "meeting.minutes",
       "contract.nda",
+      "memo.research",
+      "labor.calc",
+      "period.calc",
       "document.general",
     ]);
   });

@@ -15,6 +15,7 @@ import { createLawMindAgent } from "../../src/lawmind/agent/index.js";
 import type { AgentConfig } from "../../src/lawmind/agent/types.js";
 import { resolveCapabilityEnvelope } from "../../src/lawmind/models/capability-envelope.js";
 import { LAWMIND_BUILTIN_MODELS } from "../../src/lawmind/models/catalog.js";
+import { parseToolTimeoutMsEnv } from "../../src/lawmind/runtime/tool-timeout-env.js";
 import { loadLawMindEnv } from "./lawmind-env-loader.js";
 
 loadLawMindEnv();
@@ -59,7 +60,7 @@ const envelope = resolveCapabilityEnvelope({
   contextTokens: catalogContext,
   timeoutMs: modelTimeoutMs,
 });
-const toolTimeoutMs = parsePositiveIntEnv("LAWMIND_TOOL_TIMEOUT_MS", envelope.toolTimeoutMs);
+const toolTimeoutMs = parseToolTimeoutMsEnv(0);
 const modelConfig = {
   provider: "openai-compatible" as const,
   baseUrl:

@@ -29,6 +29,17 @@ export const matterSchema = z.object({
   deadlineIds: z.array(z.string()),
   deliverableIds: z.array(z.string()),
   queueItemIds: z.array(z.string()),
+  matterKind: z.enum(["contract", "litigation", "general"]).optional(),
+  practiceTags: z.array(z.string()).optional(),
+  docket: z
+    .object({
+      caseNo: z.string().optional(),
+      court: z.string().optional(),
+      instance: z.string().optional(),
+      standing: z.string().optional(),
+      hearingAt: z.string().optional(),
+    })
+    .optional(),
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
 });
@@ -120,9 +131,18 @@ export const deadlineSchema = z.object({
   title: z.string().min(1),
   dueAt: z.string().min(1),
   severity: z.enum(["soft", "hard", "critical"]),
-  source: z.enum(["manual", "case_memory", "project_file", "calendar_import"]),
+  source: z.enum(["manual", "case_memory", "project_file", "calendar_import", "document_extract"]),
   status: z.enum(["open", "snoozed", "completed", "missed"]),
   notes: z.string().optional(),
+  eventKind: z.enum(["hearing", "filing", "limitation", "reply", "custom"]).optional(),
+  remindBeforeHours: z
+    .number()
+    .int()
+    .min(0)
+    .max(24 * 30)
+    .optional(),
+  icsUid: z.string().optional(),
+  remindedAt: z.string().optional(),
 });
 
 export type MatterRecord = z.infer<typeof matterSchema>;

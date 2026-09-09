@@ -471,6 +471,54 @@ describe("LawmindAppHeader", () => {
     expect(host.querySelector('[aria-label="功能模块"]')?.textContent).not.toContain("协作");
   });
 
+  it("工作台 tab is primary nav and switches main view", async () => {
+    const onSetMainView = vi.fn();
+    await act(async () => {
+      root.render(
+        <LawmindAppHeader
+          mainView="workspace"
+          assistants={[]}
+          selectedAssistantId="a1"
+          onSelectAssistantId={vi.fn()}
+          matterCockpitOpen={false}
+          onExitMatterCockpit={vi.fn()}
+          onSetMainView={onSetMainView}
+          apiBase="http://127.0.0.1:8765"
+          projectDir={null}
+          currentMatterLabel={null}
+          sidebarCollapsed={false}
+          wsShowEditor
+          wsShowChat
+          canUseFilesystemBridge={false}
+          onToggleSidebar={vi.fn()}
+          onToggleEditor={vi.fn()}
+          onToggleChat={vi.fn()}
+          reviewPaneVisibility={{ meta: true, editor: true, preview: true }}
+          onToggleReviewPane={vi.fn()}
+          onOpenSettings={vi.fn()}
+          onCloseSettings={vi.fn()}
+          settingsOpen={false}
+          showReadinessStrip={false}
+          health={null}
+          workspaceDir="/tmp/ws"
+          localServiceReconnecting={false}
+          modelCatalog={[]}
+          selectedModelId="m1"
+          onOpenApiWizard={vi.fn()}
+          onOpenDoctor={vi.fn()}
+          onVerifyModel={vi.fn()}
+          composeModelQuickTestBusy={false}
+        />,
+      );
+    });
+    const desk = host.querySelector<HTMLButtonElement>('[data-testid="lm-tab-desk"]');
+    expect(desk?.textContent).toContain("工作台");
+    await act(async () => {
+      desk?.click();
+    });
+    expect(onSetMainView).toHaveBeenCalledWith("desk");
+  });
+
   it("在办 header exposes sidebar hide/show toggle", async () => {
     const onToggleSidebar = vi.fn();
     await act(async () => {
@@ -604,6 +652,50 @@ describe("LawmindAppHeader", () => {
     });
     expect(host.querySelector(".lm-main-header-gear-btn")).toBeNull();
     expect(host.querySelector('[aria-label="面板布局"]')).not.toBeNull();
+  });
+
+  it("shows settings gear on 工作台 because the global sidebar is hidden", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindAppHeader
+          mainView="desk"
+          assistants={[]}
+          selectedAssistantId="a1"
+          onSelectAssistantId={vi.fn()}
+          matterCockpitOpen={false}
+          onExitMatterCockpit={vi.fn()}
+          onSetMainView={vi.fn()}
+          apiBase="http://127.0.0.1:8765"
+          projectDir={null}
+          currentMatterLabel={null}
+          sidebarCollapsed={false}
+          wsShowEditor
+          wsShowChat
+          canUseFilesystemBridge={false}
+          onToggleSidebar={vi.fn()}
+          onToggleEditor={vi.fn()}
+          onToggleChat={vi.fn()}
+          reviewPaneVisibility={{ meta: true, editor: true, preview: true }}
+          onToggleReviewPane={vi.fn()}
+          onOpenSettings={vi.fn()}
+          onCloseSettings={vi.fn()}
+          settingsOpen={false}
+          showReadinessStrip={false}
+          health={null}
+          workspaceDir="/tmp/ws"
+          localServiceReconnecting={false}
+          modelCatalog={[]}
+          selectedModelId="m1"
+          onOpenApiWizard={vi.fn()}
+          onOpenDoctor={vi.fn()}
+          onVerifyModel={vi.fn()}
+          composeModelQuickTestBusy={false}
+        />,
+      );
+    });
+    expect(host.querySelector(".lm-main-header-desk")).not.toBeNull();
+    expect(host.querySelector(".lm-main-header-gear-btn")).not.toBeNull();
+    expect(host.querySelector('[aria-label="面板布局"]')).toBeNull();
   });
 
   it("shows back button and calls onCloseSettings when settingsOpen", async () => {
@@ -758,7 +850,9 @@ describe("LawmindAppHeader", () => {
     });
     expect(host.querySelector('select[aria-label="选择助手"]')).toBeNull();
     expect(host.querySelector('[aria-label="功能模块"]')?.textContent).toContain("对话");
+    expect(host.querySelector('[aria-label="功能模块"]')?.textContent).toContain("工作台");
     expect(host.querySelector('[aria-label="功能模块"]')?.textContent).toContain("在办");
+    expect(host.querySelector('[data-testid="lm-tab-desk"]')?.textContent).toContain("工作台");
     expect(host.querySelector('[aria-label="功能模块"]')?.textContent).not.toContain("文书台");
     expect(host.querySelector('[aria-label="功能模块"]')?.textContent).not.toContain("协作");
     expect(host.querySelector('[data-testid="lm-tab-review"]')).toBeNull();

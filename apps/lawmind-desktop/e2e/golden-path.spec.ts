@@ -21,7 +21,15 @@ test.describe("LawMind golden path", () => {
   test("shell loads with work navigation when mock API is ready", async ({ page }) => {
     await gotoShell(page);
     await expect(page.getByLabel("功能模块")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("lm-tab-desk")).toHaveText("工作台");
     await expect(page.locator(".lm-readiness-strip")).toHaveCount(0, { timeout: 30_000 });
+  });
+
+  test("工作台 tab opens daily desk", async ({ page }) => {
+    await gotoShell(page);
+    await page.getByTestId("lm-tab-desk").click();
+    await expect(page.getByTestId("lm-lawyer-workbench")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("lm-lawyer-today-plan-input")).toBeVisible();
   });
 
   test("review workbench shows acceptance gate region when opened", async ({ page }) => {
@@ -131,7 +139,7 @@ test.describe("LawMind golden path", () => {
     expect(body.acceptance?.deliverableType).toBe("contract.review");
     expect(body.gateDecisions?.length).toBeGreaterThan(0);
     expect(
-      body.gateDecisions?.some((g) => /等待律师签批|出稿检查|待签批|验收门禁|审批门禁/.test(g.reason ?? "")),
+      body.gateDecisions?.some((g) => /等待律师签批|出稿检查|待签批/.test(g.reason ?? "")),
     ).toBe(true);
   });
 });

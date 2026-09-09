@@ -12,7 +12,17 @@
  *（如法律写作与合同模板类指南中的排印讨论）。
  */
 
-import { AlignmentType, convertInchesToTwip, LineRuleType, Paragraph, TextRun } from "docx";
+import {
+  AlignmentType,
+  CommentRangeEnd,
+  CommentRangeStart,
+  CommentReference,
+  convertInchesToTwip,
+  LineRuleType,
+  Paragraph,
+  TextRun,
+  type ICommentOptions,
+} from "docx";
 
 /** 中文正文、表格 */
 export const LEGAL_BODY_FONT = "SimSun";
@@ -136,6 +146,55 @@ export function paragraphHeading2(text: string): Paragraph {
       }),
     ],
   });
+}
+
+/**
+ * Heading paragraph with a linked Word comment (provenance annotation).
+ * Returns the paragraph plus the Comment object to register on the Document.
+ */
+export function paragraphHeading2WithComment(
+  text: string,
+  commentText: string,
+  commentId: number,
+): { paragraph: Paragraph; comment: ICommentOptions } {
+  const paragraph = new Paragraph({
+    spacing: {
+      before: convertInchesToTwip(0.1),
+      after: convertInchesToTwip(0.05),
+      line: LINE_15,
+      lineRule: LineRuleType.AUTO,
+    },
+    children: [
+      new CommentRangeStart(commentId),
+      new TextRun({
+        text,
+        font: LEGAL_HEADING_FONT,
+        size: SZ_H2,
+        bold: true,
+        color: COLOR_TEXT,
+      }),
+      new CommentRangeEnd(commentId),
+      new CommentReference(commentId),
+    ],
+  });
+  const comment: ICommentOptions = {
+    id: commentId,
+    author: "LawMind",
+    date: new Date(),
+    children: [
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: commentText,
+            font: LEGAL_BODY_FONT,
+            size: SZ_SMALL,
+            color: COLOR_CITATION,
+          }),
+        ],
+      }),
+    ],
+  };
+  return { paragraph, comment };
 }
 
 /** 首行缩进两格、两端对齐的正文段 */

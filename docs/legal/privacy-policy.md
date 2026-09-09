@@ -14,7 +14,7 @@ LawMind Desktop stores workspace data, tasks, drafts, and audit logs **on the us
 
 ## 3. Subprocessors
 
-See [LawMind data processing](/LAWMIND-DATA-PROCESSING) for model and search subprocessors selected via configuration.
+See [LawMind data processing](/archive/LAWMIND-DATA-PROCESSING) for model and search subprocessors selected via configuration.
 
 ## 4. Retention and deletion
 

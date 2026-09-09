@@ -6,6 +6,7 @@
  * - BRAVE_API_KEY（与主仓库 Brave 配置兼容）
  */
 
+import { createOutboundProxy } from "../../platform/outbound-proxy.js";
 import { resolveEdition } from "../../policy/edition.js";
 import { checkNetworkAllowlist, hostnameFromUrl } from "../../policy/network-allowlist.js";
 import { readWorkspacePolicyFile } from "../../policy/workspace-policy.js";
@@ -13,6 +14,7 @@ import { friendlyModelErrorMessage } from "../model-error-message.js";
 import type { AgentTool } from "../types.js";
 
 const BRAVE_SEARCH_ENDPOINT = "https://api.search.brave.com/res/v1/web/search";
+const webSearchProxy = createOutboundProxy({ requestTag: "web-search" });
 
 export function resolveLawMindWebSearchApiKey(): string | undefined {
   const a = process.env.LAWMIND_WEB_SEARCH_API_KEY?.trim();
@@ -61,7 +63,7 @@ export async function lawMindBraveWebSearch(
   url.searchParams.set("q", query);
   url.searchParams.set("count", String(count));
 
-  const res = await fetch(url.toString(), {
+  const res = await webSearchProxy.fetch(url.toString(), {
     method: "GET",
     headers: {
       Accept: "application/json",

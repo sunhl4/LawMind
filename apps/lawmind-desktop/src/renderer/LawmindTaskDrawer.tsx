@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import { openJobEventStream } from "./lawmind-job-stream";
-import type { LawMindRequiresAction } from "./lawmind-requires-action";
+import { useSseSubscription } from "./useSseSubscription";
+import { confirmDialog } from "./lawmind-confirm-dialog";
+
+type ToolApprovalRow = {
+  actionId: string;
+  title: string;
+  summary: string;
+};
 
 type JobRow = {
   jobId: string;
@@ -36,10 +43,12 @@ export function LawmindTaskDrawer({
 }: Props): ReactNode {
   const [tab, setTab] = useState<"jobs" | "approvals" | "delegations">(initialTab);
   const [jobs, setJobs] = useState<JobRow[]>([]);
-  const [approvals, setApprovals] = useState<LawMindRequiresAction[]>([]);
+  const [approvals, setApprovals] = useState<ToolApprovalRow[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
   const [delegations, setDelegations] = useState<DelegationRow[]>([]);
   const [cancelBusyId, setCancelBusyId] = useState<string | null>(null);
   const [cancelHint, setCancelHint] = useState<string | null>(null);
+  const [sseConnected, setSseConnected] = useState<boolean | null>(null);
   const jobEventSourcesRef = useRef<Map<string, () => void>>(new Map());
 
   const cancelDelegation = async (id: string) => {
@@ -58,21 +67,46 @@ export function LawmindTaskDrawer({
 
   const refresh = async (): Promise<void> => {
     const q = matterId ? `?matterId=${encodeURIComponent(matterId)}&limit=30` : "?limit=30";
-    const [j, s, d] = await Promise.all([
-      apiGetJson<{ ok: boolean; jobs?: JobRow[] }>(apiBase, `/api/jobs${q}`),
-      apiGetJson<{ ok: boolean; toolApprovals?: LawMindRequiresAction[] }>(
-        apiBase,
-        `/api/action-summary${matterId ? `?matterId=${encodeURIComponent(matterId)}` : ""}`,
-      ),
-      apiGetJson<{ ok: boolean; delegations?: DelegationRow[] }>(
-        apiBase,
-        `/api/delegations?status=active&limit=20`,
-      ),
-    ]);
-    setJobs(j.jobs ?? []);
-    setApprovals(s.toolApprovals ?? []);
-    setDelegations(d.delegations ?? []);
+    setRefreshing(true);
+    try {
+      const [j, s, d] = await Promise.all([
+        apiGetJson<{ ok: boolean; jobs?: JobRow[] }>(apiBase, `/api/jobs${q}`),
+        apiGetJson<{ ok: boolean; toolApprovals?: ToolApprovalRow[] }>(
+          apiBase,
+          `/api/action-summary${matterId ? `?matterId=${encodeURIComponent(matterId)}` : ""}`,
+        ),
+        apiGetJson<{ ok: boolean; delegations?: DelegationRow[] }>(
+          apiBase,
+          `/api/delegations?status=active&limit=20`,
+        ),
+      ]);
+      setJobs(j.jobs ?? []);
+      setApprovals(s.toolApprovals ?? []);
+      setDelegations(d.delegations ?? []);
+    } finally {
+      setRefreshing(false);
+    }
   };
+
+  const { connected: sseConnectedFromHook } = useSseSubscription(
+    apiBase,
+    ["task:*", "review:*", "fs:change", "approval:update", "delegation:update"],
+    () => {
+      void refresh();
+    },
+    {
+      enabled: open,
+      onOpen: () => setSseConnected(true),
+      onError: () => setSseConnected(false),
+      onClose: () => setSseConnected(false),
+    },
+  );
+
+  useEffect(() => {
+    if (sseConnected === null) {
+      setSseConnected(sseConnectedFromHook);
+    }
+  }, [sseConnected, sseConnectedFromHook]);
 
   useEffect(() => {
     if (!open) {
@@ -80,9 +114,16 @@ export function LawmindTaskDrawer({
     }
     setTab(initialTab);
     void refresh();
+  }, [open, apiBase, matterId, initialTab]);
+
+  useEffect(() => {
+    if (!open || sseConnected === true) {
+      return;
+    }
+    // SSE 未连接或断开时按原间隔降级轮询。
     const t = window.setInterval(() => void refresh(), 8_000);
     return () => window.clearInterval(t);
-  }, [open, apiBase, matterId, initialTab]);
+  }, [open, sseConnected]);
 
   useEffect(() => {
     if (!open || tab !== "jobs" || !apiBase) {
@@ -168,7 +209,7 @@ export function LawmindTaskDrawer({
       <aside
         className="lm-task-drawer"
         role="dialog"
-        aria-label="任务与待批准"
+        aria-label="任务与确认"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="lm-task-drawer-head">
@@ -177,9 +218,13 @@ export function LawmindTaskDrawer({
             关闭
           </button>
         </header>
-        <div className="lm-task-drawer-tabs">
+        <div className="lm-task-drawer-tabs" role="tablist" aria-label="任务抽屉分类">
           <button
             type="button"
+            role="tab"
+            id="lm-task-tab-jobs"
+            aria-selected={tab === "jobs"}
+            aria-controls="lm-task-panel-jobs"
             className={tab === "jobs" ? "lm-tab lm-tab-active" : "lm-tab"}
             onClick={() => setTab("jobs")}
           >
@@ -187,13 +232,21 @@ export function LawmindTaskDrawer({
           </button>
           <button
             type="button"
+            role="tab"
+            id="lm-task-tab-approvals"
+            aria-selected={tab === "approvals"}
+            aria-controls="lm-task-panel-approvals"
             className={tab === "approvals" ? "lm-tab lm-tab-active" : "lm-tab"}
             onClick={() => setTab("approvals")}
           >
-            待批准 ({approvals.length})
+            工具确认 ({approvals.length})
           </button>
           <button
             type="button"
+            role="tab"
+            id="lm-task-tab-delegations"
+            aria-selected={tab === "delegations"}
+            aria-controls="lm-task-panel-delegations"
             className={tab === "delegations" ? "lm-tab lm-tab-active" : "lm-tab"}
             onClick={() => setTab("delegations")}
           >
@@ -201,7 +254,7 @@ export function LawmindTaskDrawer({
           </button>
         </div>
         {tab === "jobs" ? (
-          <ul className="lm-task-drawer-list">
+          <ul className="lm-task-drawer-list" role="tabpanel" id="lm-task-panel-jobs" aria-labelledby="lm-task-tab-jobs" aria-busy={refreshing || undefined}>
             {jobs.length === 0 ? (
               <li className="lm-meta">暂无任务</li>
             ) : (
@@ -215,12 +268,12 @@ export function LawmindTaskDrawer({
           </ul>
         ) : null}
         {tab === "approvals" ? (
-          <ul className="lm-task-drawer-list">
+          <ul className="lm-task-drawer-list" role="tabpanel" id="lm-task-panel-approvals" aria-labelledby="lm-task-tab-approvals" aria-busy={refreshing || undefined}>
             {approvals.length === 0 ? (
-              <li className="lm-meta">暂无待批准工具</li>
+              <li className="lm-meta">暂无待确认工具</li>
             ) : (
               approvals.map((a) => (
-                <li key={a.id}>
+                <li key={a.actionId}>
                   <strong>{a.title}</strong>
                   <p className="lm-meta">{a.summary}</p>
                 </li>
@@ -229,7 +282,7 @@ export function LawmindTaskDrawer({
           </ul>
         ) : null}
         {tab === "delegations" ? (
-          <ul className="lm-task-drawer-list">
+          <ul className="lm-task-drawer-list" role="tabpanel" id="lm-task-panel-delegations" aria-labelledby="lm-task-tab-delegations" aria-busy={refreshing || undefined}>
             {delegations.length === 0 ? (
               <li className="lm-meta">暂无进行中的委派</li>
             ) : (
@@ -245,9 +298,15 @@ export function LawmindTaskDrawer({
                     className="lm-btn lm-btn-ghost lm-btn-sm"
                     disabled={cancelBusyId === d.delegationId}
                     onClick={() => {
-                      if (window.confirm("确定撤销该委派？")) {
-                        void cancelDelegation(d.delegationId);
-                      }
+                      void (async () => {
+                        const ok = await confirmDialog({
+                          title: "确定撤销该委派？",
+                          confirmLabel: "撤销",
+                        });
+                        if (ok) {
+                          await cancelDelegation(d.delegationId);
+                        }
+                      })();
                     }}
                   >
                     {cancelBusyId === d.delegationId ? "撤销中…" : "撤销"}

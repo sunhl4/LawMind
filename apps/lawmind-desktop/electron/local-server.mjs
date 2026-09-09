@@ -6,6 +6,11 @@ import net from "node:net";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import {
+  computeSupervisionBackoffMs,
+  SERVER_SUPERVISION_DEFAULTS,
+  shouldAttemptSupervisedRestart,
+} from "./server-supervision.mjs";
 
 const __electronDir = path.dirname(fileURLToPath(import.meta.url));
 const requireCjs = createRequire(import.meta.url);
@@ -31,9 +36,33 @@ export const KEYCHAIN_ACCOUNTS = {
   webSearchApiKey: "wizard.webSearch.apiKey",
   customApiKey: (modelId) => `custom.${String(modelId).replace(/^custom:/, "")}.apiKey`,
   mcpSecret: (serverId) => `mcp.${String(serverId).replace(/[^a-zA-Z0-9_-]/g, "_")}.secret`,
+  /** 审计链 HMAC 密钥（hex）：keychain 保管，注入子进程；headless 降级为工作区外 key 文件。 */
+  auditChainKey: "audit.hashChainKey",
+  /** 邮件凭证落盘加密密钥（hex）：同上分层。 */
+  mailSecretsKey: "mail.secretsKey",
 };
 
 export { keyVault };
+
+/**
+ * 读取或生成一把 keychain 保管的本地对称密钥（hex）。
+ * keychain 不可用时返回 null——子进程引擎会降级为工作区外 0600 key 文件。
+ */
+async function ensureKeychainLocalKey(account) {
+  const existing = await keyVault.readSecret(account);
+  if (existing) {
+    return existing;
+  }
+  const generated = randomBytes(32).toString("hex");
+  const saved = await keyVault.saveSecret(account, generated);
+  return saved ? generated : null;
+}
+
+/**
+ * 缓存注入子进程的本地密钥，供 lawmindd（quit 时 spawn，同步路径）复用同一批密钥，
+ * 避免桌面服务器与 daemon 各持一把钥匙导致审计链/邮件凭证跨进程不一致。
+ */
+let cachedLocalKeyEnv = {};
 
 /**
  * Resolve all known secrets to inject into the local server subprocess.
@@ -75,6 +104,18 @@ export async function collectSecretsForServerEnv(parsedEnvVars) {
         out[envName] = value;
       }
     }
+    const auditChainKey = await ensureKeychainLocalKey(KEYCHAIN_ACCOUNTS.auditChainKey);
+    if (auditChainKey) {
+      out.LAWMIND_AUDIT_CHAIN_KEY = auditChainKey;
+    }
+    const mailSecretsKey = await ensureKeychainLocalKey(KEYCHAIN_ACCOUNTS.mailSecretsKey);
+    if (mailSecretsKey) {
+      out.LAWMIND_MAIL_SECRETS_KEY = mailSecretsKey;
+    }
+    cachedLocalKeyEnv = {
+      ...(out.LAWMIND_AUDIT_CHAIN_KEY ? { LAWMIND_AUDIT_CHAIN_KEY: out.LAWMIND_AUDIT_CHAIN_KEY } : {}),
+      ...(out.LAWMIND_MAIL_SECRETS_KEY ? { LAWMIND_MAIL_SECRETS_KEY: out.LAWMIND_MAIL_SECRETS_KEY } : {}),
+    };
   } catch (err) {
     console.warn("[LawMind] keychain read failed; subprocess will run without injected secrets.", err);
   }
@@ -91,6 +132,63 @@ export let envFilePath = "";
 export let lawMindRoot = "";
 export let configPath = "";
 let serverStarted = false;
+
+// ── 崩溃监督状态 ──
+// intentionalStop 区分「正常停止」（killLocalServer / 手动重启 / 应用退出）与
+// 「意外退出」；只有后者触发监督重启。supervisionAttempts 在重启成功（ready）后归零。
+let intentionalStop = false;
+let supervisionAttempts = 0;
+let supervisionTimer = null;
+
+function clearSupervisionTimer() {
+  if (supervisionTimer) {
+    clearTimeout(supervisionTimer);
+    supervisionTimer = null;
+  }
+}
+
+function onServerProcessExit(code) {
+  if (!serverStarted || intentionalStop) {
+    // 启动重试循环内的失败由 startLocalServer 自己兜底；正常停止不监督。
+    return;
+  }
+  serverStarted = false;
+  scheduleSupervisedRestart(`exit code ${code}`);
+}
+
+function scheduleSupervisedRestart(reason) {
+  if (supervisionTimer) {
+    return; // 已排队，避免重复调度。
+  }
+  supervisionAttempts += 1;
+  if (!shouldAttemptSupervisedRestart(supervisionAttempts)) {
+    console.error(
+      `[LawMind] local server crashed repeatedly (${reason}); giving up after ${SERVER_SUPERVISION_DEFAULTS.maxAttempts} supervised restarts.`,
+    );
+    void dialog
+      .showMessageBox({
+        type: "error",
+        title: "LawMind",
+        message: "LawMind 本地服务多次崩溃，已停止自动重启。",
+        detail: "请在设置页检查环境后手动重启本地服务；若持续崩溃请查看日志定位原因。",
+      })
+      .catch(() => {});
+    return;
+  }
+  const delayMs = computeSupervisionBackoffMs(supervisionAttempts);
+  console.warn(
+    `[LawMind] local server exited unexpectedly (${reason}); supervised restart ${supervisionAttempts}/${SERVER_SUPERVISION_DEFAULTS.maxAttempts} in ${delayMs}ms`,
+  );
+  supervisionTimer = setTimeout(() => {
+    supervisionTimer = null;
+    restartBackendInternal().catch((err) => {
+      console.error("[LawMind] supervised restart failed:", err);
+      // 启动失败计入下一次退避；到上限后放弃并表面化。
+      scheduleSupervisedRestart("restart failed");
+    });
+  }, delayMs);
+  supervisionTimer.unref?.();
+}
 
 export function resolveRepoRoot() {
   if (process.env.LAWMIND_REPO_ROOT) {
@@ -331,12 +429,29 @@ async function startLocalServerOnce(repoRoot, wsDir, envPath, retrievalMode, pro
     : {};
   const injectedSecrets = await collectSecretsForServerEnv(parsedEnvVars);
 
+  let auditExternalAnchorUrl = "";
+  try {
+    const deskSettingsPath = path.join(wsDir, "lawmind", "desk-settings.json");
+    if (fs.existsSync(deskSettingsPath)) {
+      const ds = JSON.parse(fs.readFileSync(deskSettingsPath, "utf8"));
+      if (typeof ds.auditExternalAnchorUrl === "string") {
+        auditExternalAnchorUrl = ds.auditExternalAnchorUrl.trim();
+      }
+    }
+  } catch {
+    /* ignore bad settings */
+  }
+
   const mode = retrievalMode === "dual" ? "dual" : "single";
   if (app.isPackaged && process.env.LAWMIND_SKIP_API_AUTH === "1") {
     console.warn(
       "[LawMind] LAWMIND_SKIP_API_AUTH=1 is ignored in packaged builds; loopback API auth remains enabled.",
     );
   }
+  if (auditExternalAnchorUrl) {
+    process.env.LAWMIND_AUDIT_EXTERNAL_ANCHOR_URL = auditExternalAnchorUrl;
+  }
+
   return new Promise((resolve, reject) => {
     const serverEnv = {
       ...process.env,
@@ -347,6 +462,9 @@ async function startLocalServerOnce(repoRoot, wsDir, envPath, retrievalMode, pro
       LAWMIND_REPO_ROOT: repoRoot,
       LAWMIND_RETRIEVAL_MODE: mode,
       LAWMIND_PROJECT_DIR: projectPath || "",
+      ...(auditExternalAnchorUrl
+        ? { LAWMIND_AUDIT_EXTERNAL_ANCHOR_URL: auditExternalAnchorUrl }
+        : {}),
       ...(app.isPackaged ? { LAWMIND_PACKAGED: "1" } : {}),
       ...injectedSecrets,
     };
@@ -371,6 +489,7 @@ async function startLocalServerOnce(repoRoot, wsDir, envPath, retrievalMode, pro
       if (code !== 0 && code !== null) {
         console.error(`[LawMind] local server exited with code ${code}`);
       }
+      onServerProcessExit(code);
     });
 
     waitForLocalServerReady(port)
@@ -471,6 +590,9 @@ export function setProjectDir(next) {
 }
 
 export async function restartBackendInternal() {
+  // 本次（重）启动前的旧进程停止属正常停止，不触发监督重启。
+  intentionalStop = true;
+  clearSupervisionTimer();
   if (serverProcess) {
     serverProcess.kill();
     serverProcess = null;
@@ -507,6 +629,9 @@ export async function restartBackendInternal() {
     paths.projectDir ?? "",
   );
   serverStarted = true;
+  intentionalStop = false;
+  // 重启成功（ready）后归零监督计数，恢复全额退避额度。
+  supervisionAttempts = 0;
 }
 
 export async function ensureBackend() {
@@ -517,6 +642,9 @@ export async function ensureBackend() {
 }
 
 export function killLocalServer() {
+  // 正常停止：标记 intentionalStop 并取消排队中的监督重启。
+  intentionalStop = true;
+  clearSupervisionTimer();
   if (serverProcess) {
     serverProcess.kill();
     serverProcess = null;
@@ -608,6 +736,8 @@ export function spawnWorkspaceDaemon() {
       LAWMIND_WORKSPACE_DIR: wsDir,
       LAWMIND_ENV_FILE: envFilePath || "",
       LAWMIND_REPO_ROOT: repoRoot,
+      // 与桌面服务器同一把审计链/邮件密钥（keychain 来源）；无缓存时 daemon 降级 key 文件。
+      ...cachedLocalKeyEnv,
     }),
   });
   child.unref();

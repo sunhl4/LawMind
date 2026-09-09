@@ -1117,7 +1117,7 @@
 .lm-matter-experiment-pill-high {
   color: var(--error);
   background: var(--error-dim);
-  border-color: rgba(240, 101, 101, 0.3);
+  border-color: var(--danger-border);
 }
 
 .lm-matter-experiment-pill-medium {
@@ -1133,7 +1133,7 @@
 .lm-matter-roadmap-pill-now {
   color: var(--error);
   background: var(--error-dim);
-  border-color: rgba(240, 101, 101, 0.3);
+  border-color: var(--danger-border);
 }
 
 .lm-matter-roadmap-pill-next {
@@ -1248,7 +1248,7 @@
 .lm-matter-pill-priority-critical {
   color: var(--error);
   background: var(--error-dim);
-  border-color: rgba(240, 101, 101, 0.3);
+  border-color: var(--danger-border);
 }
 
 .lm-matter-pill-priority-high {
@@ -1279,7 +1279,7 @@
 .lm-matter-pill-status-rejected {
   color: var(--error);
   background: var(--error-dim);
-  border-color: rgba(240, 101, 101, 0.3);
+  border-color: var(--danger-border);
 }
 
 .lm-matter-cognition-card {
@@ -2760,7 +2760,7 @@
   background: rgba(45, 212, 160, 0.06);
 }
 .lm-acceptance-gate.lm-acceptance-blocked {
-  border-color: rgba(240, 101, 101, 0.45);
+  border-color: var(--danger-border);
   background: var(--error-dim);
 }
 .lm-acceptance-headline {
@@ -2804,7 +2804,7 @@
 .lm-badge-blocker {
   background: var(--error-dim);
   color: var(--error);
-  border: 1px solid rgba(240, 101, 101, 0.4);
+  border: 1px solid var(--danger-border);
   border-radius: 4px;
   padding: 1px 6px;
   font-size: 13px;

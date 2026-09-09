@@ -1,3 +1,4 @@
+// TODO(renderer-fetch-proxy): migrate remaining fetch calls to fetchApi / api-client-proxy.
 import { useCallback, useEffect, useState } from "react";
 import { apiGetJson, apiSendJson, errorMessage, messageFromOkFalseBody } from "./api-client";
 

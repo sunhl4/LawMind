@@ -16,7 +16,7 @@ export function computeConvergenceHints(summary: BehaviorSummary): ConvergenceHi
     hints.push({
       key: "review_loop_dominant",
       title: "审核往返过多，建议在案件页直接给草稿打分",
-      detail: `近期已有 ${summary.reviewOpenCount} 次从案件页跳到审核台，说明草稿把关仍是当前主工作面。可考虑在案件页直接展示验收门禁评分，减少跳转。`,
+      detail: `近期已有 ${summary.reviewOpenCount} 次从案件页跳到审核台，说明草稿把关仍是当前主工作面。可考虑在案件页直接展示出稿检查评分，减少跳转。`,
       actionLabel: "在 cockpit 增加验收摘要",
       tone: "warn",
     });

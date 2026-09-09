@@ -1,5 +1,7 @@
+// TODO(renderer-fetch-proxy): migrate remaining fetch calls to fetchApi / api-client-proxy.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLawmindAppShell } from "./lawmind-app-shell";
+import { useSettingsPanelStore } from "./stores/settings-panel-store";
 import type { AgentsDeskTab } from "./lawmind-agents-desk";
 import { useActionSummaryQuery } from "./lawmind-query-hooks";
 import { useLawmindRecordsDeskMatters, RECORDS_DESK_UNLINKED } from "./lawmind-records-desk-state";
@@ -10,12 +12,6 @@ import {
   readStoredBool,
   writeStoredBool,
 } from "./lawmind-panel-layout";
-import {
-  countVisibleReviewPanes,
-  readReviewPaneVisibility,
-  writeReviewPaneVisibility,
-  type ReviewPaneId,
-} from "./lawmind-review-pane-prefs";
 import { usePaneResizePx } from "./use-pane-resize";
 import { apiGetJson } from "./api-client";
 import { useLawyerReviewDesktopNotify } from "./lawmind-lawyer-review-notify";
@@ -91,7 +87,7 @@ export function LawmindAppRoot() {
 
   const recordsDeskMatters = useLawmindRecordsDeskMatters({
     enabled:
-      (mainView === "workspace" || mainView === "agents") && Boolean(config),
+      (mainView === "workspace" || mainView === "agents" || mainView === "desk") && Boolean(config),
     apiBase: config?.apiBase ?? "",
     matterRefreshVersion,
     tasks,
@@ -116,7 +112,6 @@ export function LawmindAppRoot() {
     pendingReviewCount: actionSummaryQuery.data?.pendingReviewCount,
     requireSignoffReview,
   });
-  const recentCollabCompleted = actionSummaryQuery.data?.recentCollabCompleted ?? 0;
   const actionSummaryActiveJobs = actionSummaryQuery.data?.activeJobs ?? 0;
   const refreshActionSummary = useCallback(async () => {
     await actionSummaryQuery.refetch();
@@ -214,7 +209,6 @@ export function LawmindAppRoot() {
     setSelectedAssistantId,
     setContextTaskId,
     setContextMatterId,
-    setShowSettings,
     sendChatMessage,
     setSessionByAssistant,
     selectChatSession,
@@ -281,9 +275,9 @@ export function LawmindAppRoot() {
     modelCatalog.find((m) => m.id === selectedModelId)?.label ?? selectedModelId;
   useEffect(() => {
     return subscribeOpenAutomationsSettings(() => {
-      setShowSettings(true, "automations");
+      useSettingsPanelStore.getState().setSettingsPanel(true, "automations");
     });
-  }, [setShowSettings]);
+  }, []);
   useEffect(() => {
     return subscribeOpenMeetingView(() => {
       setMatterCockpitOpen(false);
@@ -319,7 +313,7 @@ export function LawmindAppRoot() {
       if (payload?.reason !== "open_settings_collaboration") {
         return;
       }
-      setShowSettings(false);
+      useSettingsPanelStore.getState().setSettingsPanel(false);
       setAgentsDeskTab("workflows");
       setMainView("agents");
       requestAnimationFrame(() => {
@@ -342,7 +336,6 @@ export function LawmindAppRoot() {
     setReviewFocusStatus,
     setReviewFocusTaskId,
     setSelectedAssistantId,
-    setShowSettings,
   ]);
 
   useLawyerReviewDesktopNotify({
@@ -387,22 +380,6 @@ export function LawmindAppRoot() {
     }
   }, [mainView, matterCockpitOpen, canUseFilesystemBridge, wsShowEditor, wsShowChat, setWsShowChat]);
 
-  const [reviewPaneVisibility, setReviewPaneVisibility] = useState(readReviewPaneVisibility);
-
-  useEffect(() => {
-    writeReviewPaneVisibility(reviewPaneVisibility);
-  }, [reviewPaneVisibility]);
-
-  const toggleReviewPane = useCallback((id: ReviewPaneId) => {
-    setReviewPaneVisibility((prev) => {
-      const next = { ...prev, [id]: !prev[id] };
-      if (countVisibleReviewPanes(next) === 0) {
-        return prev;
-      }
-      return next;
-    });
-  }, []);
-
   const { width: wsChatColWidth, onResizePointerDown: onWsChatSplitResize } = usePaneResizePx({
     storageKey: "lawmind.ui.wsChatColumnWidth",
     defaultWidth: 380,
@@ -419,8 +396,8 @@ export function LawmindAppRoot() {
    * 文书台 / 在办：不展示全局侧栏（页内自有目录）。
    * 会议室与对话共用全局左栏（材料树 + 会话列表），便于拖入议题材料。
    */
-  // 在办与对话共用全局左栏（会话 + 材料树）；审核台仍全宽无侧栏。
-  const showAppSidebar = mainView !== "review";
+  // 在办与对话共用全局左栏（会话 + 材料树）；审核台与律师工作台全宽无侧栏。
+  const showAppSidebar = mainView !== "review" && mainView !== "desk";
   const showSidebarWorkbenchFiles =
     canUseFilesystemBridge &&
     showAppSidebar &&
@@ -475,8 +452,6 @@ export function LawmindAppRoot() {
     setWsShowEditor,
     wsShowChat,
     setWsShowChat,
-    reviewPaneVisibility,
-    toggleReviewPane,
     onWsChatSplitResize,
     wsChatColWidth,
     fileExplorerHost,
@@ -496,7 +471,6 @@ export function LawmindAppRoot() {
     openOutputInFolder,
     workflowModelLabel,
     actionSummaryTotal,
-    recentCollabCompleted,
     actionSummaryActiveJobs,
     refreshActionSummary,
     sessionRequiresActions,

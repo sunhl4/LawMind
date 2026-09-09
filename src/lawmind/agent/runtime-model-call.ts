@@ -3,11 +3,14 @@
  */
 
 import { computeRetryDelayMs, isRetryableHttpFailure } from "../llm/http-retry.js";
+import { createOutboundProxy } from "../platform/outbound-proxy.js";
 import type { AgentModelConfig } from "./types.js";
 
 /** 模型单次调用超时（起草等任务可能较慢，60s 减少 aborted） */
 const DEFAULT_MODEL_TIMEOUT_MS = 60000;
 const DEFAULT_MODEL_MAX_RETRIES = 2;
+
+const modelProxy = createOutboundProxy({ requestTag: "model-api" });
 
 export class ModelCallUserAbortError extends Error {
   readonly name = "ModelCallUserAbortError";
@@ -48,7 +51,10 @@ export function combineAbortSignals(
   external?: AbortSignal,
 ): { signal: AbortSignal; cleanup: () => void; wasUserAbort: () => boolean } {
   const timeoutController = new AbortController();
-  const timer = setTimeout(() => timeoutController.abort(), timeoutMs);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  if (timeoutMs > 0) {
+    timer = setTimeout(() => timeoutController.abort(), timeoutMs);
+  }
   let removeExternal: (() => void) | undefined;
 
   if (external) {
@@ -63,10 +69,19 @@ export function combineAbortSignals(
     }
   }
 
+  const signal =
+    external && timeoutMs <= 0
+      ? external
+      : timeoutMs <= 0
+        ? new AbortController().signal
+        : timeoutController.signal;
+
   return {
-    signal: timeoutController.signal,
+    signal,
     cleanup: () => {
-      clearTimeout(timer);
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
       removeExternal?.();
     },
     wasUserAbort: () => Boolean(external?.aborted),
@@ -275,7 +290,7 @@ async function callModelOnce(
   const combined = combineAbortSignals(timeoutMs, opts.signal);
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await modelProxy.fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

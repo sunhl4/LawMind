@@ -7,7 +7,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** Electron golden path — requires `pnpm build:renderer` + bundled server beforehand. */
 export default defineConfig({
   testDir: path.join(__dirname, "e2e"),
-  testMatch: ["electron-golden-path.spec.ts", "electron-file-deeplink.spec.ts"],
+  testMatch: [
+    "electron-golden-path.spec.ts",
+    "electron-file-deeplink.spec.ts",
+    "app-driver.spec.ts",
+    "first-matter-journey.spec.ts",
+    "server-crash-recovery.spec.ts",
+  ],
   timeout: 180_000,
   fullyParallel: false,
   workers: 1,

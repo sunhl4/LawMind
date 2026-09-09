@@ -65,6 +65,15 @@ describe("system prompt sections", () => {
     });
     expect(withMail.sections.some((s) => s.id === "mail_send_format")).toBe(true);
     expect(withMail.text).toContain("某某律师事务所");
+    const withAuthority = buildSystemPromptWithMeta({
+      ...minimalCtx,
+      authorityLive: true,
+      authorityProviderLabel: "北大法宝（闭源·手动）",
+    });
+    expect(withAuthority.sections.some((s) => s.id === "authority_corpus")).toBe(true);
+    expect(withAuthority.text).toContain("北大法宝");
+    expect(withAuthority.text).toContain("声称没有法宝接口");
+    expect(withAuthority.text).toContain("设置 → 模型与连接");
   });
 
   it("catalog marks identity as static and matter as session", () => {

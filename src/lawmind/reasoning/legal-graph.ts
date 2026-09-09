@@ -196,7 +196,7 @@ function buildDeliveryRisks(bundle: ResearchBundle): string[] {
  */
 export function serializeLegalReasoningGraph(graph: LegalReasoningGraph): string {
   const lines: string[] = [
-    `# 法律推理图谱`,
+    `# 法律分析`,
     ``,
     `- **任务 ID**：${graph.taskId}`,
     graph.matterId ? `- **案件 ID**：${graph.matterId}` : "",

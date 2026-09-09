@@ -160,7 +160,7 @@ export const sendEmail: AgentTool = {
   definition: {
     name: "send_email",
     description:
-      "向客户或对方发送邮件。必须先获得律师批准（__approved: true）。已配置邮箱时走 SMTP/Graph，并归档到本案 mail/sent。可选 attachment_paths（工作区相对路径）。",
+      "向客户或对方发送邮件。必须先获得律师批准（在「待我拍板」中处理，批准后服务端自动放行）。已配置邮箱时走 SMTP/Graph，并归档到本案 mail/sent。可选 attachment_paths（工作区相对路径）。",
     category: "system",
     parameters: {
       matter_id: { type: "string", description: "案件 ID", required: true },
@@ -193,7 +193,8 @@ export const sendEmail: AgentTool = {
         return { ok: false, error: resolved.error };
       }
     }
-    const approved = params.__approved === true || params.__approved === "true";
+    // 批准旗标只认服务端注入的布尔 true（模型自填副本已在 turn 边界剥除）。
+    const approved = params.__approved === true;
     const payload = {
       to,
       subject,
@@ -204,7 +205,7 @@ export const sendEmail: AgentTool = {
       const queued = queueOutboundMail(ctx.workspaceDir, matterId, payload);
       return {
         ok: false,
-        error: `发送邮件需律师批准。已写入 outbox/${queued}；请在待我拍板中批准后重试并传 __approved: true。`,
+        error: `发送邮件需律师批准。已写入 outbox/${queued}；请在待我拍板中批准，批准后将继续发送。`,
       };
     }
     const sentId = commitOutboundMail(ctx.workspaceDir, matterId, payload);
