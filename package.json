@@ -87,7 +87,7 @@
   "devDependencies": {
     "@electron/rebuild": "^4.0.4",
     "@types/mailparser": "^3.4.6",
-    "@types/node": "^25.5.0",
+    "@types/node": "^26.5.0",
     "@types/nodemailer": "^8.0.1",
     "@vitest/coverage-v8": "^4.1.10",
     "esbuild": "^0.27.3",
