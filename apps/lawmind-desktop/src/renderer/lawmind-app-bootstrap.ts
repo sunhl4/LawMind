@@ -116,7 +116,7 @@ export async function refreshLocalAppConfig(
   if (apiAuthToken) {
     setLoopbackApiAuthToken(apiAuthToken);
   }
-  return {
+  const loaded: AppConfig = {
     apiBase,
     apiAuthToken: apiAuthToken ?? previous?.apiAuthToken,
     workspaceDir: config.workspaceDir,
@@ -127,4 +127,6 @@ export async function refreshLocalAppConfig(
     appVersion: config.appVersion,
     downloadPageUrl: config.downloadPageUrl,
   };
+  persistDevAppConfig(loaded);
+  return loaded;
 }

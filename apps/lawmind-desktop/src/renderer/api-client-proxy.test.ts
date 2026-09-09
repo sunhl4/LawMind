@@ -22,6 +22,7 @@ describe("api-client-proxy", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     setDefaultApiBaseForTests(null);
     setLoopbackApiAuthTokenForTests(null);
     setAuditEnabledForTests(true);
@@ -107,6 +108,44 @@ describe("api-client-proxy", () => {
     await expect(
       fetchApi("http://127.0.0.1:1234/api/test", {}, { maxRetries: 1 }),
     ).rejects.toThrow(ApiRequestError);
+  });
+
+  it("retries once on a new Electron loopback port after connection failure", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("window", {
+      lawmindDesktop: {
+        getConfig: async () => ({
+          apiBase: "http://127.0.0.1:59999",
+          apiAuthToken: "fresh-token",
+          workspaceDir: "/tmp/ws",
+          projectDir: null,
+          envFilePath: "",
+          retrievalMode: "single",
+        }),
+      },
+      dispatchEvent: () => true,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      localStorage: {
+        setItem: () => undefined,
+        removeItem: () => undefined,
+        getItem: () => null,
+      },
+    });
+
+    await expect(fetchApi("http://127.0.0.1:1234/api/test", {}, { maxRetries: 1 })).resolves.toBeDefined();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const second = fetchMock.mock.calls[1]?.[0];
+    const secondUrl = typeof second === "string" ? second : second instanceof URL ? second.href : second.url;
+    expect(secondUrl).toContain("http://127.0.0.1:59999/api/test");
   });
 
   it("applies timeout and aborts slow responses", async () => {

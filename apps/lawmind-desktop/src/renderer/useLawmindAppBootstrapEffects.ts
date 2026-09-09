@@ -3,7 +3,12 @@ import { useSettingsPanelStore } from "./stores/settings-panel-store";
 import type { CollabSummaryState } from "./LawmindSettingsCollaboration";
 import { errorMessage } from "./api-client";
 import { fetchApiJson } from "./api-client-proxy.ts";
-import { LOOPBACK_CONFIG_EVENT, type LoopbackConfigDetail } from "./lawmind-dev-config-cache.ts";
+import {
+  LOOPBACK_CONFIG_EVENT,
+  persistDevAppConfig,
+  type LoopbackConfigDetail,
+} from "./lawmind-dev-config-cache.ts";
+import { setLoopbackApiAuthToken } from "./lawmind-api-auth.ts";
 import {
   loadAppBootstrapSnapshot,
   loadInitialAppConfig,
@@ -121,17 +126,46 @@ export function useLawmindAppBootstrapEffects(params: UseLawmindAppBootstrapEffe
   useEffect(() => {
     const onLoopback = (event: Event) => {
       const detail = (event as CustomEvent<LoopbackConfigDetail>).detail;
-      if (!detail?.apiBase || !config) {
+      if (!detail?.apiBase) {
         return;
       }
-      if (config.apiBase.replace(/\/$/, "") === detail.apiBase) {
+      if (detail.apiAuthToken) {
+        setLoopbackApiAuthToken(detail.apiAuthToken);
+      }
+      if (!config) {
         return;
       }
-      setConfig({ ...config, apiBase: detail.apiBase, apiAuthToken: detail.apiAuthToken });
+      const nextBase = detail.apiBase.replace(/\/$/, "");
+      if (
+        config.apiBase.replace(/\/$/, "") === nextBase &&
+        (config.apiAuthToken ?? "") === (detail.apiAuthToken ?? "")
+      ) {
+        return;
+      }
+      const merged = { ...config, apiBase: nextBase, apiAuthToken: detail.apiAuthToken };
+      persistDevAppConfig(merged);
+      setConfig(merged);
     };
     window.addEventListener(LOOPBACK_CONFIG_EVENT, onLoopback);
     return () => window.removeEventListener(LOOPBACK_CONFIG_EVENT, onLoopback);
   }, [config, setConfig]);
+
+  useEffect(() => {
+    const unsub = window.lawmindDesktop?.onLoopbackConfig?.((payload) => {
+      if (!payload?.apiBase) {
+        return;
+      }
+      window.dispatchEvent(
+        new CustomEvent(LOOPBACK_CONFIG_EVENT, {
+          detail: {
+            apiBase: payload.apiBase.replace(/\/$/, ""),
+            apiAuthToken: payload.apiAuthToken,
+          },
+        }),
+      );
+    });
+    return () => unsub?.();
+  }, []);
 
   useEffect(() => {
     if (!config) {

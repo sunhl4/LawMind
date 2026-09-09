@@ -1,4 +1,4 @@
-import { app, dialog } from "electron";
+import { app, BrowserWindow, dialog } from "electron";
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -340,15 +340,49 @@ export function resolveNodeExecutable() {
   return "node";
 }
 
-function pickPort() {
-  return new Promise((resolve) => {
+function listenEphemeralPort() {
+  return new Promise((resolve, reject) => {
     const s = net.createServer();
+    s.once("error", reject);
     s.listen(0, "127.0.0.1", () => {
       const addr = s.address();
       const p = typeof addr === "object" && addr && "port" in addr ? addr.port : 0;
       s.close(() => resolve(p));
     });
   });
+}
+
+/** Prefer the previous loopback port so the renderer does not keep a dead apiBase. */
+function pickPort(preferred = 0) {
+  const want = Number(preferred);
+  if (!Number.isInteger(want) || want <= 0 || want > 65535) {
+    return listenEphemeralPort();
+  }
+  return new Promise((resolve, reject) => {
+    const s = net.createServer();
+    s.once("error", () => {
+      listenEphemeralPort().then(resolve, reject);
+    });
+    s.listen(want, "127.0.0.1", () => {
+      s.close(() => resolve(want));
+    });
+  });
+}
+
+function broadcastLoopbackConfig() {
+  if (!apiPort || !apiAuthToken) {
+    return;
+  }
+  const payload = {
+    apiBase: `http://127.0.0.1:${apiPort}`,
+    apiAuthToken,
+  };
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed() || win.webContents.isDestroyed()) {
+      continue;
+    }
+    win.webContents.send("lawmind:loopback-config", payload);
+  }
 }
 
 async function waitForLocalServerReady(port, timeoutMs = 15000) {
@@ -399,7 +433,7 @@ async function startLocalServer(repoRoot, wsDir, envPath, retrievalMode, project
 }
 
 async function startLocalServerOnce(repoRoot, wsDir, envPath, retrievalMode, projectPath) {
-  const port = await pickPort();
+  const port = await pickPort(apiPort);
   apiPort = port;
   apiAuthToken = randomBytes(32).toString("hex");
   const bundled = getBundledServerScript();
@@ -632,6 +666,7 @@ export async function restartBackendInternal() {
   intentionalStop = false;
   // 重启成功（ready）后归零监督计数，恢复全额退避额度。
   supervisionAttempts = 0;
+  broadcastLoopbackConfig();
 }
 
 export async function ensureBackend() {

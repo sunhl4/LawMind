@@ -176,5 +176,7 @@ describe("pickMainBodyBranchProps", () => {
     expect(onOpenNeedsDecisionDesk).toHaveBeenCalledWith({ matterId: "m1" });
     props?.onShowArtifact?.("out/a.docx");
     expect(onShowArtifact).toHaveBeenCalledWith("out/a.docx");
+    expect(props?.onReconnectLocalService).toBeTypeOf("function");
+    expect(props?.localServiceReconnecting).toBe(false);
   });
 });

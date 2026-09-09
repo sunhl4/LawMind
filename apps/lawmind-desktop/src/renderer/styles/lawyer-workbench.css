@@ -1201,9 +1201,18 @@
   max-width: 18rem;
 }
 
-.lm-lawyer-workbench .lm-error {
+.lm-lawyer-workbench .lm-lawyer-alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
   flex-shrink: 0;
   margin-bottom: 10px;
+}
+
+.lm-lawyer-workbench .lm-error {
+  flex-shrink: 0;
+  margin: 0;
 }
 
 .lm-settings-list {

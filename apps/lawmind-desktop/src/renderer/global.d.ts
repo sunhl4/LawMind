@@ -26,6 +26,10 @@ declare global {
         appVersion: string;
         downloadPageUrl: string;
       }>;
+      /** Main process pushes a new loopback port/token after supervised backend restart. */
+      onLoopbackConfig?: (
+        handler: (payload: { apiBase?: string; apiAuthToken?: string }) => void,
+      ) => () => void;
       checkForUpdates: () => Promise<{ ok: boolean }>;
       showNotification: (payload: {
         title?: string;
