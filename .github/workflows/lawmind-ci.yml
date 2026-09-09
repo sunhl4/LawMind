@@ -41,7 +41,7 @@ jobs:
 
       - name: Upload skills golden compare report
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: skills-golden-compare
           path: docs/generated/skills-golden-compare-report.json
@@ -73,7 +73,7 @@ jobs:
 
       - name: Upload coverage
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: coverage/
@@ -84,7 +84,7 @@ jobs:
 
       - name: Upload release readiness report
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: release-readiness-report
           path: dist/lawmind-release-readiness.md
