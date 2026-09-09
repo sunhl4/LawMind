@@ -15,7 +15,7 @@
 1. **企业自托管** — 将本目录放到 HTTPS 站点即可；无需构建。
 2. **指定 GitHub 仓库** — `?repo=组织名/仓库名`（fork 后的 Release）。
 3. **jsDelivr 镜像（备用）** —  
-   `https://cdn.jsdelivr.net/gh/lawmind/lawmind@main/apps/lawmind-desktop/download/index.html`  
+   `https://cdn.jsdelivr.net/gh/sunhl4/LawMind@main/apps/lawmind-desktop/download/index.html`  
    仅作未部署文档站时的临时通道；对外宣传请用正式域名。
 
 ## 与应用内「检查更新」的关系

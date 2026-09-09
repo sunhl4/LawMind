@@ -78,6 +78,33 @@ describe("LawmindLawyerWorkbench", () => {
     expect(host.querySelector('[data-testid="lm-lawyer-matter-empty"]')).toBeTruthy();
   });
 
+  it("offers reconnect when the local service is unreachable", async () => {
+    vi.mocked(apiGetJson).mockRejectedValue(
+      new Error("无法连接本地服务，请检查网络与本机 LawMind 进程是否运行。"),
+    );
+    const onReconnect = vi.fn(async () => undefined);
+    await act(async () => {
+      root.render(
+        <LawmindLawyerWorkbench
+          apiBase="http://127.0.0.1:9"
+          selectedMatterId={null}
+          onSelectMatter={vi.fn()}
+          onGoToChat={vi.fn()}
+          onReconnectLocalService={onReconnect}
+        />,
+      );
+    });
+    await flush();
+    await flush();
+    expect(host.querySelector('[data-testid="lm-lawyer-reconnect"]')).toBeTruthy();
+    expect(host.textContent).toContain("无法连接本地服务");
+    expect(onReconnect).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[data-testid="lm-lawyer-reconnect"]')?.click();
+    });
+    expect(onReconnect).toHaveBeenCalledTimes(2);
+  });
+
   it("groups today items and lets mail jump to the matter", async () => {
     const onSelectMatter = vi.fn();
     vi.mocked(apiGetJson).mockImplementation(async (_base: string, path: string) => {

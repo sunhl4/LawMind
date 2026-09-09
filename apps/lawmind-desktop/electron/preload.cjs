@@ -4,6 +4,16 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("lawmindDesktop", {
   getConfig: () => ipcRenderer.invoke("lawmind:get-config"),
+  onLoopbackConfig: (handler) => {
+    const channel = "lawmind:loopback-config";
+    const listener = (_evt, payload) => {
+      handler(payload);
+    };
+    ipcRenderer.on(channel, listener);
+    return () => {
+      ipcRenderer.removeListener(channel, listener);
+    };
+  },
   checkForUpdates: () => ipcRenderer.invoke("lawmind:check-updates"),
   showNotification: (payload) => ipcRenderer.invoke("lawmind:show-notification", payload ?? {}),
   onNotificationClick: (handler) => {

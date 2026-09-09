@@ -17,16 +17,16 @@ export const LAWMIND_DOCS_BASE = trimTrailingSlashes(
 
 export const LAWMIND_GITHUB_BLOB_BASE = trimTrailingSlashes(
   (env?.VITE_LAWMIND_GITHUB_BLOB_BASE as string | undefined) ||
-    "https://github.com/lawmind/lawmind/blob/main",
+    "https://github.com/sunhl4/LawMind/blob/main",
 );
 
 /**
  * Smart download landing (same page shipped under docs site `/download/` and
- * `apps/lawmind-desktop/download/index.html`). Prefer the product domain in production.
+ * `apps/lawmind-desktop/download/index.html`).
  */
 export const LAWMIND_DOWNLOAD_PAGE_URL =
   (env?.VITE_LAWMIND_DOWNLOAD_PAGE_URL as string | undefined) ||
-  `${LAWMIND_DOCS_BASE}/download/`;
+  "https://cdn.jsdelivr.net/gh/sunhl4/LawMind@main/apps/lawmind-desktop/download/index.html";
 
 export function lawmindDocUrl(docPath: string): string {
   const p = docPath.startsWith("/") ? docPath.slice(1) : docPath;

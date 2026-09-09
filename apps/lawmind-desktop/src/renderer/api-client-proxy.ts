@@ -12,6 +12,7 @@
  */
 
 import { apiAuthHeaders, getLoopbackApiAuthToken, setLoopbackApiAuthToken } from "./lawmind-api-auth.ts";
+import { refreshLoopbackAuthFromDesktop } from "./lawmind-dev-config-cache.ts";
 import {
   friendlyModelErrorMessage,
   isModelProviderErrorMessage,
@@ -382,6 +383,19 @@ function resolveFetchUrl(input: string | URL): URL {
   return new URL(input, resolveDefaultApiBase());
 }
 
+function adoptResolvedDefaultApiBase(apiBase: string): void {
+  resolvedDefaultApiBase = apiBase.replace(/\/$/, "");
+  resolvedDefaultApiBaseTs = Date.now();
+}
+
+function rewriteLoopbackUrl(current: URL, nextBase: string): URL {
+  const next = new URL(current.href);
+  const parsed = new URL(nextBase);
+  next.protocol = parsed.protocol;
+  next.host = parsed.host;
+  return next;
+}
+
 function isRetryableStatus(status: number): boolean {
   return status >= 500 || status === 429;
 }
@@ -540,25 +554,26 @@ export async function fetchApi(
   init: RequestInit = {},
   opts: ProxyFetchOptions = {},
 ): Promise<Response> {
-  const url = resolveFetchUrl(input);
+  let url = resolveFetchUrl(input);
   assertUrlAllowed(url, opts);
 
   const method = (init.method || "GET").toUpperCase();
-  const headers = mergeHeaders(init.headers);
-  const baseUrl = `${url.protocol}//${url.host}`;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxRetries = opts.maxRetries ?? DEFAULT_MAX_RETRIES;
   const tag = opts.tag;
 
   const started = Date.now();
   let lastError: Error | undefined;
+  let loopbackAdopted = false;
 
   const runOnce = async (): Promise<Response> => {
+    const headers = mergeHeaders(init.headers);
     return performFetchWithTimeout(url, { ...init, headers, method }, timeoutMs);
   };
 
   let finalResponse: Response | undefined;
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    const baseUrl = `${url.protocol}//${url.host}`;
     try {
       const response = await runOnce();
       const durationMs = Date.now() - started;
@@ -578,13 +593,25 @@ export async function fetchApi(
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
       const durationMs = Date.now() - started;
-      const _status = lastError instanceof ApiRequestError ? lastError.status : 0;
       const errorMsg = lastError.message.slice(0, 200);
       console.info(
         `[renderer:fetch] ${method} ${url.pathname} error (${durationMs}ms): ${errorMsg}`,
       );
       if (!opts.skipAudit) {
         void sendOutboundAuditEvent(baseUrl, method, url, "error", durationMs, tag, errorMsg);
+      }
+      if (
+        !loopbackAdopted &&
+        isRetryableError(err) &&
+        isLoopbackHost(url.hostname)
+      ) {
+        const fresh = await refreshLoopbackAuthFromDesktop();
+        if (fresh?.apiBase) {
+          url = rewriteLoopbackUrl(url, fresh.apiBase);
+          adoptResolvedDefaultApiBase(fresh.apiBase);
+          loopbackAdopted = true;
+          continue;
+        }
       }
       if (attempt >= maxRetries || !isRetryableError(err)) {
         break;

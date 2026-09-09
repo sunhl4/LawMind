@@ -129,6 +129,8 @@ export function pickLawyerWorkbenchProps(
       props.onOpenReviewFromWorkspace({ matterId });
     },
     onShowArtifact: props.onShowArtifact,
+    onReconnectLocalService: props.onReconnectLocalService,
+    localServiceReconnecting: props.localServiceReconnecting,
   };
 }
 

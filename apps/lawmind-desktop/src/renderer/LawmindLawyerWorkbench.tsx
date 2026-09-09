@@ -1,7 +1,7 @@
 /**
  * 工作台：今日计划、案件门类、期限与谈话摘要。律师打开 LawMind 先看这里。
  */
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { apiGetJson, apiSendJson, errorMessage, fetchApi } from "./api-client";
 import { triggerBrowserDownload } from "./review/review-workbench-helpers";
 import { LEGAL_EVENT_KIND_LABELS, type ExtractedLegalEvent } from "../../../../src/lawmind/desk/legal-event-extract.ts";
@@ -106,6 +106,8 @@ export type LawmindLawyerWorkbenchProps = {
   onCreateMatter?: () => void;
   onOpenReview?: (opts: { matterId: string; taskId?: string }) => void;
   onShowArtifact?: (relPath: string) => void;
+  onReconnectLocalService?: () => void | Promise<void>;
+  localServiceReconnecting?: boolean;
 };
 
 const KIND_FILTERS: Array<{ id: "all" | MatterKind; label: string }> = [
@@ -219,8 +221,49 @@ function mailSourceRef(item: TodayItem): string | undefined {
   return (colon >= 0 ? tail.slice(colon + 1) : tail).trim() || undefined;
 }
 
+function DeskServiceAlert({
+  err,
+  onReconnect,
+  reconnecting,
+}: {
+  err: string | null;
+  onReconnect?: () => void | Promise<void>;
+  reconnecting?: boolean;
+}): ReactNode {
+  if (!err) {
+    return null;
+  }
+  return (
+    <div className="lm-lawyer-alert" role="alert">
+      <p className="lm-error">{err}</p>
+      {onReconnect ? (
+        <button
+          type="button"
+          className="lm-btn lm-btn-sm"
+          data-testid="lm-lawyer-reconnect"
+          disabled={reconnecting}
+          onClick={() => void onReconnect()}
+        >
+          {reconnecting ? "连接中…" : "重新连接"}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): ReactNode {
-  const { apiBase, selectedMatterId, onSelectMatter, onGoToChat, onOpenNeedsDecision, onCreateMatter, onOpenReview, onShowArtifact } = props;
+  const {
+    apiBase,
+    selectedMatterId,
+    onSelectMatter,
+    onGoToChat,
+    onOpenNeedsDecision,
+    onCreateMatter,
+    onOpenReview,
+    onShowArtifact,
+    onReconnectLocalService,
+    localServiceReconnecting,
+  } = props;
   const [kind, setKind] = useState<"all" | MatterKind>("all");
   const [matterPane, setMatterPane] = useState<MatterPaneId>("overview");
   const [today, setToday] = useState<TodaySnapshot | null>(null);
@@ -243,6 +286,9 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
   const [desk, setDesk] = useState<"cockpit" | "matter">("cockpit");
   const [openedMatterId, setOpenedMatterId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const autoReconnectRef = useRef(false);
+  const reconnectRef = useRef(onReconnectLocalService);
+  reconnectRef.current = onReconnectLocalService;
 
   const viewingId = desk === "matter" ? (openedMatterId ?? selectedMatterId) : null;
   const selected = useMemo(
@@ -320,14 +366,36 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([reloadToday(), reloadMatters()]).catch((e) => {
-      if (!cancelled) {
-        setErr(errorMessage(e, "工作台加载失败"));
-      }
-    });
+    void Promise.all([reloadToday(), reloadMatters()])
+      .then(() => {
+        if (!cancelled) {
+          setErr(null);
+        }
+      })
+      .catch((e) => {
+        if (cancelled) {
+          return;
+        }
+        const msg = errorMessage(e, "工作台加载失败");
+        setErr(msg);
+        if (
+          !autoReconnectRef.current &&
+          msg.includes("无法连接本地服务") &&
+          reconnectRef.current
+        ) {
+          autoReconnectRef.current = true;
+          void Promise.resolve(reconnectRef.current()).catch(() => undefined);
+        }
+      });
     const onVis = () => {
       if (document.visibilityState === "visible") {
-        void Promise.all([reloadToday(), reloadMatters()]).catch(() => undefined);
+        void Promise.all([reloadToday(), reloadMatters()])
+          .then(() => {
+            if (!cancelled) {
+              setErr(null);
+            }
+          })
+          .catch(() => undefined);
       }
     };
     document.addEventListener("visibilitychange", onVis);
@@ -736,11 +804,11 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
             </div>
           </header>
 
-          {err ? (
-            <p className="lm-error" role="alert">
-              {err}
-            </p>
-          ) : null}
+          <DeskServiceAlert
+            err={err}
+            onReconnect={onReconnectLocalService}
+            reconnecting={localServiceReconnecting}
+          />
 
           <div className="lm-lawyer-cockpit" data-testid="lm-lawyer-cockpit">
             <section className={`lm-desk-col lm-desk-col--act${approvalOpen > 0 ? " has-hot" : ""}`} aria-label="要我处理">
@@ -1088,11 +1156,11 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
           <button type="button" className="lm-lawyer-back" onClick={() => setDesk("cockpit")}>
             ← 返回今日
           </button>
-          {err ? (
-            <p className="lm-error" role="alert">
-              {err}
-            </p>
-          ) : null}
+          <DeskServiceAlert
+            err={err}
+            onReconnect={onReconnectLocalService}
+            reconnecting={localServiceReconnecting}
+          />
           {!selected ? (
             <div className="lm-lawyer-empty">
               <p className="lm-lawyer-empty-title">选一个案件</p>
