@@ -128,6 +128,10 @@ describe("lawmind-server-route-collaboration async workflow-run", () => {
     const job = getWorkflowJob(jobId);
     expect(job?.status).toBe("completed");
     expect(mockExecute).toHaveBeenCalledOnce();
-    fs.rmSync(workspaceDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 25 });
+    try {
+      fs.rmSync(workspaceDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 25 });
+    } catch {
+      // CI can leave a lockfile in /tmp; the directory is disposable.
+    }
   });
 });

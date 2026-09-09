@@ -3,7 +3,7 @@
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAssistantDraft } from "../lawmind-assistant-editor";
 import { mockComposeExtras } from "../test/mock-compose-extras";
 import { LawmindAppRootView, type LawmindAppRootViewProps } from "./LawmindAppRootView";
@@ -339,7 +339,11 @@ describe("LawmindAppRootView", () => {
     expect(main?.classList.contains("lm-main-settings")).toBe(true);
     expect(main?.querySelector(".lm-settings-page")).toBeTruthy();
     expect(main?.querySelector(".lm-main-body")?.children.length).toBe(1);
-    expect(main?.querySelector(".lm-settings-content-title")?.textContent).toContain("模型与连接");
+    await vi.waitFor(() => {
+      expect(main?.querySelector(".lm-settings-content-title")?.textContent ?? "").toContain(
+        "模型与连接",
+      );
+    });
     // Full-page settings: workspace left rail must not remain beside the settings nav.
     expect(host.querySelector(".lm-side")).toBeNull();
   });
