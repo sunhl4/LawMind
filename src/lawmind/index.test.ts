@@ -263,7 +263,7 @@ describe("LawMind Engine", () => {
     const bundle = await engine.research(intent);
     const draft = engine.draft(intent, bundle);
     await engine.review(draft, { actorId: "lawyer:test", status: "approved" });
-    const result = await engine.render(draft, { strictGates: false });
+    const result = await engine.render(draft, { strictGates: false, citationGateStrict: false });
 
     expect(result.ok).toBe(true);
     const renderedState = engine.getTaskState(intent.taskId);

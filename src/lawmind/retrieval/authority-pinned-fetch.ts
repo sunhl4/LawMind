@@ -35,8 +35,10 @@ type AgentLookupCallback = {
   (err: NodeJS.ErrnoException | null, addresses: Array<{ address: string; family: number }>): void;
 };
 
-/** Convert fetch HeadersInit into a plain object `http.request` can send. */
-export function headersInitToNodeRecord(init?: HeadersInit): Record<string, string> {
+/** Convert fetch headers into a plain object `http.request` can send. */
+export function headersInitToNodeRecord(
+  init?: ConstructorParameters<typeof Headers>[0],
+): Record<string, string> {
   const out: Record<string, string> = {};
   new Headers(init).forEach((value, key) => {
     out[key] = value;

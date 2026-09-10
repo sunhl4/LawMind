@@ -79,12 +79,13 @@ test.describe("交付链路：红线 / 审阅稿 / 删除草稿 / 澄清 resume"
 
     const deleteBtn = page.getByTestId("lm-review-delete-draft");
     await expect(deleteBtn).toBeVisible({ timeout: 30_000 });
-    page.once("dialog", (dialog) => void dialog.accept());
     const deleteWait = page.waitForResponse(
       (res) =>
         res.url().includes("/api/drafts/e2e-draft-1") && res.request().method() === "DELETE",
     );
     await deleteBtn.click();
+    // Brand confirmDialog host (not window.confirm).
+    await page.getByTestId("lm-confirm-dialog-ok").click();
     await deleteWait;
     // 草稿列表回到空态（已删除的草稿不再出现在选择器与计数中）。
     await expect(page.getByRole("combobox", { name: "选择草稿" })).toBeDisabled({

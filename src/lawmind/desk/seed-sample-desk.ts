@@ -70,10 +70,14 @@ function ensureDeadline(workspaceDir: string, input: Parameters<typeof recordDea
 }
 
 function taskIntent(
-  partial: Omit<TaskIntent, "models" | "requiresConfirmation"> & { requiresConfirmation?: boolean },
+  partial: Omit<TaskIntent, "models" | "requiresConfirmation" | "riskLevel"> & {
+    requiresConfirmation?: boolean;
+    riskLevel?: TaskIntent["riskLevel"];
+  },
 ): TaskIntent {
   return {
     ...partial,
+    riskLevel: partial.riskLevel ?? "medium",
     models: ["legal"],
     requiresConfirmation: partial.requiresConfirmation ?? true,
   };

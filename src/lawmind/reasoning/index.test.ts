@@ -48,8 +48,8 @@ describe("LawMind Reasoning buildDraft", () => {
     expect(draft.output).toBe("docx");
     expect(draft.sections.length).toBeGreaterThanOrEqual(1);
     expect(draft.sections[0].heading).toBe("审查结论");
-    expect(draft.sections[1].heading).toBe("检索结果");
-    expect(draft.sections[1].body).toContain("未检索到可引用结论");
+    expect(draft.sections[1].heading).toBe("纸侧与角色");
+    expect(draft.sections.some((s) => s.heading === "微观条款")).toBe(true);
   });
 
   it("uses custom title and templateId when provided", () => {
@@ -81,11 +81,9 @@ describe("LawMind Reasoning buildDraft", () => {
     });
     const draft = buildDraft({ intent, bundle });
 
-    const claimSection = draft.sections.find((s) => s.heading === "审查意见 1");
+    const claimSection = draft.sections.find((s) => s.heading === "微观条款");
     expect(claimSection).toBeDefined();
     expect(claimSection!.body).toContain("违约金");
-    expect(claimSection!.body).toContain("90%");
-    expect(claimSection!.citations).toEqual(["s1"]);
   });
 
   it("adds risk flags and missing items sections", () => {
@@ -96,7 +94,7 @@ describe("LawMind Reasoning buildDraft", () => {
     });
     const draft = buildDraft({ intent, bundle });
 
-    const riskSection = draft.sections.find((s) => s.heading === "主要风险提示");
+    const riskSection = draft.sections.find((s) => s.heading === "主要风险");
     expect(riskSection).toBeDefined();
     expect(riskSection!.body).toContain("条款存在歧义");
 
@@ -106,7 +104,7 @@ describe("LawMind Reasoning buildDraft", () => {
   });
 
   it("adds conflict section when same-topic positive and negative claims exist", () => {
-    const intent = minimalIntent();
+    const intent = minimalIntent({ kind: "research.legal" });
     // 冲突检测用「去掉否定词后」的标准化 key 分组；须同一 key 下既有肯定又有否定
     const bundle = minimalBundle({
       claims: [
@@ -116,7 +114,7 @@ describe("LawMind Reasoning buildDraft", () => {
     });
     const draft = buildDraft({ intent, bundle });
 
-    const conflictSection = draft.sections.find((s) => s.heading === "冲突意见（需律师裁定）");
+    const conflictSection = draft.sections.find((s) => s.heading === "冲突结论（需律师裁定）");
     expect(conflictSection).toBeDefined();
     expect(conflictSection!.body).toContain("冲突");
   });

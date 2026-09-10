@@ -688,7 +688,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     }
     setBusy(true);
     try {
-      const j = await apiSendJson<{ brief?: IntakeBriefView }>(
+      const j = await apiSendJson<{ brief?: IntakeBriefView }, Record<string, never>>(
         apiBase,
         `/api/matters/${encodeURIComponent(viewingId)}/intake-brief/confirm`,
         "POST",

@@ -176,6 +176,7 @@ export async function buildDraftWithModel(
   const ruleSections = base.sections;
   const tailHeadings = new Set([
     "风险提示",
+    "主要风险",
     "主要风险提示",
     "待补充事项",
     "待确认事项",
