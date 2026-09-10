@@ -3,7 +3,7 @@ import {
   e2eMockApiBase,
   gotoShell,
   installE2eBrowserPrefs,
-  openDeskWork,
+  openDeskWorkMore,
   openWorkspaceChat,
 } from "./e2e-helpers";
 
@@ -27,7 +27,7 @@ test.describe("Solo 研究培训快车道", () => {
     await page.getByRole("button", { name: "新建对话" }).first().click();
     await expect(page.getByText("开始对话")).toBeVisible({ timeout: 20_000 });
 
-    await openDeskWork(page);
+    await openDeskWorkMore(page);
     await page.getByTestId("lm-empty-open-research-fast-lane").click();
     await expect(page.getByTestId("lm-research-fast-lane")).toBeVisible({ timeout: 10_000 });
     await page.getByTestId("lm-research-lane-compliance").click();
@@ -74,7 +74,7 @@ test.describe("Solo 研究培训快车道", () => {
     await openWorkspaceChat(page);
     await page.getByRole("button", { name: "新建对话" }).first().click();
     await expect(page.getByText("开始对话")).toBeVisible({ timeout: 20_000 });
-    await openDeskWork(page);
+    await openDeskWorkMore(page);
     await page.getByTestId("lm-empty-open-research-fast-lane").click();
     await expect(page.getByTestId("lm-research-fast-lane")).toBeVisible({ timeout: 10_000 });
 
@@ -94,7 +94,7 @@ test.describe("Solo 研究培训快车道", () => {
     await openWorkspaceChat(page);
     await page.getByRole("button", { name: "新建对话" }).first().click();
     await expect(page.getByText("开始对话")).toBeVisible({ timeout: 20_000 });
-    await openDeskWork(page);
+    await openDeskWorkMore(page);
     await page.getByTestId("lm-empty-open-research-fast-lane").click();
     await expect(page.getByTestId("lm-research-fast-lane")).toBeVisible({ timeout: 10_000 });
 
@@ -117,7 +117,7 @@ test.describe("Solo 研究培训快车道", () => {
     await openWorkspaceChat(page);
     await page.getByRole("button", { name: "新建对话" }).first().click();
     await expect(page.getByText("开始对话")).toBeVisible({ timeout: 20_000 });
-    await openDeskWork(page);
+    await openDeskWorkMore(page);
     await page.getByTestId("lm-empty-open-research-fast-lane").click();
     await expect(page.getByTestId("lm-research-fast-lane")).toBeVisible({ timeout: 10_000 });
 

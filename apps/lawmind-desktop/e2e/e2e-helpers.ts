@@ -305,6 +305,20 @@ export async function openDeskWork(page: Page): Promise<void> {
   await expect(page.getByTestId("lm-desk-work-panel")).toBeVisible({ timeout: 5_000 });
 }
 
+/** Open 「办件 → 更多」 so secondary lanes (检索研究 / 写材料 / …) are visible. */
+export async function openDeskWorkMore(page: Page): Promise<void> {
+  await openDeskWork(page);
+  const more = page.getByTestId("lm-desk-work-more");
+  await expect(more).toBeVisible({ timeout: 5_000 });
+  const open = await more.evaluate((el) => (el as HTMLDetailsElement).open);
+  if (!open) {
+    await more.locator("summary").click();
+  }
+  await expect
+    .poll(async () => more.evaluate((el) => (el as HTMLDetailsElement).open))
+    .toBe(true);
+}
+
 /** Open compose 「+」 so permission / web / mode controls are in the DOM. */
 export async function openComposeOptions(page: Page): Promise<void> {
   const plus = page.getByRole("button", { name: "输入选项" });
