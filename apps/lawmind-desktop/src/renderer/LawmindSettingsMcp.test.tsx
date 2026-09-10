@@ -57,7 +57,8 @@ describe("LawmindSettingsMcp", () => {
     expect(host.querySelector("[data-testid='lm-mcp-add']")?.textContent).toContain("本地程序");
     expect(host.querySelector("[data-testid='lm-mcp-add']")?.textContent).toContain("网络地址");
     await act(async () => {
-      (host.querySelector("[data-testid='lm-mcp-row-mock'] button"))?.click();
+      const btn = host.querySelector("[data-testid='lm-mcp-row-mock'] button");
+      (btn as HTMLButtonElement | null)?.click();
     });
   });
 });
