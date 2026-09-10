@@ -13,8 +13,13 @@ describe("peer-review-gate", () => {
   let ws: string;
 
   afterEach(() => {
-    if (root) {
-      fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 25 });
+    if (!root) {
+      return;
+    }
+    try {
+      fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+    } catch {
+      // Linux CI can hit ENOTEMPTY while SQLite/fs handles are still closing; tmp is disposable.
     }
   });
 

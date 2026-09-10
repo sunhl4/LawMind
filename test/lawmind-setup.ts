@@ -17,6 +17,26 @@ if (!process.env.LAWMIND_ROUTER_MODE?.trim()) {
   process.env.LAWMIND_ROUTER_MODE = "keyword";
 }
 
+// Linux CI: recursive rm of disposable tmp dirs can race SQLite/fs close (ENOTEMPTY).
+// Do not fail the suite on throwaway cleanup after assertions already passed.
+const rmSyncOrig = fs.rmSync.bind(fs);
+fs.rmSync = ((target, options) => {
+  const opts = {
+    maxRetries: 8,
+    retryDelay: 25,
+    ...options,
+  };
+  try {
+    return rmSyncOrig(target, opts);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException | undefined)?.code;
+    if (opts.force && opts.recursive && (code === "ENOTEMPTY" || code === "EBUSY")) {
+      return;
+    }
+    throw err;
+  }
+}) as typeof fs.rmSync;
+
 afterEach(async () => {
   await drainMatterProjections();
   vi.unstubAllGlobals();
