@@ -6,6 +6,13 @@ Historical **OpenClaw** upstream release notes were removed when the repository 
 
 ## Unreleased
 
+## 0.2.0 — 2026-09-13
+
+### Desktop
+
+- GitHub Release 安装包与当前律师工作台源码对齐（助手编制入口、桌面品牌、OfficeCLI 随包、防白屏加载）。
+- 版本号 `apps/lawmind-desktop` → `0.2.0`；标签 `lawmind-desktop-v0.2.0`。
+
 ### Changes
 
 - Desktop / Engine：随包 **OfficeCLI**（Apache-2.0）。`pnpm install` 为当前系统下载二进制；桌面安装包打进 `Resources/officecli/`。改稿 / Word 修订轨不再要求客户或 clone 仓库的人单独安装 officecli。
