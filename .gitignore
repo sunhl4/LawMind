@@ -42,6 +42,7 @@ apps/lawmind-docs/docs/public/download/
 apps/lawmind-desktop/release/
 apps/lawmind-desktop/server/dist/
 apps/lawmind-desktop/resources/node-runtime/*/
+apps/lawmind-desktop/resources/officecli/*/
 
 # E2E / Playwright
 apps/lawmind-desktop/test-results/

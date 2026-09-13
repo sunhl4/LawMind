@@ -37,6 +37,16 @@ describe("paired-review-deliverable", () => {
         [],
       ),
     ).toBe(false);
+    expect(
+      shouldInjectPairedReviewDeliverable(
+        { id: "contract.review", pipeline: "execute_workflow" },
+        [docxPin],
+        {
+          instruction:
+            "【交办】5 分钟合同审查\n交付物类型：合同审查意见\n- 己方立场：中立\n- 审查重点：管辖",
+        },
+      ),
+    ).toBe(false);
     expect(formatPairedReviewDeliverablePromptBlock()).toContain("render_tracked_draft");
     expect(wordFilePinRelPaths([docxPin])).toEqual(["采购合同.docx"]);
     expect(formatPairedReviewDeliverablePromptBlock()).toContain("意见快照");

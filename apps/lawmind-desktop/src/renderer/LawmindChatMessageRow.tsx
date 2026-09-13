@@ -5,6 +5,7 @@ import { LawmindChatDraftStatusBar } from "./LawmindChatDraftStatusBar";
 import type { LawMindRequiresAction, LawMindRequiresActionDecision } from "./lawmind-requires-action";
 import { LawmindChatExecutionTrace } from "./LawmindChatExecutionTrace";
 import { LawmindChatThoughtPanel } from "./LawmindChatThoughtPanel";
+import { LawmindTurnPlanCard } from "./LawmindTurnPlanCard";
 import { partitionActivityForThoughtView } from "./lawmind-chat-thought-view.js";
 import { resolveMessageActivity } from "./lawmind-chat-activity.js";
 import { LawmindClarificationForm } from "./LawmindClarificationForm";
@@ -191,6 +192,9 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
                 : undefined
             }
           />
+        ) : null}
+        {msg.role === "assistant" && msg.turnPlan ? (
+          <LawmindTurnPlanCard plan={msg.turnPlan} />
         ) : null}
         {showThoughtPanel ? (
           <div className="lm-msg lm-msg-ai lm-msg-thought">

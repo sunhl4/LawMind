@@ -24,7 +24,7 @@ describe("contract-fast-lane-instruction", () => {
       ),
     ).toBe(true);
     expect(isContractFastLaneInstruction("【办件】能力：contract.review\n流程：合同审查")).toBe(
-      true,
+      false,
     );
   });
 

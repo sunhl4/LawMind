@@ -852,7 +852,12 @@ describe("lawmind-server-route-review", () => {
       "LAWMIND_PLATFORM_PROVIDER_ZHIPU_API_KEY",
     ];
     const keys = [
-      ...new Set<string>([...LAWMIND_MODEL_PROVIDERS.flatMap((p) => p.apiKeyEnvKeys), ...PLATFORM_INFERENCE_KEYS]),
+      ...new Set<string>([
+        ...LAWMIND_MODEL_PROVIDERS.flatMap((p) => p.apiKeyEnvKeys),
+        ...PLATFORM_INFERENCE_KEYS,
+        "LAWMIND_AGENT_API_KEY",
+        "LAWMIND_AGENT_BASE_URL",
+      ]),
     ];
     const prev: Record<string, string | undefined> = {};
     for (const k of keys) {

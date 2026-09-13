@@ -1,8 +1,6 @@
 import type { ReactNode } from "react";
-import type {
-  AcceptanceReport,
-  DeliverableReadiness,
-} from "../../../../src/lawmind/deliverables/index.ts";
+import type { AcceptanceReport } from "../../../../src/lawmind/deliverables/types.ts";
+import type { DeliverableReadiness } from "../../../../src/lawmind/deliverables/deliverable-readiness.ts";
 import type { ArtifactDraft } from "../../../../src/lawmind/types.ts";
 import { buildRenderGateSummary } from "./lawmind-render-gate-summary";
 import { reviewStatusDisplayLabel } from "./lawmind-review-display";

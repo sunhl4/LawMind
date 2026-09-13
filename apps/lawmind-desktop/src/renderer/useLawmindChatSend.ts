@@ -450,6 +450,12 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
             onCompactBoundary: (info) => {
               onStreamCompactBoundary?.(info);
             },
+            onPlanUpdate: (plan) => {
+              updatePlaceholder((msg) => ({
+                ...msg,
+                turnPlan: plan,
+              }));
+            },
           },
         );
         if (ac.signal.aborted) {
@@ -485,6 +491,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
             activity: activityDone,
             activityActive: false,
             liveTrace: finalizeLiveTrace(prev?.liveTrace ?? createEmptyLiveTrace()),
+            turnPlan: result.assistantMessage.turnPlan ?? prev?.turnPlan,
           };
           return { ...previous, [assistantId]: nextList };
         });

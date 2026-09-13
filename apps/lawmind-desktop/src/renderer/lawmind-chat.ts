@@ -1,9 +1,11 @@
 // TODO(renderer-fetch-proxy): migrate remaining fetch calls to fetchApi / api-client-proxy.
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
-import type { MemorySourceLayer } from "../../../../src/lawmind/memory/index.ts";
+import type { MemorySourceLayer } from "../../../../src/lawmind/memory/memory-source-types.ts";
 import type { ClarificationQuestion } from "../../../../src/lawmind/types.ts";
 import type { GateDecision, TaskExecutionState } from "../../../../src/lawmind/platform/contracts.ts";
 import type { LawMindRequiresAction } from "../../../../src/lawmind/platform/requires-action.ts";
+import type { AgentTurnPlan } from "../../../../src/lawmind/agent/turn-plan-model.ts";
+import { parseAgentTurnPlan } from "../../../../src/lawmind/agent/turn-plan-model.ts";
 import { parseRequiresActionsFromResponse } from "./lawmind-requires-action";
 import { isAwaitingClarification } from "../../../../src/lawmind/platform/execution-state.ts";
 import {
@@ -74,6 +76,8 @@ export type ChatMsg = {
   demoCorpusNotice?: string;
   /** Recovery CTAs from research_evidence_gate / demo_corpus_gate (SSE tool_call_end). */
   researchNextActions?: string[];
+  /** Codex-style 本轮清单（律师可见） */
+  turnPlan?: AgentTurnPlan;
 };
 
 export function parseRuntimeHintsFromResponse(raw: unknown): ChatRuntimeHints | undefined {
@@ -187,6 +191,7 @@ type ChatResponse = {
   toolCallSequence?: string[];
   toolCalls?: number;
   runtimeHints?: unknown;
+  turnPlan?: AgentTurnPlan;
 };
 
 /** `fetch` 被 `AbortController.abort()` 取消时抛出的错误 */
@@ -255,6 +260,7 @@ export type StreamingChatCallbacks = {
     droppedMessageCount?: number;
     overflowPrune?: boolean;
   }) => void;
+  onPlanUpdate?: (plan: AgentTurnPlan) => void;
 };
 
 /**
@@ -421,6 +427,13 @@ export async function sendChatTurnStream(
           });
           break;
         }
+        case "plan_update": {
+          const plan = parseAgentTurnPlan(parsed.plan) ?? parseAgentTurnPlan(parsed);
+          if (plan) {
+            callbacks.onPlanUpdate?.(plan);
+          }
+          break;
+        }
         case "final":
         case "final_reply": {
           break;
@@ -512,6 +525,7 @@ function buildChatTurnResult(body: ChatResponse): {
   const requiresAction = parseRequiresActionsFromResponse(
     (body as { requiresAction?: unknown }).requiresAction,
   );
+  const turnPlan = parseAgentTurnPlan(body.turnPlan);
   return {
     sessionId: body.sessionId,
     assistantMessage: {
@@ -531,6 +545,7 @@ function buildChatTurnResult(body: ChatResponse): {
       ...(toolCallSequence.length > 0 ? { toolCallSequence } : {}),
       ...(runtimeHints ? { runtimeHints } : {}),
       ...(requiresAction.length > 0 ? { requiresAction } : {}),
+      ...(turnPlan ? { turnPlan } : {}),
     },
   };
 }

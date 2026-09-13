@@ -37,6 +37,7 @@ import {
   paragraphMetaCenter,
   paragraphReviewNoteItem,
 } from "./docx-legal-typography.js";
+import { buildDeliverableFilename } from "./matter-word-delivery.js";
 
 // ─────────────────────────────────────────────
 // 类型
@@ -55,7 +56,23 @@ export type RenderDocxOptions = {
   sources?: CitationDisplaySource[];
   /** When true, include section provenance as Word comments. */
   includeProvenance?: boolean;
+  /** Final basename under outputDir. Default: 标题_YYYYMMDD_01.docx (never task-id). */
+  outputFileName?: string;
 };
+
+function resolveDocxFilename(
+  draft: ArtifactDraft,
+  outputDir: string,
+  outputFileName?: string,
+): string {
+  const named = outputFileName?.trim();
+  if (named) {
+    return path.basename(named);
+  }
+  return buildDeliverableFilename(draft.title || "文书", ".docx", new Date(), {
+    dirForUniqueness: outputDir,
+  });
+}
 
 // ─────────────────────────────────────────────
 // Word 渲染器
@@ -142,8 +159,7 @@ export async function renderDocxWithOptions(
       };
     }
     const values = buildPlaceholderValueMap(draft, up.placeholderMap);
-    const safeTitle = draft.title.replace(/[^a-zA-Z0-9\u4e00-\u9fa5_-]/g, "_");
-    const filename = `${safeTitle}_${draft.taskId.slice(0, 8)}.docx`;
+    const filename = resolveDocxFilename(draft, outputDir, options.outputFileName);
     const outputPath = path.join(outputDir, filename);
     try {
       await fillDocxTemplateWithValues({ sourcePath: up.sourcePath, outputPath, values });
@@ -198,8 +214,7 @@ export async function renderDocxWithOptions(
 
   await fs.mkdir(outputDir, { recursive: true });
 
-  const safeTitle = draft.title.replace(/[^a-zA-Z0-9\u4e00-\u9fa5_-]/g, "_");
-  const filename = `${safeTitle}_${draft.taskId.slice(0, 8)}.docx`;
+  const filename = resolveDocxFilename(draft, outputDir, options.outputFileName);
   const outputPath = path.join(outputDir, filename);
 
   const buffer = await Packer.toBuffer(doc);

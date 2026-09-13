@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type RootKey, type FsEntry, type IndexedFile } from "./file-workbench-types";
+import { resolveRelForAbs as resolveRelForAbsShared } from "../lawmind-workspace-relpath";
 
 // Core workspace paths that require lawyer confirmation before delete/rename.
 const PROTECTED_WORKSPACE: Record<string, string> = {
@@ -159,16 +160,7 @@ export function resolveRelForAbs(
   projectDir: string | null,
   absPath: string,
 ): { root: RootKey; rel: string } | null {
-  const a = absPath.replace(/\\/g, "/");
-  const w = workspaceDir.replace(/\\/g, "/").replace(/\/$/, "");
-  const p = projectDir?.replace(/\\/g, "/").replace(/\/$/, "") ?? "";
-  if (w && (a === w || a.startsWith(`${w}/`))) {
-    return { root: "workspace", rel: a === w ? "" : a.slice(w.length + 1) };
-  }
-  if (p && (a === p || a.startsWith(`${p}/`))) {
-    return { root: "project", rel: a === p ? "" : a.slice(p.length + 1) };
-  }
-  return null;
+  return resolveRelForAbsShared(workspaceDir, projectDir, absPath);
 }
 
 export function getFileIcon(name: string, kind: "file" | "directory", isOpen = false): string {

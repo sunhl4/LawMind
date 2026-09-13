@@ -32,7 +32,7 @@
 
 ## 外部锚配置
 
-桌面端在「设置 → 工作区 → 审计外部锚」填写路径或 URL，保存后写入 `workspace/lawmind/desk-settings.json` 的 `auditExternalAnchorUrl` 字段。Electron 在启动本地服务器时读取该字段并注入环境变量 `LAWMIND_AUDIT_EXTERNAL_ANCHOR_URL`；服务器端 `emit()` 据此触发同步。
+可选运维项，不在律师设置页暴露。在 `workspace/lawmind/desk-settings.json` 写入 `auditExternalAnchorUrl`，或设置环境变量 `LAWMIND_AUDIT_EXTERNAL_ANCHOR_URL`。桌面在启动本地服务器时会读取 desk-settings 并注入该环境变量；`emit()` 据此同步。
 
 支持的 URL 形式：
 

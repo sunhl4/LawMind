@@ -1,6 +1,6 @@
 "use strict";
 
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 contextBridge.exposeInMainWorld("lawmindDesktop", {
   getConfig: () => ipcRenderer.invoke("lawmind:get-config"),
@@ -42,6 +42,10 @@ contextBridge.exposeInMainWorld("lawmindDesktop", {
   pickProject: () => ipcRenderer.invoke("lawmind:pick-project"),
   pickFolder: () => ipcRenderer.invoke("lawmind:pick-folder"),
   setProjectDir: (projectDir) => ipcRenderer.invoke("lawmind:set-project-dir", projectDir),
+  listHostFolders: () => ipcRenderer.invoke("lawmind:list-host-folders"),
+  addHostFolder: (payload) => ipcRenderer.invoke("lawmind:add-host-folder", payload ?? {}),
+  removeHostFolder: (mountId) => ipcRenderer.invoke("lawmind:remove-host-folder", mountId),
+  bindHostFolder: (payload) => ipcRenderer.invoke("lawmind:bind-host-folder", payload ?? {}),
   openExternal: (url) => ipcRenderer.invoke("lawmind:open-external", url),
   showItemInFolder: (fullPath) => ipcRenderer.invoke("lawmind:show-item-in-folder", fullPath),
   openWithSystem: (payload) => ipcRenderer.invoke("lawmind:open-with-system", payload ?? {}),
@@ -52,6 +56,21 @@ contextBridge.exposeInMainWorld("lawmindDesktop", {
   fsRename: (payload) => ipcRenderer.invoke("lawmind:fs:rename", payload),
   fsDelete: (payload) => ipcRenderer.invoke("lawmind:fs:delete", payload),
   fsCopy: (payload) => ipcRenderer.invoke("lawmind:fs:copy", payload),
+  importDroppedFiles: (payload) => ipcRenderer.invoke("lawmind:fs:import-dropped", payload ?? {}),
+  getPathForFile: (file) => {
+    try {
+      if (webUtils && typeof webUtils.getPathForFile === "function") {
+        const p = webUtils.getPathForFile(file);
+        if (typeof p === "string" && p.trim()) {
+          return p.trim();
+        }
+      }
+    } catch {
+      /* File.path fallback below */
+    }
+    const legacy = file && typeof file.path === "string" ? file.path.trim() : "";
+    return legacy;
+  },
   saveTextFileDialog: (payload) => ipcRenderer.invoke("lawmind:dialog:save-text-file", payload ?? {}),
   openFilesDialog: (payload) => ipcRenderer.invoke("lawmind:dialog:open-files", payload ?? {}),
   onFileMenu: (handler) => {

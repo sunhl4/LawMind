@@ -18,6 +18,16 @@ export function inferDraftAudience(instruction: string): DraftAudience {
   return "internal";
 }
 
+const AUDIENCE_SPLIT_IDS = new Set([
+  "letter.draft",
+  "litigation.draft",
+  "materials.draft",
+  "contract.review",
+  "contract.draft",
+  "research.memo",
+  "litigation.talk",
+]);
+
 export function shouldInjectAudienceSplit(
   bound:
     | {
@@ -30,7 +40,7 @@ export function shouldInjectAudienceSplit(
   if (!bound || bound.pipeline === "tracked_redline" || bound.id === "mail.contract") {
     return false;
   }
-  return true;
+  return AUDIENCE_SPLIT_IDS.has(bound.id);
 }
 
 export function formatAudienceSplitPromptBlock(audience: DraftAudience): string {

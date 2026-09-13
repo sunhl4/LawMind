@@ -12,6 +12,7 @@ describe("embed-turn-events", () => {
     expect(embedSseEventName("round_start")).toBe("round_start");
     expect(LEGACY_FINAL_SSE_ALIAS).toBe("final_reply");
     expect(EMBED_TURN_EVENT_TYPES).toContain("requires_action");
+    expect(EMBED_TURN_EVENT_TYPES).toContain("plan_update");
     expect(MAX_LIVE_TURN_STEPS).toBe(80);
   });
 });

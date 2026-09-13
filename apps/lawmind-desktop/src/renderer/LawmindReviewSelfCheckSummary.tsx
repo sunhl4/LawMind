@@ -1,12 +1,13 @@
 /**
- * 审核台首屏：聚合验收门禁、引用一致性、交付类型，便于律师先扫一眼再读正文。
+ * 审核台首屏：交卷核对（机械门禁、独立审稿、引用），不是写者自评。
  */
 
 import type { ReactNode } from "react";
-import type { AcceptanceReport } from "../../../../src/lawmind/deliverables/index.ts";
+import type { AcceptanceReport } from "../../../../src/lawmind/deliverables/types.ts";
 import type { DraftCitationIntegrityView } from "../../../../src/lawmind/drafts/citation-integrity.ts";
 import type { SelfReviseResult } from "../../../../src/lawmind/lint/self-revise.ts";
 import type { LegalLintReport } from "../../../../src/lawmind/lint/types.ts";
+import type { GuardianLawyerView } from "../../../../src/lawmind/guardian/types.ts";
 import type { GateDecision } from "../../../../src/lawmind/platform/contracts.ts";
 import { listBlockingGateDecisions, scrollToFirstBlocker } from "./lawmind-gate-display";
 import { lawyerDeliverableTypeLabel } from "./lawmind-lawyer-labels";
@@ -22,6 +23,8 @@ type Props = {
   lintReport?: LegalLintReport | null;
   /** Bounded self-revise line from middleware or local preview. */
   selfRevise?: Pick<SelfReviseResult, "summaryZh"> | null;
+  /** Independent Guardian (not the writer's craft_check). */
+  guardian?: GuardianLawyerView | null;
 };
 
 function scrollToCitation(): void {
@@ -38,6 +41,7 @@ export function LawmindReviewSelfCheckSummary(props: Props): ReactNode {
     checklistBlocksApprove = false,
     lintReport = null,
     selfRevise = null,
+    guardian = null,
   } = props;
 
   const blockingGates = listBlockingGateDecisions(gateDecisions);
@@ -90,15 +94,24 @@ export function LawmindReviewSelfCheckSummary(props: Props): ReactNode {
       : lintReport.warningCount > 0
         ? `机械核对：${lintReport.warningCount} 项提示`
         : "机械核对：未见已知缺陷";
+  const guardianLine = !guardian
+    ? null
+    : guardian.verdict === "pass"
+      ? "独立审稿：通过"
+      : guardian.verdict === "fail"
+        ? `独立审稿：未过 · ${guardian.gaps.length}`
+        : guardian.skipReason === "disabled" || guardian.skipReason === "no_model"
+          ? "独立审稿：未跑"
+          : "独立审稿：未完成";
   const summaryOnly = variant === "summary";
 
   return (
     <div
       className={`lm-review-self-check${summaryOnly ? " lm-review-self-check-summary" : ""}`}
       role={summaryOnly ? undefined : "region"}
-      aria-label={summaryOnly ? undefined : "助理自检摘要"}
+      aria-label={summaryOnly ? undefined : "交卷核对"}
     >
-      {summaryOnly ? null : <div className="lm-review-self-check-title">助理自检摘要</div>}
+      {summaryOnly ? null : <div className="lm-review-self-check-title">交卷核对</div>}
       <div className="lm-review-self-check-lines">
         <span className="lm-review-self-check-line">{typeLine}</span>
         <span className="lm-review-self-check-sep" aria-hidden>
@@ -150,6 +163,16 @@ export function LawmindReviewSelfCheckSummary(props: Props): ReactNode {
             </span>
             <span className="lm-review-self-check-line" data-testid="lm-review-self-revise-line">
               {selfRevise.summaryZh}
+            </span>
+          </>
+        ) : null}
+        {guardianLine ? (
+          <>
+            <span className="lm-review-self-check-sep" aria-hidden>
+              ·
+            </span>
+            <span className="lm-review-self-check-line" data-testid="lm-review-guardian-line">
+              {guardianLine}
             </span>
           </>
         ) : null}

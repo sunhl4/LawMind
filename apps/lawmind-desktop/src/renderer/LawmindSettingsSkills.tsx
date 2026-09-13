@@ -25,7 +25,8 @@ const SKILL_TOOL_LABEL_ZH: Record<string, string> = {
   write_spreadsheet: "写出表格",
   render_chart: "出图",
   calculate: "法律计算",
-  run_analysis: "分析脚本",
+  run_analysis: "核算数据",
+  run_compute: "核算数据",
 };
 
 type Props = {
@@ -86,7 +87,6 @@ export function LawmindSettingsSkills(props: Props): ReactNode {
 
   return (
     <div className="lm-settings-section" data-testid="lm-settings-skills">
-      <div className="lm-settings-section-title lm-settings-section-title--duplicate">技能库</div>
       {cnPack ? (
         <div className="lm-settings-group lm-settings-surface" data-testid="lm-cn-legal-pack">
           <div className="lm-settings-row">

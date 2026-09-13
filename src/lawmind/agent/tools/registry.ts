@@ -71,6 +71,7 @@ export class ToolRegistry {
           type: schema.type,
           description: schema.description,
           ...(schema.enum ? { enum: schema.enum } : {}),
+          ...(schema.items ? { items: schema.items } : {}),
         };
         if (schema.required) {
           required.push(key);

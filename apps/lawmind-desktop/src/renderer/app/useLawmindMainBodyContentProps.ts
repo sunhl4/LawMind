@@ -143,6 +143,7 @@ export type UseLawmindMainBodyContentPropsInput = {
   ) => void | Promise<void>;
   input: string;
   error: string | null;
+  setError: (message: string | null) => void;
   contextMatterId: string | null;
   chatMatterHeadline: string | null;
   send: () => void | Promise<void>;
@@ -271,6 +272,7 @@ export function useLawmindMainBodyContentProps(
     handleResumeRequiresAction,
     input: chatInput,
     error,
+    setError,
     contextMatterId,
     chatMatterHeadline,
     send,
@@ -448,6 +450,7 @@ export function useLawmindMainBodyContentProps(
       fileChatContextItems,
       composeTruthPins,
       onAddFileToChatContext: addFileToChatContext,
+      onFileDropError: setError,
       onAddComposeTruthPin: addComposeTruthPin,
       onRemoveFileChatPill: removeFileChatContextItem,
       onRemoveTruthPin: removeComposeTruthPin,

@@ -130,10 +130,18 @@ export function MatterReviewMatrixPanel({ apiBase, matterId, onOpenReview }: Pro
   }, [matrix, verified]);
 
   if (loading) {
-    return <p className="lm-meta">加载审查矩阵…</p>;
+    return (
+      <div className="lm-workbench-panel">
+        <p className="lm-meta">加载审查矩阵…</p>
+      </div>
+    );
   }
   if (err) {
-    return <div className="lm-error">{err}</div>;
+    return (
+      <div className="lm-workbench-panel">
+        <div className="lm-error">{err}</div>
+      </div>
+    );
   }
   if (!matrix || matrix.documents.length === 0) {
     return (

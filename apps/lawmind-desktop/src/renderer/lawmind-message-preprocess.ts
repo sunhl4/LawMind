@@ -17,7 +17,7 @@ export type PreprocessOptions = {
   groupTools?: boolean;
 };
 
-const SEARCH_TOOL_MARKERS = ["search_workspace", "read_project_file", "analyze_document"];
+const SEARCH_TOOL_MARKERS = ["search_workspace", "read_project_file", "analyze_document", "list_dir"];
 const DELIVERABLE_MARKERS = [
   "draft_document",
   "render_document",

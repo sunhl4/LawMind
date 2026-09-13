@@ -4,8 +4,10 @@ import {
   instructionHasPinnedMaterials,
   instructionLooksLikeFilledIntake,
   instructionRequestsIntakeEscape,
+  isHardClarificationKey,
   resolveIntakeAdvisoryQuestions,
   resolveIntakeClarificationQuestions,
+  selectHardClarificationKeys,
 } from "./intake-gate.js";
 
 describe("intake-gate", () => {
@@ -96,6 +98,14 @@ describe("intake-gate", () => {
         "请审查这份合同 contract_edit_baseline_path=`cases/m/mail/attachments/x/a.docx`",
       ),
     ).toEqual([]);
+  });
+
+  it("only letter and litigation keys hard-block across turns", () => {
+    expect(isHardClarificationKey("addressee")).toBe(true);
+    expect(isHardClarificationKey("parties")).toBe(true);
+    expect(isHardClarificationKey("rent_and_deposit")).toBe(false);
+    expect(isHardClarificationKey("review_focus")).toBe(false);
+    expect(selectHardClarificationKeys(["rent_and_deposit", "addressee"])).toEqual(["addressee"]);
   });
 
   it("hard-gates litigation outline without materials", () => {

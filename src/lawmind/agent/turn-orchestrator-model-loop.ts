@@ -8,14 +8,22 @@ import {
   type ModelUsageSnapshot,
 } from "../models/model-usage.js";
 import { makeContextPinId } from "../platform/compose-context-pin.js";
+import {
+  formatSameTurnCompletionBounce,
+  formatSameTurnVerifyPaused,
+  shouldBounceSameTurnCompletion,
+  shouldPauseSameTurnVerify,
+} from "../runtime/same-turn-verify.js";
 import type { ToolCallRef } from "../runtime/tool-concurrency.js";
+import { contextUsesHostFileLedger } from "../runtime/tool-pipeline.js";
 import type { ClarificationQuestion } from "../types.js";
 import { claimAndApplyWorkGoal } from "../work/goal.js";
+import { estimateTokenBudget } from "./context-budget.js";
 import { callModelWithRetry, ModelCallUserAbortError } from "./runtime-model-call.js";
-import { claimAndApplyPendingContextPins } from "./session-context-inject.js";
+import { claimAndApplyPendingContextPins, appendContextPins } from "./session-context-inject.js";
 import { claimAndApplyPendingSteer } from "./session-context-steer.js";
 import { isContextOverflowError, pruneSessionToolResults } from "./session-tool-result-prune.js";
-import { deriveModelMessages } from "./session.js";
+import { deriveModelMessagesForSampling } from "./session.js";
 import {
   formatToolBudgetContinueReply,
   formatToolBudgetHardStopReply,
@@ -30,9 +38,14 @@ import {
   type RunTurnEvent,
 } from "./turn-orchestrator-events.js";
 import { executeToolBatches, type ToolRoundPolicyHints } from "./turn-orchestrator-tool-round.js";
+import { applyPendingTurnPlan } from "./turn-plan.js";
 import { rebuildStepContext, type TurnContext } from "./turn-step-context.js";
 import type { AgentConfig, AgentContext, AgentMessage, AgentSession, AgentTurn } from "./types.js";
-import { appendPinIdsToWorldState, collectWorldStateHashes } from "./world-state.js";
+import {
+  appendPinIdsToWorldState,
+  applyPendingWorldStateCraftPatch,
+  collectWorldStateHashes,
+} from "./world-state.js";
 
 /**
  * Strict tool streaming is opt-in (D3): desktop/SSE defaults relaxed so tool_calls
@@ -116,6 +129,7 @@ export async function runModelToolLoop(opts: {
     const roundIndex = loopCount;
     const claimedPins = claimAndApplyPendingContextPins(opts.session, opts.config.workspaceDir);
     if (claimedPins.length > 0) {
+      opts.ctx.contextPins = appendContextPins(opts.ctx.contextPins, claimedPins);
       pinIds.push(...claimedPins.map((pin) => makeContextPinId(pin)));
       const sys = opts.session.conversationHistory[0];
       if (sys?.role === "system") {
@@ -127,6 +141,8 @@ export async function runModelToolLoop(opts: {
         opts.session.worldStateEpoch = (opts.session.worldStateEpoch ?? 0) + 1;
       }
     }
+    applyPendingWorldStateCraftPatch(opts.session, opts.ctx);
+    applyPendingTurnPlan(opts.session, opts.ctx);
     claimAndApplyPendingSteer(opts.session, opts.config.workspaceDir);
     claimAndApplyWorkGoal(opts.session, opts.config.workspaceDir);
     opts.ctx.permissionMode = opts.turnContext.permissionMode;
@@ -139,6 +155,7 @@ export async function runModelToolLoop(opts: {
       turnContext: opts.turnContext,
       pinIds,
       discoveryCallCounts: opts.turn.toolNameCallCounts,
+      hostFileLedger: contextUsesHostFileLedger(opts.ctx),
     });
     openAITools = opts.registry.toOpenAITools({ names: step.toolNames });
     opts.emitEvent({ type: "round_start", roundIndex });
@@ -165,14 +182,23 @@ export async function runModelToolLoop(opts: {
         ? opts.config.workerModel
         : opts.config.model;
 
-    const callModelRound = () =>
-      callModelWithRetry(modelForRound, deriveModelMessages(opts.session), openAITools, {
-        stream: useUpstreamTokenStream,
-        onDelta: useUpstreamTokenStream
-          ? (chunk: string) => opts.emitEvent({ type: "delta", roundIndex, text: chunk })
-          : undefined,
-        signal: opts.abortSignal,
+    const callModelRound = () => {
+      const budget = estimateTokenBudget(opts.session, null, {
+        contextTokens: modelForRound.contextTokens ?? opts.config.model.contextTokens,
       });
+      return callModelWithRetry(
+        modelForRound,
+        deriveModelMessagesForSampling(opts.session, budget),
+        openAITools,
+        {
+          stream: useUpstreamTokenStream,
+          onDelta: useUpstreamTokenStream
+            ? (chunk: string) => opts.emitEvent({ type: "delta", roundIndex, text: chunk })
+            : undefined,
+          signal: opts.abortSignal,
+        },
+      );
+    };
 
     let response: Awaited<ReturnType<typeof callModelWithRetry>>;
     try {
@@ -269,10 +295,42 @@ export async function runModelToolLoop(opts: {
         );
         opts.turn.status = "awaiting_clarification";
         opts.turn.clarificationQuestions = pendingClarificationQuestions;
-      } else {
-        finalReply = assistantMsg.content ?? "";
-        opts.turn.status = "completed";
+        break;
       }
+      if (shouldBounceSameTurnCompletion(opts.turn.sameTurnVerify)) {
+        if (shouldPauseSameTurnVerify(opts.turn.sameTurnVerify)) {
+          opts.turn.status = "paused";
+          finalReply = formatSameTurnVerifyPaused(opts.turn.sameTurnVerify!);
+          break;
+        }
+        if (
+          shouldCheckpointToolBudget({
+            used: opts.turn.toolCallsExecuted,
+            soft: opts.maxToolCalls,
+            skipCheckpoint: opts.skipToolBudgetCheckpoint === true,
+          })
+        ) {
+          opts.turn.status = "paused";
+          finalReply = formatSameTurnVerifyPaused(opts.turn.sameTurnVerify!);
+          break;
+        }
+        const bounce = formatSameTurnCompletionBounce(opts.turn.sameTurnVerify!);
+        opts.turn.sameTurnVerify = {
+          ...opts.turn.sameTurnVerify!,
+          bounceCount: (opts.turn.sameTurnVerify?.bounceCount ?? 0) + 1,
+        };
+        const bounceMsg = {
+          role: "user" as const,
+          content: bounce,
+          timestamp: new Date().toISOString(),
+          hiddenFromLawyer: true,
+        };
+        opts.session.conversationHistory.push(bounceMsg);
+        opts.turn.messages.push(bounceMsg);
+        continue;
+      }
+      finalReply = assistantMsg.content ?? "";
+      opts.turn.status = "completed";
       break;
     }
 
@@ -311,6 +369,8 @@ export async function runModelToolLoop(opts: {
     if (batchResult.finalReply) {
       finalReply = batchResult.finalReply;
     }
+    applyPendingWorldStateCraftPatch(opts.session, opts.ctx);
+    applyPendingTurnPlan(opts.session, opts.ctx);
 
     const stepAfterBatch = rebuildStepContext({
       session: opts.session,
@@ -345,7 +405,10 @@ export async function runModelToolLoop(opts: {
     }
 
     if (shouldHardStopToolBudget(opts.turn.toolCallsExecuted, hardCeiling)) {
-      if (pendingClarificationQuestions.length > 0) {
+      if (shouldBounceSameTurnCompletion(opts.turn.sameTurnVerify)) {
+        opts.turn.status = "paused";
+        finalReply = formatSameTurnVerifyPaused(opts.turn.sameTurnVerify!);
+      } else if (pendingClarificationQuestions.length > 0) {
         opts.turn.status = "awaiting_clarification";
         opts.turn.clarificationQuestions = pendingClarificationQuestions;
         finalReply = buildClarificationReply(
@@ -370,8 +433,10 @@ export async function runModelToolLoop(opts: {
       })
     ) {
       opts.turn.status = "paused";
-      finalReply =
-        assistantMsg.content?.trim() || formatToolBudgetContinueReply(opts.turn.toolCallsExecuted);
+      finalReply = shouldBounceSameTurnCompletion(opts.turn.sameTurnVerify)
+        ? formatSameTurnVerifyPaused(opts.turn.sameTurnVerify!)
+        : assistantMsg.content?.trim() ||
+          formatToolBudgetContinueReply(opts.turn.toolCallsExecuted);
       break;
     }
   }

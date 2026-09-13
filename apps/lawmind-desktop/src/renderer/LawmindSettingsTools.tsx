@@ -121,7 +121,7 @@ export function LawmindSettingsTools(props: Props): ReactNode {
           <div className="lm-settings-row-stack">
             <span className="lm-settings-key">推荐法律检索白名单</span>
             <span className="lm-settings-caption" style={{ margin: 0 }}>
-              一键写入 Brave + 常见法规站主机；不强制开启联网，也不强制 enforcement
+              一键写入 Brave + 常见法规站主机；不强制开启联网。
             </span>
           </div>
           <button

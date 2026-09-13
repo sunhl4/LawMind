@@ -50,7 +50,7 @@ export function resolveComposeModelSelectValue(
   if (configured) {return configured.id;}
   if (selectedModelId) {return selectedModelId;}
   if (catalog.length > 0) {return catalog[0].id;}
-  return "builtin:qwen-plus";
+  return "builtin:deepseek-flash";
 }
 
 /**

@@ -38,6 +38,7 @@ LawMind 的代码组织按**运行域**分为四层。早期文档中的 Router 
 - **审计 HMAC 与 root-anchor**：`src/lawmind/audit/hash-chain.ts` 与 `src/lawmind/audit/root-anchor.ts` 为每个工作区维护审计根锚，关键事件写入 `audit/` 时计算完整性链；Firm/Private 版默认开启，支持导出并发现事后篡改。
 - **工作区写保护**：`.env*`、`lawmind.policy.json` 等关键文件受 `src/lawmind/runtime/protected-workspace-rels.ts` 保护，渲染进程与引擎工具无法直接覆盖；删除或重命名需显式授权。
 - **权限模式执行层化**：`src/lawmind/agent/permission-mode.ts` 把会话运行分为 `research_only`、`plan`、`compose`、`full` 等模式；低权限模式禁止起草、渲染、外发等重动作，并在 CLI/Doctor 中暴露当前模式，避免误操作。
+- **本机能力**：助手默认只碰工作区与已选本机文件夹；全机查找/读取/本机命令走授权网关（案件围栏、硬黑名单、逐次授权），写入不默认开放全盘。见 [LAWMIND-HOST-ACCESS.md](./lawmind/LAWMIND-HOST-ACCESS.md)。
 
 ### 数据流与事件总线
 
@@ -97,7 +98,7 @@ queue.jsonl, deadlines.jsonl}` 这一组 JSON / JSONL 真相源（与原 Markdow
 ### 第十二期工程对齐（2026-05-28）
 
 - **发布证据**：`scripts/lawmind/lawmind-benchmark.ts`、`lawmind-release-readiness.ts`（benchmark 灌数 + strict gate）。
-- **集成**：`src/lawmind/integrations/sharepoint-graph.ts`（Graph 只读）；`src/lawmind/artifacts/render-docx-tracked.ts`（officecli 修订轨）。
+- **集成**：`src/lawmind/integrations/sharepoint-graph.ts`（Graph 只读）；`src/lawmind/artifacts/render-docx-tracked.ts`（随包 OfficeCLI 修订轨）。
 - **可观测**：`src/lawmind/insights/session-timeline.ts` 扩展 approval/job；桌面 Matter「时间线」一级 Tab。
 - **Runtime**：`buildContextPlan` 注入 `agent/runtime.ts`；`scripts/lawmind/lawmind-platform-contracts-check.ts`。
 - **桌面 seam**：`matter/MatterTimelinePanel.tsx`、`MatterWorkbenchListPane.tsx`、`useMatterSessionTimeline.ts`。
@@ -134,7 +135,7 @@ workspace/
 - `memory/YYYY-MM-DD.md`：运行日志与日常上下文。
 - `cases/<matter-id>/CASE.md`：案件级记忆，第二阶段引入。
 - `templates/`：交付模板。
-- `artifacts/`：最终产物。
+- `artifacts/`：未绑定案件、也未关联项目目录时的兜底产物目录。有案件时写入 `cases/<matter-id>/artifacts/`。
 - `audit/`：审计事件和回放数据。
 
 ---
@@ -197,8 +198,8 @@ workspace/
 
 **代码中的注入差异（避免误解「两个记忆是否都进主对话 system prompt」）**
 
-- **Agent 主对话**（`runTurn`）：system prompt 中显式拼接的是 **`LAWYER_PROFILE.md` 全文**（以及岗位说明、案件 CASE、今日日志片段等）；`MEMORY.md` **不**整段拼进同一条 system 字符串。
-- **`MEMORY.md` 仍会被加载**：用于检索管线（例如 `ModelRetrievalInput.memory.general`）、引擎桥接、以及 `search_workspace` 等工具对 `MEMORY.md` / `LAWYER_PROFILE.md` 的聚合搜索，模型通过工具与检索间接使用通用记忆。
+- **Agent 主对话**（`runTurn`）：system prompt 会拼接 **过滤后的 `LAWYER_PROFILE.md`**（以及岗位说明、案件 CASE、今日日志片段等）。空模板（未填姓名/机构、第八节只有库存说明）**不注入**，见 `lawyer-profile-for-prompt.ts`。`MEMORY.md` **不**整段拼进同一条 system 字符串。
+- **`MEMORY.md` 仍会被加载**：用于检索管线（例如 `ModelRetrievalInput.memory.general`）、引擎桥接、以及 `search_workspace` 等工具对 `MEMORY.md` / `LAWYER_PROFILE.md` 的聚合搜索。加载时会改写已安装工作区里过期的库存口径（改文件须确认 / 报成本 / 双模型 / 材料不得出工作区），律师自己写的积累条目会保留。
 - 若希望「通用规则」也像偏好一样**每条对话必显式出现**，需要另行调整 prompt 组装策略（当前架构刻意区分：偏好更贴近人设，通用更偏可检索知识）。
 - **「红线 / 所规必现」**：若律师期望某类规则在**每一轮主对话**中都像 `LAWYER_PROFILE` 一样不可绕过，仅靠写入 `MEMORY.md` 不足；需依赖检索与工具命中、或将关键规则纳入策略层 / prompt 显式段，而不是假设 `MEMORY.md` 已整段进入 Agent system。
 - **工作区强制规则（Phase 5.2）**：可在 `lawmind.policy.json` 中配置 `agentMandatoryRules`（内联短文本）或 `agentMandatoryRulesPath`（工作区内相对路径文件）；`resolveAgentMandatoryRulesForPrompt()` 解析后由 `buildSystemPrompt()` 在「核心原则」之后注入「工作区强制规则」段，与 `MEMORY.md` 检索解耦。
@@ -211,7 +212,7 @@ workspace/
 
 **长期需求（偏好进化 + 岗位专职记忆）——部分落地**
 
-- **已实现**：`assistants/<assistantId>/PROFILE.md`（位于 LawMind 根目录，与 `assistants.json` 同级父目录下的 `assistants/` 文件夹）。Agent `runTurn` 会将其全文并入 system prompt（与 `LAWYER_PROFILE.md` 并存）。提供 `appendAssistantProfileMarkdown()` 供「显式采纳」写入。
+- **已实现**：`assistants/<assistantId>/PROFILE.md`（位于 LawMind 根目录，与 `assistants.json` 同级父目录下的 `assistants/` 文件夹）。Agent `runTurn` 会将其并入 system prompt（与过滤后的 `LAWYER_PROFILE.md` 并存）。提供 `appendAssistantProfileMarkdown()` 供「显式采纳」写入。
 - **已部分产品化（与工程记忆对齐）**：桌面案件「认知」页支持将升级建议写入 `LAWYER_PROFILE.md` 与助手 `PROFILE.md`；审核与学习飞轮持续演进。**仍待加强**：与审核通过的全自动联动策略、多源写入合并冲突策略。
 - 演进期仍配合工作区 `LAWYER_PROFILE.md` + 会话持久化使用。
 
@@ -330,7 +331,7 @@ Artifact Layer 负责把结构化草稿渲染为可交付成果。
 1. 生成 `ArtifactDraft`
 2. 律师审阅并确认
 3. 依据模板渲染
-4. 写入 `artifacts/`
+4. 写入交付目录：律师指定路径 → 源文件同目录 → `cases/<matterId>/artifacts/` → 已关联项目目录 → 工作区 `artifacts/`。文件名为 `标题_YYYYMMDD_01`，不用任务哈希。
 
 建议的中间结构：
 
@@ -455,12 +456,14 @@ Electron 主进程 (main.mjs)
 
 ### 设置面板架构
 
-设置由顶栏齿轮（`lm-gear-btn`）触发，在主工作栏以 **全页** `LawmindSettingsPage`（`lm-settings-page`）展示，左侧分组导航 + 右侧内容区（非模态叠层）。主要分区包括：
+设置由顶栏齿轮（`lm-gear-btn`）触发，在主工作栏以 **全页** `LawmindSettingsPage`（`lm-settings-page`）展示，左侧分组导航 + 右侧内容区（非模态叠层）。律师可见分区见 `lawmind-settings-nav.ts`：
 
-1. **概览与体检**：就绪情况、用量、系统体检（含记忆真相源文件检查）
-2. **记忆库**：待采纳记忆建议队列（`MemoryInspector`）
-3. **智能体 / 模型与检索 / 工作区与项目** 等（见 `lawmind-settings-nav.ts`）
-4. **团队工作流**：设置内摘要 +「在在办中打开按流程办」（完整运行 UI 在顶栏「在办」→「按流程办」）
+1. **工作台**：模型与连接、工作区（材料夹 / 标准 / 口径）、本机能力、外观
+2. **办案**（更多设置）：自动办件、文书模板、记忆库
+3. **系统健康 / 安全**（更多设置）：连接体检、高安全开关
+4. **关于**：免责声明；版本号在侧栏底部
+
+签批与按流程办在顶栏 **「在办」**，不必在设置里编制助手或配置角色。
 
 ### 项目目录（IPC 流）
 

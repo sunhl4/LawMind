@@ -39,3 +39,25 @@ export function resolveWorkspaceRelativePath(
   const rel = path.relative(root, abs).replace(/\\/g, "/");
   return { ok: true, abs, rel };
 }
+
+/**
+ * Like `resolveWorkspaceRelativePath`, but `""` / `"."` / `"./"` mean the root
+ * itself. Used by directory listing (Codex `ls` defaults to cwd).
+ */
+export function resolveWorkspaceRelativePathAllowRoot(
+  workspaceDir: string,
+  raw: string,
+): ResolvedWorkspacePath {
+  const trimmed = raw
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^["'`]+|["'`]+$/g, "");
+  if (trimmed.includes("\0")) {
+    return { ok: false, error: "empty" };
+  }
+  if (!trimmed || trimmed === "." || trimmed === "./") {
+    const root = path.resolve(workspaceDir);
+    return { ok: true, abs: root, rel: "" };
+  }
+  return resolveWorkspaceRelativePath(workspaceDir, raw);
+}

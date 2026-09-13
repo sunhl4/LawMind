@@ -76,7 +76,11 @@ function isUnderRoot(rootPath, candidatePath) {
  */
 export function createFsBridge(getAllowedRoots) {
   function assertRoot(rootKey) {
-    if (rootKey !== "workspace" && rootKey !== "project") {
+    const ok =
+      rootKey === "workspace" ||
+      rootKey === "project" ||
+      (typeof rootKey === "string" && rootKey.startsWith("mount:"));
+    if (!ok) {
       throw new Error("invalid root");
     }
     const roots = getAllowedRoots();

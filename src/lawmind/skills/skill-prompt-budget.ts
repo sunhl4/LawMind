@@ -1,5 +1,5 @@
 /**
- * Lean skill injection: dump 1–2 stage bodies, index the rest.
+ * Lean skill injection: dump 1 primary stage body, index the rest.
  * Mail short path and Word tracked lock already have a short skillIds list — keep as-is.
  */
 
@@ -65,8 +65,8 @@ export function primarySkillIdsForBound(
       ? litigationPrimary(instruction, bound.deliverableType)
       : [...(PRIMARY_BY_CAPABILITY[bound.id] ?? bound.skillIds.slice(0, 2))];
   const allowed = new Set(bound.skillIds);
-  const picked = wanted.filter((id) => allowed.has(id)).slice(0, 2);
-  return picked.length > 0 ? picked : [...bound.skillIds].slice(0, 2);
+  const picked = wanted.filter((id) => allowed.has(id)).slice(0, 1);
+  return picked.length > 0 ? picked : [...bound.skillIds].slice(0, 1);
 }
 
 export function skillIndexLine(skillId: string): string {

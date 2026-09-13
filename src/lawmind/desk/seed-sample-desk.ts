@@ -80,6 +80,7 @@ function taskIntent(
     riskLevel: partial.riskLevel ?? "medium",
     models: ["legal"],
     requiresConfirmation: partial.requiresConfirmation ?? true,
+    riskLevel: partial.riskLevel ?? "medium",
   };
 }
 

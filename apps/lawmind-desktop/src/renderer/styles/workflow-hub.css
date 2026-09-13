@@ -252,10 +252,19 @@
   margin: 0;
 }
 
+.lm-review-matrix__header,
+.lm-review-matrix__compare {
+  flex-shrink: 0;
+}
+
 .lm-review-matrix__scroll {
+  flex: 1 1 auto;
+  min-height: 200px;
+  min-width: 0;
   overflow: auto;
   max-width: 100%;
-  margin-top: 8px;
+  margin-top: 0;
+  scrollbar-width: thin;
 }
 
 .lm-review-matrix__table {
@@ -273,12 +282,20 @@
   max-width: 220px;
 }
 
+.lm-review-matrix__table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--lm-surface, var(--surface));
+}
+
 .lm-review-matrix__corner {
   min-width: 140px;
   position: sticky;
   left: 0;
-  background: var(--lm-surface);
-  z-index: 1;
+  top: 0;
+  background: var(--lm-surface, var(--surface));
+  z-index: 3;
 }
 
 .lm-review-matrix__doc {

@@ -59,6 +59,10 @@ describe("LawMind Router", () => {
     );
     expect(route({ instruction: "计算违法解除的经济补偿" }).deliverableType).toBe("labor.calc");
     expect(route({ instruction: "计算上诉期届满日" }).deliverableType).toBe("period.calc");
+    expect(route({ instruction: "把这张表汇总成对照表" }).deliverableType).toBe("analysis.table");
+    expect(route({ instruction: "请分析这张费用表并出图" }).deliverableType).toBe("analysis.table");
+    expect(route({ instruction: "把这张表汇总成对照表" }).riskLevel).toBe("medium");
+    expect(route({ instruction: "把这张表汇总成对照表" }).requiresConfirmation).toBe(false);
     expect(route({ instruction: "整理这些进项发票" }).kind).toBe("draft.word");
     expect(route({ instruction: "整理这些进项发票" }).deliverableType).toBe("document.general");
     expect(route({ instruction: "把法院短信里的开庭时间整理出来" }).kind).toBe("draft.word");
@@ -194,6 +198,11 @@ describe("LawMind Router", () => {
     expect(intent.kind).toBe("research.legal");
     expect(intent.models).toEqual(["legal"]);
     expect(intent.riskLevel).toBe("medium");
+  });
+
+  it("does not stamp memo.research on entertainment public-web facts", () => {
+    const intent = route({ instruction: "查一下2026年新说唱总冠军" });
+    expect(intent.deliverableType).toBeUndefined();
   });
 
   it("maps PPT/汇报 to draft.ppt, pptx, general only", () => {

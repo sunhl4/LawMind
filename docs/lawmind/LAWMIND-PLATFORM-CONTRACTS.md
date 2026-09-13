@@ -34,7 +34,7 @@
 
 目的：统一门禁判断输出，避免审批/澄清/验收在不同模块重复解释。
 
-- `GateDecisionKind` / `gate`: `clarification_gate | intake_gate | dangerous_tool_gate | approval_gate | acceptance_gate | reasoning_gate | redline_hunks_gate`
+- `GateDecisionKind` / `gate`: `clarification_gate | intake_gate | dangerous_tool_gate | approval_gate | acceptance_gate | reasoning_gate | redline_hunks_gate | surgical_span_gate | citation_integrity_gate | outbound_privilege_gate | outbound_recipient_gate | legal_guardian_gate`
 - `decision`: `allow | block | awaiting_confirmation`
 - `reason`: 可选，供 UI 与审计展示
 - `GateCategory` / `category`（可选）: `safety_hard | judgment_soft` — 安全/空交付/未批准/空修订为 `safety_hard`；改稿幅度教练等为 `judgment_soft`

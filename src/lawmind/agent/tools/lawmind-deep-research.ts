@@ -11,6 +11,7 @@ import { persistResearchOutline } from "../../research/outline-store.js";
 import { evaluateResearchEvidenceGate } from "../../research/research-evidence-gate.js";
 import { formatOutlineMarkdown } from "../../research/research-outline.js";
 import { route } from "../../router/keyword-route.js";
+import { publicWebFactToolRefusal } from "../../skills/capability-patterns.js";
 import { ensureTaskRecord, updateTaskRecord } from "../../tasks/index.js";
 import { friendlyModelErrorMessage } from "../model-error-message.js";
 import type { AgentTool } from "../types.js";
@@ -20,7 +21,7 @@ export const lawMindDeepResearchTool: AgentTool = {
   definition: {
     name: "deep_research",
     description:
-      "执行深度研究计划：多视角问题树 → 检索/URL 卷宗 → 证据驱动大纲，并写入 ResearchBundle 与 outline 快照。合规卷宗/调研简报/培训课件在确认大纲前不会扩写正文。",
+      "执行深度研究计划：多视角问题树 → 权威库/工作区检索；若本轮已开启联网检索，会同时用当前对话模型检索公开网页。再生成证据驱动大纲并写入 ResearchBundle。合规卷宗/调研简报/培训课件在确认大纲前不会扩写正文。",
     category: "search",
     parameters: {
       instruction: {
@@ -38,6 +39,10 @@ export const lawMindDeepResearchTool: AgentTool = {
     if (!instruction) {
       return { ok: false, error: "instruction 不能为空" };
     }
+    const publicWebRefusal = publicWebFactToolRefusal(instruction, ctx.allowWebSearch === true);
+    if (publicWebRefusal) {
+      return { ok: false, error: publicWebRefusal };
+    }
     try {
       const matterId =
         typeof params.matter_id === "string" && params.matter_id.trim()
@@ -49,6 +54,8 @@ export const lawMindDeepResearchTool: AgentTool = {
       const memory = await loadMemoryContext(ctx.workspaceDir, { matterId });
       const adapters = buildAdaptersFromEnv(ctx.workspaceDir, {
         allowWebSearch: ctx.allowWebSearch === true,
+        webSearchModel: ctx.webSearchModel,
+        envFile: ctx.envFile,
       });
       const breadth =
         typeof params.breadth === "number" && Number.isFinite(params.breadth)

@@ -1,12 +1,16 @@
-import React, { useState, type RefObject } from "react";
+import React, { useCallback, useState, type RefObject } from "react";
 import type { AppConfig } from "../lawmind-app-bootstrap";
 import type { ChatSessionListEntry } from "../lawmind-chat-active-storage";
 import { LawmindChatSessionTabs } from "../LawmindChatSessionTabs";
 import { LawmindChatMessagesColumn, LawmindChatComposeFooter } from "../lawmind-chat-shell";
 import type { ChatMsg } from "../lawmind-chat";
-import { formatFileChatContextPill, type FileChatContextItem } from "../lawmind-file-chat-context";
-import type { TruthSourceContextPin } from "../../../../../src/lawmind/platform/compose-context-pin.ts";
+import { formatFileChatContextPill, isContractReviewCandidatePath, type FileChatContextItem } from "../lawmind-file-chat-context";
+import { encodeFileContextPin, type TruthSourceContextPin } from "../../../../../src/lawmind/platform/compose-context-pin.ts";
 import { formatTruthPinChip } from "../lawmind-compose-context";
+import { pinDroppedChatFiles } from "../lawmind-file-drop-context";
+import { useChatFileDropTarget } from "../useChatFileDropTarget";
+import { requestContractFastLaneOpen } from "../lawmind-contract-fast-lane-bus";
+import { apiSendJson } from "../api-client";
 import { LawmindWorkspacePaneRecovery } from "./LawmindWorkspacePaneRecovery";
 import { LawmindSessionHistorySidebar } from "../LawmindSessionHistorySidebar";
 import { useLawmindChatSessionContext } from "./LawmindShellContexts";
@@ -49,6 +53,7 @@ export type LawmindWorkspaceMainPaneProps = {
   onRemoveTruthPin?: (id: string) => void;
   onClearTruthPills?: () => void;
   onAddFileToChatContext?: (payload: Pick<FileChatContextItem, "root" | "relPath" | "kind">) => void;
+  onFileDropError?: (message: string | null) => void;
   onRemoveFileChatPill: (id: string) => void;
   onClearFileChatPills: () => void;
   contextTaskId: string | null;
@@ -137,6 +142,7 @@ function LawmindWorkspaceMainPaneImpl({
   onRemoveTruthPin,
   onClearTruthPills,
   onAddFileToChatContext,
+  onFileDropError,
   onRemoveFileChatPill,
   onClearFileChatPills,
   contextTaskId,
@@ -195,6 +201,53 @@ function LawmindWorkspaceMainPaneImpl({
   const truthPills = composeTruthPins.map((pin) => formatTruthPinChip(pin));
   const bothWorkspacePanesHidden = !wsShowChat && (!canUseFilesystemBridge || !wsShowEditor);
 
+  const handleDroppedChatFiles = useCallback(
+    async (dt: DataTransfer) => {
+      if (!onAddFileToChatContext) {
+        return;
+      }
+      await pinDroppedChatFiles({
+        dataTransfer: dt,
+        workspaceDir: config?.workspaceDir,
+        projectDir: config?.projectDir,
+        matterId: contextMatterId,
+        onAdd: onAddFileToChatContext,
+        onError: onFileDropError,
+        onEachPin: (pin) => {
+          if (loading && config?.apiBase && chatSessionId) {
+            void apiSendJson(
+              config.apiBase,
+              `/api/sessions/${encodeURIComponent(chatSessionId)}/inject`,
+              "POST",
+              { contextPins: [encodeFileContextPin(pin)] },
+            ).catch(() => {
+              /* local chips still apply on the following send */
+            });
+          }
+          if (pin.kind === "file" && isContractReviewCandidatePath(pin.relPath)) {
+            requestContractFastLaneOpen({
+              materialsHint: `已引用：${pin.relPath}`,
+              preferCompact: true,
+            });
+          }
+        },
+      });
+    },
+    [
+      chatSessionId,
+      config?.apiBase,
+      config?.projectDir,
+      config?.workspaceDir,
+      contextMatterId,
+      loading,
+      onAddFileToChatContext,
+      onFileDropError,
+    ],
+  );
+  const paneDrop = useChatFileDropTarget(
+    onAddFileToChatContext ? handleDroppedChatFiles : undefined,
+  );
+
   return (
     <div className="lm-workspace-unified lm-cursor-workspace">
       <div className="lm-cursor-panes-row">
@@ -231,7 +284,7 @@ function LawmindWorkspaceMainPaneImpl({
         ) : null}
         {wsShowChat ? (
           <div
-            className="lm-cursor-chat-pane"
+            className={`lm-cursor-chat-pane${paneDrop.active ? " lm-chat-drop-active" : ""}`}
             style={{
               flex:
                 canUseFilesystemBridge && wsShowEditor
@@ -242,7 +295,14 @@ function LawmindWorkspaceMainPaneImpl({
               minWidth: 0,
               minHeight: 0,
             }}
+            {...paneDrop.dropProps}
+            data-testid="lm-chat-drop-zone"
           >
+            {paneDrop.active ? (
+              <div className="lm-chat-drop-overlay" role="status" aria-live="polite">
+                松开以加入本回合上下文
+              </div>
+            ) : null}
             <div className="lm-chat-workspace lm-chat-workspace-messages-only">
               {!chatSessionsInSidebar ? (
                 <LawmindChatSessionTabs
@@ -357,6 +417,9 @@ function LawmindWorkspaceMainPaneImpl({
               fileChatContextItems={fileChatContextItems}
               composeTruthPins={composeTruthPins}
               onAddFileToChatContext={onAddFileToChatContext}
+              onFileDropError={onFileDropError}
+              workspaceDir={config?.workspaceDir}
+              projectDir={config?.projectDir}
               onAddComposeTruthPin={onAddComposeTruthPin}
               onRemoveFileChatPill={onRemoveFileChatPill}
               onRemoveTruthPill={onRemoveTruthPin}

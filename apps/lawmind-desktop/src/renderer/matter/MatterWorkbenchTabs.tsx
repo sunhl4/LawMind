@@ -3,7 +3,8 @@ import type { MatterPanelTab } from "./useMatterWorkbench";
 
 type TabDef = { id: MatterPanelTab; label: string };
 
-/** Daily lawyer surface — keep discoverable in one row (short labels). */
+/** Daily lawyer surface — keep discoverable in one row (short labels).
+ * 任务台帐 / 交付记录 duplicate 任务；只在「未关联案件」桶里出现。 */
 const MATTER_TABS: TabDef[] = [
   { id: "overview", label: "概览" },
   { id: "case", label: "档案" },

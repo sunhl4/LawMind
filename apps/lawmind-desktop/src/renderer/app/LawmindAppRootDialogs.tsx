@@ -20,6 +20,7 @@ export type LawmindAppRootDialogsProps = {
   modelCatalog: ModelCatalogEntry[];
   selectedModelId: string;
   onDelegated: (opts: { toDisplayName: string }) => void;
+  onCreateAssistant?: () => void;
   createMatterOpen: boolean;
   onCloseCreateMatter: () => void;
   onCreateMatterSuccess: (matterId: string) => void;
@@ -44,6 +45,7 @@ function LawmindAppRootDialogsImpl({
   modelCatalog,
   selectedModelId,
   onDelegated,
+  onCreateAssistant,
   createMatterOpen,
   onCloseCreateMatter,
   onCreateMatterSuccess,
@@ -70,6 +72,7 @@ function LawmindAppRootDialogsImpl({
           selectedModelId={selectedModelId}
           onClose={onCloseDelegateAssist}
           onDelegated={onDelegated}
+          onCreateAssistant={onCreateAssistant}
         />
       ) : null}
       {apiBase ? (

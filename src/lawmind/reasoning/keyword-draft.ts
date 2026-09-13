@@ -230,7 +230,11 @@ function isDeliverableDraftIntent(intent: TaskIntent): boolean {
   }
   const dt = intent.deliverableType;
   return (
-    dt === "memo.research" || dt === "memo.internal" || dt === "labor.calc" || dt === "period.calc"
+    dt === "memo.research" ||
+    dt === "memo.internal" ||
+    dt === "labor.calc" ||
+    dt === "period.calc" ||
+    dt === "analysis.table"
   );
 }
 
@@ -279,6 +283,9 @@ function defaultDraftTitle(intent: TaskIntent): string {
   }
   if (intent.deliverableType === "period.calc") {
     return "程序期限计算";
+  }
+  if (intent.deliverableType === "analysis.table") {
+    return "核算对照";
   }
   if (intent.deliverableType === "litigation.answer") {
     return "民事答辩状";
@@ -375,6 +382,7 @@ function defaultTemplateId(intent: TaskIntent): string {
     intent.deliverableType === "memo.research" ||
     intent.deliverableType === "labor.calc" ||
     intent.deliverableType === "period.calc" ||
+    intent.deliverableType === "analysis.table" ||
     intent.deliverableType === "matter.timeline" ||
     intent.deliverableType === "matter.exhibit_list" ||
     intent.deliverableType === "meeting.minutes"
@@ -831,6 +839,24 @@ function buildPeriodCalcSections(intent: TaskIntent): ArtifactSection[] {
   ];
 }
 
+function buildAnalysisTableSections(intent: TaskIntent): ArtifactSection[] {
+  const supplement = clarificationTail(intent);
+  return [
+    {
+      heading: "结论",
+      body: `核算结论：${buildPlaceholder("对照后的判断")}${supplement}`,
+    },
+    {
+      heading: "对照",
+      body: `对照表：${buildPlaceholder("xlsx 路径或预览")}`,
+    },
+    {
+      heading: "来源",
+      body: `来源文件/列：${buildPlaceholder("材料路径与列名")}\n法定金额与期限须另走公式核算，不得口算。`,
+    },
+  ];
+}
+
 function buildTimelineSections(intent: TaskIntent): ArtifactSection[] {
   return [
     {
@@ -1080,6 +1106,9 @@ function buildDeliverableSections(
   }
   if (intent.deliverableType === "period.calc") {
     return buildPeriodCalcSections(intent);
+  }
+  if (intent.deliverableType === "analysis.table") {
+    return buildAnalysisTableSections(intent);
   }
   if (intent.deliverableType === "matter.timeline") {
     return buildTimelineSections(intent);

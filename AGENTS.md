@@ -41,6 +41,23 @@ The product UI is the **local Electron desktop app** on this computer. There is 
 - **Docs site:** `pnpm lawmind:docs:build`
 - **Pre-commit** (if enabled): Oxlint + Oxfmt via `git-hooks/pre-commit` and `scripts/pre-commit/`
 
+## Agent loop admission (true-loop cassette)
+
+When changing `turn-orchestrator*`, clarification gates, compact, steer, playbook tool locks, or the approval pipeline, **add a cassette** in `src/lawmind/agent/turn-orchestrator-cassettes.test.ts`. Do not assert that a Chinese sentence still exists in the system prompt.
+
+Contract (Codex `test_codex`, tightened for LawMind gates):
+
+1. Model bytes are fake (scripted JSON / SSE).
+2. `runTurn`, the tool table (production names), gates, approval, compact, and steer are real.
+3. Assert the **next request body** sent to the model: a tool is / is not advertised, history was rewritten, citations survived compact, steer landed in the next sample.
+4. Exhausting the cassette must fail (HTTP 400). Do not silently invent a closing assistant message.
+
+Entry: `TestLawMind.builder()` (`src/lawmind/agent/testkit/`).
+
+Shadow replay (`src/lawmind/evaluation/shadow-engine-replay.ts`) remains **deliverable / lint recall** regression. It is not the admission ticket for orchestrator changes.
+
+Assembler unit tests may only assert: section ids, cache-boundary hashes, and dynamically injected values (lawyer name, 法宝 provider). They must not assert “this sentence is still in the prompt.”
+
 ## Code style
 
 - **TypeScript (ESM)**, strict; avoid `any` unless unavoidable.

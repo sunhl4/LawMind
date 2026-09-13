@@ -88,7 +88,7 @@ export function buildFileContextMessagePrefix(
     if (it.root === "workspace") {
       const hint =
         it.kind === "directory"
-          ? "请先在目录中定位要读的文件，用 analyze_document 读工作区相对路径。"
+          ? "请用 list_dir 递归列举该目录及其子目录，再用 analyze_document 按相对路径阅读文件。"
           : isWord
             ? `路径引用（未嵌入正文）：请用 analyze_document 读取。${wordHint}`
             : "路径引用（未嵌入正文）：请用 analyze_document 读取以下工作区相对路径。";
@@ -96,7 +96,7 @@ export function buildFileContextMessagePrefix(
     }
     const hint =
       it.kind === "directory"
-        ? "对项目内文件用 read_project_file(相对项目根的路径) 逐份阅读；目录下请先列举再选读。"
+        ? "请用 list_dir 递归列举该目录及其子目录，再用 read_project_file / analyze_document 按相对路径阅读文件。"
         : isWord
           ? `路径引用（未嵌入正文）：请用 analyze_document 读取（项目文件亦可）。${wordHint}`
           : "路径引用（未嵌入正文）：请用 read_project_file 读取。";

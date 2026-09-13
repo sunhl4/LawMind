@@ -10,6 +10,7 @@ import { recordModelUsage, type ModelUsageSnapshot } from "../models/model-usage
 import { emitPlatformGateSnapshot } from "../platform/audit-gate.js";
 import { executionStateFromTurn } from "../platform/execution-state.js";
 import { buildRequiresActionsFromTurn } from "../platform/requires-action.js";
+import { selectHardClarificationKeys } from "../router/intake-gate.js";
 import { persistAgentInstructionTask } from "../tasks/index.js";
 import type { ClarificationQuestion } from "../types.js";
 import { attachPersistedLiveTraceToLastAssistant } from "./live-turn-progress.js";
@@ -174,7 +175,12 @@ export function finalizeAgentTurn(opts: {
   }
 
   if (turn.status === "awaiting_clarification" && turn.clarificationQuestions?.length) {
-    session.pendingClarificationKeys = turn.clarificationQuestions.map((q) => q.key);
+    const hardKeys = selectHardClarificationKeys(turn.clarificationQuestions.map((q) => q.key));
+    if (hardKeys.length > 0) {
+      session.pendingClarificationKeys = hardKeys;
+    } else {
+      delete session.pendingClarificationKeys;
+    }
     emitEvent({ type: "clarification", questions: turn.clarificationQuestions });
   } else {
     delete session.pendingClarificationKeys;

@@ -3,7 +3,7 @@
  */
 
 import type { ReactNode } from "react";
-import type { ReasoningReport } from "../../../../../src/lawmind/deliverables/index.ts";
+import type { ReasoningReport } from "../../../../../src/lawmind/deliverables/types.ts";
 
 type Props = {
   matterId: string;

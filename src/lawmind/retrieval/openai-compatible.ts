@@ -60,16 +60,24 @@ function buildMessages(input: ModelRetrievalInput, role: "general" | "legal"): C
     truncateForPrompt(input.memory.general, PROMPT_WINDOW.retrievalMemoryChars) || "(空)",
     "",
     "律师偏好记忆:",
-    truncateForPrompt(input.memory.profile, PROMPT_WINDOW.retrievalMemoryChars) || "(空)",
+    truncateForPrompt(input.memory.profile, PROMPT_WINDOW.lawyerFingerprintChars, {
+      overflow: { tool: "read_workspace_file", path: "LAWYER_PROFILE.md" },
+    }) || "(空)",
     "",
     "客户画像（长期合作，与单案事实区分；供检索整理时把握沟通与机构习惯）:",
-    truncateForPrompt(input.memory.clientProfile, PROMPT_WINDOW.retrievalMemoryChars) || "(空)",
+    truncateForPrompt(input.memory.clientProfile, PROMPT_WINDOW.clientFingerprintChars, {
+      overflow: { tool: "read_workspace_file", path: "CLIENT_PROFILE.md" },
+    }) || "(空)",
     "",
     "最近日志（今天）:",
-    truncateForPrompt(input.memory.todayLog, PROMPT_WINDOW.dayLogChars) || "(空)",
+    truncateForPrompt(input.memory.todayLog, PROMPT_WINDOW.dayLogIndexChars, {
+      overflow: { tool: "read_workspace_file", path: "memory/today.md" },
+    }) || "(空)",
     "",
     "最近日志（昨天）:",
-    truncateForPrompt(input.memory.yesterdayLog, PROMPT_WINDOW.dayLogChars) || "(空)",
+    truncateForPrompt(input.memory.yesterdayLog, PROMPT_WINDOW.dayLogIndexChars, {
+      overflow: { tool: "read_workspace_file", path: "memory/yesterday.md" },
+    }) || "(空)",
   ].join("\n");
 
   return [

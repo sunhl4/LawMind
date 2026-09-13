@@ -40,6 +40,33 @@ describe("buildDroppedSpanDigest", () => {
     expect(digest).toContain("20%");
     expect(digest).toContain("analyze_document");
   });
+
+  it("keeps statute citations from dropped tool results", () => {
+    const dropped: AgentMessage[] = [
+      { role: "user", content: "违约责任依据？", timestamp: "t1" },
+      {
+        role: "assistant",
+        content: "",
+        timestamp: "t2",
+        toolCalls: [{ id: "c1", name: "search_statute", arguments: {} }],
+      },
+      {
+        role: "tool",
+        content: "{}",
+        timestamp: "t3",
+        toolCallResponses: [
+          {
+            toolCallId: "c1",
+            name: "search_statute",
+            result: { ok: true, data: { hits: ["依据《民法典》第577条承担责任"] } },
+          },
+        ],
+      },
+    ];
+    const digest = buildDroppedSpanDigest(dropped, 4_000);
+    expect(digest).toContain("压缩前引用");
+    expect(digest).toContain("《民法典》第577条");
+  });
 });
 
 describe("autoCompactSessionHistory", () => {

@@ -66,6 +66,22 @@ declare global {
         apiBase?: string;
         error?: string;
       }>;
+      listHostFolders?: () => Promise<{
+        ok: boolean;
+        mounts?: Array<{ id: string; absPath: string; label?: string; matterId?: string }>;
+      }>;
+      addHostFolder?: (payload: {
+        path: string;
+        label?: string;
+        matterId?: string;
+      }) => Promise<{ ok: boolean; mounts?: unknown[]; projectDir?: string | null; error?: string }>;
+      removeHostFolder?: (
+        mountId: string,
+      ) => Promise<{ ok: boolean; mounts?: unknown[]; projectDir?: string | null; error?: string }>;
+      bindHostFolder?: (payload: {
+        id: string;
+        matterId?: string;
+      }) => Promise<{ ok: boolean; mounts?: unknown[]; error?: string }>;
       readModelSettings: () => Promise<{
         ok: boolean;
         hasApiKey?: boolean;
@@ -78,6 +94,7 @@ declare global {
       }>;
       saveSetup: (payload: {
         apiKey: string;
+        webSearchApiKey?: string;
         baseUrl?: string;
         model?: string;
         workspaceDir?: string;
@@ -184,6 +201,23 @@ declare global {
         fromPath: string;
         toPath: string;
       }) => Promise<{ ok: boolean; error?: string }>;
+      /** Electron 32+: resolve Finder/Explorer File objects to an absolute path. */
+      getPathForFile?: (file: File) => string | null | undefined;
+      /** Copy dropped files that sit outside workspace/project into uploads or case materials. */
+      importDroppedFiles?: (payload: {
+        absPaths: string[];
+        matterId?: string | null;
+      }) => Promise<{
+        ok: boolean;
+        items?: Array<{
+          root: "workspace" | "project";
+          relPath: string;
+          kind: "file" | "directory";
+          imported?: boolean;
+        }>;
+        errors?: string[];
+        error?: string;
+      }>;
       saveTextFileDialog: (payload: {
         content: string;
         defaultName?: string;

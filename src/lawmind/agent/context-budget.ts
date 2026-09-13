@@ -89,7 +89,10 @@ export function estimateTokenBudget(
 ): TokenBudgetSnapshot {
   const { autoCompactBufferTokens, summaryOutputTokenReserve } = resolveContextPolicy(policy);
   const charsPerToken = opts?.charsPerToken ?? DEFAULT_CHARS_PER_TOKEN;
-  const used = estimateMessageTokens(session.conversationHistory, charsPerToken);
+  let used = estimateMessageTokens(session.conversationHistory, charsPerToken);
+  if (session.samplingPromptTail?.trim()) {
+    used += estimateTextTokens(session.samplingPromptTail, charsPerToken);
+  }
   const contextTokens = Math.max(
     8_000,
     opts?.contextTokens ??

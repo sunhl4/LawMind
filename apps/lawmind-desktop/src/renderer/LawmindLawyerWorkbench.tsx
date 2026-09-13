@@ -99,6 +99,8 @@ type MatterPaneId = "overview" | "docket" | "docs" | "deadlines" | "intake" | "r
 
 export type LawmindLawyerWorkbenchProps = {
   apiBase: string;
+  /** Folder name from the live desktop workspace — shown so the empty desk is not mistaken for “no cases”. */
+  workspaceDir?: string | null;
   selectedMatterId: string | null;
   onSelectMatter: (matterId: string) => void;
   onGoToChat: (opts: { matterId?: string; prompt?: string }) => void;
@@ -254,6 +256,7 @@ function DeskServiceAlert({
 export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): ReactNode {
   const {
     apiBase,
+    workspaceDir,
     selectedMatterId,
     onSelectMatter,
     onGoToChat,
@@ -752,6 +755,8 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
 
   const progressLabel =
     progressTotal === 0 ? "今天还没有事项" : `今日进度 ${progressDone}/${progressTotal}`;
+  const workspaceLabel =
+    workspaceDir?.split(/[\\/]/).filter(Boolean).pop()?.trim() || "";
   const contractCount = matters.filter((row) => row.matterKind === "contract").length;
   const litigationCount = matters.filter((row) => row.matterKind === "litigation").length;
   const matterCaption = (matterId?: string) => {
@@ -768,10 +773,14 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
         <>
           <header className="lm-lawyer-top">
             <div>
-              <p className="lm-lawyer-kicker">{today?.date ? formatDeskDate(today.date) : "今日"}</p>
+              <p className="lm-lawyer-kicker" data-testid="lm-lawyer-desk-kicker">
+                {today?.date ? formatDeskDate(today.date) : "今日"}
+                {workspaceLabel ? ` · ${workspaceLabel}` : ""}
+                {` · ${matters.length} 个案件`}
+              </p>
               <h1>工作台</h1>
               <p className="lm-lawyer-lede">
-                今天要回的、要开的、要拍的。右侧点「星辉精密诉环宇科技」看完整卷宗。不要点顶栏案件名进旧页。
+                今天要回的、要开的、要拍的。点右侧「在办案件」打开卷宗。不要点顶栏案件名进旧页。
               </p>
             </div>
             <div className="lm-lawyer-search">

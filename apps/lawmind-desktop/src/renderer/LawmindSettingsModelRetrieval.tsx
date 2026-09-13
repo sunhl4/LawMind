@@ -7,6 +7,7 @@ import {
 import { LawmindSettingsCustomModels } from "./LawmindSettingsCustomModels";
 import {
   fetchModelsCatalog,
+  setRetrievalModelIdApi,
   setWorkerModelIdApi,
   testModelConnection,
   type ModelCatalogEntry,
@@ -16,6 +17,7 @@ import {
 import {
   formatAuthorityProbeSuccessMsg,
   isAuthorityCorpusUiReady,
+  webSearchStatusLabel,
   type LawmindSettingsAppConfig,
   type LawmindSettingsHealth,
 } from "./lawmind-settings-models.ts";
@@ -63,15 +65,23 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
     onOpenApiWizard,
   } = props;
   const [workerModelId, setWorkerModelId] = useState<string>("");
+  const [retrievalModelId, setRetrievalModelId] = useState<string>("");
   const [workerSaving, setWorkerSaving] = useState(false);
+  const [retrievalModelSaving, setRetrievalModelSaving] = useState(false);
 
   useEffect(() => {
     if (!apiBase) {
       return;
     }
     void fetchModelsCatalog(apiBase)
-      .then((c) => setWorkerModelId(c.workerModelId?.trim() || ""))
-      .catch(() => setWorkerModelId(""));
+      .then((c) => {
+        setWorkerModelId(c.workerModelId?.trim() || "");
+        setRetrievalModelId(c.retrievalModelId?.trim() || "");
+      })
+      .catch(() => {
+        setWorkerModelId("");
+        setRetrievalModelId("");
+      });
   }, [apiBase]);
   const [turnDiagnostics, setTurnDiagnostics] = useState(readIncludeTurnDiagnostics);
   const [modelTestBusy, setModelTestBusy] = useState(false);
@@ -144,6 +154,9 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
 
   const modelOk =
     Boolean(health?.modelConfigured) && isSelectedModelVerified(modelCatalog, selectedModelId);
+  const webStatus = webSearchStatusLabel(health ?? {});
+  const shareRetrieval = config.retrievalMode !== "dual";
+  const configuredModels = modelCatalog.filter((m) => m.configured);
 
   return (
     <div className="lm-settings-section">
@@ -169,13 +182,80 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
         <div className="lm-settings-row">
           <span className="lm-settings-key">联网检索</span>
           <span
-            className={
-              health?.webSearchApiKeyConfigured ? "lm-pill lm-pill-success" : "lm-pill lm-pill-neutral"
-            }
+            className={webStatus.ready ? "lm-pill lm-pill-success" : "lm-pill lm-pill-neutral"}
           >
-            {health?.webSearchApiKeyConfigured ? "已配置" : "未配置"}
+            {webStatus.label}
           </span>
         </div>
+        <div className="lm-settings-row">
+          <span className="lm-settings-key">检索与对话共用同一模型</span>
+          <label className="lm-switch">
+            <input
+              type="checkbox"
+              role="switch"
+              data-testid="lm-settings-share-retrieval"
+              aria-checked={shareRetrieval}
+              aria-label="检索与对话共用同一模型"
+              checked={shareRetrieval}
+              disabled={retrievalSaving || !health?.modelConfigured}
+              onChange={(e) => applyRetrievalMode(e.target.checked ? "single" : "dual")}
+            />
+            <span className="lm-switch-ui" aria-hidden="true" />
+          </label>
+        </div>
+        <p className="lm-settings-caption">
+          {shareRetrieval
+            ? "开启：不接法律垂类时，对话、法律检索、公开网页都走当前模型。"
+            : "关闭：推理仍用当前模型；法律检索走下方垂类。公开网页优先垂类的厂商联网，没有则回退当前模型。"}
+        </p>
+        {shareRetrieval ? null : (
+          <>
+            <label className="lm-settings-row">
+              <span className="lm-settings-key">法律检索模型</span>
+              <select
+                className="lm-compose-select"
+                data-testid="lm-settings-retrieval-model"
+                disabled={!apiBase || !health?.modelConfigured || retrievalModelSaving}
+                value={retrievalModelId}
+                aria-label="法律检索模型"
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setRetrievalModelId(next);
+                  if (!apiBase) {
+                    return;
+                  }
+                  setRetrievalModelSaving(true);
+                  void setRetrievalModelIdApi(apiBase, next || null)
+                    .then(async (id) => {
+                      setRetrievalModelId(id ?? "");
+                      if (onModelsChanged) {
+                        await onModelsChanged();
+                      }
+                    })
+                    .catch(() => undefined)
+                    .finally(() => setRetrievalModelSaving(false));
+                }}
+              >
+                <option value="">未选择（暂回退当前模型）</option>
+                {configuredModels.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {health?.dualLegalConfigured === false && !retrievalModelId ? (
+              <p className="lm-settings-caption lm-settings-caption--warn" role="status">
+                尚未选垂类模型，法律检索将暂时回退当前对话模型。
+              </p>
+            ) : null}
+          </>
+        )}
+        {retrievalSaving ? (
+          <p className="lm-settings-caption" role="status" aria-live="polite">
+            正在切换…
+          </p>
+        ) : null}
         <div
           data-testid="lm-settings-authority-boundary"
           data-status={health?.authorityCorpus?.status ?? "unset"}
@@ -223,6 +303,10 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
         {!health?.modelConfigured ? (
           <p className="lm-settings-caption" role="status">
             请用「API 配置向导」写入密钥。
+          </p>
+        ) : !modelOk ? (
+          <p className="lm-settings-caption lm-settings-caption--warn" role="status">
+            已填 Key 还不等于能连上。请点「测试连接」；失败时到服务商重新生成 Key，再用向导粘贴。
           </p>
         ) : health?.modelEnvFileExists === false ? (
           <p className="lm-settings-caption lm-settings-caption--warn" role="status">
@@ -331,48 +415,15 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
           <p className="lm-settings-caption">工具轮可用更快模型。</p>
 
           <p className="lm-settings-caption">
-            联网检索需 Brave Key（
-            <code className="lm-md-code">LAWMIND_WEB_SEARCH_API_KEY</code> 或{" "}
+            公开网页检索默认跟对话模型走同一套 Key。仅当上方关掉「共用」且法律检索模型自带厂商联网时，才会改用垂类去搜网页。Brave
+            仍是没有厂商联网时的可选备用（
+            <code className="lm-md-code">LAWMIND_WEB_SEARCH_API_KEY</code> /{" "}
             <code className="lm-md-code">BRAVE_API_KEY</code>
-            ），写入 <code className="lm-md-code">.env.lawmind</code> 后重启。
+            ）。
           </p>
-
-          <div className="lm-settings-row">
-            <span className="lm-settings-key">检索策略</span>
-            <span className="lm-settings-val">{retrievalLabel}</span>
-          </div>
-          <div className="lm-retrieval-block">
-            <label className="lm-radio-row">
-              <input
-                type="radio"
-                name="retrieval-mode"
-                checked={config.retrievalMode === "single"}
-                disabled={retrievalSaving}
-                onChange={() => applyRetrievalMode("single")}
-              />
-              <span>统一模型</span>
-            </label>
-            <label className="lm-radio-row">
-              <input
-                type="radio"
-                name="retrieval-mode"
-                checked={config.retrievalMode === "dual"}
-                disabled={retrievalSaving}
-                onChange={() => applyRetrievalMode("dual")}
-              />
-              <span>通用 + 法律专用</span>
-            </label>
-            {config.retrievalMode === "dual" && health?.dualLegalConfigured === false ? (
-              <p className="lm-settings-caption lm-settings-caption--warn" role="status">
-                法律专用端点未配置，将回退通用模型。
-              </p>
-            ) : null}
-            {retrievalSaving ? (
-              <p className="lm-settings-caption" role="status" aria-live="polite">
-                正在切换…
-              </p>
-            ) : null}
-          </div>
+          <p className="lm-settings-caption">
+            当前策略：{retrievalLabel}。
+          </p>
 
           {platformMode !== "none" ? (
             <p className="lm-settings-caption" role="status">
@@ -388,8 +439,8 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
               {modelProviders.map((p) => (
                 <div className="lm-settings-row" key={p.provider}>
                   <span className="lm-settings-key">{p.label}</span>
-                  <span className={p.configured ? "lm-pill lm-pill-success" : "lm-pill lm-pill-warn"}>
-                    {p.configured ? "已配置" : "未配置"}
+                  <span className={p.configured ? "lm-pill lm-pill-neutral" : "lm-pill lm-pill-warn"}>
+                    {p.configured ? "已填 Key" : "未填 Key"}
                   </span>
                 </div>
               ))}

@@ -299,7 +299,7 @@ export function LawmindModelPicker(props: Props): ReactNode {
         }`}
         onMouseEnter={() => setFocusIndex(index)}
         onClick={() => selectRow(row)}
-        title={row.configured ? name : "API key required"}
+        title={row.configured ? (row.verifiedAt ? name : `${name}（待验证）`) : "未填 API Key，将打开配置向导"}
       >
         <span
           className={`lm-model-picker-icon lm-model-picker-icon-${iconKey}`}

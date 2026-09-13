@@ -6,6 +6,82 @@
   background: var(--surface-elevated, var(--side-bg));
 }
 
+.lm-turn-plan {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface-elevated, var(--side-bg));
+}
+
+.lm-turn-plan-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lm-turn-plan-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.lm-turn-plan-progress {
+  font-size: 12px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.lm-turn-plan-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.lm-turn-plan-steps {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lm-turn-plan-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.lm-turn-plan-step-icon {
+  flex-shrink: 0;
+  width: 1em;
+  color: var(--muted);
+}
+
+.lm-turn-plan-step-completed {
+  color: var(--text-2);
+}
+
+.lm-turn-plan-step-completed .lm-turn-plan-step-label {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.lm-turn-plan-step-in_progress .lm-turn-plan-step-icon,
+.lm-turn-plan-step-in_progress .lm-turn-plan-step-label {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.lm-turn-plan-complete {
+  opacity: 0.92;
+}
+
 .lm-assignment-commitment-head,
 .lm-assignment-actions {
   display: flex;
@@ -253,22 +329,14 @@
 }
 
 .lm-messages-empty-icon {
-  font-size: 15px;
-  font-weight: 700;
-  width: 44px;
-  height: 44px;
-  border-radius: var(--r-lg);
-  border: 1px solid var(--accent-border);
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--accent-hover);
-  background:
-    radial-gradient(circle at 30% 25%, rgba(199, 171, 121, 0.35), rgba(255, 255, 255, 0.9) 70%);
+  overflow: hidden;
+  border-radius: 8px;
   margin-bottom: var(--space-2);
-  box-shadow:
-    inset 0 1px 0 var(--inset-highlight),
-    var(--shadow-sm);
 }
 
 .lm-messages-empty-title {
@@ -908,6 +976,14 @@
   flex-direction: column;
   gap: 8px;
   box-sizing: border-box;
+}
+
+.lm-compose.lm-chat-drop-active .lm-compose-box {
+  border-color: var(--accent-border);
+  box-shadow:
+    var(--ring-accent, 0 0 0 3px rgba(166, 124, 82, 0.28)),
+    var(--shadow, 0 1px 2px rgba(0, 0, 0, 0.06)),
+    inset 0 1px 0 var(--inset-highlight);
 }
 
 /* When chrome already drew the top border, avoid a double rule. */

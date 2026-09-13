@@ -1,0 +1,17 @@
+{
+  "productName": "LawMind",
+  "appId": "ai.lawmind.desktop",
+  "devUserDataFolder": "Electron",
+  "icons": {
+    "png": "build/icon.png",
+    "pngWindow": "electron/icon.png",
+    "icns": "build/icon.icns",
+    "ico": "build/icon.ico",
+    "svg": "src/renderer/assets/lawmind-mark.svg"
+  },
+  "svgCopies": [
+    "src/renderer/public/favicon.svg",
+    "build/icon.svg",
+    "../lawmind-docs/docs/public/favicon.svg"
+  ]
+}

@@ -172,7 +172,7 @@ export function useLawmindAppSetupActions(params: UseLawmindAppSetupActionsParam
     [config?.apiBase, setError, setHealth, setHealthPayload],
   );
 
-  const runWizardSave = useCallback(async () => {
+  const runWizardSave = useCallback(async (extra?: { webSearchApiKey?: string }) => {
     const bridge = window.lawmindDesktop;
     if (!bridge?.saveSetup) {
       return;
@@ -182,6 +182,7 @@ export function useLawmindAppSetupActions(params: UseLawmindAppSetupActionsParam
     try {
       const response = await bridge.saveSetup({
         apiKey: wizApiKey.trim(),
+        webSearchApiKey: extra?.webSearchApiKey,
         baseUrl: wizBaseUrl.trim() || undefined,
         model: wizModel.trim() || undefined,
         workspaceDir: wizWorkspace.trim() || undefined,

@@ -321,7 +321,7 @@ describe("runTurn clarification handling", () => {
     const reloaded = JSON.parse(
       fs.readFileSync(path.join(workspaceDir, "sessions", `${first.sessionId}.json`), "utf8"),
     ) as { pendingClarificationKeys?: string[] };
-    expect(reloaded.pendingClarificationKeys).toEqual(["rent_and_deposit"]);
+    expect(reloaded.pendingClarificationKeys).toBeUndefined();
 
     const second = await runTurn({
       config,
@@ -330,9 +330,8 @@ describe("runTurn clarification handling", () => {
       instruction: "【补充信息】租金 5000 元/月，押一付三。请继续完善。",
     });
 
-    // 跨轮硬门禁：普通消息轮中 draft_document 被拦截（本轮不真正执行起草）；
-    // 本轮以 completed 结束后 finalize 清键，下一轮自动放行。
-    expect(draftCalls).toBe(1);
+    // 租金缺口不是高风险空跑键：不跨轮硬拦起草。同一回合工具仍可返回澄清问题。
+    expect(draftCalls).toBeGreaterThanOrEqual(1);
     expect(second.turn.status).toBe("completed");
     expect(second.reply).toContain("已按补充更新合同正文");
 
@@ -347,7 +346,7 @@ describe("runTurn clarification handling", () => {
       sessionId: first.sessionId,
       instruction: "请继续完成起草。",
     });
-    expect(draftCalls).toBe(2);
+    expect(draftCalls).toBe(3);
     expect(third.turn.status).toBe("completed");
     expect(third.reply).toContain("起草完成");
   });

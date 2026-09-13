@@ -1,5 +1,8 @@
 import type { ChatLiveTrace } from "./lawmind-chat-trace-types.js";
-import { presentLawyerToolCall } from "../../../../src/lawmind/agent/tool-lawyer-card.ts";
+import {
+  lawyerFacingToolFailureDetail,
+  presentLawyerToolCall,
+} from "../../../../src/lawmind/agent/tool-lawyer-card.ts";
 import { humanToolLabel } from "./lawmind-chat-trace.js";
 
 export type ChatActivityTextBlock = {
@@ -43,6 +46,9 @@ export function startActivityTool(
   blocks: ChatActivityBlock[],
   info: { toolCallId: string; toolName: string; args?: Record<string, unknown> },
 ): ChatActivityBlock[] {
+  if (info.toolName === "update_plan") {
+    return blocks;
+  }
   const toolCallId = info.toolCallId?.trim() || `tool-${blocks.length}`;
   if (blocks.some((b) => b.kind === "tool" && b.toolCallId === toolCallId && b.status === "running")) {
     return blocks;
@@ -124,7 +130,7 @@ export function endActivityTool(
     ...row,
     label: humanToolLabel(info.toolName),
     status: info.ok ? "done" : "failed",
-    detail: info.error,
+    detail: info.ok ? info.error : lawyerFacingToolFailureDetail(info.toolName, info.error),
   };
   return next;
 }

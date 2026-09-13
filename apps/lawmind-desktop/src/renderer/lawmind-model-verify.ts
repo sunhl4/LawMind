@@ -2,7 +2,7 @@ import type { ModelCatalogEntry } from "./lawmind-models-api";
 import { resolveComposeModelSelectValue } from "./lawmind-model-picker-utils";
 
 export const MODEL_NOT_VERIFIED_HINT =
-  "当前模型尚未验证。请在模型旁点击「测试当前模型连接」，或打开 API 配置向导完成「验证并保存」。";
+  "当前模型尚未验证通过。本机有 Key 不等于能连上。请点「测试连接」；若提示 Key 无效，到服务商重新生成后再用「API 配置向导」粘贴。";
 
 /** Whether the catalog row has a recent successful probe (`verifiedAt`). */
 export function isModelEntryVerified(row: ModelCatalogEntry | undefined): boolean {

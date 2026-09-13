@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import type { LawMindWorkspacePolicy } from "../policy/workspace-policy.js";
 import { caseFilePath } from "./index.js";
+import { migrateWorkspaceMemoryMarkdown } from "./memory-md-migrate.js";
+import { PROMPT_WINDOW } from "./prompt-windows.js";
 
 export type MemoryManifestEntry = {
   relativePath: string;
@@ -12,8 +14,8 @@ export type MemoryManifestEntry = {
   sizeBytes?: number;
 };
 
-/** Raised so long matters surface more topic files without starving the window. */
-const MAX_RECALL = 8;
+/** 相关记忆每轮最多进 prompt 的条数（gist，不是全文）。 */
+const MAX_RECALL = 4;
 const DEFAULT_SMALL_FILE_MAX_BYTES = 8_000;
 const MEMORY_READ_TOOL_NAMES = new Set([
   "read_file",
@@ -39,12 +41,14 @@ function fileSizeBytes(workspaceDir: string, relativePath: string): number {
 }
 
 function parseMemoryIndex(workspaceDir: string): MemoryManifestEntry[] {
-  const indexPath = path.join(workspaceDir, "MEMORY.md");
-  let raw = "";
-  try {
-    raw = fs.readFileSync(indexPath, "utf8");
-  } catch {
-    return [];
+  let raw = migrateWorkspaceMemoryMarkdown(workspaceDir).text;
+  if (!raw.trim()) {
+    const indexPath = path.join(workspaceDir, "MEMORY.md");
+    try {
+      raw = fs.readFileSync(indexPath, "utf8");
+    } catch {
+      return [];
+    }
   }
   const entries: MemoryManifestEntry[] = [];
   const lines = raw.split("\n");
@@ -215,6 +219,45 @@ function scoreEntry(
   return score;
 }
 
+export type MemoryRecallHit = {
+  relativePath: string;
+  mtimeMs: number;
+  title: string;
+  gist: string;
+};
+
+function gistForRelativePath(
+  workspaceDir: string,
+  relativePath: string,
+  fallbackTitle?: string,
+): { title: string; gist: string } {
+  const max = PROMPT_WINDOW.memoryHitGistChars;
+  try {
+    const text = fs.readFileSync(path.join(workspaceDir, relativePath), "utf8");
+    const titleMatch = /^#\s+(.+)$/m.exec(text);
+    const title = titleMatch?.[1]?.trim() || fallbackTitle || relativePath;
+    const gist = text.replace(/\s+/g, " ").trim().slice(0, max);
+    return { title, gist };
+  } catch {
+    return { title: fallbackTitle || relativePath, gist: "" };
+  }
+}
+
+function toRecallHit(
+  workspaceDir: string,
+  relativePath: string,
+  mtimeMs: number,
+  title?: string,
+): MemoryRecallHit {
+  const gist = gistForRelativePath(workspaceDir, relativePath, title);
+  return {
+    relativePath,
+    mtimeMs,
+    title: gist.title,
+    gist: gist.gist,
+  };
+}
+
 export async function findRelevantMemoriesForTurn(opts: {
   workspaceDir: string;
   matterId?: string;
@@ -223,7 +266,7 @@ export async function findRelevantMemoriesForTurn(opts: {
   recentToolNames: readonly string[];
   policy?: LawMindWorkspacePolicy | null;
   signal?: AbortSignal;
-}): Promise<Array<{ relativePath: string; mtimeMs: number }>> {
+}): Promise<MemoryRecallHit[]> {
   if (opts.signal?.aborted) {
     return [];
   }
@@ -317,11 +360,10 @@ export async function findRelevantMemoriesForTurn(opts: {
         return b.mtimeMs - a.mtimeMs;
       })
       .slice(0, Math.min(3, MAX_RECALL));
-    return fallback.map((e) => ({ relativePath: e.relativePath, mtimeMs: e.mtimeMs }));
+    return fallback.map((e) => toRecallHit(opts.workspaceDir, e.relativePath, e.mtimeMs, e.title));
   }
 
-  return ranked.map((r) => ({
-    relativePath: r.e.relativePath,
-    mtimeMs: r.e.mtimeMs,
-  }));
+  return ranked.map((r) =>
+    toRecallHit(opts.workspaceDir, r.e.relativePath, r.e.mtimeMs, r.e.title),
+  );
 }

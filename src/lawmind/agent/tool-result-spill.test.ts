@@ -20,6 +20,8 @@ describe("tool-result-spill", () => {
     expect(shouldSpillToolResult("read_project_file")).toBe(true);
     expect(shouldSpillToolResult("analyze_document")).toBe(true);
     expect(shouldSpillToolResult("compare_documents")).toBe(true);
+    expect(shouldSpillToolResult("get_matter_summary")).toBe(true);
+    expect(shouldSpillToolResult("calculate")).toBe(true);
     expect(shouldSpillToolResult("write_document")).toBe(false);
     expect(shouldSpillToolResult("apply_surgical_edits")).toBe(false);
     expect(shouldSpillToolResult("render_document")).toBe(false);

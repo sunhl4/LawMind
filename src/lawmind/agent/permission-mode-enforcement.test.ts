@@ -343,6 +343,6 @@ describe("permission mode execution-layer gate (e2e)", () => {
     const session = loadSession(workspaceDir, first.sessionId);
     const systemPrompt = String(session?.conversationHistory[0]?.content ?? "");
     expect(systemPrompt).toContain("**write_document**");
-    expect(systemPrompt).toContain("权限模式：readonly");
+    expect(systemPrompt).toContain("<permission_mode>readonly</permission_mode>");
   });
 });

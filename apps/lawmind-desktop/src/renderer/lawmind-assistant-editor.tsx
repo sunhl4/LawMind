@@ -215,12 +215,14 @@ function AssistantQuickCreateWizard(props: {
   presets: PresetRow[];
   /** Prefill when opened from a practice-area chip. */
   initialPresetKey?: string;
+  /** Practice-area entry already chose a template; start at naming. */
+  skipTemplateStep?: boolean;
   busy: boolean;
   error: string | null;
   onClose: () => void;
   onSave: (draft: AssistantEditorDraft) => void | Promise<void>;
 }): ReactNode {
-  const { presets, initialPresetKey, busy, error, onClose, onSave } = props;
+  const { presets, initialPresetKey, skipTemplateStep, busy, error, onClose, onSave } = props;
   const presetOptions =
     presets.length > 0
       ? presets
@@ -233,10 +235,19 @@ function AssistantQuickCreateWizard(props: {
         ordered.push(p);
       }
     }
-    return ordered.slice(0, 6);
-  }, [presetOptions]);
+    const sliced = ordered.slice(0, 6);
+    const locked = initialPresetKey?.trim();
+    if (!locked) {
+      return sliced;
+    }
+    const extra = byId.get(locked);
+    if (extra && !sliced.some((p) => p.id === extra.id)) {
+      return [extra, ...sliced.slice(0, 5)];
+    }
+    return sliced;
+  }, [presetOptions, initialPresetKey]);
 
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(() => (skipTemplateStep ? 2 : 1));
   const [presetKey, setPresetKey] = useState(
     () => initialPresetKey?.trim() || quickPresets[0]?.id || DEFAULT_PRESET_KEY,
   );
@@ -252,7 +263,7 @@ function AssistantQuickCreateWizard(props: {
   const selectedPreset = presetOptions.find((p) => p.id === presetKey);
 
   return (
-    <div className="lm-wizard lm-assistant-quick-wizard">
+    <div className="lm-wizard lm-assistant-quick-wizard" data-testid="lm-assistant-quick-wizard">
       <h2>新建助手</h2>
       <ol className="lm-assistant-wizard-steps" aria-label="新建步骤">
         <li className={step >= 1 ? "done" : ""}>① 选岗位模板</li>
@@ -267,7 +278,11 @@ function AssistantQuickCreateWizard(props: {
               type="button"
               role="listitem"
               className={`lm-assistant-template-card ${presetKey === p.id ? "active" : ""}`}
-              onClick={() => setPresetKey(p.id)}
+              data-testid={`lm-assistant-template-${p.id}`}
+              onClick={() => {
+                setPresetKey(p.id);
+                setStep(2);
+              }}
             >
               <span className="lm-assistant-template-title">{p.displayName}</span>
               <span className="lm-meta">{presetSummary(presetOptions, p.id)}</span>
@@ -386,8 +401,10 @@ export function LawmindAssistantEditorDialog({
     <div className="lm-wizard-backdrop" role="dialog" aria-modal="true" aria-label="助手编辑">
       {editingAssistantId === null ? (
         <AssistantQuickCreateWizard
+          key={`create:${draft.presetKey}:${draft.customRoleTitle}`}
           presets={presets}
           initialPresetKey={draft.presetKey}
+          skipTemplateStep={Boolean(draft.customRoleTitle.trim())}
           busy={busy}
           error={error}
           onClose={onClose}

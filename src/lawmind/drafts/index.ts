@@ -47,6 +47,7 @@ export function deleteDraft(workspaceDir: string, taskId: string): boolean {
     path.join(dir, `${id}.reasoning.json`),
     path.join(dir, `${id}.redline.json`),
     path.join(dir, `${id}.clauses.json`),
+    path.join(dir, `${id}.guardian.json`),
   ];
   let did = false;
   for (const p of candidates) {
@@ -74,7 +75,9 @@ export function listDrafts(workspaceDir: string): ArtifactDraft[] {
           !name.endsWith(".reasoning.json") &&
           !name.endsWith(".redline.json") &&
           !name.endsWith(".clauses.json") &&
-          !name.endsWith(".outline.json"),
+          !name.endsWith(".outline.json") &&
+          !name.endsWith(".guardian.json") &&
+          !name.endsWith(".redline-plan.json"),
       )
       .toSorted();
     return files
@@ -137,6 +140,11 @@ export {
   evaluateSurgicalEditGate,
   attachRewriteAmplitudeMeta,
 } from "./surgical-edit-gate.js";
+export {
+  LEGACY_UPDATE_DRAFT_BODY_CODE,
+  LEGACY_UPDATE_DRAFT_BODY_WARNING,
+  shouldRejectLegacyUpdateDraftBody,
+} from "./legacy-update-draft-warning.js";
 export {
   CONTRACT_REDLINE_CRAFT_SKILL,
   craftSignalsForEdit,

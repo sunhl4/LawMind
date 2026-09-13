@@ -158,4 +158,46 @@ describe("LawmindSettingsModelRetrieval", () => {
     expect(pill?.textContent).toContain("未配置");
     expect(host.textContent).toContain("未命中则不编造");
   });
+
+  it("share switch is on in single mode and hides the legal retrieval picker", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindSettingsModelRetrieval
+          {...baseProps}
+          health={{ modelConfigured: true }}
+        />,
+      );
+    });
+    const toggle = host.querySelector(
+      '[data-testid="lm-settings-share-retrieval"]',
+    ) as HTMLInputElement | null;
+    expect(toggle?.checked).toBe(true);
+    expect(host.querySelector('[data-testid="lm-settings-retrieval-model"]')).toBeNull();
+    expect(host.textContent).toContain("不接法律垂类时");
+  });
+
+  it("share switch off shows legal retrieval picker and warns when none is selected", async () => {
+    const applyRetrievalMode = vi.fn();
+    await act(async () => {
+      root.render(
+        <LawmindSettingsModelRetrieval
+          {...baseProps}
+          applyRetrievalMode={applyRetrievalMode}
+          config={{ ...baseProps.config, retrievalMode: "dual" }}
+          retrievalLabel="对话与检索分开"
+          health={{ modelConfigured: true, dualLegalConfigured: false }}
+        />,
+      );
+    });
+    const toggle = host.querySelector(
+      '[data-testid="lm-settings-share-retrieval"]',
+    ) as HTMLInputElement | null;
+    expect(toggle?.checked).toBe(false);
+    expect(host.querySelector('[data-testid="lm-settings-retrieval-model"]')).not.toBeNull();
+    expect(host.textContent).toContain("尚未选垂类模型");
+    await act(async () => {
+      toggle?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(applyRetrievalMode).toHaveBeenCalledWith("single");
+  });
 });

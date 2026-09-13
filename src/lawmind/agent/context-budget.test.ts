@@ -37,6 +37,14 @@ describe("estimateTokenBudget", () => {
     const budget = estimateTokenBudget(session, null, { contextTokens: 16_000 });
     expect(budget.level).toBe("compact");
   });
+
+  it("counts samplingPromptTail toward used tokens", () => {
+    const session = sessionWithChars(100);
+    const without = estimateTokenBudget(session, null, { contextTokens: 32_768 });
+    session.samplingPromptTail = "合".repeat(200);
+    const withTail = estimateTokenBudget(session, null, { contextTokens: 32_768 });
+    expect(withTail.used).toBe(without.used + 200);
+  });
 });
 
 describe("estimateTextTokens (CJK-aware)", () => {

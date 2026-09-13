@@ -34,6 +34,7 @@ import { handleReviewRoute } from "./lawmind-server-route-review.js";
 import { handleRedlineRoutes } from "./lawmind-server-route-redline.js";
 import { handleSearchRoutes } from "./lawmind-server-route-search.js";
 import { handlePlatformRoutes } from "./lawmind-server-route-platform.js";
+import { handleHostAccessRoutes } from "./lawmind-server-route-host-access.js";
 import { handleModelsRoutes } from "./lawmind-server-route-models.js";
 import { handleSourceRoutes } from "./lawmind-server-route-sources.js";
 import { handleIntegrationsRoutes } from "./lawmind-server-route-integrations.js";
@@ -95,6 +96,7 @@ export const LAWMIND_ROUTE_HANDLERS: LawmindRouteHandler[] = [
   (args) => handleRecordRoutes(args),
   (args) => handleJobRoutes(args),
   (args) => handleCollaborationRoutes(args),
+  (args) => handleHostAccessRoutes(args),
   (args) => handlePlatformRoutes(args),
   (args) => handleAuditExportSummaryRoute(args),
   (args) => handleAuditVerifyExternalRoute(args),

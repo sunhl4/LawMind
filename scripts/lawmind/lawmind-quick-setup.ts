@@ -87,7 +87,7 @@ function buildPresetContent(preset: PresetId): string {
   const commonGeneralDeepSeek = [
     "# General model provider (DeepSeek)",
     "LAWMIND_DEEPSEEK_API_KEY=",
-    "LAWMIND_DEEPSEEK_MODEL=deepseek-chat",
+    "LAWMIND_DEEPSEEK_MODEL=deepseek-flash",
     "",
   ];
 

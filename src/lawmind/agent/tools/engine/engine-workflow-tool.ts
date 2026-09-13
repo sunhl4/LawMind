@@ -241,6 +241,8 @@ export const executeWorkflow: AgentTool = {
           memory,
           adapters: buildAdaptersFromEnv(ctx.workspaceDir, {
             allowWebSearch: ctx.allowWebSearch === true,
+            webSearchModel: ctx.webSearchModel,
+            envFile: ctx.envFile,
           }),
           workspacePolicy: readWorkspacePolicyFile(ctx.workspaceDir),
           allowWebSearch: ctx.allowWebSearch === true,
@@ -288,10 +290,13 @@ export const executeWorkflow: AgentTool = {
           memory: await loadMemoryContext(ctx.workspaceDir, { matterId: intent.matterId }),
           adapters: buildAdaptersFromEnv(ctx.workspaceDir, {
             allowWebSearch: ctx.allowWebSearch === true,
+            webSearchModel: ctx.webSearchModel,
+            envFile: ctx.envFile,
           }),
           signal: ctx.abortSignal,
           wordRevisionTurn: ctx.wordRevisionTurn,
           mailContractTurn: ctx.mailContractTurn,
+          contractFastLaneTurn: ctx.contractFastLaneTurn,
         });
         bundle = trial.bundle;
         if (trial.attempted) {
@@ -530,6 +535,7 @@ export const executeWorkflow: AgentTool = {
         const result = await engine.render(draft, {
           strictGates: false,
           citationGateStrict: false,
+          projectDir: ctx.projectDir,
         });
         if (result.ok) {
           finalStatus = "delivered";

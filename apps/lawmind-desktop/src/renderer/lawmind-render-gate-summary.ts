@@ -1,4 +1,4 @@
-import type { AcceptanceReport } from "../../../../src/lawmind/deliverables/index.ts";
+import type { AcceptanceReport } from "../../../../src/lawmind/deliverables/types.ts";
 import type { ArtifactDraft } from "../../../../src/lawmind/types.ts";
 
 /** Short inline summary when render / pack export is disabled. */

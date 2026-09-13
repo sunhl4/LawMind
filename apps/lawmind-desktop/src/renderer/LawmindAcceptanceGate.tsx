@@ -6,7 +6,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import type {
   AcceptanceReport,
   ReasoningReport,
-} from "../../../../src/lawmind/deliverables/index.ts";
+} from "../../../../src/lawmind/deliverables/types.ts";
 import { humanizeAcceptanceLabel, buildAcceptanceChatPrompt } from "./lawmind-acceptance-labels";
 
 type Props = {

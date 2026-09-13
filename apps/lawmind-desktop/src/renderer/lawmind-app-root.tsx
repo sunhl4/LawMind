@@ -17,7 +17,7 @@ import { apiGetJson } from "./api-client";
 import { useLawyerReviewDesktopNotify } from "./lawmind-lawyer-review-notify";
 import { applyAllUiPrefs } from "./lawmind-ui-prefs";
 
-import { resolveWorkspacePath, artifactApiRelFromOutput } from "./lawmind-app-utils";
+import { resolveOpenableOutputPath, artifactApiRelFromOutput } from "./lawmind-app-utils";
 import { scheduleScrollChatMessagesToLatest } from "./lawmind-chat-scroll";
 import { useLawmindAppRootHandlers } from "./app/useLawmindAppRootHandlers";
 import { useLawmindAppRootLayout } from "./app/useLawmindAppRootLayout";
@@ -406,7 +406,7 @@ export function LawmindAppRoot() {
     if (!config) {
       return;
     }
-    const rel = artifactApiRelFromOutput(outputPath);
+    const rel = artifactApiRelFromOutput(outputPath, config.workspaceDir);
     if (!rel) {
       return;
     }
@@ -418,7 +418,7 @@ export function LawmindAppRoot() {
     if (!config || !outputPath || !canUseFilesystemBridge) {
       return;
     }
-    const full = resolveWorkspacePath(config.workspaceDir, outputPath);
+    const full = resolveOpenableOutputPath(config.workspaceDir, outputPath);
     void window.lawmindDesktop?.showItemInFolder?.(full);
   };
 

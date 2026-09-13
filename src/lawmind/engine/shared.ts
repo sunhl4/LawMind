@@ -13,10 +13,8 @@ import { openQueueItem } from "../application/services/queue-write-service.js";
 import { emit } from "../audit/index.js";
 import { taskProgressPrefix } from "../cases/task-display.js";
 import { buildDeliverableFromDraft } from "../core/contracts.js";
-import {
-  specRequiresReasoningGraphAtDraft,
-  validateReasoningGraphAtDraft,
-} from "../deliverables/reasoning-validator.js";
+import { validateReasoningGraphAtDraft } from "../deliverables/reasoning-validator-workspace.js";
+import { specRequiresReasoningGraphAtDraft } from "../deliverables/reasoning-validator.js";
 import { getDeliverableSpec } from "../deliverables/registry.js";
 import type { WorkspaceSpecWarning } from "../deliverables/workspace-loader.js";
 import {

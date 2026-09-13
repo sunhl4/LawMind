@@ -23,6 +23,7 @@ import { withSessionTurnGate } from "./session-turn-gate.js";
 import { appendTurn, createSession, loadSession, saveSession } from "./session.js";
 import { mergeTurnDisclosedToolNames } from "./tools/disclosed-turn-tools.js";
 import { resolveModelToolNames } from "./tools/governance.js";
+import { pickWebSearchModel } from "./tools/lawmind-web-search.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import {
   bindTurnAbortSignal,
@@ -31,8 +32,11 @@ import {
   requestTurnAbort,
 } from "./turn-abort.js";
 import type { RunTurnEvent } from "./turn-orchestrator-events.js";
+import { pruneTurnPlanForNewInstruction, withUpdatePlanControlTool } from "./turn-plan.js";
 export type { RunTurnEvent } from "./turn-orchestrator-events.js";
+import { resolveLawMindRoot } from "../assistants/store.js";
 import type { MemoryContext } from "../memory/index.js";
+import { isContractFastLaneInstruction } from "../platform/contract-fast-lane-instruction.js";
 import { extractSuggestedReplyTo } from "../platform/mail-contract-short-path-instruction.js";
 import { isMailContractFastPathInstruction } from "../platform/mail-contract-short-path-instruction.js";
 import { resolvePlaybookToolLock } from "../platform/playbook-tool-lock.js";
@@ -42,8 +46,11 @@ import {
   readWorkspacePolicyFile,
   resolveAgentMandatoryRulesForPrompt,
 } from "../policy/workspace-policy.js";
+import { selectHardClarificationKeys } from "../router/intake-gate.js";
+import { contextUsesHostFileLedger } from "../runtime/tool-pipeline.js";
 import { ensureLawyerWorkForTurn } from "../work/goal.js";
 import { intersectAllowedToolNames } from "./child-gates.js";
+import { mergeConfirmedAnswers } from "./confirmed-answers.js";
 import { resolveToolCallBudgets } from "./tool-budget.js";
 import {
   cleanupFailedTurn,
@@ -56,6 +63,7 @@ import { prepareTurnPromptContext, resolveAssistantTooling } from "./turn-orches
 import {
   tryAutoDeliverableWorkflowShortcut,
   tryIntakeClarificationShortcut,
+  tryPublicWebFactShortcut,
 } from "./turn-orchestrator-shortcuts.js";
 import { freezeTurnContext } from "./turn-step-context.js";
 import type { AgentConfig, AgentContext, AgentTurn } from "./types.js";
@@ -99,6 +107,8 @@ export async function runTurn(opts: {
   skipToolBudgetCheckpoint?: boolean;
   /** Resume from a checkpoint: keep the prior tool-call count (hard ceiling stays cumulative). */
   initialToolCallsExecuted?: number;
+  /** Lawyer-confirmed clarification answers for Guardian evidence this turn. */
+  confirmedAnswers?: Record<string, string>;
 }): Promise<{ turn: AgentTurn; reply: string; sessionId: string; memoryContext: MemoryContext }> {
   const existingSessionId = opts.sessionId?.trim();
   if (existingSessionId && !opts.skipSessionTurnGate) {
@@ -151,6 +161,7 @@ export async function runTurn(opts: {
   if (matterId && !session.matterId) {
     session.matterId = matterId;
   }
+  session.turnPlan = pruneTurnPlanForNewInstruction(session.turnPlan, instruction);
 
   try {
     ensureLawyerWorkForTurn({
@@ -181,6 +192,14 @@ export async function runTurn(opts: {
     historyText,
   });
   const mailContractTurn = isMailContractFastPathInstruction(instruction);
+  const contractFastLaneTurn = isContractFastLaneInstruction(instruction);
+  const confirmedAnswers = mergeConfirmedAnswers(
+    session.lastConfirmedAnswers,
+    opts.confirmedAnswers,
+  );
+  if (confirmedAnswers) {
+    session.lastConfirmedAnswers = confirmedAnswers;
+  }
 
   const ctx: AgentContext = {
     workspaceDir: config.workspaceDir,
@@ -189,15 +208,29 @@ export async function runTurn(opts: {
     actorId,
     assistantId: resolvedAssistantId,
     projectDir: projectDirResolved,
+    hostAccessFile: process.env.LAWMIND_HOST_ACCESS_FILE?.trim() || undefined,
     linkedTaskId: linkedTaskIdForCtx,
     allowWebSearch: config.allowWebSearch === true,
+    webSearchModel:
+      pickWebSearchModel(
+        config.model.apiKey
+          ? {
+              baseUrl: config.model.baseUrl,
+              apiKey: config.model.apiKey,
+              model: config.model.model,
+              timeoutMs: config.model.timeoutMs,
+            }
+          : null,
+        resolveLawMindRoot(config.workspaceDir, config.envFile),
+      ) ?? undefined,
     permissionMode,
     collaborationEnabled: config.enableCollaboration === true,
     envFile: config.envFile,
     // 跨轮澄清硬门禁：上一轮以 awaiting_clarification 结束时，本轮默认拦截
     // 起草/工作流/渲染等重工具；结构化 resume（律师逐条作答）在 runtime-resume
     // 中显式清键放行；普通新消息若未再提出澄清，finalize 清键后下一轮放行。
-    clarificationBlockingHeavyTools: (session.pendingClarificationKeys?.length ?? 0) > 0,
+    clarificationBlockingHeavyTools:
+      selectHardClarificationKeys(session.pendingClarificationKeys).length > 0,
     strictDangerousToolApproval,
     preApproveToolName: opts.preApproveToolName?.trim() || undefined,
     preApproveToolArgs: opts.preApproveToolArgs,
@@ -209,6 +242,9 @@ export async function runTurn(opts: {
     outboundPinnedTo: extractSuggestedReplyTo(instruction),
     wordRevisionTurn,
     mailContractTurn,
+    contractFastLaneTurn,
+    reviewModel: config.workerModel ?? config.model,
+    ...(confirmedAnswers ? { confirmedAnswers } : {}),
   };
 
   // 2. 先定本轮生效工具集：W7 Role.allowedToolNames 优先，回退 preset；
@@ -229,6 +265,8 @@ export async function runTurn(opts: {
     playbookLock?.allowNames,
   );
   const lockToAllowNames = Boolean(playbookLock);
+  const registeredNames = registry.listDefinitions().map((def) => def.name);
+  const allowNamesForExec = withUpdatePlanControlTool(allowNamesRaw, registeredNames);
   const hiddenTools = hiddenPolicyToolNames(config.workspaceDir);
   session.disclosedToolNames = mergeTurnDisclosedToolNames({
     session,
@@ -237,6 +275,7 @@ export async function runTurn(opts: {
     registry,
     hiddenNames: hiddenTools,
     instruction,
+    projectDir: projectDirResolved,
   });
   const modelToolNames = resolveModelToolNames({
     registeredNames: registry.listDefinitions().map((def) => def.name),
@@ -272,7 +311,7 @@ export async function runTurn(opts: {
     timestamp: new Date().toISOString(),
   });
 
-  ctx.allowedToolNames = allowNamesRaw;
+  ctx.allowedToolNames = allowNamesForExec;
   ctx.toolSandboxEnabled = toolSandboxEnabled;
   const openAITools = registry.toOpenAITools({ names: modelToolNames });
   const turnContext = freezeTurnContext({
@@ -283,9 +322,10 @@ export async function runTurn(opts: {
     model: config.model.model,
     actorId,
     sandboxEnabled: toolSandboxEnabled,
-    allowNames: allowNamesRaw,
+    allowNames: allowNamesForExec,
     lockToAllowNames,
     wordRevisionTurn,
+    hostFileLedger: contextUsesHostFileLedger(ctx),
     hiddenToolNames: hiddenTools,
   });
   ctx.permissionMode = turnContext.permissionMode;
@@ -490,6 +530,20 @@ export async function runTurn(opts: {
       return finishShortCircuitTurn(finalizeShared(), connectivityReply);
     }
 
+    const publicWebResult = await tryPublicWebFactShortcut({
+      instruction,
+      ctx,
+      turn,
+      registry,
+      shared: finalizeShared(),
+      emitEvent,
+      abortRequested,
+      onAborted: finishAbortedByUser,
+    });
+    if (publicWebResult) {
+      return publicWebResult;
+    }
+
     const intakePolicy = readWorkspacePolicyFile(config.workspaceDir);
     const intakeResult = tryIntakeClarificationShortcut({
       hasContextPins: Array.isArray(opts.contextPins) && opts.contextPins.length > 0,
@@ -549,8 +603,11 @@ export async function runTurn(opts: {
       toolSandboxEnabled,
       policyHints: {
         allowedToolNames: lockToAllowNames
-          ? allowNamesRaw
-          : (roleForTools?.allowedToolNames ?? presetForTools?.allowedToolNames),
+          ? allowNamesForExec
+          : withUpdatePlanControlTool(
+              roleForTools?.allowedToolNames ?? presetForTools?.allowedToolNames,
+              registeredNames,
+            ),
         allowlistDenyHint: playbookLock?.denyHint,
         roleId: roleForTools?.roleId,
         riskCeiling: roleForTools?.riskCeiling ?? presetForTools?.riskCeiling,

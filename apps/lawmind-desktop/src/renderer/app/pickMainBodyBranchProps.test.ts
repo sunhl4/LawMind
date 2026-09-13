@@ -143,6 +143,7 @@ describe("pickMainBodyBranchProps", () => {
       baseProps({ onGoToChat, onSelectMatterKey, onCreateMatter }),
     );
     expect(props?.apiBase).toBe("http://127.0.0.1:9");
+    expect(props?.workspaceDir).toBe("/tmp/ws");
     props?.onSelectMatter("demo-matter");
     expect(onSelectMatterKey).toHaveBeenCalledWith("demo-matter");
     props?.onGoToChat({ matterId: "demo-matter", prompt: "【办件】" });

@@ -61,6 +61,7 @@ describe("LawmindLawyerWorkbench", () => {
       root.render(
         <LawmindLawyerWorkbench
           apiBase="http://127.0.0.1:9"
+          workspaceDir="/Users/shl/nvidia/LawMind"
           selectedMatterId={null}
           onSelectMatter={vi.fn()}
           onGoToChat={vi.fn()}
@@ -70,8 +71,13 @@ describe("LawmindLawyerWorkbench", () => {
     await flush();
     expect(host.querySelector('[data-testid="lm-lawyer-workbench"]')).toBeTruthy();
     expect(host.textContent).toContain("工作台");
+    expect(host.querySelector('[data-testid="lm-lawyer-desk-kicker"]')?.textContent).toMatch(
+      /LawMind · 0 个案件/,
+    );
     expect(host.querySelector('[data-testid="lm-lawyer-cockpit"]')).toBeTruthy();
     expect(host.querySelectorAll(".lm-desk-col")).toHaveLength(3);
+    expect(host.querySelector(".lm-desk-col--matters")).toBeTruthy();
+    expect(host.querySelector('[aria-label="在办案件"]')).toBeTruthy();
     expect(host.textContent).toContain("快捷入口");
     expect(host.querySelector('[data-testid="lm-lawyer-today-plan-input"]')).toBeTruthy();
     expect(host.querySelector('[data-testid="lm-lawyer-today-progress"]')?.textContent).toContain("0");
@@ -154,6 +160,7 @@ describe("LawmindLawyerWorkbench", () => {
       root.render(
         <LawmindLawyerWorkbench
           apiBase="http://127.0.0.1:9"
+          workspaceDir="/tmp/ws"
           selectedMatterId={null}
           onSelectMatter={onSelectMatter}
           onGoToChat={vi.fn()}
@@ -166,6 +173,7 @@ describe("LawmindLawyerWorkbench", () => {
     expect(host.textContent).toContain("写代理词");
     expect(host.textContent).toContain("待回复");
     expect(host.textContent).toContain("买卖合同纠纷");
+    expect(host.querySelector('[data-testid="lm-lawyer-desk-kicker"]')?.textContent).toMatch(/ws · 1 个案件/);
     expect(host.querySelector('[data-testid="lm-lawyer-stat-mail"]')?.textContent).toContain("1");
     expect(host.querySelector('[data-testid="lm-lawyer-progress-board"]')?.textContent).toContain("写代理词");
     expect(host.textContent).toContain("还有 11 天开庭");

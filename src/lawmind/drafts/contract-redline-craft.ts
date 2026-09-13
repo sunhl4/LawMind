@@ -33,19 +33,18 @@ export const CONTRACT_REDLINE_CRAFT_SKILL = [
   "1. **先通读再动手**：全文 + 邮件要求 + 批注/对方修订痕迹，形成争点清单后再改。",
   "2. **必要性**：只改对己方实质风险、立场或邮件要求真正必要的点。",
   "3. **覆盖完整**：已判定实质必要的点，应处理或明确缓办并写明理由——不要无声漏掉。",
-  "4. **缓办诚实**：立场不明、需客户拍板、或无法用精确原文定位时，写入 summary 的 deferred，勿瞎改。",
+  "4. **缓办诚实**：立场不明、需客户拍板、或无法用精确原文定位时，写入 `craft_check.deferred`，勿瞎改。",
   "",
   "## 工作流",
   "1. 列出实质争点（来源：邮件 / 批注 / 对方修订 / 风险扫描）。",
   "2. 逐项决定：落改 | 缓办+理由。",
   "3. 落改用 `apply_surgical_edits`：每组 find=最短锚定；被硬门禁跳过的条收窄后重交。",
-  "4. 调用时附上 `craft_check`（自评），再 `render_tracked_draft`。",
+  "4. `craft_check` 只填 `deferred`（缓办+理由），不要给自己打覆盖率。交卷时独立审稿员只看 hunk/清单/引用证据。",
+  "5. 再 `render_tracked_draft`。审稿未过会把缺口作为工具结果打回；按缺口补改，不要改审稿措辞。",
   "",
-  "## 自评量规（写入 craft_check / summary）",
-  "- **coverage**：实质争点是否均已落改或缓办说明？",
-  "- **restraint**：是否每处都守住字/词级跨度？",
-  "- **fidelity**：是否保留句内未改文字？",
-  "- **trace**：每处改动能否回溯到邮件、批注或明确风险？",
+  "## 缓办（写入 craft_check.deferred）",
+  "- 立场不明、需客户拍板、或无法用精确原文定位时写入 deferred，勿瞎改。",
+  "- 覆盖是否完整由交卷审稿员根据证据判断，不看写者自评。",
   "",
   "空修订不得导出；跨度违规不得落改。",
 ].join("\n");
@@ -129,7 +128,7 @@ export function evaluateCraftCheck(check: CraftCheckInput | undefined): Surgical
       level: "info",
       code: "craft_check_missing",
       message:
-        "未附 craft_check。建议补充 coverage/restraint/deferred（不阻断已通过硬门禁的落改）。",
+        "未附 craft_check。请在同一调用中附 deferred（无缓办则 []）后重交；缺失会作为工具错误打回，本回合不得结束。",
     });
     return signals;
   }

@@ -22,9 +22,14 @@ describe("user-standards", () => {
   });
 
   it("ships builtin contract review and matches a client-specific standard", async () => {
-    expect(loadUserStandards(workspaceDir).some((s) => s.id === "builtin-contract-review")).toBe(
-      true,
-    );
+    const builtins = loadUserStandards(workspaceDir);
+    expect(builtins.some((s) => s.id === "builtin-contract-review")).toBe(true);
+    expect(builtins.some((s) => s.id === "builtin-litigation-intake")).toBe(true);
+    expect(
+      builtins
+        .find((s) => s.id === "builtin-contract-review")
+        ?.items.some((i) => i.tone === "never_accept"),
+    ).toBe(false);
     await saveUserStandard(workspaceDir, {
       title: "某集团采购口径",
       kind: "contract_review",
@@ -44,6 +49,30 @@ describe("user-standards", () => {
       "contract_review",
     );
     expect(miss.some((s) => s.title === "某集团采购口径")).toBe(false);
+  });
+
+  it("does not stack the China checklist onto the service fallback", () => {
+    const generic = matchUserStandards(
+      workspaceDir,
+      { instruction: "审查这份合同", contractType: "service" },
+      "contract_review",
+    );
+    expect(generic.some((s) => s.id === "builtin-contract-review")).toBe(true);
+    expect(generic.some((s) => s.id === "builtin-cn-contract-checklist")).toBe(false);
+
+    const sale = matchUserStandards(
+      workspaceDir,
+      { instruction: "审查采购合同", contractType: "sale" },
+      "contract_review",
+    );
+    expect(sale.some((s) => s.id === "builtin-cn-contract-checklist")).toBe(true);
+
+    const keyword = matchUserStandards(
+      workspaceDir,
+      { instruction: "按中国合同审查清单审顾问协议", contractType: "service" },
+      "contract_review",
+    );
+    expect(keyword.some((s) => s.id === "builtin-cn-contract-checklist")).toBe(true);
   });
 
   it("learned candidates stay disabled until enabled", async () => {

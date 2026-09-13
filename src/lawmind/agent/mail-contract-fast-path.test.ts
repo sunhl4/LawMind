@@ -33,7 +33,7 @@ describe("mail-contract-fast-path", () => {
     expect(MAIL_CONTRACT_FAST_PATH_PROMPT).toContain("apply_surgical_edits");
     expect(MAIL_CONTRACT_FAST_PATH_PROMPT).toContain("空修订");
     expect(MAIL_CONTRACT_FAST_PATH_PROMPT).toContain("Craft");
-    expect(MAIL_CONTRACT_FAST_PATH_PROMPT).toContain("自评量规");
+    expect(MAIL_CONTRACT_FAST_PATH_PROMPT).toContain("独立审稿员");
     expect(MAIL_CONTRACT_FAST_PATH_PROMPT).toContain("craft_check");
     expect(MAIL_CONTRACT_FAST_PATH_PROMPT).toContain("最小修改");
     expect(MAIL_CONTRACT_FAST_PATH_PROMPT).toContain("能改几个字就只改几个字");

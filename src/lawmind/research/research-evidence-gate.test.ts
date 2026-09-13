@@ -41,6 +41,18 @@ describe("evaluateResearchEvidenceGate", () => {
     expect(r.block).toBe(true);
     expect(r.gateDecision?.gate).toBe("research_evidence_gate");
     expect(r.nextActions).toContain("enable_web_search");
+    expect(r.nextStep).toContain("开启联网检索");
+  });
+
+  it("does not tell the lawyer to enable web search when it is already on", () => {
+    const r = evaluateResearchEvidenceGate({
+      deliverableType: "report.compliance",
+      bundle: bundle({ sources: [{ id: "s1", title: "orphan", kind: "web" }] }),
+      allowWebSearch: true,
+    });
+    expect(r.block).toBe(true);
+    expect(r.nextStep).toContain("模型 Key");
+    expect(r.nextStep).not.toMatch(/请先开启联网检索/);
   });
 
   it("blocks demo corpus for learning", () => {

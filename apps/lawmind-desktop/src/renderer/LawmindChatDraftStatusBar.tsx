@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { ArtifactDraft } from "../../../../src/lawmind/types.ts";
-import type { DraftScaffoldView } from "../../../../src/lawmind/deliverables/index.ts";
+import type { DraftScaffoldView } from "../../../../src/lawmind/deliverables/scaffold-status.ts";
 import { scaffoldReviewBannerText } from "./lawmind-scaffold-copy";
 import type { GateDecision } from "../../../../src/lawmind/platform/contracts.ts";
 import { apiGetJson } from "./api-client";

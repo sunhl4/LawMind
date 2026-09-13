@@ -64,6 +64,7 @@ export type DeliverableType =
   | "memo.research"
   | "labor.calc"
   | "period.calc"
+  | "analysis.table"
   | "matter.timeline"
   | "matter.exhibit_list"
   | "meeting.minutes"

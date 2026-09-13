@@ -2,7 +2,7 @@
  * Review/workbench gate decision derivation — shared by desktop server and UI.
  */
 
-import type { AcceptanceReport } from "../deliverables/index.js";
+import type { AcceptanceReport } from "../deliverables/types.js";
 import type { ArtifactDraft } from "../types.js";
 import type { GateDecision } from "./contracts.js";
 import { withGateCategory } from "./gate-category.js";
@@ -63,6 +63,7 @@ export function gateDecisionLabel(gate: GateDecision["gate"]): string {
     citation_integrity_gate: "引用对不上来源",
     outbound_privilege_gate: "发前需确认特权",
     outbound_recipient_gate: "发前需确认收件人",
+    legal_guardian_gate: "独立审稿",
   };
   return labels[gate];
 }

@@ -6,7 +6,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { CONTRACT_REDLINE_CRAFT_SKILL } from "../drafts/contract-redline-craft.js";
 import type { ComposeContextPin } from "../platform/compose-context-pin.js";
+import { isContractFastLaneInstruction } from "../platform/contract-fast-lane-instruction.js";
 import { isMailContractFastPathInstruction } from "../platform/mail-contract-short-path-instruction.js";
 import { isWordRevisionTurn } from "../platform/word-revision-instruction.js";
 import { LPM_MEMO_INSTRUCTION_RE } from "../practice/lpm-matter-columns.js";
@@ -20,6 +22,7 @@ import {
   COURT_SMS_RE,
   DATA_COMPLIANCE_RE,
   FAMILY_MATTER_RE,
+  isPublicWebFactLookup,
   GOVERNANCE_RE,
   INVOICE_RE,
   IP_DISPUTE_RE,
@@ -85,7 +88,7 @@ export const LAWYER_CAPABILITIES: readonly LawyerCapability[] = [
     ],
     pipeline: "execute_workflow",
     pipelineHint:
-      "必须走 `execute_workflow` / `draft_document`。意见须含宏观/中观/微观与推荐措辞。有钉选 Word 时完成=意见+`apply_surgical_edits`→`render_tracked_draft`。原 Word / 邮件红线不走本意见骨架。空修订不得导出。写条号前先 `search_statute` 试检 1–2 条。",
+      "未锁时优先 `execute_workflow` / `draft_document`；锁路径按本轮工具表。意见须含宏观/中观/微观与推荐措辞。有钉选 Word 且本回合开放改稿工具时完成=意见+`apply_surgical_edits`→`render_tracked_draft`。原 Word / 邮件红线不走本意见骨架。空修订不得导出。写条号前若本回合开放 `search_statute` 则先试检 1–2 条。",
   },
   {
     id: "letter.draft",
@@ -99,7 +102,7 @@ export const LAWYER_CAPABILITIES: readonly LawyerCapability[] = [
     ],
     pipeline: "execute_workflow",
     pipelineHint:
-      "必须走 `execute_workflow` / `draft_document`。缺收件人且无材料时才硬澄清；否则边写边标【待补充】。",
+      "未锁时优先 `execute_workflow` / `draft_document`；锁路径按本轮工具表。缺收件人且无材料时才硬澄清；否则边写边标【待补充】。",
   },
   {
     id: "research.memo",
@@ -135,7 +138,7 @@ export const LAWYER_CAPABILITIES: readonly LawyerCapability[] = [
     ],
     pipeline: "execute_workflow",
     pipelineHint:
-      "必须走 `execute_workflow`。主体/诉请缺口标【待补充】或硬澄清，不得空跑外发。起诉状走要素母版（线性栏目，不要 markdown 表）。期限用 `calculate`（legal_period）。",
+      "未锁时优先 `execute_workflow`；锁路径按本轮工具表。主体/诉请缺口标【待补充】或硬澄清，不得空跑外发。起诉状走要素母版（线性栏目，不要 markdown 表）。期限用 `calculate`（legal_period）。",
   },
   {
     id: "litigation.talk",
@@ -162,7 +165,8 @@ export const LAWYER_CAPABILITIES: readonly LawyerCapability[] = [
       "delivery-language",
     ],
     pipeline: "execute_workflow",
-    pipelineHint: "必须走 `execute_workflow`。待审核稿只称初稿/供审核稿，不得写成可对外签发。",
+    pipelineHint:
+      "未锁时优先 `execute_workflow`；锁路径按本轮工具表。待审核稿只称初稿/供审核稿，不得写成可对外签发。",
   },
   {
     id: "mail.contract",
@@ -195,7 +199,8 @@ export const LAWYER_CAPABILITIES: readonly LawyerCapability[] = [
       "delivery-language",
     ],
     pipeline: "execute_workflow",
-    pipelineHint: "必须走 `execute_workflow` / `draft_document`。路由卡 + 条款骨架；缺口写在稿里。",
+    pipelineHint:
+      "未锁时优先 `execute_workflow` / `draft_document`；锁路径按本轮工具表。路由卡 + 条款骨架；缺口写在稿里。",
   },
   {
     id: "labor.calc",
@@ -382,6 +387,9 @@ function capabilityForDeliverableType(dt: string): LawyerCapability | undefined 
   if (dt === "period.calc") {
     return BY_ID.get("period.calc");
   }
+  if (dt === "analysis.table") {
+    return BY_ID.get("materials.draft");
+  }
   if (dt === "memo.research") {
     return BY_ID.get("research.memo");
   }
@@ -424,6 +432,9 @@ export function bindLawyerCapability(
     return boundFromId(lockedId, input.deliverableType);
   }
   if (!instruction || instruction.length < 4) {
+    return null;
+  }
+  if (isPublicWebFactLookup(instruction)) {
     return null;
   }
   const mailFastPath = input.mailFastPath ?? isMailContractFastPathInstruction(instruction);
@@ -549,6 +560,9 @@ export function readSkillPromptBodies(
         body = null;
       }
     }
+    if (id === "contract-redline-craft") {
+      body = CONTRACT_REDLINE_CRAFT_SKILL;
+    }
     body ??= readBuiltinSkillMarkdown(id);
     if (body?.trim()) {
       bodies.push(body.trim());
@@ -557,10 +571,23 @@ export function readSkillPromptBodies(
   return bodies;
 }
 
+export function resolveCapabilityPipelineHint(
+  bound: BoundLawyerCapability,
+  instruction?: string,
+): string {
+  if (bound.pipeline === "tracked_redline" || bound.id === "mail.contract") {
+    return bound.pipelineHint;
+  }
+  if (instruction && isContractFastLaneInstruction(instruction)) {
+    return "必须走 `draft_document` / `update_draft`。按宏观/中观/微观写完意见并给推荐措辞。本回合不检索、不改 Word。缺事实仍交付已完成部分。";
+  }
+  return bound.pipelineHint;
+}
+
 export function formatBoundCapabilityBlock(
   bound: BoundLawyerCapability,
   skillBodies: readonly string[],
-  opts?: { indexLines?: readonly string[] },
+  opts?: { indexLines?: readonly string[]; instruction?: string },
 ): string {
   const typeLine = bound.deliverableType ? `\n交付物类型：\`${bound.deliverableType}\`` : "";
   const index =
@@ -570,7 +597,7 @@ export function formatBoundCapabilityBlock(
   return [
     `## 本轮 LawMind 能力：${bound.label}`,
     `能力 ID：\`${bound.id}\`。这是产品化办件（Skill + 流水线 + 验收），不是自由发挥。${typeLine}`,
-    bound.pipelineHint,
+    resolveCapabilityPipelineHint(bound, opts?.instruction),
     "本流程由律师在「办件」选定或指令已带能力锁；按锁执行，不要靠激活词猜测。",
     ...skillBodies,
     index,

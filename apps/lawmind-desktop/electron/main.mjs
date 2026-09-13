@@ -28,8 +28,17 @@ import {
   installAppRendererProcessGoneHandler,
   installRendererRecovery,
 } from "./renderer-recovery.mjs";
+import {
+  LAWMIND_PRODUCT_NAME,
+  applyProductName,
+  pinDevUserData,
+  resolveRuntimeAppIconPath,
+} from "./brand.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const appIconPath = resolveRuntimeAppIconPath(__dirname);
+applyProductName(app);
+pinDevUserData(app);
 
 /** @type {import("electron").BrowserWindow | null} */
 let mainWindowRef = null;
@@ -123,9 +132,12 @@ async function createWindow() {
   await ensureBackend();
 
   const mainWindow = new BrowserWindow({
-    width: 1100,
-    height: 780,
-    title: "LawMind",
+    width: 1280,
+    height: 840,
+    minWidth: 1024,
+    minHeight: 720,
+    title: LAWMIND_PRODUCT_NAME,
+    icon: appIconPath,
     autoHideMenuBar: true,
     webPreferences: {
       // CommonJS preload is more reliable than .mjs across Electron versions.
@@ -161,6 +173,9 @@ async function createWindow() {
 
 void app.whenReady().then(async () => {
   try {
+    if (process.platform === "darwin" && app.dock) {
+      app.dock.setIcon(appIconPath);
+    }
     installIpcHandlers();
     setupApplicationMenu();
     installAppRendererProcessGoneHandler(() => createWindow());

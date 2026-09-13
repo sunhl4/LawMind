@@ -12,6 +12,7 @@ export const WORLD_STATE_SECTION_IDS = [
   "pins",
   "permission",
   "matter",
+  "plan",
 ] as const;
 
 export type WorldStateSectionId = (typeof WORLD_STATE_SECTION_IDS)[number];
@@ -112,16 +113,71 @@ export function stabilizeUnchangedWorldState(
   return out;
 }
 
-export function formatPermissionWorldState(mode: string): string {
-  if (mode === "readonly" || mode === "research") {
-    return `权限模式：${mode}（写工具关闭；路径仍受工作区根约束，不是「读不到 ~/.env」的 OS 沙箱。本 turn 冻结）`;
-  }
-  return `权限模式：${mode}（本 turn 冻结，steer 不得改写）`;
+export function formatPermissionWorldState(
+  mode: string,
+  opts?: { allowWebSearch?: boolean },
+): string {
+  const write = mode === "readonly" || mode === "research" ? "off" : "on";
+  const network = opts?.allowWebSearch === true ? "web_search" : "off";
+  return [
+    "<environment>",
+    `  <permission_mode>${mode}</permission_mode>`,
+    `  <write_tools>${write}</write_tools>`,
+    `  <network>${network}</network>`,
+    "  <path_scope>workspace_roots</path_scope>",
+    "  <os_sandbox>false</os_sandbox>",
+    "  <turn_frozen>true</turn_frozen>",
+    "</environment>",
+  ].join("\n");
 }
 
 export function formatMatterWorldState(matterId: string | undefined): string {
   const id = matterId?.trim();
   return id ? `案件：${id}` : "";
+}
+
+/** Prepend a short operational fragment to the craft section (Codex-style warning). */
+export function prependWorldStateCraft(systemText: string, fragment: string): string {
+  const trimmed = fragment.trim();
+  if (!trimmed) {
+    return systemText;
+  }
+  const existing = extractWorldStateSection(systemText, "craft") ?? "";
+  if (existing.includes(trimmed)) {
+    return existing.length > 0 ? systemText : upsertWorldStateSection(systemText, "craft", trimmed);
+  }
+  const merged = existing ? `${trimmed}\n\n${existing}` : trimmed;
+  return upsertWorldStateSection(systemText, "craft", merged);
+}
+
+export type WorldStateCraftHost = {
+  conversationHistory: Array<{ role: string; content: string }>;
+  worldStateBaseline?: WorldStateBaseline;
+  worldStateEpoch?: number;
+  legacyUpdateDraftBodyWarning?: boolean;
+};
+
+/**
+ * Consume a pending craft patch from the shared tool ctx onto the live system
+ * message so the next model round in this turn sees it.
+ */
+export function applyPendingWorldStateCraftPatch(
+  session: WorldStateCraftHost,
+  ctx: { pendingWorldStateCraftPatch?: string },
+): boolean {
+  const patch = ctx.pendingWorldStateCraftPatch?.trim();
+  if (!patch) {
+    return false;
+  }
+  ctx.pendingWorldStateCraftPatch = undefined;
+  session.legacyUpdateDraftBodyWarning = true;
+  const sys = session.conversationHistory.find((m) => m.role === "system");
+  if (sys) {
+    sys.content = prependWorldStateCraft(sys.content, patch);
+    session.worldStateBaseline = collectWorldStateHashes(sys.content);
+    session.worldStateEpoch = (session.worldStateEpoch ?? 0) + 1;
+  }
+  return true;
 }
 
 export function appendPinIdsToWorldState(systemText: string, pinIds: string[]): string {

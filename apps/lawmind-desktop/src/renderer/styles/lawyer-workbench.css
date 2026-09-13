@@ -29,7 +29,8 @@
   min-width: 0;
   flex: 1;
   padding: 20px var(--desk-pad) 18px;
-  overflow: hidden;
+  /* Must scroll: dock is flex-shrink:0 and can crush the cockpit to 0 height. */
+  overflow: auto;
   background-color: var(--bg);
   background-image:
     radial-gradient(1100px 380px at 6% -12%, rgba(166, 124, 82, 0.1), transparent 56%),
@@ -107,8 +108,14 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
-  min-height: 0;
-  flex: 1;
+  /*
+   * IRON: cockpit must stay visible. Dock/progress-board are flex-shrink:0;
+   * if this uses flex-shrink:1 + min-height:0, narrow windows crush it to 0px
+   * (user sees only 事项表 + 快捷入口, thinks 工作台 is broken).
+   * Parent .lm-lawyer-workbench scrolls instead.
+   */
+  flex: 1 0 auto;
+  min-height: 320px;
 }
 
 .lm-desk-col {
@@ -1241,19 +1248,18 @@
     grid-template-columns: 1fr;
   }
 
-  .lm-lawyer-cockpit,
   .lm-overview,
-  .lm-desk-quick,
   .lm-pulse-bar {
     grid-template-columns: 1fr;
   }
 
-  .lm-lawyer-cockpit {
-    overflow: auto;
+  /* Keep quick entries compact — a 1-col stack was crushing the cockpit to 0 height. */
+  .lm-desk-quick {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .lm-desk-col {
-    min-height: 300px;
+  .lm-desk-quick-btn {
+    min-height: 88px;
   }
 
   .lm-desk-dock {
@@ -1267,5 +1273,29 @@
 
   .lm-pane-tabs {
     overflow-x: auto;
+  }
+}
+
+/* Default Electron window is ~1100px. Keep 在办案件 as a column until phone-narrow. */
+@media (max-width: 860px) {
+  .lm-lawyer-cockpit {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .lm-lawyer-cockpit .lm-desk-col--matters {
+    order: -3;
+  }
+
+  .lm-lawyer-cockpit .lm-desk-col--act {
+    order: -2;
+  }
+
+  .lm-lawyer-cockpit .lm-desk-col--time {
+    order: -1;
+  }
+
+  .lm-desk-col {
+    min-height: 300px;
   }
 }

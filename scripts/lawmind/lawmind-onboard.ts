@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { defaultMemoryMarkdown } from "../../src/lawmind/memory/templates.js";
 
 type PresetId =
   | "qwen-only"
@@ -62,13 +63,7 @@ async function ensureWorkspace(workspaceDir: string): Promise<void> {
 
   await fs
     .access(memoryFile)
-    .catch(() =>
-      fs.writeFile(
-        memoryFile,
-        "# LawMind 通用记忆\n\n- 这里记录长期方法论、风格规则、合规边界。\n",
-        "utf8",
-      ),
-    );
+    .catch(() => fs.writeFile(memoryFile, defaultMemoryMarkdown(), "utf8"));
 
   await fs
     .access(profileFile)

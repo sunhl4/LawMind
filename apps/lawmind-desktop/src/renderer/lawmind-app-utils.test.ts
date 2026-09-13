@@ -5,6 +5,7 @@ import {
   formatRelativeTime,
   historyBadgeClass,
   legalStatusLabel,
+  resolveOpenableOutputPath,
   resolveWorkspacePath,
   taskBadgeClass,
 } from "./lawmind-app-utils.ts";
@@ -18,8 +19,22 @@ describe("lawmind-app-utils", () => {
   it("artifactApiRelFromOutput maps artifact paths", () => {
     expect(artifactApiRelFromOutput("artifacts/out.docx")).toBe("artifacts/out.docx");
     expect(artifactApiRelFromOutput("out.docx")).toBe("artifacts/out.docx");
+    expect(artifactApiRelFromOutput("cases/m1/artifacts/函.docx")).toBe("cases/m1/artifacts/函.docx");
+    expect(
+      artifactApiRelFromOutput("/tmp/ws/cases/m1/artifacts/函.docx", "/tmp/ws"),
+    ).toBe("cases/m1/artifacts/函.docx");
     expect(artifactApiRelFromOutput("other/dir/x")).toBeNull();
+    expect(artifactApiRelFromOutput("cases/m1/CASE.md")).toBeNull();
     expect(artifactApiRelFromOutput(undefined)).toBeNull();
+  });
+
+  it("resolveOpenableOutputPath keeps absolute paths", () => {
+    expect(resolveOpenableOutputPath("/tmp/ws", "/Users/me/proj/函.docx")).toBe(
+      "/Users/me/proj/函.docx",
+    );
+    expect(resolveOpenableOutputPath("/tmp/ws", "cases/m1/artifacts/函.docx")).toBe(
+      "/tmp/ws/cases/m1/artifacts/函.docx",
+    );
   });
 
   it("formatLocaleDateTime falls back on invalid iso", () => {

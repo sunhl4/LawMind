@@ -6,6 +6,7 @@ import {
   prepareRedlineBaselineBeforeWrite,
   readDraft,
   resetRedlineBaselineFromDraft,
+  SURGICAL_MAX_FIND_WITH_TERMINATOR,
   validateDraftCitationsAgainstBundle,
 } from "../../../drafts/index.js";
 import { readResearchSnapshot } from "../../../drafts/research-snapshot.js";
@@ -18,6 +19,7 @@ import {
 } from "../../../research/research-evidence-gate.js";
 import { isDemoCorpusResult } from "../../../retrieval/authority-gap.js";
 import { route } from "../../../router/keyword-route.js";
+import { publicWebFactToolRefusal } from "../../../skills/capability-patterns.js";
 import {
   ensureTaskRecord,
   readTaskRecord,
@@ -127,7 +129,7 @@ export const researchTask: AgentTool = {
   definition: {
     name: "research_task",
     description:
-      "对已计划的任务执行法律检索。会调用配置的模型（通用+法律专用）进行检索和分析，返回来源、结论、风险标记等。高风险任务需要先确认才能检索。",
+      "对已计划的任务执行检索。会走工作区、权威库，以及（若本轮已开启联网）当前模型的公开网页检索；同时可能调用配置的模型做整理。返回来源、结论、风险标记。高风险任务需要先确认才能检索。",
     category: "analyze",
     parameters: {
       task_id: { type: "string", description: "任务 ID（由 plan_task 返回）", required: true },
@@ -146,6 +148,10 @@ export const researchTask: AgentTool = {
         "instruction",
         MAX_INSTRUCTION_LENGTH,
       );
+      const publicWebRefusal = publicWebFactToolRefusal(instruction, ctx.allowWebSearch === true);
+      if (publicWebRefusal) {
+        return { ok: false, error: publicWebRefusal };
+      }
       const audience = asOptionalString(params.audience, "audience", MAX_AUDIENCE_LENGTH);
       const matterId = resolveMatterId(params.matter_id, ctx.matterId);
       const intent = await engine.planAsync(instruction, {
@@ -280,7 +286,7 @@ export const updateDraft: AgentTool = {
   definition: {
     name: "update_draft",
     description:
-      "更新工作区已有草稿的正文（title / summary / sections）。用于审核台「需修改」后的改稿：只更新同一条 drafts/<taskId>.json，不会新建 taskId。task_id 可省略（使用当前关联草稿）。合同正文请做最小必要修改（只改必须改的字词）；可设 contract_edit_baseline_path 指向原合同 .doc/.docx 以导出 Word 审阅修订（无需先转格式）。",
+      "更新已有草稿的 title / summary / 合同基线 seed。钉死合同/邮件短路径禁止用 sections 改正文（会失败，请改 apply_surgical_edits）；seed 只传 contract_edit_baseline_path + seed_sections_from_baseline=true。意见稿/审核台仍可用 sections。task_id 可省略。",
     category: "draft",
     parameters: {
       task_id: {
@@ -332,6 +338,34 @@ export const updateDraft: AgentTool = {
           ok: false,
           error: `草稿状态为「${reviewStatus}」，无法直接更新正文。请先恢复待审核。`,
         };
+      }
+      {
+        const {
+          shouldRejectLegacyUpdateDraftBody,
+          noteLegacyUpdateDraftBodyWarning,
+          LEGACY_UPDATE_DRAFT_BODY_WARNING,
+          LEGACY_UPDATE_DRAFT_BODY_CODE,
+        } = await import("../../../drafts/legacy-update-draft-warning.js");
+        if (shouldRejectLegacyUpdateDraftBody(params, ctx)) {
+          noteLegacyUpdateDraftBodyWarning(ctx);
+          try {
+            const { appendProductMetric } = await import("../../../metrics/product-metrics.js");
+            appendProductMetric(ctx.workspaceDir, {
+              kind: "gate_failure",
+              outcome: LEGACY_UPDATE_DRAFT_BODY_CODE,
+              taskId,
+              matterId: draft.matterId,
+              detail: ctx.wordRevisionTurn ? "word_revision" : "mail_contract",
+            });
+          } catch {
+            /* best-effort */
+          }
+          return {
+            ok: false,
+            error: LEGACY_UPDATE_DRAFT_BODY_WARNING,
+            data: { code: LEGACY_UPDATE_DRAFT_BODY_CODE },
+          };
+        }
       }
       const title = asOptionalString(params.title, "title", MAX_TITLE_LENGTH);
       const summary =
@@ -592,8 +626,7 @@ export const updateDraft: AgentTool = {
 export const applySurgicalEdits: AgentTool = {
   definition: {
     name: "apply_surgical_edits",
-    description:
-      "对已 seed 的合同草稿做精确 find/replace 落改。跨度硬门禁：能改几个字就只改几个字；段内只改有问题的句子；含句读的 find≤12 字；整句/整段删写会被跳过/拒绝。条数不限（全文可很多处）。附 craft_check。勿把整节塞进 update_draft.sections。成功后返回 redlinePending；≥1 后再 render_tracked_draft。非锁定路径若省略 edits，可回落 drafts/<taskId>.redline-plan.json（意见推荐措辞编译结果）。",
+    description: `对已 seed 的合同草稿做精确 find/replace 落改。跨度硬门禁：能改几个字就只改几个字；段内只改有问题的句子；含句读的 find≤${SURGICAL_MAX_FIND_WITH_TERMINATOR} 字；整句/整段删写会被跳过/拒绝。条数不限（全文可很多处）。须附 craft_check.deferred（缓办，不是自评覆盖率；缺失视为工具错误）。勿把整节塞进 update_draft.sections。成功后返回 redlinePending；≥1 后再 render_tracked_draft。非锁定路径若省略 edits，可回落 drafts/<taskId>.redline-plan.json（意见推荐措辞编译结果）。`,
     category: "draft",
     parameters: {
       task_id: {
@@ -609,7 +642,7 @@ export const applySurgicalEdits: AgentTool = {
       craft_check: {
         type: "object",
         description:
-          "建议。自评：{ coverage, restraint, deferred:[{issue,reason}], notes? }——覆盖度/是否守住字词级跨度/缓办理由",
+          "必填。缓办写入 deferred（无缓办则 []）。缺失视为工具错误，本回合不得结束。不要给自己打覆盖率。",
       },
       summary: {
         type: "string",
@@ -760,7 +793,9 @@ export const applySurgicalEdits: AgentTool = {
       prepareRedlineBaselineBeforeWrite(ctx.workspaceDir, taskId);
       persistDraft(ctx.workspaceDir, next);
       try {
-        const { writeRedlinePlan } = await import("../../../drafts/redline-plan.js");
+        const { writeRedlinePlan, readRedlinePlan } =
+          await import("../../../drafts/redline-plan.js");
+        const prior = readRedlinePlan(ctx.workspaceDir, taskId);
         writeRedlinePlan(ctx.workspaceDir, {
           taskId,
           items: applied.applied.map((row) => ({
@@ -770,6 +805,8 @@ export const applySurgicalEdits: AgentTool = {
           })),
           skipped: applied.skipped,
           updatedAt: new Date().toISOString(),
+          craftCheckAttached: Boolean(craftCheck) || prior?.craftCheckAttached === true,
+          writerDeferred: craftCheck?.deferred ?? prior?.writerDeferred,
         });
       } catch {
         /* plan sidecar is best-effort */
@@ -1032,10 +1069,13 @@ export const draftDocument: AgentTool = {
           memory: await loadMemoryContext(ctx.workspaceDir, { matterId: intent.matterId }),
           adapters: buildAdaptersFromEnv(ctx.workspaceDir, {
             allowWebSearch: ctx.allowWebSearch === true,
+            webSearchModel: ctx.webSearchModel,
+            envFile: ctx.envFile,
           }),
           signal: ctx.abortSignal,
           wordRevisionTurn: ctx.wordRevisionTurn,
           mailContractTurn: ctx.mailContractTurn,
+          contractFastLaneTurn: ctx.contractFastLaneTurn,
         });
         bundle = trial.bundle;
       }
@@ -1202,12 +1242,17 @@ export const renderDocument: AgentTool = {
   definition: {
     name: "render_document",
     description:
-      "将草稿渲染为本地 Word 等交付物，供律师改稿或再吩咐一轮。可指定 task_id；若省略，则优先使用律师在桌面工作台为当前会话关联的草稿（linkedTaskId），否则回退到最近一份草稿。本地出稿不对外发；发给对方请用 prepare_outbound_mail。可选 approve=true 给草稿盖「已取用」戳。",
+      "将草稿渲染为本地 Word 等交付物，供律师改稿或再吩咐一轮。可指定 task_id；若省略，则优先使用律师在桌面工作台为当前会话关联的草稿（linkedTaskId），否则回退到最近一份草稿。未指定 output_path 时按：源文件同目录 → 本案 artifacts → 已关联项目目录 → 工作区 artifacts；文件名为「标题_日期_01」，不用任务哈希。本地出稿不对外发；发给对方请用 prepare_outbound_mail。可选 approve=true 给草稿盖「已取用」戳。",
     category: "draft",
     parameters: {
       task_id: {
         type: "string",
         description: "任务 ID；不传时优先工作台关联草稿，否则为最近一份草稿",
+      },
+      output_path: {
+        type: "string",
+        description:
+          "可选。输出文件或目录；须在工作区或已关联项目目录内。省略时由引擎按案件/项目/源文件解析，不要臆造仓库根 artifacts/。",
       },
       approve: { type: "boolean", description: "律师已明确同意导出时设为 true，先批准草稿再渲染" },
       approval_note: { type: "string", description: "审批备注（可选）" },
@@ -1281,6 +1326,29 @@ export const renderDocument: AgentTool = {
         };
       }
 
+      let guardianView: import("../../../guardian/types.js").GuardianLawyerView | undefined;
+      {
+        const {
+          shouldRunLegalGuardianForDocument,
+          runLegalGuardianForDocument,
+          guardianBlocksExport,
+          slimGuardianView,
+          guardianFailToolResult,
+        } = await import("../../../guardian/index.js");
+        if (shouldRunLegalGuardianForDocument(draft)) {
+          const guardianRecord = await runLegalGuardianForDocument({
+            workspaceDir: ctx.workspaceDir,
+            draft,
+            ctx,
+            acceptanceReady: acceptance.ready,
+          });
+          guardianView = slimGuardianView(guardianRecord);
+          if (guardianBlocksExport(guardianRecord)) {
+            return guardianFailToolResult(draft.taskId, guardianView);
+          }
+        }
+      }
+
       let approvedDraft = draft;
       if (approvedDraft.reviewStatus !== "approved" && shouldApprove) {
         approvedDraft = await engine.review(approvedDraft, {
@@ -1293,6 +1361,8 @@ export const renderDocument: AgentTool = {
       const result = await engine.render(approvedDraft, {
         strictGates: bypassGate ? false : undefined,
         citationGateStrict: bypassGate ? false : undefined,
+        projectDir: ctx.projectDir,
+        outputPath: asOptionalString(params.output_path, "output_path", 1024),
       });
       if (result.ok) {
         return {
@@ -1302,6 +1372,7 @@ export const renderDocument: AgentTool = {
             title: approvedDraft.title,
             outputPath: result.outputPath,
             acceptance,
+            ...(guardianView ? { guardian: guardianView } : {}),
             message: `文书已渲染完成（本地 Word 引擎）：${result.outputPath}`,
           },
         };
@@ -1411,6 +1482,47 @@ export const renderTrackedDraft: AgentTool = {
               },
             },
           };
+        }
+      }
+      if (draft.contractEdit && params.allow_empty_redline !== true) {
+        const { readRedlinePlan } = await import("../../../drafts/redline-plan.js");
+        const plan = readRedlinePlan(ctx.workspaceDir, taskId);
+        if (!plan?.craftCheckAttached) {
+          return {
+            ok: false,
+            error:
+              "【同一回合验收未过】未附 craft_check。请调用 apply_surgical_edits 并附 craft_check.deferred（无缓办则 []）后再导出。不要回复已完成。",
+            data: {
+              taskId,
+              code: "craft_check_required",
+              gateDecision: {
+                gate: "reasoning_gate",
+                decision: "block",
+                reason: "craft_check missing before tracked export",
+                category: "safety_hard",
+              },
+            },
+          };
+        }
+      }
+      let guardianView: import("../../../guardian/types.js").GuardianLawyerView | undefined;
+      if (params.allow_empty_redline !== true) {
+        const {
+          runLegalGuardianForTrackedDraft,
+          guardianBlocksExport,
+          slimGuardianView,
+          guardianFailToolResult,
+        } = await import("../../../guardian/index.js");
+        const guardianRecord = await runLegalGuardianForTrackedDraft({
+          workspaceDir: ctx.workspaceDir,
+          draft,
+          hunks: proposals,
+          allowEmptyRedline: false,
+          ctx,
+        });
+        guardianView = slimGuardianView(guardianRecord);
+        if (guardianBlocksExport(guardianRecord)) {
+          return guardianFailToolResult(taskId, guardianView);
         }
       }
       const pathMod = await import("node:path");
@@ -1566,6 +1678,7 @@ export const renderTrackedDraft: AgentTool = {
           conversionFidelity: result.conversionFidelity,
           warning: [result.warning, qaWarning].filter(Boolean).join(" ") || undefined,
           appliedHunks: result.appliedHunks,
+          ...(guardianView ? { guardian: guardianView } : {}),
           xmlQa,
           ...(xmlQaRetry ? { xmlQaRetry } : {}),
           ...(xmlQaAutoRetried ? { xmlQaAutoRetried: true as const } : {}),

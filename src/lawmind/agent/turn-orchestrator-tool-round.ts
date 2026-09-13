@@ -6,9 +6,12 @@
  * - Stop further batches once awaiting_approval
  */
 
+import { promoteLegacyUpdateDraftCraftPatch } from "../drafts/legacy-update-draft-warning.js";
 import { recordToolCallEvent } from "../metrics/runtime-events.js";
 import type { GateDecision, GateDecisionKind, GateCategory } from "../platform/contracts.js";
 import { withGateCategory } from "../platform/gate-category.js";
+import { selectHardClarificationKeys } from "../router/intake-gate.js";
+import { nextSameTurnVerifyState } from "../runtime/same-turn-verify.js";
 import {
   getMaxToolUseConcurrency,
   partitionToolCalls,
@@ -36,6 +39,11 @@ import {
   extractToolErrorMessage,
   type RunTurnEvent,
 } from "./turn-orchestrator-events.js";
+import {
+  promotePendingTurnPlan,
+  summarizeUpdatePlanResultForHistory,
+  UPDATE_PLAN_TOOL_NAME,
+} from "./turn-plan.js";
 import type { AgentContext, AgentMessage, AgentTurn } from "./types.js";
 
 /** Lazy: avoids TDZ when tool-pipeline ↔ legal-tools ↔ turn-orchestrator cycle loads. */
@@ -67,6 +75,7 @@ const GATE_KINDS = new Set<GateDecisionKind>([
   "citation_integrity_gate",
   "outbound_privilege_gate",
   "outbound_recipient_gate",
+  "legal_guardian_gate",
 ]);
 
 /** Exported for unit tests — pull categorized gateDecision off tool `data`. */
@@ -162,7 +171,10 @@ type StagedToolOutcome = {
 };
 
 function outcomeNeedsElicitation(outcome: StagedToolOutcome): boolean {
-  return outcome.approvalRequest || outcome.clarificationQuestions.length > 0;
+  if (outcome.approvalRequest) {
+    return true;
+  }
+  return selectHardClarificationKeys(outcome.clarificationQuestions.map((q) => q.key)).length > 0;
 }
 
 export async function executeToolBatches(
@@ -314,10 +326,11 @@ export async function executeToolBatches(
         id: ref.id,
         function: { name: ref.name, arguments: JSON.stringify(ref.arguments) },
       };
-      // 跨轮门禁（orchestrator 依据 session.pendingClarificationKeys 置位）不能被
-      // 本轮重置；同轮工具返回澄清时再置位。
-      ctx.clarificationBlockingHeavyTools =
-        ctx.clarificationBlockingHeavyTools || pendingClarificationQuestions.length > 0;
+      // 跨轮门禁（orchestrator 依据 hard pendingClarificationKeys 置位）不能被
+      // 本轮重置；同轮工具返回的澄清也只认硬键，软缺口不冻写工具。
+      const hardPending =
+        selectHardClarificationKeys(pendingClarificationQuestions.map((q) => q.key)).length > 0;
+      ctx.clarificationBlockingHeavyTools = ctx.clarificationBlockingHeavyTools || hardPending;
       turn.toolCallsExecuted++;
 
       const toolName = tc.function.name;
@@ -328,7 +341,9 @@ export async function executeToolBatches(
       // 审批旗标是服务端能力位，不是模型参数：模型自填的 __approved 一律剥除，
       // 唯一合法来源是下方的服务端注入（律师预批准 / C3 沙箱策略）。
       delete toolArgs.__approved;
-      const hideFromLiveTrace = wouldHitDiscoveryCap(toolName, toolNameCallCountsBefore);
+      const hideFromLiveTrace =
+        wouldHitDiscoveryCap(toolName, toolNameCallCountsBefore, ctx) ||
+        toolName === UPDATE_PLAN_TOOL_NAME;
       const preApproval = resolvePreApprovalInjection({
         toolName,
         modelArgs: toolArgs,
@@ -406,6 +421,13 @@ export async function executeToolBatches(
       // 给子助手设置不超过父剩余的分片上限。maxToolCalls 此处为 hard ceiling。
       ctx.remainingToolCallBudget = Math.max(0, maxToolCalls - turn.toolCallsExecuted);
       const result = await getRunToolPipeline()(callCtx);
+      promoteLegacyUpdateDraftCraftPatch(ctx, result);
+      if (toolName === UPDATE_PLAN_TOOL_NAME && result.ok) {
+        const plan = promotePendingTurnPlan(ctx, result.data);
+        if (plan) {
+          emitEvent({ type: "plan_update", plan });
+        }
+      }
       if (!result.ok) {
         if (DISCOVERY_LOOP_TOOL_LIMITS[toolName] != null) {
           const nextCount = (turn.toolNameCallCounts[toolName] ?? 1) - 1;
@@ -443,7 +465,9 @@ export async function executeToolBatches(
       }
       ctx.emitToolProgress = undefined;
 
-      const historyResult = summarizeToolResultForHistory(result, {
+      const historySource =
+        toolName === UPDATE_PLAN_TOOL_NAME ? summarizeUpdatePlanResultForHistory(result) : result;
+      const historyResult = summarizeToolResultForHistory(historySource, {
         spill: shouldSpillToolResult(toolName)
           ? {
               workspaceDir: ctx.workspaceDir,
@@ -465,6 +489,12 @@ export async function executeToolBatches(
       if (toolGate) {
         turn.gateDecisions?.push(toolGate);
       }
+      turn.sameTurnVerify = nextSameTurnVerifyState(
+        turn.sameTurnVerify,
+        toolName,
+        result,
+        toolArgs,
+      );
 
       const approvalRequest = result.approvalRequest === true;
       recordToolCallEvent(ctx.workspaceDir, {

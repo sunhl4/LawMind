@@ -180,4 +180,85 @@ describe("turn-step-context", () => {
     expect(firstRound.toolNames).toContain("analyze_document");
     expect(firstRound.toolNames).toContain("read_project_file");
   });
+
+  it("lockToAllowNames still advertises update_plan when the tool is registered", () => {
+    const registry = new ToolRegistry();
+    for (const name of ["analyze_document", "update_draft", "update_plan"]) {
+      registry.register({
+        definition: { name, description: name, category: "system", parameters: {} },
+        async execute() {
+          return { ok: true };
+        },
+      });
+    }
+    const session: AgentSession = {
+      sessionId: "s",
+      actorId: "a",
+      turns: [],
+      conversationHistory: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const step = rebuildStepContext({
+      session,
+      registry,
+      turnContext: freezeTurnContext({
+        sessionId: "s",
+        turnId: "t",
+        permissionMode: "standard",
+        model: "demo",
+        actorId: "a",
+        sandboxEnabled: false,
+        allowNames: ["analyze_document", "update_draft"],
+        lockToAllowNames: true,
+      }),
+    });
+    expect(step.toolNames).toEqual(["analyze_document", "update_draft", "update_plan"]);
+  });
+
+  it("keeps analyze_document after one read when the host-file ledger is on", () => {
+    const registry = new ToolRegistry();
+    for (const name of ["analyze_document", "read_project_file", "update_draft", "list_dir"]) {
+      registry.register({
+        definition: { name, description: name, category: "system", parameters: {} },
+        async execute() {
+          return { ok: true };
+        },
+      });
+    }
+    const session: AgentSession = {
+      sessionId: "s",
+      actorId: "a",
+      turns: [],
+      conversationHistory: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      disclosedToolNames: ["list_dir"],
+    };
+    const turnContext = freezeTurnContext({
+      sessionId: "s",
+      turnId: "t",
+      permissionMode: "standard",
+      model: "demo",
+      actorId: "a",
+      sandboxEnabled: false,
+    });
+    const saturated = rebuildStepContext({
+      session,
+      registry,
+      turnContext,
+      discoveryCallCounts: { analyze_document: 1 },
+    });
+    expect(saturated.toolNames).not.toContain("analyze_document");
+
+    const ledger = rebuildStepContext({
+      session,
+      registry,
+      turnContext,
+      discoveryCallCounts: { analyze_document: 1 },
+      hostFileLedger: true,
+    });
+    expect(ledger.toolNames).toContain("analyze_document");
+    expect(ledger.toolNames).toContain("list_dir");
+  });
 });

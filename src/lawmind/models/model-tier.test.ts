@@ -6,6 +6,7 @@ describe("model-tier", () => {
     expect(classifyModelWorkTier("qwen-max")).toBe("advisor");
     expect(classifyModelWorkTier("deepseek-reasoner")).toBe("advisor");
     expect(classifyModelWorkTier("gpt-4o")).toBe("advisor");
+    expect(classifyModelWorkTier("deepseek-flash")).toBe("worker");
     expect(classifyModelWorkTier("qwen-turbo")).toBe("worker");
     expect(classifyModelWorkTier("gpt-4o-mini")).toBe("worker");
     expect(classifyModelWorkTier("qwen-plus")).toBe("general");

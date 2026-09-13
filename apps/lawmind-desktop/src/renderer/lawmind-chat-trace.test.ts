@@ -16,7 +16,28 @@ import {
 describe("lawmind-chat-trace", () => {
   it("maps known tool names to human labels", () => {
     expect(humanToolLabel("execute_workflow")).toBe("启动办案流程");
+    expect(humanToolLabel("run_compute")).toBe("核算数据");
     expect(humanToolLabel("unknown_tool")).toBe("办理中");
+  });
+
+  it("hides compute sandbox errors from the lawyer-facing trace", () => {
+    let trace = createEmptyLiveTrace();
+    trace = applyToolStart(trace, {
+      toolCallId: "tc-c",
+      toolName: "run_compute",
+      args: { source: "require('fs')", purpose: "汇总费用" },
+    });
+    expect(trace.steps[0]?.label).toBe("核算数据");
+    expect(trace.steps[0]?.detail).toBe("汇总费用");
+    expect(JSON.stringify(trace.steps[0])).not.toMatch(/require|run_compute|source/);
+    trace = applyToolEnd(trace, {
+      toolCallId: "tc-c",
+      toolName: "run_compute",
+      ok: false,
+      error: "脚本含有禁止的接口（fs/fetch/process/require 等）。",
+    });
+    expect(trace.steps[0]?.detail).toBe("核算未完成");
+    expect(JSON.stringify(trace.steps[0])).not.toMatch(/脚本|require/);
   });
 
   it("applyToolStart uses lawyer cards with argument detail", () => {

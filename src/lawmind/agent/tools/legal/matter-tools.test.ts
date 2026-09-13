@@ -18,7 +18,7 @@ describe("read_case_file", () => {
     expect(result.ok).toBe(true);
     const data = result.data as { content: string; hasMore: boolean; totalChars: number };
     expect(data.totalChars).toBe(body.length);
-    expect(data.content.length).toBeLessThan(body.length);
+    expect(data.content.length).toBeLessThanOrEqual(4_000);
     expect(data.hasMore).toBe(true);
   });
 });

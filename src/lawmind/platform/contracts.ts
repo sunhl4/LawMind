@@ -83,7 +83,9 @@ export type GateDecisionKind =
   /** Outbound text looks privileged; lawyer must confirm before queueing send. */
   | "outbound_privilege_gate"
   /** Recipient domain is outside workspace outboundAllowedDomains. */
-  | "outbound_recipient_gate";
+  | "outbound_recipient_gate"
+  /** Independent legal Guardian (coverage / citations) — not the writer's self-score. */
+  | "legal_guardian_gate";
 
 export type GateDecision = {
   gate: GateDecisionKind;

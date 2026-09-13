@@ -11,8 +11,6 @@ import {
   CLOSED_CONTRACT_TYPE_IDS,
   type ClosedContractTypeId,
 } from "../contracts/closed-contract-type.js";
-import { DEFAULT_PRACTICE_PLAYBOOK } from "../practice/practice-playbook.js";
-
 export const USER_STANDARDS_REL = path.join("lawmind", "standards");
 
 export const USER_STANDARD_KINDS = [
@@ -66,10 +64,6 @@ export function builtinUserStandards(): UserStandard[] {
       kind: "contract_review",
       bindWhen: {},
       items: [
-        ...DEFAULT_PRACTICE_PLAYBOOK.neverAccept.map((text) => ({
-          text,
-          tone: "never_accept" as const,
-        })),
         { text: "核对争议解决是否对我方明显不利", tone: "check" },
         { text: "责任上限与排除人身/故意/重大过失的条款是否经提示", tone: "check" },
       ],
@@ -81,8 +75,40 @@ export function builtinUserStandards(): UserStandard[] {
       id: "builtin-mail-triage",
       title: "每日邮件待回复",
       kind: "daily_triage",
-      bindWhen: { keywords: ["请尽快", "请确认", "是否"] },
+      bindWhen: { keywords: ["请尽快", "请确认", "请回复", "烦请"] },
       items: [{ text: "未读且含请求/问句的来信标为待回复", tone: "check" }],
+      source: "builtin",
+      enabled: true,
+      updatedAt: now,
+    },
+    {
+      id: "builtin-litigation-intake",
+      title: "诉讼收案核对",
+      kind: "litigation_intake",
+      bindWhen: { keywords: ["起诉状", "谈话整理", "收案", "诉讼地位", "答辩状"] },
+      items: [
+        { text: "当事人与诉讼地位是否齐全", tone: "check" },
+        { text: "诉请与案由是否能从材料推断", tone: "check" },
+        { text: "期限/开庭日有则列出，无则标待补", tone: "check" },
+      ],
+      source: "builtin",
+      enabled: true,
+      updatedAt: now,
+    },
+    {
+      id: "builtin-cn-contract-checklist",
+      title: "中国合同审查清单",
+      kind: "contract_review",
+      bindWhen: {
+        contractTypes: CLOSED_CONTRACT_TYPE_IDS.filter((id) => id !== "service"),
+        keywords: ["审查清单", "中国合同", "适用中国法"],
+      },
+      items: [
+        { text: "当事人与签约主体是否对齐", tone: "check" },
+        { text: "违约与责任上限是否可执行", tone: "check" },
+        { text: "管辖与适用法是否对我方明显不利", tone: "check" },
+        { text: "关键法条能核则核，核不到标【待核实】", tone: "check" },
+      ],
       source: "builtin",
       enabled: true,
       updatedAt: now,
@@ -310,7 +336,8 @@ export function shouldInjectUserStandards(
   return (
     bound.id === "contract.review" ||
     bound.id === "contract.draft" ||
-    bound.id === "litigation.talk"
+    bound.id === "litigation.talk" ||
+    bound.id === "litigation.draft"
   );
 }
 

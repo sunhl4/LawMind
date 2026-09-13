@@ -97,6 +97,8 @@ export type LawmindSettingsHealth = {
   modelConfigured: boolean;
   dualLegalConfigured?: boolean;
   webSearchApiKeyConfigured?: boolean;
+  webSearchNativeAvailable?: boolean;
+  webSearchReady?: boolean;
   webSearchPolicyBlocked?: boolean;
   modelName?: string | null;
   modelEnvFileExists?: boolean;
@@ -113,3 +115,24 @@ export type LawmindSettingsHealth = {
     message?: string;
   };
 } | null;
+
+export function webSearchStatusLabel(health: {
+  webSearchReady?: boolean;
+  webSearchNativeAvailable?: boolean;
+  webSearchApiKeyConfigured?: boolean;
+}): { ready: boolean; label: string } {
+  if (health.webSearchNativeAvailable) {
+    return { ready: true, label: "随当前模型" };
+  }
+  if (health.webSearchApiKeyConfigured) {
+    return { ready: true, label: "Brave 备用已配置" };
+  }
+  if (health.webSearchReady) {
+    return { ready: true, label: "已就绪" };
+  }
+  return { ready: false, label: "未就绪" };
+}
+
+export function retrievalShareLabel(mode?: string): string {
+  return mode === "dual" ? "对话与检索分开" : "共用同一模型";
+}

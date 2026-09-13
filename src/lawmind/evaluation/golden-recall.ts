@@ -189,8 +189,9 @@ export function formatGoldenExamplesPromptBlock(hints: GoldenDraftHint[]): strin
   for (const h of hints) {
     const heads =
       h.sectionHeadings.length > 0 ? `章节：${h.sectionHeadings.slice(0, 8).join("、")}` : "";
+    const excerpt = h.excerpt.slice(0, 220);
     blocks.push(
-      `### ${h.title}（task ${h.taskId}${h.deliverableType ? ` · ${h.deliverableType}` : ""}）\n${heads}\n${h.excerpt}`,
+      `### ${h.title}（task ${h.taskId}${h.deliverableType ? ` · ${h.deliverableType}` : ""}）\n${heads}\n${excerpt}\n完整样例请用 read_workspace_file 读取 golden/${h.taskId}.golden.json`,
     );
   }
   return blocks.join("\n\n");

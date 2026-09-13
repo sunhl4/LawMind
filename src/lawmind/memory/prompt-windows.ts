@@ -1,36 +1,72 @@
 /**
  * Prompt 注入窗口：长记忆进模型前截断，避免 CASE/画像/日志无限膨胀拖垮 token。
+ * 超帽必须带溢出指针（工具名 + 路径），禁止静默 slice。
  */
 
+export type PromptOverflowHint = {
+  tool: string;
+  path: string;
+};
+
+export type TruncateForPromptOptions = {
+  label?: string;
+  overflow?: PromptOverflowHint;
+};
+
 export const PROMPT_WINDOW = {
-  /** 当前案件 CASE.md */
+  /** 当前案件 CASE.md（进展修剪上限；真正进 prompt 再用 matterIndexChars） */
   matterContextChars: 8_000,
-  /** LAWYER_PROFILE.md */
+  /** CASE 进模型的索引硬帽（正文用 read_case_file） */
+  matterIndexChars: 1_600,
+  /** `read_case_file` 默认分页（禁止一次返回全文） */
+  caseFileReadChars: 4_000,
+  /** LAWYER_PROFILE.md 全文窗（检索适配器用） */
   lawyerProfileChars: 6_000,
+  /** 律师画像进模型的指纹硬帽 */
+  lawyerFingerprintChars: 800,
   /** 客户画像 */
   clientProfileChars: 4_000,
+  clientFingerprintChars: 800,
   /** 今日 / 昨日工作日志 */
   dayLogChars: 3_000,
+  dayLogIndexChars: 600,
   /** 助手 PROFILE.md */
   assistantProfileChars: 3_000,
+  assistantFingerprintChars: 800,
   /** 检索适配器单段记忆 */
   retrievalMemoryChars: 2_500,
+  /** 相关记忆 gist（不再整文件 slice 进 system） */
+  memoryHitGistChars: 180,
   /** 相似案评分时最多读入的 CASE 字节（字符近似） */
   similarCaseReadChars: 64_000,
+  /** 相似案 / 金标准进 prompt 的摘录 */
+  recallSnippetChars: 220,
   /** CASE §8 工作进展保留条数（更早的归档到 progress-archive） */
   caseProgressMaxBullets: 80,
 } as const;
 
 export type PromptWindowChars = {
   matterContextChars: number;
+  matterIndexChars: number;
+  caseFileReadChars: number;
   lawyerProfileChars: number;
+  lawyerFingerprintChars: number;
   clientProfileChars: number;
+  clientFingerprintChars: number;
   dayLogChars: number;
+  dayLogIndexChars: number;
   assistantProfileChars: number;
+  assistantFingerprintChars: number;
   retrievalMemoryChars: number;
+  memoryHitGistChars: number;
   similarCaseReadChars: number;
+  recallSnippetChars: number;
   caseProgressMaxBullets: number;
 };
+
+function overflowLabel(overflow: PromptOverflowHint): string {
+  return `…[截断，完整内容请用 ${overflow.tool} 读取 ${overflow.path}]`;
+}
 
 /** Scale memory injection windows with model context (keeps floors, raises for large windows). */
 export function scalePromptWindows(scale: number): PromptWindowChars {
@@ -38,12 +74,20 @@ export function scalePromptWindows(scale: number): PromptWindowChars {
   const scaleChars = (n: number) => Math.max(n, Math.floor(n * s));
   return {
     matterContextChars: scaleChars(PROMPT_WINDOW.matterContextChars),
+    matterIndexChars: scaleChars(PROMPT_WINDOW.matterIndexChars),
+    caseFileReadChars: scaleChars(PROMPT_WINDOW.caseFileReadChars),
     lawyerProfileChars: scaleChars(PROMPT_WINDOW.lawyerProfileChars),
+    lawyerFingerprintChars: scaleChars(PROMPT_WINDOW.lawyerFingerprintChars),
     clientProfileChars: scaleChars(PROMPT_WINDOW.clientProfileChars),
+    clientFingerprintChars: scaleChars(PROMPT_WINDOW.clientFingerprintChars),
     dayLogChars: scaleChars(PROMPT_WINDOW.dayLogChars),
+    dayLogIndexChars: scaleChars(PROMPT_WINDOW.dayLogIndexChars),
     assistantProfileChars: scaleChars(PROMPT_WINDOW.assistantProfileChars),
+    assistantFingerprintChars: scaleChars(PROMPT_WINDOW.assistantFingerprintChars),
     retrievalMemoryChars: scaleChars(PROMPT_WINDOW.retrievalMemoryChars),
+    memoryHitGistChars: scaleChars(PROMPT_WINDOW.memoryHitGistChars),
     similarCaseReadChars: scaleChars(PROMPT_WINDOW.similarCaseReadChars),
+    recallSnippetChars: scaleChars(PROMPT_WINDOW.recallSnippetChars),
     caseProgressMaxBullets: Math.max(
       PROMPT_WINDOW.caseProgressMaxBullets,
       Math.floor(PROMPT_WINDOW.caseProgressMaxBullets * s),
@@ -54,7 +98,7 @@ export function scalePromptWindows(scale: number): PromptWindowChars {
 export function truncateForPrompt(
   text: string | undefined | null,
   maxChars: number,
-  label = "…[截断，完整内容见工作区文件]",
+  labelOrOpts?: string | TruncateForPromptOptions,
 ): string {
   const raw = (text ?? "").trim();
   if (!raw) {
@@ -63,6 +107,11 @@ export function truncateForPrompt(
   if (raw.length <= maxChars) {
     return raw;
   }
+  const opts: TruncateForPromptOptions =
+    typeof labelOrOpts === "string" ? { label: labelOrOpts } : (labelOrOpts ?? {});
+  const label = opts.overflow
+    ? overflowLabel(opts.overflow)
+    : (opts.label ?? "…[截断，完整内容见工作区文件]");
   const marker = `\n\n${label}\n\n`;
   const room = Math.max(16, maxChars - marker.length);
   const headBudget = Math.max(8, Math.floor(room * 0.65));
@@ -79,6 +128,7 @@ export function truncateForPrompt(
 export function windowCaseMarkdownForPrompt(
   caseMemory: string | undefined | null,
   maxChars: number = PROMPT_WINDOW.matterContextChars,
+  overflow?: PromptOverflowHint,
 ): string {
   const raw = (caseMemory ?? "").trim();
   if (!raw) {
@@ -114,5 +164,5 @@ export function windowCaseMarkdownForPrompt(
   if (candidate.length <= maxChars) {
     return candidate;
   }
-  return truncateForPrompt(candidate, maxChars);
+  return truncateForPrompt(candidate, maxChars, overflow ? { overflow } : undefined);
 }

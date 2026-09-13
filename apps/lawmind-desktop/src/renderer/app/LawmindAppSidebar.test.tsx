@@ -177,6 +177,15 @@ describe("LawmindAppSidebar", () => {
     expect(host.querySelector('[data-testid="lm-side-chat-sessions"]')).toBeNull();
   });
 
+  it("shows the LawMind mark beside the product name", async () => {
+    await act(async () => {
+      root.render(<LawmindAppSidebar {...baseProps()} />);
+    });
+    const mark = host.querySelector(".lm-logo-mark svg");
+    expect(mark).not.toBeNull();
+    expect(host.querySelector(".lm-brand-title")?.textContent).toBe("LawMind");
+  });
+
   it("shows explorer skeleton while file tree is mounting", async () => {
     await act(async () => {
       root.render(

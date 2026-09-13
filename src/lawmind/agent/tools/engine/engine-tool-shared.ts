@@ -1,3 +1,4 @@
+import { resolveLawMindRoot } from "../../../assistants/store.js";
 import { isValidMatterId } from "../../../cases/matter-id.js";
 import { listDrafts } from "../../../drafts/index.js";
 /**
@@ -5,7 +6,9 @@ import { listDrafts } from "../../../drafts/index.js";
  */
 import { createLawMindEngine } from "../../../engine/factory.js";
 import type { LawMindEngineConfig } from "../../../engine/types.js";
+import { resolveLegalRetrievalModelFromStore } from "../../../models/retrieval-split.js";
 import { createAuthorityAdapterFromEnv } from "../../../retrieval/authority-adapter.js";
+import { createBraveWebSearchAdapter } from "../../../retrieval/brave-web-search-adapter.js";
 import { createWorkspaceAdapter } from "../../../retrieval/index.js";
 import type { RetrievalAdapter } from "../../../retrieval/index.js";
 import { createOpenAICompatibleAdapters } from "../../../retrieval/openai-compatible.js";
@@ -16,6 +19,7 @@ import {
 } from "../../../retrieval/providers.js";
 import { createUrlDossierAdapter } from "../../../retrieval/url-dossier-adapter.js";
 import type { AgentContext, ToolCallResult } from "../../types.js";
+import type { WebSearchModelRef } from "../native-web-search.js";
 
 export const MAX_INSTRUCTION_LENGTH = 4000;
 export const MAX_TITLE_LENGTH = 200;
@@ -277,18 +281,25 @@ export function resolveGeneralOpenAICompatibleFromEnv(): {
 /**
  * 根据环境变量创建 retrieval adapters。
  * - 默认 `LAWMIND_RETRIEVAL_MODE=single`：通用与法律检索共用同一 OpenAI-compatible 端点。
- * - `dual`：通用用 LAWMIND_AGENT_* / QWEN_*，法律用 CHATLAW / LAWGPT / PARTNER 等（见 providers.ts）；未配置法律端点时回退为通用模型做法务检索。
+ * - `dual`：推理仍用 LAWMIND_AGENT_* / QWEN_*；法律检索优先 models.json 的 retrievalModelId，其次 CHATLAW / LAWGPT / PARTNER；都未配时回退为通用模型。
+ * - 公开网页检索（allowWebSearch）：优先当前对话模型的厂商网页检索，Brave 为可选备用。
  */
 export function buildAdaptersFromEnv(
   workspaceDir: string,
-  opts?: { allowWebSearch?: boolean },
+  opts?: {
+    allowWebSearch?: boolean;
+    webSearchModel?: WebSearchModelRef;
+    envFile?: string;
+    lawMindRoot?: string;
+  },
 ): RetrievalAdapter[] {
   const adapters: RetrievalAdapter[] = [
     createWorkspaceAdapter(workspaceDir),
     createAuthorityAdapterFromEnv({ workspaceDir }),
   ];
-  // URL dossier is outbound HTTP — only when the turn explicitly allows web search.
+  // Public web + URL dossier are outbound HTTP — only when the turn allows web search.
   if (opts?.allowWebSearch === true) {
+    adapters.push(createBraveWebSearchAdapter(workspaceDir, opts.webSearchModel));
     adapters.push(createUrlDossierAdapter(workspaceDir));
   }
 
@@ -315,13 +326,28 @@ export function buildAdaptersFromEnv(
 
   adapters.push(...createOpenAICompatibleAdapters({ general: generalCfg }));
 
+  const lawMindRoot = opts?.lawMindRoot ?? resolveLawMindRoot(workspaceDir, opts?.envFile);
+  const legalFromStore = resolveLegalRetrievalModelFromStore(lawMindRoot);
+  if (legalFromStore) {
+    adapters.push(
+      ...createOpenAICompatibleAdapters({
+        legal: {
+          baseUrl: legalFromStore.baseUrl,
+          apiKey: legalFromStore.apiKey,
+          model: legalFromStore.model,
+          timeoutMs: legalFromStore.timeoutMs,
+        },
+      }),
+    );
+  }
+
   const legalFromEnv = [
     ...createOpenSourceLegalAdaptersFromEnv(),
     ...createPartnerLegalAdapterFromEnv(),
   ];
   if (legalFromEnv.length > 0) {
     adapters.push(...legalFromEnv);
-  } else {
+  } else if (!legalFromStore) {
     adapters.push(...createOpenAICompatibleAdapters({ legal: generalCfg }));
   }
 
@@ -333,7 +359,12 @@ export function buildAdaptersFromEnv(
  */
 export function buildLawMindRetrievalAdaptersFromEnvForTest(
   workspaceDir: string,
-  opts?: { allowWebSearch?: boolean },
+  opts?: {
+    allowWebSearch?: boolean;
+    webSearchModel?: WebSearchModelRef;
+    envFile?: string;
+    lawMindRoot?: string;
+  },
 ): RetrievalAdapter[] {
   return buildAdaptersFromEnv(workspaceDir, opts);
 }
@@ -341,11 +372,14 @@ export function buildLawMindRetrievalAdaptersFromEnvForTest(
 export function getEngine(ctx: AgentContext) {
   const adapters = buildAdaptersFromEnv(ctx.workspaceDir, {
     allowWebSearch: ctx.allowWebSearch === true,
+    webSearchModel: ctx.webSearchModel,
+    envFile: ctx.envFile,
   });
   const config: LawMindEngineConfig = {
     workspaceDir: ctx.workspaceDir,
     adapters,
     assistantId: ctx.assistantId,
+    projectDir: ctx.projectDir,
   };
   return createLawMindEngine(config);
 }

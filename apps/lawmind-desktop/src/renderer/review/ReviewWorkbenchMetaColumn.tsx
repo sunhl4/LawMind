@@ -2,13 +2,14 @@ import type { CSSProperties } from "react";
 import type { ArtifactDraft } from "../../../../../src/lawmind/types.ts";
 import type {
   AcceptanceReport,
-  DeliverableReadiness,
   ReasoningReport,
-} from "../../../../../src/lawmind/deliverables/index.ts";
+} from "../../../../../src/lawmind/deliverables/types.ts";
+import type { DeliverableReadiness } from "../../../../../src/lawmind/deliverables/deliverable-readiness.ts";
 import type { DraftCitationIntegrityView } from "../../../../../src/lawmind/drafts/citation-integrity.ts";
+import type { GuardianLawyerView } from "../../../../../src/lawmind/guardian/types.ts";
 import type { GateDecision, TaskExecutionState } from "../../../../../src/lawmind/platform/contracts.ts";
-import type { MemorySourceLayer } from "../../../../../src/lawmind/memory/index.ts";
-import type { LearningSuggestionRecord } from "../../../../../src/lawmind/learning/suggestion-queue.ts";
+import type { MemorySourceLayer } from "../../../../../src/lawmind/memory/memory-source-types.ts";
+import type { LearningSuggestionRecord } from "../../../../../src/lawmind/learning/suggestion-record.ts";
 import {
   gateDecisionBadgeClass,
   gateDecisionLabel,
@@ -21,7 +22,7 @@ import { LawmindReviewCampaignPanel } from "../LawmindReviewCampaignPanel";
 import { LawmindClauseGraph } from "../LawmindClauseGraph";
 import { scaffoldReviewBannerText } from "../lawmind-scaffold-copy";
 import type { ClauseGraph } from "../../../../../src/lawmind/reasoning/clause-graph.ts";
-import type { DraftScaffoldView } from "../../../../../src/lawmind/deliverables/index.ts";
+import type { DraftScaffoldView } from "../../../../../src/lawmind/deliverables/scaffold-status.ts";
 import type { VerificationChecklistView } from "../../../../../src/lawmind/deliverables/verification-checklist.ts";
 import type { ReviewCampaign } from "../lawmind-review-campaign-api";
 import { LawmindReasoningCollapsible } from "../LawmindReasoningCollapsible";
@@ -47,6 +48,7 @@ export type ReviewWorkbenchMetaColumnProps = {
   /** Serialized LegalReasoningGraph markdown (read-only contention board). */
   reasoningMarkdown?: string | null;
   citationIntegrity: DraftCitationIntegrityView | null;
+  guardian?: GuardianLawyerView | null;
   /** Firm+ hard-blocks export on citation issues; Solo advisory. */
   citationGateStrict?: boolean;
   /** Skills E4 */
@@ -117,6 +119,7 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
     reasoningReport = null,
     reasoningMarkdown = null,
     citationIntegrity,
+    guardian = null,
     citationGateStrict,
     citationMode,
     checklistView,
@@ -289,6 +292,7 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
               checklistBlocksApprove={checklistBlocksApprove}
               lintReport={lintReport}
               selfRevise={selfRevisePreview}
+              guardian={guardian}
             />
           </summary>
           <LawmindAcceptanceGate

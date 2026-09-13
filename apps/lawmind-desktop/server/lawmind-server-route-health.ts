@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { resolveLawMindWebSearchApiKey } from "../../../src/lawmind/agent/tools/lawmind-web-search.js";
+import { isPublicWebSearchReady, pickWebSearchModel, resolveLawMindWebSearchApiKey } from "../../../src/lawmind/agent/tools/lawmind-web-search.js";
+import { detectNativeWebSearchKind } from "../../../src/lawmind/agent/tools/native-web-search.js";
 import {
   createOpenSourceLegalAdaptersFromEnv,
   createPartnerLegalAdapterFromEnv,
@@ -40,6 +41,7 @@ import {
   effectiveRouterMode,
   resolveDraftReasoningLlmConfig,
   readDraftWithModelStoreFlag,
+  resolveLegalRetrievalModelFromStore,
 } from "../../../src/lawmind/models/index.js";
 import {
   LAWMIND_AGENT_BEHAVIOR_EPOCH,
@@ -189,8 +191,25 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
   const retrievalMode =
     process.env.LAWMIND_RETRIEVAL_MODE?.trim().toLowerCase() === "dual" ? "dual" : "single";
   const dualLegalConfigured =
-    createOpenSourceLegalAdaptersFromEnv().length + createPartnerLegalAdapterFromEnv().length > 0;
+    createOpenSourceLegalAdaptersFromEnv().length + createPartnerLegalAdapterFromEnv().length > 0 ||
+    Boolean(resolveLegalRetrievalModelFromStore(lawMindRoot));
   const webSearchApiKeyConfigured = Boolean(resolveLawMindWebSearchApiKey());
+  const chatModel = built.config?.model;
+  const pickedWebSearch = pickWebSearchModel(
+    chatModel?.apiKey && chatModel.baseUrl && chatModel.model
+      ? {
+          baseUrl: chatModel.baseUrl,
+          apiKey: chatModel.apiKey,
+          model: chatModel.model,
+          timeoutMs: chatModel.timeoutMs,
+        }
+      : null,
+    lawMindRoot,
+  );
+  const webSearchNativeAvailable = Boolean(
+    pickedWebSearch && detectNativeWebSearchKind(pickedWebSearch.baseUrl, pickedWebSearch.model),
+  );
+  const webSearchReady = isPublicWebSearchReady(pickedWebSearch);
   const doctor = buildDoctorStats(workspaceDir);
   const memoryTruthSources = buildMemoryTruthSourceFlags(workspaceDir);
   const lawmindPackageVersion = tryReadWorkspacePackageVersion(repoRootRaw);
@@ -263,6 +282,9 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
       workspaceDir,
       lawMindRoot,
       modelConfigured,
+      modelVerified: Boolean(
+        catalog.models.find((m) => m.id === (built.modelId ?? catalog.defaultModelId))?.verifiedAt,
+      ),
       missingApiKey: !modelConfigured,
       defaultModelId: catalog.defaultModelId,
       modelName: built.config?.model?.model ?? null,
@@ -274,6 +296,8 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
       retrievalMode,
       dualLegalConfigured,
       webSearchApiKeyConfigured,
+      webSearchNativeAvailable,
+      webSearchReady,
       usageSummary,
       doctor: {
         ...doctor,

@@ -1,0 +1,552 @@
+/**
+ * Same-turn verify — Codex analogue of “tests failed, keep going”.
+ *
+ * Lint / empty redline / missing citations / missing craft_check (deferred packet)
+ * / Guardian fail are tool errors for the writer model. The turn is not complete
+ * until validators are green or the soft budget / bounce cap pauses.
+ */
+
+import { resolveDraftCitationIntegrity } from "../drafts/citation-resolve.js";
+import { parseCraftCheckInput } from "../drafts/contract-redline-craft.js";
+import { readDraft } from "../drafts/index.js";
+import { readRedlinePlan } from "../drafts/redline-plan.js";
+import { readRedlineProposal } from "../drafts/redline-proposal.js";
+import { readLatestGuardian } from "../guardian/store.js";
+import { draftTextFromUnknown, runLegalLint } from "../lint/run-lint.js";
+import { classifyResidual } from "../lint/self-revise.js";
+import type { LegalLintFinding } from "../lint/types.js";
+import type { GateDecisionKind } from "../platform/contracts.js";
+import { withGateCategory } from "../platform/gate-category.js";
+
+type ToolResultLike = {
+  ok: boolean;
+  data?: unknown;
+  error?: string;
+  aborted?: boolean;
+  timedOut?: boolean;
+  approvalRequest?: boolean;
+};
+
+export const SAME_TURN_VERIFY_BOUNCE_MAX = 3;
+export const SAME_TURN_VERIFY_USER_PREFIX = "【同一回合验收未过】";
+
+export type SameTurnVerifyCode =
+  | "empty_redline"
+  | "craft_check_missing"
+  | "citation_integrity"
+  | "lint_mechanical"
+  | "guardian_fail";
+
+export type SameTurnVerifyIssue = {
+  code: SameTurnVerifyCode;
+  message: string;
+  gate: GateDecisionKind;
+  nextTool?: "apply_surgical_edits" | "update_draft" | "draft_document" | "search_statute";
+};
+
+export type SameTurnVerifyTurnState = {
+  red: boolean;
+  issues: SameTurnVerifyIssue[];
+  bounceCount: number;
+  lastTool?: string;
+  taskId?: string;
+};
+
+const EXPORT_TOOLS = new Set(["render_tracked_draft", "prepare_outbound_mail", "render_document"]);
+const VERIFY_TOOLS = new Set([
+  "apply_surgical_edits",
+  "update_draft",
+  "draft_document",
+  "render_tracked_draft",
+  "prepare_outbound_mail",
+  "render_document",
+]);
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
+function taskIdFrom(
+  data: Record<string, unknown> | undefined,
+  args?: Record<string, unknown>,
+): string | undefined {
+  const fromData = typeof data?.taskId === "string" ? data.taskId.trim() : "";
+  if (fromData) {
+    return fromData;
+  }
+  const fromArgs =
+    (typeof args?.task_id === "string" && args.task_id.trim()) ||
+    (typeof args?.draft_task_id === "string" && args.draft_task_id.trim()) ||
+    "";
+  return fromArgs || undefined;
+}
+
+export function emptySameTurnVerifyState(): SameTurnVerifyTurnState {
+  return { red: false, issues: [], bounceCount: 0 };
+}
+
+export function formatSameTurnVerifyError(issues: SameTurnVerifyIssue[]): string {
+  if (issues.length === 0) {
+    return `${SAME_TURN_VERIFY_USER_PREFIX}验证器未绿。请补改后重试，不要回复已完成。`;
+  }
+  const next = issues.find((i) => i.nextTool)?.nextTool ?? "apply_surgical_edits";
+  const lines = [
+    `${SAME_TURN_VERIFY_USER_PREFIX}验证器未绿，本回合不得结束。请立即调用 ${next}，不要回复「已完成」。`,
+  ];
+  for (const issue of issues.slice(0, 6)) {
+    lines.push(`- [${issue.code}] ${issue.message}`);
+  }
+  return lines.join("\n");
+}
+
+export function formatSameTurnCompletionBounce(state: SameTurnVerifyTurnState): string {
+  return formatSameTurnVerifyError(state.issues);
+}
+
+export function formatSameTurnVerifyPaused(state: SameTurnVerifyTurnState): string {
+  return [
+    formatSameTurnVerifyError(state.issues),
+    "已多次停止改稿，本回合未完成。可点继续，或在对话里接着改。",
+  ].join("\n");
+}
+
+export function failToolWithSameTurnVerify(
+  result: ToolResultLike,
+  issues: SameTurnVerifyIssue[],
+): ToolResultLike {
+  if (issues.length === 0) {
+    return result;
+  }
+  const message = formatSameTurnVerifyError(issues);
+  const primary = issues[0];
+  const data = {
+    ...asRecord(result.data),
+    verify: { message, codes: issues.map((i) => i.code), nextTool: primary.nextTool },
+    sameTurnVerify: { red: true as const, issues },
+    gateDecision: withGateCategory({
+      gate: primary.gate,
+      decision: "block",
+      reason: message,
+    }),
+  };
+  return {
+    ...result,
+    ok: false,
+    error: message,
+    data,
+  };
+}
+
+function issueEmptyRedline(
+  nextTool: SameTurnVerifyIssue["nextTool"] = "apply_surgical_edits",
+): SameTurnVerifyIssue {
+  return {
+    code: "empty_redline",
+    gate: "redline_hunks_gate",
+    nextTool,
+    message:
+      "未产生可核验修订（redlinePending=0）。请用最短 find/replace 再交 apply_surgical_edits，并附 craft_check.deferred（无缓办则 []）。",
+  };
+}
+
+function issueCraftCheckMissing(): SameTurnVerifyIssue {
+  return {
+    code: "craft_check_missing",
+    gate: "reasoning_gate",
+    nextTool: "apply_surgical_edits",
+    message:
+      "未附 craft_check。请在同一调用中附 craft_check.deferred（无缓办则 []）后重交 apply_surgical_edits。",
+  };
+}
+
+function issueCitation(missing: string[]): SameTurnVerifyIssue {
+  return {
+    code: "citation_integrity",
+    gate: "citation_integrity_gate",
+    nextTool: "update_draft",
+    message:
+      missing.length > 0
+        ? `引用对不上来源：${missing.slice(0, 4).join("、")} 不在本次检索结果中。请改正 citations 或重检索后重交，不要回复已完成。`
+        : "引用对不上来源。请改正 citations 或重检索后重交，不要回复已完成。",
+  };
+}
+
+function issueLint(ruleIds: string[]): SameTurnVerifyIssue {
+  return {
+    code: "lint_mechanical",
+    gate: "acceptance_gate",
+    nextTool: "update_draft",
+    message: `机械核对未过（${ruleIds.slice(0, 4).join("、")}）。请按缺口改稿后重交，不要回复已完成。`,
+  };
+}
+
+function issueGuardian(
+  gaps?: unknown,
+  nextTool: SameTurnVerifyIssue["nextTool"] = "apply_surgical_edits",
+): SameTurnVerifyIssue {
+  const detail: string[] = [];
+  if (Array.isArray(gaps)) {
+    for (const row of gaps) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) {
+        continue;
+      }
+      const message = (row as { message?: unknown }).message;
+      if (typeof message === "string" && message.trim()) {
+        detail.push(message.trim());
+      }
+      if (detail.length >= 4) {
+        break;
+      }
+    }
+  }
+  return {
+    code: "guardian_fail",
+    gate: "legal_guardian_gate",
+    nextTool,
+    message: detail.length
+      ? `独立审稿未过：${detail.join("；")}。请补改或补缓办后重交，不要回复已完成。`
+      : "独立审稿未过。请按工具结果中的缺口补改或补缓办后重交，不要回复已完成。",
+  };
+}
+
+function craftCheckPresent(
+  args?: Record<string, unknown>,
+  data?: Record<string, unknown>,
+): boolean {
+  if (parseCraftCheckInput(args?.craft_check)) {
+    return true;
+  }
+  const stored = data?.craftCheck;
+  if (stored === null) {
+    return false;
+  }
+  return Boolean(parseCraftCheckInput(stored));
+}
+
+function isContractEditPayload(data?: Record<string, unknown>): boolean {
+  return Boolean(data?.contractEdit);
+}
+
+function findingsFromLintReport(data?: Record<string, unknown>): LegalLintFinding[] {
+  const report = asRecord(data?.lintReport);
+  const raw = report?.findings;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out: LegalLintFinding[] = [];
+  for (const row of raw) {
+    const rec = asRecord(row);
+    if (!rec || typeof rec.ruleId !== "string" || typeof rec.severity !== "string") {
+      continue;
+    }
+    if (rec.severity !== "blocker" && rec.severity !== "warning" && rec.severity !== "info") {
+      continue;
+    }
+    out.push({
+      ruleId: rec.ruleId,
+      family: typeof rec.family === "string" ? (rec.family as LegalLintFinding["family"]) : "meta",
+      severity: rec.severity,
+      message: typeof rec.message === "string" ? rec.message : "",
+      fixable: rec.fixable === true,
+    });
+  }
+  return out;
+}
+
+function mechanicalBlockerIdsFromLintReport(data?: Record<string, unknown>): string[] {
+  const { residualMechanical } = classifyResidual(findingsFromLintReport(data));
+  return residualMechanical.filter((f) => f.severity === "blocker").map((f) => f.ruleId);
+}
+
+function redlinePendingOf(data?: Record<string, unknown>): number | undefined {
+  if (typeof data?.redlinePending === "number" && Number.isFinite(data.redlinePending)) {
+    return data.redlinePending;
+  }
+  return undefined;
+}
+
+function issuesFromStored(data?: Record<string, unknown>): SameTurnVerifyIssue[] {
+  const raw = asRecord(data?.sameTurnVerify)?.issues;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out: SameTurnVerifyIssue[] = [];
+  for (const row of raw) {
+    const rec = asRecord(row);
+    if (!rec) {
+      continue;
+    }
+    const code = rec.code;
+    if (
+      code !== "empty_redline" &&
+      code !== "craft_check_missing" &&
+      code !== "citation_integrity" &&
+      code !== "lint_mechanical" &&
+      code !== "guardian_fail"
+    ) {
+      continue;
+    }
+    if (typeof rec.message !== "string" || !rec.message.trim()) {
+      continue;
+    }
+    const gate = rec.gate;
+    if (typeof gate !== "string") {
+      continue;
+    }
+    out.push({
+      code,
+      message: rec.message,
+      gate: gate as GateDecisionKind,
+      ...(typeof rec.nextTool === "string"
+        ? { nextTool: rec.nextTool as SameTurnVerifyIssue["nextTool"] }
+        : {}),
+    });
+  }
+  return out;
+}
+
+/** Collect issues from a tool result (after execute). Does not flip ok. */
+export function collectSameTurnVerifyIssues(input: {
+  toolName: string;
+  result: ToolResultLike;
+  args?: Record<string, unknown>;
+}): SameTurnVerifyIssue[] {
+  const stored = issuesFromStored(asRecord(input.result.data));
+  if (stored.length > 0) {
+    return stored;
+  }
+  const data = asRecord(input.result.data);
+  const gate = asRecord(data?.gateDecision);
+  const issues: SameTurnVerifyIssue[] = [];
+  const toolName = input.toolName;
+
+  if (toolName === "draft_document" || toolName === "update_draft") {
+    const integrity = asRecord(data?.citationIntegrity);
+    if (integrity?.checked === true && integrity.ok === false) {
+      const missing = Array.isArray(integrity.missingSourceIds)
+        ? integrity.missingSourceIds.filter((id): id is string => typeof id === "string")
+        : [];
+      issues.push(issueCitation(missing));
+    }
+  }
+
+  if (input.result.ok) {
+    if (toolName === "apply_surgical_edits") {
+      const pending = redlinePendingOf(data);
+      if (pending === 0 || gate?.gate === "redline_hunks_gate") {
+        issues.push(issueEmptyRedline());
+      }
+      if (!craftCheckPresent(input.args, data)) {
+        issues.push(issueCraftCheckMissing());
+      }
+    }
+
+    if (toolName === "update_draft") {
+      const warning = typeof data?.warning === "string" ? data.warning : "";
+      if (gate?.gate === "redline_hunks_gate" || warning.includes("redlinePending=0")) {
+        issues.push(issueEmptyRedline("apply_surgical_edits"));
+      }
+    }
+
+    if (
+      (toolName === "draft_document" || toolName === "update_draft") &&
+      !isContractEditPayload(data)
+    ) {
+      const lintIds = mechanicalBlockerIdsFromLintReport(data);
+      if (lintIds.length > 0) {
+        issues.push(issueLint(lintIds));
+      }
+    }
+
+    return dedupeIssues(issues);
+  }
+
+  if (toolName === "render_tracked_draft") {
+    if (data?.code === "redline_hunks_required" || gate?.gate === "redline_hunks_gate") {
+      issues.push(issueEmptyRedline());
+    }
+    if (data?.code === "craft_check_required") {
+      issues.push(issueCraftCheckMissing());
+    }
+    if (data?.code === "legal_guardian_fail" || gate?.gate === "legal_guardian_gate") {
+      issues.push(issueGuardian(asRecord(data?.guardian)?.gaps));
+    }
+  }
+
+  if (toolName === "render_document") {
+    if (data?.code === "legal_guardian_fail" || gate?.gate === "legal_guardian_gate") {
+      issues.push(issueGuardian(asRecord(data?.guardian)?.gaps, "update_draft"));
+    }
+  }
+
+  if (toolName === "prepare_outbound_mail") {
+    if (gate?.gate === "redline_hunks_gate") {
+      issues.push(issueEmptyRedline());
+    }
+    if (gate?.gate === "citation_integrity_gate") {
+      issues.push(issueCitation([]));
+    }
+    if (gate?.gate === "acceptance_gate") {
+      issues.push(issueLint([]));
+    }
+    if (gate?.gate === "reasoning_gate") {
+      issues.push(issueCraftCheckMissing());
+    }
+  }
+
+  return dedupeIssues(issues);
+}
+
+function dedupeIssues(issues: SameTurnVerifyIssue[]): SameTurnVerifyIssue[] {
+  const seen = new Set<string>();
+  const out: SameTurnVerifyIssue[] = [];
+  for (const issue of issues) {
+    if (seen.has(issue.code)) {
+      continue;
+    }
+    seen.add(issue.code);
+    out.push(issue);
+  }
+  return out;
+}
+
+/**
+ * Flip ok when same-turn validators are red.
+ * Already-failed results keep ok:false and get the same-turn error envelope when issues exist.
+ */
+export function applySameTurnVerifyFail(
+  toolName: string,
+  result: ToolResultLike,
+  args?: Record<string, unknown>,
+): ToolResultLike {
+  if (result.aborted || result.timedOut || result.approvalRequest) {
+    return result;
+  }
+  const issues = collectSameTurnVerifyIssues({ toolName, result, args });
+  if (issues.length === 0) {
+    return result;
+  }
+  return failToolWithSameTurnVerify(result, issues);
+}
+
+function mechanicalLintBlockers(text: string, deliverableType?: string): string[] {
+  if (text.trim().length < 20) {
+    return [];
+  }
+  const report = runLegalLint(text, undefined, undefined, undefined, { deliverableType });
+  const { residualMechanical } = classifyResidual(report.findings);
+  return residualMechanical.filter((f) => f.severity === "blocker").map((f) => f.ruleId);
+}
+
+/** Pre-execute gate for prepare_outbound_mail when a draft is linked. */
+export function precheckOutboundSameTurnVerify(input: {
+  toolName: string;
+  args: Record<string, unknown>;
+  workspaceDir?: string;
+}): ToolResultLike | undefined {
+  if (input.toolName !== "prepare_outbound_mail") {
+    return undefined;
+  }
+  const taskId =
+    typeof input.args.draft_task_id === "string" ? input.args.draft_task_id.trim() : "";
+  const workspaceDir = input.workspaceDir?.trim();
+  if (!taskId || !workspaceDir) {
+    return undefined;
+  }
+  let draft;
+  try {
+    draft = readDraft(workspaceDir, taskId);
+  } catch {
+    return undefined;
+  }
+  if (!draft) {
+    return undefined;
+  }
+  const issues: SameTurnVerifyIssue[] = [];
+  const citation = resolveDraftCitationIntegrity(workspaceDir, draft);
+  if (citation.checked && !citation.ok) {
+    issues.push(issueCitation(citation.missingSourceIds));
+  }
+  if (draft.contractEdit) {
+    const proposal = readRedlineProposal(workspaceDir, taskId);
+    const hunks = (proposal?.hunks ?? []).filter((h) => h.status !== "rejected");
+    if (hunks.length < 1) {
+      issues.push(issueEmptyRedline());
+    }
+    const plan = readRedlinePlan(workspaceDir, taskId);
+    if (!plan?.craftCheckAttached) {
+      issues.push(issueCraftCheckMissing());
+    }
+    const guardian = readLatestGuardian(workspaceDir, taskId);
+    if (guardian?.verdict === "fail") {
+      issues.push(issueGuardian(guardian.gaps));
+    }
+  }
+  const text = draftTextFromUnknown({
+    draft: { title: draft.title, sections: draft.sections },
+  });
+  const lintIds = mechanicalLintBlockers(text, draft.deliverableType);
+  if (lintIds.length > 0 && !draft.contractEdit) {
+    issues.push(issueLint(lintIds));
+  }
+  if (issues.length === 0) {
+    return undefined;
+  }
+  return failToolWithSameTurnVerify(
+    { ok: true, data: { taskId, code: "same_turn_verify" } },
+    issues,
+  );
+}
+
+export function nextSameTurnVerifyState(
+  prev: SameTurnVerifyTurnState | undefined,
+  toolName: string,
+  result: ToolResultLike,
+  args?: Record<string, unknown>,
+): SameTurnVerifyTurnState {
+  const base = prev ?? emptySameTurnVerifyState();
+  if (!VERIFY_TOOLS.has(toolName)) {
+    return base;
+  }
+  const issues = collectSameTurnVerifyIssues({ toolName, result, args });
+  const data = asRecord(result.data);
+  const taskId = taskIdFrom(data, args) ?? base.taskId;
+  if (issues.length > 0) {
+    return {
+      red: true,
+      issues,
+      bounceCount: base.bounceCount,
+      lastTool: toolName,
+      taskId,
+    };
+  }
+  if (result.ok) {
+    return {
+      red: false,
+      issues: [],
+      bounceCount: 0,
+      lastTool: toolName,
+      taskId,
+    };
+  }
+  if (EXPORT_TOOLS.has(toolName)) {
+    return base;
+  }
+  return base;
+}
+
+export function shouldBounceSameTurnCompletion(
+  state: SameTurnVerifyTurnState | undefined,
+): boolean {
+  return Boolean(state?.red && state.issues.length > 0);
+}
+
+export function shouldPauseSameTurnVerify(state: SameTurnVerifyTurnState | undefined): boolean {
+  return Boolean(
+    shouldBounceSameTurnCompletion(state) &&
+    (state?.bounceCount ?? 0) >= SAME_TURN_VERIFY_BOUNCE_MAX,
+  );
+}

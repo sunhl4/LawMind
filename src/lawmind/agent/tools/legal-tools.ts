@@ -22,6 +22,13 @@ import { calculateTool } from "./legal/calculate-tool.js";
 import { renderChart } from "./legal/chart-tool.js";
 import { compareDocuments } from "./legal/compare-documents.js";
 import { analyzeDocument, writeDocument } from "./legal/file-tools.js";
+import {
+  importHostFileTool,
+  readHostFileTool,
+  runHostCommandTool,
+  searchHostTool,
+} from "./legal/host-tools.js";
+import { listDirTool } from "./legal/list-dir-tool.js";
 import { listMoreTools } from "./legal/list-more-tools.js";
 import {
   prepareOutboundMail,
@@ -31,6 +38,7 @@ import {
 } from "./legal/mail-tools.js";
 import { getMatterSummary, listMatters, readCaseFile, addCaseNote } from "./legal/matter-tools.js";
 import { runAnalysis } from "./legal/run-analysis-tool.js";
+import { runCompute } from "./legal/run-compute-tool.js";
 import {
   searchMatter,
   searchWorkspace,
@@ -40,6 +48,7 @@ import {
   checkConflictOfInterest,
 } from "./legal/search-tools.js";
 import { analyzeSpreadsheet, writeSpreadsheet } from "./legal/spreadsheet-tools.js";
+import { updatePlanTool } from "./legal/update-plan-tool.js";
 import { ToolRegistry } from "./registry.js";
 
 export function createLegalToolRegistry(opts?: {
@@ -54,6 +63,11 @@ export function createLegalToolRegistry(opts?: {
     searchMatter,
     searchWorkspace,
     readProjectFile,
+    listDirTool,
+    searchHostTool,
+    readHostFileTool,
+    importHostFileTool,
+    runHostCommandTool,
     searchStatute,
     searchCaseLaw,
     // 案件管理
@@ -69,6 +83,7 @@ export function createLegalToolRegistry(opts?: {
     writeSpreadsheet,
     renderChart,
     calculateTool,
+    runCompute,
     runAnalysis,
     writeDocument,
     sendEmail,
@@ -80,6 +95,7 @@ export function createLegalToolRegistry(opts?: {
     listAllDrafts,
     getAuditTrail,
     listMoreTools,
+    updatePlanTool,
   ];
 
   // Deep research uses workspace/authority adapters even without web search.

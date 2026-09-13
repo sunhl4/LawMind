@@ -66,6 +66,11 @@ export type ModelsStoreFile = {
    * Falls back to defaultModelId when unset.
    */
   workerModelId?: string;
+  /**
+   * Dedicated legal-retrieval model when retrievalMode is dual.
+   * Unset: env ChatLaw/LawGPT/partner, else fall back to the chat model.
+   */
+  retrievalModelId?: string;
   customModels: CustomModelRecord[];
   /** v2: keyed by model id (built-in/custom/platform). Optional for back-compat. */
   verifications?: Record<string, ModelVerificationRecord>;

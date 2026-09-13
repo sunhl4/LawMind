@@ -4,14 +4,15 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { ArtifactDraft } from "../../../../../src/lawmind/types.ts";
 import type {
   AcceptanceReport,
-  DraftScaffoldView,
   ReasoningReport,
-} from "../../../../../src/lawmind/deliverables/index.ts";
+} from "../../../../../src/lawmind/deliverables/types.ts";
+import type { DraftScaffoldView } from "../../../../../src/lawmind/deliverables/scaffold-status.ts";
 import type { ClauseGraph } from "../../../../../src/lawmind/reasoning/clause-graph.ts";
 import type { DraftCitationIntegrityView } from "../../../../../src/lawmind/drafts/citation-integrity.ts";
+import type { GuardianLawyerView } from "../../../../../src/lawmind/guardian/types.ts";
 import type { GateDecision, TaskExecutionState } from "../../../../../src/lawmind/platform/contracts.ts";
 import { deriveReviewGateDecisions } from "../../../../../src/lawmind/platform/review-gates.ts";
-import type { MemorySourceLayer } from "../../../../../src/lawmind/memory/index.ts";
+import type { MemorySourceLayer } from "../../../../../src/lawmind/memory/memory-source-types.ts";
 import {
   useInvalidateLawmindQueries,
   useReviewDraftDetailQuery,
@@ -69,6 +70,7 @@ export function useReviewWorkbenchData(params: UseReviewWorkbenchDataParams) {
 
   const detail = detailQuery.data?.draft ?? null;
   const citationIntegrity = detailQuery.data?.citationIntegrity ?? null;
+  const guardian = detailQuery.data?.guardian ?? null;
   const memorySources = detailQuery.data?.memorySources ?? null;
   const acceptance = detailQuery.data?.acceptance ?? null;
   const reasoningReport = detailQuery.data?.reasoningReport ?? null;
@@ -144,6 +146,7 @@ export function useReviewWorkbenchData(params: UseReviewWorkbenchDataParams) {
       j: {
         draft?: ArtifactDraft;
         citationIntegrity?: DraftCitationIntegrityView;
+        guardian?: GuardianLawyerView | null;
         acceptance?: AcceptanceReport;
         reasoningReport?: ReasoningReport;
         reasoningMarkdown?: string | null;
@@ -164,6 +167,7 @@ export function useReviewWorkbenchData(params: UseReviewWorkbenchDataParams) {
       patchDetailCache(taskId, {
         draft: j.draft,
         citationIntegrity: j.citationIntegrity ?? null,
+        guardian: j.guardian ?? null,
         acceptance: j.acceptance ?? null,
         reasoningReport: j.reasoningReport ?? null,
         reasoningMarkdown:
@@ -263,6 +267,7 @@ export function useReviewWorkbenchData(params: UseReviewWorkbenchDataParams) {
     setSelectedTaskId,
     detail,
     citationIntegrity,
+    guardian,
     memorySources,
     acceptance,
     reasoningReport,

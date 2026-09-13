@@ -36,7 +36,7 @@ export function evaluateTrackedRenderHunkGate(params: {
     minHunks,
     message: [
       `合同审阅稿尚无待叠加修订（redline hunks=${count}，至少需要 ${minHunks}）。`,
-      "请先用 apply_surgical_edits 落改（附 craft_check；按邮件/批注/己方实质风险与 Craft 原则），",
+      "请先用 apply_surgical_edits 落改（按邮件/批注/己方实质风险与 Craft 原则；缓办写入 craft_check.deferred），",
       "确认返回 data.redlinePending≥1 后再调用 render_tracked_draft。",
       "禁止仅写 summary 后空修订导出。",
     ].join(""),

@@ -443,4 +443,115 @@ describe("executeToolBatches permission-mode hard gate", () => {
     expect(executed).toBe(true);
     expect(turn.gateDecisions?.some((g) => g.gate === "dangerous_tool_gate")).toBe(false);
   });
+
+  it("same-turn soft clarification does not freeze draft tools; hard keys do", async () => {
+    const softRegistry = new ToolRegistry();
+    let softDraftCalls = 0;
+    softRegistry.register({
+      definition: {
+        name: "draft_document",
+        description: "draft",
+        category: "draft",
+        parameters: {},
+      },
+      async execute() {
+        softDraftCalls += 1;
+        if (softDraftCalls === 1) {
+          return {
+            ok: true,
+            data: {
+              deliveryReadiness: "draft_with_placeholders",
+              clarificationQuestions: [{ key: "rent_and_deposit", question: "租金多少？" }],
+            },
+          };
+        }
+        return { ok: true, data: { taskId: "t2" } };
+      },
+    });
+    const softCtx = {
+      workspaceDir: testWorkspaceDir,
+      permissionMode: "standard",
+      clarificationBlockingHeavyTools: false,
+    } as AgentContext;
+    await executeToolBatches({
+      toolRefs: [
+        { id: "d1", name: "draft_document", arguments: {} },
+        { id: "d2", name: "draft_document", arguments: {} },
+      ],
+      registry: softRegistry,
+      turn: stubTurn(),
+      ctx: softCtx,
+      roundIndex: 1,
+      assistantContent: "",
+      maxToolCalls: 10,
+      toolTimeoutMs: 5000,
+      strictDangerousToolApproval: false,
+      allowDangerousToolsWithoutApproval: true,
+      toolSandboxEnabled: false,
+      actorId: "test",
+      pendingClarificationQuestions: [],
+      emitEvent: () => {},
+      pushMessage: () => {},
+    });
+    expect(softDraftCalls).toBe(2);
+    expect(softCtx.clarificationBlockingHeavyTools).toBe(false);
+
+    const hardRegistry = new ToolRegistry();
+    let hardDraftCalls = 0;
+    hardRegistry.register({
+      definition: {
+        name: "draft_document",
+        description: "draft",
+        category: "draft",
+        parameters: {},
+      },
+      async execute() {
+        hardDraftCalls += 1;
+        if (hardDraftCalls === 1) {
+          return {
+            ok: true,
+            data: {
+              deliveryReadiness: "draft_with_placeholders",
+              clarificationQuestions: [{ key: "addressee", question: "收件人是谁？" }],
+            },
+          };
+        }
+        return { ok: true, data: { taskId: "t3" } };
+      },
+    });
+    const hardCtx = {
+      workspaceDir: testWorkspaceDir,
+      permissionMode: "standard",
+      clarificationBlockingHeavyTools: false,
+    } as AgentContext;
+    const hardHistory: AgentMessage[] = [];
+    await executeToolBatches({
+      toolRefs: [
+        { id: "h1", name: "draft_document", arguments: {} },
+        { id: "h2", name: "draft_document", arguments: {} },
+      ],
+      registry: hardRegistry,
+      turn: stubTurn(),
+      ctx: hardCtx,
+      roundIndex: 1,
+      assistantContent: "",
+      maxToolCalls: 10,
+      toolTimeoutMs: 5000,
+      strictDangerousToolApproval: false,
+      allowDangerousToolsWithoutApproval: true,
+      toolSandboxEnabled: false,
+      actorId: "test",
+      pendingClarificationQuestions: [],
+      emitEvent: () => {},
+      pushMessage: (msg) => {
+        hardHistory.push(msg);
+      },
+    });
+    expect(hardDraftCalls).toBe(1);
+    const second = hardHistory
+      .flatMap((m) => m.toolCallResponses ?? [])
+      .find((r) => r.toolCallId === "h2");
+    expect(second?.result.ok).toBe(false);
+    expect(String(second?.result.error ?? "")).toMatch(/跳过|澄清|拍板/i);
+  });
 });

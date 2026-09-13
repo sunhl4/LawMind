@@ -50,10 +50,10 @@ describe("resolveComposeModelSelectValue", () => {
   it("falls back to the first configured row otherwise", () => {
     expect(resolveComposeModelSelectValue(catalog, "builtin:b")).toBe("builtin:a");
   });
-  it("falls back to builtin:qwen-plus when nothing is configured", () => {
+  it("falls back to builtin:deepseek-flash when nothing is configured", () => {
     const empty: ModelCatalogEntry[] = [row({ id: "builtin:b", configured: false })];
     expect(resolveComposeModelSelectValue(empty, "")).toBe("builtin:b");
-    expect(resolveComposeModelSelectValue([], "")).toBe("builtin:qwen-plus");
+    expect(resolveComposeModelSelectValue([], "")).toBe("builtin:deepseek-flash");
   });
 });
 

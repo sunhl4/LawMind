@@ -32,7 +32,7 @@ export type LawmindAppOverlaysProps = {
   wizBusy: boolean;
   onPickWorkspace: () => void;
   onWizardCancel: () => void;
-  onWizardSave: () => void;
+  onWizardSave: (opts?: { webSearchApiKey?: string }) => void;
   detailOpen: boolean;
   detailKind: DetailKind;
   detailId: string | null;
@@ -142,7 +142,7 @@ export function LawmindAppOverlays(props: LawmindAppOverlaysProps) {
           wizBusy={wizBusy}
           onPickWorkspace={() =>  onPickWorkspace()}
           onCancel={onWizardCancel}
-          onSave={() =>  onWizardSave()}
+          onSave={(opts) => onWizardSave(opts)}
         />
       )}
       <LawmindDetailDialog
@@ -163,7 +163,9 @@ export function LawmindAppOverlays(props: LawmindAppOverlaysProps) {
         onOpenOutputInFolder={onOpenOutputInFolder}
         onUseTaskContext={onUseTaskContext}
         formatLocaleDateTime={formatLocaleDateTime}
-        artifactApiRelFromOutput={artifactApiRelFromOutput}
+        artifactApiRelFromOutput={(outputPath) =>
+          artifactApiRelFromOutput(outputPath, config?.workspaceDir)
+        }
       />
       <LawmindAssistantEditorDialog
         open={showAssistantEditor}

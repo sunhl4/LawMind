@@ -53,6 +53,11 @@ describe("lawyer-capabilities", () => {
     expect(research?.id).toBe("research.memo");
   });
 
+  it("does not bind research.memo for entertainment public-web facts", () => {
+    expect(bindLawyerCapability({ instruction: "查一下2026年新说唱总冠军" })).toBeNull();
+    expect(bindLawyerCapability({ instruction: "2026年新说唱总冠军" })).toBeNull();
+  });
+
   it("binds mail contract from the short-path marker", () => {
     const mail = bindLawyerCapability({
       instruction: "【邮件合同审阅改稿 · 短路径 · 原文件审阅痕迹】\nmatterId=`m1`",
@@ -110,6 +115,12 @@ describe("lawyer-capabilities", () => {
     expect(bindLawyerCapability({ instruction: "请起草一份租赁合同" })?.id).toBe("contract.draft");
     expect(bindLawyerCapability({ instruction: "计算违法解除的经济补偿" })?.id).toBe("labor.calc");
     expect(bindLawyerCapability({ instruction: "计算上诉期届满日" })?.id).toBe("period.calc");
+    expect(bindLawyerCapability({ instruction: "把这张表汇总成对照表" })?.id).toBe(
+      "materials.draft",
+    );
+    expect(bindLawyerCapability({ instruction: "把这张表汇总成对照表" })?.deliverableType).toBe(
+      "analysis.table",
+    );
     expect(bindLawyerCapability({ instruction: "整理这些进项发票" })?.id).toBe("ops.invoice");
     expect(bindLawyerCapability({ instruction: "把法院短信里的开庭时间整理出来" })?.id).toBe(
       "ops.court_sms",
@@ -179,9 +190,9 @@ describe("lawyer-capabilities", () => {
     expect(bodies.some((b) => b.includes("合同分层审查"))).toBe(true);
     const lean = planLeanSkillPrompt(bound!, "请审查合同条款");
     const leanBodies = readSkillPromptBodies(undefined, lean.primaryIds);
-    expect(lean.primaryIds.length).toBeLessThanOrEqual(2);
+    expect(lean.primaryIds).toEqual(["contract-review-layers"]);
     expect(leanBodies.some((b) => b.includes("合同分层审查"))).toBe(true);
-    expect(leanBodies.some((b) => b.includes("合同审阅改稿手艺"))).toBe(true);
+    expect(leanBodies.some((b) => b.includes("合同审阅改稿手艺"))).toBe(false);
     expect(leanBodies.some((b) => b.includes("## 九类事实"))).toBe(false);
     const block = formatBoundCapabilityBlock(bound!, leanBodies, { indexLines: lean.indexLines });
     expect(block).toContain("本轮 LawMind 能力：合同审查");

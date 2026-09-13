@@ -6,13 +6,35 @@ export function resolveWorkspacePath(workspaceDir: string, rel: string): string 
   return `${w}/${r}`;
 }
 
-/** Relative path for GET /api/artifact?path= (must stay under workspace `artifacts/`) */
-export function artifactApiRelFromOutput(outputPath?: string): string | null {
+function isAbsoluteOutputPath(p: string): boolean {
+  return p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p);
+}
+
+/** Turn a stored output path into an on-disk path (absolute paths stay as-is). */
+export function resolveOpenableOutputPath(workspaceDir: string, outputPath: string): string {
+  const out = outputPath.trim();
+  if (isAbsoluteOutputPath(out)) {
+    return out;
+  }
+  return resolveWorkspacePath(workspaceDir, out);
+}
+
+/** Relative path for GET /api/artifact?path= (workspace artifacts/ or matter artifacts/). */
+export function artifactApiRelFromOutput(outputPath?: string, workspaceDir?: string): string | null {
   if (!outputPath) {
     return null;
   }
-  const norm = outputPath.replace(/\\/g, "/").replace(/^\//, "");
-  if (norm.startsWith("artifacts/")) {
+  let norm = outputPath.replace(/\\/g, "/");
+  const ws = workspaceDir?.replace(/\\/g, "/").replace(/\/$/, "");
+  if (ws && (norm === ws || norm.startsWith(`${ws}/`))) {
+    norm = norm.slice(ws.length).replace(/^\//, "");
+  } else {
+    norm = norm.replace(/^\//, "");
+  }
+  if (norm.startsWith("artifacts/") && norm.length > "artifacts/".length) {
+    return norm;
+  }
+  if (/^cases\/[^/]+\/artifacts\/.+$/.test(norm)) {
     return norm;
   }
   if (!norm.includes("/")) {

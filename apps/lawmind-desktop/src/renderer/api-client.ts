@@ -83,7 +83,7 @@ export async function apiGetJson<T>(apiBase: string, path: string): Promise<T> {
   return body;
 }
 
-export async function apiSendJson<TResponse, TBody>(
+export async function apiSendJson<TResponse, TBody = unknown>(
   apiBase: string,
   path: string,
   method: "POST" | "PUT" | "PATCH" | "DELETE",

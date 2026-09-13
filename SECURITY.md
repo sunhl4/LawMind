@@ -22,6 +22,8 @@ This tree is **LawMind-only** (no OpenClaw gateway, ClawHub, or mobile apps). Do
 
 LawMind’s desktop **local HTTP API** is intended to bind to **loopback** and to operate on the **lawyer’s workspace** on their machine. Findings that assume full Internet exposure of that API, or that equate “operator can do X locally” with privilege escalation without crossing an unexpected boundary, may be classified as **hardening** rather than a vulnerability—but please report anyway if unsure.
 
+Host-file access beyond the workspace (mounted folders, locate, optional full-disk) is a **brokered** capability—not a session override. The agent never receives a raw POSIX handle; all host I/O goes through the Access Broker (deny-list, matter fence, grants). Design: **`docs/lawmind/LAWMIND-HOST-ACCESS.md`**. Reports that the agent cannot read an unmounted path without a lawyer grant are expected.
+
 Product-facing security checklists and deployment notes (archived snapshots): **`docs/archive/LAWMIND-SECURITY-CHECKLIST.md`**, **`docs/archive/LAWMIND-DATA-PROCESSING.md`**.
 
 ## Hardening notes (local API)

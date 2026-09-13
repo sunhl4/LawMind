@@ -2,8 +2,10 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { App } from "./App";
+import { LawmindDesktopRequiredPage } from "./app/LawmindDesktopRequiredPage";
 import { LawmindErrorBoundary } from "./LawmindErrorBoundary";
 import { LawmindReviewPreviewPopout } from "./LawmindReviewPreviewPopout";
+import { hasLawmindDesktopBridge } from "./lawmind-desktop-bridge";
 import { parseLawmindPopoutRoute } from "./lawmind-popout-route";
 import { lawmindQueryClient } from "./lawmind-query-client";
 import "./styles.css";
@@ -27,8 +29,10 @@ createRoot(el).render(
       <QueryClientProvider client={lawmindQueryClient}>
         {popout?.kind === "review-preview" ? (
           <LawmindReviewPreviewPopout taskId={popout.taskId} />
-        ) : (
+        ) : hasLawmindDesktopBridge() ? (
           <App />
+        ) : (
+          <LawmindDesktopRequiredPage />
         )}
       </QueryClientProvider>
     </LawmindErrorBoundary>

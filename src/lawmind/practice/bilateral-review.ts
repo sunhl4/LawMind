@@ -69,15 +69,13 @@ export function formatBilateralReviewPromptBlock(params: {
       : params.role === "buy"
         ? "采购侧：交付、质量、知识产权、数据、解约"
         : "未写明买卖角色：按封闭类型的交易结构审，责任上限四个位置都要看";
-  const never = params.playbook.neverAccept.map((item) => `- ${item}`).join("\n");
   return [
     "## 纸侧与交易角色",
     `纸侧：${paperLabel}。`,
     `角色：${roleLabel}。`,
     "标准：直接损失有上限；间接/可得利益默认排除；人身/故意/重大过失/知识产权/数据泄露作 carve-out。",
     "可接受回退：上限金额可谈；管辖可改为双方所在地或约定仲裁。",
-    "永不接受（默认，工作区可改）：",
-    never,
-    "无档案也用上述默认审完。改设置只影响之后任务。",
+    "永不接受见本回合「执业口径」，此处只看纸侧与买卖角色。",
+    `口径来源：${params.playbook.source === "workspace" ? "工作区 playbook" : "开箱默认"}。改设置只影响之后任务。`,
   ].join("\n");
 }

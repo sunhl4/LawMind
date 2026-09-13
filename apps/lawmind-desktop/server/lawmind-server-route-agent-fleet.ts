@@ -3,6 +3,7 @@
  */
 
 import { loadSession, displayChatSessionTitle, saveSession } from "../../../src/lawmind/agent/session.js";
+import { isLawyerVisibleChatMessage } from "../../../src/lawmind/agent/types.js";
 import { listWorkspaceAgentPresets } from "../../../src/lawmind/agent/agent-presets.js";
 import { loadAssistantProfiles, resolveLawMindRoot } from "../../../src/lawmind/assistants/store.js";
 import { isValidMatterId } from "../../../src/lawmind/cases/matter-id.js";
@@ -136,7 +137,7 @@ export async function handleAgentFleetRoutes({
     const lastTurn = session.turns[session.turns.length - 1];
     const pendingRequiresAction = pendingActionsForSession(workspaceDir, session);
     const messages = session.conversationHistory
-      .filter((m) => m.role === "user" || m.role === "assistant")
+      .filter((m) => isLawyerVisibleChatMessage(m))
       .slice(-24)
       .map((m) => ({
         role: m.role,

@@ -1,5 +1,5 @@
 /**
- * Post-tool legal verify — coach the model from existing tool results
+ * Post-tool legal verify — coach the writer model (same-turn tool errors)
  * without changing write/render/mail execute bodies.
  */
 
@@ -21,6 +21,7 @@ import {
   isAuthorityLive,
   WORKSPACE_HEURISTIC_SOURCE_TIER,
 } from "../retrieval/authority-source-tier.js";
+import { applySameTurnVerifyFail, precheckOutboundSameTurnVerify } from "./same-turn-verify.js";
 import type { ToolMiddleware } from "./tool-pipeline.js";
 
 const OUTBOUND_PRECHECK_TOOLS = new Set(["prepare_outbound_mail"]);
@@ -138,15 +139,21 @@ function attachAdvisoryLint(result: ToolCallResult): ToolCallResult {
   };
 }
 
-function withGate(result: ToolCallResult, gate: GateDecision, message: string): ToolCallResult {
+function withGate(
+  result: ToolCallResult,
+  gate: GateDecision,
+  message: string,
+  fail = false,
+): ToolCallResult {
   const tagged = withGateCategory(gate);
   return {
     ...result,
+    ...(fail ? { ok: false, error: message } : {}),
     data: mergeData(result, {
       verify: { message, gate: tagged.gate },
       gateDecision: tagged,
     }),
-    ...(result.ok ? {} : { error: result.error ?? message }),
+    ...(result.ok && !fail ? {} : { error: result.error ?? message }),
   };
 }
 
@@ -224,7 +231,9 @@ export function applyLegalVerifyToResult(
     toolNameCallCounts?: Record<string, number>;
     wordRevisionTurn?: boolean;
     mailContractTurn?: boolean;
+    contractFastLaneTurn?: boolean;
     workspaceDir?: string;
+    args?: Record<string, unknown>;
   },
 ): ToolCallResult {
   if (result.aborted || result.timedOut) {
@@ -247,9 +256,9 @@ export function applyLegalVerifyToResult(
     ) {
       const message =
         integrity.missingSourceIds.length > 0
-          ? `引用对不上来源：${integrity.missingSourceIds.slice(0, 4).join("、")} 不在本次检索结果中，请核对后再交签批。`
-          : "引用对不上来源，请核对后再交签批。";
-      return withGate(
+          ? `引用对不上来源：${integrity.missingSourceIds.slice(0, 4).join("、")} 不在本次检索结果中。请改正 citations 或重检索后重交，不要回复已完成。`
+          : "引用对不上来源。请改正 citations 或重检索后重交，不要回复已完成。";
+      result = withGate(
         result,
         {
           gate: "citation_integrity_gate",
@@ -258,84 +267,90 @@ export function applyLegalVerifyToResult(
           category: "judgment_soft",
         },
         message,
+        true,
       );
-    }
-    const data = asRecord(result.data);
-    const deliverableType =
-      typeof data?.deliverableType === "string" ? data.deliverableType : undefined;
-    const skipStatute = opts?.wordRevisionTurn === true || opts?.mailContractTurn === true;
-    let statuteVerify: { message: string; unverified: true; statuteTrialMissing: true } | undefined;
-    if (
-      !skipStatute &&
-      deliverableNeedsStatuteTrial(deliverableType) &&
-      !statuteTrialHappenedThisTurn(opts?.toolNameCallCounts)
-    ) {
-      const preview = draftTextFromUnknown(data ?? result.data);
-      const sectionPreviews = Array.isArray(data?.sections)
-        ? data.sections
-            .map((row) => {
-              const rec = asRecord(row);
-              return typeof rec?.bodyPreview === "string" ? rec.bodyPreview : "";
-            })
-            .join("\n")
-        : "";
-      let text = `${preview}\n${sectionPreviews}`;
-      const taskId = typeof data?.taskId === "string" ? data.taskId : undefined;
-      const workspaceDir = opts?.workspaceDir;
-      if (taskId && workspaceDir) {
-        try {
-          const draft = readDraft(workspaceDir, taskId);
-          if (draft?.sections?.length) {
-            text = draft.sections.map((s) => s.body ?? "").join("\n");
+    } else {
+      const data = asRecord(result.data);
+      const deliverableType =
+        typeof data?.deliverableType === "string" ? data.deliverableType : undefined;
+      const skipStatute =
+        opts?.wordRevisionTurn === true ||
+        opts?.mailContractTurn === true ||
+        opts?.contractFastLaneTurn === true;
+      let statuteVerify:
+        | { message: string; unverified: true; statuteTrialMissing: true }
+        | undefined;
+      if (
+        !skipStatute &&
+        deliverableNeedsStatuteTrial(deliverableType) &&
+        !statuteTrialHappenedThisTurn(opts?.toolNameCallCounts)
+      ) {
+        const preview = draftTextFromUnknown(data ?? result.data);
+        const sectionPreviews = Array.isArray(data?.sections)
+          ? data.sections
+              .map((row) => {
+                const rec = asRecord(row);
+                return typeof rec?.bodyPreview === "string" ? rec.bodyPreview : "";
+              })
+              .join("\n")
+          : "";
+        let text = `${preview}\n${sectionPreviews}`;
+        const taskId = typeof data?.taskId === "string" ? data.taskId : undefined;
+        const workspaceDir = opts?.workspaceDir;
+        if (taskId && workspaceDir) {
+          try {
+            const draft = readDraft(workspaceDir, taskId);
+            if (draft?.sections?.length) {
+              text = draft.sections.map((s) => s.body ?? "").join("\n");
+            }
+          } catch {
+            /* soft path only */
           }
-        } catch {
-          /* soft path only */
+        }
+        const citeLike =
+          looksLikeStatuteCitation(text) ||
+          /第\s*[0-9一二三四五六七八九十百]+\s*条/.test(text) ||
+          deliverableType === "memo.research" ||
+          deliverableType === "memo.opinion" ||
+          deliverableType === "contract.review";
+        if (citeLike) {
+          statuteVerify = {
+            message: formatUnretrievedStatuteBody(),
+            unverified: true,
+            statuteTrialMissing: true,
+          };
         }
       }
-      const citeLike =
-        looksLikeStatuteCitation(text) ||
-        /第\s*[0-9一二三四五六七八九十百]+\s*条/.test(text) ||
-        deliverableType === "memo.research" ||
+      const needsHonesty =
+        deliverableType === "document.general" ||
         deliverableType === "memo.opinion" ||
-        deliverableType === "contract.review";
-      if (citeLike) {
-        statuteVerify = {
-          message: formatUnretrievedStatuteBody(),
-          unverified: true,
-          statuteTrialMissing: true,
+        deliverableType?.startsWith("letter.") === true ||
+        deliverableType?.startsWith("litigation.") === true;
+      if (
+        (toolName === "draft_document" || toolName === "update_draft") &&
+        needsHonesty &&
+        !integrity &&
+        !isAuthorityLive()
+      ) {
+        const message = "未接真源，仅供核对。请勿把本节引用写成已核实法条。";
+        result = {
+          ...result,
+          data: mergeData(result, {
+            verify: statuteVerify
+              ? {
+                  message: `${message} ${statuteVerify.message}`,
+                  unverified: true as const,
+                  statuteTrialMissing: true as const,
+                }
+              : { message, unverified: true },
+          }),
+        };
+      } else if (statuteVerify) {
+        result = {
+          ...result,
+          data: mergeData(result, { verify: statuteVerify }),
         };
       }
-    }
-    const needsHonesty =
-      deliverableType === "document.general" ||
-      deliverableType === "memo.opinion" ||
-      deliverableType?.startsWith("letter.") === true ||
-      deliverableType?.startsWith("litigation.") === true;
-    if (
-      (toolName === "draft_document" || toolName === "update_draft") &&
-      needsHonesty &&
-      !integrity &&
-      !isAuthorityLive()
-    ) {
-      const message = "未接真源，仅供核对。请勿把本节引用写成已核实法条。";
-      return {
-        ...result,
-        data: mergeData(result, {
-          verify: statuteVerify
-            ? {
-                message: `${message} ${statuteVerify.message}`,
-                unverified: true as const,
-                statuteTrialMissing: true as const,
-              }
-            : { message, unverified: true },
-        }),
-      };
-    }
-    if (statuteVerify) {
-      return {
-        ...result,
-        data: mergeData(result, { verify: statuteVerify }),
-      };
     }
   }
   if ((toolName === "search_statute" || toolName === "search_case_law") && result.ok) {
@@ -354,11 +369,21 @@ export function applyLegalVerifyToResult(
     const data = asRecord(result.data);
     const gate = asRecord(data?.gateDecision);
     if (typeof gate?.gate === "string" && typeof result.error === "string" && result.error.trim()) {
-      return {
+      result = {
         ...result,
         data: mergeData(result, { verify: { message: result.error } }),
       };
     }
+  }
+  if (
+    toolName === "apply_surgical_edits" ||
+    toolName === "update_draft" ||
+    toolName === "draft_document" ||
+    toolName === "render_tracked_draft" ||
+    toolName === "prepare_outbound_mail" ||
+    toolName === "render_document"
+  ) {
+    return applySameTurnVerifyFail(toolName, result, opts?.args) as ToolCallResult;
   }
   return result;
 }
@@ -375,11 +400,21 @@ export const legalVerifyMiddleware: ToolMiddleware = async (call, next) => {
   if (blocked) {
     return blocked;
   }
+  const exportBlocked = precheckOutboundSameTurnVerify({
+    toolName: call.toolName,
+    args: call.args,
+    workspaceDir: call.ctx.workspaceDir,
+  });
+  if (exportBlocked) {
+    return exportBlocked;
+  }
   const result = await next();
   return applyLegalVerifyToResult(call.toolName, result, {
     toolNameCallCounts: call.policy.toolNameCallCounts,
     wordRevisionTurn: call.ctx.wordRevisionTurn,
     mailContractTurn: call.ctx.mailContractTurn,
+    contractFastLaneTurn: call.ctx.contractFastLaneTurn,
     workspaceDir: call.ctx.workspaceDir,
+    args: call.args,
   });
 };

@@ -81,4 +81,27 @@ describe("analyze_document pagination", () => {
     await fs.rm(ws, { recursive: true, force: true });
     await fs.rm(project, { recursive: true, force: true });
   });
+
+  it("lists a directory and then reads a nested file under that pin", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-analyze-dir-"));
+    const pinRel = "materials/证据包";
+    await fs.mkdir(path.join(ws, pinRel, "往来"), { recursive: true });
+    await fs.writeFile(path.join(ws, pinRel, "往来", "函.md"), "往来函正文\n", "utf8");
+    const ctx: AgentContext = {
+      workspaceDir: ws,
+      sessionId: "s",
+      actorId: "lawyer",
+      contextPins: [{ pinKind: "file", root: "workspace", relPath: pinRel, kind: "directory" }],
+    };
+    const listed = await analyzeDocument.execute({ file_path: pinRel }, ctx);
+    expect(listed.ok).toBe(true);
+    const listing = listed.data as { kind?: string; entries?: Array<{ path: string }> };
+    expect(listing.kind).toBe("directory");
+    expect(listing.entries?.some((e) => e.path.endsWith("往来/函.md"))).toBe(true);
+
+    const read = await analyzeDocument.execute({ file_path: "往来/函.md" }, ctx);
+    expect(read.ok).toBe(true);
+    expect(String((read.data as { content?: string }).content)).toContain("往来函正文");
+    await fs.rm(ws, { recursive: true, force: true });
+  });
 });

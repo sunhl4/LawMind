@@ -1,6 +1,7 @@
 /** Document analyze and write tools. */
 import fs from "node:fs/promises";
 import path from "node:path";
+import { buildHostAccessRuntime } from "../../../host-access/access-broker.js";
 import { readBinaryWordDocText, isBinaryWordDocPath } from "../../../mail/read-word-binary.js";
 import type { IngestSourceType, IngestStage } from "../../../platform/contracts.js";
 import {
@@ -15,6 +16,7 @@ import {
 } from "../../../research/research-write-bypass-gate.js";
 import { isProtectedAnalysisScriptRel } from "../../../runtime/analysis-script-path.js";
 import { resolveLawyerLocalFile } from "../../../runtime/lawyer-local-file.js";
+import { directoryListingToolData, resolveAndListDirectory } from "../../../runtime/list-dir.js";
 import {
   PROTECTED_WORKSPACE_WRITE_REFUSAL,
   isProtectedWorkspaceRel,
@@ -46,7 +48,7 @@ export const analyzeDocument: AgentTool = {
   definition: {
     name: "analyze_document",
     description:
-      "读取律师本机文件并返回正文。路径可以是工作区相对路径，也可以是项目目录相对路径（文件页钉选的 Word 通常在项目根）。支持 Markdown/txt、PDF、.docx、二进制 .doc、.xlsx、常见图片 OCR。大文件请用 offset/limit 分页；hasMore=true 时用 nextOffset 续读。",
+      "读取律师本机文件并返回正文；若路径是目录则递归列举子目录与文件（有界），请再按返回的 path 阅读。路径可以是工作区相对路径，也可以是项目目录相对路径（文件页钉选的 Word 通常在项目根）。支持 Markdown/txt、PDF、.docx、二进制 .doc、.xlsx、常见图片 OCR。大文件请用 offset/limit 分页；hasMore=true 时用 nextOffset 续读。",
     category: "analyze",
     parameters: {
       file_path: {
@@ -66,13 +68,38 @@ export const analyzeDocument: AgentTool = {
   },
   async execute(params, ctx) {
     const claimed = typeof params.file_path === "string" ? params.file_path : "";
+    if (!claimed.trim()) {
+      return toolFailureFromIngest(
+        ingestFailure(
+          "INGEST_INVALID_PATH",
+          "path_validation",
+          "缺少文件路径。目录请用 list_dir。",
+        ),
+      );
+    }
+    const hostRuntime = buildHostAccessRuntime({
+      workspaceDir: ctx.workspaceDir,
+      sessionId: ctx.sessionId,
+      matterId: ctx.matterId,
+      projectDir: ctx.projectDir,
+      hostMounts: ctx.hostMounts,
+      hostGrants: ctx.hostGrants,
+      hostAccessFile: ctx.hostAccessFile,
+      hostSessionCommandAllowed: ctx.hostSessionCommandAllowed,
+    });
+    const mountDirs = hostRuntime.mounts.map((m) => m.absPath);
     const located = resolveLawyerLocalFile({
       workspaceDir: ctx.workspaceDir,
       projectDir: ctx.projectDir,
+      mountDirs,
       raw: claimed,
       pins: ctx.contextPins,
     });
     if (!located) {
+      const listing = resolveAndListDirectory(ctx, claimed, { recursive: true });
+      if (listing.ok) {
+        return { ok: true, data: directoryListingToolData(listing) };
+      }
       const wsPath = resolveWorkspaceRelativePath(ctx.workspaceDir, claimed);
       const projPath = ctx.projectDir?.trim()
         ? resolveWorkspaceRelativePath(ctx.projectDir.trim(), claimed)
@@ -87,7 +114,7 @@ export const analyzeDocument: AgentTool = {
           "path_validation",
           escaped
             ? "不允许读取工作区外的文件。"
-            : `找不到文件：${claimed || "（空路径）"}。已查工作区与项目目录。请确认桌面已选择项目文件夹；项目内 Word 也可用 read_project_file（相对项目根）。`,
+            : `找不到文件：${claimed || "（空路径）"}。已查工作区与项目目录。目录请用 list_dir；项目内 Word 也可用 read_project_file（相对项目根）。`,
         ),
       );
     }
@@ -126,12 +153,18 @@ export const analyzeDocument: AgentTool = {
       );
     };
     const st = await fs.stat(filePath).catch(() => null);
+    if (st?.isDirectory()) {
+      const listing = resolveAndListDirectory(ctx, claimed, { recursive: true });
+      if (listing.ok) {
+        return { ok: true, data: directoryListingToolData(listing) };
+      }
+    }
     if (!st?.isFile()) {
       return toolFailureFromIngest(
         ingestFailure(
           "INGEST_NOT_FOUND",
           "file_stat",
-          `找不到文件：${claimed || "（空路径）"}。已查工作区与项目目录。`,
+          `找不到文件：${claimed || "（空路径）"}。已查工作区与项目目录。目录请用 list_dir。`,
         ),
       );
     }
@@ -317,7 +350,7 @@ export const writeDocument: AgentTool = {
   definition: {
     name: "write_document",
     description:
-      "将内容写入工作区的指定文件。用于保存分析结果、工作笔记等。研究类正文（合规卷宗/调研简报/培训课件）禁止用本工具写入 artifacts 旁路交付，须走 draft_document。参数须含 file_path（也可用 path）与 content；若会话已关联草稿且只传 content，默认写入 drafts/<taskId>.json。",
+      "将内容写入工作区的指定文件。用于保存分析结果、工作笔记等。研究类正文（合规卷宗/调研简报/培训课件）禁止用本工具写入 artifacts 旁路交付，须走 draft_document。参数须含 file_path（也可用 path）与 content。未指定路径时：已关联草稿写入 drafts/<taskId>.json，否则写入本案 notes/ 或工作区 notes/（标题_日期_01.md），不写 artifacts/。",
     category: "draft",
     parameters: {
       file_path: { type: "string", description: "相对于工作区的文件路径", required: true },

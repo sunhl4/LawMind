@@ -1,7 +1,7 @@
 // TODO(renderer-fetch-proxy): migrate remaining fetch calls to fetchApi / api-client-proxy.
 import { useCallback, useState, type MutableRefObject } from "react";
 import type { ArtifactDraft } from "../../../../../src/lawmind/types.ts";
-import type { AcceptanceReport } from "../../../../../src/lawmind/deliverables/index.ts";
+import type { AcceptanceReport } from "../../../../../src/lawmind/deliverables/types.ts";
 import type { DraftCitationIntegrityView } from "../../../../../src/lawmind/drafts/citation-integrity.ts";
 import type { GateDecision, TaskExecutionState } from "../../../../../src/lawmind/platform/contracts.ts";
 import {

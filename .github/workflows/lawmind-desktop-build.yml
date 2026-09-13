@@ -1,4 +1,4 @@
-# Build LawMind Desktop installable artifacts per OS (Electron + bundled Node + local API).
+# Build LawMind Desktop installable artifacts per OS (Electron + bundled Node + OfficeCLI + local API).
 # Run manually or on tag push lawmind-desktop-v* to attach consistent release binaries.
 name: LawMind desktop build
 

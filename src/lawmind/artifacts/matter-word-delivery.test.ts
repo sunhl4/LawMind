@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  buildDeliverableFilename,
   buildMatterReviewedWordFilename,
   matterIdFromWorkspaceRelativePath,
   resolveMatterWorkspaceDir,
@@ -38,5 +39,11 @@ describe("matter-word-delivery", () => {
 
   it("sanitizes unsafe stem characters", () => {
     expect(safeDeliveryStem("合同:修订*.doc")).toBe("合同_修订");
+  });
+
+  it("builds a date-versioned name for non-Word extensions", () => {
+    expect(buildDeliverableFilename("客户汇报", ".pptx", new Date("2026-09-12T12:00:00"))).toBe(
+      "客户汇报_20260912_01.pptx",
+    );
   });
 });

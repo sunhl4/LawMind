@@ -117,6 +117,65 @@ describe("LawmindAppHeader", () => {
     expect(host.querySelector('[data-testid="lm-tab-automations"]')).toBeNull();
     expect(host.textContent).not.toContain("审核");
     expect(host.querySelector('[data-testid="lm-tab-collaboration"]')).toBeNull();
+    expect(host.querySelector('[data-testid="lm-header-new-assistant"]')).toBeNull();
+  });
+
+  it("shows 新建助手 even with a single assistant", async () => {
+    const onOpenNewAssistant = vi.fn();
+    await act(async () => {
+      root.render(
+        <LawmindAppHeader
+          mainView="workspace"
+          assistants={[
+            {
+              assistantId: "a1",
+              displayName: "助手 A",
+              introduction: "",
+              presetKey: "general_default",
+              createdAt: "",
+              updatedAt: "",
+              stats: { lastUsedAt: "", turnCount: 0, sessionCount: 0 },
+            },
+          ]}
+          selectedAssistantId="a1"
+          onSelectAssistantId={vi.fn()}
+          matterCockpitOpen={false}
+          onExitMatterCockpit={vi.fn()}
+          onSetMainView={vi.fn()}
+          apiBase="http://127.0.0.1:8765"
+          projectDir={null}
+          currentMatterLabel={null}
+          sidebarCollapsed={false}
+          wsShowEditor
+          wsShowChat
+          canUseFilesystemBridge={false}
+          onToggleSidebar={vi.fn()}
+          onToggleEditor={vi.fn()}
+          onToggleChat={vi.fn()}
+          reviewPaneVisibility={{ meta: true, editor: true, preview: true }}
+          onToggleReviewPane={vi.fn()}
+          onOpenSettings={vi.fn()}
+          onCloseSettings={vi.fn()}
+          settingsOpen={false}
+          showReadinessStrip={false}
+          health={null}
+          workspaceDir="/tmp/ws"
+          localServiceReconnecting={false}
+          modelCatalog={[]}
+          selectedModelId="m1"
+          onOpenApiWizard={vi.fn()}
+          onOpenDoctor={vi.fn()}
+          onVerifyModel={vi.fn()}
+          composeModelQuickTestBusy={false}
+          onOpenNewAssistant={onOpenNewAssistant}
+        />,
+      );
+    });
+    const btn = host.querySelector('[data-testid="lm-header-new-assistant"]') as HTMLButtonElement | null;
+    expect(btn?.textContent).toContain("新建助手");
+    expect(host.querySelector('select[aria-label="选择助手"]')).toBeNull();
+    btn?.click();
+    expect(onOpenNewAssistant).toHaveBeenCalledTimes(1);
   });
 
   it("Solo hides peer 文书台 tab until 改稿 scene is open", async () => {

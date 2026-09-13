@@ -46,6 +46,7 @@ import {
   resolveClauseGraphForDraft,
   resolveDraftCitationIntegrity,
 } from "../../../src/lawmind/drafts/index.js";
+import { lawyerGuardianViewFromSidecar } from "../../../src/lawmind/guardian/store.js";
 import {
   isDeliverableReviewStampCurrent,
   linkDraftToDeliverable,
@@ -90,6 +91,7 @@ import {
   getLawMindEngine,
   isLawMindHttpError,
   resolveDesktopActorId,
+  safeOptionalProjectDir,
   sendJson,
 } from "./lawmind-server-helpers.js";
 import { isSafeAssistantIdSegment } from "./safe-assistant-id.js";
@@ -727,18 +729,28 @@ export async function handleReviewRoute({
       const { renderDocxWithTrackedChanges } = await import(
         "../../../src/lawmind/artifacts/render-docx-tracked.js"
       );
+      const { planTrackedWordDelivery } = await import(
+        "../../../src/lawmind/artifacts/word-revision-delivery.js"
+      );
       const proposal = readRedlineProposal(workspaceDir, raw);
       const proposals = (proposal?.hunks ?? []).filter((h) => h.status !== "rejected");
-      const outDir = path.join(workspaceDir, "artifacts");
+      const planned = planTrackedWordDelivery({
+        workspaceDir,
+        baselineRel: draft.contractEdit?.baselineRelativePath,
+        baselineRoot: draft.contractEdit?.baselineRoot,
+        matterId: draft.matterId,
+        fallbackBasename: `${draft.title?.trim() || "合同"}.docx`,
+      });
       const preferContractReview =
         (draft.deliverableType ?? "").startsWith("contract.") || Boolean(draft.contractEdit);
       const result = await renderDocxWithTrackedChanges({
         draft,
-        outputDir: outDir,
+        outputDir: planned.outDir,
         proposals,
         workspaceDir,
         templateVariant: preferContractReview ? "contractReview" : undefined,
         includeProvenance: renderTrackedBody.includeProvenance,
+        outputFileName: planned.outputFileName,
       });
       sendJson(
         res,
@@ -770,12 +782,16 @@ export async function handleReviewRoute({
       }
       let templateIdOverride: string | undefined;
       let includeProvenance: boolean | undefined;
+      let renderOutputPath: string | undefined;
+      let renderProjectDir: string | undefined;
       try {
         const body = await parseJsonBodyZod(req, draftRenderPostSchema);
         if (body.templateId) {
           templateIdOverride = body.templateId;
         }
         includeProvenance = body.includeProvenance;
+        renderOutputPath = body.outputPath;
+        renderProjectDir = safeOptionalProjectDir(body.projectDir);
       } catch (e) {
         if (isInvalidRequestBodyError(e)) {
           sendJson(res, 400, { ok: false, error: "invalid request" }, c);
@@ -853,7 +869,7 @@ export async function handleReviewRoute({
           return true;
         }
       }
-      const engine = getLawMindEngine(workspaceDir);
+      const engine = getLawMindEngine(workspaceDir, renderProjectDir);
       const policyForEdition: LawMindWorkspacePolicy | null = ctx.policy.loaded
         ? (ctx.policy.policy as LawMindWorkspacePolicy)
         : null;
@@ -865,6 +881,8 @@ export async function handleReviewRoute({
         citationGateStrict: edition.features.citationGateStrict,
         strictGates: strict,
         includeProvenance,
+        projectDir: renderProjectDir,
+        outputPath: renderOutputPath,
       });
       const refreshed = readDraft(workspaceDir, raw);
       const citationIntegrity = refreshed
@@ -1061,6 +1079,7 @@ export async function handleReviewRoute({
         return true;
       }
       const citationIntegrity = resolveDraftCitationIntegrity(workspaceDir, draft);
+      const guardian = lawyerGuardianViewFromSidecar(workspaceDir, raw);
       const graph = readReasoningSnapshot(workspaceDir, raw);
       const reasoningMarkdown = graph ? serializeLegalReasoningGraph(graph) : null;
       const taskRec = readTaskRecord(workspaceDir, raw);
@@ -1093,6 +1112,7 @@ export async function handleReviewRoute({
           ok: true,
           draft,
           citationIntegrity,
+          guardian: guardian ?? null,
           reasoningMarkdown,
           reasoningReport,
           memorySources,

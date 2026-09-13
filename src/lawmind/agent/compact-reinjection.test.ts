@@ -71,4 +71,33 @@ describe("compact-reinjection", () => {
     expect(session.conversationHistory[0]?.content).toContain(COMPACT_REINJECTION_MARKER);
     expect(session.conversationHistory[1]?.content).toBe("hi");
   });
+
+  it("keeps the short-path update_draft warning in craft after compact", () => {
+    const session = baseSession({
+      needsCompactReinjection: true,
+      legacyUpdateDraftBodyWarning: true,
+    });
+    expect(applyCompactReinjectionToSession(session)).toBe(true);
+    const craft = session.conversationHistory[0]?.content ?? "";
+    expect(craft).toContain("<!--lm-ws:craft-->");
+    expect(craft).toContain("【改稿路径】");
+    expect(craft).toContain(COMPACT_REINJECTION_MARKER);
+    expect(craft.indexOf("【改稿路径】")).toBeLessThan(craft.indexOf(COMPACT_REINJECTION_MARKER));
+  });
+
+  it("restores an incomplete turn plan into world-state on compact", () => {
+    const session = baseSession({
+      needsCompactReinjection: true,
+      turnPlan: {
+        items: [
+          { step: "读合同", status: "in_progress" },
+          { step: "标风险", status: "pending" },
+        ],
+        updatedAt: "2026-09-13T00:00:00.000Z",
+      },
+    });
+    expect(applyCompactReinjectionToSession(session)).toBe(true);
+    expect(session.conversationHistory[0]?.content).toContain("<!--lm-ws:plan-->");
+    expect(session.conversationHistory[0]?.content).toContain("读合同");
+  });
 });

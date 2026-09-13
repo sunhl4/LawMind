@@ -1,4 +1,4 @@
-import type { MemorySourceLayer } from "../../../../src/lawmind/memory/index.ts";
+import type { MemorySourceLayer } from "../../../../src/lawmind/memory/memory-source-types.ts";
 
 export const MEMORY_SCOPE_LABELS: Record<string, string> = {
   firm: "律所惯例",

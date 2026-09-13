@@ -6,7 +6,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { ComposeContextPin } from "../platform/compose-context-pin.js";
-import { resolveWorkspaceRelativePath } from "./workspace-path.js";
+import {
+  resolveWorkspaceRelativePath,
+  resolveWorkspaceRelativePathAllowRoot,
+} from "./workspace-path.js";
 
 export type LawyerFileRoot = "workspace" | "project";
 
@@ -41,6 +44,28 @@ function tryExact(
     return undefined;
   }
   if (!fs.existsSync(resolved.abs) || !fs.statSync(resolved.abs).isFile()) {
+    return undefined;
+  }
+  return { abs: resolved.abs, rel: resolved.rel, root };
+}
+
+function tryExactDir(
+  rootDir: string | undefined,
+  raw: string,
+  root: LawyerFileRoot,
+): ResolvedLawyerLocalFile | undefined {
+  if (!rootDir?.trim()) {
+    return undefined;
+  }
+  const resolved = resolveWorkspaceRelativePathAllowRoot(rootDir, raw);
+  if (!resolved.ok) {
+    return undefined;
+  }
+  try {
+    if (!fs.existsSync(resolved.abs) || !fs.statSync(resolved.abs).isDirectory()) {
+      return undefined;
+    }
+  } catch {
     return undefined;
   }
   return { abs: resolved.abs, rel: resolved.rel, root };
@@ -169,10 +194,137 @@ function fromPins(params: {
   return undefined;
 }
 
+function fromDirPins(params: {
+  workspaceDir: string;
+  projectDir?: string;
+  raw: string;
+  pins?: ComposeContextPin[];
+}): ResolvedLawyerLocalFile | undefined {
+  const claimed = params.raw.trim().replace(/\\/g, "/");
+  const claimedBase = path.basename(claimed);
+  if (!params.pins?.length) {
+    return undefined;
+  }
+  for (const pin of params.pins) {
+    if (pin.pinKind !== "file" || pin.kind !== "directory") {
+      continue;
+    }
+    const pinRel = pin.relPath.trim();
+    const pinBase = path.basename(pinRel);
+    const matches =
+      !claimed ||
+      claimed === "." ||
+      claimed === "./" ||
+      pinRel === claimed ||
+      pinRel === claimed ||
+      (claimedBase.length > 0 && (pinBase === claimedBase || pinRel.endsWith(`/${claimed}`)));
+    if (!matches) {
+      continue;
+    }
+    const rootDir = pin.root === "project" ? params.projectDir : params.workspaceDir;
+    const hit = tryExactDir(rootDir, pinRel || ".", pin.root);
+    if (hit) {
+      return hit;
+    }
+  }
+  return undefined;
+}
+
+function fromDirPinFiles(params: {
+  workspaceDir: string;
+  projectDir?: string;
+  raw: string;
+  pins?: ComposeContextPin[];
+  wordOnly?: boolean;
+}): ResolvedLawyerLocalFile | undefined {
+  const claimed = params.raw.trim().replace(/\\/g, "/");
+  if (!claimed || claimed === "." || claimed === "./" || !params.pins?.length) {
+    return undefined;
+  }
+  for (const pin of params.pins) {
+    if (pin.pinKind !== "file" || pin.kind !== "directory") {
+      continue;
+    }
+    const pinRel = pin.relPath.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+    const rootDir = pin.root === "project" ? params.projectDir : params.workspaceDir;
+    if (!rootDir?.trim()) {
+      continue;
+    }
+    const alreadyUnder =
+      Boolean(pinRel) && (claimed === pinRel || claimed.startsWith(`${pinRel}/`));
+    const nestedRel = alreadyUnder || !pinRel ? claimed : `${pinRel}/${claimed}`;
+    const exact = tryExact(rootDir, nestedRel, pin.root);
+    if (exact) {
+      return exact;
+    }
+    const pinDir = tryExactDir(rootDir, pinRel || ".", pin.root);
+    if (!pinDir) {
+      continue;
+    }
+    const byName = findByBasenameOrPrefix({
+      rootDir: pinDir.abs,
+      root: pin.root,
+      claimedBase: path.basename(claimed),
+      wordOnly: params.wordOnly === true,
+    });
+    if (byName) {
+      return {
+        abs: byName.abs,
+        rel: pinDir.rel ? `${pinDir.rel}/${byName.rel}` : byName.rel,
+        root: pin.root,
+      };
+    }
+  }
+  return undefined;
+}
+
+/** Resolve a local lawyer directory under workspace / project / extra mounts. */
+export function resolveLawyerLocalDir(params: {
+  workspaceDir: string;
+  projectDir?: string;
+  mountDirs?: string[];
+  raw: string;
+  preferredRoot?: LawyerFileRoot;
+  pins?: ComposeContextPin[];
+}): ResolvedLawyerLocalFile | undefined {
+  const raw = params.raw
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^["'`]+|["'`]+$/g, "");
+  if (raw.includes("\0")) {
+    return undefined;
+  }
+
+  const pinned = fromDirPins({ ...params, raw });
+  if (pinned) {
+    return pinned;
+  }
+
+  const workspace = () => tryExactDir(params.workspaceDir, raw || ".", "workspace");
+  const project = () => tryExactDir(params.projectDir, raw || ".", "project");
+  const first =
+    params.preferredRoot === "project" ? (project() ?? workspace()) : (workspace() ?? project());
+  if (first) {
+    return first;
+  }
+
+  for (const dir of params.mountDirs ?? []) {
+    if (!dir.trim() || dir === params.projectDir) {
+      continue;
+    }
+    const hit = tryExactDir(dir, raw || ".", "project");
+    if (hit) {
+      return hit;
+    }
+  }
+  return undefined;
+}
+
 /** Resolve a local lawyer file. Exact path first, then unique basename / Word prefix under each root. */
 export function resolveLawyerLocalFile(params: {
   workspaceDir: string;
   projectDir?: string;
+  mountDirs?: string[];
   raw: string;
   preferredRoot?: LawyerFileRoot;
   pins?: ComposeContextPin[];
@@ -202,6 +354,11 @@ export function resolveLawyerLocalFile(params: {
     return first;
   }
 
+  const underPinnedDir = fromDirPinFiles(params);
+  if (underPinnedDir) {
+    return underPinnedDir;
+  }
+
   const claimedBase = path.basename(raw);
   const search = (rootDir: string | undefined, root: LawyerFileRoot) =>
     rootDir
@@ -212,10 +369,28 @@ export function resolveLawyerLocalFile(params: {
           wordOnly: params.wordOnly === true,
         })
       : undefined;
+  const extraMounts = (params.mountDirs ?? []).filter((d) => d.trim() && d !== params.projectDir);
+  const searchMounts = (): ResolvedLawyerLocalFile | undefined => {
+    for (const dir of extraMounts) {
+      const hit = search(dir, "project");
+      if (hit) {
+        return hit;
+      }
+    }
+    return undefined;
+  };
   if (params.preferredRoot === "project") {
-    return search(params.projectDir, "project") ?? search(params.workspaceDir, "workspace");
+    return (
+      search(params.projectDir, "project") ??
+      search(params.workspaceDir, "workspace") ??
+      searchMounts()
+    );
   }
-  return search(params.workspaceDir, "workspace") ?? search(params.projectDir, "project");
+  return (
+    search(params.workspaceDir, "workspace") ??
+    search(params.projectDir, "project") ??
+    searchMounts()
+  );
 }
 
 export function formatLocatedWordBaselines(params: {

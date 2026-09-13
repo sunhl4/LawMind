@@ -15,12 +15,17 @@ export function parsePermissionMode(raw: unknown): AgentPermissionMode {
 export const READONLY_AGENT_TOOL_NAMES = new Set<string>([
   "search_workspace",
   "read_project_file",
+  "list_dir",
+  "search_host",
+  "read_host_file",
   "analyze_document",
   "compare_documents",
   "search_matter",
   "search_statute",
   "search_case_law",
   "search_statute_web",
+  "web_search",
+  "url_dossier",
   "get_matter_summary",
   "list_matters",
   "read_case_file",
@@ -34,6 +39,7 @@ export const READONLY_AGENT_TOOL_NAMES = new Set<string>([
   "list_more_tools",
   "analyze_spreadsheet",
   "calculate",
+  "update_plan",
 ]);
 
 /**
@@ -42,6 +48,7 @@ export const READONLY_AGENT_TOOL_NAMES = new Set<string>([
 export const RESEARCH_AGENT_TOOL_NAMES = new Set<string>([
   ...READONLY_AGENT_TOOL_NAMES,
   "research_task",
+  "deep_research",
 ]);
 
 export function filterToolsForPermissionMode(

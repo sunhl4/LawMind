@@ -11,6 +11,7 @@ import { LawmindChatHistorySearch } from "./LawmindChatHistorySearch";
 import { LawmindChatMessageRow } from "./LawmindChatMessageRow";
 import { LawmindChatMessagesVirtualList } from "./LawmindChatMessagesVirtualList";
 import { LawmindMsgCompactNotice } from "./LawmindMsgCompactNotice";
+import { LawmindBrandMark } from "./app/LawmindBrandMark";
 import { LawmindMsgToolGroup } from "./LawmindMsgToolGroup";
 import {
   getPendingClarificationState,
@@ -238,7 +239,9 @@ export function LawmindChatMessagesColumn({
       >
         {currentMessages.length === 0 ? (
           <div className="lm-messages-empty" data-testid="lm-chat-empty">
-            <div className="lm-messages-empty-icon">L</div>
+            <div className="lm-messages-empty-icon">
+              <LawmindBrandMark size={36} />
+            </div>
             <div className="lm-messages-empty-title">开始对话</div>
             <p className="lm-messages-empty-lead">
               先把合同、函件或资料附上（拖入或点「办件」），再选要走的流程。

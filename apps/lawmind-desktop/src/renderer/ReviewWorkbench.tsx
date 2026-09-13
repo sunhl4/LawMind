@@ -12,11 +12,11 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import type { ArtifactDraft } from "../../../../src/lawmind/types.ts";
-import type { AcceptanceReport } from "../../../../src/lawmind/deliverables/index.ts";
+import type { AcceptanceReport } from "../../../../src/lawmind/deliverables/types.ts";
 import { assessDeliverableReadiness } from "../../../../src/lawmind/deliverables/deliverable-readiness.ts";
 import type { DraftCitationIntegrityView } from "../../../../src/lawmind/drafts/citation-integrity.ts";
 import type { GateDecision, TaskExecutionState } from "../../../../src/lawmind/platform/contracts.ts";
-import type { LearningSuggestionRecord } from "../../../../src/lawmind/learning/suggestion-queue.ts";
+import type { LearningSuggestionRecord } from "../../../../src/lawmind/learning/suggestion-record.ts";
 import {
   draftDocumentEditorValueFromDraft,
   draftDocumentEditorValuesEqual,
@@ -121,6 +121,7 @@ export function ReviewWorkbench(props: Props) {
     setSelectedTaskId,
     detail,
     citationIntegrity,
+    guardian,
     memorySources,
     acceptance,
     reasoningReport,
@@ -529,6 +530,7 @@ export function ReviewWorkbench(props: Props) {
                 reasoningReport={reasoningReport}
                 reasoningMarkdown={reasoningMarkdown}
                 citationIntegrity={citationIntegrity}
+                guardian={guardian}
                 citationGateStrict={edition.features.citationGateStrict}
                 citationMode={edition.citationMode}
                 checklistView={checklistView}

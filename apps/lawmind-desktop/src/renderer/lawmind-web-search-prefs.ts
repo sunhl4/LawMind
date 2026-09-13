@@ -1,14 +1,14 @@
 import { readStoredBool, writeStoredBool } from "./lawmind-panel-layout.js";
 
-/** Persisted chat compose: allow Brave `web_search` on POST /api/chat */
+/** Persisted chat compose: allow `web_search` on POST /api/chat */
 export const LAWMIND_ALLOW_WEB_SEARCH_STORAGE_KEY = "lawmind.ui.allowWebSearch";
 
 /**
- * Cursor-style default: when the user has never toggled retrieval mode, prefer
- * web search if a Brave API key is configured on the server.
+ * Cursor-style default: when the user has never toggled 联网, prefer on
+ * if the current chat model can search the web (or Brave is configured).
  */
-export function readAllowWebSearchPreference(webSearchApiKeyConfigured: boolean): boolean {
-  return readStoredBool(LAWMIND_ALLOW_WEB_SEARCH_STORAGE_KEY, webSearchApiKeyConfigured);
+export function readAllowWebSearchPreference(webSearchReady: boolean): boolean {
+  return readStoredBool(LAWMIND_ALLOW_WEB_SEARCH_STORAGE_KEY, webSearchReady);
 }
 
 export function writeAllowWebSearchPreference(enabled: boolean): void {

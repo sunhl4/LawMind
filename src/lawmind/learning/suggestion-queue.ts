@@ -11,8 +11,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { emit } from "../audit/index.js";
 import { readDraft } from "../drafts/index.js";
-import type { ReviewLabel, ReviewStatus } from "../types.js";
+import type { ReviewLabel } from "../types.js";
 import { applyReviewLabelsMemoryWrites } from "./apply-review-labels.js";
+import type { LearningSuggestionRecord } from "./suggestion-record.js";
+
+export type { LearningSuggestionRecord, LearningSuggestionState } from "./suggestion-record.js";
 
 export type LearningQueueWriteOpts = {
   /** false 时不同步 MemoryAdoptionService（调用方正在翻转镜像行）。默认 true。 */
@@ -33,22 +36,6 @@ function parseReviewLabelPayload(payload: string): { labels: ReviewLabel[]; note
 }
 
 const FILE_VERSION = 1;
-
-export type LearningSuggestionState = "pending" | "adopted" | "dismissed";
-
-export type LearningSuggestionRecord = {
-  id: string;
-  createdAt: string;
-  state: LearningSuggestionState;
-  taskId: string;
-  matterId?: string;
-  /** 审核时选择的 status */
-  reviewStatus: Exclude<ReviewStatus, "pending">;
-  note?: string;
-  labels: ReviewLabel[];
-  assistantId?: string;
-  adoptedAt?: string;
-};
 
 type QueueFile = {
   schemaVersion: number;

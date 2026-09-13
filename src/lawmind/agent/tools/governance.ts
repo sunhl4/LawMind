@@ -7,6 +7,7 @@ import {
   MATTER_SCOPE_REQUIRED,
   WRITE_TOOLS,
 } from "../tool-name-sets.js";
+import { UPDATE_PLAN_TOOL_NAME } from "../turn-plan.js";
 import type { AgentTool, ToolDefinition } from "../types.js";
 import { ToolRegistry } from "./registry.js";
 
@@ -27,10 +28,17 @@ export const CORE_MODEL_TOOL_NAMES = [
 ] as const;
 
 export const LIST_MORE_TOOLS_NAME = "list_more_tools";
+export { UPDATE_PLAN_TOOL_NAME };
+
+export function promptCatalogToolNames(): string[] {
+  return [...CORE_MODEL_TOOL_NAMES, LIST_MORE_TOOLS_NAME, UPDATE_PLAN_TOOL_NAME].toSorted((a, b) =>
+    a.localeCompare(b),
+  );
+}
 
 export const DISCLOSED_TOOL_HINTS: ReadonlyArray<{ name: string; hint: string }> = [
   { name: "execute_workflow", hint: "按需启动确定性办案管线（检索→起草→审批）" },
-  { name: "deep_research", hint: "长时深度检索" },
+  { name: "deep_research", hint: "长时深度检索（联网开启时含公开网页）" },
   { name: "delegate_task", hint: "把子任务交给另一位助手" },
   { name: "render_tracked_draft", hint: "导出带审阅痕迹的 Word" },
   { name: "send_email", hint: "发送已准备的外发邮件（须律师签批）" },
@@ -39,19 +47,23 @@ export const DISCLOSED_TOOL_HINTS: ReadonlyArray<{ name: string; hint: string }>
   { name: "notify_assistant", hint: "会议室 / 同事通知" },
   { name: "plan_task", hint: "先拆步骤再执行" },
   { name: "search_workspace", hint: "跨工作区检索材料" },
+  { name: "search_host", hint: "在本机文件夹或本机查找中定位材料" },
+  { name: "read_host_file", hint: "阅读已授权的本机文件" },
+  { name: "list_dir", hint: "列举工作区或本机文件夹下的目录与文件（可递归）" },
+  { name: "import_host_file", hint: "把本机文件收进本案" },
+  { name: "run_host_command", hint: "运行受控本机命令（须打开本机能力）" },
   { name: "compare_documents", hint: "只读对比两份文件的文本差异" },
   { name: "web_search", hint: "联网检索公开网页" },
+  { name: "search_statute_web", hint: "官方法规站点优先的联网检索" },
+  { name: "url_dossier", hint: "抓取律师给出的公开 URL 做成卷宗" },
   { name: "analyze_spreadsheet", hint: "分析钉选或工作区 Excel 的列、类型与统计" },
-  { name: "write_spreadsheet", hint: "把二维表写入 artifacts 下的 xlsx" },
+  { name: "write_spreadsheet", hint: "把二维表写入本案或工作区交付目录下的 xlsx" },
   { name: "render_chart", hint: "按声明式规格出图（助手正文用 lm-chart 围栏）" },
   { name: "calculate", hint: "利息、时效、劳动补偿、加班、程序期限等可入卷的确定性计算" },
   { name: "search_case_law", hint: "检索类案裁判（正反各查）" },
-  { name: "run_analysis", hint: "受控分析脚本（须政策开启）" },
+  { name: "run_compute", hint: "后台核算：当场写 JS 出表/图，律师只看交件" },
+  { name: "run_analysis", hint: "预置分析脚本（须政策开启）" },
 ];
-
-export function promptCatalogToolNames(): string[] {
-  return [...CORE_MODEL_TOOL_NAMES, LIST_MORE_TOOLS_NAME].toSorted((a, b) => a.localeCompare(b));
-}
 
 export function resolveModelToolNames(opts: {
   registeredNames: Iterable<string>;
@@ -62,12 +74,24 @@ export function resolveModelToolNames(opts: {
   lockToAllowNames?: boolean;
 }): string[] {
   const registered = new Set(opts.registeredNames);
+  const appendControlPlan = (names: string[]): string[] => {
+    if (
+      names.length > 0 &&
+      registered.has(UPDATE_PLAN_TOOL_NAME) &&
+      !names.includes(UPDATE_PLAN_TOOL_NAME)
+    ) {
+      names.push(UPDATE_PLAN_TOOL_NAME);
+    }
+    return names;
+  };
   if (opts.lockToAllowNames) {
     const locked = (opts.allowNames ?? [])
       .map((name) => name.trim())
       .filter((name) => name.length > 0 && registered.has(name));
     return [
-      ...new Set(filterToolsForPermissionMode(locked, opts.permissionMode ?? "standard")),
+      ...new Set(
+        appendControlPlan(filterToolsForPermissionMode(locked, opts.permissionMode ?? "standard")),
+      ),
     ].toSorted((a, b) => a.localeCompare(b));
   }
   const core = promptCatalogToolNames().filter((name) => registered.has(name));
@@ -77,7 +101,9 @@ export function resolveModelToolNames(opts: {
   let names = [...core, ...disclosed];
   if (opts.allowNames && opts.allowNames.length > 0) {
     const allow = new Set(opts.allowNames);
-    names = names.filter((name) => allow.has(name) || name === LIST_MORE_TOOLS_NAME);
+    names = names.filter(
+      (name) => allow.has(name) || name === LIST_MORE_TOOLS_NAME || name === UPDATE_PLAN_TOOL_NAME,
+    );
   }
   names = filterToolsForPermissionMode(names, opts.permissionMode ?? "standard");
   if (registered.has(LIST_MORE_TOOLS_NAME) && !names.includes(LIST_MORE_TOOLS_NAME)) {
@@ -86,6 +112,7 @@ export function resolveModelToolNames(opts: {
       names.push(LIST_MORE_TOOLS_NAME);
     }
   }
+  names = appendControlPlan(names);
   return [...new Set(names)].toSorted((a, b) => a.localeCompare(b));
 }
 

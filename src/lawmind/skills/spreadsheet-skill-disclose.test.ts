@@ -22,6 +22,7 @@ describe("spreadsheet-analysis skill disclosure", () => {
     const listed = listLocalSkills(ws);
     const skill = listed.find((s) => s.id === "spreadsheet-analysis");
     expect(skill?.toolNames).toContain("analyze_spreadsheet");
+    expect(skill?.toolNames).toContain("run_compute");
     expect(skill?.signatureOk).toBe(true);
 
     writeSkillEnabled(ws, "spreadsheet-analysis", true);

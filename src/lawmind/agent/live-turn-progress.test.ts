@@ -89,4 +89,20 @@ describe("live-turn-progress", () => {
     expect(p?.steps.at(-1)?.id).toBe(`round-${MAX_LIVE_TURN_STEPS + 20}`);
     expect(p?.steps[0]?.id).toBe("round-21");
   });
+
+  it("stores plan_update on live progress without a tool step", () => {
+    beginLiveTurnProgress("s-plan");
+    applyLiveTurnEvent("s-plan", {
+      type: "plan_update",
+      plan: {
+        items: [
+          { step: "读合同", status: "in_progress" },
+          { step: "标风险", status: "pending" },
+        ],
+        updatedAt: "2026-09-13T00:00:00.000Z",
+      },
+    });
+    expect(getLiveTurnProgress("s-plan")?.turnPlan?.items).toHaveLength(2);
+    expect(getLiveTurnProgress("s-plan")?.steps).toEqual([]);
+  });
 });

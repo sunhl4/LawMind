@@ -38,6 +38,7 @@ describe("deliverables/registry", () => {
       "memo.research",
       "labor.calc",
       "period.calc",
+      "analysis.table",
       "document.general",
     ]);
   });

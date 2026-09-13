@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import type { TeamMeetingLine } from "../../../../src/lawmind/cases/index.ts";
+import type { TeamMeetingLine } from "../../../../src/lawmind/cases/team-meeting-ids.ts";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import type { FileChatContextItem } from "./lawmind-file-chat-context";
 import { isAdhocMeetingMatterId } from "./lawmind-meeting-scope";

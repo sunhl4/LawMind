@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { MemorySourceLayer } from "../../../../src/lawmind/memory/index.ts";
+import type { MemorySourceLayer } from "../../../../src/lawmind/memory/memory-source-types.ts";
 import { apiGetJson, errorMessage } from "./api-client.js";
 import { mapMemoryLayerToScope, memoryScopeLabel } from "./lawmind-memory-scope.js";
 

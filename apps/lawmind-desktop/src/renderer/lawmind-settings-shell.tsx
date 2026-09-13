@@ -6,11 +6,11 @@ import { LawmindSettingsCollaborationBrief } from "./LawmindSettingsCollaboratio
 import { LawmindSettingsDisclaimer } from "./LawmindSettingsDisclaimer";
 import { LawmindSettingsEdition } from "./LawmindSettingsEdition";
 import { LawmindSettingsModelRetrieval } from "./LawmindSettingsModelRetrieval";
-import { LawmindSettingsOnboarding } from "./LawmindSettingsOnboarding";
 import { LawmindSettingsRoles } from "./LawmindSettingsRoles";
 import { LawmindSettingsTemplates } from "./LawmindSettingsTemplates";
 import { LawmindSettingsAppearance } from "./LawmindSettingsAppearance";
 import { LawmindSettingsWorkspace } from "./LawmindSettingsWorkspace";
+import { LawmindSettingsHostAccess } from "./LawmindSettingsHostAccess";
 import { LawmindSettingsDoctor } from "./LawmindSettingsDoctor";
 import { LawmindSettingsMemory } from "./LawmindSettingsMemory";
 import { LawmindSettingsTools } from "./LawmindSettingsTools";
@@ -63,6 +63,8 @@ type Props = {
     retrievalMode?: string;
     dualLegalConfigured?: boolean;
     webSearchApiKeyConfigured?: boolean;
+    webSearchNativeAvailable?: boolean;
+    webSearchReady?: boolean;
     modelName?: string | null;
     modelEnvFileExists?: boolean;
     draftWithModelEnabled?: boolean;
@@ -171,7 +173,7 @@ export function LawmindSettingsPage({
   const [navQuery, setNavQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
   const { edition } = useEdition(config?.apiBase ?? "");
-  const collapseAdvancedByDefault = edition === "solo";
+  const collapseAdvancedByDefault = true;
 
   useEffect(() => {
     if (open) {
@@ -471,16 +473,6 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
         <>
           {config ? (
             <>
-              <LawmindSettingsOnboarding
-                health={health}
-                projectDir={projectDir}
-                onOpenApiWizard={onOpenApiWizard}
-                onNavigateToSection={navigateToSection}
-                onOpenAgentsDesk={() => {
-                  onClose();
-                  onOpenCollaborationPage();
-                }}
-              />
               <LawmindSettingsUsageStats apiBase={config.apiBase} />
               <LawmindSettingsDoctor
                 health={healthPayload}
@@ -577,6 +569,8 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
       ) : (
         notReady
       );
+    case "host":
+      return config ? <LawmindSettingsHostAccess apiBase={config.apiBase} /> : notReady;
     case "workspace":
       return config ? (
         <LawmindSettingsWorkspace

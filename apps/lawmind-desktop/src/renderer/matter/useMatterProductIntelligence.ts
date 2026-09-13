@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ArtifactDraft } from "../../../../../src/lawmind/types.ts";
-import type { MemorySourceLayer } from "../../../../../src/lawmind/memory/index.ts";
+import type { MemorySourceLayer } from "../../../../../src/lawmind/memory/memory-source-types.ts";
 import type { DraftCitationIntegrityView } from "../../../../../src/lawmind/drafts/citation-integrity.ts";
 import { apiGetJson, apiSendJson, errorMessage, messageFromOkFalseBody } from "../api-client";
+import type { ReasoningReport } from "../../../../../src/lawmind/deliverables/types.ts";
 import type { CaseFocusContext } from "./matter-case-focus";
 import {
   type AdoptionHistoryInsight,
@@ -86,9 +87,9 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
     setSearchHits,
   } = params;
 
-  const [cognitionReasoningReport, setCognitionReasoningReport] = useState<
-    import("../../../../../src/lawmind/deliverables/index.ts").ReasoningReport | null
-  >(null);
+  const [cognitionReasoningReport, setCognitionReasoningReport] = useState<ReasoningReport | null>(
+    null,
+  );
   const [cognitionTaskId, setCognitionTaskId] = useState<string | null>(null);
   const [cognitionLoading, setCognitionLoading] = useState(false);
   const [cognitionError, setCognitionError] = useState<string | null>(null);
@@ -692,7 +693,7 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
     let cancelled = false;
     void apiGetJson<{
       ok?: boolean;
-      reasoningReport?: import("../../../../../src/lawmind/deliverables/index.ts").ReasoningReport | null;
+      reasoningReport?: ReasoningReport | null;
     }>(apiBase, `/api/drafts/${encodeURIComponent(tid)}`)
       .then((j) => {
         if (!cancelled && j.ok) {

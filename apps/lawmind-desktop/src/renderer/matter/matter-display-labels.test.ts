@@ -23,8 +23,11 @@ describe("matter-display-labels", () => {
     expect(priorityLabel("normal")).toBe("中");
   });
 
-  it("formats short datetime", () => {
+  it("formats short datetime in zh-CN without seconds or AM/PM", () => {
     expect(formatShortDateTime(undefined)).toBe("—");
-    expect(formatShortDateTime("2026-05-20T10:30:00.000Z")).toMatch(/\d/);
+    const text = formatShortDateTime("2026-05-20T10:30:00.000Z");
+    expect(text).toMatch(/2026/);
+    expect(text).not.toMatch(/AM|PM/i);
+    expect(text).not.toMatch(/:\d{2}:\d{2}/);
   });
 });

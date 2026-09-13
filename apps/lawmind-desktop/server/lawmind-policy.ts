@@ -120,3 +120,14 @@ export function loadAndApplyLawMindPolicy(workspaceDir: string): LawMindPolicySt
 export function isWebSearchForcedOffByPolicy(): boolean {
   return process.env.LAWMIND_POLICY_FORCE_NO_WEB_SEARCH === "1";
 }
+
+/**
+ * Compose「联网」is independent of 权限 mode.
+ * 「仅调研 / 先计划」仍允许联网；不要把权限模式当成关网开关。
+ */
+export function resolveChatAllowWebSearch(requested: boolean): boolean {
+  if (isWebSearchForcedOffByPolicy()) {
+    return false;
+  }
+  return  requested;
+}

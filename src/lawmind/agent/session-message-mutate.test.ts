@@ -29,6 +29,24 @@ describe("session-message-mutate", () => {
     expect(map[0]?.historyIndex).toBe(1);
   });
 
+  it("listUiHistoryMap skips hiddenFromLawyer bounce notes", () => {
+    const ws = tmpDir();
+    const s = createSession({ workspaceDir: ws, actorId: "a" });
+    s.conversationHistory.push(
+      { role: "system", content: "sys", timestamp: new Date().toISOString() },
+      { role: "user", content: "q1", timestamp: new Date().toISOString() },
+      { role: "assistant", content: "a1", timestamp: new Date().toISOString() },
+      {
+        role: "user",
+        content: "【同一回合验收未过】",
+        timestamp: new Date().toISOString(),
+        hiddenFromLawyer: true,
+      },
+    );
+    const map = listUiHistoryMap(s);
+    expect(map.map((e) => e.role)).toEqual(["user", "assistant"]);
+  });
+
   it("truncateSessionFromUiIndex removes from bubble onward", () => {
     const ws = tmpDir();
     const s = createSession({ workspaceDir: ws, actorId: "a" });

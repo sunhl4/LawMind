@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { AssistantRow } from "./lawmind-settings-models.ts";
 import type { DelegationRow } from "./lawmind-app-data";
 import { assistantIdsBusyFromDelegations } from "./lawmind-delegation-status";
@@ -20,6 +20,7 @@ type Props = {
   selectedModelId: string;
   onClose: () => void;
   onDelegated?: (info: { delegationId: string; toDisplayName: string }) => void;
+  onCreateAssistant?: () => void;
 };
 
 export function LawmindDelegateAssistDialog(props: Props): ReactNode {
@@ -36,12 +37,23 @@ export function LawmindDelegateAssistDialog(props: Props): ReactNode {
     selectedModelId,
     onClose,
     onDelegated,
+    onCreateAssistant,
   } = props;
 
   const [targetId, setTargetId] = useState("");
   const [task, setTask] = useState(taskDefault);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    setTargetId("");
+    setTask(taskDefault);
+    setBusy(false);
+    setError(null);
+  }, [open, taskDefault]);
 
   const busyIds = useMemo(() => assistantIdsBusyFromDelegations(delegations), [delegations]);
 
@@ -121,7 +133,24 @@ export function LawmindDelegateAssistDialog(props: Props): ReactNode {
           ))}
         </div>
         {peers.length === 0 ? (
-          <p className="lm-meta">请先新建助手。</p>
+          <div className="lm-callout lm-callout-muted" role="status">
+            <p className="lm-callout-body">还没有其他助手可交接。</p>
+            {onCreateAssistant ? (
+              <button
+                type="button"
+                className="lm-btn"
+                data-testid="lm-delegate-create-assistant"
+                onClick={() => {
+                  onClose();
+                  onCreateAssistant();
+                }}
+              >
+                新建助手
+              </button>
+            ) : (
+              <p className="lm-meta">请先新建助手。</p>
+            )}
+          </div>
         ) : null}
         <label className="lm-delegate-task-label">
           <span>任务说明</span>

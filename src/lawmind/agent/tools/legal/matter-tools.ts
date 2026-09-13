@@ -1,12 +1,13 @@
 /** Matter summary, listing, case file, and notes tools. */
 import { buildMatterIndex, listMatterIds, summarizeMatterIndex } from "../../../cases/index.js";
 import { caseFilePath } from "../../../memory/index.js";
+import { PROMPT_WINDOW } from "../../../memory/prompt-windows.js";
 import { writeCaseMemorySection, type CaseMemorySection } from "../../../memory/write-gateway.js";
 import type { AgentTool } from "../../types.js";
 import { matterRequiredResult } from "../matter-required.js";
 import { readSafe, sliceDocumentPage } from "./ingest-helpers.js";
 
-const CASE_FILE_DEFAULT_CHARS = 8_000;
+const CASE_FILE_DEFAULT_CHARS = PROMPT_WINDOW.caseFileReadChars;
 const CASE_FILE_MAX_CHARS = 40_000;
 
 export const getMatterSummary: AgentTool = {
@@ -62,7 +63,7 @@ export const readCaseFile: AgentTool = {
     parameters: {
       matter_id: { type: "string", description: "案件 ID（默认使用当前案件）" },
       offset: { type: "number", description: "从第几个字符开始（默认 0）" },
-      limit: { type: "number", description: "本页最多字符（默认 8000）" },
+      limit: { type: "number", description: "本页最多字符（默认 4000）" },
     },
   },
   async execute(params, ctx) {

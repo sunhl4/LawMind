@@ -4,6 +4,7 @@
  */
 
 import type { ComposeContextPin } from "../../platform/compose-context-pin.js";
+import { COMPUTE_INTENT_RE, isPublicWebFactLookup } from "../../skills/capability-patterns.js";
 import { bindLawyerCapability } from "../../skills/lawyer-capabilities.js";
 import { listLocalSkills } from "../../skills/skill-runtime.js";
 import { collectDisclosedToolNames } from "./governance.js";
@@ -14,7 +15,20 @@ export const PINNED_SPREADSHEET_TOOL_NAMES = [
   "write_spreadsheet",
   "render_chart",
   "calculate",
+  "run_compute",
 ] as const;
+
+export const COMPUTE_DELIVERABLE_TOOL_NAMES = [
+  "run_compute",
+  "render_chart",
+  "write_spreadsheet",
+  "analyze_spreadsheet",
+  "calculate",
+] as const;
+
+export function pinsIncludeDirectory(pins: ComposeContextPin[] | undefined): boolean {
+  return (pins ?? []).some((pin) => pin.pinKind === "file" && pin.kind === "directory");
+}
 
 export function pinsIncludeXlsx(pins: ComposeContextPin[] | undefined): boolean {
   return (pins ?? []).some((pin) => {
@@ -55,13 +69,13 @@ export function collectEnabledSkillToolNames(workspaceDir: string): string[] {
 /** Extra tools for a bound 办件 — never used on mail/word locks (those freeze allowNames). */
 const CAPABILITY_EXTRA_TOOLS: Record<string, readonly string[]> = {
   "contract.review": ["search_case_law"],
-  "labor.calc": ["calculate"],
+  "labor.calc": ["calculate", "run_compute"],
   "period.calc": ["calculate"],
   "research.memo": ["search_case_law"],
-  "analysis.quick": ["search_case_law"],
+  "analysis.quick": ["search_case_law", "run_compute"],
   "litigation.draft": ["search_case_law", "calculate"],
   "litigation.talk": ["search_case_law"],
-  "ops.invoice": ["calculate", "analyze_spreadsheet"],
+  "ops.invoice": ["calculate", "analyze_spreadsheet", "run_compute"],
   "ops.court_sms": ["calculate"],
   "ip.dispute": ["search_case_law"],
   "deal.ma": ["search_case_law"],
@@ -78,11 +92,18 @@ export function extraToolsForInstruction(instruction: string | undefined): strin
   if (text.length < 4) {
     return [];
   }
+  if (isPublicWebFactLookup(text)) {
+    return ["web_search"];
+  }
   const bound = bindLawyerCapability({ instruction: text });
-  if (!bound || bound.pipeline === "tracked_redline" || bound.id === "mail.contract") {
+  if (bound?.pipeline === "tracked_redline" || bound?.id === "mail.contract") {
     return [];
   }
-  return [...(CAPABILITY_EXTRA_TOOLS[bound.id] ?? [])];
+  const extras = [...(bound ? (CAPABILITY_EXTRA_TOOLS[bound.id] ?? []) : [])];
+  if (COMPUTE_INTENT_RE.test(text)) {
+    extras.push(...COMPUTE_DELIVERABLE_TOOL_NAMES);
+  }
+  return [...new Set(extras)];
 }
 
 export function collectRegisteredMcpToolNames(registry: ToolRegistry): string[] {
@@ -104,10 +125,22 @@ export function mergeTurnDisclosedToolNames(opts: {
   registry?: ToolRegistry;
   hiddenNames?: Iterable<string>;
   instruction?: string;
+  projectDir?: string;
 }): string[] {
   const found = collectDisclosedToolNames(opts.session);
+  found.push("run_compute");
+  found.push("list_dir");
+  // Public web search is registered only when the turn allows it; disclosing here
+  // makes the model actually able to call it without list_more_tools first.
+  found.push("web_search", "search_statute_web", "url_dossier");
+  if (!isPublicWebFactLookup(opts.instruction ?? "")) {
+    found.push("deep_research");
+  }
   if (pinsIncludeXlsx(opts.pins)) {
     found.push(...PINNED_SPREADSHEET_TOOL_NAMES);
+  }
+  if (pinsIncludeDirectory(opts.pins) || Boolean(opts.projectDir?.trim())) {
+    found.push("search_host", "read_host_file", "list_dir");
   }
   found.push(...collectEnabledSkillToolNames(opts.workspaceDir));
   found.push(...extraToolsForInstruction(opts.instruction));

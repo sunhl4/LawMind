@@ -36,3 +36,7 @@ The `lawmind-benchmark` script exposes three modes:
 ## One-line summary for product / legal readers
 
 > 影子回放分三层：fixture-static 只验证 lint 规则没坏；engine-scripted-model 用真实引擎跑 cassette，召回/精度可以小于 1；real-model 只有配置真模型时才跑，用于最终验证。
+
+## Orchestrator admission (not this directory)
+
+Deliverable recall lives here. **Agent loop / gate / compact / steer / tool-lock changes** must add a true-loop cassette in `src/lawmind/agent/turn-orchestrator-cassettes.test.ts` (`TestLawMind.builder()`). That harness shares the scripted model HTTP server with engine shadow replay, but asserts the next request body rather than planted-lint recall.

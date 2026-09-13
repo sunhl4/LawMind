@@ -6,6 +6,7 @@ import {
   applyLawMindPolicyToEnv,
   loadAndApplyLawMindPolicy,
   readLawMindPolicyFile,
+  resolveChatAllowWebSearch,
 } from "./lawmind-policy.js";
 
 describe("lawmind-policy", () => {
@@ -79,5 +80,12 @@ describe("lawmind-policy", () => {
       expect(st.applied).toContain("forceNoWebSearch");
     }
     expect(process.env.LAWMIND_POLICY_FORCE_NO_WEB_SEARCH).toBe("1");
+  });
+
+  it("keeps compose 联网 on in research/readonly unless policy forces it off", () => {
+    expect(resolveChatAllowWebSearch(true)).toBe(true);
+    expect(resolveChatAllowWebSearch(false)).toBe(false);
+    process.env.LAWMIND_POLICY_FORCE_NO_WEB_SEARCH = "1";
+    expect(resolveChatAllowWebSearch(true)).toBe(false);
   });
 });

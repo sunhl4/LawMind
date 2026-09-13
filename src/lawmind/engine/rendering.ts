@@ -10,6 +10,7 @@
  */
 
 import { transitionDeliverable } from "../application/services/deliverable-service.js";
+import { resolveDefaultDeliverableLocation } from "../artifacts/default-output-location.js";
 import { renderDocxWithOptions } from "../artifacts/render-docx.js";
 import { renderPptxWithOptions } from "../artifacts/render-pptx.js";
 import { emit } from "../audit/index.js";
@@ -56,6 +57,8 @@ export async function renderDraft(
     /** Skills E4 — when set, takes precedence over edition citationGateStrict alone */
     citationMode?: CitationMode;
     includeProvenance?: boolean;
+    projectDir?: string;
+    outputPath?: string;
   },
 ): Promise<{
   ok: boolean;
@@ -65,7 +68,7 @@ export async function renderDraft(
   reasoningReport?: ReasoningReport;
   citationIntegrity?: DraftCitationIntegrityView;
 }> {
-  const { workspaceDir, outputDir, auditDir } = ctx;
+  const { workspaceDir, auditDir } = ctx;
 
   if (draft.reviewStatus === "rejected") {
     return {
@@ -166,12 +169,27 @@ export async function renderDraft(
   draft.templateVersion = templatePin;
 
   const researchSources = readResearchSnapshot(workspaceDir, draft.taskId)?.sources;
+  const ext = draft.output === "pptx" ? ".pptx" : ".docx";
+  const located = resolveDefaultDeliverableLocation({
+    workspaceDir,
+    projectDir: opts?.projectDir ?? ctx.projectDir,
+    explicitOutput: opts?.outputPath?.trim() || (ctx.outputDirExplicit ? ctx.outputDir : undefined),
+    matterId: draft.matterId,
+    sourcePath: draft.contractEdit?.baselineRelativePath,
+    title: draft.title,
+    extension: ext,
+  });
+  if (!located.ok) {
+    return { ok: false, error: located.error };
+  }
+  const { outDir: outputDir, filename: outputFileName } = located.planned;
   const result =
     draft.output === "pptx"
       ? await renderPptxWithOptions(draft, outputDir, {
           templateVariant: templateResolution.variant,
           uploadedTemplate: templateResolution.uploaded,
           sources: researchSources,
+          outputFileName,
         })
       : draft.output === "docx"
         ? await renderDocxWithOptions(draft, outputDir, {
@@ -179,6 +197,7 @@ export async function renderDraft(
             uploadedTemplate: templateResolution.uploaded,
             sources: researchSources,
             includeProvenance: opts?.includeProvenance,
+            outputFileName,
           })
         : {
             ok: false,

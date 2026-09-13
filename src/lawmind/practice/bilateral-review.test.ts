@@ -33,7 +33,7 @@ describe("bilateral-review", () => {
     );
   });
 
-  it("formats paper/role plus never-accept defaults", () => {
+  it("formats paper/role and points never-accept to 执业口径", () => {
     const block = formatBilateralReviewPromptBlock({
       paper: "their_paper",
       role: "buy",
@@ -42,6 +42,7 @@ describe("bilateral-review", () => {
     expect(block).toContain("纸侧与交易角色");
     expect(block).toContain("对方纸");
     expect(block).toContain("采购侧");
-    expect(block).toContain("无限责任");
+    expect(block).toContain("执业口径");
+    expect(block).not.toContain("无限责任");
   });
 });

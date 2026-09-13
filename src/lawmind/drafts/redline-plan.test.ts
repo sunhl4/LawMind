@@ -66,6 +66,21 @@ describe("redline-plan", () => {
     expect(
       shouldInjectRedlinePlanProtocol({ id: "mail.contract", pipeline: "execute_workflow" }),
     ).toBe(false);
+    expect(
+      shouldInjectRedlinePlanProtocol(
+        { id: "contract.review", pipeline: "execute_workflow" },
+        {
+          instruction:
+            "【交办】5 分钟合同审查\n交付物类型：合同审查意见\n- 己方立场：中立\n- 审查重点：管辖",
+        },
+      ),
+    ).toBe(false);
+    expect(
+      shouldInjectRedlinePlanProtocol(
+        { id: "contract.review", pipeline: "execute_workflow" },
+        { availableToolNames: ["draft_document", "render_document"] },
+      ),
+    ).toBe(false);
     expect(formatRedlinePlanPromptBlock()).toContain("apply_surgical_edits");
     expect(formatRedlinePlanPromptBlock()).toContain("render_tracked_draft");
   });

@@ -4,6 +4,7 @@ import { createLegalToolRegistry } from "../../../src/lawmind/agent/tools/index.
 import type { ResumeRequiresActionInput } from "../../../src/lawmind/platform/requires-action.js";
 import type { RunTurnEvent } from "../../../src/lawmind/agent/index.js";
 import { classifySessionInbox } from "../../../src/lawmind/agent/session-inbox.js";
+import { loadSession } from "../../../src/lawmind/agent/session.js";
 import { isSessionTurnInProgressError } from "../../../src/lawmind/agent/session-turn-gate.js";
 import {
   embedSseEventName,
@@ -48,7 +49,7 @@ import {
 import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
 import { chatPostRequestSchema, chatResumeRequestSchema } from "./lawmind-api-schemas.js";
 import { sendJsonError } from "./lawmind-api-error.js";
-import { isWebSearchForcedOffByPolicy } from "./lawmind-policy.js";
+import { resolveChatAllowWebSearch } from "./lawmind-policy.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import {
   buildAgentConfig,
@@ -127,6 +128,9 @@ function toolCallSequenceFromTurn(turn: AgentTurn): string[] {
         scanFrom = j + 1;
         break;
       }
+      if (chip === "update_plan" || chip.startsWith("update_plan")) {
+        continue;
+      }
       out.push(chip);
     }
   }
@@ -192,6 +196,10 @@ async function handleChatResumeRoute({
     if (PLATFORM_CONTRACTS_V1) {
       payload.executionState = result.turn.executionState;
       payload.gateDecisions = result.turn.gateDecisions;
+    }
+    const resumePlan = loadSession(workspaceDir, result.sessionId)?.turnPlan;
+    if (resumePlan) {
+      payload.turnPlan = resumePlan;
     }
     sendJson(res, 200, payload, c);
   } catch (err) {
@@ -291,10 +299,7 @@ export async function handleChatRoute({
   }
 
   const role = buildRoleDirectiveFromProfile(profile);
-  let allowWebSearch = body.allowWebSearch === true;
-  if (isWebSearchForcedOffByPolicy()) {
-    allowWebSearch = false;
-  }
+  const allowWebSearch = resolveChatAllowWebSearch(body.allowWebSearch === true);
   const enableCollaboration =
     body.enableCollaboration !== false && built.config.enableCollaboration !== false;
   const desktopActor = resolveDesktopActorId();
@@ -306,8 +311,7 @@ export async function handleChatRoute({
     roleTitle: role.roleTitle,
     roleIntroduction: role.roleIntroduction,
     roleDirective: role.roleDirective,
-    allowWebSearch:
-      permissionMode === "readonly" || permissionMode === "research" ? false : allowWebSearch,
+    allowWebSearch,
     enableCollaboration:
       permissionMode === "readonly" || permissionMode === "research" ? false : enableCollaboration,
     permissionMode,
@@ -552,6 +556,9 @@ export async function handleChatRoute({
                 charsRemoved: event.charsRemoved,
               });
               break;
+            case "plan_update":
+              sseWriteEvent("plan_update", { plan: event.plan });
+              break;
             default:
               break;
           }
@@ -629,6 +636,10 @@ export async function handleChatRoute({
     }
     if (result.turn.requiresAction?.length) {
       payload.requiresAction = result.turn.requiresAction;
+    }
+    const turnPlan = loadSession(workspaceDir, result.sessionId)?.turnPlan;
+    if (turnPlan) {
+      payload.turnPlan = turnPlan;
     }
     if (linkedTaskIdForChat) {
       payload.linkedTaskId = linkedTaskIdForChat;

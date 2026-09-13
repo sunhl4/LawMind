@@ -1,12 +1,17 @@
 /**
- * 法规 / 司法公开信息联网检索（Brave Search + 法律向查询模板）
+ * 法规 / 司法公开信息联网检索（当前模型网页检索 + 法律向查询模板）
  *
  * 与通用 `web_search` 区分：优先官方法规站点与「法律名称 + 条文」类查询。
  */
 
 import { friendlyModelErrorMessage } from "../model-error-message.js";
 import type { AgentTool } from "../types.js";
-import { lawMindBraveWebSearch, resolveLawMindWebSearchApiKey } from "./lawmind-web-search.js";
+import {
+  isPublicWebSearchReady,
+  lawMindPublicWebSearch,
+  PUBLIC_WEB_SEARCH_UNAVAILABLE,
+} from "./lawmind-web-search.js";
+import type { WebSearchModelRef } from "./native-web-search.js";
 
 const PREFERRED_LEGAL_HOSTS = [
   "npc.gov.cn",
@@ -51,6 +56,7 @@ export async function lawMindStatuteWebSearch(
   rawQuery: string,
   countPerQuery = 4,
   workspaceDir?: string,
+  model?: WebSearchModelRef | null,
 ): Promise<
   Array<{
     title: string;
@@ -73,8 +79,14 @@ export async function lawMindStatuteWebSearch(
   >();
 
   for (const query of queries) {
-    const rows = await lawMindBraveWebSearch(query, countPerQuery, workspaceDir);
-    for (const row of rows) {
+    const found = await lawMindPublicWebSearch(
+      query,
+      countPerQuery,
+      workspaceDir,
+      undefined,
+      model,
+    );
+    for (const row of found.results) {
       const key = row.url || row.title;
       if (!key || merged.has(key)) {
         continue;
@@ -93,7 +105,7 @@ export const lawMindStatuteWebSearchTool: AgentTool = {
   definition: {
     name: "search_statute_web",
     description:
-      "在互联网上检索法律法规、司法解释、规章的公开网页（官方法规站点优先，Brave Search）。仅当对话已开启「联网检索」且已配置 Brave Search API Key 时可用。已配置北大法宝等权威库时，应先用 `search_statute` / `search_case_law`；本工具是网页摘要兜底，不是法宝接口。结果须标注 URL 并请律师核对权威文本。",
+      "在互联网上检索法律法规、司法解释、规章的公开网页（官方法规站点优先）。使用当前对话模型的厂商网页检索；仅当该模型没有厂商检索时才用可选的 Brave。须已开启「联网」。已配置北大法宝等权威库时，应先用 `search_statute` / `search_case_law`；本工具是网页摘要兜底，不是法宝接口。结果须标注 URL 并请律师核对权威文本。",
     category: "search",
     parameters: {
       query: {
@@ -111,11 +123,10 @@ export const lawMindStatuteWebSearchTool: AgentTool = {
         error: "联网检索未开启：请在对话栏开启「联网」后再使用。",
       };
     }
-    if (!resolveLawMindWebSearchApiKey()) {
+    if (!isPublicWebSearchReady(ctx.webSearchModel)) {
       return {
         ok: false,
-        error:
-          "未配置联网搜索密钥：请在 API 配置向导或 .env.lawmind 中设置 LAWMIND_WEB_SEARCH_API_KEY / BRAVE_API_KEY。",
+        error: PUBLIC_WEB_SEARCH_UNAVAILABLE,
       };
     }
     const query = typeof params.query === "string" ? params.query.trim() : "";
@@ -130,12 +141,13 @@ export const lawMindStatuteWebSearchTool: AgentTool = {
         query,
         Math.min(5, Math.ceil(count / 2)),
         ctx.workspaceDir,
+        ctx.webSearchModel,
       );
       return {
         ok: true,
         data: {
           query,
-          provider: "brave-legal",
+          provider: "statute-web",
           results: results.slice(0, count),
           note: "网页摘要仅供参考；正式引用请核对官方法规库或客户提供原文。",
         },

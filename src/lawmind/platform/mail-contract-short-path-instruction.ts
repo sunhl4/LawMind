@@ -3,6 +3,7 @@
  * Leaf module (no fs) — safe for desktop renderer and agent runtime.
  */
 
+import { SURGICAL_MAX_FIND_WITH_TERMINATOR } from "../drafts/surgical-span-gate.js";
 import { normalizeOutboundRecipient } from "./lawyer-outbound-decision.js";
 
 /** Playbook tools advertised and executable on a mail-contract short-path turn. */
@@ -58,7 +59,7 @@ export function buildMailContractShortPathInstruction(params: {
     "## 执行约束",
     "- 勿 `search_workspace` / `search_matter` / `read_project_file` / `list_templates` / `get_matter_summary`；勿再问审查重点/己方立场。",
     "- `analyze_document` 一次且通读全文与批注/对方修订。",
-    "- **最小修改（跨度硬门禁·条数不限）**：落改用 `apply_surgical_edits`（附 `craft_check`）。能改几个字就只改几个字；段内只改有问题的句子；含句读 find≤12 字。正例：`甲方所在地人民法院`→`上海仲裁委员会`；句末加词：`实际损失。`→`实际损失，但累计…。`。",
+    `- **最小修改（跨度硬门禁·条数不限）**：落改用 \`apply_surgical_edits\`（附 \`craft_check\`）。能改几个字就只改几个字；段内只改有问题的句子；含句读 find≤${SURGICAL_MAX_FIND_WITH_TERMINATOR} 字。正例：\`甲方所在地人民法院\`→\`上海仲裁委员会\`；句末加词：\`实际损失。\`→\`实际损失，但累计…。\`。`,
     "- 整句/整段删写会被硬门禁跳过；勿整节重写进 `update_draft.sections`。其余争点 deferred。",
     "- `redlinePending=0` 不得 `render_tracked_draft`（空修订门禁）。",
     "",

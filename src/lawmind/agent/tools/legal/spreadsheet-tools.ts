@@ -2,10 +2,10 @@
  * Structured spreadsheet analyze/write — schema and stats, not a TSV dump.
  */
 
-import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { resolveDefaultDeliverableLocation } from "../../../artifacts/default-output-location.js";
 import { resolveLawyerLocalFile } from "../../../runtime/lawyer-local-file.js";
-import { resolveWorkspaceRelativePath } from "../../../runtime/workspace-path.js";
+import { isPathInsideRoot, resolveWorkspaceRelativePath } from "../../../runtime/workspace-path.js";
 import type { AgentTool } from "../../types.js";
 import {
   loadXlsxWorkbook,
@@ -218,7 +218,7 @@ export const analyzeSpreadsheet: AgentTool = {
           preview,
           truncatedRows: sheet.truncatedRows,
           truncatedSheets: loaded.truncatedSheets,
-          hint: "需要出图用 render_chart；需要落表用 write_spreadsheet。数字必须带来源列。",
+          hint: "自定义汇总用 run_compute；出图用 emitChart 或 render_chart；落表用 write_spreadsheet。数字必须带来源列。不要把源码写给律师。",
         },
       };
     } catch (err) {
@@ -237,7 +237,8 @@ function asRowMatrix(value: unknown): unknown[][] | undefined {
 export const writeSpreadsheet: AgentTool = {
   definition: {
     name: "write_spreadsheet",
-    description: "把二维表写入工作区 artifacts/ 下的 .xlsx，供律师入卷。首行视为列名。",
+    description:
+      "把二维表写入 .xlsx 供律师入卷。未指定路径时按本案 artifacts → 已关联项目目录 → 工作区 artifacts；文件名为「标题_日期_01.xlsx」，不用哈希。首行视为列名。",
     category: "draft",
     parameters: {
       rows: {
@@ -246,7 +247,11 @@ export const writeSpreadsheet: AgentTool = {
         required: true,
       },
       sheet: { type: "string", description: "工作表名（默认 分析）" },
-      filename: { type: "string", description: "artifacts 下的文件名，需以 .xlsx 结尾" },
+      filename: {
+        type: "string",
+        description:
+          "可选。纯文件名或工作区/项目内路径，须以 .xlsx 结尾。省略时由引擎按案件/项目解析目录并生成日期文件名。",
+      },
     },
     requiresApproval: true,
     riskLevel: "medium",
@@ -263,28 +268,41 @@ export const writeSpreadsheet: AgentTool = {
     const rawName =
       typeof params.filename === "string" && params.filename.trim()
         ? params.filename.trim().replace(/\\/g, "/")
-        : `table-${randomUUID().slice(0, 8)}.xlsx`;
-    const base = path.basename(rawName);
-    if (!base.toLowerCase().endsWith(".xlsx")) {
+        : "";
+    const base = rawName ? path.basename(rawName) : "";
+    if (rawName && !base.toLowerCase().endsWith(".xlsx")) {
       return { ok: false, error: "filename 必须以 .xlsx 结尾。" };
     }
-    const rel = `artifacts/${base}`;
-    const resolved = resolveWorkspaceRelativePath(ctx.workspaceDir, rel);
-    if (!resolved.ok) {
-      return { ok: false, error: "不允许写到工作区外。" };
+    const looksLikePath = Boolean(rawName && (path.isAbsolute(rawName) || rawName.includes("/")));
+    const located = resolveDefaultDeliverableLocation({
+      workspaceDir: ctx.workspaceDir,
+      projectDir: ctx.projectDir,
+      matterId: ctx.matterId,
+      explicitOutput: looksLikePath ? rawName : undefined,
+      title: base ? base.replace(/\.xlsx$/i, "") : "分析表",
+      extension: ".xlsx",
+      keepFilename: !looksLikePath && base ? base : undefined,
+    });
+    if (!located.ok) {
+      return { ok: false, error: located.error };
     }
-    if (!resolved.rel.startsWith("artifacts/")) {
-      return { ok: false, error: "表格只能写入 artifacts/。" };
+    const abs = located.planned.outputPath;
+    const inWorkspace = isPathInsideRoot(ctx.workspaceDir, abs);
+    const inProject = Boolean(ctx.projectDir && isPathInsideRoot(ctx.projectDir, abs));
+    if (!inWorkspace && !inProject) {
+      return { ok: false, error: "不允许写到工作区或已关联项目目录之外。" };
     }
     try {
-      await writeXlsxWorkbook(resolved.abs, [{ name: sheetName, rows }]);
+      await writeXlsxWorkbook(abs, [{ name: sheetName, rows }]);
+      const rel = inWorkspace ? path.relative(ctx.workspaceDir, abs).replace(/\\/g, "/") : abs;
       return {
         ok: true,
         data: {
-          path: resolved.rel,
+          path: rel,
           sheet: sheetName,
           rowCount: Math.max(0, rows.length - 1),
           columnCount: Array.isArray(rows[0]) ? rows[0].length : 0,
+          outputReason: located.planned.reason,
         },
       };
     } catch (err) {

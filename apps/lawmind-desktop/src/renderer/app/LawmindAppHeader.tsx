@@ -45,6 +45,8 @@ export type LawmindAppHeaderProps = {
   onOpenDoctor: () => void;
   onVerifyModel: () => void | Promise<void>;
   composeModelQuickTestBusy: boolean;
+  /** Opens the create-assistant wizard. Production always passes this. */
+  onOpenNewAssistant?: () => void;
 };
 
 function LawmindAppHeaderImpl({
@@ -81,6 +83,7 @@ function LawmindAppHeaderImpl({
   onOpenApiWizard,
   onOpenDoctor,
   onVerifyModel,
+  onOpenNewAssistant,
 }: LawmindAppHeaderProps) {
   /** Sidebar already hosts the settings gear; keep one gear in the header only when the sidebar is unavailable. */
   const showHeaderSettingsGear = sidebarCollapsed || mainView === "review" || mainView === "desk";
@@ -132,21 +135,33 @@ function LawmindAppHeaderImpl({
             </>
           ) : (
             <>
-              {showAssistantSwitcher ? (
+              {onOpenNewAssistant || showAssistantSwitcher ? (
                 <div className="lm-main-title-block">
                   <div className="lm-main-assistant-line">
-                    <select
-                      className="lm-asst-select lm-main-asst-select"
-                      value={selectedAssistantId}
-                      aria-label="选择助手"
-                      onChange={(e) => onSelectAssistantId(e.target.value)}
-                    >
-                      {assistants.map((assistant) => (
-                        <option key={assistant.assistantId} value={assistant.assistantId}>
-                          {assistant.displayName}
-                        </option>
-                      ))}
-                    </select>
+                    {showAssistantSwitcher ? (
+                      <select
+                        className="lm-asst-select lm-main-asst-select"
+                        value={selectedAssistantId}
+                        aria-label="选择助手"
+                        onChange={(e) => onSelectAssistantId(e.target.value)}
+                      >
+                        {assistants.map((assistant) => (
+                          <option key={assistant.assistantId} value={assistant.assistantId}>
+                            {assistant.displayName}
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
+                    {onOpenNewAssistant ? (
+                      <button
+                        type="button"
+                        className="lm-btn lm-btn-ghost lm-btn-sm"
+                        data-testid="lm-header-new-assistant"
+                        onClick={onOpenNewAssistant}
+                      >
+                        新建助手
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               ) : null}

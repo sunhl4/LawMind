@@ -32,6 +32,7 @@ import { MATTER_SCOPE_REQUIRED } from "../agent/tool-name-sets.js";
 import { resolveToolRiskLevel } from "../agent/tools/governance.js";
 import type { AgentContext, AgentTool, ToolCallResult, ToolDefinition } from "../agent/types.js";
 import { emit } from "../audit/index.js";
+import { resolveHostAccessPolicy } from "../host-access/host-policy.js";
 import { withGateCategory } from "../platform/gate-category.js";
 import { toolRequiresLawyerPause } from "../platform/lawyer-outbound-decision.js";
 import { legalVerifyMiddleware } from "./legal-verify-middleware.js";
@@ -221,6 +222,51 @@ export const DISCOVERY_LOOP_TOOL_LIMITS: Readonly<Record<string, number>> = {
 /** Sum of discovery-tool calls per turn (all capped tools combined). */
 export const DISCOVERY_LOOP_TOTAL_CAP = 4;
 
+/** Host-file tools use a separate ledger so file-dense work is not killed by the discovery cap. */
+export const HOST_FILE_TOOL_NAMES = new Set(["search_host", "read_host_file", "list_dir"]);
+export const HOST_FILE_PER_TOOL_LIMIT = 8;
+
+export type HostFileLedgerHint = {
+  projectDir?: string;
+  hostMounts?: unknown[];
+  contextPins?: Array<{ pinKind?: string; kind?: string }>;
+  hostFileLedger?: boolean;
+};
+
+export function contextUsesHostFileLedger(hint?: HostFileLedgerHint): boolean {
+  if (!hint) {
+    return false;
+  }
+  if (hint.hostFileLedger === true) {
+    return true;
+  }
+  if (hint.projectDir?.trim()) {
+    return true;
+  }
+  if ((hint.hostMounts?.length ?? 0) > 0) {
+    return true;
+  }
+  return (hint.contextPins ?? []).some((pin) => pin.pinKind === "file" && pin.kind === "directory");
+}
+
+export function usesHostFileLedger(toolName: string, hint?: HostFileLedgerHint): boolean {
+  if (HOST_FILE_TOOL_NAMES.has(toolName)) {
+    return true;
+  }
+  if (toolName !== "analyze_document" && toolName !== "read_project_file") {
+    return false;
+  }
+  return contextUsesHostFileLedger(hint);
+}
+
+function hostLedgerCountNames(hint?: HostFileLedgerHint): string[] {
+  const names = [...HOST_FILE_TOOL_NAMES];
+  if (contextUsesHostFileLedger(hint)) {
+    names.push("analyze_document", "read_project_file");
+  }
+  return names;
+}
+
 const DISCOVERY_STOP_HINT_MAIL =
   "若指令已给出附件/基线路径，请直接 update_draft / render_tracked_draft / prepare_outbound_mail。" +
   "邮件合同请改用「设置 → 自动办件 → 邮件合同审阅改稿」短路径，停止反复检索。";
@@ -246,7 +292,11 @@ export function discoveryCountsShowDocumentRead(
 export function wouldHitDiscoveryCap(
   toolName: string,
   counts: Record<string, number> | undefined,
+  hint?: HostFileLedgerHint,
 ): boolean {
+  if (usesHostFileLedger(toolName, hint)) {
+    return false;
+  }
   const limit = DISCOVERY_LOOP_TOOL_LIMITS[toolName];
   if (limit == null) {
     return false;
@@ -266,9 +316,9 @@ export function wouldHitDiscoveryCap(
 export function dropSaturatedDiscoveryTools(
   toolNames: string[],
   counts: Record<string, number> | undefined,
-  opts?: { dropDocumentReaders?: boolean },
+  opts?: { dropDocumentReaders?: boolean } & HostFileLedgerHint,
 ): string[] {
-  const next = toolNames.filter((name) => !wouldHitDiscoveryCap(name, counts));
+  const next = toolNames.filter((name) => !wouldHitDiscoveryCap(name, counts, opts));
   if (!opts?.dropDocumentReaders) {
     return next;
   }
@@ -294,6 +344,9 @@ export function discoveryStopHint(
 
 /** Reject discovery/browse tools after they exceed per-turn caps. */
 export const discoveryLoopMiddleware: ToolMiddleware = async (call, next) => {
+  if (usesHostFileLedger(call.toolName, call.ctx)) {
+    return next();
+  }
   const limit = DISCOVERY_LOOP_TOOL_LIMITS[call.toolName];
   if (limit == null) {
     return next();
@@ -315,6 +368,41 @@ export const discoveryLoopMiddleware: ToolMiddleware = async (call, next) => {
     return {
       ok: false,
       error: `${call.toolName} 本轮已调用 ${prior} 次（上限 ${limit}）。${hint}`,
+    };
+  }
+  return next();
+};
+
+export function wouldHitHostFileCap(
+  toolName: string,
+  counts: Record<string, number> | undefined,
+  hardCap = 32,
+  hint?: HostFileLedgerHint,
+): boolean {
+  if (!usesHostFileLedger(toolName, hint)) {
+    return false;
+  }
+  const safe = counts ?? {};
+  let total = 0;
+  for (const name of hostLedgerCountNames(hint)) {
+    total += safe[name] ?? 0;
+  }
+  if (total >= hardCap) {
+    return true;
+  }
+  return (safe[toolName] ?? 0) >= HOST_FILE_PER_TOOL_LIMIT;
+}
+
+export const hostFileLoopMiddleware: ToolMiddleware = async (call, next) => {
+  if (!usesHostFileLedger(call.toolName, call.ctx)) {
+    return next();
+  }
+  const policy = resolveHostAccessPolicy(call.ctx.workspaceDir);
+  const counts = call.policy.toolNameCallCounts ?? {};
+  if (wouldHitHostFileCap(call.toolName, counts, policy.fileTaskReadHardCap, call.ctx)) {
+    return {
+      ok: false,
+      error: `本机查找/阅读已达本轮上限。如需继续，请律师确认后再交办一轮。`,
     };
   }
   return next();
@@ -451,6 +539,20 @@ export const argSchemaMiddleware: ToolMiddleware = async (call, next) => {
  * 会把其他在途工具一起取消，或互相覆盖 signal）。因此超时 signal 以 per-call
  * 浅拷贝的形式注入——仅本次调用的下游中间件/工具看到派生 signal。
  */
+/**
+ * Timeout injects a per-call abortSignal via shallow ctx copy. Write-back the
+ * fields tools are allowed to stick on ctx so the shared AgentContext still
+ * sees them after restore (update_plan, legacy craft patch).
+ */
+function copyPendingCtxFields(from: AgentContext, to: AgentContext): void {
+  if (from.pendingTurnPlan) {
+    to.pendingTurnPlan = from.pendingTurnPlan;
+  }
+  if (from.pendingWorldStateCraftPatch) {
+    to.pendingWorldStateCraftPatch = from.pendingWorldStateCraftPatch;
+  }
+}
+
 export const timeoutMiddleware: ToolMiddleware = async (call, next) => {
   if (isUnlimitedToolTimeoutMs(call.policy.toolTimeoutMs)) {
     const prev = call.ctx.abortSignal;
@@ -470,6 +572,7 @@ export const timeoutMiddleware: ToolMiddleware = async (call, next) => {
         };
       });
     } finally {
+      copyPendingCtxFields(call.ctx, prevCtx);
       call.ctx = prevCtx;
     }
   }
@@ -514,6 +617,7 @@ export const timeoutMiddleware: ToolMiddleware = async (call, next) => {
     ]);
   } finally {
     combined.cleanup();
+    copyPendingCtxFields(call.ctx, prevCtx);
     call.ctx = prevCtx;
   }
 };
@@ -581,6 +685,7 @@ export function buildDefaultToolPipeline(): ToolMiddleware[] {
     budgetMiddleware,
     permissionModeMiddleware,
     discoveryLoopMiddleware,
+    hostFileLoopMiddleware,
     roleAllowlistMiddleware,
     matterScopeMiddleware,
     clarificationGateMiddleware,

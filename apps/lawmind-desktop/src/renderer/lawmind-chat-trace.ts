@@ -1,6 +1,10 @@
 import type { ChatLiveTrace, ChatTraceStep } from "./lawmind-chat-trace-types.js";
 import { fetchApiJson } from "./api-client-proxy.ts";
-import { presentLawyerToolCall, presentLawyerToolResult } from "../../../../src/lawmind/agent/tool-lawyer-card.ts";
+import {
+  lawyerFacingToolFailureDetail,
+  presentLawyerToolCall,
+  presentLawyerToolResult,
+} from "../../../../src/lawmind/agent/tool-lawyer-card.ts";
 import { toolDisplayNameZh } from "../../../../src/lawmind/platform/requires-action.ts";
 
 export type { ChatLiveTrace, ChatTraceStep };
@@ -113,7 +117,10 @@ export function applyToolEnd(
     ok: info.ok,
     error: info.error,
   });
-  const detail = info.error?.trim() || info.resultPreview || resultCard.detail;
+  const rawError = info.error?.trim();
+  const detail = info.ok
+    ? rawError || info.resultPreview || resultCard.detail
+    : lawyerFacingToolFailureDetail(info.toolName, info.error) || resultCard.detail;
   let toolClosed = false;
   if (toolId) {
     const byId = steps.findIndex((row) => row.kind === "tool" && row.id === toolId);
@@ -232,6 +239,7 @@ type ChatLiveTurnProgressData = {
   status: string;
   currentRound?: number;
   steps?: Array<{ id: string; kind: string; label: string; status: string; detail?: string }>;
+  turnPlan?: import("../../../../src/lawmind/agent/turn-plan-model.ts").AgentTurnPlan;
 } | null;
 
 export type ChatLiveTurnProgress = {

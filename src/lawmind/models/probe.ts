@@ -37,6 +37,27 @@ export function parseProbeErrorBody(raw: string): string | null {
   return null;
 }
 
+export function isModelAuthFailureStatus(status: number, body: string): boolean {
+  if (status === 401 || status === 403) {
+    return true;
+  }
+  return /authentication fails|invalid.*api.?key|incorrect api key|unauthorized/i.test(body);
+}
+
+/** Lawyer-facing probe error: having a local key string is not the same as the vendor accepting it. */
+export function formatUpstreamProbeError(
+  status: number,
+  body: string,
+  config: Pick<AgentModelConfig, "model" | "baseUrl">,
+): string {
+  const attempted = `model="${config.model}" @ ${config.baseUrl}`;
+  if (isModelAuthFailureStatus(status, body)) {
+    return `API Key 无效或已过期（HTTP ${status}，${attempted}）。设置里的「已填 Key」只表示本机存了字符串，不代表服务商接受。请到服务商控制台重新生成 Key，再用「API 配置向导」粘贴保存。`;
+  }
+  const snippet = body.trim().slice(0, 280);
+  return snippet ? `HTTP ${status} (${attempted}): ${snippet}` : `HTTP ${status} (${attempted})`;
+}
+
 const probeProxy = createOutboundProxy({ requestTag: "model-probe" });
 
 /**
@@ -69,16 +90,22 @@ export async function probeAgentModel(config: AgentModelConfig): Promise<ModelPr
     const latencyMs = Date.now() - started;
     const text = await response.text();
     if (!response.ok) {
-      const attempted = `model="${config.model}" @ ${config.baseUrl}`;
       return {
         ok: false,
-        code: "model_api_error",
-        error: `HTTP ${response.status} (${attempted}): ${text.slice(0, 280)}`,
+        code: isModelAuthFailureStatus(response.status, text)
+          ? "invalid_api_key"
+          : "model_api_error",
+        error: formatUpstreamProbeError(response.status, text, config),
       };
     }
     const bodyErr = parseProbeErrorBody(text);
     if (bodyErr) {
-      return { ok: false, code: "model_api_error", error: bodyErr };
+      const auth = isModelAuthFailureStatus(200, bodyErr);
+      return {
+        ok: false,
+        code: auth ? "invalid_api_key" : "model_api_error",
+        error: auth ? formatUpstreamProbeError(401, bodyErr, config) : bodyErr,
+      };
     }
     return {
       ok: true,

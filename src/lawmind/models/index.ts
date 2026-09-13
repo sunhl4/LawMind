@@ -8,4 +8,5 @@ export * from "./draft-reasoning.js";
 export * from "./router-reasoning.js";
 export * from "./capability-envelope.js";
 export * from "./resolve.js";
+export * from "./retrieval-split.js";
 export * from "./probe.js";

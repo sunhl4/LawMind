@@ -10,6 +10,13 @@ describe("tool-result-history", () => {
     expect(summarizeToolResultForHistory(small)).toEqual(small);
   });
 
+  it("defaults to a ~1k-token JSON cap", () => {
+    const huge = { ok: true, text: "x".repeat(20_000) };
+    const slim = summarizeToolResultForHistory(huge) as { truncated?: boolean };
+    expect(slim.truncated).toBe(true);
+    expect(stringifyToolResultForHistory(huge).length).toBeLessThan(12_000);
+  });
+
   it("truncates huge results but keeps ok/error", () => {
     const huge = {
       ok: true,
@@ -37,6 +44,7 @@ describe("tool-result-history", () => {
           decision: "allow",
           category: "judgment_soft",
         },
+        guardian: { verdict: "fail", gaps: [{ code: "coverage_gap", message: "缺口" }] },
         redlinePending: 3,
         warning: "幅度较大",
         applied: Array.from({ length: 200 }, (_, i) => ({
@@ -52,6 +60,7 @@ describe("tool-result-history", () => {
     expect(slim.truncated).toBe(true);
     expect(slim.data?.craftSignals).toEqual(huge.data.craftSignals);
     expect(slim.data?.gateDecision).toEqual(huge.data.gateDecision);
+    expect(slim.data?.guardian).toEqual(huge.data.guardian);
     expect(slim.data?.redlinePending).toBe(3);
     expect(slim.data?.warning).toBe("幅度较大");
   });

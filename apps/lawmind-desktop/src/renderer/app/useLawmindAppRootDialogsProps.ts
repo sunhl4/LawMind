@@ -29,6 +29,7 @@ export type UseLawmindAppRootDialogsPropsInput = {
   setContextMatterId: (id: string | null) => void;
   taskDrawerOpen: boolean;
   setTaskDrawerOpen: (open: boolean) => void;
+  openNewAssistant: () => void;
 };
 
 export function useLawmindAppRootDialogsProps(
@@ -56,6 +57,7 @@ export function useLawmindAppRootDialogsProps(
     setContextMatterId,
     taskDrawerOpen,
     setTaskDrawerOpen,
+    openNewAssistant,
   } = input;
 
   return useMemo(
@@ -77,6 +79,10 @@ export function useLawmindAppRootDialogsProps(
           title: "LawMind · 委派已发起",
           body: `已委派给「${toDisplayName}」，完成后会在本对话出现结果。`,
         });
+      },
+      onCreateAssistant: () => {
+        setDelegateAssistOpen(false);
+        openNewAssistant();
       },
       createMatterOpen,
       onCloseCreateMatter: () => setCreateMatterOpen(false),
@@ -117,6 +123,7 @@ export function useLawmindAppRootDialogsProps(
       setContextMatterId,
       taskDrawerOpen,
       setTaskDrawerOpen,
+      openNewAssistant,
     ],
   );
 }

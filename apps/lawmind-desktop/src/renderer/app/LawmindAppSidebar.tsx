@@ -8,6 +8,7 @@ import type { MatterSidebarRow } from "../lawmind-records-desk-state";
 
 import { LawmindSideExplorerSkeleton } from "./LawmindSideExplorerSkeleton";
 import type { LawmindMainView } from "../lawmind-main-view";
+import { LawmindBrandMark } from "./LawmindBrandMark";
 
 export type LawmindAppSidebarProps = {
   showAppSidebar: boolean;
@@ -121,6 +122,9 @@ function LawmindAppSidebarImpl({
         aria-label="侧栏"
       >
         <div className="lm-brand">
+          <div className="lm-logo-mark" aria-hidden="true">
+            <LawmindBrandMark size={28} />
+          </div>
           <div className="lm-brand-copy">
             <div className="lm-brand-title">LawMind</div>
           </div>

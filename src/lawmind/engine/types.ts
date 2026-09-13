@@ -21,8 +21,12 @@ import type {
 export type LawMindEngineConfig = {
   /** 工作区根目录，内含 MEMORY.md / LAWYER_PROFILE.md / memory/ */
   workspaceDir: string;
-  /** 最终产物输出目录（默认 workspaceDir/artifacts） */
+  /**
+   * 显式输出目录或文件路径。未传时按案件 / 项目 / 源文件解析，最后才落到 workspace/artifacts。
+   */
   outputDir?: string;
+  /** 律师关联的本机项目目录（未指定输出路径时写入该文件夹） */
+  projectDir?: string;
   /** 检索适配器列表，按优先级排序 */
   adapters: RetrievalAdapter[];
   /** 多助手：写入任务记录归因 */
@@ -91,6 +95,10 @@ export type LawMindEngine = {
       strictGates?: boolean;
       citationGateStrict?: boolean;
       includeProvenance?: boolean;
+      /** Per-render override; takes precedence over config.projectDir */
+      projectDir?: string;
+      /** Explicit file or directory; must stay in workspace or project */
+      outputPath?: string;
     },
   ) => Promise<{ ok: boolean; outputPath?: string; error?: string }>;
   /** 读取持久化任务状态 */

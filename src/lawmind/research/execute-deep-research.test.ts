@@ -84,6 +84,58 @@ describe("executeDeepResearchPlan", () => {
     expect(result.outline.status).toBe("pending");
   });
 
+  it("skips brave-web adapter when allowWebSearch is false", async () => {
+    const brave: RetrievalAdapter = {
+      name: "brave-web",
+      supports: () => true,
+      retrieve: vi.fn(async () => ({
+        sources: [
+          {
+            id: "brave-should-not",
+            title: "blocked",
+            kind: "web" as const,
+            provider: "brave-web",
+          },
+        ],
+        claims: [
+          {
+            text: "公网摘要",
+            confidence: 0.4,
+            sourceIds: ["brave-should-not"],
+            model: "general" as const,
+          },
+        ],
+        riskFlags: [],
+        missingItems: [],
+      })),
+    };
+    const local: RetrievalAdapter = {
+      name: "workspace",
+      supports: () => true,
+      retrieve: async () => ({
+        sources: [{ id: "w1", title: "本地", kind: "memo" as const }],
+        claims: [
+          {
+            text: "本地结论",
+            confidence: 0.7,
+            sourceIds: ["w1"],
+            model: "t" as const,
+          },
+        ],
+        riskFlags: [],
+        missingItems: [],
+      }),
+    };
+    const result = await executeDeepResearchPlan({
+      intent: intent(),
+      memory,
+      adapters: [brave, local],
+      allowWebSearch: false,
+    });
+    expect(brave.retrieve).not.toHaveBeenCalled();
+    expect(result.bundle.sources.some((s) => s.id === "brave-should-not")).toBe(false);
+  });
+
   it("produces evidence-backed pending outline from adapter claims", async () => {
     const adapter: RetrievalAdapter = {
       name: "authority",

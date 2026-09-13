@@ -15,5 +15,13 @@
     "minFirstPassRate": 0.8,
     "minSamples": 20,
     "maxLintEscapeRate": 0.15
+  },
+  "hostAccess": {
+    "mode": "mounts",
+    "allowHostCommands": false,
+    "hostCommandLevel": "office",
+    "allowCrossMatterMounts": false,
+    "forceMatterMode": false,
+    "allowSessionCommands": false
   }
 }

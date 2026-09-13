@@ -89,7 +89,7 @@ export function LawmindAuthoritySetup({
       {status === "configured" &&
       (authorityCorpus?.provider === "pkulaw" || authorityCorpus?.provider === "generic") ? (
         <p className="lm-settings-caption" role="note">
-          对话检索走这里的权威库。设置 → 安全与工具 → 外部对接里的法宝 MCP
+          对话检索走这里的权威库。设置 → 安全 → 外部对接里的法宝 MCP
           是同一网关的进阶入口，不是另一套未接上的库。正式引用请核对原文。
         </p>
       ) : (

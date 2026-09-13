@@ -32,7 +32,7 @@ export type UseLawmindAppOverlaysPropsInput = {
   wizBusy: boolean;
   pickWs: () => void | Promise<void>;
   setShowWizard: (open: boolean) => void;
-  runWizardSave: () => void | Promise<void>;
+  runWizardSave: (opts?: { webSearchApiKey?: string }) => void | Promise<void>;
   detailOpen: boolean;
   detailKind: DetailKind;
   detailId: string | null;
@@ -145,7 +145,7 @@ export function useLawmindAppOverlaysProps(input: UseLawmindAppOverlaysPropsInpu
       wizBusy,
       onPickWorkspace: () => void pickWs(),
       onWizardCancel: () => setShowWizard(false),
-      onWizardSave: () => void runWizardSave(),
+      onWizardSave: (opts) => void runWizardSave(opts),
       detailOpen,
       detailKind,
       detailId,

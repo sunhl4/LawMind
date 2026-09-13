@@ -98,6 +98,26 @@ describe("read_project_file", () => {
     }
   });
 
+  it("lists a project directory instead of failing", async () => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "lm-proj-list-ws-"));
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "lm-proj-list-"));
+    try {
+      await fs.mkdir(path.join(root, "notes"), { recursive: true });
+      await fs.writeFile(path.join(root, "notes", "memo.md"), "memo", "utf8");
+      const result = await readProjectFile.execute(
+        { relative_path: "notes" },
+        makeCtx(workspace, { projectDir: root }),
+      );
+      expect(result.ok).toBe(true);
+      const data = result.data as { kind?: string; entries?: Array<{ path: string }> };
+      expect(data.kind).toBe("directory");
+      expect(data.entries?.some((e) => e.path === "notes/memo.md")).toBe(true);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+      await fs.rm(workspace, { recursive: true, force: true });
+    }
+  });
+
   it("rejects unsupported legacy office formats (.xls/.ppt)", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "lm-proj-doc-"));
     try {

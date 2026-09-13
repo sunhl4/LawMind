@@ -53,4 +53,20 @@ describe("pinned-context", () => {
     );
     expect(pins.some((pin) => pin.pinKind === "clause")).toBe(false);
   });
+
+  it("injects a recursive listing for a pinned directory", () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-pinned-dir-"));
+    const rel = "materials/证据包";
+    fs.mkdirSync(path.join(workspaceDir, rel, "往来"), { recursive: true });
+    fs.writeFileSync(path.join(workspaceDir, rel, "合同.docx"), "docx", "utf8");
+    fs.writeFileSync(path.join(workspaceDir, rel, "往来", "函.md"), "函", "utf8");
+    const summary = resolvePinnedContextSummary({
+      workspaceDir,
+      pins: [{ pinKind: "file", root: "workspace", relPath: rel, kind: "directory" }],
+    });
+    expect(summary.included).toBe(true);
+    expect(summary.markdownBlock).toContain("合同.docx");
+    expect(summary.markdownBlock).toContain("往来/函.md");
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+  });
 });

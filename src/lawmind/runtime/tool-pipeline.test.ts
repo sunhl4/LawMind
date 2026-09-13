@@ -19,6 +19,7 @@ import {
   discoveryLoopMiddleware,
   dropSaturatedDiscoveryTools,
   wouldHitDiscoveryCap,
+  wouldHitHostFileCap,
   executeMiddleware,
   subprocessSandboxMiddleware,
   matterScopeMiddleware,
@@ -312,6 +313,28 @@ describe("tool-pipeline middlewares", () => {
     expect(blocked.error).not.toContain("自动办件");
   });
 
+  it("host file tools use a separate cap from discovery", () => {
+    expect(wouldHitHostFileCap("read_host_file", { read_host_file: 5 })).toBe(false);
+    expect(wouldHitHostFileCap("read_host_file", { read_host_file: 8 })).toBe(true);
+    expect(wouldHitHostFileCap("search_workspace", { search_workspace: 8 })).toBe(false);
+  });
+
+  it("directory pins move analyze_document onto the host-file ledger", () => {
+    const hint = {
+      contextPins: [{ pinKind: "file", kind: "directory" }],
+    };
+    expect(wouldHitDiscoveryCap("analyze_document", { analyze_document: 1 }, hint)).toBe(false);
+    expect(wouldHitHostFileCap("analyze_document", { analyze_document: 1 }, 32, hint)).toBe(false);
+    expect(wouldHitHostFileCap("analyze_document", { analyze_document: 8 }, 32, hint)).toBe(true);
+    expect(
+      dropSaturatedDiscoveryTools(
+        ["analyze_document", "update_draft"],
+        { analyze_document: 1 },
+        hint,
+      ),
+    ).toEqual(["analyze_document", "update_draft"]);
+  });
+
   it("wouldHitDiscoveryCap and dropSaturatedDiscoveryTools match the middleware quota", () => {
     expect(wouldHitDiscoveryCap("analyze_document", {})).toBe(false);
     expect(wouldHitDiscoveryCap("analyze_document", { analyze_document: 1 })).toBe(true);
@@ -497,6 +520,51 @@ describe("tool-pipeline middlewares", () => {
     const result = await argSchemaMiddleware(call, async () => ({ ok: true }));
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/Invalid arguments|missing required/);
+  });
+
+  it("timeoutMiddleware copies pendingTurnPlan back onto the shared ctx", async () => {
+    const sharedCtx = buildAgentContext(workspaceDir);
+    const call: ToolCallContext = {
+      ...buildCall(workspaceDir, { policyOverride: { toolTimeoutMs: 5_000 } }),
+      ctx: sharedCtx,
+    };
+    const plan = {
+      items: [
+        { step: "读钉选合同", status: "in_progress" as const },
+        { step: "标风险条款", status: "pending" as const },
+      ],
+      updatedAt: "2026-09-13T00:00:00.000Z",
+    };
+    const writer: ToolMiddleware = async (c) => {
+      c.ctx.pendingTurnPlan = plan;
+      return { ok: true, data: { message: "ok", plan } };
+    };
+    const result = await timeoutMiddleware(call, () => writer(call, async () => ({ ok: true })));
+    expect(result.ok).toBe(true);
+    expect(sharedCtx.pendingTurnPlan).toEqual(plan);
+    expect(call.ctx).toBe(sharedCtx);
+  });
+
+  it("timeoutMiddleware copies pendingTurnPlan when toolTimeoutMs is unlimited", async () => {
+    const sharedCtx = buildAgentContext(workspaceDir);
+    const call: ToolCallContext = {
+      ...buildCall(workspaceDir, { policyOverride: { toolTimeoutMs: 0 } }),
+      ctx: sharedCtx,
+    };
+    const plan = {
+      items: [
+        { step: "读钉选合同", status: "in_progress" as const },
+        { step: "标风险条款", status: "pending" as const },
+      ],
+      updatedAt: "2026-09-13T00:00:00.000Z",
+    };
+    const writer: ToolMiddleware = async (c) => {
+      c.ctx.pendingTurnPlan = plan;
+      return { ok: true };
+    };
+    const result = await timeoutMiddleware(call, () => writer(call, async () => ({ ok: true })));
+    expect(result.ok).toBe(true);
+    expect(sharedCtx.pendingTurnPlan).toEqual(plan);
   });
 
   it("timeoutMiddleware skips wall-clock kill when toolTimeoutMs is 0", async () => {

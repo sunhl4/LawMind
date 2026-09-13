@@ -1,4 +1,4 @@
-import type { DragEvent, RefObject } from "react";
+import type { RefObject } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LawmindCommandPalette, type CommandPaletteAction } from "./LawmindCommandPalette";
 import {
@@ -64,7 +64,8 @@ import { requestOpenAutomationsSettings } from "./lawmind-automations-nav-bus";
 import {
   isContractReviewCandidatePath,
 } from "./lawmind-file-chat-context";
-import { LAWMID_FS_DRAG_MIME, readLawmindFsDragFromDataTransfer } from "./lawmind-file-drag";
+import { pinDroppedChatFiles } from "./lawmind-file-drop-context";
+import { useChatFileDropTarget } from "./useChatFileDropTarget";
 
 export { hasChatDiagnostics } from "./lawmind-chat";
 import {
@@ -113,6 +114,8 @@ export type LawmindChatWorkspaceProps = {
   onRemoveFileChatPill: (id: string) => void;
   onClearFileChatPills: () => void;
   onAddFileToChatContext?: (payload: Pick<FileChatContextItem, "root" | "relPath" | "kind">) => void;
+  onFileDropError?: (message: string | null) => void;
+  projectDir?: string | null;
   onAddComposeTruthPin?: (pin: TruthSourceContextPin) => void;
   onContextMatterChange?: (matterId: string | null) => void;
   composeMatterOptions?: ComposeContextMatterOption[];
@@ -208,6 +211,9 @@ export function LawmindChatComposeFooter({
   onRemoveFileChatPill,
   onClearFileChatPills,
   onAddFileToChatContext,
+  onFileDropError,
+  workspaceDir,
+  projectDir,
   onAddComposeTruthPin,
   onContextMatterChange,
   composeMatterOptions = [],
@@ -262,6 +268,9 @@ export function LawmindChatComposeFooter({
   | "onRemoveFileChatPill"
   | "onClearFileChatPills"
   | "onAddFileToChatContext"
+  | "onFileDropError"
+  | "workspaceDir"
+  | "projectDir"
   | "onAddComposeTruthPin"
   | "onContextMatterChange"
   | "composeMatterOptions"
@@ -341,27 +350,6 @@ export function LawmindChatComposeFooter({
 
   const effectiveCompactMaterials = compactMaterialsOverride || contractMaterialsHint;
 
-  const onComposeDragOver = useCallback((e: DragEvent) => {
-    if (e.dataTransfer.types.includes(LAWMID_FS_DRAG_MIME)) {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "copy";
-    }
-  }, []);
-
-  const onComposeDrop = useCallback(
-    (e: DragEvent) => {
-      e.preventDefault();
-      const payload = readLawmindFsDragFromDataTransfer(e.dataTransfer);
-      if (!payload || !onAddFileToChatContext) {
-        return;
-      }
-      onAddFileToChatContext(payload);
-      if (payload.kind === "file" && isContractReviewCandidatePath(payload.relPath)) {
-        setCompactFastLaneOpen(true);
-      }
-    },
-    [onAddFileToChatContext],
-  );
 
   useEffect(() => {
     if (!loading) {
@@ -517,7 +505,7 @@ export function LawmindChatComposeFooter({
       {
         id: "doctor",
         slash: "/doctor",
-        label: "系统体检",
+        label: "系统健康",
         run: () => onOpenDoctor?.(),
       },
       {
@@ -697,6 +685,41 @@ export function LawmindChatComposeFooter({
     [apiBase, chatSessionId, loading],
   );
 
+  const handleDroppedChatFiles = useCallback(
+    async (dt: DataTransfer) => {
+      if (!onAddFileToChatContext) {
+        return;
+      }
+      await pinDroppedChatFiles({
+        dataTransfer: dt,
+        workspaceDir,
+        projectDir,
+        matterId: contextMatterId,
+        onAdd: onAddFileToChatContext,
+        onError: onFileDropError,
+        onEachPin: (pin) => {
+          injectPinsDuringTurn([encodeFileContextPin(pin)]);
+          if (pin.kind === "file" && isContractReviewCandidatePath(pin.relPath)) {
+            setCompactFastLaneOpen(true);
+          }
+        },
+      });
+    },
+    [
+      contextMatterId,
+      injectPinsDuringTurn,
+      onAddFileToChatContext,
+      onFileDropError,
+      projectDir,
+      workspaceDir,
+    ],
+  );
+
+  const composeDrop = useChatFileDropTarget(
+    onAddFileToChatContext ? handleDroppedChatFiles : undefined,
+    { stopPropagation: true },
+  );
+
   const handleSelectContextFile = useCallback(
     (payload: Pick<FileChatContextItem, "root" | "relPath" | "kind">) => {
       onAddFileToChatContext?.(payload);
@@ -832,15 +855,14 @@ export function LawmindChatComposeFooter({
         hideWordRevisionBar={compactFastLaneOpen}
       />
       <div
-        className="lm-compose lm-compose-resizable"
+        className={`lm-compose lm-compose-resizable${composeDrop.active ? " lm-chat-drop-active" : ""}`}
         style={{
           height: composeHeight,
           flexShrink: 0,
           minHeight: LM_CHAT_COMPOSE_MIN_HEIGHT_PX,
           maxHeight: LM_CHAT_COMPOSE_MAX_HEIGHT_PX,
         }}
-        onDragOver={onComposeDragOver}
-        onDrop={onComposeDrop}
+        {...composeDrop.dropProps}
         data-testid="lm-compose-drop-zone"
       >
         <div className="lm-compose-box">
@@ -991,6 +1013,9 @@ export function LawmindChatShell(props: LawmindChatWorkspaceProps) {
         onRemoveFileChatPill={props.onRemoveFileChatPill}
         onClearFileChatPills={props.onClearFileChatPills}
         onAddFileToChatContext={props.onAddFileToChatContext}
+        onFileDropError={props.onFileDropError}
+        workspaceDir={props.workspaceDir}
+        projectDir={props.projectDir}
         onAddComposeTruthPin={props.onAddComposeTruthPin}
         onContextMatterChange={props.onContextMatterChange}
         composeMatterOptions={props.composeMatterOptions}

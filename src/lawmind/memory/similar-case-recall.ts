@@ -148,7 +148,7 @@ export function scoreCase(queryTokens: string[], caseText: string): number {
   return scoreCaseWeighted(queryTokens, caseText);
 }
 
-function snippetFromCase(text: string, max = 700): string {
+function snippetFromCase(text: string, max = PROMPT_WINDOW.recallSnippetChars): string {
   const lines = text
     .split("\n")
     .map((l) => l.trim())
@@ -223,7 +223,7 @@ export function formatSimilarCaseRecallBlock(hits: SimilarCaseHit[]): string | u
   ];
   for (const hit of hits) {
     blocks.push(
-      `### 案件 ${hit.matterId}（相关度 ${(hit.score * 100).toFixed(0)}%）\n路径：\`${hit.relativePath}\`\n${hit.snippet}`,
+      `### 案件 ${hit.matterId}（相关度 ${(hit.score * 100).toFixed(0)}%）\n路径：\`${hit.relativePath}\`\n${hit.snippet}\n完整 CASE 请用 read_case_file 读取 ${hit.relativePath}`,
     );
   }
   return blocks.join("\n\n");

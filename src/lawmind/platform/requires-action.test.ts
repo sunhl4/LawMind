@@ -4,6 +4,8 @@ import {
   buildRequiresActionsFromTurn,
   buildToolApprovalAction,
   formatClarificationResumeMessage,
+  hostGrantEditedArgs,
+  isHostGrantToolName,
   toolDisplayNameZh,
 } from "./requires-action.js";
 
@@ -12,6 +14,8 @@ describe("requires-action", () => {
     expect(toolDisplayNameZh("execute_workflow")).toBe("启动办案流程");
     expect(toolDisplayNameZh("write_document")).toBe("审定文书");
     expect(toolDisplayNameZh("unknown_tool")).toBe("该项操作");
+    expect(toolDisplayNameZh("run_compute")).toBe("核算数据");
+    expect(toolDisplayNameZh("calculate")).toBe("法律计算");
   });
 
   it("buildToolApprovalAction includes approve and reject", () => {
@@ -27,6 +31,24 @@ describe("requires-action", () => {
     expect(a.decisions).toContain("approve");
     expect(a.title).toContain("Word");
     expect(a.title).not.toMatch(/render_document/);
+  });
+
+  it("host grant approval offers once/session/always copy", () => {
+    expect(isHostGrantToolName("read_host_file")).toBe(true);
+    expect(isHostGrantToolName("send_email")).toBe(false);
+    const a = buildToolApprovalAction({
+      sessionId: "s1",
+      matterId: "m1",
+      taskId: "t1",
+      toolName: "read_host_file",
+      toolCallId: "tc1",
+      toolArgs: { hit_id: "hit-1" },
+    });
+    expect(a.summary).toContain("允许一次");
+    expect(hostGrantEditedArgs(a.toolArgs, "session")).toEqual({
+      hit_id: "hit-1",
+      grant_duration: "session",
+    });
   });
 
   it("buildRequiresActionsFromTurn for clarification", () => {

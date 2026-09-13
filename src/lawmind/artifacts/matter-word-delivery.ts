@@ -33,12 +33,19 @@ export function safeDeliveryStem(originalBasename: string): string {
   return stem.slice(0, 160) || "合同";
 }
 
-function nextVersionSerial(dir: string, stem: string, date: string): number {
+function normalizeDeliveryExt(ext: string): string {
+  const raw = ext.trim() || ".docx";
+  const withDot = raw.startsWith(".") ? raw : `.${raw}`;
+  return withDot.toLowerCase();
+}
+
+function nextVersionSerial(dir: string, stem: string, date: string, ext = ".docx"): number {
   if (!dir || !fs.existsSync(dir)) {
     return 1;
   }
   const escaped = stem.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const re = new RegExp(`^${escaped}_${date}_(\\d{2})\\.docx$`, "i");
+  const escapedExt = normalizeDeliveryExt(ext).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`^${escaped}_${date}_(\\d{2})${escapedExt}$`, "i");
   let max = 0;
   try {
     for (const name of fs.readdirSync(dir)) {
@@ -58,6 +65,23 @@ function nextVersionSerial(dir: string, stem: string, date: string): number {
 }
 
 /**
+ * `标题_YYYYMMDD_01.ext`. Same-day collision increments `_02`, `_03`, …
+ * Never uses task-id / hash suffixes.
+ */
+export function buildDeliverableFilename(
+  originalBasename: string,
+  ext: string,
+  at: Date = new Date(),
+  opts?: { dirForUniqueness?: string },
+): string {
+  const stem = safeDeliveryStem(originalBasename);
+  const date = formatDeliveryDateStamp(at);
+  const extNorm = normalizeDeliveryExt(ext);
+  const serial = nextVersionSerial(opts?.dirForUniqueness ?? "", stem, date, extNorm);
+  return `${stem}_${date}_${String(serial).padStart(2, "0")}${extNorm}`;
+}
+
+/**
  * Build `原文件名_YYYYMMDD_01.docx` (officecli tracked output is always OOXML).
  * Same-day collision increments `_02`, `_03`, …
  */
@@ -66,10 +90,7 @@ export function buildMatterReviewedWordFilename(
   at: Date = new Date(),
   opts?: { dirForUniqueness?: string },
 ): string {
-  const stem = safeDeliveryStem(originalBasename);
-  const date = formatDeliveryDateStamp(at);
-  const serial = nextVersionSerial(opts?.dirForUniqueness ?? "", stem, date);
-  return `${stem}_${date}_${String(serial).padStart(2, "0")}.docx`;
+  return buildDeliverableFilename(originalBasename, ".docx", at, opts);
 }
 
 /** Matter workspace folder: `cases/<matterId>/`. */

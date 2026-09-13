@@ -1,4 +1,4 @@
-import type { AcceptanceReport } from "../../../../src/lawmind/deliverables/index.ts";
+import type { AcceptanceReport } from "../../../../src/lawmind/deliverables/types.ts";
 import type { GateDecision } from "../../../../src/lawmind/platform/contracts.ts";
 import {
   formatGateDecisionLine,

@@ -1,15 +1,43 @@
 import type { BuiltinModelDefinition } from "./types.js";
 
 const DASHSCOPE = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+const DEEPSEEK = "https://api.deepseek.com/v1";
+
+/** Product default when the user has not picked a model. */
+export const LAWMIND_DEFAULT_UPSTREAM_MODEL = "deepseek-flash";
+export const LAWMIND_DEFAULT_BUILTIN_MODEL_ID = "builtin:deepseek-flash";
+export const LAWMIND_DEFAULT_PLATFORM_MODEL_ID = "platform:deepseek-flash";
+
+/**
+ * Retired DeepSeek Flash IDs still accepted by the API.
+ * Requests are served by DeepSeek-V4.1-Flash and billed at Flash rates.
+ */
+export const DEEPSEEK_FLASH_RETIRED_ALIASES = [
+  "deepseek-v4-flash",
+  "deepseek-v4-flash-vision-exp",
+] as const;
 
 /** Curated built-in models (Cursor-style picker). Keys come from env per provider. */
 export const LAWMIND_BUILTIN_MODELS: BuiltinModelDefinition[] = [
+  // DeepSeek（工程默认）
+  {
+    id: LAWMIND_DEFAULT_BUILTIN_MODEL_ID,
+    kind: "builtin",
+    label: "DeepSeek Flash",
+    description: "DeepSeek-V4.1-Flash，日常法律对话默认",
+    provider: "deepseek",
+    baseUrl: DEEPSEEK,
+    model: LAWMIND_DEFAULT_UPSTREAM_MODEL,
+    group: "DeepSeek",
+    contextTokens: 1_048_576,
+    tags: ["推荐", "多模态"],
+  },
   // 通义千问
   {
     id: "builtin:qwen-plus",
     kind: "builtin",
     label: "通义千问 Plus",
-    description: "均衡质量与速度，日常法律对话推荐",
+    description: "均衡质量与速度",
     provider: "dashscope",
     baseUrl: DASHSCOPE,
     model: "qwen-plus",
@@ -86,7 +114,7 @@ export const LAWMIND_BUILTIN_MODELS: BuiltinModelDefinition[] = [
     kind: "builtin",
     label: "DeepSeek Chat",
     provider: "deepseek",
-    baseUrl: "https://api.deepseek.com/v1",
+    baseUrl: DEEPSEEK,
     model: "deepseek-chat",
     group: "DeepSeek",
     contextTokens: 64_000,
@@ -96,7 +124,7 @@ export const LAWMIND_BUILTIN_MODELS: BuiltinModelDefinition[] = [
     kind: "builtin",
     label: "DeepSeek Reasoner",
     provider: "deepseek",
-    baseUrl: "https://api.deepseek.com/v1",
+    baseUrl: DEEPSEEK,
     model: "deepseek-reasoner",
     group: "DeepSeek",
     contextTokens: 64_000,
@@ -137,7 +165,20 @@ export const LAWMIND_BUILTIN_MODELS: BuiltinModelDefinition[] = [
 ];
 
 export function getBuiltinModelById(id: string): BuiltinModelDefinition | undefined {
-  return LAWMIND_BUILTIN_MODELS.find((m) => m.id === id);
+  const raw = id.trim();
+  if (!raw) {
+    return undefined;
+  }
+  const exact = LAWMIND_BUILTIN_MODELS.find((m) => m.id === raw);
+  if (exact) {
+    return exact;
+  }
+  const name = raw.startsWith("builtin:") ? raw.slice("builtin:".length) : raw;
+  const mapped = builtinIdForEnvModelName(name);
+  if (mapped && mapped !== raw) {
+    return LAWMIND_BUILTIN_MODELS.find((m) => m.id === mapped);
+  }
+  return undefined;
 }
 
 export function builtinIdForEnvModelName(modelName: string): string | undefined {
@@ -148,6 +189,9 @@ export function builtinIdForEnvModelName(modelName: string): string | undefined 
   const exact = LAWMIND_BUILTIN_MODELS.find((m) => m.model.toLowerCase() === norm);
   if (exact) {
     return exact.id;
+  }
+  if ((DEEPSEEK_FLASH_RETIRED_ALIASES as readonly string[]).includes(norm)) {
+    return LAWMIND_DEFAULT_BUILTIN_MODEL_ID;
   }
   if (norm === "qwen3.5-plus" || norm === "qwen-plus-latest") {
     return "builtin:qwen3.5-plus";

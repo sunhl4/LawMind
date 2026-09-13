@@ -27,9 +27,16 @@ test.describe("LawMind golden path", () => {
 
   test("工作台 tab opens daily desk", async ({ page }) => {
     await gotoShell(page);
+    await page.setViewportSize({ width: 1100, height: 780 });
     await page.getByTestId("lm-tab-desk").click();
     await expect(page.getByTestId("lm-lawyer-workbench")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("lm-lawyer-today-plan-input")).toBeVisible();
+    // Cockpit must stay visible at default-ish window sizes (not crushed to 0 by 快捷入口).
+    const cockpit = page.getByTestId("lm-lawyer-cockpit");
+    await expect(cockpit).toBeVisible();
+    await expect(page.getByLabel("在办案件")).toBeVisible();
+    const box = await cockpit.boundingBox();
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(280);
   });
 
   test("review workbench shows acceptance gate region when opened", async ({ page }) => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseProbeErrorBody } from "./probe.js";
+import { formatUpstreamProbeError, parseProbeErrorBody } from "./probe.js";
 
 describe("parseProbeErrorBody", () => {
   it("returns error message from OpenAI-style error object", () => {
@@ -26,5 +26,17 @@ describe("parseProbeErrorBody", () => {
         }),
       ),
     ).toBeNull();
+  });
+});
+
+describe("formatUpstreamProbeError", () => {
+  it("explains 401 as an invalid key, not a missing config", () => {
+    const msg = formatUpstreamProbeError(401, '{"error":{"message":"Authentication Fails"}}', {
+      model: "deepseek-flash",
+      baseUrl: "https://api.deepseek.com/v1",
+    });
+    expect(msg).toContain("API Key 无效");
+    expect(msg).toContain("deepseek-flash");
+    expect(msg).toContain("已填 Key");
   });
 });

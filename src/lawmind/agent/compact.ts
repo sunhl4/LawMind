@@ -33,6 +33,44 @@ export function resolveCompactDigestCharCap(contextTokens?: number): number {
  * Extractive summarize-then-drop: keep lawyer asks, assistant conclusions, and tool names
  * from messages about to be discarded — no extra model call required.
  */
+/** Statute-like anchors kept after compact so the next model round can still cite. */
+const DROPPED_CITATION_RE =
+  /《[^《》\n]{1,48}》(?:\s*第\s*\d+\s*条(?:之\d+)?(?:第[一二三四五六七八九十百千\d]+款)?)?/g;
+
+export function collectDroppedCitationAnchors(dropped: AgentMessage[], maxItems = 24): string[] {
+  const found: string[] = [];
+  const seen = new Set<string>();
+  const consider = (raw: string): void => {
+    if (!raw || found.length >= maxItems) {
+      return;
+    }
+    DROPPED_CITATION_RE.lastIndex = 0;
+    for (const match of raw.matchAll(DROPPED_CITATION_RE)) {
+      const token = (match[0] ?? "").replace(/\s+/g, "");
+      if (!token || seen.has(token)) {
+        continue;
+      }
+      seen.add(token);
+      found.push(token);
+      if (found.length >= maxItems) {
+        return;
+      }
+    }
+  };
+  for (const msg of dropped) {
+    consider(msg.content ?? "");
+    for (const tr of msg.toolCallResponses ?? []) {
+      consider(
+        typeof tr.result?.data === "string" ? tr.result.data : JSON.stringify(tr.result ?? ""),
+      );
+    }
+    if (found.length >= maxItems) {
+      break;
+    }
+  }
+  return found;
+}
+
 export function buildDroppedSpanDigest(dropped: AgentMessage[], maxChars: number): string {
   if (dropped.length === 0 || maxChars < 80) {
     return "";
@@ -79,6 +117,10 @@ export function buildDroppedSpanDigest(dropped: AgentMessage[], maxChars: number
   }
   if (toolNames.size > 0) {
     sections.push(`### 曾调用工具\n${[...toolNames].toSorted().join(", ")}`);
+  }
+  const citations = collectDroppedCitationAnchors(dropped);
+  if (citations.length > 0) {
+    sections.push(`### 压缩前引用\n${citations.join("；")}`);
   }
   let out = sections.join("\n\n");
   if (out.length > maxChars) {

@@ -103,6 +103,23 @@ function collectMetaQuestions(instruction: string): {
   };
 }
 
+/** Keys that may persist across turns and block draft / workflow / render. */
+export const HARD_CLARIFICATION_KEYS = new Set([
+  "addressee",
+  "claim_facts",
+  "claim_deadline",
+  "parties",
+  "claims",
+]);
+
+export function isHardClarificationKey(key: string): boolean {
+  return HARD_CLARIFICATION_KEYS.has(key);
+}
+
+export function selectHardClarificationKeys(keys: readonly string[] | undefined): string[] {
+  return (keys ?? []).filter((key) => isHardClarificationKey(key));
+}
+
 function isHighRiskEmptyRunType(type: DeliverableType | undefined): boolean {
   return (
     type === "letter.demand" ||

@@ -71,10 +71,11 @@ export function resolveDesktopActorId(): string {
   return raw ? raw : "lawyer:desktop";
 }
 
-export function getLawMindEngine(workspaceDir: string) {
+export function getLawMindEngine(workspaceDir: string, projectDir?: string) {
   return createLawMindEngine({
     workspaceDir,
     adapters: buildLawMindRetrievalAdaptersFromEnvForTest(workspaceDir),
+    projectDir,
   });
 }
 
@@ -206,9 +207,9 @@ export function buildAgentConfig(
   });
   const modelConfig = resolved.model ?? {
     provider: "openai-compatible" as const,
-    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    baseUrl: "https://api.deepseek.com/v1",
     apiKey: "",
-    model: "qwen-plus",
+    model: "deepseek-flash",
     maxTokens: fallbackEnvelope.maxOutputTokens,
     temperature: 0.3,
     timeoutMs: fallbackEnvelope.modelTimeoutMs,
@@ -326,7 +327,7 @@ export function isUnderWorkspace(workspaceRoot: string, candidate: string): bool
 
 export function safeArtifactPath(workspaceDir: string, rel: string): string | null {
   const norm = rel.replace(/\\/g, "/").replace(/^\//, "");
-  if (norm.includes("..")) {
+  if (norm.includes("..") || norm.includes("\0")) {
     return null;
   }
   const full = path.resolve(workspaceDir, norm);
@@ -334,10 +335,19 @@ export function safeArtifactPath(workspaceDir: string, rel: string): string | nu
     return null;
   }
   const artifactsRoot = path.join(workspaceDir, "artifacts");
-  if (!full.startsWith(artifactsRoot + path.sep) && full !== artifactsRoot) {
-    return null;
+  if (full === artifactsRoot || full.startsWith(artifactsRoot + path.sep)) {
+    return full;
   }
-  return full;
+  const matterArtifacts = path.sep + "artifacts" + path.sep;
+  const casesRoot = path.join(workspaceDir, "cases") + path.sep;
+  if (full.startsWith(casesRoot) && full.includes(matterArtifacts)) {
+    const afterCases = full.slice(casesRoot.length);
+    const segs = afterCases.split(path.sep);
+    if (segs.length >= 3 && segs[1] === "artifacts" && segs[0] && !segs[0].includes("..")) {
+      return full;
+    }
+  }
+  return null;
 }
 
 export function normalizeRelPath(p: string): string {
@@ -347,11 +357,26 @@ export function normalizeRelPath(p: string): string {
     .replace(/\/+$/, "");
 }
 
-export function resolveFsRoots(workspaceDir: string): { workspace: string; project?: string } {
-  const roots: { workspace: string; project?: string } = { workspace: workspaceDir };
+export function resolveFsRoots(workspaceDir: string): Record<string, string> {
+  const roots: Record<string, string> = { workspace: workspaceDir };
   const project = process.env.LAWMIND_PROJECT_DIR?.trim();
   if (project) {
     roots.project = path.resolve(project);
+  }
+  try {
+    const file = process.env.LAWMIND_HOST_ACCESS_FILE?.trim();
+    if (file && fs.existsSync(file)) {
+      const raw = JSON.parse(fs.readFileSync(file, "utf8")) as {
+        mounts?: Array<{ id?: string; absPath?: string }>;
+      };
+      for (const mount of raw.mounts ?? []) {
+        if (mount?.id && mount.absPath) {
+          roots[`mount:${mount.id}`] = path.resolve(mount.absPath);
+        }
+      }
+    }
+  } catch {
+    /* ignore */
   }
   return roots;
 }
@@ -374,14 +399,16 @@ export function safeOptionalProjectDir(raw: unknown): string | undefined {
 }
 
 export function resolveFsPath(
-  roots: { workspace: string; project?: string },
+  roots: Record<string, string>,
   rootKey: string,
   relPath: string,
 ): { root: string; full: string; rel: string } {
-  if (rootKey !== "workspace" && rootKey !== "project") {
+  const allowed =
+    rootKey === "workspace" || rootKey === "project" || rootKey.startsWith("mount:");
+  if (!allowed) {
     throw new Error("invalid root");
   }
-  const root = rootKey === "workspace" ? roots.workspace : roots.project;
+  const root = roots[rootKey];
   if (!root) {
     throw new Error("root not available");
   }

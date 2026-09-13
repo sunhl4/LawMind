@@ -8,22 +8,14 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { isValidMatterId } from "./matter-id.js";
-export { ADHOC_MEETING_MATTER_ID, isAdhocMeetingMatterId } from "./team-meeting-ids.js";
+export {
+  ADHOC_MEETING_MATTER_ID,
+  isAdhocMeetingMatterId,
+  type TeamMeetingLine,
+  type TeamMeetingLineKind,
+} from "./team-meeting-ids.js";
 import { ADHOC_MEETING_MATTER_ID, isAdhocMeetingMatterId } from "./team-meeting-ids.js";
-
-export type TeamMeetingLineKind = "user" | "assistant" | "system";
-
-export type TeamMeetingLine = {
-  id: string;
-  ts: string;
-  kind: TeamMeetingLineKind;
-  text: string;
-  assistantId?: string;
-  displayName?: string;
-  taskId?: string;
-  sessionId?: string;
-  delegationId?: string;
-};
+import type { TeamMeetingLine } from "./team-meeting-ids.js";
 
 const TEAM_MEETING_FILENAME = "team-meeting.jsonl";
 export const TEAM_MEETING_MAX_LINE_TEXT = 48_000;

@@ -20,6 +20,7 @@ export const EMBED_TURN_EVENT_TYPES = [
   "overflow_prune",
   "requires_action",
   "approval_request",
+  "plan_update",
 ] as const satisfies ReadonlyArray<RunTurnEvent["type"]>;
 
 export type EmbedTurnEventType = (typeof EMBED_TURN_EVENT_TYPES)[number];

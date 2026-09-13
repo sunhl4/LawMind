@@ -20,6 +20,37 @@ describe("disclosed-turn-tools", () => {
     expect(names).toContain("analyze_spreadsheet");
     expect(names).toContain("write_spreadsheet");
     expect(names).toContain("render_chart");
+    expect(names).toContain("run_compute");
+  });
+
+  it("always discloses run_compute unless a lock path applies", () => {
+    const names = mergeTurnDisclosedToolNames({
+      session: {},
+      workspaceDir: "/tmp/does-not-need-skills",
+    });
+    expect(names).toContain("run_compute");
+    expect(names).toContain("web_search");
+    expect(names).toContain("search_statute_web");
+    expect(names).toContain("deep_research");
+    expect(names).toContain("list_dir");
+  });
+
+  it("does not auto-disclose deep_research for entertainment public-web facts", () => {
+    const names = mergeTurnDisclosedToolNames({
+      session: {},
+      workspaceDir: "/tmp/does-not-need-skills",
+      instruction: "查一下2026年新说唱总冠军",
+    });
+    expect(names).toContain("web_search");
+    expect(names).not.toContain("deep_research");
+  });
+
+  it("discloses compute tools when the instruction needs tables or charts", async () => {
+    const { extraToolsForInstruction } = await import("./disclosed-turn-tools.js");
+    expect(extraToolsForInstruction("请分析这张费用表并出图")).toEqual(
+      expect.arrayContaining(["run_compute", "render_chart", "write_spreadsheet"]),
+    );
+    expect(extraToolsForInstruction("修改合同")).not.toContain("run_compute");
   });
 
   it("does not let a skill disclose outbound tools", async () => {
@@ -56,6 +87,8 @@ x
     const { extraToolsForInstruction } = await import("./disclosed-turn-tools.js");
     expect(extraToolsForInstruction("计算违法解除的经济补偿")).toContain("calculate");
     expect(extraToolsForInstruction("查一下民法典违约责任")).toContain("search_case_law");
+    expect(extraToolsForInstruction("查一下2026年新说唱总冠军")).toEqual(["web_search"]);
+    expect(extraToolsForInstruction("查一下2026年新说唱总冠军")).not.toContain("search_case_law");
     expect(extraToolsForInstruction("整理这些进项发票")).toEqual(
       expect.arrayContaining(["calculate", "analyze_spreadsheet"]),
     );
@@ -82,5 +115,23 @@ x
         ].join("\n"),
       ),
     ).toEqual([]);
+  });
+
+  it("always discloses list_dir; directory pins also disclose host file tools", () => {
+    const names = mergeTurnDisclosedToolNames({
+      session: {},
+      workspaceDir: "/tmp/does-not-need-skills",
+      pins: [
+        {
+          pinKind: "file",
+          root: "workspace",
+          relPath: "materials/证据包",
+          kind: "directory",
+        },
+      ],
+    });
+    expect(names).toContain("list_dir");
+    expect(names).toContain("search_host");
+    expect(names).toContain("read_host_file");
   });
 });

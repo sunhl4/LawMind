@@ -2,15 +2,17 @@
  * Disclose extra tools for the current session without rewriting the static prompt prefix.
  */
 
-import { isAnalysisScriptsAllowed } from "../../../policy/analysis-scripts.js";
+import { isAnalysisScriptsAllowed, isHighSecurityMode } from "../../../policy/analysis-scripts.js";
 import type { AgentTool } from "../../types.js";
 import {
   CORE_MODEL_TOOL_NAMES,
   DISCLOSED_TOOL_HINTS,
   LIST_MORE_TOOLS_NAME,
+  UPDATE_PLAN_TOOL_NAME,
 } from "../governance.js";
 
 const CORE_SET = new Set<string>(CORE_MODEL_TOOL_NAMES);
+const WEB_SEARCH_TOOL_NAMES = new Set(["web_search", "search_statute_web", "url_dossier"]);
 
 export const listMoreTools: AgentTool = {
   definition: {
@@ -29,9 +31,19 @@ export const listMoreTools: AgentTool = {
   },
   async execute(params, ctx) {
     const allowScripts = ctx?.workspaceDir ? isAnalysisScriptsAllowed(ctx.workspaceDir) : false;
-    const catalog = DISCLOSED_TOOL_HINTS.filter(
-      (row) => row.name !== "run_analysis" || allowScripts,
-    ).map((row) => ({
+    const highSec = ctx?.workspaceDir ? isHighSecurityMode(ctx.workspaceDir) : false;
+    const catalog = DISCLOSED_TOOL_HINTS.filter((row) => {
+      if (row.name === "run_analysis") {
+        return allowScripts;
+      }
+      if (row.name === "run_compute") {
+        return !highSec;
+      }
+      if (WEB_SEARCH_TOOL_NAMES.has(row.name)) {
+        return ctx?.allowWebSearch === true;
+      }
+      return true;
+    }).map((row) => ({
       name: row.name,
       hint: row.hint,
     }));
@@ -45,7 +57,7 @@ export const listMoreTools: AgentTool = {
         },
       };
     }
-    if (CORE_SET.has(raw) || raw === LIST_MORE_TOOLS_NAME) {
+    if (CORE_SET.has(raw) || raw === LIST_MORE_TOOLS_NAME || raw === UPDATE_PLAN_TOOL_NAME) {
       return {
         ok: true,
         data: {
@@ -57,6 +69,14 @@ export const listMoreTools: AgentTool = {
     }
     const hit = catalog.find((row) => row.name === raw);
     if (!hit) {
+      if (WEB_SEARCH_TOOL_NAMES.has(raw) && ctx?.allowWebSearch !== true) {
+        return {
+          ok: false,
+          error:
+            "对话栏「联网」未开启。list_more_tools 不能代替开关：请在输入框选项里把「联网」选成开启。",
+          data: { tools: catalog, needAllowWebSearch: true },
+        };
+      }
       return {
         ok: false,
         error: "没有这项可披露能力",

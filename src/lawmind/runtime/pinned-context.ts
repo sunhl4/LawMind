@@ -5,6 +5,12 @@ import type { ComposeContextPin } from "../platform/compose-context-pin.js";
 import { isWordRevisionTurn } from "../platform/word-revision-instruction.js";
 import { getFleetPlaybook } from "../review-campaign/playbooks.js";
 import { deliverableTypeFromInstruction } from "../router/intake-gate.js";
+import { resolveLawyerLocalDir } from "./lawyer-local-file.js";
+import {
+  formatDirectoryListingBlock,
+  walkDirectoryListing,
+  type ListDirSuccess,
+} from "./list-dir.js";
 
 const PINNED_EXCERPT_MAX_CHARS = 8_000;
 
@@ -68,6 +74,7 @@ export function withContractPlaybookPin(
 export function resolvePinnedContextSummary(opts: {
   workspaceDir: string;
   pins: ComposeContextPin[];
+  projectDir?: string;
 }): PinnedContextSummary {
   if (opts.pins.length === 0) {
     return { included: false, evidence: [] };
@@ -79,7 +86,32 @@ export function resolvePinnedContextSummary(opts: {
   for (const pin of opts.pins) {
     switch (pin.pinKind) {
       case "file":
-        evidence.push(`file:${pin.root}:${pin.relPath}`);
+        evidence.push(`file:${pin.root}:${pin.relPath || "."}`);
+        if (pin.kind === "directory") {
+          const located = resolveLawyerLocalDir({
+            workspaceDir: opts.workspaceDir,
+            projectDir: opts.projectDir,
+            raw: pin.relPath || ".",
+            preferredRoot: pin.root,
+            pins: [pin],
+          });
+          if (located) {
+            const walked = walkDirectoryListing(located.abs, { recursive: true });
+            const listing: ListDirSuccess = {
+              ok: true,
+              rootKind: located.root,
+              listedPath: located.rel,
+              entries: walked.entries,
+              truncated: walked.truncated,
+              recursive: true,
+            };
+            blocks.push(formatDirectoryListingBlock(listing));
+          } else {
+            blocks.push(
+              `- [${pin.root === "project" ? "项目" : "工作区"} · 目录] \`${pin.relPath || "."}\` — 请用 list_dir 递归列举后再阅读文件。`,
+            );
+          }
+        }
         break;
       case "evidence": {
         const rel = `cases/${pin.matterId}/${pin.relPath.replace(/^\/+/, "")}`;

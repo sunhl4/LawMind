@@ -53,6 +53,16 @@ export function isPlatformInferenceAvailable(): boolean {
   return providers.some((p) => Boolean(resolvePlatformProviderApiKeyFromEnv(p)));
 }
 
+/** One platform row is usable iff the proxy is up or that vendor's platform key exists. */
+export function isPlatformModelConfigured(
+  provider: Exclude<LawMindModelProviderId, "custom" | "platform">,
+): boolean {
+  if (resolvePlatformProxyFromEnv()) {
+    return true;
+  }
+  return Boolean(resolvePlatformProviderApiKeyFromEnv(provider));
+}
+
 export function listPlatformProviderKeyStatus(): Array<{
   provider: Exclude<LawMindModelProviderId, "custom">;
   label: string;

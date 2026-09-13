@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { persistDraft } from "../drafts/index.js";
 import {
   applyLegalVerifyToResult,
   extractEmailDomain,
@@ -9,6 +10,7 @@ import {
   recipientDomainOutsideAllowlist,
   resolveOutboundAllowedDomains,
 } from "./legal-verify-middleware.js";
+import { precheckOutboundSameTurnVerify } from "./same-turn-verify.js";
 
 const dirs: string[] = [];
 
@@ -95,14 +97,15 @@ describe("legal-verify-middleware", () => {
     ).toBeUndefined();
   });
 
-  it("elevates failed citationIntegrity without flipping ok", () => {
+  it("elevates failed citationIntegrity by flipping ok so the writer must retry", () => {
     const next = applyLegalVerifyToResult("draft_document", {
       ok: true,
       data: {
         citationIntegrity: { checked: true, ok: false, missingSourceIds: ["src-9"] },
       },
     });
-    expect(next.ok).toBe(true);
+    expect(next.ok).toBe(false);
+    expect(next.error).toContain("引用对不上来源");
     const data = next.data as {
       verify?: { message?: string };
       gateDecision?: { gate?: string; category?: string };
@@ -194,6 +197,49 @@ describe("legal-verify-middleware", () => {
         (p) => p.ruleId === "statutory.deposit_cap" && p.requiresLawyerDecision === true,
       ),
     ).toBe(true);
+    // 定金上限是主观残差，不作为同一回合机械验收失败。
+    expect(next.ok).toBe(true);
+  });
+
+  it("flips mechanical lint blockers on draft_document into a tool error", () => {
+    const next = applyLegalVerifyToResult("draft_document", {
+      ok: true,
+      data: {
+        deliverableType: "contract.review",
+        draft: {
+          title: "房屋租赁合同",
+          sections: [
+            {
+              heading: "第一条",
+              body: "房屋租赁合同。租赁期限 25 年，租金按月支付。双方按约履行各自义务。",
+            },
+          ],
+        },
+      },
+    });
+    expect(next.ok).toBe(false);
+    expect(next.error).toContain("同一回合验收未过");
+    expect(next.error).toContain("lease.term_cap");
+  });
+
+  it("does not flip mechanical lint on contractEdit drafts", () => {
+    const next = applyLegalVerifyToResult("update_draft", {
+      ok: true,
+      data: {
+        contractEdit: { baselineRelativePath: "a.docx", mode: "surgical" },
+        deliverableType: "contract.review",
+        draft: {
+          title: "房屋租赁合同",
+          sections: [
+            {
+              heading: "第一条",
+              body: "房屋租赁合同。租赁期限 25 年，租金按月支付。双方按约履行各自义务。",
+            },
+          ],
+        },
+      },
+    });
+    expect(next.ok).toBe(true);
   });
 
   it("soft-stamps missing statute trial on unlocked opinion drafts", () => {
@@ -227,6 +273,20 @@ describe("legal-verify-middleware", () => {
     );
     expect((skipped.data as { verify?: unknown }).verify).toBeUndefined();
 
+    const fastLane = applyLegalVerifyToResult(
+      "draft_document",
+      {
+        ok: true,
+        data: {
+          deliverableType: "contract.review",
+          citationIntegrity: { checked: true, ok: true, missingSourceIds: [] },
+          sections: [{ heading: "依据", bodyPreview: "见《民法典》第577条" }],
+        },
+      },
+      { toolNameCallCounts: {}, contractFastLaneTurn: true },
+    );
+    expect((fastLane.data as { verify?: unknown }).verify).toBeUndefined();
+
     const tried = applyLegalVerifyToResult(
       "draft_document",
       {
@@ -242,6 +302,32 @@ describe("legal-verify-middleware", () => {
     expect(
       (tried.data as { verify?: { statuteTrialMissing?: boolean } }).verify?.statuteTrialMissing,
     ).toBeUndefined();
+  });
+
+  it("flips empty surgical redline and missing craft_check into tool errors", () => {
+    const empty = applyLegalVerifyToResult(
+      "apply_surgical_edits",
+      { ok: true, data: { redlinePending: 0, craftCheck: null } },
+      { args: { edits: [{ find: "甲", replace: "甲" }] } },
+    );
+    expect(empty.ok).toBe(false);
+    expect(empty.error).toContain("同一回合验收未过");
+    expect(empty.error).toContain("apply_surgical_edits");
+
+    const noCraft = applyLegalVerifyToResult(
+      "apply_surgical_edits",
+      { ok: true, data: { redlinePending: 2, craftCheck: null } },
+      { args: { edits: [{ find: "甲", replace: "乙" }] } },
+    );
+    expect(noCraft.ok).toBe(false);
+    expect(noCraft.error).toContain("craft_check");
+
+    const green = applyLegalVerifyToResult(
+      "apply_surgical_edits",
+      { ok: true, data: { redlinePending: 2, craftCheck: { deferred: [] } } },
+      { args: { edits: [{ find: "甲", replace: "乙" }], craft_check: { deferred: [] } } },
+    );
+    expect(green.ok).toBe(true);
   });
 
   it("is a no-op for clean drafts and aborted tools", () => {
@@ -271,5 +357,30 @@ describe("legal-verify-middleware", () => {
       "utf8",
     );
     expect(resolveOutboundAllowedDomains(ws)).toEqual(["acme.cn"]);
+  });
+
+  it("blocks prepare_outbound_mail when the linked contract draft has empty redline", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-verify-ob-"));
+    dirs.push(ws);
+    persistDraft(ws, {
+      taskId: "t-empty",
+      title: "合作协议",
+      output: "docx",
+      templateId: "word/contract-default",
+      deliverableType: "contract.review",
+      summary: "s",
+      sections: [{ heading: "第一条", body: "原文。" }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: new Date().toISOString(),
+      contractEdit: { baselineRelativePath: "a.docx", mode: "surgical" },
+    });
+    const blocked = precheckOutboundSameTurnVerify({
+      toolName: "prepare_outbound_mail",
+      args: { draft_task_id: "t-empty", to: "a@b.cn", subject: "稿", body: "请查收" },
+      workspaceDir: ws,
+    });
+    expect(blocked?.ok).toBe(false);
+    expect(blocked?.error).toContain("同一回合验收未过");
   });
 });

@@ -29,6 +29,7 @@ import { createLawMindAgent } from "../../../src/lawmind/agent/agent-factory.js"
 import { resumePausedTurn } from "../../../src/lawmind/agent/runtime-resume.js";
 import { requestTurnAbort } from "../../../src/lawmind/agent/turn-abort.js";
 import type { AgentMessage } from "../../../src/lawmind/agent/types.js";
+import { isLawyerVisibleChatMessage } from "../../../src/lawmind/agent/types.js";
 import { loadTranscriptForResume, repairTranscriptChain } from "../../../src/lawmind/adapters/session-transcript/index.js";
 import { resolveCapabilityEnvelope } from "../../../src/lawmind/models/capability-envelope.js";
 import { resolveAgentModelById } from "../../../src/lawmind/models/resolve.js";
@@ -84,11 +85,11 @@ function dialogueDroppedByCompact(
 ): AgentMessage[] {
   const kept = new Set(
     after
-      .filter((m) => m.role === "user" || m.role === "assistant")
+      .filter((m) => isLawyerVisibleChatMessage(m))
       .map(dialogueKey),
   );
   return before.filter((m) => {
-    if (m.role !== "user" && m.role !== "assistant") {
+    if (!isLawyerVisibleChatMessage(m)) {
       return false;
     }
     return !kept.has(dialogueKey(m));

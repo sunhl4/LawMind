@@ -52,6 +52,7 @@ export type UseLawmindBackgroundWatchInput = {
       activity?: ChatActivityBlock[];
       activityActive?: boolean;
       executionState?: ChatMsg["executionState"];
+      turnPlan?: ChatMsg["turnPlan"];
     },
   ) => Promise<void>;
   setMainView: (v: LawmindMainView) => void;
@@ -155,6 +156,7 @@ export function useLawmindBackgroundWatch(input: UseLawmindBackgroundWatchInput)
       const BACKGROUND_WATCH_TIMEOUT_MS = 10 * 60 * 1000;
       const watchStartedAt = Date.now();
       let latestTrace: ChatLiveTrace | undefined;
+      let latestPlan: ChatMsg["turnPlan"] | undefined;
       let watchFinished = false;
       let pollInFlight = false;
 
@@ -193,6 +195,7 @@ export function useLawmindBackgroundWatch(input: UseLawmindBackgroundWatchInput)
               text?: string;
               liveTrace?: ChatLiveTrace;
               executionState?: ChatMsg["executionState"];
+              turnPlan?: ChatMsg["turnPlan"];
             }>;
           };
           let msgs: ChatMsg[] = [];
@@ -204,6 +207,7 @@ export function useLawmindBackgroundWatch(input: UseLawmindBackgroundWatchInput)
                 text: typeof m.text === "string" ? m.text : "",
                 ...(m.liveTrace ? { liveTrace: m.liveTrace } : {}),
                 ...(m.executionState ? { executionState: m.executionState } : {}),
+                ...(m.turnPlan ? { turnPlan: m.turnPlan } : {}),
               }));
           }
           const last = msgs[msgs.length - 1];
@@ -240,6 +244,9 @@ export function useLawmindBackgroundWatch(input: UseLawmindBackgroundWatchInput)
           }
           const trace = liveTraceFromServerProgress(live.progress);
           latestTrace = trace;
+          if (live.progress.turnPlan) {
+            latestPlan = live.progress.turnPlan;
+          }
           const activity = activityFromLiveTrace(trace);
           setMessagesByAssistant((prev) => {
             if (sessionByAssistantRef.current[assistantId] !== sessionId) {
@@ -296,6 +303,9 @@ export function useLawmindBackgroundWatch(input: UseLawmindBackgroundWatchInput)
           }
           const trace = liveTraceFromServerProgress(progress);
           latestTrace = trace;
+          if (progress.turnPlan) {
+            latestPlan = progress.turnPlan;
+          }
           setMessagesByAssistant((prev) => {
             if (sessionByAssistantRef.current[assistantId] !== sessionId) {
               return prev;
@@ -310,9 +320,11 @@ export function useLawmindBackgroundWatch(input: UseLawmindBackgroundWatchInput)
               return prev;
             }
             const activity = activityFromLiveTrace(trace);
+            const nextPlan = progress.turnPlan ?? row.turnPlan;
             if (
               liveTracesEqual(row.liveTrace, trace) &&
-              activityBlocksEqual(row.activity ?? [], activity)
+              activityBlocksEqual(row.activity ?? [], activity) &&
+              row.turnPlan === nextPlan
             ) {
               return prev;
             }
@@ -322,6 +334,7 @@ export function useLawmindBackgroundWatch(input: UseLawmindBackgroundWatchInput)
               liveTrace: trace,
               activity,
               activityActive: trace.active,
+              ...(nextPlan ? { turnPlan: nextPlan } : {}),
             };
             return { ...prev, [assistantId]: nextList };
           });
@@ -348,6 +361,7 @@ export function useLawmindBackgroundWatch(input: UseLawmindBackgroundWatchInput)
             liveTrace: traceSnapshot,
             activity: activitySnapshot,
             activityActive: false,
+            ...(latestPlan ? { turnPlan: latestPlan } : {}),
           });
           if (watchKind === "revision" && !failed && opts.taskId?.trim()) {
             const taskId = opts.taskId.trim();

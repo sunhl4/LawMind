@@ -134,6 +134,57 @@ describe("lawmind-server-route-models", () => {
     }
   });
 
+  it("POST /api/models/custom reports configured only when an inline key is present", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-models-custom-"));
+    lawMindRoot = path.join(root, "LawMind");
+    workspaceDir = path.join(lawMindRoot, "workspace");
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    const ctxBase = {
+      workspaceDir,
+      envFile: path.join(lawMindRoot, ".env.lawmind"),
+      userEnvPath: path.join(lawMindRoot, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+
+    const keyless = createResponseCapture();
+    const handledKeyless = await handleModelsRoutes({
+      ctx: ctxBase,
+      pathname: "/api/models/custom",
+      req: jsonPostReq({
+        label: "My GPT",
+        baseUrl: "https://api.openai.com/v1",
+        model: "gpt-4o",
+        apiKey: "",
+        keyStorage: "keychain",
+      }),
+      res: keyless.res,
+      url: new URL("http://127.0.0.1/api/models/custom"),
+      c: {},
+    });
+    expect(handledKeyless).toBe(true);
+    expect(keyless.status).toBe(201);
+    const keylessBody = keyless.json() as { model?: { configured?: boolean } };
+    expect(keylessBody.model?.configured).toBe(false);
+
+    const withKey = createResponseCapture();
+    await handleModelsRoutes({
+      ctx: ctxBase,
+      pathname: "/api/models/custom",
+      req: jsonPostReq({
+        label: "My GPT 2",
+        baseUrl: "https://api.openai.com/v1",
+        model: "gpt-4o",
+        apiKey: "sk-inline",
+      }),
+      res: withKey.res,
+      url: new URL("http://127.0.0.1/api/models/custom"),
+      c: {},
+    });
+    expect(withKey.status).toBe(201);
+    const withKeyBody = withKey.json() as { model?: { configured?: boolean } };
+    expect(withKeyBody.model?.configured).toBe(true);
+  });
+
   it("PATCH /api/models/draft-with-model toggles preference", async () => {
     process.env.LAWMIND_QWEN_API_KEY = "sk-test";
     const ctxBase = {
@@ -168,6 +219,44 @@ describe("lawmind-server-route-models", () => {
     });
     const payload = getCap.json() as { draftWithModelEnabled?: boolean };
     expect(payload.draftWithModelEnabled).toBe(true);
+  });
+
+  it("PATCH /api/models/retrieval stores a configured catalog id", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-models-retr-"));
+    lawMindRoot = path.join(root, "LawMind");
+    workspaceDir = path.join(lawMindRoot, "workspace");
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    process.env.LAWMIND_QWEN_API_KEY = "sk-x";
+    const ctxBase = {
+      workspaceDir,
+      envFile: path.join(lawMindRoot, ".env.lawmind"),
+      userEnvPath: path.join(lawMindRoot, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+
+    const patchCap = createResponseCapture();
+    const handled = await handleModelsRoutes({
+      ctx: ctxBase,
+      pathname: "/api/models/retrieval",
+      req: jsonPatchReq({ modelId: "builtin:qwen-plus" }),
+      res: patchCap.res,
+      url: new URL("http://127.0.0.1/api/models/retrieval"),
+      c: {},
+    });
+    expect(handled).toBe(true);
+    expect(patchCap.status).toBe(200);
+    expect(patchCap.json().retrievalModelId).toBe("builtin:qwen-plus");
+
+    const getCap = createResponseCapture();
+    await handleModelsRoutes({
+      ctx: ctxBase,
+      pathname: "/api/models",
+      req: { method: "GET" } as http.IncomingMessage,
+      res: getCap.res,
+      url: new URL("http://127.0.0.1/api/models"),
+      c: {},
+    });
+    expect(getCap.json().retrievalModelId).toBe("builtin:qwen-plus");
   });
 });
 

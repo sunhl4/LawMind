@@ -11,6 +11,7 @@ const WORKFLOW_DELIVERABLE_LABELS: Record<string, string> = {
   "contract.general": "通用商务合同",
   "labor.calc": "劳动补偿计算",
   "period.calc": "程序期限计算",
+  "analysis.table": "核算对照",
   "ops.invoice": "发票整理",
   "ip.dispute": "知产争议",
   "deal.ma": "并购尽调",

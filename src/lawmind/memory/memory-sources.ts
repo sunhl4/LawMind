@@ -6,6 +6,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { assistantProfilePath } from "../assistants/profile-md.js";
 import { resolveLawMindRoot } from "../assistants/store.js";
+import type { MemorySourceLayer } from "./memory-source-types.js";
+
+export type { MemorySourceLayer } from "./memory-source-types.js";
 
 async function readLen(filePath: string): Promise<{ exists: boolean; charCount: number }> {
   try {
@@ -106,26 +109,6 @@ async function applyEngineClientProfileHighlights(
 
   return marked;
 }
-
-export type MemorySourceLayer = {
-  /** 稳定 ID，供 UI */
-  id: string;
-  /** 展示名 */
-  label: string;
-  /** 相对 workspace 根的路径 */
-  relativePath: string;
-  exists: boolean;
-  charCount: number;
-  /** 是否进入当前 Agent 主对话 system prompt（与架构文档一致：MEMORY 等为检索侧） */
-  inAgentSystemPrompt: boolean;
-  /** 补充说明 */
-  hint?: string;
-  /**
-   * 与 `loadMemoryContext` 选中的**客户画像**源一致时置 true（同一份内容进入主对话提示与 RAG/检索管线）。
-   * 非客户行通常为 false/未设置。
-   */
-  activeForEngine?: boolean;
-};
 
 /** 与 `loadMemoryContext` 的客户画像字段同构，供标记「本回合生效」用 */
 export type EngineClientMemorySnapshot = {

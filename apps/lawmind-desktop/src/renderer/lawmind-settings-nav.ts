@@ -11,6 +11,7 @@ export type LawmindSettingsSectionId =
   | "assistants"
   | "models"
   | "workspace"
+  | "host"
   | "tools"
   | "roles"
   | "templates"
@@ -44,8 +45,9 @@ export type SettingsNavGroup = {
 };
 
 /**
- * Commercial IA: essentials first, knowledge second, professional controls collapsed for Solo.
- * Labels stay lawyer-facing; no toy/onboarding tone.
+ * Lawyer-facing settings. Role / skills / edition admin stay deep-linkable
+ * (see SETTINGS_NAV_RETIRED_ITEMS) but are not in the sidebar.
+ * 助手编制 is in 办案（Day-1 落在「更多设置」），便于新建助手。
  */
 export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
   {
@@ -56,13 +58,19 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
         id: "models",
         label: "模型与连接",
         description: "API、默认模型与检索通道",
-        keywords: "model api key 检索 retrieval brave 联网 密钥 连接 权威 法宝 法规库 数据源 pkulaw",
+        keywords: "model api key 检索 retrieval brave 联网 密钥 连接 权威 法宝 法规库 数据源 pkulaw 垂类 共用",
       },
       {
         id: "workspace",
         label: "工作区",
-        description: "案件数据目录与本机材料",
-        keywords: "workspace 工作区 项目 project 目录 扫描 历史材料",
+        description: "案件数据目录、材料夹与办案标准",
+        keywords: "workspace 工作区 项目 project 目录 扫描 历史材料 材料夹 文件夹 标准 口径 playbook",
+      },
+      {
+        id: "host",
+        label: "本机能力",
+        description: "本机查找、本机命令与案件隔离",
+        keywords: "本机 查找 挂载 文件夹 host 命令 磁盘 索引",
       },
       {
         id: "appearance",
@@ -73,14 +81,44 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
     ],
   },
   {
-    id: "knowledge",
-    label: "知识",
+    id: "practice",
+    label: "办案",
     items: [
+      {
+        id: "automations",
+        label: "自动办件",
+        description: "定时任务与邮箱配置",
+        keywords: "automations 自动办件 定时 邮件 续签 周报 交办任务 邮箱 落款",
+      },
       {
         id: "templates",
         label: "文书模板",
         description: "Word / PPT 交付模板",
         keywords: "templates 模板 docx word ppt pptx 文稿",
+      },
+      {
+        id: "memory",
+        label: "记忆库",
+        description: "办案沉淀与偏好学习",
+        keywords: "memory 记忆 采纳 adoption 建议 沉淀 习惯 进化 学习",
+      },
+      {
+        id: "assistants",
+        label: "助手编制",
+        description: "新建、切换与编辑助手",
+        keywords: "assistant 智能体 岗位 persona 助手 编制 新建助手",
+      },
+    ],
+  },
+  {
+    id: "about",
+    label: "关于",
+    items: [
+      {
+        id: "disclaimer",
+        label: "免责声明",
+        description: "使用边界与责任",
+        keywords: "disclaimer 免责",
       },
     ],
   },
@@ -96,58 +134,10 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
           "doctor 体检 健康 用量 索引 memory truth 真相源 overview 概览 内测 团队成长 基线 一次过 开始使用 北极星 无干预 逃逸",
       },
       {
-        id: "memory",
-        label: "记忆库",
-        description: "办案沉淀与偏好学习",
-        keywords: "memory 记忆 采纳 adoption 建议 沉淀 习惯 进化 学习",
-      },
-      {
-        id: "skills",
-        label: "技能库",
-        description: "本地技能与中国法律包",
-        keywords: "skills 技能 skill 签名 中国包 cn pack",
-      },
-      {
-        id: "assistants",
-        label: "助手编制",
-        description: "岗位、领域与助手档案",
-        keywords: "assistant 智能体 岗位 persona 助手 编制",
-      },
-      {
-        id: "collaboration",
-        label: "团队工作流",
-        description: "在办入口与委派状态",
-        keywords: "collaboration 协作 在办 委派 delegation",
-      },
-      {
-        id: "automations",
-        label: "自动办件",
-        description: "定时任务与邮箱配置",
-        keywords: "automations 自动办件 定时 邮件 续签 周报 交办任务 邮箱 落款",
-      },
-      {
         id: "tools",
-        label: "安全与工具",
-        description: "高安全开关与工具策略",
-        keywords: "tools mcp 工具 沙箱 policy 安全",
-      },
-      {
-        id: "roles",
-        label: "角色说明",
-        description: "内置岗位职责",
-        keywords: "roles 角色 助手 岗位",
-      },
-    ],
-  },
-  {
-    id: "about",
-    label: "关于",
-    items: [
-      {
-        id: "edition",
-        label: "版本与授权",
-        description: "产品版本与能力边界",
-        keywords: "edition 版本 firm solo 授权",
+        label: "安全",
+        description: "高安全开关与联网策略",
+        keywords: "tools mcp 工具 沙箱 policy 安全 高安全",
       },
       {
         id: "app-update",
@@ -155,17 +145,39 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
         description: "检查桌面版更新",
         keywords: "update 更新 安装包",
       },
-      {
-        id: "disclaimer",
-        label: "免责声明",
-        description: "使用边界与责任",
-        keywords: "disclaimer 免责",
-      },
     ],
   },
 ] as const;
 
 export const SETTINGS_NAV_FLAT: SettingsNavItem[] = SETTINGS_NAV_GROUPS.flatMap((g) => [...g.items]);
+
+/** Retired from the sidebar; still routable so old lastSection / deep links do not crash. */
+export const SETTINGS_NAV_RETIRED_ITEMS: readonly SettingsNavItem[] = [
+  {
+    id: "roles",
+    label: "角色说明",
+    description: "内置岗位已随默认助手生效",
+    keywords: "roles 角色 助手 岗位",
+  },
+  {
+    id: "collaboration",
+    label: "团队工作流",
+    description: "日常入口是顶栏「在办」",
+    keywords: "collaboration 协作 在办 委派 delegation",
+  },
+  {
+    id: "skills",
+    label: "技能库",
+    description: "开箱技能自动启用，不必在此开关",
+    keywords: "skills 技能 skill 签名 中国包 cn pack",
+  },
+  {
+    id: "edition",
+    label: "版本与授权",
+    description: "版本号见设置侧栏底部",
+    keywords: "edition 版本 firm solo 授权",
+  },
+];
 
 export function filterSettingsNavGroups(query: string): SettingsNavGroup[] {
   const q = query.trim().toLowerCase();
@@ -183,17 +195,11 @@ export function filterSettingsNavGroups(query: string): SettingsNavGroup[] {
   })).filter((group) => group.items.length > 0);
 }
 
-/** Solo: hide roles + collaboration from the sidebar (deep links still work). */
-const SOLO_HIDDEN_SECTION_IDS = new Set<LawmindSettingsSectionId>([
-  "roles",
-  "collaboration",
-  "assistants",
-]);
-
-/** Solo Day-1 sidebar: connect, folder, look, legal. Everything else is「更多设置」. */
-const SOLO_DAY1_SECTION_IDS = new Set<LawmindSettingsSectionId>([
+/** Day-1 sidebar: connect, folders, host, look, legal. Everything else is「更多设置」. */
+const DAY1_SECTION_IDS = new Set<LawmindSettingsSectionId>([
   "models",
   "workspace",
+  "host",
   "appearance",
   "disclaimer",
 ]);
@@ -202,10 +208,10 @@ function flattenNavItems(groups: SettingsNavGroup[]): SettingsNavItem[] {
   return groups.flatMap((group) => [...group.items]);
 }
 
-function soloDay1AndMoreGroups(groups: SettingsNavGroup[]): SettingsNavGroup[] {
+function day1AndMoreGroups(groups: SettingsNavGroup[]): SettingsNavGroup[] {
   const items = flattenNavItems(groups);
-  const day1 = items.filter((item) => SOLO_DAY1_SECTION_IDS.has(item.id));
-  const more = items.filter((item) => !SOLO_DAY1_SECTION_IDS.has(item.id));
+  const day1 = items.filter((item) => DAY1_SECTION_IDS.has(item.id));
+  const more = items.filter((item) => !DAY1_SECTION_IDS.has(item.id));
   const out: SettingsNavGroup[] = [];
   const workspaceItems = day1.filter((item) => item.id !== "disclaimer");
   const aboutItems = day1.filter((item) => item.id === "disclaimer");
@@ -222,23 +228,14 @@ function soloDay1AndMoreGroups(groups: SettingsNavGroup[]): SettingsNavGroup[] {
 }
 
 export function settingsNavGroupsForEdition(
-  edition: string | undefined,
+  _edition: string | undefined,
   query = "",
 ): SettingsNavGroup[] {
   const groups = filterSettingsNavGroups(query);
-  if (edition !== "solo") {
+  if (query.trim()) {
     return groups;
   }
-  const soloGroups = groups
-    .map((group) => ({
-      ...group,
-      items: group.items.filter((item) => !SOLO_HIDDEN_SECTION_IDS.has(item.id)),
-    }))
-    .filter((group) => group.items.length > 0);
-  if (query.trim()) {
-    return soloGroups;
-  }
-  return soloDay1AndMoreGroups(soloGroups);
+  return day1AndMoreGroups(groups);
 }
 
 export function firstSettingsNavMatch(
@@ -248,10 +245,8 @@ export function firstSettingsNavMatch(
   return settingsNavGroupsForEdition(edition, query)[0]?.items[0]?.id;
 }
 
-export function settingsNavItem(
-  id: LawmindSettingsSectionId,
-): SettingsNavItem | undefined {
-  return SETTINGS_NAV_FLAT.find((item) => item.id === id);
+export function settingsNavItem(id: LawmindSettingsSectionId): SettingsNavItem | undefined {
+  return SETTINGS_NAV_FLAT.find((item) => item.id === id) ?? SETTINGS_NAV_RETIRED_ITEMS.find((item) => item.id === id);
 }
 
 export function lawmindSettingsSectionFromDomId(domId: string): LawmindSettingsSectionId | undefined {
@@ -262,7 +257,7 @@ export function lawmindSettingsSectionFromDomId(domId: string): LawmindSettingsS
   if (suffix === "review-prefs") {
     return "review-prefs";
   }
-  if (SETTINGS_NAV_FLAT.some((item) => item.id === suffix)) {
+  if (SETTINGS_NAV_FLAT.some((item) => item.id === suffix) || SETTINGS_NAV_RETIRED_ITEMS.some((item) => item.id === suffix)) {
     return suffix as LawmindSettingsSectionId;
   }
   return undefined;
@@ -271,7 +266,18 @@ export function lawmindSettingsSectionFromDomId(domId: string): LawmindSettingsS
 /** Sections still routable but removed from the sidebar (deep-link / legacy lastSection). */
 export const SETTINGS_NAV_LEGACY_SECTION_IDS: readonly LawmindSettingsSectionId[] = [
   "review-prefs",
+  "roles",
+  "collaboration",
+  "skills",
+  "edition",
 ];
+
+const RETIRED_LAST_SECTION_IDS = new Set<LawmindSettingsSectionId>([
+  "roles",
+  "collaboration",
+  "skills",
+  "edition",
+]);
 
 export function isKnownSettingsSectionId(id: string): id is LawmindSettingsSectionId {
   return (
@@ -286,9 +292,11 @@ export function readStoredSettingsSection(): LawmindSettingsSectionId {
   try {
     const raw = localStorage.getItem(SETTINGS_LAST_SECTION_KEY);
     if (raw && isKnownSettingsSectionId(raw)) {
-      // Legacy leaf: open appearance (auto-export lives there now).
       if (raw === "review-prefs") {
         return "appearance";
+      }
+      if (RETIRED_LAST_SECTION_IDS.has(raw)) {
+        return LAWMIND_SETTINGS_DEFAULT_SECTION;
       }
       return raw;
     }

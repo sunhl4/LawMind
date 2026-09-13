@@ -8,6 +8,7 @@ import {
   resolveDraftReasoningLlmConfig,
   setDefaultModelId,
   setWorkerModelId,
+  setRetrievalModelId,
   readModelsStore,
   setDraftWithModelEnabled,
 } from "../../../src/lawmind/models/index.js";
@@ -43,7 +44,7 @@ export async function handleModelsRoutes({
 
   if (pathname === "/api/models" && req.method === "GET") {
     const catalog = buildModelCatalog(lawMindRoot);
-    const workerModelId = readModelsStore(lawMindRoot).workerModelId ?? null;
+    const store = readModelsStore(lawMindRoot);
     sendJson(
       res,
       200,
@@ -51,7 +52,8 @@ export async function handleModelsRoutes({
         ok: true,
         models: catalog.models,
         defaultModelId: catalog.defaultModelId,
-        workerModelId,
+        workerModelId: store.workerModelId ?? null,
+        retrievalModelId: store.retrievalModelId ?? null,
         providers: catalog.providers,
         platformProviders: catalog.platformProviders,
         platformMode: catalog.platformMode,
@@ -183,6 +185,35 @@ export async function handleModelsRoutes({
     return true;
   }
 
+  if (pathname === "/api/models/retrieval" && req.method === "PATCH") {
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, modelsWorkerPatchSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJsonError(res, 400, "invalid_body", "检索模型 id 无效。", c);
+        return true;
+      }
+      throw err;
+    }
+    const modelId = body.modelId?.trim() || undefined;
+    if (modelId) {
+      const catalog = buildModelCatalog(lawMindRoot);
+      const row = catalog.models.find((m) => m.id === modelId);
+      if (!row) {
+        sendJsonError(res, 404, "unknown_model", "未找到该法律检索模型。", c);
+        return true;
+      }
+      if (!row.configured) {
+        sendJsonError(res, 400, "model_not_configured", "该模型尚未配置，无法设为法律检索模型。", c);
+        return true;
+      }
+    }
+    setRetrievalModelId(lawMindRoot, modelId);
+    sendJson(res, 200, { ok: true, retrievalModelId: modelId ?? null }, c);
+    return true;
+  }
+
   if (pathname === "/api/models/draft-with-model" && req.method === "PATCH") {
     let body;
     try {
@@ -261,7 +292,7 @@ export async function handleModelsRoutes({
             label: row.label,
             model: row.model,
             baseUrl: row.baseUrl,
-            configured: true,
+            configured: Boolean(rawApiKey.trim()),
             group: "自定义模型",
             provider: "custom",
           },

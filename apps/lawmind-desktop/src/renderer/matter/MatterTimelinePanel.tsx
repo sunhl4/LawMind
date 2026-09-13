@@ -1,5 +1,6 @@
 import type { AuditEventRow } from "./matter-interaction";
 import { auditKindLabel } from "./matter-interaction";
+import { formatShortDateTime } from "./matter-display-labels.js";
 import type { SessionTimelineEntry } from "./useMatterSessionTimeline";
 
 type Props = {
@@ -24,7 +25,7 @@ export function MatterTimelinePanel(props: Props) {
           <ul className="lm-bullet-list">
             {sessionTimeline.map((e) => (
               <li key={e.id} className={e.severity === "warn" ? "lm-timeline-warn" : undefined}>
-                <span className="lm-meta">{e.timestamp}</span> {e.label}
+                <span className="lm-meta">{formatShortDateTime(e.timestamp)}</span> {e.label}
               </li>
             ))}
           </ul>
@@ -35,7 +36,7 @@ export function MatterTimelinePanel(props: Props) {
         {auditEvents.map((e, i) => (
           <li key={i}>
             <span className="lm-audit-kind">{auditKindLabel(e.kind)}</span>
-            <span className="lm-audit-time">{e.timestamp}</span>
+            <span className="lm-audit-time">{formatShortDateTime(e.timestamp)}</span>
             <div className="lm-audit-detail">{e.detail}</div>
           </li>
         ))}

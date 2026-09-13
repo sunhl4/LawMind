@@ -68,6 +68,7 @@ const RESERVED_BUILTIN_TYPES = new Set<string>([
   "memo.research",
   "labor.calc",
   "period.calc",
+  "analysis.table",
   "matter.timeline",
   "matter.exhibit_list",
   "meeting.minutes",

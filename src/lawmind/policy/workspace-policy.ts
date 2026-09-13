@@ -76,8 +76,8 @@ export type LawMindWorkspacePolicy = {
   /** High-security desktop preset: disable web + auto memory adopt hints. */
   highSecurityMode?: boolean;
   /**
-   * P2：允许 run_analysis 受控脚本。默认 false。
-   * 高安全模式下强制关闭。
+   * 允许 run_analysis 运行预置/律师确认的脚本文件。默认 false。
+   * 日常后台核算走 run_compute，不依赖本开关。高安全模式下强制关闭。
    */
   allowAnalysisScripts?: boolean;
   /**
@@ -168,6 +168,8 @@ export type LawMindWorkspacePolicy = {
     minSamples?: number;
     maxLintEscapeRate?: number;
   };
+  /** 本机能力（Host Access）。缺省见 resolveHostAccessPolicy。 */
+  hostAccess?: import("../host-access/types.js").HostAccessPolicyConfig;
 };
 
 export function resolveAgentMaxHistoryMessages(
@@ -380,6 +382,10 @@ export function mergeWorkspacePolicyFile(
     ...existing,
     ...patch,
     schemaVersion: existing.schemaVersion >= 1 ? existing.schemaVersion : 1,
+    hostAccess:
+      patch.hostAccess || existing.hostAccess
+        ? { ...existing.hostAccess, ...patch.hostAccess }
+        : existing.hostAccess,
   };
   try {
     fs.mkdirSync(path.dirname(abs), { recursive: true });

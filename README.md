@@ -6,10 +6,32 @@ LawMind is a **local-first lawyer workbench**: Electron desktop (`apps/lawmind-d
 
 ## Quick start
 
+Clone from GitHub, then install **on the same OS/arch** you will run. That yields the same LawMind desktop as developing on this machine (`pnpm lawmind:desktop` → Electron window). API keys and matter files stay local; they are not in the repo.
+
+**Prerequisites:** [Node.js](https://nodejs.org/) **22.16+** (see `.nvmrc`) and **pnpm 10.23.0**.
+
 ```bash
+git clone https://github.com/sunhl4/LawMind.git
+cd LawMind
+corepack enable
+corepack prepare pnpm@10.23.0 --activate
 pnpm install
 pnpm lawmind:desktop
 ```
+
+Open the **LawMind** window that Electron launches. Do **not** use a browser tab or `http://127.0.0.1:5174` as the product UI.
+
+`pnpm install` downloads OfficeCLI for the current OS (Word tracked changes / 改稿, Apache-2.0) and stamps the dev Electron app name/icon. CI skips that download; `pnpm lawmind:desktop:dist` vendors Node + OfficeCLI into the installer. If pnpm v10 skipped Electron’s `postinstall`, run `pnpm approve-builds` (allow `electron`), then `pnpm install` again.
+
+First-run: complete the in-app model wizard, or copy `.env.lawmind.example` into the LawMind user-data `.env.lawmind` (never commit real keys).
+
+**Packaged client** (same UI as `LawMind.app` / installer, with bundled Node):
+
+```bash
+pnpm lawmind:desktop:dist
+```
+
+GitHub Release installers are produced by workflow **LawMind desktop build** (tag `lawmind-desktop-v*` or _Run workflow_). The published `v0.1.0` zip is older than this tree until a new tag is cut.
 
 ## Common commands
 
@@ -33,4 +55,4 @@ The root package name is `lawmind`. For dev, the desktop binary accepts `LAWMIND
 
 ## License
 
-MIT — see `LICENSE`.
+MIT — see `LICENSE`. Bundled OfficeCLI is Apache-2.0; notices live in `third_party/officecli/`.

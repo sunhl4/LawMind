@@ -11,6 +11,9 @@ import {
   SERVER_SUPERVISION_DEFAULTS,
   shouldAttemptSupervisedRestart,
 } from "./server-supervision.mjs";
+import { LAWMIND_PRODUCT_NAME } from "./brand.mjs";
+import { hostAccessFilePath, rootsFromStore } from "./host-access-store.mjs";
+import { applyOfficeCliEnv, resolveOfficeCliExecutable } from "./officecli-runtime.mjs";
 
 const __electronDir = path.dirname(fileURLToPath(import.meta.url));
 const requireCjs = createRequire(import.meta.url);
@@ -76,8 +79,19 @@ export async function collectSecretsForServerEnv(parsedEnvVars) {
   try {
     const wizardKey = await keyVault.readSecret(KEYCHAIN_ACCOUNTS.wizardApiKey);
     if (wizardKey) {
+      const wizardUrl =
+        parsedEnvVars.LAWMIND_AGENT_BASE_URL || parsedEnvVars.LAWMIND_QWEN_BASE_URL || "";
+      const provider = inferWizardProviderId(wizardUrl);
       if (!parsedEnvVars.LAWMIND_AGENT_API_KEY) {out.LAWMIND_AGENT_API_KEY = wizardKey;}
-      if (!parsedEnvVars.LAWMIND_QWEN_API_KEY) {out.LAWMIND_QWEN_API_KEY = wizardKey;}
+      if (provider === "dashscope" && !parsedEnvVars.LAWMIND_QWEN_API_KEY) {
+        out.LAWMIND_QWEN_API_KEY = wizardKey;
+      }
+      if (provider === "deepseek" && !parsedEnvVars.LAWMIND_DEEPSEEK_API_KEY) {
+        out.LAWMIND_DEEPSEEK_API_KEY = wizardKey;
+      }
+      if (provider === "openai" && !parsedEnvVars.LAWMIND_PROVIDER_OPENAI_API_KEY) {
+        out.LAWMIND_PROVIDER_OPENAI_API_KEY = wizardKey;
+      }
     }
     const webSearchKey = await keyVault.readSecret(KEYCHAIN_ACCOUNTS.webSearchApiKey);
     if (webSearchKey) {
@@ -168,7 +182,7 @@ function scheduleSupervisedRestart(reason) {
     void dialog
       .showMessageBox({
         type: "error",
-        title: "LawMind",
+        title: LAWMIND_PRODUCT_NAME,
         message: "LawMind 本地服务多次崩溃，已停止自动重启。",
         detail: "请在设置页检查环境后手动重启本地服务；若持续崩溃请查看日志定位原因。",
       })
@@ -257,15 +271,41 @@ export function parseEnvAssignmentsTopLevel(content) {
   return out;
 }
 
+function normalizeWizardBaseUrl(url) {
+  return String(url || "").trim().replace(/\/+$/, "").replace(/\/v1$/i, "").toLowerCase();
+}
+
+const WIZARD_PROVIDER_BASES = {
+  deepseek: "https://api.deepseek.com/v1",
+  dashscope: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  openai: "https://api.openai.com/v1",
+  moonshot: "https://api.moonshot.cn/v1",
+  zhipu: "https://open.bigmodel.cn/api/paas/v4",
+};
+
+/** Empty URL follows the product default (DeepSeek). */
+export function inferWizardProviderId(baseUrl) {
+  const n = normalizeWizardBaseUrl(baseUrl || WIZARD_PROVIDER_BASES.deepseek);
+  for (const [id, defUrl] of Object.entries(WIZARD_PROVIDER_BASES)) {
+    if (normalizeWizardBaseUrl(defUrl) === n) {
+      return id;
+    }
+  }
+  return null;
+}
+
 /** Map wizard model name → desktop default model id (mirrors src/lawmind/models/catalog). */
 export function defaultModelIdForWizardModel(modelName) {
-  const norm = String(modelName || "qwen-plus")
+  const norm = String(modelName || "deepseek-flash")
     .trim()
     .toLowerCase();
   if (!norm) {
     return "env:current";
   }
   const builtins = [
+    ["deepseek-flash", "builtin:deepseek-flash"],
+    ["deepseek-v4-flash", "builtin:deepseek-flash"],
+    ["deepseek-v4-flash-vision-exp", "builtin:deepseek-flash"],
     ["qwen-plus", "builtin:qwen-plus"],
     ["qwen-turbo", "builtin:qwen-turbo"],
     ["qwen-max", "builtin:qwen-max"],
@@ -338,6 +378,23 @@ export function resolveNodeExecutable() {
     }
   }
   return "node";
+}
+
+export function resolveOfficeCliForServer(repoRoot = resolveRepoRoot()) {
+  return resolveOfficeCliExecutable({
+    packaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    repoRoot,
+  });
+}
+
+function withOfficeCliServerEnv(baseEnv, repoRoot) {
+  const bin = resolveOfficeCliForServer(repoRoot);
+  const next = applyOfficeCliEnv(baseEnv, bin);
+  if (app.isPackaged) {
+    next.LAWMIND_RESOURCES_PATH = process.resourcesPath;
+  }
+  return next;
 }
 
 function listenEphemeralPort() {
@@ -487,21 +544,25 @@ async function startLocalServerOnce(repoRoot, wsDir, envPath, retrievalMode, pro
   }
 
   return new Promise((resolve, reject) => {
-    const serverEnv = {
-      ...process.env,
-      LAWMIND_WORKSPACE_DIR: wsDir,
-      LAWMIND_DESKTOP_PORT: String(port),
-      LAWMIND_LOCAL_API_TOKEN: apiAuthToken,
-      LAWMIND_ENV_FILE: envPath,
-      LAWMIND_REPO_ROOT: repoRoot,
-      LAWMIND_RETRIEVAL_MODE: mode,
-      LAWMIND_PROJECT_DIR: projectPath || "",
-      ...(auditExternalAnchorUrl
-        ? { LAWMIND_AUDIT_EXTERNAL_ANCHOR_URL: auditExternalAnchorUrl }
-        : {}),
-      ...(app.isPackaged ? { LAWMIND_PACKAGED: "1" } : {}),
-      ...injectedSecrets,
-    };
+    const serverEnv = withOfficeCliServerEnv(
+      {
+        ...process.env,
+        LAWMIND_WORKSPACE_DIR: wsDir,
+        LAWMIND_DESKTOP_PORT: String(port),
+        LAWMIND_LOCAL_API_TOKEN: apiAuthToken,
+        LAWMIND_ENV_FILE: envPath,
+        LAWMIND_REPO_ROOT: repoRoot,
+        LAWMIND_RETRIEVAL_MODE: mode,
+        LAWMIND_PROJECT_DIR: projectPath || "",
+        LAWMIND_HOST_ACCESS_FILE: hostAccessFilePath(lawMindPaths().lawMindRoot),
+        ...(auditExternalAnchorUrl
+          ? { LAWMIND_AUDIT_EXTERNAL_ANCHOR_URL: auditExternalAnchorUrl }
+          : {}),
+        ...(app.isPackaged ? { LAWMIND_PACKAGED: "1" } : {}),
+        ...injectedSecrets,
+      },
+      repoRoot,
+    );
     if (app.isPackaged && serverEnv.LAWMIND_SKIP_API_AUTH === "1") {
       delete serverEnv.LAWMIND_SKIP_API_AUTH;
     }
@@ -610,13 +671,8 @@ export async function postLocalModelTest(modelId) {
 }
 
 export function getAllowedRoots() {
-  const roots = {
-    workspace: workspaceDir,
-  };
-  if (projectDir) {
-    roots.project = projectDir;
-  }
-  return roots;
+  const paths = lawMindPaths();
+  return rootsFromStore(workspaceDir, projectDir, paths.lawMindRoot);
 }
 
 export function setProjectDir(next) {
@@ -647,7 +703,7 @@ export async function restartBackendInternal() {
   if (!bundled && !validateRepoRoot(repoRoot)) {
     await dialog.showMessageBox({
       type: "error",
-      title: "LawMind",
+      title: LAWMIND_PRODUCT_NAME,
       message: "Cannot find LawMind workspace root.",
       detail:
         "Set LAWMIND_REPO_ROOT to the directory containing the LawMind workspace package.json, build the bundled server (pnpm lawmind:bundle:desktop-server), or install a packaged build that includes lawmind-server.",
@@ -767,13 +823,16 @@ export function spawnWorkspaceDaemon() {
     cwd,
     detached: true,
     stdio: "ignore",
-    env: buildDaemonProcessEnv(process.env, {
-      LAWMIND_WORKSPACE_DIR: wsDir,
-      LAWMIND_ENV_FILE: envFilePath || "",
-      LAWMIND_REPO_ROOT: repoRoot,
-      // 与桌面服务器同一把审计链/邮件密钥（keychain 来源）；无缓存时 daemon 降级 key 文件。
-      ...cachedLocalKeyEnv,
-    }),
+    env: withOfficeCliServerEnv(
+      buildDaemonProcessEnv(process.env, {
+        LAWMIND_WORKSPACE_DIR: wsDir,
+        LAWMIND_ENV_FILE: envFilePath || "",
+        LAWMIND_REPO_ROOT: repoRoot,
+        // 与桌面服务器同一把审计链/邮件密钥（keychain 来源）；无缓存时 daemon 降级 key 文件。
+        ...cachedLocalKeyEnv,
+      }),
+      repoRoot,
+    ),
   });
   child.unref();
   return true;

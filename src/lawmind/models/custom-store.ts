@@ -56,6 +56,10 @@ export function readModelsStore(lawMindRoot: string): ModelsStoreFile {
       typeof raw.workerModelId === "string" && raw.workerModelId.trim()
         ? raw.workerModelId.trim()
         : undefined;
+    const retrievalModelId =
+      typeof raw.retrievalModelId === "string" && raw.retrievalModelId.trim()
+        ? raw.retrievalModelId.trim()
+        : undefined;
     return {
       schemaVersion: CURRENT_SCHEMA_VERSION,
       defaultModelId:
@@ -64,6 +68,7 @@ export function readModelsStore(lawMindRoot: string): ModelsStoreFile {
           : undefined,
       draftWithModelEnabled: raw.draftWithModelEnabled === true ? true : undefined,
       ...(workerModelId ? { workerModelId } : {}),
+      ...(retrievalModelId ? { retrievalModelId } : {}),
       customModels: raw.customModels.filter(isValidCustomRecord).map(sanitizeCustomRecord),
       verifications: verifications ?? {},
     };
@@ -139,6 +144,18 @@ export function setWorkerModelId(
   const store = readModelsStore(lawMindRoot);
   const id = modelId?.trim();
   store.workerModelId = id || undefined;
+  writeModelsStore(lawMindRoot, store);
+  return store;
+}
+
+/** Dedicated legal-retrieval model when 检索与对话分开. */
+export function setRetrievalModelId(
+  lawMindRoot: string,
+  modelId: string | undefined,
+): ModelsStoreFile {
+  const store = readModelsStore(lawMindRoot);
+  const id = modelId?.trim();
+  store.retrievalModelId = id || undefined;
   writeModelsStore(lawMindRoot, store);
   return store;
 }

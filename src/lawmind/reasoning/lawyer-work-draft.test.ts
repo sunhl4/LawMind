@@ -23,6 +23,7 @@ describe("keyword-draft lawyer-work scaffolds", () => {
     ["写起诉状", "litigation.complaint"],
     ["计算违法解除的经济补偿", "labor.calc"],
     ["计算上诉期届满日", "period.calc"],
+    ["把这张表汇总成对照表", "analysis.table"],
     ["写一份法律意见书", "memo.opinion"],
     ["出具法律意见", "memo.opinion"],
     ["写一封回函", "letter.reply"],

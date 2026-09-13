@@ -10,6 +10,7 @@ import {
   resolvePackagedMacApp,
   isDeveloperIdSigned,
   listBundledNodeBinaries,
+  listBundledOfficeCliBinaries,
   parseCodesignIdentities,
   pickMacSignIdentity,
   signLawMindMacApp,
@@ -170,13 +171,32 @@ describe("listBundledNodeBinaries", () => {
   });
 });
 
+describe("listBundledOfficeCliBinaries", () => {
+  it("finds unix and windows officecli binaries under officecli", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "lm-app-oc-"));
+    const app = path.join(root, "LawMind.app");
+    const unix = path.join(app, "Contents/Resources/officecli/darwin-arm64/officecli");
+    const win = path.join(app, "Contents/Resources/officecli/win32-x64/officecli.exe");
+    fs.mkdirSync(path.dirname(unix), { recursive: true });
+    fs.mkdirSync(path.dirname(win), { recursive: true });
+    fs.writeFileSync(unix, "");
+    fs.writeFileSync(win, "");
+    fs.writeFileSync(path.join(path.dirname(unix), "NOTICE"), "");
+    expect(listBundledOfficeCliBinaries(app)).toEqual([unix, win].toSorted((a, b) => a.localeCompare(b)));
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+});
+
 describe("signLawMindMacApp", () => {
-  it("signs nested node then the app when using adhoc", () => {
+  it("signs nested node and officecli then the app when using adhoc", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "lm-sign-"));
     const app = path.join(root, "LawMind.app");
     const nodeBin = path.join(app, "Contents/Resources/node-runtime/darwin-arm64/bin/node");
+    const officeBin = path.join(app, "Contents/Resources/officecli/darwin-arm64/officecli");
     fs.mkdirSync(path.dirname(nodeBin), { recursive: true });
+    fs.mkdirSync(path.dirname(officeBin), { recursive: true });
     fs.writeFileSync(nodeBin, "");
+    fs.writeFileSync(officeBin, "");
     const calls: string[][] = [];
     const result = signLawMindMacApp(app, {
       env: {},
@@ -188,16 +208,13 @@ describe("signLawMindMacApp", () => {
       },
     });
     expect(result.picked.kind).toBe("adhoc");
-    expect(calls).toHaveLength(2);
-    expect(calls[0]).toEqual(
-      buildCodesignArgs({
-        identity: "-",
-        entitlements: "/tmp/entitlements.mac.plist",
-        file: nodeBin,
-      }),
+    expect(calls).toHaveLength(3);
+    const lastArgs = calls.slice(0, 2).map((c) => c.at(-1));
+    expect(lastArgs.toSorted((a, b) => String(a).localeCompare(String(b)))).toEqual(
+      [nodeBin, officeBin].toSorted((a, b) => a.localeCompare(b)),
     );
-    expect(calls[1]?.includes("--deep")).toBe(true);
-    expect(calls[1]?.at(-1)).toBe(app);
+    expect(calls[2]?.includes("--deep")).toBe(true);
+    expect(calls[2]?.at(-1)).toBe(app);
     fs.rmSync(root, { recursive: true, force: true });
   });
 

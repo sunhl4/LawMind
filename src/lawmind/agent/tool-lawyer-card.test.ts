@@ -31,6 +31,18 @@ describe("presentLawyerToolCall", () => {
       presentLawyerToolCall("send_email", { to: "a@b.com", subject: "修订稿" }).detail,
     ).toContain("a@b.com");
   });
+
+  it("labels update_plan as a lawyer-facing checklist, not a snake_case tool", () => {
+    const card = presentLawyerToolCall("update_plan", {
+      plan: [
+        { step: "读合同", status: "in_progress" },
+        { step: "标风险", status: "pending" },
+      ],
+    });
+    expect(card.title).toBe("本轮步骤");
+    expect(card.detail).toBe("2 步");
+    expect(JSON.stringify(card)).not.toMatch(/update_plan/);
+  });
 });
 
 describe("presentLawyerToolResult", () => {
@@ -46,6 +58,35 @@ describe("presentLawyerToolResult", () => {
     expect(render.title).toBe("生成 Word 文书");
     expect(render.detail).toContain("函.docx");
     expect(JSON.stringify(render)).not.toMatch(/render_document/);
+  });
+
+  it("hides compute source and shows deliverable summary", () => {
+    const call = presentLawyerToolCall("run_compute", {
+      source: "const t = await readTable('fees.xlsx')",
+      purpose: "汇总费用并出图",
+    });
+    expect(call.title).toBe("核算数据");
+    expect(call.detail).toBe("汇总费用并出图");
+    expect(JSON.stringify(call)).not.toMatch(/readTable|run_compute|source/);
+
+    const result = presentLawyerToolResult(
+      "run_compute",
+      { source: "return 1" },
+      {
+        ok: true,
+        data: { lawyerSummary: "已出核算对照 费用.xlsx · 已出图「费用」 · 已进在办" },
+      },
+    );
+    expect(result.detail).toContain("已出核算对照");
+    expect(JSON.stringify(result)).not.toMatch(/return 1|run_compute/);
+
+    const failed = presentLawyerToolResult(
+      "run_compute",
+      { source: "require('fs')" },
+      { ok: false, error: "脚本含有禁止的接口（fs/fetch/process/require 等）。" },
+    );
+    expect(failed.detail).toBe("核算未完成");
+    expect(JSON.stringify(failed)).not.toMatch(/脚本|require|fs/);
   });
 
   it("clips failure text", () => {

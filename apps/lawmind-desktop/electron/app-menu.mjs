@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { workspaceDir } from "./local-server.mjs";
+import { LAWMIND_PRODUCT_NAME } from "./brand.mjs";
 import { safeOpenExternal } from "./safe-shell-command.mjs";
 
 const __electronDir = path.dirname(fileURLToPath(import.meta.url));
@@ -50,7 +51,7 @@ export async function checkUpdatesWithUi() {
   if (!app.isPackaged) {
     await dialog.showMessageBox({
       type: "info",
-      title: "LawMind",
+      title: LAWMIND_PRODUCT_NAME,
       message: "当前为开发构建，请使用菜单「下载安装包」页面获取正式版本。",
     });
     return;
@@ -58,7 +59,7 @@ export async function checkUpdatesWithUi() {
   if (process.env.LAWMIND_SKIP_AUTO_UPDATE === "1") {
     await dialog.showMessageBox({
       type: "info",
-      title: "LawMind",
+      title: LAWMIND_PRODUCT_NAME,
       message: "已按环境变量关闭应用内更新，请联系管理员获取安装包。",
     });
     return;
@@ -72,21 +73,21 @@ export async function checkUpdatesWithUi() {
     if (r?.isUpdateAvailable) {
       await dialog.showMessageBox({
         type: "info",
-        title: "LawMind",
+        title: LAWMIND_PRODUCT_NAME,
         message: `发现新版本 ${r.updateInfo.version}。将自动下载；下载完成后会通知您，退出应用时可完成安装。`,
       });
       return;
     }
     await dialog.showMessageBox({
       type: "info",
-      title: "LawMind",
+      title: LAWMIND_PRODUCT_NAME,
       message: "当前已是最新版本。",
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     await dialog.showMessageBox({
       type: "warning",
-      title: "LawMind",
+      title: LAWMIND_PRODUCT_NAME,
       message: `检查更新失败：${msg}`,
     });
   }

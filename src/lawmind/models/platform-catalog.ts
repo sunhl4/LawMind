@@ -1,12 +1,26 @@
+import { LAWMIND_DEFAULT_PLATFORM_MODEL_ID, LAWMIND_DEFAULT_UPSTREAM_MODEL } from "./catalog.js";
 import type { BuiltinModelDefinition } from "./types.js";
 
 const DASHSCOPE = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+const DEEPSEEK = "https://api.deepseek.com/v1";
 
 /**
  * Platform-hosted catalog (Cursor-style): selectable in UI without exposing API keys.
  * Keys resolve from LAWMIND_PLATFORM_* env or LAWMIND_PLATFORM_PROXY_URL + access token.
  */
 export const LAWMIND_PLATFORM_MODELS: BuiltinModelDefinition[] = [
+  {
+    id: LAWMIND_DEFAULT_PLATFORM_MODEL_ID,
+    kind: "builtin",
+    label: "DeepSeek Flash",
+    description: "LawMind 平台模型 · DeepSeek-V4.1-Flash · 无需自备 Key",
+    provider: "deepseek",
+    baseUrl: DEEPSEEK,
+    model: LAWMIND_DEFAULT_UPSTREAM_MODEL,
+    group: "平台模型",
+    contextTokens: 1_048_576,
+    tags: ["推荐", "多模态"],
+  },
   {
     id: "platform:qwen-plus",
     kind: "builtin",

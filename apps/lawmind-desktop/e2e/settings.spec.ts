@@ -9,6 +9,8 @@ test.describe("LawMind settings page", () => {
   test("opens settings, navigates via search, shows section, returns", async ({ page }) => {
     await gotoShell(page);
 
+    await expect(page.getByTestId("lm-header-new-assistant")).toBeVisible({ timeout: 60_000 });
+
     await page.getByRole("complementary").getByRole("button", { name: "设置" }).click({ timeout: 60_000 });
     await expect(page.getByRole("region", { name: "设置" })).toBeVisible();
     await expect(page.locator(".lm-main-header-settings")).toBeVisible();
@@ -53,6 +55,27 @@ test.describe("LawMind settings page", () => {
     });
     await expect(page.getByTestId("lm-historical-scan")).toBeVisible();
     await expect(page.getByTestId("lm-historical-scan")).toContainText("扫描历史材料");
+
+    await search.fill("本机");
+    await search.press("Enter");
+    await expect(page.getByRole("heading", { name: "本机能力", level: 2 })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId("lm-host-access")).toBeVisible();
+
+    await search.fill("助手编制");
+    await search.press("Enter");
+    await expect(page.getByRole("heading", { name: "助手编制", level: 2 })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId("lm-settings-assistants")).toBeVisible();
+    await expect(page.getByTestId("lm-assistants-quick-create")).toBeVisible();
+    await expect(page.getByTestId("lm-settings-nav-assistants")).toBeVisible();
+
+    await expect(page.getByTestId("lm-settings-nav-roles")).toHaveCount(0);
+    await expect(page.getByTestId("lm-settings-nav-collaboration")).toHaveCount(0);
+    await expect(page.getByTestId("lm-settings-nav-skills")).toHaveCount(0);
+    await expect(page.getByTestId("lm-settings-nav-edition")).toHaveCount(0);
 
     await page.getByRole("button", { name: "关闭设置并返回" }).first().click();
     await expect(page.getByRole("region", { name: "设置" })).toHaveCount(0, { timeout: 15_000 });

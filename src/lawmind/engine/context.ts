@@ -11,7 +11,11 @@ import type { LawMindEngineConfig } from "./types.js";
 
 export type EngineContext = {
   workspaceDir: string;
+  /** Last-resort fallback (workspace/artifacts). Used only when no better context exists. */
   outputDir: string;
+  /** True when the caller passed config.outputDir — treat as an explicit location. */
+  outputDirExplicit: boolean;
+  projectDir?: string;
   auditDir: string;
   adapters: RetrievalAdapter[];
   assistantId?: string;
@@ -19,11 +23,14 @@ export type EngineContext = {
 
 export function buildEngineContext(config: LawMindEngineConfig): EngineContext {
   const workspaceDir = config.workspaceDir;
-  const outputDir = config.outputDir ?? path.join(workspaceDir, "artifacts");
+  const explicit = config.outputDir?.trim();
+  const outputDir = explicit || path.join(workspaceDir, "artifacts");
   const auditDir = path.join(workspaceDir, "audit");
   return {
     workspaceDir,
     outputDir,
+    outputDirExplicit: Boolean(explicit),
+    projectDir: config.projectDir?.trim() || undefined,
     auditDir,
     adapters: config.adapters,
     assistantId: config.assistantId,

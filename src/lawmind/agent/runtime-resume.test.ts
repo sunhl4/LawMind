@@ -206,3 +206,70 @@ describe("resumePausedTurn", () => {
     expect(runTurnSpy.mock.calls[0]?.[0]?.instruction).toContain("审查这份合同");
   });
 });
+
+describe("resumeTurn clarification answers", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("persists lawyer-confirmed answers for the Guardian evidence pack", async () => {
+    const sessionId = "sess-clarify";
+    const session: AgentSession = {
+      sessionId,
+      matterId: "matter-a",
+      actorId: "t",
+      conversationHistory: [],
+      turns: [],
+      pendingRequiresAction: [
+        {
+          id: "ra-q",
+          kind: "clarification",
+          threadId: "t:1",
+          title: "待确认",
+          summary: "立场",
+          clarificationQuestions: [{ key: "stance", question: "己方立场？", required: true }],
+          decisions: ["respond"],
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    vi.spyOn(sessionMod, "loadSession").mockReturnValue(session);
+    const saveSpy = vi.spyOn(sessionMod, "saveSession").mockImplementation(() => {});
+    const runTurnSpy = vi.spyOn(runtimeMod, "runTurn").mockResolvedValue({
+      turn: {
+        turnId: "t",
+        sessionId,
+        instruction: "",
+        messages: [],
+        toolCallsExecuted: 0,
+        status: "completed",
+        startedAt: new Date().toISOString(),
+      },
+      reply: "ok",
+      sessionId,
+      memoryContext: { layers: [] },
+    });
+
+    await resumeTurn(
+      { workspaceDir: "/tmp/lm-resume-clarify" } as AgentConfig,
+      { list: () => [], get: () => undefined } as never,
+      {
+        sessionId,
+        actionId: "ra-q",
+        decision: "respond",
+        clarificationAnswers: { stance: "甲方" },
+      },
+      {},
+    );
+
+    expect(session.lastConfirmedAnswers).toEqual({ stance: "甲方" });
+    expect(saveSpy).toHaveBeenCalled();
+    expect(runTurnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        confirmedAnswers: { stance: "甲方" },
+      }),
+    );
+  });
+});

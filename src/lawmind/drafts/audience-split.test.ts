@@ -24,5 +24,11 @@ describe("audience-split", () => {
     expect(shouldInjectAudienceSplit({ id: "contract.review", pipeline: "tracked_redline" })).toBe(
       false,
     );
+    expect(shouldInjectAudienceSplit({ id: "labor.calc", pipeline: "execute_workflow" })).toBe(
+      false,
+    );
+    expect(shouldInjectAudienceSplit({ id: "ops.invoice", pipeline: "execute_workflow" })).toBe(
+      false,
+    );
   });
 });

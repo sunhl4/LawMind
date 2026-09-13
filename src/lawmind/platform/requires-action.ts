@@ -75,10 +75,16 @@ const TOOL_DISPLAY_ZH: Record<string, string> = {
   search_workspace: "检索案卷材料",
   search_matter: "检索本案材料",
   read_project_file: "查阅项目文件",
+  list_dir: "列举目录",
+  search_host: "本机查找",
+  read_host_file: "阅读本机文件",
+  import_host_file: "收进本案",
+  run_host_command: "本机命令",
   read_case_file: "查阅案卷",
   analyze_document: "分析文书",
   compare_documents: "对比文本",
   plan_task: "安排办理步骤",
+  update_plan: "本轮步骤",
   request_approval: "提请审批",
   request_review: "提请复核",
   record_deadline: "登记期限",
@@ -99,7 +105,27 @@ const TOOL_DISPLAY_ZH: Record<string, string> = {
   set_template_enabled: "启用/停用模板",
   check_conflict_of_interest: "利益冲突检索",
   list_more_tools: "更多能力",
+  analyze_spreadsheet: "分析表格",
+  write_spreadsheet: "生成表格",
+  render_chart: "出图",
+  calculate: "法律计算",
+  run_compute: "核算数据",
+  run_analysis: "核算数据",
 };
+
+export const HOST_GRANT_TOOL_NAMES = new Set(["read_host_file", "import_host_file"]);
+
+export function isHostGrantToolName(name?: string | null): boolean {
+  const n = name?.trim();
+  return Boolean(n && HOST_GRANT_TOOL_NAMES.has(n));
+}
+
+export function hostGrantEditedArgs(
+  toolArgs: Record<string, unknown> | undefined,
+  duration: "once" | "session" | "always",
+): Record<string, unknown> {
+  return { ...toolArgs, grant_duration: duration };
+}
 
 const SNAKE_TOOL_RE = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/;
 
@@ -199,7 +225,9 @@ export function buildToolApprovalAction(input: {
       : `待批准：${label}`;
   const summary = preview
     ? "请通读拟落稿全文后决定是否批准。"
-    : `拟进行「${label}」。请确认后再继续，或选择暂不办理。`;
+    : isHostGrantToolName(input.toolName)
+      ? `拟进行「${label}」。请选择允许一次、本会话允许或始终允许；拒绝则不读该文件。`
+      : `拟进行「${label}」。请确认后再继续，或选择暂不办理。`;
   return {
     id: newRequiresActionId(),
     kind: "tool_approval",

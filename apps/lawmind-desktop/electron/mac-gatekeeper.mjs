@@ -92,6 +92,34 @@ export function listBundledNodeBinaries(appPath) {
   return out.toSorted((a, b) => a.localeCompare(b));
 }
 
+export function listBundledOfficeCliBinaries(appPath) {
+  const root = path.join(appPath, "Contents", "Resources", "officecli");
+  if (!fs.existsSync(root)) {
+    return [];
+  }
+  const out = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const next = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(next);
+        continue;
+      }
+      if (entry.name === "officecli" || entry.name === "officecli.exe") {
+        out.push(next);
+      }
+    }
+  };
+  walk(root);
+  return out.toSorted((a, b) => a.localeCompare(b));
+}
+
+export function listBundledHelperBinaries(appPath) {
+  return [...listBundledNodeBinaries(appPath), ...listBundledOfficeCliBinaries(appPath)].toSorted((a, b) =>
+    a.localeCompare(b),
+  );
+}
+
 export function buildCodesignArgs({ identity, entitlements, file, deep = false }) {
   const args = ["--sign", identity, "--force", "--options", "runtime"];
   if (identity !== "-") {
@@ -179,7 +207,7 @@ export function readCodesignVerbose(targetPath, execFile = defaultExecFile) {
 }
 
 /**
- * Sign bundled node first, then the .app when electron-builder will skip
+ * Sign bundled node / officecli first, then the .app when electron-builder will skip
  * Developer ID signing (adhoc / named fallback).
  */
 export function signLawMindMacApp(appPath, options = {}) {
@@ -199,11 +227,11 @@ export function signLawMindMacApp(appPath, options = {}) {
     env,
     identities: identities ?? readCodesignIdentities(execFile),
   });
-  const nodeBins = listBundledNodeBinaries(appPath);
+  const helperBins = listBundledHelperBinaries(appPath);
   const inherit = entitlementsInherit || entitlements;
   const signed = [];
 
-  for (const file of nodeBins) {
+  for (const file of helperBins) {
     execFile("/usr/bin/codesign", buildCodesignArgs({ identity: picked.identity, entitlements: inherit, file }));
     signed.push(file);
   }

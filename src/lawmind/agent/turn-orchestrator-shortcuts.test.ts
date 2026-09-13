@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { TurnFinalizeShared } from "./turn-orchestrator-finalize.js";
 import {
+  formatPublicWebFactReply,
   tryAutoDeliverableWorkflowShortcut,
   tryIntakeClarificationShortcut,
+  tryPublicWebFactShortcut,
   wouldIntakeClarify,
 } from "./turn-orchestrator-shortcuts.js";
 import type { AgentContext, AgentSession, AgentTurn } from "./types.js";
@@ -157,5 +159,93 @@ describe("turn-orchestrator-shortcuts", () => {
       onAborted: () => aborted,
     });
     expect(result).toBe(aborted);
+  });
+
+  it("tryPublicWebFactShortcut is a no-op for legal research", async () => {
+    const session = baseSession();
+    const turn = baseTurn();
+    const result = await tryPublicWebFactShortcut({
+      instruction: "查一下民法典违约责任",
+      ctx: { workspaceDir: "/tmp/ws", sessionId: "s1", actorId: "system" } as AgentContext,
+      turn,
+      registry: { get: () => undefined } as never,
+      shared: sharedStub(session, turn),
+      emitEvent: vi.fn(),
+      abortRequested: () => false,
+      onAborted: () => ({
+        turn,
+        reply: "aborted",
+        sessionId: "s1",
+        memoryContext: sharedStub(session, turn).memory,
+      }),
+    });
+    expect(result).toBeNull();
+  });
+
+  it("tryPublicWebFactShortcut refuses entertainment facts when 联网 is off", async () => {
+    const session = baseSession();
+    const turn = baseTurn();
+    const result = await tryPublicWebFactShortcut({
+      instruction: "查一下2026年新说唱总冠军",
+      ctx: {
+        workspaceDir: "/tmp/ws",
+        sessionId: "s1",
+        actorId: "system",
+        allowWebSearch: false,
+      } as AgentContext,
+      turn,
+      registry: { get: () => undefined } as never,
+      shared: sharedStub(session, turn),
+      emitEvent: vi.fn(),
+      abortRequested: () => false,
+      onAborted: () => ({
+        turn,
+        reply: "aborted",
+        sessionId: "s1",
+        memoryContext: sharedStub(session, turn).memory,
+      }),
+    });
+    expect(result?.reply).toContain("联网");
+    expect(result?.reply).toContain("不会猜冠军");
+  });
+
+  it("tryPublicWebFactShortcut runs web_search when 联网 is on", async () => {
+    const session = baseSession();
+    const turn = baseTurn();
+    const execute = vi.fn(async () => ({
+      ok: true,
+      data: {
+        results: [{ title: "节目页", url: "https://example.com/r", description: "公开摘要" }],
+      },
+    }));
+    const result = await tryPublicWebFactShortcut({
+      instruction: "2026年新说唱总冠军",
+      ctx: {
+        workspaceDir: "/tmp/ws",
+        sessionId: "s1",
+        actorId: "system",
+        allowWebSearch: true,
+      } as AgentContext,
+      turn,
+      registry: { get: () => ({ execute }) } as never,
+      shared: sharedStub(session, turn),
+      emitEvent: vi.fn(),
+      abortRequested: () => false,
+      onAborted: () => ({
+        turn,
+        reply: "aborted",
+        sessionId: "s1",
+        memoryContext: sharedStub(session, turn).memory,
+      }),
+    });
+    expect(execute).toHaveBeenCalledOnce();
+    expect(result?.reply).toContain("https://example.com/r");
+    expect(result?.reply).not.toMatch(/请开启联网检索/);
+  });
+
+  it("formatPublicWebFactReply does not invent a champion name on empty hits", () => {
+    expect(
+      formatPublicWebFactReply("2026年新说唱总冠军", { ok: true, data: { results: [] } }),
+    ).toContain("不会猜冠军");
   });
 });

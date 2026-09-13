@@ -31,6 +31,21 @@ describe("extractGateDecisionFromToolResult", () => {
     expect(g?.category).toBe("judgment_soft");
   });
 
+  it("extracts legal Guardian fail as judgment_soft block", () => {
+    const g = extractGateDecisionFromToolResult({
+      data: {
+        gateDecision: {
+          gate: "legal_guardian_gate",
+          decision: "block",
+          reason: "独立审稿未过",
+          category: "judgment_soft",
+        },
+      },
+    });
+    expect(g?.gate).toBe("legal_guardian_gate");
+    expect(g?.category).toBe("judgment_soft");
+  });
+
   it("ignores unknown gate kinds", () => {
     expect(
       extractGateDecisionFromToolResult({

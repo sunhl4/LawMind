@@ -39,6 +39,7 @@ export type LawmindChatShellState = {
       activity?: ChatActivityBlock[];
       activityActive?: boolean;
       executionState?: ChatMsg["executionState"];
+      turnPlan?: ChatMsg["turnPlan"];
     },
   ) => Promise<void>;
   refreshChatSessionListForAssistant: (
@@ -69,6 +70,7 @@ export function useLawmindChatShell(input: {
         activity?: ChatActivityBlock[];
         activityActive?: boolean;
         executionState?: ChatMsg["executionState"];
+        turnPlan?: ChatMsg["turnPlan"];
       },
     ) => {
       if (!apiBase) {
@@ -87,6 +89,7 @@ export function useLawmindChatShell(input: {
           requiresAction?: unknown;
           liveTrace?: ChatLiveTrace;
           executionState?: ChatMsg["executionState"];
+          turnPlan?: ChatMsg["turnPlan"];
         }>;
       };
       if (!j.ok || !Array.isArray(j.messages)) {
@@ -107,9 +110,10 @@ export function useLawmindChatShell(input: {
             ...(m.liveTrace ? { liveTrace: m.liveTrace } : {}),
             ...(m.executionState ? { executionState: m.executionState } : {}),
             ...(requiresAction.length > 0 ? { requiresAction } : {}),
+            ...(m.turnPlan ? { turnPlan: m.turnPlan } : {}),
           };
         });
-      if (overlay?.liveTrace || overlay?.activity || overlay?.executionState) {
+      if (overlay?.liveTrace || overlay?.activity || overlay?.executionState || overlay?.turnPlan) {
         if (msgs.length > 0) {
           const idx = msgs.length - 1;
           const row = msgs[idx];
@@ -122,6 +126,7 @@ export function useLawmindChatShell(input: {
                 ? { activityActive: overlay.activityActive }
                 : {}),
               ...(overlay.executionState ? { executionState: overlay.executionState } : {}),
+              ...(overlay.turnPlan ? { turnPlan: overlay.turnPlan } : {}),
             };
           }
         }

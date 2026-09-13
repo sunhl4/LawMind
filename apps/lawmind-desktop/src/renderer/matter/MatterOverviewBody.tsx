@@ -11,6 +11,7 @@ import { useMatterHealthMetrics } from "./useMatterHealthMetrics";
 import { type AcceptanceSummaryItem } from "./matter-acceptance-display";
 import { MatterLocalDocIndex } from "./MatterLocalDocIndex";
 import { MatterOverviewExtras } from "./MatterOverviewExtras";
+import { MatterOverviewTodoCards } from "./MatterOverviewTodoCards";
 import { MatterProfileCard, type MatterProfilePayload } from "./MatterProfileCard";
 import { MatterTeamRosterStrip } from "./MatterTeamRosterStrip";
 import { InteractionConvergence, LawyerActionFeed } from "../insights";
@@ -20,16 +21,8 @@ import {
   type ApprovalRow,
   type ReviewQueueRow,
 } from "./MatterReviewQueuePanel";
-import { DraftCitationBadge } from "./matter-draft-citation-badge";
-import {
-  approvalStatusLabel,
-  formatShortDateTime,
-  priorityLabel,
-  queueKindLabel,
-  reviewStatusLabel,
-} from "./matter-display-labels.js";
+import { formatShortDateTime } from "./matter-display-labels.js";
 import { parseMatterInteractionEvent } from "./matter-interaction";
-import { lawyerRiskLevelLabel } from "../lawmind-lawyer-labels";
 import { useRequireSignoffReview } from "../lawmind-review-prefs";
 import { useMatterOverviewViewStore } from "../stores/matter-overview-view-store";
 import type {
@@ -195,6 +188,26 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
   );
 
   const requireSignoffReview = useRequireSignoffReview();
+  const pendingReviewCount = reviewSummaryCards.find((c) => c.key === "pending-review")?.count ?? 0;
+  const pendingApprovalCount = approvalRequests.filter((a) => a.status === "pending").length;
+  const primaryNext = summary.nextActions[0]?.trim() ?? "";
+  const railCopy =
+    pendingReviewCount > 0
+      ? requireSignoffReview
+        ? `${pendingReviewCount} 份待审文书可签批`
+        : `${pendingReviewCount} 份待审文书可改稿`
+      : pendingApprovalCount > 0
+        ? `${pendingApprovalCount} 项案件审批待处理`
+        : primaryNext || "无紧急待办 — 可在对话下达新任务";
+  const extraNextActions = summary.nextActions
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0 && item !== railCopy);
+  const hasTodos =
+    blockingExplanations.length > 0 ||
+    filteredQueueItems.length > 0 ||
+    filteredApprovalRequests.length > 0 ||
+    filteredDrafts.length > 0;
+  const visibleReviewSummaryCards = reviewSummaryCards.filter((card) => card.count > 0);
   const acceptanceItems = Object.values(acceptanceByTask).filter(
     (x): x is AcceptanceSummaryItem => Boolean(x),
   );
@@ -222,74 +235,14 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
 
   return (
     <div className="lm-workbench-panel">
-        {matterId && healthMetrics && !healthLoading ? (
-          <LawmindMatterHealthCard
-            matterId={matterId}
-            displayName={selectedOverview?.displayName?.trim() || matterId}
-            metrics={healthMetrics}
-            testId="lm-matter-overview-health-card"
-          />
-        ) : null}
-        {matterId ? (
-          <MatterOverviewPanel
-            matterId={matterId}
-            matterTitle={selectedOverview?.displayName?.trim() || matterId}
-            matterStatusLabel={summary?.statusLine ?? "—"}
-            showDashboard={showWorkspaceAcceptanceDashboard}
-            workspaceAcceptance={workspaceAcceptance}
-            workspaceAcceptanceErr={workspaceAcceptanceErr}
-          />
-        ) : null}
-        {matterId && apiBase ? <MatterOpsBrief apiBase={apiBase} matterId={matterId} /> : null}
-        {matterId && apiBase ? (
-          <MatterTeamRosterStrip
-            apiBase={apiBase}
-            matterId={matterId}
-            onOpenMeeting={onOpenMeeting}
-            onOpenNeedsDecisionDesk={
-              onOpenNeedsDecisionDesk ? () => onOpenNeedsDecisionDesk() : undefined
-            }
-          />
-        ) : null}
-        {matterId && apiBase ? <MatterTheoryLitePanel apiBase={apiBase} matterId={matterId} /> : null}
-        {matterId && apiBase && profile ? (
-          <MatterProfileCard apiBase={apiBase} profile={profile} onSaved={onProfileSaved} />
-        ) : null}
-        {matterId && apiBase ? <MatterLocalDocIndex apiBase={apiBase} matterId={matterId} /> : null}
-        {matterId && showWorkspaceAcceptanceDashboard ? (
-          <MatterQualityCockpit
-            matterId={matterId}
-            enabled
-            qualityScore={qualityScore}
-            acceptanceReadyCount={acceptanceReadyCount}
-            acceptanceBlockedCount={acceptanceBlockedCount}
-          />
-        ) : null}
         <section
           className="lm-matter-decision-rail"
           aria-label="本案下一步"
-          data-testid="lm-matter-decision-rail"
+          data-testid="lm-matter-next-actions"
         >
           <div className="lm-matter-decision-rail-copy">
             <strong>本案下一步</strong>
-            <span className="lm-meta">
-              {(() => {
-                const pending = reviewSummaryCards.find((c) => c.key === "pending-review")?.count ?? 0;
-                const approvals = approvalRequests.filter((a) => a.status === "pending").length;
-                if (pending > 0) {
-                  return requireSignoffReview
-                    ? `${pending} 份待审文书可签批`
-                    : `${pending} 份待审文书可改稿`;
-                }
-                if (approvals > 0) {
-                  return `${approvals} 项案件审批待处理`;
-                }
-                if (summary.nextActions[0]?.trim()) {
-                  return summary.nextActions[0].trim();
-                }
-                return "无紧急待办 — 可在对话下达新任务";
-              })()}
-            </span>
+            <span className="lm-meta">{railCopy}</span>
           </div>
           <div className="lm-matter-decision-rail-actions">
             {onUseInChat ? (
@@ -338,49 +291,28 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
               );
             })()}
           </div>
+          {extraNextActions.length > 0 ? (
+            <ul className="lm-bullet-list lm-matter-next-actions-list" data-testid="lm-matter-next-actions">
+              {extraNextActions.map((x) => (
+                <li key={x}>{x}</li>
+              ))}
+            </ul>
+          ) : null}
         </section>
-        <section className="lm-matter-cockpit-summary">
-          {reviewSummaryCards.map((card) => (
-            <div key={card.key} className={`lm-matter-summary-card lm-matter-summary-card-${card.tone}`}>
-              <div className="lm-matter-summary-top">
-                <span className="lm-matter-summary-title">{card.title}</span>
-                <span className="lm-matter-summary-count">{card.count}</span>
-              </div>
-              <button
-                type="button"
-                className="lm-btn lm-btn-secondary lm-btn-small"
-                disabled={!onOpenReview || !card.actionTaskId}
-                onClick={() => {
-                  if (card.actionTaskId) {
-                    openReviewFromMatter(card.actionTaskId, {
-                      statusFilter: card.statusFilter,
-                      listMode: card.listMode,
-                      sourceSurface: "overview-summary",
-                      sourceLabel: card.title,
-                    });
-                  }
-                }}
-              >
-                {card.actionLabel}
-              </button>
-            </div>
-          ))}
-        </section>
-        {onOpenMeeting ? (
-          <section className="lm-matter-cockpit-card lm-matter-meeting-entry">
-            <div className="lm-matter-ops-title">
-              <span>本案讨论时间线</span>
-              <button type="button" className="lm-btn lm-btn-secondary lm-btn-small" onClick={onOpenMeeting}>
-                打开会议室
-              </button>
-            </div>
-          </section>
+        {matterId && healthMetrics && !healthLoading ? (
+          <LawmindMatterHealthCard
+            matterId={matterId}
+            displayName={
+              summary.headline?.trim() || selectedOverview?.displayName?.trim() || matterId
+            }
+            showTitle={false}
+            metrics={healthMetrics}
+            testId="lm-matter-overview-health-card"
+          />
         ) : null}
-         <section className="lm-matter-cockpit-card lm-matter-ops-focus-card">
-          <div className="lm-matter-ops-focus-head">
-            <div>
-              <h3>当前处理视角</h3>
-            </div>
+        <section className="lm-matter-todo-block" data-testid="lm-matter-todos" aria-label="待办">
+          <div className="lm-matter-todo-head">
+            <h3>待办</h3>
             <div className="lm-matter-ops-focus-controls">
               <label className="lm-field lm-matter-ops-field">
                 <span>只看</span>
@@ -408,12 +340,7 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
               </label>
             </div>
           </div>
-        </section>
-         <section className="lm-matter-cockpit-card lm-matter-blocking-card">
-          <h3>卡点与前置</h3>
-          {blockingExplanations.length === 0 ? (
-            <p className="lm-meta">无</p>
-          ) : (
+          {blockingExplanations.length > 0 ? (
             <div className="lm-matter-blocking-grid">
               {blockingExplanations.map((item) => (
                 <div key={item.key} className={`lm-matter-summary-card lm-matter-summary-card-${item.tone}`}>
@@ -432,14 +359,103 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
                 </div>
               ))}
             </div>
+          ) : null}
+          {hasTodos ? (
+            <MatterOverviewTodoCards
+              filteredQueueItems={filteredQueueItems}
+              filteredApprovalRequests={filteredApprovalRequests}
+              filteredDrafts={filteredDrafts}
+              draftCitationByTask={draftCitationByTask}
+              onOpenReview={onOpenReview}
+              openReviewFromMatter={openReviewFromMatter}
+            />
+          ) : (
+            <p className="lm-meta">无待办 — 可在对话下达新任务</p>
           )}
-          <MatterReviewQueuePanel matterId={matterId} queueItems={reviewQueueRows} approvals={approvalRows} />
         </section>
-         <MatterOverviewExtras
+        <MatterOverviewExtras
           expanded={extrasOpen}
           onExpand={() => openExtras()}
           onCollapse={() => closeExtras()}
         >
+        {matterId && showWorkspaceAcceptanceDashboard ? (
+          <MatterOverviewPanel
+            matterId={matterId}
+            matterTitle={summary.headline?.trim() || selectedOverview?.displayName?.trim() || matterId}
+            matterStatusLabel={summary?.statusLine ?? "—"}
+            showDashboard={showWorkspaceAcceptanceDashboard}
+            workspaceAcceptance={workspaceAcceptance}
+            workspaceAcceptanceErr={workspaceAcceptanceErr}
+          />
+        ) : null}
+        {matterId && apiBase ? <MatterOpsBrief apiBase={apiBase} matterId={matterId} /> : null}
+        {matterId && apiBase ? (
+          <MatterTeamRosterStrip
+            apiBase={apiBase}
+            matterId={matterId}
+            onOpenMeeting={onOpenMeeting}
+            onOpenNeedsDecisionDesk={
+              onOpenNeedsDecisionDesk ? () => onOpenNeedsDecisionDesk() : undefined
+            }
+          />
+        ) : null}
+        {matterId && apiBase ? <MatterTheoryLitePanel apiBase={apiBase} matterId={matterId} /> : null}
+        {matterId && apiBase && profile ? (
+          <MatterProfileCard apiBase={apiBase} profile={profile} onSaved={onProfileSaved} />
+        ) : null}
+        {matterId && apiBase ? <MatterLocalDocIndex apiBase={apiBase} matterId={matterId} /> : null}
+        {matterId && showWorkspaceAcceptanceDashboard ? (
+          <MatterQualityCockpit
+            matterId={matterId}
+            enabled
+            qualityScore={qualityScore}
+            acceptanceReadyCount={acceptanceReadyCount}
+            acceptanceBlockedCount={acceptanceBlockedCount}
+          />
+        ) : null}
+        {visibleReviewSummaryCards.length > 0 ? (
+        <section className="lm-matter-cockpit-summary">
+          {visibleReviewSummaryCards.map((card) => (
+            <div key={card.key} className={`lm-matter-summary-card lm-matter-summary-card-${card.tone}`}>
+              <div className="lm-matter-summary-top">
+                <span className="lm-matter-summary-title">{card.title}</span>
+                <span className="lm-matter-summary-count">{card.count}</span>
+              </div>
+              <button
+                type="button"
+                className="lm-btn lm-btn-secondary lm-btn-small"
+                disabled={!onOpenReview || !card.actionTaskId}
+                onClick={() => {
+                  if (card.actionTaskId) {
+                    openReviewFromMatter(card.actionTaskId, {
+                      statusFilter: card.statusFilter,
+                      listMode: card.listMode,
+                      sourceSurface: "overview-summary",
+                      sourceLabel: card.title,
+                    });
+                  }
+                }}
+              >
+                {card.actionLabel}
+              </button>
+            </div>
+          ))}
+        </section>
+        ) : null}
+        {onOpenMeeting ? (
+          <section className="lm-matter-cockpit-card lm-matter-meeting-entry">
+            <div className="lm-matter-ops-title">
+              <span>本案讨论时间线</span>
+              <button type="button" className="lm-btn lm-btn-secondary lm-btn-small" onClick={onOpenMeeting}>
+                打开会议室
+              </button>
+            </div>
+          </section>
+        ) : null}
+        {reviewQueueRows.length > 0 || approvalRows.length > 0 ? (
+          <MatterReviewQueuePanel matterId={matterId} queueItems={reviewQueueRows} approvals={approvalRows} />
+        ) : null}
+        {matterInteractionSummary.total > 0 ? (
         <section className="lm-matter-cockpit-card lm-matter-behavior-card">
           <h3>律师行为摘要</h3>
           {matterInteractionSummary.total === 0 ? (
@@ -497,6 +513,7 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
             </>
           )}
         </section>
+        ) : null}
          {showCrossMatterRoadmap && convergenceSuggestions.length > 0 ? (
         <section className="lm-matter-cockpit-card lm-matter-convergence-card">
           <h3>办案建议</h3>
@@ -520,210 +537,27 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
             />
           </section>
         ) : null}
-         </MatterOverviewExtras>
-         {/* 日用待办四卡（下一步/工作队列/审批节点/交付物）默认露出，
-             折叠区只收行为摘要与洞察实验 */}
-         <div className="lm-matter-cockpit-grid">
-          <section className="lm-matter-cockpit-card" data-testid="lm-matter-next-actions">
-            <h3>下一步</h3>
-            {summary.nextActions.length === 0 ? (
-              <p className="lm-meta">暂无</p>
-            ) : (
-              <ul className="lm-bullet-list lm-matter-next-actions-list">
-                {summary.nextActions.map((x, i) => {
-                  const pendingCard = reviewSummaryCards.find(
-                    (c) => c.key === "pending-review" && c.actionTaskId,
-                  );
-                  const isReviewHint =
-                    i === 0 &&
-                    Boolean(pendingCard?.actionTaskId) &&
-                    /审|签批|文书|复核|验收/.test(x);
-                  const isChatHint =
-                    i === 0 &&
-                    Boolean(onUseInChat) &&
-                    !isReviewHint &&
-                    /对话|澄清|补充|下达|追问/.test(x);
-                  return (
-                    <li key={i}>
-                      <span>{x}</span>
-                      {isReviewHint && pendingCard?.actionTaskId ? (
-                        <button
-                          type="button"
-                          className="lm-btn lm-btn-ghost lm-btn-sm"
-                          onClick={() =>
-                            openReviewFromMatter(pendingCard.actionTaskId!, {
-                              statusFilter: pendingCard.statusFilter,
-                              listMode: pendingCard.listMode,
-                              sourceSurface: "overview-next-action",
-                              sourceLabel: x,
-                            })
-                          }
-                        >
-                          去改稿
-                        </button>
-                      ) : null}
-                      {isChatHint && onUseInChat ? (
-                        <button
-                          type="button"
-                          className="lm-btn lm-btn-ghost lm-btn-sm"
-                          onClick={() => onUseInChat(matterId)}
-                        >
-                          去对话
-                        </button>
-                      ) : null}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-           <section className="lm-matter-cockpit-card">
-            <h3>工作队列</h3>
-            {filteredQueueItems.length === 0 ? (
-              <p className="lm-meta">无</p>
-            ) : (
-              <ul className="lm-matter-ops-list">
-                {filteredQueueItems.slice(0, 8).map((item) => (
-                  <li key={item.queueItemId}>
-                    <div className="lm-matter-ops-title">
-                      <span>{item.title}</span>
-                      <div className="lm-matter-ops-actions">
-                        <span className={`lm-matter-pill lm-matter-pill-priority-${item.priority}`}>
-                          {priorityLabel(item.priority)}
-                        </span>
-                        {onOpenReview && item.relatedTaskId ? (
-                          <button
-                            type="button"
-                            className="lm-btn lm-btn-secondary lm-btn-small"
-                            onClick={() =>
-                              openReviewFromMatter(item.relatedTaskId!, {
-                                statusFilter: item.kind === "ready_to_render" ? "approved" : "pending",
-                                listMode: item.kind === "ready_to_render" ? "all" : "pending",
-                                sourceSurface: "queue",
-                                sourceLabel: item.title,
-                              })
-                            }
-                          >
-                            改稿
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div className="lm-matter-ops-meta">
-                      {queueKindLabel(item.kind)}
-                      {item.detail ? ` · ${item.detail}` : ""}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-           <section className="lm-matter-cockpit-card">
-            <h3>审批节点</h3>
-            {filteredApprovalRequests.length === 0 ? (
-              <p className="lm-meta">无</p>
-            ) : (
-              <ul className="lm-matter-ops-list">
-                {filteredApprovalRequests.slice(0, 8).map((item) => (
-                  <li key={item.approvalId}>
-                    <div className="lm-matter-ops-title">
-                      <span>{approvalStatusLabel(item.status)}</span>
-                      <div className="lm-matter-ops-actions">
-                        <span className={`lm-matter-pill lm-matter-pill-status-${item.status}`}>
-                          {lawyerRiskLevelLabel(item.riskLevel) ?? item.riskLevel}
-                        </span>
-                        {onOpenReview && item.deliverableId ? (
-                          <button
-                            type="button"
-                            className="lm-btn lm-btn-secondary lm-btn-small"
-                            onClick={() =>
-                              openReviewFromMatter(item.deliverableId!, {
-                                statusFilter:
-                                  item.status === "approved"
-                                    ? "approved"
-                                    : item.status === "needs_changes"
-                                      ? "modified"
-                                      : "all",
-                                listMode: item.status === "pending" ? "pending" : "all",
-                                sourceSurface: "approval",
-                                sourceLabel: item.reason,
-                              })
-                            }
-                          >
-                            改稿
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div className="lm-matter-ops-meta">{item.reason}</div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-           <section className="lm-matter-cockpit-card">
-            <h3>交付物状态</h3>
-            {filteredDrafts.length === 0 ? (
-              <p className="lm-meta">无</p>
-            ) : (
-              <ul className="lm-matter-ops-list">
-                {filteredDrafts.slice(0, 8).map((draft) => (
-                  <li key={draft.taskId}>
-                    <div className="lm-matter-ops-title">
-                      <span>{draft.title}</span>
-                      <div className="lm-matter-ops-actions">
-                        <span className={`lm-matter-pill lm-matter-pill-status-${draft.reviewStatus}`}>
-                          {reviewStatusLabel(draft.reviewStatus)}
-                        </span>
-                        {onOpenReview ? (
-                          <button
-                            type="button"
-                            className="lm-btn lm-btn-secondary lm-btn-small"
-                            onClick={() =>
-                              openReviewFromMatter(draft.taskId, {
-                                matterId: draft.matterId,
-                                statusFilter: draft.reviewStatus,
-                                listMode: draft.reviewStatus === "pending" ? "pending" : "all",
-                                sourceSurface: "draft-status",
-                                sourceLabel: draft.title,
-                              })
-                            }
-                          >
-                            改稿
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div className="lm-matter-ops-meta">
-                      {draft.templateId}
-                      <DraftCitationBadge cit={draftCitationByTask[draft.taskId]} />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </div>
-         <section className="lm-matter-cockpit-card">
-          <h3>关键风险</h3>
-          {summary.keyRisks.length === 0 ? (
-            <p className="lm-meta">暂无</p>
-          ) : (
+        {summary.keyRisks.length > 0 ? (
+          <section className="lm-matter-cockpit-card">
+            <h3>关键风险</h3>
             <ul className="lm-bullet-list">
               {summary.keyRisks.map((x, i) => (
                 <li key={i}>{x}</li>
               ))}
             </ul>
-          )}
-        </section>
-        <section className="lm-matter-cockpit-card">
-          <h3>近期进展</h3>
-          <ul className="lm-bullet-list">
-            {summary.recentActivity.map((x, i) => (
-              <li key={i}>{x}</li>
-            ))}
-          </ul>
-        </section>
+          </section>
+        ) : null}
+        {summary.recentActivity.length > 0 ? (
+          <section className="lm-matter-cockpit-card">
+            <h3>近期进展</h3>
+            <ul className="lm-bullet-list">
+              {summary.recentActivity.map((x, i) => (
+                <li key={i}>{x}</li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+        </MatterOverviewExtras>
     </div>
   );
 }

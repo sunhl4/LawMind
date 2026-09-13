@@ -41,6 +41,7 @@ export {
   compactHistory,
   deriveModelMessages,
   toModelMessages,
+  deriveModelMessagesForSampling,
 } from "./session.js";
 export type { ModelChatMessage } from "./session.js";
 export { SessionPersistError, isSessionPersistError } from "./session-persist.js";
@@ -51,6 +52,8 @@ export {
   WORLD_STATE_SECTION_IDS,
   upsertWorldStateSection,
   collectWorldStateHashes,
+  prependWorldStateCraft,
+  applyPendingWorldStateCraftPatch,
 } from "./world-state.js";
 export type { WorldStateSectionId, WorldStateBaseline } from "./world-state.js";
 export {
@@ -60,6 +63,8 @@ export {
   resolvePreApprovalInjection,
 } from "./approval-cache-key.js";
 export { buildSystemPrompt } from "./system-prompt.js";
+export { UPDATE_PLAN_TOOL_NAME, parseAgentTurnPlan, validateUpdatePlanArgs } from "./turn-plan.js";
+export type { AgentTurnPlan, TurnPlanItem, TurnPlanStepStatus } from "./turn-plan.js";
 
 // Collaboration (inter-assistant communication)
 export {

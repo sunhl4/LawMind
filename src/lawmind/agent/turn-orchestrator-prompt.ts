@@ -3,8 +3,6 @@
  * Extracted from turn-orchestrator.ts.
  */
 
-import fs from "node:fs";
-import path from "node:path";
 import {
   formatCurrentAssistantOrgLine,
   formatTeamOrgOverviewForPrompt,
@@ -30,6 +28,7 @@ import {
   loadExecutablePreferences,
 } from "../memory/executable-preferences.js";
 import { loadMemoryContext, type MemoryContext } from "../memory/index.js";
+import { lawyerProfileForPrompt } from "../memory/lawyer-profile-for-prompt.js";
 import { findRelevantMemoriesForTurn } from "../memory/relevant-recall.js";
 import {
   findSimilarCaseMemories,
@@ -57,10 +56,23 @@ import { formatStanceHint } from "../stance/inject.js";
 import { getAssistantPreset } from "./assistant-presets.js";
 import { buildDeliverablePipelineSystemNote } from "./deliverable-pipeline.js";
 import type { AgentPermissionMode } from "./permission-mode.js";
+import {
+  createPromptFragment,
+  packPromptFragments,
+  partitionPackedFragments,
+  renderPackedFragments,
+  capFragmentBody,
+  FRAGMENT_CAPS,
+  FRAGMENT_SESSION_TAIL_BUDGET_TOKENS,
+  type PromptFragment,
+  type PromptFragmentKind,
+  type PromptOverflow,
+} from "./prompt-fragments.js";
 import { applySystemPromptToHistory, buildSystemPrompt } from "./system-prompt.js";
 import { promptCatalogToolNames } from "./tools/governance.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import { collectRecentToolNamesFromSession } from "./turn-orchestrator-events.js";
+import { formatTurnPlanWorldState } from "./turn-plan.js";
 import type { AgentConfig, AgentContext, AgentSession } from "./types.js";
 import {
   collectWorldStateHashes,
@@ -68,14 +80,38 @@ import {
   formatPermissionWorldState,
   stabilizeUnchangedWorldState,
   WORLD_STATE_SECTION_IDS,
-  wrapWorldStateSection,
   type WorldStateSectionId,
 } from "./world-state.js";
 
-function pushWorldStateExtra(extraBlocks: string[], id: WorldStateSectionId, body: string): void {
-  const wrapped = wrapWorldStateSection(id, body);
-  if (wrapped) {
-    extraBlocks.push(`\n\n${wrapped}`);
+function todayMemoryLogRel(): string {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `memory/${yyyy}-${mm}-${dd}.md`;
+}
+
+function queueFragment(
+  fragments: PromptFragment[],
+  kind: PromptFragmentKind,
+  body: string | undefined,
+  opts?: {
+    worldStateId?: WorldStateSectionId;
+    overflow?: PromptOverflow | null;
+    capTokens?: number;
+    priority?: number;
+  },
+): void {
+  const fragment = createPromptFragment({
+    kind,
+    body: body ?? "",
+    overflow: opts?.overflow ?? null,
+    worldStateId: opts?.worldStateId,
+    capTokens: opts?.capTokens,
+    priority: opts?.priority,
+  });
+  if (fragment) {
+    fragments.push(fragment);
   }
 }
 
@@ -153,6 +189,7 @@ export async function prepareTurnPromptContext(opts: {
 
   const pinnedContextSummary = resolvePinnedContextSummary({
     workspaceDir: config.workspaceDir,
+    projectDir: projectDirResolved,
     pins: withContractPlaybookPin(opts.contextPins, instruction),
   });
 
@@ -221,13 +258,25 @@ export async function prepareTurnPromptContext(opts: {
     intakeHardQs.length === 0 || instructionLooksLikeFilledIntake(instruction)
       ? buildDeliverablePipelineSystemNote(instruction)
       : undefined;
-  const executablePrefs = loadExecutablePreferences(config.workspaceDir, memory.profile ?? "", 6);
+  const lawyerProfileForSystem = lawyerProfileForPrompt(memory.profile ?? "");
+  const executablePrefs = loadExecutablePreferences(
+    config.workspaceDir,
+    lawyerProfileForSystem ?? "",
+    6,
+  );
   let appliedPreferencesHint = formatExecutablePreferencesHint(executablePrefs);
   const stanceHint = formatStanceHint(config.workspaceDir, { matterId: session.matterId });
   if (stanceHint) {
     appliedPreferencesHint = appliedPreferencesHint
       ? `${appliedPreferencesHint}\n\n${stanceHint}`
       : stanceHint;
+  }
+  if (appliedPreferencesHint) {
+    appliedPreferencesHint = capFragmentBody(
+      appliedPreferencesHint,
+      FRAGMENT_CAPS.preference_fingerprint.capTokens,
+      { tool: "read_workspace_file", path: "lawmind/lawyer-preferences.json" },
+    );
   }
   const footerMode = resolveAppliedPreferencesFooterMode(workspacePolicy);
   const requireAppliedPreferencesFooter =
@@ -268,16 +317,39 @@ export async function prepareTurnPromptContext(opts: {
   const mailSendFormatHint = mailAccount?.sendFormat
     ? buildMailSendFormatPrompt(mailAccount.sendFormat)
     : undefined;
+  const matterRel = session.matterId?.trim()
+    ? `cases/${session.matterId.trim()}/CASE.md`
+    : undefined;
+  const clientRel = memory.clientProfileClientId
+    ? `clients/${memory.clientProfileClientId}/CLIENT_PROFILE.md`
+    : "CLIENT_PROFILE.md";
+  const windowedCase = windowCaseMarkdownForPrompt(
+    memory.caseMemory,
+    promptWindow.matterContextChars,
+    matterRel ? { tool: "read_case_file", path: matterRel } : undefined,
+  );
+  const lawyerFingerprint = truncateForPrompt(
+    lawyerProfileForSystem ?? "",
+    promptWindow.lawyerFingerprintChars,
+    { overflow: { tool: "read_workspace_file", path: "LAWYER_PROFILE.md" } },
+  );
+  const assistantFingerprint = assistantProfileMarkdown
+    ? truncateForPrompt(assistantProfileMarkdown, promptWindow.assistantFingerprintChars, {
+        overflow: { tool: "read_workspace_file", path: "assistants" },
+      })
+    : "";
+  const clientFingerprint = truncateForPrompt(
+    memory.clientProfile,
+    promptWindow.clientFingerprintChars,
+    { overflow: { tool: "read_workspace_file", path: clientRel } },
+  );
+  const matterIndex = truncateForPrompt(windowedCase, promptWindow.matterIndexChars, {
+    overflow: matterRel ? { tool: "read_case_file", path: matterRel } : undefined,
+  });
+  const dayLogIndex = truncateForPrompt(memory.todayLog, promptWindow.dayLogIndexChars, {
+    overflow: { tool: "read_workspace_file", path: todayMemoryLogRel() },
+  });
   const systemPrompt = buildSystemPrompt({
-    lawyerProfile: truncateForPrompt(memory.profile, promptWindow.lawyerProfileChars) || undefined,
-    assistantProfileMarkdown: assistantProfileMarkdown
-      ? truncateForPrompt(assistantProfileMarkdown, promptWindow.assistantProfileChars)
-      : undefined,
-    clientProfile:
-      truncateForPrompt(memory.clientProfile, promptWindow.clientProfileChars) || undefined,
-    matterContext:
-      windowCaseMarkdownForPrompt(memory.caseMemory, promptWindow.matterContextChars) || undefined,
-    todayLog: truncateForPrompt(memory.todayLog, promptWindow.dayLogChars) || undefined,
     availableTools: registry
       .listDefinitions()
       .filter((def) => availableNames.has(def.name))
@@ -308,27 +380,81 @@ export async function prepareTurnPromptContext(opts: {
     teamOrgOverview,
     teamMeetingMode: teamMeetingMode === true,
     runtimeModel: config.runtimeModel,
-    deliverablePipelineNote,
     appliedPreferencesHint,
-    contextPlanMarkdown,
     mailSendFormatHint,
   });
 
   let systemPromptFinal = systemPrompt;
-  const extraBlocks: string[] = [];
-  if (pinnedContextSummary.markdownBlock) {
-    pushWorldStateExtra(extraBlocks, "pins", pinnedContextSummary.markdownBlock);
+  const fragments: PromptFragment[] = [];
+  if (lawyerFingerprint) {
+    queueFragment(fragments, "preference_fingerprint", `## 当前律师\n\n${lawyerFingerprint}`, {
+      overflow: { tool: "read_workspace_file", path: "LAWYER_PROFILE.md" },
+      capTokens: promptWindow.lawyerFingerprintChars,
+    });
   }
+  if (assistantFingerprint) {
+    queueFragment(
+      fragments,
+      "preference_fingerprint",
+      `## 本助手专属偏好（assistants/<id>/PROFILE.md）\n\n${assistantFingerprint}`,
+      {
+        overflow: { tool: "read_workspace_file", path: "assistants" },
+        capTokens: promptWindow.assistantFingerprintChars,
+      },
+    );
+  }
+  if (clientFingerprint) {
+    queueFragment(
+      fragments,
+      "preference_fingerprint",
+      [
+        "## 客户画像（长期合作）",
+        "",
+        clientFingerprint,
+        "",
+        "与当前案件档案并用；**单案事实、当事人名称与诉请**以 CASE 与律师明示为准。",
+      ].join("\n"),
+      {
+        overflow: { tool: "read_workspace_file", path: clientRel },
+        capTokens: promptWindow.clientFingerprintChars,
+      },
+    );
+  }
+  if (session.matterId && matterIndex) {
+    queueFragment(
+      fragments,
+      "matter_index",
+      `## 当前案件 [${session.matterId}]\n\n${matterIndex}`,
+      {
+        overflow: matterRel ? { tool: "read_case_file", path: matterRel } : undefined,
+        capTokens: promptWindow.matterIndexChars,
+      },
+    );
+  }
+  if (dayLogIndex) {
+    queueFragment(fragments, "memory_hit", `## 今日工作记录\n\n${dayLogIndex}`, {
+      overflow: { tool: "read_workspace_file", path: todayMemoryLogRel() },
+      capTokens: promptWindow.dayLogIndexChars,
+    });
+  }
+  if (contextPlanMarkdown.trim()) {
+    queueFragment(fragments, "protocol", `## 上下文计划（ContextPlan）\n\n${contextPlanMarkdown}`);
+  }
+  queueFragment(fragments, "pins", pinnedContextSummary.markdownBlock, { worldStateId: "pins" });
   try {
     const { pinsIncludeXlsx } = await import("./tools/disclosed-turn-tools.js");
     if (pinsIncludeXlsx(opts.contextPins)) {
-      extraBlocks.push(
+      queueFragment(
+        fragments,
+        "protocol",
         [
-          "",
           "## 表格分析",
-          "已钉选电子表格。请先 `analyze_spreadsheet`，需要算术用 `calculate`（公式与输入必须带回）。",
-          "出图用 `render_chart`，并在助手正文用 ```lm-chart 围栏原样贴回完整 spec。落表用 `write_spreadsheet`。",
-          "数字必须写明来源列。不要把整表倒成 TSV。",
+          "已钉选电子表格。请先 `analyze_spreadsheet`。",
+          "法定金额/期限必须 `calculate`（公式与输入必须带回）。",
+          "归并、透视、自定义汇总或从多表出数：用 `run_compute` 写 JS，按报错自修；不要把源码写进给律师的正文。",
+          "出图用 `run_compute` 的 emitChart 或 `render_chart`，并在助手正文用 ```lm-chart 围栏原样贴回完整 spec。落表用 `write_spreadsheet` 或 writeTable。",
+          "`run_compute` 成功后对照表和意见已进在办；不要只把图画在聊天里，也不必再 draft_document。",
+          "数字必须写明来源列。律师只看表、图、结论。不要把整表倒成 TSV。",
         ].join("\n"),
       );
     }
@@ -342,31 +468,45 @@ export async function prepareTurnPromptContext(opts: {
       projectDir: projectDirResolved,
       pins: opts.contextPins,
     });
-    if (located) {
-      extraBlocks.push(`\n\n${located}`);
-    }
+    queueFragment(fragments, "pins", located);
   } catch {
     /* optional */
   }
-  pushWorldStateExtra(extraBlocks, "matter", formatMatterWorldState(session.matterId));
-  pushWorldStateExtra(
-    extraBlocks,
-    "permission",
-    formatPermissionWorldState(opts.permissionMode ?? "standard"),
+  queueFragment(fragments, "matter_index", formatMatterWorldState(session.matterId), {
+    worldStateId: "matter",
+  });
+  queueFragment(
+    fragments,
+    "environment",
+    formatPermissionWorldState(opts.permissionMode ?? "standard", {
+      allowWebSearch: config.allowWebSearch === true,
+    }),
+    { worldStateId: "permission" },
   );
+  if (session.turnPlan) {
+    queueFragment(fragments, "turn_plan", formatTurnPlanWorldState(session.turnPlan), {
+      worldStateId: "plan",
+    });
+  }
+  queueFragment(fragments, "deliverable", deliverablePipelineNote, { worldStateId: "deliverable" });
 
   if (session.pendingClarificationKeys?.length) {
-    pushWorldStateExtra(
-      extraBlocks,
-      "policy",
-      [
-        "## 未决澄清要点（跨轮保留）",
-        "",
-        "律师尚未完全回答下列关键缺口；继续时可先用只读/`research_task` 收集材料，但**不得**在缺口未对齐时调用 `draft_document` / `execute_workflow` / `render_document`。",
-        "",
-        `待确认键：${session.pendingClarificationKeys.join(", ")}`,
-      ].join("\n"),
-    );
+    const { selectHardClarificationKeys } = await import("../router/intake-gate.js");
+    const hardKeys = selectHardClarificationKeys(session.pendingClarificationKeys);
+    if (hardKeys.length > 0) {
+      queueFragment(
+        fragments,
+        "policy",
+        [
+          "## 未决澄清要点（跨轮保留）",
+          "",
+          "下列为高风险空跑缺口（函件收件人/主张，或诉讼主体/诉请）。继续时可先用只读/`research_task` 收集材料，但**不得**在缺口未对齐时调用 `draft_document` / `execute_workflow` / `render_document`。",
+          "",
+          `待确认键：${hardKeys.join(", ")}`,
+        ].join("\n"),
+        { worldStateId: "policy" },
+      );
+    }
   }
 
   try {
@@ -389,9 +529,11 @@ export async function prepareTurnPromptContext(opts: {
             .replace(/\s+/g, " ")
             .slice(0, 220)}`,
       );
-      extraBlocks.push(
+      queueFragment(
+        fragments,
+        "memory_hit",
         [
-          "\n\n## 待律师采纳的偏好/案件要点（预览，只读）",
+          "## 待律师采纳的偏好/案件要点（预览，只读）",
           "",
           "以下来自整理上下文/沉淀学习等，**尚未写入** MEMORY / CASE；不得当作已生效指令执行。律师可在记忆检查中采纳或驳回。",
           "",
@@ -404,7 +546,6 @@ export async function prepareTurnPromptContext(opts: {
   }
 
   const surfaced = new Set(session.alreadySurfacedMemoryPaths ?? []);
-  // 当前 CASE 已进 system prompt，避免相关记忆再整段注入同一文件
   if (session.matterId?.trim()) {
     surfaced.add(`cases/${session.matterId.trim()}/CASE.md`);
   }
@@ -418,19 +559,22 @@ export async function prepareTurnPromptContext(opts: {
     policy: workspacePolicy,
   });
   if (recalled.length > 0) {
-    const blocks: string[] = ["\n\n## 相关记忆（本轮召回）\n"];
+    const lines = ["## 相关记忆（本轮召回）", ""];
     for (const hit of recalled) {
-      try {
-        const full = path.join(config.workspaceDir, hit.relativePath);
-        const text = fs.readFileSync(full, "utf8").slice(0, 4_000);
-        blocks.push(`### ${hit.relativePath}\n${text}`);
-        surfaced.add(hit.relativePath);
-      } catch {
-        /* skip missing */
+      lines.push(`### ${hit.relativePath}`);
+      if (hit.gist) {
+        lines.push(hit.gist);
       }
+      lines.push(`完整内容请用 read_workspace_file 读取 ${hit.relativePath}`);
+      surfaced.add(hit.relativePath);
     }
     session.alreadySurfacedMemoryPaths = [...surfaced];
-    extraBlocks.push(blocks.join("\n"));
+    queueFragment(fragments, "memory_hit", lines.join("\n"), {
+      overflow: {
+        tool: "read_workspace_file",
+        path: recalled[0]?.relativePath ?? "MEMORY.md",
+      },
+    });
   }
 
   try {
@@ -440,9 +584,7 @@ export async function prepareTurnPromptContext(opts: {
       matterId: session.matterId,
       limit: 3,
     });
-    if (revisionBlock) {
-      extraBlocks.push(`\n\n${revisionBlock}`);
-    }
+    queueFragment(fragments, "memory_hit", revisionBlock);
   } catch {
     /* optional recall */
   }
@@ -451,8 +593,8 @@ export async function prepareTurnPromptContext(opts: {
     const { INTAKE_CRAFT_SKILL, formatIntakeSoftAskBlock } =
       await import("../router/intake-craft.js");
     if (intakeAdvisoryQs.length > 0) {
-      extraBlocks.push(`\n\n${INTAKE_CRAFT_SKILL}`);
-      extraBlocks.push(`\n\n${formatIntakeSoftAskBlock(intakeAdvisoryQs)}`);
+      queueFragment(fragments, "craft", INTAKE_CRAFT_SKILL);
+      queueFragment(fragments, "protocol", formatIntakeSoftAskBlock(intakeAdvisoryQs));
     }
   } catch {
     /* optional */
@@ -462,11 +604,10 @@ export async function prepareTurnPromptContext(opts: {
     const { isMailContractFastPathInstruction, MAIL_CONTRACT_FAST_PATH_PROMPT } =
       await import("./mail-contract-fast-path.js");
     if (isMailContractFastPathInstruction(instruction)) {
-      extraBlocks.push(`\n\n${MAIL_CONTRACT_FAST_PATH_PROMPT}`);
+      queueFragment(fragments, "craft", MAIL_CONTRACT_FAST_PATH_PROMPT);
     } else {
       const { isWordRevisionTurn, WORD_REVISION_PROMPT } =
         await import("../platform/word-revision-instruction.js");
-      const { CONTRACT_REDLINE_CRAFT_SKILL } = await import("../drafts/contract-redline-craft.js");
       const { formatWordRevisionChecklistBlock } =
         await import("../platform/word-revision-checklist.js");
       const { readPinnedWordExcerpt } =
@@ -477,28 +618,33 @@ export async function prepareTurnPromptContext(opts: {
         pins: opts.contextPins,
       }).catch(() => "");
       if (isWordRevisionTurn({ instruction, pins: opts.contextPins })) {
-        extraBlocks.push(
-          `\n\n${WORD_REVISION_PROMPT}\n\n${formatWordRevisionChecklistBlock({
+        queueFragment(fragments, "craft", WORD_REVISION_PROMPT);
+        queueFragment(
+          fragments,
+          "protocol",
+          formatWordRevisionChecklistBlock({
             instruction,
             pins: opts.contextPins,
             workspaceDir: config.workspaceDir,
             documentText,
             purpose: "revise",
-          })}\n\n${CONTRACT_REDLINE_CRAFT_SKILL}`,
+          }),
         );
       } else {
         const { isContractFastLaneInstruction, CONTRACT_FAST_LANE_PROMPT } =
           await import("../platform/contract-fast-lane-instruction.js");
         if (isContractFastLaneInstruction(instruction)) {
-          extraBlocks.push(`\n\n${CONTRACT_FAST_LANE_PROMPT}`);
-          extraBlocks.push(
-            `\n\n${formatWordRevisionChecklistBlock({
+          queueFragment(fragments, "craft", CONTRACT_FAST_LANE_PROMPT);
+          queueFragment(
+            fragments,
+            "protocol",
+            formatWordRevisionChecklistBlock({
               instruction,
               pins: opts.contextPins,
               workspaceDir: config.workspaceDir,
               documentText,
               purpose: "review",
-            })}`,
+            }),
           );
         }
       }
@@ -523,8 +669,11 @@ export async function prepareTurnPromptContext(opts: {
       const { planLeanSkillPrompt } = await import("../skills/skill-prompt-budget.js");
       const lean = planLeanSkillPrompt(bound, instruction);
       const bodies = readSkillPromptBodies(config.workspaceDir, lean.primaryIds);
-      extraBlocks.push(
-        `\n\n${formatBoundCapabilityBlock(bound, bodies, { indexLines: lean.indexLines })}`,
+      queueFragment(
+        fragments,
+        "skill_index",
+        formatBoundCapabilityBlock(bound, bodies, { indexLines: lean.indexLines, instruction }),
+        { overflow: { tool: "read_workspace_file", path: "skills" } },
       );
       const {
         formatPracticePlaybookPromptBlock,
@@ -532,23 +681,36 @@ export async function prepareTurnPromptContext(opts: {
         shouldInjectPracticePlaybook,
       } = await import("../practice/practice-playbook.js");
       if (shouldInjectPracticePlaybook(bound)) {
-        extraBlocks.push(
-          `\n\n${formatPracticePlaybookPromptBlock(loadPracticePlaybook(config.workspaceDir))}`,
+        queueFragment(
+          fragments,
+          "protocol",
+          formatPracticePlaybookPromptBlock(loadPracticePlaybook(config.workspaceDir)),
+          { overflow: { tool: "read_workspace_file", path: "playbooks" } },
         );
       }
       const { formatUserStandardsPromptBlock, matchUserStandards, shouldInjectUserStandards } =
         await import("../practice/user-standards.js");
       if (shouldInjectUserStandards(bound)) {
         const { inferClosedContractType } = await import("../contracts/closed-contract-type.js");
+        const stdKind =
+          bound.id === "litigation.talk" || bound.id === "litigation.draft"
+            ? "litigation_intake"
+            : bound.id === "contract.review" || bound.id === "contract.draft"
+              ? "contract_review"
+              : undefined;
         const stdBlock = formatUserStandardsPromptBlock(
-          matchUserStandards(config.workspaceDir, {
-            instruction,
-            contractType: inferClosedContractType(instruction).id,
-          }),
+          matchUserStandards(
+            config.workspaceDir,
+            {
+              instruction,
+              contractType: inferClosedContractType(instruction).id,
+            },
+            stdKind,
+          ),
         );
-        if (stdBlock) {
-          extraBlocks.push(`\n\n${stdBlock}`);
-        }
+        queueFragment(fragments, "preference_fingerprint", stdBlock, {
+          overflow: { tool: "read_workspace_file", path: "playbooks" },
+        });
       }
       const {
         formatClosedContractTypePromptBlock,
@@ -556,29 +718,39 @@ export async function prepareTurnPromptContext(opts: {
         shouldInjectClosedContractType,
       } = await import("../contracts/closed-contract-type.js");
       if (shouldInjectClosedContractType(bound)) {
-        extraBlocks.push(
-          `\n\n${formatClosedContractTypePromptBlock(inferClosedContractType(instruction))}`,
+        queueFragment(
+          fragments,
+          "protocol",
+          formatClosedContractTypePromptBlock(inferClosedContractType(instruction)),
         );
       }
+      const protocolGate = {
+        instruction,
+        availableToolNames: opts.availableToolNames,
+      };
       const { formatAudienceSplitPromptBlock, inferDraftAudience, shouldInjectAudienceSplit } =
         await import("../drafts/audience-split.js");
       if (shouldInjectAudienceSplit(bound)) {
-        extraBlocks.push(`\n\n${formatAudienceSplitPromptBlock(inferDraftAudience(instruction))}`);
+        queueFragment(
+          fragments,
+          "protocol",
+          formatAudienceSplitPromptBlock(inferDraftAudience(instruction)),
+        );
       }
       const { shouldInjectRedlinePlanProtocol, formatRedlinePlanPromptBlock } =
         await import("../drafts/redline-plan.js");
-      if (shouldInjectRedlinePlanProtocol(bound)) {
-        extraBlocks.push(`\n\n${formatRedlinePlanPromptBlock()}`);
+      if (shouldInjectRedlinePlanProtocol(bound, protocolGate)) {
+        queueFragment(fragments, "protocol", formatRedlinePlanPromptBlock());
       }
       const { shouldInjectPairedReviewDeliverable, formatPairedReviewDeliverablePromptBlock } =
         await import("../drafts/paired-review-deliverable.js");
-      if (shouldInjectPairedReviewDeliverable(bound, opts.contextPins)) {
-        extraBlocks.push(`\n\n${formatPairedReviewDeliverablePromptBlock()}`);
+      if (shouldInjectPairedReviewDeliverable(bound, opts.contextPins, protocolGate)) {
+        queueFragment(fragments, "protocol", formatPairedReviewDeliverablePromptBlock());
       }
       const { shouldInjectResearchProtocol, formatResearchProtocolPromptBlock } =
         await import("../research/research-protocol.js");
-      if (shouldInjectResearchProtocol(bound)) {
-        extraBlocks.push(`\n\n${formatResearchProtocolPromptBlock()}`);
+      if (shouldInjectResearchProtocol(bound, protocolGate)) {
+        queueFragment(fragments, "protocol", formatResearchProtocolPromptBlock());
       }
       const {
         shouldInjectBilateralReview,
@@ -587,12 +759,14 @@ export async function prepareTurnPromptContext(opts: {
         formatBilateralReviewPromptBlock,
       } = await import("../practice/bilateral-review.js");
       if (shouldInjectBilateralReview(bound)) {
-        extraBlocks.push(
-          `\n\n${formatBilateralReviewPromptBlock({
+        queueFragment(
+          fragments,
+          "protocol",
+          formatBilateralReviewPromptBlock({
             paper: inferPaperSide(instruction),
             role: inferDealRole(instruction, inferClosedContractType(instruction).id),
             playbook: loadPracticePlaybook(config.workspaceDir),
-          })}`,
+          }),
         );
       }
     }
@@ -604,8 +778,8 @@ export async function prepareTurnPromptContext(opts: {
           /prepare_outbound_mail|意见书/.test(instruction)));
     if (looksOpinion) {
       const { OPINION_CRAFT_SKILL } = await import("../drafts/opinion-craft.js");
-      if (!extraBlocks.some((b) => b.includes("合同审查意见书"))) {
-        extraBlocks.push(`\n\n${OPINION_CRAFT_SKILL}`);
+      if (!fragments.some((f) => f.body.includes("合同审查意见书"))) {
+        queueFragment(fragments, "craft", OPINION_CRAFT_SKILL);
       }
     }
   } catch {
@@ -614,12 +788,18 @@ export async function prepareTurnPromptContext(opts: {
 
   if (session.needsCompactReinjection) {
     const { formatCompactReinjectionBlock } = await import("./compact-reinjection.js");
-    pushWorldStateExtra(
-      extraBlocks,
-      "craft",
-      formatCompactReinjectionBlock({ mandatoryRulesActive: mandatoryRules.active }),
-    );
+    const { mergeLegacyUpdateDraftWarningIntoCraft } =
+      await import("../drafts/legacy-update-draft-warning.js");
+    let craftBody = formatCompactReinjectionBlock({ mandatoryRulesActive: mandatoryRules.active });
+    if (session.legacyUpdateDraftBodyWarning) {
+      craftBody = mergeLegacyUpdateDraftWarningIntoCraft(craftBody);
+    }
+    queueFragment(fragments, "craft", craftBody, { worldStateId: "craft" });
     session.needsCompactReinjection = false;
+  } else if (session.legacyUpdateDraftBodyWarning) {
+    const { LEGACY_UPDATE_DRAFT_BODY_WARNING } =
+      await import("../drafts/legacy-update-draft-warning.js");
+    queueFragment(fragments, "craft", LEGACY_UPDATE_DRAFT_BODY_WARNING, { worldStateId: "craft" });
   }
 
   try {
@@ -629,10 +809,7 @@ export async function prepareTurnPromptContext(opts: {
       currentMatterId: session.matterId,
       limit: 2,
     });
-    const similarBlock = formatSimilarCaseRecallBlock(similar);
-    if (similarBlock) {
-      extraBlocks.push(`\n\n${similarBlock}`);
-    }
+    queueFragment(fragments, "memory_hit", formatSimilarCaseRecallBlock(similar));
   } catch {
     /* optional */
   }
@@ -645,17 +822,19 @@ export async function prepareTurnPromptContext(opts: {
       deliverableType: dt,
       limit: 2,
     });
-    const goldenBlock = formatGoldenExamplesPromptBlock(goldenHints);
-    if (goldenBlock) {
-      extraBlocks.push(`\n\n${goldenBlock}`);
-    }
+    queueFragment(fragments, "memory_hit", formatGoldenExamplesPromptBlock(goldenHints));
   } catch {
     /* optional */
   }
 
-  if (extraBlocks.length > 0) {
-    systemPromptFinal = systemPrompt + extraBlocks.join("");
+  const packed = packPromptFragments(fragments, FRAGMENT_SESSION_TAIL_BUDGET_TOKENS);
+  const { worldState, sessionTail } = partitionPackedFragments(packed);
+  const worldBlocks = renderPackedFragments(worldState);
+  if (worldBlocks.length > 0) {
+    systemPromptFinal = systemPrompt + worldBlocks.join("");
   }
+  const tail = renderPackedFragments(sessionTail).join("").trim();
+  session.samplingPromptTail = tail || undefined;
 
   const existingSystem =
     session.conversationHistory[0]?.role === "system"
@@ -689,7 +868,7 @@ export async function prepareTurnPromptContext(opts: {
       content: systemPromptFinal,
       timestamp: new Date().toISOString(),
     });
-  } else {
+  } else if (session.conversationHistory[0].content !== systemPromptFinal) {
     session.conversationHistory[0].content = systemPromptFinal;
     session.conversationHistory[0].timestamp = new Date().toISOString();
   }

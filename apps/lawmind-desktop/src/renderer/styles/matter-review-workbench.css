@@ -816,33 +816,120 @@
   color: var(--text);
 }
 
-.lm-workbench-tabs {
+/* Page tab row (not a half-empty segmented box). */
+.lm-workbench-tabs.lm-tabs {
+  margin: 0;
   padding: 0 20px;
   flex-shrink: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+}
+
+.lm-workbench-tabs.lm-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.lm-workbench-tabs .lm-tab {
+  flex: 0 0 auto;
+  border-radius: 0;
+  box-shadow: none;
+  min-height: 36px;
+  padding: 8px 14px;
+}
+
+.lm-workbench-tabs .lm-tab.active {
+  background: transparent;
+  box-shadow: none;
+  border-bottom: 2px solid var(--accent);
+  margin-bottom: -1px;
+}
+
+/* Tab panels must fill remaining height so .lm-workbench-panel can scroll.
+ * Without this, overflow:hidden on .lm-workbench-main clips 概览 below the first card. */
+.lm-workbench-tabpanel {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .lm-workbench-panel {
   padding: 16px 20px;
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
+  scrollbar-width: thin;
+}
+
+/* Review matrix: one scrollbar on the table, header stays put. */
+.lm-workbench-panel.lm-review-matrix {
+  overflow: hidden;
+  gap: 12px;
 }
 
 .lm-workbench-panel h3 {
   font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.02em;
   color: var(--muted);
-  margin-bottom: 8px;
+  margin: 0;
+}
+
+.lm-workbench-panel > h3 + * {
+  margin-top: -8px;
+}
+
+.lm-matter-todo-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lm-matter-todo-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px 16px;
+}
+
+.lm-matter-todo-head h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--text);
+}
+
+.lm-matter-overview-extras {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.lm-matter-overview-extras .lm-matter-summary-card {
+  min-height: 0;
+}
+
+.lm-matter-decision-rail .lm-matter-next-actions-list {
+  flex: 1 1 100%;
+  margin: 4px 0 0;
 }
 
 .lm-matter-cockpit-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 14px;
 }
 
@@ -1533,7 +1620,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px 16px;
-  margin: 12px 0;
+  margin: 0;
   padding: 14px 16px;
   border: 1px solid color-mix(in srgb, var(--accent-border) 40%, var(--border));
   border-radius: var(--r-lg);
@@ -1997,8 +2084,9 @@
   border: 1px solid var(--border);
   border-radius: var(--r);
   padding: 12px;
-  max-height: 360px;
+  max-height: min(52vh, 480px);
   overflow: auto;
+  scrollbar-width: thin;
 }
 
 .lm-case-search {
@@ -2077,9 +2165,35 @@
   gap: 24px;
 }
 
+@media (max-width: 1100px) {
+  .lm-matter-cognition-board {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .lm-matter-memory-category-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 900px) {
   .lm-two-col { grid-template-columns: 1fr; }
   .lm-matter-cockpit-grid { grid-template-columns: 1fr; }
+  .lm-matter-cognition-grid {
+    grid-template-columns: 1fr;
+  }
+  .lm-matter-cognition-head {
+    flex-direction: column;
+  }
+  .lm-matter-cognition-select {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+@media (max-width: 760px) {
+  .lm-matter-cognition-board,
+  .lm-matter-memory-category-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .lm-audit-list {

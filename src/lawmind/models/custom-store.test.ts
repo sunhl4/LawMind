@@ -11,6 +11,7 @@ import {
   removeCustomModel,
   setDraftWithModelEnabled,
   setWorkerModelId,
+  setRetrievalModelId,
 } from "./custom-store.js";
 
 describe("lawmind custom-store", () => {
@@ -169,6 +170,14 @@ describe("lawmind custom-store", () => {
     expect(readModelsStore(lawMindRoot).workerModelId).toBe("builtin:qwen-turbo");
     setWorkerModelId(lawMindRoot, undefined);
     expect(readModelsStore(lawMindRoot).workerModelId).toBeUndefined();
+  });
+
+  it("persists retrievalModelId across read/write", () => {
+    lawMindRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-store-"));
+    setRetrievalModelId(lawMindRoot, "builtin:qwen-plus");
+    expect(readModelsStore(lawMindRoot).retrievalModelId).toBe("builtin:qwen-plus");
+    setRetrievalModelId(lawMindRoot, undefined);
+    expect(readModelsStore(lawMindRoot).retrievalModelId).toBeUndefined();
   });
 
   it("persists optional stop sequences on custom models (E3)", () => {

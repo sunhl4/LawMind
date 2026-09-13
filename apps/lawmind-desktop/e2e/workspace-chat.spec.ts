@@ -31,4 +31,24 @@ test.describe("LawMind workspace chat", () => {
     await composer.fill("E2E smoke message");
     await expect(page.getByRole("button", { name: /发送|交办/i }).first()).toBeEnabled();
   });
+
+  test("dropping a workspace file onto compose pins it as turn context", async ({ page }) => {
+    await gotoShell(page);
+    await openWorkspaceChat(page);
+    const zone = page.getByTestId("lm-compose-drop-zone");
+    await expect(zone).toBeVisible({ timeout: 15_000 });
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="lm-compose-drop-zone"]');
+      if (!(el instanceof HTMLElement)) {
+        throw new Error("missing compose drop zone");
+      }
+      const dt = new DataTransfer();
+      dt.setData(
+        "application/x-lawmind-fs-item",
+        JSON.stringify({ root: "workspace", relPath: "contracts/nda.docx", kind: "file" }),
+      );
+      el.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+    });
+    await expect(page.getByRole("region", { name: "本回合上下文" })).toContainText("nda.docx");
+  });
 });

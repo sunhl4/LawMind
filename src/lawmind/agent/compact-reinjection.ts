@@ -2,7 +2,9 @@
  * After context compact, remind the model that RULES / deliverable / Craft still bind.
  */
 
+import { mergeLegacyUpdateDraftWarningIntoCraft } from "../drafts/legacy-update-draft-warning.js";
 import { insertBeforeLastUserMessage, COMPACT_REINJECTION_MARKER } from "./compact-insert.js";
+import { formatTurnPlanWorldState } from "./turn-plan.js";
 import type { AgentSession } from "./types.js";
 import { collectWorldStateHashes, upsertWorldStateSection } from "./world-state.js";
 
@@ -34,10 +36,20 @@ export function applyCompactReinjectionToSession(
   if (!session.needsCompactReinjection) {
     return false;
   }
-  const block = formatCompactReinjectionBlock(opts);
+  let block = formatCompactReinjectionBlock(opts);
+  if (session.legacyUpdateDraftBodyWarning) {
+    block = mergeLegacyUpdateDraftWarningIntoCraft(block);
+  }
   const sys = session.conversationHistory.find((m) => m.role === "system");
   if (sys) {
     sys.content = upsertWorldStateSection(sys.content, "craft", block);
+    if (session.turnPlan) {
+      sys.content = upsertWorldStateSection(
+        sys.content,
+        "plan",
+        formatTurnPlanWorldState(session.turnPlan),
+      );
+    }
     sys.timestamp = new Date().toISOString();
     session.worldStateBaseline = collectWorldStateHashes(sys.content);
     session.worldStateEpoch = (session.worldStateEpoch ?? 0) + 1;

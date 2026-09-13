@@ -67,4 +67,31 @@ describe("LawmindReviewSelfCheckSummary", () => {
     });
     host.remove();
   });
+
+  it("shows independent Guardian fail, not writer self-score", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <LawmindReviewSelfCheckSummary
+          acceptance={null}
+          citation={null}
+          guardian={{
+            verdict: "fail",
+            round: 1,
+            maxRounds: 2,
+            gaps: [{ code: "coverage_gap", message: "仲裁条款未落改也未缓办" }],
+          }}
+        />,
+      );
+    });
+    expect(host.querySelector('[data-testid="lm-review-guardian-line"]')?.textContent).toBe(
+      "独立审稿：未过 · 1",
+    );
+    act(() => {
+      root.unmount();
+    });
+    host.remove();
+  });
 });

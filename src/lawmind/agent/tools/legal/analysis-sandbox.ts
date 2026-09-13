@@ -1,19 +1,72 @@
 /**
- * Guest VM for run_analysis: only readTable / stats / writeTable / emitChart.
+ * Guest VM for run_analysis / run_compute.
+ * Host I/O: readTable / readCsv / readJson / stats / writeTable / emitChart.
+ * Language: ordinary JS plus safe globals (Math/JSON/Date/…).
  * No fs, child_process, fetch, or network. Not an OS jail — string codegen is off.
  */
 
+import fs from "node:fs/promises";
 import path from "node:path";
 import vm from "node:vm";
 import { isAllowedAnalysisScriptRel } from "../../../runtime/analysis-script-path.js";
 import { resolveWorkspaceRelativePath } from "../../../runtime/workspace-path.js";
 import { parseChartSpec, type ChartSpec } from "./chart-spec.js";
-import { loadXlsxWorkbook, writeXlsxWorkbook, type XlsxCell } from "./xlsx-workbook.js";
+import {
+  loadXlsxWorkbook,
+  writeXlsxWorkbook,
+  type XlsxCell,
+  MAX_XLSX_ROWS_PER_SHEET,
+} from "./xlsx-workbook.js";
 
 export { isAllowedAnalysisScriptRel };
 
 export const ANALYSIS_TIMEOUT_MS = 15_000;
 export const ANALYSIS_OUTPUT_MAX_CHARS = 40_000;
+export const ANALYSIS_CSV_MAX_BYTES = 2_000_000;
+export const ANALYSIS_JSON_MAX_BYTES = 1_000_000;
+
+const SAFE_GLOBAL_KEYS = [
+  "Math",
+  "JSON",
+  "Number",
+  "String",
+  "Boolean",
+  "Array",
+  "Object",
+  "Date",
+  "parseInt",
+  "parseFloat",
+  "isNaN",
+  "isFinite",
+  "Infinity",
+  "NaN",
+  "undefined",
+  "Map",
+  "Set",
+  "WeakMap",
+  "WeakSet",
+  "RegExp",
+  "Error",
+  "TypeError",
+  "RangeError",
+  "URIError",
+  "Promise",
+  "encodeURIComponent",
+  "decodeURIComponent",
+  "encodeURI",
+  "decodeURI",
+] as const;
+
+function collectSafeGlobals(): Record<string, unknown> {
+  const g = globalThis as unknown as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of SAFE_GLOBAL_KEYS) {
+    if (key in g) {
+      out[key] = g[key];
+    }
+  }
+  return out;
+}
 
 const FORBIDDEN_RE =
   /\b(require|process|fetch|XMLHttpRequest|WebSocket|child_process|import\s*\(|Function\s*\(|eval\s*\(|constructor\s*\(|__proto__|globalThis|Proxy\s*\()/;
@@ -54,6 +107,73 @@ function assertXlsxRel(rel: string): void {
   if (path.extname(rel).toLowerCase() !== ".xlsx") {
     throw new Error("只支持 .xlsx 表格。");
   }
+}
+
+function coerceDelimitedCell(raw: string): XlsxCell {
+  const t = raw.trim();
+  if (t === "") {
+    return null;
+  }
+  if (t === "true") {
+    return true;
+  }
+  if (t === "false") {
+    return false;
+  }
+  if (/^-?\d+(\.\d+)?$/.test(t)) {
+    const n = Number(t);
+    if (Number.isFinite(n)) {
+      return n;
+    }
+  }
+  return t;
+}
+
+export function splitDelimitedLine(line: string, sep: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        cur += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (ch === sep && !inQuotes) {
+      out.push(cur);
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+export function parseDelimitedText(
+  text: string,
+  sep: string,
+): { headers: string[]; rows: XlsxCell[][] } {
+  const lines = text
+    .replace(/^\uFEFF/, "")
+    .split(/\r?\n/)
+    .filter((line) => line.length > 0)
+    .slice(0, MAX_XLSX_ROWS_PER_SHEET + 1);
+  const headerLine = lines[0] ?? "";
+  const headers = splitDelimitedLine(headerLine, sep).map((c, i) =>
+    c.trim() === "" ? `列${i + 1}` : c.trim(),
+  );
+  const rows = lines.slice(1).map((line) => {
+    const cells = splitDelimitedLine(line, sep).map(coerceDelimitedCell);
+    while (cells.length < headers.length) {
+      cells.push(null);
+    }
+    return cells.slice(0, headers.length);
+  });
+  return { headers, rows };
 }
 
 export function createAnalysisApi(workspaceDir: string, out: AnalysisSandboxResult) {
@@ -113,6 +233,38 @@ export function createAnalysisApi(workspaceDir: string, out: AnalysisSandboxResu
       });
       return { path: located.rel };
     },
+    async readCsv(filePath: string): Promise<AnalysisTable> {
+      const located = assertSafeRel(workspaceDir, String(filePath ?? ""));
+      const ext = path.extname(located.rel).toLowerCase();
+      if (ext !== ".csv" && ext !== ".tsv") {
+        throw new Error("只支持 .csv / .tsv。");
+      }
+      const st = await fs.stat(located.abs);
+      if (st.size > ANALYSIS_CSV_MAX_BYTES) {
+        throw new Error("表格文件过大。");
+      }
+      const text = await fs.readFile(located.abs, "utf8");
+      const sep = ext === ".tsv" ? "\t" : ",";
+      const parsed = parseDelimitedText(text, sep);
+      return {
+        path: located.rel,
+        sheet: path.basename(located.rel),
+        headers: parsed.headers,
+        rows: parsed.rows,
+      };
+    },
+    async readJson(filePath: string): Promise<unknown> {
+      const located = assertSafeRel(workspaceDir, String(filePath ?? ""));
+      if (path.extname(located.rel).toLowerCase() !== ".json") {
+        throw new Error("只支持 .json。");
+      }
+      const st = await fs.stat(located.abs);
+      if (st.size > ANALYSIS_JSON_MAX_BYTES) {
+        throw new Error("JSON 文件过大。");
+      }
+      const text = await fs.readFile(located.abs, "utf8");
+      return JSON.parse(text) as unknown;
+    },
     emitChart(raw: unknown) {
       const parsed = parseChartSpec(raw);
       if (!parsed.ok) {
@@ -153,7 +305,10 @@ export async function runAnalysisScriptInVm(opts: {
   const api = createAnalysisApi(opts.workspaceDir, out);
   const logs: string[] = [];
   const sandbox: Record<string, unknown> = {
+    ...collectSafeGlobals(),
     readTable: api.readTable.bind(api),
+    readCsv: api.readCsv.bind(api),
+    readJson: api.readJson.bind(api),
     stats: api.stats.bind(api),
     writeTable: api.writeTable.bind(api),
     emitChart: api.emitChart.bind(api),

@@ -1,5 +1,6 @@
 /** Matter, workspace, statute, case-law, and project file search tools. */
 import fs from "node:fs/promises";
+import path from "node:path";
 import { loadMatter } from "../../../adapters/matter-storage/index.js";
 import { buildMatterIndex, listMatterIds, searchMatterIndex } from "../../../cases/index.js";
 import { searchPersonalKnowledge } from "../../../indexing/knowledge-search.js";
@@ -11,6 +12,7 @@ import {
   toolDataFromIngestSuccess,
   toolFailureFromIngest,
 } from "../../../platform/ingest-helpers.js";
+import { directoryListingToolData, resolveAndListDirectory } from "../../../runtime/list-dir.js";
 import { resolveWorkspaceRelativePath } from "../../../runtime/workspace-path.js";
 import { searchLawyerWorks } from "../../../work/search.js";
 import type { AgentTool } from "../../types.js";
@@ -208,7 +210,7 @@ export const readProjectFile: AgentTool = {
   definition: {
     name: "read_project_file",
     description:
-      "读取律师在桌面端关联的「项目目录」下的文本文件、PDF、.docx、.xlsx（表格转 TSV 纯文本，有界）、常见图片（OCR，可选视觉兜底）（相对路径）。二进制 .doc 请用 analyze_document（直接提取，无需转格式）；不支持 .xls/.ppt 与 .pptx。用于合同、证据清单、说明等本地材料；未关联项目时不可用。大文件请用 offset/limit（字符）分页；hasMore=true 时用 nextOffset 续读。",
+      "读取律师在桌面端关联的「项目目录」下的文本文件、PDF、.docx、.xlsx（表格转 TSV 纯文本，有界）、常见图片（OCR，可选视觉兜底）（相对路径）。若路径是目录则递归列举子目录与文件。二进制 .doc 请用 analyze_document（直接提取，无需转格式）；不支持 .xls/.ppt 与 .pptx。用于合同、证据清单、说明等本地材料；未关联项目时不可用。大文件请用 offset/limit（字符）分页；hasMore=true 时用 nextOffset 续读。",
     category: "search",
     parameters: {
       relative_path: {
@@ -237,7 +239,8 @@ export const readProjectFile: AgentTool = {
         ),
       );
     }
-    const rel = normalizeRelPath(params.relative_path as string);
+    const relRaw = typeof params.relative_path === "string" ? params.relative_path : "";
+    const rel = normalizeRelPath(relRaw);
     const toProjectSuccess = (
       sourceType: IngestSourceType,
       content: string,
@@ -263,9 +266,13 @@ export const readProjectFile: AgentTool = {
         { contentTrust: "untrusted_user_document" },
       );
     };
-    if (!rel) {
+    if (!rel || rel === ".") {
+      const listing = resolveAndListDirectory(ctx, rel || ".", { recursive: true });
+      if (listing.ok) {
+        return { ok: true, data: directoryListingToolData(listing) };
+      }
       return toolFailureFromIngest(
-        ingestFailure("INGEST_INVALID_PATH", "path_validation", "非法路径"),
+        ingestFailure("INGEST_INVALID_PATH", "path_validation", listing.error),
       );
     }
     const resolved = resolveWorkspaceRelativePath(root, rel);
@@ -280,6 +287,13 @@ export const readProjectFile: AgentTool = {
     }
     const full = resolved.abs;
     const st = await fs.stat(full).catch(() => null);
+    if (st?.isDirectory()) {
+      const listing = resolveAndListDirectory(ctx, rel, { recursive: true });
+      if (listing.ok) {
+        return { ok: true, data: directoryListingToolData(listing) };
+      }
+      return { ok: false, error: listing.error };
+    }
     if (!st?.isFile()) {
       return toolFailureFromIngest(
         ingestFailure("INGEST_NOT_FOUND", "file_stat", "文件不存在或不是普通文件"),
@@ -690,6 +704,33 @@ export const checkConflictOfInterest: AgentTool = {
         flags.push(
           `「${party}」在多个来源中出现：${matters.join("、")} — 请核对是否构成利益冲突。`,
         );
+      }
+    }
+
+    const { buildHostAccessRuntime } = await import("../../../host-access/access-broker.js");
+    const { readMatterParties } = await import("../../../host-access/matter-fence.js");
+    const hostRuntime = buildHostAccessRuntime({
+      workspaceDir: ctx.workspaceDir,
+      sessionId: ctx.sessionId,
+      matterId: ctx.matterId,
+      projectDir: ctx.projectDir,
+      hostMounts: ctx.hostMounts,
+      hostAccessFile: ctx.hostAccessFile,
+    });
+    for (const mount of hostRuntime.mounts) {
+      const bound = mount.matterId?.trim();
+      if (!bound) {
+        continue;
+      }
+      const mountParties = readMatterParties(ctx.workspaceDir, bound);
+      const blob =
+        `${mountParties.clientId ?? ""} ${mountParties.counterparty ?? ""}`.toLowerCase();
+      for (const party of parties) {
+        if (blob.includes(party.toLowerCase())) {
+          flags.push(
+            `本机文件夹「${mount.label || path.basename(mount.absPath)}」绑定案件 ${bound}，出现「${party}」— 请核对是否构成利益冲突。`,
+          );
+        }
       }
     }
 

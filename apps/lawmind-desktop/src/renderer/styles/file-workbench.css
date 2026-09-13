@@ -90,6 +90,7 @@
 }
 
 .lm-cursor-chat-pane {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -98,6 +99,27 @@
   background:
     radial-gradient(ellipse 80% 40% at 50% 0%, rgba(166, 124, 82, 0.05), transparent 55%),
     var(--bg);
+}
+
+.lm-chat-drop-overlay {
+  position: absolute;
+  inset: 8px;
+  z-index: 20;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--accent-border);
+  border-radius: var(--r-xl, 16px);
+  background: color-mix(in srgb, var(--accent-dim) 82%, var(--surface));
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.lm-cursor-chat-pane.lm-chat-drop-active {
+  outline: none;
 }
 
 .lm-cursor-pane-editor-host:not([style*="display: none"]) {

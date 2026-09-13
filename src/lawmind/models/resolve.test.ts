@@ -23,7 +23,14 @@ describe("lawmind models resolve", () => {
     delete process.env.LAWMIND_AGENT_MODEL;
     delete process.env.LAWMIND_AGENT_BASE_URL;
     delete process.env.LAWMIND_QWEN_API_KEY;
+    delete process.env.LAWMIND_QWEN_BASE_URL;
+    delete process.env.LAWMIND_DEEPSEEK_API_KEY;
+    delete process.env.LAWMIND_DEEPSEEK_MODEL;
+    delete process.env.LAWMIND_PROVIDER_DEEPSEEK_API_KEY;
+    delete process.env.LAWMIND_PROVIDER_DASHSCOPE_API_KEY;
+    delete process.env.LAWMIND_PROVIDER_OPENAI_API_KEY;
     delete process.env.LAWMIND_PLATFORM_PROVIDER_DASHSCOPE_API_KEY;
+    delete process.env.LAWMIND_PLATFORM_PROVIDER_DEEPSEEK_API_KEY;
     delete process.env.LAWMIND_PLATFORM_PROXY_URL;
     delete process.env.LAWMIND_PLATFORM_ACCESS_TOKEN;
   });
@@ -94,6 +101,38 @@ describe("lawmind models resolve", () => {
     expect(r.model?.model).toBe("qwen-plus");
   });
 
+  it("marks only that vendor's platform rows configured in platform_key mode", () => {
+    lawMindRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-models-"));
+    process.env.LAWMIND_PLATFORM_PROVIDER_DASHSCOPE_API_KEY = "sk-platform";
+    const cat = buildModelCatalog(lawMindRoot);
+    expect(cat.platformMode).toBe("platform_key");
+    expect(cat.models.find((m) => m.id === "platform:qwen-plus")?.configured).toBe(true);
+    expect(cat.models.find((m) => m.id === "platform:deepseek-flash")?.configured).toBe(false);
+    expect(cat.models.find((m) => m.id === "platform:gpt-4o-mini")?.configured).toBe(false);
+    expect(resolveDefaultModelId(lawMindRoot)).toBe("platform:qwen-plus");
+    const flash = resolveAgentModelById(lawMindRoot, "platform:deepseek-flash");
+    expect(flash.error).toBe("missing_platform_api_key");
+  });
+
+  it("marks every platform row configured when the platform proxy is set", () => {
+    lawMindRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-models-"));
+    process.env.LAWMIND_PLATFORM_PROXY_URL = "https://platform.example/v1";
+    process.env.LAWMIND_PLATFORM_ACCESS_TOKEN = "tok-platform";
+    const cat = buildModelCatalog(lawMindRoot);
+    expect(cat.platformMode).toBe("proxy");
+    expect(cat.models.filter((m) => m.kind === "platform").every((m) => m.configured)).toBe(true);
+    expect(resolveDefaultModelId(lawMindRoot)).toBe("platform:deepseek-flash");
+  });
+
+  it("does not light up DashScope builtins from leftover DeepSeek Qwen env copies", () => {
+    lawMindRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-models-"));
+    delete process.env.LAWMIND_PROVIDER_DASHSCOPE_API_KEY;
+    process.env.LAWMIND_QWEN_API_KEY = "sk-leftover";
+    process.env.LAWMIND_QWEN_BASE_URL = "https://api.deepseek.com/v1";
+    const cat = buildModelCatalog(lawMindRoot);
+    expect(cat.models.find((m) => m.id === "builtin:qwen-plus")?.configured).toBe(false);
+  });
+
   it("exposes env:current when wizard model is not in builtin catalog", () => {
     lawMindRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-models-"));
     process.env.LAWMIND_AGENT_API_KEY = "sk-wizard";
@@ -120,5 +159,84 @@ describe("lawmind models resolve", () => {
       "utf8",
     );
     expect(resolveDefaultModelId(lawMindRoot)).toBe("builtin:qwen-max");
+  });
+
+  it("defaults to deepseek-flash when no model is configured", () => {
+    lawMindRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-models-"));
+    delete process.env.LAWMIND_DEEPSEEK_API_KEY;
+    delete process.env.LAWMIND_PROVIDER_DEEPSEEK_API_KEY;
+    delete process.env.DEEPSEEK_API_KEY;
+    delete process.env.LAWMIND_QWEN_API_KEY;
+    delete process.env.LAWMIND_AGENT_API_KEY;
+    delete process.env.LAWMIND_PROVIDER_DASHSCOPE_API_KEY;
+    delete process.env.LAWMIND_PROVIDER_OPENAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    expect(resolveDefaultModelId(lawMindRoot)).toBe("builtin:deepseek-flash");
+  });
+
+  it("prefers deepseek-flash when the DeepSeek provider key is set", () => {
+    lawMindRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-models-"));
+    process.env.LAWMIND_DEEPSEEK_API_KEY = "sk-deepseek";
+    process.env.LAWMIND_QWEN_API_KEY = "sk-qwen";
+    expect(resolveDefaultModelId(lawMindRoot)).toBe("builtin:deepseek-flash");
+    const r = resolveAgentModelById(lawMindRoot);
+    expect(r.resolvedModelId).toBe("builtin:deepseek-flash");
+    expect(r.model?.model).toBe("deepseek-flash");
+    expect(r.model?.apiKey).toBe("sk-deepseek");
+  });
+
+  it("resolves retired DeepSeek Flash aliases to deepseek-flash", () => {
+    lawMindRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-models-"));
+    process.env.LAWMIND_DEEPSEEK_API_KEY = "sk-deepseek";
+    for (const alias of ["builtin:deepseek-v4-flash", "deepseek-v4-flash-vision-exp"] as const) {
+      const r = resolveAgentModelById(lawMindRoot, alias);
+      expect(r.error).toBeUndefined();
+      expect(r.resolvedModelId).toBe("builtin:deepseek-flash");
+      expect(r.model?.model).toBe("deepseek-flash");
+    }
+  });
+
+  it("maps stored retired Flash default to deepseek-flash", () => {
+    lawMindRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-models-"));
+    process.env.LAWMIND_DEEPSEEK_API_KEY = "sk-deepseek";
+    const store = readModelsStore(lawMindRoot);
+    store.defaultModelId = "builtin:deepseek-v4-flash";
+    fs.mkdirSync(lawMindRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(lawMindRoot, "models.json"),
+      `${JSON.stringify(store, null, 2)}\n`,
+      "utf8",
+    );
+    expect(resolveDefaultModelId(lawMindRoot)).toBe("builtin:deepseek-flash");
+  });
+
+  it("uses the wizard DeepSeek key for builtin:deepseek-flash and not Qwen", () => {
+    lawMindRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-models-"));
+    process.env.LAWMIND_AGENT_API_KEY = "sk-wizard";
+    process.env.LAWMIND_AGENT_BASE_URL = "https://api.deepseek.com/v1";
+    process.env.LAWMIND_AGENT_MODEL = "deepseek-flash";
+    const flash = resolveAgentModelById(lawMindRoot, "builtin:deepseek-flash");
+    expect(flash.error).toBeUndefined();
+    expect(flash.model?.apiKey).toBe("sk-wizard");
+    expect(flash.model?.model).toBe("deepseek-flash");
+    const cat = buildModelCatalog(lawMindRoot);
+    expect(cat.models.find((m) => m.id === "builtin:deepseek-flash")?.configured).toBe(true);
+    expect(cat.models.find((m) => m.id === "builtin:qwen-plus")?.configured).toBe(false);
+    expect(cat.models.find((m) => m.id === ENV_CURRENT_MODEL_ID)).toBeUndefined();
+    expect(resolveDefaultModelId(lawMindRoot)).toBe("builtin:deepseek-flash");
+  });
+
+  it("ignores an unconfigured stored default and falls through", () => {
+    lawMindRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-models-"));
+    process.env.LAWMIND_QWEN_API_KEY = "sk-qwen";
+    const store = readModelsStore(lawMindRoot);
+    store.defaultModelId = "builtin:deepseek-flash";
+    fs.mkdirSync(lawMindRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(lawMindRoot, "models.json"),
+      `${JSON.stringify(store, null, 2)}\n`,
+      "utf8",
+    );
+    expect(resolveDefaultModelId(lawMindRoot)).toBe("builtin:qwen-plus");
   });
 });

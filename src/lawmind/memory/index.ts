@@ -17,6 +17,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { caseFilePath, ensureCaseWorkspace, matterStrategyPath } from "./case-workspace.js";
 import { writeMarkdownBulletToSection } from "./case-writes.js";
+import { migrateWorkspaceMemoryMarkdown } from "./memory-md-migrate.js";
 import { defaultClientProfileTemplate, defaultFirmProfileTemplate } from "./templates.js";
 
 export { caseFilePath, ensureCaseWorkspace, matterStrategyPath } from "./case-workspace.js";
@@ -150,6 +151,7 @@ export async function loadMemoryContext(
     ? readSafe(clientProfileFilePath(root, matterId))
     : Promise.resolve("");
 
+  const migratedMemory = migrateWorkspaceMemoryMarkdown(root).text;
   const [
     general,
     profile,
@@ -163,7 +165,7 @@ export async function loadMemoryContext(
     clientByMatter,
     rootClient,
   ] = await Promise.all([
-    readSafe(path.join(root, "MEMORY.md")),
+    Promise.resolve(migratedMemory),
     readSafe(path.join(root, "LAWYER_PROFILE.md")),
     readSafe(path.join(root, "FIRM_PROFILE.md")),
     caseMemoryPromise,
@@ -330,6 +332,8 @@ export {
   type MemorySourceLayer,
   toEngineClientMemorySnapshot,
 } from "./memory-sources.js";
+export { migrateWorkspaceMemoryMarkdown, sanitizeStaleMemoryPolicy } from "./memory-md-migrate.js";
+export { defaultMemoryMarkdown } from "./templates.js";
 export {
   appendLawyerProfileLearning,
   buildLawyerProfileReviewLearningLine,

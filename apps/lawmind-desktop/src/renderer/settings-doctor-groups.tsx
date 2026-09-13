@@ -4,6 +4,7 @@
  */
 import type { ReactNode } from "react";
 import type { HealthPayload } from "./lawmind-app-data";
+import { modelServiceStatus } from "./lawmind-model-service-status";
 
 type DoctorData = NonNullable<HealthPayload["doctor"]>;
 type WorkspaceStandard = NonNullable<DoctorData["workspaceStandard"]>;
@@ -51,15 +52,19 @@ export function DoctorConnectionGroup(props: {
   onOpenApiWizard: () => void;
 }): ReactNode {
   const { health, doctor, onOpenApiWizard } = props;
+  const aiStatus = modelServiceStatus({
+    configured: health?.modelConfigured,
+    verified: health?.modelVerified,
+  });
   return (
     <div className="lm-settings-group lm-settings-surface">
       <h4 className="lm-doctor-group-title">连接与模型</h4>
       <div className="lm-settings-row">
         <span className="lm-settings-key">AI 服务</span>
-        <span className={health?.modelConfigured ? "lm-pill lm-pill-success" : "lm-pill lm-pill-warn"}>
-          {health?.modelConfigured ? "已配置" : "待配置"}
+        <span className={aiStatus.ok ? "lm-pill lm-pill-success" : "lm-pill lm-pill-warn"}>
+          {health ? aiStatus.label : "检测中…"}
         </span>
-        {!health?.modelConfigured ? (
+        {aiStatus.label !== "已验证" ? (
           <button type="button" className="lm-btn lm-btn-sm" onClick={onOpenApiWizard}>
             配置 API
           </button>

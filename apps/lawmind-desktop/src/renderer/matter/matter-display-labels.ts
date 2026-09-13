@@ -125,7 +125,17 @@ export function formatShortDateTime(iso?: string): string {
   }
   try {
     const d = new Date(iso);
-    return Number.isFinite(d.getTime()) ? d.toLocaleString() : iso;
+    if (!Number.isFinite(d.getTime())) {
+      return iso;
+    }
+    return d.toLocaleString("zh-CN", {
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
   } catch {
     return iso;
   }

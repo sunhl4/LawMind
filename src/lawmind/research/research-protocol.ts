@@ -1,9 +1,16 @@
 /**
  * Retrieval protocol for unlocked 意见 / 检索 / 快问.
- * Mail short path and Word tracked lock skip this (no search on those turns).
+ * Mail short path, Word tracked lock, and opinion-only fast lane skip this.
  */
 
-export const STATUTE_TRIAL_TOOLS = ["search_statute", "search_case_law"] as const;
+import {
+  isOpinionOnlyFastLane,
+  RESEARCH_PROTOCOL_TOOLS,
+  toolsAllowAny,
+  type PromptProtocolGate,
+} from "../agent/prompt-protocol-gate.js";
+
+export const STATUTE_TRIAL_TOOLS = RESEARCH_PROTOCOL_TOOLS;
 
 export function shouldInjectResearchProtocol(
   bound:
@@ -13,8 +20,15 @@ export function shouldInjectResearchProtocol(
       }
     | null
     | undefined,
+  gate?: PromptProtocolGate,
 ): boolean {
   if (!bound || bound.pipeline === "tracked_redline" || bound.id === "mail.contract") {
+    return false;
+  }
+  if (isOpinionOnlyFastLane(gate?.instruction)) {
+    return false;
+  }
+  if (!toolsAllowAny(gate?.availableToolNames, RESEARCH_PROTOCOL_TOOLS)) {
     return false;
   }
   return (
@@ -56,8 +70,8 @@ export function formatResearchProtocolPromptBlock(): string {
   return [
     "## 检索协议",
     "写现行法条或类案之前：先按命题矩阵调用 `search_statute`（核心工具）和已披露的 `search_case_law`，每个争点试检 1–2 条再扩。",
-    "无命中或本回合工具不可用：栏目保留并标【待核实】，不得把模型记忆写成条号。废止的《合同法》《民法通则》《物权法》《担保法》《侵权责任法》不得当有效依据。",
-    "邮件短路径与指定目录 Word 改稿不要为了引用去检索。",
+    "无命中或本回合工具不可用：栏目保留并标【待核实】，不得把模型记忆写成条号。废止法名单见 Skill · 规范现行有效。",
+    "邮件短路径、指定目录 Word 改稿、意见-only 快车道不要为了引用去检索。",
   ].join("\n");
 }
 

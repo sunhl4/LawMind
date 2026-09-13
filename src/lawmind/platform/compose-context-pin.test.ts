@@ -55,4 +55,18 @@ describe("compose-context-pin", () => {
       makeContextPinId(encodeFileContextPin({ root: "workspace", relPath: "a.md", kind: "file" })),
     ).toBe("file:workspace|file|a.md");
   });
+
+  it("allows an empty relPath for a directory pin and rejects it for a file pin", () => {
+    expect(
+      normalizeContextPin({ pinKind: "file", root: "workspace", relPath: "", kind: "directory" }),
+    ).toEqual({
+      pinKind: "file",
+      root: "workspace",
+      relPath: "",
+      kind: "directory",
+    });
+    expect(
+      normalizeContextPin({ pinKind: "file", root: "workspace", relPath: "", kind: "file" }),
+    ).toBeNull();
+  });
 });

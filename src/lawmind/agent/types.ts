@@ -16,6 +16,8 @@ import type { ComposeContextPin } from "../platform/compose-context-pin.js";
 import type { GateDecision, TaskExecutionState } from "../platform/contracts.js";
 import type { LawMindRequiresAction } from "../platform/requires-action.js";
 import type { ClarificationQuestion, RiskLevel, MatterIndex } from "../types.js";
+import type { AgentTurnPlan } from "./turn-plan-model.js";
+import type { WorldStateBaseline } from "./world-state.js";
 
 // ─────────────────────────────────────────────
 // 1. Tool System
@@ -26,6 +28,8 @@ export type ToolParameterSchema = {
   description: string;
   required?: boolean;
   enum?: string[];
+  /** Nested JSON Schema fragment (OpenAI `items` / object properties). */
+  items?: Record<string, unknown>;
 };
 
 export type ToolDefinition = {
@@ -77,11 +81,26 @@ export type AgentContext = {
   assistantId?: string;
   /**
    * 桌面端「项目目录」：用户选中的本机文件夹，用于 read_project_file / search_workspace 扩展检索。
-   * 与 LawMind workspace 分离；路径必须在服务端校验后注入。
+   * 与 LawMind workspace 分离；路径必须在服务端校验后注入。兼容本机文件夹第一项。
    */
   projectDir?: string;
+  /** Extra host-access mounts for this turn (tests / desktop store). */
+  hostMounts?: import("../host-access/types.js").HostMount[];
+  hostGrants?: import("../host-access/types.js").HostGrant[];
+  hostAccessFile?: string;
+  hostSessionCommandAllowed?: boolean;
   /** 本轮是否允许调用 web_search 等联网工具 */
   allowWebSearch?: boolean;
+  /**
+   * Same chat model this turn uses. Native web search (DeepSeek / 通义) reuses
+   * this Key — it is not a second “联网模型”.
+   */
+  webSearchModel?: {
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    timeoutMs?: number;
+  };
   /** 桌面 compose 权限模式（只读/严格/标准） */
   permissionMode?: "standard" | "strict" | "readonly" | "research";
   /**
@@ -129,6 +148,11 @@ export type AgentContext = {
    * No opinion→redline compile and no XML QA auto-retry re-export.
    */
   mailContractTurn?: boolean;
+  /**
+   * Opinion-only 5-minute / structured 交办 fast lane.
+   * Search tools are locked; do not coach or auto-trial statutes.
+   */
+  contractFastLaneTurn?: boolean;
   /** Turn-resolved tool allowlist (role ∩ parent inherit ∩ playbook). */
   allowedToolNames?: string[];
   /**
@@ -153,6 +177,22 @@ export type AgentContext = {
    * Optional: tools that ignore it simply keep the historical behavior.
    */
   abortSignal?: AbortSignal;
+  /**
+   * Cheap/worker model for the independent legal Guardian (Codex-style).
+   * Guardian transcript never enters conversationHistory.
+   */
+  reviewModel?: AgentModelConfig;
+  /**
+   * After a short-path `update_draft.sections` reject, the next model round
+   * prepends this fragment into world-state `craft`.
+   */
+  pendingWorldStateCraftPatch?: string;
+  /** Codex-style `update_plan` payload; applied onto session world-state after the tool round. */
+  pendingTurnPlan?: AgentTurnPlan;
+  /** Lawyer-confirmed clarification answers for this turn (Guardian evidence). */
+  confirmedAnswers?: Record<string, string>;
+  /** Tests inject a reviewer; production uses reviewModel. */
+  guardianCaller?: (input: { system: string; user: string }) => Promise<string>;
 };
 
 // ─────────────────────────────────────────────
@@ -179,10 +219,26 @@ export type AgentMessage = {
   toolCalls?: ToolCall[];
   toolCallResponses?: ToolCallResponse[];
   timestamp: string;
+  /**
+   * Same-turn verify bounce (and similar model-only notes).
+   * Kept in conversationHistory for the next sample; omitted from lawyer bubbles.
+   */
+  hiddenFromLawyer?: boolean;
   /** 持久化的执行轨迹（assistant 消息，供桌面 reload 后展示） */
   liveTrace?: PersistedChatLiveTrace;
   executionState?: TaskExecutionState;
+  /** Codex-style 本轮清单（律师可见；与 session.turnPlan 同源） */
+  turnPlan?: AgentTurnPlan;
 };
+
+export function isLawyerVisibleChatMessage(
+  msg: Pick<AgentMessage, "role" | "hiddenFromLawyer">,
+): msg is Pick<AgentMessage, "role" | "hiddenFromLawyer"> & { role: "user" | "assistant" } {
+  if (msg.hiddenFromLawyer) {
+    return false;
+  }
+  return msg.role === "user" || msg.role === "assistant";
+}
 
 /** 已完成 turn 的执行轨迹快照（不含 active 字段） */
 export type PersistedChatLiveTrace = {
@@ -222,6 +278,11 @@ export type AgentTurn = {
   executionState?: TaskExecutionState;
   /** Big-Bang: 本轮门禁判定轨迹 */
   gateDecisions?: GateDecision[];
+  /**
+   * Codex-style same-turn verify: empty redline / craft_check / citations / lint.
+   * The turn is not complete while `red` is true (bounce or pause instead).
+   */
+  sameTurnVerify?: import("../runtime/same-turn-verify.js").SameTurnVerifyTurnState;
   /** 律师待处理动作（澄清、工具批准等） */
   requiresAction?: LawMindRequiresAction[];
   /** 中断时待批准的工具调用（用于 resume） */
@@ -291,14 +352,32 @@ export type AgentSession = {
     updatedAt: string;
   };
   /**
+   * Open-round checklist from `update_plan` (not planHandoff / plan_task).
+   * Incomplete lists survive compact and later tool rounds via world-state `plan`.
+   */
+  turnPlan?: AgentTurnPlan;
+  /**
    * Hashes of named world-state sections in the system message.
    * Unchanged sections are byte-stabilized instead of rewritten.
    */
-  worldStateBaseline?: Partial<
-    Record<"policy" | "craft" | "deliverable" | "pins" | "permission" | "matter", string>
-  >;
+  worldStateBaseline?: WorldStateBaseline;
   /** Bumped when a world-state section is patched (pins, compact craft, …). */
   worldStateEpoch?: number;
+  /**
+   * Short-path used `update_draft.sections` to rewrite body. Keep a craft
+   * warning fragment across compact / the next prepareTurnPromptContext.
+   */
+  legacyUpdateDraftBodyWarning?: boolean;
+  /**
+   * Last structured clarification answers (lawyer-confirmed). Guardian evidence
+   * only; not a writer self-score.
+   */
+  lastConfirmedAnswers?: Record<string, string>;
+  /**
+   * Packed session-tail fragments for this turn (CASE index, craft, skills).
+   * Sampling-only user message — not copied into conversationHistory.
+   */
+  samplingPromptTail?: string;
 };
 
 // ─────────────────────────────────────────────
@@ -366,7 +445,7 @@ export type AgentConfig = {
   roleIntroduction?: string;
   /** 预设 + 用户自定义合并后的岗位指令 */
   roleDirective?: string;
-  /** 是否注册并允许使用联网检索工具（web_search，Brave API） */
+  /** 是否注册并允许使用联网检索工具（当前模型网页检索，Brave 为可选备用） */
   allowWebSearch?: boolean;
   /** 桌面 compose 权限模式 */
   permissionMode?: "standard" | "strict" | "readonly" | "research";

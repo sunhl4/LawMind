@@ -20,6 +20,7 @@ import {
   MATTER_INTAKE_RE,
   PERIOD_CALC_RE,
   QUICK_TRIAGE_RE,
+  COMPUTE_TABLE_PACK_RE,
 } from "../skills/capability-patterns.js";
 import type { TaskIntent, TaskKind, RiskLevel } from "../types.js";
 import { enrichIntentWithDeliverableMeta } from "./deliverable-meta.js";
@@ -117,6 +118,7 @@ const TASK_KIND_PATTERNS: Array<{ pattern: RegExp; kind: TaskKind }> = [
     pattern: /(?!.*(?:催告函|催款函|demand letter|催告))(?:合同|协议|条款)/i,
     kind: "analyze.contract",
   },
+  { pattern: COMPUTE_TABLE_PACK_RE, kind: "draft.word" },
   { pattern: QUICK_TRIAGE_RE, kind: "research.legal" },
   { pattern: /查一下|法律意见|法规|法条|类案|裁判|司法解释/i, kind: "research.legal" },
   { pattern: /律师函|催告函|催款|通知函|警告信|demand|回函|答复函/i, kind: "draft.word" },

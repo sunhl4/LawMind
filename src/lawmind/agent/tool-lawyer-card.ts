@@ -37,6 +37,8 @@ function basenamePath(raw: string): string {
   return parts[parts.length - 1] ?? normalized;
 }
 
+const HIDDEN_PROCESS_TOOLS = new Set(["run_compute", "run_analysis"]);
+
 function clip(text: string, max = 72): string {
   const t = text.replace(/\s+/g, " ").trim();
   if (t.length <= max) {
@@ -108,7 +110,8 @@ function describeCallArgs(name: string, args: Record<string, unknown>): string |
     }
     case "read_project_file":
     case "read_case_file":
-    case "analyze_document": {
+    case "analyze_document":
+    case "list_dir": {
       const file = basenamePath(firstString(args, ["path", "rel_path", "file", "file_path"]));
       return file || undefined;
     }
@@ -128,6 +131,30 @@ function describeCallArgs(name: string, args: Record<string, unknown>): string |
       const name = firstString(args, ["name"]);
       return name ? clip(name) : "查看更多能力";
     }
+    case "update_plan": {
+      const plan = args.plan;
+      const n = Array.isArray(plan) ? plan.length : undefined;
+      return n != null ? `${n} 步` : "更新本轮步骤";
+    }
+    case "run_compute":
+    case "run_analysis": {
+      const purpose = firstString(args, ["purpose"]);
+      return purpose ? clip(purpose) : "正在整理测算";
+    }
+    case "render_chart": {
+      const title = firstString(args, ["title"]);
+      if (title) {
+        return clip(title);
+      }
+      const spec = args.spec;
+      if (spec && typeof spec === "object") {
+        const specTitle = asTrimmedString((spec as { title?: unknown }).title);
+        return specTitle ? clip(specTitle) : undefined;
+      }
+      return undefined;
+    }
+    case "calculate":
+      return "按公式核算";
     default:
       return undefined;
   }
@@ -154,6 +181,12 @@ function describeResultData(name: string, data: unknown): string | undefined {
       return count === 0 ? "无附件" : `已列出 ${count} 个附件`;
     }
   }
+  if (name === "run_compute" || name === "run_analysis") {
+    const summary = asTrimmedString(rec.lawyerSummary);
+    if (summary) {
+      return clip(summary, 80);
+    }
+  }
   const message = asTrimmedString(rec.message);
   if (message) {
     return clip(message, 80);
@@ -163,6 +196,17 @@ function describeResultData(name: string, data: unknown): string | undefined {
     return `任务 ${clip(taskId, 40)}`;
   }
   return undefined;
+}
+
+export function lawyerFacingToolFailureDetail(name: string, error?: string): string {
+  if (HIDDEN_PROCESS_TOOLS.has(name)) {
+    if (/超时|timed out/i.test(error ?? "")) {
+      return "已超时";
+    }
+    return "核算未完成";
+  }
+  const err = asTrimmedString(error);
+  return err ? clip(err, 96) : "未完成";
 }
 
 export function presentLawyerToolCall(
@@ -187,8 +231,7 @@ export function presentLawyerToolResult(
     return { title, detail: "已超时" };
   }
   if (!result.ok) {
-    const err = asTrimmedString(result.error);
-    return { title, detail: err ? clip(err, 96) : "未完成" };
+    return { title, detail: lawyerFacingToolFailureDetail(name, result.error) };
   }
   if (result.data && typeof result.data === "object") {
     const verify = (result.data as { verify?: { message?: unknown } }).verify;

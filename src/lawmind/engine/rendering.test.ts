@@ -65,4 +65,28 @@ describe("engine/rendering", () => {
     expect(result.error).toMatch(/引用完整性/);
     expect(result.citationIntegrity?.checked).toBe(true);
   });
+
+  it("writes a new deliverable under the matter artifacts folder with a date name", async () => {
+    const draft: ArtifactDraft = {
+      taskId: "task-out-loc",
+      matterId: "matter-out",
+      title: "文件可见范围扩展方案",
+      summary: "summary",
+      sections: [{ heading: "结论", body: "正文。", citations: [] }],
+      reviewStatus: "approved",
+      reviewNotes: [],
+      output: "docx",
+      templateId: "word/legal-memo-default",
+      createdAt: new Date().toISOString(),
+    };
+    persistDraft(workspaceDir, draft);
+    const ctx = buildEngineContext({ workspaceDir, adapters: [] });
+    const result = await renderDraft(ctx, draft, { strictGates: false, citationGateStrict: false });
+    expect(result.ok).toBe(true);
+    expect(result.outputPath).toMatch(
+      /cases[/\\]matter-out[/\\]artifacts[/\\]文件可见范围扩展方案_\d{8}_01\.docx$/,
+    );
+    expect(result.outputPath).not.toMatch(/_[0-9a-f]{8}\.docx$/i);
+    expect(result.outputPath && (await fs.stat(result.outputPath)).isFile()).toBe(true);
+  });
 });

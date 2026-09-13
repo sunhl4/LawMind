@@ -3,7 +3,7 @@
  * UI indices match `sessionHistoryToSimpleMessages` (user/assistant bubbles only).
  */
 
-import type { AgentMessage, AgentSession } from "./types.js";
+import { isLawyerVisibleChatMessage, type AgentMessage, type AgentSession } from "./types.js";
 
 export type UiHistoryMapEntry = {
   uiIndex: number;
@@ -17,7 +17,7 @@ export function listUiHistoryMap(session: AgentSession): UiHistoryMapEntry[] {
   let uiIndex = 0;
   for (let historyIndex = 0; historyIndex < session.conversationHistory.length; historyIndex++) {
     const msg = session.conversationHistory[historyIndex];
-    if (msg.role !== "user" && msg.role !== "assistant") {
+    if (!isLawyerVisibleChatMessage(msg)) {
       continue;
     }
     const text = (msg.content ?? "").trim();

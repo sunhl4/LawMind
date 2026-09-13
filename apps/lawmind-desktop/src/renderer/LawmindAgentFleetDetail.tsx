@@ -4,6 +4,10 @@
 import type { ReactNode } from "react";
 import type { AgentRunSummary } from "./lawmind-agent-fleet-api";
 import type { LawMindRequiresAction } from "./lawmind-requires-action";
+import {
+  hostGrantEditedArgs,
+  isHostGrantToolName,
+} from "../../../../src/lawmind/platform/requires-action.ts";
 import { LawmindRequiresActionCard } from "./LawmindRequiresActionCard";
 import { LawmindVerificationChecklist } from "./LawmindVerificationChecklist";
 import { LawmindApprovalDocReader } from "./LawmindApprovalDocReader";
@@ -282,6 +286,54 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
           )}
 
           <footer className="lm-agents-wb-dock">
+            {current.status === "awaiting_approval" &&
+            approvalAction?.kind === "tool_approval" &&
+            isHostGrantToolName(approvalAction.toolName) ? (
+              <>
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-accent"
+                  data-testid="lm-host-grant-once"
+                  disabled={primaryDisabled}
+                  onClick={() =>
+                    onApproveToolEdit(
+                      approvalAction,
+                      hostGrantEditedArgs(approvalAction.toolArgs, "once"),
+                    )
+                  }
+                >
+                  允许一次
+                </button>
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-sm"
+                  data-testid="lm-host-grant-session"
+                  disabled={primaryDisabled}
+                  onClick={() =>
+                    onApproveToolEdit(
+                      approvalAction,
+                      hostGrantEditedArgs(approvalAction.toolArgs, "session"),
+                    )
+                  }
+                >
+                  本会话允许
+                </button>
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-sm"
+                  data-testid="lm-host-grant-always"
+                  disabled={primaryDisabled}
+                  onClick={() =>
+                    onApproveToolEdit(
+                      approvalAction,
+                      hostGrantEditedArgs(approvalAction.toolArgs, "always"),
+                    )
+                  }
+                >
+                  始终允许
+                </button>
+              </>
+            ) : (
             <button
               type="button"
               className="lm-btn lm-btn-accent"
@@ -304,6 +356,7 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
             >
               {primaryLabel}
             </button>
+            )}
             {isDraftReview ? (
               <>
                 <button

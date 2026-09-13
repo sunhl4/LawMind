@@ -63,4 +63,91 @@ describe("claim-relevance", () => {
     ]);
     expect(filtered.droppedClaims).toBe(1);
   });
+
+  it("keeps Brave web snippets when they share one topic token", () => {
+    const intent = {
+      taskId: "t2",
+      kind: "draft.word",
+      output: "docx",
+      instruction:
+        "请就本案监管问题做合规研究卷宗：问题陈述、简要结论、管辖区效力矩阵、按风险域发现、行动建议与来源附录。主题是 2025 年个人信息保护监管动态。",
+      summary: "个保监管",
+      riskLevel: "medium",
+      models: ["general"],
+      requiresConfirmation: false,
+      deliverableType: "report.compliance",
+      createdAt: new Date().toISOString(),
+    } satisfies TaskIntent;
+    const bundle: ResearchBundle = {
+      taskId: "t2",
+      query: intent.summary,
+      sources: [
+        {
+          id: "brave-1",
+          title: "网信办通报",
+          kind: "web",
+          url: "https://www.cac.gov.cn/x",
+          provider: "brave-web",
+        },
+      ],
+      claims: [
+        {
+          text: "公开网页摘要（待核验）：网信办通报。个人信息保护行政执法典型案例",
+          sourceIds: ["brave-1"],
+          confidence: 0.42,
+          model: "general",
+        },
+      ],
+      riskFlags: [],
+      missingItems: [],
+      requiresReview: true,
+      completedAt: new Date().toISOString(),
+    };
+    const filtered = filterBundleByTopicRelevance(intent, bundle);
+    expect(filtered.droppedClaims).toBe(0);
+    expect(filtered.bundle.claims).toHaveLength(1);
+  });
+
+  it("does not drop Brave hits for entertainment public-web facts", () => {
+    const intent = {
+      taskId: "t3",
+      kind: "draft.word",
+      output: "docx",
+      instruction: "2026年新说唱总冠军",
+      summary: "新说唱",
+      riskLevel: "low",
+      models: ["general"],
+      requiresConfirmation: false,
+      deliverableType: "memo.research",
+      createdAt: new Date().toISOString(),
+    } satisfies TaskIntent;
+    const bundle: ResearchBundle = {
+      taskId: "t3",
+      query: intent.summary,
+      sources: [
+        {
+          id: "brave-1",
+          title: "节目官网",
+          kind: "web",
+          url: "https://example.com/champion",
+          provider: "brave-web",
+        },
+      ],
+      claims: [
+        {
+          text: "公开网页摘要（待核验）：某选手夺冠",
+          sourceIds: ["brave-1"],
+          confidence: 0.42,
+          model: "general",
+        },
+      ],
+      riskFlags: [],
+      missingItems: [],
+      requiresReview: true,
+      completedAt: new Date().toISOString(),
+    };
+    const filtered = filterBundleByTopicRelevance(intent, bundle);
+    expect(filtered.droppedClaims).toBe(0);
+    expect(filtered.bundle.claims).toHaveLength(1);
+  });
 });

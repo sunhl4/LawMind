@@ -121,6 +121,82 @@ samp {
   background: var(--surface-elevated, var(--side-bg));
 }
 
+.lm-turn-plan {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface-elevated, var(--side-bg));
+}
+
+.lm-turn-plan-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lm-turn-plan-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.lm-turn-plan-progress {
+  font-size: 12px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.lm-turn-plan-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.lm-turn-plan-steps {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lm-turn-plan-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.lm-turn-plan-step-icon {
+  flex-shrink: 0;
+  width: 1em;
+  color: var(--muted);
+}
+
+.lm-turn-plan-step-completed {
+  color: var(--text-2);
+}
+
+.lm-turn-plan-step-completed .lm-turn-plan-step-label {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.lm-turn-plan-step-in_progress .lm-turn-plan-step-icon,
+.lm-turn-plan-step-in_progress .lm-turn-plan-step-label {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.lm-turn-plan-complete {
+  opacity: 0.92;
+}
+
 .lm-assignment-commitment-head,
 .lm-assignment-actions {
   display: flex;
@@ -250,7 +326,7 @@ samp {
   position: relative;
   width: 28px;
   height: 28px;
-  background: var(--grad-brand);
+  background: #1a1d24;
   border-radius: 8px;
   display: flex;
   align-items: center;
@@ -266,6 +342,14 @@ samp {
     0 1px 2px rgba(0, 0, 0, 0.4);
   overflow: hidden;
   transition: transform var(--t-md) var(--ease-spring), box-shadow var(--t-md) var(--ease);
+}
+
+.lm-logo-mark svg,
+.lm-logo-mark img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
 }
 
 .lm-logo-mark::after {
@@ -3289,22 +3373,14 @@ html.lm-theme-dark .lm-main-header {
 }
 
 .lm-messages-empty-icon {
-  font-size: 15px;
-  font-weight: 700;
-  width: 44px;
-  height: 44px;
-  border-radius: var(--r-lg);
-  border: 1px solid var(--accent-border);
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--accent-hover);
-  background:
-    radial-gradient(circle at 30% 25%, rgba(199, 171, 121, 0.35), rgba(255, 255, 255, 0.9) 70%);
+  overflow: hidden;
+  border-radius: 8px;
   margin-bottom: var(--space-2);
-  box-shadow:
-    inset 0 1px 0 var(--inset-highlight),
-    var(--shadow-sm);
 }
 
 .lm-messages-empty-title {
@@ -3946,6 +4022,14 @@ html.lm-theme-dark .lm-main-header {
   box-sizing: border-box;
 }
 
+.lm-compose.lm-chat-drop-active .lm-compose-box {
+  border-color: var(--accent-border);
+  box-shadow:
+    var(--ring-accent, 0 0 0 3px rgba(166, 124, 82, 0.28)),
+    var(--shadow, 0 1px 2px rgba(0, 0, 0, 0.06)),
+    inset 0 1px 0 var(--inset-highlight);
+}
+
 /* When chrome already drew the top border, avoid a double rule. */
 .lm-compose-chrome:not(:empty) + .lm-compose {
   border-top: none;
@@ -4153,9 +4237,6 @@ html.lm-theme-dark .lm-main-header {
 }
 
 .lm-compose-ctx-usage-action-title {
-  font-size: 13px;
-  font-weight: 550;
-}
 
 /* ── end imported: shell-header+chat-main ── */
 /* ── imported: modal-forms ── */
@@ -5038,10 +5119,19 @@ select option {
   margin: 0;
 }
 
+.lm-review-matrix__header,
+.lm-review-matrix__compare {
+  flex-shrink: 0;
+}
+
 .lm-review-matrix__scroll {
+  flex: 1 1 auto;
+  min-height: 200px;
+  min-width: 0;
   overflow: auto;
   max-width: 100%;
-  margin-top: 8px;
+  margin-top: 0;
+  scrollbar-width: thin;
 }
 
 .lm-review-matrix__table {
@@ -5059,12 +5149,20 @@ select option {
   max-width: 220px;
 }
 
+.lm-review-matrix__table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--lm-surface, var(--surface));
+}
+
 .lm-review-matrix__corner {
   min-width: 140px;
   position: sticky;
   left: 0;
-  background: var(--lm-surface);
-  z-index: 1;
+  top: 0;
+  background: var(--lm-surface, var(--surface));
+  z-index: 3;
 }
 
 .lm-review-matrix__doc {
@@ -5563,6 +5661,9 @@ select option {
   border-color: rgba(108, 182, 177, 0.35);
   color: var(--accent-cool);
 }
+  font-weight: 550;
+}
+
 .lm-compose-ctx-usage-action .lm-meta {
   font-size: 11px;
   line-height: 1.35;
@@ -8323,6 +8424,7 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
 }
 
 .lm-cursor-chat-pane {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -8331,6 +8433,27 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
   background:
     radial-gradient(ellipse 80% 40% at 50% 0%, rgba(166, 124, 82, 0.05), transparent 55%),
     var(--bg);
+}
+
+.lm-chat-drop-overlay {
+  position: absolute;
+  inset: 8px;
+  z-index: 20;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--accent-border);
+  border-radius: var(--r-xl, 16px);
+  background: color-mix(in srgb, var(--accent-dim) 82%, var(--surface));
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.lm-cursor-chat-pane.lm-chat-drop-active {
+  outline: none;
 }
 
 .lm-cursor-pane-editor-host:not([style*="display: none"]) {
@@ -10549,33 +10672,120 @@ html.lm-theme-dark .lm-files-explorer-scroll::-webkit-scrollbar-thumb:hover {
   color: var(--text);
 }
 
-.lm-workbench-tabs {
+/* Page tab row (not a half-empty segmented box). */
+.lm-workbench-tabs.lm-tabs {
+  margin: 0;
   padding: 0 20px;
   flex-shrink: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+}
+
+.lm-workbench-tabs.lm-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.lm-workbench-tabs .lm-tab {
+  flex: 0 0 auto;
+  border-radius: 0;
+  box-shadow: none;
+  min-height: 36px;
+  padding: 8px 14px;
+}
+
+.lm-workbench-tabs .lm-tab.active {
+  background: transparent;
+  box-shadow: none;
+  border-bottom: 2px solid var(--accent);
+  margin-bottom: -1px;
+}
+
+/* Tab panels must fill remaining height so .lm-workbench-panel can scroll.
+ * Without this, overflow:hidden on .lm-workbench-main clips 概览 below the first card. */
+.lm-workbench-tabpanel {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .lm-workbench-panel {
   padding: 16px 20px;
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
+  scrollbar-width: thin;
+}
+
+/* Review matrix: one scrollbar on the table, header stays put. */
+.lm-workbench-panel.lm-review-matrix {
+  overflow: hidden;
+  gap: 12px;
 }
 
 .lm-workbench-panel h3 {
   font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.02em;
   color: var(--muted);
-  margin-bottom: 8px;
+  margin: 0;
+}
+
+.lm-workbench-panel > h3 + * {
+  margin-top: -8px;
+}
+
+.lm-matter-todo-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lm-matter-todo-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px 16px;
+}
+
+.lm-matter-todo-head h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--text);
+}
+
+.lm-matter-overview-extras {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.lm-matter-overview-extras .lm-matter-summary-card {
+  min-height: 0;
+}
+
+.lm-matter-decision-rail .lm-matter-next-actions-list {
+  flex: 1 1 100%;
+  margin: 4px 0 0;
 }
 
 .lm-matter-cockpit-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 14px;
 }
 
@@ -11266,7 +11476,7 @@ html.lm-theme-dark .lm-files-explorer-scroll::-webkit-scrollbar-thumb:hover {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px 16px;
-  margin: 12px 0;
+  margin: 0;
   padding: 14px 16px;
   border: 1px solid color-mix(in srgb, var(--accent-border) 40%, var(--border));
   border-radius: var(--r-lg);
@@ -11730,8 +11940,9 @@ html.lm-theme-dark .lm-files-explorer-scroll::-webkit-scrollbar-thumb:hover {
   border: 1px solid var(--border);
   border-radius: var(--r);
   padding: 12px;
-  max-height: 360px;
+  max-height: min(52vh, 480px);
   overflow: auto;
+  scrollbar-width: thin;
 }
 
 .lm-case-search {
@@ -11810,9 +12021,35 @@ html.lm-theme-dark .lm-files-explorer-scroll::-webkit-scrollbar-thumb:hover {
   gap: 24px;
 }
 
+@media (max-width: 1100px) {
+  .lm-matter-cognition-board {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .lm-matter-memory-category-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 900px) {
   .lm-two-col { grid-template-columns: 1fr; }
   .lm-matter-cockpit-grid { grid-template-columns: 1fr; }
+  .lm-matter-cognition-grid {
+    grid-template-columns: 1fr;
+  }
+  .lm-matter-cognition-head {
+    flex-direction: column;
+  }
+  .lm-matter-cognition-select {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+@media (max-width: 760px) {
+  .lm-matter-cognition-board,
+  .lm-matter-memory-category-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .lm-audit-list {
@@ -12968,7 +13205,7 @@ html.lm-theme-dark .lm-files-explorer-scroll::-webkit-scrollbar-thumb:hover {
   position: relative;
   width: 28px;
   height: 28px;
-  background: var(--grad-brand);
+  background: #1a1d24;
   border-radius: 8px;
   display: flex;
   align-items: center;
@@ -12984,6 +13221,13 @@ html.lm-theme-dark .lm-files-explorer-scroll::-webkit-scrollbar-thumb:hover {
     0 1px 2px rgba(0, 0, 0, 0.4);
   overflow: hidden;
   transition: transform var(--t-md) var(--ease-spring), box-shadow var(--t-md) var(--ease);
+}
+.lm-logo-mark svg,
+.lm-logo-mark img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
 }
 
 /* ── Section divider ───────────────────────────────────────── */
@@ -16063,6 +16307,65 @@ html.lm-theme-dark .lm-files-explorer-scroll::-webkit-scrollbar-thumb:hover {
   flex-shrink: 0;
 }
 
+.lm-switch {
+  position: relative;
+  display: inline-flex;
+  width: 40px;
+  height: 22px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.lm-switch input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.lm-switch-ui {
+  display: block;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border-strong) 55%, var(--surface-3));
+  transition: background var(--t) var(--ease);
+}
+
+.lm-switch-ui::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+  transition: transform var(--t) var(--ease);
+}
+
+.lm-switch input:checked + .lm-switch-ui {
+  background: var(--accent);
+}
+
+.lm-switch input:checked + .lm-switch-ui::after {
+  transform: translateX(18px);
+}
+
+.lm-switch input:focus-visible + .lm-switch-ui {
+  box-shadow: var(--focus-ring);
+}
+
+.lm-switch:has(input:disabled) {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .lm-settings-row-stack {
   flex-direction: column;
   align-items: stretch;
@@ -16289,6 +16592,30 @@ html.lm-theme-dark .lm-files-explorer-scroll::-webkit-scrollbar-thumb:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.lm-host-folder-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0 4px;
+}
+
+.lm-host-folder-row .lm-input {
+  min-width: 0;
+  flex: 1;
+}
+
+.lm-host-log {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lm-host-log li {
+  padding: 2px 0;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 /* ── Custom model panel (settings → 模型/API → 高级) ───────── */
@@ -20281,14 +20608,35 @@ html.lm-theme-dark .lm-tool-args-edit-textarea {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: var(--space-3);
-  margin-bottom: var(--space-3);
-  cursor: pointer;
+  margin-bottom: 0;
+  cursor: default;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.lm-matter-health-card:hover {
+button.lm-matter-health-card {
+  cursor: pointer;
+}
+
+button.lm-matter-health-card:hover {
   border-color: var(--accent);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.lm-matter-health-card--compact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 10px 14px;
+}
+
+.lm-matter-health-card--compact .lm-matter-health-card-head,
+.lm-matter-health-card--compact .lm-matter-health-card-metrics {
+  margin-bottom: 0;
+}
+
+.lm-matter-health-card--compact .lm-matter-health-card-meta {
+  margin-left: auto;
 }
 
 .lm-matter-health-card-head {

@@ -1,10 +1,11 @@
+import { useState } from "react";
 import type { ArtifactDraft } from "../../../../../src/lawmind/types.ts";
 import type { DraftCitationIntegrityView } from "../../../../../src/lawmind/drafts/citation-integrity.ts";
-import type { MemorySourceLayer } from "../../../../../src/lawmind/memory/index.ts";
+import type { MemorySourceLayer } from "../../../../../src/lawmind/memory/memory-source-types.ts";
 import { LawmindMemorySourcesPanel } from "../LawmindMemorySourcesPanel";
 import { LawmindReasoningCollapsible } from "../LawmindReasoningCollapsible";
 import { internalIdsTitle } from "../display-ids";
-import type { ReasoningReport } from "../../../../../src/lawmind/deliverables/index.ts";
+import type { ReasoningReport } from "../../../../../src/lawmind/deliverables/types.ts";
 import { MatterMemoryInspector } from "./MatterMemoryInspector";
 import { MatterReasoningBoard } from "./MatterReasoningBoard";
 import { DraftCitationBadge } from "./matter-draft-citation-badge";
@@ -14,6 +15,7 @@ import {
   type AdoptedSuggestionRecord,
   type MatterCognitionBoard,
 } from "./matter-interaction";
+import { MatterOverviewExtras } from "./MatterOverviewExtras";
 
 export type MatterCognitionPanelProps = {
   apiBase: string;
@@ -84,6 +86,7 @@ export function MatterCognitionPanel(props: MatterCognitionPanelProps) {
     matterId,
     reasoningReport = null,
   } = props;
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
 
   return (
     <div className="lm-workbench-panel">
@@ -145,6 +148,53 @@ export function MatterCognitionPanel(props: MatterCognitionPanelProps) {
             </div>
           </div>
         ) : null}
+        {cognitionBoard ? (
+          <section className="lm-matter-cockpit-card">
+            <h3>经验升级线索</h3>
+            <p className="lm-meta">建议确认后才入库。</p>
+            {cognitionBoard.upgradeSuggestions.length === 0 ? (
+              <p className="lm-meta">无</p>
+            ) : (
+              <ul className="lm-matter-ops-list">
+                {cognitionBoard.upgradeSuggestions.map((item) => (
+                  <li key={item.label}>
+                    <div className="lm-matter-ops-title">
+                      <span>{item.label}</span>
+                      <span className="lm-matter-pill">{item.count} 次命中</span>
+                    </div>
+                    <div className="lm-matter-ops-meta">{item.recommendation}</div>
+                    <div className="lm-matter-ops-actions lm-matter-upgrade-actions">
+                      <button
+                        type="button"
+                        className="lm-btn lm-btn-secondary lm-btn-small"
+                        disabled={cognitionActionBusy === `lawyer:${item.label}`}
+                        onClick={() => void saveUpgradeSuggestion("lawyer", item)}
+                      >
+                        加入律师档案队列
+                      </button>
+                      <button
+                        type="button"
+                        className="lm-btn lm-btn-secondary lm-btn-small"
+                        disabled={cognitionActionBusy === `assistant:${item.label}`}
+                        onClick={() => void saveUpgradeSuggestion("assistant", item)}
+                      >
+                        加入助手档案队列
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {cognitionActionMsg ? <div className="lm-meta lm-matter-action-msg">{cognitionActionMsg}</div> : null}
+          </section>
+        ) : null}
+        <MatterOverviewExtras
+          expanded={diagnosticsOpen}
+          onExpand={() => setDiagnosticsOpen(true)}
+          onCollapse={() => setDiagnosticsOpen(false)}
+          expandLabel="诊断与记录…"
+          collapseLabel="收起诊断"
+        >
          {cognitionBoard ? (
           <div className="lm-matter-cognition-grid">
             <section className="lm-matter-cockpit-card">
@@ -186,44 +236,6 @@ export function MatterCognitionPanel(props: MatterCognitionPanelProps) {
               ) : (
                 <p className="lm-meta">无</p>
               )}
-            </section>
-            <section className="lm-matter-cockpit-card">
-              <h3>经验升级线索</h3>
-              <p className="lm-meta">建议确认后才入库。</p>
-              {cognitionBoard.upgradeSuggestions.length === 0 ? (
-                <p className="lm-meta">无</p>
-              ) : (
-                <ul className="lm-matter-ops-list">
-                  {cognitionBoard.upgradeSuggestions.map((item) => (
-                    <li key={item.label}>
-                      <div className="lm-matter-ops-title">
-                        <span>{item.label}</span>
-                        <span className="lm-matter-pill">{item.count} 次命中</span>
-                      </div>
-                      <div className="lm-matter-ops-meta">{item.recommendation}</div>
-                      <div className="lm-matter-ops-actions lm-matter-upgrade-actions">
-                        <button
-                          type="button"
-                          className="lm-btn lm-btn-secondary lm-btn-small"
-                          disabled={cognitionActionBusy === `lawyer:${item.label}`}
-                          onClick={() => void saveUpgradeSuggestion("lawyer", item)}
-                        >
-                          加入律师档案队列
-                        </button>
-                        <button
-                          type="button"
-                          className="lm-btn lm-btn-secondary lm-btn-small"
-                          disabled={cognitionActionBusy === `assistant:${item.label}`}
-                          onClick={() => void saveUpgradeSuggestion("assistant", item)}
-                        >
-                          加入助手档案队列
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {cognitionActionMsg ? <div className="lm-meta lm-matter-action-msg">{cognitionActionMsg}</div> : null}
             </section>
             <section className="lm-matter-cockpit-card">
               <h3>已采纳建议</h3>
@@ -416,6 +428,12 @@ export function MatterCognitionPanel(props: MatterCognitionPanelProps) {
             </section>
           </div>
         ) : null}
+            <section className="lm-matter-cockpit-card lm-matter-memory-inspector-card">
+              <h3>记忆采纳队列</h3>
+              <p className="lm-meta">预览后采纳。</p>
+              <MatterMemoryInspector apiBase={apiBase} matterId={matterId} />
+            </section>
+        </MatterOverviewExtras>
          {cognitionDraft && (
           <div className="lm-matter-cognition-meta">
             <span className={`lm-matter-pill lm-matter-pill-status-${cognitionDraft.reviewStatus}`}>
@@ -462,22 +480,17 @@ export function MatterCognitionPanel(props: MatterCognitionPanelProps) {
             <LawmindMemorySourcesPanel
               layers={cognitionMemorySources}
               variant="workbench"
-              defaultOpen
+              defaultOpen={false}
             />
             {cognitionReasoningMarkdown ? (
               <LawmindReasoningCollapsible
                 markdown={cognitionReasoningMarkdown}
                 variant="workbench"
-                defaultOpen
+                defaultOpen={false}
                 title="当前案件推理快照"
               />
             ) : null}
             <MatterReasoningBoard matterId={matterId} reasoning={reasoningReport} />
-            <section className="lm-matter-cockpit-card lm-matter-memory-inspector-card">
-              <h3>记忆采纳队列</h3>
-              <p className="lm-meta">预览后采纳。</p>
-              <MatterMemoryInspector apiBase={apiBase} matterId={matterId} />
-            </section>
           </div>
         ) : null}
       </section>

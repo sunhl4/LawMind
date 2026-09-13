@@ -35,6 +35,8 @@ import {
   configPath,
   lawMindPaths,
   parseEnvAssignmentsTopLevel,
+  defaultModelIdForWizardModel,
+  inferWizardProviderId,
   writeWizardDefaultModelId,
   getBundledServerScript,
   nodeRuntimeKey,
@@ -43,9 +45,19 @@ import {
   restartBackendInternal,
   postLocalModelTest,
   setProjectDir,
+  getAllowedRoots,
 } from "./local-server.mjs";
+import { importDroppedAbsPaths } from "./import-dropped-files.mjs";
+import {
+  readHostAccessStore,
+  writeHostAccessStore,
+  migrateProjectIntoStore,
+} from "./host-access-store.mjs";
+
+import { LAWMIND_PRODUCT_NAME, resolveRuntimeAppIconPath } from "./brand.mjs";
 
 const __electronDir = path.dirname(fileURLToPath(import.meta.url));
+const appIconPath = resolveRuntimeAppIconPath(__electronDir);
 const requireCjs = createRequire(import.meta.url);
 const { probeModelInline } = requireCjs("./lawmind-model-probe.cjs");
 
@@ -90,12 +102,16 @@ export function registerIpcHandlers(deps) {
       const title =
         typeof payload?.title === "string" && payload.title.trim()
           ? payload.title.trim()
-          : "LawMind";
+          : LAWMIND_PRODUCT_NAME;
       const body = typeof payload?.body === "string" ? payload.body : "";
       if (!Notification.isSupported()) {
         return { ok: false, error: "notifications_not_supported" };
       }
-      const notification = new Notification({ title, body: body.slice(0, 512) });
+      const notification = new Notification({
+        title,
+        body: body.slice(0, 512),
+        icon: appIconPath,
+      });
       const openSettingsOnClick = payload?.openSettingsOnClick === true;
       const openReviewOnClick = payload?.openReviewOnClick === true;
       const openChatOnClick = payload?.openChatOnClick === true;
@@ -222,6 +238,9 @@ export function registerIpcHandlers(deps) {
   const WIZARD_ENV_SECRET_KEYS = [
     "LAWMIND_AGENT_API_KEY",
     "LAWMIND_QWEN_API_KEY",
+    "LAWMIND_DEEPSEEK_API_KEY",
+    "LAWMIND_PROVIDER_DEEPSEEK_API_KEY",
+    "DEEPSEEK_API_KEY",
     "LAWMIND_CHATLAW_API_KEY",
     "LAWMIND_WEB_SEARCH_API_KEY",
     "BRAVE_API_KEY",
@@ -254,8 +273,10 @@ export function registerIpcHandlers(deps) {
       webSearchKeyStorage: chainWebKey ? "keychain" : envWebKey ? "env" : "none",
       baseUrl:
         (vars.LAWMIND_AGENT_BASE_URL || vars.LAWMIND_QWEN_BASE_URL || "").trim() ||
-        "https://dashscope.aliyuncs.com/compatible-mode/v1",
-      model: (vars.LAWMIND_AGENT_MODEL || vars.LAWMIND_QWEN_MODEL || "qwen-plus").trim() || "qwen-plus",
+        "https://api.deepseek.com/v1",
+      model:
+        (vars.LAWMIND_AGENT_MODEL || vars.LAWMIND_DEEPSEEK_MODEL || vars.LAWMIND_QWEN_MODEL || "deepseek-flash").trim() ||
+        "deepseek-flash",
       envFilePath: paths.envFilePath,
     };
   });
@@ -324,8 +345,8 @@ export function registerIpcHandlers(deps) {
     fs.writeFileSync(paths.configPath, `${JSON.stringify(desktopCfg, null, 2)}\n`, "utf8");
 
     const url =
-      baseUrl || "https://dashscope.aliyuncs.com/compatible-mode/v1";
-    const m = model || "qwen-plus";
+      baseUrl || "https://api.deepseek.com/v1";
+    const m = model || "deepseek-flash";
 
     const inlineProbe = await probeModelInline({
       apiKey: effectiveKey,
@@ -340,10 +361,16 @@ export function registerIpcHandlers(deps) {
     const envAssignments = {
       LAWMIND_AGENT_BASE_URL: url,
       LAWMIND_AGENT_MODEL: m,
-      LAWMIND_QWEN_BASE_URL: url,
-      LAWMIND_QWEN_MODEL: m,
       LAWMIND_RETRIEVAL_MODE: retrievalMode,
     };
+    const wizardProvider = inferWizardProviderId(url);
+    if (wizardProvider === "deepseek") {
+      envAssignments.LAWMIND_DEEPSEEK_MODEL = m;
+    }
+    if (wizardProvider === "dashscope") {
+      envAssignments.LAWMIND_QWEN_BASE_URL = url;
+      envAssignments.LAWMIND_QWEN_MODEL = m;
+    }
     if (wantDual && legalSameAsChat) {
       envAssignments.LAWMIND_CHATLAW_BASE_URL = url;
       envAssignments.LAWMIND_CHATLAW_MODEL = m;
@@ -387,7 +414,12 @@ export function registerIpcHandlers(deps) {
       }
     } else {
       envAssignments.LAWMIND_AGENT_API_KEY = effectiveKey;
-      envAssignments.LAWMIND_QWEN_API_KEY = effectiveKey;
+      if (wizardProvider === "dashscope") {
+        envAssignments.LAWMIND_QWEN_API_KEY = effectiveKey;
+      }
+      if (wizardProvider === "deepseek") {
+        envAssignments.LAWMIND_DEEPSEEK_API_KEY = effectiveKey;
+      }
       if (effectiveWebKey) {
         envAssignments.LAWMIND_WEB_SEARCH_API_KEY = effectiveWebKey;
         envAssignments.BRAVE_API_KEY = effectiveWebKey;
@@ -411,7 +443,9 @@ export function registerIpcHandlers(deps) {
       };
     }
 
-    const serverProbe = await postLocalModelTest("env:current");
+    const serverProbe = await postLocalModelTest(
+      wizardProvider ? defaultModelIdForWizardModel(m) : "env:current",
+    );
     if (!serverProbe.ok) {
       return {
         ok: false,
@@ -563,7 +597,7 @@ export function registerIpcHandlers(deps) {
 
   ipcMain.handle("lawmind:pick-project", async () => {
     const res = await dialog.showOpenDialog({
-      title: "选择项目目录",
+      title: "选择本机文件夹",
       properties: ["openDirectory"],
     });
     if (res.canceled || res.filePaths.length === 0) {
@@ -620,6 +654,76 @@ export function registerIpcHandlers(deps) {
       };
     }
     return { ok: true, projectDir, apiBase: `http://127.0.0.1:${apiPort}` };
+  });
+
+  ipcMain.handle("lawmind:list-host-folders", () => {
+    const paths = lawMindPaths();
+    const state = migrateProjectIntoStore(paths.lawMindRoot, projectDir);
+    return { ok: true, mounts: state.mounts };
+  });
+
+  ipcMain.handle("lawmind:add-host-folder", async (_evt, payload) => {
+    const paths = lawMindPaths();
+    const abs = typeof payload?.path === "string" ? path.resolve(payload.path.trim()) : "";
+    if (!abs || !fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) {
+      return { ok: false, error: "invalid folder" };
+    }
+    const state = migrateProjectIntoStore(paths.lawMindRoot, projectDir);
+    if (state.mounts.some((m) => path.resolve(m.absPath) === abs)) {
+      return { ok: true, mounts: state.mounts };
+    }
+    if (state.mounts.length >= 16) {
+      return { ok: false, error: "本机文件夹已达上限" };
+    }
+    state.mounts.push({
+      id: `mount-${Date.now().toString(36)}`,
+      absPath: abs,
+      label: typeof payload?.label === "string" && payload.label.trim() ? payload.label.trim() : path.basename(abs),
+      matterId: typeof payload?.matterId === "string" && payload.matterId.trim() ? payload.matterId.trim() : undefined,
+      addedAt: new Date().toISOString(),
+    });
+    writeHostAccessStore(paths.lawMindRoot, state);
+    if (!projectDir) {
+      let prev = {};
+      try {
+        if (fs.existsSync(paths.configPath)) {
+          prev = JSON.parse(fs.readFileSync(paths.configPath, "utf8"));
+        }
+      } catch {
+        prev = {};
+      }
+      fs.writeFileSync(
+        paths.configPath,
+        `${JSON.stringify({ ...prev, projectDir: abs }, null, 2)}\n`,
+        "utf8",
+      );
+      setProjectDir(abs);
+    }
+    return { ok: true, mounts: state.mounts, projectDir: projectDir || abs };
+  });
+
+  ipcMain.handle("lawmind:remove-host-folder", async (_evt, mountId) => {
+    const paths = lawMindPaths();
+    const state = readHostAccessStore(paths.lawMindRoot);
+    const next = state.mounts.filter((m) => m.id !== String(mountId || ""));
+    writeHostAccessStore(paths.lawMindRoot, { ...state, mounts: next });
+    const first = next[0]?.absPath ?? null;
+    setProjectDir(first);
+    return { ok: true, mounts: next, projectDir: first };
+  });
+
+  ipcMain.handle("lawmind:bind-host-folder", async (_evt, payload) => {
+    const paths = lawMindPaths();
+    const state = readHostAccessStore(paths.lawMindRoot);
+    const id = typeof payload?.id === "string" ? payload.id : "";
+    const mount = state.mounts.find((m) => m.id === id);
+    if (!mount) {
+      return { ok: false, error: "not found" };
+    }
+    mount.matterId =
+      typeof payload?.matterId === "string" && payload.matterId.trim() ? payload.matterId.trim() : undefined;
+    writeHostAccessStore(paths.lawMindRoot, state);
+    return { ok: true, mounts: state.mounts };
   });
 
   ipcMain.handle("lawmind:fs:list", (_evt, payload) => {
@@ -785,6 +889,31 @@ export function registerIpcHandlers(deps) {
     }
   });
 
+  /** Copy Finder-dropped files that sit outside workspace/project into uploads or case materials. */
+  ipcMain.handle("lawmind:fs:import-dropped", (_evt, payload) => {
+    try {
+      const absPaths = Array.isArray(payload?.absPaths)
+        ? payload.absPaths.filter((p) => typeof p === "string" && p.trim())
+        : [];
+      if (absPaths.length === 0) {
+        return { ok: false, error: "未识别到文件路径", items: [], errors: [] };
+      }
+      return importDroppedAbsPaths({
+        workspaceDir,
+        projectDir,
+        absPaths,
+        matterId: typeof payload?.matterId === "string" ? payload.matterId : null,
+      });
+    } catch (e) {
+      return {
+        ok: false,
+        error: e instanceof Error ? e.message : String(e),
+        items: [],
+        errors: [],
+      };
+    }
+  });
+
   /** 选择本地文件或文件夹（可选多选），用于「按路径导入案件」等。 */
   ipcMain.handle("lawmind:dialog:open-files", async (evt, payload = {}) => {
     const win =
@@ -896,7 +1025,7 @@ export function registerIpcHandlers(deps) {
     const resolved = path.resolve(fullPath.trim());
     // 与 fs-bridge 同型根守卫：只允许展示 workspace / project 内的文件，
     // 避免渲染进程被控时探测或暴露任意磁盘路径。
-    const roots = [workspaceDir, projectDir].filter((r) => typeof r === "string" && r.trim());
+    const roots = Object.values(getAllowedRoots()).filter((r) => typeof r === "string" && r.trim());
     const insideAllowedRoot = roots.some((root) => {
       const abs = path.resolve(root);
       return resolved === abs || resolved.startsWith(abs + path.sep);
@@ -960,7 +1089,8 @@ export function registerIpcHandlers(deps) {
         height,
         x,
         y,
-        title: `${title} — LawMind`,
+        title: `${title} — ${LAWMIND_PRODUCT_NAME}`,
+        icon: appIconPath,
         autoHideMenuBar: true,
         webPreferences: {
           preload: path.join(__electronDir, "preload.cjs"),

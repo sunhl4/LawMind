@@ -40,6 +40,7 @@ export function pickWorkspaceMainPaneProps(
     onRemoveTruthPin: props.onRemoveTruthPin,
     onClearTruthPills: props.onClearTruthPills,
     onAddFileToChatContext: props.onAddFileToChatContext,
+    onFileDropError: props.onFileDropError,
     onRemoveFileChatPill: props.onRemoveFileChatPill,
     onClearFileChatPills: props.onClearFileChatPills,
     contextTaskId: props.contextTaskId,

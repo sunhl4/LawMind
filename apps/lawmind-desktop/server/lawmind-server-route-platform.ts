@@ -27,6 +27,7 @@ export async function handlePlatformRoutes({
         highSecurityMode: policy?.highSecurityMode === true,
         allowAnalysisScripts: policy?.allowAnalysisScripts === true,
         allowWebSearch: policy?.allowWebSearch,
+        hostAccess: policy?.hostAccess ?? {},
       },
       c,
     );
@@ -55,6 +56,7 @@ export async function handlePlatformRoutes({
       ...(body.highSecurityMode
         ? { allowWebSearch: false, productInsightsCollection: "off" as const, allowAnalysisScripts: false }
         : {}),
+      ...(body.hostAccess ? { hostAccess: body.hostAccess } : {}),
     });
     if (!merged.ok) {
       sendJson(res, 500, { ok: false, message: merged.error }, c);
@@ -67,6 +69,7 @@ export async function handlePlatformRoutes({
         ok: true,
         highSecurityMode: merged.policy.highSecurityMode === true,
         allowAnalysisScripts: merged.policy.allowAnalysisScripts === true,
+        hostAccess: merged.policy.hostAccess ?? {},
       },
       c,
     );

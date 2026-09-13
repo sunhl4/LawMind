@@ -122,6 +122,13 @@ describe("styles/tokens.css", () => {
     expect(bundledCss, "styles.css (run pnpm lawmind:sync:renderer-css)").toMatch(rule);
   });
 
+  it("bundled styles.css keeps the turn-plan checklist rule closed", () => {
+    const bundledCss = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../styles.css"), "utf8");
+    expect(bundledCss, "styles.css (run pnpm lawmind:sync:renderer-css)").toMatch(
+      /\.lm-turn-plan-steps\s*\{/,
+    );
+  });
+
   it("bundled styles.css keeps a single tokenized danger callout", () => {
     const bundledCss = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../styles.css"), "utf8");
     const dangerBlocks = bundledCss.match(/\.lm-callout-danger\s*\{[^}]+\}/g) ?? [];

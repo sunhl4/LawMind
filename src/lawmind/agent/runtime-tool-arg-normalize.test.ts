@@ -46,9 +46,45 @@ describe("normalizeToolCallArguments", () => {
     expect(call.args.file_path).toBe("drafts/t1.json");
   });
 
+  it("defaults write_document to workspace notes/ when no path and no linked draft", () => {
+    const call = makeCall("write_document", { content: "备忘" });
+    normalizeToolCallArguments(call);
+    expect(String(call.args.file_path)).toMatch(/^notes\/工作笔记_\d{8}_01\.md$/);
+  });
+
+  it("defaults write_document to the matter notes/ folder", () => {
+    const call = makeCall("write_document", { content: "备忘" });
+    call.ctx.matterId = "xinghui-sale-876";
+    normalizeToolCallArguments(call);
+    expect(String(call.args.file_path)).toMatch(
+      /^cases\/xinghui-sale-876\/notes\/工作笔记_\d{8}_01\.md$/,
+    );
+  });
+
   it("defaults update_draft task_id from linkedTaskId", () => {
     const call = makeCall("update_draft", { summary: "new" }, "draft-abc");
     normalizeToolCallArguments(call);
     expect(call.args.task_id).toBe("draft-abc");
+  });
+
+  it("coerces update_plan JSON-string plan and items alias", () => {
+    const asString = makeCall("update_plan", {
+      plan: JSON.stringify([
+        { step: "读合同", status: "in_progress" },
+        { step: "标风险", status: "pending" },
+      ]),
+    });
+    normalizeToolCallArguments(asString);
+    expect(Array.isArray(asString.args.plan)).toBe(true);
+    expect((asString.args.plan as unknown[]).length).toBe(2);
+
+    const aliased = makeCall("update_plan", {
+      items: [
+        { step: "读合同", status: "in_progress" },
+        { step: "标风险", status: "pending" },
+      ],
+    });
+    normalizeToolCallArguments(aliased);
+    expect(Array.isArray(aliased.args.plan)).toBe(true);
   });
 });

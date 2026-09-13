@@ -20,7 +20,7 @@ export function instructionSuggestsContractExperience(instruction: string): bool
 async function readKeyModificationsSnippet(
   workspaceDir: string,
   revisionId: string,
-  maxChars = 600,
+  maxChars = 180,
 ): Promise<string | undefined> {
   const p = path.join(contractRevisionsRootDir(workspaceDir), revisionId, "KEY_MODIFICATIONS.md");
   try {
@@ -74,8 +74,13 @@ export async function buildContractRevisionRecallBlock(opts: {
     const snippet = await readKeyModificationsSnippet(opts.workspaceDir, it.revisionId);
     if (snippet) {
       blocks.push(snippet);
+      blocks.push(
+        `完整改稿包请用 read_workspace_file 读取 learning/contract-revisions/${it.revisionId}/KEY_MODIFICATIONS.md`,
+      );
     } else {
-      blocks.push("（无 KEY_MODIFICATIONS 摘要；可工具读取 learning/contract-revisions/）");
+      blocks.push(
+        "（无 KEY_MODIFICATIONS 摘要；请用 read_workspace_file 读取 learning/contract-revisions/）",
+      );
     }
   }
   return blocks.join("\n\n");

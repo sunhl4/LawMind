@@ -4,17 +4,20 @@ import {
   builtinIdForEnvModelName,
   getBuiltinModelById,
   LAWMIND_BUILTIN_MODELS,
+  LAWMIND_DEFAULT_BUILTIN_MODEL_ID,
 } from "./catalog.js";
 import { getCustomModelById, readModelsStore } from "./custom-store.js";
 import { getPlatformModelById, LAWMIND_PLATFORM_MODELS } from "./platform-catalog.js";
 import {
   isPlatformInferenceAvailable,
+  isPlatformModelConfigured,
   listPlatformProviderKeyStatus,
   resolvePlatformProviderApiKeyFromEnv,
   resolvePlatformProxyFromEnv,
 } from "./platform-providers.js";
 import {
   getProviderDefinition,
+  inferProviderIdFromBaseUrl,
   listProviderKeyStatus,
   resolveProviderApiKeyFromEnv,
 } from "./providers.js";
@@ -24,21 +27,23 @@ import type { ModelCatalogEntry, LawMindModelId } from "./types.js";
 export const ENV_CURRENT_MODEL_ID = "env:current";
 
 function readAgentEnvProfile(): { apiKey: string; baseUrl: string; model: string } | null {
-  const apiKey =
-    process.env.LAWMIND_AGENT_API_KEY?.trim() || resolveProviderApiKeyFromEnv("dashscope") || "";
+  const apiKey = process.env.LAWMIND_AGENT_API_KEY?.trim() || "";
   if (!apiKey) {
     return null;
   }
   const model =
-    process.env.LAWMIND_AGENT_MODEL?.trim() || process.env.LAWMIND_QWEN_MODEL?.trim() || "";
+    process.env.LAWMIND_AGENT_MODEL?.trim() ||
+    process.env.LAWMIND_DEEPSEEK_MODEL?.trim() ||
+    process.env.LAWMIND_QWEN_MODEL?.trim() ||
+    "";
   if (!model) {
     return null;
   }
-  const dashscope = getProviderDefinition("dashscope");
+  const deepseek = getProviderDefinition("deepseek");
   const baseUrl = (
     process.env.LAWMIND_AGENT_BASE_URL?.trim() ||
     process.env.LAWMIND_QWEN_BASE_URL?.trim() ||
-    dashscope.defaultBaseUrl
+    deepseek.defaultBaseUrl
   ).replace(/\/$/, "");
   return { apiKey, baseUrl, model };
 }
@@ -226,13 +231,50 @@ export function resolveContextTokensForModelId(
   return getBuiltinModelById(id)?.contextTokens ?? undefined;
 }
 
+function isModelIdConfigured(lawMindRoot: string, modelId: string): boolean {
+  const id = (getBuiltinModelById(modelId)?.id ?? modelId).trim();
+  if (!id) {
+    return false;
+  }
+  if (id === ENV_CURRENT_MODEL_ID) {
+    return Boolean(readAgentEnvProfile()?.apiKey);
+  }
+  if (id.startsWith("platform:")) {
+    const def = getPlatformModelById(id);
+    if (!def || def.provider === "platform") {
+      return false;
+    }
+    return isPlatformModelConfigured(def.provider);
+  }
+  if (id.startsWith("custom:")) {
+    const row = getCustomModelById(lawMindRoot, id);
+    if (!row) {
+      return false;
+    }
+    return Boolean(row.apiKey.trim() || (process.env[customModelEnvKeyName(id)] ?? "").trim());
+  }
+  const def = getBuiltinModelById(id);
+  if (!def || def.provider === "platform") {
+    return false;
+  }
+  return Boolean(resolveProviderApiKeyFromEnv(def.provider));
+}
+
 export function resolveDefaultModelId(lawMindRoot: string): string {
   const store = readModelsStore(lawMindRoot);
   if (store.defaultModelId) {
-    return store.defaultModelId;
+    const mapped =
+      builtinIdForEnvModelName(store.defaultModelId.replace(/^builtin:/, "")) ??
+      store.defaultModelId;
+    if (isModelIdConfigured(lawMindRoot, mapped)) {
+      return mapped;
+    }
   }
   const envModel =
-    process.env.LAWMIND_AGENT_MODEL?.trim() || process.env.LAWMIND_QWEN_MODEL?.trim() || "";
+    process.env.LAWMIND_AGENT_MODEL?.trim() ||
+    process.env.LAWMIND_DEEPSEEK_MODEL?.trim() ||
+    process.env.LAWMIND_QWEN_MODEL?.trim() ||
+    "";
   const fromEnv = builtinIdForEnvModelName(envModel);
   if (fromEnv && getBuiltinModelById(fromEnv)) {
     const def = getBuiltinModelById(fromEnv)!;
@@ -243,8 +285,17 @@ export function resolveDefaultModelId(lawMindRoot: string): string {
   if (shouldIncludeEnvCurrentCatalogEntry()) {
     return ENV_CURRENT_MODEL_ID;
   }
-  if (isPlatformInferenceAvailable()) {
-    return "platform:qwen-plus";
+  const firstPlatform = LAWMIND_PLATFORM_MODELS.find((m) => {
+    if (m.provider === "platform") {
+      return false;
+    }
+    return isPlatformModelConfigured(m.provider);
+  });
+  if (firstPlatform) {
+    return firstPlatform.id;
+  }
+  if (resolveProviderApiKeyFromEnv("deepseek")) {
+    return LAWMIND_DEFAULT_BUILTIN_MODEL_ID;
   }
   const firstConfigured = LAWMIND_BUILTIN_MODELS.find((m) =>
     Boolean(resolveProviderApiKeyFromEnv(m.provider)),
@@ -256,7 +307,7 @@ export function resolveDefaultModelId(lawMindRoot: string): string {
   if (firstCustom) {
     return firstCustom.id;
   }
-  return "builtin:qwen-plus";
+  return LAWMIND_DEFAULT_BUILTIN_MODEL_ID;
 }
 
 function providerLabelForCatalog(provider: ModelCatalogEntry["provider"]): string {
@@ -307,7 +358,8 @@ export function resolveAgentModelById(
   lawMindRoot: string,
   modelId?: string,
 ): { model?: AgentModelConfig; error?: string; resolvedModelId: LawMindModelId } {
-  const id = (modelId?.trim() || resolveDefaultModelId(lawMindRoot)).trim();
+  const requested = (modelId?.trim() || resolveDefaultModelId(lawMindRoot)).trim();
+  const id = getBuiltinModelById(requested)?.id ?? requested;
   if (id === ENV_CURRENT_MODEL_ID) {
     const r = resolveEnvCurrentToAgentModel();
     return { ...r, resolvedModelId: id };
@@ -389,9 +441,9 @@ export function buildModelCatalog(lawMindRoot: string): {
     });
   });
 
-  const platformAvailable = isPlatformInferenceAvailable();
-  const platforms: ModelCatalogEntry[] = LAWMIND_PLATFORM_MODELS.map((m) =>
-    attachVerification({
+  const platforms: ModelCatalogEntry[] = LAWMIND_PLATFORM_MODELS.map((m) => {
+    const platformConfigured = m.provider !== "platform" && isPlatformModelConfigured(m.provider);
+    return attachVerification({
       id: m.id,
       kind: "platform",
       label: m.label,
@@ -400,11 +452,11 @@ export function buildModelCatalog(lawMindRoot: string): {
       provider: "platform",
       model: m.model,
       baseUrl: resolvePlatformProxyFromEnv()?.baseUrl ?? m.baseUrl,
-      configured: platformAvailable,
+      configured: platformConfigured,
       contextTokens: m.contextTokens,
       tags: m.tags,
-    }),
-  );
+    });
+  });
 
   const envRows: ModelCatalogEntry[] = [];
   if (shouldIncludeEnvCurrentCatalogEntry()) {
@@ -416,7 +468,7 @@ export function buildModelCatalog(lawMindRoot: string): {
         label: `主模型（${profile.model}）`,
         description: "使用设置向导写入的模型名、Base URL 与 Key",
         group: "当前配置",
-        provider: "dashscope",
+        provider: inferProviderIdFromBaseUrl(profile.baseUrl) ?? "dashscope",
         model: profile.model,
         baseUrl: profile.baseUrl,
         configured: true,
@@ -432,7 +484,7 @@ export function buildModelCatalog(lawMindRoot: string): {
     platformProviders: listPlatformProviderKeyStatus(),
     platformMode: resolvePlatformProxyFromEnv()
       ? "proxy"
-      : platformAvailable
+      : isPlatformInferenceAvailable()
         ? "platform_key"
         : "none",
   };

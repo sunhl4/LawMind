@@ -24,8 +24,9 @@
 ## 工具分工（执行任务时怎么用）
 
 1. **材料在工作区树内**（`workspace/` 下相对路径）：用 **`analyze_document`**，`file_path` 为相对工作区路径。
-2. **材料在律师另选的「项目目录」**（桌面关联文件夹）：用 **`read_project_file`**，`relative_path` 相对项目根；未关联项目时该工具不可用。
-3. **`search_workspace`**：会检索工作区记忆文件，并对项目目录做**有界、仅常见纯文本扩展名**的扫描；**不会**自动打开 PDF/Word/Excel/图片，需用上面两个工具显式读文件。
+2. **材料在律师另选的「本机文件夹」**（原项目目录，现可多个）：用 **`search_host` / `read_host_file`**；第一项仍可用 **`read_project_file`**。工作区外命中只回 `hit_id`，律师允许后才读正文。
+3. **`search_workspace`**：会检索工作区记忆文件，并对本机文件夹第一项做**有界、仅常见纯文本扩展名**的扫描；**不会**自动打开 PDF/Word/Excel/图片，需用上面的工具显式读文件。
+4. **收进本案**：`import_host_file` 复制到 `cases/<matterId>/materials/`，不改写源文件。
 
 ## 体积与页数上限（实现常量）
 

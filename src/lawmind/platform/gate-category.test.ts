@@ -53,5 +53,11 @@ describe("gate-category", () => {
         category: "judgment_soft",
       }),
     ).toBe("judgment_soft");
+    expect(
+      resolveGateCategory({
+        gate: "legal_guardian_gate",
+        decision: "block",
+      }),
+    ).toBe("judgment_soft");
   });
 });

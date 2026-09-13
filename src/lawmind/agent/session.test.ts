@@ -9,6 +9,7 @@ import {
   deleteSession,
   deriveAutoChatTitleFromFirstUserMessage,
   deriveModelMessages,
+  deriveModelMessagesForSampling,
   displayChatSessionTitle,
   extractFirstSentenceFromUserMessageParagraph,
   loadSession,
@@ -134,6 +135,23 @@ describe("session title and history helpers", () => {
     ]);
   });
 
+  it("sessionHistoryToSimpleMessages omits hiddenFromLawyer bounce notes", () => {
+    const ws = tmpDir();
+    const s = createSession({ workspaceDir: ws, actorId: "a" });
+    s.conversationHistory.push(
+      { role: "user", content: "改合同", timestamp: new Date().toISOString() },
+      { role: "assistant", content: "已完成。", timestamp: new Date().toISOString() },
+      {
+        role: "user",
+        content: "【同一回合验收未过】验证器未绿",
+        timestamp: new Date().toISOString(),
+        hiddenFromLawyer: true,
+      },
+    );
+    const rows = sessionHistoryToSimpleMessages(s);
+    expect(rows.map((r) => r.text)).toEqual(["改合同", "已完成。"]);
+  });
+
   it("sessionHistoryToSimpleMessages includes persisted liveTrace", () => {
     const ws = tmpDir();
     const s = createSession({ workspaceDir: ws, actorId: "a" });
@@ -223,5 +241,34 @@ describe("session title and history helpers", () => {
     expect(derived[2]?.tool_calls?.[0]?.function.name).toBe("analyze_document");
     expect(derived[3]?.tool_call_id).toBe("c1");
     expect(derived[3]?.content).toBe(JSON.stringify({ ok: true }));
+    const sampled = deriveModelMessagesForSampling(s, { used: 100, effectiveLimit: 8_000 });
+    expect(sampled).toHaveLength(derived.length + 1);
+    expect(sampled[sampled.length - 1]?.role).toBe("user");
+    expect(sampled[sampled.length - 1]?.content).toContain("还剩 7900");
+    expect(s.conversationHistory).toHaveLength(4);
+    s.samplingPromptTail = "## 当前案件 [m1]\n\n索引";
+    const withTail = deriveModelMessagesForSampling(s, { used: 100, effectiveLimit: 8_000 });
+    expect(withTail).toHaveLength(derived.length + 2);
+    expect(withTail[withTail.length - 2]?.content).toContain("<turn_context>");
+    expect(withTail[withTail.length - 2]?.content).toContain("当前案件");
+    expect(s.conversationHistory).toHaveLength(4);
+  });
+
+  it("sessionHistoryToSimpleMessages attaches turnPlan to the last assistant", () => {
+    const ws = tmpDir();
+    const s = createSession({ workspaceDir: ws, actorId: "a" });
+    s.conversationHistory.push(
+      { role: "user", content: "审合同", timestamp: new Date().toISOString() },
+      { role: "assistant", content: "先读材料", timestamp: new Date().toISOString() },
+    );
+    s.turnPlan = {
+      items: [
+        { step: "读合同", status: "in_progress" },
+        { step: "标风险", status: "pending" },
+      ],
+      updatedAt: "2026-09-13T00:00:00.000Z",
+    };
+    const rows = sessionHistoryToSimpleMessages(s);
+    expect(rows[1]?.turnPlan?.items).toHaveLength(2);
   });
 });

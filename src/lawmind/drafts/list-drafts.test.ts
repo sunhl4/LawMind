@@ -36,4 +36,29 @@ describe("listDrafts", () => {
     expect(listed).toHaveLength(1);
     expect(listed[0]?.title).toBe("起诉状");
   });
+
+  it("skips guardian sidecars", () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-drafts-list-"));
+    tmp.push(workspaceDir);
+    persistDraft(workspaceDir, {
+      taskId: "t1",
+      matterId: "m1",
+      title: "起诉状",
+      output: "docx",
+      templateId: "x",
+      summary: "s",
+      sections: [],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: "2026-09-09T00:00:00.000Z",
+    });
+    fs.writeFileSync(
+      path.join(workspaceDir, "drafts", "t1.guardian.json"),
+      JSON.stringify({ taskId: "t1", latest: { verdict: "fail" }, rounds: [] }),
+      "utf8",
+    );
+    const listed = listDrafts(workspaceDir);
+    expect(listed).toHaveLength(1);
+    expect(listed[0]?.title).toBe("起诉状");
+  });
 });

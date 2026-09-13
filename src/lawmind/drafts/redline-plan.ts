@@ -5,6 +5,12 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import {
+  isOpinionOnlyFastLane,
+  SURGICAL_PROTOCOL_TOOLS,
+  toolsAllowAny,
+  type PromptProtocolGate,
+} from "../agent/prompt-protocol-gate.js";
 import type { SurgicalTextEdit } from "./apply-surgical-edits.js";
 import { explainInvalidSurgicalEdit, tryNarrowSurgicalEdit } from "./apply-surgical-edits.js";
 
@@ -18,6 +24,10 @@ export type RedlinePlan = {
   items: RedlinePlanItem[];
   skipped: Array<{ find: string; replace: string; reason: string }>;
   updatedAt: string;
+  /** Writer-declared deferrals only — not a coverage self-score. */
+  writerDeferred?: Array<{ issue?: string; reason?: string }>;
+  /** True when apply_surgical_edits received a craft_check object (even deferred: []). */
+  craftCheckAttached?: boolean;
 };
 
 export function normalizeRedlinePlanItems(edits: SurgicalTextEdit[]): {
@@ -88,7 +98,7 @@ export function buildXmlQaRetryHint(plan: RedlinePlan | undefined): {
   };
 }
 
-/** Injected on execute_workflow 合同审查 only — not mail short path / Word tracked lock. */
+/** Injected on unlocked 合同审查 only — not mail / Word lock / opinion-only fast lane. */
 export function formatRedlinePlanPromptBlock(): string {
   return [
     "## 改稿计划",
@@ -106,11 +116,18 @@ export function shouldInjectRedlinePlanProtocol(
       }
     | null
     | undefined,
+  gate?: PromptProtocolGate,
 ): boolean {
   if (!bound) {
     return false;
   }
   if (bound.pipeline === "tracked_redline" || bound.id === "mail.contract") {
+    return false;
+  }
+  if (isOpinionOnlyFastLane(gate?.instruction)) {
+    return false;
+  }
+  if (!toolsAllowAny(gate?.availableToolNames, SURGICAL_PROTOCOL_TOOLS)) {
     return false;
   }
   return bound.id === "contract.review";

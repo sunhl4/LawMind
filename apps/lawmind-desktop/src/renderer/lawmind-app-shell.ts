@@ -16,9 +16,8 @@ import { useLawmindChatSend } from "./useLawmindChatSend";
 import { useLawmindComposeExtras } from "./useLawmindComposeExtras";
 import { useLawmindDetailDomain, useLawmindRecordsDomain } from "./lawmind-app-shell-domains";
 import { DEFAULT_ASSISTANT_ID } from "../../../../src/lawmind/assistants/constants.ts";
-import {
-  writeAllowWebSearchPreference,
-} from "./lawmind-web-search-prefs.js";
+import { writeAllowWebSearchPreference } from "./lawmind-web-search-prefs.js";
+import { retrievalShareLabel } from "./lawmind-settings-models.ts";
 import type { HealthPayload } from "./lawmind-app-data.js";
 import { useFileChatContext } from "./lawmind-file-chat-context";
 import { useComposeTruthPins } from "./useComposeTruthPins";
@@ -68,8 +67,8 @@ export function useLawmindAppShell() {
   const [showWizard, setShowWizard] = useState(false);
   const [wizApiKey, setWizApiKey] = useState("");
   const [wizHasExistingKey, setWizHasExistingKey] = useState(false);
-  const [wizBaseUrl, setWizBaseUrl] = useState("https://dashscope.aliyuncs.com/compatible-mode/v1");
-  const [wizModel, setWizModel] = useState("qwen-plus");
+  const [wizBaseUrl, setWizBaseUrl] = useState("https://api.deepseek.com/v1");
+  const [wizModel, setWizModel] = useState("deepseek-flash");
   const [wizWorkspace, setWizWorkspace] = useState("");
   const [wizBusy, setWizBusy] = useState(false);
   const [wizError, setWizError] = useState<string | null>(null);
@@ -409,7 +408,7 @@ export function useLawmindAppShell() {
 
   const workspaceLabel =
     config?.workspaceDir.split(/[\\/]/).filter(Boolean).pop() ?? "默认工作区";
-  const retrievalLabel = config?.retrievalMode === "dual" ? "通用 + 法律" : "统一模型";
+  const retrievalLabel = retrievalShareLabel(config?.retrievalMode);
   const currentMatterLabel = contextMatterId ?? detailTask?.matterId ?? detailDraft?.matterId ?? null;
 
   return {

@@ -2,6 +2,7 @@ import type { TaskExecutionState } from "../platform/contracts.js";
 import { MAX_LIVE_TURN_STEPS } from "./embed-turn-events.js";
 import type { RunTurnEvent } from "./runtime.js";
 import { presentLawyerToolCall, presentLawyerToolResult } from "./tool-lawyer-card.js";
+import type { AgentTurnPlan } from "./turn-plan.js";
 import type { PersistedChatLiveTrace } from "./types.js";
 
 function boundLiveTurnSteps(steps: LiveTurnStep[]): LiveTurnStep[] {
@@ -25,6 +26,7 @@ export type LiveTurnProgress = {
   currentRound: number;
   steps: LiveTurnStep[];
   updatedAt: string;
+  turnPlan?: AgentTurnPlan;
 };
 
 const store = new Map<string, LiveTurnProgress>();
@@ -123,6 +125,9 @@ export function applyLiveTurnEvent(sessionId: string, event: RunTurnEvent): void
       break;
     case "clarification":
       break;
+    case "plan_update":
+      next.turnPlan = event.plan;
+      break;
     case "tool_budget":
       if (event.level === "warn") {
         next.steps.push({
@@ -197,13 +202,16 @@ export function attachPersistedLiveTraceToLastAssistant(
       role: string;
       liveTrace?: PersistedChatLiveTrace;
       executionState?: TaskExecutionState;
+      turnPlan?: AgentTurnPlan;
     }>;
+    turnPlan?: AgentTurnPlan;
   },
   liveProgressKey: string,
   executionState?: TaskExecutionState,
 ): void {
   const trace = liveProgressToPersistedTrace(liveProgressKey);
-  if (!trace && !executionState) {
+  const livePlan = getLiveTurnProgress(liveProgressKey)?.turnPlan ?? session.turnPlan;
+  if (!trace && !executionState && !livePlan) {
     return;
   }
   for (let i = session.conversationHistory.length - 1; i >= 0; i--) {
@@ -216,6 +224,9 @@ export function attachPersistedLiveTraceToLastAssistant(
     }
     if (executionState) {
       row.executionState = executionState;
+    }
+    if (livePlan) {
+      row.turnPlan = livePlan;
     }
     break;
   }

@@ -1,5 +1,6 @@
 import { DEFAULT_ASSISTANT_ID } from "../../../src/lawmind/assistants/constants.js";
 import type { AgentSession } from "../../../src/lawmind/agent/types.js";
+import { isLawyerVisibleChatMessage } from "../../../src/lawmind/agent/types.js";
 import {
   createSession,
   displayChatSessionTitle,
@@ -267,7 +268,7 @@ export async function handleRecordRoutes({
     const sessions = rows.map((session) => {
       const tail = [...session.conversationHistory]
         .toReversed()
-        .find((m) => m.role === "user" || m.role === "assistant");
+        .find((m) => isLawyerVisibleChatMessage(m));
       const preview =
         typeof tail?.content === "string"
           ? tail.content.replace(/\s+/g, " ").trim().slice(0, 120)

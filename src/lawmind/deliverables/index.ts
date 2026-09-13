@@ -28,7 +28,6 @@ export {
   specRequiresReasoningGraphAtDraft,
   validateReasoningAgainstSpec,
   validateReasoningForDraft,
-  validateReasoningGraphAtDraft,
 } from "./reasoning-validator.js";
 export type {
   AcceptanceCheck,
@@ -45,8 +44,9 @@ export type {
 export type { ReasoningGraphAtDraftReport } from "./reasoning-validator.js";
 /**
  * Node-only workspace JSON loader lives in `./workspace-loader.js`.
- * Do not re-export it here — the desktop renderer imports this barrel, and
- * pulling `node:fs` into Vite client breaks the shell (blank page).
+ * Snapshot existence checks live in `./reasoning-validator-workspace.js`.
+ * Do not re-export those here — the desktop renderer imports this barrel, and
+ * pulling `node:fs` / `node:crypto` into Vite client breaks the shell (blank page).
  */
 export {
   assertChecklistCompleteForApprove,

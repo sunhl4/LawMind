@@ -5,6 +5,7 @@
 
 import type { MemoryContext } from "../memory/index.js";
 import type { LawMindWorkspacePolicy } from "../policy/workspace-policy.js";
+import { BRAVE_WEB_ADAPTER_NAME } from "../retrieval/brave-web-search-adapter.js";
 import type { RetrievalAdapter } from "../retrieval/index.js";
 import { retrieve } from "../retrieval/index.js";
 import type { ResearchBundle, TaskIntent } from "../types.js";
@@ -20,6 +21,8 @@ import {
   fetchUrlDossier,
   mergeDossierIntoBundleParts,
 } from "./url-dossier.js";
+
+const OUTBOUND_RETRIEVAL_ADAPTERS = new Set(["url-dossier", BRAVE_WEB_ADAPTER_NAME]);
 
 export type ExecuteDeepResearchResult = {
   plan: DeepResearchPlan;
@@ -37,7 +40,11 @@ function evidenceBullets(bundle: ResearchBundle, limit = 4): string[] {
   });
 }
 
-function outlineFromEvidence(intent: TaskIntent, bundle: ResearchBundle): ResearchOutline {
+function outlineFromEvidence(
+  intent: TaskIntent,
+  bundle: ResearchBundle,
+  allowWebSearch: boolean,
+): ResearchOutline {
   const base = buildResearchOutline(intent, bundle);
   const evidenceThin = bundle.claims.length === 0;
   const byPerspective = new Map<string, string[]>();
@@ -99,7 +106,9 @@ function outlineFromEvidence(intent: TaskIntent, bundle: ResearchBundle): Resear
       purpose: "停写正文直到检索可用",
       bullets: [
         "当前无与主题相关的可用来源/结论",
-        "请开启联网检索或粘贴权威 URL 后重跑 deep_research",
+        allowWebSearch
+          ? "公网检索未取回可用网页结论：请检查当前模型联网是否可用，或粘贴权威 URL 后重跑 deep_research"
+          : "请开启联网检索或粘贴权威 URL 后重跑 deep_research",
         "勿用 write_document 旁路撰写正文",
         ...bundle.missingItems.slice(0, 4),
       ],
@@ -147,7 +156,9 @@ export async function executeDeepResearchPlan(opts: {
   });
 
   const allowWeb = opts.allowWebSearch === true;
-  const adapters = allowWeb ? opts.adapters : opts.adapters.filter((a) => a.name !== "url-dossier");
+  const adapters = allowWeb
+    ? opts.adapters
+    : opts.adapters.filter((a) => !OUTBOUND_RETRIEVAL_ADAPTERS.has(a.name));
 
   // Primary retrieve for the original intent (workspace + authority + optional url adapter)
   let bundle = await retrieve({
@@ -225,6 +236,6 @@ export async function executeDeepResearchPlan(opts: {
 
   const filtered = filterBundleByTopicRelevance(opts.intent, bundle);
   bundle = filtered.bundle;
-  const outline = outlineFromEvidence(opts.intent, bundle);
+  const outline = outlineFromEvidence(opts.intent, bundle, allowWeb);
   return { plan, bundle, outline };
 }

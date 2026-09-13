@@ -6,7 +6,11 @@ import {
   toolArgsHaveLawyerEditableShortFields,
   toolArgsLinkedTaskId,
 } from "../../../../src/lawmind/platform/tool-approval-diff.ts";
-import { sanitizeLawyerFacingText } from "../../../../src/lawmind/platform/requires-action.ts";
+import {
+  hostGrantEditedArgs,
+  isHostGrantToolName,
+  sanitizeLawyerFacingText,
+} from "../../../../src/lawmind/platform/requires-action.ts";
 import { LawmindToolArgsEditDialog } from "./LawmindToolArgsEditDialog";
 import { LawmindClarificationForm } from "./LawmindClarificationForm";
 import type { NeedsDecisionDeskTarget } from "./lawmind-agents-desk";
@@ -132,14 +136,54 @@ function ToolApprovalActions(props: {
       <div className={`lm-requires-action-actions${hideActions ? " lm-requires-action-actions--desk" : ""}`}>
         {!hideActions ? (
           <>
-            <button
-              type="button"
-              className="lm-btn lm-btn-sm"
-              disabled={busy}
-              onClick={() => void onApproveTool?.(action)}
-            >
-              批准并继续
-            </button>
+            {isHostGrantToolName(action.toolName) ? (
+              <>
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-sm"
+                  disabled={busy}
+                  data-testid="lm-host-grant-once"
+                  onClick={() =>
+                    void (onApproveToolEdit
+                      ? onApproveToolEdit(action, hostGrantEditedArgs(toolArgs, "once"))
+                      : onApproveTool?.(action))
+                  }
+                >
+                  允许一次
+                </button>
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-sm"
+                  disabled={busy}
+                  data-testid="lm-host-grant-session"
+                  onClick={() =>
+                    void onApproveToolEdit?.(action, hostGrantEditedArgs(toolArgs, "session"))
+                  }
+                >
+                  本会话允许
+                </button>
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-sm"
+                  disabled={busy}
+                  data-testid="lm-host-grant-always"
+                  onClick={() =>
+                    void onApproveToolEdit?.(action, hostGrantEditedArgs(toolArgs, "always"))
+                  }
+                >
+                  始终允许
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="lm-btn lm-btn-sm"
+                disabled={busy}
+                onClick={() => void onApproveTool?.(action)}
+              >
+                批准并继续
+              </button>
+            )}
             <button
               type="button"
               className="lm-btn lm-btn-secondary lm-btn-sm"

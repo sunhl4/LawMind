@@ -2,7 +2,7 @@
  * 会议室「讨论记录」：时间线、澄清表单与律师输入（从 MatterTeamMeetingPanel 抽出）。
  */
 
-import type { TeamMeetingLine } from "../../../../src/lawmind/cases/index.ts";
+import type { TeamMeetingLine } from "../../../../src/lawmind/cases/team-meeting-ids.ts";
 import type { ClarificationQuestion } from "../../../../src/lawmind/types.ts";
 import type { ReactNode } from "react";
 import { LawmindClarificationForm } from "./LawmindClarificationForm";
@@ -63,7 +63,7 @@ export function MatterTeamMeetingThreadSection(props: MatterTeamMeetingThreadSec
           type="button"
           className="lm-btn lm-btn-ghost lm-btn-sm"
           disabled={busy}
-          onClick={() => void onRefreshTimeline()}
+          onClick={() =>  onRefreshTimeline()}
           title="刷新记录"
         >
           刷新
@@ -82,7 +82,7 @@ export function MatterTeamMeetingThreadSection(props: MatterTeamMeetingThreadSec
             type="button"
             className="lm-btn lm-btn-ghost lm-btn-sm"
             disabled={loadingEarlier || busy}
-            onClick={() => void onLoadEarlier()}
+            onClick={() =>  onLoadEarlier()}
           >
             {loadingEarlier ? "加载中…" : "显示更早的对话"}
           </button>
@@ -130,7 +130,7 @@ export function MatterTeamMeetingThreadSection(props: MatterTeamMeetingThreadSec
               onApplyToInput={onApplyClarificationToInput}
               onSend={(payload) => {
                 onInputChange(payload);
-                void onSendClarificationReply(payload);
+                 onSendClarificationReply(payload);
               }}
             />
           ) : (

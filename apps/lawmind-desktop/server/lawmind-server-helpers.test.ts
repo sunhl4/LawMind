@@ -9,6 +9,7 @@ import {
   isLawMindHttpError,
   MAX_JSON_BODY_BYTES,
   readJsonBody,
+  safeArtifactPath,
 } from "./lawmind-server-helpers.js";
 
 function createRequest(body: string): http.IncomingMessage {
@@ -67,5 +68,16 @@ describe("lawmind-server-helpers", () => {
     process.env.LAWMIND_AGENT_API_KEY = "sk-test";
     const built = buildAgentConfig(workspaceDir, { envFile });
     expect(built.config.envFile).toBe(envFile);
+  });
+
+  it("safeArtifactPath allows root and matter artifacts only", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-art-"));
+    tmpDirs.push(ws);
+    expect(safeArtifactPath(ws, "artifacts/a.docx")).toBe(path.join(ws, "artifacts", "a.docx"));
+    expect(safeArtifactPath(ws, "cases/m1/artifacts/函.docx")).toBe(
+      path.join(ws, "cases", "m1", "artifacts", "函.docx"),
+    );
+    expect(safeArtifactPath(ws, "cases/m1/CASE.md")).toBeNull();
+    expect(safeArtifactPath(ws, "../etc/passwd")).toBeNull();
   });
 });

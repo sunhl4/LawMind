@@ -2,7 +2,7 @@
  * 会议室：sessionStorage 中的参会会话映射 / 编制缓存（从 MatterTeamMeetingPanel 抽出）。
  */
 
-import type { TeamMeetingLine } from "../../../../src/lawmind/cases/index.ts";
+import type { TeamMeetingLine } from "../../../../src/lawmind/cases/team-meeting-ids.ts";
 
 export const MEETING_SESSION_STORAGE_PREFIX = "lawmind.teamMeeting.session.";
 export const MEETING_PARTICIPANTS_STORAGE_PREFIX = "lawmind.teamMeeting.participants.";

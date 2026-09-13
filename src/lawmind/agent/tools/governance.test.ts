@@ -61,18 +61,28 @@ describe("tool governance metadata", () => {
 });
 
 describe("resolveModelToolNames", () => {
-  it("locks the core catalog at 12 plus list_more_tools", () => {
+  it("locks the core catalog at 12 plus list_more_tools and update_plan", () => {
     expect(CORE_MODEL_TOOL_NAMES).toHaveLength(12);
-    expect(promptCatalogToolNames()).toHaveLength(13);
+    expect(promptCatalogToolNames()).toHaveLength(14);
     expect(promptCatalogToolNames()).toContain(LIST_MORE_TOOLS_NAME);
+    expect(promptCatalogToolNames()).toContain("update_plan");
   });
 
-  it("defaults OpenAI tools to ≤13 and can disclose execute_workflow this turn", () => {
+  it("update_plan is a control tool, not a lawyer-approved write", () => {
+    const registry = createLegalToolRegistry();
+    const byName = new Map(listToolGovernanceMetadata(registry).map((item) => [item.name, item]));
+    expect(byName.get("update_plan")?.runtimeMode).toBe("readonly");
+    expect(byName.get("update_plan")?.requiresApproval).toBe(false);
+    expect(byName.get("update_plan")?.riskLevel).toBe("low");
+  });
+
+  it("defaults OpenAI tools to ≤14 and can disclose execute_workflow this turn", () => {
     const registry = createLegalToolRegistry();
     const registered = registry.listDefinitions().map((def) => def.name);
     const names = resolveModelToolNames({ registeredNames: registered });
-    expect(names.length).toBeLessThanOrEqual(13);
+    expect(names.length).toBeLessThanOrEqual(14);
     expect(names).toContain(LIST_MORE_TOOLS_NAME);
+    expect(names).toContain("update_plan");
     expect(names).toContain("research_task");
     expect(names).not.toContain("execute_workflow");
 
@@ -123,6 +133,7 @@ describe("resolveModelToolNames", () => {
       "prepare_outbound_mail",
       "render_tracked_draft",
       "update_draft",
+      "update_plan",
     ]);
     expect(names).not.toContain(LIST_MORE_TOOLS_NAME);
     expect(names).not.toContain("search_workspace");

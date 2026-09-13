@@ -36,6 +36,7 @@ export type ModelsCatalogPayload = {
   models: ModelCatalogEntry[];
   defaultModelId: string;
   workerModelId?: string | null;
+  retrievalModelId?: string | null;
   draftWithModelEnabled?: boolean;
   providers: ProviderKeyStatus[];
   platformProviders?: PlatformProviderKeyStatus[];
@@ -84,6 +85,22 @@ export async function setWorkerModelIdApi(
     throw new Error("设置 Worker 模型失败");
   }
   return body.workerModelId ?? null;
+}
+
+export async function setRetrievalModelIdApi(
+  apiBase: string,
+  modelId: string | null,
+): Promise<string | null> {
+  const res = await fetchApi(`${apiBase}/api/models/retrieval`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ modelId }),
+  });
+  const body = await readJsonFromResponse<{ ok?: boolean; retrievalModelId?: string | null }>(res);
+  if (!res.ok || body.ok === false) {
+    throw new Error("设置法律检索模型失败");
+  }
+  return body.retrievalModelId ?? null;
 }
 
 export async function setDraftWithModelEnabled(

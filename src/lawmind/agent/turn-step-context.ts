@@ -25,6 +25,8 @@ export type TurnContext = {
   lockToAllowNames?: boolean;
   /** File-page / dialog Word tracked-export — drop re-reads after a successful document read. */
   wordRevisionTurn?: boolean;
+  /** Brought-in folder / project dir: document readers share the host-file ledger. */
+  hostFileLedger?: boolean;
   /** Policy-hidden tools (e.g. run_analysis when allowAnalysisScripts is off). */
   hiddenToolNames?: string[];
 };
@@ -49,6 +51,7 @@ export function freezeTurnContext(input: TurnContext): TurnContext {
       : {}),
     ...(input.lockToAllowNames ? { lockToAllowNames: true } : {}),
     ...(input.wordRevisionTurn ? { wordRevisionTurn: true } : {}),
+    ...(input.hostFileLedger ? { hostFileLedger: true } : {}),
     ...(input.hiddenToolNames && input.hiddenToolNames.length > 0
       ? { hiddenToolNames: [...input.hiddenToolNames] }
       : {}),
@@ -62,6 +65,8 @@ export function rebuildStepContext(opts: {
   pinIds?: string[];
   /** Successful discovery counts this turn (failed discovery is decremented). */
   discoveryCallCounts?: Record<string, number>;
+  /** Live host-file ledger (directory pin claimed mid-turn). ORs with frozen turnContext. */
+  hostFileLedger?: boolean;
 }): StepContext {
   const disclosed = collectDisclosedToolNames(opts.session);
   opts.session.disclosedToolNames = disclosed;
@@ -78,6 +83,7 @@ export function rebuildStepContext(opts: {
     discoveryCountsShowDocumentRead(opts.discoveryCallCounts);
   const toolNames = dropSaturatedDiscoveryTools(advertised, opts.discoveryCallCounts, {
     dropDocumentReaders,
+    hostFileLedger: opts.turnContext.hostFileLedger === true || opts.hostFileLedger === true,
   });
   return {
     toolNames,

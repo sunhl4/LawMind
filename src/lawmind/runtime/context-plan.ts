@@ -145,21 +145,9 @@ export function buildContextPlan(params: {
 }
 
 export function buildContextPlanMarkdown(plan: ContextPlan): string {
-  const lines: string[] = [
-    "# LawMind Context Plan",
-    "",
-    `Session: ${plan.sessionId}`,
-    plan.matterId ? `Matter: ${plan.matterId}` : "Matter: not selected",
-    plan.assistantId ? `Assistant: ${plan.assistantId}` : "Assistant: default",
-    `Token budget: ${plan.tokenBudget.used}/${plan.tokenBudget.effectiveLimit} (${plan.tokenBudget.level})`,
-    "",
-    "| Layer | Included | Reason | Evidence |",
-    "|-------|----------|--------|----------|",
-  ];
-  for (const layer of plan.layers.toSorted((a, b) => b.priority - a.priority)) {
-    lines.push(
-      `| ${layer.label} | ${layer.included ? "yes" : "no"} | ${layer.reason} | ${layer.evidence.join(", ") || "-"} |`,
-    );
-  }
-  return lines.join("\n");
+  const included = plan.layers
+    .filter((layer) => layer.included)
+    .toSorted((a, b) => b.priority - a.priority)
+    .map((layer) => `- ${layer.label}`);
+  return ["# LawMind Context Plan", "", ...included].join("\n");
 }

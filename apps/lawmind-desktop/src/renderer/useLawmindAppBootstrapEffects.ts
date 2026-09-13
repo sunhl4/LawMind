@@ -24,6 +24,8 @@ export type LawmindHealthState = {
   retrievalMode?: string;
   dualLegalConfigured?: boolean;
   webSearchApiKeyConfigured?: boolean;
+  webSearchNativeAvailable?: boolean;
+  webSearchReady?: boolean;
   webSearchPolicyBlocked?: boolean;
   modelName?: string | null;
   modelEnvFileExists?: boolean;
@@ -37,6 +39,8 @@ export function mapHealthState(payload: {
   retrievalMode?: string;
   dualLegalConfigured?: boolean;
   webSearchApiKeyConfigured?: boolean;
+  webSearchNativeAvailable?: boolean;
+  webSearchReady?: boolean;
   modelName?: string | null;
   modelEnvFileExists?: boolean;
   draftWithModelEnabled?: boolean;
@@ -49,6 +53,11 @@ export function mapHealthState(payload: {
     retrievalMode: typeof payload.retrievalMode === "string" ? payload.retrievalMode : undefined,
     dualLegalConfigured: Boolean(payload.dualLegalConfigured),
     webSearchApiKeyConfigured: Boolean(payload.webSearchApiKeyConfigured),
+    webSearchNativeAvailable: Boolean(payload.webSearchNativeAvailable),
+    webSearchReady:
+      Boolean(payload.webSearchReady) ||
+      Boolean(payload.webSearchNativeAvailable) ||
+      Boolean(payload.webSearchApiKeyConfigured),
     webSearchPolicyBlocked: payload.policy?.allowWebSearch === false,
     modelName: typeof payload.modelName === "string" ? payload.modelName : null,
     modelEnvFileExists: Boolean(payload.modelEnvFileExists),
@@ -75,7 +84,7 @@ function applyHealthFromSnapshot(
   setAllowWebSearchState(
     nextHealth.webSearchPolicyBlocked
       ? false
-      : readAllowWebSearchPreference(nextHealth.webSearchApiKeyConfigured === true),
+      : readAllowWebSearchPreference(nextHealth.webSearchReady === true),
   );
   return nextHealth;
 }

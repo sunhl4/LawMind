@@ -5,6 +5,7 @@ import { z } from "zod";
 import { isValidMatterId } from "../cases/matter-id.js";
 
 const relPathString = z.string().trim().min(1).max(512);
+const relPathAllowRoot = z.string().trim().max(512);
 const matterIdString = z
   .string()
   .trim()
@@ -25,7 +26,7 @@ export type ComposeContextPinKind = z.infer<typeof composeContextPinKindSchema>;
 export const fileContextPinSchema = z.object({
   pinKind: z.literal("file"),
   root: z.enum(["workspace", "project"]),
-  relPath: relPathString,
+  relPath: relPathAllowRoot,
   kind: z.enum(["file", "directory"]),
 });
 
@@ -34,7 +35,7 @@ export type FileContextPin = z.infer<typeof fileContextPinSchema>;
 /** Legacy wire shape (file pins sent before L2). */
 export const legacyFileContextPinSchema = z.object({
   root: z.enum(["workspace", "project"]),
-  relPath: relPathString,
+  relPath: relPathAllowRoot,
   kind: z.enum(["file", "directory"]),
 });
 
@@ -100,10 +101,16 @@ export type ContextPinsRequest = z.infer<typeof contextPinsRequestSchema>;
 export function normalizeContextPin(raw: unknown): ComposeContextPin | null {
   const typed = composeContextPinSchema.safeParse(raw);
   if (typed.success) {
+    if (typed.data.pinKind === "file" && typed.data.kind === "file" && !typed.data.relPath) {
+      return null;
+    }
     return typed.data;
   }
   const legacy = legacyFileContextPinSchema.safeParse(raw);
   if (legacy.success) {
+    if (legacy.data.kind === "file" && !legacy.data.relPath) {
+      return null;
+    }
     return { pinKind: "file", ...legacy.data };
   }
   return null;

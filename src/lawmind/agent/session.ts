@@ -14,9 +14,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { writeJsonAtomic } from "../adapters/matter-storage/io.js";
 import { appendTranscriptLines } from "../adapters/session-transcript/index.js";
+import {
+  formatRemainingTokensNote,
+  withEphemeralBudgetNote,
+  withEphemeralTurnContext,
+} from "./prompt-fragments.js";
 import { persistOrThrow } from "./session-persist.js";
 import { repairToolCallPairing } from "./session-tool-call-pairing.js";
 import type { AgentMessage, AgentSession, AgentTurn, PersistedChatLiveTrace } from "./types.js";
+import { isLawyerVisibleChatMessage } from "./types.js";
 
 const SESSIONS_DIR = "sessions";
 const MAX_HISTORY_DEFAULT = 40;
@@ -308,6 +314,7 @@ export function sessionHistoryToSimpleMessages(session: AgentSession): Array<{
   liveTrace?: { active: boolean; currentRound?: number; steps: PersistedChatLiveTrace["steps"] };
   executionState?: AgentMessage["executionState"];
   requiresAction?: AgentTurn["requiresAction"];
+  turnPlan?: AgentMessage["turnPlan"];
 }> {
   const out: Array<{
     role: "user" | "assistant";
@@ -315,13 +322,14 @@ export function sessionHistoryToSimpleMessages(session: AgentSession): Array<{
     liveTrace?: { active: boolean; currentRound?: number; steps: PersistedChatLiveTrace["steps"] };
     executionState?: AgentMessage["executionState"];
     requiresAction?: AgentTurn["requiresAction"];
+    turnPlan?: AgentMessage["turnPlan"];
   }> = [];
   for (const msg of session.conversationHistory) {
-    if (msg.role !== "user" && msg.role !== "assistant") {
+    if (!isLawyerVisibleChatMessage(msg)) {
       continue;
     }
     const text = (msg.content ?? "").trim();
-    if (!text && !msg.liveTrace?.steps?.length) {
+    if (!text && !msg.liveTrace?.steps?.length && !msg.turnPlan) {
       continue;
     }
     out.push({
@@ -337,6 +345,7 @@ export function sessionHistoryToSimpleMessages(session: AgentSession): Array<{
           }
         : {}),
       ...(msg.executionState ? { executionState: msg.executionState } : {}),
+      ...(msg.turnPlan ? { turnPlan: msg.turnPlan } : {}),
     });
   }
   const pending = session.pendingRequiresAction;
@@ -344,6 +353,16 @@ export function sessionHistoryToSimpleMessages(session: AgentSession): Array<{
     for (let i = out.length - 1; i >= 0; i--) {
       if (out[i]?.role === "assistant") {
         out[i] = { ...out[i], requiresAction: pending };
+        break;
+      }
+    }
+  }
+  if (session.turnPlan) {
+    for (let i = out.length - 1; i >= 0; i--) {
+      if (out[i]?.role === "assistant") {
+        if (!out[i].turnPlan) {
+          out[i] = { ...out[i], turnPlan: session.turnPlan };
+        }
         break;
       }
     }
@@ -488,6 +507,8 @@ export type ModelChatMessage = {
  * 送出前的最后一道配对修复：历史中的悬空 tool_call（旧版本中断残留、异常路径）
  * 在此补占位 tool 消息并写回 session（随下一次 saveSession 落盘），保证
  * 「不配对不得送出」——OpenAI 兼容 API 对缺配对的 tool_call 会整体 400。
+ *
+ * Remaining-token notes are sample-time only — use {@link deriveModelMessagesForSampling}.
  */
 export function deriveModelMessages(session: AgentSession): ModelChatMessage[] {
   const pairing = repairToolCallPairing(session.conversationHistory);
@@ -519,3 +540,22 @@ export function deriveModelMessages(session: AgentSession): ModelChatMessage[] {
 
 /** Alias kept for existing imports; same function as {@link deriveModelMessages}. */
 export const toModelMessages = deriveModelMessages;
+
+/**
+ * Sampling projection: persistent history plus ephemeral turn_context and
+ * remaining-token notes. Do not persist those into conversationHistory
+ * (keeps prompt cache + derive_len alignment).
+ */
+export function deriveModelMessagesForSampling(
+  session: AgentSession,
+  budget?: { used: number; effectiveLimit: number },
+): ModelChatMessage[] {
+  let messages = withEphemeralTurnContext(deriveModelMessages(session), session.samplingPromptTail);
+  if (budget) {
+    messages = withEphemeralBudgetNote(
+      messages,
+      formatRemainingTokensNote(budget.used, budget.effectiveLimit),
+    );
+  }
+  return messages;
+}

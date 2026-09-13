@@ -6,6 +6,7 @@ export {
   listToolGovernanceMetadata,
   CORE_MODEL_TOOL_NAMES,
   LIST_MORE_TOOLS_NAME,
+  UPDATE_PLAN_TOOL_NAME,
   resolveModelToolNames,
   promptCatalogToolNames,
   type ToolGovernanceMetadata,

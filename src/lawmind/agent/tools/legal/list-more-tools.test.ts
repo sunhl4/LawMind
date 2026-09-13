@@ -16,6 +16,7 @@ describe("list_more_tools", () => {
     expect(tools.map((t) => t.name)).toContain("execute_workflow");
     expect(tools.map((t) => t.name)).toContain("draft_document");
     expect(tools.map((t) => t.name)).toContain("compare_documents");
+    expect(tools.map((t) => t.name)).toContain("run_compute");
   });
 
   it("discloses execute_workflow for this session", async () => {
@@ -35,5 +36,35 @@ describe("list_more_tools", () => {
     const result = await listMoreTools.execute({ name: "not_a_real_tool" }, ctx);
     expect(result.ok).toBe(false);
     expect(listMoreTools.definition.name).toBe(LIST_MORE_TOOLS_NAME);
+  });
+
+  it("hides web_search in the catalog until compose 联网 is on", async () => {
+    const listed = await listMoreTools.execute({}, ctx);
+    const names = (listed.data as { tools: Array<{ name: string }> }).tools.map((t) => t.name);
+    expect(names).not.toContain("web_search");
+    expect(names).not.toContain("search_statute_web");
+    expect(names).not.toContain("url_dossier");
+
+    const enable = await listMoreTools.execute({ name: "web_search" }, ctx);
+    expect(enable.ok).toBe(false);
+    expect(enable.error).toContain("联网");
+    expect(enable.error).toContain("list_more_tools");
+  });
+
+  it("lists web_search when allowWebSearch is true", async () => {
+    const listed = await listMoreTools.execute({}, { ...ctx, allowWebSearch: true });
+    const names = (listed.data as { tools: Array<{ name: string }> }).tools.map((t) => t.name);
+    expect(names).toContain("web_search");
+    const enable = await listMoreTools.execute(
+      { name: "web_search" },
+      { ...ctx, allowWebSearch: true },
+    );
+    expect(enable.ok).toBe(true);
+  });
+
+  it("treats update_plan as already available", async () => {
+    const result = await listMoreTools.execute({ name: "update_plan" }, ctx);
+    expect(result.ok).toBe(true);
+    expect((result.data as { alreadyAvailable?: boolean }).alreadyAvailable).toBe(true);
   });
 });

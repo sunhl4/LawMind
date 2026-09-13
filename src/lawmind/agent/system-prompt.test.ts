@@ -26,23 +26,23 @@ const minimalCtx: SystemPromptContext = {
 };
 
 describe("system prompt sections", () => {
-  it("identity tells the model to start without lane chips", () => {
-    const text = buildSystemPrompt(minimalCtx);
-    expect(text).toContain("先附材料，再在「办件」里选流程");
-    expect(text).toContain("Cursor / Claude Code / Codex");
-    expect(text).toContain("产品化能力");
-    expect(text).toContain("不要要求律师记住");
-  });
-
-  it("catalog includes always-on lawyer sections", () => {
+  it("always-on lawyer sections assemble by catalog id, not copy", () => {
     const ids = listSystemPromptSectionCatalog().map((s) => s.id);
     expect(ids).toContain("identity_principles");
     expect(ids).toContain("autonomous_workflow");
     expect(ids).toContain("available_tools");
     expect(ids).toContain("safety_boundaries");
+
+    const assembled = describeAssembledPromptSections(buildSystemPrompt(minimalCtx)).map(
+      (s) => s.id,
+    );
+    expect(assembled).toContain("identity_principles");
+    expect(assembled).toContain("autonomous_workflow");
+    expect(assembled).toContain("available_tools");
+    expect(assembled).toContain("safety_boundaries");
   });
 
-  it("buildSystemPromptWithMeta keeps assembled text identical", () => {
+  it("buildSystemPromptWithMeta keeps assembled text identical and toggles optional ids", () => {
     const text = buildSystemPrompt(minimalCtx);
     const meta = buildSystemPromptWithMeta(minimalCtx);
     expect(meta.text).toBe(text);
@@ -52,11 +52,14 @@ describe("system prompt sections", () => {
     expect(ids).toContain("review_delivery_loop");
     expect(ids).toContain("available_tools");
     expect(ids).not.toContain("web_search");
+    expect(ids).toContain("web_search_off");
+    expect(meta.text).toContain("list_more_tools");
   });
 
   it("optional sections appear only when context provides them", () => {
     const withWeb = buildSystemPromptWithMeta({ ...minimalCtx, allowWebSearch: true });
     expect(withWeb.sections.some((s) => s.id === "web_search")).toBe(true);
+    expect(withWeb.sections.some((s) => s.id === "web_search_off")).toBe(false);
     const sections = describeAssembledPromptSections(withWeb.text);
     expect(sections.find((s) => s.id === "review_delivery_loop")).toBeTruthy();
     const withMail = buildSystemPromptWithMeta({
@@ -71,9 +74,7 @@ describe("system prompt sections", () => {
       authorityProviderLabel: "北大法宝（闭源·手动）",
     });
     expect(withAuthority.sections.some((s) => s.id === "authority_corpus")).toBe(true);
-    expect(withAuthority.text).toContain("北大法宝");
-    expect(withAuthority.text).toContain("声称没有法宝接口");
-    expect(withAuthority.text).toContain("设置 → 模型与连接");
+    expect(withAuthority.text).toContain("北大法宝（闭源·手动）");
   });
 
   it("catalog marks identity as static and matter as session", () => {

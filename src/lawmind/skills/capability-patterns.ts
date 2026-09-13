@@ -4,6 +4,45 @@
  */
 
 export const RESEARCH_FALLBACK_RE = /(查一下|检索|法规|法条|类案|司法解释|研究一下|调研)/;
+
+/** 法律检索线索：命中则不要当成娱乐/新闻公网事实。 */
+const LEGAL_LOOKUP_RE =
+  /(法条|法规|司法解释|民法典|刑法|合同|协议条款|合规|类案|裁判|条例|诉讼|律师|侵权|违约|管辖|开庭|立案|起诉|案号|[一-龥]{2,}法(第|修订|草案|实施)?|第\s*[0-9一二三四五六七八九十百]+\s*条|《[^》]{1,40}》)/;
+
+const PUBLIC_WEB_FACT_RE =
+  /(总冠军|冠军是谁|谁赢了|新说唱|选秀节目|综艺节目|热搜榜|票房冠军|比分是多少)/;
+
+/**
+ * 公开网页事实（赛事冠军、综艺），不是法律备忘。
+ * 「查一下民法典违约责任」仍走 research.memo；「查一下新说唱总冠军」不应绑法律深度研究。
+ */
+export function isPublicWebFactLookup(text: string): boolean {
+  const t = text.trim();
+  if (!t || LEGAL_LOOKUP_RE.test(t)) {
+    return false;
+  }
+  return PUBLIC_WEB_FACT_RE.test(t);
+}
+
+export function publicWebFactToolRefusal(
+  instruction: string,
+  allowWebSearch: boolean,
+): string | null {
+  if (!isPublicWebFactLookup(instruction)) {
+    return null;
+  }
+  if (!allowWebSearch) {
+    return "这是公开网页事实（不是法律备忘）。请在对话栏把「联网」改成开启后调用 web_search。deep_research / research_task / list_more_tools 都不能代替该开关。不要凭记忆填写冠军或获奖者。";
+  }
+  return "这是公开网页事实，请直接调用 web_search（不要 deep_research / research_task）。引用须带 URL；查不到就如实说，不要猜。";
+}
+
+/** 需要后台核算/出图/整表，而不是律师自己写代码。 */
+export const COMPUTE_INTENT_RE =
+  /(出图|柱状图|饼图|折线图|统计汇总|汇总表|对照表|测算表|透视表|归并表格|表格分析|分析这张表|分析这[份张].{0,12}表|把这[张份]表|电子表格|\.xlsx|\.csv|\bExcel\b)/i;
+/** 路由到核算对照交件；不含裸 .xlsx，避免抢走合同审查。 */
+export const COMPUTE_TABLE_PACK_RE =
+  /(出图|柱状图|饼图|折线图|统计汇总|汇总表|对照表|测算表|透视表|归并表格|表格分析|分析这张表|分析这[份张].{0,12}表|把这[张份]表)/i;
 export const LABOR_CALC_RE =
   /(经济补偿|赔偿金|N\s*\+?\s*1|2N|加班费|双倍工资|违法解除|解除劳动合同.{0,12}(赔|补偿))/;
 export const PERIOD_CALC_RE =

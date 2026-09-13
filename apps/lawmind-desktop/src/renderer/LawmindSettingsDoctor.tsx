@@ -393,6 +393,24 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
         onScrollToWorkspace={onScrollToWorkspace}
       />
 
+      <div className="lm-settings-group lm-settings-surface" data-testid="lm-doctor-host-access">
+        <h4 className="lm-doctor-group-title">本机能力</h4>
+        <p className="lm-settings-caption">
+          助手默认只读已选本机文件夹。完全磁盘访问是可选增强，不能写全盘，也不能越过案件隔离。
+        </p>
+        <button
+          type="button"
+          className="lm-btn lm-btn-sm lm-btn-secondary"
+          onClick={() => {
+            void window.lawmindDesktop?.openExternal?.(
+              "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
+            );
+          }}
+        >
+          打开系统隐私设置
+        </button>
+      </div>
+
       <div className="lm-settings-group lm-settings-surface" data-testid="lm-doctor-skills-trust">
         <h4 className="lm-doctor-group-title">信任与核对</h4>
         <div className="lm-doctor-security-grid">

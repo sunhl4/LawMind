@@ -80,7 +80,7 @@ describe("LawmindMatterHealthCard", () => {
       );
     });
 
-    expect(host.textContent).toContain("无待拍板");
+    expect(host.textContent).not.toContain("无待拍板");
     expect(host.textContent).toContain("未核对");
     expect(host.textContent).not.toContain("项逾期");
   });
@@ -104,5 +104,22 @@ describe("LawmindMatterHealthCard", () => {
       card?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("compact mode does not repeat the case title", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindMatterHealthCard
+          matterId="xinghui-sale-876"
+          displayName="星辉精密诉环宇科技 · 买卖合同纠纷"
+          showTitle={false}
+          metrics={makeMetrics()}
+        />,
+      );
+    });
+
+    expect(host.textContent).not.toContain("星辉精密诉环宇科技");
+    expect(host.querySelector(".lm-matter-health-card--compact")).not.toBeNull();
+    expect(host.textContent).toContain("改稿");
   });
 });

@@ -14,6 +14,7 @@ import {
 } from "../sources/citation-display.js";
 import type { UploadedTemplateRecord } from "../templates/index.js";
 import type { ArtifactDraft, ArtifactSection } from "../types.js";
+import { buildDeliverableFilename } from "./matter-word-delivery.js";
 import { parseSectionToSlideContent, type ParsedSlideContent } from "./pptx-slide-layouts.js";
 import type { RenderResult } from "./render-docx.js";
 
@@ -34,6 +35,8 @@ export type RenderPptxOptions = {
   templateVariant?: string;
   uploadedTemplate?: UploadedTemplateRecord;
   sources?: CitationDisplaySource[];
+  /** Final basename under outputDir. Default: 标题_YYYYMMDD_01.pptx (never task-id). */
+  outputFileName?: string;
 };
 
 function resolveDeckStyle(variant: string): {
@@ -364,8 +367,12 @@ export async function renderPptxWithOptions(
 
   await fs.mkdir(outputDir, { recursive: true });
 
-  const safeTitle = draft.title.replace(/[^a-zA-Z0-9\u4e00-\u9fa5_-]/g, "_");
-  const filename = `${safeTitle}_${draft.taskId.slice(0, 8)}.pptx`;
+  const named = options.outputFileName?.trim();
+  const filename = named
+    ? path.basename(named)
+    : buildDeliverableFilename(draft.title || "汇报", ".pptx", new Date(), {
+        dirForUniqueness: outputDir,
+      });
   const outputPath = path.join(outputDir, filename);
 
   await pptx.writeFile({ fileName: outputPath });

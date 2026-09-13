@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  appendContextPins,
   applyClaimedPinsToHistory,
   claimPendingContextPins,
   formatInjectedPinsUserMessage,
@@ -83,5 +84,28 @@ describe("session-context-inject", () => {
     expect(last?.content).toContain("合同.docx");
     expect(last?.content).toMatch(/read_project_file|analyze_document/);
     expect(formatInjectedPinsUserMessage(ws, pins)).toContain("file:workspace:");
+  });
+
+  it("merges mid-turn directory pins without duplicating", () => {
+    const current = [
+      {
+        pinKind: "file" as const,
+        root: "workspace" as const,
+        relPath: "a.md",
+        kind: "file" as const,
+      },
+    ];
+    const extra = [
+      {
+        pinKind: "file" as const,
+        root: "workspace" as const,
+        relPath: "materials/证据包",
+        kind: "directory" as const,
+      },
+      current[0],
+    ];
+    const merged = appendContextPins(current, extra);
+    expect(merged).toHaveLength(2);
+    expect(merged.some((pin) => pin.pinKind === "file" && pin.kind === "directory")).toBe(true);
   });
 });

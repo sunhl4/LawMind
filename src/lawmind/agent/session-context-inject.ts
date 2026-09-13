@@ -75,6 +75,13 @@ export function queuePendingContextPins(
   });
 }
 
+export function appendContextPins(
+  current: ComposeContextPin[] | undefined,
+  extra: ComposeContextPin[],
+): ComposeContextPin[] {
+  return dedupePins([...(current ?? []), ...extra]);
+}
+
 export function claimPendingContextPins(
   workspaceDir: string,
   sessionId: string,
@@ -99,7 +106,7 @@ export function formatInjectedPinsUserMessage(
 ): string {
   const summary = resolvePinnedContextSummary({ workspaceDir, pins });
   const lines = [
-    "【本轮补充材料】律师在本轮推理进行中补充了以下材料，请在后续步骤中使用。可用 read_project_file / read_case_file / analyze_document 读取路径，勿忽略。",
+    "【本轮补充材料】律师在本轮推理进行中补充了以下材料，请在后续步骤中使用。可用 list_dir / read_project_file / read_case_file / analyze_document 读取路径，勿忽略。",
   ];
   if (summary.evidence.length > 0) {
     lines.push("", ...summary.evidence.map((item) => `- ${item}`));

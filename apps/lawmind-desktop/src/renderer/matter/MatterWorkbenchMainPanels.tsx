@@ -284,22 +284,27 @@ export function MatterWorkbenchMainPanels(props: MatterWorkbenchMainPanelsProps)
             <p className="lm-meta">下列任务与交付尚未关联案件编号，建议在工作台中归入具体案件。</p>
           </div>
         </div>
-        <div className="lm-tabs lm-workbench-tabs">
+        <div className="lm-tabs lm-workbench-tabs lm-workbench-tabs-commercial" role="tablist">
           <button
             type="button"
+            role="tab"
             className={`lm-tab ${panelTab === "ledger" ? "active" : ""}`}
+            aria-selected={panelTab === "ledger"}
             onClick={() => onSelectPanelTabUnlinked("ledger")}
           >
             任务台帐
           </button>
           <button
             type="button"
+            role="tab"
             className={`lm-tab ${panelTab === "deliveries" ? "active" : ""}`}
+            aria-selected={panelTab === "deliveries"}
             onClick={() => onSelectPanelTabUnlinked("deliveries")}
           >
             交付记录
           </button>
         </div>
+        <div className="lm-workbench-tabpanel">
         {panelTab === "ledger" && (
           <MatterShellRecordsPanel
             mode="ledger"
@@ -326,6 +331,7 @@ export function MatterWorkbenchMainPanels(props: MatterWorkbenchMainPanelsProps)
             onOpenShellDetail={onOpenShellDetail}
           />
         )}
+        </div>
       </>
     );
   }
@@ -354,9 +360,14 @@ export function MatterWorkbenchMainPanels(props: MatterWorkbenchMainPanelsProps)
         </div>
       </div>
 
-      <MatterWorkbenchTabs panelTab={panelTab} onSelect={onSelectPanelTab} showShellOps={showShellOps} />
+      <MatterWorkbenchTabs
+        panelTab={panelTab}
+        onSelect={onSelectPanelTab}
+        showShellOps={false}
+      />
 
       <div
+        className="lm-workbench-tabpanel"
         role="tabpanel"
         id={`lm-matter-panel-${panelTab}`}
         aria-labelledby={`lm-matter-tab-${panelTab}`}
@@ -483,34 +494,6 @@ export function MatterWorkbenchMainPanels(props: MatterWorkbenchMainPanelsProps)
           saveUpgradeSuggestion={saveUpgradeSuggestion}
           onOpenReview={onOpenReview}
           openReviewFromMatter={openReviewFromMatter}
-        />
-      )}
-
-      {showShellOps && panelTab === "ledger" && (
-        <MatterShellRecordsPanel
-          mode="ledger"
-          shellTasksScoped={shellTasksScoped}
-          shellHistoryScoped={shellHistoryScoped}
-          shellAssistantDisplayById={shellAssistantDisplayById}
-          shellLegalStatusLabel={shellLegalStatusLabel}
-          shellTaskBadgeClass={shellTaskBadgeClass}
-          shellHistoryBadgeClass={shellHistoryBadgeClass}
-          formatShellRelativeTime={formatShellRelativeTime}
-          onOpenShellDetail={onOpenShellDetail}
-        />
-      )}
-
-      {showShellOps && panelTab === "deliveries" && (
-        <MatterShellRecordsPanel
-          mode="deliveries"
-          shellTasksScoped={shellTasksScoped}
-          shellHistoryScoped={shellHistoryScoped}
-          shellAssistantDisplayById={shellAssistantDisplayById}
-          shellLegalStatusLabel={shellLegalStatusLabel}
-          shellTaskBadgeClass={shellTaskBadgeClass}
-          shellHistoryBadgeClass={shellHistoryBadgeClass}
-          formatShellRelativeTime={formatShellRelativeTime}
-          onOpenShellDetail={onOpenShellDetail}
         />
       )}
       </div>

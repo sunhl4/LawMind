@@ -1,5 +1,5 @@
 // TODO(renderer-fetch-proxy): migrate remaining fetch calls to fetchApi / api-client-proxy.
-import type { MemorySourceLayer } from "../../../../src/lawmind/memory/index.ts";
+import type { MemorySourceLayer } from "../../../../src/lawmind/memory/memory-source-types.ts";
 import type { ClarificationQuestion } from "../../../../src/lawmind/types.ts";
 import {
   ApiRequestError,

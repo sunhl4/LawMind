@@ -323,10 +323,28 @@ export const workspacePolicyPatchSchema = z
   .object({
     highSecurityMode: z.boolean().optional(),
     allowAnalysisScripts: z.boolean().optional(),
+    hostAccess: z
+      .object({
+        mode: z.enum(["matter", "mounts", "locate", "command"]).optional(),
+        allowHostCommands: z.boolean().optional(),
+        hostCommandLevel: z.enum(["office", "workspace", "session"]).optional(),
+        fullDiskAccessOptIn: z.boolean().optional(),
+        allowCrossMatterMounts: z.boolean().optional(),
+        forceMatterMode: z.boolean().optional(),
+        allowSessionCommands: z.boolean().optional(),
+        spotlightEnabled: z.boolean().optional(),
+      })
+      .optional(),
   })
-  .refine((v) => v.highSecurityMode !== undefined || v.allowAnalysisScripts !== undefined, {
-    message: "at least one policy field required",
-  });
+  .refine(
+    (v) =>
+      v.highSecurityMode !== undefined ||
+      v.allowAnalysisScripts !== undefined ||
+      v.hostAccess !== undefined,
+    {
+      message: "at least one policy field required",
+    },
+  );
 
 export type WorkspacePolicyPatchRequest = z.infer<typeof workspacePolicyPatchSchema>;
 
@@ -375,6 +393,8 @@ export type DraftReviewPostRequest = z.infer<typeof draftReviewPostSchema>;
 export const draftRenderPostSchema = z.object({
   templateId: z.string().trim().optional(),
   includeProvenance: z.boolean().optional(),
+  outputPath: z.string().trim().min(1).max(1024).optional(),
+  projectDir: z.string().trim().min(1).max(1024).optional(),
 });
 
 export type DraftRenderPostRequest = z.infer<typeof draftRenderPostSchema>;

@@ -3,6 +3,12 @@
  * Does not change mail short path or file-page Word revision locks.
  */
 
+import {
+  isOpinionOnlyFastLane,
+  SURGICAL_PROTOCOL_TOOLS,
+  toolsAllowAny,
+  type PromptProtocolGate,
+} from "../agent/prompt-protocol-gate.js";
 import type { ComposeContextPin } from "../platform/compose-context-pin.js";
 
 export function wordFilePinRelPaths(pins: ComposeContextPin[] | undefined): string[] {
@@ -25,8 +31,15 @@ export function pinsIncludeWordFile(pins: ComposeContextPin[] | undefined): bool
 export function shouldInjectPairedReviewDeliverable(
   bound: { id: string; pipeline: string } | null | undefined,
   pins: ComposeContextPin[] | undefined,
+  gate?: PromptProtocolGate,
 ): boolean {
   if (!bound || bound.pipeline === "tracked_redline" || bound.id === "mail.contract") {
+    return false;
+  }
+  if (isOpinionOnlyFastLane(gate?.instruction)) {
+    return false;
+  }
+  if (!toolsAllowAny(gate?.availableToolNames, SURGICAL_PROTOCOL_TOOLS)) {
     return false;
   }
   return bound.id === "contract.review" && pinsIncludeWordFile(pins);

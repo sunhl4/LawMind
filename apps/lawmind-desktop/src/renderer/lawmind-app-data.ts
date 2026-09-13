@@ -13,6 +13,8 @@ export type HealthPayload = {
   ok?: boolean;
   /** 主对话模型 API 是否已配置（来自 GET /api/health） */
   modelConfigured?: boolean;
+  /** 当前主模型是否已通过 POST /api/models/test */
+  modelVerified?: boolean;
   /** 是否允许「用模型起草」偏好（设置→模型检索） */
   draftWithModelEnabled?: boolean;
   /** 当前运行态是否已激活「用模型起草」（需已配置模型） */
@@ -20,6 +22,8 @@ export type HealthPayload = {
   retrievalMode?: string;
   dualLegalConfigured?: boolean;
   webSearchApiKeyConfigured?: boolean;
+  webSearchNativeAvailable?: boolean;
+  webSearchReady?: boolean;
   modelName?: string | null;
   modelEnvFileExists?: boolean;
   lawmindDaemon?: {

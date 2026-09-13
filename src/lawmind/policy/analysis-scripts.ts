@@ -17,5 +17,12 @@ export function isMcpClientAllowed(workspaceDir: string): boolean {
 }
 
 export function hiddenPolicyToolNames(workspaceDir: string): string[] {
-  return isAnalysisScriptsAllowed(workspaceDir) ? [] : ["run_analysis"];
+  const hidden: string[] = [];
+  if (!isAnalysisScriptsAllowed(workspaceDir)) {
+    hidden.push("run_analysis");
+  }
+  if (isHighSecurityMode(workspaceDir)) {
+    hidden.push("run_compute");
+  }
+  return hidden;
 }

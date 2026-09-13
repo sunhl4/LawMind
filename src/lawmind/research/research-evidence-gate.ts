@@ -107,10 +107,13 @@ export function evaluateResearchEvidenceGate(opts: {
     reasons.push("仅命中演示语料，不能作为权威依据扩写正文");
   }
   const reason = reasons.join("；");
+  const nextStep = webOff
+    ? `${reason}。请先开启联网检索并配置模型后重跑 deep_research，勿用 write_document 旁路交付。`
+    : `${reason}。请检查设置中的模型 Key 后重跑，或粘贴权威 URL；勿用 write_document 旁路交付。`;
   return {
     block: true,
     reason,
-    nextStep: `${reason}。请先在设置中配置模型/开联网并重跑 deep_research，勿用 write_document 旁路交付。`,
+    nextStep,
     nextActions: buildNextActions({ webOff, softHints: true, block: true }),
     gateDecision: {
       gate: "research_evidence_gate",

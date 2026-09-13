@@ -3,6 +3,8 @@
  * "已按你的习惯" instead of silently stuffing a long profile.
  */
 
+import { isStockLawyerProfileBullet } from "./lawyer-profile-for-prompt.js";
+
 const SECTION_EIGHT_RE = /^##\s*八[、.．]?\s*个人积累/m;
 const NEXT_SECTION_RE = /^##\s+/m;
 
@@ -43,7 +45,7 @@ export function extractAppliedPreferencesFromProfile(
       continue;
     }
     const text = m[1].trim();
-    if (!text || text.length < 4) {
+    if (!text || text.length < 4 || isStockLawyerProfileBullet(text)) {
       continue;
     }
     const dateMatch = /^(\d{4}-\d{2}-\d{2})\s*[：:]\s*(.+)$/.exec(text);

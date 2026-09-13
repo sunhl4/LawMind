@@ -258,4 +258,23 @@ export const LAWYER_WORK_SPECS: readonly DeliverableSpec[] = Object.freeze([
     placeholderRule: { pattern: PLACEHOLDER_PATTERN, mustResolveBeforeRender: false },
     defaultClarificationQuestions: [],
   },
+  {
+    type: "analysis.table",
+    displayName: "核算对照",
+    description: "表格归并、汇总、出图后的对照意见：结论、对照表、来源。脚本不交给律师。",
+    defaultTemplateId: "word/legal-memo-default",
+    defaultOutput: "docx",
+    defaultRiskLevel: "medium",
+    requiredSections: [
+      { headingKeywords: ["结论", "意见"], purpose: "结论", severity: "blocker" },
+      { headingKeywords: ["对照", "汇总", "表格"], purpose: "对照", severity: "blocker" },
+      { headingKeywords: ["来源", "依据"], purpose: "来源", severity: "blocker" },
+    ],
+    acceptanceCriteria: [
+      "须有结论、对照表路径或预览、来源列/文件；数字不得无出处。",
+      "法定金额与期限不得口算，须走 calculate。",
+    ],
+    placeholderRule: { pattern: PLACEHOLDER_PATTERN, mustResolveBeforeRender: false },
+    defaultClarificationQuestions: [],
+  },
 ]);

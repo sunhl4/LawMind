@@ -169,6 +169,10 @@ export type RunTurnEvent =
       toolCallId: string;
       toolName: string;
       gateDecision: import("../platform/contracts.js").GateDecision;
+    }
+  | {
+      type: "plan_update";
+      plan: import("./turn-plan.js").AgentTurnPlan;
     };
 
 export function collectRecentToolNamesFromSession(session: AgentSession): string[] {

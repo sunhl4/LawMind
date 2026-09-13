@@ -8,7 +8,7 @@ Windows / macOS shell for LawMind: tasks, matters, review, chat with the legal a
 
 If you received a **zip** (macOS `.app`) or **portable / installer** (Windows):
 
-- **No separate Node.js install is required** — the build vendors an official Node binary under `Resources/node-runtime/` and uses it to run the bundled `lawmind-local-server.cjs`.
+- **No separate Node.js or officecli install is required** — the build vendors an official Node binary under `Resources/node-runtime/` and OfficeCLI under `Resources/officecli/` (Apache-2.0). The local server uses them for the API and Word 修订轨 / 改稿.
 - Unzip or install, open the app, complete the **setup wizard** (API Key, optional Base URL/model/workspace).
 - macOS: a **Developer ID + notarized** build double-clicks after download. Unsigned/adhoc test builds still need **Right-click → Open** the first time (see <https://docs.lawmind.ai/LAWMIND-DELIVERY> §6).
 
@@ -42,6 +42,8 @@ pnpm dev
 ```
 
 This starts Vite on port **5174** as the **Electron renderer** and opens the desktop window. There is no web workbench: opening `http://127.0.0.1:5174` in a browser is not supported. End users download and open the packaged LawMind app.
+
+Dock 名称 / 系统图标 / 应用内 LM 标的更换入口见 [**BRANDING.md**](./BRANDING.md)（`pnpm lawmind:desktop:brand`）。
 
 ### E2E (Playwright)
 
@@ -78,8 +80,9 @@ This runs:
 
 1. `pnpm bundle:server` — esbuild → `server/dist/lawmind-local-server.cjs`
 2. `pnpm vendor:node` — downloads Node for the **current** OS/arch into `resources/node-runtime/<platform-arch>/` (see [resources/node-runtime/README.md](resources/node-runtime/README.md))
-3. `vite build`
-4. `electron-builder` — outputs under `release/`，文件名含 **版本与 os-arch**（`artifactName`）：
+3. `pnpm vendor:officecli` — downloads OfficeCLI for the **current** OS/arch into `resources/officecli/<platform-arch>/` (see [resources/officecli/README.md](resources/officecli/README.md))
+4. `vite build`
+5. `electron-builder` — outputs under `release/`，文件名含 **版本与 os-arch**（`artifactName`）：
    - **macOS:** `dmg` + **`zip`**（解压后得到 `LawMind.app`）
    - **Windows:** `nsis` 安装包 + **`portable`** 绿色版 + **`zip`**
    - **Linux (x64):** **`AppImage`** + **`tar.gz`**（解压即用目录）
@@ -90,6 +93,7 @@ Override vendored Node version:
 
 ```bash
 LAWMIND_DESKTOP_NODE_VERSION=22.14.0 pnpm -w lawmind:vendor:desktop-node
+LAWMIND_OFFICECLI_VERSION=1.0.149 pnpm -w lawmind:vendor:officecli
 ```
 
 ## First-run wizard

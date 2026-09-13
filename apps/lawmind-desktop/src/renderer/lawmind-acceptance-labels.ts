@@ -1,4 +1,4 @@
-import type { AcceptanceReport } from "../../../../src/lawmind/deliverables/index.ts";
+import type { AcceptanceReport } from "../../../../src/lawmind/deliverables/types.ts";
 
 /** Map technical acceptance keys to lawyer-facing copy. */
 export function humanizeAcceptanceLabel(key: string, fallback: string): string {

@@ -59,4 +59,26 @@ describe("resolveLawyerLocalFile", () => {
     });
     expect(found?.rel).toBe(full);
   });
+
+  it("resolves a nested file relative to a pinned directory", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-loc-pin-"));
+    dirs.push(ws);
+    const pinRel = "materials/证据包";
+    fs.mkdirSync(path.join(ws, pinRel, "往来"), { recursive: true });
+    fs.writeFileSync(path.join(ws, pinRel, "往来", "函.md"), "函", "utf8");
+    const pins = [
+      {
+        pinKind: "file" as const,
+        root: "workspace" as const,
+        relPath: pinRel,
+        kind: "directory" as const,
+      },
+    ];
+    const found = resolveLawyerLocalFile({
+      workspaceDir: ws,
+      raw: "往来/函.md",
+      pins,
+    });
+    expect(found?.rel).toBe("materials/证据包/往来/函.md");
+  });
 });

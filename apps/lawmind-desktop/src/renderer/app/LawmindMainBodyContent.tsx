@@ -134,6 +134,7 @@ export type LawmindMainBodyContentProps = {
   fileChatContextItems: FileChatContextItem[];
   composeTruthPins?: TruthSourceContextPin[];
   onAddFileToChatContext?: (payload: Pick<FileChatContextItem, "root" | "relPath" | "kind">) => void;
+  onFileDropError?: (message: string | null) => void;
   onAddComposeTruthPin?: (pin: TruthSourceContextPin) => void;
   onRemoveFileChatPill: (id: string) => void;
   onRemoveTruthPin?: (id: string) => void;

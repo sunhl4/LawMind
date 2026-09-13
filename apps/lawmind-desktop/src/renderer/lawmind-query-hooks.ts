@@ -8,13 +8,14 @@ import type { AcceptanceSummaryItem } from "./matter/matter-acceptance-display";
 import type { ArtifactDraft, MatterOverview } from "../../../../src/lawmind/types.ts";
 import type {
   AcceptanceReport,
-  DraftScaffoldView,
   ReasoningReport,
-} from "../../../../src/lawmind/deliverables/index.ts";
+} from "../../../../src/lawmind/deliverables/types.ts";
+import type { DraftScaffoldView } from "../../../../src/lawmind/deliverables/scaffold-status.ts";
 import type { ClauseGraph } from "../../../../src/lawmind/reasoning/clause-graph.ts";
 import type { DraftCitationIntegrityView } from "../../../../src/lawmind/drafts/citation-integrity.ts";
+import type { GuardianLawyerView } from "../../../../src/lawmind/guardian/types.ts";
 import type { GateDecision, TaskExecutionState } from "../../../../src/lawmind/platform/contracts.ts";
-import type { MemorySourceLayer } from "../../../../src/lawmind/memory/index.ts";
+import type { MemorySourceLayer } from "../../../../src/lawmind/memory/memory-source-types.ts";
 
 export type MatterWorkspaceAcceptance = {
   count: number;
@@ -134,6 +135,7 @@ export function useMatterSessionTimelineQuery(
 export type ReviewDraftDetailPayload = {
   draft: ArtifactDraft;
   citationIntegrity: DraftCitationIntegrityView | null;
+  guardian: GuardianLawyerView | null;
   memorySources: MemorySourceLayer[] | null;
   acceptance: AcceptanceReport | null;
   reasoningReport: ReasoningReport | null;
@@ -167,6 +169,7 @@ export function useReviewDraftDetailQuery(apiBase: string, taskId: string | null
         ok?: boolean;
         draft?: ArtifactDraft;
         citationIntegrity?: DraftCitationIntegrityView;
+        guardian?: GuardianLawyerView | null;
         memorySources?: MemorySourceLayer[];
         acceptance?: AcceptanceReport;
         reasoningReport?: ReasoningReport;
@@ -182,6 +185,7 @@ export function useReviewDraftDetailQuery(apiBase: string, taskId: string | null
       return {
         draft: j.draft,
         citationIntegrity: j.citationIntegrity ?? null,
+        guardian: j.guardian ?? null,
         memorySources: Array.isArray(j.memorySources) ? j.memorySources : null,
         acceptance: j.acceptance ?? null,
         reasoningReport: j.reasoningReport ?? null,

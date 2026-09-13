@@ -11,7 +11,7 @@ type Props = {
   selectedModelId?: string;
   onOpenApiWizard: () => void;
   onOpenSettings?: () => void;
-  /** 打开设置并滚动到系统体检区块 */
+  /** 打开设置并滚动到系统健康区块 */
   onOpenDoctor?: () => void;
   onVerifyModel?: () => void | Promise<void>;
 };
@@ -85,7 +85,7 @@ export function LawmindReadinessStrip(props: Props): ReactNode {
         ) : null}
         {onOpenDoctor && !wsOk ? (
           <button type="button" className="lm-btn lm-btn-secondary lm-btn-sm" onClick={() => onOpenDoctor()}>
-            系统体检
+            系统健康
           </button>
         ) : null}
       </div>

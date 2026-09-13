@@ -8,6 +8,8 @@ Historical **OpenClaw** upstream release notes were removed when the repository 
 
 ### Changes
 
+- Desktop / Engine：随包 **OfficeCLI**（Apache-2.0）。`pnpm install` 为当前系统下载二进制；桌面安装包打进 `Resources/officecli/`。改稿 / Word 修订轨不再要求客户或 clone 仓库的人单独安装 officecli。
+
 - Desktop：永久防白屏——渲染进程禁止拉取 `node:fs/path/crypto`（执业口径/改稿条/可执行偏好拆成浏览器安全叶子）；根级 ErrorBoundary + 启动兜底文案；Electron `did-fail-load` / `render-process-gone` 自动重载；CI `lawmind:check:renderer-node`。
 - Desktop / Engine（律师工作台）：一级导航增加「工作台」（对话 | 工作台 | 在办）。今日计划、案件门类、期限确认写入、谈话整理与用户标准库进入日常路径；出稿仍在对话，待拍板仍在在办。不写飞书日历。
 - Engine / Desktop（技能消化 · 稳态加固）：补复杂 DOCX（页眉/页脚/表格/修订 XML/回读）测试；修复工作台案件侧栏类型分支与 MCP 测试 DOM 类型；force_render / 律师显式接受占位符时同步旁路 citation strict，避免测试/demo 仍被第二道门禁误拦。桌面 typecheck 与 engine-tools 基线恢复全绿。

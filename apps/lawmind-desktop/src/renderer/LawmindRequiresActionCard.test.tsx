@@ -71,4 +71,42 @@ describe("LawmindRequiresActionCard", () => {
     });
     host.remove();
   });
+
+  it("offers once/session/always for host file grants", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onApproveToolEdit = vi.fn();
+    await act(async () => {
+      root.render(
+        <LawmindRequiresActionCard
+          actions={[
+            mailAction({
+              toolName: "read_host_file",
+              title: "待批准：阅读本机文件",
+              summary: "拟进行「阅读本机文件」。",
+              recommendation: undefined,
+              toolArgs: { hit_id: "hit-1" },
+            }),
+          ]}
+          onApproveToolEdit={onApproveToolEdit}
+        />,
+      );
+    });
+    expect(host.textContent).toContain("允许一次");
+    expect(host.textContent).toContain("本会话允许");
+    expect(host.textContent).toContain("始终允许");
+    const session = host.querySelector('[data-testid="lm-host-grant-session"]') as HTMLButtonElement;
+    await act(async () => {
+      session.click();
+    });
+    expect(onApproveToolEdit).toHaveBeenCalledWith(
+      expect.objectContaining({ toolName: "read_host_file" }),
+      { hit_id: "hit-1", grant_duration: "session" },
+    );
+    act(() => {
+      root.unmount();
+    });
+    host.remove();
+  });
 });

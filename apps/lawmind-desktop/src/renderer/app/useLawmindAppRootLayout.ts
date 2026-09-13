@@ -165,6 +165,7 @@ export function useLawmindAppRootLayout(
     contextMatterId,
     input: chatInput,
     error,
+    setError,
     loading,
     allowWebSearch,
     revisionBackgroundActive,
@@ -281,6 +282,7 @@ export function useLawmindAppRootLayout(
     openApiWizard,
     composeModelQuickTest,
     composeModelQuickTestBusy,
+    openNewAssistant,
   });
 
   const mainBodyProps = useLawmindMainBodyContentProps({
@@ -386,6 +388,7 @@ export function useLawmindAppRootLayout(
     handleResumeRequiresAction: input.handleResumeRequiresAction,
     input: chatInput,
     error,
+    setError,
     contextMatterId,
     chatMatterHeadline: input.chatMatterHeadline,
     send,
@@ -588,6 +591,7 @@ export function useLawmindAppRootLayout(
     setContextMatterId,
     taskDrawerOpen: input.taskDrawerOpen,
     setTaskDrawerOpen: input.setTaskDrawerOpen,
+    openNewAssistant,
   });
 
   const fileWorkbenchHostProps = useLawmindFileWorkbenchHostProps({

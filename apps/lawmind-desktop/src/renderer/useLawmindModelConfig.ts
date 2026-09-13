@@ -22,7 +22,7 @@ export function useLawmindModelConfig(args: UseLawmindModelConfigArgs) {
   const [modelProviders, setModelProviders] = useState<ProviderKeyStatus[]>([]);
   const [platformProviders, setPlatformProviders] = useState<PlatformProviderKeyStatus[]>([]);
   const [platformMode, setPlatformMode] = useState<"proxy" | "platform_key" | "none">("none");
-  const [selectedModelId, setSelectedModelId] = useState("builtin:qwen-plus");
+  const [selectedModelId, setSelectedModelId] = useState("builtin:deepseek-flash");
   const [composeModelHint, setComposeModelHint] = useState<string | null>(null);
   const [composeModelQuickTestBusy, setComposeModelQuickTestBusy] = useState(false);
   const composeModelHintTimerRef = useRef<number | null>(null);
@@ -43,7 +43,7 @@ export function useLawmindModelConfig(args: UseLawmindModelConfigArgs) {
           : null) ??
         (stored && isUsable(stored) ? stored : null) ??
         models.find((m) => m.configured)?.id ??
-        "builtin:qwen-plus";
+        "builtin:deepseek-flash";
       setSelectedModelId(next);
       writeSelectedModelId(next, selectedAssistantId);
     } catch {

@@ -153,6 +153,11 @@ describe("Legal Tool Registry", () => {
     expect(names).toContain("search_matter");
     expect(names).toContain("search_workspace");
     expect(names).toContain("read_project_file");
+    expect(names).toContain("list_dir");
+    expect(names).toContain("search_host");
+    expect(names).toContain("read_host_file");
+    expect(names).toContain("import_host_file");
+    expect(names).toContain("run_host_command");
     expect(names).toContain("get_matter_summary");
     expect(names).toContain("list_matters");
     expect(names).toContain("read_case_file");
@@ -163,6 +168,9 @@ describe("Legal Tool Registry", () => {
     expect(names).toContain("list_drafts");
     expect(names).toContain("get_audit_trail");
     expect(names).toContain("list_more_tools");
+    expect(names).toContain("run_compute");
+    expect(names).toContain("render_chart");
+    expect(names).toContain("calculate");
   });
 
   it("can execute list_matters tool", async () => {
@@ -505,6 +513,17 @@ describe("System Prompt", () => {
     });
     expect(prompt).toContain("联网检索");
     expect(prompt).toContain("web_search");
+    expect(prompt).toContain("会并行检索公开网页");
+    expect(prompt).toContain("赛事冠军");
+  });
+
+  it("tells the model 联网 is off instead of listing web_search as available", () => {
+    const prompt = buildSystemPrompt({
+      availableTools: [],
+    });
+    expect(prompt).toContain("公开网页检索未开");
+    expect(prompt).toContain("list_more_tools");
+    expect(prompt).not.toContain("会并行检索公开网页");
   });
 
   it("includes workspace mandatory rules when agentMandatoryRules is set", () => {
@@ -524,7 +543,7 @@ describe("System Prompt", () => {
     });
     expect(prompt).toContain("本助手专属偏好");
     expect(prompt).toContain("岗位偏好：使用表格列风险");
-    expect(prompt).toContain("当前项目目录");
+    expect(prompt).toContain("本机文件夹");
     expect(prompt).toContain("/tmp/client-matter");
     expect(prompt).toContain("read_project_file");
   });

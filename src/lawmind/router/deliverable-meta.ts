@@ -17,6 +17,8 @@ import {
   MATTER_INTAKE_RE,
   PERIOD_CALC_RE,
   QUICK_TRIAGE_RE,
+  COMPUTE_TABLE_PACK_RE,
+  isPublicWebFactLookup,
 } from "../skills/capability-patterns.js";
 import type { ClarificationQuestion, DeliverableType, TaskIntent, TaskKind } from "../types.js";
 
@@ -79,6 +81,9 @@ function detectDeliverableType(kind: TaskKind, instruction: string): Deliverable
     return undefined;
   }
   if (kind === "research.legal" || kind === "research.hybrid") {
+    if (isPublicWebFactLookup(instruction)) {
+      return undefined;
+    }
     if (hasComplianceDossierMarkers(instruction)) {
       return "report.compliance";
     }
@@ -141,6 +146,9 @@ function detectDeliverableType(kind: TaskKind, instruction: string): Deliverable
   }
   if (PERIOD_CALC_RE.test(instruction)) {
     return "period.calc";
+  }
+  if (COMPUTE_TABLE_PACK_RE.test(instruction)) {
+    return "analysis.table";
   }
   if (/(检索备忘|检索研究备忘|正反类案)/.test(instruction)) {
     return "memo.research";
@@ -348,6 +356,11 @@ function acceptanceCriteriaFor(type: DeliverableType | undefined): string[] | un
       return ["金额必须带来源公式；缺流水标缺口，不得口算假数。"];
     case "period.calc":
       return ["届满日必须有公式；中断顺延标缺口。"];
+    case "analysis.table":
+      return [
+        "须有结论、对照表路径或预览、来源列/文件；数字不得无出处。",
+        "法定金额与期限不得口算，须走 calculate。",
+      ];
     case "matter.timeline":
       return ["输出日期—事实对照表。"];
     case "matter.exhibit_list":
@@ -566,10 +579,15 @@ export function enrichIntentWithDeliverableMeta(baseIntent: TaskIntent): TaskInt
   const baseQuestions = clarificationQuestionsFor(deliverableType, baseIntent.instruction) ?? [];
   // Outline HITL is asked after deep-research / draft gate persists an evidence outline —
   // not at plan time (template-only outlines must not be rubber-stamped).
-  return {
+  const next: TaskIntent = {
     ...baseIntent,
     deliverableType,
     acceptanceCriteria: acceptanceCriteriaFor(deliverableType),
     clarificationQuestions: baseQuestions.length > 0 ? baseQuestions : undefined,
   };
+  if (deliverableType === "analysis.table") {
+    next.riskLevel = "medium";
+    next.requiresConfirmation = false;
+  }
+  return next;
 }

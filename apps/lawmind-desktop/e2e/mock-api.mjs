@@ -957,6 +957,7 @@ const server = http.createServer(async (req, res) => {
       ok: true,
       models: [catalogModel],
       defaultModelId,
+      retrievalModelId: null,
       draftWithModelEnabled: false,
       providers: [
         { provider: "dashscope", label: "DashScope", configured: true, envKeys: ["DASHSCOPE_API_KEY"] },

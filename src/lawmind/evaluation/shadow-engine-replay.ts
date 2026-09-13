@@ -11,13 +11,22 @@
  *
  * 真模型通道：LAWMIND_SHADOW_REAL_MODEL=1 且配置 LAWMIND_AGENT_* 后，对投放的
  * 已结案 fixture 跑真模型单轮（不用 cassette）。CI 不设置该 env，不依赖真模型。
+ *
+ * 编排改动（orchestrator / 门禁 / 压缩 / steer / 工具锁）不要只靠本层召回数字。
+ * 准入证是 `src/lawmind/agent/turn-orchestrator-cassettes.test.ts`。
  */
 
 import fs from "node:fs";
-import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { runTurn } from "../agent/runtime.js";
+import {
+  cassetteAssistant,
+  cassetteToolCalls,
+  lastDraftTaskIdFromRequestBody,
+  resolveRuntimeTokens,
+  startCassetteModelServer,
+} from "../agent/testkit/index.js";
 import { resolveGeneralOpenAICompatibleFromEnv } from "../agent/tools/engine/engine-tool-shared.js";
 import { createLegalToolRegistry } from "../agent/tools/legal-tools.js";
 import type { ToolRegistry } from "../agent/tools/registry.js";
@@ -86,111 +95,6 @@ export type EngineShadowReplayOptions = {
   /** 调试用：保留每案的临时工作区（默认回放后删除）。 */
   keepWorkspaceDir?: boolean;
 };
-
-// ─────────────────────────────────────────────
-// 脚本化模型服务（VCR cassette over OpenAI-compatible HTTP）
-// ─────────────────────────────────────────────
-
-type ScriptedRound =
-  | { toolCalls: Array<{ name: string; arguments: Record<string, unknown> }> }
-  | { content: string };
-
-type ScriptedModelServer = {
-  url: string;
-  push: (round: ScriptedRound) => void;
-  close: () => Promise<void>;
-};
-
-/** taskId 运行时才生成：每次请求从对话历史最后的 draft 工具结果里解析。 */
-function lastDraftTaskIdFromRequestBody(body: string): string {
-  try {
-    const parsed = JSON.parse(body) as { messages?: Array<{ role?: string; content?: string }> };
-    for (const message of [...(parsed.messages ?? [])].toReversed()) {
-      if (message.role !== "tool" || typeof message.content !== "string") {
-        continue;
-      }
-      try {
-        const content = JSON.parse(message.content) as {
-          ok?: boolean;
-          data?: { taskId?: unknown };
-        };
-        if (content.ok && typeof content.data?.taskId === "string" && content.data.taskId) {
-          return content.data.taskId;
-        }
-      } catch {
-        /* skip malformed tool message */
-      }
-    }
-  } catch {
-    /* skip malformed request */
-  }
-  return "";
-}
-
-function resolveRuntimeTokens(value: unknown, taskId: string): unknown {
-  if (value === "$lastDraftTaskId") {
-    return taskId;
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => resolveRuntimeTokens(item, taskId));
-  }
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([k, v]) => [
-        k,
-        resolveRuntimeTokens(v, taskId),
-      ]),
-    );
-  }
-  return value;
-}
-
-async function startScriptedModelServer(): Promise<ScriptedModelServer> {
-  const queue: ScriptedRound[] = [];
-  const server = http.createServer((req, res) => {
-    let body = "";
-    req.on("data", (chunk) => {
-      body += chunk;
-    });
-    req.on("end", () => {
-      const round = queue.shift();
-      if (!round) {
-        // 400 不可重试：cassette 耗尽是机制漂移，必须显式失败而不是静默兜底。
-        res.writeHead(400).end(JSON.stringify({ error: "shadow cassette exhausted" }));
-        return;
-      }
-      const taskId = lastDraftTaskIdFromRequestBody(body);
-      const message: Record<string, unknown> =
-        "content" in round
-          ? { role: "assistant", content: round.content }
-          : {
-              role: "assistant",
-              content: "",
-              tool_calls: round.toolCalls.map((tc, index) => ({
-                id: `shadow_call_${queue.length}_${index}`,
-                type: "function",
-                function: {
-                  name: tc.name,
-                  arguments: JSON.stringify(resolveRuntimeTokens(tc.arguments, taskId)),
-                },
-              })),
-            };
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ choices: [{ message, finish_reason: "stop" }] }));
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
-  const port = typeof address === "object" && address ? address.port : 0;
-  return {
-    url: `http://127.0.0.1:${port}/v1`,
-    push: (round) => queue.push(round),
-    close: () =>
-      new Promise<void>((resolve) => {
-        server.close(() => resolve());
-      }),
-  };
-}
 
 // ─────────────────────────────────────────────
 // 回放驱动
@@ -300,8 +204,11 @@ function removeShadowWorkspace(workspaceDir: string): void {
 function finalizeCaseMetrics(
   base: EngineShadowCaseResult,
   fixture: ShadowReplayFixture,
+  deliverableType?: string,
 ): EngineShadowCaseResult {
-  const lint = runLegalLint(base.engineDraftText);
+  const lint = runLegalLint(base.engineDraftText, undefined, new Date(), [], {
+    deliverableType: deliverableType || "contract.review",
+  });
   const found = new Set(lint.findings.map((f) => f.ruleId));
   const planted = fixture.plantedDefectRuleIds ?? [];
   const hitRuleIds = planted.filter((id) => found.has(id));
@@ -327,7 +234,10 @@ async function runScriptedCase(
     return { ...emptyCaseResult(fixture), status: "no-script", error: "fixture 无 modelScript" };
   }
   const workspaceDir = prepareShadowWorkspace();
-  const server = await startScriptedModelServer();
+  const server = await startCassetteModelServer({
+    resolveValue: (value, rawBody) =>
+      resolveRuntimeTokens(value, lastDraftTaskIdFromRequestBody(rawBody)),
+  });
   const result = emptyCaseResult(fixture);
   try {
     const config: AgentConfig = {
@@ -351,8 +261,8 @@ async function runScriptedCase(
       let attempt = 0;
       // 澄清门禁重试一次：先按真实流程答澄清放行，再重跑被拦的本步。
       for (;;) {
-        server.push({ toolCalls: stepToolCalls(step, fixture) });
-        server.push({ content: STEP_CLOSING_REPLY });
+        server.enqueue(cassetteToolCalls(stepToolCalls(step, fixture)));
+        server.enqueue(cassetteAssistant(STEP_CLOSING_REPLY));
         const run = await runTurn({
           config,
           registry,
@@ -372,7 +282,7 @@ async function runScriptedCase(
           drain < MAX_CLARIFICATION_TURNS && status === "awaiting_clarification";
           drain += 1
         ) {
-          server.push({ content: CLARIFICATION_REPLY });
+          server.enqueue(cassetteAssistant(CLARIFICATION_REPLY));
           const drained = await runTurn({
             config,
             registry,
@@ -401,7 +311,7 @@ async function runScriptedCase(
     result.draftTaskId = draftTaskId;
     result.draftChannel = "persisted-draft";
     result.engineDraftText = draftTextFromUnknown(draft);
-    return finalizeCaseMetrics(result, fixture);
+    return finalizeCaseMetrics(result, fixture, draft.deliverableType);
   } catch (err) {
     result.status = "error";
     result.error = err instanceof Error ? err.message : String(err);
@@ -457,7 +367,7 @@ async function runRealModelCase(
       result.error = "真模型未产出草稿或回复";
       return result;
     }
-    return finalizeCaseMetrics(result, fixture);
+    return finalizeCaseMetrics(result, fixture, draft?.deliverableType);
   } catch (err) {
     result.status = "error";
     result.error = err instanceof Error ? err.message : String(err);

@@ -110,14 +110,14 @@ pnpm lawmind:desktop
 cd apps/lawmind-desktop && pnpm run dist:electron
 ```
 
-该流程会依次：**esbuild 打包本地 API**、**下载官方 Node 二进制至 `resources/node-runtime/`（仅当前平台/架构）**、构建前端、`electron-builder` 出产物。
+该流程会依次：**esbuild 打包本地 API**、**下载官方 Node 二进制至 `resources/node-runtime/`（仅当前平台/架构）**、**下载 OfficeCLI 至 `resources/officecli/`（仅当前平台/架构，Apache-2.0）**、构建前端、`electron-builder` 出产物。
 
 产出（在 `apps/lawmind-desktop/release/`，具体文件名随版本变化）：
 
 - **macOS**：`dmg` 安装包 + **`zip`**（解压后得到 `LawMind.app`，可直接双击；适合绿色分发）；
 - **Windows**：`nsis` 安装包 + **`portable`** 绿色版（单文件可执行，或由 builder 配置决定的可搬运形态）。
 
-**最终用户**：安装版或解压版均**不要求**单独安装 Node；应用内已携带与本包架构匹配的 Node，用于启动 `lawmind-local-server.cjs`。高级场景仍可用环境变量 `LAWMIND_NODE_BIN` 指定其他 Node 路径。
+**最终用户**：安装版或解压版均**不要求**单独安装 Node 或 officecli；应用内已携带与本包架构匹配的 Node（启动 `lawmind-local-server.cjs`）和 OfficeCLI（Word 修订轨 / 改稿）。高级场景仍可用环境变量 `LAWMIND_NODE_BIN` / `LAWMIND_OFFICECLI` 指定其他路径。
 
 ### 6.3 macOS 代码签名与公证（对外分发）
 
@@ -129,7 +129,7 @@ cd apps/lawmind-desktop && pnpm run dist:electron
 2. 公证：`APPLE_ID` + `APPLE_APP_SPECIFIC_PASSWORD` + `APPLE_TEAM_ID`（或 `APPLE_KEYCHAIN_PROFILE` / App Store Connect API key）。
 3. 强制失败：`LAWMIND_REQUIRE_NOTARIZED=1`（没有 Developer ID 或公证凭证时直接退出）。
 
-内嵌 Node（`LawMind.app/Contents/Resources/node-runtime/<platform-arch>/bin/node`）与主程序使用同一身份签名。未公证的测试包仍可「右键 → 打开」。
+内嵌 Node（`LawMind.app/Contents/Resources/node-runtime/<platform-arch>/bin/node`）与 OfficeCLI（`…/Resources/officecli/<platform-arch>/officecli`）与主程序使用同一身份签名。未公证的测试包仍可「右键 → 打开」。
 
 （内部发布细节以仓库内 `docs/platforms/mac/` 下签名与发布相关文档为准。）
 

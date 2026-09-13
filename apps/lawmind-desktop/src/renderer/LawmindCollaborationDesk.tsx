@@ -229,6 +229,7 @@ function gateNameLabel(gate: string): string {
     citation_integrity_gate: "引用核对",
     outbound_privilege_gate: "特权确认",
     outbound_recipient_gate: "收件人确认",
+    legal_guardian_gate: "独立审稿",
   };
   return map[gate] ?? gate;
 }

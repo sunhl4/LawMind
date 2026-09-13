@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import { LawmindSettingsPracticePlaybook } from "./LawmindSettingsPracticePlaybook";
 import { LawmindSettingsUserStandards } from "./LawmindSettingsUserStandards";
@@ -16,11 +16,8 @@ type Props = {
 export function LawmindSettingsWorkspace(props: Props): ReactNode {
   const { config, apiBase, workspaceLabel, projectDir, onPickProject, onClearProject } = props;
   const [batchDir, setBatchDir] = useState("");
-  const [anchorUrl, setAnchorUrl] = useState("");
   const [deskBusy, setDeskBusy] = useState(false);
   const [deskHint, setDeskHint] = useState<string | null>(null);
-  const [verifyBusy, setVerifyBusy] = useState(false);
-  const [verifyMsg, setVerifyMsg] = useState<string | null>(null);
   const [daemonBusy, setDaemonBusy] = useState(false);
   const [daemonHint, setDaemonHint] = useState<string | null>(null);
   const [daemon, setDaemon] = useState<{
@@ -28,6 +25,20 @@ export function LawmindSettingsWorkspace(props: Props): ReactNode {
     running?: boolean;
     lastTickAt?: string;
   } | null>(null);
+  const [mounts, setMounts] = useState<Array<{ id: string; absPath: string; label?: string; matterId?: string }>>(
+    [],
+  );
+
+  const refreshMounts = useCallback(async () => {
+    const list = window.lawmindDesktop?.listHostFolders;
+    if (!list) {
+      return;
+    }
+    const res = await list();
+    if (res.ok && Array.isArray(res.mounts)) {
+      setMounts(res.mounts);
+    }
+  }, []);
 
   useEffect(() => {
     if (!apiBase?.trim()) {
@@ -41,7 +52,6 @@ export function LawmindSettingsWorkspace(props: Props): ReactNode {
       .then((j) => {
         if (!cancelled && j.ok) {
           setBatchDir(j.settings?.contractBatchRelativeDir ?? "");
-          setAnchorUrl(j.settings?.auditExternalAnchorUrl ?? "");
         }
       })
       .catch(() => {
@@ -59,10 +69,11 @@ export function LawmindSettingsWorkspace(props: Props): ReactNode {
       .catch(() => {
         /* ignore */
       });
+    void refreshMounts();
     return () => {
       cancelled = true;
     };
-  }, [apiBase]);
+  }, [apiBase, refreshMounts]);
 
   async function saveDeskSettings(): Promise<void> {
     if (!apiBase?.trim()) {
@@ -74,59 +85,24 @@ export function LawmindSettingsWorkspace(props: Props): ReactNode {
       const j = await apiSendJson<
         {
           ok?: boolean;
-          settings?: { contractBatchRelativeDir?: string; auditExternalAnchorUrl?: string };
+          settings?: { contractBatchRelativeDir?: string };
           message?: string;
           error?: string;
         },
-        { contractBatchRelativeDir: string; auditExternalAnchorUrl: string }
+        { contractBatchRelativeDir: string }
       >(apiBase, "/api/workspace/desk-settings", "POST", {
         contractBatchRelativeDir: batchDir.trim(),
-        auditExternalAnchorUrl: anchorUrl.trim(),
       });
       if (!j.ok) {
         setDeskHint(j.message ?? j.error ?? "保存失败");
         return;
       }
       setBatchDir(j.settings?.contractBatchRelativeDir ?? batchDir.trim());
-      setAnchorUrl(j.settings?.auditExternalAnchorUrl ?? anchorUrl.trim());
       setDeskHint("已保存");
     } catch (e) {
       setDeskHint(errorMessage(e, "保存失败"));
     } finally {
       setDeskBusy(false);
-    }
-  }
-
-  async function verifyAuditExternalAnchor(): Promise<void> {
-    if (!apiBase?.trim() || !anchorUrl.trim()) {
-      setVerifyMsg("请先填写外部锚 URL");
-      return;
-    }
-    setVerifyBusy(true);
-    setVerifyMsg(null);
-    try {
-      const j = await apiSendJson<
-        {
-          ok?: boolean;
-          status?: string;
-          detail?: string;
-          report?: string;
-          error?: string;
-          message?: string;
-        },
-        { externalAnchorUrl: string }
-      >(apiBase, "/api/audit/verify-external", "POST", {
-        externalAnchorUrl: anchorUrl.trim(),
-      });
-      if (!j.ok) {
-        setVerifyMsg(j.message ?? j.error ?? j.detail ?? "验证失败");
-        return;
-      }
-      setVerifyMsg(`[${j.status}] ${j.detail ?? ""}${j.report ? `\n${j.report}` : ""}`);
-    } catch (e) {
-      setVerifyMsg(errorMessage(e, "验证失败"));
-    } finally {
-      setVerifyBusy(false);
     }
   }
 
@@ -170,37 +146,80 @@ export function LawmindSettingsWorkspace(props: Props): ReactNode {
 
   return (
     <div className="lm-settings-section" id="lawmind-settings-workspace">
-      <div className="lm-settings-group lm-settings-surface">
+      <div className="lm-settings-group lm-settings-surface" data-testid="lm-host-folders">
         <div className="lm-settings-row">
-          <span className="lm-settings-key">侧栏材料夹</span>
-          {projectDir ? (
-            <span className="lm-settings-val lm-project-path" title={projectDir}>
-              {projectDir.split(/[\\/]/).filter(Boolean).pop()}
-            </span>
-          ) : (
-            <span className="lm-settings-val lm-project-none">未选择</span>
-          )}
+          <span className="lm-settings-key">本机文件夹</span>
+          <span className="lm-settings-val">
+            {mounts.length > 0 || projectDir ? `${Math.max(mounts.length, projectDir ? 1 : 0)} 个` : "未选择"}
+          </span>
         </div>
-        {projectDir ? <div className="lm-project-full-path">{projectDir}</div> : null}
+        {(mounts.length > 0 ? mounts : projectDir ? [{ id: "project", absPath: projectDir }] : []).map((m) => (
+          <div key={m.id} className="lm-host-folder-row">
+            <div className="lm-project-full-path">
+              {m.label || m.absPath.split(/[\\/]/).filter(Boolean).pop()}
+              {m.matterId ? ` · 绑定 ${m.matterId}` : ""}
+            </div>
+            <div className="lm-settings-actions">
+              <input
+                className="lm-input"
+                aria-label={`绑定案件 ${m.label || m.id}`}
+                placeholder="绑定案件 ID（可选）"
+                defaultValue={m.matterId ?? ""}
+                onBlur={(e) => {
+                  const bind = window.lawmindDesktop?.bindHostFolder;
+                  if (!bind) {
+                    return;
+                  }
+                  void bind({
+                    id: m.id,
+                    matterId: e.target.value.trim() || undefined,
+                  }).then(() => refreshMounts());
+                }}
+              />
+              <button
+                type="button"
+                className="lm-btn lm-btn-ghost lm-btn-sm"
+                onClick={() => {
+                  void (async () => {
+                    if (window.lawmindDesktop?.removeHostFolder) {
+                      await window.lawmindDesktop.removeHostFolder(m.id);
+                      await refreshMounts();
+                      return;
+                    }
+                    onClearProject();
+                  })();
+                }}
+                title="撤销此本机文件夹"
+              >
+                撤销
+              </button>
+            </div>
+          </div>
+        ))}
         <div className="lm-settings-actions">
           <button
             type="button"
-            className={`lm-btn lm-btn-sm ${projectDir ? "lm-btn-secondary" : "lm-btn-accent"}`}
-            onClick={onPickProject}
+            className="lm-btn lm-btn-sm lm-btn-accent"
+            onClick={() => {
+              void (async () => {
+                const pick = window.lawmindDesktop?.pickProject;
+                const add = window.lawmindDesktop?.addHostFolder;
+                if (!pick || !add) {
+                  onPickProject();
+                  return;
+                }
+                const chosen = await pick();
+                if (chosen.ok && chosen.path) {
+                  await add({ path: chosen.path });
+                  await refreshMounts();
+                }
+              })();
+            }}
           >
-            {projectDir ? "更换" : "选择文件夹"}
+            添加文件夹
           </button>
-          {projectDir ? (
-            <button
-              type="button"
-              className="lm-btn lm-btn-ghost lm-btn-sm"
-              onClick={onClearProject}
-              title="取消侧栏材料夹，不是离开设置"
-            >
-              清除
-            </button>
-          ) : null}
         </div>
+        <p className="lm-settings-caption">助手只能阅读这些文件夹。写入请用「收进本案」。绑定案件后，其他案件会话不能读该文件夹正文。更多选项见本机能力。</p>
       </div>
 
       <div className="lm-settings-group lm-settings-surface">
@@ -291,67 +310,6 @@ export function LawmindSettingsWorkspace(props: Props): ReactNode {
               <p className="lm-settings-caption" role="status">
                 {deskHint}
               </p>
-            ) : null}
-          </div>
-        </details>
-      ) : null}
-
-      {apiBase ? (
-        <details className="lm-settings-advanced" data-testid="lm-audit-external-anchor">
-          <summary>
-            <span className="lm-settings-advanced__label">审计外部锚</span>
-            <span className="lm-settings-advanced__hint">防篡改摘要</span>
-          </summary>
-          <div className="lm-settings-advanced-body">
-            <p className="lm-settings-caption">
-              将审计链摘要同步到工作区外（U 盘、iCloud/OneDrive 本地目录，或 HTTPS 只写 URL）。
-              摘要包含链尾 root hash 与 HMAC 签名，可用于事后验证链是否被截断或篡改。
-              保存后需重启本地服务方可生效。
-            </p>
-            <label className="lm-settings-field">
-              <span className="lm-settings-key">外部锚 URL / 路径</span>
-              <input
-                className="lm-input"
-                value={anchorUrl}
-                data-testid="lm-audit-external-anchor-url"
-                placeholder="例如 file:///Users/您/备份/lawmind-anchor.json 或 https://..."
-                onChange={(e) => setAnchorUrl(e.target.value)}
-              />
-            </label>
-            <div className="lm-settings-actions">
-              <button
-                type="button"
-                className="lm-btn lm-btn-secondary lm-btn-sm"
-                disabled={deskBusy}
-                data-testid="lm-audit-external-anchor-save"
-                onClick={() => void saveDeskSettings()}
-              >
-                {deskBusy ? "保存中…" : "保存"}
-              </button>
-              <button
-                type="button"
-                className="lm-btn lm-btn-accent lm-btn-sm"
-                disabled={verifyBusy || !anchorUrl.trim()}
-                data-testid="lm-audit-external-anchor-verify"
-                onClick={() => void verifyAuditExternalAnchor()}
-              >
-                {verifyBusy ? "验证中…" : "验证审计链"}
-              </button>
-            </div>
-            {deskHint ? (
-              <p className="lm-settings-caption" role="status">
-                {deskHint}
-              </p>
-            ) : null}
-            {verifyMsg ? (
-              <pre
-                className="lm-settings-caption"
-                role="status"
-                data-testid="lm-audit-external-anchor-verify-msg"
-                style={{ whiteSpace: "pre-wrap", maxHeight: 240, overflow: "auto" }}
-              >
-                {verifyMsg}
-              </pre>
             ) : null}
           </div>
         </details>

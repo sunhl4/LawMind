@@ -16,6 +16,7 @@ export const SUBPROCESS_SANDBOX_TOOL_NAMES = new Set<string>([
   "draft_document",
   "add_case_note",
   "run_analysis",
+  "run_compute",
   // read_project_file / analyze_document stay in-process (C8): readonly, latency-sensitive
 ]);
 

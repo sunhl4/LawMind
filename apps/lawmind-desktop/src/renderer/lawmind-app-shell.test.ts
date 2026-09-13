@@ -22,6 +22,8 @@ describe("lawmind-app-shell", () => {
       retrievalMode: "dual",
       dualLegalConfigured: true,
       webSearchApiKeyConfigured: false,
+      webSearchNativeAvailable: false,
+      webSearchReady: false,
       webSearchPolicyBlocked: false,
       modelName: null,
       modelEnvFileExists: false,

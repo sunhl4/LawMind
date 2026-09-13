@@ -92,7 +92,7 @@ export function buildReadinessSnapshot(input: {
         ? modelName
           ? `已验证可用：${modelName}${latency}`
           : "主对话模型已通过连接测试"
-        : "已写入 Key 但尚未验证。请点「验证模型」或在对话栏测试连接。",
+        : "已写入 Key 但尚未验证通过。请点「验证模型」。若提示 Key 无效，到服务商重新生成后再粘贴。",
   };
 
   const workspacePill: ReadinessPill = {

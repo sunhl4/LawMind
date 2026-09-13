@@ -275,4 +275,4 @@ export {
   TEAM_MEETING_TAIL_LIMIT_DEFAULT,
   TEAM_MEETING_TRANSCRIPT_MAX_CHARS,
 } from "./team-meeting.js";
-export type { TeamMeetingLine, TeamMeetingLineKind } from "./team-meeting.js";
+export type { TeamMeetingLine, TeamMeetingLineKind } from "./team-meeting-ids.js";

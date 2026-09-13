@@ -99,7 +99,7 @@ export const WORD_REVISION_PROMPT = [
   "## Word 改稿 · 原文件审阅痕迹",
   "- 这是**已有 Word 的改稿**。本回合**唯一交付物**是源文件同目录的带审阅痕迹 `.docx`。",
   "- 不要意见书，不要模板重建稿，不要写到 artifacts/，不要用对话长文代替文件。",
-  "- 本回合只开放：`analyze_document` / `read_project_file`、`draft_document`/`update_draft`、`apply_surgical_edits`、`render_tracked_draft`。",
+  "- 本回合只开放：`analyze_document` / `read_project_file`、`draft_document`/`update_draft`、`apply_surgical_edits`、`render_tracked_draft`；另有本轮清单 `update_plan`。",
   "- 禁止 `render_document`。禁止 `prepare_outbound_mail` / `send_email`。",
   "- 通读钉选 Word **成功一次即可**。不要再 `analyze_document`，也不要读 `playbooks/` 或条款库。",
   "- 若本回合已注入「改稿要点」：按看/改/停处理。检查单不是必须全改；停项与未确认数字写入 deferred。类型仅为疑似时，正文不对题则忽略该清单。",

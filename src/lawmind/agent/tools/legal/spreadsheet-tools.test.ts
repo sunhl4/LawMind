@@ -78,7 +78,7 @@ describe("spreadsheet tools", () => {
     expect(data.rowCount).toBeLessThanOrEqual(4999);
   });
 
-  it("writes an xlsx under artifacts/", async () => {
+  it("writes an xlsx under workspace artifacts/ when no matter is bound", async () => {
     const ws = tmpWs();
     const result = await writeSpreadsheet.execute(
       {
@@ -95,5 +95,41 @@ describe("spreadsheet tools", () => {
     expect(fs.existsSync(path.join(ws, "artifacts", "out.xlsx"))).toBe(true);
     const again = await analyzeSpreadsheet.execute({ path: "artifacts/out.xlsx" }, ctx(ws));
     expect(again.ok).toBe(true);
+  });
+
+  it("writes an xlsx under the matter artifacts folder", async () => {
+    const ws = tmpWs();
+    const result = await writeSpreadsheet.execute(
+      {
+        rows: [
+          ["列", "值"],
+          ["a", 1],
+        ],
+        filename: "out.xlsx",
+      },
+      ctx(ws, { matterId: "m-sheet" }),
+    );
+    expect(result.ok).toBe(true);
+    const data = result.data as { path?: string; outputReason?: string };
+    expect(data.outputReason).toBe("matter");
+    expect(data.path).toBe("cases/m-sheet/artifacts/out.xlsx");
+    expect(fs.existsSync(path.join(ws, "cases", "m-sheet", "artifacts", "out.xlsx"))).toBe(true);
+  });
+
+  it("uses a date filename instead of a hash when filename is omitted", async () => {
+    const ws = tmpWs();
+    const result = await writeSpreadsheet.execute(
+      {
+        rows: [
+          ["列", "值"],
+          ["a", 1],
+        ],
+      },
+      ctx(ws),
+    );
+    expect(result.ok).toBe(true);
+    const data = result.data as { path?: string };
+    expect(data.path).toMatch(/^artifacts\/分析表_\d{8}_01\.xlsx$/);
+    expect(data.path).not.toMatch(/table-[0-9a-f]{8}/i);
   });
 });

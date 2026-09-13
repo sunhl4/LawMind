@@ -29,6 +29,9 @@ export const IDEMPOTENT_READ_TOOLS = new Set<string>([
   "search_matter",
   "search_workspace",
   "read_project_file",
+  "list_dir",
+  "search_host",
+  "read_host_file",
   "search_statute",
   "search_case_law",
   "get_matter_summary",
@@ -48,6 +51,9 @@ export const IDEMPOTENT_READ_TOOLS = new Set<string>([
   "list_more_tools",
   "analyze_spreadsheet",
   "calculate",
+  "web_search",
+  "search_statute_web",
+  "url_dossier",
 ]);
 
 export const WRITE_TOOLS = new Set<string>([
@@ -74,4 +80,7 @@ export const WRITE_TOOLS = new Set<string>([
   "write_spreadsheet",
   "render_chart",
   "run_analysis",
+  "run_compute",
+  "import_host_file",
+  "run_host_command",
 ]);

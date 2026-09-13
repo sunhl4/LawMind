@@ -38,4 +38,30 @@ describe("permission-mode", () => {
     expect(filtered).not.toContain("execute_workflow");
     expect(RESEARCH_AGENT_TOOL_NAMES.has("research_task")).toBe(true);
   });
+
+  it("readonly keeps update_plan as a control tool", () => {
+    expect(filterToolsForPermissionMode(["update_plan", "draft_document"], "readonly")).toEqual([
+      "update_plan",
+    ]);
+  });
+
+  it("allows public web search tools in research and readonly modes", () => {
+    const names = [
+      "web_search",
+      "search_statute_web",
+      "url_dossier",
+      "deep_research",
+      "draft_document",
+    ];
+    const research = filterToolsForPermissionMode(names, "research");
+    expect(research).toEqual(
+      expect.arrayContaining(["web_search", "search_statute_web", "url_dossier", "deep_research"]),
+    );
+    expect(research).not.toContain("draft_document");
+    const readonly = filterToolsForPermissionMode(names, "readonly");
+    expect(readonly).toEqual(
+      expect.arrayContaining(["web_search", "search_statute_web", "url_dossier"]),
+    );
+    expect(readonly).not.toContain("deep_research");
+  });
 });

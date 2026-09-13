@@ -212,13 +212,13 @@ export function formatClarificationFilePinsPrefix(pins: ClarificationFilePin[]):
     if (it.root === "workspace") {
       const hint =
         it.kind === "directory"
-          ? "请先在目录中定位文件，再用 analyze_document 读工作区相对路径。"
+          ? "请用 list_dir 递归列举后再用 analyze_document 读工作区相对路径。"
           : "请用 analyze_document 读取以下工作区相对路径。";
       return `- [${scope} · ${it.kind === "directory" ? "目录" : "文件"}] \`${p}\` — ${hint}`;
     }
     const hint =
       it.kind === "directory"
-        ? "对项目内文件用 read_project_file；目录下请先列举再选读。"
+        ? "请用 list_dir 递归列举；对项目内文件用 read_project_file 阅读。"
         : "请用 read_project_file 读取。";
     return `- [${scope} · ${it.kind === "directory" ? "目录" : "文件"}] \`${p}\` — ${hint}`;
   });

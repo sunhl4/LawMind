@@ -1,5 +1,5 @@
 /**
- * Export Word with tracked changes via officecli (host dependency).
+ * Export Word with tracked changes via officecli (bundled with LawMind).
  * Prefers an uploaded contract baseline `.docx` or binary `.doc` when
  * `draft.contractEdit` is set. Binary `.doc` is first-class: an ephemeral
  * working copy may be used only for OpenXML edits (never requires the lawyer
@@ -26,6 +26,7 @@ import {
 import type { ComposeContextPin } from "../platform/compose-context-pin.js";
 import { resolveWorkspaceRelativePath } from "../runtime/workspace-path.js";
 import type { ArtifactDraft } from "../types.js";
+import { resolveOfficeCliBin } from "./officecli-bin.js";
 import { renderDocxWithOptions } from "./render-docx.js";
 import { resolveWordBaselineAbs } from "./word-revision-delivery.js";
 
@@ -56,9 +57,11 @@ export type TrackedDocxRenderResult =
 function runOfficeCli(
   args: string[],
   timeoutMs = 120_000,
+  command?: string,
 ): Promise<{ code: number; stdout: string; stderr: string }> {
+  const bin = command?.trim() || resolveOfficeCliBin() || "officecli";
   return new Promise((resolve, reject) => {
-    const child = spawn("officecli", args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => {
@@ -269,6 +272,7 @@ export async function applyRedlineHunksWithOfficeCli(params: {
   sectionBodiesAfter?: string[];
   /** Pre-edit / baseline section bodies — uniqueness checks before mutating. */
   sectionBodiesBefore?: string[];
+  officecliCommand?: string;
 }): Promise<{
   applied: number;
   attempted: number;
@@ -350,18 +354,22 @@ export async function applyRedlineHunksWithOfficeCli(params: {
       }
       try {
         const findArg = formatOfficeCliFindArg(fr.find, fr.regex);
-        const result = await runOfficeCli([
-          "set",
-          params.workingDocxPath,
-          "/body",
-          "--find",
-          findArg,
-          "--replace",
-          fr.replace,
-          "--prop",
-          `revision.author=${author}`,
-          "--json",
-        ]);
+        const result = await runOfficeCli(
+          [
+            "set",
+            params.workingDocxPath,
+            "/body",
+            "--find",
+            findArg,
+            "--replace",
+            fr.replace,
+            "--prop",
+            `revision.author=${author}`,
+            "--json",
+          ],
+          120_000,
+          params.officecliCommand,
+        );
         let parsed: { matched?: number; success?: boolean } | undefined;
         try {
           parsed = JSON.parse(result.stdout) as { matched?: number; success?: boolean };
@@ -407,7 +415,7 @@ export async function applyRedlineHunksWithOfficeCli(params: {
     }
   }
   try {
-    await runOfficeCli(["close", params.workingDocxPath]);
+    await runOfficeCli(["close", params.workingDocxPath], 120_000, params.officecliCommand);
   } catch {
     /* ignore — idle auto-flush still persists in most builds */
   }
@@ -717,6 +725,7 @@ export async function renderDocxWithTrackedChanges(params: {
       proposals: params.proposals,
       sectionBodiesAfter: params.draft.sections?.map((s) => s.body ?? ""),
       sectionBodiesBefore,
+      officecliCommand: params.officecliCommand,
     });
     await writeManifest(apply);
 

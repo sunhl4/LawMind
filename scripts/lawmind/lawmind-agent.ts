@@ -48,13 +48,14 @@ const singleMessage = getArg("message");
 const listSessionsMode = hasFlag("list-sessions");
 
 // 从环境变量读取模型配置（与 .env.lawmind 中 LAWMIND_QWEN_* 一致，无需重复配置）
-const defaultBaseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+const defaultBaseUrl = "https://api.deepseek.com/v1";
 const modelTimeoutMs = parsePositiveIntEnv("LAWMIND_AGENT_TIMEOUT_MS", 120000);
 const upstreamModel =
   process.env.LAWMIND_AGENT_MODEL ??
+  process.env.LAWMIND_DEEPSEEK_MODEL ??
   process.env.QWEN_MODEL ??
   process.env.LAWMIND_QWEN_MODEL ??
-  "qwen-plus";
+  "deepseek-flash";
 const catalogContext = LAWMIND_BUILTIN_MODELS.find((m) => m.model === upstreamModel)?.contextTokens;
 const envelope = resolveCapabilityEnvelope({
   contextTokens: catalogContext,
@@ -70,6 +71,7 @@ const modelConfig = {
     defaultBaseUrl,
   apiKey:
     process.env.LAWMIND_AGENT_API_KEY ??
+    process.env.LAWMIND_DEEPSEEK_API_KEY ??
     process.env.QWEN_API_KEY ??
     process.env.LAWMIND_QWEN_API_KEY ??
     "",
@@ -82,9 +84,9 @@ const modelConfig = {
 
 if (!modelConfig.apiKey) {
   console.error("未设置模型 API Key。请在 .env.lawmind 中配置：");
-  console.error("  LAWMIND_QWEN_API_KEY=your-api-key   （与 smoke/demo 共用）");
-  console.error("  或 LAWMIND_AGENT_API_KEY / QWEN_API_KEY");
-  console.error("  LAWMIND_QWEN_MODEL=qwen-max   （可选，默认 qwen-plus）");
+  console.error("  LAWMIND_DEEPSEEK_API_KEY=your-api-key   （默认 deepseek-flash）");
+  console.error("  或 LAWMIND_AGENT_API_KEY / LAWMIND_QWEN_API_KEY");
+  console.error("  LAWMIND_DEEPSEEK_MODEL=deepseek-flash   （可选，默认 deepseek-flash）");
   process.exit(1);
 }
 

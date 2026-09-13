@@ -1,11 +1,12 @@
 /**
- * Pre-loop short-circuits for runTurn: intake clarification gate + auto deliverable workflow.
+ * Pre-loop short-circuits for runTurn: intake, public web facts, auto deliverable workflow.
  * Keeps turn-orchestrator focused on session setup and the model/tool loop.
  */
 
 import type { MemoryContext } from "../memory/index.js";
 import { resolveIntakeClarificationQuestions } from "../router/intake-gate.js";
 import type { ToolCallContext } from "../runtime/tool-pipeline.js";
+import { isPublicWebFactLookup } from "../skills/capability-patterns.js";
 import type { RiskLevel } from "../types.js";
 import type { ClarificationQuestion } from "../types.js";
 import {
@@ -21,7 +22,13 @@ import {
   type TurnFinalizeShared,
 } from "./turn-orchestrator-finalize.js";
 import { getRunToolPipeline } from "./turn-orchestrator-tool-round.js";
-import type { AgentContext, AgentMessage, AgentSession, AgentTurn } from "./types.js";
+import type {
+  AgentContext,
+  AgentMessage,
+  AgentSession,
+  AgentTurn,
+  ToolCallResult,
+} from "./types.js";
 
 export type TurnRunResult = {
   turn: AgentTurn;
@@ -83,6 +90,115 @@ export function tryIntakeClarificationShortcut(opts: {
     resolvedAssistantId: opts.resolvedAssistantId,
     modelName: opts.modelName,
   });
+}
+
+type PublicWebHit = { title?: string; url?: string; description?: string };
+
+function publicWebProviderLabel(provider: unknown): string {
+  if (provider === "deepseek") {
+    return "当前模型（DeepSeek）";
+  }
+  if (provider === "dashscope") {
+    return "当前模型（通义）";
+  }
+  if (provider === "brave") {
+    return "Brave";
+  }
+  return "当前模型";
+}
+
+export function formatPublicWebFactReply(query: string, result: ToolCallResult): string {
+  if (!result.ok) {
+    return [
+      `已按公开网页事实检索「${query}」，但没有拿到可用结果。`,
+      result.error?.trim() || "联网检索失败。",
+      "我不会凭记忆填写冠军或获奖者。",
+    ].join("\n\n");
+  }
+  const data =
+    result.data && typeof result.data === "object" ? (result.data as Record<string, unknown>) : {};
+  const rows = Array.isArray(data.results) ? (data.results as PublicWebHit[]) : [];
+  const lines = rows
+    .map((row, i) => {
+      const title = (row.title ?? "").trim() || "(无标题)";
+      const url = (row.url ?? "").trim();
+      const desc = (row.description ?? "").trim();
+      return `${i + 1}. **${title}**${url ? `\n   ${url}` : ""}${desc ? `\n   ${desc}` : ""}`;
+    })
+    .filter(Boolean);
+  if (lines.length === 0) {
+    return `已用联网检索查询「${query}」，没有返回可核对的 URL。我不会猜冠军或获奖者。`;
+  }
+  return [
+    `已用联网检索（${publicWebProviderLabel(data.provider)}）查询「${query}」。以下为公开网页摘要，请点开 URL 核对；我不会在摘要之外另编事实。`,
+    lines.join("\n\n"),
+  ].join("\n\n");
+}
+
+/**
+ * Entertainment / public-news facts must not enter legal deep_research.
+ * Run `web_search` (or refuse honestly) without waiting for the model.
+ */
+export async function tryPublicWebFactShortcut(opts: {
+  instruction: string;
+  ctx: AgentContext;
+  turn: AgentTurn;
+  registry: ToolRegistry;
+  shared: TurnFinalizeShared;
+  emitEvent: (event: RunTurnEvent) => void;
+  abortRequested: () => boolean;
+  onAborted: () => TurnRunResult;
+}): Promise<TurnRunResult | null> {
+  if (!isPublicWebFactLookup(opts.instruction)) {
+    return null;
+  }
+  if (opts.abortRequested()) {
+    return opts.onAborted();
+  }
+  if (opts.ctx.allowWebSearch !== true) {
+    return finishShortCircuitTurn(
+      opts.shared,
+      "这是公开网页事实，不是法律备忘。请在输入选项把「联网」改成开启后再问。未开启时我不会猜冠军名字，也不会用深度研究假装上过网。",
+    );
+  }
+  const tool = opts.registry.get("web_search");
+  if (!tool) {
+    return finishShortCircuitTurn(
+      opts.shared,
+      "对话栏「联网」已开，但本轮没有注册 web_search。请完全退出并重启 LawMind 后再试。",
+    );
+  }
+
+  const query = opts.instruction.trim();
+  const toolCallId = "auto-web-search";
+  const toolArgs = { query, count: 8 };
+  opts.emitEvent({ type: "round_start", roundIndex: 1 });
+  opts.emitEvent({
+    type: "tool_call_start",
+    roundIndex: 1,
+    toolCallId,
+    toolName: "web_search",
+    args: toolArgs,
+  });
+  opts.turn.toolCallsExecuted++;
+  let searchResult: ToolCallResult;
+  try {
+    searchResult = await tool.execute(toolArgs, opts.ctx);
+  } catch (err) {
+    searchResult = {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+  opts.emitEvent({
+    type: "tool_call_end",
+    roundIndex: 1,
+    toolCallId,
+    toolName: "web_search",
+    ok: searchResult.ok,
+    error: searchResult.error,
+  });
+  return finishShortCircuitTurn(opts.shared, formatPublicWebFactReply(query, searchResult));
 }
 
 /**

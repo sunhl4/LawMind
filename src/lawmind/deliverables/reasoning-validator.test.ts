@@ -4,10 +4,10 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { persistReasoningSnapshot } from "../drafts/reasoning-snapshot.js";
 import type { ArtifactDraft, LegalReasoningGraph } from "../types.js";
+import { validateReasoningGraphAtDraft } from "./reasoning-validator-workspace.js";
 import {
   specRequiresReasoningGraphAtDraft,
   validateReasoningAgainstSpec,
-  validateReasoningGraphAtDraft,
 } from "./reasoning-validator.js";
 import { getDeliverableSpec } from "./registry.js";
 

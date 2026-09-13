@@ -7,20 +7,21 @@ import {
 import { planLeanSkillPrompt, primarySkillIdsForBound } from "./skill-prompt-budget.js";
 
 describe("skill-prompt-budget", () => {
-  it("injects two review skill bodies and indexes the rest", () => {
+  it("injects one review skill body and indexes the rest", () => {
     const bound = bindLawyerCapability({ instruction: "请审查合同条款" });
     expect(bound).toBeTruthy();
     const lean = planLeanSkillPrompt(bound!, "请审查合同条款");
-    expect(lean.primaryIds).toHaveLength(2);
-    expect(lean.primaryIds).toEqual(["contract-review-layers", "contract-redline-craft"]);
+    expect(lean.primaryIds).toEqual(["contract-review-layers"]);
+    expect(lean.indexIds).toContain("contract-redline-craft");
     expect(lean.indexIds).toContain("legal-element-extraction");
     const bodies = readSkillPromptBodies(undefined, lean.primaryIds);
     expect(bodies.some((b) => b.includes("合同分层审查"))).toBe(true);
-    expect(bodies.some((b) => b.includes("合同审阅改稿手艺"))).toBe(true);
+    expect(bodies.some((b) => b.includes("合同审阅改稿手艺"))).toBe(false);
     expect(bodies.some((b) => b.includes("## 九类事实"))).toBe(false);
     const block = formatBoundCapabilityBlock(bound!, bodies, { indexLines: lean.indexLines });
     expect(block).toContain("其余技能（索引，不要通读）");
     expect(block).toContain("legal-element-extraction");
+    expect(block).toContain("contract-redline-craft");
     expect(block).not.toContain("## 九类事实");
   });
 
@@ -44,9 +45,6 @@ describe("skill-prompt-budget", () => {
   it("picks complaint fill for 起诉状 litigation", () => {
     const bound = bindLawyerCapability({ instruction: "写起诉状" });
     expect(bound?.id).toBe("litigation.draft");
-    expect(primarySkillIdsForBound(bound!, "写起诉状")).toEqual([
-      "complaint-elements-fill",
-      "evidence-argument-chain",
-    ]);
+    expect(primarySkillIdsForBound(bound!, "写起诉状")).toEqual(["complaint-elements-fill"]);
   });
 });

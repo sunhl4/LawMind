@@ -28,15 +28,7 @@ export type ToolResultSpillContext = {
 
 export function shouldSpillToolResult(toolName: string): boolean {
   const name = toolName.trim();
-  if (!name || NO_SPILL_TOOLS.has(name)) {
-    return false;
-  }
-  return (
-    name === "analyze_document" ||
-    name === "compare_documents" ||
-    name === "web_search" ||
-    /^(research_|list_mail_|read_|search_|browse)/.test(name)
-  );
+  return Boolean(name) && !NO_SPILL_TOOLS.has(name);
 }
 
 export function sanitizeSpillCallId(callId: string): string {

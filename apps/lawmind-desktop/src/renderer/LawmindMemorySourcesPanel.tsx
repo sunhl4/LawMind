@@ -4,7 +4,8 @@
  */
 
 import { useId, useState } from "react";
-import type { MemorySourceLayer } from "../../../../src/lawmind/memory/index.ts";
+import type { MemorySourceLayer } from "../../../../src/lawmind/memory/memory-source-types.ts";
+import { toolDisplayNameZh } from "../../../../src/lawmind/platform/requires-action.ts";
 import { lawmindDocUrl } from "./lawmind-public-urls.js";
 
 const LAWMIND_USER_MANUAL = lawmindDocUrl("archive/LAWMIND-USER-MANUAL");
@@ -89,26 +90,29 @@ function ChatChipStrip(props: {
       )}
       {hasTools && !plain && (
         <ul className="lm-context-tool-steps" aria-label="工具调用顺序">
-          {toolCallSequence.map((name, i) => (
-            <li key={`${i}-${name}`} className="lm-context-tool-step">
-              <span
-                className="lm-context-chip lm-context-chip--tool"
-                title={name}
-                aria-label={`第 ${i + 1} 步：${name}`}
-              >
-                <span className="lm-context-chip-step-num" aria-hidden>
-                  {i + 1}
+          {toolCallSequence.map((name, i) => {
+            const label = toolDisplayNameZh(name);
+            return (
+              <li key={`${i}-${name}`} className="lm-context-tool-step">
+                <span
+                  className="lm-context-chip lm-context-chip--tool"
+                  title={label}
+                  aria-label={`第 ${i + 1} 步：${label}`}
+                >
+                  <span className="lm-context-chip-step-num" aria-hidden>
+                    {i + 1}
+                  </span>
+                  <span className="lm-context-chip-tool-name">{label}</span>
                 </span>
-                <span className="lm-context-chip-tool-name">{name}</span>
-              </span>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       )}
       {hasTools && plain ? (
         <span
           className="lm-context-chip lm-context-chip--tool lm-context-chip--plain-steps"
-          title={toolCallSequence.join(" → ")}
+          title={toolCallSequence.map((name) => toolDisplayNameZh(name)).join(" → ")}
         >
           {toolCallSequence.length} 个处理步骤
         </span>

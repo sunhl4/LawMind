@@ -15,23 +15,29 @@ describe("lawmind-legal-web-search", () => {
 
   it("lawMindStatuteWebSearch prefers official hosts in sort order", async () => {
     vi.stubEnv("LAWMIND_WEB_SEARCH_API_KEY", "test");
-    const spy = vi.spyOn(web, "lawMindBraveWebSearch").mockImplementation(async (q) => {
+    const spy = vi.spyOn(web, "lawMindPublicWebSearch").mockImplementation(async (q) => {
       if (q.includes("npc.gov.cn")) {
-        return [
-          {
-            title: "全国人大",
-            url: "https://www.npc.gov.cn/foo",
-            description: "official",
-          },
-        ];
+        return {
+          provider: "brave",
+          results: [
+            {
+              title: "全国人大",
+              url: "https://www.npc.gov.cn/foo",
+              description: "official",
+            },
+          ],
+        };
       }
-      return [
-        {
-          title: "博客",
-          url: "https://example.com/bar",
-          description: "blog",
-        },
-      ];
+      return {
+        provider: "brave",
+        results: [
+          {
+            title: "博客",
+            url: "https://example.com/bar",
+            description: "blog",
+          },
+        ],
+      };
     });
     const rows = await lawMindStatuteWebSearch("劳动合同法", 3);
     expect(rows[0]?.sourceTier).toBe("official");

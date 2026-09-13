@@ -5,6 +5,8 @@ import { formatShortDateTime } from "./matter-display-labels.js";
 export type LawmindMatterHealthCardProps = {
   matterId: string;
   displayName?: string;
+  /** When false, skip repeating the page title; show a compact status strip. */
+  showTitle?: boolean;
   metrics: MatterHealthMetrics;
   onClick?: () => void;
   testId?: string;
@@ -25,8 +27,8 @@ function coverageLabel(metrics: MatterHealthMetrics): string {
   return `${Math.round(metrics.lintCoverageRate * 100)}% 已核对`;
 }
 
-function pendingLabel(count: number): string {
-  return count > 0 ? `${count} 项待拍板` : "无待拍板";
+function pendingLabel(count: number): string | null {
+  return count > 0 ? `${count} 项待拍板` : null;
 }
 
 function overdueLabel(count: number): string {
@@ -37,51 +39,75 @@ function overdueLabel(count: number): string {
  * 案件级健康卡片：用律师语言展示真实可解释指标，无「安全分」。
  */
 export function LawmindMatterHealthCard(props: LawmindMatterHealthCardProps): ReactNode {
-  const { matterId, displayName, metrics, onClick, testId = "lm-matter-health-card" } = props;
+  const {
+    matterId,
+    displayName,
+    showTitle = true,
+    metrics,
+    onClick,
+    testId = "lm-matter-health-card",
+  } = props;
   const title = displayName?.trim() || matterId;
   const phase = PHASE_LABELS[metrics.phase] ?? "—";
-  const overdue = metrics.overdueTasks;
-  const pending = metrics.pendingApprovals;
+  const pendingText = pendingLabel(metrics.pendingApprovals);
+  const overdueText = overdueLabel(metrics.overdueTasks);
+  const className = showTitle
+    ? "lm-matter-health-card"
+    : "lm-matter-health-card lm-matter-health-card--compact";
 
-  return (
-    <button
-      type="button"
-      className="lm-matter-health-card"
-      data-testid={testId}
-      data-matter-id={matterId}
-      onClick={() => onClick?.()}
-      title={`查看案件 ${title}`}
-    >
+  const body = (
+    <>
       <div className="lm-matter-health-card-head">
-        <span className="lm-matter-health-card-title">{title}</span>
+        {showTitle ? <span className="lm-matter-health-card-title">{title}</span> : null}
         <span className="lm-matter-health-card-phase" data-testid={`${testId}-phase`}>
           {phase}
         </span>
       </div>
       <div className="lm-matter-health-card-metrics">
-        <span
-          className={`lm-matter-health-card-pill ${
-            pending > 0 ? "lm-matter-health-card-pill--warn" : ""
-          }`}
-          data-testid={`${testId}-pending`}
-        >
-          {pendingLabel(pending)}
-        </span>
+        {pendingText ? (
+          <span
+            className="lm-matter-health-card-pill lm-matter-health-card-pill--warn"
+            data-testid={`${testId}-pending`}
+          >
+            {pendingText}
+          </span>
+        ) : null}
         <span className="lm-matter-health-card-pill" data-testid={`${testId}-coverage`}>
           {coverageLabel(metrics)}
         </span>
-        {overdue > 0 ? (
+        {overdueText ? (
           <span
             className="lm-matter-health-card-pill lm-matter-health-card-pill--warn"
             data-testid={`${testId}-overdue`}
           >
-            {overdueLabel(overdue)}
+            {overdueText}
           </span>
         ) : null}
       </div>
       <div className="lm-matter-health-card-meta" data-testid={`${testId}-activity`}>
         最近活动：{metrics.lastActivityAt ? formatShortDateTime(metrics.lastActivityAt) : "—"}
       </div>
-    </button>
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        className={className}
+        data-testid={testId}
+        data-matter-id={matterId}
+        onClick={() => onClick()}
+        title={`查看案件 ${title}`}
+      >
+        {body}
+      </button>
+    );
+  }
+
+  return (
+    <article className={className} data-testid={testId} data-matter-id={matterId}>
+      {body}
+    </article>
   );
 }

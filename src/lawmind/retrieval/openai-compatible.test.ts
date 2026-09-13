@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { MemoryContext } from "../memory/index.js";
 import type { TaskIntent } from "../types.js";
-import { createOpenAICompatibleAdapters, fallbackRetrievalFromNonJson } from "./openai-compatible.js";
+import {
+  createOpenAICompatibleAdapters,
+  fallbackRetrievalFromNonJson,
+} from "./openai-compatible.js";
 
 function legalIntent(): TaskIntent {
   const now = new Date().toISOString();
@@ -79,7 +82,7 @@ describe("createOpenAICompatibleAdapters", () => {
       },
     });
     expect(adapter).toBeTruthy();
-    const r = await adapter!.retrieve({ intent: legalIntent(), memory: emptyMemory() });
+    const r = await adapter.retrieve({ intent: legalIntent(), memory: emptyMemory() });
     expect(r.claims).toHaveLength(1);
     expect(r.sources).toHaveLength(1);
     vi.unstubAllGlobals();
@@ -97,7 +100,7 @@ describe("createOpenAICompatibleAdapters", () => {
         model: "general",
       },
     });
-    const r = await adapter!.retrieve({ intent: legalIntent(), memory: emptyMemory() });
+    const r = await adapter.retrieve({ intent: legalIntent(), memory: emptyMemory() });
     expect(r.claims).toEqual([]);
     expect(r.riskFlags.some((f) => f.includes("400"))).toBe(true);
     vi.unstubAllGlobals();
@@ -119,9 +122,52 @@ describe("createOpenAICompatibleAdapters", () => {
         model: "general",
       },
     });
-    const r = await adapter!.retrieve({ intent: legalIntent(), memory: emptyMemory() });
+    const r = await adapter.retrieve({ intent: legalIntent(), memory: emptyMemory() });
     expect(r.claims.length).toBe(1);
     expect(r.riskFlags.some((f) => f.includes("降级"))).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it("caps identity memory with the same fingerprint windows as chat", async () => {
+    let userContent = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: unknown, init?: { body?: string }) => {
+        const payload = JSON.parse(String(init?.body ?? "{}")) as {
+          messages?: Array<{ role?: string; content?: string }>;
+        };
+        userContent = payload.messages?.find((m) => m.role === "user")?.content ?? "";
+        return Response.json({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  claims: [],
+                  sources: [],
+                  riskFlags: [],
+                  missingItems: [],
+                }),
+              },
+            },
+          ],
+        });
+      }),
+    );
+    const [adapter] = createOpenAICompatibleAdapters({
+      legal: {
+        baseUrl: "https://api.example/v1",
+        apiKey: "k",
+        model: "legal-model",
+      },
+    });
+    const profile = `${"甲".repeat(1_200)}MID_MARKER_SHOULD_DROP${"乙".repeat(1_200)}`;
+    await adapter.retrieve({
+      intent: legalIntent(),
+      memory: { ...emptyMemory(), profile },
+    });
+    expect(userContent).toContain("read_workspace_file");
+    expect(userContent).toContain("LAWYER_PROFILE.md");
+    expect(userContent).not.toContain("MID_MARKER_SHOULD_DROP");
     vi.unstubAllGlobals();
   });
 });

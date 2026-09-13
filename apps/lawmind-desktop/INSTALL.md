@@ -1,6 +1,6 @@
 # LawMind 安装说明（终端用户）
 
-面向「下载压缩包 / 安装包即用」的律师工作台。**无需单独安装 Node.js**：安装包内已附带运行本地服务所需的 Node 运行时。
+面向「下载压缩包 / 安装包即用」的律师工作台。**无需单独安装 Node.js 或 officecli**：安装包内已附带运行本地服务所需的 Node 运行时，以及 Word 修订痕迹 / 改稿所用的 OfficeCLI。
 
 ## 我该下载哪一个？
 
@@ -38,7 +38,7 @@
 
 ## 企业批量部署（IT）
 
-- **macOS**：广泛分发建议 **代码签名 + 公证**；内嵌 Node 需符合安全策略。
+- **macOS**：广泛分发建议 **代码签名 + 公证**；内嵌 Node 与 OfficeCLI 需符合安全策略。
 - **Windows**：建议 **Authenticode 签名** 以减少 SmartScreen 提示。
 - 供应链：仓库侧可生成 SBOM（根目录 `pnpm lawmind:sbom`、`pnpm lawmind:sbom:cyclonedx`）。
 

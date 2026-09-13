@@ -9,6 +9,7 @@ import {
   toolDisplayNameZh,
   type ResumeRequiresActionInput,
 } from "../platform/requires-action.js";
+import { mergeConfirmedAnswers } from "./confirmed-answers.js";
 import { runTurn } from "./runtime.js";
 import { withSessionTurnGate } from "./session-turn-gate.js";
 import { loadSession, saveSession } from "./session.js";
@@ -24,7 +25,8 @@ export type ResumeTurnResult = {
 };
 
 export type ResumeTurnOpts = {
-  registry: ToolRegistry;
+  /** Unused; registry is the positional argument. Kept optional for older callers. */
+  registry?: ToolRegistry;
   matterId?: string;
   projectDir?: string;
   linkedTaskId?: string;
@@ -64,6 +66,13 @@ async function resumeTurnUngated(
     session.pendingRequiresAction = undefined;
     // 律师已通过结构化卡片逐条作答：清除跨轮澄清键，解除本轮重工具硬门禁。
     session.pendingClarificationKeys = undefined;
+    const confirmedAnswers = mergeConfirmedAnswers(
+      session.lastConfirmedAnswers,
+      input.clarificationAnswers,
+    );
+    if (confirmedAnswers) {
+      session.lastConfirmedAnswers = confirmedAnswers;
+    }
     saveSession(config.workspaceDir, session);
     const qs = action.clarificationQuestions ?? [];
     const msg = formatClarificationResumeMessage(input.clarificationAnswers ?? {}, qs);
@@ -78,6 +87,7 @@ async function resumeTurnUngated(
       onEvent: opts.onEvent,
       liveProgressSessionId: opts.liveProgressSessionId,
       skipSessionTurnGate: true,
+      confirmedAnswers,
     });
   }
 

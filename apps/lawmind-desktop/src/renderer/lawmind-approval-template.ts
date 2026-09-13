@@ -19,6 +19,9 @@ const WRITE_TOOLS = new Set([
 
 const READ_TOOLS = new Set([
   "read_project_file",
+  "list_dir",
+  "search_host",
+  "read_host_file",
   "analyze_document",
   "search_workspace",
   "search_matter",

@@ -18,7 +18,7 @@ describe("relevant-recall", () => {
     expect(m.length).toBeGreaterThan(0);
   });
 
-  it("findRelevantMemoriesForTurn returns at most 5", async () => {
+  it("findRelevantMemoriesForTurn returns at most 4 gists", async () => {
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-mem2-"));
     fs.writeFileSync(path.join(ws, "MEMORY.md"), "- [诉状](memory/topics/lit.md) — 诉讼\n", "utf8");
     fs.mkdirSync(path.join(ws, "memory/topics"), { recursive: true });
@@ -29,7 +29,8 @@ describe("relevant-recall", () => {
       alreadySurfaced: new Set(),
       recentToolNames: [],
     });
-    expect(hits.length).toBeLessThanOrEqual(5);
+    expect(hits.length).toBeLessThanOrEqual(4);
+    expect(hits.every((h) => typeof h.gist === "string")).toBe(true);
   });
 
   it("preferSmallFiles boosts smaller manifest entries", async () => {

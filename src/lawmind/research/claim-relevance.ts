@@ -2,6 +2,7 @@
  * Drop retrieval hits that clearly do not match the research topic.
  */
 
+import { isPublicWebFactLookup } from "../skills/capability-patterns.js";
 import type { ResearchBundle, ResearchClaim, ResearchSource, TaskIntent } from "../types.js";
 
 const STOPWORDS = new Set([
@@ -89,8 +90,19 @@ export function claimMatchesTopic(
       hits += 1;
     }
   }
-  // Need at least one strong token hit; for sparse tokens require 1, else ~15% of tokens
-  const need = tokens.length <= 4 ? 1 : Math.max(1, Math.floor(tokens.length * 0.12));
+  // Public web snippets are short; one topic token is enough (long instructions
+  // would otherwise demand ~12% of CJK bigrams and wipe Brave hits).
+  const webSnippet = claim.sourceIds.some((id) => {
+    const src = sources.find((s) => s.id === id);
+    return (
+      src?.provider === "brave-web" || src?.provider === "deepseek" || src?.provider === "dashscope"
+    );
+  });
+  const need = webSnippet
+    ? 1
+    : tokens.length <= 4
+      ? 1
+      : Math.max(1, Math.floor(tokens.length * 0.12));
   return hits >= need;
 }
 
@@ -99,6 +111,9 @@ export function filterBundleByTopicRelevance(
   bundle: ResearchBundle,
 ): { bundle: ResearchBundle; droppedClaims: number; topicTokens: string[] } {
   const tokens = extractTopicTokens(`${intent.instruction}\n${intent.summary ?? ""}`);
+  if (isPublicWebFactLookup(intent.instruction)) {
+    return { bundle, droppedClaims: 0, topicTokens: tokens };
+  }
   if (tokens.length === 0 || bundle.claims.length === 0) {
     return { bundle, droppedClaims: 0, topicTokens: tokens };
   }
@@ -117,7 +132,7 @@ export function filterBundleByTopicRelevance(
   const riskFlags = [...bundle.riskFlags];
   if (keptClaims.length === 0) {
     riskFlags.push(
-      "检索结果与主题无关/证据不足：已丢弃不相关结论，请开启联网或补充权威 URL 后重跑",
+      "检索结果与主题无关/证据不足：已丢弃不相关结论。请改写检索词、确认公网检索密钥，或补充权威 URL 后重跑",
     );
   } else if (droppedClaims > 0) {
     riskFlags.push(`已过滤 ${droppedClaims} 条与主题无关的检索结论`);
