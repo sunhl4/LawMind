@@ -50,6 +50,7 @@ import { handleRoutingRoutes } from "./lawmind-server-route-routing.js";
 import { handleTriageRoutes } from "./lawmind-server-route-triage.js";
 import { handleReviewCampaignRoutes } from "./lawmind-server-route-review-campaign.js";
 import { handleSkillsRoutes } from "./lawmind-server-route-skills.js";
+import { handleIntentRoutes } from "./lawmind-server-route-intent.js";
 import { handleMcpRoutes } from "./lawmind-server-route-mcp.js";
 import { handleSseRoute } from "./lawmind-server-route-sse.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
@@ -67,6 +68,7 @@ export const LAWMIND_ROUTE_HANDLERS: LawmindRouteHandler[] = [
   (args) => handleTriageRoutes(args),
   (args) => handleReviewCampaignRoutes(args),
   (args) => handleSkillsRoutes(args),
+  (args) => handleIntentRoutes(args),
   (args) => handleMcpRoutes(args),
   (args) => handleSourceRoutes(args),
   (args) => handleIntegrationsRoutes(args),

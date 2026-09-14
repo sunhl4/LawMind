@@ -347,4 +347,31 @@ describe("LawmindAppRootView", () => {
     // Full-page settings: workspace left rail must not remain beside the settings nav.
     expect(host.querySelector(".lm-side")).toBeNull();
   });
+
+  it("keeps the settings page when the API wizard overlay is open", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindAppRootView
+          {...minimalProps({
+            overlayProps: {
+              ...minimalProps().overlayProps,
+              showWizard: true,
+              wizHasExistingKey: true,
+              wizBaseUrl: "https://api.deepseek.com/v1",
+              wizModel: "deepseek-flash",
+            },
+            settingsPanelProps: {
+              ...minimalProps().settingsPanelProps,
+              open: true,
+              initialSectionId: "models",
+            },
+          })}
+        />,
+      );
+    });
+    const main = host.querySelector("#main-content");
+    expect(main?.classList.contains("lm-main-settings")).toBe(true);
+    expect(main?.querySelector(".lm-settings-page")).toBeTruthy();
+    expect(document.querySelector('[aria-label="API 配置向导"]')).toBeTruthy();
+  });
 });

@@ -21,6 +21,7 @@ export type UseLawmindAppHeaderPropsInput = {
   projectDir: string | null;
   currentMatterLabel: string | null;
   contextMatterId?: string | null;
+  openMatterOnDesk?: (matterId: string) => void;
   sidebarCollapsed: boolean;
   setSidebarCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
   wsShowEditor: boolean;
@@ -58,6 +59,7 @@ export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): 
     projectDir,
     currentMatterLabel,
     contextMatterId,
+    openMatterOnDesk,
     sidebarCollapsed,
     setSidebarCollapsed,
     wsShowEditor,
@@ -87,6 +89,11 @@ export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): 
       onSetMainView: setMainView,
       onOpenMatterCockpit: contextMatterId?.trim()
         ? () => {
+            const mid = contextMatterId.trim();
+            if (openMatterOnDesk) {
+              openMatterOnDesk(mid);
+              return;
+            }
             setMatterCockpitOpen(true);
             setMainView("workspace");
           }
@@ -154,6 +161,7 @@ export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): 
       projectDir,
       currentMatterLabel,
       contextMatterId,
+      openMatterOnDesk,
       sidebarCollapsed,
       setSidebarCollapsed,
       wsShowEditor,

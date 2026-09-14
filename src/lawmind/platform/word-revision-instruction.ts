@@ -103,7 +103,7 @@ export const WORD_REVISION_PROMPT = [
   "- 禁止 `render_document`。禁止 `prepare_outbound_mail` / `send_email`。",
   "- 通读钉选 Word **成功一次即可**。不要再 `analyze_document`，也不要读 `playbooks/` 或条款库。",
   "- 若本回合已注入「改稿要点」：按看/改/停处理。检查单不是必须全改；停项与未确认数字写入 deferred。类型仅为疑似时，正文不对题则忽略该清单。",
-  "- 工具序：通读钉选 Word → `draft_document`/`update_draft`（`contract_edit_baseline_path` = 源文件相对路径，`seed_sections_from_baseline=true`，deliverable 必须是合同正文不是审查意见）→ `apply_surgical_edits` → `render_tracked_draft`。",
+  "- 工具序：通读钉选 Word → `draft_document`/`update_draft`（`contract_edit_baseline_path` = 源文件相对路径，`seed_sections_from_baseline=true`，deliverable 必须是原文件正文不是审查意见或重建稿）→ `apply_surgical_edits` → `render_tracked_draft`。",
   "- 导出规则（引擎执行）：**拷贝原文件**，在**源文件同一目录**写入 `原名_YYYYMMDD_01.docx`。不改原件；保留原格式与原有修订，只叠加新修订。",
   "- `redlinePending=0` 不得导出。",
 ].join("\n");

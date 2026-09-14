@@ -74,7 +74,12 @@ export function LawmindReadinessStrip(props: Props): ReactNode {
             配置 API
           </button>
         ) : !snapshot.modelVerified && onVerifyModel ? (
-          <button type="button" className="lm-btn lm-btn-sm" onClick={() => void onVerifyModel()}>
+          <button
+            type="button"
+            className="lm-btn lm-btn-sm"
+            data-testid="lm-readiness-verify-model"
+            onClick={() => void onVerifyModel()}
+          >
             验证模型
           </button>
         ) : null}

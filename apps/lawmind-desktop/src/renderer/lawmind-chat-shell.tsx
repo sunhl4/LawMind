@@ -17,6 +17,7 @@ import {
 } from "./lawmind-panel-layout";
 import { usePaneResizeVerticalPx } from "./use-pane-resize";
 import type { ModelCatalogEntry } from "./lawmind-models-api";
+import { LawmindIntentStatusBar } from "./LawmindIntentStatusBar";
 import { LawmindChatComposeChrome } from "./lawmind-chat-compose-chrome";
 import { LawmindChatComposeToolbar } from "./lawmind-chat-compose-toolbar";
 import {
@@ -58,8 +59,8 @@ import { LawmindContractFastLaneCard } from "./LawmindContractFastLaneCard";
 import { LawmindMailContractFastLaneCard } from "./LawmindMailContractFastLaneCard";
 import { LawmindResearchFastLaneCard } from "./LawmindResearchFastLaneCard";
 import { LawmindMailIntentBanner } from "./LawmindMailIntentBanner";
-import { subscribeContractFastLaneOpen, requestContractFastLaneOpen, installContractFastLaneE2eHook } from "./lawmind-contract-fast-lane-bus";
-import { subscribeDeskLaneOpen } from "./lawmind-desk-lane-bus";
+import { subscribeContractFastLaneOpen, installContractFastLaneE2eHook } from "./lawmind-contract-fast-lane-bus";
+import { subscribeDeskLaneOpen, installDeskLaneE2eHook } from "./lawmind-desk-lane-bus";
 import { requestOpenAutomationsSettings } from "./lawmind-automations-nav-bus";
 import {
   isContractReviewCandidatePath,
@@ -319,14 +320,22 @@ export function LawmindChatComposeFooter({
   const [compactMailFastLaneOpen, setCompactMailFastLaneOpen] = useState(false);
   const [compactResearchFastLaneOpen, setCompactResearchFastLaneOpen] = useState(false);
   const [compactMaterialsOverride, setCompactMaterialsOverride] = useState("");
-  useEffect(() => {
-    if (contractMaterialsHint && currentMessages.length > 0) {
-      setCompactFastLaneOpen(true);
-    }
-  }, [contractMaterialsHint, currentMessages.length]);
 
   useEffect(() => {
     installContractFastLaneE2eHook();
+    installDeskLaneE2eHook();
+    (
+      window as Window & {
+        __lmOpenWriteMaterials?: () => void;
+      }
+    ).__lmOpenWriteMaterials = () => setTemplateGalleryOpen(true);
+    return () => {
+      delete (
+        window as Window & {
+          __lmOpenWriteMaterials?: () => void;
+        }
+      ).__lmOpenWriteMaterials;
+    };
   }, []);
 
   useEffect(() => {
@@ -555,48 +564,6 @@ export function LawmindChatComposeFooter({
         run: () => onDelegateAssist?.(),
       },
       {
-        id: "contract",
-        slash: "/contract",
-        label: "合同审查",
-        hint: "打开 5 分钟合同审查",
-        run: () =>
-          requestContractFastLaneOpen({
-            materialsHint:
-              fileChatPills
-                .map((p) => p.relPath?.trim())
-                .filter(Boolean)
-                .map((p) => `已引用：${p}`)
-                .join("；") || undefined,
-            preferCompact: true,
-          }),
-      },
-      {
-        id: "mail-contract",
-        slash: "/mail",
-        label: "邮件合同审阅",
-        hint: "打开邮件短路径快车道",
-        run: () => setCompactMailFastLaneOpen(true),
-      },
-      {
-        id: "letter",
-        slash: "/letter",
-        label: "起草律师函",
-        run: () => onApplyPrompt("请帮我起草一封律师函，就以下事项发出法律警告：\n\n"),
-      },
-      {
-        id: "statute",
-        slash: "/statute",
-        label: "法规检索",
-        run: () => onApplyPrompt("请检索以下法律问题的相关法规、司法解释与裁判要旨：\n\n"),
-      },
-      {
-        id: "templates",
-        slash: "/templates",
-        label: "法律模板",
-        hint: "从工作流模板带入提示",
-        run: () => setTemplateGalleryOpen(true),
-      },
-      {
         id: "config",
         slash: "/config",
         label: "设置",
@@ -612,9 +579,7 @@ export function LawmindChatComposeFooter({
       onOpenReview,
       openNeedsDecisionDesk,
       onDelegateAssist,
-      onApplyPrompt,
       pendingDecisionTotal,
-      fileChatPills,
     ],
   );
 
@@ -781,6 +746,14 @@ export function LawmindChatComposeFooter({
       />
       {/* Chrome above the reserved input height — must not eat composeHeight. */}
       <LawmindMailIntentBanner matterId={contextMatterId} />
+      <LawmindIntentStatusBar
+        input={input}
+        fileRelPaths={fileChatPills.map((p) => p.relPath ?? p.title)}
+        apiBase={apiBase}
+        contextMatterId={contextMatterId}
+        projectDir={projectDir}
+        chatSessionId={chatSessionId}
+      />
       {compactFastLaneOpen ? (
         <div className="lm-compose-fast-lane-wrap" data-testid="lm-compose-contract-fast-lane">
           <LawmindContractFastLaneCard
@@ -872,7 +845,7 @@ export function LawmindChatComposeFooter({
             aria-label="消息输入"
             onChange={(e) => handleComposeInputChange(e.target.value)}
             placeholder={
-              loading ? "可继续补充，Enter 发送" : "输入您的问题，或输入 / 选择技能；Enter 发送，Shift+Enter 换行"
+              loading ? "可继续补充，Enter 发送" : "附上材料或直接说要办的事；Enter 发送，Shift+Enter 换行"
             }
             title="用平常说话的方式写即可"
             onKeyDown={(e) => {
@@ -908,9 +881,6 @@ export function LawmindChatComposeFooter({
             onOpenApiWizard={onOpenApiWizard}
             onComposeModelQuickTest={onComposeModelQuickTest}
             composeModelQuickTestBusy={composeModelQuickTestBusy}
-            onOpenWriteMaterials={() => setTemplateGalleryOpen(true)}
-            onFillComposer={onApplyPrompt}
-            hasMaterials={fileChatPills.length > 0 || truthPills.length > 0}
             contextBudget={extras.contextBudget}
             compactBusy={extras.compactBusy}
             compactHint={extras.compactHint}
@@ -918,7 +888,6 @@ export function LawmindChatComposeFooter({
             onDistillLearning={() => void extras.distillSessionLearning()}
             onPreviewCompact={() => extras.previewCompact()}
             onOpenMemoryInspector={onOpenMemoryInspector}
-            apiBase={apiBase}
           />
         </div>
       </div>
@@ -967,7 +936,6 @@ export function LawmindChatShell(props: LawmindChatWorkspaceProps) {
       <LawmindChatMessagesColumn
         {...props}
         onOpenNeedsDecisionDesk={openNeedsDecisionDesk}
-        onOpenWriteMaterials={() => setTemplateGalleryOpen(true)}
         onDispatchPrompt={onDispatchPrompt}
       />
       <LawmindChatComposeFooter

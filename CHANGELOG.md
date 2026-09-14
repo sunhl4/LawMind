@@ -6,6 +6,9 @@ Historical **OpenClaw** upstream release notes were removed when the repository 
 
 ## Unreleased
 
+- Engine / Desktop（隐式意图编译）：律师不必先选办件，对话也不再出现分类菜单或改路由按钮。`compileIntent` 按文字 × 文件形态 × 案件语境绑定能力；诉状 Word 改稿绑诉讼文书而不是合同审查；混合材料自行择一。邮件短路径与指定目录 Word 改稿仍硬钉。金标集见 `src/lawmind/intent/gold-set.ts`。
+- Engine / Desktop（审查五项）：状态条经 `POST /api/intent/compile` 与 `runTurn` 同源 peek；拖文件不再自动弹审查卡；纠正/unbound 清 `lastBound`；`cases/*/RULES.md` 写保护；诉讼 Word 改稿注入 `complaint-elements-fill`；旧案件 cockpit 并入工作台卷宗。
+
 ## 0.2.0 — 2026-09-13
 
 ### Desktop

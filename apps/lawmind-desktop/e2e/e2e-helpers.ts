@@ -274,49 +274,80 @@ export async function openReviewWorkbench(page: Page): Promise<void> {
   );
 }
 
-/** Open matter cockpit (sidebar 在办 → first matter). */
+/** Open 工作台本案卷宗 (header chip / sidebar / desk dossier). */
 export async function openMatterCockpit(page: Page): Promise<void> {
   await dismissBlockingDialogs(page);
   const mainNav = page.getByRole("navigation", { name: "功能模块" });
   await expect(mainNav).toBeVisible({ timeout: 30_000 });
-  const agentsTab = mainNav.getByRole("button", { name: "在办", exact: true });
-  if (await agentsTab.isVisible().catch(() => false)) {
-    await agentsTab.click({ force: true });
-    await expect(agentsTab).toHaveAttribute("aria-current", "page", { timeout: 15_000 });
-    const matterRow = page.locator(".lm-matter-sidebar-list-ul button").first();
-    await expect(matterRow).toBeVisible({ timeout: 30_000 });
-    await matterRow.click({ force: true });
+  const deskTab = mainNav.getByRole("button", { name: "工作台", exact: true });
+  const headerMatter = page.getByTestId("lm-open-matter-cockpit");
+  if (await headerMatter.isVisible().catch(() => false)) {
+    await headerMatter.click({ force: true });
   } else {
-    // Fallback when 在办 tab is not yet painted: open via header matter chip / sidebar list.
-    const headerMatter = page.getByTestId("lm-open-matter-cockpit");
-    await expect(headerMatter).toBeVisible({ timeout: 30_000 });
-    await headerMatter.click();
+    await expect(deskTab).toBeVisible({ timeout: 30_000 });
+    await deskTab.click({ force: true });
+    await expect(deskTab).toHaveAttribute("aria-current", "page", { timeout: 15_000 });
+    const matterCard = page.locator(".lm-desk-col--matters button, .lm-lawyer-matter-row").first();
+    if (await matterCard.isVisible().catch(() => false)) {
+      await matterCard.click({ force: true });
+    }
   }
-  await expect(page.locator(".lm-matter-workbench").first()).toBeVisible({ timeout: 30_000 });
+  await expect(
+    page.locator('[data-testid="lm-lawyer-workbench"], [data-testid="lm-lawyer-matter-dossier"]').first(),
+  ).toBeVisible({ timeout: 30_000 });
 }
 
-/** Open compose 「办件」 process list. */
-export async function openDeskWork(page: Page): Promise<void> {
-  const btn = page.getByTestId("lm-compose-desk-work");
-  await expect(btn).toBeVisible({ timeout: 15_000 });
-  if ((await btn.getAttribute("aria-expanded")) !== "true") {
-    await btn.click();
-  }
-  await expect(page.getByTestId("lm-desk-work-panel")).toBeVisible({ timeout: 5_000 });
-}
-
-/** Open 「办件 → 更多」 so secondary lanes (检索研究 / 写材料 / …) are visible. */
-export async function openDeskWorkMore(page: Page): Promise<void> {
-  await openDeskWork(page);
-  const more = page.getByTestId("lm-desk-work-more");
-  await expect(more).toBeVisible({ timeout: 5_000 });
-  const open = await more.evaluate((el) => (el as HTMLDetailsElement).open);
-  if (!open) {
-    await more.locator("summary").click();
-  }
+/** Open the contract fast-lane card via the e2e hook (no classification menu). */
+export async function openContractFastLane(page: Page): Promise<void> {
   await expect
-    .poll(async () => more.evaluate((el) => (el as HTMLDetailsElement).open))
+    .poll(async () =>
+      page.evaluate(
+        () =>
+          typeof (window as Window & { __lmRequestContractFastLane?: unknown }).__lmRequestContractFastLane ===
+          "function",
+      ),
+    )
     .toBe(true);
+  await page.evaluate(() => {
+    (
+      window as Window & {
+        __lmRequestContractFastLane?: (req?: { preferCompact?: boolean }) => void;
+      }
+    ).__lmRequestContractFastLane?.({ preferCompact: true });
+  });
+  await expect(page.getByTestId("lm-contract-fast-lane")).toBeVisible({ timeout: 10_000 });
+}
+
+/** Open the research fast-lane card via the e2e hook. */
+export async function openResearchFastLane(page: Page): Promise<void> {
+  await expect
+    .poll(async () =>
+      page.evaluate(
+        () => typeof (window as Window & { __lmRequestDeskLane?: unknown }).__lmRequestDeskLane === "function",
+      ),
+    )
+    .toBe(true);
+  await page.evaluate(() => {
+    (window as Window & { __lmRequestDeskLane?: (lane: "mail" | "research") => void }).__lmRequestDeskLane?.(
+      "research",
+    );
+  });
+  await expect(page.getByTestId("lm-research-fast-lane")).toBeVisible({ timeout: 10_000 });
+}
+
+/** Open the write-materials / job-intake gallery via the e2e hook. */
+export async function openWriteMaterials(page: Page): Promise<void> {
+  await expect
+    .poll(async () =>
+      page.evaluate(
+        () =>
+          typeof (window as Window & { __lmOpenWriteMaterials?: unknown }).__lmOpenWriteMaterials === "function",
+      ),
+    )
+    .toBe(true);
+  await page.evaluate(() => {
+    (window as Window & { __lmOpenWriteMaterials?: () => void }).__lmOpenWriteMaterials?.();
+  });
 }
 
 /** Open compose 「+」 so permission / web / mode controls are in the DOM. */

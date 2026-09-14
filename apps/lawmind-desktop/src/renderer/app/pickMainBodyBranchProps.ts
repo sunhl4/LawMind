@@ -113,6 +113,7 @@ export function pickLawyerWorkbenchProps(
     apiBase: props.config.apiBase,
     workspaceDir: props.config.workspaceDir,
     selectedMatterId: normalizeMatterId(props, false),
+    deskMatterFocus: props.deskMatterFocus ?? null,
     onSelectMatter: (matterId) => {
       props.onSelectMatterKey?.(matterId);
     },

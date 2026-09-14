@@ -37,7 +37,8 @@ LawMind 的代码组织按**运行域**分为四层。早期文档中的 Router 
 - **命令网关（command gateway）**：可能修改工作区或调用外部程序的操作由 `runtime/tool-pipeline.ts` 中间件与 `agent/dangerous-tool-policy.ts` 统一编排，支持显式律师批准、工具 allowlist、执行层化与审计前缀，避免模型或工作流直接执行任意命令。
 - **审计 HMAC 与 root-anchor**：`src/lawmind/audit/hash-chain.ts` 与 `src/lawmind/audit/root-anchor.ts` 为每个工作区维护审计根锚，关键事件写入 `audit/` 时计算完整性链；Firm/Private 版默认开启，支持导出并发现事后篡改。
 - **工作区写保护**：`.env*`、`lawmind.policy.json` 等关键文件受 `src/lawmind/runtime/protected-workspace-rels.ts` 保护，渲染进程与引擎工具无法直接覆盖；删除或重命名需显式授权。
-- **权限模式执行层化**：`src/lawmind/agent/permission-mode.ts` 把会话运行分为 `research_only`、`plan`、`compose`、`full` 等模式；低权限模式禁止起草、渲染、外发等重动作，并在 CLI/Doctor 中暴露当前模式，避免误操作。
+- **权限模式执行层化**：`src/lawmind/agent/permission-mode.ts` 把会话运行分为 `standard`、`strict`、`readonly`、`research` 四档；由 `runtime/tool-pipeline.ts` 的 `permissionModeMiddleware` 在执行层硬拦。低权限模式禁止起草、渲染、外发等重动作，并在 CLI/Doctor 中暴露当前模式，避免误操作。
+- **隐式意图编译（SSOT）**：`src/lawmind/intent/compile-intent.ts` 为叶子编译器（无 fs，渲染进程可直接调用）；服务端经 `compileTurnIntent`（peek 钉选文档 + 案件门类）与 `runTurn` / `POST /api/intent/compile` 同源。对话状态条只展示「本轮按××处理」，不提供分类菜单。
 - **本机能力**：助手默认只碰工作区与已选本机文件夹；全机查找/读取/本机命令走授权网关（案件围栏、硬黑名单、逐次授权），写入不默认开放全盘。见 [LAWMIND-HOST-ACCESS.md](./lawmind/LAWMIND-HOST-ACCESS.md)。
 
 ### 数据流与事件总线
@@ -436,10 +437,11 @@ Electron 主进程 (main.mjs)
   └── /api/artifact — 产物下载
 
 渲染进程 (App.tsx + styles.css)
-  ├── 对话视图（消息列表 + Markdown 渲染 + Chip 栏）
+  ├── 一级导航：对话 / 工作台 / 在办（`LawmindMainView`: workspace | desk | agents）
+  ├── 对话视图（消息列表 + Markdown 渲染 + 意图状态条 + Chip 栏）
   ├── 文件工作台（FileWorkbench）
-  ├── 案件工作台（MatterWorkbench：案件列表、CASE、任务/草稿、审计、会议室时间线）
-  ├── 审核台（ReviewWorkbench：草稿审阅、签批、渲染）
+  ├── 律师工作台（LawmindLawyerWorkbench：今日计划、案件门类、本案卷宗；案件详情并入此处）
+  ├── 审核台（ReviewWorkbench：草稿审阅、签批、渲染；次级入口）
   ├── 设置（主栏全页：侧栏分组导航 + 内容区；助手 / 模型检索 / 记忆库 / 工作区等）
   ├── 侧边栏（助手选择器 / 项目药丸 / 折叠工作记录）
   └── 配置向导（首次启动 API Key 设置流）

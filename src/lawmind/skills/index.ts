@@ -15,6 +15,7 @@ export {
 export {
   bindLawyerCapability,
   formatBoundCapabilityBlock,
+  hydrateCompiledIntent,
   listLawyerCapabilities,
   readSkillPromptBodies,
   type BoundLawyerCapability,

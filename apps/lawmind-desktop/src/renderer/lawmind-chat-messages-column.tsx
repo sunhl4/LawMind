@@ -5,7 +5,6 @@
 
 import type { ReactNode, RefObject } from "react";
 import { useCallback, useMemo, useState } from "react";
-import { LawmindWorkflowSuggestBanner } from "./LawmindWorkflowSuggestBanner";
 import type { LawMindRequiresAction, LawMindRequiresActionDecision } from "./lawmind-requires-action";
 import { LawmindChatHistorySearch } from "./LawmindChatHistorySearch";
 import { LawmindChatMessageRow } from "./LawmindChatMessageRow";
@@ -81,7 +80,7 @@ export function LawmindChatMessagesColumn({
   onCopyMessage,
   onApplyPrompt,
   onSendClarificationMessage,
-  fileChatPills,
+  fileChatPills: _fileChatPills,
   contextTaskId,
   apiBase,
   onOpenReview,
@@ -219,12 +218,6 @@ export function LawmindChatMessagesColumn({
           ) : null}
         </div>
       ) : null}
-      {apiBase && fileChatPills.length > 0 ? (
-        <LawmindWorkflowSuggestBanner
-          apiBase={apiBase}
-          pinnedRelPaths={fileChatPills.map((p) => p.relPath ?? p.title)}
-        />
-      ) : null}
       <div className="lm-messages-toolbar">
         <LawmindChatHistorySearch items={renderableItems} onHighlightIndices={onHighlightIndices} />
       </div>
@@ -244,9 +237,9 @@ export function LawmindChatMessagesColumn({
             </div>
             <div className="lm-messages-empty-title">开始对话</div>
             <p className="lm-messages-empty-lead">
-              先把合同、函件或资料附上（拖入或点「办件」），再选要走的流程。
+              把材料拖进来，或直接说要办的事。系统会按这句话和附件判断怎么做。
             </p>
-            <p className="lm-messages-empty-hint">签批与导出仍在「在办」。不必记住激活词。</p>
+            <p className="lm-messages-empty-hint">签批与导出仍在「在办」。</p>
           </div>
         ) : (
           <LawmindChatMessagesVirtualList count={renderableItems.length} enabled>

@@ -21,6 +21,7 @@ import { readAllowWebSearchPreference } from "./lawmind-web-search-prefs.js";
 
 export type LawmindHealthState = {
   modelConfigured: boolean;
+  modelVerified?: boolean;
   retrievalMode?: string;
   dualLegalConfigured?: boolean;
   webSearchApiKeyConfigured?: boolean;
@@ -36,6 +37,7 @@ export type LawmindHealthState = {
 
 export function mapHealthState(payload: {
   modelConfigured?: boolean;
+  modelVerified?: boolean;
   retrievalMode?: string;
   dualLegalConfigured?: boolean;
   webSearchApiKeyConfigured?: boolean;
@@ -50,6 +52,7 @@ export function mapHealthState(payload: {
 }): NonNullable<LawmindHealthState> {
   return {
     modelConfigured: Boolean(payload.modelConfigured),
+    modelVerified: payload.modelVerified === true,
     retrievalMode: typeof payload.retrievalMode === "string" ? payload.retrievalMode : undefined,
     dualLegalConfigured: Boolean(payload.dualLegalConfigured),
     webSearchApiKeyConfigured: Boolean(payload.webSearchApiKeyConfigured),

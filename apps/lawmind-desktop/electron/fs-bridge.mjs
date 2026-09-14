@@ -37,7 +37,7 @@ export function toPosix(relPath) {
 // 无法直接 import TS）。修改该文件清单时必须同步修改此处。
 const EXACT_PROTECTED_RELS = new Set(["lawmind.policy.json", ".env", ".env.lawmind"]);
 const PROTECTED_REL_PREFIXES = ["lawmind/", "audit/", "sessions/", "tasks/", "matters/"];
-const PROTECTED_BASENAMES = new Set([".lawmind-dms.json"]);
+const PROTECTED_BASENAMES = new Set([".lawmind-dms.json", "RULES.md"]);
 
 export function isProtectedWorkspaceRel(relPath) {
   const norm = String(relPath || "")

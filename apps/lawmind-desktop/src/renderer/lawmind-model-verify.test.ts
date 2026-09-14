@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isSelectedModelVerified } from "./lawmind-model-verify";
+import { isActiveModelVerified, isSelectedModelVerified } from "./lawmind-model-verify";
 import type { ModelCatalogEntry } from "./lawmind-models-api";
 
 const row: ModelCatalogEntry = {
@@ -22,5 +22,16 @@ describe("isSelectedModelVerified", () => {
   it("returns false when not verified", () => {
     const unverified = { ...row, verifiedAt: undefined };
     expect(isSelectedModelVerified([unverified], "builtin:qwen-plus")).toBe(false);
+  });
+
+  it("treats health.modelVerified as verified even before catalog refresh", () => {
+    const unverified = { ...row, verifiedAt: undefined };
+    expect(
+      isActiveModelVerified({
+        catalog: [unverified],
+        selectedModelId: "builtin:qwen-plus",
+        healthVerified: true,
+      }),
+    ).toBe(true);
   });
 });

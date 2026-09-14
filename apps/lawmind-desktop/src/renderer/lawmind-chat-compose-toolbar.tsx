@@ -1,5 +1,5 @@
 /**
- * Compose toolbar: permission/options, model picker, write-materials, send/stop.
+ * Compose toolbar: permission/options, model picker, send/stop.
  * Extracted from lawmind-chat-shell (R-P1-2).
  */
 
@@ -16,7 +16,6 @@ import {
   type ComposePermissionMode,
 } from "./lawmind-compose-prefs";
 import type { ModelCatalogEntry } from "./lawmind-models-api";
-import { LawmindDeskWorkPanel } from "./LawmindDeskWorkPanel";
 import { requestOpenMeetingView } from "./lawmind-meeting-nav-bus";
 
 export type LawmindChatComposeToolbarProps = {
@@ -43,12 +42,6 @@ export type LawmindChatComposeToolbarProps = {
   onOpenApiWizard?: () => void;
   onComposeModelQuickTest?: () => void | Promise<void>;
   composeModelQuickTestBusy?: boolean;
-  onOpenWriteMaterials: () => void;
-  onFillComposer?: (prompt: string) => void;
-  /** 已有附件 / 钉源：办件里的合同审查 / 检索可直接锁流程。 */
-  hasMaterials?: boolean;
-  onCreateMatter?: () => void;
-  onOpenWorkflows?: () => void;
   contextBudget?: ComposeContextBudget | null;
   compactBusy?: boolean;
   compactHint?: string | null;
@@ -56,8 +49,6 @@ export type LawmindChatComposeToolbarProps = {
   onDistillLearning?: () => void | Promise<void>;
   onPreviewCompact?: () => Promise<CompactPreview | null>;
   onOpenMemoryInspector?: () => void;
-  /** 本地 API base，用于加载仪表盘等数据。 */
-  apiBase?: string;
 };
 
 export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps): ReactNode {
@@ -80,11 +71,6 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
     onOpenApiWizard,
     onComposeModelQuickTest,
     composeModelQuickTestBusy,
-    onOpenWriteMaterials,
-    onFillComposer,
-    hasMaterials = false,
-    onCreateMatter,
-    onOpenWorkflows,
     contextBudget = null,
     compactBusy = false,
     compactHint = null,
@@ -92,34 +78,25 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
     onDistillLearning,
     onPreviewCompact,
     onOpenMemoryInspector,
-    apiBase,
   } = props;
 
   const [composeOptionsOpen, setComposeOptionsOpen] = useState(false);
-  const [deskWorkOpen, setDeskWorkOpen] = useState(false);
   const composeOptionsRef = useRef<HTMLDivElement | null>(null);
-  const deskWorkRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!composeOptionsOpen && !deskWorkOpen) {
+    if (!composeOptionsOpen) {
       return;
     }
     const onDoc = (event: MouseEvent) => {
       const t = event.target as Node | null;
-      if (
-        !t ||
-        composeOptionsRef.current?.contains(t) ||
-        deskWorkRef.current?.contains(t)
-      ) {
+      if (!t || composeOptionsRef.current?.contains(t)) {
         return;
       }
       setComposeOptionsOpen(false);
-      setDeskWorkOpen(false);
     };
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setComposeOptionsOpen(false);
-        setDeskWorkOpen(false);
       }
     };
     document.addEventListener("mousedown", onDoc);
@@ -128,7 +105,7 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
       document.removeEventListener("mousedown", onDoc);
       document.removeEventListener("keydown", onKey);
     };
-  }, [composeOptionsOpen, deskWorkOpen]);
+  }, [composeOptionsOpen]);
 
   return (
     <div className="lm-compose-toolbar" aria-label="模型与发送">
@@ -175,7 +152,6 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
             aria-haspopup="dialog"
             title="联网与其它选项"
             onClick={() => {
-              setDeskWorkOpen(false);
               setComposeOptionsOpen((v) => !v);
             }}
           >
@@ -281,36 +257,6 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
             onOpenMemory={onOpenMemoryInspector}
           />
         ) : null}
-        <div className="lm-compose-desk-work" ref={deskWorkRef}>
-          <button
-            type="button"
-            className="lm-btn lm-btn-ghost lm-btn-small lm-compose-templates-btn"
-            data-testid="lm-compose-desk-work"
-            aria-label="办件"
-            aria-expanded={deskWorkOpen}
-            aria-haspopup="menu"
-            title="先附材料，再选流程"
-            onClick={() => {
-              setComposeOptionsOpen(false);
-              setDeskWorkOpen((v) => !v);
-            }}
-          >
-            办件
-          </button>
-          <div className="lm-compose-desk-work-pop" hidden={!deskWorkOpen}>
-            <LawmindDeskWorkPanel
-              onFillComposer={(prompt) => {
-                onFillComposer?.(prompt);
-              }}
-              onOpenWriteMaterials={onOpenWriteMaterials}
-              onCreateMatter={onCreateMatter}
-              onOpenWorkflows={onOpenWorkflows}
-              hasMaterials={hasMaterials}
-              onPick={() => setDeskWorkOpen(false)}
-              apiBase={apiBase}
-            />
-          </div>
-        </div>
       </div>
       <div className="lm-compose-toolbar-end">
         {loading ? (

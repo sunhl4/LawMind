@@ -5,6 +5,7 @@
 import type { ReactNode } from "react";
 import type { HealthPayload } from "./lawmind-app-data";
 import { modelServiceStatus } from "./lawmind-model-service-status";
+import { isActiveModelVerified } from "./lawmind-model-verify";
 
 type DoctorData = NonNullable<HealthPayload["doctor"]>;
 type WorkspaceStandard = NonNullable<DoctorData["workspaceStandard"]>;
@@ -50,11 +51,19 @@ export function DoctorConnectionGroup(props: {
   health: HealthPayload | null;
   doctor: DoctorData | undefined;
   onOpenApiWizard: () => void;
+  onVerifyModel?: () => void | Promise<void>;
+  modelCatalog?: import("./lawmind-models-api").ModelCatalogEntry[];
+  selectedModelId?: string;
 }): ReactNode {
-  const { health, doctor, onOpenApiWizard } = props;
+  const { health, doctor, onOpenApiWizard, onVerifyModel, modelCatalog = [], selectedModelId = "" } =
+    props;
   const aiStatus = modelServiceStatus({
     configured: health?.modelConfigured,
-    verified: health?.modelVerified,
+    verified: isActiveModelVerified({
+      catalog: modelCatalog,
+      selectedModelId,
+      healthVerified: health?.modelVerified,
+    }),
   });
   return (
     <div className="lm-settings-group lm-settings-surface">
@@ -64,7 +73,21 @@ export function DoctorConnectionGroup(props: {
         <span className={aiStatus.ok ? "lm-pill lm-pill-success" : "lm-pill lm-pill-warn"}>
           {health ? aiStatus.label : "检测中…"}
         </span>
-        {aiStatus.label !== "已验证" ? (
+        {aiStatus.label === "待配置" ? (
+          <button type="button" className="lm-btn lm-btn-sm" onClick={onOpenApiWizard}>
+            配置 API
+          </button>
+        ) : null}
+        {aiStatus.label === "待验证" && onVerifyModel ? (
+          <button
+            type="button"
+            className="lm-btn lm-btn-sm"
+            data-testid="lm-doctor-verify-model"
+            onClick={() => void onVerifyModel()}
+          >
+            验证模型
+          </button>
+        ) : aiStatus.label === "待验证" ? (
           <button type="button" className="lm-btn lm-btn-sm" onClick={onOpenApiWizard}>
             配置 API
           </button>

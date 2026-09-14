@@ -98,6 +98,25 @@ describe("lawyer-capabilities", () => {
     expect(bound?.skillIds).toEqual(["contract-redline-craft"]);
   });
 
+  it("binds Word 改稿 on a complaint to litigation without contract-redline craft", () => {
+    const bound = bindLawyerCapability({
+      instruction: "帮我改一下",
+      pins: [
+        {
+          pinKind: "file",
+          root: "project",
+          relPath: "民事起诉状.docx",
+          kind: "file",
+        },
+      ],
+    });
+    expect(bound?.id).toBe("litigation.draft");
+    expect(bound?.pipeline).toBe("tracked_redline");
+    expect(bound?.deliverableType).toBe("document.general");
+    expect(bound?.skillIds).not.toContain("contract-redline-craft");
+    expect(bound?.skillIds).toContain("complaint-elements-fill");
+  });
+
   it("honors an explicit 办件 lock over keywords", () => {
     const locked = bindLawyerCapability({
       instruction: "【办件】能力：letter.draft\n流程：函件起草\n请按已附材料与钉源执行该流程。",
@@ -199,6 +218,8 @@ describe("lawyer-capabilities", () => {
     expect(block).toContain("产品化办件");
     expect(block).toContain("execute_workflow");
     expect(block).toContain("办件");
+    expect(block).not.toContain("改路由");
+    expect(block).toContain("不要再问律师选分类");
     expect(block).toContain("其余技能（索引，不要通读）");
     expect(block).toContain("legal-element-extraction");
   });

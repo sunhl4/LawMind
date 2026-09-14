@@ -19,6 +19,7 @@ describe("lawmind-app-shell", () => {
       }),
     ).toEqual({
       modelConfigured: true,
+      modelVerified: false,
       retrievalMode: "dual",
       dualLegalConfigured: true,
       webSearchApiKeyConfigured: false,

@@ -44,6 +44,7 @@
 
 ## 2. Agent / 上下文与成本
 
+- [x] **隐式意图编译（2026-09-13）**：办件选择沉入引擎 `compileIntent`；律师主路径只交办文字/文件。见 `src/lawmind/intent/`、GOALS 第十七期。
 - [x] **真循环 cassette 准入**（2026-09-13）：`TestLawMind.builder()` 假模型 + 真 `runTurn` / 真工具名 / 真门禁；编排改动断言下一轮请求体。影子回放仍只管交件召回。见 `src/lawmind/agent/testkit/` 与 `AGENTS.md`。
 - [x] System prompt 工具列表随 registry 膨胀 → 默认 compact + 核心 12 + `list_more_tools` 本会话披露（2026-08-16 W1-C；registry 仍保留全部 execute）
 - [x] **上下文当类型系统**（2026-09-13）：`prompt-fragments.ts` 每种注入有 kind / cap / overflow 指针；world-state 真正包裹 `deliverable`；权限改短 XML；相关记忆只进 gist；工具结果默认 ~1k token；采样时 `deriveModelMessagesForSampling` 追加 `<turn_context>`（CASE/画像/craft/skills）与剩余 token 注记（不写进 history）。人格成长仍写磁盘，prompt 只留指纹。
@@ -72,7 +73,10 @@
 ## 4. 桌面 UX / IA 债
 
 - [x] Action Hub 模态 vs「在办」主视图的最终收敛：侧栏/顶栏/对话「待我拍板」直接进「在办」（不再开模态）
-- [x] 「会议室」为顶栏「会议室·办件」入口（可绑案件 / 临时讨论）；案件内改为深链；一级顶栏仅对话/在办
+- [x] 一级顶栏为 **对话 / 工作台 / 在办**（`LawmindMainView`）；会议室与改稿为次级深链，不占一级对等 Tab
+- [x] 意图状态条与 `runTurn` 同源 compile（`POST /api/intent/compile` + peek）；拖文件不再自动弹合同审查卡；unbound/纠正清 `lastBound`
+- [x] `cases/*/RULES.md` 纳入写保护（与 `matters/*/RULES.md` 同口径）
+- [x] 旧 Matter cockpit 页并入工作台本案卷宗（顶栏案件名 / 侧栏选案 → `desk` + dossier）
 - [x] 会议室：工作区级临时讨论存储（`meetings/adhoc/`，不再 `POST /api/matters/create` 造假案件；遗留 `cases/临时讨论` 自动迁移并在事项列表隐藏）
 - [x] 会议室：对话「引用到对话」材料注入 `meetingAgenda`（每轮模型上下文；议题旁可见材料列表）
 - [x] 会议室：议题材料选择器（复用 `LawmindComposeContextPicker` + 搜索框；与对话 pins 同一真相源）
@@ -109,13 +113,14 @@
 
 ## 变更记录
 
-| 日期       | 说明                                                                                                                         |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| 2026-07-18 | 建册；并入持久化审查未尽项与 DEFERRED 类问题；链到 PERSISTENCE-SCALE-REVIEW                                                  |
-| 2026-07-18 | 标记 CASE.md 写锁已落地；补充日日志/画像写锁与 async draft pipeline 待做项                                                   |
-| 2026-07-25 | 链到工程 9.5 冲刺：R-P1-9 atomic rewriteJsonl、R-P2-7 写路径收敛（短中期）                                                   |
-| 2026-08-14 | DeepSeek 三刀落地（中文卡 / Stop+工具信号 / 轮中注入 / events.jsonl / prompt 段表）；session.json 仍为权威                   |
-| 2026-09-13 | 法律 Guardian：交卷独立审稿员（有界证据，不进主会话）；`craft_check` 只保留缓办声明；意见类 `render_document` 接入同一审稿员 |
-| 2026-09-13 | 本轮可见短清单：`update_plan` 写入 world-state，对话勾进度；不新增第三份自主工作流程作文                                     |
-| 2026-09-13 | 真循环 cassette 准入：编排改动断言下一轮请求体；影子回放仍只管交件召回                                                       |
-| 2026-09-13 | 采样时 `<turn_context>`：CASE/画像/craft 不进 persistent system；`read_case_file` 默认 4k；检索与对话共享指纹窗              |
+| 日期       | 说明                                                                                                                                                    |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-07-18 | 建册；并入持久化审查未尽项与 DEFERRED 类问题；链到 PERSISTENCE-SCALE-REVIEW                                                                             |
+| 2026-07-18 | 标记 CASE.md 写锁已落地；补充日日志/画像写锁与 async draft pipeline 待做项                                                                              |
+| 2026-07-25 | 链到工程 9.5 冲刺：R-P1-9 atomic rewriteJsonl、R-P2-7 写路径收敛（短中期）                                                                              |
+| 2026-08-14 | DeepSeek 三刀落地（中文卡 / Stop+工具信号 / 轮中注入 / events.jsonl / prompt 段表）；session.json 仍为权威                                              |
+| 2026-09-13 | 法律 Guardian：交卷独立审稿员（有界证据，不进主会话）；`craft_check` 只保留缓办声明；意见类 `render_document` 接入同一审稿员                            |
+| 2026-09-13 | 本轮可见短清单：`update_plan` 写入 world-state，对话勾进度；不新增第三份自主工作流程作文                                                                |
+| 2026-09-13 | 真循环 cassette 准入：编排改动断言下一轮请求体；影子回放仍只管交件召回                                                                                  |
+| 2026-09-13 | 隐式意图编译：办件沉入引擎，金标集 + 文件形态 × 文本动词；对话不再暴露分类菜单                                                                          |
+| 2026-09-14 | 意图状态条同源 peek；停拖文件自动审查卡；`cases/*/RULES.md` 写保护；诉讼 Word 改稿补 craft；cockpit 并入工作台卷宗；ARCHITECTURE 权限模式与一级导航对齐 |

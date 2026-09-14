@@ -39,6 +39,7 @@ import { buildAgentConfig, isDesktopModelConfigured, sendJson } from "./lawmind-
 import {
   buildModelCatalog,
   effectiveRouterMode,
+  isResolvedModelVerified,
   resolveDraftReasoningLlmConfig,
   readDraftWithModelStoreFlag,
   resolveLegalRetrievalModelFromStore,
@@ -282,9 +283,7 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
       workspaceDir,
       lawMindRoot,
       modelConfigured,
-      modelVerified: Boolean(
-        catalog.models.find((m) => m.id === (built.modelId ?? catalog.defaultModelId))?.verifiedAt,
-      ),
+      modelVerified: isResolvedModelVerified(lawMindRoot, built.modelId ?? catalog.defaultModelId),
       missingApiKey: !modelConfigured,
       defaultModelId: catalog.defaultModelId,
       modelName: built.config?.model?.model ?? null,

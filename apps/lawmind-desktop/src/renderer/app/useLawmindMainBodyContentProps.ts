@@ -59,6 +59,8 @@ export type UseLawmindMainBodyContentPropsInput = {
   setMainView: (view: LawmindMainView) => void;
   setContextMatterId: (id: string | null) => void;
   setMatterCockpitOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  deskMatterFocus?: { id: string; n: number } | null;
+  setDeskMatterFocus?: React.Dispatch<React.SetStateAction<{ id: string; n: number } | null>>;
   setSessionByAssistant: React.Dispatch<React.SetStateAction<Record<string, string | undefined>>>;
   setReviewLaunchedFromMatter: (v: boolean) => void;
   setReviewFocusTaskId: (id: string | null) => void;
@@ -198,6 +200,8 @@ export function useLawmindMainBodyContentProps(
     setMainView,
     setContextMatterId,
     setMatterCockpitOpen,
+    deskMatterFocus = null,
+    setDeskMatterFocus,
     setSessionByAssistant,
     setReviewLaunchedFromMatter,
     setReviewFocusTaskId,
@@ -296,6 +300,17 @@ export function useLawmindMainBodyContentProps(
   } = input;
 
   return useMemo((): LawmindMainBodyContentProps => {
+    const openMatterOnDesk = (matterId: string) => {
+      const mid = matterId.trim();
+      if (!mid) {
+        return;
+      }
+      recordsDeskMattersSetSelectedKey(mid);
+      setContextMatterId(mid);
+      setMatterCockpitOpen(false);
+      setDeskMatterFocus?.((prev) => ({ id: mid, n: (prev?.n ?? 0) + 1 }));
+      setMainView("desk");
+    };
     const reviewLinks = buildReviewDeepLinkHandlers({
       setReviewLaunchedFromMatter,
       setReviewFocusTaskId,
@@ -306,6 +321,7 @@ export function useLawmindMainBodyContentProps(
       setMainView,
       setFocusMatterIdFromReview,
       setMatterCockpitOpen,
+      openMatterOnDesk,
       reviewFocusMatterId,
     });
     const meetingLinks = buildMeetingDeepLinkHandlers({
@@ -548,6 +564,7 @@ export function useLawmindMainBodyContentProps(
       sessionRequiresActions,
       onRefreshActionSummary: refreshActionSummary,
       onChatResumeComplete,
+      deskMatterFocus,
     };
     },
     [
@@ -578,6 +595,8 @@ export function useLawmindMainBodyContentProps(
       setMainView,
       setContextMatterId,
       setMatterCockpitOpen,
+      deskMatterFocus,
+      setDeskMatterFocus,
       setSessionByAssistant,
       setReviewLaunchedFromMatter,
       setReviewFocusTaskId,

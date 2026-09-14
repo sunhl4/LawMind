@@ -378,6 +378,11 @@ export type AgentSession = {
    * Sampling-only user message — not copied into conversationHistory.
    */
   samplingPromptTail?: string;
+  /**
+   * Last implicitly bound 办件 id. Used so a short follow-up (继续/导出)
+   * stays on the same path without the lawyer re-selecting.
+   */
+  lastBoundCapabilityId?: import("../skills/lawyer-capability-lock.js").LawyerCapabilityId;
 };
 
 // ─────────────────────────────────────────────

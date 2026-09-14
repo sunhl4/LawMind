@@ -169,6 +169,7 @@ export async function prepareTurnPromptContext(opts: {
   availableToolNames?: string[];
   /** 调用方已解析的助手岗位/预设（避免重复读助手档案）。 */
   assistantTooling?: AssistantTooling;
+  compiledIntent?: import("../intent/types.js").CompiledIntent;
 }): Promise<{
   memory: MemoryContext;
   systemPromptFinal: string;
@@ -608,6 +609,8 @@ export async function prepareTurnPromptContext(opts: {
     } else {
       const { isWordRevisionTurn, WORD_REVISION_PROMPT } =
         await import("../platform/word-revision-instruction.js");
+      const { wordRevisionShouldInjectFamilyChecklist } =
+        await import("../intent/document-genre.js");
       const { formatWordRevisionChecklistBlock } =
         await import("../platform/word-revision-checklist.js");
       const { readPinnedWordExcerpt } =
@@ -619,17 +622,28 @@ export async function prepareTurnPromptContext(opts: {
       }).catch(() => "");
       if (isWordRevisionTurn({ instruction, pins: opts.contextPins })) {
         queueFragment(fragments, "craft", WORD_REVISION_PROMPT);
-        queueFragment(
-          fragments,
-          "protocol",
-          formatWordRevisionChecklistBlock({
+        if (
+          wordRevisionShouldInjectFamilyChecklist(
             instruction,
-            pins: opts.contextPins,
-            workspaceDir: config.workspaceDir,
-            documentText,
-            purpose: "revise",
-          }),
-        );
+            (opts.contextPins ?? [])
+              .map((pin) =>
+                "relPath" in pin && typeof pin.relPath === "string" ? pin.relPath : "",
+              )
+              .filter((p) => p.length > 0),
+          )
+        ) {
+          queueFragment(
+            fragments,
+            "protocol",
+            formatWordRevisionChecklistBlock({
+              instruction,
+              pins: opts.contextPins,
+              workspaceDir: config.workspaceDir,
+              documentText,
+              purpose: "revise",
+            }),
+          );
+        }
       } else {
         const { isContractFastLaneInstruction, CONTRACT_FAST_LANE_PROMPT } =
           await import("../platform/contract-fast-lane-instruction.js");
@@ -654,17 +668,33 @@ export async function prepareTurnPromptContext(opts: {
   }
 
   try {
-    const { bindLawyerCapability, formatBoundCapabilityBlock, readSkillPromptBodies } =
-      await import("../skills/lawyer-capabilities.js");
+    const {
+      bindLawyerCapability,
+      formatBoundCapabilityBlock,
+      hydrateCompiledIntent,
+      readSkillPromptBodies,
+    } = await import("../skills/lawyer-capabilities.js");
     const { isMailContractFastPathInstruction } =
       await import("../platform/mail-contract-short-path-instruction.js");
     const { isWordRevisionTurn } = await import("../platform/word-revision-instruction.js");
+    const { compileIntent } = await import("../intent/compile-intent.js");
+    const { formatCapabilityCatalogIndex, looksLikeLegalWork } =
+      await import("../intent/catalog.js");
     const mailFast = isMailContractFastPathInstruction(instruction);
-    const bound = bindLawyerCapability({
-      instruction,
-      mailFastPath: mailFast,
-      pins: opts.contextPins,
-    });
+    const compiled =
+      opts.compiledIntent ??
+      compileIntent({
+        instruction,
+        mailFastPath: mailFast,
+        pins: opts.contextPins,
+      });
+    const bound =
+      hydrateCompiledIntent(compiled) ??
+      bindLawyerCapability({
+        instruction,
+        mailFastPath: mailFast,
+        pins: opts.contextPins,
+      });
     if (bound) {
       const { planLeanSkillPrompt } = await import("../skills/skill-prompt-budget.js");
       const lean = planLeanSkillPrompt(bound, instruction);
@@ -672,7 +702,11 @@ export async function prepareTurnPromptContext(opts: {
       queueFragment(
         fragments,
         "skill_index",
-        formatBoundCapabilityBlock(bound, bodies, { indexLines: lean.indexLines, instruction }),
+        formatBoundCapabilityBlock(bound, bodies, {
+          indexLines: lean.indexLines,
+          instruction,
+          compiled,
+        }),
         { overflow: { tool: "read_workspace_file", path: "skills" } },
       );
       const {
@@ -769,6 +803,10 @@ export async function prepareTurnPromptContext(opts: {
           }),
         );
       }
+    } else if (looksLikeLegalWork(instruction, hasContextPins)) {
+      queueFragment(fragments, "skill_index", formatCapabilityCatalogIndex(), {
+        overflow: { tool: "read_workspace_file", path: "skills" },
+      });
     }
     const dt = deliverableTypeFromInstruction(instruction);
     const looksOpinion =

@@ -47,6 +47,8 @@ export type UseLawmindAppRootHandlersInput = {
   setSessionByAssistant: React.Dispatch<React.SetStateAction<Record<string, string | undefined>>>;
   sendChatMessage: (msg: string) => Promise<void>;
   refreshActionSummary: () => void | Promise<void>;
+  /** Open 工作台本案卷宗 (replaces the old matter cockpit page). */
+  openMatterOnDesk: (matterId: string) => void;
 };
 
 export function useLawmindAppRootHandlers(input: UseLawmindAppRootHandlersInput) {
@@ -76,6 +78,7 @@ export function useLawmindAppRootHandlers(input: UseLawmindAppRootHandlersInput)
     setSessionByAssistant,
     sendChatMessage,
     refreshActionSummary,
+    openMatterOnDesk,
   } = input;
 
   const handleResumeRequiresAction = useCallback(
@@ -306,8 +309,7 @@ export function useLawmindAppRootHandlers(input: UseLawmindAppRootHandlersInput)
       workspaceDir: config.workspaceDir ?? null,
       matterLabelById,
       onOpenMatterCockpit: (matterId) => {
-        recordsDeskMatters.setSelectedKey(matterId);
-        setMatterCockpitOpen(true);
+        openMatterOnDesk(matterId);
       },
       onLinkMatterToChat: linkMatterToChat,
       onRequestDeleteMatter: (mid, label) => {
@@ -325,9 +327,9 @@ export function useLawmindAppRootHandlers(input: UseLawmindAppRootHandlersInput)
     linkMatterToChat,
     matterImportBusy,
     matterLabelById,
+    openMatterOnDesk,
     recordsDeskMatters.setSelectedKey,
     setCaseSubdirRole,
-    setMatterCockpitOpen,
     setMatterDeleteOpen,
     setMatterRefreshVersion,
   ]);

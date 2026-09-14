@@ -77,9 +77,9 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
   const [wizWebSearchApiKey, setWizWebSearchApiKey] = useState("");
 
   return (
-    <div className="lm-wizard-backdrop" role="dialog" aria-modal="true" aria-label="LawMind 首次配置">
+    <div className="lm-wizard-backdrop" role="dialog" aria-modal="true" aria-label="API 配置向导">
       <div className="lm-wizard">
-        <h2>欢迎使用 LawMind</h2>
+        <h2>{wizHasExistingKey ? "API 配置向导" : "欢迎使用 LawMind"}</h2>
         <p className="lm-wizard-lead lm-settings-hint">
           填好 API Key，点一次推荐方案即可开始。保存时会写入本机{" "}
           <code className="lm-md-code">.env.lawmind</code>，并真实调用一次模型验证。

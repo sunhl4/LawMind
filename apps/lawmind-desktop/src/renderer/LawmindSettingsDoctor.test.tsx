@@ -319,4 +319,26 @@ describe("LawmindSettingsDoctor", () => {
         ?.contains(host.querySelector('[data-testid="lm-doctor-judgment-hard-controls"]')),
     ).toBe(false);
   });
+
+  it("offers 验证模型 when the stored key has not been probed", async () => {
+    const onVerifyModel = vi.fn();
+    await act(async () => {
+      root.render(
+        <LawmindSettingsDoctor
+          apiBase="http://127.0.0.1:8765"
+          health={{ modelConfigured: true, modelVerified: false }}
+          onOpenApiWizard={vi.fn()}
+          onVerifyModel={onVerifyModel}
+          onOpenCollaborationPage={vi.fn()}
+        />,
+      );
+    });
+    expect(host.textContent).toContain("待验证");
+    const verify = host.querySelector('[data-testid="lm-doctor-verify-model"]');
+    expect(verify?.textContent).toContain("验证模型");
+    await act(async () => {
+      verify?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(onVerifyModel).toHaveBeenCalledOnce();
+  });
 });

@@ -24,7 +24,7 @@ describe("LawmindChatMessagesColumn empty guide", () => {
     host.remove();
   });
 
-  it("keeps empty chat clean and points to 办件", async () => {
+  it("keeps empty chat clean without a task-type picker", async () => {
     await act(async () => {
       root.render(
         <LawmindChatMessagesColumn
@@ -45,7 +45,9 @@ describe("LawmindChatMessagesColumn empty guide", () => {
     });
     expect(host.querySelector('[data-testid="lm-chat-empty"]')).toBeTruthy();
     expect(host.textContent).toContain("开始对话");
-    expect(host.textContent).toContain("拖入或点「办件」");
+    expect(host.textContent).toContain("直接说要办的事");
+    expect(host.textContent).not.toContain("办件");
+    expect(host.textContent).not.toContain("再选要走的流程");
     expect(host.textContent).not.toMatch(/拖入或 \+/);
     expect(host.querySelector('[data-testid="lm-contract-fast-lane"]')).toBeNull();
     expect(host.querySelector('[data-testid="lm-empty-desk-verbs"]')).toBeNull();

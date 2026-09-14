@@ -113,21 +113,22 @@ export function useLawmindModelConfig(args: UseLawmindModelConfigArgs) {
     }
     const effectiveId = resolveComposeModelSelectValue(modelCatalog, selectedModelId);
     const picked = modelCatalog.find((m) => m.id === effectiveId);
-    if (picked && !picked.configured) {
-      setComposeModelHint(`「${picked.label}」未配置 API Key，请打开 API 配置向导或添加自定义模型。`);
-      clearComposeModelHintSoon(8000);
-      return;
-    }
+    const idToTest = picked?.configured
+      ? effectiveId
+      : (modelCatalog.find((m) => m.configured)?.id ?? "env:current");
     setComposeModelQuickTestBusy(true);
     setComposeModelHint(null);
     try {
-      const body = await testModelConnection(apiBase, effectiveId);
+      const body = await testModelConnection(apiBase, idToTest);
+      const tested = modelCatalog.find((m) => m.id === idToTest);
       const label =
         typeof body.model === "string"
           ? body.model
-          : typeof picked?.model === "string"
-            ? picked.model
-            : effectiveId;
+          : typeof tested?.model === "string"
+            ? tested.model
+            : typeof picked?.model === "string"
+              ? picked.model
+              : idToTest;
       setComposeModelHint(
         `已连接「${label}」${typeof body.latencyMs === "number" ? ` · ${body.latencyMs} ms` : ""}`,
       );

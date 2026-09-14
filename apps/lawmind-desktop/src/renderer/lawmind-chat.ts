@@ -50,6 +50,16 @@ export function handleEnterSendShiftNewline(
   void onSend();
 }
 
+export type ChatCompiledIntent = {
+  capabilityId?: string;
+  label?: string;
+  lawyerSummary: string;
+  confidence: "high" | "medium" | "low";
+  alternatives?: Array<{ id: string; label: string; reason: string }>;
+  chain?: string[];
+  softAsk?: { question: string; options: Array<{ id: string; label: string }> };
+};
+
 export type ChatMsg = {
   role: "user" | "assistant";
   text: string;
@@ -261,6 +271,7 @@ export type StreamingChatCallbacks = {
     overflowPrune?: boolean;
   }) => void;
   onPlanUpdate?: (plan: AgentTurnPlan) => void;
+  onIntent?: (intent: ChatCompiledIntent) => void;
 };
 
 /**
@@ -431,6 +442,38 @@ export async function sendChatTurnStream(
           const plan = parseAgentTurnPlan(parsed.plan) ?? parseAgentTurnPlan(parsed);
           if (plan) {
             callbacks.onPlanUpdate?.(plan);
+          }
+          break;
+        }
+        case "intent": {
+          const lawyerSummary =
+            typeof parsed.lawyerSummary === "string" ? parsed.lawyerSummary.trim() : "";
+          if (lawyerSummary) {
+            callbacks.onIntent?.({
+              capabilityId: typeof parsed.capabilityId === "string" ? parsed.capabilityId : undefined,
+              label: typeof parsed.label === "string" ? parsed.label : undefined,
+              lawyerSummary,
+              confidence:
+                parsed.confidence === "high" || parsed.confidence === "medium" || parsed.confidence === "low"
+                  ? parsed.confidence
+                  : "medium",
+              alternatives: Array.isArray(parsed.alternatives)
+                ? parsed.alternatives.filter(
+                    (x): x is { id: string; label: string; reason: string } =>
+                      Boolean(x) &&
+                      typeof x === "object" &&
+                      typeof (x as { id?: unknown }).id === "string" &&
+                      typeof (x as { label?: unknown }).label === "string",
+                  )
+                : undefined,
+              chain: Array.isArray(parsed.chain)
+                ? parsed.chain.filter((x): x is string => typeof x === "string")
+                : undefined,
+              softAsk:
+                parsed.softAsk && typeof parsed.softAsk === "object"
+                  ? (parsed.softAsk as ChatCompiledIntent["softAsk"])
+                  : undefined,
+            });
           }
           break;
         }

@@ -182,17 +182,6 @@ function LawmindAppHeaderImpl({
                 >
                   对话
                 </button>
-                {mainView === "workspace" && matterCockpitOpen ? (
-                  <button
-                    type="button"
-                    className="lm-tab active"
-                    aria-current="page"
-                    data-testid="lm-tab-matter"
-                    title="本案办案台：概览、档案、任务与审查"
-                  >
-                    案件
-                  </button>
-                ) : null}
                 <button
                   type="button"
                   className={`lm-tab ${mainView === "desk" ? "active" : ""}`}
@@ -259,7 +248,7 @@ function LawmindAppHeaderImpl({
                   data-testid="lm-open-matter-cockpit"
                   onClick={onOpenMatterCockpit}
                   title={projectDir ? `${currentMatterLabel} · ${projectDir}` : `当前案件：${currentMatterLabel}`}
-                  aria-label={`当前案件：${currentMatterLabel}，打开案件工作台`}
+                  aria-label={`当前案件：${currentMatterLabel}，打开工作台本案卷宗`}
                 >
                   <span className="lm-header-matter-chip-kicker">案件</span>
                   {currentMatterLabel}

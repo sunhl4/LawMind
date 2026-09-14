@@ -200,4 +200,33 @@ describe("LawmindSettingsModelRetrieval", () => {
     });
     expect(applyRetrievalMode).toHaveBeenCalledWith("single");
   });
+
+  it("shows 验证模型 next to 待验证 when a key is present", async () => {
+    const catalog = [
+      {
+        id: "builtin:deepseek-flash",
+        kind: "builtin" as const,
+        label: "DeepSeek Flash",
+        group: "DeepSeek",
+        provider: "deepseek",
+        model: "deepseek-flash",
+        baseUrl: "https://api.deepseek.com/v1",
+        configured: true,
+      },
+    ];
+    await act(async () => {
+      root.render(
+        <LawmindSettingsModelRetrieval
+          {...baseProps}
+          apiBase="http://127.0.0.1:8765"
+          selectedModelId="builtin:deepseek-flash"
+          modelCatalog={catalog}
+          health={{ modelConfigured: true, modelName: "deepseek-flash" }}
+        />,
+      );
+    });
+    expect(host.textContent).toContain("待验证");
+    const verify = host.querySelector('[data-testid="lm-settings-verify-model"]');
+    expect(verify?.textContent).toContain("验证模型");
+  });
 });

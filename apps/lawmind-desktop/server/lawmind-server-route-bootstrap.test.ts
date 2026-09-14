@@ -57,7 +57,7 @@ describe("lawmind-server-route-bootstrap", () => {
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
       ok: true,
-      health: { modelConfigured: expect.any(Boolean) },
+      health: { modelConfigured: expect.any(Boolean), modelVerified: expect.any(Boolean) },
       edition: { id: expect.any(String), features: expect.any(Object) },
       assistants: expect.any(Array),
       records: { taskCount: 0, draftCount: 0, matterCount: 0, pendingReviewCount: 0 },

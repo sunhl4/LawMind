@@ -95,6 +95,7 @@ export function LawmindAppRoot() {
   });
   const [matterImportBusy, setMatterImportBusy] = useState(false);
   const [matterCockpitOpen, setMatterCockpitOpen] = useState(false);
+  const [deskMatterFocus, setDeskMatterFocus] = useState<{ id: string; n: number } | null>(null);
   const [createMatterOpen, setCreateMatterOpen] = useState(false);
   const [matterDeleteOpen, setMatterDeleteOpen] = useState<{ matterId: string; label: string } | null>(null);
   const [delegateAssistOpen, setDelegateAssistOpen] = useState(false);
@@ -249,6 +250,17 @@ export function LawmindAppRoot() {
     setSessionByAssistant,
     sendChatMessage,
     refreshActionSummary,
+    openMatterOnDesk: (matterId: string) => {
+      const mid = matterId.trim();
+      if (!mid) {
+        return;
+      }
+      recordsDeskMatters.setSelectedKey(mid);
+      setContextMatterId(mid);
+      setMatterCockpitOpen(false);
+      setDeskMatterFocus((prev) => ({ id: mid, n: (prev?.n ?? 0) + 1 }));
+      setMainView("desk");
+    },
   });
 
   const fileWorkbenchMattersPickList = useMemo(() => {
@@ -433,6 +445,8 @@ export function LawmindAppRoot() {
     openReviewFromWorkspace,
     matterCockpitOpen,
     setMatterCockpitOpen,
+    deskMatterFocus,
+    setDeskMatterFocus,
     reviewLaunchedFromMatter,
     setReviewLaunchedFromMatter,
     agentsDeskTab,

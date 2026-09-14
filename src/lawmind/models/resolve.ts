@@ -21,7 +21,7 @@ import {
   listProviderKeyStatus,
   resolveProviderApiKeyFromEnv,
 } from "./providers.js";
-import type { ModelCatalogEntry, LawMindModelId } from "./types.js";
+import type { ModelCatalogEntry, LawMindModelId, ModelVerificationRecord } from "./types.js";
 
 /** Wizard / `.env.lawmind` LAWMIND_AGENT_* profile (exact upstream model + URL). */
 export const ENV_CURRENT_MODEL_ID = "env:current";
@@ -376,6 +376,28 @@ export function resolveAgentModelById(
   return { ...r, resolvedModelId: id };
 }
 
+/** Stamp catalog rows from an exact id, or from an `env:current` probe of the same upstream model. */
+function lookupVerification(
+  row: ModelCatalogEntry,
+  verifications: Record<string, ModelVerificationRecord>,
+): ModelVerificationRecord | undefined {
+  const direct = verifications[row.id];
+  if (direct) {
+    return direct;
+  }
+  const envV = verifications[ENV_CURRENT_MODEL_ID];
+  if (!envV) {
+    return undefined;
+  }
+  if (envV.model === row.model) {
+    return envV;
+  }
+  if (builtinIdForEnvModelName(envV.model) === row.id) {
+    return envV;
+  }
+  return undefined;
+}
+
 export function isAnyModelConfigured(lawMindRoot: string): boolean {
   if (isPlatformInferenceAvailable()) {
     return true;
@@ -383,8 +405,15 @@ export function isAnyModelConfigured(lawMindRoot: string): boolean {
   if (listProviderKeyStatus().some((p) => p.configured)) {
     return true;
   }
+  if (readAgentEnvProfile()?.apiKey) {
+    return true;
+  }
   const store = readModelsStore(lawMindRoot);
-  return store.customModels.some((m) => m.apiKey.trim().length > 0);
+  return store.customModels.some(
+    (m) =>
+      m.apiKey.trim().length > 0 ||
+      Boolean((process.env[customModelEnvKeyName(m.id)] ?? "").trim()),
+  );
 }
 
 export function buildModelCatalog(lawMindRoot: string): {
@@ -400,7 +429,7 @@ export function buildModelCatalog(lawMindRoot: string): {
   const providers = listProviderKeyStatus();
   const verifications = store.verifications ?? {};
   const attachVerification = (row: ModelCatalogEntry): ModelCatalogEntry => {
-    const v = verifications[row.id];
+    const v = lookupVerification(row, verifications);
     if (!v) {
       return row;
     }
@@ -488,4 +517,14 @@ export function buildModelCatalog(lawMindRoot: string): {
         ? "platform_key"
         : "none",
   };
+}
+
+/** True when the active/default catalog row (or its models.json verification) has verifiedAt. */
+export function isResolvedModelVerified(lawMindRoot: string, modelId?: string | null): boolean {
+  const catalog = buildModelCatalog(lawMindRoot);
+  const id = (typeof modelId === "string" && modelId.trim()) || catalog.defaultModelId;
+  if (catalog.models.some((m) => m.id === id && Boolean(m.verifiedAt?.trim()))) {
+    return true;
+  }
+  return Boolean(readModelsStore(lawMindRoot).verifications?.[id]?.verifiedAt);
 }

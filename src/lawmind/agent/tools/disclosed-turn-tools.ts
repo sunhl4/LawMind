@@ -3,6 +3,7 @@
  * Same channel as list_more_tools — does not grow CORE_MODEL_TOOL_NAMES.
  */
 
+import type { CompileIntentInput } from "../../intent/types.js";
 import type { ComposeContextPin } from "../../platform/compose-context-pin.js";
 import { COMPUTE_INTENT_RE, isPublicWebFactLookup } from "../../skills/capability-patterns.js";
 import { bindLawyerCapability } from "../../skills/lawyer-capabilities.js";
@@ -87,23 +88,27 @@ const CAPABILITY_EXTRA_TOOLS: Record<string, readonly string[]> = {
   "corp.governance": ["search_case_law"],
 };
 
-export function extraToolsForInstruction(instruction: string | undefined): string[] {
+export function extraToolsForInstruction(
+  instruction: string | undefined,
+  extras?: Pick<CompileIntentInput, "pins" | "documents" | "matterKind" | "previousCapabilityId">,
+): string[] {
   const text = instruction?.trim() ?? "";
-  if (text.length < 4) {
+  const hasMaterials = (extras?.pins?.length ?? 0) > 0 || (extras?.documents?.length ?? 0) > 0;
+  if (text.length < 4 && !hasMaterials) {
     return [];
   }
   if (isPublicWebFactLookup(text)) {
     return ["web_search"];
   }
-  const bound = bindLawyerCapability({ instruction: text });
+  const bound = bindLawyerCapability({ instruction: text, ...extras });
   if (bound?.pipeline === "tracked_redline" || bound?.id === "mail.contract") {
     return [];
   }
-  const extras = [...(bound ? (CAPABILITY_EXTRA_TOOLS[bound.id] ?? []) : [])];
+  const extrasTools = [...(bound ? (CAPABILITY_EXTRA_TOOLS[bound.id] ?? []) : [])];
   if (COMPUTE_INTENT_RE.test(text)) {
-    extras.push(...COMPUTE_DELIVERABLE_TOOL_NAMES);
+    extrasTools.push(...COMPUTE_DELIVERABLE_TOOL_NAMES);
   }
-  return [...new Set(extras)];
+  return [...new Set(extrasTools)];
 }
 
 export function collectRegisteredMcpToolNames(registry: ToolRegistry): string[] {
@@ -126,6 +131,9 @@ export function mergeTurnDisclosedToolNames(opts: {
   hiddenNames?: Iterable<string>;
   instruction?: string;
   projectDir?: string;
+  documents?: import("../../intent/types.js").DocumentPeek[];
+  matterKind?: "contract" | "litigation" | "general";
+  previousCapabilityId?: import("../../skills/lawyer-capability-lock.js").LawyerCapabilityId;
 }): string[] {
   const found = collectDisclosedToolNames(opts.session);
   found.push("run_compute");
@@ -143,7 +151,14 @@ export function mergeTurnDisclosedToolNames(opts: {
     found.push("search_host", "read_host_file", "list_dir");
   }
   found.push(...collectEnabledSkillToolNames(opts.workspaceDir));
-  found.push(...extraToolsForInstruction(opts.instruction));
+  found.push(
+    ...extraToolsForInstruction(opts.instruction, {
+      pins: opts.pins,
+      documents: opts.documents,
+      matterKind: opts.matterKind,
+      previousCapabilityId: opts.previousCapabilityId,
+    }),
+  );
   if (opts.registry) {
     found.push(...collectRegisteredMcpToolNames(opts.registry));
   }

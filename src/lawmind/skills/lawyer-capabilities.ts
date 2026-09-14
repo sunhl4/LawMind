@@ -7,39 +7,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONTRACT_REDLINE_CRAFT_SKILL } from "../drafts/contract-redline-craft.js";
-import type { ComposeContextPin } from "../platform/compose-context-pin.js";
+import { compileIntent } from "../intent/compile-intent.js";
+import type { CompiledIntent, CompileIntentInput } from "../intent/types.js";
 import { isContractFastLaneInstruction } from "../platform/contract-fast-lane-instruction.js";
-import { isMailContractFastPathInstruction } from "../platform/mail-contract-short-path-instruction.js";
-import { isWordRevisionTurn } from "../platform/word-revision-instruction.js";
-import { LPM_MEMO_INSTRUCTION_RE } from "../practice/lpm-matter-columns.js";
-import { deliverableTypeFromInstruction } from "../router/intake-gate.js";
 import type { DeliverableType } from "../types.js";
-import {
-  ADS_COMPLIANCE_RE,
-  BANKRUPTCY_RE,
-  CAPITAL_MARKETS_RE,
-  CIVIL_STAGE_RE,
-  COURT_SMS_RE,
-  DATA_COMPLIANCE_RE,
-  FAMILY_MATTER_RE,
-  isPublicWebFactLookup,
-  GOVERNANCE_RE,
-  INVOICE_RE,
-  IP_DISPUTE_RE,
-  LABOR_CALC_RE,
-  LEGAL_EVENT_RE,
-  MA_DILIGENCE_RE,
-  MATTER_INTAKE_RE,
-  PERIOD_CALC_RE,
-  QUICK_TRIAGE_RE,
-  RESEARCH_FALLBACK_RE,
-  TALK_INTAKE_RE,
-} from "./capability-patterns.js";
-import {
-  deskItemById,
-  parseCapabilityLock,
-  type LawyerCapabilityId,
-} from "./lawyer-capability-lock.js";
+import { deskItemById, type LawyerCapabilityId } from "./lawyer-capability-lock.js";
 import { listLocalSkills } from "./skill-runtime.js";
 
 export type { LawyerCapabilityId } from "./lawyer-capability-lock.js";
@@ -61,16 +33,10 @@ export type BoundLawyerCapability = LawyerCapability & {
   deliverableType?: DeliverableType;
 };
 
-export type BindLawyerCapabilityInput = {
-  instruction: string;
+export type BindLawyerCapabilityInput = CompileIntentInput & {
   deliverableType?: DeliverableType;
-  mailFastPath?: boolean;
-  pins?: ComposeContextPin[];
-  /** When set (办件列表选定)，优先于关键词推断。 */
-  capabilityId?: LawyerCapabilityId;
 };
 
-const MATTER_STATUS_RE = LPM_MEMO_INSTRUCTION_RE;
 const WORD_REVISION_SKILL_IDS = ["contract-redline-craft"] as const;
 
 export const LAWYER_CAPABILITIES: readonly LawyerCapability[] = [
@@ -365,48 +331,6 @@ export function listLawyerCapabilities(): readonly LawyerCapability[] {
   return LAWYER_CAPABILITIES;
 }
 
-function capabilityForDeliverableType(dt: string): LawyerCapability | undefined {
-  if (dt === "contract.review") {
-    return BY_ID.get("contract.review");
-  }
-  if (dt === "contract.nda" || dt === "contract.rental" || dt === "contract.general") {
-    return BY_ID.get("contract.draft");
-  }
-  if (dt.startsWith("letter.")) {
-    return BY_ID.get("letter.draft");
-  }
-  if (dt.startsWith("litigation.")) {
-    return BY_ID.get("litigation.draft");
-  }
-  if (dt === "matter.timeline") {
-    return BY_ID.get("chronology.timeline");
-  }
-  if (dt === "labor.calc") {
-    return BY_ID.get("labor.calc");
-  }
-  if (dt === "period.calc") {
-    return BY_ID.get("period.calc");
-  }
-  if (dt === "analysis.table") {
-    return BY_ID.get("materials.draft");
-  }
-  if (dt === "memo.research") {
-    return BY_ID.get("research.memo");
-  }
-  if (dt.startsWith("report.") || dt === "ppt.training") {
-    return BY_ID.get("research.memo");
-  }
-  if (
-    dt.startsWith("memo.") ||
-    dt.startsWith("matter.") ||
-    dt === "meeting.minutes" ||
-    dt === "document.general"
-  ) {
-    return BY_ID.get("materials.draft");
-  }
-  return undefined;
-}
-
 function boundFromId(
   id: LawyerCapabilityId,
   deliverableType?: DeliverableType,
@@ -422,105 +346,44 @@ function boundFromId(
   };
 }
 
-/** Bind a productized capability. 办件锁优先；口头答疑不绑定。 */
+export function hydrateCompiledIntent(compiled: CompiledIntent): BoundLawyerCapability | null {
+  if (!compiled.capabilityId) {
+    return null;
+  }
+  const bound = boundFromId(compiled.capabilityId, compiled.deliverableType as DeliverableType);
+  if (!bound) {
+    return null;
+  }
+  if (compiled.pipelineOverride === "tracked_redline") {
+    const contractRevision = compiled.capabilityId === "contract.review";
+    return {
+      ...bound,
+      skillIds:
+        compiled.skillIdsOverride !== undefined
+          ? [...compiled.skillIdsOverride]
+          : contractRevision
+            ? [...WORD_REVISION_SKILL_IDS]
+            : bound.skillIds,
+      pipeline: "tracked_redline",
+      pipelineHint:
+        compiled.pipelineHintOverride ??
+        "拷贝原 Word → `apply_surgical_edits` → `render_tracked_draft` 写入源文件同目录（原名_日期_01）。禁止 `render_document` 重建，不要准备外发邮件。空修订不得导出。",
+      deliverableType:
+        (compiled.deliverableType as DeliverableType) ??
+        (contractRevision ? "contract.general" : bound.deliverableType),
+    };
+  }
+  if (compiled.deliverableType) {
+    return { ...bound, deliverableType: compiled.deliverableType as DeliverableType };
+  }
+  return bound;
+}
+
+/** Bind a productized capability. Intent compiler is the SSOT; 办件锁只是覆盖。 */
 export function bindLawyerCapability(
   input: BindLawyerCapabilityInput,
 ): BoundLawyerCapability | null {
-  const instruction = input.instruction.trim();
-  const lockedId = input.capabilityId ?? parseCapabilityLock(instruction);
-  if (lockedId) {
-    return boundFromId(lockedId, input.deliverableType);
-  }
-  if (!instruction || instruction.length < 4) {
-    return null;
-  }
-  if (isPublicWebFactLookup(instruction)) {
-    return null;
-  }
-  const mailFastPath = input.mailFastPath ?? isMailContractFastPathInstruction(instruction);
-  if (mailFastPath) {
-    return boundFromId("mail.contract", "contract.review");
-  }
-  if (
-    isWordRevisionTurn({
-      instruction,
-      pins: input.pins,
-    })
-  ) {
-    const cap = BY_ID.get("contract.review");
-    if (cap) {
-      return {
-        ...cap,
-        skillIds: [...WORD_REVISION_SKILL_IDS],
-        pipeline: "tracked_redline",
-        pipelineHint:
-          "拷贝原 Word → `apply_surgical_edits` → `render_tracked_draft` 写入源文件同目录（原名_日期_01）。禁止 `render_document` 重建，不要准备外发邮件。空修订不得导出。",
-        deliverableType: "contract.general",
-      };
-    }
-  }
-  if (LABOR_CALC_RE.test(instruction)) {
-    return boundFromId("labor.calc");
-  }
-  if (PERIOD_CALC_RE.test(instruction)) {
-    return boundFromId("period.calc");
-  }
-  if (INVOICE_RE.test(instruction)) {
-    return boundFromId("ops.invoice");
-  }
-  if (COURT_SMS_RE.test(instruction) || LEGAL_EVENT_RE.test(instruction)) {
-    return boundFromId("ops.court_sms");
-  }
-  if (IP_DISPUTE_RE.test(instruction)) {
-    return boundFromId("ip.dispute");
-  }
-  if (MA_DILIGENCE_RE.test(instruction)) {
-    return boundFromId("deal.ma");
-  }
-  if (DATA_COMPLIANCE_RE.test(instruction)) {
-    return boundFromId("compliance.data");
-  }
-  if (ADS_COMPLIANCE_RE.test(instruction)) {
-    return boundFromId("compliance.ads");
-  }
-  if (MATTER_STATUS_RE.test(instruction)) {
-    return boundFromId("matter.status");
-  }
-  if (FAMILY_MATTER_RE.test(instruction)) {
-    return boundFromId("family.matter");
-  }
-  if (CAPITAL_MARKETS_RE.test(instruction)) {
-    return boundFromId("capital.markets");
-  }
-  if (GOVERNANCE_RE.test(instruction)) {
-    return boundFromId("corp.governance");
-  }
-  if (CIVIL_STAGE_RE.test(instruction)) {
-    return boundFromId("litigation.draft", "document.general");
-  }
-  if (BANKRUPTCY_RE.test(instruction)) {
-    return boundFromId("litigation.draft", "document.general");
-  }
-  if (MATTER_INTAKE_RE.test(instruction)) {
-    return boundFromId("matter.intake");
-  }
-  if (TALK_INTAKE_RE.test(instruction)) {
-    return boundFromId("litigation.talk");
-  }
-  if (QUICK_TRIAGE_RE.test(instruction)) {
-    return boundFromId("analysis.quick");
-  }
-  const dt = input.deliverableType ?? deliverableTypeFromInstruction(instruction);
-  if (dt) {
-    const cap = capabilityForDeliverableType(dt);
-    if (cap) {
-      return { ...cap, deliverableType: dt };
-    }
-  }
-  if (RESEARCH_FALLBACK_RE.test(instruction)) {
-    return boundFromId("research.memo");
-  }
-  return null;
+  return hydrateCompiledIntent(compileIntent(input));
 }
 
 function builtinSkillPath(skillId: string): string {
@@ -587,18 +450,26 @@ export function resolveCapabilityPipelineHint(
 export function formatBoundCapabilityBlock(
   bound: BoundLawyerCapability,
   skillBodies: readonly string[],
-  opts?: { indexLines?: readonly string[]; instruction?: string },
+  opts?: { indexLines?: readonly string[]; instruction?: string; compiled?: CompiledIntent },
 ): string {
   const typeLine = bound.deliverableType ? `\n交付物类型：\`${bound.deliverableType}\`` : "";
   const index =
     opts?.indexLines && opts.indexLines.length > 0
       ? ["## 其余技能（索引，不要通读）", ...opts.indexLines.map((line) => `- ${line}`)].join("\n")
       : "";
+  const chain =
+    opts?.compiled && opts.compiled.chain.length > 1
+      ? `组合：${opts.compiled.chain.join(" → ")}。`
+      : "";
+  const inferred = opts?.compiled?.lawyerSummary
+    ? `${opts.compiled.lawyerSummary}。按材料与交办执行，不要再问律师选分类。`
+    : "由系统根据材料与交办推断。按推断执行，不要再问律师选分类。";
   return [
     `## 本轮 LawMind 能力：${bound.label}`,
     `能力 ID：\`${bound.id}\`。这是产品化办件（Skill + 流水线 + 验收），不是自由发挥。${typeLine}`,
     resolveCapabilityPipelineHint(bound, opts?.instruction),
-    "本流程由律师在「办件」选定或指令已带能力锁；按锁执行，不要靠激活词猜测。",
+    inferred,
+    chain,
     ...skillBodies,
     index,
   ]

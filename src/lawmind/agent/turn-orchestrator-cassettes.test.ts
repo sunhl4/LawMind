@@ -444,4 +444,103 @@ describe("turn-orchestrator cassettes (admission)", () => {
       },
     );
   });
+
+  it("implicit compile: 帮我看看 + 买卖合同.docx binds contract.review", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("已处理。"));
+        const result = await h.runTurn("帮我看看", {
+          contextPins: [
+            {
+              pinKind: "file",
+              root: "project",
+              relPath: "买卖合同.docx",
+              kind: "file",
+            },
+          ],
+        });
+        expect(h.session()?.lastBoundCapabilityId).toBe("contract.review");
+        expect(result.turn.status).not.toBe("error");
+        const advertised = h.request(0).advertisedToolNames();
+        expect(advertised).toContain("update_plan");
+        expect(advertised).not.toEqual(
+          [...MAIL_CONTRACT_FAST_PATH_TOOL_NAMES, "update_plan"].toSorted((a, b) =>
+            a.localeCompare(b),
+          ),
+        );
+      },
+    );
+  });
+
+  it("implicit compile: 帮我看看 + 民事起诉状.docx binds litigation.draft", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("已处理。"));
+        await h.runTurn("帮我看看", {
+          contextPins: [
+            {
+              pinKind: "file",
+              root: "project",
+              relPath: "民事起诉状.docx",
+              kind: "file",
+            },
+          ],
+        });
+        expect(h.session()?.lastBoundCapabilityId).toBe("litigation.draft");
+      },
+    );
+  });
+
+  it("word-revision on a complaint binds litigation.draft and keeps the Word tool lock", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("已处理。"));
+        await h.runTurn("帮我改一下", {
+          contextPins: [
+            {
+              pinKind: "file",
+              root: "project",
+              relPath: "民事起诉状.docx",
+              kind: "file",
+            },
+          ],
+        });
+        expect(h.session()?.lastBoundCapabilityId).toBe("litigation.draft");
+        expect(h.request(0).hasAdvertisedTool("apply_surgical_edits")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("prepare_outbound_mail")).toBe(false);
+        expect(h.request(0).hasAdvertisedTool("render_document")).toBe(false);
+      },
+    );
+  });
+
+  it("correction utterance clears lastBound so 继续 does not sticky-resume", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("已处理。"));
+        await h.runTurn("帮我看看", {
+          contextPins: [
+            {
+              pinKind: "file",
+              root: "project",
+              relPath: "买卖合同.docx",
+              kind: "file",
+            },
+          ],
+        });
+        expect(h.session()?.lastBoundCapabilityId).toBe("contract.review");
+
+        h.enqueue(cassetteAssistant("好的，已取消。"));
+        await h.runTurn("不对");
+        expect(h.session()?.lastBoundCapabilityId).toBeUndefined();
+
+        h.enqueue(cassetteAssistant("请说明要办的事。"));
+        await h.runTurn("继续");
+        expect(h.session()?.lastBoundCapabilityId).toBeUndefined();
+      },
+    );
+  });
 });

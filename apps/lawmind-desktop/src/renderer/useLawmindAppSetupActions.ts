@@ -1,5 +1,4 @@
 import { useCallback, useState, type Dispatch, type SetStateAction } from "react";
-import { useSettingsPanelStore } from "./stores/settings-panel-store";
 import type { AppConfig } from "./lawmind-app-bootstrap";
 import { loadAppBootstrapSnapshot, refreshLocalAppConfig } from "./lawmind-app-bootstrap";
 import { setLoopbackApiAuthToken } from "./lawmind-api-auth";
@@ -289,7 +288,8 @@ export function useLawmindAppSetupActions(params: UseLawmindAppSetupActionsParam
     setWizRetrievalMode(config.retrievalMode);
     setWizError(null);
     setShowWizard(true);
-    useSettingsPanelStore.getState().setSettingsPanel(false);
+    // Wizard is portaled onto document.body. Do not close settings — otherwise
+    // Cancel / a missed overlay dumps the lawyer onto 对话 with no verify CTA.
     void (async () => {
       const bridge = window.lawmindDesktop;
       if (!bridge?.readModelSettings) {

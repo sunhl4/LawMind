@@ -146,6 +146,7 @@ describe("run_analysis", () => {
       "sessions/s1/session.json",
       "tasks/t1.json",
       "matters/m1/RULES.md",
+      "cases/m1/RULES.md",
       "cases/m1/.lawmind-dms.json",
     ]) {
       const result = await writeDocument.execute({ file_path: rel, content: "x" }, ctx(ws));

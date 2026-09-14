@@ -4,7 +4,7 @@ import {
   gotoShell,
   installE2eBrowserPrefs,
   installE2eDesktopBridge,
-  openDeskWork,
+  openContractFastLane,
   openWorkspaceChat,
 } from "./e2e-helpers";
 
@@ -25,8 +25,7 @@ test.describe("Solo 合同审查黄金路径", () => {
     await page.getByRole("button", { name: "新建对话" }).first().click();
     await expect(page.getByText("开始对话")).toBeVisible({ timeout: 20_000 });
 
-    await openDeskWork(page);
-    await page.getByTestId("lm-desk-work-contract").click();
+    await openContractFastLane(page);
     await expect(page.getByTestId("lm-contract-fast-lane")).toBeVisible({ timeout: 10_000 });
     await page.getByTestId("lm-contract-stance-neutral").click();
     await page.getByTestId("lm-contract-depth-quick").click();

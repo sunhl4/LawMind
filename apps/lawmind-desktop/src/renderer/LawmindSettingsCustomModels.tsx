@@ -2,6 +2,7 @@ import { useCallback, useId, useState, type FormEvent, type ReactNode } from "re
 import {
   addCustomModel,
   deleteCustomModel,
+  testModelConnection,
   type ModelCatalogEntry,
 } from "./lawmind-models-api";
 
@@ -20,6 +21,7 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
   const [apiKey, setApiKey] = useState("");
   const [stop, setStop] = useState("");
   const [busy, setBusy] = useState(false);
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const onSubmit = useCallback(
@@ -51,10 +53,11 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
         const desktop = window.lawmindDesktop;
         const keychainAvailable = Boolean(desktop?.saveCustomModelKey);
         let usedKeychain = false;
+        let added: { id: string } | undefined;
         if (keychainAvailable && desktop) {
           const status = await desktop.keychainStatus();
           if (status?.available) {
-            const added = await addCustomModel(apiBase, payload);
+            added = await addCustomModel(apiBase, payload);
             const saved = await desktop.saveCustomModelKey({
               id: added.id,
               apiKey: trimmedKey,
@@ -65,12 +68,21 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
           }
         }
         if (!usedKeychain) {
-          await addCustomModel(apiBase, payload);
+          added = await addCustomModel(apiBase, payload);
         }
         setLabel("");
         setApiKey("");
         setStop("");
         await onChanged();
+        const id = added?.id;
+        if (id) {
+          try {
+            await testModelConnection(apiBase, id);
+            await onChanged();
+          } catch (cause) {
+            setError(cause instanceof Error ? cause.message : String(cause));
+          }
+        }
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause));
       } finally {
@@ -96,6 +108,22 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
         setError(cause instanceof Error ? cause.message : String(cause));
       } finally {
         setBusy(false);
+      }
+    },
+    [apiBase, onChanged],
+  );
+
+  const onVerify = useCallback(
+    async (id: string) => {
+      setVerifyingId(id);
+      setError(null);
+      try {
+        await testModelConnection(apiBase, id);
+        await onChanged();
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      } finally {
+        setVerifyingId(null);
       }
     },
     [apiBase, onChanged],
@@ -137,7 +165,17 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
                     {typeof m.verifiedLatencyMs === "number" ? ` · ${m.verifiedLatencyMs}ms` : ""}
                   </span>
                 ) : (
-                  <span className="lm-pill lm-pill-warn">待验证</span>
+                  <>
+                    <span className="lm-pill lm-pill-warn">待验证</span>
+                    <button
+                      type="button"
+                      className="lm-btn lm-btn-secondary lm-btn-sm"
+                      disabled={busy || verifyingId !== null}
+                      onClick={() => void onVerify(m.id)}
+                    >
+                      {verifyingId === m.id ? "验证中…" : "验证模型"}
+                    </button>
+                  </>
                 )}
                 <button
                   type="button"

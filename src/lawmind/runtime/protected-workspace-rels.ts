@@ -4,7 +4,7 @@
  * 工作区内这些路径只能由专用服务（zod 校验）或服务器专用路由写入；agent 的
  * write_document、桌面 /api/fs/write、Electron fs:write 一律拒绝。否则模型一次
  * 写调用即可改写策略、MCP 配置、审计链、会话/任务真相源或案件 RULES.md
- * （RULES.md 会被注入系统提示词），治理体系名存实亡。
+ * （`matters/` 前缀与任意深度 `RULES.md` 均受保护；RULES 会被注入系统提示词），治理体系名存实亡。
  *
  * 注意：apps/lawmind-desktop/electron/fs-bridge.mjs 持有一份纯 JS 镜像，
  * 修改本文件清单时必须同步修改该镜像。
@@ -14,8 +14,8 @@ const EXACT_PROTECTED_RELS = new Set(["lawmind.policy.json", ".env", ".env.lawmi
 
 const PROTECTED_REL_PREFIXES = ["lawmind/", "audit/", "sessions/", "tasks/", "matters/"];
 
-/** 任意深度下的同名文件（如 cases/<matterId>/.lawmind-dms.json 存 DMS 连接配置）。 */
-const PROTECTED_BASENAMES = new Set([".lawmind-dms.json"]);
+/** 任意深度下的同名文件（如 cases/<matterId>/.lawmind-dms.json、cases/<id>/RULES.md）。 */
+const PROTECTED_BASENAMES = new Set([".lawmind-dms.json", "RULES.md"]);
 
 export function isProtectedWorkspaceRel(rel: string): boolean {
   const norm = rel.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "");

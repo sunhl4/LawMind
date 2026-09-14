@@ -36,7 +36,6 @@ describe("LawmindChatComposeToolbar slim bar", () => {
           onAllowWebSearchChange={vi.fn()}
           modelCatalog={[]}
           selectedModelId=""
-          onOpenWriteMaterials={vi.fn()}
         />,
       );
     });
@@ -50,14 +49,8 @@ describe("LawmindChatComposeToolbar slim bar", () => {
     });
     expect(panel?.hasAttribute("hidden")).toBe(false);
     expect(host.querySelector('[data-testid="lm-compose-permission-mode"]')).toBeTruthy();
-    expect(host.querySelector('[data-testid="lm-compose-desk-work"]')).toBeTruthy();
-    const deskPop = host.querySelector(".lm-compose-desk-work-pop");
-    expect(deskPop?.hasAttribute("hidden")).toBe(true);
-    await act(async () => {
-      (host.querySelector('[data-testid="lm-compose-desk-work"]') as HTMLButtonElement).click();
-    });
-    expect(deskPop?.hasAttribute("hidden")).toBe(false);
-    expect(host.querySelector('[data-testid="lm-desk-work-panel"]')).toBeTruthy();
+    expect(host.querySelector('[data-testid="lm-compose-desk-work"]')).toBeNull();
+    expect(host.querySelector('[data-testid="lm-desk-work-panel"]')).toBeNull();
     expect(host.querySelector('[data-testid="lm-compose-open-meeting"]')).toBeTruthy();
     expect(host.querySelector('[data-testid="lm-compose-options-advanced"]')).toBeNull();
     expect(host.querySelector('[data-testid="lm-compose-show-tool-trace"]')).toBeNull();
@@ -76,7 +69,6 @@ describe("LawmindChatComposeToolbar slim bar", () => {
           onAllowWebSearchChange={vi.fn()}
           modelCatalog={[]}
           selectedModelId=""
-          onOpenWriteMaterials={vi.fn()}
           contextBudget={{ used: 1000, effectiveLimit: 95000, level: "ok" }}
           onCompactContext={vi.fn()}
           onDistillLearning={vi.fn()}
@@ -97,7 +89,6 @@ describe("LawmindChatComposeToolbar slim bar", () => {
           onAllowWebSearchChange={vi.fn()}
           modelCatalog={[]}
           selectedModelId=""
-          onOpenWriteMaterials={vi.fn()}
           contextBudget={{ used: 80000, effectiveLimit: 95000, level: "warn" }}
           onCompactContext={vi.fn()}
           onDistillLearning={vi.fn()}

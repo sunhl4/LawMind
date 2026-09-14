@@ -559,6 +559,18 @@ export async function handleChatRoute({
             case "plan_update":
               sseWriteEvent("plan_update", { plan: event.plan });
               break;
+            case "intent":
+              sseWriteEvent("intent", {
+                capabilityId: event.capabilityId,
+                label: event.label,
+                lawyerSummary: event.lawyerSummary,
+                confidence: event.confidence,
+                source: event.source,
+                alternatives: event.alternatives,
+                chain: event.chain,
+                ...(event.softAsk ? { softAsk: event.softAsk } : {}),
+              });
+              break;
             default:
               break;
           }

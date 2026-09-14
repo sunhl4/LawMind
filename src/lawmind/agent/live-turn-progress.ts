@@ -128,6 +128,14 @@ export function applyLiveTurnEvent(sessionId: string, event: RunTurnEvent): void
     case "plan_update":
       next.turnPlan = event.plan;
       break;
+    case "intent":
+      next.steps.push({
+        id: `intent-${next.steps.length}`,
+        kind: "round",
+        label: event.lawyerSummary,
+        status: "done",
+      });
+      break;
     case "tool_budget":
       if (event.level === "warn") {
         next.steps.push({

@@ -66,7 +66,29 @@ LawMind **不把可审计当作产品价值、法律质量证明或用户信任�
 
 ## 三、当前期次与未完成项
 
-### 第十六期 — 律师工作台与可配置标准（当前期次）
+### 第十七期 — 隐式意图编译（当前期次）
+
+北极星：律师**丢材料或说一句话就能交办**。合同审查、诉讼状、函件、刑事、合规、并购等能力留在引擎里，默认不再让律师先选「办件」。
+
+对照 Codex：catalog 隐式匹配 + 渐进披露 + 显式 `$skill` 覆盖。LawMind 额外用**确定性信号抽取**（文本动词 × 文件形态 × 案件/邮件语境）保证审查↔诉讼等致命误绑可测。
+
+- [x] **P0 金标集**：`src/lawmind/intent/gold-set.ts` ≥50 条；致命对 `contract.review` ↔ `litigation.draft` 不得翻转。编译器自行择一，不再向律师提问分类。
+- [x] **P1 隐式绑定默认**：`compileIntent` 为 SSOT；空态改为「直接说事」；对话无办件菜单、无改路由按钮。一行「本轮按××处理」仅作状态。
+- [x] **P2 Catalog + 渐进披露**：未绑定时注入能力目录（8k 上限，不含邮件短路径）；已绑定仍只注入 1 份 Skill 正文。多意图写入 `chain` 并预填 2 步清单。
+- [x] **P3 文件形态**：文件名 + 正文前段 peek（docx/pdf/txt）；诉状头压过正文里的「合同」；邮件短路径与指定 Word 改稿仍硬钉。
+- [ ] **对照实测（真稿）**：仍开放，见第十五期。
+
+```bash
+pnpm exec vitest run src/lawmind/intent src/lawmind/skills/lawyer-capabilities.test.ts \
+  src/lawmind/agent/turn-orchestrator-cassettes.test.ts \
+  src/lawmind/agent/tools/disclosed-turn-tools.test.ts \
+  apps/lawmind-desktop/src/renderer/LawmindIntentStatusBar.test.tsx \
+  apps/lawmind-desktop/src/renderer/lawmind-chat-compose-toolbar.test.tsx \
+  apps/lawmind-desktop/src/renderer/LawmindChatEmptyGuide.test.tsx
+pnpm --filter lawmind-desktop typecheck
+```
+
+### 第十六期 — 律师工作台与可配置标准
 
 北极星：律师**打开 LawMind 就能完成当天工作**——看今日待办、跟案件与开庭、处理待回复邮件、整理谈话、按自己的标准审合同——不必再切邮箱、日历台账或自建 Excel。出稿仍在「对话」交办；待拍板仍在「在办」。
 

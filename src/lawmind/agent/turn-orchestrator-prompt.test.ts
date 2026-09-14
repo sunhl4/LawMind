@@ -351,6 +351,42 @@ describe("turn-orchestrator-prompt", () => {
     expect(result.systemPromptFinal).not.toContain(WORD_REVISION_PROMPT.split("\n")[0] ?? "");
   });
 
+  it("keeps Word 改稿 ops on a complaint without contract-family 改稿要点", async () => {
+    const session: AgentSession = {
+      sessionId: "sess-word-rev-pleading",
+      actorId: "system",
+      turns: [],
+      conversationHistory: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const result = await prepareTurnPromptContext({
+      config: {
+        workspaceDir,
+        model: { provider: "openai", model: "gpt-4o-mini", apiKey: "test" },
+      },
+      registry: new ToolRegistry(),
+      session,
+      instruction: "帮我改一下",
+      resolvedAssistantId: undefined,
+      linkedTaskIdForCtx: undefined,
+      projectDirResolved: undefined,
+      contextPins: [
+        {
+          pinKind: "file",
+          root: "project",
+          relPath: "民事起诉状.docx",
+          kind: "file",
+        },
+      ],
+    });
+    const prompt = visiblePrompt(result, session);
+    expect(prompt).toContain(WORD_REVISION_PROMPT.split("\n")[0] ?? "");
+    expect(prompt).toContain("诉讼文书");
+    expect(prompt).not.toContain("按合同正文判断");
+    expect(prompt).not.toContain("改路由");
+  });
+
   it("does not inject practice playbook on the mail-contract short path", async () => {
     const session: AgentSession = {
       sessionId: "sess-mail-short",

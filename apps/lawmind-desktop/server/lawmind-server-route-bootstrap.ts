@@ -9,6 +9,7 @@ import {
 import { resolveEdition } from "../../../src/lawmind/policy/edition.js";
 import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspace-policy.js";
 import { listTaskRecords } from "../../../src/lawmind/tasks/index.js";
+import { isResolvedModelVerified } from "../../../src/lawmind/models/index.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import { buildAgentConfig, isDesktopModelConfigured, sendJson } from "./lawmind-server-helpers.js";
 import { buildDoctorStats, buildMemoryTruthSourceFlags } from "./lawmind-health-payload.js";
@@ -22,6 +23,7 @@ export async function handleBootstrapRoute({ ctx, pathname, req, res, c }: Lawmi
   const lawMindRoot = resolveLawMindRoot(workspaceDir, envFile);
   const modelConfigured = isDesktopModelConfigured(workspaceDir, envFile);
   const built = buildAgentConfig(workspaceDir, { envFile });
+  const modelVerified = isResolvedModelVerified(lawMindRoot, built.modelId);
   const policyForEdition: LawMindWorkspacePolicy | null = policy.loaded
     ? (policy.policy as LawMindWorkspacePolicy)
     : null;
@@ -47,8 +49,10 @@ export async function handleBootstrapRoute({ ctx, pathname, req, res, c }: Lawmi
       ok: true,
       health: {
         modelConfigured,
+        modelVerified,
         missingApiKey: !modelConfigured,
         modelError: built.error ?? null,
+        modelName: built.config?.model?.model ?? null,
         doctor: buildDoctorStats(workspaceDir),
         memoryTruthSources: buildMemoryTruthSourceFlags(workspaceDir),
       },

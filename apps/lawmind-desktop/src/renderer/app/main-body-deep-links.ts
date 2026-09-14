@@ -15,6 +15,7 @@ export type ReviewDeepLinkDeps = {
   setMainView: (view: LawmindMainView) => void;
   setFocusMatterIdFromReview: (id: string | null) => void;
   setMatterCockpitOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  openMatterOnDesk?: (matterId: string) => void;
   reviewFocusMatterId: string | null;
 };
 
@@ -29,6 +30,7 @@ export function buildReviewDeepLinkHandlers(deps: ReviewDeepLinkDeps) {
     setMainView,
     setFocusMatterIdFromReview,
     setMatterCockpitOpen,
+    openMatterOnDesk,
     reviewFocusMatterId,
   } = deps;
   return {
@@ -65,10 +67,18 @@ export function buildReviewDeepLinkHandlers(deps: ReviewDeepLinkDeps) {
       setMainView("review");
     },
     onReturnToMatter: () => {
+      const mid = reviewFocusMatterId?.trim();
+      setReviewLaunchedFromMatter(false);
+      if (mid && openMatterOnDesk) {
+        if (reviewFocusMatterId) {
+          setFocusMatterIdFromReview(reviewFocusMatterId);
+        }
+        openMatterOnDesk(mid);
+        return;
+      }
       if (reviewFocusMatterId) {
         setFocusMatterIdFromReview(reviewFocusMatterId);
       }
-      setReviewLaunchedFromMatter(false);
       setMainView("workspace");
       setMatterCockpitOpen(true);
     },

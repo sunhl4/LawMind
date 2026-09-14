@@ -35,6 +35,8 @@ import type { RunTurnEvent } from "./turn-orchestrator-events.js";
 import { pruneTurnPlanForNewInstruction, withUpdatePlanControlTool } from "./turn-plan.js";
 export type { RunTurnEvent } from "./turn-orchestrator-events.js";
 import { resolveLawMindRoot } from "../assistants/store.js";
+import { compileIntent, compiledIntentPlanItems } from "../intent/compile-intent.js";
+import { loadMatterKindForIntent, peekPinnedDocuments } from "../intent/peek-pinned-documents.js";
 import type { MemoryContext } from "../memory/index.js";
 import { isContractFastLaneInstruction } from "../platform/contract-fast-lane-instruction.js";
 import { extractSuggestedReplyTo } from "../platform/mail-contract-short-path-instruction.js";
@@ -48,6 +50,7 @@ import {
 } from "../policy/workspace-policy.js";
 import { selectHardClarificationKeys } from "../router/intake-gate.js";
 import { contextUsesHostFileLedger } from "../runtime/tool-pipeline.js";
+import { deskItemById } from "../skills/lawyer-capability-lock.js";
 import { ensureLawyerWorkForTurn } from "../work/goal.js";
 import { intersectAllowedToolNames } from "./child-gates.js";
 import { mergeConfirmedAnswers } from "./confirmed-answers.js";
@@ -257,6 +260,36 @@ export async function runTurn(opts: {
   });
   const { presetForTools, roleForTools } = assistantTooling;
   const playbookLock = resolvePlaybookToolLock(instruction, opts.contextPins);
+  const documentPeeks = await peekPinnedDocuments({
+    workspaceDir: config.workspaceDir,
+    projectDir: projectDirResolved,
+    pins: opts.contextPins,
+  }).catch(() => []);
+  const compiledIntent = compileIntent({
+    instruction,
+    pins: opts.contextPins,
+    documents: documentPeeks,
+    matterKind: loadMatterKindForIntent(config.workspaceDir, session.matterId),
+    previousCapabilityId: session.lastBoundCapabilityId,
+    historyText,
+    mailFastPath: mailContractTurn,
+  });
+  if (compiledIntent.capabilityId) {
+    session.lastBoundCapabilityId = compiledIntent.capabilityId;
+  } else {
+    delete session.lastBoundCapabilityId;
+  }
+  const chainPlanSteps = compiledIntentPlanItems(compiledIntent);
+  if (chainPlanSteps.length >= 2 && !session.turnPlan) {
+    session.turnPlan = {
+      items: chainPlanSteps.map((step, index) => ({
+        step,
+        status: index === 0 ? "in_progress" : "pending",
+      })),
+      explanation: "按材料自动组合",
+      updatedAt: new Date().toISOString(),
+    };
+  }
   const allowNamesRaw = intersectAllowedToolNames(
     intersectAllowedToolNames(
       config.allowedToolNames,
@@ -276,6 +309,9 @@ export async function runTurn(opts: {
     hiddenNames: hiddenTools,
     instruction,
     projectDir: projectDirResolved,
+    documents: documentPeeks,
+    matterKind: loadMatterKindForIntent(config.workspaceDir, session.matterId),
+    previousCapabilityId: session.lastBoundCapabilityId,
   });
   const modelToolNames = resolveModelToolNames({
     registeredNames: registry.listDefinitions().map((def) => def.name),
@@ -299,6 +335,7 @@ export async function runTurn(opts: {
     permissionMode,
     assistantTooling,
     availableToolNames: modelToolNames,
+    compiledIntent,
   });
 
   const toolSandboxEnabled =
@@ -390,6 +427,19 @@ export async function runTurn(opts: {
 
   try {
     appendSessionEvent(config.workspaceDir, session.sessionId, { type: "turn_begin" }, { turnId });
+    emitEvent({
+      type: "intent",
+      capabilityId: compiledIntent.capabilityId,
+      label: compiledIntent.capabilityId
+        ? deskItemById(compiledIntent.capabilityId)?.label
+        : undefined,
+      lawyerSummary: compiledIntent.lawyerSummary,
+      confidence: compiledIntent.confidence,
+      source: compiledIntent.source,
+      alternatives: compiledIntent.alternatives,
+      chain: compiledIntent.chain,
+      ...(compiledIntent.softAsk ? { softAsk: compiledIntent.softAsk } : {}),
+    });
 
     const policyForCompact = readWorkspacePolicyFile(config.workspaceDir);
     const budgetOpts = {

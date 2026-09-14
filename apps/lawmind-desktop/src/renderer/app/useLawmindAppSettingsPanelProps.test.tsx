@@ -55,6 +55,7 @@ describe("useLawmindAppSettingsPanelProps", () => {
         reconnectLocalService: vi.fn(),
         localServiceReconnecting: false,
         openApiWizard: vi.fn(),
+        onVerifyModel: vi.fn(),
         modelProviders: [],
         platformProviders: [],
         platformMode: "none",

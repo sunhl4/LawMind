@@ -3,7 +3,7 @@ import {
   e2eMockApiBase,
   gotoShell,
   installE2eBrowserPrefs,
-  openDeskWorkMore,
+  openResearchFastLane,
   openWorkspaceChat,
 } from "./e2e-helpers";
 
@@ -27,9 +27,7 @@ test.describe("Solo 研究培训快车道", () => {
     await page.getByRole("button", { name: "新建对话" }).first().click();
     await expect(page.getByText("开始对话")).toBeVisible({ timeout: 20_000 });
 
-    await openDeskWorkMore(page);
-    await page.getByTestId("lm-empty-open-research-fast-lane").click();
-    await expect(page.getByTestId("lm-research-fast-lane")).toBeVisible({ timeout: 10_000 });
+    await openResearchFastLane(page);
     await page.getByTestId("lm-research-lane-compliance").click();
     await page.getByTestId("lm-research-lane-topic").fill("跨境数据合规 E2E");
     await page.getByTestId("lm-research-lane-jurisdictions").fill("中国内地 / 欧盟");
@@ -74,9 +72,7 @@ test.describe("Solo 研究培训快车道", () => {
     await openWorkspaceChat(page);
     await page.getByRole("button", { name: "新建对话" }).first().click();
     await expect(page.getByText("开始对话")).toBeVisible({ timeout: 20_000 });
-    await openDeskWorkMore(page);
-    await page.getByTestId("lm-empty-open-research-fast-lane").click();
-    await expect(page.getByTestId("lm-research-fast-lane")).toBeVisible({ timeout: 10_000 });
+    await openResearchFastLane(page);
 
     await page.getByTestId("lm-research-lane-learning").click();
     await page.getByTestId("lm-research-lane-topic").fill("个人信息保护法速览");
@@ -94,9 +90,7 @@ test.describe("Solo 研究培训快车道", () => {
     await openWorkspaceChat(page);
     await page.getByRole("button", { name: "新建对话" }).first().click();
     await expect(page.getByText("开始对话")).toBeVisible({ timeout: 20_000 });
-    await openDeskWorkMore(page);
-    await page.getByTestId("lm-empty-open-research-fast-lane").click();
-    await expect(page.getByTestId("lm-research-fast-lane")).toBeVisible({ timeout: 10_000 });
+    await openResearchFastLane(page);
 
     await page.getByTestId("lm-research-lane-compliance").click();
     await page.getByTestId("lm-research-lane-topic").fill("新能源汽车出口");
@@ -117,9 +111,7 @@ test.describe("Solo 研究培训快车道", () => {
     await openWorkspaceChat(page);
     await page.getByRole("button", { name: "新建对话" }).first().click();
     await expect(page.getByText("开始对话")).toBeVisible({ timeout: 20_000 });
-    await openDeskWorkMore(page);
-    await page.getByTestId("lm-empty-open-research-fast-lane").click();
-    await expect(page.getByTestId("lm-research-fast-lane")).toBeVisible({ timeout: 10_000 });
+    await openResearchFastLane(page);
 
     await page.getByTestId("lm-research-lane-compliance").click();
     await page.getByTestId("lm-research-lane-topic").fill("主题");

@@ -88,4 +88,27 @@ describe("buildReadinessSnapshot", () => {
     expect(s.modelVerified).toBe(false);
     expect(s.pills.find((p) => p.id === "model")?.label).toBe("模型待验证");
   });
+
+  it("treats health.modelVerified as verified when catalog stamp is still empty", () => {
+    const s = buildReadinessSnapshot({
+      health: { modelConfigured: true, modelVerified: true, modelName: "qwen-plus" },
+      workspaceDir: "/Users/me/workspace",
+      apiReachable: true,
+      modelCatalog: [
+        {
+          id: "builtin:qwen-plus",
+          kind: "builtin",
+          label: "Qwen Plus",
+          group: "通义",
+          provider: "dashscope",
+          model: "qwen-plus",
+          baseUrl: "https://example.com",
+          configured: true,
+        },
+      ],
+      selectedModelId: "builtin:qwen-plus",
+    });
+    expect(s.modelVerified).toBe(true);
+    expect(s.allReady).toBe(true);
+  });
 });

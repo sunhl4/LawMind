@@ -4,7 +4,7 @@ import {
   e2eMockApiBase,
   gotoShell,
   installE2eBrowserPrefs,
-  openDeskWorkMore,
+  openWriteMaterials,
 } from "./e2e-helpers";
 
 test.describe("Job intake & template gallery", () => {
@@ -15,8 +15,7 @@ test.describe("Job intake & template gallery", () => {
   test("compose gallery form-first fills 【交办】 prompt", async ({ page }) => {
     await gotoShell(page);
 
-    await openDeskWorkMore(page);
-    await page.getByTestId("lm-compose-write-materials").click();
+    await openWriteMaterials(page);
     const gallery = page.getByRole("dialog", { name: /写文稿|做材料/i });
     await expect(gallery).toBeVisible({ timeout: 15_000 });
 
@@ -44,8 +43,7 @@ test.describe("Job intake & template gallery", () => {
 
   test("intake triage confirm path fills composer", async ({ page }) => {
     await gotoShell(page);
-    await openDeskWorkMore(page);
-    await page.getByTestId("lm-compose-write-materials").click();
+    await openWriteMaterials(page);
     const gallery = page.getByRole("dialog", { name: /写文稿|做材料/i });
     await expect(gallery).toBeVisible({ timeout: 15_000 });
     const fillBtn = gallery.getByRole("button", { name: "填表交办" }).first();
@@ -73,8 +71,7 @@ test.describe("Job intake & template gallery", () => {
   test("golden journey: 填表交办 → 文书台 → 出稿检查可见", async ({ page }) => {
     await gotoShell(page);
 
-    await openDeskWorkMore(page);
-    await page.getByTestId("lm-compose-write-materials").click();
+    await openWriteMaterials(page);
     const gallery = page.getByRole("dialog", { name: /写文稿|做材料/i });
     await expect(gallery).toBeVisible({ timeout: 15_000 });
     const fillBtn = gallery.getByRole("button", { name: "填表交办" }).first();
@@ -95,7 +92,7 @@ test.describe("Job intake & template gallery", () => {
 
     // assertReviewGateList opens 文书台 and waits for draft detail (do not open twice).
     await assertReviewGateList(page);
-    await expect(page.getByText(/验收|acceptance|门禁/i).first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/出稿检查|验收|acceptance/i).first()).toBeVisible({ timeout: 15_000 });
   });
 
   test("first-run prefs step is reachable when dismiss key cleared", async ({ page }) => {

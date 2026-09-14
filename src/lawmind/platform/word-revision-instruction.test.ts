@@ -93,5 +93,7 @@ describe("word-revision-instruction", () => {
     expect(WORD_REVISION_PROMPT).toContain("不要读 `playbooks/`");
     expect(WORD_REVISION_PROMPT).toContain("改稿要点");
     expect(WORD_REVISION_PROMPT).toContain("不是必须全改");
+    expect(WORD_REVISION_PROMPT).toContain("原文件正文");
+    expect(WORD_REVISION_PROMPT).not.toMatch(/deliverable 必须是合同正文/);
   });
 });

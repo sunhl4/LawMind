@@ -173,6 +173,17 @@ export type RunTurnEvent =
   | {
       type: "plan_update";
       plan: import("./turn-plan.js").AgentTurnPlan;
+    }
+  | {
+      type: "intent";
+      capabilityId?: string;
+      label?: string;
+      lawyerSummary: string;
+      confidence: "high" | "medium" | "low";
+      source: string;
+      alternatives: Array<{ id: string; label: string; reason: string }>;
+      chain: string[];
+      softAsk?: { question: string; options: Array<{ id: string; label: string }> };
     };
 
 export function collectRecentToolNamesFromSession(session: AgentSession): string[] {

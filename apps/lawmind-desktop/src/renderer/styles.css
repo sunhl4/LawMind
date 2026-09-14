@@ -4350,7 +4350,8 @@ html.lm-theme-dark .lm-main-header {
 .lm-wizard-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  /* Above file-workbench pickers (~21000); confirm dialogs stay at 32000. */
+  z-index: 25000;
   background:
     radial-gradient(80% 60% at 50% 30%, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.85));
   -webkit-backdrop-filter: blur(10px) saturate(120%);
@@ -6023,6 +6024,29 @@ select option {
   font-size: 11px;
   font-weight: 600;
   color: var(--muted);
+}
+
+.lm-intent-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: var(--r-sm, 6px);
+  background: var(--surface-elevated, var(--surface));
+}
+
+.lm-intent-status-main {
+  min-width: 0;
+  flex: 1 1 160px;
+}
+
+.lm-intent-status-main strong {
+  font-size: 12px;
+  font-weight: 650;
 }
 
 .lm-desk-work-item {

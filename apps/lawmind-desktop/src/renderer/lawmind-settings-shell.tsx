@@ -60,6 +60,7 @@ type Props = {
   workspaceLabel: string;
   health: {
     modelConfigured: boolean;
+    modelVerified?: boolean;
     retrievalMode?: string;
     dualLegalConfigured?: boolean;
     webSearchApiKeyConfigured?: boolean;
@@ -91,6 +92,7 @@ type Props = {
   onReconnectLocalService?: () => void | Promise<void>;
   localServiceReconnecting?: boolean;
   onOpenApiWizard: () => void;
+  onVerifyModel?: () => void | Promise<void>;
   modelProviders?: ProviderKeyStatus[];
   platformProviders?: import("./lawmind-models-api").PlatformProviderKeyStatus[];
   platformMode?: "proxy" | "platform_key" | "none";
@@ -151,6 +153,7 @@ export function LawmindSettingsPage({
   onReconnectLocalService,
   localServiceReconnecting = false,
   onOpenApiWizard,
+  onVerifyModel,
   modelProviders,
   platformProviders,
   platformMode,
@@ -254,6 +257,7 @@ export function LawmindSettingsPage({
     onReconnectLocalService,
     localServiceReconnecting,
     onOpenApiWizard,
+    onVerifyModel,
     modelProviders,
     platformProviders,
     platformMode,
@@ -446,6 +450,7 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
     onReconnectLocalService,
     localServiceReconnecting,
     onOpenApiWizard,
+    onVerifyModel,
     modelProviders,
     platformProviders,
     platformMode,
@@ -478,6 +483,9 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
                 health={healthPayload}
                 apiBase={config.apiBase}
                 onOpenApiWizard={onOpenApiWizard}
+                onVerifyModel={onVerifyModel}
+                modelCatalog={modelCatalog}
+                selectedModelId={selectedModelId}
                 onOpenCollaborationPage={() => {
                   onClose();
                   onOpenCollaborationPage();

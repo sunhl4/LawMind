@@ -2,7 +2,7 @@ import type { ModelCatalogEntry } from "./lawmind-models-api";
 import { resolveComposeModelSelectValue } from "./lawmind-model-picker-utils";
 
 export const MODEL_NOT_VERIFIED_HINT =
-  "当前模型尚未验证通过。本机有 Key 不等于能连上。请点「测试连接」；若提示 Key 无效，到服务商重新生成后再用「API 配置向导」粘贴。";
+  "当前模型尚未验证通过。本机有 Key 不等于能连上。请点「验证模型」；若提示 Key 无效，到服务商重新生成后再用「API 配置向导」粘贴。";
 
 /** Whether the catalog row has a recent successful probe (`verifiedAt`). */
 export function isModelEntryVerified(row: ModelCatalogEntry | undefined): boolean {
@@ -22,4 +22,13 @@ export function isSelectedModelVerified(
   selectedModelId: string,
 ): boolean {
   return isModelEntryVerified(findCatalogEntry(catalog, selectedModelId));
+}
+
+/** Catalog probe stamp, or `/api/health` / bootstrap `modelVerified` after wizard save. */
+export function isActiveModelVerified(opts: {
+  catalog: ModelCatalogEntry[];
+  selectedModelId: string;
+  healthVerified?: boolean;
+}): boolean {
+  return opts.healthVerified === true || isSelectedModelVerified(opts.catalog, opts.selectedModelId);
 }

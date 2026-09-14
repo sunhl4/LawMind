@@ -35,6 +35,7 @@ export type UseLawmindAppSettingsPanelPropsInput = {
   reconnectLocalService: () => void | Promise<void>;
   localServiceReconnecting: boolean;
   openApiWizard: () => void;
+  onVerifyModel?: () => void | Promise<void>;
   modelProviders: ProviderKeyStatus[];
   platformProviders: import("../lawmind-models-api").PlatformProviderKeyStatus[];
   platformMode: "proxy" | "platform_key" | "none";
@@ -86,6 +87,7 @@ export function useLawmindAppSettingsPanelProps(
     reconnectLocalService,
     localServiceReconnecting,
     openApiWizard,
+    onVerifyModel,
     modelProviders,
     platformProviders,
     platformMode,
@@ -154,6 +156,7 @@ export function useLawmindAppSettingsPanelProps(
       onReconnectLocalService: reconnectLocalService,
       localServiceReconnecting,
       onOpenApiWizard: openApiWizard,
+      onVerifyModel,
       modelProviders,
       platformProviders,
       platformMode,
@@ -256,6 +259,7 @@ export function useLawmindAppSettingsPanelProps(
       reconnectLocalService,
       localServiceReconnecting,
       openApiWizard,
+      onVerifyModel,
       modelProviders,
       platformProviders,
       platformMode,

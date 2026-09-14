@@ -42,6 +42,8 @@ export type LawmindAppRootLayoutInput = {
   openReviewFromWorkspace: (target?: { taskId?: string; matterId?: string }) => void;
   matterCockpitOpen: boolean;
   setMatterCockpitOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  deskMatterFocus: { id: string; n: number } | null;
+  setDeskMatterFocus: React.Dispatch<React.SetStateAction<{ id: string; n: number } | null>>;
   reviewLaunchedFromMatter: boolean;
   setReviewLaunchedFromMatter: (v: boolean) => void;
   agentsDeskTab: AgentsDeskTab;
@@ -254,6 +256,18 @@ export function useLawmindAppRootLayout(
     watchBackgroundRevisionSession,
   } = actions;
 
+  const openMatterOnDesk = (matterId: string) => {
+    const mid = matterId.trim();
+    if (!mid) {
+      return;
+    }
+    recordsDeskMatters.setSelectedKey(mid);
+    setContextMatterId(mid);
+    input.setMatterCockpitOpen(false);
+    input.setDeskMatterFocus((prev) => ({ id: mid, n: (prev?.n ?? 0) + 1 }));
+    setMainView("desk");
+  };
+
   const headerProps = useLawmindAppHeaderProps({
     mainView,
     assistants,
@@ -267,6 +281,7 @@ export function useLawmindAppRootLayout(
     projectDir,
     currentMatterLabel: input.chatMatterHeadline?.trim() || currentMatterLabel,
     contextMatterId,
+    openMatterOnDesk,
     sidebarCollapsed: input.sidebarCollapsed,
     setSidebarCollapsed: input.setSidebarCollapsed,
     wsShowEditor: input.wsShowEditor,
@@ -313,6 +328,8 @@ export function useLawmindAppRootLayout(
     setMainView,
     setContextMatterId,
     setMatterCockpitOpen: input.setMatterCockpitOpen,
+    deskMatterFocus: input.deskMatterFocus,
+    setDeskMatterFocus: input.setDeskMatterFocus,
     setSessionByAssistant,
     setReviewLaunchedFromMatter: input.setReviewLaunchedFromMatter,
     setReviewFocusTaskId,
@@ -485,6 +502,7 @@ export function useLawmindAppRootLayout(
     reconnectLocalService,
     localServiceReconnecting,
     openApiWizard,
+    onVerifyModel: composeModelQuickTest,
     modelProviders,
     platformProviders,
     platformMode,
@@ -531,10 +549,7 @@ export function useLawmindAppRootLayout(
     selectedMatterKey: recordsDeskMatters.selectedKey,
     onSelectMatterKey: recordsDeskMatters.setSelectedKey,
     onSelectMatterForCockpit: (matterId) => {
-      recordsDeskMatters.setSelectedKey(matterId);
-      setContextMatterId(matterId);
-      input.setMatterCockpitOpen(true);
-      setMainView("workspace");
+      openMatterOnDesk(matterId);
     },
     matterCockpitOpen: input.matterCockpitOpen,
     mainView,

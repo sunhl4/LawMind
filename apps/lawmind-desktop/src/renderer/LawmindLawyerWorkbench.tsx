@@ -110,6 +110,8 @@ export type LawmindLawyerWorkbenchProps = {
   onShowArtifact?: (relPath: string) => void;
   onReconnectLocalService?: () => void | Promise<void>;
   localServiceReconnecting?: boolean;
+  /** Open 本案卷宗 when bumped from header / sidebar / deep link. */
+  deskMatterFocus?: { id: string; n: number } | null;
 };
 
 const KIND_FILTERS: Array<{ id: "all" | MatterKind; label: string }> = [
@@ -266,6 +268,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     onShowArtifact,
     onReconnectLocalService,
     localServiceReconnecting,
+    deskMatterFocus,
   } = props;
   const [kind, setKind] = useState<"all" | MatterKind>("all");
   const [matterPane, setMatterPane] = useState<MatterPaneId>("overview");
@@ -528,6 +531,16 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     onSelectMatter(matterId);
   };
 
+  useEffect(() => {
+    const mid = deskMatterFocus?.id?.trim();
+    if (!mid) {
+      return;
+    }
+    openMatter(mid);
+    // openMatter closes over setters; nonce forces re-open of the same matter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional focus bump
+  }, [deskMatterFocus?.id, deskMatterFocus?.n]);
+
   const activateTodayItem = (item: TodayItem) => {
     if (item.kind === "plan") {
       void togglePlan(item);
@@ -780,7 +793,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
               </p>
               <h1>工作台</h1>
               <p className="lm-lawyer-lede">
-                今天要回的、要开的、要拍的。点右侧「在办案件」打开卷宗。不要点顶栏案件名进旧页。
+                今天要回的、要开的、要拍的。点右侧「在办案件」或顶栏案件名打开本案卷宗。
               </p>
             </div>
             <div className="lm-lawyer-search">
@@ -1161,7 +1174,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
           </button>
         </>
       ) : (
-        <div className="lm-matter-file">
+        <div className="lm-matter-file" data-testid="lm-lawyer-matter-dossier">
           <button type="button" className="lm-lawyer-back" onClick={() => setDesk("cockpit")}>
             ← 返回今日
           </button>

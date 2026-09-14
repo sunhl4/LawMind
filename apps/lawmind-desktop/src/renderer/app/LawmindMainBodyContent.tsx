@@ -17,7 +17,6 @@ import type { FileChatContextItem } from "../lawmind-file-chat-context";
 import type { TruthSourceContextPin } from "../../../../../src/lawmind/platform/compose-context-pin.ts";
 import type { LawmindComposeExtras } from "../useLawmindComposeExtras";
 import type { LawmindHealthState } from "../useLawmindAppBootstrapEffects";
-import { MatterView } from "./MatterView";
 import { ReviewView } from "./ReviewView";
 import { AgentFleetView } from "./AgentFleetView";
 import { MeetingView } from "./MeetingView";
@@ -27,7 +26,6 @@ import { pickWorkspaceMainPaneProps } from "./pickWorkspaceMainPaneProps";
 import {
   pickAgentFleetViewProps,
   pickLawyerWorkbenchProps,
-  pickMatterViewProps,
   pickMeetingViewProps,
   pickReviewViewProps,
 } from "./pickMainBodyBranchProps";
@@ -186,15 +184,13 @@ export type LawmindMainBodyContentProps = {
   sessionRequiresActions?: LawMindRequiresAction[];
   onRefreshActionSummary?: () => void;
   onChatResumeComplete?: () => void | Promise<void>;
+  /** Bump to open 工作台本案卷宗 (same matter can re-open). */
+  deskMatterFocus?: { id: string; n: number } | null;
 };
 
 export function LawmindMainBodyContent(props: LawmindMainBodyContentProps) {
-  const { mainView, matterCockpitOpen } = useLawmindShellNavigationContext();
+  const { mainView } = useLawmindShellNavigationContext();
 
-  if (mainView === "workspace" && matterCockpitOpen && props.config) {
-    const matterProps = pickMatterViewProps(props);
-    return matterProps ? <MatterView {...matterProps} /> : null;
-  }
   if (mainView === "meeting") {
     return <MeetingView {...pickMeetingViewProps(props)} />;
   }
@@ -218,7 +214,7 @@ export function LawmindMainBodyContent(props: LawmindMainBodyContentProps) {
       </LawmindErrorBoundary>
     ) : null;
   }
-  if (mainView === "workspace" && !matterCockpitOpen && !props.config) {
+  if (mainView === "workspace" && !props.config) {
     return (
       <LawmindWorkspaceBootstrapGate error={props.error} onOpenApiWizard={props.onOpenApiWizard} />
     );

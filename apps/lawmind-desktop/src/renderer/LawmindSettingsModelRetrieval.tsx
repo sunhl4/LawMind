@@ -21,7 +21,7 @@ import {
   type LawmindSettingsAppConfig,
   type LawmindSettingsHealth,
 } from "./lawmind-settings-models.ts";
-import { isSelectedModelVerified } from "./lawmind-model-verify";
+import { isActiveModelVerified } from "./lawmind-model-verify";
 import { LawmindAuthoritySetup } from "./LawmindAuthoritySetup";
 
 type Props = {
@@ -153,7 +153,12 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
   }, [apiBase, health?.authorityCorpus?.provider]);
 
   const modelOk =
-    Boolean(health?.modelConfigured) && isSelectedModelVerified(modelCatalog, selectedModelId);
+    Boolean(health?.modelConfigured) &&
+    isActiveModelVerified({
+      catalog: modelCatalog,
+      selectedModelId,
+      healthVerified: health?.modelVerified,
+    });
   const webStatus = webSearchStatusLabel(health ?? {});
   const shareRetrieval = config.retrievalMode !== "dual";
   const configuredModels = modelCatalog.filter((m) => m.configured);
@@ -164,13 +169,32 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
         <div className="lm-settings-row">
           <span className="lm-settings-key">模型</span>
           <span className={modelOk ? "lm-pill lm-pill-success" : "lm-pill lm-pill-warn"}>
-            {!health?.modelConfigured
-              ? "待配置"
-              : isSelectedModelVerified(modelCatalog, selectedModelId)
-                ? "已验证"
-                : "待验证"}
+            {!health?.modelConfigured ? "待配置" : modelOk ? "已验证" : "待验证"}
           </span>
+          {!health?.modelConfigured ? (
+            <button type="button" className="lm-btn lm-btn-accent lm-btn-sm" onClick={onOpenApiWizard}>
+              API 配置向导
+            </button>
+          ) : !modelOk && apiBase ? (
+            <button
+              type="button"
+              className="lm-btn lm-btn-accent lm-btn-sm"
+              data-testid="lm-settings-verify-model"
+              disabled={modelTestBusy}
+              onClick={() => void onTestModel()}
+            >
+              {modelTestBusy ? "验证中…" : "验证模型"}
+            </button>
+          ) : null}
         </div>
+        {modelTestResult ? (
+          <p
+            className={`lm-settings-caption ${modelTestResult.startsWith("连接成功") ? "lm-settings-caption--ok" : "lm-settings-caption--warn"}`}
+            role="status"
+          >
+            {modelTestResult}
+          </p>
+        ) : null}
         {health?.modelName ? (
           <div className="lm-settings-row">
             <span className="lm-settings-key">当前</span>
@@ -306,7 +330,7 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
           </p>
         ) : !modelOk ? (
           <p className="lm-settings-caption lm-settings-caption--warn" role="status">
-            已填 Key 还不等于能连上。请点「测试连接」；失败时到服务商重新生成 Key，再用向导粘贴。
+            已填 Key 还不等于能连上。请点「验证模型」；失败时到服务商重新生成 Key，再用向导粘贴。
           </p>
         ) : health?.modelEnvFileExists === false ? (
           <p className="lm-settings-caption lm-settings-caption--warn" role="status">
@@ -325,18 +349,10 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
               disabled={modelTestBusy || !health?.modelConfigured}
               onClick={() => void onTestModel()}
             >
-              {modelTestBusy ? "测试中…" : "测试连接"}
+              {modelTestBusy ? "验证中…" : "验证模型"}
             </button>
           ) : null}
         </div>
-        {modelTestResult ? (
-          <p
-            className={`lm-settings-caption ${modelTestResult.startsWith("连接成功") ? "lm-settings-caption--ok" : "lm-settings-caption--warn"}`}
-            role="status"
-          >
-            {modelTestResult}
-          </p>
-        ) : null}
         {authorityProbeMsg ? (
           <p
             className="lm-settings-caption"

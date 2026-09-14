@@ -54,6 +54,9 @@ type Props = {
   health: HealthPayload | null;
   apiBase: string;
   onOpenApiWizard: () => void;
+  onVerifyModel?: () => void | Promise<void>;
+  modelCatalog?: import("./lawmind-models-api").ModelCatalogEntry[];
+  selectedModelId?: string;
   onOpenCollaborationPage: () => void;
   onScrollToWorkspace?: () => void;
   onOpenMemorySection?: () => void;
@@ -86,6 +89,9 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
     health: healthProp,
     apiBase,
     onOpenApiWizard,
+    onVerifyModel,
+    modelCatalog = [],
+    selectedModelId = "",
     onOpenCollaborationPage,
     onScrollToWorkspace,
     onOpenMemorySection,
@@ -384,7 +390,14 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
 
   return (
     <div className="lm-settings-section lm-settings-doctor" id="lawmind-settings-doctor">
-      <DoctorConnectionGroup health={health} doctor={doctor} onOpenApiWizard={onOpenApiWizard} />
+      <DoctorConnectionGroup
+        health={health}
+        doctor={doctor}
+        onOpenApiWizard={onOpenApiWizard}
+        onVerifyModel={onVerifyModel}
+        modelCatalog={modelCatalog}
+        selectedModelId={selectedModelId}
+      />
 
       <DoctorWorkspaceTruthGroup
         ws={ws}

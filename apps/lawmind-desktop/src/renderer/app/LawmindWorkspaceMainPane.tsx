@@ -4,12 +4,11 @@ import type { ChatSessionListEntry } from "../lawmind-chat-active-storage";
 import { LawmindChatSessionTabs } from "../LawmindChatSessionTabs";
 import { LawmindChatMessagesColumn, LawmindChatComposeFooter } from "../lawmind-chat-shell";
 import type { ChatMsg } from "../lawmind-chat";
-import { formatFileChatContextPill, isContractReviewCandidatePath, type FileChatContextItem } from "../lawmind-file-chat-context";
+import { formatFileChatContextPill, type FileChatContextItem } from "../lawmind-file-chat-context";
 import { encodeFileContextPin, type TruthSourceContextPin } from "../../../../../src/lawmind/platform/compose-context-pin.ts";
 import { formatTruthPinChip } from "../lawmind-compose-context";
 import { pinDroppedChatFiles } from "../lawmind-file-drop-context";
 import { useChatFileDropTarget } from "../useChatFileDropTarget";
-import { requestContractFastLaneOpen } from "../lawmind-contract-fast-lane-bus";
 import { apiSendJson } from "../api-client";
 import { LawmindWorkspacePaneRecovery } from "./LawmindWorkspacePaneRecovery";
 import { LawmindSessionHistorySidebar } from "../LawmindSessionHistorySidebar";
@@ -224,12 +223,6 @@ function LawmindWorkspaceMainPaneImpl({
               /* local chips still apply on the following send */
             });
           }
-          if (pin.kind === "file" && isContractReviewCandidatePath(pin.relPath)) {
-            requestContractFastLaneOpen({
-              materialsHint: `已引用：${pin.relPath}`,
-              preferCompact: true,
-            });
-          }
         },
       });
     },
@@ -356,7 +349,6 @@ function LawmindWorkspaceMainPaneImpl({
                 onOpenNeedsDecisionDesk={openNeedsDecisionDesk}
                 onCreateMatter={onCreateMatter}
                 onOpenAgentsWorkflows={openAgentsWorkflows}
-                onOpenWriteMaterials={() => setTemplateGalleryOpen(true)}
                 onDispatchPrompt={(prompt) => void onSendClarificationMessage(prompt)}
                 showEmptyMatterGuide={showEmptyMatterGuide}
                 onDeleteChatMessage={onDeleteChatMessage}

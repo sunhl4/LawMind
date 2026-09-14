@@ -74,4 +74,39 @@ describe("LawmindReadinessStrip", () => {
     });
     expect(onOpenApiWizard).toHaveBeenCalledOnce();
   });
+
+  it("shows 验证模型 when a key is stored but not probed", async () => {
+    const onVerifyModel = vi.fn();
+    await act(async () => {
+      root.render(
+        <LawmindReadinessStrip
+          health={{ modelConfigured: true, doctor: { workspaceStandard: { ok: true } } }}
+          workspaceDir="/tmp/ws"
+          apiReachable
+          modelCatalog={[
+            {
+              id: "m1",
+              kind: "builtin",
+              label: "Test",
+              group: "default",
+              provider: "openai",
+              model: "test-model",
+              baseUrl: "http://localhost",
+              configured: true,
+            },
+          ]}
+          selectedModelId="m1"
+          onOpenApiWizard={vi.fn()}
+          onVerifyModel={onVerifyModel}
+        />,
+      );
+    });
+    expect(host.textContent).toContain("模型待验证");
+    const btn = host.querySelector('[data-testid="lm-readiness-verify-model"]');
+    expect(btn?.textContent).toContain("验证模型");
+    await act(async () => {
+      btn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(onVerifyModel).toHaveBeenCalledOnce();
+  });
 });

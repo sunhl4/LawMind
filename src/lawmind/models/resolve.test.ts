@@ -2,11 +2,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { addCustomModel, readModelsStore } from "./custom-store.js";
+import { addCustomModel, readModelsStore, recordVerification } from "./custom-store.js";
 import {
   ENV_CURRENT_MODEL_ID,
   buildModelCatalog,
   isAnyModelConfigured,
+  isResolvedModelVerified,
   resolveAgentModelById,
   resolveDefaultModelId,
   resolveModelIdentityForPrompt,
@@ -208,6 +209,45 @@ describe("lawmind models resolve", () => {
       "utf8",
     );
     expect(resolveDefaultModelId(lawMindRoot)).toBe("builtin:deepseek-flash");
+  });
+
+  it("treats wizard LAWMIND_AGENT_* as configured even on a custom Base URL", () => {
+    lawMindRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-models-"));
+    process.env.LAWMIND_AGENT_API_KEY = "sk-wizard";
+    process.env.LAWMIND_AGENT_MODEL = "my-gateway-model";
+    process.env.LAWMIND_AGENT_BASE_URL = "https://gateway.example/v1";
+    expect(isAnyModelConfigured(lawMindRoot)).toBe(true);
+  });
+
+  it("stamps builtin rows from an env:current verification of the same upstream model", () => {
+    lawMindRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-models-"));
+    process.env.LAWMIND_AGENT_API_KEY = "sk-wizard";
+    process.env.LAWMIND_AGENT_MODEL = "deepseek-flash";
+    process.env.LAWMIND_AGENT_BASE_URL = "https://api.deepseek.com/v1";
+    recordVerification(lawMindRoot, ENV_CURRENT_MODEL_ID, {
+      latencyMs: 33,
+      model: "deepseek-flash",
+      baseUrl: "https://api.deepseek.com/v1",
+      verifiedAt: "2026-01-01T00:00:00.000Z",
+    });
+    const cat = buildModelCatalog(lawMindRoot);
+    const flash = cat.models.find((m) => m.id === "builtin:deepseek-flash");
+    expect(flash?.verifiedAt).toBe("2026-01-01T00:00:00.000Z");
+    expect(flash?.verifiedLatencyMs).toBe(33);
+  });
+
+  it("treats env:current store verification as resolved even without a catalog row", () => {
+    lawMindRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-models-"));
+    process.env.LAWMIND_AGENT_API_KEY = "sk-wizard";
+    process.env.LAWMIND_AGENT_MODEL = "deepseek-flash";
+    process.env.LAWMIND_AGENT_BASE_URL = "https://api.deepseek.com/v1";
+    recordVerification(lawMindRoot, ENV_CURRENT_MODEL_ID, {
+      latencyMs: 12,
+      model: "other-gateway-model",
+      baseUrl: "https://gateway.example/v1",
+      verifiedAt: "2026-01-02T00:00:00.000Z",
+    });
+    expect(isResolvedModelVerified(lawMindRoot, ENV_CURRENT_MODEL_ID)).toBe(true);
   });
 
   it("uses the wizard DeepSeek key for builtin:deepseek-flash and not Qwen", () => {

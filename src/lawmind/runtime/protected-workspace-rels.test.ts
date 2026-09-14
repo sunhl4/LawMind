@@ -19,9 +19,11 @@ describe("isProtectedWorkspaceRel", () => {
     expect(isProtectedWorkspaceRel("matters/m1/matter.json")).toBe(true);
   });
 
-  it("blocks DMS connection config at any depth", () => {
+  it("blocks DMS connection config and case RULES at any depth", () => {
     expect(isProtectedWorkspaceRel("cases/m1/.lawmind-dms.json")).toBe(true);
     expect(isProtectedWorkspaceRel(".lawmind-dms.json")).toBe(true);
+    expect(isProtectedWorkspaceRel("cases/m1/RULES.md")).toBe(true);
+    expect(isProtectedWorkspaceRel("RULES.md")).toBe(true);
   });
 
   it("normalizes backslashes and dot prefixes before matching", () => {

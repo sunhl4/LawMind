@@ -17,7 +17,7 @@ import {
   isModelFailureError,
   MODEL_NOT_CONFIGURED_USER_HINT,
 } from "./api-client";
-import { isSelectedModelVerified, MODEL_NOT_VERIFIED_HINT } from "./lawmind-model-verify";
+import { isActiveModelVerified, MODEL_NOT_VERIFIED_HINT } from "./lawmind-model-verify";
 import { resolveComposeModelSelectValue } from "./lawmind-model-picker-utils";
 import { confirmDialog } from "./lawmind-confirm-dialog";
 import type { AppConfig } from "./lawmind-app-bootstrap";
@@ -226,7 +226,14 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
         useSettingsPanelStore.getState().setSettingsPanel(true, "models");
         return;
       }
-      if (health?.modelConfigured === true && !isSelectedModelVerified(modelCatalog, selectedModelId)) {
+      if (
+        health?.modelConfigured === true &&
+        !isActiveModelVerified({
+          catalog: modelCatalog,
+          selectedModelId,
+          healthVerified: health.modelVerified,
+        })
+      ) {
         setComposeModelHint(MODEL_NOT_VERIFIED_HINT);
         return;
       }

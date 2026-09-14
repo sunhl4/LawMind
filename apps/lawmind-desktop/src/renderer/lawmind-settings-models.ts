@@ -95,6 +95,7 @@ export function formatAuthorityProbeSuccessMsg(opts: {
 
 export type LawmindSettingsHealth = {
   modelConfigured: boolean;
+  modelVerified?: boolean;
   dualLegalConfigured?: boolean;
   webSearchApiKeyConfigured?: boolean;
   webSearchNativeAvailable?: boolean;

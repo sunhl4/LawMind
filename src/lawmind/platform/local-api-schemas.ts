@@ -556,3 +556,15 @@ export const sourceAnnotationPostSchema = z.object({
 });
 
 export type SourceAnnotationPostRequest = z.infer<typeof sourceAnnotationPostSchema>;
+
+export const intentCompileRequestSchema = z.object({
+  instruction: z.string().optional(),
+  matterId: z.string().trim().optional(),
+  projectDir: z.string().optional(),
+  contextPins: contextPinsRequestSchema,
+  previousCapabilityId: z.string().trim().optional(),
+  historyText: z.string().optional(),
+  mailFastPath: z.boolean().optional(),
+});
+
+export type IntentCompileRequest = z.infer<typeof intentCompileRequestSchema>;

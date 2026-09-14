@@ -1,7 +1,7 @@
 import type { HealthPayload } from "./lawmind-app-data";
 import { MODEL_NOT_CONFIGURED_USER_HINT } from "./api-client";
 import type { ModelCatalogEntry } from "./lawmind-models-api";
-import { findCatalogEntry, isModelEntryVerified } from "./lawmind-model-verify";
+import { findCatalogEntry, isActiveModelVerified } from "./lawmind-model-verify";
 
 export type ReadinessPillState = "ok" | "warn" | "unknown" | "off";
 
@@ -57,7 +57,13 @@ export function buildReadinessSnapshot(input: {
 
   const configured = health?.modelConfigured === true;
   const activeRow = findCatalogEntry(modelCatalog, selectedModelId);
-  const verified = configured && isModelEntryVerified(activeRow);
+  const verified =
+    configured &&
+    isActiveModelVerified({
+      catalog: modelCatalog,
+      selectedModelId,
+      healthVerified: health?.modelVerified,
+    });
   const modelName =
     (typeof health?.modelName === "string" && health.modelName.trim()) ||
     activeRow?.model ||
