@@ -15,12 +15,16 @@ import {
   listActiveMembers,
   listCheckoutLocks,
   listInvites,
+  listMatterReplicaFeed,
   listRecordOps,
+  publishLocalMaterials,
   readLawyerIdentity,
+  readMaterialsIndex,
   readMembership,
   releaseCheckoutLock,
   revokeInvite,
   revokeMember,
+  scanMatterMaterials,
   syncMatterRecordPipe,
   upsertLawyerIdentity,
 } from "../../../src/lawmind/matter-replica/index.js";
@@ -183,6 +187,10 @@ export async function handleMatterReplicaRoutes({
         members: membership ? listActiveMembers(membership) : [],
         invites: membership ? listInvites(workspaceDir, matterId).filter((i) => i.status === "pending") : [],
         locks: membership ? listCheckoutLocks(workspaceDir, matterId) : [],
+        materials: membership
+          ? (readMaterialsIndex(workspaceDir, matterId)?.files ?? scanMatterMaterials(workspaceDir, matterId))
+          : [],
+        feed: membership ? listMatterReplicaFeed(workspaceDir, matterId, { limit: 30 }) : [],
       },
       c,
     );
@@ -358,6 +366,61 @@ export async function handleMatterReplicaRoutes({
       return true;
     }
     sendJson(res, 200, { ok: true, ops: listRecordOps(workspaceDir, matterId) }, c);
+    return true;
+  }
+
+  if (pathname === "/api/matter-replica/feed" && req.method === "GET") {
+    const matterId = url.searchParams.get("matterId")?.trim() ?? "";
+    if (!matterId) {
+      sendJson(res, 400, { ok: false, error: "missing matterId" }, c);
+      return true;
+    }
+    sendJson(
+      res,
+      200,
+      { ok: true, feed: listMatterReplicaFeed(workspaceDir, matterId, { limit: 40 }) },
+      c,
+    );
+    return true;
+  }
+
+  if (pathname === "/api/matter-replica/materials" && req.method === "GET") {
+    const matterId = url.searchParams.get("matterId")?.trim() ?? "";
+    if (!matterId) {
+      sendJson(res, 400, { ok: false, error: "missing matterId" }, c);
+      return true;
+    }
+    const index = readMaterialsIndex(workspaceDir, matterId);
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        files: index?.files ?? scanMatterMaterials(workspaceDir, matterId),
+        updatedAt: index?.updatedAt ?? null,
+      },
+      c,
+    );
+    return true;
+  }
+
+  if (pathname === "/api/matter-replica/materials/publish" && req.method === "POST") {
+    const matterId = url.searchParams.get("matterId")?.trim() ?? "";
+    if (!matterId) {
+      sendJson(res, 400, { ok: false, error: "missing matterId" }, c);
+      return true;
+    }
+    try {
+      const result = publishLocalMaterials(workspaceDir, matterId);
+      sendJson(
+        res,
+        200,
+        { ok: true, changed: result.changed.length, files: result.index.files },
+        c,
+      );
+    } catch (e) {
+      sendJson(res, 400, { ok: false, error: e instanceof Error ? e.message : String(e) }, c);
+    }
     return true;
   }
 

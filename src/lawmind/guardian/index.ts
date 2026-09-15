@@ -1,3 +1,4 @@
+export { hashGuardianEvidencePack, shouldReuseGuardianRecord } from "./evidence-hash.js";
 export {
   LEGAL_GUARDIAN_MAX_ROUNDS,
   buildGuardianEvidencePack,

@@ -4,14 +4,20 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { SURGICAL_MAX_FIND_WITH_TERMINATOR } from "../../drafts/surgical-span-gate.js";
 import type { AgentConfig } from "../../types.js";
+import { estimateTextTokens } from "../context-budget.js";
 import {
   BACKGROUND_JOB_TOOLS,
   IDEMPOTENT_READ_TOOLS,
   MATTER_SCOPE_REQUIRED,
   WRITE_TOOLS,
 } from "../tool-name-sets.js";
-import { buildToolGovernanceMetadata, listToolGovernanceMetadata } from "./governance.js";
+import {
+  buildToolGovernanceMetadata,
+  listToolGovernanceMetadata,
+  promptCatalogToolNames,
+} from "./governance.js";
 import { createLegalToolRegistry } from "./legal-tools.js";
 
 const baseConfig: AgentConfig = {
@@ -101,5 +107,33 @@ describe("tool governance drift", () => {
         expect(m.riskLevel === "low", `写工具被标低风险: ${m.name}`).toBe(false);
       }
     }
+  });
+
+  it("apply_surgical_edits advertised description is a Craft/gate pointer, not the span essay", () => {
+    const registry = createLegalToolRegistry({
+      allowWebSearch: true,
+      enableCollaboration: true,
+      baseConfig,
+    });
+    const tools = registry.toOpenAITools({ names: promptCatalogToolNames() });
+    const surgical = tools.find((t) => t.function.name === "apply_surgical_edits");
+    expect(surgical).toBeDefined();
+    const desc = surgical?.function.description ?? "";
+    const beforeDesc = `对已 seed 的合同草稿做精确 find/replace 落改。跨度硬门禁：能改几个字就只改几个字；段内只改有问题的句子；含句读的 find≤${SURGICAL_MAX_FIND_WITH_TERMINATOR} 字；整句/整段删写会被跳过/拒绝。条数不限（全文可很多处）。须附 craft_check.deferred（缓办，不是自评覆盖率；缺失视为工具错误）。勿把整节塞进 update_draft.sections。成功后返回 redlinePending；≥1 后再 render_tracked_draft。非锁定路径若省略 edits，可回落 drafts/<taskId>.redline-plan.json（意见推荐措辞编译结果）。`;
+    expect(desc).toContain("craft_check");
+    expect(desc).toContain("redlinePending");
+    expect(desc).toContain("Craft Skill");
+    expect(desc).toContain("render_tracked_draft");
+    expect(desc).not.toMatch(/含句读/);
+    expect(desc).not.toMatch(/能改几个字就只改几个字/);
+    expect(desc).not.toMatch(/find≤/);
+    expect(desc.length).toBeLessThan(280);
+    expect(estimateTextTokens(desc)).toBeLessThan(estimateTextTokens(beforeDesc));
+    expect(estimateTextTokens(desc)).toBeLessThan(180);
+    const catalogJson = JSON.stringify(tools);
+    // eslint-disable-next-line no-console -- measurement the review asked for
+    console.log(
+      `[token] catalog tools json tokens=${estimateTextTokens(catalogJson)} surgical_desc before=${estimateTextTokens(beforeDesc)} after=${estimateTextTokens(desc)} saved=${estimateTextTokens(beforeDesc) - estimateTextTokens(desc)}`,
+    );
   });
 });

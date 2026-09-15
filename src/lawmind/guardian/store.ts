@@ -28,6 +28,7 @@ function stripRaw(record: GuardianRecord): GuardianRecord {
     taskId: record.taskId,
     at: record.at,
     ...(record.reviewerRaw ? { reviewerRaw: record.reviewerRaw.slice(0, MAX_REVIEWER_RAW) } : {}),
+    ...(record.evidencePackHash ? { evidencePackHash: record.evidencePackHash } : {}),
   };
 }
 

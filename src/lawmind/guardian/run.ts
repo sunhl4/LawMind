@@ -17,6 +17,7 @@ import {
   resolveWordRevisionChecklist,
 } from "../platform/word-revision-checklist.js";
 import type { ArtifactDraft } from "../types.js";
+import { hashGuardianEvidencePack, shouldReuseGuardianRecord } from "./evidence-hash.js";
 import {
   buildGuardianEvidencePack,
   deterministicGuardianGaps,
@@ -68,7 +69,12 @@ export async function defaultGuardianCaller(
   return String(response.choices?.[0]?.message?.content ?? "");
 }
 
-function skippedRecord(taskId: string, round: number, reason: string): GuardianRecord {
+function skippedRecord(
+  taskId: string,
+  round: number,
+  reason: string,
+  evidencePackHash?: string,
+): GuardianRecord {
   return {
     taskId,
     at: new Date().toISOString(),
@@ -77,7 +83,12 @@ function skippedRecord(taskId: string, round: number, reason: string): GuardianR
     maxRounds: LEGAL_GUARDIAN_MAX_ROUNDS,
     gaps: [],
     skipReason: reason,
+    ...(evidencePackHash ? { evidencePackHash } : {}),
   };
+}
+
+function withEvidenceHash(record: GuardianRecord, hash: string): GuardianRecord {
+  return { ...record, evidencePackHash: hash };
 }
 
 export async function runLegalGuardian(opts: {
@@ -89,20 +100,31 @@ export async function runLegalGuardian(opts: {
   abortSignal?: AbortSignal;
 }): Promise<GuardianRecord> {
   const prior = readLatestGuardian(opts.workspaceDir, opts.taskId);
+  const packHash = hashGuardianEvidencePack(opts.pack);
   const round = nextGuardianRound(prior);
 
   if (!isLegalGuardianEnabled()) {
-    const record = skippedRecord(opts.taskId, round, "disabled");
+    const record = skippedRecord(opts.taskId, round, "disabled", packHash);
     persistGuardianRecord(opts.workspaceDir, record);
     return record;
   }
 
+  if (shouldReuseGuardianRecord(prior, packHash)) {
+    return {
+      ...prior!,
+      skipReason: prior?.skipReason ?? "unchanged_evidence",
+    };
+  }
+
   if (round > LEGAL_GUARDIAN_MAX_ROUNDS) {
-    const record = exhaustedGuardianRecord({
-      taskId: opts.taskId,
-      round,
-      priorGaps: prior?.gaps,
-    });
+    const record = withEvidenceHash(
+      exhaustedGuardianRecord({
+        taskId: opts.taskId,
+        round,
+        priorGaps: prior?.gaps,
+      }),
+      packHash,
+    );
     persistGuardianRecord(opts.workspaceDir, record);
     return record;
   }
@@ -116,6 +138,7 @@ export async function runLegalGuardian(opts: {
       round,
       maxRounds: LEGAL_GUARDIAN_MAX_ROUNDS,
       gaps: det,
+      evidencePackHash: packHash,
     };
     persistGuardianRecord(opts.workspaceDir, record);
     return record;
@@ -128,7 +151,7 @@ export async function runLegalGuardian(opts: {
           defaultGuardianCaller(opts.model!, input, opts.abortSignal)
       : undefined);
   if (!caller) {
-    const record = skippedRecord(opts.taskId, round, "no_model");
+    const record = skippedRecord(opts.taskId, round, "no_model", packHash);
     persistGuardianRecord(opts.workspaceDir, record);
     return record;
   }
@@ -187,6 +210,7 @@ export async function runLegalGuardian(opts: {
     maxRounds: LEGAL_GUARDIAN_MAX_ROUNDS,
     gaps: parsed.gaps,
     reviewerRaw: raw,
+    evidencePackHash: packHash,
   };
   persistGuardianRecord(opts.workspaceDir, record);
   return record;

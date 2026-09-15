@@ -48,14 +48,15 @@
 - [x] **隐式意图编译（2026-09-13）**：办件选择沉入引擎 `compileIntent`；律师主路径只交办文字/文件。见 `src/lawmind/intent/`、GOALS 第十七期。
 - [x] **真循环 cassette 准入**（2026-09-13）：`TestLawMind.builder()` 假模型 + 真 `runTurn` / 真工具名 / 真门禁；编排改动断言下一轮请求体。影子回放仍只管交件召回。见 `src/lawmind/agent/testkit/` 与 `AGENTS.md`。
 - [x] System prompt 工具列表随 registry 膨胀 → 默认 compact + 核心 12 + `list_more_tools` 本会话披露（2026-08-16 W1-C；registry 仍保留全部 execute）
-- [x] **上下文当类型系统**（2026-09-13）：`prompt-fragments.ts` 每种注入有 kind / cap / overflow 指针；world-state 真正包裹 `deliverable`；权限改短 XML；相关记忆只进 gist；工具结果默认 ~1k token；采样时 `deriveModelMessagesForSampling` 追加 `<turn_context>`（CASE/画像/craft/skills）与剩余 token 注记（不写进 history）。人格成长仍写磁盘，prompt 只留指纹。
+- [x] **上下文当类型系统**（2026-09-13）：`prompt-fragments.ts` 每种注入有 kind / cap / overflow 指针；world-state 真正包裹 `deliverable`；权限改短 XML；相关记忆只进 gist；工具结果默认 ~1k **token**（2026-09-15 起按 CJK 估算，不再把 4k 汉字当成 1k token）；采样时 `deriveModelMessagesForSampling` 追加 `<turn_context>`（CASE/画像/craft/skills）与剩余 token 注记（不写进 history）。人格成长仍写磁盘，prompt 只留指纹。
 - [x] 相关记忆召回与 system 注入的统一 budget 账本（单一计数器）
 - [x] 检索链路（research）与对话链路共享同一套窗口常量（避免两套漂移）
 - [ ] 多 agent 并行时的上下文隔离配额（避免会议室 + 多委派同时灌满）
 - [x] **同 session 并行 turn**：进程内按 `workspaceDir+sessionId` 串行（`session-turn-gate.ts`，2026-08-14）；跨进程双开本地 server 仍可能竞态（桌面默认单进程）
 - [x] **本轮可见短清单（update_plan）**（2026-09-13）：Codex 级 2–8 步 checklist 写入 world-state `plan`，律师在对话卡片勾进度；不往 system prompt 再塞一份「自主工作流程」。与 `plan_task` / `execute_workflow` / planHandoff 分离。
 - [x] **计划模式（2026-09-15）**：`readonly` 回合写工具关闭，清单可取消步骤，点「开始执行」再放写工具。见 [LAWMIND-AGENT-PARITY-REVIEW.md](./LAWMIND-AGENT-PARITY-REVIEW.md)。
-- [x] **独立审稿员（法律 Guardian）**：交卷前另开短调用，只喂 hunk/锚句/章节/争点树/引用/清单/硬门禁事实；fail 缺口打回工具结果；审稿全文不进主会话。`render_tracked_draft` 与意见类 `render_document`（memo.opinion / memo.research / contract.review / 函件 / 诉讼）均已接入。内部备忘、PPT、律师点导出仍不跑审稿员。见 `src/lawmind/guardian/`。
+- [x] **独立审稿员（法律 Guardian）**：交卷前另开短调用，只喂 hunk/锚句/章节/争点树/引用/清单/硬门禁事实；fail 缺口打回工具结果；审稿全文不进主会话。`render_tracked_draft` 与意见类 `render_document`（memo.opinion / memo.research / contract.review / 函件 / 诉讼）均已接入。内部备忘、PPT、律师点导出仍不跑审稿员。证据包 hash 相同则跳过审稿 LLM。见 `src/lawmind/guardian/`。
+- [x] **同一回合验收 bounce 不进长期历史**（2026-09-15）：全文只服务下一轮采样；绿则删除，暂停收成 `【验收缺口】` 码。见 `src/lawmind/runtime/same-turn-verify.ts`。
 - [x] **律师可见工具卡 / Stop 打到工具 / 轮中补材料 / 结构事件日志 / prompt 段表**（2026-08-14 DeepSeek 三刀；`session.json` 仍为权威，events.jsonl 并行）
 - [x] **纠正本轮 / 检索邮件 spill / 溢出先剪再试 / 停止与超时正交**（2026-08-16 DeepSeek 第二遍；见 ENGINEERING-REVIEW 附录）
 - [ ] **事件日志升格为会话权威**：今日 `events.jsonl` 只投影 live-turn；完整替换可变 `session.json` + 流式 delta 回放仍待做

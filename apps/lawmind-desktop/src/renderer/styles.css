@@ -13128,6 +13128,14 @@ html.lm-theme-dark .lm-files-explorer-scroll::-webkit-scrollbar-thumb:hover {
   letter-spacing: 0.02em;
 }
 
+.lm-matter-replica-invite-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .lm-matter-replica-share {
   margin: 0;
   padding: 10px 12px;

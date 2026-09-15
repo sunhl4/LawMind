@@ -3,7 +3,11 @@
  * Assert the bounce is in the *next model request body*, not only turn.messages.
  */
 import { describe, expect, it } from "vitest";
-import { SAME_TURN_VERIFY_USER_PREFIX } from "../runtime/same-turn-verify.js";
+import {
+  SAME_TURN_VERIFY_DIGEST_PREFIX,
+  SAME_TURN_VERIFY_USER_PREFIX,
+} from "../runtime/same-turn-verify.js";
+import { estimateTextTokens } from "./context-budget.js";
 import { sessionHistoryToSimpleMessages } from "./session.js";
 import { cassetteAssistant, cassetteToolCall, withTestLawMind } from "./testkit/index.js";
 
@@ -48,6 +52,8 @@ describe("same-turn verify cassette", () => {
         const toolResults = result.turn.messages.flatMap((m) => m.toolCallResponses ?? []);
         expect(toolResults[0]?.result.ok).toBe(false);
         expect(String(toolResults[0]?.result.error ?? "")).toContain(SAME_TURN_VERIFY_USER_PREFIX);
+        const failJson = JSON.stringify(toolResults[0]?.result);
+        expect(failJson.split(SAME_TURN_VERIFY_USER_PREFIX).length - 1).toBe(1);
         expect(toolResults[1]?.result.ok).toBe(true);
         expect(result.turn.status).toBe("completed");
         expect(result.reply).toContain("已按验收补改");
@@ -59,12 +65,23 @@ describe("same-turn verify cassette", () => {
           session!.conversationHistory.some(
             (m) => m.hiddenFromLawyer === true && m.content.includes(SAME_TURN_VERIFY_USER_PREFIX),
           ),
-        ).toBe(true);
+        ).toBe(false);
         expect(
           sessionHistoryToSimpleMessages(session!).some(
             (m) => m.role === "user" && m.text.includes(SAME_TURN_VERIFY_USER_PREFIX),
           ),
         ).toBe(false);
+        const bounceRoundTokens = estimateTextTokens(h.request(1).rawBody);
+        h.enqueue(cassetteAssistant("收到，下一句接着办。"));
+        const follow = await h.runTurn("继续");
+        expect(follow.turn.status).toBe("completed");
+        const followUp = h.request(-1);
+        const followTokens = estimateTextTokens(followUp.rawBody);
+        expect(followUp.contains(SAME_TURN_VERIFY_DIGEST_PREFIX)).toBe(false);
+        expect(followUp.userTexts().some((t) => t.includes(SAME_TURN_VERIFY_USER_PREFIX))).toBe(
+          false,
+        );
+        console.log(`[token] cassette bounce-round=${bounceRoundTokens} follow-up=${followTokens}`);
       },
     );
   });
@@ -94,6 +111,19 @@ describe("same-turn verify cassette", () => {
         expect(result.reply).toContain(SAME_TURN_VERIFY_USER_PREFIX);
         expect(result.reply).not.toMatch(/^已完成/);
         expect(h.request(1).contains(SAME_TURN_VERIFY_USER_PREFIX)).toBe(true);
+        const paused = h.session();
+        expect(paused).toBeDefined();
+        expect(
+          paused!.conversationHistory.filter((m) =>
+            m.content.startsWith(SAME_TURN_VERIFY_USER_PREFIX),
+          ),
+        ).toHaveLength(0);
+        const digests = paused!.conversationHistory.filter((m) =>
+          m.content.startsWith(SAME_TURN_VERIFY_DIGEST_PREFIX),
+        );
+        expect(digests).toHaveLength(1);
+        expect(digests[0]?.hiddenFromLawyer).toBe(true);
+        expect(digests[0]?.content).toContain("empty_redline");
       },
     );
   });

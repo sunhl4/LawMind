@@ -55,7 +55,7 @@ import { deskItemById } from "../skills/lawyer-capability-lock.js";
 import { ensureLawyerWorkForTurn } from "../work/goal.js";
 import { intersectAllowedToolNames } from "./child-gates.js";
 import { mergeConfirmedAnswers } from "./confirmed-answers.js";
-import { resolveToolCallBudgets } from "./tool-budget.js";
+import { resolveToolCallBudgets, DEFAULT_SOFT_TOOL_CALLS } from "./tool-budget.js";
 import {
   cleanupFailedTurn,
   finalizeAgentTurn,
@@ -72,7 +72,6 @@ import {
 import { freezeTurnContext } from "./turn-step-context.js";
 import type { AgentConfig, AgentContext, AgentTurn } from "./types.js";
 
-const DEFAULT_MAX_TOOL_CALLS = 40;
 const DEFAULT_MAX_HISTORY_MESSAGES = 100;
 /** Used only when `AgentConfig.toolExecutionTimeoutMs` is unset — 0 = no wall-clock tool kill. */
 const DEFAULT_TOOL_TIMEOUT_MS = 0;
@@ -133,7 +132,7 @@ export async function runTurn(opts: {
       ? opts.linkedTaskId.trim()
       : undefined;
   const projectDirResolved = (opts.projectDir ?? config.projectDir)?.trim() || undefined;
-  const toolBudgets = resolveToolCallBudgets(config.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS);
+  const toolBudgets = resolveToolCallBudgets(config.maxToolCalls ?? DEFAULT_SOFT_TOOL_CALLS);
   const maxToolCalls = toolBudgets.soft;
   const maxHistory = config.maxHistoryMessages ?? DEFAULT_MAX_HISTORY_MESSAGES;
   const toolTimeoutMs = config.toolExecutionTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;

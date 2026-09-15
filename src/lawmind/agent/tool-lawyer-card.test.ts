@@ -94,6 +94,22 @@ describe("presentLawyerToolResult", () => {
     expect(failed.detail).toBe("磁盘已满");
   });
 
+  it("ok:false same-turn envelope uses error, not a duplicated verify.message", () => {
+    const card = presentLawyerToolResult(
+      "apply_surgical_edits",
+      {},
+      {
+        ok: false,
+        error:
+          "【同一回合验收未过】验证器未绿，本回合不得结束。请立即调用 apply_surgical_edits，不要回复「已完成」。",
+        data: {
+          verify: { codes: ["empty_redline"], nextTool: "apply_surgical_edits" },
+        },
+      },
+    );
+    expect(card.detail).toContain("同一回合验收未过");
+  });
+
   it("surfaces in-loop verify coach on an otherwise successful draft", () => {
     expect(
       presentLawyerToolResult(

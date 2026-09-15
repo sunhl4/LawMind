@@ -8,6 +8,7 @@ import path from "node:path";
 import { writeJsonAtomic } from "../adapters/matter-storage/io.js";
 import { evaluateMatterReplicaGate } from "./feature-gate.js";
 import { resolveReplicaActor } from "./identity.js";
+import { syncMatterMaterialsPipe, type SyncMaterialsResult } from "./materials-relay.js";
 import { listRecordOps, mergeRemoteOps, snapshotCaseMd } from "./record-ops.js";
 import type { MatterRecordOp } from "./types.js";
 
@@ -104,11 +105,15 @@ export function createReplicaRelay(workspaceDir: string): MatterReplicaRelay {
   return new NullReplicaRelay();
 }
 
-/** Push local ops to relay; pull remote; merge. */
+/** Push local ops + materials to relay; pull remote; merge. */
 export async function syncMatterRecordPipe(
   workspaceDir: string,
   matterId: string,
-): Promise<{ published: number; pulled: number }> {
+): Promise<{
+  published: number;
+  pulled: number;
+  materials: SyncMaterialsResult;
+}> {
   try {
     const casePath = path.join(workspaceDir, "cases", matterId, "CASE.md");
     if (fs.existsSync(casePath)) {
@@ -122,10 +127,24 @@ export async function syncMatterRecordPipe(
   } catch {
     /* CASE.md snapshot is best-effort before publish */
   }
+
+  let materials: SyncMaterialsResult = {
+    publishedFiles: 0,
+    uploadedBlobs: 0,
+    downloadedFiles: 0,
+    skippedLocked: 0,
+    index: null,
+  };
+  try {
+    materials = await syncMatterMaterialsPipe(workspaceDir, matterId);
+  } catch {
+    /* materials pipe best-effort; ops still sync */
+  }
+
   const relay = createReplicaRelay(workspaceDir);
   const local = listRecordOps(workspaceDir, matterId);
   await relay.publishOps(matterId, local);
   const remote = await relay.fetchOps(matterId);
   const { appended } = mergeRemoteOps(workspaceDir, matterId, remote);
-  return { published: local.length, pulled: appended };
+  return { published: local.length, pulled: appended, materials };
 }

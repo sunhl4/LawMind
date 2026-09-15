@@ -260,6 +260,44 @@ describe("legal guardian run", () => {
     expect(user).not.toContain("hunkId");
   });
 
+  it("does not reuse a prior fail when Guardian is disabled", async () => {
+    const ws = tmpWs();
+    tmp.push(ws);
+    fs.mkdirSync(path.join(ws, "drafts"), { recursive: true });
+    const pack = buildGuardianEvidencePack({
+      draft: draft(),
+      hunks: [{ hunkId: "h1", sectionIndex: 0, before: "a", after: "b", status: "pending" }],
+      allowEmptyRedline: false,
+    });
+    await runLegalGuardian({
+      pack,
+      taskId: "t1",
+      workspaceDir: ws,
+      callReviewer: async () =>
+        '{"verdict":"fail","gaps":[{"code":"coverage_gap","message":"停项"}]}',
+    });
+    const prev = process.env.LAWMIND_LEGAL_GUARDIAN;
+    try {
+      process.env.LAWMIND_LEGAL_GUARDIAN = "0";
+      const record = await runLegalGuardian({
+        pack,
+        taskId: "t1",
+        workspaceDir: ws,
+        callReviewer: async () => {
+          throw new Error("must not call reviewer when disabled");
+        },
+      });
+      expect(record.verdict).toBe("skipped");
+      expect(record.skipReason).toBe("disabled");
+    } finally {
+      if (prev === undefined) {
+        delete process.env.LAWMIND_LEGAL_GUARDIAN;
+      } else {
+        process.env.LAWMIND_LEGAL_GUARDIAN = prev;
+      }
+    }
+  });
+
   it("exhausts after two fails without another reviewer call", async () => {
     const ws = tmpWs();
     tmp.push(ws);
