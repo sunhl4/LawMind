@@ -129,6 +129,16 @@ describe("styles/tokens.css", () => {
     );
   });
 
+  it("chat markdown tables have generic borders outside the workbench reader", () => {
+    const stylesDir = dirname(fileURLToPath(import.meta.url));
+    const legacy = readFileSync(join(stylesDir, "legacy-rest.css"), "utf8");
+    const bundled = readFileSync(join(stylesDir, "../styles.css"), "utf8");
+    const tableRule = /(?:^|\n)\.lm-md-table\s*\{/;
+    expect(legacy, "legacy-rest.css").toMatch(tableRule);
+    expect(bundled, "styles.css (run pnpm lawmind:sync:renderer-css)").toMatch(tableRule);
+    expect(legacy).toMatch(/\.lm-md-math--display\s*\{/);
+  });
+
   it("bundled styles.css keeps a single tokenized danger callout", () => {
     const bundledCss = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../styles.css"), "utf8");
     const dangerBlocks = bundledCss.match(/\.lm-callout-danger\s*\{[^}]+\}/g) ?? [];

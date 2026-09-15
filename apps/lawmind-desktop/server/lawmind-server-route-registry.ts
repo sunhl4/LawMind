@@ -18,6 +18,7 @@ import { handleJobRoutes } from "./lawmind-server-route-jobs.js";
 import { handleFilesystemRoute } from "./lawmind-server-route-fs.js";
 import { handleHealthRoute } from "./lawmind-server-route-health.js";
 import { handleMatterRoutes } from "./lawmind-server-route-matters.js";
+import { handleMatterReplicaRoutes } from "./lawmind-server-route-matter-replica.js";
 import { handleAcceptanceRoutes } from "./lawmind-server-route-acceptance.js";
 import { handleOnboardingRoutes } from "./lawmind-server-route-onboarding.js";
 import { handleLearningContractRoutes } from "./lawmind-server-route-learning-contract.js";
@@ -86,6 +87,7 @@ export const LAWMIND_ROUTE_HANDLERS: LawmindRouteHandler[] = [
   (args) => handleAutomationsRoutes(args),
   (args) => handleAssistantRoutes(args),
   (args) => handleLawyerDeskRoutes(args),
+  (args) => handleMatterReplicaRoutes(args),
   (args) => handleMatterRoutes(args),
   (args) => handleOnboardingRoutes(args),
   (args) => handleDaemonRoutes(args),

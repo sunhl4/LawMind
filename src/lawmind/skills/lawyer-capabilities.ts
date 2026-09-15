@@ -1,6 +1,7 @@
 /**
  * High-frequency lawyer work, productized as LawMind capabilities.
- * Each capability = Skill(s) + pipeline + acceptance — not free-form chat.
+ * Each capability = Skill(s) + acceptance. Skills coach quality; they do not
+ * freeze the tool table into a single pipeline.
  */
 
 import fs from "node:fs";
@@ -8,8 +9,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONTRACT_REDLINE_CRAFT_SKILL } from "../drafts/contract-redline-craft.js";
 import { compileIntent } from "../intent/compile-intent.js";
+import {
+  extractDeliveryIntent,
+  isOpinionMemoDelivery,
+  OPINION_MEMO_PIPELINE_HINT,
+} from "../intent/delivery-intent.js";
 import type { CompiledIntent, CompileIntentInput } from "../intent/types.js";
-import { isContractFastLaneInstruction } from "../platform/contract-fast-lane-instruction.js";
 import type { DeliverableType } from "../types.js";
 import { deskItemById, type LawyerCapabilityId } from "./lawyer-capability-lock.js";
 import { listLocalSkills } from "./skill-runtime.js";
@@ -37,7 +42,11 @@ export type BindLawyerCapabilityInput = CompileIntentInput & {
   deliverableType?: DeliverableType;
 };
 
-const WORD_REVISION_SKILL_IDS = ["contract-redline-craft"] as const;
+const WORD_REVISION_SKILL_IDS = ["contract-review-layers", "contract-redline-craft"] as const;
+
+/** Unlocked turns: tools stay available; do not cage the model into one sequence. */
+const OPEN_TOOLS_HINT =
+  "未锁时本轮已配置工具都可用，按任务选用（常走 `draft_document`；`execute_workflow` 可选）。不要为走管线丢掉判断。锁路径按本轮工具表。";
 
 export const LAWYER_CAPABILITIES: readonly LawyerCapability[] = [
   {
@@ -53,8 +62,7 @@ export const LAWYER_CAPABILITIES: readonly LawyerCapability[] = [
       "delivery-language",
     ],
     pipeline: "execute_workflow",
-    pipelineHint:
-      "未锁时优先 `execute_workflow` / `draft_document`；锁路径按本轮工具表。意见须含宏观/中观/微观与推荐措辞。有钉选 Word 且本回合开放改稿工具时完成=意见+`apply_surgical_edits`→`render_tracked_draft`。原 Word / 邮件红线不走本意见骨架。空修订不得导出。写条号前若本回合开放 `search_statute` 则先试检 1–2 条。",
+    pipelineHint: `${OPEN_TOOLS_HINT}意见须含宏观/中观/微观与推荐措辞。钉选 Word 时默认意见+修订稿都交，律师指定只要一种则按指定。空修订不得导出。开放 \`search_statute\` 时写条号前先试检 1–2 条。`,
   },
   {
     id: "letter.draft",
@@ -67,8 +75,7 @@ export const LAWYER_CAPABILITIES: readonly LawyerCapability[] = [
       "delivery-language",
     ],
     pipeline: "execute_workflow",
-    pipelineHint:
-      "未锁时优先 `execute_workflow` / `draft_document`；锁路径按本轮工具表。缺收件人且无材料时才硬澄清；否则边写边标【待补充】。",
+    pipelineHint: `${OPEN_TOOLS_HINT}缺收件人且无材料时才硬澄清；否则边写边标【待补充】。`,
   },
   {
     id: "research.memo",
@@ -81,8 +88,7 @@ export const LAWYER_CAPABILITIES: readonly LawyerCapability[] = [
       "delivery-language",
     ],
     pipeline: "research_then_draft",
-    pipelineHint:
-      "先命题矩阵再 `research_task` / `search_statute` / `search_case_law`；每个争点正反各查，先试检 1–2 条再扩。正式备忘须含现行法条与正反类案栏，不得凭记忆编造法条原文。无命中仍保留栏目并标【待核实】。正式备忘走 `execute_workflow`。",
+    pipelineHint: `${OPEN_TOOLS_HINT}先命题矩阵再 \`research_task\` / \`search_statute\` / \`search_case_law\`；每个争点正反各查，先试检 1–2 条再扩。正式备忘须含现行法条与正反类案栏，不得凭记忆编造法条原文。无命中仍保留栏目并标【待核实】。\`execute_workflow\` 可选。`,
   },
   {
     id: "litigation.draft",
@@ -103,8 +109,7 @@ export const LAWYER_CAPABILITIES: readonly LawyerCapability[] = [
       "delivery-language",
     ],
     pipeline: "execute_workflow",
-    pipelineHint:
-      "未锁时优先 `execute_workflow`；锁路径按本轮工具表。主体/诉请缺口标【待补充】或硬澄清，不得空跑外发。起诉状走要素母版（线性栏目，不要 markdown 表）。期限用 `calculate`（legal_period）。",
+    pipelineHint: `${OPEN_TOOLS_HINT}主体/诉请缺口标【待补充】或硬澄清，不得空跑外发。起诉状走要素母版（线性栏目，不要 markdown 表）；工作区有 templates/word/complaint-master.docx 则克隆。期限用 \`calculate\`（legal_period）。`,
   },
   {
     id: "litigation.talk",
@@ -131,15 +136,20 @@ export const LAWYER_CAPABILITIES: readonly LawyerCapability[] = [
       "delivery-language",
     ],
     pipeline: "execute_workflow",
-    pipelineHint:
-      "未锁时优先 `execute_workflow`；锁路径按本轮工具表。待审核稿只称初稿/供审核稿，不得写成可对外签发。",
+    pipelineHint: `${OPEN_TOOLS_HINT}待审核稿只称初稿/供审核稿，不得写成可对外签发。`,
   },
   {
     id: "mail.contract",
     label: "邮件合同审阅",
-    skillIds: ["citation-grounding", "delivery-language"],
+    skillIds: [
+      "contract-review-layers",
+      "contract-redline-craft",
+      "citation-grounding",
+      "delivery-language",
+    ],
     pipeline: "tracked_redline",
-    pipelineHint: "路径已钉选：按邮件合同短路径 + 最小修改落改；禁止再发现材料。空修订不得导出。",
+    pipelineHint:
+      "路径已钉选：按邮件合同短路径 + 最小修改落改；不要翻案卷找附件。核法条可用检索。不要 send_email / 不要 render_document 重建。空修订不得导出。",
   },
   {
     id: "analysis.quick",
@@ -165,8 +175,7 @@ export const LAWYER_CAPABILITIES: readonly LawyerCapability[] = [
       "delivery-language",
     ],
     pipeline: "execute_workflow",
-    pipelineHint:
-      "未锁时优先 `execute_workflow` / `draft_document`；锁路径按本轮工具表。路由卡 + 条款骨架；缺口写在稿里。",
+    pipelineHint: `${OPEN_TOOLS_HINT}路由卡 + 条款骨架；缺口写在稿里。`,
   },
   {
     id: "labor.calc",
@@ -367,7 +376,7 @@ export function hydrateCompiledIntent(compiled: CompiledIntent): BoundLawyerCapa
       pipeline: "tracked_redline",
       pipelineHint:
         compiled.pipelineHintOverride ??
-        "拷贝原 Word → `apply_surgical_edits` → `render_tracked_draft` 写入源文件同目录（原名_日期_01）。禁止 `render_document` 重建，不要准备外发邮件。空修订不得导出。",
+        "拷贝原 Word → `apply_surgical_edits` → `render_tracked_draft` 写入源文件同目录（原名_日期_01）。可以在对话里说明改了什么。禁止 `render_document` 重建，不要准备外发邮件。核法条可用检索。空修订不得导出。",
       deliverableType:
         (compiled.deliverableType as DeliverableType) ??
         (contractRevision ? "contract.general" : bound.deliverableType),
@@ -437,12 +446,13 @@ export function readSkillPromptBodies(
 export function resolveCapabilityPipelineHint(
   bound: BoundLawyerCapability,
   instruction?: string,
+  delivery?: CompiledIntent["delivery"],
 ): string {
   if (bound.pipeline === "tracked_redline" || bound.id === "mail.contract") {
     return bound.pipelineHint;
   }
-  if (instruction && isContractFastLaneInstruction(instruction)) {
-    return "必须走 `draft_document` / `update_draft`。按宏观/中观/微观写完意见并给推荐措辞。本回合不检索、不改 Word。缺事实仍交付已完成部分。";
+  if (isOpinionMemoDelivery(delivery ?? extractDeliveryIntent(instruction))) {
+    return OPINION_MEMO_PIPELINE_HINT;
   }
   return bound.pipelineHint;
 }
@@ -455,7 +465,11 @@ export function formatBoundCapabilityBlock(
   const typeLine = bound.deliverableType ? `\n交付物类型：\`${bound.deliverableType}\`` : "";
   const index =
     opts?.indexLines && opts.indexLines.length > 0
-      ? ["## 其余技能（索引，不要通读）", ...opts.indexLines.map((line) => `- ${line}`)].join("\n")
+      ? [
+          "## 其余技能（索引，不要通读）",
+          ...opts.indexLines.map((line) => `- ${line}`),
+          "需要某份时调用 `read_skill`。",
+        ].join("\n")
       : "";
   const chain =
     opts?.compiled && opts.compiled.chain.length > 1
@@ -466,8 +480,8 @@ export function formatBoundCapabilityBlock(
     : "由系统根据材料与交办推断。按推断执行，不要再问律师选分类。";
   return [
     `## 本轮 LawMind 能力：${bound.label}`,
-    `能力 ID：\`${bound.id}\`。这是产品化办件（Skill + 流水线 + 验收），不是自由发挥。${typeLine}`,
-    resolveCapabilityPipelineHint(bound, opts?.instruction),
+    `能力 ID：\`${bound.id}\`。这是产品化办件（Skill + 验收），不是自由聊天交差。工具按任务选用，不是只能走一条管线。${typeLine}`,
+    resolveCapabilityPipelineHint(bound, opts?.instruction, opts?.compiled?.delivery),
     inferred,
     chain,
     ...skillBodies,

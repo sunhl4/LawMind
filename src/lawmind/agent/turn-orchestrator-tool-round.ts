@@ -27,6 +27,7 @@ import {
 import type { RiskLevel } from "../types.js";
 import type { ClarificationQuestion } from "../types.js";
 import { resolvePreApprovalInjection } from "./approval-cache-key.js";
+import { conversationSessionRefsFromToolData } from "./conversation-search.js";
 import { presentLawyerToolResult } from "./tool-lawyer-card.js";
 import {
   stringifyToolResultForHistory,
@@ -57,6 +58,7 @@ export function getRunToolPipeline(): ReturnType<typeof composeToolPipeline> {
 
 export type ToolRoundPolicyHints = {
   allowedToolNames?: string[];
+  deniedToolNames?: string[];
   allowlistDenyHint?: string;
   roleId?: string;
   riskCeiling?: RiskLevel;
@@ -407,6 +409,7 @@ export async function executeToolBatches(
           allowDangerousToolsWithoutApproval,
           toolSandboxEnabled,
           allowedToolNames: policyHints?.allowedToolNames,
+          deniedToolNames: policyHints?.deniedToolNames,
           allowlistDenyHint: policyHints?.allowlistDenyHint,
           roleId: policyHints?.roleId,
           riskCeiling: policyHints?.riskCeiling,
@@ -449,6 +452,7 @@ export async function executeToolBatches(
             )
           : [];
       const resultCard = presentLawyerToolResult(toolName, toolArgs, result);
+      const sessionRefs = conversationSessionRefsFromToolData(toolName, result.data);
       if (!hideFromLiveTrace) {
         emitEvent({
           type: "tool_call_end",
@@ -461,6 +465,7 @@ export async function executeToolBatches(
           ...(demoCorpusFromToolResult(result) ? { demoCorpus: true } : {}),
           ...(nextActionsRaw.length > 0 ? { nextActions: nextActionsRaw } : {}),
           ...(resultCard.detail ? { resultPreview: resultCard.detail } : {}),
+          ...(sessionRefs.length > 0 ? { sessionRefs } : {}),
         });
       }
       ctx.emitToolProgress = undefined;

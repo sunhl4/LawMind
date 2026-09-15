@@ -819,10 +819,16 @@ button.lm-agents-wb-pill:hover {
   border-top: 1px solid var(--border);
 }
 
-.lm-agents-wb-reader-body .lm-md-table {
+.lm-agents-wb-reader-body .lm-md-table-wrap {
   width: 100%;
   max-width: 46rem;
   margin: 0.85em 0 1.1em;
+}
+
+.lm-agents-wb-reader-body .lm-md-table {
+  width: 100%;
+  max-width: none;
+  margin: 0;
   border-collapse: collapse;
   font-size: 13.5px;
 }

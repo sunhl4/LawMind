@@ -18,6 +18,7 @@ import { apiAuthHeaders } from "./lawmind-api-auth.ts";
 import { readIncludeTurnDiagnostics } from "./lawmind-chat-diagnostics-pref";
 import type { ChatLiveTrace } from "./lawmind-chat-trace-types.js";
 import type { ChatActivityBlock } from "./lawmind-chat-activity.js";
+import { sanitizeChatSessionRefs } from "./lawmind-session-link";
 
 /** Mirrors `GET /api/chat` `runtimeHints` when Firm/Private or `includeTurnDiagnostics`. */
 export type ChatRuntimeHints = {
@@ -247,6 +248,7 @@ export type StreamingChatCallbacks = {
     demoCorpus?: boolean;
     nextActions?: string[];
     resultPreview?: string;
+    sessionRefs?: import("./lawmind-session-link").ChatSessionRef[];
   }) => void;
   onToolProgress?: (info: {
     toolCallId: string;
@@ -358,6 +360,7 @@ export async function sendChatTurnStream(
           const nextActions = Array.isArray(parsed.nextActions)
             ? parsed.nextActions.filter((x): x is string => typeof x === "string")
             : undefined;
+          const sessionRefs = sanitizeChatSessionRefs(parsed.sessionRefs);
           callbacks.onToolCallEnd?.({
             toolCallId: lawmindCoerceToolField(parsed.toolCallId),
             toolName: lawmindCoerceToolField(parsed.toolName),
@@ -370,6 +373,7 @@ export async function sendChatTurnStream(
             ...(typeof parsed.resultPreview === "string" && parsed.resultPreview.trim()
               ? { resultPreview: parsed.resultPreview.trim() }
               : {}),
+            ...(sessionRefs.length > 0 ? { sessionRefs } : {}),
           });
           break;
         }

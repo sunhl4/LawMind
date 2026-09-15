@@ -20,6 +20,7 @@ import { lawMindWebSearchTool } from "./lawmind-web-search.js";
 import { listTasks, listAllDrafts, getAuditTrail } from "./legal/audit-tools.js";
 import { calculateTool } from "./legal/calculate-tool.js";
 import { renderChart } from "./legal/chart-tool.js";
+import { searchCompanyRegistry } from "./legal/company-registry-tool.js";
 import { compareDocuments } from "./legal/compare-documents.js";
 import { analyzeDocument, writeDocument } from "./legal/file-tools.js";
 import {
@@ -37,11 +38,14 @@ import {
   listMailAttachments,
 } from "./legal/mail-tools.js";
 import { getMatterSummary, listMatters, readCaseFile, addCaseNote } from "./legal/matter-tools.js";
+import { readSkillTool } from "./legal/read-skill-tool.js";
 import { runAnalysis } from "./legal/run-analysis-tool.js";
 import { runCompute } from "./legal/run-compute-tool.js";
 import {
   searchMatter,
   searchWorkspace,
+  searchConversationsTool,
+  readConversationTool,
   readProjectFile,
   searchStatute,
   searchCaseLaw,
@@ -62,6 +66,8 @@ export function createLegalToolRegistry(opts?: {
     // 信息检索
     searchMatter,
     searchWorkspace,
+    searchConversationsTool,
+    readConversationTool,
     readProjectFile,
     listDirTool,
     searchHostTool,
@@ -70,6 +76,7 @@ export function createLegalToolRegistry(opts?: {
     runHostCommandTool,
     searchStatute,
     searchCaseLaw,
+    searchCompanyRegistry,
     // 案件管理
     getMatterSummary,
     listMatters,
@@ -95,6 +102,7 @@ export function createLegalToolRegistry(opts?: {
     listAllDrafts,
     getAuditTrail,
     listMoreTools,
+    readSkillTool,
     updatePlanTool,
   ];
 

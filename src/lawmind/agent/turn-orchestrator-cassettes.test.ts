@@ -10,10 +10,7 @@ import path from "node:path";
  * steer, playbook tool locks, permission/approval pipeline.
  */
 import { describe, expect, it } from "vitest";
-import {
-  CONTRACT_FAST_LANE_DENIED_HINT,
-  CONTRACT_FAST_LANE_TOOL_NAMES,
-} from "../platform/contract-fast-lane-instruction.js";
+import { DELIVERY_MARKER_OPINION_MEMO } from "../intent/delivery-intent.js";
 import { COMPACT_REINJECTION_MARKER } from "./compact-insert.js";
 import {
   MAIL_CONTRACT_FAST_PATH_DENIED_HINT,
@@ -53,27 +50,26 @@ function toolErrors(result: { turn: { messages: AgentMessage[] } }): string {
 }
 
 describe("turn-orchestrator cassettes (admission)", () => {
-  it("fast-lane: next request advertises the lock set, not search_workspace; adversarial search is blocked", async () => {
+  it("fast-lane: next request stays unlocked with the 5-minute craft; search_statute executes", async () => {
     await withTestLawMind(
       (b) => b,
       async (h) => {
-        h.enqueue(cassetteToolCall("search_workspace"), cassetteAssistant("已处理。"));
-        const result = await h.runTurn(FAST_LANE);
-        const advertised = h.request(0).advertisedToolNames();
-        expect(advertised).toEqual(
-          [...CONTRACT_FAST_LANE_TOOL_NAMES, "update_plan"].toSorted((a, b) => a.localeCompare(b)),
-        );
-        expect(advertised).toContain("update_plan");
-        expect(advertised).not.toContain("search_workspace");
-        expect(advertised).not.toContain("list_more_tools");
-        expect(h.spy?.log.executedNames()).not.toContain("search_workspace");
-        expect(toolErrors(result)).toContain("search_workspace");
-        expect(toolErrors(result)).toContain(CONTRACT_FAST_LANE_DENIED_HINT.slice(0, 12));
+        h.enqueue(cassetteToolCall("search_statute"), cassetteAssistant("已处理。"));
+        await h.runTurn(FAST_LANE);
+        expect(h.request(0).contains("合同审查 · 快车道")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("list_more_tools")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("search_statute")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("apply_surgical_edits")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("render_document")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("draft_document")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("calculate")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("search_case_law")).toBe(true);
+        expect(h.spy?.log.executedNames()).toContain("search_statute");
       },
     );
   });
 
-  it("fast-lane: update_plan executes under the lock and the next request carries the checklist", async () => {
+  it("fast-lane: update_plan executes and the next request carries the checklist", async () => {
     await withTestLawMind(
       (b) => b,
       async (h) => {
@@ -94,12 +90,12 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
-  it("mail-contract lock: next request is the short-path set; adversarial search is blocked", async () => {
+  it("mail-contract: search_statute stays available; render_document is denied", async () => {
     await withTestLawMind(
       (b) => b,
       async (h) => {
-        h.enqueue(cassetteToolCall("search_workspace"), cassetteAssistant("已处理。"));
-        const result = await h.runTurn(
+        h.enqueue(cassetteToolCall("search_statute"), cassetteAssistant("已处理。"));
+        await h.runTurn(
           [
             "【邮件合同审阅改稿 · 短路径 · 原文件审阅痕迹】",
             "默认 contract_edit_baseline_path=`cases/m/a.docx`",
@@ -107,17 +103,34 @@ describe("turn-orchestrator cassettes (admission)", () => {
           ].join("\n"),
         );
         const advertised = h.request(0).advertisedToolNames();
-        expect(advertised).toEqual(
-          [...MAIL_CONTRACT_FAST_PATH_TOOL_NAMES, "update_plan"].toSorted((a, b) =>
-            a.localeCompare(b),
-          ),
-        );
         expect(advertised).toContain("prepare_outbound_mail");
         expect(advertised).toContain("apply_surgical_edits");
-        expect(advertised).not.toContain("search_workspace");
-        expect(advertised).not.toContain("list_more_tools");
-        expect(h.spy?.log.executedNames()).not.toContain("search_workspace");
-        expect(toolErrors(result)).toContain("search_workspace");
+        expect(advertised).toContain("search_statute");
+        expect(advertised).toContain("search_case_law");
+        expect(advertised).toContain("calculate");
+        expect(advertised).toContain("list_more_tools");
+        expect(advertised).not.toContain("render_document");
+        expect(advertised).not.toContain("send_email");
+        expect(h.spy?.log.executedNames()).toContain("search_statute");
+      },
+    );
+  });
+
+  it("mail-contract: render_document is blocked if the model names it", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteToolCall("render_document"), cassetteAssistant("已处理。"));
+        const result = await h.runTurn(
+          [
+            "【邮件合同审阅改稿 · 短路径 · 原文件审阅痕迹】",
+            "默认 contract_edit_baseline_path=`cases/m/a.docx`",
+            "建议回复收件人：opp@firm.cn",
+          ].join("\n"),
+        );
+        expect(h.request(0).hasAdvertisedTool("render_document")).toBe(false);
+        expect(h.spy?.log.executedNames()).not.toContain("render_document");
+        expect(toolErrors(result)).toContain("render_document");
         expect(toolErrors(result)).toContain(MAIL_CONTRACT_FAST_PATH_DENIED_HINT.slice(0, 12));
       },
     );
@@ -132,6 +145,9 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(h.request(0).hasAdvertisedTool("prepare_outbound_mail")).toBe(false);
         expect(h.request(0).hasAdvertisedTool("apply_surgical_edits")).toBe(true);
         expect(h.request(0).hasAdvertisedTool("update_plan")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("search_statute")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("list_more_tools")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("render_document")).toBe(false);
         expect(h.spy?.log.executedNames()).not.toContain("prepare_outbound_mail");
         expect(toolErrors(result)).toContain("prepare_outbound_mail");
       },
@@ -365,11 +381,11 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
-  it("web_search is advertised only when the tool is actually registered", async () => {
+  it("web_search is not advertised on legal turns; public-web facts skip the model", async () => {
     await withTestLawMind(
-      (b) => b,
+      (b) => b.withAllowWebSearch(true),
       async (h) => {
-        h.enqueue(cassetteAssistant("未联网。"));
+        h.enqueue(cassetteAssistant("未检索公开网页。"));
         await h.runTurn("继续不澄清。今天开庭日期怎么安排？");
         expect(h.request(0).hasAdvertisedTool("web_search")).toBe(false);
       },
@@ -377,9 +393,19 @@ describe("turn-orchestrator cassettes (admission)", () => {
     await withTestLawMind(
       (b) => b.withAllowWebSearch(true),
       async (h) => {
-        h.enqueue(cassetteAssistant("已检索公开网页。"));
-        await h.runTurn("继续不澄清。今天开庭日期怎么安排？");
-        expect(h.request(0).hasAdvertisedTool("web_search")).toBe(true);
+        const result = await h.runTurn("继续不澄清。查一下2026年新说唱总冠军");
+        expect(h.requests).toHaveLength(0);
+        expect(h.spy?.log.executedNames()).toContain("web_search");
+        expect(result.reply).toMatch(/联网检索|公开网页|不会猜/);
+      },
+    );
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        const result = await h.runTurn("继续不澄清。查一下2026年新说唱总冠军");
+        expect(h.requests).toHaveLength(0);
+        expect(h.spy?.log.executedNames() ?? []).not.toContain("web_search");
+        expect(result.reply).toContain("联网");
       },
     );
   });
@@ -434,13 +460,14 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
-  it("fast-lane lock still excludes list_dir", async () => {
+  it("fast-lane does not freeze list_dir away", async () => {
     await withTestLawMind(
       (b) => b,
       async (h) => {
         h.enqueue(cassetteAssistant("已处理。"));
         await h.runTurn(FAST_LANE);
-        expect(h.request(0).advertisedToolNames()).not.toContain("list_dir");
+        expect(h.request(0).contains("合同审查 · 快车道")).toBe(true);
+        expect(h.request(0).advertisedToolNames()).toContain("list_dir");
       },
     );
   });
@@ -540,6 +567,71 @@ describe("turn-orchestrator cassettes (admission)", () => {
         h.enqueue(cassetteAssistant("请说明要办的事。"));
         await h.runTurn("继续");
         expect(h.session()?.lastBoundCapabilityId).toBeUndefined();
+      },
+    );
+  });
+
+  it("opinion memo sidecar: next request is unlocked review with the delivery marker, not Word lock", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("已处理。"));
+        await h.runTurn("请根据这个合同去给我一些审查意见放到桌面，不要在源文件上修改", {
+          contextPins: [
+            {
+              pinKind: "file",
+              root: "project",
+              relPath: "采购合同.docx",
+              kind: "file",
+            },
+          ],
+        });
+        expect(h.session()?.lastBoundCapabilityId).toBe("contract.review");
+        expect(h.request(0).contains(DELIVERY_MARKER_OPINION_MEMO)).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("render_document")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("draft_document")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("render_tracked_draft")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("prepare_outbound_mail")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("apply_surgical_edits")).toBe(true);
+      },
+    );
+  });
+
+  it("read_skill is advertised and still listed after it executes", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("read_skill", { skill_id: "contract-review-layers" }),
+          cassetteAssistant("已处理。"),
+        );
+        await h.runTurn("请审查合同违约责任");
+        expect(h.request(0).hasAdvertisedTool("read_skill")).toBe(true);
+        expect(h.spy?.log.executedNames()).toContain("read_skill");
+        expect(h.request(1).hasAdvertisedTool("read_skill")).toBe(true);
+      },
+    );
+  });
+
+  it("fast-lane with Word pin keeps surgical tools and does not stamp opinion-memo delivery", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("已处理。"));
+        await h.runTurn(FAST_LANE, {
+          contextPins: [
+            {
+              pinKind: "file",
+              root: "project",
+              relPath: "nda.docx",
+              kind: "file",
+            },
+          ],
+        });
+        expect(h.request(0).contains(DELIVERY_MARKER_OPINION_MEMO)).toBe(false);
+        expect(h.request(0).hasAdvertisedTool("apply_surgical_edits")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("render_tracked_draft")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("draft_document")).toBe(true);
       },
     );
   });

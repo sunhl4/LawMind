@@ -18,6 +18,8 @@ describe("policy/edition", () => {
     expect(ctx.features.auditIntegrityExport).toBe(true);
     expect(ctx.features.acceptancePackExport).toBe(true);
     expect(ctx.features.strictDangerousToolApproval).toBe(false);
+    expect(ctx.features.matterReplicaCollab).toBe(false);
+    expect(ctx.features.ethicsWall).toBe(false);
   });
 
   it("respects LAWMIND_EDITION env when policy is missing", () => {
@@ -28,6 +30,8 @@ describe("policy/edition", () => {
     expect(ctx.features.citationGateStrict).toBe(true);
     expect(ctx.features.collaborationSummary).toBe(true);
     expect(ctx.features.strictDangerousToolApproval).toBe(true);
+    expect(ctx.features.matterReplicaCollab).toBe(true);
+    expect(ctx.features.ethicsWall).toBe(true);
   });
 
   it("policy file overrides env", () => {

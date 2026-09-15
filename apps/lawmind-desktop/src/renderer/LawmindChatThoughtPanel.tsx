@@ -1,9 +1,12 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ChatActivityToolBlock } from "./lawmind-chat-activity.js";
+import { collectActivitySessionRefs } from "./lawmind-chat-activity.js";
 import {
   formatThoughtDurationLabel,
   thoughtToolSubtitle,
 } from "./lawmind-chat-thought-view.js";
+import { requestOpenChatSession } from "./lawmind-open-chat-session-bus";
+import type { ChatSessionRef } from "./lawmind-session-link";
 
 type Props = {
   tools: ChatActivityToolBlock[];
@@ -20,6 +23,30 @@ function toolStatusBadge(status: ChatActivityToolBlock["status"]): string | null
     return "失败";
   }
   return null;
+}
+
+function ConversationHitChips(props: { refs: ChatSessionRef[] }): ReactNode {
+  const { refs } = props;
+  if (refs.length === 0) {
+    return null;
+  }
+  return (
+    <div className="lm-chat-session-chips" data-testid="lm-chat-session-chips">
+      {refs.map((ref) => (
+        <button
+          key={ref.sessionId}
+          type="button"
+          className="lm-chat-session-chip"
+          data-testid={`lm-chat-session-chip-${ref.sessionId}`}
+          title={`打开对话：${ref.title}`}
+          aria-label={`打开对话：${ref.title}`}
+          onClick={() => requestOpenChatSession(ref)}
+        >
+          {ref.title}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 function summarizeToolChips(tools: ChatActivityToolBlock[]): string {
@@ -108,16 +135,19 @@ function LawmindChatThoughtPanelInner(props: Props): ReactNode {
             <span className="lm-chat-thought-head-label">{toolsHeadLabel}</span>
           </button>
           {!briefOpen && !isActive ? (
-            <div className="lm-chat-thought-chips" aria-hidden>
-              {tools.map((tool) => (
-                <span
-                  key={tool.id}
-                  className={`lm-chat-thought-chip lm-chat-thought-chip-${tool.status}`}
-                >
-                  {tool.label}
-                </span>
-              ))}
-            </div>
+            <>
+              <div className="lm-chat-thought-chips" aria-hidden>
+                {tools.map((tool) => (
+                  <span
+                    key={tool.id}
+                    className={`lm-chat-thought-chip lm-chat-thought-chip-${tool.status}`}
+                  >
+                    {tool.label}
+                  </span>
+                ))}
+              </div>
+              <ConversationHitChips refs={collectActivitySessionRefs(tools)} />
+            </>
           ) : null}
           {briefOpen ? (
             <ul className="lm-chat-thought-steps">
@@ -141,6 +171,9 @@ function LawmindChatThoughtPanelInner(props: Props): ReactNode {
                       </div>
                       {subtitle ? (
                         <div className="lm-chat-thought-step-sub">{subtitle}</div>
+                      ) : null}
+                      {tool.sessionRefs && tool.sessionRefs.length > 0 ? (
+                        <ConversationHitChips refs={tool.sessionRefs} />
                       ) : null}
                     </div>
                   </li>

@@ -1,6 +1,7 @@
 import { DEFAULT_ASSISTANT_ID } from "../../../src/lawmind/assistants/constants.js";
 import type { AgentSession } from "../../../src/lawmind/agent/types.js";
 import { isLawyerVisibleChatMessage } from "../../../src/lawmind/agent/types.js";
+import { searchConversations } from "../../../src/lawmind/agent/conversation-search.js";
 import {
   createSession,
   displayChatSessionTitle,
@@ -184,15 +185,62 @@ export async function handleRecordRoutes({
     return true;
   }
 
+  if (pathname === "/api/sessions/search" && req.method === "GET") {
+    const q = url.searchParams.get("q") ?? "";
+    const since = url.searchParams.get("since") ?? undefined;
+    const until = url.searchParams.get("until") ?? undefined;
+    const daysRaw = url.searchParams.get("days");
+    const days = daysRaw && Number.isFinite(Number(daysRaw)) ? Number(daysRaw) : undefined;
+    const limitRaw = url.searchParams.get("limit");
+    const limit = limitRaw && Number.isFinite(Number(limitRaw)) ? Number(limitRaw) : undefined;
+    const excludeSessionId = url.searchParams.get("excludeSessionId")?.trim() || undefined;
+    const assistantFilter = url.searchParams.get("assistantId")?.trim() || undefined;
+    const result = searchConversations(workspaceDir, {
+      query: q,
+      since,
+      until,
+      days,
+      limit,
+      excludeSessionId,
+      assistantId: assistantFilter,
+    });
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        query: result.query,
+        keywords: result.keywords,
+        since: result.since,
+        until: result.until,
+        timeMode: result.timeMode,
+        sessions: result.hits.map((hit) => ({
+          sessionId: hit.sessionId,
+          title: hit.title,
+          matterId: hit.matterId,
+          assistantId: hit.assistantId,
+          createdAt: hit.createdAt,
+          updatedAt: hit.updatedAt,
+          lastPreview: hit.snippets[0]?.text,
+          snippets: hit.snippets,
+          score: hit.score,
+        })),
+        total: result.hits.length,
+      },
+      c,
+    );
+    return true;
+  }
+
   if (sessionItemMatch && req.method === "GET") {
     const sessionId = sessionItemMatch[1];
-    const assistantId = url.searchParams.get("assistantId")?.trim() || DEFAULT_ASSISTANT_ID;
+    const assistantFilter = url.searchParams.get("assistantId")?.trim() || undefined;
     const session = loadSession(workspaceDir, sessionId);
     if (!session) {
       sendJson(res, 404, { ok: false, code: "not_found", message: "session not found" }, c);
       return true;
     }
-    if (!sessionMatchesAssistantFilter(session, assistantId)) {
+    if (assistantFilter && !sessionMatchesAssistantFilter(session, assistantFilter)) {
       sendJson(res, 404, { ok: false, code: "not_found", message: "session not found" }, c);
       return true;
     }
@@ -203,6 +251,8 @@ export async function handleRecordRoutes({
         ok: true,
         sessionId: session.sessionId,
         title: displayChatSessionTitle(session),
+        assistantId: session.assistantId?.trim() || DEFAULT_ASSISTANT_ID,
+        matterId: session.matterId,
         messages: sessionHistoryToSimpleMessages(session),
       },
       c,

@@ -29,6 +29,7 @@ export type UseLawmindAppSidebarPropsInput = {
   activeChatSessionId?: string;
   chatSessionsLoading?: boolean;
   chatBusy?: boolean;
+  chatAssistantId?: string;
   onSelectChatSession?: (sessionId: string) => void | Promise<void>;
   onCreateNewChatSession?: () => void | Promise<void>;
   onRenameChatSession?: (sessionId: string, title: string) => void | Promise<void>;
@@ -64,6 +65,7 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
     activeChatSessionId,
     chatSessionsLoading,
     chatBusy,
+    chatAssistantId,
     onSelectChatSession,
     onCreateNewChatSession,
     onRenameChatSession,
@@ -101,6 +103,7 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
       activeChatSessionId,
       chatSessionsLoading,
       chatBusy,
+      chatAssistantId,
       onSelectChatSession: onSelectChatSession
         ? async (sessionId) => {
             if (mainView === "meeting") {
@@ -147,6 +150,7 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
       activeChatSessionId,
       chatSessionsLoading,
       chatBusy,
+      chatAssistantId,
       onSelectChatSession,
       onCreateNewChatSession,
       onRenameChatSession,

@@ -7,6 +7,12 @@ const AUTH_KEYS = [
   "LAWMIND_AUTHORITY_API_KEY",
   "LAWMIND_PKULAW_MODE",
   "LAWMIND_PKULAW_CASE_ENDPOINT",
+  "LAWMIND_OPEN_LAW_NPC",
+  "LAWMIND_OPEN_LAW_MODE",
+  "LAWMIND_OPEN_LAW_CASEOPEN",
+  "LAWMIND_OPEN_LAW_COURTLISTENER",
+  "LAWMIND_OPEN_LAW_EURLEX",
+  "LAWMIND_OPEN_LAW_EGOV_JP",
 ] as const;
 
 const saved = new Map<string, string | undefined>();
@@ -34,11 +40,17 @@ describe("retrieveAuthorityHitsForChat", () => {
     restoreAuthEnv();
   });
 
-  it("skips the network when authority is not live", async () => {
+  it("skips commercial fetch when authority is not a live vendor", async () => {
     snapshotAuthEnv();
     delete process.env.LAWMIND_AUTHORITY_PROVIDER;
     delete process.env.LAWMIND_AUTHORITY_ENDPOINT;
     delete process.env.LAWMIND_AUTHORITY_API_KEY;
+    delete process.env.LAWMIND_OPEN_LAW_NPC;
+    delete process.env.LAWMIND_OPEN_LAW_MODE;
+    delete process.env.LAWMIND_OPEN_LAW_CASEOPEN;
+    delete process.env.LAWMIND_OPEN_LAW_COURTLISTENER;
+    delete process.env.LAWMIND_OPEN_LAW_EURLEX;
+    delete process.env.LAWMIND_OPEN_LAW_EGOV_JP;
     const fetchImpl = vi.fn();
     const r = await retrieveAuthorityHitsForChat({
       query: "劳动合同法",
@@ -47,7 +59,8 @@ describe("retrieveAuthorityHitsForChat", () => {
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
     expect(r.live).toBe(false);
-    expect(r.hits).toEqual([]);
+    expect(r.demoCorpus).toBe(true);
+    expect(r.hits.length).toBeGreaterThan(0);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
@@ -84,6 +97,42 @@ describe("retrieveAuthorityHitsForChat", () => {
     expect(r.hits[0]?.snippet).toContain("劳动合同法");
     expect(fetchImpl).toHaveBeenCalled();
   });
+
+  it("maps NPC FLK hits as live official-public when enabled", async () => {
+    snapshotAuthEnv();
+    delete process.env.LAWMIND_AUTHORITY_PROVIDER;
+    delete process.env.LAWMIND_AUTHORITY_ENDPOINT;
+    process.env.LAWMIND_OPEN_LAW_NPC = "1";
+    delete process.env.LAWMIND_OPEN_LAW_MODE;
+    const fixture = JSON.stringify({
+      rows: [
+        {
+          title: "中华人民共和国民法典",
+          bbbs: "npc-1",
+          flxz: "法律",
+          url: "https://flk.npc.gov.cn/detail.html?npc-1",
+        },
+      ],
+    });
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(fixture, {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const r = await retrieveAuthorityHitsForChat({
+      query: "一部绝对不会命中样本库的冷僻法名XYZ",
+      workspaceDir: "/tmp",
+      searchKind: "law",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(r.live).toBe(true);
+    expect(r.demoCorpus).toBe(false);
+    expect(r.hits[0]?.source).toBe("国家法律法规数据库");
+    expect(r.providerLabel).toBe("国家法律法规数据库");
+    expect(fetchImpl).toHaveBeenCalled();
+  });
 });
 
 describe("mergeStatuteSearchNote", () => {
@@ -98,6 +147,20 @@ describe("mergeStatuteSearchNote", () => {
     expect(v.authority).toBe("live");
     expect(v.refusalRequired).toBeUndefined();
     expect(v.note).toContain("北大法宝");
+  });
+
+  it("does not call sample hits 权威库", () => {
+    const v = mergeStatuteSearchNote({
+      live: false,
+      providerLabel: "开源语料（本地/NPC）",
+      authorityHitCount: 2,
+      workspaceHitCount: 0,
+      kind: "law",
+      demoCorpus: true,
+    });
+    expect(v.authority).toBe("none");
+    expect(v.note).toContain("演示语料");
+    expect(v.note).not.toContain("权威库");
   });
 
   it("refuses when live but empty", () => {

@@ -1,9 +1,12 @@
+import type { ChatSessionRef } from "./lawmind-session-link";
+
 export type ChatTraceStep = {
   id: string;
   kind: "round" | "tool" | "workflow";
   label: string;
   status: "running" | "done" | "failed";
   detail?: string;
+  sessionRefs?: ChatSessionRef[];
 };
 
 export type ChatLiveTrace = {
@@ -34,9 +37,21 @@ export function liveTracesEqual(a?: ChatLiveTrace, b?: ChatLiveTrace): boolean {
       sa.kind !== sb.kind ||
       sa.label !== sb.label ||
       sa.status !== sb.status ||
-      (sa.detail ?? "") !== (sb.detail ?? "")
+      (sa.detail ?? "") !== (sb.detail ?? "") ||
+      (sa.sessionRefs?.length ?? 0) !== (sb.sessionRefs?.length ?? 0)
     ) {
       return false;
+    }
+    const ra = sa.sessionRefs ?? [];
+    const rb = sb.sessionRefs ?? [];
+    for (let j = 0; j < ra.length; j++) {
+      if (
+        ra[j]?.sessionId !== rb[j]?.sessionId ||
+        ra[j]?.title !== rb[j]?.title ||
+        (ra[j]?.assistantId ?? "") !== (rb[j]?.assistantId ?? "")
+      ) {
+        return false;
+      }
     }
   }
   return true;

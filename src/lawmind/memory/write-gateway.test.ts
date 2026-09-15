@@ -45,4 +45,30 @@ describe("memory/write-gateway", () => {
     const all = await listMemorySuggestions(workspaceDir);
     expect(all.some((p) => p.kind === "case.risk_note" && p.state === "auto_adopted")).toBe(true);
   });
+
+  it("snapshots CASE.md into the replica ops log when replica is on", async () => {
+    await fs.writeFile(
+      path.join(workspaceDir, "lawmind.policy.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        edition: "solo",
+        matterReplica: { enabled: true },
+      }),
+      "utf8",
+    );
+    await writeCaseMemorySection({
+      workspaceDir,
+      matterId: "matter-a",
+      section: "progress",
+      content: "已阅对方函件",
+      origin: "agent",
+      actorId: "lawyer_zhang",
+    });
+    const { listRecordOps } = await import("../matter-replica/record-ops.js");
+    const ops = listRecordOps(workspaceDir, "matter-a");
+    expect(ops.some((row) => row.kind === "case_md.snapshot")).toBe(true);
+    expect(String(ops.find((row) => row.kind === "case_md.snapshot")?.payload.excerpt)).toContain(
+      "已阅对方函件",
+    );
+  });
 });

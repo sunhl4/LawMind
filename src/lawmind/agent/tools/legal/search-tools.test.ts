@@ -2,12 +2,15 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createSession } from "../../session.js";
 import type { AgentContext } from "../../types.js";
 import * as searchAuthority from "./search-authority.js";
 import {
   checkConflictOfInterest,
+  readConversationTool,
   readProjectFile,
   searchCaseLaw,
+  searchConversationsTool,
   searchMatter,
   searchStatute,
   searchWorkspace,
@@ -345,6 +348,7 @@ describe("search_statute / search_case_law", () => {
       ],
       riskFlags: [],
       missingItems: [],
+      demoCorpus: false,
     });
     const statute = await searchStatute.execute(
       { query: "劳动合同法第三十六条" },
@@ -387,6 +391,7 @@ describe("check_conflict_of_interest", () => {
       const data = result.data as { conflictFlags: string[]; matches: Record<string, string[]> };
       expect(data.conflictFlags.length).toBeGreaterThan(0);
       expect(data.matches["张三公司"]?.length).toBeGreaterThan(1);
+      expect((result.data as { note: string }).note).toContain("不是自动伦理墙");
     } finally {
       await fs.rm(workspaceDir, { recursive: true, force: true });
     }
@@ -395,6 +400,67 @@ describe("check_conflict_of_interest", () => {
   it("rejects empty party names", async () => {
     const result = await checkConflictOfInterest.execute({ parties: "  , " }, makeCtx("/tmp"));
     expect(result.ok).toBe(false);
+  });
+
+  it("holds outbound on Firm edition until acknowledged", async () => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "lm-ethics-firm-"));
+    try {
+      await fs.writeFile(
+        path.join(workspaceDir, "lawmind.policy.json"),
+        JSON.stringify({ schemaVersion: 1, edition: "firm" }),
+        "utf8",
+      );
+      for (const mid of ["m-a", "m-b"]) {
+        await fs.mkdir(path.join(workspaceDir, "cases", mid), { recursive: true });
+        await fs.writeFile(
+          path.join(workspaceDir, "cases", mid, "CASE.md"),
+          `# ${mid}\n\n对方当事人: 张三公司\n`,
+          "utf8",
+        );
+      }
+      const result = await checkConflictOfInterest.execute(
+        { parties: "张三公司" },
+        makeCtx(workspaceDir, { matterId: "m-a" }),
+      );
+      expect(result.ok).toBe(true);
+      const data = result.data as {
+        note: string;
+        ethicsWall?: { status?: string; action?: string };
+      };
+      expect(data.ethicsWall?.status).toBe("hold");
+      expect(data.note).toContain("伦理墙");
+      const { prepareOutboundMail } = await import("./mail-tools.js");
+      const blocked = await prepareOutboundMail.execute(
+        {
+          matter_id: "m-a",
+          to: "a@b.com",
+          subject: "hello",
+          body: "x",
+        },
+        makeCtx(workspaceDir, { matterId: "m-a" }),
+      );
+      expect(blocked.ok).toBe(false);
+      expect(String(blocked.error)).toContain("伦理墙");
+      const ack = await checkConflictOfInterest.execute(
+        { parties: "张三公司", acknowledge_ethics_wall: true },
+        makeCtx(workspaceDir, { matterId: "m-a" }),
+      );
+      expect((ack.data as { ethicsWall?: { status?: string } }).ethicsWall?.status).toBe(
+        "disclosed",
+      );
+      const released = await prepareOutboundMail.execute(
+        {
+          matter_id: "m-a",
+          to: "a@b.com",
+          subject: "hello",
+          body: "x",
+        },
+        makeCtx(workspaceDir, { matterId: "m-a" }),
+      );
+      expect(released.ok).toBe(true);
+    } finally {
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -477,6 +543,49 @@ describe("search_workspace matter isolation", () => {
       };
       expect(data.crossMatterScanned).toBe(false);
       expect(data.results.some((row) => row.source === "CASE:matter-other")).toBe(false);
+    } finally {
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("search_conversations / read_conversation", () => {
+  it("finds another chat and reads it; empty query without time fails", async () => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "lm-conv-tool-"));
+    try {
+      const current = createSession({ workspaceDir, actorId: "a", title: "当前" });
+      const past = createSession({ workspaceDir, actorId: "a", title: "买卖合同审查要点" });
+      past.conversationHistory = [
+        {
+          role: "user",
+          content: "管辖条款要改成被告住所地",
+          timestamp: "2026-09-08T01:00:00.000Z",
+        },
+      ];
+      await fs.writeFile(
+        path.join(workspaceDir, "sessions", `${past.sessionId}.json`),
+        JSON.stringify(past),
+        "utf8",
+      );
+      const empty = await searchConversationsTool.execute({ query: "  " }, makeCtx(workspaceDir));
+      expect(empty.ok).toBe(false);
+      const found = await searchConversationsTool.execute(
+        { query: "管辖 合同" },
+        makeCtx(workspaceDir, { sessionId: current.sessionId }),
+      );
+      expect(found.ok).toBe(true);
+      const data = found.data as {
+        hits: Array<{ sessionId: string; title: string; citeAs?: string }>;
+      };
+      expect(data.hits.some((h) => h.sessionId === past.sessionId)).toBe(true);
+      expect(data.hits.some((h) => h.citeAs?.includes(`lm-session:${past.sessionId}`))).toBe(true);
+      const read = await readConversationTool.execute(
+        { session_id: past.sessionId, query: "管辖" },
+        makeCtx(workspaceDir),
+      );
+      expect(read.ok).toBe(true);
+      const body = read.data as { messages: Array<{ content: string }> };
+      expect(body.messages.some((m) => m.content.includes("管辖"))).toBe(true);
     } finally {
       await fs.rm(workspaceDir, { recursive: true, force: true });
     }

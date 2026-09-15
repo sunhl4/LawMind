@@ -20,6 +20,7 @@ import {
   type AuthorityCorpusSummary,
 } from "../../../src/lawmind/retrieval/authority-health.js";
 import { listTaskRecords } from "../../../src/lawmind/tasks/index.js";
+import { summarizeCompanyRegistryConfig } from "../../../src/lawmind/agent/tools/legal/company-registry-tool.js";
 
 export type { AuthorityCorpusSummary };
 
@@ -28,6 +29,14 @@ export function buildAuthorityCorpusHealthSummary(opts?: {
   endpoint?: string;
 }): AuthorityCorpusSummary {
   return buildAuthorityCorpusSummary(opts);
+}
+
+export function buildCompanyRegistryHealthSummary(): {
+  configured: boolean;
+  envKey: "LAWMIND_COMPANY_REGISTRY_URL";
+  message: string;
+} {
+  return summarizeCompanyRegistryConfig();
 }
 
 export function countAuditJsonlFiles(workspaceDir: string): number {

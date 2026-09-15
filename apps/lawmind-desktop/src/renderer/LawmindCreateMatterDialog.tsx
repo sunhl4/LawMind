@@ -13,7 +13,7 @@ export type LawmindCreateMatterDialogProps = {
 };
 
 /**
- * 轻量建案：只填案件名（= 文件夹名）。客户/案由/接案确认在案件工作台「案件档案」事后补全。
+ * 轻量建案：只填案件名（= 文件夹名）。客户/案由/接案确认在工作台 → 本案 → 卷宗事后补全。
  */
 export function LawmindCreateMatterDialog({
   open,
@@ -108,7 +108,7 @@ export function LawmindCreateMatterDialog({
           <div className="lm-modal-matter-create-head-text">
             <h2 id={titleId}>新建案件</h2>
             <p className="lm-modal-matter-create-lead">
-              只需案件名；将创建同名文件夹。客户、案由与接案确认可在案件工作台稍后补全。
+              只需案件名；将创建同名文件夹。客户、案由与接案确认可在工作台打开本案后，在「卷宗」里补全。
             </p>
           </div>
           <button

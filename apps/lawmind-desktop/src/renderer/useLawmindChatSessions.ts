@@ -43,7 +43,7 @@ export type UseLawmindChatSessionsInput = {
     assistantId: string,
     sessionId: string,
     signal?: AbortSignal,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   refreshChatSessionListForAssistant: (assistantId: string) => Promise<ChatSessionListEntry[] | null>;
   watchBackgroundSessionFnRef: MutableRefObject<(opts: BackgroundWatchOpts) => Promise<void>>;
   setMainView: (v: LawmindMainView) => void;
@@ -211,13 +211,36 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
       if (!config?.apiBase) {
         return;
       }
-      const assistantId = assistantIdOverride?.trim() || selectedAssistantId;
+      let assistantId = assistantIdOverride?.trim() || "";
+      if (!assistantId) {
+        try {
+          const meta = await fetchApiJson<{
+            ok?: boolean;
+            assistantId?: string;
+          }>(
+            `${config.apiBase}/api/sessions/${encodeURIComponent(sessionId)}`,
+            {},
+            { tag: "chat-sessions:resolve-assistant" },
+          );
+          if (meta.ok && typeof meta.assistantId === "string" && meta.assistantId.trim()) {
+            assistantId = meta.assistantId.trim();
+          }
+        } catch {
+          /* fall through to current assistant */
+        }
+      }
+      if (!assistantId) {
+        assistantId = selectedAssistantId;
+      }
+      const ok = await loadSessionMessagesIntoState(assistantId, sessionId);
+      if (!ok) {
+        return;
+      }
       if (assistantId !== selectedAssistantId) {
         setSelectedAssistantId(assistantId);
       }
       persistActiveChatSessionId(chatSessionStoreKey(config.workspaceDir), assistantId, sessionId);
       setSessionByAssistant((p) => ({ ...p, [assistantId]: sessionId }));
-      await loadSessionMessagesIntoState(assistantId, sessionId);
       try {
         const live = await fetchChatLiveTurnProgress(config.apiBase, sessionId);
         if (live.progress?.status === "running") {

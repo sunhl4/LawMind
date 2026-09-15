@@ -134,6 +134,11 @@ export type HealthPayload = {
       authEnvKey?: string;
       providerEnvKey?: string;
     };
+    companyRegistry?: {
+      configured?: boolean;
+      envKey?: string;
+      message?: string;
+    };
     authorityUsage?: {
       day?: string;
       ok?: number;

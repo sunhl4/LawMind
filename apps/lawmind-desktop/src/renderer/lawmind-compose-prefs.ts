@@ -25,7 +25,7 @@ export function writeComposePermissionMode(mode: ComposePermissionMode): void {
 }
 
 /**
- * Preferred mode when leaving「先计划」via「开始执行」.
+ * Preferred mode when leaving「计划模式」via「开始执行」.
  * Post-firstrun Solo default is `strict`; otherwise `standard`.
  */
 export function readExecutePermissionMode(): "standard" | "strict" {
@@ -48,15 +48,9 @@ export function writeExecutePermissionMode(mode: "standard" | "strict"): void {
   }
 }
 
-/** Call when first-run wizard completes.
- *  `executable: true`（如合同审查）跳过「先计划」，直接标准权限可执行。 */
-export function applyPostFirstrunPermissionDefaults(opts?: { executable?: boolean }): void {
-  if (opts?.executable) {
-    writeComposePermissionMode("standard");
-    writeExecutePermissionMode("strict");
-    return;
-  }
-  writeComposePermissionMode("readonly");
+/** Call when first-run wizard completes. Completing the tour is never harder than skipping it. */
+export function applyPostFirstrunPermissionDefaults(_opts?: { executable?: boolean }): void {
+  writeComposePermissionMode("standard");
   writeExecutePermissionMode("strict");
 }
 

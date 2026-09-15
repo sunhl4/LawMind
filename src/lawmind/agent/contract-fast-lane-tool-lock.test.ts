@@ -2,7 +2,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CONTRACT_FAST_LANE_DENIED_HINT } from "../platform/contract-fast-lane-instruction.js";
 import { runTurn } from "./runtime.js";
 import { ToolRegistry } from "./tools/registry.js";
 import type { AgentConfig } from "./types.js";
@@ -72,23 +71,24 @@ describe("contract fast-lane tool lock", () => {
     vi.restoreAllMocks();
   });
 
-  it("rejects search_workspace on a 5-minute review turn", async () => {
+  it("allows search_statute on a 5-minute review turn", async () => {
     const workspaceDir = tmpWorkspace();
     const registry = new ToolRegistry();
     let searched = false;
     registry.register({
       definition: {
-        name: "search_workspace",
+        name: "search_statute",
         description: "search",
         category: "search",
         parameters: {},
+        riskLevel: "low",
       },
       async execute() {
         searched = true;
         return { ok: true, data: { hits: [] } };
       },
     });
-    stubModelWithToolCall("search_workspace", "{}");
+    stubModelWithToolCall("search_statute", "{}");
 
     const result = await runTurn({
       config: baseConfig(workspaceDir),
@@ -103,12 +103,11 @@ describe("contract fast-lane tool lock", () => {
       ].join("\n"),
     });
 
-    expect(searched).toBe(false);
+    expect(searched).toBe(true);
     const toolText = result.turn.messages
       .flatMap((msg) => msg.toolCallResponses ?? [])
       .map((resp) => resp.result.error ?? "")
       .join("\n");
-    expect(toolText).toContain("search_workspace");
-    expect(toolText).toContain(CONTRACT_FAST_LANE_DENIED_HINT.slice(0, 12));
+    expect(toolText).not.toContain("合同审查快车道");
   });
 });

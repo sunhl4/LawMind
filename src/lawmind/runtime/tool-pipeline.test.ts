@@ -267,10 +267,18 @@ describe("tool-pipeline middlewares", () => {
       async () => ({ ok: true }),
     );
     expect(ok.ok).toBe(true);
-    const blocked = await discoveryLoopMiddleware(
+    const stillOk = await discoveryLoopMiddleware(
       buildCall(workspaceDir, {
         toolName: "search_workspace",
         policyOverride: { toolNameCallCounts: { search_workspace: 1 } },
+      }),
+      async () => ({ ok: true }),
+    );
+    expect(stillOk.ok).toBe(true);
+    const blocked = await discoveryLoopMiddleware(
+      buildCall(workspaceDir, {
+        toolName: "search_workspace",
+        policyOverride: { toolNameCallCounts: { search_workspace: 3 } },
       }),
       async () => ({ ok: true }),
     );
@@ -284,20 +292,19 @@ describe("tool-pipeline middlewares", () => {
       buildCall(workspaceDir, {
         toolName: "search_workspace",
         policyOverride: {
-          toolNameCallCounts: { search_workspace: 1 },
+          toolNameCallCounts: { search_workspace: 3 },
           allowlistDenyHint: "本回合是原 Word 改稿：请按通读 → seed 基线执行。不要准备外发邮件。",
         },
       }),
       async () => ({ ok: true }),
     );
     expect(blocked.ok).toBe(false);
-    expect(blocked.error).toContain("read_project_file");
     expect(blocked.error).toContain("不要 prepare_outbound_mail");
     expect(blocked.error).not.toContain("自动办件");
   });
 
-  it("discoveryLoopMiddleware tells the model to draft after a successful Word read", async () => {
-    const blocked = await discoveryLoopMiddleware(
+  it("discoveryLoopMiddleware tells the model to draft after Word reads hit the cap", async () => {
+    const stillOk = await discoveryLoopMiddleware(
       buildCall(workspaceDir, {
         toolName: "analyze_document",
         policyOverride: {
@@ -307,9 +314,20 @@ describe("tool-pipeline middlewares", () => {
       }),
       async () => ({ ok: true }),
     );
+    expect(stillOk.ok).toBe(true);
+    const blocked = await discoveryLoopMiddleware(
+      buildCall(workspaceDir, {
+        toolName: "analyze_document",
+        policyOverride: {
+          toolNameCallCounts: { analyze_document: 8 },
+          allowlistDenyHint: "本回合是原 Word 改稿：请按通读 → seed 基线执行。不要准备外发邮件。",
+        },
+      }),
+      async () => ({ ok: true }),
+    );
     expect(blocked.ok).toBe(false);
-    expect(blocked.error).toContain("文书已通读");
-    expect(blocked.error).toContain("不要再 analyze_document");
+    expect(blocked.error).toContain("已经读过");
+    expect(blocked.error).toContain("换一份未读材料");
     expect(blocked.error).not.toContain("自动办件");
   });
 
@@ -337,33 +355,46 @@ describe("tool-pipeline middlewares", () => {
 
   it("wouldHitDiscoveryCap and dropSaturatedDiscoveryTools match the middleware quota", () => {
     expect(wouldHitDiscoveryCap("analyze_document", {})).toBe(false);
-    expect(wouldHitDiscoveryCap("analyze_document", { analyze_document: 1 })).toBe(true);
+    expect(wouldHitDiscoveryCap("analyze_document", { analyze_document: 1 })).toBe(false);
+    expect(wouldHitDiscoveryCap("analyze_document", { analyze_document: 8 })).toBe(true);
     expect(wouldHitDiscoveryCap("update_draft", { analyze_document: 1 })).toBe(false);
     expect(
       dropSaturatedDiscoveryTools(["analyze_document", "read_project_file", "update_draft"], {
         analyze_document: 1,
       }),
-    ).toEqual(["read_project_file", "update_draft"]);
+    ).toEqual(["analyze_document", "read_project_file", "update_draft"]);
     expect(
-      dropSaturatedDiscoveryTools(
-        ["analyze_document", "read_project_file", "update_draft"],
-        { analyze_document: 1 },
-        { dropDocumentReaders: true },
-      ),
-    ).toEqual(["update_draft"]);
+      dropSaturatedDiscoveryTools(["analyze_document", "read_project_file", "update_draft"], {
+        analyze_document: 8,
+      }),
+    ).toEqual(["read_project_file", "update_draft"]);
   });
 
-  it("discoveryLoopMiddleware enforces total discovery cap", async () => {
-    const blocked = await discoveryLoopMiddleware(
+  it("discoveryLoopMiddleware enforces total search/list cap, not document reads", async () => {
+    const searchListCounts = {
+      search_workspace: 3,
+      search_matter: 2,
+      get_matter_summary: 2,
+      list_templates: 1,
+    };
+    const readOk = await discoveryLoopMiddleware(
       buildCall(workspaceDir, {
         toolName: "read_project_file",
         policyOverride: {
           toolNameCallCounts: {
-            search_workspace: 1,
-            search_matter: 1,
-            get_matter_summary: 1,
-            analyze_document: 1,
+            ...searchListCounts,
+            analyze_document: 3,
           },
+        },
+      }),
+      async () => ({ ok: true }),
+    );
+    expect(readOk.ok).toBe(true);
+    const blocked = await discoveryLoopMiddleware(
+      buildCall(workspaceDir, {
+        toolName: "list_tasks",
+        policyOverride: {
+          toolNameCallCounts: searchListCounts,
         },
       }),
       async () => ({ ok: true }),

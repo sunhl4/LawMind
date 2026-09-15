@@ -144,15 +144,22 @@ export type AgentContext = {
    */
   wordRevisionTurn?: boolean;
   /**
+   * Compiled delivery constraints for this turn (opinion memo vs tracked copy,
+   * named place, preserve-source). Orthogonal to capability bind.
+   */
+  deliveryIntent?: import("../intent/delivery-intent.js").DeliveryIntent;
+  /**
    * This turn is mail-read → Word revise short path.
    * No opinion→redline compile and no XML QA auto-retry re-export.
    */
   mailContractTurn?: boolean;
   /**
    * Opinion-only 5-minute / structured 交办 fast lane.
-   * Search tools are locked; do not coach or auto-trial statutes.
+   * Prompt coaching only; tools stay unlocked.
    */
   contractFastLaneTurn?: boolean;
+  /** Runtime auto-trial already merged statute hits this turn. */
+  statuteTrialThisTurn?: boolean;
   /** Turn-resolved tool allowlist (role ∩ parent inherit ∩ playbook). */
   allowedToolNames?: string[];
   /**
@@ -249,6 +256,12 @@ export type PersistedChatLiveTrace = {
     label: string;
     status: "running" | "done" | "failed";
     detail?: string;
+    sessionRefs?: Array<{
+      sessionId: string;
+      title: string;
+      matterId?: string;
+      assistantId?: string;
+    }>;
   }>;
 };
 
@@ -344,7 +357,7 @@ export type AgentSession = {
    */
   disclosedToolNames?: string[];
   /**
-   * Plan→Execute 交接（「先计划」产出）：写入 session.json，便于刷新 / 跨端同工作区恢复。
+   * Plan→Execute 交接（计划模式产出）：写入 session.json，便于刷新 / 跨端同工作区恢复。
    * 桌面仍可镜像到 localStorage 作离线缓存。
    */
   planHandoff?: {

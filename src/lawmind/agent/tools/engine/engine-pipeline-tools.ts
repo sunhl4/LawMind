@@ -1,4 +1,6 @@
+import os from "node:os";
 import { linkDraftToDeliverable } from "../../../application/services/deliverable-service.js";
+import { namedPlaceDirFromDelivery } from "../../../artifacts/named-user-place.js";
 import { validateDraftAgainstSpec } from "../../../deliverables/index.js";
 import {
   generateRedlineAfterWrite,
@@ -10,6 +12,10 @@ import {
   validateDraftCitationsAgainstBundle,
 } from "../../../drafts/index.js";
 import { readResearchSnapshot } from "../../../drafts/research-snapshot.js";
+import {
+  isOpinionMemoDelivery,
+  resolveTurnDeliveryIntent,
+} from "../../../intent/delivery-intent.js";
 import { isOutlineGatedDeliverable } from "../../../reasoning/research-draft-gates.js";
 import { outlineLooksApproved } from "../../../research/outline-hitl.js";
 import { readResearchOutline } from "../../../research/outline-store.js";
@@ -65,6 +71,10 @@ function recoverIntentFromResearchArtifacts(
   const intent: TaskIntent = { ...routed, taskId: reuseTaskId };
   ensureTaskRecord(workspaceDir, intent, { assistantId: opts?.assistantId });
   return intent;
+}
+
+function turnDelivery(ctx: AgentContext, instruction?: string) {
+  return ctx.deliveryIntent ?? resolveTurnDeliveryIntent(instruction, ctx.contextPins);
 }
 
 // ─────────────────────────────────────────────
@@ -1078,6 +1088,9 @@ export const draftDocument: AgentTool = {
           contractFastLaneTurn: ctx.contractFastLaneTurn,
         });
         bundle = trial.bundle;
+        if (trial.attempted) {
+          ctx.statuteTrialThisTurn = true;
+        }
       }
       let draft;
       try {
@@ -1135,7 +1148,8 @@ export const draftDocument: AgentTool = {
           ctx.mailContractTurn !== true &&
           !isMailContractFastPathInstruction(instruction) &&
           draft.deliverableType === "contract.review" &&
-          pinsIncludeWordFile(ctx.contextPins);
+          pinsIncludeWordFile(ctx.contextPins) &&
+          !isOpinionMemoDelivery(turnDelivery(ctx, instruction));
         pinnedWordBaseline = Boolean(
           baselinePath || wordRev || extracted.length > 0 || pairedDeliverable,
         );
@@ -1363,6 +1377,9 @@ export const renderDocument: AgentTool = {
         citationGateStrict: bypassGate ? false : undefined,
         projectDir: ctx.projectDir,
         outputPath: asOptionalString(params.output_path, "output_path", 1024),
+        namedPlaceDir: namedPlaceDirFromDelivery(turnDelivery(ctx).outputPlace),
+        homeDir: os.homedir(),
+        protectSourcePath: approvedDraft.contractEdit?.baselineRelativePath,
       });
       if (result.ok) {
         return {
@@ -1664,8 +1681,23 @@ export const renderTrackedDraft: AgentTool = {
       const rel = pathMod.relative(ctx.workspaceDir, result.outputPath).replace(/\\/g, "/");
       const degraded = result.mode === "plain_fallback" || Boolean(result.degraded);
       const qaWarning = xmlQa && !xmlQa.ok ? xmlQa.warning : undefined;
+      const xmlMissingTracks = Boolean(xmlQa && !xmlQa.ok);
+      const message = [
+        degraded
+          ? `【降级】${result.warning || "未能完好保留原格式/审阅痕迹或未能写入全部修订"}（请自行用 Word 打开核对，不会自动打开）：${rel}`
+          : xmlMissingTracks
+            ? `审阅稿已写出但 XML 未见修订痕迹，不能当作已完成：${rel}`
+            : `已写入源文件同目录审阅修订稿（保留原格式；新修改以修订显示；请自行用 Word 打开，不会自动打开）：${rel}`,
+        typeof result.appliedHunks === "number" ? `已叠加修订条数：${result.appliedHunks}` : "",
+        result.conversionTool ? `基线转换：${result.conversionTool}` : "",
+        xmlQaAutoRetried ? "XML 未见修订时已内部收窄并重导一次。" : "",
+        qaWarning ?? "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
       return {
-        ok: true,
+        ok: !xmlMissingTracks,
+        ...(xmlMissingTracks ? { error: message } : {}),
         data: {
           taskId,
           matterId: matterId || undefined,
@@ -1682,18 +1714,9 @@ export const renderTrackedDraft: AgentTool = {
           xmlQa,
           ...(xmlQaRetry ? { xmlQaRetry } : {}),
           ...(xmlQaAutoRetried ? { xmlQaAutoRetried: true as const } : {}),
+          ...(xmlMissingTracks ? { code: "xml_qa_no_tracks" } : {}),
           openWord: false,
-          message: [
-            degraded
-              ? `【降级】${result.warning || "未能完好保留原格式/审阅痕迹或未能写入全部修订"}（请自行用 Word 打开核对，不会自动打开）：${rel}`
-              : `已写入源文件同目录审阅修订稿（保留原格式；新修改以修订显示；请自行用 Word 打开，不会自动打开）：${rel}`,
-            typeof result.appliedHunks === "number" ? `已叠加修订条数：${result.appliedHunks}` : "",
-            result.conversionTool ? `基线转换：${result.conversionTool}` : "",
-            xmlQaAutoRetried ? "XML 未见修订时已内部收窄并重导一次。" : "",
-            qaWarning ?? "",
-          ]
-            .filter(Boolean)
-            .join(" · "),
+          message,
         },
       };
     } catch (err) {

@@ -87,6 +87,8 @@ test.describe("文书台 / 待我拍板 决策落地", () => {
             strictDangerousToolApproval: false,
             reviewCampaignParallel: true,
             forcePeerReview: false,
+            matterReplicaCollab: false,
+            ethicsWall: false,
           },
         }),
       });

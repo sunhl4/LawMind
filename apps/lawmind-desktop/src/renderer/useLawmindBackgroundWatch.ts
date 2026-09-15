@@ -54,7 +54,7 @@ export type UseLawmindBackgroundWatchInput = {
       executionState?: ChatMsg["executionState"];
       turnPlan?: ChatMsg["turnPlan"];
     },
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   setMainView: (v: LawmindMainView) => void;
   setSelectedAssistantId: (id: string) => void;
   setContextTaskId: (id: string | null) => void;

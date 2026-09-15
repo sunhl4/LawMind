@@ -20,7 +20,7 @@
 }
 
 .lm-lawyer-workbench {
-  --desk-pad: 28px;
+  --desk-pad: 24px;
   --desk-paper: var(--surface);
   position: relative;
   display: flex;
@@ -28,80 +28,106 @@
   min-height: 0;
   min-width: 0;
   flex: 1;
-  padding: 20px var(--desk-pad) 18px;
+  padding: 16px var(--desk-pad) 16px;
   /* Must scroll: dock is flex-shrink:0 and can crush the cockpit to 0 height. */
   overflow: auto;
   background-color: var(--bg);
   background-image:
-    radial-gradient(1100px 380px at 6% -12%, rgba(166, 124, 82, 0.1), transparent 56%),
-    radial-gradient(820px 340px at 96% 0%, rgba(47, 143, 138, 0.05), transparent 52%),
-    repeating-linear-gradient(
-      0deg,
-      rgba(28, 25, 21, 0.012) 0 1px,
-      transparent 1px 4px
-    );
+    radial-gradient(900px 320px at 8% -10%, rgba(166, 124, 82, 0.08), transparent 58%),
+    radial-gradient(720px 280px at 96% 0%, rgba(47, 143, 138, 0.04), transparent 55%);
 }
 
 .lm-lawyer-top {
-  display: grid;
-  grid-template-columns: minmax(240px, 1.15fr) minmax(260px, 1.35fr) auto;
-  align-items: end;
-  gap: 20px 28px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 24px;
   flex-shrink: 0;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.lm-lawyer-top-title {
+  min-width: 0;
 }
 
 .lm-lawyer-kicker {
-  margin: 0 0 6px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--accent);
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-2);
 }
 
 .lm-lawyer-workbench h1 {
-  margin: 0 0 6px;
-  font-size: 32px;
+  margin: 0;
+  font-size: 26px;
   font-weight: 650;
-  letter-spacing: -0.045em;
-  line-height: 1.05;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
 }
 
-.lm-lawyer-lede {
-  margin: 0;
-  max-width: 38rem;
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--text-2);
+.lm-lawyer-top-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 320px;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .lm-lawyer-search {
   position: relative;
+  flex: 1 1 220px;
+  max-width: 320px;
 }
 
 .lm-lawyer-search .lm-input {
-  height: 44px;
-  padding-left: 40px;
-  border-radius: 999px;
+  height: 38px;
+  padding-left: 36px;
+  padding-right: 32px;
+  border-radius: 12px;
   background: var(--desk-paper);
   border-color: var(--border-md);
-  box-shadow: var(--shadow-xs);
+  box-shadow: none;
 }
 
 .lm-lawyer-search-ico {
   position: absolute;
-  left: 14px;
+  left: 12px;
   top: 50%;
   transform: translateY(-50%);
   color: var(--muted);
   pointer-events: none;
 }
 
+.lm-lawyer-search-clear {
+  appearance: none;
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.lm-lawyer-search-clear:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
 .lm-lawyer-top-actions {
   display: flex;
   gap: 8px;
-  padding-bottom: 2px;
+  flex-shrink: 0;
 }
 
 .lm-lawyer-cockpit {
@@ -109,9 +135,9 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
   /*
-   * IRON: cockpit must stay visible. Dock/progress-board are flex-shrink:0;
+   * IRON: cockpit must stay visible. Dock is flex-shrink:0;
    * if this uses flex-shrink:1 + min-height:0, narrow windows crush it to 0px
-   * (user sees only 事项表 + 快捷入口, thinks 工作台 is broken).
+   * (user sees only 快捷入口, thinks 工作台 is broken).
    * Parent .lm-lawyer-workbench scrolls instead.
    */
   flex: 1 0 auto;
@@ -135,26 +161,26 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  padding: 18px 20px 16px;
+  padding: 14px 16px 12px;
   border-bottom: 1px solid var(--border);
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--accent-dim) 35%, var(--surface)) 0%, var(--surface) 100%);
+    linear-gradient(180deg, color-mix(in srgb, var(--accent-dim) 28%, var(--surface)) 0%, var(--surface) 100%);
 }
 
 .lm-desk-col--act .lm-desk-col-head {
-  box-shadow: inset 0 3px 0 var(--accent);
+  box-shadow: inset 0 2px 0 var(--accent);
 }
 
 .lm-desk-col--time .lm-desk-col-head {
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--warn-dim) 55%, var(--surface)) 0%, var(--surface) 100%);
-  box-shadow: inset 0 3px 0 var(--warn);
+    linear-gradient(180deg, color-mix(in srgb, var(--warn-dim) 45%, var(--surface)) 0%, var(--surface) 100%);
+  box-shadow: inset 0 2px 0 var(--warn);
 }
 
 .lm-desk-col--matters .lm-desk-col-head {
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--accent-cool-dim) 55%, var(--surface)) 0%, var(--surface) 100%);
-  box-shadow: inset 0 3px 0 var(--accent-cool);
+    linear-gradient(180deg, color-mix(in srgb, var(--accent-cool-dim) 45%, var(--surface)) 0%, var(--surface) 100%);
+  box-shadow: inset 0 2px 0 var(--accent-cool);
 }
 
 .lm-desk-col-copy {
@@ -162,47 +188,41 @@
 }
 
 .lm-desk-col-label {
-  margin: 0 0 8px;
-  font-size: 15px;
+  margin: 0 0 4px;
+  font-size: 13px;
   font-weight: 650;
 }
 
 .lm-desk-col-value {
   display: flex;
   align-items: baseline;
-  gap: 6px;
-  font-size: 48px;
+  gap: 5px;
+  font-size: 30px;
   font-weight: 650;
-  letter-spacing: -0.05em;
-  line-height: 0.92;
+  letter-spacing: -0.04em;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 
 .lm-desk-col-unit {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 650;
   color: var(--muted);
   letter-spacing: 0;
 }
 
 .lm-desk-col-delta {
-  margin: 8px 0 0;
+  margin: 6px 0 0;
   font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
-}
-
-.lm-desk-col-hint {
-  margin: 4px 0 0;
-  font-size: 12px;
+  font-weight: 500;
   color: var(--muted);
 }
 
 .lm-desk-ico {
   flex-shrink: 0;
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
   display: grid;
   place-items: center;
   background: var(--accent-dim);
@@ -526,6 +546,12 @@
   transform: translateY(-1px);
 }
 
+.lm-matter-card.is-current {
+  border-color: var(--accent-border);
+  background: color-mix(in srgb, var(--accent-dim) 55%, var(--surface));
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
 .lm-matter-card:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
@@ -593,88 +619,37 @@
 .lm-desk-compose {
   display: flex;
   gap: 8px;
-  padding: 12px 14px 14px;
+  padding: 10px 12px 12px;
   border-top: 1px solid var(--border);
   background: var(--surface-2);
 }
 
-.lm-desk-compose textarea {
-  min-height: 44px;
-  resize: none;
-}
-
-.lm-progress-board {
-  flex-shrink: 0;
-  margin: 0 0 4px;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: var(--surface);
-  box-shadow: var(--shadow-xs);
-  overflow: hidden;
-}
-
-.lm-progress-board-head,
-.lm-progress-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 4.5rem 4.5rem;
-  gap: 12px;
-  align-items: center;
-  padding: 8px 16px;
-  font-size: 12px;
-}
-
-.lm-progress-board-head {
-  background: var(--surface-2);
-  color: var(--muted);
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
-
-.lm-progress-board-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  max-height: 11.5rem;
-  overflow: auto;
-}
-
-.lm-progress-row {
-  border-top: 1px solid var(--border);
-  color: var(--text-2);
-}
-
-.lm-progress-row.is-done {
-  opacity: 0.55;
-}
-
-.lm-progress-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text);
-  font-weight: 600;
+.lm-desk-compose .lm-input {
+  min-height: 36px;
+  height: 36px;
 }
 
 .lm-desk-dock {
   flex-shrink: 0;
-  margin-top: 14px;
-  padding-right: 148px;
+  margin-top: 12px;
+  padding: 12px 14px 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 88%, var(--surface-2));
 }
 
 .lm-desk-dock-label {
   margin: 0 0 8px;
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-weight: 650;
+  letter-spacing: 0.08em;
   color: var(--muted);
 }
 
 .lm-desk-quick {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .lm-desk-quick-btn {
@@ -682,13 +657,13 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 6px;
-  min-height: 108px;
-  padding: 14px 16px;
+  gap: 4px;
+  min-height: 0;
+  padding: 12px 14px;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: 12px;
   background: var(--desk-paper);
-  box-shadow: var(--shadow-xs);
+  box-shadow: none;
   color: inherit;
   font: inherit;
   cursor: pointer;
@@ -697,7 +672,7 @@
 
 .lm-desk-quick-btn:hover {
   border-color: var(--accent-border);
-  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--accent-dim) 40%, var(--surface));
 }
 
 .lm-desk-quick-btn:focus-visible {
@@ -706,9 +681,9 @@
 }
 
 .lm-desk-quick-btn .lm-desk-ico {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
 }
 
 .lm-desk-quick-btn strong {
@@ -720,36 +695,6 @@
   font-size: 12px;
   color: var(--text-2);
   line-height: 1.35;
-}
-
-.lm-lawyer-fab {
-  appearance: none;
-  position: absolute;
-  right: 28px;
-  bottom: 22px;
-  z-index: 3;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 18px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--text);
-  color: var(--on-accent);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 650;
-  cursor: pointer;
-  box-shadow: var(--shadow-md);
-}
-
-.lm-lawyer-fab:hover {
-  filter: brightness(1.08);
-}
-
-.lm-lawyer-fab:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
 }
 
 .lm-matter-file {
@@ -767,7 +712,7 @@
 
 .lm-lawyer-back {
   appearance: none;
-  margin: 16px 28px 0;
+  margin: 14px 24px 0;
   padding: 0;
   border: 0;
   background: none;
@@ -784,24 +729,26 @@
 }
 
 .lm-matter-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.9fr);
-  gap: 24px;
-  align-items: start;
-  padding: 8px 28px 18px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px 24px;
+  padding: 10px 24px 14px;
+  flex-wrap: wrap;
 }
 
 .lm-matter-id {
   display: flex;
-  gap: 16px;
+  gap: 14px;
   min-width: 0;
+  flex: 1 1 280px;
 }
 
 .lm-matter-folder {
   flex-shrink: 0;
-  width: 56px;
-  height: 56px;
-  border-radius: 16px;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
   display: grid;
   place-items: center;
   background: var(--grad-brand);
@@ -809,60 +756,36 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 
+.lm-matter-hero-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.lm-matter-status-pill {
+  display: inline-flex;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
 .lm-matter-hero h2 {
-  margin: 0 0 6px;
-  font-size: 26px;
+  margin: 0 0 4px;
+  font-size: 22px;
   font-weight: 650;
-  letter-spacing: -0.035em;
+  letter-spacing: -0.03em;
 }
 
 .lm-matter-hero-sub {
   margin: 0;
   font-size: 13px;
   color: var(--text-2);
-}
-
-.lm-matter-hero-side {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
-}
-
-.lm-status-table {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  overflow: hidden;
-  background: var(--surface-2);
-}
-
-.lm-status-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-}
-
-.lm-status-cell:nth-child(2n) {
-  border-right: 0;
-}
-
-.lm-status-cell:nth-child(n + 3) {
-  border-bottom: 0;
-}
-
-.lm-status-cell span {
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.lm-status-cell strong {
-  font-size: 13px;
-  font-weight: 650;
+  line-height: 1.45;
 }
 
 .lm-matter-hero-actions {
@@ -870,13 +793,14 @@
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .lm-pulse-bar {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  padding: 0 28px 14px;
+  gap: 8px;
+  padding: 0 24px 12px;
 }
 
 .lm-pulse-chip {
@@ -888,6 +812,20 @@
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--surface-2);
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.lm-pulse-chip:hover {
+  border-color: var(--border-strong, var(--border));
+  background: var(--surface-3, var(--surface-2));
+}
+
+.lm-pulse-chip:focus-visible {
+  outline: 2px solid var(--focus-ring, var(--accent));
+  outline-offset: 2px;
 }
 
 .lm-pulse-chip span {
@@ -913,7 +851,7 @@
 .lm-pane-tabs {
   display: flex;
   gap: 0;
-  margin: 0 28px;
+  margin: 0 24px;
   padding: 0;
   background: transparent;
   border-bottom: 1px solid var(--border);
@@ -923,9 +861,9 @@
   appearance: none;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   margin: 0;
-  padding: 12px 16px 11px;
+  padding: 10px 14px 9px;
   border: 0;
   border-bottom: 2px solid transparent;
   border-radius: 0;
@@ -974,19 +912,25 @@
 .lm-overview {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-  padding: 18px 28px 28px;
+  gap: 14px;
+  padding: 16px 24px 24px;
 }
 
 .lm-overview-card {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  min-height: 260px;
-  padding: 18px 18px 16px;
+  min-height: 0;
+  padding: 16px 16px 14px;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: 14px;
   background: var(--surface-2);
+}
+
+.lm-overview-card--next {
+  grid-column: 1 / -1;
+  background: color-mix(in srgb, var(--accent-dim) 35%, var(--surface));
+  border-color: var(--accent-border);
 }
 
 .lm-overview-card h3 {
@@ -1049,7 +993,7 @@
 }
 
 .lm-lawyer-pane {
-  padding: 18px 28px 32px;
+  padding: 16px 24px 24px;
 }
 
 .lm-lawyer-pane h3 {
@@ -1082,6 +1026,21 @@
   list-style: none;
   margin: 0;
   padding: 0;
+}
+
+.lm-lawyer-similar-open {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent, inherit);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lm-lawyer-similar-open:hover strong {
+  text-decoration: underline;
 }
 
 .lm-lawyer-deadline-row {
@@ -1183,20 +1142,20 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  justify-content: center;
-  gap: 8px;
-  padding: 36px 16px;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 18px 8px 12px;
   color: var(--text-2);
-  min-height: 10rem;
+  min-height: 0;
 }
 
 .lm-lawyer-empty .lm-desk-ico {
-  margin-bottom: 4px;
+  display: none;
 }
 
 .lm-lawyer-empty-title {
   margin: 0;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 650;
   color: var(--text);
 }
@@ -1204,7 +1163,7 @@
 .lm-lawyer-empty p {
   margin: 0;
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.45;
   max-width: 18rem;
 }
 
@@ -1243,14 +1202,21 @@
 }
 
 @media (max-width: 1200px) {
-  .lm-lawyer-top,
-  .lm-matter-hero {
+  .lm-lawyer-top-tools {
+    flex: 1 1 100%;
+    justify-content: stretch;
+  }
+
+  .lm-lawyer-search {
+    max-width: none;
+  }
+
+  .lm-overview {
     grid-template-columns: 1fr;
   }
 
-  .lm-overview,
   .lm-pulse-bar {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr 1fr;
   }
 
   /* Keep quick entries compact — a 1-col stack was crushing the cockpit to 0 height. */
@@ -1259,12 +1225,7 @@
   }
 
   .lm-desk-quick-btn {
-    min-height: 88px;
-  }
-
-  .lm-desk-dock {
-    padding-right: 0;
-    margin-bottom: 56px;
+    min-height: 0;
   }
 
   .lm-lawyer-brief {
@@ -1276,7 +1237,7 @@
   }
 }
 
-/* Default Electron window is ~1100px. Keep 在办案件 as a column until phone-narrow. */
+/* Default Electron window is ~1100px. Keep 本案列表 as a column until phone-narrow. */
 @media (max-width: 860px) {
   .lm-lawyer-cockpit {
     grid-template-columns: 1fr;

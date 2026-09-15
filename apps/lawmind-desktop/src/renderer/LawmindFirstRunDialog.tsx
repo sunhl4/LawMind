@@ -70,7 +70,10 @@ function isContractReviewSpec(spec: SpecSummary): boolean {
   return spec.type === "contract.review";
 }
 
-function buildFirstrunSeedPrompt(role: Role["id"], spec: SpecSummary): string {
+function buildFirstrunSeedPrompt(role: Role["id"], spec: SpecSummary | null): string {
+  if (!spec) {
+    return "把材料拖进来，或直接说要办的事。不必先选文书类型。";
+  }
   if (isContractReviewSpec(spec)) {
     return buildContractFastLanePrompt({
       materials: "请使用对话中已引用的合同材料；若尚无引用请追问我补充文件或粘贴关键条款。",
@@ -98,7 +101,10 @@ type Step = "role" | "prefs" | "spec" | "confirm";
  * 首跑演示案件名：稳定、律师友好、不带时间戳。
  * 字符集对齐服务端 MATTER_ID_PATTERN（字母/数字/._- 与空格），其余字符剔除。
  */
-function autoMatterIdFromSpec(spec: SpecSummary): string {
+function autoMatterIdFromSpec(spec: SpecSummary | null): string {
+  if (!spec) {
+    return "演示案件";
+  }
   const safe = spec.displayName.replace(/[^\p{L}\p{N}._\- ]/gu, "").trim();
   return `演示案件-${safe || "示例"}`;
 }
@@ -114,7 +120,6 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
     suppressAutoOpen = false,
     onClose,
     onSeedReady,
-    onOpenWorkflowLibrary,
     onOpenAdvancedSettings,
   } = props;
 
@@ -130,7 +135,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
   const [submitBusy, setSubmitBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
-  const [createDemoMatter, setCreateDemoMatter] = useState(false);
+  const [createDemoMatter, setCreateDemoMatter] = useState(true);
 
   useEffect(() => {
     if (open) {
@@ -243,7 +248,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
   const prefsReady = Boolean(writingStyle && riskPosture && clientTone);
 
   const submit = useCallback(async () => {
-    if (!role || !chosenSpec || !prefsReady) {
+    if (!role || !prefsReady) {
       return;
     }
     setSubmitBusy(true);
@@ -291,8 +296,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
         }
       }
       const seedPrompt = buildFirstrunSeedPrompt(role, chosenSpec);
-      // 合同审查：直接可执行，避免 Day-1 卡在「先计划」；其它类型仍默认先计划。
-      applyPostFirstrunPermissionDefaults({ executable: isContractReviewSpec(chosenSpec) });
+      applyPostFirstrunPermissionDefaults({ executable: true });
       onSeedReady({ matterId, seedPrompt });
       dismissForever();
     } catch (e) {
@@ -332,7 +336,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
       <div className="lm-wizard lm-firstrun">
         <div className="lm-firstrun-head">
           <h2>几步开始用</h2>
-            <p className="lm-meta">选身份与文书即可上手。</p>
+            <p className="lm-meta">选身份与习惯即可上手；文书可跳过。</p>
           <ol className="lm-firstrun-steps" aria-label="进度">
             <li className={step === "role" ? "active" : "done"}>1. 身份</li>
             <li
@@ -448,10 +452,18 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
           </div>
         ) : null}
 
-        {step === "spec" && onOpenWorkflowLibrary ? (
+        {step === "spec" ? (
           <p className="lm-meta lm-firstrun-workflow-hint">
-            <button type="button" className="lm-link-btn" onClick={onOpenWorkflowLibrary}>
-              工作流库
+            <button
+              type="button"
+              className="lm-link-btn"
+              data-testid="lm-firstrun-skip-spec"
+              onClick={() => {
+                setChosenSpec(null);
+                setStep("confirm");
+              }}
+            >
+              先不选文书，直接开始
             </button>
           </p>
         ) : null}
@@ -490,7 +502,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
           </div>
         ) : null}
 
-        {step === "confirm" && role && chosenSpec ? (
+        {step === "confirm" && role ? (
           <div className="lm-firstrun-confirm">
             <div className="lm-firstrun-confirm-row">
               <span className="lm-meta">身份</span>
@@ -505,7 +517,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
             </div>
             <div className="lm-firstrun-confirm-row">
               <span className="lm-meta">文书</span>
-              <span>{chosenSpec.displayName}</span>
+              <span>{chosenSpec?.displayName ?? "由对话判断"}</span>
             </div>
             <div className="lm-firstrun-confirm-row">
               <span className="lm-meta">将放进对话的第一句交办（可改）</span>
@@ -518,7 +530,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
                 onChange={(e) => setCreateDemoMatter(e.target.checked)}
                 data-testid="lm-firstrun-create-matter"
               />
-              <span>同时创建演示案件（可选）</span>
+              <span>同时创建演示案件</span>
             </label>
             <p className="lm-settings-caption">
               默认先进对话。开始后可随时在设置 → 工作区扫描历史材料（整理夹与杂烩目录均可，最多 3 个根）。
@@ -550,8 +562,13 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
           <button type="button" className="lm-btn lm-btn-secondary" onClick={dismissForNow}>
             稍后再说
           </button>
-          <button type="button" className="lm-btn lm-btn-secondary" onClick={dismissForever}>
-            不用了
+          <button
+            type="button"
+            className="lm-btn lm-btn-secondary"
+            data-testid="lm-firstrun-skip-wizard"
+            onClick={dismissForever}
+          >
+            跳过向导，直接开始
           </button>
           {onOpenAdvancedSettings ? (
             <button
@@ -587,7 +604,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
             <button
               type="button"
               className="lm-btn"
-              disabled={submitBusy || !role || !chosenSpec || !prefsReady}
+              disabled={submitBusy || !role || !prefsReady}
               onClick={() => void submit()}
             >
               {submitBusy ? "正在开始…" : createDemoMatter ? "建案件并开始交办" : "开始交办"}

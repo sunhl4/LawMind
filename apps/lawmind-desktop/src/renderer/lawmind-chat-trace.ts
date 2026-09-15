@@ -109,7 +109,14 @@ export function applyToolProgress(trace: ChatLiveTrace, label: string): ChatLive
 
 export function applyToolEnd(
   trace: ChatLiveTrace,
-  info: { toolCallId: string; toolName: string; ok: boolean; error?: string; resultPreview?: string },
+  info: {
+    toolCallId: string;
+    toolName: string;
+    ok: boolean;
+    error?: string;
+    resultPreview?: string;
+    sessionRefs?: import("./lawmind-session-link").ChatSessionRef[];
+  },
 ): ChatLiveTrace {
   const steps = [...trace.steps];
   const toolId = info.toolCallId?.trim();
@@ -121,15 +128,19 @@ export function applyToolEnd(
   const detail = info.ok
     ? rawError || info.resultPreview || resultCard.detail
     : lawyerFacingToolFailureDetail(info.toolName, info.error) || resultCard.detail;
+  const patch = (row: ChatTraceStep): ChatTraceStep => ({
+    ...row,
+    status: info.ok ? "done" : "failed",
+    detail,
+    ...(info.ok && info.sessionRefs && info.sessionRefs.length > 0
+      ? { sessionRefs: info.sessionRefs }
+      : {}),
+  });
   let toolClosed = false;
   if (toolId) {
     const byId = steps.findIndex((row) => row.kind === "tool" && row.id === toolId);
     if (byId >= 0 && steps[byId].status === "running") {
-      steps[byId] = {
-        ...steps[byId],
-        status: info.ok ? "done" : "failed",
-        detail,
-      };
+      steps[byId] = patch(steps[byId]);
       toolClosed = true;
     }
   }
@@ -137,11 +148,7 @@ export function applyToolEnd(
     for (let i = steps.length - 1; i >= 0; i--) {
       const row = steps[i];
       if (row.kind === "tool" && row.status === "running") {
-        steps[i] = {
-          ...row,
-          status: info.ok ? "done" : "failed",
-          detail,
-        };
+        steps[i] = patch(row);
         break;
       }
     }

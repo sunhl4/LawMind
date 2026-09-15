@@ -507,6 +507,13 @@ export async function handleChatRoute({
                 error: event.error,
                 ...(event.authorityGap ? { authorityGap: true } : {}),
                 ...(event.demoCorpus ? { demoCorpus: true } : {}),
+                ...(event.nextActions && event.nextActions.length > 0
+                  ? { nextActions: event.nextActions }
+                  : {}),
+                ...(event.resultPreview ? { resultPreview: event.resultPreview } : {}),
+                ...(event.sessionRefs && event.sessionRefs.length > 0
+                  ? { sessionRefs: event.sessionRefs }
+                  : {}),
               });
               break;
             case "tool_progress":

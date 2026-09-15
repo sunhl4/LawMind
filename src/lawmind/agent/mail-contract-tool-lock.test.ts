@@ -66,20 +66,26 @@ function stubModelWithToolCall(toolName: string, argsJson: string) {
   );
 }
 
+const MAIL_SHORT = [
+  "【邮件合同审阅改稿 · 短路径 · 原文件审阅痕迹】",
+  "默认 contract_edit_baseline_path=`cases/m/a.docx`",
+  "建议回复收件人：opp@firm.cn",
+].join("\n");
+
 describe("mail-contract short-path tool lock", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
-  it("rejects search_workspace on a short-path turn", async () => {
+  it("allows search_statute on a short-path turn", async () => {
     const workspaceDir = tmpWorkspace();
     const registry = new ToolRegistry();
     let searched = false;
     registry.register({
       definition: {
-        name: "search_workspace",
-        description: "search",
+        name: "search_statute",
+        description: "statute",
         category: "search",
         parameters: {},
       },
@@ -88,24 +94,48 @@ describe("mail-contract short-path tool lock", () => {
         return { ok: true, data: { hits: [] } };
       },
     });
-    stubModelWithToolCall("search_workspace", "{}");
+    stubModelWithToolCall("search_statute", "{}");
 
     const result = await runTurn({
       config: baseConfig(workspaceDir),
       registry,
-      instruction: [
-        "【邮件合同审阅改稿 · 短路径 · 原文件审阅痕迹】",
-        "默认 contract_edit_baseline_path=`cases/m/a.docx`",
-        "建议回复收件人：opp@firm.cn",
-      ].join("\n"),
+      instruction: MAIL_SHORT,
     });
 
-    expect(searched).toBe(false);
+    expect(searched).toBe(true);
+    expect(result.turn.status).not.toBe("error");
+  });
+
+  it("rejects render_document on a short-path turn", async () => {
+    const workspaceDir = tmpWorkspace();
+    const registry = new ToolRegistry();
+    let rendered = false;
+    registry.register({
+      definition: {
+        name: "render_document",
+        description: "render",
+        category: "draft",
+        parameters: {},
+      },
+      async execute() {
+        rendered = true;
+        return { ok: true, data: {} };
+      },
+    });
+    stubModelWithToolCall("render_document", "{}");
+
+    const result = await runTurn({
+      config: baseConfig(workspaceDir),
+      registry,
+      instruction: MAIL_SHORT,
+    });
+
+    expect(rendered).toBe(false);
     const toolText = result.turn.messages
       .flatMap((msg) => msg.toolCallResponses ?? [])
       .map((resp) => resp.result.error ?? "")
       .join("\n");
-    expect(toolText).toContain("search_workspace");
+    expect(toolText).toContain("render_document");
     expect(toolText).toContain(MAIL_CONTRACT_FAST_PATH_DENIED_HINT.slice(0, 12));
   });
 });

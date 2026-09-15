@@ -17,6 +17,7 @@ import { runPrivateDeployChecklist } from "../../../src/lawmind/policy/private-d
 import { buildWorkspaceSessionHealth } from "../../../src/lawmind/insights/session-health.js";
 import {
   buildAuthorityCorpusHealthSummary,
+  buildCompanyRegistryHealthSummary,
   buildDoctorStats,
   buildJudgmentHardControlsReport,
   buildMemoryTruthSourceFlags,
@@ -243,6 +244,7 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
   const taskDraftConsistency = buildTaskDraftConsistencySummary(workspaceDir);
   const multitaskObservability = buildMultitaskObservabilitySummary(workspaceDir);
   const authorityCorpus = buildAuthorityCorpusHealthSummary();
+  const companyRegistry = buildCompanyRegistryHealthSummary();
   const authorityUsage = buildAuthorityUsageSummary(workspaceDir);
   const buildChannel = getBuildChannel();
   const embeddingIndex = getEmbeddingIndexConfig();
@@ -328,6 +330,7 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
         taskDraftConsistency,
         multitaskObservability,
         authorityCorpus,
+        companyRegistry,
         authorityUsage,
         embeddingIndex: {
           enabled: embeddingIndex.enabled,

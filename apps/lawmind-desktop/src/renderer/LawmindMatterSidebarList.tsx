@@ -66,7 +66,7 @@ export function LawmindMatterSidebarList(props: Props): ReactNode {
               ? "无匹配案件"
               : onCreateMatter
                 ? "暂无案件。点上方「新建」开始。"
-                : "暂无案件。打开顶部「案件工作台」新建，或在对话空态点「新建案件」。"}
+                : "暂无案件。请先新建一个案件。"}
           </p>
           {!query.trim() && onCreateMatter ? (
             <button

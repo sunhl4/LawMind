@@ -1,5 +1,6 @@
 /**
- * Leaf: 办件流程锁。律师从列表选流程，不必记住激活词。
+ * Leaf: 办件流程锁（隐式编译 + 显式覆盖）。
+ * 律师主路径不必选列表；`$skill` / `【办件】能力：` 可覆盖误绑。
  * Safe for desktop renderer (no fs).
  */
 
@@ -242,14 +243,31 @@ export function isLawyerCapabilityId(value: string): value is LawyerCapabilityId
 }
 
 const LOCK_RE = /【办件】\s*能力\s*[：:]\s*([a-z]+(?:\.[a-z]+)+)/i;
+const SKILL_DOLLAR_RE = /\$skill\s+([^\s】]+)/i;
 
-export function parseCapabilityLock(instruction: string): LawyerCapabilityId | undefined {
-  const m = LOCK_RE.exec(instruction);
-  const id = m?.[1]?.trim().toLowerCase();
-  if (!id || !isLawyerCapabilityId(id)) {
+function normalizeCapabilityToken(raw?: string): LawyerCapabilityId | undefined {
+  if (!raw) {
     return undefined;
   }
-  return id;
+  const trimmed = raw.trim().replace(/^`+|`+$/g, "");
+  const idish = trimmed.toLowerCase();
+  if (isLawyerCapabilityId(idish)) {
+    return idish;
+  }
+  const byLabel = LAWYER_CAPABILITY_DESK_ITEMS.find(
+    (item) => item.label === trimmed || item.label.toLowerCase() === idish,
+  );
+  return byLabel?.id;
+}
+
+export function parseCapabilityLock(instruction: string): LawyerCapabilityId | undefined {
+  const lock = LOCK_RE.exec(instruction);
+  const fromLock = normalizeCapabilityToken(lock?.[1]);
+  if (fromLock) {
+    return fromLock;
+  }
+  const dollar = SKILL_DOLLAR_RE.exec(instruction);
+  return normalizeCapabilityToken(dollar?.[1]);
 }
 
 export function formatCapabilityDispatchPrompt(params: {

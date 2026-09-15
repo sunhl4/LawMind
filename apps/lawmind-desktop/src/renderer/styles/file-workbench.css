@@ -742,12 +742,27 @@
 .lm-side-chat-sessions-body {
   flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px 0 4px;
+}
+
+.lm-side-chat-sessions-body [role="listbox"] {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 2px 0 4px;
+}
+
+.lm-side-chat-sessions-search {
+  width: 100%;
+  margin: 0 0 4px;
+  flex-shrink: 0;
 }
 
 .lm-side-chat-sessions-empty {

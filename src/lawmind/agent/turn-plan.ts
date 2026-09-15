@@ -23,6 +23,7 @@ export {
   TURN_PLAN_EXPLANATION_MAX_CHARS,
   attachTurnPlanToLastAssistant,
   formatTurnPlanWorldState,
+  formatTurnPlanExecuteText,
   isTurnPlanComplete,
   parseAgentTurnPlan,
   promotePendingTurnPlan,

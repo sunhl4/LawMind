@@ -128,6 +128,7 @@ export const addCaseNote: AgentTool = {
       content,
       trackAdoption: true,
       origin: "agent",
+      actorId: ctx.actorId,
     });
     return { ok: true, data: { matterId, section, content } };
   },

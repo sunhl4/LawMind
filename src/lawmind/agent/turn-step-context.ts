@@ -3,10 +3,7 @@
  * StepContext is rebuilt each sampling round (pins, disclosed tools).
  */
 
-import {
-  discoveryCountsShowDocumentRead,
-  dropSaturatedDiscoveryTools,
-} from "../runtime/tool-pipeline.js";
+import { dropSaturatedDiscoveryTools } from "../runtime/tool-pipeline.js";
 import type { AgentPermissionMode } from "./permission-mode.js";
 import { collectDisclosedToolNames, resolveModelToolNames } from "./tools/governance.js";
 import type { ToolRegistry } from "./tools/registry.js";
@@ -23,7 +20,9 @@ export type TurnContext = {
   allowNames?: string[];
   /** When true, advertise exactly allowNames — no core catalog / list_more_tools. */
   lockToAllowNames?: boolean;
-  /** File-page / dialog Word tracked-export — drop re-reads after a successful document read. */
+  /** Playbook deny-list (mail/word): never advertise or treat as available. */
+  denyNames?: string[];
+  /** File-page / dialog Word tracked-export (deny mis-send / template rebuild). */
   wordRevisionTurn?: boolean;
   /** Brought-in folder / project dir: document readers share the host-file ledger. */
   hostFileLedger?: boolean;
@@ -50,6 +49,7 @@ export function freezeTurnContext(input: TurnContext): TurnContext {
       ? { allowNames: [...input.allowNames] }
       : {}),
     ...(input.lockToAllowNames ? { lockToAllowNames: true } : {}),
+    ...(input.denyNames && input.denyNames.length > 0 ? { denyNames: [...input.denyNames] } : {}),
     ...(input.wordRevisionTurn ? { wordRevisionTurn: true } : {}),
     ...(input.hostFileLedger ? { hostFileLedger: true } : {}),
     ...(input.hiddenToolNames && input.hiddenToolNames.length > 0
@@ -77,12 +77,9 @@ export function rebuildStepContext(opts: {
     permissionMode: opts.turnContext.permissionMode,
     disclosedNames: disclosed,
     lockToAllowNames: opts.turnContext.lockToAllowNames === true,
+    denyNames: opts.turnContext.denyNames,
   }).filter((name) => !hidden.has(name));
-  const dropDocumentReaders =
-    opts.turnContext.wordRevisionTurn === true &&
-    discoveryCountsShowDocumentRead(opts.discoveryCallCounts);
   const toolNames = dropSaturatedDiscoveryTools(advertised, opts.discoveryCallCounts, {
-    dropDocumentReaders,
     hostFileLedger: opts.turnContext.hostFileLedger === true || opts.hostFileLedger === true,
   });
   return {

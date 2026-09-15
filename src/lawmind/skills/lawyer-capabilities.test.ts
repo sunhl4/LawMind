@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { compileIntent } from "../intent/compile-intent.js";
 import {
   bindLawyerCapability,
   formatBoundCapabilityBlock,
   listLawyerCapabilities,
   readBuiltinSkillMarkdown,
   readSkillPromptBodies,
+  resolveCapabilityPipelineHint,
 } from "./lawyer-capabilities.js";
 import { planLeanSkillPrompt } from "./skill-prompt-budget.js";
 
@@ -77,11 +79,11 @@ describe("lawyer-capabilities", () => {
     expect(bound?.deliverableType).toBe("contract.general");
     expect(bound?.pipelineHint).toContain("render_tracked_draft");
     expect(bound?.pipelineHint).toContain("不要准备外发邮件");
-    expect(bound?.skillIds).toEqual(["contract-redline-craft"]);
-    expect(bound?.skillIds).not.toContain("contract-review-layers");
+    expect(bound?.skillIds).toEqual(["contract-review-layers", "contract-redline-craft"]);
+    expect(bound?.skillIds).toContain("contract-review-layers");
   });
 
-  it("binds dialog 导出 to tracked redline when a Word is pinned", () => {
+  it("does not bind dialog 立场/导出 to tracked redline when a Word is pinned", () => {
     const bound = bindLawyerCapability({
       instruction: "立场甲方，导出",
       pins: [
@@ -93,9 +95,8 @@ describe("lawyer-capabilities", () => {
         },
       ],
     });
-    expect(bound?.pipeline).toBe("tracked_redline");
-    expect(bound?.deliverableType).toBe("contract.general");
-    expect(bound?.skillIds).toEqual(["contract-redline-craft"]);
+    expect(bound?.id).toBe("contract.review");
+    expect(bound?.pipeline).not.toBe("tracked_redline");
   });
 
   it("binds Word 改稿 on a complaint to litigation without contract-redline craft", () => {
@@ -193,12 +194,17 @@ describe("lawyer-capabilities", () => {
     );
   });
 
-  it("keeps mail.contract skill list short so the short path stays intact", () => {
+  it("keeps mail.contract skills for layers, craft, citation, and delivery", () => {
     const mail = bindLawyerCapability({
       instruction: "【邮件合同审阅改稿 · 短路径 · 原文件审阅痕迹】\nmatterId=`m1`",
     });
     expect(mail?.id).toBe("mail.contract");
-    expect(mail?.skillIds).toEqual(["citation-grounding", "delivery-language"]);
+    expect(mail?.skillIds).toEqual([
+      "contract-review-layers",
+      "contract-redline-craft",
+      "citation-grounding",
+      "delivery-language",
+    ]);
   });
 
   it("formats a productized prompt block with builtin skills", () => {
@@ -209,9 +215,9 @@ describe("lawyer-capabilities", () => {
     expect(bodies.some((b) => b.includes("合同分层审查"))).toBe(true);
     const lean = planLeanSkillPrompt(bound!, "请审查合同条款");
     const leanBodies = readSkillPromptBodies(undefined, lean.primaryIds);
-    expect(lean.primaryIds).toEqual(["contract-review-layers"]);
+    expect(lean.primaryIds).toEqual(["contract-review-layers", "contract-redline-craft"]);
     expect(leanBodies.some((b) => b.includes("合同分层审查"))).toBe(true);
-    expect(leanBodies.some((b) => b.includes("合同审阅改稿手艺"))).toBe(false);
+    expect(leanBodies.some((b) => b.includes("合同审阅改稿手艺"))).toBe(true);
     expect(leanBodies.some((b) => b.includes("## 九类事实"))).toBe(false);
     const block = formatBoundCapabilityBlock(bound!, leanBodies, { indexLines: lean.indexLines });
     expect(block).toContain("本轮 LawMind 能力：合同审查");
@@ -222,6 +228,49 @@ describe("lawyer-capabilities", () => {
     expect(block).toContain("不要再问律师选分类");
     expect(block).toContain("其余技能（索引，不要通读）");
     expect(block).toContain("legal-element-extraction");
+  });
+
+  it("keeps tools available when the lawyer named an opinion memo", () => {
+    const bound = bindLawyerCapability({ instruction: "请审查这份采购合同" });
+    expect(bound).toBeTruthy();
+    const hint = resolveCapabilityPipelineHint(bound!, "审查意见放到桌面，不要改原稿");
+    expect(hint).toContain("改稿工具仍可用");
+    expect(hint).not.toContain("必须走");
+  });
+
+  it("uses the paired pipeline hint when 5-minute review has a Word pin", () => {
+    const bound = bindLawyerCapability({ instruction: "请审查这份采购合同" });
+    expect(bound).toBeTruthy();
+    const instruction = [
+      "【交办】5 分钟合同审查",
+      "交付物类型：合同审查意见",
+      "- 己方立场：中立",
+      "- 审查重点：管辖",
+    ].join("\n");
+    const compiled = compileIntent({
+      instruction,
+      pins: [
+        {
+          pinKind: "file",
+          root: "project",
+          relPath: "采购合同.docx",
+          kind: "file",
+        },
+      ],
+    });
+    const hint = resolveCapabilityPipelineHint(bound!, instruction, compiled.delivery);
+    expect(hint).toContain("已配置工具都可用");
+    expect(hint).not.toContain("优先 `draft_document` / `update_draft`");
+  });
+
+  it("does not freeze contract.review into a single tool sequence", () => {
+    const bound = bindLawyerCapability({ instruction: "请审查这份采购合同" });
+    expect(bound?.pipelineHint).toContain("已配置工具都可用");
+    expect(bound?.pipelineHint).toContain("律师指定只要一种则按指定");
+    expect(bound?.pipelineHint).not.toContain("完成=意见");
+    const bodies = readSkillPromptBodies(undefined, ["contract-review-layers"]);
+    const block = formatBoundCapabilityBlock(bound!, bodies);
+    expect(block).toContain("不是只能走一条管线");
   });
 
   it("reads builtin skill markdown", () => {

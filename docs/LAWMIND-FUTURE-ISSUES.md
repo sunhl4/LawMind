@@ -6,11 +6,12 @@
 
 **交叉引用**
 
-| 文档                                                                                         | 关系                                             |
-| -------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| [LAWMIND-PERSISTENCE-SCALE-REVIEW.md](./archive/LAWMIND-PERSISTENCE-SCALE-REVIEW.md)（归档） | 持久化膨胀 / token / 扫盘审查与 P0–P2 已实施细节 |
-| [LAWMIND-OPTIMIZATION-BACKLOG.md](./archive/LAWMIND-OPTIMIZATION-BACKLOG.md)（归档）         | 产品远景与能力 backlog                           |
-| [LAWMIND-ENGINEERING-REVIEW.md](./archive/LAWMIND-ENGINEERING-REVIEW.md)（归档）             | 工程评审与已落地附录                             |
+| 文档                                                                                         | 关系                                                                             |
+| -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| [LAWMIND-PERSISTENCE-SCALE-REVIEW.md](./archive/LAWMIND-PERSISTENCE-SCALE-REVIEW.md)（归档） | 持久化膨胀 / token / 扫盘审查与 P0–P2 已实施细节                                 |
+| [LAWMIND-OPTIMIZATION-BACKLOG.md](./archive/LAWMIND-OPTIMIZATION-BACKLOG.md)（归档）         | 产品远景与能力 backlog                                                           |
+| [LAWMIND-ENGINEERING-REVIEW.md](./archive/LAWMIND-ENGINEERING-REVIEW.md)（归档）             | 工程评审与已落地附录                                                             |
+| [LAWMIND-AGENT-PARITY-REVIEW.md](./LAWMIND-AGENT-PARITY-REVIEW.md)                           | 上手/智能/稳态/律师专用对标 Cursor·Codex·Claude Code（2026-09-15，P0–P2 已落地） |
 
 ---
 
@@ -53,6 +54,7 @@
 - [ ] 多 agent 并行时的上下文隔离配额（避免会议室 + 多委派同时灌满）
 - [x] **同 session 并行 turn**：进程内按 `workspaceDir+sessionId` 串行（`session-turn-gate.ts`，2026-08-14）；跨进程双开本地 server 仍可能竞态（桌面默认单进程）
 - [x] **本轮可见短清单（update_plan）**（2026-09-13）：Codex 级 2–8 步 checklist 写入 world-state `plan`，律师在对话卡片勾进度；不往 system prompt 再塞一份「自主工作流程」。与 `plan_task` / `execute_workflow` / planHandoff 分离。
+- [x] **计划模式（2026-09-15）**：`readonly` 回合写工具关闭，清单可取消步骤，点「开始执行」再放写工具。见 [LAWMIND-AGENT-PARITY-REVIEW.md](./LAWMIND-AGENT-PARITY-REVIEW.md)。
 - [x] **独立审稿员（法律 Guardian）**：交卷前另开短调用，只喂 hunk/锚句/章节/争点树/引用/清单/硬门禁事实；fail 缺口打回工具结果；审稿全文不进主会话。`render_tracked_draft` 与意见类 `render_document`（memo.opinion / memo.research / contract.review / 函件 / 诉讼）均已接入。内部备忘、PPT、律师点导出仍不跑审稿员。见 `src/lawmind/guardian/`。
 - [x] **律师可见工具卡 / Stop 打到工具 / 轮中补材料 / 结构事件日志 / prompt 段表**（2026-08-14 DeepSeek 三刀；`session.json` 仍为权威，events.jsonl 并行）
 - [x] **纠正本轮 / 检索邮件 spill / 溢出先剪再试 / 停止与超时正交**（2026-08-16 DeepSeek 第二遍；见 ENGINEERING-REVIEW 附录）
@@ -65,7 +67,7 @@
 - [ ] **文档站自动发布到托管**（Pages / Cloudflare）
 - [ ] **智能体层级强制策略**（仅可向汇报线委派等）写进 `validateDelegation` / `lawmind.policy.json`
 - [ ] **互审多轮与版本时间线**（`request_review` 现为单轮）
-- [ ] Firm 级伦理墙与客户披露的独立治理流程（Edition 模板已有；真墙未完）
+- [x] Firm 伦理墙可拦截外发：冲突扫描命中则 hold `prepare_outbound_mail`，律师确认披露后放行。独立客户披露治理流程仍薄。
 - [ ] 权威外库 API 与本机启发式拒答的长期校准
 
 ---
@@ -124,3 +126,4 @@
 | 2026-09-13 | 真循环 cassette 准入：编排改动断言下一轮请求体；影子回放仍只管交件召回                                                                                  |
 | 2026-09-13 | 隐式意图编译：办件沉入引擎，金标集 + 文件形态 × 文本动词；对话不再暴露分类菜单                                                                          |
 | 2026-09-14 | 意图状态条同源 peek；停拖文件自动审查卡；`cases/*/RULES.md` 写保护；诉讼 Word 改稿补 craft；cockpit 并入工作台卷宗；ARCHITECTURE 权限模式与一级导航对齐 |
+| 2026-09-15 | Agent 对标残留：渐进披露、计划自动执行、Firm 伦理墙拦外发、NPC 开源权威优先于样本；见 AGENT-PARITY-REVIEW                                               |

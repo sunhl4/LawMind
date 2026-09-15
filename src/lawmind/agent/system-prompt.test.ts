@@ -136,4 +136,45 @@ describe("system prompt cache boundary", () => {
     expect(applied).toContain("新的画像");
     expect(applied).toContain(LAWMIND_PROMPT_DYNAMIC_BOUNDARY);
   });
+
+  it("compact verbosity still expands search_conversations parameters", () => {
+    const filler: SystemPromptContext["availableTools"] = Array.from({ length: 20 }, (_, i) => ({
+      name: `extra_tool_${i}`,
+      description: "占位",
+      category: "search" as const,
+      parameters: {},
+      riskLevel: "low" as const,
+    }));
+    const text = buildSystemPrompt({
+      ...minimalCtx,
+      agentPromptVerbosity: "compact",
+      availableTools: [
+        ...minimalCtx.availableTools,
+        ...filler,
+        {
+          name: "search_conversations",
+          description: "检索本机其他对话",
+          category: "search",
+          parameters: {
+            query: { type: "string", description: "关键词", required: true },
+          },
+          riskLevel: "low",
+        },
+        {
+          name: "read_conversation",
+          description: "阅读历史对话",
+          category: "search",
+          parameters: {
+            session_id: { type: "string", description: "会话 id", required: true },
+          },
+          riskLevel: "low",
+        },
+      ],
+    });
+    expect(text).toContain("### 常用工具（含参数）");
+    expect(text).toContain("search_conversations");
+    expect(text).toContain("query (string, 必填): 关键词");
+    expect(text).toContain("read_conversation");
+    expect(text).toContain("session_id (string, 必填): 会话 id");
+  });
 });

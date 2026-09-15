@@ -361,7 +361,7 @@ export function LawmindSettingsPage({
               type="button"
               className="lm-settings-sidebar-btn lm-settings-sidebar-btn--back"
               onClick={onClose}
-              aria-label="关闭设置并返回工作台"
+              aria-label="关闭设置"
               data-testid="lm-settings-sidebar-back"
             >
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden>
@@ -373,7 +373,7 @@ export function LawmindSettingsPage({
                   strokeLinejoin="round"
                 />
               </svg>
-              返回工作台
+              关闭设置
             </button>
             <span className="lm-settings-sidebar-version" title="LawMind 桌面版">
               v{config?.appVersion?.trim() || "dev"}

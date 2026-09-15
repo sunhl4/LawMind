@@ -15,6 +15,9 @@ export type IntentGoldCase = {
   /** When set, unbound (null bind) is required. */
   unbound?: true;
   pipeline?: "tracked_redline";
+  /** When set, compiled delivery.artifactShape must match. */
+  deliveryShape?: "opinion_memo" | "tracked_source" | "unspecified";
+  deliveryPlace?: "desktop" | "downloads" | "documents" | "unspecified";
 };
 
 function pin(relPath: string): ComposeContextPin {
@@ -28,6 +31,11 @@ export const INTENT_GOLD_CASES: readonly IntentGoldCase[] = [
     expect: "contract.review",
   },
   { id: "letter-nl", input: { instruction: "写一封催款律师函" }, expect: "letter.draft" },
+  {
+    id: "skill-dollar-override",
+    input: { instruction: "$skill contract.review 帮我看看这份材料" },
+    expect: "contract.review",
+  },
   { id: "research-nl", input: { instruction: "查一下民法典违约责任" }, expect: "research.memo" },
   { id: "web-fact", input: { instruction: "查一下2026年新说唱总冠军" }, unbound: true },
   { id: "web-fact-bare", input: { instruction: "2026年新说唱总冠军" }, unbound: true },
@@ -57,7 +65,6 @@ export const INTENT_GOLD_CASES: readonly IntentGoldCase[] = [
       pins: [pin("泰国医疗人工智能战略合作框架协议.docx")],
     },
     expect: "contract.review",
-    pipeline: "tracked_redline",
   },
   {
     id: "lock-letter",
@@ -265,6 +272,48 @@ export const INTENT_GOLD_CASES: readonly IntentGoldCase[] = [
     id: "draft-not-review-on-empty-contract-ask",
     input: { instruction: "请拟定一份保密协议" },
     expect: "contract.draft",
+  },
+  {
+    id: "opinion-memo-desktop-preserve-source",
+    input: {
+      instruction: "请根据这个合同去给我一些审查意见放到桌面，不要在源文件上修改",
+      pins: [pin("采购合同.docx")],
+    },
+    expect: "contract.review",
+    deliveryShape: "opinion_memo",
+    deliveryPlace: "desktop",
+  },
+  {
+    id: "opinion-memo-paraphrase-new-file",
+    input: {
+      instruction: "修改建议单独出一份word，不要改原稿",
+      pins: [pin("采购合同.docx")],
+    },
+    expect: "contract.review",
+    deliveryShape: "opinion_memo",
+  },
+  {
+    id: "plain-review-stays-unspecified-delivery",
+    input: {
+      instruction: "请审查这份采购合同",
+      pins: [pin("采购合同.docx")],
+    },
+    expect: "contract.review",
+    deliveryShape: "unspecified",
+  },
+  {
+    id: "fast-lane-word-pin-stays-unspecified-delivery",
+    input: {
+      instruction: [
+        "【交办】5 分钟合同审查",
+        "交付物类型：合同审查意见",
+        "- 己方立场：中立",
+        "- 审查重点：管辖",
+      ].join("\n"),
+      pins: [pin("采购合同.docx")],
+    },
+    expect: "contract.review",
+    deliveryShape: "unspecified",
   },
 ];
 

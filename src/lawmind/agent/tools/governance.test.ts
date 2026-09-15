@@ -84,7 +84,12 @@ describe("resolveModelToolNames", () => {
     expect(names).toContain(LIST_MORE_TOOLS_NAME);
     expect(names).toContain("update_plan");
     expect(names).toContain("research_task");
+    expect(names).toContain("draft_document");
+    expect(names).toContain("calculate");
+    expect(names).toContain("search_case_law");
     expect(names).not.toContain("execute_workflow");
+    expect(names).not.toContain("write_document");
+    expect(names).not.toContain("list_mail_inbox");
 
     const disclosed = resolveModelToolNames({
       registeredNames: registered,
@@ -108,6 +113,22 @@ describe("resolveModelToolNames", () => {
       ],
     });
     expect(names).toEqual(["execute_workflow"]);
+  });
+
+  it("collects disclosedNames arrays from list_more_tools results", () => {
+    const names = collectDisclosedToolNames({
+      conversationHistory: [
+        {
+          toolCallResponses: [
+            {
+              name: LIST_MORE_TOOLS_NAME,
+              result: { data: { disclosedNames: ["write_document", "search_matter"] } },
+            },
+          ],
+        },
+      ],
+    });
+    expect(names).toEqual(["write_document", "search_matter"]);
   });
 
   it("lockToAllowNames advertises only the playbook, not core search or list_more_tools", () => {
@@ -137,6 +158,22 @@ describe("resolveModelToolNames", () => {
     ]);
     expect(names).not.toContain(LIST_MORE_TOOLS_NAME);
     expect(names).not.toContain("search_workspace");
+  });
+
+  it("denyNames drops rebuild/send tools from an otherwise unlocked catalog", () => {
+    const registry = createLegalToolRegistry();
+    const registered = registry.listDefinitions().map((def) => def.name);
+    const names = resolveModelToolNames({
+      registeredNames: registered,
+      disclosedNames: ["search_workspace", "draft_document", "render_tracked_draft"],
+      denyNames: ["send_email", "render_document", "prepare_outbound_mail"],
+    });
+    expect(names).toContain("search_statute");
+    expect(names).toContain("search_workspace");
+    expect(names).toContain(LIST_MORE_TOOLS_NAME);
+    expect(names).not.toContain("render_document");
+    expect(names).not.toContain("prepare_outbound_mail");
+    expect(names).not.toContain("send_email");
   });
 
   it("lockToAllowNames with an empty list advertises no tools", () => {

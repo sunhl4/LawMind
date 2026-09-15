@@ -7,6 +7,7 @@
 
 import type { ComposeContextPin } from "../platform/compose-context-pin.js";
 import type { LawyerCapabilityId } from "../skills/lawyer-capability-lock.js";
+import type { DeliveryIntent } from "./delivery-intent.js";
 import type { DocumentGenre } from "./document-genre.js";
 import type { TextIntent } from "./text-intent.js";
 
@@ -74,6 +75,8 @@ export type CompiledIntent = {
   softAsk?: IntentSoftAsk;
   /** One lawyer-facing line, e.g. 本轮按合同审查处理. Compiler never asks the lawyer to classify. */
   lawyerSummary: string;
+  /** How to hand over the work. Orthogonal to capability bind; defaults never override this. */
+  delivery: DeliveryIntent;
 };
 
 export type IntentSignals = {

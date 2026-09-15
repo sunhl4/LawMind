@@ -69,6 +69,8 @@ export type LawmindChatMessagesColumnProps = {
   onOpenSettings?: () => void;
   onOpenDoctor?: () => void;
   workspaceDir?: string;
+  planEditable?: boolean;
+  onLawyerEditPlan?: (planText: string) => void;
 };
 
 export function LawmindChatMessagesColumn({
@@ -92,12 +94,15 @@ export function LawmindChatMessagesColumn({
   onOpenActionHub,
   revisionBackgroundActive,
   streamCompactLabels = [],
+  onCreateMatter,
   onDeleteChatMessage,
   onEditChatMessage,
   onOpenComposeSettings,
   onOpenSettings,
   onOpenDoctor,
   workspaceDir,
+  planEditable,
+  onLawyerEditPlan,
 }: LawmindChatMessagesColumnProps) {
   const openNeedsDecisionDesk = onOpenNeedsDecisionDesk ?? onOpenActionHub;
   const openSettingsSection = (section: "models" | "doctor") => {
@@ -183,6 +188,8 @@ export function LawmindChatMessagesColumn({
         onEditChatMessage={onEditChatMessage}
         onOpenSettingsSection={openSettingsSection}
         workspaceDir={workspaceDir}
+        planEditable={planEditable}
+        onLawyerEditPlan={onLawyerEditPlan}
       />
     );
   };
@@ -240,6 +247,18 @@ export function LawmindChatMessagesColumn({
               把材料拖进来，或直接说要办的事。系统会按这句话和附件判断怎么做。
             </p>
             <p className="lm-messages-empty-hint">签批与导出仍在「在办」。</p>
+            {onCreateMatter ? (
+              <p className="lm-messages-empty-actions">
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-secondary lm-btn-sm"
+                  data-testid="lm-chat-empty-create-matter"
+                  onClick={onCreateMatter}
+                >
+                  新建案件
+                </button>
+              </p>
+            ) : null}
           </div>
         ) : (
           <LawmindChatMessagesVirtualList count={renderableItems.length} enabled>

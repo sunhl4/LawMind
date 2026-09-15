@@ -40,9 +40,9 @@ describe("lawmind-compose-prefs", () => {
     expect(readExecutePermissionMode()).toBe("standard");
   });
 
-  it("post-firstrun seeds readonly compose and strict execute preference", () => {
+  it("post-firstrun is executable (standard compose), matching skip-tour", () => {
     applyPostFirstrunPermissionDefaults();
-    expect(readComposePermissionMode()).toBe("readonly");
+    expect(readComposePermissionMode()).toBe("standard");
     expect(readExecutePermissionMode()).toBe("strict");
   });
 

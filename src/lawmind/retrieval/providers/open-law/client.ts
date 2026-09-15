@@ -8,7 +8,7 @@
  * - courtlistener: Free Law Project REST v4 (opt-in LAWMIND_OPEN_LAW_COURTLISTENER=1)
  * - eurlex: EU CELLAR SPARQL (opt-in LAWMIND_OPEN_LAW_EURLEX=1)
  * - egov_jp: Japan e-Gov 法令 API v2 (opt-in LAWMIND_OPEN_LAW_EGOV_JP=1)
- * - hybrid: local first; then each enabled live source in China → US/EU/JP order
+ * - hybrid: enabled live sources first (China → US/EU/JP); local sample only as fallback
  */
 
 import { createOutboundProxy } from "../../../platform/outbound-proxy.js";
@@ -84,8 +84,19 @@ const LIVE_LANES: LiveLane[] = [
   },
 ];
 
+function anyOpenLawLiveEnabled(): boolean {
+  return (
+    isNpcFlkLiveEnabled() ||
+    isCaseopenLiveEnabled() ||
+    isCourtListenerLiveEnabled() ||
+    isEurlexLiveEnabled() ||
+    isEgovJpLiveEnabled()
+  );
+}
+
 export function resolveOpenLawMode(opts?: { mode?: string }): OpenLawMode {
-  const raw = (opts?.mode ?? process.env.LAWMIND_OPEN_LAW_MODE ?? "local").trim().toLowerCase();
+  const fromOpts = opts?.mode;
+  const raw = (fromOpts ?? process.env.LAWMIND_OPEN_LAW_MODE ?? "").trim().toLowerCase();
   if (raw === "npc_flk" || raw === "npc" || raw === "flk") {
     return "npc_flk";
   }
@@ -108,6 +119,15 @@ export function resolveOpenLawMode(opts?: { mode?: string }): OpenLawMode {
     return "egov_jp";
   }
   if (raw === "hybrid") {
+    return "hybrid";
+  }
+  if (raw === "local") {
+    return "local";
+  }
+  if (fromOpts !== undefined) {
+    return "local";
+  }
+  if (anyOpenLawLiveEnabled()) {
     return "hybrid";
   }
   return "local";
@@ -189,14 +209,19 @@ export async function openLawRetrieve(opts: {
   const mode = opts.mode ?? resolveOpenLawMode();
   const query = opts.query.trim();
 
-  if (mode === "local" || mode === "hybrid") {
+  const localFallback = (): {
+    result: RetrievalResult;
+    source: OpenLawRetrieveSource;
+  } => {
     const localHits = searchOpenLawCorpus(query, { corpusPath: opts.corpusPath });
     if (localHits.length > 0) {
       return { result: mapHitsToRetrievalResult(localHits), source: "local" };
     }
-    if (mode === "local") {
-      return { result: mapHitsToRetrievalResult([]), source: "none" };
-    }
+    return { result: mapHitsToRetrievalResult([]), source: "none" };
+  };
+
+  if (mode === "local") {
+    return localFallback();
   }
 
   const laneOpts = { ...opts, fetchImpl };
@@ -205,31 +230,31 @@ export async function openLawRetrieve(opts: {
     return retrieveLiveLane(laneBySource(mode), laneOpts);
   }
 
-  if (mode === "hybrid") {
-    const tried: string[] = [];
-    for (const lane of LIVE_LANES) {
-      if (!lane.enabled()) {
-        continue;
-      }
-      tried.push(lane.emptyLabel);
-      const outcome = await retrieveLiveLane(lane, laneOpts);
-      if (outcome.source === lane.source && outcome.result.sources.length > 0) {
-        return outcome;
-      }
+  const tried: string[] = [];
+  for (const lane of LIVE_LANES) {
+    if (!lane.enabled()) {
+      continue;
     }
-    return {
-      result: {
-        ...mapHitsToRetrievalResult([]),
-        riskFlags: [
-          ...(mapHitsToRetrievalResult([]).riskFlags ?? []),
-          tried.length > 0
-            ? `hybrid：本地无命中，且已试 ${tried.join("/")} 无命中`
-            : "hybrid：本地无命中，且 NPC/caseopen/CourtListener/EUR-Lex/e-Gov 均未启用",
-        ],
-      },
-      source: "none",
-    };
+    tried.push(lane.emptyLabel);
+    const outcome = await retrieveLiveLane(lane, laneOpts);
+    if (outcome.source === lane.source && outcome.result.sources.length > 0) {
+      return outcome;
+    }
   }
-
-  return { result: mapHitsToRetrievalResult([]), source: "none" };
+  const local = localFallback();
+  if (local.source === "local") {
+    return local;
+  }
+  return {
+    result: {
+      ...mapHitsToRetrievalResult([]),
+      riskFlags: [
+        ...(mapHitsToRetrievalResult([]).riskFlags ?? []),
+        tried.length > 0
+          ? `hybrid：已试 ${tried.join("/")} 无命中，本地样本亦无命中`
+          : "hybrid：NPC/caseopen/CourtListener/EUR-Lex/e-Gov 均未启用，且本地无命中",
+      ],
+    },
+    source: "none",
+  };
 }

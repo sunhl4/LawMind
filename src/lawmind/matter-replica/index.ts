@@ -1,0 +1,62 @@
+/**
+ * Matter Replica — multi-lawyer matter collaboration (additive Firm feature).
+ *
+ * Does not change Solo defaults. See docs/lawmind/LAWMIND-MATTER-REPLICA.md.
+ */
+
+export {
+  MATTER_REPLICA_ROLES,
+  MATTER_REPLICA_ROLE_LABELS,
+  ROLE_CAPABILITIES,
+  roleHasCapability,
+} from "./types.js";
+export type {
+  MatterReplicaRole,
+  MatterReplicaCapability,
+  MatterReplicaMember,
+  MatterReplicaInvite,
+  MatterReplicaMembership,
+  MatterCheckoutLock,
+  MatterRecordOp,
+  LawyerIdentity,
+} from "./types.js";
+
+export { evaluateMatterReplicaGate, isMatterReplicaEnabled } from "./feature-gate.js";
+export type { MatterReplicaGate } from "./feature-gate.js";
+
+export { readLawyerIdentity, upsertLawyerIdentity, resolveReplicaActor } from "./identity.js";
+
+export {
+  readMembership,
+  writeMembership,
+  ensureMembershipWithOwner,
+  findActiveMember,
+  listActiveMembers,
+  revokeMember,
+  assertMemberCapability,
+} from "./membership.js";
+
+export {
+  createInvite,
+  listInvites,
+  revokeInvite,
+  acceptInviteByToken,
+  exportInvitePack,
+} from "./invites.js";
+
+export { listCheckoutLocks, acquireCheckoutLock, releaseCheckoutLock } from "./checkout-locks.js";
+
+export {
+  listRecordOps,
+  appendRecordOp,
+  mergeRemoteOps,
+  opsSince,
+  snapshotCaseMd,
+} from "./record-ops.js";
+
+export {
+  createReplicaRelay,
+  syncMatterRecordPipe,
+  FileReplicaRelay,
+  NullReplicaRelay,
+} from "./relay.js";

@@ -38,6 +38,8 @@ export type WriteCaseMemoryParams = {
   trackAdoption?: boolean;
   sourceTaskId?: string;
   origin?: "engine" | "lawyer" | "agent";
+  actorId?: string;
+  actorName?: string;
 };
 
 /** Write case memory section — engine path with optional adoption tracking. */
@@ -46,7 +48,7 @@ export async function writeCaseMemorySection(params: WriteCaseMemoryParams): Pro
   await ensureCaseWorkspace(workspaceDir, matterId);
   await CASE_WRITERS[section](workspaceDir, matterId, content);
   // Case append helpers already mirror to adoption-service (auto_adopted).
-  // trackAdoption reserved for future non-case write paths.
+  // Replica CASE.md snapshot happens in case-writes (covers engine + tools).
   void params.trackAdoption;
 }
 

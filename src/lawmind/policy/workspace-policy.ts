@@ -92,6 +92,24 @@ export type LawMindWorkspacePolicy = {
     enabled?: boolean;
     endpoint?: string;
   };
+  /**
+   * 案件副本协作（多人共办一案）。
+   * - enabled: 覆盖 edition 默认（Solo 可强制开；Firm 可强制关）
+   * - endpoint: 预留托管案件云 URL（尚未强制）
+   * - sharedRelayDir: 可选共享目录中继（两台 LawMind 指向同一文件夹即可交换 ops）
+   */
+  matterReplica?: {
+    enabled?: boolean;
+    endpoint?: string;
+    sharedRelayDir?: string;
+  };
+  /**
+   * Firm 伦理墙。缺省跟 edition：Firm / 私有化开，Solo 关。
+   * enabled: true 可在 Solo 强制开；false 可在 Firm 强制关。
+   */
+  ethicsWall?: {
+    enabled?: boolean;
+  };
   /** Memory recall tuning (Claude Code–style small-file preference). */
   memoryRecall?: {
     /** Boost manifest entries under `smallFileMaxBytes` when ranking. */

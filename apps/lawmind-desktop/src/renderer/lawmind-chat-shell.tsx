@@ -24,15 +24,15 @@ import {
   buildExecuteConfirmPrompt,
   clearPlanHandoff,
   deleteSessionPlanHandoff,
-  extractPlanHandoffText,
   isExecuteConfirmPrompt,
   planHandoffSummary,
   pushSessionPlanHandoff,
   readPlanHandoff,
   reconcilePlanHandoffWithServer,
-  shouldInjectExecuteHandoff,
   syncPlanHandoffFromMessages,
   writePlanHandoff,
+  resolvePlanHandoffForExecute,
+  resolveStartExecutePrompt,
 } from "./lawmind-plan-handoff";
 import { LawmindComposeContextPicker } from "./LawmindComposeContextPicker";
 import { LawmindComposeTemplateGallery } from "./LawmindComposeTemplateGallery";
@@ -62,6 +62,7 @@ import { LawmindMailIntentBanner } from "./LawmindMailIntentBanner";
 import { subscribeContractFastLaneOpen, installContractFastLaneE2eHook } from "./lawmind-contract-fast-lane-bus";
 import { subscribeDeskLaneOpen, installDeskLaneE2eHook } from "./lawmind-desk-lane-bus";
 import { requestOpenAutomationsSettings } from "./lawmind-automations-nav-bus";
+import { requestFocusChatSearch } from "./lawmind-chat-search-focus";
 import {
   isContractReviewCandidatePath,
 } from "./lawmind-file-chat-context";
@@ -428,7 +429,7 @@ export function LawmindChatComposeFooter({
       if (!plan.trim()) {
         return;
       }
-      writePlanHandoff(chatSessionId, plan);
+      writePlanHandoff(chatSessionId, plan, undefined, "lawyer");
       setPlanHandoffText(plan);
       if (apiBase && chatSessionId) {
         void pushSessionPlanHandoff(apiBase, chatSessionId, plan);
@@ -440,11 +441,7 @@ export function LawmindChatComposeFooter({
   const fillPlanHandoff = useCallback(() => {
     // 与「开始执行」同口径读取执行档位（strict 用户不再被降级为 standard）。
     extras.onPermissionModeChange(readExecutePermissionMode());
-    const plan =
-      planHandoffText?.trim() ||
-      extractPlanHandoffText(currentMessages) ||
-      readPlanHandoff(chatSessionId)?.planText ||
-      "";
+    const plan = resolvePlanHandoffForExecute(chatSessionId, currentMessages, planHandoffText);
     persistPlanLocalAndRemote(plan);
     onInputChange(buildExecuteConfirmPrompt(plan));
   }, [
@@ -466,21 +463,32 @@ export function LawmindChatComposeFooter({
 
   const startExecuteFromPlan = useCallback(() => {
     extras.onPermissionModeChange(readExecutePermissionMode());
-    const plan =
-      extractPlanHandoffText(currentMessages) ||
-      planHandoffText ||
-      readPlanHandoff(chatSessionId)?.planText ||
-      "";
+    const plan = resolvePlanHandoffForExecute(chatSessionId, currentMessages, planHandoffText);
     persistPlanLocalAndRemote(plan);
-    if (!shouldInjectExecuteHandoff(input)) {
+    const prompt = resolveStartExecutePrompt(input, plan);
+    if (!prompt) {
       return;
     }
-    onInputChange(buildExecuteConfirmPrompt(plan));
+    if (isExecuteConfirmPrompt(prompt)) {
+      clearPlanHandoff(chatSessionId);
+      setPlanHandoffText(null);
+      if (apiBase && chatSessionId) {
+        void deleteSessionPlanHandoff(apiBase, chatSessionId);
+      }
+    }
+    onInputChange("");
+    if (onDispatchJob) {
+      void onDispatchJob(prompt);
+      return;
+    }
+    onInputChange(prompt);
   }, [
+    apiBase,
     chatSessionId,
     currentMessages,
     extras,
     input,
+    onDispatchJob,
     onInputChange,
     persistPlanLocalAndRemote,
     planHandoffText,
@@ -511,6 +519,13 @@ export function LawmindChatComposeFooter({
 
   const paletteActions: CommandPaletteAction[] = useMemo(
     () => [
+      {
+        id: "chats",
+        slash: "/chats",
+        label: "搜索对话",
+        hint: "在左侧列表里搜其他对话",
+        run: () => requestFocusChatSearch(),
+      },
       {
         id: "doctor",
         slash: "/doctor",
@@ -937,6 +952,13 @@ export function LawmindChatShell(props: LawmindChatWorkspaceProps) {
         {...props}
         onOpenNeedsDecisionDesk={openNeedsDecisionDesk}
         onDispatchPrompt={onDispatchPrompt}
+        planEditable={props.composeExtras.permissionMode === "readonly"}
+        onLawyerEditPlan={(text) => {
+          writePlanHandoff(props.chatSessionId, text, undefined, "lawyer");
+          if (props.apiBase && props.chatSessionId) {
+            void pushSessionPlanHandoff(props.apiBase, props.chatSessionId, text);
+          }
+        }}
       />
       <LawmindChatComposeFooter
         composeExtras={props.composeExtras}

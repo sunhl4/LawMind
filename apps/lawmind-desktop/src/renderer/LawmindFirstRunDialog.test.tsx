@@ -93,9 +93,7 @@ describe("LawmindFirstRunDialog 演示案件名", () => {
     await clickByText("买卖合同审查");
     const box = host.querySelector('[data-testid="lm-firstrun-create-matter"]') as HTMLInputElement | null;
     expect(box).toBeTruthy();
-    await act(async () => {
-      box!.click();
-    });
+    expect(box!.checked).toBe(true);
     await clickByText("建案件并开始交办");
 
     expect(createBodies.length).toBe(1);
@@ -103,5 +101,20 @@ describe("LawmindFirstRunDialog 演示案件名", () => {
     expect(matterId).toBe("演示案件-买卖合同审查");
     expect(matterId).not.toMatch(/\d{8,}/);
     expect(isValidMatterId(matterId)).toBe(true);
+  });
+
+  it("exposes 跳过向导，直接开始 without completing the wizard", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindFirstRunDialog
+          apiBase="http://127.0.0.1:8765"
+          open
+          onClose={vi.fn()}
+          onSeedReady={vi.fn()}
+        />,
+      );
+    });
+    const skip = host.querySelector('[data-testid="lm-firstrun-skip-wizard"]');
+    expect(skip?.textContent).toContain("跳过向导，直接开始");
   });
 });

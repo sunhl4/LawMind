@@ -8,7 +8,7 @@ import {
 } from "./research-protocol.js";
 
 describe("research-protocol", () => {
-  it("injects on unlocked 意见 / 检索 / 快问, not mail or Word lock", () => {
+  it("injects on 意见 / 检索 / 快问 and on mail/Word; skips 5-minute fast lane", () => {
     expect(
       shouldInjectResearchProtocol({ id: "research.memo", pipeline: "research_then_draft" }),
     ).toBe(true);
@@ -20,10 +20,10 @@ describe("research-protocol", () => {
     ).toBe(true);
     expect(
       shouldInjectResearchProtocol({ id: "contract.review", pipeline: "tracked_redline" }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldInjectResearchProtocol({ id: "mail.contract", pipeline: "execute_workflow" }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldInjectResearchProtocol(
         { id: "contract.review", pipeline: "execute_workflow" },
@@ -48,6 +48,7 @@ describe("research-protocol", () => {
     expect(statuteTrialHappenedThisTurn({})).toBe(false);
     expect(statuteTrialHappenedThisTurn({ search_statute: 1 })).toBe(true);
     expect(statuteTrialHappenedThisTurn({ search_case_law: 2 })).toBe(true);
+    expect(statuteTrialHappenedThisTurn({}, true)).toBe(true);
     expect(looksLikeStatuteCitation("见《民法典》第577条")).toBe(true);
     expect(looksLikeStatuteCitation("无引用")).toBe(false);
   });

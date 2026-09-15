@@ -3051,3 +3051,118 @@
   font-weight: 600;
 }
 
+/* ── Matter Replica（成员协作） ── */
+.lm-matter-replica {
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--accent-border) 40%, var(--border));
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.lm-matter-replica-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px 16px;
+}
+
+.lm-matter-replica-head strong {
+  font-size: 0.95rem;
+}
+
+.lm-matter-replica-head .lm-meta {
+  margin: 4px 0 0;
+}
+
+.lm-matter-replica-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.lm-matter-replica-h {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.lm-matter-replica-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.lm-matter-replica-row .lm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 10rem;
+}
+
+.lm-matter-replica-row .lm-field-grow {
+  flex: 1 1 14rem;
+}
+
+.lm-matter-replica-row .lm-field span {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.lm-matter-replica-row input,
+.lm-matter-replica-row select {
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.lm-matter-replica-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lm-matter-replica-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--accent-dim) 35%, var(--surface));
+}
+
+.lm-matter-replica-token {
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+}
+
+.lm-matter-replica-share {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  border: 1px dashed var(--border);
+  background: var(--bg);
+  white-space: pre-wrap;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.lm-ok {
+  color: var(--ok, #2f6b3a);
+}
+

@@ -34,5 +34,8 @@ describe("lawyer-capability-lock", () => {
     expect(prompt).toContain("【办件】能力：contract.review");
     expect(parseCapabilityLock(prompt)).toBe("contract.review");
     expect(parseCapabilityLock("请审查这份采购合同")).toBeUndefined();
+    expect(parseCapabilityLock("$skill contract.review 帮我看看")).toBe("contract.review");
+    expect(parseCapabilityLock("$skill 合同审查 帮我看看")).toBe("contract.review");
+    expect(parseCapabilityLock("$skill litigation.draft")).toBe("litigation.draft");
   });
 });

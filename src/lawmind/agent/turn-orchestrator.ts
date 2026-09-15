@@ -36,6 +36,7 @@ import { pruneTurnPlanForNewInstruction, withUpdatePlanControlTool } from "./tur
 export type { RunTurnEvent } from "./turn-orchestrator-events.js";
 import { resolveLawMindRoot } from "../assistants/store.js";
 import { compileIntent, compiledIntentPlanItems } from "../intent/compile-intent.js";
+import { resolveTurnDeliveryIntent } from "../intent/delivery-intent.js";
 import { loadMatterKindForIntent, peekPinnedDocuments } from "../intent/peek-pinned-documents.js";
 import type { MemoryContext } from "../memory/index.js";
 import { isContractFastLaneInstruction } from "../platform/contract-fast-lane-instruction.js";
@@ -194,6 +195,7 @@ export async function runTurn(opts: {
     pins: opts.contextPins,
     historyText,
   });
+  const deliveryIntent = resolveTurnDeliveryIntent(instruction, opts.contextPins);
   const mailContractTurn = isMailContractFastPathInstruction(instruction);
   const contractFastLaneTurn = isContractFastLaneInstruction(instruction);
   const confirmedAnswers = mergeConfirmedAnswers(
@@ -244,6 +246,7 @@ export async function runTurn(opts: {
     contextPins: opts.contextPins,
     outboundPinnedTo: extractSuggestedReplyTo(instruction),
     wordRevisionTurn,
+    deliveryIntent,
     mailContractTurn,
     contractFastLaneTurn,
     reviewModel: config.workerModel ?? config.model,
@@ -251,7 +254,8 @@ export async function runTurn(opts: {
   };
 
   // 2. 先定本轮生效工具集：W7 Role.allowedToolNames 优先，回退 preset；
-  //    parent inherit（child-gates）只缩不扩；高频 playbook 再锁死路径工具表；
+  //    parent inherit（child-gates）只缩不扩；高频 playbook 只加 deny-list
+  //    （误发 / 模板重建），不冻结整张工具表；
   //    最后经权限模式与隐藏策略过滤。system prompt 的工具目录与发给模型的
   //    tools 都由这一份清单生成（单一真相源），执行层另有 permissionModeMiddleware 硬拦。
   const assistantTooling = resolveAssistantTooling({
@@ -291,13 +295,10 @@ export async function runTurn(opts: {
     };
   }
   const allowNamesRaw = intersectAllowedToolNames(
-    intersectAllowedToolNames(
-      config.allowedToolNames,
-      roleForTools?.allowedToolNames ?? presetForTools?.allowedToolNames,
-    ),
-    playbookLock?.allowNames,
+    config.allowedToolNames,
+    roleForTools?.allowedToolNames ?? presetForTools?.allowedToolNames,
   );
-  const lockToAllowNames = Boolean(playbookLock);
+  const denyNames = playbookLock?.denyNames;
   const registeredNames = registry.listDefinitions().map((def) => def.name);
   const allowNamesForExec = withUpdatePlanControlTool(allowNamesRaw, registeredNames);
   const hiddenTools = hiddenPolicyToolNames(config.workspaceDir);
@@ -318,7 +319,7 @@ export async function runTurn(opts: {
     allowNames: allowNamesRaw,
     permissionMode,
     disclosedNames: session.disclosedToolNames,
-    lockToAllowNames,
+    denyNames,
   }).filter((name) => !hiddenTools.includes(name));
 
   // 3. 构建 system prompt（「可用工具」一节 = 本轮生效工具集）
@@ -360,7 +361,7 @@ export async function runTurn(opts: {
     actorId,
     sandboxEnabled: toolSandboxEnabled,
     allowNames: allowNamesForExec,
-    lockToAllowNames,
+    denyNames,
     wordRevisionTurn,
     hostFileLedger: contextUsesHostFileLedger(ctx),
     hiddenToolNames: hiddenTools,
@@ -652,12 +653,11 @@ export async function runTurn(opts: {
       allowDangerousToolsWithoutApproval,
       toolSandboxEnabled,
       policyHints: {
-        allowedToolNames: lockToAllowNames
-          ? allowNamesForExec
-          : withUpdatePlanControlTool(
-              roleForTools?.allowedToolNames ?? presetForTools?.allowedToolNames,
-              registeredNames,
-            ),
+        allowedToolNames: withUpdatePlanControlTool(
+          roleForTools?.allowedToolNames ?? presetForTools?.allowedToolNames,
+          registeredNames,
+        ),
+        deniedToolNames: denyNames,
         allowlistDenyHint: playbookLock?.denyHint,
         roleId: roleForTools?.roleId,
         riskCeiling: roleForTools?.riskCeiling ?? presetForTools?.riskCeiling,

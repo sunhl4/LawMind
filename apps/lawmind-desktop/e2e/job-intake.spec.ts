@@ -117,6 +117,6 @@ test.describe("Job intake & template gallery", () => {
     await expect(firstRun.getByText(/行文风格|风险口径|对客语气/).first()).toBeVisible({
       timeout: 10_000,
     });
-    await firstRun.getByRole("button", { name: /稍后再说|不用了/ }).first().click();
+    await firstRun.getByRole("button", { name: /稍后再说|不用了|跳过向导/ }).first().click();
   });
 });

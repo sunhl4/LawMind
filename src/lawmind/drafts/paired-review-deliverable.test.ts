@@ -46,9 +46,30 @@ describe("paired-review-deliverable", () => {
             "【交办】5 分钟合同审查\n交付物类型：合同审查意见\n- 己方立场：中立\n- 审查重点：管辖",
         },
       ),
+    ).toBe(true);
+    expect(
+      shouldInjectPairedReviewDeliverable(
+        { id: "contract.review", pipeline: "execute_workflow" },
+        [],
+        {
+          instruction:
+            "【交办】5 分钟合同审查\n交付物类型：合同审查意见\n- 己方立场：中立\n- 审查重点：管辖",
+        },
+      ),
+    ).toBe(false);
+    expect(
+      shouldInjectPairedReviewDeliverable(
+        { id: "contract.review", pipeline: "execute_workflow" },
+        [docxPin],
+        {
+          instruction: "给我一些审查意见放到桌面，不要在源文件上修改",
+        },
+      ),
     ).toBe(false);
     expect(formatPairedReviewDeliverablePromptBlock()).toContain("render_tracked_draft");
     expect(wordFilePinRelPaths([docxPin])).toEqual(["采购合同.docx"]);
     expect(formatPairedReviewDeliverablePromptBlock()).toContain("意见快照");
+    expect(formatPairedReviewDeliverablePromptBlock()).toContain("工具表不收窄");
+    expect(formatPairedReviewDeliverablePromptBlock()).not.toContain("不算合同审查完成");
   });
 });

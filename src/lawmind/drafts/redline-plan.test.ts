@@ -56,16 +56,16 @@ describe("redline-plan", () => {
     expect(read?.items[0]?.replace).toBe("北京");
   });
 
-  it("injects the plan protocol only on unlocked 合同审查", () => {
+  it("injects the plan protocol on contract review, Word lock, and mail", () => {
     expect(
       shouldInjectRedlinePlanProtocol({ id: "contract.review", pipeline: "execute_workflow" }),
     ).toBe(true);
     expect(
       shouldInjectRedlinePlanProtocol({ id: "contract.review", pipeline: "tracked_redline" }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldInjectRedlinePlanProtocol({ id: "mail.contract", pipeline: "execute_workflow" }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldInjectRedlinePlanProtocol(
         { id: "contract.review", pipeline: "execute_workflow" },
@@ -78,11 +78,41 @@ describe("redline-plan", () => {
     expect(
       shouldInjectRedlinePlanProtocol(
         { id: "contract.review", pipeline: "execute_workflow" },
+        {
+          instruction:
+            "【交办】5 分钟合同审查\n交付物类型：合同审查意见\n- 己方立场：中立\n- 审查重点：管辖",
+          pins: [
+            {
+              pinKind: "file",
+              root: "project",
+              relPath: "采购合同.docx",
+              kind: "file",
+            },
+          ],
+        },
+      ),
+    ).toBe(true);
+    expect(
+      shouldInjectRedlinePlanProtocol(
+        { id: "contract.review", pipeline: "execute_workflow" },
+        { instruction: "【交办】5 分钟合同审查\n钉选 Word 后出修订稿" },
+      ),
+    ).toBe(true);
+    expect(
+      shouldInjectRedlinePlanProtocol(
+        { id: "contract.review", pipeline: "execute_workflow" },
         { availableToolNames: ["draft_document", "render_document"] },
+      ),
+    ).toBe(false);
+    expect(
+      shouldInjectRedlinePlanProtocol(
+        { id: "contract.review", pipeline: "execute_workflow" },
+        { instruction: "审查意见放到桌面，不要改原稿" },
       ),
     ).toBe(false);
     expect(formatRedlinePlanPromptBlock()).toContain("apply_surgical_edits");
     expect(formatRedlinePlanPromptBlock()).toContain("render_tracked_draft");
+    expect(formatRedlinePlanPromptBlock()).toContain("要出修订稿");
   });
 
   it("builds a narrow-and-reapply XML QA hint from the plan sidecar", () => {

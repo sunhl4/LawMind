@@ -2,7 +2,7 @@
 
 本文给律师/维护者**逐条核对**用。每一条写清：文件在哪、运行时干什么、手改会怎样、这次优化改了什么。
 
-**不要把本文当成第二套产品原则。** 北极星仍是 `GOALS.md`。改约束时先改代码里的单一真相源，再改本文。
+**不要把本文当成第二套产品原则。** 北极星仍是 `GOALS.md`。LawMind 是律师用的 Codex：Skill 管质量，工具默认可用；不要做成「多条硬管线的集成器」。改约束时先改代码里的单一真相源，再改本文。
 
 相关测试：
 
@@ -93,7 +93,7 @@ pnpm exec vitest run \
 - **路径**：同上，`## 自主工作流程`
 - **作用**：教模型先理解、再执行、再汇报。
 - **手改**：会改变模型是否调用 `execute_workflow`。
-- **本次**：删「最强大的能力 / 能用就用」。未锁才走工作流；锁路径按工具表。
+- **本次**：删「最强大的能力 / 能用就用」。未锁时工具都可用、按任务选用；锁路径按工具表。不再把 `execute_workflow` 写成唯一正途。
 
 ### 7. 律师审核与交付闭环 — MERGE
 
@@ -136,7 +136,7 @@ pnpm exec vitest run \
 
 ---
 
-## 三、短路径锁（真正管工具表）
+## 三、短路径锁（只禁误发与重建）
 
 ### 12. 邮件合同短路径 — KEEP
 
@@ -145,23 +145,23 @@ pnpm exec vitest run \
   - 提示词：`src/lawmind/agent/mail-contract-fast-path.ts`
   - 工具锁：`src/lawmind/platform/playbook-tool-lock.ts`
   - 自动化复用：`src/lawmind/platform/lawyer-automations.ts`
-- **作用**：路径已钉选时禁止再检索；只开放分析/改稿/带痕迹导出/准备待发信。
-- **手改**：改识别正则会让普通聊天误进或漏进短路径。改工具表会立刻允许/禁止某工具。
-- **本次**：含句读字数改为引用 `SURGICAL_MAX_FIND_WITH_TERMINATOR`，不再手抄 12。
+- **作用**：路径已钉选时不要翻案卷找附件；**不冻结工具表**。硬禁 `send_email` 与 `render_document` 重建附件。核法条可用检索；可在对话里说明改了什么。
+- **手改**：改识别正则会让普通聊天误进或漏进短路径。改 deny-list 会立刻允许/禁止某工具。
+- **本次**：由允许名单改为拒绝名单。不再拒绝 `search_workspace` / `search_statute`。
 
 ### 13. 原 Word 改稿锁 — KEEP
 
 - **路径**：`src/lawmind/platform/word-revision-instruction.ts`；检查单 `src/lawmind/platform/word-revision-checklist.ts`；类型包 `src/lawmind/platform/word-revision-packs.ts`；律师可读清单 `workspace/playbooks/word-revision/*.md`
-- **作用**：唯一交付物是源文件同目录的带审阅痕迹 Word。禁止 `render_document` / 外发。
+- **作用**：把带审阅痕迹的 Word 写到源文件同目录；可在对话里说明改了什么。硬禁 `render_document` 重建原件与外发。不冻结检索。
 - **手改**：改检测正则会影响「改这份」是否走锁。改 `word-revision/*.md` 会改变该类型的看/改/停要点（注入「改稿要点」）。
-- **本次**：未改锁本身。
+- **本次**：工具表由允许名单改为拒绝名单。单说「立场 / 导出」仍不进 Word 改稿锁。律师点名只要意见书时也不进锁。
 
 ### 14. 合同审查快车道 — FIX（最大冲突）
 
 - **路径**：`src/lawmind/platform/contract-fast-lane-instruction.ts`
-- **作用**：意见-only。检索工具本回合会拒。只开放 `analyze_document` / `draft_document` / `update_draft` / `render_document`。
-- **手改**：把识别写宽，普通办件审查会突然不能检索、不能改 Word。
-- **本次**：不再把 `【办件】能力：contract.review` 当快车道。只认「5 分钟合同审查」或带立场/重点的结构化【交办】意见。
+- **作用**：5 分钟交办 = 先出意见的**提示**。工具表不收窄。
+- **手改**：把识别写宽，普通办件审查会吃到「先出意见」的教练（不再会突然不能检索）。
+- **本次**：不再冻结工具表。只认「5 分钟合同审查」或带立场/重点的结构化【交办】意见。不把 `【办件】能力：contract.review` 当快车道。
 
 ### 15. 最短锚定跨度硬门禁 — KEEP
 
@@ -217,7 +217,7 @@ pnpm exec vitest run \
 - **路径**：`src/lawmind/skills/lawyer-capabilities.ts`；锁解析 `src/lawmind/skills/lawyer-capability-lock.ts`；关键词 `src/lawmind/skills/capability-patterns.ts`
 - **作用**：把律师选的办件变成 Skill 列表 + 流水线 + 一句话 hint。
 - **手改**：改 `skillIds` 会换注入哪些技能。改 `pipelineHint` 会换模型以为的完成定义。改正则会改「没点办件时猜错能力」。
-- **本次**：审查 hint 改成「若本回合开放检索/改稿工具才…」。快车道另有短 hint（`resolveCapabilityPipelineHint`）。通用能力 hint 改为「未锁时优先工作流」，不再写「必须走」。
+- **本次**：审查 hint 改为「工具可用 + 默认成套，指定则按指定」，不再写「完成=意见+红线」。快车道另有短 hint（`resolveCapabilityPipelineHint`）。通用能力 hint 不再写「必须走 / 优先 execute_workflow」。
 
 ### 19. Lean 技能预算 — KEEP
 
@@ -255,8 +255,8 @@ pnpm exec vitest run \
 ### 23. 引用锚定 — KEEP
 
 - **路径**：`src/lawmind/skills/builtin/citation-grounding.md`
-- **作用**：开放检索则核；锁路径标【待核实】继续做。
-- **手改**：删「锁路径不要为了引用去检索」，模型可能在邮件/Word 锁里硬搜而被拒。
+- **作用**：开放检索则核；路径已钉选时不要翻案卷找附件，核法条仍可用检索。
+- **手改**：不要再写成「邮件/Word 禁止检索」。检索被拒只应发生在误发/重建原件的 deny-list。
 
 ### 24. 开箱默认执业口径 — MERGE
 
@@ -345,9 +345,9 @@ pnpm exec vitest run \
 ### 36. 检索协议 — FIX
 
 - **路径**：`src/lawmind/research/research-protocol.ts`
-- **作用**：要求先 `search_statute` / `search_case_law`。
+- **作用**：写条号前先试检 `search_statute` / `search_case_law`。邮件/Word 同样注入（核法条）；5 分钟快车道或工具表没有检索工具时不注入。
 - **手改**：若在快车道或没有检索工具时仍注入，模型会被要求做一件做不到的事。
-- **本次**：快车道或工具表没有检索工具 → 不注入。验稿中间件与自动试检在快车道同样跳过，不再盖「尚未试检」逼模型去搜。
+- **本次**：快车道或工具表没有检索工具 → 不注入。引擎自动试检算已试检，不再只认模型是否点名 `search_statute`。
 
 ### 37. 改稿计划 — FIX
 
@@ -358,10 +358,11 @@ pnpm exec vitest run \
 
 ### 38. 成套交件 — FIX
 
-- **路径**：`src/lawmind/drafts/paired-review-deliverable.ts`
-- **作用**：未锁审查 + 钉选 Word = 意见且修订稿才算完成。
+- **路径**：`src/lawmind/drafts/paired-review-deliverable.ts`；交件形态 `src/lawmind/intent/delivery-intent.ts`
+- **作用**：未锁审查 + 钉选 Word = **默认**意见且修订稿。不是完成硬条件；律师指定只要一种则按指定。
 - **手改**：在快车道仍注入会与「只出意见书」互斥。
-- **本次**：快车道不注入。钉选 Word 的普通办件审查仍可成套。
+- **本次**：快车道不注入。律师自然语言指定「只要意见书 / 不改原稿 / 新文档」时也不注入成套默认。工具表不因此收窄。钉选 Word 且未指定交件形态的普通办件审查仍注入成套**教练**（不是「文字意见不算完成」）。
+- **点名落点**：桌面 / 下载 / 文稿 是交件目录，不是本机文件夹写权。只允许这三个家目录。原件永不覆盖。
 
 ### 39. 纸侧与交易角色 — MERGE
 
@@ -501,7 +502,7 @@ pnpm exec vitest run \
 
 | 路径                                                            | 作用                                | 手改后果                                                            |
 | --------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------- |
-| `src/lawmind/platform/playbook-tool-lock.ts`                    | 三条短路径的工具白名单总闸          | 改错会让检索或外发在锁路径里突然可用/不可用。                       |
+| `src/lawmind/platform/playbook-tool-lock.ts`                    | 邮件/改原件的工具拒绝名单           | 改错会让误发或模板重建突然可用，或把检索又冻住。                    |
 | `src/lawmind/platform/word-revision-checklist.ts`               | 把类型包编成「改稿要点」            | 改格式会影响 Word 改稿看/改/停。                                    |
 | `src/lawmind/platform/word-revision-document-excerpt.ts`        | 钉选 Word 摘录                      | 影响模型能不能看到原文。                                            |
 | `src/lawmind/router/deliverable-meta.ts`                        | 交付物类型、澄清问题、验收标准      | 改 `clarificationQuestionsFor` 会改 Soft Ask / 硬澄清问什么。       |

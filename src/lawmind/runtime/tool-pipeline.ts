@@ -88,7 +88,9 @@ export type ToolPolicyConfig = {
   allowDangerousToolsWithoutApproval: boolean;
   /** Role allowlist；undefined 表示不限制 */
   allowedToolNames?: string[];
-  /** Extra lawyer-facing reason when a tool is outside the allowlist. */
+  /** Playbook deny-list (mail/word). Checked before the role allowlist. */
+  deniedToolNames?: string[];
+  /** Extra lawyer-facing reason when a tool is outside the allowlist or on the deny-list. */
   allowlistDenyHint?: string;
   /** W7：当前 Role.id（仅审计/诊断用，pipeline 通过 allowedToolNames + riskCeiling 决策） */
   roleId?: string;
@@ -201,26 +203,38 @@ export const permissionModeMiddleware: ToolMiddleware = async (call, next) => {
 };
 
 /**
- * Browse/search tools that commonly loop when a concrete path is already known
- * (mail-contract attachments, pinned files). Cap repeats per turn.
- * Kept low so free chat cannot stack into a 25–31 step death spiral.
+ * Per-turn caps. Document readers are high so multi-file work can finish
+ * (Cursor/Codex read many files). Search/list stay modest to stop death spirals.
  */
 export const DISCOVERY_LOOP_TOOL_LIMITS: Readonly<Record<string, number>> = {
-  search_workspace: 1,
-  search_matter: 1,
-  read_project_file: 1,
-  list_templates: 1,
-  get_matter_summary: 1,
-  list_matters: 1,
-  analyze_document: 1,
-  list_tasks: 1,
-  list_drafts: 1,
-  list_mail_inbox: 1,
-  list_mail_attachments: 1,
+  search_workspace: 3,
+  search_matter: 2,
+  read_project_file: 8,
+  list_templates: 2,
+  get_matter_summary: 2,
+  list_matters: 2,
+  analyze_document: 8,
+  list_tasks: 2,
+  list_drafts: 2,
+  list_mail_inbox: 2,
+  list_mail_attachments: 2,
 };
 
-/** Sum of discovery-tool calls per turn (all capped tools combined). */
-export const DISCOVERY_LOOP_TOTAL_CAP = 4;
+/** Search/list tools that share a combined cap. Document readers are excluded. */
+const DISCOVERY_SEARCH_LOOP_NAMES = new Set([
+  "search_workspace",
+  "search_matter",
+  "list_templates",
+  "get_matter_summary",
+  "list_matters",
+  "list_tasks",
+  "list_drafts",
+  "list_mail_inbox",
+  "list_mail_attachments",
+]);
+
+/** Combined search/list cap per turn. Does not count analyze_document / read_project_file. */
+export const DISCOVERY_LOOP_TOTAL_CAP = 8;
 
 /** Host-file tools use a separate ledger so file-dense work is not killed by the discovery cap. */
 export const HOST_FILE_TOOL_NAMES = new Set(["search_host", "read_host_file", "list_dir"]);
@@ -268,19 +282,18 @@ function hostLedgerCountNames(hint?: HostFileLedgerHint): string[] {
 }
 
 const DISCOVERY_STOP_HINT_MAIL =
-  "若指令已给出附件/基线路径，请直接 update_draft / render_tracked_draft / prepare_outbound_mail。" +
-  "邮件合同请改用「设置 → 自动办件 → 邮件合同审阅改稿」短路径，停止反复检索。";
+  "附件路径已在指令里，不要反复检索案卷。核法条可以用 search_statute。" +
+  "不要 send_email，不要用 render_document 重建附件。";
 
 const DISCOVERY_STOP_HINT_WORD_REVISION =
-  "原合同已钉选：用 analyze_document 或 read_project_file 通读一次（工作区/项目均可），然后 update_draft（contract_edit_baseline_path）→ apply_surgical_edits → render_tracked_draft。" +
-  "不要 prepare_outbound_mail，不要反复检索。";
+  "原文件路径已钉选，不要反复检索。通读一次后改稿即可。" +
+  "不要 prepare_outbound_mail，不要用 render_document 重建原件。";
 
 const DISCOVERY_STOP_HINT_DEFAULT =
   "若路径已给出，请改用正确根目录重试（工作区用 analyze_document，项目文件用 read_project_file），不要反复同一路径。";
 
 const DISCOVERY_STOP_HINT_WORD_ALREADY_READ =
-  "文书已通读。请直接 update_draft（contract_edit_baseline_path）→ apply_surgical_edits → render_tracked_draft。" +
-  "不要再 analyze_document，不要读 playbooks。";
+  "这份文书已经读过。换一份未读材料可以继续读；不要反复读同一文件，也不要读 playbooks。继续改稿即可。";
 
 export function discoveryCountsShowDocumentRead(
   counts: Record<string, number> | undefined,
@@ -302,12 +315,14 @@ export function wouldHitDiscoveryCap(
     return false;
   }
   const safe = counts ?? {};
-  let discoveryTotal = 0;
-  for (const name of Object.keys(DISCOVERY_LOOP_TOOL_LIMITS)) {
-    discoveryTotal += safe[name] ?? 0;
-  }
-  if (discoveryTotal >= DISCOVERY_LOOP_TOTAL_CAP) {
-    return true;
+  if (DISCOVERY_SEARCH_LOOP_NAMES.has(toolName)) {
+    let searchTotal = 0;
+    for (const name of DISCOVERY_SEARCH_LOOP_NAMES) {
+      searchTotal += safe[name] ?? 0;
+    }
+    if (searchTotal >= DISCOVERY_LOOP_TOTAL_CAP) {
+      return true;
+    }
   }
   return (safe[toolName] ?? 0) >= limit;
 }
@@ -316,13 +331,9 @@ export function wouldHitDiscoveryCap(
 export function dropSaturatedDiscoveryTools(
   toolNames: string[],
   counts: Record<string, number> | undefined,
-  opts?: { dropDocumentReaders?: boolean } & HostFileLedgerHint,
+  opts?: HostFileLedgerHint,
 ): string[] {
-  const next = toolNames.filter((name) => !wouldHitDiscoveryCap(name, counts, opts));
-  if (!opts?.dropDocumentReaders) {
-    return next;
-  }
-  return next.filter((name) => name !== "analyze_document" && name !== "read_project_file");
+  return toolNames.filter((name) => !wouldHitDiscoveryCap(name, counts, opts));
 }
 
 export function discoveryStopHint(
@@ -352,16 +363,18 @@ export const discoveryLoopMiddleware: ToolMiddleware = async (call, next) => {
     return next();
   }
   const counts = call.policy.toolNameCallCounts ?? {};
-  let discoveryTotal = 0;
-  for (const name of Object.keys(DISCOVERY_LOOP_TOOL_LIMITS)) {
-    discoveryTotal += counts[name] ?? 0;
-  }
   const hint = discoveryStopHint(call.policy.allowlistDenyHint, counts);
-  if (discoveryTotal >= DISCOVERY_LOOP_TOTAL_CAP) {
-    return {
-      ok: false,
-      error: `本轮检索/浏览类工具已合计 ${discoveryTotal} 次（上限 ${DISCOVERY_LOOP_TOTAL_CAP}）。${hint}`,
-    };
+  if (DISCOVERY_SEARCH_LOOP_NAMES.has(call.toolName)) {
+    let searchTotal = 0;
+    for (const name of DISCOVERY_SEARCH_LOOP_NAMES) {
+      searchTotal += counts[name] ?? 0;
+    }
+    if (searchTotal >= DISCOVERY_LOOP_TOTAL_CAP) {
+      return {
+        ok: false,
+        error: `本轮检索/列表类工具已合计 ${searchTotal} 次（上限 ${DISCOVERY_LOOP_TOTAL_CAP}）。${hint}`,
+      };
+    }
   }
   const prior = counts[call.toolName] ?? 0;
   if (prior >= limit) {
@@ -426,8 +439,18 @@ export const matterScopeMiddleware: ToolMiddleware = async (call, next) => {
   return next();
 };
 
-/** Role / preset / playbook allowlist；不在白名单 → 拒绝。 */
+/** Role / preset allowlist, plus playbook deny-list. */
 export const roleAllowlistMiddleware: ToolMiddleware = async (call, next) => {
+  const deny = call.policy.deniedToolNames;
+  if (deny && deny.length > 0 && deny.includes(call.toolName)) {
+    const hint = call.policy.allowlistDenyHint?.trim();
+    return {
+      ok: false,
+      error: hint
+        ? `当前办件不能使用「${call.toolName}」。${hint}`
+        : `当前办件不能使用「${call.toolName}」。`,
+    };
+  }
   const allow = call.policy.allowedToolNames;
   if (allow && allow.length > 0 && !allow.includes(call.toolName)) {
     const hint = call.policy.allowlistDenyHint?.trim();

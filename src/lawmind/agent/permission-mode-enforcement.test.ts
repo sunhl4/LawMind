@@ -210,11 +210,13 @@ describe("permission mode execution-layer gate (e2e)", () => {
     expect(writeExecuted).toBe(true);
     expect(result.turn.status).toBe("completed");
     expect(result.turn.gateDecisions?.some((g) => g.gate === "dangerous_tool_gate")).toBe(false);
-    // 标准模式下广告清单与 prompt 目录都含写工具。
-    expect(advertised[0]).toContain("write_document");
+    // 标准模式：write_document 已注册即可点名执行，但不在常用 12 工具广告里。
+    expect(advertised[0]).not.toContain("write_document");
+    expect(advertised[0]).toContain("analyze_document");
     const session = loadSession(workspaceDir, result.sessionId);
     const systemPrompt = String(session?.conversationHistory[0]?.content ?? "");
-    expect(systemPrompt).toContain("**write_document**");
+    expect(systemPrompt).toContain("**analyze_document**");
+    expect(systemPrompt).not.toContain("**write_document**");
   });
 
   it("research: write tools blocked, research_task stays in the advertised set", async () => {
@@ -339,10 +341,11 @@ describe("permission mode execution-layer gate (e2e)", () => {
       .map((resp) => resp.result.error ?? "")
       .join("\n");
     expect(toolText).toContain("只读");
-    // 静态目录冻结（仍含首轮写工具），但当轮权限块已切换为 readonly。
+    // 静态目录冻结为首轮广告集（常用工具不含 write_document）；当轮权限块已切换为 readonly。
     const session = loadSession(workspaceDir, first.sessionId);
     const systemPrompt = String(session?.conversationHistory[0]?.content ?? "");
-    expect(systemPrompt).toContain("**write_document**");
+    expect(systemPrompt).toContain("**analyze_document**");
+    expect(systemPrompt).not.toContain("**write_document**");
     expect(systemPrompt).toContain("<permission_mode>readonly</permission_mode>");
   });
 });

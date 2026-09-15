@@ -22,8 +22,8 @@ export async function matterRequiredResult(workspaceDir: string): Promise<Matter
   }
   const hint =
     matters.length > 0
-      ? `可选案件（最多 ${matters.length}）：${matters.join(", ")}。请先在侧栏选择案件，或传入 matter_id。`
-      : "工作区尚无案件；请先新建案件后再试。";
+      ? `可选案件（最多 ${matters.length}）：${matters.join(", ")}。请先在侧栏选择案件，或在对话空态点「新建案件」，或传入 matter_id。`
+      : "工作区尚无案件。请先在对话空态点「新建案件」，再建档后重试。";
   return {
     ok: false,
     error: "未指定案件 ID。",

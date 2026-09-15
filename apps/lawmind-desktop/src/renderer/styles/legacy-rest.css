@@ -996,6 +996,64 @@
   padding: 2px 6px;
   border-radius: 4px;
 }
+.lm-md-pre {
+  white-space: pre-wrap;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  background: color-mix(in srgb, var(--surface-2) 80%, var(--surface));
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  margin: 8px 0 12px;
+}
+.lm-md-table-wrap {
+  white-space: normal;
+  overflow-x: auto;
+  max-width: 100%;
+  margin: 10px 0 12px;
+}
+.lm-md-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  white-space: normal;
+}
+.lm-md-table th,
+.lm-md-table td {
+  border: 1px solid var(--border);
+  padding: 7px 10px;
+  text-align: left;
+  vertical-align: top;
+  white-space: normal;
+}
+.lm-md-table th {
+  background: color-mix(in srgb, var(--side-bg) 55%, var(--surface));
+  font-weight: 700;
+}
+.lm-md-table tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--surface-2) 55%, transparent);
+}
+.lm-md-math {
+  color: inherit;
+  white-space: normal;
+}
+.lm-md-math--display {
+  display: block;
+  overflow-x: auto;
+  margin: 10px 0;
+  text-align: center;
+  white-space: normal;
+}
+.lm-md-math .katex {
+  font-size: 1.05em;
+}
+.lm-md-math--fallback {
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
 
 /* ── File tabs ─────────────────────────────────────────────── */
 .lm-file-tabs {

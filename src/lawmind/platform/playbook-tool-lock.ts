@@ -1,24 +1,25 @@
 /**
- * High-frequency lawyer playbooks → frozen tool table for this turn.
- * Mail-contract wins over Word revision; Word revision wins over opinion review.
+ * High-frequency lawyer playbooks → deny-list only (mis-send / template rebuild).
+ * Mail-contract wins over Word revision. 5-minute review is prompt coaching only.
  */
 
 import type { ComposeContextPin } from "./compose-context-pin.js";
 import {
-  CONTRACT_FAST_LANE_DENIED_HINT,
-  contractFastLaneAllowNames,
-} from "./contract-fast-lane-instruction.js";
-import {
+  isMailContractFastPathInstruction,
+  MAIL_CONTRACT_DENY_TOOL_NAMES,
   MAIL_CONTRACT_FAST_PATH_DENIED_HINT,
-  mailContractFastPathAllowNames,
 } from "./mail-contract-short-path-instruction.js";
-import { WORD_REVISION_DENIED_HINT, wordRevisionAllowNames } from "./word-revision-instruction.js";
+import {
+  isWordRevisionTurn,
+  WORD_REVISION_DENIED_HINT,
+  WORD_REVISION_DENY_TOOL_NAMES,
+} from "./word-revision-instruction.js";
 
-export type PlaybookToolLockId = "mail-contract" | "word-revision" | "contract-review";
+export type PlaybookToolLockId = "mail-contract" | "word-revision";
 
 export type PlaybookToolLock = {
   id: PlaybookToolLockId;
-  allowNames: string[];
+  denyNames: string[];
   denyHint: string;
 };
 
@@ -26,28 +27,18 @@ export function resolvePlaybookToolLock(
   instruction: string,
   pins?: ComposeContextPin[],
 ): PlaybookToolLock | undefined {
-  const mail = mailContractFastPathAllowNames(instruction);
-  if (mail) {
+  if (isMailContractFastPathInstruction(instruction)) {
     return {
       id: "mail-contract",
-      allowNames: mail,
+      denyNames: [...MAIL_CONTRACT_DENY_TOOL_NAMES],
       denyHint: MAIL_CONTRACT_FAST_PATH_DENIED_HINT,
     };
   }
-  const wordRevision = wordRevisionAllowNames(instruction, pins);
-  if (wordRevision) {
+  if (isWordRevisionTurn({ instruction, pins })) {
     return {
       id: "word-revision",
-      allowNames: wordRevision,
+      denyNames: [...WORD_REVISION_DENY_TOOL_NAMES],
       denyHint: WORD_REVISION_DENIED_HINT,
-    };
-  }
-  const contract = contractFastLaneAllowNames(instruction);
-  if (contract) {
-    return {
-      id: "contract-review",
-      allowNames: contract,
-      denyHint: CONTRACT_FAST_LANE_DENIED_HINT,
     };
   }
   return undefined;

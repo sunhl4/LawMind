@@ -14,6 +14,7 @@ import { MatterOverviewExtras } from "./MatterOverviewExtras";
 import { MatterOverviewTodoCards } from "./MatterOverviewTodoCards";
 import { MatterProfileCard, type MatterProfilePayload } from "./MatterProfileCard";
 import { MatterTeamRosterStrip } from "./MatterTeamRosterStrip";
+import { MatterReplicaPanel } from "./MatterReplicaPanel";
 import { InteractionConvergence, LawyerActionFeed } from "../insights";
 import type { ConvergenceHint, InteractionEvent } from "../../../../../src/lawmind/insights/index.ts";
 import {
@@ -399,6 +400,7 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
             }
           />
         ) : null}
+        {matterId && apiBase ? <MatterReplicaPanel apiBase={apiBase} matterId={matterId} /> : null}
         {matterId && apiBase ? <MatterTheoryLitePanel apiBase={apiBase} matterId={matterId} /> : null}
         {matterId && apiBase && profile ? (
           <MatterProfileCard apiBase={apiBase} profile={profile} onSaved={onProfileSaved} />

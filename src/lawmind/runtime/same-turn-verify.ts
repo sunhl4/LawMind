@@ -35,7 +35,8 @@ export type SameTurnVerifyCode =
   | "craft_check_missing"
   | "citation_integrity"
   | "lint_mechanical"
-  | "guardian_fail";
+  | "guardian_fail"
+  | "xml_qa_fail";
 
 export type SameTurnVerifyIssue = {
   code: SameTurnVerifyCode;
@@ -137,6 +138,16 @@ export function failToolWithSameTurnVerify(
     ok: false,
     error: message,
     data,
+  };
+}
+
+function issueXmlQaFail(): SameTurnVerifyIssue {
+  return {
+    code: "xml_qa_fail",
+    gate: "redline_hunks_gate",
+    nextTool: "apply_surgical_edits",
+    message:
+      "导出文件的 XML 未见审阅痕迹，不能当作已完成。请收窄 find/replace 后再交 apply_surgical_edits 并重新导出。",
   };
 }
 
@@ -367,6 +378,9 @@ export function collectSameTurnVerifyIssues(input: {
   if (toolName === "render_tracked_draft") {
     if (data?.code === "redline_hunks_required" || gate?.gate === "redline_hunks_gate") {
       issues.push(issueEmptyRedline());
+    }
+    if (data?.code === "xml_qa_no_tracks" || asRecord(data?.xmlQa)?.ok === false) {
+      issues.push(issueXmlQaFail());
     }
     if (data?.code === "craft_check_required") {
       issues.push(issueCraftCheckMissing());

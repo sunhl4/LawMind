@@ -8,9 +8,9 @@ import { writeRedlineProposal } from "./redline-proposal.js";
 import { applyNarrowedPlanOnce, shouldAutoRetryXmlQa } from "./xml-qa-auto-retry.js";
 
 describe("xml-qa-auto-retry", () => {
-  it("skips mail and Word tracked locks", () => {
-    expect(shouldAutoRetryXmlQa({ wordRevisionTurn: true })).toBe(false);
-    expect(shouldAutoRetryXmlQa({ mailContractTurn: true })).toBe(false);
+  it("retries XML QA on mail and Word tracked locks", () => {
+    expect(shouldAutoRetryXmlQa({ wordRevisionTurn: true })).toBe(true);
+    expect(shouldAutoRetryXmlQa({ mailContractTurn: true })).toBe(true);
     expect(shouldAutoRetryXmlQa({})).toBe(true);
   });
 

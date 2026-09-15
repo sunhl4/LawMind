@@ -120,4 +120,41 @@ describe("presentLawyerToolResult", () => {
       ).detail,
     ).toBe("已超时");
   });
+
+  it("summarizes other-chat search hits without snake_case ids", () => {
+    const call = presentLawyerToolCall("search_conversations", { query: "上周 合同审查" });
+    expect(call.title).toBe("检索其他对话");
+    expect(call.detail).toContain("合同审查");
+    const found = presentLawyerToolResult(
+      "search_conversations",
+      { query: "合同审查" },
+      {
+        ok: true,
+        data: {
+          total: 2,
+          hits: [
+            { sessionId: "s1", title: "采购合同审查" },
+            { sessionId: "s2", title: "保密协议" },
+          ],
+        },
+      },
+    );
+    expect(found.detail).toContain("命中 2 条");
+    expect(found.detail).toContain("采购合同审查");
+    expect(JSON.stringify(found)).not.toMatch(/search_conversations/);
+    expect(
+      presentLawyerToolResult(
+        "search_conversations",
+        {},
+        { ok: true, data: { total: 0, hits: [] } },
+      ).detail,
+    ).toBe("没有命中其他对话");
+    expect(
+      presentLawyerToolResult(
+        "read_conversation",
+        {},
+        { ok: true, data: { sessionId: "s1", title: "改稿做法" } },
+      ).detail,
+    ).toContain("改稿做法");
+  });
 });

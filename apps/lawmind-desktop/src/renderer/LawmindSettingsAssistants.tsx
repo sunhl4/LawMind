@@ -128,7 +128,7 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
         {empty ? (
           <div className="lm-memory-empty lm-memory-empty--compact" role="status">
             <p className="lm-memory-empty__title">还没有助手</p>
-            <p className="lm-memory-empty__desc">点下方业务领域，或「快速新建」开始。</p>
+            <p className="lm-memory-empty__desc">点下方业务领域，或「新建助手」开始。</p>
           </div>
         ) : (
           <div className="lm-assistants-current">
@@ -209,7 +209,7 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
                     strokeLinecap="round"
                   />
                 </svg>
-                快速新建
+                新建助手
               </button>
               <button
                 type="button"
@@ -260,7 +260,7 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
                   strokeLinecap="round"
                 />
               </svg>
-              快速新建
+              新建助手
             </button>
           </div>
         ) : null}

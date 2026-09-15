@@ -34,6 +34,8 @@ export function isToolConcurrencySafe(registry: ToolRegistry, toolName: string):
   }
   const readOnly = new Set([
     "search_workspace",
+    "search_conversations",
+    "read_conversation",
     "read_project_file",
     "list_dir",
     "search_host",

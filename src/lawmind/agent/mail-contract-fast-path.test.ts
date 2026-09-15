@@ -4,7 +4,7 @@ import {
   isMailContractFastPathInstruction,
   MAIL_CONTRACT_FAST_PATH_PROMPT,
   MAIL_CONTRACT_FAST_PATH_TOOL_NAMES,
-  mailContractFastPathAllowNames,
+  mailContractFastPathDenyNames,
 } from "./mail-contract-fast-path.js";
 
 describe("mail-contract-fast-path", () => {
@@ -26,7 +26,7 @@ describe("mail-contract-fast-path", () => {
   });
 
   it("embeds craft skill, ops path, and span-local minimal-edit discipline", () => {
-    expect(MAIL_CONTRACT_FAST_PATH_PROMPT).toContain("search_workspace");
+    expect(MAIL_CONTRACT_FAST_PATH_PROMPT).toContain("search_statute");
     expect(MAIL_CONTRACT_FAST_PATH_PROMPT).toContain("redlinePending");
     expect(MAIL_CONTRACT_FAST_PATH_PROMPT).toContain("批注");
     expect(MAIL_CONTRACT_FAST_PATH_PROMPT).toContain("己方立场");
@@ -42,21 +42,21 @@ describe("mail-contract-fast-path", () => {
     expect(MAIL_CONTRACT_FAST_PATH_PROMPT).not.toContain("最多 24");
     expect(MAIL_CONTRACT_FAST_PATH_PROMPT).not.toContain("应改尽改");
     expect(MAIL_CONTRACT_FAST_PATH_PROMPT).not.toContain("2–3 处");
-    expect(MAIL_CONTRACT_FAST_PATH_PROMPT).toContain("直接拒绝");
+    expect(MAIL_CONTRACT_FAST_PATH_PROMPT).toContain("不要 `send_email`");
   });
 
-  it("locks the short-path tool table and pins reply-to", () => {
+  it("denies send/rebuild and keeps the preferred path documented", () => {
     const instruction = [
       "【邮件合同审阅改稿 · 短路径】",
       "建议回复收件人：Opp@Firm.CN",
       "render_tracked_draft",
     ].join("\n");
-    expect(mailContractFastPathAllowNames(instruction)).toEqual([
-      ...MAIL_CONTRACT_FAST_PATH_TOOL_NAMES,
-    ]);
-    expect(mailContractFastPathAllowNames("请帮我查一下合同法条")).toBeUndefined();
+    expect(mailContractFastPathDenyNames(instruction)).toEqual(["send_email", "render_document"]);
+    expect(mailContractFastPathDenyNames("请帮我查一下合同法条")).toBeUndefined();
     expect(extractSuggestedReplyTo(instruction)).toBe("opp@firm.cn");
     expect(MAIL_CONTRACT_FAST_PATH_TOOL_NAMES).not.toContain("search_workspace");
     expect(MAIL_CONTRACT_FAST_PATH_TOOL_NAMES).not.toContain("list_more_tools");
+    expect(MAIL_CONTRACT_FAST_PATH_PROMPT).not.toContain("本回合只开放");
+    expect(MAIL_CONTRACT_FAST_PATH_PROMPT).not.toContain("检索类工具本回合会直接拒绝");
   });
 });

@@ -9,7 +9,10 @@ const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtur
 describe("openLawRetrieve", () => {
   it("defaults to local mode and returns sample hits with 演示语料 watermark", async () => {
     expect(resolveOpenLawMode({ mode: "" })).toBe("local");
-    const { result, source } = await openLawRetrieve({ query: "个人信息 同意" });
+    const { result, source } = await openLawRetrieve({
+      query: "个人信息 同意",
+      mode: "local",
+    });
     expect(source).toBe("local");
     expect(result.sources.length).toBeGreaterThan(0);
     expect(result.claims.every((c) => c.sourceIds.length > 0)).toBe(true);
@@ -17,6 +20,64 @@ describe("openLawRetrieve", () => {
     expect(result.sources.every((s) => s.demo === true)).toBe(true);
     expect(result.claims.every((c) => c.demo === true)).toBe(true);
     expect(result.sources[0]?.provider).toBe("open-law.local");
+  });
+
+  it("defaults to hybrid when NPC is enabled and mode is unset", () => {
+    const prevNpc = process.env.LAWMIND_OPEN_LAW_NPC;
+    const prevMode = process.env.LAWMIND_OPEN_LAW_MODE;
+    process.env.LAWMIND_OPEN_LAW_NPC = "1";
+    delete process.env.LAWMIND_OPEN_LAW_MODE;
+    try {
+      expect(resolveOpenLawMode()).toBe("hybrid");
+    } finally {
+      if (prevNpc === undefined) {
+        delete process.env.LAWMIND_OPEN_LAW_NPC;
+      } else {
+        process.env.LAWMIND_OPEN_LAW_NPC = prevNpc;
+      }
+      if (prevMode === undefined) {
+        delete process.env.LAWMIND_OPEN_LAW_MODE;
+      } else {
+        process.env.LAWMIND_OPEN_LAW_MODE = prevMode;
+      }
+    }
+  });
+
+  it("hybrid prefers NPC over local sample when NPC returns hits", async () => {
+    const prevNpc = process.env.LAWMIND_OPEN_LAW_NPC;
+    const prevMode = process.env.LAWMIND_OPEN_LAW_MODE;
+    process.env.LAWMIND_OPEN_LAW_NPC = "1";
+    delete process.env.LAWMIND_OPEN_LAW_MODE;
+    const fixture = fs.readFileSync(path.join(fixtures, "npc-flk-list.json"), "utf8");
+    try {
+      const fetchImpl = vi.fn(
+        async () =>
+          new Response(fixture, {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+      );
+      const { result, source } = await openLawRetrieve({
+        query: "民法典",
+        mode: "hybrid",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+      expect(source).toBe("npc_flk");
+      expect(result.sources[0]?.provider).toBe("open-law.npc_flk");
+      expect(result.sources[0]?.demo).not.toBe(true);
+      expect(fetchImpl).toHaveBeenCalled();
+    } finally {
+      if (prevNpc === undefined) {
+        delete process.env.LAWMIND_OPEN_LAW_NPC;
+      } else {
+        process.env.LAWMIND_OPEN_LAW_NPC = prevNpc;
+      }
+      if (prevMode === undefined) {
+        delete process.env.LAWMIND_OPEN_LAW_MODE;
+      } else {
+        process.env.LAWMIND_OPEN_LAW_MODE = prevMode;
+      }
+    }
   });
 
   it("npc_flk without flag returns explicit missing", async () => {

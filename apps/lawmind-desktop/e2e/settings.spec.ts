@@ -9,7 +9,8 @@ test.describe("LawMind settings page", () => {
   test("opens settings, navigates via search, shows section, returns", async ({ page }) => {
     await gotoShell(page);
 
-    await expect(page.getByTestId("lm-header-new-assistant")).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId("lm-tab-workspace")).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId("lm-header-new-assistant")).toHaveCount(0);
 
     await page.getByRole("complementary").getByRole("button", { name: "设置" }).click({ timeout: 60_000 });
     await expect(page.getByRole("region", { name: "设置" })).toBeVisible();

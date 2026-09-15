@@ -12,7 +12,7 @@ function toolSubtitle(tool: ChatActivityToolBlock): string | undefined {
     return fromProgress;
   }
   const detail = tool.detail?.trim();
-  if (detail && tool.status === "failed") {
+  if (detail && (tool.status === "failed" || tool.status === "done" || tool.status === "running")) {
     return detail;
   }
   if (tool.status === "running") {

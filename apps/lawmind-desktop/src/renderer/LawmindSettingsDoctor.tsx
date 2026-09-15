@@ -215,6 +215,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
   const matterConsistency = doctor?.matterConsistency;
   const taskDraftConsistency = doctor?.taskDraftConsistency;
   const authorityCorpus = doctor?.authorityCorpus;
+  const companyRegistry = doctor?.companyRegistry;
   const multitaskObservability = doctor?.multitaskObservability;
   const reasoningGraphCoverage = doctor?.reasoningGraphCoverage;
 
@@ -348,7 +349,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
                 : i.ok === false
                   ? "异常"
                   : "完整";
-            integrityNote = ` · hash-chain ${i.eventCount ?? 0}/${i.chainedCount ?? 0}（${chainNote}）`;
+            integrityNote = ` · 完整性 ${i.eventCount ?? 0}/${i.chainedCount ?? 0}（${chainNote}）`;
           }
         } catch {
           /* integrity optional */
@@ -761,7 +762,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
         <h4 className="lm-doctor-group-title">办案审计摘要</h4>
         <p className="lm-settings-caption">
           一键导出本机审计 Markdown
-          {health?.edition?.features?.auditIntegrityExport ? "，并附带 hash-chain 完整性核对。" : "。"}
+          {health?.edition?.features?.auditIntegrityExport ? "，并附带审计完整性核对。" : "。"}
         </p>
         <div className="lm-settings-actions lm-settings-actions--flush">
           <button
@@ -813,6 +814,21 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
             ? authorityCorpus.message
             : "开源语料；无命中拒答。"}{" "}
           闭源库需手动配置；正式引用请核对官方法条。
+        </p>
+        <div className="lm-doctor-security-grid" data-testid="lm-doctor-company-registry">
+          <span className="lm-settings-key">工商查询</span>
+          <span
+            className={
+              companyRegistry?.configured ? "lm-pill lm-pill-success" : "lm-pill lm-pill-warn"
+            }
+          >
+            {companyRegistry?.configured ? "已配置端点" : "未接工商源"}
+          </span>
+        </div>
+        <p className="lm-settings-caption">
+          {companyRegistry?.message?.trim()
+            ? companyRegistry.message
+            : "未接工商源。配置 LAWMIND_COMPANY_REGISTRY_URL 后才会实时查询。"}
         </p>
         <div className="lm-settings-actions">
           <button
@@ -874,7 +890,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
               ? "Firm：一律显式批准"
               : "Solo：开发可放宽"}
           </span>
-          <span className="lm-settings-key">审计 hash-chain</span>
+          <span className="lm-settings-key">审计完整性</span>
           <span
             className={
               health?.edition?.features?.auditIntegrityExport

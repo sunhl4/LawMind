@@ -27,6 +27,8 @@ const editionState: { current: EditionInfo } = {
       strictDangerousToolApproval: false,
       reviewCampaignParallel: true,
       forcePeerReview: false,
+      matterReplicaCollab: false,
+      ethicsWall: false,
     },
     citationMode: "assisted",
     loading: false,
@@ -120,8 +122,7 @@ describe("LawmindAppHeader", () => {
     expect(host.querySelector('[data-testid="lm-header-new-assistant"]')).toBeNull();
   });
 
-  it("shows 新建助手 even with a single assistant", async () => {
-    const onOpenNewAssistant = vi.fn();
+  it("does not show 新建助手 in the header (settings owns create)", async () => {
     await act(async () => {
       root.render(
         <LawmindAppHeader
@@ -167,15 +168,12 @@ describe("LawmindAppHeader", () => {
           onOpenDoctor={vi.fn()}
           onVerifyModel={vi.fn()}
           composeModelQuickTestBusy={false}
-          onOpenNewAssistant={onOpenNewAssistant}
         />,
       );
     });
-    const btn = host.querySelector('[data-testid="lm-header-new-assistant"]') as HTMLButtonElement | null;
-    expect(btn?.textContent).toContain("新建助手");
+    expect(host.querySelector('[data-testid="lm-header-new-assistant"]')).toBeNull();
+    expect(host.textContent).not.toContain("新建助手");
     expect(host.querySelector('select[aria-label="选择助手"]')).toBeNull();
-    btn?.click();
-    expect(onOpenNewAssistant).toHaveBeenCalledTimes(1);
   });
 
   it("Solo hides peer 文书台 tab until 改稿 scene is open", async () => {

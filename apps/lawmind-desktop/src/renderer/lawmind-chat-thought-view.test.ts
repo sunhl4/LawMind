@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { partitionActivityForThoughtView } from "./lawmind-chat-thought-view.js";
+import { partitionActivityForThoughtView, thoughtToolSubtitle } from "./lawmind-chat-thought-view.js";
 
 describe("partitionActivityForThoughtView", () => {
   it("keeps streaming text in reasoning, not answer", () => {
@@ -48,5 +48,22 @@ describe("partitionActivityForThoughtView", () => {
     expect(out.tools).toHaveLength(1);
     expect(out.reasoningMarkdown).toBe("");
     expect(out.answerText).toBe("结论如下。");
+  });
+});
+
+describe("thoughtToolSubtitle", () => {
+  it("shows the search result line instead of a generic 已完成", () => {
+    expect(
+      thoughtToolSubtitle({
+        id: "tc1",
+        kind: "tool",
+        toolCallId: "tc1",
+        toolName: "search_conversations",
+        label: "检索其他对话",
+        status: "done",
+        detail: "命中 1 条：采购合同审查",
+        progress: [],
+      }),
+    ).toBe("命中 1 条：采购合同审查");
   });
 });

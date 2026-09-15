@@ -23,6 +23,7 @@ import { useLawmindAppRootHandlers } from "./app/useLawmindAppRootHandlers";
 import { useLawmindAppRootLayout } from "./app/useLawmindAppRootLayout";
 import { LawmindAppRootView } from "./app/LawmindAppRootView";
 import { subscribeOpenAutomationsSettings } from "./lawmind-automations-nav-bus";
+import { subscribeOpenChatSession } from "./lawmind-open-chat-session-bus";
 import { subscribeOpenMeetingView } from "./lawmind-meeting-nav-bus";
 import {
   lawyerFacingDecisionTotal,
@@ -286,8 +287,8 @@ export function LawmindAppRoot() {
   const workflowModelLabel =
     modelCatalog.find((m) => m.id === selectedModelId)?.label ?? selectedModelId;
   useEffect(() => {
-    return subscribeOpenAutomationsSettings(() => {
-      useSettingsPanelStore.getState().setSettingsPanel(true, "automations");
+    return subscribeOpenAutomationsSettings((section) => {
+      useSettingsPanelStore.getState().setSettingsPanel(true, section);
     });
   }, []);
   useEffect(() => {
@@ -296,6 +297,18 @@ export function LawmindAppRoot() {
       setMainView("meeting");
     });
   }, [setMainView, setMatterCockpitOpen]);
+  useEffect(() => {
+    return subscribeOpenChatSession((ref) => {
+      if (ref.matterId?.trim()) {
+        setContextMatterId(ref.matterId.trim());
+      }
+      setMatterCockpitOpen(false);
+      setMainView("workspace");
+      void Promise.resolve(selectChatSession(ref.sessionId, ref.assistantId)).finally(() => {
+        scheduleScrollChatMessagesToLatest({ behavior: "smooth" });
+      });
+    });
+  }, [selectChatSession, setContextMatterId, setMainView]);
   useEffect(() => {
     const unsub = window.lawmindDesktop?.onNotificationClick?.((payload) => {
       if (payload?.reason === "open_review") {

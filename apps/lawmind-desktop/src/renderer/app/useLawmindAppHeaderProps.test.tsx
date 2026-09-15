@@ -34,7 +34,6 @@ function headerInput(): Parameters<typeof useLawmindAppHeaderProps>[0] {
     openApiWizard: vi.fn(),
     composeModelQuickTest: vi.fn(),
     composeModelQuickTestBusy: false,
-    openNewAssistant: vi.fn(),
   };
 }
 
@@ -82,18 +81,20 @@ describe("useLawmindAppHeaderProps", () => {
     expect(seen.at(-1)).toBe(false);
   });
 
-  it("wires openNewAssistant onto the header", async () => {
-    const openNewAssistant = vi.fn();
+  it("does not expose create-assistant on the header", async () => {
     let captured: ReturnType<typeof useLawmindAppHeaderProps> | undefined;
 
     function Harness() {
-      captured = useLawmindAppHeaderProps({ ...headerInput(), openNewAssistant });
+      captured = useLawmindAppHeaderProps(headerInput());
       return null;
     }
 
     await act(async () => {
       root.render(<Harness />);
     });
-    expect(captured?.onOpenNewAssistant).toBe(openNewAssistant);
+    expect(captured).toBeDefined();
+    expect(
+      Object.prototype.hasOwnProperty.call(captured as object, "onOpenNewAssistant"),
+    ).toBe(false);
   });
 });

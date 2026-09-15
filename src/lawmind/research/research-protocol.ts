@@ -1,6 +1,7 @@
 /**
- * Retrieval protocol for unlocked 意见 / 检索 / 快问.
- * Mail short path, Word tracked lock, and opinion-only fast lane skip this.
+ * Retrieval protocol: coach statute/case trial before writing 条号.
+ * Skip only the 5-minute opinion fast lane, or when search tools are not on
+ * the table. Mail/Word may still search; do not freeze them off retrieval.
  */
 
 import {
@@ -22,7 +23,7 @@ export function shouldInjectResearchProtocol(
     | undefined,
   gate?: PromptProtocolGate,
 ): boolean {
-  if (!bound || bound.pipeline === "tracked_redline" || bound.id === "mail.contract") {
+  if (!bound) {
     return false;
   }
   if (isOpinionOnlyFastLane(gate?.instruction)) {
@@ -36,11 +37,18 @@ export function shouldInjectResearchProtocol(
     bound.id === "analysis.quick" ||
     bound.id === "contract.review" ||
     bound.id === "letter.draft" ||
-    bound.id === "litigation.draft"
+    bound.id === "litigation.draft" ||
+    bound.id === "mail.contract"
   );
 }
 
-export function statuteTrialHappenedThisTurn(counts?: Record<string, number> | null): boolean {
+export function statuteTrialHappenedThisTurn(
+  counts?: Record<string, number> | null,
+  autoTrial?: boolean,
+): boolean {
+  if (autoTrial === true) {
+    return true;
+  }
   if (!counts) {
     return false;
   }
@@ -69,12 +77,12 @@ export function shouldEnforceStatuteTrial(
 export function formatResearchProtocolPromptBlock(): string {
   return [
     "## 检索协议",
-    "写现行法条或类案之前：先按命题矩阵调用 `search_statute`（核心工具）和已披露的 `search_case_law`，每个争点试检 1–2 条再扩。",
-    "无命中或本回合工具不可用：栏目保留并标【待核实】，不得把模型记忆写成条号。废止法名单见 Skill · 规范现行有效。",
-    "邮件短路径、指定目录 Word 改稿、意见-only 快车道不要为了引用去检索。",
+    "写现行法条或类案之前：先按命题矩阵调用 `search_statute` 和 `search_case_law`（均为常用工具），每个争点试检 1–2 条再扩。",
+    "无命中：栏目保留并标【待核实】，不得把模型记忆写成条号。废止法名单见 Skill · 规范现行有效。",
+    "路径已钉选时不要翻案卷找附件；核法条仍可用检索。",
   ].join("\n");
 }
 
 export function formatUnretrievedStatuteBody(): string {
-  return "本回合尚未试检 `search_statute` / `search_case_law`。不得把模型记忆写成现行法条。先检索；无工具则标【待核实】并继续分析框架。";
+  return "本回合尚未试检 `search_statute` / `search_case_law`。不得把模型记忆写成现行法条。先检索；无工具或仅演示语料则标【待核实】并继续分析框架，不得写成已核对。";
 }

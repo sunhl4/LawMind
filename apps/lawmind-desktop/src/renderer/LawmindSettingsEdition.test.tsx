@@ -25,6 +25,8 @@ const editionState = {
       strictDangerousToolApproval: false,
       reviewCampaignParallel: true,
       forcePeerReview: false,
+      matterReplicaCollab: false,
+      ethicsWall: false,
     },
     citationMode: "assisted" as const,
     loading: false,

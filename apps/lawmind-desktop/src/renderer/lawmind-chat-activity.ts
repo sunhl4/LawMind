@@ -4,6 +4,7 @@ import {
   presentLawyerToolCall,
 } from "../../../../src/lawmind/agent/tool-lawyer-card.ts";
 import { humanToolLabel } from "./lawmind-chat-trace.js";
+import type { ChatSessionRef } from "./lawmind-session-link";
 
 export type ChatActivityTextBlock = {
   id: string;
@@ -20,9 +21,25 @@ export type ChatActivityToolBlock = {
   status: "running" | "done" | "failed";
   detail?: string;
   progress: string[];
+  sessionRefs?: ChatSessionRef[];
 };
 
 export type ChatActivityBlock = ChatActivityTextBlock | ChatActivityToolBlock;
+
+export function collectActivitySessionRefs(tools: ChatActivityToolBlock[]): ChatSessionRef[] {
+  const seen = new Set<string>();
+  const out: ChatSessionRef[] = [];
+  for (const tool of tools) {
+    for (const ref of tool.sessionRefs ?? []) {
+      if (seen.has(ref.sessionId)) {
+        continue;
+      }
+      seen.add(ref.sessionId);
+      out.push(ref);
+    }
+  }
+  return out;
+}
 
 export function createEmptyActivity(): ChatActivityBlock[] {
   return [];
@@ -105,7 +122,14 @@ export function appendActivityToolProgress(
 
 export function endActivityTool(
   blocks: ChatActivityBlock[],
-  info: { toolCallId: string; toolName: string; ok: boolean; error?: string },
+  info: {
+    toolCallId: string;
+    toolName: string;
+    ok: boolean;
+    error?: string;
+    resultPreview?: string;
+    sessionRefs?: ChatSessionRef[];
+  },
 ): ChatActivityBlock[] {
   const next = [...blocks];
   const toolId = info.toolCallId?.trim();
@@ -130,7 +154,12 @@ export function endActivityTool(
     ...row,
     label: humanToolLabel(info.toolName),
     status: info.ok ? "done" : "failed",
-    detail: info.ok ? info.error : lawyerFacingToolFailureDetail(info.toolName, info.error),
+    detail: info.ok
+      ? info.resultPreview?.trim() || row.detail
+      : lawyerFacingToolFailureDetail(info.toolName, info.error),
+    ...(info.ok && info.sessionRefs && info.sessionRefs.length > 0
+      ? { sessionRefs: info.sessionRefs }
+      : {}),
   };
   return next;
 }
@@ -199,6 +228,9 @@ export function activityFromLiveTrace(trace?: ChatLiveTrace): ChatActivityBlock[
       status: step.status,
       detail: step.detail,
       progress: [],
+      ...(step.sessionRefs && step.sessionRefs.length > 0
+        ? { sessionRefs: step.sessionRefs }
+        : {}),
     });
   }
   return blocks;
@@ -240,12 +272,25 @@ export function activityBlocksEqual(a: ChatActivityBlock[], b: ChatActivityBlock
         sa.label !== sb.label ||
         sa.status !== sb.status ||
         (sa.detail ?? "") !== (sb.detail ?? "") ||
-        sa.progress.length !== sb.progress.length
+        sa.progress.length !== sb.progress.length ||
+        (sa.sessionRefs?.length ?? 0) !== (sb.sessionRefs?.length ?? 0)
       ) {
         return false;
       }
       for (let j = 0; j < sa.progress.length; j++) {
         if (sa.progress[j] !== sb.progress[j]) {
+          return false;
+        }
+      }
+      const ra = sa.sessionRefs ?? [];
+      const rb = sb.sessionRefs ?? [];
+      for (let j = 0; j < ra.length; j++) {
+        if (
+          ra[j]?.sessionId !== rb[j]?.sessionId ||
+          ra[j]?.title !== rb[j]?.title ||
+          (ra[j]?.assistantId ?? "") !== (rb[j]?.assistantId ?? "") ||
+          (ra[j]?.matterId ?? "") !== (rb[j]?.matterId ?? "")
+        ) {
           return false;
         }
       }

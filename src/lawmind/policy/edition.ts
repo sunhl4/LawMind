@@ -77,6 +77,17 @@ export const EDITION_FEATURES = {
    * Solo 默认关；Firm / Private 默认开。工作区 routing/defaults.json 可覆盖。
    */
   forcePeerReview: { solo: false, firm: true, private_deploy: true },
+  /**
+   * 案件成员协作（邀请同事进同一案、签出 Word、记录管）。
+   * Solo 默认关（不改变个人律师主路径）；Firm / Private 默认开。
+   * 可用 `lawmind.policy.json` 的 `matterReplica.enabled` 强制开/关。
+   */
+  matterReplicaCollab: { solo: false, firm: true, private_deploy: true },
+  /**
+   * 利益冲突扫描写入伦理墙并拦截外发，直至律师确认披露。
+   * Solo 默认关（字符串扫描仍提示，但不自动拦邮件）。
+   */
+  ethicsWall: { solo: false, firm: true, private_deploy: true },
 } as const satisfies Record<string, Record<LawMindEdition, boolean>>;
 
 export type EditionFeatureKey = keyof typeof EDITION_FEATURES;

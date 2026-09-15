@@ -31,7 +31,7 @@ First-run: complete the in-app model wizard, or copy `.env.lawmind.example` into
 pnpm lawmind:desktop:dist
 ```
 
-GitHub Release installers: [sunhl4/LawMind/releases](https://github.com/sunhl4/LawMind/releases) (workflow **LawMind desktop build**, tag `lawmind-desktop-v*`). Current packaged line is **0.2.0**.
+GitHub Release installers: [sunhl4/LawMind/releases](https://github.com/sunhl4/LawMind/releases) (workflow **LawMind desktop build**, tag `lawmind-desktop-v*`). Current packaged line is **0.2.1**.
 
 ## Common commands
 

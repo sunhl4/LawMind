@@ -37,7 +37,6 @@ export type UseLawmindAppHeaderPropsInput = {
   openApiWizard: () => void;
   composeModelQuickTest: () => void | Promise<void>;
   composeModelQuickTestBusy: boolean;
-  openNewAssistant: () => void;
 };
 
 export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): LawmindAppHeaderProps {
@@ -75,7 +74,6 @@ export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): 
     openApiWizard,
     composeModelQuickTest,
     composeModelQuickTestBusy,
-    openNewAssistant,
   } = input;
 
   return useMemo(
@@ -146,7 +144,6 @@ export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): 
       },
       onVerifyModel: composeModelQuickTest,
       composeModelQuickTestBusy,
-      onOpenNewAssistant: openNewAssistant,
     }),
     [
       mainView,
@@ -177,7 +174,6 @@ export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): 
       openApiWizard,
       composeModelQuickTest,
       composeModelQuickTestBusy,
-      openNewAssistant,
       reviewPaneVisibility,
       toggleReviewPane,
       setShowSettings,

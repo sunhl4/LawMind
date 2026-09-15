@@ -5,8 +5,12 @@
 
 import type { MemoryContext } from "../../../memory/index.js";
 import { createAuthorityAdapterFromEnv } from "../../../retrieval/authority-adapter.js";
+import { isDemoCorpusResult } from "../../../retrieval/authority-gap.js";
 import { buildAuthorityCorpusSummary } from "../../../retrieval/authority-health.js";
-import type { AuthorityProviderId } from "../../../retrieval/authority-provider.js";
+import {
+  resolveAuthorityProvider,
+  type AuthorityProviderId,
+} from "../../../retrieval/authority-provider.js";
 import {
   isAuthorityLive,
   type AuthoritySourceTier,
@@ -31,6 +35,7 @@ export type AuthorityChatRetrieve = {
   hits: AuthorityChatHit[];
   riskFlags: string[];
   missingItems: string[];
+  demoCorpus: boolean;
 };
 
 const EMPTY_MEMORY: MemoryContext = {
@@ -74,7 +79,12 @@ function hitsFromRetrieval(result: RetrievalResult): AuthorityChatHit[] {
       .filter(Boolean)
       .join(" · ")
       .slice(0, 400);
-    const source = src.provider === "pkulaw" ? "北大法宝" : src.provider?.trim() || "权威库";
+    const source =
+      src.provider === "pkulaw"
+        ? "北大法宝"
+        : src.provider === "open-law.npc_flk"
+          ? "国家法律法规数据库"
+          : src.provider?.trim() || "权威库";
     return {
       source,
       snippet,
@@ -93,17 +103,20 @@ export async function retrieveAuthorityHitsForChat(opts: {
 }): Promise<AuthorityChatRetrieve> {
   const summary = buildAuthorityCorpusSummary();
   const sourceTier = resolveAuthoritySourceTier();
-  const live = isAuthorityLive();
-  if (!live) {
-    return {
-      live: false,
-      provider: summary.provider,
-      providerLabel: summary.providerLabel,
-      sourceTier,
-      hits: [],
-      riskFlags: [],
-      missingItems: [],
-    };
+  const commercialLive = isAuthorityLive();
+  const provider = resolveAuthorityProvider();
+  const empty = (live: boolean): AuthorityChatRetrieve => ({
+    live,
+    provider: summary.provider,
+    providerLabel: summary.providerLabel,
+    sourceTier,
+    hits: [],
+    riskFlags: [],
+    missingItems: [],
+    demoCorpus: false,
+  });
+  if (!commercialLive && provider !== "open") {
+    return empty(false);
   }
   const adapter = createAuthorityAdapterFromEnv({
     workspaceDir: opts.workspaceDir,
@@ -114,14 +127,23 @@ export async function retrieveAuthorityHitsForChat(opts: {
     intent: chatSearchIntent(opts.query),
     memory: EMPTY_MEMORY,
   });
+  const demoCorpus = isDemoCorpusResult(result);
+  const officialHits = result.sources.some(
+    (src) => src.demo !== true && Boolean(src.provider && src.provider !== "open-law.local"),
+  );
+  const live = commercialLive || officialHits;
+  const hits = hitsFromRetrieval(result);
+  const openOfficialLabel = hits.find((h) => h.source === "国家法律法规数据库")?.source;
   return {
-    live: true,
+    live,
     provider: summary.provider,
-    providerLabel: summary.providerLabel,
+    providerLabel:
+      live && !commercialLive && openOfficialLabel ? openOfficialLabel : summary.providerLabel,
     sourceTier,
-    hits: hitsFromRetrieval(result),
+    hits,
     riskFlags: result.riskFlags,
     missingItems: result.missingItems,
+    demoCorpus,
   };
 }
 
@@ -131,8 +153,18 @@ export function mergeStatuteSearchNote(opts: {
   authorityHitCount: number;
   workspaceHitCount: number;
   kind: "law" | "case";
+  demoCorpus?: boolean;
 }): { note: string; refusalRequired?: boolean; authority: "live" | "none" } {
   const noun = opts.kind === "case" ? "案例" : "法条";
+  if (opts.demoCorpus === true && opts.authorityHitCount > 0) {
+    return {
+      authority: "none",
+      note:
+        opts.kind === "case"
+          ? "命中为演示语料或工作区启发式，非正式完整案例库。正式引用请核实原始裁判文书。"
+          : "命中为演示语料或工作区启发式，非正式完整法库。正式引用请核对官方法条。",
+    };
+  }
   if (opts.authorityHitCount > 0) {
     return {
       authority: "live",

@@ -103,6 +103,62 @@ describe("compileIntent", () => {
     expect(compiled.skillIdsOverride).toEqual(["complaint-elements-fill"]);
   });
 
+  it("keeps contract.review but does not lock tracked redline for an opinion sidecar", () => {
+    const compiled = compileIntent({
+      instruction: "请根据这个合同去给我一些审查意见放到桌面，不要在源文件上修改",
+      pins: [
+        {
+          pinKind: "file",
+          root: "project",
+          relPath: "采购合同.docx",
+          kind: "file",
+        },
+      ],
+    });
+    expect(compiled.capabilityId).toBe("contract.review");
+    expect(compiled.pipelineOverride).toBeUndefined();
+    expect(compiled.delivery.artifactShape).toBe("opinion_memo");
+    expect(compiled.delivery.outputPlace).toBe("desktop");
+    expect(compiled.delivery.mutateSource).toBe("forbid");
+  });
+
+  it("does not freeze 5-minute 合同审查意见 into opinion-only when a Word is pinned", () => {
+    const compiled = compileIntent({
+      instruction: [
+        "【交办】5 分钟合同审查",
+        "交付物类型：合同审查意见",
+        "- 己方立场：中立",
+        "- 审查重点：管辖",
+      ].join("\n"),
+      pins: [
+        {
+          pinKind: "file",
+          root: "project",
+          relPath: "采购合同.docx",
+          kind: "file",
+        },
+      ],
+    });
+    expect(compiled.capabilityId).toBe("contract.review");
+    expect(compiled.delivery.artifactShape).toBe("unspecified");
+  });
+
+  it("does not lock tracked redline for 立场/导出 when a Word is pinned", () => {
+    const compiled = compileIntent({
+      instruction: "立场甲方，导出",
+      pins: [
+        {
+          pinKind: "file",
+          root: "project",
+          relPath: "采购合同.docx",
+          kind: "file",
+        },
+      ],
+    });
+    expect(compiled.capabilityId).toBe("contract.review");
+    expect(compiled.pipelineOverride).toBeUndefined();
+  });
+
   it("does not sticky-continue after a correction utterance", () => {
     const corrected = compileIntent({
       instruction: "不对",

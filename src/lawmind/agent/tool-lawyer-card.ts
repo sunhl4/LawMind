@@ -127,9 +127,21 @@ function describeCallArgs(name: string, args: Record<string, unknown>): string |
       const instruction = firstString(args, ["instruction", "existing_task_id"]);
       return instruction ? clip(instruction) : undefined;
     }
-    case "list_more_tools": {
+    case "read_skill": {
+      const id = firstString(args, ["skill_id"]);
+      return id ? clip(id) : "查看技能目录";
+    }
+    case "search_company_registry": {
       const name = firstString(args, ["name"]);
-      return name ? clip(name) : "查看更多能力";
+      return name ? clip(name) : "查询企业登记";
+    }
+    case "search_conversations": {
+      const q = firstString(args, ["query"]);
+      return q ? clip(q) : "检索其他对话";
+    }
+    case "read_conversation": {
+      const q = firstString(args, ["query"]);
+      return q ? clip(q) : "阅读历史对话";
     }
     case "update_plan": {
       const plan = args.plan;
@@ -180,6 +192,28 @@ function describeResultData(name: string, data: unknown): string | undefined {
     if (count != null) {
       return count === 0 ? "无附件" : `已列出 ${count} 个附件`;
     }
+  }
+  if (name === "search_conversations") {
+    const total = asFiniteNumber(rec.total);
+    const hits = Array.isArray(rec.hits) ? rec.hits : [];
+    const titles = hits
+      .map((row) =>
+        row && typeof row === "object" ? asTrimmedString((row as { title?: unknown }).title) : "",
+      )
+      .filter(Boolean)
+      .slice(0, 2);
+    if (total === 0 || (total == null && hits.length === 0)) {
+      return "没有命中其他对话";
+    }
+    const n = total ?? hits.length;
+    if (titles.length > 0) {
+      return clip(`命中 ${n} 条：${titles.join("、")}`, 80);
+    }
+    return `命中 ${n} 条对话`;
+  }
+  if (name === "read_conversation") {
+    const title = asTrimmedString(rec.title);
+    return title ? clip(`已阅读「${title}」`, 80) : "已阅读历史对话";
   }
   if (name === "run_compute" || name === "run_analysis") {
     const summary = asTrimmedString(rec.lawyerSummary);

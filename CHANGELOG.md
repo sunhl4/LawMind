@@ -6,6 +6,20 @@ Historical **OpenClaw** upstream release notes were removed when the repository 
 
 ## Unreleased
 
+## 0.2.1 — 2026-09-15
+
+### Desktop
+
+- GitHub Release 安装包与当前律师工作台源码对齐；版本号 `apps/lawmind-desktop` → `0.2.1`；标签 `lawmind-desktop-v0.2.1`。
+- macOS CI：没有成套 `CSC_LINK` + `CSC_KEY_PASSWORD` 时不再误把应用目录当证书文件，改为 adhoc 打包（下载后需右键打开）。
+
+### Changes
+
+- Engine / Desktop（对照 Cursor / Codex / Claude Code）：系统提示不再教办件点选；`$skill` 与 `read_skill`；计划模式可改步骤后「开始执行」；快问/函件/诉讼/检索补交件量规；Word XML 无修订轨不得显示已完成；真稿闸门无夹具则 skip。审查文 `docs/LAWMIND-AGENT-PARITY-REVIEW.md`。
+- Engine（对照 Cursor / Codex 的工具调度）：发现类不再在读过 1 次后收走 `analyze_document` / `read_project_file`（每工具 8 次；检索/列表合计 8，不含通读）。常用 12 工具改为办案工具（含 `draft_document` / `calculate` / `search_case_law`）；`write_document` / 邮件匣改披露。审查/邮件/Word 注入分层审查，每轮最多 2 份技能正文。系统提示与检索协议改为教练而非冻结工具序；引擎自动试检算已核法条。
+- Engine / Desktop（跨对话检索）：对照 Cursor / Codex。助手可 `search_conversations` 按短关键词检索本机其他对话，再用 `read_conversation` 阅读律师可见发言；query 里的「上周」「昨天」提高排序；命中带 `citeAs`（可含助手 id），正文与过程条可点开；空词不再甩最近会话。侧栏与助手工具均为工作区范围；⌘⇧O / `/chats` 搜侧栏。长 transcript 读尾部；最多扫 800 个会话。
+- Engine（调度让模型更能干活）：5 分钟审查只提示先出意见，不再收走检索/改稿工具；钉选 Word 后单说「立场 / 导出」不再当成必须改原件。邮件短路径与明示「修改合同」改为 deny-list（禁 `send_email` / `render_document` 重建；改原件另禁 `prepare_outbound_mail`），检索与对话说明仍可用。
+- Engine / Desktop（交件约束）：能力绑定与交件形态拆开。律师说只要审查意见、不改原稿、写到桌面/下载/文稿时，去掉「必须红线才算完成」的默认，不冻结工具表；新意见书 Word 可落到点名位置，会话同步输出意见。见 `src/lawmind/intent/delivery-intent.ts`。
 - Engine / Desktop（隐式意图编译）：律师不必先选办件，对话也不再出现分类菜单或改路由按钮。`compileIntent` 按文字 × 文件形态 × 案件语境绑定能力；诉状 Word 改稿绑诉讼文书而不是合同审查；混合材料自行择一。邮件短路径与指定目录 Word 改稿仍硬钉。金标集见 `src/lawmind/intent/gold-set.ts`。
 - Engine / Desktop（审查五项）：状态条经 `POST /api/intent/compile` 与 `runTurn` 同源 peek；拖文件不再自动弹审查卡；纠正/unbound 清 `lastBound`；`cases/*/RULES.md` 写保护；诉讼 Word 改稿注入 `complaint-elements-fill`；旧案件 cockpit 并入工作台卷宗。
 

@@ -12,7 +12,9 @@ import {
   resetPlanHandoffStoreForTests,
   shouldInjectExecuteHandoff,
   syncPlanHandoffFromMessages,
+  resolvePlanHandoffForExecute,
   writePlanHandoff,
+  resolveStartExecutePrompt,
 } from "./lawmind-plan-handoff";
 
 describe("lawmind-plan-handoff", () => {
@@ -54,6 +56,11 @@ describe("lawmind-plan-handoff", () => {
     expect(shouldInjectExecuteHandoff("已有草稿")).toBe(false);
   });
 
+  it("auto-send uses confirm prompt when composer is empty", () => {
+    expect(resolveStartExecutePrompt("", "1. 检索")).toContain("【确认执行】");
+    expect(resolveStartExecutePrompt("律师已写的确认", "1. 检索")).toBe("律师已写的确认");
+  });
+
   it("persists and clears per session", () => {
     writePlanHandoff("s1", "执行计划：先检索");
     expect(readPlanHandoff("s1")?.planText).toContain("先检索");
@@ -68,6 +75,21 @@ describe("lawmind-plan-handoff", () => {
     ]);
     expect(stored?.planText).toContain("读合同");
     expect(readPlanHandoff("sess-a")?.planText).toContain("出意见");
+  });
+
+  it("lawyer edits are not overwritten by later auto-sync", () => {
+    writePlanHandoff("sess-edit", "实施步骤：\n1. 只改管辖", undefined, "lawyer");
+    const kept = syncPlanHandoffFromMessages("sess-edit", [
+      { role: "assistant", text: "执行计划：\n1. 读合同\n2. 出意见" },
+    ]);
+    expect(kept?.planText).toContain("只改管辖");
+    expect(kept?.origin).toBe("lawyer");
+    const resolved = resolvePlanHandoffForExecute(
+      "sess-edit",
+      [{ role: "assistant", text: "执行计划：\n1. 读合同\n2. 出意见" }],
+      null,
+    );
+    expect(resolved).toContain("只改管辖");
   });
 
   it("summarizes for banner", () => {

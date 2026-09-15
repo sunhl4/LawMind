@@ -36,6 +36,8 @@ const SPY_SPECS: SpySpec[] = [
   { name: "render_document", category: "draft", riskLevel: "medium" },
   { name: "render_tracked_draft", category: "draft", riskLevel: "medium" },
   { name: "list_more_tools", category: "system", riskLevel: "low" },
+  { name: "read_skill", category: "system", riskLevel: "low" },
+  { name: "search_company_registry", category: "search", riskLevel: "low" },
   {
     name: "update_plan",
     category: "system",
@@ -51,6 +53,8 @@ const SPY_SPECS: SpySpec[] = [
   { name: "request_approval", category: "system", riskLevel: "low" },
   { name: "research_task", category: "search", riskLevel: "low" },
   { name: "search_statute", category: "search", riskLevel: "low" },
+  { name: "search_case_law", category: "search", riskLevel: "low" },
+  { name: "calculate", category: "analyze", riskLevel: "low" },
 ];
 
 export type GateSpyRegistry = {

@@ -36,6 +36,7 @@ export type LawmindAppSidebarProps = {
   activeChatSessionId?: string;
   chatSessionsLoading?: boolean;
   chatBusy?: boolean;
+  chatAssistantId?: string;
   onSelectChatSession?: (sessionId: string) => void | Promise<void>;
   onCreateNewChatSession?: () => void | Promise<void>;
   onRenameChatSession?: (sessionId: string, title: string) => void | Promise<void>;
@@ -62,11 +63,13 @@ function LawmindAppSidebarImpl({
   onSelectMatterForCockpit,
   matterCockpitOpen,
   mainView,
+  apiBase,
   onOpenNeedsDecisionDesk,
   chatSessions,
   activeChatSessionId,
   chatSessionsLoading,
   chatBusy,
+  chatAssistantId,
   onSelectChatSession,
   onCreateNewChatSession,
   onRenameChatSession,
@@ -184,6 +187,8 @@ function LawmindAppSidebarImpl({
             activeSessionId={activeChatSessionId}
             loading={chatSessionsLoading}
             busy={chatBusy}
+            apiBase={apiBase}
+            assistantId={chatAssistantId}
             onSelect={onSelectChatSession}
             onNewChat={onCreateNewChatSession}
             onRename={onRenameChatSession}

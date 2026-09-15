@@ -75,4 +75,31 @@ describe("mail list tools", () => {
     expect(inbox[0]?.pendingSend?.body).toContain("此致");
     expect(inbox[0]?.pendingSend?.body).toContain("某某律师事务所");
   });
+
+  it("stamps opposing-counsel and privileged attachment names on the 待拍板 item", async () => {
+    const ws = tmpWorkspace();
+    const matterId = "m_mail_priv";
+    const rel = path.join("artifacts", "内部策略-底线.docx");
+    fs.mkdirSync(path.join(ws, "artifacts"), { recursive: true });
+    fs.writeFileSync(path.join(ws, rel), "x");
+    const result = await prepareOutboundMail.execute(
+      {
+        matter_id: matterId,
+        to: "opposing@x.com",
+        subject: "回复对方律师",
+        body: "致对方律师：请查收。",
+        attachment_paths: [rel],
+      },
+      makeCtx(ws, matterId),
+    );
+    expect(result.ok).toBe(true);
+    const data = result.data as {
+      audience?: string;
+      attachmentPrivilegeFlags?: string[];
+      message?: string;
+    };
+    expect(data.audience).toBe("opposing");
+    expect(data.attachmentPrivilegeFlags?.length).toBeGreaterThan(0);
+    expect(data.message).toMatch(/对方|附件/);
+  });
 });

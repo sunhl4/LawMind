@@ -10,9 +10,9 @@ import {
   formatComplaintFactsBlock,
   emptyComplaintFillPlan,
 } from "../litigation/complaint-fill-plan.js";
-import { MAIL_CONTRACT_FAST_PATH_TOOL_NAMES } from "../platform/mail-contract-short-path-instruction.js";
+import { MAIL_CONTRACT_DENY_TOOL_NAMES } from "../platform/mail-contract-short-path-instruction.js";
 import { resolvePlaybookToolLock } from "../platform/playbook-tool-lock.js";
-import { WORD_REVISION_TOOL_NAMES } from "../platform/word-revision-instruction.js";
+import { WORD_REVISION_DENY_TOOL_NAMES } from "../platform/word-revision-instruction.js";
 import { buildDraft } from "../reasoning/keyword-draft.js";
 import { route } from "../router/index.js";
 import { bindLawyerCapability } from "../skills/lawyer-capabilities.js";
@@ -32,18 +32,24 @@ function emptyBundle(taskId: string): ResearchBundle {
 }
 
 describe("skill deliverable contract (synthetic)", () => {
-  it("keeps the mail short path on citation/delivery skills and mail tools", () => {
+  it("keeps the mail short path on layers/citation skills and mail tools", () => {
     const mail = bindLawyerCapability({
       instruction: "【邮件合同审阅改稿 · 短路径 · 原文件审阅痕迹】\nmatterId=`m1`",
     });
     expect(mail?.id).toBe("mail.contract");
-    expect(mail?.skillIds).toEqual(["citation-grounding", "delivery-language"]);
-    expect(mail?.skillIds).not.toContain("contract-review-layers");
+    expect(mail?.skillIds).toEqual([
+      "contract-review-layers",
+      "contract-redline-craft",
+      "citation-grounding",
+      "delivery-language",
+    ]);
+    expect(mail?.skillIds).toContain("contract-review-layers");
     const lock = resolvePlaybookToolLock(
       "【邮件合同审阅改稿 · 短路径】\n默认 contract_edit_baseline_path=`cases/m/a.docx`",
     );
-    expect(lock?.allowNames).toEqual([...MAIL_CONTRACT_FAST_PATH_TOOL_NAMES]);
-    expect(lock?.allowNames).toContain("render_tracked_draft");
+    expect(lock?.denyNames).toEqual([...MAIL_CONTRACT_DENY_TOOL_NAMES]);
+    expect(lock?.denyNames).toContain("render_document");
+    expect(lock?.denyNames).not.toContain("render_tracked_draft");
   });
 
   it("keeps file-page Word revision on redline craft + tracked render", () => {
@@ -55,7 +61,7 @@ describe("skill deliverable contract (synthetic)", () => {
       ].join("\n"),
     });
     expect(bound?.pipeline).toBe("tracked_redline");
-    expect(bound?.skillIds).toEqual(["contract-redline-craft"]);
+    expect(bound?.skillIds).toEqual(["contract-review-layers", "contract-redline-craft"]);
     expect(bound?.pipelineHint).toContain("render_tracked_draft");
     const lock = resolvePlaybookToolLock(
       [
@@ -65,9 +71,9 @@ describe("skill deliverable contract (synthetic)", () => {
       ].join("\n"),
     );
     expect(lock?.id).toBe("word-revision");
-    expect(lock?.allowNames).toEqual([...WORD_REVISION_TOOL_NAMES]);
-    expect(lock?.allowNames).toContain("render_tracked_draft");
-    expect(lock?.allowNames).not.toContain("render_document");
+    expect(lock?.denyNames).toEqual([...WORD_REVISION_DENY_TOOL_NAMES]);
+    expect(lock?.denyNames).toContain("render_document");
+    expect(lock?.denyNames).not.toContain("render_tracked_draft");
   });
 
   it("opinion scaffold has 宏观/中观/微观 and 推荐措辞", () => {

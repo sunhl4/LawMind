@@ -97,4 +97,33 @@ describe("LawmindChatComposeToolbar slim bar", () => {
     });
     expect(host.querySelector('[data-testid="lm-compose-ctx-usage"]')).toBeTruthy();
   });
+
+  it("plan mode shows 开始执行 and labels the permission as 计划模式", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindChatComposeToolbar
+          loading={false}
+          input=""
+          onSend={vi.fn()}
+          permissionMode="readonly"
+          onPermissionModeChange={vi.fn()}
+          allowWebSearch
+          onAllowWebSearchChange={vi.fn()}
+          modelCatalog={[]}
+          selectedModelId=""
+        />,
+      );
+    });
+    expect(host.querySelector('[data-testid="lm-compose-start-execute"]')?.textContent).toContain(
+      "开始执行",
+    );
+    const plus = host.querySelector('button[aria-label="输入选项"]') as HTMLButtonElement;
+    await act(async () => {
+      plus.click();
+    });
+    const select = host.querySelector(
+      '[data-testid="lm-compose-permission-mode"]',
+    ) as HTMLSelectElement;
+    expect(select.querySelector('option[value="readonly"]')?.textContent).toBe("计划模式");
+  });
 });

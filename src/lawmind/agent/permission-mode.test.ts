@@ -39,6 +39,15 @@ describe("permission-mode", () => {
     expect(RESEARCH_AGENT_TOOL_NAMES.has("research_task")).toBe(true);
   });
 
+  it("allows conversation search in readonly mode", () => {
+    expect(
+      filterToolsForPermissionMode(
+        ["search_conversations", "read_conversation", "draft_document"],
+        "readonly",
+      ),
+    ).toEqual(["search_conversations", "read_conversation"]);
+  });
+
   it("readonly keeps update_plan as a control tool", () => {
     expect(filterToolsForPermissionMode(["update_plan", "draft_document"], "readonly")).toEqual([
       "update_plan",

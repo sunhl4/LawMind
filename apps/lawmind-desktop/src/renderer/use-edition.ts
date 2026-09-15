@@ -28,6 +28,8 @@ export type EditionFeatures = {
   strictDangerousToolApproval: boolean;
   reviewCampaignParallel: boolean;
   forcePeerReview: boolean;
+  matterReplicaCollab: boolean;
+  ethicsWall: boolean;
 };
 
 export type CitationMode = "grounded" | "assisted" | "off";
@@ -61,6 +63,8 @@ const SOLO_DEFAULT: EditionInfo = {
     strictDangerousToolApproval: false,
     reviewCampaignParallel: true,
     forcePeerReview: false,
+    matterReplicaCollab: false,
+    ethicsWall: false,
   },
   citationMode: "assisted",
   loading: true,

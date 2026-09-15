@@ -29,10 +29,17 @@ describe("disclosed-turn-tools", () => {
       workspaceDir: "/tmp/does-not-need-skills",
     });
     expect(names).toContain("run_compute");
-    expect(names).toContain("web_search");
-    expect(names).toContain("search_statute_web");
-    expect(names).toContain("deep_research");
+    expect(names).not.toContain("web_search");
+    expect(names).not.toContain("search_statute_web");
+    expect(names).not.toContain("deep_research");
+    expect(names).not.toContain("url_dossier");
     expect(names).toContain("list_dir");
+    expect(names).toContain("search_conversations");
+    expect(names).toContain("read_conversation");
+    expect(names).toContain("search_workspace");
+    expect(names).toContain("list_mail_inbox");
+    expect(names).toContain("read_skill");
+    expect(names).toContain("search_company_registry");
   });
 
   it("does not auto-disclose deep_research for entertainment public-web facts", () => {
@@ -87,6 +94,10 @@ x
     const { extraToolsForInstruction } = await import("./disclosed-turn-tools.js");
     expect(extraToolsForInstruction("计算违法解除的经济补偿")).toContain("calculate");
     expect(extraToolsForInstruction("查一下民法典违约责任")).toContain("search_case_law");
+    expect(extraToolsForInstruction("查一下民法典违约责任")).toContain("search_statute_web");
+    expect(extraToolsForInstruction("用公开网页查一下开庭公告")).toEqual(
+      expect.arrayContaining(["web_search", "search_statute_web"]),
+    );
     expect(extraToolsForInstruction("查一下2026年新说唱总冠军")).toEqual(["web_search"]);
     expect(extraToolsForInstruction("查一下2026年新说唱总冠军")).not.toContain("search_case_law");
     expect(extraToolsForInstruction("整理这些进项发票")).toEqual(
@@ -102,10 +113,37 @@ x
     expect(extraToolsForInstruction("起草这份董事会决议")).toContain("search_case_law");
     expect(extraToolsForInstruction("出一份广告合规备忘")).toContain("search_case_law");
     expect(extraToolsForInstruction("请审查这份采购合同")).toContain("search_case_law");
-    expect(extraToolsForInstruction("修改合同")).not.toContain("calculate");
-    expect(extraToolsForInstruction("【邮件合同审阅改稿 · 短路径】\nmatterId=`m1`")).not.toContain(
-      "calculate",
+    expect(extraToolsForInstruction("请审查这份采购合同")).toContain("draft_document");
+    expect(extraToolsForInstruction("请审查这份采购合同")).toContain("calculate");
+    expect(extraToolsForInstruction("请审查这份采购合同")).toContain("search_workspace");
+    expect(
+      extraToolsForInstruction("请审查这份采购合同", {
+        pins: [
+          {
+            pinKind: "file",
+            root: "project",
+            relPath: "采购合同.docx",
+            kind: "file",
+          },
+        ],
+      }),
+    ).toEqual(
+      expect.arrayContaining([
+        "draft_document",
+        "render_tracked_draft",
+        "search_case_law",
+        "calculate",
+        "search_workspace",
+      ]),
     );
+    expect(extraToolsForInstruction("【邮件合同审阅改稿 · 短路径】\nmatterId=`m1`")).toContain(
+      "search_workspace",
+    );
+    expect(extraToolsForInstruction("【邮件合同审阅改稿 · 短路径】\nmatterId=`m1`")).toContain(
+      "render_tracked_draft",
+    );
+    expect(extraToolsForInstruction("他一直拖欠工资这算不算违法")).not.toContain("draft_document");
+    expect(extraToolsForInstruction("计算违法解除的经济补偿")).not.toContain("draft_document");
     expect(
       extraToolsForInstruction(
         [
@@ -114,7 +152,28 @@ x
           "修改合同",
         ].join("\n"),
       ),
-    ).toEqual([]);
+    ).toEqual(
+      expect.arrayContaining(["draft_document", "render_tracked_draft", "search_workspace"]),
+    );
+  });
+
+  it("does not auto-disclose MCP tools until list_more_tools names them", () => {
+    const names = mergeTurnDisclosedToolNames({
+      session: {},
+      workspaceDir: "/tmp/does-not-need-skills",
+      registry: {
+        listDefinitions: () => [{ name: "mcp__mock__echo_note" }],
+      } as never,
+    });
+    expect(names).not.toContain("mcp__mock__echo_note");
+    const after = mergeTurnDisclosedToolNames({
+      session: { disclosedToolNames: ["mcp__mock__echo_note"] },
+      workspaceDir: "/tmp/does-not-need-skills",
+      registry: {
+        listDefinitions: () => [{ name: "mcp__mock__echo_note" }],
+      } as never,
+    });
+    expect(after).toContain("mcp__mock__echo_note");
   });
 
   it("always discloses list_dir; directory pins also disclose host file tools", () => {

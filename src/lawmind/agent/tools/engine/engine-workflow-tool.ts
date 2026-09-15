@@ -74,7 +74,7 @@ export const executeWorkflow: AgentTool = {
   definition: {
     name: "execute_workflow",
     description:
-      '自主执行完整的法律工作流程：解析指令 → 检索法规和案例 → 生成文书草稿 → 自动审核（低风险）或标记等待律师审批（高风险）。**在需求已对齐的前提下**，文书类任务应优先调用本工具而非只写摘要。若上次因检索为空等原因中断，可传 **existing_task_id** + **restart_from: "research"** 跳过重新规划、重试检索及后续步骤。注意：桌面「关联草稿」ID（linkedTaskId）**不会**自动替代 `existing_task_id`；若要续跑律师当前聚焦的那份任务，请把该任务的 **taskId 显式写入 existing_task_id**。单独渲染未传 `task_id` 时由 `render_document` 优先 linkedTaskId。返回 data.citationIntegrity；失败时 data 可能含 recoverable / existingTaskId。',
+      '可选的确定性办案管线：解析指令 → 检索法规和案例 → 生成文书草稿 → 低风险自动审核或标记等待律师审批。已配置工具都可用时按任务选用，不要为走本管线丢掉判断或丢掉本轮已有工具。口头答疑、快问、单次法规摘要不必调用。若上次因检索为空等原因中断，可传 **existing_task_id** + **restart_from: "research"** 跳过重新规划、重试检索及后续步骤。注意：桌面「关联草稿」ID（linkedTaskId）**不会**自动替代 `existing_task_id`；若要续跑律师当前聚焦的那份任务，请把该任务的 **taskId 显式写入 existing_task_id**。单独渲染未传 `task_id` 时由 `render_document` 优先 linkedTaskId。返回 data.citationIntegrity；失败时 data 可能含 recoverable / existingTaskId。',
     category: "draft",
     parameters: {
       instruction: { type: "string", description: "律师的工作指令", required: true },
@@ -300,6 +300,7 @@ export const executeWorkflow: AgentTool = {
         });
         bundle = trial.bundle;
         if (trial.attempted) {
+          ctx.statuteTrialThisTurn = true;
           pushWorkflowProgress(
             ctx,
             steps,

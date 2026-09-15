@@ -119,6 +119,13 @@ export type RunTurnEvent =
       nextActions?: string[];
       /** Lawyer-facing one-line result (Chinese card); optional. */
       resultPreview?: string;
+      /** Sanitized other-chat hits for click-through in the desktop UI. */
+      sessionRefs?: Array<{
+        sessionId: string;
+        title: string;
+        matterId?: string;
+        assistantId?: string;
+      }>;
     }
   | {
       type: "tool_progress";

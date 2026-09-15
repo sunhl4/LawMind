@@ -174,7 +174,10 @@ describe("pickMainBodyBranchProps", () => {
     props?.onOpenReview?.({ matterId: "m2" });
     expect(onOpenReviewFromWorkspace).toHaveBeenCalledWith({ matterId: "m2" });
     props?.onOpenNeedsDecision?.("m1");
-    expect(onOpenNeedsDecisionDesk).toHaveBeenCalledWith({ matterId: "m1" });
+    expect(onOpenNeedsDecisionDesk).toHaveBeenCalledWith({
+      matterId: "m1",
+      preferStatus: "awaiting_approval",
+    });
     props?.onShowArtifact?.("out/a.docx");
     expect(onShowArtifact).toHaveBeenCalledWith("out/a.docx");
     expect(props?.onReconnectLocalService).toBeTypeOf("function");

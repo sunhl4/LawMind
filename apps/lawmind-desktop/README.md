@@ -9,6 +9,7 @@ Windows / macOS shell for LawMind: tasks, matters, review, chat with the legal a
 If you received a **zip** (macOS `.app`) or **portable / installer** (Windows):
 
 - **No separate Node.js or officecli install is required** — the build vendors an official Node binary under `Resources/node-runtime/` and OfficeCLI under `Resources/officecli/` (Apache-2.0). The local server uses them for the API and Word 修订轨 / 改稿.
+- **Chat answers render Markdown tables and LaTeX in the app** — KaTeX ([GitHub](https://github.com/KaTeX/KaTeX), MIT; same engine Codex App / VS Code preview use) is a locked desktop dependency and is folded into the release renderer. No Marketplace plugin or extra config. See `src/renderer/vendor/katex/`.
 - Unzip or install, open the app, complete the **setup wizard** (API Key, optional Base URL/model/workspace).
 - macOS: a **Developer ID + notarized** build double-clicks after download. Unsigned/adhoc test builds still need **Right-click → Open** the first time (see <https://docs.lawmind.ai/LAWMIND-DELIVERY> §6).
 

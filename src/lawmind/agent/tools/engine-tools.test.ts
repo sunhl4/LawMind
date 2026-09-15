@@ -136,11 +136,15 @@ describe("Engine-Bridge Tools", () => {
     expect(names).toContain("record_deadline");
     expect(names).toContain("deep_research");
     expect(names).toContain("update_plan");
+    expect(names).toContain("search_conversations");
+    expect(names).toContain("read_conversation");
+    expect(names).toContain("read_skill");
+    expect(names).toContain("search_company_registry");
   });
 
-  it("total tool count is 48 (33 legal + 15 engine) without web/collaboration extras", () => {
+  it("total tool count is 53 (38 legal + 15 engine) without web/collaboration extras", () => {
     const registry = createLegalToolRegistry();
-    expect(registry.size()).toBe(48);
+    expect(registry.size()).toBe(53);
   });
 });
 
@@ -1065,6 +1069,29 @@ describe("draft_document", () => {
     const headings = ((data.sections as Array<{ heading: string }>) ?? []).map((s) => s.heading);
     expect(headings).toContain("宏观审查");
   });
+
+  it("does not stamp paired redline when the lawyer asked for an opinion sidecar", async () => {
+    const ws = tmpWorkspace();
+    const rel = "uploads/采购合同.docx";
+    fs.mkdirSync(path.join(ws, "uploads"), { recursive: true });
+    fs.writeFileSync(path.join(ws, rel), "placeholder");
+    const tool = createLegalToolRegistry().get("draft_document")!;
+    const result = await tool.execute(
+      { instruction: "给我一些审查意见放到桌面，不要在源文件上修改" },
+      makeCtx(ws, undefined, {
+        contextPins: [{ pinKind: "file", root: "workspace", relPath: rel, kind: "file" }],
+        deliveryIntent: {
+          artifactShape: "opinion_memo",
+          mutateSource: "forbid",
+          outputPlace: "desktop",
+          chatMirror: "required",
+        },
+      }),
+    );
+    expect(result.ok, result.error ?? "draft_document failed").toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.pairedDeliverable).not.toBe(true);
+  });
 });
 
 describe("render_tracked_draft hunk gate", () => {
@@ -1093,6 +1120,24 @@ describe("render_tracked_draft hunk gate", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain("redline hunks");
     expect((result.data as { code?: string } | undefined)?.code).toBe("redline_hunks_required");
+  });
+
+  it("does not refuse tracked export solely because this turn is an opinion memo", async () => {
+    const ws = tmpWorkspace();
+    const tool = createLegalToolRegistry().get("render_tracked_draft")!;
+    const result = await tool.execute(
+      { task_id: "any" },
+      makeCtx(ws, undefined, {
+        deliveryIntent: {
+          artifactShape: "opinion_memo",
+          mutateSource: "forbid",
+          outputPlace: "desktop",
+          chatMirror: "required",
+        },
+      }),
+    );
+    expect((result.data as { code?: string } | undefined)?.code).not.toBe("opinion_memo_sidecar");
+    expect(result.error ?? "").not.toContain("新的意见书");
   });
 
   it("allow_empty_redline bypasses the hunk gate", async () => {

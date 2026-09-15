@@ -40,6 +40,15 @@ export function pinsIncludeXlsx(pins: ComposeContextPin[] | undefined): boolean 
   });
 }
 
+export function pinsIncludeWord(pins: ComposeContextPin[] | undefined): boolean {
+  return (pins ?? []).some((pin) => {
+    if (pin.pinKind !== "file" || pin.kind !== "file") {
+      return false;
+    }
+    return /\.docx?$/i.test(pin.relPath);
+  });
+}
+
 /** Skills must not auto-disclose outbound / 改稿 / 流程工具。 */
 const SKILL_DISCLOSE_DENY = new Set([
   "send_email",
@@ -67,25 +76,34 @@ export function collectEnabledSkillToolNames(workspaceDir: string): string[] {
   }
 }
 
-/** Extra tools for a bound 办件 — never used on mail/word locks (those freeze allowNames). */
+/** Extra tools for a bound 办件 — mail/word still get job tools; playbook only denies mis-send/rebuild. */
 const CAPABILITY_EXTRA_TOOLS: Record<string, readonly string[]> = {
-  "contract.review": ["search_case_law"],
+  "contract.review": ["search_case_law", "calculate", "compare_documents", "search_workspace"],
+  "letter.draft": ["search_case_law", "calculate", "compare_documents", "search_workspace"],
+  "mail.contract": ["search_case_law", "calculate", "compare_documents", "search_workspace"],
   "labor.calc": ["calculate", "run_compute"],
   "period.calc": ["calculate"],
-  "research.memo": ["search_case_law"],
+  "research.memo": [
+    "search_case_law",
+    "search_workspace",
+    "compare_documents",
+    "search_statute_web",
+  ],
   "analysis.quick": ["search_case_law", "run_compute"],
-  "litigation.draft": ["search_case_law", "calculate"],
+  "litigation.draft": ["search_case_law", "calculate", "search_workspace", "compare_documents"],
   "litigation.talk": ["search_case_law"],
   "ops.invoice": ["calculate", "analyze_spreadsheet", "run_compute"],
   "ops.court_sms": ["calculate"],
-  "ip.dispute": ["search_case_law"],
-  "deal.ma": ["search_case_law"],
-  "compliance.data": ["search_case_law"],
-  "compliance.ads": ["search_case_law"],
-  "matter.status": ["calculate"],
-  "family.matter": ["search_case_law", "calculate"],
+  "ip.dispute": ["search_case_law", "search_workspace", "compare_documents"],
+  "deal.ma": ["search_case_law", "search_workspace", "compare_documents"],
+  "compliance.data": ["search_case_law", "search_workspace"],
+  "compliance.ads": ["search_case_law", "search_workspace"],
+  "matter.status": ["calculate", "search_workspace"],
+  "family.matter": ["search_case_law", "calculate", "search_workspace", "compare_documents"],
   "capital.markets": ["search_case_law"],
   "corp.governance": ["search_case_law"],
+  "materials.draft": ["search_workspace", "compare_documents"],
+  "contract.draft": ["search_case_law", "search_workspace", "compare_documents"],
 };
 
 export function extraToolsForInstruction(
@@ -101,12 +119,39 @@ export function extraToolsForInstruction(
     return ["web_search"];
   }
   const bound = bindLawyerCapability({ instruction: text, ...extras });
-  if (bound?.pipeline === "tracked_redline" || bound?.id === "mail.contract") {
-    return [];
-  }
   const extrasTools = [...(bound ? (CAPABILITY_EXTRA_TOOLS[bound.id] ?? []) : [])];
+  if (
+    bound &&
+    bound.id !== "analysis.quick" &&
+    bound.id !== "labor.calc" &&
+    bound.id !== "period.calc"
+  ) {
+    extrasTools.push("draft_document");
+  }
+  if (
+    bound?.pipeline === "tracked_redline" ||
+    bound?.id === "mail.contract" ||
+    (bound?.id === "contract.review" && pinsIncludeWord(extras?.pins))
+  ) {
+    extrasTools.push("render_tracked_draft");
+  }
+  const filePins = (extras?.pins ?? []).filter(
+    (pin) => pin.pinKind === "file" && pin.kind === "file",
+  );
+  if (filePins.length >= 2) {
+    extrasTools.push("compare_documents");
+  }
   if (COMPUTE_INTENT_RE.test(text)) {
     extrasTools.push(...COMPUTE_DELIVERABLE_TOOL_NAMES);
+  }
+  if (/\bhttps?:\/\//i.test(text)) {
+    extrasTools.push("url_dossier");
+  }
+  if (/公开网页|联网查|网上查|搜索网页|用网页查/.test(text)) {
+    extrasTools.push("web_search", "search_statute_web");
+  }
+  if (/深度检索|全面检索|长时调研/.test(text) && !isPublicWebFactLookup(text)) {
+    extrasTools.push("deep_research");
   }
   return [...new Set(extrasTools)];
 }
@@ -138,12 +183,10 @@ export function mergeTurnDisclosedToolNames(opts: {
   const found = collectDisclosedToolNames(opts.session);
   found.push("run_compute");
   found.push("list_dir");
-  // Public web search is registered only when the turn allows it; disclosing here
-  // makes the model actually able to call it without list_more_tools first.
-  found.push("web_search", "search_statute_web", "url_dossier");
-  if (!isPublicWebFactLookup(opts.instruction ?? "")) {
-    found.push("deep_research");
-  }
+  found.push("search_workspace");
+  found.push("list_mail_inbox");
+  found.push("search_conversations", "read_conversation");
+  found.push("read_skill", "search_company_registry");
   if (pinsIncludeXlsx(opts.pins)) {
     found.push(...PINNED_SPREADSHEET_TOOL_NAMES);
   }
@@ -159,9 +202,7 @@ export function mergeTurnDisclosedToolNames(opts: {
       previousCapabilityId: opts.previousCapabilityId,
     }),
   );
-  if (opts.registry) {
-    found.push(...collectRegisteredMcpToolNames(opts.registry));
-  }
+  // MCP stays on list_more_tools unless this session already disclosed one.
   const hidden = new Set(
     [...(opts.hiddenNames ?? [])].map((n) => n.trim()).filter((n) => n.length > 0),
   );

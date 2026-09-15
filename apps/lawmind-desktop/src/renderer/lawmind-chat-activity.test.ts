@@ -39,4 +39,50 @@ describe("lawmind-chat-activity", () => {
     expect(blocks).toHaveLength(1);
     expect(blocks[0]?.kind).toBe("text");
   });
+
+  it("keeps search result preview and session chips on success", () => {
+    let blocks = startActivityTool(createEmptyActivity(), {
+      toolCallId: "tc-2",
+      toolName: "search_conversations",
+      args: { query: "合同审查" },
+    });
+    blocks = endActivityTool(blocks, {
+      toolCallId: "tc-2",
+      toolName: "search_conversations",
+      ok: true,
+      resultPreview: "命中 1 条：采购合同审查",
+      sessionRefs: [{ sessionId: "s1", title: "采购合同审查" }],
+    });
+    const tool = blocks[0];
+    expect(tool?.kind).toBe("tool");
+    if (tool?.kind === "tool") {
+      expect(tool.status).toBe("done");
+      expect(tool.detail).toBe("命中 1 条：采购合同审查");
+      expect(tool.sessionRefs).toEqual([{ sessionId: "s1", title: "采购合同审查" }]);
+    }
+  });
+
+  it("rebuilds session chips from persisted liveTrace", () => {
+    const blocks = resolveMessageActivity({
+      liveTrace: {
+        active: false,
+        steps: [
+          {
+            id: "tc-9",
+            kind: "tool",
+            label: "检索其他对话",
+            status: "done",
+            detail: "命中 1 条",
+            sessionRefs: [{ sessionId: "s9", title: "旧审查", assistantId: "asst-9" }],
+          },
+        ],
+      },
+    });
+    expect(blocks[0]?.kind).toBe("tool");
+    if (blocks[0]?.kind === "tool") {
+      expect(blocks[0].sessionRefs).toEqual([
+        { sessionId: "s9", title: "旧审查", assistantId: "asst-9" },
+      ]);
+    }
+  });
 });

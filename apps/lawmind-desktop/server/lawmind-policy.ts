@@ -123,7 +123,7 @@ export function isWebSearchForcedOffByPolicy(): boolean {
 
 /**
  * Compose「联网」is independent of 权限 mode.
- * 「仅调研 / 先计划」仍允许联网；不要把权限模式当成关网开关。
+ * 「仅调研 / 计划模式」仍允许联网；不要把权限模式当成关网开关。
  */
 export function resolveChatAllowWebSearch(requested: boolean): boolean {
   if (isWebSearchForcedOffByPolicy()) {

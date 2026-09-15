@@ -116,7 +116,7 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
             className="lm-btn lm-btn-accent lm-btn-small"
             data-testid="lm-compose-start-execute"
             disabled={loading}
-            title="按计划开始执行"
+            title="计划已定，开始写稿与改稿"
             onClick={() => {
               if (onStartExecuteFromPlan) {
                 onStartExecuteFromPlan();
@@ -171,9 +171,14 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
                 aria-label="工具权限模式"
                 data-testid="lm-compose-permission-mode"
                 disabled={loading}
+                title={
+                  permissionMode === "readonly"
+                    ? "本回合只出计划，点「开始执行」后再写稿"
+                    : "工具权限：计划模式只出计划，标准/严格才写稿"
+                }
                 onChange={(e) => onPermissionModeChange(e.target.value as ComposePermissionMode)}
               >
-                <option value="readonly">先计划</option>
+                <option value="readonly">计划模式</option>
                 <option value="research">仅调研</option>
                 <option value="standard">标准</option>
                 <option value="strict">严格审批</option>

@@ -96,6 +96,43 @@ describe("turn-orchestrator-prompt", () => {
     expect(result.systemPromptFinal).not.toContain("## 成套交件");
   });
 
+  it("does not pair redline when the lawyer named an opinion sidecar", async () => {
+    const session: AgentSession = {
+      sessionId: "sess-sidecar",
+      actorId: "system",
+      turns: [],
+      conversationHistory: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const result = await prepareTurnPromptContext({
+      config: {
+        workspaceDir,
+        model: { provider: "openai", model: "gpt-4o-mini", apiKey: "test" },
+      },
+      registry: new ToolRegistry(),
+      session,
+      instruction: "请根据这个合同去给我一些审查意见放到桌面，不要在源文件上修改",
+      resolvedAssistantId: undefined,
+      linkedTaskIdForCtx: undefined,
+      projectDirResolved: "/tmp/project",
+      contextPins: [
+        {
+          pinKind: "file",
+          root: "project",
+          relPath: "采购合同.docx",
+          kind: "file",
+        },
+      ],
+    });
+    const prompt = visiblePrompt(result, session);
+    expect(prompt).toContain("<!--lm-delivery:opinion_memo-->");
+    expect(prompt).toContain("工具表不收窄");
+    expect(prompt).not.toContain("## 成套交件");
+    expect(prompt).not.toContain("Word 改稿 · 原文件审阅痕迹");
+    expect(prompt).not.toContain("不要 `render_tracked_draft`");
+  });
+
   it("reinjects RULES/Craft reminder after compact flag", async () => {
     const session: AgentSession = {
       sessionId: "sess-compact",
@@ -288,6 +325,52 @@ describe("turn-orchestrator-prompt", () => {
       CONTRACT_FAST_LANE_PROMPT.split("\n")[0] ?? "",
     );
     expect(result.systemPromptFinal).not.toContain(CONTRACT_FAST_LANE_PROMPT.split("\n")[0] ?? "");
+    expect(visiblePrompt(result, session)).not.toContain("## 成套交件");
+    expect(visiblePrompt(result, session)).toContain("本地意见书优先");
+  });
+
+  it("pairs 改稿计划 with a 5-minute dispatch when a Word is pinned", async () => {
+    const session: AgentSession = {
+      sessionId: "sess-lane-pin",
+      actorId: "system",
+      turns: [],
+      conversationHistory: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const result = await prepareTurnPromptContext({
+      config: {
+        workspaceDir,
+        model: { provider: "openai", model: "gpt-4o-mini", apiKey: "test" },
+      },
+      registry: new ToolRegistry(),
+      session,
+      instruction: [
+        "【交办】5 分钟合同审查",
+        "交付物类型：合同审查意见",
+        "- 己方立场：中立",
+        "- 审查重点：管辖",
+        "审查深度：标准。",
+      ].join("\n"),
+      resolvedAssistantId: undefined,
+      linkedTaskIdForCtx: undefined,
+      projectDirResolved: "/tmp/project",
+      contextPins: [
+        {
+          pinKind: "file",
+          root: "project",
+          relPath: "采购合同.docx",
+          kind: "file",
+        },
+      ],
+    });
+    const prompt = visiblePrompt(result, session);
+    expect(prompt).toContain("## 成套交件");
+    expect(prompt).toContain("## 改稿计划");
+    expect(prompt).toContain("render_tracked_draft");
+    expect(prompt).not.toContain("<!--lm-delivery:opinion_memo-->");
+    expect(prompt).not.toContain("本地意见书优先");
+    expect(prompt).not.toContain("合同审查意见书（Craft）");
   });
 
   it("does not treat 办件 contract.review as the opinion-only fast lane", async () => {
@@ -344,9 +427,9 @@ describe("turn-orchestrator-prompt", () => {
     expect(visiblePrompt(result, session)).toContain(WORD_REVISION_PROMPT.split("\n")[0] ?? "");
     expect(visiblePrompt(result, session)).toContain("### tech.scope");
     expect(visiblePrompt(result, session)).not.toContain("### pr.pay");
-    expect(visiblePrompt(result, session)).not.toContain("## 改稿计划");
+    expect(visiblePrompt(result, session)).toContain("## 改稿计划");
     expect(visiblePrompt(result, session)).not.toContain("纸侧与交易角色");
-    expect(visiblePrompt(result, session)).not.toContain("## 检索协议");
+    expect(visiblePrompt(result, session)).toContain("## 检索协议");
     expect(visiblePrompt(result, session)).not.toContain("## 成套交件");
     expect(result.systemPromptFinal).not.toContain(WORD_REVISION_PROMPT.split("\n")[0] ?? "");
   });
@@ -416,13 +499,13 @@ describe("turn-orchestrator-prompt", () => {
     expect(visiblePrompt(result, session)).not.toContain("## 执业口径");
     expect(visiblePrompt(result, session)).not.toContain("## 封闭合同类型");
     expect(visiblePrompt(result, session)).not.toContain("## 交件对象");
-    expect(visiblePrompt(result, session)).not.toContain("## 改稿计划");
+    expect(visiblePrompt(result, session)).toContain("## 改稿计划");
     expect(visiblePrompt(result, session)).not.toContain("纸侧与交易角色");
-    expect(visiblePrompt(result, session)).not.toContain("## 检索协议");
+    expect(visiblePrompt(result, session)).toContain("## 检索协议");
     expect(visiblePrompt(result, session)).not.toContain("## 成套交件");
   });
 
-  it("injects the Word revision ops block for dialog 导出 with a Word pin", async () => {
+  it("does not inject the Word revision ops block for dialog 立场/导出 with a Word pin", async () => {
     const session: AgentSession = {
       sessionId: "sess-word-rev-dialog",
       actorId: "system",
@@ -451,17 +534,9 @@ describe("turn-orchestrator-prompt", () => {
         },
       ],
     });
-    expect(visiblePrompt(result, session)).toContain("Word 改稿 · 原文件审阅痕迹");
-    expect(visiblePrompt(result, session)).toContain("唯一交付物");
-    expect(visiblePrompt(result, session)).toContain("己方立场：甲方");
+    expect(visiblePrompt(result, session)).not.toContain("Word 改稿 · 原文件审阅痕迹");
+    expect(visiblePrompt(result, session)).not.toContain("唯一交付物");
     expect(visiblePrompt(result, session)).not.toContain("邮件合同审阅 · 短路径");
-    expect(visiblePrompt(result, session)).not.toContain("## 执业口径");
-    expect(visiblePrompt(result, session)).not.toContain("## 封闭合同类型");
-    expect(visiblePrompt(result, session)).not.toContain("## 交件对象");
-    expect(visiblePrompt(result, session)).not.toContain("## 改稿计划");
-    expect(visiblePrompt(result, session)).not.toContain("纸侧与交易角色");
-    expect(visiblePrompt(result, session)).not.toContain("## 检索协议");
-    expect(visiblePrompt(result, session)).not.toContain("## 成套交件");
   });
 
   it("injects a confirmed procurement checklist on Word revision", async () => {
@@ -504,9 +579,9 @@ describe("turn-orchestrator-prompt", () => {
     expect(visiblePrompt(result, session)).not.toContain("## 执业口径");
     expect(visiblePrompt(result, session)).not.toContain("## 封闭合同类型");
     expect(visiblePrompt(result, session)).not.toContain("## 交件对象");
-    expect(visiblePrompt(result, session)).not.toContain("## 改稿计划");
+    expect(visiblePrompt(result, session)).toContain("## 改稿计划");
     expect(visiblePrompt(result, session)).not.toContain("纸侧与交易角色");
-    expect(visiblePrompt(result, session)).not.toContain("## 检索协议");
+    expect(visiblePrompt(result, session)).toContain("## 检索协议");
     expect(visiblePrompt(result, session)).not.toContain("## 成套交件");
   });
 
@@ -577,9 +652,9 @@ describe("turn-orchestrator-prompt", () => {
       linkedTaskIdForCtx: undefined,
       projectDirResolved: undefined,
     });
-    // 缺省路径（测试/无过滤场景）仍展示核心目录，含写工具。
+    // 缺省路径（测试/无过滤场景）仍展示核心目录；write_document 不在常用 12 工具内。
     expect(result.systemPromptFinal).toContain("**analyze_document**");
-    expect(result.systemPromptFinal).toContain("**write_document**");
+    expect(result.systemPromptFinal).not.toContain("**write_document**");
   });
 
   it("injects spreadsheet analysis discipline when an xlsx is pinned", async () => {
@@ -690,5 +765,56 @@ describe("turn-orchestrator-prompt", () => {
     const planEnd = result.systemPromptFinal.indexOf("<!--/lm-ws:plan-->");
     const planBlock = result.systemPromptFinal.slice(planStart, planEnd);
     expect(planBlock).not.toContain("自主工作流程");
+  });
+
+  it("readonly injects 计划模式 protocol", async () => {
+    const session: AgentSession = {
+      sessionId: "sess-plan-mode",
+      actorId: "system",
+      turns: [],
+      conversationHistory: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const result = await prepareTurnPromptContext({
+      config: {
+        workspaceDir,
+        model: { provider: "openai", model: "gpt-4o-mini", apiKey: "test" },
+      },
+      registry: new ToolRegistry(),
+      session,
+      instruction: "帮我审这份合同",
+      resolvedAssistantId: undefined,
+      linkedTaskIdForCtx: undefined,
+      projectDirResolved: undefined,
+      permissionMode: "readonly",
+    });
+    expect(visiblePrompt(result, session)).toContain("计划模式");
+    expect(visiblePrompt(result, session)).toContain("开始执行");
+    expect(visiblePrompt(result, session)).toContain("read_skill");
+  });
+
+  it("litigation.draft injects complaint master hint", async () => {
+    const session: AgentSession = {
+      sessionId: "sess-complaint",
+      actorId: "system",
+      turns: [],
+      conversationHistory: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const result = await prepareTurnPromptContext({
+      config: {
+        workspaceDir,
+        model: { provider: "openai", model: "gpt-4o-mini", apiKey: "test" },
+      },
+      registry: new ToolRegistry(),
+      session,
+      instruction: "写起诉状",
+      resolvedAssistantId: undefined,
+      linkedTaskIdForCtx: undefined,
+      projectDirResolved: undefined,
+    });
+    expect(visiblePrompt(result, session)).toContain("线性栏目");
   });
 });

@@ -30,6 +30,8 @@ export type UseLawmindAppRootDialogsPropsInput = {
   taskDrawerOpen: boolean;
   setTaskDrawerOpen: (open: boolean) => void;
   openNewAssistant: () => void;
+  /** After create: open 工作台本案卷宗 so the new case is visible immediately. */
+  openMatterOnDesk?: (matterId: string) => void;
 };
 
 export function useLawmindAppRootDialogsProps(
@@ -58,6 +60,7 @@ export function useLawmindAppRootDialogsProps(
     taskDrawerOpen,
     setTaskDrawerOpen,
     openNewAssistant,
+    openMatterOnDesk,
   } = input;
 
   return useMemo(
@@ -89,6 +92,7 @@ export function useLawmindAppRootDialogsProps(
       onCreateMatterSuccess: (mid) => {
         setMatterRefreshVersion((v) => v + 1);
         recordsDeskMattersSetSelectedKey(mid);
+        openMatterOnDesk?.(mid);
       },
       matterDeleteOpen,
       onCloseMatterDelete: () => setMatterDeleteOpen(null),
@@ -124,6 +128,7 @@ export function useLawmindAppRootDialogsProps(
       taskDrawerOpen,
       setTaskDrawerOpen,
       openNewAssistant,
+      openMatterOnDesk,
     ],
   );
 }

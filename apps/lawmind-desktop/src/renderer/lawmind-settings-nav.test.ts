@@ -49,8 +49,9 @@ describe("lawmind-settings-nav", () => {
     ]);
   });
 
-  it("orders groups: 工作台 → 办案 → 关于 → 专业", () => {
+  it("orders groups: 本机与外观 → 办案 → 关于 → 专业", () => {
     expect(SETTINGS_NAV_GROUPS.map((g) => g.id)).toEqual(["workspace", "practice", "about", "advanced"]);
+    expect(SETTINGS_NAV_GROUPS[0]?.label).toBe("本机与外观");
     expect(SETTINGS_NAV_GROUPS[0]?.items[0]?.id).toBe("models");
     expect(settingsNavItem("doctor")?.label).toBe("系统健康");
     expect(settingsNavItem("tools")?.label).toBe("安全");

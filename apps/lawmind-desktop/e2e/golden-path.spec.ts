@@ -34,7 +34,7 @@ test.describe("LawMind golden path", () => {
     // Cockpit must stay visible at default-ish window sizes (not crushed to 0 by 快捷入口).
     const cockpit = page.getByTestId("lm-lawyer-cockpit");
     await expect(cockpit).toBeVisible();
-    await expect(page.getByLabel("在办案件")).toBeVisible();
+    await expect(page.getByLabel("本案列表")).toBeVisible();
     const box = await cockpit.boundingBox();
     expect(box?.height ?? 0).toBeGreaterThanOrEqual(280);
   });

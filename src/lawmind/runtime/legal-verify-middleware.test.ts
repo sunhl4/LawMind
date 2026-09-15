@@ -302,6 +302,23 @@ describe("legal-verify-middleware", () => {
     expect(
       (tried.data as { verify?: { statuteTrialMissing?: boolean } }).verify?.statuteTrialMissing,
     ).toBeUndefined();
+
+    const autoTried = applyLegalVerifyToResult(
+      "draft_document",
+      {
+        ok: true,
+        data: {
+          deliverableType: "contract.review",
+          citationIntegrity: { checked: true, ok: true, missingSourceIds: [] },
+          sections: [{ heading: "依据", bodyPreview: "见《民法典》第577条" }],
+        },
+      },
+      { toolNameCallCounts: {}, statuteTrialThisTurn: true },
+    );
+    expect(
+      (autoTried.data as { verify?: { statuteTrialMissing?: boolean } }).verify
+        ?.statuteTrialMissing,
+    ).toBeUndefined();
   });
 
   it("flips empty surgical redline and missing craft_check into tool errors", () => {

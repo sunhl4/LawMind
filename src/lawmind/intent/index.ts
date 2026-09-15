@@ -30,6 +30,17 @@ export {
   peekPinnedDocuments,
   INTENT_PEEK_MAX_CHARS,
 } from "./peek-pinned-documents.js";
+export {
+  extractDeliveryIntent,
+  formatDeliveryConstraintPromptBlock,
+  isOpinionMemoDelivery,
+  deliveryHasNamedPlace,
+  deliveryPinsIncludeWord,
+  resolveTurnDeliveryIntent,
+  DELIVERY_MARKER_OPINION_MEMO,
+  OPINION_MEMO_PIPELINE_HINT,
+  UNSPECIFIED_DELIVERY,
+} from "./delivery-intent.js";
 export type {
   CompiledIntent,
   CompileIntentInput,
@@ -40,3 +51,9 @@ export type {
   IntentSoftAsk,
   IntentSource,
 } from "./types.js";
+export type {
+  DeliveryArtifactShape,
+  DeliveryIntent,
+  DeliveryMutateSource,
+  DeliveryOutputPlace,
+} from "./delivery-intent.js";

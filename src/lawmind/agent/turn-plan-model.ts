@@ -94,6 +94,27 @@ function parseItem(raw: unknown): TurnPlanItem | undefined {
   return { step, status };
 }
 
+const TURN_PLAN_EXECUTE_STEP_MAX_CHARS = 80;
+
+/** Lawyer-facing execute prompt: keep included steps, note skipped ones. */
+export function formatTurnPlanExecuteText(
+  plan: AgentTurnPlan,
+  skippedIndexes: ReadonlySet<number> = new Set(),
+  stepLabels?: readonly string[],
+): string {
+  const labeled = plan.items.map((item, i) => {
+    const raw = (stepLabels?.[i] ?? item.step).replace(/\s+/g, " ").trim();
+    return { ...item, step: clipChars(raw || item.step, TURN_PLAN_EXECUTE_STEP_MAX_CHARS) };
+  });
+  const included = labeled.filter((_, i) => !skippedIndexes.has(i));
+  const skipped = labeled.filter((_, i) => skippedIndexes.has(i));
+  const lines = (included.length > 0 ? included : labeled).map(
+    (item, i) => `${i + 1}. ${item.step}`,
+  );
+  const skipNote = skipped.length > 0 ? `\n已跳过：${skipped.map((s) => s.step).join("；")}` : "";
+  return `实施步骤：\n${lines.join("\n")}${skipNote}`;
+}
+
 export function turnPlanProgress(plan: AgentTurnPlan): { completed: number; total: number } {
   const total = plan.items.length;
   const completed = plan.items.filter((item) => item.status === "completed").length;

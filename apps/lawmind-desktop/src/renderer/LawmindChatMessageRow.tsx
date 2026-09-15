@@ -65,6 +65,8 @@ export type LawmindChatMessageRowProps = {
   onEditChatMessage?: (uiIndex: number, nextText: string) => void | Promise<void>;
   onOpenSettingsSection?: (section: "models" | "doctor") => void;
   workspaceDir?: string;
+  planEditable?: boolean;
+  onLawyerEditPlan?: (planText: string) => void;
 };
 
 export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactNode {
@@ -94,6 +96,8 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
     onEditChatMessage,
     onOpenSettingsSection,
     workspaceDir,
+    planEditable,
+    onLawyerEditPlan,
   } = props;
 
   const [editing, setEditing] = useState(false);
@@ -194,7 +198,11 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
           />
         ) : null}
         {msg.role === "assistant" && msg.turnPlan ? (
-          <LawmindTurnPlanCard plan={msg.turnPlan} />
+          <LawmindTurnPlanCard
+            plan={msg.turnPlan}
+            editable={planEditable}
+            onLawyerEditPlan={onLawyerEditPlan}
+          />
         ) : null}
         {showThoughtPanel ? (
           <div className="lm-msg lm-msg-ai lm-msg-thought">

@@ -116,7 +116,7 @@ describe("executeToolBatches discovery-cap live trace", () => {
       instruction: "改合同",
       messages: [],
       toolCallsExecuted: 1,
-      toolNameCallCounts: { analyze_document: 1 },
+      toolNameCallCounts: { analyze_document: 8 },
       status: "running",
       gateDecisions: [],
       startedAt: new Date().toISOString(),

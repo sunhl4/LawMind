@@ -176,6 +176,47 @@ describe("resolveDefaultDeliverableLocation", () => {
     );
     expect(result.planned.filename).not.toMatch(/_[0-9a-f]{8}\./i);
   });
+
+  it("writes to a lawyer-named Desktop instead of workspace artifacts", () => {
+    const ws = tmpDir("lm-out-ws-");
+    const home = tmpDir("lm-out-home-");
+    const desktop = path.join(home, "Desktop");
+    fs.mkdirSync(desktop);
+    const result = resolveDefaultDeliverableLocation({
+      workspaceDir: ws,
+      namedPlaceDir: desktop,
+      homeDir: home,
+      title: "合同审查意见",
+      extension: ".docx",
+      at,
+      protectSourcePath: path.join(desktop, "采购合同.docx"),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.planned.reason).toBe("named_place");
+    expect(result.planned.outDir).toBe(desktop);
+    expect(result.planned.filename).toBe("合同审查意见_20260912_01.docx");
+    expect(result.planned.outputPath).not.toBe(path.join(desktop, "采购合同.docx"));
+  });
+
+  it("does not treat an arbitrary folder as a named place", () => {
+    const ws = tmpDir("lm-out-ws-");
+    const other = tmpDir("lm-out-other-");
+    const result = resolveDefaultDeliverableLocation({
+      workspaceDir: ws,
+      namedPlaceDir: other,
+      title: "合同审查意见",
+      extension: ".docx",
+      at,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.planned.reason).toBe("workspace_artifacts");
+  });
 });
 
 describe("workspace deliverable rel", () => {

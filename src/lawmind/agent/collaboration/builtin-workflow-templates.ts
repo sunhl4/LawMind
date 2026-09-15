@@ -191,8 +191,8 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
         task: [
           "{{instruction}}",
           "",
-          "短路径执行约束（勿 search_workspace/read_project_file/list_mail_*；勿再问审查重点/己方立场）：",
-          "analyze_document 一次（通读）→ draft/update_draft（contract_edit_baseline_path + seed）→ apply_surgical_edits（跨度硬门禁：最短字/词锚定 + craft_check；能改几个字就只改几个字；段内只改有问题的句子；条数不限；其余 deferred）→ render_tracked_draft 写入源文件同目录（原名_日期_01.docx，不打开 Word）。",
+          "短路径执行约束（路径已钉选时不要翻案卷找附件；核法条可用检索；勿再问审查重点/己方立场）：",
+          "通读附件（多份可继续读）→ draft/update_draft（contract_edit_baseline_path + seed）→ apply_surgical_edits（跨度硬门禁：最短字/词锚定 + craft_check；能改几个字就只改几个字；段内只改有问题的句子；条数不限；其余 deferred）→ render_tracked_draft 写入源文件同目录（原名_日期_01.docx，不打开 Word）。",
           "整句/整段/整节删除重写会被硬门禁跳过。空修订不得 render（redlinePending=0）。勿另开完整意见书流程。",
         ].join("\n"),
         dependsOn: [],

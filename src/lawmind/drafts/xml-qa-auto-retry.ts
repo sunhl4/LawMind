@@ -1,6 +1,6 @@
 /**
- * Unlocked path only: if tracked XML has no w:ins/w:del, narrow plan once and re-apply.
- * Never runs on mail short path or Word tracked lock.
+ * If tracked XML has no w:ins/w:del, narrow plan once and re-apply.
+ * Runs on unlocked, mail short path, and Word tracked lock.
  */
 
 import type { ArtifactDraft } from "../types.js";
@@ -13,11 +13,11 @@ import {
 } from "./redline-plan.js";
 import { readRedlineProposal } from "./redline-proposal.js";
 
-export function shouldAutoRetryXmlQa(ctx: {
+export function shouldAutoRetryXmlQa(_ctx: {
   wordRevisionTurn?: boolean;
   mailContractTurn?: boolean;
 }): boolean {
-  return ctx.wordRevisionTurn !== true && ctx.mailContractTurn !== true;
+  return true;
 }
 
 export type XmlQaAutoRetryResult = {

@@ -1,13 +1,15 @@
 /**
- * Shared gates so prompt protocols match the tools actually open this turn.
- * Locked short paths must not receive contradictory “go search / go redline” blocks.
+ * 5-minute review is prompt coaching only (do not freeze tools).
+ * This flag skips “you must search / must redline” protocol blocks.
  */
 
+import type { ComposeContextPin } from "../platform/compose-context-pin.js";
 import { isContractFastLaneInstruction } from "../platform/contract-fast-lane-instruction.js";
 
 export type PromptProtocolGate = {
   instruction?: string;
   availableToolNames?: readonly string[];
+  pins?: readonly ComposeContextPin[];
 };
 
 export const RESEARCH_PROTOCOL_TOOLS = ["search_statute", "search_case_law"] as const;

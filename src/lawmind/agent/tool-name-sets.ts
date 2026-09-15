@@ -28,6 +28,8 @@ export const BACKGROUND_JOB_TOOLS = new Set<string>(["execute_workflow"]);
 export const IDEMPOTENT_READ_TOOLS = new Set<string>([
   "search_matter",
   "search_workspace",
+  "search_conversations",
+  "read_conversation",
   "read_project_file",
   "list_dir",
   "search_host",
@@ -49,6 +51,8 @@ export const IDEMPOTENT_READ_TOOLS = new Set<string>([
   "list_mail_inbox",
   "list_mail_attachments",
   "list_more_tools",
+  "read_skill",
+  "search_company_registry",
   "analyze_spreadsheet",
   "calculate",
   "web_search",

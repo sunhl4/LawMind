@@ -6,13 +6,15 @@
  *   Codex  — workspace is `--cd` / cwd; user files go in that tree, not $CODEX_HOME.
  *
  * LawMind mapping (first match wins):
- *   1. explicit path or directory (must stay in workspace or project)
- *   2. beside the source file this deliverable is derived from
- *   3. current matter: cases/<matterId>/artifacts/
- *   4. associated project folder (the folder the lawyer opened)
- *   5. workspace artifacts/ last resort
+ *   1. lawyer-named well-known place (桌面 / 下载 / 文稿) when delivery compiled it
+ *   2. explicit path or directory (workspace, project, or that named place)
+ *   3. beside the source file this deliverable is derived from
+ *   4. current matter: cases/<matterId>/artifacts/
+ *   5. associated project folder (the folder the lawyer opened)
+ *   6. workspace artifacts/ last resort
  *
  * Filenames are 标题_YYYYMMDD_01.ext — never task-id hashes.
+ * A lawyer-named place is not full-disk write: only Desktop / Downloads / Documents.
  */
 
 import fs from "node:fs";
@@ -20,11 +22,13 @@ import path from "node:path";
 import { resolveLawyerLocalFile } from "../runtime/lawyer-local-file.js";
 import { isPathInsideRoot } from "../runtime/workspace-path.js";
 import { buildDeliverableFilename, resolveMatterWorkspaceDir } from "./matter-word-delivery.js";
+import { isAllowedNamedUserPlaceDir } from "./named-user-place.js";
 
 export type DefaultOutputKind = "deliverable" | "note";
 
 export type DefaultOutputReason =
   | "explicit"
+  | "named_place"
   | "beside_source"
   | "matter"
   | "project"
@@ -77,13 +81,21 @@ function isWritableOutputDir(
   workspaceDir: string,
   projectDir: string | undefined,
   outDir: string,
+  namedPlaceDir?: string,
+  homeDir?: string,
 ): boolean {
   const resolved = path.resolve(outDir);
   if (isPathInsideRoot(workspaceDir, resolved)) {
     return true;
   }
   const project = projectDir?.trim();
-  return Boolean(project && isPathInsideRoot(project, resolved));
+  if (project && isPathInsideRoot(project, resolved)) {
+    return true;
+  }
+  const named = namedPlaceDir?.trim();
+  return Boolean(
+    named && isAllowedNamedUserPlaceDir(named, { homeDir }) && isPathInsideRoot(named, resolved),
+  );
 }
 
 function preferExistingProjectSubdir(projectRoot: string): string {
@@ -136,12 +148,21 @@ function resolveExplicitOutput(params: {
   title: string;
   extension: string;
   at: Date;
+  namedPlaceDir?: string;
+  homeDir?: string;
+  protectSourcePath?: string;
 }): ResolveDeliverableLocationResult {
   const raw = params.explicitOutput.trim();
   const wsAbs = resolveUnderRoot(params.workspaceDir, raw);
   const proj = params.projectDir?.trim();
   const projAbs = proj ? resolveUnderRoot(proj, raw) : undefined;
-  const abs = wsAbs ?? projAbs;
+  const named = params.namedPlaceDir?.trim();
+  const namedRoot =
+    named && isAllowedNamedUserPlaceDir(named, { homeDir: params.homeDir })
+      ? path.resolve(named)
+      : undefined;
+  const namedAbs = namedRoot ? resolveUnderRoot(namedRoot, raw) : undefined;
+  const abs = wsAbs ?? projAbs ?? namedAbs;
   if (!abs) {
     return { ok: false, error: "指定的输出路径不在工作区或已关联项目目录内。" };
   }
@@ -155,8 +176,20 @@ function resolveExplicitOutput(params: {
   } else {
     outDir = abs;
   }
-  if (!isWritableOutputDir(params.workspaceDir, params.projectDir, outDir)) {
+  if (
+    !isWritableOutputDir(
+      params.workspaceDir,
+      params.projectDir,
+      outDir,
+      params.namedPlaceDir,
+      params.homeDir,
+    )
+  ) {
     return { ok: false, error: "指定的输出目录不可写入。" };
+  }
+  const protectedSrc = params.protectSourcePath?.trim();
+  if (protectedSrc && filename && path.resolve(outDir, filename) === path.resolve(protectedSrc)) {
+    filename = undefined;
   }
   const name =
     filename ??
@@ -183,7 +216,7 @@ function filenameInDir(
 export function resolveDefaultDeliverableLocation(params: {
   workspaceDir: string;
   projectDir?: string;
-  /** Full file path or directory. When set, must stay in workspace or project. */
+  /** Full file path or directory. When set, must stay in workspace, project, or named place. */
   explicitOutput?: string;
   matterId?: string;
   /** Existing file this deliverable is derived from. */
@@ -195,12 +228,58 @@ export function resolveDefaultDeliverableLocation(params: {
   kind?: DefaultOutputKind;
   /** Use this basename in the resolved directory instead of 标题_日期_01. */
   keepFilename?: string;
+  /**
+   * Lawyer-named Desktop / Downloads / Documents. Wins over workspace artifacts
+   * and beside-source. Only allowed when it is one of those three home folders.
+   */
+  namedPlaceDir?: string;
+  homeDir?: string;
+  /** Never write a new deliverable on top of this source file. */
+  protectSourcePath?: string;
 }): ResolveDeliverableLocationResult {
   const at = params.at ?? new Date();
   const kind = params.kind ?? "deliverable";
   const title = params.title.trim() || (kind === "note" ? "工作笔记" : "文书");
   const ext = params.extension.trim() || (kind === "note" ? ".md" : ".docx");
   const leafDir = kind === "note" ? "notes" : "artifacts";
+  const named =
+    kind === "deliverable" && params.namedPlaceDir?.trim()
+      ? params.namedPlaceDir.trim()
+      : undefined;
+  const namedOk =
+    named && isAllowedNamedUserPlaceDir(named, { homeDir: params.homeDir })
+      ? path.resolve(named)
+      : undefined;
+
+  if (namedOk) {
+    const explicitNamed = params.explicitOutput?.trim();
+    if (explicitNamed) {
+      const resolved = resolveExplicitOutput({
+        workspaceDir: params.workspaceDir,
+        projectDir: params.projectDir,
+        explicitOutput: explicitNamed,
+        title,
+        extension: ext,
+        at,
+        namedPlaceDir: namedOk,
+        homeDir: params.homeDir,
+        protectSourcePath: params.protectSourcePath,
+      });
+      if (resolved.ok && isPathInsideRoot(namedOk, resolved.planned.outDir)) {
+        return { ok: true, planned: { ...resolved.planned, reason: "named_place" } };
+      }
+    }
+    const filename = filenameInDir(title, ext, at, namedOk);
+    const planned = finish(namedOk, filename, "named_place");
+    const protect = params.protectSourcePath?.trim();
+    if (protect && path.resolve(planned.outputPath) === path.resolve(protect)) {
+      return {
+        ok: false,
+        error: "不能覆盖源文件。请写入新的意见书文档。",
+      };
+    }
+    return { ok: true, planned };
+  }
 
   const explicit = params.explicitOutput?.trim();
   if (explicit) {
@@ -211,6 +290,9 @@ export function resolveDefaultDeliverableLocation(params: {
       title,
       extension: ext,
       at,
+      namedPlaceDir: named,
+      homeDir: params.homeDir,
+      protectSourcePath: params.protectSourcePath,
     });
   }
 

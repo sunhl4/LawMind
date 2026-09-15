@@ -3,6 +3,7 @@ import {
   CONTRACT_FAST_LANE_PROMPT,
   CONTRACT_FAST_LANE_TOOL_NAMES,
   contractFastLaneAllowNames,
+  formatContractFastLanePrompt,
   isContractFastLaneInstruction,
 } from "./contract-fast-lane-instruction.js";
 
@@ -40,12 +41,17 @@ describe("contract-fast-lane-instruction", () => {
     ).toBe(false);
   });
 
-  it("locks the opinion tool table", () => {
-    expect(contractFastLaneAllowNames(FAST_LANE)).toEqual([...CONTRACT_FAST_LANE_TOOL_NAMES]);
-    expect(CONTRACT_FAST_LANE_TOOL_NAMES).not.toContain("search_workspace");
-    expect(CONTRACT_FAST_LANE_TOOL_NAMES).not.toContain("prepare_outbound_mail");
-    expect(CONTRACT_FAST_LANE_TOOL_NAMES).not.toContain("apply_surgical_edits");
-    expect(CONTRACT_FAST_LANE_PROMPT).toContain("直接拒绝");
+  it("does not freeze the tool table", () => {
+    expect(contractFastLaneAllowNames(FAST_LANE)).toBeUndefined();
+    expect(CONTRACT_FAST_LANE_PROMPT).toContain("工具表不收窄");
     expect(CONTRACT_FAST_LANE_PROMPT).toContain("宏观交易结构");
+    expect(CONTRACT_FAST_LANE_PROMPT).not.toContain("直接拒绝");
+    expect(CONTRACT_FAST_LANE_TOOL_NAMES).toContain("draft_document");
+  });
+
+  it("pairs redline coaching when a Word is pinned", () => {
+    expect(formatContractFastLanePrompt({ wordPinned: true })).toContain("render_tracked_draft");
+    expect(formatContractFastLanePrompt({ wordPinned: true })).not.toContain("本地意见书优先");
+    expect(formatContractFastLanePrompt()).toContain("本地意见书优先");
   });
 });

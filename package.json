@@ -1,6 +1,6 @@
 {
   "name": "lawmind",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "LawMind — local-first lawyer workbench (desktop shell + legal engine)",
   "license": "MIT",

@@ -113,6 +113,7 @@ export function pickLawyerWorkbenchProps(
     apiBase: props.config.apiBase,
     workspaceDir: props.config.workspaceDir,
     selectedMatterId: normalizeMatterId(props, false),
+    matterRefreshVersion: props.matterRefreshVersion,
     deskMatterFocus: props.deskMatterFocus ?? null,
     onSelectMatter: (matterId) => {
       props.onSelectMatterKey?.(matterId);
@@ -120,7 +121,13 @@ export function pickLawyerWorkbenchProps(
     onGoToChat: (opts) => {
       props.onGoToChat({ taskId: "", matterId: opts.matterId, prompt: opts.prompt });
     },
-    onOpenNeedsDecision: (matterId) => openNeedsDecisionDesk(props, matterId ? { matterId } : undefined),
+    onOpenNeedsDecision: (matterId) =>
+      openNeedsDecisionDesk(
+        props,
+        matterId
+          ? { matterId, preferStatus: "awaiting_approval" }
+          : { preferStatus: "awaiting_approval" },
+      ),
     onCreateMatter: props.onCreateMatter,
     onOpenReview: ({ matterId, taskId }) => {
       const tid = taskId?.trim();

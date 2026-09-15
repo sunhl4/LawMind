@@ -5,8 +5,27 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import { isMatterReplicaEnabled } from "../matter-replica/feature-gate.js";
+import { resolveReplicaActor } from "../matter-replica/identity.js";
+import { snapshotCaseMd } from "../matter-replica/record-ops.js";
 import { withCaseMdLock } from "./case-md-lock.js";
 import { ensureCaseWorkspace, matterStrategyPath } from "./case-workspace.js";
+
+function snapshotReplicaCaseMd(workspaceDir: string, matterId: string): void {
+  try {
+    if (!isMatterReplicaEnabled(workspaceDir)) {
+      return;
+    }
+    const actor = resolveReplicaActor(workspaceDir);
+    snapshotCaseMd(workspaceDir, {
+      matterId,
+      actorId: actor.lawyerId,
+      actorName: "LawMind",
+    });
+  } catch {
+    /* replica snapshot is best-effort */
+  }
+}
 
 async function readSafe(filePath: string): Promise<string> {
   try {
@@ -157,6 +176,7 @@ export async function appendCaseSectionBullet(
     });
     await fs.writeFile(filePath, next, "utf8");
   });
+  snapshotReplicaCaseMd(workspaceDir, matterId);
 }
 
 export async function appendCaseTaskGoal(
@@ -221,6 +241,7 @@ export async function appendCaseProgress(
     await fs.writeFile(filePath, next, "utf8");
   });
   await recordCaseAutoAdoption(workspaceDir, matterId, "case.progress", bullet);
+  snapshotReplicaCaseMd(workspaceDir, matterId);
 }
 
 async function archiveOverflowProgressBullets(

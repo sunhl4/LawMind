@@ -297,7 +297,6 @@ export function useLawmindAppRootLayout(
     openApiWizard,
     composeModelQuickTest,
     composeModelQuickTestBusy,
-    openNewAssistant,
   });
 
   const mainBodyProps = useLawmindMainBodyContentProps({
@@ -562,6 +561,7 @@ export function useLawmindAppRootLayout(
     activeChatSessionId,
     chatSessionsLoading,
     chatBusy: loading,
+    chatAssistantId: selectedAssistantId,
     onSelectChatSession: (sessionId: string) => {
       const row = chatSessionList.find((s) => s.sessionId === sessionId);
       if (
@@ -607,6 +607,7 @@ export function useLawmindAppRootLayout(
     taskDrawerOpen: input.taskDrawerOpen,
     setTaskDrawerOpen: input.setTaskDrawerOpen,
     openNewAssistant,
+    openMatterOnDesk,
   });
 
   const fileWorkbenchHostProps = useLawmindFileWorkbenchHostProps({

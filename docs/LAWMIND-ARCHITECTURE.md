@@ -256,6 +256,7 @@ Retrieval Layer 负责把“找资料”变成标准流程，而不是让模型�
 - 本地知识库
 - 律师工作区文件
 - 案件材料
+- **本机历史对话**（`sessions/*.json` 与 transcript；工具 `search_conversations` / `read_conversation`，只回标题与短摘录；命中用 `lm-session:` 链接触达该对话）
 - 通用网络资料
 - 法律专用检索源
 
@@ -332,7 +333,7 @@ Artifact Layer 负责把结构化草稿渲染为可交付成果。
 1. 生成 `ArtifactDraft`
 2. 律师审阅并确认
 3. 依据模板渲染
-4. 写入交付目录：律师指定路径 → 源文件同目录 → `cases/<matterId>/artifacts/` → 已关联项目目录 → 工作区 `artifacts/`。文件名为 `标题_YYYYMMDD_01`，不用任务哈希。
+4. 写入交付目录：律师点名的系统桌面/下载/文稿（仅交件，不是全盘写权）→ 律师指定路径 → 源文件同目录 → `cases/<matterId>/artifacts/` → 已关联项目目录 → 工作区 `artifacts/`。文件名为 `标题_YYYYMMDD_01`，不用任务哈希。指定只要意见书时默认写新文档且不覆盖原稿；改稿工具仍对本轮可用。
 
 建议的中间结构：
 

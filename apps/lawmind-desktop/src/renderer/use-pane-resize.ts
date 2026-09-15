@@ -142,6 +142,18 @@ type UsePaneResizeVerticalPxOpts = {
   max: number;
 };
 
+/**
+ * Bottom-pane height from a handle sitting above it (messages ↔ compose).
+ * Drag up grows the pane; drag down shrinks it.
+ */
+export function nextBottomPaneHeightPx(
+  startHeight: number,
+  startClientY: number,
+  clientY: number,
+): number {
+  return startHeight - (clientY - startClientY);
+}
+
 /** Vertical drag: adjusts height of the bottom pane (drag handle sits above it). */
 export function usePaneResizeVerticalPx(opts: UsePaneResizeVerticalPxOpts): {
   height: number;
@@ -174,7 +186,7 @@ export function usePaneResizeVerticalPx(opts: UsePaneResizeVerticalPxOpts): {
       let last = startH;
 
       const onMove = (ev: PointerEvent) => {
-        const next = clampH(startH + (ev.clientY - startY));
+        const next = clampH(nextBottomPaneHeightPx(startH, startY, ev.clientY));
         last = next;
         setHeight(next);
       };
@@ -184,7 +196,7 @@ export function usePaneResizeVerticalPx(opts: UsePaneResizeVerticalPxOpts): {
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         window.removeEventListener("pointercancel", onUp);
-        const next = clampH(startH + (ev.clientY - startY));
+        const next = clampH(nextBottomPaneHeightPx(startH, startY, ev.clientY));
         last = next;
         setHeight(next);
         try {

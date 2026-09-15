@@ -32,13 +32,15 @@ const FEATURE_ROWS: FeatureRow[] = [
   { key: "acceptancePackExport", label: "一键打包验收材料" },
   { key: "qualityDashboardJsonExport", label: "质量数据导出（JSON）" },
   { key: "complianceAuditExport", label: "合规审计批量导出" },
-  { key: "auditIntegrityExport", label: "审计 hash-chain 完整性导出" },
+  { key: "auditIntegrityExport", label: "审计完整性导出" },
   { key: "crossMatterRoadmap", label: "跨案件路线图" },
   { key: "crossMatterAcceptanceDashboard", label: "跨案件验收就绪概览" },
   { key: "collaborationSummary", label: "协作摘要" },
   { key: "strictDangerousToolApproval", label: "危险工具须显式批准（律所版）" },
   { key: "reviewCampaignParallel", label: "审查专案组并行执行" },
   { key: "forcePeerReview", label: "签批前强制互审委派（律所版；可在路由 defaults 覆盖）" },
+  { key: "matterReplicaCollab", label: "案件成员协作（邀请同事共办一案）" },
+  { key: "ethicsWall", label: "利益冲突伦理墙（拦外发直至律师确认）" },
   { key: "securitySbomPanel", label: "安全组件清单（CLI）" },
 ];
 
@@ -134,7 +136,7 @@ export function LawmindSettingsEdition({ apiBase }: Props): ReactNode {
               ? "存在异常"
               : "完整";
         setExportHint(
-          `hash-chain：事件 ${i.eventCount ?? 0} 条 · 已链式 ${i.chainedCount ?? 0} · ${chainNote}`,
+          `完整性：事件 ${i.eventCount ?? 0} 条 · 已链式 ${i.chainedCount ?? 0} · ${chainNote}`,
         );
       }
     } catch (e) {

@@ -14,6 +14,7 @@ import {
   countClientProfileFilesUnderClients,
   countResearchSnapshots,
   tryReadWorkspacePackageVersion,
+  buildCompanyRegistryHealthSummary,
 } from "./lawmind-health-payload.js";
 
 function tmpWs(): string {
@@ -192,5 +193,21 @@ describe("lawmind-health-payload", () => {
     expect(p2.toolSandbox.sandboxedToolNames.length).toBeGreaterThan(0);
     expect(p2.teamMemorySync.allowed).toBe(false);
     expect(p2.teamMemorySync.reason).toBe("team_memory_sync_disabled");
+  });
+
+  it("company registry doctor row does not claim live from a missing URL", () => {
+    const prev = process.env.LAWMIND_COMPANY_REGISTRY_URL;
+    delete process.env.LAWMIND_COMPANY_REGISTRY_URL;
+    try {
+      const row = buildCompanyRegistryHealthSummary();
+      expect(row.configured).toBe(false);
+      expect(row.message).toContain("未接工商源");
+    } finally {
+      if (prev === undefined) {
+        delete process.env.LAWMIND_COMPANY_REGISTRY_URL;
+      } else {
+        process.env.LAWMIND_COMPANY_REGISTRY_URL = prev;
+      }
+    }
   });
 });

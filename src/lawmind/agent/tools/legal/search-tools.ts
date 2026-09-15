@@ -12,9 +12,11 @@ import {
   toolDataFromIngestSuccess,
   toolFailureFromIngest,
 } from "../../../platform/ingest-helpers.js";
+import { isEthicsWallEnabled, recordEthicsWallScan } from "../../../policy/ethics-wall.js";
 import { directoryListingToolData, resolveAndListDirectory } from "../../../runtime/list-dir.js";
 import { resolveWorkspaceRelativePath } from "../../../runtime/workspace-path.js";
 import { searchLawyerWorks } from "../../../work/search.js";
+import { readConversation, searchConversations } from "../../conversation-search.js";
 import type { AgentTool } from "../../types.js";
 import { matterRequiredResult } from "../matter-required.js";
 import {
@@ -71,6 +73,129 @@ export const searchMatter: AgentTool = {
         hits: hits.slice(0, 20),
         workHits,
         total: hits.length + workHits.length,
+      },
+    };
+  },
+};
+
+function parseOptionalDays(raw: unknown): number | undefined {
+  if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) {
+    return raw;
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    const n = Number.parseInt(raw.trim(), 10);
+    if (Number.isFinite(n) && n > 0) {
+      return n;
+    }
+  }
+  return undefined;
+}
+
+function parseOptionalLimit(raw: unknown, fallback: number): number {
+  if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) {
+    return Math.floor(raw);
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    const n = Number.parseInt(raw.trim(), 10);
+    if (Number.isFinite(n) && n > 0) {
+      return n;
+    }
+  }
+  return fallback;
+}
+
+export const searchConversationsTool: AgentTool = {
+  definition: {
+    name: "search_conversations",
+    description:
+      "检索本机其他 LawMind 对话（标题与律师可见发言）。律师提到「上周那个合同要点」「另一段对话里的改法」时用。关键词宜短（1–3 个，可用引号短语）；未加引号的词须同时出现在同一对话。query 里的「上周」「昨天」只提高排序，不丢掉今天还在打开的旧对话；硬切时间用 days / since / until。只返回标题与短摘录，不要把整段历史贴给律师。命中后用 read_conversation 读 session_id。",
+    category: "search",
+    parameters: {
+      query: {
+        type: "string",
+        description: "关键词。可含「上周」「昨天」；引号内为整短语。",
+        required: true,
+      },
+      days: { type: "number", description: "硬过滤：只搜最近 N 天（与 since 二选一即可）" },
+      since: { type: "string", description: "起始时间（ISO 日期）" },
+      until: { type: "string", description: "结束时间（ISO 日期）" },
+      limit: { type: "number", description: "最多返回几条对话，默认 8" },
+    },
+    isConcurrencySafe: true,
+    riskLevel: "low",
+  },
+  async execute(params, ctx) {
+    const query = typeof params.query === "string" ? params.query : "";
+    const days = parseOptionalDays(params.days);
+    const since = typeof params.since === "string" ? params.since : undefined;
+    const until = typeof params.until === "string" ? params.until : undefined;
+    if (!query.trim() && days == null && !since?.trim()) {
+      return {
+        ok: false,
+        error: "请提供关键词，或加上 days / since（例如 days=7 或 query 含「上周」）。",
+      };
+    }
+    const result = searchConversations(ctx.workspaceDir, {
+      query,
+      excludeSessionId: ctx.sessionId,
+      since,
+      until,
+      days,
+      limit: parseOptionalLimit(params.limit, 8),
+    });
+    return {
+      ok: true,
+      data: {
+        query: result.query,
+        keywords: result.keywords,
+        phrases: result.phrases,
+        since: result.since,
+        until: result.until,
+        timeMode: result.timeMode,
+        hits: result.hits,
+        total: result.hits.length,
+        note:
+          result.hits.length === 0
+            ? "没有命中。可改成 1–2 个更短的词再搜，或放宽时间（例如 days=30）。不要编造未检索到的对话内容。"
+            : "需要细节时对命中的 session_id 调用 read_conversation。回答律师时用 hits[].citeAs 写成可点击链接（[标题](lm-session:id)），只概括要点，不要整段粘贴历史，不要编造未命中的链接。",
+      },
+    };
+  },
+};
+
+export const readConversationTool: AgentTool = {
+  definition: {
+    name: "read_conversation",
+    description:
+      "阅读某次历史对话里律师可见的发言（不含工具原文）。session_id 来自 search_conversations。可再传 query 只看相关句。回答律师时用返回的 citeAs 做成可点击链接，不要把全文贴回给律师。",
+    category: "search",
+    parameters: {
+      session_id: {
+        type: "string",
+        description: "search_conversations 返回的 session_id",
+        required: true,
+      },
+      query: { type: "string", description: "可选，只保留含这些词的邻近发言" },
+      limit: { type: "number", description: "最多返回几条发言，默认 24" },
+    },
+    isConcurrencySafe: true,
+    riskLevel: "low",
+  },
+  async execute(params, ctx) {
+    const sessionId = typeof params.session_id === "string" ? params.session_id : "";
+    const result = readConversation(ctx.workspaceDir, {
+      sessionId,
+      query: typeof params.query === "string" ? params.query : undefined,
+      limit: parseOptionalLimit(params.limit, 24),
+    });
+    if (!result.ok) {
+      return { ok: false, error: result.error };
+    }
+    return {
+      ok: true,
+      data: {
+        ...result,
+        note: "这些是历史对话摘录，供你对照做法或要点；不要对律师复述成当前对话已经说过。",
       },
     };
   },
@@ -528,6 +653,7 @@ export const searchStatute: AgentTool = {
       authorityHitCount: authority.hits.length,
       workspaceHitCount: workspaceHits.length,
       kind: "law",
+      demoCorpus: authority.demoCorpus,
     });
     return {
       ok: true,
@@ -539,6 +665,7 @@ export const searchStatute: AgentTool = {
         authorityHits: authority.hits,
         authorityLive: authority.live,
         authorityProvider: authority.provider,
+        demoCorpus: authority.demoCorpus,
         total: merged.length,
         note: verdict.note,
         ...(verdict.refusalRequired
@@ -622,6 +749,7 @@ export const searchCaseLaw: AgentTool = {
       authorityHitCount: authority.hits.length,
       workspaceHitCount: workspaceHits.length,
       kind: "case",
+      demoCorpus: authority.demoCorpus,
     });
     return {
       ok: true,
@@ -633,6 +761,7 @@ export const searchCaseLaw: AgentTool = {
         authorityHits: authority.hits,
         authorityLive: authority.live,
         authorityProvider: authority.provider,
+        demoCorpus: authority.demoCorpus,
         total: merged.length,
         note: verdict.note,
         ...(verdict.refusalRequired
@@ -654,6 +783,10 @@ export const checkConflictOfInterest: AgentTool = {
         type: "string",
         description: "待核查的当事人或实体名称，逗号/顿号分隔",
         required: true,
+      },
+      acknowledge_ethics_wall: {
+        type: "boolean",
+        description: "律所伦理墙命中后，律师确认不构成冲突或已完成客户披露时为 true，以放行外发。",
       },
     },
   },
@@ -734,6 +867,34 @@ export const checkConflictOfInterest: AgentTool = {
       }
     }
 
+    const acknowledge = params.acknowledge_ethics_wall === true;
+    const wallOn = isEthicsWallEnabled(ctx.workspaceDir);
+    const wall = wallOn
+      ? recordEthicsWallScan({
+          workspaceDir: ctx.workspaceDir,
+          matterId: ctx.matterId,
+          parties,
+          flags,
+          acknowledge,
+          actorId: ctx.actorId,
+        })
+      : null;
+
+    let note: string;
+    if (!wallOn) {
+      note =
+        flags.length === 0
+          ? "未发现明显的跨案件同名命中。这是字符串扫描，不是伦理墙；仍须律师结合所知客户关系确认。"
+          : "发现跨来源命中。不得把本案策略写入他案。这不是自动伦理墙，须律师按所规判断是否构成冲突。";
+    } else if (wall?.status === "disclosed") {
+      note = "律师已确认伦理墙放行。外发仍须拍板；不得把本案策略写入他案。";
+    } else if (wall?.status === "hold" || flags.length > 0) {
+      note =
+        "律所伦理墙：发现跨来源命中，已暂停本案外发，直至律师确认不构成冲突或完成客户披露（acknowledge_ethics_wall=true）。";
+    } else {
+      note = "伦理墙已扫描，未发现跨案件同名命中。仍须律师结合所知客户关系确认。";
+    }
+
     return {
       ok: true,
       data: {
@@ -741,10 +902,16 @@ export const checkConflictOfInterest: AgentTool = {
         matches: Object.fromEntries(partyToMatters),
         conflictFlags: flags,
         matterScanned: ids.length,
-        note:
-          flags.length === 0
-            ? "未发现明显的跨案件同名命中，但仍需结合所知客户关系人工确认。"
-            : "发现跨来源命中，建议按事务所利益冲突规程复核。",
+        note,
+        ...(wall
+          ? {
+              ethicsWall: {
+                active: true,
+                status: wall.status,
+                action: wall.status === "hold" ? "hold_outbound" : wall.status,
+              },
+            }
+          : { ethicsWall: { active: false } }),
       },
     };
   },

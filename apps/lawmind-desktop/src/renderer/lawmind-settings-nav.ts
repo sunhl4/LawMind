@@ -52,7 +52,7 @@ export type SettingsNavGroup = {
 export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
   {
     id: "workspace",
-    label: "工作台",
+    label: "本机与外观",
     items: [
       {
         id: "models",
@@ -216,7 +216,7 @@ function day1AndMoreGroups(groups: SettingsNavGroup[]): SettingsNavGroup[] {
   const workspaceItems = day1.filter((item) => item.id !== "disclaimer");
   const aboutItems = day1.filter((item) => item.id === "disclaimer");
   if (workspaceItems.length > 0) {
-    out.push({ id: "workspace", label: "工作台", items: workspaceItems });
+    out.push({ id: "workspace", label: "本机与外观", items: workspaceItems });
   }
   if (aboutItems.length > 0) {
     out.push({ id: "about", label: "关于", items: aboutItems });

@@ -232,6 +232,7 @@ export function applyLegalVerifyToResult(
     wordRevisionTurn?: boolean;
     mailContractTurn?: boolean;
     contractFastLaneTurn?: boolean;
+    statuteTrialThisTurn?: boolean;
     workspaceDir?: string;
     args?: Record<string, unknown>;
   },
@@ -283,7 +284,7 @@ export function applyLegalVerifyToResult(
       if (
         !skipStatute &&
         deliverableNeedsStatuteTrial(deliverableType) &&
-        !statuteTrialHappenedThisTurn(opts?.toolNameCallCounts)
+        !statuteTrialHappenedThisTurn(opts?.toolNameCallCounts, opts?.statuteTrialThisTurn)
       ) {
         const preview = draftTextFromUnknown(data ?? result.data);
         const sectionPreviews = Array.isArray(data?.sections)
@@ -324,6 +325,8 @@ export function applyLegalVerifyToResult(
       const needsHonesty =
         deliverableType === "document.general" ||
         deliverableType === "memo.opinion" ||
+        deliverableType === "contract.review" ||
+        deliverableType === "memo.research" ||
         deliverableType?.startsWith("letter.") === true ||
         deliverableType?.startsWith("litigation.") === true;
       if (
@@ -332,7 +335,7 @@ export function applyLegalVerifyToResult(
         !integrity &&
         !isAuthorityLive()
       ) {
-        const message = "未接真源，仅供核对。请勿把本节引用写成已核实法条。";
+        const message = "未接真源（演示语料或工作区启发式）。请勿把本节引用写成已核实法条。";
         result = {
           ...result,
           data: mergeData(result, {
@@ -414,6 +417,7 @@ export const legalVerifyMiddleware: ToolMiddleware = async (call, next) => {
     wordRevisionTurn: call.ctx.wordRevisionTurn,
     mailContractTurn: call.ctx.mailContractTurn,
     contractFastLaneTurn: call.ctx.contractFastLaneTurn,
+    statuteTrialThisTurn: call.ctx.statuteTrialThisTurn === true,
     workspaceDir: call.ctx.workspaceDir,
     args: call.args,
   });

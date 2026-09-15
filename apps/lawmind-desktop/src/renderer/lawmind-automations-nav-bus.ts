@@ -1,8 +1,10 @@
 /**
- * Bus to open Settings → 自动办件 from deep UI (failure CTA, mail intent banner).
+ * Bus to open Settings sections from deep UI (failure CTA, mail intent, desk standards).
  */
 
-type Listener = (section: "automations") => void;
+export type SettingsDeepLinkSection = "automations" | "workspace";
+
+type Listener = (section: SettingsDeepLinkSection) => void;
 
 const listeners = new Set<Listener>();
 
@@ -13,8 +15,17 @@ export function subscribeOpenAutomationsSettings(listener: Listener): () => void
   };
 }
 
-export function requestOpenAutomationsSettings(): void {
+function requestOpenSettingsSection(section: SettingsDeepLinkSection): void {
   for (const l of listeners) {
-    l("automations");
+    l(section);
   }
+}
+
+export function requestOpenAutomationsSettings(): void {
+  requestOpenSettingsSection("automations");
+}
+
+/** Settings → 工作区（审查标准 / playbook 口径）. */
+export function requestOpenWorkspaceSettings(): void {
+  requestOpenSettingsSection("workspace");
 }

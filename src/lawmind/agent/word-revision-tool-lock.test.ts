@@ -144,4 +144,32 @@ describe("word-revision tool lock", () => {
     expect(toolText).toContain("render_document");
     expect(toolText).toContain(WORD_REVISION_DENIED_HINT.slice(0, 12));
   });
+
+  it("allows search_statute on a file-page Word edit", async () => {
+    const workspaceDir = tmpWorkspace();
+    const registry = new ToolRegistry();
+    let searched = false;
+    registry.register({
+      definition: {
+        name: "search_statute",
+        description: "statute",
+        category: "search",
+        parameters: {},
+      },
+      async execute() {
+        searched = true;
+        return { ok: true, data: { hits: [] } };
+      },
+    });
+    stubModelWithToolCall("search_statute", "{}");
+
+    const result = await runTurn({
+      config: baseConfig(workspaceDir),
+      registry,
+      instruction: THAILAND_EDIT,
+    });
+
+    expect(searched).toBe(true);
+    expect(result.turn.status).not.toBe("error");
+  });
 });

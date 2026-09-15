@@ -20,7 +20,12 @@ import {
   toWorkspaceMailAttachmentPath,
   type AutomationInboxItem,
 } from "../../../platform/lawyer-automations.js";
-import type { AgentTool } from "../../types.js";
+import { classifyOutboundPrivilege } from "../../../platform/outbound-audience.js";
+import {
+  ethicsWallBlocksOutbound,
+  readEthicsWallState,
+  recordEthicsWallScan,
+} from "../../../policy/ethics-wall.js";
 
 function asStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) {
@@ -246,6 +251,10 @@ export const prepareOutboundMail: AgentTool = {
       },
       draft_task_id: { type: "string", description: "关联正文草稿 taskId（可选）" },
       title: { type: "string", description: "待拍板标题（可选）" },
+      ethics_wall_acknowledged: {
+        type: "boolean",
+        description: "若伦理墙拦截外发，律师确认不构成冲突或已完成披露时为 true。",
+      },
     },
     riskLevel: "medium",
   },
@@ -267,6 +276,29 @@ export const prepareOutboundMail: AgentTool = {
     if (!to || !subject) {
       return { ok: false, error: "to 与 subject 必填。" };
     }
+    if (params.ethics_wall_acknowledged === true) {
+      const prev = readEthicsWallState(ctx.workspaceDir, matterId);
+      recordEthicsWallScan({
+        workspaceDir: ctx.workspaceDir,
+        matterId,
+        parties: prev?.parties ?? [],
+        flags: prev?.flags ?? [],
+        acknowledge: true,
+        actorId: ctx.actorId,
+      });
+    }
+    const wall = ethicsWallBlocksOutbound(ctx.workspaceDir, matterId);
+    if (wall.blocked) {
+      return {
+        ok: false,
+        error:
+          "律所伦理墙已暂停本案外发。请先 check_conflict_of_interest（acknowledge_ethics_wall=true）或在本工具传入 ethics_wall_acknowledged=true。",
+        data: {
+          ethicsWallHold: true,
+          flags: wall.state?.flags ?? [],
+        },
+      };
+    }
     if (attachmentRelativePaths.length > 0) {
       const resolved = resolveOutboundAttachmentPaths(ctx.workspaceDir, attachmentRelativePaths);
       if (!resolved.ok) {
@@ -274,6 +306,18 @@ export const prepareOutboundMail: AgentTool = {
       }
     }
     const formattedBody = applyMatterMailFormat(ctx.workspaceDir, matterId, body);
+    const stamp = classifyOutboundPrivilege({
+      to,
+      subject,
+      body: formattedBody,
+      attachmentPaths: attachmentRelativePaths,
+    });
+    const audience = stamp.audience;
+    const privilegeNotes = [
+      audience.warning,
+      stamp.privilege?.message,
+      ...stamp.attachmentFlags,
+    ].filter(Boolean);
     const item: AutomationInboxItem = {
       id: randomUUID(),
       automationId: "mail-contract-redline-handoff",
@@ -285,9 +329,12 @@ export const prepareOutboundMail: AgentTool = {
         attachmentRelativePaths.length
           ? `附件：${attachmentRelativePaths.join("、")}`
           : "附件：（无）",
+        ...privilegeNotes.map((n) => `提示：${n}`),
         "",
         "律师批准前不会发送。可在文书台核对审阅痕迹后，于交办待拍板点击「批准发送」。",
-      ].join("\n"),
+      ]
+        .filter(Boolean)
+        .join("\n"),
       status: "open",
       createdAt: new Date().toISOString(),
       draftTaskId,
@@ -314,7 +361,17 @@ export const prepareOutboundMail: AgentTool = {
         to,
         subject,
         attachmentRelativePaths,
-        message: "已写入待拍板，等待律师批准发送。",
+        audience: audience.kind,
+        ...(audience.warning ? { audienceWarning: audience.warning } : {}),
+        ...(stamp.privilege
+          ? { privilegeCode: stamp.privilege.code, privilegeWarning: stamp.privilege.message }
+          : {}),
+        ...(stamp.attachmentFlags.length > 0
+          ? { attachmentPrivilegeFlags: stamp.attachmentFlags }
+          : {}),
+        message: privilegeNotes.length
+          ? `已写入待拍板，等待律师批准发送。${privilegeNotes.join(" ")}`
+          : "已写入待拍板，等待律师批准发送。",
       },
     };
   },

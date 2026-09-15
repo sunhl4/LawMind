@@ -31,6 +31,7 @@ import {
   type DraftCitationIntegrityView,
 } from "../drafts/index.js";
 import { draftTextFromUnknown, runLegalLint } from "../lint/run-lint.js";
+import { preferComplaintMasterTemplate } from "../litigation/complaint-master.js";
 import { appendCaseArtifact, appendCaseProgress, appendTodayLog } from "../memory/index.js";
 import { recordDeliverEvent, recordLintRunEvent } from "../metrics/runtime-events.js";
 import { citationModeBlocksRender, type CitationMode } from "../policy/citation-mode.js";
@@ -59,6 +60,9 @@ export async function renderDraft(
     includeProvenance?: boolean;
     projectDir?: string;
     outputPath?: string;
+    namedPlaceDir?: string;
+    homeDir?: string;
+    protectSourcePath?: string;
   },
 ): Promise<{
   ok: boolean;
@@ -161,10 +165,15 @@ export async function renderDraft(
   const effectiveDraft =
     override !== undefined && override.length > 0 ? { ...draft, templateId: override } : draft;
 
-  const templateResolution = await resolveTemplateForDraft({
+  const resolved = await resolveTemplateForDraft({
     workspaceDir,
     draft: effectiveDraft,
   });
+  const templateResolution = await preferComplaintMasterTemplate(
+    workspaceDir,
+    resolved,
+    effectiveDraft,
+  );
   const templatePin = templateResolvedPin(templateResolution);
   draft.templateVersion = templatePin;
 
@@ -178,6 +187,9 @@ export async function renderDraft(
     sourcePath: draft.contractEdit?.baselineRelativePath,
     title: draft.title,
     extension: ext,
+    namedPlaceDir: opts?.namedPlaceDir,
+    homeDir: opts?.homeDir,
+    protectSourcePath: opts?.protectSourcePath ?? draft.contractEdit?.baselineRelativePath,
   });
   if (!located.ok) {
     return { ok: false, error: located.error };

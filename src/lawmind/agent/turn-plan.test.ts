@@ -3,6 +3,7 @@ import {
   applyPendingTurnPlan,
   attachTurnPlanToLastAssistant,
   formatTurnPlanWorldState,
+  formatTurnPlanExecuteText,
   isTurnPlanComplete,
   parseAgentTurnPlan,
   promotePendingTurnPlan,
@@ -180,6 +181,25 @@ describe("helpers", () => {
     });
     expect(slim).toEqual({ ok: true, data: { message: "清单已更新（1/3）" } });
     expect(JSON.stringify(slim)).not.toContain("读钉选合同");
+  });
+
+  it("formats execute text without skipped steps", () => {
+    const text = formatTurnPlanExecuteText(samplePlan(), new Set([1]));
+    expect(text).toContain("实施步骤");
+    expect(text).toContain("读钉选合同");
+    expect(text).toContain("给出修订建议");
+    expect(text).toContain("已跳过：标风险条款");
+    expect(text).not.toMatch(/^2\. 标风险条款/m);
+  });
+
+  it("formats execute text with lawyer-edited step labels", () => {
+    const text = formatTurnPlanExecuteText(samplePlan(), new Set(), [
+      "先读主合同",
+      "标风险条款",
+      "给出修订建议",
+    ]);
+    expect(text).toContain("1. 先读主合同");
+    expect(text).not.toContain("读钉选合同");
   });
 
   it("pierces non-empty allowlists but leaves empty locks empty", () => {

@@ -9,6 +9,7 @@ import { hasLawmindDesktopBridge } from "./lawmind-desktop-bridge";
 import { parseLawmindPopoutRoute } from "./lawmind-popout-route";
 import { lawmindQueryClient } from "./lawmind-query-client";
 import "./styles.css";
+import "katex/dist/katex.min.css";
 
 function mountTarget(): HTMLElement {
   const existing = document.getElementById("root");

@@ -6,11 +6,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import {
-  isOpinionOnlyFastLane,
   SURGICAL_PROTOCOL_TOOLS,
   toolsAllowAny,
   type PromptProtocolGate,
 } from "../agent/prompt-protocol-gate.js";
+import { isOpinionMemoDelivery, resolveTurnDeliveryIntent } from "../intent/delivery-intent.js";
 import type { SurgicalTextEdit } from "./apply-surgical-edits.js";
 import { explainInvalidSurgicalEdit, tryNarrowSurgicalEdit } from "./apply-surgical-edits.js";
 
@@ -98,13 +98,13 @@ export function buildXmlQaRetryHint(plan: RedlinePlan | undefined): {
   };
 }
 
-/** Injected on unlocked 合同审查 only — not mail / Word lock / opinion-only fast lane. */
+/** Injected on 合同审查 / Word 改稿 / 邮件合同 when surgical tools are advertised. */
 export function formatRedlinePlanPromptBlock(): string {
   return [
     "## 改稿计划",
-    "有钉选合同时：先列出计划（条款、最短 find、replace、P0/P1/P2），再一次性 `apply_surgical_edits`，然后 `render_tracked_draft`。",
-    "模型不要直接改 Word。跨度过宽时引擎会收窄锚定；导出后系统核对修订 XML（w:ins/w:del）。空计划不得导出。",
-    "没有钉选文件时只出意见（宏观/中观/微观+推荐措辞），不要假装已出红线。",
+    "有钉选合同且要出修订稿时：先列最短 find/replace（条款、P0/P1/P2），再 `apply_surgical_edits`，然后 `render_tracked_draft`。",
+    "不要直接改 Word 文件。跨度过宽时引擎会收窄锚定；导出后系统核对修订 XML（w:ins/w:del）。空修订不得导出。",
+    "没有钉选文件、或律师只要意见书时，只出意见（宏观/中观/微观+推荐措辞），不要假装已出红线。",
   ].join("\n");
 }
 
@@ -121,14 +121,15 @@ export function shouldInjectRedlinePlanProtocol(
   if (!bound) {
     return false;
   }
-  if (bound.pipeline === "tracked_redline" || bound.id === "mail.contract") {
-    return false;
-  }
-  if (isOpinionOnlyFastLane(gate?.instruction)) {
+  if (isOpinionMemoDelivery(resolveTurnDeliveryIntent(gate?.instruction, gate?.pins))) {
     return false;
   }
   if (!toolsAllowAny(gate?.availableToolNames, SURGICAL_PROTOCOL_TOOLS)) {
     return false;
   }
-  return bound.id === "contract.review";
+  return (
+    bound.id === "contract.review" ||
+    bound.id === "mail.contract" ||
+    bound.pipeline === "tracked_redline"
+  );
 }

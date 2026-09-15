@@ -44,10 +44,10 @@ function emptyBundle(): ResearchBundle {
 }
 
 describe("auto-statute-trial", () => {
-  it("skips mail and Word locks", () => {
-    expect(shouldAutoTrialStatute({ intent, mailContractTurn: true })).toBe(false);
-    expect(shouldAutoTrialStatute({ intent, wordRevisionTurn: true })).toBe(false);
-    expect(shouldAutoTrialStatute({ intent, contractFastLaneTurn: true })).toBe(false);
+  it("runs statute trial on mail and Word paths when the intent is eligible", () => {
+    expect(shouldAutoTrialStatute({ intent, mailContractTurn: true })).toBe(true);
+    expect(shouldAutoTrialStatute({ intent, wordRevisionTurn: true })).toBe(true);
+    expect(shouldAutoTrialStatute({ intent, contractFastLaneTurn: true })).toBe(true);
     expect(shouldAutoTrialStatute({ intent })).toBe(true);
   });
 

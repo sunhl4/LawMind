@@ -5,8 +5,8 @@ import { describe, expect, it } from "vitest";
 
 /**
  * Layout iron-laws for 律师工作台.
- * Regression: dock/progress-board crushed `.lm-lawyer-cockpit` to height 0
- * so users only saw the 事项表 and thought cases were missing.
+ * Regression: dock crushed `.lm-lawyer-cockpit` to height 0
+ * so users only saw 快捷入口 and thought cases were missing.
  */
 const cssPath = join(dirname(fileURLToPath(import.meta.url)), "lawyer-workbench.css");
 
@@ -48,11 +48,12 @@ describe("lawyer-workbench layout iron-laws", () => {
     expect(body).not.toMatch(/\.lm-desk-quick\s*,/);
     expect(body).not.toMatch(/\.lm-desk-quick\s*\{\s*[^}]*grid-template-columns:\s*1fr/);
     expect(body).toMatch(/\.lm-desk-quick\s*\{[^}]*grid-template-columns:\s*repeat\(3/);
+    expect(body).not.toMatch(/\.lm-desk-quick-btn\s*\{[^}]*min-height:\s*88px/);
     expect(body).not.toMatch(/\.lm-lawyer-cockpit\s*,/);
     expect(body).not.toMatch(/\.lm-lawyer-cockpit\s*\{[^}]*grid-template-columns:\s*1fr/);
   });
 
-  it("phone-narrow stacks cockpit with 在办案件 first", () => {
+  it("phone-narrow stacks cockpit with 本案列表 first", () => {
     const body = mediaBody(css, "max-width:\\s*860px");
     expect(body).toMatch(/\.lm-lawyer-cockpit\s*\{[^}]*grid-template-columns:\s*1fr/);
     expect(body).toMatch(/\.lm-desk-col--matters\s*\{\s*order:\s*-3/);

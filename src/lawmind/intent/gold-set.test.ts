@@ -25,6 +25,21 @@ describe("intent gold set", () => {
       if (row.pipeline === "tracked_redline" && compiled.pipelineOverride !== "tracked_redline") {
         failures.push(`${row.id}: expected tracked_redline`);
       }
+      if (row.pipeline !== "tracked_redline" && compiled.pipelineOverride === "tracked_redline") {
+        if (row.deliveryShape === "opinion_memo") {
+          failures.push(`${row.id}: opinion memo must not lock tracked_redline`);
+        }
+      }
+      if (row.deliveryShape && compiled.delivery.artifactShape !== row.deliveryShape) {
+        failures.push(
+          `${row.id}: delivery shape expected ${row.deliveryShape}, got ${compiled.delivery.artifactShape}`,
+        );
+      }
+      if (row.deliveryPlace && compiled.delivery.outputPlace !== row.deliveryPlace) {
+        failures.push(
+          `${row.id}: delivery place expected ${row.deliveryPlace}, got ${compiled.delivery.outputPlace}`,
+        );
+      }
       if (compiled.softAsk) {
         failures.push(`${row.id}: compiler must not ask the lawyer to classify`);
       }

@@ -495,15 +495,17 @@ export function useLawmindMainBodyContentProps(
       onOpenTaskDrawer: () => setTaskDrawerOpen(true),
       onOpenNeedsDecisionDesk: (target?: NeedsDecisionDeskTarget) => {
         setMatterCockpitOpen(false);
+        const mid = target?.matterId?.trim();
         const hasTarget = Boolean(
           target?.sessionId?.trim() ||
             target?.taskId?.trim() ||
             target?.queueItemId?.trim() ||
             target?.jobId?.trim() ||
-            target?.preferStatus,
+            target?.preferStatus ||
+            mid,
         );
-        if (hasTarget && target?.matterId?.trim()) {
-          setContextMatterId(target.matterId.trim());
+        if (mid) {
+          setContextMatterId(mid);
         }
         setAgentsDeskFocusTarget(hasTarget && target ? target : null);
         setAgentsNeedsDecisionFocus(true);
@@ -512,15 +514,17 @@ export function useLawmindMainBodyContentProps(
       },
       onOpenActionHub: (target?: NeedsDecisionDeskTarget) => {
         setMatterCockpitOpen(false);
+        const mid = target?.matterId?.trim();
         const hasTarget = Boolean(
           target?.sessionId?.trim() ||
             target?.taskId?.trim() ||
             target?.queueItemId?.trim() ||
             target?.jobId?.trim() ||
-            target?.preferStatus,
+            target?.preferStatus ||
+            mid,
         );
-        if (hasTarget && target?.matterId?.trim()) {
-          setContextMatterId(target.matterId.trim());
+        if (mid) {
+          setContextMatterId(mid);
         }
         setAgentsDeskFocusTarget(hasTarget && target ? target : null);
         setAgentsNeedsDecisionFocus(true);

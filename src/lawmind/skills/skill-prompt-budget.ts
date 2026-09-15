@@ -1,6 +1,5 @@
 /**
- * Lean skill injection: dump 1 primary stage body, index the rest.
- * Mail short path and Word tracked lock already have a short skillIds list — keep as-is.
+ * Lean skill injection: dump up to 2 primary stage bodies, index the rest.
  */
 
 import type { BoundLawyerCapability } from "./lawyer-capabilities.js";
@@ -9,7 +8,7 @@ import { readBuiltinSkillMarkdown } from "./lawyer-capabilities.js";
 const PRIMARY_BY_CAPABILITY: Record<string, readonly string[]> = {
   "contract.review": ["contract-review-layers", "contract-redline-craft"],
   "contract.draft": ["contract-drafting-route", "practice-defaults"],
-  "mail.contract": ["citation-grounding", "delivery-language"],
+  "mail.contract": ["contract-review-layers", "citation-grounding"],
   "letter.draft": ["delivery-language", "legal-element-extraction"],
   "research.memo": ["research-query-matrix", "citation-grounding"],
   "materials.draft": ["delivery-language", "legal-element-extraction"],
@@ -57,16 +56,17 @@ export function primarySkillIdsForBound(
   bound: BoundLawyerCapability,
   instruction: string,
 ): string[] {
-  if (bound.pipeline === "tracked_redline" || bound.id === "mail.contract") {
-    return [...bound.skillIds];
+  const allowed = new Set(bound.skillIds);
+  if (bound.id === "mail.contract") {
+    const mail = ["contract-review-layers", "citation-grounding"].filter((id) => allowed.has(id));
+    return mail.length > 0 ? mail : [...bound.skillIds].slice(0, 2);
   }
   const wanted =
     bound.id === "litigation.draft"
       ? litigationPrimary(instruction, bound.deliverableType)
-      : [...(PRIMARY_BY_CAPABILITY[bound.id] ?? bound.skillIds.slice(0, 2))];
-  const allowed = new Set(bound.skillIds);
-  const picked = wanted.filter((id) => allowed.has(id)).slice(0, 1);
-  return picked.length > 0 ? picked : [...bound.skillIds].slice(0, 1);
+      : [...(PRIMARY_BY_CAPABILITY[bound.id] ?? bound.skillIds)];
+  const picked = wanted.filter((id) => allowed.has(id)).slice(0, 2);
+  return picked.length > 0 ? picked : [...bound.skillIds].slice(0, 2);
 }
 
 export function skillIndexLine(skillId: string): string {

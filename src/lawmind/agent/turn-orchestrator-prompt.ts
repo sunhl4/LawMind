@@ -484,6 +484,15 @@ export async function prepareTurnPromptContext(opts: {
     }),
     { worldStateId: "permission" },
   );
+  if (opts.permissionMode === "readonly" || opts.permissionMode === "research") {
+    queueFragment(
+      fragments,
+      "protocol",
+      opts.permissionMode === "research"
+        ? "## 计划模式（仅调研）\n本回合只能检索、读材料、`update_plan`、`read_skill`。不要起草、改稿或导出。律师点「开始执行」后再写稿。"
+        : "## 计划模式\n本回合写工具关闭。先用 `update_plan` 列出 2–8 步可执行计划；需要质量规格时调用 `read_skill`。不要声称已出稿或任务已完成。律师点「开始执行」后才会开放起草。",
+    );
+  }
   if (session.turnPlan) {
     queueFragment(fragments, "turn_plan", formatTurnPlanWorldState(session.turnPlan), {
       worldStateId: "plan",
@@ -645,10 +654,17 @@ export async function prepareTurnPromptContext(opts: {
           );
         }
       } else {
-        const { isContractFastLaneInstruction, CONTRACT_FAST_LANE_PROMPT } =
+        const { isContractFastLaneInstruction, formatContractFastLanePrompt } =
           await import("../platform/contract-fast-lane-instruction.js");
         if (isContractFastLaneInstruction(instruction)) {
-          queueFragment(fragments, "craft", CONTRACT_FAST_LANE_PROMPT);
+          const { deliveryPinsIncludeWord } = await import("../intent/delivery-intent.js");
+          queueFragment(
+            fragments,
+            "craft",
+            formatContractFastLanePrompt({
+              wordPinned: deliveryPinsIncludeWord(opts.contextPins),
+            }),
+          );
           queueFragment(
             fragments,
             "protocol",
@@ -707,7 +723,7 @@ export async function prepareTurnPromptContext(opts: {
           instruction,
           compiled,
         }),
-        { overflow: { tool: "read_workspace_file", path: "skills" } },
+        { overflow: { tool: "read_skill", path: "skills" } },
       );
       const {
         formatPracticePlaybookPromptBlock,
@@ -761,6 +777,7 @@ export async function prepareTurnPromptContext(opts: {
       const protocolGate = {
         instruction,
         availableToolNames: opts.availableToolNames,
+        pins: opts.contextPins,
       };
       const { formatAudienceSplitPromptBlock, inferDraftAudience, shouldInjectAudienceSplit } =
         await import("../drafts/audience-split.js");
@@ -786,6 +803,10 @@ export async function prepareTurnPromptContext(opts: {
       if (shouldInjectResearchProtocol(bound, protocolGate)) {
         queueFragment(fragments, "protocol", formatResearchProtocolPromptBlock());
       }
+      if (bound.id === "litigation.draft") {
+        const { complaintMasterHint } = await import("../litigation/complaint-master.js");
+        queueFragment(fragments, "protocol", complaintMasterHint(config.workspaceDir));
+      }
       const {
         shouldInjectBilateralReview,
         inferPaperSide,
@@ -808,12 +829,20 @@ export async function prepareTurnPromptContext(opts: {
         overflow: { tool: "read_workspace_file", path: "skills" },
       });
     }
+    const { formatDeliveryConstraintPromptBlock } = await import("../intent/delivery-intent.js");
+    const deliveryBlock = formatDeliveryConstraintPromptBlock(compiled.delivery);
+    if (deliveryBlock) {
+      queueFragment(fragments, "protocol", deliveryBlock);
+    }
     const dt = deliverableTypeFromInstruction(instruction);
+    const { isOpinionMemoDelivery } = await import("../intent/delivery-intent.js");
     const looksOpinion =
       !isWordRevisionTurn({ instruction, pins: opts.contextPins }) &&
-      (/意见书短路径|Opinion Craft|审查意见书|合同审查意见/.test(instruction) ||
+      (isOpinionMemoDelivery(compiled.delivery) ||
+        /意见书短路径|Opinion Craft|审查意见书/.test(instruction) ||
         ((dt === "contract.review" || /contract\.review/.test(instruction)) &&
-          /prepare_outbound_mail|意见书/.test(instruction)));
+          /prepare_outbound_mail|意见书/.test(instruction) &&
+          !/【交办】5 分钟合同审查/.test(instruction)));
     if (looksOpinion) {
       const { OPINION_CRAFT_SKILL } = await import("../drafts/opinion-craft.js");
       if (!fragments.some((f) => f.body.includes("合同审查意见书"))) {

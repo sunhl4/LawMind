@@ -252,4 +252,58 @@ describe("lawmind-server-route-records", () => {
     expect(status).toBe(200);
     expect(JSON.parse(raw)).toEqual({ ok: true, progress: null, status: "idle" });
   });
+
+  it("GET /api/sessions/search matches another conversation", async () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-rec-sess-search-"));
+    const session = createSession({
+      workspaceDir: ws,
+      actorId: "lawyer",
+      assistantId: "default",
+      title: "采购合同审查要点",
+    });
+    session.conversationHistory = [
+      {
+        role: "user",
+        content: "违约金上限怎么改",
+        timestamp: "2026-09-08T01:00:00.000Z",
+      },
+    ];
+    fs.writeFileSync(
+      path.join(ws, "sessions", `${session.sessionId}.json`),
+      JSON.stringify(session),
+      "utf8",
+    );
+    let status = 0;
+    let raw = "";
+    const res = {
+      writeHead(s: number) {
+        status = s;
+      },
+      end(b: string) {
+        raw = b;
+      },
+    } as unknown as http.ServerResponse;
+    const handled = await handleRecordRoutes({
+      ctx: {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(ws, ".env"),
+        policy: { loaded: false },
+      } as LawmindDispatchContext,
+      req: { method: "GET" } as http.IncomingMessage,
+      res,
+      url: new URL("http://127.0.0.1/api/sessions/search?q=%E8%BF%9D%E7%BA%A6%E9%87%91"),
+      pathname: "/api/sessions/search",
+      c: {},
+    });
+    expect(handled).toBe(true);
+    expect(status).toBe(200);
+    const body = JSON.parse(raw) as {
+      ok: boolean;
+      sessions: Array<{ sessionId: string; title: string }>;
+    };
+    expect(body.ok).toBe(true);
+    expect(body.sessions.some((s) => s.sessionId === session.sessionId)).toBe(true);
+    fs.rmSync(ws, { recursive: true, force: true });
+  });
 });

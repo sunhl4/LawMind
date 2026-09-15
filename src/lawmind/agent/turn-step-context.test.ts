@@ -121,7 +121,51 @@ describe("turn-step-context", () => {
     expect(step.toolNames).toEqual(["analyze_document", "update_draft"]);
   });
 
-  it("drops a successful analyze_document from later Word-revision rounds", () => {
+  it("denyNames drops rebuild tools from an unlocked step catalog", () => {
+    const registry = new ToolRegistry();
+    for (const name of [
+      "analyze_document",
+      "render_document",
+      "search_workspace",
+      "list_more_tools",
+      "update_plan",
+    ]) {
+      registry.register({
+        definition: { name, description: name, category: "system", parameters: {} },
+        async execute() {
+          return { ok: true };
+        },
+      });
+    }
+    const session: AgentSession = {
+      sessionId: "s",
+      actorId: "a",
+      turns: [],
+      conversationHistory: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      disclosedToolNames: ["search_workspace"],
+    };
+    const step = rebuildStepContext({
+      session,
+      registry,
+      turnContext: freezeTurnContext({
+        sessionId: "s",
+        turnId: "t",
+        permissionMode: "standard",
+        model: "demo",
+        actorId: "a",
+        sandboxEnabled: false,
+        denyNames: ["render_document"],
+      }),
+    });
+    expect(step.toolNames).toContain("analyze_document");
+    expect(step.toolNames).toContain("search_workspace");
+    expect(step.toolNames).toContain("list_more_tools");
+    expect(step.toolNames).not.toContain("render_document");
+  });
+
+  it("keeps document readers after a successful Word-revision read", () => {
     const registry = new ToolRegistry();
     for (const name of [
       "analyze_document",
@@ -168,13 +212,11 @@ describe("turn-step-context", () => {
       turnContext,
       discoveryCallCounts: { analyze_document: 1 },
     });
-    expect(afterRead.toolNames).not.toContain("analyze_document");
-    expect(afterRead.toolNames).not.toContain("read_project_file");
-    expect(afterRead.toolNames).toEqual([
-      "apply_surgical_edits",
-      "render_tracked_draft",
-      "update_draft",
-    ]);
+    expect(afterRead.toolNames).toContain("analyze_document");
+    expect(afterRead.toolNames).toContain("read_project_file");
+    expect(afterRead.toolNames).toContain("apply_surgical_edits");
+    expect(afterRead.toolNames).toContain("render_tracked_draft");
+    expect(afterRead.toolNames).toContain("update_draft");
 
     const firstRound = rebuildStepContext({ session, registry, turnContext });
     expect(firstRound.toolNames).toContain("analyze_document");
@@ -216,7 +258,7 @@ describe("turn-step-context", () => {
     expect(step.toolNames).toEqual(["analyze_document", "update_draft", "update_plan"]);
   });
 
-  it("keeps analyze_document after one read when the host-file ledger is on", () => {
+  it("keeps analyze_document after one read; host-file ledger keeps it past the discovery cap", () => {
     const registry = new ToolRegistry();
     for (const name of ["analyze_document", "read_project_file", "update_draft", "list_dir"]) {
       registry.register({
@@ -243,11 +285,19 @@ describe("turn-step-context", () => {
       actorId: "a",
       sandboxEnabled: false,
     });
-    const saturated = rebuildStepContext({
+    const afterOne = rebuildStepContext({
       session,
       registry,
       turnContext,
       discoveryCallCounts: { analyze_document: 1 },
+    });
+    expect(afterOne.toolNames).toContain("analyze_document");
+
+    const saturated = rebuildStepContext({
+      session,
+      registry,
+      turnContext,
+      discoveryCallCounts: { analyze_document: 8 },
     });
     expect(saturated.toolNames).not.toContain("analyze_document");
 
@@ -255,7 +305,7 @@ describe("turn-step-context", () => {
       session,
       registry,
       turnContext,
-      discoveryCallCounts: { analyze_document: 1 },
+      discoveryCallCounts: { analyze_document: 8 },
       hostFileLedger: true,
     });
     expect(ledger.toolNames).toContain("analyze_document");

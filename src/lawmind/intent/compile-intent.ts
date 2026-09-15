@@ -22,6 +22,7 @@ import {
   parseCapabilityLock,
   type LawyerCapabilityId,
 } from "../skills/lawyer-capability-lock.js";
+import { resolveTurnDeliveryIntent, UNSPECIFIED_DELIVERY } from "./delivery-intent.js";
 import {
   classifyDocumentGenre,
   dominantDocumentGenre,
@@ -45,7 +46,7 @@ import type {
 } from "./types.js";
 
 const WORD_REVISION_HINT =
-  "拷贝原 Word → `apply_surgical_edits` → `render_tracked_draft` 写入源文件同目录（原名_日期_01）。禁止 `render_document` 重建，不要准备外发邮件。空修订不得导出。";
+  "拷贝原 Word → `apply_surgical_edits` → `render_tracked_draft` 写入源文件同目录（原名_日期_01）。可以在对话里说明改了什么。禁止 `render_document` 重建，不要准备外发邮件。核法条可用检索。空修订不得导出。";
 
 const SPECIALIZED_ID: Record<string, LawyerCapabilityId> = {
   labor: "labor.calc",
@@ -92,6 +93,7 @@ function emptyIntent(source: IntentSource, evidence: IntentEvidence[] = []): Com
     alternatives: [],
     chain: [],
     lawyerSummary: "直接说事或附上材料即可，不必先选流程。",
+    delivery: UNSPECIFIED_DELIVERY,
   };
 }
 
@@ -232,6 +234,7 @@ function finish(
     alternatives: opts.alternatives ?? [],
     chain: uniqueChain,
     lawyerSummary: summaryFor(id, opts.evidence, opts.source),
+    delivery: UNSPECIFIED_DELIVERY,
   };
 }
 
@@ -409,7 +412,7 @@ function wordRevisionDeliverable(id: LawyerCapabilityId): string | undefined {
 /** Never return [] — empty override is treated as a real list by hydrateCompiledIntent. */
 function wordRevisionSkillIds(id: LawyerCapabilityId): readonly string[] {
   if (id === "contract.review") {
-    return ["contract-redline-craft"];
+    return ["contract-review-layers", "contract-redline-craft"];
   }
   if (id === "letter.draft") {
     return ["delivery-language"];
@@ -435,6 +438,11 @@ function silentMixedPaperPick(signals: IntentSignals): LawyerCapabilityId {
  * Never asks the lawyer to pick a task type; mixed papers are resolved silently.
  */
 export function compileIntent(input: CompileIntentInput): CompiledIntent {
+  const compiled = compileIntentBody(input);
+  return { ...compiled, delivery: resolveTurnDeliveryIntent(input.instruction, input.pins) };
+}
+
+function compileIntentBody(input: CompileIntentInput): CompiledIntent {
   const instruction = input.instruction.trim();
   const lockedId = input.capabilityId ?? parseCapabilityLock(instruction);
   if (lockedId) {

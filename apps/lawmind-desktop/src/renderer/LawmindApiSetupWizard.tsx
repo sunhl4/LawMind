@@ -77,12 +77,11 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
   const [wizWebSearchApiKey, setWizWebSearchApiKey] = useState("");
 
   return (
-    <div className="lm-wizard-backdrop" role="dialog" aria-modal="true" aria-label="API 配置向导">
+    <div className="lm-wizard-backdrop" role="dialog" aria-modal="true" aria-label="配置模型">
       <div className="lm-wizard">
-        <h2>{wizHasExistingKey ? "API 配置向导" : "欢迎使用 LawMind"}</h2>
+        <h2>{wizHasExistingKey ? "配置模型" : "欢迎使用 LawMind"}</h2>
         <p className="lm-wizard-lead lm-settings-hint">
-          填好 API Key，点一次推荐方案即可开始。保存时会写入本机{" "}
-          <code className="lm-md-code">.env.lawmind</code>，并真实调用一次模型验证。
+          填好模型钥匙，点一次推荐方案即可开始。保存时写入本机配置，并真实调用一次模型验证。
         </p>
         <div className="lm-wizard-recommended" role="group" aria-label="推荐模型">
           <span className="lm-meta">一键选用</span>
@@ -106,14 +105,14 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
           </div>
         </div>
         <label className="lm-field">
-          <span>API Key</span>
+          <span>模型钥匙</span>
           <input
             type="password"
             autoComplete="off"
             value={wizApiKey}
             onChange={(e) => setWizApiKey(e.target.value)}
             placeholder={
-              wizHasExistingKey ? "留空则保留已保存的 Key" : "粘贴 Key 即可，配合上方推荐方案"
+              wizHasExistingKey ? "留空则保留已保存的钥匙" : "粘贴即可，配合上方推荐方案"
             }
           />
         </label>

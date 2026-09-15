@@ -41,7 +41,7 @@ LawMind 不以闭门自研全部律师能力为目标。Cursor、Codex、Claude 
 
 ### Agent 引导原则（Cursor / Claude / Codex 级 · 贯穿工程）
 
-面向模型编排与工具控制时，用 Skill、原则、独立审稿量规、软教练和提案–接受发挥模型判断；覆盖率不得由写者给自己打分。只有具体安全风险、空交付、明确授权边界、跨度硬门禁或外部系统不可逆操作才使用硬拦截。不得用「禁止清单 / 字数配额 / 关键词硬拒」冒充质量或稳定。路径识别不得同时锁工具又注入相反协议。
+面向模型编排与工具控制时，用 Skill、原则、独立审稿量规、软教练和提案–接受发挥模型判断；覆盖率不得由写者给自己打分。**已配置的工具默认对本轮可用**：意图编译只去掉和律师指令相反的默认完成条件，落实点名落点与不覆盖原稿，不得为「走对流程」冻结工具表。只有具体安全风险、空交付、明确授权边界、跨度硬门禁或外部系统不可逆操作才使用硬拦截。不得用「禁止清单 / 字数配额 / 关键词硬拒」冒充质量或稳定。路径识别不得同时锁工具又注入相反协议。邮件短路径与明示「改这份 Word」只禁误发、模板重建原件和空修订；检索与对话说明默认仍可用。
 
 - **直接兼容**：优先支持公开且成熟的 Agent Skills、MCP 与工具协议，减少无价值的专有格式。
 - **吸收而非套壳**：保留好能力的任务知识和验证方法，但统一交互、上下文、工具调用与交付标准，不让律师在多个开发者工具之间切换。
@@ -76,12 +76,25 @@ LawMind **不把可审计当作产品价值、法律质量证明或用户信任�
 - [x] **P1 隐式绑定默认**：`compileIntent` 为 SSOT；空态改为「直接说事」；对话无办件菜单、无改路由按钮。一行「本轮按××处理」仅作状态。
 - [x] **P2 Catalog + 渐进披露**：未绑定时注入能力目录（8k 上限，不含邮件短路径）；已绑定仍只注入 1 份 Skill 正文。多意图写入 `chain` 并预填 2 步清单。
 - [x] **P3 文件形态**：文件名 + 正文前段 peek（docx/pdf/txt）；诉状头压过正文里的「合同」；邮件短路径与指定 Word 改稿仍硬钉。
-- [ ] **对照实测（真稿）**：仍开放，见第十五期。
+- [x] **P4 交件约束（能力正交）**：从自然语言抽取「意见书新文档 / 不改原稿 / 点名落点（桌面·下载·文稿）」。律师指定只要意见书时，去掉「必须红线才算完成」的默认，不冻结工具表；`render_document` 可写入点名的系统文件夹；会话同步输出意见。不是单句硬编码。
+- [x] **跨对话检索（对照 Cursor / Codex）**：律师说「上周那个合同要点」「另一段对话里的改法」时，助手用 `search_conversations` / `read_conversation` 检索本机其他对话。「上周」作排序加分；命中可点开（`citeAs` / 过程条芯片，跨助手可打开）；空词不甩最近列表。⌘⇧O / `/chats` 搜侧栏。邮件短路径与指定 Word 改稿不因此冻结检索。
+- [x] **Agent 对标 P0–P2（2026-09-15）**：系统提示不再教办件点选；`$skill` / `read_skill`；计划模式可改步骤后「开始执行」；非合同交件量规；XML 无修订轨不得显示已完成；真稿闸门无夹具则 skip。详见 [docs/LAWMIND-AGENT-PARITY-REVIEW.md](docs/LAWMIND-AGENT-PARITY-REVIEW.md)。
+- [ ] **对照实测（真稿）**：闸门与 sidecar 基线比对已就位（`fixtures/lawmind-true-manuscript/` 有真实 `.docx`/起诉状才跑，不以仓库内 NDA markdown 冒充）。仍须律师放入真稿后才会从 skip 变成比对。见第十五期。
 
 ```bash
-pnpm exec vitest run src/lawmind/intent src/lawmind/skills/lawyer-capabilities.test.ts \
+pnpm exec vitest run src/lawmind/intent src/lawmind/drafts/paired-review-deliverable.test.ts \
+  src/lawmind/drafts/redline-plan.test.ts src/lawmind/artifacts/default-output-location.test.ts \
+  src/lawmind/platform/word-revision-instruction.test.ts \
+  src/lawmind/skills/lawyer-capabilities.test.ts \
   src/lawmind/agent/turn-orchestrator-cassettes.test.ts \
+  src/lawmind/agent/turn-orchestrator-prompt.test.ts \
   src/lawmind/agent/tools/disclosed-turn-tools.test.ts \
+  src/lawmind/agent/conversation-search.test.ts \
+  src/lawmind/agent/tools/legal/search-tools.test.ts \
+  apps/lawmind-desktop/server/lawmind-server-route-records.test.ts \
+  apps/lawmind-desktop/src/renderer/LawmindSideChatSessions.test.tsx \
+  apps/lawmind-desktop/src/renderer/lawmind-session-link.test.ts \
+  apps/lawmind-desktop/src/renderer/LawmindChatThoughtPanel.test.tsx \
   apps/lawmind-desktop/src/renderer/LawmindIntentStatusBar.test.tsx \
   apps/lawmind-desktop/src/renderer/lawmind-chat-compose-toolbar.test.tsx \
   apps/lawmind-desktop/src/renderer/LawmindChatEmptyGuide.test.tsx
@@ -114,7 +127,7 @@ pnpm --filter lawmind-desktop typecheck
 - [x] **用户标准库**：设置里 CRUD；审查按绑定自动套用；学习候选待确认。
 - [x] **谈话整理 + 旧案对照**：IntakeBrief、案由词表、相似案件面板（事实隔离提示）。
 - [x] **一级「工作台」**：顶栏「对话 | 工作台 | 在办」；设置中维护标准与案由词表。
-- [ ] **对照实测（真稿）**：仍开放，见第十五期。飞书日历写入、Outlook 全量客户端、国家案由规定全文分类器 **不做**。
+- [ ] **对照实测（真稿）**：闸门已就位，夹具仍空，见第十五期。飞书日历写入、Outlook 全量客户端、国家案由规定全文分类器 **不做**。
 
 ```bash
 pnpm exec vitest run src/lawmind/desk src/lawmind/practice/user-standards.test.ts \
@@ -143,12 +156,12 @@ pnpm --filter lawmind-desktop typecheck
 - [x] **可选执业口径**：工作区 `lawmind/practice-playbook.json`；缺文件用开箱默认，从不挡干活。律师在设置里改口径只影响**之后**的新任务，已生成草稿不自动重算。邮件短路径与指定目录 Word 改稿不注入该口径。
 - [x] **交件契约对照（合成）**：钉住邮件短路径 Skill/工具表、Word 改稿仅 `contract-redline-craft` + `render_tracked_draft`、意见宏观/中观/微观+推荐措辞、起诉状线性栏目、劳动 `calculate` 金额、surgical 最短锚定。见 `src/lawmind/evaluation/skill-deliverable-contract.test.ts`。
 - [x] **编译深度（非锁定路径）**：意见审查 lean 注入 1–2 份技能正文、改稿计划 sidecar、导出后 XML 修订自检（警告不挡导出）、口语→要件事实中间层、检索命题矩阵填栏目、己方纸/对方纸×买卖口径。邮件短路径与指定目录 Word 改稿的工具名与冻结包未改。不新增第一屏办件。
-- [x] **编译深度续（效力 / 检索协议 / 成套 / 总控正则）**：废止法名（合同法等，不含劳动合同法）编进效力层级与引用核对。意见/检索/快问注入检索协议（先 `search_statute` 试检；无命中标【待核实】）。非锁定审查钉选 Word 时完成=意见+修订稿。办件 bind / 关键词路由 / 交付物类型共用 `capability-patterns`。邮件短路径与指定目录 Word 改稿不注入检索协议与成套交件。真稿对照仍开放。
+- [x] **编译深度续（效力 / 检索协议 / 成套 / 总控正则）**：废止法名（合同法等，不含劳动合同法）编进效力层级与引用核对。意见/检索/快问注入检索协议（先 `search_statute` 试检；无命中标【待核实】）。非锁定审查钉选 Word 时**默认**意见+修订稿（教练，不是完成硬条件）。办件 bind / 关键词路由 / 交付物类型共用 `capability-patterns`。邮件短路径与指定目录 Word 改稿不注入检索协议与成套交件。真稿对照仍开放。
 - [x] **编译深度再续（成套基线 / 证据链 / 阶段）**：非锁定审查钉选 Word 时 `draft_document` 打上 `contractEdit` 基线并保留意见栏目；`apply_surgical_edits` 把意见快照后换成合同正文再落改。起诉状/证据目录从交办提取已点名证据（未点名写待补）。诉讼文首写推定阶段。XML 修订核对失败时给出收窄重试提示，不重导出、不挡邮件/Word。真稿对照仍开放。
 - [x] **编译深度（引擎填槽）**：交办已给工龄/月工资/起算日时，劳动补偿与期限骨架直接跑规则引擎填金额和届满日；解除日在交办里时仲裁时效也算出届满日，不再写「请调用 calculate」。时间轴按交办日期线性列出（不用 markdown 表）。意见稿交件头写封闭类型，宏观/中观按 12 类检查单开写，并编进责任上限四个位置与破局条款；快问文首写分诊档但仍给结论。函件交办写了致/委托人则填进稿纸。不改邮件短路径与指定目录 Word。真稿对照仍开放。
 - [x] **编译深度（运行时强制 + 填槽 IR）**：非锁定意见/检索在证据检查前自动用命题矩阵试检法规并合并来源；无命中软标【待核实】（不停工、不挡邮件/Word）。非锁定导出若 XML 无修订，引擎从锁定基线重建、收窄计划并重导一次。意见支持结构化 `contract_review_edits`，精确计划优先，正文正则仅兼容；`update_draft`/`execute_workflow` 同步写 `redline-plan`；非锁定 `apply_surgical_edits` 可回落 sidecar。劳动/期限/函件/起诉状/责任上限统一 CompileFill IR 并接入草稿路径。复杂 DOCX 页眉/页脚/表格/修订 XML/回读有合成端到端覆盖；engine-tools 与桌面 typecheck 基线全绿。不改邮件短路径与指定目录 Word。真稿对照仍开放。
 - [x] **NDA 语料对照（仓库内）**：`fixtures/lawmind-review-matrix-nda10` 十份保密协议钉住知识产权类型、意见审查路径、推荐措辞、surgical 最短锚定。不是潘睿/copilot 真稿对照。
-- [ ] **对照实测（真稿）**：用真实合同/起诉状对比潘睿红线、LawMind surgical edit 与 copilot 计划脚本；比的是交件能不能直接用、同任务是否同质量，不是确认流是否完整。仓库内 NDA 语料不能替代这一项。
+- [ ] **对照实测（真稿）**：闸门与 sidecar 基线比对已就位（`src/lawmind/evaluation/true-manuscript-gate.ts`）：无真实 `.docx` / 起诉状则 skip。用真实合同/起诉状对比潘睿红线、LawMind surgical edit 与 copilot 计划脚本；比的是交件能不能直接用、同任务是否同质量。仓库内 NDA 语料不能替代。
 - [x] **P0 开箱能力包**：办件已配齐快问、审查、起草、检索、函件、诉讼文书、劳动计算、期限计算、时间轴、整理案卷、邮件合同、写材料。无配置也能跑；分层审查/要素/检索矩阵接到非锁定路径。邮件短路径与指定目录 Word 改稿的工具表和导出规则未改，仅收紧其注入 Skill，避免被新审查 Skill 带偏。
 - [x] **P2 长尾（部分）**：刑事/破产、发票/法院短信、知产争议、并购尽调、数据合规、广告/产品合规（「更多」）、办案周报（LPM 进度/范围/RAID/置信/带日期下一步；结案备忘、本地顾问对接、办案资源计划、干系人沟通计划、待签发清单、协作建议走同一办件，不新增第一屏）、家事继承、资本市场核对、公司治理进「更多」。意见/检索稿带来源边界三栏与法源效力层级。证据目录按论证链。劳动计算含仲裁前置。民事上诉状/执行异议/立案材料清单不套起诉状。飞书云文档只读索引（可选、默认关闭，**不会写入**飞书云文档/日历/台账）。surgical 跨度过宽时引擎内收窄锚定后重试。真稿 vs 潘睿/copilot 仍开放。
 
@@ -204,10 +217,11 @@ pnpm --filter lawmind-desktop typecheck
 - **LawMind 架构文档**：[docs/LAWMIND-ARCHITECTURE.md](docs/LAWMIND-ARCHITECTURE.md)
 - **LawMind 文档站（VitePress）**：[apps/lawmind-docs/README.md](apps/lawmind-docs/README.md)（`pnpm lawmind:docs:dev` / `lawmind:docs:build`）
 - **长期回看项**：[docs/LAWMIND-FUTURE-ISSUES.md](docs/LAWMIND-FUTURE-ISSUES.md)
+- **Agent 对标审查（上手/智能/稳态/律师专用）**：[docs/LAWMIND-AGENT-PARITY-REVIEW.md](docs/LAWMIND-AGENT-PARITY-REVIEW.md)
 - **客户交付手册**：[docs/LAWMIND-DELIVERY.md](docs/LAWMIND-DELIVERY.md)
 - **历史文档归档区（只读）**：[docs/archive/README.md](docs/archive/README.md)——愿景、决策、用户手册、桌面 UI 约定、Cursor/Claude 债表、Deliverable-First、安全清单、模型适配等历史快照均在归档区
 - 仓库说明：[README.md](README.md) · 贡献：[CONTRIBUTING.md](CONTRIBUTING.md) · 安全：[SECURITY.md](SECURITY.md)
 
 ---
 
-_最后更新：2026-09-09（第十六期续：运行时强制试检/XML 收窄重导；CompileFill IR；意见→红线计划；真稿对照仍开放）。_
+_最后更新：2026-09-15（Agent 对标残留建议落地：渐进披露、计划自动执行、Firm 伦理墙拦外发、NPC 开源权威路径；对照实测真稿夹具仍空）。_

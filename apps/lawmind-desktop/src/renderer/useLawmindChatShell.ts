@@ -41,7 +41,7 @@ export type LawmindChatShellState = {
       executionState?: ChatMsg["executionState"];
       turnPlan?: ChatMsg["turnPlan"];
     },
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   refreshChatSessionListForAssistant: (
     assistantId: string,
   ) => Promise<ChatSessionListEntry[] | null>;
@@ -72,9 +72,9 @@ export function useLawmindChatShell(input: {
         executionState?: ChatMsg["executionState"];
         turnPlan?: ChatMsg["turnPlan"];
       },
-    ) => {
+    ): Promise<boolean> => {
       if (!apiBase) {
-        return;
+        return false;
       }
       const r = await fetch(
         `${apiBase}/api/sessions/${encodeURIComponent(sessionId)}?assistantId=${encodeURIComponent(assistantId)}`,
@@ -93,7 +93,7 @@ export function useLawmindChatShell(input: {
         }>;
       };
       if (!j.ok || !Array.isArray(j.messages)) {
-        return;
+        return false;
       }
       const msgs: ChatMsg[] = j.messages
         .filter((m) => m.role === "user" || m.role === "assistant")
@@ -132,6 +132,7 @@ export function useLawmindChatShell(input: {
         }
       }
       setMessagesByAssistant((p) => ({ ...p, [assistantId]: msgs }));
+      return true;
     },
     [apiBase],
   );

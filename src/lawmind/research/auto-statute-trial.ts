@@ -17,17 +17,14 @@ export function shouldAutoTrialStatute(input: {
   mailContractTurn?: boolean;
   contractFastLaneTurn?: boolean;
 }): boolean {
-  if (
-    input.wordRevisionTurn === true ||
-    input.mailContractTurn === true ||
-    input.contractFastLaneTurn === true
-  ) {
+  const type = input.intent.deliverableType;
+  if (!type) {
     return false;
   }
-  const type = input.intent.deliverableType;
-  return Boolean(
-    type && (ELIGIBLE.has(type) || type.startsWith("letter.") || type.startsWith("litigation.")),
-  );
+  if (ELIGIBLE.has(type) || type.startsWith("letter.") || type.startsWith("litigation.")) {
+    return true;
+  }
+  return input.wordRevisionTurn === true && type.startsWith("contract.");
 }
 
 function uniqueSources(sources: ResearchSource[]): ResearchSource[] {

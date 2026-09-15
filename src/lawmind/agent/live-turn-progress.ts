@@ -18,6 +18,12 @@ export type LiveTurnStep = {
   label: string;
   status: "running" | "done" | "failed";
   detail?: string;
+  sessionRefs?: Array<{
+    sessionId: string;
+    title: string;
+    matterId?: string;
+    assistantId?: string;
+  }>;
 };
 
 export type LiveTurnProgress = {
@@ -101,6 +107,9 @@ export function applyLiveTurnEvent(sessionId: string, event: RunTurnEvent): void
           ...row,
           status: event.ok ? "done" : "failed",
           detail,
+          ...(event.ok && event.sessionRefs && event.sessionRefs.length > 0
+            ? { sessionRefs: event.sessionRefs }
+            : {}),
         };
       }
       for (let i = 0; i < next.steps.length; i++) {
@@ -200,6 +209,7 @@ export function liveProgressToPersistedTrace(
       label: s.label,
       status: s.status,
       detail: s.detail,
+      ...(s.sessionRefs && s.sessionRefs.length > 0 ? { sessionRefs: s.sessionRefs } : {}),
     })),
   };
 }

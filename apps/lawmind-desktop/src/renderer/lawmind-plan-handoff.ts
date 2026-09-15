@@ -14,11 +14,12 @@ export type PlanHandoffMessage = {
 export type StoredPlanHandoff = {
   planText: string;
   updatedAt: string;
+  origin?: "auto" | "lawyer";
 };
 
 const STORAGE_KEY = "lawmind.planHandoff.v1";
 const PLAN_HINT =
-  /(?:执行计划|工作计划|实施步骤|验收要点|所需材料|步骤[：:]|计划[：:]|【先计划】|先计划)/;
+  /(?:执行计划|工作计划|实施步骤|验收要点|所需材料|步骤[：:]|计划[：:]|【先计划】|先计划|计划模式)/;
 
 function messageText(m: PlanHandoffMessage): string {
   return (m.text ?? m.content ?? "").trim();
@@ -52,8 +53,35 @@ export function shouldInjectExecuteHandoff(currentInput: string): boolean {
   return !currentInput.trim();
 }
 
+/** Prompt sent when the lawyer clicks「开始执行」. Empty composer injects the confirm draft. */
+export function resolveStartExecutePrompt(currentInput: string, planText: string): string {
+  if (shouldInjectExecuteHandoff(currentInput)) {
+    return buildExecuteConfirmPrompt(planText);
+  }
+  return currentInput.trim();
+}
+
 export function isExecuteConfirmPrompt(text: string): boolean {
   return text.trimStart().startsWith("【确认执行】");
+}
+
+/** Prefer a lawyer-edited plan over re-extracting the assistant message. */
+export function resolvePlanHandoffForExecute(
+  sessionId: string | null | undefined,
+  messages: PlanHandoffMessage[],
+  stateText?: string | null,
+): string {
+  const stored = readPlanHandoff(sessionId);
+  if (stored?.origin === "lawyer" && stored.planText.trim()) {
+    return stored.planText.trim();
+  }
+  const fromState = stateText?.trim() ?? "";
+  if (fromState) {
+    return fromState;
+  }
+  return (
+    extractPlanHandoffText(messages)?.trim() || stored?.planText?.trim() || ""
+  );
 }
 
 export function planHandoffSummary(planText: string, maxLen = 72): string {
@@ -114,13 +142,14 @@ export function readPlanHandoff(sessionId: string | null | undefined): StoredPla
   if (!entry?.planText?.trim()) {
     return null;
   }
-  return { planText: entry.planText, updatedAt: entry.updatedAt || new Date().toISOString() };
+  return { planText: entry.planText, updatedAt: entry.updatedAt || new Date().toISOString(), origin: entry.origin };
 }
 
 export function writePlanHandoff(
   sessionId: string | null | undefined,
   planText: string,
   updatedAt?: string,
+  origin: "auto" | "lawyer" = "auto",
 ): void {
   const id = sessionId?.trim();
   const text = planText.trim();
@@ -131,6 +160,7 @@ export function writePlanHandoff(
   map[id] = {
     planText: text.slice(0, 2400),
     updatedAt: updatedAt?.trim() || new Date().toISOString(),
+    origin,
   };
   writeStore(map);
 }
@@ -165,6 +195,9 @@ export function syncPlanHandoffFromMessages(
     return readPlanHandoff(id);
   }
   const prev = readPlanHandoff(id);
+  if (prev?.origin === "lawyer" && prev.planText.trim()) {
+    return prev;
+  }
   if (prev?.planText === extracted) {
     return prev;
   }

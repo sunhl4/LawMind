@@ -46,6 +46,7 @@ describe("LawmindChatMessagesColumn empty guide", () => {
     expect(host.querySelector('[data-testid="lm-chat-empty"]')).toBeTruthy();
     expect(host.textContent).toContain("开始对话");
     expect(host.textContent).toContain("直接说要办的事");
+    expect(host.querySelector('[data-testid="lm-chat-empty-create-matter"]')).toBeNull();
     expect(host.textContent).not.toContain("办件");
     expect(host.textContent).not.toContain("再选要走的流程");
     expect(host.textContent).not.toMatch(/拖入或 \+/);
@@ -53,5 +54,34 @@ describe("LawmindChatMessagesColumn empty guide", () => {
     expect(host.querySelector('[data-testid="lm-empty-desk-verbs"]')).toBeNull();
     expect(host.querySelector('[data-testid="lm-empty-more"]')).toBeNull();
     expect(host.querySelector(".lm-scenario-card")).toBeNull();
+  });
+
+  it("shows 新建案件 on empty chat when the create handler is wired", async () => {
+    const onCreateMatter = vi.fn();
+    await act(async () => {
+      root.render(
+        <LawmindChatMessagesColumn
+          selectedAssistantId="a1"
+          currentMessages={[]}
+          copiedMessageIndex={null}
+          loading={false}
+          messagesEndRef={{ current: null }}
+          onCopyMessage={vi.fn()}
+          onApplyPrompt={vi.fn()}
+          onSendClarificationMessage={vi.fn()}
+          fileChatPills={[]}
+          contextTaskId={null}
+          apiBase="http://127.0.0.1:1"
+          onResumeRequiresAction={vi.fn()}
+          onCreateMatter={onCreateMatter}
+        />,
+      );
+    });
+    const btn = host.querySelector('[data-testid="lm-chat-empty-create-matter"]') as HTMLButtonElement;
+    expect(btn).toBeTruthy();
+    await act(async () => {
+      btn.click();
+    });
+    expect(onCreateMatter).toHaveBeenCalledTimes(1);
   });
 });

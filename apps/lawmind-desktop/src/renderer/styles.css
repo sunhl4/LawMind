@@ -3826,6 +3826,53 @@ html.lm-theme-dark .lm-main-header {
   color: var(--accent);
 }
 
+.lm-chat-session-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-left: 18px;
+  margin-top: 4px;
+}
+
+.lm-chat-session-chip,
+.lm-md-session-link {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent, #b8860b) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent-dim, rgba(184, 134, 11, 0.12)) 70%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.lm-md-session-link {
+  padding: 0 6px;
+  font-size: inherit;
+  max-width: min(100%, 280px);
+  vertical-align: baseline;
+}
+
+.lm-chat-session-chip:hover,
+.lm-md-session-link:hover {
+  border-color: var(--accent, #b8860b);
+}
+
+.lm-chat-session-chip:focus-visible,
+.lm-md-session-link:focus-visible {
+  outline: 2px solid var(--accent, #b8860b);
+  outline-offset: 1px;
+}
+
 .lm-msg-gate {
   display: inline-flex;
   align-items: center;
@@ -4190,53 +4237,6 @@ html.lm-theme-dark .lm-main-header {
 }
 
 .lm-compose-ctx-usage-confirm {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 4px 0 0;
-}
-
-.lm-compose-ctx-usage-confirm-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.lm-compose-ctx-usage-actions {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.lm-compose-ctx-usage-action {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-  color: inherit;
-}
-
-.lm-compose-ctx-usage-action:hover:not(:disabled) {
-  background: var(--surface-2, rgba(0, 0, 0, 0.04));
-  border-color: var(--border);
-}
-
-.lm-compose-ctx-usage-action:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.lm-compose-ctx-usage-action-title {
 
 /* ── end imported: shell-header+chat-main ── */
 /* ── imported: modal-forms ── */
@@ -5662,6 +5662,53 @@ select option {
   border-color: rgba(108, 182, 177, 0.35);
   color: var(--accent-cool);
 }
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0 0;
+}
+
+.lm-compose-ctx-usage-confirm-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lm-compose-ctx-usage-actions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lm-compose-ctx-usage-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.lm-compose-ctx-usage-action:hover:not(:disabled) {
+  background: var(--surface-2, rgba(0, 0, 0, 0.04));
+  border-color: var(--border);
+}
+
+.lm-compose-ctx-usage-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.lm-compose-ctx-usage-action-title {
+  font-size: 13px;
   font-weight: 550;
 }
 
@@ -7774,6 +7821,41 @@ select option {
   gap: 8px;
 }
 
+.lm-turn-plan-skip {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin: 0;
+}
+
+.lm-turn-plan-step-skipped .lm-turn-plan-step-label {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.lm-turn-plan-step-edit {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--r) - 2px);
+  background: var(--bg, var(--surface));
+  color: inherit;
+  font: inherit;
+  line-height: 1.45;
+}
+
+.lm-turn-plan-step-edit:focus {
+  outline: 2px solid var(--accent, #c4a574);
+  outline-offset: 1px;
+}
+
+.lm-turn-plan-step-skipped .lm-turn-plan-step-edit {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
 /* ── end imported: workflow-hub+chat-compose ── */
 
 /* ── imported: buttons ── */
@@ -9100,12 +9182,27 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
 .lm-side-chat-sessions-body {
   flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px 0 4px;
+}
+
+.lm-side-chat-sessions-body [role="listbox"] {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 2px 0 4px;
+}
+
+.lm-side-chat-sessions-search {
+  width: 100%;
+  margin: 0 0 4px;
+  flex-shrink: 0;
 }
 
 .lm-side-chat-sessions-empty {
@@ -12931,6 +13028,121 @@ html.lm-theme-dark .lm-files-explorer-scroll::-webkit-scrollbar-thumb:hover {
   font-weight: 600;
 }
 
+/* ── Matter Replica（成员协作） ── */
+.lm-matter-replica {
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--accent-border) 40%, var(--border));
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.lm-matter-replica-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px 16px;
+}
+
+.lm-matter-replica-head strong {
+  font-size: 0.95rem;
+}
+
+.lm-matter-replica-head .lm-meta {
+  margin: 4px 0 0;
+}
+
+.lm-matter-replica-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.lm-matter-replica-h {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.lm-matter-replica-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.lm-matter-replica-row .lm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 10rem;
+}
+
+.lm-matter-replica-row .lm-field-grow {
+  flex: 1 1 14rem;
+}
+
+.lm-matter-replica-row .lm-field span {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.lm-matter-replica-row input,
+.lm-matter-replica-row select {
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.lm-matter-replica-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lm-matter-replica-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--accent-dim) 35%, var(--surface));
+}
+
+.lm-matter-replica-token {
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+}
+
+.lm-matter-replica-share {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  border: 1px dashed var(--border);
+  background: var(--bg);
+  white-space: pre-wrap;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.lm-ok {
+  color: var(--ok, #2f6b3a);
+}
+
 /* 会议室 — 全局左栏（与对话同构）+ 页内场次栏 + 右栏讨论办理 */
 
 .lm-meeting-wb {
@@ -14166,6 +14378,64 @@ html.lm-theme-dark .lm-files-explorer-scroll::-webkit-scrollbar-thumb:hover {
   color: var(--text-2);
   padding: 2px 6px;
   border-radius: 4px;
+}
+.lm-md-pre {
+  white-space: pre-wrap;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  background: color-mix(in srgb, var(--surface-2) 80%, var(--surface));
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  margin: 8px 0 12px;
+}
+.lm-md-table-wrap {
+  white-space: normal;
+  overflow-x: auto;
+  max-width: 100%;
+  margin: 10px 0 12px;
+}
+.lm-md-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  white-space: normal;
+}
+.lm-md-table th,
+.lm-md-table td {
+  border: 1px solid var(--border);
+  padding: 7px 10px;
+  text-align: left;
+  vertical-align: top;
+  white-space: normal;
+}
+.lm-md-table th {
+  background: color-mix(in srgb, var(--side-bg) 55%, var(--surface));
+  font-weight: 700;
+}
+.lm-md-table tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--surface-2) 55%, transparent);
+}
+.lm-md-math {
+  color: inherit;
+  white-space: normal;
+}
+.lm-md-math--display {
+  display: block;
+  overflow-x: auto;
+  margin: 10px 0;
+  text-align: center;
+  white-space: normal;
+}
+.lm-md-math .katex {
+  font-size: 1.05em;
+}
+.lm-md-math--fallback {
+  font-family: var(--mono);
+  font-size: 12.5px;
 }
 
 /* ── File tabs ─────────────────────────────────────────────── */
@@ -19788,10 +20058,16 @@ button.lm-agents-wb-pill:hover {
   border-top: 1px solid var(--border);
 }
 
-.lm-agents-wb-reader-body .lm-md-table {
+.lm-agents-wb-reader-body .lm-md-table-wrap {
   width: 100%;
   max-width: 46rem;
   margin: 0.85em 0 1.1em;
+}
+
+.lm-agents-wb-reader-body .lm-md-table {
+  width: 100%;
+  max-width: none;
+  margin: 0;
   border-collapse: collapse;
   font-size: 13.5px;
 }
