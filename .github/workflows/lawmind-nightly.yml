@@ -86,7 +86,7 @@ jobs:
 
       - name: Upload readiness report
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: release-readiness-report
           path: dist/lawmind-release-readiness.md
