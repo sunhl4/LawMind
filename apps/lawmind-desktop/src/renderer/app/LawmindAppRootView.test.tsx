@@ -372,6 +372,6 @@ describe("LawmindAppRootView", () => {
     const main = host.querySelector("#main-content");
     expect(main?.classList.contains("lm-main-settings")).toBe(true);
     expect(main?.querySelector(".lm-settings-page")).toBeTruthy();
-    expect(document.querySelector('[aria-label="API 配置向导"]')).toBeTruthy();
+    expect(document.querySelector('[aria-label="配置模型"]')).toBeTruthy();
   });
 });
