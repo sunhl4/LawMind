@@ -94,6 +94,16 @@
 
 ---
 
+## 已落地（2026-09-15，续优化 · 三 · 验收 token）
+
+- 同一回合 bounce 只服务下一轮采样：绿则从会话历史删除全文，暂停收成缺口码。
+- Guardian 证据包 SHA-256 相同则跳过审稿 LLM（稿未变的重复导出）。
+- `CLAUDE.md` 改为短指针文件（不再 symlink 整份 `AGENTS.md`），避免 Cursor 双份注入。
+- `resolveAgentMaxToolCallsPerTurn` 默认与编排软预算对齐为 40。
+- 同一回合验收失败 JSON 不再把 bounce 全文复制进 `verify.message` 和 `gateDecision.reason`（`error` + `issues[].message` 仍在）。
+- 工具结果入史默认按 CJK-honest ~1k token 截断（不再把 4k 汉字当成 1k token）。
+- `apply_surgical_edits` 广告描述改为 Craft Skill / 引擎硬门禁指针；参数 schema 与 execute 未改。
+
 ## 已落地（2026-09-15，续优化 · 二）
 
 本轮把评审残留建议做成可测切片。法宝/Lexis 账号、真稿夹具、完整客户披露流程仍无法在仓库内「做完」，不得用假数据冒充。

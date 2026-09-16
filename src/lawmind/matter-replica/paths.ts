@@ -25,6 +25,10 @@ export function locksPath(workspaceDir: string, matterId: string): string {
   return path.join(replicaRoot(workspaceDir, matterId), "locks.json");
 }
 
+export function materialsIndexPath(workspaceDir: string, matterId: string): string {
+  return path.join(replicaRoot(workspaceDir, matterId), "materials-index.json");
+}
+
 export function lawyerIdentityPath(workspaceDir: string): string {
   return path.join(path.resolve(workspaceDir), "lawmind", "lawyer-identity.json");
 }

@@ -64,7 +64,12 @@ export {
 } from "./approval-cache-key.js";
 export { buildSystemPrompt } from "./system-prompt.js";
 export { UPDATE_PLAN_TOOL_NAME, parseAgentTurnPlan, validateUpdatePlanArgs } from "./turn-plan.js";
-export type { AgentTurnPlan, TurnPlanItem, TurnPlanStepStatus } from "./turn-plan.js";
+export type {
+  AgentTurnBrief,
+  AgentTurnPlan,
+  TurnPlanItem,
+  TurnPlanStepStatus,
+} from "./turn-plan.js";
 
 // Collaboration (inter-assistant communication)
 export {

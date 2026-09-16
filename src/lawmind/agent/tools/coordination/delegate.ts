@@ -33,6 +33,7 @@ import type { AgentPermissionMode } from "../../permission-mode.js";
 import { appendSyntheticAssistantReply } from "../../session.js";
 import { requestTurnAbort } from "../../turn-abort.js";
 import type { AgentTool, AgentConfig } from "../../types.js";
+import { validateWorkerBrief } from "../../worker-brief.js";
 import { findAssistantsByRole, listAvailableAssistantNames, resolveAssistantId } from "./utils.js";
 
 export function createDelegateTaskTool(opts: {
@@ -57,8 +58,25 @@ export function createDelegateTaskTool(opts: {
         },
         task: {
           type: "string",
-          description: "要委派的任务描述，尽量详细清晰",
+          description:
+            "要委派的任务。子会话看不到本轮对话，必须自包含：要做、不要做、材料路径、回报格式。不要只写「帮我看看」。",
           required: true,
+        },
+        goal: {
+          type: "string",
+          description: "要做（一句）",
+        },
+        not_goal: {
+          type: "string",
+          description: "不要做，例如合同审查",
+        },
+        materials: {
+          type: "string",
+          description: "材料路径或文件夹名",
+        },
+        output_format: {
+          type: "string",
+          description: "希望对方回报的格式与完成标准",
         },
         matter_id: {
           type: "string",
@@ -73,7 +91,16 @@ export function createDelegateTaskTool(opts: {
     },
     async execute(params, ctx) {
       const targetInput = params.target_assistant as string;
-      const task = params.task as string;
+      const brief = validateWorkerBrief({
+        task: typeof params.task === "string" ? params.task : "",
+        goal: typeof params.goal === "string" ? params.goal : undefined,
+        notGoal: typeof params.not_goal === "string" ? params.not_goal : undefined,
+        materials: typeof params.materials === "string" ? params.materials : undefined,
+        output: typeof params.output_format === "string" ? params.output_format : undefined,
+      });
+      if (!brief.ok) {
+        return { ok: false, error: brief.error };
+      }
       const matterId = ctx.matterId?.trim() || (params.matter_id as string | undefined)?.trim();
       const priority = (params.priority as "normal" | "high" | "low") || "normal";
 
@@ -101,7 +128,7 @@ export function createDelegateTaskTool(opts: {
         workspaceDir: ctx.workspaceDir,
         fromId,
         toId: targetId,
-        task,
+        task: brief.brief,
         matterId,
         priority,
         depth: currentDepth + 1,
@@ -157,8 +184,25 @@ export function createDelegateToRoleTool(opts: {
         },
         task: {
           type: "string",
-          description: "要委派的任务描述",
+          description:
+            "要委派的任务。子会话看不到本轮对话，必须自包含：要做、不要做、材料、回报。不要只写「帮我看看」。",
           required: true,
+        },
+        goal: {
+          type: "string",
+          description: "要做（一句）",
+        },
+        not_goal: {
+          type: "string",
+          description: "不要做",
+        },
+        materials: {
+          type: "string",
+          description: "材料路径或文件夹名",
+        },
+        output_format: {
+          type: "string",
+          description: "回报格式",
         },
         matter_id: {
           type: "string",
@@ -173,7 +217,16 @@ export function createDelegateToRoleTool(opts: {
     },
     async execute(params, ctx) {
       const roleId = (params.role_id as string)?.trim();
-      const task = params.task as string;
+      const brief = validateWorkerBrief({
+        task: typeof params.task === "string" ? params.task : "",
+        goal: typeof params.goal === "string" ? params.goal : undefined,
+        notGoal: typeof params.not_goal === "string" ? params.not_goal : undefined,
+        materials: typeof params.materials === "string" ? params.materials : undefined,
+        output: typeof params.output_format === "string" ? params.output_format : undefined,
+      });
+      if (!brief.ok) {
+        return { ok: false, error: brief.error };
+      }
       const matterId = ctx.matterId?.trim() || (params.matter_id as string | undefined)?.trim();
       const priority = (params.priority as "normal" | "high" | "low") || "normal";
 
@@ -206,7 +259,7 @@ export function createDelegateToRoleTool(opts: {
         workspaceDir: ctx.workspaceDir,
         fromId,
         toId: target.assistantId,
-        task: `[岗位委派 ${role.displayName}] ${task}`,
+        task: `[岗位委派 ${role.displayName}] ${brief.brief}`,
         matterId,
         priority,
         depth: currentDepth + 1,

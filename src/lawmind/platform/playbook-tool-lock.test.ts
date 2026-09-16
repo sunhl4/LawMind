@@ -36,6 +36,22 @@ describe("resolvePlaybookToolLock", () => {
     expect(lock?.denyNames).not.toContain("search_statute");
   });
 
+  it("does not treat file-page 用户将 chrome as a folder lock", () => {
+    const lock = resolvePlaybookToolLock(
+      [
+        "【用户将下列路径标为“本回合重点”；其中 1 个小文本已嵌入正文，其余为路径引用】",
+        "- [工作区 · 已嵌入正文] `采购合同摘录.txt`",
+        "",
+        "请审查这份采购合同",
+      ].join("\n"),
+    );
+    expect(lock).toBeUndefined();
+  });
+
+  it("does not treat 合同目录 as a folder lock", () => {
+    expect(resolvePlaybookToolLock("请审查这份采购合同的合同目录条款")).toBeUndefined();
+  });
+
   it("does not lock 5-minute contract review", () => {
     expect(
       resolvePlaybookToolLock(
@@ -46,6 +62,35 @@ describe("resolvePlaybookToolLock", () => {
 
   it("leaves ordinary chat unlocked", () => {
     expect(resolvePlaybookToolLock("今天开庭准备什么？")).toBeUndefined();
+  });
+
+  it("read-first denies mutate tools for 律师函 QA", () => {
+    const lock = resolvePlaybookToolLock(
+      "不是合同审核，根据文件夹里的信息看我起草的律师函是否有误",
+    );
+    expect(lock?.id).toBe("read-first");
+    expect(lock?.denyNames).toContain("apply_surgical_edits");
+    expect(lock?.denyNames).toContain("draft_document");
+    expect(lock?.denyNames).toContain("render_document");
+    expect(lock?.denyNames).toContain("render_tracked_draft");
+  });
+
+  it("does not treat 写起诉状 after rejecting 合同审核 as 函件 QA", () => {
+    expect(resolvePlaybookToolLock("不是合同审核，请写起诉状")).toBeUndefined();
+  });
+
+  it("folder mention on a contract review only denies mutate tools", () => {
+    const lock = resolvePlaybookToolLock("根据文件夹审查这份采购合同");
+    expect(lock?.id).toBe("read-first");
+    expect(lock?.denyNames).toContain("apply_surgical_edits");
+    expect(lock?.denyNames).not.toContain("draft_document");
+  });
+
+  it("look-only denies redline without locking draft_document", () => {
+    const lock = resolvePlaybookToolLock("帮我看看");
+    expect(lock?.id).toBe("read-first");
+    expect(lock?.denyNames).toContain("apply_surgical_edits");
+    expect(lock?.denyNames).not.toContain("draft_document");
   });
 
   it("does not lock dialog 立场/导出 when a Word pin is present", () => {

@@ -415,6 +415,8 @@ export type AgentModelConfig = {
   contextTokens?: number;
   /** Optional OpenAI-compatible stop sequences (custom profiles). */
   stop?: string[];
+  /** Optional OpenAI-compatible response_format (Guardian JSON, router JSON). */
+  responseFormat?: { type: "json_object" };
 };
 
 /** Non-secret model identity for system prompt (lawyer may ask「你是什么模型」). */

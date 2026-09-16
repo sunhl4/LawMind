@@ -6,6 +6,8 @@ Historical **OpenClaw** upstream release notes were removed when the repository 
 
 ## Unreleased
 
+- Engine：同一回合验收 bounce 不再写入长期 user 历史（绿则删除，暂停收成缺口码）；独立审稿按证据包 hash 跳过重复 LLM；`CLAUDE.md` 改为短指针以免 Cursor 双份注入 `AGENTS.md`；工具软预算默认与编排对齐为 40。验收失败 envelope 只在 `error` 保留一份全文（不再三份拷贝进 `verify.message` / `gateDecision.reason`）；工具结果入史按 CJK-honest ~1k token 截断。`apply_surgical_edits` 广告描述改为 Craft Skill / 引擎硬门禁指针；跨度数字与 execute 未改。
+
 ## 0.2.1 — 2026-09-15
 
 ### Desktop

@@ -11,6 +11,8 @@ export type TokenBudgetSnapshot = {
 
 const DEFAULT_CONTEXT_TOKENS = 128_000;
 const DEFAULT_CHARS_PER_TOKEN = 4;
+/** Inject remaining-token notes / compact-warn only past this fill ratio. */
+export const TOKEN_BUDGET_WARN_RATIO = 0.85;
 
 /**
  * CJK 字符在主流分词器下接近 1 字 ≈ 1 token；chars/4 对中文系统性低估 3-4 倍，
@@ -108,7 +110,7 @@ export function estimateTokenBudget(
   let level: TokenBudgetLevel = "ok";
   if (ratio >= 1) {
     level = "compact";
-  } else if (ratio >= 0.85) {
+  } else if (ratio >= TOKEN_BUDGET_WARN_RATIO) {
     level = "warn";
   }
   return { used, effectiveLimit, level };

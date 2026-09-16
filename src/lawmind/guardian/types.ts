@@ -98,4 +98,6 @@ export type GuardianRecord = GuardianLawyerView & {
   at: string;
   /** Sidecar-only. Never copy into session history. */
   reviewerRaw?: string;
+  /** SHA-256 of the evidence pack excluding `prior`. Used to skip duplicate reviewer calls. */
+  evidencePackHash?: string;
 };

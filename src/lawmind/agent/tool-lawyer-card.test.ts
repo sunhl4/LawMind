@@ -94,6 +94,42 @@ describe("presentLawyerToolResult", () => {
     expect(failed.detail).toBe("磁盘已满");
   });
 
+  it("ok:false same-turn envelope uses error, not a duplicated verify.message", () => {
+    const card = presentLawyerToolResult(
+      "apply_surgical_edits",
+      {},
+      {
+        ok: false,
+        error:
+          "【同一回合验收未过】验证器未绿，本回合不得结束。请立即调用 apply_surgical_edits，不要回复「已完成」。",
+        data: {
+          verify: { codes: ["empty_redline"], nextTool: "apply_surgical_edits" },
+        },
+      },
+    );
+    expect(card.detail).toBe("未产生可核验修订");
+    expect(card.detail).not.toContain("apply_surgical_edits");
+    expect(card.detail).not.toContain("同一回合验收未过");
+  });
+
+  it("hides XML-QA bounce protocol on the lawyer card", () => {
+    const card = presentLawyerToolResult(
+      "render_tracked_draft",
+      {},
+      {
+        ok: false,
+        error:
+          "【同一回合验收未过】验证器未绿，本回合不得结束。请立即调用 render_tracked_draft，不要回复「已完成」。",
+        data: {
+          verify: { codes: ["xml_qa_fail"], nextTool: "render_tracked_draft" },
+        },
+      },
+    );
+    expect(card.detail).toBe("导出未见审阅痕迹，请重导");
+    expect(card.detail).not.toContain("render_tracked_draft");
+    expect(card.detail).not.toContain("同一回合验收未过");
+  });
+
   it("surfaces in-loop verify coach on an otherwise successful draft", () => {
     expect(
       presentLawyerToolResult(

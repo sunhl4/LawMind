@@ -3,9 +3,19 @@
  * Turn-time auto-compact stays extractive-only for latency.
  */
 
-import { resolveCapabilityEnvelope } from "../models/capability-envelope.js";
+import {
+  modelAttemptBudget,
+  shouldRetryTransportFailure,
+  waitModelRetry,
+} from "../llm/http-retry.js";
+import { resolveClassifySidecarLimits } from "../models/capability-envelope.js";
+import {
+  assistantOutputLooksTruncated,
+  extractAssistantText,
+  shouldResampleSidecarJson,
+} from "./assistant-text.js";
 import { buildDroppedSpanDigest, resolveCompactDigestCharCap } from "./compact.js";
-import { callModelWithRetry } from "./runtime-model-call.js";
+import { callModelWithRetry, ModelCallUserAbortError } from "./runtime-model-call.js";
 import type { AgentMessage, AgentModelConfig } from "./types.js";
 
 export function isCompactLlmDigestEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -27,7 +37,7 @@ function dialogueSnippet(dropped: AgentMessage[], maxChars: number): string {
     if (!text) {
       continue;
     }
-    const line = `${msg.role === "user" ? "律师" : "助手"}：${text.slice(0, 500)}`;
+    const line = `${msg.role === "user" ? "律师" : "助手"}：${text}`;
     if (used + line.length > maxChars) {
       break;
     }
@@ -35,6 +45,14 @@ function dialogueSnippet(dropped: AgentMessage[], maxChars: number): string {
     used += line.length + 1;
   }
   return parts.join("\n");
+}
+
+const MIN_COMPACT_SUMMARY_CHARS = 40;
+
+function mergeCompactDigest(summary: string, extractive: string, cap: number): string {
+  const header = `【压缩前对话蒸馏】摘要：\n${summary.slice(0, Math.floor(cap * 0.45))}`;
+  const merged = `${header}\n\n---\n\n${extractive}`;
+  return merged.length > cap ? `${merged.slice(0, Math.max(0, cap - 20))}\n…[蒸馏截断]` : merged;
 }
 
 /**
@@ -45,6 +63,7 @@ export async function enhanceCompactDigestWithLlm(opts: {
   extractiveDigest: string;
   dropped: AgentMessage[];
   contextTokens?: number;
+  abortSignal?: AbortSignal;
 }): Promise<{ digest: string; usedLlm: boolean }> {
   const extractive = opts.extractiveDigest.trim();
   if (!extractive || !isCompactLlmDigestEnabled()) {
@@ -52,59 +71,88 @@ export async function enhanceCompactDigestWithLlm(opts: {
   }
 
   const cap = resolveCompactDigestCharCap(opts.contextTokens);
-  const envelope = resolveCapabilityEnvelope({
+  const limits = resolveClassifySidecarLimits({
     contextTokens: opts.contextTokens ?? opts.model.contextTokens,
-    taskKind: "classify",
-    maxTokensOverride: 1_200,
-    timeoutMs: Math.min(45_000, opts.model.timeoutMs ?? 60_000),
+    timeoutMs: opts.model.timeoutMs,
   });
 
-  const snippet = dialogueSnippet(opts.dropped, Math.min(8_000, Math.floor(cap * 0.6)));
+  const snippet = dialogueSnippet(opts.dropped, Math.floor(cap * 0.6));
   const userContent = [
-    "请将下列法律助理对话摘录压缩为连贯中文摘要（不超过 800 字）。",
+    "请将下列法律助理对话摘录压缩为连贯中文摘要。",
     "保留：律师意图、关键当事人/标的、已做工具动作、待办与风险。",
     "不要编造未出现的事实；不要输出 JSON。",
     "",
     "【提取式要点】",
-    extractive.slice(0, Math.min(6_000, cap)),
+    extractive.slice(0, cap),
     "",
     "【对话摘录】",
     snippet || "（无正文摘录）",
   ].join("\n");
 
-  try {
-    const response = await callModelWithRetry(
-      {
-        ...opts.model,
-        maxTokens: Math.min(1_200, envelope.maxOutputTokens),
-        timeoutMs: envelope.modelTimeoutMs,
-        temperature: 0.2,
-        maxRetries: 0,
-      },
-      [
+  const fallback = (): { digest: string; usedLlm: boolean } => ({
+    digest: extractive || buildDroppedSpanDigest(opts.dropped, cap),
+    usedLlm: false,
+  });
+
+  const attempts = modelAttemptBudget();
+  let lastSummary = "";
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const response = await callModelWithRetry(
         {
-          role: "system",
-          content: "你是 LawMind 上下文压缩助手。只输出摘要正文。",
+          ...opts.model,
+          maxTokens: limits.maxTokens,
+          timeoutMs: limits.timeoutMs,
+          temperature: limits.temperature,
+          maxRetries: 0,
         },
-        { role: "user", content: userContent },
-      ],
-      [],
-    );
-    const rawContent = response.choices?.[0]?.message?.content;
-    const summary = String(rawContent ?? "")
-      .trim()
-      .replace(/\s+/g, " ");
-    if (summary.length < 40) {
-      return { digest: extractive, usedLlm: false };
+        [
+          {
+            role: "system",
+            content: "你是 LawMind 上下文压缩助手。只输出摘要正文。",
+          },
+          { role: "user", content: userContent },
+        ],
+        [],
+        { signal: opts.abortSignal },
+      );
+      const view = extractAssistantText(response);
+      const summary = view.text.replace(/\s+/g, " ").trim();
+      lastSummary = summary;
+      const usable = summary.length >= MIN_COMPACT_SUMMARY_CHARS;
+      if (
+        shouldResampleSidecarJson({
+          parsed: usable,
+          truncated: assistantOutputLooksTruncated(view),
+          attempt,
+          attempts,
+        })
+      ) {
+        await waitModelRetry(attempt);
+        continue;
+      }
+      if (!usable) {
+        return fallback();
+      }
+      return { digest: mergeCompactDigest(summary, extractive, cap), usedLlm: true };
+    } catch (err) {
+      if (err instanceof ModelCallUserAbortError) {
+        throw err;
+      }
+      if (
+        attempt + 1 < attempts &&
+        shouldRetryTransportFailure(err, { signal: opts.abortSignal })
+      ) {
+        await waitModelRetry(attempt);
+        continue;
+      }
+      return fallback();
     }
-    const header = `【压缩前对话蒸馏】摘要：\n${summary.slice(0, Math.min(2_400, Math.floor(cap * 0.45)))}`;
-    const merged = `${header}\n\n---\n\n${extractive}`;
-    const digest =
-      merged.length > cap ? `${merged.slice(0, Math.max(0, cap - 20))}\n…[蒸馏截断]` : merged;
-    return { digest, usedLlm: true };
-  } catch {
-    return { digest: extractive || buildDroppedSpanDigest(opts.dropped, cap), usedLlm: false };
   }
+  if (lastSummary.length >= MIN_COMPACT_SUMMARY_CHARS) {
+    return { digest: mergeCompactDigest(lastSummary, extractive, cap), usedLlm: true };
+  }
+  return fallback();
 }
 
 /** Replace the reinjected extractive digest system message after LLM enhance. */

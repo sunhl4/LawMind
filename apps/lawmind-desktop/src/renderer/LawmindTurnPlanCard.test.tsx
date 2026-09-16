@@ -35,6 +35,35 @@ describe("LawmindTurnPlanCard", () => {
     host.remove();
   });
 
+  it("shows the working brief above the steps", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <LawmindTurnPlanCard
+          plan={{
+            ...plan,
+            brief: {
+              goal: "核对接律师函",
+              notGoal: "合同审查",
+              materials: "先 explore_folder",
+              done: "指出具体错误",
+            },
+          }}
+        />,
+      );
+    });
+    expect(host.querySelector("[data-testid='lm-turn-plan-brief']")?.textContent).toContain(
+      "不要做：合同审查",
+    );
+    expect(host.textContent).toContain("完成标准：指出具体错误");
+    act(() => {
+      root.unmount();
+    });
+    host.remove();
+  });
+
   it("plan mode lets the lawyer skip a step before execute", async () => {
     const host = document.createElement("div");
     document.body.appendChild(host);

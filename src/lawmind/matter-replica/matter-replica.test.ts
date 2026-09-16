@@ -12,7 +12,9 @@ import {
   listActiveMembers,
   listCheckoutLocks,
   listInvites,
+  listMatterReplicaFeed,
   listRecordOps,
+  publishLocalMaterials,
   readLawyerIdentity,
   releaseCheckoutLock,
   syncMatterRecordPipe,
@@ -231,6 +233,68 @@ describe("matter-replica file relay", () => {
         (row) => row.kind === "case_md.snapshot" && String(row.payload.excerpt).includes("乙公司"),
       ),
     ).toBe(true);
+  });
+});
+
+describe("matter-replica materials blob sync", () => {
+  it("publishes and pulls a material file across two workspaces", async () => {
+    const relayDir = tmpWorkspace();
+    const a = tmpWorkspace();
+    const b = tmpWorkspace();
+    const policy = JSON.stringify({
+      schemaVersion: 1,
+      edition: "firm",
+      matterReplica: { enabled: true, sharedRelayDir: relayDir },
+    });
+    fs.writeFileSync(path.join(a, "lawmind.policy.json"), policy, "utf8");
+    fs.writeFileSync(path.join(b, "lawmind.policy.json"), policy, "utf8");
+
+    const mid = "shared_matter";
+    fs.mkdirSync(path.join(a, "cases", mid, "materials"), { recursive: true });
+    fs.writeFileSync(
+      path.join(a, "cases", mid, "materials", "证据清单.txt"),
+      "对方盖章版合同扫描件待入卷\n",
+      "utf8",
+    );
+
+    upsertLawyerIdentity(a, {
+      displayName: "张三",
+      email: "zhang@example.com",
+      lawyerId: "lawyer_zhang",
+    });
+    ensureMembershipWithOwner(a, {
+      matterId: mid,
+      matterTitle: "共案",
+      ownerLawyerId: "lawyer_zhang",
+      ownerDisplayName: "张三",
+    });
+
+    const syncedA = await syncMatterRecordPipe(a, mid);
+    expect(syncedA.materials.publishedFiles).toBe(1);
+    expect(syncedA.materials.uploadedBlobs).toBe(1);
+    expect(listRecordOps(a, mid).some((o) => o.kind === "material.put")).toBe(true);
+
+    upsertLawyerIdentity(b, {
+      displayName: "李四",
+      email: "li@example.com",
+      lawyerId: "lawyer_li",
+    });
+    const syncedB = await syncMatterRecordPipe(b, mid);
+    expect(syncedB.materials.downloadedFiles).toBe(1);
+    const dest = path.join(b, "cases", mid, "materials", "证据清单.txt");
+    expect(fs.existsSync(dest)).toBe(true);
+    expect(fs.readFileSync(dest, "utf8")).toContain("盖章版");
+  });
+
+  it("lists 新材料 in the feed", () => {
+    const ws = tmpWorkspace();
+    upsertLawyerIdentity(ws, { displayName: "张三", lawyerId: "lawyer_zhang" });
+    const mid = "m_feed";
+    fs.mkdirSync(path.join(ws, "cases", mid, "materials"), { recursive: true });
+    fs.writeFileSync(path.join(ws, "cases", mid, "materials", "a.txt"), "hello", "utf8");
+    publishLocalMaterials(ws, mid);
+    const feed = listMatterReplicaFeed(ws, mid);
+    expect(feed.some((f) => f.kind === "material.put" && f.title.includes("新材料"))).toBe(true);
   });
 });
 

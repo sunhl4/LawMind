@@ -80,7 +80,10 @@ describe("coordination/delegate", () => {
     });
     const tool = createDelegateToRoleTool({ baseConfig: buildBaseConfig(ws) });
     const result = await tool.execute(
-      { role_id: "__missing__", task: "x" },
+      {
+        role_id: "__missing__",
+        task: "请根据钉选的催告函核对手写主体是否写错，不要做合同审查。",
+      },
       buildContext(ws, "self"),
     );
     expect(result.ok).toBe(false);
@@ -98,7 +101,10 @@ describe("coordination/delegate", () => {
     });
     const tool = createDelegateToRoleTool({ baseConfig: buildBaseConfig(ws) });
     const result = await tool.execute(
-      { role_id: "contract_review", task: "x" },
+      {
+        role_id: "contract_review",
+        task: "请根据钉选的催告函核对手写主体是否写错，不要做合同审查。",
+      },
       buildContext(ws, "self"),
     );
     expect(result.ok).toBe(false);
@@ -108,10 +114,20 @@ describe("coordination/delegate", () => {
   it("delegate_task schema has no parent-gate bypass flag", () => {
     const tool = createDelegateTaskTool({ baseConfig: buildBaseConfig(tmp) });
     const keys = Object.keys(tool.definition.parameters);
-    expect(keys).toEqual(expect.arrayContaining(["target_assistant", "task"]));
+    expect(keys).toEqual(expect.arrayContaining(["target_assistant", "task", "goal", "not_goal"]));
     expect(keys).not.toContain("bypass");
     expect(keys).not.toContain("permission_mode");
     expect(keys).not.toContain("unrestricted");
     expect(keys).not.toContain("skip_parent_gates");
+  });
+
+  it("rejects a vague 帮我看看 without a self-contained brief", async () => {
+    const tool = createDelegateTaskTool({ baseConfig: buildBaseConfig(tmp) });
+    const result = await tool.execute(
+      { target_assistant: "anyone", task: "帮我看看" },
+      buildContext(tmp, "self"),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/任务书不完整/);
   });
 });

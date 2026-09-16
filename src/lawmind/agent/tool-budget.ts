@@ -1,9 +1,11 @@
+import { DEFAULT_AGENT_MAX_TOOL_CALLS_PER_TURN } from "../policy/workspace-policy.js";
+
 /**
  * Tool-call budget: soft checkpoint vs hard runaway ceiling.
  * Soft = ask the lawyer whether to continue. Hard = stop the loop.
  */
 
-export const DEFAULT_SOFT_TOOL_CALLS = 40;
+export const DEFAULT_SOFT_TOOL_CALLS = DEFAULT_AGENT_MAX_TOOL_CALLS_PER_TURN;
 export const DEFAULT_HARD_TOOL_CALL_CEILING = 80;
 
 export type ToolCallBudgets = {

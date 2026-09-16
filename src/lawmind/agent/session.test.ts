@@ -242,15 +242,18 @@ describe("session title and history helpers", () => {
     expect(derived[3]?.tool_call_id).toBe("c1");
     expect(derived[3]?.content).toBe(JSON.stringify({ ok: true }));
     const sampled = deriveModelMessagesForSampling(s, { used: 100, effectiveLimit: 8_000 });
-    expect(sampled).toHaveLength(derived.length + 1);
-    expect(sampled[sampled.length - 1]?.role).toBe("user");
-    expect(sampled[sampled.length - 1]?.content).toContain("还剩 7900");
+    expect(sampled).toHaveLength(derived.length);
+    expect(sampled.map((m) => m.content).join("\n")).not.toContain("还剩");
+    const tight = deriveModelMessagesForSampling(s, { used: 7_600, effectiveLimit: 8_000 });
+    expect(tight).toHaveLength(derived.length + 1);
+    expect(tight[tight.length - 1]?.role).toBe("user");
+    expect(tight[tight.length - 1]?.content).toContain("还剩 400");
     expect(s.conversationHistory).toHaveLength(4);
     s.samplingPromptTail = "## 当前案件 [m1]\n\n索引";
     const withTail = deriveModelMessagesForSampling(s, { used: 100, effectiveLimit: 8_000 });
-    expect(withTail).toHaveLength(derived.length + 2);
-    expect(withTail[withTail.length - 2]?.content).toContain("<turn_context>");
-    expect(withTail[withTail.length - 2]?.content).toContain("当前案件");
+    expect(withTail).toHaveLength(derived.length + 1);
+    expect(withTail[withTail.length - 1]?.content).toContain("<turn_context>");
+    expect(withTail[withTail.length - 1]?.content).toContain("当前案件");
     expect(s.conversationHistory).toHaveLength(4);
   });
 

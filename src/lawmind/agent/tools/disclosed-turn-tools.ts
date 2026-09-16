@@ -3,10 +3,11 @@
  * Same channel as list_more_tools — does not grow CORE_MODEL_TOOL_NAMES.
  */
 
+import { compileIntent } from "../../intent/compile-intent.js";
 import type { CompileIntentInput } from "../../intent/types.js";
+import { compiledIntentInjectsSkillBodies } from "../../intent/understand-first.js";
 import type { ComposeContextPin } from "../../platform/compose-context-pin.js";
 import { COMPUTE_INTENT_RE, isPublicWebFactLookup } from "../../skills/capability-patterns.js";
-import { bindLawyerCapability } from "../../skills/lawyer-capabilities.js";
 import { listLocalSkills } from "../../skills/skill-runtime.js";
 import { collectDisclosedToolNames } from "./governance.js";
 import type { ToolRegistry } from "./registry.js";
@@ -118,20 +119,25 @@ export function extraToolsForInstruction(
   if (isPublicWebFactLookup(text)) {
     return ["web_search"];
   }
-  const bound = bindLawyerCapability({ instruction: text, ...extras });
-  const extrasTools = [...(bound ? (CAPABILITY_EXTRA_TOOLS[bound.id] ?? []) : [])];
+  const compiled = compileIntent({ instruction: text, ...extras });
+  const extrasTools = [
+    ...(compiled.capabilityId ? (CAPABILITY_EXTRA_TOOLS[compiled.capabilityId] ?? []) : []),
+  ];
+  const hardBind = compiledIntentInjectsSkillBodies(compiled);
   if (
-    bound &&
-    bound.id !== "analysis.quick" &&
-    bound.id !== "labor.calc" &&
-    bound.id !== "period.calc"
+    hardBind &&
+    compiled.capabilityId &&
+    compiled.capabilityId !== "analysis.quick" &&
+    compiled.capabilityId !== "labor.calc" &&
+    compiled.capabilityId !== "period.calc"
   ) {
     extrasTools.push("draft_document");
   }
   if (
-    bound?.pipeline === "tracked_redline" ||
-    bound?.id === "mail.contract" ||
-    (bound?.id === "contract.review" && pinsIncludeWord(extras?.pins))
+    hardBind &&
+    (compiled.pipelineOverride === "tracked_redline" ||
+      compiled.capabilityId === "mail.contract" ||
+      (compiled.capabilityId === "contract.review" && pinsIncludeWord(extras?.pins)))
   ) {
     extrasTools.push("render_tracked_draft");
   }
@@ -183,6 +189,7 @@ export function mergeTurnDisclosedToolNames(opts: {
   const found = collectDisclosedToolNames(opts.session);
   found.push("run_compute");
   found.push("list_dir");
+  found.push("explore_folder");
   found.push("search_workspace");
   found.push("list_mail_inbox");
   found.push("search_conversations", "read_conversation");

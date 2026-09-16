@@ -36,6 +36,56 @@ describe("same-turn verify", () => {
     expect(shouldBounceSameTurnCompletion({ red: true, issues, bounceCount: 0 })).toBe(true);
   });
 
+  it("maps XML-QA miss to re-export, not surgical rewrite", () => {
+    const issues = collectSameTurnVerifyIssues({
+      toolName: "render_tracked_draft",
+      result: {
+        ok: false,
+        error: "未见审阅痕迹",
+        data: { code: "xml_qa_no_tracks" },
+      },
+    });
+    expect(issues[0]?.code).toBe("xml_qa_fail");
+    expect(issues[0]?.nextTool).toBe("render_tracked_draft");
+    expect(issues[0]?.message).toContain("原样重交");
+    expect(issues[0]?.message).not.toContain("apply_surgical_edits");
+    expect(formatSameTurnCompletionBounce({ red: true, issues, bounceCount: 0 })).toContain(
+      "render_tracked_draft",
+    );
+    expect(formatSameTurnCompletionBounce({ red: true, issues, bounceCount: 0 })).not.toContain(
+      "apply_surgical_edits",
+    );
+  });
+
+  it("does not send infra Guardian fails back to apply_surgical_edits", () => {
+    const issues = collectSameTurnVerifyIssues({
+      toolName: "render_tracked_draft",
+      result: {
+        ok: false,
+        error: "独立审稿引擎未能读出结果",
+        data: {
+          code: "legal_guardian_fail",
+          gateDecision: { gate: "legal_guardian_gate", decision: "block" },
+          guardian: {
+            verdict: "fail",
+            skipReason: "unreadable",
+            gaps: [{ code: "guardian_unreadable", message: "无法解析" }],
+          },
+        },
+      },
+    });
+    expect(issues[0]?.code).toBe("guardian_fail");
+    expect(issues[0]?.nextTool).toBe("render_tracked_draft");
+    expect(issues[0]?.message).toContain("原样重交");
+    expect(issues[0]?.message).not.toContain("补改");
+    expect(formatSameTurnCompletionBounce({ red: true, issues, bounceCount: 0 })).toContain(
+      "render_tracked_draft",
+    );
+    expect(formatSameTurnCompletionBounce({ red: true, issues, bounceCount: 0 })).not.toContain(
+      "apply_surgical_edits",
+    );
+  });
+
   it("maps opinion Guardian fail to update_draft bounce", () => {
     const issues = collectSameTurnVerifyIssues({
       toolName: "render_document",
@@ -88,6 +138,20 @@ describe("same-turn verify", () => {
     expect(failed.ok).toBe(false);
     expect(String(failed.error)).toContain("验证器未绿");
     expect(String(failed.error)).toContain(SAME_TURN_VERIFY_USER_PREFIX);
+    const data = failed.data as {
+      verify?: { message?: string; codes?: string[]; nextTool?: string };
+      sameTurnVerify?: { issues?: Array<{ message?: string; code?: string }> };
+      gateDecision?: { reason?: string };
+    };
+    expect(data.verify?.message).toBeUndefined();
+    expect(data.verify?.codes).toContain("empty_redline");
+    expect(data.verify?.nextTool).toBe("apply_surgical_edits");
+    expect(data.sameTurnVerify?.issues?.[0]?.message).toContain("redlinePending=0");
+    expect(data.gateDecision?.reason).toContain("空修订");
+    expect(data.gateDecision?.reason).not.toContain(SAME_TURN_VERIFY_USER_PREFIX);
+    expect(data.gateDecision?.reason).not.toContain("empty_redline");
+    const copies = JSON.stringify(failed).split(SAME_TURN_VERIFY_USER_PREFIX).length - 1;
+    expect(copies).toBe(1);
   });
 
   it("clears red after a green apply and bounces until the cap", () => {
@@ -208,5 +272,21 @@ describe("same-turn verify", () => {
       },
     });
     expect(issues).toEqual([]);
+  });
+
+  it("keeps xml_qa_fail when a fail envelope also has empty_redline", () => {
+    const failed = applySameTurnVerifyFail("render_tracked_draft", {
+      ok: false,
+      data: {
+        code: "xml_qa_no_tracks",
+        xmlQa: { ok: false },
+        gateDecision: { gate: "redline_hunks_gate", decision: "block" },
+      },
+    });
+    const stored = collectSameTurnVerifyIssues({
+      toolName: "render_tracked_draft",
+      result: failed,
+    });
+    expect(stored.map((i) => i.code).toSorted()).toEqual(["empty_redline", "xml_qa_fail"]);
   });
 });

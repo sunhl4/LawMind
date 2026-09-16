@@ -18,6 +18,9 @@ export type {
   MatterReplicaMembership,
   MatterCheckoutLock,
   MatterRecordOp,
+  MatterMaterialEntry,
+  MatterMaterialsIndex,
+  MatterReplicaFeedItem,
   LawyerIdentity,
 } from "./types.js";
 
@@ -53,6 +56,23 @@ export {
   opsSince,
   snapshotCaseMd,
 } from "./record-ops.js";
+
+export { listMatterReplicaFeed } from "./feed.js";
+
+export {
+  scanMatterMaterials,
+  readMaterialsIndex,
+  publishLocalMaterials,
+  materialsDir,
+} from "./materials-blobs.js";
+
+export {
+  createMaterialsRelay,
+  syncMatterMaterialsPipe,
+  FileMaterialsRelay,
+  NullMaterialsRelay,
+} from "./materials-relay.js";
+export type { SyncMaterialsResult } from "./materials-relay.js";
 
 export {
   createReplicaRelay,

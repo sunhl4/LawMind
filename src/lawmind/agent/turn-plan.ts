@@ -21,10 +21,12 @@ export {
   TURN_PLAN_MAX_STEPS,
   TURN_PLAN_STEP_MAX_CHARS,
   TURN_PLAN_EXPLANATION_MAX_CHARS,
+  TURN_PLAN_BRIEF_FIELD_MAX_CHARS,
   attachTurnPlanToLastAssistant,
   formatTurnPlanWorldState,
   formatTurnPlanExecuteText,
   isTurnPlanComplete,
+  lawyerFacingMaterials,
   parseAgentTurnPlan,
   promotePendingTurnPlan,
   pruneTurnPlanForNewInstruction,
@@ -33,7 +35,12 @@ export {
   validateUpdatePlanArgs,
   withUpdatePlanControlTool,
 } from "./turn-plan-model.js";
-export type { AgentTurnPlan, TurnPlanItem, TurnPlanStepStatus } from "./turn-plan-model.js";
+export type {
+  AgentTurnBrief,
+  AgentTurnPlan,
+  TurnPlanItem,
+  TurnPlanStepStatus,
+} from "./turn-plan-model.js";
 
 export type TurnPlanHost = {
   conversationHistory: Array<{ role: string; content: string; turnPlan?: AgentTurnPlan }>;
@@ -51,10 +58,18 @@ export function applyPendingTurnPlan(
     return false;
   }
   ctx.pendingTurnPlan = undefined;
-  session.turnPlan = plan;
+  const previous = session.turnPlan;
+  session.turnPlan = {
+    ...plan,
+    brief: plan.brief ?? previous?.brief,
+  };
   const sys = session.conversationHistory.find((m) => m.role === "system");
   if (sys) {
-    sys.content = upsertWorldStateSection(sys.content, "plan", formatTurnPlanWorldState(plan));
+    sys.content = upsertWorldStateSection(
+      sys.content,
+      "plan",
+      formatTurnPlanWorldState(session.turnPlan),
+    );
     session.worldStateBaseline = collectWorldStateHashes(sys.content);
     session.worldStateEpoch = (session.worldStateEpoch ?? 0) + 1;
   }

@@ -1,6 +1,7 @@
 /**
  * Overflow recovery: shrink already-written tool results without dropping
  * tool-call / tool-result pairing. No LLM summary.
+ * Default budget is the same CJK-honest ~1k token cap as history writes.
  */
 
 import {
@@ -8,8 +9,6 @@ import {
   summarizeToolResultForHistory,
 } from "./tool-result-history.js";
 import type { AgentMessage, AgentSession, ToolCallResult } from "./types.js";
-
-const OVERFLOW_PRUNE_MAX_CHARS = 4_000;
 
 export function isContextOverflowError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
@@ -31,9 +30,14 @@ function parseToolContent(content: string): unknown {
 
 export function pruneToolResultsInHistory(
   messages: AgentMessage[],
-  opts?: { maxChars?: number },
+  opts?: { maxChars?: number; maxTokens?: number },
 ): { messages: AgentMessage[]; prunedCount: number; charsRemoved: number } {
-  const maxChars = opts?.maxChars ?? OVERFLOW_PRUNE_MAX_CHARS;
+  const historyOpts =
+    typeof opts?.maxChars === "number"
+      ? { maxChars: opts.maxChars }
+      : typeof opts?.maxTokens === "number"
+        ? { maxTokens: opts.maxTokens }
+        : {};
   let prunedCount = 0;
   let charsRemoved = 0;
   const next = messages.map((msg) => {
@@ -47,8 +51,8 @@ export function pruneToolResultsInHistory(
     if (source == null) {
       return msg;
     }
-    const slim = summarizeToolResultForHistory(source, { maxChars });
-    const content = stringifyToolResultForHistory(slim, { maxChars });
+    const slim = summarizeToolResultForHistory(source, historyOpts);
+    const content = stringifyToolResultForHistory(slim, historyOpts);
     if (content.length >= before) {
       return msg;
     }
@@ -68,7 +72,7 @@ export function pruneToolResultsInHistory(
 
 export function pruneSessionToolResults(
   session: AgentSession,
-  opts?: { maxChars?: number },
+  opts?: { maxChars?: number; maxTokens?: number },
 ): { prunedCount: number; charsRemoved: number } {
   const result = pruneToolResultsInHistory(session.conversationHistory, opts);
   if (result.prunedCount === 0) {

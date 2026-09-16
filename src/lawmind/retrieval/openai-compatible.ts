@@ -6,8 +6,18 @@
  * - 兼容 OpenAI 风格 /v1/chat/completions 接口
  */
 
-import { computeRetryDelayMs, isRetryableHttpFailure } from "../llm/http-retry.js";
+import {
+  assistantOutputLooksTruncated,
+  extractAssistantText,
+  shouldResampleSidecarJson,
+} from "../agent/assistant-text.js";
+import {
+  modelAttemptBudget,
+  shouldRetryTransportFailure,
+  waitModelRetry,
+} from "../llm/http-retry.js";
 import { PROMPT_WINDOW, truncateForPrompt } from "../memory/prompt-windows.js";
+import { resolveClassifySidecarLimits } from "../models/capability-envelope.js";
 import { createOutboundProxy } from "../platform/outbound-proxy.js";
 import type { RetrievalAdapter } from "./index.js";
 import { createGeneralModelAdapter, createLegalModelAdapter } from "./model-adapters.js";
@@ -138,21 +148,30 @@ export function fallbackRetrievalFromNonJson(content: string): ModelRetrievalOut
   };
 }
 
-const RETRIEVAL_MAX_RETRIES = 2;
 const retrievalProxy = createOutboundProxy({ requestTag: "retrieval-openai" });
+
+const EMPTY_RETRIEVAL: ModelRetrievalOutput = {
+  claims: [],
+  riskFlags: ["模型返回为空"],
+  missingItems: ["模型未返回结构化内容"],
+};
+
+type RetrievalOnce =
+  | { type: "ok"; value: ModelRetrievalOutput; truncated: boolean }
+  | { type: "unusable"; text: string; truncated: boolean }
+  | { type: "fatal"; value: ModelRetrievalOutput };
 
 async function fetchOpenAICompatibleOnce(
   cfg: OpenAICompatibleClientConfig,
   input: ModelRetrievalInput,
   role: "general" | "legal",
   externalSignal?: AbortSignal,
-): Promise<ModelRetrievalOutput> {
-  const timeoutMs = cfg.timeoutMs ?? 30000;
+): Promise<RetrievalOnce> {
+  const sidecar = resolveClassifySidecarLimits({ timeoutMs: cfg.timeoutMs });
+  const timeoutMs = cfg.timeoutMs ?? sidecar.timeoutMs;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  // Link external (turn-level) abort with the per-call timeout so either
-  // can cancel the underlying fetch — not just the timeout.
   const onExternalAbort = () => controller.abort();
   if (externalSignal) {
     if (externalSignal.aborted) {
@@ -172,7 +191,8 @@ async function fetchOpenAICompatibleOnce(
       },
       body: JSON.stringify({
         model: cfg.model,
-        temperature: cfg.temperature ?? 0.1,
+        temperature: cfg.temperature ?? sidecar.temperature,
+        max_tokens: sidecar.maxTokens,
         response_format: { type: "json_object" },
         messages: buildMessages(input, role),
       }),
@@ -181,47 +201,67 @@ async function fetchOpenAICompatibleOnce(
 
     if (!res.ok) {
       const err = new Error(`模型调用失败: HTTP ${res.status}`);
-      if (isRetryableHttpFailure(err, res.status)) {
+      if (shouldRetryTransportFailure(err, { httpStatus: res.status, signal: externalSignal })) {
         throw err;
       }
       return {
-        claims: [],
-        riskFlags: [`模型调用失败: HTTP ${res.status}`],
-        missingItems: ["模型未返回有效结果"],
+        type: "fatal",
+        value: {
+          claims: [],
+          riskFlags: [`模型调用失败: HTTP ${res.status}`],
+          missingItems: ["模型未返回有效结果"],
+        },
       };
     }
 
     const json = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
+      choices?: Array<{
+        message?: { content?: string | null; reasoning_content?: string | null };
+        finish_reason?: string | null;
+      }>;
     };
-    const content = json.choices?.[0]?.message?.content?.trim() ?? "";
-    if (!content) {
-      return {
-        claims: [],
-        riskFlags: ["模型返回为空"],
-        missingItems: ["模型未返回结构化内容"],
-      };
+    const view = extractAssistantText(json);
+    const truncated = assistantOutputLooksTruncated(view);
+    if (!view.text) {
+      return { type: "unusable", text: "", truncated };
     }
 
-    const parsed = safeJsonParse<ModelRetrievalOutput>(content);
+    const parsed = safeJsonParse<ModelRetrievalOutput>(view.text);
     if (!parsed) {
-      return fallbackRetrievalFromNonJson(content);
+      return { type: "unusable", text: view.text, truncated };
     }
 
     return {
-      claims: parsed.claims ?? [],
-      sources: parsed.sources ?? [],
-      riskFlags: parsed.riskFlags ?? [],
-      missingItems: parsed.missingItems ?? [],
+      type: "ok",
+      truncated,
+      value: {
+        claims: parsed.claims ?? [],
+        sources: parsed.sources ?? [],
+        riskFlags: parsed.riskFlags ?? [],
+        missingItems: parsed.missingItems ?? [],
+      },
     };
   } catch (err) {
-    if (isRetryableHttpFailure(err)) {
+    if (externalSignal?.aborted) {
+      return {
+        type: "fatal",
+        value: {
+          claims: [],
+          riskFlags: ["模型调用已取消"],
+          missingItems: ["律师已停止"],
+        },
+      };
+    }
+    if (shouldRetryTransportFailure(err, { signal: externalSignal })) {
       throw err;
     }
     return {
-      claims: [],
-      riskFlags: [`模型调用异常: ${String(err)}`],
-      missingItems: ["模型调用失败，请稍后重试"],
+      type: "fatal",
+      value: {
+        claims: [],
+        riskFlags: [`模型调用异常: ${String(err)}`],
+        missingItems: ["模型调用失败，请稍后重试"],
+      },
     };
   } finally {
     clearTimeout(timer);
@@ -237,29 +277,61 @@ async function callOpenAICompatible(
   role: "general" | "legal",
   signal?: AbortSignal,
 ): Promise<ModelRetrievalOutput> {
-  let lastFailure: ModelRetrievalOutput | undefined;
-  for (let attempt = 0; attempt <= RETRIEVAL_MAX_RETRIES; attempt += 1) {
+  const attempts = modelAttemptBudget();
+  let lastUnusable = "";
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (signal?.aborted) {
+      return {
+        claims: [],
+        riskFlags: ["模型调用已取消"],
+        missingItems: ["律师已停止"],
+      };
+    }
     try {
-      return await fetchOpenAICompatibleOnce(cfg, input, role, signal);
-    } catch (err) {
-      if (attempt >= RETRIEVAL_MAX_RETRIES || !isRetryableHttpFailure(err)) {
-        lastFailure = {
-          claims: [],
-          riskFlags: [`模型调用异常: ${String(err)}`],
-          missingItems: ["模型调用失败，请稍后重试"],
-        };
-        break;
+      const once = await fetchOpenAICompatibleOnce(cfg, input, role, signal);
+      if (once.type === "fatal") {
+        return once.value;
       }
-      await new Promise((resolve) => setTimeout(resolve, computeRetryDelayMs(attempt)));
+      if (once.type === "ok") {
+        if (
+          shouldResampleSidecarJson({
+            parsed: true,
+            truncated: once.truncated,
+            attempt,
+            attempts,
+          })
+        ) {
+          await waitModelRetry(attempt);
+          continue;
+        }
+        return once.value;
+      }
+      lastUnusable = once.text;
+      if (
+        shouldResampleSidecarJson({
+          parsed: false,
+          truncated: once.truncated,
+          attempt,
+          attempts,
+        })
+      ) {
+        await waitModelRetry(attempt);
+        continue;
+      }
+      return lastUnusable ? fallbackRetrievalFromNonJson(lastUnusable) : EMPTY_RETRIEVAL;
+    } catch (err) {
+      if (attempt + 1 < attempts && shouldRetryTransportFailure(err, { signal })) {
+        await waitModelRetry(attempt);
+        continue;
+      }
+      return {
+        claims: [],
+        riskFlags: [`模型调用异常: ${String(err)}`],
+        missingItems: ["模型调用失败，请稍后重试"],
+      };
     }
   }
-  return (
-    lastFailure ?? {
-      claims: [],
-      riskFlags: ["模型调用失败"],
-      missingItems: ["模型调用失败，请稍后重试"],
-    }
-  );
+  return lastUnusable ? fallbackRetrievalFromNonJson(lastUnusable) : EMPTY_RETRIEVAL;
 }
 
 /**

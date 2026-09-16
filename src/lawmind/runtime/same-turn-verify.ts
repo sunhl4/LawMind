@@ -11,6 +11,7 @@ import { parseCraftCheckInput } from "../drafts/contract-redline-craft.js";
 import { readDraft } from "../drafts/index.js";
 import { readRedlinePlan } from "../drafts/redline-plan.js";
 import { readRedlineProposal } from "../drafts/redline-proposal.js";
+import { isInfraGuardianView } from "../guardian/legal-guardian.js";
 import { readLatestGuardian } from "../guardian/store.js";
 import { draftTextFromUnknown, runLegalLint } from "../lint/run-lint.js";
 import { classifyResidual } from "../lint/self-revise.js";
@@ -29,6 +30,11 @@ type ToolResultLike = {
 
 export const SAME_TURN_VERIFY_BOUNCE_MAX = 3;
 export const SAME_TURN_VERIFY_USER_PREFIX = "【同一回合验收未过】";
+/** Persisted after a red pause; much smaller than the full bounce user message. */
+export const SAME_TURN_VERIFY_DIGEST_PREFIX = "【验收缺口】";
+
+const VERIFY_CODE_IN_BOUNCE_RE =
+  /\[(empty_redline|craft_check_missing|citation_integrity|lint_mechanical|guardian_fail|xml_qa_fail)\]/g;
 
 export type SameTurnVerifyCode =
   | "empty_redline"
@@ -38,11 +44,31 @@ export type SameTurnVerifyCode =
   | "guardian_fail"
   | "xml_qa_fail";
 
+/** Lawyer-facing gate badge; codes stay in `issues[].code` / bounce lines. */
+export const SAME_TURN_VERIFY_CODE_LABEL: Record<SameTurnVerifyCode, string> = {
+  empty_redline: "空修订",
+  craft_check_missing: "未附缓办",
+  citation_integrity: "引用对不上来源",
+  lint_mechanical: "机械核对未过",
+  guardian_fail: "独立审稿未过",
+  xml_qa_fail: "未见审阅痕迹",
+};
+
+export function isSameTurnVerifyCode(code: string): code is SameTurnVerifyCode {
+  return Object.hasOwn(SAME_TURN_VERIFY_CODE_LABEL, code);
+}
+
 export type SameTurnVerifyIssue = {
   code: SameTurnVerifyCode;
   message: string;
   gate: GateDecisionKind;
-  nextTool?: "apply_surgical_edits" | "update_draft" | "draft_document" | "search_statute";
+  nextTool?:
+    | "apply_surgical_edits"
+    | "update_draft"
+    | "draft_document"
+    | "search_statute"
+    | "render_tracked_draft"
+    | "render_document";
 };
 
 export type SameTurnVerifyTurnState = {
@@ -103,6 +129,22 @@ export function formatSameTurnVerifyError(issues: SameTurnVerifyIssue[]): string
   return lines.join("\n");
 }
 
+/** Short gate badge / JSON reason — not a second copy of the bounce envelope. */
+export function formatSameTurnVerifyCodesReason(codes: string[], nextTool?: string): string {
+  const labels = [
+    ...new Set(codes.filter(isSameTurnVerifyCode).map((c) => SAME_TURN_VERIFY_CODE_LABEL[c])),
+  ];
+  const head = labels.length > 0 ? `验收未过：${labels.join("、")}` : "验收未过";
+  return nextTool ? `${head}，请再交 ${nextTool}` : head;
+}
+
+export function formatSameTurnVerifyGateReason(issues: SameTurnVerifyIssue[]): string {
+  return formatSameTurnVerifyCodesReason(
+    issues.map((i) => i.code),
+    issues.find((i) => i.nextTool)?.nextTool,
+  );
+}
+
 export function formatSameTurnCompletionBounce(state: SameTurnVerifyTurnState): string {
   return formatSameTurnVerifyError(state.issues);
 }
@@ -114,6 +156,196 @@ export function formatSameTurnVerifyPaused(state: SameTurnVerifyTurnState): stri
   ].join("\n");
 }
 
+/** Minimal history row — avoids importing agent types into this runtime module. */
+export type SameTurnVerifyHistoryMessage = {
+  role: string;
+  content: string;
+  timestamp: string;
+  hiddenFromLawyer?: boolean;
+};
+
+export type SameTurnVerifyCollapseMode = "keep_latest_full" | "digest" | "drop";
+
+export function isSameTurnVerifyBounceMessage(
+  msg: Pick<SameTurnVerifyHistoryMessage, "role" | "content" | "hiddenFromLawyer">,
+): boolean {
+  if (msg.role !== "user" || msg.hiddenFromLawyer !== true) {
+    return false;
+  }
+  return (
+    msg.content.startsWith(SAME_TURN_VERIFY_USER_PREFIX) ||
+    msg.content.startsWith(SAME_TURN_VERIFY_DIGEST_PREFIX)
+  );
+}
+
+export function isSameTurnVerifyFullBounceMessage(
+  msg: Pick<SameTurnVerifyHistoryMessage, "role" | "content" | "hiddenFromLawyer">,
+): boolean {
+  return (
+    msg.role === "user" &&
+    msg.hiddenFromLawyer === true &&
+    msg.content.startsWith(SAME_TURN_VERIFY_USER_PREFIX)
+  );
+}
+
+export function formatSameTurnVerifyDigest(codes: string[], red: boolean): string {
+  const list = codes.length > 0 ? codes.join("、") : "verify";
+  return red
+    ? `${SAME_TURN_VERIFY_DIGEST_PREFIX}仍红：${list}`
+    : `${SAME_TURN_VERIFY_DIGEST_PREFIX}已处理：${list}`;
+}
+
+export function collectSameTurnVerifyCodesFromMessages(
+  messages: SameTurnVerifyHistoryMessage[],
+  issues?: SameTurnVerifyIssue[],
+): SameTurnVerifyCode[] {
+  const codes: SameTurnVerifyCode[] = [];
+  const seen = new Set<string>();
+  const push = (code: string): void => {
+    if (!isSameTurnVerifyCode(code) || seen.has(code)) {
+      return;
+    }
+    seen.add(code);
+    codes.push(code);
+  };
+  for (const issue of issues ?? []) {
+    push(issue.code);
+  }
+  if (codes.length > 0) {
+    return codes;
+  }
+  for (const msg of messages) {
+    if (!isSameTurnVerifyBounceMessage(msg)) {
+      continue;
+    }
+    VERIFY_CODE_IN_BOUNCE_RE.lastIndex = 0;
+    let match: RegExpExecArray | null = VERIFY_CODE_IN_BOUNCE_RE.exec(msg.content);
+    while (match) {
+      push(match[1] ?? "");
+      match = VERIFY_CODE_IN_BOUNCE_RE.exec(msg.content);
+    }
+  }
+  return codes;
+}
+
+/**
+ * Bounce user messages are for the *next sample only*.
+ * - keep_latest_full: still red, about to sample — one full bounce, drop duplicates.
+ * - digest: still red at persist/pause — one short code line for resume.
+ * - drop: validators green — delete bounce rows (tool error already in history).
+ */
+export function collapseSameTurnVerifyBounces<T extends SameTurnVerifyHistoryMessage>(
+  messages: T[],
+  opts: {
+    red: boolean;
+    issues?: SameTurnVerifyIssue[];
+    mode: SameTurnVerifyCollapseMode;
+  },
+): { messages: T[]; removedFullBounces: number } {
+  const bounceIndexes: number[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    if (isSameTurnVerifyBounceMessage(messages[i])) {
+      bounceIndexes.push(i);
+    }
+  }
+  if (bounceIndexes.length === 0) {
+    return { messages, removedFullBounces: 0 };
+  }
+
+  if (opts.mode === "drop") {
+    let removedFullBounces = 0;
+    const next = messages.filter((msg) => {
+      if (!isSameTurnVerifyBounceMessage(msg)) {
+        return true;
+      }
+      if (isSameTurnVerifyFullBounceMessage(msg)) {
+        removedFullBounces += 1;
+      }
+      return false;
+    });
+    return { messages: next, removedFullBounces };
+  }
+
+  if (opts.mode === "keep_latest_full") {
+    const lastFull = [...bounceIndexes]
+      .toReversed()
+      .find((i) => isSameTurnVerifyFullBounceMessage(messages[i]));
+    if (lastFull === undefined) {
+      return { messages, removedFullBounces: 0 };
+    }
+    let removedFullBounces = 0;
+    const next = messages.filter((msg, i) => {
+      if (!isSameTurnVerifyBounceMessage(msg)) {
+        return true;
+      }
+      if (i === lastFull) {
+        return true;
+      }
+      if (isSameTurnVerifyFullBounceMessage(msg)) {
+        removedFullBounces += 1;
+      }
+      return false;
+    });
+    return { messages: next, removedFullBounces };
+  }
+
+  const codes = collectSameTurnVerifyCodesFromMessages(messages, opts.issues);
+  const lastIdx = bounceIndexes[bounceIndexes.length - 1];
+  const last = messages[lastIdx];
+  const digest = {
+    ...last,
+    role: "user",
+    content: formatSameTurnVerifyDigest(codes, opts.red),
+    hiddenFromLawyer: true,
+  } as T;
+  let removedFullBounces = 0;
+  const next: T[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (!isSameTurnVerifyBounceMessage(msg)) {
+      next.push(msg);
+      continue;
+    }
+    if (isSameTurnVerifyFullBounceMessage(msg)) {
+      removedFullBounces += 1;
+    }
+    if (i === lastIdx) {
+      next.push(digest);
+    }
+  }
+  return { messages: next, removedFullBounces };
+}
+
+export function applySameTurnVerifyHistoryCollapse(
+  session: { conversationHistory: SameTurnVerifyHistoryMessage[] },
+  turn: {
+    messages: SameTurnVerifyHistoryMessage[];
+    sameTurnVerify?: SameTurnVerifyTurnState;
+  },
+  mode: SameTurnVerifyCollapseMode,
+): { removedFullBounces: number } {
+  const red = Boolean(turn.sameTurnVerify?.red);
+  const issues = turn.sameTurnVerify?.issues;
+  const hist = collapseSameTurnVerifyBounces(session.conversationHistory, { red, issues, mode });
+  session.conversationHistory = hist.messages;
+  const turnMsgs = collapseSameTurnVerifyBounces(turn.messages, { red, issues, mode });
+  turn.messages = turnMsgs.messages;
+  return { removedFullBounces: hist.removedFullBounces };
+}
+
+export function collapseSameTurnVerifyHistoryForTurnEnd(
+  session: { conversationHistory: SameTurnVerifyHistoryMessage[] },
+  turn: {
+    messages: SameTurnVerifyHistoryMessage[];
+    sameTurnVerify?: SameTurnVerifyTurnState;
+  },
+): { removedFullBounces: number } {
+  const mode: SameTurnVerifyCollapseMode = shouldBounceSameTurnCompletion(turn.sameTurnVerify)
+    ? "digest"
+    : "drop";
+  return applySameTurnVerifyHistoryCollapse(session, turn, mode);
+}
+
 export function failToolWithSameTurnVerify(
   result: ToolResultLike,
   issues: SameTurnVerifyIssue[],
@@ -123,14 +355,22 @@ export function failToolWithSameTurnVerify(
   }
   const message = formatSameTurnVerifyError(issues);
   const primary = issues[0];
+  const verifyRest = { ...asRecord(asRecord(result.data)?.verify) };
+  delete verifyRest.message;
   const data = {
     ...asRecord(result.data),
-    verify: { message, codes: issues.map((i) => i.code), nextTool: primary.nextTool },
+    // Full coach lives on `error` (and bounce user row). Do not triple-copy it
+    // into verify.message / gateDecision.reason — codes + issue rows stay.
+    verify: {
+      ...verifyRest,
+      codes: issues.map((i) => i.code),
+      nextTool: primary.nextTool,
+    },
     sameTurnVerify: { red: true as const, issues },
     gateDecision: withGateCategory({
       gate: primary.gate,
       decision: "block",
-      reason: message,
+      reason: formatSameTurnVerifyGateReason(issues),
     }),
   };
   return {
@@ -145,9 +385,9 @@ function issueXmlQaFail(): SameTurnVerifyIssue {
   return {
     code: "xml_qa_fail",
     gate: "redline_hunks_gate",
-    nextTool: "apply_surgical_edits",
+    nextTool: "render_tracked_draft",
     message:
-      "导出文件的 XML 未见审阅痕迹，不能当作已完成。请收窄 find/replace 后再交 apply_surgical_edits 并重新导出。",
+      "导出文件的 XML 未见审阅痕迹，不能当作已完成。请原样重交 render_tracked_draft，不要为此落改。",
   };
 }
 
@@ -197,21 +437,42 @@ function issueLint(ruleIds: string[]): SameTurnVerifyIssue {
 function issueGuardian(
   gaps?: unknown,
   nextTool: SameTurnVerifyIssue["nextTool"] = "apply_surgical_edits",
+  skipReason?: unknown,
 ): SameTurnVerifyIssue {
   const detail: string[] = [];
+  const gapRows: Array<{ code?: string; message?: string }> = [];
   if (Array.isArray(gaps)) {
     for (const row of gaps) {
       if (!row || typeof row !== "object" || Array.isArray(row)) {
         continue;
       }
-      const message = (row as { message?: unknown }).message;
+      const rec = row as { code?: unknown; message?: unknown };
+      const message = rec.message;
+      const code = typeof rec.code === "string" ? rec.code : "";
       if (typeof message === "string" && message.trim()) {
         detail.push(message.trim());
+        gapRows.push({ code, message: message.trim() });
       }
       if (detail.length >= 4) {
         break;
       }
     }
+  }
+  const infra = isInfraGuardianView({
+    verdict: "fail",
+    skipReason: typeof skipReason === "string" ? skipReason : undefined,
+    gaps: gapRows
+      .filter((g) => g.code && g.message)
+      .map((g) => ({ code: g.code!, message: g.message! })),
+  });
+  if (infra) {
+    return {
+      code: "guardian_fail",
+      gate: "legal_guardian_gate",
+      nextTool: nextTool === "update_draft" ? "render_document" : "render_tracked_draft",
+      message:
+        "独立审稿引擎未能读出结果。请原样重交本次导出，不要落改、不要改审稿措辞、不要把内部故障码写给律师。",
+    };
   }
   return {
     code: "guardian_fail",
@@ -291,13 +552,7 @@ function issuesFromStored(data?: Record<string, unknown>): SameTurnVerifyIssue[]
       continue;
     }
     const code = rec.code;
-    if (
-      code !== "empty_redline" &&
-      code !== "craft_check_missing" &&
-      code !== "citation_integrity" &&
-      code !== "lint_mechanical" &&
-      code !== "guardian_fail"
-    ) {
+    if (typeof code !== "string" || !isSameTurnVerifyCode(code)) {
       continue;
     }
     if (typeof rec.message !== "string" || !rec.message.trim()) {
@@ -386,13 +641,15 @@ export function collectSameTurnVerifyIssues(input: {
       issues.push(issueCraftCheckMissing());
     }
     if (data?.code === "legal_guardian_fail" || gate?.gate === "legal_guardian_gate") {
-      issues.push(issueGuardian(asRecord(data?.guardian)?.gaps));
+      const guardian = asRecord(data?.guardian);
+      issues.push(issueGuardian(guardian?.gaps, "apply_surgical_edits", guardian?.skipReason));
     }
   }
 
   if (toolName === "render_document") {
     if (data?.code === "legal_guardian_fail" || gate?.gate === "legal_guardian_gate") {
-      issues.push(issueGuardian(asRecord(data?.guardian)?.gaps, "update_draft"));
+      const guardian = asRecord(data?.guardian);
+      issues.push(issueGuardian(guardian?.gaps, "update_draft", guardian?.skipReason));
     }
   }
 
@@ -496,7 +753,7 @@ export function precheckOutboundSameTurnVerify(input: {
     }
     const guardian = readLatestGuardian(workspaceDir, taskId);
     if (guardian?.verdict === "fail") {
-      issues.push(issueGuardian(guardian.gaps));
+      issues.push(issueGuardian(guardian.gaps, "apply_surgical_edits", guardian.skipReason));
     }
   }
   const text = draftTextFromUnknown({

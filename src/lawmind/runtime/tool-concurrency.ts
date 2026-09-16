@@ -53,6 +53,11 @@ export function isToolConcurrencySafe(registry: ToolRegistry, toolName: string):
     "check_conflict_of_interest",
     "search_statute",
     "search_case_law",
+    "search_statute_web",
+    "web_search",
+    "url_dossier",
+    "explore_folder",
+    "compare_documents",
   ]);
   return readOnly.has(toolName);
 }

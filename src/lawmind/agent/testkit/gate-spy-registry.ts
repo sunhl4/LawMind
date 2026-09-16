@@ -3,6 +3,7 @@
  * and approval gates fire. Execute is a recorder — shadow replay owns real draft_document.
  */
 
+import { exploreFolderTool } from "../tools/legal/explore-folder-tool.js";
 import { updatePlanTool } from "../tools/legal/update-plan-tool.js";
 import { ToolRegistry } from "../tools/registry.js";
 import type { AgentTool, ToolCallResult, ToolDefinition } from "../types.js";
@@ -48,6 +49,7 @@ const SPY_SPECS: SpySpec[] = [
   { name: "prepare_outbound_mail", category: "system", riskLevel: "medium" },
   { name: "read_project_file", category: "search", riskLevel: "low" },
   { name: "list_dir", category: "search", riskLevel: "low" },
+  { name: "explore_folder", category: "search", riskLevel: "low" },
   { name: "apply_surgical_edits", category: "draft", riskLevel: "medium" },
   { name: "list_mail_inbox", category: "system", riskLevel: "low" },
   { name: "request_approval", category: "system", riskLevel: "low" },
@@ -82,18 +84,28 @@ export function createGateSpyRegistry(extra: SpySpec[] = []): GateSpyRegistry {
       spec.name,
       spec.name === "update_plan"
         ? (args, ctx) => updatePlanTool.execute(args, ctx)
-        : async () => defaultResult(spec.name),
+        : spec.name === "explore_folder"
+          ? (args, ctx) => exploreFolderTool.execute(args, ctx)
+          : async () => defaultResult(spec.name),
     );
     registry.register({
       definition: {
         name: spec.name,
         description:
-          spec.name === "update_plan" ? updatePlanTool.definition.description : spec.name,
+          spec.name === "update_plan"
+            ? updatePlanTool.definition.description
+            : spec.name === "explore_folder"
+              ? exploreFolderTool.definition.description
+              : spec.name,
         category: spec.category,
-        parameters: spec.parameters ?? {},
+        parameters:
+          spec.name === "explore_folder"
+            ? exploreFolderTool.definition.parameters
+            : (spec.parameters ?? {}),
         requiresApproval: spec.requiresApproval,
         riskLevel: spec.riskLevel,
-        isConcurrencySafe: spec.name === "update_plan" ? false : undefined,
+        isConcurrencySafe:
+          spec.name === "update_plan" ? false : spec.name === "explore_folder" ? true : undefined,
       },
       execute: async (args, ctx) => {
         const run = executes.get(spec.name);

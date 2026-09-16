@@ -247,6 +247,39 @@ export const INTENT_GOLD_CASES: readonly IntentGoldCase[] = [
     expect: "litigation.draft",
   },
   {
+    id: "reject-review-check-letter",
+    input: {
+      instruction:
+        "我要你做的不是合同审核，是根据【河南堃云顿数据科技有限公司】文件夹里的信息帮我看我起草的律师函内容是否有误",
+      previousCapabilityId: "contract.review",
+    },
+    expect: "letter.draft",
+  },
+  {
+    id: "reject-review-letter-with-folder-pin",
+    input: {
+      instruction: "不是合同审核，根据文件夹里的信息看我起草的律师函是否有误",
+      previousCapabilityId: "contract.review",
+      pins: [
+        {
+          pinKind: "file",
+          root: "project",
+          relPath: "河南堃云顿数据科技有限公司",
+          kind: "directory",
+        },
+      ],
+    },
+    expect: "letter.draft",
+  },
+  {
+    id: "letter-qa-plus-letter-file",
+    input: {
+      instruction: "核对我起草的律师函是否有误",
+      pins: [pin("律师函.docx")],
+    },
+    expect: "letter.draft",
+  },
+  {
     id: "matter-litigation-vague-evidence",
     input: {
       instruction: "帮我看看",

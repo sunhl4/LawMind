@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatCapabilityCatalogIndex } from "./catalog.js";
-import { compileIntent, extractIntentSignals } from "./compile-intent.js";
+import { compileIntent, compiledIntentPlanItems, extractIntentSignals } from "./compile-intent.js";
 
 describe("compileIntent", () => {
   it("nails mail short path and explicit lock over keywords", () => {
@@ -30,7 +30,9 @@ describe("compileIntent", () => {
     });
     expect(compiled.capabilityId).toBe("contract.review");
     expect(compiled.source).toBe("joint");
+    expect(compiled.confidence).toBe("medium");
     expect(compiled.lawyerSummary).toContain("合同审查");
+    expect(compiled.lawyerSummary).toContain("本轮初步判断");
   });
 
   it("does not treat a complaint that quotes a contract as contract review", () => {
@@ -171,6 +173,65 @@ describe("compileIntent", () => {
         previousCapabilityId: undefined,
       }).capabilityId,
     ).toBeUndefined();
+  });
+
+  it("does not bind contract.review when the lawyer rejects 合同审核 and asks to check a 律师函", () => {
+    const compiled = compileIntent({
+      instruction:
+        "我要你做的不是合同审核，是根据【河南堃云顿数据科技有限公司】文件夹里的信息帮我看我起草的律师函内容是否有误",
+      previousCapabilityId: "contract.review",
+    });
+    expect(compiled.capabilityId).toBe("letter.draft");
+    expect(compiled.source).toBe("keyword");
+    expect(compiled.lawyerSummary).toContain("核对已起草律师函");
+    expect(compiled.lawyerSummary).toContain("本轮初步判断");
+    expect(compiled.lawyerSummary).toContain("以律师本轮原话为准");
+    expect(compiled.lawyerSummary).toContain("勿续上轮合同审查");
+    expect(compiled.pipelineOverride).toBeUndefined();
+  });
+
+  it("keeps 函件 QA plus a pinned letter as a soft hypothesis, not a Skill dump", () => {
+    const compiled = compileIntent({
+      instruction: "核对我起草的律师函是否有误",
+      pins: [
+        {
+          pinKind: "file",
+          root: "project",
+          relPath: "律师函.docx",
+          kind: "file",
+        },
+      ],
+    });
+    expect(compiled.capabilityId).toBe("letter.draft");
+    expect(compiled.source).toBe("joint");
+    expect(compiled.confidence).toBe("medium");
+    expect(compiled.lawyerSummary).toContain("核对已起草律师函");
+    expect(compiled.lawyerSummary).toContain("本轮初步判断");
+  });
+
+  it("does not auto-seed a checklist from a keyword-only bind", () => {
+    const compiled = compileIntent({
+      instruction: "审查这份合同并写催告函",
+    });
+    expect(compiled.source).toBe("keyword");
+    expect(compiled.chain.length).toBeGreaterThanOrEqual(2);
+    expect(compiledIntentPlanItems(compiled)).toEqual([]);
+  });
+
+  it("keeps explicit 审查 plus a contract file as review even when the line also asks for a 催告函", () => {
+    const compiled = compileIntent({
+      instruction: "审查这份合同并写催告函",
+      pins: [
+        {
+          pinKind: "file",
+          root: "project",
+          relPath: "采购合同.docx",
+          kind: "file",
+        },
+      ],
+    });
+    expect(compiled.capabilityId).toBe("contract.review");
+    expect(compiled.chain).toContain("letter.draft");
   });
 
   it("extracts mixed signals for a pinned word plus vague text", () => {

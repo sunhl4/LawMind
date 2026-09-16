@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   AGENT_MANDATORY_RULES_MAX_CHARS,
+  DEFAULT_AGENT_MAX_TOOL_CALLS_PER_TURN,
   readWorkspacePolicyFile,
   resolveAgentMandatoryRulesForPrompt,
   resolveAgentMaxHistoryMessages,
@@ -192,6 +193,22 @@ describe("resolveAgentMaxToolCallsPerTurn", () => {
         "utf8",
       );
       expect(resolveAgentMaxToolCallsPerTurn(dir)).toBe(8);
+    } finally {
+      if (prev !== undefined) {
+        process.env.LAWMIND_AGENT_MAX_TOOL_CALLS = prev;
+      } else {
+        delete process.env.LAWMIND_AGENT_MAX_TOOL_CALLS;
+      }
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("defaults to the orchestrator soft cap when policy and env are unset", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-mtc-default-"));
+    const prev = process.env.LAWMIND_AGENT_MAX_TOOL_CALLS;
+    try {
+      delete process.env.LAWMIND_AGENT_MAX_TOOL_CALLS;
+      expect(resolveAgentMaxToolCallsPerTurn(dir)).toBe(DEFAULT_AGENT_MAX_TOOL_CALLS_PER_TURN);
     } finally {
       if (prev !== undefined) {
         process.env.LAWMIND_AGENT_MAX_TOOL_CALLS = prev;

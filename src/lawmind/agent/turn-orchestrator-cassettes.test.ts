@@ -10,12 +10,14 @@ import path from "node:path";
  * steer, playbook tool locks, permission/approval pipeline.
  */
 import { describe, expect, it } from "vitest";
-import { DELIVERY_MARKER_OPINION_MEMO } from "../intent/delivery-intent.js";
-import { COMPACT_REINJECTION_MARKER } from "./compact-insert.js";
 import {
-  MAIL_CONTRACT_FAST_PATH_DENIED_HINT,
-  MAIL_CONTRACT_FAST_PATH_TOOL_NAMES,
-} from "./mail-contract-fast-path.js";
+  DELIVERY_MARKER_CHAT_QA,
+  DELIVERY_MARKER_OPINION_MEMO,
+} from "../intent/delivery-intent.js";
+import { INTENT_HYPOTHESIS_HEADING, UNDERSTAND_FIRST_HEADING } from "../intent/understand-first.js";
+import { WORKING_BRIEF_HEADING } from "../intent/working-brief.js";
+import { COMPACT_REINJECTION_MARKER } from "./compact-insert.js";
+import { MAIL_CONTRACT_FAST_PATH_DENIED_HINT } from "./mail-contract-fast-path.js";
 import { formatSteerUserMessage } from "./session-context-steer.js";
 import { cassetteAssistant, cassetteToolCall, withTestLawMind } from "./testkit/index.js";
 import type { AgentMessage } from "./types.js";
@@ -144,12 +146,34 @@ describe("turn-orchestrator cassettes (admission)", () => {
         const result = await h.runTurn(WORD_REVISION);
         expect(h.request(0).hasAdvertisedTool("prepare_outbound_mail")).toBe(false);
         expect(h.request(0).hasAdvertisedTool("apply_surgical_edits")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("render_tracked_draft")).toBe(true);
         expect(h.request(0).hasAdvertisedTool("update_plan")).toBe(true);
         expect(h.request(0).hasAdvertisedTool("search_statute")).toBe(true);
         expect(h.request(0).hasAdvertisedTool("list_more_tools")).toBe(true);
         expect(h.request(0).hasAdvertisedTool("render_document")).toBe(false);
         expect(h.spy?.log.executedNames()).not.toContain("prepare_outbound_mail");
         expect(toolErrors(result)).toContain("prepare_outbound_mail");
+      },
+    );
+  });
+
+  it("file-page 用户将 chrome + 审查 does not lock write tools", async () => {
+    const instruction = [
+      "【用户将下列路径标为“本回合重点”；其中 1 个小文本已嵌入正文，其余为路径引用】",
+      "- [工作区 · 已嵌入正文] `采购合同摘录.txt`",
+      "",
+      "请审查这份采购合同",
+    ].join("\n");
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("已处理。"));
+        await h.runTurn(instruction);
+        expect(h.request(0).contains(instruction)).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("apply_surgical_edits")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("draft_document")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("render_document")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("update_plan")).toBe(true);
       },
     );
   });
@@ -433,7 +457,9 @@ describe("turn-orchestrator cassettes (admission)", () => {
         const history = h.session()?.conversationHistory ?? [];
         expect(history[0]?.role).toBe("system");
         expect(history.some((msg) => (msg.content ?? "").includes("<turn_context>"))).toBe(false);
-        expect(history.length).toBeLessThan(req.messageCount());
+        expect(
+          history.some((msg) => (msg.content ?? "").includes(`cases/${matterId}/CASE.md`)),
+        ).toBe(false);
       },
     );
   });
@@ -472,7 +498,7 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
-  it("implicit compile: 帮我看看 + 买卖合同.docx binds contract.review", async () => {
+  it("implicit compile: 帮我看看 + 买卖合同.docx hypothesizes review without caging tools", async () => {
     await withTestLawMind(
       (b) => b,
       async (h) => {
@@ -487,20 +513,19 @@ describe("turn-orchestrator cassettes (admission)", () => {
             },
           ],
         });
-        expect(h.session()?.lastBoundCapabilityId).toBe("contract.review");
+        expect(h.session()?.lastBoundCapabilityId).toBeUndefined();
         expect(result.turn.status).not.toBe("error");
-        const advertised = h.request(0).advertisedToolNames();
-        expect(advertised).toContain("update_plan");
-        expect(advertised).not.toEqual(
-          [...MAIL_CONTRACT_FAST_PATH_TOOL_NAMES, "update_plan"].toSorted((a, b) =>
-            a.localeCompare(b),
-          ),
-        );
+        expect(h.request(0).contains(INTENT_HYPOTHESIS_HEADING)).toBe(true);
+        expect(h.request(0).contains("## 本轮 LawMind 能力：合同审查")).toBe(false);
+        expect(h.request(0).hasAdvertisedTool("apply_surgical_edits")).toBe(false);
+        expect(h.request(0).hasAdvertisedTool("render_tracked_draft")).toBe(false);
+        expect(h.request(0).hasAdvertisedTool("update_plan")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("explore_folder")).toBe(true);
       },
     );
   });
 
-  it("implicit compile: 帮我看看 + 民事起诉状.docx binds litigation.draft", async () => {
+  it("implicit compile: 帮我看看 + 民事起诉状.docx hypothesizes litigation without Skill dump", async () => {
     await withTestLawMind(
       (b) => b,
       async (h) => {
@@ -515,7 +540,9 @@ describe("turn-orchestrator cassettes (admission)", () => {
             },
           ],
         });
-        expect(h.session()?.lastBoundCapabilityId).toBe("litigation.draft");
+        expect(h.session()?.lastBoundCapabilityId).toBeUndefined();
+        expect(h.request(0).contains("## 本轮 LawMind 能力：诉讼文书")).toBe(false);
+        expect(h.request(0).contains(INTENT_HYPOTHESIS_HEADING)).toBe(true);
       },
     );
   });
@@ -558,7 +585,7 @@ describe("turn-orchestrator cassettes (admission)", () => {
             },
           ],
         });
-        expect(h.session()?.lastBoundCapabilityId).toBe("contract.review");
+        expect(h.session()?.lastBoundCapabilityId).toBeUndefined();
 
         h.enqueue(cassetteAssistant("好的，已取消。"));
         await h.runTurn("不对");
@@ -567,6 +594,139 @@ describe("turn-orchestrator cassettes (admission)", () => {
         h.enqueue(cassetteAssistant("请说明要办的事。"));
         await h.runTurn("继续");
         expect(h.session()?.lastBoundCapabilityId).toBeUndefined();
+      },
+    );
+  });
+
+  it("rejecting 合同审核 for 律师函 QA drops the old plan and does not cage 函件起草", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("update_plan", {
+            plan: [
+              { step: "补读 MOU 第九条", status: "in_progress" },
+              { step: "导出意见书 Word", status: "pending" },
+            ],
+          }),
+          cassetteAssistant("先补读 MOU。"),
+        );
+        await h.runTurn("帮我看看", {
+          contextPins: [
+            {
+              pinKind: "file",
+              root: "project",
+              relPath: "买卖合同.docx",
+              kind: "file",
+            },
+          ],
+        });
+        expect(h.session()?.lastBoundCapabilityId).toBeUndefined();
+        expect(h.session()?.turnPlan?.items.some((item) => item.step.includes("MOU"))).toBe(true);
+
+        h.enqueue(cassetteAssistant("先看文件夹里的律师函。"));
+        await h.runTurn(
+          "我要你做的不是合同审核，是根据【河南堃云顿数据科技有限公司】文件夹里的信息帮我看我起草的律师函内容是否有误",
+        );
+        expect(h.session()?.lastBoundCapabilityId).toBeUndefined();
+        expect(h.session()?.turnPlan).toBeUndefined();
+        const next = h.request(-1);
+        expect(next.systemText()).not.toContain("补读 MOU 第九条");
+        expect(next.contains(UNDERSTAND_FIRST_HEADING)).toBe(true);
+        expect(next.contains(INTENT_HYPOTHESIS_HEADING)).toBe(true);
+        expect(next.contains("letter.draft")).toBe(true);
+        expect(next.contains("## 本轮 LawMind 能力：函件起草")).toBe(false);
+        expect(next.contains("## 本轮 LawMind 能力：合同审查")).toBe(false);
+        expect(next.hasAdvertisedTool("list_dir")).toBe(true);
+        expect(next.hasAdvertisedTool("explore_folder")).toBe(true);
+        expect(next.hasAdvertisedTool("apply_surgical_edits")).toBe(false);
+        expect(next.hasAdvertisedTool("draft_document")).toBe(false);
+        expect(next.hasAdvertisedTool("render_tracked_draft")).toBe(false);
+        expect(next.hasAdvertisedTool("render_document")).toBe(false);
+        expect(next.contains(WORKING_BRIEF_HEADING)).toBe(true);
+        expect(next.contains("不要做")).toBe(true);
+        expect(next.contains("合同审查")).toBe(true);
+        expect(next.contains(DELIVERY_MARKER_CHAT_QA)).toBe(true);
+      },
+    );
+  });
+
+  it("keyword-only review does not cage the next request with a Skill dump", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("先确认本轮要审什么。"));
+        await h.runTurn("请审查合同违约责任");
+        expect(h.session()?.lastBoundCapabilityId).toBeUndefined();
+        expect(h.request(0).contains(UNDERSTAND_FIRST_HEADING)).toBe(true);
+        expect(h.request(0).contains(INTENT_HYPOTHESIS_HEADING)).toBe(true);
+        expect(h.request(0).contains("## 本轮 LawMind 能力：合同审查")).toBe(false);
+        expect(h.request(0).hasAdvertisedTool("list_dir")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("read_skill")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("explore_folder")).toBe(true);
+      },
+    );
+  });
+
+  it("continue after keyword-only review does not dump Skill bodies", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("先确认本轮要审什么。"));
+        await h.runTurn("请审查合同条款");
+        h.enqueue(cassetteAssistant("继续核对违约条款。"));
+        await h.runTurn("继续");
+        expect(h.session()?.lastBoundCapabilityId).toBeUndefined();
+        const next = h.request(-1);
+        expect(next.contains("## 本轮 LawMind 能力：合同审查")).toBe(false);
+      },
+    );
+  });
+
+  it("working brief and explore_folder are on the 律师函 QA request; utterance is not rewritten", async () => {
+    const instruction =
+      "我要你做的不是合同审核，是根据【河南堃云顿数据科技有限公司】文件夹里的信息帮我看我起草的律师函内容是否有误";
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        const folder = `${h.workspaceDir}/河南堃云顿数据科技有限公司`;
+        fs.mkdirSync(folder);
+        fs.writeFileSync(`${folder}/律师函.txt`, "关于催告支付服务费。", "utf8");
+        h.enqueue(
+          cassetteToolCall("update_plan", {
+            plan: [
+              { step: "探查文件夹", status: "in_progress" },
+              { step: "核对律师函", status: "pending" },
+            ],
+            goal: "核对接律师函是否有误",
+            not_goal: "合同审查、审阅痕迹稿",
+            materials: "河南堃云顿数据科技有限公司 先 explore_folder",
+            done: "指出具体错误并引用材料",
+          }),
+          cassetteToolCall("explore_folder", {
+            goal: "根据文件夹核对接律师函是否有误",
+            not_goal: "合同审查、审阅痕迹稿",
+            path: "河南堃云顿数据科技有限公司",
+          }),
+          cassetteAssistant("函里催告事项需对照文件夹材料。"),
+        );
+        await h.runTurn(instruction);
+        expect(h.request(0).contains(instruction)).toBe(true);
+        expect(
+          h
+            .session()
+            ?.conversationHistory.some((m) => m.role === "user" && m.content === instruction),
+        ).toBe(true);
+        expect(h.request(0).contains(WORKING_BRIEF_HEADING)).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("explore_folder")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("apply_surgical_edits")).toBe(false);
+        expect(h.request(0).hasAdvertisedTool("draft_document")).toBe(false);
+        expect(h.session()?.turnPlan?.brief?.notGoal).toContain("合同审查");
+        expect(h.request(0).contains(DELIVERY_MARKER_CHAT_QA)).toBe(true);
+        expect(h.request(1).contains("<not_goal>")).toBe(true);
+        expect(h.spy?.log.executedNames()).toContain("explore_folder");
+        const explore = h.spy?.log.calls.find((c) => c.name === "explore_folder");
+        expect(explore?.result.ok).toBe(true);
       },
     );
   });

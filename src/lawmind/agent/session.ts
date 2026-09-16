@@ -16,6 +16,7 @@ import { writeJsonAtomic } from "../adapters/matter-storage/io.js";
 import { appendTranscriptLines } from "../adapters/session-transcript/index.js";
 import {
   formatRemainingTokensNote,
+  shouldInjectRemainingTokensNote,
   withEphemeralBudgetNote,
   withEphemeralTurnContext,
 } from "./prompt-fragments.js";
@@ -551,7 +552,7 @@ export function deriveModelMessagesForSampling(
   budget?: { used: number; effectiveLimit: number },
 ): ModelChatMessage[] {
   let messages = withEphemeralTurnContext(deriveModelMessages(session), session.samplingPromptTail);
-  if (budget) {
+  if (budget && shouldInjectRemainingTokensNote(budget.used, budget.effectiveLimit)) {
     messages = withEphemeralBudgetNote(
       messages,
       formatRemainingTokensNote(budget.used, budget.effectiveLimit),

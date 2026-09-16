@@ -11,6 +11,7 @@ import { emitPlatformGateSnapshot } from "../platform/audit-gate.js";
 import { executionStateFromTurn } from "../platform/execution-state.js";
 import { buildRequiresActionsFromTurn } from "../platform/requires-action.js";
 import { selectHardClarificationKeys } from "../router/intake-gate.js";
+import { collapseSameTurnVerifyHistoryForTurnEnd } from "../runtime/same-turn-verify.js";
 import { persistAgentInstructionTask } from "../tasks/index.js";
 import type { ClarificationQuestion } from "../types.js";
 import { attachPersistedLiveTraceToLastAssistant } from "./live-turn-progress.js";
@@ -152,6 +153,8 @@ export function finalizeAgentTurn(opts: {
     memory,
     ensureLiveProgressFinished,
   } = shared;
+
+  collapseSameTurnVerifyHistoryForTurnEnd(session, turn);
 
   turn.result = finalReply;
   turn.completedAt = new Date().toISOString();

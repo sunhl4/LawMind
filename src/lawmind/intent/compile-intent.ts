@@ -31,9 +31,11 @@ import {
 } from "./document-genre.js";
 import {
   extractTextIntent,
+  instructionLooksLikeLetterQa,
   isContinuationUtterance,
   isCorrectionUtterance,
   isGreetingOnly,
+  isLookOnlyUtterance,
 } from "./text-intent.js";
 import type {
   CompiledIntent,
@@ -105,10 +107,40 @@ function summaryFor(
   id: LawyerCapabilityId,
   evidence: IntentEvidence[],
   source: IntentSource,
+  confidence: CompiledIntent["confidence"],
 ): string {
   const fileBit = evidence.find((e) => e.kind === "file")?.detail;
   const via = source === "lock" ? "（按你的指定）" : fileBit ? `（${fileBit}）` : "";
-  return `本轮按「${labelOf(id)}」处理${via}`;
+  const droppedReview = evidence.some((e) => e.detail === "律师排除合同审查");
+  const letterQa = evidence.some((e) => e.detail === "核对已起草函件");
+  const dropBit = droppedReview ? "；勿续上轮合同审查或改稿清单" : "";
+  const hypothesis =
+    source === "keyword" ||
+    source === "matter" ||
+    source === "genre_default" ||
+    source === "continue" ||
+    (source === "joint" && confidence !== "high");
+  if (hypothesis) {
+    if (id === "letter.draft" && (droppedReview || letterQa)) {
+      return `本轮初步判断「核对已起草律师函」${via}；以律师本轮原话为准${dropBit}`;
+    }
+    return `本轮初步判断「${labelOf(id)}」${via}；以律师本轮原话为准${dropBit}`;
+  }
+  return `本轮按「${labelOf(id)}」处理${via}${dropBit}`;
+}
+
+function rejectReviewEvidence(signals: IntentSignals, id: LawyerCapabilityId): IntentEvidence[] {
+  if (signals.text.rejectsContractReview && id !== "contract.review") {
+    return [{ kind: "text", detail: "律师排除合同审查" }];
+  }
+  return [];
+}
+
+function letterQaEvidence(instruction: string): IntentEvidence[] {
+  if (instructionLooksLikeLetterQa(instruction)) {
+    return [{ kind: "text", detail: "核对已起草函件" }];
+  }
+  return [];
 }
 
 function pinRelPaths(input: CompileIntentInput): string[] {
@@ -233,7 +265,7 @@ function finish(
     evidence: opts.evidence,
     alternatives: opts.alternatives ?? [],
     chain: uniqueChain,
-    lawyerSummary: summaryFor(id, opts.evidence, opts.source),
+    lawyerSummary: summaryFor(id, opts.evidence, opts.source, opts.confidence),
     delivery: UNSPECIFIED_DELIVERY,
   };
 }
@@ -294,6 +326,10 @@ function keywordFallback(
   if (/时间线|大事记|时间轴/.test(instruction)) {
     return { id: "chronology.timeline", deliverableType: "matter.timeline" };
   }
+  if (text.rejectsContractReview && (text.wantsLetter || text.verbs.includes("letter"))) {
+    const demand = /催款|催告|demand/i.test(instruction);
+    return { id: "letter.draft", deliverableType: demand ? "letter.demand" : undefined };
+  }
   if (text.wantsLetter && text.wantsContract && text.verbs.includes("review")) {
     return { id: "contract.review" };
   }
@@ -307,7 +343,11 @@ function keywordFallback(
   if (text.verbs.includes("draft") && text.wantsContract) {
     return { id: "contract.draft" };
   }
-  if ((text.verbs.includes("review") || /审查|审阅|条款/.test(instruction)) && text.wantsContract) {
+  if (
+    !text.rejectsContractReview &&
+    (text.verbs.includes("review") || /审查|审阅|条款/.test(instruction)) &&
+    text.wantsContract
+  ) {
     return { id: "contract.review", deliverableType: "contract.review" };
   }
   if (text.verbs.includes("research")) {
@@ -350,7 +390,10 @@ function jointRoute(
     return { id: "materials.draft", deliverableType: "analysis.table" };
   }
 
-  if (dominantGenre === "letter" || (text.wantsLetter && hasMaterials)) {
+  if (dominantGenre === "letter" && !(text.verbs.includes("review") && text.wantsContract)) {
+    return { id: "letter.draft" };
+  }
+  if (text.wantsLetter && hasMaterials && !text.wantsContract && !text.verbs.includes("review")) {
     return { id: "letter.draft" };
   }
 
@@ -359,7 +402,7 @@ function jointRoute(
   }
 
   if (dominantGenre === "contract") {
-    if (verbs.has("letter") || text.wantsLetter) {
+    if ((verbs.has("letter") || text.wantsLetter) && !verbs.has("review")) {
       return { id: "letter.draft" };
     }
     if (verbs.has("draft") && !verbs.has("review") && !verbs.has("redline")) {
@@ -369,6 +412,20 @@ function jointRoute(
   }
 
   return undefined;
+}
+
+function jointConfidence(signals: IntentSignals): CompiledIntent["confidence"] {
+  if (!signals.hasMaterials) {
+    return "medium";
+  }
+  if (
+    isLookOnlyUtterance(signals.instruction) ||
+    isGreetingOnly(signals.instruction) ||
+    instructionLooksLikeLetterQa(signals.instruction)
+  ) {
+    return "medium";
+  }
+  return "high";
 }
 
 function chainFor(id: LawyerCapabilityId, signals: IntentSignals): LawyerCapabilityId[] {
@@ -438,8 +495,34 @@ function silentMixedPaperPick(signals: IntentSignals): LawyerCapabilityId {
  * Never asks the lawyer to pick a task type; mixed papers are resolved silently.
  */
 export function compileIntent(input: CompileIntentInput): CompiledIntent {
-  const compiled = compileIntentBody(input);
+  const compiled = softenReadFirstBind(compileIntentBody(input), input.instruction);
   return { ...compiled, delivery: resolveTurnDeliveryIntent(input.instruction, input.pins) };
+}
+
+/** Look-only / 函件 QA must not dump Skill bodies even if files make a joint match. */
+function softenReadFirstBind(compiled: CompiledIntent, instruction: string): CompiledIntent {
+  if (!compiled.capabilityId) {
+    return compiled;
+  }
+  if (
+    compiled.source === "lock" ||
+    compiled.source === "short_path" ||
+    compiled.source === "word_revision" ||
+    compiled.pipelineOverride === "tracked_redline"
+  ) {
+    return compiled;
+  }
+  if (!isLookOnlyUtterance(instruction) && !instructionLooksLikeLetterQa(instruction)) {
+    return compiled;
+  }
+  if (compiled.confidence !== "high") {
+    return compiled;
+  }
+  return {
+    ...compiled,
+    confidence: "medium",
+    lawyerSummary: summaryFor(compiled.capabilityId, compiled.evidence, compiled.source, "medium"),
+  };
 }
 
 function compileIntentBody(input: CompileIntentInput): CompiledIntent {
@@ -560,10 +643,19 @@ function compileIntentBody(input: CompileIntentInput): CompiledIntent {
   }
 
   if (joint) {
+    const jointEvidence: IntentEvidence[] = [
+      ...rejectReviewEvidence(signals, joint.id),
+      ...letterQaEvidence(instruction),
+    ];
+    if (files.length > 0) {
+      jointEvidence.push(...files);
+    } else {
+      jointEvidence.push({ kind: "text", detail: "材料形态" });
+    }
     return finish(joint.id, {
       source: "joint",
-      confidence: signals.hasMaterials ? "high" : "medium",
-      evidence: files.length > 0 ? files : [{ kind: "text", detail: "材料形态" }],
+      confidence: jointConfidence(signals),
+      evidence: jointEvidence,
       deliverableType: joint.deliverableType,
       chain: [joint.id, ...chainFor(joint.id, signals)],
     });
@@ -585,7 +677,12 @@ function compileIntentBody(input: CompileIntentInput): CompiledIntent {
     return finish(kw.id, {
       source: "keyword",
       confidence: "medium",
-      evidence: [{ kind: "text", detail: kw.deliverableType ?? kw.id }, ...files],
+      evidence: [
+        ...rejectReviewEvidence(signals, kw.id),
+        ...letterQaEvidence(instruction),
+        { kind: "text", detail: kw.deliverableType ?? kw.id },
+        ...files,
+      ],
       deliverableType: kw.deliverableType,
       chain: [kw.id, ...chainFor(kw.id, signals)],
     });
@@ -607,12 +704,14 @@ function compileIntentBody(input: CompileIntentInput): CompiledIntent {
 
   if (signals.hasMaterials && GENRE_DEFAULT[signals.dominantGenre]) {
     const id = GENRE_DEFAULT[signals.dominantGenre]!;
-    return finish(id, {
-      source: "genre_default",
-      confidence: "medium",
-      evidence: files,
-      chain: [id, ...chainFor(id, signals)],
-    });
+    if (!(id === "contract.review" && signals.text.rejectsContractReview)) {
+      return finish(id, {
+        source: "genre_default",
+        confidence: "medium",
+        evidence: files,
+        chain: [id, ...chainFor(id, signals)],
+      });
+    }
   }
 
   if (
@@ -628,6 +727,7 @@ function compileIntentBody(input: CompileIntentInput): CompiledIntent {
   }
   if (
     signals.matterKind === "contract" &&
+    !signals.text.rejectsContractReview &&
     signals.hasMaterials &&
     (signals.text.vague ||
       signals.text.verbs.includes("vague") ||
@@ -646,9 +746,6 @@ function compileIntentBody(input: CompileIntentInput): CompiledIntent {
   return emptyIntent("unbound");
 }
 
-export function compiledIntentPlanItems(compiled: CompiledIntent): string[] {
-  if (compiled.chain.length < 2) {
-    return [];
-  }
-  return compiled.chain.map((id) => labelOf(id)).slice(0, 8);
+export function compiledIntentPlanItems(_compiled: CompiledIntent): string[] {
+  return [];
 }

@@ -26,6 +26,17 @@ describe("LawMind Router", () => {
     expect(intent.requiresConfirmation).toBe(true);
   });
 
+  it("does not treat 「不是合同审核…律师函」 as contract review", () => {
+    const intent = route({
+      instruction:
+        "我要你做的不是合同审核，是根据【河南堃云顿数据科技有限公司】文件夹里的信息帮我看我起草的律师函内容是否有误",
+    });
+    expect(intent.kind).not.toBe("analyze.contract");
+    expect(intent.deliverableType).not.toBe("contract.review");
+    expect(intent.kind).toBe("draft.word");
+    expect(intent.deliverableType).toBe("letter.counsel");
+  });
+
   it("maps 起草催告函 to draft.word letter.demand", () => {
     const intent = route({ instruction: "起草催告函" });
     expect(intent.kind).toBe("draft.word");

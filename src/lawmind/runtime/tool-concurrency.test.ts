@@ -282,7 +282,7 @@ describe("executeToolBatches approval race", () => {
         ok: true,
         data: {
           deliveryReadiness: "draft_with_placeholders",
-          clarificationQuestions: [{ key: "amount", question: "合同金额？" }],
+          clarificationQuestions: [{ key: "addressee", question: "函件抬头给谁？" }],
         },
       }),
     });

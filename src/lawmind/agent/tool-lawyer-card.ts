@@ -115,6 +115,10 @@ function describeCallArgs(name: string, args: Record<string, unknown>): string |
       const file = basenamePath(firstString(args, ["path", "rel_path", "file", "file_path"]));
       return file || undefined;
     }
+    case "explore_folder": {
+      const folder = basenamePath(firstString(args, ["path", "materials"]));
+      return folder || undefined;
+    }
     case "compare_documents": {
       const a = basenamePath(firstString(args, ["file_a", "path_a"]));
       const b = basenamePath(firstString(args, ["file_b", "path_b"]));
@@ -232,7 +236,22 @@ function describeResultData(name: string, data: unknown): string | undefined {
   return undefined;
 }
 
-export function lawyerFacingToolFailureDetail(name: string, error?: string): string {
+function verifyCodesFromData(data: unknown): string[] {
+  if (!data || typeof data !== "object") {
+    return [];
+  }
+  const verify = (data as { verify?: { codes?: unknown } }).verify;
+  if (!Array.isArray(verify?.codes)) {
+    return [];
+  }
+  return verify.codes.filter((c): c is string => typeof c === "string" && c.trim().length > 0);
+}
+
+export function lawyerFacingToolFailureDetail(
+  name: string,
+  error?: string,
+  data?: unknown,
+): string {
   if (HIDDEN_PROCESS_TOOLS.has(name)) {
     if (/超时|timed out/i.test(error ?? "")) {
       return "已超时";
@@ -240,6 +259,28 @@ export function lawyerFacingToolFailureDetail(name: string, error?: string): str
     return "核算未完成";
   }
   const err = asTrimmedString(error);
+  const codes = verifyCodesFromData(data);
+  const blob = `${err}\n${codes.join("\n")}`;
+  if (!err && codes.length === 0) {
+    return "未完成";
+  }
+  if (err.includes("【同一回合验收未过】") || /请立即调用\s+\w+/.test(err) || codes.length > 0) {
+    if (/未见审阅痕迹|xml_qa/.test(blob)) {
+      return "导出未见审阅痕迹，请重导";
+    }
+    if (/独立审稿/.test(blob)) {
+      return "独立审稿未过";
+    }
+    if (/空修订|redlinePending=0|empty_redline/.test(blob)) {
+      return "未产生可核验修订";
+    }
+    if (/引用对不上/.test(blob)) {
+      return "引用对不上来源";
+    }
+    if (err.includes("【同一回合验收未过】") || /请立即调用\s+\w+/.test(err)) {
+      return "本回合验收未过";
+    }
+  }
   return err ? clip(err, 96) : "未完成";
 }
 
@@ -265,7 +306,7 @@ export function presentLawyerToolResult(
     return { title, detail: "已超时" };
   }
   if (!result.ok) {
-    return { title, detail: lawyerFacingToolFailureDetail(name, result.error) };
+    return { title, detail: lawyerFacingToolFailureDetail(name, result.error, result.data) };
   }
   if (result.data && typeof result.data === "object") {
     const verify = (result.data as { verify?: { message?: unknown } }).verify;

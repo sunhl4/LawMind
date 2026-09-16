@@ -109,6 +109,41 @@ describe("legal guardian verdict parse", () => {
     expect(parsed?.gaps[0]?.code).toBe("coverage_gap");
   });
 
+  it("parses fenced JSON and ignores trailing prose braces", () => {
+    const fenced = parseGuardianReviewerJson('```json\n{"verdict":"pass","gaps":[]}\n```');
+    expect(fenced?.verdict).toBe("pass");
+    const trailing = parseGuardianReviewerJson(
+      '{"verdict":"pass","gaps":[]}\n备注：对照 {检查单} 即可。',
+    );
+    expect(trailing?.verdict).toBe("pass");
+  });
+
+  it("accepts Chinese verdict aliases", () => {
+    expect(parseGuardianReviewerJson('{"verdict":"通过","gaps":[]}')?.verdict).toBe("pass");
+    expect(parseGuardianReviewerJson('{"verdict":"未过","gaps":[]}')?.verdict).toBe("fail");
+  });
+
+  it("does not treat infra fail as a coverage rewrite", () => {
+    expect(
+      formatGuardianFailMessage({
+        verdict: "fail",
+        round: 1,
+        maxRounds: 2,
+        skipReason: "unreadable",
+        gaps: [{ code: "guardian_unreadable", message: "无法解析" }],
+      }),
+    ).toContain("原样重交");
+    expect(
+      formatGuardianFailMessage({
+        verdict: "fail",
+        round: 1,
+        maxRounds: 2,
+        skipReason: "unreadable",
+        gaps: [{ code: "guardian_unreadable", message: "无法解析" }],
+      }),
+    ).not.toContain("补改");
+  });
+
   it("treats pass-with-gaps as fail", () => {
     const parsed = parseGuardianReviewerJson(
       '{"verdict":"pass","gaps":[{"code":"x","message":"仍有缺口"}]}',

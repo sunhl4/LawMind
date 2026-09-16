@@ -1,3 +1,4 @@
+export { hashGuardianEvidencePack, shouldReuseGuardianRecord } from "./evidence-hash.js";
 export {
   LEGAL_GUARDIAN_MAX_ROUNDS,
   buildGuardianEvidencePack,
@@ -10,7 +11,10 @@ export {
   guardianBlocksExport,
   guardianFailToolResult,
   guardianSystemPrompt,
+  extractFirstJsonObject,
   isInfraGuardianFail,
+  isInfraGuardianGapCode,
+  isInfraGuardianView,
   isLegalGuardianEnabled,
   parseGuardianReviewerJson,
   shouldRunLegalGuardianForDocument,
@@ -34,4 +38,5 @@ export {
   runLegalGuardianForDocument,
   runLegalGuardianForTrackedDraft,
   type GuardianCaller,
+  type GuardianReviewerDraw,
 } from "./run.js";

@@ -107,12 +107,16 @@ describe("legal-verify-middleware", () => {
     expect(next.ok).toBe(false);
     expect(next.error).toContain("引用对不上来源");
     const data = next.data as {
-      verify?: { message?: string };
-      gateDecision?: { gate?: string; category?: string };
+      verify?: { message?: string; codes?: string[] };
+      sameTurnVerify?: { issues?: Array<{ message?: string }> };
+      gateDecision?: { gate?: string; category?: string; reason?: string };
     };
-    expect(data.verify?.message).toContain("引用对不上来源");
+    expect(data.verify?.message).toBeUndefined();
+    expect(data.verify?.codes).toContain("citation_integrity");
+    expect(data.sameTurnVerify?.issues?.[0]?.message).toContain("引用对不上来源");
     expect(data.gateDecision?.gate).toBe("citation_integrity_gate");
     expect(data.gateDecision?.category).toBe("judgment_soft");
+    expect(data.gateDecision?.reason).not.toContain("【同一回合验收未过】");
   });
 
   it("marks document.general without citations as unverified, not failed", () => {

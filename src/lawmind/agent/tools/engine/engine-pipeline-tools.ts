@@ -8,7 +8,6 @@ import {
   prepareRedlineBaselineBeforeWrite,
   readDraft,
   resetRedlineBaselineFromDraft,
-  SURGICAL_MAX_FIND_WITH_TERMINATOR,
   validateDraftCitationsAgainstBundle,
 } from "../../../drafts/index.js";
 import { readResearchSnapshot } from "../../../drafts/research-snapshot.js";
@@ -636,7 +635,8 @@ export const updateDraft: AgentTool = {
 export const applySurgicalEdits: AgentTool = {
   definition: {
     name: "apply_surgical_edits",
-    description: `对已 seed 的合同草稿做精确 find/replace 落改。跨度硬门禁：能改几个字就只改几个字；段内只改有问题的句子；含句读的 find≤${SURGICAL_MAX_FIND_WITH_TERMINATOR} 字；整句/整段删写会被跳过/拒绝。条数不限（全文可很多处）。须附 craft_check.deferred（缓办，不是自评覆盖率；缺失视为工具错误）。勿把整节塞进 update_draft.sections。成功后返回 redlinePending；≥1 后再 render_tracked_draft。非锁定路径若省略 edits，可回落 drafts/<taskId>.redline-plan.json（意见推荐措辞编译结果）。`,
+    description:
+      "对已 seed 的合同草稿做精确 find/replace。跨度硬门禁由引擎执行（过长/整句 find 会被跳过或拒绝；细则见本轮 Craft Skill）。须附 craft_check.deferred（无缓办则 []）。成功后看 redlinePending，≥1 再 render_tracked_draft。短路径勿用 update_draft.sections 改正文。省略 edits 时可回落 redline-plan.json。",
     category: "draft",
     parameters: {
       task_id: {
@@ -646,13 +646,12 @@ export const applySurgicalEdits: AgentTool = {
       edits: {
         type: "array",
         description:
-          "[{ find, replace, note? }]；每处 find=最短锚定。非锁定路径可省略并用 redline-plan sidecar。条数不限，勿整句/整段",
+          "[{ find, replace, note? }]；每处 find=最短锚定。非锁定路径可省略并用 redline-plan sidecar。",
         required: false,
       },
       craft_check: {
         type: "object",
-        description:
-          "必填。缓办写入 deferred（无缓办则 []）。缺失视为工具错误，本回合不得结束。不要给自己打覆盖率。",
+        description: "必填。缓办写入 deferred（无缓办则 []）。缺失视为工具错误，本回合不得结束。",
       },
       summary: {
         type: "string",

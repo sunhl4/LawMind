@@ -38,6 +38,8 @@ import { resolveLawMindRoot } from "../assistants/store.js";
 import { compileIntent, compiledIntentPlanItems } from "../intent/compile-intent.js";
 import { resolveTurnDeliveryIntent } from "../intent/delivery-intent.js";
 import { loadMatterKindForIntent, peekPinnedDocuments } from "../intent/peek-pinned-documents.js";
+import { compiledIntentInjectsSkillBodies } from "../intent/understand-first.js";
+import { isCorrectionUtterance, isTaskSwitchUtterance } from "../intent/utterance-kind.js";
 import type { MemoryContext } from "../memory/index.js";
 import { isContractFastLaneInstruction } from "../platform/contract-fast-lane-instruction.js";
 import { extractSuggestedReplyTo } from "../platform/mail-contract-short-path-instruction.js";
@@ -55,7 +57,7 @@ import { deskItemById } from "../skills/lawyer-capability-lock.js";
 import { ensureLawyerWorkForTurn } from "../work/goal.js";
 import { intersectAllowedToolNames } from "./child-gates.js";
 import { mergeConfirmedAnswers } from "./confirmed-answers.js";
-import { resolveToolCallBudgets } from "./tool-budget.js";
+import { resolveToolCallBudgets, DEFAULT_SOFT_TOOL_CALLS } from "./tool-budget.js";
 import {
   cleanupFailedTurn,
   finalizeAgentTurn,
@@ -72,7 +74,6 @@ import {
 import { freezeTurnContext } from "./turn-step-context.js";
 import type { AgentConfig, AgentContext, AgentTurn } from "./types.js";
 
-const DEFAULT_MAX_TOOL_CALLS = 40;
 const DEFAULT_MAX_HISTORY_MESSAGES = 100;
 /** Used only when `AgentConfig.toolExecutionTimeoutMs` is unset — 0 = no wall-clock tool kill. */
 const DEFAULT_TOOL_TIMEOUT_MS = 0;
@@ -133,7 +134,7 @@ export async function runTurn(opts: {
       ? opts.linkedTaskId.trim()
       : undefined;
   const projectDirResolved = (opts.projectDir ?? config.projectDir)?.trim() || undefined;
-  const toolBudgets = resolveToolCallBudgets(config.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS);
+  const toolBudgets = resolveToolCallBudgets(config.maxToolCalls ?? DEFAULT_SOFT_TOOL_CALLS);
   const maxToolCalls = toolBudgets.soft;
   const maxHistory = config.maxHistoryMessages ?? DEFAULT_MAX_HISTORY_MESSAGES;
   const toolTimeoutMs = config.toolExecutionTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
@@ -269,19 +270,30 @@ export async function runTurn(opts: {
     projectDir: projectDirResolved,
     pins: opts.contextPins,
   }).catch(() => []);
+  const previousCapabilityId = session.lastBoundCapabilityId;
   const compiledIntent = compileIntent({
     instruction,
     pins: opts.contextPins,
     documents: documentPeeks,
     matterKind: loadMatterKindForIntent(config.workspaceDir, session.matterId),
-    previousCapabilityId: session.lastBoundCapabilityId,
+    previousCapabilityId,
     historyText,
     mailFastPath: mailContractTurn,
   });
-  if (compiledIntent.capabilityId) {
+  if (compiledIntent.capabilityId && compiledIntentInjectsSkillBodies(compiledIntent)) {
     session.lastBoundCapabilityId = compiledIntent.capabilityId;
   } else {
     delete session.lastBoundCapabilityId;
+  }
+  if (
+    session.turnPlan &&
+    (isTaskSwitchUtterance(instruction) ||
+      isCorrectionUtterance(instruction) ||
+      (previousCapabilityId &&
+        compiledIntent.capabilityId &&
+        compiledIntent.capabilityId !== previousCapabilityId))
+  ) {
+    session.turnPlan = undefined;
   }
   const chainPlanSteps = compiledIntentPlanItems(compiledIntent);
   if (chainPlanSteps.length >= 2 && !session.turnPlan) {
@@ -312,7 +324,7 @@ export async function runTurn(opts: {
     projectDir: projectDirResolved,
     documents: documentPeeks,
     matterKind: loadMatterKindForIntent(config.workspaceDir, session.matterId),
-    previousCapabilityId: session.lastBoundCapabilityId,
+    previousCapabilityId,
   });
   const modelToolNames = resolveModelToolNames({
     registeredNames: registry.listDefinitions().map((def) => def.name),
@@ -342,7 +354,7 @@ export async function runTurn(opts: {
   const toolSandboxEnabled =
     config.toolSandboxEnabled === true || resolveToolSandboxEnabled(config.workspaceDir);
 
-  // 4. 添加用户消息
+  // 4. 添加用户消息（原样入史，不得改写成另一句 prompt）
   session.conversationHistory.push({
     role: "user",
     content: instruction,

@@ -80,6 +80,7 @@ export const lawMindUrlDossierTool: AgentTool = {
     description:
       "抓取律师提供的 URL 列表为合规研究卷宗（hash/时间戳/摘录）。若提供 task_id，将 sources/claims 合并进该任务的 ResearchBundle，供后续 draft_document 引用。受 SSRF 与网络允许名单约束。",
     category: "search",
+    isConcurrencySafe: true,
     parameters: {
       urls: {
         type: "string",

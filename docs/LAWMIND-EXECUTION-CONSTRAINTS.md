@@ -170,7 +170,7 @@ pnpm exec vitest run \
 - **提示词**：`src/lawmind/drafts/contract-redline-craft.ts`
 - **作用**：整句/整段 `find` 会被拒或跳过。条数不限。
 - **手改**：改 `SURGICAL_MAX_FIND_CHARS` / `SURGICAL_MAX_FIND_WITH_TERMINATOR` 会立刻改变所有改稿能否落上。不要在邮件指令或 Skill 里另抄数字。
-- **本次**：邮件指令、开发 skill、以及 `apply_surgical_edits` 工具描述都改为读这里的常量，不再手抄 12。
+- **本次**：邮件指令与 Craft Skill 读这里的常量，不再手抄 12。`apply_surgical_edits` 每轮 tools JSON 只保留操作指针（硬门禁由引擎执行；数字不进广告描述）。
 
 ### 15a. 短路径旧改稿路警告碎片 — TIGHTEN
 
@@ -191,7 +191,7 @@ pnpm exec vitest run \
 - **路径**：`src/lawmind/guardian/`；交卷钩子 `render_tracked_draft`（空修订硬门禁之后、写 Word 之前）与意见类 `render_document`（验收门禁之后、盖戳/写 Word 之前）
 - **作用**：写者照常改稿。交卷前另开短调用，只喂代码组装的证据包（hunk、锚句、引用、检查单、硬门禁事实、律师已确认答案、写者 deferred 声明）。审稿员 `pass|fail`+缺口。fail 作为工具结果打回主循环；审稿全文只进 `drafts/<taskId>.guardian.json`，不进会话历史。
 - **不是**：再给写者加「你必须引用法条」的 prompt；也不是 `craft_check` 自评覆盖率。空修订/跨度/引用 ID∈bundle 仍是硬门禁（法律版 REPL：跑过才算过）。
-- **手改**：`LAWMIND_LEGAL_GUARDIAN=0` 关闭。无模型时 skip（不挡导出，审核台显示「未跑」）。审稿调用失败或输出无法解析则 **fail-closed**（挡导出，不消耗覆盖轮次）。默认 ≤2 轮覆盖 fail 后要求交给律师，不无限讨好审稿员。
+- **手改**：`LAWMIND_LEGAL_GUARDIAN=0` 关闭。无模型时 skip（不挡导出，审核台显示「未跑」）。审稿输出上限/超时/温度走 `resolveClassifySidecarLimits`（模型窗口 5% 包络，不是固定 800/2048）。HTTP 失败与空/截断/无法解析输出共用 `modelAttemptBudget`（DeepSeek harness normal：TRANSPORT 与 EMPTY_RESPONSE 同一重试预算，指数退避）。仍读不出则 **skip**（不挡导出，审核台显示「未完成」），不消耗覆盖轮次，也不把写者打去落改；下一次导出同 hash 会再采样，不把 infra skip 当成成功缓存。覆盖 fail 仍 fail-closed。默认 ≤2 轮覆盖 fail 后要求交给律师。证据包 hash 相同且上次为 pass/fail 则跳过审稿 LLM（`unchanged_evidence`），稿变了才再调。
 - **律师看见的**：审核台交卷核对「独立审稿」，不是写者 coverage 分数。
 
 ### 16b. 同一回合验收（lint / 引用 / craft_check / 空修订） — TIGHTEN
@@ -200,6 +200,8 @@ pnpm exec vitest run \
 - **作用**：「任务完成」= 验证器绿，不是模型说完了。写稿路径上机械 lint blocker（不含定金上限等主观残差）与空修订、缺引用、缺 `craft_check` 一样是 **tool error**。`contractEdit` 基线不跑机械 lint（避免原文旧疵冒充本回合失败）。`prepare_outbound_mail` 在已关联草稿时预检引用/空修订/craft_check/机械 lint。模型说「已完成」时的打回写入 `hiddenFromLawyer` 用户消息，律师气泡看不到；硬工具顶若验收仍红则 **paused**，不标 completed。
 - **手改**：把 `ok` 改回 true 只拦律师，模型会再次假完成。把 bounce 改回可见 user，律师会看到自己没发的验收全文。
 - **本次**：lint 机械项进入同一回合；bounce 不对律师冒充；硬顶红验收改为暂停。独立审稿（Guardian）仍在 `render_tracked_draft`。
+- **2026-09-15 token**：bounce 只服务下一轮采样。验证器绿则从 `conversationHistory` 删除全文；暂停则收成 `【验收缺口】` 一行码。下一会话不再重付 1–3 份验收全文。失败 tool JSON 只在 `error` 保留一份 `【同一回合验收未过】` 全文（`issues[].message` 仍在，供 bounce 重建）；`verify.message` 与 `gateDecision.reason` 不再第三、第四份拷贝。引用类 `ok:true` 的 `data.verify.message` 不变。
+- **2026-09-15 history cap**：工具结果入史默认 ~1000 **token**（CJK 1 字 ≈ 1 token）。原先 4k **字符** 上限把 3k 汉字当成「还没到 1k token」。`maxChars` 覆盖仍给测试/溢出调用。截断仍保留 `ok`/`error`/`redlinePending`/`gateDecision`。
 
 ### 17. 待拍板只拦外发 — KEEP
 
@@ -435,8 +437,8 @@ pnpm exec vitest run \
 
 ### 47. AGENTS.md / CLAUDE.md — MERGE
 
-- **路径**：`AGENTS.md`（唯一正文）；`CLAUDE.md`（指针）
-- **作用**：告诉 Cursor / Claude 本仓库是 LawMind only、测法、桌面 UI 不是浏览器。
+- **路径**：`AGENTS.md`（唯一正文）；`CLAUDE.md`（短指针文件，不是 symlink）
+- **作用**：告诉 Cursor / Claude 本仓库是 LawMind only、测法、桌面 UI 不是浏览器。Cursor 会同时注入两份；短指针避免把 `AGENTS.md` 全文付两遍。
 - **手改**：只改 `CLAUDE.md` 无效。改 `AGENTS.md` 会影响以后所有工程 agent。
 
 ### 48. 本地桌面 UI only — KEEP
@@ -547,7 +549,7 @@ pnpm exec vitest run \
 8. `CLAUDE.md` 不再维护第二份工程约定。
 9. 快车道出意见后不再盖「尚未试检法规」。
 10. 中国合同审查清单不再无 bind 打进所有审查。
-11. `apply_surgical_edits` 工具描述的跨度数字读 span-gate 常量。
+11. `apply_surgical_edits` 跨度数字只在 `surgical-span-gate.ts` + Craft Skill；工具广告描述是指针，不嵌 12/48。
 12. 已安装工作区里的过期 `MEMORY.md` 库存口径会在加载时改写；架构文档不再写「档案全文进 system」。
 13. 核算/出图/整表走 `run_compute` 后台闭环；成功后对照表和意见进在办。律师只看交件，不审脚本。
 14. 同轮软澄清（如租金缺口）不再冻写工具；硬键（收件人/诉请等）仍冻。

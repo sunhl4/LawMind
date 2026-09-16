@@ -30,6 +30,18 @@ import {
   RESEARCH_FALLBACK_RE,
   TALK_INTAKE_RE,
 } from "../skills/capability-patterns.js";
+import {
+  instructionLooksLikeLetterQa,
+  instructionMentionsFolder,
+  instructionRejectsContractReview,
+  isCorrectionUtterance,
+  isContinuationUtterance,
+  isLookOnlyUtterance,
+  isReadFirstUtterance,
+  isTaskSwitchUtterance,
+  namedBracketFolders,
+  stripRejectedContractReviewPhrases,
+} from "./utterance-kind.js";
 
 export type TextVerb =
   | "review"
@@ -51,9 +63,6 @@ const LETTER_RE = /律师函|催告函|催款函|通知函|回函|答复函|dema
 const CONTINUE_RE =
   /^(继续|接着|再改一下|再改|导出|出稿|打开结果|加上.{0,20}|补充.{0,20}|同样|按这个|好的|嗯|可以)[\s。.!！]*$/;
 
-/** Short corrections that must not sticky-continue the previous 办件. */
-const CORRECTION_RE = /^(不对|不是这样|搞错了|错了|不是|别这样)[\s。.!！]*$/;
-
 const CONTRACT_OBJECT_RE = /合同|协议|条款|NDA|保密协议/;
 const PLEADING_OBJECT_RE = /起诉状|答辩状|上诉状|代理词|辩护词|诉讼文书|诉请/;
 
@@ -63,6 +72,8 @@ export type TextIntent = {
   wantsContract: boolean;
   wantsPleading: boolean;
   wantsLetter: boolean;
+  /** True when the lawyer explicitly rejected 合同审核/审查. */
+  rejectsContractReview: boolean;
   specialized:
     | "labor"
     | "period"
@@ -188,39 +199,28 @@ export function extractTextIntent(instruction: string): TextIntent {
   return {
     greeting,
     verbs: [...new Set(verbs)],
-    wantsContract: CONTRACT_OBJECT_RE.test(text),
+    wantsContract: CONTRACT_OBJECT_RE.test(stripRejectedContractReviewPhrases(text)),
     wantsPleading: PLEADING_OBJECT_RE.test(text),
     wantsLetter: LETTER_RE.test(text),
+    rejectsContractReview: instructionRejectsContractReview(text),
     specialized,
     vague: verbs.includes("vague") && !verbs.includes("review") && !verbs.includes("draft"),
   };
 }
 
+export {
+  instructionLooksLikeLetterQa,
+  instructionMentionsFolder,
+  instructionRejectsContractReview,
+  isContinuationUtterance,
+  isCorrectionUtterance,
+  isLookOnlyUtterance,
+  isReadFirstUtterance,
+  isTaskSwitchUtterance,
+  namedBracketFolders,
+  stripRejectedContractReviewPhrases,
+};
+
 export function isGreetingOnly(instruction: string): boolean {
   return GREETING_RE.test(instruction.trim());
-}
-
-export function isContinuationUtterance(instruction: string): boolean {
-  const t = instruction.trim();
-  if (!t) {
-    return false;
-  }
-  if (isCorrectionUtterance(t)) {
-    return false;
-  }
-  if (CONTINUE_RE.test(t)) {
-    return true;
-  }
-  return t.length <= 16 && /^(继续|接着|再|导出|出稿|加上)/.test(t);
-}
-
-export function isCorrectionUtterance(instruction: string): boolean {
-  const t = instruction.trim();
-  if (!t) {
-    return false;
-  }
-  if (CORRECTION_RE.test(t)) {
-    return true;
-  }
-  return t.length <= 12 && /^(不对|不是这样|搞错了|错了)/.test(t);
 }

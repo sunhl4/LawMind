@@ -15,6 +15,7 @@ import { sendAndWait, wrapUntrustedResult } from "../../collaboration/message-bu
 import type { CollaborationPolicy, ReviewType } from "../../collaboration/types.js";
 import { DEFAULT_COLLABORATION_POLICY } from "../../collaboration/types.js";
 import type { AgentTool, AgentConfig } from "../../types.js";
+import { validateWorkerBrief } from "../../worker-brief.js";
 import { listAvailableAssistantNames, resolveAssistantId } from "./utils.js";
 
 export function createConsultAssistantTool(opts: {
@@ -27,7 +28,7 @@ export function createConsultAssistantTool(opts: {
     definition: {
       name: "consult_assistant",
       description:
-        "向另一个助手提问并等待回答（同步）。适用于需要其他专业领域意见但不需要完整任务交付的场景。",
+        "向另一个助手提问并等待回答（同步）。对方看不到本轮对话，须写自包含任务书：要问什么、不要对方做什么、材料、希望如何回答。不要只写「帮我看看」。",
       category: "system",
       parameters: {
         target_assistant: {
@@ -37,8 +38,24 @@ export function createConsultAssistantTool(opts: {
         },
         question: {
           type: "string",
-          description: "要咨询的问题",
+          description: "要咨询的问题。子会话没有主对话历史，必须自包含。不要把律师原句原样丢过去。",
           required: true,
+        },
+        goal: {
+          type: "string",
+          description: "要问 / 要做（一句）",
+        },
+        not_goal: {
+          type: "string",
+          description: "不要对方做什么",
+        },
+        materials: {
+          type: "string",
+          description: "材料路径或文件夹名",
+        },
+        output_format: {
+          type: "string",
+          description: "希望如何回答",
         },
         context: {
           type: "string",
@@ -50,6 +67,16 @@ export function createConsultAssistantTool(opts: {
       const targetInput = params.target_assistant as string;
       const question = params.question as string;
       const contextStr = params.context as string | undefined;
+      const brief = validateWorkerBrief({
+        task: question,
+        goal: typeof params.goal === "string" ? params.goal : undefined,
+        notGoal: typeof params.not_goal === "string" ? params.not_goal : undefined,
+        materials: typeof params.materials === "string" ? params.materials : contextStr,
+        output: typeof params.output_format === "string" ? params.output_format : undefined,
+      });
+      if (!brief.ok) {
+        return { ok: false, error: brief.error };
+      }
 
       const targetId = resolveAssistantId(ctx.workspaceDir, targetInput, ctx.envFile);
       if (!targetId) {
@@ -64,7 +91,7 @@ export function createConsultAssistantTool(opts: {
         return { ok: false, error: "不能向自己咨询。" };
       }
 
-      const fullMessage = contextStr ? `${question}\n\n背景信息：\n${contextStr}` : question;
+      const fullMessage = contextStr ? `${brief.brief}\n\n背景信息：\n${contextStr}` : brief.brief;
 
       emitCollaborationEvent(ctx.workspaceDir, {
         eventId: randomUUID(),

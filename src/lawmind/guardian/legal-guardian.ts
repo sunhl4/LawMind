@@ -42,9 +42,10 @@ const ISSUE_CAP = 8;
 const CHECKLIST_CAP = 16;
 const CITATION_CAP = 16;
 const ANSWER_CAP = 12;
-const CLIP_SPAN = 80;
-const CLIP_ANCHOR = 160;
-const CLIP_SECTION = 200;
+/** Clause-length clips — not a 80-char starve. Sidecar envelope can hold this. */
+const CLIP_SPAN = 400;
+const CLIP_ANCHOR = 320;
+const CLIP_SECTION = 800;
 const CLIP_MSG = 240;
 
 const DOCUMENT_GUARDIAN_EXACT = new Set(["memo.opinion", "memo.research", "contract.review"]);
@@ -117,6 +118,9 @@ export function slimGuardianView(record: GuardianRecord): GuardianLawyerView {
 }
 
 const INFRA_SKIP_REASONS = new Set(["reviewer_error", "unreadable"]);
+const INFRA_GAP_CODES = new Set(["guardian_unreadable", "guardian_error"]);
+const VERDICT_PASS = new Set(["pass", "ok", "true", "通过", "合格"]);
+const VERDICT_FAIL = new Set(["fail", "false", "未过", "不通过", "不合格"]);
 
 export function isInfraGuardianFail(
   record: Pick<GuardianRecord, "verdict" | "skipReason"> | undefined,
@@ -125,6 +129,23 @@ export function isInfraGuardianFail(
     record?.verdict === "fail" &&
     Boolean(record.skipReason && INFRA_SKIP_REASONS.has(record.skipReason))
   );
+}
+
+export function isInfraGuardianGapCode(code: string): boolean {
+  return INFRA_GAP_CODES.has(code);
+}
+
+/** Writer bounce: parse/network miss, not a coverage gap. */
+export function isInfraGuardianView(
+  view: Pick<GuardianLawyerView, "verdict" | "skipReason" | "gaps"> | undefined,
+): boolean {
+  if (!view) {
+    return false;
+  }
+  if (isInfraGuardianFail(view)) {
+    return true;
+  }
+  return view.gaps.some((g) => isInfraGuardianGapCode(g.code));
 }
 
 export function guardianBlocksExport(record: Pick<GuardianRecord, "verdict">): boolean {
@@ -294,18 +315,82 @@ export function deterministicGuardianGaps(pack: GuardianEvidencePack): GuardianG
   return gaps;
 }
 
+function stripMarkdownFence(raw: string): string {
+  let t = raw.trim();
+  t = t.replace(/^```(?:json)?\s*/i, "");
+  t = t.replace(/\s*```\s*$/i, "");
+  return t.trim();
+}
+
+/** First balanced `{...}` so trailing prose braces do not poison JSON.parse. */
+export function extractFirstJsonObject(raw: string): string | undefined {
+  const text = stripMarkdownFence(raw);
+  const start = text.indexOf("{");
+  if (start < 0) {
+    return undefined;
+  }
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < text.length; i += 1) {
+    const c = text[i];
+    if (inString) {
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (c === "\\") {
+        escape = true;
+        continue;
+      }
+      if (c === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (c === '"') {
+      inString = true;
+      continue;
+    }
+    if (c === "{") {
+      depth += 1;
+    } else if (c === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(start, i + 1);
+      }
+    }
+  }
+  return undefined;
+}
+
+function normalizeGuardianVerdict(value: unknown): "pass" | "fail" | undefined {
+  if (value === "pass" || value === "fail") {
+    return value;
+  }
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const key = value.trim().toLowerCase();
+  if (VERDICT_PASS.has(key) || VERDICT_PASS.has(value.trim())) {
+    return "pass";
+  }
+  if (VERDICT_FAIL.has(key) || VERDICT_FAIL.has(value.trim())) {
+    return "fail";
+  }
+  return undefined;
+}
+
 export function parseGuardianReviewerJson(
   raw: string,
 ): { verdict: "pass" | "fail"; gaps: GuardianGap[] } | undefined {
-  const trimmed = raw.trim();
-  const start = trimmed.indexOf("{");
-  const end = trimmed.lastIndexOf("}");
-  if (start < 0 || end <= start) {
+  const slice = extractFirstJsonObject(raw);
+  if (!slice) {
     return undefined;
   }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(trimmed.slice(start, end + 1));
+    parsed = JSON.parse(slice);
   } catch {
     return undefined;
   }
@@ -313,7 +398,7 @@ export function parseGuardianReviewerJson(
     return undefined;
   }
   const rec = parsed as Record<string, unknown>;
-  const verdict = rec.verdict === "pass" || rec.verdict === "fail" ? rec.verdict : undefined;
+  const verdict = normalizeGuardianVerdict(rec.verdict);
   if (!verdict) {
     return undefined;
   }
@@ -360,7 +445,7 @@ export function guardianSystemPrompt(): string {
     "硬门禁结果是事实：不要重判跨度长短、空修订条数、引用 ID 是否在 bundle、验收占位符。",
     "只判残留质量：(1) 实质争点是否被 hunk 或 sections 覆盖，或出现在 writerDeferredClaims；(2) 引用条目是否支撑对应断言；(3) 检查单「停」/必核项是否在正文出现。issues 只是争点树事实，不是覆盖证明。",
     "证据不足或不确定必须 fail，并写出具体缺口。不得因为写者自称覆盖而 pass。不得编造证据包没有的争点。",
-    '只输出 JSON：{"verdict":"pass"|"fail","gaps":[{"code":"snake_case","message":"中文缺口","evidenceRef":"可选"}]}',
+    '只输出一个 JSON 对象，不要分析过程，不要 markdown 围栏：{"verdict":"pass"|"fail","gaps":[{"code":"snake_case","message":"中文缺口","evidenceRef":"可选"}]}',
   ].join("\n");
 }
 
@@ -372,6 +457,9 @@ export function formatGuardianEvidenceUserMessage(pack: GuardianEvidencePack): s
 }
 
 export function formatGuardianFailMessage(view: GuardianLawyerView): string {
+  if (isInfraGuardianView(view)) {
+    return `独立审稿引擎未能读出结果（第 ${view.round}/${view.maxRounds} 轮）。请原样重交本次导出，不要落改，不要改审稿措辞，不要把故障码写给律师。`;
+  }
   const lines = [
     `独立审稿未过（第 ${view.round}/${view.maxRounds} 轮）。请按缺口补改或补缓办后重交本次导出。不要改审稿措辞来讨好。`,
   ];

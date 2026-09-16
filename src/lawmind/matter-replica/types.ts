@@ -155,7 +155,9 @@ export type MatterRecordOpKind =
   | "invite.create"
   | "invite.accept"
   | "invite.revoke"
-  | "case_md.snapshot";
+  | "case_md.snapshot"
+  | "material.put"
+  | "material.remove";
 
 export type MatterRecordOp = {
   opId: string;
@@ -166,4 +168,34 @@ export type MatterRecordOp = {
   createdAt: string;
   /** Opaque payload validated per kind at apply time. */
   payload: Record<string, unknown>;
+};
+
+/** Content-addressed material under cases/<id>/materials/ (M2). */
+export type MatterMaterialEntry = {
+  relPath: string;
+  fileName: string;
+  sha256: string;
+  size: number;
+  updatedAt: string;
+};
+
+export type MatterMaterialsIndex = {
+  version: 1;
+  matterId: string;
+  updatedAt: string;
+  files: MatterMaterialEntry[];
+};
+
+/** Recent material / narrative activity for 新材料 feed. */
+export type MatterReplicaFeedItem = {
+  opId: string;
+  matterId: string;
+  kind: MatterRecordOpKind;
+  actorId: string;
+  actorName: string;
+  createdAt: string;
+  title: string;
+  relPath?: string;
+  sha256?: string;
+  size?: number;
 };

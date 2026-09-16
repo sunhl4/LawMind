@@ -1,7 +1,7 @@
 /**
  * Codex-style capability catalog: name + description for implicit match,
- * plus when/notWhen boundaries. Injected only when the compiler did not bind.
- * Bound turns still use lean Skill bodies (progressive disclosure).
+ * plus when/notWhen boundaries. Injected on unbound turns and on soft
+ * keyword/matter/genre hypotheses. Hard binds still dump lean Skill bodies.
  */
 
 import {
@@ -21,9 +21,10 @@ export type CapabilityCatalogEntry = {
 
 const DESCRIPTIONS: Record<LawyerCapabilityId, string> = {
   "contract.review":
-    "审已有合同/协议：意见+红线。触发：审查、看看、风险、已附合同。不要用于起诉状、从零起草或劳动金额计算。",
+    "审已有合同/协议：意见+红线。触发：审查、审阅、风险、已附合同且律师要审。不要把「看看」或已附合同当成已经锁定审查。不要用于起诉状、从零起草或劳动金额计算。",
   "contract.draft": "从零起草合同/协议骨架。触发：起草、拟定一份合同。已有合同要改时用合同审查。",
-  "letter.draft": "律师函/催告函/回函。触发：函、催告、催款。不要当成合同审查。",
+  "letter.draft":
+    "律师函/催告函/回函。触发：写函、催告、催款。已有函要核对应先读材料指出对错，不要未读就另起一稿。不要当成合同审查。",
   "research.memo": "法规/类案检索备忘。触发：查一下、检索、类案。娱乐事实不要用。",
   "litigation.draft":
     "起诉状/答辩/上诉/代理词等诉讼文书。触发：起诉状、答辩状，或已附诉状。合同审查不要走这里。",
@@ -65,7 +66,7 @@ export function listCapabilityCatalog(): CapabilityCatalogEntry[] {
 export function formatCapabilityCatalogIndex(): string {
   const lines = [
     "## 可用能力（隐式选用；律师不必点选）",
-    "任务匹配某条 description 时按该能力执行。多条适用时取最小充分集。邮件合同短路径仅在指令已带短路径标记时使用。",
+    "先按律师本轮原话判断要做什么。需要某条能力的质量规范时调用 `read_skill`。多条适用时取最小充分集。邮件合同短路径仅在指令已带短路径标记时使用。",
   ];
   for (const entry of listCapabilityCatalog()) {
     if (!entry.allowImplicit) {
@@ -88,5 +89,7 @@ export function looksLikeLegalWork(instruction: string, hasMaterials: boolean): 
   if (t.length < 4) {
     return false;
   }
-  return /合同|协议|起诉|答辩|函|法|案|审查|起草|检索|条款|诉讼|合规|尽调|发票|传票/.test(t);
+  return /合同|协议|起诉|答辩|函|法|案|审查|起草|检索|条款|诉讼|合规|尽调|发票|传票|文件夹|目录/.test(
+    t,
+  );
 }

@@ -9,6 +9,8 @@ import {
 } from "../models/model-usage.js";
 import { makeContextPinId } from "../platform/compose-context-pin.js";
 import {
+  applySameTurnVerifyHistoryCollapse,
+  collapseSameTurnVerifyHistoryForTurnEnd,
   formatSameTurnCompletionBounce,
   formatSameTurnVerifyPaused,
   shouldBounceSameTurnCompletion,
@@ -115,9 +117,13 @@ export async function runModelToolLoop(opts: {
     opts.hardToolCallCeiling ?? Math.max(opts.maxToolCalls * 2, opts.maxToolCalls);
   let openAITools = opts.openAITools;
   const pinIds: string[] = [];
+  const collapseHistoryForEnd = (): void => {
+    collapseSameTurnVerifyHistoryForTurnEnd(opts.session, opts.turn);
+  };
 
   while (loopCount < hardCeiling + 1) {
     if (opts.abortRequested() || opts.abortSignal?.aborted) {
+      collapseHistoryForEnd();
       return {
         finalReply,
         pendingClarificationQuestions,
@@ -159,6 +165,11 @@ export async function runModelToolLoop(opts: {
     });
     openAITools = opts.registry.toOpenAITools({ names: step.toolNames });
     opts.emitEvent({ type: "round_start", roundIndex });
+    if (shouldBounceSameTurnCompletion(opts.turn.sameTurnVerify)) {
+      applySameTurnVerifyHistoryCollapse(opts.session, opts.turn, "keep_latest_full");
+    } else {
+      applySameTurnVerifyHistoryCollapse(opts.session, opts.turn, "drop");
+    }
 
     // Soft warn near tool-call ceiling; hard stop still applies at maxToolCalls.
     if (!toolBudgetWarned && shouldWarnToolBudget(opts.turn.toolCallsExecuted, opts.maxToolCalls)) {
@@ -209,6 +220,7 @@ export async function runModelToolLoop(opts: {
         opts.abortSignal?.aborted ||
         opts.abortRequested()
       ) {
+        collapseHistoryForEnd();
         return {
           finalReply,
           pendingClarificationQuestions,
@@ -233,6 +245,7 @@ export async function runModelToolLoop(opts: {
               opts.abortSignal?.aborted ||
               opts.abortRequested()
             ) {
+              collapseHistoryForEnd();
               return {
                 finalReply,
                 pendingClarificationQuestions,
@@ -396,6 +409,7 @@ export async function runModelToolLoop(opts: {
     }
 
     if (opts.abortRequested() || opts.abortSignal?.aborted) {
+      collapseHistoryForEnd();
       return {
         finalReply,
         pendingClarificationQuestions,
@@ -440,6 +454,8 @@ export async function runModelToolLoop(opts: {
       break;
     }
   }
+
+  collapseSameTurnVerifyHistoryForTurnEnd(opts.session, opts.turn);
 
   if (opts.abortRequested() || opts.abortSignal?.aborted) {
     return {

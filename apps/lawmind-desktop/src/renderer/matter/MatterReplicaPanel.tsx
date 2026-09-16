@@ -37,6 +37,23 @@ type Lock = {
   expiresAt: string;
 };
 
+type MaterialFile = {
+  relPath: string;
+  fileName: string;
+  sha256: string;
+  size: number;
+  updatedAt: string;
+};
+
+type FeedItem = {
+  opId: string;
+  kind: string;
+  actorName: string;
+  createdAt: string;
+  title: string;
+  relPath?: string;
+};
+
 type RoleLabels = Record<string, string>;
 
 type Props = {
@@ -52,6 +69,16 @@ const INVITE_ROLES = [
   { value: "lead", label: "主办（共同）" },
 ] as const;
 
+function formatBytes(n: number): string {
+  if (n < 1024) {
+    return `${n} B`;
+  }
+  if (n < 1024 * 1024) {
+    return `${(n / 1024).toFixed(1)} KB`;
+  }
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export function MatterReplicaPanel({ apiBase, matterId }: Props): ReactNode {
   const edition = useEdition(apiBase);
   const [enabled, setEnabled] = useState(false);
@@ -60,6 +87,8 @@ export function MatterReplicaPanel({ apiBase, matterId }: Props): ReactNode {
   const [members, setMembers] = useState<Member[]>([]);
   const [invites, setInvites] = useState<Invite[]>([]);
   const [locks, setLocks] = useState<Lock[]>([]);
+  const [materials, setMaterials] = useState<MaterialFile[]>([]);
+  const [feed, setFeed] = useState<FeedItem[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -95,6 +124,8 @@ export function MatterReplicaPanel({ apiBase, matterId }: Props): ReactNode {
         setMembers([]);
         setInvites([]);
         setLocks([]);
+        setMaterials([]);
+        setFeed([]);
         return;
       }
       const mem = await apiGetJson<{
@@ -102,6 +133,8 @@ export function MatterReplicaPanel({ apiBase, matterId }: Props): ReactNode {
         members?: Member[];
         invites?: Invite[];
         locks?: Lock[];
+        materials?: MaterialFile[];
+        feed?: FeedItem[];
       }>(
         apiBase,
         `/api/matter-replica/membership?matterId=${encodeURIComponent(matterId)}`,
@@ -109,6 +142,8 @@ export function MatterReplicaPanel({ apiBase, matterId }: Props): ReactNode {
       setMembers(mem.members ?? []);
       setInvites(mem.invites ?? []);
       setLocks(mem.locks ?? []);
+      setMaterials(mem.materials ?? []);
+      setFeed(mem.feed ?? []);
     } catch (e) {
       setErr(errorMessage(e, "无法加载成员协作"));
     }
@@ -230,19 +265,48 @@ export function MatterReplicaPanel({ apiBase, matterId }: Props): ReactNode {
     }
   }
 
+  async function revokeInviteRow(inviteId: string): Promise<void> {
+    setBusy(true);
+    setErr(null);
+    setHint(null);
+    try {
+      await apiSendJson(apiBase, "/api/matter-replica/invites/revoke", "POST", {
+        matterId,
+        inviteId,
+      });
+      setHint("已撤销邀请");
+      await refresh();
+    } catch (e) {
+      setErr(errorMessage(e, "撤销失败"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function syncOps(): Promise<void> {
     setBusy(true);
     setErr(null);
     try {
-      const r = await apiSendJson<{ published?: number; pulled?: number }>(
-        apiBase,
-        `/api/matter-replica/sync?matterId=${encodeURIComponent(matterId)}`,
-        "POST",
-        {},
-      );
-      setHint(`已同步记录管（发布 ${r.published ?? 0} · 拉取 ${r.pulled ?? 0}）`);
+      const r = await apiSendJson<{
+        published?: number;
+        pulled?: number;
+        materials?: {
+          publishedFiles?: number;
+          uploadedBlobs?: number;
+          downloadedFiles?: number;
+          skippedLocked?: number;
+        };
+      }>(apiBase, `/api/matter-replica/sync?matterId=${encodeURIComponent(matterId)}`, "POST", {});
+      const m = r.materials;
+      const matHint = m
+        ? ` · 材料 ${m.publishedFiles ?? 0} 份（上传 ${m.uploadedBlobs ?? 0} · 下载 ${m.downloadedFiles ?? 0}${
+            m.skippedLocked ? ` · 跳过签出 ${m.skippedLocked}` : ""
+          }）`
+        : "";
+      setHint(`已同步（记录 ${r.published ?? 0} / 拉取 ${r.pulled ?? 0}${matHint}）`);
+      await refresh();
     } catch (e) {
-      setErr(errorMessage(e, "同步失败（未配置共享中继时仅本机）"));
+      setErr(errorMessage(e, "同步失败（未配置共享中继时仅本机索引）"));
     } finally {
       setBusy(false);
     }
@@ -266,7 +330,8 @@ export function MatterReplicaPanel({ apiBase, matterId }: Props): ReactNode {
         <div>
           <strong>成员协作</strong>
           <p className="lm-meta">
-            邀请同事用各自的 LawMind 共同办理本案。材料签出避免互相覆盖；不登录则路径与个人版相同。
+            邀请同事用各自的 LawMind 共同办理本案。材料按内容哈希同步；签出避免互相覆盖。Solo
+            默认不开启。
           </p>
         </div>
         <button
@@ -274,13 +339,32 @@ export function MatterReplicaPanel({ apiBase, matterId }: Props): ReactNode {
           className="lm-btn lm-btn-secondary lm-btn-sm"
           disabled={busy}
           onClick={() => void syncOps()}
+          data-testid="lm-replica-sync"
         >
-          同步记录
+          同步记录与材料
         </button>
       </div>
 
       {err ? <p className="lm-meta lm-danger">{err}</p> : null}
       {hint ? <p className="lm-meta lm-ok">{hint}</p> : null}
+
+      <div className="lm-matter-replica-block">
+        <h4 className="lm-matter-replica-h">新动态</h4>
+        {feed.length === 0 ? (
+          <p className="lm-meta">尚无协作动态。同步或上传材料后会出现在这里。</p>
+        ) : (
+          <ul className="lm-matter-replica-list" data-testid="lm-replica-feed">
+            {feed.slice(0, 12).map((item) => (
+              <li key={item.opId}>
+                <span>{item.title}</span>
+                <span className="lm-meta">
+                  {item.actorName} · {item.createdAt.slice(0, 16).replace("T", " ")}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       <div className="lm-matter-replica-block">
         <h4 className="lm-matter-replica-h">你的身份</h4>
@@ -390,7 +474,18 @@ export function MatterReplicaPanel({ apiBase, matterId }: Props): ReactNode {
                 <span>
                   {i.email} · {roleLabels[i.role] ?? i.role}
                 </span>
-                <code className="lm-matter-replica-token">{i.token}</code>
+                <span className="lm-matter-replica-invite-actions">
+                  <code className="lm-matter-replica-token">{i.token}</code>
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-ghost lm-btn-sm"
+                    disabled={busy}
+                    onClick={() => void revokeInviteRow(i.inviteId)}
+                    data-testid={`lm-replica-revoke-${i.inviteId}`}
+                  >
+                    撤销
+                  </button>
+                </span>
               </li>
             ))}
           </ul>
@@ -419,6 +514,25 @@ export function MatterReplicaPanel({ apiBase, matterId }: Props): ReactNode {
             加入本案
           </button>
         </div>
+      </div>
+
+      <div className="lm-matter-replica-block">
+        <h4 className="lm-matter-replica-h">本案材料索引</h4>
+        <p className="lm-meta">扫描 cases/…/materials/，按 SHA-256 经共享中继交换（单文件 ≤50MB）。</p>
+        {materials.length === 0 ? (
+          <p className="lm-meta">尚无材料文件。放入材料文件夹后点「同步记录与材料」。</p>
+        ) : (
+          <ul className="lm-matter-replica-list" data-testid="lm-replica-materials">
+            {materials.slice(0, 20).map((f) => (
+              <li key={f.relPath}>
+                <span>{f.fileName}</span>
+                <span className="lm-meta">
+                  {formatBytes(f.size)} · {f.sha256.slice(0, 8)}…
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="lm-matter-replica-block">

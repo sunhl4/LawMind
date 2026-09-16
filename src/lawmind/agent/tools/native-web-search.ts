@@ -8,6 +8,12 @@
  * current model has no vendor web-search tool.
  */
 
+import {
+  modelAttemptBudget,
+  shouldRetryTransportFailure,
+  waitModelRetry,
+} from "../../llm/http-retry.js";
+import { resolveClassifySidecarLimits } from "../../models/capability-envelope.js";
 import { DEEPSEEK_FLASH_RETIRED_ALIASES } from "../../models/catalog.js";
 import { inferProviderIdFromBaseUrl, normalizeModelBaseUrl } from "../../models/providers.js";
 import { createOutboundProxy } from "../../platform/outbound-proxy.js";
@@ -253,40 +259,97 @@ async function postJson(
   }
 }
 
+function searchHttpError(prefix: string, status: number, snippet: string): Error {
+  return new Error(`${prefix}: HTTP ${status}${snippet ? ` ${snippet}` : ""}`);
+}
+
+function isCapabilityHttp400(err: unknown): boolean {
+  return err instanceof Error && /\bHTTP 400\b/.test(err.message);
+}
+
+async function postJsonWithTransportRetry(
+  url: string,
+  apiKey: string,
+  body: unknown,
+  signal: AbortSignal | undefined,
+  timeoutMs: number,
+  errorPrefix: string,
+): Promise<Response> {
+  const attempts = modelAttemptBudget();
+  let lastErr: Error | undefined;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (signal?.aborted) {
+      throw signal.reason instanceof Error ? signal.reason : new Error(`${errorPrefix}已取消`);
+    }
+    let res: Response;
+    try {
+      res = await postJson(url, apiKey, body, signal, timeoutMs);
+    } catch (err) {
+      lastErr = err instanceof Error ? err : new Error(String(err));
+      if (attempt + 1 < attempts && shouldRetryTransportFailure(err, { signal })) {
+        await waitModelRetry(attempt);
+        continue;
+      }
+      throw lastErr;
+    }
+    if (res.ok) {
+      return res;
+    }
+    const snippet = await readErrorSnippet(res);
+    const err = searchHttpError(errorPrefix, res.status, snippet);
+    lastErr = err;
+    if (res.status === 400) {
+      throw err;
+    }
+    if (
+      attempt + 1 < attempts &&
+      shouldRetryTransportFailure(err, { httpStatus: res.status, signal })
+    ) {
+      await waitModelRetry(attempt);
+      continue;
+    }
+    throw err;
+  }
+  throw lastErr ?? new Error(errorPrefix);
+}
+
 async function searchDeepSeekResponses(
   cfg: WebSearchModelRef,
   query: string,
   count: number,
   signal?: AbortSignal,
 ): Promise<NativeWebHit[]> {
-  const timeoutMs = Math.max(cfg.timeoutMs ?? 60_000, 45_000);
+  const sidecar = resolveClassifySidecarLimits({ timeoutMs: cfg.timeoutMs });
+  const timeoutMs = cfg.timeoutMs ?? sidecar.timeoutMs;
   const url = `${originWithoutV1(cfg.baseUrl)}/responses`;
   const instructions =
     "根据网页检索结果列出可核对来源。每条需要标题与 http(s) URL。没有检索到就说没有，不要猜测冠军、获奖者或新闻事实。";
   let lastErr = "DeepSeek 网页检索失败";
   for (const model of deepseekModelCandidates(cfg.model)) {
-    const res = await postJson(
-      url,
-      cfg.apiKey,
-      {
-        model,
-        instructions,
-        input: query,
-        tools: [{ type: "web_search" }],
-        tool_choice: { type: "web_search" },
-        max_output_tokens: 2048,
-      },
-      signal,
-      timeoutMs,
-    );
-    if (res.ok) {
+    try {
+      const res = await postJsonWithTransportRetry(
+        url,
+        cfg.apiKey,
+        {
+          model,
+          instructions,
+          input: query,
+          tools: [{ type: "web_search" }],
+          tool_choice: { type: "web_search" },
+          max_output_tokens: sidecar.maxTokens,
+        },
+        signal,
+        timeoutMs,
+        "DeepSeek 网页检索失败",
+      );
       const payload: unknown = await res.json();
       return extractNativeWebHits(payload, count);
-    }
-    const snippet = await readErrorSnippet(res);
-    lastErr = `DeepSeek 网页检索失败: HTTP ${res.status}${snippet ? ` ${snippet}` : ""}`;
-    if (res.status !== 400) {
-      throw new Error(lastErr);
+    } catch (err) {
+      lastErr = err instanceof Error ? err.message : String(err);
+      if (isCapabilityHttp400(err)) {
+        continue;
+      }
+      throw err instanceof Error ? err : new Error(lastErr);
     }
   }
   throw new Error(lastErr);
@@ -298,9 +361,10 @@ async function searchDashScopeEnableSearch(
   count: number,
   signal?: AbortSignal,
 ): Promise<NativeWebHit[]> {
-  const timeoutMs = Math.max(cfg.timeoutMs ?? 60_000, 45_000);
+  const sidecar = resolveClassifySidecarLimits({ timeoutMs: cfg.timeoutMs });
+  const timeoutMs = cfg.timeoutMs ?? sidecar.timeoutMs;
   const url = `${trimSlash(cfg.baseUrl)}/chat/completions`;
-  const res = await postJson(
+  const res = await postJsonWithTransportRetry(
     url,
     cfg.apiKey,
     {
@@ -314,15 +378,12 @@ async function searchDashScopeEnableSearch(
         { role: "user", content: query },
       ],
       enable_search: true,
-      temperature: 0.1,
+      temperature: sidecar.temperature,
     },
     signal,
     timeoutMs,
+    "通义网页检索失败",
   );
-  if (!res.ok) {
-    const snippet = await readErrorSnippet(res);
-    throw new Error(`通义网页检索失败: HTTP ${res.status}${snippet ? ` ${snippet}` : ""}`);
-  }
   const payload: unknown = await res.json();
   return extractNativeWebHits(payload, count);
 }
