@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { compileIntent } from "./compile-intent.js";
 import { INTENT_GOLD_CASES, INTENT_GOLD_FATAL_PAIRS } from "./gold-set.js";
+import { compiledIntentInjectsSkillBodies } from "./understand-first.js";
 
 describe("intent gold set", () => {
   it("has at least 50 lawyer-shaped cases", () => {
@@ -68,5 +69,62 @@ describe("intent gold set", () => {
     const compiled = compileIntent({ instruction: "审查这份合同并写催告函" });
     expect(compiled.capabilityId).toBe("contract.review");
     expect(compiled.chain).toContain("letter.draft");
+  });
+
+  it("look-only and continue gold cases do not inject Skill bodies", () => {
+    const softIds = new Set([
+      "vague-plus-contract-file",
+      "look-plus-complaint-file",
+      "process-plus-letter-file",
+      "talk-file",
+      "invoice-file-only",
+      "summons-file",
+      "privacy-file",
+      "greeting-plus-contract",
+      "continue-keeps-review",
+      "matter-litigation-vague-evidence",
+      "review-nl",
+      "review-short",
+      "letter-nl",
+      "reject-review-check-letter",
+      "letter-qa-plus-letter-file",
+      "quick",
+    ]);
+    const failures: string[] = [];
+    for (const row of INTENT_GOLD_CASES) {
+      if (!softIds.has(row.id)) {
+        continue;
+      }
+      const compiled = compileIntent(row.input);
+      if (compiledIntentInjectsSkillBodies(compiled)) {
+        failures.push(`${row.id}: unexpected Skill dump from ${compiled.source}`);
+      }
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it("hard nails still inject Skill bodies", () => {
+    const hardIds = [
+      "skill-dollar-override",
+      "mail-short",
+      "word-file-page",
+      "lock-letter",
+      "word-revise-complaint",
+      "true-contract-review-file",
+      "labor",
+    ];
+    const failures: string[] = [];
+    for (const id of hardIds) {
+      const row = INTENT_GOLD_CASES.find((r) => r.id === id);
+      if (!row) {
+        failures.push(`${id}: missing gold case`);
+        continue;
+      }
+      const compiled = compileIntent(row.input);
+      if (!compiledIntentInjectsSkillBodies(compiled)) {
+        failures.push(`${id}: expected Skill dump, got ${compiled.source}/${compiled.confidence}`);
+      }
+    }
+    expect(failures).toEqual([]);
   });
 });

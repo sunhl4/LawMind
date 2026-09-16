@@ -18,6 +18,7 @@ export const READONLY_AGENT_TOOL_NAMES = new Set<string>([
   "read_conversation",
   "read_project_file",
   "list_dir",
+  "explore_folder",
   "search_host",
   "read_host_file",
   "analyze_document",

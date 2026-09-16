@@ -67,6 +67,37 @@ describe("buildDroppedSpanDigest", () => {
     expect(digest).toContain("压缩前引用");
     expect(digest).toContain("《民法典》第577条");
   });
+
+  it("keeps 法释 and 案号 anchors from dropped tool results", () => {
+    const dropped: AgentMessage[] = [
+      { role: "user", content: "司法解释和案号？", timestamp: "t1" },
+      {
+        role: "assistant",
+        content: "",
+        timestamp: "t2",
+        toolCalls: [{ id: "c1", name: "search_case_law", arguments: {} }],
+      },
+      {
+        role: "tool",
+        content: "{}",
+        timestamp: "t3",
+        toolCallResponses: [
+          {
+            toolCallId: "c1",
+            name: "search_case_law",
+            result: {
+              ok: true,
+              data: { hits: ["法释〔2023〕1号 与 （2023）京民终123号"] },
+            },
+          },
+        ],
+      },
+    ];
+    const digest = buildDroppedSpanDigest(dropped, 4_000);
+    expect(digest).toContain("压缩前引用");
+    expect(digest).toContain("法释〔2023〕1号");
+    expect(digest).toContain("（2023）京民终123号");
+  });
 });
 
 describe("autoCompactSessionHistory", () => {

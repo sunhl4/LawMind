@@ -57,13 +57,13 @@ import { getAssistantPreset } from "./assistant-presets.js";
 import { buildDeliverablePipelineSystemNote } from "./deliverable-pipeline.js";
 import type { AgentPermissionMode } from "./permission-mode.js";
 import {
+  capFragmentBody,
   createPromptFragment,
+  FRAGMENT_SESSION_TAIL_BUDGET_TOKENS,
   packPromptFragments,
   partitionPackedFragments,
   renderPackedFragments,
-  capFragmentBody,
-  FRAGMENT_CAPS,
-  FRAGMENT_SESSION_TAIL_BUDGET_TOKENS,
+  scaleFragmentCapTokens,
   type PromptFragment,
   type PromptFragmentKind,
   type PromptOverflow,
@@ -100,6 +100,7 @@ function queueFragment(
     overflow?: PromptOverflow | null;
     capTokens?: number;
     priority?: number;
+    windowScale?: number;
   },
 ): void {
   const fragment = createPromptFragment({
@@ -109,6 +110,7 @@ function queueFragment(
     worldStateId: opts?.worldStateId,
     capTokens: opts?.capTokens,
     priority: opts?.priority,
+    windowScale: opts?.windowScale,
   });
   if (fragment) {
     fragments.push(fragment);
@@ -272,10 +274,14 @@ export async function prepareTurnPromptContext(opts: {
       ? `${appliedPreferencesHint}\n\n${stanceHint}`
       : stanceHint;
   }
+  const envelope = resolveCapabilityEnvelope({
+    contextTokens: config.model.contextTokens ?? workspacePolicy?.context?.contextTokens,
+    timeoutMs: config.model.timeoutMs,
+  });
   if (appliedPreferencesHint) {
     appliedPreferencesHint = capFragmentBody(
       appliedPreferencesHint,
-      FRAGMENT_CAPS.preference_fingerprint.capTokens,
+      scaleFragmentCapTokens("preference_fingerprint", envelope.promptWindowScale),
       { tool: "read_workspace_file", path: "lawmind/lawyer-preferences.json" },
     );
   }
@@ -287,10 +293,6 @@ export async function prepareTurnPromptContext(opts: {
   const promptCatalog = new Set(promptCatalogToolNames());
   // 单一真相源：调用方传入的本轮生效工具集优先；缺省才回退核心目录。
   const availableNames = opts.availableToolNames ? new Set(opts.availableToolNames) : promptCatalog;
-  const envelope = resolveCapabilityEnvelope({
-    contextTokens: config.model.contextTokens ?? workspacePolicy?.context?.contextTokens,
-    timeoutMs: config.model.timeoutMs,
-  });
   const { scalePromptWindows, truncateForPrompt, windowCaseMarkdownForPrompt } =
     await import("../memory/prompt-windows.js");
   const promptWindow = scalePromptWindows(envelope.promptWindowScale);
@@ -387,15 +389,28 @@ export async function prepareTurnPromptContext(opts: {
 
   let systemPromptFinal = systemPrompt;
   const fragments: PromptFragment[] = [];
+  const queue = (
+    kind: PromptFragmentKind,
+    body: string | undefined,
+    opts?: {
+      worldStateId?: WorldStateSectionId;
+      overflow?: PromptOverflow | null;
+      capTokens?: number;
+      priority?: number;
+    },
+  ) =>
+    queueFragment(fragments, kind, body, {
+      ...opts,
+      windowScale: envelope.promptWindowScale,
+    });
   if (lawyerFingerprint) {
-    queueFragment(fragments, "preference_fingerprint", `## 当前律师\n\n${lawyerFingerprint}`, {
+    queue("preference_fingerprint", `## 当前律师\n\n${lawyerFingerprint}`, {
       overflow: { tool: "read_workspace_file", path: "LAWYER_PROFILE.md" },
       capTokens: promptWindow.lawyerFingerprintChars,
     });
   }
   if (assistantFingerprint) {
-    queueFragment(
-      fragments,
+    queue(
       "preference_fingerprint",
       `## 本助手专属偏好（assistants/<id>/PROFILE.md）\n\n${assistantFingerprint}`,
       {
@@ -405,8 +420,7 @@ export async function prepareTurnPromptContext(opts: {
     );
   }
   if (clientFingerprint) {
-    queueFragment(
-      fragments,
+    queue(
       "preference_fingerprint",
       [
         "## 客户画像（长期合作）",
@@ -422,31 +436,25 @@ export async function prepareTurnPromptContext(opts: {
     );
   }
   if (session.matterId && matterIndex) {
-    queueFragment(
-      fragments,
-      "matter_index",
-      `## 当前案件 [${session.matterId}]\n\n${matterIndex}`,
-      {
-        overflow: matterRel ? { tool: "read_case_file", path: matterRel } : undefined,
-        capTokens: promptWindow.matterIndexChars,
-      },
-    );
+    queue("matter_index", `## 当前案件 [${session.matterId}]\n\n${matterIndex}`, {
+      overflow: matterRel ? { tool: "read_case_file", path: matterRel } : undefined,
+      capTokens: promptWindow.matterIndexChars,
+    });
   }
   if (dayLogIndex) {
-    queueFragment(fragments, "memory_hit", `## 今日工作记录\n\n${dayLogIndex}`, {
+    queue("memory_hit", `## 今日工作记录\n\n${dayLogIndex}`, {
       overflow: { tool: "read_workspace_file", path: todayMemoryLogRel() },
       capTokens: promptWindow.dayLogIndexChars,
     });
   }
   if (contextPlanMarkdown.trim()) {
-    queueFragment(fragments, "protocol", `## 上下文计划（ContextPlan）\n\n${contextPlanMarkdown}`);
+    queue("protocol", `## 上下文计划（ContextPlan）\n\n${contextPlanMarkdown}`);
   }
-  queueFragment(fragments, "pins", pinnedContextSummary.markdownBlock, { worldStateId: "pins" });
+  queue("pins", pinnedContextSummary.markdownBlock, { worldStateId: "pins" });
   try {
     const { pinsIncludeXlsx } = await import("./tools/disclosed-turn-tools.js");
     if (pinsIncludeXlsx(opts.contextPins)) {
-      queueFragment(
-        fragments,
+      queue(
         "protocol",
         [
           "## 表格分析",
@@ -469,15 +477,14 @@ export async function prepareTurnPromptContext(opts: {
       projectDir: projectDirResolved,
       pins: opts.contextPins,
     });
-    queueFragment(fragments, "pins", located);
+    queue("pins", located);
   } catch {
     /* optional */
   }
-  queueFragment(fragments, "matter_index", formatMatterWorldState(session.matterId), {
+  queue("matter_index", formatMatterWorldState(session.matterId), {
     worldStateId: "matter",
   });
-  queueFragment(
-    fragments,
+  queue(
     "environment",
     formatPermissionWorldState(opts.permissionMode ?? "standard", {
       allowWebSearch: config.allowWebSearch === true,
@@ -485,27 +492,25 @@ export async function prepareTurnPromptContext(opts: {
     { worldStateId: "permission" },
   );
   if (opts.permissionMode === "readonly" || opts.permissionMode === "research") {
-    queueFragment(
-      fragments,
+    queue(
       "protocol",
       opts.permissionMode === "research"
         ? "## 计划模式（仅调研）\n本回合只能检索、读材料、`update_plan`、`read_skill`。不要起草、改稿或导出。律师点「开始执行」后再写稿。"
-        : "## 计划模式\n本回合写工具关闭。先用 `update_plan` 列出 2–8 步可执行计划；需要质量规格时调用 `read_skill`。不要声称已出稿或任务已完成。律师点「开始执行」后才会开放起草。",
+        : "## 计划模式\n本回合写工具关闭。先用 `update_plan` 写下要做 / 不要做 / 材料 / 完成，并列出 2–8 步；需要质量规格时调用 `read_skill`。提到文件夹时用 `explore_folder`。不要声称已出稿或任务已完成。律师点「开始执行」后才会开放起草。",
     );
   }
   if (session.turnPlan) {
-    queueFragment(fragments, "turn_plan", formatTurnPlanWorldState(session.turnPlan), {
+    queue("turn_plan", formatTurnPlanWorldState(session.turnPlan), {
       worldStateId: "plan",
     });
   }
-  queueFragment(fragments, "deliverable", deliverablePipelineNote, { worldStateId: "deliverable" });
+  queue("deliverable", deliverablePipelineNote, { worldStateId: "deliverable" });
 
   if (session.pendingClarificationKeys?.length) {
     const { selectHardClarificationKeys } = await import("../router/intake-gate.js");
     const hardKeys = selectHardClarificationKeys(session.pendingClarificationKeys);
     if (hardKeys.length > 0) {
-      queueFragment(
-        fragments,
+      queue(
         "policy",
         [
           "## 未决澄清要点（跨轮保留）",
@@ -539,8 +544,7 @@ export async function prepareTurnPromptContext(opts: {
             .replace(/\s+/g, " ")
             .slice(0, 220)}`,
       );
-      queueFragment(
-        fragments,
+      queue(
         "memory_hit",
         [
           "## 待律师采纳的偏好/案件要点（预览，只读）",
@@ -579,7 +583,7 @@ export async function prepareTurnPromptContext(opts: {
       surfaced.add(hit.relativePath);
     }
     session.alreadySurfacedMemoryPaths = [...surfaced];
-    queueFragment(fragments, "memory_hit", lines.join("\n"), {
+    queue("memory_hit", lines.join("\n"), {
       overflow: {
         tool: "read_workspace_file",
         path: recalled[0]?.relativePath ?? "MEMORY.md",
@@ -594,7 +598,7 @@ export async function prepareTurnPromptContext(opts: {
       matterId: session.matterId,
       limit: 3,
     });
-    queueFragment(fragments, "memory_hit", revisionBlock);
+    queue("memory_hit", revisionBlock);
   } catch {
     /* optional recall */
   }
@@ -603,8 +607,8 @@ export async function prepareTurnPromptContext(opts: {
     const { INTAKE_CRAFT_SKILL, formatIntakeSoftAskBlock } =
       await import("../router/intake-craft.js");
     if (intakeAdvisoryQs.length > 0) {
-      queueFragment(fragments, "craft", INTAKE_CRAFT_SKILL);
-      queueFragment(fragments, "protocol", formatIntakeSoftAskBlock(intakeAdvisoryQs));
+      queue("craft", INTAKE_CRAFT_SKILL);
+      queue("protocol", formatIntakeSoftAskBlock(intakeAdvisoryQs));
     }
   } catch {
     /* optional */
@@ -614,7 +618,7 @@ export async function prepareTurnPromptContext(opts: {
     const { isMailContractFastPathInstruction, MAIL_CONTRACT_FAST_PATH_PROMPT } =
       await import("./mail-contract-fast-path.js");
     if (isMailContractFastPathInstruction(instruction)) {
-      queueFragment(fragments, "craft", MAIL_CONTRACT_FAST_PATH_PROMPT);
+      queue("craft", MAIL_CONTRACT_FAST_PATH_PROMPT);
     } else {
       const { isWordRevisionTurn, WORD_REVISION_PROMPT } =
         await import("../platform/word-revision-instruction.js");
@@ -630,7 +634,7 @@ export async function prepareTurnPromptContext(opts: {
         pins: opts.contextPins,
       }).catch(() => "");
       if (isWordRevisionTurn({ instruction, pins: opts.contextPins })) {
-        queueFragment(fragments, "craft", WORD_REVISION_PROMPT);
+        queue("craft", WORD_REVISION_PROMPT);
         if (
           wordRevisionShouldInjectFamilyChecklist(
             instruction,
@@ -641,8 +645,7 @@ export async function prepareTurnPromptContext(opts: {
               .filter((p) => p.length > 0),
           )
         ) {
-          queueFragment(
-            fragments,
+          queue(
             "protocol",
             formatWordRevisionChecklistBlock({
               instruction,
@@ -658,15 +661,13 @@ export async function prepareTurnPromptContext(opts: {
           await import("../platform/contract-fast-lane-instruction.js");
         if (isContractFastLaneInstruction(instruction)) {
           const { deliveryPinsIncludeWord } = await import("../intent/delivery-intent.js");
-          queueFragment(
-            fragments,
+          queue(
             "craft",
             formatContractFastLanePrompt({
               wordPinned: deliveryPinsIncludeWord(opts.contextPins),
             }),
           );
-          queueFragment(
-            fragments,
+          queue(
             "protocol",
             formatWordRevisionChecklistBlock({
               instruction,
@@ -696,6 +697,13 @@ export async function prepareTurnPromptContext(opts: {
     const { compileIntent } = await import("../intent/compile-intent.js");
     const { formatCapabilityCatalogIndex, looksLikeLegalWork } =
       await import("../intent/catalog.js");
+    const {
+      compiledIntentInjectsSkillBodies,
+      formatIntentHypothesisBlock,
+      formatUnderstandFirstPromptBlock,
+    } = await import("../intent/understand-first.js");
+    const { extractWorkingBriefHints, formatWorkingBriefPromptBlock } =
+      await import("../intent/working-brief.js");
     const mailFast = isMailContractFastPathInstruction(instruction);
     const compiled =
       opts.compiledIntent ??
@@ -711,12 +719,24 @@ export async function prepareTurnPromptContext(opts: {
         mailFastPath: mailFast,
         pins: opts.contextPins,
       });
-    if (bound) {
+    const hardBind = compiledIntentInjectsSkillBodies(compiled);
+    const showCatalog = looksLikeLegalWork(instruction, hasContextPins) || Boolean(bound);
+    if (showCatalog) {
+      queue("protocol", formatUnderstandFirstPromptBlock());
+      if (!session.turnPlan?.brief) {
+        queue(
+          "protocol",
+          formatWorkingBriefPromptBlock(
+            extractWorkingBriefHints({ instruction, pins: opts.contextPins }),
+          ),
+        );
+      }
+    }
+    if (bound && hardBind) {
       const { planLeanSkillPrompt } = await import("../skills/skill-prompt-budget.js");
       const lean = planLeanSkillPrompt(bound, instruction);
       const bodies = readSkillPromptBodies(config.workspaceDir, lean.primaryIds);
-      queueFragment(
-        fragments,
+      queue(
         "skill_index",
         formatBoundCapabilityBlock(bound, bodies, {
           indexLines: lean.indexLines,
@@ -731,8 +751,7 @@ export async function prepareTurnPromptContext(opts: {
         shouldInjectPracticePlaybook,
       } = await import("../practice/practice-playbook.js");
       if (shouldInjectPracticePlaybook(bound)) {
-        queueFragment(
-          fragments,
+        queue(
           "protocol",
           formatPracticePlaybookPromptBlock(loadPracticePlaybook(config.workspaceDir)),
           { overflow: { tool: "read_workspace_file", path: "playbooks" } },
@@ -758,7 +777,7 @@ export async function prepareTurnPromptContext(opts: {
             stdKind,
           ),
         );
-        queueFragment(fragments, "preference_fingerprint", stdBlock, {
+        queue("preference_fingerprint", stdBlock, {
           overflow: { tool: "read_workspace_file", path: "playbooks" },
         });
       }
@@ -768,8 +787,7 @@ export async function prepareTurnPromptContext(opts: {
         shouldInjectClosedContractType,
       } = await import("../contracts/closed-contract-type.js");
       if (shouldInjectClosedContractType(bound)) {
-        queueFragment(
-          fragments,
+        queue(
           "protocol",
           formatClosedContractTypePromptBlock(inferClosedContractType(instruction)),
         );
@@ -782,30 +800,22 @@ export async function prepareTurnPromptContext(opts: {
       const { formatAudienceSplitPromptBlock, inferDraftAudience, shouldInjectAudienceSplit } =
         await import("../drafts/audience-split.js");
       if (shouldInjectAudienceSplit(bound)) {
-        queueFragment(
-          fragments,
-          "protocol",
-          formatAudienceSplitPromptBlock(inferDraftAudience(instruction)),
-        );
+        queue("protocol", formatAudienceSplitPromptBlock(inferDraftAudience(instruction)));
       }
       const { shouldInjectRedlinePlanProtocol, formatRedlinePlanPromptBlock } =
         await import("../drafts/redline-plan.js");
       if (shouldInjectRedlinePlanProtocol(bound, protocolGate)) {
-        queueFragment(fragments, "protocol", formatRedlinePlanPromptBlock());
+        queue("protocol", formatRedlinePlanPromptBlock());
       }
       const { shouldInjectPairedReviewDeliverable, formatPairedReviewDeliverablePromptBlock } =
         await import("../drafts/paired-review-deliverable.js");
       if (shouldInjectPairedReviewDeliverable(bound, opts.contextPins, protocolGate)) {
-        queueFragment(fragments, "protocol", formatPairedReviewDeliverablePromptBlock());
+        queue("protocol", formatPairedReviewDeliverablePromptBlock());
       }
       const { shouldInjectResearchProtocol, formatResearchProtocolPromptBlock } =
         await import("../research/research-protocol.js");
       if (shouldInjectResearchProtocol(bound, protocolGate)) {
-        queueFragment(fragments, "protocol", formatResearchProtocolPromptBlock());
-      }
-      if (bound.id === "litigation.draft") {
-        const { complaintMasterHint } = await import("../litigation/complaint-master.js");
-        queueFragment(fragments, "protocol", complaintMasterHint(config.workspaceDir));
+        queue("protocol", formatResearchProtocolPromptBlock());
       }
       const {
         shouldInjectBilateralReview,
@@ -814,8 +824,7 @@ export async function prepareTurnPromptContext(opts: {
         formatBilateralReviewPromptBlock,
       } = await import("../practice/bilateral-review.js");
       if (shouldInjectBilateralReview(bound)) {
-        queueFragment(
-          fragments,
+        queue(
           "protocol",
           formatBilateralReviewPromptBlock({
             paper: inferPaperSide(instruction),
@@ -824,15 +833,29 @@ export async function prepareTurnPromptContext(opts: {
           }),
         );
       }
-    } else if (looksLikeLegalWork(instruction, hasContextPins)) {
-      queueFragment(fragments, "skill_index", formatCapabilityCatalogIndex(), {
-        overflow: { tool: "read_workspace_file", path: "skills" },
+    } else if (showCatalog) {
+      const hypothesis = formatIntentHypothesisBlock(compiled);
+      if (hypothesis) {
+        queue("protocol", hypothesis);
+      }
+      queue("skill_index", formatCapabilityCatalogIndex(), {
+        overflow: { tool: "read_skill", path: "skills" },
       });
     }
-    const { formatDeliveryConstraintPromptBlock } = await import("../intent/delivery-intent.js");
+    const { isLookOnlyUtterance } = await import("../intent/utterance-kind.js");
+    if (bound?.id === "litigation.draft" && !isLookOnlyUtterance(instruction)) {
+      const { complaintMasterHint } = await import("../litigation/complaint-master.js");
+      queue("protocol", complaintMasterHint(config.workspaceDir));
+    }
+    const { formatChatQaDeliveryPromptBlock, formatDeliveryConstraintPromptBlock } =
+      await import("../intent/delivery-intent.js");
     const deliveryBlock = formatDeliveryConstraintPromptBlock(compiled.delivery);
     if (deliveryBlock) {
-      queueFragment(fragments, "protocol", deliveryBlock);
+      queue("protocol", deliveryBlock);
+    }
+    const chatQaBlock = formatChatQaDeliveryPromptBlock(instruction);
+    if (chatQaBlock && compiled.delivery.artifactShape === "unspecified") {
+      queue("protocol", chatQaBlock);
     }
     const dt = deliverableTypeFromInstruction(instruction);
     const { isOpinionMemoDelivery } = await import("../intent/delivery-intent.js");
@@ -846,7 +869,7 @@ export async function prepareTurnPromptContext(opts: {
     if (looksOpinion) {
       const { OPINION_CRAFT_SKILL } = await import("../drafts/opinion-craft.js");
       if (!fragments.some((f) => f.body.includes("合同审查意见书"))) {
-        queueFragment(fragments, "craft", OPINION_CRAFT_SKILL);
+        queue("craft", OPINION_CRAFT_SKILL);
       }
     }
   } catch {
@@ -861,12 +884,12 @@ export async function prepareTurnPromptContext(opts: {
     if (session.legacyUpdateDraftBodyWarning) {
       craftBody = mergeLegacyUpdateDraftWarningIntoCraft(craftBody);
     }
-    queueFragment(fragments, "craft", craftBody, { worldStateId: "craft" });
+    queue("craft", craftBody, { worldStateId: "craft" });
     session.needsCompactReinjection = false;
   } else if (session.legacyUpdateDraftBodyWarning) {
     const { LEGACY_UPDATE_DRAFT_BODY_WARNING } =
       await import("../drafts/legacy-update-draft-warning.js");
-    queueFragment(fragments, "craft", LEGACY_UPDATE_DRAFT_BODY_WARNING, { worldStateId: "craft" });
+    queue("craft", LEGACY_UPDATE_DRAFT_BODY_WARNING, { worldStateId: "craft" });
   }
 
   try {
@@ -876,7 +899,7 @@ export async function prepareTurnPromptContext(opts: {
       currentMatterId: session.matterId,
       limit: 2,
     });
-    queueFragment(fragments, "memory_hit", formatSimilarCaseRecallBlock(similar));
+    queue("memory_hit", formatSimilarCaseRecallBlock(similar));
   } catch {
     /* optional */
   }
@@ -889,12 +912,18 @@ export async function prepareTurnPromptContext(opts: {
       deliverableType: dt,
       limit: 2,
     });
-    queueFragment(fragments, "memory_hit", formatGoldenExamplesPromptBlock(goldenHints));
+    queue("memory_hit", formatGoldenExamplesPromptBlock(goldenHints));
   } catch {
     /* optional */
   }
 
-  const packed = packPromptFragments(fragments, FRAGMENT_SESSION_TAIL_BUDGET_TOKENS);
+  const packed = packPromptFragments(
+    fragments,
+    Math.max(
+      FRAGMENT_SESSION_TAIL_BUDGET_TOKENS,
+      Math.floor(FRAGMENT_SESSION_TAIL_BUDGET_TOKENS * envelope.promptWindowScale),
+    ),
+  );
   const { worldState, sessionTail } = partitionPackedFragments(packed);
   const worldBlocks = renderPackedFragments(worldState);
   if (worldBlocks.length > 0) {

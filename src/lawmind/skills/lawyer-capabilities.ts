@@ -476,8 +476,8 @@ export function formatBoundCapabilityBlock(
       ? `组合：${opts.compiled.chain.join(" → ")}。`
       : "";
   const inferred = opts?.compiled?.lawyerSummary
-    ? `${opts.compiled.lawyerSummary}。按材料与交办执行，不要再问律师选分类。`
-    : "由系统根据材料与交办推断。按推断执行，不要再问律师选分类。";
+    ? `${opts.compiled.lawyerSummary}。律师不必挑选办件类型。以本轮原话为准；下面是质量用 Skill，不是必须走完的流水线。`
+    : "律师不必挑选办件类型。以本轮原话为准；下面是质量用 Skill，不是必须走完的流水线。";
   return [
     `## 本轮 LawMind 能力：${bound.label}`,
     `能力 ID：\`${bound.id}\`。这是产品化办件（Skill + 验收），不是自由聊天交差。工具按任务选用，不是只能走一条管线。${typeLine}`,

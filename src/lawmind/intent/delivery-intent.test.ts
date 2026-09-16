@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   extractDeliveryIntent,
+  formatChatQaDeliveryPromptBlock,
   formatDeliveryConstraintPromptBlock,
   isOpinionMemoDelivery,
   resolveTurnDeliveryIntent,
+  DELIVERY_MARKER_CHAT_QA,
   DELIVERY_MARKER_OPINION_MEMO,
   OPINION_MEMO_PIPELINE_HINT,
 } from "./delivery-intent.js";
@@ -86,6 +88,15 @@ describe("formatDeliveryConstraintPromptBlock", () => {
     expect(formatDeliveryConstraintPromptBlock(extractDeliveryIntent("请审查这份采购合同"))).toBe(
       undefined,
     );
+  });
+});
+
+describe("formatChatQaDeliveryPromptBlock", () => {
+  it("asks for a chat QA deliverable on 律师函核对", () => {
+    const block = formatChatQaDeliveryPromptBlock("核对我起草的律师函是否有误");
+    expect(block).toContain(DELIVERY_MARKER_CHAT_QA);
+    expect(block).toContain("会话");
+    expect(formatChatQaDeliveryPromptBlock("请审查这份采购合同")).toBeUndefined();
   });
 });
 

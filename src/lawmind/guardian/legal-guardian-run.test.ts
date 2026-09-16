@@ -2,9 +2,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { ModelCallUserAbortError } from "../agent/runtime-model-call.js";
 import type { AgentContext } from "../agent/types.js";
 import { persistDraft } from "../drafts/index.js";
 import { writeRedlineProposal } from "../drafts/redline-proposal.js";
+import { modelAttemptBudget } from "../llm/http-retry.js";
 import type { ArtifactDraft } from "../types.js";
 import { buildGuardianEvidencePack } from "./legal-guardian.js";
 import {
@@ -151,7 +153,7 @@ describe("legal guardian run", () => {
     expect(readLatestGuardian(ws, "t1")?.gaps[0]?.code).toBe("coverage_gap");
   });
 
-  it("fails closed when the reviewer output is unreadable, without leaking transcript", async () => {
+  it("retries unreadable reviewer JSON then passes", async () => {
     const ws = tmpWs();
     tmp.push(ws);
     fs.mkdirSync(path.join(ws, "drafts"), { recursive: true });
@@ -160,18 +162,154 @@ describe("legal guardian run", () => {
       hunks: [{ hunkId: "h1", sectionIndex: 0, before: "a", after: "b", status: "pending" }],
       allowEmptyRedline: false,
     });
+    let calls = 0;
     const record = await runLegalGuardian({
       pack,
       taskId: "t1",
       workspaceDir: ws,
-      callReviewer: async () => "NOT_JSON RAW_CHAIN",
+      callReviewer: async () => {
+        calls += 1;
+        if (calls === 1) {
+          return "NOT_JSON";
+        }
+        return '{"verdict":"pass","gaps":[]}';
+      },
     });
-    expect(record.verdict).toBe("fail");
-    expect(record.gaps[0]?.code).toBe("guardian_unreadable");
+    expect(calls).toBe(2);
+    expect(record.verdict).toBe("pass");
+  });
+
+  it("skips export-blocking after unreadable retries, without leaking transcript", async () => {
+    const ws = tmpWs();
+    tmp.push(ws);
+    fs.mkdirSync(path.join(ws, "drafts"), { recursive: true });
+    const pack = buildGuardianEvidencePack({
+      draft: draft(),
+      hunks: [{ hunkId: "h1", sectionIndex: 0, before: "a", after: "b", status: "pending" }],
+      allowEmptyRedline: false,
+    });
+    let calls = 0;
+    const record = await runLegalGuardian({
+      pack,
+      taskId: "t1",
+      workspaceDir: ws,
+      callReviewer: async () => {
+        calls += 1;
+        return "NOT_JSON RAW_CHAIN";
+      },
+    });
+    expect(calls).toBe(modelAttemptBudget());
+    expect(record.verdict).toBe("skipped");
+    expect(record.skipReason).toBe("unreadable");
     expect(record.reviewerRaw).toContain("RAW_CHAIN");
     const lawyer = lawyerGuardianViewFromSidecar(ws, "t1");
-    expect(lawyer?.verdict).toBe("fail");
+    expect(lawyer?.verdict).toBe("skipped");
     expect(JSON.stringify(lawyer)).not.toContain("RAW_CHAIN");
+  });
+
+  it("does not cache an infra skip; the next export resamples the reviewer", async () => {
+    const ws = tmpWs();
+    tmp.push(ws);
+    fs.mkdirSync(path.join(ws, "drafts"), { recursive: true });
+    const pack = buildGuardianEvidencePack({
+      draft: draft(),
+      hunks: [{ hunkId: "h1", sectionIndex: 0, before: "a", after: "b", status: "pending" }],
+      allowEmptyRedline: false,
+    });
+    let calls = 0;
+    await runLegalGuardian({
+      pack,
+      taskId: "t1",
+      workspaceDir: ws,
+      callReviewer: async () => {
+        calls += 1;
+        return "NOT_JSON";
+      },
+    });
+    const second = await runLegalGuardian({
+      pack,
+      taskId: "t1",
+      workspaceDir: ws,
+      callReviewer: async () => {
+        calls += 1;
+        return '{"verdict":"pass","gaps":[]}';
+      },
+    });
+    expect(calls).toBe(modelAttemptBudget() + 1);
+    expect(second.verdict).toBe("pass");
+  });
+
+  it("resamples a length-truncated JSON parse while attempts remain", async () => {
+    const ws = tmpWs();
+    tmp.push(ws);
+    fs.mkdirSync(path.join(ws, "drafts"), { recursive: true });
+    const pack = buildGuardianEvidencePack({
+      draft: draft(),
+      hunks: [{ hunkId: "h1", sectionIndex: 0, before: "a", after: "b", status: "pending" }],
+      allowEmptyRedline: false,
+    });
+    let calls = 0;
+    const record = await runLegalGuardian({
+      pack,
+      taskId: "t1",
+      workspaceDir: ws,
+      callReviewer: async () => {
+        calls += 1;
+        if (calls === 1) {
+          return { text: '{"verdict":"pass","gaps":[]}', truncated: true };
+        }
+        return { text: '{"verdict":"pass","gaps":[]}', truncated: false };
+      },
+    });
+    expect(calls).toBe(2);
+    expect(record.verdict).toBe("pass");
+  });
+
+  it("retries a transient transport error on the same attempt budget", async () => {
+    const ws = tmpWs();
+    tmp.push(ws);
+    fs.mkdirSync(path.join(ws, "drafts"), { recursive: true });
+    const pack = buildGuardianEvidencePack({
+      draft: draft(),
+      hunks: [{ hunkId: "h1", sectionIndex: 0, before: "a", after: "b", status: "pending" }],
+      allowEmptyRedline: false,
+    });
+    let calls = 0;
+    const record = await runLegalGuardian({
+      pack,
+      taskId: "t1",
+      workspaceDir: ws,
+      callReviewer: async () => {
+        calls += 1;
+        if (calls === 1) {
+          throw new Error("fetch failed");
+        }
+        return '{"verdict":"pass","gaps":[]}';
+      },
+    });
+    expect(calls).toBe(2);
+    expect(record.verdict).toBe("pass");
+  });
+
+  it("does not swallow a lawyer stop as reviewer_error", async () => {
+    const ws = tmpWs();
+    tmp.push(ws);
+    fs.mkdirSync(path.join(ws, "drafts"), { recursive: true });
+    const pack = buildGuardianEvidencePack({
+      draft: draft(),
+      hunks: [{ hunkId: "h1", sectionIndex: 0, before: "a", after: "b", status: "pending" }],
+      allowEmptyRedline: false,
+    });
+    await expect(
+      runLegalGuardian({
+        pack,
+        taskId: "t1",
+        workspaceDir: ws,
+        callReviewer: async () => {
+          throw new ModelCallUserAbortError();
+        },
+      }),
+    ).rejects.toBeInstanceOf(ModelCallUserAbortError);
   });
 
   it("feeds confirmed answers into the reviewer user message", async () => {

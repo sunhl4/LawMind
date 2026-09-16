@@ -15,6 +15,7 @@
 import type { ComposeContextPin } from "../platform/compose-context-pin.js";
 import { isContractFastLaneInstruction } from "../platform/contract-fast-lane-instruction.js";
 import { extractTextIntent } from "./text-intent.js";
+import { instructionLooksLikeLetterQa } from "./utterance-kind.js";
 
 export type DeliveryArtifactShape = "opinion_memo" | "tracked_source" | "unspecified";
 export type DeliveryMutateSource = "forbid" | "allow" | "unspecified";
@@ -36,6 +37,7 @@ export const UNSPECIFIED_DELIVERY: DeliveryIntent = {
 };
 
 export const DELIVERY_MARKER_OPINION_MEMO = "<!--lm-delivery:opinion_memo-->";
+export const DELIVERY_MARKER_CHAT_QA = "<!--lm-delivery:chat_qa-->";
 
 export const OPINION_MEMO_PIPELINE_HINT =
   "律师要一份新的意见书 Word（默认 .docx），原文件只读。优先 `draft_document` → `render_document`，并在会话写出完整意见。改稿工具仍可用；不要覆盖原稿，也不要把完成条件理解成必须出红线。";
@@ -211,4 +213,17 @@ export function formatDeliveryConstraintPromptBlock(
     lines.push("- 落盘：系统文稿文件夹（引擎写入）。");
   }
   return lines.join("\n");
+}
+
+/** 已有函核对：交付是会话意见，不是另起一稿。 */
+export function formatChatQaDeliveryPromptBlock(instruction: string): string | undefined {
+  if (!instructionLooksLikeLetterQa(instruction)) {
+    return undefined;
+  }
+  return [
+    DELIVERY_MARKER_CHAT_QA,
+    "## 本轮交件形态",
+    "- 交付物是会话里的核对意见：逐点对错、引用文件夹/函件出处、必要时给出建议改法。",
+    "- 不要另起一封律师函 Word，不要出审阅痕迹稿，不要按合同审查成套交件。",
+  ].join("\n");
 }

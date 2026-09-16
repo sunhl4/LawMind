@@ -78,6 +78,7 @@ const TOOL_DISPLAY_ZH: Record<string, string> = {
   search_matter: "检索本案材料",
   read_project_file: "查阅项目文件",
   list_dir: "列举目录",
+  explore_folder: "探查文件夹",
   search_host: "本机查找",
   read_host_file: "阅读本机文件",
   import_host_file: "收进本案",

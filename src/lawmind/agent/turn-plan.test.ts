@@ -99,6 +99,21 @@ describe("turn-plan world-state", () => {
     expect(xml).not.toContain("自主工作流程");
   });
 
+  it("renders the working brief inside world-state XML", () => {
+    const xml = formatTurnPlanWorldState(
+      samplePlan({
+        brief: {
+          goal: "核对接律师函",
+          notGoal: "合同审查",
+          materials: "先 explore_folder",
+          done: "指出具体错误",
+        },
+      }),
+    );
+    expect(xml).toContain("<not_goal>合同审查</not_goal>");
+    expect(xml).toContain("<goal>核对接律师函</goal>");
+  });
+
   it("patches session world-state from pendingTurnPlan", () => {
     const session = {
       conversationHistory: [
@@ -115,6 +130,30 @@ describe("turn-plan world-state", () => {
     expect(session.turnPlan?.items).toHaveLength(3);
     expect(session.conversationHistory[0]?.content).toContain("<!--lm-ws:plan-->");
     expect(session.worldStateEpoch).toBe(1);
+  });
+
+  it("keeps the previous brief in world-state when update_plan only ticks steps", () => {
+    const session = {
+      conversationHistory: [
+        {
+          role: "system",
+          content: wrapWorldStateSection("permission", "<environment/>"),
+        },
+      ],
+      worldStateEpoch: 0,
+      turnPlan: samplePlan({
+        brief: {
+          goal: "核对接律师函",
+          notGoal: "合同审查",
+          materials: "先看文件夹",
+          done: "指出错误",
+        },
+      }),
+    };
+    const ctx: { pendingTurnPlan?: AgentTurnPlan } = { pendingTurnPlan: samplePlan() };
+    expect(applyPendingTurnPlan(session, ctx)).toBe(true);
+    expect(session.turnPlan?.brief?.notGoal).toBe("合同审查");
+    expect(session.conversationHistory[0]?.content).toContain("<not_goal>合同审查</not_goal>");
   });
 
   it("promotes a nested tool result onto shared ctx", () => {
@@ -139,6 +178,7 @@ describe("pruneTurnPlanForNewInstruction", () => {
   it("keeps an incomplete plan and checkpoint resumes", () => {
     const open = samplePlan();
     expect(pruneTurnPlanForNewInstruction(open, "继续把风险写进意见")?.items).toHaveLength(3);
+    expect(pruneTurnPlanForNewInstruction(open, "帮我再看另一份合同")).toBeUndefined();
     const done = samplePlan({
       items: [
         { step: "a", status: "completed" },
@@ -148,6 +188,16 @@ describe("pruneTurnPlanForNewInstruction", () => {
     expect(pruneTurnPlanForNewInstruction(done, "【从检查点继续】律师同意继续本轮。")).toEqual(
       done,
     );
+  });
+
+  it("drops an incomplete plan when the lawyer rejects contract review", () => {
+    const open = samplePlan();
+    expect(
+      pruneTurnPlanForNewInstruction(
+        open,
+        "我要你做的不是合同审核，是根据文件夹里的信息看律师函是否有误",
+      ),
+    ).toBeUndefined();
   });
 });
 
@@ -190,6 +240,23 @@ describe("helpers", () => {
     expect(text).toContain("给出修订建议");
     expect(text).toContain("已跳过：标风险条款");
     expect(text).not.toMatch(/^2\. 标风险条款/m);
+  });
+
+  it("includes the working brief in execute text", () => {
+    const text = formatTurnPlanExecuteText(
+      samplePlan({
+        brief: {
+          goal: "核对接律师函",
+          notGoal: "合同审查",
+          materials: "先 explore_folder",
+          done: "指出错误",
+        },
+      }),
+    );
+    expect(text).toContain("不要做：合同审查");
+    expect(text).toContain("完成标准：指出错误");
+    expect(text).toContain("先看文件夹");
+    expect(text).not.toContain("explore_folder");
   });
 
   it("formats execute text with lawyer-edited step labels", () => {

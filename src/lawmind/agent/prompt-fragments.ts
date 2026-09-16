@@ -5,7 +5,7 @@
  * in-window. Identity growth belongs on disk; this module only packs fingerprints.
  */
 
-import { estimateTextTokens } from "./context-budget.js";
+import { estimateTextTokens, TOKEN_BUDGET_WARN_RATIO } from "./context-budget.js";
 import { wrapWorldStateSection, type WorldStateSectionId } from "./world-state.js";
 
 export type PromptFragmentKind =
@@ -42,7 +42,7 @@ export type PromptFragment = {
 export const FRAGMENT_CAPS: Record<PromptFragmentKind, { capTokens: number; priority: number }> = {
   environment: { capTokens: 200, priority: 100 },
   budget: { capTokens: 80, priority: 100 },
-  turn_plan: { capTokens: 220, priority: 99 },
+  turn_plan: { capTokens: 420, priority: 99 },
   policy: { capTokens: 400, priority: 95 },
   pins: { capTokens: 1_200, priority: 90 },
   matter_index: { capTokens: 1_600, priority: 88 },
@@ -53,6 +53,26 @@ export const FRAGMENT_CAPS: Record<PromptFragmentKind, { capTokens: number; prio
   protocol: { capTokens: 1_800, priority: 55 },
   memory_hit: { capTokens: 200, priority: 40 },
 };
+
+const SCALED_FRAGMENT_KINDS = new Set<PromptFragmentKind>([
+  "pins",
+  "craft",
+  "protocol",
+  "skill_index",
+  "matter_index",
+  "preference_fingerprint",
+  "deliverable",
+]);
+
+/** Working-desk caps follow the model window, like CASE fingerprints. */
+export function scaleFragmentCapTokens(kind: PromptFragmentKind, scale = 1): number {
+  const base = FRAGMENT_CAPS[kind].capTokens;
+  if (!SCALED_FRAGMENT_KINDS.has(kind)) {
+    return base;
+  }
+  const s = Number.isFinite(scale) && scale > 0 ? Math.min(2.5, Math.max(0.5, scale)) : 1;
+  return Math.max(base, Math.floor(base * s));
+}
 
 /** Soft budget for packed session-tail extras (world-state pinned kinds never drop). */
 export const FRAGMENT_SESSION_TAIL_BUDGET_TOKENS = 12_000;
@@ -117,13 +137,11 @@ export function createPromptFragment(input: {
   worldStateId?: WorldStateSectionId;
   capTokens?: number;
   priority?: number;
+  windowScale?: number;
 }): PromptFragment | undefined {
   const defaults = FRAGMENT_CAPS[input.kind];
-  const capped = capFragmentBody(
-    input.body,
-    input.capTokens ?? defaults.capTokens,
-    input.overflow ?? null,
-  );
+  const capTokens = input.capTokens ?? scaleFragmentCapTokens(input.kind, input.windowScale ?? 1);
+  const capped = capFragmentBody(input.body, capTokens, input.overflow ?? null);
   if (!capped) {
     return undefined;
   }
@@ -134,7 +152,7 @@ export function createPromptFragment(input: {
     placement,
     ...(worldStateId ? { worldStateId } : {}),
     priority: input.priority ?? defaults.priority,
-    capTokens: input.capTokens ?? defaults.capTokens,
+    capTokens,
     overflow: input.overflow ?? null,
     body: capped,
   };
@@ -216,11 +234,21 @@ export function renderPackedFragments(fragments: PromptFragment[]): string[] {
   return extra;
 }
 
+export function shouldInjectRemainingTokensNote(used: number, limit: number): boolean {
+  const safeLimit = Math.max(1, Math.floor(limit));
+  return Math.max(0, Math.floor(used)) / safeLimit >= TOKEN_BUDGET_WARN_RATIO;
+}
+
 export function formatRemainingTokensNote(used: number, limit: number): string {
   const safeUsed = Math.max(0, Math.floor(used));
   const safeLimit = Math.max(1, Math.floor(limit));
   const remaining = Math.max(0, safeLimit - safeUsed);
-  return `【窗口】大约还剩 ${remaining} token（已用 ${safeUsed}/${safeLimit}）。优先用工具读文件，勿整段 dump；窗口紧时先收口。`;
+  const ratio = safeUsed / safeLimit;
+  const tail =
+    ratio >= 1
+      ? "优先用工具读文件，勿整段 dump；先收口本回合结论。"
+      : "优先用工具读文件，勿整段 dump。";
+  return `【窗口】大约还剩 ${remaining} token（已用 ${safeUsed}/${safeLimit}）。${tail}`;
 }
 
 export function formatTurnContextUserMessage(tail: string | undefined): string | undefined {

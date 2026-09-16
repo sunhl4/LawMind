@@ -20,6 +20,9 @@ export function shouldReuseGuardianRecord(
     return false;
   }
   if (prior.verdict === "skipped") {
+    // Disabled / no_model must not cache-block a later usable model.
+    // Infra skip is fail-open for this export only — next export retries,
+    // matching Codex compact (failed attempt is not cached as success).
     return false;
   }
   if (isInfraGuardianFail(prior)) {

@@ -143,6 +143,30 @@ export function resolveTemperatureForTask(
   }
 }
 
+/**
+ * Sidecar JSON / classify calls (Guardian, compact digest, native web search).
+ * Output and timeout come from the model window — not a one-off 800/2048 cap.
+ */
+export function resolveClassifySidecarLimits(opts: {
+  contextTokens?: number;
+  timeoutMs?: number;
+}): {
+  maxTokens: number;
+  timeoutMs: number;
+  temperature: number;
+} {
+  const envelope = resolveCapabilityEnvelope({
+    contextTokens: opts.contextTokens,
+    taskKind: "classify",
+    timeoutMs: opts.timeoutMs,
+  });
+  return {
+    maxTokens: envelope.maxOutputTokens,
+    timeoutMs: envelope.modelTimeoutMs,
+    temperature: resolveTemperatureForTask("classify"),
+  };
+}
+
 /** Attach envelope fields onto a resolved agent model config. */
 export function applyEnvelopeToAgentModelDefaults(opts: {
   contextTokens?: number;

@@ -11,7 +11,10 @@ export {
   guardianBlocksExport,
   guardianFailToolResult,
   guardianSystemPrompt,
+  extractFirstJsonObject,
   isInfraGuardianFail,
+  isInfraGuardianGapCode,
+  isInfraGuardianView,
   isLegalGuardianEnabled,
   parseGuardianReviewerJson,
   shouldRunLegalGuardianForDocument,
@@ -35,4 +38,5 @@ export {
   runLegalGuardianForDocument,
   runLegalGuardianForTrackedDraft,
   type GuardianCaller,
+  type GuardianReviewerDraw,
 } from "./run.js";

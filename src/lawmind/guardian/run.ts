@@ -3,7 +3,12 @@
  * Fail returns gaps as a tool result; the reviewer transcript stays in the sidecar.
  */
 
-import { callModelWithRetry } from "../agent/runtime-model-call.js";
+import {
+  assistantOutputLooksTruncated,
+  extractAssistantText,
+  shouldResampleSidecarJson,
+} from "../agent/assistant-text.js";
+import { callModelWithRetry, ModelCallUserAbortError } from "../agent/runtime-model-call.js";
 import type { AgentContext, AgentModelConfig } from "../agent/types.js";
 import { resolveVerificationChecklistSpec } from "../deliverables/verification-checklist.js";
 import { resolveDraftCitationIntegrity } from "../drafts/citation-resolve.js";
@@ -11,7 +16,12 @@ import { readReasoningSnapshot } from "../drafts/reasoning-snapshot.js";
 import { readRedlinePlan } from "../drafts/redline-plan.js";
 import type { RedlineHunk } from "../drafts/redline-proposal.js";
 import { readResearchSnapshot } from "../drafts/research-snapshot.js";
-import { resolveCapabilityEnvelope } from "../models/capability-envelope.js";
+import {
+  modelAttemptBudget,
+  shouldRetryTransportFailure,
+  waitModelRetry,
+} from "../llm/http-retry.js";
+import { resolveClassifySidecarLimits } from "../models/capability-envelope.js";
 import {
   loadWordRevisionPack,
   resolveWordRevisionChecklist,
@@ -34,7 +44,33 @@ import {
 } from "./legal-guardian.js";
 import { persistGuardianRecord, readLatestGuardian } from "./store.js";
 
-export type GuardianCaller = (input: { system: string; user: string }) => Promise<string>;
+export type GuardianReviewerDraw = {
+  text: string;
+  truncated?: boolean;
+};
+
+export type GuardianCaller = (input: {
+  system: string;
+  user: string;
+}) => Promise<string | GuardianReviewerDraw>;
+
+function asReviewerDraw(raw: string | GuardianReviewerDraw): {
+  text: string;
+  truncated: boolean;
+} {
+  if (typeof raw === "string") {
+    return { text: raw, truncated: false };
+  }
+  return { text: raw.text, truncated: Boolean(raw.truncated) };
+}
+
+function shouldRetryGuardianWithoutJsonMode(err: unknown): boolean {
+  if (err instanceof ModelCallUserAbortError) {
+    return false;
+  }
+  const msg = err instanceof Error ? err.message : String(err);
+  return /\b400\b/.test(msg) || /response_format|json_object/i.test(msg);
+}
 
 function hasUsableModel(model: AgentModelConfig | undefined): model is AgentModelConfig {
   return Boolean(model?.apiKey?.trim() && model.baseUrl?.trim() && model.model?.trim());
@@ -44,29 +80,41 @@ export async function defaultGuardianCaller(
   model: AgentModelConfig,
   input: { system: string; user: string },
   abortSignal?: AbortSignal,
-): Promise<string> {
-  const envelope = resolveCapabilityEnvelope({
+): Promise<GuardianReviewerDraw> {
+  const limits = resolveClassifySidecarLimits({
     contextTokens: model.contextTokens,
-    taskKind: "classify",
-    maxTokensOverride: 800,
-    timeoutMs: Math.min(45_000, model.timeoutMs ?? 60_000),
+    timeoutMs: model.timeoutMs,
   });
-  const response = await callModelWithRetry(
-    {
-      ...model,
-      maxTokens: Math.min(800, envelope.maxOutputTokens),
-      timeoutMs: envelope.modelTimeoutMs,
-      temperature: 0,
-      maxRetries: 0,
-    },
-    [
-      { role: "system", content: input.system },
-      { role: "user", content: input.user },
-    ],
-    [],
-    { signal: abortSignal },
-  );
-  return String(response.choices?.[0]?.message?.content ?? "");
+  const messages = [
+    { role: "system" as const, content: input.system },
+    { role: "user" as const, content: input.user },
+  ];
+  const invoke = async (jsonMode: boolean): Promise<GuardianReviewerDraw> => {
+    const response = await callModelWithRetry(
+      {
+        ...model,
+        maxTokens: limits.maxTokens,
+        timeoutMs: limits.timeoutMs,
+        temperature: limits.temperature,
+        // One budget lives in runLegalGuardian (transport + EMPTY_RESPONSE).
+        maxRetries: 0,
+        ...(jsonMode ? { responseFormat: { type: "json_object" as const } } : {}),
+      },
+      messages,
+      [],
+      { signal: abortSignal },
+    );
+    const view = extractAssistantText(response);
+    return { text: view.text, truncated: assistantOutputLooksTruncated(view) };
+  };
+  try {
+    return await invoke(true);
+  } catch (err) {
+    if (shouldRetryGuardianWithoutJsonMode(err)) {
+      return await invoke(false);
+    }
+    throw err;
+  }
 }
 
 function skippedRecord(
@@ -157,49 +205,61 @@ export async function runLegalGuardian(opts: {
   }
 
   let raw = "";
-  try {
-    raw = await caller({
-      system: guardianSystemPrompt(),
-      user: formatGuardianEvidenceUserMessage(opts.pack),
-    });
-  } catch {
-    const record: GuardianRecord = {
-      taskId: opts.taskId,
-      at: new Date().toISOString(),
-      verdict: "fail",
-      round,
-      maxRounds: LEGAL_GUARDIAN_MAX_ROUNDS,
-      skipReason: "reviewer_error",
-      gaps: [
-        {
-          code: "guardian_error",
-          message: "独立审稿调用失败。请重试交卷，不要回复已完成。",
-        },
-      ],
-    };
-    persistGuardianRecord(opts.workspaceDir, record);
-    return record;
+  let parsed: ReturnType<typeof parseGuardianReviewerJson> | undefined;
+  let callFailed = false;
+  const attempts = modelAttemptBudget();
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    let truncated = false;
+    try {
+      const draw = asReviewerDraw(
+        await caller({
+          system: guardianSystemPrompt(),
+          user: formatGuardianEvidenceUserMessage(opts.pack),
+        }),
+      );
+      raw = draw.text;
+      truncated = draw.truncated;
+      callFailed = false;
+    } catch (err) {
+      if (err instanceof ModelCallUserAbortError) {
+        throw err;
+      }
+      // TRANSPORT and EMPTY_RESPONSE share modelAttemptBudget (DeepSeek harness).
+      callFailed = true;
+      if (
+        attempt + 1 < attempts &&
+        shouldRetryTransportFailure(err, { signal: opts.abortSignal })
+      ) {
+        await waitModelRetry(attempt);
+        continue;
+      }
+      break;
+    }
+    parsed = parseGuardianReviewerJson(raw);
+    if (
+      !shouldResampleSidecarJson({
+        parsed: Boolean(parsed),
+        truncated,
+        attempt,
+        attempts,
+      })
+    ) {
+      break;
+    }
+    parsed = undefined;
+    await waitModelRetry(attempt);
   }
 
-  const parsed = parseGuardianReviewerJson(raw);
   if (!parsed) {
-    const record: GuardianRecord = {
-      taskId: opts.taskId,
-      at: new Date().toISOString(),
-      verdict: "fail",
+    const record = skippedRecord(
+      opts.taskId,
       round,
-      maxRounds: LEGAL_GUARDIAN_MAX_ROUNDS,
-      skipReason: "unreadable",
-      gaps: [
-        {
-          code: "guardian_unreadable",
-          message: "独立审稿输出无法解析。请原样重交 render_tracked_draft，不要改审稿措辞。",
-        },
-      ],
-      reviewerRaw: raw,
-    };
-    persistGuardianRecord(opts.workspaceDir, record);
-    return record;
+      callFailed ? "reviewer_error" : "unreadable",
+      packHash,
+    );
+    const stored = raw ? { ...record, reviewerRaw: raw } : record;
+    persistGuardianRecord(opts.workspaceDir, stored);
+    return stored;
   }
 
   const record: GuardianRecord = {

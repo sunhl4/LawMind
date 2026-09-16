@@ -2,13 +2,18 @@
  * Model HTTP call with retry.
  */
 
-import { computeRetryDelayMs, isRetryableHttpFailure } from "../llm/http-retry.js";
+import {
+  computeRetryDelayMs,
+  DEFAULT_MODEL_MAX_RETRIES,
+  isRetryableHttpFailure,
+} from "../llm/http-retry.js";
 import { createOutboundProxy } from "../platform/outbound-proxy.js";
 import type { AgentModelConfig } from "./types.js";
 
-/** 模型单次调用超时（起草等任务可能较慢，60s 减少 aborted） */
-const DEFAULT_MODEL_TIMEOUT_MS = 60000;
-const DEFAULT_MODEL_MAX_RETRIES = 2;
+export { DEFAULT_MODEL_MAX_RETRIES, modelAttemptBudget } from "../llm/http-retry.js";
+
+/** Matches desktop / envelope default (`LAWMIND_AGENT_TIMEOUT_MS` fallback). */
+const DEFAULT_MODEL_TIMEOUT_MS = 120_000;
 
 const modelProxy = createOutboundProxy({ requestTag: "model-api" });
 
@@ -271,6 +276,10 @@ async function callModelOnce(
 
   if (Array.isArray(config.stop) && config.stop.length > 0) {
     body.stop = config.stop.filter((s) => typeof s === "string" && s.length > 0).slice(0, 8);
+  }
+
+  if (config.responseFormat?.type === "json_object") {
+    body.response_format = { type: "json_object" };
   }
 
   if (tools.length > 0) {

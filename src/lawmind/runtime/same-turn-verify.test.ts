@@ -36,6 +36,56 @@ describe("same-turn verify", () => {
     expect(shouldBounceSameTurnCompletion({ red: true, issues, bounceCount: 0 })).toBe(true);
   });
 
+  it("maps XML-QA miss to re-export, not surgical rewrite", () => {
+    const issues = collectSameTurnVerifyIssues({
+      toolName: "render_tracked_draft",
+      result: {
+        ok: false,
+        error: "未见审阅痕迹",
+        data: { code: "xml_qa_no_tracks" },
+      },
+    });
+    expect(issues[0]?.code).toBe("xml_qa_fail");
+    expect(issues[0]?.nextTool).toBe("render_tracked_draft");
+    expect(issues[0]?.message).toContain("原样重交");
+    expect(issues[0]?.message).not.toContain("apply_surgical_edits");
+    expect(formatSameTurnCompletionBounce({ red: true, issues, bounceCount: 0 })).toContain(
+      "render_tracked_draft",
+    );
+    expect(formatSameTurnCompletionBounce({ red: true, issues, bounceCount: 0 })).not.toContain(
+      "apply_surgical_edits",
+    );
+  });
+
+  it("does not send infra Guardian fails back to apply_surgical_edits", () => {
+    const issues = collectSameTurnVerifyIssues({
+      toolName: "render_tracked_draft",
+      result: {
+        ok: false,
+        error: "独立审稿引擎未能读出结果",
+        data: {
+          code: "legal_guardian_fail",
+          gateDecision: { gate: "legal_guardian_gate", decision: "block" },
+          guardian: {
+            verdict: "fail",
+            skipReason: "unreadable",
+            gaps: [{ code: "guardian_unreadable", message: "无法解析" }],
+          },
+        },
+      },
+    });
+    expect(issues[0]?.code).toBe("guardian_fail");
+    expect(issues[0]?.nextTool).toBe("render_tracked_draft");
+    expect(issues[0]?.message).toContain("原样重交");
+    expect(issues[0]?.message).not.toContain("补改");
+    expect(formatSameTurnCompletionBounce({ red: true, issues, bounceCount: 0 })).toContain(
+      "render_tracked_draft",
+    );
+    expect(formatSameTurnCompletionBounce({ red: true, issues, bounceCount: 0 })).not.toContain(
+      "apply_surgical_edits",
+    );
+  });
+
   it("maps opinion Guardian fail to update_draft bounce", () => {
     const issues = collectSameTurnVerifyIssues({
       toolName: "render_document",

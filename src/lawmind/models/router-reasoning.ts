@@ -30,12 +30,13 @@ function resolveRouterLlmConfigFromStore(lawMindRoot: string): OpenAiJsonClientC
     baseUrl: model.baseUrl,
     apiKey: model.apiKey,
     model: model.model,
-    temperature: process.env.LAWMIND_ROUTER_TEMPERATURE
-      ? Number(process.env.LAWMIND_ROUTER_TEMPERATURE)
-      : 0.1,
-    timeoutMs: process.env.LAWMIND_ROUTER_TIMEOUT_MS
-      ? Number(process.env.LAWMIND_ROUTER_TIMEOUT_MS)
-      : 45_000,
+    taskKind: "classify",
+    ...(process.env.LAWMIND_ROUTER_TEMPERATURE
+      ? { temperature: Number(process.env.LAWMIND_ROUTER_TEMPERATURE) }
+      : {}),
+    ...(process.env.LAWMIND_ROUTER_TIMEOUT_MS
+      ? { timeoutMs: Number(process.env.LAWMIND_ROUTER_TIMEOUT_MS) }
+      : {}),
   };
 }
 

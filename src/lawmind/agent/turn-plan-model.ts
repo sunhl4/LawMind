@@ -4,12 +4,19 @@
  * Renderer-safe: no Node builtins. World-state writes live in `turn-plan.ts`.
  */
 
+import {
+  isContinuationUtterance,
+  isCorrectionUtterance,
+  isTaskSwitchUtterance,
+} from "../intent/utterance-kind.js";
+
 export const UPDATE_PLAN_TOOL_NAME = "update_plan";
 
 export const TURN_PLAN_MIN_STEPS = 2;
 export const TURN_PLAN_MAX_STEPS = 8;
 export const TURN_PLAN_STEP_MAX_CHARS = 36;
 export const TURN_PLAN_EXPLANATION_MAX_CHARS = 80;
+export const TURN_PLAN_BRIEF_FIELD_MAX_CHARS = 80;
 
 export type TurnPlanStepStatus = "pending" | "in_progress" | "completed";
 
@@ -18,9 +25,17 @@ export type TurnPlanItem = {
   status: TurnPlanStepStatus;
 };
 
+export type AgentTurnBrief = {
+  goal: string;
+  notGoal: string;
+  materials: string;
+  done: string;
+};
+
 export type AgentTurnPlan = {
   items: TurnPlanItem[];
   explanation?: string;
+  brief?: AgentTurnBrief;
   updatedAt: string;
 };
 
@@ -79,6 +94,30 @@ function parseStatus(raw: unknown): TurnPlanStepStatus | undefined {
   return STATUS_ALIASES[raw.trim().toLowerCase()] ?? STATUS_ALIASES[raw.trim()];
 }
 
+function parseBriefField(raw: unknown): string {
+  return typeof raw === "string" ? clipChars(raw, TURN_PLAN_BRIEF_FIELD_MAX_CHARS) : "";
+}
+
+function parseTurnBrief(params: Record<string, unknown>): AgentTurnBrief | undefined {
+  const nested =
+    params.brief && typeof params.brief === "object" && !Array.isArray(params.brief)
+      ? (params.brief as Record<string, unknown>)
+      : undefined;
+  const goal = parseBriefField(params.goal ?? nested?.goal);
+  const notGoal = parseBriefField(params.not_goal ?? params.notGoal ?? nested?.notGoal);
+  const materials = parseBriefField(params.materials ?? nested?.materials);
+  const done = parseBriefField(params.done ?? nested?.done);
+  if (!goal && !notGoal && !materials && !done) {
+    return undefined;
+  }
+  return {
+    goal: goal || "以律师本轮原话为准",
+    notGoal: notGoal || "以原话否定为准",
+    materials: materials || "以原话与钉选为准",
+    done: done || "按原话交付；未读材料不得改稿",
+  };
+}
+
 function parseItem(raw: unknown): TurnPlanItem | undefined {
   if (!raw || typeof raw !== "object") {
     return undefined;
@@ -112,7 +151,20 @@ export function formatTurnPlanExecuteText(
     (item, i) => `${i + 1}. ${item.step}`,
   );
   const skipNote = skipped.length > 0 ? `\n已跳过：${skipped.map((s) => s.step).join("；")}` : "";
-  return `实施步骤：\n${lines.join("\n")}${skipNote}`;
+  const brief = plan.brief
+    ? [
+        `要做：${plan.brief.goal}`,
+        `不要做：${plan.brief.notGoal}`,
+        `材料：${lawyerFacingMaterials(plan.brief.materials)}`,
+        `完成标准：${plan.brief.done}`,
+        "",
+      ].join("\n")
+    : "";
+  return `${brief}实施步骤：\n${lines.join("\n")}${skipNote}`;
+}
+
+export function lawyerFacingMaterials(text: string): string {
+  return text.replaceAll("explore_folder", "先看文件夹").replaceAll("list_dir", "先看目录");
 }
 
 export function turnPlanProgress(plan: AgentTurnPlan): { completed: number; total: number } {
@@ -128,13 +180,26 @@ export function isTurnPlanComplete(plan: AgentTurnPlan | undefined): boolean {
   return plan.items.every((item) => item.status === "completed");
 }
 
+function formatBriefXml(brief: AgentTurnBrief | undefined): string[] {
+  if (!brief) {
+    return [];
+  }
+  return [
+    `  <goal>${escapeXml(brief.goal)}</goal>`,
+    `  <not_goal>${escapeXml(brief.notGoal)}</not_goal>`,
+    `  <materials>${escapeXml(brief.materials)}</materials>`,
+    `  <done>${escapeXml(brief.done)}</done>`,
+  ];
+}
+
 export function formatTurnPlanWorldState(plan: AgentTurnPlan): string {
   const attrs = plan.explanation
     ? ` explanation="${escapeXml(clipChars(plan.explanation, TURN_PLAN_EXPLANATION_MAX_CHARS))}"`
     : "";
-  const lines = plan.items.map(
-    (item) => `  <step status="${item.status}">${escapeXml(item.step)}</step>`,
-  );
+  const lines = [
+    ...formatBriefXml(plan.brief),
+    ...plan.items.map((item) => `  <step status="${item.status}">${escapeXml(item.step)}</step>`),
+  ];
   return `<turn_plan${attrs}>\n${lines.join("\n")}\n</turn_plan>`;
 }
 
@@ -173,11 +238,13 @@ export function validateUpdatePlanArgs(
   const explanation = explanationRaw
     ? clipChars(explanationRaw, TURN_PLAN_EXPLANATION_MAX_CHARS)
     : undefined;
+  const brief = parseTurnBrief(params);
   return {
     ok: true,
     plan: {
       items,
       ...(explanation ? { explanation } : {}),
+      ...(brief ? { brief } : {}),
       updatedAt: new Date().toISOString(),
     },
   };
@@ -199,6 +266,11 @@ export function parseAgentTurnPlan(data: unknown): AgentTurnPlan | undefined {
   const parsed = validateUpdatePlanArgs({
     plan: itemsRaw,
     explanation: rec.explanation,
+    goal: rec.goal,
+    not_goal: rec.not_goal ?? rec.notGoal,
+    materials: rec.materials,
+    done: rec.done,
+    brief: rec.brief,
   });
   if (!parsed.ok) {
     return undefined;
@@ -219,10 +291,16 @@ export function pruneTurnPlanForNewInstruction(
   if (/【从检查点继续】/.test(instruction)) {
     return plan;
   }
+  if (isCorrectionUtterance(instruction) || isTaskSwitchUtterance(instruction)) {
+    return undefined;
+  }
   if (isTurnPlanComplete(plan)) {
     return undefined;
   }
-  return plan;
+  if (isContinuationUtterance(instruction)) {
+    return plan;
+  }
+  return undefined;
 }
 
 /**

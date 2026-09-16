@@ -255,6 +255,7 @@ export const lawMindWebSearchTool: AgentTool = {
     description:
       "在互联网上检索公开网页摘要。默认使用当前对话模型的厂商网页检索（与聊天同一套 Key）；若设置里关掉「共用」且法律垂类自带厂商联网，则改走垂类。仅当该模型没有厂商检索时才用可选的 Brave。须在本轮开启「联网」。引用前请交叉验证，不可替代官方法规或裁判文书。",
     category: "search",
+    isConcurrencySafe: true,
     parameters: {
       query: { type: "string", description: "搜索关键词或问题", required: true },
       count: { type: "number", description: "返回条数 1-10，默认 5" },

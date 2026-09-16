@@ -107,6 +107,7 @@ export const lawMindStatuteWebSearchTool: AgentTool = {
     description:
       "在互联网上检索法律法规、司法解释、规章的公开网页（官方法规站点优先）。使用当前对话模型的厂商网页检索；仅当该模型没有厂商检索时才用可选的 Brave。须已开启「联网」。已配置北大法宝等权威库时，应先用 `search_statute` / `search_case_law`；本工具是网页摘要兜底，不是法宝接口。结果须标注 URL 并请律师核对权威文本。",
     category: "search",
+    isConcurrencySafe: true,
     parameters: {
       query: {
         type: "string",

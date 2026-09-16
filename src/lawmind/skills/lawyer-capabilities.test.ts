@@ -225,7 +225,8 @@ describe("lawyer-capabilities", () => {
     expect(block).toContain("execute_workflow");
     expect(block).toContain("办件");
     expect(block).not.toContain("改路由");
-    expect(block).toContain("不要再问律师选分类");
+    expect(block).toContain("以本轮原话为准");
+    expect(block).toContain("不是必须走完的流水线");
     expect(block).toContain("其余技能（索引，不要通读）");
     expect(block).toContain("legal-element-extraction");
   });

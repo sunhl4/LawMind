@@ -191,7 +191,7 @@ pnpm exec vitest run \
 - **路径**：`src/lawmind/guardian/`；交卷钩子 `render_tracked_draft`（空修订硬门禁之后、写 Word 之前）与意见类 `render_document`（验收门禁之后、盖戳/写 Word 之前）
 - **作用**：写者照常改稿。交卷前另开短调用，只喂代码组装的证据包（hunk、锚句、引用、检查单、硬门禁事实、律师已确认答案、写者 deferred 声明）。审稿员 `pass|fail`+缺口。fail 作为工具结果打回主循环；审稿全文只进 `drafts/<taskId>.guardian.json`，不进会话历史。
 - **不是**：再给写者加「你必须引用法条」的 prompt；也不是 `craft_check` 自评覆盖率。空修订/跨度/引用 ID∈bundle 仍是硬门禁（法律版 REPL：跑过才算过）。
-- **手改**：`LAWMIND_LEGAL_GUARDIAN=0` 关闭。无模型时 skip（不挡导出，审核台显示「未跑」）。审稿调用失败或输出无法解析则 **fail-closed**（挡导出，不消耗覆盖轮次）。默认 ≤2 轮覆盖 fail 后要求交给律师，不无限讨好审稿员。证据包 hash 相同则跳过审稿 LLM（`unchanged_evidence`），稿变了才再调。
+- **手改**：`LAWMIND_LEGAL_GUARDIAN=0` 关闭。无模型时 skip（不挡导出，审核台显示「未跑」）。审稿输出上限/超时/温度走 `resolveClassifySidecarLimits`（模型窗口 5% 包络，不是固定 800/2048）。HTTP 失败与空/截断/无法解析输出共用 `modelAttemptBudget`（DeepSeek harness normal：TRANSPORT 与 EMPTY_RESPONSE 同一重试预算，指数退避）。仍读不出则 **skip**（不挡导出，审核台显示「未完成」），不消耗覆盖轮次，也不把写者打去落改；下一次导出同 hash 会再采样，不把 infra skip 当成成功缓存。覆盖 fail 仍 fail-closed。默认 ≤2 轮覆盖 fail 后要求交给律师。证据包 hash 相同且上次为 pass/fail 则跳过审稿 LLM（`unchanged_evidence`），稿变了才再调。
 - **律师看见的**：审核台交卷核对「独立审稿」，不是写者 coverage 分数。
 
 ### 16b. 同一回合验收（lint / 引用 / craft_check / 空修订） — TIGHTEN

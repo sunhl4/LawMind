@@ -32,6 +32,7 @@ export const IDEMPOTENT_READ_TOOLS = new Set<string>([
   "read_conversation",
   "read_project_file",
   "list_dir",
+  "explore_folder",
   "search_host",
   "read_host_file",
   "search_statute",

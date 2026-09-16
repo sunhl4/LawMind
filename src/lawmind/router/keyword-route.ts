@@ -3,6 +3,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { stripRejectedContractReviewPhrases } from "../intent/utterance-kind.js";
 import { LPM_MEMO_INSTRUCTION_RE } from "../practice/lpm-matter-columns.js";
 import {
   ADS_COMPLIANCE_RE,
@@ -114,14 +115,14 @@ const TASK_KIND_PATTERNS: Array<{ pattern: RegExp; kind: TaskKind }> = [
       /(写|起草|拟定|拟写|撰写|生成|制作|输出|整理|列|出具).{0,20}(法律意见书|法律意见|答辩状|代理词|辩护词|回函|答复函|回复函|会议纪要|会议记录|证据目录|证据清单|时间线|大事记|备忘录|保密协议|NDA)|(答辩状|代理词|辩护词|法律意见书|会议纪要|证据目录|证据清单)/i,
     kind: "draft.word",
   },
+  { pattern: /律师函|催告函|催款|通知函|警告信|demand|回函|答复函/i, kind: "draft.word" },
   {
-    pattern: /(?!.*(?:催告函|催款函|demand letter|催告))(?:合同|协议|条款)/i,
+    pattern: /(?!.*(?:催告函|催款函|demand letter|催告|律师函))(?:合同|协议|条款)/i,
     kind: "analyze.contract",
   },
   { pattern: COMPUTE_TABLE_PACK_RE, kind: "draft.word" },
   { pattern: QUICK_TRIAGE_RE, kind: "research.legal" },
   { pattern: /查一下|法律意见|法规|法条|类案|裁判|司法解释/i, kind: "research.legal" },
-  { pattern: /律师函|催告函|催款|通知函|警告信|demand|回函|答复函/i, kind: "draft.word" },
   {
     pattern:
       /(起诉状|答辩状|代理词|辩护词|诉讼大纲|诉讼提纲|诉请大纲|立案材料)|(写|起草|撰写|生成).{0,12}(起诉|诉讼).{0,8}(大纲|提纲|要点)/i,
@@ -185,7 +186,8 @@ export type RouteInput = {
 export function route(input: RouteInput): TaskIntent {
   const { instruction, matterId, templateId, audience, deliverableType } = input;
 
-  const matched = TASK_KIND_PATTERNS.find((p) => p.pattern.test(instruction));
+  const routedText = stripRejectedContractReviewPhrases(instruction);
+  const matched = TASK_KIND_PATTERNS.find((p) => p.pattern.test(routedText));
   const kind: TaskKind = matched?.kind ?? "unknown";
   const riskLevel = inferRiskLevel(kind);
   const models = inferModels(kind);

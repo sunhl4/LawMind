@@ -34,6 +34,7 @@ describe("disclosed-turn-tools", () => {
     expect(names).not.toContain("deep_research");
     expect(names).not.toContain("url_dossier");
     expect(names).toContain("list_dir");
+    expect(names).toContain("explore_folder");
     expect(names).toContain("search_conversations");
     expect(names).toContain("read_conversation");
     expect(names).toContain("search_workspace");
@@ -112,10 +113,11 @@ x
     expect(extraToolsForInstruction("核对招股说明书信息披露备忘")).toContain("search_case_law");
     expect(extraToolsForInstruction("起草这份董事会决议")).toContain("search_case_law");
     expect(extraToolsForInstruction("出一份广告合规备忘")).toContain("search_case_law");
-    expect(extraToolsForInstruction("请审查这份采购合同")).toContain("search_case_law");
-    expect(extraToolsForInstruction("请审查这份采购合同")).toContain("draft_document");
-    expect(extraToolsForInstruction("请审查这份采购合同")).toContain("calculate");
-    expect(extraToolsForInstruction("请审查这份采购合同")).toContain("search_workspace");
+    expect(extraToolsForInstruction("请审查这份采购合同")).toEqual(
+      expect.arrayContaining(["search_case_law", "calculate", "search_workspace"]),
+    );
+    expect(extraToolsForInstruction("请审查这份采购合同")).not.toContain("draft_document");
+    expect(extraToolsForInstruction("请审查这份采购合同")).not.toContain("render_tracked_draft");
     expect(
       extraToolsForInstruction("请审查这份采购合同", {
         pins: [
@@ -142,8 +144,44 @@ x
     expect(extraToolsForInstruction("【邮件合同审阅改稿 · 短路径】\nmatterId=`m1`")).toContain(
       "render_tracked_draft",
     );
+    expect(
+      extraToolsForInstruction("帮我看看", {
+        pins: [
+          {
+            pinKind: "file",
+            root: "project",
+            relPath: "买卖合同.docx",
+            kind: "file",
+          },
+        ],
+      }),
+    ).not.toContain("render_tracked_draft");
+    expect(
+      extraToolsForInstruction("帮我看看", {
+        pins: [
+          {
+            pinKind: "file",
+            root: "project",
+            relPath: "买卖合同.docx",
+            kind: "file",
+          },
+        ],
+      }),
+    ).not.toContain("draft_document");
     expect(extraToolsForInstruction("他一直拖欠工资这算不算违法")).not.toContain("draft_document");
     expect(extraToolsForInstruction("计算违法解除的经济补偿")).not.toContain("draft_document");
+    expect(
+      extraToolsForInstruction("核对我起草的律师函是否有误", {
+        pins: [
+          {
+            pinKind: "file",
+            root: "project",
+            relPath: "律师函.docx",
+            kind: "file",
+          },
+        ],
+      }),
+    ).not.toContain("draft_document");
     expect(
       extraToolsForInstruction(
         [

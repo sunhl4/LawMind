@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   applyEnvelopeToAgentModelDefaults,
   resolveCapabilityEnvelope,
+  resolveClassifySidecarLimits,
+  resolveTemperatureForTask,
 } from "./capability-envelope.js";
 
 const ENV_KEYS = [
@@ -71,6 +73,17 @@ describe("resolveCapabilityEnvelope", () => {
     const plan = resolveCapabilityEnvelope({ contextTokens: 100_000, taskKind: "plan" });
     expect(plan.maxOutputTokens).toBeGreaterThan(0);
     expect(plan.maxOutputTokens).not.toBe(chat.maxOutputTokens);
+  });
+
+  it("classify sidecar limits follow the model window, not a fixed 2048", () => {
+    clearEnv();
+    const small = resolveClassifySidecarLimits({ contextTokens: 8_192 });
+    const large = resolveClassifySidecarLimits({ contextTokens: 128_000 });
+    const classify = resolveCapabilityEnvelope({ contextTokens: 128_000, taskKind: "classify" });
+    expect(small.maxTokens).toBeGreaterThanOrEqual(4_096);
+    expect(large.maxTokens).toBe(classify.maxOutputTokens);
+    expect(large.maxTokens).toBeGreaterThan(2_048);
+    expect(large.temperature).toBe(resolveTemperatureForTask("classify"));
   });
 
   it("defaults tool timeout to unlimited (0)", () => {

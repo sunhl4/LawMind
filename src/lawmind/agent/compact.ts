@@ -35,7 +35,7 @@ export function resolveCompactDigestCharCap(contextTokens?: number): number {
  */
 /** Statute-like anchors kept after compact so the next model round can still cite. */
 const DROPPED_CITATION_RE =
-  /《[^《》\n]{1,48}》(?:\s*第\s*\d+\s*条(?:之\d+)?(?:第[一二三四五六七八九十百千\d]+款)?)?/g;
+  /《[^《》\n]{1,48}》(?:\s*第\s*\d+\s*条(?:之\d+)?(?:第[一二三四五六七八九十百千\d]+款)?)?|法释〔\d{4}〕\d+号|（\d{4}）[^）\n]{2,24}号/g;
 
 export function collectDroppedCitationAnchors(dropped: AgentMessage[], maxItems = 24): string[] {
   const found: string[] = [];
@@ -98,10 +98,11 @@ export function buildDroppedSpanDigest(dropped: AgentMessage[], maxChars: number
     if (!text) {
       continue;
     }
+    const lineCap = Math.min(1_200, Math.max(400, Math.floor(maxChars * 0.06)));
     if (msg.role === "user") {
-      lawyerLines.push(text.slice(0, 400));
+      lawyerLines.push(text.slice(0, lineCap));
     } else if (msg.role === "assistant") {
-      assistantLines.push(text.slice(0, 400));
+      assistantLines.push(text.slice(0, lineCap));
     }
   }
 

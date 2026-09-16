@@ -5,9 +5,12 @@ import {
   formatOverflowPointer,
   formatRemainingTokensNote,
   formatTurnContextUserMessage,
+  FRAGMENT_CAPS,
   packPromptFragments,
   partitionPackedFragments,
   renderPackedFragments,
+  scaleFragmentCapTokens,
+  shouldInjectRemainingTokensNote,
   withEphemeralBudgetNote,
   withEphemeralTurnContext,
 } from "./prompt-fragments.js";
@@ -89,9 +92,30 @@ describe("prompt-fragments", () => {
   it("appends remaining-token notes only at sample time", () => {
     const note = formatRemainingTokensNote(1_000, 8_000);
     expect(note).toContain("还剩 7000 token");
+    expect(note).not.toContain("先收口");
     const messages = withEphemeralBudgetNote([{ role: "user" as const, content: "审合同" }], note);
     expect(messages).toHaveLength(2);
     expect(messages[1]?.content).toContain("还剩 7000");
+    expect(shouldInjectRemainingTokensNote(1_000, 8_000)).toBe(false);
+    expect(shouldInjectRemainingTokensNote(7_000, 8_000)).toBe(true);
+    expect(formatRemainingTokensNote(8_000, 8_000)).toContain("先收口");
+  });
+
+  it("scales working-desk fragment caps with the model window", () => {
+    expect(scaleFragmentCapTokens("pins", 1)).toBe(FRAGMENT_CAPS.pins.capTokens);
+    expect(scaleFragmentCapTokens("pins", 2)).toBe(Math.floor(FRAGMENT_CAPS.pins.capTokens * 2));
+    expect(scaleFragmentCapTokens("environment", 2)).toBe(FRAGMENT_CAPS.environment.capTokens);
+    const wide = createPromptFragment({
+      kind: "pins",
+      body: "甲".repeat(2_000),
+      windowScale: 2,
+    });
+    const narrow = createPromptFragment({
+      kind: "pins",
+      body: "甲".repeat(2_000),
+      windowScale: 1,
+    });
+    expect(wide?.capTokens).toBeGreaterThan(narrow?.capTokens ?? 0);
   });
 
   it("keeps only the first session-tail craft", () => {

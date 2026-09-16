@@ -11,6 +11,7 @@ import { parseCraftCheckInput } from "../drafts/contract-redline-craft.js";
 import { readDraft } from "../drafts/index.js";
 import { readRedlinePlan } from "../drafts/redline-plan.js";
 import { readRedlineProposal } from "../drafts/redline-proposal.js";
+import { isInfraGuardianView } from "../guardian/legal-guardian.js";
 import { readLatestGuardian } from "../guardian/store.js";
 import { draftTextFromUnknown, runLegalLint } from "../lint/run-lint.js";
 import { classifyResidual } from "../lint/self-revise.js";
@@ -61,7 +62,13 @@ export type SameTurnVerifyIssue = {
   code: SameTurnVerifyCode;
   message: string;
   gate: GateDecisionKind;
-  nextTool?: "apply_surgical_edits" | "update_draft" | "draft_document" | "search_statute";
+  nextTool?:
+    | "apply_surgical_edits"
+    | "update_draft"
+    | "draft_document"
+    | "search_statute"
+    | "render_tracked_draft"
+    | "render_document";
 };
 
 export type SameTurnVerifyTurnState = {
@@ -378,9 +385,9 @@ function issueXmlQaFail(): SameTurnVerifyIssue {
   return {
     code: "xml_qa_fail",
     gate: "redline_hunks_gate",
-    nextTool: "apply_surgical_edits",
+    nextTool: "render_tracked_draft",
     message:
-      "导出文件的 XML 未见审阅痕迹，不能当作已完成。请收窄 find/replace 后再交 apply_surgical_edits 并重新导出。",
+      "导出文件的 XML 未见审阅痕迹，不能当作已完成。请原样重交 render_tracked_draft，不要为此落改。",
   };
 }
 
@@ -430,21 +437,42 @@ function issueLint(ruleIds: string[]): SameTurnVerifyIssue {
 function issueGuardian(
   gaps?: unknown,
   nextTool: SameTurnVerifyIssue["nextTool"] = "apply_surgical_edits",
+  skipReason?: unknown,
 ): SameTurnVerifyIssue {
   const detail: string[] = [];
+  const gapRows: Array<{ code?: string; message?: string }> = [];
   if (Array.isArray(gaps)) {
     for (const row of gaps) {
       if (!row || typeof row !== "object" || Array.isArray(row)) {
         continue;
       }
-      const message = (row as { message?: unknown }).message;
+      const rec = row as { code?: unknown; message?: unknown };
+      const message = rec.message;
+      const code = typeof rec.code === "string" ? rec.code : "";
       if (typeof message === "string" && message.trim()) {
         detail.push(message.trim());
+        gapRows.push({ code, message: message.trim() });
       }
       if (detail.length >= 4) {
         break;
       }
     }
+  }
+  const infra = isInfraGuardianView({
+    verdict: "fail",
+    skipReason: typeof skipReason === "string" ? skipReason : undefined,
+    gaps: gapRows
+      .filter((g) => g.code && g.message)
+      .map((g) => ({ code: g.code!, message: g.message! })),
+  });
+  if (infra) {
+    return {
+      code: "guardian_fail",
+      gate: "legal_guardian_gate",
+      nextTool: nextTool === "update_draft" ? "render_document" : "render_tracked_draft",
+      message:
+        "独立审稿引擎未能读出结果。请原样重交本次导出，不要落改、不要改审稿措辞、不要把内部故障码写给律师。",
+    };
   }
   return {
     code: "guardian_fail",
@@ -613,13 +641,15 @@ export function collectSameTurnVerifyIssues(input: {
       issues.push(issueCraftCheckMissing());
     }
     if (data?.code === "legal_guardian_fail" || gate?.gate === "legal_guardian_gate") {
-      issues.push(issueGuardian(asRecord(data?.guardian)?.gaps));
+      const guardian = asRecord(data?.guardian);
+      issues.push(issueGuardian(guardian?.gaps, "apply_surgical_edits", guardian?.skipReason));
     }
   }
 
   if (toolName === "render_document") {
     if (data?.code === "legal_guardian_fail" || gate?.gate === "legal_guardian_gate") {
-      issues.push(issueGuardian(asRecord(data?.guardian)?.gaps, "update_draft"));
+      const guardian = asRecord(data?.guardian);
+      issues.push(issueGuardian(guardian?.gaps, "update_draft", guardian?.skipReason));
     }
   }
 
@@ -723,7 +753,7 @@ export function precheckOutboundSameTurnVerify(input: {
     }
     const guardian = readLatestGuardian(workspaceDir, taskId);
     if (guardian?.verdict === "fail") {
-      issues.push(issueGuardian(guardian.gaps));
+      issues.push(issueGuardian(guardian.gaps, "apply_surgical_edits", guardian.skipReason));
     }
   }
   const text = draftTextFromUnknown({

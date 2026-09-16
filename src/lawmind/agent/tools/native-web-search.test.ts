@@ -1,9 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   detectNativeWebSearchKind,
   extractNativeWebHits,
   originWithoutV1,
+  runNativeWebSearch,
 } from "./native-web-search.js";
+
+vi.mock("../../llm/http-retry.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../llm/http-retry.js")>();
+  return { ...actual, waitModelRetry: async () => undefined };
+});
 
 describe("native-web-search", () => {
   it("detects DeepSeek Flash on the official host", () => {
@@ -81,5 +87,98 @@ describe("native-web-search", () => {
       url: "https://news.example.com/a",
       description: "摘要",
     });
+  });
+
+  it("retries DeepSeek HTTP 503 then returns hits", async () => {
+    const fetchMock = vi.fn(async () => {
+      if (fetchMock.mock.calls.length === 1) {
+        return new Response("busy", { status: 503 });
+      }
+      return Response.json({
+        output: [
+          {
+            type: "message",
+            content: [
+              {
+                type: "output_text",
+                text: "见 [节目页](https://example.com/show)",
+                annotations: [
+                  { type: "url_citation", title: "节目页", url: "https://example.com/show" },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const out = await runNativeWebSearch(
+        { baseUrl: "https://api.deepseek.com/v1", apiKey: "k", model: "deepseek-flash" },
+        "query",
+        5,
+      );
+      expect(out.kind).toBe("deepseek-responses");
+      expect(out.results[0]?.url).toBe("https://example.com/show");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("falls through a DeepSeek 400 to the next model name without burning retries", async () => {
+    const fetchMock = vi.fn(async (_url: unknown, init?: { body?: string }) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      if (body.model === "deepseek-flash") {
+        return new Response("unknown model", { status: 400 });
+      }
+      return Response.json({
+        output: [
+          {
+            type: "message",
+            content: [
+              {
+                type: "output_text",
+                annotations: [
+                  { type: "url_citation", title: "报道", url: "https://news.example.com/a" },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const out = await runNativeWebSearch(
+        { baseUrl: "https://api.deepseek.com/v1", apiKey: "k", model: "deepseek-flash" },
+        "query",
+        5,
+      );
+      expect(out.results[0]?.url).toBe("https://news.example.com/a");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not treat an honest empty result as EMPTY_RESPONSE", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        output: [{ type: "message", content: [{ type: "output_text", text: "没有检索到" }] }],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const out = await runNativeWebSearch(
+        { baseUrl: "https://api.deepseek.com/v1", apiKey: "k", model: "deepseek-chat" },
+        "query",
+        5,
+      );
+      expect(out.results).toEqual([]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
