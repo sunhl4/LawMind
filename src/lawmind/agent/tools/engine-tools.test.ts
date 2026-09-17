@@ -142,9 +142,9 @@ describe("Engine-Bridge Tools", () => {
     expect(names).toContain("search_company_registry");
   });
 
-  it("total tool count is 54 (39 legal + 15 engine) without web/collaboration extras", () => {
+  it("total tool count is 55 (40 legal + 15 engine) without web/collaboration extras", () => {
     const registry = createLegalToolRegistry();
-    expect(registry.size()).toBe(54);
+    expect(registry.size()).toBe(55);
   });
 });
 

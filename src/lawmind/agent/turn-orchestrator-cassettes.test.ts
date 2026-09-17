@@ -19,7 +19,12 @@ import { WORKING_BRIEF_HEADING } from "../intent/working-brief.js";
 import { COMPACT_REINJECTION_MARKER } from "./compact-insert.js";
 import { MAIL_CONTRACT_FAST_PATH_DENIED_HINT } from "./mail-contract-fast-path.js";
 import { formatSteerUserMessage } from "./session-context-steer.js";
-import { cassetteAssistant, cassetteToolCall, withTestLawMind } from "./testkit/index.js";
+import {
+  cassetteAssistant,
+  cassetteToolCall,
+  cassetteToolCalls,
+  withTestLawMind,
+} from "./testkit/index.js";
 import type { AgentMessage } from "./types.js";
 
 const FAST_LANE = [
@@ -721,6 +726,7 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(h.request(0).hasAdvertisedTool("explore_folder")).toBe(true);
         expect(h.request(0).hasAdvertisedTool("apply_surgical_edits")).toBe(false);
         expect(h.request(0).hasAdvertisedTool("draft_document")).toBe(false);
+        expect(h.request(0).hasAdvertisedTool("draft_worker")).toBe(false);
         expect(h.session()?.turnPlan?.brief?.notGoal).toContain("合同审查");
         expect(h.request(0).contains(DELIVERY_MARKER_CHAT_QA)).toBe(true);
         expect(h.request(1).contains("<not_goal>")).toBe(true);
@@ -792,6 +798,47 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(h.request(0).hasAdvertisedTool("apply_surgical_edits")).toBe(true);
         expect(h.request(0).hasAdvertisedTool("render_tracked_draft")).toBe(true);
         expect(h.request(0).hasAdvertisedTool("draft_document")).toBe(true);
+      },
+    );
+  });
+
+  it("draft_worker is advertised on a multi-section draft and executes two parallel briefs", async () => {
+    const instruction = "请根据买卖合同.docx 起草违约金条款和管辖条款";
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(
+          cassetteToolCalls([
+            {
+              name: "draft_worker",
+              arguments: {
+                goal: "起草买卖合同违约金条款",
+                not_goal: "不要写管辖、不要改原件",
+                materials: "买卖合同.docx",
+                section: "违约金",
+              },
+            },
+            {
+              name: "draft_worker",
+              arguments: {
+                goal: "起草买卖合同管辖条款",
+                not_goal: "不要写违约金、不要改原件",
+                materials: "买卖合同.docx",
+                section: "管辖",
+              },
+            },
+          ]),
+          cassetteAssistant("两段草稿已汇总，请律师审阅。"),
+        );
+        await h.runTurn(instruction);
+        expect(h.request(0).contains(instruction)).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("draft_worker")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("draft_document")).toBe(true);
+        const executed = h.spy?.log.calls.filter((c) => c.name === "draft_worker") ?? [];
+        expect(executed).toHaveLength(2);
+        expect(executed.map((c) => String(c.args.section)).toSorted()).toEqual(["管辖", "违约金"]);
+        expect(executed.every((c) => c.result.ok)).toBe(true);
+        expect(h.request(1).hasAdvertisedTool("draft_worker")).toBe(true);
       },
     );
   });

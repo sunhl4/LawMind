@@ -148,6 +148,13 @@ export function buildContextPlanMarkdown(plan: ContextPlan): string {
   const included = plan.layers
     .filter((layer) => layer.included)
     .toSorted((a, b) => b.priority - a.priority)
-    .map((layer) => `- ${layer.label}`);
+    .map((layer) => {
+      if (layer.evidence.length === 0) {
+        return `- ${layer.label}`;
+      }
+      const evidence = layer.evidence.slice(0, 4).join("；");
+      const suffix = layer.evidence.length > 4 ? "；…" : "";
+      return `- ${layer.label} — ${evidence}${suffix}`;
+    });
   return ["# LawMind Context Plan", "", ...included].join("\n");
 }

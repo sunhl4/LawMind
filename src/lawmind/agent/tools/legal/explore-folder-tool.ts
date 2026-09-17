@@ -5,7 +5,7 @@ export const exploreFolderTool: AgentTool = {
   definition: {
     name: EXPLORE_FOLDER_TOOL_NAME,
     description:
-      "只读探查文件夹（法律版 Explore）。子会话看不到对话历史，必须传入自包含任务书：goal（要做）、not_goal（不要做）、path（目录）。返回目录树、候选文件和摘录。提到文件夹时先调用本工具，不要未读就 apply_surgical_edits / render_tracked_draft。",
+      "只读探查文件夹（法律版 Explore）。子会话看不到对话历史，必须传入自包含任务书：goal（要做）、not_goal（不要做）、path（目录）。有对话模型时会在子工内用只读工具多轮补读；返回目录树、候选文件和摘录。提到文件夹时先调用本工具，不要未读就 apply_surgical_edits / render_tracked_draft。",
     category: "search",
     parameters: {
       goal: {

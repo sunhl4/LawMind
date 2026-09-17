@@ -45,7 +45,7 @@ import {
   summarizeUpdatePlanResultForHistory,
   UPDATE_PLAN_TOOL_NAME,
 } from "./turn-plan.js";
-import type { AgentContext, AgentMessage, AgentTurn } from "./types.js";
+import type { AgentContext, AgentMessage, AgentTurn, ToolCallResult } from "./types.js";
 
 /** Lazy: avoids TDZ when tool-pipeline ↔ legal-tools ↔ turn-orchestrator cycle loads. */
 let runToolPipeline: ReturnType<typeof composeToolPipeline> | undefined;
@@ -470,7 +470,7 @@ export async function executeToolBatches(
       }
       ctx.emitToolProgress = undefined;
 
-      const historySource =
+      const historySource: ToolCallResult =
         toolName === UPDATE_PLAN_TOOL_NAME ? summarizeUpdatePlanResultForHistory(result) : result;
       const historyResult = summarizeToolResultForHistory(historySource, {
         spill: shouldSpillToolResult(toolName)

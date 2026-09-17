@@ -4,8 +4,10 @@
  */
 
 import { compileIntent } from "../../intent/compile-intent.js";
+import { extractTextIntent } from "../../intent/text-intent.js";
 import type { CompileIntentInput } from "../../intent/types.js";
 import { compiledIntentInjectsSkillBodies } from "../../intent/understand-first.js";
+import { instructionLooksLikeLetterQa } from "../../intent/utterance-kind.js";
 import type { ComposeContextPin } from "../../platform/compose-context-pin.js";
 import { COMPUTE_INTENT_RE, isPublicWebFactLookup } from "../../skills/capability-patterns.js";
 import { listLocalSkills } from "../../skills/skill-runtime.js";
@@ -132,6 +134,17 @@ export function extraToolsForInstruction(
     compiled.capabilityId !== "period.calc"
   ) {
     extrasTools.push("draft_document");
+  }
+  const draftCapability =
+    compiled.capabilityId === "letter.draft" ||
+    compiled.capabilityId === "contract.draft" ||
+    compiled.capabilityId === "litigation.draft" ||
+    compiled.capabilityId === "materials.draft";
+  if (
+    (draftCapability || extractTextIntent(text).verbs.includes("draft")) &&
+    !instructionLooksLikeLetterQa(text)
+  ) {
+    extrasTools.push("draft_worker");
   }
   if (
     hardBind &&

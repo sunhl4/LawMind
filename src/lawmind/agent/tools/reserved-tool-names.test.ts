@@ -19,6 +19,7 @@ describe("reserved-tool-names", () => {
     expect(RESERVED_AGENT_TOOL_NAMES).toContain("run_compute");
     expect(RESERVED_AGENT_TOOL_NAMES).toContain("execute_workflow");
     expect(RESERVED_AGENT_TOOL_NAMES).toContain("update_plan");
+    expect(RESERVED_AGENT_TOOL_NAMES).toContain("draft_worker");
     expect(isReservedAgentToolName("list_matters")).toBe(false);
     expect(() => assertExternalToolNameAllowed("write_document")).toThrow(/RESERVED_TOOL_NAME/);
   });

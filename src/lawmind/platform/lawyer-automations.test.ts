@@ -104,7 +104,7 @@ describe("lawyer-automations", () => {
     expect(enqueuedInstruction).toContain("cases/m_demo_002/mail/attachments/msg1/nda.docx");
     expect(enqueuedInstruction).toContain("contract_edit_baseline_path");
     expect(enqueuedInstruction).toContain("render_tracked_draft");
-    expect(enqueuedInstruction).toContain("search_workspace");
+    expect(enqueuedInstruction).toContain("search_statute");
     expect(enqueuedInstruction).toContain("craft_check");
     expect(enqueuedInstruction).toMatch(/短路径/);
     const inbox = listOpenAutomationInbox(ws, matterId);
@@ -340,7 +340,7 @@ describe("lawyer-automations", () => {
     expect(built.reviewMode).toBe("opinion");
     expect(built.preferredSourcePath).toContain("合同.pdf");
     expect(built.workflowInstruction).toContain("意见书");
-    expect(built.workflowInstruction).toContain("search_workspace");
+    expect(built.workflowInstruction).toContain("核法条可用检索");
     expect(built.workflowInstruction).toContain("Opinion Craft");
     expect(built.workflowInstruction).toContain("prepare_outbound_mail");
     expect(built.workflowInstruction).not.toContain("## 禁止");

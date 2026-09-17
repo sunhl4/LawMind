@@ -13,6 +13,7 @@ describe("embed-turn-events", () => {
     expect(LEGACY_FINAL_SSE_ALIAS).toBe("final_reply");
     expect(EMBED_TURN_EVENT_TYPES).toContain("requires_action");
     expect(EMBED_TURN_EVENT_TYPES).toContain("plan_update");
+    expect(EMBED_TURN_EVENT_TYPES).toContain("intent");
     expect(MAX_LIVE_TURN_STEPS).toBe(80);
   });
 });

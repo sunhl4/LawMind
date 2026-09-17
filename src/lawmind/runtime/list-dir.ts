@@ -270,7 +270,8 @@ export function resolveAndListDirectory(
 
   if (isRootClaim) {
     const dirPins = (ctx.contextPins ?? []).filter(
-      (pin) => pin.pinKind === "file" && pin.kind === "directory",
+      (pin): pin is Extract<ComposeContextPin, { pinKind: "file" }> =>
+        pin.pinKind === "file" && pin.kind === "directory",
     );
     if (dirPins.length > 0) {
       const pin = dirPins[0];

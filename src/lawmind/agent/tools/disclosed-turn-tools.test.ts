@@ -35,6 +35,7 @@ describe("disclosed-turn-tools", () => {
     expect(names).not.toContain("url_dossier");
     expect(names).toContain("list_dir");
     expect(names).toContain("explore_folder");
+    expect(names).not.toContain("draft_worker");
     expect(names).toContain("search_conversations");
     expect(names).toContain("read_conversation");
     expect(names).toContain("search_workspace");
@@ -117,7 +118,10 @@ x
       expect.arrayContaining(["search_case_law", "calculate", "search_workspace"]),
     );
     expect(extraToolsForInstruction("请审查这份采购合同")).not.toContain("draft_document");
+    expect(extraToolsForInstruction("请审查这份采购合同")).not.toContain("draft_worker");
     expect(extraToolsForInstruction("请审查这份采购合同")).not.toContain("render_tracked_draft");
+    expect(extraToolsForInstruction("请起草买卖合同的违约金条款")).toContain("draft_worker");
+    expect(extraToolsForInstruction("今天开庭准备什么？")).not.toContain("draft_worker");
     expect(
       extraToolsForInstruction("请审查这份采购合同", {
         pins: [
@@ -138,6 +142,18 @@ x
         "search_workspace",
       ]),
     );
+    expect(
+      extraToolsForInstruction("请审查这份采购合同", {
+        pins: [
+          {
+            pinKind: "file",
+            root: "project",
+            relPath: "采购合同.docx",
+            kind: "file",
+          },
+        ],
+      }),
+    ).not.toContain("draft_worker");
     expect(extraToolsForInstruction("【邮件合同审阅改稿 · 短路径】\nmatterId=`m1`")).toContain(
       "search_workspace",
     );
@@ -182,6 +198,18 @@ x
         ],
       }),
     ).not.toContain("draft_document");
+    expect(
+      extraToolsForInstruction("核对我起草的律师函是否有误", {
+        pins: [
+          {
+            pinKind: "file",
+            root: "project",
+            relPath: "律师函.docx",
+            kind: "file",
+          },
+        ],
+      }),
+    ).not.toContain("draft_worker");
     expect(
       extraToolsForInstruction(
         [

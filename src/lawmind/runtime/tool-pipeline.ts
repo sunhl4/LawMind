@@ -48,6 +48,7 @@ import { isUnlimitedToolTimeoutMs } from "./tool-timeout-env.js";
  */
 const WRITE_HEAVY_TOOL_NAMES = new Set<string>([
   "draft_document",
+  "draft_worker",
   "update_draft",
   "apply_surgical_edits",
   "execute_workflow",

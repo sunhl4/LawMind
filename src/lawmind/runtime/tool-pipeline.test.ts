@@ -434,6 +434,14 @@ describe("tool-pipeline middlewares", () => {
     const result = await clarificationGateMiddleware(call, async () => ({ ok: true }));
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/待澄清/);
+    const worker = await clarificationGateMiddleware(
+      buildCall(workspaceDir, {
+        toolName: "draft_worker",
+        ctxOverride: { clarificationBlockingHeavyTools: true },
+      }),
+      async () => ({ ok: true }),
+    );
+    expect(worker.ok).toBe(false);
   });
 
   it("clarificationGateMiddleware allows research_task while clarification pending", async () => {

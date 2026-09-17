@@ -71,6 +71,7 @@ describe("resolvePlaybookToolLock", () => {
     expect(lock?.id).toBe("read-first");
     expect(lock?.denyNames).toContain("apply_surgical_edits");
     expect(lock?.denyNames).toContain("draft_document");
+    expect(lock?.denyNames).toContain("draft_worker");
     expect(lock?.denyNames).toContain("render_document");
     expect(lock?.denyNames).toContain("render_tracked_draft");
   });

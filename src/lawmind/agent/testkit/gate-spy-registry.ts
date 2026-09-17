@@ -3,6 +3,7 @@
  * and approval gates fire. Execute is a recorder — shadow replay owns real draft_document.
  */
 
+import { draftWorkerTool } from "../tools/legal/draft-worker-tool.js";
 import { exploreFolderTool } from "../tools/legal/explore-folder-tool.js";
 import { updatePlanTool } from "../tools/legal/update-plan-tool.js";
 import { ToolRegistry } from "../tools/registry.js";
@@ -50,6 +51,12 @@ const SPY_SPECS: SpySpec[] = [
   { name: "read_project_file", category: "search", riskLevel: "low" },
   { name: "list_dir", category: "search", riskLevel: "low" },
   { name: "explore_folder", category: "search", riskLevel: "low" },
+  {
+    name: "draft_worker",
+    category: "draft",
+    riskLevel: "low",
+    parameters: draftWorkerTool.definition.parameters,
+  },
   { name: "apply_surgical_edits", category: "draft", riskLevel: "medium" },
   { name: "list_mail_inbox", category: "system", riskLevel: "low" },
   { name: "request_approval", category: "system", riskLevel: "low" },
@@ -96,7 +103,9 @@ export function createGateSpyRegistry(extra: SpySpec[] = []): GateSpyRegistry {
             ? updatePlanTool.definition.description
             : spec.name === "explore_folder"
               ? exploreFolderTool.definition.description
-              : spec.name,
+              : spec.name === "draft_worker"
+                ? draftWorkerTool.definition.description
+                : spec.name,
         category: spec.category,
         parameters:
           spec.name === "explore_folder"
@@ -105,7 +114,11 @@ export function createGateSpyRegistry(extra: SpySpec[] = []): GateSpyRegistry {
         requiresApproval: spec.requiresApproval,
         riskLevel: spec.riskLevel,
         isConcurrencySafe:
-          spec.name === "update_plan" ? false : spec.name === "explore_folder" ? true : undefined,
+          spec.name === "update_plan"
+            ? false
+            : spec.name === "explore_folder" || spec.name === "draft_worker"
+              ? true
+              : undefined,
       },
       execute: async (args, ctx) => {
         const run = executes.get(spec.name);

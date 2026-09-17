@@ -250,6 +250,7 @@ export async function runTurn(opts: {
     deliveryIntent,
     mailContractTurn,
     contractFastLaneTurn,
+    chatModel: config.model,
     reviewModel: config.workerModel ?? config.model,
     ...(confirmedAnswers ? { confirmedAnswers } : {}),
   };

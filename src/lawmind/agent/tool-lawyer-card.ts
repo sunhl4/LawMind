@@ -119,6 +119,10 @@ function describeCallArgs(name: string, args: Record<string, unknown>): string |
       const folder = basenamePath(firstString(args, ["path", "materials"]));
       return folder || undefined;
     }
+    case "draft_worker": {
+      const section = firstString(args, ["section", "goal"]);
+      return section ? clip(section) : undefined;
+    }
     case "compare_documents": {
       const a = basenamePath(firstString(args, ["file_a", "path_a"]));
       const b = basenamePath(firstString(args, ["file_b", "path_b"]));
@@ -218,6 +222,25 @@ function describeResultData(name: string, data: unknown): string | undefined {
   if (name === "read_conversation") {
     const title = asTrimmedString(rec.title);
     return title ? clip(`已阅读「${title}」`, 80) : "已阅读历史对话";
+  }
+  if (name === "draft_worker") {
+    const section = asTrimmedString(rec.section);
+    const toolsUsed = Array.isArray(rec.toolsUsed) ? rec.toolsUsed.length : 0;
+    const base = section ? `已起草「${section}」` : "已起草片段";
+    return toolsUsed > 0 ? clip(`${base}（读 ${toolsUsed} 步）`, 80) : clip(base, 80);
+  }
+  if (name === "explore_folder") {
+    const toolsUsed = Array.isArray(rec.toolsUsed) ? rec.toolsUsed.length : 0;
+    const candidates = Array.isArray(rec.candidates) ? rec.candidates.length : 0;
+    const summary = asTrimmedString(rec.summary);
+    if (summary) {
+      return clip(summary, 80);
+    }
+    if (candidates > 0) {
+      const suffix = toolsUsed > 0 ? `，读 ${toolsUsed} 步` : "";
+      return clip(`已探查 ${candidates} 个候选${suffix}`, 80);
+    }
+    return toolsUsed > 0 ? `已探查（读 ${toolsUsed} 步）` : "已探查文件夹";
   }
   if (name === "run_compute" || name === "run_analysis") {
     const summary = asTrimmedString(rec.lawyerSummary);

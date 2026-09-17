@@ -12,6 +12,7 @@
 | [LAWMIND-OPTIMIZATION-BACKLOG.md](./archive/LAWMIND-OPTIMIZATION-BACKLOG.md)（归档）         | 产品远景与能力 backlog                                                           |
 | [LAWMIND-ENGINEERING-REVIEW.md](./archive/LAWMIND-ENGINEERING-REVIEW.md)（归档）             | 工程评审与已落地附录                                                             |
 | [LAWMIND-AGENT-PARITY-REVIEW.md](./LAWMIND-AGENT-PARITY-REVIEW.md)                           | 上手/智能/稳态/律师专用对标 Cursor·Codex·Claude Code（2026-09-15，P0–P2 已落地） |
+| [LAWMIND-CODEX-WORKER-PARITY.md](./LAWMIND-CODEX-WORKER-PARITY.md)                           | 子工/并行循环对标 Codex subagent（P5–P8；P0–P4 已落地）                          |
 
 ---
 
@@ -51,6 +52,7 @@
 - [x] **上下文当类型系统**（2026-09-13）：`prompt-fragments.ts` 每种注入有 kind / cap / overflow 指针；world-state 真正包裹 `deliverable`；权限改短 XML；相关记忆只进 gist；工具结果默认 ~1k **token**（2026-09-15 起按 CJK 估算，不再把 4k 汉字当成 1k token）；采样时 `deriveModelMessagesForSampling` 追加 `<turn_context>`（CASE/画像/craft/skills）与剩余 token 注记（不写进 history）。人格成长仍写磁盘，prompt 只留指纹。
 - [x] 相关记忆召回与 system 注入的统一 budget 账本（单一计数器）
 - [x] 检索链路（research）与对话链路共享同一套窗口常量（避免两套漂移）
+- [x] **Codex 子工差距收敛 P5–P7**（2026-09-17）：共用只读 sidecar、explorer 真循环、draft 加深（预算 5 / 轻验收 / read_project_file）、律师卡进度。P8 角色包仍可选。硬约束：不嵌套 `runTurn`、不静默改写、`routeAsync` 不进 `runTurn`。见 [LAWMIND-CODEX-WORKER-PARITY.md](./LAWMIND-CODEX-WORKER-PARITY.md)。
 - [ ] 多 agent 并行时的上下文隔离配额（避免会议室 + 多委派同时灌满）
 - [x] **同 session 并行 turn**：进程内按 `workspaceDir+sessionId` 串行（`session-turn-gate.ts`，2026-08-14）；跨进程双开本地 server 仍可能竞态（桌面默认单进程）
 - [x] **本轮可见短清单（update_plan）**（2026-09-13）：Codex 级 2–8 步 checklist 写入 world-state `plan`，律师在对话卡片勾进度；不往 system prompt 再塞一份「自主工作流程」。与 `plan_task` / `execute_workflow` / planHandoff 分离。

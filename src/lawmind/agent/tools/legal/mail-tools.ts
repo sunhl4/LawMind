@@ -26,6 +26,7 @@ import {
   readEthicsWallState,
   recordEthicsWallScan,
 } from "../../../policy/ethics-wall.js";
+import type { AgentTool } from "../../types.js";
 
 function asStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) {

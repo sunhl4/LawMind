@@ -43,6 +43,39 @@ describe("presentLawyerToolCall", () => {
     expect(card.detail).toBe("2 步");
     expect(JSON.stringify(card)).not.toMatch(/update_plan/);
   });
+
+  it("labels draft_worker as a lawyer-facing fragment, not a snake_case tool", () => {
+    const card = presentLawyerToolCall("draft_worker", { section: "违约金" });
+    expect(card.title).toBe("起草片段");
+    expect(card.detail).toContain("违约金");
+    expect(JSON.stringify(card)).not.toMatch(/draft_worker/);
+    expect(
+      presentLawyerToolResult(
+        "draft_worker",
+        { section: "违约金" },
+        {
+          ok: true,
+          data: { section: "违约金", draft: "每日万分之五。", toolsUsed: ["search_statute"] },
+        },
+      ).detail,
+    ).toMatch(/违约金.*读 1 步/);
+  });
+
+  it("labels explore_folder progress without snake_case tool names", () => {
+    expect(
+      presentLawyerToolResult(
+        "explore_folder",
+        { path: "客户夹" },
+        {
+          ok: true,
+          data: {
+            candidates: ["律师函.txt", "notes.md"],
+            toolsUsed: ["list_dir", "analyze_document"],
+          },
+        },
+      ).detail,
+    ).toMatch(/已探查 2 个候选.*读 2 步/);
+  });
 });
 
 describe("presentLawyerToolResult", () => {

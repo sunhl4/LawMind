@@ -23,6 +23,7 @@ export const RESERVED_AGENT_TOOL_NAMES = [
   "read_host_file",
   "list_dir",
   "explore_folder",
+  "draft_worker",
   "import_host_file",
   "run_host_command",
   "update_plan",

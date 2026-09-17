@@ -157,6 +157,7 @@ describe("Legal Tool Registry", () => {
     expect(names).toContain("read_project_file");
     expect(names).toContain("list_dir");
     expect(names).toContain("explore_folder");
+    expect(names).toContain("draft_worker");
     expect(names).toContain("search_host");
     expect(names).toContain("read_host_file");
     expect(names).toContain("import_host_file");

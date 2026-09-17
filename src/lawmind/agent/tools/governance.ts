@@ -55,6 +55,7 @@ export const DISCLOSED_TOOL_HINTS: ReadonlyArray<{ name: string; hint: string }>
   { name: "read_host_file", hint: "阅读已授权的本机文件" },
   { name: "list_dir", hint: "列举工作区或本机文件夹下的目录与文件（可递归）" },
   { name: "explore_folder", hint: "只读探查文件夹：看清树、找出相关文件并摘录" },
+  { name: "draft_worker", hint: "并行写稿：按自包含任务书起草一节，父会话再汇总" },
   { name: "import_host_file", hint: "把本机文件收进本案" },
   { name: "run_host_command", hint: "运行受控本机命令（须打开本机能力）" },
   { name: "compare_documents", hint: "只读对比两份文件的文本差异" },
