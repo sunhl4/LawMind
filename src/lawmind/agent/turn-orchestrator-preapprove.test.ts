@@ -190,7 +190,12 @@ describe("template-level preApproveToolNames", () => {
         name: "apply_surgical_edits",
         description: "surgical",
         category: "draft",
-        parameters: {},
+        parameters: {
+          task_id: { type: "string" },
+          contract_edit_baseline_path: { type: "string" },
+          edits: { type: "array" },
+          craft_check: { type: "object" },
+        },
       },
       async execute(args) {
         captured = args;
@@ -199,7 +204,10 @@ describe("template-level preApproveToolNames", () => {
     });
     stubModelWithToolCall(
       "apply_surgical_edits",
-      JSON.stringify({ edits: [{ find: "甲方所在地人民法院", replace: "上海仲裁委员会" }] }),
+      JSON.stringify({
+        edits: [{ find: "甲方所在地人民法院", replace: "上海仲裁委员会" }],
+        craft_check: { deferred: [] },
+      }),
     );
 
     const result = await runTurn({
@@ -222,7 +230,12 @@ describe("template-level preApproveToolNames", () => {
         name: "apply_surgical_edits",
         description: "surgical",
         category: "draft",
-        parameters: {},
+        parameters: {
+          task_id: { type: "string" },
+          contract_edit_baseline_path: { type: "string" },
+          edits: { type: "array" },
+          craft_check: { type: "object" },
+        },
       },
       async execute(args) {
         captured = args;
@@ -232,6 +245,7 @@ describe("template-level preApproveToolNames", () => {
     const hunks = {
       task_id: "t1",
       edits: [{ find: "甲方所在地人民法院", replace: "上海仲裁委员会" }],
+      craft_check: { deferred: [] },
     };
     stubModelWithToolCall("apply_surgical_edits", JSON.stringify(hunks));
 

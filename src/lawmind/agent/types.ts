@@ -185,6 +185,16 @@ export type AgentContext = {
    */
   abortSignal?: AbortSignal;
   /**
+   * Primary chat model for this turn. Isolated writers (draft_worker) must use
+   * this — not the cheap Guardian/worker sidecar.
+   */
+  chatModel?: AgentModelConfig;
+  /**
+   * True while executing inside an isolated readonly sidecar (draft/explore).
+   * Nested explore_folder stays deterministic to avoid recursive model loops.
+   */
+  inReadonlyWorkerLoop?: boolean;
+  /**
    * Cheap/worker model for the independent legal Guardian (Codex-style).
    * Guardian transcript never enters conversationHistory.
    */

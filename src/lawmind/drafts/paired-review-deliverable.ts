@@ -12,7 +12,7 @@ import {
 import { isOpinionMemoDelivery, resolveTurnDeliveryIntent } from "../intent/delivery-intent.js";
 import type { ComposeContextPin } from "../platform/compose-context-pin.js";
 
-export function wordFilePinRelPaths(pins: ComposeContextPin[] | undefined): string[] {
+export function wordFilePinRelPaths(pins: readonly ComposeContextPin[] | undefined): string[] {
   const out: string[] = [];
   for (const pin of pins ?? []) {
     if (pin.pinKind !== "file" || pin.kind !== "file") {
@@ -25,13 +25,13 @@ export function wordFilePinRelPaths(pins: ComposeContextPin[] | undefined): stri
   return out;
 }
 
-export function pinsIncludeWordFile(pins: ComposeContextPin[] | undefined): boolean {
+export function pinsIncludeWordFile(pins: readonly ComposeContextPin[] | undefined): boolean {
   return wordFilePinRelPaths(pins).length > 0;
 }
 
 export function shouldInjectPairedReviewDeliverable(
   bound: { id: string; pipeline: string } | null | undefined,
-  pins: ComposeContextPin[] | undefined,
+  pins: readonly ComposeContextPin[] | undefined,
   gate?: PromptProtocolGate,
 ): boolean {
   if (!bound || bound.pipeline === "tracked_redline" || bound.id === "mail.contract") {

@@ -18,7 +18,7 @@ import { wrapWorldStateSection } from "./world-state.js";
  * Bumped when LawMind core agent *behavior* (system prompt, clarification rules) changes materially.
  * Exposed on GET /api/health as `lawmindAgentBehaviorEpoch` for support and regression notes.
  */
-export const LAWMIND_AGENT_BEHAVIOR_EPOCH = "2026-09-chat-qa";
+export const LAWMIND_AGENT_BEHAVIOR_EPOCH = "2026-09-codex-worker-parity";
 
 /** Stable split between cacheable prefix and per-session / per-turn suffix. */
 export const LAWMIND_PROMPT_DYNAMIC_BOUNDARY = "---LAWMIND_PROMPT_DYNAMIC_BOUNDARY---";
@@ -796,6 +796,7 @@ ${ctx.todayLog}`);
 
 **需要产出文书的任务**：
 - 已配置工具都可用。正式交件常用 \`draft_document\` / \`update_draft\` / \`render_document\`；\`execute_workflow\` 可选，不要为走管线丢掉判断。
+- **多章并行起草**：每章一次 \`draft_worker\`（goal / not_goal / materials / section；摘录放 excerpt）。子工自己读文件并用只读检索补法条，看不到父会话。父会话汇总后再 \`draft_document\` 落稿。不要用它改原件。
 - 本回合若禁了 \`render_document\` / \`send_email\`（邮件短路径、明示改这份 Word），按已给的改稿/待发工具执行，不要模板重建原件或直接外发。检索和对话说明仍可用。5 分钟审查只是先出意见，工具仍可用。
 - **续跑**：若同一条任务曾因检索为空、超时等中断，且任务已写入 workspace（返回里常有 \`taskId\`），可再次调用 \`execute_workflow\`，传入 **\`existing_task_id\`**（该 taskId）与 **\`restart_from: "research"\`**，跳过重新规划，仅重跑检索及后续步骤
 

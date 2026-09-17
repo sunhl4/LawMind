@@ -37,6 +37,7 @@ export const READ_FIRST_LETTER_QA_DENY_TOOL_NAMES = [
   "draft_document",
   "update_draft",
   "render_document",
+  "draft_worker",
 ] as const;
 
 export const READ_FIRST_DENIED_HINT =

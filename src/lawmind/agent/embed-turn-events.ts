@@ -21,6 +21,7 @@ export const EMBED_TURN_EVENT_TYPES = [
   "requires_action",
   "approval_request",
   "plan_update",
+  "intent",
 ] as const satisfies ReadonlyArray<RunTurnEvent["type"]>;
 
 export type EmbedTurnEventType = (typeof EMBED_TURN_EVENT_TYPES)[number];

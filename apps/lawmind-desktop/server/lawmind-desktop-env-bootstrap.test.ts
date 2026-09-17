@@ -35,12 +35,12 @@ describe("bootstrapLawMindDesktopEnv", () => {
     fs.mkdirSync(workspaceDir, { recursive: true });
     fs.writeFileSync(
       path.join(repoRoot, ".env.lawmind"),
-      "LAWMIND_AGENT_API_KEY=repo-key\nLAWMIND_AGENT_MODEL=repo-model\n",
+      "LAWMIND_QWEN_API_KEY=repo-key\nLAWMIND_QWEN_MODEL=repo-model\n",
       "utf8",
     );
     fs.writeFileSync(
       userEnvPath,
-      "LAWMIND_AGENT_API_KEY=user-key\nLAWMIND_AGENT_MODEL=user-model\n",
+      "LAWMIND_QWEN_API_KEY=user-key\nLAWMIND_QWEN_MODEL=user-model\n",
       "utf8",
     );
 
@@ -52,8 +52,8 @@ describe("bootstrapLawMindDesktopEnv", () => {
     });
     expect(boot.userEnvLoaded).toBe(true);
     expect(boot.repoEnvLoaded).toBe(true);
-    expect(process.env.LAWMIND_AGENT_API_KEY).toBe("user-key");
-    expect(process.env.LAWMIND_AGENT_MODEL).toBe("user-model");
+    expect(process.env.LAWMIND_QWEN_API_KEY).toBe("user-key");
+    expect(process.env.LAWMIND_QWEN_MODEL).toBe("user-model");
 
     const built = buildAgentConfig(workspaceDir, { modelId: "builtin:qwen-max" });
     expect(built.error).toBeUndefined();

@@ -22,6 +22,7 @@ import { calculateTool } from "./legal/calculate-tool.js";
 import { renderChart } from "./legal/chart-tool.js";
 import { searchCompanyRegistry } from "./legal/company-registry-tool.js";
 import { compareDocuments } from "./legal/compare-documents.js";
+import { draftWorkerTool } from "./legal/draft-worker-tool.js";
 import { exploreFolderTool } from "./legal/explore-folder-tool.js";
 import { analyzeDocument, writeDocument } from "./legal/file-tools.js";
 import {
@@ -95,6 +96,7 @@ export function createLegalToolRegistry(opts?: {
     runCompute,
     runAnalysis,
     writeDocument,
+    draftWorkerTool,
     sendEmail,
     prepareOutboundMail,
     listMailInbox,

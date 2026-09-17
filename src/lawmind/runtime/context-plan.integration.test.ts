@@ -30,6 +30,9 @@ function ctx(): AgentContext {
 describe("ContextPlan runtime integration", () => {
   it("markdown includes matter, pending actions, and transcript layers", () => {
     const plan = buildContextPlan({ session: session(), ctx: ctx() });
+    const pending = plan.layers.find((l) => l.id === "pending_actions");
+    expect(pending?.included).toBe(true);
+    expect(pending?.evidence).toContain("clarification:fee-scope");
     const md = buildContextPlanMarkdown(plan);
     expect(md).toContain("Matter state");
     expect(md).toContain("Pending lawyer actions");
@@ -39,6 +42,7 @@ describe("ContextPlan runtime integration", () => {
 
   it("buildSystemPrompt embeds ContextPlan section when provided", () => {
     const planMd = buildContextPlanMarkdown(buildContextPlan({ session: session(), ctx: ctx() }));
+    expect(planMd).toContain("clarification:fee-scope");
     const prompt = buildSystemPrompt({
       availableTools: [],
       contextPlanMarkdown: planMd,
