@@ -16,6 +16,7 @@ import {
 } from "../intent/delivery-intent.js";
 import { INTENT_HYPOTHESIS_HEADING, UNDERSTAND_FIRST_HEADING } from "../intent/understand-first.js";
 import { WORKING_BRIEF_HEADING } from "../intent/working-brief.js";
+import { FOLDER_EXPLORE_GATE_ERROR } from "../runtime/tool-pipeline.js";
 import { COMPACT_REINJECTION_MARKER } from "./compact-insert.js";
 import { MAIL_CONTRACT_FAST_PATH_DENIED_HINT } from "./mail-contract-fast-path.js";
 import { formatSteerUserMessage } from "./session-context-steer.js";
