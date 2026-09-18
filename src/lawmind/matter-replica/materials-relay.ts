@@ -6,9 +6,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { writeJsonAtomic } from "../adapters/matter-storage/io.js";
 import { evaluateMatterReplicaGate } from "./feature-gate.js";
-import { resolveReplicaActor } from "./identity.js";
+import { conflictSidecarRelPath, lastWriteWinner } from "./last-write.js";
 import {
-  isPathLockedByOther,
+  isPathCheckedOut,
   publishLocalMaterials,
   readMaterialBytes,
   readMaterialsIndex,
@@ -101,10 +101,13 @@ export class FileMaterialsRelay implements MatterMaterialsRelay {
     for (const f of existing) {
       byPath.set(f.relPath, f);
     }
-    for (const f of files) {
-      byPath.set(f.relPath, f);
-    }
     // Prefer newer updatedAt on collision
+    for (const f of files) {
+      const prev = byPath.get(f.relPath);
+      if (!prev || lastWriteWinner(prev, f) === f) {
+        byPath.set(f.relPath, f);
+      }
+    }
     const merged = [...byPath.values()].toSorted((a, b) => a.relPath.localeCompare(b.relPath));
     const envelope: MaterialsRelayManifest = {
       version: 1,
@@ -151,6 +154,8 @@ export type SyncMaterialsResult = {
   uploadedBlobs: number;
   downloadedFiles: number;
   skippedLocked: number;
+  skippedOlderRemote: number;
+  conflicts: Array<{ relPath: string; conflictRelPath: string; winner: "local" | "remote" }>;
   index: MatterMaterialsIndex | null;
 };
 
@@ -161,11 +166,12 @@ export async function syncMatterMaterialsPipe(
   workspaceDir: string,
   matterId: string,
 ): Promise<SyncMaterialsResult> {
-  const actor = resolveReplicaActor(workspaceDir);
   let publishedFiles = 0;
   let uploadedBlobs = 0;
   let downloadedFiles = 0;
   let skippedLocked = 0;
+  let skippedOlderRemote = 0;
+  const conflicts: SyncMaterialsResult["conflicts"] = [];
 
   let index: MatterMaterialsIndex | null = null;
   try {
@@ -201,9 +207,28 @@ export async function syncMatterMaterialsPipe(
     if (local && local.sha256 === remoteFile.sha256) {
       continue;
     }
-    if (isPathLockedByOther(workspaceDir, matterId, remoteFile.relPath, actor.lawyerId)) {
+    if (isPathCheckedOut(workspaceDir, matterId, remoteFile.relPath)) {
       skippedLocked += 1;
       continue;
+    }
+    if (local && local.sha256 !== remoteFile.sha256) {
+      const winner = lastWriteWinner(local, remoteFile);
+      if (winner === local) {
+        skippedOlderRemote += 1;
+        continue;
+      }
+      const taken = new Set(nextFiles.map((f) => f.relPath));
+      const sidecarRel = conflictSidecarRelPath(local.relPath, taken);
+      const localBytes = readMaterialBytes(workspaceDir, matterId, local.relPath);
+      if (localBytes) {
+        writeMaterialBytes(workspaceDir, matterId, sidecarRel, localBytes);
+        nextFiles.push({
+          ...local,
+          relPath: sidecarRel,
+          fileName: sidecarRel.split("/").pop() ?? sidecarRel,
+        });
+        conflicts.push({ relPath: local.relPath, conflictRelPath: sidecarRel, winner: "remote" });
+      }
     }
     const blob = await relay.getBlob(matterId, remoteFile.sha256);
     if (!blob) {
@@ -228,6 +253,8 @@ export async function syncMatterMaterialsPipe(
     uploadedBlobs,
     downloadedFiles,
     skippedLocked,
+    skippedOlderRemote,
+    conflicts,
     index,
   };
 }

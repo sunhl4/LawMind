@@ -33,6 +33,7 @@ import {
 import {
   createMatterIfMissing,
   setMatterStrategy,
+  updateMatterProfile,
   updateMatterStatus,
 } from "./matter-write-service.js";
 import { openQueueItem, transitionQueueItem } from "./queue-write-service.js";
@@ -75,6 +76,30 @@ describe("Matter write services (W3)", () => {
     const loaded = loadMatter(workspaceDir, "m-1");
     expect(loaded?.matterId).toBe("m-1");
     expect(loaded?.strategyStatus).toBe("draft");
+  });
+
+  it("stores matter parties and derives clientId / counterparty for the ethics wall", async () => {
+    createMatterIfMissing(workspaceDir, { matterId: "m-parties", title: "当事人案" });
+    const saved = await updateMatterProfile(workspaceDir, {
+      matterId: "m-parties",
+      parties: [
+        {
+          partyId: "p-client",
+          name: "甲公司",
+          role: "client",
+          standing: "原告",
+          serviceAddress: "上海浦东",
+          serviceMethod: "mail",
+        },
+        { partyId: "p-counterparty", name: "乙公司", role: "counterparty", standing: "被告" },
+        { partyId: "p-agent", name: "张三", role: "agent", serviceMethod: "electronic" },
+      ],
+    });
+    expect(saved?.clientId).toBe("甲公司");
+    expect(saved?.counterparty).toBe("乙公司");
+    expect(saved?.parties).toHaveLength(3);
+    const loaded = loadMatter(workspaceDir, "m-parties");
+    expect(loaded?.parties?.map((row) => row.role)).toEqual(["client", "counterparty", "agent"]);
   });
 
   it("updateMatterStatus and setMatterStrategy mutate the truth source", () => {

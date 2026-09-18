@@ -19,11 +19,20 @@ describe("isProtectedWorkspaceRel", () => {
     expect(isProtectedWorkspaceRel("matters/m1/matter.json")).toBe(true);
   });
 
-  it("blocks DMS connection config and case RULES at any depth", () => {
+  it("blocks DMS connection config, case RULES, and ethics wall at any depth", () => {
     expect(isProtectedWorkspaceRel("cases/m1/.lawmind-dms.json")).toBe(true);
     expect(isProtectedWorkspaceRel(".lawmind-dms.json")).toBe(true);
     expect(isProtectedWorkspaceRel("cases/m1/RULES.md")).toBe(true);
     expect(isProtectedWorkspaceRel("RULES.md")).toBe(true);
+    expect(isProtectedWorkspaceRel("cases/m1/ethics-wall.json")).toBe(true);
+    expect(isProtectedWorkspaceRel("cases/m1/ETHICS-WALL.JSON")).toBe(true);
+  });
+
+  it("blocks governance files on case-insensitive names", () => {
+    expect(isProtectedWorkspaceRel("Lawmind.policy.json")).toBe(true);
+    expect(isProtectedWorkspaceRel(".ENV")).toBe(true);
+    expect(isProtectedWorkspaceRel("LAWMAND/mcp-servers.json")).toBe(false);
+    expect(isProtectedWorkspaceRel("Lawmind/mcp-servers.json")).toBe(true);
   });
 
   it("normalizes backslashes and dot prefixes before matching", () => {

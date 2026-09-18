@@ -28,6 +28,7 @@ function readRendererCssFiles(): Array<{ path: string; content: string }> {
     join(stylesDir, "settings.css"),
     join(stylesDir, "shell-header.css"),
     join(stylesDir, "utilities.css"),
+    join(stylesDir, "controls.css"),
     join(stylesDir, "legacy-rest.css"),
     join(stylesDir, "model-picker.css"),
     join(stylesDir, "workflow-hub.css"),
@@ -75,6 +76,12 @@ describe("styles/tokens.css", () => {
       "shadow-danger",
       "on-brand",
       "lm-danger",
+      "control-bg",
+      "control-border",
+      "control-radius",
+      "scroll-size",
+      "scroll-thumb",
+      "input-bg",
     ]) {
       expect(defined.has(token), `--${token}`).toBe(true);
     }

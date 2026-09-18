@@ -112,6 +112,24 @@ describe("application/matter-consistency", () => {
     );
   });
 
+  it("reports cause_drift when JSON and CASE 案由 both exist and differ", async () => {
+    await ensureMatterWithProjection(workspaceDir, {
+      matterId: "matter-cause",
+      title: "案由案件",
+    });
+    const { updateMatterProfile } = await import("./services/matter-write-service.js");
+    await updateMatterProfile(workspaceDir, {
+      matterId: "matter-cause",
+      causeOfAction: "买卖合同纠纷",
+    });
+    const casePath = path.join(workspaceDir, "cases", "matter-cause", "CASE.md");
+    let raw = await fs.readFile(casePath, "utf8");
+    raw = raw.replace(/案由[:：][^\n]*/, "案由: 房屋租赁合同纠纷");
+    await fs.writeFile(casePath, raw, "utf8");
+    const issues = await checkMatterConsistency(workspaceDir);
+    expect(issues.some((i) => i.matterId === "matter-cause" && i.code === "cause_drift")).toBe(true);
+  });
+
   it("repairMatterProjections clears title_drift", async () => {
     const { repairMatterProjections } = await import("./matter-consistency.js");
     await ensureMatterWithProjection(workspaceDir, {

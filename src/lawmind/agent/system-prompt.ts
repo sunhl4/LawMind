@@ -297,6 +297,9 @@ const COMPACT_PRIORITY_TOOLS = [
   "read_conversation",
 ] as const;
 
+/** Disclosed extras kept full-schema in compact (does not grow CORE 12). */
+const COMPACT_PRIORITY_EXTRAS = ["explore_folder", "list_dir", "read_skill", "draft_worker"] as const;
+
 export type SystemPromptContext = {
   lawyerName?: string;
   lawyerProfile?: string;
@@ -390,11 +393,22 @@ function formatToolList(tools: ToolDefinition[], verbosity: "compact" | "full"):
     return ordered.map(formatToolFull).join("\n\n");
   }
   const byName = new Map(ordered.map((t) => [t.name, t]));
-  const priority = COMPACT_PRIORITY_TOOLS.map((n) => byName.get(n)).filter(
-    (t): t is ToolDefinition => Boolean(t),
-  );
-  const priorityNames = new Set(priority.map((t) => t.name));
-  const rest = ordered.filter((t) => !priorityNames.has(t.name));
+  const priorityNames: string[] = [];
+  for (const name of COMPACT_PRIORITY_TOOLS) {
+    if (byName.has(name)) {
+      priorityNames.push(name);
+    }
+  }
+  for (const name of COMPACT_PRIORITY_EXTRAS) {
+    if (byName.has(name) && !priorityNames.includes(name)) {
+      priorityNames.push(name);
+    }
+  }
+  const priority = priorityNames
+    .map((n) => byName.get(n))
+    .filter((t): t is ToolDefinition => Boolean(t));
+  const prioritySet = new Set(priority.map((t) => t.name));
+  const rest = ordered.filter((t) => !prioritySet.has(t.name));
   const byCat = new Map<string, string[]>();
   for (const t of rest) {
     const list = byCat.get(t.category) ?? [];

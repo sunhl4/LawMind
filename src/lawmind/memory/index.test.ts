@@ -108,6 +108,7 @@ describe("LawMind Memory", () => {
 `;
     expect(extractClientIdFromCaseMarkdown(md)).toBe("my-client-7");
     expect(extractClientIdFromCaseMarkdown("## 1\n- **客户ID**：`corp-abc`")).toBe("corp-abc");
+    expect(extractClientIdFromCaseMarkdown("- 客户 / clientId: client-case\n")).toBe("client-case");
     expect(extractClientIdFromCaseMarkdown("- clientId: 可选\n")).toBeNull();
   });
 

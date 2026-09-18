@@ -10,6 +10,7 @@ import {
 } from "../adapters/matter-storage/index.js";
 import { patchDeadline } from "../application/services/deadline-service.js";
 import { saveAutomationInboxItem } from "../platform/lawyer-automations.js";
+import { isDeadlineReleased } from "./deadline-chain.js";
 import { defaultRemindBeforeHours } from "./legal-event-extract.js";
 
 export type DeadlineRemindResult = {
@@ -32,8 +33,12 @@ export function processDueDeadlineReminders(
   for (const matterId of listMatterIdsFromStorage(workspaceDir)) {
     const matter = loadMatter(workspaceDir, matterId);
     const matterTitle = matter?.title ?? matterId;
-    for (const dl of readDeadlines(workspaceDir, matterId)) {
+    const matterDeadlines = readDeadlines(workspaceDir, matterId);
+    for (const dl of matterDeadlines) {
       if (dl.status !== "open" && dl.status !== "snoozed") {
+        continue;
+      }
+      if (!isDeadlineReleased(dl, matterDeadlines)) {
         continue;
       }
       if (dl.remindedAt) {

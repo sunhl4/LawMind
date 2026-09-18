@@ -10,7 +10,13 @@ import {
 } from "../adapters/matter-storage/index.js";
 import { listMatterMailMessages } from "../platform/lawyer-automations.js";
 import { matchUserStandards } from "../practice/user-standards.js";
-import { loadDailyPlan, localDateKey, type DailyPlanItem } from "./daily-plan.js";
+import {
+  listOpenLawyerPlanItemsBefore,
+  loadDailyPlan,
+  localDateKey,
+  type DailyPlanItem,
+} from "./daily-plan.js";
+import { isDeadlineReleased } from "./deadline-chain.js";
 import { classifyMailMessage, type MailTriageLabel } from "./mail-triage.js";
 
 export type TodayWorkItemKind = "plan" | "mail" | "deadline" | "approval";
@@ -24,6 +30,8 @@ export type TodayWorkItem = {
   dueAt?: string;
   sourceRef?: string;
   mailLabel?: MailTriageLabel;
+  /** Set when this plan row lives on a prior day's JSON, not today's file. */
+  originDate?: string;
 };
 
 export type TodayWorkSnapshot = {
@@ -51,14 +59,26 @@ function isDueTodayOrOverdue(dueAt: string, now: Date): boolean {
 export function buildTodayWorkSnapshot(workspaceDir: string, now = new Date()): TodayWorkSnapshot {
   const date = localDateKey(now);
   const plan = loadDailyPlan(workspaceDir, date);
-  const items: TodayWorkItem[] = plan.items.map((item: DailyPlanItem) => ({
-    id: item.id,
-    kind: "plan",
-    title: item.text,
-    done: item.done,
-    matterId: item.matterId,
-    sourceRef: item.sourceRef,
-  }));
+  const carried = listOpenLawyerPlanItemsBefore(workspaceDir, date);
+  const items: TodayWorkItem[] = [
+    ...carried.map((item) => ({
+      id: item.id,
+      kind: "plan" as const,
+      title: item.text,
+      done: item.done,
+      matterId: item.matterId,
+      sourceRef: item.sourceRef,
+      originDate: item.originDate,
+    })),
+    ...plan.items.map((item: DailyPlanItem) => ({
+      id: item.id,
+      kind: "plan" as const,
+      title: item.text,
+      done: item.done,
+      matterId: item.matterId,
+      sourceRef: item.sourceRef,
+    })),
+  ];
 
   const triageStd = matchUserStandards(workspaceDir, { instruction: "邮件" }, "daily_triage")[0];
   const extraReply = triageStd?.bindWhen.keywords;
@@ -99,8 +119,12 @@ export function buildTodayWorkSnapshot(workspaceDir: string, now = new Date()): 
 
     const matter = loadMatter(workspaceDir, matterId);
     const title = matter?.title ?? matterId;
-    for (const dl of readDeadlines(workspaceDir, matterId)) {
+    const matterDeadlines = readDeadlines(workspaceDir, matterId);
+    for (const dl of matterDeadlines) {
       if (dl.status !== "open" && dl.status !== "snoozed") {
+        continue;
+      }
+      if (!isDeadlineReleased(dl, matterDeadlines) && dl.eventKind !== "hearing") {
         continue;
       }
       if (!isDueTodayOrOverdue(dl.dueAt, now) && dl.eventKind !== "hearing") {

@@ -12,6 +12,8 @@ type Props = {
   tools: ChatActivityToolBlock[];
   reasoningMarkdown: string;
   streaming?: boolean;
+  /** Settings「展开工具轨迹」: show the step list after the turn ends. */
+  defaultExpanded?: boolean;
   renderMarkdown: (text: string) => ReactNode;
 };
 
@@ -61,7 +63,13 @@ function summarizeToolChips(tools: ChatActivityToolBlock[]): string {
 }
 
 function LawmindChatThoughtPanelInner(props: Props): ReactNode {
-  const { tools, reasoningMarkdown, streaming = false, renderMarkdown } = props;
+  const {
+    tools,
+    reasoningMarkdown,
+    streaming = false,
+    defaultExpanded = false,
+    renderMarkdown,
+  } = props;
   const hasTools = tools.length > 0;
   const hasReasoning = Boolean(reasoningMarkdown.trim());
   const isActive = streaming;
@@ -90,11 +98,11 @@ function LawmindChatThoughtPanelInner(props: Props): ReactNode {
       setElapsedSec(Math.max(0, Math.floor((Date.now() - startedAtRef.current) / 1000)));
       startedAtRef.current = null;
     }
-    // Done: collapse to chips by default (Cursor-style).
-    setBriefOpen(false);
+    // Done: one-line summary. Step list is in 在办; chips do not belong in the thread.
+    setBriefOpen(defaultExpanded);
     setDetailOpen(false);
     return undefined;
-  }, [isActive]);
+  }, [isActive, defaultExpanded]);
 
   const chipSummary = useMemo(() => summarizeToolChips(tools), [tools]);
 
@@ -135,19 +143,7 @@ function LawmindChatThoughtPanelInner(props: Props): ReactNode {
             <span className="lm-chat-thought-head-label">{toolsHeadLabel}</span>
           </button>
           {!briefOpen && !isActive ? (
-            <>
-              <div className="lm-chat-thought-chips" aria-hidden>
-                {tools.map((tool) => (
-                  <span
-                    key={tool.id}
-                    className={`lm-chat-thought-chip lm-chat-thought-chip-${tool.status}`}
-                  >
-                    {tool.label}
-                  </span>
-                ))}
-              </div>
-              <ConversationHitChips refs={collectActivitySessionRefs(tools)} />
-            </>
+            <ConversationHitChips refs={collectActivitySessionRefs(tools)} />
           ) : null}
           {briefOpen ? (
             <ul className="lm-chat-thought-steps">

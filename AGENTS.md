@@ -32,6 +32,8 @@ This repository is **LawMind only** (legal workbench: `src/lawmind`, `apps/lawmi
 
 The product UI is the **local Electron desktop app** on this computer. There is no web or cloud workbench. Never open Vite (`http://127.0.0.1:5174`), the docs site, or a browser tab as LawMind. To open: the installed `LawMind.app`, or `pnpm lawmind:desktop` in development. Playwright specs inject an Electron preload stub; they are tests only.
 
+Desktop scrollbars and text fields: use tokens + `styles/controls.css` only — see **`docs/LAWMIND-DESKTOP-UI-CONTROLS.md`**.
+
 ## Build, test, format
 
 - **Node 22+**; install: `pnpm install`

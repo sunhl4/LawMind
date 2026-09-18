@@ -43,4 +43,28 @@ describe("LawmindErrorBoundary", () => {
     expect(host.textContent).toContain("boom-for-boundary");
     expect(host.textContent).toContain("重试");
   });
+
+  it("retry renders children again after the throw is gone", async () => {
+    let shouldThrow = true;
+    function Flaky() {
+      if (shouldThrow) {
+        throw new Error("clientId is not defined");
+      }
+      return <p>ok</p>;
+    }
+    await act(async () => {
+      root.render(
+        <LawmindErrorBoundary label="工作台">
+          <Flaky />
+        </LawmindErrorBoundary>,
+      );
+    });
+    expect(host.textContent).toContain("clientId is not defined");
+    shouldThrow = false;
+    await act(async () => {
+      host.querySelectorAll("button")[0]?.click();
+    });
+    expect(host.textContent).toContain("ok");
+    expect(host.querySelector('[data-testid="lm-error-boundary"]')).toBeNull();
+  });
 });

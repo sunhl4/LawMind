@@ -162,7 +162,20 @@
   --bg-subtle:         var(--side-bg);
   --surface-muted:     var(--surface-2);
   --surface-hover:     var(--surface-3);
-  --input-bg:          var(--surface);
+  /* Form controls — warm wash, soft border (never pure white + hard black frame) */
+  --control-bg:          var(--surface-2);
+  --control-bg-hover:    var(--surface-3);
+  --control-border:      var(--border-md);
+  --control-radius:      var(--r);
+  --control-padding-y:   8px;
+  --control-padding-x:   11px;
+  --control-shadow:      inset 0 1px 0 var(--inset-highlight);
+  --input-bg:            var(--control-bg);
+  /* Scrollbar — one thin rail for every scroll host */
+  --scroll-size:         8px;
+  --scroll-track:        transparent;
+  --scroll-thumb:        rgba(40, 32, 22, 0.14);
+  --scroll-thumb-hover:  rgba(40, 32, 22, 0.22);
   --radius-md:         var(--r);
   --r-md:              var(--r-lg);
   --t-sm:              var(--t);
@@ -281,6 +294,15 @@ html.lm-theme-dark {
   --surface-elevated:  var(--surface-2);
   --bg-elevated:       var(--surface-2);
   --lm-surface-elevated: var(--surface-2);
+
+  --control-bg:          var(--surface-2);
+  --control-bg-hover:    var(--surface-3);
+  --control-border:      var(--border-md);
+  --control-shadow:      inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --input-bg:            var(--control-bg);
+  --scroll-track:        transparent;
+  --scroll-thumb:        rgba(255, 255, 255, 0.12);
+  --scroll-thumb-hover:  rgba(255, 255, 255, 0.2);
 }
 
 html.lm-density-compact {

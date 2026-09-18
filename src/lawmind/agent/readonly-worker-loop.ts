@@ -5,6 +5,7 @@
 
 import { callModelWithRetry, ModelCallUserAbortError } from "./runtime-model-call.js";
 import { stringifyToolResultForHistory } from "./tool-result-history.js";
+import { presentLawyerToolCall } from "./tool-lawyer-card.js";
 import { ToolRegistry } from "./tools/registry.js";
 import type { AgentContext, AgentModelConfig, AgentTool, ToolCallResult } from "./types.js";
 
@@ -117,11 +118,34 @@ async function executeAllowlistedTool(
     return { ok: false, error: `未注册只读工具：${call.name}` };
   }
   try {
-    return await tool.execute(call.arguments, { ...ctx, inReadonlyWorkerLoop: true });
+    ctx.emitToolProgress?.(formatSidecarProgressLabel(call.name, call.arguments, "start"));
+    const result = await tool.execute(call.arguments, { ...ctx, inReadonlyWorkerLoop: true });
+    ctx.emitToolProgress?.(
+      formatSidecarProgressLabel(call.name, call.arguments, result.ok ? "ok" : "fail"),
+    );
+    return result;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    ctx.emitToolProgress?.(formatSidecarProgressLabel(call.name, call.arguments, "fail"));
     return { ok: false, error: `只读工具失败：${message}` };
   }
+}
+
+/** Lawyer-facing inner-step labels for explore/draft sidecars. */
+export function formatSidecarProgressLabel(
+  tool: string,
+  args: Record<string, unknown>,
+  phase: "start" | "ok" | "fail",
+): string {
+  const card = presentLawyerToolCall(tool, args);
+  const title = card.detail ? `${card.title} · ${card.detail}` : card.title;
+  if (phase === "start") {
+    return title.startsWith("正在") ? title : `正在${title}`;
+  }
+  if (phase === "ok") {
+    return `已完成 · ${title}`;
+  }
+  return `未读到 · ${title}`;
 }
 
 export function buildReadonlyToolRegistry(tools: AgentTool[]): ToolRegistry {

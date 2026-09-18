@@ -8,6 +8,7 @@ import {
   isTaskSwitchUtterance,
   instructionMentionsFolder,
   namedBracketFolders,
+  shouldRequireFolderExplore,
 } from "./text-intent.js";
 
 const LETTER_QA =
@@ -53,5 +54,33 @@ describe("text-intent", () => {
     expect(instructionLooksLikeLetterQa("核对我起草的律师函是否有误")).toBe(true);
     expect(namedBracketFolders(LETTER_QA)).toEqual(["河南堃云顿数据科技有限公司"]);
     expect(namedBracketFolders("【交办】5 分钟合同审查")).toEqual([]);
+  });
+
+  it("requires folder explore on folder talk, not Word/mail/continue", () => {
+    expect(
+      shouldRequireFolderExplore({
+        instruction: "根据【河南堃云顿数据科技有限公司】文件夹起草审查备忘",
+      }),
+    ).toBe(true);
+    expect(
+      shouldRequireFolderExplore({
+        instruction: "请审查这份采购合同",
+        hasDirectoryPin: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRequireFolderExplore({
+        instruction: "根据文件夹改这份合同",
+        wordRevisionTurn: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRequireFolderExplore({
+        instruction: "根据文件夹改合同",
+        mailContractTurn: true,
+      }),
+    ).toBe(false);
+    expect(shouldRequireFolderExplore({ instruction: "继续" })).toBe(false);
+    expect(shouldRequireFolderExplore({ instruction: "请审查这份采购合同" })).toBe(false);
   });
 });

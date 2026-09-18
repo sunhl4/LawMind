@@ -4,6 +4,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { fenceAgentFilePath } from "../runtime/workspace-io-fence.js";
 import { resolveWorkspaceRelativePath } from "../runtime/workspace-path.js";
 
 export type ResolvedMailAttachment = {
@@ -32,13 +33,17 @@ export function resolveOutboundAttachmentPaths(
     if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
       return { ok: false, error: `附件不存在：${raw}` };
     }
-    const filename = path.basename(resolved.abs);
+    const fenced = fenceAgentFilePath({ rootDir: workspaceDir, abs });
+    if (!fenced.ok) {
+      return { ok: false, error: `附件路径不受理：${raw}` };
+    }
+    const filename = path.basename(fenced.abs);
     const contentType = /\.docx$/i.test(filename)
       ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
       : /\.pdf$/i.test(filename)
         ? "application/pdf"
         : undefined;
-    files.push({ filename, absolutePath: abs, contentType });
+    files.push({ filename, absolutePath: fenced.abs, contentType });
   }
   return { ok: true, files };
 }

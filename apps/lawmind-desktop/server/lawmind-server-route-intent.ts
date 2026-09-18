@@ -2,6 +2,7 @@
  * POST /api/intent/compile — same peek + compile path as runTurn (preview for status bar).
  */
 
+import { loadSession } from "../../../src/lawmind/agent/session.js";
 import { isValidMatterId } from "../../../src/lawmind/cases/matter-id.js";
 import { compileTurnIntent } from "../../../src/lawmind/intent/compile-turn-intent.js";
 import { intentCompileRequestSchema } from "../../../src/lawmind/platform/local-api-schemas.js";
@@ -29,10 +30,24 @@ export async function handleIntentRoutes(args: LawmindRouteContext): Promise<boo
       return true;
     }
     const previousRaw = body.previousCapabilityId?.trim();
-    const previousCapabilityId =
-      previousRaw && isLawyerCapabilityId(previousRaw)
-        ? (previousRaw)
-        : undefined;
+    let previousCapabilityId =
+      previousRaw && isLawyerCapabilityId(previousRaw) ? previousRaw : undefined;
+    let historyText = body.historyText;
+    const sessionId = body.sessionId?.trim();
+    if (sessionId) {
+      const session = loadSession(workspaceDir, sessionId);
+      if (session) {
+        if (!previousCapabilityId && session.lastBoundCapabilityId) {
+          previousCapabilityId = session.lastBoundCapabilityId;
+        }
+        if (historyText == null || historyText === "") {
+          historyText = session.conversationHistory
+            .slice(-8)
+            .map((m) => (typeof m.content === "string" ? m.content : ""))
+            .join("\n");
+        }
+      }
+    }
     const compiled = await compileTurnIntent({
       workspaceDir,
       projectDir: body.projectDir?.trim() || undefined,
@@ -40,7 +55,7 @@ export async function handleIntentRoutes(args: LawmindRouteContext): Promise<boo
       pins: body.contextPins,
       matterId,
       previousCapabilityId,
-      historyText: body.historyText,
+      historyText,
       mailFastPath: body.mailFastPath,
     });
     sendJson(res, 200, { ok: true, compiled }, c);

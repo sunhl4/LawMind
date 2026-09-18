@@ -1,7 +1,6 @@
 /**
- * 软预算检查点（continue_tools）端到端：
- * 到达软预算时 turn 以 paused 结束并产出 continue_tools 待办；
- * resume 路径（skipToolBudgetCheckpoint）不再重复询问。
+ * 工具预算：步骤多少不询问律师。
+ * 默认规模回合静默跑到硬顶；委派分片在自身 cap 熔断并完成，不进「待我拍板」。
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -22,7 +21,7 @@ function tmpWorkspace(): string {
 function baseConfig(workspaceDir: string): AgentConfig {
   return {
     workspaceDir,
-    // 软预算 2：两轮工具调用后触发检查点；硬顶 max(2*2, 80)=80 不会先到。
+    // 分片 cap 2：两轮后硬停并完成，不询问律师。
     maxToolCalls: 2,
     model: {
       provider: "openai-compatible",
@@ -87,13 +86,13 @@ function registryWithPeek(calls: string[]): ToolRegistry {
   return registry;
 }
 
-describe("soft tool-budget checkpoint", () => {
+describe("silent tool-budget ceiling", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
-  it("pauses at the soft budget with a continue_tools requires-action", async () => {
+  it("completes at a tiny cap without continue_tools", async () => {
     const workspaceDir = tmpWorkspace();
     const calls: string[] = [];
     stubModelRounds([toolCallRound("c1"), toolCallRound("c2")]);
@@ -105,39 +104,37 @@ describe("soft tool-budget checkpoint", () => {
     });
 
     expect(calls).toHaveLength(2);
-    expect(result.turn.status).toBe("paused");
-    expect(result.reply).toContain("继续");
-    const action = result.turn.requiresAction?.[0];
-    expect(action?.kind).toBe("continue_tools");
-    expect(action?.toolCallsExecuted).toBe(2);
-    expect(action?.decisions).toEqual(["approve", "reject"]);
-    // 待办持久化：桌面轮询 / resumeTurn 据此恢复。
+    expect(result.turn.status).toBe("completed");
+    expect(result.turn.requiresAction ?? []).toEqual([]);
     const persisted = loadSession(workspaceDir, result.sessionId);
-    expect(persisted?.pendingRequiresAction?.[0]?.kind).toBe("continue_tools");
+    expect(persisted?.pendingRequiresAction ?? []).toEqual([]);
   });
 
-  it("skipToolBudgetCheckpoint (lawyer already continued) does not pause again", async () => {
+  it("default-scale turns keep sampling until the model delivers, past the old ask point", async () => {
     const workspaceDir = tmpWorkspace();
     const calls: string[] = [];
-    stubModelRounds([toolCallRound("c1"), toolCallRound("c2"), finalRound("完成了。")]);
+    stubModelRounds([
+      toolCallRound("c1"),
+      toolCallRound("c2"),
+      toolCallRound("c3"),
+      finalRound("审查意见已写好。"),
+    ]);
 
     const result = await runTurn({
-      config: baseConfig(workspaceDir),
+      config: { ...baseConfig(workspaceDir), maxToolCalls: 25 },
       registry: registryWithPeek(calls),
-      instruction: "【从检查点继续】律师同意继续本轮。",
-      skipToolBudgetCheckpoint: true,
+      instruction: "逐步排查这个问题",
     });
 
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(3);
     expect(result.turn.status).toBe("completed");
-    expect(result.reply).toBe("完成了。");
+    expect(result.reply).toBe("审查意见已写好。");
     expect(result.turn.requiresAction ?? []).toEqual([]);
   });
 
-  it("delegation shard floor: maxToolCalls=1 circuit-breaks after one call and reports honestly", async () => {
+  it("delegation shard floor: maxToolCalls=1 circuit-breaks after one call without asking the lawyer", async () => {
     // 委派预算分片的子侧：父剩余见底时 resolveChildToolCallBudget 下限为 1，
-    // 子助手（config.maxToolCalls=1）执行 1 次工具后即在软检查点熔断，
-    // 如实回报「已办理 1 步」，而不是继续烧父预算。
+    // 子助手硬停并完成，向父助手如实收束，不进律师「待我拍板」。
     const workspaceDir = tmpWorkspace();
     const calls: string[] = [];
     stubModelRounds([toolCallRound("c1"), toolCallRound("c2")]);
@@ -149,8 +146,7 @@ describe("soft tool-budget checkpoint", () => {
     });
 
     expect(calls).toHaveLength(1);
-    expect(result.turn.status).toBe("paused");
-    expect(result.reply).toContain("已办理 1 步");
-    expect(result.turn.requiresAction?.[0]?.kind).toBe("continue_tools");
+    expect(result.turn.status).toBe("completed");
+    expect(result.turn.requiresAction ?? []).toEqual([]);
   });
 });

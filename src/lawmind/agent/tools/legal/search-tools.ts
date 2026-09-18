@@ -2,6 +2,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { loadMatter } from "../../../adapters/matter-storage/index.js";
+import { matterPartyIdentityNames } from "../../../desk/matter-parties.js";
 import { buildMatterIndex, listMatterIds, searchMatterIndex } from "../../../cases/index.js";
 import { searchPersonalKnowledge } from "../../../indexing/knowledge-search.js";
 import { loadMemoryContext } from "../../../memory/index.js";
@@ -14,6 +15,7 @@ import {
 } from "../../../platform/ingest-helpers.js";
 import { isEthicsWallEnabled, recordEthicsWallScan } from "../../../policy/ethics-wall.js";
 import { directoryListingToolData, resolveAndListDirectory } from "../../../runtime/list-dir.js";
+import { fenceAgentFilePath } from "../../../runtime/workspace-io-fence.js";
 import { resolveWorkspaceRelativePath } from "../../../runtime/workspace-path.js";
 import { searchLawyerWorks } from "../../../work/search.js";
 import { readConversation, searchConversations } from "../../conversation-search.js";
@@ -410,7 +412,11 @@ export const readProjectFile: AgentTool = {
         ),
       );
     }
-    const full = resolved.abs;
+    const fenced = fenceAgentFilePath({ rootDir: root, abs: resolved.abs });
+    if (!fenced.ok) {
+      return toolFailureFromIngest(ingestFailure("INGEST_INVALID_PATH", "path_validation", fenced.error));
+    }
+    const full = fenced.abs;
     const st = await fs.stat(full).catch(() => null);
     if (st?.isDirectory()) {
       const listing = resolveAndListDirectory(ctx, rel, { recursive: true });
@@ -808,7 +814,10 @@ export const checkConflictOfInterest: AgentTool = {
       const pl = party.toLowerCase();
       for (const matterId of ids) {
         const index = await buildMatterIndex(ctx.workspaceDir, matterId);
+        const rec = loadMatter(ctx.workspaceDir, matterId);
+        const identity = rec ? matterPartyIdentityNames(rec).join("\n") : "";
         const blob = [
+          identity,
           index.caseMemory,
           ...index.coreIssues,
           ...index.taskGoals,
@@ -867,7 +876,7 @@ export const checkConflictOfInterest: AgentTool = {
       }
     }
 
-    const acknowledge = params.acknowledge_ethics_wall === true;
+    const acknowledge = params.__approved === true;
     const wallOn = isEthicsWallEnabled(ctx.workspaceDir);
     const wall = wallOn
       ? recordEthicsWallScan({
@@ -890,7 +899,7 @@ export const checkConflictOfInterest: AgentTool = {
       note = "律师已确认伦理墙放行。外发仍须拍板；不得把本案策略写入他案。";
     } else if (wall?.status === "hold" || flags.length > 0) {
       note =
-        "律所伦理墙：发现跨来源命中，已暂停本案外发，直至律师确认不构成冲突或完成客户披露（acknowledge_ethics_wall=true）。";
+        "律所伦理墙：发现跨来源命中，已暂停本案外发，直至律师在「待我拍板」中确认不构成冲突或完成客户披露。";
     } else {
       note = "伦理墙已扫描，未发现跨案件同名命中。仍须律师结合所知客户关系确认。";
     }

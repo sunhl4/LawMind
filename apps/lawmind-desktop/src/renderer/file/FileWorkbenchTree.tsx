@@ -119,6 +119,7 @@ export function FileWorkbenchTree({
         casesNodeActions.matterLabelById[caseMidForTree] !== entry.name
           ? casesNodeActions.matterLabelById[caseMidForTree].trim()
           : null;
+      // Folder name only in the row (Cursor-style). Full matter title stays on hover — narrow rails otherwise truncate the id.
       const treeTitle =
         caseDisplayHint && !isProtected ? `${entry.name} — ${caseDisplayHint}` : isProtected ? "⚠️ 受保护目录" : entry.name;
       nodes.push(
@@ -164,11 +165,6 @@ export function FileWorkbenchTree({
             <span className={`lm-fs-arrow ${isOpen ? "open" : ""}`}>▸</span>
             <span className="lm-fs-icon">{getFileIcon(entry.name, "directory", isOpen)}</span>
             <span className="lm-fs-name">{entry.name}</span>
-            {caseDisplayHint ? (
-              <span className="lm-meta" style={{ marginLeft: 6, fontSize: "0.92em", opacity: 0.92 }}>
-                {caseDisplayHint}
-              </span>
-            ) : null}
             {isProtected && <span className="lm-fs-lock">🔒</span>}
           </button>
           {isOpen ? (

@@ -28,6 +28,18 @@ describe("resolveOutboundAttachmentPaths", () => {
     }
   });
 
+  it("rejects a symlink that escapes the workspace", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-att-"));
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "lm-att-out-"));
+    dirs.push(ws, outside);
+    const secret = path.join(outside, "secret.docx");
+    fs.writeFileSync(secret, "x");
+    const link = path.join(ws, "innocent.docx");
+    fs.symlinkSync(secret, link);
+    const r = resolveOutboundAttachmentPaths(ws, ["innocent.docx"]);
+    expect(r.ok).toBe(false);
+  });
+
   it("rejects path escape", () => {
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-att-"));
     dirs.push(ws);

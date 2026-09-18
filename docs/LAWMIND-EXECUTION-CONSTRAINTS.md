@@ -182,7 +182,7 @@ pnpm exec vitest run \
 ### 16. 空修订不得导出 — TIGHTEN
 
 - **路径**：`src/lawmind/drafts/tracked-render-hunk-gate.ts`；`src/lawmind/runtime/same-turn-verify.ts`
-- **作用**：`redlinePending=0` 不能 `render_tracked_draft`。`apply_surgical_edits` 空 hunk / 缺 `craft_check` 是 **tool error**，不是给律师看的导出红字。模型说「已完成」时若验证器仍红，同一回合会把缺口打回，直到绿或软预算/bounce 上限暂停。
+- **作用**：`redlinePending=0` 不能 `render_tracked_draft`。`apply_surgical_edits` 空 hunk / 缺 `craft_check` 是 **tool error**，不是给律师看的导出红字。模型说「已完成」时若验证器仍红，同一回合会把缺口打回，直到绿或 bounce 上限暂停。步骤预算不再因此询问律师是否继续。
 - **手改**：放宽门禁会出现「空修订假完成」。
 - **本次**：验收失败回到同一回合（Codex：测试失败是下一轮输入）。cassette：空 hunk 后再说已完成，必须再调 `apply_surgical_edits`。
 

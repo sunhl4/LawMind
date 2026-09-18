@@ -26,7 +26,7 @@ describe("resolveLawyerLocalFile", () => {
       wordOnly: true,
     });
     expect(found?.root).toBe("project");
-    expect(found?.abs).toBe(path.join(project, leaf));
+    expect(found?.abs).toBe(path.resolve(project, leaf));
   });
 
   it("finds a nested project Word by basename", () => {
@@ -44,6 +44,18 @@ describe("resolveLawyerLocalFile", () => {
     });
     expect(found?.rel).toBe(rel);
     expect(found?.root).toBe("project");
+  });
+
+  it("does not resolve a workspace .env", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-loc-env-"));
+    dirs.push(ws);
+    fs.writeFileSync(path.join(ws, ".env"), "SECRET=1", "utf8");
+    expect(
+      resolveLawyerLocalFile({
+        workspaceDir: ws,
+        raw: ".env",
+      }),
+    ).toBeUndefined();
   });
 
   it("matches a truncated Word stem to the unique full filename", () => {

@@ -110,6 +110,29 @@ export function recordEthicsWallScan(input: {
   return next;
 }
 
+/**
+ * Lawyer-only disclosure. Model tool flags must not call this; only the
+ * desktop API or a `__approved` resume after 待我拍板.
+ */
+export function acknowledgeEthicsWall(input: {
+  workspaceDir: string;
+  matterId: string;
+  actorId?: string;
+}): EthicsWallState | null {
+  const prev = readEthicsWallState(input.workspaceDir, input.matterId);
+  return recordEthicsWallScan({
+    workspaceDir: input.workspaceDir,
+    matterId: input.matterId,
+    parties: prev?.parties ?? [],
+    flags: prev?.flags ?? [],
+    acknowledge: true,
+    actorId: input.actorId,
+  });
+}
+
+export const ETHICS_WALL_HOLD_LAWYER_MESSAGE =
+  "律所伦理墙已暂停本案外发。请在「待我拍板」中确认不构成冲突或已完成客户披露后再发。";
+
 /** True when Firm wall is on and this matter's last scan is an unresolved hold. */
 export function ethicsWallBlocksOutbound(
   workspaceDir: string,

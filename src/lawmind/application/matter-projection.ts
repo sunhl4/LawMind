@@ -92,6 +92,17 @@ export async function projectMatterToCaseMd(
       record.clientId.trim(),
     );
   }
+  if (record.causeOfAction?.trim()) {
+    await upsertCaseBasicBullet(workspaceDir, record.matterId, "案由", record.causeOfAction.trim());
+  }
+  if (record.counterparty?.trim()) {
+    await upsertCaseBasicBullet(
+      workspaceDir,
+      record.matterId,
+      "对方当事人",
+      record.counterparty.trim(),
+    );
+  }
   await upsertCaseBasicBullet(
     workspaceDir,
     record.matterId,
@@ -116,6 +127,26 @@ export async function projectMatterToCaseMd(
   }
 }
 
+/** Lawyer-cleared identity; `parseMatterCaseProfileFields` treats this as empty. */
+export const CASE_CLEARED_PLACEHOLDER = "_（待补）_";
+
+async function upsertOptionalProfileBullet(
+  workspaceDir: string,
+  matterId: string,
+  key: string,
+  value: string | undefined,
+  explicit: boolean,
+): Promise<void> {
+  const trimmed = value?.trim() ?? "";
+  if (trimmed) {
+    await upsertCaseBasicBullet(workspaceDir, matterId, key, trimmed);
+    return;
+  }
+  if (explicit) {
+    await upsertCaseBasicBullet(workspaceDir, matterId, key, CASE_CLEARED_PLACEHOLDER);
+  }
+}
+
 /** Upsert optional CASE §1 narrative fields used by the matter profile form. */
 export async function upsertMatterCaseProfileBullets(
   workspaceDir: string,
@@ -127,14 +158,20 @@ export async function upsertMatterCaseProfileBullets(
     matterKind?: string;
   },
 ): Promise<void> {
-  const cause = fields.causeOfAction?.trim();
-  if (cause) {
-    await upsertCaseBasicBullet(workspaceDir, matterId, "案由", cause);
-  }
-  const counterparty = fields.counterparty?.trim();
-  if (counterparty) {
-    await upsertCaseBasicBullet(workspaceDir, matterId, "对方当事人", counterparty);
-  }
+  await upsertOptionalProfileBullet(
+    workspaceDir,
+    matterId,
+    "案由",
+    fields.causeOfAction,
+    fields.causeOfAction !== undefined,
+  );
+  await upsertOptionalProfileBullet(
+    workspaceDir,
+    matterId,
+    "对方当事人",
+    fields.counterparty,
+    fields.counterparty !== undefined,
+  );
   if (fields.matterKind) {
     await upsertCaseBasicBullet(
       workspaceDir,

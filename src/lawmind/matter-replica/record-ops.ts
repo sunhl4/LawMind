@@ -147,3 +147,77 @@ export function snapshotCaseMd(
     },
   });
 }
+
+export type CaseMdReplicaConflict = {
+  localSha256: string;
+  remoteSha256: string;
+  remoteActorName: string;
+  remoteCreatedAt: string;
+  sidecarRel: string;
+};
+
+function caseMdConflictSidecarRel(matterId: string): string {
+  return `cases/${matterId}/CASE（冲突摘录）.md`;
+}
+
+/**
+ * Never overwrite local CASE.md (snapshots are truncated excerpts).
+ * If the newest remote snapshot hash differs, park the excerpt beside it.
+ */
+export function detectAndParkCaseMdConflict(
+  workspaceDir: string,
+  matterId: string,
+): CaseMdReplicaConflict | null {
+  const mid = assertSafeMatterId(matterId);
+  const casePath = path.join(workspaceDir, "cases", mid, "CASE.md");
+  let localBody = "";
+  try {
+    localBody = fs.existsSync(casePath) ? fs.readFileSync(casePath, "utf8") : "";
+  } catch {
+    localBody = "";
+  }
+  const localSha256 =
+    localBody.length > 0 ? createHash("sha256").update(localBody, "utf8").digest("hex") : "";
+  const snaps = listRecordOps(workspaceDir, mid)
+    .filter((op) => op.kind === "case_md.snapshot")
+    .toSorted((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const diverged = snaps.filter((op) => {
+    const sha = typeof op.payload.sha256 === "string" ? op.payload.sha256 : "";
+    return sha.length > 0 && sha !== localSha256;
+  });
+  const latest = diverged.at(-1);
+  if (!latest) {
+    return null;
+  }
+  const remoteSha256 = typeof latest.payload.sha256 === "string" ? latest.payload.sha256 : "";
+  if (!remoteSha256 || remoteSha256 === localSha256) {
+    return null;
+  }
+  const excerpt = typeof latest.payload.excerpt === "string" ? latest.payload.excerpt : "";
+  const sidecarRel = caseMdConflictSidecarRel(mid);
+  const sidecarAbs = path.join(workspaceDir, sidecarRel);
+  const body = [
+    "# 案件叙事冲突摘录",
+    "",
+    "副本同步**没有**覆盖本机 CASE.md（快照只有摘录）。请人工合并。",
+    "",
+    `- 对端律师：${latest.actorName}`,
+    `- 对端时间：${latest.createdAt}`,
+    `- 对端 SHA-256：${remoteSha256}`,
+    `- 本机 SHA-256：${localSha256 || "（空文件）"}`,
+    "",
+    "---",
+    "",
+    excerpt.trim() || "（对端摘录为空）",
+    "",
+  ].join("\n");
+  fs.mkdirSync(path.dirname(sidecarAbs), { recursive: true });
+  fs.writeFileSync(sidecarAbs, body, "utf8");
+  return {
+    localSha256,
+    remoteSha256,
+    remoteActorName: latest.actorName,
+    remoteCreatedAt: latest.createdAt,
+    sidecarRel,
+  };
+}

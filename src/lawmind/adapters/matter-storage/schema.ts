@@ -22,6 +22,31 @@ export const MatterStatusSchema = z.enum([
 
 export const MatterKindSchema = z.enum(["contract", "litigation", "general"]);
 
+export const MatterPartyRoleSchema = z.enum([
+  "client",
+  "counterparty",
+  "agent",
+  "counsel",
+  "other",
+]);
+
+export const MatterPartyServiceMethodSchema = z.enum([
+  "mail",
+  "electronic",
+  "in_person",
+  "unknown",
+]);
+
+export const MatterPartySchema = z.object({
+  partyId: z.string().trim().min(1).max(64),
+  name: z.string().trim().min(1).max(120),
+  role: MatterPartyRoleSchema,
+  standing: z.string().trim().max(40).optional(),
+  serviceAddress: z.string().trim().max(200).optional(),
+  serviceMethod: MatterPartyServiceMethodSchema.optional(),
+});
+export type MatterParty = z.infer<typeof MatterPartySchema>;
+
 export const MatterDocketSchema = z.object({
   caseNo: z.string().optional(),
   court: z.string().optional(),
@@ -46,6 +71,9 @@ export const MatterRecordSchema = z.object({
   queueItemIds: z.array(z.string()).default([]),
   matterKind: MatterKindSchema.optional(),
   practiceTags: z.array(z.string()).optional(),
+  causeOfAction: z.string().trim().max(200).optional(),
+  counterparty: z.string().trim().max(200).optional(),
+  parties: z.array(MatterPartySchema).max(8).optional(),
   docket: MatterDocketSchema.optional(),
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
@@ -158,5 +186,6 @@ export const DeadlineRecordSchema = z.object({
     .optional(),
   icsUid: z.string().optional(),
   remindedAt: z.string().optional(),
+  dependsOnDeadlineId: z.string().min(1).max(64).optional(),
 });
 export type DeadlineRecord = z.infer<typeof DeadlineRecordSchema>;

@@ -10,6 +10,7 @@ import {
   resolveWorkspaceRelativePath,
   resolveWorkspaceRelativePathAllowRoot,
 } from "./workspace-path.js";
+import { fenceAgentFilePath } from "./workspace-io-fence.js";
 
 export type LawyerFileRoot = "workspace" | "project";
 
@@ -31,6 +32,25 @@ const SKIP_DIRS = new Set([
 
 const WORD_RE = /\.docx?$/i;
 
+function acceptResolved(
+  rootDir: string,
+  root: LawyerFileRoot,
+  abs: string,
+): ResolvedLawyerLocalFile | undefined {
+  const fenced = fenceAgentFilePath({ rootDir, abs });
+  if (!fenced.ok) {
+    return undefined;
+  }
+  // Keep abs under the caller's rootDir spelling so macOS /var vs /private/var
+  // does not break later isPathInsideRoot(workspaceDir, abs) checks.
+  const callerAbs = path.join(path.resolve(rootDir), fenced.rel);
+  return {
+    abs: callerAbs,
+    rel: fenced.rel,
+    root,
+  };
+}
+
 function tryExact(
   rootDir: string | undefined,
   raw: string,
@@ -46,7 +66,7 @@ function tryExact(
   if (!fs.existsSync(resolved.abs) || !fs.statSync(resolved.abs).isFile()) {
     return undefined;
   }
-  return { abs: resolved.abs, rel: resolved.rel, root };
+  return acceptResolved(rootDir, root, resolved.abs);
 }
 
 function tryExactDir(
@@ -124,11 +144,10 @@ function uniqueMatch(
     return undefined;
   }
   const abs = hits[0];
-  return {
-    abs,
-    rel: path.relative(rootDir, abs).replace(/\\/g, "/"),
-    root,
-  };
+  if (!abs) {
+    return undefined;
+  }
+  return acceptResolved(rootDir, root, abs);
 }
 
 function findByBasenameOrPrefix(params: {

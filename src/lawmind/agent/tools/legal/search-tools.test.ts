@@ -402,6 +402,37 @@ describe("check_conflict_of_interest", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("hits matter.json party names even when CASE.md no longer mentions them", async () => {
+    const { createMatterIfMissing, updateMatterProfile } = await import(
+      "../../../application/services/matter-write-service.js"
+    );
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "lm-conflict-json-"));
+    try {
+      for (const mid of ["m-a", "m-b"]) {
+        createMatterIfMissing(workspaceDir, { matterId: mid, title: mid });
+        await updateMatterProfile(workspaceDir, {
+          matterId: mid,
+          parties: [{ partyId: "p-counterparty", name: "隐名相对方", role: "counterparty" }],
+        });
+        await fs.writeFile(
+          path.join(workspaceDir, "cases", mid, "CASE.md"),
+          `# ${mid}\n\n无当事人姓名\n`,
+          "utf8",
+        );
+      }
+      const result = await checkConflictOfInterest.execute(
+        { parties: "隐名相对方" },
+        makeCtx(workspaceDir),
+      );
+      expect(result.ok).toBe(true);
+      const data = result.data as { conflictFlags: string[]; matches: Record<string, string[]> };
+      expect(data.matches["隐名相对方"]?.length).toBeGreaterThan(1);
+      expect(data.conflictFlags.length).toBeGreaterThan(0);
+    } finally {
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
   it("holds outbound on Firm edition until acknowledged", async () => {
     const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "lm-ethics-firm-"));
     try {
@@ -441,8 +472,24 @@ describe("check_conflict_of_interest", () => {
       );
       expect(blocked.ok).toBe(false);
       expect(String(blocked.error)).toContain("伦理墙");
-      const ack = await checkConflictOfInterest.execute(
+      const forged = await checkConflictOfInterest.execute(
         { parties: "张三公司", acknowledge_ethics_wall: true },
+        makeCtx(workspaceDir, { matterId: "m-a" }),
+      );
+      expect((forged.data as { ethicsWall?: { status?: string } }).ethicsWall?.status).toBe("hold");
+      const stillBlocked = await prepareOutboundMail.execute(
+        {
+          matter_id: "m-a",
+          to: "a@b.com",
+          subject: "hello",
+          body: "x",
+          ethics_wall_acknowledged: true,
+        },
+        makeCtx(workspaceDir, { matterId: "m-a" }),
+      );
+      expect(stillBlocked.ok).toBe(false);
+      const ack = await checkConflictOfInterest.execute(
+        { parties: "张三公司", __approved: true },
         makeCtx(workspaceDir, { matterId: "m-a" }),
       );
       expect((ack.data as { ethicsWall?: { status?: string } }).ethicsWall?.status).toBe(

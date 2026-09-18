@@ -21,7 +21,7 @@ import { appendSessionEvent } from "./session-event-log.js";
 import { isSessionPersistError } from "./session-persist.js";
 import { withSessionTurnGate } from "./session-turn-gate.js";
 import { appendTurn, createSession, loadSession, saveSession } from "./session.js";
-import { mergeTurnDisclosedToolNames } from "./tools/disclosed-turn-tools.js";
+import { mergeTurnDisclosedToolNames, pinsIncludeDirectory } from "./tools/disclosed-turn-tools.js";
 import { resolveModelToolNames } from "./tools/governance.js";
 import { pickWebSearchModel } from "./tools/lawmind-web-search.js";
 import type { ToolRegistry } from "./tools/registry.js";
@@ -39,7 +39,11 @@ import { compileIntent, compiledIntentPlanItems } from "../intent/compile-intent
 import { resolveTurnDeliveryIntent } from "../intent/delivery-intent.js";
 import { loadMatterKindForIntent, peekPinnedDocuments } from "../intent/peek-pinned-documents.js";
 import { compiledIntentInjectsSkillBodies } from "../intent/understand-first.js";
-import { isCorrectionUtterance, isTaskSwitchUtterance } from "../intent/utterance-kind.js";
+import {
+  isCorrectionUtterance,
+  isTaskSwitchUtterance,
+  shouldRequireFolderExplore,
+} from "../intent/utterance-kind.js";
 import type { MemoryContext } from "../memory/index.js";
 import { isContractFastLaneInstruction } from "../platform/contract-fast-lane-instruction.js";
 import { extractSuggestedReplyTo } from "../platform/mail-contract-short-path-instruction.js";
@@ -108,7 +112,7 @@ export async function runTurn(opts: {
   contextPins?: import("../platform/compose-context-pin.js").ComposeContextPin[];
   /** Internal: caller already holds `withSessionTurnGate` (resume paths). */
   skipSessionTurnGate?: boolean;
-  /** Lawyer already approved a continue_tools checkpoint this thread. */
+  /** Kept for resume of already-paused continue_tools cards; new turns never checkpoint. */
   skipToolBudgetCheckpoint?: boolean;
   /** Resume from a checkpoint: keep the prior tool-call count (hard ceiling stays cumulative). */
   initialToolCallsExecuted?: number;
@@ -249,6 +253,12 @@ export async function runTurn(opts: {
     wordRevisionTurn,
     deliveryIntent,
     mailContractTurn,
+    folderExploreRequired: shouldRequireFolderExplore({
+      instruction,
+      hasDirectoryPin: pinsIncludeDirectory(opts.contextPins),
+      wordRevisionTurn,
+      mailContractTurn,
+    }),
     contractFastLaneTurn,
     chatModel: config.model,
     reviewModel: config.workerModel ?? config.model,
@@ -642,7 +652,7 @@ export async function runTurn(opts: {
       strictDangerousToolApproval,
       allowDangerousToolsWithoutApproval,
       toolSandboxEnabled,
-      allowedToolNames: roleForTools?.allowedToolNames ?? presetForTools?.allowedToolNames,
+      allowedToolNames: allowNamesForExec,
       roleId: roleForTools?.roleId,
       riskCeiling: roleForTools?.riskCeiling ?? presetForTools?.riskCeiling,
     });
@@ -666,10 +676,7 @@ export async function runTurn(opts: {
       allowDangerousToolsWithoutApproval,
       toolSandboxEnabled,
       policyHints: {
-        allowedToolNames: withUpdatePlanControlTool(
-          roleForTools?.allowedToolNames ?? presetForTools?.allowedToolNames,
-          registeredNames,
-        ),
+        allowedToolNames: allowNamesForExec,
         deniedToolNames: denyNames,
         allowlistDenyHint: playbookLock?.denyHint,
         roleId: roleForTools?.roleId,
@@ -689,8 +696,8 @@ export async function runTurn(opts: {
     }
 
     let finalReply = loop.finalReply;
-    // 软预算检查点暂停（paused）时 turn 未完，不做 Word 改稿自动交付。
-    if (turn.status !== "paused") {
+    // 仅在回合已完成且可写时补 Word 改稿；澄清/只读/暂停不得绕过工具管线落盘。
+    if (turn.status === "completed") {
       try {
         const { autoDeliverWordRevisionIfNeeded } = await import("./word-revision-auto-deliver.js");
         const delivered = await autoDeliverWordRevisionIfNeeded({

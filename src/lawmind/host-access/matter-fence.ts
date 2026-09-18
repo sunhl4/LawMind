@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
+import { loadMatter } from "../adapters/matter-storage/index.js";
 import { parseMatterCaseProfileFields } from "../cases/matter-profile.js";
+import { deriveMatterIdentity, hydrateMatterParties } from "../desk/matter-parties.js";
 import { isUnderRoot, realpathOrResolve } from "./paths.js";
 import type { HostMount } from "./types.js";
 
@@ -10,6 +12,19 @@ export function readMatterParties(workspaceDir: string, matterId: string): Matte
   const id = matterId.trim();
   if (!id) {
     return {};
+  }
+  try {
+    const rec = loadMatter(workspaceDir, id);
+    if (rec) {
+      const derived = deriveMatterIdentity(hydrateMatterParties(rec));
+      const clientId = rec.clientId?.trim() || derived.clientId;
+      const counterparty = rec.counterparty?.trim() || derived.counterparty;
+      if (clientId || counterparty) {
+        return { clientId, counterparty };
+      }
+    }
+  } catch {
+    /* CASE fallback below */
   }
   try {
     const raw = fs.readFileSync(path.join(workspaceDir, "cases", id, "CASE.md"), "utf8");

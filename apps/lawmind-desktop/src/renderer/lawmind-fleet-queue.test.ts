@@ -37,7 +37,7 @@ describe("lawmind-fleet-queue", () => {
       secondary: "先停在这里",
     });
     expect(fleetApprovalDockLabels("tool_approval")).toEqual({
-      primary: "批准",
+      primary: "签批",
       secondary: "驳回",
     });
   });

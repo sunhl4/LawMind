@@ -28,7 +28,7 @@ import {
   stripUnknownToolArguments,
   validateToolArguments,
 } from "../agent/runtime-tool-validation.js";
-import { MATTER_SCOPE_REQUIRED } from "../agent/tool-name-sets.js";
+import { MATTER_SCOPE_REQUIRED, WRITE_TOOLS } from "../agent/tool-name-sets.js";
 import { resolveToolRiskLevel } from "../agent/tools/governance.js";
 import type { AgentContext, AgentTool, ToolCallResult, ToolDefinition } from "../agent/types.js";
 import { emit } from "../audit/index.js";
@@ -43,21 +43,10 @@ import { isUnlimitedToolTimeoutMs } from "./tool-timeout-env.js";
  * Write/export tools blocked while clarification is pending.
  * research_task and other read/analyze tools stay allowed so the model can
  * gather facts before the lawyer answers.
- * 覆盖全部「产出/交付面」写工具：改稿、tracked 导出、写文件、待发/发信也在内，
- * 避免「澄清未决却先交付」。
+ * Align with WRITE_TOOLS plus sidecar draft_worker so 产出/交付面 writes
+ * cannot run while hard clarification is open.
  */
-const WRITE_HEAVY_TOOL_NAMES = new Set<string>([
-  "draft_document",
-  "draft_worker",
-  "update_draft",
-  "apply_surgical_edits",
-  "execute_workflow",
-  "render_document",
-  "render_tracked_draft",
-  "write_document",
-  "prepare_outbound_mail",
-  "send_email",
-]);
+const WRITE_HEAVY_TOOL_NAMES = new Set<string>([...WRITE_TOOLS, "draft_worker"]);
 
 export type ToolCallContext = {
   /** 工具调用 ID（来自模型 tool_calls[i].id） */
@@ -479,6 +468,28 @@ export const clarificationGateMiddleware: ToolMiddleware = async (call, next) =>
   return next();
 };
 
+/** Model-facing: folder talk must explore before mutating. */
+export const FOLDER_EXPLORE_GATE_ERROR =
+  "请先探查文件夹（explore_folder：goal / not_goal / path），看清目录并摘录要点后再起草或改稿。";
+
+/**
+ * Folder / directory-pin gate: WRITE_HEAVY waits until this turn already
+ * executed explore_folder. explore_folder itself and all read tools stay open.
+ */
+export const folderExploreGateMiddleware: ToolMiddleware = async (call, next) => {
+  if (!call.ctx.folderExploreRequired) {
+    return next();
+  }
+  if (call.toolName === "explore_folder" || !WRITE_HEAVY_TOOL_NAMES.has(call.toolName)) {
+    return next();
+  }
+  const explored = (call.policy.toolNameCallCounts?.explore_folder ?? 0) > 0;
+  if (explored) {
+    return next();
+  }
+  return { ok: false, error: FOLDER_EXPLORE_GATE_ERROR };
+};
+
 const RISK_ORDER: Record<"low" | "medium" | "high", number> = { low: 0, medium: 1, high: 2 };
 
 /**
@@ -713,6 +724,7 @@ export function buildDefaultToolPipeline(): ToolMiddleware[] {
     roleAllowlistMiddleware,
     matterScopeMiddleware,
     clarificationGateMiddleware,
+    folderExploreGateMiddleware,
     approvalMiddleware,
     argNormalizeMiddleware,
     argSchemaMiddleware,

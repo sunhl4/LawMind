@@ -67,6 +67,45 @@ export function validateLoopbackMutationContentType(req: http.IncomingMessage): 
   return contentType.toLowerCase().startsWith("application/json");
 }
 
+/**
+ * Host must be loopback when present. Missing Host is allowed only outside
+ * packaged builds (HTTP/1.0, Vitest mocks). DNS rebind sends Host: evil.com.
+ */
+export function hostnameFromHostHeader(host: string): string | null {
+  const h = host.trim().toLowerCase();
+  if (!h) {
+    return null;
+  }
+  if (h.startsWith("[")) {
+    const end = h.indexOf("]");
+    if (end < 1) {
+      return null;
+    }
+    return h.slice(1, end);
+  }
+  const colon = h.lastIndexOf(":");
+  if (colon > 0 && /^\d+$/.test(h.slice(colon + 1))) {
+    return h.slice(0, colon);
+  }
+  return h;
+}
+
+const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "::1"]);
+
+export function isAllowedLoopbackHttpHost(host: string | undefined): boolean {
+  if (!host?.trim()) {
+    return !isLawmindPackagedRuntime();
+  }
+  const hostname = hostnameFromHostHeader(host);
+  return hostname !== null && LOOPBACK_HOSTNAMES.has(hostname);
+}
+
+export function validateLoopbackHttpHost(req: http.IncomingMessage): boolean {
+  const header = req.headers.host;
+  const host = Array.isArray(header) ? header[0] : header;
+  return isAllowedLoopbackHttpHost(typeof host === "string" ? host : undefined);
+}
+
 export function validateLoopbackApiAuth(req: http.IncomingMessage): boolean {
   if (isLoopbackApiAuthSkipped()) {
     return true;

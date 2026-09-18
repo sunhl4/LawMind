@@ -115,4 +115,32 @@ describe("LawmindTurnPlanCard", () => {
     });
     host.remove();
   });
+
+  it("plan mode shows 开始执行 on the card", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const starts: number[] = [];
+    await act(async () => {
+      root.render(
+        <LawmindTurnPlanCard
+          plan={plan}
+          editable
+          onStartExecuteFromPlan={() => {
+            starts.push(1);
+          }}
+        />,
+      );
+    });
+    const btn = host.querySelector("[data-testid='lm-turn-plan-start-execute']") as HTMLButtonElement;
+    expect(btn?.textContent).toContain("开始执行");
+    await act(async () => {
+      btn.click();
+    });
+    expect(starts).toEqual([1]);
+    act(() => {
+      root.unmount();
+    });
+    host.remove();
+  });
 });

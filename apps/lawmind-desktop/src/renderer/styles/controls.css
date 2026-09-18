@@ -1,0 +1,233 @@
+/**
+ * Shared control chrome: scrollbars + text fields.
+ * Tokens: --scroll-*, --control-* in tokens.css.
+ * Docs: docs/LAWMIND-DESKTOP-UI-CONTROLS.md
+ */
+
+/* ── Scrollbar (one rail for the whole app) ───────────────── */
+.lm-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+}
+
+.lm-scroll::-webkit-scrollbar {
+  width: var(--scroll-size);
+  height: var(--scroll-size);
+}
+
+.lm-scroll::-webkit-scrollbar-track {
+  background: var(--scroll-track);
+}
+
+.lm-scroll::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.lm-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--scroll-thumb-hover);
+  background-clip: padding-box;
+}
+
+.lm-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Apply the shared rail to known scroll hosts (prefer adding .lm-scroll in markup too). */
+.lm-files-explorer-scroll,
+.lm-side-chat-sessions-list,
+.lm-side-chat-sessions-body [role="listbox"],
+.lm-side-scroll,
+.lm-messages,
+.lm-settings-content,
+.lm-settings-nav,
+.lm-matter-scroll,
+.lm-matter-timeline {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+}
+
+.lm-files-explorer-scroll::-webkit-scrollbar,
+.lm-side-chat-sessions-list::-webkit-scrollbar,
+.lm-side-chat-sessions-body [role="listbox"]::-webkit-scrollbar,
+.lm-side-scroll::-webkit-scrollbar,
+.lm-messages::-webkit-scrollbar,
+.lm-settings-content::-webkit-scrollbar,
+.lm-settings-nav::-webkit-scrollbar,
+.lm-matter-scroll::-webkit-scrollbar,
+.lm-matter-timeline::-webkit-scrollbar {
+  width: var(--scroll-size);
+  height: var(--scroll-size);
+}
+
+.lm-files-explorer-scroll::-webkit-scrollbar-track,
+.lm-side-chat-sessions-list::-webkit-scrollbar-track,
+.lm-side-chat-sessions-body [role="listbox"]::-webkit-scrollbar-track,
+.lm-side-scroll::-webkit-scrollbar-track,
+.lm-messages::-webkit-scrollbar-track,
+.lm-settings-content::-webkit-scrollbar-track,
+.lm-settings-nav::-webkit-scrollbar-track,
+.lm-matter-scroll::-webkit-scrollbar-track,
+.lm-matter-timeline::-webkit-scrollbar-track {
+  background: var(--scroll-track);
+}
+
+.lm-files-explorer-scroll::-webkit-scrollbar-thumb,
+.lm-side-chat-sessions-list::-webkit-scrollbar-thumb,
+.lm-side-chat-sessions-body [role="listbox"]::-webkit-scrollbar-thumb,
+.lm-side-scroll::-webkit-scrollbar-thumb,
+.lm-messages::-webkit-scrollbar-thumb,
+.lm-settings-content::-webkit-scrollbar-thumb,
+.lm-settings-nav::-webkit-scrollbar-thumb,
+.lm-matter-scroll::-webkit-scrollbar-thumb,
+.lm-matter-timeline::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.lm-files-explorer-scroll::-webkit-scrollbar-thumb:hover,
+.lm-side-chat-sessions-list::-webkit-scrollbar-thumb:hover,
+.lm-side-chat-sessions-body [role="listbox"]::-webkit-scrollbar-thumb:hover,
+.lm-side-scroll::-webkit-scrollbar-thumb:hover,
+.lm-messages::-webkit-scrollbar-thumb:hover,
+.lm-settings-content::-webkit-scrollbar-thumb:hover,
+.lm-settings-nav::-webkit-scrollbar-thumb:hover,
+.lm-matter-scroll::-webkit-scrollbar-thumb:hover,
+.lm-matter-timeline::-webkit-scrollbar-thumb:hover {
+  background: var(--scroll-thumb-hover);
+  background-clip: padding-box;
+}
+
+/* ── Text / select / textarea ──────────────────────────────── */
+.lm-input,
+.lm-field input,
+.lm-field textarea,
+.lm-field select,
+.lm-lawyer-docket-grid input,
+.lm-lawyer-docket-grid select,
+.lm-lawyer-docket-grid textarea {
+  width: 100%;
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
+  border-radius: var(--control-radius);
+  border: 1px solid var(--control-border);
+  background: var(--control-bg);
+  color: var(--text);
+  padding: var(--control-padding-y) var(--control-padding-x);
+  font-family: var(--font);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-snug);
+  box-shadow: var(--control-shadow);
+  transition:
+    border-color var(--t) var(--ease),
+    box-shadow var(--t) var(--ease),
+    background var(--t) var(--ease);
+}
+
+.lm-input:hover,
+.lm-field input:hover,
+.lm-field textarea:hover,
+.lm-field select:hover,
+.lm-lawyer-docket-grid input:hover,
+.lm-lawyer-docket-grid select:hover,
+.lm-lawyer-docket-grid textarea:hover {
+  background: var(--control-bg-hover);
+  border-color: var(--border-strong);
+}
+
+.lm-input:focus,
+.lm-field input:focus,
+.lm-field textarea:focus,
+.lm-field select:focus,
+.lm-lawyer-docket-grid input:focus,
+.lm-lawyer-docket-grid select:focus,
+.lm-lawyer-docket-grid textarea:focus {
+  outline: none;
+  border-color: var(--accent-border);
+  box-shadow: var(--focus-ring);
+  background: var(--control-bg);
+}
+
+.lm-input::placeholder,
+.lm-field input::placeholder,
+.lm-field textarea::placeholder,
+.lm-lawyer-docket-grid input::placeholder,
+.lm-lawyer-docket-grid textarea::placeholder {
+  color: var(--muted);
+}
+
+.lm-input:disabled,
+.lm-field input:disabled,
+.lm-field textarea:disabled,
+.lm-field select:disabled,
+.lm-lawyer-docket-grid input:disabled,
+.lm-lawyer-docket-grid select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.lm-input--mono {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.01em;
+}
+
+select.lm-input,
+.lm-field select,
+.lm-lawyer-docket-grid select {
+  padding-right: calc(var(--control-padding-x) + 18px);
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) calc(50% - 2px),
+    calc(100% - 9px) calc(50% - 2px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  background-color: var(--control-bg);
+}
+
+textarea.lm-input,
+.lm-field textarea,
+.lm-lawyer-docket-grid textarea {
+  resize: vertical;
+  min-height: 70px;
+  line-height: var(--lh-body);
+}
+
+/*
+ * Soften native fields inside the app shell that forget `.lm-input`.
+ * Exclude binary / system widgets and monospace draft editors.
+ */
+.lm-shell
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not(
+    [type="color"]
+  ):not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not(
+    .lm-input
+  ):not(.lm-side-chat-session-input):not([class*="monaco"]):not([class*="cm-"]),
+.lm-shell textarea:not(.lm-input):not([class*="monaco"]):not([class*="cm-"]):not(.lm-draft-doc-editor-body),
+.lm-shell select:not(.lm-input) {
+  border-radius: var(--control-radius);
+  border: 1px solid var(--control-border);
+  background: var(--control-bg);
+  color: var(--text);
+  padding: var(--control-padding-y) var(--control-padding-x);
+  font-family: var(--font);
+  font-size: var(--fs-sm);
+  box-shadow: var(--control-shadow);
+}
+
+.lm-shell
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not(
+    [type="color"]
+  ):not([type="hidden"]):not(.lm-input):focus,
+.lm-shell textarea:not(.lm-input):focus,
+.lm-shell select:not(.lm-input):focus {
+  outline: none;
+  border-color: var(--accent-border);
+  box-shadow: var(--focus-ring);
+}

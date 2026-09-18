@@ -343,6 +343,8 @@ export async function executeToolBatches(
       // 审批旗标是服务端能力位，不是模型参数：模型自填的 __approved 一律剥除，
       // 唯一合法来源是下方的服务端注入（律师预批准 / C3 沙箱策略）。
       delete toolArgs.__approved;
+      delete toolArgs.ethics_wall_acknowledged;
+      delete toolArgs.acknowledge_ethics_wall;
       const hideFromLiveTrace =
         wouldHitDiscoveryCap(toolName, toolNameCallCountsBefore, ctx) ||
         toolName === UPDATE_PLAN_TOOL_NAME;

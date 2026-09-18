@@ -15,6 +15,7 @@ const DENY_BASENAMES = new Set([
   "id_dsa",
   "mail-secrets.json",
   "lawmind.policy.json",
+  "ethics-wall.json",
 ]);
 
 const DENY_EXTENSIONS = new Set([".pem", ".p12", ".pfx", ".key"]);
@@ -84,11 +85,7 @@ export function isDeniedHostPath(
     }
   }
   const relHint = posix.toLowerCase();
-  if (
-    WORKSPACE_DENY_PREFIXES.some(
-      (prefix) => relHint.includes(`/${prefix}`) || relHint.endsWith(`/${prefix.slice(0, -1)}`),
-    )
-  ) {
+  if (hitsWorkspaceDenyPrefix(relHint)) {
     return true;
   }
   for (const pattern of opts?.extraPatterns ?? []) {
@@ -97,6 +94,36 @@ export function isDeniedHostPath(
     }
   }
   return false;
+}
+
+/**
+ * Host paths that look like LawMind governance trees (…/lawmind/…, …/audit/…).
+ * Do not treat documentation trees like …/docs/lawmind/… as secrets.
+ */
+function hitsWorkspaceDenyPrefix(posixLower: string): boolean {
+  for (const prefix of WORKSPACE_DENY_PREFIXES) {
+    const needle = `/${prefix}`;
+    let from = 0;
+    while (from < posixLower.length) {
+      const at = posixLower.indexOf(needle, from);
+      if (at < 0) {
+        break;
+      }
+      if (prefix === "lawmind/") {
+        const before = posixLower.slice(0, at);
+        if (before.endsWith("/docs") || before === "docs") {
+          from = at + 1;
+          continue;
+        }
+      }
+      return true;
+    }
+  }
+  return (
+    posixLower.endsWith("/audit") ||
+    posixLower.endsWith("/sessions") ||
+    (posixLower.endsWith("/lawmind") && !posixLower.endsWith("/docs/lawmind"))
+  );
 }
 
 export function denyListMessage(): string {

@@ -6,15 +6,17 @@ import { z } from "zod";
 import { isValidMatterId } from "../../../src/lawmind/cases/matter-id.js";
 import {
   completeDeadline,
+  listDeskDeadlines,
   listDeadlinesForMatter,
   patchDeadline,
+  recordConfirmedExtractEvents,
   recordDeadline,
   snoozeDeadline,
 } from "../../../src/lawmind/application/services/deadline-service.js";
 import { loadMatter } from "../../../src/lawmind/adapters/matter-storage/index.js";
 import { listMatterIdsFromStorage } from "../../../src/lawmind/adapters/matter-storage/io.js";
 import { parseMatterKind, MATTER_KIND_LABELS } from "../../../src/lawmind/desk/matter-kind.js";
-import { extractLegalEvents, defaultRemindBeforeHours } from "../../../src/lawmind/desk/legal-event-extract.js";
+import { extractLegalEvents } from "../../../src/lawmind/desk/legal-event-extract.js";
 import { formatDeadlinesIcs } from "../../../src/lawmind/desk/deadline-ics.js";
 import { appendDailyPlanItems, setDailyPlanItemDone, markDailyPlanSourceDone } from "../../../src/lawmind/desk/daily-plan.js";
 import { buildTodayWorkSnapshot } from "../../../src/lawmind/desk/today-work.js";
@@ -51,6 +53,7 @@ const deadlinePostSchema = z.object({
   eventKind: z.enum(["hearing", "filing", "limitation", "reply", "custom"]).optional(),
   notes: z.string().trim().max(2000).optional(),
   remindBeforeHours: z.number().int().min(0).max(720).optional(),
+  dependsOnDeadlineId: z.string().trim().max(64).optional(),
 });
 
 const deadlinePatchSchema = z.object({
@@ -58,6 +61,7 @@ const deadlinePatchSchema = z.object({
   dueAt: z.string().trim().optional(),
   notes: z.string().trim().max(2000).optional(),
   remindBeforeHours: z.number().int().min(0).max(720).optional(),
+  dependsOnDeadlineId: z.string().max(64).optional(),
 });
 
 const extractPostSchema = z.object({
@@ -246,7 +250,7 @@ export async function handleLawyerDeskRoutes({
     if (!matterId) {
       return true;
     }
-    sendJson(res, 200, { ok: true, deadlines: listDeadlinesForMatter(workspaceDir, matterId) }, c);
+    sendJson(res, 200, { ok: true, deadlines: listDeskDeadlines(workspaceDir, matterId) }, c);
     return true;
   }
   if (dlList && req.method === "POST") {
@@ -264,6 +268,7 @@ export async function handleLawyerDeskRoutes({
         notes: body.notes,
         remindBeforeHours: body.remindBeforeHours,
         source: "manual",
+        dependsOnDeadlineId: body.dependsOnDeadlineId,
       });
       sendJson(res, 200, { ok: true, deadline: record }, c);
     } catch (err) {
@@ -350,17 +355,7 @@ export async function handleLawyerDeskRoutes({
         sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
         return true;
       }
-      const recorded = body.events.map((ev) =>
-        recordDeadline(workspaceDir, {
-          matterId: body.matterId,
-          title: ev.title,
-          dueAt: ev.dueAt,
-          eventKind: ev.eventKind,
-          notes: ev.notes,
-          source: "document_extract",
-          remindBeforeHours: defaultRemindBeforeHours(ev.eventKind),
-        }),
-      );
+      const recorded = recordConfirmedExtractEvents(workspaceDir, body.matterId, body.events);
       sendJson(res, 200, { ok: true, deadlines: recorded }, c);
     } catch (err) {
       if (isInvalidRequestBodyError(err)) {

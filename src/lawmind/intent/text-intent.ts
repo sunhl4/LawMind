@@ -40,6 +40,7 @@ import {
   isReadFirstUtterance,
   isTaskSwitchUtterance,
   namedBracketFolders,
+  shouldRequireFolderExplore,
   stripRejectedContractReviewPhrases,
 } from "./utterance-kind.js";
 
@@ -218,6 +219,7 @@ export {
   isReadFirstUtterance,
   isTaskSwitchUtterance,
   namedBracketFolders,
+  shouldRequireFolderExplore,
   stripRejectedContractReviewPhrases,
 };
 

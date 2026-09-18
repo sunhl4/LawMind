@@ -3353,6 +3353,13 @@
   gap: 8px;
 }
 
+.lm-turn-plan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
 .lm-turn-plan-skip {
   display: flex;
   align-items: center;

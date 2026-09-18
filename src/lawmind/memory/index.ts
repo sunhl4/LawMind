@@ -101,7 +101,7 @@ export function extractClientIdFromCaseMarkdown(md: string): string | null {
       continue;
     }
     const m1 = line.match(
-      /^(?:[-*]\s*)?(?:\*\*)?\s*(clientId|client_id|客户\s*ID|客户ID)(?:\*\*)?\s*[:：]\s*(.+)$/i,
+      /^(?:[-*]\s*)?(?:\*\*)?\s*(clientId|client_id|客户\s*\/\s*clientId|客户\s*ID|客户ID)(?:\*\*)?\s*[:：]\s*(.+)$/i,
     );
     const m2 = m1 ? null : line.match(/^clientId\s*[:：]\s*(.+)$/i);
     const val = m1?.[2] ?? m2?.[1];

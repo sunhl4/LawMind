@@ -79,6 +79,7 @@ export type DraftWorkerContext = Partial<
     | "hostMounts"
     | "hostGrants"
     | "hostAccessFile"
+    | "emitToolProgress"
   >
 >;
 
@@ -455,6 +456,7 @@ function asWorkerAgentContext(ctx: DraftWorkerContext | undefined): AgentContext
     hostAccessFile: ctx.hostAccessFile,
     permissionMode: "readonly",
     inReadonlyWorkerLoop: true,
+    emitToolProgress: ctx.emitToolProgress,
   };
 }
 

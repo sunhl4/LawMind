@@ -177,4 +177,70 @@ describe("system prompt cache boundary", () => {
     expect(text).toContain("read_conversation");
     expect(text).toContain("session_id (string, 必填): 会话 id");
   });
+
+  it("compact verbosity expands disclosed explore_folder / list_dir / read_skill / draft_worker", () => {
+    const filler: SystemPromptContext["availableTools"] = Array.from({ length: 20 }, (_, i) => ({
+      name: `extra_tool_${i}`,
+      description: "占位",
+      category: "search" as const,
+      parameters: {},
+      riskLevel: "low" as const,
+    }));
+    const text = buildSystemPrompt({
+      ...minimalCtx,
+      agentPromptVerbosity: "compact",
+      availableTools: [
+        ...minimalCtx.availableTools,
+        ...filler,
+        {
+          name: "explore_folder",
+          description: "探查文件夹",
+          category: "search",
+          parameters: {
+            goal: { type: "string", description: "要做的事", required: true },
+          },
+          riskLevel: "low",
+        },
+        {
+          name: "list_dir",
+          description: "列目录",
+          category: "search",
+          parameters: {
+            path: { type: "string", description: "目录路径" },
+          },
+          riskLevel: "low",
+        },
+        {
+          name: "read_skill",
+          description: "读技能",
+          category: "system",
+          parameters: {
+            skill_id: { type: "string", description: "技能 id" },
+          },
+          riskLevel: "low",
+        },
+        {
+          name: "draft_worker",
+          description: "并行写稿",
+          category: "draft",
+          parameters: {
+            goal: { type: "string", description: "要做的事", required: true },
+            section: { type: "string", description: "章节" },
+          },
+          riskLevel: "low",
+        },
+      ],
+    });
+    expect(text).toContain("### 常用工具（含参数）");
+    expect(text).toContain("explore_folder");
+    expect(text).toContain("goal (string, 必填): 要做的事");
+    expect(text).toContain("list_dir");
+    expect(text).toContain("path (string): 目录路径");
+    expect(text).toContain("read_skill");
+    expect(text).toContain("skill_id (string): 技能 id");
+    expect(text).toContain("draft_worker");
+    expect(text).toContain("section (string): 章节");
+    expect(text).toContain("### 其他工具（按类别；需要完整参数时按名称调用即可）");
+    expect(text).toContain("extra_tool_0");
+  });
 });

@@ -71,6 +71,7 @@ export type LawmindChatMessagesColumnProps = {
   workspaceDir?: string;
   planEditable?: boolean;
   onLawyerEditPlan?: (planText: string) => void;
+  onStartExecuteFromPlan?: () => void;
 };
 
 export function LawmindChatMessagesColumn({
@@ -103,6 +104,7 @@ export function LawmindChatMessagesColumn({
   workspaceDir,
   planEditable,
   onLawyerEditPlan,
+  onStartExecuteFromPlan,
 }: LawmindChatMessagesColumnProps) {
   const openNeedsDecisionDesk = onOpenNeedsDecisionDesk ?? onOpenActionHub;
   const openSettingsSection = (section: "models" | "doctor") => {
@@ -190,6 +192,7 @@ export function LawmindChatMessagesColumn({
         workspaceDir={workspaceDir}
         planEditable={planEditable}
         onLawyerEditPlan={onLawyerEditPlan}
+        onStartExecuteFromPlan={onStartExecuteFromPlan}
       />
     );
   };

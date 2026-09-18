@@ -118,6 +118,65 @@ describe("handleLawyerDeskRoutes", () => {
     expect(ics.body).toContain("SUMMARY:");
   });
 
+  it("chains 上诉期 to 开庭 when confirming a mixed extract batch", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-desk-chain-"));
+    tmp.push(workspaceDir);
+    createMatterIfMissing(workspaceDir, { matterId: "case-chain", title: "上诉案", matterKind: "litigation" });
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+    const confirm = captureRes();
+    await handleLawyerDeskRoutes({
+      ctx,
+      pathname: "/api/desk/events/confirm",
+      req: jsonReq("POST", {
+        matterId: "case-chain",
+        events: [
+          { eventKind: "limitation", title: "上诉期限", dueAt: "2026-10-01T01:00:00.000Z" },
+          { eventKind: "hearing", title: "开庭", dueAt: "2026-09-15T01:00:00.000Z" },
+          { eventKind: "filing", title: "举证期限", dueAt: "2026-09-10T01:00:00.000Z" },
+        ],
+      }),
+      res: confirm.res,
+      url: new URL("http://127.0.0.1/api/desk/events/confirm"),
+      c: {},
+    });
+    const deadlines = confirm.json().deadlines as Array<{
+      title: string;
+      dependsOnDeadlineId?: string;
+      deadlineId: string;
+    }>;
+    const hearing = deadlines.find((d) => d.title === "开庭");
+    const appeal = deadlines.find((d) => d.title === "上诉期限");
+    const evidence = deadlines.find((d) => d.title === "举证期限");
+    expect(appeal?.dependsOnDeadlineId).toBe(hearing?.deadlineId);
+    expect(evidence?.dependsOnDeadlineId).toBeUndefined();
+
+    const list = captureRes();
+    await handleLawyerDeskRoutes({
+      ctx,
+      pathname: "/api/matters/case-chain/deadlines",
+      req: jsonReq("GET"),
+      res: list.res,
+      url: new URL("http://127.0.0.1/api/matters/case-chain/deadlines"),
+      c: {},
+    });
+    const desk = list.json().deadlines as Array<{
+      title: string;
+      released: boolean;
+      waitingOnTitle?: string;
+      sourceLabel: string;
+    }>;
+    expect(desk.find((d) => d.title === "上诉期限")).toMatchObject({
+      released: false,
+      waitingOnTitle: "开庭",
+      sourceLabel: "传票抽取",
+    });
+  });
+
   it("compiles talk into an intake brief", async () => {
     const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-desk-talk-"));
     tmp.push(workspaceDir);
@@ -165,9 +224,16 @@ describe("handleLawyerDeskRoutes", () => {
       c: {},
     });
     expect(cap.json().ok).toBe(true);
-    const pulse = cap.json().pulse as { title: string; counts: { deadlines: number } };
+    const pulse = cap.json().pulse as {
+      title: string;
+      counts: { deadlines: number };
+      timeline: unknown[];
+      materials: unknown[];
+    };
     expect(pulse.title).toBe("脉搏案");
     expect(pulse.counts.deadlines).toBe(0);
+    expect(Array.isArray(pulse.timeline)).toBe(true);
+    expect(pulse.materials).toEqual([]);
   });
 
   it("marks a mail source as done in today's plan", async () => {
@@ -207,5 +273,53 @@ describe("handleLawyerDeskRoutes", () => {
     expect(cap.json().ok).toBe(true);
     const plan = cap.json().plan as { items: Array<{ sourceRef?: string; done: boolean }> };
     expect(plan.items.find((item) => item.sourceRef === "msg-1")?.done).toBe(true);
+  });
+
+  it("returns carried yesterday plans and completes them on the origin date", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-desk-carry-"));
+    tmp.push(workspaceDir);
+    const { appendDailyPlanItems, loadDailyPlan, localDateKey, shiftLocalDateKey } = await import(
+      "../../../src/lawmind/desk/daily-plan.js"
+    );
+    const today = localDateKey();
+    const yesterday = shiftLocalDateKey(today, -1);
+    const saved = await appendDailyPlanItems(workspaceDir, ["改代理词"], { date: yesterday });
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+
+    const todayRes = captureRes();
+    await handleLawyerDeskRoutes({
+      ctx,
+      pathname: "/api/desk/today",
+      req: jsonReq("GET"),
+      res: todayRes.res,
+      url: new URL("http://127.0.0.1/api/desk/today"),
+      c: {},
+    });
+    expect(todayRes.json().ok).toBe(true);
+    const snapshot = todayRes.json().today as {
+      items: Array<{ id: string; title: string; originDate?: string }>;
+    };
+    const carried = snapshot.items.find((item) => item.title === "改代理词");
+    expect(carried?.originDate).toBe(yesterday);
+
+    const patch = captureRes();
+    await handleLawyerDeskRoutes({
+      ctx,
+      pathname: `/api/desk/plan/items/${saved.items[0].id}`,
+      req: jsonReq("PATCH", { done: true, date: yesterday }),
+      res: patch.res,
+      url: new URL(`http://127.0.0.1/api/desk/plan/items/${saved.items[0].id}`),
+      c: {},
+    });
+    expect(patch.json().ok).toBe(true);
+    expect(loadDailyPlan(workspaceDir, yesterday).items[0]?.done).toBe(true);
+    expect(loadDailyPlan(workspaceDir, today).items).toHaveLength(0);
+    const after = (patch.json().today as { items: Array<{ title: string }> }).items;
+    expect(after.some((item) => item.title === "改代理词")).toBe(false);
   });
 });

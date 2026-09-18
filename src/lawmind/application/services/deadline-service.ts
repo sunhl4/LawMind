@@ -13,6 +13,12 @@ import {
   type DeadlineRecord,
 } from "../../adapters/matter-storage/index.js";
 import { matterDir, withExclusiveFileLock } from "../../adapters/matter-storage/io.js";
+import {
+  annotateDeskDeadlines,
+  sanitizeDeadlineDependsOn,
+  suggestDependsOnDeadlineId,
+  type DeskDeadlineView,
+} from "../../desk/deadline-chain.js";
 import { deadlineIcsUid } from "../../desk/deadline-ics.js";
 import { defaultRemindBeforeHours } from "../../desk/legal-event-extract.js";
 import { attachDeadlineId, createMatterIfMissing } from "./matter-write-service.js";
@@ -28,32 +34,114 @@ export type RecordDeadlineInput = {
   eventKind?: DeadlineRecord["eventKind"];
   remindBeforeHours?: number;
   icsUid?: string;
+  dependsOnDeadlineId?: string;
 };
+
+function omitDependsOn(record: DeadlineRecord): DeadlineRecord {
+  const next = { ...record };
+  delete next.dependsOnDeadlineId;
+  return next;
+}
+
+function withSanitizedDependsOn(record: DeadlineRecord, existing: DeadlineRecord[]): DeadlineRecord {
+  const dependsOnDeadlineId = sanitizeDeadlineDependsOn(record, existing);
+  if (!dependsOnDeadlineId) {
+    return omitDependsOn(record);
+  }
+  return { ...record, dependsOnDeadlineId };
+}
 
 export function recordDeadline(workspaceDir: string, input: RecordDeadlineInput): DeadlineRecord {
   createMatterIfMissing(workspaceDir, { matterId: input.matterId });
   const eventKind = input.eventKind;
-  const record: DeadlineRecord = {
-    deadlineId: input.deadlineId ?? randomUUID(),
-    matterId: input.matterId,
-    title: input.title,
-    dueAt: input.dueAt,
-    severity: input.severity ?? (eventKind === "hearing" ? "hard" : "soft"),
-    source: input.source ?? "manual",
-    status: "open",
-    notes: input.notes,
-    ...(eventKind ? { eventKind } : {}),
-    remindBeforeHours: input.remindBeforeHours ?? defaultRemindBeforeHours(eventKind ?? "custom"),
-    icsUid: input.icsUid,
-  };
-  record.icsUid = deadlineIcsUid(record);
-  // append 与 updateDeadlineStatus 的全量 rewrite 共用同一把锁，避免并发「新建 + 更新」丢条目。
   const lockPath = path.join(matterDir(workspaceDir, input.matterId), "deadlines.jsonl.lock");
-  withExclusiveFileLock(lockPath, () => {
-    appendDeadline(workspaceDir, record);
+  const record = withExclusiveFileLock(lockPath, () => {
+    const existing = readDeadlines(workspaceDir, input.matterId);
+    const drafted: DeadlineRecord = {
+      deadlineId: input.deadlineId ?? randomUUID(),
+      matterId: input.matterId,
+      title: input.title,
+      dueAt: input.dueAt,
+      severity: input.severity ?? (eventKind === "hearing" ? "hard" : "soft"),
+      source: input.source ?? "manual",
+      status: "open",
+      notes: input.notes,
+      ...(eventKind ? { eventKind } : {}),
+      remindBeforeHours: input.remindBeforeHours ?? defaultRemindBeforeHours(eventKind ?? "custom"),
+      icsUid: input.icsUid,
+      ...(input.dependsOnDeadlineId?.trim() ? { dependsOnDeadlineId: input.dependsOnDeadlineId.trim() } : {}),
+    };
+    const next = withSanitizedDependsOn(drafted, existing);
+    next.icsUid = deadlineIcsUid(next);
+    appendDeadline(workspaceDir, next);
+    return next;
   });
   attachDeadlineId(workspaceDir, input.matterId, record.deadlineId);
   return record;
+}
+
+export type ConfirmExtractedDeadlineInput = {
+  eventKind: NonNullable<DeadlineRecord["eventKind"]>;
+  title: string;
+  dueAt: string;
+  notes?: string;
+};
+
+/**
+ * Lawyer-confirmed extract → deadlines. Hearings first so 上诉期 in the same
+ * batch can hang off the new 开庭. Never auto-chains 举证 to 开庭.
+ */
+export function recordConfirmedExtractEvents(
+  workspaceDir: string,
+  matterId: string,
+  events: ConfirmExtractedDeadlineInput[],
+): DeadlineRecord[] {
+  const existing = listDeadlinesForMatter(workspaceDir, matterId);
+  const hearingRecords: DeadlineRecord[] = [];
+  for (const ev of events) {
+    if (ev.eventKind !== "hearing") {
+      continue;
+    }
+    hearingRecords.push(
+      recordDeadline(workspaceDir, {
+        matterId,
+        title: ev.title,
+        dueAt: ev.dueAt,
+        eventKind: ev.eventKind,
+        notes: ev.notes,
+        source: "document_extract",
+        remindBeforeHours: defaultRemindBeforeHours(ev.eventKind),
+      }),
+    );
+  }
+  const pool: DeadlineRecord[] = [...existing, ...hearingRecords];
+  const otherRecords: DeadlineRecord[] = [];
+  for (const ev of events) {
+    if (ev.eventKind === "hearing") {
+      continue;
+    }
+    const dependsOnDeadlineId = suggestDependsOnDeadlineId({
+      eventKind: ev.eventKind,
+      title: ev.title,
+      dueAt: ev.dueAt,
+      candidates: pool,
+    });
+    const rec = recordDeadline(workspaceDir, {
+      matterId,
+      title: ev.title,
+      dueAt: ev.dueAt,
+      eventKind: ev.eventKind,
+      notes: ev.notes,
+      source: "document_extract",
+      remindBeforeHours: defaultRemindBeforeHours(ev.eventKind),
+      dependsOnDeadlineId,
+    });
+    otherRecords.push(rec);
+    pool.push(rec);
+  }
+  const hearingQ = [...hearingRecords];
+  const otherQ = [...otherRecords];
+  return events.map((ev) => (ev.eventKind === "hearing" ? hearingQ.shift()! : otherQ.shift()!));
 }
 
 export function snoozeDeadline(
@@ -75,6 +163,10 @@ export function completeDeadline(
 
 export function listDeadlinesForMatter(workspaceDir: string, matterId: string): DeadlineRecord[] {
   return readDeadlines(workspaceDir, matterId);
+}
+
+export function listDeskDeadlines(workspaceDir: string, matterId: string): DeskDeadlineView[] {
+  return annotateDeskDeadlines(listDeadlinesForMatter(workspaceDir, matterId));
 }
 
 function updateDeadlineStatus(
@@ -109,7 +201,7 @@ export function patchDeadline(
   patch: Partial<
     Pick<
       DeadlineRecord,
-      "status" | "dueAt" | "notes" | "remindedAt" | "remindBeforeHours" | "title"
+      "status" | "dueAt" | "notes" | "remindedAt" | "remindBeforeHours" | "title" | "dependsOnDeadlineId"
     >
   >,
 ): DeadlineRecord | undefined {
@@ -120,14 +212,23 @@ export function patchDeadline(
     if (idx < 0) {
       return undefined;
     }
-    const next: DeadlineRecord = {
+    const merged: DeadlineRecord = {
       ...all[idx],
       ...patch,
     };
-    all[idx] = next;
+    if (patch.dependsOnDeadlineId !== undefined) {
+      const next = withSanitizedDependsOn(
+        { ...merged, dependsOnDeadlineId: patch.dependsOnDeadlineId },
+        all.filter((row) => row.deadlineId !== deadlineId),
+      );
+      all[idx] = next;
+      rewriteDeadlines(workspaceDir, matterId, all);
+      return next;
+    }
+    all[idx] = merged;
     rewriteDeadlines(workspaceDir, matterId, all);
-    return next;
+    return merged;
   });
 }
 
-export type { DeadlineRecord };
+export type { DeadlineRecord, DeskDeadlineView };

@@ -45,4 +45,45 @@ describe("application/matter-projection", () => {
     const caseRaw = await fs.readFile(caseFilePath(workspaceDir, "m-upd"), "utf8");
     expect(parseMatterDisplayNameFromCase(caseRaw)).toBe("新标题");
   });
+
+  it("projects causeOfAction and counterparty from JSON into CASE §1", async () => {
+    createMatterIfMissing(
+      workspaceDir,
+      { matterId: "m-cause", title: "身份案件" },
+      { projectCase: false },
+    );
+    const record = loadMatter(workspaceDir, "m-cause");
+    expect(record).toBeDefined();
+    await projectMatterToCaseMd(workspaceDir, {
+      ...record!,
+      causeOfAction: "买卖合同纠纷",
+      counterparty: "乙公司",
+    });
+    const caseRaw = await fs.readFile(caseFilePath(workspaceDir, "m-cause"), "utf8");
+    expect(caseRaw).toContain("案由: 买卖合同纠纷");
+    expect(caseRaw).toContain("对方当事人: 乙公司");
+  });
+
+  it("writes a parse-empty placeholder when the lawyer clears identity fields", async () => {
+    const { updateMatterProfile } = await import("./services/matter-write-service.js");
+    const { parseMatterCaseProfileFields } = await import("../cases/matter-profile.js");
+    await ensureMatterWithProjection(workspaceDir, {
+      matterId: "m-clear",
+      title: "清空身份",
+    });
+    await updateMatterProfile(workspaceDir, {
+      matterId: "m-clear",
+      causeOfAction: "买卖合同纠纷",
+      counterparty: "乙公司",
+    });
+    await updateMatterProfile(workspaceDir, {
+      matterId: "m-clear",
+      causeOfAction: "",
+      counterparty: "",
+    });
+    const caseRaw = await fs.readFile(caseFilePath(workspaceDir, "m-clear"), "utf8");
+    expect(parseMatterCaseProfileFields(caseRaw).causeOfAction).toBeUndefined();
+    expect(parseMatterCaseProfileFields(caseRaw).counterparty).toBeUndefined();
+    expect(loadMatter(workspaceDir, "m-clear")?.causeOfAction).toBeUndefined();
+  });
 });

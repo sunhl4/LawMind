@@ -39,15 +39,7 @@ export function LawmindMsgToolGroup({
             <li key={`${sourceIndices[0] ?? 0}-tool-${i}`}>{label}</li>
           ))}
         </ul>
-      ) : (
-        <div className="lm-chat-thought-chips" aria-hidden>
-          {labels.slice(0, 6).map((label, i) => (
-            <span key={`${sourceIndices[0] ?? 0}-chip-${i}`} className="lm-chat-thought-chip">
-              {label}
-            </span>
-          ))}
-        </div>
-      )}
+      ) : null}
     </div>
   );
 }

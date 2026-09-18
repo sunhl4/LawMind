@@ -6,12 +6,18 @@
 import fs from "node:fs";
 import { loadMatter, readApprovals } from "../adapters/matter-storage/index.js";
 import { listDeadlinesForMatter } from "../application/services/deadline-service.js";
+import { annotateDeskDeadline } from "./deadline-chain.js";
 import { parseMatterCaseProfileFields } from "../cases/matter-profile.js";
 import { listDrafts } from "../drafts/index.js";
 import { caseFilePath } from "../memory/case-workspace.js";
 import { listMatterMailMessages } from "../platform/lawyer-automations.js";
 import { listTaskRecords } from "../tasks/index.js";
 import { loadIntakeBrief } from "./intake-brief.js";
+import { listMatterMaterialFiles, type MatterMaterialListing } from "./matter-materials.js";
+import {
+  hydrateMatterParties,
+  type MatterParty,
+} from "./matter-parties.js";
 import { classifyMailMessage, MAIL_TRIAGE_LABEL_ZH, type MailTriageLabel } from "./mail-triage.js";
 import {
   MATTER_KIND_LABELS,
@@ -83,6 +89,30 @@ export type MatterPulseDeadline = {
   status: string;
   eventKind?: string;
   daysUntil: number | null;
+  source?: string;
+  sourceLabel?: string;
+  released?: boolean;
+  waitingOnTitle?: string;
+  dependsOnDeadlineId?: string;
+};
+
+export const MATTER_TIMELINE_CAP = 24;
+
+export type MatterPulseTimelineKind =
+  | "deadline"
+  | "hearing"
+  | "mail"
+  | "document"
+  | "task"
+  | "approval"
+  | "intake";
+
+export type MatterPulseTimelineItem = {
+  id: string;
+  kind: MatterPulseTimelineKind;
+  title: string;
+  at: string;
+  meta?: string;
 };
 
 export type MatterPulse = {
@@ -98,6 +128,7 @@ export type MatterPulse = {
   ownerLawyerId?: string;
   createdAt?: string;
   docket?: MatterDocket;
+  parties: MatterParty[];
   counts: {
     documents: number;
     tasks: number;
@@ -105,18 +136,111 @@ export type MatterPulse = {
     deadlines: number;
     mail: number;
     approvals: number;
+    materials: number;
   };
   daysUntilHearing: number | null;
   documents: MatterPulseDoc[];
   tasks: MatterPulseTask[];
   files: Array<{ label: string }>;
+  materials: MatterMaterialListing[];
   mail: MatterPulseMail[];
   deadlines: MatterPulseDeadline[];
+  timeline: MatterPulseTimelineItem[];
   nextActions: string[];
   intakeConfirmedAt?: string;
 };
 
 const OPEN_TASK = new Set(["rendered", "rejected", "completed"]);
+
+function hasTimestamp(value: string | undefined): value is string {
+  return Boolean(value?.trim()) && !Number.isNaN(new Date(value).getTime());
+}
+
+export function assembleMatterTimeline(input: {
+  deadlines: MatterPulseDeadline[];
+  mail: MatterPulseMail[];
+  documents: MatterPulseDoc[];
+  tasks: MatterPulseTask[];
+  approvals: Array<{ approvalId: string; reason: string; requestedAt: string }>;
+  intakeConfirmedAt?: string;
+  cap?: number;
+}): MatterPulseTimelineItem[] {
+  const cap = input.cap ?? MATTER_TIMELINE_CAP;
+  const items: MatterPulseTimelineItem[] = [];
+  for (const d of input.deadlines) {
+    if (!hasTimestamp(d.dueAt)) {
+      continue;
+    }
+    const hearing = d.eventKind === "hearing";
+    const waiting = d.waitingOnTitle?.trim();
+    items.push({
+      id: `deadline:${d.deadlineId}`,
+      kind: hearing ? "hearing" : "deadline",
+      title: d.title,
+      at: d.dueAt,
+      meta: hearing ? "开庭" : waiting ? `等「${waiting}」完成` : "期限",
+    });
+  }
+  for (const msg of input.mail) {
+    if (!hasTimestamp(msg.receivedAt)) {
+      continue;
+    }
+    items.push({
+      id: `mail:${msg.id}`,
+      kind: "mail",
+      title: msg.subject,
+      at: msg.receivedAt,
+      meta: msg.labelZh,
+    });
+  }
+  for (const doc of input.documents) {
+    if (!hasTimestamp(doc.at)) {
+      continue;
+    }
+    items.push({
+      id: `doc:${doc.id}`,
+      kind: "document",
+      title: doc.title,
+      at: doc.at,
+      meta: doc.status,
+    });
+  }
+  const documentTaskIds = new Set(input.documents.map((doc) => doc.id));
+  for (const task of input.tasks) {
+    if (documentTaskIds.has(task.taskId) || !hasTimestamp(task.updatedAt)) {
+      continue;
+    }
+    items.push({
+      id: `task:${task.taskId}`,
+      kind: "task",
+      title: task.title,
+      at: task.updatedAt,
+      meta: "任务",
+    });
+  }
+  for (const ap of input.approvals) {
+    if (!hasTimestamp(ap.requestedAt)) {
+      continue;
+    }
+    items.push({
+      id: `approval:${ap.approvalId}`,
+      kind: "approval",
+      title: ap.reason,
+      at: ap.requestedAt,
+      meta: "待拍板",
+    });
+  }
+  if (hasTimestamp(input.intakeConfirmedAt)) {
+    items.push({
+      id: "intake:confirmed",
+      kind: "intake",
+      title: "谈话已写入档案",
+      at: input.intakeConfirmedAt,
+      meta: "收案",
+    });
+  }
+  return items.toSorted((a, b) => b.at.localeCompare(a.at)).slice(0, cap);
+}
 
 function reviewLabel(status: string | undefined): string {
   if (status === "approved") {
@@ -222,6 +346,46 @@ export function buildMatterPulse(
   ]
     .filter(Boolean)
     .slice(0, 8);
+  const pulseTasks = openTasks
+    .slice()
+    .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, 8)
+    .map((t) => ({
+      taskId: t.taskId,
+      title: t.title?.trim() || t.summary,
+      status: t.status,
+      updatedAt: t.updatedAt,
+    }));
+  const pulseDeadlines = openDeadlines
+    .slice()
+    .toSorted((a, b) => a.dueAt.localeCompare(b.dueAt))
+    .slice(0, 10)
+    .map((d) => {
+      const view = annotateDeskDeadline(d, deadlines);
+      return {
+        deadlineId: view.deadlineId,
+        title: view.title,
+        dueAt: view.dueAt,
+        status: view.status,
+        eventKind: view.eventKind,
+        daysUntil: daysUntilIso(d.dueAt, now),
+        source: view.source,
+        sourceLabel: view.sourceLabel,
+        released: view.released,
+        waitingOnTitle: view.waitingOnTitle,
+        dependsOnDeadlineId: view.dependsOnDeadlineId,
+      };
+    });
+  const mailSlice = liveMail.slice(0, 8);
+  const materials = listMatterMaterialFiles(workspaceDir, matterId);
+  const timeline = assembleMatterTimeline({
+    deadlines: pulseDeadlines,
+    mail: mailSlice,
+    documents,
+    tasks: pulseTasks,
+    approvals,
+    intakeConfirmedAt: brief?.confirmedAt,
+  });
 
   return {
     matterId,
@@ -231,11 +395,16 @@ export function buildMatterPulse(
     matterKind: kind,
     matterKindLabel: MATTER_KIND_LABELS[kind],
     clientId: rec.clientId ?? profile.clientIdFromCase,
-    counterparty: profile.counterparty,
-    causeOfAction: profile.causeOfAction,
+    counterparty: rec.counterparty ?? profile.counterparty,
+    causeOfAction: rec.causeOfAction ?? profile.causeOfAction,
     ownerLawyerId: rec.ownerLawyerId,
     createdAt: rec.createdAt,
     docket: rec.docket,
+    parties: hydrateMatterParties({
+      parties: rec.parties,
+      clientId: rec.clientId ?? profile.clientIdFromCase,
+      counterparty: rec.counterparty ?? profile.counterparty,
+    }),
     counts: {
       documents: drafts.length,
       tasks: openTasks.length,
@@ -243,33 +412,16 @@ export function buildMatterPulse(
       deadlines: openDeadlines.length,
       mail: liveMail.length,
       approvals: approvals.length,
+      materials: materials.length,
     },
     daysUntilHearing: daysUntilIso(hearingAt, now),
     documents,
-    tasks: openTasks
-      .slice()
-      .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-      .slice(0, 8)
-      .map((t) => ({
-        taskId: t.taskId,
-        title: t.title?.trim() || t.summary,
-        status: t.status,
-        updatedAt: t.updatedAt,
-      })),
+    tasks: pulseTasks,
     files,
-    mail: liveMail.slice(0, 8),
-    deadlines: openDeadlines
-      .slice()
-      .toSorted((a, b) => a.dueAt.localeCompare(b.dueAt))
-      .slice(0, 10)
-      .map((d) => ({
-        deadlineId: d.deadlineId,
-        title: d.title,
-        dueAt: d.dueAt,
-        status: d.status,
-        eventKind: d.eventKind,
-        daysUntil: daysUntilIso(d.dueAt, now),
-      })),
+    materials,
+    mail: mailSlice,
+    deadlines: pulseDeadlines,
+    timeline,
     nextActions,
     intakeConfirmedAt: brief?.confirmedAt,
   };

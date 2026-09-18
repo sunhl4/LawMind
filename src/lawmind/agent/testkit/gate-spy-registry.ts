@@ -92,7 +92,12 @@ export function createGateSpyRegistry(extra: SpySpec[] = []): GateSpyRegistry {
       spec.name === "update_plan"
         ? (args, ctx) => updatePlanTool.execute(args, ctx)
         : spec.name === "explore_folder"
-          ? (args, ctx) => exploreFolderTool.execute(args, ctx)
+          ? (args, ctx) =>
+              // Parent cassette HTTP is the admission surface. The production
+              // sidecar loop would steal those slots (cassette exhausted) and
+              // mix 探查工 requests into h.request(n). Keep bootstrap listing
+              // + peek; sidecar has its own worker tests.
+              exploreFolderTool.execute(args, { ...ctx, inReadonlyWorkerLoop: true })
           : async () => defaultResult(spec.name),
     );
     registry.register({

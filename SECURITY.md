@@ -29,6 +29,7 @@ Product-facing security checklists and deployment notes (archived snapshots): **
 ## Hardening notes (local API)
 
 - **Loopback binding**: the desktop local server listens on `127.0.0.1` only; do not reverse-proxy it to the LAN without an explicit security review.
+- **Host header**: requests must use `Host: 127.0.0.1` / `localhost` / `[::1]` (port allowed). Packaged builds reject a missing Host (DNS rebinding). See `validateLoopbackHttpHost`.
 - **Bearer token**: non-dev sessions require `Authorization: Bearer` on `/api/*` (see `lawmind-local-api-auth.ts`). `LAWMIND_SKIP_API_AUTH=1` is for dev/CI only; **packaged builds ignore it** and log a warning.
 - **Rate limiting**: token-bucket guard on the loopback server (`lawmind-local-rate-limit.ts`); stats exposed on `GET /api/health` → `doctor.rateLimit`.
 - **Secrets**: model and integration keys belong in the OS keychain / host env, not in the workspace git tree. Inspect `doctor.skipApiAuthWarn` and integration health before firm rollout.
@@ -52,6 +53,7 @@ The desktop app follows Electron security best practices; the implementation liv
 - **CSP**: `installLawmindContentSecurityPolicy` sets a strict Content-Security-Policy on the main window. Dev allows `unsafe-eval` for Vite HMR; packaged builds do not.
 - **Preload bridge**: `preload.mjs` exposes only a minimal `lawmindDesktop` API surface via `contextBridge`; no `ipcRenderer.on` is exposed to the page.
 - **Path traversal guard**: `fs-bridge.mjs` validates all file-system IPC against the workspace root before touching disk.
+- **Folder picker grant**: `set-project-dir` and `add-host-folder` accept only directories returned by `showOpenDialog` in this process (`picker-path-grant.mjs`). Clearing the project dir with `null` remains allowed.
 - **Bearer comparison**: `timingSafeEqual` with a length pre-check prevents timing side-channels on the loopback auth check.
 
 ## Legal lint responsibility boundary

@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   ensureLoopbackBearerToken,
   initLoopbackBearerFromEnv,
+  isAllowedLoopbackHttpHost,
   isLawmindPackagedRuntime,
   isLoopbackApiAuthSkipped,
   validateLoopbackApiAuth,
+  validateLoopbackHttpHost,
   validateLoopbackMutationContentType,
 } from "./lawmind-local-api-auth.js";
 
@@ -111,6 +113,38 @@ describe("lawmind-local-api-auth", () => {
       delete process.env.LAWMIND_PACKAGED;
       delete process.env.LAWMIND_SKIP_API_AUTH;
       expect(validateLoopbackMutationContentType(reqWith("POST", "text/plain"))).toBe(true);
+    });
+  });
+
+  describe("loopback Host 头", () => {
+    it("accepts 127.0.0.1 and localhost with a port", () => {
+      expect(isAllowedLoopbackHttpHost("127.0.0.1:4312")).toBe(true);
+      expect(isAllowedLoopbackHttpHost("localhost:4312")).toBe(true);
+      expect(isAllowedLoopbackHttpHost("[::1]:4312")).toBe(true);
+    });
+
+    it("rejects a DNS-rebind Host", () => {
+      expect(isAllowedLoopbackHttpHost("evil.example")).toBe(false);
+      expect(isAllowedLoopbackHttpHost("127.0.0.1.evil.example")).toBe(false);
+      expect(validateLoopbackHttpHost({ headers: { host: "attacker.test" } } as import("node:http").IncomingMessage)).toBe(
+        false,
+      );
+    });
+
+    it("allows a missing Host outside packaged builds", () => {
+      delete process.env.LAWMIND_PACKAGED;
+      expect(isAllowedLoopbackHttpHost(undefined)).toBe(true);
+      expect(validateLoopbackHttpHost({ headers: {} } as import("node:http").IncomingMessage)).toBe(
+        true,
+      );
+    });
+
+    it("requires Host in packaged builds", () => {
+      process.env.LAWMIND_PACKAGED = "1";
+      expect(isLawmindPackagedRuntime()).toBe(true);
+      expect(isAllowedLoopbackHttpHost(undefined)).toBe(false);
+      expect(isAllowedLoopbackHttpHost("127.0.0.1:9")).toBe(true);
+      delete process.env.LAWMIND_PACKAGED;
     });
   });
 });

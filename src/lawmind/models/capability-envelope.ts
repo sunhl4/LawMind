@@ -50,16 +50,13 @@ function outputRatioForTask(taskKind: CapabilityTaskKind | undefined): number {
 }
 
 function toolCallsForContext(contextTokens: number): number {
-  if (contextTokens >= 200_000) {
-    return 40;
-  }
   if (contextTokens >= 100_000) {
-    return 30;
+    return 80;
   }
   if (contextTokens >= 32_000) {
-    return 25;
+    return 50;
   }
-  return 20;
+  return 32;
 }
 
 function historyForContext(contextTokens: number): number {

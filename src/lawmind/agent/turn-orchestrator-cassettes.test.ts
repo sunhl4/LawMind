@@ -19,6 +19,7 @@ import { WORKING_BRIEF_HEADING } from "../intent/working-brief.js";
 import { COMPACT_REINJECTION_MARKER } from "./compact-insert.js";
 import { MAIL_CONTRACT_FAST_PATH_DENIED_HINT } from "./mail-contract-fast-path.js";
 import { formatSteerUserMessage } from "./session-context-steer.js";
+import { FOLDER_EXPLORE_GATE_ERROR } from "../runtime/tool-pipeline.js";
 import {
   cassetteAssistant,
   cassetteToolCall,
@@ -689,6 +690,8 @@ describe("turn-orchestrator cassettes (admission)", () => {
   });
 
   it("working brief and explore_folder are on the 律师函 QA request; utterance is not rewritten", async () => {
+    // Spy explore_folder uses the real walker with sidecar HTTP disabled so
+    // parent request indices stay the admission contract.
     const instruction =
       "我要你做的不是合同审核，是根据【河南堃云顿数据科技有限公司】文件夹里的信息帮我看我起草的律师函内容是否有误";
     await withTestLawMind(
@@ -839,6 +842,74 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(executed.map((c) => String(c.args.section)).toSorted()).toEqual(["管辖", "违约金"]);
         expect(executed.every((c) => c.result.ok)).toBe(true);
         expect(h.request(1).hasAdvertisedTool("draft_worker")).toBe(true);
+      },
+    );
+  });
+
+  it("folder talk: WRITE_HEAVY is rejected until explore_folder ran this turn", async () => {
+    const instruction =
+      "继续不澄清。根据【河南堃云顿数据科技有限公司】文件夹起草一份审查备忘。";
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        const folder = path.join(h.workspaceDir, "河南堃云顿数据科技有限公司");
+        fs.mkdirSync(folder);
+        fs.writeFileSync(path.join(folder, "往来.txt"), "服务费尚未支付。", "utf8");
+        h.enqueue(
+          cassetteToolCall("draft_document", { title: "审查备忘" }),
+          cassetteToolCall("explore_folder", {
+            goal: "根据文件夹起草审查备忘",
+            path: "河南堃云顿数据科技有限公司",
+          }),
+          cassetteToolCall("draft_document", { title: "审查备忘" }),
+          cassetteAssistant("已对照文件夹材料起草审查备忘。"),
+        );
+        const result = await h.runTurn(instruction);
+        expect(result.turn.status).toBe("completed");
+        expect(h.request(0).contains(instruction)).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("explore_folder")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("draft_document")).toBe(true);
+        expect(toolErrors(result)).toContain(FOLDER_EXPLORE_GATE_ERROR);
+        expect(h.request(1).contains("explore_folder")).toBe(true);
+        const executed = h.spy?.log.executedNames() ?? [];
+        expect(executed).toContain("explore_folder");
+        expect(executed.filter((n) => n === "draft_document")).toEqual(["draft_document"]);
+        expect(h.spy?.log.calls.find((c) => c.name === "explore_folder")?.result.ok).toBe(true);
+        expect(h.spy?.log.calls.find((c) => c.name === "draft_document")?.result.ok).toBe(true);
+      },
+    );
+  });
+
+  it("tool budget does not ask the lawyer to continue; the turn completes without continue_tools", async () => {
+    await withTestLawMind(
+      (b) => b.withMaxToolCalls(2),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("search_statute", { query: "违约" }),
+          cassetteToolCall("search_statute", { query: "付款" }),
+        );
+        const result = await h.runTurn(FAST_LANE);
+        expect(result.turn.status).toBe("completed");
+        expect(result.turn.requiresAction ?? []).toEqual([]);
+        expect(h.spy?.log.executedNames().filter((n) => n === "search_statute")).toHaveLength(2);
+      },
+    );
+  });
+
+  it("default-scale budget keeps sampling after the old ask point until the model delivers", async () => {
+    await withTestLawMind(
+      (b) => b.withMaxToolCalls(25),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("search_statute", { query: "违约" }),
+          cassetteToolCall("search_statute", { query: "付款" }),
+          cassetteAssistant("审查意见：注意付款与违约条款。"),
+        );
+        const result = await h.runTurn(FAST_LANE);
+        expect(result.turn.status).toBe("completed");
+        expect(result.reply).toContain("审查意见");
+        expect(result.turn.requiresAction ?? []).toEqual([]);
+        expect(h.requests.length).toBe(3);
       },
     );
   });

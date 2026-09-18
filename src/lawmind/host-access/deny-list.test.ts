@@ -9,6 +9,7 @@ describe("isDeniedHostPath", () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "lm-deny-home-"));
     try {
       expect(isDeniedHostPath(path.join(home, ".ssh", "id_ed25519"), { homeDir: home })).toBe(true);
+      expect(isDeniedHostPath(path.join(home, "ethics-wall.json"), { homeDir: home })).toBe(true);
       expect(isDeniedHostPath(path.join(home, "Desktop", ".env"), { homeDir: home })).toBe(true);
       expect(isDeniedHostPath(path.join(home, "a.pem"), { homeDir: home })).toBe(true);
       expect(
@@ -22,6 +23,22 @@ describe("isDeniedHostPath", () => {
           homeDir: home,
           extraPatterns: ["**/secret.txt"],
         }),
+      ).toBe(true);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("allows documentation under docs/lawmind but still denies governance lawmind trees", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "lm-deny-docs-"));
+    try {
+      expect(
+        isDeniedHostPath(path.join(home, "ws", "docs", "lawmind", "LAWMIND-HOST-ACCESS.md"), {
+          homeDir: home,
+        }),
+      ).toBe(false);
+      expect(
+        isDeniedHostPath(path.join(home, "ws", "lawmind", "mcp-servers.json"), { homeDir: home }),
       ).toBe(true);
     } finally {
       fs.rmSync(home, { recursive: true, force: true });

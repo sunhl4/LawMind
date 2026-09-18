@@ -375,7 +375,7 @@ export function useLawmindAppShell() {
       void composeExtras.refreshContextBudget();
     },
     onStreamToolBudget: (info) => {
-      const label = `本轮已办理 ${info.used} 步（软预算 ${info.maxToolCalls}），将询问是否继续`;
+      const label = `本轮已办理 ${info.used} 步，继续办理中`;
       setStreamCompactNoticesByAssistant((prev) => ({
         ...prev,
         [selectedAssistantId]: [...(prev[selectedAssistantId] ?? []), label],

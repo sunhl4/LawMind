@@ -64,7 +64,7 @@ export function applyLiveTurnEvent(sessionId: string, event: RunTurnEvent): void
       next.steps.push({
         id: `round-${event.roundIndex}`,
         kind: "round",
-        label: `第 ${event.roundIndex} 轮推理`,
+        label: `第 ${event.roundIndex} 轮`,
         status: "running",
       });
       break;
@@ -150,7 +150,7 @@ export function applyLiveTurnEvent(sessionId: string, event: RunTurnEvent): void
         next.steps.push({
           id: `tool-budget-${next.steps.length}`,
           kind: "round",
-          label: `工具调用将触顶（${event.used}/${event.maxToolCalls}）`,
+          label: `本轮已办理 ${event.used} 步，继续办理中`,
           status: "done",
         });
       }

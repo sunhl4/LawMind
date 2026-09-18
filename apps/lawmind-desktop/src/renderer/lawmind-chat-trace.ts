@@ -34,19 +34,7 @@ export function summarizeLiveTrace(trace: ChatLiveTrace | undefined): string | n
       .toReversed()
       .find((s) => s.status === "failed" && (s.kind === "tool" || s.kind === "workflow"));
     const label = failedStep?.label?.trim();
-    const detail = failedStep?.detail?.trim();
-    const detailBit = detail
-      ? detail.length > 48
-        ? `${detail.slice(0, 48)}…`
-        : detail
-      : "";
-    if (label && detailBit) {
-      return `未能完成本轮处理 · ${label}：${detailBit}`;
-    }
-    if (label) {
-      return `未能完成本轮处理 · ${label}`;
-    }
-    return "未能完成本轮处理 · 可改用自动办件「邮件合同审阅」";
+    return label ? `未能完成本轮处理 · ${label}` : "未能完成本轮处理";
   }
   return `已完成 ${doneCount} 步 · ${lastLabel}`;
 }
@@ -65,7 +53,7 @@ export function applyRoundStart(trace: ChatLiveTrace, roundIndex: number): ChatL
       {
         id: `round-${roundIndex}`,
         kind: "round",
-        label: `第 ${roundIndex} 轮推理`,
+        label: `第 ${roundIndex} 轮`,
         status: "running",
       },
     ],
