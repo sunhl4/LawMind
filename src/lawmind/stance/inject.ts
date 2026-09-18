@@ -4,9 +4,7 @@
  * 注入前按证据来源案件的客户/对方当事人做冲突检查，命中则不注入并记录原因。
  */
 
-import fs from "node:fs";
-import path from "node:path";
-import { parseMatterCaseProfileFields } from "../cases/matter-profile.js";
+import { readMatterParties } from "../host-access/matter-fence.js";
 import { readStanceItems } from "./store.js";
 import type { StanceItem } from "./types.js";
 
@@ -39,19 +37,6 @@ export type StanceInjectionSkip = {
 };
 
 type MatterParties = { clientId?: string; counterparty?: string };
-
-function readMatterParties(workspaceDir: string, matterId: string): MatterParties {
-  try {
-    const raw = fs.readFileSync(path.join(workspaceDir, "cases", matterId, "CASE.md"), "utf8");
-    const parsed = parseMatterCaseProfileFields(raw);
-    return {
-      clientId: parsed.clientIdFromCase?.trim() || undefined,
-      counterparty: parsed.counterparty?.trim() || undefined,
-    };
-  } catch {
-    return {};
-  }
-}
 
 function distinctEvidenceMatters(item: StanceItem): number {
   const set = new Set<string>();

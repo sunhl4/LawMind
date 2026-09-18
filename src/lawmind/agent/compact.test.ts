@@ -68,6 +68,25 @@ describe("buildDroppedSpanDigest", () => {
     expect(digest).toContain("《民法典》第577条");
   });
 
+  it("keeps Chinese-numeral 条 citations and puts them before truncation", () => {
+    const dropped: AgentMessage[] = [
+      {
+        role: "assistant",
+        content: `${"律师长文。".repeat(80)}依据《民法典》第五百七十七条承担责任。`,
+        timestamp: "t1",
+      },
+    ];
+    const digest = buildDroppedSpanDigest(dropped, 220);
+    expect(digest).toContain("压缩前引用");
+    expect(digest).toContain("《民法典》第五百七十七条");
+    const citeAt = digest.indexOf("压缩前引用");
+    const assistAt = digest.indexOf("助手结论");
+    expect(citeAt).toBeGreaterThan(0);
+    if (assistAt >= 0) {
+      expect(citeAt).toBeLessThan(assistAt);
+    }
+  });
+
   it("keeps 法释 and 案号 anchors from dropped tool results", () => {
     const dropped: AgentMessage[] = [
       { role: "user", content: "司法解释和案号？", timestamp: "t1" },

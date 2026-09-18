@@ -20,6 +20,26 @@ describe("matter-storage schema", () => {
     expect(parsed.nextActions).toEqual([]);
   });
 
+  it("accepts matter-scoped parties", () => {
+    const parsed = MatterRecordSchema.parse({
+      matterId: "m1",
+      title: "NDA 审查",
+      status: "active",
+      sensitivity: "normal",
+      strategyStatus: "draft",
+      parties: [
+        {
+          partyId: "p-client",
+          name: "甲公司",
+          role: "client",
+          serviceAddress: "上海",
+          serviceMethod: "mail",
+        },
+      ],
+    });
+    expect(parsed.parties?.[0]?.name).toBe("甲公司");
+  });
+
   it("rejects empty matterId / title", () => {
     expect(() =>
       MatterRecordSchema.parse({
@@ -91,5 +111,19 @@ describe("matter-storage schema", () => {
         status: "open",
       }).severity,
     ).toBe("hard");
+
+    expect(
+      DeadlineRecordSchema.parse({
+        deadlineId: "dl2",
+        matterId: "m1",
+        title: "上诉期限",
+        dueAt: now,
+        severity: "soft",
+        source: "document_extract",
+        status: "open",
+        eventKind: "limitation",
+        dependsOnDeadlineId: "dl1",
+      }).dependsOnDeadlineId,
+    ).toBe("dl1");
   });
 });

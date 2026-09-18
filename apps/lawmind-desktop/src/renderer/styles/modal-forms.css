@@ -250,14 +250,15 @@
 .lm-field input,
 .lm-field textarea,
 .lm-field select {
-  border-radius: var(--r);
-  border: 1px solid var(--border);
-  background: var(--surface-2);
+  border-radius: var(--control-radius);
+  border: 1px solid var(--control-border);
+  background: var(--control-bg);
   color: var(--text);
-  padding: 9px 11px;
+  padding: var(--control-padding-y) var(--control-padding-x);
   font-family: var(--font);
-  font-size: 13px;
-  transition: border-color var(--t) var(--ease), box-shadow var(--t) var(--ease);
+  font-size: var(--fs-sm);
+  box-shadow: var(--control-shadow);
+  transition: border-color var(--t) var(--ease), box-shadow var(--t) var(--ease), background var(--t) var(--ease);
   width: 100%;
 }
 
@@ -266,7 +267,7 @@
 .lm-field select:focus {
   outline: none;
   border-color: var(--accent-border);
-  box-shadow: 0 0 0 3px var(--accent-dim);
+  box-shadow: var(--focus-ring);
 }
 
 .lm-field input::placeholder,

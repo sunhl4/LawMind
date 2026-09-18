@@ -21,6 +21,7 @@ import {
   PROTECTED_WORKSPACE_WRITE_REFUSAL,
   isProtectedWorkspaceRel,
 } from "../../../runtime/protected-workspace-rels.js";
+import { fenceAgentFilePath } from "../../../runtime/workspace-io-fence.js";
 import { resolveWorkspaceRelativePath } from "../../../runtime/workspace-path.js";
 import type { AgentTool } from "../../types.js";
 import {
@@ -370,16 +371,29 @@ export const writeDocument: AgentTool = {
     if (!resolved.ok) {
       return { ok: false, error: "不允许写入工作区外的文件。" };
     }
-    const filePath = resolved.abs;
-    const rel = resolved.rel;
-    if (isProtectedAnalysisScriptRel(rel)) {
+    const relClaimed = resolved.rel;
+    if (isProtectedAnalysisScriptRel(relClaimed)) {
       return {
         ok: false,
         error: "不能用写文书投放分析脚本。脚本须放在已签名技能或律师确认的分析脚本目录。",
       };
     }
-    if (isProtectedWorkspaceRel(rel)) {
+    if (isProtectedWorkspaceRel(relClaimed)) {
       return { ok: false, error: PROTECTED_WORKSPACE_WRITE_REFUSAL };
+    }
+    const fenced = fenceAgentFilePath({ rootDir: ctx.workspaceDir, abs: resolved.abs });
+    if (!fenced.ok) {
+      return { ok: false, error: fenced.error };
+    }
+    const filePath = path.join(path.resolve(ctx.workspaceDir), fenced.rel);
+    const rel = fenced.rel || relClaimed;
+    if (isProtectedAnalysisScriptRel(rel) || isProtectedWorkspaceRel(rel)) {
+      return {
+        ok: false,
+        error: isProtectedAnalysisScriptRel(rel)
+          ? "不能用写文书投放分析脚本。脚本须放在已签名技能或律师确认的分析脚本目录。"
+          : PROTECTED_WORKSPACE_WRITE_REFUSAL,
+      };
     }
     const bypass = shouldRefuseResearchWriteBypass({
       workspaceDir: ctx.workspaceDir,

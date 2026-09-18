@@ -146,27 +146,55 @@ export function linkDraftToDeliverable(
   createMatterIfMissing(workspaceDir, { matterId: derived.matterId });
   return withDeliverableLock(workspaceDir, derived.matterId, derived.deliverableId, () => {
     const existing = loadDeliverable(workspaceDir, derived.matterId, derived.deliverableId);
-    // SSOT: once a review stamp exists on deliverable JSON, draft re-link must not
-    // overwrite currentReviewStatus / lifecycle (R-P2-7 hardening).
-    const stampLocked =
+    const incomingPending = draft.reviewStatus === "pending" || draft.reviewStatus === "modified";
+    const terminalStamp =
       existing != null &&
-      (existing.currentReviewStatus != null ||
-        existing.status === "approved" ||
+      (existing.status === "approved" ||
         existing.status === "rendered" ||
-        existing.status === "delivered");
-    const merged: DeliverableRecord = existing
+        existing.status === "delivered" ||
+        existing.currentReviewStatus === "approved");
+    // New pending/modified body after sign-off must reopen; otherwise desk
+    // shows an approved deliverable whose draft JSON is unreviewed text.
+    let base = existing;
+    if (existing && terminalStamp && incomingPending) {
+      const nextStatus: DeliverableRecord["status"] =
+        existing.status === "pending_review" ||
+        canTransitionDeliverable(existing.status, "pending_review")
+          ? "pending_review"
+          : existing.status;
+      base = {
+        ...existing,
+        status: nextStatus,
+        currentReviewStatus: "pending",
+        reviewerId: undefined,
+        approvedBy: undefined,
+        blockingReasons: [],
+      };
+    }
+    // SSOT: once a review stamp exists on deliverable JSON, metadata re-link
+    // of the same approved draft must not wipe it (R-P2-7).
+    const stampLocked =
+      base != null &&
+      !incomingPending &&
+      (base.currentReviewStatus != null ||
+        base.status === "approved" ||
+        base.status === "rendered" ||
+        base.status === "delivered");
+    const merged: DeliverableRecord = base
       ? {
-          ...existing,
+          ...base,
           ...derived,
-          currentReviewStatus: existing.currentReviewStatus ?? derived.currentReviewStatus,
-          reviewerId: existing.reviewerId ?? derived.reviewerId,
-          approvedBy: existing.approvedBy ?? derived.approvedBy,
+          currentReviewStatus: stampLocked
+            ? (base.currentReviewStatus ?? derived.currentReviewStatus)
+            : (derived.currentReviewStatus ?? base.currentReviewStatus),
+          reviewerId: stampLocked ? (base.reviewerId ?? derived.reviewerId) : derived.reviewerId,
+          approvedBy: stampLocked ? (base.approvedBy ?? derived.approvedBy) : derived.approvedBy,
           blockingReasons: stampLocked
-            ? (existing.blockingReasons ?? derived.blockingReasons)
-            : (derived.blockingReasons ?? existing.blockingReasons),
-          status: stampLocked ? existing.status : derived.status,
-          deliveredAt: existing.deliveredAt ?? derived.deliveredAt,
-          deliveredBy: existing.deliveredBy ?? derived.deliveredBy,
+            ? (base.blockingReasons ?? derived.blockingReasons)
+            : (derived.blockingReasons ?? base.blockingReasons),
+          status: stampLocked ? base.status : derived.status,
+          deliveredAt: base.deliveredAt ?? derived.deliveredAt,
+          deliveredBy: base.deliveredBy ?? derived.deliveredBy,
           updatedAt: newTimestamp(),
         }
       : { ...derived, updatedAt: newTimestamp() };

@@ -237,6 +237,12 @@ export function isPathLockedByOther(
   return !!hit && hit.holderLawyerId !== myLawyerId;
 }
 
+/** Any live checkout on this path — holder is editing; do not pull-overwrite. */
+export function isPathCheckedOut(workspaceDir: string, matterId: string, relPath: string): boolean {
+  const locks = listCheckoutLocks(workspaceDir, matterId);
+  return locks.some((l) => l.relPath === relPath || relPath.startsWith(`${l.relPath}/`));
+}
+
 /** Copy file bytes into local materials tree (creates parents). */
 export function writeMaterialBytes(
   workspaceDir: string,

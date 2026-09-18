@@ -5,10 +5,7 @@ import type { LawmindMainView } from "./lawmind-main-view";
 import type { TimeRangeFilter } from "./lawmind-time-range";
 import { type AppConfig } from "./lawmind-app-bootstrap";
 import { useLawmindModelConfig } from "./useLawmindModelConfig";
-import {
-  useLawmindChatShell,
-  type ChatSessionListEntry,
-} from "./useLawmindChatShell";
+import { useLawmindChatShell } from "./useLawmindChatShell";
 import { useLawmindCollaborationWatch } from "./useLawmindCollaborationWatch";
 import { useLawmindBackgroundWatch } from "./useLawmindBackgroundWatch";
 import { useLawmindChatSessions } from "./useLawmindChatSessions";
@@ -375,7 +372,7 @@ export function useLawmindAppShell() {
       void composeExtras.refreshContextBudget();
     },
     onStreamToolBudget: (info) => {
-      const label = `本轮已办理 ${info.used} 步（软预算 ${info.maxToolCalls}），将询问是否继续`;
+      const label = `本轮已办理 ${info.used} 步，继续办理中`;
       setStreamCompactNoticesByAssistant((prev) => ({
         ...prev,
         [selectedAssistantId]: [...(prev[selectedAssistantId] ?? []), label],

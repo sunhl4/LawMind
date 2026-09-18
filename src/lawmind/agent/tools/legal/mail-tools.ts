@@ -22,9 +22,9 @@ import {
 } from "../../../platform/lawyer-automations.js";
 import { classifyOutboundPrivilege } from "../../../platform/outbound-audience.js";
 import {
+  ETHICS_WALL_HOLD_LAWYER_MESSAGE,
+  acknowledgeEthicsWall,
   ethicsWallBlocksOutbound,
-  readEthicsWallState,
-  recordEthicsWallScan,
 } from "../../../policy/ethics-wall.js";
 import type { AgentTool } from "../../types.js";
 
@@ -201,6 +201,22 @@ export const sendEmail: AgentTool = {
     }
     // 批准旗标只认服务端注入的布尔 true（模型自填副本已在 turn 边界剥除）。
     const approved = params.__approved === true;
+    const wall = ethicsWallBlocksOutbound(ctx.workspaceDir, matterId);
+    if (wall.blocked && !approved) {
+      return {
+        ok: false,
+        approvalRequest: true,
+        error: ETHICS_WALL_HOLD_LAWYER_MESSAGE,
+        data: { ethicsWallHold: true, flags: wall.state?.flags ?? [] },
+      };
+    }
+    if (wall.blocked && approved) {
+      acknowledgeEthicsWall({
+        workspaceDir: ctx.workspaceDir,
+        matterId,
+        actorId: ctx.actorId,
+      });
+    }
     const payload = {
       to,
       subject,
@@ -211,7 +227,7 @@ export const sendEmail: AgentTool = {
       const queued = queueOutboundMail(ctx.workspaceDir, matterId, payload);
       return {
         ok: false,
-        error: `发送邮件需律师批准。已写入 outbox/${queued}；请在待我拍板中批准，批准后将继续发送。`,
+        error: `发送邮件需律师批准。已写入 outbox/${queued}；请在待我拍板中签批发送，签批后将继续发送。`,
       };
     }
     const sentId = commitOutboundMail(ctx.workspaceDir, matterId, payload);
@@ -277,23 +293,23 @@ export const prepareOutboundMail: AgentTool = {
     if (!to || !subject) {
       return { ok: false, error: "to 与 subject 必填。" };
     }
-    if (params.ethics_wall_acknowledged === true) {
-      const prev = readEthicsWallState(ctx.workspaceDir, matterId);
-      recordEthicsWallScan({
-        workspaceDir: ctx.workspaceDir,
-        matterId,
-        parties: prev?.parties ?? [],
-        flags: prev?.flags ?? [],
-        acknowledge: true,
-        actorId: ctx.actorId,
-      });
+    const lawyerAck = params.__approved === true;
+    if (lawyerAck) {
+      const prevWall = ethicsWallBlocksOutbound(ctx.workspaceDir, matterId);
+      if (prevWall.blocked) {
+        acknowledgeEthicsWall({
+          workspaceDir: ctx.workspaceDir,
+          matterId,
+          actorId: ctx.actorId,
+        });
+      }
     }
     const wall = ethicsWallBlocksOutbound(ctx.workspaceDir, matterId);
     if (wall.blocked) {
       return {
         ok: false,
-        error:
-          "律所伦理墙已暂停本案外发。请先 check_conflict_of_interest（acknowledge_ethics_wall=true）或在本工具传入 ethics_wall_acknowledged=true。",
+        approvalRequest: true,
+        error: ETHICS_WALL_HOLD_LAWYER_MESSAGE,
         data: {
           ethicsWallHold: true,
           flags: wall.state?.flags ?? [],

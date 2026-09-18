@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { persistDraft, readDraft } from "../../drafts/index.js";
+import { checkTaskDraftConsistency } from "../task-draft-consistency.js";
 import {
   applyDeliverableReviewStamp,
   createPlannedDeliverable,
@@ -10,7 +11,6 @@ import {
   syncDraftReviewStatusFromDeliverable,
   transitionDeliverable,
 } from "./deliverable-service.js";
-import { checkTaskDraftConsistency } from "../task-draft-consistency.js";
 
 describe("application/services/deliverable-service", () => {
   let workspaceDir: string;
@@ -43,9 +43,9 @@ describe("application/services/deliverable-service", () => {
       deliverableId: "d-2",
       kind: "legal-memo",
     });
-    expect(() =>
-      transitionDeliverable(workspaceDir, "m-del2", "d-2", "delivered"),
-    ).toThrow(/invalid deliverable transition/);
+    expect(() => transitionDeliverable(workspaceDir, "m-del2", "d-2", "delivered")).toThrow(
+      /invalid deliverable transition/,
+    );
   });
 
   it("applyDeliverableReviewStamp is SSOT: deliverable stamp then draft sync (no drift)", () => {
@@ -123,7 +123,7 @@ describe("application/services/deliverable-service", () => {
     expect(readDeliverable(workspaceDir, "m-link", "d-link")?.status).toBeTruthy();
   });
 
-  it("linkDraftToDeliverable does not overwrite review stamp with draft pending", () => {
+  it("linkDraftToDeliverable reopens an approved stamp when the new draft is pending", () => {
     const now = new Date().toISOString();
     createPlannedDeliverable(workspaceDir, {
       matterId: "m-lock",
@@ -153,11 +153,10 @@ describe("application/services/deliverable-service", () => {
       updatedAt: now,
     };
     const linked = linkDraftToDeliverable(workspaceDir, draft);
-    expect(linked?.currentReviewStatus).toBe("approved");
-    expect(linked?.status).toBe("approved");
-    expect(readDeliverable(workspaceDir, "m-lock", "d-lock")?.currentReviewStatus).toBe(
-      "approved",
-    );
+    expect(linked?.currentReviewStatus).toBe("pending");
+    expect(linked?.status).toBe("pending_review");
+    expect(readDeliverable(workspaceDir, "m-lock", "d-lock")?.currentReviewStatus).toBe("pending");
+    expect(readDeliverable(workspaceDir, "m-lock", "d-lock")?.approvedBy).toBeUndefined();
   });
 
   it("transitions deliverable through review and delivery lifecycle", () => {
@@ -209,9 +208,9 @@ describe("application/services/deliverable-service", () => {
     );
     expect(rendered?.status).toBe("rendered");
     expect(rendered?.currentReviewStatus).toBe("approved");
-    expect(
-      readDeliverable(workspaceDir, "m-stamp-keep", "d-stamp-keep")?.currentReviewStatus,
-    ).toBe("approved");
+    expect(readDeliverable(workspaceDir, "m-stamp-keep", "d-stamp-keep")?.currentReviewStatus).toBe(
+      "approved",
+    );
   });
 
   it("syncDraftReviewStatusFromDeliverable no-op without stamp", () => {

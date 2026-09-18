@@ -1,5 +1,5 @@
 /**
- * 在办「队列」分组：待签批 / 待补充 / 待批准（从 LawmindAgentFleetPanel 抽出）。
+ * 在办「队列」分组：待签批 / 待补充 / 待拍板（从 LawmindAgentFleetPanel 抽出）。
  */
 
 import type { AgentRunSummary } from "./lawmind-agent-fleet-api";
@@ -47,7 +47,7 @@ export function fleetApprovalDockLabels(actionKind?: string): {
   if (actionKind === "continue_tools") {
     return { primary: "继续", secondary: "先停在这里" };
   }
-  return { primary: "批准", secondary: "驳回" };
+  return { primary: "签批", secondary: "驳回" };
 }
 
 export function fleetStatusLabel(status: AgentRunSummary["status"]): string {
@@ -57,7 +57,7 @@ export function fleetStatusLabel(status: AgentRunSummary["status"]): string {
     case "awaiting_clarification":
       return "待补充";
     case "awaiting_approval":
-      return "待批准";
+      return "待拍板";
     default:
       return "待处理";
   }
@@ -68,14 +68,13 @@ export const FLEET_GROUP_ORDER = ["review", "clarify", "approve"] as const;
 export type FleetGroupKind = (typeof FLEET_GROUP_ORDER)[number];
 
 export function fleetGroupLabel(kind: FleetGroupKind): string {
-  switch (kind) {
-    case "review":
-      return "待签批";
-    case "clarify":
-      return "待补充";
-    case "approve":
-      return "待批准";
+  if (kind === "review") {
+    return "待签批";
   }
+  if (kind === "clarify") {
+    return "待补充";
+  }
+  return "待拍板";
 }
 
 export type FleetQueueGroup = {

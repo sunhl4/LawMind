@@ -4,6 +4,7 @@
  */
 
 import type { DeadlineRecord } from "../adapters/matter-storage/schemas.js";
+import { deadlineWaitingOnTitle } from "./deadline-chain.js";
 
 function icsEscape(value: string): string {
   return value
@@ -62,7 +63,11 @@ export function formatDeadlinesIcs(
     }
     const uid = deadlineIcsUid(d);
     const summary = icsEscape(d.title || "期限");
-    const desc = icsEscape(d.notes ?? "");
+    const waiting = deadlineWaitingOnTitle(d, deadlines);
+    const descParts = [d.notes?.trim(), waiting ? `等「${waiting}」完成后列入工作台。` : ""]
+      .filter(Boolean)
+      .join("\n");
+    const desc = icsEscape(descParts);
     lines.push("BEGIN:VEVENT");
     lines.push(`UID:${uid}`);
     lines.push(`DTSTAMP:${start}`);

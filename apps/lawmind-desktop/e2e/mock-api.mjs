@@ -333,6 +333,44 @@ const server = http.createServer(async (req, res) => {
   if (path === "/api/desk/today" && req.method === "GET") {
     json(res, 200, {
       ok: true,
+      today: {
+        date: now.slice(0, 10),
+        items: [
+          {
+            id: "e2e-carried-plan",
+            kind: "plan",
+            title: "改代理词",
+            done: false,
+            originDate: "2020-01-01",
+          },
+        ],
+        progress: { done: 0, total: 1 },
+      },
+    });
+    return;
+  }
+  if (path === "/api/desk/plan" && req.method === "POST") {
+    json(res, 200, {
+      ok: true,
+      today: {
+        date: now.slice(0, 10),
+        items: [
+          {
+            id: "e2e-carried-plan",
+            kind: "plan",
+            title: "改代理词",
+            done: false,
+            originDate: "2020-01-01",
+          },
+        ],
+        progress: { done: 0, total: 1 },
+      },
+    });
+    return;
+  }
+  if (path.startsWith("/api/desk/plan/items/") && req.method === "PATCH") {
+    json(res, 200, {
+      ok: true,
       today: { date: now.slice(0, 10), items: [], progress: { done: 0, total: 0 } },
     });
     return;

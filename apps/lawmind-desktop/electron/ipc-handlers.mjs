@@ -49,6 +49,11 @@ import {
 } from "./local-server.mjs";
 import { importDroppedAbsPaths, importPastedBytes } from "./import-dropped-files.mjs";
 import {
+  rememberPickerPath,
+  resolveGrantedHostFolder,
+  resolveGrantedProjectDir,
+} from "./picker-path-grant.mjs";
+import {
   readHostAccessStore,
   writeHostAccessStore,
   migrateProjectIntoStore,
@@ -603,7 +608,9 @@ export function registerIpcHandlers(deps) {
     if (res.canceled || res.filePaths.length === 0) {
       return { ok: false };
     }
-    return { ok: true, path: res.filePaths[0] };
+    const picked = res.filePaths[0];
+    rememberPickerPath(picked);
+    return { ok: true, path: picked };
   });
 
   ipcMain.handle("lawmind:pick-folder", async () => {
@@ -614,10 +621,16 @@ export function registerIpcHandlers(deps) {
     if (res.canceled || res.filePaths.length === 0) {
       return { ok: false };
     }
-    return { ok: true, path: res.filePaths[0] };
+    const picked = res.filePaths[0];
+    rememberPickerPath(picked);
+    return { ok: true, path: picked };
   });
 
   ipcMain.handle("lawmind:set-project-dir", async (_evt, nextPath) => {
+    const granted = resolveGrantedProjectDir(nextPath);
+    if (!granted.ok) {
+      return { ok: false, error: granted.error };
+    }
     const paths = lawMindPaths();
     fs.mkdirSync(paths.lawMindRoot, { recursive: true });
     let prev = {};
@@ -629,13 +642,7 @@ export function registerIpcHandlers(deps) {
       prev = {};
     }
 
-    let projectAbs = null;
-    if (typeof nextPath === "string" && nextPath.trim()) {
-      projectAbs = path.resolve(nextPath.trim());
-      if (!fs.existsSync(projectAbs) || !fs.statSync(projectAbs).isDirectory()) {
-        return { ok: false, error: "invalid project directory" };
-      }
-    }
+    const projectAbs = granted.abs;
 
     const merged = {
       ...prev,
@@ -664,10 +671,11 @@ export function registerIpcHandlers(deps) {
 
   ipcMain.handle("lawmind:add-host-folder", async (_evt, payload) => {
     const paths = lawMindPaths();
-    const abs = typeof payload?.path === "string" ? path.resolve(payload.path.trim()) : "";
-    if (!abs || !fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) {
-      return { ok: false, error: "invalid folder" };
+    const granted = resolveGrantedHostFolder(payload?.path);
+    if (!granted.ok) {
+      return { ok: false, error: granted.error };
     }
+    const abs = granted.abs;
     const state = migrateProjectIntoStore(paths.lawMindRoot, projectDir);
     if (state.mounts.some((m) => path.resolve(m.absPath) === abs)) {
       return { ok: true, mounts: state.mounts };

@@ -57,6 +57,11 @@ export function formatLawyerPrefsBlock(lawyerPrefs?: string): string {
   return `\n\n【已采纳偏好】\n${cut}`;
 }
 
+export function fillContractReviewComposerPrompt(materialsHint?: string): string {
+  const hint = materialsHint?.trim();
+  return hint ? `请审查这份合同。${hint}` : "请审查这份合同。";
+}
+
 export function buildContractFastLanePrompt(opts: {
   materials: string;
   focus?: string;

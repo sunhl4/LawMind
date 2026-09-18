@@ -15,6 +15,8 @@ import {
   budgetMiddleware,
   buildDefaultToolPipeline,
   clarificationGateMiddleware,
+  folderExploreGateMiddleware,
+  FOLDER_EXPLORE_GATE_ERROR,
   composeToolPipeline,
   discoveryLoopMiddleware,
   dropSaturatedDiscoveryTools,
@@ -442,6 +444,14 @@ describe("tool-pipeline middlewares", () => {
       async () => ({ ok: true }),
     );
     expect(worker.ok).toBe(false);
+    const compute = await clarificationGateMiddleware(
+      buildCall(workspaceDir, {
+        toolName: "run_compute",
+        ctxOverride: { clarificationBlockingHeavyTools: true },
+      }),
+      async () => ({ ok: true }),
+    );
+    expect(compute.ok).toBe(false);
   });
 
   it("clarificationGateMiddleware allows research_task while clarification pending", async () => {
@@ -451,6 +461,51 @@ describe("tool-pipeline middlewares", () => {
     });
     const result = await clarificationGateMiddleware(call, async () => ({ ok: true }));
     expect(result.ok).toBe(true);
+  });
+
+  it("folderExploreGateMiddleware rejects WRITE_HEAVY until explore_folder ran", async () => {
+    const blocked = await folderExploreGateMiddleware(
+      buildCall(workspaceDir, {
+        toolName: "draft_document",
+        ctxOverride: { folderExploreRequired: true },
+      }),
+      async () => ({ ok: true }),
+    );
+    expect(blocked.ok).toBe(false);
+    expect(blocked.error).toBe(FOLDER_EXPLORE_GATE_ERROR);
+    const explore = await folderExploreGateMiddleware(
+      buildCall(workspaceDir, {
+        toolName: "explore_folder",
+        ctxOverride: { folderExploreRequired: true },
+      }),
+      async () => ({ ok: true }),
+    );
+    expect(explore.ok).toBe(true);
+    const after = await folderExploreGateMiddleware(
+      buildCall(workspaceDir, {
+        toolName: "draft_document",
+        ctxOverride: { folderExploreRequired: true },
+        policyOverride: { toolNameCallCounts: { explore_folder: 1 } },
+      }),
+      async () => ({ ok: true }),
+    );
+    expect(after.ok).toBe(true);
+    const worker = await folderExploreGateMiddleware(
+      buildCall(workspaceDir, {
+        toolName: "draft_worker",
+        ctxOverride: { folderExploreRequired: true },
+      }),
+      async () => ({ ok: true }),
+    );
+    expect(worker.ok).toBe(false);
+    const read = await folderExploreGateMiddleware(
+      buildCall(workspaceDir, {
+        toolName: "analyze_document",
+        ctxOverride: { folderExploreRequired: true },
+      }),
+      async () => ({ ok: true }),
+    );
+    expect(read.ok).toBe(true);
   });
 
   it("approvalMiddleware demands __approved for send_email", async () => {

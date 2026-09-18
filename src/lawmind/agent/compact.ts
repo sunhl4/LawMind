@@ -40,7 +40,7 @@ export function resolveCompactDigestCharCap(contextTokens?: number): number {
  */
 /** Statute-like anchors kept after compact so the next model round can still cite. */
 const DROPPED_CITATION_RE =
-  /《[^《》\n]{1,48}》(?:\s*第\s*\d+\s*条(?:之\d+)?(?:第[一二三四五六七八九十百千\d]+款)?)?|法释〔\d{4}〕\d+号|（\d{4}）[^）\n]{2,24}号/g;
+  /《[^《》\n]{1,48}》(?:\s*第\s*(?:\d+|[一二三四五六七八九十百千零〇两]+)\s*条(?:之\d+)?(?:第[一二三四五六七八九十百千\d]+款)?)?|法释〔\d{4}〕\d+号|（\d{4}）[^）\n]{2,24}号/g;
 
 export function collectDroppedCitationAnchors(dropped: AgentMessage[], maxItems = 24): string[] {
   const found: string[] = [];
@@ -113,6 +113,10 @@ export function buildDroppedSpanDigest(dropped: AgentMessage[], maxChars: number
 
   const header = `【压缩前对话蒸馏】共丢弃约 ${dropped.length} 条消息（含工具轮）；以下为提取要点，完整细节以案件文件与工具重读为准。`;
   const sections: string[] = [header];
+  const citations = collectDroppedCitationAnchors(dropped);
+  if (citations.length > 0) {
+    sections.push(`### 压缩前引用\n${citations.join("；")}`);
+  }
   if (lawyerLines.length > 0) {
     const keep = lawyerLines.slice(-8);
     sections.push(`### 律师要点\n${keep.map((l, i) => `${i + 1}. ${l}`).join("\n")}`);
@@ -123,10 +127,6 @@ export function buildDroppedSpanDigest(dropped: AgentMessage[], maxChars: number
   }
   if (toolNames.size > 0) {
     sections.push(`### 曾调用工具\n${[...toolNames].toSorted().join(", ")}`);
-  }
-  const citations = collectDroppedCitationAnchors(dropped);
-  if (citations.length > 0) {
-    sections.push(`### 压缩前引用\n${citations.join("；")}`);
   }
   let out = sections.join("\n\n");
   if (out.length > maxChars) {

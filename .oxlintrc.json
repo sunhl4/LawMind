@@ -9,6 +9,7 @@
   "rules": {
     "curly": "error",
     "eslint-plugin-unicorn/prefer-array-find": "off",
+    "eslint/no-underscore-dangle": ["error", { "allow": ["__approved"] }],
     "eslint/no-await-in-loop": "off",
     "eslint/no-new": "off",
     "eslint/no-shadow": "off",

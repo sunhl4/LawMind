@@ -2,7 +2,11 @@ import { useState, type ReactNode } from "react";
 import { LawmindAssignmentCommitmentCard } from "./LawmindAssignmentCommitmentCard";
 import { LawmindRequiresActionCard } from "./LawmindRequiresActionCard";
 import { LawmindChatDraftStatusBar } from "./LawmindChatDraftStatusBar";
-import type { LawMindRequiresAction, LawMindRequiresActionDecision } from "./lawmind-requires-action";
+import {
+  chatThreadDecisionActions,
+  type LawMindRequiresAction,
+  type LawMindRequiresActionDecision,
+} from "./lawmind-requires-action";
 import { LawmindChatExecutionTrace } from "./LawmindChatExecutionTrace";
 import { LawmindChatThoughtPanel } from "./LawmindChatThoughtPanel";
 import { LawmindTurnPlanCard } from "./LawmindTurnPlanCard";
@@ -47,6 +51,7 @@ export type LawmindChatMessageRowProps = {
   clarificationDraft: Record<string, string>;
   onClarificationDraftChange: (key: string, value: string) => void;
   onCopyMessage: (text: string, index: number) => void | Promise<void>;
+  /** Kept for callers; thread footer no longer shows this (use /delegate). */
   onDelegateAssist?: () => void;
   delegateAssistEnabled?: boolean;
   onResumeRequiresAction?: (
@@ -67,6 +72,7 @@ export type LawmindChatMessageRowProps = {
   workspaceDir?: string;
   planEditable?: boolean;
   onLawyerEditPlan?: (planText: string) => void;
+  onStartExecuteFromPlan?: () => void;
 };
 
 export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactNode {
@@ -84,8 +90,6 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
     clarificationDraft,
     onClarificationDraftChange,
     onCopyMessage,
-    onDelegateAssist,
-    delegateAssistEnabled,
     onResumeRequiresAction,
     onSendClarificationMessage,
     onApplyPrompt,
@@ -98,6 +102,7 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
     workspaceDir,
     planEditable,
     onLawyerEditPlan,
+    onStartExecuteFromPlan,
   } = props;
 
   const [editing, setEditing] = useState(false);
@@ -120,8 +125,8 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
   const showLegacyTrace =
     msg.role === "assistant" &&
     !modelFailure &&
-    (!showActivityFeed || showToolTracePref) &&
-    (msg.liveTrace?.steps.length || msg.liveTrace?.active || msg.executionState);
+    !showActivityFeed &&
+    Boolean(msg.liveTrace?.steps.length || msg.liveTrace?.active || msg.executionState);
   const streamingThought = loading && index === lastAssistantIndex && Boolean(msg.activityActive);
   const thoughtParts = partitionActivityForThoughtView(activityBlocks, {
     finalText: msg.text,
@@ -152,12 +157,10 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
         )
       : undefined;
   const workflowPending = Boolean(workflowAction);
-  const nonWorkflowRequiresActions =
-    msg.requiresAction?.filter(
-      (a) => !(a.kind === "tool_approval" && a.toolName === "execute_workflow"),
-    ) ?? [];
+  const chatDecisionActions =
+    msg.role === "assistant" ? chatThreadDecisionActions(msg.requiresAction) : [];
   const clarifyDeskTarget = (): NeedsDecisionDeskTarget => {
-    const clarifyAction = nonWorkflowRequiresActions.find((a) => a.kind === "clarification");
+    const clarifyAction = chatDecisionActions.find((a) => a.kind === "clarification");
     return {
       sessionId: clarifyAction?.sessionId?.trim() || chatSessionId?.trim() || undefined,
       taskId: clarifyAction?.taskId?.trim() || linkedTaskId,
@@ -202,6 +205,7 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
             plan={msg.turnPlan}
             editable={planEditable}
             onLawyerEditPlan={onLawyerEditPlan}
+            onStartExecuteFromPlan={planEditable ? onStartExecuteFromPlan : undefined}
           />
         ) : null}
         {showThoughtPanel ? (
@@ -210,6 +214,7 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
               tools={thoughtParts.tools}
               reasoningMarkdown={thoughtParts.reasoningMarkdown}
               streaming={streamingThought}
+              defaultExpanded={showToolTracePref}
               renderMarkdown={renderLegalMarkdown}
             />
           </div>
@@ -432,16 +437,11 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
                 删除
               </button>
             ) : null}
-            {index === lastAssistantIndex && delegateAssistEnabled && onDelegateAssist ? (
-              <button type="button" className="lm-msg-copy-btn" onClick={() => onDelegateAssist()}>
-                交给其他助手
-              </button>
-            ) : null}
           </div>
         )}
         {msg.role === "assistant" &&
         index === lastAssistantIndex &&
-        nonWorkflowRequiresActions.length > 0 &&
+        chatDecisionActions.length > 0 &&
         onResumeRequiresAction ? (
           <div
             id={`lm-clarify-card-${index}`}
@@ -450,7 +450,7 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
             }
           >
             <LawmindRequiresActionCard
-              actions={nonWorkflowRequiresActions}
+              actions={chatDecisionActions}
               sessionId={chatSessionId}
               clarificationDraft={clarificationDraft}
               onClarificationDraftChange={onClarificationDraftChange}
@@ -470,7 +470,7 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
               }
               clarificationVariant={
                 shouldInlineClarificationInChat(
-                  nonWorkflowRequiresActions.find((a) => a.kind === "clarification")
+                  chatDecisionActions.find((a) => a.kind === "clarification")
                     ?.clarificationQuestions ?? [],
                 )
                   ? "compact"

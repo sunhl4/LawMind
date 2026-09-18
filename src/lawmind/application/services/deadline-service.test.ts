@@ -10,7 +10,9 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   completeDeadline,
+  listDeskDeadlines,
   listDeadlinesForMatter,
+  recordConfirmedExtractEvents,
   recordDeadline,
   snoozeDeadline,
   type DeadlineRecord,
@@ -126,6 +128,43 @@ describe("deadline-service", () => {
     );
     expect(
       all.some((d) => d.deadlineId === recordedInChild!.deadlineId && d.status === "open"),
+    ).toBe(true);
+  });
+
+  it("links 上诉期 to 开庭 on confirm, but never auto-chains 举证", () => {
+    const recorded = recordConfirmedExtractEvents(workspaceDir, "m-chain", [
+      {
+        eventKind: "limitation",
+        title: "上诉期限",
+        dueAt: "2026-10-01T01:00:00.000Z",
+      },
+      {
+        eventKind: "hearing",
+        title: "开庭",
+        dueAt: "2026-09-15T01:00:00.000Z",
+      },
+      {
+        eventKind: "filing",
+        title: "举证期限",
+        dueAt: "2026-09-10T01:00:00.000Z",
+      },
+    ]);
+    expect(recorded).toHaveLength(3);
+    expect(recorded[0]?.eventKind).toBe("limitation");
+    expect(recorded[0]?.dependsOnDeadlineId).toBe(recorded[1]?.deadlineId);
+    expect(recorded[1]?.eventKind).toBe("hearing");
+    expect(recorded[1]?.dependsOnDeadlineId).toBeUndefined();
+    expect(recorded[2]?.dependsOnDeadlineId).toBeUndefined();
+
+    const desk = listDeskDeadlines(workspaceDir, "m-chain");
+    const appeal = desk.find((d) => d.title === "上诉期限");
+    expect(appeal?.released).toBe(false);
+    expect(appeal?.waitingOnTitle).toBe("开庭");
+    expect(appeal?.sourceLabel).toBe("传票抽取");
+
+    completeDeadline(workspaceDir, "m-chain", recorded[1].deadlineId);
+    expect(
+      listDeskDeadlines(workspaceDir, "m-chain").find((d) => d.title === "上诉期限")?.released,
     ).toBe(true);
   });
 });

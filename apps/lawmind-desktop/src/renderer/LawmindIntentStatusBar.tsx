@@ -5,13 +5,12 @@
  * Not a picker — lawyers do not choose a task type here.
  * Filename-unknown attachments are not shown as a keyword guess until server peek returns.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { apiSendJson } from "./api-client";
 import { compileIntent } from "../../../../src/lawmind/intent/compile-intent.ts";
 import { classifyDocumentGenre } from "../../../../src/lawmind/intent/document-genre.ts";
 import type { CompiledIntent } from "../../../../src/lawmind/intent/types.ts";
 import type { ComposeContextPin } from "../../../../src/lawmind/platform/compose-context-pin.ts";
-import type { LawyerCapabilityId } from "../../../../src/lawmind/skills/lawyer-capability-lock.ts";
 
 export type LawmindIntentStatusBarProps = {
   input: string;
@@ -46,12 +45,8 @@ type CompileApiOk = {
 
 export function LawmindIntentStatusBar(props: LawmindIntentStatusBarProps): ReactNode {
   const [serverCompiled, setServerCompiled] = useState<CompiledIntent | null>(null);
-  const lastBoundRef = useRef<LawyerCapabilityId | undefined>(undefined);
-  const [lastBound, setLastBound] = useState<LawyerCapabilityId | undefined>();
 
   useEffect(() => {
-    lastBoundRef.current = undefined;
-    setLastBound(undefined);
     setServerCompiled(null);
   }, [props.chatSessionId]);
 
@@ -64,20 +59,19 @@ export function LawmindIntentStatusBar(props: LawmindIntentStatusBarProps): Reac
         instruction: props.input,
         pins,
         matterKind: props.matterKind,
-        previousCapabilityId: lastBound,
       }),
-    [props.input, pathsKey, props.matterKind, lastBound, pins],
+    [props.input, pathsKey, props.matterKind, pins],
   );
 
   useEffect(() => {
     const apiBase = props.apiBase?.trim();
     if (!apiBase) {
       setServerCompiled(null);
-      return;
+      return () => {};
     }
     if (!props.input.trim() && props.fileRelPaths.length === 0) {
       setServerCompiled(null);
-      return;
+      return () => {};
     }
     let cancelled = false;
     const timer = window.setTimeout(() => {
@@ -90,7 +84,7 @@ export function LawmindIntentStatusBar(props: LawmindIntentStatusBarProps): Reac
           matterId: props.contextMatterId?.trim() || undefined,
           projectDir: props.projectDir?.trim() || undefined,
           contextPins: pins,
-          previousCapabilityId: lastBoundRef.current,
+          sessionId: props.chatSessionId?.trim() || undefined,
         },
       )
         .then((body) => {
@@ -98,9 +92,6 @@ export function LawmindIntentStatusBar(props: LawmindIntentStatusBarProps): Reac
             return;
           }
           setServerCompiled(body.compiled);
-          const nextBound = body.compiled.capabilityId;
-          lastBoundRef.current = nextBound;
-          setLastBound(nextBound);
         })
         .catch(() => {
           /* keep local compile */
@@ -120,13 +111,6 @@ export function LawmindIntentStatusBar(props: LawmindIntentStatusBarProps): Reac
     props.chatSessionId,
     props.fileRelPaths.length,
   ]);
-
-  useEffect(() => {
-    if (!props.apiBase?.trim() && localCompiled.capabilityId) {
-      lastBoundRef.current = localCompiled.capabilityId;
-      setLastBound(localCompiled.capabilityId);
-    }
-  }, [props.apiBase, localCompiled.capabilityId]);
 
   const compiled = serverCompiled ?? localCompiled;
 

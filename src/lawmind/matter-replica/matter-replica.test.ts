@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   acceptInviteByToken,
   acquireCheckoutLock,
+  appendRecordOp,
   createInvite,
   ensureMembershipWithOwner,
   evaluateMatterReplicaGate,
@@ -20,6 +21,7 @@ import {
   syncMatterRecordPipe,
   snapshotCaseMd,
   upsertLawyerIdentity,
+  detectAndParkCaseMdConflict,
 } from "./index.js";
 
 const tmpDirs: string[] = [];
@@ -286,6 +288,56 @@ describe("matter-replica materials blob sync", () => {
     expect(fs.readFileSync(dest, "utf8")).toContain("盖章版");
   });
 
+  it("parks the losing material as 冲突 instead of silent overwrite", async () => {
+    const relayDir = tmpWorkspace();
+    const a = tmpWorkspace();
+    const b = tmpWorkspace();
+    const policy = JSON.stringify({
+      schemaVersion: 1,
+      edition: "firm",
+      matterReplica: { enabled: true, sharedRelayDir: relayDir },
+    });
+    fs.writeFileSync(path.join(a, "lawmind.policy.json"), policy, "utf8");
+    fs.writeFileSync(path.join(b, "lawmind.policy.json"), policy, "utf8");
+    const mid = "shared_matter";
+    const relDir = path.join("cases", mid, "materials");
+    fs.mkdirSync(path.join(a, relDir), { recursive: true });
+    fs.mkdirSync(path.join(b, relDir), { recursive: true });
+    const fileA = path.join(a, relDir, "证据清单.txt");
+    const fileB = path.join(b, relDir, "证据清单.txt");
+    fs.writeFileSync(fileB, "本机旧稿\n", "utf8");
+    fs.writeFileSync(fileA, "对端新稿\n", "utf8");
+    const old = new Date("2026-01-01T00:00:00.000Z");
+    const neu = new Date("2026-09-17T00:00:00.000Z");
+    fs.utimesSync(fileB, old, old);
+    fs.utimesSync(fileA, neu, neu);
+
+    upsertLawyerIdentity(a, { displayName: "张三", lawyerId: "lawyer_zhang" });
+    ensureMembershipWithOwner(a, {
+      matterId: mid,
+      matterTitle: "共案",
+      ownerLawyerId: "lawyer_zhang",
+      ownerDisplayName: "张三",
+    });
+    upsertLawyerIdentity(b, { displayName: "李四", lawyerId: "lawyer_li" });
+    ensureMembershipWithOwner(b, {
+      matterId: mid,
+      matterTitle: "共案",
+      ownerLawyerId: "lawyer_li",
+      ownerDisplayName: "李四",
+    });
+
+    await syncMatterRecordPipe(a, mid);
+    const syncedB = await syncMatterRecordPipe(b, mid);
+    expect(
+      syncedB.materials.conflicts.some((row) => row.relPath === "materials/证据清单.txt"),
+    ).toBe(true);
+    expect(fs.readFileSync(fileB, "utf8")).toContain("对端新稿");
+    const sidecar = path.join(b, relDir, "证据清单 (冲突).txt");
+    expect(fs.existsSync(sidecar)).toBe(true);
+    expect(fs.readFileSync(sidecar, "utf8")).toContain("本机旧稿");
+  });
+
   it("lists 新材料 in the feed", () => {
     const ws = tmpWorkspace();
     upsertLawyerIdentity(ws, { displayName: "张三", lawyerId: "lawyer_zhang" });
@@ -324,5 +376,31 @@ describe("matter-replica CASE.md snapshot", () => {
     expect(String(op.payload.excerpt)).toContain("甲公司");
     expect(op.payload.missing).toBe(false);
     expect(listRecordOps(ws, mid).some((row) => row.kind === "case_md.snapshot")).toBe(true);
+  });
+
+  it("parks a diverging remote CASE.md excerpt without overwriting local", () => {
+    const ws = tmpWorkspace();
+    const mid = "m_case_conflict";
+    fs.mkdirSync(path.join(ws, "cases", mid), { recursive: true });
+    fs.writeFileSync(path.join(ws, "cases", mid, "CASE.md"), "# 本机叙事\n甲方\n", "utf8");
+    snapshotCaseMd(ws, { matterId: mid, actorId: "lawyer_local", actorName: "本机" });
+    appendRecordOp(ws, {
+      matterId: mid,
+      kind: "case_md.snapshot",
+      actorId: "lawyer_remote",
+      actorName: "对端",
+      payload: {
+        relPath: `cases/${mid}/CASE.md`,
+        charCount: 20,
+        excerpt: "# 对端叙事\n乙方\n",
+        sha256: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        missing: false,
+      },
+    });
+    const before = fs.readFileSync(path.join(ws, "cases", mid, "CASE.md"), "utf8");
+    const parked = detectAndParkCaseMdConflict(ws, mid);
+    expect(parked?.sidecarRel).toBe(`cases/${mid}/CASE（冲突摘录）.md`);
+    expect(fs.readFileSync(path.join(ws, "cases", mid, "CASE.md"), "utf8")).toBe(before);
+    expect(fs.readFileSync(path.join(ws, parked!.sidecarRel), "utf8")).toContain("对端叙事");
   });
 });

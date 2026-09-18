@@ -26,12 +26,7 @@ import { claimAndApplyPendingContextPins, appendContextPins } from "./session-co
 import { claimAndApplyPendingSteer } from "./session-context-steer.js";
 import { isContextOverflowError, pruneSessionToolResults } from "./session-tool-result-prune.js";
 import { deriveModelMessagesForSampling } from "./session.js";
-import {
-  formatToolBudgetContinueReply,
-  formatToolBudgetHardStopReply,
-  shouldCheckpointToolBudget,
-  shouldHardStopToolBudget,
-} from "./tool-budget.js";
+import { formatToolBudgetHardStopReply, shouldHardStopToolBudget } from "./tool-budget.js";
 import { applyToolDisclosureDelta } from "./tool-disclosure-delta.js";
 import { mergeTurnDisclosedToolNames } from "./tools/disclosed-turn-tools.js";
 import type { ToolRegistry } from "./tools/registry.js";
@@ -91,9 +86,9 @@ export async function runModelToolLoop(opts: {
   openAITools: ReturnType<ToolRegistry["toOpenAITools"]>;
   turnContext: TurnContext;
   maxToolCalls: number;
-  /** Hard runaway ceiling (defaults to 2× soft). */
+  /** Silent runaway ceiling (anti-loop). Never a lawyer question. */
   hardToolCallCeiling?: number;
-  /** Lawyer already said continue — do not pause again at the soft budget. */
+  /** Kept for resume of already-paused continue_tools cards; new turns never checkpoint. */
   skipToolBudgetCheckpoint?: boolean;
   toolTimeoutMs: number;
   strictDangerousToolApproval: boolean;
@@ -388,17 +383,6 @@ export async function runModelToolLoop(opts: {
           finalReply = formatSameTurnVerifyPaused(opts.turn.sameTurnVerify!);
           break;
         }
-        if (
-          shouldCheckpointToolBudget({
-            used: opts.turn.toolCallsExecuted,
-            soft: opts.maxToolCalls,
-            skipCheckpoint: opts.skipToolBudgetCheckpoint === true,
-          })
-        ) {
-          opts.turn.status = "paused";
-          finalReply = formatSameTurnVerifyPaused(opts.turn.sameTurnVerify!);
-          break;
-        }
         const bounce = formatSameTurnCompletionBounce(opts.turn.sameTurnVerify!);
         opts.turn.sameTurnVerify = {
           ...opts.turn.sameTurnVerify!,
@@ -506,23 +490,6 @@ export async function runModelToolLoop(opts: {
         opts.turn.status = "completed";
         finalReply = assistantMsg.content?.trim() || formatToolBudgetHardStopReply();
       }
-      break;
-    }
-
-    if (
-      shouldCheckpointToolBudget({
-        used: opts.turn.toolCallsExecuted,
-        soft: opts.maxToolCalls,
-        // 到达软预算暂停并询问律师（continue_tools 待办）；resume 路径
-        // （律师已选「继续」）带 skipToolBudgetCheckpoint，不再重复询问。硬顶仍停。
-        skipCheckpoint: opts.skipToolBudgetCheckpoint === true,
-      })
-    ) {
-      opts.turn.status = "paused";
-      finalReply = shouldBounceSameTurnCompletion(opts.turn.sameTurnVerify)
-        ? formatSameTurnVerifyPaused(opts.turn.sameTurnVerify!)
-        : assistantMsg.content?.trim() ||
-          formatToolBudgetContinueReply(opts.turn.toolCallsExecuted);
       break;
     }
   }

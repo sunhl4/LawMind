@@ -178,6 +178,19 @@ export const matterProfilePostSchema = z.object({
     .optional(),
   causeOfAction: z.string().trim().max(200).optional(),
   counterparty: z.string().trim().max(200).optional(),
+  parties: z
+    .array(
+      z.object({
+        partyId: z.string().trim().min(1).max(64),
+        name: z.string().trim().max(120),
+        role: z.enum(["client", "counterparty", "agent", "counsel", "other"]),
+        standing: z.string().trim().max(40).optional(),
+        serviceAddress: z.string().trim().max(200).optional(),
+        serviceMethod: z.enum(["mail", "electronic", "in_person", "unknown"]).optional(),
+      }),
+    )
+    .max(8)
+    .optional(),
   matterKind: z.enum(["contract", "litigation", "general"]).optional(),
   practiceTags: z.array(z.string().trim().min(1).max(40)).max(12).optional(),
   docket: z
@@ -564,6 +577,7 @@ export const intentCompileRequestSchema = z.object({
   contextPins: contextPinsRequestSchema,
   previousCapabilityId: z.string().trim().optional(),
   historyText: z.string().optional(),
+  sessionId: z.string().trim().max(128).optional(),
   mailFastPath: z.boolean().optional(),
 });
 

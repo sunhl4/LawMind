@@ -57,4 +57,48 @@ describe("LawmindChatThoughtPanel session chips", () => {
     stop();
     expect(opened).toEqual(["sess-1"]);
   });
+
+  it("does not dump tool chips into the thread when collapsed", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindChatThoughtPanel
+          tools={[
+            {
+              id: "tc1",
+              kind: "tool",
+              toolCallId: "tc1",
+              toolName: "list_dir",
+              label: "列举目录",
+              status: "done",
+              progress: [],
+            },
+            {
+              id: "tc2",
+              kind: "tool",
+              toolCallId: "tc2",
+              toolName: "analyze_document",
+              label: "分析文书",
+              status: "failed",
+              progress: [],
+            },
+            {
+              id: "tc3",
+              kind: "tool",
+              toolCallId: "tc3",
+              toolName: "search_matter",
+              label: "检索案卷材料",
+              status: "done",
+              progress: [],
+            },
+          ]}
+          reasoningMarkdown=""
+          renderMarkdown={() => null}
+        />,
+      );
+    });
+    expect(host.querySelector(".lm-chat-thought-chips")).toBeNull();
+    expect(host.textContent).toContain("已完成");
+    expect(host.textContent).toContain("等 3 步");
+    expect(host.querySelector(".lm-chat-thought-steps")).toBeNull();
+  });
 });

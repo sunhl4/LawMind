@@ -176,7 +176,9 @@ export function LawmindSettingsAppearance({ onPrefsChange }: Props): ReactNode {
             }}
           />
         </label>
-        <p className="lm-settings-caption">默认折叠助手消息里的工具步骤。</p>
+        <p className="lm-settings-caption">
+          对话默认只留一行过程摘要。打开后展开步骤；完整办理过程在「在办」。
+        </p>
       </div>
 
       <div className="lm-settings-group lm-settings-surface">

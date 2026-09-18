@@ -65,6 +65,7 @@ export type ExploreFolderContext = ListDirContext &
       | "hostMounts"
       | "hostGrants"
       | "hostAccessFile"
+      | "emitToolProgress"
     >
   >;
 
@@ -271,6 +272,7 @@ function asExploreAgentContext(ctx: ExploreFolderContext): AgentContext {
     hostAccessFile: ctx.hostAccessFile,
     permissionMode: "readonly",
     inReadonlyWorkerLoop: true,
+    emitToolProgress: ctx.emitToolProgress,
   };
 }
 

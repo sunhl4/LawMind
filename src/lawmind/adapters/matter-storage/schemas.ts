@@ -31,6 +31,21 @@ export const matterSchema = z.object({
   queueItemIds: z.array(z.string()),
   matterKind: z.enum(["contract", "litigation", "general"]).optional(),
   practiceTags: z.array(z.string()).optional(),
+  causeOfAction: z.string().trim().max(200).optional(),
+  counterparty: z.string().trim().max(200).optional(),
+  parties: z
+    .array(
+      z.object({
+        partyId: z.string().trim().min(1).max(64),
+        name: z.string().trim().min(1).max(120),
+        role: z.enum(["client", "counterparty", "agent", "counsel", "other"]),
+        standing: z.string().trim().max(40).optional(),
+        serviceAddress: z.string().trim().max(200).optional(),
+        serviceMethod: z.enum(["mail", "electronic", "in_person", "unknown"]).optional(),
+      }),
+    )
+    .max(8)
+    .optional(),
   docket: z
     .object({
       caseNo: z.string().optional(),
@@ -143,6 +158,8 @@ export const deadlineSchema = z.object({
     .optional(),
   icsUid: z.string().optional(),
   remindedAt: z.string().optional(),
+  /** Single predecessor. Completing it releases this row; not a queue DAG. */
+  dependsOnDeadlineId: z.string().min(1).max(64).optional(),
 });
 
 export type MatterRecord = z.infer<typeof matterSchema>;

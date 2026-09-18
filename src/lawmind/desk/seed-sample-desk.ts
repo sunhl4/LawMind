@@ -25,6 +25,7 @@ import { ensureTaskRecord, updateTaskRecord } from "../tasks/index.js";
 import type { ArtifactDraft, TaskIntent, TaskLifecycleStatus } from "../types.js";
 import { loadDailyPlan, localDateKey, saveDailyPlan } from "./daily-plan.js";
 import { compileIntakeBrief, saveIntakeBrief } from "./intake-brief.js";
+import { matterMaterialsDir } from "./matter-materials.js";
 
 export const SAMPLE_LITIGATION_MATTER_ID = "xinghui-sale-876";
 export const SAMPLE_CONTRACT_MATTER_ID = "xinghui-nda-2026";
@@ -137,10 +138,26 @@ async function seedLitigation(workspaceDir: string, now: Date): Promise<void> {
     matterId,
     status: "active",
     title: "星辉精密诉环宇科技 · 买卖合同纠纷",
-    clientId: "星辉精密设备有限公司",
-    counterparty: "环宇科技股份有限公司",
     causeOfAction: "买卖合同纠纷",
     matterKind: "litigation",
+    parties: [
+      {
+        partyId: "p-client",
+        name: "星辉精密设备有限公司",
+        role: "client",
+        standing: "原告",
+        serviceAddress: "上海市浦东新区张江路 1 号",
+        serviceMethod: "mail",
+      },
+      {
+        partyId: "p-counterparty",
+        name: "环宇科技股份有限公司",
+        role: "counterparty",
+        standing: "被告",
+        serviceAddress: "深圳市南山区科技园 8 号",
+        serviceMethod: "electronic",
+      },
+    ],
     docket: {
       caseNo: "（2024）沪01民初876号",
       court: "上海市第一中级人民法院",
@@ -189,6 +206,17 @@ async function seedLitigation(workspaceDir: string, now: Date): Promise<void> {
     source: "manual",
     notes: "审判员今天上午电话：今日 17:00 前补交付款凭证目录。",
   });
+  const appealAt = localStamp(now, 24, 17, 0);
+  ensureDeadline(workspaceDir, {
+    matterId,
+    deadlineId: "sample-876-appeal",
+    title: "上诉期限",
+    dueAt: appealAt,
+    eventKind: "limitation",
+    source: "document_extract",
+    dependsOnDeadlineId: "sample-876-hearing",
+    notes: "一审判决送达后十五日；样本里挂在开庭后，开庭完成才进今日与提醒。",
+  });
   if (!hasDeadline(workspaceDir, matterId, "sample-876-filed")) {
     recordDeadline(workspaceDir, {
       matterId,
@@ -230,6 +258,13 @@ async function seedLitigation(workspaceDir: string, now: Date): Promise<void> {
     bodyText: "陈律师：附件为和解协议修订稿，请贵司确认是否同意第 4 条分期付款安排。",
     attachments: [{ name: "和解协议修订稿.docx" }],
   });
+
+  const matsDir = matterMaterialsDir(workspaceDir, matterId);
+  fs.mkdirSync(path.join(matsDir, "证据"), { recursive: true });
+  const contractScan = path.join(matsDir, "采购合同扫描.pdf");
+  if (!fs.existsSync(contractScan)) {
+    fs.writeFileSync(contractScan, "LawMind sample contract scan placeholder\n", "utf8");
+  }
 
   const complaintId = "sample-876-complaint";
   const evidenceTaskId = "sample-876-evidence-list";

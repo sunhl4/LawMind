@@ -49,7 +49,7 @@ describe("resolveCapabilityEnvelope", () => {
   it("raises tool/history budgets for large windows", () => {
     clearEnv();
     const large = resolveCapabilityEnvelope({ contextTokens: 128_000 });
-    expect(large.toolCallsPerTurn).toBeGreaterThanOrEqual(30);
+    expect(large.toolCallsPerTurn).toBe(80);
     expect(large.maxHistoryMessages).toBeGreaterThanOrEqual(100);
   });
 

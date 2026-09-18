@@ -3,7 +3,6 @@ import type { TaskExecutionState } from "../../../../src/lawmind/platform/contra
 import type { ChatLiveTrace } from "./lawmind-chat-trace-types.js";
 import { summarizeLiveTrace } from "./lawmind-chat-trace.js";
 import { formatExecutionStateLabel } from "./lawmind-execution-state-label.js";
-import { requestOpenAutomationsSettings } from "./lawmind-automations-nav-bus";
 
 type Props = {
   trace?: ChatLiveTrace;
@@ -33,7 +32,6 @@ function LawmindChatExecutionTraceInner(props: Props): ReactNode {
   const summary = summarizeLiveTrace(trace);
   const isActive = Boolean(trace?.active);
   const canCollapse = !isActive && steps.length > 0;
-  const hasFailed = steps.some((s) => s.status === "failed");
   const [expanded, setExpanded] = useState(isActive);
   const wasActiveRef = useRef(isActive);
   useEffect(() => {
@@ -74,22 +72,6 @@ function LawmindChatExecutionTraceInner(props: Props): ReactNode {
           </button>
         ) : null}
       </div>
-
-      {canCollapse && !expanded && summary ? (
-        <div className="lm-chat-trace-summary">{summary}</div>
-      ) : null}
-
-      {hasFailed && !isActive ? (
-        <div className="lm-chat-trace-cta" data-testid="lm-chat-trace-mail-cta">
-          <button
-            type="button"
-            className="lm-btn lm-btn-ghost lm-btn-sm"
-            onClick={() => requestOpenAutomationsSettings()}
-          >
-            改用邮件合同审阅短路径
-          </button>
-        </div>
-      ) : null}
 
       {showMeta ? (
         <div className="lm-chat-trace-meta">

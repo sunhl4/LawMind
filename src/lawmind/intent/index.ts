@@ -42,6 +42,7 @@ export {
   isLookOnlyUtterance,
   isReadFirstUtterance,
   isTaskSwitchUtterance,
+  shouldRequireFolderExplore,
   stripRejectedContractReviewPhrases,
 } from "./text-intent.js";
 export {

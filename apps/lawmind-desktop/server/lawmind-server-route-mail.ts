@@ -20,10 +20,14 @@ import {
 } from "../../../src/lawmind/platform/lawyer-automations.js";
 import { resolveLawMindRoot } from "../../../src/lawmind/assistants/store.js";
 import { isValidMatterId } from "../../../src/lawmind/cases/matter-id.js";
+import {
+  acknowledgeEthicsWall,
+  readEthicsWallState,
+} from "../../../src/lawmind/policy/ethics-wall.js";
 import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
 import { sendJsonError } from "./lawmind-api-error.js";
+import { resolveDesktopActorId, sendJson } from "./lawmind-server-helpers.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
-import { sendJson } from "./lawmind-server-helpers.js";
 import { z } from "zod";
 
 const providerEnum = z.enum(["gmail", "outlook", "microsoft365", "qq", "163", "imap"]);
@@ -75,10 +79,37 @@ export async function handleMailRoutes({
   pathname,
   req,
   res,
+  url,
   c,
 }: LawmindRouteContext): Promise<boolean> {
   const { workspaceDir, envFile } = ctx;
   const lawMindRoot = resolveLawMindRoot(workspaceDir, envFile);
+
+  if (pathname === "/api/ethics-wall" && req.method === "GET") {
+    const matterId = url.searchParams.get("matterId")?.trim() ?? "";
+    if (!isValidMatterId(matterId)) {
+      sendJsonError(res, 400, "invalid_matter_id", "案件 ID 格式不正确。", c);
+      return true;
+    }
+    sendJson(res, 200, { ok: true, state: readEthicsWallState(workspaceDir, matterId) }, c);
+    return true;
+  }
+
+  if (pathname === "/api/ethics-wall/acknowledge" && req.method === "POST") {
+    const body = await parseJsonBodyZod(req, z.object({ matterId: z.string().trim().min(1) }));
+    const matterId = body.matterId.trim();
+    if (!isValidMatterId(matterId)) {
+      sendJsonError(res, 400, "invalid_matter_id", "案件 ID 格式不正确。", c);
+      return true;
+    }
+    const state = acknowledgeEthicsWall({
+      workspaceDir,
+      matterId,
+      actorId: resolveDesktopActorId(),
+    });
+    sendJson(res, 200, { ok: true, state }, c);
+    return true;
+  }
 
   if (pathname === "/api/mail/providers" && req.method === "GET") {
     sendJson(res, 200, { ok: true, providers: MAIL_PROVIDER_PRESETS }, c);

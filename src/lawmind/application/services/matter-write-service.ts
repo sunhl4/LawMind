@@ -15,6 +15,12 @@ import { matterSchema } from "../../adapters/matter-storage/schemas.js";
 import { emit } from "../../audit/index.js";
 import type { MatterDocket, MatterKind } from "../../desk/matter-kind.js";
 import { parseMatterDocket, parseMatterKind, parsePracticeTags } from "../../desk/matter-kind.js";
+import {
+  deriveMatterIdentity,
+  normalizeMatterParties,
+  syncLegacyIdentityIntoParties,
+  type MatterParty,
+} from "../../desk/matter-parties.js";
 import { projectMatterToCaseMd, upsertMatterCaseProfileBullets } from "../matter-projection.js";
 
 export type MatterCreateInput = {
@@ -166,6 +172,7 @@ export type MatterProfileUpdateInput = {
   matterKind?: MatterKind;
   practiceTags?: string[];
   docket?: MatterDocket;
+  parties?: MatterParty[];
 };
 
 /**
@@ -182,12 +189,24 @@ export async function updateMatterProfile(
       return undefined;
     }
     const title = input.title?.trim() || existing.title;
-    const clientId =
+    const clientIdInput =
       input.clientId !== undefined ? input.clientId.trim() || undefined : existing.clientId;
+    const counterpartyInput =
+      input.counterparty !== undefined
+        ? input.counterparty.trim() || undefined
+        : existing.counterparty;
+    const parties =
+      input.parties !== undefined
+        ? normalizeMatterParties(input.parties)
+        : (syncLegacyIdentityIntoParties(existing.parties, clientIdInput, counterpartyInput) ?? []);
+    const derived =
+      input.parties !== undefined
+        ? deriveMatterIdentity(parties)
+        : { clientId: clientIdInput, counterparty: counterpartyInput };
     const next: MatterRecord = {
       ...existing,
       title,
-      clientId,
+      clientId: derived.clientId,
       sensitivity: input.sensitivity ?? existing.sensitivity,
       status: input.status ?? existing.status,
       matterKind:
@@ -196,6 +215,12 @@ export async function updateMatterProfile(
         input.practiceTags !== undefined
           ? parsePracticeTags(input.practiceTags)
           : existing.practiceTags,
+      causeOfAction:
+        input.causeOfAction !== undefined
+          ? input.causeOfAction.trim() || undefined
+          : existing.causeOfAction,
+      counterparty: derived.counterparty,
+      parties: parties.length > 0 ? parties : undefined,
       docket: input.docket !== undefined ? parseMatterDocket(input.docket) : existing.docket,
       updatedAt: newTimestamp(),
     };

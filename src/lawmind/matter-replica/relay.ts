@@ -9,7 +9,13 @@ import { writeJsonAtomic } from "../adapters/matter-storage/io.js";
 import { evaluateMatterReplicaGate } from "./feature-gate.js";
 import { resolveReplicaActor } from "./identity.js";
 import { syncMatterMaterialsPipe, type SyncMaterialsResult } from "./materials-relay.js";
-import { listRecordOps, mergeRemoteOps, snapshotCaseMd } from "./record-ops.js";
+import {
+  detectAndParkCaseMdConflict,
+  listRecordOps,
+  mergeRemoteOps,
+  snapshotCaseMd,
+  type CaseMdReplicaConflict,
+} from "./record-ops.js";
 import type { MatterRecordOp } from "./types.js";
 
 export type ReplicaRelayEnvelope = {
@@ -113,6 +119,7 @@ export async function syncMatterRecordPipe(
   published: number;
   pulled: number;
   materials: SyncMaterialsResult;
+  caseMdConflict: CaseMdReplicaConflict | null;
 }> {
   try {
     const casePath = path.join(workspaceDir, "cases", matterId, "CASE.md");
@@ -133,6 +140,8 @@ export async function syncMatterRecordPipe(
     uploadedBlobs: 0,
     downloadedFiles: 0,
     skippedLocked: 0,
+    skippedOlderRemote: 0,
+    conflicts: [],
     index: null,
   };
   try {
@@ -146,5 +155,11 @@ export async function syncMatterRecordPipe(
   await relay.publishOps(matterId, local);
   const remote = await relay.fetchOps(matterId);
   const { appended } = mergeRemoteOps(workspaceDir, matterId, remote);
-  return { published: local.length, pulled: appended, materials };
+  let caseMdConflict: ReturnType<typeof detectAndParkCaseMdConflict> = null;
+  try {
+    caseMdConflict = detectAndParkCaseMdConflict(workspaceDir, matterId);
+  } catch {
+    /* conflict park is best-effort */
+  }
+  return { published: local.length, pulled: appended, materials, caseMdConflict };
 }

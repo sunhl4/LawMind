@@ -55,7 +55,9 @@ export {
   mergeRemoteOps,
   opsSince,
   snapshotCaseMd,
+  detectAndParkCaseMdConflict,
 } from "./record-ops.js";
+export type { CaseMdReplicaConflict } from "./record-ops.js";
 
 export { listMatterReplicaFeed } from "./feed.js";
 

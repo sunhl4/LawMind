@@ -6,6 +6,7 @@ import { z } from "zod";
 import { isValidMatterId } from "../../../src/lawmind/cases/matter-id.js";
 import {
   completeDeadline,
+  listDeskDeadlines,
   listDeadlinesForMatter,
   patchDeadline,
   recordDeadline,
@@ -53,6 +54,7 @@ const deadlinePostSchema = z.object({
   eventKind: z.enum(["hearing", "filing", "limitation", "reply", "custom"]).optional(),
   notes: z.string().trim().max(2000).optional(),
   remindBeforeHours: z.number().int().min(0).max(720).optional(),
+  dependsOnDeadlineId: z.string().trim().max(64).optional(),
 });
 
 const deadlinePatchSchema = z.object({
@@ -60,6 +62,7 @@ const deadlinePatchSchema = z.object({
   dueAt: z.string().trim().optional(),
   notes: z.string().trim().max(2000).optional(),
   remindBeforeHours: z.number().int().min(0).max(720).optional(),
+  dependsOnDeadlineId: z.string().max(64).optional(),
 });
 
 const extractPostSchema = z.object({
@@ -253,7 +256,7 @@ export async function handleLawyerDeskRoutes({
     if (!matterId) {
       return true;
     }
-    sendJson(res, 200, { ok: true, deadlines: listDeadlinesForMatter(workspaceDir, matterId) }, c);
+    sendJson(res, 200, { ok: true, deadlines: listDeskDeadlines(workspaceDir, matterId) }, c);
     return true;
   }
   if (dlList && req.method === "POST") {
@@ -271,6 +274,7 @@ export async function handleLawyerDeskRoutes({
         notes: body.notes,
         remindBeforeHours: body.remindBeforeHours,
         source: "manual",
+        dependsOnDeadlineId: body.dependsOnDeadlineId,
       });
       sendJson(res, 200, { ok: true, deadline: record }, c);
     } catch (err) {

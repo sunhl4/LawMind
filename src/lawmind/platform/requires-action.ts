@@ -31,7 +31,7 @@ export type LawMindRequiresAction = {
   toolArgs?: Record<string, unknown>;
   clarificationQuestions?: ClarificationQuestion[];
   approvalId?: string;
-  /** Soft-budget checkpoint: tools already used this thread (continue_tools). */
+  /** Legacy / same-turn-verify pause: tools already used this thread (continue_tools). */
   toolCallsExecuted?: number;
   decisions: LawMindRequiresActionDecision[];
   createdAt: string;

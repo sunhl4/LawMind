@@ -125,3 +125,23 @@ export function isContinuationUtterance(instruction: string): boolean {
   }
   return t.length <= 16 && /^(继续|接着|再|导出|出稿|加上)/.test(t);
 }
+
+/**
+ * Folder talk / directory pin: the model must explore_folder this turn
+ * before WRITE_HEAVY. Word 改稿 and mail short-path already have a file;
+ * 「继续」must not re-block after that explore.
+ */
+export function shouldRequireFolderExplore(input: {
+  instruction: string;
+  hasDirectoryPin?: boolean;
+  wordRevisionTurn?: boolean;
+  mailContractTurn?: boolean;
+}): boolean {
+  if (input.wordRevisionTurn || input.mailContractTurn) {
+    return false;
+  }
+  if (isContinuationUtterance(input.instruction)) {
+    return false;
+  }
+  return instructionMentionsFolder(input.instruction) || Boolean(input.hasDirectoryPin);
+}

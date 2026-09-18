@@ -35,6 +35,10 @@ export type UnifiedApprovalItem = {
   decisions: Array<"approve" | "reject" | "more_info">;
 };
 
+function isDerivedMatterApprovalId(id: string): boolean {
+  return id.endsWith(":draft-review") || id.endsWith(":task-confirmation");
+}
+
 const APPROVAL_TTL_MS = 24 * 60 * 60 * 1000;
 
 function resolveToolApprovalRiskLevel(toolName?: string): ApprovalRecord["riskLevel"] {
@@ -129,7 +133,7 @@ async function findApprovalById(
 
   // 2. Search matter-level approvals across all matters.
   const allMatter = await listApprovalRequests(workspaceDir, { status: "pending" });
-  const found = allMatter.find((a) => a.approvalId === id);
+  const found = allMatter.find((a) => a.approvalId === id && !isDerivedMatterApprovalId(a.approvalId));
   if (found) {
     return {
       kind: "matter_approval",
@@ -210,7 +214,9 @@ export async function handleApprovalRoutes({
     ]);
     const items: UnifiedApprovalItem[] = [
       ...toolApprovals.map(toolApprovalToUnified),
-      ...matterApprovals.map(matterApprovalToUnified),
+      ...matterApprovals
+        .filter((item) => !isDerivedMatterApprovalId(item.approvalId))
+        .map(matterApprovalToUnified),
     ].toSorted((a, b) => b.createdAt.localeCompare(a.createdAt));
     sendJson(res, 200, { ok: true, items, decisionTotal: items.length }, c);
     return true;

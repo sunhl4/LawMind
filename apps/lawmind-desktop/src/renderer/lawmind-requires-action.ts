@@ -41,6 +41,20 @@ export function parseRequiresActionsFromResponse(raw: unknown): LawMindRequiresA
   return out;
 }
 
+/**
+ * Chat is the conversation, not a second 在办.
+ * Step-budget continue_tools and workflow-execute cards stay in 待我拍板 / 在办.
+ */
+export function chatThreadDecisionActions(
+  actions: LawMindRequiresAction[] | undefined,
+): LawMindRequiresAction[] {
+  return (actions ?? []).filter(
+    (a) =>
+      a.kind !== "continue_tools" &&
+      !(a.kind === "tool_approval" && a.toolName === "execute_workflow"),
+  );
+}
+
 export type ActionSummaryPayload = {
   ok?: boolean;
   total?: number;

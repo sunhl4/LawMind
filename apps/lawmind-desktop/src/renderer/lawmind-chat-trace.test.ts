@@ -122,7 +122,7 @@ describe("lawmind-chat-trace", () => {
       status: "running",
       currentRound: 2,
       steps: [
-        { id: "r2", kind: "round", label: "第 2 轮推理", status: "done" },
+        { id: "r2", kind: "round", label: "第 2 轮", status: "done" },
         { id: "t1", kind: "tool", label: "写回草稿", status: "running" },
       ],
     });
@@ -186,7 +186,7 @@ describe("lawmind-chat-trace", () => {
       active: false,
       currentRound: 1,
       steps: [
-        { id: "r1", kind: "round", label: "第 1 轮推理", status: "failed" },
+        { id: "r1", kind: "round", label: "第 1 轮", status: "failed" },
         {
           id: "t1",
           kind: "tool",
@@ -198,6 +198,7 @@ describe("lawmind-chat-trace", () => {
     });
     expect(summarizeLiveTrace(trace)).toContain("未能完成本轮处理");
     expect(summarizeLiveTrace(trace)).toContain("写回草稿");
+    expect(summarizeLiveTrace(trace)).not.toContain("权限不足");
   });
 
   it("summarizeLiveTrace produces one-line summary", () => {

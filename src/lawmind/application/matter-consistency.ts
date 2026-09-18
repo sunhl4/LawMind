@@ -20,7 +20,9 @@ export type MatterConsistencyIssueCode =
   | "title_drift"
   | "status_drift"
   | "sensitivity_drift"
-  | "client_drift";
+  | "client_drift"
+  | "cause_drift"
+  | "counterparty_drift";
 
 export type MatterConsistencyIssue = {
   matterId: string;
@@ -42,6 +44,18 @@ function parseCaseSensitivityLabel(caseRaw: string): string | undefined {
 
 function parseCaseClientId(caseRaw: string): string | undefined {
   const m = /(?:^|\n)-\s*客户\s*\/\s*clientId[:：]\s*([^\n]+)/.exec(caseRaw);
+  const v = m?.[1]?.trim();
+  return v || undefined;
+}
+
+function parseCaseCause(caseRaw: string): string | undefined {
+  const m = /(?:^|\n)-\s*案由[:：]\s*([^\n]+)/.exec(caseRaw);
+  const v = m?.[1]?.trim();
+  return v || undefined;
+}
+
+function parseCaseCounterparty(caseRaw: string): string | undefined {
+  const m = /(?:^|\n)-\s*对方当事人[:：]\s*([^\n]+)/.exec(caseRaw);
   const v = m?.[1]?.trim();
   return v || undefined;
 }
@@ -110,8 +124,7 @@ export async function checkMatterConsistency(
           });
         }
         const caseSensitivity = parseCaseSensitivityLabel(caseRaw);
-        const expectedSensitivity =
-          SENSITIVITY_LABELS[record.sensitivity] ?? record.sensitivity;
+        const expectedSensitivity = SENSITIVITY_LABELS[record.sensitivity] ?? record.sensitivity;
         if (caseSensitivity && caseSensitivity !== expectedSensitivity) {
           issues.push({
             matterId,
@@ -132,6 +145,24 @@ export async function checkMatterConsistency(
             matterId,
             code: "client_drift",
             message: `CASE 有客户「${caseClient}」但 matter.json.clientId 为空（以 JSON 为准）`,
+          });
+        }
+        const caseCause = parseCaseCause(caseRaw);
+        const jsonCause = record.causeOfAction?.trim() || "";
+        if (caseCause && jsonCause && caseCause !== jsonCause) {
+          issues.push({
+            matterId,
+            code: "cause_drift",
+            message: `CASE「案由：${caseCause}」与 matter.json.causeOfAction「${jsonCause}」不一致`,
+          });
+        }
+        const caseCounterparty = parseCaseCounterparty(caseRaw);
+        const jsonCounterparty = record.counterparty?.trim() || "";
+        if (caseCounterparty && jsonCounterparty && caseCounterparty !== jsonCounterparty) {
+          issues.push({
+            matterId,
+            code: "counterparty_drift",
+            message: `CASE「对方当事人：${caseCounterparty}」与 matter.json.counterparty「${jsonCounterparty}」不一致`,
           });
         }
       }

@@ -42,7 +42,7 @@ export type LawMindWorkspacePolicy = {
   agentMandatoryRulesPath?: string;
   /**
    * Cap on Agent `runTurn` tool-call iterations (default `DEFAULT_AGENT_MAX_TOOL_CALLS_PER_TURN`,
-   * or env `LAWMIND_AGENT_MAX_TOOL_CALLS`). When set, must be a positive integer (clamped to 50).
+   * or env `LAWMIND_AGENT_MAX_TOOL_CALLS`). When set, must be a positive integer (clamped to 80).
    */
   agentMaxToolCallsPerTurn?: number;
   /**
@@ -414,10 +414,10 @@ export function mergeWorkspacePolicyFile(
   }
 }
 
-const MAX_TOOL_CALLS_CAP = 50;
+const MAX_TOOL_CALLS_CAP = 80;
 
 /** Keep in sync with `DEFAULT_SOFT_TOOL_CALLS` in `src/lawmind/agent/tool-budget.ts`. */
-export const DEFAULT_AGENT_MAX_TOOL_CALLS_PER_TURN = 40;
+export const DEFAULT_AGENT_MAX_TOOL_CALLS_PER_TURN = 80;
 
 /**
  * Effective max tool iterations per Agent turn: `lawmind.policy.json` overrides env when set.

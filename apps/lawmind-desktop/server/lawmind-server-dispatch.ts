@@ -9,6 +9,7 @@ import {
 } from "./lawmind-server-helpers.js";
 import {
   validateLoopbackApiAuth,
+  validateLoopbackHttpHost,
   validateLoopbackMutationContentType,
 } from "./lawmind-local-api-auth.js";
 import { dispatchLawmindRoute } from "./lawmind-server-route-registry.js";
@@ -20,6 +21,16 @@ export async function lawmindHandleHttpRequest(
 ): Promise<void> {
   const origin = req.headers.origin;
   const c = corsHeaders(typeof origin === "string" ? origin : undefined);
+
+  if (!validateLoopbackHttpHost(req)) {
+    sendJson(
+      res,
+      400,
+      { ok: false, error: "invalid_host", code: "loopback_host_required" },
+      c,
+    );
+    return;
+  }
 
   if (req.method === "OPTIONS") {
     res.writeHead(204, c);

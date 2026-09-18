@@ -12,6 +12,7 @@ type Props = {
   /** Plan mode: lawyer can uncheck steps and edit step text before「开始执行」. */
   editable?: boolean;
   onLawyerEditPlan?: (planText: string) => void;
+  onStartExecuteFromPlan?: () => void;
 };
 
 function statusIcon(status: AgentTurnPlan["items"][number]["status"]): string {
@@ -39,7 +40,7 @@ function labelsFromPlan(plan: AgentTurnPlan): string[] {
 }
 
 export function LawmindTurnPlanCard(props: Props): ReactNode {
-  const { plan, editable = false, onLawyerEditPlan } = props;
+  const { plan, editable = false, onLawyerEditPlan, onStartExecuteFromPlan } = props;
   const { completed, total } = turnPlanProgress(plan);
   const done = isTurnPlanComplete(plan);
   const [skipped, setSkipped] = useState<Set<number>>(() => new Set());
@@ -100,7 +101,7 @@ export function LawmindTurnPlanCard(props: Props): ReactNode {
       {plan.explanation ? <p className="lm-turn-plan-note">{plan.explanation}</p> : null}
       {editable ? (
         <p className="lm-turn-plan-note">
-          可改步骤文字；取消勾选的步骤不会写入「开始执行」。点工具栏开始执行后才写稿。
+          可改步骤文字；取消勾选的步骤不会写入「开始执行」。点下方开始执行后才写稿。
         </p>
       ) : null}
       <ol className="lm-turn-plan-steps">
@@ -145,6 +146,18 @@ export function LawmindTurnPlanCard(props: Props): ReactNode {
           );
         })}
       </ol>
+      {editable && onStartExecuteFromPlan ? (
+        <div className="lm-turn-plan-actions">
+          <button
+            type="button"
+            className="lm-btn lm-btn-accent lm-btn-sm"
+            data-testid="lm-turn-plan-start-execute"
+            onClick={() => onStartExecuteFromPlan()}
+          >
+            开始执行
+          </button>
+        </div>
+      ) : null}
     </section>
   );
 }

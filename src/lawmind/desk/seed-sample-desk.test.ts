@@ -22,13 +22,22 @@ describe("seedSampleDesk", () => {
     const pulse = buildMatterPulse(workspaceDir, SAMPLE_LITIGATION_MATTER_ID, now);
     expect(pulse?.title).toContain("星辉精密");
     expect(pulse?.counterparty).toBe("环宇科技股份有限公司");
+    expect(pulse?.parties.some((row) => row.role === "client" && row.serviceAddress)).toBe(true);
     expect(pulse?.causeOfAction).toBe("买卖合同纠纷");
     expect(pulse?.daysUntilHearing).toBe(9);
     expect(pulse?.counts.deadlines).toBeGreaterThanOrEqual(3);
+    expect(pulse?.deadlines.some((d) => d.title === "上诉期限" && d.released === false)).toBe(true);
+    expect(
+      pulse?.deadlines.some((d) => d.title === "上诉期限" && d.sourceLabel === "传票抽取"),
+    ).toBe(true);
     expect(pulse?.documents.some((d) => d.title.includes("起诉状"))).toBe(true);
     expect(pulse?.mail.some((m) => m.label === "court")).toBe(true);
     expect(pulse?.mail.some((m) => m.label === "needs_reply")).toBe(true);
     expect(pulse?.counts.approvals).toBeGreaterThanOrEqual(1);
+    expect(pulse?.materials.some((row) => row.fileName.includes("合同"))).toBe(true);
+    expect(pulse?.timeline.some((row) => row.kind === "hearing")).toBe(true);
+    expect(pulse?.timeline.some((row) => row.kind === "mail")).toBe(true);
+    expect(pulse?.timeline.some((row) => row.kind === "document")).toBe(true);
 
     const today = buildTodayWorkSnapshot(workspaceDir, now);
     expect(today.items.some((i) => i.kind === "mail" && i.title.includes("要点"))).toBe(true);

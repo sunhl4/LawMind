@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  acknowledgeEthicsWall,
   ethicsWallBlocksOutbound,
   isEthicsWallEnabled,
   recordEthicsWallScan,
@@ -67,5 +68,24 @@ describe("ethics-wall", () => {
     });
     expect(state?.status).toBe("clear");
     expect(ethicsWallBlocksOutbound(ws, "matter_b").blocked).toBe(false);
+  });
+
+  it("acknowledgeEthicsWall is the only lawyer disclosure write", () => {
+    const ws = tmpWs({ edition: "firm" });
+    recordEthicsWallScan({
+      workspaceDir: ws,
+      matterId: "matter_c",
+      parties: ["张三公司"],
+      flags: ["跨来源命中"],
+    });
+    expect(ethicsWallBlocksOutbound(ws, "matter_c").blocked).toBe(true);
+    const disclosed = acknowledgeEthicsWall({
+      workspaceDir: ws,
+      matterId: "matter_c",
+      actorId: "lawyer:desk",
+    });
+    expect(disclosed?.status).toBe("disclosed");
+    expect(disclosed?.disclosedBy).toBe("lawyer:desk");
+    expect(ethicsWallBlocksOutbound(ws, "matter_c").blocked).toBe(false);
   });
 });

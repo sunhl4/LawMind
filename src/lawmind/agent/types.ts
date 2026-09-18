@@ -122,6 +122,11 @@ export type AgentContext = {
    * 只读 / research_task 仍允许，便于先收集事实再请律师澄清。
    */
   clarificationBlockingHeavyTools?: boolean;
+  /**
+   * This turn mentioned a folder or pinned a directory. WRITE_HEAVY tools wait
+   * until `explore_folder` has already completed in this turn.
+   */
+  folderExploreRequired?: boolean;
   /** 与 `AgentConfig.strictDangerousToolApproval` 对齐，供工具层读取 */
   strictDangerousToolApproval?: boolean;
   /** 长耗时工具（如 execute_workflow）向对话 SSE 推送子步骤 */

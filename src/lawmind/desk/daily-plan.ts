@@ -129,13 +129,98 @@ export async function appendDailyPlanItems(
   return saveDailyPlan(workspaceDir, plan);
 }
 
+export const CARRY_LOOKBACK_DAYS = 14;
+export const CARRY_SNAPSHOT_CAP = 8;
+
+const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function isLocalDateKey(value: string): boolean {
+  return DATE_KEY_RE.test(value);
+}
+
+/** Shift a `YYYY-MM-DD` local calendar key by whole days (not UTC). */
+export function shiftLocalDateKey(date: string, days: number): string {
+  const parts = date.split("-").map((part) => Number(part));
+  const y = parts[0];
+  const m = parts[1];
+  const d = parts[2];
+  if (!y || !m || !d) {
+    return date;
+  }
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + days);
+  return localDateKey(dt);
+}
+
+export type CarriedDailyPlanItem = DailyPlanItem & { originDate: string };
+
+/**
+ * Open lawyer-authored plan rows from prior days. Mail / deadline / approval
+ * sourced rows are excluded: those already rehydrate from live mail, docket,
+ * and approval stores and must not be copied into a second to-do list.
+ */
+export function listOpenLawyerPlanItemsBefore(
+  workspaceDir: string,
+  beforeDate: string,
+  opts?: { lookbackDays?: number; maxItems?: number },
+): CarriedDailyPlanItem[] {
+  const lookback = opts?.lookbackDays ?? CARRY_LOOKBACK_DAYS;
+  const maxItems = opts?.maxItems ?? CARRY_SNAPSHOT_CAP;
+  const out: CarriedDailyPlanItem[] = [];
+  for (let i = 1; i <= lookback && out.length < maxItems; i += 1) {
+    const originDate = shiftLocalDateKey(beforeDate, -i);
+    const plan = loadDailyPlan(workspaceDir, originDate);
+    for (const item of plan.items) {
+      if (item.done || item.source !== "lawyer") {
+        continue;
+      }
+      out.push({ ...item, originDate });
+      if (out.length >= maxItems) {
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+function planContainsItem(workspaceDir: string, date: string, itemId: string): boolean {
+  return loadDailyPlan(workspaceDir, date).items.some((item) => item.id === itemId);
+}
+
+/** Locate a plan row by id: preferred date first, then today + lookback. */
+export function findDailyPlanItemDate(
+  workspaceDir: string,
+  itemId: string,
+  preferredDate?: string,
+): string | undefined {
+  if (
+    preferredDate &&
+    isLocalDateKey(preferredDate) &&
+    planContainsItem(workspaceDir, preferredDate, itemId)
+  ) {
+    return preferredDate;
+  }
+  const today = localDateKey();
+  for (let i = 0; i <= CARRY_LOOKBACK_DAYS; i += 1) {
+    const date = shiftLocalDateKey(today, -i);
+    if (planContainsItem(workspaceDir, date, itemId)) {
+      return date;
+    }
+  }
+  return undefined;
+}
+
 export async function setDailyPlanItemDone(
   workspaceDir: string,
   itemId: string,
   done: boolean,
-  date = localDateKey(),
+  date?: string,
 ): Promise<DailyPlan | undefined> {
-  const plan = loadDailyPlan(workspaceDir, date);
+  const origin = findDailyPlanItemDate(workspaceDir, itemId, date);
+  if (!origin) {
+    return undefined;
+  }
+  const plan = loadDailyPlan(workspaceDir, origin);
   const idx = plan.items.findIndex((item) => item.id === itemId);
   if (idx < 0) {
     return undefined;

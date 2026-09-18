@@ -3,7 +3,7 @@
  *
  * Lint / empty redline / missing citations / missing craft_check (deferred packet)
  * / Guardian fail are tool errors for the writer model. The turn is not complete
- * until validators are green or the soft budget / bounce cap pauses.
+ * until validators are green or the bounce cap pauses.
  */
 
 import { resolveDraftCitationIntegrity } from "../drafts/citation-resolve.js";
@@ -816,8 +816,8 @@ export function shouldBounceSameTurnCompletion(
 }
 
 export function shouldPauseSameTurnVerify(state: SameTurnVerifyTurnState | undefined): boolean {
-  return Boolean(
+  return (
     shouldBounceSameTurnCompletion(state) &&
-    (state?.bounceCount ?? 0) >= SAME_TURN_VERIFY_BOUNCE_MAX,
+    (state?.bounceCount ?? 0) >= SAME_TURN_VERIFY_BOUNCE_MAX
   );
 }

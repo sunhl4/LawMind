@@ -15,18 +15,33 @@ const EXACT_PROTECTED_RELS = new Set(["lawmind.policy.json", ".env", ".env.lawmi
 const PROTECTED_REL_PREFIXES = ["lawmind/", "audit/", "sessions/", "tasks/", "matters/"];
 
 /** 任意深度下的同名文件（如 cases/<matterId>/.lawmind-dms.json、cases/<id>/RULES.md）。 */
-const PROTECTED_BASENAMES = new Set([".lawmind-dms.json", "RULES.md"]);
+const PROTECTED_BASENAMES = new Set([".lawmind-dms.json", "RULES.md", "ethics-wall.json"]);
+
+function normalizeWorkspaceRel(rel: string): string {
+  return rel.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "");
+}
 
 export function isProtectedWorkspaceRel(rel: string): boolean {
-  const norm = rel.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "");
-  if (EXACT_PROTECTED_RELS.has(norm)) {
+  const norm = normalizeWorkspaceRel(rel);
+  const folded = norm.toLowerCase();
+  if (EXACT_PROTECTED_RELS.has(norm) || EXACT_PROTECTED_RELS.has(folded)) {
     return true;
   }
-  if (PROTECTED_REL_PREFIXES.some((prefix) => norm.startsWith(prefix))) {
+  if (
+    PROTECTED_REL_PREFIXES.some(
+      (prefix) => norm.startsWith(prefix) || folded.startsWith(prefix.toLowerCase()),
+    )
+  ) {
     return true;
   }
   const base = norm.split("/").pop() ?? norm;
-  return PROTECTED_BASENAMES.has(base);
+  const baseFold = folded.split("/").pop() ?? folded;
+  for (const name of PROTECTED_BASENAMES) {
+    if (base === name || baseFold === name.toLowerCase()) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export const PROTECTED_WORKSPACE_WRITE_REFUSAL =

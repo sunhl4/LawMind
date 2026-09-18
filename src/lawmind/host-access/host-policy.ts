@@ -46,8 +46,8 @@ export function resolveHostAccessPolicy(
 ): ResolvedHostAccessPolicy {
   const policy = readWorkspacePolicyFile(workspaceDir);
   const host = policy?.hostAccess;
-  const envMode = env.LAWMIND_HOST_ACCESS_MODE?.trim();
   const packaged = env.LAWMIND_PACKAGED === "1";
+  const envMode = packaged ? undefined : env.LAWMIND_HOST_ACCESS_MODE?.trim();
   const envCommands = !packaged && env.LAWMIND_HOST_COMMANDS?.trim() === "1";
 
   const firm = edition === "firm" || policy?.edition === "firm";
