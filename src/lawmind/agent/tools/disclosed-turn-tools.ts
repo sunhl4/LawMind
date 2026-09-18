@@ -4,6 +4,7 @@
  */
 
 import { compileIntent } from "../../intent/compile-intent.js";
+import { classifyDocumentGenre } from "../../intent/document-genre.js";
 import { extractTextIntent } from "../../intent/text-intent.js";
 import type { CompileIntentInput } from "../../intent/types.js";
 import { compiledIntentInjectsSkillBodies } from "../../intent/understand-first.js";
@@ -30,6 +31,69 @@ export const COMPUTE_DELIVERABLE_TOOL_NAMES = [
   "calculate",
 ] as const;
 
+/** Read case archive when a matter is bound. */
+export const DESK_READ_TOOLS = [
+  "get_matter_summary",
+  "read_case_file",
+  "search_matter",
+  "list_matters",
+] as const;
+
+/** Court SMS / summons → write deadlines. */
+export const DESK_EVENTS_TOOLS = [
+  "extract_legal_events",
+  "apply_legal_events",
+  "update_matter_profile",
+  "record_deadline",
+  "import_host_file",
+  "search_host",
+  "read_host_file",
+  "list_dir",
+  "explore_folder",
+  "calculate",
+] as const;
+
+/** Talk / meeting notes → intake brief. */
+export const DESK_TALK_TOOLS = [
+  "compile_intake_brief",
+  "apply_intake_brief",
+  "update_matter_profile",
+  "search_case_law",
+] as const;
+
+/** Folder / materials intake → host + archive writes. */
+export const DESK_INTAKE_TOOLS = [
+  "explore_folder",
+  "list_dir",
+  "search_host",
+  "read_host_file",
+  "import_host_file",
+  "update_matter_profile",
+  "extract_legal_events",
+  "apply_legal_events",
+  "compile_intake_brief",
+  "apply_intake_brief",
+  "add_case_note",
+] as const;
+
+/** Invoice / spreadsheet ops. */
+export const DESK_INVOICE_TOOLS = [
+  "calculate",
+  "analyze_spreadsheet",
+  "run_compute",
+  "import_host_file",
+  "update_matter_profile",
+] as const;
+
+/** Timeline / chronology. */
+export const DESK_TIMELINE_TOOLS = [
+  "extract_legal_events",
+  "apply_legal_events",
+  "add_case_note",
+  "update_matter_profile",
+  "search_workspace",
+] as const;
+
 export function pinsIncludeDirectory(pins: ComposeContextPin[] | undefined): boolean {
   return (pins ?? []).some((pin) => pin.pinKind === "file" && pin.kind === "directory");
 }
@@ -50,6 +114,33 @@ export function pinsIncludeWord(pins: ComposeContextPin[] | undefined): boolean 
     }
     return /\.docx?$/i.test(pin.relPath);
   });
+}
+
+function pinRelPaths(pins: ComposeContextPin[] | undefined): string[] {
+  return (pins ?? [])
+    .filter((pin) => pin.pinKind === "file" && typeof pin.relPath === "string")
+    .map((pin) => pin.relPath.trim())
+    .filter(Boolean);
+}
+
+function instructionLooksLikeDeskIntake(text: string): boolean {
+  return /补卷宗|按这个文件夹|按里面的材料|整理材料|归位材料|整理案卷/.test(text);
+}
+
+function instructionLooksLikeDeskEvents(text: string): boolean {
+  return /贴传票|补期限|按传票|写入开庭|补上开庭|抽出开庭/.test(text);
+}
+
+function pinsSuggestDeskEvents(pins: ComposeContextPin[] | undefined): boolean {
+  return pinRelPaths(pins).some((rel) => classifyDocumentGenre(rel) === "court_notice");
+}
+
+function pinsSuggestDeskTalk(pins: ComposeContextPin[] | undefined): boolean {
+  return pinRelPaths(pins).some((rel) => classifyDocumentGenre(rel) === "talk");
+}
+
+function pinsSuggestIdentityProfile(pins: ComposeContextPin[] | undefined): boolean {
+  return pinRelPaths(pins).some((rel) => classifyDocumentGenre(rel) === "identity");
 }
 
 /** Skills must not auto-disclose outbound / 改稿 / 流程工具。 */
@@ -94,9 +185,11 @@ const CAPABILITY_EXTRA_TOOLS: Record<string, readonly string[]> = {
   ],
   "analysis.quick": ["search_case_law", "run_compute"],
   "litigation.draft": ["search_case_law", "calculate", "search_workspace", "compare_documents"],
-  "litigation.talk": ["search_case_law"],
-  "ops.invoice": ["calculate", "analyze_spreadsheet", "run_compute"],
-  "ops.court_sms": ["calculate"],
+  "litigation.talk": [...DESK_TALK_TOOLS],
+  "ops.invoice": [...DESK_INVOICE_TOOLS],
+  "ops.court_sms": [...DESK_EVENTS_TOOLS],
+  "matter.intake": [...DESK_INTAKE_TOOLS],
+  "chronology.timeline": [...DESK_TIMELINE_TOOLS],
   "ip.dispute": ["search_case_law", "search_workspace", "compare_documents"],
   "deal.ma": ["search_case_law", "search_workspace", "compare_documents"],
   "compliance.data": ["search_case_law", "search_workspace"],
@@ -172,6 +265,26 @@ export function extraToolsForInstruction(
   if (/深度检索|全面检索|长时调研/.test(text) && !isPublicWebFactLookup(text)) {
     extrasTools.push("deep_research");
   }
+  if (
+    instructionLooksLikeDeskEvents(text) ||
+    pinsSuggestDeskEvents(extras?.pins) ||
+    compiled.capabilityId === "ops.court_sms"
+  ) {
+    extrasTools.push(...DESK_EVENTS_TOOLS);
+  }
+  if (pinsSuggestDeskTalk(extras?.pins) || compiled.capabilityId === "litigation.talk") {
+    extrasTools.push(...DESK_TALK_TOOLS);
+  }
+  if (
+    instructionLooksLikeDeskIntake(text) ||
+    pinsIncludeDirectory(extras?.pins) ||
+    compiled.capabilityId === "matter.intake"
+  ) {
+    extrasTools.push(...DESK_INTAKE_TOOLS);
+  }
+  if (pinsSuggestIdentityProfile(extras?.pins)) {
+    extrasTools.push("update_matter_profile", "analyze_document", "import_host_file");
+  }
   return [...new Set(extrasTools)];
 }
 
@@ -198,6 +311,8 @@ export function mergeTurnDisclosedToolNames(opts: {
   documents?: import("../../intent/types.js").DocumentPeek[];
   matterKind?: "contract" | "litigation" | "general";
   previousCapabilityId?: import("../../skills/lawyer-capability-lock.js").LawyerCapabilityId;
+  /** Bound matter → disclose desk.read. */
+  matterId?: string;
 }): string[] {
   const found = collectDisclosedToolNames(opts.session);
   found.push("run_compute");
@@ -207,11 +322,17 @@ export function mergeTurnDisclosedToolNames(opts: {
   found.push("list_mail_inbox");
   found.push("search_conversations", "read_conversation");
   found.push("read_skill", "search_company_registry");
+  if (opts.matterId?.trim()) {
+    found.push(...DESK_READ_TOOLS);
+  }
   if (pinsIncludeXlsx(opts.pins)) {
     found.push(...PINNED_SPREADSHEET_TOOL_NAMES);
   }
   if (pinsIncludeDirectory(opts.pins) || Boolean(opts.projectDir?.trim())) {
     found.push("search_host", "read_host_file", "list_dir");
+  }
+  if (pinsIncludeDirectory(opts.pins) || instructionLooksLikeDeskIntake(opts.instruction ?? "")) {
+    found.push(...DESK_INTAKE_TOOLS);
   }
   found.push(...collectEnabledSkillToolNames(opts.workspaceDir));
   found.push(

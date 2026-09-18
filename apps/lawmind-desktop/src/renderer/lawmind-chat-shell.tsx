@@ -1,4 +1,4 @@
-import type { RefObject } from "react";
+import type { ClipboardEvent, RefObject } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LawmindCommandPalette, type CommandPaletteAction } from "./LawmindCommandPalette";
 import {
@@ -67,6 +67,7 @@ import {
   isContractReviewCandidatePath,
 } from "./lawmind-file-chat-context";
 import { pinDroppedChatFiles } from "./lawmind-file-drop-context";
+import { pinPastedChatImages } from "./lawmind-chat-paste-images";
 import { useChatFileDropTarget } from "./useChatFileDropTarget";
 
 export { hasChatDiagnostics } from "./lawmind-chat";
@@ -209,7 +210,7 @@ export function LawmindChatComposeFooter({
   onOpenMemoryInspector,
   onOpenReview,
   composeExtras,
-  fileChatPills = [],
+  fileChatPills,
   onRemoveFileChatPill,
   onClearFileChatPills,
   onAddFileToChatContext,
@@ -325,17 +326,13 @@ export function LawmindChatComposeFooter({
   useEffect(() => {
     installContractFastLaneE2eHook();
     installDeskLaneE2eHook();
-    (
-      window as Window & {
-        __lmOpenWriteMaterials?: () => void;
-      }
-    ).__lmOpenWriteMaterials = () => setTemplateGalleryOpen(true);
+    // E2E hook on window (intentionally underscored).
+    // eslint-disable-next-line no-underscore-dangle -- e2e window hook
+    (window as Window & { __lmOpenWriteMaterials?: () => void }).__lmOpenWriteMaterials = () =>
+      setTemplateGalleryOpen(true);
     return () => {
-      delete (
-        window as Window & {
-          __lmOpenWriteMaterials?: () => void;
-        }
-      ).__lmOpenWriteMaterials;
+      // eslint-disable-next-line no-underscore-dangle -- e2e window hook
+      delete (window as Window & { __lmOpenWriteMaterials?: () => void }).__lmOpenWriteMaterials;
     };
   }, []);
 
@@ -695,6 +692,40 @@ export function LawmindChatComposeFooter({
     ],
   );
 
+  const handleComposePaste = useCallback(
+    (e: ClipboardEvent<HTMLTextAreaElement>) => {
+      if (!onAddFileToChatContext) {
+        return;
+      }
+      const files = e.clipboardData?.files;
+      if (!files?.length) {
+        return;
+      }
+      const hasImage = Array.from(files).some(
+        (f) => f.type.startsWith("image/") || /\.(png|jpe?g|webp|gif)$/i.test(f.name),
+      );
+      if (!hasImage) {
+        return;
+      }
+      e.preventDefault();
+      void pinPastedChatImages({
+        clipboardData: e.clipboardData,
+        matterId: contextMatterId,
+        onAdd: onAddFileToChatContext,
+        onError: onFileDropError,
+        onEachPin: (pin) => {
+          injectPinsDuringTurn([encodeFileContextPin(pin)]);
+        },
+      });
+    },
+    [
+      contextMatterId,
+      injectPinsDuringTurn,
+      onAddFileToChatContext,
+      onFileDropError,
+    ],
+  );
+
   const composeDrop = useChatFileDropTarget(
     onAddFileToChatContext ? handleDroppedChatFiles : undefined,
     { stopPropagation: true },
@@ -859,6 +890,7 @@ export function LawmindChatComposeFooter({
             value={input}
             aria-label="消息输入"
             onChange={(e) => handleComposeInputChange(e.target.value)}
+            onPaste={handleComposePaste}
             placeholder={
               loading ? "可继续补充，Enter 发送" : "附上材料或直接说要办的事；Enter 发送，Shift+Enter 换行"
             }

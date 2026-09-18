@@ -30,8 +30,14 @@ export type RecordDeadlineInput = {
   icsUid?: string;
 };
 
-export function recordDeadline(workspaceDir: string, input: RecordDeadlineInput): DeadlineRecord {
-  createMatterIfMissing(workspaceDir, { matterId: input.matterId });
+export function recordDeadline(
+  workspaceDir: string,
+  input: RecordDeadlineInput,
+  opts?: { createMatterIfMissing?: boolean },
+): DeadlineRecord {
+  if (opts?.createMatterIfMissing !== false) {
+    createMatterIfMissing(workspaceDir, { matterId: input.matterId });
+  }
   const eventKind = input.eventKind;
   const record: DeadlineRecord = {
     deadlineId: input.deadlineId ?? randomUUID(),
@@ -99,6 +105,28 @@ function updateDeadlineStatus(
     all[idx] = next;
     rewriteDeadlines(workspaceDir, matterId, all);
     return next;
+  });
+}
+
+/** Remove deadlines by id (desk revert). Detaches matter.deadlineIds via caller. */
+export function removeDeadlines(
+  workspaceDir: string,
+  matterId: string,
+  deadlineIds: string[],
+): number {
+  if (deadlineIds.length === 0) {
+    return 0;
+  }
+  const drop = new Set(deadlineIds);
+  const lockPath = path.join(matterDir(workspaceDir, matterId), "deadlines.jsonl.lock");
+  return withExclusiveFileLock(lockPath, () => {
+    const all = readDeadlines(workspaceDir, matterId);
+    const next = all.filter((d) => !drop.has(d.deadlineId));
+    const removed = all.length - next.length;
+    if (removed > 0) {
+      rewriteDeadlines(workspaceDir, matterId, next);
+    }
+    return removed;
   });
 }
 

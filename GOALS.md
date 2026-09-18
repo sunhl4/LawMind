@@ -66,7 +66,31 @@ LawMind **不把可审计当作产品价值、法律质量证明或用户信任�
 
 ## 三、当前期次与未完成项
 
-### 第十七期 — 隐式意图编译（当前期次）
+### 第十八期 — 对话补档案（当前期次）
+
+律师拍板：对话里说补就**直接写入**（写错再改）；工作台贴传票/谈话的手工入口先留；不开办件菜单——开口或丢传票/谈话/文件夹时，**本轮工具表带上对应读写**，「更多工具」目录覆盖工作台真实能力。
+
+对照：Cursor 打开工作区就能读改；Codex 隐式匹配 + 本轮披露 + cassette 断言工具表；DeepSeek harness 工具卡/Stop/轮中补材料。LawMind 要同等 harness，交付物是**工作台那份期限/谈话/卷宗**，不是聊天摘要。
+
+计划全文：[docs/LAWMIND-CHAT-MATTER-FILL.md](docs/LAWMIND-CHAT-MATTER-FILL.md)。
+
+- [x] **第 1 波 写穿**：`extract_legal_events` / `apply_legal_events` / `compile_intake_brief` / `apply_intake_brief` / `update_matter_profile` 与工作台 HTTP 同一 helper；档案类办件第一轮广告这些工具；`list_more_tools` 目录能启用；Skill/系统提示不再把人赶回工作台确认；cassette 断言广告且 `deadlines.jsonl` / `intake-brief.json` 真落盘。
+- [x] **第 2 波 材料口**：对话框粘贴截图即钉选；工作台期限/谈话可丢 PDF/图（手工仍确认）；OCR 空则视觉兜底（律师不配环境变量）；路径/目录走 `explore_folder` + `import_host_file`；`revert_desk_write`。
+- [x] **第 3 波 铺开**：证件照填当事人、发票收进本案、无案件时才允许建新案；邮件开庭通知不得被短路径冻住写入。
+- [ ] **对照实测**：真传票 PDF/照片 + 谈话记录走对话补上后，工作台今日开庭与谈话页是同一条。无真稿则 skip，不以假图冒充。
+
+```bash
+pnpm exec vitest run src/lawmind/agent/turn-orchestrator-cassettes.test.ts \
+  src/lawmind/agent/tools/disclosed-turn-tools.test.ts \
+  src/lawmind/agent/tools/legal/list-more-tools.test.ts \
+  src/lawmind/desk src/lawmind/intent/gold-set.test.ts \
+  apps/lawmind-desktop/server/lawmind-server-route-lawyer-desk.test.ts \
+  apps/lawmind-desktop/src/renderer/lawmind-chat-compose-chrome.test.tsx \
+  apps/lawmind-desktop/src/renderer/LawmindLawyerWorkbench.test.tsx
+pnpm --filter lawmind-desktop typecheck
+```
+
+### 第十七期 — 隐式意图编译
 
 北极星：律师**丢材料或说一句话就能交办**。合同审查、诉讼状、函件、刑事、合规、并购等能力留在引擎里，默认不再让律师先选「办件」。
 
@@ -218,10 +242,11 @@ pnpm --filter lawmind-desktop typecheck
 - **LawMind 文档站（VitePress）**：[apps/lawmind-docs/README.md](apps/lawmind-docs/README.md)（`pnpm lawmind:docs:dev` / `lawmind:docs:build`）
 - **长期回看项**：[docs/LAWMIND-FUTURE-ISSUES.md](docs/LAWMIND-FUTURE-ISSUES.md)
 - **Agent 对标审查（上手/智能/稳态/律师专用）**：[docs/LAWMIND-AGENT-PARITY-REVIEW.md](docs/LAWMIND-AGENT-PARITY-REVIEW.md)
+- **对话补档案（第十八期）**：[docs/LAWMIND-CHAT-MATTER-FILL.md](docs/LAWMIND-CHAT-MATTER-FILL.md)
 - **客户交付手册**：[docs/LAWMIND-DELIVERY.md](docs/LAWMIND-DELIVERY.md)
 - **历史文档归档区（只读）**：[docs/archive/README.md](docs/archive/README.md)——愿景、决策、用户手册、桌面 UI 约定、Cursor/Claude 债表、Deliverable-First、安全清单、模型适配等历史快照均在归档区
 - 仓库说明：[README.md](README.md) · 贡献：[CONTRIBUTING.md](CONTRIBUTING.md) · 安全：[SECURITY.md](SECURITY.md)
 
 ---
 
-_最后更新：2026-09-15（Agent 对标残留建议落地：渐进披露、计划自动执行、Firm 伦理墙拦外发、NPC 开源权威路径；对照实测真稿夹具仍空）。_
+_最后更新：2026-09-18（第十八期：对话补档案，计划见 `docs/LAWMIND-CHAT-MATTER-FILL.md`；真稿对照仍开放）。_

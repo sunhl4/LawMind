@@ -12,6 +12,8 @@ import { LEGAL_EVENT_KIND_LABELS, type ExtractedLegalEvent } from "../../../../s
 import { MATTER_KIND_LABELS, type MatterKind } from "../../../../src/lawmind/desk/matter-kind.ts";
 import { MatterReplicaPanel } from "./matter/MatterReplicaPanel";
 import { taskLifecycleLabel } from "./matter/matter-display-labels";
+import { pinDroppedChatFiles } from "./lawmind-file-drop-context";
+import { useChatFileDropTarget } from "./useChatFileDropTarget";
 
 type TodayItemKind = "plan" | "mail" | "deadline" | "approval";
 
@@ -660,6 +662,99 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
       setBusy(false);
     }
   };
+
+  const extractFromDroppedFile = useCallback(
+    async (dt: DataTransfer) => {
+      if (!viewingId) {
+        setErr("请先打开一个案件，再丢文件。");
+        return;
+      }
+      setBusy(true);
+      setErr(null);
+      try {
+        const pins = await pinDroppedChatFiles({
+          dataTransfer: dt,
+          workspaceDir,
+          matterId: viewingId,
+          onAdd: () => undefined,
+        });
+        const filePin = pins.find((p) => p.kind === "file");
+        if (!filePin) {
+          setErr("未能导入文件。请从 LawMind 桌面拖入 PDF 或图片。");
+          return;
+        }
+        const j = await apiSendJson<
+          { ok?: boolean; events?: ExtractedLegalEvent[]; text?: string; error?: string },
+          { relPath: string; matterId: string }
+        >(apiBase, "/api/desk/events/extract-file", "POST", {
+          relPath: filePin.relPath,
+          matterId: viewingId,
+        });
+        if (j.text) {
+          setExtractText(j.text.slice(0, 8000));
+        }
+        setExtracted(j.events ?? []);
+        if (!(j.events && j.events.length > 0)) {
+          setErr("已读入文件，但未抽出带日期的期限。可改文字后点「抽出期限」，再确认写入。");
+        }
+      } catch (e) {
+        setErr(errorMessage(e, "丢文件抽取失败"));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [apiBase, viewingId, workspaceDir],
+  );
+
+  const talkFromDroppedFile = useCallback(
+    async (dt: DataTransfer) => {
+      if (!viewingId) {
+        setErr("请先打开一个案件，再丢谈话材料。");
+        return;
+      }
+      setBusy(true);
+      setErr(null);
+      try {
+        const pins = await pinDroppedChatFiles({
+          dataTransfer: dt,
+          workspaceDir,
+          matterId: viewingId,
+          onAdd: () => undefined,
+        });
+        const filePin = pins.find((p) => p.kind === "file");
+        if (!filePin) {
+          setErr("未能导入文件。");
+          return;
+        }
+        const j = await apiSendJson<
+          { ok?: boolean; text?: string; error?: string },
+          { relPath: string; matterId: string }
+        >(apiBase, "/api/desk/events/extract-file", "POST", {
+          relPath: filePin.relPath,
+          matterId: viewingId,
+        });
+        if (j.text?.trim()) {
+          setTalk(j.text.slice(0, 12_000));
+        } else {
+          setErr("文件未读出文字。请换材料或手贴谈话。");
+        }
+      } catch (e) {
+        setErr(errorMessage(e, "丢文件读谈话失败"));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [apiBase, viewingId, workspaceDir],
+  );
+
+  const deadlinesDrop = useChatFileDropTarget(
+    matterPane === "deadlines" ? extractFromDroppedFile : undefined,
+    { stopPropagation: true },
+  );
+  const talkDrop = useChatFileDropTarget(
+    matterPane === "intake" ? talkFromDroppedFile : undefined,
+    { stopPropagation: true },
+  );
 
   const confirmEvents = async () => {
     if (!viewingId) {
@@ -1681,8 +1776,16 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                 ) : null}
 
                 {matterPane === "deadlines" ? (
-                  <section className="lm-lawyer-pane" id="lm-lawyer-pane-deadlines" role="tabpanel" aria-labelledby="lm-lawyer-tab-deadlines">
+                  <section
+                    className={`lm-lawyer-pane${deadlinesDrop.active ? " lm-chat-drop-active" : ""}`}
+                    id="lm-lawyer-pane-deadlines"
+                    role="tabpanel"
+                    aria-labelledby="lm-lawyer-tab-deadlines"
+                    data-testid="lm-lawyer-deadlines-drop"
+                    {...deadlinesDrop.dropProps}
+                  >
                     <h3>期限 / 开庭</h3>
+                    <p className="lm-meta">可粘贴文字，或把传票 PDF/图片拖到这里；抽出后仍须确认写入。</p>
                     {deadlines.length === 0 ? (
                       <p className="lm-meta">还没有期限。把传票或 12368 短信贴到下面，确认后写入。</p>
                     ) : (
@@ -1743,8 +1846,16 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                 ) : null}
 
                 {matterPane === "intake" ? (
-                  <section className="lm-lawyer-pane" id="lm-lawyer-pane-intake" role="tabpanel" aria-labelledby="lm-lawyer-tab-intake">
+                  <section
+                    className={`lm-lawyer-pane${talkDrop.active ? " lm-chat-drop-active" : ""}`}
+                    id="lm-lawyer-pane-intake"
+                    role="tabpanel"
+                    aria-labelledby="lm-lawyer-tab-intake"
+                    data-testid="lm-lawyer-talk-drop"
+                    {...talkDrop.dropProps}
+                  >
                     <h3>谈话整理</h3>
+                    <p className="lm-meta">可粘贴谈话，或拖入 PDF/图片；整理后仍须点「写入本案档案」。</p>
                     <textarea
                       className="lm-input"
                       rows={5}

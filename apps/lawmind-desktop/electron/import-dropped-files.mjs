@@ -90,7 +90,8 @@ function isPathInside(parentAbs, childAbs) {
  */
 export function safeBasename(fileName) {
   let base = "";
-  for (const ch of path.basename(String(fileName || ""))) {
+  const raw = typeof fileName === "string" ? fileName : "";
+  for (const ch of path.basename(raw)) {
     if (ch.charCodeAt(0) >= 32) {
       base += ch;
     }
@@ -354,3 +355,77 @@ export function importDroppedAbsPaths(opts) {
   }
   return { ok: errors.length === 0, items, errors };
 }
+
+const MAX_PASTED_BYTES = 20 * 1024 * 1024;
+
+/**
+ * Write clipboard / paste bytes (no File.path) into case materials or uploads.
+ * @param {{
+ *   workspaceDir: string;
+ *   bytes: Buffer | Uint8Array | ArrayBuffer;
+ *   fileName?: string | null;
+ *   mimeType?: string | null;
+ *   matterId?: string | null;
+ * }} opts
+ */
+export function importPastedBytes(opts) {
+  const workspaceDir = typeof opts.workspaceDir === "string" ? opts.workspaceDir.trim() : "";
+  if (!workspaceDir) {
+    return { ok: false, error: "未配置工作区，无法收进粘贴图片。" };
+  }
+  let buf;
+  if (Buffer.isBuffer(opts.bytes)) {
+    buf = opts.bytes;
+  } else if (opts.bytes instanceof Uint8Array) {
+    buf = Buffer.from(opts.bytes);
+  } else if (opts.bytes instanceof ArrayBuffer) {
+    buf = Buffer.from(opts.bytes);
+  } else {
+    return { ok: false, error: "粘贴内容无效。" };
+  }
+  if (buf.length === 0) {
+    return { ok: false, error: "粘贴内容为空。" };
+  }
+  if (buf.length > MAX_PASTED_BYTES) {
+    return { ok: false, error: "粘贴图片超过 20MB。" };
+  }
+  const mime = typeof opts.mimeType === "string" ? opts.mimeType.trim().toLowerCase() : "";
+  const fromName = safeBasename(opts.fileName || "");
+  let ext = path.extname(fromName || "").toLowerCase();
+  if (!ext) {
+    if (mime.includes("png")) {
+      ext = ".png";
+    } else if (mime.includes("jpeg") || mime.includes("jpg")) {
+      ext = ".jpg";
+    } else if (mime.includes("webp")) {
+      ext = ".webp";
+    } else if (mime.includes("gif")) {
+      ext = ".gif";
+    } else {
+      ext = ".png";
+    }
+  }
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const baseName = fromName && fromName.includes(".") ? fromName : `paste-${stamp}${ext}`;
+  const relHint = destRelForDroppedFile(opts.matterId, baseName);
+  if (!relHint) {
+    return { ok: false, error: "无法识别文件名。" };
+  }
+  const destDir = path.join(workspaceDir, path.dirname(relHint));
+  const destAbs = allocateNonCollidingAbs(destDir, path.basename(relHint));
+  if (!destAbs) {
+    return { ok: false, error: "无法识别文件名。" };
+  }
+  const destRel = path.relative(workspaceDir, destAbs).replace(/\\/g, "/");
+  if (destRel.startsWith("..") || path.isAbsolute(destRel)) {
+    return { ok: false, error: "目标路径超出工作区。" };
+  }
+  try {
+    fs.mkdirSync(path.dirname(destAbs), { recursive: true });
+    fs.writeFileSync(destAbs, buf);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+  return { ok: true, root: "workspace", relPath: destRel, kind: "file", imported: true };
+}
+

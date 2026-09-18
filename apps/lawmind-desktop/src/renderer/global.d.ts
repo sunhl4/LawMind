@@ -218,6 +218,20 @@ declare global {
         errors?: string[];
         error?: string;
       }>;
+      /** Clipboard image bytes with no File.path → materials/uploads. */
+      importPastedBytes?: (payload: {
+        bytes: ArrayBuffer | Uint8Array;
+        fileName?: string | null;
+        mimeType?: string | null;
+        matterId?: string | null;
+      }) => Promise<{
+        ok: boolean;
+        root?: "workspace" | "project";
+        relPath?: string;
+        kind?: "file" | "directory";
+        imported?: boolean;
+        error?: string;
+      }>;
       saveTextFileDialog: (payload: {
         content: string;
         defaultName?: string;

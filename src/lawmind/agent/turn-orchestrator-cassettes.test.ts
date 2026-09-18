@@ -936,4 +936,252 @@ describe("turn-orchestrator cassettes (admission)", () => {
       },
     );
   });
+  it("summons-fill-advertises-desk-write", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("已处理。"));
+        await h.runTurn("按这份传票把开庭补上", {
+          matterId: "m-summons",
+          contextPins: [
+            {
+              pinKind: "file",
+              root: "workspace",
+              relPath: "开庭传票.pdf",
+              kind: "file",
+            },
+          ],
+        });
+        expect(h.request(0).hasAdvertisedTool("extract_legal_events")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("apply_legal_events")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("list_more_tools")).toBe(true);
+      },
+    );
+  });
+
+  it("summons-fill-writes-deadline", async () => {
+    const { createMatterIfMissing } =
+      await import("../application/services/matter-write-service.js");
+    const { listDeadlinesForMatter } = await import("../application/services/deadline-service.js");
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        createMatterIfMissing(h.workspaceDir, {
+          matterId: "m-write",
+          title: "传票案",
+          matterKind: "litigation",
+        });
+        const summonsText =
+          "传票：请于2026年10月12日9时到第三法庭开庭。案号（2026）京0105民初88号。";
+        fs.mkdirSync(path.join(h.workspaceDir, "cases", "m-write", "materials"), {
+          recursive: true,
+        });
+        const rel = "cases/m-write/materials/传票.txt";
+        fs.writeFileSync(path.join(h.workspaceDir, rel), summonsText, "utf8");
+        h.enqueue(
+          cassetteToolCall("apply_legal_events", {
+            events: [
+              {
+                eventKind: "hearing",
+                title: "开庭",
+                dueAt: "2026-10-12T01:00:00.000Z",
+                notes: summonsText,
+              },
+            ],
+          }),
+          cassetteAssistant("已写入开庭。"),
+        );
+        const result = await h.runTurn("按这份传票把开庭补上", {
+          matterId: "m-write",
+          contextPins: [{ pinKind: "file", root: "workspace", relPath: rel, kind: "file" }],
+        });
+        const apply = result.turn.messages
+          .flatMap((m) => m.toolCallResponses ?? [])
+          .find((r) => r.name === "apply_legal_events");
+        expect(apply?.result.ok).toBe(true);
+        const deadlines = listDeadlinesForMatter(h.workspaceDir, "m-write");
+        expect(deadlines.some((d) => d.eventKind === "hearing" || d.title.includes("开庭"))).toBe(
+          true,
+        );
+      },
+    );
+  });
+
+  it("talk-fill-confirms-brief", async () => {
+    const { createMatterIfMissing } =
+      await import("../application/services/matter-write-service.js");
+    const { loadIntakeBrief } = await import("../desk/intake-brief.js");
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        createMatterIfMissing(h.workspaceDir, { matterId: "m-talk", title: "谈话案" });
+        const transcript = "客户希望解除合同并退回定金。已付定金未交货。";
+        h.enqueue(
+          cassetteToolCall("compile_intake_brief", { transcript }),
+          cassetteToolCall("apply_intake_brief", {}),
+          cassetteAssistant("谈话已写入。"),
+        );
+        await h.runTurn("把这段谈话整理进本案", { matterId: "m-talk" });
+        expect(loadIntakeBrief(h.workspaceDir, "m-talk")?.confirmedAt).toBeTruthy();
+      },
+    );
+  });
+
+  it("folder-fill-advertises-host", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("已处理。"));
+        await h.runTurn("按这个文件夹补卷宗", {
+          matterId: "m-folder",
+          contextPins: [
+            {
+              pinKind: "file",
+              root: "workspace",
+              relPath: "materials/证据包",
+              kind: "directory",
+            },
+          ],
+        });
+        expect(h.request(0).hasAdvertisedTool("explore_folder")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("import_host_file")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("update_matter_profile")).toBe(true);
+      },
+    );
+  });
+
+  it("list-more-covers-desk without binding archive capability", async () => {
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        h.enqueue(cassetteToolCall("list_more_tools", {}), cassetteAssistant("目录已列出。"));
+        await h.runTurn("今天天气怎么样");
+        expect(h.request(0).hasAdvertisedTool("apply_legal_events")).toBe(false);
+        const toolMsg = h
+          .session()
+          ?.conversationHistory.flatMap((m) => m.toolCallResponses ?? [])
+          .find((r) => r.name === "list_more_tools");
+        const tools = (toolMsg?.result.data as { tools?: Array<{ name: string }> })?.tools ?? [];
+        expect(tools.map((t) => t.name)).toContain("apply_legal_events");
+        expect(toolMsg).toBeTruthy();
+      },
+    );
+  });
+
+  it("review-does-not-write-docket", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("已处理。"));
+        await h.runTurn("请审查这份采购合同", {
+          contextPins: [
+            {
+              pinKind: "file",
+              root: "project",
+              relPath: "采购合同.docx",
+              kind: "file",
+            },
+          ],
+        });
+        expect(h.request(0).hasAdvertisedTool("apply_legal_events")).toBe(false);
+      },
+    );
+  });
+
+  it("empty-ocr-does-not-apply", async () => {
+    const { createMatterIfMissing } =
+      await import("../application/services/matter-write-service.js");
+    const { listDeadlinesForMatter } = await import("../application/services/deadline-service.js");
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        createMatterIfMissing(h.workspaceDir, { matterId: "m-empty", title: "空 OCR" });
+        h.enqueue(
+          cassetteToolCall("apply_legal_events", {
+            events: [{ eventKind: "hearing", title: "开庭" }],
+          }),
+          cassetteAssistant("未能写入。"),
+        );
+        await h.runTurn("按传票补开庭", { matterId: "m-empty" });
+        expect(listDeadlinesForMatter(h.workspaceDir, "m-empty")).toHaveLength(0);
+      },
+    );
+  });
+
+  it("create_matter fails when matter already bound", async () => {
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("create_matter", { title: "另造一卷" }),
+          cassetteAssistant("已拒绝。"),
+        );
+        const result = await h.runTurn("新建一个案件", { matterId: "already" });
+        const create = result.turn.messages
+          .flatMap((m) => m.toolCallResponses ?? [])
+          .find((r) => r.name === "create_matter");
+        expect(create?.result.ok).toBe(false);
+        expect(create?.result.error).toMatch(/已关联/);
+      },
+    );
+  });
+
+  it("mail short path still advertises apply_legal_events", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("已处理。"));
+        await h.runTurn(
+          [
+            "【邮件合同审阅改稿 · 短路径 · 原文件审阅痕迹】",
+            "默认 contract_edit_baseline_path=`cases/m/a.docx`",
+            "建议回复收件人：opp@firm.cn",
+            "另外按传票把开庭补上",
+          ].join("\n"),
+          {
+            contextPins: [
+              {
+                pinKind: "file",
+                root: "workspace",
+                relPath: "开庭传票.jpg",
+                kind: "file",
+              },
+            ],
+          },
+        );
+        const advertised = h.request(0).advertisedToolNames();
+        expect(advertised).toContain("apply_legal_events");
+        expect(advertised).not.toContain("send_email");
+        expect(advertised).not.toContain("render_document");
+      },
+    );
+  });
+
+  it("steer-second-photo: mid-turn inject pin appears in next request", async () => {
+    const { queuePendingContextPins } = await import("./session-context-inject.js");
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.seedHistory([], { matterId: "m-photo" });
+        h.onModelRequest((req) => {
+          if (req.index === 0) {
+            queuePendingContextPins(h.workspaceDir, h.session()!.sessionId, [
+              {
+                pinKind: "file",
+                root: "workspace",
+                relPath: "传票第二张.jpg",
+                kind: "file",
+              },
+            ]);
+          }
+        });
+        h.enqueue(cassetteToolCall("analyze_document"), cassetteAssistant("已看到第二张。"));
+        await h.runTurn("按传票补开庭", { matterId: "m-photo" });
+        expect(h.requests.length).toBeGreaterThanOrEqual(2);
+        expect(
+          h.request(1).contains("传票第二张.jpg") || h.request(1).contains("本轮补充材料"),
+        ).toBe(true);
+      },
+    );
+  });
 });

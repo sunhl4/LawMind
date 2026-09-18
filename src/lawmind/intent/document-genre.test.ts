@@ -13,7 +13,10 @@ describe("document-genre", () => {
     expect(classifyDocumentGenre("催告函.docx")).toBe("letter");
     expect(classifyDocumentGenre("进项发票.pdf")).toBe("invoice");
     expect(classifyDocumentGenre("开庭传票.pdf")).toBe("court_notice");
+    expect(classifyDocumentGenre("开庭传票.jpg")).toBe("court_notice");
     expect(classifyDocumentGenre("客户谈话记录.txt")).toBe("talk");
+    expect(classifyDocumentGenre("身份证正面.jpg")).toBe("identity");
+    expect(classifyDocumentGenre("营业执照.pdf")).toBe("identity");
     expect(classifyDocumentGenre("隐私政策.docx")).toBe("privacy");
     expect(classifyDocumentGenre("费用.xlsx")).toBe("spreadsheet");
   });

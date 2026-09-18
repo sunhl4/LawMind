@@ -103,9 +103,35 @@ x
     expect(extraToolsForInstruction("查一下2026年新说唱总冠军")).toEqual(["web_search"]);
     expect(extraToolsForInstruction("查一下2026年新说唱总冠军")).not.toContain("search_case_law");
     expect(extraToolsForInstruction("整理这些进项发票")).toEqual(
-      expect.arrayContaining(["calculate", "analyze_spreadsheet"]),
+      expect.arrayContaining(["calculate", "analyze_spreadsheet", "import_host_file"]),
     );
-    expect(extraToolsForInstruction("把法院短信里的开庭时间整理出来")).toContain("calculate");
+    expect(extraToolsForInstruction("把法院短信里的开庭时间整理出来")).toEqual(
+      expect.arrayContaining(["extract_legal_events", "apply_legal_events", "calculate"]),
+    );
+    expect(extraToolsForInstruction("整理这段客户谈话记录")).toEqual(
+      expect.arrayContaining(["compile_intake_brief", "apply_intake_brief"]),
+    );
+    expect(extraToolsForInstruction("按这个文件夹补卷宗")).toEqual(
+      expect.arrayContaining([
+        "explore_folder",
+        "import_host_file",
+        "update_matter_profile",
+        "apply_legal_events",
+      ]),
+    );
+    expect(
+      extraToolsForInstruction("帮我看看", {
+        pins: [
+          {
+            pinKind: "file",
+            root: "project",
+            relPath: "开庭传票.jpg",
+            kind: "file",
+          },
+        ],
+      }),
+    ).toEqual(expect.arrayContaining(["extract_legal_events", "apply_legal_events"]));
+    expect(extraToolsForInstruction("请审查这份采购合同")).not.toContain("apply_legal_events");
     expect(extraToolsForInstruction("这份专利侵权材料怎么主张")).toContain("search_case_law");
     expect(extraToolsForInstruction("做一份股权收购尽调提纲")).toContain("search_case_law");
     expect(extraToolsForInstruction("这份离婚诉讼材料怎么主张抚养权")).toEqual(
@@ -258,5 +284,37 @@ x
     expect(names).toContain("list_dir");
     expect(names).toContain("search_host");
     expect(names).toContain("read_host_file");
+    expect(names).toContain("import_host_file");
+    expect(names).toContain("update_matter_profile");
+    expect(names).toContain("apply_legal_events");
+  });
+
+  it("discloses desk.read when a matter is bound", () => {
+    const names = mergeTurnDisclosedToolNames({
+      session: {},
+      workspaceDir: "/tmp/does-not-need-skills",
+      matterId: "case-a",
+    });
+    expect(names).toContain("get_matter_summary");
+    expect(names).toContain("read_case_file");
+    expect(names).toContain("search_matter");
+    expect(names).toContain("list_matters");
+  });
+
+  it("discloses update_matter_profile for identity pins", () => {
+    const names = mergeTurnDisclosedToolNames({
+      session: {},
+      workspaceDir: "/tmp/does-not-need-skills",
+      instruction: "把证件信息补上",
+      pins: [
+        {
+          pinKind: "file",
+          root: "workspace",
+          relPath: "身份证正面.jpg",
+          kind: "file",
+        },
+      ],
+    });
+    expect(names).toContain("update_matter_profile");
   });
 });

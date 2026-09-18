@@ -244,7 +244,7 @@ export function LawmindChatMessagesColumn({
             </div>
             <div className="lm-messages-empty-title">开始对话</div>
             <p className="lm-messages-empty-lead">
-              把材料拖进来，或直接说要办的事。系统会按这句话和附件判断怎么做。
+              把材料拖进来，或直接说要办的事。传票、谈话、照片直接丢进来即可补到本案。系统会按这句话和附件判断怎么做。
             </p>
             <p className="lm-messages-empty-hint">签批与导出仍在「在办」。</p>
             {onCreateMatter ? (

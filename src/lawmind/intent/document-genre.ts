@@ -23,6 +23,7 @@ export type DocumentGenre =
   | "ma"
   | "capital"
   | "spreadsheet"
+  | "identity"
   | "unknown";
 
 const BASE_RE = /[/\\]([^/\\]+)$/;
@@ -41,6 +42,7 @@ const FILENAME_RULES: Array<{ genre: DocumentGenre; re: RegExp }> = [
   { genre: "invoice", re: /发票|增值税专用|进项|销项|invoice/i },
   { genre: "court_notice", re: /传票|开庭通知|开庭传票|12368|缴费通知|应诉通知/ },
   { genre: "talk", re: /谈话记录|谈话笔录|会议纪要|客户口述|intake.?notes/i },
+  { genre: "identity", re: /身份证|营业执照|统一社会信用|执照|护照|户口本/ },
   { genre: "letter", re: /律师函|催告函|催款函|通知函|demand.?letter/i },
   {
     genre: "pleading",
@@ -119,6 +121,7 @@ const STICKY_RANK: Record<DocumentGenre, number> = {
   pleading: 80,
   letter: 70,
   talk: 65,
+  identity: 60,
   privacy: 55,
   ma: 50,
   capital: 50,

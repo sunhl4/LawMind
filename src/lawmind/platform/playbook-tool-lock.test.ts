@@ -16,6 +16,8 @@ describe("resolvePlaybookToolLock", () => {
     expect(lock?.denyNames).toContain("send_email");
     expect(lock?.denyNames).toContain("render_document");
     expect(lock?.denyNames).not.toContain("search_statute");
+    expect(lock?.denyNames).not.toContain("apply_legal_events");
+    expect(lock?.denyNames).not.toContain("update_matter_profile");
     expect(MAIL_CONTRACT_FAST_PATH_TOOL_NAMES).toContain("prepare_outbound_mail");
   });
 

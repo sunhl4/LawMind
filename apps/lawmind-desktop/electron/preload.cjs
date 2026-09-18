@@ -57,6 +57,7 @@ contextBridge.exposeInMainWorld("lawmindDesktop", {
   fsDelete: (payload) => ipcRenderer.invoke("lawmind:fs:delete", payload),
   fsCopy: (payload) => ipcRenderer.invoke("lawmind:fs:copy", payload),
   importDroppedFiles: (payload) => ipcRenderer.invoke("lawmind:fs:import-dropped", payload ?? {}),
+  importPastedBytes: (payload) => ipcRenderer.invoke("lawmind:fs:import-pasted", payload ?? {}),
   getPathForFile: (file) => {
     try {
       if (webUtils && typeof webUtils.getPathForFile === "function") {

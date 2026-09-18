@@ -80,9 +80,15 @@ function asDataUrl(buffer: Buffer | Uint8Array, mime: string): string {
 }
 
 export function shouldUseVisionFallback(): boolean {
-  return (
-    (process.env.LAWMIND_DOC_READ_MODE ?? "ocr_only").trim().toLowerCase() === "ocr_then_vision"
-  );
+  const mode = (process.env.LAWMIND_DOC_READ_MODE ?? "").trim().toLowerCase();
+  if (mode === "ocr_only") {
+    return false;
+  }
+  if (mode === "ocr_then_vision") {
+    return true;
+  }
+  // Default: vision fallback when the same agent vision endpoint is configured.
+  return resolveVisionModelConfig() !== null;
 }
 
 function resolveVisionModelConfig(): {
@@ -336,10 +342,7 @@ export async function readPdfTextByVision(filePath: string): Promise<string> {
 }
 
 function normalizeRelPath(p: string): string {
-  return String(p || "")
-    .replace(/\\/g, "/")
-    .replace(/^\/+/, "")
-    .replace(/\/+$/, "");
+  return (p || "").replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "");
 }
 
 const PROJECT_TEXT_EXT = new Set([

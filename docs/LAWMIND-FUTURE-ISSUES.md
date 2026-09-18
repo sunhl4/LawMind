@@ -87,6 +87,7 @@
 - [x] 会议室：议题材料选择器（复用 `LawmindComposeContextPicker` + 搜索框；与对话 pins 同一真相源）
 - [x] 无文件系统桥接时的建案/材料树降级体验（侧栏「新建」CTA + 对话空态不再依赖 FS 桥，2026-07-20；材料树本身仍需桥接）
 - [ ] 超大工作区（数千案件）下的侧栏虚拟化与搜索索引
+- [ ] **对话写穿工作台档案**（传票/谈话/卷宗）：施工合同 [LAWMIND-CHAT-MATTER-FILL.md](./LAWMIND-CHAT-MATTER-FILL.md)，进度在 `GOALS.md` 第十八期。不是再加办件菜单。
 - [x] 文书台预览窗与主窗状态同步：`sync-request` + 未保存 live 不被 8s 磁盘轮询覆盖
 - **不做**：对话消息区改 `role="tabpanel"`。会话 Tab 已有 `aria-controls`，面板保持 `region` + `aria-busy` + `#lawmind-chat-messages-panel`。改 tabpanel 会拆多份 e2e `getByRole("region", { name: "对话消息" })`，律师可感知收益接近零。
 

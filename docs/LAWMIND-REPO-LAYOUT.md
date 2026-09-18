@@ -26,7 +26,7 @@
 | [LAWMIND-FUTURE-ISSUES.md](./LAWMIND-FUTURE-ISSUES.md)                   | 已识别、长期回看项（sprint 以外）                                           |
 | [LAWMIND-REPO-LAYOUT.md](./LAWMIND-REPO-LAYOUT.md)                       | 本文：仓库职责划分与文档清单                                                |
 
-维护者核对（非正式产品原则）：[LAWMIND-EXECUTION-CONSTRAINTS.md](./LAWMIND-EXECUTION-CONSTRAINTS.md) 列出 50 条运行时约束的路径，以及手改会影响效果的同类文件。北极星仍是 `GOALS.md`。对照 Cursor / Codex / Claude Code 的工程审查见 [LAWMIND-AGENT-PARITY-REVIEW.md](./LAWMIND-AGENT-PARITY-REVIEW.md)。
+维护者核对（非正式产品原则）：[LAWMIND-EXECUTION-CONSTRAINTS.md](./LAWMIND-EXECUTION-CONSTRAINTS.md) 列出 50 条运行时约束的路径，以及手改会影响效果的同类文件。北极星仍是 `GOALS.md`。对照 Cursor / Codex / Claude Code 的工程审查见 [LAWMIND-AGENT-PARITY-REVIEW.md](./LAWMIND-AGENT-PARITY-REVIEW.md)。对话补档案施工合同：[LAWMIND-CHAT-MATTER-FILL.md](./LAWMIND-CHAT-MATTER-FILL.md)。
 
 写作规范：新增文档一律进 `docs/archive/` 之外需先评审；用词遵循 [LAWMIND-TERMINOLOGY.md](./LAWMIND-TERMINOLOGY.md)。
 

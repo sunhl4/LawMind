@@ -1,11 +1,11 @@
 ---
 id: legal-event-extract
 name: 法律事件抽取
-version: "1"
-description: 从传票、法院短信、举证通知抽出开庭和期限，提案写入工作台期限，不直接改日历
+version: "2"
+description: 从传票、法院短信、举证通知抽出开庭和期限，对话写穿工作台；工作台手工仍确认
 source: lawmind-builtin
 tags: ops, court, calendar
-tools: calculate
+tools: calculate, extract_legal_events, apply_legal_events, update_matter_profile
 ---
 
 # Skill · 法律事件抽取
@@ -18,5 +18,5 @@ tools: calculate
 
 ## 交件
 
-- 列出候选期限（种类 + 日期）。不要假装已经写入律师日历。
-- 下一步：请律师在工作台确认后落入期限并导出 ICS。不要在未确认时调用会改档案的写工具。
+- **对话路径**（律师说补上 / 按传票写入）：`extract_legal_events` → 仅对有 `dueAt` 的项调用 `apply_legal_events`；读到的案号/法院用 `update_matter_profile`。用中文回报写了什么。无日期不要猜，不要假装已写入日历。
+- **工作台手工路径**：律师自己贴字后点「抽出 → 确认写入」——同一存储，助手不必再拦。

@@ -327,6 +327,7 @@ export async function runTurn(opts: {
     documents: documentPeeks,
     matterKind: loadMatterKindForIntent(config.workspaceDir, session.matterId),
     previousCapabilityId,
+    matterId: session.matterId,
   });
   const modelToolNames = resolveModelToolNames({
     registeredNames: registry.listDefinitions().map((def) => def.name),

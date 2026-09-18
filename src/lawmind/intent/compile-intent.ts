@@ -223,6 +223,8 @@ function genreZh(genre: DocumentGenre): string {
       return "传票/开庭";
     case "talk":
       return "谈话";
+    case "identity":
+      return "证件";
     case "privacy":
       return "数据合规材料";
     case "ma":

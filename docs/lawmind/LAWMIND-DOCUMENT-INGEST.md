@@ -8,7 +8,7 @@
 
 | 格式                                                | 工作区 `analyze_document`                                                                                                                      | 项目目录 `read_project_file`   |
 | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
-| `.pdf`                                              | 先 `pdf-parse` 文本层；空则 OCR（最多前 5 页）；仍空且 `LAWMIND_DOC_READ_MODE=ocr_then_vision` 时用视觉模型                                    | 同左；正文片段上限约 500k 字符 |
+| `.pdf`                                              | 先 `pdf-parse` 文本层；空则 OCR（最多前 5 页）；仍空且已配视觉端点（或 `LAWMIND_DOC_READ_MODE=ocr_then_vision`）时用视觉模型；`ocr_only` 关掉  | 同左；正文片段上限约 500k 字符 |
 | `.docx`                                             | 解压 `word/document.xml` 抽取纯文本（无版式）                                                                                                  | 同左                           |
 | `.xlsx`                                             | **支持**：SheetJS 将各工作表转为 **TSV 纯文本**（无公式求值、无图表对象）；最多前 **32** 张表、每表解析约前 **5000** 行（见 `legal-tools.ts`） | 同左                           |
 | `.doc` / `.xls` / `.ppt`                            | **不支持**（旧二进制）                                                                                                                         | **不支持**                     |
@@ -19,7 +19,7 @@
 ## 环境变量
 
 - **`LAWMIND_OCR_LANGS`**：Tesseract 语言包，默认 `chi_sim+eng`。
-- **`LAWMIND_DOC_READ_MODE`**：默认 `ocr_only`。设为 **`ocr_then_vision`** 且已配置通用视觉端点（与 Agent 相同的 `LAWMIND_AGENT_*` / `QWEN_*` 等）时，图片与 PDF 在 OCR 为空后可走视觉兜底（`sourceType`：`image_vision` / `pdf_vision`）。
+- **`LAWMIND_DOC_READ_MODE`**：默认在已配置 Agent 视觉端点时，OCR 为空后走视觉兜底。显式设为 **`ocr_only`** 可关掉；设为 **`ocr_then_vision`** 强制开启（即使未改其他项）。视觉端点与 Agent 相同（`LAWMIND_AGENT_*` / `QWEN_*` 等）。`sourceType`：`image_vision` / `pdf_vision`。
 
 ## 工具分工（执行任务时怎么用）
 

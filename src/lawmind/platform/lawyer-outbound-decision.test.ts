@@ -16,6 +16,9 @@ describe("lawyer-outbound-decision", () => {
     expect(toolRequiresLawyerPause("send_email")).toBe(true);
     expect(toolRequiresLawyerPause("prepare_outbound_mail")).toBe(false);
     expect(toolRequiresLawyerPause("render_document")).toBe(false);
+    expect(toolRequiresLawyerPause("apply_legal_events")).toBe(false);
+    expect(toolRequiresLawyerPause("apply_intake_brief")).toBe(false);
+    expect(toolRequiresLawyerPause("update_matter_profile")).toBe(false);
     expect(normalizeOutboundRecipient("Counsel <Opp@Firm.CN>")).toBe("opp@firm.cn");
     expect(normalizeOutboundRecipient("opp@firm.cn")).toBe("opp@firm.cn");
     expect(normalizeOutboundRecipient("not-an-email")).toBe("");

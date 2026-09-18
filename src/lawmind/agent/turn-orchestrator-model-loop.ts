@@ -33,6 +33,7 @@ import {
   shouldHardStopToolBudget,
 } from "./tool-budget.js";
 import { applyToolDisclosureDelta } from "./tool-disclosure-delta.js";
+import { mergeTurnDisclosedToolNames } from "./tools/disclosed-turn-tools.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import { emitTurnLifecycle } from "./turn-lifecycle-hooks.js";
 import {
@@ -168,6 +169,19 @@ export async function runModelToolLoop(opts: {
     if (claimedPins.length > 0) {
       opts.ctx.contextPins = appendContextPins(opts.ctx.contextPins, claimedPins);
       pinIds.push(...claimedPins.map((pin) => makeContextPinId(pin)));
+      // Recompute disclosure packs from updated pins (summons / folder mid-turn).
+      const lastUser = opts.session.conversationHistory
+        .toReversed()
+        .find((m) => m.role === "user" && typeof m.content === "string");
+      opts.session.disclosedToolNames = mergeTurnDisclosedToolNames({
+        session: opts.session,
+        workspaceDir: opts.config.workspaceDir,
+        pins: opts.ctx.contextPins,
+        registry: opts.registry,
+        instruction: lastUser?.content,
+        matterId: opts.ctx.matterId ?? opts.turnContext.matterId,
+        projectDir: opts.ctx.projectDir,
+      });
       const sys = opts.session.conversationHistory[0];
       if (sys?.role === "system") {
         sys.content = appendPinIdsToWorldState(

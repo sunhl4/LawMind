@@ -93,16 +93,39 @@ describe("searchProjectTextFiles", () => {
 });
 
 describe("shouldUseVisionFallback", () => {
-  it("reads LAWMIND_DOC_READ_MODE", () => {
-    const prev = process.env.LAWMIND_DOC_READ_MODE;
-    process.env.LAWMIND_DOC_READ_MODE = "ocr_then_vision";
+  it("defaults on when vision endpoint is configured; ocr_only turns it off", () => {
+    const prevMode = process.env.LAWMIND_DOC_READ_MODE;
+    const prevBase = process.env.LAWMIND_AGENT_BASE_URL;
+    const prevKey = process.env.LAWMIND_AGENT_API_KEY;
+    const prevModel = process.env.LAWMIND_AGENT_MODEL;
+    delete process.env.LAWMIND_DOC_READ_MODE;
+    process.env.LAWMIND_AGENT_BASE_URL = "https://example.invalid/v1";
+    process.env.LAWMIND_AGENT_API_KEY = "sk-test";
+    process.env.LAWMIND_AGENT_MODEL = "vision-test";
     expect(shouldUseVisionFallback()).toBe(true);
     process.env.LAWMIND_DOC_READ_MODE = "ocr_only";
     expect(shouldUseVisionFallback()).toBe(false);
-    if (prev === undefined) {
+    process.env.LAWMIND_DOC_READ_MODE = "ocr_then_vision";
+    expect(shouldUseVisionFallback()).toBe(true);
+    if (prevMode === undefined) {
       delete process.env.LAWMIND_DOC_READ_MODE;
     } else {
-      process.env.LAWMIND_DOC_READ_MODE = prev;
+      process.env.LAWMIND_DOC_READ_MODE = prevMode;
+    }
+    if (prevBase === undefined) {
+      delete process.env.LAWMIND_AGENT_BASE_URL;
+    } else {
+      process.env.LAWMIND_AGENT_BASE_URL = prevBase;
+    }
+    if (prevKey === undefined) {
+      delete process.env.LAWMIND_AGENT_API_KEY;
+    } else {
+      process.env.LAWMIND_AGENT_API_KEY = prevKey;
+    }
+    if (prevModel === undefined) {
+      delete process.env.LAWMIND_AGENT_MODEL;
+    } else {
+      process.env.LAWMIND_AGENT_MODEL = prevModel;
     }
   });
 });

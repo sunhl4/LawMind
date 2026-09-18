@@ -321,5 +321,31 @@ export function attachDeadlineId(
   });
 }
 
+export function detachDeadlineIds(
+  workspaceDir: string,
+  matterId: string,
+  deadlineIds: string[],
+): MatterRecord | undefined {
+  if (deadlineIds.length === 0) {
+    return loadMatter(workspaceDir, matterId);
+  }
+  const drop = new Set(deadlineIds);
+  return withMatterLock(workspaceDir, matterId, () => {
+    const existing = loadMatter(workspaceDir, matterId);
+    if (!existing) {
+      return undefined;
+    }
+    const next = existing.deadlineIds.filter((id) => !drop.has(id));
+    if (next.length === existing.deadlineIds.length) {
+      return existing;
+    }
+    return saveMatter(workspaceDir, {
+      ...existing,
+      deadlineIds: next,
+      updatedAt: newTimestamp(),
+    });
+  });
+}
+
 export { loadMatter as readMatter };
 export type { MatterRecord };

@@ -21,6 +21,11 @@ export const MATTER_SCOPE_REQUIRED = new Set<string>([
   "get_matter_summary",
   "list_mail_inbox",
   "list_mail_attachments",
+  "apply_legal_events",
+  "compile_intake_brief",
+  "apply_intake_brief",
+  "update_matter_profile",
+  "revert_desk_write",
 ]);
 
 export const BACKGROUND_JOB_TOOLS = new Set<string>(["execute_workflow"]);
@@ -59,6 +64,7 @@ export const IDEMPOTENT_READ_TOOLS = new Set<string>([
   "web_search",
   "search_statute_web",
   "url_dossier",
+  "extract_legal_events",
 ]);
 
 export const WRITE_TOOLS = new Set<string>([
@@ -88,4 +94,10 @@ export const WRITE_TOOLS = new Set<string>([
   "run_compute",
   "import_host_file",
   "run_host_command",
+  "apply_legal_events",
+  "compile_intake_brief",
+  "apply_intake_brief",
+  "update_matter_profile",
+  "revert_desk_write",
+  "create_matter",
 ]);

@@ -64,6 +64,21 @@ const SPY_SPECS: SpySpec[] = [
   { name: "search_statute", category: "search", riskLevel: "low" },
   { name: "search_case_law", category: "search", riskLevel: "low" },
   { name: "calculate", category: "analyze", riskLevel: "low" },
+  { name: "extract_legal_events", category: "matter", riskLevel: "low" },
+  { name: "apply_legal_events", category: "matter", riskLevel: "medium" },
+  { name: "compile_intake_brief", category: "matter", riskLevel: "medium" },
+  { name: "apply_intake_brief", category: "matter", riskLevel: "medium" },
+  { name: "update_matter_profile", category: "matter", riskLevel: "medium" },
+  { name: "revert_desk_write", category: "matter", riskLevel: "medium" },
+  { name: "create_matter", category: "matter", riskLevel: "medium" },
+  { name: "get_matter_summary", category: "matter", riskLevel: "low" },
+  { name: "read_case_file", category: "matter", riskLevel: "low" },
+  { name: "list_matters", category: "matter", riskLevel: "low" },
+  { name: "add_case_note", category: "matter", riskLevel: "medium" },
+  { name: "record_deadline", category: "system", riskLevel: "medium" },
+  { name: "import_host_file", category: "search", riskLevel: "medium" },
+  { name: "search_host", category: "search", riskLevel: "low" },
+  { name: "read_host_file", category: "search", riskLevel: "low" },
 ];
 
 export type GateSpyRegistry = {

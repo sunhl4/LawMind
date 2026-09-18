@@ -6,6 +6,7 @@ import {
   destRelForDroppedFile,
   importDroppedAbsPath,
   importDroppedAbsPaths,
+  importPastedBytes,
 } from "./import-dropped-files.mjs";
 
 function tmpDir(): string {
@@ -144,5 +145,23 @@ describe("import-dropped-files", () => {
     expect(batch.items).toHaveLength(1);
     expect(batch.errors.length).toBeGreaterThan(0);
     fs.unlinkSync(src);
+  });
+
+  it("writes pasted image bytes into case materials", () => {
+    workspaceDir = tmpDir();
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const result = importPastedBytes({
+      workspaceDir,
+      bytes: png,
+      fileName: "传票截图.png",
+      mimeType: "image/png",
+      matterId: "matter-nda",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.relPath).toMatch(/^cases\/matter-nda\/materials\//);
+    expect(fs.existsSync(path.join(workspaceDir, result.relPath))).toBe(true);
   });
 });

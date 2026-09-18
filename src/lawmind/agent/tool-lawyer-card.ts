@@ -175,6 +175,27 @@ function describeCallArgs(name: string, args: Record<string, unknown>): string |
     }
     case "calculate":
       return "按公式核算";
+    case "apply_legal_events": {
+      const events = args.events;
+      if (Array.isArray(events) && events.length > 0) {
+        return `${events.length} 项期限`;
+      }
+      const text = firstString(args, ["text"]);
+      return text ? clip(text, 40) : undefined;
+    }
+    case "compile_intake_brief": {
+      const t = firstString(args, ["transcript"]);
+      return t ? clip(t, 40) : undefined;
+    }
+    case "update_matter_profile": {
+      const caseNo = firstString(args, ["case_no"]);
+      const court = firstString(args, ["court"]);
+      return caseNo || court ? clip([caseNo, court].filter(Boolean).join(" · "), 48) : undefined;
+    }
+    case "create_matter": {
+      const title = firstString(args, ["title"]);
+      return title ? clip(title) : undefined;
+    }
     default:
       return undefined;
   }

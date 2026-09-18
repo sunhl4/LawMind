@@ -208,9 +208,29 @@ export const INTENT_GOLD_CASES: readonly IntentGoldCase[] = [
     expect: "ops.court_sms",
   },
   {
+    id: "summons-jpg",
+    input: { instruction: "帮我看看", pins: [pin("开庭传票.jpg")] },
+    expect: "ops.court_sms",
+  },
+  {
     id: "talk-file",
     input: { instruction: "整理", pins: [pin("客户谈话记录.txt")] },
     expect: "litigation.talk",
+  },
+  {
+    id: "folder-fill-intake",
+    input: {
+      instruction: "按这个文件夹补卷宗",
+      pins: [
+        {
+          pinKind: "file",
+          root: "workspace",
+          relPath: "materials/证据包",
+          kind: "directory",
+        },
+      ],
+    },
+    expect: "matter.intake",
   },
   {
     id: "privacy-file",

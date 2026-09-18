@@ -14,7 +14,9 @@ import {
 import { loadMatter } from "../../../src/lawmind/adapters/matter-storage/index.js";
 import { listMatterIdsFromStorage } from "../../../src/lawmind/adapters/matter-storage/io.js";
 import { parseMatterKind, MATTER_KIND_LABELS } from "../../../src/lawmind/desk/matter-kind.js";
-import { extractLegalEvents, defaultRemindBeforeHours } from "../../../src/lawmind/desk/legal-event-extract.js";
+import { extractLegalEvents } from "../../../src/lawmind/desk/legal-event-extract.js";
+import { applyLegalEvents, applyIntakeBrief } from "../../../src/lawmind/desk/desk-apply.js";
+import { readDeskMaterialText } from "../../../src/lawmind/desk/desk-material-text.js";
 import { formatDeadlinesIcs } from "../../../src/lawmind/desk/deadline-ics.js";
 import { appendDailyPlanItems, setDailyPlanItemDone, markDailyPlanSourceDone } from "../../../src/lawmind/desk/daily-plan.js";
 import { buildTodayWorkSnapshot } from "../../../src/lawmind/desk/today-work.js";
@@ -62,6 +64,11 @@ const deadlinePatchSchema = z.object({
 
 const extractPostSchema = z.object({
   text: z.string().trim().min(1).max(20_000),
+  matterId: z.string().trim().optional(),
+});
+
+const extractFilePostSchema = z.object({
+  relPath: z.string().trim().min(1).max(500),
   matterId: z.string().trim().optional(),
 });
 
@@ -343,6 +350,39 @@ export async function handleLawyerDeskRoutes({
     return true;
   }
 
+  if (pathname === "/api/desk/events/extract-file" && req.method === "POST") {
+    try {
+      const body = await parseJsonBodyZod(req, extractFilePostSchema);
+      const read = await readDeskMaterialText(workspaceDir, body.relPath);
+      if (!read.ok) {
+        sendJson(res, 400, { ok: false, error: read.error }, c);
+        return true;
+      }
+      if (!read.text) {
+        sendJson(res, 400, { ok: false, error: "文件未读出文字，请换材料或手填。" }, c);
+        return true;
+      }
+      sendJson(
+        res,
+        200,
+        {
+          ok: true,
+          text: read.text.slice(0, 20_000),
+          sourceType: read.sourceType,
+          events: extractLegalEvents(read.text),
+        },
+        c,
+      );
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid extract-file" }, c);
+        return true;
+      }
+      throw err;
+    }
+    return true;
+  }
+
   if (pathname === "/api/desk/events/confirm" && req.method === "POST") {
     try {
       const body = await parseJsonBodyZod(req, confirmEventsSchema);
@@ -350,18 +390,27 @@ export async function handleLawyerDeskRoutes({
         sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
         return true;
       }
-      const recorded = body.events.map((ev) =>
-        recordDeadline(workspaceDir, {
-          matterId: body.matterId,
+      const applied = await applyLegalEvents(
+        workspaceDir,
+        body.matterId,
+        body.events.map((ev) => ({
+          eventKind: ev.eventKind,
           title: ev.title,
           dueAt: ev.dueAt,
-          eventKind: ev.eventKind,
           notes: ev.notes,
-          source: "document_extract",
-          remindBeforeHours: defaultRemindBeforeHours(ev.eventKind),
-        }),
+        })),
+        { createMatterIfMissing: true },
       );
-      sendJson(res, 200, { ok: true, deadlines: recorded }, c);
+      if (!applied.ok) {
+        sendJson(res, 400, { ok: false, error: applied.error }, c);
+        return true;
+      }
+      sendJson(
+        res,
+        200,
+        { ok: true, deadlines: applied.deadlines, writeId: applied.writeId },
+        c,
+      );
     } catch (err) {
       if (isInvalidRequestBodyError(err)) {
         sendJson(res, 400, { ok: false, error: "invalid confirm" }, c);
@@ -455,12 +504,12 @@ export async function handleLawyerDeskRoutes({
     if (!matterId) {
       return true;
     }
-    const brief = await confirmIntakeBrief(workspaceDir, matterId);
-    if (!brief) {
-      sendJson(res, 404, { ok: false, error: "brief not found" }, c);
+    const applied = await applyIntakeBrief(workspaceDir, matterId);
+    if (!applied.ok) {
+      sendJson(res, 404, { ok: false, error: applied.error }, c);
       return true;
     }
-    sendJson(res, 200, { ok: true, brief }, c);
+    sendJson(res, 200, { ok: true, brief: applied.brief, writeId: applied.writeId }, c);
     return true;
   }
 

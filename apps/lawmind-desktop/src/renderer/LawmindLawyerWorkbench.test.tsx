@@ -332,6 +332,108 @@ describe("LawmindLawyerWorkbench", () => {
     expect(host.textContent).toContain("要件事实");
     expect(host.textContent).toContain("已付定金未交货");
     expect(host.textContent).toContain("缺付款凭证");
+    expect(host.querySelector('[data-testid="lm-lawyer-talk-drop"]')).toBeTruthy();
+  });
+
+  it("deadlines pane keeps confirm-write after extract preview", async () => {
+    vi.mocked(apiGetJson).mockImplementation(async (_base: string, path: string) => {
+      if (path === "/api/desk/today") {
+        return { ok: true, today: { date: "2026-09-09", items: [], progress: { done: 0, total: 0 } } };
+      }
+      if (path.startsWith("/api/desk/matters")) {
+        return {
+          ok: true,
+          matters: [
+            {
+              matterId: "m1",
+              title: "买卖合同纠纷",
+              status: "open",
+              matterKind: "litigation",
+              matterKindLabel: "诉讼",
+              openDeadlineCount: 0,
+            },
+          ],
+        };
+      }
+      if (path.includes("/pulse")) {
+        return {
+          ok: true,
+          pulse: {
+            title: "买卖合同纠纷",
+            status: "active",
+            statusLabel: "进行中",
+            counts: { documents: 0, tasks: 0, files: 0, deadlines: 0, mail: 0, approvals: 0 },
+            daysUntilHearing: null,
+            documents: [],
+            tasks: [],
+            files: [],
+            mail: [],
+            nextActions: [],
+          },
+        };
+      }
+      if (path.includes("/deadlines")) {
+        return { ok: true, deadlines: [] };
+      }
+      if (path.includes("/intake-brief") || path.includes("/similar-cases")) {
+        return { ok: true, brief: null, hits: [] };
+      }
+      return { ok: true };
+    });
+    vi.mocked(apiSendJson).mockImplementation(async (_base, path) => {
+      if (path === "/api/desk/events/extract") {
+        return {
+          ok: true,
+          events: [
+            {
+              eventKind: "hearing",
+              title: "开庭",
+              dueAt: "2026-10-12T01:00:00.000Z",
+              confidence: "high",
+            },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+
+    await act(async () => {
+      root.render(
+        <LawmindLawyerWorkbench
+          apiBase="http://127.0.0.1:9"
+          selectedMatterId="m1"
+          onSelectMatter={vi.fn()}
+          onGoToChat={vi.fn()}
+        />,
+      );
+    });
+    await flush();
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>(".lm-matter-card")?.click();
+    });
+    await flush();
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>("#lm-lawyer-tab-deadlines")?.click();
+    });
+    await flush();
+    expect(host.querySelector('[data-testid="lm-lawyer-deadlines-drop"]')).toBeTruthy();
+    const ta = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="抽取期限材料"]');
+    expect(ta).toBeTruthy();
+    await act(async () => {
+      if (!ta) {
+        return;
+      }
+      ta.value = "传票：2026年10月12日开庭";
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      const btn = Array.from(host.querySelectorAll("button")).find((b) =>
+        b.textContent?.includes("抽出期限"),
+      );
+      btn?.click();
+    });
+    await flush();
+    expect(host.textContent).toMatch(/确认写入/);
   });
 
   it("lets mail without a matter still jump to chat", async () => {

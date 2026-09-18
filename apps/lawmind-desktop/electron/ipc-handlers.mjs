@@ -47,7 +47,7 @@ import {
   setProjectDir,
   getAllowedRoots,
 } from "./local-server.mjs";
-import { importDroppedAbsPaths } from "./import-dropped-files.mjs";
+import { importDroppedAbsPaths, importPastedBytes } from "./import-dropped-files.mjs";
 import {
   readHostAccessStore,
   writeHostAccessStore,
@@ -56,8 +56,8 @@ import {
 
 import { LAWMIND_PRODUCT_NAME, resolveRuntimeAppIconPath } from "./brand.mjs";
 
-const __electronDir = path.dirname(fileURLToPath(import.meta.url));
-const appIconPath = resolveRuntimeAppIconPath(__electronDir);
+const electronDir = path.dirname(fileURLToPath(import.meta.url));
+const appIconPath = resolveRuntimeAppIconPath(electronDir);
 const requireCjs = createRequire(import.meta.url);
 const { probeModelInline } = requireCjs("./lawmind-model-probe.cjs");
 
@@ -911,6 +911,25 @@ export function registerIpcHandlers(deps) {
         items: [],
         errors: [],
       };
+    }
+  });
+
+  /** Clipboard paste image bytes → case materials / uploads. */
+  ipcMain.handle("lawmind:fs:import-pasted", (_evt, payload) => {
+    try {
+      const bytes = payload?.bytes;
+      if (!bytes) {
+        return { ok: false, error: "没有粘贴内容" };
+      }
+      return importPastedBytes({
+        workspaceDir,
+        bytes,
+        fileName: typeof payload?.fileName === "string" ? payload.fileName : null,
+        mimeType: typeof payload?.mimeType === "string" ? payload.mimeType : null,
+        matterId: typeof payload?.matterId === "string" ? payload.matterId : null,
+      });
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   });
 

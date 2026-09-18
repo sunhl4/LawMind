@@ -1,11 +1,11 @@
 ---
 id: court-sms-intake
 name: 法院短信识别
-version: "1"
-description: 从法院/12368 短信抽出案号、开庭时间和待办，写入时间轴或期限
+version: "2"
+description: 从法院/12368 短信抽出案号、开庭时间和待办，对话写入期限与卷宗
 source: lawmind-builtin
 tags: ops, court, sms
-tools: calculate
+tools: calculate, extract_legal_events, apply_legal_events, update_matter_profile
 ---
 
 # Skill · 法院短信识别
@@ -20,4 +20,5 @@ tools: calculate
 
 - 时间轴一行：日期—事件。
 - 能算的答辩/上诉届满用 `calculate`（legal_period）。
+- **对话路径**：有日期则 `extract_legal_events` → `apply_legal_events`；案号/法院 `update_matter_profile`。回报已写入项。
 - 下一步：到庭、交费、提交材料。不要编造尚未出现的文书正文。
