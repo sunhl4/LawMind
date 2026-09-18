@@ -211,7 +211,7 @@ describe("LawmindLawyerWorkbench", () => {
       );
     });
     await flush();
-    const callsBefore = getJson.mock.calls.filter((c) => String(c[1]).startsWith("/api/desk/matters")).length;
+    const callsBefore = getJson.mock.calls.filter((c) => c[1].startsWith("/api/desk/matters")).length;
     await act(async () => {
       root.render(
         <LawmindLawyerWorkbench
@@ -224,7 +224,7 @@ describe("LawmindLawyerWorkbench", () => {
       );
     });
     await flush();
-    const callsAfter = getJson.mock.calls.filter((c) => String(c[1]).startsWith("/api/desk/matters")).length;
+    const callsAfter = getJson.mock.calls.filter((c) => c[1].startsWith("/api/desk/matters")).length;
     expect(callsAfter).toBeGreaterThan(callsBefore);
   });
 
@@ -319,6 +319,7 @@ describe("LawmindLawyerWorkbench", () => {
     expect(host.textContent).toContain("起诉状草稿");
     expect(host.textContent).toContain("乙公司");
     expect(host.textContent).toContain("本案下一步");
+    expect(host.querySelector(".lm-overview-next-item")).toBeTruthy();
     expect(host.textContent).toContain("补转账记录");
     // 下一步应排在案件信息之前（动作优先）
     const overview = host.querySelector(".lm-overview")?.textContent ?? "";

@@ -79,6 +79,8 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
     onDelete,
   } = props;
   const [sectionOpen, setSectionOpen] = useState(true);
+  /** Filter is off by default (Cursor-style list + ＋). Reveal via ⌘⇧F / palette only. */
+  const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [remoteHits, setRemoteHits] = useState<SideChatSessionRow[] | null>(null);
   const [remotePending, setRemotePending] = useState(false);
@@ -91,7 +93,7 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
 
   useEffect(() => {
     if (!editingId) {
-      return;
+      return undefined;
     }
     const t = window.setTimeout(() => {
       inputRef.current?.focus();
@@ -102,6 +104,7 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
 
   const focusSearch = useCallback(() => {
     setSectionOpen(true);
+    setSearchOpen(true);
     window.setTimeout(() => {
       searchInputRef.current?.focus();
       searchInputRef.current?.select();
@@ -249,15 +252,30 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
       <div className="lm-fs-dual-root-header lm-side-chat-sessions-header">
         <button
           type="button"
-          className="lm-fs-dual-root-toggle"
+          className="lm-fs-dual-expander"
           aria-expanded={sectionOpen}
+          aria-label={`${sectionOpen ? "折叠" : "展开"}对话`}
+          title={sectionOpen ? "折叠" : "展开"}
           onClick={() => setSectionOpen((v) => !v)}
         >
-          <span className="lm-fs-dual-root-chevron" aria-hidden>
-            {sectionOpen ? "▾" : "▸"}
+          <span className={`lm-fs-arrow ${sectionOpen ? "open" : ""}`} aria-hidden>
+            ▸
           </span>
-          <span className="lm-fs-dual-root-label">对话</span>
         </button>
+        <div
+          className="lm-fs-dual-header-body"
+          role="button"
+          tabIndex={0}
+          onClick={() => setSectionOpen((v) => !v)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              setSectionOpen((v) => !v);
+            }
+          }}
+        >
+          <span className="lm-section-label">对话</span>
+        </div>
         <button
           type="button"
           className="lm-fs-root-add"
@@ -272,21 +290,29 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
 
       {sectionOpen ? (
         <div className="lm-side-chat-sessions-body">
-          {sessions.length > 0 ? (
+          {searchOpen && sessions.length > 0 ? (
             <input
               ref={searchInputRef}
               className="lm-sidebar-search lm-side-chat-sessions-search"
               type="search"
               value={query}
-              placeholder="搜索对话"
-              aria-label="搜索对话"
+              placeholder="筛选对话…"
+              aria-label="筛选对话"
               data-testid="lm-side-chat-search"
               onChange={(e) => setQuery(e.target.value)}
               onClick={(e) => e.stopPropagation()}
-              onKeyDown={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setQuery("");
+                  setSearchOpen(false);
+                  setRemoteHits(null);
+                }
+              }}
             />
           ) : null}
-          <div aria-label="对话列表">
+          <div className="lm-side-chat-sessions-list lm-scroll" role="listbox" aria-label="对话列表">
             {loading && sessions.length === 0 ? (
               <p className="lm-meta lm-side-chat-sessions-empty">加载中…</p>
             ) : null}

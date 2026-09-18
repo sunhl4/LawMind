@@ -54,7 +54,7 @@ describe("LawmindSideChatSessions", () => {
     host.remove();
   });
 
-  it("shows a search field when there are conversations", async () => {
+  it("matches 案件材料: section label + far-right ＋, no always-on search", async () => {
     await act(async () => {
       root.render(
         <LawmindSideChatSessions
@@ -69,12 +69,13 @@ describe("LawmindSideChatSessions", () => {
         />,
       );
     });
-    expect(host.querySelector('[data-testid="lm-side-chat-search"]')).toBeTruthy();
+    expect(host.querySelector('[data-testid="lm-side-chat-search"]')).toBeNull();
+    expect(host.querySelector('[aria-label="新建对话"]')).toBeTruthy();
     expect(host.querySelector('[data-testid="lm-side-chat-session-a"]')).toBeTruthy();
     expect(host.querySelector('[data-testid="lm-side-chat-session-b"]')).toBeTruthy();
   });
 
-  it("focuses the search field from the jump-chats event", async () => {
+  it("reveals a compact filter from the jump-chats event", async () => {
     await act(async () => {
       root.render(
         <LawmindSideChatSessions
@@ -86,7 +87,13 @@ describe("LawmindSideChatSessions", () => {
         />,
       );
     });
+    expect(host.querySelector('[data-testid="lm-side-chat-search"]')).toBeNull();
+    await act(async () => {
+      window.dispatchEvent(new Event("lawmind:focus-chat-search"));
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    });
     const input = host.querySelector('[data-testid="lm-side-chat-search"]') as HTMLInputElement;
+    expect(input).toBeTruthy();
     const focus = vi.spyOn(input, "focus");
     await act(async () => {
       window.dispatchEvent(new Event("lawmind:focus-chat-search"));

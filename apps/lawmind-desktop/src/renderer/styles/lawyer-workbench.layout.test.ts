@@ -43,6 +43,14 @@ describe("lawyer-workbench layout iron-laws", () => {
     expect(rules).toMatch(/grid-template-columns:\s*repeat\(3/);
   });
 
+  it("matter pulse stays a compact row, never a 2×2 card wall", () => {
+    const pulse = topLevelBlock(css, ".lm-pulse-bar");
+    expect(pulse).toMatch(/display:\s*flex/);
+    expect(pulse).not.toMatch(/grid-template-columns:\s*repeat\(4/);
+    const body = mediaBody(css, "max-width:\\s*1200px");
+    expect(body).not.toMatch(/\.lm-pulse-bar\s*\{[^}]*grid-template-columns:\s*1fr\s+1fr/);
+  });
+
   it("≤1200px does not stack 快捷入口 into a single column that eats the cockpit", () => {
     const body = mediaBody(css, "max-width:\\s*1200px");
     expect(body).not.toMatch(/\.lm-desk-quick\s*,/);
