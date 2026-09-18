@@ -448,7 +448,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
       setSimilar([]);
       setStandards([]);
       setPulse(null);
-      return;
+      return undefined;
     }
     let cancelled = false;
     void (async () => {
@@ -1362,16 +1362,16 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                 ))}
               </div>
 
-              <div className="lm-matter-scroll">
+              <div className="lm-matter-scroll lm-scroll">
                 {matterPane === "overview" ? (
                   <div className="lm-overview" id="lm-lawyer-pane-overview" role="tabpanel" aria-labelledby="lm-lawyer-tab-overview">
                     {(pulse?.nextActions ?? []).length > 0 ? (
                       <section className="lm-overview-card lm-overview-card--next" aria-label="本案下一步">
                         <h3>本案下一步</h3>
-                        <ul className="lm-lawyer-deadline-list">
+                        <ul className="lm-overview-next-list">
                           {(pulse?.nextActions ?? []).slice(0, 6).map((action) => (
-                            <li key={action} className="lm-lawyer-deadline-row">
-                              <span className="lm-lawyer-deadline-copy">{action}</span>
+                            <li key={action} className="lm-overview-next-item">
+                              {action}
                             </li>
                           ))}
                         </ul>
