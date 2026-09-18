@@ -103,6 +103,9 @@ export type UseLawmindChatSendInput = {
     sessionSummaryPath?: string;
     droppedMessageCount?: number;
     overflowPrune?: boolean;
+    firstKeptTimestamp?: string;
+    digestCharCount?: number;
+    boundaryId?: string;
   }) => void;
   onStreamToolBudget?: (info: { used: number; maxToolCalls: number }) => void;
   /** After a turn finishes (success or failure) — e.g. refresh action-summary / sticky review. */
@@ -212,6 +215,17 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
         sendQueueRef.current.push(text);
         setQueuedMessages([...sendQueueRef.current]);
         setInput("");
+        const liveSessionId = sessionByAssistant[selectedAssistantId];
+        if (liveSessionId && config.apiBase) {
+          void apiSendJson(
+            config.apiBase,
+            `/api/sessions/${encodeURIComponent(liveSessionId)}/followup`,
+            "POST",
+            { text },
+          ).catch(() => {
+            /* local queue still drains after the live turn */
+          });
+        }
         return;
       }
       const picked = modelCatalog.find((m) => m.id === selectedModelId);
@@ -330,6 +344,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       // 发送成功后清空该案件的草稿暂存，避免 compose 恢复效应把刚发出的文本回填。
       writeComposeStash(contextMatterId, "");
       let assistantPlaceholderIndex = -1;
+      let completedSessionId: string | undefined = sessionByAssistant[assistantId];
       setMessagesByAssistant((previous) => {
         const next = appendChatMessage(previous, assistantId, { role: "user", text });
         const withPlaceholder = appendChatMessage(next, assistantId, {
@@ -469,6 +484,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
           return;
         }
         if (result.sessionId) {
+          completedSessionId = result.sessionId;
           setSessionByAssistant((previous) => ({ ...previous, [assistantId]: result.sessionId }));
           persistActiveChatSessionId(
             chatSessionStoreKey(config.workspaceDir),
@@ -578,11 +594,57 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
         if (stoppedByUser) {
           sendQueueRef.current = [];
           setQueuedMessages([]);
+          const sid = completedSessionId ?? sessionByAssistant[selectedAssistantId];
+          if (sid && config?.apiBase) {
+            void apiSendJson(
+              config.apiBase,
+              `/api/sessions/${encodeURIComponent(sid)}/followup/claim`,
+              "POST",
+              {},
+            ).catch(() => {
+              /* discard persisted follow-ups after stop */
+            });
+          }
         } else {
-          const nextQueued = sendQueueRef.current.shift();
+          const localNext = sendQueueRef.current.shift();
           setQueuedMessages([...sendQueueRef.current]);
-          if (nextQueued?.trim()) {
-            queueMicrotask(() => void sendChatMessage(nextQueued, { fromQueue: true }));
+          const sid = completedSessionId ?? sessionByAssistant[selectedAssistantId];
+          if (localNext?.trim()) {
+            // Local queue is source of truth for this drain; clear sidecar so claim cannot double-send.
+            if (sid && config?.apiBase) {
+              void apiSendJson(
+                config.apiBase,
+                `/api/sessions/${encodeURIComponent(sid)}/followup/claim`,
+                "POST",
+                {},
+              ).catch(() => {
+                /* ignore */
+              });
+            }
+            queueMicrotask(() => void sendChatMessage(localNext, { fromQueue: true }));
+          } else if (sid && config?.apiBase) {
+            void apiSendJson<{ notes?: string[] }>(
+              config.apiBase,
+              `/api/sessions/${encodeURIComponent(sid)}/followup/claim`,
+              "POST",
+              {},
+            )
+              .then((body) => {
+                const notes = Array.isArray(body?.notes) ? body.notes : [];
+                const first = notes.find((n) => typeof n === "string" && n.trim());
+                if (first?.trim()) {
+                  for (const note of notes.slice(1)) {
+                    if (typeof note === "string" && note.trim()) {
+                      sendQueueRef.current.push(note.trim());
+                    }
+                  }
+                  setQueuedMessages([...sendQueueRef.current]);
+                  queueMicrotask(() => void sendChatMessage(first.trim(), { fromQueue: true }));
+                }
+              })
+              .catch(() => {
+                /* ignore claim failures */
+              });
           }
         }
       }

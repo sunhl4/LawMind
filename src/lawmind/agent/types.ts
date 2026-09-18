@@ -367,6 +367,18 @@ export type AgentSession = {
    */
   disclosedToolNames?: string[];
   /**
+   * Last auto-compact boundary (audit / UI). Cleared only when overwritten.
+   */
+  lastCompactBoundary?: {
+    boundaryId: string;
+    at: string;
+    droppedMessageCount?: number;
+    firstKeptTimestamp?: string;
+    firstKeptRole?: AgentMessage["role"];
+    digestCharCount?: number;
+    sessionSummaryPath?: string;
+  };
+  /**
    * Plan→Execute 交接（计划模式产出）：写入 session.json，便于刷新 / 跨端同工作区恢复。
    * 桌面仍可镜像到 localStorage 作离线缓存。
    */

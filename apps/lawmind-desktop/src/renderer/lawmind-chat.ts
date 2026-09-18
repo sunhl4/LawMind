@@ -271,6 +271,9 @@ export type StreamingChatCallbacks = {
     sessionSummaryPath?: string;
     droppedMessageCount?: number;
     overflowPrune?: boolean;
+    firstKeptTimestamp?: string;
+    digestCharCount?: number;
+    boundaryId?: string;
   }) => void;
   onPlanUpdate?: (plan: AgentTurnPlan) => void;
   onIntent?: (intent: ChatCompiledIntent) => void;
@@ -430,6 +433,13 @@ export async function sendChatTurnStream(
               typeof parsed.droppedMessageCount === "number"
                 ? parsed.droppedMessageCount
                 : undefined,
+            firstKeptTimestamp:
+              typeof parsed.firstKeptTimestamp === "string"
+                ? parsed.firstKeptTimestamp
+                : undefined,
+            digestCharCount:
+              typeof parsed.digestCharCount === "number" ? parsed.digestCharCount : undefined,
+            boundaryId: typeof parsed.boundaryId === "string" ? parsed.boundaryId : undefined,
           });
           break;
         }

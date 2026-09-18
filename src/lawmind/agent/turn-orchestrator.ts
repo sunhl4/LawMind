@@ -31,6 +31,7 @@ import {
   isTurnAbortRequested,
   requestTurnAbort,
 } from "./turn-abort.js";
+import { emitTurnLifecycle } from "./turn-lifecycle-hooks.js";
 import type { RunTurnEvent } from "./turn-orchestrator-events.js";
 import { pruneTurnPlanForNewInstruction, withUpdatePlanControlTool } from "./turn-plan.js";
 export type { RunTurnEvent } from "./turn-orchestrator-events.js";
@@ -478,10 +479,36 @@ export async function runTurn(opts: {
       // Same-turn reinjection: prepare already ran; patch system message before model loop.
       const mandatory = resolveAgentMandatoryRulesForPrompt(config.workspaceDir, policyForCompact);
       applyCompactReinjectionToSession(session, { mandatoryRulesActive: mandatory.active });
+      const boundaryId =
+        compactResult.boundaryId ??
+        `${new Date().toISOString()}#${compactResult.droppedMessageCount ?? 0}`;
+      session.lastCompactBoundary = {
+        boundaryId,
+        at: new Date().toISOString(),
+        droppedMessageCount: compactResult.droppedMessageCount,
+        firstKeptTimestamp: compactResult.firstKeptTimestamp,
+        firstKeptRole: compactResult.firstKeptRole,
+        digestCharCount: compactResult.droppedDigest?.length,
+        sessionSummaryPath: compactResult.sessionSummaryPath,
+      };
       emitEvent({
         type: "compact_boundary",
         sessionSummaryPath: compactResult.sessionSummaryPath,
         droppedMessageCount: compactResult.droppedMessageCount,
+        firstKeptTimestamp: compactResult.firstKeptTimestamp,
+        firstKeptRole: compactResult.firstKeptRole,
+        digestCharCount: compactResult.droppedDigest?.length,
+        boundaryId,
+      });
+      emitTurnLifecycle({
+        phase: "after_compact",
+        sessionId: session.sessionId,
+        turnId: turn.turnId,
+        detail: {
+          boundaryId,
+          droppedMessageCount: compactResult.droppedMessageCount,
+          firstKeptTimestamp: compactResult.firstKeptTimestamp,
+        },
       });
     }
 

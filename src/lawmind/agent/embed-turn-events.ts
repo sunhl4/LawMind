@@ -18,6 +18,8 @@ export const EMBED_TURN_EVENT_TYPES = [
   "tool_budget",
   "compact_boundary",
   "overflow_prune",
+  "model_error",
+  "tool_delta",
   "requires_action",
   "approval_request",
   "plan_update",

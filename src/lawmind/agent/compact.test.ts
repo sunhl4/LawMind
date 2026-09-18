@@ -167,6 +167,9 @@ describe("autoCompactSessionHistory", () => {
     });
     expect(out.compacted).toBe(true);
     expect(out.droppedDigest).toBeTruthy();
+    expect(out.firstKeptTimestamp).toBeTruthy();
+    expect(out.firstKeptRole).toBeTruthy();
+    expect(out.boundaryId).toMatch(/#/);
     expect(out.messages.some((m) => m.content?.includes("压缩前对话蒸馏"))).toBe(true);
     expect(fs.existsSync(path.join(ws, "cases", matterId, "compact-digest.md"))).toBe(true);
     const lastRealUser = [...out.messages]

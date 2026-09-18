@@ -2,7 +2,7 @@
  * Turn orchestrator events and reply helpers.
  */
 import type { ClarificationQuestion } from "../types.js";
-import type { AgentSession, AgentTurn } from "./types.js";
+import type { AgentMessage, AgentSession, AgentTurn } from "./types.js";
 
 export function extractClarificationQuestions(result: {
   ok: boolean;
@@ -160,11 +160,26 @@ export type RunTurnEvent =
       type: "compact_boundary";
       sessionSummaryPath?: string;
       droppedMessageCount?: number;
+      firstKeptTimestamp?: string;
+      firstKeptRole?: AgentMessage["role"];
+      digestCharCount?: number;
+      boundaryId?: string;
     }
   | {
       type: "overflow_prune";
       prunedCount: number;
       charsRemoved: number;
+    }
+  | {
+      type: "model_error";
+      roundIndex: number;
+      message: string;
+    }
+  | {
+      type: "tool_delta";
+      roundIndex: number;
+      added: string[];
+      removed: string[];
     }
   | {
       type: "requires_action";

@@ -17,6 +17,7 @@ import path from "node:path";
 import type { ResumeRequiresActionInput } from "../../platform/requires-action.js";
 import { resumeTurn, type ResumeTurnOpts } from "../runtime-resume.js";
 import { runTurn, type RunTurnEvent } from "../runtime.js";
+import { queuePendingFollowup } from "../session-context-followup.js";
 import { queuePendingSteer } from "../session-context-steer.js";
 import { createSession, loadSession, saveSession } from "../session.js";
 import { createLegalToolRegistry } from "../tools/legal-tools.js";
@@ -227,6 +228,17 @@ export class TestLawMind {
       throw new Error("queueSteer requires an active session (run a turn first, or seedHistory)");
     }
     queuePendingSteer(this.workspaceDir, sessionId, text);
+    return this;
+  }
+
+  queueFollowup(text: string): this {
+    const sessionId = this.sessionId;
+    if (!sessionId) {
+      throw new Error(
+        "queueFollowup requires an active session (run a turn first, or seedHistory)",
+      );
+    }
+    queuePendingFollowup(this.workspaceDir, sessionId, text);
     return this;
   }
 
