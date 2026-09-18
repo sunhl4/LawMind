@@ -19,6 +19,10 @@ import { estimateTokenBudget } from "../../../src/lawmind/agent/context-budget.j
 import { getLiveTurnProgress } from "../../../src/lawmind/agent/live-turn-progress.js";
 import { queuePendingContextPins } from "../../../src/lawmind/agent/session-context-inject.js";
 import { queuePendingSteer } from "../../../src/lawmind/agent/session-context-steer.js";
+import {
+  claimPendingFollowup,
+  queuePendingFollowup,
+} from "../../../src/lawmind/agent/session-context-followup.js";
 import { classifySessionInbox } from "../../../src/lawmind/agent/session-inbox.js";
 import { parseContextPins } from "../../../src/lawmind/platform/compose-context-pin.js";
 import {
@@ -72,6 +76,10 @@ const injectBodySchema = z.object({
 
 const steerBodySchema = z.object({
   text: z.string().trim().min(1).max(2000),
+});
+
+const followupBodySchema = z.object({
+  text: z.string().trim().min(1).max(8000),
 });
 
 function dialogueKey(msg: AgentMessage): string {
@@ -204,6 +212,76 @@ export async function handleSessionExtendedRoutes({
         queued: queued.queued,
         pendingCount: queued.pendingCount,
         inboxKind: classifySessionInbox("steer"),
+      },
+      c,
+    );
+    return true;
+  }
+
+  const followupMatch = /^\/api\/sessions\/([^/]+)\/followup$/.exec(pathname);
+  if (followupMatch && req.method === "POST") {
+    const sessionId = followupMatch[1] ?? "";
+    const session = loadSession(workspaceDir, sessionId);
+    if (!session) {
+      sendJson(res, 404, { ok: false, code: "not_found", message: "session not found" }, c);
+      return true;
+    }
+    let body: z.infer<typeof followupBodySchema>;
+    try {
+      body = await parseJsonBodyZod(req, followupBodySchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid_body", issues: err.issues }, c);
+        return true;
+      }
+      throw err;
+    }
+    const queued = queuePendingFollowup(workspaceDir, sessionId, body.text);
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        sessionId,
+        queued: queued.queued,
+        pendingCount: queued.pendingCount,
+        inboxKind: classifySessionInbox("chat"),
+      },
+      c,
+    );
+    return true;
+  }
+
+  const followupClaimMatch = /^\/api\/sessions\/([^/]+)\/followup\/claim$/.exec(pathname);
+  if (followupClaimMatch && req.method === "POST") {
+    const sessionId = followupClaimMatch[1] ?? "";
+    const session = loadSession(workspaceDir, sessionId);
+    if (!session) {
+      sendJson(res, 404, { ok: false, code: "not_found", message: "session not found" }, c);
+      return true;
+    }
+    if (getLiveTurnProgress(sessionId)?.status === "running") {
+      sendJson(
+        res,
+        409,
+        {
+          ok: false,
+          error: "turn_in_progress",
+          message: "当前回合仍在生成，请等结束后再领取 follow-up。",
+        },
+        c,
+      );
+      return true;
+    }
+    const notes = claimPendingFollowup(workspaceDir, sessionId);
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        sessionId,
+        notes,
+        inboxKind: classifySessionInbox("chat"),
       },
       c,
     );

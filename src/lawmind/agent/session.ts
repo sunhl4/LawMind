@@ -205,10 +205,22 @@ export function deleteSession(workspaceDir: string, sessionId: string): boolean 
   const eventsPath = path.join(sessionsDir(workspaceDir), `${sessionId}.events.jsonl`);
   const pendingPins = path.join(sessionsDir(workspaceDir), `${sessionId}.pending-pins.json`);
   const pendingSteer = path.join(sessionsDir(workspaceDir), `${sessionId}.pending-steer.json`);
+  const pendingFollowup = path.join(
+    sessionsDir(workspaceDir),
+    `${sessionId}.pending-followup.json`,
+  );
   const spillsDir = path.join(sessionsDir(workspaceDir), `${sessionId}.spills`);
   try {
     let did = false;
-    for (const p of [jsonPath, turnsPath, transcript, eventsPath, pendingPins, pendingSteer]) {
+    for (const p of [
+      jsonPath,
+      turnsPath,
+      transcript,
+      eventsPath,
+      pendingPins,
+      pendingSteer,
+      pendingFollowup,
+    ]) {
       if (fs.existsSync(p)) {
         fs.unlinkSync(p);
         did = true;

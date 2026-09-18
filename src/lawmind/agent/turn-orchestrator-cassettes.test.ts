@@ -21,10 +21,12 @@ import { MAIL_CONTRACT_FAST_PATH_DENIED_HINT } from "./mail-contract-fast-path.j
 import { formatSteerUserMessage } from "./session-context-steer.js";
 import {
   cassetteAssistant,
+  cassetteHttpError,
   cassetteToolCall,
   cassetteToolCalls,
   withTestLawMind,
 } from "./testkit/index.js";
+import { clearTurnLifecycleHooks, registerTurnLifecycleHook } from "./turn-lifecycle-hooks.js";
 import type { AgentMessage } from "./types.js";
 
 const FAST_LANE = [
@@ -839,6 +841,98 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(executed.map((c) => String(c.args.section)).toSorted()).toEqual(["管辖", "违约金"]);
         expect(executed.every((c) => c.result.ok)).toBe(true);
         expect(h.request(1).hasAdvertisedTool("draft_worker")).toBe(true);
+      },
+    );
+  });
+
+  it("model-error: http failure closes the turn without throwing", async () => {
+    const hooks: string[] = [];
+    const off = registerTurnLifecycleHook((ev) => {
+      hooks.push(ev.phase);
+    });
+    try {
+      await withTestLawMind(
+        (b) => b,
+        async (h) => {
+          h.enqueue(cassetteHttpError(400, '{"error":"upstream down"}'));
+          const events: string[] = [];
+          const result = await h.runTurn("继续不澄清。请审查违约金。", {
+            onEvent: (ev) => {
+              events.push(ev.type);
+            },
+          });
+          expect(result.turn.status).toBe("error");
+          expect(result.reply).toContain("模型调用失败");
+          expect(events).toContain("model_error");
+          expect(events).toContain("final");
+          expect(hooks).toContain("model_error");
+        },
+      );
+    } finally {
+      off();
+      clearTurnLifecycleHooks();
+    }
+  });
+
+  it("compact-audit: boundary event carries firstKept and session audit fields", async () => {
+    await withTestLawMind(
+      (b) => b.withMaxHistory(6),
+      async (h) => {
+        const seeded = h.seedHistory(
+          [
+            { role: "system", content: "sys", timestamp: ts() },
+            ...Array.from({ length: 20 }, (_, i) => ({
+              role: (i % 2 === 0 ? "user" : "assistant") as AgentMessage["role"],
+              content: i % 2 === 0 ? `律师问题 ${i}` : `助手回答 ${i} ${CITATION}`,
+              timestamp: ts(),
+            })),
+          ],
+          { matterId: "m-audit" },
+        );
+        expect(seeded.conversationHistory.length).toBeGreaterThan(10);
+        const events: Array<Record<string, unknown>> = [];
+        h.enqueue(cassetteAssistant("压缩后仍按已引用法条作答。"));
+        const result = await h.runTurn("继续不澄清。请根据此前法条写结论。", {
+          matterId: "m-audit",
+          onEvent: (ev) => {
+            if (ev.type === "compact_boundary") {
+              events.push(ev as unknown as Record<string, unknown>);
+            }
+          },
+        });
+        expect(result.turn.status).toBe("completed");
+        expect(events.length).toBeGreaterThanOrEqual(1);
+        expect(typeof events[0]?.boundaryId).toBe("string");
+        expect(h.session()?.lastCompactBoundary?.boundaryId).toBeTruthy();
+      },
+    );
+  });
+
+  it("tool-delta: disclosure growth emits hidden transcript note on next round", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.seedHistory([]);
+        h.onModelRequest((req) => {
+          if (req.index === 0) {
+            const session = h.session();
+            if (session) {
+              session.disclosedToolNames = [...(session.disclosedToolNames ?? []), "web_search"];
+            }
+          }
+        });
+        h.enqueue(cassetteToolCall("analyze_document"), cassetteAssistant("已处理。"));
+        const events: string[] = [];
+        const result = await h.runTurn("继续不澄清。请审查违约金条款。", {
+          onEvent: (ev) => {
+            events.push(ev.type);
+          },
+        });
+        expect(result.turn.status).toBe("completed");
+        expect(h.requests.length).toBeGreaterThanOrEqual(2);
+        if (events.includes("tool_delta")) {
+          expect(h.request(1).contains("【工具声明变更】")).toBe(true);
+        }
       },
     );
   });

@@ -32,7 +32,9 @@ import {
   shouldCheckpointToolBudget,
   shouldHardStopToolBudget,
 } from "./tool-budget.js";
+import { applyToolDisclosureDelta } from "./tool-disclosure-delta.js";
 import type { ToolRegistry } from "./tools/registry.js";
+import { emitTurnLifecycle } from "./turn-lifecycle-hooks.js";
 import {
   buildClarificationReply,
   buildTurnReplyFallback,
@@ -116,9 +118,38 @@ export async function runModelToolLoop(opts: {
   const hardCeiling =
     opts.hardToolCallCeiling ?? Math.max(opts.maxToolCalls * 2, opts.maxToolCalls);
   let openAITools = opts.openAITools;
+  let previousToolNames: string[] | null = null;
   const pinIds: string[] = [];
   const collapseHistoryForEnd = (): void => {
     collapseSameTurnVerifyHistoryForTurnEnd(opts.session, opts.turn);
+  };
+
+  const closeOnModelFailure = (err: unknown, roundIndex: number): void => {
+    const raw = err instanceof Error ? err.message : String(err);
+    const message = raw.trim() || "Model call failed";
+    const reply = `本轮模型调用失败：${message.slice(0, 800)}`;
+    opts.turn.status = "error";
+    opts.turn.error = message.slice(0, 2_000);
+    finalReply = reply;
+    const agentMsg: AgentMessage = {
+      role: "assistant",
+      content: reply,
+      timestamp: new Date().toISOString(),
+    };
+    opts.session.conversationHistory.push(agentMsg);
+    opts.turn.messages.push(agentMsg);
+    opts.emitEvent({
+      type: "model_error",
+      roundIndex,
+      message: message.slice(0, 2_000),
+    });
+    emitTurnLifecycle({
+      phase: "model_error",
+      sessionId: opts.session.sessionId,
+      turnId: opts.turn.turnId,
+      detail: { roundIndex, message: message.slice(0, 400) },
+    });
+    collapseHistoryForEnd();
   };
 
   while (loopCount < hardCeiling + 1) {
@@ -164,7 +195,29 @@ export async function runModelToolLoop(opts: {
       hostFileLedger: contextUsesHostFileLedger(opts.ctx),
     });
     openAITools = opts.registry.toOpenAITools({ names: step.toolNames });
+    const toolDelta = applyToolDisclosureDelta(opts.session, previousToolNames, step.toolNames);
+    if (toolDelta) {
+      opts.emitEvent({
+        type: "tool_delta",
+        roundIndex,
+        added: toolDelta.added,
+        removed: toolDelta.removed,
+      });
+      emitTurnLifecycle({
+        phase: "tool_delta",
+        sessionId: opts.session.sessionId,
+        turnId: opts.turn.turnId,
+        detail: { roundIndex, added: toolDelta.added, removed: toolDelta.removed },
+      });
+    }
+    previousToolNames = [...step.toolNames];
     opts.emitEvent({ type: "round_start", roundIndex });
+    emitTurnLifecycle({
+      phase: "before_model_round",
+      sessionId: opts.session.sessionId,
+      turnId: opts.turn.turnId,
+      detail: { roundIndex, toolCount: step.toolNames.length },
+    });
     if (shouldBounceSameTurnCompletion(opts.turn.sameTurnVerify)) {
       applySameTurnVerifyHistoryCollapse(opts.session, opts.turn, "keep_latest_full");
     } else {
@@ -211,7 +264,7 @@ export async function runModelToolLoop(opts: {
       );
     };
 
-    let response: Awaited<ReturnType<typeof callModelWithRetry>>;
+    let response: Awaited<ReturnType<typeof callModelWithRetry>> | undefined;
     try {
       response = await callModelRound();
     } catch (err) {
@@ -253,21 +306,26 @@ export async function runModelToolLoop(opts: {
                 aborted: true,
               };
             }
-            throw retryErr;
+            closeOnModelFailure(retryErr, roundIndex);
+            break;
           }
         } else {
-          throw err;
+          closeOnModelFailure(err, roundIndex);
+          break;
         }
       } else {
-        throw err;
+        closeOnModelFailure(err, roundIndex);
+        break;
       }
+    }
+    if (!response) {
+      break;
     }
     turnUsage = mergeUsageSnapshots(turnUsage, usageFromProvider(response.usage));
 
     const choice = response.choices[0];
     if (!choice) {
-      opts.turn.status = "error";
-      opts.turn.error = "Empty response from model";
+      closeOnModelFailure(new Error("Empty response from model"), roundIndex);
       break;
     }
 

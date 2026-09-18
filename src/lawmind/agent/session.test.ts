@@ -82,8 +82,10 @@ describe("session title and history helpers", () => {
     fs.writeFileSync(turns, "{}\n", "utf8");
     fs.writeFileSync(transcript, "{}\n", "utf8");
     const steer = path.join(ws, "sessions", `${s.sessionId}.pending-steer.json`);
+    const followup = path.join(ws, "sessions", `${s.sessionId}.pending-followup.json`);
     const spills = path.join(ws, "sessions", `${s.sessionId}.spills`);
     fs.writeFileSync(steer, "{}\n", "utf8");
+    fs.writeFileSync(followup, "{}\n", "utf8");
     fs.mkdirSync(spills, { recursive: true });
     fs.writeFileSync(path.join(spills, "c1.json"), "{}\n", "utf8");
     expect(deleteSession(ws, s.sessionId)).toBe(true);
@@ -91,6 +93,7 @@ describe("session title and history helpers", () => {
     expect(fs.existsSync(turns)).toBe(false);
     expect(fs.existsSync(transcript)).toBe(false);
     expect(fs.existsSync(steer)).toBe(false);
+    expect(fs.existsSync(followup)).toBe(false);
     expect(fs.existsSync(spills)).toBe(false);
     expect(deleteSession(ws, "00000000-0000-4000-8000-000000000000")).toBe(false);
   });

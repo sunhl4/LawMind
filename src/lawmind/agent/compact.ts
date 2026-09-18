@@ -21,6 +21,11 @@ export type CompactResult = {
   droppedSpan?: AgentMessage[];
   /** Rough token estimate of dropped dialogue (chars/4). */
   estimatedDroppedTokens?: number;
+  /** Audit: first kept non-system message after cut. */
+  firstKeptTimestamp?: string;
+  firstKeptRole?: AgentMessage["role"];
+  /** Stable id for this compact boundary (ISO + short suffix). */
+  boundaryId?: string;
 };
 
 /** Soft cap for reinjected dropped-span digest (chars). Scales with model window. */
@@ -369,6 +374,9 @@ export function autoCompactSessionHistory(
     0,
   );
 
+  const firstKept = nonSystem[0];
+  const boundaryId = `${new Date().toISOString()}#${dropped}`;
+
   return {
     messages: compactHistory(merged, opts.maxHistoryMessages + summaryBlock.length + 2),
     compacted: true,
@@ -377,5 +385,8 @@ export function autoCompactSessionHistory(
     droppedDigest: droppedDigest || undefined,
     droppedSpan: droppedSpan.length > 0 ? droppedSpan : undefined,
     estimatedDroppedTokens: Math.max(1, Math.ceil(droppedChars / 4)),
+    firstKeptTimestamp: firstKept?.timestamp,
+    firstKeptRole: firstKept?.role,
+    boundaryId,
   };
 }

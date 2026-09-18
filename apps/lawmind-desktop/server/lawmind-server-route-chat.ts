@@ -555,6 +555,23 @@ export async function handleChatRoute({
               sseWriteEvent("compact_boundary", {
                 sessionSummaryPath: event.sessionSummaryPath,
                 droppedMessageCount: event.droppedMessageCount,
+                firstKeptTimestamp: event.firstKeptTimestamp,
+                firstKeptRole: event.firstKeptRole,
+                digestCharCount: event.digestCharCount,
+                boundaryId: event.boundaryId,
+              });
+              break;
+            case "model_error":
+              sseWriteEvent("model_error", {
+                roundIndex: event.roundIndex,
+                message: event.message,
+              });
+              break;
+            case "tool_delta":
+              sseWriteEvent("tool_delta", {
+                roundIndex: event.roundIndex,
+                added: event.added,
+                removed: event.removed,
               });
               break;
             case "overflow_prune":
