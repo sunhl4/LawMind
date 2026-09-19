@@ -79,7 +79,7 @@ export const proposeOrganizePlan: AgentTool = {
     description:
       "为本案 materials 文件夹起草整理计划（移动/重命名），先给律师逐条确认，不实际改动任何文件。" +
       "律师确认后再调用 execute_organize_plan 执行；执行可用 revert_desk_write 撤销。",
-    category: "file",
+    category: "matter",
     parameters: {
       matter_id: { type: "string", description: "案件 ID（默认使用当前案件）" },
       goal: {
@@ -188,7 +188,7 @@ export const executeOrganizePlan: AgentTool = {
     name: "execute_organize_plan",
     description:
       "执行已确认的整理计划（仅限 propose_organize_plan 生成且律师已确认的计划）。逐条移动/重命名并写撤销日志。",
-    category: "file",
+    category: "matter",
     parameters: {
       matter_id: { type: "string", description: "案件 ID（默认使用当前案件）" },
       plan_id: {

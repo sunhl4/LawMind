@@ -98,6 +98,11 @@ export function instructionMentionsFolder(instruction: string): boolean {
   return /文件夹/.test(instruction);
 }
 
+/** 把材料收进案件，不是先通读再改稿。 */
+export function instructionAsksToFileIntoMatter(instruction: string): boolean {
+  return /收进|导入到|放进|归档到|拷进|复制进/.test(instruction);
+}
+
 /**
  * Read the materials before mutating. Mail short-path / Word 改稿 are not this.
  */
@@ -141,6 +146,9 @@ export function shouldRequireFolderExplore(input: {
     return false;
   }
   if (isContinuationUtterance(input.instruction)) {
+    return false;
+  }
+  if (instructionAsksToFileIntoMatter(input.instruction)) {
     return false;
   }
   return instructionMentionsFolder(input.instruction) || Boolean(input.hasDirectoryPin);

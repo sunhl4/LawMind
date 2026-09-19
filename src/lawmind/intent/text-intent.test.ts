@@ -82,5 +82,10 @@ describe("text-intent", () => {
     ).toBe(false);
     expect(shouldRequireFolderExplore({ instruction: "继续" })).toBe(false);
     expect(shouldRequireFolderExplore({ instruction: "请审查这份采购合同" })).toBe(false);
+    expect(
+      shouldRequireFolderExplore({
+        instruction: "把诉讼/刘学江侵权纠纷这个文件夹收进刘学江侵权案",
+      }),
+    ).toBe(false);
   });
 });

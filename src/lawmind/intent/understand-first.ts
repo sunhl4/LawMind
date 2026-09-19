@@ -37,6 +37,7 @@ export function formatUnderstandFirstPromptBlock(): string {
     "先判断要做什么、明确不要做什么、材料在哪，再调用工具。",
     "系统给出的能力绑定或上轮清单只是启发式；与原话冲突时以原话为准（律师用 `$skill` / `【办件】` 指定、邮件短路径、文件页「改这份 Word」除外）。",
     "提到文件夹时先 `explore_folder`（写入 goal / not_goal / path）看清树再阅读文件，不要未读材料就 `apply_surgical_edits` / `render_tracked_draft`。",
+    "若律师要的是把文件或文件夹收进案件，直接 `import_host_file`（相对路径即可，案件可用展示名），不要先通读。",
   ].join("\n");
 }
 

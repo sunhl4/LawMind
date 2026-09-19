@@ -24,6 +24,14 @@ describe("working-brief", () => {
     expect(hints.materials).not.toContain("交办");
   });
 
+  it("files a folder into a named matter instead of exploring first", () => {
+    const hints = extractWorkingBriefHints({
+      instruction: "把诉讼/刘学江侵权纠纷收进刘学江侵权案",
+    });
+    expect(hints.materials).toContain("import_host_file");
+    expect(hints.materials).not.toContain("explore_folder");
+  });
+
   it("does not treat 【交办】 as a folder to explore", () => {
     const hints = extractWorkingBriefHints({
       instruction: "【交办】5 分钟合同审查\n交付物类型：合同审查意见",

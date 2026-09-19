@@ -7,6 +7,7 @@ import type { ComposeContextPin } from "../platform/compose-context-pin.js";
 import { extractTextIntent } from "./text-intent.js";
 import {
   instructionLooksLikeLetterQa,
+  instructionAsksToFileIntoMatter,
   instructionMentionsFolder,
   namedBracketFolders,
   stripRejectedContractReviewPhrases,
@@ -67,7 +68,9 @@ export function extractWorkingBriefHints(input: {
   const mat: string[] = [];
   const folders = namedFolders(instruction);
   const folderTalk = instructionMentionsFolder(instruction) || pinsHaveDirectory(input.pins);
-  if (folderTalk) {
+  if (instructionAsksToFileIntoMatter(instruction)) {
+    mat.push("用 import_host_file 收进律师点名的案件；按原话路径，不要先通读");
+  } else if (folderTalk) {
     mat.push(
       folders.length > 0
         ? `${folders.join("、")}：先 explore_folder`
