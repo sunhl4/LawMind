@@ -1,6 +1,7 @@
 import { requestApproval } from "../../../application/services/approval-service.js";
 import { recordDeadline } from "../../../application/services/deadline-service.js";
 import { openQueueItem } from "../../../application/services/queue-write-service.js";
+import { LEGAL_EVENT_KINDS } from "../../../desk/legal-event-extract.js";
 import { appendSessionSummary } from "../../../memory/session-summary.js";
 import type { AgentTool } from "../../types.js";
 import {
@@ -147,6 +148,11 @@ export const recordDeadlineTool: AgentTool = {
         description: "严重等级",
         enum: [...DEADLINE_SEVERITY_VALUES],
       },
+      event_kind: {
+        type: "string",
+        description: "期限类型（开庭/举证/时效/答辩/保全/自定义），与工作台期限分类一致",
+        enum: ["hearing", "filing", "limitation", "reply", "preservation", "custom"],
+      },
       notes: { type: "string", description: "可选备注" },
     },
   },
@@ -159,12 +165,17 @@ export const recordDeadlineTool: AgentTool = {
         params.severity === undefined
           ? undefined
           : asEnum(params.severity, DEADLINE_SEVERITY_VALUES, "severity");
+      const eventKind =
+        params.event_kind === undefined
+          ? undefined
+          : asEnum(params.event_kind, LEGAL_EVENT_KINDS, "event_kind");
       const notes = asOptionalString(params.notes, "notes", 4000);
       const record = recordDeadline(ctx.workspaceDir, {
         matterId,
         title,
         dueAt,
         severity,
+        eventKind,
         notes,
       });
       return {

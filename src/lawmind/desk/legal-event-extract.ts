@@ -3,7 +3,14 @@
  * Heuristic only — lawyer confirms before writing deadlines.
  */
 
-export const LEGAL_EVENT_KINDS = ["hearing", "filing", "limitation", "reply", "custom"] as const;
+export const LEGAL_EVENT_KINDS = [
+  "hearing",
+  "filing",
+  "limitation",
+  "reply",
+  "preservation",
+  "custom",
+] as const;
 
 export type LegalEventKind = (typeof LEGAL_EVENT_KINDS)[number];
 
@@ -12,6 +19,7 @@ export const LEGAL_EVENT_KIND_LABELS: Record<LegalEventKind, string> = {
   filing: "提交/立案",
   limitation: "时效/期限",
   reply: "答辩/回复",
+  preservation: "保全",
   custom: "其他期限",
 };
 
@@ -115,6 +123,21 @@ export function extractLegalEvents(text: string): ExtractedLegalEvent[] {
       confidence: due ? "medium" : "low",
     });
   }
+  // 保全到期不续封是执业风险：作为期限登记，才能进提醒系统。
+  if (/保全|查封|冻结|扣押|续封|续冻|解除保全/.test(raw)) {
+    const action = /续封|续冻/.test(raw)
+      ? "保全续封期限"
+      : /解除保全/.test(raw)
+        ? "解除保全"
+        : "保全期限";
+    pushUnique(out, {
+      eventKind: "preservation",
+      title: action,
+      dueAt: due,
+      notes: raw.slice(0, 400),
+      confidence: due ? "medium" : "low",
+    });
+  }
   if (/续签|到期|届满/.test(raw) && /合同/.test(raw)) {
     pushUnique(out, {
       eventKind: "custom",
@@ -137,5 +160,12 @@ export function extractLegalEvents(text: string): ExtractedLegalEvent[] {
 }
 
 export function defaultRemindBeforeHours(kind: LegalEventKind): number {
-  return kind === "hearing" ? 72 : 24;
+  if (kind === "hearing") {
+    return 72;
+  }
+  // 保全到期未续封会直接损失担保财产，提前一周提醒。
+  if (kind === "preservation") {
+    return 168;
+  }
+  return 24;
 }

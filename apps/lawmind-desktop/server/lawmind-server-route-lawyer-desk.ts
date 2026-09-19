@@ -51,7 +51,7 @@ const planItemPatchSchema = z.object({
 const deadlinePostSchema = z.object({
   title: z.string().trim().min(1).max(200),
   dueAt: z.string().trim().min(1),
-  eventKind: z.enum(["hearing", "filing", "limitation", "reply", "custom"]).optional(),
+  eventKind: z.enum(["hearing", "filing", "limitation", "reply", "preservation", "custom"]).optional(),
   notes: z.string().trim().max(2000).optional(),
   remindBeforeHours: z.number().int().min(0).max(720).optional(),
   dependsOnDeadlineId: z.string().trim().max(64).optional(),
@@ -80,7 +80,7 @@ const confirmEventsSchema = z.object({
   events: z
     .array(
       z.object({
-        eventKind: z.enum(["hearing", "filing", "limitation", "reply", "custom"]),
+        eventKind: z.enum(["hearing", "filing", "limitation", "reply", "preservation", "custom"]),
         title: z.string().trim().min(1).max(200),
         dueAt: z.string().trim().min(1),
         notes: z.string().trim().max(2000).optional(),
