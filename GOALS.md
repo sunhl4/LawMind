@@ -83,7 +83,14 @@ LawMind **不把可审计当作产品价值、法律质量证明或用户信任�
 - [ ] **P2-C 交办成绩单 + 诊断包**：Doctor 律师可见成绩单（交办成功率/一次通过/lint 拦截/真稿趋势/法源状态）；`GET /api/support/bundle` 脱敏 zip（专测不含 key/secret）。
 - [ ] **P2-D 文档站发布**：`lawmind-docs.yml` 加 Pages deploy（main 推送）；CNAME 拷入 public；快速指南对齐新首跑流程（截图待真机补拍，诚实标注）。
 - [ ] **P3-1 首批 3 个 Skill 内化**：`contract-playbook-review`（Anthropic playbook，Apache-2.0，三档+己方/对方纸）；`matter.status` 补范围变更与预算（LPM）；`chronology.timeline` 两阶段预览确认（HoriZon/GCL）。每个带契约测试与出处记录。
-- [ ] **P3-2 消化流水线节奏化**：CANONICAL-LEGAL-SKILLS 增「消化记录」表；census 增量指向该表；每期固定「消化 N 个」勾选模板。
+- [ ] **P3-2 消化流水线节奏化**：`docs/LAWMIND-CANONICAL-LEGAL-SKILLS.md` 第八节「消化记录 / 待消化」两表；`pnpm lawmind:skills:census --fetch` 的增量输出直接指向「待消化」登记格式；每期固定「本期消化 N 个（默认 3 个）」勾选项。
+
+**期次模板（抄到下期）**：
+
+```
+- [ ] 本期消化 3 个外部能力：____ / ____ / ____
+      （要求：builtin 正文 + BUILTIN_SKILL_SEED_IDS 注册 + 能力映射 + 契约测试 + 第八节「消化记录」一行；NC/未声明只写方法借鉴）
+```
 
 ```bash
 pnpm test && pnpm --filter lawmind-desktop typecheck && pnpm lawmind:compiler-gate

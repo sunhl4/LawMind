@@ -223,4 +223,28 @@ LawMind 当前产品化能力只有：合同审查、函件、检索备忘、诉
 
 1. 把本规范库做成 LawMind 内部 `capability` 表：每个高频任务对应一个上游 Skill、一套闸门、一种交付物。
 2. 用真实合同和起诉状对 **潘睿红线**、**LawMind surgical edit**、**copilot 计划脚本** 做三方对照，只保留胜出路径。
-3. 不要把 574 或 3,571 装进桌面；律师默认只看到：审查合同、检索、诉讼文书、劳动计算、接案整理、期限、出稿。
+
+## 八、消化记录（每期新增一行）
+
+规则：索引 ≠ 消化。任务能力要有 builtin 正文、能力映射、契约测试与出处记录，才算「已消化」。
+`pnpm lawmind:skills:census`（`--fetch` 增量）发现的新仓库先进本节「待消化」，登记后再排期。
+
+| 日期       | builtin skill                | 来源仓库                                      | 许可证     | 消化方式                        | 验证                                                | 落地                                          |
+| ---------- | ---------------------------- | --------------------------------------------- | ---------- | ------------------------------- | --------------------------------------------------- | --------------------------------------------- |
+| 2026-09-19 | `contract-playbook-review`   | `anthropics/claude-for-legal`（商业合同插件） | Apache-2.0 | 方法吸收，文案独立重写          | `skill-deliverable-contract`（档位口径 + 正文出处） | `contract.review` skillIds + pipelineHint     |
+| 2026-09-19 | `chronology-two-stage`       | `FAYANHUIYING/claude-for-legal-HoriZon` / GCL | Apache-2.0 | 方法吸收（预览→确认→正式件）    | `skill-deliverable-contract`（两阶段口径）          | `chronology.timeline` skillIds + pipelineHint |
+| 2026-09-19 | `matter-status-scope-budget` | `legalopsconsulting/lpm-skills`               | Apache-2.0 | 方法吸收（范围变更 + 预算对照） | `skill-deliverable-contract`（范围/预算口径）       | 并入既有 `matter.status`（不新增能力位）      |
+
+### 待消化（下一期候选）
+
+优先级依据：律师高频、上游有可执行结构、许可证允许。候选来自第三节高频度与技术缺口。
+
+| 候选                       | 来源                                          | 许可证       | 为什么排前面                                             | 状态   |
+| -------------------------- | --------------------------------------------- | ------------ | -------------------------------------------------------- | ------ |
+| 劳动 N/N+1/2N 规则文件深化 | `pa1nrui1/legal-skills`                       | MIT          | 劳动是中国高频，现有引擎已接 `calculate`，缺上游规则回放 | 未开始 |
+| 合同 copilot 三层四步      | `cat-xierluo/legal-skills` `contract-copilot` | **CC-BY-NC** | 结构值得学，但**不可复制文案/脚本**，只能独立实现        | 未开始 |
+| GCL 角色档位与对内/对外稿  | `vivy-yi/Greater-China-Legal`                 | Apache-2.0   | 与既有对客/对内分流可合并口径                            | 未开始 |
+| LPM 接案/范围变更模板      | `legalopsconsulting/lpm-skills`               | Apache-2.0   | 本期只吸收状态报告一节，接案模板仍可复用                 | 部分   |
+
+登记新候选时：先在 `pnpm lawmind:skills:census --fetch` 的增量输出里核一遍是否已在库、许可证是否允许；再在上表加一行。
+不允许（NC / 未声明）的一律只写「方法借鉴」，并在本表注明禁止复制。3. 不要把 574 或 3,571 装进桌面；律师默认只看到：审查合同、检索、诉讼文书、劳动计算、接案整理、期限、出稿。

@@ -7,6 +7,8 @@ import {
   CENSUS_CUTOFF_ISO,
   CENSUS_HUB_REPOS,
   CENSUS_QUERIES,
+  CENSUS_DIGEST_RECORD_REL,
+  CENSUS_DIGEST_RECORD_SECTION,
   buildCensusPack,
   classifyLicenseAbsorb,
   dedupCensusSlugs,
@@ -60,5 +62,16 @@ describe("external-skill-census", () => {
     expect(
       newSlugsSinceKnown(["pa1nrui1/legal-skills", "example-org/new-legal-skill"], known),
     ).toEqual(["example-org/new-legal-skill"]);
+  });
+
+  it("points incremental findings at the digest record section that actually exists", () => {
+    const pack = buildCensusPack([]);
+    expect(pack.digestRecordRel).toBe(CENSUS_DIGEST_RECORD_REL);
+    expect(pack.digestRecordHint).toContain("待消化");
+    // 指向的章节必须真的在文件里（否则增量无处登记）。
+    const doc = fs.readFileSync(path.join(repoRoot, pack.digestRecordRel), "utf8");
+    expect(doc).toContain(CENSUS_DIGEST_RECORD_SECTION);
+    expect(doc).toContain("### 待消化（下一期候选）");
+    expect(doc).toContain("| 日期 | builtin skill |");
   });
 });

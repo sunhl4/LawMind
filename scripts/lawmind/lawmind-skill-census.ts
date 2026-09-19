@@ -69,6 +69,20 @@ function main(): void {
   process.stdout.write(
     `${JSON.stringify({ ...pack, fetchHits: hits.length, newSinceCutoff: fresh }, null, 2)}\n`,
   );
+  if (fresh.length > 0) {
+    console.error(
+      [
+        "",
+        `增量发现 ${fresh.length} 个未登记仓库。下一步：在 ${pack.digestRecordRel} 的「待消化」表逐条登记：`,
+        "  候选 / 来源仓库 / 许可证 / 为什么排前面；许可证为 NC 或未声明的只写「方法借鉴」。",
+        "消化完成后移入同文件「消化记录」表，并附验证与落地位置（能力 id / 闸门 / 契约测试）。",
+      ].join("\n"),
+    );
+  } else {
+    console.error(
+      `\n增量无新仓库。计划与记录：${pack.digestRecordRel}（${pack.digestRecordHint}）`,
+    );
+  }
 }
 
 main();

@@ -6,6 +6,12 @@
 export const CENSUS_CUTOFF_ISO = "2026-09-07";
 
 export const CENSUS_CATALOG_REL = "docs/LAWMIND-EXTERNAL-LEGAL-CAPABILITY-CATALOG.md";
+/**
+ * 消化记录所在地（第八节）：新增仓库先登记「待消化」，消化完成后移入「消化记录」。
+ * 与 `CENSUS_CATALOG_REL` 是同一份规划文件的不同章节。
+ */
+export const CENSUS_DIGEST_RECORD_REL = "docs/LAWMIND-CANONICAL-LEGAL-SKILLS.md";
+export const CENSUS_DIGEST_RECORD_SECTION = "## 八、消化记录";
 
 export type CensusQueryAxis = "carrier" | "zh-task" | "en-task" | "datasource";
 
@@ -133,6 +139,9 @@ export function newSlugsSinceKnown(hits: readonly string[], known: readonly stri
 export function buildCensusPack(knownFromCatalog: readonly string[]): {
   cutoffIso: string;
   catalogRel: string;
+  /** 新发现的仓库登记去处（本规划文件的「消化记录 / 待消化」两节）。 */
+  digestRecordRel: string;
+  digestRecordHint: string;
   queries: readonly CensusQuery[];
   incrementalQueries: Array<{ id: string; q: string }>;
   hubs: readonly string[];
@@ -142,6 +151,9 @@ export function buildCensusPack(knownFromCatalog: readonly string[]): {
   return {
     cutoffIso: CENSUS_CUTOFF_ISO,
     catalogRel: CENSUS_CATALOG_REL,
+    digestRecordRel: CENSUS_DIGEST_RECORD_REL,
+    digestRecordHint:
+      "新仓库先在「待消化」表登记（候选/来源/许可证/为什么排前面），消化完成后再移入「消化记录」并附验证与落地位置。",
     queries: CENSUS_QUERIES,
     incrementalQueries: CENSUS_QUERIES.map((q) => ({
       id: q.id,
