@@ -23,6 +23,7 @@ import {
 } from "../../../runtime/protected-workspace-rels.js";
 import { fenceAgentFilePath } from "../../../runtime/workspace-io-fence.js";
 import { resolveWorkspaceRelativePath } from "../../../runtime/workspace-path.js";
+import { resolveDocumentPageChars } from "../../document-read-budget.js";
 import type { AgentTool } from "../../types.js";
 import {
   readSafe,
@@ -127,7 +128,9 @@ export const analyzeDocument: AgentTool = {
       bytes: number,
       stage: IngestStage,
     ) => {
-      const page = sliceDocumentPage(content, params.offset, params.limit);
+      const page = sliceDocumentPage(content, params.offset, params.limit, {
+        defaultLimit: resolveDocumentPageChars(ctx.chatModel?.contextTokens),
+      });
       const result = ingestSuccess(sourceType, page.content, page.hasMore, bytes, stage);
       const locateHint =
         located.root === "project"

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { SAME_TURN_VERIFY_USER_PREFIX } from "../runtime/same-turn-verify.js";
 import { estimateTextTokens } from "./context-budget.js";
 import {
+  clipTextToTokensMiddle,
   stringifyToolResultForHistory,
   summarizeToolResultForHistory,
 } from "./tool-result-history.js";
@@ -111,6 +112,41 @@ describe("tool-result-history", () => {
     expect(typeof slim.data?.content).toBe("string");
     expect(slim.data?.content?.length ?? 0).toBeGreaterThan(80);
     expect(slim.data?.content?.length ?? 0).toBeLessThan(2_500);
+  });
+
+  it("middle truncation keeps both head and tail with an elision marker (Codex-style)", () => {
+    const head = "原告张三诉被告李四。";
+    const middle = "事实与理由".repeat(2_000);
+    const tail = "诉讼请求：判令支付货款 50 万元。此致 张北县人民法院。";
+    const text = head + middle + tail;
+    const clipped = clipTextToTokensMiddle(text, 400);
+    expect(clipped.startsWith(head)).toBe(true);
+    expect(clipped.endsWith(tail)).toBe(true);
+    expect(clipped).toContain("中间省略");
+    expect(estimateTextTokens(clipped)).toBeLessThanOrEqual(460);
+    // 未超预算时原样返回。
+    expect(clipTextToTokensMiddle("短文本", 400)).toBe("短文本");
+  });
+
+  it("keeps list_more_tools disclosure fields even when the catalog is slimmed", () => {
+    // 目录本身可以裁，但 disclosedNames 丢了会导致后续轮次不再广告已启用工具（断链）。
+    const hugeCatalog = {
+      ok: true,
+      data: {
+        disclosedNames: ["deep_research", "render_tracked_draft"],
+        tools: Array.from({ length: 60 }, (_, i) => ({
+          name: `tool_${i}`,
+          hint: "用途说明".repeat(20),
+        })),
+        message: "已启用",
+      },
+    };
+    const slim = summarizeToolResultForHistory(hugeCatalog, { maxTokens: 200 }) as {
+      truncated?: boolean;
+      data?: { disclosedNames?: string[] };
+    };
+    expect(slim.truncated).toBe(true);
+    expect(slim.data?.disclosedNames).toEqual(["deep_research", "render_tracked_draft"]);
   });
 
   it("keeps a successful citation coach verify.message (not a same-turn fail envelope)", () => {

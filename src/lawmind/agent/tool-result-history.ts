@@ -38,7 +38,32 @@ export const TOOL_RESULT_HISTORY_MIN_TOKENS = 4_000;
 export const TOOL_RESULT_HISTORY_MAX_TOKENS = 32_000;
 export const TOOL_RESULT_HISTORY_CONTEXT_SHARE = 8;
 
-export function resolveToolResultHistoryTokens(contextTokens?: number): number {
+/**
+ * 运维可调的上限覆盖（对齐 Codex `tool_output_token_limit`）。
+ * 硬编码的上限迟早会卡住某类真实工作；留一个不改代码就能调大的出口。
+ */
+export const TOOL_RESULT_TOKEN_LIMIT_ENV = "LAWMIND_TOOL_RESULT_TOKEN_LIMIT";
+
+function envTokenLimitOverride(env: NodeJS.ProcessEnv): number | undefined {
+  const raw = env[TOOL_RESULT_TOKEN_LIMIT_ENV]?.trim();
+  if (!raw) {
+    return undefined;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return undefined;
+  }
+  return Math.min(200_000, Math.max(1, Math.floor(parsed)));
+}
+
+export function resolveToolResultHistoryTokens(
+  contextTokens?: number,
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const override = envTokenLimitOverride(env);
+  if (override !== undefined) {
+    return override;
+  }
   if (typeof contextTokens === "number" && Number.isFinite(contextTokens) && contextTokens > 0) {
     return Math.min(
       TOOL_RESULT_HISTORY_MAX_TOKENS,
@@ -112,11 +137,57 @@ function clipTextToTokens(text: string, maxTokens: number): string {
   return text.slice(0, lo);
 }
 
+/** 取尾部 ≤ maxTokens 的后缀（Codex head_tail_buffer 的 tail 侧）。 */
+function tailTextToTokens(text: string, maxTokens: number): string {
+  if (maxTokens <= 0) {
+    return "";
+  }
+  if (estimateTextTokens(text) <= maxTokens) {
+    return text;
+  }
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (estimateTextTokens(text.slice(text.length - mid)) <= maxTokens) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return text.slice(text.length - lo);
+}
+
+/**
+ * Codex `truncate_middle_with_token_budget` 式截断：头尾各留一半预算，中间标注
+ * 省略量。法律文书的事实尾部（诉请/落款/签章）与开头同样重要，只留头会误导模型。
+ */
+export function clipTextToTokensMiddle(text: string, maxTokens: number): string {
+  if (maxTokens <= 0) {
+    return "";
+  }
+  const total = estimateTextTokens(text);
+  if (total <= maxTokens) {
+    return text;
+  }
+  const headBudget = Math.floor(maxTokens / 2);
+  const tailBudget = maxTokens - headBudget;
+  const head = clipTextToTokens(text, headBudget);
+  const tail = tailTextToTokens(text, tailBudget);
+  const omitted = Math.max(0, total - estimateTextTokens(head) - estimateTextTokens(tail));
+  return `${head}\n…[中间省略约 ${omitted} tokens]…\n${tail}`;
+}
+
 function clipPreview(text: string, budget: ResolvedBudget): string {
   if (budget.kind === "chars") {
-    return text.slice(0, Math.min(4_000, Math.floor(budget.maxChars / 3)));
+    const cap = Math.min(4_000, Math.floor(budget.maxChars / 3));
+    if (text.length <= cap) {
+      return text;
+    }
+    const headChars = Math.floor(cap / 2);
+    return `${text.slice(0, headChars)}\n…[中间省略 ${text.length - cap} 字符]…\n${text.slice(text.length - (cap - headChars))}`;
   }
-  return clipTextToTokens(text, Math.max(80, Math.floor(budget.maxTokens / 2)));
+  return clipTextToTokensMiddle(text, Math.max(80, Math.floor(budget.maxTokens / 2)));
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

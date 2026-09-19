@@ -5,6 +5,7 @@ import path from "node:path";
 import JSZip from "jszip";
 import { createOutboundProxy } from "../../../platform/outbound-proxy.js";
 import { isPathInsideRoot } from "../../../runtime/workspace-path.js";
+import { resolveDocumentPageChars } from "../../document-read-budget.js";
 import { loadXlsxAsTsv } from "./xlsx-workbook.js";
 
 const visionProxy = createOutboundProxy({ requestTag: "vision-ocr" });
@@ -448,8 +449,14 @@ async function searchProjectTextFiles(
   return results;
 }
 
-/** Default / max chars returned per analyze_document or read_project_file call. */
-export const DOCUMENT_PAGE_DEFAULT_CHARS = 40_000;
+/**
+ * 兜底默认页：与 analyze_document / read_project_file / read_folder_documents
+ * 共用同一预算口径（随模型窗口伸缩、扣防注入横幅）。调用方应显式传
+ * defaultLimit（携带 contextTokens）；这里只是安全兜底，避免"忘了传就是 40k"
+ * 这种隐性不一致再次出现。
+ */
+export const DOCUMENT_PAGE_DEFAULT_CHARS = resolveDocumentPageChars(undefined);
+/** 显式 limit 的硬顶（模型明确要求读大段时）。 */
 export const DOCUMENT_PAGE_MAX_CHARS = 120_000;
 
 export type DocumentPageSlice = {

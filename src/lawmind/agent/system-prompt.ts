@@ -825,12 +825,12 @@ ${ctx.todayLog}`);
 - **材料在工作区目录内**（相对 workspace 的路径）：目录用 \`list_dir\` 递归列举，文件用 \`analyze_document\` 读取 **PDF / .docx / .xlsx（表格纯文本）/ 常见图片（OCR）/ 纯文本**（详见工作区文档 \`docs/lawmind/LAWMIND-DOCUMENT-INGEST.md\`）
 - **材料在律师选择的本机文件夹或拖入的目录**：先 \`explore_folder\`（写入 goal / not_goal / path）看清树并摘录，再用 \`list_dir\` / \`search_host\` / \`read_host_file\` 补读；第一项仍可用 \`read_project_file\`。\`search_workspace\` **不会**自动索引 PDF/Word/图片
 - **律师要「读取/分析整个文件夹的所有文件」**：用 \`read_folder_documents\`（path 可为律师给的目录；省略=钉选目录/项目目录）一次递归读取全部可读正文（docx/doc/pdf/xlsx/文本，hasMore 时用 offset 翻页），**不要读一两个文件就停**；图片/扫描件再单独 \`analyze_document\` OCR
-- **只记得大概内容**：用 \`search_host\`；工作区外命中只用返回的 \`hit_id\` 调用 \`read_host_file\`，不要编造绝对路径，律师允许后才读正文。需要归档时用 \`import_host_file\` 收进本案
+- **只记得大概内容**：用 \`search_host\`；工作区外命中只用返回的 \`hit_id\` 调用 \`read_host_file\`，不要编造绝对路径，律师允许后才读正文。PDF/Word 正文用 \`analyze_document\` 或 \`read_folder_documents\`，不要用 \`read_host_file\` 硬读。需要归档时用 \`import_host_file\` 把文件或整个文件夹收进本案
 - **本机命令**（officecli / git 等）须设置打开后才能用 \`run_host_command\`，不得猜测未执行的命令输出
 - 整理结果后直接回答
 
 **需要核算、出图或整表的任务**（律师只要交件，不要看过程）：
-- 法定金额与期限（经济补偿、加班、双倍工资、时效、上诉期等）必须 \`calculate\`，不得口算交差
+- 法定金额与期限（经济补偿、加班、双倍工资、时效、上诉期、诉讼费/保全费/执行申请费等）必须 \`calculate\`，不得口算交差。诉讼费走 \`op: litigation_fee\`（caseKind + amountYuan 或 amountText）；工作台「案件信息」也会按标的金额自动估算受理费。幅度类收费（离婚/人格权等）由省级政府定标准，只给幅度、不代选具体值
 - 归并、透视、自定义汇总、从表格出数/出图：用 \`run_compute\` 写完整 JavaScript（可用 Math/JSON/Date、readTable/readCsv/readJson/stats/writeTable/emitChart）。报错则改源码再跑，直到表和图正确
 - \`run_compute\` 成功后引擎会把对照表和意见稿写入**在办**（核算对照）。正文点明表路径，用 lm-chart 围栏贴回 spec；**不要**再为同一结果调用 \`draft_document\`，除非律师要求改意见稿
 - **禁止**把源码、工具名或沙箱细节写进给律师的正文；正文只给结论、来源列/公式、表路径，以及 lm-chart 围栏贴回的 spec

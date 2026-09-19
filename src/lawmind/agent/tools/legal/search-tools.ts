@@ -19,6 +19,7 @@ import { fenceAgentFilePath } from "../../../runtime/workspace-io-fence.js";
 import { resolveWorkspaceRelativePath } from "../../../runtime/workspace-path.js";
 import { searchLawyerWorks } from "../../../work/search.js";
 import { readConversation, searchConversations } from "../../conversation-search.js";
+import { resolveDocumentPageChars } from "../../document-read-budget.js";
 import type { AgentTool } from "../../types.js";
 import { matterRequiredResult } from "../matter-required.js";
 import {
@@ -396,7 +397,10 @@ export const readProjectFile: AgentTool = {
       bytes: number,
       stage: IngestStage,
     ) => {
-      const page = sliceDocumentPage(content, params.offset, params.limit);
+      const page = sliceDocumentPage(content, params.offset, params.limit, {
+        // 与 analyze_document 同一份预算：默认页随模型窗口伸缩并扣掉防注入横幅。
+        defaultLimit: resolveDocumentPageChars(ctx.chatModel?.contextTokens),
+      });
       const result = ingestSuccess(sourceType, page.content, page.hasMore, bytes, stage);
       return toolDataFromIngestSuccess(
         result,

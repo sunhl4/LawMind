@@ -2,6 +2,10 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  resolveDocumentPageChars,
+  resolveDocumentReadBudgetChars,
+} from "../../document-read-budget.js";
 import { createSession } from "../../session.js";
 import type { AgentContext } from "../../types.js";
 import * as searchAuthority from "./search-authority.js";
@@ -156,6 +160,42 @@ describe("read_project_file", () => {
       );
       expect(result.ok).toBe(true);
       expect(JSON.stringify(result.data)).toContain("租赁合同");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("uses the same page budget as analyze_document (unified, window-aware)", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "lm-proj-budget-"));
+    try {
+      await fs.writeFile(path.join(root, "long.txt"), "x".repeat(50_000), "utf8");
+      // 未知窗口：两条读取路径给出同一页大小（不再一个 8k、一个 40k）。
+      const plain = await readProjectFile.execute(
+        { relative_path: "long.txt" },
+        makeCtx("/tmp", { projectDir: root }),
+      );
+      expect(plain.ok).toBe(true);
+      const plainData = plain.data as { content?: string; nextOffset?: number };
+      expect(plainData.content?.length).toBe(resolveDocumentReadBudgetChars(undefined));
+      expect(plainData.nextOffset).toBe(resolveDocumentPageChars(undefined));
+
+      // 128k 窗口：页大小随窗口增长。
+      const big = await readProjectFile.execute(
+        { relative_path: "long.txt" },
+        makeCtx("/tmp", {
+          projectDir: root,
+          chatModel: {
+            baseUrl: "http://localhost",
+            apiKey: "k",
+            model: "m",
+            contextTokens: 128_000,
+          },
+        }),
+      );
+      expect(big.ok).toBe(true);
+      const bigData = big.data as { content?: string; nextOffset?: number };
+      expect(bigData.content?.length).toBe(resolveDocumentReadBudgetChars(128_000));
+      expect(bigData.nextOffset).toBe(resolveDocumentPageChars(128_000));
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
