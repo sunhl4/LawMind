@@ -8,6 +8,11 @@ import {
   selectReleaseGateBenchmarkResults,
   type BenchmarkResult,
 } from "../../src/lawmind/evaluation/index.js";
+import {
+  formatTrueManuscriptGateReport,
+  inspectTrueManuscriptGate,
+  runTrueManuscriptGateCli,
+} from "../../src/lawmind/evaluation/true-manuscript-gate.js";
 
 type Options = {
   workspaceDir: string;
@@ -91,14 +96,40 @@ async function main(): Promise<void> {
     );
   }
 
+  // True-manuscript gate: when fixtures are present they must all pass; an
+  // honest skip is a known risk for release (quality proof not shown).
+  const trueManuscriptGate = inspectTrueManuscriptGate();
+  const trueManuscriptLines: string[] = [];
+  const trueManuscriptRun = await runTrueManuscriptGateCli({
+    workspaceDir: opts.workspaceDir,
+    log: (line) => trueManuscriptLines.push(line),
+  });
+  if (!trueManuscriptGate.present) {
+    knownRisks.push(
+      "True-manuscript fixtures absent (honest SKIP). Before release, place desensitized " +
+        "real .docx/.pdf into fixtures/lawmind-true-manuscript/ and run " +
+        "`LAWMIND_REQUIRE_TRUE_MANUSCRIPT=1 pnpm lawmind:true-manuscript` until all pass.",
+    );
+  } else if (!trueManuscriptRun.ok) {
+    knownRisks.push(
+      "True-manuscript gate FAILED against local fixtures. Do not release until " +
+        "`pnpm lawmind:true-manuscript` is green.",
+    );
+  }
+
   const report = buildReleaseReadinessReportMarkdown({
     benchmarkResults,
     benchmarkTasks: BUILTIN_BENCHMARK_TASKS,
     qualityDashboardMarkdown,
     knownRisks,
+    trueManuscript: {
+      reportLine: formatTrueManuscriptGateReport(trueManuscriptGate),
+      detail: trueManuscriptLines.slice(1),
+    },
     verifyCommands: [
       "pnpm lawmind:verify",
       "pnpm lawmind:benchmark -- --out dist/lawmind-benchmark.json",
+      "LAWMIND_REQUIRE_TRUE_MANUSCRIPT=1 pnpm lawmind:true-manuscript",
       "pnpm lawmind:desktop:e2e:pr",
       "pnpm lawmind:quarterly-demo",
       "pnpm lawmind:release-readiness",

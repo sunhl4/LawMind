@@ -71,3 +71,6 @@ fixtures/lawmind-true-manuscript/*
 # Legacy single-file ignores（若需纳入版本控制，从下列行删除后 git add）
 IDENTITY.md
 USER.md
+
+# True-manuscript trend report — runtime artifact written by the gate CLI
+workspace/lawmind/metrics/true-manuscript-report.json

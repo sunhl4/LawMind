@@ -14,6 +14,11 @@ export type ReleaseReadinessInput = {
   qualityDashboardMarkdown?: string;
   verifyCommands?: string[];
   knownRisks?: string[];
+  /** True-manuscript gate section; omitted only in unit fixtures. */
+  trueManuscript?: {
+    reportLine: string;
+    detail?: string[];
+  };
 };
 
 function benchmarkSummary(results: BenchmarkResult[]): { avgScore: number; pass: boolean } {
@@ -69,6 +74,15 @@ export function buildReleaseReadinessReportMarkdown(input: ReleaseReadinessInput
     "## Quality Dashboard",
     "",
     input.qualityDashboardMarkdown ?? "No quality dashboard supplied.",
+    "",
+    "## True Manuscript Gate",
+    "",
+    input.trueManuscript
+      ? [
+          input.trueManuscript.reportLine,
+          ...(input.trueManuscript.detail ?? []).map((line) => `- ${line}`),
+        ].join("\n")
+      : "True-manuscript gate not evaluated in this report.",
     "",
     "## Known Risks",
     "",

@@ -12,6 +12,11 @@
 - [ ] 文件名含 **版本 + os + arch**（`artifactName` 已配置）。
 - [ ] 在干净虚拟机或新用户下 **安装包与 zip 解压版各测一条**：能打开向导、能连上本地服务、能发一条对话。
 
+## 质量证明
+
+- [ ] **真稿对照**：本地 `fixtures/lawmind-true-manuscript/` 已放入脱敏真稿（gitignore，不进仓库），且 `LAWMIND_REQUIRE_TRUE_MANUSCRIPT=1 pnpm lawmind:true-manuscript` 全部 OK；新稿先用 `pnpm lawmind:true-manuscript -- --write-baseline` 生成基线草稿并由律师核对。闸门 SKIP 或 FAIL 时不得对外宣称「真稿已验证」。
+- [ ] `pnpm lawmind:release-readiness` 报告中「True Manuscript Gate」为 RUN 且 Known Risks 无真稿挂账。
+
 ## 安全与信任
 
 - [ ] **macOS**：对外分发需 Apple Developer **Developer ID Application 签名 + notarytool 公证 + staple**。把 `CSC_LINK` / `CSC_KEY_PASSWORD` 与 `APPLE_ID` / `APPLE_APP_SPECIFIC_PASSWORD` / `APPLE_TEAM_ID` 配进 GitHub Actions secrets（或本机钥匙串）。没有证书时本地包仍是 adhoc，别人下载后不能双击。可用 `LAWMIND_REQUIRE_NOTARIZED=1` 让未公证构建失败。

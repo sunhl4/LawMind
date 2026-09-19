@@ -62,10 +62,13 @@ export function formatTrueManuscriptGateReport(gate: TrueManuscriptGate): string
  * CLI entry for `pnpm lawmind:true-manuscript`.
  * Default: print SKIP/RUN and exit 0 (honest skip is not a failure).
  * `LAWMIND_REQUIRE_TRUE_MANUSCRIPT=1`: exit 1 on skip (local/nightly only).
+ * When `workspaceDir` is given, a trend report is persisted for the Doctor
+ * scorecard regardless of pass/fail/skip.
  */
 export async function runTrueManuscriptGateCli(opts?: {
   repoRoot?: string;
   require?: boolean;
+  workspaceDir?: string;
   log?: (line: string) => void;
 }): Promise<{ ok: boolean; gate: TrueManuscriptGate; exitCode: number }> {
   const log = opts?.log ?? ((line: string) => console.log(line));
@@ -76,7 +79,19 @@ export async function runTrueManuscriptGateCli(opts?: {
     );
   const gate = inspectTrueManuscriptGate(opts?.repoRoot);
   log(formatTrueManuscriptGateReport(gate));
+  const report: TrueManuscriptReport = {
+    generatedAt: new Date().toISOString(),
+    status: gate.present ? "pass" : "skip",
+    dir: gate.dir,
+    files: [],
+    baselines: [],
+    byKind: {},
+    ...(gate.skipReason ? { skipReason: gate.skipReason } : {}),
+  };
   if (!gate.present) {
+    if (opts?.workspaceDir) {
+      persistTrueManuscriptReport(opts.workspaceDir, report);
+    }
     return { ok: !require, gate, exitCode: require ? 1 : 0 };
   }
   let failed = 0;
@@ -88,20 +103,46 @@ export async function runTrueManuscriptGateCli(opts?: {
     } else {
       log(`OK: ${name}${shape.textChars != null ? ` (${shape.textChars} chars)` : ""}`);
     }
+    report.files.push({
+      name,
+      ok: shape.ok,
+      ...(shape.textChars != null ? { textChars: shape.textChars } : {}),
+      ...(shape.reason ? { reason: shape.reason } : {}),
+    });
   }
   for (const baseline of loadTrueManuscriptBaselines(gate.dir)) {
+    const kind = baseline.kind ?? "other";
     const r = await compareTrueManuscriptAgainstBaseline(gate.dir, baseline);
     if (!r.ok) {
-      log(`FAIL baseline: ${baseline.file}: ${r.reason ?? "未通过"}`);
+      log(`FAIL baseline [${kind}]: ${baseline.file}: ${r.reason ?? "未通过"}`);
       failed += 1;
     } else {
-      log(`OK baseline: ${baseline.file}`);
+      log(`OK baseline [${kind}]: ${baseline.file}`);
     }
+    report.baselines.push({
+      file: baseline.file,
+      kind,
+      ok: r.ok,
+      ...(r.reason ? { reason: r.reason } : {}),
+    });
+    const bucket = report.byKind[kind] ?? { total: 0, ok: 0 };
+    bucket.total += 1;
+    if (r.ok) {
+      bucket.ok += 1;
+    }
+    report.byKind[kind] = bucket;
   }
   if (failed > 0) {
+    report.status = "fail";
+    if (opts?.workspaceDir) {
+      persistTrueManuscriptReport(opts.workspaceDir, report);
+    }
     return { ok: false, gate, exitCode: 1 };
   }
   log("true-manuscript gate pass");
+  if (opts?.workspaceDir) {
+    persistTrueManuscriptReport(opts.workspaceDir, report);
+  }
   return { ok: true, gate, exitCode: 0 };
 }
 
@@ -189,6 +230,90 @@ export type TrueManuscriptBaseline = {
   mustContain?: string[];
   kind?: "contract" | "complaint" | "other";
 };
+
+export type TrueManuscriptKind = NonNullable<TrueManuscriptBaseline["kind"]>;
+
+/**
+ * Draft kind guess from file name + extracted text. The lawyer confirms by
+ * editing the sidecar; the guess is never treated as verified.
+ */
+export function guessTrueManuscriptKind(name: string, text?: string): TrueManuscriptKind {
+  const hay = `${name}\n${(text ?? "").slice(0, 2000)}`;
+  if (/起诉状|上诉状|答辩状|原告|被告|诉讼请求/.test(hay)) {
+    return "complaint";
+  }
+  if (/合同|协议|甲方|乙方|违约责任/.test(hay)) {
+    return "contract";
+  }
+  return "other";
+}
+
+/** Up to 3 draft mustContain phrases: longest early lines, lawyer edits afterwards. */
+export function baselineMustContainCandidates(text: string): string[] {
+  const lines = text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 12 && line.length <= 60);
+  return lines.slice(0, 3);
+}
+
+/**
+ * Write draft `*.baseline.json` for manuscripts that lack one. Never overwrites
+ * an existing sidecar — the lawyer's confirmed baseline is authoritative.
+ */
+export async function writeTrueManuscriptBaselineDrafts(
+  dir: string,
+): Promise<{ written: string[]; kept: string[] }> {
+  const written: string[] = [];
+  const kept: string[] = [];
+  if (!fs.existsSync(dir)) {
+    return { written, kept };
+  }
+  const files = fs
+    .readdirSync(dir)
+    .filter((name) => /\.(docx|doc|pdf)$/i.test(name) && !name.startsWith("."));
+  for (const name of files) {
+    const sidecar = path.join(dir, name.replace(/\.(docx|doc|pdf)$/i, "") + ".baseline.json");
+    if (fs.existsSync(sidecar)) {
+      kept.push(name);
+      continue;
+    }
+    const shape = await inspectTrueManuscriptFileShape(path.join(dir, name));
+    if (!shape.ok) {
+      continue;
+    }
+    const draft: TrueManuscriptBaseline = {
+      file: name,
+      kind: guessTrueManuscriptKind(name, shape.text),
+      ...(shape.textChars ? { minTextChars: Math.max(20, Math.floor(shape.textChars * 0.9)) } : {}),
+      ...(shape.text ? { mustContain: baselineMustContainCandidates(shape.text) } : {}),
+    };
+    fs.writeFileSync(sidecar, `${JSON.stringify(draft, null, 2)}\n`, "utf8");
+    written.push(name);
+  }
+  return { written, kept };
+}
+
+export type TrueManuscriptReport = {
+  generatedAt: string;
+  status: "skip" | "pass" | "fail";
+  dir: string;
+  files: { name: string; ok: boolean; textChars?: number; reason?: string }[];
+  baselines: { file: string; kind: TrueManuscriptKind; ok: boolean; reason?: string }[];
+  byKind: Partial<Record<TrueManuscriptKind, { total: number; ok: number }>>;
+  skipReason?: string;
+};
+
+/** Persist trend report for the Doctor scorecard (`lawmind/metrics/` under workspace). */
+export function persistTrueManuscriptReport(
+  workspaceDir: string,
+  report: TrueManuscriptReport,
+): string {
+  const out = path.join(workspaceDir, "lawmind", "metrics", "true-manuscript-report.json");
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  fs.writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  return out;
+}
 
 export function loadTrueManuscriptBaselines(dir: string): TrueManuscriptBaseline[] {
   if (!fs.existsSync(dir)) {

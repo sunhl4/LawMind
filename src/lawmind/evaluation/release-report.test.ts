@@ -32,4 +32,23 @@ describe("release readiness report", () => {
     expect(report).toContain("pnpm lawmind:verify");
     expect(report).toContain("pnpm lawmind:compiler-gate");
   });
+
+  it("renders the true-manuscript gate section when supplied", () => {
+    const report = buildReleaseReadinessReportMarkdown({
+      trueManuscript: {
+        reportLine:
+          "RUN: 3 file(s) · 3 sidecar baseline(s) → /repo/fixtures/lawmind-true-manuscript",
+        detail: ["OK: nda.docx (1200 chars)", "OK baseline [contract]: nda.docx"],
+      },
+    });
+    expect(report).toContain("## True Manuscript Gate");
+    expect(report).toContain("RUN: 3 file(s)");
+    expect(report).toContain("- OK baseline [contract]: nda.docx");
+  });
+
+  it("notes the gate honestly when not evaluated", () => {
+    const report = buildReleaseReadinessReportMarkdown({});
+    expect(report).toContain("## True Manuscript Gate");
+    expect(report).toContain("not evaluated");
+  });
 });

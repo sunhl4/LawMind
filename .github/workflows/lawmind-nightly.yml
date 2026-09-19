@@ -62,6 +62,11 @@ jobs:
       - name: Legal compiler offline gate
         run: pnpm lawmind:compiler-gate
 
+      # Fixtures are gitignored, so CI prints an honest SKIP (exit 0). The
+      # blocking run is local/pre-release: LAWMIND_REQUIRE_TRUE_MANUSCRIPT=1.
+      - name: True-manuscript gate (honest skip without fixtures)
+        run: pnpm lawmind:true-manuscript
+
       - name: Real-model benchmark (strict)
         env:
           LAWMIND_BENCHMARK_STRICT: "1"
