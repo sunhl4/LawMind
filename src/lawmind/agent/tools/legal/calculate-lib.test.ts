@@ -83,4 +83,62 @@ describe("calculate-lib", () => {
     const p = calculateLegal("legal_period", { kind: "civil_appeal", start: "2024-01-01" });
     expect(p.ok && p.result.value).toBe("2024-01-16");
   });
+
+  it("computes 诉讼费 from a numeric amount or from free-text 标的金额", () => {
+    const byNumber = calculateLegal("litigation_fee", {
+      caseKind: "property",
+      amountYuan: 150_000,
+    });
+    expect(byNumber.ok).toBe(true);
+    if (!byNumber.ok) {
+      return;
+    }
+    expect(byNumber.result.value).toBe(3_300);
+
+    // 卷宗里的自由文本同样可算（3.21 万 → 602.5）。
+    const byText = calculateLegal("litigation_fee", {
+      caseKind: "property",
+      amountText: "3.21万元",
+    });
+    expect(byText.ok && byText.result.value).toBeCloseTo(602.5, 2);
+  });
+
+  it("reports 保全/执行申请费 and 减半 alongside the acceptance fee", () => {
+    const r = calculateLegal("litigation_fee", {
+      caseKind: "property",
+      amountYuan: 150_000,
+      preservedAmountYuan: 1_000_000,
+      executionAmountYuan: 110_000,
+      simplified: true,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) {
+      return;
+    }
+    // 3300 + 保全 5000（封顶）+ 执行 1550
+    expect(r.result.value).toBe(3_300 + 5_000 + 1_550);
+    expect(r.result.notes).toContain("保全申请费");
+    expect(r.result.notes).toContain("已达 5000 元上限");
+    expect(r.result.notes).toContain("简易程序");
+    expect(r.result.notes).toContain("诉讼费用交纳办法");
+  });
+
+  it("refuses to pick a number for 幅度类收费 and for ambiguous amounts", () => {
+    const divorce = calculateLegal("litigation_fee", { caseKind: "divorce" });
+    expect(divorce.ok).toBe(true);
+    if (divorce.ok) {
+      expect(divorce.result.formula).toContain("幅度");
+      expect(divorce.result.notes).toContain("省级政府");
+    }
+    const ambiguous = calculateLegal("litigation_fee", {
+      caseKind: "property",
+      amountText: "本金 32100 元，另案 50000 元",
+    });
+    expect(ambiguous.ok).toBe(false);
+  });
+
+  it("rejects unknown case kinds instead of defaulting silently", () => {
+    const bad = calculateLegal("litigation_fee", { caseKind: "divorce_bogus", amountYuan: 1 });
+    expect(bad.ok).toBe(false);
+  });
 });

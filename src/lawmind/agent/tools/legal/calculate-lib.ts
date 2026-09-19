@@ -9,6 +9,7 @@ import {
 } from "../../../labor/economic-compensation.js";
 import { computeLegalPeriod, isLegalPeriodKind } from "../../../labor/legal-period.js";
 import { computeOvertimePay, type OvertimeKind } from "../../../labor/overtime-pay.js";
+import { computeLitigationFeeOp } from "./calculate-litigation-fee.js";
 
 export type CalculateOp =
   | "interest"
@@ -21,6 +22,7 @@ export type CalculateOp =
   | "economic_compensation"
   | "overtime_pay"
   | "double_wage"
+  | "litigation_fee"
   | "legal_period";
 
 export type CalculateResult = {
@@ -497,6 +499,25 @@ export function calculateLegal(
         formula: out.formula,
         inputs: { kind: kindRaw, start: start.s, expires: out.expires },
         notes: out.notes.join(" "),
+      },
+    };
+  }
+
+  if (op === "litigation_fee") {
+    // 领域逻辑在 calculate-litigation-fee.ts（费率表 + 金额解析）；
+    // 本函数只保留 op 分派与结果形状适配。
+    const out = computeLitigationFeeOp(inputs);
+    if (!out.ok) {
+      return { ok: false, error: out.error };
+    }
+    return {
+      ok: true,
+      result: {
+        op,
+        value: out.value,
+        formula: out.formula,
+        inputs: out.inputs,
+        notes: out.notes,
       },
     };
   }
