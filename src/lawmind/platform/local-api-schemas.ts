@@ -189,7 +189,7 @@ export const matterProfilePostSchema = z.object({
         serviceMethod: z.enum(["mail", "electronic", "in_person", "unknown"]).optional(),
       }),
     )
-    .max(8)
+    .max(32)
     .optional(),
   matterKind: z.enum(["contract", "litigation", "general"]).optional(),
   practiceTags: z.array(z.string().trim().min(1).max(40)).max(12).optional(),
@@ -200,6 +200,7 @@ export const matterProfilePostSchema = z.object({
       instance: z.string().trim().max(40).optional(),
       standing: z.string().trim().max(40).optional(),
       hearingAt: z.string().trim().max(40).optional(),
+      claimAmount: z.string().trim().max(120).optional(),
     })
     .optional(),
   conflictCheckConfirmed: z.boolean().optional(),

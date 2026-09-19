@@ -44,7 +44,7 @@ export const matterSchema = z.object({
         serviceMethod: z.enum(["mail", "electronic", "in_person", "unknown"]).optional(),
       }),
     )
-    .max(8)
+    .max(32)
     .optional(),
   docket: z
     .object({
@@ -53,6 +53,7 @@ export const matterSchema = z.object({
       instance: z.string().optional(),
       standing: z.string().optional(),
       hearingAt: z.string().optional(),
+      claimAmount: z.string().trim().max(120).optional(),
     })
     .optional(),
   createdAt: z.string().optional(),
@@ -149,7 +150,9 @@ export const deadlineSchema = z.object({
   source: z.enum(["manual", "case_memory", "project_file", "calendar_import", "document_extract"]),
   status: z.enum(["open", "snoozed", "completed", "missed"]),
   notes: z.string().optional(),
-  eventKind: z.enum(["hearing", "filing", "limitation", "reply", "custom"]).optional(),
+  eventKind: z
+    .enum(["hearing", "filing", "limitation", "reply", "preservation", "custom"])
+    .optional(),
   remindBeforeHours: z
     .number()
     .int()

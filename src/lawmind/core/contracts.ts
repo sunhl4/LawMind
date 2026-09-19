@@ -52,6 +52,8 @@ export type MatterDocket = {
   instance?: string;
   standing?: string;
   hearingAt?: string;
+  /** 标的金额：自由文本，保留原始写法。 */
+  claimAmount?: string;
 };
 
 export type Matter = {
@@ -121,7 +123,7 @@ export type Deadline = {
   source: "manual" | "case_memory" | "project_file" | "calendar_import" | "document_extract";
   status: "open" | "snoozed" | "completed" | "missed";
   notes?: string;
-  eventKind?: "hearing" | "filing" | "limitation" | "reply" | "custom";
+  eventKind?: "hearing" | "filing" | "limitation" | "reply" | "preservation" | "custom";
   remindBeforeHours?: number;
   icsUid?: string;
   remindedAt?: string;

@@ -53,6 +53,8 @@ export const MatterDocketSchema = z.object({
   instance: z.string().optional(),
   standing: z.string().optional(),
   hearingAt: z.string().optional(),
+  /** 标的金额：自由文本，保留「32,100 元」等原始写法。 */
+  claimAmount: z.string().trim().max(120).optional(),
 });
 
 export const MatterRecordSchema = z.object({
@@ -73,7 +75,7 @@ export const MatterRecordSchema = z.object({
   practiceTags: z.array(z.string()).optional(),
   causeOfAction: z.string().trim().max(200).optional(),
   counterparty: z.string().trim().max(200).optional(),
-  parties: z.array(MatterPartySchema).max(8).optional(),
+  parties: z.array(MatterPartySchema).max(32).optional(),
   docket: MatterDocketSchema.optional(),
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
@@ -177,7 +179,9 @@ export const DeadlineRecordSchema = z.object({
   source: z.enum(["manual", "case_memory", "project_file", "calendar_import", "document_extract"]),
   status: z.enum(["open", "snoozed", "completed", "missed"]),
   notes: z.string().optional(),
-  eventKind: z.enum(["hearing", "filing", "limitation", "reply", "custom"]).optional(),
+  eventKind: z
+    .enum(["hearing", "filing", "limitation", "reply", "preservation", "custom"])
+    .optional(),
   remindBeforeHours: z
     .number()
     .int()
