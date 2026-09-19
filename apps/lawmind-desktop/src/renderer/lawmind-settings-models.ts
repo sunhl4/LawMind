@@ -102,6 +102,49 @@ export function formatAuthorityProbeSuccessMsg(opts: {
   return parts.join(" · ");
 }
 
+export type LawmindSettingsLicenseState = {
+  status?: "licensed" | "licensed_expired" | "trial" | "trial_expired" | "invalid" | "missing";
+  edition?: string;
+  licensee?: string;
+  expiresAt?: string;
+  trialDaysLeft?: number;
+  message?: string;
+  blocking?: boolean;
+};
+
+/** 软门槛：许可问题永不阻断交办，只在 UI 提醒。 */
+export function licenseNeedsAttention(
+  license: LawmindSettingsLicenseState | null | undefined,
+): boolean {
+  if (!license) {
+    return false;
+  }
+  return (
+    license.status === "trial_expired" ||
+    license.status === "licensed_expired" ||
+    license.status === "invalid"
+  );
+}
+
+export function licenseStatusLabel(
+  license: LawmindSettingsLicenseState | null | undefined,
+): string {
+  switch (license?.status) {
+    case "licensed":
+      return license.licensee ? `已激活 · ${license.licensee}` : "已激活";
+    case "licensed_expired":
+      return "许可已到期（仍可用）";
+    case "trial":
+      return `试用中 · 剩余 ${license.trialDaysLeft ?? 0} 天`;
+    case "trial_expired":
+      return "试用已结束（仍可用）";
+    case "invalid":
+      return "激活码无效";
+    default:
+      return "未激活";
+  }
+}
+
 export type LawmindSettingsHealth = {
   modelConfigured: boolean;
   modelVerified?: boolean;
@@ -116,6 +159,8 @@ export type LawmindSettingsHealth = {
   draftWithModelActive?: boolean;
   /** 权威库端点契约（来自 /api/health doctor.authorityCorpus） */
   authorityCorpus?: LawmindSettingsAuthorityCorpus;
+  /** 离线许可/试用状态（来自 /api/health doctor.license）；软门槛，不阻断交办。 */
+  license?: LawmindSettingsLicenseState;
   /** 今日权威调用计量（无查询正文） */
   authorityUsage?: {
     day?: string;

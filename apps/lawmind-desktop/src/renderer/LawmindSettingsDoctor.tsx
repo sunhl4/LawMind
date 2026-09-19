@@ -1,7 +1,8 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { apiGetJson, apiSendJson, errorMessage, fetchApi } from "./api-client";
 import { loadHealthPayload, type HealthPayload } from "./lawmind-app-data";
 import { apiGetTriageRules } from "./lawmind-triage-api";
+import { LawmindSettingsLicense } from "./LawmindSettingsLicense";
 import {
   authorityCorpusStatusLabel,
   formatAuthorityProbeSuccessMsg,
@@ -114,6 +115,18 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
   const [auditExportMsg, setAuditExportMsg] = useState<string | null>(null);
   const [authorityProbeBusy, setAuthorityProbeBusy] = useState(false);
   const [authorityProbeMsg, setAuthorityProbeMsg] = useState<string | null>(null);
+
+  const refreshDoctorHealth = useCallback(async () => {
+    if (!apiBase) {
+      return;
+    }
+    try {
+      const h = await loadHealthPayload(apiBase);
+      setFetchedHealth(h);
+    } catch {
+      /* 刷新失败保留旧值 */
+    }
+  }, [apiBase]);
 
   useEffect(() => {
     if (!apiBase || healthProp) {
@@ -859,6 +872,12 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
           </p>
         ) : null}
       </div>
+
+      <LawmindSettingsLicense
+        apiBase={apiBase}
+        license={doctor?.license ?? null}
+        onChanged={() => void refreshDoctorHealth()}
+      />
 
       <div className="lm-settings-group lm-settings-surface">
         <h4 className="lm-doctor-group-title">高安全核对</h4>

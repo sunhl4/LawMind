@@ -63,6 +63,7 @@ import {
 import { buildAuthorityUsageSummary } from "../../../src/lawmind/retrieval/authority-usage.js";
 import { openLawCorpusStats } from "../../../src/lawmind/retrieval/providers/open-law/local-corpus.js";
 import { summarizeOpenLawSources } from "../../../src/lawmind/retrieval/providers/open-law/sources.js";
+import { resolveLicenseState } from "../../../src/lawmind/license/index.js";
 import { lexisAdapterMessage } from "../../../src/lawmind/retrieval/providers/lexis/placeholder.js";
 import {
   getBuildChannel,
@@ -246,6 +247,7 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
   const authorityCorpus = buildAuthorityCorpusHealthSummary();
   const companyRegistry = buildCompanyRegistryHealthSummary();
   const authorityUsage = buildAuthorityUsageSummary(workspaceDir);
+  const license = resolveLicenseState();
   const buildChannel = getBuildChannel();
   const embeddingIndex = getEmbeddingIndexConfig();
   const graphOAuth = getGraphOAuthStatus();
@@ -332,6 +334,7 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
         authorityCorpus,
         companyRegistry,
         authorityUsage,
+        license,
         embeddingIndex: {
           enabled: embeddingIndex.enabled,
           modelId: embeddingIndex.modelId,

@@ -139,6 +139,16 @@ export type HealthPayload = {
       envKey?: string;
       message?: string;
     };
+    /** 离线许可（软门槛）：到期/未激活只提醒，不阻断交办。 */
+    license?: {
+      status?: "licensed" | "licensed_expired" | "trial" | "trial_expired" | "invalid" | "missing";
+      edition?: string;
+      licensee?: string;
+      expiresAt?: string;
+      trialDaysLeft?: number;
+      message?: string;
+      blocking?: boolean;
+    };
     authorityUsage?: {
       day?: string;
       ok?: number;

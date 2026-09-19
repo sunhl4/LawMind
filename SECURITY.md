@@ -67,6 +67,16 @@ Mechanical lint (`src/lawmind/lint/`) is an **advisory consistency check**, not 
 - Internal `auto_deliver` only unlocks when progressive autonomy is already open (first-pass + lint-escape + sample N) **and** the draft is not outbound. Missing lint-escape series refuses unlock. Rubber-stamp first-pass alone is not enough.
 - Structured stance (`workspace/lawmind/stance/`) is written only from explicit lawyer actions (redline accept, habit adopt, approved KEY_MODIFICATIONS). Historical scan never silent-writes profile or stance.
 
+## License boundary (offline, soft gate)
+
+Licensing is **local and offline**. It is not a security control and it is not a remote control plane.
+
+- The license/trial record lives at `~/.lawmind/license.json` (mode `0600`), **outside every workspace**. Agent host tools cannot read it: it sits outside the workspace root and outside the brokered mount set; the deny-list (`src/lawmind/host-access/deny-list.ts`) blocks workspace files like `lawmind.policy.json`, and the license file is never a grant target.
+- An activation code is `base64url(payload).base64url(ed25519 signature)` over the exact payload bytes. The verifying public key is embedded (`src/lawmind/license/keys.ts`); the private key exists only on the issuer side (dev key lives in `scripts/lawmind/lawmind-license.ts` and **must be rotated before any external release** — see that file's header).
+- Rejected without exception: malformed codes, tampered payloads (signature covers the bytes), and machine-bound codes presented on another machine. Failures are reported to the lawyer, never swallowed.
+- Expiry is a **soft gate**: an expired trial or expired license keeps every feature usable and only surfaces a reminder in settings. Nothing in the turn/tool pipeline consults license state, so a license failure can never block drafting, export or sign-off, and can never silently alter a deliverable.
+- No network calls, no telemetry, no server-side revocation. Do not add a license check that gates the tool pipeline or the local API without a security review — that would convert a commercial reminder into an availability risk for a lawyer's live case file.
+
 ## Bug bounty
 
 There is **no** formal bug bounty program. Responsible disclosure is still appreciated; fixes may be credited in release notes or advisories at maintainer discretion.

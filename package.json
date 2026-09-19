@@ -33,6 +33,7 @@
     "lawmind:env:check": "node --import tsx scripts/lawmind/lawmind-env-check.ts",
     "lawmind:extract:legacy-renderer-css": "node scripts/lawmind/lawmind-extract-legacy-renderer-css.mjs",
     "lawmind:gate": "node --import tsx scripts/lawmind/lawmind-deliverable-check.ts",
+    "lawmind:license": "node --import tsx scripts/lawmind/lawmind-license.ts",
     "lawmind:mcp:readonly": "node --import tsx scripts/lawmind/mcp-readonly-server.ts",
     "lawmind:multitask:audit": "node --import tsx scripts/lawmind/lawmind-multitask-audit.ts",
     "lawmind:multitask:decision": "node --import tsx scripts/lawmind/lawmind-multitask-decision.ts",

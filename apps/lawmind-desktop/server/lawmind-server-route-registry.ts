@@ -27,6 +27,7 @@ import { handleDaemonRoutes } from "./lawmind-server-route-daemon.js";
 import { handleDeskSettingsRoutes } from "./lawmind-server-route-desk-settings.js";
 import { handlePracticePlaybookRoutes } from "./lawmind-server-route-practice-playbook.js";
 import { handleLawyerDeskRoutes } from "./lawmind-server-route-lawyer-desk.js";
+import { handleLicenseRoutes } from "./lawmind-server-route-license.js";
 import { handleRecordRoutes } from "./lawmind-server-route-records.js";
 import { handleSessionExtendedRoutes } from "./lawmind-server-route-sessions.js";
 import { handleWorksRoutes } from "./lawmind-server-route-works.js";
@@ -87,6 +88,7 @@ export const LAWMIND_ROUTE_HANDLERS: LawmindRouteHandler[] = [
   (args) => handleAutomationsRoutes(args),
   (args) => handleAssistantRoutes(args),
   (args) => handleLawyerDeskRoutes(args),
+  (args) => handleLicenseRoutes(args),
   (args) => handleMatterReplicaRoutes(args),
   (args) => handleMatterRoutes(args),
   (args) => handleOnboardingRoutes(args),

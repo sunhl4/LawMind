@@ -344,4 +344,61 @@ describe("LawmindSettingsDoctor", () => {
     });
     expect(onVerifyModel).toHaveBeenCalledOnce();
   });
+
+  it("shows license state and never presents an expired trial as blocking", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindSettingsDoctor
+          apiBase="http://127.0.0.1:8765"
+          health={{
+            modelConfigured: true,
+            doctor: {
+              license: {
+                status: "trial_expired",
+                trialDaysLeft: 0,
+                blocking: false,
+                message: "试用已结束；功能照常可用，请激活。",
+              },
+            },
+          }}
+          onOpenApiWizard={vi.fn()}
+          onOpenCollaborationPage={vi.fn()}
+        />,
+      );
+    });
+    expect(host.querySelector('[data-testid="lm-settings-license"]')).toBeTruthy();
+    const status = host.querySelector('[data-testid="lm-license-status"]');
+    expect(status?.getAttribute("data-status")).toBe("trial_expired");
+    expect(status?.textContent).toContain("试用已结束");
+    expect(host.textContent).toContain("功能照常可用");
+    expect(host.querySelector('[data-testid="lm-license-code-input"]')).toBeTruthy();
+  });
+
+  it("shows an activated license with the licensee name", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindSettingsDoctor
+          apiBase="http://127.0.0.1:8765"
+          health={{
+            modelConfigured: true,
+            doctor: {
+              license: {
+                status: "licensed",
+                licensee: "张三律师",
+                edition: "solo",
+                expiresAt: "2099-01-01T00:00:00.000Z",
+                blocking: false,
+                message: "已激活：张三律师（solo），有效期至 2099-01-01。",
+              },
+            },
+          }}
+          onOpenApiWizard={vi.fn()}
+          onOpenCollaborationPage={vi.fn()}
+        />,
+      );
+    });
+    const status = host.querySelector('[data-testid="lm-license-status"]');
+    expect(status?.getAttribute("data-status")).toBe("licensed");
+    expect(status?.textContent).toContain("张三律师");
+  });
 });
