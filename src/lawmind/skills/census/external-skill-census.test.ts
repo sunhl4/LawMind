@@ -68,10 +68,19 @@ describe("external-skill-census", () => {
     const pack = buildCensusPack([]);
     expect(pack.digestRecordRel).toBe(CENSUS_DIGEST_RECORD_REL);
     expect(pack.digestRecordHint).toContain("待消化");
-    // 指向的章节必须真的在文件里（否则增量无处登记）。
+    // 指向的章节必须真的在文件里（否则增量无处登记）；表格经 oxfmt 对齐，断言不依赖空白。
     const doc = fs.readFileSync(path.join(repoRoot, pack.digestRecordRel), "utf8");
     expect(doc).toContain(CENSUS_DIGEST_RECORD_SECTION);
     expect(doc).toContain("### 待消化（下一期候选）");
-    expect(doc).toContain("| 日期 | builtin skill |");
+    expect(doc).toContain("builtin skill");
+    expect(doc).toMatch(/^\|\s*日期\s*\|/m);
+    // 本期内化的三个能力都要在记录表里有行（登记与落地同源）。
+    for (const id of [
+      "contract-playbook-review",
+      "chronology-two-stage",
+      "matter-status-scope-budget",
+    ]) {
+      expect(doc).toContain(id);
+    }
   });
 });

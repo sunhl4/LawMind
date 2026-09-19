@@ -15,6 +15,7 @@ import {
   type MatterProfileUpdateInput,
 } from "../application/services/matter-write-service.js";
 import { isValidMatterId } from "../cases/matter-id.js";
+import { suggestDependsOnDeadlineId } from "./deadline-chain.js";
 import {
   appendDeskWrite,
   loadDeskWrite,
@@ -93,7 +94,20 @@ export async function applyLegalEvents(
   const previousHearingAt = existing?.docket?.hearingAt ?? null;
   const deadlineIds: string[] = [];
   let hearingDue: string | undefined;
-  for (const ev of writable) {
+  // 开庭先写，同批的上诉期才能挂到这次开庭（与确认抽取同一口径，见 deadline-service）。
+  const ordered = [
+    ...writable.filter((ev) => ev.eventKind === "hearing"),
+    ...writable.filter((ev) => ev.eventKind !== "hearing"),
+  ];
+  const byTitle = new Map<string, string>();
+  const pool = existing ? listDeadlinesForMatter(workspaceDir, id) : [];
+  for (const ev of ordered) {
+    const dependsOnDeadlineId = suggestDependsOnDeadlineId({
+      eventKind: ev.eventKind,
+      title: ev.title,
+      dueAt: ev.dueAt!.trim(),
+      candidates: pool,
+    });
     const record = recordDeadline(
       workspaceDir,
       {
@@ -104,10 +118,13 @@ export async function applyLegalEvents(
         notes: ev.notes,
         source: "document_extract",
         remindBeforeHours: defaultRemindBeforeHours(ev.eventKind),
+        dependsOnDeadlineId,
       },
       { createMatterIfMissing: opts?.createMatterIfMissing === true },
     );
     deadlineIds.push(record.deadlineId);
+    byTitle.set(ev.title, record.deadlineId);
+    pool.push(record);
     if (ev.eventKind === "hearing" && !hearingDue) {
       hearingDue = record.dueAt;
     }

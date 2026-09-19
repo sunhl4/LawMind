@@ -76,7 +76,7 @@ describe("searchPersonalKnowledge hybrid-lite", () => {
     const rebuilt = await rebuildWorkspaceSearchIndex(ws);
     expect(rebuilt.knowledgeRows).toBeGreaterThan(0);
     const status = getSearchIndexStatus(ws);
-    expect(status.schemaVersion).toBe(2);
+    expect(status.schemaVersion).toBe(3);
     expect(status.knowledgeRows).toBeGreaterThan(0);
 
     const result = await searchPersonalKnowledge(ws, {
