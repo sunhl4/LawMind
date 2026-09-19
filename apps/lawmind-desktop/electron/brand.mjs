@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveDevUserDataDir } from "./lawmind-root.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const desktopRoot = path.resolve(__dirname, "..");
@@ -36,11 +37,17 @@ export function resolveRuntimeAppIconPath(electronDir = __dirname) {
  * @param {{ getPath: (name: string) => string, setPath: (name: string, p: string) => void, isPackaged?: boolean }} electronApp
  */
 export function pinDevUserData(electronApp, { packaged = electronApp.isPackaged } = {}) {
-  if (packaged) {
+  const target = resolveDevUserDataDir({
+    appDataDir: electronApp.getPath("appData"),
+    brandFolder: brand.devUserDataFolder,
+    // 测试/开发可把应用状态整体隔离到临时目录；打包版忽略该变量（见 lawmind-root.mjs）。
+    override: process.env.LAWMIND_USER_DATA_DIR,
+    packaged,
+  });
+  if (!target) {
     return;
   }
-  const folder = brand.devUserDataFolder || "Electron";
-  electronApp.setPath("userData", path.join(electronApp.getPath("appData"), folder));
+  electronApp.setPath("userData", target);
 }
 
 export function applyProductName(electronApp, name = LAWMIND_PRODUCT_NAME) {

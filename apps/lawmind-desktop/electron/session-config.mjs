@@ -16,7 +16,10 @@ export function installLawmindContentSecurityPolicy(electronSession, opts = {}) 
       : "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
-    "font-src 'self'",
+    // 渲染器会把小字体内联成 data:（Vite assetsInlineLimit 默认 4KB）。
+    // img-src 已允许 data:，字体同样属于应用自带资源；不加 data: 会被 CSP 拦下，
+    // 用户侧表现为字体静默回退 + 控制台报错。
+    "font-src 'self' data:",
     dev
       ? "connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:* ws://localhost:* http://localhost:*"
       : "connect-src 'self' http://127.0.0.1:*",

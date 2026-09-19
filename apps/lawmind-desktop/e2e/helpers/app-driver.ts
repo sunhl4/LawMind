@@ -19,6 +19,9 @@ export type RendererConfig = {
   apiBase: string;
   apiAuthToken: string;
   workspaceDir: string;
+  /** 应用数据根（<userData>/LawMind）；E2E 用它断言隔离生效。 */
+  lawMindRoot: string;
+  configPath: string;
 };
 
 export type LogEntry = {
@@ -44,18 +47,33 @@ export async function prepareE2EUserData(opts: { matterId?: string } = {}): Prom
 /**
  * 启动 LawMind Electron 应用，使用指定的 userDataDir。
  */
+/**
+ * 启动 LawMind Electron 应用，使用指定的 userDataDir 隔离应用状态。
+ *
+ * ⚠️ 不能用 `--user-data-dir`：Playwright 的 `_electron.launch()` 固定把
+ * `--inspect=0` / `--remote-debugging-port=0` 前置到 `args`，而 Electron 只在
+ * `--user-data-dir` **位于其它开关之前**时才认它（实测 `--inspect=0
+ * --user-data-dir=X` 会退回默认 userData）。开关被忽略不会报错，只会静默读到
+ * 机器上真实的 `<userData>/LawMind/desktop-config.json`：
+ *   - `workspaceDir` 变成机器上的真实工作区，而不是夹具临时目录；
+ *   - 夹具 `<userData>/LawMind/.env.lawmind` 里的签批/导出 bypass 读不到，
+ *     契约化 E2E 会在签批时拿到 403 checklist_bypass_forbidden。
+ * 因此改用应用自带的 `LAWMIND_USER_DATA_DIR` 覆盖（打包版忽略该变量）。
+ * `app-driver.spec.ts` 的隔离断言负责兜底，防止再次静默退化。
+ */
 export async function launchLawMindElectron(
   config: AppDriverConfig,
   extraEnv: Record<string, string> = {},
 ): Promise<ElectronApplication> {
   return electron.launch({
-    args: [path.join(desktopRoot, "electron/main.mjs"), `--user-data-dir=${config.userDataDir}`],
+    args: [path.join(desktopRoot, "electron/main.mjs")],
     cwd: desktopRoot,
     env: {
       ...process.env,
       LAWMIND_E2E: "1",
       LAWMIND_SKIP_AUTO_UPDATE: "1",
       LAWMIND_ENABLE_E2E_TEST_ROUTES: "1",
+      LAWMIND_USER_DATA_DIR: config.userDataDir,
       ...extraEnv,
     },
     timeout: 120_000,
@@ -78,6 +96,8 @@ export async function getRendererConfig(page: Page): Promise<RendererConfig> {
     apiBase: String(c.apiBase),
     apiAuthToken: String(c.apiAuthToken),
     workspaceDir: String(c.workspaceDir),
+    lawMindRoot: typeof c.lawMindRoot === "string" ? c.lawMindRoot : "",
+    configPath: typeof c.configPath === "string" ? c.configPath : "",
   };
 }
 
@@ -349,7 +369,14 @@ export async function closeApp(
 ): Promise<void> {
   await electronApp.close();
   if (logs.hasUnhandledException || logs.hasSevere) {
-    const summary = logs.entries.map((e) => `[${e.type}] ${e.text ?? e.error ?? ""}`).join("\n");
+    // 带堆栈：pageerror 的 message 常常只有一句 “Failed to fetch”，没有 stack 无法定位调用点。
+    const summary = logs.entries
+      .map((e) => {
+        const detail = e.text ?? e.error ?? "";
+        const where = e.location ? `\n    at ${e.location.split("\n").slice(0, 4).join("\n    at ")}` : "";
+        return `[${e.type}] ${detail}${where}`;
+      })
+      .join("\n");
     throw new Error(`Severe logs detected during E2E run:\n${summary}`);
   }
 }

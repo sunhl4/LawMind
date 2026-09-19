@@ -77,6 +77,15 @@ export async function prepareElectronE2EUserDataWithEnv(opts = {}) {
         customModels: [],
         defaultModelId: "builtin:qwen-plus",
         verifications: {
+          // 关键：env 文件里配置了模型时，应用把当前模型解析为 `env:current`
+          // （见 /api/models 的 defaultModelId）。只写 builtin:qwen-plus 不会让
+          // **当前**模型显示为已验证，发送会被「模型未验证」守卫拦下（对话区保持空态）。
+          "env:current": {
+            verifiedAt: now,
+            latencyMs: 1,
+            model: "qwen-plus",
+            baseUrl: "http://127.0.0.1:1",
+          },
           "builtin:qwen-plus": {
             verifiedAt: now,
             latencyMs: 1,

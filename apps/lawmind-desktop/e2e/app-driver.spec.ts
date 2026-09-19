@@ -19,6 +19,12 @@ test.describe("E2E app driver self-test", () => {
       const rendererConfig = await waitForLocalServerReady(window);
       expect(rendererConfig.apiBase).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
       expect(rendererConfig.workspaceDir).toBe(config.workspaceDir);
+      // 隔离回归断言：应用数据根必须落在夹具临时目录内。
+      // 若有人改回 `--user-data-dir`（或被 Playwright 前置开关挤掉），应用会
+      // 静默读机器上真实的 desktop-config.json / .env.lawmind —— 这里直接失败，
+      // 而不是让契约化 E2E 在后面报一个难懂的 403。
+      expect(rendererConfig.lawMindRoot).toContain(config.userDataDir);
+      expect(rendererConfig.configPath).toContain(config.userDataDir);
       await closeApp(electronApp, logs);
     } finally {
       await electronApp.close().catch(() => undefined);

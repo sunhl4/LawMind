@@ -47,19 +47,21 @@ test.describe("崩溃监督与恢复 E2E", () => {
 
       await window.reload({ waitUntil: "domcontentloaded" });
       await waitForShell(window);
-      // 当前构建下 UI 状态栏未显示「本地服务未连接」，但页面会直接展示 fetch 失败提示。
-      // 这仍然属于用户可见的表面化提示，证明 UI 感知到了服务断连。
-      await expect(window.getByText("Failed to fetch")).toBeVisible({ timeout: 15_000 });
+      // 服务断连的用户可见表面：应用把 fetch 的 TypeError 本地化为中文提示
+      // （api-client-proxy「无法连接本地服务，请检查网络与本机 LawMind 进程是否运行。」），
+      // 因此不能断言原始的 "Failed to fetch" 文案。
+      await expect(window.getByText(/无法连接本地服务/).first()).toBeVisible({ timeout: 15_000 });
 
-      // 4. 断言自动重启后服务恢复（监督层指数退避，默认 5 次内）
-      // 重启后端口可能变化，需重新读取渲染进程配置。
-      const newConfig = await waitForLocalServerReady(window, 60_000);
-      expect(newConfig.apiBase).not.toBe(rendererConfig.apiBase);
+      // 4. 断言自动重启后服务恢复（监督层指数退避，默认 5 次内）。
+      // 注意：重启会在端口空闲时**沿用原端口**（pickPort 优先复用），这是刻意的产品行为
+      // （渲染进程配置不跳、律师不用重连），因此不能断言端口一定变化；
+      // waitForLocalServerReady 内部会校验 /api/health 的 ok===true，已足以证明服务重新可用。
+      await waitForLocalServerReady(window, 60_000);
 
       // 5. 恢复后再刷新，断连提示应消失
       await window.reload({ waitUntil: "domcontentloaded" });
       await waitForShell(window);
-      await expect(window.getByText("Failed to fetch")).toHaveCount(0, { timeout: 30_000 });
+      await expect(window.getByText(/无法连接本地服务/)).toHaveCount(0, { timeout: 30_000 });
 
       // 6. 断言崩溃事件被审计记录
       const events = await readAuditEvents(config.workspaceDir);

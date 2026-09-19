@@ -1,13 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { test, expect } from "@playwright/test";
-import { _electron as electron } from "playwright";
+import { launchLawMindElectron } from "./helpers/app-driver.js";
 import { bootstrapE2ePage } from "./e2e-helpers";
 import { prepareElectronE2EUserData } from "./electron-fixture.mjs";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const desktopRoot = path.resolve(__dirname, "..");
 
 test.describe("Electron 文件深链", () => {
   test("deep-link event opens workspace file in editor (pending consume)", async () => {
@@ -30,11 +26,14 @@ test.describe("Electron 文件深链", () => {
       "utf8",
     );
 
-    const electronApp = await electron.launch({
-      args: [path.join(desktopRoot, "electron/main.mjs"), `--user-data-dir=${userDataDir}`],
-      cwd: desktopRoot,
-      env: { ...process.env, LAWMIND_E2E: "1", LAWMIND_SKIP_AUTO_UPDATE: "1" },
-      timeout: 120_000,
+    // 必须经共享 helper 启动：它注入 LAWMIND_USER_DATA_DIR，让应用读上面这份
+    // desktop-config（而不是机器上真实的 userData + 真实工作区）。
+    // 直接传 `--user-data-dir` 无效——Playwright 前置的开关会让 Electron 忽略它，
+    // 且 pinDevUserData 会再覆盖一次 userData。
+    const electronApp = await launchLawMindElectron({
+      userDataDir,
+      workspaceDir,
+      lawMindRoot: path.join(userDataDir, "LawMind"),
     });
 
     try {

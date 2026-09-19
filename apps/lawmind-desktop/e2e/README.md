@@ -68,4 +68,17 @@ pnpm --filter lawmind-desktop test:e2e
 
 崩溃测试还会设置 `LAWMIND_E2E_SUPERVISION_BASE_DELAY_MS=5000` 拉长首次监督重启间隔，确保 UI 有足够时间捕获到服务断连提示；默认行为仍由 `server-supervision.mjs` 决定。
 
-生产打包版本会忽略 `LAWMIND_ENABLE_E2E_TEST_ROUTES` 与 `LAWMIND_SKIP_API_AUTH`。
+### 应用状态隔离：`LAWMIND_USER_DATA_DIR`（必须用）
+
+`launchLawMindElectron()` 会注入 `LAWMIND_USER_DATA_DIR=<临时目录>`，让应用把 userData（配置、`.env.lawmind`、`models.json`、Chromium profile/localStorage）整体落在夹具目录里。
+
+**不要改回 `--user-data-dir`。** 它在这里必须无效，两层原因：
+
+1. Playwright 的 `_electron.launch()` 固定把 `--inspect=0` / `--remote-debugging-port=0` 前置到 `args`，而 Electron 只在 `--user-data-dir` 位于其它开关之前时才认它 → 开关被静默忽略；
+2. 即使生效，`pinDevUserData()`（`electron/brand.mjs`）在非打包时还会再 `setPath("userData", appData/Electron)` 覆盖一次。
+
+失效不会报错，只会静默读机器上**真实**的 `desktop-config.json`（陈旧 `workspaceDir`）、真实 localStorage（首跑弹窗早被 dismissed）与真实 `models.json` —— 表现为契约化 E2E 报一个难懂的 `403 checklist_bypass_forbidden`，或首跑对话框不出现。改动这套机制后请以 `e2e/app-driver.spec.ts` 的隔离断言（`lawMindRoot`/`configPath` 必须落在临时目录内）为准。
+
+夹具的 `models.json` 需要同时验证 `env:current` 与 `builtin:qwen-plus`：`.env.lawmind` 里配置了模型时，应用把**当前**模型解析为 `env:current`（见 `/api/models` 的 `defaultModelId`），只写 builtin 形式会让「模型未验证」守卫拦下发送（对话区保持空态）。
+
+生产打包版本会忽略 `LAWMIND_ENABLE_E2E_TEST_ROUTES`、`LAWMIND_SKIP_API_AUTH` 与 `LAWMIND_USER_DATA_DIR`。

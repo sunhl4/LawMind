@@ -22,7 +22,7 @@ import {
 
 export { defaultModelIdForWizardModel, inferWizardProviderId, writeWizardDefaultModelId };
 
-const __electronDir = path.dirname(fileURLToPath(import.meta.url));
+const electronDir = path.dirname(fileURLToPath(import.meta.url));
 const requireCjs = createRequire(import.meta.url);
 
 /** OS keychain wrapper (best-effort; new secrets are refused when unavailable). */
@@ -215,7 +215,7 @@ export function resolveRepoRoot() {
   if (process.env.LAWMIND_REPO_ROOT) {
     return path.resolve(process.env.LAWMIND_REPO_ROOT);
   }
-  return path.resolve(__electronDir, "..", "..", "..");
+  return path.resolve(electronDir, "..", "..", "..");
 }
 
 export function validateRepoRoot(root) {
@@ -232,6 +232,7 @@ export function validateRepoRoot(root) {
 }
 
 export function lawMindPaths() {
+  // userData 的唯一决策点在 pinDevUserData（main 启动时调用），这里只读结果。
   const root = path.join(app.getPath("userData"), "LawMind");
   const cfgPath = path.join(root, "desktop-config.json");
   let workspaceOverride = null;
@@ -347,7 +348,7 @@ function listenEphemeralPort() {
 
 /** Prefer the previous loopback port so the renderer does not keep a dead apiBase. */
 function pickPort(preferred = 0) {
-  const want = Number(preferred);
+  const want = preferred;
   if (!Number.isInteger(want) || want <= 0 || want > 65535) {
     return listenEphemeralPort();
   }

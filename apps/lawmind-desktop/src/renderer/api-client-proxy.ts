@@ -489,6 +489,9 @@ async function sendOutboundAuditEvent(
       actor: "lawyer",
       detail: buildAuditDetail(url, method, status, durationMs, tag, error),
     });
+    // 尽力而为的审计上报：必须自带 catch。若只写 `void fetch(...)`，网络错误会变成
+    // 未处理的 promise rejection（本地服务启动/重启瞬间必然发生），表现为渲染进程
+    // pageerror（生产里是控制台噪音 + 错误监控误报，E2E 里会直接判定严重日志）。
     void fetch(`${baseUrl.replace(/\/$/, "")}/api/audit/event`, {
       method: "POST",
       headers: {
@@ -496,6 +499,8 @@ async function sendOutboundAuditEvent(
         ...(auth.authorization ? { authorization: auth.authorization } : {}),
       },
       body,
+    }).catch(() => {
+      /* 审计上报失败不影响业务 */
     });
   } catch {
     /* 审计为尽力而为，失败不阻塞业务 */

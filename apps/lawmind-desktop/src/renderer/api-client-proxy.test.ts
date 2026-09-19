@@ -247,4 +247,28 @@ describe("api-client-proxy", () => {
     expect(detail.status).toBe(200);
     expect(detail.tag).toBe("audit-test");
   });
+
+  it("审计上报失败时不产生未处理的 promise rejection", async () => {
+    setAuditEnabledForTests(true);
+    // 业务请求成功，审计 POST 网络失败（本地服务启动/重启瞬间的真实情形）。
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : (input as Request).url;
+      if (url.includes("/api/audit/event")) {
+        throw new TypeError("Failed to fetch");
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      await fetchApi("http://127.0.0.1:1234/api/test", { method: "GET" }, { tag: "audit-fail" });
+      // 让审计上报的 rejection（若有）走到 unhandledRejection 判定。
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
 });

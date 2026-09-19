@@ -43,6 +43,35 @@ describe("desktop brand", () => {
     expect(setPath).not.toHaveBeenCalled();
   });
 
+  it("honors LAWMIND_USER_DATA_DIR so E2E can isolate the whole profile", () => {
+    const prev = process.env.LAWMIND_USER_DATA_DIR;
+    process.env.LAWMIND_USER_DATA_DIR = "/tmp/lm-e2e-userdata";
+    try {
+      const setPath = vi.fn();
+      pinDevUserData({
+        getPath: (name: string) => (name === "appData" ? "/tmp/AppSupport" : ""),
+        setPath,
+        isPackaged: false,
+      });
+      // 覆盖优先于历史 Electron 目录：配置、.env.lawmind、models.json 与 localStorage 一并隔离。
+      expect(setPath).toHaveBeenCalledWith("userData", "/tmp/lm-e2e-userdata");
+
+      // 打包版忽略该变量：环境变量不得改变生产 userData。
+      const packagedSetPath = vi.fn();
+      pinDevUserData(
+        { getPath: () => "/tmp/AppSupport", setPath: packagedSetPath, isPackaged: true },
+        { packaged: true },
+      );
+      expect(packagedSetPath).not.toHaveBeenCalled();
+    } finally {
+      if (prev === undefined) {
+        delete process.env.LAWMIND_USER_DATA_DIR;
+      } else {
+        process.env.LAWMIND_USER_DATA_DIR = prev;
+      }
+    }
+  });
+
   it("sets the process name and About panel", () => {
     const electronApp = {
       setName: vi.fn(),
