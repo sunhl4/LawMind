@@ -51,6 +51,7 @@ const SPY_SPECS: SpySpec[] = [
   { name: "read_project_file", category: "search", riskLevel: "low" },
   { name: "list_dir", category: "search", riskLevel: "low" },
   { name: "explore_folder", category: "search", riskLevel: "low" },
+  { name: "read_folder_documents", category: "search", riskLevel: "low" },
   {
     name: "draft_worker",
     category: "draft",

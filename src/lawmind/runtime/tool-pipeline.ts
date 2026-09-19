@@ -227,7 +227,12 @@ const DISCOVERY_SEARCH_LOOP_NAMES = new Set([
 export const DISCOVERY_LOOP_TOTAL_CAP = 8;
 
 /** Host-file tools use a separate ledger so file-dense work is not killed by the discovery cap. */
-export const HOST_FILE_TOOL_NAMES = new Set(["search_host", "read_host_file", "list_dir"]);
+export const HOST_FILE_TOOL_NAMES = new Set([
+  "search_host",
+  "read_host_file",
+  "list_dir",
+  "read_folder_documents",
+]);
 export const HOST_FILE_PER_TOOL_LIMIT = 8;
 
 export type HostFileLedgerHint = {
@@ -470,20 +475,26 @@ export const clarificationGateMiddleware: ToolMiddleware = async (call, next) =>
 
 /** Model-facing: folder talk must explore before mutating. */
 export const FOLDER_EXPLORE_GATE_ERROR =
-  "请先探查文件夹（explore_folder：goal / not_goal / path），看清目录并摘录要点后再起草或改稿。";
+  "请先探查文件夹（explore_folder：goal / not_goal / path；或 read_folder_documents 批量读取正文），看清目录并摘录要点后再起草或改稿。";
 
 /**
  * Folder / directory-pin gate: WRITE_HEAVY waits until this turn already
- * executed explore_folder. explore_folder itself and all read tools stay open.
+ * executed explore_folder / read_folder_documents. Folder readers themselves
+ * and all read tools stay open.
  */
 export const folderExploreGateMiddleware: ToolMiddleware = async (call, next) => {
   if (!call.ctx.folderExploreRequired) {
     return next();
   }
-  if (call.toolName === "explore_folder" || !WRITE_HEAVY_TOOL_NAMES.has(call.toolName)) {
+  if (
+    call.toolName === "explore_folder" ||
+    call.toolName === "read_folder_documents" ||
+    !WRITE_HEAVY_TOOL_NAMES.has(call.toolName)
+  ) {
     return next();
   }
-  const explored = (call.policy.toolNameCallCounts?.explore_folder ?? 0) > 0;
+  const counts = call.policy.toolNameCallCounts ?? {};
+  const explored = (counts.explore_folder ?? 0) > 0 || (counts.read_folder_documents ?? 0) > 0;
   if (explored) {
     return next();
   }

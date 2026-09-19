@@ -368,11 +368,11 @@ describe("same-turn fail envelope + CJK history cap (before vs after)", () => {
     );
   });
 
-  it("CJK 3k-char tool result is cheaper after the token cap", async () => {
+  it("CJK 3k-char tool result is cheaper after an explicit token cap", async () => {
     const { summarizeToolResultForHistory } = await import("../agent/tool-result-history.js");
     const cjk = { ok: true, text: "合".repeat(3_000) };
     const beforeTokens = estimateTextTokens(JSON.stringify(cjk));
-    const slim = summarizeToolResultForHistory(cjk);
+    const slim = summarizeToolResultForHistory(cjk, { maxTokens: 1_000 });
     const afterTokens = estimateTextTokens(JSON.stringify(slim));
     expect(beforeTokens).toBeGreaterThan(2_500);
     expect(afterTokens).toBeLessThan(beforeTokens);
@@ -380,5 +380,20 @@ describe("same-turn fail envelope + CJK history cap (before vs after)", () => {
     console.log(
       `[token] CJK history cap before=${beforeTokens} after=${afterTokens} saved=${beforeTokens - afterTokens}`,
     );
+  });
+
+  it("default tool-result budget scales with the model context window", async () => {
+    const { resolveToolResultHistoryTokens, summarizeToolResultForHistory } =
+      await import("../agent/tool-result-history.js");
+    // 未知窗口：回退 8k，不再用写死的 1k。
+    expect(resolveToolResultHistoryTokens(undefined)).toBe(8_000);
+    // 128k 窗口 → 16k；小窗口有 4k 地板；超大窗口有 32k 天花板。
+    expect(resolveToolResultHistoryTokens(128_000)).toBe(16_000);
+    expect(resolveToolResultHistoryTokens(16_000)).toBe(4_000);
+    expect(resolveToolResultHistoryTokens(1_000_000)).toBe(32_000);
+    // 3k 字 CJK 结果在 128k 窗口下不再被裁。
+    const cjk = { ok: true, text: "合".repeat(3_000) };
+    const slim = summarizeToolResultForHistory(cjk, { contextTokens: 128_000 });
+    expect(slim).toEqual(cjk);
   });
 });

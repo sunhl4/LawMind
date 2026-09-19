@@ -25,7 +25,8 @@ export function fenceAgentFilePath(params: {
   const homeDir = params.homeDir ?? os.homedir();
   const realRoot = realpathOrResolve(root);
   const real = realpathOrResolve(claimed);
-  if (isDeniedHostPath(claimed, { homeDir }) || isDeniedHostPath(real, { homeDir })) {
+  const denyOpts = { homeDir, workspaceDir: realRoot };
+  if (isDeniedHostPath(claimed, denyOpts) || isDeniedHostPath(real, denyOpts)) {
     return { ok: false, error: denyListMessage() };
   }
   if (!isUnderRoot(realRoot, real)) {

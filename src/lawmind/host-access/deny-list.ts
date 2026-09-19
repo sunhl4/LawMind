@@ -55,7 +55,7 @@ function matchesGlobish(pattern: string, absPosix: string, base: string): boolea
 
 export function isDeniedHostPath(
   absPath: string,
-  opts?: { homeDir?: string; extraPatterns?: string[] },
+  opts?: { homeDir?: string; extraPatterns?: string[]; workspaceDir?: string },
 ): boolean {
   if (!absPath?.trim()) {
     return true;
@@ -84,8 +84,7 @@ export function isDeniedHostPath(
       return true;
     }
   }
-  const relHint = posix.toLowerCase();
-  if (hitsWorkspaceDenyPrefix(relHint)) {
+  if (isGovernancePath(real, opts?.workspaceDir)) {
     return true;
   }
   for (const pattern of opts?.extraPatterns ?? []) {
@@ -97,9 +96,41 @@ export function isDeniedHostPath(
 }
 
 /**
- * Host paths that look like LawMind governance trees (…/lawmind/…, …/audit/…).
+ * Governance trees are `audit/`, `sessions/`, and `lawmind/` inside the
+ * workspace. The desktop data directory is also named LawMind
+ * (`…/Application Support/LawMind/workspace`), so an absolute-path scan would
+ * refuse every case file. When `workspaceDir` is known and the path sits
+ * inside it, only the workspace-relative path counts.
  * Do not treat documentation trees like …/docs/lawmind/… as secrets.
  */
+function isGovernancePath(realAbs: string, workspaceDir?: string): boolean {
+  if (workspaceDir?.trim()) {
+    const root = realpathOrResolve(workspaceDir);
+    if (isUnderRoot(root, realAbs)) {
+      const rel = path.relative(root, realpathOrResolve(realAbs)).replace(/\\/g, "/").toLowerCase();
+      return governanceRelDenied(rel);
+    }
+  }
+  return hitsWorkspaceDenyPrefix(realAbs.replace(/\\/g, "/").toLowerCase());
+}
+
+function governanceRelDenied(relLower: string): boolean {
+  const rel = relLower.replace(/^\.\//, "");
+  if (!rel || rel === ".") {
+    return false;
+  }
+  if (rel === "docs/lawmind" || rel.startsWith("docs/lawmind/")) {
+    return false;
+  }
+  for (const prefix of WORKSPACE_DENY_PREFIXES) {
+    const bare = prefix.slice(0, -1);
+    if (rel === bare || rel.startsWith(prefix)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function hitsWorkspaceDenyPrefix(posixLower: string): boolean {
   for (const prefix of WORKSPACE_DENY_PREFIXES) {
     const needle = `/${prefix}`;

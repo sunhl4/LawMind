@@ -211,11 +211,59 @@ export const applyIntakeBriefTool: AgentTool = {
   },
 };
 
+const MATTER_STATUS_VALUES = [
+  "intake",
+  "active",
+  "waiting_on_client",
+  "waiting_on_firm",
+  "under_review",
+  "delivered",
+  "closed",
+] as const;
+
+const MATTER_PARTY_ROLE_VALUES = ["client", "counterparty", "agent", "counsel", "other"] as const;
+
+type MatterPartyParam = {
+  name: string;
+  role: (typeof MATTER_PARTY_ROLE_VALUES)[number];
+  standing?: string;
+  serviceAddress?: string;
+};
+
+function asPartiesArray(raw: unknown): MatterPartyParam[] | undefined {
+  if (!Array.isArray(raw)) {
+    return undefined;
+  }
+  const out: MatterPartyParam[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== "object") {
+      continue;
+    }
+    const o = row as Record<string, unknown>;
+    const name = typeof o.name === "string" ? o.name.trim() : "";
+    if (!name) {
+      continue;
+    }
+    const roleRaw = typeof o.role === "string" ? o.role.trim() : "";
+    const role = (MATTER_PARTY_ROLE_VALUES as readonly string[]).includes(roleRaw)
+      ? (roleRaw as MatterPartyParam["role"])
+      : "other";
+    out.push({
+      name,
+      role,
+      standing: typeof o.standing === "string" ? o.standing.trim() || undefined : undefined,
+      serviceAddress:
+        typeof o.service_address === "string" ? o.service_address.trim() || undefined : undefined,
+    });
+  }
+  return out;
+}
+
 export const updateMatterProfileTool: AgentTool = {
   definition: {
     name: "update_matter_profile",
     description:
-      "更新卷宗字段（案号/法院/审级/地位/开庭日/当事人/案由/门类）。只填读到的键，不编造。",
+      "更新卷宗字段（案号/法院/审级/地位/开庭日/当事人/案由/门类/阶段）。只填读到的键，不编造。",
     category: "matter",
     parameters: {
       matter_id: { type: "string", description: "案件 ID（默认当前会话）" },
@@ -227,6 +275,17 @@ export const updateMatterProfileTool: AgentTool = {
         type: "string",
         description: "门类",
         enum: ["contract", "litigation", "general"],
+      },
+      status: {
+        type: "string",
+        description: "阶段",
+        enum: [...MATTER_STATUS_VALUES],
+      },
+      parties: {
+        type: "array",
+        description:
+          "当事人列表：[{name, role: client/counterparty/agent/counsel/other, standing?, service_address?}]。传入即整体替换当事人。",
+        items: { type: "object" },
       },
       case_no: { type: "string", description: "案号" },
       court: { type: "string", description: "法院" },
@@ -249,6 +308,18 @@ export const updateMatterProfileTool: AgentTool = {
       standing: params.standing,
       hearingAt: params.hearing_at,
     });
+    const status =
+      typeof params.status === "string" &&
+      (MATTER_STATUS_VALUES as readonly string[]).includes(params.status)
+        ? (params.status as (typeof MATTER_STATUS_VALUES)[number])
+        : undefined;
+    const parties = asPartiesArray(params.parties)?.map((p) => ({
+      partyId: "",
+      name: p.name,
+      role: p.role,
+      standing: p.standing,
+      serviceAddress: p.serviceAddress,
+    }));
     const result = await applyMatterProfile(ctx.workspaceDir, {
       matterId,
       title: typeof params.title === "string" ? params.title : undefined,
@@ -258,6 +329,8 @@ export const updateMatterProfileTool: AgentTool = {
         typeof params.cause_of_action === "string" ? params.cause_of_action : undefined,
       matterKind:
         params.matter_kind !== undefined ? parseMatterKind(params.matter_kind) : undefined,
+      status,
+      parties,
       docket,
     });
     if (!result.ok) {
@@ -351,7 +424,9 @@ export const createMatterTool: AgentTool = {
       data: {
         writeId: result.writeId,
         matterId: result.matterId,
-        message: `已新建案件「${title}」。请律师在对话里关联该案后再继续写入。`,
+        message:
+          `已新建案件「${title}」（matter_id: ${result.matterId}）。` +
+          `请直接继续：后续 update_matter_profile / apply_legal_events / add_case_note 等调用传 matter_id="${result.matterId}" 即可写入该案，无需律师手动关联。`,
       },
     };
   },

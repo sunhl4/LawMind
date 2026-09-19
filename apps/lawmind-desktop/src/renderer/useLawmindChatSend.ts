@@ -109,7 +109,7 @@ export type UseLawmindChatSendInput = {
   }) => void;
   onStreamToolBudget?: (info: { used: number; maxToolCalls: number }) => void;
   /** After a turn finishes (success or failure) — e.g. refresh action-summary / sticky review. */
-  onTurnComplete?: () => void;
+  onTurnComplete?: (info: { toolNames: string[] }) => void;
 };
 
 export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
@@ -589,7 +589,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
         chatAbortControllerRef.current = null;
         chatInFlightRef.current = null;
         setLoading(false);
-        onTurnComplete?.();
+        onTurnComplete?.({ toolNames: [...new Set(toolNamesById.values())] });
         // 用户主动「停止」＝停掉整轮：清空发送队列，不再自动续发下一条。
         if (stoppedByUser) {
           sendQueueRef.current = [];

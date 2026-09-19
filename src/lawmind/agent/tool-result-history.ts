@@ -20,14 +20,36 @@ export type ToolResultHistoryOpts = {
    * (tests / overflow callers that still think in characters).
    */
   maxChars?: number;
-  /** Token budget when `maxChars` is omitted (default 1000). */
+  /** Token budget when `maxChars` is omitted (default: derived from `contextTokens`). */
   maxTokens?: number;
+  /** Active chat model context window; the default budget scales with it. */
+  contextTokens?: number;
   /** When set and the payload is truncated, persist the full result beside the session. */
   spill?: ToolResultSpillContext;
 };
 
-/** Matches the old “4k chars ≈ 1k tokens” intent for ASCII; CJK is 1 char ≈ 1 token. */
-export const DEFAULT_TOOL_RESULT_HISTORY_TOKENS = 1_000;
+/**
+ * 工具结果预算随模型上下文伸缩（默认 1/8 窗口，clamp [4k, 32k]；未知窗口回退 8k）。
+ * 不写死小预算：模型越强，单条工具回包允许越大；超出部分走 spill + 截断提示，
+ * 模型可按提示续读，不会无声丢内容。
+ */
+export const TOOL_RESULT_HISTORY_FALLBACK_TOKENS = 8_000;
+export const TOOL_RESULT_HISTORY_MIN_TOKENS = 4_000;
+export const TOOL_RESULT_HISTORY_MAX_TOKENS = 32_000;
+export const TOOL_RESULT_HISTORY_CONTEXT_SHARE = 8;
+
+export function resolveToolResultHistoryTokens(contextTokens?: number): number {
+  if (typeof contextTokens === "number" && Number.isFinite(contextTokens) && contextTokens > 0) {
+    return Math.min(
+      TOOL_RESULT_HISTORY_MAX_TOKENS,
+      Math.max(
+        TOOL_RESULT_HISTORY_MIN_TOKENS,
+        Math.floor(contextTokens / TOOL_RESULT_HISTORY_CONTEXT_SHARE),
+      ),
+    );
+  }
+  return TOOL_RESULT_HISTORY_FALLBACK_TOKENS;
+}
 
 type ResolvedBudget = { kind: "chars"; maxChars: number } | { kind: "tokens"; maxTokens: number };
 
@@ -35,7 +57,7 @@ function resolveBudget(opts: ToolResultHistoryOpts): ResolvedBudget {
   if (typeof opts.maxChars === "number" && Number.isFinite(opts.maxChars) && opts.maxChars > 0) {
     return { kind: "chars", maxChars: Math.floor(opts.maxChars) };
   }
-  const raw = opts.maxTokens ?? DEFAULT_TOOL_RESULT_HISTORY_TOKENS;
+  const raw = opts.maxTokens ?? resolveToolResultHistoryTokens(opts.contextTokens);
   return { kind: "tokens", maxTokens: Math.max(1, Math.floor(raw)) };
 }
 
@@ -180,6 +202,9 @@ function pickCraftDataFields(data: unknown): Record<string, unknown> | undefined
     "truncated",
     "sourceType",
     "bytes",
+    "disclosedName",
+    "disclosedNames",
+    "alreadyAvailable",
   ] as const) {
     if (key in src) {
       out[key] = src[key];
@@ -291,8 +316,8 @@ export function summarizeToolResultForHistory(
     const spillPath = opts.spill ? writeToolResultSpill(opts.spill, result) : undefined;
     const preview =
       budget.kind === "chars"
-        ? String(raw).slice(0, Math.min(2_000, budget.maxChars))
-        : clipPreview(String(raw), budget);
+        ? raw.slice(0, Math.min(2_000, budget.maxChars))
+        : clipPreview(raw, budget);
     return {
       ok: false,
       truncated: true,

@@ -63,6 +63,7 @@ export const DISCLOSED_TOOL_HINTS: ReadonlyArray<{ name: string; hint: string }>
   { name: "search_workspace", hint: "跨工作区检索材料" },
   { name: "search_conversations", hint: "检索本机其他对话的要点与做法" },
   { name: "read_conversation", hint: "阅读某次历史对话里律师可见的发言" },
+  { name: "search_precedents", hint: "检索本所旧案已签批交付物的可参照段落（需开启跨案检索）" },
   { name: "search_host", hint: "在本机文件夹或本机查找中定位材料" },
   { name: "read_host_file", hint: "阅读已授权的本机文件" },
   { name: "list_dir", hint: "列举工作区或本机文件夹下的目录与文件（可递归）" },

@@ -150,7 +150,9 @@ export type MatterPulse = {
 const OPEN_TASK = new Set(["rendered", "rejected", "completed"]);
 
 function hasTimestamp(value: string | undefined): value is string {
-  return Boolean(value?.trim()) && !Number.isNaN(new Date(value).getTime());
+  return (
+    typeof value === "string" && Boolean(value.trim()) && !Number.isNaN(new Date(value).getTime())
+  );
 }
 
 export function assembleMatterTimeline(input: {

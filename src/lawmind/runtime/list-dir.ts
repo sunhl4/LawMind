@@ -89,6 +89,7 @@ export function walkDirectoryListing(
     maxDepth?: number;
     homeDir?: string;
     denyPathPatterns?: string[];
+    workspaceDir?: string;
   },
 ): { entries: ListDirEntry[]; truncated: boolean } {
   const recursive = opts?.recursive !== false;
@@ -96,6 +97,7 @@ export function walkDirectoryListing(
   const maxDepth = opts?.maxDepth ?? LIST_DIR_MAX_DEPTH;
   const homeDir = opts?.homeDir ?? os.homedir();
   const denyPathPatterns = opts?.denyPathPatterns;
+  const workspaceDir = opts?.workspaceDir;
   const rootAbs = path.resolve(absDir);
   const entries: ListDirEntry[] = [];
   let truncated = false;
@@ -134,6 +136,7 @@ export function walkDirectoryListing(
         isDeniedHostPath(abs, {
           homeDir,
           extraPatterns: denyPathPatterns,
+          workspaceDir,
         })
       ) {
         continue;
@@ -228,12 +231,13 @@ function listingFromAbs(
   listedPath: string,
   rootKind: LawyerFileRoot | HostRootKind,
   recursive: boolean,
-  runtime?: { homeDir?: string; policy?: { denyPathPatterns?: string[] } },
+  runtime?: { homeDir?: string; workspaceDir?: string; policy?: { denyPathPatterns?: string[] } },
 ): ListDirSuccess {
   const walked = walkDirectoryListing(abs, {
     recursive,
     homeDir: runtime?.homeDir,
     denyPathPatterns: runtime?.policy?.denyPathPatterns,
+    workspaceDir: runtime?.workspaceDir,
   });
   return {
     ok: true,
@@ -245,12 +249,25 @@ function listingFromAbs(
   };
 }
 
-export function resolveAndListDirectory(
+/** A directory claim resolved through the same fence as list_dir (workspace / project / mounts / grants). */
+export type ResolvedDirectoryTarget = {
+  abs: string;
+  listedPath: string;
+  rootKind: LawyerFileRoot | HostRootKind;
+  runtime: HostAccessRuntime;
+};
+
+type HostAccessRuntime = ReturnType<typeof buildHostAccessRuntime>;
+
+/**
+ * Resolve a raw directory claim to an authorized absolute directory.
+ * Reads under the returned root are covered by the same grant/fence that
+ * allowed the listing (grants cover subpaths; deny-list applies on walk).
+ */
+export function resolveDirectoryTarget(
   ctx: ListDirContext,
   rawPath: string,
-  opts?: { recursive?: boolean },
-): ListDirSuccess | ListDirFailure {
-  const recursive = opts?.recursive !== false;
+): { ok: true; target: ResolvedDirectoryTarget } | ListDirFailure {
   const claimed = (rawPath ?? "")
     .trim()
     .replace(/\\/g, "/")
@@ -267,6 +284,14 @@ export function resolveAndListDirectory(
   });
   const mountDirs = runtime.mounts.map((m) => m.absPath);
   const isRootClaim = !claimed || claimed === "." || claimed === "./";
+  const target = (
+    abs: string,
+    listedPath: string,
+    rootKind: LawyerFileRoot | HostRootKind,
+  ): { ok: true; target: ResolvedDirectoryTarget } => ({
+    ok: true,
+    target: { abs, listedPath, rootKind, runtime },
+  });
 
   if (isRootClaim) {
     const dirPins = (ctx.contextPins ?? []).filter(
@@ -284,13 +309,13 @@ export function resolveAndListDirectory(
         pins: [pin],
       });
       if (located) {
-        return listingFromAbs(located.abs, located.rel, located.root, recursive, runtime);
+        return target(located.abs, located.rel, located.root);
       }
     }
     if (ctx.projectDir?.trim()) {
-      return listingFromAbs(path.resolve(ctx.projectDir.trim()), "", "project", recursive, runtime);
+      return target(path.resolve(ctx.projectDir.trim()), "", "project");
     }
-    return listingFromAbs(path.resolve(ctx.workspaceDir), "", "workspace", recursive, runtime);
+    return target(path.resolve(ctx.workspaceDir), "", "workspace");
   }
 
   const fromPins = resolveLawyerLocalDir({
@@ -301,14 +326,14 @@ export function resolveAndListDirectory(
     pins: ctx.contextPins,
   });
   if (fromPins) {
-    return listingFromAbs(fromPins.abs, fromPins.rel, fromPins.root, recursive, runtime);
+    return target(fromPins.abs, fromPins.rel, fromPins.root);
   }
 
   const ws = resolveWorkspaceRelativePathAllowRoot(ctx.workspaceDir, claimed);
   if (ws.ok) {
     try {
       if (fs.existsSync(ws.abs) && fs.statSync(ws.abs).isDirectory()) {
-        return listingFromAbs(ws.abs, ws.rel, "workspace", recursive, runtime);
+        return target(ws.abs, ws.rel, "workspace");
       }
     } catch {
       /* fall through */
@@ -320,7 +345,7 @@ export function resolveAndListDirectory(
     if (proj.ok) {
       try {
         if (fs.existsSync(proj.abs) && fs.statSync(proj.abs).isDirectory()) {
-          return listingFromAbs(proj.abs, proj.rel, "project", recursive, runtime);
+          return target(proj.abs, proj.rel, "project");
         }
       } catch {
         /* fall through */
@@ -332,7 +357,7 @@ export function resolveAndListDirectory(
   if (host.ok) {
     try {
       if (fs.existsSync(host.abs) && fs.statSync(host.abs).isDirectory()) {
-        return listingFromAbs(host.abs, host.rel, host.rootKind, recursive, runtime);
+        return target(host.abs, host.rel, host.rootKind);
       }
     } catch {
       /* fall through */
@@ -354,11 +379,25 @@ export function resolveAndListDirectory(
     pins: ctx.contextPins,
   });
   if (located) {
-    return listingFromAbs(located.abs, located.rel, located.root, recursive, runtime);
+    return target(located.abs, located.rel, located.root);
   }
 
   return {
     ok: false,
     error: `找不到目录：${claimed}。已查工作区、本机文件夹与钉选路径。`,
   };
+}
+
+export function resolveAndListDirectory(
+  ctx: ListDirContext,
+  rawPath: string,
+  opts?: { recursive?: boolean },
+): ListDirSuccess | ListDirFailure {
+  const recursive = opts?.recursive !== false;
+  const resolved = resolveDirectoryTarget(ctx, rawPath);
+  if (!resolved.ok) {
+    return resolved;
+  }
+  const { target } = resolved;
+  return listingFromAbs(target.abs, target.listedPath, target.rootKind, recursive, target.runtime);
 }

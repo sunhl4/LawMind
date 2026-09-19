@@ -82,16 +82,12 @@ export function resolveHostPath(
   const real = realpathOrResolve(claimed);
   const write = opts?.write === true;
 
-  if (
-    isDeniedHostPath(claimed, {
-      homeDir: runtime.homeDir,
-      extraPatterns: runtime.policy.denyPathPatterns,
-    }) ||
-    isDeniedHostPath(real, {
-      homeDir: runtime.homeDir,
-      extraPatterns: runtime.policy.denyPathPatterns,
-    })
-  ) {
+  const denyOpts = {
+    homeDir: runtime.homeDir,
+    extraPatterns: runtime.policy.denyPathPatterns,
+    workspaceDir: runtime.workspaceDir,
+  };
+  if (isDeniedHostPath(claimed, denyOpts) || isDeniedHostPath(real, denyOpts)) {
     return { ok: false, error: "deny_list", message: denyListMessage() };
   }
 

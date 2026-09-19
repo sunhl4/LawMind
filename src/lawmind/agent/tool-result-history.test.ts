@@ -12,11 +12,13 @@ describe("tool-result-history", () => {
     expect(summarizeToolResultForHistory(small)).toEqual(small);
   });
 
-  it("defaults to a ~1k-token JSON cap", () => {
-    const huge = { ok: true, text: "x".repeat(20_000) };
+  it("falls back to an 8k-token cap when the model window is unknown", () => {
+    const fits = { ok: true, text: "x".repeat(20_000) };
+    expect(summarizeToolResultForHistory(fits)).toEqual(fits);
+    const huge = { ok: true, text: "x".repeat(60_000) };
     const slim = summarizeToolResultForHistory(huge) as { truncated?: boolean };
     expect(slim.truncated).toBe(true);
-    expect(stringifyToolResultForHistory(huge).length).toBeLessThan(12_000);
+    expect(stringifyToolResultForHistory(huge).length).toBeLessThan(40_000);
   });
 
   it("truncates huge results but keeps ok/error", () => {
@@ -67,14 +69,16 @@ describe("tool-result-history", () => {
     expect(slim.data?.warning).toBe("幅度较大");
   });
 
-  it("CJK ~3k-char results truncate under the default token cap; ASCII 3k does not", () => {
+  it("CJK counts ~1 token per char under an explicit cap; ASCII does not", () => {
     const ascii = { ok: true, text: "x".repeat(3_000) };
-    const asciiSlim = summarizeToolResultForHistory(ascii) as { truncated?: boolean };
+    const asciiSlim = summarizeToolResultForHistory(ascii, { maxTokens: 1_000 }) as {
+      truncated?: boolean;
+    };
     expect(asciiSlim.truncated).toBeUndefined();
     expect(asciiSlim).toEqual(ascii);
 
     const cjk = { ok: true, text: "合".repeat(3_000) };
-    const cjkSlim = summarizeToolResultForHistory(cjk) as {
+    const cjkSlim = summarizeToolResultForHistory(cjk, { maxTokens: 1_000 }) as {
       truncated?: boolean;
       text?: string;
       ok?: boolean;
@@ -96,7 +100,7 @@ describe("tool-result-history", () => {
         hint: "文本未读完",
       },
     };
-    const slim = summarizeToolResultForHistory(page) as {
+    const slim = summarizeToolResultForHistory(page, { maxTokens: 1_000 }) as {
       truncated?: boolean;
       data?: { content?: string; filePath?: string; hasMore?: boolean; nextOffset?: number };
     };

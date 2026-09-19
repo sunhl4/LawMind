@@ -65,6 +65,7 @@ export const DESK_TALK_TOOLS = [
 export const DESK_INTAKE_TOOLS = [
   "explore_folder",
   "list_dir",
+  "read_folder_documents",
   "search_host",
   "read_host_file",
   "import_host_file",
@@ -74,6 +75,18 @@ export const DESK_INTAKE_TOOLS = [
   "compile_intake_brief",
   "apply_intake_brief",
   "add_case_note",
+] as const;
+
+/**
+ * 案件管理写穿链路：每轮始终广告，不再靠关键词/钉选命中。
+ * 律师任何一句「读材料 → 填/更新案件管理」都必须当场可写；
+ * 这些工具本身可撤销（revert_desk_write）且不触发待我拍板。
+ */
+export const DESK_WRITE_ALWAYS_TOOLS = [
+  ...DESK_INTAKE_TOOLS,
+  "create_matter",
+  "revert_desk_write",
+  "record_deadline",
 ] as const;
 
 /** Invoice / spreadsheet ops. */
@@ -118,7 +131,7 @@ export function pinsIncludeWord(pins: ComposeContextPin[] | undefined): boolean 
 
 function pinRelPaths(pins: ComposeContextPin[] | undefined): string[] {
   return (pins ?? [])
-    .filter((pin) => pin.pinKind === "file" && typeof pin.relPath === "string")
+    .filter((pin): pin is Extract<ComposeContextPin, { pinKind: "file" }> => pin.pinKind === "file")
     .map((pin) => pin.relPath.trim())
     .filter(Boolean);
 }
@@ -322,6 +335,7 @@ export function mergeTurnDisclosedToolNames(opts: {
   found.push("list_mail_inbox");
   found.push("search_conversations", "read_conversation");
   found.push("read_skill", "search_company_registry");
+  found.push(...DESK_WRITE_ALWAYS_TOOLS);
   if (opts.matterId?.trim()) {
     found.push(...DESK_READ_TOOLS);
   }

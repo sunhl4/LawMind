@@ -1118,6 +1118,86 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
+  it("folder-to-desk e2e: read all files → create matter → fill profile + deadline on disk", async () => {
+    const { listDeadlinesForMatter } = await import("../application/services/deadline-service.js");
+    const { loadMatter } = await import("../adapters/matter-storage/index.js");
+    const { default: JSZip } = await import("jszip");
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        // 真实材料夹：起诉状 docx + 证据 txt。
+        const dir = path.join(h.workspaceDir, "案件材料");
+        fs.mkdirSync(dir, { recursive: true });
+        const zip = new JSZip();
+        zip.file(
+          "word/document.xml",
+          `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+            `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+            `<w:p><w:r><w:t>民事起诉状</w:t></w:r></w:p>` +
+            `<w:p><w:r><w:t>原告：张北县瑞霖乳制品有限公司</w:t></w:r></w:p>` +
+            `<w:p><w:r><w:t>被告：某乳业集团有限公司</w:t></w:r></w:p>` +
+            `<w:p><w:r><w:t>案由：买卖合同纠纷。案号（2026）冀0722民初123号。张北县人民法院。</w:t></w:r></w:p>` +
+            `</w:body></w:document>`,
+        );
+        fs.writeFileSync(
+          path.join(dir, "起诉状.docx"),
+          await zip.generateAsync({ type: "nodebuffer" }),
+        );
+        fs.writeFileSync(path.join(dir, "证据清单.txt"), "证据一：送货单原件五张。");
+
+        const title = "张北县瑞霖乳制品有限公司买卖合同纠纷";
+        h.enqueue(
+          cassetteToolCall("read_folder_documents", { path: "案件材料" }),
+          cassetteToolCall("create_matter", { title, matter_kind: "litigation" }),
+          cassetteToolCall("update_matter_profile", {
+            matter_id: title,
+            case_no: "（2026）冀0722民初123号",
+            court: "张北县人民法院",
+            cause_of_action: "买卖合同纠纷",
+            status: "active",
+            parties: [
+              { name: "张北县瑞霖乳制品有限公司", role: "client", standing: "原告" },
+              { name: "某乳业集团有限公司", role: "counterparty", standing: "被告" },
+            ],
+          }),
+          cassetteToolCall("apply_legal_events", {
+            matter_id: title,
+            events: [{ eventKind: "hearing", title: "开庭", dueAt: "2026-10-12T01:00:00.000Z" }],
+          }),
+          cassetteAssistant("已读取全部 2 个文件并写入案件管理。"),
+        );
+        const result = await h.runTurn(
+          "读取 案件材料 文件夹里的所有文件，分析所有文件的内容，按照工作台案件管理的需求去自动填写和更新",
+          // 未关联案件：链路须自己 create_matter 后继续。
+        );
+        // 模型真的看到了 docx 正文（不是只看到文件名列表）。
+        expect(h.request(1).contains("民事起诉状")).toBe(true);
+        expect(h.request(1).contains("证据清单").valueOf()).toBe(true);
+        const calls = result.turn.messages.flatMap((m) => m.toolCallResponses ?? []);
+        for (const name of [
+          "read_folder_documents",
+          "create_matter",
+          "update_matter_profile",
+          "apply_legal_events",
+        ]) {
+          expect(calls.find((r) => r.name === name)?.result.ok, name).toBe(true);
+        }
+        // 工作台同一份存储：matter.json + deadlines.jsonl 已落盘。
+        const saved = loadMatter(h.workspaceDir, title);
+        expect(saved?.docket?.caseNo).toBe("（2026）冀0722民初123号");
+        expect(saved?.docket?.court).toBe("张北县人民法院");
+        expect(saved?.causeOfAction).toBe("买卖合同纠纷");
+        expect(saved?.status).toBe("active");
+        expect(saved?.parties?.some((p) => p.role === "client" && p.name.includes("瑞霖"))).toBe(
+          true,
+        );
+        expect(saved?.clientId).toBe("张北县瑞霖乳制品有限公司");
+        const deadlines = listDeadlinesForMatter(h.workspaceDir, title);
+        expect(deadlines.some((d) => d.eventKind === "hearing")).toBe(true);
+      },
+    );
+  });
+
   it("desk writes are advertised every turn; list_more_tools catalog still covers them", async () => {
     await withTestLawMind(
       (b) => b.withLegalTools(),
@@ -1132,9 +1212,10 @@ describe("turn-orchestrator cassettes (admission)", () => {
           .session()
           ?.conversationHistory.flatMap((m) => m.toolCallResponses ?? [])
           .find((r) => r.name === "list_more_tools");
-        const tools = (toolMsg?.result.data as { tools?: Array<{ name: string }> })?.tools ?? [];
-        expect(tools.map((t) => t.name)).toContain("apply_legal_events");
         expect(toolMsg).toBeTruthy();
+        // 目录真相源是 DISCLOSED_TOOL_HINTS；入史结果按 ~1k token 预算截断，不承载整表。
+        const { DISCLOSED_TOOL_HINTS } = await import("./tools/governance.js");
+        expect(DISCLOSED_TOOL_HINTS.some((t) => t.name === "apply_legal_events")).toBe(true);
       },
     );
   });

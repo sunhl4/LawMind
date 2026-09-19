@@ -475,6 +475,7 @@ export async function executeToolBatches(
       const historySource: ToolCallResult =
         toolName === UPDATE_PLAN_TOOL_NAME ? summarizeUpdatePlanResultForHistory(result) : result;
       const historyResult = summarizeToolResultForHistory(historySource, {
+        contextTokens: ctx.chatModel?.contextTokens,
         spill: shouldSpillToolResult(toolName)
           ? {
               workspaceDir: ctx.workspaceDir,
