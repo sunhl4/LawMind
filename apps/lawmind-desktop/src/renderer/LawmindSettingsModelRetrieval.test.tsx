@@ -68,6 +68,57 @@ describe("LawmindSettingsModelRetrieval", () => {
     expect(host.textContent).not.toContain("演示语料不等于完整法库");
   });
 
+  it("shows the NPC toggle and calls applyOpenLawNpc", async () => {
+    const applyOpenLawNpc = vi.fn();
+    await act(async () => {
+      root.render(
+        <LawmindSettingsModelRetrieval
+          {...baseProps}
+          applyOpenLawNpc={applyOpenLawNpc}
+          health={{
+            modelConfigured: true,
+            authorityCorpus: {
+              configured: true,
+              status: "sample-ready",
+              provider: "open",
+              openSources: [{ id: "npc_flk", ready: true }],
+            },
+          }}
+        />,
+      );
+    });
+    const status = host.querySelector('[data-testid="lm-authority-npc-status"]');
+    expect(status?.textContent).toContain("已启用");
+    const toggle = host.querySelector<HTMLButtonElement>('[data-testid="lm-authority-npc-toggle"]');
+    expect(toggle).toBeTruthy();
+    await act(async () => {
+      toggle?.click();
+    });
+    expect(applyOpenLawNpc).toHaveBeenCalledWith(false);
+  });
+
+  it("reflects NPC off state from openSources", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindSettingsModelRetrieval
+          {...baseProps}
+          applyOpenLawNpc={vi.fn()}
+          health={{
+            modelConfigured: true,
+            authorityCorpus: {
+              configured: true,
+              status: "sample-ready",
+              provider: "open",
+              openSources: [{ id: "npc_flk", ready: false }],
+            },
+          }}
+        />,
+      );
+    });
+    const status = host.querySelector('[data-testid="lm-authority-npc-status"]');
+    expect(status?.textContent).toContain("已关闭");
+  });
+
   it("shows invalid authority endpoint as fail-closed", async () => {
     await act(async () => {
       root.render(

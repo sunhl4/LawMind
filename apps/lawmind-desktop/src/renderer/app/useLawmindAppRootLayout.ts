@@ -219,6 +219,8 @@ export function useLawmindAppRootLayout(
     closeDetail,
     applyRetrievalMode,
     applyDraftWithModelEnabled,
+    npcSaving,
+    applyOpenLawNpc,
     reconnectLocalService,
     runWizardSave,
     pickWs,
@@ -498,6 +500,8 @@ export function useLawmindAppRootLayout(
     removeAssistant,
     applyRetrievalMode,
     applyDraftWithModelEnabled,
+    npcSaving,
+    applyOpenLawNpc,
     reconnectLocalService,
     localServiceReconnecting,
     openApiWizard,
@@ -570,7 +574,7 @@ export function useLawmindAppRootLayout(
           title: (row?.title ?? "").trim() || sessionId.slice(0, 8),
         })
       ) {
-        return;
+        return undefined;
       }
       return selectChatSession(sessionId);
     },

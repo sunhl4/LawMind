@@ -13,6 +13,7 @@ import { useLawmindChatSend } from "./useLawmindChatSend";
 import { useLawmindComposeExtras } from "./useLawmindComposeExtras";
 import { useLawmindDetailDomain, useLawmindRecordsDomain } from "./lawmind-app-shell-domains";
 import { DEFAULT_ASSISTANT_ID } from "../../../../src/lawmind/assistants/constants.ts";
+import { DESK_WRITE_TOOL_NAMES } from "../../../../src/lawmind/agent/tool-name-sets.ts";
 import { writeAllowWebSearchPreference } from "./lawmind-web-search-prefs.js";
 import { retrievalShareLabel } from "./lawmind-settings-models.ts";
 import type { HealthPayload } from "./lawmind-app-data.js";
@@ -184,6 +185,8 @@ export function useLawmindAppShell() {
     draftWithModelSaving,
     applyRetrievalMode,
     applyDraftWithModelEnabled,
+    npcSaving,
+    applyOpenLawNpc,
     runWizardSave,
     pickWs,
     openApiWizard,
@@ -378,8 +381,12 @@ export function useLawmindAppShell() {
         [selectedAssistantId]: [...(prev[selectedAssistantId] ?? []), label],
       }));
     },
-    onTurnComplete: () => {
+    onTurnComplete: (info) => {
       void composeExtras.refreshPending();
+      // 对话里发生过工作台写穿（卷宗/期限/建案）时，立刻刷新案件管理列表与卷宗视图。
+      if (info.toolNames.some((name) => DESK_WRITE_TOOL_NAMES.has(name))) {
+        setMatterRefreshVersion((v) => v + 1);
+      }
     },
   });
   useLawmindCollaborationWatch({
@@ -538,6 +545,8 @@ export function useLawmindAppShell() {
       closeDetail,
       applyRetrievalMode,
       applyDraftWithModelEnabled,
+      npcSaving,
+      applyOpenLawNpc,
       reconnectLocalService,
       runWizardSave,
       pickWs,

@@ -3,6 +3,7 @@ import {
   citationFootnoteMarker,
   formatLawyerFacingCitation,
   formatSectionSeeAlsoLine,
+  formatSectionSeeAlsoParts,
   looksLikeOpaqueSourceId,
   sourceKindLabelZh,
 } from "./citation-display.js";
@@ -58,5 +59,27 @@ describe("citation-display", () => {
       ),
     ).toBe("参见：①《合同法》第107条；②最高人民法院（2020）最高法民终1号。");
     expect(formatSectionSeeAlsoLine(["src-9"], [])).toBe("参见：①引用待核实。");
+  });
+
+  it("see-also parts carry source urls for hyperlink rendering", () => {
+    const parts = formatSectionSeeAlsoParts(
+      ["npc-flk:1", "src-2"],
+      [
+        {
+          id: "npc-flk:1",
+          citation: "《民法典》第577条",
+          url: "https://flk.npc.gov.cn/detail.html?npc-1",
+        },
+        { id: "src-2", citation: "《合同法》第107条" },
+      ],
+    );
+    expect(parts).toHaveLength(2);
+    expect(parts?.[0]).toEqual({
+      marker: "①",
+      label: "《民法典》第577条",
+      url: "https://flk.npc.gov.cn/detail.html?npc-1",
+    });
+    expect(parts?.[1]).toEqual({ marker: "②", label: "《合同法》第107条" });
+    expect(formatSectionSeeAlsoParts([], [])).toBeNull();
   });
 });

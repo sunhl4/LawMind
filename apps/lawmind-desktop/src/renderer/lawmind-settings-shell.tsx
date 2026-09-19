@@ -26,7 +26,6 @@ import {
   type LawmindSettingsScrollAnchorId,
   type LawmindSettingsSectionId,
   firstSettingsNavMatch,
-  readStoredSettingsSection,
   settingsNavGroupsForEdition,
   settingsNavItem,
   writeStoredSettingsSection,
@@ -89,6 +88,8 @@ type Props = {
   onRemoveAssistant: () => void | Promise<void>;
   onApplyRetrievalMode: (mode: "single" | "dual") => void | Promise<void>;
   onApplyDraftWithModelEnabled?: (enabled: boolean) => void | Promise<void>;
+  npcSaving?: boolean;
+  onApplyOpenLawNpc?: (enabled: boolean) => void | Promise<void>;
   onReconnectLocalService?: () => void | Promise<void>;
   localServiceReconnecting?: boolean;
   onOpenApiWizard: () => void;
@@ -150,6 +151,8 @@ export function LawmindSettingsPage({
   onRemoveAssistant,
   onApplyRetrievalMode,
   onApplyDraftWithModelEnabled,
+  npcSaving = false,
+  onApplyOpenLawNpc,
   onReconnectLocalService,
   localServiceReconnecting = false,
   onOpenApiWizard,
@@ -192,7 +195,7 @@ export function LawmindSettingsPage({
 
   useEffect(() => {
     if (!open) {
-      return;
+      return undefined;
     }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -206,7 +209,7 @@ export function LawmindSettingsPage({
 
   useEffect(() => {
     if (!open || !scrollAnchorId) {
-      return;
+      return undefined;
     }
     const timer = window.setTimeout(() => {
       document.getElementById(scrollAnchorId)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -254,6 +257,8 @@ export function LawmindSettingsPage({
     onRemoveAssistant,
     onApplyRetrievalMode,
     onApplyDraftWithModelEnabled,
+    npcSaving,
+    onApplyOpenLawNpc,
     onReconnectLocalService,
     localServiceReconnecting,
     onOpenApiWizard,
@@ -447,6 +452,8 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
     onRemoveAssistant,
     onApplyRetrievalMode,
     onApplyDraftWithModelEnabled,
+    npcSaving,
+    onApplyOpenLawNpc,
     onReconnectLocalService,
     localServiceReconnecting,
     onOpenApiWizard,
@@ -564,6 +571,8 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
           draftWithModelSaving={draftWithModelSaving}
           applyRetrievalMode={onApplyRetrievalMode}
           applyDraftWithModelEnabled={onApplyDraftWithModelEnabled}
+          npcSaving={npcSaving}
+          applyOpenLawNpc={onApplyOpenLawNpc}
           apiBase={config.apiBase}
           modelProviders={modelProviders}
           platformProviders={platformProviders}

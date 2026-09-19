@@ -32,6 +32,8 @@ export type UseLawmindAppSettingsPanelPropsInput = {
   removeAssistant: () => void | Promise<void>;
   applyRetrievalMode: (mode: "single" | "dual") => void | Promise<void>;
   applyDraftWithModelEnabled: (enabled: boolean) => void | Promise<void>;
+  npcSaving?: boolean;
+  applyOpenLawNpc?: (enabled: boolean) => void | Promise<void>;
   reconnectLocalService: () => void | Promise<void>;
   localServiceReconnecting: boolean;
   openApiWizard: () => void;
@@ -84,6 +86,8 @@ export function useLawmindAppSettingsPanelProps(
     removeAssistant,
     applyRetrievalMode,
     applyDraftWithModelEnabled,
+    npcSaving,
+    applyOpenLawNpc,
     reconnectLocalService,
     localServiceReconnecting,
     openApiWizard,
@@ -153,6 +157,8 @@ export function useLawmindAppSettingsPanelProps(
       onRemoveAssistant: () => void removeAssistant(),
       onApplyRetrievalMode: applyRetrievalMode,
       onApplyDraftWithModelEnabled: applyDraftWithModelEnabled,
+      npcSaving: npcSaving ?? false,
+      onApplyOpenLawNpc: applyOpenLawNpc,
       onReconnectLocalService: reconnectLocalService,
       localServiceReconnecting,
       onOpenApiWizard: openApiWizard,

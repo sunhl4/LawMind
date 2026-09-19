@@ -41,6 +41,8 @@ type Props = {
   draftWithModelSaving?: boolean;
   applyRetrievalMode: (mode: "single" | "dual") => void;
   applyDraftWithModelEnabled?: (enabled: boolean) => void | Promise<void>;
+  npcSaving?: boolean;
+  applyOpenLawNpc?: (enabled: boolean) => void | Promise<void>;
   onOpenApiWizard: () => void;
 };
 
@@ -62,6 +64,8 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
     draftWithModelSaving = false,
     applyRetrievalMode,
     applyDraftWithModelEnabled,
+    npcSaving = false,
+    applyOpenLawNpc,
     onOpenApiWizard,
   } = props;
   const [workerModelId, setWorkerModelId] = useState<string>("");
@@ -288,6 +292,12 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
             authorityCorpus={health?.authorityCorpus}
             authorityUsage={health?.authorityUsage}
             envFilePath={envFilePath}
+            npcFlkEnabled={
+              health?.authorityCorpus?.openSources?.find((s) => s.id === "npc_flk")?.ready ??
+              true
+            }
+            npcSaving={npcSaving}
+            onToggleNpc={applyOpenLawNpc ? (enabled) => void applyOpenLawNpc(enabled) : undefined}
             probeControl={
               apiBase ? (
                 <button

@@ -150,4 +150,38 @@ describe("renderDocxWithOptions", () => {
     const documentXml = await zip.file("word/document.xml")?.async("string");
     expect(documentXml).not.toContain("commentRangeStart");
   });
+
+  it("renders see-also citations with urls as clickable hyperlinks", async () => {
+    const draft = makeDraft({
+      sections: [
+        {
+          heading: "法律依据",
+          body: "依据民法典相关规定。",
+          citations: ["npc-flk:1", "src-2"],
+        },
+      ],
+    });
+    const result = await renderDocxWithOptions(draft, outputDir, {
+      sources: [
+        {
+          id: "npc-flk:1",
+          title: "中华人民共和国民法典",
+          citation: "《民法典》第577条",
+          kind: "statute",
+          url: "https://flk.npc.gov.cn/detail.html?npc-1",
+        },
+        { id: "src-2", citation: "《合同法》第107条", kind: "statute" },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    const data = await fs.readFile(result.outputPath!);
+    const zip = await JSZip.loadAsync(data);
+    const documentXml = await zip.file("word/document.xml")?.async("string");
+    const relsXml = await zip.file("word/_rels/document.xml.rels")?.async("string");
+    expect(documentXml).toContain("参见：");
+    expect(documentXml).toContain("<w:hyperlink");
+    expect(relsXml).toContain("https://flk.npc.gov.cn/detail.html?npc-1");
+    // 无 url 的来源保持纯文本，不出现在关系表。
+    expect(relsXml).not.toContain("合同法");
+  });
 });

@@ -18,11 +18,13 @@ import {
   CommentRangeStart,
   CommentReference,
   convertInchesToTwip,
+  ExternalHyperlink,
   LineRuleType,
   Paragraph,
   TextRun,
   type ICommentOptions,
 } from "docx";
+import type { SeeAlsoPart } from "../sources/citation-display.js";
 
 /** 中文正文、表格 */
 export const LEGAL_BODY_FONT = "SimSun";
@@ -272,6 +274,67 @@ export function paragraphCitationBlock(text: string): Paragraph {
         color: COLOR_CITATION,
       }),
     ],
+  });
+}
+
+/**
+ * 「参见」行（带超链接）：有 url 的来源渲染为可点击链接（如 NPC FLK 详情页），
+ * 无 url 的保持纯文本。版式与 paragraphCitationBlock 一致。
+ */
+export function paragraphCitationBlockWithLinks(parts: SeeAlsoPart[]): Paragraph {
+  const children: Array<TextRun | ExternalHyperlink> = [
+    new TextRun({
+      text: "参见：",
+      font: LEGAL_BODY_FONT,
+      size: 21,
+      italics: true,
+      color: COLOR_CITATION,
+    }),
+  ];
+  parts.forEach((part, index) => {
+    const text = `${part.marker}${part.label}`;
+    if (part.url) {
+      children.push(
+        new ExternalHyperlink({
+          link: part.url,
+          children: [
+            new TextRun({
+              text,
+              font: LEGAL_BODY_FONT,
+              size: 21,
+              italics: true,
+              color: COLOR_CITATION,
+              style: "Hyperlink",
+            }),
+          ],
+        }),
+      );
+    } else {
+      children.push(
+        new TextRun({
+          text,
+          font: LEGAL_BODY_FONT,
+          size: 21,
+          italics: true,
+          color: COLOR_CITATION,
+        }),
+      );
+    }
+    children.push(
+      new TextRun({
+        text: index === parts.length - 1 ? "。" : "；",
+        font: LEGAL_BODY_FONT,
+        size: 21,
+        italics: true,
+        color: COLOR_CITATION,
+      }),
+    );
+  });
+  return new Paragraph({
+    alignment: AlignmentType.JUSTIFIED,
+    spacing: { before: 60, after: 120, line: LINE_15, lineRule: LineRuleType.AUTO },
+    indent: { firstLine: FIRST_LINE_INDENT_TWIPS },
+    children,
   });
 }
 

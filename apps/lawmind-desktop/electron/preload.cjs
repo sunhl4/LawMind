@@ -39,6 +39,7 @@ contextBridge.exposeInMainWorld("lawmindDesktop", {
     ipcRenderer.invoke("lawmind:delete-mcp-server-secret", payload ?? {}),
   keychainStatus: () => ipcRenderer.invoke("lawmind:keychain-status"),
   setRetrievalMode: (mode) => ipcRenderer.invoke("lawmind:set-retrieval-mode", mode),
+  setOpenLawNpc: (payload) => ipcRenderer.invoke("lawmind:set-open-law-npc", payload ?? {}),
   pickProject: () => ipcRenderer.invoke("lawmind:pick-project"),
   pickFolder: () => ipcRenderer.invoke("lawmind:pick-folder"),
   setProjectDir: (projectDir) => ipcRenderer.invoke("lawmind:set-project-dir", projectDir),

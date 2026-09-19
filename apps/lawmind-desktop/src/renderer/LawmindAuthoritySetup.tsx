@@ -25,6 +25,10 @@ type Props = {
   envFilePath?: string | null;
   onOpenApiWizard?: () => void;
   probeControl?: ReactNode;
+  /** 国家法律法规数据库（NPC FLK）开关状态；默认启用。 */
+  npcFlkEnabled?: boolean;
+  npcSaving?: boolean;
+  onToggleNpc?: (enabled: boolean) => void;
 };
 
 export function LawmindAuthoritySetup({
@@ -33,6 +37,9 @@ export function LawmindAuthoritySetup({
   envFilePath,
   onOpenApiWizard,
   probeControl,
+  npcFlkEnabled = true,
+  npcSaving = false,
+  onToggleNpc,
 }: Props) {
   const status = authorityCorpus?.status ?? "unset";
   const commercial = isAuthorityCorpusCommercialReady(status);
@@ -81,6 +88,29 @@ export function LawmindAuthoritySetup({
           {authorityUsage.message}
         </p>
       ) : null}
+      <div className="lm-settings-row" data-testid="lm-authority-npc-row">
+        <span className="lm-settings-key">国家法律法规数据库</span>
+        <span
+          className={npcFlkEnabled ? "lm-pill lm-pill-success" : "lm-pill lm-pill-warn"}
+          data-testid="lm-authority-npc-status"
+        >
+          {npcFlkEnabled ? "已启用（默认）" : "已关闭"}
+        </span>
+        {onToggleNpc ? (
+          <button
+            type="button"
+            className="lm-btn lm-btn-secondary lm-btn-sm"
+            data-testid="lm-authority-npc-toggle"
+            disabled={npcSaving}
+            onClick={() => onToggleNpc(!npcFlkEnabled)}
+          >
+            {npcSaving ? "正在切换…" : npcFlkEnabled ? "关闭" : "启用"}
+          </button>
+        ) : null}
+      </div>
+      <p className="lm-settings-caption" role="note">
+        官方公开检索，命中标「国家法律法规数据库」；未命中或不可达时回退演示语料并如实标注。
+      </p>
       <div className="lm-settings-actions">
         {onOpenApiWizard ? (
           <button type="button" className="lm-btn lm-btn-accent lm-btn-sm" onClick={onOpenApiWizard}>
@@ -110,7 +140,7 @@ export function LawmindAuthoritySetup({
           <li>
             开源：<code className="lm-md-code">LAWMIND_OPEN_LAW_CORPUS</code>、
             <code className="lm-md-code">LAWMIND_OPEN_LAW_MODE</code>、
-            <code className="lm-md-code">LAWMIND_OPEN_LAW_NPC</code>、
+            <code className="lm-md-code">LAWMIND_OPEN_LAW_NPC</code>（默认 1，设 0 关闭）、
             <code className="lm-md-code">LAWMIND_OPEN_LAW_COURTLISTENER</code>、
             <code className="lm-md-code">LAWMIND_OPEN_LAW_EURLEX</code>、
             <code className="lm-md-code">LAWMIND_OPEN_LAW_EGOV_JP</code>

@@ -131,6 +131,13 @@ declare global {
         count?: number;
         error?: string;
       }>;
+      setOpenLawNpc: (payload: { enabled: boolean }) => Promise<{
+        ok: boolean;
+        enabled?: boolean;
+        apiBase?: string;
+        apiAuthToken?: string;
+        error?: string;
+      }>;
       setRetrievalMode: (mode: "single" | "dual") => Promise<{
         ok: boolean;
         apiBase?: string;

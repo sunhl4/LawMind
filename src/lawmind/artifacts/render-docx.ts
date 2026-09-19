@@ -17,6 +17,7 @@ import { Document, Packer, Paragraph, type ICommentOptions } from "docx";
 import { renderProvenanceAsFootnote } from "../drafts/provenance.js";
 import {
   formatSectionSeeAlsoLine,
+  formatSectionSeeAlsoParts,
   type CitationDisplaySource,
 } from "../sources/citation-display.js";
 import { fillDocxTemplateWithValues } from "../templates/docx-template-fill.js";
@@ -30,6 +31,7 @@ import {
   formatDraftMetaLine,
   paragraphBodyFirstIndent,
   paragraphCitationBlock,
+  paragraphCitationBlockWithLinks,
   paragraphDocumentTitle,
   paragraphHeading1,
   paragraphHeading2,
@@ -101,9 +103,17 @@ function buildWordSection(
   }
   paragraphs.push(...bodyLinesToParagraphs(section.body));
 
-  const seeAlso = formatSectionSeeAlsoLine(section.citations, sources);
-  if (seeAlso) {
-    paragraphs.push(paragraphCitationBlock(seeAlso));
+  const seeAlsoParts = formatSectionSeeAlsoParts(section.citations, sources);
+  if (seeAlsoParts) {
+    // 有 url 的来源（如 NPC FLK 命中）渲染为可点击超链接；否则保持纯文本行。
+    if (seeAlsoParts.some((p) => p.url)) {
+      paragraphs.push(paragraphCitationBlockWithLinks(seeAlsoParts));
+    } else {
+      const seeAlso = formatSectionSeeAlsoLine(section.citations, sources);
+      if (seeAlso) {
+        paragraphs.push(paragraphCitationBlock(seeAlso));
+      }
+    }
   }
 
   return paragraphs;

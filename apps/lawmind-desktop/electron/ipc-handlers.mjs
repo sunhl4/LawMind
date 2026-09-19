@@ -600,6 +600,33 @@ export function registerIpcHandlers(deps) {
     };
   });
 
+  // NPC FLK（国家法律法规数据库）开关：默认启用；律师可在设置里关闭。
+  // 只写非密钥 env 键并重启本地服务，与 set-retrieval-mode 同一信任级别。
+  ipcMain.handle("lawmind:set-open-law-npc", async (_evt, payload) => {
+    const enabled = payload?.enabled !== false;
+    const paths = lawMindPaths();
+    fs.mkdirSync(paths.lawMindRoot, { recursive: true });
+    writeMergedLawmindEnv(paths.envFilePath, {
+      LAWMIND_OPEN_LAW_NPC: enabled ? "1" : "0",
+    });
+    try {
+      await restartBackendInternal();
+    } catch (e) {
+      return {
+        ok: false,
+        error: e instanceof Error ? e.message : String(e),
+        apiBase: `http://127.0.0.1:${apiPort}`,
+        apiAuthToken,
+      };
+    }
+    return {
+      ok: true,
+      enabled,
+      apiBase: `http://127.0.0.1:${apiPort}`,
+      apiAuthToken,
+    };
+  });
+
   ipcMain.handle("lawmind:pick-project", async () => {
     const res = await dialog.showOpenDialog({
       title: "选择本机文件夹",

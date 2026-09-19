@@ -54,6 +54,15 @@ describe("authority-source-tier", () => {
     expect(isAuthorityLive()).toBe(false);
   });
 
+  it("official public is on by default and off only on explicit opt-out", () => {
+    delete process.env.LAWMIND_OPEN_LAW_NPC;
+    expect(isAuthorityOfficialPublic()).toBe(true);
+    process.env.LAWMIND_OPEN_LAW_NPC = "0";
+    expect(isAuthorityOfficialPublic()).toBe(false);
+    // 默认开也不等于商业 live。
+    expect(isAuthorityLive()).toBe(false);
+  });
+
   it("marks a configured vendor endpoint as live", () => {
     expect(
       resolveAuthoritySourceTier({

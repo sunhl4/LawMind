@@ -110,14 +110,22 @@ export function citationFootnoteMarker(index: number): string {
   return String(index + 1);
 }
 
+/** Structured see-also entry — carries the source URL so Word can hyperlink it. */
+export type SeeAlsoPart = {
+  marker: string;
+  label: string;
+  url?: string;
+};
+
 /**
- * Section-end line for Word / PPT / UI: 「参见：①《法》第×条；②（2020）…号。」
- * Falls back to 「引用待核实」 when a source id cannot be resolved — never dumps raw ids.
+ * Structured variant of the section-end 「参见」 line: marker + lawyer-facing
+ * label + optional source URL (e.g. NPC FLK detail page). Returns null when
+ * there is nothing to cite.
  */
-export function formatSectionSeeAlsoLine(
+export function formatSectionSeeAlsoParts(
   sourceIds: string[] | null | undefined,
   sources?: Iterable<CitationDisplaySource> | null,
-): string | null {
+): SeeAlsoPart[] | null {
   const ids: string[] = [];
   const seen = new Set<string>();
   for (const raw of sourceIds ?? []) {
@@ -140,9 +148,29 @@ export function formatSectionSeeAlsoLine(
     }
   }
 
-  const parts = ids.map((id, index) => {
-    const label = formatLawyerFacingCitation(byId.get(id), { missingFallback: "引用待核实" });
-    return `${citationFootnoteMarker(index)}${label}`;
+  return ids.map((id, index) => {
+    const source = byId.get(id);
+    const label = formatLawyerFacingCitation(source, { missingFallback: "引用待核实" });
+    const url = source?.url?.trim();
+    return {
+      marker: citationFootnoteMarker(index),
+      label,
+      ...(url ? { url } : {}),
+    };
   });
-  return `参见：${parts.join("；")}。`;
+}
+
+/**
+ * Section-end line for Word / PPT / UI: 「参见：①《法》第×条；②（2020）…号。」
+ * Falls back to 「引用待核实」 when a source id cannot be resolved — never dumps raw ids.
+ */
+export function formatSectionSeeAlsoLine(
+  sourceIds: string[] | null | undefined,
+  sources?: Iterable<CitationDisplaySource> | null,
+): string | null {
+  const parts = formatSectionSeeAlsoParts(sourceIds, sources);
+  if (!parts) {
+    return null;
+  }
+  return `参见：${parts.map((p) => `${p.marker}${p.label}`).join("；")}。`;
 }

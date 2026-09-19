@@ -41,6 +41,8 @@ export type LawmindSettingsAuthorityCorpus = {
   envKey?: string;
   authEnvKey?: string;
   providerEnvKey?: string;
+  /** 开源来源就绪清单（含 npc_flk；来自 Doctor 权威库摘要） */
+  openSources?: Array<{ id: string; ready?: boolean }>;
 };
 
 /** Doctor / settings: sample-ready or commercial configured (probeable). */

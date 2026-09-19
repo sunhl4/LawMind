@@ -112,6 +112,35 @@ export function useLawmindAppSetupActions(params: UseLawmindAppSetupActionsParam
 
   const [retrievalSaving, setRetrievalSaving] = useState(false);
   const [draftWithModelSaving, setDraftWithModelSaving] = useState(false);
+  const [npcSaving, setNpcSaving] = useState(false);
+
+  const applyOpenLawNpc = useCallback(
+    async (enabled: boolean) => {
+      const bridge = window.lawmindDesktop;
+      if (!bridge?.setOpenLawNpc || !config) {
+        return;
+      }
+      setNpcSaving(true);
+      setError(null);
+      try {
+        const response = await bridge.setOpenLawNpc({ enabled });
+        const adopted = await adoptConfigAfterBackendRestart(config, response, setConfig);
+        if (!response.ok) {
+          throw new Error(response.error || "切换失败");
+        }
+        const nextBase = adopted?.apiBase ?? response.apiBase ?? config.apiBase;
+        const snapshot = await loadAppBootstrapSnapshot(nextBase);
+        setHealth(mapHealthState(snapshot.health));
+        setHealthPayload(snapshot.health);
+        applyBootstrapSnapshot(snapshot);
+      } catch (cause) {
+        setError(errorMessage(cause, "切换国家法律法规数据库开关失败"));
+      } finally {
+        setNpcSaving(false);
+      }
+    },
+    [applyBootstrapSnapshot, config, setConfig, setError, setHealth, setHealthPayload],
+  );
 
   const applyRetrievalMode = useCallback(
     async (mode: "single" | "dual") => {
@@ -366,6 +395,8 @@ export function useLawmindAppSetupActions(params: UseLawmindAppSetupActionsParam
     draftWithModelSaving,
     applyRetrievalMode,
     applyDraftWithModelEnabled,
+    npcSaving,
+    applyOpenLawNpc,
     runWizardSave,
     pickWs,
     openApiWizard,
