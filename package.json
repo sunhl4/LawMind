@@ -13,6 +13,7 @@
     "lawmind:bundle:desktop-server": "node scripts/lawmind/lawmind-bundle-desktop-server.mjs",
     "lawmind:case": "node --import tsx scripts/lawmind/lawmind-case.ts",
     "lawmind:check:renderer-css": "node scripts/lawmind/check-renderer-css.mjs",
+    "lawmind:check:renderer-css-sync": "node scripts/lawmind/lawmind-sync-renderer-css.mjs --check",
     "lawmind:check:renderer-node": "node scripts/lawmind/check-renderer-node-imports.mjs",
     "lawmind:compiler-gate": "node --import tsx scripts/lawmind/lawmind-compiler-gate.ts",
     "lawmind:daemon": "node --import tsx scripts/lawmind/lawmind-daemon.ts",
