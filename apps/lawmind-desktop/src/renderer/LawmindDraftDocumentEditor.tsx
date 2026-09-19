@@ -6,6 +6,7 @@ import { useCallback, useEffect, useId } from "react";
 import type { ArtifactDraft } from "../../../../src/lawmind/types.ts";
 import { LawmindSourcePillList } from "./LawmindSourcePreview";
 import { LawmindProvenanceIndicator } from "./review/LawmindProvenanceIndicator";
+import { LawmindReviewTableEditor } from "./LawmindReviewTableEditor";
 import type { DraftDocumentEditorSection, DraftDocumentEditorValue } from "./lawmind-draft-document-editor";
 
 type Props = {
@@ -171,6 +172,8 @@ export function LawmindDraftDocumentEditor(props: Props) {
             <div className="lm-draft-doc-readonly">{value.summary}</div>
           ) : null}
         </label>
+
+        <LawmindReviewTableEditor taskId={taskId} apiBase={apiBase} editable={editable} />
 
         <div className="lm-draft-doc-sections">
           {value.sections.map((section, index) => {

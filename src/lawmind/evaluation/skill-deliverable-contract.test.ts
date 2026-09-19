@@ -5,6 +5,14 @@
 
 import { describe, expect, it } from "vitest";
 import { calculateLegal } from "../agent/tools/legal/calculate-lib.js";
+import { getDeliverableSpec } from "../deliverables/registry.js";
+import {
+  newReviewTable,
+  reviewTableAcceptanceProblems,
+  reviewTableToMarkdown,
+  reviewTableToXlsxRows,
+  REVIEW_TABLE_TEMPLATES,
+} from "../deliverables/review-table.js";
 import { explainSurgicalSpanViolation } from "../drafts/surgical-span-gate.js";
 import {
   formatComplaintFactsBlock,
@@ -126,5 +134,54 @@ describe("skill deliverable contract (synthetic)", () => {
         "并赔偿甲方因此而造成的实际损失，但累计赔偿总额不超过该项目已付软件费用。",
       ),
     ).toMatch(/跨度硬门禁/);
+  });
+
+  it("review.table deliverable type is registered with 结论 + 审查表 sections", () => {
+    const spec = getDeliverableSpec("review.table");
+    expect(spec).toBeDefined();
+    expect(spec?.displayName).toBe("审查表");
+    const keywords = (spec?.requiredSections ?? []).flatMap((s) => s.headingKeywords);
+    expect(keywords.some((k) => k.includes("结论"))).toBe(true);
+    expect(keywords.some((k) => k.includes("审查表") || k.includes("表格"))).toBe(true);
+  });
+
+  it("review table acceptance requires rows with sources (no空表交付)", () => {
+    const empty = newReviewTable("t", "due_diligence");
+    expect(reviewTableAcceptanceProblems(empty)).toEqual(["审查表为空"]);
+    const filled: ReturnType<typeof newReviewTable> = {
+      ...empty,
+      rows: [{ id: "r1", cells: { item: "股权结构", source: "cases/m/materials/a.pdf" } }],
+    };
+    expect(reviewTableAcceptanceProblems(filled)).toEqual([]);
+    // 三类模板都带来源列，律师可直接核验。
+    for (const template of Object.keys(REVIEW_TABLE_TEMPLATES) as Array<
+      keyof typeof REVIEW_TABLE_TEMPLATES
+    >) {
+      expect(REVIEW_TABLE_TEMPLATES[template].columns.some((c) => c.key === "source")).toBe(true);
+    }
+  });
+
+  it("review table exports the same rows to xlsx and to the draft markdown preview", () => {
+    const table: ReturnType<typeof newReviewTable> = {
+      ...newReviewTable("t", "clause_matrix"),
+      rows: [
+        {
+          id: "r1",
+          cells: {
+            clause: "第12条 责任上限",
+            our_text: "以已付费用为限",
+            their_text: "不设上限",
+            risk: "高",
+            suggestion: "坚持上限",
+            source: "cases/m/materials/合同.pdf",
+          },
+        },
+      ],
+    };
+    expect(reviewTableToXlsxRows(table)[0]?.length).toBe(table.columns.length);
+    expect(reviewTableToXlsxRows(table)[1]?.[0]).toBe("第12条 责任上限");
+    const md = reviewTableToMarkdown(table);
+    expect(md).toContain("第12条 责任上限");
+    expect(md).toContain("cases/m/materials/合同.pdf");
   });
 });

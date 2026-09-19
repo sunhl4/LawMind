@@ -58,6 +58,7 @@ export const DISCLOSED_TOOL_HINTS: ReadonlyArray<{ name: string; hint: string }>
   { name: "revert_desk_write", hint: "撤销刚才一次档案写入" },
   { name: "propose_organize_plan", hint: "起草本案材料整理计划（先确认，不动文件）" },
   { name: "execute_organize_plan", hint: "执行已确认的材料整理计划（可撤销）" },
+  { name: "review_table_update", hint: "编辑审查表：建模板/加行/批量改格/分组/从材料导入" },
   { name: "create_matter", hint: "无关联案件时新建卷宗" },
   { name: "list_templates", hint: "查看可用文书模板" },
   { name: "notify_assistant", hint: "会议室 / 同事通知" },

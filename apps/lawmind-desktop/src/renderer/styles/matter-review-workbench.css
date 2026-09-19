@@ -3174,3 +3174,45 @@
   color: var(--ok, #2f6b3a);
 }
 
+
+/* 审查表编辑器（review.table）— 文书台内的轻量表格 */
+.lm-review-table-editor {
+  margin: 0 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.lm-review-table-grid-wrap {
+  max-height: 320px;
+  overflow: auto;
+}
+
+.lm-review-table-grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.lm-review-table-grid th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  text-align: left;
+  padding: 6px 8px;
+  background: var(--surface-3);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.lm-review-table-grid td {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.lm-review-table-grid td .lm-input {
+  width: 100%;
+  min-width: 96px;
+}

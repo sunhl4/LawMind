@@ -945,6 +945,132 @@ export async function handleReviewRoute({
       return true;
     }
 
+    // 审查表（review.table）sidecar：读 / 改 / 导出 xlsx。
+    const draftTableXlsxMatch = pathname.match(/^\/api\/drafts\/([^/]+)\/table\.xlsx$/);
+    if (draftTableXlsxMatch && req.method === "GET") {
+      const raw = decodeURIComponent(draftTableXlsxMatch[1] ?? "");
+      if (!isSafeTaskIdSegment(raw)) {
+        sendJson(res, 400, { ok: false, error: "invalid task id" }, c);
+        return true;
+      }
+      const { readReviewTable, reviewTableToXlsxRows } = await import(
+        "../../../src/lawmind/deliverables/review-table.js"
+      );
+      const table = readReviewTable(workspaceDir, raw);
+      if (!table) {
+        sendJson(res, 404, { ok: false, error: "table_not_found" }, c);
+        return true;
+      }
+      const { writeXlsxWorkbook } = await import(
+        "../../../src/lawmind/agent/tools/legal/xlsx-workbook.js"
+      );
+      const os = await import("node:os");
+      const fsTmp = await import("node:fs/promises");
+      const tmpFile = path.join(os.tmpdir(), `lawmind-review-table-${raw}.xlsx`);
+      await writeXlsxWorkbook(tmpFile, [{ name: table.title.slice(0, 31) || "审查表", rows: reviewTableToXlsxRows(table) }]);
+      const buf = await fsTmp.readFile(tmpFile);
+      await fsTmp.rm(tmpFile, { force: true });
+      res.writeHead(200, {
+        "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "content-disposition": `attachment; filename="review-table-${encodeURIComponent(raw)}.xlsx"`,
+      });
+      res.end(buf);
+      return true;
+    }
+
+    const draftTableMatch = pathname.match(/^\/api\/drafts\/([^/]+)\/table$/);
+    if (draftTableMatch && req.method === "GET") {
+      const raw = decodeURIComponent(draftTableMatch[1] ?? "");
+      if (!isSafeTaskIdSegment(raw)) {
+        sendJson(res, 400, { ok: false, error: "invalid task id" }, c);
+        return true;
+      }
+      const { readReviewTable } = await import("../../../src/lawmind/deliverables/review-table.js");
+      const table = readReviewTable(workspaceDir, raw);
+      if (!table) {
+        sendJson(res, 404, { ok: false, error: "table_not_found" }, c);
+        return true;
+      }
+      sendJson(res, 200, { ok: true, table }, c);
+      return true;
+    }
+    if (draftTableMatch && req.method === "PATCH") {
+      const raw = decodeURIComponent(draftTableMatch[1] ?? "");
+      if (!isSafeTaskIdSegment(raw)) {
+        sendJson(res, 400, { ok: false, error: "invalid task id" }, c);
+        return true;
+      }
+      const draft = readDraft(workspaceDir, raw);
+      if (!draft) {
+        sendJson(res, 404, { ok: false, error: "not found" }, c);
+        return true;
+      }
+      const reviewStatus = draft.reviewStatus ?? "pending";
+      if (reviewStatus !== "pending" && reviewStatus !== "modified") {
+        sendJson(res, 409, { ok: false, error: "draft_not_editable" }, c);
+        return true;
+      }
+      let patchBody: { columns?: unknown; rows?: unknown };
+      try {
+        const { z } = await import("zod");
+        patchBody = await parseJsonBodyZod(
+          req,
+          z.object({ columns: z.array(z.unknown()).optional(), rows: z.array(z.unknown()).optional() }),
+        );
+      } catch {
+        sendJson(res, 400, { ok: false, error: "invalid body" }, c);
+        return true;
+      }
+      const {
+        readReviewTable: readTable,
+        writeReviewTable,
+        reviewTableToMarkdown,
+      } = await import("../../../src/lawmind/deliverables/review-table.js");
+      const table = readTable(workspaceDir, raw);
+      if (!table) {
+        sendJson(res, 404, { ok: false, error: "table_not_found" }, c);
+        return true;
+      }
+      // 律师编辑：列与行整体替换（桌面表格编辑器一次提交整表）。
+      const columns = Array.isArray(patchBody.columns)
+        ? (patchBody.columns as Array<{ key?: unknown; label?: unknown }>)
+            .filter((col) => typeof col.key === "string" && col.key.trim())
+            .map((col) => ({ key: String(col.key).trim(), label: String(col.label ?? col.key).trim() }))
+        : table.columns;
+      const rows = Array.isArray(patchBody.rows)
+        ? (patchBody.rows as Array<{ id?: unknown; cells?: unknown; group?: unknown; source?: unknown }>).map(
+            (row) => ({
+              id: typeof row.id === "string" && row.id.trim() ? row.id.trim() : `row-${Math.random().toString(36).slice(2, 10)}`,
+              cells:
+                row.cells && typeof row.cells === "object" && !Array.isArray(row.cells)
+                  ? Object.fromEntries(
+                      Object.entries(row.cells as Record<string, unknown>).map(([k, v]) => [
+                        k,
+                        typeof v === "string" ? v : v == null ? "" : JSON.stringify(v),
+                      ]),
+                    )
+                  : {},
+              ...(typeof row.group === "string" && row.group.trim() ? { group: row.group.trim() } : {}),
+              ...(typeof row.source === "string" && row.source.trim() ? { source: row.source.trim() } : {}),
+            }),
+          )
+        : table.rows;
+      const next = { ...table, columns, rows };
+      writeReviewTable(workspaceDir, next);
+      // 同步草稿「审查表」栏目预览，与 agent 工具同一真相源。
+      const markdown = reviewTableToMarkdown(next);
+      const idx = draft.sections.findIndex((s) => /审查表|明细|表格/.test(s.heading));
+      const sections = [...draft.sections];
+      if (idx >= 0) {
+        sections[idx] = { ...sections[idx], body: markdown };
+      } else {
+        sections.push({ heading: "审查表", body: markdown, citations: [] });
+      }
+      persistDraft(workspaceDir, { ...draft, sections });
+      sendJson(res, 200, { ok: true, table: next }, c);
+      return true;
+    }
+
     const draftContentMatch = pathname.match(/^\/api\/drafts\/([^/]+)\/content$/);
     if (draftContentMatch && req.method === "PATCH") {
       const raw = decodeURIComponent(draftContentMatch[1] ?? "");

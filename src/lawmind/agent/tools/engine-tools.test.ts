@@ -149,9 +149,45 @@ describe("Engine-Bridge Tools", () => {
     expect(names).toContain("create_matter");
   });
 
-  it("total tool count is 66 (51 legal + 15 engine) without web/collaboration extras", () => {
+  it("total tool count is 67 (52 legal + 15 engine) without web/collaboration extras", () => {
     const registry = createLegalToolRegistry();
-    expect(registry.size()).toBe(66);
+    expect(registry.size()).toBe(67);
+  });
+});
+
+describe("record_deadline", () => {
+  it("persists event_kind so the workbench deadline kinds match chat writes", async () => {
+    const ws = tmpWorkspace();
+    const { recordDeadlineTool } = await import("./engine/engine-governance-tools.js");
+    const { listDeadlinesForMatter } =
+      await import("../../application/services/deadline-service.js");
+    const result = await recordDeadlineTool.execute(
+      {
+        matter_id: "m-deadline-kind",
+        title: "开庭",
+        due_at: "2026-10-12T01:00:00.000Z",
+        event_kind: "hearing",
+      },
+      makeCtx(ws),
+    );
+    expect(result.ok).toBe(true);
+    const deadlines = listDeadlinesForMatter(ws, "m-deadline-kind");
+    expect(deadlines.some((d) => d.eventKind === "hearing" && d.title === "开庭")).toBe(true);
+  });
+
+  it("rejects an unknown event_kind", async () => {
+    const ws = tmpWorkspace();
+    const { recordDeadlineTool } = await import("./engine/engine-governance-tools.js");
+    const result = await recordDeadlineTool.execute(
+      {
+        matter_id: "m-deadline-kind",
+        title: "开庭",
+        due_at: "2026-10-12T01:00:00.000Z",
+        event_kind: "bogus",
+      },
+      makeCtx(ws),
+    );
+    expect(result.ok).toBe(false);
   });
 });
 

@@ -277,4 +277,22 @@ export const LAWYER_WORK_SPECS: readonly DeliverableSpec[] = Object.freeze([
     placeholderRule: { pattern: PLACEHOLDER_PATTERN, mustResolveBeforeRender: false },
     defaultClarificationQuestions: [],
   },
+  {
+    type: "review.table",
+    displayName: "审查表",
+    description: "结构化审查表（尽调/证据/条款矩阵）：表格本体存 sidecar，正文放结论与说明。",
+    defaultTemplateId: "word/legal-memo-default",
+    defaultOutput: "docx",
+    defaultRiskLevel: "medium",
+    requiredSections: [
+      { headingKeywords: ["结论", "结论与说明"], purpose: "结论", severity: "blocker" },
+      { headingKeywords: ["审查表", "明细", "表格"], purpose: "审查表", severity: "blocker" },
+    ],
+    acceptanceCriteria: [
+      "表格行不得为空；每行须有来源。",
+      "正文须有结论与说明；表格本体以 sidecar 为准。",
+    ],
+    placeholderRule: { pattern: PLACEHOLDER_PATTERN, mustResolveBeforeRender: false },
+    defaultClarificationQuestions: [],
+  },
 ]);

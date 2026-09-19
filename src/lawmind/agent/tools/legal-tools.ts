@@ -47,6 +47,7 @@ import { executeOrganizePlan, proposeOrganizePlan } from "./legal/organize-mater
 import { searchPrecedents } from "./legal/precedent-search-tool.js";
 import { readFolderDocumentsTool } from "./legal/read-folder-documents-tool.js";
 import { readSkillTool } from "./legal/read-skill-tool.js";
+import { reviewTableUpdate } from "./legal/review-table-tool.js";
 import { runAnalysis } from "./legal/run-analysis-tool.js";
 import { runCompute } from "./legal/run-compute-tool.js";
 import {
@@ -97,6 +98,7 @@ export function createLegalToolRegistry(opts?: {
     ...deskTools,
     proposeOrganizePlan,
     executeOrganizePlan,
+    reviewTableUpdate,
     // 文件操作
     analyzeDocument,
     compareDocuments,

@@ -120,5 +120,6 @@ export const WRITE_TOOLS = new Set<string>([
   "update_matter_profile",
   "revert_desk_write",
   "execute_organize_plan",
+  "review_table_update",
   "create_matter",
 ]);
