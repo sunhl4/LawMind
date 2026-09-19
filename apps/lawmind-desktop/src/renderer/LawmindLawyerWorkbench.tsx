@@ -11,6 +11,7 @@ import { triggerBrowserDownload } from "./review/review-workbench-helpers";
 import { LEGAL_EVENT_KIND_LABELS, type ExtractedLegalEvent } from "../../../../src/lawmind/desk/legal-event-extract.ts";
 import { DEADLINE_SOURCE_LABELS } from "../../../../src/lawmind/desk/deadline-chain.ts";
 import { MATTER_KIND_LABELS, type MatterKind } from "../../../../src/lawmind/desk/matter-kind.ts";
+import { acceptanceFeeView } from "./matter/litigation-fee-view";
 import {
   deriveMatterIdentity,
   hydrateMatterParties,
@@ -54,7 +55,14 @@ type DeskMatterRow = {
   nextHearingAt?: string;
   daysUntilHearing?: number | null;
   openTaskCount?: number;
-  docket?: { caseNo?: string; court?: string; instance?: string; standing?: string; hearingAt?: string };
+  docket?: {
+    caseNo?: string;
+    court?: string;
+    instance?: string;
+    standing?: string;
+    hearingAt?: string;
+    claimAmount?: string;
+  };
 };
 
 type DeadlineRow = {
@@ -475,7 +483,14 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
   const [talk, setTalk] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [docket, setDocket] = useState({ caseNo: "", court: "", instance: "", standing: "", hearingAt: "" });
+  const [docket, setDocket] = useState({
+    caseNo: "",
+    court: "",
+    instance: "",
+    standing: "",
+    hearingAt: "",
+    claimAmount: "",
+  });
   const [partyDrafts, setPartyDrafts] = useState<MatterParty[]>([]);
   const [causeOfAction, setCauseOfAction] = useState("");
   const [pulse, setPulse] = useState<MatterPulseView | null>(null);
@@ -497,6 +512,9 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
       fallbackDeskMatter(viewingId, pulse?.matterId === viewingId ? pulse : null, matterKind)
     );
   }, [matters, viewingId, pulse, matterKind]);
+
+  /** 案件信息里的受理费估算：随卷宗标的金额即时重算。 */
+  const acceptanceFee = useMemo(() => acceptanceFeeView(docket.claimAmount), [docket.claimAmount]);
 
   const todayItems = today?.items ?? [];
   const actionItems = todayItems.filter((item) => item.kind === "plan" || item.kind === "mail" || item.kind === "approval");
@@ -674,6 +692,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
           instance: d?.instance ?? "",
           standing: d?.standing ?? "",
           hearingAt: d?.hearingAt ?? "",
+          claimAmount: d?.claimAmount ?? "",
         });
         setCauseOfAction(pulseRow.pulse?.causeOfAction ?? "");
         setMatterKind(selected?.matterKind ?? "general");
@@ -1117,6 +1136,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
           instance: docket.instance,
           standing: docket.standing,
           hearingAt: docket.hearingAt,
+          claimAmount: docket.claimAmount,
         },
       });
       await reloadMatters();
@@ -1829,6 +1849,15 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                             docket.hearingAt ||
                             "未排"}
                         </dd>
+                        <dt>标的金额</dt>
+                        <dd>{docket.claimAmount || "未填"}</dd>
+                        <dt>受理费</dt>
+                        <dd>
+                          <span>{acceptanceFee.value}</span>
+                          {acceptanceFee.hint ? (
+                            <span className="lm-meta"> {acceptanceFee.hint}</span>
+                          ) : null}
+                        </dd>
                       </dl>
                       <div className="lm-lawyer-inline-actions">
                         <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => setMatterPane("docket")}>
@@ -2176,6 +2205,15 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                       <label>
                         开庭日
                         <input className="lm-input" value={docket.hearingAt} onChange={(e) => setDocket({ ...docket, hearingAt: e.target.value })} />
+                      </label>
+                      <label>
+                        标的金额
+                        <input
+                          className="lm-input"
+                          value={docket.claimAmount ?? ""}
+                          onChange={(e) => setDocket({ ...docket, claimAmount: e.target.value })}
+                          placeholder="如：32,100 元（照原文）"
+                        />
                       </label>
                     </div>
                     <button type="button" className="lm-btn lm-btn-sm" disabled={busy} onClick={() => void saveDocket()}>
