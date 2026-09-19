@@ -13,7 +13,7 @@ import os from "node:os";
 import { LICENSE_PUBLIC_KEY_DER_B64 } from "./keys.js";
 import type { LicenseEdition, LicensePayload } from "./types.js";
 
-const EDITIONS: readonly LicenseEdition[] = new Set(["solo", "firm", "private_deploy"]);
+const EDITIONS: ReadonlySet<LicenseEdition> = new Set(["solo", "firm", "private_deploy"]);
 
 function fromBase64Url(value: string): Buffer {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");

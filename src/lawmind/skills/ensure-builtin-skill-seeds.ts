@@ -40,6 +40,9 @@ const BUILTIN_IDS = [
   "family-matter-route",
   "capital-markets-route",
   "governance-route",
+  "contract-playbook-review",
+  "chronology-two-stage",
+  "matter-status-scope-budget",
 ] as const;
 
 function builtinDir(): string {

@@ -55,6 +55,7 @@ export const LAWYER_CAPABILITIES: readonly LawyerCapability[] = [
     skillIds: [
       "contract-redline-craft",
       "contract-review-layers",
+      "contract-playbook-review",
       "practice-defaults",
       "legal-element-extraction",
       "norm-validity",
@@ -62,7 +63,7 @@ export const LAWYER_CAPABILITIES: readonly LawyerCapability[] = [
       "delivery-language",
     ],
     pipeline: "execute_workflow",
-    pipelineHint: `${OPEN_TOOLS_HINT}意见须含宏观/中观/微观与推荐措辞。钉选 Word 时默认意见+修订稿都交，律师指定只要一种则按指定。空修订不得导出。开放 \`search_statute\` 时写条号前先试检 1–2 条。`,
+    pipelineHint: `${OPEN_TOOLS_HINT}意见须含宏观/中观/微观与推荐措辞，并按 Playbook 给出标准/可接受回退/永不接受档位与具体改法。钉选 Word 时默认意见+修订稿都交，律师指定只要一种则按指定。空修订不得导出。开放 \`search_statute\` 时写条号前先试检 1–2 条。`,
   },
   {
     id: "letter.draft",
@@ -193,9 +194,15 @@ export const LAWYER_CAPABILITIES: readonly LawyerCapability[] = [
   {
     id: "chronology.timeline",
     label: "时间轴",
-    skillIds: ["chronology-from-materials", "legal-element-extraction", "delivery-language"],
+    skillIds: [
+      "chronology-from-materials",
+      "chronology-two-stage",
+      "legal-element-extraction",
+      "delivery-language",
+    ],
     pipeline: "execute_workflow",
-    pipelineHint: "从已附材料抽日期事件并去重；读不到的日期标缺口，不要编。",
+    pipelineHint:
+      "两阶段：先在对话里出逐条可改的时间轴预览（日期/事实/来源，冲突并列），律师确认后才出正式件。读不到的日期标缺口，不要编。",
   },
   {
     id: "matter.intake",
@@ -288,13 +295,14 @@ export const LAWYER_CAPABILITIES: readonly LawyerCapability[] = [
     label: "办案周报",
     skillIds: [
       "matter-status-report",
+      "matter-status-scope-budget",
       "matter-budget-lite",
       "legal-period-calc",
       "delivery-language",
     ],
     pipeline: "execute_workflow",
     pipelineHint:
-      "阶段、期限、范围变更、置信。本地顾问工作包、人力安排、沟通计划走同一办件。冲突两说并列。",
+      "阶段、期限、范围变更、置信。范围变更须含变更内容/触发/对预算期限影响/状态（无变更也要明写）；预算与工时对照缺台账标缺口。本地顾问工作包、人力安排、沟通计划走同一办件。冲突两说并列。",
   },
   {
     id: "family.matter",

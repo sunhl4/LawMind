@@ -24,6 +24,7 @@ import { WORD_REVISION_DENY_TOOL_NAMES } from "../platform/word-revision-instruc
 import { buildDraft } from "../reasoning/keyword-draft.js";
 import { route } from "../router/index.js";
 import { bindLawyerCapability } from "../skills/lawyer-capabilities.js";
+import { planLeanSkillPrompt } from "../skills/skill-prompt-budget.js";
 import type { ResearchBundle } from "../types.js";
 
 function emptyBundle(taskId: string): ResearchBundle {
@@ -183,5 +184,72 @@ describe("skill deliverable contract (synthetic)", () => {
     const md = reviewTableToMarkdown(table);
     expect(md).toContain("第12条 责任上限");
     expect(md).toContain("cases/m/materials/合同.pdf");
+  });
+
+  it("合同审查带上 playbook 三档 skill 与档位口径", () => {
+    const review = bindLawyerCapability({ instruction: "请审查这份采购合同" });
+    expect(review?.id).toBe("contract.review");
+    expect(review?.skillIds).toContain("contract-playbook-review");
+    // 档位口径写进 pipelineHint，而不是只存在于 skill 正文。
+    expect(review?.pipelineHint).toContain("可接受回退");
+    expect(review?.pipelineHint).toContain("永不接受");
+  });
+
+  it("时间轴是两阶段口径（预览 → 确认 → 正式件）", () => {
+    const timeline = bindLawyerCapability({ instruction: "把这些材料做成时间轴" });
+    expect(timeline?.id).toBe("chronology.timeline");
+    expect(timeline?.skillIds).toContain("chronology-two-stage");
+    expect(timeline?.pipelineHint).toContain("预览");
+    expect(timeline?.pipelineHint).toContain("确认后才出正式件");
+  });
+
+  it("办案周报带上范围变更与预算对照 skill", () => {
+    const status = bindLawyerCapability({ instruction: "写本案办案周报" });
+    expect(status?.id).toBe("matter.status");
+    expect(status?.skillIds).toContain("matter-status-scope-budget");
+    expect(status?.pipelineHint).toContain("范围变更");
+    expect(status?.pipelineHint).toContain("预算");
+  });
+
+  it("三个内化 skill 的正文都在 builtin 目录里（不是索引指针）", async () => {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const dir = path.join(import.meta.dirname, "../skills/builtin");
+    for (const id of [
+      "contract-playbook-review",
+      "chronology-two-stage",
+      "matter-status-scope-budget",
+    ]) {
+      const body = await fs.readFile(path.join(dir, `${id}.md`), "utf8");
+      // 有出处记录（Apache-2.0 方法吸收），且有可执行步骤而非只有一句人设。
+      expect(body).toContain("Apache-2.0");
+      expect(body.length).toBeGreaterThan(800);
+    }
+  });
+
+  it("内化 skill 即使不是 primary 正文，也必须在 skill 索引里对模型可见", () => {
+    // 合同审查：playbook 与分层都在能力里；索引行披露名称与 description。
+    const review = bindLawyerCapability({ instruction: "请审查这份采购合同" })!;
+    const reviewPlan = planLeanSkillPrompt(review, "请审查这份采购合同");
+    const reviewDisclosed = [...reviewPlan.primaryIds, ...reviewPlan.indexLines].join("\n");
+    expect(reviewPlan.primaryIds).toContain("contract-review-layers");
+    expect(reviewDisclosed).toContain("contract-playbook-review");
+    // 索引行带 description（不是只有 id）。
+    const playbookLine = reviewPlan.indexLines.find((l) =>
+      l.startsWith("contract-playbook-review"),
+    );
+    expect(playbookLine).toBeTruthy();
+    expect(playbookLine).toMatch(/[:：]\s*\S/);
+    expect(reviewPlan.indexIds).toContain("contract-playbook-review");
+
+    const timeline = bindLawyerCapability({ instruction: "把这些材料做成时间轴" })!;
+    const timelinePlan = planLeanSkillPrompt(timeline, "把这些材料做成时间轴");
+    expect(timelinePlan.primaryIds).toContain("chronology-from-materials");
+    expect(timelinePlan.indexIds).toContain("chronology-two-stage");
+
+    const status = bindLawyerCapability({ instruction: "写本案办案周报" })!;
+    const statusPlan = planLeanSkillPrompt(status, "写本案办案周报");
+    const statusDisclosed = [...statusPlan.primaryIds, ...statusPlan.indexLines].join("\n");
+    expect(statusDisclosed).toContain("matter-status-scope-budget");
   });
 });
