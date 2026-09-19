@@ -6,6 +6,7 @@
  */
 
 import fs from "node:fs/promises";
+import { listMatterIdsFromStorage } from "../adapters/matter-storage/io.js";
 import { readRecentAuditLogs } from "../audit/index.js";
 import { listDrafts } from "../drafts/index.js";
 import { caseFilePath } from "../memory/index.js";
@@ -89,6 +90,8 @@ export async function buildMatterIndex(
 }
 
 export async function listMatterIds(workspaceDir: string): Promise<string[]> {
+  // 与工作台「本案列表」同一份真相：matters/<id>/ 存储优先，cases/ 与任务为兼容补充。
+  const fromStorage = listMatterIdsFromStorage(workspaceDir);
   const caseRoot = `${workspaceDir}/cases`;
   const fromCases = await fs
     .readdir(caseRoot, { withFileTypes: true })
@@ -99,7 +102,7 @@ export async function listMatterIds(workspaceDir: string): Promise<string[]> {
     .filter((value): value is string => Boolean(value));
 
   // Ad-hoc meetings are not matters; hide legacy cases/临时讨论 if still on disk.
-  return uniq([...fromCases, ...fromTasks])
+  return uniq([...fromStorage, ...fromCases, ...fromTasks])
     .filter((id) => id !== ADHOC_MEETING_MATTER_ID)
     .toSorted();
 }
