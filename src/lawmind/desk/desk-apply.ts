@@ -30,6 +30,7 @@ import {
   saveIntakeBrief,
   type IntakeBrief,
 } from "./intake-brief.js";
+import { planIntakePromotion, type PromoteIntakeResult } from "./intake-promote.js";
 import {
   defaultRemindBeforeHours,
   type ExtractedLegalEvent,
@@ -54,7 +55,7 @@ export type ApplyLegalEventsResult =
   | { ok: false; error: string; deadlineIds: string[] };
 
 export type ApplyIntakeBriefResult =
-  | { ok: true; writeId: string; brief: IntakeBrief }
+  | { ok: true; writeId: string; brief: IntakeBrief; promotion: PromoteIntakeResult }
   | { ok: false; error: string };
 
 export type ApplyMatterProfileResult =
@@ -182,7 +183,41 @@ export async function applyIntakeBrief(
     createdAt: new Date().toISOString(),
     previousIntake: previous,
   });
-  return { ok: true, writeId: write.writeId, brief };
+  // 谈话里读到的事实提升进卷宗——工作台卷宗看的是 matter.json，不能只留在档案里。
+  const promotion = await promoteIntakeBriefToProfile(workspaceDir, id, brief);
+  return { ok: true, writeId: write.writeId, brief, promotion };
+}
+
+/**
+ * 把已确认谈话档案里**读到过**的字段提升进卷宗（只补空、不覆盖、不编造）。
+ * 与 applyMatterProfile 共用同一写入路径，故 HTTP 与 agent 工具行为一致。
+ */
+async function promoteIntakeBriefToProfile(
+  workspaceDir: string,
+  matterId: string,
+  brief: IntakeBrief,
+): Promise<PromoteIntakeResult> {
+  const current = loadMatter(workspaceDir, matterId);
+  if (!current) {
+    return { promoted: [], standingOnly: [] };
+  }
+  const plan = planIntakePromotion({
+    current: { parties: current.parties, causeOfAction: current.causeOfAction },
+    brief,
+    partyCandidates: brief.partyCandidates,
+  });
+  if (plan.promoted.length === 0) {
+    return { promoted: [], standingOnly: plan.standingOnly };
+  }
+  const saved = await updateMatterProfile(workspaceDir, {
+    matterId,
+    ...(plan.causeOfAction ? { causeOfAction: plan.causeOfAction } : {}),
+    ...(plan.parties ? { parties: plan.parties } : {}),
+  });
+  if (!saved) {
+    return { promoted: [], standingOnly: plan.standingOnly };
+  }
+  return { promoted: plan.promoted, standingOnly: plan.standingOnly };
 }
 
 export async function compileAndSaveIntakeBrief(input: {

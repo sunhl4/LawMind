@@ -9,6 +9,7 @@ import { writeFileAtomicAsync } from "../adapters/matter-storage/io.js";
 import { extractEvidenceChain } from "../reasoning/evidence-chain.js";
 import { extractLegalElements } from "../reasoning/legal-elements.js";
 import { loadCauseLexicon, suggestCauseCandidates, type CauseCandidate } from "./cause-lexicon.js";
+import { extractPartyCandidates, type IntakePartyCandidate } from "./intake-promote.js";
 
 export type IntakeBrief = {
   matterId: string;
@@ -20,6 +21,8 @@ export type IntakeBrief = {
   nextActions: string[];
   source: "talk" | "materials" | "mixed";
   transcriptExcerpt?: string;
+  /** 谈话里读到的当事人（标签+名称）；确认时提升进卷宗，不丢在档案里。 */
+  partyCandidates?: IntakePartyCandidate[];
   updatedAt: string;
   confirmedAt?: string;
 };
@@ -70,6 +73,22 @@ export function parseIntakeBrief(raw: unknown, matterId: string): IntakeBrief | 
       : [],
     evidenceGaps: asStringList(o.evidenceGaps),
     nextActions: asStringList(o.nextActions),
+    ...(Array.isArray(o.partyCandidates)
+      ? {
+          partyCandidates: o.partyCandidates
+            .map((row) => {
+              if (!row || typeof row !== "object") {
+                return null;
+              }
+              const r = row as Record<string, unknown>;
+              const name = typeof r.name === "string" ? r.name.trim() : "";
+              const label = typeof r.label === "string" ? r.label.trim() : "";
+              return name && label ? { name, label } : null;
+            })
+            .filter((row): row is IntakePartyCandidate => row !== null)
+            .slice(0, 16),
+        }
+      : {}),
     source: o.source === "materials" || o.source === "mixed" ? o.source : "talk",
     transcriptExcerpt:
       typeof o.transcriptExcerpt === "string"
@@ -166,6 +185,9 @@ export function compileIntakeBrief(input: {
     ],
     source: "talk",
     transcriptExcerpt: text.slice(0, 800),
+    ...(extractPartyCandidates(text).length > 0
+      ? { partyCandidates: extractPartyCandidates(text) }
+      : {}),
     updatedAt: new Date().toISOString(),
   };
 }
