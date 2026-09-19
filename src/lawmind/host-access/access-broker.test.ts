@@ -77,6 +77,32 @@ describe("resolveHostPath", () => {
     }
   });
 
+  it("resolves a relative path under the mounted folder, not the process cwd", () => {
+    const workspace = tmpDir("lm-host-ws-");
+    const desktop = tmpDir("lm-host-desktop-");
+    const folder = path.join(desktop, "诉讼", "刘学江侵权纠纷");
+    fs.mkdirSync(folder, { recursive: true });
+    fs.writeFileSync(path.join(folder, "起诉状.txt"), "诉请");
+    const runtime = buildHostAccessRuntime({
+      workspaceDir: workspace,
+      sessionId: "s1",
+      hostMounts: [mount(desktop)],
+      hostAccessFile: path.join(workspace, "host-access.json"),
+      homeDir: tmpDir("lm-host-home-"),
+    });
+    const ok = resolveHostPath(runtime, "诉讼/刘学江侵权纠纷");
+    expect(ok.ok).toBe(true);
+    if (ok.ok) {
+      expect(ok.abs).toBe(fs.realpathSync(folder));
+      expect(ok.rootKind).toBe("mount");
+    }
+    const missing = resolveHostPath(runtime, "诉讼/不存在");
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) {
+      expect(missing.error).toBe("not_found");
+    }
+  });
+
   it("migrates projectDir to the first mount", () => {
     const workspace = tmpDir("lm-host-ws-");
     const project = tmpDir("lm-host-proj-");

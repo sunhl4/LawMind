@@ -11,8 +11,8 @@ export const DEFAULT_HOST_ACCESS_POLICY: ResolvedHostAccessPolicy = {
   fullDiskAccessOptIn: false,
   allowHostCommands: false,
   hostCommandLevel: "office",
-  fileTaskReadBudget: 12,
-  fileTaskReadHardCap: 32,
+  fileTaskReadBudget: 16,
+  fileTaskReadHardCap: 48,
   denyPathPatterns: [],
   allowCrossMatterMounts: false,
   indexBodyInAppSupport: true,
@@ -62,13 +62,13 @@ export function resolveHostAccessPolicy(
       host?.fileTaskReadBudget,
       DEFAULT_HOST_ACCESS_POLICY.fileTaskReadBudget,
       1,
-      32,
+      64,
     ),
     fileTaskReadHardCap: asInt(
       host?.fileTaskReadHardCap,
       DEFAULT_HOST_ACCESS_POLICY.fileTaskReadHardCap,
       4,
-      48,
+      128,
     ),
     denyPathPatterns: Array.isArray(host?.denyPathPatterns)
       ? host.denyPathPatterns.filter(

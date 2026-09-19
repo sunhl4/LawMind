@@ -223,8 +223,23 @@ const DISCOVERY_SEARCH_LOOP_NAMES = new Set([
   "list_mail_attachments",
 ]);
 
-/** Combined search/list cap per turn. Does not count analyze_document / read_project_file. */
+/**
+ * Combined search/list cap per turn. Does not count analyze_document / read_project_file.
+ * 随模型上下文伸缩：未知窗口 8；128k→16；上限 32。检索/列表本身很便宜，
+ * 该上限只防同一查询反复打转；案件管理类工作（列案件 + 摘要 + 案卷检索）常需十余次。
+ */
 export const DISCOVERY_LOOP_TOTAL_CAP = 8;
+export const DISCOVERY_LOOP_TOTAL_CAP_MAX = 32;
+
+export function resolveDiscoveryLoopTotalCap(contextTokens?: number): number {
+  if (typeof contextTokens === "number" && Number.isFinite(contextTokens) && contextTokens > 0) {
+    return Math.min(
+      DISCOVERY_LOOP_TOTAL_CAP_MAX,
+      Math.max(DISCOVERY_LOOP_TOTAL_CAP, Math.ceil(contextTokens / 8_000)),
+    );
+  }
+  return DISCOVERY_LOOP_TOTAL_CAP;
+}
 
 /** Host-file tools use a separate ledger so file-dense work is not killed by the discovery cap. */
 export const HOST_FILE_TOOL_NAMES = new Set([
@@ -233,13 +248,33 @@ export const HOST_FILE_TOOL_NAMES = new Set([
   "list_dir",
   "read_folder_documents",
 ]);
-export const HOST_FILE_PER_TOOL_LIMIT = 8;
+/**
+ * 单工具读取上限随模型上下文伸缩（不写死小数字；律师一个材料夹常有二三十份文书）。
+ * 未知窗口 24；32k→12；128k→32；上限 48。
+ * 授权边界在 Access Broker（deny-list / matter fence / grants），本上限只防
+ * 「同一份文件反复读」的死循环，不是安全边界。
+ */
+export const HOST_FILE_PER_TOOL_LIMIT_FALLBACK = 24;
+export const HOST_FILE_PER_TOOL_LIMIT_MIN = 12;
+export const HOST_FILE_PER_TOOL_LIMIT_MAX = 48;
+
+export function resolveHostFilePerToolLimit(contextTokens?: number): number {
+  if (typeof contextTokens === "number" && Number.isFinite(contextTokens) && contextTokens > 0) {
+    return Math.min(
+      HOST_FILE_PER_TOOL_LIMIT_MAX,
+      Math.max(HOST_FILE_PER_TOOL_LIMIT_MIN, Math.ceil(contextTokens / 4_096)),
+    );
+  }
+  return HOST_FILE_PER_TOOL_LIMIT_FALLBACK;
+}
 
 export type HostFileLedgerHint = {
   projectDir?: string;
   hostMounts?: unknown[];
   contextPins?: Array<{ pinKind?: string; kind?: string }>;
   hostFileLedger?: boolean;
+  /** Active chat model context window; caps scale with it instead of a hardcoded small number. */
+  contextTokens?: number;
 };
 
 export function contextUsesHostFileLedger(hint?: HostFileLedgerHint): boolean {
@@ -310,12 +345,13 @@ export function wouldHitDiscoveryCap(
     return false;
   }
   const safe = counts ?? {};
+  const totalCap = resolveDiscoveryLoopTotalCap(hint?.contextTokens);
   if (DISCOVERY_SEARCH_LOOP_NAMES.has(toolName)) {
     let searchTotal = 0;
     for (const name of DISCOVERY_SEARCH_LOOP_NAMES) {
       searchTotal += safe[name] ?? 0;
     }
-    if (searchTotal >= DISCOVERY_LOOP_TOTAL_CAP) {
+    if (searchTotal >= totalCap) {
       return true;
     }
   }
@@ -359,15 +395,16 @@ export const discoveryLoopMiddleware: ToolMiddleware = async (call, next) => {
   }
   const counts = call.policy.toolNameCallCounts ?? {};
   const hint = discoveryStopHint(call.policy.allowlistDenyHint, counts);
+  const totalCap = resolveDiscoveryLoopTotalCap(call.ctx.chatModel?.contextTokens);
   if (DISCOVERY_SEARCH_LOOP_NAMES.has(call.toolName)) {
     let searchTotal = 0;
     for (const name of DISCOVERY_SEARCH_LOOP_NAMES) {
       searchTotal += counts[name] ?? 0;
     }
-    if (searchTotal >= DISCOVERY_LOOP_TOTAL_CAP) {
+    if (searchTotal >= totalCap) {
       return {
         ok: false,
-        error: `本轮检索/列表类工具已合计 ${searchTotal} 次（上限 ${DISCOVERY_LOOP_TOTAL_CAP}）。${hint}`,
+        error: `本轮检索/列表类工具已合计 ${searchTotal} 次（上限 ${totalCap}）。${hint}`,
       };
     }
   }
@@ -381,24 +418,33 @@ export const discoveryLoopMiddleware: ToolMiddleware = async (call, next) => {
   return next();
 };
 
-export function wouldHitHostFileCap(
-  toolName: string,
+export function hostFileLedgerTotal(
   counts: Record<string, number> | undefined,
-  hardCap = 32,
   hint?: HostFileLedgerHint,
-): boolean {
-  if (!usesHostFileLedger(toolName, hint)) {
-    return false;
-  }
+): number {
   const safe = counts ?? {};
   let total = 0;
   for (const name of hostLedgerCountNames(hint)) {
     total += safe[name] ?? 0;
   }
-  if (total >= hardCap) {
+  return total;
+}
+
+export function wouldHitHostFileCap(
+  toolName: string,
+  counts: Record<string, number> | undefined,
+  hardCap = 32,
+  hint?: HostFileLedgerHint,
+  contextTokens?: number,
+): boolean {
+  if (!usesHostFileLedger(toolName, hint)) {
+    return false;
+  }
+  const safe = counts ?? {};
+  if (hostFileLedgerTotal(safe, hint) >= hardCap) {
     return true;
   }
-  return (safe[toolName] ?? 0) >= HOST_FILE_PER_TOOL_LIMIT;
+  return (safe[toolName] ?? 0) >= resolveHostFilePerToolLimit(contextTokens);
 }
 
 export const hostFileLoopMiddleware: ToolMiddleware = async (call, next) => {
@@ -407,10 +453,23 @@ export const hostFileLoopMiddleware: ToolMiddleware = async (call, next) => {
   }
   const policy = resolveHostAccessPolicy(call.ctx.workspaceDir);
   const counts = call.policy.toolNameCallCounts ?? {};
-  if (wouldHitHostFileCap(call.toolName, counts, policy.fileTaskReadHardCap, call.ctx)) {
+  const contextTokens = call.ctx.chatModel?.contextTokens;
+  if (
+    wouldHitHostFileCap(call.toolName, counts, policy.fileTaskReadHardCap, call.ctx, contextTokens)
+  ) {
+    const perTool = resolveHostFilePerToolLimit(contextTokens);
+    const usedPerTool = counts[call.toolName] ?? 0;
+    const usedTotal = hostFileLedgerTotal(counts, call.ctx);
+    const bulkHint =
+      call.toolName === "analyze_document" || call.toolName === "read_project_file"
+        ? "批量读整个文件夹请改用 read_folder_documents（一次读多个文件，只计 1 次）；"
+        : "";
     return {
       ok: false,
-      error: `本机查找/阅读已达本轮上限。如需继续，请律师确认后再交办一轮。`,
+      error:
+        `本机查找/阅读已达本轮上限（${call.toolName} ${usedPerTool} 次，单工具上限 ${perTool}；` +
+        `本类合计 ${usedTotal}/${policy.fileTaskReadHardCap}）。${bulkHint}` +
+        `换一轮会重置；不要对未读材料按文件名推断。`,
     };
   }
   return next();

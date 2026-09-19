@@ -69,6 +69,40 @@ function grantCovers(grant: HostGrant, abs: string, write: boolean): boolean {
   return isUnderRoot(grant.absPath, abs);
 }
 
+function activeReadRoots(runtime: HostAccessRuntime): string[] {
+  const { active } = activeMountsForSession({
+    mounts: runtime.mounts,
+    workspaceDir: runtime.workspaceDir,
+    sessionMatterId: runtime.matterId,
+    allowCrossMatterMounts: runtime.policy.allowCrossMatterMounts,
+    mode: runtime.policy.mode,
+  });
+  return [runtime.workspaceDir, ...active.map((mount) => mount.absPath)];
+}
+
+/** Relative claims are lawyer words (`诉讼/某文件夹`), not the server's cwd. */
+function locateRelativeHostPath(runtime: HostAccessRuntime, raw: string): string[] {
+  const rel = raw
+    .replace(/\\/g, "/")
+    .replace(/^\.\/+/, "")
+    .replace(/^\/+/, "");
+  if (!rel || rel === "." || rel.split("/").includes("..")) {
+    return [];
+  }
+  const hits: string[] = [];
+  for (const root of activeReadRoots(runtime)) {
+    const abs = path.resolve(root, rel);
+    if (!isUnderRoot(root, abs) || !hostPathExists(abs)) {
+      continue;
+    }
+    const real = realpathOrResolve(abs);
+    if (!hits.includes(real)) {
+      hits.push(real);
+    }
+  }
+  return hits;
+}
+
 export function resolveHostPath(
   runtime: HostAccessRuntime,
   raw: string,
@@ -78,7 +112,28 @@ export function resolveHostPath(
   if (!trimmed || trimmed.includes("\0")) {
     return { ok: false, error: "empty", message: "路径为空。" };
   }
-  const claimed = path.resolve(trimmed);
+  let claimedInput = trimmed;
+  if (!path.isAbsolute(trimmed)) {
+    const hits = locateRelativeHostPath(runtime, trimmed);
+    if (hits.length > 1) {
+      const names = hits.map((abs) => `${path.basename(path.dirname(abs))}/${path.basename(abs)}`);
+      return {
+        ok: false,
+        error: "not_found",
+        message: `「${trimmed}」在多个已选文件夹里都有：${names.join("、")}。请指明是哪一个。`,
+      };
+    }
+    if (hits.length === 1) {
+      claimedInput = hits[0] ?? trimmed;
+    } else if (!hostPathExists(path.resolve(trimmed))) {
+      return {
+        ok: false,
+        error: "not_found",
+        message: `在已选本机文件夹和工作区里找不到「${trimmed}」。`,
+      };
+    }
+  }
+  const claimed = path.resolve(claimedInput);
   const real = realpathOrResolve(claimed);
   const write = opts?.write === true;
 

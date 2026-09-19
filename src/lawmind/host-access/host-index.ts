@@ -92,6 +92,7 @@ function walkIndexFiles(
         isDeniedHostPath(abs, {
           homeDir: runtime.homeDir,
           extraPatterns: runtime.policy.denyPathPatterns,
+          workspaceDir: runtime.workspaceDir,
         })
       ) {
         continue;
@@ -168,6 +169,7 @@ export function searchHostIndex(
         isDeniedHostPath(abs, {
           homeDir: runtime.homeDir,
           extraPatterns: runtime.policy.denyPathPatterns,
+          workspaceDir: runtime.workspaceDir,
         })
       ) {
         continue;

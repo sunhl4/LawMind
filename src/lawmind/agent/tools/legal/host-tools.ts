@@ -238,16 +238,22 @@ export const readHostFileTool: AgentTool = {
 export const importHostFileTool: AgentTool = {
   definition: {
     name: "import_host_file",
-    description: "把已授权的本机文件复制进当前案件材料目录（收进本案）。不改写源文件。",
+    description: "把已授权的本机文件或整个文件夹复制进当前案件材料目录（收进本案）。不改写源文件。",
     category: "matter",
     parameters: {
-      path: { type: "string", description: "本机文件路径；工作区外请优先用 hit_id" },
+      path: {
+        type: "string",
+        description: "本机文件或文件夹。可用绝对路径，或已选文件夹内的相对路径（如 诉讼/某纠纷）",
+      },
       hit_id: { type: "string", description: "本机查找返回的命中编号" },
       grant_duration: {
         type: "string",
         description: "律师确认后的授权时长：once / session / always",
       },
-      matter_id: { type: "string", description: "案件 ID；省略则用当前会话案件" },
+      matter_id: {
+        type: "string",
+        description: "案件 ID 或案件展示名；省略则用当前会话案件",
+      },
     },
     riskLevel: "medium",
   },
@@ -291,7 +297,17 @@ export const importHostFileTool: AgentTool = {
       }
       return { ok: false, error: result.message ?? result.error };
     }
-    return { ok: true, data: { destRel: result.destRel, message: "已收进本案，源文件未改写。" } };
+    return {
+      ok: true,
+      data: {
+        destRel: result.destRel,
+        files: result.files,
+        truncated: result.truncated,
+        message: result.files
+          ? `已将文件夹收进本案（${result.files} 个文件）${result.truncated ? "，其余因体积或层级未复制" : ""}，源文件未改写。`
+          : "已收进本案，源文件未改写。",
+      },
+    };
   },
 };
 

@@ -21,6 +21,8 @@ import {
   discoveryLoopMiddleware,
   dropSaturatedDiscoveryTools,
   wouldHitDiscoveryCap,
+  resolveDiscoveryLoopTotalCap,
+  resolveHostFilePerToolLimit,
   wouldHitHostFileCap,
   executeMiddleware,
   subprocessSandboxMiddleware,
@@ -333,9 +335,35 @@ describe("tool-pipeline middlewares", () => {
     expect(blocked.error).not.toContain("自动办件");
   });
 
+  it("host file per-tool cap scales with the model window (no hardcoded 8)", () => {
+    // 未知窗口 → 24；128k → 32；小窗口有 12 地板；超大窗口 48 天花板。
+    expect(resolveHostFilePerToolLimit(undefined)).toBe(24);
+    expect(resolveHostFilePerToolLimit(128_000)).toBe(32);
+    expect(resolveHostFilePerToolLimit(16_000)).toBe(12);
+    expect(resolveHostFilePerToolLimit(1_000_000)).toBe(48);
+  });
+
+  it("discovery total cap scales with the model window", () => {
+    expect(resolveDiscoveryLoopTotalCap(undefined)).toBe(8);
+    expect(resolveDiscoveryLoopTotalCap(128_000)).toBe(16);
+    expect(resolveDiscoveryLoopTotalCap(1_000_000)).toBe(32);
+    // 128k 窗口下，案件管理类检索（列案件 + 摘要 + 案卷检索 + 工作区检索）不会在第 8 次被拦。
+    const counts = {
+      list_matters: 2,
+      get_matter_summary: 2,
+      search_matter: 2,
+      search_workspace: 2,
+    };
+    expect(wouldHitDiscoveryCap("search_workspace", counts, { contextTokens: 128_000 })).toBe(
+      false,
+    );
+    expect(wouldHitDiscoveryCap("search_workspace", counts)).toBe(true);
+  });
+
   it("host file tools use a separate cap from discovery", () => {
     expect(wouldHitHostFileCap("read_host_file", { read_host_file: 5 })).toBe(false);
-    expect(wouldHitHostFileCap("read_host_file", { read_host_file: 8 })).toBe(true);
+    expect(wouldHitHostFileCap("read_host_file", { read_host_file: 23 })).toBe(false);
+    expect(wouldHitHostFileCap("read_host_file", { read_host_file: 24 })).toBe(true);
     expect(wouldHitHostFileCap("search_workspace", { search_workspace: 8 })).toBe(false);
   });
 
@@ -344,8 +372,18 @@ describe("tool-pipeline middlewares", () => {
       contextPins: [{ pinKind: "file", kind: "directory" }],
     };
     expect(wouldHitDiscoveryCap("analyze_document", { analyze_document: 1 }, hint)).toBe(false);
-    expect(wouldHitHostFileCap("analyze_document", { analyze_document: 1 }, 32, hint)).toBe(false);
-    expect(wouldHitHostFileCap("analyze_document", { analyze_document: 8 }, 32, hint)).toBe(true);
+    expect(wouldHitHostFileCap("analyze_document", { analyze_document: 1 }, 48, hint)).toBe(false);
+    // 律师一个材料夹常有二三十份：128k 窗口下 30 份应读完，不再在第 8 份被拦。
+    expect(
+      wouldHitHostFileCap("analyze_document", { analyze_document: 30 }, 48, hint, 128_000),
+    ).toBe(false);
+    expect(
+      wouldHitHostFileCap("analyze_document", { analyze_document: 32 }, 48, hint, 128_000),
+    ).toBe(true);
+    // 合计硬顶仍然是护栏：目录内工具合计到 hardCap 即停。
+    expect(
+      wouldHitHostFileCap("analyze_document", { list_dir: 30, analyze_document: 5 }, 32, hint),
+    ).toBe(true);
     expect(
       dropSaturatedDiscoveryTools(
         ["analyze_document", "update_draft"],

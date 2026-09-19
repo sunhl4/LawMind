@@ -44,4 +44,35 @@ describe("isDeniedHostPath", () => {
       fs.rmSync(home, { recursive: true, force: true });
     }
   });
+
+  it("does not treat the desktop LawMind data directory as governance", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "lm-deny-app-"));
+    const workspace = path.join(home, "Library", "Application Support", "LawMind", "workspace");
+    const material = path.join(workspace, "cases", "m1", "materials", "起诉状.pdf");
+    try {
+      fs.mkdirSync(path.dirname(material), { recursive: true });
+      fs.writeFileSync(material, "pdf");
+      expect(isDeniedHostPath(material, { homeDir: home, workspaceDir: workspace })).toBe(false);
+      expect(
+        isDeniedHostPath(path.join(workspace, "lawmind", "mcp-servers.json"), {
+          homeDir: home,
+          workspaceDir: workspace,
+        }),
+      ).toBe(true);
+      expect(
+        isDeniedHostPath(path.join(workspace, "audit", "event.json"), {
+          homeDir: home,
+          workspaceDir: workspace,
+        }),
+      ).toBe(true);
+      expect(
+        isDeniedHostPath(path.join(workspace, "docs", "lawmind", "note.md"), {
+          homeDir: home,
+          workspaceDir: workspace,
+        }),
+      ).toBe(false);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
 });

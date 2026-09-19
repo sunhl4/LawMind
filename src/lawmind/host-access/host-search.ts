@@ -122,6 +122,7 @@ export function searchMountsByName(
         isDeniedHostPath(abs, {
           homeDir: runtime.homeDir,
           extraPatterns: runtime.policy.denyPathPatterns,
+          workspaceDir: runtime.workspaceDir,
         })
       ) {
         continue;
@@ -235,6 +236,7 @@ export function searchHost(runtime: HostAccessRuntime, query: string, limit = 16
         isDeniedHostPath(abs, {
           homeDir: runtime.homeDir,
           extraPatterns: runtime.policy.denyPathPatterns,
+          workspaceDir: runtime.workspaceDir,
         })
       ) {
         continue;
