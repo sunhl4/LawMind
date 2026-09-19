@@ -2,6 +2,7 @@
  * Engine 公共类型 — 与 `src/lawmind/index.ts` 历史导出形状保持一致。
  */
 
+import type { LegalLintReport } from "../lint/types.js";
 import type { RetrievalAdapter } from "../retrieval/index.js";
 import type { RouteInput } from "../router/index.js";
 import type {
@@ -104,7 +105,15 @@ export type LawMindEngine = {
       homeDir?: string;
       protectSourcePath?: string;
     },
-  ) => Promise<{ ok: boolean; outputPath?: string; error?: string }>;
+  ) => Promise<{
+    ok: boolean;
+    outputPath?: string;
+    error?: string;
+    /** Present when the export lint gate ran (pass or fail). */
+    lintReport?: LegalLintReport;
+    /** Mechanical blocker rule ids when the export lint gate blocked. */
+    lintBlockerRuleIds?: string[];
+  }>;
   /** 读取持久化任务状态 */
   getTaskState: (taskId: string) => TaskRecord | undefined;
   /** 读取持久化草稿 */

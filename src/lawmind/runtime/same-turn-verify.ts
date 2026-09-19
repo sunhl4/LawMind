@@ -528,6 +528,15 @@ function findingsFromLintReport(data?: Record<string, unknown>): LegalLintFindin
   return out;
 }
 
+/** Rule ids carried by the export lint gate on render_document / render_tracked_draft. */
+function lintBlockerRuleIdsFromData(data?: Record<string, unknown>): string[] {
+  const raw = data?.lintBlockerRuleIds;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw.filter((id): id is string => typeof id === "string");
+}
+
 function mechanicalBlockerIdsFromLintReport(data?: Record<string, unknown>): string[] {
   const { residualMechanical } = classifyResidual(findingsFromLintReport(data));
   return residualMechanical.filter((f) => f.severity === "blocker").map((f) => f.ruleId);
@@ -644,12 +653,18 @@ export function collectSameTurnVerifyIssues(input: {
       const guardian = asRecord(data?.guardian);
       issues.push(issueGuardian(guardian?.gaps, "apply_surgical_edits", guardian?.skipReason));
     }
+    if (data?.code === "lint_mechanical") {
+      issues.push(issueLint(lintBlockerRuleIdsFromData(data)));
+    }
   }
 
   if (toolName === "render_document") {
     if (data?.code === "legal_guardian_fail" || gate?.gate === "legal_guardian_gate") {
       const guardian = asRecord(data?.guardian);
       issues.push(issueGuardian(guardian?.gaps, "update_draft", guardian?.skipReason));
+    }
+    if (data?.code === "lint_mechanical") {
+      issues.push(issueLint(lintBlockerRuleIdsFromData(data)));
     }
   }
 
@@ -756,11 +771,12 @@ export function precheckOutboundSameTurnVerify(input: {
       issues.push(issueGuardian(guardian.gaps, "apply_surgical_edits", guardian.skipReason));
     }
   }
+  // 意见正文（标题+栏目，非红线 hunk）一律过机械核对；contractEdit 不豁免。
   const text = draftTextFromUnknown({
     draft: { title: draft.title, sections: draft.sections },
   });
   const lintIds = mechanicalLintBlockers(text, draft.deliverableType);
-  if (lintIds.length > 0 && !draft.contractEdit) {
+  if (lintIds.length > 0) {
     issues.push(issueLint(lintIds));
   }
   if (issues.length === 0) {

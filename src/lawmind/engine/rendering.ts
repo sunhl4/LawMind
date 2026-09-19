@@ -30,7 +30,10 @@ import {
   resolveDraftCitationIntegrity,
   type DraftCitationIntegrityView,
 } from "../drafts/index.js";
+import { deliverableNeedsExportLint, runExportLintGateForDraft } from "../lint/export-lint-gate.js";
+import { fetchLiveCitationHits } from "../lint/live-citation-hits.js";
 import { draftTextFromUnknown, runLegalLint } from "../lint/run-lint.js";
+import type { LegalLintReport } from "../lint/types.js";
 import { preferComplaintMasterTemplate } from "../litigation/complaint-master.js";
 import { appendCaseArtifact, appendCaseProgress, appendTodayLog } from "../memory/index.js";
 import { recordDeliverEvent, recordLintRunEvent } from "../metrics/runtime-events.js";
@@ -71,6 +74,10 @@ export async function renderDraft(
   acceptanceReport?: ReturnType<typeof validateDraftAgainstSpec>;
   reasoningReport?: ReasoningReport;
   citationIntegrity?: DraftCitationIntegrityView;
+  /** Present when the export lint gate ran (pass or fail). */
+  lintReport?: LegalLintReport;
+  /** Mechanical blocker rule ids when the export lint gate blocked. */
+  lintBlockerRuleIds?: string[];
 }> {
   const { workspaceDir, auditDir } = ctx;
 
@@ -159,6 +166,31 @@ export async function renderDraft(
       ].join("\n"),
       citationIntegrity,
     };
+  }
+
+  // 交件 lint 包（法律版 tsc）：对外交付类型在写盘前必须过机械核对。
+  // 只拦机械残留 blocker；判断类（法定上限/或裁或诉/立场）与 warning 不拦。
+  if (deliverableNeedsExportLint(draft.deliverableType)) {
+    const citationHits = await fetchLiveCitationHits(draftTextFromUnknown(draft));
+    const exportLint = runExportLintGateForDraft({
+      draft,
+      deliverableType: draft.deliverableType,
+      citationHits,
+    });
+    if (!exportLint.ok) {
+      await emit(auditDir, {
+        taskId: draft.taskId,
+        kind: "artifact.render_blocked",
+        actor: "system",
+        detail: `export_lint_gate: ${exportLint.blockerRuleIds.join(",")}`,
+      });
+      return {
+        ok: false,
+        error: exportLint.error ?? "导出前机械核对未过。",
+        lintReport: exportLint.lintReport,
+        lintBlockerRuleIds: exportLint.blockerRuleIds,
+      };
+    }
   }
 
   const override = opts?.templateIdOverride?.trim();

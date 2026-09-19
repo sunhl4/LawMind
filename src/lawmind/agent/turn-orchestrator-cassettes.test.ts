@@ -146,6 +146,52 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
+  it("export-lint-gate: render_document blocked on mechanical lint; bounce lands in the next request", async () => {
+    const { persistDraft } = await import("../drafts/index.js");
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        persistDraft(h.workspaceDir, {
+          taskId: "t-lint-gate",
+          title: "房屋租赁合同审查意见",
+          summary: "s",
+          sections: [
+            {
+              heading: "一、合同本体",
+              body: "房屋租赁合同。租赁期限 25 年，租金按月支付。双方按约履行各自义务。",
+              citations: [],
+            },
+          ],
+          reviewStatus: "approved",
+          reviewNotes: [],
+          output: "docx",
+          templateId: "word/legal-memo-default",
+          deliverableType: "contract.review",
+          createdAt: ts(),
+        });
+        h.enqueue(
+          cassetteToolCall("render_document", {
+            task_id: "t-lint-gate",
+            bypass_acceptance_gate: true,
+          }),
+          // Guardian 独立审稿先跑（消耗一轮 cassette）：pass 不豁免机械核对。
+          cassetteAssistant(JSON.stringify({ verdict: "pass", gaps: [] })),
+          cassetteAssistant("已按缺口收窄改稿，重新导出。"),
+        );
+        const result = await h.runTurn("导出这份审查意见");
+        const render = result.turn.messages
+          .flatMap((m) => m.toolCallResponses ?? [])
+          .find((r) => r.name === "render_document");
+        expect(render?.result.ok).toBe(false);
+        expect(toolErrors(result)).toContain("lease.term_cap");
+        // 验收缺口回灌：下一轮请求体带着机械核对缺口，而不是假装已完成。
+        const next = h.request(2);
+        expect(next.contains("lease.term_cap")).toBe(true);
+        expect(next.contains("同一回合验收未过")).toBe(true);
+      },
+    );
+  });
+
   it("word-revision lock: prepare_outbound_mail is not advertised and is blocked if the model names it", async () => {
     await withTestLawMind(
       (b) => b,

@@ -89,4 +89,89 @@ describe("engine/rendering", () => {
     expect(result.outputPath).not.toMatch(/_[0-9a-f]{8}\.docx$/i);
     expect(result.outputPath && (await fs.stat(result.outputPath)).isFile()).toBe(true);
   });
+
+  it("blocks export when an outbound deliverable has mechanical lint blockers", async () => {
+    const draft: ArtifactDraft = {
+      taskId: "task-lint-gate",
+      matterId: "matter-lint",
+      title: "房屋租赁合同审查意见",
+      summary: "summary",
+      sections: [
+        {
+          heading: "一、合同本体",
+          body: "房屋租赁合同。租赁期限 25 年，租金按月支付。双方按约履行各自义务。",
+          citations: [],
+        },
+      ],
+      reviewStatus: "approved",
+      reviewNotes: [],
+      output: "docx",
+      templateId: "word/legal-memo-default",
+      deliverableType: "contract.review",
+      createdAt: new Date().toISOString(),
+    };
+    persistDraft(workspaceDir, draft);
+    const ctx = buildEngineContext({ workspaceDir, adapters: [] });
+    const result = await renderDraft(ctx, draft, { strictGates: false, citationGateStrict: false });
+    expect(result.ok).toBe(false);
+    expect(result.lintBlockerRuleIds).toContain("lease.term_cap");
+    expect(result.lintReport).toBeDefined();
+    expect(result.error).toContain("收窄");
+    // 拦截时不得写出 Word 文件。
+    expect(result.outputPath).toBeUndefined();
+  });
+
+  it("does not gate internal deliverables (memo.internal stays advisory)", async () => {
+    const draft: ArtifactDraft = {
+      taskId: "task-lint-internal",
+      matterId: "matter-lint",
+      title: "内部备忘",
+      summary: "summary",
+      sections: [
+        {
+          heading: "背景",
+          body: "房屋租赁合同。租赁期限 25 年，租金按月支付。双方按约履行各自义务。",
+          citations: [],
+        },
+      ],
+      reviewStatus: "approved",
+      reviewNotes: [],
+      output: "docx",
+      templateId: "word/legal-memo-default",
+      deliverableType: "memo.internal",
+      createdAt: new Date().toISOString(),
+    };
+    persistDraft(workspaceDir, draft);
+    const ctx = buildEngineContext({ workspaceDir, adapters: [] });
+    const result = await renderDraft(ctx, draft, { strictGates: false, citationGateStrict: false });
+    expect(result.ok).toBe(true);
+    expect(result.lintBlockerRuleIds).toBeUndefined();
+  });
+
+  it("does not block export on judgment-class findings (deposit cap stays advisory)", async () => {
+    const draft: ArtifactDraft = {
+      taskId: "task-lint-deposit",
+      matterId: "matter-lint",
+      title: "供货合同审查意见",
+      summary: "summary",
+      sections: [
+        {
+          heading: "定金条款",
+          body: "供货合同审查意见。定金为本合同标的额的 30%，其余条款按约定履行，风险总体可控。",
+          citations: [],
+        },
+      ],
+      reviewStatus: "approved",
+      reviewNotes: [],
+      output: "docx",
+      templateId: "word/legal-memo-default",
+      deliverableType: "contract.review",
+      createdAt: new Date().toISOString(),
+    };
+    persistDraft(workspaceDir, draft);
+    const ctx = buildEngineContext({ workspaceDir, adapters: [] });
+    const result = await renderDraft(ctx, draft, { strictGates: false, citationGateStrict: false });
+    expect(result.ok).toBe(true);
+    expect(result.outputPath).toBeDefined();
+  });
 });

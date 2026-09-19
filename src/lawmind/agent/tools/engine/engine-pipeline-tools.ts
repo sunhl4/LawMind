@@ -1101,7 +1101,7 @@ export const draftDocument: AgentTool = {
         const msg = draftErr instanceof Error ? draftErr.message : String(draftErr);
         const code =
           draftErr && typeof draftErr === "object" && "code" in draftErr
-            ? String((draftErr as { code?: string }).code ?? "")
+            ? ((draftErr as { code?: string }).code ?? "")
             : "";
         if (code === "training_desense_gate" || /脱敏/.test(msg)) {
           return {
@@ -1396,7 +1396,16 @@ export const renderDocument: AgentTool = {
       return {
         ok: false,
         error: formatRenderToolError(result.error ?? "渲染失败"),
-        data: { renderFailureCategory: "render_engine" },
+        data: {
+          taskId: approvedDraft.taskId,
+          renderFailureCategory: result.lintBlockerRuleIds?.length
+            ? "lint_mechanical"
+            : "render_engine",
+          ...(result.lintBlockerRuleIds?.length
+            ? { code: "lint_mechanical", lintBlockerRuleIds: result.lintBlockerRuleIds }
+            : {}),
+          ...(result.lintReport ? { lintReport: result.lintReport } : {}),
+        },
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1539,6 +1548,39 @@ export const renderTrackedDraft: AgentTool = {
         guardianView = slimGuardianView(guardianRecord);
         if (guardianBlocksExport(guardianRecord)) {
           return guardianFailToolResult(taskId, guardianView);
+        }
+      }
+      {
+        // 交件 lint 包：意见正文（非红线 hunk）过机械核对；判断类与 warning 不拦。
+        const { deliverableNeedsExportLint, runExportLintGateForDraft } =
+          await import("../../../lint/export-lint-gate.js");
+        if (deliverableNeedsExportLint(draft.deliverableType)) {
+          const { fetchLiveCitationHits } = await import("../../../lint/live-citation-hits.js");
+          const { draftTextFromUnknown } = await import("../../../lint/run-lint.js");
+          const citationHits = await fetchLiveCitationHits(draftTextFromUnknown(draft));
+          const exportLint = runExportLintGateForDraft({
+            draft,
+            deliverableType: draft.deliverableType,
+            citationHits,
+          });
+          if (!exportLint.ok) {
+            return {
+              ok: false,
+              error: exportLint.error ?? "导出前机械核对未过。",
+              data: {
+                taskId,
+                code: "lint_mechanical",
+                lintBlockerRuleIds: exportLint.blockerRuleIds,
+                lintReport: exportLint.lintReport,
+                gateDecision: {
+                  gate: "acceptance_gate",
+                  decision: "block",
+                  reason: "mechanical lint blockers before tracked export",
+                  category: "judgment_soft",
+                },
+              },
+            };
+          }
         }
       }
       const pathMod = await import("node:path");
