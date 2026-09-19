@@ -337,6 +337,37 @@ export async function revertDeskWrite(
     }
     return { ok: true, writeId: record.writeId, kind: record.kind };
   }
+  if (record.kind === "organize_files") {
+    // 反向回放移动/重命名；目标已不存在则跳过并如实报告（不伪造还原）。
+    const ops = record.organizeOps ?? [];
+    if (ops.length === 0) {
+      return { ok: false, error: "这次整理没有记录可撤销的文件操作。" };
+    }
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const materialsRoot = path.join(workspaceDir, "cases", id, "materials");
+    const undone: string[] = [];
+    const skipped: string[] = [];
+    for (const op of ops.toReversed()) {
+      const toAbs = path.resolve(materialsRoot, op.to);
+      const fromAbs = path.resolve(materialsRoot, op.from);
+      if (!toAbs.startsWith(materialsRoot) || !fromAbs.startsWith(materialsRoot)) {
+        skipped.push(`${op.to}（越界）`);
+        continue;
+      }
+      if (!fs.existsSync(toAbs)) {
+        skipped.push(`${op.to}（已不存在）`);
+        continue;
+      }
+      fs.mkdirSync(path.dirname(fromAbs), { recursive: true });
+      fs.renameSync(toAbs, fromAbs);
+      undone.push(op.from);
+    }
+    if (undone.length === 0) {
+      return { ok: false, error: `没有可还原的文件操作（${skipped.join("；") || "全部跳过"}）。` };
+    }
+    return { ok: true, writeId: record.writeId, kind: record.kind };
+  }
   return { ok: false, error: "新建的卷宗不能用撤销自动删除，请在工作台处理。" };
 }
 

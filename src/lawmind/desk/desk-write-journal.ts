@@ -15,9 +15,17 @@ export const DESK_WRITE_KINDS = [
   "intake_brief",
   "matter_profile",
   "create_matter",
+  "organize_files",
 ] as const;
 
 export type DeskWriteKind = (typeof DESK_WRITE_KINDS)[number];
+
+/** One applied file op inside an organize_files batch (materials 围栏内). */
+export type OrganizeFileOp = {
+  from: string;
+  to: string;
+  reason?: string;
+};
 
 export type MatterProfileSnapshot = {
   title?: string;
@@ -35,6 +43,8 @@ export type DeskWriteRecord = {
   previousHearingAt?: string | null;
   previousProfile?: MatterProfileSnapshot;
   previousIntake?: IntakeBrief | null;
+  /** organize_files：已执行的移动/重命名（撤销时反向回放）。 */
+  organizeOps?: OrganizeFileOp[];
 };
 
 const intakeCandidateSchema = z.object({
@@ -82,6 +92,15 @@ const deskWriteSchema: z.ZodType<DeskWriteRecord> = z.object({
     })
     .optional(),
   previousIntake: intakeBriefSchema.nullable().optional(),
+  organizeOps: z
+    .array(
+      z.object({
+        from: z.string().min(1),
+        to: z.string().min(1),
+        reason: z.string().optional(),
+      }),
+    )
+    .optional(),
 });
 
 function journalPath(workspaceDir: string, matterId: string): string {

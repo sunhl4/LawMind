@@ -101,6 +101,14 @@ type PrecedentPanelState = {
   hits: PrecedentHit[];
 };
 
+type MaterialSearchHit = {
+  matterId: string;
+  relPath: string;
+  fileName: string;
+  page: number;
+  snippet: string;
+};
+
 type AppliedStandard = { id: string; title: string };
 
 type MatterPulseTimelineKind =
@@ -459,6 +467,9 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
   const [similar, setSimilar] = useState<SimilarHit[]>([]);
   const [standards, setStandards] = useState<AppliedStandard[]>([]);
   const [precedents, setPrecedents] = useState<PrecedentPanelState | null>(null);
+  const [materialsQuery, setMaterialsQuery] = useState("");
+  const [materialsHits, setMaterialsHits] = useState<MaterialSearchHit[] | null>(null);
+  const [materialsSearching, setMaterialsSearching] = useState(false);
   const [extractText, setExtractText] = useState("");
   const [extracted, setExtracted] = useState<ExtractedLegalEvent[]>([]);
   const [talk, setTalk] = useState("");
@@ -756,6 +767,26 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     // openMatter closes over setters; nonce forces re-open of the same matter.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional focus bump
   }, [deskMatterFocus?.id, deskMatterFocus?.n]);
+
+  // 材料全文检索：命中带文件与段落号，可直接打开定位。
+  const runMaterialsSearch = async () => {
+    const q = materialsQuery.trim();
+    if (!q || !viewingId) {
+      return;
+    }
+    setMaterialsSearching(true);
+    try {
+      const j = await apiGetJson<{ ok?: boolean; hits?: MaterialSearchHit[] }>(
+        apiBase,
+        `/api/matters/${encodeURIComponent(viewingId)}/materials/search?q=${encodeURIComponent(q)}`,
+      );
+      setMaterialsHits(j.hits ?? []);
+    } catch (e) {
+      setErr(errorMessage(e, "材料检索失败"));
+    } finally {
+      setMaterialsSearching(false);
+    }
+  };
 
   // 先例「引用到对话」：出处 + 摘录进对话交办，事实隔离提示随行。
   const quotePrecedentToChat = (h: PrecedentHit) => {
@@ -2001,6 +2032,54 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                     data-testid="lm-lawyer-matter-materials"
                   >
                     <h3>本案材料</h3>
+                    <div className="lm-lawyer-inline-actions" style={{ marginBottom: 8 }}>
+                      <input
+                        className="lm-input"
+                        data-testid="lm-materials-search-input"
+                        placeholder="检索材料正文（如：违约金 条款）"
+                        value={materialsQuery}
+                        onChange={(e) => setMaterialsQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            void runMaterialsSearch();
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="lm-btn lm-btn-secondary lm-btn-sm"
+                        data-testid="lm-materials-search-run"
+                        disabled={materialsSearching || !materialsQuery.trim()}
+                        onClick={() => void runMaterialsSearch()}
+                      >
+                        {materialsSearching ? "检索中…" : "检索"}
+                      </button>
+                    </div>
+                    {materialsHits !== null ? (
+                      materialsHits.length === 0 ? (
+                        <p className="lm-meta">材料正文里没有命中。可换个关键词，或确认材料已放进本案 materials 文件夹。</p>
+                      ) : (
+                        <ul className="lm-lawyer-deadline-list" data-testid="lm-materials-search-hits">
+                          {materialsHits.map((h) => (
+                            <li key={`${h.relPath}#${h.page}`} className="lm-lawyer-deadline-row">
+                              <span className="lm-lawyer-deadline-copy">
+                                <strong>{h.fileName}（第 {h.page} 段）</strong>
+                                <span className="lm-lawyer-today-meta">{h.snippet}</span>
+                              </span>
+                              {onShowArtifact && artifactPathLooksOpenable(h.relPath) ? (
+                                <button
+                                  type="button"
+                                  className="lm-btn lm-btn-ghost lm-btn-sm"
+                                  onClick={() => onShowArtifact(h.relPath)}
+                                >
+                                  打开
+                                </button>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ul>
+                      )
+                    ) : null}
                     {(pulse?.materials ?? []).length === 0 ? (
                       <p className="lm-meta">
                         把合同扫描件、证据放进本案 materials 文件夹后会出现在这里。引用进对话仍用侧栏钉选。

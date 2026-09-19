@@ -561,6 +561,26 @@ export async function handleLawyerDeskRoutes({
     return true;
   }
 
+  // 材料全文检索：materials_fts（trigram），命中带 relPath + page。
+  const materialsSearch = /^\/api\/matters\/([^/]+)\/materials\/search$/.exec(pathname);
+  if (materialsSearch && req.method === "GET") {
+    const matterId = requireMatter(decodeURIComponent(materialsSearch[1] ?? ""), res, c);
+    if (!matterId) {
+      return true;
+    }
+    const q = url.searchParams.get("q")?.trim() ?? "";
+    if (!q) {
+      sendJson(res, 200, { ok: true, hits: [] }, c);
+      return true;
+    }
+    const { searchMaterials } = await import(
+      "../../../src/lawmind/indexing/fts-search-materials.js"
+    );
+    const result = await searchMaterials(workspaceDir, { q, matterId, limit: 20 });
+    sendJson(res, 200, { ok: true, hits: result.hits }, c);
+    return true;
+  }
+
   // 可引用先例：旧案已签批交付物摘录（跨案检索默认关，诚实回报未开启）。
   const precedents = /^\/api\/matters\/([^/]+)\/precedents$/.exec(pathname);
   if (precedents && req.method === "GET") {

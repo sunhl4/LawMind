@@ -56,6 +56,8 @@ export const DISCLOSED_TOOL_HINTS: ReadonlyArray<{ name: string; hint: string }>
   { name: "apply_intake_brief", hint: "把谈话摘要写入本案档案" },
   { name: "update_matter_profile", hint: "更新卷宗案号/法院/当事人等" },
   { name: "revert_desk_write", hint: "撤销刚才一次档案写入" },
+  { name: "propose_organize_plan", hint: "起草本案材料整理计划（先确认，不动文件）" },
+  { name: "execute_organize_plan", hint: "执行已确认的材料整理计划（可撤销）" },
   { name: "create_matter", hint: "无关联案件时新建卷宗" },
   { name: "list_templates", hint: "查看可用文书模板" },
   { name: "notify_assistant", hint: "会议室 / 同事通知" },

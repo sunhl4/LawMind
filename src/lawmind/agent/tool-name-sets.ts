@@ -26,6 +26,8 @@ export const MATTER_SCOPE_REQUIRED = new Set<string>([
   "apply_intake_brief",
   "update_matter_profile",
   "revert_desk_write",
+  "propose_organize_plan",
+  "execute_organize_plan",
 ]);
 
 export const BACKGROUND_JOB_TOOLS = new Set<string>(["execute_workflow"]);
@@ -117,5 +119,6 @@ export const WRITE_TOOLS = new Set<string>([
   "apply_intake_brief",
   "update_matter_profile",
   "revert_desk_write",
+  "execute_organize_plan",
   "create_matter",
 ]);

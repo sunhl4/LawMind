@@ -75,6 +75,8 @@ export const DESK_INTAKE_TOOLS = [
   "compile_intake_brief",
   "apply_intake_brief",
   "add_case_note",
+  "propose_organize_plan",
+  "execute_organize_plan",
 ] as const;
 
 /**
@@ -137,7 +139,9 @@ function pinRelPaths(pins: ComposeContextPin[] | undefined): string[] {
 }
 
 function instructionLooksLikeDeskIntake(text: string): boolean {
-  return /补卷宗|按这个文件夹|按里面的材料|整理材料|归位材料|整理案卷/.test(text);
+  return /补卷宗|按这个文件夹|按里面的材料|整理材料|归位材料|整理案卷|整理一下?(材料|案卷|卷宗)|(材料|案卷|卷宗|materials).{0,4}整理/.test(
+    text,
+  );
 }
 
 function instructionLooksLikeDeskEvents(text: string): boolean {

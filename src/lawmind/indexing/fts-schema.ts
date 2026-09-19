@@ -32,6 +32,33 @@ export function initSearchIndexSchema(db: DatabaseSync): void {
       body,
       tokenize='trigram'
     );
+    CREATE VIRTUAL TABLE IF NOT EXISTS materials_fts USING fts5(
+      matter_id UNINDEXED,
+      rel_path UNINDEXED,
+      file_name,
+      page UNINDEXED,
+      body,
+      mtime UNINDEXED,
+      tokenize='trigram'
+    );
+  `);
+}
+
+/**
+ * Recreate materials_fts (trigram). Call only from rebuild/clear — never on read-only open.
+ */
+export function recreateMaterialsFts(db: DatabaseSync): void {
+  db.exec(`DROP TABLE IF EXISTS materials_fts;`);
+  db.exec(`
+    CREATE VIRTUAL TABLE materials_fts USING fts5(
+      matter_id UNINDEXED,
+      rel_path UNINDEXED,
+      file_name,
+      page UNINDEXED,
+      body,
+      mtime UNINDEXED,
+      tokenize='trigram'
+    );
   `);
 }
 
@@ -57,6 +84,7 @@ export function clearFtsTables(db: DatabaseSync): void {
   db.exec(`DELETE FROM audit_fts;`);
   db.exec(`DELETE FROM session_fts;`);
   recreateKnowledgeFts(db);
+  recreateMaterialsFts(db);
 }
 
 export function setMeta(db: DatabaseSync, key: string, value: string): void {

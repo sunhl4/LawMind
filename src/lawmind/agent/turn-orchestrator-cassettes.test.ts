@@ -1409,6 +1409,31 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
+  it("organize-flow: 整理案卷 advertises propose/execute; execute without a confirmed plan fails honestly", async () => {
+    const { createMatterIfMissing } =
+      await import("../application/services/matter-write-service.js");
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        createMatterIfMissing(h.workspaceDir, { matterId: "m-org", title: "整理案" });
+        h.enqueue(
+          cassetteToolCall("execute_organize_plan", { plan_id: "org-nope" }),
+          cassetteAssistant("需要先出计划。"),
+        );
+        const result = await h.runTurn("帮我把本案 materials 整理一下", { matterId: "m-org" });
+        // 整理意图：计划/执行工具都广告。
+        expect(h.request(0).hasAdvertisedTool("propose_organize_plan")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("execute_organize_plan")).toBe(true);
+        // 未经确认计划的执行被诚实拒绝（不静默动文件）。
+        const exec = result.turn.messages
+          .flatMap((m) => m.toolCallResponses ?? [])
+          .find((r) => r.name === "execute_organize_plan");
+        expect(exec?.result.ok).toBe(false);
+        expect(exec?.result.error).toContain("propose_organize_plan");
+      },
+    );
+  });
+
   it("matter-brief: bound matter injects parties and open deadlines into the first request", async () => {
     const { createMatterIfMissing, updateMatterProfile } =
       await import("../application/services/matter-write-service.js");

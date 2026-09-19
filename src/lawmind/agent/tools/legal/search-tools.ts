@@ -67,6 +67,27 @@ export const searchMatter: AgentTool = {
       matterId,
       limit: 8,
     });
+    // 材料全文（materials_fts，mtime 增量）：命中带 relPath + page，可点开定位。
+    let materialHits: Array<{
+      relPath: string;
+      fileName: string;
+      page: number;
+      snippet: string;
+    }> = [];
+    if (query.trim()) {
+      try {
+        const { searchMaterials } = await import("../../../indexing/fts-search-materials.js");
+        const materials = await searchMaterials(ctx.workspaceDir, { q: query, matterId, limit: 8 });
+        materialHits = materials.hits.map((h) => ({
+          relPath: h.relPath,
+          fileName: h.fileName,
+          page: h.page,
+          snippet: h.snippet,
+        }));
+      } catch {
+        // 材料索引不可用时退回 CASE/任务/草稿检索，不挡主路径。
+      }
+    }
     return {
       ok: true,
       data: {
@@ -74,7 +95,8 @@ export const searchMatter: AgentTool = {
         query: params.query,
         hits: hits.slice(0, 20),
         workHits,
-        total: hits.length + workHits.length,
+        materialHits,
+        total: hits.length + workHits.length + materialHits.length,
       },
     };
   },

@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { readAllAuditLogs } from "../audit/index.js";
 import { listTaskRecords } from "../tasks/index.js";
 import { ingestKnowledgeRows } from "./fts-ingest-knowledge.js";
+import { ingestMaterialsRows } from "./fts-ingest-materials.js";
 import { clearFtsTables, initSearchIndexSchema, setMeta } from "./fts-schema.js";
 import {
   SEARCH_INDEX_SCHEMA_VERSION,
@@ -22,6 +23,7 @@ export type RebuildIndexResult = {
   auditRows: number;
   sessionRows: number;
   knowledgeRows: number;
+  materialsRows: number;
   truncated: boolean;
   durationMs: number;
 };
@@ -178,12 +180,15 @@ export async function rebuildWorkspaceSearchIndex(
   const audit = await ingestAuditRows(db, workspaceDir, maxAudit);
   const session = ingestSessionRows(db, workspaceDir, maxSession);
   const knowledge = ingestKnowledgeRows(db, workspaceDir, maxKnowledge);
-  const truncated = audit.truncated || session.truncated || knowledge.truncated;
+  const materials = await ingestMaterialsRows(db, workspaceDir);
+  const truncated =
+    audit.truncated || session.truncated || knowledge.truncated || materials.truncated;
   setMeta(db, "schemaVersion", String(SEARCH_INDEX_SCHEMA_VERSION));
   setMeta(db, "lastRebuildAt", new Date().toISOString());
   setMeta(db, "auditRows", String(audit.count));
   setMeta(db, "sessionRows", String(session.count));
   setMeta(db, "knowledgeRows", String(knowledge.count));
+  setMeta(db, "materialsRows", String(materials.count));
   setMeta(db, "truncated", truncated ? "1" : "0");
   db.close();
   return {
@@ -191,6 +196,7 @@ export async function rebuildWorkspaceSearchIndex(
     auditRows: audit.count,
     sessionRows: session.count,
     knowledgeRows: knowledge.count,
+    materialsRows: materials.count,
     truncated,
     durationMs: Date.now() - started,
   };
