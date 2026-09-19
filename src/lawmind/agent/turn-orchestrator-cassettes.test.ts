@@ -1097,13 +1097,37 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
-  it("list-more-covers-desk without binding archive capability", async () => {
+  it("folder-to-desk: 案件管理 phrasing without pins advertises the full intake chain", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("已处理。"));
+        await h.runTurn(
+          "读取 /Users/dev/Downloads/案件/250920 张北县瑞霖乳制品有限公司 文件夹里的所有文件，然后分析所有文件的内容，按照工作台案件管理的需求去自动填写和更新",
+        );
+        // 读取侧：批量读文件夹正文。
+        expect(h.request(0).hasAdvertisedTool("read_folder_documents")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("explore_folder")).toBe(true);
+        // 写入侧：案件管理写穿链路（未关联案件也能 create_matter 后继续）。
+        expect(h.request(0).hasAdvertisedTool("update_matter_profile")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("create_matter")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("apply_legal_events")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("add_case_note")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("import_host_file")).toBe(true);
+      },
+    );
+  });
+
+  it("desk writes are advertised every turn; list_more_tools catalog still covers them", async () => {
     await withTestLawMind(
       (b) => b.withLegalTools(),
       async (h) => {
         h.enqueue(cassetteToolCall("list_more_tools", {}), cassetteAssistant("目录已列出。"));
         await h.runTurn("今天天气怎么样");
-        expect(h.request(0).hasAdvertisedTool("apply_legal_events")).toBe(false);
+        // 案件管理写穿链路始终广告：律师任何措辞都能当场填/更新卷宗。
+        expect(h.request(0).hasAdvertisedTool("apply_legal_events")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("update_matter_profile")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("create_matter")).toBe(true);
         const toolMsg = h
           .session()
           ?.conversationHistory.flatMap((m) => m.toolCallResponses ?? [])
@@ -1120,7 +1144,7 @@ describe("turn-orchestrator cassettes (admission)", () => {
       (b) => b,
       async (h) => {
         h.enqueue(cassetteAssistant("已处理。"));
-        await h.runTurn("请审查这份采购合同", {
+        const result = await h.runTurn("请审查这份采购合同", {
           contextPins: [
             {
               pinKind: "file",
@@ -1130,7 +1154,12 @@ describe("turn-orchestrator cassettes (admission)", () => {
             },
           ],
         });
-        expect(h.request(0).hasAdvertisedTool("apply_legal_events")).toBe(false);
+        // 写穿工具始终广告（可撤销、无拍板），但审查回合不应真的写卷宗。
+        expect(h.request(0).hasAdvertisedTool("apply_legal_events")).toBe(true);
+        const deskWrites = result.turn.messages
+          .flatMap((m) => m.toolCallResponses ?? [])
+          .filter((r) => r.name === "apply_legal_events" || r.name === "update_matter_profile");
+        expect(deskWrites).toHaveLength(0);
       },
     );
   });
@@ -1295,6 +1324,40 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(result.reply).toContain("审查意见");
         expect(result.turn.requiresAction ?? []).toEqual([]);
         expect(h.requests.length).toBe(3);
+      },
+    );
+  });
+
+  it("matter-brief: bound matter injects parties and open deadlines into the first request", async () => {
+    const { createMatterIfMissing, updateMatterProfile } =
+      await import("../application/services/matter-write-service.js");
+    const { applyLegalEvents } = await import("../desk/desk-apply.js");
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        createMatterIfMissing(h.workspaceDir, { matterId: "m-brief", title: "买卖合同纠纷" });
+        await updateMatterProfile(h.workspaceDir, {
+          matterId: "m-brief",
+          parties: [
+            { name: "张甲", role: "client" },
+            { name: "李乙", role: "counterparty" },
+          ],
+        });
+        await applyLegalEvents(h.workspaceDir, "m-brief", [
+          {
+            eventKind: "hearing",
+            title: "开庭",
+            dueAt: "2026-10-12T01:00:00.000Z",
+            notes: "",
+          },
+        ]);
+        h.enqueue(cassetteAssistant("已处理。"));
+        await h.runTurn("看看本案情况", { matterId: "m-brief" });
+        // 案件上下文继承：首轮请求体带结构化速览（当事人/未决期限），不靠律师重述。
+        expect(h.request(0).contains("本案速览")).toBe(true);
+        expect(h.request(0).contains("张甲")).toBe(true);
+        expect(h.request(0).contains("李乙")).toBe(true);
+        expect(h.request(0).contains("2026-10-12")).toBe(true);
       },
     );
   });

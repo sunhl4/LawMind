@@ -12,6 +12,7 @@ export type PromptFragmentKind =
   | "environment"
   | "policy"
   | "matter_index"
+  | "matter_brief"
   | "pins"
   | "craft"
   | "skill_index"
@@ -46,6 +47,7 @@ export const FRAGMENT_CAPS: Record<PromptFragmentKind, { capTokens: number; prio
   policy: { capTokens: 400, priority: 95 },
   pins: { capTokens: 1_200, priority: 90 },
   matter_index: { capTokens: 1_600, priority: 88 },
+  matter_brief: { capTokens: 800, priority: 87 },
   deliverable: { capTokens: 400, priority: 85 },
   craft: { capTokens: 1_500, priority: 80 },
   preference_fingerprint: { capTokens: 400, priority: 72 },

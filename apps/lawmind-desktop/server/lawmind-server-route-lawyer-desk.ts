@@ -561,6 +561,41 @@ export async function handleLawyerDeskRoutes({
     return true;
   }
 
+  // 可引用先例：旧案已签批交付物摘录（跨案检索默认关，诚实回报未开启）。
+  const precedents = /^\/api\/matters\/([^/]+)\/precedents$/.exec(pathname);
+  if (precedents && req.method === "GET") {
+    const matterId = requireMatter(decodeURIComponent(precedents[1] ?? ""), res, c);
+    if (!matterId) {
+      return true;
+    }
+    const { isPrecedentIngestEnabled } = await import(
+      "../../../src/lawmind/indexing/fts-ingest-knowledge.js"
+    );
+    if (!isPrecedentIngestEnabled()) {
+      sendJson(res, 200, { ok: true, enabled: false, hits: [] }, c);
+      return true;
+    }
+    const { searchPersonalKnowledge } = await import(
+      "../../../src/lawmind/indexing/knowledge-search.js"
+    );
+    const q = url.searchParams.get("q")?.trim() || matterId;
+    const result = await searchPersonalKnowledge(workspaceDir, {
+      q,
+      limit: 8,
+      kinds: ["precedent"],
+    });
+    const hits = result.hits
+      .filter((h) => h.matterId && h.matterId !== matterId)
+      .map((h) => ({
+        matterId: h.matterId,
+        section: h.section ?? "",
+        snippet: h.snippet,
+        citeAs: `旧案 ${h.matterId} · ${h.section || h.path}`,
+      }));
+    sendJson(res, 200, { ok: true, enabled: true, hits }, c);
+    return true;
+  }
+
   const causeApply = /^\/api\/matters\/([^/]+)\/cause$/.exec(pathname);
   if (causeApply && req.method === "POST") {
     const matterId = requireMatter(decodeURIComponent(causeApply[1] ?? ""), res, c);

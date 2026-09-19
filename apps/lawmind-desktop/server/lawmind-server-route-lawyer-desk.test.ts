@@ -322,4 +322,40 @@ describe("handleLawyerDeskRoutes", () => {
     const after = (patch.json().today as { items: Array<{ title: string }> }).items;
     expect(after.some((item) => item.title === "改代理词")).toBe(false);
   });
+
+  it("precedents route is honestly off without the cross-matter flag", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-desk-prec-"));
+    tmp.push(workspaceDir);
+    createMatterIfMissing(workspaceDir, { matterId: "case-p", title: "借贷案" });
+    const prev = process.env.LAWMIND_ALLOW_CROSS_MATTER_SEARCH;
+    delete process.env.LAWMIND_ALLOW_CROSS_MATTER_SEARCH;
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+    try {
+      const res = captureRes();
+      await handleLawyerDeskRoutes({
+        ctx,
+        pathname: "/api/matters/case-p/precedents",
+        req: jsonReq("GET"),
+        res: res.res,
+        url: new URL("http://127.0.0.1/api/matters/case-p/precedents"),
+        c: {},
+      });
+      expect(res.status).toBe(200);
+      const body = res.json() as { ok: boolean; enabled: boolean; hits: unknown[] };
+      expect(body.ok).toBe(true);
+      expect(body.enabled).toBe(false);
+      expect(body.hits).toEqual([]);
+    } finally {
+      if (prev === undefined) {
+        delete process.env.LAWMIND_ALLOW_CROSS_MATTER_SEARCH;
+      } else {
+        process.env.LAWMIND_ALLOW_CROSS_MATTER_SEARCH = prev;
+      }
+    }
+  });
 });

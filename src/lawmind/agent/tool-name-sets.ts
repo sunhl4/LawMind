@@ -38,10 +38,12 @@ export const IDEMPOTENT_READ_TOOLS = new Set<string>([
   "read_project_file",
   "list_dir",
   "explore_folder",
+  "read_folder_documents",
   "search_host",
   "read_host_file",
   "search_statute",
   "search_case_law",
+  "search_precedents",
   "get_matter_summary",
   "list_matters",
   "check_conflict_of_interest",
@@ -65,6 +67,22 @@ export const IDEMPOTENT_READ_TOOLS = new Set<string>([
   "search_statute_web",
   "url_dossier",
   "extract_legal_events",
+]);
+
+/**
+ * 工作台写穿工具（卷宗/期限/建案/归档）。对话里执行过其中任何一个，
+ * 桌面端就应刷新案件管理列表与卷宗视图（renderer 也 import 这个集合）。
+ */
+export const DESK_WRITE_TOOL_NAMES = new Set<string>([
+  "update_matter_profile",
+  "create_matter",
+  "apply_legal_events",
+  "compile_intake_brief",
+  "apply_intake_brief",
+  "revert_desk_write",
+  "record_deadline",
+  "add_case_note",
+  "import_host_file",
 ]);
 
 export const WRITE_TOOLS = new Set<string>([

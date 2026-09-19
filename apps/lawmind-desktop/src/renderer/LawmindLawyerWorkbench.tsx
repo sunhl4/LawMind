@@ -89,6 +89,18 @@ type SimilarHit = {
   displayWarning: string;
 };
 
+type PrecedentHit = {
+  matterId: string;
+  section: string;
+  snippet: string;
+  citeAs: string;
+};
+
+type PrecedentPanelState = {
+  enabled: boolean;
+  hits: PrecedentHit[];
+};
+
 type AppliedStandard = { id: string; title: string };
 
 type MatterPulseTimelineKind =
@@ -446,6 +458,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
   const [brief, setBrief] = useState<IntakeBriefView | null>(null);
   const [similar, setSimilar] = useState<SimilarHit[]>([]);
   const [standards, setStandards] = useState<AppliedStandard[]>([]);
+  const [precedents, setPrecedents] = useState<PrecedentPanelState | null>(null);
   const [extractText, setExtractText] = useState("");
   const [extracted, setExtracted] = useState<ExtractedLegalEvent[]>([]);
   const [talk, setTalk] = useState("");
@@ -600,12 +613,13 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
       setSimilar([]);
       setStandards([]);
       setPulse(null);
+      setPrecedents(null);
       return undefined;
     }
     let cancelled = false;
     void (async () => {
       try {
-        const [dl, ib, sim, row, pulseRow] = await Promise.all([
+        const [dl, ib, sim, prec, row, pulseRow] = await Promise.all([
           apiGetJson<{ ok?: boolean; deadlines?: DeadlineRow[] }>(
             apiBase,
             `/api/matters/${encodeURIComponent(viewingId)}/deadlines`,
@@ -617,6 +631,10 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
           apiGetJson<{ ok?: boolean; hits?: SimilarHit[] }>(
             apiBase,
             `/api/matters/${encodeURIComponent(viewingId)}/similar-cases`,
+          ),
+          apiGetJson<{ ok?: boolean; enabled?: boolean; hits?: PrecedentHit[] }>(
+            apiBase,
+            `/api/matters/${encodeURIComponent(viewingId)}/precedents`,
           ),
           apiSendJson<{ ok?: boolean; standards?: AppliedStandard[] }, { instruction: string; clientId?: string }>(
             apiBase,
@@ -635,6 +653,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
         setDeadlines(dl.deadlines ?? []);
         setBrief(ib.brief ?? null);
         setSimilar(sim.hits ?? []);
+        setPrecedents({ enabled: prec.enabled === true, hits: prec.hits ?? [] });
         setStandards(row.standards ?? []);
         setPulse(pulseRow.pulse ?? null);
         const d = selected?.docket;
@@ -737,6 +756,18 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     // openMatter closes over setters; nonce forces re-open of the same matter.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional focus bump
   }, [deskMatterFocus?.id, deskMatterFocus?.n]);
+
+  // 先例「引用到对话」：出处 + 摘录进对话交办，事实隔离提示随行。
+  const quotePrecedentToChat = (h: PrecedentHit) => {
+    const prompt = [
+      `参照先例（${h.citeAs}）的写法与口径：`,
+      h.snippet ? `「${h.snippet}」` : "",
+      "请结合本案事实起草；旧案事实不得写入本案。",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    onGoToChat({ matterId: viewingId ?? undefined, prompt });
+  };
 
   const activateTodayItem = (item: TodayItem) => {
     if (item.kind === "plan") {
@@ -2223,6 +2254,32 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                             {h.snippet ? <p className="lm-meta">{h.snippet}</p> : null}
                             {h.evidenceHints.length > 0 ? <p className="lm-meta">证据缺口对照：{h.evidenceHints.join("；")}</p> : null}
                             <p className="lm-meta">{h.displayWarning}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <h3>可引用先例</h3>
+                    {precedents === null ? (
+                      <p className="lm-meta">正在检索旧案交付物…</p>
+                    ) : !precedents.enabled ? (
+                      <p className="lm-meta">先例检索未开启。跨案读取需显式授权（LAWMIND_ALLOW_CROSS_MATTER_SEARCH=1），开启并重建索引后，这里会列出旧案已签批交付物的可参照段落。</p>
+                    ) : precedents.hits.length === 0 ? (
+                      <p className="lm-meta">暂无可参照的旧案交付物段落。先例只作案由与写法参照，事实以本案为准。</p>
+                    ) : (
+                      <ul className="lm-lawyer-similar-list" data-testid="lm-precedent-list">
+                        {precedents.hits.map((h, i) => (
+                          <li key={`${h.matterId}-${i}`}>
+                            <strong>{h.citeAs}</strong>
+                            {h.snippet ? <p className="lm-meta">{h.snippet}</p> : null}
+                            <div className="lm-lawyer-inline-actions">
+                              <button
+                                type="button"
+                                className="lm-btn lm-btn-ghost lm-btn-sm"
+                                onClick={() => quotePrecedentToChat(h)}
+                              >
+                                引用到对话
+                              </button>
+                            </div>
                           </li>
                         ))}
                       </ul>

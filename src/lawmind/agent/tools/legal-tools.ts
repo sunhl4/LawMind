@@ -43,6 +43,8 @@ import {
   listMailAttachments,
 } from "./legal/mail-tools.js";
 import { getMatterSummary, listMatters, readCaseFile, addCaseNote } from "./legal/matter-tools.js";
+import { searchPrecedents } from "./legal/precedent-search-tool.js";
+import { readFolderDocumentsTool } from "./legal/read-folder-documents-tool.js";
 import { readSkillTool } from "./legal/read-skill-tool.js";
 import { runAnalysis } from "./legal/run-analysis-tool.js";
 import { runCompute } from "./legal/run-compute-tool.js";
@@ -76,6 +78,7 @@ export function createLegalToolRegistry(opts?: {
     readProjectFile,
     listDirTool,
     exploreFolderTool,
+    readFolderDocumentsTool,
     searchHostTool,
     readHostFileTool,
     importHostFileTool,
@@ -83,6 +86,7 @@ export function createLegalToolRegistry(opts?: {
     searchStatute,
     searchCaseLaw,
     searchCompanyRegistry,
+    searchPrecedents,
     // 案件管理
     getMatterSummary,
     listMatters,

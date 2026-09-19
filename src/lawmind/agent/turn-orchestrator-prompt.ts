@@ -442,6 +442,19 @@ export async function prepareTurnPromptContext(opts: {
       capTokens: promptWindow.matterIndexChars,
     });
   }
+  if (session.matterId) {
+    // 结构化案件速览（当事人/未决期限/材料/时间线）：继承案件上下文，不占 CASE 窗口。
+    const { buildMatterContextFragmentBody } = await import("./matter-context-fragment.js");
+    const matterBrief = buildMatterContextFragmentBody({
+      workspaceDir: config.workspaceDir,
+      matterId: session.matterId,
+    });
+    if (matterBrief) {
+      queue("matter_brief", matterBrief, {
+        overflow: matterRel ? { tool: "read_case_file", path: matterRel } : undefined,
+      });
+    }
+  }
   if (dayLogIndex) {
     queue("memory_hit", `## 今日工作记录\n\n${dayLogIndex}`, {
       overflow: { tool: "read_workspace_file", path: todayMemoryLogRel() },

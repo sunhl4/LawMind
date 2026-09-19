@@ -17,7 +17,8 @@ export type KnowledgeDocKindFilter =
   | "daily_log"
   | "profile"
   | "playbook"
-  | "golden";
+  | "golden"
+  | "precedent";
 
 export type PersonalKnowledgeHit = {
   path: string;
@@ -51,6 +52,8 @@ function kindBoost(docKind: string): number {
       return 1.35;
     case "strategy":
       return 1.25;
+    case "precedent":
+      return 1.22;
     case "golden":
       return 1.2;
     case "playbook":

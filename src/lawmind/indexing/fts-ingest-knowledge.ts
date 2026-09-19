@@ -18,7 +18,13 @@ export type KnowledgeDocKind =
   | "daily_log"
   | "profile"
   | "playbook"
-  | "golden";
+  | "golden"
+  | "precedent";
+
+/** Cross-matter precedent ingestion is opt-in (ethical-wall posture by default). */
+export function isPrecedentIngestEnabled(): boolean {
+  return process.env.LAWMIND_ALLOW_CROSS_MATTER_SEARCH === "1";
+}
 
 const MAX_CHUNK = 1800;
 const DEFAULT_MAX_KNOWLEDGE = 40_000;
@@ -170,6 +176,102 @@ function goldenExcerpt(raw: string): string {
   }
 }
 
+/** 旧案交付物（意见书/审查/诉讼/函件）才可入先例库；内部底稿不入。 */
+const PRECEDENT_DELIVERABLE_EXACT = new Set(["memo.opinion", "memo.research", "contract.review"]);
+
+function isPrecedentDeliverableType(deliverableType: string | undefined): boolean {
+  if (!deliverableType) {
+    return false;
+  }
+  return (
+    PRECEDENT_DELIVERABLE_EXACT.has(deliverableType) ||
+    deliverableType.startsWith("letter.") ||
+    deliverableType.startsWith("litigation.")
+  );
+}
+
+type PrecedentDraftRow = {
+  rel: string;
+  matterId: string;
+  title: string;
+  text: string;
+};
+
+/** Collect old-matter deliverable excerpts (drafts/*.json). Gated by the cross-matter flag. */
+function collectPrecedentDraftRows(workspaceDir: string): PrecedentDraftRow[] {
+  if (!isPrecedentIngestEnabled()) {
+    return [];
+  }
+  const dir = path.join(workspaceDir, "drafts");
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const out: PrecedentDraftRow[] = [];
+  for (const name of names) {
+    if (!name.endsWith(".json") || name.startsWith(".") || name.includes(".research.")) {
+      continue;
+    }
+    let raw = "";
+    try {
+      raw = fs.readFileSync(path.join(dir, name), "utf8");
+    } catch {
+      continue;
+    }
+    try {
+      const draft = JSON.parse(raw) as {
+        matterId?: string;
+        title?: string;
+        summary?: string;
+        deliverableType?: string;
+        reviewStatus?: string;
+        sections?: Array<{ heading?: string; body?: string }>;
+      };
+      const matterId = draft.matterId?.trim() ?? "";
+      if (!matterId || !isPrecedentDeliverableType(draft.deliverableType)) {
+        continue;
+      }
+      // 只收律师看过的稿（approved/rendered 经签批；pending 底稿不算先例）。
+      if (draft.reviewStatus !== "approved" && draft.reviewStatus !== "modified") {
+        continue;
+      }
+      const parts: string[] = [];
+      if (draft.title?.trim()) {
+        parts.push(draft.title.trim());
+      }
+      if (draft.summary?.trim()) {
+        parts.push(draft.summary.trim());
+      }
+      for (const sec of draft.sections ?? []) {
+        if (sec.heading) {
+          parts.push(sec.heading);
+        }
+        if (sec.body) {
+          parts.push(sec.body.slice(0, 400));
+        }
+        if (parts.join("\n").length > 1600) {
+          break;
+        }
+      }
+      const text = parts.join("\n").slice(0, 2000);
+      if (!text.trim()) {
+        continue;
+      }
+      out.push({
+        rel: `drafts/${name}`,
+        matterId,
+        title: draft.title?.trim() || name,
+        text,
+      });
+    } catch {
+      // 跳过坏 JSON。
+    }
+  }
+  return out;
+}
+
 function collectKnowledgeRelPaths(workspaceDir: string): string[] {
   const out: string[] = [];
   for (const name of ["MEMORY.md", "LAWYER_PROFILE.md"]) {
@@ -197,6 +299,39 @@ export function ingestKnowledgeRows(
   let count = 0;
   let truncated = false;
   const sensitivityCache = new Map<string, "restricted" | "ok">();
+
+  const isMatterRestricted = (matterId: string): boolean => {
+    let sens = sensitivityCache.get(matterId);
+    if (!sens) {
+      try {
+        const rec = loadMatter(workspaceDir, matterId);
+        sens = rec?.sensitivity === "restricted" ? "restricted" : "ok";
+      } catch {
+        sens = "ok";
+      }
+      sensitivityCache.set(matterId, sens);
+    }
+    return sens === "restricted";
+  };
+
+  // 旧案交付物先例（opt-in）：restricted 案件同样排除。
+  for (const row of collectPrecedentDraftRows(workspaceDir)) {
+    if (count >= maxRows) {
+      truncated = true;
+      break;
+    }
+    if (isMatterRestricted(row.matterId)) {
+      continue;
+    }
+    for (const chunk of chunkMarkdown(row.text)) {
+      if (count >= maxRows) {
+        truncated = true;
+        break;
+      }
+      insert.run(row.rel, row.matterId, "precedent", chunk.section || row.title, chunk.body);
+      count++;
+    }
+  }
 
   for (const rel of collectKnowledgeRelPaths(workspaceDir)) {
     if (count >= maxRows) {
