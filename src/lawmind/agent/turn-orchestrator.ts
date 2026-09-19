@@ -389,6 +389,7 @@ export async function runTurn(opts: {
     denyNames,
     wordRevisionTurn,
     hostFileLedger: contextUsesHostFileLedger(ctx),
+    contextTokens: config.model.contextTokens,
     hiddenToolNames: hiddenTools,
   });
   ctx.permissionMode = turnContext.permissionMode;

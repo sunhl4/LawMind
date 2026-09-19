@@ -346,8 +346,10 @@ export async function executeToolBatches(
       delete toolArgs.ethics_wall_acknowledged;
       delete toolArgs.acknowledge_ethics_wall;
       const hideFromLiveTrace =
-        wouldHitDiscoveryCap(toolName, toolNameCallCountsBefore, ctx) ||
-        toolName === UPDATE_PLAN_TOOL_NAME;
+        wouldHitDiscoveryCap(toolName, toolNameCallCountsBefore, {
+          ...ctx,
+          contextTokens: ctx.chatModel?.contextTokens,
+        }) || toolName === UPDATE_PLAN_TOOL_NAME;
       const preApproval = resolvePreApprovalInjection({
         toolName,
         modelArgs: toolArgs,

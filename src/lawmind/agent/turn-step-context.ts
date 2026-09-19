@@ -26,6 +26,8 @@ export type TurnContext = {
   wordRevisionTurn?: boolean;
   /** Brought-in folder / project dir: document readers share the host-file ledger. */
   hostFileLedger?: boolean;
+  /** Active chat model context window; per-turn caps scale with it. */
+  contextTokens?: number;
   /** Policy-hidden tools (e.g. run_analysis when allowAnalysisScripts is off). */
   hiddenToolNames?: string[];
 };
@@ -52,6 +54,7 @@ export function freezeTurnContext(input: TurnContext): TurnContext {
     ...(input.denyNames && input.denyNames.length > 0 ? { denyNames: [...input.denyNames] } : {}),
     ...(input.wordRevisionTurn ? { wordRevisionTurn: true } : {}),
     ...(input.hostFileLedger ? { hostFileLedger: true } : {}),
+    ...(typeof input.contextTokens === "number" ? { contextTokens: input.contextTokens } : {}),
     ...(input.hiddenToolNames && input.hiddenToolNames.length > 0
       ? { hiddenToolNames: [...input.hiddenToolNames] }
       : {}),
@@ -81,6 +84,7 @@ export function rebuildStepContext(opts: {
   }).filter((name) => !hidden.has(name));
   const toolNames = dropSaturatedDiscoveryTools(advertised, opts.discoveryCallCounts, {
     hostFileLedger: opts.turnContext.hostFileLedger === true || opts.hostFileLedger === true,
+    contextTokens: opts.turnContext.contextTokens,
   });
   return {
     toolNames,
