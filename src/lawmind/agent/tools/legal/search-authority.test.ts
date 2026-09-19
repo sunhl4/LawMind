@@ -45,7 +45,8 @@ describe("retrieveAuthorityHitsForChat", () => {
     delete process.env.LAWMIND_AUTHORITY_PROVIDER;
     delete process.env.LAWMIND_AUTHORITY_ENDPOINT;
     delete process.env.LAWMIND_AUTHORITY_API_KEY;
-    delete process.env.LAWMIND_OPEN_LAW_NPC;
+    // 隔离商业源跳过意图：NPC 默认开，这里显式关闭，避免官方公开源直播调用。
+    process.env.LAWMIND_OPEN_LAW_NPC = "0";
     delete process.env.LAWMIND_OPEN_LAW_MODE;
     delete process.env.LAWMIND_OPEN_LAW_CASEOPEN;
     delete process.env.LAWMIND_OPEN_LAW_COURTLISTENER;
@@ -95,6 +96,40 @@ describe("retrieveAuthorityHitsForChat", () => {
     expect(r.hits[0]?.source).toBe("北大法宝");
     expect(r.hits[0]?.url).toContain("pkulaw.com");
     expect(r.hits[0]?.snippet).toContain("劳动合同法");
+    expect(fetchImpl).toHaveBeenCalled();
+  });
+
+  it("queries NPC FLK by default (flag absent) as live official-public", async () => {
+    snapshotAuthEnv();
+    delete process.env.LAWMIND_AUTHORITY_PROVIDER;
+    delete process.env.LAWMIND_AUTHORITY_ENDPOINT;
+    delete process.env.LAWMIND_OPEN_LAW_NPC;
+    delete process.env.LAWMIND_OPEN_LAW_MODE;
+    const fixture = JSON.stringify({
+      rows: [
+        {
+          title: "中华人民共和国民法典",
+          bbbs: "npc-1",
+          flxz: "法律",
+          url: "https://flk.npc.gov.cn/detail.html?npc-1",
+        },
+      ],
+    });
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(fixture, {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const r = await retrieveAuthorityHitsForChat({
+      query: "一部绝对不会命中样本库的冷僻法名XYZ",
+      workspaceDir: "/tmp",
+      searchKind: "law",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(r.live).toBe(true);
+    expect(r.hits[0]?.source).toBe("国家法律法规数据库");
     expect(fetchImpl).toHaveBeenCalled();
   });
 

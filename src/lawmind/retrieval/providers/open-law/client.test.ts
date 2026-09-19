@@ -80,9 +80,9 @@ describe("openLawRetrieve", () => {
     }
   });
 
-  it("npc_flk without flag returns explicit missing", async () => {
+  it("npc_flk with the flag explicitly off returns explicit missing", async () => {
     const prev = process.env.LAWMIND_OPEN_LAW_NPC;
-    delete process.env.LAWMIND_OPEN_LAW_NPC;
+    process.env.LAWMIND_OPEN_LAW_NPC = "0";
     try {
       const { result } = await openLawRetrieve({
         query: "民法典",
@@ -91,7 +91,9 @@ describe("openLawRetrieve", () => {
       expect(result.sources).toEqual([]);
       expect(result.missingItems.some((m) => m.includes("OPEN_LAW_NPC"))).toBe(true);
     } finally {
-      if (prev !== undefined) {
+      if (prev === undefined) {
+        delete process.env.LAWMIND_OPEN_LAW_NPC;
+      } else {
         process.env.LAWMIND_OPEN_LAW_NPC = prev;
       }
     }
@@ -175,7 +177,8 @@ describe("openLawRetrieve", () => {
     const prevCase = process.env.LAWMIND_OPEN_LAW_CASEOPEN;
     process.env.LAWMIND_OPEN_LAW_MODE = "hybrid";
     process.env.LAWMIND_OPEN_LAW_COURTLISTENER = "1";
-    delete process.env.LAWMIND_OPEN_LAW_NPC;
+    // NPC is default-on; disable explicitly so the hybrid walk reaches CourtListener first-hand.
+    process.env.LAWMIND_OPEN_LAW_NPC = "0";
     delete process.env.LAWMIND_OPEN_LAW_CASEOPEN;
     const fixture = fs.readFileSync(path.join(fixtures, "courtlistener-search.json"), "utf8");
     try {

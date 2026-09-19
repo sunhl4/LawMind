@@ -1,17 +1,18 @@
 /**
- * Optional live search against 国家法律法规数据库 (flk.npc.gov.cn).
+ * Live search against 国家法律法规数据库 (flk.npc.gov.cn) — ON BY DEFAULT.
  *
  * Official public government source (not a commercial library). The site
  * migrated from GET `/api/` to POST `/law-search/search/list` (SPA). Fail-closed
- * on HTML/non-JSON or error. Prefer local corpus for reproducible OSS builds;
- * enable with LAWMIND_OPEN_LAW_NPC=1.
+ * on HTML/non-JSON or error: the hybrid lane then falls back to the local
+ * sample and labels it honestly. Set LAWMIND_OPEN_LAW_NPC=0 to opt out.
  *
  * USER note: respect site rate limits; do not bulk-mirror for redistribution
- * without checking current publication rules.
+ * without checking current publication rules. The production path enforces a
+ * polite per-process cadence and a short-lived result cache.
  */
 
-import type { AuthorityHit } from "../../authority-hits.js";
 import { validateAuthorityEndpointUrl } from "../../authority-health.js";
+import type { AuthorityHit } from "../../authority-hits.js";
 import type { AuthorityDnsLookupFn } from "../../authority-url-guard.js";
 import { assertOpenLawLiveEndpointSafe } from "./live-endpoint.js";
 import { OPEN_LAW_PROVIDER } from "./types.js";
@@ -24,18 +25,43 @@ const NPC_LICENSE_NOTE =
 
 export function isNpcFlkLiveEnabled(opts?: { flag?: string }): boolean {
   const raw = (opts?.flag ?? process.env.LAWMIND_OPEN_LAW_NPC ?? "").trim().toLowerCase();
+  if (!raw) {
+    // 默认开：官方公开源；LAWMIND_OPEN_LAW_NPC=0/false/no/off 才关闭。
+    return true;
+  }
   return raw === "1" || raw === "true" || raw === "yes";
 }
 
+/** Polite cadence for the public endpoint + short cache to absorb bursts. */
+const NPC_FLK_MIN_INTERVAL_MS = 1_500;
+const NPC_FLK_CACHE_TTL_MS = 5 * 60_000;
+let npcFlkLastCallAt = 0;
+const npcFlkCache = new Map<
+  string,
+  { at: number; result: { hits: AuthorityHit[]; httpStatus?: number; error?: string } }
+>();
+
+/** Test-only: reset throttle/cache so injected fetches stay deterministic. */
+export function resetNpcFlkLiveCacheForTests(): void {
+  npcFlkLastCallAt = 0;
+  npcFlkCache.clear();
+}
+
 /** Resolve NPC list endpoint; fail-closed if URL invalid. */
-export function resolveNpcFlkEndpoint(opts?: { endpoint?: string }): {
-  ok: true;
-  normalized: string;
-} | {
-  ok: false;
-  message: string;
-} {
-  const ep = (opts?.endpoint ?? process.env.LAWMIND_OPEN_LAW_NPC_ENDPOINT ?? DEFAULT_NPC_FLK_LIST).trim();
+export function resolveNpcFlkEndpoint(opts?: { endpoint?: string }):
+  | {
+      ok: true;
+      normalized: string;
+    }
+  | {
+      ok: false;
+      message: string;
+    } {
+  const ep = (
+    opts?.endpoint ??
+    process.env.LAWMIND_OPEN_LAW_NPC_ENDPOINT ??
+    DEFAULT_NPC_FLK_LIST
+  ).trim();
   return validateAuthorityEndpointUrl(ep);
 }
 
@@ -100,6 +126,9 @@ function sxxLabel(sxx: string | number | undefined): string | undefined {
 /**
  * Live list/search via POST /law-search/search/list.
  * Mockable via fetchImpl; CI must not depend on live network.
+ *
+ * Production path (no injected fetch/lookup) is throttled and cached; injected
+ * paths bypass both so tests stay call-by-call deterministic.
  */
 export async function searchNpcFlkLive(opts: {
   query: string;
@@ -111,6 +140,34 @@ export async function searchNpcFlkLive(opts: {
   if (!isNpcFlkLiveEnabled()) {
     return { hits: [], error: "npc_flk_disabled" };
   }
+  // fetch 注入是测试缝；lookup 注入是 DNS 安全缝（不影响缓存判定）。
+  const cacheable = !opts.fetchImpl;
+  const q = opts.query.trim();
+  if (cacheable) {
+    const cached = npcFlkCache.get(q);
+    if (cached && Date.now() - cached.at < NPC_FLK_CACHE_TTL_MS) {
+      return cached.result;
+    }
+    const waitMs = NPC_FLK_MIN_INTERVAL_MS - (Date.now() - npcFlkLastCallAt);
+    if (waitMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+    npcFlkLastCallAt = Date.now();
+  }
+  const result = await searchNpcFlkLiveUncached(opts);
+  if (cacheable) {
+    npcFlkCache.set(q, { at: Date.now(), result });
+  }
+  return result;
+}
+
+async function searchNpcFlkLiveUncached(opts: {
+  query: string;
+  fetchImpl?: typeof fetch;
+  timeoutMs?: number;
+  endpoint?: string;
+  lookup?: AuthorityDnsLookupFn;
+}): Promise<{ hits: AuthorityHit[]; httpStatus?: number; error?: string }> {
   const resolved = resolveNpcFlkEndpoint({ endpoint: opts.endpoint });
   if (!resolved.ok) {
     return { hits: [], error: `npc_endpoint_invalid:${resolved.message}` };
@@ -180,15 +237,15 @@ export async function searchNpcFlkLive(opts: {
     const rows: FlkListRow[] = Array.isArray(body.rows)
       ? body.rows
       : Array.isArray(body.result?.rows)
-        ? body.result!.rows!
+        ? body.result.rows
         : Array.isArray(body.result?.data)
-          ? body.result!.data!
+          ? body.result.data
           : Array.isArray(body.data)
             ? body.data
             : Array.isArray((body.data as { rows?: FlkListRow[] } | undefined)?.rows)
-              ? ((body.data as { rows: FlkListRow[] }).rows)
+              ? (body.data as { rows: FlkListRow[] }).rows
               : Array.isArray((body.data as { list?: FlkListRow[] } | undefined)?.list)
-                ? ((body.data as { list: FlkListRow[] }).list)
+                ? (body.data as { list: FlkListRow[] }).list
                 : Array.isArray(body.list)
                   ? body.list
                   : [];
@@ -201,7 +258,13 @@ export async function searchNpcFlkLive(opts: {
       const id = (row.bbbs ?? row.id ?? "").trim() || `npc-flk-${hits.length}`;
       const office = (row.zdjgName ?? row.office ?? "").trim();
       const status = sxxLabel(row.sxx) ?? (row.status != null ? String(row.status) : undefined);
-      const excerpt = [row.flxz, office, row.gbrq ? `公布:${row.gbrq}` : "", row.sxrq ? `施行:${row.sxrq}` : "", status]
+      const excerpt = [
+        row.flxz,
+        office,
+        row.gbrq ? `公布:${row.gbrq}` : "",
+        row.sxrq ? `施行:${row.sxrq}` : "",
+        status,
+      ]
         .filter(Boolean)
         .join(" · ")
         .slice(0, 500);

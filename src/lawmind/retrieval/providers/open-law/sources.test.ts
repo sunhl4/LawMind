@@ -18,7 +18,8 @@ describe("open-law/sources", () => {
     try {
       const sources = listOpenLawSourceStatuses();
       expect(sources.find((s) => s.id === "local_sample")?.ready).toBe(true);
-      expect(sources.find((s) => s.id === "npc_flk")?.ready).toBe(false);
+      // NPC FLK 默认启用（官方公开源）；其余直播源仍需显式开关。
+      expect(sources.find((s) => s.id === "npc_flk")?.ready).toBe(true);
       expect(sources.find((s) => s.id === "caseopen")?.ready).toBe(false);
       expect(sources.find((s) => s.id === "courtlistener")?.ready).toBe(false);
       expect(sources.find((s) => s.id === "harvard_cap")?.access).toBe("retired_via_peer");
@@ -26,6 +27,7 @@ describe("open-law/sources", () => {
       expect(sources.find((s) => s.id === "egov_jp")?.ready).toBe(false);
       const summary = summarizeOpenLawSources();
       expect(summary.readyIds).toContain("local_sample");
+      expect(summary.readyIds).toContain("npc_flk");
       expect(summary.message).toMatch(/内置演示/);
     } finally {
       if (prevNpc === undefined) {
@@ -87,6 +89,22 @@ describe("open-law/sources", () => {
       const npc = listOpenLawSourceStatuses().find((s) => s.id === "npc_flk");
       expect(npc?.ready).toBe(true);
       expect(npc?.detail).toMatch(/law-search|flk\.npc/);
+    } finally {
+      if (prev === undefined) {
+        delete process.env.LAWMIND_OPEN_LAW_NPC;
+      } else {
+        process.env.LAWMIND_OPEN_LAW_NPC = prev;
+      }
+    }
+  });
+
+  it("marks npc_flk not ready when the flag is explicitly off", () => {
+    const prev = process.env.LAWMIND_OPEN_LAW_NPC;
+    process.env.LAWMIND_OPEN_LAW_NPC = "0";
+    try {
+      const npc = listOpenLawSourceStatuses().find((s) => s.id === "npc_flk");
+      expect(npc?.ready).toBe(false);
+      expect(npc?.detail).toBe("未启用");
     } finally {
       if (prev === undefined) {
         delete process.env.LAWMIND_OPEN_LAW_NPC;

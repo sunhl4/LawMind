@@ -5,6 +5,7 @@
  */
 
 import { buildAuthorityCorpusSummary } from "./authority-health.js";
+import { isNpcFlkLiveEnabled } from "./providers/open-law/npc-flk.js";
 
 export type AuthoritySourceTier = "sample" | "corpus" | "live";
 
@@ -34,10 +35,10 @@ export function isAuthorityLive(opts?: {
 /**
  * Official public government search (NPC FLK), not commercial 法宝.
  * Tool hits may be live; prompt must say 国家法律法规数据库, never 北大法宝.
+ * Default on; LAWMIND_OPEN_LAW_NPC=0 opts out.
  */
 export function isAuthorityOfficialPublic(): boolean {
-  const raw = (process.env.LAWMIND_OPEN_LAW_NPC ?? "").trim().toLowerCase();
-  return raw === "1" || raw === "true" || raw === "yes";
+  return isNpcFlkLiveEnabled();
 }
 
 /** Fallback tier when search_statute / search_case_law only scanned workspace memory. */

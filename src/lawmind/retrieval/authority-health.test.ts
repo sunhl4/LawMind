@@ -64,7 +64,8 @@ describe("buildAuthorityCorpusSummary", () => {
       expect(s.message).toMatch(/演示语料就绪|内置 sample/);
       expect(s.message).not.toMatch(/^已配置权威检索端点/);
       expect(s.openSources?.some((x) => x.id === "local_sample" && x.ready)).toBe(true);
-      expect(s.openSources?.some((x) => x.id === "npc_flk" && !x.ready)).toBe(true);
+      // NPC FLK 默认启用（官方公开源）；显式 LAWMIND_OPEN_LAW_NPC=0 才未就绪。
+      expect(s.openSources?.some((x) => x.id === "npc_flk" && x.ready)).toBe(true);
     } finally {
       if (prev === undefined) {
         delete process.env.LAWMIND_AUTHORITY_PROVIDER;
@@ -187,7 +188,7 @@ describe("probeAuthorityEndpoint", () => {
     expect(r.ok).toBe(true);
     expect(r.hitCount).toBe(0);
     expect(fetchImpl).toHaveBeenCalled();
-    const calledUrl = String(fetchImpl.mock.calls[0]?.[0] ?? "");
+    const calledUrl = fetchImpl.mock.calls[0]?.[0] ?? "";
     expect(calledUrl).toContain("__lawmind_health__");
     const init = fetchImpl.mock.calls[0]?.[1] as { headers?: Record<string, string> };
     expect(init.headers?.authorization).toBe("Bearer probe-key");
@@ -258,11 +259,11 @@ describe("probeAuthorityEndpoint", () => {
         fetchImpl: fetchImpl as unknown as typeof fetch,
       });
       expect(r.ok).toBe(true);
-      const calledUrl = String(fetchImpl.mock.calls[0]?.[0] ?? "");
+      const calledUrl = fetchImpl.mock.calls[0]?.[0] ?? "";
       expect(calledUrl).not.toContain("__lawmind_health__");
       const init = fetchImpl.mock.calls[0]?.[1] as { method?: string; body?: string };
       expect(init.method).toBe("POST");
-      expect(String(init.body)).toContain("initialize");
+      expect(init.body).toContain("initialize");
     } finally {
       if (prevProvider === undefined) {
         delete process.env.LAWMIND_AUTHORITY_PROVIDER;

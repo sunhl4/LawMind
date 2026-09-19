@@ -64,7 +64,7 @@ export function listOpenLawSourceStatuses(opts?: { corpusPath?: string }): OpenL
       ready: npcEnabled && npcEp.ok,
       access: "live_http",
       licenseNote: "官方政府公开信息；接口可能变动；尊重限流，勿批量镜像再分发",
-      howToEnable: "LAWMIND_OPEN_LAW_NPC=1（可选 MODE=npc_flk|hybrid）",
+      howToEnable: "默认启用（hybrid：先查 NPC 再回退样本）；LAWMIND_OPEN_LAW_NPC=0 关闭",
       detail: !npcEnabled
         ? "未启用"
         : npcEp.ok
