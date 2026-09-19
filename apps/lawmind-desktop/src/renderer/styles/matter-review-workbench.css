@@ -3216,3 +3216,22 @@
   width: 100%;
   min-width: 96px;
 }
+
+/* 交办成绩单（Doctor 律师可见区） */
+.lm-settings-scorecard {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.lm-settings-scorecard-row {
+  display: grid;
+  grid-template-columns: minmax(96px, 160px) minmax(80px, auto) 1fr;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.lm-settings-scorecard-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}

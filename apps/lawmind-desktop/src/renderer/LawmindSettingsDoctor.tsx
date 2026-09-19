@@ -3,6 +3,7 @@ import { apiGetJson, apiSendJson, errorMessage, fetchApi } from "./api-client";
 import { loadHealthPayload, type HealthPayload } from "./lawmind-app-data";
 import { apiGetTriageRules } from "./lawmind-triage-api";
 import { LawmindSettingsLicense } from "./LawmindSettingsLicense";
+import { LawmindSettingsScorecard } from "./LawmindSettingsScorecard";
 import {
   authorityCorpusStatusLabel,
   formatAuthorityProbeSuccessMsg,
@@ -872,6 +873,8 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
           </p>
         ) : null}
       </div>
+
+      <LawmindSettingsScorecard apiBase={apiBase} rows={doctor?.scorecardRows ?? []} />
 
       <LawmindSettingsLicense
         apiBase={apiBase}

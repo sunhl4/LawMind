@@ -374,8 +374,7 @@ describe("LawmindSettingsDoctor", () => {
     expect(host.querySelector('[data-testid="lm-license-code-input"]')).toBeTruthy();
   });
 
-  it("shows an activated license with the licensee name", async () => {
-    await act(async () => {
+  it("shows an activated license with the licensee name", async () => {    await act(async () => {
       root.render(
         <LawmindSettingsDoctor
           apiBase="http://127.0.0.1:8765"
@@ -400,5 +399,48 @@ describe("LawmindSettingsDoctor", () => {
     const status = host.querySelector('[data-testid="lm-license-status"]');
     expect(status?.getAttribute("data-status")).toBe("licensed");
     expect(status?.textContent).toContain("张三律师");
+  });
+
+  it("renders the lawyer scorecard rows and never fabricates a rate", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindSettingsDoctor
+          apiBase="http://127.0.0.1:8765"
+          health={{
+            modelConfigured: true,
+            doctor: {
+              scorecardRows: [
+                {
+                  id: "first_pass",
+                  label: "一次通过率",
+                  value: "暂无样本",
+                  rate: null,
+                  detail: "样本 0/0",
+                },
+                {
+                  id: "authority",
+                  label: "法源",
+                  value: "国家法律法规数据库（官方公开）",
+                  rate: null,
+                  detail: "引用可核验到官方法规库",
+                },
+              ],
+            },
+          }}
+          onOpenApiWizard={vi.fn()}
+          onOpenCollaborationPage={vi.fn()}
+        />,
+      );
+    });
+    expect(host.querySelector('[data-testid="lm-settings-scorecard"]')).toBeTruthy();
+    expect(
+      host.querySelector('[data-testid="lm-scorecard-first_pass"]')?.textContent,
+    ).toContain("暂无样本");
+    expect(host.querySelector('[data-testid="lm-scorecard-authority"]')?.textContent).toContain(
+      "国家法律法规数据库",
+    );
+    // 诊断包需律师二次确认：先预览，再下载。
+    expect(host.querySelector('[data-testid="lm-support-bundle-preview"]')).toBeTruthy();
+    expect(host.querySelector('[data-testid="lm-support-bundle-download"]')).toBeNull();
   });
 });

@@ -64,6 +64,10 @@ import { buildAuthorityUsageSummary } from "../../../src/lawmind/retrieval/autho
 import { openLawCorpusStats } from "../../../src/lawmind/retrieval/providers/open-law/local-corpus.js";
 import { summarizeOpenLawSources } from "../../../src/lawmind/retrieval/providers/open-law/sources.js";
 import { resolveLicenseState } from "../../../src/lawmind/license/index.js";
+import {
+  buildLawyerScorecard,
+  scorecardDisplayRows,
+} from "../../../src/lawmind/evaluation/lawyer-scorecard.js";
 import { lexisAdapterMessage } from "../../../src/lawmind/retrieval/providers/lexis/placeholder.js";
 import {
   getBuildChannel,
@@ -248,6 +252,8 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
   const companyRegistry = buildCompanyRegistryHealthSummary();
   const authorityUsage = buildAuthorityUsageSummary(workspaceDir);
   const license = resolveLicenseState();
+  // 律师交办成绩单：只读汇总本机指标（样本不足时如实显示「暂无样本」）。
+  const scorecardRows = scorecardDisplayRows(buildLawyerScorecard(workspaceDir));
   const buildChannel = getBuildChannel();
   const embeddingIndex = getEmbeddingIndexConfig();
   const graphOAuth = getGraphOAuthStatus();
@@ -335,6 +341,7 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
         companyRegistry,
         authorityUsage,
         license,
+        scorecardRows,
         embeddingIndex: {
           enabled: embeddingIndex.enabled,
           modelId: embeddingIndex.modelId,

@@ -149,6 +149,14 @@ export type HealthPayload = {
       message?: string;
       blocking?: boolean;
     };
+    /** 律师交办成绩单（Doctor 可见；样本不足时值为「暂无样本」）。 */
+    scorecardRows?: Array<{
+      id: string;
+      label: string;
+      value: string;
+      rate: number | null;
+      detail?: string;
+    }>;
     authorityUsage?: {
       day?: string;
       ok?: number;
