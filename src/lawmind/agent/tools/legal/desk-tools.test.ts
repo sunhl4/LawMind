@@ -63,6 +63,18 @@ describe("update_matter_profile", () => {
     expect(saved?.counterparty).toBe("某乳业有限公司");
   });
 
+  it("records 标的金额 verbatim as a docket field (workbench 案件信息 reads it)", async () => {
+    const ws = tmp("lm-desk-");
+    createMatterIfMissing(ws, { matterId: "m-amount", title: "货款案" });
+    const result = await updateMatterProfileTool.execute(
+      { matter_id: "m-amount", claim_amount: "32,100 元" },
+      ctx(ws),
+    );
+    expect(result.ok).toBe(true);
+    // 照原文保存，不换算、不加总——金额表述多且可能分项，解析反而丢信息。
+    expect(loadMatter(ws, "m-amount")?.docket?.claimAmount).toBe("32,100 元");
+  });
+
   it("rejects unknown status values instead of writing them", async () => {
     const ws = tmp("lm-desk-");
     createMatterIfMissing(ws, { matterId: "m-status", title: "案" });

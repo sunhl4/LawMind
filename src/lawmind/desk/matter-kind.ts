@@ -43,6 +43,12 @@ export type MatterDocket = {
   instance?: string;
   standing?: string;
   hearingAt?: string;
+  /**
+   * 标的金额（自由文本，容忍「人民币 32,100 元」「3.21 万元」等写法）。
+   * 不解析成数字：金额表述方式多且可能含多个请求项，解析反而会丢信息；
+   * 需要计算时由 calculate / run_compute 显式解析。
+   */
+  claimAmount?: string;
 };
 
 export function parseMatterDocket(raw: unknown): MatterDocket | undefined {
@@ -60,6 +66,7 @@ export function parseMatterDocket(raw: unknown): MatterDocket | undefined {
     ...(pick("instance") ? { instance: pick("instance") } : {}),
     ...(pick("standing") ? { standing: pick("standing") } : {}),
     ...(pick("hearingAt") ? { hearingAt: pick("hearingAt") } : {}),
+    ...(pick("claimAmount") ? { claimAmount: pick("claimAmount") } : {}),
   };
   return Object.keys(docket).length > 0 ? docket : undefined;
 }

@@ -200,12 +200,26 @@ export const applyIntakeBriefTool: AgentTool = {
     if (!result.ok) {
       return { ok: false, error: result.error };
     }
+    const promoted = result.promotion.promoted;
+    const standingOnly = result.promotion.standingOnly;
+    const parts = ["谈话档案已写入。工作台谈话页可见同一份。"];
+    if (promoted.length > 0) {
+      parts.push(`并已把 ${promoted.join("、")} 提升进卷宗（工作台案件信息同步可见）。`);
+    }
+    if (standingOnly.length > 0) {
+      parts.push(
+        `读到但立场未定，已按原标签登记：${standingOnly.join("；")}。` +
+          `若已知我方立场，请再用 update_matter_profile 的 parties 明确 client/counterparty。`,
+      );
+    }
     return {
       ok: true,
       data: {
         writeId: result.writeId,
         brief: result.brief,
-        message: "谈话档案已写入。工作台谈话页可见同一份。",
+        promoted,
+        standingOnly,
+        message: parts.join(""),
       },
     };
   },
@@ -263,7 +277,7 @@ export const updateMatterProfileTool: AgentTool = {
   definition: {
     name: "update_matter_profile",
     description:
-      "更新卷宗字段（案号/法院/审级/地位/开庭日/当事人/案由/门类/阶段）。只填读到的键，不编造。",
+      "更新卷宗字段（案号/法院/审级/地位/开庭日/标的金额/当事人/案由/门类/阶段）。只填读到的键，不编造。",
     category: "matter",
     parameters: {
       matter_id: { type: "string", description: "案件 ID（默认当前会话）" },
@@ -292,6 +306,10 @@ export const updateMatterProfileTool: AgentTool = {
       instance: { type: "string", description: "审级" },
       standing: { type: "string", description: "诉讼地位" },
       hearing_at: { type: "string", description: "开庭时间 ISO" },
+      claim_amount: {
+        type: "string",
+        description: "标的金额（照文书原文，如「32,100 元」；不换算、不加总）",
+      },
     },
     requiresApproval: false,
     riskLevel: "medium",
@@ -307,6 +325,7 @@ export const updateMatterProfileTool: AgentTool = {
       instance: params.instance,
       standing: params.standing,
       hearingAt: params.hearing_at,
+      claimAmount: params.claim_amount,
     });
     const status =
       typeof params.status === "string" &&
