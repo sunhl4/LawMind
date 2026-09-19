@@ -9,6 +9,10 @@ import { listSessions } from "../agent/session.js";
 import { listDrafts } from "../drafts/index.js";
 import { listPendingToolApprovals } from "../platform/pending-tool-approvals.js";
 import { listTaskRecords } from "../tasks/index.js";
+import {
+  SESSION_INTEGRITY_SCAN_LIMIT,
+  scanSessionHistoryIntegrity,
+} from "./session-history-integrity.js";
 
 export type SessionHealthSignal = {
   id: string;
@@ -131,6 +135,19 @@ export function buildWorkspaceSessionHealth(workspaceDir: string): SessionHealth
       severity: "info",
     });
     penalty += Math.min(15, (pendingReview - 2) * 3);
+  }
+
+  // 会话历史损坏：坏历史会每轮重放 400，律师看到的是「模型调用失败」而非本因。
+  const integrity = scanSessionHistoryIntegrity(workspaceDir, {
+    maxSessions: SESSION_INTEGRITY_SCAN_LIMIT,
+  });
+  if (!integrity.ok) {
+    signals.push({
+      id: "session_history_corrupt",
+      label: `${integrity.corruptSessionCount} 个会话的工具调用配对损坏（${integrity.orphanToolResultCount} 条孤立结果 / ${integrity.danglingToolCallCount} 个悬空调用）；下一轮会自动修复，也可运行 pnpm lawmind:doctor --fix`,
+      severity: "risk",
+    });
+    penalty += Math.min(30, integrity.corruptSessionCount * 10);
   }
 
   const score = Math.max(0, 100 - penalty);

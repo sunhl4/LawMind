@@ -15,6 +15,16 @@ export { computeProductExperiments } from "./compute-product-experiments.js";
 export { computeRoadmapCards } from "./compute-roadmap-cards.js";
 export { buildWorkspaceSessionHealth } from "./session-health.js";
 export type { SessionHealthReport, SessionHealthSignal } from "./session-health.js";
+export {
+  repairSessionHistoryIntegrity,
+  SESSION_INTEGRITY_SCAN_LIMIT,
+  scanSessionHistoryIntegrity,
+} from "./session-history-integrity.js";
+export type {
+  SessionHistoryIntegrityIssue,
+  SessionHistoryIntegrityReport,
+  SessionHistoryRepairResult,
+} from "./session-history-integrity.js";
 export { buildMatterSessionTimeline } from "./session-timeline.js";
 export type { SessionTimelineEntry } from "./session-timeline.js";
 export type {

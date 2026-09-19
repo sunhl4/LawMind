@@ -21,6 +21,10 @@ import {
 } from "../../../src/lawmind/retrieval/authority-health.js";
 import { listTaskRecords } from "../../../src/lawmind/tasks/index.js";
 import { summarizeCompanyRegistryConfig } from "../../../src/lawmind/agent/tools/legal/company-registry-tool.js";
+import {
+  SESSION_INTEGRITY_SCAN_LIMIT,
+  scanSessionHistoryIntegrity,
+} from "../../../src/lawmind/insights/session-history-integrity.js";
 
 export type { AuthorityCorpusSummary };
 
@@ -118,15 +122,25 @@ export type LawMindDoctorStats = {
   taskCount: number;
   draftCount: number;
   reasoningGraphCoverage: ReasoningGraphCoverage;
+  /** 会话历史里工具调用配对损坏的会话数（>0 时下一轮会自动修复，也可 doctor --fix）。 */
+  corruptSessionCount: number;
+  danglingToolCallCount: number;
+  orphanToolResultCount: number;
 };
 
 export function buildDoctorStats(workspaceDir: string): LawMindDoctorStats {
+  const integrity = scanSessionHistoryIntegrity(workspaceDir, {
+    maxSessions: SESSION_INTEGRITY_SCAN_LIMIT,
+  });
   return {
     auditJsonlFileCount: countAuditJsonlFiles(workspaceDir),
     researchSnapshotCount: countResearchSnapshots(workspaceDir),
     taskCount: listTaskRecords(workspaceDir).length,
     draftCount: listDrafts(workspaceDir).length,
     reasoningGraphCoverage: buildReasoningGraphCoverage(workspaceDir),
+    corruptSessionCount: integrity.corruptSessionCount,
+    danglingToolCallCount: integrity.danglingToolCallCount,
+    orphanToolResultCount: integrity.orphanToolResultCount,
   };
 }
 
@@ -283,6 +297,18 @@ export function buildWorkspaceStandardReport(workspaceDir: string): WorkspaceSta
     label: "Word 模板目录",
     state: tplOk ? "ok" : "warn",
     hint: tplOk ? "已就绪" : "建议准备 templates/word/ 以便渲染 docx。",
+  });
+
+  const integrity = scanSessionHistoryIntegrity(root, {
+    maxSessions: SESSION_INTEGRITY_SCAN_LIMIT,
+  });
+  checks.push({
+    id: "session_history_integrity",
+    label: "会话历史完整性",
+    state: integrity.ok ? "ok" : "warn",
+    hint: integrity.ok
+      ? "已就绪"
+      : `${integrity.corruptSessionCount} 个会话的工具调用配对损坏（${integrity.orphanToolResultCount} 条孤立结果 / ${integrity.danglingToolCallCount} 个悬空调用）；下一轮会自动修复，也可运行 pnpm lawmind:doctor --fix。`,
   });
 
   const ok = checks.every((c) => c.state === "ok");

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { createSession, saveSession } from "../../../src/lawmind/agent/session.js";
 import { ensureTaskRecord } from "../../../src/lawmind/tasks/index.js";
 import type { TaskIntent } from "../../../src/lawmind/types.js";
 import {
@@ -169,8 +170,35 @@ describe("lawmind-health-payload", () => {
     expect(ok.checks.find((c) => c.id === "word_templates")?.state).toBe("ok");
   });
 
-  it("buildMemoryTruthSourceFlags reports root files and client profile counts", () => {
+  it("reports session history pairing corruption in doctor stats and standard checks", () => {
     const ws = tmpWs();
+    const session = createSession({ workspaceDir: ws, actorId: "lawyer" });
+    session.conversationHistory.push(
+      { role: "user", content: "先看材料", timestamp: "t1" },
+      {
+        role: "tool",
+        content: "{}",
+        timestamp: "t2",
+        toolCallResponses: [
+          { toolCallId: "c-lost", name: "search_workspace", result: { ok: true } },
+        ],
+      },
+    );
+    saveSession(ws, session);
+
+    const stats = buildDoctorStats(ws);
+    expect(stats.corruptSessionCount).toBe(1);
+    expect(stats.orphanToolResultCount).toBe(1);
+    expect(stats.danglingToolCallCount).toBe(0);
+
+    const check = buildWorkspaceStandardReport(ws).checks.find(
+      (c) => c.id === "session_history_integrity",
+    );
+    expect(check?.state).toBe("warn");
+    expect(check?.hint).toContain("doctor --fix");
+  });
+
+  it("buildMemoryTruthSourceFlags reports root files and client profile counts", () => {    const ws = tmpWs();
     fs.writeFileSync(path.join(ws, "MEMORY.md"), "m", "utf8");
     fs.writeFileSync(path.join(ws, "FIRM_PROFILE.md"), "f", "utf8");
     const clients = path.join(ws, "clients", "c1");
