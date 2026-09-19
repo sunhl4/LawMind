@@ -75,4 +75,22 @@ describe("inspectSessionHistoryAlignment", () => {
     const s = session([{ role: "user", content: "hi", timestamp: "t1" }]);
     expect(inspectSessionHistoryAlignment({ session: s }).ok).toBe(true);
   });
+
+  it("flags an orphan tool result whose call was compacted away", () => {
+    const s = session([
+      { role: "user", content: "先看材料", timestamp: "t1" },
+      {
+        role: "tool",
+        content: "{}",
+        timestamp: "t2",
+        toolCallResponses: [
+          { toolCallId: "c-lost", name: "search_workspace", result: { ok: true } },
+        ],
+      },
+      { role: "assistant", content: "已看过。", timestamp: "t3" },
+    ]);
+    const inspection = inspectSessionHistoryAlignment({ session: s });
+    expect(inspection.ok).toBe(false);
+    expect(inspection.issues.map((issue) => issue.code)).toContain("orphan_tool_result");
+  });
 });

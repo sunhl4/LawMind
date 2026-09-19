@@ -8,6 +8,8 @@ import {
   isRetryableHttpFailure,
 } from "../llm/http-retry.js";
 import { createOutboundProxy } from "../platform/outbound-proxy.js";
+import { isToolPairingRejectText, sanitizeWireMessages } from "./session-tool-call-pairing.js";
+import type { WireChatMessage } from "./session-tool-call-pairing.js";
 import type { AgentModelConfig } from "./types.js";
 
 export { DEFAULT_MODEL_MAX_RETRIES, modelAttemptBudget } from "../llm/http-retry.js";
@@ -23,6 +25,29 @@ export class ModelCallUserAbortError extends Error {
     super(message);
   }
 }
+
+/**
+ * HTTP 非 2xx。保留 status/body，好让上层分辨「工具配对损坏」这类可自愈的 400，
+ * 而不是只能看字符串。
+ */
+export class ModelCallHttpError extends Error {
+  readonly name = "ModelCallHttpError";
+  readonly status: number;
+  readonly body: string;
+  constructor(status: number, body: string, message: string) {
+    super(message);
+    this.status = status;
+    this.body = body;
+  }
+
+  get isToolPairingReject(): boolean {
+    return this.status === 400 && isToolPairingRejectText(this.body);
+  }
+}
+
+/** 400 文案：区分「配对损坏」与一般请求错误，并说明已尝试自动修复。 */
+export const TOOL_PAIRING_REPAIR_HINT =
+  " 常见原因：对话历史里的工具结果与工具调用不配对（长会话压缩后的残留最典型）。LawMind 已尝试自动修复历史并重发一次；若本条仍出现，请新开一个对话继续同一件事（坏历史已落盘，新会话可绕开），并把这句话一并反馈。";
 
 function formatModelFetchError(
   err: unknown,
@@ -133,6 +158,12 @@ export type CallModelOptions = {
   onDelta?: (chunk: string) => void;
   /** When aborted (e.g. Stop button), cancel in-flight fetch/stream. */
   signal?: AbortSignal;
+  /**
+   * 服务端以「工具调用配对损坏」拒绝时调用一次，返回修复后的消息以重发。
+   * 该次重发不占用 {@link DEFAULT_MODEL_MAX_RETRIES} 预算。
+   * 会话路径在此修复来源历史并落盘，使修复持久化。
+   */
+  onToolPairingReject?: () => WireChatMessage[] | undefined;
 };
 
 /** Accumulate streaming chunks into a final `ChatCompletionResponse` shape. */
@@ -252,21 +283,22 @@ export function parseSseChunks(buffer: string): {
  */
 async function callModelOnce(
   config: AgentModelConfig,
-  messages: Array<{
-    role: string;
-    content: string;
-    tool_calls?: unknown[];
-    tool_call_id?: string;
-  }>,
+  messages: WireChatMessage[],
   tools: unknown[],
   opts: CallModelOptions = {},
 ): Promise<ChatCompletionResponse> {
   const url = `${config.baseUrl.replace(/\/$/, "")}/chat/completions`;
   const timeoutMs = config.timeoutMs ?? DEFAULT_MODEL_TIMEOUT_MS;
 
+  // 送出前最后一道（Codex for_prompt 的对应物）：不经 session 的调用方
+  // （draft-worker / readonly-worker / 压缩 digest 等）没有可修复的历史，
+  // 只能在这里归一化；孤立的 tool 结果一律不得上线。
+  const prepared = sanitizeWireMessages(messages);
+  const outbound = prepared.changed ? prepared.messages : messages;
+
   const body: Record<string, unknown> = {
     model: config.model,
-    messages,
+    messages: outbound,
     temperature: config.temperature ?? 0.3,
   };
 
@@ -324,8 +356,12 @@ async function callModelOnce(
     if (is404) {
       hint =
         " 常见原因：模型名与端点不匹配（自定义模型请确认「模型 ID」填写的值正是该 Base URL 所支持的名称，不是 LawMind 内部的 custom:xxx；向导模型请确认 LAWMIND_AGENT_MODEL 与实际一致）。也可能是 Base URL 缺少 /v1 后缀、模型名大小写/后缀不符、或该 Key 无权限访问此模型。";
+    } else if (response.status === 400 && isToolPairingRejectText(text)) {
+      hint = TOOL_PAIRING_REPAIR_HINT;
     }
-    throw new Error(
+    throw new ModelCallHttpError(
+      response.status,
+      text,
       `Model API error ${response.status} (${attempted}): ${text.slice(0, 300)}${hint}`,
     );
   }
@@ -395,32 +431,47 @@ async function callModelOnce(
 
 export async function callModelWithRetry(
   config: AgentModelConfig,
-  messages: Array<{
-    role: string;
-    content: string;
-    tool_calls?: unknown[];
-    tool_call_id?: string;
-  }>,
+  messages: WireChatMessage[],
   tools: unknown[],
   opts: CallModelOptions = {},
 ): Promise<ChatCompletionResponse> {
   const maxRetries = config.maxRetries ?? DEFAULT_MODEL_MAX_RETRIES;
+  let current = messages;
+  let attempt = 0;
+  let pairingRepairUsed = false;
   let lastError: Error | undefined;
-  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+  for (;;) {
     try {
-      return await callModelOnce(config, messages, tools, opts);
+      return await callModelOnce(config, current, tools, opts);
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
       // Never retry user Stop — that would ignore the lawyer's cancel.
+      if (err instanceof ModelCallUserAbortError || opts.signal?.aborted) {
+        break;
+      }
+      // 工具配对损坏：修复来源历史后重发一次。这一次不计入普通 retry 预算，
+      // 因为它是确定性修复（历史变了），而不是「等一下再试同一个请求」。
       if (
-        err instanceof ModelCallUserAbortError ||
-        opts.signal?.aborted ||
+        !pairingRepairUsed &&
+        err instanceof ModelCallHttpError &&
+        err.isToolPairingReject &&
+        opts.onToolPairingReject
+      ) {
+        pairingRepairUsed = true;
+        const repaired = opts.onToolPairingReject();
+        if (repaired && repaired.length > 0) {
+          current = repaired;
+          continue;
+        }
+      }
+      if (
         attempt >= maxRetries ||
-        !isRetryableHttpFailure(err)
+        !isRetryableHttpFailure(err, err instanceof ModelCallHttpError ? err.status : undefined)
       ) {
         break;
       }
       await new Promise((resolve) => setTimeout(resolve, computeRetryDelayMs(attempt)));
+      attempt += 1;
     }
   }
   throw lastError ?? new Error("Model call failed");

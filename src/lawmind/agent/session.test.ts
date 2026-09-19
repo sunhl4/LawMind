@@ -1,9 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { findOrphanToolResultIds, findUnpairedToolCallIds } from "./session-tool-call-pairing.js";
 import {
   AUTO_CHAT_TITLE_MAX_LENGTH,
+  beginSessionToolBatch,
   clearSessionPlanHandoff,
+  commitSessionToolBatch,
   createSession,
   DEFAULT_CHAT_SESSION_TITLE,
   deleteSession,
@@ -12,9 +15,11 @@ import {
   deriveModelMessagesForSampling,
   displayChatSessionTitle,
   extractFirstSentenceFromUserMessageParagraph,
+  isSessionToolBatchOpen,
   loadSession,
   maybeUpdateSessionTitleFromInstruction,
   renameSession,
+  saveSession,
   sessionHistoryToSimpleMessages,
   setSessionPlanHandoff,
 } from "./session.js";
@@ -276,5 +281,68 @@ describe("session title and history helpers", () => {
     };
     const rows = sessionHistoryToSimpleMessages(s);
     expect(rows[1]?.turnPlan?.items).toHaveLength(2);
+  });
+});
+
+describe("tool batch persistence barrier", () => {
+  it("persists a paired snapshot mid-batch, never the half-batch itself", () => {
+    const ws = tmpDir();
+    const s = createSession({ workspaceDir: ws, actorId: "a" });
+    const file = path.join(ws, "sessions", `${s.sessionId}.json`);
+    s.conversationHistory.push({ role: "user", content: "查三份", timestamp: "t0" });
+
+    beginSessionToolBatch(s.sessionId);
+    s.conversationHistory.push({
+      role: "assistant",
+      content: "",
+      timestamp: "t1",
+      toolCalls: [
+        { id: "c1", name: "search_statute", arguments: {} },
+        { id: "c2", name: "search_statute", arguments: {} },
+      ],
+    });
+    // 半批状态：调用已有、结果只回了一条。
+    s.conversationHistory.push({
+      role: "tool",
+      content: "{}",
+      timestamp: "t2",
+      toolCallResponses: [{ toolCallId: "c1", name: "search_statute", result: { ok: true } }],
+    });
+    saveSession(ws, s);
+
+    const midBatch = JSON.parse(fs.readFileSync(file, "utf8")).conversationHistory;
+    // 落盘的是已配对快照：c2 被补成占位，磁盘上没有悬空调用、也没有孤儿结果。
+    expect(findUnpairedToolCallIds(midBatch)).toEqual([]);
+    expect(findOrphanToolResultIds(midBatch)).toEqual([]);
+    expect(midBatch[3].toolCallResponses[0].toolCallId).toBe("c2");
+    // 内存历史没有被快照逻辑改写。
+    expect(s.conversationHistory).toHaveLength(3);
+
+    // 真实结果到达后提交：整体落盘，占位被真实结果替换。
+    s.conversationHistory.push({
+      role: "tool",
+      content: "{}",
+      timestamp: "t3",
+      toolCallResponses: [{ toolCallId: "c2", name: "search_statute", result: { ok: true } }],
+    });
+    commitSessionToolBatch(ws, s);
+    const committed = JSON.parse(fs.readFileSync(file, "utf8")).conversationHistory;
+    expect(committed).toHaveLength(4);
+    expect(committed[3].toolCallResponses[0].toolCallId).toBe("c2");
+    expect(committed[3].toolCallResponses[0].result.ok).toBe(true);
+    expect(isSessionToolBatchOpen(s.sessionId)).toBe(false);
+  });
+
+  it("nests batch scopes and only the outermost commit closes the barrier", () => {
+    const ws = tmpDir();
+    const s = createSession({ workspaceDir: ws, actorId: "a" });
+
+    beginSessionToolBatch(s.sessionId);
+    beginSessionToolBatch(s.sessionId);
+    expect(isSessionToolBatchOpen(s.sessionId)).toBe(true);
+    commitSessionToolBatch(ws, s);
+    expect(isSessionToolBatchOpen(s.sessionId)).toBe(true);
+    commitSessionToolBatch(ws, s);
+    expect(isSessionToolBatchOpen(s.sessionId)).toBe(false);
   });
 });

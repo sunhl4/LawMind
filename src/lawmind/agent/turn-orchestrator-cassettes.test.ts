@@ -59,6 +59,29 @@ function toolErrors(result: { turn: { messages: AgentMessage[] } }): string {
     .join("\n");
 }
 
+/**
+ * 送出自检：请求体里不能有落在 tool_calls 组外的 tool 消息。
+ * DeepSeek / OpenAI 兼容接口遇到这种历史整请求 400。
+ */
+function orphanToolCallIds(
+  messages: Array<{ role?: string; tool_call_id?: string; tool_calls?: Array<{ id?: string }> }>,
+): string[] {
+  const orphans: string[] = [];
+  let open: Set<string> | null = null;
+  for (const msg of messages) {
+    if (msg.role === "tool") {
+      const id = msg.tool_call_id ?? "";
+      if (!open || !open.has(id)) {
+        orphans.push(id);
+      }
+      open?.delete(id);
+      continue;
+    }
+    open = msg.tool_calls?.length ? new Set(msg.tool_calls.map((tc) => tc.id ?? "")) : null;
+  }
+  return orphans;
+}
+
 describe("turn-orchestrator cassettes (admission)", () => {
   it("fast-lane: next request stays unlocked with the 5-minute craft; search_statute executes", async () => {
     await withTestLawMind(
@@ -351,6 +374,150 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(req.contains(CITATION)).toBe(true);
         expect(req.contains(COMPACT_REINJECTION_MARKER)).toBe(true);
         expect(req.contains("压缩前引用") || req.contains("压缩前对话蒸馏")).toBe(true);
+      },
+    );
+  });
+
+  it("compact: a legacy orphan tool result heals so the next request is sendable", async () => {
+    await withTestLawMind(
+      (b) => b.withMaxHistory(8),
+      async (h) => {
+        h.seedHistory(
+          [
+            { role: "system", content: "sys", timestamp: ts() },
+            { role: "user", content: "先看看材料", timestamp: ts() },
+            // 旧版本压缩把 assistant(tool_calls) 整个丢掉，只留下这条孤立结果：
+            // 客户落盘会话就是这个形状，DeepSeek 每轮直接 400。
+            {
+              role: "tool",
+              content: JSON.stringify({ ok: true, data: { hits: ["孤立结果"] } }),
+              timestamp: ts(),
+              toolCallResponses: [
+                { toolCallId: "c-lost", name: "search_workspace", result: { ok: true } },
+              ],
+            },
+            { role: "assistant", content: "已看过材料。", timestamp: ts() },
+          ],
+          { matterId: "m-orphan" },
+        );
+        h.enqueue(cassetteAssistant("继续。"));
+        const result = await h.runTurn("继续不澄清。请说明下一步。", { matterId: "m-orphan" });
+        expect(result.turn.status).toBe("completed");
+        expect(orphanToolCallIds(h.request(0).messages())).toEqual([]);
+        expect(h.request(0).contains("孤立结果")).toBe(false);
+      },
+    );
+  });
+
+  it("compact: multi-tool batch cut by compaction is never sent half-paired", async () => {
+    await withTestLawMind(
+      (b) => b.withMaxHistory(8),
+      async (h) => {
+        const history: AgentMessage[] = [{ role: "system", content: "sys", timestamp: ts() }];
+        for (let i = 0; i < 12; i += 1) {
+          history.push(
+            { role: "user", content: `填充轮 ${i}：继续讨论付款节奏`, timestamp: ts() },
+            { role: "assistant", content: `填充答 ${i}：可分期。`, timestamp: ts() },
+          );
+        }
+        const toolIds = ["x1", "x2", "x3"];
+        history.push(
+          { role: "user", content: "一次查三份依据", timestamp: ts() },
+          {
+            role: "assistant",
+            content: "",
+            timestamp: ts(),
+            toolCalls: toolIds.map((id) => ({ id, name: "search_statute", arguments: {} })),
+          },
+          ...toolIds.map((id) => ({
+            role: "tool" as const,
+            content: JSON.stringify({ ok: true, data: { hits: [`依据 ${CITATION}`] } }),
+            timestamp: ts(),
+            toolCallResponses: [
+              {
+                toolCallId: id,
+                name: "search_statute",
+                result: { ok: true, data: { hits: [`依据 ${CITATION}`] } },
+              },
+            ],
+          })),
+        );
+        const seeded = h.seedHistory(history, { matterId: "m-group" });
+        h.enqueue(cassetteAssistant("压缩后继续。"));
+        const result = await h.runTurn("继续不澄清。请根据此前依据写结论。", {
+          matterId: "m-group",
+        });
+        expect(result.turn.status).toBe("completed");
+        const req = h.request(0);
+        expect(req.messageCount()).toBeLessThan(seeded.conversationHistory.length + 2);
+        // 切点无论落在这一批的哪一条，请求体都不得出现孤立 tool。
+        expect(orphanToolCallIds(req.messages())).toEqual([]);
+      },
+    );
+  });
+
+  it("self-heal: a pairing 400 repairs history and resends once, off the retry budget", async () => {
+    await withTestLawMind(
+      (b) => b.withMaxHistory(8),
+      async (h) => {
+        h.seedHistory(
+          [
+            { role: "system", content: "sys", timestamp: ts() },
+            { role: "user", content: "先看材料", timestamp: ts() },
+            {
+              role: "tool",
+              content: JSON.stringify({ ok: true }),
+              timestamp: ts(),
+              toolCallResponses: [
+                { toolCallId: "c-lost", name: "search_workspace", result: { ok: true } },
+              ],
+            },
+            { role: "assistant", content: "已看过。", timestamp: ts() },
+          ],
+          { matterId: "m-heal" },
+        );
+        h.enqueue(
+          cassetteHttpError(
+            400,
+            JSON.stringify({
+              error: {
+                message:
+                  "Messages with role 'tool' must be a response to a preceding message with 'tool_calls'",
+                type: "invalid_request_error",
+                param: null,
+                code: "invalid_request_error",
+              },
+            }),
+          ),
+          cassetteAssistant("已修复并继续。"),
+        );
+        const result = await h.runTurn("继续不澄清。请说明下一步。", { matterId: "m-heal" });
+        expect(result.turn.status).toBe("completed");
+        // 恰好两次：一次被拒 + 一次修复后重发（不占用普通 retry 预算）。
+        expect(h.requests).toHaveLength(2);
+        expect(orphanToolCallIds(h.request(1).messages())).toEqual([]);
+      },
+    );
+  });
+
+  it("a non-pairing 400 is not silently retried as if repairable", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.seedHistory([{ role: "system", content: "sys", timestamp: ts() }]);
+        h.enqueue(
+          cassetteHttpError(
+            400,
+            JSON.stringify({
+              error: { message: "Invalid temperature", type: "invalid_request_error" },
+            }),
+          ),
+          cassetteAssistant("不应被消费。"),
+        );
+        const result = await h.runTurn("继续不澄清。请说明下一步。");
+        expect(result.turn.status).toBe("error");
+        expect(h.requests).toHaveLength(1);
+        expect(h.requests[0]?.messages().length).toBeGreaterThan(0);
       },
     );
   });
@@ -1405,6 +1572,52 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(result.reply).toContain("审查意见");
         expect(result.turn.requiresAction ?? []).toEqual([]);
         expect(h.requests.length).toBe(3);
+      },
+    );
+  });
+
+  it("review-table: 抽查表 intent advertises review_table_update and the table sidecar lands", async () => {
+    const { persistDraft } = await import("../drafts/index.js");
+    const { readReviewTable } = await import("../deliverables/review-table.js");
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        persistDraft(h.workspaceDir, {
+          taskId: "t-review-table",
+          title: "尽调审查表",
+          summary: "",
+          output: "docx",
+          templateId: "word/legal-memo-default",
+          deliverableType: "review.table",
+          sections: [{ heading: "结论与说明", body: "见审查表明细。", citations: [] }],
+          reviewNotes: [],
+          reviewStatus: "pending",
+          createdAt: ts(),
+        });
+        h.enqueue(
+          cassetteToolCall("review_table_update", {
+            task_id: "t-review-table",
+            action: "set_template",
+            template: "due_diligence",
+          }),
+          cassetteToolCall("review_table_update", {
+            task_id: "t-review-table",
+            action: "add_rows",
+            rows: [{ cells: { item: "股权结构", risk: "高" }, source: "cases/m/materials/a.pdf" }],
+          }),
+          cassetteAssistant("审查表已建好。"),
+        );
+        const result = await h.runTurn("给这份尽调出一张审查表");
+        const calls = result.turn.messages
+          .flatMap((m) => m.toolCallResponses ?? [])
+          .filter((r) => r.name === "review_table_update");
+        expect(calls.length).toBe(2);
+        expect(calls.every((c) => c.result.ok)).toBe(true);
+        // sidecar 真落盘，且行级 source 同步进来源列。
+        const table = readReviewTable(h.workspaceDir, "t-review-table");
+        expect(table?.template).toBe("due_diligence");
+        expect(table?.rows).toHaveLength(1);
+        expect(table?.rows[0]?.cells.source).toBe("cases/m/materials/a.pdf");
       },
     );
   });

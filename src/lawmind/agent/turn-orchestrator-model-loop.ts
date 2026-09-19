@@ -24,8 +24,14 @@ import { estimateTokenBudget } from "./context-budget.js";
 import { callModelWithRetry, ModelCallUserAbortError } from "./runtime-model-call.js";
 import { claimAndApplyPendingContextPins, appendContextPins } from "./session-context-inject.js";
 import { claimAndApplyPendingSteer } from "./session-context-steer.js";
+import { normalizeToolResultMessages, repairToolCallPairing } from "./session-tool-call-pairing.js";
 import { isContextOverflowError, pruneSessionToolResults } from "./session-tool-result-prune.js";
-import { deriveModelMessagesForSampling } from "./session.js";
+import {
+  beginSessionToolBatch,
+  commitSessionToolBatch,
+  deriveModelMessagesForSampling,
+  saveSession,
+} from "./session.js";
 import { formatToolBudgetHardStopReply, shouldHardStopToolBudget } from "./tool-budget.js";
 import { applyToolDisclosureDelta } from "./tool-disclosure-delta.js";
 import { mergeTurnDisclosedToolNames } from "./tools/disclosed-turn-tools.js";
@@ -269,6 +275,22 @@ export async function runModelToolLoop(opts: {
             ? (chunk: string) => opts.emitEvent({ type: "delta", roundIndex, text: chunk })
             : undefined,
           signal: opts.abortSignal,
+          // 服务端以「工具结果不配对」拒收时：修复来源历史并落盘，再重发一次。
+          // 修复必须落到 session，否则下一轮又会从同一份坏历史重建（Claude Code 的教训）。
+          onToolPairingReject: () => {
+            const normalized = normalizeToolResultMessages(opts.session.conversationHistory);
+            const pairing = repairToolCallPairing(normalized.messages);
+            opts.session.conversationHistory = pairing.messages;
+            try {
+              saveSession(opts.config.workspaceDir, opts.session);
+            } catch {
+              /* 落盘失败不阻塞自愈：内存已修复，后续 saveSession 仍会写入 */
+            }
+            const repairedBudget = estimateTokenBudget(opts.session, null, {
+              contextTokens: modelForRound.contextTokens ?? opts.config.model.contextTokens,
+            });
+            return deriveModelMessagesForSampling(opts.session, repairedBudget);
+          },
         },
       );
     };
@@ -410,30 +432,45 @@ export async function runModelToolLoop(opts: {
         arguments: safeParse(tc.function.arguments),
       }),
     );
-    const batchResult = await executeToolBatches({
-      toolRefs,
-      registry: opts.registry,
-      turn: opts.turn,
-      ctx: opts.ctx,
-      roundIndex,
-      assistantContent: assistantMsg.content ?? "",
-      maxToolCalls: hardCeiling,
-      toolTimeoutMs: opts.toolTimeoutMs,
-      strictDangerousToolApproval: opts.strictDangerousToolApproval,
-      allowDangerousToolsWithoutApproval: opts.allowDangerousToolsWithoutApproval,
-      toolSandboxEnabled: opts.toolSandboxEnabled,
-      policyHints: opts.policyHints,
-      actorId: opts.actorId,
-      sessionMatterId: opts.session.matterId,
-      sessionAssistantId: opts.session.assistantId,
-      pendingClarificationQuestions,
-      emitEvent: opts.emitEvent,
-      abortRequested: opts.abortRequested,
-      pushMessage: (msg) => {
-        opts.session.conversationHistory.push(msg);
-        opts.turn.messages.push(msg);
-      },
-    });
+    // 批次屏障：批次期间落盘写「已配对快照」，提交时整体落盘一次。
+    beginSessionToolBatch(opts.session.sessionId);
+    let batchResult: Awaited<ReturnType<typeof executeToolBatches>>;
+    try {
+      batchResult = await executeToolBatches({
+        toolRefs,
+        registry: opts.registry,
+        turn: opts.turn,
+        ctx: opts.ctx,
+        roundIndex,
+        assistantContent: assistantMsg.content ?? "",
+        maxToolCalls: hardCeiling,
+        toolTimeoutMs: opts.toolTimeoutMs,
+        strictDangerousToolApproval: opts.strictDangerousToolApproval,
+        allowDangerousToolsWithoutApproval: opts.allowDangerousToolsWithoutApproval,
+        toolSandboxEnabled: opts.toolSandboxEnabled,
+        policyHints: opts.policyHints,
+        actorId: opts.actorId,
+        sessionMatterId: opts.session.matterId,
+        sessionAssistantId: opts.session.assistantId,
+        pendingClarificationQuestions,
+        emitEvent: opts.emitEvent,
+        abortRequested: opts.abortRequested,
+        pushMessage: (msg) => {
+          opts.session.conversationHistory.push(msg);
+          opts.turn.messages.push(msg);
+        },
+      });
+    } catch (err) {
+      // 工具异常优先：提交仍要跑（补占位并落盘），但不能掩盖原始错误。
+      try {
+        commitSessionToolBatch(opts.config.workspaceDir, opts.session);
+      } catch {
+        /* 保留原始工具异常 */
+      }
+      throw err;
+    }
+    // 成功路径：落盘失败必须停止本轮（fail-closed），与 session-persist 取向一致。
+    commitSessionToolBatch(opts.config.workspaceDir, opts.session);
     pendingClarificationQuestions = batchResult.pendingClarificationQuestions;
     if (batchResult.finalReply) {
       finalReply = batchResult.finalReply;

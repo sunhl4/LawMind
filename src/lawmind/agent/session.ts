@@ -21,7 +21,12 @@ import {
   withEphemeralTurnContext,
 } from "./prompt-fragments.js";
 import { persistOrThrow } from "./session-persist.js";
-import { repairToolCallPairing } from "./session-tool-call-pairing.js";
+import {
+  hasOpenToolGroup,
+  normalizeToolResultMessages,
+  repairToolCallPairing,
+  sliceKeepingToolGroups,
+} from "./session-tool-call-pairing.js";
 import type { AgentMessage, AgentSession, AgentTurn, PersistedChatLiveTrace } from "./types.js";
 import { isLawyerVisibleChatMessage } from "./types.js";
 
@@ -181,13 +186,74 @@ export function loadSession(workspaceDir: string, sessionId: string): AgentSessi
   }
 }
 
+/**
+ * 工具批次落盘屏障（Claude Code #31328 同类故障的防线）。
+ *
+ * 批次执行中，内存历史天然是半批的（assistant(tool_calls) 已有、结果还在逐条
+ * push）。此期间落盘不能写原始的半批状态，而要写「已配对快照」：缺结果的调用
+ * 补占位、孤儿结果丢掉。于是磁盘上的 session.json 任何时候都能直接送出。
+ *
+ * 批次结束时 {@link commitSessionToolBatch} 把完整历史归一化后写一次，
+ * 保证「一批调用的 assistant + 全部结果」整体落盘。
+ *
+ * 刻意不采用「批次期间跳过写入」：那会让 saveSession 的「返回即落盘」契约失效，
+ * 与 session-persist 的 fail-closed 取向相反（重命名标题之类的并发写入会被静默丢弃）。
+ */
+const openToolBatches = new Map<string, number>();
+
+export function beginSessionToolBatch(sessionId: string): void {
+  openToolBatches.set(sessionId, (openToolBatches.get(sessionId) ?? 0) + 1);
+}
+
+export function isSessionToolBatchOpen(sessionId: string): boolean {
+  return (openToolBatches.get(sessionId) ?? 0) > 0;
+}
+
+/** 历史是否已双向配对；未配对时返回补好的副本，已配对则原样返回。 */
+function pairToolHistory(history: AgentMessage[]): AgentMessage[] {
+  const normalized = normalizeToolResultMessages(history);
+  const pairing = repairToolCallPairing(normalized.messages);
+  if (!normalized.changed && pairing.repairedToolCallIds.length === 0) {
+    return history;
+  }
+  return pairing.messages;
+}
+
+/** 批次执行中：落盘改用已配对快照，绝不写半批状态。 */
+function persistableSnapshot(session: AgentSession): AgentSession {
+  const history = session.conversationHistory ?? [];
+  // 屏障标记覆盖正常批次；hasOpenToolGroup 兜住「绕过屏障直接写出半批」的未来回归。
+  if (!isSessionToolBatchOpen(session.sessionId) && !hasOpenToolGroup(history)) {
+    return session;
+  }
+  const paired = pairToolHistory(history);
+  if (paired === history) {
+    return session;
+  }
+  return { ...session, conversationHistory: paired };
+}
+
+/** 结束批次，把完整（且已配对）的历史整体写盘一次。异常路径同样必须调用。 */
+export function commitSessionToolBatch(workspaceDir: string, session: AgentSession): void {
+  const depth = openToolBatches.get(session.sessionId) ?? 0;
+  if (depth > 1) {
+    openToolBatches.set(session.sessionId, depth - 1);
+    return;
+  }
+  openToolBatches.delete(session.sessionId);
+  // 中断/异常路径可能留下未闭合的组：先补占位，再整体落盘。
+  session.conversationHistory = pairToolHistory(session.conversationHistory);
+  saveSession(workspaceDir, session);
+}
+
 export function saveSession(workspaceDir: string, session: AgentSession): void {
   session.updatedAt = new Date().toISOString();
   // 原子写（temp+rename）：崩溃不留半写 session.json。
   // 保持同步语义：resume/级联等调用方依赖「返回即落盘」。失败必须抛出，禁止继续采样。
+  const target = persistableSnapshot(session);
   persistOrThrow("session", () => {
-    writeJsonAtomic(sessionFilePath(workspaceDir, session.sessionId), session);
-    const last = session.conversationHistory[session.conversationHistory.length - 1];
+    writeJsonAtomic(sessionFilePath(workspaceDir, session.sessionId), target);
+    const last = target.conversationHistory[target.conversationHistory.length - 1];
     if (last) {
       const transcriptOpts = session.collaborationDelegationId
         ? { delegationId: session.collaborationDelegationId }
@@ -483,7 +549,8 @@ export function listSessions(workspaceDir: string): AgentSession[] {
 }
 
 /**
- * 压缩对话历史：当消息数超过上限时，保留 system + 最近 N 条
+ * 压缩对话历史：当消息数超过上限时，保留 system + 最近若干条。
+ * 切点按 tool 调用整组对齐，避免保留段以孤立 tool 结果开头。
  */
 export function compactHistory(
   messages: AgentMessage[],
@@ -497,9 +564,13 @@ export function compactHistory(
   const nonSystemMessages = messages.filter((msg) => msg.role !== "system");
 
   const keepCount = maxMessages - systemMessages.length;
-  const keptMessages = nonSystemMessages.slice(-keepCount);
-
-  return [...systemMessages, ...keptMessages];
+  if (keepCount <= 0) {
+    return systemMessages;
+  }
+  const { kept } = sliceKeepingToolGroups(nonSystemMessages, keepCount);
+  const merged = [...systemMessages, ...kept];
+  const normalized = normalizeToolResultMessages(merged);
+  return normalized.changed ? normalized.messages : merged;
 }
 
 export type ModelChatMessage = {
@@ -517,18 +588,23 @@ export type ModelChatMessage = {
  * Sole session → LLM history mapper for runTurn.
  * Callers must write `conversationHistory` first (prompt / compact / tools), then derive.
  *
- * 送出前的最后一道配对修复：历史中的悬空 tool_call（旧版本中断残留、异常路径）
- * 在此补占位 tool 消息并写回 session（随下一次 saveSession 落盘），保证
- * 「不配对不得送出」——OpenAI 兼容 API 对缺配对的 tool_call 会整体 400。
+ * 送出前的最后一道配对修复，并写回 session（随下一次 saveSession 落盘）：
+ *   - 孤立 tool 结果：调用还在就挪回去，调用已被压缩丢掉就删除（DeepSeek 400）。
+ *   - 悬空 tool_call：补「已取消」占位，避免缺结果的 tool_calls 整请求 400。
  *
  * Remaining-token notes are sample-time only — use {@link deriveModelMessagesForSampling}.
  */
 export function deriveModelMessages(session: AgentSession): ModelChatMessage[] {
-  const pairing = repairToolCallPairing(session.conversationHistory);
-  if (pairing.repairedToolCallIds.length > 0) {
+  const normalized = normalizeToolResultMessages(session.conversationHistory);
+  const pairing = repairToolCallPairing(normalized.messages);
+  if (normalized.changed || pairing.repairedToolCallIds.length > 0) {
     session.conversationHistory = pairing.messages;
   }
-  return session.conversationHistory.map((msg) => {
+  const source =
+    normalized.changed || pairing.repairedToolCallIds.length > 0
+      ? pairing.messages
+      : session.conversationHistory;
+  return source.map((msg) => {
     const base: ModelChatMessage = {
       role: msg.role,
       content: msg.content,

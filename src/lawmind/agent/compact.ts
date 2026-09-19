@@ -7,6 +7,11 @@ import { caseFilePath } from "../memory/index.js";
 import type { LawMindWorkspacePolicy } from "../policy/workspace-policy.js";
 import { insertBeforeLastUserMessage } from "./compact-insert.js";
 import { estimateTokenBudget, resolveContextPolicy } from "./context-budget.js";
+import {
+  alignCutIndexToToolGroups,
+  normalizeToolResultMessages,
+  sliceKeepingToolGroups,
+} from "./session-tool-call-pairing.js";
 import { compactHistory } from "./session.js";
 import type { AgentMessage, AgentSession } from "./types.js";
 
@@ -180,22 +185,25 @@ export function readSessionSummary(workspaceDir: string, matterId?: string): str
   }
 }
 
-/** Prevent cutting between assistant tool_use and following tool messages. */
+/**
+ * 保留最近 24 条非 system 消息，但切点落在一组 tool 结果中间时整组退回，
+ * 避免 firstKept 是孤立 tool（DeepSeek：tool 必须紧跟 tool_calls）。
+ */
 export function adjustIndexToPreserveToolPairs(messages: AgentMessage[]): number {
   const nonSystem = messages.filter((m) => m.role !== "system");
   if (nonSystem.length <= 8) {
     return 0;
   }
   const keepFrom = Math.max(0, nonSystem.length - 24);
-  let idx = messages.findIndex((m) => m === nonSystem[keepFrom]);
+  const anchor = nonSystem[keepFrom];
+  if (!anchor) {
+    return 0;
+  }
+  const idx = messages.findIndex((m) => m === anchor);
   if (idx <= 0) {
     return 0;
   }
-  const prev = messages[idx - 1];
-  if (prev?.role === "assistant" && (prev.toolCalls?.length ?? 0) > 0) {
-    return Math.max(0, idx - 1);
-  }
-  return idx;
+  return alignCutIndexToToolGroups(messages, idx);
 }
 
 export function collectCompactAttachmentNotes(
@@ -299,20 +307,27 @@ export function autoCompactSessionHistory(
   let nonSystem = session.conversationHistory.filter((m) => m.role !== "system");
   let droppedSpan: AgentMessage[] = [];
   const cutFrom = adjustIndexToPreserveToolPairs(session.conversationHistory);
-  if (cutFrom > 0) {
+  if (cutFrom >= session.conversationHistory.length) {
+    droppedSpan = nonSystem;
+    nonSystem = [];
+  } else if (cutFrom > 0) {
     const cutMsg = session.conversationHistory[cutFrom];
     const cutIdx = nonSystem.findIndex((m) => m === cutMsg);
     if (cutIdx > 0) {
       droppedSpan = nonSystem.slice(0, cutIdx);
       nonSystem = nonSystem.slice(cutIdx);
     } else {
-      const keep = Math.max(8, Math.floor(opts.maxHistoryMessages / 2));
-      droppedSpan = nonSystem.slice(0, Math.max(0, nonSystem.length - keep));
-      nonSystem = nonSystem.slice(-keep);
+      const sliced = sliceKeepingToolGroups(
+        nonSystem,
+        Math.max(8, Math.floor(opts.maxHistoryMessages / 2)),
+      );
+      droppedSpan = sliced.dropped;
+      nonSystem = sliced.kept;
     }
   } else if (nonSystem.length > opts.maxHistoryMessages) {
-    droppedSpan = nonSystem.slice(0, nonSystem.length - opts.maxHistoryMessages);
-    nonSystem = nonSystem.slice(-opts.maxHistoryMessages);
+    const sliced = sliceKeepingToolGroups(nonSystem, opts.maxHistoryMessages);
+    droppedSpan = sliced.dropped;
+    nonSystem = sliced.kept;
   }
 
   const digestCap = resolveCompactDigestCharCap(opts.contextTokens);
@@ -374,11 +389,14 @@ export function autoCompactSessionHistory(
     0,
   );
 
-  const firstKept = nonSystem[0];
+  const capped = compactHistory(merged, opts.maxHistoryMessages + summaryBlock.length + 2);
+  const normalized = normalizeToolResultMessages(capped);
+  const messages = normalized.changed ? normalized.messages : capped;
+  const firstKept = messages.find((m) => m.role !== "system");
   const boundaryId = `${new Date().toISOString()}#${dropped}`;
 
   return {
-    messages: compactHistory(merged, opts.maxHistoryMessages + summaryBlock.length + 2),
+    messages,
     compacted: true,
     sessionSummaryPath: summaryPath,
     droppedMessageCount: dropped,

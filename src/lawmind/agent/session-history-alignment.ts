@@ -5,7 +5,7 @@
  */
 
 import { readSessionEvents, type SessionEventLogRecord } from "./session-event-log.js";
-import { findUnpairedToolCallIds } from "./session-tool-call-pairing.js";
+import { findOrphanToolResultIds, findUnpairedToolCallIds } from "./session-tool-call-pairing.js";
 import { deriveModelMessages, loadTurns } from "./session.js";
 import type { AgentSession, AgentTurn } from "./types.js";
 
@@ -15,7 +15,8 @@ export type SessionHistoryAlignmentIssue = {
     | "derive_role"
     | "final_reply_mismatch"
     | "turn_instruction_missing"
-    | "dangling_tool_call";
+    | "dangling_tool_call"
+    | "orphan_tool_result";
   detail: string;
 };
 
@@ -47,6 +48,14 @@ export function inspectSessionHistoryAlignment(input: {
     issues.push({
       code: "dangling_tool_call",
       detail: `unpaired tool_calls: ${dangling.slice(0, 5).join(",")}${dangling.length > 5 ? "…" : ""}`,
+    });
+  }
+  // 镜像损坏：压缩把 assistant(tool_calls) 丢掉、只留下结果 → OpenAI 兼容接口整请求 400。
+  const orphans = findOrphanToolResultIds(input.session.conversationHistory);
+  if (orphans.length > 0) {
+    issues.push({
+      code: "orphan_tool_result",
+      detail: `tool results without calls: ${orphans.slice(0, 5).join(",")}${orphans.length > 5 ? "…" : ""}`,
     });
   }
   const derived = deriveModelMessages(input.session);

@@ -16,7 +16,11 @@ const MAX_TOOL_RESULT_CHARS = 8_000;
 export type WorkerLoopMessage = {
   role: string;
   content: string;
-  tool_calls?: unknown[];
+  tool_calls?: Array<{
+    id?: string;
+    type?: string;
+    function?: { name?: string; arguments?: string };
+  }>;
   tool_call_id?: string;
 };
 

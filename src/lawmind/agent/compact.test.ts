@@ -10,6 +10,7 @@ import {
   buildDroppedSpanDigest,
   buildPostCompactSystemNote,
 } from "./compact.js";
+import { normalizeToolResultMessages } from "./session-tool-call-pairing.js";
 import type { AgentMessage, AgentSession } from "./types.js";
 
 describe("buildDroppedSpanDigest", () => {
@@ -150,6 +151,43 @@ describe("autoCompactSessionHistory", () => {
     expect(out.compacted).toBe(true);
     const roles = out.messages.map((m) => m.role).join(",");
     expect(roles).toContain("tool");
+  });
+
+  it("keeps a multi-tool batch whole when the tail cut lands inside it", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-compact-group-"));
+    const now = new Date().toISOString();
+    const toolIds = ["t1", "t2", "t3"];
+    const session: AgentSession = {
+      sessionId: "s-group",
+      actorId: "test",
+      turns: [],
+      conversationHistory: [
+        { role: "system", content: "sys", timestamp: now },
+        { role: "user", content: "一次查三份", timestamp: now },
+        {
+          role: "assistant",
+          content: "",
+          timestamp: now,
+          toolCalls: toolIds.map((id) => ({ id, name: `tool_${id}`, arguments: {} })),
+        },
+        ...toolIds.map((id) => ({
+          role: "tool" as const,
+          content: "{}",
+          timestamp: now,
+          toolCallResponses: [{ toolCallId: id, name: `tool_${id}`, result: { ok: true } }],
+        })),
+        { role: "assistant", content: "三份结果已合并。", timestamp: now },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    };
+    const out = autoCompactSessionHistory(session, ws, { maxHistoryMessages: 2 });
+    expect(out.compacted).toBe(true);
+    // 旧实现按条数裸切，会在 t3 处下刀留下孤立 tool → DeepSeek 400。
+    // 压缩结果必须自身合规：normalize 无需再做任何改动。
+    expect(normalizeToolResultMessages(out.messages).changed).toBe(false);
+    const firstNonSystem = out.messages.find((m) => m.role !== "system");
+    expect(firstNonSystem?.role).not.toBe("tool");
   });
 
   it("reinjects dropped-span digest when history is compacted by count", () => {
