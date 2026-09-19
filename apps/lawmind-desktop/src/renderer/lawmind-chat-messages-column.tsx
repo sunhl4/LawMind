@@ -11,6 +11,7 @@ import { LawmindChatMessageRow } from "./LawmindChatMessageRow";
 import { LawmindChatMessagesVirtualList } from "./LawmindChatMessagesVirtualList";
 import { LawmindMsgCompactNotice } from "./LawmindMsgCompactNotice";
 import { LawmindBrandMark } from "./app/LawmindBrandMark";
+import { LAWMIND_ATTORNEY_DISCLAIMER_SHORT } from "./lawmind-attorney-disclaimer";
 import { LawmindMsgToolGroup } from "./LawmindMsgToolGroup";
 import {
   getPendingClarificationState,
@@ -250,6 +251,12 @@ export function LawmindChatMessagesColumn({
               把材料拖进来，或直接说要办的事。传票、谈话、照片直接丢进来即可补到本案。系统会按这句话和附件判断怎么做。
             </p>
             <p className="lm-messages-empty-hint">签批与导出仍在「在办」。</p>
+            <p
+              className="lm-messages-empty-hint"
+              data-testid="lm-chat-empty-authority-boundary"
+            >
+              未接权威库时只用演示语料；正式引用请核对原文。{LAWMIND_ATTORNEY_DISCLAIMER_SHORT}
+            </p>
             {onCreateMatter ? (
               <p className="lm-messages-empty-actions">
                 <button

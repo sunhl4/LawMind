@@ -32,7 +32,10 @@ export type UseLawmindAppOverlaysPropsInput = {
   wizBusy: boolean;
   pickWs: () => void | Promise<void>;
   setShowWizard: (open: boolean) => void;
-  runWizardSave: (opts?: { webSearchApiKey?: string }) => void | Promise<void>;
+  runWizardSave: (opts?: {
+    webSearchApiKey?: string;
+    onSeedReady?: (params: { matterId: string; seedPrompt: string }) => void;
+  }) => void | Promise<void>;
   detailOpen: boolean;
   detailKind: DetailKind;
   detailId: string | null;
@@ -128,6 +131,14 @@ export function useLawmindAppOverlaysProps(input: UseLawmindAppOverlaysPropsInpu
     suppressFirstRunAutoOpen = false,
   } = input;
 
+  // 钥匙验证通过后零选择落到可干活对话：与首跑向导共用同一「种子」落点。
+  const seedIntoCompose = (params: { matterId?: string; seedPrompt: string }) => {
+    if (params.matterId) {
+      setContextMatterId(params.matterId);
+    }
+    setInput(params.seedPrompt);
+  };
+
   return useMemo(
     (): LawmindAppOverlaysProps => ({
       showWizard,
@@ -145,7 +156,11 @@ export function useLawmindAppOverlaysProps(input: UseLawmindAppOverlaysPropsInpu
       wizBusy,
       onPickWorkspace: () => void pickWs(),
       onWizardCancel: () => setShowWizard(false),
-      onWizardSave: (opts) => void runWizardSave(opts),
+      onWizardSave: (opts) =>
+        void runWizardSave({
+          ...opts,
+          onSeedReady: ({ matterId, seedPrompt }) => seedIntoCompose({ matterId, seedPrompt }),
+        }),
       detailOpen,
       detailKind,
       detailId,
@@ -187,12 +202,7 @@ export function useLawmindAppOverlaysProps(input: UseLawmindAppOverlaysPropsInpu
       onOpenAdvancedSettings: () => {
         useSettingsPanelStore.getState().setSettingsPanel(true, "doctor");
       },
-      onFirstRunSeedReady: ({ matterId, seedPrompt }) => {
-        if (matterId) {
-          setContextMatterId(matterId);
-        }
-        setInput(seedPrompt);
-      },
+      onFirstRunSeedReady: ({ matterId, seedPrompt }) => seedIntoCompose({ matterId, seedPrompt }),
       suppressFirstRunAutoOpen,
       composeTextareaRef,
       config,

@@ -15,7 +15,7 @@ function mockStorage() {
   return {
     getItem: (k: string) => map.get(k) ?? null,
     setItem: (k: string, v: string) => {
-      map.set(k, String(v));
+      map.set(k, v);
     },
     removeItem: (k: string) => {
       map.delete(k);
@@ -58,5 +58,14 @@ describe("lawmind-compose-prefs", () => {
     writeComposePermissionMode("standard");
     expect(readComposePermissionMode()).toBe("standard");
     expect(readExecutePermissionMode()).toBe("standard");
+  });
+
+  it("honors an explicit executable:false by starting strict (param is not ignored)", () => {
+    applyPostFirstrunPermissionDefaults({ executable: false });
+    expect(readComposePermissionMode()).toBe("strict");
+    expect(readExecutePermissionMode()).toBe("strict");
+    // 显式 true 与缺省一样落可执行。
+    applyPostFirstrunPermissionDefaults({ executable: true });
+    expect(readComposePermissionMode()).toBe("standard");
   });
 });

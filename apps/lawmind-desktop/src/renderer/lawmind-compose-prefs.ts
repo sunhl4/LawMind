@@ -48,9 +48,15 @@ export function writeExecutePermissionMode(mode: "standard" | "strict"): void {
   }
 }
 
-/** Call when first-run wizard completes. Completing the tour is never harder than skipping it. */
-export function applyPostFirstrunPermissionDefaults(_opts?: { executable?: boolean }): void {
-  writeComposePermissionMode("standard");
+/**
+ * Call when first-run wizard completes. Completing the tour is never harder than skipping it.
+ *
+ * `executable`（默认 true）：完成后一律落到可执行 compose —— 冷启动不把律师
+ * 关进只读/计划模式；只有显式传 false 才回到 strict 起步。
+ */
+export function applyPostFirstrunPermissionDefaults(opts?: { executable?: boolean }): void {
+  const executable = opts?.executable !== false;
+  writeComposePermissionMode(executable ? "standard" : "strict");
   writeExecutePermissionMode("strict");
 }
 

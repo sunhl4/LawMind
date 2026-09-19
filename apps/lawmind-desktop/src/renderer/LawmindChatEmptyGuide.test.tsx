@@ -44,6 +44,9 @@ describe("LawmindChatMessagesColumn empty guide", () => {
       );
     });
     expect(host.querySelector('[data-testid="lm-chat-empty"]')).toBeTruthy();
+    // 权威边界与免责从首跑弹窗迁到对话空态常驻可见。
+    const boundary = host.querySelector('[data-testid="lm-chat-empty-authority-boundary"]');
+    expect(boundary?.textContent).toContain("未接权威库时只用演示语料");
     expect(host.textContent).toContain("开始对话");
     expect(host.textContent).toContain("直接说要办的事");
     expect(host.querySelector('[data-testid="lm-chat-empty-create-matter"]')).toBeNull();

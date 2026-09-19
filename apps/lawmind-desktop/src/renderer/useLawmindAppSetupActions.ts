@@ -3,14 +3,60 @@ import type { AppConfig } from "./lawmind-app-bootstrap";
 import { loadAppBootstrapSnapshot, refreshLocalAppConfig } from "./lawmind-app-bootstrap";
 import { setLoopbackApiAuthToken } from "./lawmind-api-auth";
 import { setDraftWithModelEnabled } from "./lawmind-models-api";
-import { errorMessage } from "./api-client";
+import { errorMessage, apiSendJson } from "./api-client";
+import { applyPostFirstrunPermissionDefaults } from "./lawmind-compose-prefs";
 import { clearProjectDirectory } from "./lawmind-settings-project";
 import { mapHealthState, type LawmindHealthState } from "./useLawmindAppBootstrapEffects";
 import type { HealthPayload } from "./lawmind-app-data.js";
 
+/** 演示案件 ID 与首跑种子提示（与首跑向导「跳过向导，直接开始」同一口径）。 */
+export const FIRST_RUN_DEMO_MATTER_ID = "演示案件";
+export const FIRST_RUN_SEED_PROMPT = "把材料拖进来，或直接说要办的事。不必先选文书类型。";
+
+/**
+ * 钥匙验证通过后零选择落到可干活对话：建演示案件 + 写首跑审计 + 可执行默认 + 种子提示。
+ * 失败只抛给调用方吞掉——模型已配好，律师仍能直接在对话里开工。
+ */
+export async function startWorkingConversation(
+  apiBase: string | undefined,
+  extra?: { onSeedReady?: (params: { matterId: string; seedPrompt: string }) => void },
+): Promise<void> {
+  if (!apiBase?.trim()) {
+    return;
+  }
+  const created = await apiSendJson<{ ok?: boolean; error?: string }, { matterId: string }>(
+    apiBase,
+    "/api/matters/create",
+    "POST",
+    { matterId: FIRST_RUN_DEMO_MATTER_ID },
+  );
+  if (!created.ok) {
+    throw new Error(created.error ?? "无法创建演示案件");
+  }
+  try {
+    await apiSendJson<{ ok?: boolean; error?: string }, { matterId: string }>(
+      apiBase,
+      "/api/onboarding/firstrun-wizard",
+      "POST",
+      { matterId: FIRST_RUN_DEMO_MATTER_ID },
+    );
+  } catch {
+    /* 首跑审计失败不阻断进入对话 */
+  }
+  applyPostFirstrunPermissionDefaults({ executable: true });
+  extra?.onSeedReady?.({
+    matterId: FIRST_RUN_DEMO_MATTER_ID,
+    seedPrompt: FIRST_RUN_SEED_PROMPT,
+  });
+  try {
+    window.localStorage.setItem("lm.firstRun.dismissed", "1");
+  } catch {
+    /* ignore */
+  }
+}
+
 /** After backend restart, adopt the new loopback port/token before further API calls. */
-async function adoptConfigAfterBackendRestart(
-  previous: AppConfig | null,
+async function adoptConfigAfterBackendRestart(  previous: AppConfig | null,
   response: { apiBase?: string; apiAuthToken?: string; retrievalMode?: "single" | "dual" },
   setConfig: (value: AppConfig | null) => void,
 ): Promise<AppConfig | null> {
@@ -53,6 +99,15 @@ async function adoptConfigAfterBackendRestart(
   }
   return previous;
 }
+
+export type RunWizardSaveExtra = {
+  webSearchApiKey?: string;
+  /**
+   * 钥匙验证通过后直接落到「可干活对话」的回调：建好演示案件 + 种子提示，
+   * 不再经由首跑向导弹窗（零选择冷启动）。
+   */
+  onSeedReady?: (params: { matterId: string; seedPrompt: string }) => void;
+};
 
 export type UseLawmindAppSetupActionsParams = {
   config: AppConfig | null;
@@ -200,7 +255,7 @@ export function useLawmindAppSetupActions(params: UseLawmindAppSetupActionsParam
     [config?.apiBase, setError, setHealth, setHealthPayload],
   );
 
-  const runWizardSave = useCallback(async (extra?: { webSearchApiKey?: string }) => {
+  const runWizardSave = useCallback(async (extra?: RunWizardSaveExtra) => {
     const bridge = window.lawmindDesktop;
     if (!bridge?.saveSetup) {
       return;
@@ -249,13 +304,14 @@ export function useLawmindAppSetupActions(params: UseLawmindAppSetupActionsParam
       setShowWizard(false);
       setWizApiKey("");
       setWizHasExistingKey(true);
-      // After model setup: request first-run once (if not dismissed). Dialog opens when suppress lifts.
+      // 钥匙一验证通过就落到可干活对话：建演示案件 + 种子提示 + 可执行默认。
+      // 不再弹首跑向导（零选择冷启动）；律师之后仍可从设置重新打开向导。
       try {
         if (typeof window !== "undefined" && !window.localStorage.getItem("lm.firstRun.dismissed")) {
-          window.sessionStorage.setItem("lm.firstRun.requestOpen", "1");
+          await startWorkingConversation(adopted?.apiBase ?? response.apiBase ?? config?.apiBase, extra);
         }
       } catch {
-        /* ignore */
+        /* 冷启动落点失败不阻断：模型已配好，律师可直接在对话里开工 */
       }
       const verifyNote =
         typeof response.latencyMs === "number"
