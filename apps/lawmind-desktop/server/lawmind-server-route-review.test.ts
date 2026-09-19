@@ -1115,4 +1115,55 @@ describe("lawmind-server-route-review", () => {
       error: "checklist_incomplete",
     });
   });
+
+  it("captures draft-edit learning as pending suggestions on content save", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-review-edit-learn-"));
+    tempDirs.push(workspaceDir);
+    persistDraft(workspaceDir, {
+      taskId: "t-edit-learn",
+      title: "审查意见",
+      summary: "",
+      output: "docx",
+      templateId: "word/legal-memo-default",
+      deliverableType: "memo.opinion",
+      sections: [{ heading: "结论", body: "责任条款约定以合同金额为限。", citations: [] }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: new Date().toISOString(),
+    });
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+    const cap = createResponseCapture();
+    await expect(
+      handleReviewRoute({
+        ctx,
+        req: createJsonRequest("PATCH", {
+          sections: [
+            { heading: "结论", body: "责任条款约定以已付费用为限，不含间接损失。", citations: [] },
+          ],
+        }),
+        res: cap.res,
+        url: new URL("http://127.0.0.1/api/drafts/t-edit-learn/content"),
+        pathname: "/api/drafts/t-edit-learn/content",
+        c: {},
+      }),
+    ).resolves.toBe(true);
+    expect(cap.status).toBe(200);
+    // 正文已保存。
+    expect(readDraft(workspaceDir, "t-edit-learn")?.sections[0]?.body).toContain("已付费用为限");
+
+    const { listMemorySuggestions } = await import(
+      "../../../src/lawmind/memory/adoption-service.js"
+    );
+    const pending = await listMemorySuggestions(workspaceDir, { state: "pending" });
+    const hit = pending.find((r) => r.kind === "lawyer.profile_learning");
+    expect(hit).toBeDefined();
+    expect(hit?.payload).toContain("已付费用为限");
+    // 未确认前画像不落盘。
+    expect(fs.existsSync(path.join(workspaceDir, "LAWYER_PROFILE.md"))).toBe(false);
+  });
 });

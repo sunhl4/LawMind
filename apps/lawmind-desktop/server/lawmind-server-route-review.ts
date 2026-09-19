@@ -1100,6 +1100,7 @@ export async function handleReviewRoute({
       }
       const patch = toDraftContentPatch(patchBody);
       const actorId = resolveDesktopActorId();
+      const sectionsBefore = draft.sections.map((s) => ({ heading: s.heading, body: s.body }));
       const nextDraft: ArtifactDraft = {
         ...draft,
         ...(patch.title !== undefined ? { title: patch.title } : {}),
@@ -1124,6 +1125,21 @@ export async function handleReviewRoute({
         title: nextDraft.title,
         draftPath: storedDraftPath,
       });
+      // 改稿 delta → pending 口径候选（不静默写画像；律师在设置里确认后才落盘）。
+      try {
+        const { captureDraftEditLearning } = await import(
+          "../../../src/lawmind/learning/draft-edit-learning.js"
+        );
+        await captureDraftEditLearning({
+          workspaceDir,
+          auditDir,
+          taskId: raw,
+          before: sectionsBefore,
+          after: nextDraft.sections.map((s) => ({ heading: s.heading, body: s.body })),
+        });
+      } catch {
+        // 学习捕获失败不阻断正文保存。
+      }
       if (nextDraft.matterId) {
         try {
           const tr = readTaskRecord(workspaceDir, raw);

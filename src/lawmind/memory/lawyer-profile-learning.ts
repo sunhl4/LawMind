@@ -18,6 +18,10 @@ async function readUtf8(filePath: string): Promise<string> {
 const PROFILE = "LAWYER_PROFILE.md";
 const SECTION_EIGHT = "## 八、个人积累";
 const TAIL_MARKER = "\n---\n\n_最后更新";
+const ARCHIVE_REL = path.join("memory", "lawyer-profile-archive.md");
+/** §八 保留的积累条目上限：超出即轮转到归档（prompt 只注入指纹，不受影响）。 */
+export const SECTION_EIGHT_MAX_BULLETS = 120;
+const BULLET_LINE_RE = /^- \[/;
 
 function stamp(): string {
   return new Date().toISOString().replace("T", " ").slice(0, 19);
@@ -68,6 +72,52 @@ export function buildLawyerProfileReviewLearningLine(
   return n
     ? `草稿审核学习（任务 ${taskId}，${status}）：${n}`
     : `草稿审核学习（任务 ${taskId}，${status}）。`;
+}
+
+/**
+ * §八 条目轮转：超出上限时，把最早的条目移入归档文件（按时间追加，不丢内容）。
+ * prompt 只注入 800 字指纹，因此轮转不改变注入行为，只保证档案本身体积有界。
+ */
+export async function rotateLawyerProfileSectionEight(
+  workspaceDir: string,
+  opts?: { maxBullets?: number; archiveRel?: string },
+): Promise<{ rotated: number; archivePath?: string }> {
+  const maxBullets = opts?.maxBullets ?? SECTION_EIGHT_MAX_BULLETS;
+  const p = path.join(workspaceDir, PROFILE);
+  const content = await readUtf8(p);
+  const slice = lawyerSectionEightSlice(content);
+  if (!slice) {
+    return { rotated: 0 };
+  }
+  const lines = slice.split("\n");
+  const bulletIdx = lines
+    .map((line, i) => (BULLET_LINE_RE.test(line.trim()) ? i : -1))
+    .filter((i) => i >= 0);
+  const overflow = bulletIdx.length - maxBullets;
+  if (overflow <= 0) {
+    return { rotated: 0 };
+  }
+  const dropIdx = new Set(bulletIdx.slice(0, overflow));
+  const archiveLines = bulletIdx
+    .slice(0, overflow)
+    .map((i) => lines[i])
+    .filter((line): line is string => typeof line === "string");
+  const keptLines = lines.filter((_, i) => !dropIdx.has(i));
+  const eightIdx = content.indexOf(SECTION_EIGHT);
+  const tailIdx = content.indexOf(TAIL_MARKER, eightIdx);
+  const beforeEight = content.slice(0, eightIdx);
+  const afterTail = tailIdx > eightIdx ? content.slice(tailIdx) : "";
+  const next = `${beforeEight}${keptLines.join("\n")}${afterTail}`;
+  await fs.writeFile(p, next, "utf8");
+
+  const archivePath = path.join(workspaceDir, opts?.archiveRel ?? ARCHIVE_REL);
+  await fs.mkdir(path.dirname(archivePath), { recursive: true });
+  const existing = await readUtf8(archivePath);
+  const header = existing.trim()
+    ? ""
+    : "# LAWYER_PROFILE 八、个人积累 — 轮转归档\n\n> 由 §八 容量上限轮转而来；内容保留，仅移出热文件。\n\n";
+  await fs.writeFile(archivePath, `${existing}${header}${archiveLines.join("\n")}\n`, "utf8");
+  return { rotated: overflow, archivePath };
 }
 
 /**
@@ -146,6 +196,7 @@ export async function appendLawyerProfileLearning(
     content = `${content.trimEnd()}\n\n${SECTION_EIGHT}\n\n${line}\n`;
     await fs.writeFile(p, content, "utf8");
     await maybeEmitLawyerProfileAudit(opts, line, source, core);
+    await rotateLawyerProfileSectionEight(workspaceDir);
     return { skipped: false };
   }
   const eightIdx = content.indexOf(SECTION_EIGHT);
@@ -156,11 +207,13 @@ export async function appendLawyerProfileLearning(
     content = `${before}\n${line}\n${after}`;
     await fs.writeFile(p, content, "utf8");
     await maybeEmitLawyerProfileAudit(opts, line, source, core);
+    await rotateLawyerProfileSectionEight(workspaceDir);
     return { skipped: false };
   }
   content = `${content.trimEnd()}\n${line}\n`;
   await fs.writeFile(p, content, "utf8");
   await maybeEmitLawyerProfileAudit(opts, line, source, core);
+  await rotateLawyerProfileSectionEight(workspaceDir);
   return { skipped: false };
 }
 
