@@ -3,7 +3,11 @@
  * Identity names are the same strings ethics wall / conflict scan already use.
  */
 
-export const MATTER_PARTIES_CAP = 8;
+/**
+ * 当事人上限。共同诉讼（多被告/多第三人）常超 8 人，旧值 8 会把第 9 人起静默丢弃。
+ * 上限只防病态输入，不应当成为"填不全当事人"的原因。
+ */
+export const MATTER_PARTIES_CAP = 32;
 
 export const MATTER_PARTY_ROLES = ["client", "counterparty", "agent", "counsel", "other"] as const;
 export type MatterPartyRole = (typeof MATTER_PARTY_ROLES)[number];
