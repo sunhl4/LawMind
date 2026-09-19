@@ -1,4 +1,4 @@
-# Verify LawMind VitePress site builds (content synced from docs/LAWMIND-*.md).
+# Verify LawMind VitePress site builds, and publish it to GitHub Pages on main.
 name: LawMind docs
 
 on:
@@ -7,6 +7,8 @@ on:
       - "apps/lawmind-docs/**"
       - "docs/LAWMIND-*.md"
       - "docs/lawmind/**"
+      - "docs/CNAME"
+      - "apps/lawmind-desktop/download/**"
       - "pnpm-lock.yaml"
       - "package.json"
   push:
@@ -16,8 +18,11 @@ on:
       - "apps/lawmind-docs/**"
       - "docs/LAWMIND-*.md"
       - "docs/lawmind/**"
+      - "docs/CNAME"
+      - "apps/lawmind-desktop/download/**"
       - "pnpm-lock.yaml"
       - "package.json"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -41,3 +46,43 @@ jobs:
 
       - name: Build LawMind docs
         run: pnpm lawmind:docs:build
+
+      - name: Sanity — CNAME and .nojekyll must exist in the publish root
+        run: |
+          set -euo pipefail
+          dist=apps/lawmind-docs/docs/.vitepress/dist
+          test -f "${dist}/index.html" || { echo "::error::docs build produced no index.html"; exit 1; }
+          test -f "${dist}/.nojekyll" || { echo "::error::missing .nojekyll (Pages would run Jekyll)"; exit 1; }
+          if [ -f docs/CNAME ]; then
+            test -f "${dist}/CNAME" || { echo "::error::missing CNAME in publish root"; exit 1; }
+            echo "CNAME: $(cat "${dist}/CNAME")"
+          fi
+          echo "dist entries: $(find "${dist}" -maxdepth 1 | wc -l)"
+
+      - name: Upload Pages artifact
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/lawmind-docs/docs/.vitepress/dist
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    concurrency:
+      group: lawmind-docs-pages
+      cancel-in-progress: false
+    steps:
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4

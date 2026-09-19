@@ -1,4 +1,5 @@
 import type { RefObject } from "react";
+import { useEffect, useState } from "react";
 import { HelpPanel } from "../HelpPanel";
 import { LawmindApiSetupWizard } from "../LawmindApiSetupWizard";
 import { LawmindAssistantEditorDialog, type AssistantEditorDraft } from "../lawmind-assistant-editor";
@@ -13,6 +14,7 @@ import type {
 import type { DraftCitationIntegrityView } from "../../../../../src/lawmind/drafts/citation-integrity.ts";
 import type { TaskCheckpoint } from "../../../../../src/lawmind/tasks/checkpoints.ts";
 import { LawmindFirstRunDialog } from "../LawmindFirstRunDialog";
+import { subscribeFirstRunReopen } from "../lawmind-firstrun-reopen-bus";
 import type { PresetRow } from "../lawmind-app-data";
 import type { AssistantRow } from "../lawmind-settings-models.ts";
 
@@ -71,6 +73,15 @@ export type LawmindAppOverlaysProps = {
 };
 
 export function LawmindAppOverlays(props: LawmindAppOverlaysProps) {
+  // 设置里「重新打开首跑向导」：重开是显式动作，与冷启动自动打开分开。
+  const [firstRunReopened, setFirstRunReopened] = useState(false);
+  useEffect(
+    () =>
+      subscribeFirstRunReopen(() => {
+        setFirstRunReopened(true);
+      }),
+    [],
+  );
   const {
     showWizard,
     wizApiKey,
@@ -184,11 +195,12 @@ export function LawmindAppOverlays(props: LawmindAppOverlaysProps) {
       {showHelp && <HelpPanel onClose={onCloseHelp} />}
       <LawmindFirstRunDialog
         apiBase={config?.apiBase ?? ""}
-        suppressAutoOpen={suppressFirstRunAutoOpen}
+        open={firstRunReopened}
+        suppressAutoOpen={suppressFirstRunAutoOpen || firstRunReopened}
         onOpenWorkflowLibrary={onOpenWorkflowLibrary}
         onOpenAdvancedSettings={onOpenAdvancedSettings}
         onClose={() => {
-          /* dismiss handled inside the dialog */
+          setFirstRunReopened(false);
         }}
         onSeedReady={({ matterId, seedPrompt }) => {
           onFirstRunSeedReady({ matterId, seedPrompt });

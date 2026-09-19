@@ -7,10 +7,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(__dirname, "../../..");
+const here = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(here, "../../..");
 const srcDocs = path.join(repoRoot, "docs");
-const destDocs = path.resolve(__dirname, "../docs");
+const destDocs = path.resolve(here, "../docs");
 
 if (!fs.existsSync(srcDocs)) {
   console.error("sync-docs: missing", srcDocs);
@@ -65,8 +65,24 @@ if (fs.existsSync(downloadSrc)) {
   fs.copyFileSync(downloadSrc, path.join(downloadDestDir, "index.html"));
 }
 
+/**
+ * GitHub Pages custom domain: VitePress serves from `docs/public/`, so the CNAME
+ * at the repo `docs/CNAME` must be copied into the publish root or the custom
+ * domain is dropped on every deploy.
+ */
+const cnameSrc = path.join(srcDocs, "CNAME");
+const publicDir = path.join(destDocs, "public");
+if (fs.existsSync(cnameSrc)) {
+  fs.mkdirSync(publicDir, { recursive: true });
+  fs.copyFileSync(cnameSrc, path.join(publicDir, "CNAME"));
+}
+
+/** GitHub Pages must not run Jekyll on the VitePress output. */
+fs.mkdirSync(publicDir, { recursive: true });
+fs.writeFileSync(path.join(publicDir, ".nojekyll"), "");
+
 console.log(
   `sync-docs: copied ${n} LAWMIND-*.md` +
     (pruned ? ` (pruned ${pruned} stale)` : "") +
-    ` + docs/lawmind/ + docs/archive/ + docs/assets/ + download/ → apps/lawmind-docs/docs/`,
+    ` + docs/lawmind/ + docs/archive/ + docs/assets/ + download/ + CNAME → apps/lawmind-docs/docs/`,
 );

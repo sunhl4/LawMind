@@ -4,6 +4,7 @@ import { loadHealthPayload, type HealthPayload } from "./lawmind-app-data";
 import { apiGetTriageRules } from "./lawmind-triage-api";
 import { LawmindSettingsLicense } from "./LawmindSettingsLicense";
 import { LawmindSettingsScorecard } from "./LawmindSettingsScorecard";
+import { requestFirstRunReopen } from "./lawmind-firstrun-reopen-bus";
 import {
   authorityCorpusStatusLabel,
   formatAuthorityProbeSuccessMsg,
@@ -875,6 +876,23 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
       </div>
 
       <LawmindSettingsScorecard apiBase={apiBase} rows={doctor?.scorecardRows ?? []} />
+
+      <section className="lm-settings-block" data-testid="lm-settings-firstrun-reopen">
+        <h3 className="lm-settings-subtitle">首跑向导</h3>
+        <p className="lm-settings-caption">
+          钥匙验证通过后会直接进对话，不再强制走向导。想补身份/偏好/常交付文书时可在这里重开。
+        </p>
+        <div className="lm-settings-actions">
+          <button
+            type="button"
+            className="lm-btn lm-btn-secondary lm-btn-sm"
+            data-testid="lm-reopen-firstrun"
+            onClick={() => requestFirstRunReopen()}
+          >
+            重新打开首跑向导
+          </button>
+        </div>
+      </section>
 
       <LawmindSettingsLicense
         apiBase={apiBase}

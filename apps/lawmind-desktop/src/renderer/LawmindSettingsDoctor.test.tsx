@@ -443,4 +443,30 @@ describe("LawmindSettingsDoctor", () => {
     expect(host.querySelector('[data-testid="lm-support-bundle-preview"]')).toBeTruthy();
     expect(host.querySelector('[data-testid="lm-support-bundle-download"]')).toBeNull();
   });
+
+  it("offers reopening the first-run wizard from settings (cold start no longer forces it)", async () => {
+    const { subscribeFirstRunReopen, requestFirstRunReopen } = await import(
+      "./lawmind-firstrun-reopen-bus"
+    );
+    const seen: number[] = [];
+    const unsubscribe = subscribeFirstRunReopen(() => seen.push(1));
+    await act(async () => {
+      root.render(
+        <LawmindSettingsDoctor
+          apiBase="http://127.0.0.1:8765"
+          health={{ modelConfigured: true }}
+          onOpenApiWizard={vi.fn()}
+          onOpenCollaborationPage={vi.fn()}
+        />,
+      );
+    });
+    const btn = host.querySelector<HTMLButtonElement>('[data-testid="lm-reopen-firstrun"]');
+    expect(btn).toBeTruthy();
+    await act(async () => {
+      btn?.click();
+    });
+    expect(seen).toHaveLength(1);
+    unsubscribe();
+    requestFirstRunReopen(); // 无订阅者时不得抛错
+  });
 });

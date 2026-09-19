@@ -37,6 +37,9 @@ apps/lawmind-docs/docs/lawmind/
 apps/lawmind-docs/docs/archive/
 apps/lawmind-docs/docs/assets/
 apps/lawmind-docs/docs/public/download/
+# 由 sync-docs 从 docs/CNAME 与构建生成；真相源是 docs/CNAME
+apps/lawmind-docs/docs/public/CNAME
+apps/lawmind-docs/docs/public/.nojekyll
 
 # LawMind desktop — 打包与本地服务器 bundle
 apps/lawmind-desktop/release/
