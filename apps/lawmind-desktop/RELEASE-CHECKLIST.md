@@ -16,6 +16,11 @@
 
 - [ ] **真稿对照**：本地 `fixtures/lawmind-true-manuscript/` 已放入脱敏真稿（gitignore，不进仓库），且 `LAWMIND_REQUIRE_TRUE_MANUSCRIPT=1 pnpm lawmind:true-manuscript` 全部 OK；新稿先用 `pnpm lawmind:true-manuscript -- --write-baseline` 生成基线草稿并由律师核对。闸门 SKIP 或 FAIL 时不得对外宣称「真稿已验证」。
 - [ ] `pnpm lawmind:release-readiness` 报告中「True Manuscript Gate」为 RUN 且 Known Risks 无真稿挂账。
+- [ ] 同报告的 **Release Artifacts** 一节：mac 为「已签名并公证」、有 `latest*.yml`。两项任一缺失都会进 Known Risks，不得当作可发版。
+
+## 交付闸门（CI）
+
+tag `lawmind-desktop-v*` 构建时：mac 侧 `LAWMIND_REQUIRE_NOTARIZED=1` 强制公证成功；release job 在缺少 `latest*.yml` 时拒绝发布。本机 `pnpm lawmind:desktop:dist` 仍是 `--publish never`，不签名也不发布。
 
 ## 安全与信任
 

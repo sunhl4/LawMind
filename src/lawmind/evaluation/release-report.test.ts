@@ -51,4 +51,25 @@ describe("release readiness report", () => {
     expect(report).toContain("## True Manuscript Gate");
     expect(report).toContain("not evaluated");
   });
+
+  it("renders the release artifacts section when supplied", () => {
+    const report = buildReleaseReadinessReportMarkdown({
+      releaseArtifacts: {
+        lines: [
+          "- 产物目录：/repo/apps/lawmind-desktop/release",
+          "- 安装包：LawMind-0.2.1-mac-arm64.dmg",
+          "- macOS 签名/公证：已签名并公证（签名校验通过；Developer ID；公证已装订）",
+          "- 自动更新清单：latest-mac.yml",
+        ],
+      },
+    });
+    expect(report).toContain("## Release Artifacts (signing / notarization / auto-update)");
+    expect(report).toContain("已签名并公证");
+    expect(report).toContain("latest-mac.yml");
+  });
+
+  it("notes the artifacts section honestly when not evaluated", () => {
+    const report = buildReleaseReadinessReportMarkdown({});
+    expect(report).toContain("Release artifacts not evaluated in this report.");
+  });
 });

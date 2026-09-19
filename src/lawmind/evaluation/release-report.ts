@@ -19,6 +19,10 @@ export type ReleaseReadinessInput = {
     reportLine: string;
     detail?: string[];
   };
+  /** Signing / notarization / auto-update manifest checks. */
+  releaseArtifacts?: {
+    lines: string[];
+  };
 };
 
 function benchmarkSummary(results: BenchmarkResult[]): { avgScore: number; pass: boolean } {
@@ -83,6 +87,12 @@ export function buildReleaseReadinessReportMarkdown(input: ReleaseReadinessInput
           ...(input.trueManuscript.detail ?? []).map((line) => `- ${line}`),
         ].join("\n")
       : "True-manuscript gate not evaluated in this report.",
+    "",
+    "## Release Artifacts (signing / notarization / auto-update)",
+    "",
+    input.releaseArtifacts
+      ? input.releaseArtifacts.lines.join("\n")
+      : "Release artifacts not evaluated in this report.",
     "",
     "## Known Risks",
     "",

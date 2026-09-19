@@ -9,6 +9,10 @@ import {
   type BenchmarkResult,
 } from "../../src/lawmind/evaluation/index.js";
 import {
+  formatReleaseArtifactsReport,
+  inspectReleaseArtifacts,
+} from "../../src/lawmind/evaluation/release-artifacts.js";
+import {
   formatTrueManuscriptGateReport,
   inspectTrueManuscriptGate,
   runTrueManuscriptGateCli,
@@ -117,6 +121,13 @@ async function main(): Promise<void> {
     );
   }
 
+  // 发行产物：签名/公证/自动更新清单。产物不存在时诚实报「未评估」并计入风险。
+  const releaseArtifacts = inspectReleaseArtifacts(
+    path.resolve(process.cwd(), "apps/lawmind-desktop/release"),
+  );
+  const releaseArtifactLines = formatReleaseArtifactsReport(releaseArtifacts);
+  knownRisks.push(...releaseArtifactLines.risks);
+
   const report = buildReleaseReadinessReportMarkdown({
     benchmarkResults,
     benchmarkTasks: BUILTIN_BENCHMARK_TASKS,
@@ -126,10 +137,12 @@ async function main(): Promise<void> {
       reportLine: formatTrueManuscriptGateReport(trueManuscriptGate),
       detail: trueManuscriptLines.slice(1),
     },
+    releaseArtifacts: { lines: releaseArtifactLines.lines },
     verifyCommands: [
       "pnpm lawmind:verify",
       "pnpm lawmind:benchmark -- --out dist/lawmind-benchmark.json",
       "LAWMIND_REQUIRE_TRUE_MANUSCRIPT=1 pnpm lawmind:true-manuscript",
+      "pnpm lawmind:desktop:dist",
       "pnpm lawmind:desktop:e2e:pr",
       "pnpm lawmind:quarterly-demo",
       "pnpm lawmind:release-readiness",
