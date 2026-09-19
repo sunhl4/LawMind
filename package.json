@@ -56,6 +56,7 @@
     "lawmind:skills:golden": "node --import tsx scripts/lawmind/lawmind-skills-golden.ts",
     "lawmind:smoke": "node --import tsx scripts/lawmind/lawmind-smoke.ts",
     "lawmind:sync:renderer-css": "node scripts/lawmind/lawmind-sync-renderer-css.mjs",
+    "lawmind:true-manuscript": "node --import tsx scripts/lawmind/lawmind-true-manuscript.ts",
     "lawmind:ui-copy-lint": "node scripts/lawmind/lawmind-ui-copy-lint.mjs",
     "lawmind:ui:agents-desk-mockups": "node scripts/lawmind/generate-ui-agents-desk-mockups.mjs",
     "lawmind:ui:agents-desk-v3-mockups": "node scripts/lawmind/generate-ui-agents-desk-v3-mockups.mjs",

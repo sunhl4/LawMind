@@ -5,6 +5,7 @@ import { apiGetTriageRules } from "./lawmind-triage-api";
 import {
   authorityCorpusStatusLabel,
   formatAuthorityProbeSuccessMsg,
+  isAuthorityCorpusCommercialReady,
   isAuthorityCorpusUiReady,
 } from "./lawmind-settings-models";
 import {
@@ -116,7 +117,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
 
   useEffect(() => {
     if (!apiBase || healthProp) {
-      return;
+      return undefined;
     }
     let cancelled = false;
     void loadHealthPayload(apiBase)
@@ -137,7 +138,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
 
   useEffect(() => {
     if (!apiBase) {
-      return;
+      return undefined;
     }
     let cancelled = false;
     void apiGetTriageRules(apiBase)
@@ -791,7 +792,7 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
           <span className="lm-settings-key">外接权威库</span>
           <span
             className={
-              isAuthorityCorpusUiReady(authorityCorpus?.status)
+              isAuthorityCorpusCommercialReady(authorityCorpus?.status)
                 ? "lm-pill lm-pill-success"
                 : authorityCorpus?.status === "invalid"
                   ? "lm-pill lm-pill-danger"
@@ -817,12 +818,8 @@ export function LawmindSettingsDoctor(props: Props): ReactNode {
         </p>
         <div className="lm-doctor-security-grid" data-testid="lm-doctor-company-registry">
           <span className="lm-settings-key">工商查询</span>
-          <span
-            className={
-              companyRegistry?.configured ? "lm-pill lm-pill-success" : "lm-pill lm-pill-warn"
-            }
-          >
-            {companyRegistry?.configured ? "已配置端点" : "未接工商源"}
+          <span className="lm-pill lm-pill-warn">
+            {companyRegistry?.configured ? "已配端点（未验活）" : "未接工商源"}
           </span>
         </div>
         <p className="lm-settings-caption">

@@ -197,6 +197,9 @@ describe("LawmindSettingsDoctor", () => {
     const pill = host.querySelector('[data-testid="lm-doctor-authority-status"]');
     expect(pill?.getAttribute("data-status")).toBe("sample-ready");
     expect(pill?.textContent).toContain("演示语料就绪");
+    expect(pill?.textContent).toContain("非正式权威库");
+    expect(pill?.className).toContain("lm-pill-warn");
+    expect(pill?.className).not.toContain("lm-pill-success");
     expect(pill?.textContent).not.toContain("已配置");
   });
 

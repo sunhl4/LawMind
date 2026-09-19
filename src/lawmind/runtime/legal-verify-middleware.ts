@@ -358,6 +358,17 @@ export function applyLegalVerifyToResult(
   }
   if ((toolName === "search_statute" || toolName === "search_case_law") && result.ok) {
     const data = asRecord(result.data);
+    // Demo corpus must never be stamped live, even if a flag is wrong upstream.
+    if (data?.demoCorpus === true) {
+      return {
+        ...result,
+        data: mergeData(result, {
+          sourceTier: WORKSPACE_HEURISTIC_SOURCE_TIER,
+          authorityLive: false,
+          demoCorpus: true,
+        }),
+      };
+    }
     const live =
       data?.authorityLive === true || data?.authority === "live" || data?.sourceTier === "live";
     return {

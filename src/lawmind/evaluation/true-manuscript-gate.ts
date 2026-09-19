@@ -49,6 +49,62 @@ export function inspectTrueManuscriptGate(repoRoot?: string): TrueManuscriptGate
   return { present: true, dir, files };
 }
 
+/** Always-printable status for CLI / CI logs (never silent about skip). */
+export function formatTrueManuscriptGateReport(gate: TrueManuscriptGate): string {
+  if (!gate.present) {
+    return `SKIP: ${gate.skipReason ?? "真稿夹具未放入"}`;
+  }
+  const baselines = loadTrueManuscriptBaselines(gate.dir);
+  return `RUN: ${gate.files.length} file(s)${baselines.length > 0 ? ` · ${baselines.length} sidecar baseline(s)` : ""} → ${gate.dir}`;
+}
+
+/**
+ * CLI entry for `pnpm lawmind:true-manuscript`.
+ * Default: print SKIP/RUN and exit 0 (honest skip is not a failure).
+ * `LAWMIND_REQUIRE_TRUE_MANUSCRIPT=1`: exit 1 on skip (local/nightly only).
+ */
+export async function runTrueManuscriptGateCli(opts?: {
+  repoRoot?: string;
+  require?: boolean;
+  log?: (line: string) => void;
+}): Promise<{ ok: boolean; gate: TrueManuscriptGate; exitCode: number }> {
+  const log = opts?.log ?? ((line: string) => console.log(line));
+  const require =
+    opts?.require === true ||
+    ["1", "true", "yes"].includes(
+      (process.env.LAWMIND_REQUIRE_TRUE_MANUSCRIPT ?? "").trim().toLowerCase(),
+    );
+  const gate = inspectTrueManuscriptGate(opts?.repoRoot);
+  log(formatTrueManuscriptGateReport(gate));
+  if (!gate.present) {
+    return { ok: !require, gate, exitCode: require ? 1 : 0 };
+  }
+  let failed = 0;
+  for (const name of gate.files) {
+    const shape = await inspectTrueManuscriptFileShape(path.join(gate.dir, name));
+    if (!shape.ok) {
+      log(`FAIL: ${name}: ${shape.reason ?? "形态检查失败"}`);
+      failed += 1;
+    } else {
+      log(`OK: ${name}${shape.textChars != null ? ` (${shape.textChars} chars)` : ""}`);
+    }
+  }
+  for (const baseline of loadTrueManuscriptBaselines(gate.dir)) {
+    const r = await compareTrueManuscriptAgainstBaseline(gate.dir, baseline);
+    if (!r.ok) {
+      log(`FAIL baseline: ${baseline.file}: ${r.reason ?? "未通过"}`);
+      failed += 1;
+    } else {
+      log(`OK baseline: ${baseline.file}`);
+    }
+  }
+  if (failed > 0) {
+    return { ok: false, gate, exitCode: 1 };
+  }
+  log("true-manuscript gate pass");
+  return { ok: true, gate, exitCode: 0 };
+}
+
 export type TrueManuscriptFileShape = {
   name: string;
   kind: "docx" | "doc" | "pdf" | "unknown";

@@ -105,6 +105,13 @@ export const SYSTEM_PROMPT_SECTION_CATALOG: Array<{
     cache: "session",
   },
   {
+    id: "authority_official_public",
+    title: "官方法规公开检索",
+    always: false,
+    headingMatch: "官方法规公开检索",
+    cache: "session",
+  },
+  {
     id: "web_search",
     title: "联网检索",
     always: false,
@@ -328,6 +335,11 @@ export type SystemPromptContext = {
   allowWebSearch?: boolean;
   /** 本机已配置闭源/generic 权威库（法宝等），search_statute 会实查 */
   authorityLive?: boolean;
+  /**
+   * Official public statute search enabled (e.g. NPC FLK via LAWMIND_OPEN_LAW_NPC).
+   * Distinct from commercial authorityLive (法宝/generic).
+   */
+  authorityOfficialPublic?: boolean;
   /** 律师可见的权威库名称，如「北大法宝（闭源·手动）」 */
   authorityProviderLabel?: string;
   /** 是否已开启助手间协作 */
@@ -597,6 +609,14 @@ ${orgLine}
 - 引用须保留工具返回的 URL（通常为 pkulaw.com），并请律师核对原文。
 - 不要编造桌面菜单路径。权威库状态在「设置 → 模型与连接」，没有「法规库 / 数据源」这一项。
 - 「设置 → 安全 → 外部对接」里的法宝 MCP 与本权威库是同一套网关/Token，不是第二个未接上的库；查法条优先 \`search_statute\`，不要用 \`mcp__*\` 工具名对律师说没有接口。`);
+  } else if (ctx.authorityOfficialPublic) {
+    sessionSections.push(`## 官方法规公开检索（已启用）
+
+已启用 **国家法律法规数据库**（flk.npc.gov.cn）公开检索（\`LAWMIND_OPEN_LAW_NPC\`）。这不是北大法宝等商业库。
+
+- \`search_statute\` / \`search_case_law\` 可先查 NPC；未命中时可能回退到**演示语料**——演示命中必须标成演示，不得写成已核实权威库。
+- 律师问「有没有接北大法宝」时：如实说**未接商业法宝**（除非设置里已配置闭源端点）；可说明已接国家法律法规数据库公开检索。
+- 引用须保留工具返回的 URL，并请律师核对原文。`);
   }
 
   if (ctx.allowWebSearch) {

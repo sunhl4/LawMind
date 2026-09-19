@@ -380,6 +380,26 @@ describe("legal-verify-middleware", () => {
     expect(resolveOutboundAllowedDomains(ws)).toEqual(["acme.cn"]);
   });
 
+  it("forces sample tier when demoCorpus is true even if authorityLive was set", () => {
+    const stamped = applyLegalVerifyToResult("search_statute", {
+      ok: true,
+      data: {
+        authorityLive: true,
+        sourceTier: "live",
+        demoCorpus: true,
+        hits: [{ title: "演示" }],
+      },
+    });
+    const data = stamped.data as {
+      authorityLive?: boolean;
+      sourceTier?: string;
+      demoCorpus?: boolean;
+    };
+    expect(data.demoCorpus).toBe(true);
+    expect(data.authorityLive).toBe(false);
+    expect(data.sourceTier).toBe("sample");
+  });
+
   it("blocks prepare_outbound_mail when the linked contract draft has empty redline", () => {
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-verify-ob-"));
     dirs.push(ws);

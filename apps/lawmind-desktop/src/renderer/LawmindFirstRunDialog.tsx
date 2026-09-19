@@ -139,17 +139,17 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
 
   useEffect(() => {
     if (open) {
-      return;
+      return undefined;
     }
     if (suppressAutoOpen) {
       setAutoOpen(false);
-      return;
+      return undefined;
     }
     if (typeof window === "undefined" || !apiBase) {
-      return;
+      return undefined;
     }
     if (window.localStorage.getItem(DISMISS_KEY)) {
-      return;
+      return undefined;
     }
     let cancelled = false;
     void (async () => {
@@ -192,7 +192,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
 
   useEffect(() => {
     if (step !== "spec" || specs !== null || !apiBase) {
-      return;
+      return undefined;
     }
     let cancelled = false;
     void (async () => {
@@ -244,6 +244,44 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
     setAutoOpen(false);
     onClose();
   }, [onClose]);
+
+  /** Skip wizard: still create demo matter + executable defaults (zero-choice after keys). */
+  const skipWizardAndStart = useCallback(async () => {
+    setSubmitBusy(true);
+    setSubmitError(null);
+    try {
+      const matterId = "演示案件";
+      const created = await apiSendJson<{ ok?: boolean; error?: string }, { matterId: string }>(
+        apiBase,
+        "/api/matters/create",
+        "POST",
+        { matterId },
+      );
+      if (!created.ok) {
+        throw new Error(created.error ?? "无法创建演示案件");
+      }
+      try {
+        await apiSendJson<{ ok?: boolean; error?: string }, { matterId: string }>(
+          apiBase,
+          "/api/onboarding/firstrun-wizard",
+          "POST",
+          { matterId },
+        );
+      } catch {
+        /* 首跑审计失败不阻断 */
+      }
+      applyPostFirstrunPermissionDefaults({ executable: true });
+      onSeedReady({
+        matterId,
+        seedPrompt: "把材料拖进来，或直接说要办的事。不必先选文书类型。",
+      });
+      dismissForever();
+    } catch (e) {
+      setSubmitError(errorMessage(e, "无法跳过向导并开始"));
+    } finally {
+      setSubmitBusy(false);
+    }
+  }, [apiBase, onSeedReady, dismissForever]);
 
   const prefsReady = Boolean(writingStyle && riskPosture && clientTone);
 
@@ -566,9 +604,10 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
             type="button"
             className="lm-btn lm-btn-secondary"
             data-testid="lm-firstrun-skip-wizard"
-            onClick={dismissForever}
+            disabled={submitBusy}
+            onClick={() => void skipWizardAndStart()}
           >
-            跳过向导，直接开始
+            {submitBusy ? "正在开始…" : "跳过向导，直接开始"}
           </button>
           {onOpenAdvancedSettings ? (
             <button

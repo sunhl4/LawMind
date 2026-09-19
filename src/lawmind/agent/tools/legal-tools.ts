@@ -1,6 +1,8 @@
 /**
  * LawMind legal tool registry (thin facade).
  */
+import { loadAssistantProfiles, resolveLawMindRoot } from "../../assistants/store.js";
+import { buildCollaborationPolicyFromAssistants } from "../collaboration/collaboration-policy-from-org.js";
 import type { AgentConfig } from "../types.js";
 import type { AgentTool } from "../types.js";
 import {
@@ -119,18 +121,27 @@ export function createLegalToolRegistry(opts?: {
   }
 
   if (opts?.enableCollaboration && opts.baseConfig) {
+    const lawMindRoot = resolveLawMindRoot(opts.baseConfig.workspaceDir, opts.baseConfig.envFile);
+    let collabPolicy;
+    try {
+      collabPolicy = buildCollaborationPolicyFromAssistants(loadAssistantProfiles(lawMindRoot));
+    } catch {
+      collabPolicy = undefined;
+    }
     tools.push(
       createDelegateTaskTool({
         baseConfig: opts.baseConfig,
         currentDepth: opts.collaborationDepth ?? 0,
+        policy: collabPolicy,
       }),
       createDelegateToRoleTool({
         baseConfig: opts.baseConfig,
         currentDepth: opts.collaborationDepth ?? 0,
+        policy: collabPolicy,
       }),
-      createConsultAssistantTool({ baseConfig: opts.baseConfig }),
+      createConsultAssistantTool({ baseConfig: opts.baseConfig, policy: collabPolicy }),
       createNotifyAssistantTool({ baseConfig: opts.baseConfig }),
-      createRequestReviewTool({ baseConfig: opts.baseConfig }),
+      createRequestReviewTool({ baseConfig: opts.baseConfig, policy: collabPolicy }),
       listDelegationsTool,
       getDelegationResultTool,
     );

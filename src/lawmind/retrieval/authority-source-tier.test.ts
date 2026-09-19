@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   isAuthorityLive,
+  isAuthorityOfficialPublic,
   resolveAuthoritySourceTier,
   WORKSPACE_HEURISTIC_SOURCE_TIER,
 } from "./authority-source-tier.js";
@@ -10,6 +11,7 @@ describe("authority-source-tier", () => {
     provider: process.env.LAWMIND_AUTHORITY_PROVIDER,
     endpoint: process.env.LAWMIND_AUTHORITY_ENDPOINT,
     key: process.env.LAWMIND_AUTHORITY_API_KEY,
+    npc: process.env.LAWMIND_OPEN_LAW_NPC,
   };
 
   afterEach(() => {
@@ -28,6 +30,11 @@ describe("authority-source-tier", () => {
     } else {
       process.env.LAWMIND_AUTHORITY_API_KEY = prev.key;
     }
+    if (prev.npc === undefined) {
+      delete process.env.LAWMIND_OPEN_LAW_NPC;
+    } else {
+      process.env.LAWMIND_OPEN_LAW_NPC = prev.npc;
+    }
   });
 
   it("defaults to sample and never treats workspace heuristic as live", () => {
@@ -37,6 +44,14 @@ describe("authority-source-tier", () => {
     expect(WORKSPACE_HEURISTIC_SOURCE_TIER).toBe("sample");
     expect(isAuthorityLive()).toBe(false);
     expect(resolveAuthoritySourceTier()).not.toBe("live");
+  });
+
+  it("treats LAWMIND_OPEN_LAW_NPC as official public, not commercial live", () => {
+    delete process.env.LAWMIND_AUTHORITY_PROVIDER;
+    delete process.env.LAWMIND_AUTHORITY_ENDPOINT;
+    process.env.LAWMIND_OPEN_LAW_NPC = "1";
+    expect(isAuthorityOfficialPublic()).toBe(true);
+    expect(isAuthorityLive()).toBe(false);
   });
 
   it("marks a configured vendor endpoint as live", () => {

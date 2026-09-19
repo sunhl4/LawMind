@@ -10,6 +10,7 @@ export type {
   ReviewFeedback,
 } from "./types.js";
 export { DEFAULT_COLLABORATION_POLICY } from "./types.js";
+export { buildCollaborationPolicyFromAssistants } from "./collaboration-policy-from-org.js";
 
 export {
   sendAndWait,

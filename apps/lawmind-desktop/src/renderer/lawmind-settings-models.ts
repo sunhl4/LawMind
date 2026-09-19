@@ -43,11 +43,18 @@ export type LawmindSettingsAuthorityCorpus = {
   providerEnvKey?: string;
 };
 
-/** Doctor / settings: sample-ready or commercial configured. */
+/** Doctor / settings: sample-ready or commercial configured (probeable). */
 export function isAuthorityCorpusUiReady(
   status: LawmindSettingsAuthorityCorpus["status"] | undefined,
 ): boolean {
   return status === "configured" || status === "sample-ready";
+}
+
+/** Green pill only for commercial/configured endpoint — never for demo sample. */
+export function isAuthorityCorpusCommercialReady(
+  status: LawmindSettingsAuthorityCorpus["status"] | undefined,
+): boolean {
+  return status === "configured";
 }
 
 export function authorityCorpusStatusLabel(
@@ -55,7 +62,7 @@ export function authorityCorpusStatusLabel(
 ): string {
   const status = corpus?.status ?? "unset";
   if (status === "sample-ready") {
-    return "演示语料就绪";
+    return "演示语料就绪（非正式权威库）";
   }
   if (status === "configured") {
     return `已配置${corpus?.endpointHost ? ` · ${corpus.endpointHost}` : ""}${

@@ -64,6 +64,10 @@ skills-lock.json
 .ant-colony/
 /memory/
 
+# True-manuscript binaries (PII) — keep README only; never commit client docs
+fixtures/lawmind-true-manuscript/*
+!fixtures/lawmind-true-manuscript/README.md
+
 # Legacy single-file ignores（若需纳入版本控制，从下列行删除后 git add）
 IDENTITY.md
 USER.md

@@ -114,6 +114,7 @@ describe("LawmindSettingsModelRetrieval", () => {
     const pill = host.querySelector('[data-testid="lm-settings-authority-boundary"]');
     expect(pill?.getAttribute("data-status")).toBe("sample-ready");
     expect(host.textContent).toContain("演示语料就绪");
+    expect(host.textContent).toContain("非正式权威库");
     const probe = host.querySelector('[data-testid="lm-settings-authority-probe"]');
     expect(probe?.textContent).toContain("探测开源语料");
     expect((probe as HTMLButtonElement | null)?.disabled).toBe(false);

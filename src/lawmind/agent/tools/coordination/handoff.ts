@@ -11,6 +11,7 @@
 import { randomUUID } from "node:crypto";
 import { parentGatesFromContext } from "../../child-gates.js";
 import { emitCollaborationEvent } from "../../collaboration/audit.js";
+import { validateDelegation } from "../../collaboration/delegation-registry.js";
 import { sendAndWait, wrapUntrustedResult } from "../../collaboration/message-bus.js";
 import type { CollaborationPolicy, ReviewType } from "../../collaboration/types.js";
 import { DEFAULT_COLLABORATION_POLICY } from "../../collaboration/types.js";
@@ -89,6 +90,16 @@ export function createConsultAssistantTool(opts: {
       const fromId = ctx.assistantId ?? "unknown";
       if (fromId === targetId) {
         return { ok: false, error: "不能向自己咨询。" };
+      }
+
+      const validationError = validateDelegation({
+        fromAssistantId: fromId,
+        toAssistantId: targetId,
+        depth: 0,
+        policy,
+      });
+      if (validationError) {
+        return { ok: false, error: validationError };
       }
 
       const fullMessage = contextStr ? `${brief.brief}\n\n背景信息：\n${contextStr}` : brief.brief;
@@ -189,6 +200,16 @@ export function createRequestReviewTool(opts: {
       const fromId = ctx.assistantId ?? "unknown";
       if (fromId === targetId) {
         return { ok: false, error: "不能请求自己审查。" };
+      }
+
+      const validationError = validateDelegation({
+        fromAssistantId: fromId,
+        toAssistantId: targetId,
+        depth: 0,
+        policy,
+      });
+      if (validationError) {
+        return { ok: false, error: validationError };
       }
 
       const reviewTypeLabels: Record<ReviewType, string> = {

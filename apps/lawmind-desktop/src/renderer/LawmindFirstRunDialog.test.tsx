@@ -103,18 +103,30 @@ describe("LawmindFirstRunDialog 演示案件名", () => {
     expect(isValidMatterId(matterId)).toBe(true);
   });
 
-  it("exposes 跳过向导，直接开始 without completing the wizard", async () => {
+  it("exposes 跳过向导，直接开始 and creates 演示案件", async () => {
+    const onSeedReady = vi.fn();
     await act(async () => {
       root.render(
         <LawmindFirstRunDialog
           apiBase="http://127.0.0.1:8765"
           open
           onClose={vi.fn()}
-          onSeedReady={vi.fn()}
+          onSeedReady={onSeedReady}
         />,
       );
     });
-    const skip = host.querySelector('[data-testid="lm-firstrun-skip-wizard"]');
+    const skip = host.querySelector('[data-testid="lm-firstrun-skip-wizard"]') as HTMLButtonElement;
     expect(skip?.textContent).toContain("跳过向导，直接开始");
+    await act(async () => {
+      skip.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(createBodies.length).toBe(1);
+    expect(createBodies[0]?.matterId).toBe("演示案件");
+    expect(onSeedReady).toHaveBeenCalledWith(
+      expect.objectContaining({
+        matterId: "演示案件",
+        seedPrompt: expect.stringContaining("拖进来"),
+      }),
+    );
   });
 });

@@ -144,3 +144,13 @@
 不要做、也未做：确认流、路由签字、cold-start 三问请回主路径。
 
 _对照实测（真稿）仍须律师放入真实 `.docx` / 起诉状后，闸门才会从 skip 变成形态比对。_
+
+## 已落地（2026-09-18 · 市面对标评审实施）
+
+对照市面通用/专用 agent 评审建议的可测切片（不伪造法宝账号、不 vendoring 真稿 PII）：
+
+- **真稿质量证明**：`formatTrueManuscriptGateReport` + `pnpm lawmind:true-manuscript` 始终打印 SKIP/RUN；`LAWMIND_REQUIRE_TRUE_MANUSCRIPT=1` 在无夹具时失败（夜跑/本地）；二进制夹具 gitignore，只保留 README。
+- **权威源诚实**：`demoCorpus` 强制 `sourceTier=sample` / `authorityLive=false`；Doctor 演示语料用 warn pill；NPC 启用时系统提示写「国家法律法规数据库」并如实「未接商业法宝」；工商 pill 改为「已配端点（未验活）」。
+- **冷启动**：跳过向导会创建「演示案件」+ 可执行权限默认 + 种子提示（钥匙后一键开工）。
+- **规范库索引吸收**：`canonical-skill-index` 元数据（无正文）经 `read_skill` 空参返回 `externalIndex`；点名 id 返回 `canonical_index` 且无 body。
+- **Firm 委派层级**：`buildCollaborationPolicyFromAssistants` 从 reportsTo / peerReview 填 `allowedPairs`；`consult_assistant` / `request_review` / `delegate_*` 共用校验。Solo 无组织字段仍开放图。

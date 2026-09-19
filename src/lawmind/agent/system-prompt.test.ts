@@ -75,6 +75,13 @@ describe("system prompt sections", () => {
     });
     expect(withAuthority.sections.some((s) => s.id === "authority_corpus")).toBe(true);
     expect(withAuthority.text).toContain("北大法宝（闭源·手动）");
+    const withNpc = buildSystemPromptWithMeta({
+      ...minimalCtx,
+      authorityOfficialPublic: true,
+    });
+    expect(withNpc.sections.some((s) => s.id === "authority_official_public")).toBe(true);
+    expect(withNpc.text).toContain("国家法律法规数据库");
+    expect(withNpc.text).toContain("未接商业法宝");
   });
 
   it("catalog marks identity as static and matter as session", () => {

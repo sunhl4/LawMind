@@ -5,6 +5,7 @@
 import type { ReactNode } from "react";
 import {
   authorityCorpusStatusLabel,
+  isAuthorityCorpusCommercialReady,
   isAuthorityCorpusUiReady,
   type LawmindSettingsAuthorityCorpus,
 } from "./lawmind-settings-models";
@@ -34,7 +35,8 @@ export function LawmindAuthoritySetup({
   probeControl,
 }: Props) {
   const status = authorityCorpus?.status ?? "unset";
-  const ready = isAuthorityCorpusUiReady(status);
+  const commercial = isAuthorityCorpusCommercialReady(status);
+  const probeable = isAuthorityCorpusUiReady(status);
   return (
     <section
       className="lm-settings-block"
@@ -49,7 +51,7 @@ export function LawmindAuthoritySetup({
         <span className="lm-settings-key">状态</span>
         <span
           className={
-            ready
+            commercial
               ? "lm-pill lm-pill-success"
               : status === "invalid"
                 ? "lm-pill lm-pill-danger"
@@ -59,11 +61,12 @@ export function LawmindAuthoritySetup({
             status === "unimplemented"
               ? "适配器未就绪"
               : status === "sample-ready"
-                ? "演示语料"
+                ? "演示语料（非正式权威库）"
                 : undefined
           }
           data-testid="lm-authority-setup-status"
           data-status={status}
+          data-probeable={probeable ? "1" : "0"}
         >
           {authorityCorpusStatusLabel(authorityCorpus)}
         </span>

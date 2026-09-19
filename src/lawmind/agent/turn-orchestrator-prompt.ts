@@ -44,7 +44,7 @@ import {
   resolveMatterMandatoryRulesForPrompt,
 } from "../policy/workspace-policy.js";
 import { buildAuthorityCorpusSummary } from "../retrieval/authority-health.js";
-import { isAuthorityLive } from "../retrieval/authority-source-tier.js";
+import { isAuthorityLive, isAuthorityOfficialPublic } from "../retrieval/authority-source-tier.js";
 import {
   deliverableTypeFromInstruction,
   instructionLooksLikeFilledIntake,
@@ -365,6 +365,7 @@ export async function prepareTurnPromptContext(opts: {
     roleAcceptanceChecklist: presetForTools?.acceptanceChecklist,
     allowWebSearch: config.allowWebSearch === true,
     authorityLive: isAuthorityLive(),
+    authorityOfficialPublic: !isAuthorityLive() && isAuthorityOfficialPublic(),
     authorityProviderLabel: isAuthorityLive()
       ? buildAuthorityCorpusSummary().providerLabel
       : undefined,
@@ -540,7 +541,7 @@ export async function prepareTurnPromptContext(opts: {
     if (previewItems.length > 0) {
       const lines = previewItems.map(
         (r, i) =>
-          `${i + 1}. [${r.scope}/${r.kind}] ${String(r.payload ?? "")
+          `${i + 1}. [${r.scope}/${r.kind}] ${(r.payload ?? "")
             .replace(/\s+/g, " ")
             .slice(0, 220)}`,
       );

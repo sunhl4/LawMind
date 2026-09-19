@@ -4,6 +4,10 @@
  */
 
 import {
+  formatCanonicalSkillIndexCatalog,
+  lookupCanonicalSkillIndex,
+} from "../../../skills/census/canonical-skill-index.js";
+import {
   readBuiltinSkillMarkdown,
   readSkillPromptBodies,
 } from "../../../skills/lawyer-capabilities.js";
@@ -32,12 +36,12 @@ export const readSkillTool: AgentTool = {
   definition: {
     name: READ_SKILL_TOOL_NAME,
     description:
-      "按需读取一份技能正文（builtin 或本机已启用 Skill）。绑定后索引里的技能不要通读，需要时再调用。可传 skill_id（如 contract-review-layers）或律师能力名（如 合同审查）。",
+      "按需读取一份技能正文（builtin 或本机已启用 Skill）。绑定后索引里的技能不要通读，需要时再调用。可传 skill_id（如 contract-review-layers）或律师能力名（如 合同审查）。省略 skill_id 时返回可执行目录 + 规范库元数据索引（不装包、不执行第三方正文）。",
     category: "system",
     parameters: {
       skill_id: {
         type: "string",
-        description: "技能 id 或能力名。省略则只返回可读取目录。",
+        description: "技能 id 或能力名。省略则只返回可读取目录与规范库索引。",
       },
     },
     isConcurrencySafe: true,
@@ -49,12 +53,15 @@ export const readSkillTool: AgentTool = {
       ...LAWYER_CAPABILITY_DESK_ITEMS.map((item) => `${item.id}（${item.label}）`),
       ...listEnabledLocalIds(ctx.workspaceDir).map((id) => `${id}（本机）`),
     ].slice(0, 40);
+    const externalIndex = formatCanonicalSkillIndexCatalog(40);
     if (!requested) {
       return {
         ok: true,
         data: {
           catalog,
-          message: "传入 skill_id 读取正文。索引技能不要整份塞进对话。",
+          externalIndex,
+          message:
+            "传入 skill_id 读取可执行正文。externalIndex 是规范库元数据（发现/消化用），不装包、不执行。",
         },
       };
     }
@@ -76,13 +83,32 @@ export const readSkillTool: AgentTool = {
         },
       };
     }
+    const canonical = lookupCanonicalSkillIndex(requested);
+    if (canonical) {
+      return {
+        ok: true,
+        data: {
+          skillId: canonical.id,
+          kind: "canonical_index",
+          label: canonical.label,
+          sourceRepo: canonical.sourceRepo,
+          licenseAbsorb: canonical.licenseAbsorb,
+          mapsToCapabilityId: canonical.mapsToCapabilityId,
+          when: canonical.when,
+          notWhen: canonical.notWhen,
+          body: undefined,
+          message:
+            "规范库索引条目：仅元数据。不要假装已装第三方 SKILL 正文；消化后应落成本机/builtin Skill 再执行。",
+        },
+      };
+    }
     const bodies = readSkillPromptBodies(ctx.workspaceDir, [requested]);
     const body = bodies[0] ?? readBuiltinSkillMarkdown(requested);
     if (!body?.trim()) {
       return {
         ok: false,
-        error: `未找到技能 ${requested}。可先不传 skill_id 查看目录。`,
-        data: { catalog },
+        error: `未找到技能 ${requested}。可先不传 skill_id 查看目录与规范库索引。`,
+        data: { catalog, externalIndex },
       };
     }
     const clipped =

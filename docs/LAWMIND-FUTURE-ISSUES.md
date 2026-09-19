@@ -6,13 +6,13 @@
 
 **交叉引用**
 
-| 文档                                                                                         | 关系                                                                             |
-| -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| [LAWMIND-PERSISTENCE-SCALE-REVIEW.md](./archive/LAWMIND-PERSISTENCE-SCALE-REVIEW.md)（归档） | 持久化膨胀 / token / 扫盘审查与 P0–P2 已实施细节                                 |
-| [LAWMIND-OPTIMIZATION-BACKLOG.md](./archive/LAWMIND-OPTIMIZATION-BACKLOG.md)（归档）         | 产品远景与能力 backlog                                                           |
-| [LAWMIND-ENGINEERING-REVIEW.md](./archive/LAWMIND-ENGINEERING-REVIEW.md)（归档）             | 工程评审与已落地附录                                                             |
-| [LAWMIND-AGENT-PARITY-REVIEW.md](./LAWMIND-AGENT-PARITY-REVIEW.md)                           | 上手/智能/稳态/律师专用对标 Cursor·Codex·Claude Code（2026-09-15，P0–P2 已落地） |
-| [LAWMIND-CODEX-WORKER-PARITY.md](./LAWMIND-CODEX-WORKER-PARITY.md)                           | 子工/并行循环对标 Codex subagent（P5–P8；P0–P4 已落地）                          |
+| 文档                                                                                         | 关系                                                                                                            |
+| -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| [LAWMIND-PERSISTENCE-SCALE-REVIEW.md](./archive/LAWMIND-PERSISTENCE-SCALE-REVIEW.md)（归档） | 持久化膨胀 / token / 扫盘审查与 P0–P2 已实施细节                                                                |
+| [LAWMIND-OPTIMIZATION-BACKLOG.md](./archive/LAWMIND-OPTIMIZATION-BACKLOG.md)（归档）         | 产品远景与能力 backlog                                                                                          |
+| [LAWMIND-ENGINEERING-REVIEW.md](./archive/LAWMIND-ENGINEERING-REVIEW.md)（归档）             | 工程评审与已落地附录                                                                                            |
+| [LAWMIND-AGENT-PARITY-REVIEW.md](./LAWMIND-AGENT-PARITY-REVIEW.md)                           | 上手/智能/稳态/律师专用对标 Cursor·Codex·Claude Code（2026-09-15，P0–P2 已落地；2026-09-18 市面对标切片已落地） |
+| [LAWMIND-CODEX-WORKER-PARITY.md](./LAWMIND-CODEX-WORKER-PARITY.md)                           | 子工/并行循环对标 Codex subagent（P5–P8；P0–P4 已落地）                                                         |
 
 ---
 
