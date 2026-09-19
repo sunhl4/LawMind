@@ -33,9 +33,10 @@ export default defineConfig({
         "apps/lawmind-desktop/src/renderer/**/*.tsx",
       ],
       exclude: ["**/*.test.ts", "**/*.test.tsx", "**/index.ts", "**/types.ts"],
-      thresholds: {
-        statements: 40,
-      },
+      // 覆盖率地板只有一处：scripts/pre-commit/coverage-baseline.json +
+      // scripts/pre-commit/check-coverage-ratchet.mjs（带 tolerancePct 与 --update）。
+      // 这里原先另有一个 thresholds.statements: 40，低于棘轮地板 48，永远不可能先触发，
+      // 只会让人误读真实门槛——已删除，避免同一策略两个数字。
     },
   },
 });

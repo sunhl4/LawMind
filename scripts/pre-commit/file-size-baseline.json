@@ -1,17 +1,17 @@
 {
-  "description": "Grandfathered oversize files (Phase 12 soft limits). New violations fail CI.",
-  "renderer": [
-    "apps/lawmind-desktop/src/renderer/LawmindAgentFleetPanel.tsx",
-    "apps/lawmind-desktop/src/renderer/LawmindLawyerWorkbench.tsx",
-    "apps/lawmind-desktop/src/renderer/LawmindSettingsDoctor.tsx",
-    "apps/lawmind-desktop/src/renderer/file/FileWorkbenchImpl.tsx",
-    "apps/lawmind-desktop/src/renderer/file/FileWorkbenchView.tsx",
-    "apps/lawmind-desktop/src/renderer/lawmind-chat-shell.tsx",
-    "apps/lawmind-desktop/src/renderer/matter/useMatterProductIntelligence.ts"
-  ],
-  "tools": [
-    "src/lawmind/agent/tools/engine/engine-pipeline-tools.ts",
-    "src/lawmind/agent/tools/engine/engine-workflow-tool.ts",
-    "src/lawmind/agent/tools/legal/search-tools.ts"
-  ]
+  "description": "Grandfathered oversize files (Phase 12 soft limits). Values are frozen line ceilings: a file may not grow past ceiling + toleranceLines. New violations fail CI; stale entries (no longer oversize) also fail. Update with --update after a split or a reviewed, justified growth.",
+  "toleranceLines": 10,
+  "renderer": {
+    "apps/lawmind-desktop/src/renderer/file/FileWorkbenchImpl.tsx": 930,
+    "apps/lawmind-desktop/src/renderer/lawmind-chat-shell.tsx": 1055,
+    "apps/lawmind-desktop/src/renderer/LawmindAgentFleetPanel.tsx": 928,
+    "apps/lawmind-desktop/src/renderer/LawmindLawyerWorkbench.tsx": 2542,
+    "apps/lawmind-desktop/src/renderer/LawmindSettingsDoctor.tsx": 1184,
+    "apps/lawmind-desktop/src/renderer/matter/useMatterProductIntelligence.ts": 802
+  },
+  "tools": {
+    "src/lawmind/agent/tools/engine/engine-pipeline-tools.ts": 1771,
+    "src/lawmind/agent/tools/engine/engine-workflow-tool.ts": 631,
+    "src/lawmind/agent/tools/legal/search-tools.ts": 960
+  }
 }

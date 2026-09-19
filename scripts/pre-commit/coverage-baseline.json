@@ -1,10 +1,10 @@
 {
-  "description": "Coverage ratchet floors (see scripts/pre-commit/check-coverage-ratchet.mjs). Update with --update after intentional coverage gains.",
-  "tolerancePct": 0.5,
+  "description": "Coverage ratchet floors (see scripts/pre-commit/check-coverage-ratchet.mjs). Update with --update after intentional coverage gains. Floors are set from a measured run; tolerancePct absorbs measurement jitter AND cross-environment variance (floors are often measured on macOS while CI runs ubuntu-latest), so a first-run CI failure is not a false alarm.",
+  "tolerancePct": 1.5,
   "floors": {
-    "statements": 48,
-    "branches": 38.57,
-    "functions": 44.89,
-    "lines": 48.16
+    "statements": 62.77,
+    "branches": 53.27,
+    "functions": 61.99,
+    "lines": 62.88
   }
 }
