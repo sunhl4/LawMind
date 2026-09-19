@@ -66,7 +66,32 @@ LawMind **不把可审计当作产品价值、法律质量证明或用户信任�
 
 ## 三、当前期次与未完成项
 
-### 第十八期 — 对话补档案（当前期次）
+### 第十九期 — 商业产品化冲刺（对标 Harvey · 当前期次）
+
+依据：2026-09-18 市面对标评审（[docs/LAWMIND-AGENT-PARITY-REVIEW.md](docs/LAWMIND-AGENT-PARITY-REVIEW.md)）+ Harvey 2026-09 公开 release（Harvey II / Tenet / Agentic Vault / Review Tables / Command Center）。主线：**把「交件能不能直接用」从工程切片变成商业承诺**。计划全文：画布 `lawmind-harvey-next-steps-2026-09`。
+
+- [ ] **P0-1 真稿对照必跑**：`--write-baseline` 基线生成器；闸门结果写 `lawmind/metrics/true-manuscript-report.json`；release-readiness 真稿章节；nightly 接线（无夹具诚实 SKIP 不红）。真稿由律师自行脱敏放入，工程侧不伪造。
+- [ ] **P0-2 交件 lint 默认化（法律版 tsc）**：`renderDraft` / `render_tracked_draft` 机械 blocker 翻 `ok: false` 并收窄重试；邮件短路径意见稿文本纳入机械 lint（工具表冻结包不动）；NPC 可用时引用法条现行性试检（软标【待核实】）；cassette 断言 `lint_mechanical` 回灌。
+- [ ] **P0-3 法源默认可用**：NPC hybrid 默认开（`LAWMIND_OPEN_LAW_NPC=0` 才关）+ 端点节流；设置页 NPC 开关写 `.env.lawmind`；docx「参见」行带 url 时写超链接。断网/WAF 拒绝时诚实回退样本标演示语料。
+- [ ] **P1-A 案件上下文继承 + 可引用先例库**（对 Space / iManage）：结构化案件 fragment（当事人/未决期限/材料 top-N/时间线摘录，≤800 token）；旧案交付物入 knowledge_fts（`LAWMIND_ALLOW_CROSS_MATTER_SEARCH=1` 才开）；`search_precedents` 工具；对照 Tab 可「引用到对话」。
+- [ ] **P1-B 材料 Vault 搜索与整理**（对 Agentic Vault）：`materials_fts`（trigram，mtime 增量）；`search_matter` 带 `{relPath,page}`；`GET /api/matters/:id/materials/search`；整理三件套 `propose_organize_plan` → 确认 → `execute_organize_plan` → `revert_desk_write` 新 kind `organize_files`（限 materials 围栏）。
+- [ ] **P1-C 审查表交付物**（对 Review Tables）：`review.table` 类型（尽调/证据/条款矩阵三模板）；`review_table_update` 批量改/分组/导元数据；文书台轻量表格编辑器；xlsx/docx 导出。
+- [ ] **P1-D 风格记忆闭环**（对 Harvey Memory）：文书台保存时改稿 delta → 候选 → 待确认；确认后写 LAWYER_PROFILE §八 + 可执行偏好；§八写侧轮转（消 FUTURE-ISSUES 挂账）。不确认零写入。
+- [ ] **P1-E 冷启动收尾**：钥匙验证完自动建演示案件 + 种子提示 + 可执行默认，不再弹首跑向导（可从设置重开）；修 `applyPostFirstrunPermissionDefaults` 忽略 `executable`。
+- [ ] **P2-A 发行纪律**：tag 工作流接线 mac 签名/公证（`LAWMIND_REQUIRE_NOTARIZED=1`）与 win Authenticode（缺 secrets 诚实标红）；release-readiness 增公证状态 / latest*.yml / 真稿三项。证书为外部依赖。
+- [ ] **P2-B 离线许可（软门槛）**：`src/lawmind/license/`；`~/.lawmind/license.json`；ed25519 激活码 + 机器指纹；30 天试用到期只提醒不锁死；Doctor 许可区；SECURITY.md 补边界。不引入远程控制面。
+- [ ] **P2-C 交办成绩单 + 诊断包**：Doctor 律师可见成绩单（交办成功率/一次通过/lint 拦截/真稿趋势/法源状态）；`GET /api/support/bundle` 脱敏 zip（专测不含 key/secret）。
+- [ ] **P2-D 文档站发布**：`lawmind-docs.yml` 加 Pages deploy（main 推送）；CNAME 拷入 public；快速指南对齐新首跑流程（截图待真机补拍，诚实标注）。
+- [ ] **P3-1 首批 3 个 Skill 内化**：`contract-playbook-review`（Anthropic playbook，Apache-2.0，三档+己方/对方纸）；`matter.status` 补范围变更与预算（LPM）；`chronology.timeline` 两阶段预览确认（HoriZon/GCL）。每个带契约测试与出处记录。
+- [ ] **P3-2 消化流水线节奏化**：CANONICAL-LEGAL-SKILLS 增「消化记录」表；census 增量指向该表；每期固定「消化 N 个」勾选模板。
+
+```bash
+pnpm test && pnpm --filter lawmind-desktop typecheck && pnpm lawmind:compiler-gate
+LAWMIND_REQUIRE_TRUE_MANUSCRIPT=1 pnpm lawmind:true-manuscript   # 放稿后必须 RUN 且全过
+pnpm lawmind:release-readiness && pnpm lawmind:docs:build && pnpm lawmind:desktop:e2e:pr
+```
+
+### 第十八期 — 对话补档案
 
 律师拍板：对话里说补就**直接写入**（写错再改）；工作台贴传票/谈话的手工入口先留；不开办件菜单——开口或丢传票/谈话/文件夹时，**本轮工具表带上对应读写**，「更多工具」目录覆盖工作台真实能力。
 
@@ -255,4 +280,4 @@ pnpm --filter lawmind-desktop typecheck
 
 ---
 
-_最后更新：2026-09-18（第十八期：对话补档案，计划见 `docs/LAWMIND-CHAT-MATTER-FILL.md`；真稿对照仍开放）。_
+_最后更新：2026-09-19（第十九期：商业产品化冲刺，对标 Harvey；第十八期对话补档案真稿实测并入 P0-1）。_
