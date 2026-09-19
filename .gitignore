@@ -10,6 +10,10 @@ dist/
 dist-runtime/
 coverage/
 
+# Gate/CLI 生成的报告（CI 重新生成并作为 artifact 上传；真相源是 fixtures 与源码）
+# 之前误入库的 skills-golden-compare-report.json 长期陈旧且无人读取，故整体忽略。
+docs/generated/
+
 # Environment (never commit secrets)
 .env
 .env.*

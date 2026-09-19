@@ -339,11 +339,17 @@ describe("LawmindAppRootView", () => {
     expect(main?.classList.contains("lm-main-settings")).toBe(true);
     expect(main?.querySelector(".lm-settings-page")).toBeTruthy();
     expect(main?.querySelector(".lm-main-body")?.children.length).toBe(1);
-    await vi.waitFor(() => {
-      expect(main?.querySelector(".lm-settings-content-title")?.textContent ?? "").toContain(
-        "模型与连接",
-      );
-    });
+    // 该断言是同步渲染结果，但在 maxWorkers 满载时首个宏任务可能被推迟；
+    // 默认 1000ms 的 waitFor 超时在 CI/本机满载下会偶发红（曾两次误报）。
+    // 给足余量：不改变断言内容，只消除负载敏感的假红。
+    await vi.waitFor(
+      () => {
+        expect(main?.querySelector(".lm-settings-content-title")?.textContent ?? "").toContain(
+          "模型与连接",
+        );
+      },
+      { timeout: 10_000, interval: 50 },
+    );
     // Full-page settings: workspace left rail must not remain beside the settings nav.
     expect(host.querySelector(".lm-side")).toBeNull();
   });

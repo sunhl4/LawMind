@@ -68,8 +68,7 @@ describe("LawmindSettingsModelRetrieval", () => {
     expect(host.textContent).not.toContain("演示语料不等于完整法库");
   });
 
-  it("shows the NPC toggle and calls applyOpenLawNpc", async () => {
-    const applyOpenLawNpc = vi.fn();
+  it("shows the NPC toggle and calls applyOpenLawNpc", async () => {    const applyOpenLawNpc = vi.fn();
     await act(async () => {
       root.render(
         <LawmindSettingsModelRetrieval
