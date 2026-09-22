@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>LawMind 对话页 · 改后目标</title>
+    <style>
+      :root {
+        --bg: #ebe8e2;
+        --side: #f6f3ed;
+        --surface: #fffdf9;
+        --text: #2a2622;
+        --muted: #6e665c;
+        --border: #ddd5c8;
+        --brass: #a07a4a;
+        --brass-deep: #7d5c38;
+        --user: #f0e5d6;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font: 13px/1.5 "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
+        color: var(--text);
+        background: #222;
+      }
+      .shell {
+        position: relative;
+        width: 1440px;
+      }
+      .badge {
+        position: absolute;
+        top: 10px;
+        right: 12px;
+        z-index: 2;
+        background: var(--brass-deep);
+        color: #fff;
+        font-size: 11px;
+        padding: 4px 8px;
+        border-radius: 6px;
+      }
+      .frame {
+        width: 1440px;
+        height: 900px;
+        display: grid;
+        grid-template-columns: 300px 1fr;
+        background: var(--bg);
+      }
+      .side {
+        background: var(--side);
+        border-right: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        padding: 16px 14px 12px;
+      }
+      .brand-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 16px;
+      }
+      .brand {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .logo {
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+        background: linear-gradient(160deg, #c4a06a, #8b6840);
+      }
+      .brand strong {
+        display: block;
+        font-size: 15px;
+      }
+      .brand span {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .gear {
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+      }
+      .block {
+        margin-bottom: 14px;
+        min-height: 0;
+      }
+      .block-h {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+      .block-h h3 {
+        margin: 0;
+        font-size: 13px;
+      }
+      .link {
+        color: var(--brass-deep);
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .search {
+        border: 1px solid var(--border);
+        background: var(--surface);
+        border-radius: 8px;
+        padding: 8px 10px;
+        color: var(--muted);
+        margin-bottom: 8px;
+      }
+      .case {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 9px 10px;
+        border-radius: 10px;
+        margin-bottom: 4px;
+      }
+      .case.on {
+        background: #efe4d4;
+      }
+      .case:hover {
+        background: #f3ebe0;
+      }
+      .tag {
+        font-size: 11px;
+        color: var(--brass-deep);
+        background: #f0e4d2;
+        border-radius: 999px;
+        padding: 2px 7px;
+        white-space: nowrap;
+        height: fit-content;
+      }
+      .tag.muted {
+        color: var(--muted);
+        background: #ece8e1;
+      }
+      .sess {
+        padding: 8px 10px;
+        border-radius: 10px;
+        margin-bottom: 2px;
+      }
+      .sess.on {
+        background: #efe4d4;
+        font-weight: 600;
+      }
+      .sess small {
+        display: block;
+        color: var(--muted);
+        font-weight: 400;
+        margin-top: 2px;
+      }
+      .decide {
+        margin-top: auto;
+        border: 0;
+        border-radius: 12px;
+        padding: 12px 14px;
+        background: linear-gradient(180deg, #b89568, #8f6a3f);
+        color: #fff;
+        font-weight: 700;
+        display: flex;
+        justify-content: space-between;
+        box-shadow: 0 6px 16px rgba(127, 92, 50, 0.2);
+      }
+      .main {
+        display: grid;
+        grid-template-rows: 52px 1fr auto;
+        min-width: 0;
+      }
+      .top {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        padding: 0 22px;
+        background: rgba(255, 253, 249, 0.85);
+        border-bottom: 1px solid var(--border);
+      }
+      .top-tab {
+        padding: 14px 2px;
+        color: var(--muted);
+        font-weight: 600;
+      }
+      .top-tab.on {
+        color: var(--brass-deep);
+        box-shadow: inset 0 -2px 0 var(--brass);
+      }
+      .top .spacer {
+        flex: 1;
+      }
+      .status {
+        color: #3f7a4a;
+        font-size: 12px;
+      }
+      .messages {
+        padding: 22px 36px;
+        overflow: hidden;
+      }
+      .sys {
+        text-align: center;
+        color: var(--muted);
+        font-size: 12px;
+        margin: 8px 0 16px;
+      }
+      .ai,
+      .user {
+        max-width: 760px;
+        border-radius: 14px;
+        padding: 14px 16px;
+        margin-bottom: 14px;
+      }
+      .ai {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        box-shadow: 0 1px 0 rgba(0, 0, 0, 0.02);
+      }
+      .user {
+        background: var(--user);
+        margin-left: auto;
+      }
+      .file {
+        margin-top: 10px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 12px;
+        display: flex;
+        justify-content: space-between;
+        background: #faf7f2;
+      }
+      .ok {
+        color: #2f7a45;
+        font-size: 12px;
+      }
+      .compose-wrap {
+        padding: 12px 28px 18px;
+        background: linear-gradient(180deg, transparent, rgba(246, 243, 237, 0.9));
+      }
+      .compose {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 14px 14px 10px;
+        box-shadow: 0 8px 24px rgba(60, 45, 25, 0.06);
+      }
+      .placeholder {
+        color: var(--muted);
+        min-height: 44px;
+      }
+      .tools {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-top: 10px;
+      }
+      .tool {
+        border: 1px solid var(--border);
+        background: #faf7f2;
+        border-radius: 9px;
+        padding: 7px 11px;
+        font-size: 12px;
+        color: var(--text);
+      }
+      .send {
+        margin-left: auto;
+        border: 0;
+        border-radius: 10px;
+        padding: 9px 16px;
+        background: linear-gradient(180deg, #b89568, #8f6a3f);
+        color: #fff;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <div class="badge">AFTER · 对话页目标</div>
+      <div class="frame">
+        <aside class="side">
+          <div class="brand-row">
+            <div class="brand">
+              <div class="logo"></div>
+              <div>
+                <strong>LawMind</strong>
+                <span>法律工作台</span>
+              </div>
+            </div>
+            <div class="gear"></div>
+          </div>
+
+          <div class="block">
+            <div class="block-h">
+              <h3>我的案件</h3>
+              <div class="link">＋ 新建</div>
+            </div>
+            <div class="search">搜索案件 / 当事人</div>
+            <div class="case on"><span>示例：股权转让纠纷</span><span class="tag">在办</span></div>
+            <div class="case"><span>劳动合同争议仲裁</span><span class="tag">材料准备</span></div>
+            <div class="case"><span>借款合同纠纷</span><span class="tag muted">已结案</span></div>
+            <div class="case"><span>知识产权侵权咨询</span><span class="tag">在办</span></div>
+            <div class="link" style="margin-top: 6px">查看全部案件 (12)</div>
+          </div>
+
+          <div class="block" style="flex: 1">
+            <div class="block-h"><h3>对话记录</h3></div>
+            <div class="sess on">股权转让协议效力分析<small>10:24</small></div>
+            <div class="sess">违约金条款审查<small>昨天</small></div>
+            <div class="sess">证据清单整理<small>05-18</small></div>
+          </div>
+
+          <button class="decide"><span>待我拍板</span><span>3</span></button>
+        </aside>
+
+        <section class="main">
+          <header class="top">
+            <div class="top-tab on">对话</div>
+            <div class="top-tab">在办</div>
+            <div class="spacer"></div>
+            <div class="status">● LawMind 已连接</div>
+            <div class="tool" style="border: 0; background: transparent; color: var(--muted)">知识库 ▾</div>
+          </header>
+
+          <div class="messages">
+            <div class="sys">对话已开启 · 10:24</div>
+            <div class="ai">
+              你好，我是 LawMind。可以协助你：分析事实与请求权、检索规范与案例、起草/修订合同与文书、整理证据与期限提醒。请直接描述案情，或上传材料。
+            </div>
+            <div class="user">请分析这份股权转让协议是否成立生效，重点看主体资格、意思表示与条款合法性。</div>
+            <div class="ai">
+              收到。我将按四步展开：① 主体资格 ② 意思表示 ③ 条款合法性 ④ 形式要件。下面先读取你上传的协议文本。
+              <div class="file">
+                <span>股权转让协议.docx · 128 KB</span>
+                <span class="ok">上传成功</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="compose-wrap">
+            <div class="compose">
+              <div class="placeholder">输入您的问题，或输入 / 选择技能…</div>
+              <div class="tools">
+                <div class="tool">/ 技能</div>
+                <div class="tool">上传文件</div>
+                <div class="tool">引用案例</div>
+                <div class="tool">更多</div>
+                <button class="send">发送</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </body>
+</html>

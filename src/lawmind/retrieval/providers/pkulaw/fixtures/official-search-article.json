@@ -1,0 +1,25 @@
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "[{\"gid\":\"gid-labor-36\",\"title\":\"中华人民共和国劳动合同法\",\"article\":\"第三十六条　用人单位与劳动者协商一致，可以解除劳动合同。\",\"url\":\"https://pkulaw.com/chl/gid-labor-36.html\"}]"
+      }
+    ],
+    "structuredContent": {
+      "result": [
+        {
+          "gid": "gid-labor-36",
+          "title": "中华人民共和国劳动合同法",
+          "article": "第三十六条　用人单位与劳动者协商一致，可以解除劳动合同。",
+          "doc_no": "",
+          "timeliness": "现行有效",
+          "url": "https://pkulaw.com/chl/gid-labor-36.html"
+        }
+      ]
+    },
+    "isError": false
+  }
+}

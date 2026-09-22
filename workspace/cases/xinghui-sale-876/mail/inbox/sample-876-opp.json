@@ -1,0 +1,13 @@
+{
+  "id": "sample-876-opp",
+  "from": "对方代理 李律师 <li@globaltech.example>",
+  "to": "chen@firm.example",
+  "subject": "和解协议修订稿.docx 请阅",
+  "receivedAt": "2026-09-08T08:00:00.000Z",
+  "bodyText": "陈律师：附件为和解协议修订稿，请贵司确认是否同意第 4 条分期付款安排。",
+  "attachments": [
+    {
+      "name": "和解协议修订稿.docx"
+    }
+  ]
+}

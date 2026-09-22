@@ -1,0 +1,98 @@
+# Nightly release-readiness + strict benchmark (optional model key).
+name: LawMind nightly
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  e2e-mock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.23.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build renderer for Electron tests
+        run: pnpm --filter lawmind-desktop build:renderer
+
+      - name: Install display server
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Run E2E mock tests (Electron)
+        run: xvfb-run --auto-servernum pnpm --filter lawmind-desktop test:e2e:electron
+
+  nightly-readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.23.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Core verify
+        run: pnpm lawmind:verify
+
+      - name: Legal compiler offline gate
+        run: pnpm lawmind:compiler-gate
+
+      # Fixtures are gitignored, so CI prints an honest SKIP (exit 0). The
+      # blocking run is local/pre-release: LAWMIND_REQUIRE_TRUE_MANUSCRIPT=1.
+      - name: True-manuscript gate (honest skip without fixtures)
+        run: pnpm lawmind:true-manuscript
+
+      - name: Real-model benchmark (strict)
+        env:
+          LAWMIND_BENCHMARK_STRICT: "1"
+          LAWMIND_MODEL_API_KEY: ${{ secrets.LAWMIND_MODEL_API_KEY }}
+        run: |
+          if [ -z "${LAWMIND_MODEL_API_KEY}" ]; then
+            echo "LAWMIND_MODEL_API_KEY is not set; skip real-model benchmark."
+            exit 0
+          fi
+          pnpm lawmind:benchmark -- --real-model --strict --out dist/lawmind-benchmark.json
+
+      - name: Strict release readiness
+        env:
+          LAWMIND_BENCHMARK_STRICT: "1"
+          LAWMIND_MODEL_API_KEY: ${{ secrets.LAWMIND_MODEL_API_KEY }}
+        run: |
+          if [ -z "${LAWMIND_MODEL_API_KEY}" ]; then
+            echo "LAWMIND_MODEL_API_KEY is not set; skip strict readiness."
+            exit 0
+          fi
+          pnpm lawmind:release-readiness -- --benchmark-in dist/lawmind-benchmark.json
+
+      - name: Upload readiness report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-readiness-report
+          path: dist/lawmind-release-readiness.md
+          if-no-files-found: warn

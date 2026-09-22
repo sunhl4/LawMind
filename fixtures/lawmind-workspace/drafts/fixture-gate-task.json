@@ -1,0 +1,25 @@
+{
+  "taskId": "fixture-gate-task",
+  "matterId": "fixture-matter",
+  "title": "Fixture Rental Contract",
+  "output": "docx",
+  "templateId": "contract-rental-default",
+  "deliverableType": "contract.rental",
+  "summary": "CI fixture draft with complete rental contract sections.",
+  "sections": [
+    { "heading": "一、合同主体", "body": "出租人甲方：Fixture 甲方；承租人乙方：Fixture 乙方。" },
+    { "heading": "二、房屋信息", "body": "房屋坐落于测试地址，面积 100 平方米，用途为居住。" },
+    { "heading": "三、租期", "body": "租赁期限自 2026 年 1 月 1 日起至 2027 年 12 月 31 日止。" },
+    { "heading": "四、租金与押金", "body": "月租金 5000 元；押金 10000 元；按月支付。" },
+    { "heading": "五、维修与费用", "body": "日常维修由乙方承担；大修由甲方承担。" },
+    { "heading": "六、违约与解除", "body": "任一方违约应承担违约责任；协商不成可解除。" },
+    { "heading": "七、争议解决", "body": "适用中华人民共和国法律；由房屋所在地人民法院管辖。" },
+    {
+      "heading": "八、签署页",
+      "body": "甲方签字：Fixture 甲方  乙方签字：Fixture 乙方  日期：2026-06-01"
+    }
+  ],
+  "reviewNotes": [],
+  "reviewStatus": "pending",
+  "createdAt": "2026-06-01T00:00:00.000Z"
+}

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' {{BASE}} https://appsforoffice.microsoft.com; script-src 'self' https://appsforoffice.microsoft.com; connect-src {{BASE}} https://appsforoffice.microsoft.com https://*.officeapps.live.com; img-src 'self' {{BASE}} data:; style-src 'self' {{BASE}};" />
+    <title>LawMind 就地审查</title>
+    <link rel="stylesheet" href="{{BASE}}/word-addin/taskpane.css" />
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  </head>
+  <body>
+    <main class="pane">
+      <header class="pane__head">
+        <h1>LawMind 就地审查</h1>
+        <p class="pane__meta" id="engine-line">正在连接本机 LawMind…</p>
+      </header>
+
+      <section class="card">
+        <p class="card__label">当前文档</p>
+        <p class="card__value" id="doc-path">（读取中…）</p>
+        <div class="row">
+          <button type="button" id="btn-review" class="btn btn--primary">审这份</button>
+          <button type="button" id="btn-refresh" class="btn">刷新状态</button>
+        </div>
+        <p class="hint" id="review-state"></p>
+      </section>
+
+      <section class="card" id="matter-card" hidden>
+        <p class="card__label">（可选）记到案卷</p>
+        <p class="hint" id="matter-note"></p>
+        <select id="matter-select" class="field"></select>
+        <div class="row">
+          <button type="button" id="btn-matter" class="btn">记到这个案卷</button>
+        </div>
+      </section>
+
+      <section class="card" id="result-card" hidden>
+        <p class="card__label">修订轨</p>
+        <p class="card__value" id="result-summary"></p>
+        <ul class="hunks" id="hunk-list"></ul>
+        <div class="row">
+          <button type="button" id="btn-apply" class="btn btn--primary">改这份（落成 Word 修订轨）</button>
+          <button type="button" id="btn-export" class="btn">导出产物</button>
+        </div>
+        <p class="hint" id="apply-log"></p>
+      </section>
+
+      <section class="card">
+        <p class="card__label">说明</p>
+        <p class="hint" id="engine-note">
+          插件只与本机回环地址上的 LawMind 服务通信，不连任何远程控制面。
+          点「审这份」后桌面端会自动开跑；跑完结果自动回到这里，直接落成 Word 原生修订轨。
+        </p>
+      </section>
+    </main>
+
+    <script src="{{BASE}}/word-addin/config.js"></script>
+    <script src="{{BASE}}/word-addin/taskpane.js"></script>
+  </body>
+</html>

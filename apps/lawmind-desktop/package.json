@@ -1,0 +1,138 @@
+{
+  "name": "lawmind-desktop",
+  "version": "0.2.1",
+  "private": true,
+  "type": "module",
+  "description": "LawMind desktop app (Electron) — chat, tasks, and delivery history",
+  "main": "electron/main.mjs",
+  "scripts": {
+    "dev": "node ../../scripts/lawmind/apply-desktop-brand.mjs && node ../../scripts/lawmind/ensure-desktop-dev-port.mjs && concurrently -k -s first \"vite dev --port 5174\" \"wait-on http-get://127.0.0.1:5174 && electron electron/main.mjs\"",
+    "build:renderer": "vite build",
+    "bundle:server": "pnpm -w lawmind:bundle:desktop-server",
+    "vendor:node": "pnpm -w lawmind:vendor:desktop-node",
+    "vendor:officecli": "pnpm -w lawmind:vendor:officecli",
+    "typecheck": "tsc --noEmit",
+    "dist:electron": "pnpm bundle:server && pnpm vendor:node && pnpm vendor:officecli && pnpm build:renderer && electron-builder --publish never",
+    "test:e2e": "playwright test",
+    "test:e2e:electron": "playwright test --config playwright.electron.config.ts",
+    "test:e2e:install": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "electron": "^34.3.0",
+    "electron-builder": "^25.1.8",
+    "playwright": "1.63.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.2",
+    "wait-on": "^9.1.0"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.102.8",
+    "@tanstack/react-virtual": "^3.14.13",
+    "electron-updater": "^6.8.9",
+    "katex": "^0.18.7",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "zustand": "^5.0.15"
+  },
+  "build": {
+    "appId": "ai.lawmind.desktop",
+    "productName": "LawMind",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "icon": "build/icon.png",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**/*",
+      "!electron/**/*.test.ts",
+      "dist/**/*",
+      "!**/*.map"
+    ],
+    "extraResources": [
+      {
+        "from": "server/dist",
+        "to": "lawmind-server",
+        "filter": [
+          "**/*.cjs"
+        ]
+      },
+      {
+        "from": "../../src/lawmind/skills/builtin",
+        "to": "lawmind-server/builtin",
+        "filter": [
+          "**/*.md"
+        ]
+      },
+      {
+        "from": "resources/node-runtime",
+        "to": "node-runtime",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/officecli",
+        "to": "officecli",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/word-addin",
+        "to": "word-addin",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "afterPack": "electron/after-pack-mac.mjs",
+    "afterAllArtifactBuild": "electron/after-all-artifact-build-mac.mjs",
+    "mac": {
+      "icon": "build/icon.icns",
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "notarize": false,
+      "entitlements": "electron/entitlements.mac.plist",
+      "entitlementsInherit": "electron/entitlements.mac.inherit.plist"
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis",
+        "portable",
+        "zip"
+      ]
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "target": [
+        "AppImage",
+        "tar.gz"
+      ],
+      "category": "Office",
+      "maintainer": "LawMind"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "sunhl4",
+        "repo": "LawMind"
+      }
+    ]
+  }
+}

@@ -1,0 +1,969 @@
+/** Matter, workspace, statute, case-law, and project file search tools. */
+import fs from "node:fs/promises";
+import path from "node:path";
+import { loadMatter } from "../../../adapters/matter-storage/index.js";
+import { buildMatterIndex, listMatterIds, searchMatterIndex } from "../../../cases/index.js";
+import { matterPartyIdentityNames } from "../../../desk/matter-parties.js";
+import { searchPersonalKnowledge } from "../../../indexing/knowledge-search.js";
+import { loadMemoryContext } from "../../../memory/index.js";
+import type { IngestSourceType, IngestStage } from "../../../platform/contracts.js";
+import {
+  ingestFailure,
+  ingestSuccess,
+  toolDataFromIngestSuccess,
+  toolFailureFromIngest,
+} from "../../../platform/ingest-helpers.js";
+import { isEthicsWallEnabled, recordEthicsWallScan } from "../../../policy/ethics-wall.js";
+import {
+  caseLawDegradedNote,
+  resolveCaseLawReadiness,
+} from "../../../retrieval/case-law-readiness.js";
+import { directoryListingToolData, resolveAndListDirectory } from "../../../runtime/list-dir.js";
+import { fenceAgentFilePath } from "../../../runtime/workspace-io-fence.js";
+import { resolveWorkspaceRelativePath } from "../../../runtime/workspace-path.js";
+import { searchLawyerWorks } from "../../../work/search.js";
+import { readConversation, searchConversations } from "../../conversation-search.js";
+import { resolveDocumentPageChars } from "../../document-read-budget.js";
+import type { AgentTool } from "../../types.js";
+import { matterRequiredResult } from "../matter-required.js";
+import {
+  isPdfPath,
+  isDocxPath,
+  isXlsxPath,
+  isOcrImagePath,
+  normalizeRelPath,
+  readDocxText,
+  readXlsxPlainText,
+  readPdfText,
+  readImageTextHybrid,
+  readPdfTextByOcr,
+  readPdfTextByVision,
+  shouldUseVisionFallback,
+  unsupportedOfficeIngestReason,
+  searchProjectTextFiles,
+  sliceDocumentPage,
+  MAX_PROJECT_READ_BYTES,
+  MAX_PROJECT_PDF_READ_BYTES,
+  MAX_DOCX_READ_BYTES,
+  MAX_IMAGE_OCR_READ_BYTES,
+  MAX_XLSX_READ_BYTES,
+} from "./ingest-helpers.js";
+import * as searchAuthority from "./search-authority.js";
+
+export const searchMatter: AgentTool = {
+  definition: {
+    name: "search_matter",
+    description: "在当前案件的所有记录中搜索关键词，包括争点、风险、任务、草稿、审计事件。",
+    category: "search",
+    parameters: {
+      query: { type: "string", description: "搜索关键词", required: true },
+      matter_id: { type: "string", description: "案件 ID（默认使用当前案件）" },
+    },
+  },
+  async execute(params, ctx) {
+    const matterId = (params.matter_id as string) || ctx.matterId;
+    if (!matterId) {
+      return matterRequiredResult(ctx.workspaceDir);
+    }
+    const index = await buildMatterIndex(ctx.workspaceDir, matterId);
+    const query = typeof params.query === "string" ? params.query : "";
+    const hits = searchMatterIndex(index, query);
+    const workHits = searchLawyerWorks(ctx.workspaceDir, query, {
+      matterId,
+      limit: 8,
+    });
+    // 材料全文（materials_fts，mtime 增量）：命中带 relPath + page，可点开定位。
+    let materialHits: Array<{
+      relPath: string;
+      fileName: string;
+      page: number;
+      snippet: string;
+    }> = [];
+    if (query.trim()) {
+      try {
+        const { searchMaterials } = await import("../../../indexing/fts-search-materials.js");
+        const materials = await searchMaterials(ctx.workspaceDir, { q: query, matterId, limit: 8 });
+        materialHits = materials.hits.map((h) => ({
+          relPath: h.relPath,
+          fileName: h.fileName,
+          page: h.page,
+          snippet: h.snippet,
+        }));
+      } catch {
+        // 材料索引不可用时退回 CASE/任务/草稿检索，不挡主路径。
+      }
+    }
+    return {
+      ok: true,
+      data: {
+        matterId,
+        query: params.query,
+        hits: hits.slice(0, 20),
+        workHits,
+        materialHits,
+        total: hits.length + workHits.length + materialHits.length,
+      },
+    };
+  },
+};
+
+function parseOptionalDays(raw: unknown): number | undefined {
+  if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) {
+    return raw;
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    const n = Number.parseInt(raw.trim(), 10);
+    if (Number.isFinite(n) && n > 0) {
+      return n;
+    }
+  }
+  return undefined;
+}
+
+function parseOptionalLimit(raw: unknown, fallback: number): number {
+  if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) {
+    return Math.floor(raw);
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    const n = Number.parseInt(raw.trim(), 10);
+    if (Number.isFinite(n) && n > 0) {
+      return n;
+    }
+  }
+  return fallback;
+}
+
+export const searchConversationsTool: AgentTool = {
+  definition: {
+    name: "search_conversations",
+    description:
+      "检索本机其他 LawMind 对话（标题与律师可见发言）。律师提到「上周那个合同要点」「另一段对话里的改法」时用。关键词宜短（1–3 个，可用引号短语）；未加引号的词须同时出现在同一对话。query 里的「上周」「昨天」只提高排序，不丢掉今天还在打开的旧对话；硬切时间用 days / since / until。只返回标题与短摘录，不要把整段历史贴给律师。命中后用 read_conversation 读 session_id。",
+    category: "search",
+    parameters: {
+      query: {
+        type: "string",
+        description: "关键词。可含「上周」「昨天」；引号内为整短语。",
+        required: true,
+      },
+      days: { type: "number", description: "硬过滤：只搜最近 N 天（与 since 二选一即可）" },
+      since: { type: "string", description: "起始时间（ISO 日期）" },
+      until: { type: "string", description: "结束时间（ISO 日期）" },
+      limit: { type: "number", description: "最多返回几条对话，默认 8" },
+    },
+    isConcurrencySafe: true,
+    riskLevel: "low",
+  },
+  async execute(params, ctx) {
+    const query = typeof params.query === "string" ? params.query : "";
+    const days = parseOptionalDays(params.days);
+    const since = typeof params.since === "string" ? params.since : undefined;
+    const until = typeof params.until === "string" ? params.until : undefined;
+    if (!query.trim() && days == null && !since?.trim()) {
+      return {
+        ok: false,
+        error: "请提供关键词，或加上 days / since（例如 days=7 或 query 含「上周」）。",
+      };
+    }
+    const result = searchConversations(ctx.workspaceDir, {
+      query,
+      excludeSessionId: ctx.sessionId,
+      since,
+      until,
+      days,
+      limit: parseOptionalLimit(params.limit, 8),
+    });
+    return {
+      ok: true,
+      data: {
+        query: result.query,
+        keywords: result.keywords,
+        phrases: result.phrases,
+        since: result.since,
+        until: result.until,
+        timeMode: result.timeMode,
+        hits: result.hits,
+        total: result.hits.length,
+        note:
+          result.hits.length === 0
+            ? "没有命中。可改成 1–2 个更短的词再搜，或放宽时间（例如 days=30）。不要编造未检索到的对话内容。"
+            : "需要细节时对命中的 session_id 调用 read_conversation。回答律师时用 hits[].citeAs 写成可点击链接（[标题](lm-session:id)），只概括要点，不要整段粘贴历史，不要编造未命中的链接。",
+      },
+    };
+  },
+};
+
+export const readConversationTool: AgentTool = {
+  definition: {
+    name: "read_conversation",
+    description:
+      "阅读某次历史对话里律师可见的发言（不含工具原文）。session_id 来自 search_conversations。可再传 query 只看相关句。回答律师时用返回的 citeAs 做成可点击链接，不要把全文贴回给律师。",
+    category: "search",
+    parameters: {
+      session_id: {
+        type: "string",
+        description: "search_conversations 返回的 session_id",
+        required: true,
+      },
+      query: { type: "string", description: "可选，只保留含这些词的邻近发言" },
+      limit: { type: "number", description: "最多返回几条发言，默认 24" },
+    },
+    isConcurrencySafe: true,
+    riskLevel: "low",
+  },
+  async execute(params, ctx) {
+    const sessionId = typeof params.session_id === "string" ? params.session_id : "";
+    const result = readConversation(ctx.workspaceDir, {
+      sessionId,
+      query: typeof params.query === "string" ? params.query : undefined,
+      limit: parseOptionalLimit(params.limit, 24),
+    });
+    if (!result.ok) {
+      return { ok: false, error: result.error };
+    }
+    return {
+      ok: true,
+      data: {
+        ...result,
+        note: "这些是历史对话摘录，供你对照做法或要点；不要对律师复述成当前对话已经说过。",
+      },
+    };
+  },
+};
+
+export const searchWorkspace: AgentTool = {
+  definition: {
+    name: "search_workspace",
+    description:
+      "搜索个人知识库与工作区材料（FTS hybrid：CASE/记忆/playbook/golden 等）。默认压低日记假命中；跨受限案件仍受策略限制。若用户关联了桌面「项目目录」，会额外扫描有限数量的纯文本文件。",
+    category: "search",
+    parameters: {
+      query: { type: "string", description: "搜索关键词", required: true },
+    },
+  },
+  async execute(params, ctx) {
+    const queryRaw = typeof params.query === "string" ? params.query : "";
+    const query = queryRaw.toLowerCase();
+    const results: Array<{
+      source: string;
+      snippet: string;
+      docKind?: string;
+      path?: string;
+      score?: number;
+    }> = [];
+
+    try {
+      const knowledge = await searchPersonalKnowledge(ctx.workspaceDir, {
+        q: queryRaw,
+        matterId: ctx.matterId,
+        limit: 24,
+      });
+      for (const hit of knowledge.hits) {
+        results.push({
+          source: hit.path,
+          path: hit.path,
+          docKind: hit.docKind,
+          snippet: hit.snippet,
+          score: hit.score,
+        });
+      }
+    } catch {
+      // fall through to lexical memory scan
+    }
+
+    // Lexical fallback / supplement for hot memory surfaces (small-file bias).
+    const memory = await loadMemoryContext(ctx.workspaceDir, { matterId: ctx.matterId });
+    for (const [source, content] of Object.entries({
+      "MEMORY.md": memory.general,
+      "LAWYER_PROFILE.md": memory.profile,
+      "CASE.md": memory.caseMemory,
+      "today-log": memory.todayLog,
+    })) {
+      if (!content) {
+        continue;
+      }
+      const lines = content.split("\n");
+      for (const line of lines) {
+        if (line.toLowerCase().includes(query)) {
+          results.push({ source, snippet: line.trim().slice(0, 200) });
+        }
+      }
+    }
+
+    let projectHits: Array<{ source: string; snippet: string }> = [];
+    if (ctx.projectDir?.trim()) {
+      try {
+        projectHits = await searchProjectTextFiles(ctx.projectDir.trim(), queryRaw);
+      } catch {
+        projectHits = [];
+      }
+    }
+
+    const crossMatterAllowed = process.env.LAWMIND_ALLOW_CROSS_MATTER_SEARCH === "1";
+    if (crossMatterAllowed) {
+      try {
+        const matterIds = await listMatterIds(ctx.workspaceDir);
+        for (const mid of matterIds.slice(0, 20)) {
+          if (ctx.matterId && mid === ctx.matterId) {
+            continue;
+          }
+          const record = loadMatter(ctx.workspaceDir, mid);
+          if (record?.sensitivity === "restricted") {
+            continue;
+          }
+          const index = await buildMatterIndex(ctx.workspaceDir, mid);
+          if (!index.caseMemory) {
+            continue;
+          }
+          for (const line of index.caseMemory.split("\n")) {
+            if (line.toLowerCase().includes(query)) {
+              results.push({
+                source: `CASE:${mid}`,
+                path: `cases/${mid}/CASE.md`,
+                docKind: "case",
+                snippet: line.trim().slice(0, 200),
+              });
+            }
+          }
+        }
+      } catch {
+        // best-effort
+      }
+    }
+
+    const workHits = searchLawyerWorks(ctx.workspaceDir, queryRaw, {
+      matterId: ctx.matterId,
+      limit: 8,
+    });
+    for (const work of workHits) {
+      results.push({
+        source: `work:${work.workId}`,
+        path: `lawmind/works/${work.workId}.json`,
+        docKind: "work",
+        snippet: work.snippet,
+      });
+    }
+
+    const merged = [...results, ...projectHits].slice(0, 60);
+
+    return {
+      ok: true,
+      data: {
+        query: params.query,
+        results: merged,
+        workHits,
+        total: merged.length,
+        projectScanned: Boolean(ctx.projectDir?.trim()),
+        crossMatterScanned: crossMatterAllowed,
+        knowledgeHybrid: true,
+      },
+    };
+  },
+};
+
+export const readProjectFile: AgentTool = {
+  definition: {
+    name: "read_project_file",
+    description:
+      "读取律师在桌面端关联的「项目目录」下的文本文件、PDF、.docx、.xlsx（表格转 TSV 纯文本，有界）、常见图片（OCR，可选视觉兜底）（相对路径）。若路径是目录则递归列举子目录与文件。二进制 .doc 请用 analyze_document（直接提取，无需转格式）；不支持 .xls/.ppt 与 .pptx。用于合同、证据清单、说明等本地材料；未关联项目时不可用。大文件请用 offset/limit（字符）分页；hasMore=true 时用 nextOffset 续读。",
+    category: "search",
+    parameters: {
+      relative_path: {
+        type: "string",
+        description: '相对项目根的路径，如 "合同/补充协议.md" 或 "notes.txt"',
+        required: true,
+      },
+      offset: {
+        type: "number",
+        description: "从提取文本的第几个字符开始（默认 0）。",
+      },
+      limit: {
+        type: "number",
+        description: "本页最多返回多少字符（默认约 40000，上限 120000）。",
+      },
+    },
+  },
+  async execute(params, ctx) {
+    const root = ctx.projectDir?.trim();
+    if (!root) {
+      return toolFailureFromIngest(
+        ingestFailure(
+          "INGEST_INVALID_PATH",
+          "path_validation",
+          "未关联项目目录：请在 LawMind 桌面端选择项目文件夹后再试。",
+        ),
+      );
+    }
+    const relRaw = typeof params.relative_path === "string" ? params.relative_path : "";
+    const rel = normalizeRelPath(relRaw);
+    const toProjectSuccess = (
+      sourceType: IngestSourceType,
+      content: string,
+      bytes: number,
+      stage: IngestStage,
+    ) => {
+      const page = sliceDocumentPage(content, params.offset, params.limit, {
+        // 与 analyze_document 同一份预算：默认页随模型窗口伸缩并扣掉防注入横幅。
+        defaultLimit: resolveDocumentPageChars(ctx.chatModel?.contextTokens),
+      });
+      const result = ingestSuccess(sourceType, page.content, page.hasMore, bytes, stage);
+      return toolDataFromIngestSuccess(
+        result,
+        {
+          path: rel,
+          size: result.bytes,
+          totalChars: page.totalChars,
+          offset: page.offset,
+          limit: page.limit,
+          hasMore: page.hasMore,
+          nextOffset: page.nextOffset,
+          hint: page.hasMore
+            ? `文本未读完：请再用 read_project_file(relative_path, offset=${page.nextOffset}) 续读。`
+            : undefined,
+        },
+        { contentTrust: "untrusted_user_document" },
+      );
+    };
+    if (!rel || rel === ".") {
+      const listing = resolveAndListDirectory(ctx, rel || ".", { recursive: true });
+      if (listing.ok) {
+        return { ok: true, data: directoryListingToolData(listing) };
+      }
+      return toolFailureFromIngest(
+        ingestFailure("INGEST_INVALID_PATH", "path_validation", listing.error),
+      );
+    }
+    const resolved = resolveWorkspaceRelativePath(root, rel);
+    if (!resolved.ok) {
+      return toolFailureFromIngest(
+        ingestFailure(
+          "INGEST_INVALID_PATH",
+          "path_validation",
+          resolved.error === "empty" ? "非法路径" : "路径越界",
+        ),
+      );
+    }
+    const fenced = fenceAgentFilePath({ rootDir: root, abs: resolved.abs });
+    if (!fenced.ok) {
+      return toolFailureFromIngest(
+        ingestFailure("INGEST_INVALID_PATH", "path_validation", fenced.error),
+      );
+    }
+    const full = fenced.abs;
+    const st = await fs.stat(full).catch(() => null);
+    if (st?.isDirectory()) {
+      const listing = resolveAndListDirectory(ctx, rel, { recursive: true });
+      if (listing.ok) {
+        return { ok: true, data: directoryListingToolData(listing) };
+      }
+      return { ok: false, error: listing.error };
+    }
+    if (!st?.isFile()) {
+      return toolFailureFromIngest(
+        ingestFailure("INGEST_NOT_FOUND", "file_stat", "文件不存在或不是普通文件"),
+      );
+    }
+    const projectOfficeBlock = unsupportedOfficeIngestReason(full);
+    if (projectOfficeBlock) {
+      return toolFailureFromIngest(
+        ingestFailure(
+          "INGEST_UNSUPPORTED_FORMAT",
+          "office_extract",
+          projectOfficeBlock,
+          "可改为 .docx/.xlsx 或纯文本后重试。",
+        ),
+      );
+    }
+    if (isDocxPath(full)) {
+      if (st.size > MAX_DOCX_READ_BYTES) {
+        return toolFailureFromIngest(
+          ingestFailure(
+            "INGEST_FILE_TOO_LARGE",
+            "office_extract",
+            `DOCX 文件过大（>${MAX_DOCX_READ_BYTES} bytes）`,
+          ),
+        );
+      }
+      const text = await readDocxText(full);
+      if (!text) {
+        return toolFailureFromIngest(
+          ingestFailure(
+            "INGEST_EMPTY_CONTENT",
+            "office_extract",
+            "DOCX 无可提取文本",
+            "请确认该文档不是纯图片或受保护文档。",
+          ),
+        );
+      }
+      return toProjectSuccess("docx", text, st.size, "office_extract");
+    }
+    if (isXlsxPath(full)) {
+      if (st.size > MAX_XLSX_READ_BYTES) {
+        return toolFailureFromIngest(
+          ingestFailure(
+            "INGEST_FILE_TOO_LARGE",
+            "office_extract",
+            `XLSX 文件过大（>${MAX_XLSX_READ_BYTES} bytes）`,
+          ),
+        );
+      }
+      let text: string;
+      try {
+        text = await readXlsxPlainText(full);
+      } catch (err) {
+        return toolFailureFromIngest(
+          ingestFailure(
+            "INGEST_PARSE_FAILED",
+            "office_extract",
+            `XLSX 解析失败: ${err instanceof Error ? err.message : String(err)}`,
+          ),
+        );
+      }
+      if (!text) {
+        return toolFailureFromIngest(
+          ingestFailure(
+            "INGEST_EMPTY_CONTENT",
+            "office_extract",
+            "XLSX 无可提取文本（工作表可能为空）",
+          ),
+        );
+      }
+      return toProjectSuccess("xlsx", text, st.size, "office_extract");
+    }
+    if (isOcrImagePath(full)) {
+      if (st.size > MAX_IMAGE_OCR_READ_BYTES) {
+        return toolFailureFromIngest(
+          ingestFailure(
+            "INGEST_FILE_TOO_LARGE",
+            "image_ocr",
+            `图片文件过大（>${MAX_IMAGE_OCR_READ_BYTES} bytes）`,
+          ),
+        );
+      }
+      const imageResult = await readImageTextHybrid(full);
+      if (!imageResult) {
+        return toolFailureFromIngest(
+          ingestFailure(
+            "INGEST_EMPTY_CONTENT",
+            "image_vision",
+            "图片 OCR 未识别到文本（视觉兜底后仍为空）",
+          ),
+        );
+      }
+      return toProjectSuccess(
+        imageResult.sourceType,
+        imageResult.text,
+        st.size,
+        imageResult.sourceType === "image_ocr" ? "image_ocr" : "image_vision",
+      );
+    }
+    if (isPdfPath(full)) {
+      if (st.size > MAX_PROJECT_PDF_READ_BYTES) {
+        return toolFailureFromIngest(
+          ingestFailure(
+            "INGEST_FILE_TOO_LARGE",
+            "pdf_text",
+            `PDF 文件过大（>${MAX_PROJECT_PDF_READ_BYTES} bytes）`,
+          ),
+        );
+      }
+      const text = await readPdfText(full);
+      if (text) {
+        return toProjectSuccess("pdf", text, st.size, "pdf_text");
+      }
+      const ocrText = await readPdfTextByOcr(full);
+      if (ocrText) {
+        return toProjectSuccess("pdf_ocr", ocrText, st.size, "pdf_ocr");
+      }
+      if (shouldUseVisionFallback()) {
+        const visionText = await readPdfTextByVision(full);
+        if (visionText) {
+          return toProjectSuccess("pdf_vision", visionText, st.size, "pdf_vision");
+        }
+      }
+      return toolFailureFromIngest(
+        ingestFailure(
+          "INGEST_EMPTY_CONTENT",
+          "pdf_vision",
+          "PDF 无可提取文本（OCR/视觉兜底后仍为空）",
+        ),
+      );
+    }
+    if (st.size > MAX_PROJECT_READ_BYTES) {
+      return toolFailureFromIngest(
+        ingestFailure(
+          "INGEST_FILE_TOO_LARGE",
+          "text_read",
+          `文件过大（>${MAX_PROJECT_READ_BYTES} bytes）`,
+        ),
+      );
+    }
+    const buf = await fs.readFile(full);
+    for (let i = 0; i < Math.min(buf.length, 4096); i++) {
+      if (buf[i] === 0) {
+        return toolFailureFromIngest(
+          ingestFailure("INGEST_BINARY_UNSUPPORTED", "text_read", "二进制文件不支持"),
+        );
+      }
+    }
+    const text = buf.toString("utf8");
+    return toProjectSuccess("text", text, st.size, "text_read");
+  },
+};
+
+const STATUTE_LINE =
+  /《[^》]+》|法典|法律适用|第\s*[零一二三四五六七八九十百千0-9]+条|法规|条例|司法解释|刑法|民法|行政诉讼法|公司法|劳动合同法/i;
+
+export const searchStatute: AgentTool = {
+  definition: {
+    name: "search_statute",
+    description:
+      "检索法律法规与条文。先查工作区记忆；若本机已配置权威库（如北大法宝），会同时查询权威库并返回带 URL 的命中。未配置权威库时仅为工作区启发式检索，不替代正式法规库。律师问是否已接法宝时，必须先调用本工具，以返回的 authority / provider 为准，不得仅凭描述声称没有接口。",
+    category: "search",
+    parameters: {
+      query: { type: "string", description: "关键词（如法律名称、条款主题）", required: true },
+      matter_id: { type: "string", description: "可选：限定某案件的 CASE 与索引" },
+    },
+  },
+  async execute(params, ctx) {
+    const query = ((params.query as string) ?? "").trim().toLowerCase();
+    if (!query) {
+      return { ok: false, error: "query 不能为空" };
+    }
+    const matterId = (params.matter_id as string | undefined) || ctx.matterId;
+    const results: Array<{ source: string; snippet: string }> = [];
+
+    const pushIfStatute = (source: string, line: string) => {
+      const t = line.trim();
+      if (!t) {
+        return;
+      }
+      const hitQuery = t.toLowerCase().includes(query);
+      const hitStatute = STATUTE_LINE.test(t);
+      if (!hitQuery && !hitStatute) {
+        return;
+      }
+      results.push({ source, snippet: t.slice(0, 240) });
+    };
+
+    if (matterId) {
+      const index = await buildMatterIndex(ctx.workspaceDir, matterId);
+      for (const line of index.caseMemory.split("\n")) {
+        pushIfStatute(`CASE:${matterId}`, line);
+      }
+      for (const arr of [
+        index.coreIssues,
+        index.taskGoals,
+        index.riskNotes,
+        index.progressEntries,
+      ] as const) {
+        for (const entry of arr) {
+          for (const line of entry.split("\n")) {
+            pushIfStatute(`index:${matterId}`, line);
+          }
+        }
+      }
+    } else {
+      const memory = await loadMemoryContext(ctx.workspaceDir, { matterId: ctx.matterId });
+      for (const [source, content] of Object.entries({
+        "MEMORY.md": memory.general,
+        "LAWYER_PROFILE.md": memory.profile,
+        "today-log": memory.todayLog,
+      })) {
+        if (!content) {
+          continue;
+        }
+        for (const line of content.split("\n")) {
+          pushIfStatute(source, line);
+        }
+      }
+    }
+
+    const workspaceHits = results.slice(0, 25);
+    const authority = await searchAuthority.retrieveAuthorityHitsForChat({
+      query: ((params.query as string) ?? "").trim(),
+      workspaceDir: ctx.workspaceDir,
+      searchKind: "law",
+    });
+    const merged = [...authority.hits, ...workspaceHits].slice(0, 25);
+    const verdict = searchAuthority.mergeStatuteSearchNote({
+      live: authority.live,
+      providerLabel: authority.providerLabel,
+      authorityHitCount: authority.hits.length,
+      workspaceHitCount: workspaceHits.length,
+      kind: "law",
+      demoCorpus: authority.demoCorpus,
+    });
+    return {
+      ok: true,
+      data: {
+        query: params.query,
+        matterId: matterId ?? null,
+        hits: merged,
+        workspaceHits,
+        authorityHits: authority.hits,
+        authorityLive: authority.live,
+        authorityProvider: authority.provider,
+        demoCorpus: authority.demoCorpus,
+        total: merged.length,
+        note: verdict.note,
+        ...(verdict.refusalRequired
+          ? { refusalRequired: true as const, authority: verdict.authority }
+          : { authority: verdict.authority }),
+      },
+    };
+  },
+};
+
+const CASE_LINE =
+  /案号|判决书|裁定书|人民法院|高院|中院|最高人民法院|仲裁委|\(\s*20\d{2}\s*\)|民终|民初|刑终|执异|行诉/i;
+
+export const searchCaseLaw: AgentTool = {
+  definition: {
+    name: "search_case_law",
+    description:
+      "检索裁判文书、案号、类案。先查工作区；若本机已配置权威库（如北大法宝），会同时查询权威案例库。未配置时仅为工作区启发式检索，不替代专业库。",
+    category: "search",
+    parameters: {
+      query: {
+        type: "string",
+        description: "关键词（案号片段、对方名称、法院名等）",
+        required: true,
+      },
+      matter_id: { type: "string", description: "可选：限定案件" },
+    },
+  },
+  async execute(params, ctx) {
+    const query = ((params.query as string) ?? "").trim().toLowerCase();
+    if (!query) {
+      return { ok: false, error: "query 不能为空" };
+    }
+    const matterId = (params.matter_id as string | undefined) || ctx.matterId;
+    const results: Array<{ source: string; snippet: string }> = [];
+
+    const pushIfCase = (source: string, line: string) => {
+      const t = line.trim();
+      if (!t) {
+        return;
+      }
+      const hitQuery = t.toLowerCase().includes(query);
+      const hitCase = CASE_LINE.test(t);
+      if (!hitQuery && !hitCase) {
+        return;
+      }
+      results.push({ source, snippet: t.slice(0, 240) });
+    };
+
+    if (matterId) {
+      const index = await buildMatterIndex(ctx.workspaceDir, matterId);
+      for (const line of index.caseMemory.split("\n")) {
+        pushIfCase(`CASE:${matterId}`, line);
+      }
+      for (const draft of index.drafts) {
+        const blob = `${draft.title}\n${draft.sections.map((s) => s.body).join("\n")}`;
+        for (const line of blob.split("\n")) {
+          pushIfCase(`draft:${draft.taskId}`, line);
+        }
+      }
+    } else {
+      const ids = await listMatterIds(ctx.workspaceDir);
+      for (const mid of ids.slice(0, 20)) {
+        const index = await buildMatterIndex(ctx.workspaceDir, mid);
+        for (const line of index.caseMemory.split("\n")) {
+          pushIfCase(`CASE:${mid}`, line);
+        }
+      }
+    }
+
+    const workspaceHits = results.slice(0, 25);
+    const authority = await searchAuthority.retrieveAuthorityHitsForChat({
+      query: ((params.query as string) ?? "").trim(),
+      workspaceDir: ctx.workspaceDir,
+      searchKind: "case",
+    });
+    const merged = [...authority.hits, ...workspaceHits].slice(0, 25);
+    const verdict = searchAuthority.mergeStatuteSearchNote({
+      live: authority.live,
+      providerLabel: authority.providerLabel,
+      authorityHitCount: authority.hits.length,
+      workspaceHitCount: workspaceHits.length,
+      kind: "case",
+      demoCorpus: authority.demoCorpus,
+    });
+    // 类案不可用时给可操作指引，但仍返回工作区线索——不阻断律师干活，也不编造。
+    const caseLaw = resolveCaseLawReadiness();
+    const degradedNote = caseLawDegradedNote("case");
+    return {
+      ok: true,
+      data: {
+        query: params.query,
+        matterId: matterId ?? null,
+        hits: merged,
+        workspaceHits,
+        authorityHits: authority.hits,
+        authorityLive: authority.live,
+        authorityProvider: authority.provider,
+        demoCorpus: authority.demoCorpus,
+        total: merged.length,
+        caseLawReady: caseLaw.ready,
+        caseLawSources: caseLaw.readyIds,
+        ...(degradedNote ? { caseLawSetupHint: degradedNote } : {}),
+        note: degradedNote ? `${verdict.note} ${degradedNote}` : verdict.note,
+        ...(verdict.refusalRequired
+          ? { refusalRequired: true as const, authority: verdict.authority }
+          : { authority: verdict.authority }),
+      },
+    };
+  },
+};
+
+export const checkConflictOfInterest: AgentTool = {
+  definition: {
+    name: "check_conflict_of_interest",
+    description:
+      "根据当事人/实体名称在工作区已有案件中做字符串命中筛查，提示可能的多案并存或利益冲突风险（需律师最终判断）。",
+    category: "matter",
+    parameters: {
+      parties: {
+        type: "string",
+        description: "待核查的当事人或实体名称，逗号/顿号分隔",
+        required: true,
+      },
+      acknowledge_ethics_wall: {
+        type: "boolean",
+        description: "律所伦理墙命中后，律师确认不构成冲突或已完成客户披露时为 true，以放行外发。",
+      },
+    },
+  },
+  async execute(params, ctx) {
+    const raw = (params.parties as string) ?? "";
+    const parties = raw
+      .split(/[,，、;；]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length >= 2);
+    if (parties.length === 0) {
+      return { ok: false, error: "请提供至少 2 个字符以上的当事人名称。" };
+    }
+
+    const ids = await listMatterIds(ctx.workspaceDir);
+    const partyToMatters = new Map<string, string[]>();
+
+    for (const party of parties) {
+      const hits: string[] = [];
+      const pl = party.toLowerCase();
+      for (const matterId of ids) {
+        const index = await buildMatterIndex(ctx.workspaceDir, matterId);
+        const rec = loadMatter(ctx.workspaceDir, matterId);
+        const identity = rec ? matterPartyIdentityNames(rec).join("\n") : "";
+        const blob = [
+          identity,
+          index.caseMemory,
+          ...index.coreIssues,
+          ...index.taskGoals,
+          ...index.riskNotes,
+          ...index.progressEntries,
+        ]
+          .join("\n")
+          .toLowerCase();
+        if (blob.includes(pl)) {
+          hits.push(matterId);
+        }
+      }
+      const memory = await loadMemoryContext(ctx.workspaceDir, {});
+      const memBlob = [memory.general, memory.profile].join("\n").toLowerCase();
+      if (memBlob.includes(pl)) {
+        hits.push("(workspace-memory)");
+      }
+      if (hits.length > 0) {
+        partyToMatters.set(party, [...new Set(hits)]);
+      }
+    }
+
+    const flags: string[] = [];
+    for (const [party, matters] of partyToMatters) {
+      if (matters.length > 1) {
+        flags.push(
+          `「${party}」在多个来源中出现：${matters.join("、")} — 请核对是否构成利益冲突。`,
+        );
+      }
+    }
+
+    const { buildHostAccessRuntime } = await import("../../../host-access/access-broker.js");
+    const { readMatterParties } = await import("../../../host-access/matter-fence.js");
+    const hostRuntime = buildHostAccessRuntime({
+      workspaceDir: ctx.workspaceDir,
+      sessionId: ctx.sessionId,
+      matterId: ctx.matterId,
+      projectDir: ctx.projectDir,
+      hostMounts: ctx.hostMounts,
+      hostAccessFile: ctx.hostAccessFile,
+    });
+    for (const mount of hostRuntime.mounts) {
+      const bound = mount.matterId?.trim();
+      if (!bound) {
+        continue;
+      }
+      const mountParties = readMatterParties(ctx.workspaceDir, bound);
+      const blob =
+        `${mountParties.clientId ?? ""} ${mountParties.counterparty ?? ""}`.toLowerCase();
+      for (const party of parties) {
+        if (blob.includes(party.toLowerCase())) {
+          flags.push(
+            `本机文件夹「${mount.label || path.basename(mount.absPath)}」绑定案件 ${bound}，出现「${party}」— 请核对是否构成利益冲突。`,
+          );
+        }
+      }
+    }
+
+    const acknowledge = params.__approved === true;
+    const wallOn = isEthicsWallEnabled(ctx.workspaceDir);
+    const wall = wallOn
+      ? recordEthicsWallScan({
+          workspaceDir: ctx.workspaceDir,
+          matterId: ctx.matterId,
+          parties,
+          flags,
+          acknowledge,
+          actorId: ctx.actorId,
+        })
+      : null;
+
+    let note: string;
+    if (!wallOn) {
+      note =
+        flags.length === 0
+          ? "未发现明显的跨案件同名命中。这是字符串扫描，不是伦理墙；仍须律师结合所知客户关系确认。"
+          : "发现跨来源命中。不得把本案策略写入他案。这不是自动伦理墙，须律师按所规判断是否构成冲突。";
+    } else if (wall?.status === "disclosed") {
+      note = "律师已确认伦理墙放行。外发仍须拍板；不得把本案策略写入他案。";
+    } else if (wall?.status === "hold" || flags.length > 0) {
+      note =
+        "律所伦理墙：发现跨来源命中，已暂停本案外发，直至律师在「待我拍板」中确认不构成冲突或完成客户披露。";
+    } else {
+      note = "伦理墙已扫描，未发现跨案件同名命中。仍须律师结合所知客户关系确认。";
+    }
+
+    return {
+      ok: true,
+      data: {
+        parties,
+        matches: Object.fromEntries(partyToMatters),
+        conflictFlags: flags,
+        matterScanned: ids.length,
+        note,
+        ...(wall
+          ? {
+              ethicsWall: {
+                active: true,
+                status: wall.status,
+                action: wall.status === "hold" ? "hold_outbound" : wall.status,
+              },
+            }
+          : { ethicsWall: { active: false } }),
+      },
+    };
+  },
+};
+
+// ─────────────────────────────────────────────
+// Matter Management Tools
+// ─────────────────────────────────────────────

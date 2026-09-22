@@ -1,0 +1,356 @@
+/**
+ * Engine — 步骤 5：render。
+ *
+ * W9：strict 模式（acceptanceGateStrict feature 开启）下合并双门禁：
+ *   1. acceptance gate（章节/占位符/规范结构）— 已存在
+ *   2. reasoning gate（IRAC 推理图谱）— W9 新增
+ * 任一 blocker 未通过，render 拒绝并返回 reasoningReport 信息。
+ *
+ * citationGateStrict（Firm/Private）：有 research 快照时，缺失来源 ID 或长段未锚定引用禁止 render。
+ */
+
+import { transitionDeliverable } from "../application/services/deliverable-service.js";
+import { resolveDefaultDeliverableLocation } from "../artifacts/default-output-location.js";
+import { renderDocxWithOptions } from "../artifacts/render-docx.js";
+import { renderPptxWithOptions } from "../artifacts/render-pptx.js";
+import { emit } from "../audit/index.js";
+import { taskProgressPrefix } from "../cases/task-display.js";
+import {
+  validateDraftAgainstSpec,
+  validateReasoningForDraft,
+  type ReasoningReport,
+} from "../deliverables/index.js";
+import { formatCitationGateCoach } from "../drafts/citation-craft.js";
+import {
+  appendProvenanceEvent,
+  createProvenanceEvent,
+  persistDraft,
+  readReasoningSnapshot,
+  readResearchSnapshot,
+  resolveDraftCitationIntegrity,
+  type DraftCitationIntegrityView,
+} from "../drafts/index.js";
+import { deliverableNeedsExportLint, runExportLintGateForDraft } from "../lint/export-lint-gate.js";
+import { fetchLiveCitationHits } from "../lint/live-citation-hits.js";
+import { draftTextFromUnknown, runLegalLint } from "../lint/run-lint.js";
+import type { LegalLintReport } from "../lint/types.js";
+import { preferComplaintMasterTemplate } from "../litigation/complaint-master.js";
+import { appendCaseArtifact, appendCaseProgress, appendTodayLog } from "../memory/index.js";
+import {
+  recordDeliverEvent,
+  recordLintRunEvent,
+  resolveDeliverSignals,
+} from "../metrics/runtime-events.js";
+import { citationModeBlocksRender, type CitationMode } from "../policy/citation-mode.js";
+import { isFeatureEnabled } from "../policy/edition.js";
+import { syncDraftToTaskRecord, updateTaskRecord } from "../tasks/index.js";
+import { resolveTemplateForDraft, templateResolvedPin } from "../templates/index.js";
+import type { ArtifactDraft } from "../types.js";
+import type { EngineContext } from "./context.js";
+
+function citationGateBlocksRender(view: DraftCitationIntegrityView): boolean {
+  if (!view.checked) {
+    return false;
+  }
+  return !view.ok || view.unanchoredSections.length > 0;
+}
+
+export async function renderDraft(
+  ctx: EngineContext,
+  draft: ArtifactDraft,
+  opts?: {
+    templateIdOverride?: string;
+    strictGates?: boolean;
+    citationGateStrict?: boolean;
+    /** Skills E4 — when set, takes precedence over edition citationGateStrict alone */
+    citationMode?: CitationMode;
+    includeProvenance?: boolean;
+    projectDir?: string;
+    outputPath?: string;
+    namedPlaceDir?: string;
+    homeDir?: string;
+    protectSourcePath?: string;
+  },
+): Promise<{
+  ok: boolean;
+  outputPath?: string;
+  error?: string;
+  acceptanceReport?: ReturnType<typeof validateDraftAgainstSpec>;
+  reasoningReport?: ReasoningReport;
+  citationIntegrity?: DraftCitationIntegrityView;
+  /** Present when the export lint gate ran (pass or fail). */
+  lintReport?: LegalLintReport;
+  /** Mechanical blocker rule ids when the export lint gate blocked. */
+  lintBlockerRuleIds?: string[];
+}> {
+  const { workspaceDir, auditDir } = ctx;
+
+  if (draft.reviewStatus === "rejected") {
+    return {
+      ok: false,
+      error: `文书已驳回（${draft.reviewStatus}），不能渲染。`,
+    };
+  }
+
+  // W9：strict 模式合并 acceptance + reasoning 双门禁。
+  const strict = opts?.strictGates ?? isFeatureEnabled("acceptanceGateStrict");
+  if (strict) {
+    const acceptanceReport = validateDraftAgainstSpec(draft);
+    const graph = readReasoningSnapshot(workspaceDir, draft.taskId);
+    const reasoningReport = validateReasoningForDraft(draft, graph ?? undefined);
+    if (!acceptanceReport.ready || (reasoningReport.required && !reasoningReport.ready)) {
+      await emit(auditDir, {
+        taskId: draft.taskId,
+        kind: "artifact.render_blocked",
+        actor: "system",
+        detail: `acceptance.ready=${acceptanceReport.ready}; reasoning.ready=${reasoningReport.ready} (required=${reasoningReport.required})`,
+      });
+      return {
+        ok: false,
+        error:
+          "渲染被双门禁拦截：acceptance / reasoning gate 未通过。请在桌面端 LawmindAcceptanceGate 视图查看具体未达成项。",
+        acceptanceReport,
+        reasoningReport,
+      };
+    }
+  }
+
+  const citationMode = opts?.citationMode;
+  const citationStrict = opts?.citationGateStrict ?? isFeatureEnabled("citationGateStrict");
+  const citationIntegrity = resolveDraftCitationIntegrity(workspaceDir, draft);
+  // Skills E3/E4 — high-risk grounded: matter theory must be anchored.
+  if (citationMode === "grounded" && draft.matterId) {
+    const { matterTheoryBlocksStrictExport } = await import("../matter-ops/index.js");
+    const highRisk =
+      draft.deliverableType?.startsWith("contract.") ||
+      draft.deliverableType === "letter.demand" ||
+      draft.deliverableType === "letter.counsel" ||
+      draft.deliverableType === "letter.reply" ||
+      draft.deliverableType?.startsWith("litigation.");
+    if (
+      highRisk &&
+      matterTheoryBlocksStrictExport(workspaceDir, draft.matterId, { requireAnchor: true })
+    ) {
+      await emit(auditDir, {
+        taskId: draft.taskId,
+        kind: "artifact.render_blocked",
+        actor: "system",
+        detail: "theory_anchor_missing",
+      });
+      return {
+        ok: false,
+        error: "严格导出被拦截：案件理论未锚定（争点/依据）。请在案件「理论」补齐并勾选已锚定。",
+        citationIntegrity,
+      };
+    }
+  }
+  const blockedByMode =
+    citationMode != null
+      ? citationModeBlocksRender(citationMode, citationIntegrity)
+      : citationStrict && citationGateBlocksRender(citationIntegrity);
+  if (blockedByMode) {
+    const missing =
+      citationIntegrity.checked && !citationIntegrity.ok
+        ? citationIntegrity.missingSourceIds.length
+        : 0;
+    const unanchored = citationIntegrity.checked ? citationIntegrity.unanchoredSections.length : 0;
+    await emit(auditDir, {
+      taskId: draft.taskId,
+      kind: "artifact.render_blocked",
+      actor: "system",
+      detail: `citationMode=${citationMode ?? "edition_strict"}: missingSourceIds=${missing}; unanchoredSections=${unanchored}`,
+    });
+    return {
+      ok: false,
+      error: [
+        citationMode === "grounded"
+          ? "严格援引模式：无检索快照、缺失来源或长段未锚定时不可导出 Word。对话中仍可继续展示/修改草稿正文；请补齐引用锚定，或将 citationMode 改为 assisted 后再 render_document。"
+          : "引用完整性门禁仅拦截正式 Word 导出（缺失来源 ID 或长段未锚定）。对话中的草稿正文仍可继续完善；请在文书台核对 Citation Banner 后补锚再导出。",
+        formatCitationGateCoach(`missingSourceIds=${missing}; unanchoredSections=${unanchored}`),
+      ].join("\n"),
+      citationIntegrity,
+    };
+  }
+
+  // 交件 lint 包（法律版 tsc）：对外交付类型在写盘前必须过机械核对。
+  // 只拦机械残留 blocker；判断类（法定上限/或裁或诉/立场）与 warning 不拦。
+  if (deliverableNeedsExportLint(draft.deliverableType)) {
+    const citationHits = await fetchLiveCitationHits(draftTextFromUnknown(draft));
+    const exportLint = runExportLintGateForDraft({
+      draft,
+      deliverableType: draft.deliverableType,
+      citationHits,
+    });
+    if (!exportLint.ok) {
+      await emit(auditDir, {
+        taskId: draft.taskId,
+        kind: "artifact.render_blocked",
+        actor: "system",
+        detail: `export_lint_gate: ${exportLint.blockerRuleIds.join(",")}`,
+      });
+      return {
+        ok: false,
+        error: exportLint.error ?? "导出前机械核对未过。",
+        lintReport: exportLint.lintReport,
+        lintBlockerRuleIds: exportLint.blockerRuleIds,
+      };
+    }
+  }
+
+  const override = opts?.templateIdOverride?.trim();
+  const effectiveDraft =
+    override !== undefined && override.length > 0 ? { ...draft, templateId: override } : draft;
+
+  const resolved = await resolveTemplateForDraft({
+    workspaceDir,
+    draft: effectiveDraft,
+  });
+  const templateResolution = await preferComplaintMasterTemplate(
+    workspaceDir,
+    resolved,
+    effectiveDraft,
+  );
+  const templatePin = templateResolvedPin(templateResolution);
+  draft.templateVersion = templatePin;
+
+  const researchSources = readResearchSnapshot(workspaceDir, draft.taskId)?.sources;
+  const ext = draft.output === "pptx" ? ".pptx" : ".docx";
+  const located = resolveDefaultDeliverableLocation({
+    workspaceDir,
+    projectDir: opts?.projectDir ?? ctx.projectDir,
+    explicitOutput: opts?.outputPath?.trim() || (ctx.outputDirExplicit ? ctx.outputDir : undefined),
+    matterId: draft.matterId,
+    sourcePath: draft.contractEdit?.baselineRelativePath,
+    title: draft.title,
+    extension: ext,
+    namedPlaceDir: opts?.namedPlaceDir,
+    homeDir: opts?.homeDir,
+    protectSourcePath: opts?.protectSourcePath ?? draft.contractEdit?.baselineRelativePath,
+  });
+  if (!located.ok) {
+    return { ok: false, error: located.error };
+  }
+  const { outDir: outputDir, filename: outputFileName } = located.planned;
+  const result =
+    draft.output === "pptx"
+      ? await renderPptxWithOptions(draft, outputDir, {
+          templateVariant: templateResolution.variant,
+          uploadedTemplate: templateResolution.uploaded,
+          sources: researchSources,
+          outputFileName,
+        })
+      : draft.output === "docx"
+        ? await renderDocxWithOptions(draft, outputDir, {
+            templateVariant: templateResolution.variant,
+            uploadedTemplate: templateResolution.uploaded,
+            sources: researchSources,
+            includeProvenance: opts?.includeProvenance,
+            outputFileName,
+          })
+        : {
+            ok: false,
+            error: `当前不支持渲染格式：${draft.output}（仅支持 docx / pptx）。`,
+          };
+
+  if (result.ok && result.outputPath) {
+    draft.outputPath = result.outputPath;
+    if (override !== undefined && override.length > 0) {
+      draft.templateId = override;
+    }
+    const finalLint = runLegalLint(draftTextFromUnknown(draft), undefined, undefined, undefined, {
+      deliverableType: draft.deliverableType,
+    });
+    const lintRunEvent = recordLintRunEvent(workspaceDir, {
+      taskId: draft.taskId,
+      matterId: draft.matterId,
+      deliverableType: draft.deliverableType,
+      ruleIds: finalLint.findings.map((f) => f.ruleId),
+      failCount: finalLint.blockerCount + finalLint.warningCount,
+      blockerCount: finalLint.blockerCount,
+      warningCount: finalLint.warningCount,
+    });
+    const firstPass =
+      draft.reviewStatus === "approved" &&
+      draft.reviewNotes.length === 0 &&
+      (!draft.rewriteAmplitude ||
+        (draft.rewriteAmplitude.absCharDelta === 0 &&
+          draft.rewriteAmplitude.absParagraphDelta === 0));
+    recordDeliverEvent(workspaceDir, {
+      taskId: draft.taskId,
+      matterId: draft.matterId,
+      deliverableType: draft.deliverableType,
+      firstPass,
+      lintEscape: finalLint.blockerCount + finalLint.warningCount > 0,
+      outputPath: result.outputPath,
+      ...resolveDeliverSignals({
+        reviewStatus: draft.reviewStatus,
+        reviewedBy: draft.reviewedBy,
+        reviewNotesCount: draft.reviewNotes.length,
+        hasRewriteAmplitude: Boolean(draft.rewriteAmplitude),
+        blockerCount: finalLint.blockerCount,
+        warningCount: finalLint.warningCount,
+      }),
+    });
+    void lintRunEvent;
+    const exportEvent = createProvenanceEvent("export", "system", {
+      sourceId: result.outputPath,
+      comment: draft.output,
+    });
+    draft.sections = draft.sections.map((section) => ({
+      ...section,
+      provenance: appendProvenanceEvent(section.provenance, exportEvent),
+    }));
+    const storedDraftPath = persistDraft(workspaceDir, draft);
+    const fallbackTail = templateResolution.fallbackReason
+      ? `；回退原因：${templateResolution.fallbackReason}`
+      : "";
+    await emit(auditDir, {
+      taskId: draft.taskId,
+      kind: "artifact.rendered",
+      actor: "system",
+      detail: `模板 pin：${templatePin}；resolved：${templateResolution.resolvedId}（请求：${templateResolution.requestedId}，来源：${templateResolution.source}）；格式：${draft.output}；输出路径：${result.outputPath}${fallbackTail}`,
+    });
+    syncDraftToTaskRecord(workspaceDir, draft, "rendered");
+    updateTaskRecord(workspaceDir, draft.taskId, {
+      title: draft.title,
+      draftPath: storedDraftPath,
+      outputPath: result.outputPath,
+    });
+    await appendTodayLog(workspaceDir, `## 文书渲染完成\n- 路径: ${result.outputPath}`);
+    if (draft.matterId) {
+      await appendCaseProgress(
+        workspaceDir,
+        draft.matterId,
+        `${taskProgressPrefix(draft.taskId)}已完成渲染：${draft.title}。`,
+      );
+      await appendCaseArtifact(
+        workspaceDir,
+        draft.matterId,
+        `${draft.title} -> ${result.outputPath}`,
+      );
+      // W4：deliverable 状态翻到 rendered。
+      try {
+        transitionDeliverable(workspaceDir, draft.matterId, draft.taskId, "rendered", {
+          reviewStatus: draft.reviewStatus,
+          templateId: draft.templateId,
+        });
+      } catch (err) {
+        await emit(auditDir, {
+          taskId: draft.taskId,
+          kind: "matter.write_failed",
+          actor: "system",
+          detail: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  } else if (!result.ok) {
+    await emit(auditDir, {
+      taskId: draft.taskId,
+      kind: "artifact.render_failed",
+      actor: "system",
+      detail: `格式：${draft.output}；模板：${templateResolution.resolvedId}；错误：${result.error ?? "unknown"}`,
+    });
+  }
+
+  return result;
+}

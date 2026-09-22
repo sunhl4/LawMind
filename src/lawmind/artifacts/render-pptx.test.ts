@@ -1,0 +1,80 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import type { ArtifactDraft } from "../types.js";
+import { renderPptx, renderPptxWithOptions } from "./render-pptx.js";
+
+function minimalDraft(overrides: Partial<ArtifactDraft> = {}): ArtifactDraft {
+  return {
+    taskId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    title: "Test PPT",
+    output: "pptx",
+    templateId: "ppt/client-brief-default",
+    summary: "摘要一行",
+    sections: [
+      { heading: "第一节", body: "正文A\n正文B" },
+      { heading: "第二节", body: "带引用", citations: ["src-1"] },
+    ],
+    reviewNotes: [],
+    reviewStatus: "approved",
+    createdAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+describe("renderPptx", () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "lawmind-pptx-"));
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it("rejects when rejected", async () => {
+    const draft = minimalDraft({ reviewStatus: "rejected" });
+    const result = await renderPptx(draft, tmpDir);
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("已驳回");
+  });
+
+  it("writes a .pptx file when pending", async () => {
+    const draft = minimalDraft({ reviewStatus: "pending" });
+    const result = await renderPptx(draft, tmpDir);
+    expect(result.ok).toBe(true);
+    expect(result.outputPath).toMatch(/\.pptx$/);
+  });
+
+  it("writes a .pptx file when approved", async () => {
+    const draft = minimalDraft();
+    const result = await renderPptx(draft, tmpDir);
+    expect(result.ok).toBe(true);
+    expect(result.outputPath).toMatch(/\.pptx$/);
+    const stat = await fs.stat(result.outputPath!);
+    expect(stat.size).toBeGreaterThan(2000);
+  });
+
+  it("supports uploaded template variant options", async () => {
+    const draft = minimalDraft();
+    const result = await renderPptxWithOptions(draft, tmpDir, {
+      templateVariant: "uploadedMapped",
+      uploadedTemplate: {
+        id: "upload/client-brief-custom",
+        format: "pptx",
+        label: "Client Brief Custom",
+        sourcePath: "/tmp/client-brief-custom.pptx",
+        version: 1,
+        enabled: true,
+        placeholderMap: {
+          case_title: "title",
+        },
+        uploadedAt: new Date().toISOString(),
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.outputPath).toMatch(/\.pptx$/);
+  });
+});

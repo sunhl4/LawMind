@@ -1,0 +1,1187 @@
+/**
+ * Lawyer Automations — recurring scheduled tasks (Cursor Automations analogue).
+ * Persist under `lawmind/automations/`; results queue under `lawmind/automation-inbox/`.
+ */
+
+import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { withExclusiveFileLock, writeJsonAtomic } from "../adapters/matter-storage/io.js";
+import { SURGICAL_MAX_FIND_WITH_TERMINATOR } from "../drafts/surgical-span-gate.js";
+import { ensureDocxForAttachment } from "../mail/convert-to-docx.js";
+import { sanitizeMailMessageIdForPath } from "../mail/imap-client.js";
+import {
+  classifyContractAttachment,
+  isReviewableContractAttachment,
+  isTrackedWordAttachment,
+  type ContractAttachmentKind,
+} from "../mail/mail-contract-formats.js";
+import {
+  assertSafeAutomationId,
+  automationInboxDir,
+  automationsDir,
+  automationRunsDir,
+} from "./automation-paths.js";
+import { deleteAutomationRunHistory } from "./automation-run-history.js";
+import type { AutomationPresetId } from "./infer-automation-from-instruction.js";
+import { buildMailContractShortPathInstruction } from "./mail-contract-short-path-instruction.js";
+
+export { buildMailContractShortPathInstruction } from "./mail-contract-short-path-instruction.js";
+export {
+  inferAutomationFromInstruction,
+  type AutomationPresetId,
+} from "./infer-automation-from-instruction.js";
+
+export type AutomationScheduleKind = "daily" | "weekly" | "once" | "interval";
+
+export type AutomationSchedule =
+  | { kind: "daily"; hour: number; minute: number }
+  | { kind: "weekly"; weekday: number; hour: number; minute: number }
+  | { kind: "once"; runAt: string }
+  /** Recurring poll: every N minutes (clamped 5…10080). */
+  | { kind: "interval"; everyMinutes: number };
+
+/** Min/max for interval schedules (minutes). */
+export const AUTOMATION_INTERVAL_MIN_MINUTES = 5;
+export const AUTOMATION_INTERVAL_MAX_MINUTES = 7 * 24 * 60;
+
+/**
+ * 「源数据缺失时怎么办」——routine 六确认之一。
+ *
+ * 默认 `report_failure`：**绝不用旧数据顶上**（与 `GOALS.md` 的诚实失败原则、
+ * 以及 Grok Bot 文档里的 no-data/stale-data policy 同向）。
+ * 缺这个字段的旧文件按默认值读，因此老自动办件不受影响。
+ */
+export type AutomationMissingDataPolicy = "report_failure" | "report_partial" | "skip_run";
+
+/**
+ * 什么时候才打扰律师——「计划 ≠ 通知策略」。
+ *
+ * - `always`：每次运行都进收件箱（旧文件默认，保持既有行为）。
+ * - `on_problem`：只有失败/被挡住才进收件箱，成功静默。
+ * - `never`：成功永不打扰。
+ *
+ * **`never` 不压制失败**：无人值守的失败必须让律师知道，这是不可让的
+ * （否则「不打扰」会退化成「无声地不再办件」）。
+ */
+export type AutomationNotifyPolicy = "always" | "on_problem" | "never";
+
+/**
+ * 缺资料策略的默认值 = **保留既有行为**。
+ *
+ * 这里纠正过我自己的一个判断：我最初把默认设成 `report_failure`，理由是
+ * 「绝不用旧数据顶上」。但读运行期代码发现，邮箱不可用时它**不会**用陈旧数据，
+ * 而是退回读取**本案本地匣**并如实写明「未配置远程邮箱 / 远程同步失败，仍读取本地匣」。
+ * 那既不是陈旧数据、也不是编造，而是有披露的降级 —— 对应的是 `report_partial`。
+ *
+ * 因此默认必须是 `report_partial`：设成 `report_failure` 会**改变既有自动办件的行为**
+ * （原来能出摘要的，变成不出且报失败）。在试点窗口内做这种无谓的行为变更，
+ * 正好撞上测量协议 §4 那句「改默认值等于改了不同人的产品」。
+ */
+export const AUTOMATION_MISSING_DATA_POLICY_DEFAULT: AutomationMissingDataPolicy = "report_partial";
+
+/** 缺资料时的处置。把枚举翻译成一个动作，避免调用点各写一遍 if。 */
+export type MissingDataDisposition = "proceed" | "fail_run" | "skip_quietly";
+
+export function dispositionForMissingData(
+  policy: AutomationMissingDataPolicy,
+): MissingDataDisposition {
+  if (policy === "report_failure") {
+    return "fail_run";
+  }
+  if (policy === "skip_run") {
+    return "skip_quietly";
+  }
+  return "proceed";
+}
+
+/**
+ * 把律师交代的「办完是什么样 / 哪些事必须先问我」拼成交办补充。
+ *
+ * 为什么必须拼进 instruction：这两项字段若只落盘而不进入模型可见的文本，
+ * 律师填了等于没填 —— 表单接受、引擎存下、运行时谁都不读。
+ * 它们与 `customRoleInstructions`（长期岗位说明）不同：这是**本次工作**的验收与边界。
+ * 返回空串表示两项都没填（不注入空标题）。
+ */
+export function buildAutomationJobBriefNote(
+  automation: Pick<LawyerAutomation, "expectedResult" | "approvalBoundary">,
+): string {
+  const lines: string[] = [];
+  const expected = automation.expectedResult?.trim();
+  const boundary = automation.approvalBoundary?.trim();
+  if (expected) {
+    lines.push(`办完的标准：${expected}`);
+  }
+  if (boundary) {
+    lines.push(`必须先问我：${boundary}`);
+  }
+  return lines.join("\n");
+}
+/** 旧文件默认「每次都通知」，保证升级不改变既有行为。 */
+export const AUTOMATION_NOTIFY_POLICY_LEGACY_DEFAULT: AutomationNotifyPolicy = "always";
+
+export type LawyerAutomation = {
+  id: string;
+  title: string;
+  enabled: boolean;
+  presetId: AutomationPresetId;
+  /** Collaboration workflow template id when applicable. */
+  templateId?: string;
+  matterId: string;
+  /** Custom natural-language instruction (preset custom or extra hint). */
+  instruction?: string;
+  schedule: AutomationSchedule;
+  nextRunAt: string;
+  lastRunAt?: string;
+  lastJobId?: string;
+  lastResultSummary?: string;
+  /** 最近一次运行失败的结构化错误码（runner 兜底写入）。 */
+  lastErrorCode?: string;
+  /** 最近一次运行失败的截断错误消息（runner 兜底写入）。 */
+  lastErrorMessage?: string;
+  // ── 六确认里需要持久化的四项（标题是第五项、计划是第六项，各有既有字段）──
+  /** 交付什么才算办完。 */
+  expectedResult?: string;
+  /** 哪些动作必须停下来问律师（外发、改原稿等）。 */
+  approvalBoundary?: string;
+  /** 源数据缺失时怎么办（缺省 report_failure）。 */
+  missingDataPolicy?: AutomationMissingDataPolicy;
+  /** 什么时候才打扰律师（缺省 always，保持老行为）。 */
+  notifyPolicy?: AutomationNotifyPolicy;
+  allowSendEmailAfterApproval: boolean;
+  /** Client / outbound recipient for approve-send (never a placeholder). */
+  notifyEmail?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/**
+ * 读侧默认值。旧 `automation.json` 没有这些字段也必须能跑，
+ * 所以缺省逻辑集中在两个 getter 里，而不是散在 runner / UI / route。
+ */
+export function automationMissingDataPolicy(a: LawyerAutomation): AutomationMissingDataPolicy {
+  return a.missingDataPolicy ?? AUTOMATION_MISSING_DATA_POLICY_DEFAULT;
+}
+
+export function automationNotifyPolicy(a: LawyerAutomation): AutomationNotifyPolicy {
+  return a.notifyPolicy ?? AUTOMATION_NOTIFY_POLICY_LEGACY_DEFAULT;
+}
+
+export type AutomationConfirmationField =
+  | "expectedResult"
+  | "approvalBoundary"
+  | "missingDataPolicy"
+  | "notifyPolicy";
+
+export type AutomationConfirmationInput = {
+  expectedResult?: string;
+  approvalBoundary?: string;
+  missingDataPolicy?: AutomationMissingDataPolicy;
+  notifyPolicy?: AutomationNotifyPolicy;
+};
+
+export type AutomationConfirmationVerdict = {
+  ok: boolean;
+  missing: AutomationConfirmationField[];
+  /** 律师可读的一行，直接给 UI 用。 */
+  message: string;
+};
+
+const CONFIRMATION_LABELS: Record<AutomationConfirmationField, string> = {
+  expectedResult: "期望结果",
+  approvalBoundary: "审批边界",
+  missingDataPolicy: "资料缺失时怎么办",
+  notifyPolicy: "什么时候通知",
+};
+
+/**
+ * routine 六确认的门禁（策略文档 C2）。
+ *
+ * 放在 API 层而不是 `createAutomation`：引擎必须能读老文件、能兜底默认值，
+ * 而「新建时律师有没有明确交代」是产品契约，只有 HTTP 面知道。
+ */
+export function validateAutomationConfirmations(
+  input: AutomationConfirmationInput,
+): AutomationConfirmationVerdict {
+  const missing: AutomationConfirmationField[] = [];
+  if (!input.expectedResult?.trim()) {
+    missing.push("expectedResult");
+  }
+  if (!input.approvalBoundary?.trim()) {
+    missing.push("approvalBoundary");
+  }
+  if (!input.missingDataPolicy) {
+    missing.push("missingDataPolicy");
+  }
+  if (!input.notifyPolicy) {
+    missing.push("notifyPolicy");
+  }
+  if (missing.length === 0) {
+    return { ok: true, missing: [], message: "" };
+  }
+  return {
+    ok: false,
+    missing,
+    message: `请先交代清楚：${missing.map((f) => CONFIRMATION_LABELS[f]).join("、")}。`,
+  };
+}
+
+/**
+ * 该不该打扰律师——通知策略的**唯一**决策点。
+ *
+ * 两条不可让的规则：
+ * 1. **失败与待拍板永不静默**：`failed` / `blocked` 一律通知，与 `notifyPolicy` 无关。
+ *    否则 `never` 会退化成「无声地不再办件」，而无人值守最不能接受的正是这个。
+ * 2. 只有 `ok`（静默成功）与 `skipped`（按缺数据策略跳过）受策略管辖。
+ *
+ * `blocked` 覆盖「待批准发信」这类需要律师拍板的项——那是律师欠的决策，不是噪音。
+ */
+export function shouldNotifyLawyer(
+  policy: AutomationNotifyPolicy,
+  status: "ok" | "failed" | "skipped" | "blocked",
+): boolean {
+  if (status === "failed" || status === "blocked") {
+    return true;
+  }
+  if (policy === "never" || policy === "on_problem") {
+    return false;
+  }
+  return true;
+}
+
+export type AutomationInboxItem = {
+  id: string;
+  automationId: string;
+  matterId: string;
+  title: string;
+  summary: string;
+  status:
+    | "open"
+    | "acknowledged"
+    | "approved_send"
+    /** 已批准并远程发出成功。 */
+    | "sent_remote"
+    /** 已批准但远程发信失败，仅落本地 sent 归档。 */
+    | "approved_local_only"
+    | "dismissed";
+  createdAt: string;
+  /** Optional draft / job / mail paths for follow-up. */
+  draftTaskId?: string;
+  jobId?: string;
+  mailMessageIds?: string[];
+  /** Pending outbound mail after lawyer approval (P3). */
+  pendingSend?: {
+    to: string;
+    subject: string;
+    body: string;
+    /** Workspace-relative paths (e.g. artifacts/….tracked.docx); sent only after approve_send. */
+    attachmentRelativePaths?: string[];
+  };
+};
+
+export type AutomationPresetMeta = {
+  id: AutomationPresetId;
+  title: string;
+  description: string;
+  templateId?: string;
+  needsMail: boolean;
+  defaultSchedule: AutomationSchedule;
+  defaultAllowSend: boolean;
+};
+
+export const AUTOMATION_PRESETS: AutomationPresetMeta[] = [
+  {
+    id: "renewal-monitor",
+    title: "合同续签盯梢",
+    description: "按设定周期扫描本案合同到期与续签条款，把提醒推给你拍板。",
+    templateId: "renewal-monitor",
+    needsMail: false,
+    defaultSchedule: { kind: "weekly", weekday: 1, hour: 9, minute: 0 },
+    defaultAllowSend: false,
+  },
+  {
+    id: "client-weekly-update",
+    title: "客户进展周报",
+    description: "每周起草给客户的进展备忘；默认只进拍板，批准后再发信。",
+    templateId: "client-update-memo",
+    needsMail: false,
+    defaultSchedule: { kind: "weekly", weekday: 1, hour: 10, minute: 0 },
+    defaultAllowSend: true,
+  },
+  {
+    id: "mail-inbox-digest",
+    title: "邮箱收件整理",
+    description: "按设定间隔读取本案邮件匣，整理要点与附件清单，推送到待我拍板。",
+    needsMail: true,
+    defaultSchedule: { kind: "interval", everyMinutes: 30 },
+    defaultAllowSend: false,
+  },
+  {
+    id: "mail-contract-review",
+    title: "邮件合同审阅改稿",
+    description:
+      "同步邮件附件后走短路径改稿（约 4–8 步：分析→最小改→审阅痕迹→待拍板），勿在对话里反复搜案卷。Word 原件直接痕迹；其它格式意见书。批准后方可外发。",
+    templateId: "mail-contract-redline",
+    needsMail: true,
+    defaultSchedule: { kind: "interval", everyMinutes: 30 },
+    defaultAllowSend: false,
+  },
+  {
+    id: "custom",
+    title: "自定义交办",
+    description: "用一句话交代要办的事（适合律师习惯，无需写脚本）。",
+    needsMail: false,
+    defaultSchedule: { kind: "daily", hour: 9, minute: 0 },
+    defaultAllowSend: false,
+  },
+];
+
+// 路径助手的实现在 automation-paths.ts；这里保留同名导出，外部 import 路径不变。
+export { automationsDir, automationInboxDir, automationRunsDir };
+
+export function matterMailInboxDir(workspaceDir: string, matterId: string): string {
+  return path.join(path.resolve(workspaceDir), "cases", matterId, "mail", "inbox");
+}
+
+export function matterMailSentDir(workspaceDir: string, matterId: string): string {
+  return path.join(path.resolve(workspaceDir), "cases", matterId, "mail", "sent");
+}
+
+export function matterMailOutboxDir(workspaceDir: string, matterId: string): string {
+  return path.join(path.resolve(workspaceDir), "cases", matterId, "mail", "outbox");
+}
+
+function ensureDir(dir: string): void {
+  fs.mkdirSync(dir, { recursive: true });
+}
+
+function clampHour(n: number): number {
+  if (!Number.isFinite(n)) {
+    return 9;
+  }
+  return Math.min(23, Math.max(0, Math.floor(n)));
+}
+
+function clampMinute(n: number): number {
+  if (!Number.isFinite(n)) {
+    return 0;
+  }
+  return Math.min(59, Math.max(0, Math.floor(n)));
+}
+
+export function clampEveryMinutes(n: number): number {
+  if (!Number.isFinite(n)) {
+    return 30;
+  }
+  return Math.min(
+    AUTOMATION_INTERVAL_MAX_MINUTES,
+    Math.max(AUTOMATION_INTERVAL_MIN_MINUTES, Math.floor(n)),
+  );
+}
+
+/** Next run after `from` for a schedule (local wall clock). */
+export function computeNextRunAt(schedule: AutomationSchedule, from: Date = new Date()): string {
+  if (schedule.kind === "once") {
+    const t = Date.parse(schedule.runAt);
+    if (!Number.isFinite(t)) {
+      return new Date(from.getTime() + 86_400_000).toISOString();
+    }
+    return new Date(Math.max(t, from.getTime() + 1000)).toISOString();
+  }
+
+  if (schedule.kind === "interval") {
+    const mins = clampEveryMinutes(schedule.everyMinutes);
+    return new Date(from.getTime() + mins * 60_000).toISOString();
+  }
+
+  const hour = clampHour(schedule.hour);
+  const minute = clampMinute(schedule.minute);
+  const cursor = new Date(from.getTime());
+
+  const atLocal = (d: Date): Date => {
+    const x = new Date(d);
+    x.setSeconds(0, 0);
+    x.setHours(hour, minute, 0, 0);
+    return x;
+  };
+
+  if (schedule.kind === "daily") {
+    let candidate = atLocal(cursor);
+    if (candidate.getTime() <= from.getTime()) {
+      const next = new Date(cursor);
+      next.setDate(next.getDate() + 1);
+      candidate = atLocal(next);
+    }
+    return candidate.toISOString();
+  }
+
+  const weekday = ((schedule.weekday % 7) + 7) % 7;
+  for (let i = 0; i < 8; i += 1) {
+    const d = new Date(cursor);
+    d.setDate(d.getDate() + i);
+    if (d.getDay() !== weekday) {
+      continue;
+    }
+    const candidate = atLocal(d);
+    if (candidate.getTime() > from.getTime()) {
+      return candidate.toISOString();
+    }
+  }
+  const fallback = new Date(cursor);
+  fallback.setDate(fallback.getDate() + 7);
+  return atLocal(fallback).toISOString();
+}
+
+export function listAutomations(workspaceDir: string): LawyerAutomation[] {
+  const dir = automationsDir(workspaceDir);
+  if (!fs.existsSync(dir)) {
+    return [];
+  }
+  const out: LawyerAutomation[] = [];
+  for (const name of fs.readdirSync(dir)) {
+    if (!name.endsWith(".json")) {
+      continue;
+    }
+    try {
+      const raw = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8")) as LawyerAutomation;
+      if (raw?.id && raw.matterId && raw.schedule) {
+        out.push(raw);
+      }
+    } catch {
+      /* skip */
+    }
+  }
+  return out.toSorted((a, b) => a.nextRunAt.localeCompare(b.nextRunAt));
+}
+
+export function getAutomation(workspaceDir: string, id: string): LawyerAutomation | null {
+  const file = path.join(automationsDir(workspaceDir), `${id}.json`);
+  if (!fs.existsSync(file)) {
+    return null;
+  }
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8")) as LawyerAutomation;
+  } catch {
+    return null;
+  }
+}
+
+/** Atomically claim a due automation so desktop + lawmindd cannot double-fire. */
+export function claimDueAutomation(
+  workspaceDir: string,
+  id: string,
+  now: Date = new Date(),
+): LawyerAutomation | null {
+  const file = path.join(automationsDir(workspaceDir), `${id}.json`);
+  if (!fs.existsSync(file)) {
+    return null;
+  }
+  return withExclusiveFileLock(`${file}.lock`, () => {
+    let current: LawyerAutomation;
+    try {
+      current = JSON.parse(fs.readFileSync(file, "utf8")) as LawyerAutomation;
+    } catch {
+      return null;
+    }
+    if (!current?.enabled || Date.parse(current.nextRunAt) > now.getTime()) {
+      return null;
+    }
+    const claimed: LawyerAutomation = {
+      ...current,
+      nextRunAt: new Date(now.getTime() + 3_600_000).toISOString(),
+      updatedAt: now.toISOString(),
+    };
+    writeJsonAtomic(file, claimed);
+    return current;
+  });
+}
+
+export function saveAutomation(workspaceDir: string, automation: LawyerAutomation): void {
+  const dir = automationsDir(workspaceDir);
+  ensureDir(dir);
+  const file = path.join(dir, `${automation.id}.json`);
+  withExclusiveFileLock(`${file}.lock`, () => {
+    writeJsonAtomic(file, automation);
+  });
+}
+
+export function deleteAutomation(workspaceDir: string, id: string): boolean {
+  const file = path.join(automationsDir(workspaceDir), `${id}.json`);
+  if (!fs.existsSync(file)) {
+    return false;
+  }
+  fs.unlinkSync(file);
+  // 连带清理运行历史，否则留下永远读不到的孤儿目录。
+  try {
+    assertSafeAutomationId(id);
+    deleteAutomationRunHistory(workspaceDir, id);
+  } catch {
+    /* id 不合法时没有历史可清 */
+  }
+  return true;
+}
+
+export type CreateAutomationInput = {
+  title?: string;
+  presetId: AutomationPresetId;
+  matterId: string;
+  instruction?: string;
+  schedule?: AutomationSchedule;
+  enabled?: boolean;
+  allowSendEmailAfterApproval?: boolean;
+  notifyEmail?: string;
+  /** 六确认：交付什么才算办完。 */
+  expectedResult?: string;
+  /** 六确认：哪些动作必须停下来问律师。 */
+  approvalBoundary?: string;
+  /** 六确认：源数据缺失时怎么办。 */
+  missingDataPolicy?: AutomationMissingDataPolicy;
+  /** 六确认：什么时候才打扰律师。 */
+  notifyPolicy?: AutomationNotifyPolicy;
+};
+
+/** First plausible email in free text, or undefined. Rejects example.com placeholders. */
+export function extractNotifyEmail(text: string | undefined): string | undefined {
+  const raw = text?.trim() ?? "";
+  if (!raw) {
+    return undefined;
+  }
+  const m = raw.match(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/);
+  const email = m?.[0]?.toLowerCase();
+  if (!email || email.endsWith("@example.com") || email.endsWith(".example")) {
+    return undefined;
+  }
+  return email;
+}
+
+export function sanitizeNotifyEmail(raw: string | undefined): string | undefined {
+  const t = raw?.trim().toLowerCase() ?? "";
+  if (!t || !/^[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}$/.test(t)) {
+    return undefined;
+  }
+  if (t.endsWith("@example.com") || t.endsWith(".example")) {
+    return undefined;
+  }
+  return t;
+}
+
+export function createAutomation(
+  workspaceDir: string,
+  input: CreateAutomationInput,
+  now: Date = new Date(),
+): LawyerAutomation {
+  const preset = AUTOMATION_PRESETS.find((p) => p.id === input.presetId) ?? AUTOMATION_PRESETS[4];
+  const rawSchedule = input.schedule ?? preset.defaultSchedule;
+  const schedule: AutomationSchedule =
+    rawSchedule.kind === "interval"
+      ? { kind: "interval", everyMinutes: clampEveryMinutes(rawSchedule.everyMinutes) }
+      : rawSchedule;
+  const id = randomUUID();
+  const notifyEmail =
+    sanitizeNotifyEmail(input.notifyEmail) || extractNotifyEmail(input.instruction);
+  // Interval jobs: first fire soon (next local-server tick), then every N minutes.
+  const nextRunAt =
+    schedule.kind === "interval"
+      ? new Date(now.getTime() + 1000).toISOString()
+      : computeNextRunAt(schedule, now);
+  const automation: LawyerAutomation = {
+    id,
+    title: input.title?.trim() || preset.title,
+    enabled: input.enabled !== false,
+    presetId: preset.id,
+    templateId: preset.templateId,
+    matterId: input.matterId.trim(),
+    instruction: input.instruction?.trim() || undefined,
+    schedule,
+    nextRunAt,
+    expectedResult: input.expectedResult?.trim() || undefined,
+    approvalBoundary: input.approvalBoundary?.trim() || undefined,
+    missingDataPolicy: input.missingDataPolicy,
+    notifyPolicy: input.notifyPolicy,
+    allowSendEmailAfterApproval: input.allowSendEmailAfterApproval ?? preset.defaultAllowSend,
+    notifyEmail,
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  };
+  saveAutomation(workspaceDir, automation);
+  return automation;
+}
+
+export function listOpenAutomationInbox(
+  workspaceDir: string,
+  matterId?: string,
+): AutomationInboxItem[] {
+  const dir = automationInboxDir(workspaceDir);
+  if (!fs.existsSync(dir)) {
+    return [];
+  }
+  const out: AutomationInboxItem[] = [];
+  for (const name of fs.readdirSync(dir)) {
+    if (!name.endsWith(".json")) {
+      continue;
+    }
+    try {
+      const item = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8")) as AutomationInboxItem;
+      if (item.status !== "open") {
+        continue;
+      }
+      if (matterId && item.matterId !== matterId) {
+        continue;
+      }
+      out.push(item);
+    } catch {
+      /* skip */
+    }
+  }
+  return out.toSorted((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export function saveAutomationInboxItem(workspaceDir: string, item: AutomationInboxItem): void {
+  const dir = automationInboxDir(workspaceDir);
+  ensureDir(dir);
+  const file = path.join(dir, `${item.id}.json`);
+  withExclusiveFileLock(`${file}.lock`, () => {
+    writeJsonAtomic(file, item);
+  });
+}
+
+export function getAutomationInboxItem(
+  workspaceDir: string,
+  id: string,
+): AutomationInboxItem | null {
+  const file = path.join(automationInboxDir(workspaceDir), `${id}.json`);
+  if (!fs.existsSync(file)) {
+    return null;
+  }
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8")) as AutomationInboxItem;
+  } catch {
+    return null;
+  }
+}
+
+export type LocalMailMessage = {
+  id: string;
+  from: string;
+  to: string;
+  subject: string;
+  receivedAt: string;
+  bodyText: string;
+  attachments: Array<{ name: string; relativePath?: string }>;
+};
+
+/** Read local matter mailbox JSON messages (P2 connector stub / drop-folder). */
+export function listMatterMailMessages(workspaceDir: string, matterId: string): LocalMailMessage[] {
+  const dir = matterMailInboxDir(workspaceDir, matterId);
+  if (!fs.existsSync(dir)) {
+    return [];
+  }
+  const out: LocalMailMessage[] = [];
+  for (const name of fs.readdirSync(dir)) {
+    if (!name.endsWith(".json")) {
+      continue;
+    }
+    try {
+      const raw = JSON.parse(
+        fs.readFileSync(path.join(dir, name), "utf8"),
+      ) as Partial<LocalMailMessage>;
+      if (!raw.subject && !raw.bodyText) {
+        continue;
+      }
+      out.push({
+        id: raw.id?.trim() || name.replace(/\.json$/i, ""),
+        from: raw.from?.trim() || "unknown",
+        to: raw.to?.trim() || "",
+        subject: raw.subject?.trim() || "(无主题)",
+        receivedAt: raw.receivedAt?.trim() || new Date(0).toISOString(),
+        bodyText: raw.bodyText?.trim() || "",
+        attachments: Array.isArray(raw.attachments) ? raw.attachments : [],
+      });
+    } catch {
+      /* skip */
+    }
+  }
+  return out.toSorted((a, b) => b.receivedAt.localeCompare(a.receivedAt));
+}
+
+export function writeMatterMailMessage(
+  workspaceDir: string,
+  matterId: string,
+  message: LocalMailMessage,
+): void {
+  const dir = matterMailInboxDir(workspaceDir, matterId);
+  ensureDir(dir);
+  // 文件名用消毒后的 id（Graph id 含 / 等字符）；JSON 内保留原始 id 供展示与对账。
+  fs.writeFileSync(
+    path.join(dir, `${sanitizeMailMessageIdForPath(message.id)}.json`),
+    `${JSON.stringify(message, null, 2)}\n`,
+    "utf8",
+  );
+}
+
+export type OutboundMailPayload = {
+  to: string;
+  subject: string;
+  body: string;
+  attachmentRelativePaths?: string[];
+};
+
+export function queueOutboundMail(
+  workspaceDir: string,
+  matterId: string,
+  mail: OutboundMailPayload,
+): string {
+  const dir = matterMailOutboxDir(workspaceDir, matterId);
+  ensureDir(dir);
+  const id = randomUUID();
+  fs.writeFileSync(
+    path.join(dir, `${id}.json`),
+    `${JSON.stringify({ id, ...mail, status: "pending_approval", createdAt: new Date().toISOString() }, null, 2)}\n`,
+    "utf8",
+  );
+  return id;
+}
+
+/** After lawyer approval: move outbox → sent (local send simulation). */
+export function commitOutboundMail(
+  workspaceDir: string,
+  matterId: string,
+  mail: OutboundMailPayload,
+): string {
+  const dir = matterMailSentDir(workspaceDir, matterId);
+  ensureDir(dir);
+  const id = randomUUID();
+  const payload = {
+    id,
+    ...mail,
+    status: "sent",
+    sentAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(path.join(dir, `${id}.json`), `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  return id;
+}
+
+/** Matter-relative attachment path → workspace-relative `cases/<matterId>/…`. */
+export function toWorkspaceMailAttachmentPath(
+  matterId: string,
+  matterRelativePath: string | undefined,
+  fileName: string,
+): string | undefined {
+  const mid = matterId.trim();
+  if (!mid) {
+    return undefined;
+  }
+  const rel = (matterRelativePath ?? "").trim().replace(/\\/g, "/");
+  if (rel && !rel.includes("..") && !path.isAbsolute(rel)) {
+    return path.posix.join("cases", mid, rel);
+  }
+  const name = fileName.trim().replace(/\\/g, "/");
+  if (!name || name.includes("..") || name.includes("/")) {
+    return undefined;
+  }
+  return path.posix.join("cases", mid, "mail", "attachments", name);
+}
+
+export type MailContractAttachmentRef = {
+  name: string;
+  /** Workspace-relative path of the original attachment. */
+  workspaceRelativePath: string;
+  messageId: string;
+  from: string;
+  subject: string;
+  kind: ContractAttachmentKind;
+};
+
+/** tracked = Word 审阅痕迹；opinion = PDF/图片/未能转换的旧格式 → 意见书级审查. */
+export type MailContractReviewMode = "tracked" | "opinion";
+
+export type MailContractReviewBuild = {
+  summary: string;
+  attachmentNames: string[];
+  /** Prefer first entry as default baseline (newest mail, best format). */
+  attachmentRefs: MailContractAttachmentRef[];
+  reviewMode: MailContractReviewMode;
+  /**
+   * Workspace-relative Word path (.doc/.docx) for contract_edit_baseline_path.
+   */
+  preferredBaselinePath?: string;
+  /** Original preferred attachment (any supported format). */
+  preferredSourcePath?: string;
+  /** Reply hint from newest message with a contract attachment. */
+  replyToEmail?: string;
+  workflowInstruction: string;
+};
+
+/** Extract bare email from `Name <a@b.com>` or plain address. */
+export function extractEmailAddress(fromOrTo: string): string | undefined {
+  const angle = fromOrTo.match(/<([^>]+@[^>]+)>/);
+  if (angle?.[1]) {
+    return angle[1].trim().toLowerCase();
+  }
+  const bare = fromOrTo.trim().match(/^[^\s<>]+@[^\s<>]+$/);
+  return bare ? bare[0].toLowerCase() : undefined;
+}
+
+function pickPreferredContractRef(
+  refs: MailContractAttachmentRef[],
+): MailContractAttachmentRef | undefined {
+  return (
+    refs.find((r) => r.kind === "tracked_word") ??
+    refs.find((r) => r.kind === "convertible_word") ??
+    refs.find((r) => r.kind === "analyzable") ??
+    refs[0]
+  );
+}
+
+function buildMailBlocksForRefs(
+  messages: LocalMailMessage[],
+  matterId: string,
+  refs: MailContractAttachmentRef[],
+): string {
+  const msgIds = new Set(refs.map((r) => r.messageId));
+  return messages
+    .filter((m) => msgIds.has(m.id))
+    .slice(0, 5)
+    .map((m, i) => {
+      const body = (m.bodyText ?? "").replace(/\s+/g, " ").trim().slice(0, 600);
+      const attLines = m.attachments
+        .filter(
+          (a) =>
+            isReviewableContractAttachment(a.name) ||
+            isReviewableContractAttachment(a.relativePath ?? ""),
+        )
+        .map((a) => {
+          const p = toWorkspaceMailAttachmentPath(matterId, a.relativePath, a.name);
+          const kind = classifyContractAttachment(a.name);
+          return p ? `  - \`${p}\`（${a.name} · ${kind}）` : `  - ${a.name}（${kind}）`;
+        })
+        .join("\n");
+      return [
+        `### 邮件 ${i + 1}`,
+        `- 发件人：${m.from}`,
+        `- 主题：${m.subject}`,
+        `- 时间：${m.receivedAt}`,
+        `- 正文摘要：${body || "（无正文）"}`,
+        `- 合同类附件：`,
+        attLines || "  - （无）",
+      ].join("\n");
+    })
+    .join("\n\n");
+}
+
+function buildTrackedWorkflowInstruction(params: {
+  matterId: string;
+  preferredBaselinePath?: string;
+  replyToEmail?: string;
+  mailBlocks: string;
+}): string {
+  if (params.preferredBaselinePath?.trim()) {
+    return buildMailContractShortPathInstruction({
+      matterId: params.matterId,
+      preferredBaselinePath: params.preferredBaselinePath.trim(),
+      replyToEmail: params.replyToEmail,
+      mailBlocks: params.mailBlocks,
+    });
+  }
+  return [
+    "【邮件合同审阅改稿 · 短路径 · 原文件审阅痕迹】",
+    `matterId=\`${params.matterId.trim()}\``,
+    params.replyToEmail ? `建议回复收件人：${params.replyToEmail}` : "",
+    "",
+    "## 相关邮件与附件（路径已给出）",
+    params.mailBlocks,
+    "",
+    "## 执行约束",
+    "- 附件路径已给出：不要翻案卷找同一份附件。核法条可用检索。勿再问审查重点/己方立场。",
+    "- 通读附件与批注/对方修订；多份附件可以继续读，不要反复读同一文件。",
+    `- **最小修改（硬约束·条数不限）**：落改用 \`apply_surgical_edits\`（附 \`craft_check\`）。只标真正变动的字，没动的字必须留在修订轨之外；一句话里改几个字就只改那几个字（含句读 find 经验值 ≤${SURGICAL_MAX_FIND_WITH_TERMINATOR} 字）。`,
+    "- 整句/整段删写会被硬门禁跳过；勿整节重写进 `update_draft.sections`。其余争点 deferred。",
+    "- `redlinePending=0` 不得 `render_tracked_draft`。不要 `send_email`。不要用 `render_document` 重建附件。",
+    "",
+    "## 推荐路径（按任务选用）",
+    "- 改稿：`analyze_document`、`draft_document`/`update_draft`、`apply_surgical_edits`、`render_tracked_draft` 写入源文件同目录（原名_日期_01.docx）。",
+    "- 交接：`prepare_outbound_mail`（to=对方邮箱，附件=修订稿路径）。",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildOpinionWorkflowInstruction(params: {
+  matterId: string;
+  preferredSourcePath?: string;
+  replyToEmail?: string;
+  mailBlocks: string;
+}): string {
+  return [
+    "【邮件合同审阅 · 意见书短路径（非 Word（.doc/.docx）原件）】",
+    `matterId=\`${params.matterId.trim()}\``,
+    params.preferredSourcePath ? `默认分析附件：\`${params.preferredSourcePath}\`` : "",
+    params.replyToEmail ? `建议回复收件人：${params.replyToEmail}` : "",
+    "",
+    "## 相关邮件与附件（路径已给出）",
+    params.mailBlocks,
+    "",
+    "## 执行约束",
+    "- 附件路径已给出：不要翻案卷找同一份附件。核法条可用检索。",
+    "- 通读默认附件（通常 1 次即可）；多份附件可以继续读。",
+    "- 质量按 Opinion Craft：覆盖完整、可追溯、缓办诚实；勿空摘要交差。",
+    "- 外发须 `prepare_outbound_mail` 待拍板；勿 `send_email`。",
+    "",
+    "## Opinion Craft（指针）",
+    "通读附件后输出可核验意见书（结论/风险/建议）；缓办须写理由；禁止臆造法条；勿空摘要交差。",
+    "",
+    "## 推荐路径（按任务选用）",
+    "- 意见：`analyze_document`、`draft_document`（结论/风险/修改建议）。",
+    "- 交接：`prepare_outbound_mail`（附件=意见书路径）。",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function finalizeMailContractReviewBuild(
+  matterId: string,
+  messages: LocalMailMessage[],
+  refs: MailContractAttachmentRef[],
+  overrides?: {
+    reviewMode?: MailContractReviewMode;
+    preferredBaselinePath?: string;
+    preferredSourcePath?: string;
+    convertNote?: string;
+  },
+): MailContractReviewBuild {
+  const preferred = pickPreferredContractRef(refs);
+  const preferredSourcePath = overrides?.preferredSourcePath ?? preferred?.workspaceRelativePath;
+  let reviewMode: MailContractReviewMode = overrides?.reviewMode ?? "opinion";
+  if (!overrides?.reviewMode) {
+    if (overrides?.preferredBaselinePath || preferred?.kind === "tracked_word") {
+      reviewMode = "tracked";
+    } else if (preferred?.kind === "convertible_word") {
+      reviewMode = "tracked";
+    } else {
+      reviewMode = "opinion";
+    }
+  }
+  if (overrides?.preferredBaselinePath) {
+    reviewMode = "tracked";
+  }
+
+  const preferredBaselinePath =
+    overrides?.preferredBaselinePath ??
+    (preferred?.kind === "tracked_word" ? preferred.workspaceRelativePath : undefined);
+  const replyToEmail = extractEmailAddress(preferred?.from ?? "");
+  const mailBlocks = buildMailBlocksForRefs(messages, matterId, refs);
+
+  const kindLabel = (k: ContractAttachmentKind) =>
+    k === "tracked_word"
+      ? "Word(.doc/.docx)"
+      : k === "convertible_word"
+        ? "其他文字格式(wps/rtf/odt)"
+        : k === "analyzable"
+          ? "PDF/图片/文本"
+          : "其他";
+
+  const modeLine =
+    reviewMode === "tracked"
+      ? "将启动「邮件合同审阅改稿」工作流（最小修改 + 原文件审阅痕迹）。"
+      : "将启动「邮件合同审阅」工作流（意见书级审查；原件非 Word，不做审阅痕迹）。";
+
+  const summary = [
+    `发现 ${refs.length} 个合同类附件，${modeLine}`,
+    ...refs.map(
+      (r, i) => `${i + 1}. \`${r.workspaceRelativePath}\`（${kindLabel(r.kind)}）← ${r.subject}`,
+    ),
+    "",
+    overrides?.convertNote ?? "",
+    preferredBaselinePath
+      ? `默认 Word 基线：\`${preferredBaselinePath}\``
+      : preferredSourcePath
+        ? `默认分析附件：\`${preferredSourcePath}\``
+        : "",
+    "完成后请在文书台签批；批准发送前不会对外发信。",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const workflowInstruction =
+    reviewMode === "tracked"
+      ? buildTrackedWorkflowInstruction({
+          matterId,
+          preferredBaselinePath: preferredBaselinePath ?? preferredSourcePath,
+          replyToEmail,
+          mailBlocks,
+        })
+      : buildOpinionWorkflowInstruction({
+          matterId,
+          preferredSourcePath,
+          replyToEmail,
+          mailBlocks,
+        });
+
+  return {
+    summary,
+    attachmentNames: refs.map((r) => r.name),
+    attachmentRefs: refs,
+    reviewMode,
+    preferredBaselinePath,
+    preferredSourcePath,
+    replyToEmail,
+    workflowInstruction,
+  };
+}
+
+export function buildMailContractReviewSummary(
+  messages: LocalMailMessage[],
+  matterId: string,
+): MailContractReviewBuild {
+  const empty: MailContractReviewBuild = {
+    summary:
+      "未发现带合同附件的邮件。请确认对方已发来 PDF/Word/图片等文件，或到「交办 → 邮箱配置」重新同步。",
+    attachmentNames: [],
+    attachmentRefs: [],
+    reviewMode: "opinion",
+    workflowInstruction: "",
+  };
+  const refs: MailContractAttachmentRef[] = [];
+  for (const m of messages) {
+    for (const att of m.attachments) {
+      if (
+        !isReviewableContractAttachment(att.name) &&
+        !isReviewableContractAttachment(att.relativePath ?? "")
+      ) {
+        continue;
+      }
+      const workspaceRelativePath = toWorkspaceMailAttachmentPath(
+        matterId,
+        att.relativePath,
+        att.name,
+      );
+      if (!workspaceRelativePath) {
+        continue;
+      }
+      const kind = classifyContractAttachment(att.name || workspaceRelativePath);
+      if (kind === "other") {
+        continue;
+      }
+      refs.push({
+        name: att.name,
+        workspaceRelativePath,
+        messageId: m.id,
+        from: m.from,
+        subject: m.subject,
+        kind,
+      });
+    }
+  }
+  if (refs.length === 0) {
+    const names = messages.flatMap((m) => m.attachments.map((a) => a.name));
+    if (names.length === 0) {
+      return empty;
+    }
+    return {
+      summary: [
+        `发现 ${names.length} 个附件，但无一为可审阅合同格式（Word/PDF/图片等）：`,
+        ...names.map((n, i) => `${i + 1}. ${n}`),
+        "",
+        "请对方提供 .docx / .doc / .pdf 或清晰扫描件图片，或在对话中手动交办审查。",
+      ].join("\n"),
+      attachmentNames: names,
+      attachmentRefs: [],
+      reviewMode: "opinion",
+      workflowInstruction: "",
+    };
+  }
+
+  return finalizeMailContractReviewBuild(matterId, messages, refs);
+}
+
+/**
+ * Convert .doc/.wps/… to sibling .docx when possible, then rebuild instructions.
+ * Call from the automation runner before enqueueing the workflow.
+ */
+export async function materializeMailContractReviewBaselines(
+  workspaceDir: string,
+  messages: LocalMailMessage[],
+  matterId: string,
+  built: MailContractReviewBuild,
+): Promise<MailContractReviewBuild> {
+  if (built.attachmentRefs.length === 0) {
+    return built;
+  }
+  const preferred =
+    built.attachmentRefs.find((r) => r.workspaceRelativePath === built.preferredSourcePath) ??
+    pickPreferredContractRef(built.attachmentRefs);
+  if (!preferred) {
+    return built;
+  }
+
+  // .doc / .docx are first-class baselines — no conversion step.
+  if (
+    isTrackedWordAttachment(preferred.workspaceRelativePath) ||
+    preferred.kind === "tracked_word"
+  ) {
+    return finalizeMailContractReviewBuild(matterId, messages, built.attachmentRefs, {
+      reviewMode: "tracked",
+      preferredBaselinePath: preferred.workspaceRelativePath,
+      preferredSourcePath: preferred.workspaceRelativePath,
+    });
+  }
+
+  if (preferred.kind === "convertible_word") {
+    const converted = await ensureDocxForAttachment(workspaceDir, preferred.workspaceRelativePath);
+    if (converted.ok) {
+      return finalizeMailContractReviewBuild(matterId, messages, built.attachmentRefs, {
+        reviewMode: "tracked",
+        preferredBaselinePath: converted.relativePath,
+        preferredSourcePath: preferred.workspaceRelativePath,
+        convertNote: converted.converted
+          ? converted.fidelity === "lossy"
+            ? `已将 \`${preferred.workspaceRelativePath}\` 转为可审阅基线 \`${converted.relativePath}\`（${converted.tool ?? "converter"}，**有损**：原字体/审阅修订可能丢失；请安装 Microsoft Word 后重跑以高保真导出）。`
+            : `已将 \`${preferred.workspaceRelativePath}\` 转为可审阅基线 \`${converted.relativePath}\`（${converted.tool ?? "converter"}，保留原格式/审阅痕迹）。`
+          : undefined,
+      });
+    }
+    return finalizeMailContractReviewBuild(matterId, messages, built.attachmentRefs, {
+      reviewMode: "opinion",
+      preferredSourcePath: preferred.workspaceRelativePath,
+      convertNote: `未能处理 \`${preferred.workspaceRelativePath}\`（${converted.error}），改走意见书级审查。`,
+    });
+  }
+
+  return finalizeMailContractReviewBuild(matterId, messages, built.attachmentRefs, {
+    reviewMode: "opinion",
+    preferredSourcePath: preferred.workspaceRelativePath,
+  });
+}
+
+import { classifyMailMessage, MAIL_TRIAGE_LABEL_ZH } from "../desk/mail-triage.js";
+
+export function buildMailDigestSummary(messages: LocalMailMessage[]): string {
+  if (messages.length === 0) {
+    return "本期邮箱匣无新邮件。请在「交办 → 邮箱配置」连接真实邮箱并点「立即同步」。";
+  }
+  const lines = messages.slice(0, 12).map((m, i) => {
+    const att =
+      m.attachments.length > 0 ? `；附件 ${m.attachments.map((a) => a.name).join("、")}` : "";
+    const label = classifyMailMessage({
+      from: m.from,
+      subject: m.subject,
+      bodyText: m.bodyText,
+      attachmentNames: m.attachments.map((a) => a.name),
+    });
+    return `${i + 1}. 【${MAIL_TRIAGE_LABEL_ZH[label]}】${m.receivedAt.slice(0, 10)} · ${m.from} · ${m.subject}${att}`;
+  });
+  const replyCount = messages.filter(
+    (m) =>
+      classifyMailMessage({
+        from: m.from,
+        subject: m.subject,
+        bodyText: m.bodyText,
+        attachmentNames: m.attachments.map((a) => a.name),
+      }) === "needs_reply",
+  ).length;
+  const head =
+    replyCount > 0
+      ? `共 ${messages.length} 封，其中 ${replyCount} 封待回复。`
+      : `共 ${messages.length} 封邮件：`;
+  return `${head}\n${lines.join("\n")}`;
+}

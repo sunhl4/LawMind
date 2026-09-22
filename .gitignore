@@ -1,0 +1,108 @@
+# Dependencies & toolchain
+node_modules/
+**/node_modules/
+.pnpm-store/
+.tsbuildinfo
+
+# Build outputs
+dist/
+**/dist/
+dist-runtime/
+coverage/
+
+# Gate/CLI 生成的报告（CI 重新生成并作为 artifact 上传；真相源是 fixtures 与源码）
+# 之前误入库的 skills-golden-compare-report.json 长期陈旧且无人读取，故整体忽略。
+docs/generated/
+
+# Environment (never commit secrets)
+.env
+.env.*
+!.env.example
+!.env.lawmind.example
+!.env.lawmind.team.example
+!.env.lawmind.team.secrets.example
+.env.lawmind.team.secrets
+**/.signing-secret
+
+# LawMind workspace — lawyer matter data (runtime truth source, never commit)
+/matters/
+/workspace/matters/
+
+# LawMind workspace — 派生副本与机器本地运行时状态（真相源在代码里，不入库）
+#   skills     ← src/lawmind/skills/builtin/*.md（应用启动时签名播种）
+#   workflows  ← src/lawmind/agent/collaboration/*-templates.ts（ensure-workflow-seeds 播种/升级）
+#   lint       ← 逃逸候选/语料/立场（metrics/lint-escape-candidates.ts 写入，审核时产生）
+#   decision   ← 决策语料导出（metrics/decision-samples.ts 写入，P0 体检报告）
+#   rounds     ← 影子演练工作区（scripts/lawmind/lawmind-round.ts 每跑一轮新建 <日期>-<slug>/）
+# 注：仓库里仍有更早提交的副本（13 个 workflow、cn-contract-checklist）不受忽略影响；
+#     是否 `git rm --cached` 由维护者决定，忽略规则先行，避免 `git add -A` 再次卷入。
+workspace/lawmind/skills/
+workspace/lawmind/workflows/
+workspace/lawmind/automation-inbox/
+workspace/lawmind/word-addin/
+workspace/lawmind/works/
+workspace/lawmind/metrics/
+workspace/lawmind/daily-plans/
+workspace/lawmind/lint/
+workspace/lawmind/decision/
+# 改稿范例库（learning/edit-examples.ts 写入；律师改稿时产生，可重复生成）
+workspace/edits/
+# 影子演练工作区（scripts/lawmind/lawmind-round.ts 写入；可重复生成，不入库）
+workspace/rounds/
+workspace/lawmind/daemon.json
+workspace/lawmind/search-index.sqlite
+
+# OS / editor
+.DS_Store
+**/.DS_Store
+.idea/
+.local/
+tmp/
+.worktrees/
+
+# VitePress — 同步副本（正文以仓库根目录 docs/ 为准）
+apps/lawmind-docs/docs/LAWMIND-*.md
+apps/lawmind-docs/docs/lawmind/
+apps/lawmind-docs/docs/archive/
+apps/lawmind-docs/docs/assets/
+apps/lawmind-docs/docs/public/download/
+# 由 sync-docs 从 docs/CNAME 与构建生成；真相源是 docs/CNAME
+apps/lawmind-docs/docs/public/CNAME
+apps/lawmind-docs/docs/public/.nojekyll
+
+# LawMind desktop — 打包与本地服务器 bundle
+apps/lawmind-desktop/release/
+apps/lawmind-desktop/server/dist/
+apps/lawmind-desktop/resources/node-runtime/*/
+apps/lawmind-desktop/resources/officecli/*/
+
+# E2E / Playwright
+apps/lawmind-desktop/test-results/
+apps/lawmind-desktop/playwright-report/
+
+# Optional: other package managers（主锁文件为 pnpm-lock.yaml，应提交）
+package-lock.json
+bun.lock
+bun.lockb
+
+# Tooling & agent local state
+.cursor/
+.claude/
+.agents/
+.agent/
+!.agent/workflows/
+skills-lock.json
+.serena/
+.ant-colony/
+/memory/
+
+# True-manuscript binaries (PII) — keep README only; never commit client docs
+fixtures/lawmind-true-manuscript/*
+!fixtures/lawmind-true-manuscript/README.md
+
+# Legacy single-file ignores（若需纳入版本控制，从下列行删除后 git add）
+IDENTITY.md
+USER.md
+
+# True-manuscript trend report — runtime artifact written by the gate CLI
+workspace/lawmind/metrics/true-manuscript-report.json

@@ -1,0 +1,376 @@
+/**
+ * Matter Write Service — W3。
+ *
+ * 把 `Matter` 当成一等业务对象（不再只是从 MatterIndex 派生）。
+ * 真相源：`workspace/matters/<matterId>/matter.json`。
+ * 写入时用 zod schema 校验，错误会作为 `deliverable.spec.invalid` 类似事件
+ * 写入审计日志（best-effort），但不直接抛回调用方除非 fatal。
+ */
+
+import path from "node:path";
+import { receiveMessageOnPort, MessageChannel } from "node:worker_threads";
+import { loadMatter, saveMatter, type MatterRecord } from "../../adapters/matter-storage/index.js";
+import { matterDir, withExclusiveFileLock } from "../../adapters/matter-storage/io.js";
+import { matterSchema } from "../../adapters/matter-storage/schemas.js";
+import { emit } from "../../audit/index.js";
+import type { MatterDocket, MatterKind } from "../../desk/matter-kind.js";
+import { parseMatterDocket, parseMatterKind, parsePracticeTags } from "../../desk/matter-kind.js";
+import {
+  deriveMatterIdentity,
+  normalizeMatterParties,
+  syncLegacyIdentityIntoParties,
+  type MatterParty,
+} from "../../desk/matter-parties.js";
+import { projectMatterToCaseMd, upsertMatterCaseProfileBullets } from "../matter-projection.js";
+
+export type MatterCreateInput = {
+  matterId: string;
+  title?: string;
+  status?: MatterRecord["status"];
+  sensitivity?: MatterRecord["sensitivity"];
+  ownerLawyerId?: string;
+  primaryAssistantRoleId?: string;
+  strategyStatus?: MatterRecord["strategyStatus"];
+  clientId?: string;
+  matterKind?: MatterKind;
+  practiceTags?: string[];
+  docket?: MatterDocket;
+};
+
+const pendingMatterProjections = new Set<Promise<void>>();
+
+/**
+ * Per-matter exclusive lock around `matter.json` read-modify-write.
+ * Prevents concurrent writers from clobbering each other's array fields
+ * (deliverableIds / queueItemIds / deadlineIds) and profile mutations.
+ */
+function withMatterLock<T>(workspaceDir: string, matterId: string, fn: () => T): T {
+  const lockPath = path.join(matterDir(workspaceDir, matterId), "matter.json.lock");
+  return withExclusiveFileLock(lockPath, fn);
+}
+
+function awaitMatterProjectionInVitest(task: Promise<void>): void {
+  const { port1, port2 } = new MessageChannel();
+  void task.finally(() => {
+    port2.postMessage("done");
+  });
+  receiveMessageOnPort(port1);
+}
+
+function scheduleMatterProjection(workspaceDir: string, record: MatterRecord): void {
+  const auditDir = path.join(workspaceDir, "audit");
+  const task = projectMatterToCaseMd(workspaceDir, record)
+    .catch((err) => {
+      // projection must not block business logic — but surface silent drift via audit
+      void emit(auditDir, {
+        taskId: record.matterId,
+        kind: "matter.projection_failed",
+        actor: "system",
+        detail: JSON.stringify({
+          matterId: record.matterId,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      }).catch(() => {
+        /* ignore */
+      });
+    })
+    .finally(() => {
+      pendingMatterProjections.delete(task);
+    });
+  pendingMatterProjections.add(task);
+  if (process.env.VITEST === "true") {
+    awaitMatterProjectionInVitest(task);
+  }
+}
+
+export async function drainMatterProjections(): Promise<void> {
+  await Promise.all(pendingMatterProjections);
+}
+
+function auditDir(workspaceDir: string): string {
+  return path.join(workspaceDir, "audit");
+}
+
+async function emitInvalid(workspaceDir: string, matterId: string, message: string): Promise<void> {
+  try {
+    await emit(auditDir(workspaceDir), {
+      taskId: "system",
+      kind: "matter.spec.invalid",
+      actor: "system",
+      detail: `${matterId}: ${message}`,
+    });
+  } catch {
+    // audit failures must not block business logic
+  }
+}
+
+function newTimestamp(): string {
+  return new Date().toISOString();
+}
+
+type MatterCreateOptions = {
+  /** When false, caller will project CASE.md separately (avoids duplicate async work). */
+  projectCase?: boolean;
+};
+
+/** 创建 matter；若已存在直接返回（幂等）。 */
+export function createMatterIfMissing(
+  workspaceDir: string,
+  input: MatterCreateInput,
+  opts?: MatterCreateOptions,
+): MatterRecord {
+  return withMatterLock(workspaceDir, input.matterId, () => {
+    const existing = loadMatter(workspaceDir, input.matterId);
+    if (existing) {
+      return existing;
+    }
+    const now = newTimestamp();
+    const kind = parseMatterKind(input.matterKind);
+    const docket = parseMatterDocket(input.docket);
+    const tags = parsePracticeTags(input.practiceTags);
+    const draft: MatterRecord = {
+      matterId: input.matterId,
+      clientId: input.clientId,
+      title: input.title ?? input.matterId,
+      status: input.status ?? "intake",
+      sensitivity: input.sensitivity ?? "normal",
+      ownerLawyerId: input.ownerLawyerId,
+      primaryAssistantRoleId: input.primaryAssistantRoleId,
+      strategyStatus: input.strategyStatus ?? "draft",
+      openQuestionIds: [],
+      nextActions: [],
+      deadlineIds: [],
+      deliverableIds: [],
+      queueItemIds: [],
+      matterKind: kind,
+      ...(tags.length > 0 ? { practiceTags: tags } : {}),
+      ...(docket ? { docket } : {}),
+      createdAt: now,
+      updatedAt: now,
+    };
+    const parsed = matterSchema.safeParse(draft);
+    if (!parsed.success) {
+      void emitInvalid(workspaceDir, input.matterId, parsed.error.message);
+      throw new Error(`Invalid matter draft for ${input.matterId}: ${parsed.error.message}`);
+    }
+    const saved = saveMatter(workspaceDir, parsed.data);
+    if (opts?.projectCase !== false) {
+      scheduleMatterProjection(workspaceDir, saved);
+    }
+    return saved;
+  });
+}
+
+export type MatterProfileUpdateInput = {
+  matterId: string;
+  title?: string;
+  clientId?: string;
+  sensitivity?: MatterRecord["sensitivity"];
+  status?: MatterRecord["status"];
+  causeOfAction?: string;
+  counterparty?: string;
+  matterKind?: MatterKind;
+  practiceTags?: string[];
+  docket?: MatterDocket;
+  parties?: MatterParty[];
+};
+
+/**
+ * 事后补全案件档案（展示名、客户、密级、阶段、案由、对方）。
+ * 建案时只建文件夹；属性在此写入 JSON 真相源并投影到 CASE.md。
+ */
+export async function updateMatterProfile(
+  workspaceDir: string,
+  input: MatterProfileUpdateInput,
+): Promise<MatterRecord | undefined> {
+  const saved = withMatterLock(workspaceDir, input.matterId, () => {
+    const existing = loadMatter(workspaceDir, input.matterId);
+    if (!existing) {
+      return undefined;
+    }
+    const title = input.title?.trim() || existing.title;
+    const clientIdInput =
+      input.clientId !== undefined ? input.clientId.trim() || undefined : existing.clientId;
+    const counterpartyInput =
+      input.counterparty !== undefined
+        ? input.counterparty.trim() || undefined
+        : existing.counterparty;
+    const parties =
+      input.parties !== undefined
+        ? normalizeMatterParties(input.parties)
+        : (syncLegacyIdentityIntoParties(existing.parties, clientIdInput, counterpartyInput) ?? []);
+    const derived =
+      input.parties !== undefined
+        ? deriveMatterIdentity(parties)
+        : { clientId: clientIdInput, counterparty: counterpartyInput };
+    const next: MatterRecord = {
+      ...existing,
+      title,
+      clientId: derived.clientId,
+      sensitivity: input.sensitivity ?? existing.sensitivity,
+      status: input.status ?? existing.status,
+      matterKind:
+        input.matterKind !== undefined ? parseMatterKind(input.matterKind) : existing.matterKind,
+      practiceTags:
+        input.practiceTags !== undefined
+          ? parsePracticeTags(input.practiceTags)
+          : existing.practiceTags,
+      causeOfAction:
+        input.causeOfAction !== undefined
+          ? input.causeOfAction.trim() || undefined
+          : existing.causeOfAction,
+      counterparty: derived.counterparty,
+      parties: parties.length > 0 ? parties : undefined,
+      docket: input.docket !== undefined ? parseMatterDocket(input.docket) : existing.docket,
+      updatedAt: newTimestamp(),
+    };
+    const parsed = matterSchema.safeParse(next);
+    if (!parsed.success) {
+      void emitInvalid(workspaceDir, input.matterId, parsed.error.message);
+      throw new Error(`Invalid matter profile for ${input.matterId}: ${parsed.error.message}`);
+    }
+    return saveMatter(workspaceDir, parsed.data);
+  });
+  if (!saved) {
+    return undefined;
+  }
+  await projectMatterToCaseMd(workspaceDir, saved);
+  await upsertMatterCaseProfileBullets(workspaceDir, saved.matterId, {
+    causeOfAction: input.causeOfAction,
+    counterparty: input.counterparty,
+    docket: saved.docket,
+    matterKind: saved.matterKind,
+  });
+  return saved;
+}
+
+export function updateMatterStatus(
+  workspaceDir: string,
+  matterId: string,
+  status: MatterRecord["status"],
+): MatterRecord | undefined {
+  return withMatterLock(workspaceDir, matterId, () => {
+    const existing = loadMatter(workspaceDir, matterId);
+    if (!existing) {
+      return undefined;
+    }
+    const saved = saveMatter(workspaceDir, { ...existing, status, updatedAt: newTimestamp() });
+    scheduleMatterProjection(workspaceDir, saved);
+    return saved;
+  });
+}
+
+export function setMatterStrategy(
+  workspaceDir: string,
+  matterId: string,
+  strategyStatus: MatterRecord["strategyStatus"],
+  opts?: { nextActions?: string[]; openQuestionIds?: string[] },
+): MatterRecord | undefined {
+  return withMatterLock(workspaceDir, matterId, () => {
+    const existing = loadMatter(workspaceDir, matterId);
+    if (!existing) {
+      return undefined;
+    }
+    const saved = saveMatter(workspaceDir, {
+      ...existing,
+      strategyStatus,
+      nextActions: opts?.nextActions ?? existing.nextActions,
+      openQuestionIds: opts?.openQuestionIds ?? existing.openQuestionIds,
+      updatedAt: newTimestamp(),
+    });
+    scheduleMatterProjection(workspaceDir, saved);
+    return saved;
+  });
+}
+
+export function attachDeliverableId(
+  workspaceDir: string,
+  matterId: string,
+  deliverableId: string,
+): MatterRecord | undefined {
+  return withMatterLock(workspaceDir, matterId, () => {
+    const existing = loadMatter(workspaceDir, matterId);
+    if (!existing) {
+      return undefined;
+    }
+    if (existing.deliverableIds.includes(deliverableId)) {
+      return existing;
+    }
+    return saveMatter(workspaceDir, {
+      ...existing,
+      deliverableIds: [...existing.deliverableIds, deliverableId],
+      updatedAt: newTimestamp(),
+    });
+  });
+}
+
+export function attachQueueItemId(
+  workspaceDir: string,
+  matterId: string,
+  queueItemId: string,
+): MatterRecord | undefined {
+  return withMatterLock(workspaceDir, matterId, () => {
+    const existing = loadMatter(workspaceDir, matterId);
+    if (!existing) {
+      return undefined;
+    }
+    if (existing.queueItemIds.includes(queueItemId)) {
+      return existing;
+    }
+    return saveMatter(workspaceDir, {
+      ...existing,
+      queueItemIds: [...existing.queueItemIds, queueItemId],
+      updatedAt: newTimestamp(),
+    });
+  });
+}
+
+export function attachDeadlineId(
+  workspaceDir: string,
+  matterId: string,
+  deadlineId: string,
+): MatterRecord | undefined {
+  return withMatterLock(workspaceDir, matterId, () => {
+    const existing = loadMatter(workspaceDir, matterId);
+    if (!existing) {
+      return undefined;
+    }
+    if (existing.deadlineIds.includes(deadlineId)) {
+      return existing;
+    }
+    return saveMatter(workspaceDir, {
+      ...existing,
+      deadlineIds: [...existing.deadlineIds, deadlineId],
+      updatedAt: newTimestamp(),
+    });
+  });
+}
+
+export function detachDeadlineIds(
+  workspaceDir: string,
+  matterId: string,
+  deadlineIds: string[],
+): MatterRecord | undefined {
+  if (deadlineIds.length === 0) {
+    return loadMatter(workspaceDir, matterId);
+  }
+  const drop = new Set(deadlineIds);
+  return withMatterLock(workspaceDir, matterId, () => {
+    const existing = loadMatter(workspaceDir, matterId);
+    if (!existing) {
+      return undefined;
+    }
+    const next = existing.deadlineIds.filter((id) => !drop.has(id));
+    if (next.length === existing.deadlineIds.length) {
+      return existing;
+    }
+    return saveMatter(workspaceDir, {
+      ...existing,
+      deadlineIds: next,
+      updatedAt: newTimestamp(),
+    });
+  });
+}
+
+export { loadMatter as readMatter };
+export type { MatterRecord };

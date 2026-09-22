@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>在办 · 现状问题示意</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 13px/1.45 "PingFang SC", "Hiragino Sans GB", sans-serif; background: #222; color: #1c1915; }
+    .shell { position: relative; width: 1440px; }
+    .badge { position: absolute; top: 10px; right: 12px; z-index: 2; background: #333; color: #fff; font-size: 11px; padding: 4px 8px; border-radius: 6px; }
+    .frame { width: 1440px; height: 900px; background: #f4f2ee; display: grid; grid-template-rows: 48px 1fr; }
+    .top { display: flex; align-items: center; gap: 8px; padding: 0 16px; background: linear-gradient(180deg, #f7efe4, #efe6d8); border-bottom: 1px solid #e0d2bc; }
+    .tab { padding: 6px 12px; border-radius: 999px; color: #6e665c; }
+    .tab.on { background: linear-gradient(135deg, #c4a06e, #a67c52); color: #fffaf3; font-weight: 700; }
+    .body { display: grid; grid-template-columns: 260px 1fr; min-height: 0; }
+    .side { background: #ebe7e0; border-right: 1px solid #ddd5c8; padding: 12px; }
+    .main { padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+    .h1 { font-size: 20px; font-weight: 700; margin: 0; }
+    .lead { color: #5c554c; margin: 0; }
+    .segs { display: flex; gap: 6px; }
+    .seg { padding: 6px 14px; border: 1px solid #d8d0c4; border-radius: 999px; background: #fff; color: #6e665c; }
+    .seg.on { border-color: #c4a06e; background: #f3ebe0; color: #7d5c38; font-weight: 700; }
+    .grid { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-height: 0; }
+    .pane { border: 1px solid #ddd5c8; border-radius: 12px; background: #fff; padding: 12px; overflow: hidden; }
+    .pain { outline: 2px dashed #c94a4a; outline-offset: -4px; position: relative; }
+    .pain::before { content: attr(data-pain); position: absolute; top: 8px; right: 8px; background: #c94a4a; color: #fff; font-size: 10px; padding: 2px 6px; border-radius: 4px; }
+    .card { border: 1px solid #e5ddd0; border-radius: 8px; padding: 8px; margin-bottom: 8px; font-size: 12px; }
+    .meta { color: #8a8278; font-size: 11px; }
+    .eq { display: flex; gap: 8px; margin-top: 8px; }
+    .eq button { flex: 1; padding: 8px; border-radius: 8px; border: 1px solid #d8d0c4; background: #f8f4ec; font-weight: 700; color: #7d5c38; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="badge">CURRENT · 问题示意（非目标）</div>
+    <div class="frame">
+      <header class="top">
+        <strong>LawMind</strong>
+        <div class="tab">对话</div>
+        <div class="tab on">在办</div>
+        <div style="flex:1"></div>
+      </header>
+      <div class="body">
+        <aside class="side">
+          <div class="meta">侧栏案件…</div>
+          <div class="card">股权转让纠纷</div>
+          <div class="card">劳动争议</div>
+        </aside>
+        <section class="main">
+          <h1 class="h1">在办</h1>
+          <p class="lead">跟进进度、处理待拍板；还有工作流 / 队列 / 同步…</p>
+          <div class="segs pain" data-pain="三 Tab 平权，不知先点哪">
+            <div class="seg on">进行中</div>
+            <div class="seg">交出去的活</div>
+            <div class="seg">按流程办</div>
+          </div>
+          <div class="grid">
+            <div class="pane pain" data-pain="列表与详情等宽，没有主舞台">
+              <div class="meta">列表</div>
+              <div class="card">工作流 · 执行中<br/><strong>股权转让审查</strong><br/><span class="meta">matter_a3f2… · 已同步 3 秒前</span></div>
+              <div class="card">队列 · 排队<br/><strong>证据清单</strong></div>
+              <div class="card">工具批准 · 待批准<br/><strong>write_file</strong></div>
+            </div>
+            <div class="pane pain" data-pain="多个等权按钮 + 技术指标">
+              <div class="meta">详情 · 轨迹 | 待办</div>
+              <strong>股权转让审查</strong>
+              <p class="meta">一次过签批 72% · 较大改写 3 次 · Job #8821</p>
+              <div class="eq">
+                <button>进入文书台</button>
+                <button>打开对话</button>
+                <button>取消作业</button>
+              </div>
+              <p class="meta" style="margin-top:12px">Agent 轨迹时间线占满下方…</p>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

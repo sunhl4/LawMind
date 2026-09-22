@@ -1,0 +1,11 @@
+# Protect the ownership rules themselves.
+/.github/CODEOWNERS @steipete
+
+# LawMind — extend with your org teams (e.g. @myorg/secops) as needed.
+/SECURITY.md @steipete
+/.github/dependabot.yml @steipete
+/.github/codeql/ @steipete
+/.github/workflows/codeql.yml @steipete
+/src/lawmind/ @steipete
+/apps/lawmind-desktop/ @steipete
+/apps/lawmind-docs/ @steipete

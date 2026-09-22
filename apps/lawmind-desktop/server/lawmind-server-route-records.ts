@@ -1,0 +1,393 @@
+import { DEFAULT_ASSISTANT_ID } from "../../../src/lawmind/assistants/constants.js";
+import type { AgentSession } from "../../../src/lawmind/agent/types.js";
+import { isLawyerVisibleChatMessage } from "../../../src/lawmind/agent/types.js";
+import { searchConversations } from "../../../src/lawmind/agent/conversation-search.js";
+import {
+  createSession,
+  displayChatSessionTitle,
+  listSessions,
+  loadSession,
+  renameSession,
+  sessionHistoryToSimpleMessages,
+} from "../../../src/lawmind/agent/session.js";
+import {
+  deleteSessionWithCascade,
+  type SessionDeleteCascadeOptions,
+} from "../../../src/lawmind/agent/session-delete-cascade.js";
+import { listDrafts } from "../../../src/lawmind/drafts/index.js";
+import { listTaskRecords } from "../../../src/lawmind/tasks/index.js";
+import { taskRecordStatusLabel } from "../../../src/lawmind/tasks/status-label.js";
+import { getLiveTurnProgressOrReplay } from "../../../src/lawmind/agent/session-event-log.js";
+import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
+import {
+  sessionCreatePostSchema,
+  sessionDeletePostSchema,
+  sessionPatchTitleSchema,
+} from "./lawmind-api-schemas.js";
+import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
+import {
+  filterTaskSummaries,
+  isLawMindHttpError,
+  parseQueryTimeMs,
+  resolveDesktopActorId,
+  sendJson,
+  taskToSummary,
+} from "./lawmind-server-helpers.js";
+
+function sessionMatchesAssistantFilter(session: AgentSession, assistantId: string): boolean {
+  if (session.assistantId === assistantId) {
+    return true;
+  }
+  if (!session.assistantId && assistantId === DEFAULT_ASSISTANT_ID) {
+    return true;
+  }
+  return false;
+}
+
+function performSessionDelete(
+  workspaceDir: string,
+  sessionId: string,
+  assistantId: string,
+  cascade: SessionDeleteCascadeOptions = {},
+):
+  | {
+      status: 200;
+      payload: {
+        ok: true;
+        sessionId: string;
+        alreadyDeleted?: boolean;
+        cascade?: ReturnType<typeof deleteSessionWithCascade>;
+      };
+    }
+  | { status: 404; payload: { ok: false; code: string; message: string } }
+  | { status: 500; payload: { ok: false; code: string; message: string } } {
+  const session = loadSession(workspaceDir, sessionId);
+  // Idempotent: tab UI may retry after a successful delete if list refresh failed.
+  if (!session) {
+    return { status: 200, payload: { ok: true, sessionId, alreadyDeleted: true } };
+  }
+  if (!sessionMatchesAssistantFilter(session, assistantId)) {
+    return {
+      status: 404,
+      payload: {
+        ok: false,
+        code: "session_assistant_mismatch",
+        message: "该会话属于其他助手，无法在此删除。请切换到对应助手后再试。",
+      },
+    };
+  }
+  const cascadeResult = deleteSessionWithCascade(workspaceDir, sessionId, cascade);
+  if (!cascadeResult.deletedSession) {
+    return {
+      status: 500,
+      payload: { ok: false, code: "delete_failed", message: "could not delete session files" },
+    };
+  }
+  return { status: 200, payload: { ok: true, sessionId, cascade: cascadeResult } };
+}
+
+export async function handleRecordRoutes({
+  ctx,
+  pathname,
+  req,
+  res,
+  url,
+  c,
+}: LawmindRouteContext): Promise<boolean> {
+  const { workspaceDir } = ctx;
+
+  if (pathname === "/api/tasks" && req.method === "GET") {
+    const q = url.searchParams.get("q") ?? "";
+    const since = parseQueryTimeMs(url.searchParams.get("since"));
+    const until = parseQueryTimeMs(url.searchParams.get("until"));
+    const rows = listTaskRecords(workspaceDir).map((t) => ({
+      ...taskToSummary(t),
+      statusLabel: taskRecordStatusLabel(t),
+    }));
+    const tasks = filterTaskSummaries(rows, q, since, until);
+    sendJson(res, 200, { ok: true, tasks }, c);
+    return true;
+  }
+
+  // GET /api/tasks/:id 的权威实现在 route-review（含 checkpoints；先注册先匹配）。
+  // 此处不再保留重复实现，避免两版响应形状漂移。
+
+  const sessionLiveMatch = /^\/api\/sessions\/([^/]+)\/live-turn$/.exec(pathname);
+  if (sessionLiveMatch && req.method === "GET") {
+    const sessionId = sessionLiveMatch[1];
+    const progress = getLiveTurnProgressOrReplay(workspaceDir, sessionId);
+    sendJson(
+      res,
+      200,
+      progress ? { ok: true, progress } : { ok: true, progress: null, status: "idle" },
+      c,
+    );
+    return true;
+  }
+
+  const sessionItemMatch = /^\/api\/sessions\/([^/]+)$/.exec(pathname);
+
+  if (pathname === "/api/sessions" && req.method === "POST") {
+    try {
+      const body = await parseJsonBodyZod(req, sessionCreatePostSchema);
+      const assistantId = body.assistantId?.trim() || DEFAULT_ASSISTANT_ID;
+      const matterId = body.matterId?.trim() || undefined;
+      const title = body.title?.trim() ? body.title.trim().slice(0, 200) : undefined;
+      const session = createSession({
+        workspaceDir,
+        matterId,
+        actorId: resolveDesktopActorId(),
+        assistantId,
+        title,
+      });
+      sendJson(
+        res,
+        200,
+        {
+          ok: true,
+          sessionId: session.sessionId,
+          title: displayChatSessionTitle(session),
+        },
+        c,
+      );
+    } catch (e) {
+      if (isLawMindHttpError(e)) {
+        sendJson(res, e.status, { ok: false, message: e.message }, c);
+      } else {
+        sendJson(res, 400, { ok: false, message: "invalid_request" }, c);
+      }
+    }
+    return true;
+  }
+
+  /** 与 DELETE 等价；桌面端用 POST 避免部分环境下 DELETE 预检失败（Failed to fetch）。 */
+  if (pathname === "/api/sessions/delete" && req.method === "POST") {
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, sessionDeletePostSchema);
+    } catch (e) {
+      if (isLawMindHttpError(e)) {
+        sendJson(res, e.status, { ok: false, message: e.message }, c);
+      } else if (isInvalidRequestBodyError(e)) {
+        sendJson(res, 400, { ok: false, code: "session_id_required", message: "sessionId is required" }, c);
+      } else {
+        sendJson(res, 400, { ok: false, message: "invalid_request" }, c);
+      }
+      return true;
+    }
+    const sessionId = body.sessionId;
+    const assistantId = body.assistantId?.trim() || DEFAULT_ASSISTANT_ID;
+    const out = performSessionDelete(workspaceDir, sessionId, assistantId, {
+      cascadeDelegations: body.cascadeDelegations === true,
+      cascadeUnapprovedDrafts: body.cascadeUnapprovedDrafts === true,
+    });
+    sendJson(res, out.status, out.payload, c);
+    return true;
+  }
+
+  if (pathname === "/api/sessions/search" && req.method === "GET") {
+    const q = url.searchParams.get("q") ?? "";
+    const since = url.searchParams.get("since") ?? undefined;
+    const until = url.searchParams.get("until") ?? undefined;
+    const daysRaw = url.searchParams.get("days");
+    const days = daysRaw && Number.isFinite(Number(daysRaw)) ? Number(daysRaw) : undefined;
+    const limitRaw = url.searchParams.get("limit");
+    const limit = limitRaw && Number.isFinite(Number(limitRaw)) ? Number(limitRaw) : undefined;
+    const excludeSessionId = url.searchParams.get("excludeSessionId")?.trim() || undefined;
+    const assistantFilter = url.searchParams.get("assistantId")?.trim() || undefined;
+    const result = searchConversations(workspaceDir, {
+      query: q,
+      since,
+      until,
+      days,
+      limit,
+      excludeSessionId,
+      assistantId: assistantFilter,
+    });
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        query: result.query,
+        keywords: result.keywords,
+        since: result.since,
+        until: result.until,
+        timeMode: result.timeMode,
+        sessions: result.hits.map((hit) => ({
+          sessionId: hit.sessionId,
+          title: hit.title,
+          matterId: hit.matterId,
+          assistantId: hit.assistantId,
+          createdAt: hit.createdAt,
+          updatedAt: hit.updatedAt,
+          lastPreview: hit.snippets[0]?.text,
+          snippets: hit.snippets,
+          score: hit.score,
+        })),
+        total: result.hits.length,
+      },
+      c,
+    );
+    return true;
+  }
+
+  if (sessionItemMatch && req.method === "GET") {
+    const sessionId = sessionItemMatch[1];
+    const assistantFilter = url.searchParams.get("assistantId")?.trim() || undefined;
+    const session = loadSession(workspaceDir, sessionId);
+    if (!session) {
+      sendJson(res, 404, { ok: false, code: "not_found", message: "session not found" }, c);
+      return true;
+    }
+    if (assistantFilter && !sessionMatchesAssistantFilter(session, assistantFilter)) {
+      sendJson(res, 404, { ok: false, code: "not_found", message: "session not found" }, c);
+      return true;
+    }
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        sessionId: session.sessionId,
+        title: displayChatSessionTitle(session),
+        assistantId: session.assistantId?.trim() || DEFAULT_ASSISTANT_ID,
+        matterId: session.matterId,
+        messages: sessionHistoryToSimpleMessages(session),
+      },
+      c,
+    );
+    return true;
+  }
+
+  if (sessionItemMatch && req.method === "PATCH") {
+    const sessionId = sessionItemMatch[1];
+    const assistantId = url.searchParams.get("assistantId")?.trim() || DEFAULT_ASSISTANT_ID;
+    let body;
+    try {
+      body = await parseJsonBodyZod(req, sessionPatchTitleSchema);
+    } catch (e) {
+      if (isLawMindHttpError(e)) {
+        sendJson(res, e.status, { ok: false, message: e.message }, c);
+      } else {
+        sendJson(res, 400, { ok: false, message: "invalid_request" }, c);
+      }
+      return true;
+    }
+    const nextTitle = body.title;
+    const session = loadSession(workspaceDir, sessionId);
+    if (!session) {
+      sendJson(res, 404, { ok: false, code: "not_found", message: "session not found" }, c);
+      return true;
+    }
+    if (!sessionMatchesAssistantFilter(session, assistantId)) {
+      sendJson(res, 404, { ok: false, code: "not_found", message: "session not found" }, c);
+      return true;
+    }
+    const updated = renameSession(workspaceDir, sessionId, nextTitle);
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        sessionId,
+        title: updated ? displayChatSessionTitle(updated) : displayChatSessionTitle(session),
+      },
+      c,
+    );
+    return true;
+  }
+
+  if (sessionItemMatch && req.method === "DELETE") {
+    const sessionId = sessionItemMatch[1];
+    const assistantId = url.searchParams.get("assistantId")?.trim() || DEFAULT_ASSISTANT_ID;
+    const out = performSessionDelete(workspaceDir, sessionId, assistantId, {
+      cascadeDelegations: url.searchParams.get("cascadeDelegations") === "1",
+      cascadeUnapprovedDrafts: url.searchParams.get("cascadeUnapprovedDrafts") === "1",
+    });
+    sendJson(res, out.status, out.payload, c);
+    return true;
+  }
+
+  if (pathname === "/api/sessions" && req.method === "GET") {
+    const assistantFilter = url.searchParams.get("assistantId")?.trim();
+    let rows = listSessions(workspaceDir);
+    if (assistantFilter) {
+      rows = rows.filter((session) => sessionMatchesAssistantFilter(session, assistantFilter));
+    }
+    const sessions = rows.map((session) => {
+      const tail = [...session.conversationHistory]
+        .toReversed()
+        .find((m) => isLawyerVisibleChatMessage(m));
+      const preview =
+        typeof tail?.content === "string"
+          ? tail.content.replace(/\s+/g, " ").trim().slice(0, 120)
+          : "";
+      return {
+        sessionId: session.sessionId,
+        title: displayChatSessionTitle(session),
+        matterId: session.matterId,
+        assistantId: session.assistantId,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+        turnCount: session.turns.length,
+        lastPreview: preview || undefined,
+      };
+    });
+    sendJson(res, 200, { ok: true, sessions }, c);
+    return true;
+  }
+
+  if (pathname === "/api/drafts" && req.method === "GET") {
+    const drafts = listDrafts(workspaceDir);
+    sendJson(res, 200, { ok: true, drafts }, c);
+    return true;
+  }
+
+  if (pathname === "/api/history" && req.method === "GET") {
+    const tasks = listTaskRecords(workspaceDir);
+    const drafts = listDrafts(workspaceDir);
+    const items: Array<{
+      kind: "task" | "draft";
+      id: string;
+      label: string;
+      updatedAt: string;
+      createdAt?: string;
+      status?: string;
+      outputPath?: string;
+      matterId?: string;
+      taskRecordKind?: string;
+    }> = [];
+
+    for (const task of tasks) {
+      const display = (task.title?.trim() ? task.title : task.summary).slice(0, 120);
+      items.push({
+        kind: "task",
+        id: task.taskId,
+        label: display,
+        updatedAt: task.updatedAt,
+        createdAt: task.createdAt,
+        status: task.status,
+        outputPath: task.outputPath,
+        matterId: task.matterId,
+        taskRecordKind: task.kind,
+      });
+    }
+    for (const draft of drafts) {
+      items.push({
+        kind: "draft",
+        id: draft.taskId,
+        label: draft.title,
+        updatedAt: draft.createdAt,
+        status: draft.reviewStatus,
+        outputPath: draft.outputPath,
+        matterId: draft.matterId,
+      });
+    }
+    items.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    sendJson(res, 200, { ok: true, items: items.slice(0, 200) }, c);
+    return true;
+  }
+
+  return false;
+}

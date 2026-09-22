@@ -1,0 +1,34 @@
+{
+  "entries": [
+    {
+      "file": "apps/lawmind-desktop/src/renderer/LawmindMemorySourcesPanel.tsx",
+      "pattern": "path.profile-md",
+      "lineIncludes": "CLIENT_PROFILE.md",
+      "reason": "内部 id 归一匹配逻辑（norm.endsWith），非展示文案"
+    },
+    {
+      "file": "apps/lawmind-desktop/src/renderer/lawmind-memory-scope.ts",
+      "pattern": "path.assistants-dir",
+      "lineIncludes": "startsWith",
+      "reason": "内部记忆 scope 前缀判断，非展示文案"
+    },
+    {
+      "file": "apps/lawmind-desktop/src/renderer/LawmindComposeContextPicker.tsx",
+      "pattern": "path.case-md",
+      "lineIncludes": "MATTER_STRATEGY.md",
+      "reason": "引用选择器内部跳过清单（不渲染给律师）"
+    },
+    {
+      "file": "apps/lawmind-desktop/src/renderer/LawmindContractReviewLearningPanel.tsx",
+      "pattern": "path.workspace-md-rel",
+      "lineIncludes": "drafts/nda-v1.md",
+      "reason": "「从文件路径写入（少用）」折叠区路径输入框占位示例，用于说明输入格式"
+    },
+    {
+      "file": "apps/lawmind-desktop/src/renderer/LawmindContractReviewLearningPanel.tsx",
+      "pattern": "path.workspace-md-rel",
+      "lineIncludes": "drafts/nda-v2.md",
+      "reason": "「从文件路径写入（少用）」折叠区路径输入框占位示例，用于说明输入格式"
+    }
+  ]
+}

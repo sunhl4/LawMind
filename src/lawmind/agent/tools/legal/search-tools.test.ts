@@ -1,0 +1,679 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  resolveDocumentPageChars,
+  resolveDocumentReadBudgetChars,
+} from "../../document-read-budget.js";
+import { createSession } from "../../session.js";
+import type { AgentContext } from "../../types.js";
+import * as searchAuthority from "./search-authority.js";
+import {
+  checkConflictOfInterest,
+  readConversationTool,
+  readProjectFile,
+  searchCaseLaw,
+  searchConversationsTool,
+  searchMatter,
+  searchStatute,
+  searchWorkspace,
+} from "./search-tools.js";
+
+function makeCtx(workspaceDir: string, extra: Partial<AgentContext> = {}): AgentContext {
+  return {
+    workspaceDir,
+    sessionId: "test-session",
+    actorId: "test-lawyer",
+    ...extra,
+  };
+}
+
+describe("search_matter", () => {
+  it("requires matter when matter_id missing", async () => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "lm-search-no-matter-"));
+    try {
+      const result = await searchMatter.execute({ query: "押金" }, makeCtx(workspaceDir));
+      expect(result.ok).toBe(false);
+      expect(String(result.error)).toMatch(/案件/);
+    } finally {
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns hits from matter index", async () => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "lm-search-matter-"));
+    const matterId = "matter-search";
+    try {
+      await fs.mkdir(path.join(workspaceDir, "cases", matterId), { recursive: true });
+      await fs.writeFile(
+        path.join(workspaceDir, "cases", matterId, "CASE.md"),
+        "# 租赁合同纠纷\n\n## 4. 核心争点\n\n- 押金退还\n",
+        "utf8",
+      );
+      const result = await searchMatter.execute(
+        { query: "押金" },
+        makeCtx(workspaceDir, { matterId }),
+      );
+      expect(result.ok).toBe(true);
+      const data = result.data as { hits: unknown[]; matterId: string; workHits?: unknown };
+      expect(data.matterId).toBe(matterId);
+      expect(data.hits.length).toBeGreaterThan(0);
+      expect(Array.isArray(data.workHits)).toBe(true);
+    } finally {
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("read_project_file", () => {
+  it("fails without projectDir", async () => {
+    const result = await readProjectFile.execute({ relative_path: "a.txt" }, makeCtx("/tmp"));
+    expect(result.ok).toBe(false);
+    expect(String(result.error)).toMatch(/项目目录/);
+  });
+
+  it("reads text file with pagination", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "lm-proj-read-"));
+    try {
+      await fs.writeFile(path.join(root, "memo.txt"), "租赁押金争议说明", "utf8");
+      const result = await readProjectFile.execute(
+        { relative_path: "memo.txt", offset: 0, limit: 4 },
+        makeCtx("/tmp", { projectDir: root }),
+      );
+      expect(result.ok).toBe(true);
+      const data = result.data as { content: string; hasMore: boolean; totalChars: number };
+      expect(data.content).toContain("租赁押金");
+      expect(data.hasMore).toBe(true);
+      expect(data.totalChars).toBeGreaterThan(4);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects path traversal", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "lm-proj-escape-"));
+    try {
+      const result = await readProjectFile.execute(
+        { relative_path: "../secret.txt" },
+        makeCtx("/tmp", { projectDir: root }),
+      );
+      expect(result.ok).toBe(false);
+      expect(String(result.error)).toMatch(/非法路径|越界/);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("lists a project directory instead of failing", async () => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "lm-proj-list-ws-"));
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "lm-proj-list-"));
+    try {
+      await fs.mkdir(path.join(root, "notes"), { recursive: true });
+      await fs.writeFile(path.join(root, "notes", "memo.md"), "memo", "utf8");
+      const result = await readProjectFile.execute(
+        { relative_path: "notes" },
+        makeCtx(workspace, { projectDir: root }),
+      );
+      expect(result.ok).toBe(true);
+      const data = result.data as { kind?: string; entries?: Array<{ path: string }> };
+      expect(data.kind).toBe("directory");
+      expect(data.entries?.some((e) => e.path === "notes/memo.md")).toBe(true);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+      await fs.rm(workspace, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects unsupported legacy office formats (.xls/.ppt)", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "lm-proj-doc-"));
+    try {
+      await fs.writeFile(path.join(root, "legacy.xls"), "binary", "utf8");
+      const result = await readProjectFile.execute(
+        { relative_path: "legacy.xls" },
+        makeCtx("/tmp", { projectDir: root }),
+      );
+      expect(result.ok).toBe(false);
+      expect(String(result.error)).toMatch(/\.xls/);
+
+      await fs.writeFile(path.join(root, "slides.ppt"), "binary", "utf8");
+      const ppt = await readProjectFile.execute(
+        { relative_path: "slides.ppt" },
+        makeCtx("/tmp", { projectDir: root }),
+      );
+      expect(ppt.ok).toBe(false);
+      expect(String(ppt.error)).toMatch(/\.ppt/);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it(".doc 不再硬拒：二进制正文主路径是 analyze_document，文本可读时 read_project_file 也可读", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "lm-proj-doc-read-"));
+    try {
+      // 纯文本伪装 .doc：read_project_file 按文本路径读取不报错；
+      // 真实 OLE2 .doc 的正文提取由 analyze_document（readBinaryWordDocText）承担。
+      await fs.writeFile(path.join(root, "legacy.doc"), "租赁合同纠纷补充说明", "utf8");
+      const result = await readProjectFile.execute(
+        { relative_path: "legacy.doc" },
+        makeCtx("/tmp", { projectDir: root }),
+      );
+      expect(result.ok).toBe(true);
+      expect(JSON.stringify(result.data)).toContain("租赁合同");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("uses the same page budget as analyze_document (unified, window-aware)", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "lm-proj-budget-"));
+    try {
+      await fs.writeFile(path.join(root, "long.txt"), "x".repeat(50_000), "utf8");
+      // 未知窗口：两条读取路径给出同一页大小（不再一个 8k、一个 40k）。
+      const plain = await readProjectFile.execute(
+        { relative_path: "long.txt" },
+        makeCtx("/tmp", { projectDir: root }),
+      );
+      expect(plain.ok).toBe(true);
+      const plainData = plain.data as { content?: string; nextOffset?: number };
+      expect(plainData.content?.length).toBe(resolveDocumentReadBudgetChars(undefined));
+      expect(plainData.nextOffset).toBe(resolveDocumentPageChars(undefined));
+
+      // 128k 窗口：页大小随窗口增长。
+      const big = await readProjectFile.execute(
+        { relative_path: "long.txt" },
+        makeCtx("/tmp", {
+          projectDir: root,
+          chatModel: {
+            baseUrl: "http://localhost",
+            apiKey: "k",
+            model: "m",
+            contextTokens: 128_000,
+          },
+        }),
+      );
+      expect(big.ok).toBe(true);
+      const bigData = big.data as { content?: string; nextOffset?: number };
+      expect(bigData.content?.length).toBe(resolveDocumentReadBudgetChars(128_000));
+      expect(bigData.nextOffset).toBe(resolveDocumentPageChars(128_000));
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("returns not found for missing file", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "lm-proj-miss-"));
+    try {
+      const result = await readProjectFile.execute(
+        { relative_path: "missing.txt" },
+        makeCtx("/tmp", { projectDir: root }),
+      );
+      expect(result.ok).toBe(false);
+      expect(String(result.error)).toMatch(/不存在/);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects empty relative path", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "lm-proj-empty-rel-"));
+    try {
+      const result = await readProjectFile.execute(
+        { relative_path: "  " },
+        makeCtx("/tmp", { projectDir: root }),
+      );
+      expect(result.ok).toBe(false);
+      expect(String(result.error)).toMatch(/非法路径|不存在/);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects binary files for plain text read", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "lm-proj-bin-"));
+    try {
+      await fs.writeFile(path.join(root, "data.bin"), Buffer.from([0, 1, 2, 0, 4]));
+      const result = await readProjectFile.execute(
+        { relative_path: "data.bin" },
+        makeCtx("/tmp", { projectDir: root }),
+      );
+      expect(result.ok).toBe(false);
+      expect(String(result.error)).toMatch(/二进制/);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("search_statute / search_case_law", () => {
+  const authKeys = [
+    "LAWMIND_AUTHORITY_PROVIDER",
+    "LAWMIND_AUTHORITY_ENDPOINT",
+    "LAWMIND_AUTHORITY_API_KEY",
+  ] as const;
+  const authSaved = new Map<string, string | undefined>();
+
+  beforeEach(() => {
+    authSaved.clear();
+    for (const key of authKeys) {
+      authSaved.set(key, process.env[key]);
+      delete process.env[key];
+    }
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    for (const key of authKeys) {
+      const prev = authSaved.get(key);
+      if (prev === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = prev;
+      }
+    }
+  });
+
+  it("fails on empty query", async () => {
+    const ctx = makeCtx("/tmp/lawmind-search-empty");
+    const statute = await searchStatute.execute({ query: "  " }, ctx);
+    expect(statute.ok).toBe(false);
+    expect(statute.error).toMatch(/query/);
+
+    const caseLaw = await searchCaseLaw.execute({ query: "" }, ctx);
+    expect(caseLaw.ok).toBe(false);
+    expect(caseLaw.error).toMatch(/query/);
+  });
+
+  it("empty hits return ok with refusalRequired", async () => {
+    const ctx = makeCtx("/tmp/lawmind-search-nohits-" + Date.now());
+    const statute = await searchStatute.execute({ query: "zzzz-nonexistent-statute-xyz-999" }, ctx);
+    expect(statute.ok).toBe(true);
+    const sData = statute.data as {
+      hits: unknown[];
+      refusalRequired?: boolean;
+      authority?: string;
+    };
+    expect(sData.hits).toEqual([]);
+    expect(sData.refusalRequired).toBe(true);
+    expect(sData.authority).toBe("none");
+
+    const caseLaw = await searchCaseLaw.execute({ query: "zzzz-nonexistent-case-xyz-999" }, ctx);
+    expect(caseLaw.ok).toBe(true);
+    const cData = caseLaw.data as {
+      hits: unknown[];
+      refusalRequired?: boolean;
+      authority?: string;
+    };
+    expect(cData.hits).toEqual([]);
+    expect(cData.refusalRequired).toBe(true);
+    expect(cData.authority).toBe("none");
+  });
+
+  it("returns statute hits from matter CASE", async () => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "lm-statute-hit-"));
+    const matterId = "statute-m";
+    try {
+      await fs.mkdir(path.join(workspaceDir, "cases", matterId), { recursive: true });
+      await fs.writeFile(
+        path.join(workspaceDir, "cases", matterId, "CASE.md"),
+        "# 案件\n\n《民法典》第七百零一条 租赁期限\n",
+        "utf8",
+      );
+      const result = await searchStatute.execute(
+        { query: "民法典", matter_id: matterId },
+        makeCtx(workspaceDir, { matterId }),
+      );
+      expect(result.ok).toBe(true);
+      const data = result.data as { hits: Array<{ snippet: string }>; refusalRequired?: boolean };
+      expect(data.hits.length).toBeGreaterThan(0);
+      expect(data.refusalRequired).toBeUndefined();
+    } finally {
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns case-law hits from matter drafts", async () => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "lm-case-hit-"));
+    const matterId = "case-m";
+    try {
+      await fs.mkdir(path.join(workspaceDir, "cases", matterId), { recursive: true });
+      await fs.mkdir(path.join(workspaceDir, "drafts"), { recursive: true });
+      await fs.writeFile(
+        path.join(workspaceDir, "cases", matterId, "CASE.md"),
+        "# 案件\n\n参考 (2024)京01民终123号 判决书\n",
+        "utf8",
+      );
+      await fs.writeFile(
+        path.join(workspaceDir, "drafts", "draft-1.json"),
+        JSON.stringify({
+          taskId: "draft-1",
+          matterId,
+          title: "类案检索",
+          summary: "",
+          sections: [{ heading: "参考", body: "最高人民法院相关裁定书" }],
+          reviewNotes: [],
+          reviewStatus: "pending",
+          output: "docx",
+          templateId: "general",
+          createdAt: new Date().toISOString(),
+        }),
+        "utf8",
+      );
+      const result = await searchCaseLaw.execute(
+        { query: "裁定书", matter_id: matterId },
+        makeCtx(workspaceDir, { matterId }),
+      );
+      expect(result.ok).toBe(true);
+      const data = result.data as { hits: unknown[] };
+      expect(data.hits.length).toBeGreaterThan(0);
+    } finally {
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("merges live 法宝 hits into search_statute and does not refuse", async () => {
+    vi.spyOn(searchAuthority, "retrieveAuthorityHitsForChat").mockResolvedValue({
+      live: true,
+      provider: "pkulaw",
+      providerLabel: "北大法宝（闭源·手动）",
+      sourceTier: "live",
+      hits: [
+        {
+          source: "北大法宝",
+          title: "中华人民共和国劳动合同法",
+          snippet: "第三十六条 · https://www.pkulaw.com/chl/x",
+          url: "https://www.pkulaw.com/chl/x",
+          provider: "pkulaw",
+        },
+      ],
+      riskFlags: [],
+      missingItems: [],
+      demoCorpus: false,
+    });
+    const statute = await searchStatute.execute(
+      { query: "劳动合同法第三十六条" },
+      makeCtx("/tmp/lawmind-search-pkulaw"),
+    );
+    expect(statute.ok).toBe(true);
+    const data = statute.data as {
+      hits: Array<{ source: string; url?: string }>;
+      refusalRequired?: boolean;
+      authority?: string;
+      authorityLive?: boolean;
+      authorityProvider?: string;
+    };
+    expect(data.authorityLive).toBe(true);
+    expect(data.authorityProvider).toBe("pkulaw");
+    expect(data.authority).toBe("live");
+    expect(data.refusalRequired).toBeUndefined();
+    expect(data.hits[0]?.source).toBe("北大法宝");
+    expect(data.hits[0]?.url).toContain("pkulaw.com");
+  });
+});
+
+describe("check_conflict_of_interest", () => {
+  it("flags party appearing in multiple matters", async () => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "lm-conflict-"));
+    try {
+      for (const mid of ["m-a", "m-b"]) {
+        await fs.mkdir(path.join(workspaceDir, "cases", mid), { recursive: true });
+        await fs.writeFile(
+          path.join(workspaceDir, "cases", mid, "CASE.md"),
+          `# ${mid}\n\n对方当事人: 张三公司\n`,
+          "utf8",
+        );
+      }
+      const result = await checkConflictOfInterest.execute(
+        { parties: "张三公司" },
+        makeCtx(workspaceDir),
+      );
+      expect(result.ok).toBe(true);
+      const data = result.data as { conflictFlags: string[]; matches: Record<string, string[]> };
+      expect(data.conflictFlags.length).toBeGreaterThan(0);
+      expect(data.matches["张三公司"]?.length).toBeGreaterThan(1);
+      expect((result.data as { note: string }).note).toContain("不是自动伦理墙");
+    } finally {
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects empty party names", async () => {
+    const result = await checkConflictOfInterest.execute({ parties: "  , " }, makeCtx("/tmp"));
+    expect(result.ok).toBe(false);
+  });
+
+  it("hits matter.json party names even when CASE.md no longer mentions them", async () => {
+    const { createMatterIfMissing, updateMatterProfile } =
+      await import("../../../application/services/matter-write-service.js");
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "lm-conflict-json-"));
+    try {
+      for (const mid of ["m-a", "m-b"]) {
+        createMatterIfMissing(workspaceDir, { matterId: mid, title: mid });
+        await updateMatterProfile(workspaceDir, {
+          matterId: mid,
+          parties: [{ partyId: "p-counterparty", name: "隐名相对方", role: "counterparty" }],
+        });
+        await fs.writeFile(
+          path.join(workspaceDir, "cases", mid, "CASE.md"),
+          `# ${mid}\n\n无当事人姓名\n`,
+          "utf8",
+        );
+      }
+      const result = await checkConflictOfInterest.execute(
+        { parties: "隐名相对方" },
+        makeCtx(workspaceDir),
+      );
+      expect(result.ok).toBe(true);
+      const data = result.data as { conflictFlags: string[]; matches: Record<string, string[]> };
+      expect(data.matches["隐名相对方"]?.length).toBeGreaterThan(1);
+      expect(data.conflictFlags.length).toBeGreaterThan(0);
+    } finally {
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("holds outbound on Firm edition until acknowledged", async () => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "lm-ethics-firm-"));
+    try {
+      await fs.writeFile(
+        path.join(workspaceDir, "lawmind.policy.json"),
+        JSON.stringify({ schemaVersion: 1, edition: "firm" }),
+        "utf8",
+      );
+      for (const mid of ["m-a", "m-b"]) {
+        await fs.mkdir(path.join(workspaceDir, "cases", mid), { recursive: true });
+        await fs.writeFile(
+          path.join(workspaceDir, "cases", mid, "CASE.md"),
+          `# ${mid}\n\n对方当事人: 张三公司\n`,
+          "utf8",
+        );
+      }
+      const result = await checkConflictOfInterest.execute(
+        { parties: "张三公司" },
+        makeCtx(workspaceDir, { matterId: "m-a" }),
+      );
+      expect(result.ok).toBe(true);
+      const data = result.data as {
+        note: string;
+        ethicsWall?: { status?: string; action?: string };
+      };
+      expect(data.ethicsWall?.status).toBe("hold");
+      expect(data.note).toContain("伦理墙");
+      const { prepareOutboundMail } = await import("./mail-tools.js");
+      const blocked = await prepareOutboundMail.execute(
+        {
+          matter_id: "m-a",
+          to: "a@b.com",
+          subject: "hello",
+          body: "x",
+        },
+        makeCtx(workspaceDir, { matterId: "m-a" }),
+      );
+      expect(blocked.ok).toBe(false);
+      expect(String(blocked.error)).toContain("伦理墙");
+      const forged = await checkConflictOfInterest.execute(
+        { parties: "张三公司", acknowledge_ethics_wall: true },
+        makeCtx(workspaceDir, { matterId: "m-a" }),
+      );
+      expect((forged.data as { ethicsWall?: { status?: string } }).ethicsWall?.status).toBe("hold");
+      const stillBlocked = await prepareOutboundMail.execute(
+        {
+          matter_id: "m-a",
+          to: "a@b.com",
+          subject: "hello",
+          body: "x",
+          ethics_wall_acknowledged: true,
+        },
+        makeCtx(workspaceDir, { matterId: "m-a" }),
+      );
+      expect(stillBlocked.ok).toBe(false);
+      const ack = await checkConflictOfInterest.execute(
+        { parties: "张三公司", __approved: true },
+        makeCtx(workspaceDir, { matterId: "m-a" }),
+      );
+      expect((ack.data as { ethicsWall?: { status?: string } }).ethicsWall?.status).toBe(
+        "disclosed",
+      );
+      const released = await prepareOutboundMail.execute(
+        {
+          matter_id: "m-a",
+          to: "a@b.com",
+          subject: "hello",
+          body: "x",
+        },
+        makeCtx(workspaceDir, { matterId: "m-a" }),
+      );
+      expect(released.ok).toBe(true);
+    } finally {
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("search_workspace matter isolation", () => {
+  const previous = process.env.LAWMIND_ALLOW_CROSS_MATTER_SEARCH;
+
+  afterEach(() => {
+    if (previous === undefined) {
+      delete process.env.LAWMIND_ALLOW_CROSS_MATTER_SEARCH;
+    } else {
+      process.env.LAWMIND_ALLOW_CROSS_MATTER_SEARCH = previous;
+    }
+  });
+
+  it("scans project directory when projectDir set", async () => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "lawmind-ws-proj-"));
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "lm-proj-ws-"));
+    try {
+      await fs.writeFile(path.join(projectDir, "notes.md"), "项目关键字-BETA\n", "utf8");
+      const result = await searchWorkspace.execute(
+        { query: "关键字-beta" },
+        { ...makeCtx(workspaceDir), projectDir },
+      );
+      expect(result.ok).toBe(true);
+      const data = result.data as {
+        results: Array<{ source: string }>;
+        projectScanned: boolean;
+      };
+      expect(data.projectScanned).toBe(true);
+      expect(data.results.some((r) => r.source.startsWith("project:"))).toBe(true);
+    } finally {
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it("scans other matters when cross-matter env enabled", async () => {
+    process.env.LAWMIND_ALLOW_CROSS_MATTER_SEARCH = "1";
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "lawmind-cross-"));
+    try {
+      await fs.mkdir(path.join(workspaceDir, "cases", "matter-b"), { recursive: true });
+      await fs.writeFile(
+        path.join(workspaceDir, "cases", "matter-b", "CASE.md"),
+        "# 其他\n\n共享关键字-GAMMA\n",
+        "utf8",
+      );
+      const result = await searchWorkspace.execute(
+        { query: "关键字-gamma" },
+        { ...makeCtx(workspaceDir), matterId: "matter-a" },
+      );
+      expect(result.ok).toBe(true);
+      const data = result.data as {
+        results: Array<{ source: string }>;
+        crossMatterScanned: boolean;
+      };
+      expect(data.crossMatterScanned).toBe(true);
+      expect(data.results.some((r) => r.source === "CASE:matter-b")).toBe(true);
+    } finally {
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not search other matters unless explicitly enabled", async () => {
+    delete process.env.LAWMIND_ALLOW_CROSS_MATTER_SEARCH;
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "lawmind-isolation-"));
+    try {
+      await fs.mkdir(path.join(workspaceDir, "cases", "matter-other"), { recursive: true });
+      await fs.writeFile(
+        path.join(workspaceDir, "cases", "matter-other", "CASE.md"),
+        "# 其他案件\n仅此案可见关键字-ALPHA",
+      );
+      const result = await searchWorkspace.execute(
+        { query: "关键字-alpha" },
+        { ...makeCtx(workspaceDir), matterId: "matter-current" },
+      );
+      expect(result.ok).toBe(true);
+      const data = result.data as {
+        results: Array<{ source: string; snippet: string }>;
+        crossMatterScanned: boolean;
+      };
+      expect(data.crossMatterScanned).toBe(false);
+      expect(data.results.some((row) => row.source === "CASE:matter-other")).toBe(false);
+    } finally {
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("search_conversations / read_conversation", () => {
+  it("finds another chat and reads it; empty query without time fails", async () => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "lm-conv-tool-"));
+    try {
+      const current = createSession({ workspaceDir, actorId: "a", title: "当前" });
+      const past = createSession({ workspaceDir, actorId: "a", title: "买卖合同审查要点" });
+      past.conversationHistory = [
+        {
+          role: "user",
+          content: "管辖条款要改成被告住所地",
+          timestamp: "2026-09-08T01:00:00.000Z",
+        },
+      ];
+      await fs.writeFile(
+        path.join(workspaceDir, "sessions", `${past.sessionId}.json`),
+        JSON.stringify(past),
+        "utf8",
+      );
+      const empty = await searchConversationsTool.execute({ query: "  " }, makeCtx(workspaceDir));
+      expect(empty.ok).toBe(false);
+      const found = await searchConversationsTool.execute(
+        { query: "管辖 合同" },
+        makeCtx(workspaceDir, { sessionId: current.sessionId }),
+      );
+      expect(found.ok).toBe(true);
+      const data = found.data as {
+        hits: Array<{ sessionId: string; title: string; citeAs?: string }>;
+      };
+      expect(data.hits.some((h) => h.sessionId === past.sessionId)).toBe(true);
+      expect(data.hits.some((h) => h.citeAs?.includes(`lm-session:${past.sessionId}`))).toBe(true);
+      const read = await readConversationTool.execute(
+        { session_id: past.sessionId, query: "管辖" },
+        makeCtx(workspaceDir),
+      );
+      expect(read.ok).toBe(true);
+      const body = read.data as { messages: Array<{ content: string }> };
+      expect(body.messages.some((m) => m.content.includes("管辖"))).toBe(true);
+    } finally {
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+});

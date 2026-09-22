@@ -1,0 +1,14 @@
+{
+  "data": {
+    "list": [
+      {
+        "id": "pkulaw-case-1",
+        "caseName": "某租赁合同纠纷案",
+        "type": "case",
+        "fullName": "（2020）京01民终1234号",
+        "summary": "法院认为押金条款应结合履行情况认定……",
+        "link": "https://example.invalid/pkulaw/case/1"
+      }
+    ]
+  }
+}

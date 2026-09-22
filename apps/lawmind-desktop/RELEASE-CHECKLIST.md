@@ -1,0 +1,42 @@
+# LawMind Desktop — 对外发布前检查单
+
+面向「像商业软件一样：选终端 → 下载 → 解压/安装 → 即用」的交付。打包命令见 [README.md](./README.md)。
+
+## 构建与产物
+
+- [ ] 版本号已更新：`apps/lawmind-desktop/package.json` 的 `version`。
+- [ ] 分别在 **Windows x64**、**macOS（目标架构）**、**Linux x64** 上执行 `pnpm lawmind:desktop:dist`（或 CI 矩阵），确认 `apps/lawmind-desktop/release/` 下产物齐全：
+  - Windows：`nsis`、`portable`、`.zip`
+  - macOS：`dmg`、`zip`（内含 `.app`）
+  - Linux：`AppImage`、`tar.gz`
+- [ ] 文件名含 **版本 + os + arch**（`artifactName` 已配置）。
+- [ ] 在干净虚拟机或新用户下 **安装包与 zip 解压版各测一条**：能打开向导、能连上本地服务、能发一条对话。
+
+## 质量证明
+
+- [ ] **真稿对照**：本地 `fixtures/lawmind-true-manuscript/` 已放入脱敏真稿（gitignore，不进仓库），且 `LAWMIND_REQUIRE_TRUE_MANUSCRIPT=1 pnpm lawmind:true-manuscript` 全部 OK；新稿先用 `pnpm lawmind:true-manuscript -- --write-baseline` 生成基线草稿并由律师核对。闸门 SKIP 或 FAIL 时不得对外宣称「真稿已验证」。
+- [ ] `pnpm lawmind:release-readiness` 报告中「True Manuscript Gate」为 RUN 且 Known Risks 无真稿挂账。
+- [ ] 同报告的 **Release Artifacts** 一节：mac 为「已签名并公证」、有 `latest*.yml`。两项任一缺失都会进 Known Risks，不得当作可发版。
+
+## 交付闸门（CI）
+
+tag `lawmind-desktop-v*` 构建时：mac 侧 `LAWMIND_REQUIRE_NOTARIZED=1` 强制公证成功；release job 在缺少 `latest*.yml` 时拒绝发布。本机 `pnpm lawmind:desktop:dist` 仍是 `--publish never`，不签名也不发布。
+
+## 安全与信任
+
+- [ ] **macOS**：对外分发需 Apple Developer **Developer ID Application 签名 + notarytool 公证 + staple**。把 `CSC_LINK` / `CSC_KEY_PASSWORD` 与 `APPLE_ID` / `APPLE_APP_SPECIFIC_PASSWORD` / `APPLE_TEAM_ID` 配进 GitHub Actions secrets（或本机钥匙串）。没有证书时本地包仍是 adhoc，别人下载后不能双击。可用 `LAWMIND_REQUIRE_NOTARIZED=1` 让未公证构建失败。
+- [ ] **Windows**：计划内分发则 **Authenticode** 签名 `exe` / 安装包。
+- [ ] 随发布提供或可索取：**SBOM**（`pnpm lawmind:sbom:cyclonedx`）、已知依赖 CVE 说明（按客户要求）。
+
+## 法务与文档
+
+- [x] 用户可见：**数据处理**、**免责声明**（应用内 + 文档站点）。
+- [ ] 客户合同中的责任边界与「非法律意见」表述与产品一致。
+- [ ] 对外下载页：**INSTALL.md** 或等效安装说明；含 **智能下载落地页**（正式 URL：`https://docs.lawmind.ai/download/`，源文件 `apps/lawmind-desktop/download/index.html`）及 **`?repo=组织/仓库`** 说明。
+- [ ] **文档站**：按需部署 `pnpm lawmind:docs:build` 产物（VitePress，见 `apps/lawmind-docs/README.md`），或继续沿用 `docs.lawmind.ai` 等现有域名策略。
+
+## 支持
+
+- [ ] 明确 **反馈渠道**（邮件/工单/合作伙伴 IT）。
+- [ ] **应用内更新**：已在桌面端集成 `electron-updater`（GitHub Release）。发版时除各平台二进制外，须将各次构建产生的 **`latest.yml` / `latest-mac.yml` / `latest-linux.yml`** 及 **`.blockmap`**（若有）一并上传到**同一 GitHub Release**，与 `package.json` 中 `build.publish` 的 `owner/repo` 一致；否则客户端只能用手动下载页升级。
+- [ ] 企业可设置环境变量 **`LAWMIND_SKIP_AUTO_UPDATE=1`** 关闭自动检查；自定义下载页 URL：**`LAWMIND_DOWNLOAD_PAGE_URL`**。

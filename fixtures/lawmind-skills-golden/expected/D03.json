@@ -1,0 +1,7 @@
+{
+  "id": "D03",
+  "triageTier": "yellow",
+  "deliverableTypeHint": "letter.demand",
+  "checklistSpecId": "demand-letter-v1",
+  "notes": "劳动报酬催告"
+}

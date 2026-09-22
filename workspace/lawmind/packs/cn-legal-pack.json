@@ -1,0 +1,14 @@
+{
+  "id": "cn-legal-pack",
+  "label": "中国法务自研包",
+  "version": 1,
+  "enabledByDefault": true,
+  "workflowIds": [
+    "cn-contract-review",
+    "cn-litigation-elements",
+    "cn-labor-demand",
+    "demand-letter",
+    "contract-review"
+  ],
+  "notes": "自研文案；禁止 vendoring 第三方 NC/AGPL skill 正文。"
+}

@@ -1,0 +1,124 @@
+import { LEGAL_LINT_RULES } from "../lint/rules.js";
+import {
+  LAWMIND_Q1_GOLDEN_JOURNEYS,
+  buildGoldenJourneysMarkdown,
+} from "../product/golden-journeys.js";
+import type { BenchmarkResult, BenchmarkTask } from "../types.js";
+import { buildBenchmarkReportMarkdown } from "./benchmark.js";
+import { BUILTIN_LEGAL_REPLAY_FIXTURES } from "./replay-fixtures.js";
+import { BUILTIN_SHADOW_FIXTURES } from "./shadow-replay.js";
+
+export type ReleaseReadinessInput = {
+  benchmarkResults?: BenchmarkResult[];
+  benchmarkTasks?: BenchmarkTask[];
+  qualityDashboardMarkdown?: string;
+  verifyCommands?: string[];
+  knownRisks?: string[];
+  /** True-manuscript gate section; omitted only in unit fixtures. */
+  trueManuscript?: {
+    reportLine: string;
+    detail?: string[];
+  };
+  /** Signing / notarization / auto-update manifest checks. */
+  releaseArtifacts?: {
+    lines: string[];
+  };
+  /**
+   * 交付北极星：水平 + 趋势。
+   *
+   * 为什么要进发行报告：其余章节回答的都是「东西齐不齐」，
+   * 只有这一节回答「它到底有没有让律师更省事」。
+   * 没有真数据时必须**明写「未证实」并计入风险**，不能因为数字不好看就省掉——
+   * 省掉它，发行报告就只剩自证清单了。
+   */
+  northStar?: {
+    /** 逐行展示（水平 + 趋势 + 样本量），由调用方组装。 */
+    lines: string[];
+    /** 是否有足够证据（false → 计入 knownRisks）。 */
+    proven: boolean;
+  };
+};
+
+function benchmarkSummary(results: BenchmarkResult[]): { avgScore: number; pass: boolean } {
+  if (results.length === 0) {
+    return { avgScore: 0, pass: false };
+  }
+  const avgScore = results.reduce((sum, result) => sum + result.score, 0) / results.length;
+  return { avgScore: Math.round(avgScore * 1000) / 1000, pass: avgScore >= 0.8 };
+}
+
+export function buildReleaseReadinessReportMarkdown(input: ReleaseReadinessInput = {}): string {
+  const benchmarkResults = input.benchmarkResults ?? [];
+  const benchmarkTasks = input.benchmarkTasks ?? [];
+  const summary = benchmarkSummary(benchmarkResults);
+  const commands = input.verifyCommands ?? [
+    "pnpm lawmind:verify",
+    "pnpm lawmind:compiler-gate",
+    "pnpm lawmind:desktop:e2e:pr",
+    "pnpm lawmind:quarterly-demo",
+    "pnpm lawmind:docs:build",
+  ];
+  const risks = input.knownRisks ?? [];
+
+  const lines: string[] = [
+    "# LawMind Release Readiness Report",
+    "",
+    `Generated at: ${new Date().toISOString()}`,
+    "",
+    "## Readiness Snapshot",
+    "",
+    `- Golden journeys: ${LAWMIND_Q1_GOLDEN_JOURNEYS.length}`,
+    `- Replay fixtures (synthetic regression, non-engine): ${BUILTIN_LEGAL_REPLAY_FIXTURES.length}`,
+    `- Legal lint rules: ${LEGAL_LINT_RULES.length}`,
+    `- Shadow fixtures (synthetic, draftSource=fixture-static): ${BUILTIN_SHADOW_FIXTURES.length}`,
+    `- Benchmark average: ${(summary.avgScore * 100).toFixed(1)}%`,
+    `- Benchmark gate target: 80%`,
+    `- Benchmark gate: ${summary.pass ? "pass" : "not proven"}`,
+    "",
+    "## Required Verification Commands",
+    "",
+    ...commands.map((command) => `- \`${command}\``),
+    "",
+    "## Golden Journeys",
+    "",
+    buildGoldenJourneysMarkdown(),
+    "",
+    "## Benchmark Report",
+    "",
+    benchmarkResults.length > 0
+      ? buildBenchmarkReportMarkdown(benchmarkResults, benchmarkTasks)
+      : "No benchmark results supplied. Run the benchmark suite before marking a release ready.",
+    "",
+    "## Quality Dashboard",
+    "",
+    input.qualityDashboardMarkdown ?? "No quality dashboard supplied.",
+    "",
+    "## True Manuscript Gate",
+    "",
+    input.trueManuscript
+      ? [
+          input.trueManuscript.reportLine,
+          ...(input.trueManuscript.detail ?? []).map((line) => `- ${line}`),
+        ].join("\n")
+      : "True-manuscript gate not evaluated in this report.",
+    "",
+    "## Delivery North Star (does it help the lawyer?)",
+    "",
+    input.northStar ? input.northStar.lines.join("\n") : "North star not evaluated in this report.",
+    "",
+    "## Release Artifacts (signing / notarization / auto-update)",
+    "",
+    input.releaseArtifacts
+      ? input.releaseArtifacts.lines.join("\n")
+      : "Release artifacts not evaluated in this report.",
+    "",
+    "## Known Risks",
+    "",
+  ];
+  if (risks.length === 0) {
+    lines.push("- No release-blocking risks recorded in this report.");
+  } else {
+    lines.push(...risks.map((risk) => `- ${risk}`));
+  }
+  return lines.join("\n");
+}

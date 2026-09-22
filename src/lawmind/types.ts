@@ -1,0 +1,775 @@
+/**
+ * LawMind 核心数据结构
+ *
+ * 脊柱结构（第一期）：
+ *   TaskIntent          — 任务路由层的输出，描述"要做什么"
+ *   ResearchBundle      — 检索层的输出，描述"找到了什么"
+ *   LegalReasoningGraph — 推理层的输出（2.0新增），描述"如何论证"
+ *   ArtifactDraft       — 整理层的输出，描述"要交付什么"
+ *
+ * 2.0 新增结构：
+ *   ReviewLabel         — 审核结构化标签（驱动质量学习飞轮）
+ *   QualityRecord       — 任务级质量快照（用于评测和统计）
+ *   BenchmarkTask       — 黄金评测任务定义
+ *   BenchmarkResult     — 单次评测结果
+ *
+ * 设计约束：
+ *   - 所有结论必须能回溯来源（sourceIds）
+ *   - 风险标记不得遗漏，由系统层填写，模型层不得删除
+ *   - 高风险任务必须经过人工审核才能进入渲染阶段
+ *   - 审核行为必须产生学习信号，不能只是状态切换
+ */
+
+import type { ProvenanceChain } from "./drafts/provenance.js";
+
+// ─────────────────────────────────────────────
+// 1. TaskIntent — 任务路由层输出
+// ─────────────────────────────────────────────
+
+/** 任务类型枚举 */
+export type TaskKind =
+  | "research.general" // 通用信息检索整理
+  | "research.legal" // 法律专项检索
+  | "research.hybrid" // 通用 + 法律联合检索
+  | "draft.word" // 生成 Word 文书
+  | "draft.ppt" // 生成 PPT 汇报（第二阶段）
+  | "summarize.case" // 案件摘要
+  | "analyze.contract" // 合同审查
+  | "agent.instruction" // Agent 对话单轮用户指令（非路由生成）
+  | "unknown"; // 路由失败，需要人工介入
+
+/** 文书风险等级 */
+export type RiskLevel = "low" | "medium" | "high";
+
+/**
+ * 交付物类型（用于把"做事"改成"交付成品"）。
+ *
+ * 内置常量提供编辑器自动补全；同时通过 `(string & {})` 允许工作区自定义
+ * `lawmind/deliverables/*.json` 注册的私有类型（例如 `contract.employment`、
+ * `contract.employment`），以支持事务所差异化交付规范。
+ */
+export type DeliverableType =
+  | "contract.review"
+  | "contract.rental"
+  | "contract.general"
+  | "letter.demand"
+  | "letter.counsel"
+  | "letter.reply"
+  | "litigation.outline"
+  | "litigation.complaint"
+  | "litigation.answer"
+  | "litigation.brief"
+  | "memo.opinion"
+  | "memo.internal"
+  | "memo.research"
+  | "labor.calc"
+  | "period.calc"
+  | "analysis.table"
+  | "matter.timeline"
+  | "matter.exhibit_list"
+  | "meeting.minutes"
+  | "contract.nda"
+  | "document.general"
+  | "report.esg"
+  | "report.general"
+  | "report.compliance"
+  | "report.learning"
+  | "ppt.training"
+  // eslint-disable-next-line @typescript-eslint/ban-types -- 保留 IDE 内置类型自动补全的同时允许工作区扩展类型。
+  | (string & {});
+
+/** 信息不足时用于向律师追问的关键问题 */
+/** 澄清字段控件类型（缺省按 text；引擎可逐步标注）。 */
+export type ClarificationInputType = "text" | "textarea" | "enum" | "bool" | "date" | "file";
+
+export type ClarificationQuestion = {
+  key: string;
+  question: string;
+  reason?: string;
+  /** 控件类型；未标时 UI 按 text */
+  inputType?: ClarificationInputType;
+  /** enum 选项（律师可读文案） */
+  options?: string[];
+  /** 默认 true；false 时可不填 */
+  required?: boolean;
+  /** file：建议扩展名提示，如 ".pdf,.docx" */
+  accept?: string;
+};
+
+/** 任务意图 — 由 Instruction Router 生成 */
+export type TaskIntent = {
+  /** 唯一任务 ID（系统生成） */
+  taskId: string;
+  /** 任务类型 */
+  kind: TaskKind;
+  /** 最终交付物格式 */
+  output: "markdown" | "docx" | "pptx" | "none";
+  /** 原始用户指令（供后续生成器按交付物类型细化） */
+  instruction: string;
+  /** 任务摘要，用于向律师展示"我将做什么" */
+  summary: string;
+  /** 目标受众（律师内部 / 客户 / 对方律师 / 法院） */
+  audience?: string;
+  /** 关联案件 ID（可选，第二阶段启用） */
+  matterId?: string;
+  /** 使用的模板 ID（对应 templates/ 下的文件） */
+  templateId?: string;
+  /** 交付物类型（合同、律师函、通用文书等） */
+  deliverableType?: DeliverableType;
+  /** 本任务的最低交付标准 */
+  acceptanceCriteria?: string[];
+  /** 完整交付前仍建议确认的关键信息 */
+  clarificationQuestions?: ClarificationQuestion[];
+  /** 风险等级（影响是否必须人工确认） */
+  riskLevel: RiskLevel;
+  /** 需要的模型类型 */
+  models: Array<"general" | "legal">;
+  /** 是否需要人工确认后才能执行 */
+  requiresConfirmation: boolean;
+  /** 任务创建时间 */
+  createdAt: string;
+};
+
+// ─────────────────────────────────────────────
+// 2. ResearchBundle — 检索层输出
+// ─────────────────────────────────────────────
+
+/** 来源类型 */
+export type SourceKind =
+  | "statute" // 法律法规正文
+  | "regulation" // 司法解释 / 行政法规
+  | "case" // 类案裁判
+  | "memo" // 律师备忘录 / 工作文件
+  | "contract" // 合同原文
+  | "web" // 网络资料
+  | "workspace" // 工作区文件
+  | "unknown";
+
+/** 单条来源 */
+export type ResearchSource = {
+  id: string;
+  title: string;
+  kind: SourceKind;
+  /** 引用格式字符串，例如《XX法》第XX条 */
+  citation?: string;
+  /** 来源 URL 或文件路径 */
+  url?: string;
+  /** 法条/裁判日期 */
+  date?: string;
+  /** 裁判机构（类案时填写） */
+  court?: string;
+  /** 案号（类案时填写） */
+  caseNumber?: string;
+  /**
+   * True when hit came from open-law bundled sample or CORPUS marked demo.
+   * Acceptance/chat should surface「演示语料」— not a verified commercial statute.
+   */
+  demo?: boolean;
+  /** Provider id (e.g. open-law.local / open-law.npc_flk) — attribution, not 法宝. */
+  provider?: string;
+  /** Corpus / dump id for open sources. */
+  corpusId?: string;
+  /** Short license / attribution note for open dumps / live gov APIs. */
+  licenseNote?: string;
+};
+
+/** 单条结论 */
+export type ResearchClaim = {
+  text: string;
+  /** 支撑该结论的来源 ID 列表 */
+  sourceIds: string[];
+  /** 置信度 0-1 */
+  confidence: number;
+  /** 标注来源模型 */
+  model: "general" | "legal";
+  /** True when claim text came from a demo/sample corpus hit. */
+  demo?: boolean;
+};
+
+/** 检索层输出 — 所有结论必须有 sourceIds */
+export type ResearchBundle = {
+  taskId: string;
+  query: string;
+  sources: ResearchSource[];
+  claims: ResearchClaim[];
+  /** 发现的风险点，不得省略 */
+  riskFlags: string[];
+  /** 未找到足够依据的待确认事项 */
+  missingItems: string[];
+  /** 是否需要人工审核才能进入下一步 */
+  requiresReview: boolean;
+  completedAt: string;
+};
+
+// ─────────────────────────────────────────────
+// 3. ArtifactDraft — 草稿层输出（交付前须审核）
+// ─────────────────────────────────────────────
+
+/** 文书章节 */
+export type ArtifactSection = {
+  heading: string;
+  body: string;
+  /** 该节引用的来源 ID */
+  citations?: string[];
+  /** 轻量数据血缘：本段文字的来源与修改历史。 */
+  provenance?: ProvenanceChain;
+};
+
+/** 审核状态 */
+export type ReviewStatus = "pending" | "approved" | "rejected" | "modified";
+
+/**
+ * 当草稿在审核台被「通过」时，自动写入 `learning/contract-revisions/` 所需的路径（均相对工作区根）。
+ * 由 Agent/工具写入 `drafts/<taskId>.json`，律师仍只使用既有审核台，无需单独合同 UI。
+ */
+export type ContractRevisionCapture = {
+  initialRelativePath: string;
+  revisedRelativePath: string;
+  stableDocumentKey?: string;
+  keyModifications?: string[];
+};
+
+/**
+ * 合同正文最小修改 / 原文件审阅导出上下文。
+ * - baseline：上传原合同相对工作区路径（.doc / .docx）
+ * - surgical：Redline 按字/句级 span 生成
+ */
+export type ContractEditMode = "surgical" | "section";
+
+export type ContractEditContext = {
+  /** 原合同相对工作区根或项目根的路径（用于 tracked 导出基线） */
+  baselineRelativePath: string;
+  /** 缺省 workspace。项目钉选的 Word 为 project。 */
+  baselineRoot?: "workspace" | "project";
+  /** 默认 surgical */
+  mode?: ContractEditMode;
+  /** 关联的审查意见书草稿 taskId（附带固定版式导出） */
+  opinionTaskId?: string;
+};
+
+/** 文书草稿 — 由推理层生成，渲染前须律师审核 */
+export type ArtifactDraft = {
+  taskId: string;
+  /** 关联案件 ID（若存在） */
+  matterId?: string;
+  /** 文书标题 */
+  title: string;
+  /** 交付物格式 */
+  output: "docx" | "pptx" | "markdown";
+  /** 使用的模板 ID */
+  templateId: string;
+  /**
+   * 渲染时解析到的模板 pin（内置/上传版本/回退），用于审计与复现；未渲染前可为空。
+   * 格式见 `templateResolvedPin()`（`src/lawmind/templates/index.ts`）。
+   */
+  templateVersion?: string;
+  /**
+   * 引擎管线是否已写入 `drafts/<taskId>.reasoning.json` 侧车（LegalReasoningGraph）。
+   */
+  hasLegalReasoningSnapshot?: boolean;
+  /** 交付物类型（用于渲染与后续校验） */
+  deliverableType?: DeliverableType;
+  /** 执行摘要（用于律师快速判断是否准确） */
+  summary: string;
+  /** 目标受众 */
+  audience?: string;
+  /** 正文章节列表 */
+  sections: ArtifactSection[];
+  /** 审阅备注，律师可在此写修改意见 */
+  reviewNotes: string[];
+  /** 当前草稿仍待律师补充/确认的信息 */
+  clarificationQuestions?: ClarificationQuestion[];
+  /** 草稿默认应满足的最低交付标准 */
+  acceptanceCriteria?: string[];
+  /** 审核状态 */
+  reviewStatus: ReviewStatus;
+  /** 审核人（由律师确认时填写） */
+  reviewedBy?: string;
+  /** 审核时间 */
+  reviewedAt?: string;
+  /** 最终产物路径（渲染完成后填写） */
+  outputPath?: string;
+  createdAt: string;
+  /** 若存在，在审核「通过」后由服务端写入合同修订积累包，然后清除 */
+  contractRevisionCapture?: ContractRevisionCapture;
+  /** 已通过 `contractRevisionCapture` 写入积累包后的 `revisionId`，防止重复落盘 */
+  contractRevisionAccumulatedId?: string;
+  /**
+   * 合同正文最小修改：原文件基线 + surgical Redline / tracked 导出。
+   */
+  contractEdit?: ContractEditContext;
+  /**
+   * Unlocked 成套审查：`apply_surgical_edits` 把章节换成合同基线前保存的意见稿。
+   * 不参与 redline hunk。邮件短路径与指定目录 Word 改稿不会写入此字段。
+   */
+  pairedOpinionSections?: ArtifactSection[];
+  /**
+   * Structured opinion → redline handoff. Model/native callers provide exact
+   * shortest anchors; prose parsing remains a compatibility fallback.
+   */
+  contractReviewEdits?: Array<{
+    find: string;
+    replace: string;
+    priority?: "P0" | "P1" | "P2";
+    mode?: "apply" | "opinion_only";
+    reason?: string;
+  }>;
+  /**
+   * 最近一次改写幅度质控（字符/段落 delta）；幅度过大时供审核台提示。
+   */
+  rewriteAmplitude?: {
+    absCharDelta: number;
+    absParagraphDelta: number;
+    ratio?: number | null;
+    gated?: boolean;
+    at: string;
+  };
+  /**
+   * 律师必核清单落盘（签批通过时写入）。导出/复盘以这份为准，避免仅存在于 UI 内存。
+   * 形状与 `VerificationChecklistState` 对齐。
+   */
+  verificationChecklist?: {
+    specId: string;
+    checked: Record<string, boolean>;
+    updatedAt?: string;
+  };
+  /**
+   * Optional lawyer-facing decision header (改了什么 / 为什么 / 风险 / 可否直接用).
+   * Review workbench can also derive this from draft + lint when unset.
+   */
+  decisionHeader?: {
+    changed: string;
+    why: string;
+    risk: string;
+    ready: "usable" | "needs_decision";
+  };
+};
+
+// ─────────────────────────────────────────────
+// 4. TaskRecord — 持久化任务状态（便于断点续做）
+// ─────────────────────────────────────────────
+
+/** 任务生命周期状态 */
+export type TaskLifecycleStatus =
+  | "created"
+  | "confirmed"
+  | "researching"
+  | "researched"
+  | "drafted"
+  | "reviewed"
+  | "rejected"
+  | "rendered"
+  | "completed"; // Agent 对话回合等已结束（无引擎交付物）
+
+export type TaskExecutionPlanStepStatus = "pending" | "done" | "skipped";
+
+/** 业务语义执行步骤（展示用）；进度仍以 `TaskRecord.status` 为源，由 `deriveExecutionPlanSteps` 对齐。 */
+export type TaskExecutionPlanStep = {
+  id: string;
+  label: string;
+  status: TaskExecutionPlanStepStatus;
+};
+
+/** 持久化任务记录 — 用于会话恢复、状态展示、审计串联 */
+export type TaskRecord = {
+  taskId: string;
+  kind: TaskKind;
+  instruction?: string;
+  summary: string;
+  output: TaskIntent["output"];
+  riskLevel: RiskLevel;
+  requiresConfirmation: boolean;
+  audience?: string;
+  matterId?: string;
+  templateId?: string;
+  /** 与 `ArtifactDraft.templateVersion` 对齐，最后一次已知模板解析 pin */
+  templateVersion?: string;
+  deliverableType?: DeliverableType;
+  acceptanceCriteria?: string[];
+  clarificationQuestions?: ClarificationQuestion[];
+  title?: string;
+  draftPath?: string;
+  status: TaskLifecycleStatus;
+  reviewStatus?: ReviewStatus;
+  outputPath?: string;
+  createdAt: string;
+  updatedAt: string;
+  /** 多助手：创建任务时的助手 ID（可选） */
+  assistantId?: string;
+  /** Agent 会话 ID（对话指令类任务） */
+  sessionId?: string;
+  /** 与 Agent turn 对齐的回合 ID（通常与 taskId 相同） */
+  sourceTurnId?: string;
+  /** 创建时写入的步骤模板；各步 `status` 由 `deriveExecutionPlanSteps` 按 `status` 再算 */
+  executionPlan?: TaskExecutionPlanStep[];
+};
+
+// ─────────────────────────────────────────────
+// 5. MatterIndex — 案件级索引层（供工作台 / 审核台读取）
+// ─────────────────────────────────────────────
+
+export type MatterIndex = {
+  matterId: string;
+  caseFilePath: string;
+  caseMemory: string;
+  coreIssues: string[];
+  taskGoals: string[];
+  riskNotes: string[];
+  progressEntries: string[];
+  artifacts: string[];
+  tasks: TaskRecord[];
+  drafts: ArtifactDraft[];
+  auditEvents: AuditEvent[];
+  openTasks: TaskRecord[];
+  renderedTasks: TaskRecord[];
+  latestUpdatedAt?: string;
+};
+
+export type MatterOverview = {
+  matterId: string;
+  /** 侧栏/列表展示名（来自 CASE §1，无则同 matterId） */
+  displayName: string;
+  latestUpdatedAt?: string;
+  openTaskCount: number;
+  renderedTaskCount: number;
+  riskCount: number;
+  artifactCount: number;
+  topIssue?: string;
+  topRisk?: string;
+};
+
+export type MatterSummary = {
+  headline: string;
+  statusLine: string;
+  keyRisks: string[];
+  nextActions: string[];
+  recentActivity: string[];
+};
+
+export type MatterSearchHit = {
+  section:
+    | "coreIssues"
+    | "taskGoals"
+    | "riskNotes"
+    | "progressEntries"
+    | "artifacts"
+    | "tasks"
+    | "drafts"
+    | "auditEvents";
+  text: string;
+  taskId?: string;
+};
+
+// ─────────────────────────────────────────────
+// 6. 审计事件 — 每个任务关键步骤都应生成一条
+// ─────────────────────────────────────────────
+
+export type AuditEventKind =
+  | "task.created"
+  | "task.confirmed"
+  | "task.rejected"
+  | "research.started"
+  | "research.completed"
+  | "draft.created"
+  | "draft.auto_delivered"
+  | "draft.citation_integrity"
+  | "draft.reviewed"
+  | "draft.review_reopened" // 由「恢复待审核」等操作将草稿重置于 pending
+  | "draft.review_labeled" // 2.0：审核附加结构化标签
+  | "draft.revision_dispatched" // 审核台「提交给助手」后台修订已排队
+  | "draft.revision_agent_failed" // 后台修订助手执行失败
+  | "draft.revision_completed" // 后台修订助手执行成功并已恢复待审核
+  | "draft.content_edited" // 审核台律师直接编辑正文并保存
+  | "draft.reasoning_graph_missing" // 草稿落盘时缺少 LegalReasoningGraph 快照
+  | "artifact.rendered"
+  | "artifact.render_failed"
+  | "artifact.render_blocked"
+  | "artifact.sent"
+  | "matter.spec.invalid"
+  | "matter.write_failed"
+  | "matter.projection_failed" // JSON→CASE 投影失败（异步；Doctor 一致性可检出漂移）
+  | "contract_revision_accumulation_failed"
+  | "memory.profile_updated" // 2.0：律师/助手偏好写回
+  | "memory.playbook_updated" // Phase D：条款 playbook 审核学习写回
+  | "memory.adoption_suggested" // W5：记忆建议已入队（待律师采纳）
+  | "memory.adoption_auto_adopted" // W5：高置信建议已自动落盘
+  | "memory.adoption_adopted" // W5：律师手动采纳记忆建议
+  | "memory.adoption_recorded_noop" // W5：采纳已记录但该 kind 无落盘存储面（如实 no-op）
+  | "memory.adoption_dismissed" // W5：律师忽略记忆建议
+  | "quality.benchmark_run" // 2.0：评测任务执行记录
+  | "quality.snapshot" // Phase B：任务质量指标快照已写入
+  | "golden.example_promoted" // Phase B：草稿晋升为黄金样本
+  | "learning.suggestion_queued" // 2.0：审核学习先入队
+  | "learning.suggestion_adopted" // 2.0：学习建议已采纳写回
+  | "learning.suggestion_dismissed" // 2.0：学习建议已忽略
+  | "ui.matter_action" // 2.0：桌面端案件工作台关键律师动作（计划季末 sunset，由 ux.matter_action 取代）
+  | "ux.matter_action" // W10：与 ui.matter_action 双写，过渡期由 insights 模块统一消费
+  | "ui.firstrun_wizard_completed" // 桌面首跑向导完成（转化漏斗）
+  | "ui.firstrun_acceptance_ready" // 首跑关联案件下首次有草稿通过验收门禁
+  | "deliverable.spec.invalid" // 工作区私有交付物规范解析失败
+  | "platform.gate_snapshot" // 平台契约：executionState + gateDecisions 快照
+  | "mcp.servers_updated" // 桌面设置写入 MCP 服务器表（含 command/args；只有 secretRef，不含密钥本体）
+  | "tool_call"
+  | "agent_turn"
+  | "triage.created" // Skills E1：分诊会话创建
+  | "triage.confirmed" // Skills E1：律师确认分诊
+  | "review_campaign.created" // Skills E2：审查专案组创建/跑完
+  | "review_campaign.role_rerun" // Skills E2：单角色重跑
+  | "routing.resolve_ok" // 默认路由：命中 defaults 解析到助手
+  | "routing.resolve_fallback" // 默认路由：role 无助手时回退 shell
+  | "routing.resolve_failed" // 默认路由无法解析 assignee
+  | "draft.peer_review_required" // 强制互审闸：已建 peer 委派
+  | "draft.peer_review_skipped" // 强制互审闸：无 peer / 自审跳过
+  | "automation.run_failed" // 交办自动化运行失败（含结构化错误码）
+  | "outbound_http" // 统一出口代理发起的外部 HTTP 请求
+  | "safe_command" // 统一命令网关启动的子进程
+  // ── 协作审计（所级报表用；`collab.` 前缀，且自带 matterId） ──────────────
+  | "collab.invite_created"
+  | "collab.invite_accepted"
+  | "collab.invite_revoked"
+  | "collab.member_removed"
+  | "collab.member_key_published"
+  | "collab.key_rotated"
+  | "collab.key_distributed" // 向新成员补发当前密钥（不轮换）
+  | "collab.document_checked_out"
+  | "collab.document_released"
+  | "collab.material_filed"
+  | "collab.material_removed"
+  | "collab.integrity_rejected" // 内容哈希不符 / 解封失败，拒收
+  | "collab.conflict_parked" // 冲突旁路写出（材料或 CASE.md）
+  | "collab.cloud_roster_applied" // 云名册投影到本地
+  | "collab.sync_activity"; // 同步且**确有变化**（非每轮心跳）
+
+/** 审计事件 */
+export type AuditEvent = {
+  eventId: string;
+  taskId: string;
+  kind: AuditEventKind;
+  actor: "system" | "lawyer" | "model";
+  /** Optional operator identity, e.g. `lawyer:desktop` or `lawyer:<firm-id>` (see docs/archive/LAWMIND-ACTOR-ATTRIBUTION.md). */
+  actorId?: string;
+  /**
+   * 案件归属。协作类事件（`collab.*`）**不是任务**，无法靠 taskId→matterId 反查，
+   * 所以必须自带案件号才能做所级报表。
+   */
+  matterId?: string;
+  /** 操作者显示名（协作报表需要人可读的「谁」；actorId 是稳定标识）。 */
+  actorName?: string;
+  detail?: string;
+  timestamp: string;
+};
+
+// ─────────────────────────────────────────────
+// 7. ReviewLabel — 审核结构化标签（质量学习飞轮）
+// ─────────────────────────────────────────────
+
+/**
+ * 审核标签枚举（本版产品为中文标识；后续可再提供英文 UI/别名映射）。
+ * 律师在审核草稿时可以附加一组标签，
+ * 系统将这些标签写回律师/助手记忆文件，
+ * 并用于计算质量指标。
+ */
+export type ReviewLabel =
+  | "语气过强" // 建议保守表述
+  | "语气过弱" // 可更明确结论
+  | "引用不完整" // 引用不足或无法回溯
+  | "引用有误" // 法条号/案号等错误
+  | "争点遗漏" // 关键争点未覆盖
+  | "争点过度论证" // 次要争点占篇幅过多
+  | "事实顺序不当" // 事实叙述顺序需调整
+  | "事实不准确" // 事实描述有误
+  | "风险偏高" // 风险等级标注偏高
+  | "风险偏低" // 风险等级标注偏低（最危险，要优先学习）
+  | "风险未标注" // 高风险点未被标出
+  | "受众定位不当" // 客户稿与内部稿等 framing 混淆
+  | "模板不匹配" // 所选模板不符合本类任务
+  | "质量范例"; // 可作为黄金样本
+
+/** 单条审核学习记录，附加到审核事件上 */
+export type ReviewLearningRecord = {
+  taskId: string;
+  draftTitle: string;
+  taskKind: TaskKind;
+  templateId: string;
+  labels: ReviewLabel[];
+  /** 律师自由文本补充（可选），作为学习摘要追加到 PROFILE.md */
+  learningNote?: string;
+  reviewedBy?: string;
+  reviewedAt: string;
+};
+
+// ─────────────────────────────────────────────
+// 8. LegalReasoningGraph — 法律推理层（检索→起草之间的中间结构）
+// ─────────────────────────────────────────────
+
+/**
+ * 法律推理图谱。
+ * 捕获律师在起草文书前的推理结构：
+ * 争点树 → 论证矩阵 → 权威冲突 → 交付风险。
+ * 由 src/lawmind/reasoning/legal-graph.ts 构建。
+ */
+export type LegalIssueNode = {
+  issue: string;
+  /** IRAC 要件列表 */
+  elements: string[];
+  /** 相关事实（来自案件 CASE.md 或检索 bundle） */
+  facts: string[];
+  /** 支撑该争点的证据摘要 */
+  evidence: string[];
+  /** 适用法条与类案 ID（对应 ResearchSource.id） */
+  authorityIds: string[];
+  /** 尚待核实或确认的问题 */
+  openQuestions: string[];
+  /** 律师/系统对该争点结论的置信度 0-1 */
+  confidence: number;
+};
+
+export type ArgumentPosition = {
+  position: string;
+  /** 支撑依据（来源 ID 列表） */
+  supportIds: string[];
+  /** 对方可能的抗辩 */
+  likelyCounterarguments: string[];
+  /** 我方反驳思路 */
+  rebuttals: string[];
+  /** 此论点是否有证据支撑（无支撑的应标记为"法律推理"） */
+  evidenceBacked: boolean;
+};
+
+export type AuthorityConflict = {
+  /** 互相冲突的来源 ID */
+  authorityIds: string[];
+  /** 冲突描述 */
+  conflict: string;
+  /** 建议的处理方式（如以新法优先、以特别法优先） */
+  resolutionNote?: string;
+  /** 是否已解决 */
+  resolved: boolean;
+};
+
+export type LegalReasoningGraph = {
+  taskId: string;
+  matterId?: string;
+  /** 争点树（每个节点是一个独立法律争点） */
+  issueTree: LegalIssueNode[];
+  /** 论证矩阵（我方主张与支撑） */
+  argumentMatrix: ArgumentPosition[];
+  /** 权威冲突列表（法条、类案、内部意见互相矛盾的情况） */
+  authorityConflicts: AuthorityConflict[];
+  /**
+   * 交付风险标记（不同于检索风险，专指起草时应保守措辞的点）。
+   * 如"该条款合法性存疑，建议表述为'可能'而非'明确'。"
+   */
+  deliveryRisks: string[];
+  /** 整体推理置信度 0-1（各争点置信度的加权均值） */
+  overallConfidence: number;
+  builtAt: string;
+};
+
+// ─────────────────────────────────────────────
+// 9. QualityRecord — 任务级质量快照（评测与统计用）
+// ─────────────────────────────────────────────
+
+/**
+ * 单任务质量指标快照。
+ * 由引擎在 render 完成或审核事件后计算并持久化。
+ * 用于构建律所/律师级质量报告和基准测试基线。
+ */
+export type QualityRecord = {
+  taskId: string;
+  taskKind: TaskKind;
+  templateId?: string;
+  assistantId?: string;
+  matterId?: string;
+  /** 引用有效率 = 有效引用数 / 草稿总引用数，无引用时为 null */
+  citationValidityRate: number | null;
+  /** 争点覆盖率 = 草稿覆盖的争点数 / 推理图谱总争点数，无推理图时为 null */
+  issueCoverageRate: number | null;
+  /** 风险召回率 = 草稿中标出的风险数 / bundle.riskFlags.length，无 riskFlags 时为 null */
+  riskRecallRate: number | null;
+  /** 一次性通过（律师未做实质性修改即批准）*/
+  firstPassApproved: boolean;
+  /** 审核状态 */
+  reviewStatus: ReviewStatus;
+  /** 律师附加的结构化标签 */
+  reviewLabels: ReviewLabel[];
+  /** 是否可作为黄金样本 */
+  isGoldenExample: boolean;
+  /** 从指令到初稿的毫秒数 */
+  latencyMs?: number;
+  /** Phase B：创建任务时助手岗位 preset id（若有） */
+  presetKey?: string;
+  createdAt: string;
+};
+
+// ─────────────────────────────────────────────
+// 10. BenchmarkTask / BenchmarkResult — 评测体系
+// ─────────────────────────────────────────────
+
+/**
+ * 评测任务定义。
+ * 每条代表一个已知"黄金指令"及其期望产出特征，
+ * 用于回归测试和发布质量门控。
+ */
+export type BenchmarkTask = {
+  benchmarkId: string;
+  /** 评测场景分类 */
+  category:
+    | "contract_review"
+    | "legal_memo"
+    | "demand_letter"
+    | "litigation_outline"
+    | "client_brief"
+    | "due_diligence"
+    | "compliance_review"
+    | "matter_update_ppt";
+  /** 给引擎的输入指令（模拟律师下达） */
+  instruction: string;
+  /** 期望的任务类型 */
+  expectedKind: TaskKind;
+  /** 期望的交付格式 */
+  expectedOutput: TaskIntent["output"];
+  /** 期望输出至少覆盖的关键词 / 概念（用于简单验收） */
+  expectedKeywords: string[];
+  /** 期望风险等级（low/medium/high） */
+  expectedRiskLevel: RiskLevel;
+  /** 是否应触发人工审核门 */
+  expectsReviewGate: boolean;
+  /** 说明 / 备注 */
+  description?: string;
+};
+
+/** 评测来源口径。mock 仅作本地冒烟；scripted 跑真实引擎但用脚本化模型驱动；real 用真模型。 */
+export type BenchmarkModelMode = "mock" | "scripted" | "real";
+
+/** 单次评测结果 */
+export type BenchmarkResult = {
+  benchmarkId: string;
+  runId: string;
+  /** 评测时间戳 */
+  ranAt: string;
+  /** 使用的模型标识 */
+  modelHint?: string;
+  /** 评测来源口径：mock 仅作本地冒烟，scripted/real 可进入发布 gate。 */
+  modelMode?: BenchmarkModelMode;
+  /** 任务是否成功完成（无崩溃、有输出） */
+  taskCompleted: boolean;
+  /** 实际产生的任务类型是否与期望一致 */
+  kindMatched: boolean;
+  /** 期望关键词命中率 0-1 */
+  keywordHitRate: number;
+  /** 风险等级是否与期望一致 */
+  riskLevelMatched: boolean;
+  /** 是否触发了审核门（与期望一致 = pass） */
+  reviewGateMatched: boolean;
+  /** 生成草稿的来源数（可用于评估检索质量） */
+  sourceCount: number;
+  /** 生成草稿的结论数 */
+  claimCount: number;
+  /** 从指令到初稿的毫秒数 */
+  latencyMs: number;
+  /** 综合评分 0-1（由各子指标加权得出） */
+  score: number;
+  /** 失败原因（若 taskCompleted = false） */
+  errorMessage?: string;
+};

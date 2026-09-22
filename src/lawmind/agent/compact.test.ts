@@ -1,0 +1,278 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+import { appendQueueItem } from "../adapters/matter-storage/index.js";
+import { persistDraft } from "../drafts/index.js";
+import type { ArtifactDraft } from "../types.js";
+import {
+  autoCompactSessionHistory,
+  buildDroppedSpanDigest,
+  buildPostCompactSystemNote,
+} from "./compact.js";
+import { normalizeToolResultMessages } from "./session-tool-call-pairing.js";
+import type { AgentMessage, AgentSession } from "./types.js";
+
+describe("buildDroppedSpanDigest", () => {
+  it("extracts lawyer points, assistant replies, and tool names", () => {
+    const dropped: AgentMessage[] = [
+      { role: "user", content: "请审查违约金条款", timestamp: "t1" },
+      {
+        role: "assistant",
+        content: "",
+        timestamp: "t2",
+        toolCalls: [{ id: "c1", name: "analyze_document", arguments: {} }],
+      },
+      {
+        role: "tool",
+        content: "{}",
+        timestamp: "t3",
+        toolCallResponses: [{ toolCallId: "c1", name: "analyze_document", result: { ok: true } }],
+      },
+      {
+        role: "assistant",
+        content: "建议将违约金上限改为合同总额的20%。",
+        timestamp: "t4",
+      },
+    ];
+    const digest = buildDroppedSpanDigest(dropped, 4_000);
+    expect(digest).toContain("压缩前对话蒸馏");
+    expect(digest).toContain("审查违约金");
+    expect(digest).toContain("20%");
+    expect(digest).toContain("analyze_document");
+  });
+
+  it("keeps statute citations from dropped tool results", () => {
+    const dropped: AgentMessage[] = [
+      { role: "user", content: "违约责任依据？", timestamp: "t1" },
+      {
+        role: "assistant",
+        content: "",
+        timestamp: "t2",
+        toolCalls: [{ id: "c1", name: "search_statute", arguments: {} }],
+      },
+      {
+        role: "tool",
+        content: "{}",
+        timestamp: "t3",
+        toolCallResponses: [
+          {
+            toolCallId: "c1",
+            name: "search_statute",
+            result: { ok: true, data: { hits: ["依据《民法典》第577条承担责任"] } },
+          },
+        ],
+      },
+    ];
+    const digest = buildDroppedSpanDigest(dropped, 4_000);
+    expect(digest).toContain("压缩前引用");
+    expect(digest).toContain("《民法典》第577条");
+  });
+
+  it("keeps Chinese-numeral 条 citations and puts them before truncation", () => {
+    const dropped: AgentMessage[] = [
+      {
+        role: "assistant",
+        content: `${"律师长文。".repeat(80)}依据《民法典》第五百七十七条承担责任。`,
+        timestamp: "t1",
+      },
+    ];
+    const digest = buildDroppedSpanDigest(dropped, 220);
+    expect(digest).toContain("压缩前引用");
+    expect(digest).toContain("《民法典》第五百七十七条");
+    const citeAt = digest.indexOf("压缩前引用");
+    const assistAt = digest.indexOf("助手结论");
+    expect(citeAt).toBeGreaterThan(0);
+    if (assistAt >= 0) {
+      expect(citeAt).toBeLessThan(assistAt);
+    }
+  });
+
+  it("keeps 法释 and 案号 anchors from dropped tool results", () => {
+    const dropped: AgentMessage[] = [
+      { role: "user", content: "司法解释和案号？", timestamp: "t1" },
+      {
+        role: "assistant",
+        content: "",
+        timestamp: "t2",
+        toolCalls: [{ id: "c1", name: "search_case_law", arguments: {} }],
+      },
+      {
+        role: "tool",
+        content: "{}",
+        timestamp: "t3",
+        toolCallResponses: [
+          {
+            toolCallId: "c1",
+            name: "search_case_law",
+            result: {
+              ok: true,
+              data: { hits: ["法释〔2023〕1号 与 （2023）京民终123号"] },
+            },
+          },
+        ],
+      },
+    ];
+    const digest = buildDroppedSpanDigest(dropped, 4_000);
+    expect(digest).toContain("压缩前引用");
+    expect(digest).toContain("法释〔2023〕1号");
+    expect(digest).toContain("（2023）京民终123号");
+  });
+});
+
+describe("autoCompactSessionHistory", () => {
+  it("preserves tool_use/tool_result pairs at boundary", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-compact-"));
+    const session: AgentSession = {
+      sessionId: "s1",
+      actorId: "test",
+      turns: [],
+      conversationHistory: [
+        { role: "system", content: "sys", timestamp: new Date().toISOString() },
+        { role: "user", content: "u1", timestamp: new Date().toISOString() },
+        {
+          role: "assistant",
+          content: "",
+          timestamp: new Date().toISOString(),
+          toolCalls: [{ id: "t1", name: "search_workspace", arguments: {} }],
+        },
+        {
+          role: "tool",
+          content: "{}",
+          timestamp: new Date().toISOString(),
+          toolCallResponses: [{ toolCallId: "t1", name: "search_workspace", result: { ok: true } }],
+        },
+        { role: "assistant", content: "done", timestamp: new Date().toISOString() },
+      ],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const out = autoCompactSessionHistory(session, ws, { maxHistoryMessages: 4 });
+    expect(out.compacted).toBe(true);
+    const roles = out.messages.map((m) => m.role).join(",");
+    expect(roles).toContain("tool");
+  });
+
+  it("keeps a multi-tool batch whole when the tail cut lands inside it", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-compact-group-"));
+    const now = new Date().toISOString();
+    const toolIds = ["t1", "t2", "t3"];
+    const session: AgentSession = {
+      sessionId: "s-group",
+      actorId: "test",
+      turns: [],
+      conversationHistory: [
+        { role: "system", content: "sys", timestamp: now },
+        { role: "user", content: "一次查三份", timestamp: now },
+        {
+          role: "assistant",
+          content: "",
+          timestamp: now,
+          toolCalls: toolIds.map((id) => ({ id, name: `tool_${id}`, arguments: {} })),
+        },
+        ...toolIds.map((id) => ({
+          role: "tool" as const,
+          content: "{}",
+          timestamp: now,
+          toolCallResponses: [{ toolCallId: id, name: `tool_${id}`, result: { ok: true } }],
+        })),
+        { role: "assistant", content: "三份结果已合并。", timestamp: now },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    };
+    const out = autoCompactSessionHistory(session, ws, { maxHistoryMessages: 2 });
+    expect(out.compacted).toBe(true);
+    // 旧实现按条数裸切，会在 t3 处下刀留下孤立 tool → DeepSeek 400。
+    // 压缩结果必须自身合规：normalize 无需再做任何改动。
+    expect(normalizeToolResultMessages(out.messages).changed).toBe(false);
+    const firstNonSystem = out.messages.find((m) => m.role !== "system");
+    expect(firstNonSystem?.role).not.toBe("tool");
+  });
+
+  it("reinjects dropped-span digest when history is compacted by count", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-compact-digest-"));
+    const matterId = "m-digest";
+    fs.mkdirSync(path.join(ws, "cases", matterId), { recursive: true });
+    const history: AgentMessage[] = [
+      { role: "system", content: "sys", timestamp: new Date().toISOString() },
+    ];
+    for (let i = 0; i < 12; i++) {
+      history.push({
+        role: "user",
+        content: `律师问题 ${i}：关注付款节点`,
+        timestamp: new Date().toISOString(),
+      });
+      history.push({
+        role: "assistant",
+        content: `助手回答 ${i}：建议分期付款。`,
+        timestamp: new Date().toISOString(),
+      });
+    }
+    const session: AgentSession = {
+      sessionId: "s-digest",
+      matterId,
+      actorId: "test",
+      turns: [],
+      conversationHistory: history,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const out = autoCompactSessionHistory(session, ws, {
+      maxHistoryMessages: 6,
+      contextTokens: 128_000,
+    });
+    expect(out.compacted).toBe(true);
+    expect(out.droppedDigest).toBeTruthy();
+    expect(out.firstKeptTimestamp).toBeTruthy();
+    expect(out.firstKeptRole).toBeTruthy();
+    expect(out.boundaryId).toMatch(/#/);
+    expect(out.messages.some((m) => m.content?.includes("压缩前对话蒸馏"))).toBe(true);
+    expect(fs.existsSync(path.join(ws, "cases", matterId, "compact-digest.md"))).toBe(true);
+    const lastRealUser = [...out.messages]
+      .toReversed()
+      .find((m) => m.role === "user" && m.content.includes("律师问题"));
+    const digestIdx = out.messages.findIndex((m) => m.content?.includes("压缩前对话蒸馏"));
+    const lastUserIdx = out.messages.findIndex((m) => m === lastRealUser);
+    expect(out.messages[0]?.role).toBe("system");
+    expect(out.messages[0]?.content).toBe("sys");
+    expect(out.messages.filter((m) => m.role === "system")).toHaveLength(1);
+    expect(digestIdx).toBeGreaterThan(0);
+    expect(digestIdx).toBeLessThan(lastUserIdx);
+  });
+
+  it("buildPostCompactSystemNote includes draft and queue attachments", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-compact-att-"));
+    const matterId = "m-att";
+    const taskId = "task-att-1";
+    const now = new Date().toISOString();
+    persistDraft(ws, {
+      taskId,
+      matterId,
+      title: "测试草稿",
+      output: "docx",
+      summary: "摘要",
+      sections: [{ heading: "结论", body: "正文", citations: [] }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: now,
+    } as ArtifactDraft);
+    appendQueueItem(ws, {
+      queueItemId: "q1",
+      matterId,
+      kind: "need_lawyer_review",
+      status: "open",
+      priority: "high",
+      title: "律师复核",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const note = buildPostCompactSystemNote({
+      matterId,
+      linkedTaskId: taskId,
+      workspaceDir: ws,
+    });
+    expect(note).toContain("关联草稿");
+    expect(note).toContain("待办队列");
+  });
+});

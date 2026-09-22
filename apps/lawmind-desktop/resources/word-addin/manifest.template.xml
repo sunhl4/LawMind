@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  LawMind Word 插件（Office Add-in 清单）。
+
+  下面所有回环地址由本机 LawMind 服务在 /word-addin/manifest.xml 处按实际请求地址替换，
+  清单里不写死端口。插件只与本机 http://localhost:<port> 通信，不连任何远程控制面。
+-->
+<OfficeApp
+  xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+  xsi:type="TaskPaneApp">
+  <Id>d6a1a7a6-8f8f-4d1b-9f5c-6b0f0f1c2a31</Id>
+  <Version>1.0.0.0</Version>
+  <ProviderName>LawMind</ProviderName>
+  <DefaultLocale>zh-CN</DefaultLocale>
+  <DisplayName DefaultValue="LawMind 就地审查" />
+  <Description DefaultValue="在 Word 里发起审查、取回修订轨。只与本机 LawMind 通信，不联网。" />
+  <IconUrl DefaultValue="{{BASE}}/word-addin/icon-32.png" />
+  <HighResolutionIconUrl DefaultValue="{{BASE}}/word-addin/icon-32.png" />
+  <SupportUrl DefaultValue="{{BASE}}/word-addin/taskpane.html" />
+  <AppDomains>
+    <AppDomain>{{BASE}}</AppDomain>
+  </AppDomains>
+  <Hosts>
+    <Host Name="Document" />
+  </Hosts>
+  <DefaultSettings>
+    <SourceLocation DefaultValue="{{BASE}}/word-addin/taskpane.html" />
+  </DefaultSettings>
+  <Permissions>ReadWriteDocument</Permissions>
+</OfficeApp>

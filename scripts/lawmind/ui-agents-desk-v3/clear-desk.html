@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>在办 V3 · Clear Desk</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #141311; font: 14px/1.5 "PingFang SC", sans-serif; color: #1a1714; }
+    .shell { position: relative; width: 1440px; }
+    .badge {
+      position: absolute; top: 10px; right: 12px; z-index: 2;
+      background: #5c4030; color: #fff; font-size: 11px; padding: 4px 8px; border-radius: 6px;
+    }
+    .frame {
+      width: 1440px; height: 900px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 18px;
+      background:
+        radial-gradient(ellipse 70% 50% at 50% 40%, rgba(166,124,82,0.1), transparent 60%),
+        linear-gradient(180deg, #f3ebe0, #e4dccf);
+      position: relative;
+    }
+    .top {
+      position: absolute; top: 0; left: 0; right: 0; height: 44px;
+      display: flex; align-items: center; padding: 0 22px;
+      border-bottom: 1px solid rgba(40,32,22,0.08);
+      background: rgba(251,247,240,0.5);
+    }
+    .brand { font-weight: 700; } .brand em { font-style: normal; color: #8a6540; margin-left: 8px; }
+    h1 {
+      margin: 0; font-family: "Iowan Old Style", "Songti SC", serif;
+      font-size: 40px; letter-spacing: -0.03em; font-weight: 700;
+    }
+    p { margin: 0; color: #5c554c; max-width: 28rem; text-align: center; font-size: 16px; }
+    .cta {
+      margin-top: 12px; border: 0; border-radius: 999px; padding: 14px 28px;
+      font-weight: 700; font-size: 15px; color: #fffaf3;
+      background: linear-gradient(135deg, #c4a06e, #a67c52);
+      box-shadow: 0 8px 24px rgba(166,124,82,0.3);
+    }
+    .pulse {
+      margin-top: 28px; padding: 12px 20px; border-radius: 12px;
+      background: rgba(255,253,249,0.7); border: 1px solid rgba(40,32,22,0.08);
+      color: #5c554c; font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="badge">V3 · Clear Desk（Inbox Zero）</div>
+    <div class="frame">
+      <div class="top"><div class="brand">LawMind<em>今日拍板</em></div></div>
+      <h1>今日已清零</h1>
+      <p>没有需要您立刻拍板的事项。新任务请回对话下达；助手仍在后台推进的工作不会打扰您。</p>
+      <button type="button" class="cta">回对话下达</button>
+      <div class="pulse">助手还在办 5 件 · 展开查看进度（非主舞台）</div>
+    </div>
+  </div>
+</body>
+</html>

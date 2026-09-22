@@ -1,0 +1,15 @@
+{
+  "taskId": "fixture-gate-task",
+  "kind": "draft",
+  "summary": "Fixture rental contract for CI gate",
+  "output": "docx",
+  "riskLevel": "medium",
+  "requiresConfirmation": false,
+  "matterId": "fixture-matter",
+  "templateId": "contract-rental-default",
+  "deliverableType": "contract.rental",
+  "status": "drafted",
+  "reviewStatus": "pending",
+  "createdAt": "2026-06-01T00:00:00.000Z",
+  "updatedAt": "2026-06-01T00:00:00.000Z"
+}

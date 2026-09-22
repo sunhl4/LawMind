@@ -1,0 +1,18 @@
+{
+  "count": 1,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "absolute_url": "/opinion/108713/miranda-v-arizona/",
+      "cluster_id": 108713,
+      "caseName": "Miranda v. Arizona",
+      "citation": ["384 U.S. 436"],
+      "court": "scotus",
+      "court_citation_string": "SCOTUS",
+      "dateFiled": "1966-06-13",
+      "docketNumber": "759",
+      "snippet": "The prosecution may not use statements stemming from custodial interrogation unless it demonstrates the use of procedural safeguards."
+    }
+  ]
+}

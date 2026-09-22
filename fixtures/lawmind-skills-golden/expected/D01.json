@@ -1,0 +1,7 @@
+{
+  "id": "D01",
+  "triageTier": "yellow",
+  "deliverableTypeHint": "letter.demand",
+  "checklistSpecId": "demand-letter-v1",
+  "notes": "催款函，金额与期限"
+}

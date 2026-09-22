@@ -1,0 +1,730 @@
+# LawMind 架构文档
+
+本文档定义 LawMind 的第一版系统架构，目标是：**先搭一个易扩展、可审计、面向律师工作的底座**，再在其上逐步增加功能。
+
+**阶段性用户画像**：**当前主战场是个人律师**（单人对工作区与案件负责）。架构与 edition 为**面向律所留口子**、保留扩展，但**不作为现阶段建设与推广主线**。**能力愿景**是同一套澄清—执行—交付骨架覆盖**律师日常广义工作面**（检索、多类文书、材料与交付等），而非仅限合同场景。
+
+---
+
+## 一、设计原则
+
+1. **Markdown 是记忆真相源**
+2. **模板化交付优先于自由生成**
+3. **结构化中间层优先于直接出文书**
+4. **高风险动作默认需要确认**
+5. **功能可扩展，但边界必须稳定**
+
+---
+
+## 二、总体架构
+
+LawMind 的代码组织按**运行域**分为四层。早期文档中的 Router / Memory / Retrieval / Reasoning / Artifact 五层仍可作为概念模型理解数据流，但实际实现与部署边界按以下四层落地：
+
+1. **桌面壳（Electron shell）**：`apps/lawmind-desktop/electron/` 负责窗口、菜单、IPC、文件对话框、系统通知、本地 API 子进程 supervision 与深度链接。渲染进程不直接访问文件系统或网络，所有敏感动作经本地 API 完成。
+2. **本地 HTTP API**：`apps/lawmind-desktop/server/` 提供渲染进程可调用的 `/api/*` 端点，承担会话、任务、草稿、审核、案件、助手、模型、集成、记忆采纳等状态写侧。它是 Electron 本地可信边界向引擎的延伸。
+3. **引擎（Engine）**：`src/lawmind/` 包含 Agent 循环、工具注册与治理、lint、runtime、audit、adoption、memory、retrieval、router、deliverables、reasoning、templates、platform 安全层等。引擎不直接暴露 UI，只通过本地 API 被调用，输出结果与状态更新由 API 返回给渲染进程。
+4. **交付与文档**：`apps/lawmind-desktop/src/renderer/` 提供律师界面；`apps/lawmind-docs/` 提供文档站点；`workspace/` 与 `artifacts/` 承载最终交付物。
+
+数据主链路：
+
+`律师指令（renderer） -> 本地 API -> 引擎运行（Agent / tools / lint / audit） -> 状态回写 -> renderer 同步 -> 律师审核/签批 -> 交付物渲染 -> 审计记录`
+
+### 安全层（Security Layer）
+
+安全不是单独进程，而是贯穿本地 API、引擎与平台契约的一组默认策略：
+
+- **出口代理（outbound proxy）**：外部网络请求默认经 `src/lawmind/platform/outbound-proxy.ts` 代理，按 `lawmind.policy.json` 中的 `networkAllowlist` 显式放行；未配置的 host/path 会被拒绝，律师可在 Doctor 或设置中查看当前 allowlist 状态。
+- **命令网关（command gateway）**：可能修改工作区或调用外部程序的操作由 `runtime/tool-pipeline.ts` 中间件与 `agent/dangerous-tool-policy.ts` 统一编排，支持显式律师批准、工具 allowlist、执行层化与审计前缀，避免模型或工作流直接执行任意命令。
+- **审计 HMAC 与 root-anchor**：`src/lawmind/audit/hash-chain.ts` 与 `src/lawmind/audit/root-anchor.ts` 为每个工作区维护审计根锚，关键事件写入 `audit/` 时计算完整性链；Firm/Private 版默认开启，支持导出并发现事后篡改。
+- **工作区写保护**：`.env*`、`lawmind.policy.json` 等关键文件受 `src/lawmind/runtime/protected-workspace-rels.ts` 保护，渲染进程与引擎工具无法直接覆盖；删除或重命名需显式授权。
+- **权限模式执行层化**：`src/lawmind/agent/permission-mode.ts` 把会话运行分为 `standard`、`strict`、`readonly`、`research` 四档；由 `runtime/tool-pipeline.ts` 的 `permissionModeMiddleware` 在执行层硬拦。低权限模式禁止起草、渲染、外发等重动作，并在 CLI/Doctor 中暴露当前模式，避免误操作。
+- **隐式意图编译（SSOT）**：`src/lawmind/intent/compile-intent.ts` 为叶子编译器（无 fs，渲染进程可直接调用）；服务端经 `compileTurnIntent`（peek 钉选文档 + 案件门类）与 `runTurn` / `POST /api/intent/compile` 同源。对话状态条只展示「本轮按××处理」，不提供分类菜单。
+- **本机能力**：助手默认只碰工作区与已选本机文件夹；全机查找/读取/本机命令走授权网关（案件围栏、硬黑名单、逐次授权），写入不默认开放全盘。见 [LAWMIND-HOST-ACCESS.md](./lawmind/LAWMIND-HOST-ACCESS.md)。
+
+### 数据流与事件总线
+
+本地 API 与渲染进程之间的异步通知统一走 **SSE（Server-Sent Events）**：
+
+- `/api/chat` 长连接流式返回 `assistant` 消息、`tool_call_start/end`、`gate` 快照、`compact` 等事件；
+- `/api/jobs/:id/stream` 推送工作流/异步任务的进度、终态与心跳；
+- 设置页「协作」对非当前任务使用有限并发 SSE（默认 2 路）刷新列表，失败回退轮询；
+- 事件结构由 `src/lawmind/platform/contracts.ts` 中的 `RunTurnEvent` / `TaskExecutionState` 等契约统一描述，渲染进程与引擎共享同一份状态理解。
+
+对于尚未接入 SSE 的模块（如部分文件系统监听），预留接口为：渲染进程通过 `GET /api/health` 轮询 + 本地 API 在关键状态变更时主动推送 SSE；新增事件类型优先扩展 SSE 事件名，而不是另开 WebSocket。
+
+### Matter-centered 写侧 与 Role 编制（2026-Q3 起）
+
+在前述五层之上，2026 年第三季度的架构升级又叠加了三条横向骨架：
+
+- **Matter 写侧 application services**：`src/lawmind/application/services/`
+  下 `matter-write / deliverable / approval / queue-write / deadline` 五个
+  service 把案件、交付物、审批、待办、节点等域对象的状态翻转显式化；持久化由
+  `src/lawmind/adapters/matter-storage/` 落到
+  `workspace/matters/<id>/{matter.json, deliverables/*.json, approvals.jsonl,
+queue.jsonl, deadlines.jsonl}` 这一组 JSON / JSONL 真相源（与原 Markdown 双轨
+  并存，read 侧优先 JSON，缺失回退 `MatterIndex`）。
+- **Role 一等对象 + ToolPolicy pipeline**：`src/lawmind/core/role.ts` 把 6 个
+  assistant preset 升级为 Role（mission / allowedToolNames /
+  allowedDeliverableTypes / memoryScope / riskCeiling / reviewChecklist），
+  并由 `src/lawmind/runtime/tool-pipeline.ts` 的 `roleAllowlistMiddleware`
+  与 `engine/drafting.ts` 的 `roleAllowsDeliverable()` 共同强制；委派经
+  `delegate_to_role` 工具与 `ApprovalRequest.targetRole` 字段实现"角色到角色"
+  的工作流。
+- **Memory Adoption + Reasoning Gate + Insights**：所有 Markdown 写入收敛
+  到 `src/lawmind/memory/adoption-service.ts`（pending / adopted /
+  auto_adopted / dismissed 四态，桌面 `MemoryInspector` 统一审阅）；高风险
+  deliverable 的渲染通过 `DeliverableSpec.reasoningGate` + `reasoning-validator`
+  在 strict 模式下与 acceptance gate 共同把守；产品观察事件用
+  `ux.matter_action` 与 `ui.matter_action` 双写，`policy.productInsightsCollection`
+  控制采集开关，纯函数 `src/lawmind/insights/` 与
+  `apps/lawmind-desktop/src/renderer/insights/` 把展示与计算解耦。
+
+季末验收脚本 `pnpm lawmind:acceptance` 会调用 `pnpm lawmind:quarterly-demo`
+（`scripts/lawmind/lawmind-quarterly-demo.ts`）跑完上述新链路，并以
+`src/lawmind/integration/quarterly-acceptance.test.ts` 作为回归网关。
+
+### 卓越产品平台化（2026-Q2，第十一期）
+
+在既有 Matter / Role / Gate 骨架之上，第十一期把「功能已具备」推进为「平台可演进」：
+
+- **Q1 黄金旅程**：`src/lawmind/product/golden-journeys.ts` 冻结 matter production、contract review trust、role delegation memory 三条验收旅程。
+- **Runtime harness 元数据**：`src/lawmind/agent/tools/governance.ts` 为工具 registry 补齐风险、matter scope、运行模式、幂等/重试与审计说明；`GET /api/tools/registry` 返回 `governance`。
+- **ContextPlan**：`src/lawmind/runtime/context-plan.ts` 分层描述 matter state、MATTER_STRATEGY、pending actions、transcript、memory recall、source anchors、role context。
+- **Deliverable lifecycle**：`src/lawmind/core/deliverable-lifecycle.ts` 扩展至 planned → … → delivered → learned；写侧 `transitionDeliverable` 拒绝跳过 review 的 shortcut。
+- **Workflow playbook**：`src/lawmind/agent/collaboration/playbook-summary.ts` 将 workflow 模板摘要为来源要求、审批点与验收包要求。
+- **质量飞轮与发布报告**：`src/lawmind/evaluation/replay-fixtures.ts`（12 个回放样本）、`release-report.ts`、`pnpm lawmind:release-readiness`；`pnpm lawmind:verify` 写入 `dist/lawmind-release-readiness.md`。
+
+详见 [LAWMIND-EXCELLENCE-ROADMAP.md](./archive/LAWMIND-EXCELLENCE-ROADMAP.md)（归档）。
+
+### 第十二期工程对齐（2026-05-28）
+
+- **发布证据**：`scripts/lawmind/lawmind-benchmark.ts`、`lawmind-release-readiness.ts`（benchmark 灌数 + strict gate）。
+- **集成**：`src/lawmind/integrations/sharepoint-graph.ts`（Graph 只读）；`src/lawmind/artifacts/render-docx-tracked.ts`（随包 OfficeCLI 修订轨）。
+- **可观测**：`src/lawmind/insights/session-timeline.ts` 扩展 approval/job；桌面 Matter「时间线」一级 Tab。
+- **Runtime**：`buildContextPlan` 注入 `agent/runtime.ts`；`scripts/lawmind/lawmind-platform-contracts-check.ts`。
+- **桌面 seam**：`matter/MatterTimelinePanel.tsx`、`MatterWorkbenchListPane.tsx`、`useMatterSessionTimeline.ts`。
+
+---
+
+## 三、目录与工作区约定
+
+建议的工作区布局如下：
+
+```text
+workspace/
+  MEMORY.md
+  LAWYER_PROFILE.md
+  memory/
+    YYYY-MM-DD.md
+  cases/
+    <matter-id>/
+      CASE.md
+      research/
+      drafts/
+      artifacts/
+  templates/
+    word/
+    ppt/
+  artifacts/
+  audit/
+```
+
+说明：
+
+- `MEMORY.md`：通用长期记忆。
+- `LAWYER_PROFILE.md`：律师个人偏好与习惯记忆。
+- `memory/YYYY-MM-DD.md`：运行日志与日常上下文。
+- `cases/<matter-id>/CASE.md`：案件级记忆，第二阶段引入。
+- `templates/`：交付模板。
+- `artifacts/`：未绑定案件、也未关联项目目录时的兜底产物目录。有案件时写入 `cases/<matter-id>/artifacts/`。
+- `audit/`：审计事件和回放数据。
+
+---
+
+## 四、双记忆文档设计
+
+### 1. `MEMORY.md`
+
+用于记录稳定、通用、可复用的信息：
+
+- 通用法律工作流规则
+- 通用写作规范
+- 风险红线
+- 模板使用原则
+- 系统级业务判断
+
+### 2. `LAWYER_PROFILE.md`
+
+用于记录某位律师的个性化偏好：
+
+- 写作风格
+- 常用措辞
+- 法条和案例引用偏好
+- 结论组织方式
+- 客户沟通口吻
+- 审稿习惯
+
+### 3. `memory/YYYY-MM-DD.md`
+
+用于记录：
+
+- 当日任务进展
+- 当前会话上下文
+- 阶段性决策
+- 临时问题和后续待办
+
+### 4. 读取规则
+
+第一阶段固定读取：
+
+1. `MEMORY.md`
+2. `LAWYER_PROFILE.md`
+3. 今天的 `memory/YYYY-MM-DD.md`
+4. 昨天的 `memory/YYYY-MM-DD.md`
+
+第二阶段再按案件引入 `cases/<matter-id>/CASE.md`。
+
+### 5. 与「多助手 / 岗位」的关系（实现现状与长期方向）
+
+**已实现（工作区级，所有助手共享）**
+
+- `MEMORY.md`：**通用**长期记忆（工作流规则、写作规范、风险红线等）。
+- `LAWYER_PROFILE.md`：**律师个人**偏好与习惯（风格、措辞、引用习惯等）；提供 `appendLawyerProfile()` 仅向该文件**追加**条目，便于偏好缓慢积累。
+- 有 `matterId` 时额外加载 `cases/<matter-id>/CASE.md` 作为案件记忆。
+
+**岗位助手（`assistants.json`）当前角色**
+
+- 助手档案保存的是**静态配置**：显示名、简介、岗位预设、自定义岗位说明等，经 `buildSystemPrompt()` 注入为「当前岗位与职责」区块。
+- **没有**为每个 `assistantId` 单独维护一份 Markdown 记忆文件；「专职工作方式」主要来自预设 + 用户写的说明，**不会**自动分文件进化。
+
+**代码中的注入差异（避免误解「两个记忆是否都进主对话 system prompt」）**
+
+- **Agent 主对话**（`runTurn`）：system prompt 会拼接 **过滤后的 `LAWYER_PROFILE.md`**（以及岗位说明、案件 CASE、今日日志片段等）。空模板（未填姓名/机构、第八节只有库存说明）**不注入**，见 `lawyer-profile-for-prompt.ts`。`MEMORY.md` **不**整段拼进同一条 system 字符串。
+- **`MEMORY.md` 仍会被加载**：用于检索管线（例如 `ModelRetrievalInput.memory.general`）、引擎桥接、以及 `search_workspace` 等工具对 `MEMORY.md` / `LAWYER_PROFILE.md` 的聚合搜索。加载时会改写已安装工作区里过期的库存口径（改文件须确认 / 报成本 / 双模型 / 材料不得出工作区），律师自己写的积累条目会保留。
+- 若希望「通用规则」也像偏好一样**每条对话必显式出现**，需要另行调整 prompt 组装策略（当前架构刻意区分：偏好更贴近人设，通用更偏可检索知识）。
+- **「红线 / 所规必现」**：若律师期望某类规则在**每一轮主对话**中都像 `LAWYER_PROFILE` 一样不可绕过，仅靠写入 `MEMORY.md` 不足；需依赖检索与工具命中、或将关键规则纳入策略层 / prompt 显式段，而不是假设 `MEMORY.md` 已整段进入 Agent system。
+- **工作区强制规则（Phase 5.2）**：可在 `lawmind.policy.json` 中配置 `agentMandatoryRules`（内联短文本）或 `agentMandatoryRulesPath`（工作区内相对路径文件）；`resolveAgentMandatoryRulesForPrompt()` 解析后由 `buildSystemPrompt()` 在「核心原则」之后注入「工作区强制规则」段，与 `MEMORY.md` 检索解耦。
+
+**Clarify–Execute（Phase 5.1）**：工具返回待澄清问题后，同轮次内禁止并行调用 `research_task` / `draft_document` / `execute_workflow` / `render_document`；详见 `AgentContext.clarificationBlockingHeavyTools`。
+
+**多助手团队流（Phase 6.2）**：工作区可放置 `lawmind/workflows/<id>.json`，由桌面 `GET /api/collaboration/workflow-templates` 列出、`POST /api/collaboration/workflow-run` 驱动 `orchestrator/executeWorkflow`。与 Clarify–Execute 的关系：单助手对话仍受 `awaiting_clarification` 门禁；团队流在协作开启时按步骤委派各助手，**建议在启动前由律师完成范围对齐**，避免中途暂停难以自动合并。
+
+**异步团队工作流 Job（Phase 7.x）**：`async: true` 时返回 `jobId`，状态写入 `lawmind/jobs/<jobId>.json`（终态可复盘；进程重启时不恢复执行，非终态磁盘记录会标为 `interrupted_by_restart`）。`GET /api/jobs` 支持 `limit`、`since`（创建时间下界）及重复 `status` 过滤；`GET /api/jobs/:id` 返回详情。路径中的 **`jobId` 须为安全单段**（字母数字与 `._-`，不含 `/`、`..` 等），否则 **400 `invalid_job_id`**，避免与 `jobs/<id>.json` 拼路径时的异常输入。运行中 `executeWorkflow` 通过 `onProgress` 写 `progress` 字段并触发内存事件；**`GET /api/jobs/:id/stream`** 为 `text/event-stream`，首包为当前快照，后续随持久化推送 JSON（`data:` 行），并每 25s 发送 **SSE 注释心跳**（`: ping`）以降低反向代理空闲断开概率。`POST /api/jobs/:id/cancel` 在 `queued` 时直接终态，在 `running` 时置 `cancelRequested` 并由 `executeWorkflow({ shouldAbort })` 在**步骤批次之间**退出；当前实现不中止已发起的单次 `sendAndWait`。可选 `idempotencyKey` 在同一本地服务进程内合并重复提交。
+
+**长期需求（偏好进化 + 岗位专职记忆）——部分落地**
+
+- **已实现**：`assistants/<assistantId>/PROFILE.md`（位于 LawMind 根目录，与 `assistants.json` 同级父目录下的 `assistants/` 文件夹）。Agent `runTurn` 会将其并入 system prompt（与过滤后的 `LAWYER_PROFILE.md` 并存）。提供 `appendAssistantProfileMarkdown()` 供「显式采纳」写入。
+- **已部分产品化（与工程记忆对齐）**：桌面案件「认知」页支持将升级建议写入 `LAWYER_PROFILE.md` 与助手 `PROFILE.md`；审核与学习飞轮持续演进。**仍待加强**：与审核通过的全自动联动策略、多源写入合并冲突策略。
+- 演进期仍配合工作区 `LAWYER_PROFILE.md` + 会话持久化使用。
+
+---
+
+## 五、Instruction Router
+
+Router 的职责是把自然语言任务映射为稳定工作流。
+
+第一阶段至少支持以下任务类型：
+
+- `research.general`
+- `research.legal`
+- `research.hybrid`
+- `draft.word`
+- `draft.ppt`
+- `summarize.case`
+
+Router 输出一个结构化任务对象：
+
+```ts
+type TaskIntent = {
+  kind: string;
+  output: "markdown" | "docx" | "pptx";
+  audience?: string;
+  matterId?: string;
+  templateId?: string;
+  riskLevel: "low" | "medium" | "high";
+};
+```
+
+---
+
+## 六、Retrieval Layer
+
+Retrieval Layer 负责把“找资料”变成标准流程，而不是让模型自由发挥。
+
+### 检索来源
+
+- 本地知识库
+- 律师工作区文件
+- 案件材料
+- **本机历史对话**（`sessions/*.json` 与 transcript；工具 `search_conversations` / `read_conversation`，只回标题与短摘录；命中用 `lm-session:` 链接触达该对话）
+- 通用网络资料
+- 法律专用检索源
+
+### 统一输出结构
+
+```ts
+type ResearchBundle = {
+  query: string;
+  sources: Array<{
+    id: string;
+    title: string;
+    url?: string;
+    citation?: string;
+    kind: "statute" | "case" | "memo" | "web" | "workspace";
+  }>;
+  claims: Array<{
+    text: string;
+    sourceIds: string[];
+    confidence: number;
+  }>;
+  riskFlags: string[];
+  missingItems: string[];
+};
+```
+
+约束：
+
+- 所有结论必须能回溯到来源
+- 来源不足时，必须明确标记不确定性
+- 法律判断不能只来自通用模型自由生成
+
+---
+
+## 七、Reasoning Layer
+
+LawMind 不绑定单一模型，而采用**路由 + 汇合**策略。
+
+### 模型角色
+
+- **通用大模型**：负责背景信息整理、语言优化、结构压缩。
+- **专用法律模型**：负责法律术语理解、法条与类案提取、风险识别。
+
+### 编排规则
+
+1. Router 判断任务类型
+2. 通用模型给出背景框架和初步整理
+3. 专用法律模型校正法律口径和引用
+4. 合并器生成统一草稿
+5. 进入人工审核点
+
+### 模型路由原则
+
+- 简单整理优先低成本模型
+- 高风险法律分析优先法律专用模型
+- 输出前必须标记来源和风险
+
+---
+
+## 八、Artifact Layer
+
+Artifact Layer 负责把结构化草稿渲染为可交付成果。
+
+### 第一阶段支持
+
+- `docx`：法律检索报告、律师函、备忘录
+- `markdown`：中间草稿与审阅稿
+
+### 第二阶段支持
+
+- `pptx`：客户汇报、案件复盘、方案汇报
+
+### 输出流程
+
+1. 生成 `ArtifactDraft`
+2. 律师审阅并确认
+3. 依据模板渲染
+4. 写入交付目录：律师点名的系统桌面/下载/文稿（仅交件，不是全盘写权）→ 律师指定路径 → 源文件同目录 → `cases/<matterId>/artifacts/` → 已关联项目目录 → 工作区 `artifacts/`。文件名为 `标题_YYYYMMDD_01`，不用任务哈希。指定只要意见书时默认写新文档且不覆盖原稿；改稿工具仍对本轮可用。
+
+建议的中间结构：
+
+```ts
+type ArtifactDraft = {
+  title: string;
+  output: "docx" | "pptx";
+  templateId: string;
+  summary: string;
+  sections: Array<{
+    heading: string;
+    body: string;
+    citations?: string[];
+  }>;
+  reviewNotes: string[];
+};
+```
+
+---
+
+## 九、人工审核与审批点
+
+LawMind 的核心不是“自动执行更多”，而是“在正确的地方停下来”。
+
+第一阶段必须设置两个审核点：
+
+1. **检索整理后审核**
+   确认结构、来源、风险提示是否合理。
+
+2. **文书渲染前审核**
+   确认口吻、结论强度、引用和模板是否正确。
+
+高风险动作默认不能跳过人工确认。
+
+---
+
+## 十、审计日志
+
+每次任务至少记录以下事件：
+
+- 谁发起任务
+- 任务类型
+- 使用了哪些模型
+- 使用了哪些来源
+- 生成了哪些草稿
+- 谁确认了最终输出
+- 最终产物存放位置
+
+审计文件可先用 JSONL 或 Markdown 落地，后续再演进到更严格的事件存储。
+
+---
+
+## 十一、第一阶段 MVP
+
+第一阶段只做一个最小闭环：
+
+1. 双记忆文档
+2. 指令路由
+3. 通用模型 + 法律模型联合检索
+4. `ResearchBundle` 标准化
+5. Word 文档输出
+6. 人工审核
+7. 审计日志
+
+明确不做：
+
+- 大规模多渠道接入
+- 全自动外发
+- 完整技能市场
+- 深度案件协作
+- PPT 自动生成主链路
+
+---
+
+## 十一b、桌面应用架构（M3 Electron）
+
+### 整体结构
+
+桌面端采用 Electron + Vite + React 架构，分为三层：
+
+```text
+Electron 主进程 (main.mjs)
+  ├── 启动本地 API 子进程 (lawmind-local-server)
+  ├── IPC 桥接 (preload.cjs → contextBridge)
+  └── 原生能力 (文件对话框、shell.openExternal 等)
+
+本地 API 子进程 (lawmind-local-server.ts)
+  ├── /api/chat — Agent 对话（POST，支持 projectDir / assistantId）
+  ├── /api/tasks — 任务列表
+  ├── /api/history — 历史与交付记录
+  ├── /api/matters/overviews — 案件总览列表
+  ├── /api/matters/detail?matterId= — 案件详情（摘要、CASE、任务、草稿、审计）
+  ├── /api/matters/search?matterId=&q= — 案件内搜索
+  ├── /api/matters/team-meeting?matterId= — 案件「会议室」共享时间线（`limit` / `skipFromEnd`，响应含 `total`）
+  ├── /api/drafts — 草稿列表（GET）
+  ├── /api/drafts/:taskId — 单份草稿（GET）
+  ├── /api/drafts/:taskId/review — 审核签批（POST）；`approved` 后若草稿含 `contractRevisionCapture` 则异步写入合同修订积累包并回写 `contractRevisionAccumulatedId`（见 `contract-revision-on-review-approved.ts`、[LAWMIND-CONTRACT-REVISION-ACCUMULATION](./archive/LAWMIND-CONTRACT-REVISION-ACCUMULATION.md)（归档））
+  ├── /api/drafts/:taskId/render — 渲染交付物（POST，须已通过审核）
+  ├── /api/assistants — 助手 CRUD
+  ├── /api/assistant-presets — 岗位预设列表
+  ├── /api/health — 环境与连接状态
+  └── /api/artifact — 产物下载
+
+渲染进程 (App.tsx + styles.css)
+  ├── 一级导航：对话 / 工作台 / 在办（`LawmindMainView`: workspace | desk | agents）
+  ├── 对话视图（消息列表 + Markdown 渲染 + 意图状态条 + Chip 栏）
+  ├── 文件工作台（FileWorkbench）
+  ├── 律师工作台（LawmindLawyerWorkbench：今日计划、案件门类、本案卷宗；案件详情并入此处）
+  ├── 审核台（ReviewWorkbench：草稿审阅、签批、渲染；次级入口）
+  ├── 设置（主栏全页：侧栏分组导航 + 内容区；助手 / 模型检索 / 记忆库 / 工作区等）
+  ├── 侧边栏（助手选择器 / 项目药丸 / 折叠工作记录）
+  └── 配置向导（首次启动 API Key 设置流）
+```
+
+### UI 设计系统
+
+**单一真相源**：`apps/lawmind-desktop/src/renderer/styles.css` 中 `:root` 设计令牌 + `lm-*` 工具/组件类。详细约定、模态防回归说明与内联样式使用边界见 **[LawMind 桌面端 UI 设计约定](./archive/LAWMIND-DESKTOP-UI.md)**（归档）。
+
+- **色彩**：深色面（`--bg`、`--surface` 等）、暖铜主强调（`--accent` `#b79a67` 及 `--grad-brand`），正文与次级文字（`--text` / `--text-2` / `--muted`），**语义色** `ok` / `warn` / `error` / `info`（**错误态用 `--error`，不要发明 `--danger` 等未定义变量**）
+- **排版**：`--font`（PingFang SC / -apple-system 等），行高见 `--lh-*`
+- **圆角/阴影/间距**：`--r-xs`…`--r-2xl`，`--shadow-*`，`--space-1`…`--space-8`（4px 基网）
+- **模态**：`.lm-wizard-backdrop` + `.lm-wizard` 单一定义，尺寸用 `lm-wizard--confirm` / `lm-wizard--detail` 等修饰类；破坏性操作用 `lm-btn-destructive`
+
+### 设置面板架构
+
+设置由顶栏齿轮（`lm-gear-btn`）触发，在主工作栏以 **全页** `LawmindSettingsPage`（`lm-settings-page`）展示，左侧分组导航 + 右侧内容区（非模态叠层）。律师可见分区见 `lawmind-settings-nav.ts`：
+
+1. **工作台**：模型与连接、工作区（材料夹 / 标准 / 口径）、本机能力、外观
+2. **办案**（更多设置）：自动办件、文书模板、记忆库
+3. **系统健康 / 安全**（更多设置）：连接体检、高安全开关
+4. **关于**：免责声明；版本号在侧栏底部
+
+签批与按流程办在顶栏 **「在办」**，不必在设置里编制助手或配置角色。
+
+### 项目目录（IPC 流）
+
+```text
+渲染进程 pickProject()
+  → preload.cjs ipcRenderer.invoke("lawmind:pick-project")
+  → main.mjs dialog.showOpenDialog({ properties: ["openDirectory"] })
+  → 返回 { ok, path } → 渲染进程设置 projectDir state
+  → POST /api/chat body 中携带 projectDir 字段
+```
+
+### 工作记录折叠与助手过滤
+
+- 侧边栏工作记录区域默认折叠（`recordsExpanded` state），标题栏点击切换展开，显示记录总数 badge。
+- 任务和历史列表按 `selectedAssistantId` 过滤（`filteredTasks`、`filteredHistory` useMemo），切换助手时自动更新。
+
+### 案件工作台的“行为观察 -> 产品决策”链路
+
+LawMind 近期在 `MatterWorkbench` 中新增了一条很重要的上层链路：不只展示案件事实，还尝试根据律师的真实使用动作，逐层推导“当前案件最该去哪一步”和“产品下一版最该改哪里”。
+
+这条链路不是为了替代法律判断，而是为了降低律师在多页面之间来回切换的成本，并让产品优化建立在真实使用证据上，而不是只靠主观猜测。
+
+#### 1. 数据来源
+
+桌面端当前会把以下关键动作写入既有 audit 体系，事件种类为 `ui.matter_action`：
+
+- 从案件工作台进入审核台
+- 将认知升级建议写入 `LAWYER_PROFILE.md`
+- 将认知升级建议写入当前助手 `PROFILE.md`
+- 将 CASE 焦点建议写回案件档案对应 section
+
+这里复用已有审计体系，而不是单独再造一套埋点系统，有两个原因：
+
+1. 同一条律师动作既可用于产品观察，也可进入案件审计时间线。
+2. 对律师和交付方来说，排查时只需要看一套证据源，不会出现“业务日志”和“产品日志”两套口径不一致。
+
+#### 2. 推导层级
+
+这条链路目前按以下顺序逐层上探：
+
+```text
+ui.matter_action 原始动作
+  → 最近律师动作
+  → 律师行为摘要
+  → 交互收敛建议
+  → 产品改造建议
+  → 产品实验清单
+  → 跨案件实验累积板
+  → Roadmap 候选池
+  → 路线图决策卡
+```
+
+各层含义如下：
+
+1. **最近律师动作**
+   只回答“发生了什么”，不做解释。
+
+2. **律师行为摘要**
+   将动作汇总为案件层面的行为特征，例如审核打开次数、CASE 写回次数、记忆沉淀次数、主入口和高频主题。
+
+3. **交互收敛建议**
+   根据当前案件的行为特征，给出更像“下一步操作”的入口建议。
+
+4. **产品改造建议**
+   将单案中的重复动作翻译为对产品界面本身的改进方向。
+
+5. **产品实验清单**
+   把改造方向拆成可验证的实验项，增加假设、验证方式、当前信号和优先级。
+
+6. **跨案件实验累积板**
+   将多个案件里的相似模式聚合，判断某个问题是否已经跨案件重复出现。
+
+7. **Roadmap 候选池**
+   按覆盖案件数、累计事件数、当前案件是否命中等信号做粗粒度排序。
+
+8. **路线图决策卡**
+   在候选池之上补充产品决策语义，例如节奏、成熟度、预期收益、主要风险和建议 owner。
+
+#### 3. 为什么要做成多层，而不是一步到位
+
+因为律师和技术团队关注的层次不同：
+
+- 律师更关心“我现在下一步去哪”。
+- 产品和技术更关心“这个问题是不是已经值得排期解决”。
+- 管理和交付方更关心“这是不是共性问题，还是某一案件的偶发路径”。
+
+如果一开始直接展示路线图层，律师会觉得抽象；如果只停留在最近动作层，技术团队又拿不到足够清晰的产品信号。分层后，不同角色可以停留在自己需要的抽象层。
+
+#### 4. 当前排序信号
+
+当前 `Roadmap 候选池` 和 `路线图决策卡` 主要依赖以下信号：
+
+- 覆盖案件数
+- 累计出现次数
+- 当前选中案件是否也命中该模式
+- 某些关键方向的人工偏置分（例如审核前置、CASE 结构化、记忆快捷沉淀）
+
+这是一套**粗粒度排序**，其目标不是做精确打分，而是先把“明显更值得优先解决”的方向放到前面。
+
+#### 5. 当前输出的产品决策语义
+
+在路线图决策卡层，系统会补充以下产品语义：
+
+- **节奏**：现在做 / 下一波 / 后续观察
+- **成熟度**：已验证 / 正在成形 / 继续观察
+- **预期收益**：为什么做它
+- **主要风险**：做错时最可能出现的副作用
+- **建议 owner**：更像由哪个产品面或工作台区域牵头推进
+
+这意味着 LawMind 当前已经不只是“记录律师怎么用”，而是在尝试形成接近产品排期语言的内部决策面板。
+
+#### 6. 关键接口
+
+与这条链路直接相关的本地 API 包括：
+
+- `POST /api/matters/interaction`
+  记录案件工作台里的关键律师动作，并写入 audit。
+
+- `GET /api/matters/interaction-rollup`
+  聚合全工作区多个案件中的 `ui.matter_action`，形成跨案件累积信号。
+
+- `GET /api/matters/detail?matterId=...`
+  返回当前案件详情，其中包含构建案件工作台所需的任务、草稿、CASE、审计等基础数据。
+
+#### 7. 架构边界
+
+这条链路当前仍然有明确边界：
+
+- 它观察的是“工作行为”，不是“法律结论是否正确”。
+- 它适合帮助识别高频重复路径，不适合替代正式的用户研究或案件复盘。
+- 它生成的是产品建议，不会自动修改系统配置、自动重排界面或自动写入长期记忆。
+
+因此，它更像一个“基于真实使用痕迹的产品观察层”，而不是全自动产品经理。
+
+**Edition 门禁（实现侧）**：其中偏「产品排期 / 路线图」的深层模块（交互收敛建议、产品改造建议、实验清单、跨案件累积板、Roadmap 候选池）在桌面端受 `edition.features.crossMatterRoadmap` 控制（Firm / Private Deploy 默认开启，Solo 隐藏且不请求跨案件 rollup）。律师办案向模块（Blocked By、下一步、审核态条等）各版本均保留。
+
+---
+
+## 十二、后续扩展方向
+
+第二阶段（已完成/进行中）：
+
+- [x] `cases/<matter-id>` 案件级记忆
+- [x] PPT 生成
+- [x] Agent 智能体架构（M2）
+- [x] 桌面应用（Electron，M3）
+- [x] 项目目录注入 Agent（`read_project_file` / `search_workspace` 扩展）与桌面项目切换后重启 API
+- [x] 案件面板 UI（MatterWorkbench）
+- [x] 审核台 UI（ReviewWorkbench）
+- [x] 律师偏好学习（per-assistant `PROFILE.md` + 桌面认知页显式写入等；与 [LawMind 2.0 战略](./archive/LAWMIND-2.0-STRATEGY.md)（归档）对齐，持续迭代）
+- [ ] 更细粒度模板体系（含模板版本与历史产物一致性，见工程记忆风险项）
+
+第三阶段：
+
+- 多律师协作
+- 私有化部署能力
+- 合规报表
+- 法律技能市场与签名机制
+
+---
+
+## 十三、实施建议
+
+先做下面这些，再开始大规模编码：
+
+1. 固定目录与文件契约
+2. 固定 `TaskIntent` / `ResearchBundle` / `ArtifactDraft`
+3. 先打通 Word 输出链路
+4. 保证每一步都有审计记录
+
+### 平台重构契约（Big-Bang 期间）
+
+为避免 ingest、执行状态、门禁与交付语义漂移，平台级重构阶段统一参照：
+
+- `docs/lawmind/LAWMIND-PLATFORM-CONTRACTS.md`
+- `src/lawmind/platform/contracts.ts`
+
+新字段优先做“兼容式补充”，避免直接破坏现有 API/UI 消费链。
+
+只要这几个基础契约稳住，后面新增功能都只是挂模块，而不是推倒重来。
+
+---
+
+## 十四、LawMind 2.0 架构升级方向
+
+如果 LawMind 的目标是变成“比律师更懂律师的数字助理团队”，下一阶段就不能只继续增强聊天能力，而要把当前底座升级为**法律生产系统**。升级原则如下：
+
+### 1. 从双记忆升级为多层认知记忆
+
+当前的 `MEMORY.md`、`LAWYER_PROFILE.md`、`cases/<matter-id>/CASE.md` 是正确起点，但不足以完整表达律师行业的工作上下文。建议保留 Markdown 真相源，同时扩展为：
+
+- `FIRM_PROFILE.md`：律所级规则、交付标准、审批口径、风险红线。
+- `LAWYER_PROFILE.md`：个人写作风格、审稿习惯、风险表达偏好。
+- `CLIENT_PROFILE.md`：客户行业、风险偏好、沟通方式、预算敏感度。
+- `cases/<matter-id>/MATTER_STRATEGY.md`：案件策略、关键节点、底线、决策记录。
+- `playbooks/CLAUSE_PLAYBOOK.md`：条款库、替代措辞、谈判习惯、常见陷阱。
+- `playbooks/COURT_AND_OPPONENT_PROFILE.md`：法院、仲裁庭、对方律师的经验画像（若工作区有此类知识）。
+
+设计约束保持不变：
+
+- Markdown 仍是人工可读、可审计的真相源。
+- 检索索引、摘要、embedding、统计指标均是派生层。
+- 高风险规则仍应进入只读策略层，而不是仅依赖对话上下文。
+
+### 2. 在检索与起草之间增加法律推理层
+
+当前链路已经有 `ResearchBundle` 和 `ArtifactDraft`，但还缺少一层更接近律师真实工作方式的中间对象。建议新增 `LegalReasoningGraph` 一类结构，用于表达：
+
+- 争点树：争点、要件、关键事实、关键证据、待确认问题。
+- 论证矩阵：我方观点、支撑依据、对方可能抗辩、反击路径。
+- 权威冲突：法条、司法解释、类案、内部备忘录之间的冲突与取舍。
+- 交付风险：哪些结论可以写强，哪些只能保守表述。
+
+这样可以把“模型会写”升级为“系统会推理”，也能为后续评测和审核提供稳定抓手。
+
+### 3. 从审计留痕升级为质量学习飞轮
+
+当前 `draft.reviewed`、`draft.citation_integrity`、`artifact.rendered` 已经具备强审计能力。下一步建议把审核行为变成显式学习信号，而不只是状态切换：
+
+- 将审核结果拆分为结构化标签，例如：语气过强、引用不足、争点遗漏、风险等级偏高。
+- 写回 `LAWYER_PROFILE.md`、`assistants/<assistantId>/PROFILE.md`、以及未来的 playbook 文档。
+- 将高质量草稿升级为“黄金样本”，反哺模板与岗位助手。
+- 建立任务级、模板级、助手级质量统计指标。
+
+### 4. 从单助手升级为岗位化编制
+
+LawMind 当前已支持 per-assistant `PROFILE.md`，这是岗位化的好起点。下一步应明确支持岗位型助手，而不是一个泛化的法律助手：
+
+- 合同审查助手
+- 法律检索助手
+- 诉讼策略助手
+- 证据与时间线助手
+- 客户沟通助手
+- 交付质检助手
+- 合规审计助手
+
+每个岗位应有：
+
+- 明确职责边界
+- 可用工具与风险阈值
+- 默认模板与产物类型
+- 专属 checklist 与学习记忆
+
+### 5. 将商业化与评测并入系统设计
+
+LawMind 下一阶段的架构目标不只是“功能更多”，而是“可卖、可验收、可衡量”：
+
+- 商业化：按 `Solo Edition`、`Firm Edition`、`Private Deploy` 分层打包。
+- 评测化：建立任务完成率、引用正确率、争点覆盖率、人工改动率、一次通过率、风险召回率等指标。
+- 交付化：让部署、验收、回归、审计导出、支持 runbook 都成为产品的一部分，而不是售后附加动作。
+
+### 6. 对现有契约的影响
+
+LawMind 2.0 仍应保留现有主干契约，但建议向下兼容扩展：
+
+- `TaskIntent`：增加任务玩法、客户上下文、质量目标等字段。
+- `ResearchBundle`：增加来源时效性、冲突提示、证据充分度。
+- `ArtifactDraft`：增加受众语气、交付置信度、质量标签、审核建议。
+- `AuditEvent`：增加学习事件、评测事件、模板分发事件。
+
+结论：当前架构仍然成立，但下一阶段的重点应从“把流程打通”转向“把律师的方法论、律所的制度、客户的口径、案件的策略、审核的经验”固化进系统。

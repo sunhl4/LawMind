@@ -1,0 +1,7 @@
+{
+  "id": "D02",
+  "triageTier": "yellow",
+  "deliverableTypeHint": "letter.demand",
+  "checklistSpecId": "demand-letter-v1",
+  "notes": "知识产权停止侵权函"
+}

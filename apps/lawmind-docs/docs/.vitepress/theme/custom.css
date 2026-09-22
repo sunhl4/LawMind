@@ -1,0 +1,54 @@
+/**
+ * LawMind product site — commercial landing tone (VitePress home + docs).
+ * Brand: ink / brass (matches desktop favicon), not toy gradients.
+ */
+
+:root {
+  --vp-c-brand-1: #1e5a8a;
+  --vp-c-brand-2: #174a72;
+  --vp-c-brand-3: #0f3554;
+  --vp-c-brand-soft: rgba(30, 90, 138, 0.12);
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(120deg, #1a1d24 30%, #1e5a8a 70%, #8a7348);
+  --vp-home-hero-image-background-image: radial-gradient(
+    ellipse at 50% 50%,
+    rgba(183, 154, 103, 0.18),
+    transparent 60%
+  );
+}
+
+.dark {
+  --vp-c-brand-1: #6eb3e8;
+  --vp-c-brand-2: #8fc4ee;
+  --vp-c-brand-3: #b0d5f4;
+  --vp-c-brand-soft: rgba(110, 179, 232, 0.14);
+  --vp-home-hero-name-background: linear-gradient(120deg, #f2f2f2 20%, #6eb3e8 55%, #b79a67);
+}
+
+.VPHero .name {
+  letter-spacing: -0.02em;
+}
+
+.VPHero .text {
+  font-weight: 600;
+  max-width: 18em;
+}
+
+.VPHero .tagline {
+  max-width: 36em;
+  color: var(--vp-c-text-2);
+}
+
+.VPFeatures .box {
+  border-radius: 10px;
+}
+
+.VPHome .vp-doc h2 {
+  margin-top: 2.5rem;
+  border-top: 1px solid var(--vp-c-divider);
+  padding-top: 1.5rem;
+}
+
+.VPHome .vp-doc table {
+  font-size: 0.95em;
+}

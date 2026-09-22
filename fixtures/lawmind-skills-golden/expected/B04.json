@@ -1,0 +1,7 @@
+{
+  "id": "B04",
+  "triageTier": "yellow",
+  "deliverableTypeHint": "contract.review",
+  "checklistSpecId": "contract-review-v1",
+  "notes": "红线摘要打包"
+}

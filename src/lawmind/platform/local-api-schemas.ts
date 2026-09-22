@@ -1,0 +1,628 @@
+/**
+ * Shared Zod schemas for LawMind local HTTP API request bodies.
+ * Imported by desktop server routes and renderer typed clients.
+ */
+import { z } from "zod";
+import { contextPinsRequestSchema } from "./compose-context-pin.js";
+
+export const trimmedNonEmptyString = z.string().trim().min(1);
+
+export const modelsTestRequestSchema = z.object({
+  modelId: z.string().trim().optional(),
+});
+
+export type ModelsTestRequest = z.infer<typeof modelsTestRequestSchema>;
+
+export const modelsDefaultPatchSchema = z.object({
+  modelId: trimmedNonEmptyString,
+});
+
+export type ModelsDefaultPatchRequest = z.infer<typeof modelsDefaultPatchSchema>;
+
+export const modelsDraftWithModelPatchSchema = z.object({
+  enabled: z.boolean(),
+});
+
+export type ModelsDraftWithModelPatchRequest = z.infer<typeof modelsDraftWithModelPatchSchema>;
+
+export const modelsCustomPostSchema = z.object({
+  label: z.string().optional(),
+  baseUrl: z.string().optional(),
+  model: z.string().optional(),
+  apiKey: z.string().optional(),
+  setAsDefault: z.boolean().optional(),
+  keyStorage: z.enum(["keychain", "env"]).optional(),
+  /** Optional stop sequences (comma-separated string or string array). */
+  stop: z
+    .union([z.array(z.string().trim().min(1).max(200)).max(8), z.string().trim().max(800)])
+    .optional(),
+});
+
+export type ModelsCustomPostRequest = z.infer<typeof modelsCustomPostSchema>;
+
+export const delegationCreateRequestSchema = z.object({
+  fromAssistantId: trimmedNonEmptyString,
+  toAssistantId: trimmedNonEmptyString,
+  task: trimmedNonEmptyString,
+  matterId: z.string().trim().optional(),
+  priority: z.enum(["normal", "high", "low"]).optional(),
+  parentSessionId: z.string().trim().optional(),
+  modelId: z.string().trim().optional(),
+});
+
+export type DelegationCreateRequest = z.infer<typeof delegationCreateRequestSchema>;
+
+export const workflowRunRequestSchema = z.object({
+  templateId: trimmedNonEmptyString,
+  matterId: z.string().trim().optional(),
+  assistantId: z.string().trim().optional(),
+  modelId: z.string().trim().optional(),
+  vars: z.record(z.string(), z.string()).optional(),
+  async: z.boolean().optional(),
+  idempotencyKey: z.string().trim().optional(),
+  scheduleRunAt: z.string().trim().optional(),
+});
+
+export type WorkflowRunRequest = z.infer<typeof workflowRunRequestSchema>;
+
+export const chatResumeDecisionSchema = z.enum(["approve", "reject", "edit", "respond"]);
+
+export const chatResumeRequestSchema = z.object({
+  sessionId: trimmedNonEmptyString,
+  actionId: trimmedNonEmptyString,
+  decision: chatResumeDecisionSchema,
+  editedArgs: z.record(z.string(), z.unknown()).optional(),
+  clarificationAnswers: z.record(z.string(), z.string()).optional(),
+});
+
+export type ChatResumeRequest = z.infer<typeof chatResumeRequestSchema>;
+
+export const matterCaseNoteSectionSchema = z.enum(["core_issue", "risk", "artifact", "task_goal"]);
+
+export const matterCaseNoteRequestSchema = z.object({
+  matterId: trimmedNonEmptyString,
+  section: matterCaseNoteSectionSchema,
+  note: trimmedNonEmptyString,
+});
+
+export type MatterCaseNoteRequest = z.infer<typeof matterCaseNoteRequestSchema>;
+
+export const matterInteractionActionSchema = z.enum([
+  "open_review",
+  "save_upgrade_suggestion",
+  "write_case_note",
+]);
+
+export const matterInteractionRequestSchema = z.object({
+  matterId: trimmedNonEmptyString,
+  taskId: z.string().trim().optional(),
+  action: matterInteractionActionSchema,
+  surface: z.string().optional(),
+  label: z.string().optional(),
+  target: z.enum(["lawyer", "assistant"]).optional(),
+  variant: z.enum(["conservative", "standard", "assertive"]).optional(),
+  section: matterCaseNoteSectionSchema.optional(),
+});
+
+export type MatterInteractionRequest = z.infer<typeof matterInteractionRequestSchema>;
+
+export const chatPostRequestSchema = z.object({
+  message: z.string().optional(),
+  modelId: z.string().trim().optional(),
+  sessionId: z.string().trim().optional(),
+  matterId: z.string().trim().optional(),
+  assistantId: z.string().trim().optional(),
+  allowWebSearch: z.boolean().optional(),
+  enableCollaboration: z.boolean().optional(),
+  projectDir: z.string().optional(),
+  includeTurnDiagnostics: z.boolean().optional(),
+  contextPins: contextPinsRequestSchema,
+  linkedTaskId: z.string().trim().optional(),
+  meetingMode: z.boolean().optional(),
+  meetingAgenda: z.string().optional(),
+  /**
+   * 会议室发言角色（仅 meetingMode）：
+   * - lawyer：律师发言（默认）→ 时间线记「您」
+   * - chair：主持人催办智能体互相对话 → 时间线记「主持人」系统条
+   * - conclude：请指定助手综合结论与工作计划 → 时间线记「主持人」系统条
+   */
+  meetingTurnKind: z.enum(["lawyer", "chair", "conclude"]).optional(),
+  sessionTitleHint: z.string().optional(),
+  permissionMode: z.string().optional(),
+});
+
+export type ChatPostRequest = z.infer<typeof chatPostRequestSchema>;
+
+export const matterRolePostSchema = z.object({
+  matterId: trimmedNonEmptyString,
+  role: trimmedNonEmptyString,
+});
+
+export type MatterRolePostRequest = z.infer<typeof matterRolePostSchema>;
+
+export const matterCreatePostSchema = z.object({
+  matterId: trimmedNonEmptyString,
+  displayName: z.string().trim().optional(),
+  clientId: z.string().trim().optional(),
+  sensitivity: z.enum(["normal", "high", "restricted"]).optional(),
+  engagementAccepted: z.boolean().optional(),
+  conflictCheckConfirmed: z.boolean().optional(),
+  matterKind: z.enum(["contract", "litigation", "general"]).optional(),
+});
+
+export type MatterCreatePostRequest = z.infer<typeof matterCreatePostSchema>;
+
+export const matterDisplayNamePostSchema = z.object({
+  matterId: trimmedNonEmptyString,
+  displayName: trimmedNonEmptyString,
+});
+
+export type MatterDisplayNamePostRequest = z.infer<typeof matterDisplayNamePostSchema>;
+
+/** 案件工作台事后补全档案（建案时不强制填写）。 */
+export const matterProfilePostSchema = z.object({
+  matterId: trimmedNonEmptyString,
+  title: z.string().trim().min(1).max(200).optional(),
+  clientId: z.string().trim().max(128).optional(),
+  sensitivity: z.enum(["normal", "high", "restricted"]).optional(),
+  status: z
+    .enum([
+      "intake",
+      "active",
+      "waiting_on_client",
+      "waiting_on_firm",
+      "under_review",
+      "delivered",
+      "closed",
+    ])
+    .optional(),
+  causeOfAction: z.string().trim().max(200).optional(),
+  counterparty: z.string().trim().max(200).optional(),
+  parties: z
+    .array(
+      z.object({
+        partyId: z.string().trim().min(1).max(64),
+        name: z.string().trim().max(120),
+        role: z.enum(["client", "counterparty", "agent", "counsel", "other"]),
+        standing: z.string().trim().max(40).optional(),
+        serviceAddress: z.string().trim().max(200).optional(),
+        serviceMethod: z.enum(["mail", "electronic", "in_person", "unknown"]).optional(),
+      }),
+    )
+    .max(32)
+    .optional(),
+  matterKind: z.enum(["contract", "litigation", "general"]).optional(),
+  practiceTags: z.array(z.string().trim().min(1).max(40)).max(12).optional(),
+  docket: z
+    .object({
+      caseNo: z.string().trim().max(80).optional(),
+      court: z.string().trim().max(80).optional(),
+      instance: z.string().trim().max(40).optional(),
+      standing: z.string().trim().max(40).optional(),
+      hearingAt: z.string().trim().max(40).optional(),
+      claimAmount: z.string().trim().max(120).optional(),
+    })
+    .optional(),
+  conflictCheckConfirmed: z.boolean().optional(),
+  engagementAccepted: z.boolean().optional(),
+});
+
+export type MatterProfilePostRequest = z.infer<typeof matterProfilePostSchema>;
+
+export const matterDeletePostSchema = z.object({
+  matterId: trimmedNonEmptyString,
+});
+
+export type MatterDeletePostRequest = z.infer<typeof matterDeletePostSchema>;
+
+export const templateScanPostSchema = z
+  .object({
+    /** Workspace-relative path */
+    path: z.string().trim().optional(),
+    /** Absolute filesystem path (desktop import / drop) */
+    absolutePath: z.string().trim().optional(),
+  })
+  .refine((v) => Boolean(v.path?.trim() || v.absolutePath?.trim()), {
+    message: "path or absolutePath is required",
+  });
+
+export type TemplateScanPostRequest = z.infer<typeof templateScanPostSchema>;
+
+export const templateRegisterPostSchema = z
+  .object({
+    id: trimmedNonEmptyString,
+    label: z.string().trim().optional(),
+    format: z.string().trim().optional(),
+    /** Workspace-relative path */
+    path: z.string().trim().optional(),
+    sourcePath: z.string().trim().optional(),
+    /** Absolute filesystem path (desktop import / drop) */
+    absolutePath: z.string().trim().optional(),
+    placeholderMap: z.record(z.string(), z.string()).optional(),
+    enabled: z.boolean().optional(),
+  })
+  .refine((v) => Boolean(v.path?.trim() || v.sourcePath?.trim() || v.absolutePath?.trim()), {
+    message: "path, sourcePath, or absolutePath is required",
+  });
+
+export type TemplateRegisterPostRequest = z.infer<typeof templateRegisterPostSchema>;
+
+export const templateEnabledPostSchema = z.object({
+  id: trimmedNonEmptyString,
+  enabled: z.boolean(),
+});
+
+export type TemplateEnabledPostRequest = z.infer<typeof templateEnabledPostSchema>;
+
+export const sessionCreatePostSchema = z.object({
+  assistantId: z.string().trim().optional(),
+  matterId: z.string().trim().optional(),
+  title: z.string().trim().optional(),
+});
+
+export type SessionCreatePostRequest = z.infer<typeof sessionCreatePostSchema>;
+
+export const sessionDeletePostSchema = z.object({
+  sessionId: trimmedNonEmptyString,
+  assistantId: z.string().trim().optional(),
+  /** Also cancel/remove child delegations + their sessions. */
+  cascadeDelegations: z.boolean().optional(),
+  /** Also remove unapproved / unexported drafts tied to this session. */
+  cascadeUnapprovedDrafts: z.boolean().optional(),
+});
+
+export type SessionDeletePostRequest = z.infer<typeof sessionDeletePostSchema>;
+
+export const sessionPatchTitleSchema = z.object({
+  title: z.string(),
+});
+
+export type SessionPatchTitleRequest = z.infer<typeof sessionPatchTitleSchema>;
+
+export const lawyerProfileLearningPostSchema = z.object({
+  note: trimmedNonEmptyString,
+  source: z.string().trim().optional(),
+  taskId: z.string().trim().optional(),
+});
+
+export type LawyerProfileLearningPostRequest = z.infer<typeof lawyerProfileLearningPostSchema>;
+
+export const assistantProfileLearningPostSchema = z.object({
+  assistantId: trimmedNonEmptyString,
+  note: trimmedNonEmptyString,
+});
+
+export type AssistantProfileLearningPostRequest = z.infer<
+  typeof assistantProfileLearningPostSchema
+>;
+
+export const redlineHunkResolvePostSchema = z.object({
+  decision: z.enum(["accept", "reject"]),
+});
+
+export type RedlineHunkResolvePostRequest = z.infer<typeof redlineHunkResolvePostSchema>;
+
+export const firstrunWizardPostSchema = z.object({
+  matterId: trimmedNonEmptyString,
+});
+
+export type FirstrunWizardPostRequest = z.infer<typeof firstrunWizardPostSchema>;
+
+export const approvalResolvePostSchema = z.object({
+  matterId: trimmedNonEmptyString,
+  approvalId: trimmedNonEmptyString,
+  status: z.enum(["approved", "rejected", "needs_changes"]),
+  resolvedBy: z.string().trim().optional(),
+});
+
+export type ApprovalResolvePostRequest = z.infer<typeof approvalResolvePostSchema>;
+
+export const deskSettingsPostSchema = z.object({
+  contractBatchRelativeDir: z.string().nullable().optional(),
+  auditExternalAnchorUrl: z.string().nullable().optional(),
+});
+
+export type DeskSettingsPostRequest = z.infer<typeof deskSettingsPostSchema>;
+
+export const practicePlaybookPostSchema = z.object({
+  stanceDefault: z.enum(["protect_instructing", "our_paper", "neutral"]).optional(),
+  disputeForum: z.string().optional(),
+  neverAccept: z.array(z.string()).optional(),
+  notes: z.string().optional(),
+});
+
+export type PracticePlaybookPostRequest = z.infer<typeof practicePlaybookPostSchema>;
+
+export const workspacePolicyPatchSchema = z
+  .object({
+    /** 出站总模式（唯一权威）。"offline" = 完全不出站（律所级本地部署）。 */
+    egressMode: z.enum(["open", "allowlisted", "offline"]).optional(),
+    /** @deprecated 等价 egressMode:"offline"；保留兼容旧 UI/脚本。 */
+    highSecurityMode: z.boolean().optional(),
+    allowAnalysisScripts: z.boolean().optional(),
+    hostAccess: z
+      .object({
+        mode: z.enum(["matter", "mounts", "locate", "command"]).optional(),
+        allowHostCommands: z.boolean().optional(),
+        hostCommandLevel: z.enum(["office", "workspace", "session"]).optional(),
+        fullDiskAccessOptIn: z.boolean().optional(),
+        allowCrossMatterMounts: z.boolean().optional(),
+        forceMatterMode: z.boolean().optional(),
+        allowSessionCommands: z.boolean().optional(),
+        spotlightEnabled: z.boolean().optional(),
+      })
+      .optional(),
+  })
+  .refine(
+    (v) =>
+      v.egressMode !== undefined ||
+      v.highSecurityMode !== undefined ||
+      v.allowAnalysisScripts !== undefined ||
+      v.hostAccess !== undefined,
+    {
+      message: "at least one policy field required",
+    },
+  );
+
+export type WorkspacePolicyPatchRequest = z.infer<typeof workspacePolicyPatchSchema>;
+
+export const assistantOrgRoleSchema = z.enum(["lead", "member", "intern"]);
+
+/**
+ * 职务说明书（名册化 A3）。字段与 `AssistantJobBrief` 一一对应；
+ * 上限 500 字是为了防止把整份 SOP 塞进岗位边界——那会淹掉提示词里的其它约束。
+ */
+export const assistantJobBriefSchema = z.object({
+  responsibility: z.string().trim().max(500).optional(),
+  sources: z.string().trim().max(500).optional(),
+  deliverables: z.string().trim().max(500).optional(),
+  prohibitions: z.string().trim().max(500).optional(),
+  escalation: z.string().trim().max(500).optional(),
+});
+
+export const assistantUpsertSchema = z.object({
+  assistantId: z.string().trim().optional(),
+  displayName: z.string().optional(),
+  introduction: z.string().optional(),
+  presetKey: z.string().optional(),
+  customRoleTitle: z.string().optional(),
+  customRoleInstructions: z.string().optional(),
+  /** 职务说明书；传 `{}` 表示清空（引擎侧 normalize 后落 undefined）。 */
+  jobBrief: assistantJobBriefSchema.optional(),
+  orgRole: assistantOrgRoleSchema.optional(),
+  reportsToAssistantId: z.string().optional(),
+  peerReviewDefaultAssistantId: z.string().optional(),
+});
+
+export type AssistantUpsertRequest = z.infer<typeof assistantUpsertSchema>;
+
+/**
+ * 名册复制。字段全可选：空 body 表示为副本自动命名（`X 副本`）。
+ * 刻意不提供「是否连记忆一起抄」的开关——记忆按 assistantId 存，
+ * 新 id 天然为空，这个选择不该交给调用方。
+ */
+export const assistantDuplicateSchema = z.object({
+  displayName: z.string().trim().max(200).optional(),
+});
+
+export type AssistantDuplicateRequest = z.infer<typeof assistantDuplicateSchema>;
+
+export const draftReviewStatusSchema = z.preprocess(
+  (v) => (typeof v === "string" ? v.trim().toLowerCase() : v),
+  z.enum(["approved", "rejected", "modified"]),
+);
+
+export const draftReviewPostSchema = z.object({
+  status: draftReviewStatusSchema,
+  note: z.string().optional(),
+  appendToProfile: z.boolean().optional(),
+  appendToLawyerProfile: z.boolean().optional(),
+  profileAssistantId: z.string().trim().optional(),
+  labels: z.unknown().optional(),
+  deferMemoryWrites: z.boolean().optional(),
+  /** Skills E6 — attorney verification checklist ticks */
+  checklistChecked: z.record(z.string(), z.boolean()).optional(),
+  /** Escape hatch (audited separately if used by tests / Firm override) */
+  bypassChecklist: z.boolean().optional(),
+  /** CAS: reject if current draft.reviewStatus does not match. */
+  expectedReviewStatus: z.preprocess(
+    (v) => (v == null || v === "" ? undefined : typeof v === "string" ? v.trim().toLowerCase() : v),
+    z.enum(["pending", "approved", "rejected", "modified"]).optional(),
+  ),
+});
+
+export type DraftReviewPostRequest = z.infer<typeof draftReviewPostSchema>;
+
+export const draftRenderPostSchema = z.object({
+  templateId: z.string().trim().optional(),
+  includeProvenance: z.boolean().optional(),
+  outputPath: z.string().trim().min(1).max(1024).optional(),
+  projectDir: z.string().trim().min(1).max(1024).optional(),
+});
+
+export type DraftRenderPostRequest = z.infer<typeof draftRenderPostSchema>;
+
+const provenanceEventSchema = z.object({
+  type: z.enum([
+    "upload",
+    "extraction",
+    "ai_suggest",
+    "lawyer_edit",
+    "lawyer_accept",
+    "self_revise",
+    "import",
+    "export",
+  ]),
+  actor: z.enum(["user", "model", "system"]),
+  timestamp: z.string(),
+  sourceId: z.string().optional(),
+  userId: z.string().optional(),
+  reason: z.string().optional(),
+  comment: z.string().optional(),
+  diffSummary: z.string().optional(),
+});
+
+const provenanceChainSchema = z.object({
+  events: z.array(provenanceEventSchema),
+});
+
+const draftSectionSchema = z.object({
+  heading: trimmedNonEmptyString,
+  body: z.string(),
+  citations: z
+    .array(z.string())
+    .optional()
+    .transform((arr) => {
+      if (!arr) {
+        return undefined;
+      }
+      const filtered = arr
+        .filter((cite): cite is string => typeof cite === "string" && cite.trim().length > 0)
+        .map((cite) => cite.trim());
+      return filtered.length > 0 ? filtered : undefined;
+    }),
+  provenance: provenanceChainSchema.optional(),
+});
+
+export const draftContentPatchBodySchema = z
+  .object({
+    title: z.string().trim().min(1).optional(),
+    summary: z.string().optional(),
+    sections: z.array(draftSectionSchema).min(1).optional(),
+  })
+  .refine((v) => v.title !== undefined || v.summary !== undefined || v.sections !== undefined, {
+    message: "no content fields",
+  });
+
+export type DraftContentPatchBody = z.infer<typeof draftContentPatchBodySchema>;
+
+export const memoryScopeSchema = z.enum([
+  "firm",
+  "lawyer",
+  "client",
+  "matter",
+  "playbook",
+  "opponent",
+  "project",
+  "assistant",
+]);
+
+export const memoryAdoptionSuggestSchema = z.object({
+  scope: memoryScopeSchema,
+  kind: trimmedNonEmptyString,
+  payload: trimmedNonEmptyString,
+  targetId: z.string().optional(),
+  sourceTaskId: z.string().optional(),
+  note: z.string().optional(),
+  autoAdopt: z.boolean().optional(),
+});
+
+export type MemoryAdoptionSuggestRequest = z.infer<typeof memoryAdoptionSuggestSchema>;
+
+export const memoryAdoptionIdSchema = z.object({
+  id: trimmedNonEmptyString,
+  note: z.string().optional(),
+});
+
+export type MemoryAdoptionIdRequest = z.infer<typeof memoryAdoptionIdSchema>;
+
+/**
+ * 批量采纳：dryRun（默认 true）只回预览、零写入；确认后才落盘这一批。
+ * mode=low_risk_style 时忽略 ids，取全部「高频低风险风格 delta」待审项。
+ */
+export const memoryAdoptionBatchSchema = z.object({
+  ids: z.array(trimmedNonEmptyString).max(500).optional(),
+  mode: z.enum(["ids", "low_risk_style"]).optional(),
+  dryRun: z.boolean().optional(),
+  matterId: z.string().trim().min(1).optional(),
+  note: z.string().optional(),
+});
+
+export type MemoryAdoptionBatchRequest = z.infer<typeof memoryAdoptionBatchSchema>;
+
+export const draftRevisionJobPostSchema = z.object({
+  instruction: z.string().trim().optional(),
+  assistantId: z.string().trim().optional(),
+  projectDir: z.unknown().optional(),
+});
+
+export type DraftRevisionJobPostRequest = z.infer<typeof draftRevisionJobPostSchema>;
+
+export const contractReviewDraftPostSchema = z.object({
+  draftId: z.string().trim().optional(),
+  initialPath: trimmedNonEmptyString,
+  revisedPath: trimmedNonEmptyString,
+  lawyerAnnotations: z.string().optional(),
+  keyModificationsDraft: z.array(z.string()).optional(),
+  matterId: z.string().trim().optional(),
+  assistantId: z.string().trim().optional(),
+  status: z.enum(["open", "withdrawn"]).optional(),
+});
+
+export type ContractReviewDraftPostRequest = z.infer<typeof contractReviewDraftPostSchema>;
+
+export const contractReviewAcceptPostSchema = z.object({
+  draftId: trimmedNonEmptyString,
+  stableDocumentKey: z.string().trim().optional(),
+  appendLawyerProfileBullet: z.boolean().optional(),
+  title: z.string().optional(),
+});
+
+export type ContractReviewAcceptPostRequest = z.infer<typeof contractReviewAcceptPostSchema>;
+
+export const learningContractFinalizePostSchema = z.object({
+  initialPath: trimmedNonEmptyString,
+  finalPath: trimmedNonEmptyString,
+  keyModifications: z.union([z.array(z.string()), z.string()]).optional(),
+  title: z.string().optional(),
+  requirementsSummary: z.string().optional(),
+  matterId: z.string().trim().optional(),
+  assistantId: z.string().trim().optional(),
+  appendLawyerProfileBullet: z.boolean().optional(),
+  stableDocumentKey: z.string().trim().optional(),
+  lawyerReviewNotes: z.string().optional(),
+});
+
+export type LearningContractFinalizePostRequest = z.infer<
+  typeof learningContractFinalizePostSchema
+>;
+
+export const fsWritePostSchema = z.object({
+  root: z.string().optional(),
+  path: z.string().optional(),
+  content: z.string().optional(),
+  expectedMtimeMs: z.number().optional(),
+});
+
+export type FsWritePostRequest = z.infer<typeof fsWritePostSchema>;
+
+export const sourceAnnotationPostSchema = z.object({
+  comment: trimmedNonEmptyString,
+  taskId: z.string().optional(),
+  matterId: z.string().optional(),
+  kind: z.string().optional(),
+  createdBy: z.string().optional(),
+  linkedDraftId: z.string().optional(),
+  createLearning: z.boolean().optional(),
+  range: z
+    .object({
+      start: z.number(),
+      end: z.number(),
+    })
+    .optional(),
+});
+
+export type SourceAnnotationPostRequest = z.infer<typeof sourceAnnotationPostSchema>;
+
+export const intentCompileRequestSchema = z.object({
+  instruction: z.string().optional(),
+  matterId: z.string().trim().optional(),
+  projectDir: z.string().optional(),
+  contextPins: contextPinsRequestSchema,
+  previousCapabilityId: z.string().trim().optional(),
+  historyText: z.string().optional(),
+  sessionId: z.string().trim().max(128).optional(),
+  mailFastPath: z.boolean().optional(),
+});
+
+export type IntentCompileRequest = z.infer<typeof intentCompileRequestSchema>;

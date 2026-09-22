@@ -1,0 +1,229 @@
+/**
+ * Edition feature gating — Solo / Firm / Private Deploy.
+ *
+ * 这是 Deliverable-First Architecture 的 P4：
+ *   不同商业版本的 LawMind 看到的是同一份代码、同一份 workspace，
+ *   但通过 `Edition` 闸门决定哪些**面板/能力/校验/导出**对当前用户可见或可用。
+ *
+ * 设计原则：
+ *   1. 单一真相源：edition 来自 `LAWMIND_EDITION` 环境变量或 `lawmind.policy.json` 的 `edition` 字段（policy 优先）。
+ *   2. 默认值 = `solo`，永远不报错（不存在「license 缺失」状态）。
+ *   3. Edition 只决定显隐，不决定数据结构；任何 edition 写入的工作区都能被任何 edition 读取。
+ *   4. 不在前端硬编码 feature 名；所有 feature key 在本文件 `EditionFeatures` 中集中声明，便于审计。
+ */
+
+import { resolveEgressMode } from "./workspace-policy.js";
+import type { LawMindEdition, LawMindWorkspacePolicy } from "./workspace-policy.js";
+
+const EDITION_VALUES: ReadonlyArray<LawMindEdition> = ["solo", "firm", "private_deploy"];
+
+/** 各 edition 的人类可读标签（设置面板 / 状态条使用）。 */
+export const EDITION_LABELS: Readonly<Record<LawMindEdition, string>> = {
+  solo: "独立律师版",
+  firm: "律所协作版",
+  private_deploy: "私有化部署版",
+};
+
+/**
+ * Feature flag 集中表。新增能力时**只**在这里添加，不在调用点硬编码。
+ * `true` = 该 edition 默认开启；`false` = 隐藏或禁用。
+ */
+export const EDITION_FEATURES = {
+  /**
+   * 验收门禁（Acceptance Gate）的 strict 模式：未通过禁止 render。
+   * Solo 亦默认开启：个人律师交件底线与「能交件」叙事一致；试用可在 policy 中关闭。
+   */
+  acceptanceGateStrict: { solo: true, firm: true, private_deploy: true },
+  /**
+   * 引用完整性硬门禁：有 research 快照时，缺失来源 ID 或长段未锚定引用禁止 render。
+   * Solo 与 Firm/Private 对齐，避免「提醒式」交件。
+   */
+  citationGateStrict: { solo: true, firm: true, private_deploy: true },
+  /** 跨案件实验/Roadmap 决策卡（产品自我进化层） */
+  crossMatterRoadmap: { solo: false, firm: true, private_deploy: true },
+  /** 跨案件验收就绪概览（工作区级 `GET /api/acceptance-summary` 聚合 UI） */
+  crossMatterAcceptanceDashboard: { solo: false, firm: true, private_deploy: true },
+  /** 多律师协作摘要面板 */
+  collaborationSummary: { solo: false, firm: true, private_deploy: true },
+  /** 合规审计导出（compliance=true） */
+  complianceAuditExport: { solo: false, firm: false, private_deploy: true },
+  /**
+   * 审计 JSONL hash-chain 校验导出（integrity=true）。
+   * Solo 亦开启：个人律师需能一键核对办案审计链（轻量信任包装，非 Firm 合规报表）。
+   */
+  auditIntegrityExport: { solo: true, firm: true, private_deploy: true },
+  /** SBOM 与安全自检面板入口 */
+  securitySbomPanel: { solo: false, firm: false, private_deploy: true },
+  /** Quality dashboard JSON 自动导出 */
+  qualityDashboardJsonExport: { solo: false, firm: true, private_deploy: true },
+  /** 自定义 DeliverableSpec（律所专属合同/律师函） */
+  customDeliverableSpec: { solo: false, firm: true, private_deploy: true },
+  /**
+   * 客户验收包导出（acceptance-pack.md）。
+   * Solo 亦开启：交件前可下载轻量证据包；合规批量审计仍仅 Private。
+   */
+  acceptancePackExport: { solo: true, firm: true, private_deploy: true },
+  /**
+   * 危险工具一律要求显式 `__approved: true`，不因开发环境 `allowDangerousToolsWithoutApproval` 绕过。
+   * 并对 `execute_workflow` 等未标 `requiresApproval` 的长链路工具追加门禁。
+   */
+  strictDangerousToolApproval: { solo: false, firm: true, private_deploy: true },
+  /**
+   * Skills S6：审查专案组 `executionMode=parallel`。
+   * Solo 亦默认开启（本机启发式并行），避免人为压低审查吞吐；policy/UI 仍可按需关闭。
+   */
+  reviewCampaignParallel: { solo: true, firm: true, private_deploy: true },
+  /**
+   * 草稿交律师签批前强制互审（作者配置了 peerReviewDefaultAssistantId 时建委派）。
+   * Solo 默认关；Firm / Private 默认开。工作区 routing/defaults.json 可覆盖。
+   */
+  forcePeerReview: { solo: false, firm: true, private_deploy: true },
+  /**
+   * 案件成员协作（邀请同事进同一案、签出 Word、记录管）。
+   * Solo 默认关（不改变个人律师主路径）；Firm / Private 默认开。
+   * 可用 `lawmind.policy.json` 的 `matterReplica.enabled` 强制开/关。
+   */
+  matterReplicaCollab: { solo: false, firm: true, private_deploy: true },
+  /**
+   * 利益冲突扫描写入伦理墙并拦截外发，直至律师确认披露。
+   * Solo 默认关（字符串扫描仍提示，但不自动拦邮件）。
+   */
+  ethicsWall: { solo: false, firm: true, private_deploy: true },
+  /**
+   * Word 插件「审这份」后由桌面端**自动取件并跑**审查（本地单用户桌面默认开）。
+   * 关掉即退回原人工档：插件只登记请求，等律师在桌面端对同一份文件跑一次审查。
+   * Firm / Private 默认关：律所版保留「桌面端必须有一次显式动作」的档位。
+   * 现场可用 `lawmind.policy.json` 的 `wordAddinAutoRun` 覆盖。
+   */
+  wordAddinAutoRun: { solo: true, firm: false, private_deploy: false },
+  /**
+   * tracked 修订稿是否「独立审稿不过就不许导出」。
+   * solo 默认关（= advisory：照跑、缺口如实交出）；firm / private_deploy 默认开（= block 硬墙）。
+   *
+   * 为什么分档：单人桌面把「无人值守出稿」看得最重，而律所/私有部署里
+   * 「未过独立审稿的稿子流出去」的代价更高，且那边本来就有「桌面端必须有一次显式动作」的档位。
+   * 现场可用 policy `guardianTrackedRedline` 覆盖。
+   */
+  guardianTrackedRedlineBlock: { solo: false, firm: true, private_deploy: true },
+} as const satisfies Record<string, Record<LawMindEdition, boolean>>;
+
+export type EditionFeatureKey = keyof typeof EDITION_FEATURES;
+
+/** Resolved edition + 元数据（供 `/api/health` / 设置面板回显）。 */
+export type EditionContext = {
+  edition: LawMindEdition;
+  label: string;
+  source: "policy_file" | "env" | "default";
+  features: Readonly<Record<EditionFeatureKey, boolean>>;
+};
+
+function isEdition(value: unknown): value is LawMindEdition {
+  return typeof value === "string" && (EDITION_VALUES as readonly string[]).includes(value);
+}
+
+/**
+ * 解析当前生效的 edition。
+ * 优先级：policy.edition > LAWMIND_EDITION env > "solo"。
+ */
+export function resolveEdition(opts?: {
+  policy?: LawMindWorkspacePolicy | null;
+  env?: NodeJS.ProcessEnv;
+}): EditionContext {
+  const policy = opts?.policy;
+  const env = opts?.env ?? process.env;
+
+  let edition: LawMindEdition = "solo";
+  let source: EditionContext["source"] = "default";
+
+  if (policy && isEdition(policy.edition)) {
+    edition = policy.edition;
+    source = "policy_file";
+  } else {
+    const raw = env.LAWMIND_EDITION?.trim().toLowerCase();
+    if (isEdition(raw)) {
+      edition = raw;
+      source = "env";
+    }
+  }
+
+  const features = Object.fromEntries(
+    (Object.keys(EDITION_FEATURES) as EditionFeatureKey[]).map((key) => [
+      key,
+      EDITION_FEATURES[key][edition],
+    ]),
+  ) as Record<EditionFeatureKey, boolean>;
+
+  return {
+    edition,
+    label: EDITION_LABELS[edition],
+    source,
+    features: Object.freeze(features),
+  };
+}
+
+/**
+ * 单 feature 查询的便捷函数。
+ * 调用方应 prefer 这个函数而不是直接读 `EDITION_FEATURES[k][edition]`，
+ * 因为它默认应用 policy 解析顺序。
+ */
+export function isFeatureEnabled(
+  feature: EditionFeatureKey,
+  opts?: { policy?: LawMindWorkspacePolicy | null; env?: NodeJS.ProcessEnv },
+): boolean {
+  return resolveEdition(opts).features[feature];
+}
+
+/** 所有有效 edition 字符串（供 schema 校验 / 设置面板枚举）。 */
+export function listEditions(): ReadonlyArray<LawMindEdition> {
+  return EDITION_VALUES;
+}
+
+/**
+ * W10：是否采集产品洞察事件（ux.matter_action）。
+ *
+ * 解析顺序：
+ *   0. `egressMode: "offline"`（含旧 `highSecurityMode: true`）=> 强制 "off"
+ *   1. policy.productInsightsCollection（"off" | "local-only" | "synced"）
+ *   2. 默认值：solo => "local-only"，firm/private_deploy => "synced"
+ *
+ * 当结果为 "off" 时调用方应跳过写入 ux.matter_action。
+ */
+export function resolveProductInsightsCollection(opts?: {
+  policy?: LawMindWorkspacePolicy | null;
+  env?: NodeJS.ProcessEnv;
+}): "off" | "local-only" | "synced" {
+  // 离线模式在读取时推导，不再回写 productInsightsCollection，避免抹掉律师原设置。
+  if (resolveEgressMode(opts?.policy) === "offline") {
+    return "off";
+  }
+  const explicit = opts?.policy?.productInsightsCollection;
+  if (explicit === "off" || explicit === "local-only" || explicit === "synced") {
+    return explicit;
+  }
+  const ctx = resolveEdition(opts);
+  return ctx.edition === "solo" ? "local-only" : "synced";
+}
+
+export function isProductInsightsCollectionEnabled(opts?: {
+  policy?: LawMindWorkspacePolicy | null;
+  env?: NodeJS.ProcessEnv;
+}): boolean {
+  return resolveProductInsightsCollection(opts) !== "off";
+}
+
+/**
+ * Word 插件「审这份」是否由桌面端自动取件并运行。
+ *
+ * 解析顺序：`policy.wordAddinAutoRun`（显式布尔）> edition `wordAddinAutoRun`
+ * （solo 默认开；firm / private_deploy 默认关，保留「桌面端必须有一次显式动作」的档位）。
+ */
+export function isWordAddinAutoRunEnabled(opts?: {
+  policy?: LawMindWorkspacePolicy | null;
+  env?: NodeJS.ProcessEnv;
+}): boolean {
+  const explicit = opts?.policy?.wordAddinAutoRun;
+  if (typeof explicit === "boolean") {
+    return explicit;
+  }
+  return resolveEdition(opts).features.wordAddinAutoRun;
+}

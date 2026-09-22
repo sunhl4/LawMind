@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["apps/lawmind-desktop/server/**/*.ts", "apps/lawmind-desktop/electron/**/*.ts"]
+}

@@ -1,0 +1,7 @@
+{
+  "id": "C02",
+  "triageTier": "yellow",
+  "deliverableTypeHint": "contract.review",
+  "checklistSpecId": "contract-review-v1",
+  "notes": "SaaS 主协议，责任上限与数据条款"
+}

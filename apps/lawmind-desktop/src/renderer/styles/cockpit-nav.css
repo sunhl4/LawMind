@@ -1,0 +1,239 @@
+/* Epic-shell-after primary rail */
+
+.lm-brand-sub {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-2);
+  line-height: 1.2;
+  margin-top: 1px;
+}
+
+.lm-cockpit-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 10px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.lm-cockpit-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lm-cockpit-nav-item {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px;
+  border-radius: var(--r-lg);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.lm-cockpit-nav-item:hover {
+  background: var(--wash);
+  color: var(--text);
+}
+
+.lm-cockpit-nav-item.is-active {
+  background: var(--grad-brand);
+  color: var(--on-accent);
+  border-color: var(--accent-border);
+  box-shadow: var(--shadow-brass);
+}
+
+.lm-cockpit-nav-icon {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.lm-cockpit-pro-card {
+  margin-top: 4px;
+  padding: 12px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lm-cockpit-pro-card strong {
+  font-size: 0.9rem;
+}
+
+.lm-cockpit-usage-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.lm-cockpit-usage-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--grad-brand);
+}
+
+.lm-cockpit-usage-label {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* V2: More menu on Primary Rail */
+.lm-cockpit-nav-more {
+  position: relative;
+}
+
+.lm-cockpit-nav-more-menu {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: calc(100% + 4px);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+
+.lm-cockpit-nav-more-item {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.lm-cockpit-nav-more-item:hover {
+  background: var(--wash);
+}
+
+.lm-cockpit-nav-legacy-anchor {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.lm-cockpit-nav--compact .lm-cockpit-nav-label {
+  font-size: 0.8rem;
+}
+
+.lm-side-review-rail .lm-brand-sub {
+  display: none;
+}
+
+.lm-side-review-hint {
+  padding: 8px 12px 12px;
+  margin: 0;
+}
+
+.lm-main-header-context {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.lm-header-surface-label {
+  font-size: 0.92rem;
+  font-weight: 650;
+  color: var(--text-2);
+}
+
+/* Decision Drawer */
+.lm-decision-drawer-root {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  pointer-events: none;
+}
+
+.lm-decision-drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  border: none;
+  padding: 0;
+  background: rgba(28, 24, 20, 0.28);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.lm-decision-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(400px, 92vw);
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+}
+
+.lm-decision-drawer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.lm-decision-drawer-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.lm-decision-drawer-body {
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.lm-decision-drawer-lead {
+  margin: 0;
+  color: var(--text-2);
+  line-height: 1.45;
+}
+
+.lm-decision-drawer-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

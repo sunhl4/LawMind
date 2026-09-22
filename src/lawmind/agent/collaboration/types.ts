@@ -1,0 +1,149 @@
+/**
+ * Inter-assistant collaboration types.
+ *
+ * Adapted from reference stack's agent-to-agent patterns:
+ *   - Session key hierarchy (src/routing/session-key.ts)
+ *   - Subagent registry records (src/agents/subagent-registry.ts)
+ *   - A2A policy / announce flow (src/agents/subagent-announce.ts)
+ */
+
+// ─────────────────────────────────────────────
+// 1. Collaboration Messages
+// ─────────────────────────────────────────────
+
+export type CollaborationMessageKind =
+  | "delegate"
+  | "consult"
+  | "notify"
+  | "review_request"
+  | "result";
+
+export type CollaborationMessage = {
+  messageId: string;
+  kind: CollaborationMessageKind;
+  fromAssistantId: string;
+  toAssistantId: string;
+  /** Originating session (the caller's session) */
+  sourceSessionId: string;
+  matterId?: string;
+  payload: string;
+  /** For consult/review: extra structured context */
+  context?: string;
+  /** Links a result back to the originating delegation or consult */
+  replyTo?: string;
+  createdAt: string;
+};
+
+// ─────────────────────────────────────────────
+// 2. Delegation Records
+// ─────────────────────────────────────────────
+
+export type DelegationStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "timeout"
+  | "cancelled"
+  /** 已判超时后底层任务仍跑完并交回结果（保留结果，但不翻转「超时」事实）。 */
+  | "completed_after_timeout";
+
+export type DelegationRecord = {
+  delegationId: string;
+  fromAssistantId: string;
+  toAssistantId: string;
+  task: string;
+  matterId?: string;
+  /**
+   * 发起委派时律师所在的主对话 session（桌面端当前助手会话）。
+   * 用于委派结束后把结果写回会话并在 UI 轮询中插入「自动回传」气泡。
+   */
+  parentSessionId?: string;
+  priority: "normal" | "high" | "low";
+  status: DelegationStatus;
+  /** The session created on the target assistant for this delegation */
+  targetSessionId?: string;
+  /** Frozen result text captured on completion (inline cap; longer spills to resultPath) */
+  result?: string;
+  /** When result was truncated, full text lives at this workspace-relative path. */
+  resultPath?: string;
+  /** True when inline result was truncated and spilled to resultPath. */
+  resultTruncated?: boolean;
+  error?: string;
+  /** Nesting depth — prevents runaway recursive delegation */
+  depth: number;
+  startedAt: string;
+  completedAt?: string;
+};
+
+// ─────────────────────────────────────────────
+// 3. Review Request
+// ─────────────────────────────────────────────
+
+export type ReviewType = "accuracy" | "completeness" | "legal_risk" | "style";
+
+export type ReviewFeedback = {
+  reviewType: ReviewType;
+  approved: boolean;
+  issues: string[];
+  suggestions: string[];
+  summary: string;
+};
+
+// ─────────────────────────────────────────────
+// 4. Collaboration Events (audit / lifecycle)
+// ─────────────────────────────────────────────
+
+export type CollaborationEventKind =
+  | "delegation.created"
+  | "delegation.started"
+  | "delegation.completed"
+  | "delegation.failed"
+  | "delegation.timeout"
+  | "delegation.cancelled"
+  | "consult.sent"
+  | "consult.replied"
+  | "notify.sent"
+  | "review.requested"
+  | "review.completed";
+
+export type CollaborationEvent = {
+  eventId: string;
+  kind: CollaborationEventKind;
+  delegationId?: string;
+  messageId?: string;
+  fromAssistantId: string;
+  toAssistantId: string;
+  matterId?: string;
+  detail?: string;
+  timestamp: string;
+};
+
+// ─────────────────────────────────────────────
+// 5. Collaboration Policy
+// ─────────────────────────────────────────────
+
+export type CollaborationPolicy = {
+  /** Max active delegations a single assistant can have outstanding */
+  maxActiveDelegationsPerAssistant: number;
+  /** Max delegation nesting depth (prevents A -> B -> C -> ... runaway) */
+  maxDelegationDepth: number;
+  /** Default timeout for synchronous consult/review (ms) */
+  defaultConsultTimeoutMs: number;
+  /** Default timeout for async delegation (ms) */
+  defaultDelegationTimeoutMs: number;
+  /**
+   * Allowlist: which assistants can communicate.
+   * Empty means all assistants can communicate with each other.
+   * Each entry is `fromId:toId` — directional.
+   */
+  allowedPairs: string[];
+};
+
+export const DEFAULT_COLLABORATION_POLICY: CollaborationPolicy = {
+  maxActiveDelegationsPerAssistant: 5,
+  maxDelegationDepth: 3,
+  defaultConsultTimeoutMs: 60_000,
+  defaultDelegationTimeoutMs: 300_000,
+  allowedPairs: [],
+};

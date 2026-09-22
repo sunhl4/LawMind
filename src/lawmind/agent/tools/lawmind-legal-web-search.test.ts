@@ -1,0 +1,62 @@
+import { describe, expect, it, vi } from "vitest";
+import {
+  buildStatuteWebSearchQueries,
+  lawMindStatuteWebSearch,
+} from "./lawmind-legal-web-search.js";
+import * as web from "./lawmind-web-search.js";
+
+describe("lawmind-legal-web-search", () => {
+  it("buildStatuteWebSearchQueries adds statute-oriented site queries", () => {
+    const qs = buildStatuteWebSearchQueries("民法典 第1043条");
+    expect(qs.length).toBeGreaterThanOrEqual(2);
+    expect(qs.some((q) => q.includes("site:npc.gov.cn"))).toBe(true);
+    expect(qs.some((q) => q.includes("民法典"))).toBe(true);
+  });
+
+  it("lawMindStatuteWebSearch prefers official hosts in sort order", async () => {
+    vi.stubEnv("LAWMIND_WEB_SEARCH_API_KEY", "test");
+    const spy = vi.spyOn(web, "lawMindPublicWebSearch").mockImplementation(async (q) => {
+      if (q.includes("npc.gov.cn")) {
+        return {
+          provider: "brave",
+          results: [
+            {
+              title: "全国人大",
+              url: "https://www.npc.gov.cn/foo",
+              description: "official",
+            },
+          ],
+        };
+      }
+      return {
+        provider: "brave",
+        results: [
+          {
+            title: "博客",
+            url: "https://example.com/bar",
+            description: "blog",
+          },
+        ],
+      };
+    });
+    const outcome = await lawMindStatuteWebSearch("劳动合同法", 3);
+    expect(outcome.results[0]?.sourceTier).toBe("official");
+    expect(outcome.results[0]?.url).toContain("npc.gov.cn");
+    spy.mockRestore();
+    vi.unstubAllEnvs();
+  });
+
+  it("sums scopeFilteredOut across the statute queries", async () => {
+    vi.stubEnv("LAWMIND_WEB_SEARCH_API_KEY", "test");
+    const spy = vi.spyOn(web, "lawMindPublicWebSearch").mockImplementation(async () => ({
+      provider: "deepseek",
+      results: [{ title: "官方法规", url: "https://www.npc.gov.cn/x", description: "official" }],
+      scopeFilteredOut: 2,
+    }));
+    const outcome = await lawMindStatuteWebSearch("劳动合同法", 3);
+    expect(outcome.scopeFilteredOut).toBeGreaterThan(0);
+    expect(outcome.results.length).toBeGreaterThan(0);
+    spy.mockRestore();
+    vi.unstubAllEnvs();
+  });
+});

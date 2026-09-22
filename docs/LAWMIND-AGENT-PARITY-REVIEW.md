@@ -1,0 +1,182 @@
+# LawMind 工程评审：上手 · 智能 · 稳态 · 律师专用 agent 化
+
+> 对照 `GOALS.md` 四条铁律，以及 Cursor / Codex / Claude Code 的 **agent 循环**（不是把律师产品做成第二个 IDE）。  
+> 评审日期：2026-09-15。实现落地见文末「已落地」。
+
+公平比法：那些产品的交付物是**有编译器的软件**；LawMind 的交付物是**没有编译器的法律文稿**。对标的是隐式 Skill、工具默认可调用、计划、软教练、失败回灌下一轮，不是「打开文件夹就能改代码」。
+
+## 总评
+
+架构已经站在对的一边，产品还没把这条路走干净。引擎不再为「走对流程」冻工具表，对话默认也不再让律师选办件——这和 Codex / Cursor 是同一代设计。但 Day-1 仍先填钥匙、再选文书；系统提示词还曾教模型「律师会在办件里点流程」；交件稳态钉住的是空红线、引用 ID、工具锁，不是「这份稿律师能不能直接用」。仓库自己也承认：对照实测（真稿）仍开放。
+
+| 维度           | 评审时                                     | 对标位置                                                                   |
+| -------------- | ------------------------------------------ | -------------------------------------------------------------------------- |
+| 上手简单       | 对话主路径已经像 Codex；冷启动还像安装向导 | 落后 Cursor 一截，主要在钥匙和首跑选文书                                   |
+| 发挥模型       | 工具表已解开；提示词仍互相打架             | 循环形态接近 Codex；缺 `$skill` / 真 Plan Mode                             |
+| 交件稳态       | 过程稳、内容不稳                           | 抄到了「测试失败继续跑」，但没有法律版 `tsc`                               |
+| 律师专用且智能 | 默认路径约 7.5 / 10；邮件/Word 锁路径更僵  | 红线 Word、劳动计算、法条试检是编码 agent 没有的；工商/法宝/利益冲突墙还薄 |
+
+---
+
+## 1. 上手简单度
+
+**评分：钥匙配好之后 6.5 / 10；真正冷启动 4 / 10。**
+
+铁律 1 要的是「少配置、少迷路；默认路径就能交办」。已经做对的是后半段：落地默认就是「对话」；空对话没有办件菜单；`compileIntent` 永不让律师选任务类型；Solo 一级导航是对话 / 工作台 / 在办。
+
+律师真正卡的是门：模型钥匙硬门、四步向导仍点文书、非合同首跑曾把权限打成「先计划」、对话不建案时工具会要 `matterId`。完成向导曾难于跳过向导。
+
+编码 agent 是「打开文件夹 → 说话」。LawMind 必须多「案件 / 在办 / 签批」——对外发信必须停。不该学成的是任务前设置。
+
+## 2. 智能化：有没有把模型能力用满
+
+**评分：循环设计 8 / 10；提示词与业务深度 6 / 10。综合 7 / 10。**
+
+已经做对：意图编译不冻工具表；playbook 是 deny-list 不是 allow-list；未绑定给目录、绑定给瘦 Skill；硬拦只用于安全、空交付、授权、跨度、不可逆外写；跨对话检索、钉选、MCP、`update_plan`、独立 Guardian。
+
+还在把模型按矮：系统提示词教已删掉的办件点选；`execute_workflow` 自称应优先；邮件生成指令「按序执行」与运行时「按任务选用」吵架；没有 `$skill` / 按需读 Skill；`readonly` 是工具监狱不是 Plan Mode；非合同量规偏薄。
+
+## 3. 交付物稳定性
+
+**评分：过程稳态 7 / 10；法律内容稳态 3.5 / 10。综合 5 / 10。**
+
+`same-turn-verify` 抄对了 Codex「测试红了不要假装做完」。真能依赖的是空红线不得导出、邮件/Word deny-list、引用 ID 须在本轮来源包。不保证法律对错、Word XML 修订轨一定落盘、同任务同质量。
+
+同一份合同曾走三条协议栈：对话审查、五分钟快通道、文件页「改这份」。XML 自检失败常 `ok: true` + 警告。对照实测（真稿）仍开放。
+
+## 4. 律师专用，但必须仍然智能
+
+**评分：默认对话路径 7.5 / 10；邮件/Word 锁路径 5 / 10。**
+
+能力 = Skill + 验收，不是冻死的 SOP。23 个能力 ID。编码 agent 做不到的：真 Word 修订轨、`calculate` 引擎、法条试检、交付编译、谈话确认进 CASE、外发待拍板。
+
+专用变笨：先绑后读（文件名×动词）、邮件 SOP、Word 锁连意见书重建一并禁掉、系统提示词化石。缺的是法宝默认真源、工商、特权分类、Firm 冲突墙、起诉状母版克隆、一案多机同步、真稿对照——不是再加办件 ID。
+
+## 贯穿对标
+
+| Agent 化要素   | Cursor         | Codex          | Claude Code      | LawMind（评审时）             |
+| -------------- | -------------- | -------------- | ---------------- | ----------------------------- |
+| 开口即干活     | 是             | 目录隐式匹配   | CLAUDE.md + 对话 | 对话是；首跑选文书不是        |
+| 显式覆盖       | `@` / 规则     | `$skill`       | `/` 与 Skill     | 仅 `【办件】能力：`           |
+| 工具默认可调用 | Agent 几乎全开 | 目录 + 披露    | 权限分层         | 编译不冻表；只 deny 误发/重建 |
+| 渐进披露       | 规则 glob      | catalog → body | 按需 Skill       | 有，但每轮又自动披露搜索/MCP  |
+| 计划           | Plan Mode      | `update_plan`  | Plan Mode        | 清单有，产品模式弱            |
+| 失败回灌       | diff + CI      | 测试红了继续   | 同样             | 过程门禁会回灌                |
+| 人在回路       | 接受 diff      | 接受 diff      | 接受权限         | 签批 / 待拍板（对外必须停）   |
+
+正确自我定位：**消化层 + 交付层**。用 Codex 那套循环吃掉生态里的 Skill/MCP，律师只看到交办和拍板。
+
+## 建议优先级（实施清单）
+
+### P0
+
+1. 系统提示词与 `lawyer-capability-lock` 头注释：删掉「律师在办件里选流程」。
+2. `execute_workflow` 描述改为可选管线。
+3. 邮件短路径生成指令与运行时提示词对齐。
+4. 首跑：文书可选；默认建演示案件；完成后一律可执行，不自动 `readonly`；空对话补「新建案件」。
+5. 向导/设置第一屏去掉 `.env.lawmind`、hash-chain。
+
+### P1
+
+6. `$skill` / `read_skill`：覆盖误绑，按需拉索引 Skill。
+7. 真 Plan Mode：`readonly` 回合只出可改计划，「开始执行」再放写工具。
+8. 非合同能力补独立量规（快问、函件、诉讼、检索）。
+9. Word/邮件锁路径 XML 自检失败收窄重试；无修订轨不得对律师显示已完成。
+10. 统一合同入口的红线计划注入（审查 / 快通道钉 Word / 改这份）。
+
+### P2
+
+11. 真稿对照闸门：有 `fixtures/lawmind-true-manuscript/` 则跑；无则诚实 skip，不以 NDA markdown 冒充。
+12. 样本库命中必须标成演示语料，不得看起来像已核实法条。
+13. 切片：外发特权/受众分类、工商查询诚实失败、冲突扫描提示墙、起诉状母版若工作区有则克隆、replica 记录 CASE.md 快照。
+
+不要做：确认流、路由签字、cold-start 三问请回主路径。
+
+---
+
+## 已落地（2026-09-15，续优化 · 三 · 验收 token）
+
+- 同一回合 bounce 只服务下一轮采样：绿则从会话历史删除全文，暂停收成缺口码。
+- Guardian 证据包 SHA-256 相同则跳过审稿 LLM（稿未变的重复导出）。
+- `CLAUDE.md` 改为短指针文件（不再 symlink 整份 `AGENTS.md`），避免 Cursor 双份注入。
+- `resolveAgentMaxToolCallsPerTurn` 默认与编排硬顶对齐为 80；步骤预算不再询问律师是否继续。
+- 同一回合验收失败 JSON 不再把 bounce 全文复制进 `verify.message` 和 `gateDecision.reason`（`error` + `issues[].message` 仍在）。
+- 工具结果入史默认按 CJK-honest ~1k token 截断（不再把 4k 汉字当成 1k token）。
+- `apply_surgical_edits` 广告描述改为 Craft Skill / 引擎硬门禁指针；参数 schema 与 execute 未改。
+
+## 已落地（2026-09-15，续优化 · 二）
+
+本轮把评审残留建议做成可测切片。法宝/Lexis 账号、真稿夹具、完整客户披露流程仍无法在仓库内「做完」，不得用假数据冒充。
+
+- 渐进披露：不再每轮自动披露 `web_search` / `search_statute_web` / `url_dossier` / `deep_research` / 全部 `mcp__*`；法律回合即使开了「联网」也不把 `web_search` 塞进模型工具表。公开网页事实由引擎短路执行 `web_search`（或诚实拒绝），不进法律深度研究。cassette 已改。
+- 计划模式「开始执行」解锁写工具后自动发出确认稿。
+- `search_statute` 对开源路径也会检索：样本仍标演示语料，不得写成权威库；`LAWMIND_OPEN_LAW_NPC=1` 时默认 hybrid，**先查 NPC 再回退样本**。NPC 命中标国家法律法规数据库，不算演示。
+- Firm 伦理墙：冲突扫描命中则 hold `prepare_outbound_mail`，律师 `acknowledge_ethics_wall` 后放行。Solo 仍是字符串扫描提示。
+- 外发特权：收件人分类 + 正文 sentinel + 附件文件名提示一并写入待拍板。
+- 工商：Doctor 显示是否配置了 `LAWMIND_COMPANY_REGISTRY_URL`；未成功拉取仍不得 `authorityLive`。
+- 起诉状：工作区没有母版时，渲染起诉状会写入 OOXML 栏目骨架（不是已核实状纸）。
+- replica：CASE.md 快照 excerpt 8000 字并带 sha256；引擎写入 CASE.md 也会记 ops。
+- 真稿：支持 `*.baseline.json` sidecar 抽文比对；无夹具仍 skip。
+- 无 `matterId` 时工具提示对话空态「新建案件」；首跑「跳过向导，直接开始」。
+
+### P0
+
+- 系统提示词 epoch `2026-09-agent-parity-p0`：不再教律师在办件里点选；支持 `$skill`；以本轮工具表为准。
+- `execute_workflow` 描述改为可选管线。
+- 邮件短路径生成指令与运行时对齐为「按任务选用」。
+- 首跑：文书可跳过；默认建演示案件；完成后可执行（不自动 `readonly`）；空对话「新建案件」。
+- 向导/设置第一屏：律师语言（配置模型 / 模型钥匙 / 审计完整性）。
+
+### P1
+
+- `$skill` / `read_skill`：覆盖误绑；技能溢出用 `read_skill` 拉正文；cassette 断言工具已披露且可执行。
+- 计划模式：`readonly` 写工具关闭；清单可改步骤文字、取消步骤；计划卡片与交接条可点「开始执行」解锁写工具并自动发出确认稿。
+- 快问 / 函件 / 诉讼 / 检索补「交件量规」。
+- Word/邮件 XML 自检失败会收窄重试；无修订轨 `ok: false`（`xml_qa_no_tracks`），不得显示已完成。
+- 审查 / 快通道钉 Word / 改这份 统一注入红线计划与成套交件；五分钟表单的「合同审查意见」在钉选 Word 时不再当成只要意见书，快车道提示词也不再与成套交件打架。律师写「不要改原稿」仍跳过红线。
+
+### P2
+
+- 真稿闸门：`fixtures/lawmind-true-manuscript/` 有 `.docx/.doc/.pdf` 才跑，并对文件头/OOXML 做形态检查；可选 `*.baseline.json` sidecar。仓库内 NDA markdown 不能替代。对照实测仍须律师放入真稿。
+- 样本库命中标「演示语料或工作区启发式」，不得看起来像已核实法条。开源 NPC 命中可走权威路径（hybrid 先直播、后样本）。
+- 外发受众/特权提示（含附件文件名）；工商查询未配置或拉取失败不得写 `authorityLive`；Firm 冲突扫描可拦截外发；工作区无起诉状母版时写入栏目骨架再克隆；replica 在 CASE.md 写入与同步时记录 `case_md.snapshot`（含 sha256）。
+
+不要做、也未做：确认流、路由签字、cold-start 三问请回主路径。
+
+_对照实测（真稿）仍须律师放入真实 `.docx` / 起诉状后，闸门才会从 skip 变成形态比对。_
+
+## 已落地（2026-09-18 · 市面对标评审实施）
+
+对照市面通用/专用 agent 评审建议的可测切片（不伪造法宝账号、不 vendoring 真稿 PII）：
+
+- **真稿质量证明**：`formatTrueManuscriptGateReport` + `pnpm lawmind:true-manuscript` 始终打印 SKIP/RUN；`LAWMIND_REQUIRE_TRUE_MANUSCRIPT=1` 在无夹具时失败（夜跑/本地）；二进制夹具 gitignore，只保留 README。
+- **权威源诚实**：`demoCorpus` 强制 `sourceTier=sample` / `authorityLive=false`；Doctor 演示语料用 warn pill；NPC 启用时系统提示写「国家法律法规数据库」并如实「未接商业法宝」；工商 pill 改为「已配端点（未验活）」。
+- **冷启动**：跳过向导会创建「演示案件」+ 可执行权限默认 + 种子提示（钥匙后一键开工）。
+- **规范库索引吸收**：`canonical-skill-index` 元数据（无正文）经 `read_skill` 空参返回 `externalIndex`；点名 id 返回 `canonical_index` 且无 body。
+- **Firm 委派层级**：`buildCollaborationPolicyFromAssistants` 从 reportsTo / peerReview 填 `allowedPairs`；`consult_assistant` / `request_review` / `delegate_*` 共用校验。Solo 无组织字段仍开放图。
+
+## 已落地（2026-09-20 · 无任务回合：Codex 对齐）
+
+事故：会话停在改稿门禁后，律师只发 `k`，引擎顺着历史里的上一轮改稿指令把整条流水线重跑（19 次工具调用才被门禁按住）。
+
+- **无任务回合**（`isNoTaskUtterance`）：单字 / 纯确认（`k` `ok` `好的` `嗯` `收到` `1` `👍`）与空原话不构成任务；`继续` / `接着` / `导出` 才算明确续作。
+- **三处一致执法**：`compile-intent` 早退不绑办件（即使钉了材料）；本轮工具表收成只读 + `noTaskTurnGateMiddleware` 运行期硬拒写/导出/外发与 `update_plan`；提示词只让模型回一两句并问是否继续。
+- **不再越权改史**：无任务回合不注入上一轮清单、不写新清单（清单保留给律师明确说「继续」时接着办）；`goalFromInstruction` 不再把 `[协作咨询] 来自助手…` 这类信封行当成「本件目标」。
+- **验证器不再自相矛盾**：独立审稿返回 `guardian_exhausted`（或其 skipReason 要求交给律师）时，same-turn-verify 发 `terminal` 缺口，不再一边引用「不要继续为过审改稿」一边催模型再交 `apply_surgical_edits`；本轮到此结束，缺口交律师。
+- **准入证据**：`src/lawmind/agent/turn-orchestrator-cassettes.test.ts` 三条 cassette（`k` 收写工具且保留清单 / 硬塞 `apply_surgical_edits` 被拒 / `继续` 仍可接着办）、`utterance-kind.test.ts`、`same-turn-verify.test.ts`、`tool-pipeline.test.ts`。
+
+### 续做（同日）：中断可续、停件可视化、自动化不再重派
+
+1. **中断轮次可续（`turn-interrupt.ts`）**
+   - 回合开始就把**占位轮次**落盘（`upsertSessionTurn`，收尾按同一 turnId 覆盖），中途退出才有痕迹可查。
+   - 读时视图：占位仍 `running`、无活回合（本进程 live progress / 跨进程租约）、且过了 60s 宽限 → 呈现 `interrupted`，派生稳定 id 的「继续本件 / 弃办」卡片（复用 `continue_tools` 恢复通道，中断卡片带 `trigger: "interrupted"` + 原指令）。
+   - `resumeTurn` 在 `pendingRequiresAction` 里找不到时按 id 回落到派生卡片；「继续本件」把原指令带进 `【从检查点继续】`，接着办同一件事；「弃办」把占位轮次收口。
+   - 在办/会话恢复都会带上这张卡片；`AgentRunStatus` 新增 `interrupted`，「继续本件 / 弃办」进看板按钮。
+2. **停件可视化（`platform/gate-stop.ts` + work `needs_lawyer`）**
+   - 验证器自己判停（`guardian_exhausted` 等）→ 本件状态置 `needs_lawyer`（在办里不再显示 `running`），并生成 `workflow_blocked` 缺口待办；轮次内**不再反弹**（终态缺口带 `terminal` 标记，`issuesFromStored` 保留该标记）。
+   - 律师在新回合回到本件时，「待律师」自动复位为在办（`ensureLawyerWorkForTurn`）。
+3. **自动化防重复派单（`automation-dispatch-ledger.ts`）**
+   - 按 `matter + 附件相对路径 + 内容指纹` 记账；同一指纹上次已因门禁停下 → 不再重派（交办摘要说明停因）。
+   - 附件内容更新（指纹变）或律师继续推进（正常收口）→ 自动恢复派单。
+
+**准入证据**：`turn-interrupt.test.ts`、`gate-stop.test.ts`、`runtime-resume.test.ts`（中断续作/弃办）、cassettes 新增两条（中断在办显示 + 恢复带出原指令 / 门禁停件转待律师 + 基线不再重派）、`lawmind-fleet-queue.test.ts`、`lawmind-requires-action.test.ts`。

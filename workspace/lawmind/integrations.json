@@ -1,0 +1,22 @@
+{
+  "connectors": {
+    "filesystem": {
+      "enabled": true,
+      "note": "M2 POC：索引 cases/<matterId>/ 下的本地文件元数据"
+    },
+    "imanage": {
+      "enabled": false,
+      "baseUrl": "",
+      "note": "Firm 部署：配置 iManage REST baseUrl 后由 IT 启用"
+    },
+    "netdocuments": {
+      "enabled": false,
+      "note": "规划：OAuth 只读索引"
+    },
+    "sharepoint": {
+      "enabled": false,
+      "tenantId": "",
+      "note": "规划：Microsoft Graph 只读"
+    }
+  }
+}

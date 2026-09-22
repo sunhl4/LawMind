@@ -1,0 +1,145 @@
+/**
+ * Optional workspace policy file: `lawmind.policy.json` next to workspace root.
+ * Applied after `.env.lawmind` so IT can enforce guardrails without editing secrets.
+ */
+
+import fs from "node:fs";
+import path from "node:path";
+
+import { listEditions } from "../../../src/lawmind/policy/edition.js";
+import { resolveEgressMode } from "../../../src/lawmind/policy/workspace-policy.js";
+import type { LawMindEdition, LawMindEgressMode } from "../../../src/lawmind/policy/workspace-policy.js";
+
+export type { LawMindEdition, LawMindEgressMode };
+
+export type LawMindPolicyFile = {
+  schemaVersion: number;
+  /**
+   * 出站总模式（唯一权威）：`"offline" | "allowlisted" | "open"`。
+   * `"offline"` 等于旧的 `highSecurityMode: true`——完全不出站，律所级本地部署用。
+   */
+  egressMode?: LawMindEgressMode;
+  /**
+   * @deprecated 等价于 `egressMode: "offline"`，仅为兼容旧文件保留。
+   */
+  highSecurityMode?: boolean;
+  /** When false, the desktop API forces web search off regardless of client toggle. */
+  allowWebSearch?: boolean;
+  /** `single` | `dual` — sets LAWMIND_RETRIEVAL_MODE for the server process. */
+  retrievalMode?: string;
+  /** When false, sets LAWMIND_ENABLE_COLLABORATION=false. */
+  enableCollaboration?: boolean;
+  /** Product edition (see `src/lawmind/policy/edition.ts`); also read via `LAWMIND_EDITION` env. */
+  edition?: LawMindEdition;
+  /** Injected into Agent system prompt (see `resolveAgentMandatoryRulesForPrompt`). */
+  agentMandatoryRules?: string;
+  /** Relative path under workspace; file content overrides inline when readable. */
+  agentMandatoryRulesPath?: string;
+  /** Overrides env `LAWMIND_AGENT_MAX_TOOL_CALLS` for Agent `runTurn` when set (clamped server-side). */
+  agentMaxToolCallsPerTurn?: number;
+  /** W10：是否采集产品级洞察事件（ux.matter_action）。 */
+  productInsightsCollection?: "off" | "local-only" | "synced";
+};
+
+export type LawMindPolicyState =
+  | { loaded: false }
+  | {
+      loaded: true;
+      path: string;
+      policy: LawMindPolicyFile;
+      /** Human-readable keys that were applied to process.env */
+      applied: string[];
+    };
+
+const POLICY_FILENAME = "lawmind.policy.json";
+
+function parsePolicy(raw: string): LawMindPolicyFile | null {
+  try {
+    const j = JSON.parse(raw) as unknown;
+    if (!j || typeof j !== "object") {
+      return null;
+    }
+    const o = j as Record<string, unknown>;
+    const schemaVersion = o.schemaVersion;
+    if (typeof schemaVersion !== "number" || schemaVersion < 1) {
+      return null;
+    }
+    return j as LawMindPolicyFile;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read policy from disk (no env mutation).
+ */
+export function readLawMindPolicyFile(workspaceDir: string): LawMindPolicyState {
+  const abs = path.join(path.resolve(workspaceDir), POLICY_FILENAME);
+  if (!fs.existsSync(abs)) {
+    return { loaded: false };
+  }
+  const raw = fs.readFileSync(abs, "utf8");
+  const policy = parsePolicy(raw);
+  if (!policy) {
+    return { loaded: false };
+  }
+  return { loaded: true, path: abs, policy, applied: [] };
+}
+
+/**
+ * Apply supported policy fields to `process.env` (override prior values for these keys only).
+ */
+export function applyLawMindPolicyToEnv(policy: LawMindPolicyFile): string[] {
+  const applied: string[] = [];
+  // 离线模式（或显式 allowWebSearch:false）关闭联网。前者是读时推导，不回写策略文件。
+  const egressOffline = resolveEgressMode(policy) === "offline";
+  if (egressOffline || policy.allowWebSearch === false) {
+    process.env.LAWMIND_POLICY_FORCE_NO_WEB_SEARCH = "1";
+    applied.push(egressOffline ? "egressOffline" : "forceNoWebSearch");
+  } else {
+    delete process.env.LAWMIND_POLICY_FORCE_NO_WEB_SEARCH;
+  }
+  const rm = policy.retrievalMode?.trim().toLowerCase();
+  if (rm === "single" || rm === "dual") {
+    process.env.LAWMIND_RETRIEVAL_MODE = rm;
+    applied.push("retrievalMode");
+  }
+  if (policy.enableCollaboration === false) {
+    process.env.LAWMIND_ENABLE_COLLABORATION = "false";
+    applied.push("enableCollaboration");
+  }
+  // Align env with `resolveEdition` policy path so subprocesses and tools see the same edition.
+  const validEditions = new Set<string>(listEditions());
+  if (policy.edition && validEditions.has(policy.edition)) {
+    process.env.LAWMIND_EDITION = policy.edition;
+    applied.push("edition");
+  }
+  return applied;
+}
+
+/**
+ * Load from workspace and apply. Returns state for `/api/health`.
+ */
+export function loadAndApplyLawMindPolicy(workspaceDir: string): LawMindPolicyState {
+  const read = readLawMindPolicyFile(workspaceDir);
+  if (!read.loaded) {
+    return { loaded: false };
+  }
+  const applied = applyLawMindPolicyToEnv(read.policy);
+  return { loaded: true, path: read.path, policy: read.policy, applied };
+}
+
+export function isWebSearchForcedOffByPolicy(): boolean {
+  return process.env.LAWMIND_POLICY_FORCE_NO_WEB_SEARCH === "1";
+}
+
+/**
+ * Compose「联网」is independent of 权限 mode.
+ * 「仅调研 / 计划模式」仍允许联网；不要把权限模式当成关网开关。
+ */
+export function resolveChatAllowWebSearch(requested: boolean): boolean {
+  if (isWebSearchForcedOffByPolicy()) {
+    return false;
+  }
+  return  requested;
+}

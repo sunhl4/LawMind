@@ -1,0 +1,266 @@
+{
+  "version": 1,
+  "count": 20,
+  "cases": [
+    {
+      "id": "C01",
+      "family": "contract",
+      "slug": "nda-mutual",
+      "summary": "双方 NDA，期限与披露范围待核对",
+      "inputPath": "cases/C01-nda-mutual.md",
+      "expectedPath": "expected/C01.json",
+      "expected": {
+        "triageTier": "yellow",
+        "deliverableTypeHint": "contract.nda",
+        "rubricAxes": ["issue_coverage", "citation_hygiene", "actionability"]
+      }
+    },
+    {
+      "id": "C02",
+      "family": "contract",
+      "slug": "saas-msa",
+      "summary": "SaaS 主协议，责任上限与数据条款",
+      "inputPath": "cases/C02-saas-msa.md",
+      "expectedPath": "expected/C02.json",
+      "expected": {
+        "triageTier": "yellow",
+        "deliverableTypeHint": "contract.review",
+        "rubricAxes": ["issue_coverage", "citation_hygiene", "actionability"]
+      }
+    },
+    {
+      "id": "C03",
+      "family": "contract",
+      "slug": "vendor-sow",
+      "summary": "供应商 SOW，验收与付款节点",
+      "inputPath": "cases/C03-vendor-sow.md",
+      "expectedPath": "expected/C03.json",
+      "expected": {
+        "triageTier": "yellow",
+        "deliverableTypeHint": "contract.general",
+        "rubricAxes": ["issue_coverage", "citation_hygiene", "actionability"]
+      }
+    },
+    {
+      "id": "C04",
+      "family": "contract",
+      "slug": "lease-office",
+      "summary": "办公租赁，提前解约与装修",
+      "inputPath": "cases/C04-lease-office.md",
+      "expectedPath": "expected/C04.json",
+      "expected": {
+        "triageTier": "yellow",
+        "deliverableTypeHint": "contract.rental",
+        "rubricAxes": ["issue_coverage", "citation_hygiene", "actionability"]
+      }
+    },
+    {
+      "id": "C05",
+      "family": "contract",
+      "slug": "equity-side-letter",
+      "summary": "股权附属函，控制权相关",
+      "inputPath": "cases/C05-equity-side-letter.md",
+      "expectedPath": "expected/C05.json",
+      "expected": {
+        "triageTier": "red",
+        "deliverableTypeHint": "contract.review",
+        "rubricAxes": ["issue_coverage", "citation_hygiene", "actionability"]
+      }
+    },
+    {
+      "id": "L01",
+      "family": "litigation",
+      "slug": "complaint-summary",
+      "summary": "起诉状要点，诉讼请求与管辖",
+      "inputPath": "cases/L01-complaint-summary.md",
+      "expectedPath": "expected/L01.json",
+      "expected": {
+        "triageTier": "red",
+        "deliverableTypeHint": "memo.general",
+        "rubricAxes": ["issue_coverage", "citation_hygiene", "actionability"]
+      }
+    },
+    {
+      "id": "L02",
+      "family": "litigation",
+      "slug": "evidence-list",
+      "summary": "证据目录，待补强项",
+      "inputPath": "cases/L02-evidence-list.md",
+      "expectedPath": "expected/L02.json",
+      "expected": {
+        "triageTier": "red",
+        "deliverableTypeHint": "memo.general",
+        "rubricAxes": ["issue_coverage", "citation_hygiene", "actionability"]
+      }
+    },
+    {
+      "id": "L03",
+      "family": "litigation",
+      "slug": "hearing-prep",
+      "summary": "开庭提纲，争议焦点",
+      "inputPath": "cases/L03-hearing-prep.md",
+      "expectedPath": "expected/L03.json",
+      "expected": {
+        "triageTier": "red",
+        "deliverableTypeHint": "memo.general",
+        "rubricAxes": ["issue_coverage", "citation_hygiene", "actionability"]
+      }
+    },
+    {
+      "id": "L04",
+      "family": "litigation",
+      "slug": "settlement-draft",
+      "summary": "和解协议草案",
+      "inputPath": "cases/L04-settlement-draft.md",
+      "expectedPath": "expected/L04.json",
+      "expected": {
+        "triageTier": "yellow",
+        "deliverableTypeHint": "letter.general",
+        "rubricAxes": ["issue_coverage", "citation_hygiene", "actionability"]
+      }
+    },
+    {
+      "id": "L05",
+      "family": "litigation",
+      "slug": "appeal-notice",
+      "summary": "上诉状要点",
+      "inputPath": "cases/L05-appeal-notice.md",
+      "expectedPath": "expected/L05.json",
+      "expected": {
+        "triageTier": "red",
+        "deliverableTypeHint": "memo.general",
+        "rubricAxes": ["issue_coverage", "citation_hygiene", "actionability"]
+      }
+    },
+    {
+      "id": "D01",
+      "family": "demand",
+      "slug": "payment-demand",
+      "summary": "催款函，金额与期限",
+      "inputPath": "cases/D01-payment-demand.md",
+      "expectedPath": "expected/D01.json",
+      "expected": {
+        "triageTier": "yellow",
+        "deliverableTypeHint": "letter.demand",
+        "rubricAxes": ["issue_coverage", "citation_hygiene", "actionability"]
+      }
+    },
+    {
+      "id": "D02",
+      "family": "demand",
+      "slug": "ip-cease",
+      "summary": "知识产权停止侵权函",
+      "inputPath": "cases/D02-ip-cease.md",
+      "expectedPath": "expected/D02.json",
+      "expected": {
+        "triageTier": "yellow",
+        "deliverableTypeHint": "letter.demand",
+        "rubricAxes": ["issue_coverage", "citation_hygiene", "actionability"]
+      }
+    },
+    {
+      "id": "D03",
+      "family": "demand",
+      "slug": "employment-wage",
+      "summary": "劳动报酬催告",
+      "inputPath": "cases/D03-employment-wage.md",
+      "expectedPath": "expected/D03.json",
+      "expected": {
+        "triageTier": "yellow",
+        "deliverableTypeHint": "letter.demand",
+        "rubricAxes": ["issue_coverage", "citation_hygiene", "actionability"]
+      }
+    },
+    {
+      "id": "D04",
+      "family": "demand",
+      "slug": "lease-arrears",
+      "summary": "租金催告",
+      "inputPath": "cases/D04-lease-arrears.md",
+      "expectedPath": "expected/D04.json",
+      "expected": {
+        "triageTier": "yellow",
+        "deliverableTypeHint": "letter.demand",
+        "rubricAxes": ["issue_coverage", "citation_hygiene", "actionability"]
+      }
+    },
+    {
+      "id": "D05",
+      "family": "demand",
+      "slug": "breach-notice",
+      "summary": "违约通知",
+      "inputPath": "cases/D05-breach-notice.md",
+      "expectedPath": "expected/D05.json",
+      "expected": {
+        "triageTier": "yellow",
+        "deliverableTypeHint": "letter.demand",
+        "rubricAxes": ["issue_coverage", "citation_hygiene", "actionability"]
+      }
+    },
+    {
+      "id": "B01",
+      "family": "batch",
+      "slug": "clause-scan-10",
+      "summary": "十条格式条款扫描",
+      "inputPath": "cases/B01-clause-scan-10.md",
+      "expectedPath": "expected/B01.json",
+      "expected": {
+        "triageTier": "green",
+        "deliverableTypeHint": "contract.review",
+        "rubricAxes": ["issue_coverage", "citation_hygiene", "actionability"]
+      }
+    },
+    {
+      "id": "B02",
+      "family": "batch",
+      "slug": "party-name-normalize",
+      "summary": "当事人名称归一",
+      "inputPath": "cases/B02-party-name-normalize.md",
+      "expectedPath": "expected/B02.json",
+      "expected": {
+        "triageTier": "green",
+        "deliverableTypeHint": "memo.general",
+        "rubricAxes": ["issue_coverage", "citation_hygiene", "actionability"]
+      }
+    },
+    {
+      "id": "B03",
+      "family": "batch",
+      "slug": "citation-anchor-check",
+      "summary": "引用锚定抽检",
+      "inputPath": "cases/B03-citation-anchor-check.md",
+      "expectedPath": "expected/B03.json",
+      "expected": {
+        "triageTier": "green",
+        "deliverableTypeHint": "memo.general",
+        "rubricAxes": ["issue_coverage", "citation_hygiene", "actionability"]
+      }
+    },
+    {
+      "id": "B04",
+      "family": "batch",
+      "slug": "redline-summary-pack",
+      "summary": "红线摘要打包",
+      "inputPath": "cases/B04-redline-summary-pack.md",
+      "expectedPath": "expected/B04.json",
+      "expected": {
+        "triageTier": "yellow",
+        "deliverableTypeHint": "contract.review",
+        "rubricAxes": ["issue_coverage", "citation_hygiene", "actionability"]
+      }
+    },
+    {
+      "id": "B05",
+      "family": "batch",
+      "slug": "deadline-extract",
+      "summary": "期限抽取",
+      "inputPath": "cases/B05-deadline-extract.md",
+      "expectedPath": "expected/B05.json",
+      "expected": {
+        "triageTier": "green",
+        "deliverableTypeHint": "memo.general",
+        "rubricAxes": ["issue_coverage", "citation_hygiene", "actionability"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "id": "standard-contract-review",
+  "label": "标准合同审查专案组",
+  "version": 1,
+  "deliverableTypes": ["contract.review", "contract.general", "contract.nda", "contract.rental"],
+  "executionMode": "serial",
+  "roles": [
+    {
+      "id": "clause",
+      "label": "条款结构",
+      "weight": 0.2,
+      "timeoutMs": 120000,
+      "toolAllowlist": ["draft_document", "update_draft"],
+      "promptHint": "核对章节完整性、定义一致与交叉引用。"
+    },
+    {
+      "id": "risk",
+      "label": "风险与责任",
+      "weight": 0.3,
+      "timeoutMs": 120000,
+      "toolAllowlist": ["draft_document", "research_task"],
+      "promptHint": "识别责任上限、违约、解除与高风险偏移。"
+    },
+    {
+      "id": "compliance",
+      "label": "合规",
+      "weight": 0.15,
+      "timeoutMs": 90000,
+      "toolAllowlist": ["research_task"],
+      "promptHint": "核对强制规范、行业与数据保护相关条款缺口。"
+    },
+    {
+      "id": "obligation_timeline",
+      "label": "义务时间线",
+      "weight": 0.15,
+      "timeoutMs": 90000,
+      "toolAllowlist": ["draft_document"],
+      "promptHint": "抽取履行期限、通知期与自动续期陷阱。"
+    },
+    {
+      "id": "citation_check",
+      "label": "引用核验",
+      "weight": 0.2,
+      "timeoutMs": 90000,
+      "toolAllowlist": ["research_task"],
+      "promptHint": "核对高风险结论是否有来源或已标待核实。"
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+# Playwright smoke (mock API + Vite) and Electron golden path.
+#
+# Electron 只在「会改变桌面端真实运行态」的 PR 上跑（path 过滤），其余 PR 不背
+# 这 ~2.3 分钟；每周一仍全量跑一次兜底，也可手动 dispatch。引擎侧改动由
+# `lawmind-ci.yml` 的渲染层 PR 门禁 + 全量单测覆盖。
+name: LawMind desktop E2E
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "apps/lawmind-desktop/**"
+      - "scripts/lawmind/lawmind-bundle-desktop-server.mjs"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/lawmind-desktop-e2e.yml"
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  lawmind-desktop-e2e-mock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm --filter lawmind-desktop exec playwright install chromium --with-deps
+
+      - name: E2E smoke (mock API)
+        run: pnpm lawmind:desktop:e2e
+
+  lawmind-desktop-e2e-electron:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm --filter lawmind-desktop exec playwright install chromium --with-deps
+
+      - name: Bundle server and build renderer
+        run: pnpm lawmind:bundle:desktop-server && pnpm --filter lawmind-desktop build:renderer
+
+      - name: Electron golden path
+        uses: coactions/setup-xvfb@v1
+
+      - name: Run Electron E2E
+        run: pnpm --filter lawmind-desktop test:e2e:electron

@@ -1,0 +1,128 @@
+# LawMind Desktop (Electron)
+
+Windows / macOS shell for LawMind: tasks, matters, review, chat with the legal agent, and delivery history. The local API binds **127.0.0.1** only.
+
+**Product intent:** This app is **not** a Word replacement or a generic LLM chat window. It is a **lawyer workbench** for task-driven work: clarify intent, use workspace/project files, call into the local OS where appropriate (for example open a document in the system default app or reveal a path in the file manager), and drive toward **reviewable deliverables**—not maximum chat volume. See <https://docs.lawmind.ai/archive/LAWMIND-VISION> (section **6.2d**).
+
+## End users (packaged app)
+
+If you received a **zip** (macOS `.app`) or **portable / installer** (Windows):
+
+- **No separate Node.js or officecli install is required** — the build vendors an official Node binary under `Resources/node-runtime/` and OfficeCLI under `Resources/officecli/` (Apache-2.0). The local server uses them for the API and Word 修订轨 / 改稿.
+- **Chat answers render Markdown tables and LaTeX in the app** — KaTeX ([GitHub](https://github.com/KaTeX/KaTeX), MIT; same engine Codex App / VS Code preview use) is a locked desktop dependency and is folded into the release renderer. No Marketplace plugin or extra config. See `src/renderer/vendor/katex/`.
+- Unzip or install, open the app, complete the **setup wizard** (API Key, optional Base URL/model/workspace).
+- macOS: a **Developer ID + notarized** build double-clicks after download. Unsigned/adhoc test builds still need **Right-click → Open** the first time (see <https://docs.lawmind.ai/LAWMIND-DELIVERY> §6).
+
+**Advanced:** set `LAWMIND_NODE_BIN` to force a different Node executable.
+
+**End users (简体中文):** 安装与系统说明见同目录 [**INSTALL.md**](./INSTALL.md)；对外发布前团队自查见 [**RELEASE-CHECKLIST.md**](./RELEASE-CHECKLIST.md)。**智能下载页**（按浏览器推断系统并高亮推荐包）：[docs.lawmind.ai/download](https://docs.lawmind.ai/download/)（源文件 [`download/index.html`](./download/index.html)；`?repo=组织/仓库` 可指向贵司 GitHub Release）。
+
+## 终端用户：更新与下载页
+
+- 菜单 **帮助 → 检查更新 / 下载安装包**；**设置** 底部 **应用更新** 亦提供入口。
+- 打包版默认通过 **GitHub Release** 做应用内更新（`electron-updater`），须与 `package.json` 里 `build.publish` 的仓库一致；企业可用 **`LAWMIND_SKIP_AUTO_UPDATE=1`** 关闭自动检查，**`LAWMIND_DOWNLOAD_PAGE_URL`** 自定义下载落地页。
+
+## Prerequisites (developers)
+
+- Clone the monorepo and `pnpm install` from the repo root.
+- **Node.js 22+** on `PATH` for **dev** (`tsx` + `lawmind-local-server.ts`).
+- If you see **Electron failed to install correctly** (pnpm v10 may skip `postinstall` until approved): from the **repo root** run `pnpm install` again (runs `postinstall` → `scripts/lawmind/lawmind-electron-rebuild.mjs`) or `pnpm approve-builds` and allow `electron`, then reinstall.
+
+## Develop
+
+From repo root:
+
+```bash
+pnpm lawmind:desktop
+```
+
+Or from this directory:
+
+```bash
+pnpm dev
+```
+
+This starts Vite on port **5174** as the **Electron renderer** and opens the desktop window. There is no web workbench: opening `http://127.0.0.1:5174` in a browser is not supported. End users download and open the packaged LawMind app.
+
+Dock 名称 / 系统图标 / 应用内 LM 标的更换入口见 [**BRANDING.md**](./BRANDING.md)（`pnpm lawmind:desktop:brand`）。
+
+### E2E (Playwright)
+
+From repo root (after `pnpm install`):
+
+```bash
+pnpm --filter lawmind-desktop test:e2e:install   # once: Chromium for Playwright
+pnpm lawmind:desktop:e2e
+```
+
+This starts a mock API plus Vite (test bundler only) and runs `apps/lawmind-desktop/e2e/*.spec.ts` against an **Electron preload stub**. It is not a shipped web UI.
+
+The main process resolves the monorepo root (must contain the workspace `package.json` named `lawmind` or legacy `openclaw`). Override with:
+
+```bash
+LAWMIND_REPO_ROOT=/path/to/lawmind pnpm dev
+```
+
+## Package / portable builds
+
+From **repo root** (推荐，与 CI 一致):
+
+```bash
+pnpm lawmind:desktop:dist
+```
+
+或在本目录：
+
+```bash
+pnpm run dist:electron
+```
+
+This runs:
+
+1. `pnpm bundle:server` — esbuild → `server/dist/lawmind-local-server.cjs`
+2. `pnpm vendor:node` — downloads Node for the **current** OS/arch into `resources/node-runtime/<platform-arch>/` (see [resources/node-runtime/README.md](resources/node-runtime/README.md))
+3. `pnpm vendor:officecli` — downloads OfficeCLI for the **current** OS/arch into `resources/officecli/<platform-arch>/` (see [resources/officecli/README.md](resources/officecli/README.md))
+4. `vite build`
+5. `electron-builder` — outputs under `release/`，文件名含 **版本与 os-arch**（`artifactName`）：
+   - **macOS:** `dmg` + **`zip`**（解压后得到 `LawMind.app`）
+   - **Windows:** `nsis` 安装包 + **`portable`** 绿色版 + **`zip`**
+   - **Linux (x64):** **`AppImage`** + **`tar.gz`**（解压即用目录）
+
+CI：推送 tag `lawmind-desktop-v*` 或手动运行 [LawMind desktop build](../../.github/workflows/lawmind-desktop-build.yml) 可在 Windows / macOS / Linux 上各打一份产物并上传为 artifact。
+
+Override vendored Node version:
+
+```bash
+LAWMIND_DESKTOP_NODE_VERSION=22.14.0 pnpm -w lawmind:vendor:desktop-node
+LAWMIND_OFFICECLI_VERSION=1.0.149 pnpm -w lawmind:vendor:officecli
+```
+
+## First-run wizard
+
+Writes `userData/LawMind/.env.lawmind` and `desktop-config.json`, then restarts the local API subprocess.
+
+## Multi-assistant (desktop)
+
+- **Assistants** live in `userData/LawMind/assistants.json` (built-in role presets plus custom intro/instructions). Usage counters are in `userData/LawMind/assistant-stats.json`.
+- Local HTTP API: `GET/POST/PATCH/DELETE /api/assistants`, `GET /api/assistant-presets`, and `POST /api/chat` accepts `assistantId` (defaults to `default`).
+- The default assistant cannot be deleted.
+
+## Web search (optional)
+
+- Main chat footer **检索** dropdown (`仅本地与案件记忆` vs `联网检索（Brave）`) sends `allowWebSearch: true` on `POST /api/chat` and registers the `web_search` tool when enabled.
+- Set `LAWMIND_WEB_SEARCH_API_KEY` or `BRAVE_API_KEY` in `LawMind/.env.lawmind`. Health reports `webSearchApiKeyConfigured`; when missing, the UI still allows choosing「联网」并可用「配置联网密钥」打开设置。
+
+## Architecture
+
+- `electron/main.mjs` — window; **dev:** `node --import tsx server/lawmind-local-server.ts` with `cwd` = monorepo root; **packaged:** `resolveNodeExecutable()` + `lawmind-local-server.cjs` with `cwd` beside the CJS file.
+- `server/lawmind-local-server.ts` — HTTP API; reuses `src/lawmind` agent.
+- `src/renderer` — React UI.
+
+Default workspace: `app.getPath('userData')/LawMind/workspace`.
+
+## Docs
+
+- <https://docs.lawmind.ai/LAWMIND-DELIVERY>
+- <https://docs.lawmind.ai/LAWMIND-LAWYER-QUICKSTART>
+- <https://docs.lawmind.ai/archive/LAWMIND-USER-MANUAL>
+- <https://docs.lawmind.ai/LAWMIND-FUTURE-ISSUES>
