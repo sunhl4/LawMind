@@ -35,6 +35,7 @@ export function buildQuickCreateDraft(
     presetKey: presetKey || DEFAULT_PRESET_KEY,
     customRoleTitle: title,
     customRoleInstructions: "",
+    jobBrief: {},
     orgRole: "",
     reportsToAssistantId: "",
     peerReviewDefaultAssistantId: "",

@@ -8,6 +8,14 @@ export type AssistantStats = {
   sessionCount: number;
 };
 
+export type AssistantJobBrief = {
+  responsibility?: string;
+  sources?: string;
+  deliverables?: string;
+  prohibitions?: string;
+  escalation?: string;
+};
+
 export type AssistantRow = {
   assistantId: string;
   displayName: string;
@@ -15,6 +23,8 @@ export type AssistantRow = {
   presetKey?: string;
   customRoleTitle?: string;
   customRoleInstructions?: string;
+  /** 结构化职务说明书（职责/材料/交付/禁止项/上报条件）。 */
+  jobBrief?: AssistantJobBrief;
   orgRole?: AssistantOrgRole;
   reportsToAssistantId?: string;
   peerReviewDefaultAssistantId?: string;

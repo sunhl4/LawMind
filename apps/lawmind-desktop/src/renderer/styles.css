@@ -20898,6 +20898,82 @@ html.lm-theme-dark .lm-tool-args-edit-textarea {
   -webkit-line-clamp: 2;
   overflow: hidden;
 }
+/* 常设工作的「办这件事的规矩」（六确认）与运行记录 */
+
+.lm-automations-confirm {
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  margin: var(--space-3) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.lm-automations-confirm > .lm-settings-subtitle {
+  padding: 0 var(--space-1);
+}
+
+/* 运行记录单独成行，不挤进上面的 flex row（否则按钮会被压变形） */
+.lm-automations-runs-row {
+  list-style: none;
+  padding: 0 8px var(--space-3);
+  border-top: 1px dashed var(--border);
+  background: var(--accent-dim);
+  margin-bottom: var(--space-2);
+}
+
+.lm-automations-runs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-top: var(--space-2);
+}
+
+.lm-automations-runs-summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.lm-automations-runs-ul {
+  margin: 0;
+  padding-left: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 160px;
+  overflow: auto;
+}
+
+.lm-automations-runs-terms {
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+/* 「可以放心让它继续」才有强调；不达标时保持普通 meta，不用红色吓人 */
+.lm-automations-promotion-ready {
+  color: var(--accent);
+  font-weight: var(--fw-medium);
+}
+
+/* 后台办件日志：等宽、限高、可滚。它是排障材料，不是正文。 */
+.lm-daemon-log {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: var(--fs-xs, 11px);
+  line-height: var(--lh-snug, 1.4);
+  color: var(--text-2);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: var(--space-2);
+}
 
 /* ── end imported: automations ── */
 

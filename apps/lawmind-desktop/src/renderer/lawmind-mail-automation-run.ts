@@ -49,7 +49,7 @@ export async function runMailAutomationNow(opts: {
     automation = created.automation;
   }
   if (!automation?.id) {
-    throw new Error("无法创建交办任务。");
+    throw new Error("无法创建自动办件。");
   }
   await apiSendJson(opts.apiBase, `/api/automations/${encodeURIComponent(automation.id)}`, "PATCH", {
     runNow: true,

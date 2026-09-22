@@ -16,7 +16,7 @@ test.describe("自动办件：interval 创建与「查看流程」深链", () =>
     await installE2eBrowserPrefs(page);
   });
 
-  test("interval 模式创建交办任务并出现在列表", async ({ page }) => {
+  test("interval 模式创建自动办件并出现在列表", async ({ page }) => {
     await openAutomationsPanel(page);
     // 选「邮件合同审阅」模板 + 每隔一段时间。
     await page.locator(".lm-automations-preset-card", { hasText: "邮件合同审阅" }).first().click();
@@ -48,7 +48,7 @@ test.describe("自动办件：interval 创建与「查看流程」深链", () =>
 
   test("设置自动办件只含配置，不含待拍板结果", async ({ page }) => {
     await openAutomationsPanel(page);
-    await expect(page.getByRole("heading", { name: "我的交办任务" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "我的自动办件" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "创建" })).toBeVisible();
     await expect(page.getByTestId("lm-mail-accounts")).toBeVisible();
     await expect(page.getByRole("heading", { name: "待拍板的运行结果" })).toHaveCount(0);

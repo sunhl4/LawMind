@@ -1,5 +1,11 @@
 import { useCallback, type Dispatch, type SetStateAction } from "react";
-import { createAssistantDraft, deleteAssistant, saveAssistantDraft, type AssistantEditorDraft } from "./lawmind-assistant-editor";
+import {
+  createAssistantDraft,
+  deleteAssistant,
+  saveAssistantDraft,
+  type AssistantEditorDraft,
+} from "./lawmind-assistant-editor";
+import { apiDuplicateAssistant } from "./lawmind-api-routes";
 import { removeAssistantChatState, type ChatMsg } from "./lawmind-chat";
 import { clearStoredActiveChatSessionForAssistant } from "./useLawmindChatShell";
 import { DEFAULT_ASSISTANT_ID } from "../../../../src/lawmind/assistants/constants.ts";
@@ -142,10 +148,50 @@ export function useLawmindAssistantActions(params: UseLawmindAssistantActionsPar
     setSessionByAssistant,
   ]);
 
+  /**
+   * 复制当前助手：把**角色**（含职务说明书）复制成一个新助手。
+   *
+   * 不复制记忆与用量——新助手不该继承别人积累的客户事，这条语义由引擎与单测
+   * 保证（见 `duplicateAssistant`）；渲染层不提供开关，避免把「要不要连记忆一起抄」
+   * 变成一个能被点错的选择。
+   *
+   * 复制完选中副本：律师的下一步几乎总是给它改名、划新范围。
+   */
+  const duplicateAssistant = useCallback(async () => {
+    if (!config || !selectedAssistantId) {
+      return;
+    }
+    setAsstBusy(true);
+    setAsstError(null);
+    try {
+      const response = await apiDuplicateAssistant(config.apiBase, selectedAssistantId);
+      if (!response.ok) {
+        throw new Error("duplicate failed");
+      }
+      const newId = (response.assistant as { assistantId?: string } | undefined)?.assistantId;
+      await refreshAssistants();
+      if (newId) {
+        setSelectedAssistantId(newId);
+      }
+    } catch (cause) {
+      setAsstError(errorMessage(cause, "复制助手失败"));
+    } finally {
+      setAsstBusy(false);
+    }
+  }, [
+    config,
+    refreshAssistants,
+    selectedAssistantId,
+    setAsstBusy,
+    setAsstError,
+    setSelectedAssistantId,
+  ]);
+
   return {
     openNewAssistant,
     openEditAssistant,
     saveAssistant,
     removeAssistant,
+    duplicateAssistant,
   };
 }

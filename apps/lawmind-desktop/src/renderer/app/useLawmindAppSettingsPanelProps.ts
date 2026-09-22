@@ -30,6 +30,7 @@ export type UseLawmindAppSettingsPanelPropsInput = {
   openNewAssistant: (presetKey?: string) => void;
   openEditAssistant: () => void;
   removeAssistant: () => void | Promise<void>;
+  duplicateAssistant: () => void | Promise<void>;
   applyRetrievalMode: (mode: "single" | "dual") => void | Promise<void>;
   applyDraftWithModelEnabled: (enabled: boolean) => void | Promise<void>;
   npcSaving?: boolean;
@@ -84,6 +85,7 @@ export function useLawmindAppSettingsPanelProps(
     openNewAssistant,
     openEditAssistant,
     removeAssistant,
+    duplicateAssistant,
     applyRetrievalMode,
     applyDraftWithModelEnabled,
     npcSaving,
@@ -155,6 +157,7 @@ export function useLawmindAppSettingsPanelProps(
       onOpenNewAssistant: openNewAssistant,
       onOpenEditAssistant: openEditAssistant,
       onRemoveAssistant: () => void removeAssistant(),
+      onDuplicateAssistant: () => void duplicateAssistant(),
       onApplyRetrievalMode: applyRetrievalMode,
       onApplyDraftWithModelEnabled: applyDraftWithModelEnabled,
       npcSaving: npcSaving ?? false,
@@ -260,6 +263,7 @@ export function useLawmindAppSettingsPanelProps(
       openNewAssistant,
       openEditAssistant,
       removeAssistant,
+    duplicateAssistant,
       applyRetrievalMode,
       applyDraftWithModelEnabled,
       reconnectLocalService,
