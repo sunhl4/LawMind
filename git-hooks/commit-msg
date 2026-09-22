@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+#
+# LawMind commit-msg guard: strip machine-added Cursor co-author trailers.
+#
+# Why: Cursor's agent runtime appends
+#     Co-authored-by: Cursor <cursoragent@cursor.com>
+# to commits it creates. GitHub counts co-authors as contributors, so a
+# single-author repository suddenly lists `cursoragent` (Cursor Agent) on its
+# public Contributors panel. This is cosmetic for a private repo and actively
+# harmful for one whose history was squashed to remove third-party credits.
+#
+# This hook removes that trailer before the commit object is written, so the
+# credit never reaches the history in the first place.
+#
+# Deliberately keeping a Cursor credit? Bypass with: git commit --no-verify
+#
+# Scope: only Cursor's own trailer is removed. Any other Co-authored-by line
+# (a real human co-author) is preserved untouched.
+
+set -u
+
+msg_file="${1:-}"
+if [ -z "$msg_file" ] || [ ! -f "$msg_file" ]; then
+  exit 0
+fi
+
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+
+# Drop Cursor co-author trailer lines (case-insensitive) and trim trailing
+# blank lines. Plain awk keeps this dependency-free on macOS/Linux.
+awk '
+{
+  line = $0
+  low = tolower(line)
+  if (low ~ /^[[:space:]]*co-authored-by:[[:space:]]*cursor([[:space:]]+agent)?[[:space:]]*<[^>]*cursor\.com>[[:space:]]*$/) next
+  lines[++n] = line
+}
+END {
+  while (n > 0 && lines[n] ~ /^[[:space:]]*$/) n--
+  for (i = 1; i <= n; i++) print lines[i]
+}
+' "$msg_file" > "$tmp" 2>/dev/null || exit 0
+
+if ! cmp -s "$msg_file" "$tmp"; then
+  cat "$tmp" > "$msg_file"
+  printf '%s\n' "commit-msg: 已移除 Cursor co-author trailer（保持 Contributors 干净）" >&2
+fi
+
+exit 0
