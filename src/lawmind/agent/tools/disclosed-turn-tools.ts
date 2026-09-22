@@ -69,6 +69,8 @@ export const DESK_INTAKE_TOOLS = [
   "search_host",
   "read_host_file",
   "import_host_file",
+  "relocate_matter_materials",
+  "apply_file_ops",
   "update_matter_profile",
   "extract_legal_events",
   "apply_legal_events",
@@ -139,7 +141,7 @@ function pinRelPaths(pins: ComposeContextPin[] | undefined): string[] {
 }
 
 function instructionLooksLikeDeskIntake(text: string): boolean {
-  return /补卷宗|按这个文件夹|按里面的材料|整理材料|归位材料|整理案卷|整理一下?(材料|案卷|卷宗)|(材料|案卷|卷宗|materials).{0,4}整理/.test(
+  return /补卷宗|按这个文件夹|按里面的材料|整理材料|归位材料|整理案卷|整理一下?(材料|案卷|卷宗)|(材料|案卷|卷宗|materials).{0,4}整理|材料?(放错|放错案|收错)|挪回|挪到|退回原案|搬移材料|搬到.{0,6}案/.test(
     text,
   );
 }

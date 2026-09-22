@@ -31,12 +31,40 @@ const E2E_CONTRACT_REVIEW_SECTIONS = [
 ];
 
 /**
- * 判断项待定夺的 mock 状态（G3 旁路展示）。
+ * 判断项待定夺的 mock 状态（G3 旁路展示）——**按测试作用域隔离**。
  *
  * 缺省 `empty`：现有各 spec 打开审核台时**不会**多出一张卡（避免污染既有断言）。
- * 需要它的 spec 先用 `POST /__e2e__/judgment` 打开，用完复位。
+ *
+ * 为什么按作用域而不是全局单例：这套配置在本地默认 `fullyParallel: true`，
+ * 多个 spec **文件**同时跑。共享一份全局状态时，A 文件的 `afterEach` 复位的可能是
+ * B 文件刚设好的值 —— 表现为「单独跑绿、全量跑红」的玄学 flake（CI 里
+ * `workers: 1` 掩盖了它，所以只有在本机会遇到）。
+ *
+ * 作用域来自请求头 `x-lawmind-e2e-scope`（由 `installE2eBrowserPrefs` 每个测试
+ * 生成一个），缺省 `default` 以保持向后兼容：没带头的调用方仍共用一份状态。
  */
-const judgmentMock = { mode: "empty", posture: "block" };
+const judgmentMockByScope = new Map();
+
+/** 每个作用域的初始状态。新作用域自动拿到它，因此测试之间**零残留**、无需复位。 */
+function freshJudgmentMock() {
+  return { mode: "empty", posture: "block" };
+}
+
+function scopeOf(req) {
+  const raw = req.headers["x-lawmind-e2e-scope"];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return typeof value === "string" && value.trim() ? value.trim() : "default";
+}
+
+function judgmentMockFor(req) {
+  const scope = scopeOf(req);
+  let current = judgmentMockByScope.get(scope);
+  if (!current) {
+    current = freshJudgmentMock();
+    judgmentMockByScope.set(scope, current);
+  }
+  return current;
+}
 
 /** mock 的待定夺项——文案形状与真实 sidecar 一致（label + reason，**无内部 id**）。 */
 const JUDGMENT_ITEMS = [
@@ -321,7 +349,10 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(204, {
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
-      "access-control-allow-headers": "content-type,authorization",
+      // `x-lawmind-e2e-scope` 必须在白名单里：它是跨源请求的自定义头，
+      // 不在列表里会**触发预检失败**——表现为 page 侧 fetch 全挂
+      // （症状是 gotoShell 等健康检查超时，看起来像应用起不来，实际是 CORS）。
+      "access-control-allow-headers": "content-type,authorization,x-lawmind-e2e-scope",
     });
     res.end();
     return;
@@ -1056,8 +1087,8 @@ const server = http.createServer(async (req, res) => {
     sessionCreateSeq = 1;
     handoffDraftSeq = 1;
     handoffFleetRuns.length = 0;
-    judgmentMock.mode = "empty";
-    judgmentMock.posture = "block";
+    // 只复位**调用方自己**的作用域：并行时不该替别的测试清状态。
+    judgmentMockByScope.set(scopeOf(req), freshJudgmentMock());
     ensureDefaultSessionSeeded();
     json(res, 200, { ok: true });
     return;
@@ -1071,9 +1102,10 @@ const server = http.createServer(async (req, res) => {
       json(res, 400, { ok: false, error: "bad_mode" });
       return;
     }
-    judgmentMock.mode = mode;
-    judgmentMock.posture = body?.posture === "advisory" ? "advisory" : "block";
-    json(res, 200, { ok: true, ...judgmentMock });
+    const current = judgmentMockFor(req);
+    current.mode = mode;
+    current.posture = body?.posture === "advisory" ? "advisory" : "block";
+    json(res, 200, { ok: true, ...current });
     return;
   }
 
@@ -1084,6 +1116,7 @@ const server = http.createServer(async (req, res) => {
       json(res, 400, { ok: false, error: "missing_task_id" });
       return;
     }
+    const judgmentMock = judgmentMockFor(req);
     // `error` 模式：返回**不可重试的失败**（404）。
     // 不要用 5xx —— `fetchApi` 会对 5xx 指数退避重试，重试链比断言窗口还长，
     // 「读不到」在界面上会看起来像「没反应」（那是测试假象，不是产品行为）。
@@ -1107,6 +1140,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (path === "/api/judgment/escalations" && req.method === "GET") {
+    const judgmentMock = judgmentMockFor(req);
     if (judgmentMock.mode === "error") {
       json(res, 404, { ok: false, error: "judgment_unavailable" });
       return;
@@ -1929,7 +1963,7 @@ const server = http.createServer(async (req, res) => {
       ok: true,
       task: {
         taskId: taskMatch[1],
-        title: "E2E 自动办件",
+        title: "E2E 交办任务",
         status: "drafted",
         statusLabel: "已出稿待审",
         matterId: "e2e-matter-1",

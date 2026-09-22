@@ -109,6 +109,8 @@ const TOOL_DISPLAY_ZH: Record<string, string> = {
   apply_intake_brief: "写入谈话档案",
   update_matter_profile: "更新卷宗",
   revert_desk_write: "撤销刚才写入",
+  relocate_matter_materials: "归位材料",
+  apply_file_ops: "整理文件",
   create_matter: "新建案件",
   list_tasks: "查看事项清单",
   list_drafts: "查看草稿清单",

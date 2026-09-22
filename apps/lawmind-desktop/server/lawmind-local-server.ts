@@ -57,25 +57,12 @@ import { readWorkspacePolicyFile } from "../../../src/lawmind/policy/workspace-p
 import { processDueLawyerAutomations } from "../../../src/lawmind/platform/lawyer-automations-runner.js";
 import { processDueDeadlineReminders } from "../../../src/lawmind/desk/deadline-remind.js";
 import {
-  DAEMON_TICK_INTERVAL_MS,
-  acquireDaemonLock,
   clearDaemonPid,
-  clearDaemonSupervisionGiveUp,
   getDaemonStatus,
-  markDaemonExit,
   markDaemonStarted,
-  markDaemonSupervisionGaveUp,
   markDaemonTick,
-  releaseDaemonLock,
   stopDaemonProcess,
 } from "../../../src/lawmind/platform/lawmind-daemon.js";
-import { appendDaemonLogLine } from "../../../src/lawmind/platform/lawmind-daemon-log.js";
-import { classifyDaemonExit } from "../../../src/lawmind/platform/lawmind-daemon-supervision.js";
-import {
-  buildSupervisorChildEnv,
-  describeDaemonChildExitForLog,
-  runDaemonSupervisorLoop,
-} from "./lawmind-daemon-supervisor.js";
 import {
   instantiateCollaborationWorkflowFromTemplate,
   readWorkspaceWorkflowTemplate,
@@ -88,227 +75,25 @@ import { startMatterReplicaAutoSync } from "../../../src/lawmind/matter-replica/
 import { setMatterReplicaScheduler } from "./lawmind-server-matter-replica-scheduler.js";
 import { syncMatterWithCloud } from "../../../src/lawmind/matter-cloud/index.js";
 
-/** 监督进程把重启次数通过 env 传给子进程，子进程据此写入状态（给律师看的「中断过 N 次」）。 */
-function parseRestartCountEnv(raw: string | undefined): number {
-  const n = Number(raw);
-  return Number.isInteger(n) && n > 0 ? n : 0;
-}
-
-/**
- * 退出归因：把「为什么停了」写进状态，桌面重开时如实回执。
- *
- * 挂在 `process.on("exit")` 上而不是各分支里，是因为崩溃路径（uncaughtException、
- * unhandledRejection、以及 Node 自己遇到致命错误）未必经过我们的处理器；
- * exit 处理器只能做同步 I/O，而 `writeDaemonState` 正是同步的。
- */
-function installDaemonExitAccounting(workspaceDir: string, isIntentional: () => boolean): void {
-  process.on("exit", (code) => {
-    try {
-      const exitClass = classifyDaemonExit({ code, intentional: isIntentional() });
-      markDaemonExit(workspaceDir, { exitClass, detail: `exit_code=${code ?? "unknown"}` });
-      appendDaemonLogLine(workspaceDir, exitClass === "stopped" ? "info" : "error", `[lawmindd] 退出 ${exitClass} exit_code=${code ?? "unknown"}`);
-      releaseDaemonLock(workspaceDir);
-      clearDaemonPid(workspaceDir);
-    } catch {
-      /* 退出路径永不抛 */
-    }
-  });
-  const recordFatal = (label: string, err: unknown) => {
-    const text = err instanceof Error ? (err.stack ?? err.message) : String(err);
-    appendDaemonLogLine(workspaceDir, "error", `[lawmindd] ${label}：${text}`);
-    console.error(`[lawmindd] ${label}:`, err);
-    // 交给 exit 处理器归因并落盘；这里只负责把它记下来。
-    process.exit(1);
-  };
-  process.on("uncaughtException", (err) => recordFatal("uncaughtException", err));
-  process.on("unhandledRejection", (err) => recordFatal("unhandledRejection", err));
-}
-
-/**
- * 监督进程：反复把 tick 子进程跑起来，崩了按退避重启。
- *
- * ## 所有权：pid 与锁都归**子进程**，监督进程不持有任何持久状态
- *
- * 踩过的坑（真机 E2E `daemon-supervision.spec.ts` 抓到，单测抓不到）：
- * 最初让监督进程先抢锁再 fork，而子进程也抢同一把锁 —— 子进程必然失败并「让位」，
- * 于是**走生产路径（关窗 → 监督进程）时 lawmindd 从来不 tick**，
- * 「关窗后继续办件」实际是坏的。两个函数各自单测都对，拼起来才错。
- *
- * 现在：互斥唯一由**子进程**的 `acquireDaemonLock` 仲裁（它才是真正的 ticker）。
- * 起两个监督进程也无害——抢到锁的那个负责 tick，另一个的子进程让位、以 0 退出，
- * 其监督进程依 `clean_exit` 收工。代价是多一次 fork，换来的是没有跨进程的双重所有权。
- *
- * 因此监督进程**不**清 pid、**不**放锁：那会把另一棵正在跑的树的状态抹掉。
- *
- * 子进程的 stdout/stderr 被接管并逐行转成带时间戳的日志——不能直接把 fd 指到
- * `daemon.log`，因为轮转之后那个 fd 会一直写到改名后的旧 inode 上。
- */
-async function runDaemonSupervisor(workspaceDir: string, envFile: string | undefined): Promise<void> {
-  const { spawn } = await import("node:child_process");
-  const logLine = (level: "info" | "warn" | "error", message: string) => {
-    appendDaemonLogLine(workspaceDir, level, message);
-    console.error(`[lawmindd-supervisor] ${message}`);
-  };
-
-  let stopping = false;
-  let currentChild: import("node:child_process").ChildProcess | null = null;
-  const onStop = () => {
-    stopping = true;
-    currentChild?.kill("SIGTERM");
-  };
-  process.on("SIGTERM", onStop);
-  process.on("SIGINT", onStop);
-
-  const scriptPath = process.argv[1];
-  if (!scriptPath) {
-    logLine("error", "找不到要监督的脚本路径，无法启动后台办件。");
-    return;
-  }
-
-  // 走 buildSupervisorChildEnv 这个唯一过滤器：手写 `{...process.env}`
-  // 会把 deny 名单里的凭据根密钥透传给 tick 进程（见 SECURITY.md）。
-  const childEnv = buildSupervisorChildEnv(process.env, { workspaceDir, envFile });
-
-  const outcome = await runDaemonSupervisorLoop(
-    {
-      spawnChild: ({ restartCount }) => {
-        let child: import("node:child_process").ChildProcess;
-        try {
-          child = spawn(process.execPath, [...process.execArgv, scriptPath], {
-            cwd: process.cwd(),
-            env: {
-              ...childEnv,
-              LAWMIND_ENV_FILE: envFile ?? "",
-              // 子进程据此把「被重启过几次」写进 daemon.json ——
-              // 桌面「期间中断过 N 次」的回执唯一来源。
-              ...(restartCount > 0
-                ? { LAWMIND_DAEMON_RESTART_COUNT: String(restartCount) }
-                : {}),
-            },
-            stdio: ["ignore", "pipe", "pipe"],
-          });
-        } catch (err) {
-          // spawn 本身失败也要走同一套退避，不能把异常抛穿监督循环。
-          const detail = err instanceof Error ? err.message : String(err);
-          logLine("error", `子进程启动失败：${detail}`);
-          return { waitForExit: async () => ({ code: 1, signal: null }) };
-        }
-        currentChild = child;
-        attachChildLogTee(child, workspaceDir);
-        return {
-          waitForExit: () =>
-            new Promise((resolve) => {
-              child.once("exit", (code, signal) => {
-                if (currentChild === child) {
-                  currentChild = null;
-                }
-                resolve({ code, signal });
-              });
-              child.once("error", (err) => {
-                logLine("error", `子进程错误：${err.message}`);
-                resolve({ code: 1, signal: null });
-              });
-            }),
-        };
-      },
-      delay: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-      onChildExit: ({ exitClass, code, signal, restarts }) => {
-        logLine(
-          exitClass === "crashed" || exitClass === "killed" ? "error" : "info",
-          `子进程退出（${exitClass}, ${describeDaemonChildExitForLog({ code, signal })}），累计重启 ${restarts} 次`,
-        );
-        // **只有非正常退出由监督进程记账。**
-        //
-        // 必要性：子进程被 SIGKILL 时 `process.on("exit")` 根本不会运行，
-        // 它没有机会写下自己的退出记录 —— 而律师最需要看到的正是这类中断
-        // （真机 E2E 抓到：自愈成功后 lastExitClass 仍是 undefined）。
-        //
-        // 只记 crashed/killed：clean/stopped 是正常收工，记下来会让设置页
-        // 在每次正常停止后都显示「后台办件自己收工了」，属于虚假告警。
-        if (exitClass === "crashed" || exitClass === "killed") {
-          markDaemonExit(workspaceDir, {
-            exitClass,
-            detail: describeDaemonChildExitForLog({ code, signal }),
-          });
-        }
-      },
-      onRestartScheduled: ({ attempt, delayMs, reason }) => {
-        logLine("warn", `准备第 ${attempt} 次自动重启（原因 ${reason}），等待 ${delayMs}ms`);
-      },
-      onGiveUp: ({ reason, attempts }) => {
-        markDaemonSupervisionGaveUp(workspaceDir, { reason, attempts });
-        logLine(
-          "error",
-          `连续失败 ${attempts} 次后停止重试：这段时间的自动办件没有运行。`,
-        );
-      },
-    },
-    { isStopping: () => stopping },
-  );
-
-  // 刻意不 clearDaemonPid / releaseDaemonLock：pid 与锁属于子进程。
-  // 子进程退出时已自行清理；若它让位给了别的树，这里清就等于抹掉别人。
-  logLine("info", `监督进程结束（${outcome.reason}，累计重启 ${outcome.restarts} 次）`);
-}
-
-/** 把子进程的原始输出逐行转成带时间戳的日志，避免轮转后 fd 指向旧 inode。 */
-function attachChildLogTee(
-  child: import("node:child_process").ChildProcess,
-  workspaceDir: string,
-): void {
-  const tee = (stream: NodeJS.ReadableStream | null, level: "info" | "error") => {
-    if (!stream) {
-      return;
-    }
-    const streamRef = stream;
-    let partial = "";
-    streamRef.setEncoding?.("utf8");
-    streamRef.on("data", (chunk: string) => {
-      const text = partial + chunk;
-      const lines = text.split("\n");
-      partial = lines.pop() ?? "";
-      for (const line of lines) {
-        if (line.trim() !== "") {
-          appendDaemonLogLine(workspaceDir, level, line);
-        }
-      }
-    });
-  };
-  tee(child.stdout, "info");
-  tee(child.stderr, "error");
-}
-
 async function main() {
   const daemonMode = process.env.LAWMIND_DAEMON === "1";
-  const supervisorMode = process.env.LAWMIND_DAEMON_SUPERVISOR === "1";
   const workspaceDir = process.env.LAWMIND_WORKSPACE_DIR?.trim();
   const portRaw = process.env.LAWMIND_DESKTOP_PORT?.trim();
   const envFileRaw = process.env.LAWMIND_ENV_FILE?.trim();
   const envFile = envFileRaw || undefined;
-  /** 由 SIGTERM/SIGINT 处理器置位，供退出归因区分「正常停止」与「崩溃」。 */
-  let exitIntentional = false;
 
-  const headlessMode = daemonMode || supervisorMode;
-  if (!workspaceDir || (!headlessMode && !portRaw)) {
+  if (!workspaceDir || (!daemonMode && !portRaw)) {
     console.error("LAWMIND_WORKSPACE_DIR and LAWMIND_DESKTOP_PORT are required");
     process.exit(1);
   }
 
   const port = Number(portRaw);
-  if (!headlessMode && (!Number.isFinite(port) || port < 1 || port > 65535)) {
+  if (!daemonMode && (!Number.isFinite(port) || port < 1 || port > 65535)) {
     console.error("Invalid LAWMIND_DESKTOP_PORT");
     process.exit(1);
   }
 
   fs.mkdirSync(workspaceDir, { recursive: true });
-
-  // 监督进程只做一件事：把 tick 子进程跑起来、崩了按退避重启、写日志与状态。
-  // 必须在任何重活（seed / 加载 jobs / 读密钥）之前分支，否则监督进程会重复
-  // 干一遍子进程的活，并且持有两份状态。
-  if (supervisorMode) {
-    await runDaemonSupervisor(workspaceDir, envFile);
-    return;
-  }
 
   if (!daemonMode) {
     try {
@@ -319,32 +104,16 @@ async function main() {
   }
 
   if (daemonMode) {
-    // 抢锁才是互斥依据：pid 文件的「读→判→写」之间有竞态。
-    const lock = acquireDaemonLock(workspaceDir);
-    if (!lock.acquired) {
-      const detail = lock.reason === "held" ? `pid=${lock.heldBy ?? "unknown"}` : lock.detail;
-      appendDaemonLogLine(workspaceDir, "info", `[lawmindd] 已在运行，本进程让位（${detail}）`);
-      console.error(`[lawmindd] already running (${detail})`);
+    const existing = getDaemonStatus(workspaceDir);
+    if (existing.running && existing.pid !== process.pid) {
+      console.error(`[lawmindd] already running pid=${existing.pid}`);
       process.exit(0);
     }
-    const restartCount = parseRestartCountEnv(process.env.LAWMIND_DAEMON_RESTART_COUNT);
-    markDaemonStarted(workspaceDir, process.pid, { restartCount });
-    // 有 ticker 真的跑起来了，就说明「重试已耗尽」的旧结论过期了；
-    // 否则桌面会一边显示「已停止重试、没有运行」，一边实际在办件。
-    clearDaemonSupervisionGiveUp(workspaceDir);
-    appendDaemonLogLine(
-      workspaceDir,
-      "info",
-      `[lawmindd] 启动 pid=${process.pid}${restartCount > 0 ? `（第 ${restartCount} 次自动重启）` : ""}`,
-    );
-
-    installDaemonExitAccounting(workspaceDir, () => exitIntentional);
+    markDaemonStarted(workspaceDir, process.pid);
     const stop = () => {
-      exitIntentional = true;
       if (getDaemonStatus(workspaceDir).pid === process.pid) {
         clearDaemonPid(workspaceDir);
       }
-      releaseDaemonLock(workspaceDir);
       process.exit(0);
     };
     process.on("SIGTERM", stop);
@@ -513,15 +282,8 @@ async function main() {
     autoRebuildSearchIndexIfStale();
   };
   tickScheduledWithIndex();
-  const scheduleTimer = setInterval(tickScheduledWithIndex, DAEMON_TICK_INTERVAL_MS);
-  // daemon 模式下这个定时器是**唯一的存活句柄**：unref 掉之后事件循环随即空掉，
-  // 进程启动完就自己退出，「关窗后继续办件」随之彻底失效
-  // （真机 E2E `daemon-supervision.spec.ts` 抓到：日志里 `[lawmindd] 启动` 之后
-  // 紧跟 `退出 clean exit_code=0`，监督进程看到 clean_exit 也就收工了）。
-  // 桌面模式下 HTTP server 会撑住事件循环，仍保持 unref 以便干净退出。
-  if (!daemonMode) {
-    scheduleTimer.unref?.();
-  }
+  const scheduleTimer = setInterval(tickScheduledWithIndex, 30_000);
+  scheduleTimer.unref?.();
 
   // 案件副本自动同步（Firm/Private 默认开，Solo 关闭）：同事丢进的材料不用手点就会出现。
   const replicaAutoSync = startMatterReplicaAutoSync({

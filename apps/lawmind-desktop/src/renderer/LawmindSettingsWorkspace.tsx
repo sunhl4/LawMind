@@ -3,7 +3,6 @@ import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import { LawmindSettingsPracticePlaybook } from "./LawmindSettingsPracticePlaybook";
 import { LawmindSettingsUserStandards } from "./LawmindSettingsUserStandards";
 import type { LawmindSettingsAppConfig } from "./lawmind-settings-models.ts";
-import type { LawmindDaemonPayload } from "./lawmind-app-data.ts";
 
 type Props = {
   config: LawmindSettingsAppConfig;
@@ -21,10 +20,11 @@ export function LawmindSettingsWorkspace(props: Props): ReactNode {
   const [deskHint, setDeskHint] = useState<string | null>(null);
   const [daemonBusy, setDaemonBusy] = useState(false);
   const [daemonHint, setDaemonHint] = useState<string | null>(null);
-  const [daemon, setDaemon] = useState<LawmindDaemonPayload | null>(null);
-  /** 后台日志按需拉取：它是排障材料，不该在打开设置时无条件读盘。 */
-  const [daemonLog, setDaemonLog] = useState<{ lines: string[]; exists: boolean } | null>(null);
-  const [daemonLogBusy, setDaemonLogBusy] = useState(false);
+  const [daemon, setDaemon] = useState<{
+    enabled?: boolean;
+    running?: boolean;
+    lastTickAt?: string;
+  } | null>(null);
   const [mounts, setMounts] = useState<Array<{ id: string; absPath: string; label?: string; matterId?: string }>>(
     [],
   );
@@ -40,34 +40,8 @@ export function LawmindSettingsWorkspace(props: Props): ReactNode {
     }
   }, []);
 
-  /**
-   * 拉后台日志。
-   *
-   * 为什么必须有这个入口：「关桌面后继续办件」出问题时的现场在
-   * `lawmind/daemon.log` 里，而此前产品没有任何地方能读到它 ——
-   * 等于要律师自己去摸文件系统。按需拉取，不打开设置就读盘。
-   */
-  const loadDaemonLog = useCallback(async () => {
-    if (!apiBase?.trim()) {
-      return;
-    }
-    setDaemonLogBusy(true);
-    try {
-      const j = await apiGetJson<{ log?: { lines: string[]; exists: boolean } }>(
-        apiBase,
-        "/api/daemon/log",
-      );
-      setDaemonLog(j.log ?? { lines: [], exists: false });
-    } catch (e) {
-      setDeskHint(errorMessage(e, "读不到后台日志"));
-    } finally {
-      setDaemonLogBusy(false);
-    }
-  }, [apiBase]);
-
   useEffect(() => {
     if (!apiBase?.trim()) {
-      // 显式 `undefined`：与下面的 cleanup 返回保持一致的返回形状（oxlint consistent-return）。
       return undefined;
     }
     let cancelled = false;
@@ -85,7 +59,7 @@ export function LawmindSettingsWorkspace(props: Props): ReactNode {
       });
     void apiGetJson<{
       ok?: boolean;
-      daemon?: LawmindDaemonPayload;
+      daemon?: { enabled?: boolean; running?: boolean; lastTickAt?: string };
     }>(apiBase, "/api/daemon")
       .then((j) => {
         if (!cancelled && j.ok) {
@@ -142,7 +116,7 @@ export function LawmindSettingsWorkspace(props: Props): ReactNode {
       const j = await apiSendJson<
         {
           ok?: boolean;
-          daemon?: LawmindDaemonPayload;
+          daemon?: { enabled?: boolean; running?: boolean; lastTickAt?: string };
           message?: string;
           error?: string;
         },
@@ -271,59 +245,6 @@ export function LawmindSettingsWorkspace(props: Props): ReactNode {
           <p className="lm-settings-caption">
             只在这台电脑上跑自动办件，不把案卷送到云上。回来只看「在办 / 待我拍板」。
           </p>
-          {daemon?.recap ? (
-            // 回执的真相源在服务端（引擎单测覆盖文案）；这里只负责显示，不重新推导「算不算异常」。
-            <div
-              className={`lm-callout ${
-                daemon.supervisionGaveUp
-                  ? "lm-callout-danger"
-                  : daemon.heartbeatStale
-                    ? "lm-callout-warn"
-                    : "lm-callout-muted"
-              }`}
-              role="status"
-              data-testid="lm-daemon-recap"
-            >
-              <p className="lm-callout-title">{daemon.recap.headline}</p>
-              <ul className="lm-callout-body">
-                {daemon.recap.details.map((line) => (
-                  <li key={line}>{line}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          <details
-            className="lm-settings-advanced"
-            data-testid="lm-daemon-log"
-            onToggle={(e) => {
-              // 展开时才读盘（一次就够，重复展开不重复请求）。
-              if ((e.target as HTMLDetailsElement).open && !daemonLog) {
-                void loadDaemonLog();
-              }
-            }}
-          >
-            <summary>
-              <span className="lm-settings-advanced__label">后台办件日志</span>
-              <span className="lm-settings-advanced__hint">出问题时给工程看</span>
-            </summary>
-            <div className="lm-settings-advanced-body">
-              {daemonLogBusy ? (
-                <p className="lm-meta" role="status" aria-busy="true">
-                  正在读取…
-                </p>
-              ) : daemonLog && !daemonLog.exists ? (
-                <p className="lm-meta">还没有日志。后台办件跑过之后才会产生。</p>
-              ) : daemonLog && daemonLog.lines.length === 0 ? (
-                <p className="lm-meta">日志是空的。</p>
-              ) : daemonLog ? (
-                <pre className="lm-daemon-log" data-testid="lm-daemon-log-lines">
-                  {daemonLog.lines.join("\n")}
-                </pre>
-              ) : (
-                <p className="lm-meta">展开后读取最近 200 行。</p>
-              )}
-            </div>
-          </details>
           <div className="lm-settings-actions">
             <button
               type="button"

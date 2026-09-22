@@ -175,7 +175,11 @@ export async function runTurn(opts: {
     }
   }
 
-  if (matterId && !session.matterId) {
+  // 律师在工作台切「用于对话」的案件后，本回合显式带来的 matterId 才是本案。
+  // 早期「首次为空才写」的写法会让旧会话永远钉在第一个案件上：之后
+  // import_host_file 的默认 matter_id、期限/卷宗/谈话写笔、记忆与提示词里的
+  // 当前案件全部落在旧案（真实事故：新建案件后收材料进上一案 materials/）。
+  if (matterId && session.matterId !== matterId) {
     session.matterId = matterId;
   }
   session.turnPlan = pruneTurnPlanForNewInstruction(session.turnPlan, instruction);

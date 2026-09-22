@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CORE_MODEL_TOOL_NAMES, LIST_MORE_TOOLS_NAME } from "../governance.js";
-import { listMoreTools } from "./list-more-tools.js";
+import { enableableToolCatalog, listMoreTools } from "./list-more-tools.js";
 
 const ctx = {
   workspaceDir: "/tmp/lawmind-list-more",
@@ -113,5 +113,46 @@ describe("list_more_tools", () => {
       "write_document",
       "list_mail_inbox",
     ]);
+  });
+});
+
+describe("enableableToolCatalog（提示词菜单与 list_more_tools 同源）", () => {
+  it("排除核心工具，只留可按需启用的", () => {
+    const names = enableableToolCatalog({ workspaceDir: ctx.workspaceDir }).map((r) => r.name);
+    expect(names).toContain("execute_workflow");
+    for (const core of CORE_MODEL_TOOL_NAMES) {
+      expect(names, `${core} 是核心工具，不该出现在菜单里`).not.toContain(core);
+    }
+    expect(names).not.toContain(LIST_MORE_TOOLS_NAME);
+  });
+
+  it("与注册表求交：没注册的能力不进菜单（提示词不能说谎）", () => {
+    const names = enableableToolCatalog({
+      workspaceDir: ctx.workspaceDir,
+      registeredNames: ["execute_workflow", "compare_documents"],
+    }).map((r) => r.name);
+    expect(names).toContain("execute_workflow");
+    expect(names).toContain("compare_documents");
+    expect(names).not.toContain("send_email");
+  });
+
+  it("联网关闭时不列联网能力；打开后才列", () => {
+    const off = enableableToolCatalog({ workspaceDir: ctx.workspaceDir }).map((r) => r.name);
+    expect(off).not.toContain("web_search");
+    expect(off).not.toContain("search_statute_web");
+    expect(off).not.toContain("url_dossier");
+    const on = enableableToolCatalog({
+      workspaceDir: ctx.workspaceDir,
+      allowWebSearch: true,
+    }).map((r) => r.name);
+    expect(on).toContain("web_search");
+    expect(on).toContain("search_statute_web");
+  });
+
+  it("每条都有名称与用途（菜单不能只有名字没有作用）", () => {
+    for (const row of enableableToolCatalog({ workspaceDir: ctx.workspaceDir })) {
+      expect(row.name.trim().length, JSON.stringify(row)).toBeGreaterThan(0);
+      expect(row.hint.trim().length, JSON.stringify(row)).toBeGreaterThan(0);
+    }
   });
 });

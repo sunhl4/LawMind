@@ -14,6 +14,46 @@ import {
 const CORE_SET = new Set<string>(CORE_MODEL_TOOL_NAMES);
 const WEB_SEARCH_TOOL_NAMES = new Set(["web_search", "search_statute_web", "url_dossier"]);
 
+/**
+ * 可披露能力目录（**单一真相源**，`list_more_tools` 与系统提示词都走这里）。
+ *
+ * 门控必须一致，否则会出现两类事故：目录里有的能力实际取不到（骗模型），或提示词里
+ * 列了关着的能力（骗模型另一种方式）。所以过滤规则只写一份：
+ *  - `web_search` 系列要联网开关打开；
+ *  - `run_analysis` 要工作区策略允许分析脚本；
+ *  - `run_compute` 高安全模式下不可用；
+ *  - 给了 `registeredNames` 时再与注册表求交（提示词用得上：别列没注册的工具）。
+ */
+export function enableableToolCatalog(opts: {
+  allowWebSearch?: boolean;
+  workspaceDir?: string;
+  registeredNames?: Iterable<string>;
+}): Array<{ name: string; hint: string }> {
+  const allowScripts = opts.workspaceDir ? isAnalysisScriptsAllowed(opts.workspaceDir) : false;
+  const highSec = opts.workspaceDir ? isHighSecurityMode(opts.workspaceDir) : false;
+  const registered = opts.registeredNames ? new Set(opts.registeredNames) : undefined;
+  const out: Array<{ name: string; hint: string }> = [];
+  for (const row of DISCLOSED_TOOL_HINTS) {
+    if (CORE_SET.has(row.name) || row.name === LIST_MORE_TOOLS_NAME) {
+      continue;
+    }
+    if (registered && !registered.has(row.name)) {
+      continue;
+    }
+    if (row.name === "run_analysis" && !allowScripts) {
+      continue;
+    }
+    if (row.name === "run_compute" && highSec) {
+      continue;
+    }
+    if (WEB_SEARCH_TOOL_NAMES.has(row.name) && opts.allowWebSearch !== true) {
+      continue;
+    }
+    out.push({ name: row.name, hint: row.hint });
+  }
+  return out;
+}
+
 function isMcpToolName(name: string): boolean {
   return /^mcp__[a-zA-Z0-9][a-zA-Z0-9_-]*__[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(name);
 }
@@ -51,26 +91,10 @@ export const listMoreTools: AgentTool = {
     riskLevel: "low",
   },
   async execute(params, ctx) {
-    const allowScripts = ctx?.workspaceDir ? isAnalysisScriptsAllowed(ctx.workspaceDir) : false;
-    const highSec = ctx?.workspaceDir ? isHighSecurityMode(ctx.workspaceDir) : false;
-    const catalog = DISCLOSED_TOOL_HINTS.filter((row) => {
-      if (CORE_SET.has(row.name)) {
-        return false;
-      }
-      if (row.name === "run_analysis") {
-        return allowScripts;
-      }
-      if (row.name === "run_compute") {
-        return !highSec;
-      }
-      if (WEB_SEARCH_TOOL_NAMES.has(row.name)) {
-        return ctx?.allowWebSearch === true;
-      }
-      return true;
-    }).map((row) => ({
-      name: row.name,
-      hint: row.hint,
-    }));
+    const catalog = enableableToolCatalog({
+      allowWebSearch: ctx?.allowWebSearch,
+      workspaceDir: ctx?.workspaceDir,
+    });
     const requested = parseRequestedNames(params);
     if (requested.length === 0) {
       return {

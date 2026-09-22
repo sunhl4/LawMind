@@ -26,6 +26,8 @@ export const RESERVED_AGENT_TOOL_NAMES = [
   "draft_worker",
   "import_host_file",
   "run_host_command",
+  "relocate_matter_materials",
+  "apply_file_ops",
   "update_plan",
 ] as const;
 

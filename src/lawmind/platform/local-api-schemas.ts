@@ -368,18 +368,6 @@ export type WorkspacePolicyPatchRequest = z.infer<typeof workspacePolicyPatchSch
 
 export const assistantOrgRoleSchema = z.enum(["lead", "member", "intern"]);
 
-/**
- * 职务说明书（名册化 A3）。字段与 `AssistantJobBrief` 一一对应；
- * 上限 500 字是为了防止把整份 SOP 塞进岗位边界——那会淹掉提示词里的其它约束。
- */
-export const assistantJobBriefSchema = z.object({
-  responsibility: z.string().trim().max(500).optional(),
-  sources: z.string().trim().max(500).optional(),
-  deliverables: z.string().trim().max(500).optional(),
-  prohibitions: z.string().trim().max(500).optional(),
-  escalation: z.string().trim().max(500).optional(),
-});
-
 export const assistantUpsertSchema = z.object({
   assistantId: z.string().trim().optional(),
   displayName: z.string().optional(),
@@ -387,25 +375,12 @@ export const assistantUpsertSchema = z.object({
   presetKey: z.string().optional(),
   customRoleTitle: z.string().optional(),
   customRoleInstructions: z.string().optional(),
-  /** 职务说明书；传 `{}` 表示清空（引擎侧 normalize 后落 undefined）。 */
-  jobBrief: assistantJobBriefSchema.optional(),
   orgRole: assistantOrgRoleSchema.optional(),
   reportsToAssistantId: z.string().optional(),
   peerReviewDefaultAssistantId: z.string().optional(),
 });
 
 export type AssistantUpsertRequest = z.infer<typeof assistantUpsertSchema>;
-
-/**
- * 名册复制。字段全可选：空 body 表示为副本自动命名（`X 副本`）。
- * 刻意不提供「是否连记忆一起抄」的开关——记忆按 assistantId 存，
- * 新 id 天然为空，这个选择不该交给调用方。
- */
-export const assistantDuplicateSchema = z.object({
-  displayName: z.string().trim().max(200).optional(),
-});
-
-export type AssistantDuplicateRequest = z.infer<typeof assistantDuplicateSchema>;
 
 export const draftReviewStatusSchema = z.preprocess(
   (v) => (typeof v === "string" ? v.trim().toLowerCase() : v),

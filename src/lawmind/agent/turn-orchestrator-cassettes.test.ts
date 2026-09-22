@@ -10,7 +10,6 @@ import path from "node:path";
  * steer, playbook tool locks, permission/approval pipeline.
  */
 import { describe, expect, it } from "vitest";
-import { buildRoleDirectiveFromProfile } from "../assistants/store.js";
 import {
   DELIVERY_MARKER_CHAT_QA,
   DELIVERY_MARKER_OPINION_MEMO,
@@ -1302,6 +1301,314 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
+  it("matter-switch-rebinds-session-and-receives-into-the-new-case", async () => {
+    const { createMatterIfMissing } =
+      await import("../application/services/matter-write-service.js");
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        createMatterIfMissing(h.workspaceDir, {
+          matterId: "旧案",
+          title: "旧案",
+          matterKind: "litigation",
+        });
+        createMatterIfMissing(h.workspaceDir, {
+          matterId: "新案",
+          title: "新案",
+          matterKind: "litigation",
+        });
+        fs.mkdirSync(path.join(h.workspaceDir, "待收材料"), { recursive: true });
+        fs.writeFileSync(path.join(h.workspaceDir, "待收材料", "起诉状.txt"), "诉请", "utf8");
+        // 会话已绑在旧案；律师随后在工作台新建「新案」并把对话切到新案。
+        h.seedHistory([], { matterId: "旧案" });
+        h.enqueue(
+          cassetteToolCall("import_host_file", { path: "待收材料/起诉状.txt" }),
+          cassetteAssistant("已收进本案。"),
+        );
+        const result = await h.runTurn("把待收材料这个文件夹收进本案", {
+          matterId: "新案",
+          contextPins: [
+            { pinKind: "file", root: "workspace", relPath: "待收材料", kind: "directory" },
+          ],
+        });
+        // 会话跟上本回合的案件，而不是钉在第一个案件上。
+        expect(h.session()?.matterId).toBe("新案");
+        const imported = result.turn.messages
+          .flatMap((m) => m.toolCallResponses ?? [])
+          .find((r) => r.name === "import_host_file");
+        expect(imported?.result.ok, JSON.stringify(imported?.result.error)).toBe(true);
+        // 工具没显式给 matter_id：默认必须跟本回合的案子。
+        expect(
+          fs.existsSync(path.join(h.workspaceDir, "cases", "新案", "materials", "起诉状.txt")),
+        ).toBe(true);
+        expect(
+          fs.existsSync(path.join(h.workspaceDir, "cases", "旧案", "materials", "起诉状.txt")),
+        ).toBe(false);
+      },
+    );
+  });
+
+  it("stale-approval-resumes-in-the-card-s-matter-not-the-switched-one", async () => {
+    const { createMatterIfMissing } =
+      await import("../application/services/matter-write-service.js");
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        createMatterIfMissing(h.workspaceDir, {
+          matterId: "甲案",
+          title: "甲案",
+          matterKind: "litigation",
+        });
+        createMatterIfMissing(h.workspaceDir, {
+          matterId: "乙案",
+          title: "乙案",
+          matterKind: "litigation",
+        });
+        fs.mkdirSync(path.join(h.workspaceDir, "新材料"), { recursive: true });
+        fs.writeFileSync(path.join(h.workspaceDir, "新材料", "起诉状.txt"), "诉请", "utf8");
+        // 卡片在「甲案」开出来；等到律师点批准时，对话已经被切到「乙案」。
+        const pending = h.seedHistory([], { matterId: "甲案" });
+        pending.matterId = "乙案";
+        pending.pendingRequiresAction = [
+          {
+            id: "ra-import",
+            kind: "tool_approval",
+            threadId: "甲案:turn-1:" + pending.sessionId,
+            title: "待批准：收进本案",
+            summary: "拟进行「收进本案」。请确认后再继续，或选择暂不办理。",
+            matterId: "甲案",
+            sessionId: pending.sessionId,
+            taskId: "turn-1",
+            toolName: "import_host_file",
+            toolCallId: "call-1",
+            toolArgs: { path: "新材料/起诉状.txt" },
+            decisions: ["approve", "reject"],
+            createdAt: new Date().toISOString(),
+          },
+        ];
+        saveSession(h.workspaceDir, pending);
+        h.enqueue(
+          cassetteToolCall("import_host_file", { path: "新材料/起诉状.txt" }),
+          cassetteAssistant("已收进甲案。"),
+        );
+        await h.resume({
+          sessionId: pending.sessionId,
+          actionId: "ra-import",
+          decision: "approve",
+        });
+        // 授权的作用域是开卡时的甲案：不能被之后切走的会话案件改写。
+        expect(
+          fs.existsSync(path.join(h.workspaceDir, "cases", "甲案", "materials", "起诉状.txt")),
+        ).toBe(true);
+        expect(
+          fs.existsSync(path.join(h.workspaceDir, "cases", "乙案", "materials", "起诉状.txt")),
+        ).toBe(false);
+        // 会话随之回到本次实际办理的案件，避免「写的和说的不是一案」。
+        expect(h.session()?.matterId).toBe("甲案");
+      },
+    );
+  });
+
+  it("repair-mis-filed-materials: 对话里说放错了，模型当场跨案搬移并写穿", async () => {
+    const { createMatterIfMissing } =
+      await import("../application/services/matter-write-service.js");
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        createMatterIfMissing(h.workspaceDir, {
+          matterId: "刘学江侵权案",
+          title: "刘学江侵权案",
+          matterKind: "litigation",
+        });
+        createMatterIfMissing(h.workspaceDir, {
+          matterId: "岚江公司案",
+          title: "岚江公司案",
+          matterKind: "litigation",
+        });
+        // 事故形状：岚江公司的整包材料被收进了刘学江案的 materials/ 下。
+        const wrongDir = path.join(
+          h.workspaceDir,
+          "cases",
+          "刘学江侵权案",
+          "materials",
+          "岚江公司",
+        );
+        fs.mkdirSync(wrongDir, { recursive: true });
+        fs.writeFileSync(path.join(wrongDir, "起诉状.txt"), "诉请", "utf8");
+        h.enqueue(
+          cassetteToolCall("relocate_matter_materials", {
+            ops: [
+              {
+                from: "cases/刘学江侵权案/materials/岚江公司",
+                to: "cases/岚江公司案/materials/岚江公司",
+                reason: "放错案",
+              },
+            ],
+            matter_id: "岚江公司案",
+            goal: "把放错的材料挪回岚江公司案",
+          }),
+          cassetteAssistant("已把材料挪回岚江公司案。"),
+        );
+        const result = await h.runTurn("这些材料放错了，挪到岚江公司案去", {
+          matterId: "岚江公司案",
+        });
+        // 第一轮就有这支笔（不靠关键词命中，desk 写包始终广告）。
+        expect(h.request(0).hasAdvertisedTool("relocate_matter_materials")).toBe(true);
+        const relocated = result.turn.messages
+          .flatMap((m) => m.toolCallResponses ?? [])
+          .find((r) => r.name === "relocate_matter_materials");
+        expect(relocated?.result.ok, JSON.stringify(relocated?.result.error)).toBe(true);
+        expect(
+          fs.existsSync(
+            path.join(h.workspaceDir, "cases", "岚江公司案", "materials", "岚江公司", "起诉状.txt"),
+          ),
+        ).toBe(true);
+        expect(
+          fs.existsSync(
+            path.join(h.workspaceDir, "cases", "刘学江侵权案", "materials", "岚江公司"),
+          ),
+        ).toBe(false);
+      },
+    );
+  });
+
+  it("repair-mis-filed-materials: 真相源文件搬不动（模型照搬也失败）", async () => {
+    const { createMatterIfMissing } =
+      await import("../application/services/matter-write-service.js");
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        createMatterIfMissing(h.workspaceDir, {
+          matterId: "甲案",
+          title: "甲案",
+          matterKind: "litigation",
+        });
+        createMatterIfMissing(h.workspaceDir, {
+          matterId: "乙案",
+          title: "乙案",
+          matterKind: "litigation",
+        });
+        h.enqueue(
+          cassetteToolCall("relocate_matter_materials", {
+            ops: [{ from: "cases/甲案/CASE.md", to: "cases/乙案/materials/CASE.md" }],
+            matter_id: "乙案",
+          }),
+          cassetteAssistant("这一步办不了。"),
+        );
+        const result = await h.runTurn("把甲案的卷宗文件挪到乙案", { matterId: "乙案" });
+        const relocated = result.turn.messages
+          .flatMap((m) => m.toolCallResponses ?? [])
+          .find((r) => r.name === "relocate_matter_materials");
+        expect(relocated?.result.ok).toBe(false);
+        expect(fs.existsSync(path.join(h.workspaceDir, "cases", "甲案", "CASE.md"))).toBe(true);
+        expect(
+          fs.existsSync(path.join(h.workspaceDir, "cases", "乙案", "materials", "CASE.md")),
+        ).toBe(false);
+      },
+    );
+  });
+
+  it("file-ops: 对话里要求改名，模型当场改名并写穿", async () => {
+    const { createMatterIfMissing } =
+      await import("../application/services/matter-write-service.js");
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        createMatterIfMissing(h.workspaceDir, {
+          matterId: "甲案",
+          title: "甲案",
+          matterKind: "litigation",
+        });
+        const materials = path.join(h.workspaceDir, "cases", "甲案", "materials");
+        fs.mkdirSync(materials, { recursive: true });
+        fs.writeFileSync(path.join(materials, "扫描件001.pdf"), "pdf", "utf8");
+        h.enqueue(
+          cassetteToolCall("apply_file_ops", {
+            ops: [
+              {
+                from: "cases/甲案/materials/扫描件001.pdf",
+                to: "cases/甲案/materials/2026-03-01 民事起诉状.pdf",
+                reason: "按内容改名",
+              },
+            ],
+            matter_id: "甲案",
+            goal: "把扫描件按内容改名",
+          }),
+          cassetteAssistant("已改名。"),
+        );
+        const result = await h.runTurn("把那个扫描件按内容改名", { matterId: "甲案" });
+        // 通用"手"在第一轮就广告：不靠关键词命中。
+        expect(h.request(0).hasAdvertisedTool("apply_file_ops")).toBe(true);
+        const applied = result.turn.messages
+          .flatMap((m) => m.toolCallResponses ?? [])
+          .find((r) => r.name === "apply_file_ops");
+        expect(applied?.result.ok, JSON.stringify(applied?.result.error)).toBe(true);
+        expect(fs.existsSync(path.join(materials, "2026-03-01 民事起诉状.pdf"))).toBe(true);
+        expect(fs.existsSync(path.join(materials, "扫描件001.pdf"))).toBe(false);
+      },
+    );
+  });
+
+  it("file-ops: 真相源文件改不动（模型照发也失败）", async () => {
+    const { createMatterIfMissing } =
+      await import("../application/services/matter-write-service.js");
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        createMatterIfMissing(h.workspaceDir, {
+          matterId: "甲案",
+          title: "甲案",
+          matterKind: "litigation",
+        });
+        h.enqueue(
+          cassetteToolCall("apply_file_ops", {
+            ops: [{ from: "cases/甲案/CASE.md", to: "cases/甲案/materials/CASE.md" }],
+            matter_id: "甲案",
+          }),
+          cassetteAssistant("这一步办不了。"),
+        );
+        const result = await h.runTurn("把卷宗文件挪到材料里", { matterId: "甲案" });
+        const applied = result.turn.messages
+          .flatMap((m) => m.toolCallResponses ?? [])
+          .find((r) => r.name === "apply_file_ops");
+        expect(applied?.result.ok).toBe(false);
+        expect(fs.existsSync(path.join(h.workspaceDir, "cases", "甲案", "CASE.md"))).toBe(true);
+        expect(
+          fs.existsSync(path.join(h.workspaceDir, "cases", "甲案", "materials", "CASE.md")),
+        ).toBe(false);
+      },
+    );
+  });
+
+  it("capability-index: 未加载的能力以菜单形式到达模型请求体（不再靠关键词猜）", async () => {
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        h.enqueue(cassetteAssistant("已处理。"));
+        // 一句普通指令：不命中任何中文关键词包，也不带钉选。
+        await h.runTurn("帮我看看现在能做什么");
+        const body = h.request(0);
+        // 菜单段落确实进了下一轮请求体。
+        expect(body.contains("可按需启用")).toBe(true);
+        // 菜单里有本轮未广告的真实能力（execute_workflow 不在核心 12 内）。
+        expect(body.contains("execute_workflow")).toBe(true);
+        expect(body.hasAdvertisedTool("execute_workflow")).toBe(false);
+      },
+    );
+  });
+
+  it("capability-index: 联网关闭时不把联网能力写进菜单（提示词不得撒谎）", async () => {
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        h.enqueue(cassetteAssistant("已处理。"));
+        await h.runTurn("帮我看看现在能做什么");
+        expect(h.request(0).contains("url_dossier")).toBe(false);
+        expect(h.request(0).hasAdvertisedTool("web_search")).toBe(false);
+      },
+    );
+  });
+
   it("folder-to-desk: 案件管理 phrasing without pins advertises the full intake chain", async () => {
     await withTestLawMind(
       (b) => b,
@@ -1943,62 +2250,6 @@ describe("turn-orchestrator cassettes (admission)", () => {
             fingerprint: fp,
           }),
         ).toBeTruthy();
-      },
-    );
-  });
-  it("职务说明书：律师写下的岗位边界落进下一次模型请求", async () => {
-    // 名册化（策略文档 A3）的准入断言：说明书的**动态注入值**必须真的到达
-    // 模型请求体——否则单测全绿、功能却是死的（提示词装配走的是
-    // buildRoleDirectiveFromProfile → config.roleDirective → system prompt）。
-    const directive = buildRoleDirectiveFromProfile({
-      assistantId: "a-brief",
-      displayName: "小陈",
-      introduction: "律所通用法律助理。",
-      jobBrief: {
-        responsibility: "盯本案合同续签",
-        prohibitions: "外发邮件前必须问律师",
-        escalation: "客户材料缺失就停下来问，不要自己补",
-      },
-      createdAt: "2026-09-01T00:00:00.000Z",
-      updatedAt: "2026-09-01T00:00:00.000Z",
-    }).roleDirective;
-
-    await withTestLawMind(
-      (b) =>
-        b.withConfig((config) => {
-          config.roleDirective = directive;
-        }),
-      async (h) => {
-        h.enqueue(cassetteAssistant("收到。"));
-        await h.runTurn("把本周到期的合同列一下。");
-        const body = h.request(0);
-        expect(body.contains("职务说明书")).toBe(true);
-        expect(body.contains("盯本案合同续签")).toBe(true);
-        expect(body.contains("外发邮件前必须问律师")).toBe(true);
-        expect(body.contains("客户材料缺失就停下来问，不要自己补")).toBe(true);
-      },
-    );
-  });
-
-  it("职务说明书：没填说明书的助手，提示词里不出现空标题", async () => {
-    const directive = buildRoleDirectiveFromProfile({
-      assistantId: "a-plain",
-      displayName: "小陈",
-      introduction: "律所通用法律助理。",
-      createdAt: "2026-09-01T00:00:00.000Z",
-      updatedAt: "2026-09-01T00:00:00.000Z",
-    }).roleDirective;
-
-    await withTestLawMind(
-      (b) =>
-        b.withConfig((config) => {
-          config.roleDirective = directive;
-        }),
-      async (h) => {
-        h.enqueue(cassetteAssistant("收到。"));
-        await h.runTurn("把本周到期的合同列一下。");
-        // 空说明书不该在请求体里留下一个没有内容的「职务说明书」标题。
-        expect(h.request(0).contains("职务说明书")).toBe(false);
       },
     );
   });

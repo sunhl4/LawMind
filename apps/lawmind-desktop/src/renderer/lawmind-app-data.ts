@@ -9,30 +9,6 @@ export type WorkspaceStandardCheck = {
   hint: string;
 };
 
-/**
- * `GET /api/daemon` 与 `GET /api/health` 里 `lawmindDaemon` 的同一个契约。
- *
- * `recap` 由服务端组装（渲染进程不能 import 引擎里依赖 `node:fs` 的模块），
- * `null` 表示一切正常——静默成功不打扰。
- */
-export type LawmindDaemonPayload = {
-  enabled?: boolean;
-  running?: boolean;
-  pid?: number;
-  lastTickAt?: string;
-  /** 心跳时间与过期判定：区分「进程没了」与「循环卡死」。 */
-  heartbeatAt?: string;
-  heartbeatAgeMs?: number;
-  heartbeatStale?: boolean;
-  /** 自动重启次数；0 表示从未中断。 */
-  restartCount?: number;
-  lastExitClass?: "clean" | "crashed" | "killed" | "stopped";
-  supervisionGaveUp?: boolean;
-  /** 拉起的后台进程尚未落 pid（刚点「开启」的瞬间）。 */
-  starting?: boolean;
-  recap?: { headline: string; details: string[] } | null;
-};
-
 export type HealthPayload = {
   ok?: boolean;
   /** 主对话模型 API 是否已配置（来自 GET /api/health） */
@@ -50,7 +26,12 @@ export type HealthPayload = {
   webSearchReady?: boolean;
   modelName?: string | null;
   modelEnvFileExists?: boolean;
-  lawmindDaemon?: LawmindDaemonPayload;
+  lawmindDaemon?: {
+    enabled?: boolean;
+    running?: boolean;
+    pid?: number;
+    lastTickAt?: string;
+  };
   edition?: {
     id?: string;
     label?: string;

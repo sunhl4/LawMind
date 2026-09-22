@@ -4,7 +4,8 @@
  */
 
 import type { ReactNode, RefObject } from "react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useState } from "react";
+import { pinChatMessagesToLatest } from "./lawmind-chat-scroll";
 import type { LawMindRequiresAction, LawMindRequiresActionDecision } from "./lawmind-requires-action";
 import { LawmindChatHistorySearch } from "./LawmindChatHistorySearch";
 import { LawmindChatMessageRow } from "./LawmindChatMessageRow";
@@ -117,6 +118,18 @@ export function LawmindChatMessagesColumn({
   };
   const [clarificationDraft, setClarificationDraft] = useState<Record<string, string>>({});
   const [searchHighlight, setSearchHighlight] = useState<Set<number> | null>(null);
+
+  // The chat pane (and this column) is unmounted while another main view
+  // (在办 / 文书台 / 会议室), the settings panel, or the editor-only layout is
+  // shown. On remount the transcript would open at scrollTop 0 — i.e. the first
+  // message — and the lawyer had to scroll down to the newest output by hand.
+  // Land on the latest turn instead, on every jump back to 对话. Message-growth
+  // during a live turn keeps its own smooth follow (lawmind-app-root), so this
+  // only runs for the mount itself.
+  useLayoutEffect(() => {
+    return pinChatMessagesToLatest();
+  }, []);
+
   const pendingClarify = getPendingClarificationState(currentMessages);
   const lastAssistantIndex = useMemo(() => {
     for (let i = currentMessages.length - 1; i >= 0; i -= 1) {

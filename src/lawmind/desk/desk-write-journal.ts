@@ -16,6 +16,7 @@ export const DESK_WRITE_KINDS = [
   "matter_profile",
   "create_matter",
   "organize_files",
+  "file_ops",
 ] as const;
 
 export type DeskWriteKind = (typeof DESK_WRITE_KINDS)[number];
@@ -24,6 +25,24 @@ export type DeskWriteKind = (typeof DESK_WRITE_KINDS)[number];
 export type OrganizeFileOp = {
   from: string;
   to: string;
+  reason?: string;
+};
+
+/**
+ * One applied file op inside a `file_ops` batch：**工作区相对路径**的搬移/复制。
+ *
+ * 路径基准与 `OrganizeFileOp` 不同——整理计划锁死在本案 `materials/` 之内，
+ * 而「归位 / 一般文件操作」是工作区级的（可能跨案，也可能在 notes/ 等其它目录），
+ * 所以存工作区相对路径，撤销时按工作区根反向回放。
+ *
+ * `copied: true` 表示复制而非移动，撤销时删掉复制件（律师改过则不删，见 desk-apply）。
+ */
+export type WorkspaceFileOp = {
+  from: string;
+  to: string;
+  copied?: boolean;
+  /** 复制件的字节数；撤销时对不上就跳过（律师改过的东西不静默删）。 */
+  bytes?: number;
   reason?: string;
 };
 
@@ -45,6 +64,8 @@ export type DeskWriteRecord = {
   previousIntake?: IntakeBrief | null;
   /** organize_files：已执行的移动/重命名（撤销时反向回放）。 */
   organizeOps?: OrganizeFileOp[];
+  /** file_ops：工作区级的搬移/复制（工作区相对路径，撤销时反向回放）。 */
+  fileOps?: WorkspaceFileOp[];
 };
 
 const intakeCandidateSchema = z.object({
@@ -97,6 +118,17 @@ const deskWriteSchema: z.ZodType<DeskWriteRecord> = z.object({
       z.object({
         from: z.string().min(1),
         to: z.string().min(1),
+        reason: z.string().optional(),
+      }),
+    )
+    .optional(),
+  fileOps: z
+    .array(
+      z.object({
+        from: z.string().min(1),
+        to: z.string().min(1),
+        copied: z.boolean().optional(),
+        bytes: z.number().nonnegative().optional(),
         reason: z.string().optional(),
       }),
     )

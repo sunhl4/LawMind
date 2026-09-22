@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import type { AssistantJobBrief, AssistantOrgRole, AssistantRow } from "./lawmind-settings-models.ts";
+import type { AssistantOrgRole, AssistantRow } from "./lawmind-settings-models.ts";
 import type { PresetRow } from "./lawmind-app-data";
 import { apiSendJson } from "./api-client";
 import type { AssistantUpsertRequest } from "./lawmind-api-request-types.ts";
@@ -16,11 +16,6 @@ export type AssistantEditorDraft = {
   presetKey: string;
   customRoleTitle: string;
   customRoleInstructions: string;
-  /**
-   * 职务说明书。为什么单独一组字段而不是并进「岗位补充说明」：
-   * 边界要能被 UI 与单测逐项核对，混在一段自由文本里就只是人设修辞。
-   */
-  jobBrief: AssistantJobBrief;
   orgRole: AssistantOrgRole | "";
   reportsToAssistantId: string;
   peerReviewDefaultAssistantId: string;
@@ -35,7 +30,6 @@ function emptyDraft(presets: PresetRow[]): AssistantEditorDraft {
     presetKey: presets[0]?.id ?? DEFAULT_PRESET_KEY,
     customRoleTitle: "",
     customRoleInstructions: "",
-    jobBrief: {},
     orgRole: "",
     reportsToAssistantId: "",
     peerReviewDefaultAssistantId: "",
@@ -55,7 +49,6 @@ export function createAssistantDraft(
       presetKey: assistant.presetKey ?? DEFAULT_PRESET_KEY,
       customRoleTitle: assistant.customRoleTitle ?? "",
       customRoleInstructions: assistant.customRoleInstructions ?? "",
-      jobBrief: assistant.jobBrief ?? {},
       orgRole: assistant.orgRole ?? "",
       reportsToAssistantId: assistant.reportsToAssistantId ?? "",
       peerReviewDefaultAssistantId: assistant.peerReviewDefaultAssistantId ?? "",
@@ -74,52 +67,6 @@ export function createAssistantDraft(
   return draft;
 }
 
-/**
- * 把草稿里的说明书整理成要提交的形状。
- *
- * 关键语义：**始终返回一个对象**（哪怕全空）——省略字段表示「不改」，
- * 传空对象才表示「清空」。否则律师删光某一项后，服务端会保留旧值，
- * 而他以为已经删掉了。
- */
-export function normalizeDraftJobBrief(brief: AssistantJobBrief | undefined): AssistantJobBrief {
-  const out: AssistantJobBrief = {};
-  if (!brief) {
-    return out;
-  }
-  for (const field of JOB_BRIEF_FIELDS) {
-    const value = brief[field]?.trim();
-    if (value) {
-      out[field] = value;
-    }
-  }
-  return out;
-}
-
-/** 说明书的字段顺序与律师侧标签（表单渲染用）。 */
-export const JOB_BRIEF_FIELDS = [
-  "responsibility",
-  "sources",
-  "deliverables",
-  "prohibitions",
-  "escalation",
-] as const satisfies readonly (keyof AssistantJobBrief)[];
-
-export const JOB_BRIEF_FIELD_LABELS: Record<keyof AssistantJobBrief, string> = {
-  responsibility: "长期负责什么",
-  sources: "材料从哪来",
-  deliverables: "交付什么算办完",
-  prohibitions: "绝对不做／必须先问我",
-  escalation: "什么情况停下来问我",
-};
-
-export const JOB_BRIEF_FIELD_HINTS: Record<keyof AssistantJobBrief, string> = {
-  responsibility: "一句话，用操作性语言。例：盯本案合同续签与到期提醒。",
-  sources: "例：案卷材料、本案邮箱、法宝法规库、客户提供的清单。",
-  deliverables: "例：一份续签提醒清单，列合同名、到期日、对接人。",
-  prohibitions: "最关键的一项。例：外发邮件前必须问我；不要自己改原稿。",
-  escalation: "例：客户材料缺失就停下来问我，不要自己补。",
-};
-
 export async function saveAssistantDraft(args: {
   apiBase: string;
   editingAssistantId: string | null;
@@ -132,8 +79,6 @@ export async function saveAssistantDraft(args: {
     presetKey: draft.presetKey.trim() || undefined,
     customRoleTitle: draft.customRoleTitle.trim() || undefined,
     customRoleInstructions: draft.customRoleInstructions.trim() || undefined,
-    // 传 `{}` 而不是省略：省略表示「不改」，传空对象才表示「清空」。
-    jobBrief: normalizeDraftJobBrief(draft.jobBrief),
     orgRole: draft.orgRole || undefined,
     reportsToAssistantId: draft.reportsToAssistantId.trim() || undefined,
     peerReviewDefaultAssistantId: draft.peerReviewDefaultAssistantId.trim() || undefined,
@@ -204,26 +149,6 @@ function AssistantAdvancedFields(props: {
             onChange={(e) => onChange({ ...draft, customRoleInstructions: e.target.value })}
           />
         </label>
-        <fieldset className="lm-field lm-assistant-job-brief" data-testid="lm-assistant-job-brief">
-          <legend>职务说明书</legend>
-          <p className="lm-field-hint">
-            这是这个助手长期有效的岗位边界，不是本次任务的说明。边界优先于效率：越界比慢一点更糟。
-          </p>
-          {JOB_BRIEF_FIELDS.map((field) => (
-            <label className="lm-field" key={field}>
-              <span>{JOB_BRIEF_FIELD_LABELS[field]}</span>
-              <input
-                type="text"
-                value={draft.jobBrief[field] ?? ""}
-                placeholder={JOB_BRIEF_FIELD_HINTS[field]}
-                data-testid={`lm-job-brief-${field}`}
-                onChange={(e) =>
-                  onChange({ ...draft, jobBrief: { ...draft.jobBrief, [field]: e.target.value } })
-                }
-              />
-            </label>
-          ))}
-        </fieldset>
         {showOrg ? (
           <details className="lm-settings-advanced lm-assistant-org-advanced">
             <summary>虚拟团队（可选）</summary>

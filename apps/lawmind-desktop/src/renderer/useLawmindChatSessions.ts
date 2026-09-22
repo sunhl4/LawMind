@@ -18,7 +18,7 @@ import { fetchChatLiveTurnProgress } from "./lawmind-chat-trace.js";
 import type { AppConfig } from "./lawmind-app-bootstrap";
 import type { DelegationRow } from "./lawmind-app-data";
 import { isActiveDelegation } from "./lawmind-delegation-status";
-import type { ChatSessionListEntry } from "./useLawmindChatShell";
+import type { ChatSessionListEntry, LawmindChatShellState } from "./useLawmindChatShell";
 import type { LawmindMainView } from "./lawmind-main-view";
 import {
   chatSessionStoreKey,
@@ -43,6 +43,10 @@ export type UseLawmindChatSessionsInput = {
     assistantId: string,
     sessionId: string,
     signal?: AbortSignal,
+    overlay?: Parameters<
+      LawmindChatShellState["loadSessionMessagesIntoState"]
+    >[3],
+    onSessionMatter?: (matterId: string | null) => void,
   ) => Promise<boolean>;
   refreshChatSessionListForAssistant: (assistantId: string) => Promise<ChatSessionListEntry[] | null>;
   watchBackgroundSessionFnRef: MutableRefObject<(opts: BackgroundWatchOpts) => Promise<void>>;
@@ -176,7 +180,12 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         }
         persistActiveChatSessionId(sessionStoreKey, assistantId, sessionId);
         setSessionByAssistant((p) => ({ ...p, [assistantId]: sessionId }));
-        await loadSessionMessagesIntoState(assistantId, sessionId, signal);
+        await loadSessionMessagesIntoState(assistantId, sessionId, signal, undefined, (boundMatterId) => {
+          // 冷启动恢复上次对话：芯片要跟着回到它绑的那一案，别让新材料落到 uploads。
+          if (boundMatterId) {
+            setContextMatterId(boundMatterId);
+          }
+        });
         if (!signal.aborted && config?.apiBase) {
           try {
             const live = await fetchChatLiveTurnProgress(config.apiBase, sessionId, signal);
@@ -232,7 +241,19 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
       if (!assistantId) {
         assistantId = selectedAssistantId;
       }
-      const ok = await loadSessionMessagesIntoState(assistantId, sessionId);
+      const ok = await loadSessionMessagesIntoState(
+        assistantId,
+        sessionId,
+        undefined,
+        undefined,
+        // 打开旧对话＝回到它绑的那一案：芯片与写入目标都必须跟着走，
+        // 否则下一条消息会把本对话改绑到芯片上残留的另一个案件。
+        (boundMatterId) => {
+          if (boundMatterId) {
+            setContextMatterId(boundMatterId);
+          }
+        },
+      );
       if (!ok) {
         return;
       }

@@ -72,7 +72,7 @@ import {
 import { getGraphOAuthStatus } from "../../../src/lawmind/integrations/graph-oauth-placeholder.js";
 import { getEsignIntegrationStatus } from "../../../src/lawmind/integrations/esign-placeholder.js";
 import { getEmbeddingIndexConfig } from "../../../src/lawmind/indexing/embeddings/index.js";
-import { getDaemonStatus, summarizeDaemonForLawyer } from "../../../src/lawmind/platform/lawmind-daemon.js";
+import { getDaemonStatus } from "../../../src/lawmind/platform/lawmind-daemon.js";
 import { sendJsonError } from "./lawmind-api-error.js";
 
 export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindRouteContext): Promise<boolean> {
@@ -261,10 +261,7 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
       promptSections: listSystemPromptSectionCatalog(),
       lawmindClarificationProtocol: "v1",
       lawmindAgentMaxToolCalls,
-      lawmindDaemon: (() => {
-        const status = getDaemonStatus(workspaceDir);
-        return { ...status, recap: summarizeDaemonForLawyer(status) };
-      })(),
+      lawmindDaemon: getDaemonStatus(workspaceDir),
       capabilityEnvelope,
       agentMandatoryRulesActive: mandatoryRules.active,
       agentMandatoryRulesTruncated: mandatoryRules.truncated,

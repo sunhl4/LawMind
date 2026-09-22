@@ -143,3 +143,46 @@ return { sum: stats(t, "额").sum, unit: meta.unit };
     expect(result.value).toEqual({ sum: 20, unit: "元" });
   });
 });
+
+describe("run_compute 批量整理材料", () => {
+  it("一次跑完一个文件夹的清单（不必逐个文件调工具）", async () => {
+    const ws = tmpWs();
+    const materials = path.join(ws, "cases", "甲案", "materials", "岚江公司");
+    fs.mkdirSync(materials, { recursive: true });
+    for (let i = 1; i <= 30; i += 1) {
+      fs.writeFileSync(
+        path.join(materials, `材料${String(i).padStart(3, "0")}.txt`),
+        i % 3 === 0 ? "含违约金条款" : "普通条款",
+        "utf8",
+      );
+    }
+    const source = `
+const listed = await listFiles("cases/甲案/materials", { recursive: true });
+const files = listed.entries.filter((e) => e.kind === "file");
+const rows = [];
+for (const f of files) {
+  const text = await readText(f.path);
+  rows.push([f.name, text.includes("违约金") ? "有" : "无"]);
+}
+await writeTable("材料清单.xlsx", { headers: ["文件", "含违约金"], rows });
+const written = await writeText("材料清单.txt", files.map((f) => f.name).join("\\n"));
+return { files: files.length, hits: rows.filter((r) => r[1] === "有").length, written };
+`;
+    const result = await runCompute.execute({ source, purpose: "整理岚江公司材料清单" }, ctx(ws));
+    expect(result.ok, JSON.stringify(result.error)).toBe(true);
+    const data = result.data as {
+      tables: Array<{ path: string; rowCount: number }>;
+      files?: Array<{ path: string }>;
+      value: { files: number; hits: number };
+      lawyerSummary: string;
+    };
+    expect(data.value).toMatchObject({ files: 30, hits: 10 });
+    expect(data.tables[0]?.rowCount).toBe(30);
+    // 文本清单也落了盘，路径回传给模型供后续 write_document。
+    expect(data.files?.[0]?.path).toBe("artifacts/analysis/材料清单.txt");
+    expect(fs.existsSync(path.join(ws, "artifacts", "analysis", "材料清单.txt"))).toBe(true);
+    // 给律师的摘要仍然只说交件，不露代码。
+    expect(data.lawyerSummary).toContain("已出核算对照");
+    expect(JSON.stringify(result)).not.toContain("listFiles");
+  });
+});

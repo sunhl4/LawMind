@@ -58,6 +58,14 @@ export const DISCLOSED_TOOL_HINTS: ReadonlyArray<{ name: string; hint: string }>
   { name: "revert_desk_write", hint: "撤销刚才一次档案写入" },
   { name: "propose_organize_plan", hint: "起草本案材料整理计划（先确认，不动文件）" },
   { name: "execute_organize_plan", hint: "执行已确认的材料整理计划（可撤销）" },
+  {
+    name: "relocate_matter_materials",
+    hint: "把材料搬移/复制到正确的案件卷（跨案件；修「材料放错案」，可撤销）",
+  },
+  {
+    name: "apply_file_ops",
+    hint: "工作区内搬移/改名/复制文件或文件夹（不改内容、不删除，可撤销）",
+  },
   { name: "review_table_update", hint: "编辑审查表：建模板/加行/批量改格/分组/从材料导入" },
   { name: "create_matter", hint: "无关联案件时新建卷宗" },
   { name: "list_templates", hint: "查看可用文书模板" },
@@ -81,7 +89,7 @@ export const DISCLOSED_TOOL_HINTS: ReadonlyArray<{ name: string; hint: string }>
   { name: "analyze_spreadsheet", hint: "分析钉选或工作区 Excel 的列、类型与统计" },
   { name: "write_spreadsheet", hint: "把二维表写入本案或工作区交付目录下的 xlsx" },
   { name: "render_chart", hint: "按声明式规格出图（助手正文用 lm-chart 围栏）" },
-  { name: "run_compute", hint: "后台核算：当场写 JS 出表/图，律师只看交件" },
+  { name: "run_compute", hint: "后台核算：当场写 JS 读文件/表格、批量整理、出表/图，律师只看交件" },
   { name: "run_analysis", hint: "预置分析脚本（须政策开启）" },
   { name: "read_skill", hint: "按需读取索引里的技能正文" },
   { name: "search_company_registry", hint: "查企业登记；未接工商源时诚实标【待核实】" },

@@ -420,6 +420,54 @@ export async function revertDeskWrite(
     }
     return { ok: true, writeId: record.writeId, kind: record.kind };
   }
+  if (record.kind === "file_ops") {
+    // 工作区级搬移/复制的反向回放：基准是**工作区根**（不是单案 materials）。
+    const ops = record.fileOps ?? [];
+    if (ops.length === 0) {
+      return { ok: false, error: "这次文件操作没有记录可撤销的条目。" };
+    }
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const workspaceRoot = path.resolve(workspaceDir);
+    const inside = (abs: string): boolean =>
+      abs === workspaceRoot || abs.startsWith(workspaceRoot + path.sep);
+    const undone: string[] = [];
+    const skipped: string[] = [];
+    for (const op of ops.toReversed()) {
+      const toAbs = path.resolve(workspaceRoot, op.to);
+      const fromAbs = path.resolve(workspaceRoot, op.from);
+      if (!inside(toAbs) || !inside(fromAbs)) {
+        skipped.push(`${op.to}（越界）`);
+        continue;
+      }
+      if (!fs.existsSync(toAbs)) {
+        skipped.push(`${op.to}（已不存在）`);
+        continue;
+      }
+      if (op.copied === true) {
+        // 复制件的撤销＝删掉复制件；律师改过（字节数对不上）就不动它，如实报告。
+        const size = fs.statSync(toAbs).size;
+        if (typeof op.bytes === "number" && size !== op.bytes) {
+          skipped.push(`${op.to}（已被修改，未删除）`);
+          continue;
+        }
+        fs.rmSync(toAbs, { force: true });
+        undone.push(op.to);
+        continue;
+      }
+      if (fs.existsSync(fromAbs)) {
+        skipped.push(`${op.from}（原位已有文件，未覆盖）`);
+        continue;
+      }
+      fs.mkdirSync(path.dirname(fromAbs), { recursive: true });
+      fs.renameSync(toAbs, fromAbs);
+      undone.push(op.from);
+    }
+    if (undone.length === 0) {
+      return { ok: false, error: `没有可还原的文件操作（${skipped.join("；") || "全部跳过"}）。` };
+    }
+    return { ok: true, writeId: record.writeId, kind: record.kind };
+  }
   return { ok: false, error: "新建的卷宗不能用撤销自动删除，请在工作台处理。" };
 }
 

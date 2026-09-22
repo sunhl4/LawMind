@@ -1085,7 +1085,7 @@ function isWorkspaceDaemonPidAlive(wsDir) {
 }
 
 /** Keep in sync with `buildDaemonProcessEnv` in `src/lawmind/platform/lawmind-daemon.ts`. */
-function buildDaemonProcessEnv(source, extra, opts) {
+function buildDaemonProcessEnv(source, extra) {
   const hostKeys = new Set(["PATH", "HOME", "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL", "NODE_PATH"]);
   // 凭据根密钥与代次同样在拒绝名单里：daemon 不监听端口，没有理由持有它们。
   const deny = new Set([
@@ -1117,11 +1117,6 @@ function buildDaemonProcessEnv(source, extra, opts) {
     }
   }
   out.LAWMIND_DAEMON = "1";
-  if (opts?.supervisor) {
-    // 监督进程自己不是 tick 进程；真正的 tick 由它 fork 的子进程跑。
-    delete out.LAWMIND_DAEMON;
-    out.LAWMIND_DAEMON_SUPERVISOR = "1";
-  }
   delete out.LAWMIND_LOCAL_API_TOKEN;
   delete out.LAWMIND_SKIP_API_AUTH;
   delete out.LAWMIND_DESKTOP_PORT;
@@ -1158,18 +1153,13 @@ export function spawnWorkspaceDaemon() {
     detached: true,
     stdio: "ignore",
     env: withOfficeCliServerEnv(
-      buildDaemonProcessEnv(
-        process.env,
-        {
-          LAWMIND_WORKSPACE_DIR: wsDir,
-          LAWMIND_ENV_FILE: envFilePath || "",
-          LAWMIND_REPO_ROOT: repoRoot,
-          // 与桌面服务器同一把审计链/邮件密钥（keychain 来源）；无缓存时 daemon 降级 key 文件。
-          ...cachedLocalKeyEnv,
-        },
-        // 起监督进程而不是裸 tick 进程：崩了才会被按退避自动拉起。
-        { supervisor: true },
-      ),
+      buildDaemonProcessEnv(process.env, {
+        LAWMIND_WORKSPACE_DIR: wsDir,
+        LAWMIND_ENV_FILE: envFilePath || "",
+        LAWMIND_REPO_ROOT: repoRoot,
+        // 与桌面服务器同一把审计链/邮件密钥（keychain 来源）；无缓存时 daemon 降级 key 文件。
+        ...cachedLocalKeyEnv,
+      }),
       repoRoot,
     ),
   });

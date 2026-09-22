@@ -20,7 +20,6 @@
 export const ELECTRON_SPEC_FILES = [
   "app-driver.spec.ts",
   "bundle-download-electron.spec.ts",
-  "daemon-supervision.spec.ts",
   "electron-golden-path.spec.ts",
   "electron-file-deeplink.spec.ts",
   "first-matter-journey.spec.ts",

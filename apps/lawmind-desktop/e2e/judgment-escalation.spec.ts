@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import {
   e2eMockApiBase,
+  e2eScopeHeaders,
   gotoShell,
   installE2eBrowserPrefs,
   openReviewDraft,
@@ -18,29 +19,37 @@ import {
  */
 async function setJudgmentMock(
   page: import("@playwright/test").Page,
+  scopeId: string,
   mode: "items" | "empty" | "error",
   posture: "advisory" | "block",
 ): Promise<void> {
   const res = await page.request.post(`${e2eMockApiBase()}/__e2e__/judgment`, {
+    // 必须显式带 scope：`page.request` 不继承 `setExtraHTTPHeaders`，
+    // 漏了就会写到 default 作用域，而页面读的是本测试的作用域 → 卡永远不出现。
+    headers: e2eScopeHeaders(scopeId),
     data: { mode, posture },
   });
   expect(res.ok()).toBe(true);
 }
 
 test.describe("G3 待定夺项 · 审核台旁路展示", () => {
+  let scopeId = "";
+
   test.beforeEach(async ({ page }) => {
-    await installE2eBrowserPrefs(page);
+    ({ scopeId } = await installE2eBrowserPrefs(page));
   });
 
   test.afterEach(async ({ page }) => {
-    // 单 mock 服务器跨 spec 共享，用完必须复位（否则别的 spec 的审核台会多出一张卡）。
+    // mock 侧已按作用域隔离，新测试自动拿到初始状态；
+    // 这里仍显式复位，是为了让「同一测试内重复设置」也回到确定起点。
     await page.request.post(`${e2eMockApiBase()}/__e2e__/judgment`, {
+      headers: e2eScopeHeaders(scopeId),
       data: { mode: "empty", posture: "block" },
     });
   });
 
   test("advisory：不改流程也能看见「系统没替您决定」的那几项", async ({ page }) => {
-    await setJudgmentMock(page, "items", "advisory");
+    await setJudgmentMock(page, scopeId, "items", "advisory");
     await gotoShell(page);
     await openReviewDraft(page, "e2e-draft-1");
 
@@ -57,7 +66,7 @@ test.describe("G3 待定夺项 · 审核台旁路展示", () => {
   });
 
   test("block：口径相反——明说已经停下等确认", async ({ page }) => {
-    await setJudgmentMock(page, "items", "block");
+    await setJudgmentMock(page, scopeId, "items", "block");
     await gotoShell(page);
     await openReviewDraft(page, "e2e-draft-1");
 
@@ -69,7 +78,7 @@ test.describe("G3 待定夺项 · 审核台旁路展示", () => {
   });
 
   test("没有待定夺项时整块不出现（不给每份稿子加噪声）", async ({ page }) => {
-    await setJudgmentMock(page, "empty", "advisory");
+    await setJudgmentMock(page, scopeId, "empty", "advisory");
     await gotoShell(page);
     await openReviewDraft(page, "e2e-draft-1");
 
@@ -80,7 +89,7 @@ test.describe("G3 待定夺项 · 审核台旁路展示", () => {
   });
 
   test("读不到时出声——故障不得冒充「没有待办」", async ({ page }) => {
-    await setJudgmentMock(page, "error", "advisory");
+    await setJudgmentMock(page, scopeId, "error", "advisory");
     await gotoShell(page);
     await openReviewDraft(page, "e2e-draft-1");
 

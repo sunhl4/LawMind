@@ -24,15 +24,6 @@ import {
 import { isValidMatterId } from "../../../src/lawmind/cases/matter-id.js";
 import { resolveLawMindRoot } from "../../../src/lawmind/assistants/store.js";
 import { sendMailViaAccount } from "../../../src/lawmind/mail/index.js";
-import {
-  validateAutomationConfirmations,
-} from "../../../src/lawmind/platform/lawyer-automations.js";
-import {
-  AUTOMATION_RUN_RETENTION,
-  assessAutomationPromotion,
-  listAutomationRuns,
-  summarizeAutomationRuns,
-} from "../../../src/lawmind/platform/automation-run-history.js";
 import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
 import { sendJsonError } from "./lawmind-api-error.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
@@ -76,11 +67,6 @@ const createSchema = z.object({
   enabled: z.boolean().optional(),
   allowSendEmailAfterApproval: z.boolean().optional(),
   notifyEmail: z.string().trim().max(320).optional(),
-  // 六确认：字段在 zod 层可选（老客户端不会带），门禁在处理器里给出律师可读的拒绝。
-  expectedResult: z.string().trim().max(500).optional(),
-  approvalBoundary: z.string().trim().max(500).optional(),
-  missingDataPolicy: z.enum(["report_failure", "report_partial", "skip_run"]).optional(),
-  notifyPolicy: z.enum(["always", "on_problem", "never"]).optional(),
 });
 
 const customSchema = z.object({
@@ -120,46 +106,12 @@ export async function handleAutomationsRoutes({
   pathname,
   req,
   res,
-  url,
   c,
 }: LawmindRouteContext): Promise<boolean> {
   const { workspaceDir } = ctx;
 
   if (pathname === "/api/automations/presets" && req.method === "GET") {
     sendJson(res, 200, { ok: true, presets: AUTOMATION_PRESETS }, c);
-    return true;
-  }
-
-  const runsMatch = pathname.match(/^\/api\/automations\/([^/]+)\/runs$/);
-  if (runsMatch && req.method === "GET") {
-    let automationId: string;
-    try {
-      automationId = decodeURIComponent(runsMatch[1] ?? "");
-    } catch {
-      sendJsonError(res, 400, "invalid_id", "自动办件 ID 格式不正确。", c);
-      return true;
-    }
-    if (!getAutomation(workspaceDir, automationId)) {
-      sendJsonError(res, 404, "not_found", "自动办件不存在。", c);
-      return true;
-    }
-    const limitRaw = url.searchParams.get("limit");
-    const limit = limitRaw
-      ? Math.min(100, Math.max(1, Math.floor(Number(limitRaw)) || AUTOMATION_RUN_RETENTION))
-      : AUTOMATION_RUN_RETENTION;
-    const runs = listAutomationRuns(workspaceDir, automationId, limit);
-    sendJson(
-      res,
-      200,
-      {
-        ok: true,
-        runs,
-        // 统计与准入判断一并给出：「这个常设工作靠不靠得住」不该让 UI 自己推。
-        stats: summarizeAutomationRuns(runs),
-        promotion: assessAutomationPromotion(runs),
-      },
-      c,
-    );
     return true;
   }
 
@@ -190,21 +142,6 @@ export async function handleAutomationsRoutes({
     }
     if (!isValidMatterId(body.matterId)) {
       sendJsonError(res, 400, "invalid_matter_id", "案件 ID 格式不正确。", c);
-      return true;
-    }
-    // 常设工作六确认：无人值守的东西必须先把「办完是什么样 / 哪里必须停 / 缺资料怎么办 /
-    // 什么时候打扰我」交代清楚，否则出问题时律师无从判断它该不该继续跑。
-    // 只拦显式新建（设置页那条路）；「说一句话就交办」走 from-instruction，不在这里设卡。
-    const confirmations = validateAutomationConfirmations(body);
-    if (!confirmations.ok) {
-      sendJsonError(
-        res,
-        400,
-        "automation_confirmations_missing",
-        confirmations.message,
-        c,
-        { missing: confirmations.missing },
-      );
       return true;
     }
     const automation = createAutomation(workspaceDir, {
@@ -301,7 +238,7 @@ export async function handleAutomationsRoutes({
     if (req.method === "GET") {
       const automation = getAutomation(workspaceDir, id);
       if (!automation) {
-        sendJsonError(res, 404, "not_found", "自动办件不存在。", c);
+        sendJsonError(res, 404, "not_found", "交办任务不存在。", c);
         return true;
       }
       sendJson(res, 200, { ok: true, automation }, c);
@@ -310,7 +247,7 @@ export async function handleAutomationsRoutes({
     if (req.method === "PATCH") {
       const existing = getAutomation(workspaceDir, id);
       if (!existing) {
-        sendJsonError(res, 404, "not_found", "自动办件不存在。", c);
+        sendJsonError(res, 404, "not_found", "交办任务不存在。", c);
         return true;
       }
       let body;
@@ -356,7 +293,7 @@ export async function handleAutomationsRoutes({
     }
     if (req.method === "DELETE") {
       if (!deleteAutomation(workspaceDir, id)) {
-        sendJsonError(res, 404, "not_found", "自动办件不存在。", c);
+        sendJsonError(res, 404, "not_found", "交办任务不存在。", c);
         return true;
       }
       sendJson(res, 200, { ok: true }, c);

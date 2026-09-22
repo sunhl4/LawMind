@@ -202,6 +202,25 @@ function describeCallArgs(name: string, args: Record<string, unknown>): string |
       const title = firstString(args, ["title"]);
       return title ? clip(title) : undefined;
     }
+    case "relocate_matter_materials":
+    case "apply_file_ops": {
+      const goal = firstString(args, ["goal"]);
+      if (goal) {
+        return clip(goal);
+      }
+      const ops = args.ops;
+      const n = Array.isArray(ops) ? ops.length : undefined;
+      if (n != null && n > 0) {
+        const first = Array.isArray(ops) ? (ops[0] as { from?: unknown; to?: unknown }) : undefined;
+        const from = basenamePath(asTrimmedString(first?.from));
+        const to = basenamePath(asTrimmedString(first?.to));
+        if (from && to) {
+          return clip(n > 1 ? `${from} → ${to} 等 ${n} 项` : `${from} → ${to}`);
+        }
+        return `${n} 项文件`;
+      }
+      return undefined;
+    }
     default:
       return undefined;
   }
@@ -273,6 +292,27 @@ function describeResultData(name: string, data: unknown): string | undefined {
     const summary = asTrimmedString(rec.lawyerSummary);
     if (summary) {
       return clip(summary, 80);
+    }
+  }
+  if (name === "relocate_matter_materials" || name === "apply_file_ops") {
+    const applied = asFiniteNumber(rec.appliedCount);
+    const advisories = Array.isArray(rec.advisories) ? rec.advisories : [];
+    const appliedList = Array.isArray(rec.applied) ? rec.applied : [];
+    const lines = appliedList
+      .map((row) => asTrimmedString(row))
+      .filter(Boolean)
+      .map((line) => line.replace(/\s*→\s*/g, " → "));
+    const suffix = advisories.length > 0 ? "（当事人对立，请核对利益冲突）" : "";
+    if (lines.length === 1 && !suffix) {
+      return clip(lines[0] ?? "", 80);
+    }
+    if (lines.length > 0) {
+      const head = lines.length === 1 ? lines[0] : `${lines[0]} 等 ${lines.length} 项`;
+      return clip(`${head}${suffix}`, 80);
+    }
+    if (applied != null) {
+      const base = applied === 0 ? "没有可整理的文件" : `已整理 ${applied} 项文件`;
+      return clip(`${base}${suffix}`, 80);
     }
   }
   const message = asTrimmedString(rec.message);

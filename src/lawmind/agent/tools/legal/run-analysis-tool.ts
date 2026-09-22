@@ -32,7 +32,7 @@ export const runAnalysis: AgentTool = {
   definition: {
     name: "run_analysis",
     description:
-      "运行律师已确认或已签名技能里的分析脚本。只暴露表格/出图接口。默认关闭，须工作区政策 allowAnalysisScripts。日常核算请用 run_compute（模型当场写 JS，不必先落文件）。",
+      "运行律师已确认或已签名技能里的分析脚本。只暴露文件/表格/出图接口（listFiles/readText/readTable/readCsv/readJson/writeTable/writeText/emitChart），不暴露 fs 与网络。默认关闭，须工作区政策 allowAnalysisScripts。日常核算请用 run_compute（模型当场写 JS，不必先落文件）。",
     category: "analyze",
     parameters: {
       path: {

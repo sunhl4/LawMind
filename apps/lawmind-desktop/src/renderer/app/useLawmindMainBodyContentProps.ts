@@ -357,6 +357,9 @@ export function useLawmindMainBodyContentProps(
       onMatterCreated: (matterId) => {
         setMatterRefreshVersion((v) => v + 1);
         recordsDeskMattersSetSelectedKey(matterId);
+        // 新建的案件就是律师现在要办的这一件：后续拖入/粘贴的材料、期限、卷宗
+        // 都必须跟它走。这里只换 compose 上下文，不跳视图（跳视图是「用于对话」）。
+        setContextMatterId(matterId);
       },
       onUseInChat: linkMatterToChat,
       onOpenWorkflowLibrary: () => {

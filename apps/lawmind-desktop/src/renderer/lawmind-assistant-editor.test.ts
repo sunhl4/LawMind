@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createAssistantDraft,
   deleteAssistant,
-  normalizeDraftJobBrief,
   saveAssistantDraft,
 } from "./lawmind-assistant-editor.js";
 
@@ -41,70 +40,10 @@ describe("lawmind-assistant-editor", () => {
       presetKey: "litigation",
       customRoleTitle: "首席诉讼助理",
       customRoleInstructions: "先列争点再写文书",
-      // 老助手没有说明书：编辑态回填为空对象，而不是 undefined（表单要能逐项编辑）。
-      jobBrief: {},
       orgRole: "",
       reportsToAssistantId: "",
       peerReviewDefaultAssistantId: "",
     });
-  });
-
-  it("carries an existing job brief into the edit draft", () => {
-    const draft = createAssistantDraft("edit", [], {
-      assistantId: "assistant-2",
-      displayName: "续签助手",
-      introduction: "盯续签",
-      jobBrief: { prohibitions: "外发前必须问我" },
-      createdAt: "2026-01-01",
-      updatedAt: "2026-01-01",
-    });
-    expect(draft.jobBrief).toEqual({ prohibitions: "外发前必须问我" });
-  });
-
-  it("clears a brief the lawyer emptied instead of silently keeping the old value", () => {
-    // 省略字段表示「不改」，传空对象才表示「清空」——否则律师删光后旧值会复活。
-    expect(normalizeDraftJobBrief({ responsibility: "  ", prohibitions: "\n" })).toEqual({});
-    expect(normalizeDraftJobBrief(undefined)).toEqual({});
-    expect(normalizeDraftJobBrief({ responsibility: " 盯续签 " })).toEqual({
-      responsibility: "盯续签",
-    });
-  });
-
-  it("sends the whole brief object so an emptied field is actually cleared", async () => {
-    const calls: Array<{ url: string; body: unknown }> = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: unknown, init?: { body?: string }) => {
-        const url = typeof input === "string" ? input : ((input as { url?: string })?.url ?? "");
-        calls.push({ url, body: init?.body ? JSON.parse(init.body) : undefined });
-        return {
-          ok: true,
-          status: 200,
-          headers: new Headers({ "content-type": "application/json" }),
-          text: async () => JSON.stringify({ ok: true }),
-          json: async () => ({ ok: true }),
-        } as unknown as Response;
-      }),
-    );
-    await saveAssistantDraft({
-      apiBase: "http://127.0.0.1:4312",
-      editingAssistantId: "assistant-1",
-      draft: {
-        displayName: "续签助手",
-        introduction: "",
-        presetKey: "general_default",
-        customRoleTitle: "",
-        customRoleInstructions: "",
-        jobBrief: { prohibitions: "外发前必须问我", escalation: "  " },
-        orgRole: "",
-        reportsToAssistantId: "",
-        peerReviewDefaultAssistantId: "",
-      },
-    });
-    expect(calls[0]?.body).toMatchObject({
-      jobBrief: { prohibitions: "外发前必须问我" },
-    });
-    vi.unstubAllGlobals();
   });
 
   it("saves assistant draft to the correct endpoint", async () => {
@@ -125,7 +64,6 @@ describe("lawmind-assistant-editor", () => {
           presetKey: "litigation",
           customRoleTitle: "",
           customRoleInstructions: "",
-          jobBrief: {},
           orgRole: "",
           reportsToAssistantId: "",
           peerReviewDefaultAssistantId: "",

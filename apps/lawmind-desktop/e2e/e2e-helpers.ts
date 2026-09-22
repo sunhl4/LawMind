@@ -10,10 +10,51 @@ export function e2eMockApiBase(): string {
 
 /** Skip auto-opening LawMind first-run wizard and reset UI prefs that break E2E layout.
  * Also injects the Electron preload boot stub — the renderer no longer boots as a web page. */
+/**
+ * 每个测试的 mock 作用域 id。
+ *
+ * 为什么需要：本地默认 `fullyParallel: true`，多个 spec **文件**同时跑，
+ * 而 mock 是**单个进程 + 全局状态**。共享状态会让 A 文件的 `afterEach` 复位掉
+ * B 文件刚设好的值 —— 表现为「单独跑绿、全量跑红」的 flake（CI 用 `workers: 1`
+ * 掩盖了它，所以只有本机可见）。
+ *
+ * 做法：每次安装 prefs（= 每个测试）生成一个新作用域，随请求头带给 mock。
+ * 新作用域在 mock 侧自动拿到**初始状态**，因此测试之间零残留，也不必再手工复位。
+ * 不用 `Math.random` 是为了可复现：`counter + 进程内唯一前缀` 足够。
+ */
+let e2eScopeSeq = 0;
+const E2E_SCOPE_PREFIX = `s${Date.now().toString(36)}-${process.pid.toString(36)}`;
+
+export function nextE2eScopeId(): string {
+  e2eScopeSeq += 1;
+  return `${E2E_SCOPE_PREFIX}-${e2eScopeSeq}`;
+}
+
+export const E2E_SCOPE_HEADER = "x-lawmind-e2e-scope";
+
+/**
+ * 把作用域 id 变成可直接塞进 `page.request.*` 的请求头。
+ *
+ * 为什么需要这个 helper：`page.setExtraHTTPHeaders()` 只作用于 **page 发出**的请求，
+ * `page.request`（APIRequestContext）**不继承**它。所以测试里直接调 mock 的
+ * 「布置状态」接口时，必须显式带上同一个 scope，否则会写到 `default` 作用域，
+ * 而页面读的是本测试的作用域 —— 表现就是「卡永远不出现」。
+ */
+export function e2eScopeHeaders(scopeId: string): Record<string, string> {
+  return { [E2E_SCOPE_HEADER]: scopeId };
+}
+
 export async function installE2eBrowserPrefs(page: {
   addInitScript: Page["addInitScript"];
-}): Promise<void> {
+  setExtraHTTPHeaders?: (headers: Record<string, string>) => Promise<void>;
+}): Promise<{ scopeId: string }> {
   await installE2eDesktopBootStub(page);
+  // 作用域头：让 mock 的全局状态随测试隔离（见 nextE2eScopeId 的说明）。
+  // 可选调用：只用 addInitScript 的旧调用方（若有）不受影响。
+  const scopeId = nextE2eScopeId();
+  if (typeof page.setExtraHTTPHeaders === "function") {
+    await page.setExtraHTTPHeaders({ [E2E_SCOPE_HEADER]: scopeId });
+  }
   await page.addInitScript((firstRunKey) => {
     localStorage.setItem(firstRunKey, "1");
     localStorage.setItem("lawmind.ui.sidebarCollapsed", "0");
@@ -31,6 +72,7 @@ export async function installE2eBrowserPrefs(page: {
       localStorage.setItem(key, "1");
     }
   }, E2E_FIRST_RUN_DISMISS_KEY);
+  return { scopeId };
 }
 
 /**
@@ -96,7 +138,7 @@ export function installE2eDesktopBridge(page: { addInitScript: Page["addInitScri
         downloadPageUrl: "https://docs.lawmind.ai/download/",
       }),
       fsList: async (payload: { path?: string }) => {
-        const key = String(payload?.path ?? "");
+        const key = payload?.path ?? "";
         return { ok: true, entries: tree[key] ?? [] };
       },
       fsRead: async () => ({ ok: false, error: "binary file" }),

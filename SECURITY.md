@@ -43,16 +43,12 @@ Product-facing security checklists and deployment notes (archived snapshots): **
 
 ## Hardening notes (local lawmindd)
 
-After the desktop window closes, an optional **same-machine** process tree (`LAWMIND_DAEMON_SUPERVISOR=1` → fork of `LAWMIND_DAEMON=1`) can keep automations ticking. Neither process **listens on HTTP**.
+After the desktop window closes, an optional **same-machine** process (`LAWMIND_DAEMON=1`) can keep automations ticking. It does **not** listen on HTTP.
 
-- **Two layers, one tick source**: the supervisor forks a tick child and restarts it on crash; the **child** owns the pid file and the single-instance lock. The supervisor holds **no** persistent state — it must not clear the pid or release the lock, or it would erase a different running tree's state. Mutual exclusion is arbitrated solely by the child's `acquireDaemonLock` (the child is the real ticker). Starting two supervisors is therefore harmless: one child wins the lock, the other yields and exits 0, and its supervisor ends on `clean_exit`. `SIGTERM` to the supervisor tears down the whole tree.
-- **Quit order**: Electron stops the loopback server first, then may spawn the supervisor. Opening the desktop again stops any leftover tree so only one process ticks.
-- **Single-instance lock**: `lawmind/daemon.lock` is the mutual-exclusion primitive (`acquireDaemonLock`), held by the **tick child**. The pid file answers "who is running"; the lock answers "who is allowed to tick". A stale lock (dead pid) or a corrupt lock file is taken over; a live lock is not. Do not add a second tick source without going through this lock.
-- **Env**: the tree receives `LAWMIND_*` / `BRAVE_*` plus host `PATH`/`HOME`/`TMPDIR`. It must **not** inherit `LAWMIND_LOCAL_API_TOKEN`, `LAWMIND_SKIP_API_AUTH`, or the derived-credential root (`LAWMIND_LOCAL_API_INSTALLATION_SECRET` / `_EPOCH` / `_REVOKED_CLIENTS` / `_INSTANCE_ID`) — lawmindd listens on no port, so it has no reason to hold any of them. **Both layers must go through `buildDaemonProcessEnv`**: the supervisor also builds its child's env with it (it must not hand-roll `{...process.env}`, which would leak the deny-list keys) and only adds the supervisor flag.
+- **Quit order**: Electron stops the loopback server first, then may spawn lawmindd. Opening the desktop again stops any leftover lawmindd so only one process ticks.
+- **Env**: lawmindd receives `LAWMIND_*` / `BRAVE_*` plus host `PATH`/`HOME`/`TMPDIR`. It must **not** inherit `LAWMIND_LOCAL_API_TOKEN`, `LAWMIND_SKIP_API_AUTH`, or the derived-credential root (`LAWMIND_LOCAL_API_INSTALLATION_SECRET` / `_EPOCH` / `_REVOKED_CLIENTS` / `_INSTANCE_ID`) — lawmindd listens on no port, so it has no reason to hold any of them (see `buildDaemonProcessEnv`).
 - **Scheduled jobs**: `processDueScheduledJobs` claims due jobs with an exclusive file lock (`claimDueScheduledJob`) so desktop and lawmindd cannot double-run the same workflow.
 - **Automations** already use `claimDueAutomation`.
-- **Operating files** (all under `<workspace>/lawmind/`, none of them a trust boundary): `daemon.json` (state incl. heartbeat + exit/recovery bookkeeping), `daemon.pid`, `daemon.lock`, and `daemon.log` (+ one rotated generation, capped at 1 MiB).
-- **`daemon.log` is operational evidence, not proof of anything.** It exists so a lawyer reopening the desktop can see what happened while they were away (`summarizeDaemonForLawyer`), and so a crash has a cause. `GOALS.md` §二 forbids marketing log/trace presence as correctness; treat this file the same way. It must never contain credentials — the supervisor logs exit classes and backoff decisions, not argv or env values.
 
 ## Hardening notes (Electron shell)
 

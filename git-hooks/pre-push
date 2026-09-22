@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+#
+# LawMind pre-push guard: never re-introduce the pre-squash (OpenClaw) history.
+#
+# On 2026-09-22 this repository's history was squashed to a single root commit so
+# that the public repository only credits LawMind's own contributors. Old-history
+# refs (stale branches, pre-squash backups, release tags) still exist locally;
+# pushing any of them would upload ~19.8k upstream commits again.
+#
+# This hook refuses any push whose commits are not descended from the root commit
+# of `main`. Deleting refs is always allowed.
+#
+# Escape hatch, only when you deliberately intend to rewrite history:
+#   git push --no-verify
+
+set -uo pipefail
+
+ZERO=0000000000000000000000000000000000000000
+
+main_root=$(git rev-list --max-parents=0 refs/heads/main 2>/dev/null | tail -1)
+if [ -z "$main_root" ]; then
+  # No main (e.g. brand-new clone of another branch): stay out of the way.
+  exit 0
+fi
+
+blocked=()
+
+while read -r local_ref local_sha remote_ref _remote_sha; do
+  # Ref deletion uploads nothing.
+  [ "$local_sha" = "$ZERO" ] && continue
+
+  # Not something we can reason about (e.g. an annotated tag object): allow.
+  if ! git cat-file -e "${local_sha}^{commit}" 2>/dev/null; then
+    continue
+  fi
+
+  # Keep `printf` safe: reachable from the current main root?
+  roots=$(git rev-list --max-parents=0 "$local_sha" 2>/dev/null)
+  if ! printf '%s\n' "$roots" | grep -qx -- "$main_root"; then
+    blocked+=("$local_ref -> $remote_ref ($local_sha)")
+  fi
+done
+
+if [ "${#blocked[@]}" -gt 0 ]; then
+  {
+    echo
+    echo "✖ push blocked: these commits are not part of the current LawMind history."
+    echo
+    echo "  The repository was squashed to a single root commit. Pushing the old"
+    echo "  (OpenClaw) history would bring ~19.8k upstream commits back."
+    echo
+    for b in "${blocked[@]}"; do
+      echo "    $b"
+    done
+    echo
+    echo "  Start new work from the current history instead:"
+    echo "    git switch main && git pull && git switch -c my-feature"
+    echo
+    echo "  Deliberately rewriting history? Override with: git push --no-verify"
+    echo
+  } >&2
+  exit 1
+fi
+
+exit 0

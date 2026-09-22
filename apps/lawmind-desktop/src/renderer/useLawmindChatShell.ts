@@ -41,6 +41,11 @@ export type LawmindChatShellState = {
       executionState?: ChatMsg["executionState"];
       turnPlan?: ChatMsg["turnPlan"];
     },
+    /**
+     * 打开一条对话后回传它还绑着哪一案（未绑案为 null）。
+     * 前台打开走这个回调同步 compose 案件芯片；后台轮询不传，避免别的会话改掉律师当前的选择。
+     */
+    onSessionMatter?: (matterId: string | null) => void,
   ) => Promise<boolean>;
   refreshChatSessionListForAssistant: (
     assistantId: string,
@@ -72,6 +77,7 @@ export function useLawmindChatShell(input: {
         executionState?: ChatMsg["executionState"];
         turnPlan?: ChatMsg["turnPlan"];
       },
+      onSessionMatter?: (matterId: string | null) => void,
     ): Promise<boolean> => {
       if (!apiBase) {
         return false;
@@ -82,6 +88,7 @@ export function useLawmindChatShell(input: {
       );
       const j = (await r.json()) as {
         ok?: boolean;
+        matterId?: string | null;
         messages?: Array<{
           role: string;
           text?: string;
@@ -132,6 +139,9 @@ export function useLawmindChatShell(input: {
         }
       }
       setMessagesByAssistant((p) => ({ ...p, [assistantId]: msgs }));
+      const boundMatterId =
+        typeof j.matterId === "string" && j.matterId.trim() ? j.matterId.trim() : null;
+      onSessionMatter?.(boundMatterId);
       return true;
     },
     [apiBase],

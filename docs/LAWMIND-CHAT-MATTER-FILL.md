@@ -55,19 +55,21 @@
 
 全部注册进 `createLegalToolRegistry`。execute 只薄包现有 desk/application 函数。
 
-| 工具名                  | 律师卡       | 做什么                                                     | 谁已经有等价 HTTP               |
-| ----------------------- | ------------ | ---------------------------------------------------------- | ------------------------------- |
-| `extract_legal_events`  | 抽出期限     | 文本 → 候选开庭/举证（只读）                               | `POST /api/desk/events/extract` |
-| `apply_legal_events`    | 写入期限     | 候选写入 `deadlines.jsonl`；开庭可顺带写入卷宗 `hearingAt` | `POST /api/desk/events/confirm` |
-| `compile_intake_brief`  | 整理谈话     | 谈话/材料 → 摘要 JSON（先落未确认稿）                      | `POST .../intake-brief`         |
-| `apply_intake_brief`    | 写入谈话档案 | 打上 `confirmedAt`，与工作台「写入本案档案」相同           | `POST .../intake-brief/confirm` |
-| `update_matter_profile` | 更新卷宗     | 案号/法院/审级/地位/当事人/门类/案由；只填传入的键         | `POST /api/matters/profile`     |
-| `revert_desk_write`     | 撤销刚才写入 | 按返回的 `writeId` 删期限或回卷宗快照；谈话恢复确认前      | 工作台现在手改；本期补工具      |
+| 工具名                      | 律师卡       | 做什么                                                                                                                       | 谁已经有等价 HTTP               |
+| --------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `extract_legal_events`      | 抽出期限     | 文本 → 候选开庭/举证（只读）                                                                                                 | `POST /api/desk/events/extract` |
+| `apply_legal_events`        | 写入期限     | 候选写入 `deadlines.jsonl`；开庭可顺带写入卷宗 `hearingAt`                                                                   | `POST /api/desk/events/confirm` |
+| `compile_intake_brief`      | 整理谈话     | 谈话/材料 → 摘要 JSON（先落未确认稿）                                                                                        | `POST .../intake-brief`         |
+| `apply_intake_brief`        | 写入谈话档案 | 打上 `confirmedAt`，与工作台「写入本案档案」相同                                                                             | `POST .../intake-brief/confirm` |
+| `update_matter_profile`     | 更新卷宗     | 案号/法院/审级/地位/当事人/门类/案由；只填传入的键                                                                           | `POST /api/matters/profile`     |
+| `revert_desk_write`         | 撤销刚才写入 | 按返回的 `writeId` 删期限或回卷宗快照；谈话恢复确认前                                                                        | 工作台现在手改；本期补工具      |
+| `relocate_matter_materials` | 归位材料     | 把材料搬移/复制到正确的案件卷（**跨案件**）；修「材料收错案」。围栏限 `cases/<案>/…` 与 `uploads/…`                          | 工作台文件页手拖；本期补工具    |
+| `apply_file_ops`            | 整理文件     | 工作区内**改名/搬移/复制**（通用"手"）。不产生新内容、不删除、可撤销；围栏为整个工作区减去治理目录与 `drafts/`、`artifacts/` | 工作台文件页手拖；本期补工具    |
 
 已有、必须进目录并在档案包里自动披露（不要新造）：
 
 - 读：`analyze_document`（已在核心 12）、`get_matter_summary`、`read_case_file`、`list_matters`、`search_matter`、`list_dir`、`explore_folder`、`search_host`、`read_host_file`
-- 收材料：`import_host_file`
+- 收材料：`import_host_file`、`relocate_matter_materials`（跨案归位；`propose_organize_plan` 只在本案 `materials/` 内，放错案的修不了）
 - 已有写入：`record_deadline`（律师口播「下周五交证据」这种无材料期限）、`add_case_note`（争点/风险；不替代谈话档案）
 
 `apply_*` / `update_matter_profile` / `revert_desk_write`：`requiresApproval` 保持 false，**不要**加入 `OUTBOUND_TOOL_NAMES`。写入仍进 audit / 工具卡。
@@ -82,6 +84,20 @@
 
 `DISCLOSED_TOOL_HINTS` 补上第 4 节全部新工具，以及漏掉的 `get_matter_summary`、`read_case_file`、`list_matters`、`add_case_note`、`record_deadline`、`search_matter`（若尚未在目录——`search_matter` 已在）。`list_more_tools` 单测断言这些名字返回得到，启用后下一轮可 execute。
 
+**菜单必须摆到模型眼前（2026-09-22 补）。** 只给 `list_more_tools` 不够：模型得先**猜到**
+要问它，才会知道有哪些扳手；实测出现的失败是「它说做不到，其实能力存在」。对齐 Codex /
+Claude Code 的渐进披露——提示词里摆**能力菜单**（名称 + 一行用途），schema 按需加载：
+
+- 段落 `## 可按需启用`（system-prompt section `capability_index`，`cache: session`）；
+  内容 = 注册表 ∩ 门控 − 本轮已广告。放 session 段而不是静态前缀，因为联网开关等
+  门控会在会话中途变化，菜单要跟着准（静态前缀会被 `applySystemPromptToHistory` 冻结）。
+- 门控**只写一份**：`enableableToolCatalog()`（`tools/legal/list-more-tools.ts`），
+  `list_more_tools` 与提示词共用。谁分叉谁就会造出「列了却打不开」的假菜单。
+- 准入：`turn-orchestrator-cassettes.test.ts` 的 `capability-index*` 断言菜单进了
+  `request(0)` 且未广告、联网关闭时不含联网能力。单测见 `list-more-tools.test.ts`。
+- 副作用（正面）：`run_host_command` 也在菜单里，其 hint 写明「须打开本机能力」——
+  模型因此知道「操作电脑」存在、也知道要哪个开关，不必等律师自己翻设置。
+
 ### 5.2 开口或丢材料：第一轮就出现（不要等模型先 list_more_tools）
 
 在 `extraToolsForInstruction` / `mergeTurnDisclosedToolNames` 增加档案包。绑定或材料形态命中则并入本轮广告列表。
@@ -95,8 +111,8 @@
 **包 `desk.talk`**（`litigation.talk`，或谈话记录/会议纪要/微信记录）：  
 `analyze_document`、`compile_intake_brief`、`apply_intake_brief`、`update_matter_profile`
 
-**包 `desk.intake`**（`matter.intake`，或钉选目录，或指令含按这个文件夹/补卷宗/整理材料）：  
-`explore_folder`、`list_dir`、`search_host`、`read_host_file`、`import_host_file`、`analyze_document`、`update_matter_profile`、`extract_legal_events`、`apply_legal_events`、`compile_intake_brief`、`apply_intake_brief`、`add_case_note`
+**包 `desk.intake`**（`matter.intake`，或钉选目录，或指令含按这个文件夹/补卷宗/整理材料）：
+`explore_folder`、`list_dir`、`search_host`、`read_host_file`、`import_host_file`、`relocate_matter_materials`、`analyze_document`、`update_matter_profile`、`extract_legal_events`、`apply_legal_events`、`compile_intake_brief`、`apply_intake_brief`、`add_case_note`
 
 钉选目录或 `projectDir` 已披露 host 读工具，保留。档案包是在这之上把**写笔**也带上。
 
@@ -126,7 +142,11 @@
 3. 传票/短信：`extract_legal_events`；有 `dueAt` 的才 `apply_legal_events`。
 4. 谈话：`compile_intake_brief` 后立刻 `apply_intake_brief`（对话路径不把未确认稿晾在那里）。
 5. 卷宗里材料写死的案号/法院/开庭日：`update_matter_profile` 只填读到的键。
-6. 回报：列出写入项。缺的标【待补充】，不要用写入工具填假值。
+6. 材料放错案（收进了上一案）：`relocate_matter_materials` 当场挪回正确的卷，然后用一句话回报。
+   **不要让律师自己去文件页手拖**——他既然在对话里说了，就是授权。搬完给 `writeId`，他说「放回去」就能 `revert_desk_write`。
+7. 改名 / 复制 / 按目录归整：`apply_file_ops`（`copy=true` 为复制）。文件名就是律师的归档系统，
+   不要用 `write_document` 另存一份再留个旧名字。删除不在模型能力内，律师要删请在文件页操作。
+8. 回报：列出写入项。缺的标【待补充】，不要用写入工具填假值。
 
 工作台（B）：textarea 仍「抽出期限 / 确认写入」「整理谈话 / 写入本案档案」。这是给不说话的人用的同一套函数，不是第二套抽取。
 
@@ -135,6 +155,30 @@
 与「记忆不确认不写入」的关系：那条管偏好/习惯入记忆。律师交办补档案不是记忆候选，是本案操作。不要把期限推进「待确认」队列，否则 A=3 作废。
 
 ## 7. 材料怎么进来（Cursor 级）
+
+### 7.0 代码执行也是"手"（2026-09-22 补）
+
+批量活儿不该靠逐个文件调工具：一个材料文件夹 200 份、工具预算几十次，模型只能挑几份看。
+`run_compute` 是这种情况的正解——当场写 JS 一次跑完。本轮把它的文件接口补齐：
+
+| 接口                                                                        | 本轮状态                                                                           |
+| --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `listFiles(dir,{recursive})`                                                | **新增**。此前沙箱列不了目录，脚本无从知道"有什么"                                 |
+| `readText(path)`                                                            | **新增**。此前只能读 xlsx/csv/json，连 `.md`/`.txt` 材料都读不进来                 |
+| `writeText(name,内容)`                                                      | **新增**。此前只有 xlsx 且只落 artifacts/，批量结果放不下（返回载荷上限 4 万字符） |
+| `readTable` / `readCsv` / `readJson` / `stats` / `writeTable` / `emitChart` | 原有                                                                               |
+
+围栏同时收严（对齐 SECURITY.md）：
+
+- `assertSafeRel` 改为 `resolveWorkspaceRelativePath` + `fenceAgentFilePath`（**realpath**），
+  修掉"工作区里放个软链就能读工作区外文件"的老问题；
+- 治理/真相源（`tasks/`、`matters/`、策略、`RULES.md` 等）不进沙箱；
+- `listFiles` 跳过软链、点文件与 deny-list；
+- `writeText` 只落 `artifacts/`（只给文件名 → `artifacts/analysis/`），**越界响亮报错**而不是
+  静默改地方；脚本因此绕不过 `write_document` / 交付管线的门。
+
+`run_compute` 的结果里回传 `files`（`writeText` 落盘路径），模型据此再用 `write_document`
+把清单放进案件卷或出正式交付物。二进制（PDF/Word/图片）仍走 `analyze_document`。
 
 第 1 波引擎写穿时，对话拖文件已经能测。照片场景要第 1 波后半或第 2 波 UI 一起做完，否则「完美」不成立。
 

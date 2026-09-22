@@ -47,6 +47,7 @@ import { executeOrganizePlan, proposeOrganizePlan } from "./legal/organize-mater
 import { searchPrecedents } from "./legal/precedent-search-tool.js";
 import { readFolderDocumentsTool } from "./legal/read-folder-documents-tool.js";
 import { readSkillTool } from "./legal/read-skill-tool.js";
+import { relocateMatterMaterials } from "./legal/relocate-materials-tool.js";
 import { reviewTableUpdate } from "./legal/review-table-tool.js";
 import { runAnalysis } from "./legal/run-analysis-tool.js";
 import { runCompute } from "./legal/run-compute-tool.js";
@@ -62,6 +63,7 @@ import {
 } from "./legal/search-tools.js";
 import { analyzeSpreadsheet, writeSpreadsheet } from "./legal/spreadsheet-tools.js";
 import { updatePlanTool } from "./legal/update-plan-tool.js";
+import { applyFileOps } from "./legal/workspace-file-ops-tool.js";
 import { ToolRegistry } from "./registry.js";
 
 export function createLegalToolRegistry(opts?: {
@@ -98,6 +100,8 @@ export function createLegalToolRegistry(opts?: {
     ...deskTools,
     proposeOrganizePlan,
     executeOrganizePlan,
+    relocateMatterMaterials,
+    applyFileOps,
     reviewTableUpdate,
     // 文件操作
     analyzeDocument,

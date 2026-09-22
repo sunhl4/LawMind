@@ -4,7 +4,6 @@
  */
 import type {
   ApprovalResolvePostRequest,
-  AssistantDuplicateRequest,
   AssistantUpsertRequest,
   ChatPostRequest,
   ChatResumeRequest,
@@ -250,18 +249,6 @@ export async function apiPatchAssistant(
     "PATCH",
     body,
   );
-}
-
-export async function apiDuplicateAssistant(
-  apiBase: string,
-  assistantId: string,
-  body: AssistantDuplicateRequest = {},
-): Promise<OkResponse & { assistant?: Record<string, unknown> }> {
-  // body 可选：不带名字时由引擎按「X 副本」命名并自动去重。
-  return apiSendJson<
-    OkResponse & { assistant?: Record<string, unknown> },
-    AssistantDuplicateRequest
-  >(apiBase, `/api/assistants/${encodeURIComponent(assistantId)}/duplicate`, "POST", body);
 }
 
 export async function apiPatchSessionTitle(

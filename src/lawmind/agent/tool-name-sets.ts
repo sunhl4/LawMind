@@ -28,6 +28,8 @@ export const MATTER_SCOPE_REQUIRED = new Set<string>([
   "revert_desk_write",
   "propose_organize_plan",
   "execute_organize_plan",
+  "relocate_matter_materials",
+  "apply_file_ops",
 ]);
 
 export const BACKGROUND_JOB_TOOLS = new Set<string>(["execute_workflow"]);
@@ -85,6 +87,8 @@ export const DESK_WRITE_TOOL_NAMES = new Set<string>([
   "record_deadline",
   "add_case_note",
   "import_host_file",
+  "relocate_matter_materials",
+  "apply_file_ops",
 ]);
 
 export const WRITE_TOOLS = new Set<string>([
@@ -120,6 +124,8 @@ export const WRITE_TOOLS = new Set<string>([
   "update_matter_profile",
   "revert_desk_write",
   "execute_organize_plan",
+  "relocate_matter_materials",
+  "apply_file_ops",
   "review_table_update",
   "create_matter",
 ]);

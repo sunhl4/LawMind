@@ -42,7 +42,7 @@ export const runCompute: AgentTool = {
   definition: {
     name: "run_compute",
     description:
-      "在受控沙箱当场运行 JavaScript，用于归并表格、自定义汇总、出图。可用 Math/JSON/Date/Map 与 readTable(xlsx)、readCsv、readJson、stats、writeTable、emitChart。成功后把对照表和意见稿写入在办。失败时根据 error 改源码再调，不要把源码写进给律师的正文。法定金额与期限仍须 calculate。高安全模式不可用。",
+      "在受控沙箱当场运行 JavaScript，用于批量整理材料、归并表格、自定义汇总、出图。可用 Math/JSON/Date/Map 与 listFiles(dir,{recursive})、readText(path)、readTable(xlsx)、readCsv、readJson、stats、writeTable(xlsx)、writeText(path,内容)、emitChart。批量活儿（如「把某文件夹 200 份材料过一遍建清单」）用这支笔一次跑完，不要逐个文件调工具。成功后把对照表和意见稿写入在办。失败时根据 error 改源码再调，不要把源码写进给律师的正文。法定金额与期限仍须 calculate。高安全模式不可用。",
     category: "analyze",
     parameters: {
       source: {
@@ -133,6 +133,7 @@ export const runCompute: AgentTool = {
       const data = {
         tables,
         charts,
+        files: raw.files ?? [],
         logs: raw.logs ?? [],
         value: raw.value,
         hint: charts.length > 0 ? LM_CHART_FENCE_HINT : undefined,

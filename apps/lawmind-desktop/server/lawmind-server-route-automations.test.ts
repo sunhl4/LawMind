@@ -7,7 +7,6 @@ import {
   getAutomationInboxItem,
   saveAutomationInboxItem,
 } from "../../../src/lawmind/platform/lawyer-automations.js";
-import { appendAutomationRun } from "../../../src/lawmind/platform/automation-run-history.js";
 import { handleAutomationsRoutes } from "./lawmind-server-route-automations.js";
 import type { LawmindDispatchContext } from "./lawmind-server-route-types.js";
 
@@ -122,11 +121,6 @@ describe("lawmind-server-route-automations", () => {
         matterId: "matter-auto-1",
         presetId: "renewal-monitor",
         schedule: { kind: "daily", hour: 9, minute: 0 },
-        // 六确认：显式新建必须交代清楚，否则无人值守出问题时律师无从判断。
-        expectedResult: "一份续签提醒清单",
-        approvalBoundary: "外发前必须问我",
-        missingDataPolicy: "report_failure",
-        notifyPolicy: "on_problem",
       }),
       res,
       url: new URL("http://127.0.0.1/api/automations"),
@@ -138,77 +132,6 @@ describe("lawmind-server-route-automations", () => {
     expect(res.body).toMatchObject({
       ok: true,
       automation: { matterId: "matter-auto-1", presetId: "renewal-monitor" },
-    });
-  });
-
-  it("GET /api/automations/:id/runs returns history, stats and a promotion verdict", async () => {
-    const created = createAutomation(workspaceDir, {
-      matterId: "matter-runs",
-      presetId: "renewal-monitor",
-    });
-    appendAutomationRun(workspaceDir, {
-      runId: "run-1",
-      automationId: created.id,
-      trigger: "schedule",
-      status: "ok",
-      startedAt: "2026-09-21T01:00:00.000Z",
-      finishedAt: "2026-09-21T01:00:04.000Z",
-      summary: "扫到 2 份即将到期合同",
-      notified: true,
-    });
-
-    const res = mockRes();
-    const handled = await handleAutomationsRoutes({
-      ctx,
-      req: { method: "GET" } as http.IncomingMessage,
-      res,
-      url: new URL(`http://127.0.0.1/api/automations/${created.id}/runs`),
-      pathname: `/api/automations/${created.id}/runs`,
-      c: {},
-    });
-    expect(handled).toBe(true);
-    expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({
-      ok: true,
-      runs: [expect.objectContaining({ runId: "run-1", status: "ok" })],
-      stats: expect.objectContaining({ total: 1, okCount: 1 }),
-      promotion: expect.objectContaining({ ready: false }),
-    });
-  });
-
-  it("GET /api/automations/:id/runs 404s for an unknown automation instead of an empty list", async () => {
-    const res = mockRes();
-    await handleAutomationsRoutes({
-      ctx,
-      req: { method: "GET" } as http.IncomingMessage,
-      res,
-      url: new URL("http://127.0.0.1/api/automations/does-not-exist/runs"),
-      pathname: "/api/automations/does-not-exist/runs",
-      c: {},
-    });
-    expect(res.status).toBe(404);
-  });
-
-  it("POST /api/automations refuses to save a routine without the six confirmations", async () => {
-    const res = mockRes();
-    await handleAutomationsRoutes({
-      ctx,
-      req: mockJsonReq({
-        matterId: "matter-auto-2",
-        presetId: "renewal-monitor",
-        schedule: { kind: "daily", hour: 9, minute: 0 },
-        expectedResult: "一份续签提醒清单",
-      }),
-      res,
-      url: new URL("http://127.0.0.1/api/automations"),
-      pathname: "/api/automations",
-      c: {},
-    });
-    expect(res.status).toBe(400);
-    expect(res.body).toMatchObject({
-      ok: false,
-      code: "automation_confirmations_missing",
-      missing: ["approvalBoundary", "missingDataPolicy", "notifyPolicy"],
     });
   });
 

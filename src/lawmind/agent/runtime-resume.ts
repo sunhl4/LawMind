@@ -7,6 +7,7 @@ import { executionStateFromTurn } from "../platform/execution-state.js";
 import {
   formatClarificationResumeMessage,
   toolDisplayNameZh,
+  type LawMindRequiresAction,
   type ResumeRequiresActionInput,
 } from "../platform/requires-action.js";
 import { mergeConfirmedAnswers } from "./confirmed-answers.js";
@@ -21,7 +22,7 @@ import {
   isSessionTurnLive,
   resolveInterruptedActionForResume,
 } from "./turn-interrupt.js";
-import type { AgentConfig, AgentMessage, AgentTurn } from "./types.js";
+import type { AgentConfig, AgentMessage, AgentSession, AgentTurn } from "./types.js";
 
 export type ResumeTurnResult = {
   turn: AgentTurn;
@@ -39,6 +40,25 @@ export type ResumeTurnOpts = {
   onEvent?: Parameters<typeof runTurn>[0]["onEvent"];
   liveProgressSessionId?: string;
 };
+
+/**
+ * 续跑落在哪一案：**待办卡片自带的那一案**。
+ *
+ * 卡片是律师看过、据此点头的授权，作用域在开卡时就固定了（`buildToolApprovalAction`
+ * 等把当时的案件写进 `action.matterId`）。而会话的当前案件是可变的——律师可以在等
+ * 批准期间把对话切到别的案子（工作台「用于对话」）。若续跑改读会话，一张「收进本案」
+ * 的旧卡就会在新案里执行：批的是甲案，材料落进乙案（真实事故同类）。
+ *
+ * 与主流产品同一口径：审批针对的是**那一次调用**，恢复执行必须回到调用成立时的作用域，
+ * 不能被之后切换的上下文改写。卡片没带案件（历史卡片）才回落到会话，再回落到调用方。
+ */
+function resolveResumeMatterId(
+  action: Pick<LawMindRequiresAction, "matterId">,
+  session: Pick<AgentSession, "matterId">,
+  opts: Pick<ResumeTurnOpts, "matterId">,
+): string | undefined {
+  return action.matterId?.trim() || session.matterId?.trim() || opts.matterId?.trim() || undefined;
+}
 
 /**
  * 中断恢复的指令：把原指令带回模型，否则「继续」会变成没有目标的空转。
@@ -109,7 +129,7 @@ async function resumeTurnUngated(
       registry,
       instruction: msg,
       sessionId: session.sessionId,
-      matterId: session.matterId ?? opts.matterId,
+      matterId: resolveResumeMatterId(action, session, opts),
       projectDir: opts.projectDir,
       linkedTaskId: opts.linkedTaskId,
       onEvent: opts.onEvent,
@@ -178,7 +198,7 @@ async function resumeTurnUngated(
         registry,
         instruction,
         sessionId: session.sessionId,
-        matterId: session.matterId ?? opts.matterId,
+        matterId: resolveResumeMatterId(action, session, opts),
         projectDir: opts.projectDir,
         linkedTaskId: opts.linkedTaskId,
         preApproveToolName: action.toolName,
@@ -264,7 +284,7 @@ async function resumeTurnUngated(
           ? formatInterruptedResumeInstruction(action.instruction ?? interruptedTurn?.instruction)
           : "【从检查点继续】律师同意继续本轮。请在已有对话与工具结果上接着完成，不要重复已成功的步骤。",
         sessionId: session.sessionId,
-        matterId: session.matterId ?? opts.matterId,
+        matterId: resolveResumeMatterId(action, session, opts),
         projectDir: opts.projectDir,
         linkedTaskId: opts.linkedTaskId,
         onEvent: opts.onEvent,

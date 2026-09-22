@@ -86,6 +86,7 @@ import {
 } from "./prompt-fragments.js";
 import { applySystemPromptToHistory, buildSystemPrompt } from "./system-prompt.js";
 import { promptCatalogToolNames } from "./tools/governance.js";
+import { enableableToolCatalog } from "./tools/legal/list-more-tools.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import { collectRecentToolNamesFromSession } from "./turn-orchestrator-events.js";
 import { formatTurnPlanWorldState } from "./turn-plan.js";
@@ -314,6 +315,13 @@ export async function prepareTurnPromptContext(opts: {
   const promptCatalog = new Set(promptCatalogToolNames());
   // 单一真相源：调用方传入的本轮生效工具集优先；缺省才回退核心目录。
   const availableNames = opts.availableToolNames ? new Set(opts.availableToolNames) : promptCatalog;
+  // 能力菜单：注册表 ∩ 门控 − 本轮已广告。让模型知道「还有什么扳手」，
+  // 不必靠中文关键词命中或自己猜到要问 list_more_tools（与目录同一份门控）。
+  const enableableTools = enableableToolCatalog({
+    allowWebSearch: config.allowWebSearch === true,
+    workspaceDir: config.workspaceDir,
+    registeredNames: registry.listDefinitions().map((def) => def.name),
+  }).filter((row) => !availableNames.has(row.name));
   const { scalePromptWindows, truncateForPrompt, windowCaseMarkdownForPrompt } =
     await import("../memory/prompt-windows.js");
   const promptWindow = scalePromptWindows(envelope.promptWindowScale);
@@ -378,6 +386,7 @@ export async function prepareTurnPromptContext(opts: {
       .listDefinitions()
       .filter((def) => availableNames.has(def.name))
       .toSorted((a, b) => a.name.localeCompare(b.name)),
+    enableableTools,
     matterId: session.matterId,
     roleTitle: config.roleTitle,
     roleIntroduction: config.roleIntroduction,
