@@ -17,6 +17,8 @@ type Props = {
   onOpenNew: (presetKey?: string) => void;
   onOpenEdit: () => void;
   onRemove: () => void;
+  /** 复制当前助手（只复制角色与边界，不复制记忆）。 */
+  onDuplicate: () => void;
 };
 
 type ProfileSection = {
@@ -59,6 +61,7 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
     selectedAssistantStats,
     onOpenNew,
     onOpenEdit,
+    onDuplicate,
     onRemove,
   } = props;
   const empty = assistants.length === 0;
@@ -67,6 +70,7 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
   useEffect(() => {
     if (!apiBase?.trim() || !selectedAssistantId) {
       setSections(null);
+      // 显式 undefined：与下面的 cleanup 保持一致的返回形状（oxlint consistent-return）。
       return undefined;
     }
     let cancelled = false;
@@ -228,6 +232,16 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
                   />
                 </svg>
                 高级编辑
+              </button>
+              <button
+                type="button"
+                className="lm-assistants-action lm-assistants-action--secondary"
+                data-testid="lm-assistants-duplicate"
+                onClick={onDuplicate}
+                disabled={empty}
+                title="复制这个助手的岗位与边界（不含它的记忆与用量）；之后可改名用于新范围"
+              >
+                复制
               </button>
               {selectedAssistantId !== DEFAULT_ASSISTANT_ID ? (
                 <button

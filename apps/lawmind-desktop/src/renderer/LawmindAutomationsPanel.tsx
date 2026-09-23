@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import { useLawmindAutomationsNavContext } from "./app/LawmindShellContexts";
 import { loadMatterOverviewsPayload } from "./lawmind-app-data";
@@ -50,6 +57,70 @@ type Automation = {
   lastResultSummary?: string;
   allowSendEmailAfterApproval: boolean;
   notifyEmail?: string;
+  // 六确认里需要持久化的四项（另有标题与计划，各有既有字段）。
+  expectedResult?: string;
+  approvalBoundary?: string;
+  missingDataPolicy?: MissingDataPolicy;
+  notifyPolicy?: NotifyPolicy;
+};
+
+type MissingDataPolicy = "report_failure" | "report_partial" | "skip_run";
+type NotifyPolicy = "always" | "on_problem" | "never";
+
+/** 缺数据策略的律师侧措辞。默认第一项（如实报失败），与引擎默认一致。 */
+const MISSING_DATA_OPTIONS: Array<{ value: MissingDataPolicy; label: string }> = [
+  { value: "report_failure", label: "如实报失败，不拿旧数据顶上" },
+  { value: "report_partial", label: "先交能做到的部分，并列出缺什么" },
+  { value: "skip_run", label: "这次跳过，不办" },
+];
+
+const NOTIFY_OPTIONS: Array<{ value: NotifyPolicy; label: string }> = [
+  { value: "on_problem", label: "只在出问题时通知我" },
+  { value: "always", label: "每次运行都通知我" },
+  { value: "never", label: "成功了不用告诉我" },
+];
+
+type AutomationRun = {
+  runId: string;
+  trigger: "schedule" | "manual" | "test";
+  status: "ok" | "failed" | "skipped" | "blocked";
+  startedAt: string;
+  finishedAt: string;
+  summary?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  missingData?: string[];
+  notified?: boolean;
+};
+
+/** 运行结果的律师侧措辞。`blocked` 与 `failed` 都是要人管的，别混成一个词。 */
+const RUN_STATUS_LABEL: Record<AutomationRun["status"], string> = {
+  ok: "办完了",
+  failed: "没办成",
+  skipped: "按你说的跳过了",
+  blocked: "停下来等你拍板",
+};
+
+type AutomationRunStats = {
+  total: number;
+  okCount: number;
+  failedCount: number;
+  skippedCount: number;
+  blockedCount: number;
+  missingDataCount: number;
+  lastRunAt?: string;
+  lastOkAt?: string;
+  lastFailureAt?: string;
+  lastErrorCode?: string;
+};
+
+type PromotionVerdict = { ready: boolean; message: string; reasons: string[] };
+
+/** 「这个常设工作靠不靠得住」——由服务端算，渲染层不自己推。 */
+type RunsPayload = {
+  runs: AutomationRun[];
+  stats: AutomationRunStats;
+  promotion: PromotionVerdict;
 };
 
 type Props = {
@@ -106,6 +177,81 @@ function looksLikeEmail(raw: string): boolean {
   return /^[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}$/.test(t) && !t.endsWith("@example.com");
 }
 
+/**
+ * 一条常设工作的运行记录 + 它的「靠不靠得住」结论。
+ *
+ * 为什么值得占屏幕：律师只看到「上次成功」时，没法判断这个常设工作是不是
+ * 每隔几次就缺数据、是不是反复要人拍板。而这些正是决定要不要继续让它跑的依据。
+ * 统计与结论由服务端算好（`/api/automations/:id/runs`），这里只负责显示。
+ */
+function LawmindAutomationRuns({
+  automation,
+  payload,
+  loading,
+}: {
+  automation: Automation;
+  payload?: RunsPayload;
+  loading: boolean;
+}): ReactNode {
+  if (!payload) {
+    return (
+      <p className="lm-meta" role="status" aria-busy={loading}>
+        {loading ? "正在读运行记录…" : "运行记录暂时读不到。"}
+      </p>
+    );
+  }
+  const { runs, stats, promotion } = payload;
+  const parts: string[] = [];
+  if (stats.okCount) {
+    parts.push(`办成 ${stats.okCount}`);
+  }
+  if (stats.failedCount) {
+    parts.push(`没办成 ${stats.failedCount}`);
+  }
+  if (stats.blockedCount) {
+    parts.push(`等你拍板 ${stats.blockedCount}`);
+  }
+  if (stats.skippedCount) {
+    parts.push(`按策略跳过 ${stats.skippedCount}`);
+  }
+  return (
+    <div className="lm-automations-runs" data-testid="lm-auto-runs">
+      <div className="lm-automations-runs-summary">
+        <span className="lm-meta">
+          {stats.total > 0
+            ? `最近 ${stats.total} 次：${parts.join(" · ")}`
+            : "还没有运行记录"}
+        </span>
+      </div>
+      {stats.total === 0 ? (
+        <p className="lm-meta">第一次到期跑完之后，这里会出现每一次的记录。</p>
+      ) : (
+        <ul className="lm-automations-runs-ul">
+          {runs.slice(0, 8).map((r) => (
+            <li key={r.runId} className="lm-meta">
+              {formatRelativeTime(r.finishedAt || r.startedAt)} · {RUN_STATUS_LABEL[r.status]}
+              {r.summary ? ` · ${r.summary}` : ""}
+              {r.errorMessage ? ` · ${r.errorMessage}` : ""}
+              {r.missingData && r.missingData.length > 0
+                ? ` · 缺资料：${r.missingData.join("、")}`
+                : ""}
+            </li>
+          ))}
+        </ul>
+      )}
+      {promotion.message ? (
+        <p className={`lm-meta${promotion.ready ? " lm-automations-promotion-ready" : ""}`}>
+          {promotion.message}
+        </p>
+      ) : null}
+      <p className="lm-meta lm-automations-runs-terms">
+        当初交代的：办完是「{automation.expectedResult?.trim() || "未交代"}」；必须先问你的：
+        {automation.approvalBoundary?.trim() || "未交代"}。
+      </p>
+    </div>
+  );
+}
+
 export function LawmindAutomationsPanel(props: Props): ReactNode {
   const {
     apiBase,
@@ -132,6 +278,16 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
   const [minute, setMinute] = useState(0);
   const [scheduleMode, setScheduleMode] = useState<ScheduleMode>("weekly");
   const [everyMinutes, setEveryMinutes] = useState(30);
+  // 六确认：律师必须交代清楚才能建常设工作（无人值守的失败代价由他承担）。
+  // 给出安全默认值，但不预填文本——期望结果与审批边界必须是他自己写的。
+  const [expectedResult, setExpectedResult] = useState("");
+  const [approvalBoundary, setApprovalBoundary] = useState("");
+  const [missingDataPolicy, setMissingDataPolicy] =
+    useState<MissingDataPolicy>("report_failure");
+  const [notifyPolicy, setNotifyPolicy] = useState<NotifyPolicy>("on_problem");
+  /** 运行历史按需拉取：点开某条才查，不在列表加载时对每条都发一次请求。 */
+  const [runsById, setRunsById] = useState<Record<string, RunsPayload>>({});
+  const [runsLoadingId, setRunsLoadingId] = useState<string | null>(null);
 
   const matterOptions = useMemo(() => {
     const byId = new Map<string, { id: string; title: string }>();
@@ -193,7 +349,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
         );
         setError(null);
       } catch (e) {
-        setError(errorMessage(e, "无法加载交办任务"));
+        setError(errorMessage(e, "无法加载自动办件"));
       } finally {
         setLoading(false);
       }
@@ -205,9 +361,59 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
     void refresh();
   }, [refresh]);
 
+  /**
+   * 拉某条常设工作的运行历史。
+   *
+   * 只在律师点开它时才拉——列表加载时对每条都发一次请求会拖慢面板，
+   * 而「这个常设工作靠不靠得住」本来就是他主动想看的。
+   */
+  const loadRuns = useCallback(
+    async (automationId: string) => {
+      if (!apiBase || !automationId.trim()) {
+        return;
+      }
+      setRunsLoadingId(automationId);
+      try {
+        const payload = await apiGetJson<RunsPayload>(
+          apiBase,
+          `/api/automations/${encodeURIComponent(automationId)}/runs`,
+        );
+        setRunsById((prev) => ({
+          ...prev,
+          [automationId]: {
+            runs: payload.runs ?? [],
+            stats: payload.stats ?? {
+              total: 0,
+              okCount: 0,
+              failedCount: 0,
+              skippedCount: 0,
+              blockedCount: 0,
+              missingDataCount: 0,
+            },
+            promotion: payload.promotion ?? { ready: false, message: "", reasons: [] },
+          },
+        }));
+      } catch (e) {
+        // 历史读不到不该让整个面板报错——它只是附加信息。
+        setError(errorMessage(e, "读不到这条自动办件的运行记录"));
+      } finally {
+        setRunsLoadingId((current) => (current === automationId ? null : current));
+      }
+    },
+    [apiBase],
+  );
+
+  useEffect(() => {
+    if (!selectedAutomationId) {
+      return;
+    }
+    void loadRuns(selectedAutomationId);
+  }, [selectedAutomationId, loadRuns]);
+
   // 页面可见时静默轮询（对齐在办 5s）：「立即运行」后刷新任务上次结果；隐藏时停止。
   useEffect(() => {
     if (!apiBase) {
+      // 显式 undefined：与下面的 cleanup 保持一致的返回形状（oxlint consistent-return）。
       return undefined;
     }
     const tick = () => {
@@ -221,20 +427,19 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
   }, [apiBase, refresh]);
 
   useEffect(() => {
-    if (!selectedAutomationId) {
-      return;
+    // 本 effect 不返回 cleanup，所以整段不写 return——嵌套条件比早退还清楚
+    // （也避开 oxlint consistent-return 对「部分路径有返回」的报错）。
+    if (selectedAutomationId) {
+      const el = document.querySelector<HTMLElement>(
+        `[data-automation-id="${CSS.escape(selectedAutomationId)}"]`,
+      );
+      el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
-    const el = document.querySelector<HTMLElement>(
-      `[data-automation-id="${CSS.escape(selectedAutomationId)}"]`,
-    );
-    if (!el) {
-      return;
-    }
-    el.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [selectedAutomationId, automations]);
 
   useEffect(() => {
     if (!success) {
+      // 显式 undefined：与下面的 cleanup 保持一致的返回形状（oxlint consistent-return）。
       return undefined;
     }
     const t = window.setTimeout(() => setSuccess(null), 4000);
@@ -243,7 +448,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
 
   const createFromPreset = async () => {
     if (!selectedMatter.trim()) {
-      setError("请先选择案件。交办任务必须绑定案件。");
+      setError("请先选择案件。自动办件必须绑定案件。");
       return;
     }
     if (needsNotifyEmail && notifyEmail.trim() && !looksLikeEmail(notifyEmail)) {
@@ -258,14 +463,32 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
     setSuccess(null);
     try {
       const schedule = buildCreateSchedule(scheduleMode, hour, minute, everyMinutes);
+      // 六确认是服务端门禁：这里先本地挡一道，省掉一次白跑，
+      // 文案与引擎的 validateAutomationConfirmations 同源（都指「还差哪几项」）。
+      if (!expectedResult.trim() || !approvalBoundary.trim()) {
+        const missing: string[] = [];
+        if (!expectedResult.trim()) {
+          missing.push("办完是什么样");
+        }
+        if (!approvalBoundary.trim()) {
+          missing.push("哪些事必须先问我");
+        }
+        setError(`请先交代清楚：${missing.join("、")}。`);
+        setBusy(false);
+        return;
+      }
       await apiSendJson(apiBase, "/api/automations", "POST", {
         presetId: selectedPreset,
         matterId: selectedMatter.trim(),
         schedule,
         notifyEmail: notifyEmail.trim() || undefined,
+        expectedResult: expectedResult.trim(),
+        approvalBoundary: approvalBoundary.trim(),
+        missingDataPolicy,
+        notifyPolicy,
       });
       setError(null);
-      setSuccess("已创建交办任务。");
+      setSuccess("已创建自动办件。");
       await refresh({ quiet: true });
     } catch (e) {
       const msg = errorMessage(e, "创建失败");
@@ -304,7 +527,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
       });
       setCustomText("");
       setError(null);
-      setSuccess("已从这句话创建交办任务。");
+      setSuccess("已从这句话创建自动办件。");
       await refresh({ quiet: true });
     } catch (e) {
       const msg = errorMessage(e, "创建失败");
@@ -353,7 +576,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
   const remove = async (a: Automation) => {
     if (
       !(await confirmDialog({
-        title: `确定删除交办任务「${a.title}」？`,
+        title: `确定删除自动办件「${a.title}」？`,
         body: "此操作不可撤销。",
         confirmLabel: "删除",
         tone: "danger",
@@ -367,7 +590,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
       if (selectedAutomationId === a.id) {
         setSelectedAutomationId(null);
       }
-      setSuccess("已删除交办任务。");
+      setSuccess("已删除自动办件。");
       await refresh({ quiet: true });
     } catch (e) {
       setError(errorMessage(e, "删除失败"));
@@ -446,19 +669,19 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
       ) : null}
       {busy || loading ? (
         <p className="lm-meta lm-automations-loading" aria-live="polite">
-          {busy ? "处理中…" : "正在加载交办任务…"}
+          {busy ? "处理中…" : "正在加载自动办件…"}
         </p>
       ) : null}
 
-      <section className="lm-automations-list" aria-label="我的交办任务">
+      <section className="lm-automations-list" aria-label="我的自动办件">
         <div className="lm-automations-section-head">
-          <h3 className="lm-settings-subtitle">我的交办任务</h3>
+          <h3 className="lm-settings-subtitle">我的自动办件</h3>
           {automations.length > 0 ? (
             <span className="lm-automations-count">{automations.length}</span>
           ) : null}
         </div>
         {automations.length === 0 ? (
-          <p className="lm-meta">还没有交办任务。从下方模板或一句话创建一个。</p>
+          <p className="lm-meta">还没有自动办件。从下方模板或一句话创建一个。</p>
         ) : (
           <ul className="lm-automations-ul">
             {automations.map((a) => {
@@ -467,72 +690,85 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
               const focused = selectedAutomationId === a.id;
               const lastLine = formatAutomationLastResultForLawyer(a.lastResultSummary);
               const lastWhen = a.lastRunAt ? formatRelativeTime(a.lastRunAt) : null;
+              const runsPayload = runsById[a.id];
               return (
-                <li
-                  key={a.id}
-                  className={`lm-automations-row${focused ? " is-focused" : ""}`}
-                  data-automation-id={a.id}
-                  onClick={() => setSelectedAutomationId(a.id)}
-                >
-                  <div>
-                    <strong>{a.title}</strong>
-                    <div className="lm-meta">
-                      {a.enabled ? "已开启" : "已暂停"} · {scheduleLabel(a.schedule)} · 下次{" "}
-                      {a.nextRunAt.slice(0, 16).replace("T", " ")}
-                      {matterTitle ? ` · ${matterTitle}` : ""}
-                      {a.notifyEmail ? ` · 收件 ${a.notifyEmail}` : ""}
+                <Fragment key={a.id}>
+                  <li
+                    className={`lm-automations-row${focused ? " is-focused" : ""}`}
+                    data-automation-id={a.id}
+                    onClick={() => setSelectedAutomationId(a.id)}
+                  >
+                    <div>
+                      <strong>{a.title}</strong>
+                      <div className="lm-meta">
+                        {a.enabled ? "已开启" : "已暂停"} · {scheduleLabel(a.schedule)} · 下次{" "}
+                        {a.nextRunAt.slice(0, 16).replace("T", " ")}
+                        {matterTitle ? ` · ${matterTitle}` : ""}
+                        {a.notifyEmail ? ` · 收件 ${a.notifyEmail}` : ""}
+                      </div>
+                      {lastLine || lastWhen ? (
+                        <p className="lm-meta lm-automations-last">
+                          {lastWhen && lastLine
+                            ? `${lastWhen} · ${lastLine}`
+                            : (lastLine ?? `上次 ${lastWhen}`)}
+                        </p>
+                      ) : null}
                     </div>
-                    {lastLine || lastWhen ? (
-                      <p className="lm-meta lm-automations-last">
-                        {lastWhen && lastLine
-                          ? `${lastWhen} · ${lastLine}`
-                          : (lastLine ?? `上次 ${lastWhen}`)}
-                      </p>
-                    ) : null}
-                  </div>
-                  <div className="lm-automations-row-actions">
-                    <button
-                      type="button"
-                      className="lm-btn lm-btn-ghost lm-btn-sm"
-                      disabled={busy}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void toggleEnabled(a);
-                      }}
-                    >
-                      {a.enabled ? "暂停" : "开启"}
-                    </button>
-                    <button
-                      type="button"
-                      className="lm-btn lm-btn-secondary lm-btn-sm"
-                      disabled={busy}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void runNow(a);
-                      }}
-                    >
-                      立即跑一次
-                    </button>
-                    <button
-                      type="button"
-                      className="lm-btn lm-btn-ghost lm-btn-sm"
-                      disabled={busy}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void remove(a);
-                      }}
-                    >
-                      删除
-                    </button>
-                  </div>
-                </li>
+                    <div className="lm-automations-row-actions">
+                      <button
+                        type="button"
+                        className="lm-btn lm-btn-ghost lm-btn-sm"
+                        disabled={busy}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void toggleEnabled(a);
+                        }}
+                      >
+                        {a.enabled ? "暂停" : "开启"}
+                      </button>
+                      <button
+                        type="button"
+                        className="lm-btn lm-btn-secondary lm-btn-sm"
+                        disabled={busy}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void runNow(a);
+                        }}
+                      >
+                        立即跑一次
+                      </button>
+                      <button
+                        type="button"
+                        className="lm-btn lm-btn-ghost lm-btn-sm"
+                        disabled={busy}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void remove(a);
+                        }}
+                      >
+                        删除
+                      </button>
+                    </div>
+                  </li>
+                  {focused ? (
+                    // 运行历史单独一行渲染（不塞进上面那个 flex row），
+                    // 这样不动既有行布局，也不会把按钮挤变形。
+                    <li className="lm-automations-runs-row">
+                      <LawmindAutomationRuns
+                        automation={a}
+                        payload={runsPayload}
+                        loading={runsLoadingId === a.id}
+                      />
+                    </li>
+                  ) : null}
+                </Fragment>
               );
             })}
           </ul>
         )}
       </section>
 
-      <section className="lm-automations-create" aria-label="创建交办任务">
+      <section className="lm-automations-create" aria-label="创建自动办件">
         <h3 className="lm-settings-subtitle">创建</h3>
         <label className="lm-compose-bar-field">
           <span className="lm-compose-bar-label">案件（必选）</span>
@@ -680,6 +916,66 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
         ) : null}
 
         {outboundCreate ? <LawmindOutboundSignoffCallout /> : null}
+
+        <fieldset className="lm-automations-confirm" data-testid="lm-auto-confirmations">
+          <legend className="lm-settings-subtitle">办这件事的规矩（必须交代）</legend>
+          <p className="lm-meta">
+            常设工作是在你离开电脑后自己跑的。这四项说清楚，出问题时你才知道它该不该继续跑。
+          </p>
+          <label className="lm-compose-bar-field">
+            <span className="lm-compose-bar-label">办完是什么样</span>
+            <input
+              className="lm-input"
+              value={expectedResult}
+              onChange={(e) => setExpectedResult(e.target.value)}
+              placeholder="例：一份续签提醒清单，列合同名、到期日、对接人"
+              data-testid="lm-auto-expected-result"
+            />
+          </label>
+          <label className="lm-compose-bar-field">
+            <span className="lm-compose-bar-label">哪些事必须先问我</span>
+            <input
+              className="lm-input"
+              value={approvalBoundary}
+              onChange={(e) => setApprovalBoundary(e.target.value)}
+              placeholder="例：外发邮件前必须问我；不要自己改原稿"
+              data-testid="lm-auto-approval-boundary"
+            />
+          </label>
+          <label className="lm-compose-bar-field">
+            <span className="lm-compose-bar-label">资料不全时</span>
+            <select
+              className="lm-compose-select"
+              value={missingDataPolicy}
+              onChange={(e) => setMissingDataPolicy(e.target.value as MissingDataPolicy)}
+              data-testid="lm-auto-missing-data"
+            >
+              {MISSING_DATA_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="lm-compose-bar-field">
+            <span className="lm-compose-bar-label">什么时候告诉我</span>
+            <select
+              className="lm-compose-select"
+              value={notifyPolicy}
+              onChange={(e) => setNotifyPolicy(e.target.value as NotifyPolicy)}
+              data-testid="lm-auto-notify-policy"
+            >
+              {NOTIFY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="lm-meta">
+            没办成、或停下来等你拍板时，一定会通知你——不受最后一项影响。
+          </p>
+        </fieldset>
 
         <div className="lm-automations-create-actions">
           <button

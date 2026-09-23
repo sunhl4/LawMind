@@ -1235,4 +1235,59 @@ describe("lawmind-server-route-review", () => {
     expect(amplitude[0]?.meta?.absCharDelta).toBe(expected);
     expect(expected).toBeGreaterThan(0);
   });
+
+  /**
+   * **空保存**（打开就存、内容一字未动）不得产出幅度样本。
+   *
+   * 判据三是 `absCharDelta` 的**中位数**，口径是「律师的编辑负担」。空保存会写一条
+   * `absCharDelta: 0` 的样本，把中位数系统性地拉向「律师几乎没改」——预注册的判据
+   * 被自己的埋点稀释成乐观结论，而且是无声的。
+   */
+  it("空保存（内容一字未动）不产出幅度样本", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-review-amplitude-noop-"));
+    tempDirs.push(workspaceDir);
+    const same = [{ heading: "结论", body: "责任条款约定以合同金额为限。", citations: [] }];
+    persistDraft(workspaceDir, {
+      taskId: "t-noop",
+      title: "审查意见",
+      summary: "初稿",
+      output: "docx" as const,
+      templateId: "word/legal-memo-default",
+      deliverableType: "memo.opinion",
+      sections: same,
+      reviewNotes: [],
+      reviewStatus: "pending" as const,
+      createdAt: new Date().toISOString(),
+    });
+
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+    const cap = createResponseCapture();
+    await expect(
+      handleReviewRoute({
+        ctx,
+        req: createJsonRequest("PATCH", { sections: same }),
+        res: cap.res,
+        url: new URL("http://127.0.0.1/api/drafts/t-noop/content"),
+        pathname: "/api/drafts/t-noop/content",
+        c: {},
+      }),
+    ).resolves.toBe(true);
+    expect(cap.status).toBe(200);
+
+    const { productMetricsPath } = await import("../../../src/lawmind/metrics/product-metrics.js");
+    const p = productMetricsPath(workspaceDir);
+    const rows = fs.existsSync(p)
+      ? fs
+          .readFileSync(p, "utf8")
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as { kind: string })
+      : [];
+    expect(rows.filter((r) => r.kind === "rewrite_amplitude")).toHaveLength(0);
+  });
 });

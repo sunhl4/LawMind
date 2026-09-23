@@ -37,6 +37,23 @@ fs.rmSync = ((target, options) => {
   }
 }) as typeof fs.rmSync;
 
+// jsdom 的几处实现对渲染层不够用（Chromium/Electron 都有）。集中补在这里，
+// 避免每个用例各自打补丁，也避免「测试环境里挂、真机没事」的假红：
+// 1) `CSS.escape` —— 渲染层用它拼属性选择器（例：`[data-automation-id="…"]`）。
+// 2) `Element.prototype.scrollIntoView` —— 选中项滚动定位用；jsdom 未实现。
+if (typeof (globalThis as { CSS?: { escape?: unknown } }).CSS?.escape !== "function") {
+  const cssEscape = (value: string): string =>
+    value.replace(/[^a-zA-Z0-9_\u00A0-\uFFFF-]/g, (ch) => `\\${ch}`);
+  const existing = (globalThis as { CSS?: object }).CSS ?? {};
+  (globalThis as { CSS?: object }).CSS = Object.assign(existing, { escape: cssEscape });
+}
+
+if (typeof Element !== "undefined" && typeof Element.prototype.scrollIntoView !== "function") {
+  Element.prototype.scrollIntoView = function scrollIntoView(): void {
+    /* jsdom 不做布局，滚动定位无意义；这里只需存在 */
+  };
+}
+
 afterEach(async () => {
   await drainMatterProjections();
   vi.unstubAllGlobals();

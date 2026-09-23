@@ -1145,7 +1145,15 @@ export async function handleReviewRoute({
         );
         const beforeText = draftPlainText(draft);
         const afterText = draftPlainText(nextDraft);
-        if (beforeText || afterText) {
+        // 只记**真的改了**的那次保存。
+        //
+        // 这里以前是 `if (beforeText || afterText)` —— 对真实稿子恒真，于是「打开就存」
+        // 这类**空保存**也会写一条 `absCharDelta: 0` 的样本。判据三是中位数，注入零点
+        // 会把结论系统性地拉向「律师几乎没改」的乐观方向（协议预注册的口径被稀释）。
+        //
+        // 用「文本变了」而不是「delta 为 0」当判据：等长替换（如「定金」→「订金」）
+        // 是真实编辑，`absCharDelta` 恰好为 0，不能丢。
+        if (beforeText !== afterText) {
           recordRewriteAmplitude({
             workspaceDir,
             // 律师直接改稿没有"哪个助手"——用一个显式标识，避免与助手修订混进同一口径。

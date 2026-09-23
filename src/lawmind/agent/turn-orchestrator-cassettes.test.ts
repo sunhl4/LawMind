@@ -10,6 +10,7 @@ import path from "node:path";
  * steer, playbook tool locks, permission/approval pipeline.
  */
 import { describe, expect, it } from "vitest";
+import { buildRoleDirectiveFromProfile } from "../assistants/store.js";
 import {
   DELIVERY_MARKER_CHAT_QA,
   DELIVERY_MARKER_OPINION_MEMO,
@@ -2250,6 +2251,62 @@ describe("turn-orchestrator cassettes (admission)", () => {
             fingerprint: fp,
           }),
         ).toBeTruthy();
+      },
+    );
+  });
+  it("职务说明书：律师写下的岗位边界落进下一次模型请求", async () => {
+    // 名册化（策略文档 A3）的准入断言：说明书的**动态注入值**必须真的到达
+    // 模型请求体——否则单测全绿、功能却是死的（提示词装配走的是
+    // buildRoleDirectiveFromProfile → config.roleDirective → system prompt）。
+    const directive = buildRoleDirectiveFromProfile({
+      assistantId: "a-brief",
+      displayName: "小陈",
+      introduction: "律所通用法律助理。",
+      jobBrief: {
+        responsibility: "盯本案合同续签",
+        prohibitions: "外发邮件前必须问律师",
+        escalation: "客户材料缺失就停下来问，不要自己补",
+      },
+      createdAt: "2026-09-01T00:00:00.000Z",
+      updatedAt: "2026-09-01T00:00:00.000Z",
+    }).roleDirective;
+
+    await withTestLawMind(
+      (b) =>
+        b.withConfig((config) => {
+          config.roleDirective = directive;
+        }),
+      async (h) => {
+        h.enqueue(cassetteAssistant("收到。"));
+        await h.runTurn("把本周到期的合同列一下。");
+        const body = h.request(0);
+        expect(body.contains("职务说明书")).toBe(true);
+        expect(body.contains("盯本案合同续签")).toBe(true);
+        expect(body.contains("外发邮件前必须问律师")).toBe(true);
+        expect(body.contains("客户材料缺失就停下来问，不要自己补")).toBe(true);
+      },
+    );
+  });
+
+  it("职务说明书：没填说明书的助手，提示词里不出现空标题", async () => {
+    const directive = buildRoleDirectiveFromProfile({
+      assistantId: "a-plain",
+      displayName: "小陈",
+      introduction: "律所通用法律助理。",
+      createdAt: "2026-09-01T00:00:00.000Z",
+      updatedAt: "2026-09-01T00:00:00.000Z",
+    }).roleDirective;
+
+    await withTestLawMind(
+      (b) =>
+        b.withConfig((config) => {
+          config.roleDirective = directive;
+        }),
+      async (h) => {
+        h.enqueue(cassetteAssistant("收到。"));
+        await h.runTurn("把本周到期的合同列一下。");
+        // 空说明书不该在请求体里留下一个没有内容的「职务说明书」标题。
+        expect(h.request(0).contains("职务说明书")).toBe(false);
       },
     );
   });

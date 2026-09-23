@@ -88,7 +88,7 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
         id: "automations",
         label: "自动办件",
         description: "定时任务与邮箱配置",
-        keywords: "automations 自动办件 定时 邮件 续签 周报 交办任务 邮箱 落款",
+        keywords: "automations 自动办件 定时任务 定时 邮件 续签 周报 邮箱 落款",
       },
       {
         id: "templates",

@@ -16,6 +16,13 @@ import {
   isTrackedWordAttachment,
   type ContractAttachmentKind,
 } from "../mail/mail-contract-formats.js";
+import {
+  assertSafeAutomationId,
+  automationInboxDir,
+  automationsDir,
+  automationRunsDir,
+} from "./automation-paths.js";
+import { deleteAutomationRunHistory } from "./automation-run-history.js";
 import type { AutomationPresetId } from "./infer-automation-from-instruction.js";
 import { buildMailContractShortPathInstruction } from "./mail-contract-short-path-instruction.js";
 
@@ -38,6 +45,81 @@ export type AutomationSchedule =
 export const AUTOMATION_INTERVAL_MIN_MINUTES = 5;
 export const AUTOMATION_INTERVAL_MAX_MINUTES = 7 * 24 * 60;
 
+/**
+ * 「源数据缺失时怎么办」——routine 六确认之一。
+ *
+ * 默认 `report_failure`：**绝不用旧数据顶上**（与 `GOALS.md` 的诚实失败原则、
+ * 以及 Grok Bot 文档里的 no-data/stale-data policy 同向）。
+ * 缺这个字段的旧文件按默认值读，因此老自动办件不受影响。
+ */
+export type AutomationMissingDataPolicy = "report_failure" | "report_partial" | "skip_run";
+
+/**
+ * 什么时候才打扰律师——「计划 ≠ 通知策略」。
+ *
+ * - `always`：每次运行都进收件箱（旧文件默认，保持既有行为）。
+ * - `on_problem`：只有失败/被挡住才进收件箱，成功静默。
+ * - `never`：成功永不打扰。
+ *
+ * **`never` 不压制失败**：无人值守的失败必须让律师知道，这是不可让的
+ * （否则「不打扰」会退化成「无声地不再办件」）。
+ */
+export type AutomationNotifyPolicy = "always" | "on_problem" | "never";
+
+/**
+ * 缺资料策略的默认值 = **保留既有行为**。
+ *
+ * 这里纠正过我自己的一个判断：我最初把默认设成 `report_failure`，理由是
+ * 「绝不用旧数据顶上」。但读运行期代码发现，邮箱不可用时它**不会**用陈旧数据，
+ * 而是退回读取**本案本地匣**并如实写明「未配置远程邮箱 / 远程同步失败，仍读取本地匣」。
+ * 那既不是陈旧数据、也不是编造，而是有披露的降级 —— 对应的是 `report_partial`。
+ *
+ * 因此默认必须是 `report_partial`：设成 `report_failure` 会**改变既有自动办件的行为**
+ * （原来能出摘要的，变成不出且报失败）。在试点窗口内做这种无谓的行为变更，
+ * 正好撞上测量协议 §4 那句「改默认值等于改了不同人的产品」。
+ */
+export const AUTOMATION_MISSING_DATA_POLICY_DEFAULT: AutomationMissingDataPolicy = "report_partial";
+
+/** 缺资料时的处置。把枚举翻译成一个动作，避免调用点各写一遍 if。 */
+export type MissingDataDisposition = "proceed" | "fail_run" | "skip_quietly";
+
+export function dispositionForMissingData(
+  policy: AutomationMissingDataPolicy,
+): MissingDataDisposition {
+  if (policy === "report_failure") {
+    return "fail_run";
+  }
+  if (policy === "skip_run") {
+    return "skip_quietly";
+  }
+  return "proceed";
+}
+
+/**
+ * 把律师交代的「办完是什么样 / 哪些事必须先问我」拼成交办补充。
+ *
+ * 为什么必须拼进 instruction：这两项字段若只落盘而不进入模型可见的文本，
+ * 律师填了等于没填 —— 表单接受、引擎存下、运行时谁都不读。
+ * 它们与 `customRoleInstructions`（长期岗位说明）不同：这是**本次工作**的验收与边界。
+ * 返回空串表示两项都没填（不注入空标题）。
+ */
+export function buildAutomationJobBriefNote(
+  automation: Pick<LawyerAutomation, "expectedResult" | "approvalBoundary">,
+): string {
+  const lines: string[] = [];
+  const expected = automation.expectedResult?.trim();
+  const boundary = automation.approvalBoundary?.trim();
+  if (expected) {
+    lines.push(`办完的标准：${expected}`);
+  }
+  if (boundary) {
+    lines.push(`必须先问我：${boundary}`);
+  }
+  return lines.join("\n");
+}
+/** 旧文件默认「每次都通知」，保证升级不改变既有行为。 */
+export const AUTOMATION_NOTIFY_POLICY_LEGACY_DEFAULT: AutomationNotifyPolicy = "always";
+
 export type LawyerAutomation = {
   id: string;
   title: string;
@@ -57,12 +139,115 @@ export type LawyerAutomation = {
   lastErrorCode?: string;
   /** 最近一次运行失败的截断错误消息（runner 兜底写入）。 */
   lastErrorMessage?: string;
+  // ── 六确认里需要持久化的四项（标题是第五项、计划是第六项，各有既有字段）──
+  /** 交付什么才算办完。 */
+  expectedResult?: string;
+  /** 哪些动作必须停下来问律师（外发、改原稿等）。 */
+  approvalBoundary?: string;
+  /** 源数据缺失时怎么办（缺省 report_failure）。 */
+  missingDataPolicy?: AutomationMissingDataPolicy;
+  /** 什么时候才打扰律师（缺省 always，保持老行为）。 */
+  notifyPolicy?: AutomationNotifyPolicy;
   allowSendEmailAfterApproval: boolean;
   /** Client / outbound recipient for approve-send (never a placeholder). */
   notifyEmail?: string;
   createdAt: string;
   updatedAt: string;
 };
+
+/**
+ * 读侧默认值。旧 `automation.json` 没有这些字段也必须能跑，
+ * 所以缺省逻辑集中在两个 getter 里，而不是散在 runner / UI / route。
+ */
+export function automationMissingDataPolicy(a: LawyerAutomation): AutomationMissingDataPolicy {
+  return a.missingDataPolicy ?? AUTOMATION_MISSING_DATA_POLICY_DEFAULT;
+}
+
+export function automationNotifyPolicy(a: LawyerAutomation): AutomationNotifyPolicy {
+  return a.notifyPolicy ?? AUTOMATION_NOTIFY_POLICY_LEGACY_DEFAULT;
+}
+
+export type AutomationConfirmationField =
+  | "expectedResult"
+  | "approvalBoundary"
+  | "missingDataPolicy"
+  | "notifyPolicy";
+
+export type AutomationConfirmationInput = {
+  expectedResult?: string;
+  approvalBoundary?: string;
+  missingDataPolicy?: AutomationMissingDataPolicy;
+  notifyPolicy?: AutomationNotifyPolicy;
+};
+
+export type AutomationConfirmationVerdict = {
+  ok: boolean;
+  missing: AutomationConfirmationField[];
+  /** 律师可读的一行，直接给 UI 用。 */
+  message: string;
+};
+
+const CONFIRMATION_LABELS: Record<AutomationConfirmationField, string> = {
+  expectedResult: "期望结果",
+  approvalBoundary: "审批边界",
+  missingDataPolicy: "资料缺失时怎么办",
+  notifyPolicy: "什么时候通知",
+};
+
+/**
+ * routine 六确认的门禁（策略文档 C2）。
+ *
+ * 放在 API 层而不是 `createAutomation`：引擎必须能读老文件、能兜底默认值，
+ * 而「新建时律师有没有明确交代」是产品契约，只有 HTTP 面知道。
+ */
+export function validateAutomationConfirmations(
+  input: AutomationConfirmationInput,
+): AutomationConfirmationVerdict {
+  const missing: AutomationConfirmationField[] = [];
+  if (!input.expectedResult?.trim()) {
+    missing.push("expectedResult");
+  }
+  if (!input.approvalBoundary?.trim()) {
+    missing.push("approvalBoundary");
+  }
+  if (!input.missingDataPolicy) {
+    missing.push("missingDataPolicy");
+  }
+  if (!input.notifyPolicy) {
+    missing.push("notifyPolicy");
+  }
+  if (missing.length === 0) {
+    return { ok: true, missing: [], message: "" };
+  }
+  return {
+    ok: false,
+    missing,
+    message: `请先交代清楚：${missing.map((f) => CONFIRMATION_LABELS[f]).join("、")}。`,
+  };
+}
+
+/**
+ * 该不该打扰律师——通知策略的**唯一**决策点。
+ *
+ * 两条不可让的规则：
+ * 1. **失败与待拍板永不静默**：`failed` / `blocked` 一律通知，与 `notifyPolicy` 无关。
+ *    否则 `never` 会退化成「无声地不再办件」，而无人值守最不能接受的正是这个。
+ * 2. 只有 `ok`（静默成功）与 `skipped`（按缺数据策略跳过）受策略管辖。
+ *
+ * `blocked` 覆盖「待批准发信」这类需要律师拍板的项——那是律师欠的决策，不是噪音。
+ */
+export function shouldNotifyLawyer(
+  policy: AutomationNotifyPolicy,
+  status: "ok" | "failed" | "skipped" | "blocked",
+): boolean {
+  if (status === "failed" || status === "blocked") {
+    return true;
+  }
+  if (policy === "never" || policy === "on_problem") {
+    return false;
+  }
+  return true;
+}
 
 export type AutomationInboxItem = {
   id: string;
@@ -151,13 +336,8 @@ export const AUTOMATION_PRESETS: AutomationPresetMeta[] = [
   },
 ];
 
-export function automationsDir(workspaceDir: string): string {
-  return path.join(path.resolve(workspaceDir), "lawmind", "automations");
-}
-
-export function automationInboxDir(workspaceDir: string): string {
-  return path.join(path.resolve(workspaceDir), "lawmind", "automation-inbox");
-}
+// 路径助手的实现在 automation-paths.ts；这里保留同名导出，外部 import 路径不变。
+export { automationsDir, automationInboxDir, automationRunsDir };
 
 export function matterMailInboxDir(workspaceDir: string, matterId: string): string {
   return path.join(path.resolve(workspaceDir), "cases", matterId, "mail", "inbox");
@@ -331,6 +511,13 @@ export function deleteAutomation(workspaceDir: string, id: string): boolean {
     return false;
   }
   fs.unlinkSync(file);
+  // 连带清理运行历史，否则留下永远读不到的孤儿目录。
+  try {
+    assertSafeAutomationId(id);
+    deleteAutomationRunHistory(workspaceDir, id);
+  } catch {
+    /* id 不合法时没有历史可清 */
+  }
   return true;
 }
 
@@ -343,6 +530,14 @@ export type CreateAutomationInput = {
   enabled?: boolean;
   allowSendEmailAfterApproval?: boolean;
   notifyEmail?: string;
+  /** 六确认：交付什么才算办完。 */
+  expectedResult?: string;
+  /** 六确认：哪些动作必须停下来问律师。 */
+  approvalBoundary?: string;
+  /** 六确认：源数据缺失时怎么办。 */
+  missingDataPolicy?: AutomationMissingDataPolicy;
+  /** 六确认：什么时候才打扰律师。 */
+  notifyPolicy?: AutomationNotifyPolicy;
 };
 
 /** First plausible email in free text, or undefined. Rejects example.com placeholders. */
@@ -399,6 +594,10 @@ export function createAutomation(
     instruction: input.instruction?.trim() || undefined,
     schedule,
     nextRunAt,
+    expectedResult: input.expectedResult?.trim() || undefined,
+    approvalBoundary: input.approvalBoundary?.trim() || undefined,
+    missingDataPolicy: input.missingDataPolicy,
+    notifyPolicy: input.notifyPolicy,
     allowSendEmailAfterApproval: input.allowSendEmailAfterApproval ?? preset.defaultAllowSend,
     notifyEmail,
     createdAt: now.toISOString(),

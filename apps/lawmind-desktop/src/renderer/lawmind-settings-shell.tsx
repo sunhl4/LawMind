@@ -86,6 +86,7 @@ type Props = {
   onOpenNewAssistant: (presetKey?: string) => void;
   onOpenEditAssistant: () => void;
   onRemoveAssistant: () => void | Promise<void>;
+  onDuplicateAssistant: () => void | Promise<void>;
   onApplyRetrievalMode: (mode: "single" | "dual") => void | Promise<void>;
   onApplyDraftWithModelEnabled?: (enabled: boolean) => void | Promise<void>;
   npcSaving?: boolean;
@@ -149,6 +150,7 @@ export function LawmindSettingsPage({
   onOpenNewAssistant,
   onOpenEditAssistant,
   onRemoveAssistant,
+  onDuplicateAssistant,
   onApplyRetrievalMode,
   onApplyDraftWithModelEnabled,
   npcSaving = false,
@@ -255,6 +257,7 @@ export function LawmindSettingsPage({
     onOpenNewAssistant,
     onOpenEditAssistant,
     onRemoveAssistant,
+    onDuplicateAssistant,
     onApplyRetrievalMode,
     onApplyDraftWithModelEnabled,
     npcSaving,
@@ -450,6 +453,7 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
     onOpenNewAssistant,
     onOpenEditAssistant,
     onRemoveAssistant,
+    onDuplicateAssistant,
     onApplyRetrievalMode,
     onApplyDraftWithModelEnabled,
     npcSaving,
@@ -554,6 +558,7 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
           onOpenNew={onOpenNewAssistant}
           onOpenEdit={onOpenEditAssistant}
           onRemove={() => void onRemoveAssistant()}
+          onDuplicate={() => void onDuplicateAssistant()}
         />
       );
     case "models":

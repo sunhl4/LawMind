@@ -220,7 +220,7 @@ export function useLawmindAppShell() {
     refreshModelsCatalog,
   });
 
-  const { openNewAssistant, openEditAssistant, saveAssistant, removeAssistant } =
+  const { openNewAssistant, openEditAssistant, saveAssistant, removeAssistant, duplicateAssistant } =
     useLawmindAssistantActions({
       config,
       selectedAssistantId,
@@ -564,6 +564,7 @@ export function useLawmindAppShell() {
       openEditAssistant,
       saveAssistant,
       removeAssistant,
+      duplicateAssistant,
       copyMessage,
       openApiWizard,
       composeModelQuickTest,

@@ -50,6 +50,7 @@ describe("useLawmindAppSettingsPanelProps", () => {
         openNewAssistant: vi.fn(),
         openEditAssistant: vi.fn(),
         removeAssistant: vi.fn(),
+        duplicateAssistant: vi.fn(),
         applyRetrievalMode: vi.fn(),
         applyDraftWithModelEnabled: vi.fn(),
         reconnectLocalService: vi.fn(),

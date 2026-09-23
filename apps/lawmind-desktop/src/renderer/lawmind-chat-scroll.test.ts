@@ -139,6 +139,50 @@ describe("pinChatMessagesToLatest", () => {
     expect(panel.scrollTop).toBe(1000);
   });
 
+  /**
+   * 取消面必须覆盖键盘翻页与拖滚动条。
+   *
+   * 此前只监听 wheel / touchstart：键盘用户按 PageUp 上翻看前文，或按住滚动条往上拖，
+   * pin 都不会停 —— 重挂载后最多 30 帧内把他拽回底部。两种输入各钉一条。
+   */
+  it("键盘翻页（PageUp）也会停止跟随", () => {
+    const raf = installManualRaf();
+    const panel = makePanel(1000);
+
+    pinChatMessagesToLatest();
+    panel.dispatchEvent(new KeyboardEvent("keydown", { key: "PageUp" }));
+    raf.flush();
+
+    Object.defineProperty(panel, "scrollHeight", { value: 5000, configurable: true });
+    raf.flush();
+    expect(panel.scrollTop).toBe(1000);
+  });
+
+  it("拖滚动条（mousedown）也会停止跟随", () => {
+    const raf = installManualRaf();
+    const panel = makePanel(1000);
+
+    pinChatMessagesToLatest();
+    panel.dispatchEvent(new Event("mousedown"));
+    raf.flush();
+
+    Object.defineProperty(panel, "scrollHeight", { value: 5000, configurable: true });
+    raf.flush();
+    expect(panel.scrollTop).toBe(1000);
+  });
+
+  it("与滚动无关的按键不打断跟随（打字的律师不该被误判成在翻页）", () => {
+    const raf = installManualRaf();
+    const panel = makePanel(1000);
+
+    pinChatMessagesToLatest();
+    panel.dispatchEvent(new KeyboardEvent("keydown", { key: "a" }));
+    Object.defineProperty(panel, "scrollHeight", { value: 5000, configurable: true });
+    raf.flush();
+    // 仍在跟随：增长了就继续贴底。
+    expect(panel.scrollTop).toBe(5000);
+  });
+
   it("does nothing when the transcript panel is not mounted", () => {
     const raf = installManualRaf();
     const cancel = pinChatMessagesToLatest();

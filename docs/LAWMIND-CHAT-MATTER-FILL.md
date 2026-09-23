@@ -188,6 +188,34 @@ Claude Code 的渐进披露——提示词里摆**能力菜单**（名称 + 一�
 4. **OCR**：`analyze_document` 已有 Tesseract。默认在 OCR 为空且已配合同一模型视觉端点时走视觉兜底（今天要 `LAWMIND_DOC_READ_MODE=ocr_then_vision`）。律师不应设环境变量。仍空则工具返回明确错误，模型不得 `apply_*`。
 5. **关联案件**：继续用「用于对话」和 compose 案件芯片。本期不要求对话里用自然语言模糊搜案自动绑定（可第 3 波用 `list_matters`）。
 
+### 5.x 会话与案件的绑定语义（2026-09-23 补，事故根因）
+
+**本回合带来的 `matterId` 会覆盖会话绑定**：`runTurn` 里是
+`if (matterId && session.matterId !== matterId) session.matterId = matterId;`。
+
+此前是 `if (matterId && !session.matterId)`——**只有第一次写入生效**，会话会被永久钉在
+首个案件上。而工具默认 `matter_id`、`import_host_file` 的兜底、期限/卷宗/谈话写笔、
+记忆与提示词里的「当前案件」全都读 `session.matterId`，于是「新建案件后把材料收进本案」
+实际落进了**上一个案件**的 `materials/`（真实事故：岚江公司的整包材料进了刘学江案）。
+本文档写的是「芯片 = 绑定」（意图正确），引擎却是「首次写入即钉死」——两者矛盾了两天。
+
+三条已落地的语义，改动这里之前请先读：
+
+1. **本回合显式带来的案件就是本案**。工作台「用于对话」/ 新建案件后收材料，都靠它改绑。
+2. **旧卡按开卡时的案件续跑**：`resolveResumeMatterId`（`runtime-resume.ts`）取
+   `action.matterId → session.matterId → opts.matterId`。审批是「针对那一次调用」的授权，
+   作用域在开卡时就固定了；律师在等批准期间把对话切到别的案子，续跑**不得**跟着改口，
+   否则「批的是甲案、材料落进乙案」。副作用：续跑会把会话绑定改回卡片里的案件
+   （写的和说的保持一致）。
+3. **打开旧对话会同步 compose 芯片**：`GET /api/sessions/:id` 回传 `matterId`，
+   渲染层据此把芯片切回该案（`useLawmindChatSessions`），避免下一条消息把对话改绑到
+   芯片上残留的另一个案件。后台轮询**不**同步，免得别的会话改掉律师当前的选择。
+
+准入测试（改这块必须保持绿）：`turn-orchestrator-cassettes.test.ts` 的
+`matter-switch-rebinds-session-and-receives-into-the-new-case`、
+`stale-approval-resumes-in-the-card-s-matter-not-the-switched-one`；
+渲染层见 `useLawmindChatSessions.test.tsx`。
+
 ## 8. 分波施工
 
 后一波不改前一波的存储形状。每一波有独立 cassette / 单测，失败就停，不铺下一项。

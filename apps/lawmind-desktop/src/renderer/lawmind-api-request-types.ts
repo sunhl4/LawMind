@@ -4,6 +4,7 @@
 export type {
   ApprovalResolvePostRequest,
   AssistantProfileLearningPostRequest,
+  AssistantDuplicateRequest,
   AssistantUpsertRequest,
   ChatPostRequest,
   ChatResumeRequest,

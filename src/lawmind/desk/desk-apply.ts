@@ -23,6 +23,7 @@ import {
   type DeskWriteRecord,
   type MatterProfileSnapshot,
 } from "./desk-write-journal.js";
+import { measureFileTree } from "./file-tree-measure.js";
 import {
   compileIntakeBrief,
   confirmIntakeBrief,
@@ -445,13 +446,20 @@ export async function revertDeskWrite(
         continue;
       }
       if (op.copied === true) {
-        // 复制件的撤销＝删掉复制件；律师改过（字节数对不上）就不动它，如实报告。
-        const size = fs.statSync(toAbs).size;
+        // 复制件的撤销＝删掉复制件；律师改过（体积对不上）就不动它，如实报告。
+        //
+        // 「体积」必须与记录时同义：`applySolvedFileOps` 对文件记 `st.size`、对**目录**
+        // 记整棵树的字节和（见 `workspace-file-ops.ts`）。此前这里一律用 `statSync().size`，
+        // 目录拿到的是 inode 自身的字节数（几十字节），与树字节和对不上 —— 于是
+        // 「复制文件夹」永远被判成「已被修改」，撤销静默失败（功能承诺了却做不到）。
+        const st = fs.statSync(toAbs);
+        const size = st.isDirectory() ? measureFileTree(toAbs).bytes : st.size;
         if (typeof op.bytes === "number" && size !== op.bytes) {
           skipped.push(`${op.to}（已被修改，未删除）`);
           continue;
         }
-        fs.rmSync(toAbs, { force: true });
+        // 目录要递归删；缺 `recursive` 会抛 EISDIR，撤销同样落空。
+        fs.rmSync(toAbs, { recursive: true, force: true });
         undone.push(op.to);
         continue;
       }

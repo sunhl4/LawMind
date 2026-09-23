@@ -23,6 +23,7 @@ This repository is **LawMind only** (legal workbench: `src/lawmind`, `apps/lawmi
 - 提交前先看 `git status`：出现不属于本轮的文件，说明有并行写入者，**不要一起提交，也不要 `git checkout -- .` 或 `git clean -fd`**。
 - 同一文件被两个会话改过时，以**跑通测试的合并态**为准，并逐个核对两侧意图都还在。
 - 收口时不要把 `workspace/` 里的运行时产物一起提交：其真相源在 `src/lawmind/skills/builtin/*.md` 与 `src/lawmind/agent/collaboration/*-templates.ts`。
+- **别让 `markdownlint-cli2 --fix` 按 globs 跑全量**。`.markdownlint-cli2.jsonc` 的 `globs` 是 `docs/**/*.md`，所以「只修一个文件」的调用会**改写仓库里每一篇 docs**；并发时这就等于把别人的 doc 改动一起改掉，随后很容易被 `git checkout --` 连人带己丢掉（**已真实发生过一次**）。要改单篇：显式传路径并确认只动了那一篇，或者先 `--no-globs`（或在受控 worktree 里跑）。
 
 ## Security
 
