@@ -7,6 +7,28 @@ import {
   writeComposePermissionMode,
   type ComposePermissionMode,
 } from "./lawmind-compose-prefs";
+import type {
+  ComposeContextBreakdownBucket,
+  ComposeContextBudget,
+  ComposeContextWindow,
+  ComposeLastCompact,
+} from "./LawmindComposeContextUsage";
+
+export type ComposeForkResult =
+  | {
+      ok: true;
+      sessionId: string;
+      title?: string;
+      reused?: boolean;
+      digestSource?: "llm" | "extractive" | "none";
+      stats?: { droppedMessageCount: number; digestChars: number; seedChars: number };
+    }
+  | {
+      ok: false;
+      code: "source_not_found" | "turn_live" | "pending_authorization";
+      message: string;
+      blockingActions?: string[];
+    };
 
 export type LawmindComposeExtras = ReturnType<typeof useLawmindComposeExtras>;
 
@@ -19,6 +41,11 @@ export function useLawmindComposeExtras(opts: {
   apiBase?: string;
   sessionId?: string;
   matterId?: string | null;
+  /**
+   * compose 里选中的模型。上下文用量的分母必须跟它走：请求体（`/api/chat`）带的是
+   * 同一个 modelId，两者不一致时圆环会显示错误的窗口与阈值。
+   */
+  modelId?: string;
   /** Called after compact returns updated messages (reload transcript). */
   onCompactMessages?: (
     messages: Array<{ role: string; text?: string; content?: string }>,
@@ -27,13 +54,10 @@ export function useLawmindComposeExtras(opts: {
   const [permissionMode, setPermissionMode] = useState<ComposePermissionMode>(() =>
     readComposePermissionMode(),
   );
-  const [contextBudget, setContextBudget] = useState<{
-    used: number;
-    effectiveLimit: number;
-    level: string;
-  } | null>(null);
+  const [contextBudget, setContextBudget] = useState<ComposeContextBudget | null>(null);
   const [compactBusy, setCompactBusy] = useState(false);
   const [compactHint, setCompactHint] = useState<string | null>(null);
+  const [forkBusy, setForkBusy] = useState(false);
 
   // Workspace-wide summary (not scoped to compose matter) — sticky CTA needs all pending drafts.
   const summaryQuery = useActionSummaryQuery(opts.apiBase ?? null, null, Boolean(opts.apiBase));
@@ -51,17 +75,37 @@ export function useLawmindComposeExtras(opts: {
       return;
     }
     try {
+      const query = opts.modelId?.trim()
+        ? `?modelId=${encodeURIComponent(opts.modelId.trim())}`
+        : "";
       const b = await apiGetJson<{
         ok: boolean;
         used: number;
         effectiveLimit: number;
         level: string;
-      }>(opts.apiBase, `/api/sessions/${encodeURIComponent(opts.sessionId)}/context-budget`);
-      setContextBudget({ used: b.used, effectiveLimit: b.effectiveLimit, level: b.level });
+        modelId?: string;
+        breakdown?: { buckets?: ComposeContextBreakdownBucket[]; total?: number };
+        window?: ComposeContextWindow;
+        compactCount?: number;
+        lastCompact?: ComposeLastCompact | null;
+      }>(
+        opts.apiBase,
+        `/api/sessions/${encodeURIComponent(opts.sessionId)}/context-budget${query}`,
+      );
+      setContextBudget({
+        used: b.used,
+        effectiveLimit: b.effectiveLimit,
+        level: b.level,
+        modelId: typeof b.modelId === "string" ? b.modelId : undefined,
+        breakdown: Array.isArray(b.breakdown?.buckets) ? b.breakdown.buckets : undefined,
+        window: b.window,
+        compactCount: typeof b.compactCount === "number" ? b.compactCount : undefined,
+        lastCompact: b.lastCompact ?? null,
+      });
     } catch {
       setContextBudget(null);
     }
-  }, [opts.apiBase, opts.sessionId]);
+  }, [opts.apiBase, opts.modelId, opts.sessionId]);
 
   useEffect(() => {
     void refreshContextBudget();
@@ -79,11 +123,12 @@ export function useLawmindComposeExtras(opts: {
 
   const applyStreamTokenBudget = useCallback(
     (info: { used: number; effectiveLimit: number; level: string }) => {
-      setContextBudget({
-        used: info.used,
-        effectiveLimit: info.effectiveLimit,
-        level: info.level,
-      });
+      // 流内只更新水位；分层与窗口三元组保持上一次 HTTP 结果（下一轮开始时会整体刷新）。
+      setContextBudget((prev) =>
+        prev
+          ? { ...prev, used: info.used, effectiveLimit: info.effectiveLimit, level: info.level }
+          : { used: info.used, effectiveLimit: info.effectiveLimit, level: info.level },
+      );
     },
     [],
   );
@@ -193,6 +238,71 @@ export function useLawmindComposeExtras(opts: {
     await runCompact({ distill: true });
   }, [runCompact]);
 
+  /**
+   * 另起新对话并带上文（见 `src/lawmind/agent/session-carryover.ts`）。
+   * `clientNonce` 由调用方给并复用，重复点击只会复用一个新会话，不会造第二份。
+   */
+  const forkWithCarryover = useCallback(
+    async (input?: { clientNonce?: string; title?: string }): Promise<ComposeForkResult> => {
+      if (!opts.apiBase || !opts.sessionId) {
+        return { ok: false, code: "source_not_found", message: "当前没有可续接的对话。" };
+      }
+      setForkBusy(true);
+      try {
+        const j = await apiSendJson<
+          {
+            ok?: boolean;
+            code?: string;
+            message?: string;
+            blockingActions?: string[];
+            sessionId?: string;
+            title?: string;
+            reused?: boolean;
+            digestSource?: "llm" | "extractive" | "none";
+            stats?: { droppedMessageCount: number; digestChars: number; seedChars: number };
+          },
+          { clientNonce?: string; title?: string; useLlmDigest?: boolean }
+        >(
+          opts.apiBase,
+          `/api/sessions/${encodeURIComponent(opts.sessionId)}/fork-with-carryover`,
+          "POST",
+          {
+            ...(input?.clientNonce ? { clientNonce: input.clientNonce } : {}),
+            ...(input?.title ? { title: input.title } : {}),
+          },
+        );
+        if (j.ok !== true || typeof j.sessionId !== "string") {
+          const code = j.code === "turn_live" || j.code === "pending_authorization"
+            ? j.code
+            : "source_not_found";
+          return {
+            ok: false,
+            code,
+            message: typeof j.message === "string" ? j.message : "另起新对话失败。",
+            ...(Array.isArray(j.blockingActions) ? { blockingActions: j.blockingActions } : {}),
+          };
+        }
+        return {
+          ok: true,
+          sessionId: j.sessionId,
+          ...(typeof j.title === "string" ? { title: j.title } : {}),
+          reused: j.reused === true,
+          ...(j.digestSource ? { digestSource: j.digestSource } : {}),
+          ...(j.stats ? { stats: j.stats } : {}),
+        };
+      } catch (e) {
+        return {
+          ok: false,
+          code: "source_not_found",
+          message: e instanceof Error ? e.message : "另起新对话失败。",
+        };
+      } finally {
+        setForkBusy(false);
+      }
+    },
+    [opts.apiBase, opts.sessionId],
+  );
+
   return {
     permissionMode,
     onPermissionModeChange,
@@ -208,5 +318,7 @@ export function useLawmindComposeExtras(opts: {
     distillSessionLearning,
     compactBusy,
     compactHint,
+    forkBusy,
+    forkWithCarryover,
   };
 }

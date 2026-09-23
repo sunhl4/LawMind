@@ -56,7 +56,7 @@ describe("LawmindChatComposeToolbar slim bar", () => {
     expect(host.querySelector('[data-testid="lm-compose-show-tool-trace"]')).toBeNull();
   });
 
-  it("hides context usage until budget is warn or compact", async () => {
+  it("keeps the context usage ring visible at every budget level", async () => {
     await act(async () => {
       root.render(
         <LawmindChatComposeToolbar
@@ -75,7 +75,8 @@ describe("LawmindChatComposeToolbar slim bar", () => {
         />,
       );
     });
-    expect(host.querySelector('[data-testid="lm-compose-ctx-usage"]')).toBeNull();
+    // 对齐 Cursor：圆环常驻，律师随时能看用量；不是只在告警时才出现。
+    expect(host.querySelector('[data-testid="lm-compose-ctx-usage"]')).toBeTruthy();
 
     await act(async () => {
       root.render(
@@ -96,6 +97,27 @@ describe("LawmindChatComposeToolbar slim bar", () => {
       );
     });
     expect(host.querySelector('[data-testid="lm-compose-ctx-usage"]')).toBeTruthy();
+
+    await act(async () => {
+      root.render(
+        <LawmindChatComposeToolbar
+          loading={false}
+          input=""
+          onSend={vi.fn()}
+          permissionMode="standard"
+          onPermissionModeChange={vi.fn()}
+          allowWebSearch
+          onAllowWebSearchChange={vi.fn()}
+          modelCatalog={[]}
+          selectedModelId=""
+          contextBudget={null}
+          onCompactContext={vi.fn()}
+          onDistillLearning={vi.fn()}
+        />,
+      );
+    });
+    // 没有预算数据时不出空圆环。
+    expect(host.querySelector('[data-testid="lm-compose-ctx-usage"]')).toBeNull();
   });
 
   it("plan mode shows 开始执行 and labels the permission as 计划模式", async () => {

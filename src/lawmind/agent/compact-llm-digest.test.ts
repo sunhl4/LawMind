@@ -144,4 +144,25 @@ describe("compact-llm-digest", () => {
     expect(next[1]?.content).toContain("摘要：新");
     expect(next[0]?.content).toBe("sys");
   });
+
+  it("生产插入路径是 user 角色，LLM 摘要必须真的落到会话历史里", () => {
+    // 回归：`autoCompactSessionHistory` 把蒸馏块插成 user 消息；早期只认 system，
+    // 于是 LLM 摘要有且仅写进 compact-digest.md，会话里仍是提取式要点，
+    // 而面板提示「已智能摘要」——静默失效。
+    const messages: AgentMessage[] = [
+      { role: "system", content: "sys", timestamp: "t0" },
+      {
+        role: "user",
+        content: "【压缩前对话蒸馏】共丢弃约 3 条消息\n\n### 律师要点\n1. 旧",
+        timestamp: "t1",
+      },
+      { role: "tool", content: "{}", timestamp: "t2" },
+    ];
+    const next = replaceDroppedDigestInMessages(messages, "【压缩前对话蒸馏】摘要：新");
+    expect(next[1]?.role).toBe("user");
+    expect(next[1]?.content).toContain("摘要：新");
+    // 只替换第一条命中；其余历史原样。
+    expect(next[0]?.content).toBe("sys");
+    expect(next[2]?.content).toBe("{}");
+  });
 });

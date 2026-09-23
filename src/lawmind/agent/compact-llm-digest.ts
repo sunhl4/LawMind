@@ -155,7 +155,14 @@ export async function enhanceCompactDigestWithLlm(opts: {
   return fallback();
 }
 
-/** Replace the reinjected extractive digest system message after LLM enhance. */
+/**
+ * Replace the reinjected digest message after LLM enhance.
+ *
+ * 生产插入路径（`autoCompactSessionHistory`）把蒸馏块插成 **user** 消息（它是合成
+ * 用户轮，不是助手自述）；早期这里只认 `system`，于是 LLM 摘要只写进了
+ * `compact-digest.md`，会话历史里留着的仍是提取式要点 —— 而面板会提示「已智能摘要」。
+ * 静默失效比不摘要更糟：两种角色都认，两条路径都真的被替换。
+ */
 export function replaceDroppedDigestInMessages(
   messages: AgentMessage[],
   nextDigest: string,
@@ -167,7 +174,7 @@ export function replaceDroppedDigestInMessages(
   return messages.map((m) => {
     if (
       !replaced &&
-      m.role === "system" &&
+      (m.role === "user" || m.role === "system") &&
       typeof m.content === "string" &&
       m.content.includes("【压缩前对话蒸馏】")
     ) {

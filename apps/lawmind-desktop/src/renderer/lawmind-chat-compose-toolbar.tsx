@@ -47,6 +47,9 @@ export type LawmindChatComposeToolbarProps = {
   compactHint?: string | null;
   onCompactContext?: () => void | Promise<void>;
   onDistillLearning?: () => void | Promise<void>;
+  /** 另起新对话并带上文（续接种子）。 */
+  onForkWithCarryover?: () => void | Promise<void>;
+  forkBusy?: boolean;
   onPreviewCompact?: () => Promise<CompactPreview | null>;
   onOpenMemoryInspector?: () => void;
 };
@@ -78,6 +81,8 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
     onDistillLearning,
     onPreviewCompact,
     onOpenMemoryInspector,
+    onForkWithCarryover,
+    forkBusy = false,
   } = props;
 
   const [composeOptionsOpen, setComposeOptionsOpen] = useState(false);
@@ -85,7 +90,7 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
 
   useEffect(() => {
     if (!composeOptionsOpen) {
-      return;
+      return undefined;
     }
     const onDoc = (event: MouseEvent) => {
       const t = event.target as Node | null;
@@ -247,10 +252,7 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
           disabled={loading}
           disabledTitle={loading ? "回复生成中，请稍后再切换模型" : undefined}
         />
-        {contextBudget &&
-        onCompactContext &&
-        onDistillLearning &&
-        (contextBudget.level === "warn" || contextBudget.level === "compact") ? (
+        {contextBudget && onCompactContext && onDistillLearning ? (
           <LawmindComposeContextUsage
             budget={contextBudget}
             compactBusy={compactBusy}
@@ -260,6 +262,8 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
             onDistill={onDistillLearning}
             onPreviewCompact={onPreviewCompact}
             onOpenMemory={onOpenMemoryInspector}
+            onForkWithCarryover={onForkWithCarryover}
+            forkBusy={forkBusy}
           />
         ) : null}
       </div>
