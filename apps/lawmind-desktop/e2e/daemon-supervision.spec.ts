@@ -13,7 +13,7 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test, type ElectronApplication } from "@playwright/test";
 import {
   launchLawMindElectron,
   prepareE2EUserData,
@@ -21,6 +21,50 @@ import {
 } from "./helpers/app-driver.js";
 
 const DAEMON_DIR = "lawmind";
+
+/**
+ * 关窗并**等进程真的退出**，不依赖 Playwright 的 `close()` 握手。
+ *
+ * 为什么不能用 `await electronApp.close()`：它在 Linux CI 上会**永远不返回**，
+ * 即使 Electron 已经以 0 正常退出。2026-09-23 用 CI 现场证据钉死了这一点
+ * （#70）：`close()` 挂住 60s 时，Playwright 自己看到的
+ * `appProc.exitCode === 0`、`ps -p <pid>` 已查无此进程，而后台 **pid 存活、心跳在走**。
+ * 也就是说 App 与后台都没问题，丢的是 Playwright 关闭协议里的 `Close` 事件
+ * （`playwright-core/lib/server/electron/electron.js`：`onExit` 是它唯一来源，
+ * 而握手在 `evaluate(app.quit())` 之后立刻 `_nodeConnection.close()`。
+ *
+ * 它刚好吃满超时而不是在等待里失败 —— 与「后台没起来」的形态完全不同，
+ * 这也解释了为什么本机 macOS 一直绿、只有 Linux CI 红。
+ *
+ * 做法：**自己观察进程退出**（`exit` 事件在调用 close 之前就挂上，不会漏），
+ * close() 的 Promise 不 await（它可能永远不 settle），超时则明确报错。
+ */
+async function closeAppAndWaitForExit(
+  electronApp: ElectronApplication,
+  opts: { timeoutMs?: number } = {},
+): Promise<void> {
+  const timeoutMs = opts.timeoutMs ?? 60_000;
+  const proc = electronApp.process();
+  const pid = proc.pid;
+  const exitPromise = new Promise<void>((resolve) => {
+    if (proc.exitCode !== null || proc.signalCode !== null) {
+      resolve();
+      return;
+    }
+    proc.once("exit", () => resolve());
+  });
+  // 不 await：握手可能永不 settle（见函数注释）。它抛错也不影响我们的判据。
+  void electronApp.close().catch(() => undefined);
+  const timedOut = await Promise.race([
+    exitPromise.then(() => false),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(true), timeoutMs)),
+  ]);
+  if (timedOut) {
+    throw new Error(
+      `关窗后 ${timeoutMs}ms 内 Electron（pid=${pid}）仍未退出：exitCode=${proc.exitCode} signal=${proc.signalCode}`,
+    );
+  }
+}
 
 function daemonPaths(workspaceDir: string) {
   const dir = path.join(workspaceDir, DAEMON_DIR);
@@ -158,10 +202,6 @@ test.describe("lawmindd 真机：关窗后继续办件", () => {
      * （见 workflow 的 Upload E2E diagnostics），下一次有人动这块时有现场可查。
      * 「job 从来不跑」才是真正会骗人的状态。
      */
-    test.fixme(
-      process.env.CI === "true" && process.platform === "linux",
-      "已知红：Linux CI 下挂到超时；证据与排查见 #70",
-    );
     /**
      * 超时必须**大于本用例内部等待预算之和**，否则在慢机器上必然被自己的超时砍掉。
      *
@@ -186,7 +226,10 @@ test.describe("lawmindd 真机：关窗后继续办件", () => {
       await waitForShell(page);
 
       // 关窗 —— 这一步就是律师「下班关掉 LawMind」。before-quit 里会拉起监督进程。
-      await electronApp.close();
+      //
+      // 用「等进程真退出」而不是 `await electronApp.close()`：后者在 Linux CI 上
+      // 会永远不返回（App 其实已正常退出，见 #70 的现场证据）。
+      await closeAppAndWaitForExit(electronApp);
 
       // 1) 后台真的起来了：pid 文件出现且进程活着，日志里有启动行。
       const childPid = await waitFor(
