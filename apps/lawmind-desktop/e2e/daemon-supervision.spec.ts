@@ -145,7 +145,17 @@ async function stopDaemonTree(workspaceDir: string): Promise<void> {
 
 test.describe("lawmindd 真机：关窗后继续办件", () => {
   test("关窗拉起后台、心跳在走、被杀会自愈、停得干净", async () => {
-    test.setTimeout(180_000);
+    /**
+     * 超时必须**大于本用例内部等待预算之和**，否则在慢机器上必然被自己的超时砍掉。
+     *
+     * 内部是三段串行 `waitFor`（启动 / 心跳推进 / SIGKILL 自愈），每段 90s
+     * → 最坏 270s。此前写 180s：本机（macOS）快，一路绿；Linux CI 慢，测到 180s
+     * 直接被 `Test timeout` 掐断，随后 worker teardown 还要等子进程退出而再次超时
+     * （2026-09-23 首次真机跑出：14 passed / 1 failed，就这一条）。
+     *
+     * 这不是产品缺陷，是用例自己的算术没对齐；给足 300s。
+     */
+    test.setTimeout(300_000);
     const config = await prepareE2EUserData();
     const { workspaceDir } = config;
     const paths = daemonPaths(workspaceDir);
