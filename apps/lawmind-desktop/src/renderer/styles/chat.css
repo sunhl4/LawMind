@@ -1249,6 +1249,105 @@
   line-height: 1.35;
 }
 
+/* 分层用量（Cursor context breakdown 的对应物）与窗口三元组。 */
+.lm-compose-ctx-usage-window {
+  margin-top: 4px !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.lm-compose-ctx-usage-breakdown {
+  margin: 10px 0 8px;
+}
+
+.lm-compose-ctx-usage-breakdown-bar {
+  display: flex;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface-2, var(--border));
+}
+
+.lm-compose-ctx-usage-seg {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  background: var(--border-md, var(--border));
+}
+
+.lm-compose-ctx-usage-seg--lawyer,
+.lm-compose-ctx-usage-dot--lawyer {
+  background: var(--accent);
+}
+
+.lm-compose-ctx-usage-seg--assistant,
+.lm-compose-ctx-usage-dot--assistant {
+  background: var(--accent-border, var(--accent));
+}
+
+.lm-compose-ctx-usage-seg--toolResults,
+.lm-compose-ctx-usage-dot--toolResults {
+  background: var(--warn);
+}
+
+.lm-compose-ctx-usage-seg--digest,
+.lm-compose-ctx-usage-dot--digest {
+  background: var(--text-2, var(--muted));
+}
+
+.lm-compose-ctx-usage-seg--pins,
+.lm-compose-ctx-usage-dot--pins {
+  background: var(--ok, var(--accent));
+}
+
+.lm-compose-ctx-usage-breakdown-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.lm-compose-ctx-usage-breakdown-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.lm-compose-ctx-usage-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--border-md, var(--border));
+}
+
+.lm-compose-ctx-usage-breakdown-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lm-compose-ctx-usage-breakdown-tokens {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2, var(--text));
+}
+
+.lm-compose-ctx-usage-lastcompact {
+  margin: 0 0 4px !important;
+}
+
+.lm-compose-ctx-usage-honesty {
+  margin: 0 0 8px !important;
+  color: var(--text-2, var(--text));
+}
+
 .lm-compose-mode-chip {
   display: inline-flex;
   align-items: center;
@@ -2216,6 +2315,88 @@
   color: var(--lm-muted);
   border-left: 3px solid var(--lm-warn, #d97706);
   background: var(--lm-warn-bg);
+}
+
+/* 续接来源卡：律师要能核对「到底带过来了什么」，所以可展开。 */
+.lm-msg-carryover-notice {
+  align-items: flex-start;
+}
+
+.lm-msg-carryover-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.lm-msg-carryover-head {
+  margin: 0;
+  font-weight: 550;
+  color: var(--text);
+}
+
+.lm-msg-carryover-meta {
+  margin: 4px 0 0;
+  color: var(--text-2, var(--muted));
+}
+
+.lm-msg-carryover-details {
+  margin-top: 6px;
+}
+
+.lm-msg-carryover-details summary {
+  cursor: pointer;
+  color: var(--text-2, var(--muted));
+}
+
+.lm-msg-carryover-preview {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.5;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface-2, var(--surface-elevated, var(--side-bg)));
+  color: var(--text-2, var(--text));
+}
+
+/* 上下文过多 → 另起新对话（一次性，可关闭）。 */
+.lm-ctx-fork-suggest {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface-elevated, var(--side-bg));
+}
+
+.lm-ctx-fork-suggest-body {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.lm-ctx-fork-suggest-head {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.lm-ctx-fork-suggest-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.lm-ctx-fork-suggest-go {
+  white-space: nowrap;
 }
 
 .lm-msg-workflow-approval-title {

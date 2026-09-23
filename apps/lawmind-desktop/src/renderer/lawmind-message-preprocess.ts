@@ -5,11 +5,16 @@
 
 import type { ChatMsg } from "./lawmind-chat";
 import { getPendingClarificationState } from "./lawmind-chat";
+import type { CarryoverOrigin } from "./LawmindMsgCarryoverNotice";
 
 export type RenderableChatItem =
   | { kind: "message"; message: ChatMsg; sourceIndex: number }
   | { kind: "tool_group"; messages: ChatMsg[]; sourceIndices: number[]; collapsed: boolean }
-  | { kind: "compact_notice"; label: string; sourceIndex: number };
+  | { kind: "compact_notice"; label: string; sourceIndex: number }
+  /** 本对话续接自哪条对话（见 `LawmindMsgCarryoverNotice`）。 */
+  | { kind: "carryover_notice"; origin: CarryoverOrigin; sourceIndex: number }
+  /** 上下文过多 → 建议另起新对话（一次性，见 `LawmindContextForkSuggestion`）。 */
+  | { kind: "fork_suggestion"; sourceIndex: number };
 
 export type PreprocessOptions = {
   briefOnly?: boolean;

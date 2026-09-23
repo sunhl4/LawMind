@@ -279,6 +279,19 @@ export const sessionPatchTitleSchema = z.object({
 
 export type SessionPatchTitleRequest = z.infer<typeof sessionPatchTitleSchema>;
 
+/**
+ * 另起新对话并带上文（`POST /api/sessions/:id/fork-with-carryover`）。
+ * `clientNonce` 用于幂等：同一 nonce 复用一个新会话，不产生第二份。
+ */
+export const sessionForkCarryoverPostSchema = z.object({
+  title: z.string().trim().max(200).optional(),
+  clientNonce: z.string().trim().max(120).optional(),
+  /** 默认 true：可用时用模型再润一次摘要；失败回落提取式（fork 必须永远成功）。 */
+  useLlmDigest: z.boolean().optional(),
+});
+
+export type SessionForkCarryoverPostRequest = z.infer<typeof sessionForkCarryoverPostSchema>;
+
 export const lawyerProfileLearningPostSchema = z.object({
   note: trimmedNonEmptyString,
   source: z.string().trim().optional(),

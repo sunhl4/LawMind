@@ -97,6 +97,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
             title?: string;
             updatedAt: string;
             lastPreview?: string;
+            forkedToSessionId?: string;
           }>;
         }>(
           `${config.apiBase}/api/sessions?assistantId=${encodeURIComponent(assistantId)}`,
@@ -112,6 +113,10 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
             title: typeof s.title === "string" && s.title.trim() ? s.title : DEFAULT_CHAT_SESSION_TITLE,
             updatedAt: s.updatedAt,
             lastPreview: typeof s.lastPreview === "string" ? s.lastPreview : undefined,
+            forkedToSessionId:
+              typeof s.forkedToSessionId === "string" && s.forkedToSessionId.trim()
+                ? s.forkedToSessionId.trim()
+                : undefined,
           }),
         );
         setChatSessionList(mapped);
@@ -155,6 +160,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
               title?: string;
               updatedAt: string;
               lastPreview?: string;
+              forkedToSessionId?: string;
             }>;
           }>(
             `${config.apiBase}/api/sessions?assistantId=${encodeURIComponent(assistantId)}`,
@@ -171,6 +177,10 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
             title: typeof s.title === "string" && s.title.trim() ? s.title : DEFAULT_CHAT_SESSION_TITLE,
             updatedAt: s.updatedAt,
             lastPreview: typeof s.lastPreview === "string" ? s.lastPreview : undefined,
+            forkedToSessionId:
+              typeof s.forkedToSessionId === "string" && s.forkedToSessionId.trim()
+                ? s.forkedToSessionId.trim()
+                : undefined,
           }));
           setChatSessionList(mapped2);
         }
@@ -305,6 +315,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
             title?: string;
             updatedAt: string;
             lastPreview?: string;
+            forkedToSessionId?: string;
           }>;
         }>(
           `${config.apiBase}/api/sessions?assistantId=${encodeURIComponent(toId)}`,
@@ -317,6 +328,10 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
             title: typeof s.title === "string" && s.title.trim() ? s.title : DEFAULT_CHAT_SESSION_TITLE,
             updatedAt: s.updatedAt,
             lastPreview: typeof s.lastPreview === "string" ? s.lastPreview : undefined,
+            forkedToSessionId:
+              typeof s.forkedToSessionId === "string" && s.forkedToSessionId.trim()
+                ? s.forkedToSessionId.trim()
+                : undefined,
           }),
         );
         setChatSessionList(mapped);
@@ -359,6 +374,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
               title?: string;
               updatedAt: string;
               lastPreview?: string;
+              forkedToSessionId?: string;
             }>;
           }>(
             `${config.apiBase}/api/sessions?assistantId=${encodeURIComponent(toId)}`,
@@ -372,6 +388,10 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
             title: typeof s.title === "string" && s.title.trim() ? s.title : DEFAULT_CHAT_SESSION_TITLE,
             updatedAt: s.updatedAt,
             lastPreview: typeof s.lastPreview === "string" ? s.lastPreview : undefined,
+            forkedToSessionId:
+              typeof s.forkedToSessionId === "string" && s.forkedToSessionId.trim()
+                ? s.forkedToSessionId.trim()
+                : undefined,
           }));
           setChatSessionList(mapped2);
         }

@@ -4,6 +4,7 @@ import type { ChatSessionListEntry } from "../lawmind-chat-active-storage";
 import { LawmindChatSessionTabs } from "../LawmindChatSessionTabs";
 import { LawmindChatMessagesColumn, LawmindChatComposeFooter } from "../lawmind-chat-shell";
 import type { ChatMsg } from "../lawmind-chat";
+import type { ChatContextForkProps } from "../LawmindContextForkSuggestion";
 import { formatFileChatContextPill, type FileChatContextItem } from "../lawmind-file-chat-context";
 import { encodeFileContextPin, type TruthSourceContextPin } from "../../../../../src/lawmind/platform/compose-context-pin.ts";
 import { formatTruthPinChip } from "../lawmind-compose-context";
@@ -46,6 +47,7 @@ export type LawmindWorkspaceMainPaneProps = {
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   onSendClarificationMessage: (text: string) => void | Promise<void>;
   streamCompactLabels: string[];
+  contextFork?: ChatContextForkProps;
   fileChatContextItems: FileChatContextItem[];
   composeTruthPins?: TruthSourceContextPin[];
   onAddComposeTruthPin?: (pin: TruthSourceContextPin) => void;
@@ -135,6 +137,7 @@ function LawmindWorkspaceMainPaneImpl({
   textareaRef,
   onSendClarificationMessage,
   streamCompactLabels,
+  contextFork,
   fileChatContextItems,
   composeTruthPins = [],
   onAddComposeTruthPin,
@@ -337,6 +340,7 @@ function LawmindWorkspaceMainPaneImpl({
                 }}
                 onSendClarificationMessage={(text) => void onSendClarificationMessage(text)}
                 streamCompactLabels={streamCompactLabels}
+                contextFork={contextFork}
                 fileChatPills={fileChatPills}
                 contextTaskId={contextTaskId}
                 apiBase={config?.apiBase}
@@ -404,6 +408,7 @@ function LawmindWorkspaceMainPaneImpl({
               onOpenMemoryInspector={onOpenMemoryInspector}
               onOpenReview={onOpenReview}
               composeExtras={composeExtras}
+              contextFork={contextFork}
               fileChatPills={fileChatPills}
               truthPills={truthPills}
               fileChatContextItems={fileChatContextItems}

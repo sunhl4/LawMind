@@ -75,6 +75,29 @@ describe("LawmindSideChatSessions", () => {
     expect(host.querySelector('[data-testid="lm-side-chat-session-b"]')).toBeTruthy();
   });
 
+  it("marks a superseded session with 「→ 由此续接」", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindSideChatSessions
+          sessions={[
+            { sessionId: "old", title: "竞业限制解除", forkedToSessionId: "new" },
+            { sessionId: "new", title: "竞业限制解除（承前）" },
+            { sessionId: "other", title: "劳动仲裁" },
+          ]}
+          onSelect={() => undefined}
+          onNewChat={() => undefined}
+          onRename={async () => undefined}
+          onDelete={async () => undefined}
+        />,
+      );
+    });
+    const chip = host.querySelector('[data-testid="lm-side-chat-session-forked-old"]');
+    expect(chip?.textContent).toContain("由此续接");
+    // 承前的那条新对话、以及无关对话都不带这个标记。
+    expect(host.querySelector('[data-testid="lm-side-chat-session-forked-new"]')).toBeNull();
+    expect(host.querySelector('[data-testid="lm-side-chat-session-forked-other"]')).toBeNull();
+  });
+
   it("reveals a compact filter from the jump-chats event", async () => {
     await act(async () => {
       root.render(

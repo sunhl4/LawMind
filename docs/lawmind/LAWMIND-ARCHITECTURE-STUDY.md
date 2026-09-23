@@ -245,6 +245,24 @@ sequenceDiagram
 
 **为什么要有「重注」**：压缩会把早期的引用、强制规则挤掉。如果不重注，律师写的红线会在第 40 轮悄无声息地失效——这属于「静默失效」，是法律场景里最不能接受的一类 bug。cassette 里专门有一条锁「被压缩掉的引用仍在下一次请求里存活」。
 
+**回合内整理（mid-turn compact）**——`src/lawmind/agent/mid-turn-compact.ts`
+
+上面那次压缩只在**回合开始前**跑一次。长工具链（读合同 → 检索 → 起草）会在同一回合内把窗口顶上去，此时模型手里只有一句「窗口快满了」的 note，于是把活儿退回律师（客户事故：「本轮上下文预算已接近上限……请另开一轮」）。对齐 Codex 的 mid-turn trigger / Cursor 的 self-summarization：在**工具轮边界**（工具结果提交后、下一次采样前）判预算，越线就先缩写旧工具回包、再整段压缩 + 红线重注，然后**继续本回合**。触发线是有效窗口的 90%（`context.midTurnCompactTriggerRatio`），占用以 provider 回报的 `usage.prompt_tokens` 为天花板；每回合 ≤3 次；尾巴自身超窗口（压了不减）时不动，免得摘要越堆越多。模型即便仍写出「请另开一轮」，也被 `agent/context-deferral.ts` 的隐藏反弹打回同回合续办——该文案标 `hiddenFromLawyer`，不进律师气泡。cassette 断言：回合开始一次边界事件、工具轮边界第二次带 `midTurn`，且压缩后请求体仍是可发送的配对态。
+
+**上下文质量：三个「不因摘要而丢」的机制**——`agent/compact.ts` · `agent/compact-reinjection.ts` · `agent/turn-orchestrator-model-loop.ts`
+
+对照 Codex `compact.rs` 的模型摘要机制，我们做了三件事（另有两件本就比 Codex 强：工具回包走 spill + 路径指针、从回包抽引用锚点；Codex issue #14589 官方承认 tool outputs 与 assistant reasoning 会被结构性丢弃）：
+
+1. **回合内模型摘要**：手动整理一直有 `enhanceCompactDigestWithLlm`，但回合内只有提取式——而提取式丢的正是「因果与决策理由」，那是长任务变笨的主因。现在工具轮边界整理后也跑模型摘要（对齐 Codex：同模型、摘要作为一条历史消息），但加了三道约束，因为这是**同步等**的位置：**不重试**（attempts=1，重试延迟直接叠进律师等待）、**限时 15s**（超时回落提取式）、**够大才做**（素材 <600 字符时提取式已够用）。失败/超时/中止一律回落，绝不因此中断回合。
+
+2. **任务锚点（钉子）——我们比两条主流路都更确定**：Codex 靠「保最多 20k token 的原始用户消息」保目标，Cursor 靠 `TASK.md` 文件（`the file is the whole handoff`）。我们实测出**两者的缺口**：摘要只取「末 N 条律师要点」，律师发言一多，**原始任务陈述第 1 轮就掉**（引用靠锚点活着，但「要做什么」没了 → 模型开始答非所问/重复已做的事）。修法是 `session.taskPin`：首轮由 `runTurn` 确定、压缩时兜底补齐、律师换任务时更新，然后写进**重注块 → `system[0]` 的 world-state 段**。因为压缩只保留 `system[0]`，它是**跨任意次压缩原样存活、不参与摘要、不被截断、也不增长（600 字符帽）**的。实测连压 6 轮仍在。
+
+3. **`no_reduction` 就地省略**：单条巨型消息（整段粘进来的合同）会让「保留尾部」的压缩压不动，旧处置是放弃 → 水位继续顶到模型报溢出。现在改成就地 `elideMiddle`（Codex `truncate_middle_with_token_budget` 同形，头尾都留，法律文书两端信息最密），只动 `user`/`assistant` 正文、不碰 tool（配对安全）、只保护最后 2 条（**实测：保护 6 条等于什么都不动**，因为压不动的场景恰恰是历史很短）。
+
+**另起新对话并带上文（fork with carryover）**——`src/lawmind/agent/session-carryover.ts`
+
+「上下文太多」的正解不是无限压缩，而是**换一条对话并带上蒸馏稿**——Codex 自己也承认长会话与多次压缩会让准确率下降；Cursor 的 `/summarize` 则明确「the file is the whole handoff」。LawMind 的做法是**真·新会话 + 续接种子**：种子三段（状态头 / 对话蒸馏 / 重读指针），「记忆」复用案件级载体（`session-summary.md` / `CASE.md` / 待办 / 草稿 acceptance）而不新造一套。两条红线：**闸门状态必须迁移**（待澄清键、已确认答案、清单、绑定办件、已披露工具表——丢了就是静默放开起草硬门禁），**活的授权必须拦截**（待批准工具 / 案件审批 / 升级 / 工作流结论 / 检查点续跑 / 回合在跑 → 409，授权不能跨会话搬）。种子是合成 user 消息（律师气泡看不到，压缩可整条丢弃），律师侧另有一张可展开的「续接来源」卡用于核对；源会话标 `forkedTo`，侧栏显示「→ 由此续接」。`clientNonce` 保证幂等，`audit` 落 `session.forked_with_carryover`。
+
 **Steer（中途指示）**——`src/lawmind/agent/session-context-steer.ts`
 
 走 sidecar 文件 `sessions/<id>.pending-steer.json`，上限 8 条 / 每条 2000 字，用排他锁 + 原子写。关键约束是**领取时机**：

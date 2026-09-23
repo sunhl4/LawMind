@@ -9,8 +9,43 @@
 - `decision-samples.ts`：**决策语料导出**——把上述信号归一成可编译语料 + 数据体检报告（第二十期 P0）。
 - `unescalated-delivery.ts`：**未升级交付的外生验收信号**——把「律师对本次交付的态度」从 runtime 事件折出，喂给 `delivery/judgement-ratchet.ts`。见下。
 - `firm-calibrator.ts`：**firm-specific 校准器**（第二十期 P3）——特征抽取 + 标签派生 + 确定性 logistic 拟合。**目标是「这位律师会不会动手改」这个行为学问题，不是法律正确性**；样本不足时诚实拒绝产出。见下。- `north-star.ts`：全工作区 north-star 比率（一次过率、lint 逃逸率等）。
+- `context-pressure.ts`：**上下文压力**——回合内整理、退让反弹、承前分叉的结果。见下。
 - `team-growth-dashboard.ts`：团队内测指标表（Wave A–D DoD）。
 - `lawyer-dashboard.ts`：律师可观测性仪表盘——**案件级**真实指标与 **LawmindDesk** 汇总。
+
+## 上下文压力（`context-pressure.ts`）
+
+`GET /api/metrics/context-pressure` → `summarizeContextPressure(workspaceDir)`
+
+**为什么存在**：修掉「模型以上下文为由把活儿退回律师」之后，如果只靠印象说「好多了」，
+就无法回答商业上真正要问的问题——**模型尝试退让时，最后到达律师的比例是多少？
+整理真的腾出空间了吗？** 律师侧的「已整理上下文」提示只说明系统自己做了什么。
+
+**三条不得违反的口径**：
+
+1. **缺来源 → `present: false`，绝不产出 0。** 「从没跑过这类路径」与「压了 100 次、
+   一次都没退让」在报表上必须长得不一样。
+2. **比率分母为 0 → `null`，不是 0。** `deferralReachRate` 的分子分母**同源**
+   （都取自本 kind 事件），否则比率不成立。
+3. **截断显式**：`truncated` + `totalLines`，窗口内计数不得当全量。
+
+**模型摘要的质量与代价要分开看**：`compactions.llmDigest` 给 `attempted` / `used` /
+`fellBack` / `latencyP95Ms`。只看 `attempted` 会误判质量——回落提取式也算一次尝试。延迟给
+**P95 而不是平均**：平均值会被极端值拖住，掩盖真实的卡顿（回合内摘要是同步等的）。
+
+**刻意不给的**：**per-turn 比率**。「每回合整理几次」需要一个「一共多少回合」的分母，
+而那个分母在 session 事件日志里；跨来源相除要么扫全部会话（昂贵），要么拿
+「有压力事件的回合数」当分母（循环论证——分母正是分子筛出来的）。所以只给
+**计数**与**同源比率**，不给看着更漂亮的假精度。
+
+**这不是「越低越好」的单一指标**：反弹上限用尽后如实交回是 fail-open 的正确行为，
+`deferralReachedLawyer` 要看**趋势**，不是「必须为 0」。
+
+**接线证明**：每个观测口径都必须有产出点的端到端断言（本仓吃过
+「声明了但永远不写」的亏——见 `product-metrics.ts` 里被删掉的 `checklist` /
+`citation_mode`）。`turn-orchestrator-cassettes.test.ts` 断言真回合跑完后
+`mid_turn_compact` / `deferral_detected` / `deferral_bounced` / `deferral_reached_lawyer`
+**确实写进了** `product-events.jsonl`。
 
 ## 未升级交付的外生验收信号（第二十期 G2）
 

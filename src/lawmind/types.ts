@@ -538,7 +538,9 @@ export type AuditEventKind =
   | "collab.integrity_rejected" // 内容哈希不符 / 解封失败，拒收
   | "collab.conflict_parked" // 冲突旁路写出（材料或 CASE.md）
   | "collab.cloud_roster_applied" // 云名册投影到本地
-  | "collab.sync_activity"; // 同步且**确有变化**（非每轮心跳）
+  | "collab.sync_activity" // 同步且**确有变化**（非每轮心跳）
+  // ── 会话生命周期（律师可感知的会话级动作） ──────────────────────────────
+  | "session.forked_with_carryover"; // 另起新对话并带上文（见 agent/session-carryover.ts）
 
 /** 审计事件 */
 export type AuditEvent = {

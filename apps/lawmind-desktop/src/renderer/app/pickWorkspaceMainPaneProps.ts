@@ -34,6 +34,7 @@ export function pickWorkspaceMainPaneProps(
     textareaRef: props.textareaRef,
     onSendClarificationMessage: props.onSendClarificationMessage,
     streamCompactLabels: props.streamCompactLabels,
+    contextFork: props.contextFork,
     fileChatContextItems: props.fileChatContextItems,
     composeTruthPins: props.composeTruthPins,
     onAddComposeTruthPin: props.onAddComposeTruthPin,

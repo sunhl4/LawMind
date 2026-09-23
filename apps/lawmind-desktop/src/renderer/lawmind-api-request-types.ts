@@ -30,6 +30,7 @@ export type {
   RedlineHunkResolvePostRequest,
   SessionCreatePostRequest,
   SessionDeletePostRequest,
+  SessionForkCarryoverPostRequest,
   SessionPatchTitleRequest,
   TemplateEnabledPostRequest,
   TemplateRegisterPostRequest,

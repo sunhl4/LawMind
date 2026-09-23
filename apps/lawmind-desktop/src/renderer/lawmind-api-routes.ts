@@ -22,6 +22,7 @@ import type {
   ModelsDraftWithModelPatchRequest,
   RedlineHunkResolvePostRequest,
   SessionCreatePostRequest,
+  SessionForkCarryoverPostRequest,
   SessionPatchTitleRequest,
   WorkflowRunRequest,
   WorkspacePolicyPatchRequest,
@@ -105,6 +106,24 @@ export type LawmindApiPostRoutes = {
   "/api/sessions": {
     body: SessionCreatePostRequest;
     response: OkResponse & { sessionId?: string; title?: string };
+  };
+  "/api/sessions/{sessionId}/fork-with-carryover": {
+    body: SessionForkCarryoverPostRequest;
+    response:
+      | (OkResponse & {
+          sessionId: string;
+          title?: string;
+          reused?: boolean;
+          digestSource?: "llm" | "extractive" | "none";
+          migrated?: Record<string, unknown>;
+          stats?: { droppedMessageCount: number; digestChars: number; seedChars: number };
+        })
+      | {
+          ok: false;
+          code: "source_not_found" | "turn_live" | "pending_authorization";
+          message: string;
+          blockingActions?: string[];
+        };
   };
   "/api/skills/enabled": {
     body: { skillId: string; enabled: boolean };

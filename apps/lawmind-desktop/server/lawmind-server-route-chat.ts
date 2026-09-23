@@ -567,6 +567,9 @@ export async function handleChatRoute({
                 firstKeptRole: event.firstKeptRole,
                 digestCharCount: event.digestCharCount,
                 boundaryId: event.boundaryId,
+                // 回合内整理（工具轮边界）：律师要能看出「整理过，但本回合没断」。
+                midTurn: event.midTurn === true,
+                roundIndex: event.roundIndex,
               });
               break;
             case "model_error":
@@ -586,6 +589,12 @@ export async function handleChatRoute({
               sseWriteEvent("overflow_prune", {
                 prunedCount: event.prunedCount,
                 charsRemoved: event.charsRemoved,
+              });
+              break;
+            case "context_deferral_bounce":
+              sseWriteEvent("context_deferral_bounce", {
+                roundIndex: event.roundIndex,
+                bounceCount: event.bounceCount,
               });
               break;
             case "plan_update":

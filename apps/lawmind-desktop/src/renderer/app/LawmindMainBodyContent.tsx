@@ -13,6 +13,7 @@ import type { CollabSummaryState } from "../LawmindSettingsCollaboration";
 import type { AgentsDeskTab } from "../lawmind-agents-desk";
 import type { LawMindRequiresAction, LawMindRequiresActionDecision } from "../lawmind-requires-action";
 import type { ChatMsg } from "../lawmind-chat";
+import type { ChatContextForkProps } from "../LawmindContextForkSuggestion";
 import type { FileChatContextItem } from "../lawmind-file-chat-context";
 import type { TruthSourceContextPin } from "../../../../../src/lawmind/platform/compose-context-pin.ts";
 import type { LawmindComposeExtras } from "../useLawmindComposeExtras";
@@ -129,6 +130,7 @@ export type LawmindMainBodyContentProps = {
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   onSendClarificationMessage: (msg: string) => void | Promise<void>;
   streamCompactLabels: string[];
+  contextFork?: ChatContextForkProps;
   fileChatContextItems: FileChatContextItem[];
   composeTruthPins?: TruthSourceContextPin[];
   onAddFileToChatContext?: (payload: Pick<FileChatContextItem, "root" | "relPath" | "kind">) => void;

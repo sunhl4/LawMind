@@ -229,6 +229,7 @@ function minimalProps(overrides: Partial<LawmindAppRootViewProps> = {}): Lawmind
       textareaRef: { current: null },
       onSendClarificationMessage: noop,
       streamCompactLabels: [],
+      contextFork: undefined,
       fileChatContextItems: [],
       onRemoveFileChatPill: noop,
       onClearFileChatPills: noop,

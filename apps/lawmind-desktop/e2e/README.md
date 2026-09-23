@@ -4,6 +4,21 @@
 
 ## 运行方式
 
+### 0. 浏览器下载不到时的逃生阀（先看这条）
+
+`npx playwright install chromium` 需要联网；下不到时用例会以
+`Executable doesn't exist at …/chromium_headless_shell-<版本>/…` 失败 —— 这条报错
+**看起来像用例坏了**，实际是环境缺浏览器，很容易往错误方向排。
+
+机器上已装 Chrome 时，用配置里预留的通道逃生阀即可（CI 不设，行为不变）：
+
+```bash
+LAWMIND_E2E_CHANNEL=chrome pnpm --filter lawmind-desktop test:e2e
+```
+
+实测：本机缓存只有 `chromium-1208` 而 Playwright 1.63 要 `1243`，下载无进展时
+`LAWMIND_E2E_CHANNEL=chrome` 可直接跑绿（`e2e/context-fork.spec.ts` 5/5）。
+
 ### 1. 安装依赖
 
 ```bash
@@ -78,8 +93,34 @@ LAWMIND_E2E_MOCK_PORT=49888 LAWMIND_E2E_VITE_PORT=53473 \
 | `electron-golden-path.spec.ts` | Electron | 既有 Electron 冒烟测试 |
 | `electron-file-deeplink.spec.ts` | Electron | 既有文件深链测试 |
 | `judgment-escalation-electron.spec.ts` | Electron | G3 待定夺卡在真机 Electron 下走通「引擎 → 本地路由 → 界面」（非 stub） |
+| `context-fork.spec.ts` | Browser + mock API | 上下文用量面板（窗口三元组 / 分层用量 / 常驻圆环）与「另起新对话（带上文）」的接线：建议卡一次性、fork 后显示「续接来源」卡、待批准授权 409 不静默切走 |
 | `_debug-*.spec.ts` | 本地调试 | 永不进 CI / 默认套件 |
 | `*.spec.ts`（其余） | Browser + mock API | 基于 `mock-api.mjs` 的 UI 行为测试 |
+
+### mock 自身的契约（`electron/e2e-mock-contract.test.ts`）
+
+`mock-api.mjs` 是浏览器套件的唯一后端，但它自己原先**没有任何测试**：形状一旦漂移
+（例如 `breakdown` 从 `{ buckets, total }` 改成数组），受影响的 spec 报的是
+「元素找不到」这类远离根因的错误，而 mock 又是 CI mock 作业的依赖 —— 代价落在无关 PR 上。
+所以新增的上下文用量字段与续接路由，用 `electron/e2e-mock-contract.test.ts` 起一个真 mock
+进程锁住接线面（只锁形状与作用域隔离；引擎侧的真实语义由
+`src/lawmind/agent/session-carryover.test.ts` 与 `lawmind-server-route-sessions.test.ts` 覆盖，
+mock 不替引擎做判断）。
+
+### 已知的跨文件状态泄漏（已修其一，勿回退）
+
+`x-lawmind-e2e-scope` 这套隔离必须**每条状态都遵守**，漏一条就会出现
+「单独跑绿、全量跑红」并且 `--workers=1` 也照样红的现象：
+
+| 状态 | 状态 |
+| --- | --- |
+| `resumedMessagesByScope` | ✅ 已按作用域（2026-09-23 修：曾经写进全局 `sessionMessagesById`，导致 `golden-path` 跑过之后 `workspace-chat` 必红） |
+| `judgmentMockByScope` / `contextBudgetMockByScope` / `forkMockByScope` | ✅ 已按作用域 |
+| `sessionMessagesById` / `draftStateById` / `createdAutomations` 等 | ⚠️ 仍是全局；`/__e2e__/reset` 是全局清理，所以**同一文件内**要复位请用它，但不要指望它隔离别的文件 |
+
+**已知的真红（与本行无关，勿当回归排）**：`automations-deeplink.spec.ts:19`
+（interval 创建自动办件）在干净 HEAD 上单独跑也失败 —— 点「用所选模板创建」后
+没有发出 `POST /api/automations`。排障前先确认它不是你要查的那条。
 
 ### 已退役的 spec（不要按旧样式加回来）
 

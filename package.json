@@ -15,6 +15,7 @@
     "lawmind:check:renderer-css": "node scripts/lawmind/check-renderer-css.mjs",
     "lawmind:check:renderer-css-sync": "node scripts/lawmind/lawmind-sync-renderer-css.mjs --check",
     "lawmind:check:renderer-node": "node scripts/lawmind/check-renderer-node-imports.mjs",
+    "lawmind:compaction-fidelity": "node --import tsx scripts/lawmind/lawmind-compaction-fidelity.ts",
     "lawmind:compiler-gate": "node --import tsx scripts/lawmind/lawmind-compiler-gate.ts",
     "lawmind:daemon": "node --import tsx scripts/lawmind/lawmind-daemon.ts",
     "lawmind:decision-samples": "node --import tsx scripts/lawmind/lawmind-decision-samples.ts",

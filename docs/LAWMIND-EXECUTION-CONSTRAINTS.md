@@ -86,7 +86,7 @@ pnpm exec vitest run \
 - **路径**：`src/lawmind/agent/system-prompt.ts`（`staticHead`）
 - **作用**：告诉模型它是任务型助理，不是聊天机器人。
 - **手改**：这里的每一句都会进所有对话。改长了会占上下文；改错了会带偏所有办件。
-- **本次**：六条压成四条。删「全程可追溯」。强调先看本轮工具表。
+- **本次**：六条压成四条。删「全程可追溯」。强调先看本轮工具表。**2026-09-22**：补第 5 条「会话窗口水位不是停下的理由」——上下文接近上限时运行时会在工具轮边界自动整理并继续本回合，不得请律师另开一轮 / 重开会话 / 分次交办（客户事故：模型写「本轮上下文预算已接近上限……请另开一轮」）。
 
 ### 6. 自主工作流程三步 — TIGHTEN
 
@@ -556,5 +556,12 @@ pnpm exec vitest run \
 15. 能力 `pipelineHint` 改为「未锁时优先工作流」，不再写「必须走 execute_workflow」。
 16. 钉死的邮件/Word 短路径上，`update_draft.sections` 改正文会失败并往 craft 世界状态塞短警告，改走 `apply_surgical_edits`。
 17. 空修订 / 缺 craft_check / 缺引用 / 机械 lint 在导出或外发前是同一回合 tool error；模型说「已完成」不能跳过验证器。
+18. **上下文预算不再能让模型收工**（2026-09-22，对齐 Codex mid-turn compact / Cursor self-summarization）：越线时在**工具轮边界**自动整理（先瘦身旧工具回包，再整段压缩 + 红线重注）后继续本回合；`【窗口】` note 改成事实通报；模型仍写「请另开一轮」时用隐藏反弹打回同回合续办（≤2 次），该文案不进律师气泡。触发线 `context.midTurnCompactTriggerRatio`（默认 0.9 有效窗口）。
+19. **上下文用量 UI 对齐 Codex / Cursor**（2026-09-23）：圆环常驻；面板给「模型窗口 / 可用 / 自动整理线」三元组 + 分层用量（各桶之和 = `used`）+ 上次整理事实 + 诚实提示（反复整理掉准确率、长任务宜另起新对话）。`/context-budget` 的分母跟 compose 选中的模型（`?modelId=`），切模型即刷新。`replaceDroppedDigestInMessages` 曾只认 `system` 角色而生产插的是 `user`，导致 LLM 摘要静默不生效——已修并加回归。
+20. **另起新对话并带上文**（2026-09-23）：上下文过多时给一次性建议（`lastCompact.midTurn || compactCount >= 2`，同一会话只提示一次），或从用量面板主动触发。新会话带三段续接种子（状态头 / 对话蒸馏 / 重读指针，合成 user 消息且律师不可见）；**闸门状态迁移**（待澄清键、已确认答案、清单、绑定办件、已披露工具表）与**拦截**（待批准授权 / 升级 / 工作流结论 / 检查点续跑 / 回合在跑 → 409）是本功能的红线。双向指针 `forkedTo` / `carriedOverFrom` + `audit` 的 `session.forked_with_carryover`；`clientNonce` 幂等。见 `src/lawmind/agent/session-carryover.ts`。
+21. **触发口径与预留随窗口**（2026-09-23）：回合内整理用 provider 的 `usage.prompt_tokens` 当天花板；有效窗口的预留按 `min(20k+13k, 窗口×25%)` 封顶（32k 窗口可用从 8k → 24k）。对齐 Codex「阈值/占用都要贴有效窗口」（#40095）。
+22. **上下文压力可度量 + 交接诚实**（2026-09-23）：新增 `context_pressure` 口径与 `GET /api/metrics/context-pressure`（缺来源 → `present:false`、比率 `null`，绝不产出 0；刻意不给 per-turn 比率，理由见模块注释与 `metrics/README.md`）；退让识别放宽到真实变体并用法律正文反例钉住不误伤；反弹用尽后改为 `paused` + 结构化事实交接（不再把模型推诿原文交给律师）。**每个观测口径都要有产出点的端到端断言**——本仓吃过「声明了但永远不写」（`checklist`/`citation_mode` 已删）的亏。
+23. **压缩生存不变量**（2026-09-23）：`agent/compact-survival.test.ts` 连压 4 次断言引用 / 律师交办 / 待澄清键 / 红线重注仍在。首次运行即抓到真实不对称：压缩路径把待澄清键写成裸键名，而分叉路径写「仍生效，未答齐前不得起草/渲染」——已统一措辞（同一件事两个消费者说不同的话，正是静默失效的温床）。
+24. **上下文调参统一走高级设置，不再散落字面量**（2026-09-23）：上述 18–23 引入的阈值与帽（触发线、预留、省略门槛、摘要额度、台账上限、续接额度、注记线、反弹上限、模型摘要限时限量……）原先写死在各自模块里。现在集中到 `src/lawmind/agent/context-tuning.ts` 的 `resolveContextTuning`，全部可由 `lawmind.policy.json` 的 `context.*` 覆盖。三条纪律：**类型不对回落默认 / 越界夹到边界（绝不抛错）**；跨字段不变量在解析处收敛（`digest.minChars ≤ maxChars`、`carryover.seedMinChars ≤ seedMaxChars`、`warnRatio ≤ midTurnCompactTriggerRatio`）；**未配置时逐位等于默认**（行为不变）。**比例类不设业务下界**——只拦非正 / `NaN` / 超大，合法的极小值必须原样生效（曾把下界写成 `0.1`，把「0.02 强制触发」静默改掉）。生效值与「显式写过的键」在 `GET /api/sessions/:id/context-budget` 的 `tuning` / `tuningOverrides` 可见（体检页据此说清「按哪套数字在跑」，而不只是「按默认」）。
 
 若某一条手改后效果「没变」，先看：是不是锁路径根本没注入它；是不是只改了 md 索引壳；是不是旧会话还在用旧的静态 prompt 前缀（看 `LAWMIND_AGENT_BEHAVIOR_EPOCH`）。

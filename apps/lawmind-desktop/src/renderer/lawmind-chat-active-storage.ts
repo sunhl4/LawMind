@@ -83,6 +83,11 @@ export type ChatSessionListEntry = {
   title: string;
   updatedAt: string;
   lastPreview?: string;
+  /**
+   * 这条对话已被「另起新对话（带上文）」承前到哪条。侧栏据此显示「→ 由此续接」，
+   * 免得律师在两条几乎同名的对话里点错（见 `src/lawmind/agent/session-carryover.ts`）。
+   */
+  forkedToSessionId?: string;
 };
 
 export function formatDelegationFollowUpBubble(

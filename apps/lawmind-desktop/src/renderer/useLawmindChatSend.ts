@@ -106,8 +106,12 @@ export type UseLawmindChatSendInput = {
     firstKeptTimestamp?: string;
     digestCharCount?: number;
     boundaryId?: string;
+    midTurn?: boolean;
+    roundIndex?: number;
   }) => void;
   onStreamToolBudget?: (info: { used: number; maxToolCalls: number }) => void;
+  /** 退让被反弹：本 hook 已负责清掉气泡里那句推诿。 */
+  onStreamContextDeferralBounce?: (info: { roundIndex: number; bounceCount: number }) => void;
   /** After a turn finishes (success or failure) — e.g. refresh action-summary / sticky review. */
   onTurnComplete?: (info: { toolNames: string[] }) => void;
 };
@@ -142,6 +146,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
     refreshCollaboration,
     applyStreamTokenBudget,
     onStreamCompactBoundary,
+    onStreamContextDeferralBounce,
     onStreamToolBudget,
     onTurnComplete,
   } = opts;
@@ -472,6 +477,12 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
             onCompactBoundary: (info) => {
               onStreamCompactBoundary?.(info);
             },
+            onContextDeferralBounce: (info) => {
+              // 已经流出去的推诿原文立刻清掉：onDelta 是追加式，清空后下一轮的真实
+              // 答复会从干净气泡开始，律师不会读到「请另开一轮」。
+              updatePlaceholder((msg) => (msg.text ? { ...msg, text: "" } : msg));
+              onStreamContextDeferralBounce?.(info);
+            },
             onPlanUpdate: (plan) => {
               updatePlaceholder((msg) => ({
                 ...msg,
@@ -670,6 +681,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       sessionByAssistant,
       applyStreamTokenBudget,
       onStreamCompactBoundary,
+      onStreamContextDeferralBounce,
       onStreamToolBudget,
       onTurnComplete,
     ],

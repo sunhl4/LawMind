@@ -15,15 +15,25 @@ import {
   shouldResampleSidecarJson,
 } from "./assistant-text.js";
 import { buildDroppedSpanDigest, resolveCompactDigestCharCap } from "./compact.js";
+import { type ContextTuning, resolveContextTuning } from "./context-tuning.js";
 import { callModelWithRetry, ModelCallUserAbortError } from "./runtime-model-call.js";
 import type { AgentMessage, AgentModelConfig } from "./types.js";
 
-export function isCompactLlmDigestEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+/**
+ * LLM 摘要总开关。优先级：env 显式值（运维一刀切）> policy `context.digest.llmDigestEnabled` > 默认开。
+ */
+export function isCompactLlmDigestEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+  policyEnabled?: boolean,
+): boolean {
   const raw = env.LAWMIND_COMPACT_LLM?.trim().toLowerCase();
   if (raw === "0" || raw === "false" || raw === "off" || raw === "no") {
     return false;
   }
-  return true;
+  if (raw === "1" || raw === "true" || raw === "on" || raw === "yes") {
+    return true;
+  }
+  return policyEnabled ?? true;
 }
 
 function dialogueSnippet(dropped: AgentMessage[], maxChars: number): string {
@@ -47,10 +57,15 @@ function dialogueSnippet(dropped: AgentMessage[], maxChars: number): string {
   return parts.join("\n");
 }
 
-const MIN_COMPACT_SUMMARY_CHARS = 40;
+const DEFAULT_MIN_COMPACT_SUMMARY_CHARS = 40;
 
-function mergeCompactDigest(summary: string, extractive: string, cap: number): string {
-  const header = `【压缩前对话蒸馏】摘要：\n${summary.slice(0, Math.floor(cap * 0.45))}`;
+function mergeCompactDigest(
+  summary: string,
+  extractive: string,
+  cap: number,
+  summaryShare = 0.45,
+): string {
+  const header = `【压缩前对话蒸馏】摘要：\n${summary.slice(0, Math.floor(cap * summaryShare))}`;
   const merged = `${header}\n\n---\n\n${extractive}`;
   return merged.length > cap ? `${merged.slice(0, Math.max(0, cap - 20))}\n…[蒸馏截断]` : merged;
 }
@@ -64,17 +79,38 @@ export async function enhanceCompactDigestWithLlm(opts: {
   dropped: AgentMessage[];
   contextTokens?: number;
   abortSignal?: AbortSignal;
+  /**
+   * 尝试次数上限。手动整理可以多试几次（律师在等一个有质量的摘要），
+   * **回合内必须为 1**：那是在工具轮边界上同步等的，重试会把延迟叠进对话。
+   */
+  maxAttempts?: number;
+  /**
+   * 超时上限（毫秒）。不设时用模型窗口推导的 sidecar 超时（默认 120s）。
+   * 回合内应显著更短——超时就回落提取式，绝不拖住对话。
+   */
+  timeoutCapMs?: number;
+  /** 已解析的调参；不传则用默认值（可用 `context.digest.llmDigestEnabled` 关掉本增强）。 */
+  tuning?: ContextTuning;
 }): Promise<{ digest: string; usedLlm: boolean }> {
+  const tuning = opts.tuning ?? resolveContextTuning(null);
+  const minSummaryChars = tuning.digest.llmMinSummaryChars ?? DEFAULT_MIN_COMPACT_SUMMARY_CHARS;
   const extractive = opts.extractiveDigest.trim();
-  if (!extractive || !isCompactLlmDigestEnabled()) {
+  if (!extractive || !isCompactLlmDigestEnabled(process.env, tuning.digest.llmDigestEnabled)) {
     return { digest: extractive, usedLlm: false };
   }
 
-  const cap = resolveCompactDigestCharCap(opts.contextTokens);
-  const limits = resolveClassifySidecarLimits({
+  const cap = resolveCompactDigestCharCap(opts.contextTokens, tuning);
+  const sidecar = resolveClassifySidecarLimits({
     contextTokens: opts.contextTokens ?? opts.model.contextTokens,
     timeoutMs: opts.model.timeoutMs,
   });
+  const limits = {
+    ...sidecar,
+    timeoutMs:
+      typeof opts.timeoutCapMs === "number" && opts.timeoutCapMs > 0
+        ? Math.min(sidecar.timeoutMs, opts.timeoutCapMs)
+        : sidecar.timeoutMs,
+  };
 
   const snippet = dialogueSnippet(opts.dropped, Math.floor(cap * 0.6));
   const userContent = [
@@ -90,11 +126,14 @@ export async function enhanceCompactDigestWithLlm(opts: {
   ].join("\n");
 
   const fallback = (): { digest: string; usedLlm: boolean } => ({
-    digest: extractive || buildDroppedSpanDigest(opts.dropped, cap),
+    digest: extractive || buildDroppedSpanDigest(opts.dropped, cap, tuning),
     usedLlm: false,
   });
 
-  const attempts = modelAttemptBudget();
+  const attempts = Math.max(
+    1,
+    Math.min(opts.maxAttempts ?? modelAttemptBudget(), modelAttemptBudget()),
+  );
   let lastSummary = "";
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
@@ -119,7 +158,7 @@ export async function enhanceCompactDigestWithLlm(opts: {
       const view = extractAssistantText(response);
       const summary = view.text.replace(/\s+/g, " ").trim();
       lastSummary = summary;
-      const usable = summary.length >= MIN_COMPACT_SUMMARY_CHARS;
+      const usable = summary.length >= minSummaryChars;
       if (
         shouldResampleSidecarJson({
           parsed: usable,
@@ -134,7 +173,10 @@ export async function enhanceCompactDigestWithLlm(opts: {
       if (!usable) {
         return fallback();
       }
-      return { digest: mergeCompactDigest(summary, extractive, cap), usedLlm: true };
+      return {
+        digest: mergeCompactDigest(summary, extractive, cap, tuning.digest.llmSummaryShare),
+        usedLlm: true,
+      };
     } catch (err) {
       if (err instanceof ModelCallUserAbortError) {
         throw err;
@@ -149,13 +191,23 @@ export async function enhanceCompactDigestWithLlm(opts: {
       return fallback();
     }
   }
-  if (lastSummary.length >= MIN_COMPACT_SUMMARY_CHARS) {
-    return { digest: mergeCompactDigest(lastSummary, extractive, cap), usedLlm: true };
+  if (lastSummary.length >= minSummaryChars) {
+    return {
+      digest: mergeCompactDigest(lastSummary, extractive, cap, tuning.digest.llmSummaryShare),
+      usedLlm: true,
+    };
   }
   return fallback();
 }
 
-/** Replace the reinjected extractive digest system message after LLM enhance. */
+/**
+ * Replace the reinjected digest message after LLM enhance.
+ *
+ * 生产插入路径（`autoCompactSessionHistory`）把蒸馏块插成 **user** 消息（它是合成
+ * 用户轮，不是助手自述）；早期这里只认 `system`，于是 LLM 摘要只写进了
+ * `compact-digest.md`，会话历史里留着的仍是提取式要点 —— 而面板会提示「已智能摘要」。
+ * 静默失效比不摘要更糟：两种角色都认，两条路径都真的被替换。
+ */
 export function replaceDroppedDigestInMessages(
   messages: AgentMessage[],
   nextDigest: string,
@@ -167,7 +219,7 @@ export function replaceDroppedDigestInMessages(
   return messages.map((m) => {
     if (
       !replaced &&
-      m.role === "system" &&
+      (m.role === "user" || m.role === "system") &&
       typeof m.content === "string" &&
       m.content.includes("【压缩前对话蒸馏】")
     ) {

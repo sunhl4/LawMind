@@ -8,6 +8,46 @@ import { handleRecordRoutes } from "./lawmind-server-route-records.js";
 import type { LawmindDispatchContext } from "./lawmind-server-route-types.js";
 
 describe("lawmind-server-route-records", () => {
+  it("GET /api/sessions 给被承前的对话带上 forkedToSessionId（侧栏「→ 由此续接」）", async () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-records-forked-"));
+    const source = createSession({ workspaceDir: ws, actorId: "lawyer", assistantId: "default" });
+    source.forkedTo = { sessionId: "s-new", at: new Date().toISOString() };
+    const { saveSession } = await import("../../../src/lawmind/agent/session.js");
+    saveSession(ws, source);
+    const plain = createSession({ workspaceDir: ws, actorId: "lawyer", assistantId: "default" });
+    saveSession(ws, plain);
+
+    let raw = "";
+    const res = {
+      writeHead() {},
+      end(b: string) {
+        raw = b;
+      },
+    } as unknown as http.ServerResponse;
+    const ctx: LawmindDispatchContext = {
+      workspaceDir: ws,
+      envFile: undefined,
+      userEnvPath: path.join(ws, ".env"),
+      policy: { loaded: false },
+    };
+    await handleRecordRoutes({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res,
+      url: new URL("http://127.0.0.1/api/sessions"),
+      pathname: "/api/sessions",
+      c: {},
+    });
+
+    const body = JSON.parse(raw) as {
+      sessions?: Array<{ sessionId: string; forkedToSessionId?: string }>;
+    };
+    const byId = new Map((body.sessions ?? []).map((s) => [s.sessionId, s]));
+    expect(byId.get(source.sessionId)?.forkedToSessionId).toBe("s-new");
+    // 没被承前的对话不撒这个字段（侧栏不该给它画标记）。
+    expect(byId.get(plain.sessionId)?.forkedToSessionId).toBeUndefined();
+  });
+
   it("returns false for unrelated routes", async () => {
     const ctx: LawmindDispatchContext = {
       workspaceDir: os.tmpdir(),

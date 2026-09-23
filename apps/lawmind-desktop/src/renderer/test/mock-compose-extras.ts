@@ -19,6 +19,8 @@ export function mockComposeExtras(
     distillSessionLearning: vi.fn().mockResolvedValue(undefined),
     compactBusy: false,
     compactHint: null,
+    forkBusy: false,
+    forkWithCarryover: vi.fn().mockResolvedValue({ ok: false, code: "source_not_found", message: "" }),
     ...overrides,
   };
 }

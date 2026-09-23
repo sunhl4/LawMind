@@ -650,10 +650,13 @@ export const toModelMessages = deriveModelMessages;
  */
 export function deriveModelMessagesForSampling(
   session: AgentSession,
-  budget?: { used: number; effectiveLimit: number },
+  budget?: { used: number; effectiveLimit: number; warnRatio?: number },
 ): ModelChatMessage[] {
   let messages = withEphemeralTurnContext(deriveModelMessages(session), session.samplingPromptTail);
-  if (budget && shouldInjectRemainingTokensNote(budget.used, budget.effectiveLimit)) {
+  if (
+    budget &&
+    shouldInjectRemainingTokensNote(budget.used, budget.effectiveLimit, budget.warnRatio)
+  ) {
     messages = withEphemeralBudgetNote(
       messages,
       formatRemainingTokensNote(budget.used, budget.effectiveLimit),

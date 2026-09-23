@@ -322,6 +322,11 @@ export type AgentTurn = {
    * The turn is not complete while `red` is true (bounce or pause instead).
    */
   sameTurnVerify?: import("../runtime/same-turn-verify.js").SameTurnVerifyTurnState;
+  /**
+   * 上下文退让反弹次数（`context-deferral.ts`）：模型以上下文预算为由把活儿退回
+   * 律师时，同一回合内反弹回去继续办；超过上限后如实收下其回复。
+   */
+  contextDeferralBounces?: number;
   /** 律师待处理动作（澄清、工具批准等） */
   requiresAction?: LawMindRequiresAction[];
   /** 中断时待批准的工具调用（用于 resume） */
@@ -393,6 +398,9 @@ export type AgentSession = {
     firstKeptRole?: AgentMessage["role"];
     digestCharCount?: number;
     sessionSummaryPath?: string;
+    /** 工具轮边界压缩（不是回合开始那一次）；见 `mid-turn-compact.ts`。 */
+    midTurn?: boolean;
+    roundIndex?: number;
   };
   /**
    * Plan→Execute 交接（计划模式产出）：写入 session.json，便于刷新 / 跨端同工作区恢复。
@@ -434,6 +442,56 @@ export type AgentSession = {
    * stays on the same path without the lawyer re-selecting.
    */
   lastBoundCapabilityId?: import("../skills/lawyer-capability-lock.js").LawyerCapabilityId;
+  /**
+   * 任务锚点（钉子）：本会话**第一条真实任务指令**的原文，或律师明确「换任务」时的最新指令。
+   *
+   * 为什么必须**持久化**而不是每次从历史重推：原始发言在第一次压缩后就离开了历史，
+   * 重推会抓到一条无关的填充发言并固化下来（实测踩过）。钉子的价值就在于
+   * 「任意次压缩后仍是同一句原文」，所以它必须只确定一次、稳定不变。
+   */
+  taskPin?: {
+    text: string;
+    at: string;
+  };
+  /**
+   * 事实台账（钉子）：律师原话里的**期限 / 硬约束 / 引用 / 金额**，整句原样钉住。
+   *
+   * 为什么在任务钉子之外还要它：压缩保真度基准实测出，这四类事实会在第 1 轮
+   * 随要点窗口一起丢。对法律工作来说丢期限是事故（误期 = 执业风险），丢硬约束
+   * 会把交付做反。与 `taskPin` 同一存活机制（写进 `system[0]` 的 world-state 段，
+   * 不参与摘要、不随压缩层数衰减），有界（见 `FACT_PIN_*`）。
+   */
+  factPin?: {
+    items: import("./compact-fact-pin.js").FactPinItem[];
+    updatedAt: string;
+  };
+  /**
+   * 本会话已「另起新对话并带上文」到了哪个会话（源会话侧指针）。
+   * 侧栏显示「→ 由此续接」；同时作为 fork 的幂等键（`nonce`）。
+   */
+  forkedTo?: {
+    sessionId: string;
+    at: string;
+    title?: string;
+    nonce?: string;
+    digestSource?: "llm" | "extractive" | "none";
+    digestChars?: number;
+    droppedMessageCount?: number;
+  };
+  /**
+   * 本会话是从哪条会话续接来的（新会话侧指针）。律师侧「续接来源」卡片据此渲染；
+   * `digestPreview` 只是预览，完整整理稿在 `conversationHistory` 的合成消息里。
+   */
+  carriedOverFrom?: {
+    sessionId: string;
+    at: string;
+    title?: string;
+    digestSource?: "llm" | "extractive" | "none";
+    digestChars?: number;
+    droppedMessageCount?: number;
+    seedChars?: number;
+    digestPreview?: string;
+  };
 };
 
 // ─────────────────────────────────────────────

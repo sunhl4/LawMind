@@ -3,6 +3,8 @@
  * so the static system prefix stays cacheable and the reminder stays in-window.
  */
 
+import { CONTEXT_DEFERRAL_BOUNCE_MARKER } from "./context-deferral.js";
+import { CARRYOVER_SEED_MARKER } from "./session-carryover.js";
 import type { AgentMessage } from "./types.js";
 
 /** Shared with compact-reinjection — keep the heading text identical. */
@@ -14,6 +16,10 @@ export const COMPACT_SYNTHETIC_USER_MARKERS = [
   "【案件会话摘要】",
   "【案件记忆摘录】",
   COMPACT_REINJECTION_MARKER,
+  // 退让反弹只服务下一轮采样，不是律师的真实提问：压缩整条丢弃、也不当锚点。
+  CONTEXT_DEFERRAL_BOUNCE_MARKER,
+  // 续接种子同理：它是上一段对话的蒸馏，不是律师本轮说的话。
+  CARRYOVER_SEED_MARKER,
 ] as const;
 
 export function isCompactSyntheticUserMessage(content: string): boolean {

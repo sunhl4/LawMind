@@ -2,6 +2,7 @@
  * GET /api/metrics/team-growth — Wave DoD「内测指标表」快照
  * POST /api/metrics/team-growth/baseline — 冻结当前窗口为基线
  * GET /api/metrics/north-star — 无干预 / 一次通过 / lint 逃逸
+ * GET /api/metrics/context-pressure — 整理 / 退让 / 承前分叉（缺来源 → present:false）
  */
 
 import { z } from "zod";
@@ -15,6 +16,7 @@ import {
   buildLawyerDeskDashboard,
   readMatterHealthMetrics,
 } from "../../../src/lawmind/metrics/lawyer-dashboard.js";
+import { summarizeContextPressure } from "../../../src/lawmind/metrics/context-pressure.js";
 import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import { sendJson } from "./lawmind-server-helpers.js";
@@ -47,6 +49,16 @@ export async function handleMetricsRoutes({
 
   if (pathname === "/api/metrics/north-star" && req.method === "GET") {
     sendJson(res, 200, { ok: true, ...persistNorthStarSnapshot(workspaceDir) }, c);
+    return true;
+  }
+
+  /**
+   * 上下文压力：整理 / 退让 / 承前分叉的结果。
+   * 口径见 `src/lawmind/metrics/context-pressure.ts`——缺来源时 `present: false`，
+   * 消费方**不得**把缺失读成 0（「从没压过」与「压了 100 次一次没退让」必须区分）。
+   */
+  if (pathname === "/api/metrics/context-pressure" && req.method === "GET") {
+    sendJson(res, 200, { ok: true, ...summarizeContextPressure(workspaceDir) }, c);
     return true;
   }
 

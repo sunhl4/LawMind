@@ -30,6 +30,7 @@ function baseProps(
     textareaRef: { current: null },
     onSendClarificationMessage: async () => {},
     streamCompactLabels: false,
+  contextFork: false,
     fileChatContextItems: [],
     onAddFileToChatContext: () => {},
     onRemoveFileChatPill: () => {},

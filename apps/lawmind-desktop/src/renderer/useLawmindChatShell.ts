@@ -7,6 +7,7 @@ import type { ChatLiveTrace } from "./lawmind-chat-trace.js";
 import type { ChatMsg } from "./lawmind-chat";
 import { parseRequiresActionsFromResponse } from "./lawmind-requires-action";
 import type { ChatSessionListEntry } from "./lawmind-chat-active-storage";
+import type { CarryoverOrigin } from "./LawmindMsgCarryoverNotice";
 
 export type { ChatMsg } from "./lawmind-chat";
 export type { ChatSessionListEntry } from "./lawmind-chat-active-storage";
@@ -30,6 +31,8 @@ export type LawmindChatShellState = {
   setChatSessionList: Dispatch<SetStateAction<ChatSessionListEntry[]>>;
   chatSessionsLoading: boolean;
   setChatSessionsLoading: Dispatch<SetStateAction<boolean>>;
+  /** 各会话的「续接来源」（`/api/sessions/:id` 的 `carriedOverFrom`）；用于顶部续接卡。 */
+  carriedOverFromBySession: Record<string, CarryoverOrigin>;
   loadSessionMessagesIntoState: (
     assistantId: string,
     sessionId: string,
@@ -64,6 +67,9 @@ export function useLawmindChatShell(input: {
   >({});
   const [chatSessionList, setChatSessionList] = useState<ChatSessionListEntry[]>([]);
   const [chatSessionsLoading, setChatSessionsLoading] = useState(false);
+  const [carriedOverFromBySession, setCarriedOverFromBySession] = useState<
+    Record<string, CarryoverOrigin>
+  >({});
 
   const loadSessionMessagesIntoState = useCallback(
     async (
@@ -89,6 +95,7 @@ export function useLawmindChatShell(input: {
       const j = (await r.json()) as {
         ok?: boolean;
         matterId?: string | null;
+        carriedOverFrom?: CarryoverOrigin;
         messages?: Array<{
           role: string;
           text?: string;
@@ -102,6 +109,19 @@ export function useLawmindChatShell(input: {
       if (!j.ok || !Array.isArray(j.messages)) {
         return false;
       }
+      // 「续接来源」卡：本会话是从哪条对话带过来的（没有就清掉，避免换会话后残留）。
+      setCarriedOverFromBySession((prev) => {
+        const had = Boolean(prev[sessionId]);
+        if (j.carriedOverFrom && typeof j.carriedOverFrom === "object") {
+          return { ...prev, [sessionId]: j.carriedOverFrom };
+        }
+        if (!had) {
+          return prev;
+        }
+        const next = { ...prev };
+        delete next[sessionId];
+        return next;
+      });
       const msgs: ChatMsg[] = j.messages
         .filter((m) => m.role === "user" || m.role === "assistant")
         .map((m) => {
@@ -192,6 +212,7 @@ export function useLawmindChatShell(input: {
     setChatSessionList,
     chatSessionsLoading,
     setChatSessionsLoading,
+    carriedOverFromBySession,
     loadSessionMessagesIntoState,
     refreshChatSessionListForAssistant,
   };

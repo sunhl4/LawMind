@@ -164,6 +164,25 @@ export function applyLiveTurnEvent(sessionId: string, event: RunTurnEvent): void
         detail: event.prunedCount > 0 ? `精简 ${event.prunedCount} 条工具结果` : undefined,
       });
       break;
+    case "context_deferral_bounce":
+      next.steps.push({
+        id: `context-deferral-${next.steps.length}`,
+        kind: "round",
+        label: "上下文已整理，继续办理中",
+        status: "done",
+      });
+      break;
+    case "compact_boundary":
+      // 只有回合内的整理才值得进「在办」时间线；回合开始那次是常规维护。
+      if (event.midTurn === true) {
+        next.steps.push({
+          id: `compact-${next.steps.length}`,
+          kind: "round",
+          label: "已整理上下文，继续本回合",
+          status: "done",
+        });
+      }
+      break;
     default:
       break;
   }

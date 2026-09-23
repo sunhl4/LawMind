@@ -45,9 +45,60 @@ const E2E_CONTRACT_REVIEW_SECTIONS = [
  */
 const judgmentMockByScope = new Map();
 
+/** 上下文用量 / 续接的 mock 状态（同样按作用域隔离，理由见 `freshContextBudgetMock`）。 */
+const contextBudgetMockByScope = new Map();
+const forkMockByScope = new Map();
+/** 续接产生的新会话 id → 律师侧「续接来源」卡的数据。 */
+const carriedOverFromBySession = new Map();
+let forkSeq = 1;
+
 /** 每个作用域的初始状态。新作用域自动拿到它，因此测试之间**零残留**、无需复位。 */
 function freshJudgmentMock() {
   return { mode: "empty", posture: "block" };
+}
+
+/**
+ * 上下文用量 mock（**按作用域**）。
+ *
+ * 缺省与旧版一致（`ok`、12k/100k、`compactCount: 0`），因此既有 spec 不会多出
+ * 「另起新对话」建议卡；只有显式调 `POST /__e2e__/context-budget` 的 spec 才会看到。
+ * 分层用量与窗口三元组的形状必须与真实路由一致，否则面板是空壳，断言等于没测。
+ */
+function freshContextBudgetMock() {
+  return {
+    used: 12_000,
+    effectiveLimit: 100_000,
+    level: "ok",
+    compactCount: 0,
+    lastCompact: null,
+    /** 缺省与 `context-tuning.ts` 的默认一致；spec 可经 E2E 开关调 `suggestMinCompacts`。 */
+    suggestMinCompacts: 2,
+  };
+}
+
+function contextBudgetMockFor(req) {
+  const scope = scopeOf(req);
+  let current = contextBudgetMockByScope.get(scope);
+  if (!current) {
+    current = freshContextBudgetMock();
+    contextBudgetMockByScope.set(scope, current);
+  }
+  return current;
+}
+
+/** 续接（fork）的 mock 开关：`ok` 默认；`blocked` 模拟有待批准授权（真实路由应 409）。 */
+function freshForkMock() {
+  return { mode: "ok" };
+}
+
+function forkMockFor(req) {
+  const scope = scopeOf(req);
+  let current = forkMockByScope.get(scope);
+  if (!current) {
+    current = freshForkMock();
+    forkMockByScope.set(scope, current);
+  }
+  return current;
 }
 
 function scopeOf(req) {
@@ -242,7 +293,41 @@ const contractReviewAssistant = {
 const allAssistants = [assistant, contractReviewAssistant];
 const meetingLinesByMatter = new Map();
 const createdAutomations = [];
-const resumedChatSessions = new Set();
+/**
+ * 已 resume 的会话 → 律师可见消息（**按作用域隔离**）。
+ *
+ * 为什么必须是 per-scope：这是一个真实的**跨文件状态泄漏**。本 mock 的其它状态
+ * 早就按 `x-lawmind-e2e-scope` 隔离了，只有 resume 这条链没有。旧实现把
+ * 「已按您的确认继续处理」写进**全局**的 `sessionMessagesById`，于是
+ * `golden-path` 里一次 resume 之后，**同进程里后跑的** `workspace-chat` 打开
+ * 同一会话时看到的是「已继续」，而不是种子里的待批准卡 → 断言 `开始对话` /
+ * `待批准` 找不到，报错却指向「界面没渲染」。
+ *
+ * 实测（`--workers=1`，与并行无关）：`automations-deeplink` + `golden-path` +
+ * `workspace-chat` 三个文件同跑必红；只跑 `workspace-chat` 则绿。
+ *
+ * 用 Map<scope, Map<sessionId, messages>>，与 `judgmentMockByScope` /
+ * `contextBudgetMockByScope` 同一取向：新作用域自动拿到空覆盖层，
+ * 因此 resume 只影响**发起它的那个测试**，其它测试零残留。
+ */
+const resumedMessagesByScope = new Map();
+
+/** resume 之后该会话应呈现的消息（发起的那个作用域可见）。 */
+const RESUMED_CHAT_MESSAGES = [
+  { role: "user", text: "请继续完成文书工作。" },
+  { role: "assistant", text: "已按您的确认继续处理。" },
+];
+
+function resumedMessagesFor(req) {
+  const scope = scopeOf(req);
+  let current = resumedMessagesByScope.get(scope);
+  if (!current) {
+    current = new Map();
+    resumedMessagesByScope.set(scope, current);
+  }
+  return current;
+}
+
 let meetingLineSeq = 1;
 
 const catalogModel = {
@@ -1082,13 +1167,17 @@ const server = http.createServer(async (req, res) => {
     draftStateById.clear();
     meetingLinesByMatter.clear();
     createdAutomations.length = 0;
-    resumedChatSessions.clear();
+    resumedMessagesByScope.set(scopeOf(req), new Map());
     sessionMessagesById.clear();
+    carriedOverFromBySession.clear();
+    forkSeq = 1;
     sessionCreateSeq = 1;
     handoffDraftSeq = 1;
     handoffFleetRuns.length = 0;
     // 只复位**调用方自己**的作用域：并行时不该替别的测试清状态。
     judgmentMockByScope.set(scopeOf(req), freshJudgmentMock());
+    contextBudgetMockByScope.set(scopeOf(req), freshContextBudgetMock());
+    forkMockByScope.set(scopeOf(req), freshForkMock());
     ensureDefaultSessionSeeded();
     json(res, 200, { ok: true });
     return;
@@ -1105,6 +1194,59 @@ const server = http.createServer(async (req, res) => {
     const current = judgmentMockFor(req);
     current.mode = mode;
     current.posture = body?.posture === "advisory" ? "advisory" : "block";
+    json(res, 200, { ok: true, ...current });
+    return;
+  }
+
+  // E2E-only: 上下文用量开关（缺省 ok/12k/100k/compactCount 0 → 不出建议卡）。
+  if (path === "/__e2e__/context-budget" && req.method === "POST") {
+    const body = await readJsonBody(req);
+    const current = contextBudgetMockFor(req);
+    if (body?.reset === true) {
+      contextBudgetMockByScope.set(scopeOf(req), freshContextBudgetMock());
+      json(res, 200, { ok: true, ...contextBudgetMockFor(req) });
+      return;
+    }
+    for (const key of ["used", "effectiveLimit"]) {
+      const value = Number(body?.[key]);
+      if (Number.isFinite(value) && value >= 0) {
+        current[key] = Math.floor(value);
+      }
+    }
+    if (["ok", "warn", "compact"].includes(String(body?.level ?? ""))) {
+      current.level = String(body.level);
+    }
+    const compactCount = Number(body?.compactCount);
+    if (Number.isFinite(compactCount) && compactCount >= 0) {
+      current.compactCount = Math.floor(compactCount);
+    }
+    const suggestMinCompacts = Number(body?.suggestMinCompacts);
+    if (Number.isFinite(suggestMinCompacts) && suggestMinCompacts >= 1) {
+      current.suggestMinCompacts = Math.floor(suggestMinCompacts);
+    }
+    if (body?.midTurn === true) {
+      current.lastCompact = {
+        at: new Date().toISOString(),
+        droppedMessageCount: 18,
+        midTurn: true,
+      };
+    } else if (body?.midTurn === false) {
+      current.lastCompact = null;
+    }
+    json(res, 200, { ok: true, ...current });
+    return;
+  }
+
+  // E2E-only: 续接阻塞开关（`blocked` → 真实契约是 409 + blockingActions）。
+  if (path === "/__e2e__/fork" && req.method === "POST") {
+    const body = await readJsonBody(req);
+    const mode = String(body?.mode ?? "");
+    if (!["ok", "blocked"].includes(mode)) {
+      json(res, 400, { ok: false, error: "bad_mode" });
+      return;
+    }
+    const current = forkMockFor(req);
+    current.mode = mode;
     json(res, 200, { ok: true, ...current });
     return;
   }
@@ -1221,15 +1363,12 @@ const server = http.createServer(async (req, res) => {
   const sessionMatch = /^\/api\/sessions\/([^/]+)$/.exec(path);
   if (sessionMatch && req.method === "GET") {
     const sid = sessionMatch[1];
-    // resume 后的那次重载应呈现「已继续」状态；标记一次性消费，
-    // 之后的会话加载（页面刷新/新用例）回到默认待批准卡片，避免跨用例污染。
-    if (resumedChatSessions.delete(sid)) {
-      const resumed = [
-        { role: "user", text: "请继续完成文书工作。" },
-        { role: "assistant", text: "已按您的确认继续处理。" },
-      ];
-      sessionMessagesById.set(sid, resumed);
-      json(res, 200, { ok: true, messages: resumed });
+    // resume 后的那次重载应呈现「已继续」状态。覆盖层是**按作用域**的：
+    // 只在发起 resume 的那个测试里可见，不会把「已继续」写进全局会话库
+    // 而污染同进程里后跑的文件（见 `resumedMessagesByScope` 的说明）。
+    const resumedMessages = resumedMessagesFor(req).get(sid);
+    if (resumedMessages) {
+      json(res, 200, { ok: true, messages: resumedMessages });
       return;
     }
     if (sid === sessionId) {
@@ -1240,7 +1379,12 @@ const server = http.createServer(async (req, res) => {
       : sid === sessionId
         ? seededSignoffMessages()
         : [];
-    json(res, 200, { ok: true, messages });
+    const carriedOverFrom = carriedOverFromBySession.get(sid);
+    json(res, 200, {
+      ok: true,
+      messages,
+      ...(carriedOverFrom ? { carriedOverFrom } : {}),
+    });
     return;
   }
 
@@ -1600,11 +1744,51 @@ const server = http.createServer(async (req, res) => {
 
   const contextBudgetMatch = /^\/api\/sessions\/([^/]+)\/context-budget$/.exec(path);
   if (contextBudgetMatch && req.method === "GET") {
+    const mock = contextBudgetMockFor(req);
+    const contextTokens = 128_000;
+    const summaryOutputTokenReserve = 20_000;
+    const autoCompactBufferTokens = 13_000;
+    // 分层用量形状与 `estimateTokenBudgetBreakdown` 一致（{ buckets, total }），
+    // 否则面板渲染空壳，e2e 断言等于没测。
+    const buckets = [
+      { id: "lawyer", tokens: 8_000 },
+      { id: "assistant", tokens: 6_000 },
+      { id: "toolResults", tokens: 900 },
+      { id: "digest", tokens: 1_200 },
+      { id: "turnContext", tokens: 300 },
+      { id: "pins", tokens: 600 },
+      { id: "plan", tokens: 0 },
+      { id: "craft", tokens: 0 },
+      { id: "workspace", tokens: 500 },
+      { id: "rules", tokens: mock.used - 17_500 > 0 ? mock.used - 17_500 : 0 },
+    ];
     json(res, 200, {
       ok: true,
-      used: 12_000,
-      effectiveLimit: 100_000,
-      level: "ok",
+      used: mock.used,
+      effectiveLimit: mock.effectiveLimit,
+      level: mock.level,
+      contextTokens,
+      maxOutputTokens: 44_800,
+      modelId: defaultModelId,
+      breakdown: { buckets, total: mock.used },
+      window: {
+        contextTokens,
+        maxOutputTokens: 44_800,
+        summaryOutputTokenReserve,
+        autoCompactBufferTokens,
+        usableLimit: mock.effectiveLimit,
+        autoCompactLimit: mock.effectiveLimit,
+        midTurnCompactLimit: Math.floor(mock.effectiveLimit * 0.9),
+      },
+      compactCount: mock.compactCount,
+      lastCompact: mock.lastCompact,
+      // 高级设置可见性（真实路由同款）：生效调参 + 显式 override。
+      tuning: {
+        budget: { warnRatio: 0.85, midTurnCompactTriggerRatio: 0.9 },
+        midTurn: { maxPerTurn: 3 },
+        carryover: { suggestMinCompacts: mock.suggestMinCompacts },
+      },
+      tuningOverrides: mock.suggestMinCompacts === 2 ? [] : ["context.carryover.suggestMinCompacts"],
     });
     return;
   }
@@ -1625,6 +1809,46 @@ const server = http.createServer(async (req, res) => {
         { role: "user", text: "E2E user" },
         { role: "assistant", text: "E2E assistant" },
       ],
+    });
+    return;
+  }
+
+  const sessionForkMatch = /^\/api\/sessions\/([^/]+)\/fork-with-carryover$/.exec(path);
+  if (sessionForkMatch && req.method === "POST") {
+    const sourceId = sessionForkMatch[1];
+    const mock = forkMockFor(req);
+    if (mock.mode === "blocked") {
+      // 真实契约：待批准授权 → 409 + blockingActions（授权不能跨会话搬）。
+      json(res, 409, {
+        ok: false,
+        code: "pending_authorization",
+        message: "当前对话有未处理的批准，须先在原对话处理完再另起新对话。",
+        blockingActions: ["tool_approval"],
+      });
+      return;
+    }
+    const newId = `e2e-fork-${forkSeq++}`;
+    const title = "E2E session（承前）";
+    carriedOverFromBySession.set(newId, {
+      sessionId: sourceId,
+      at: new Date().toISOString(),
+      title: "E2E session",
+      digestSource: "extractive",
+      digestChars: 1_240,
+      droppedMessageCount: 18,
+      digestPreview: "【压缩前对话蒸馏】摘要：已定位依据并写到解除条款。",
+    });
+    sessionMessagesById.set(newId, [
+      { role: "assistant", text: "已带上上一段对话的整理稿，接着说就行。" },
+    ]);
+    json(res, 200, {
+      ok: true,
+      sessionId: newId,
+      title,
+      reused: false,
+      digestSource: "extractive",
+      migrated: { matterId: "e2e-matter-1" },
+      stats: { droppedMessageCount: 18, digestChars: 1_240, seedChars: 3_600 },
     });
     return;
   }
@@ -1787,7 +2011,7 @@ const server = http.createServer(async (req, res) => {
 
   if (path === "/api/chat/resume" && req.method === "POST") {
     const body = await readJsonBody(req);
-    resumedChatSessions.add(sessionId);
+    resumedMessagesFor(req).set(sessionId, RESUMED_CHAT_MESSAGES);
     json(res, 200, {
       ok: true,
       sessionId,

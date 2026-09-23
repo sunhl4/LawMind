@@ -11,6 +11,8 @@ import { LawmindChatHistorySearch } from "./LawmindChatHistorySearch";
 import { LawmindChatMessageRow } from "./LawmindChatMessageRow";
 import { LawmindChatMessagesVirtualList } from "./LawmindChatMessagesVirtualList";
 import { LawmindMsgCompactNotice } from "./LawmindMsgCompactNotice";
+import { LawmindMsgCarryoverNotice } from "./LawmindMsgCarryoverNotice";
+import { LawmindContextForkSuggestion, type ChatContextForkProps } from "./LawmindContextForkSuggestion";
 import { LawmindBrandMark } from "./app/LawmindBrandMark";
 import { LAWMIND_ATTORNEY_DISCLAIMER_SHORT } from "./lawmind-attorney-disclaimer";
 import { LawmindMsgToolGroup } from "./LawmindMsgToolGroup";
@@ -53,6 +55,11 @@ export type LawmindChatMessagesColumnProps = {
   onOpenActionHub?: () => void;
   revisionBackgroundActive?: boolean;
   streamCompactLabels?: string[];
+  /**
+   * 上下文续接 UI（续接来源卡 + 一次性「另起新对话」建议）。
+   * 收成一个可选对象，避免这条 5 层 props 链上再散 5 个 prop。
+   */
+  contextFork?: ChatContextForkProps;
   onCreateMatter?: () => void;
   /** Opens「在办 · 按流程办」. */
   onOpenAgentsWorkflows?: () => void;
@@ -97,6 +104,7 @@ export function LawmindChatMessagesColumn({
   onOpenActionHub,
   revisionBackgroundActive,
   streamCompactLabels = [],
+  contextFork,
   onCreateMatter,
   onDeleteChatMessage,
   onEditChatMessage,
@@ -151,8 +159,18 @@ export function LawmindChatMessagesColumn({
       label,
       sourceIndex: -1 - i,
     }));
-    return notices.length > 0 ? [...notices, ...base] : base;
-  }, [currentMessages, streamCompactLabels]);
+    // 顶部顺序：续接来源（这段对话的起点）→ 过程提示 → 建议卡（可操作，放最近处）。
+    const carriedOverFrom = contextFork?.carriedOverFrom ?? null;
+    const head: RenderableChatItem[] = [];
+    if (carriedOverFrom) {
+      head.push({ kind: "carryover_notice", origin: carriedOverFrom, sourceIndex: -1 });
+    }
+    head.push(...notices);
+    if (contextFork?.showSuggestion === true) {
+      head.push({ kind: "fork_suggestion", sourceIndex: -1000 });
+    }
+    return head.length > 0 ? [...head, ...base] : base;
+  }, [contextFork, currentMessages, streamCompactLabels]);
 
   const onHighlightIndices = useCallback((indices: Set<number> | null) => {
     setSearchHighlight(indices);
@@ -161,6 +179,19 @@ export function LawmindChatMessagesColumn({
   const renderItem = (item: RenderableChatItem, listKey: string): ReactNode => {
     if (item.kind === "compact_notice") {
       return <LawmindMsgCompactNotice key={listKey} label={item.label} />;
+    }
+    if (item.kind === "carryover_notice") {
+      return <LawmindMsgCarryoverNotice key={listKey} origin={item.origin} />;
+    }
+    if (item.kind === "fork_suggestion") {
+      return (
+        <LawmindContextForkSuggestion
+          key={listKey}
+          busy={contextFork?.busy === true}
+          onFork={() => contextFork?.onFork?.()}
+          onDismiss={() => contextFork?.onDismiss?.()}
+        />
+      );
     }
     if (item.kind === "tool_group") {
       return (

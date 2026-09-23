@@ -76,6 +76,57 @@ describe("lawmind-server-route-metrics", () => {
     });
   });
 
+  it("GET /api/metrics/context-pressure 缺来源时 present:false + 比率 null（不产出 0）", async () => {
+    const res = mockRes();
+    const handled = await handleMetricsRoutes({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res,
+      url: new URL("http://127.0.0.1/api/metrics/context-pressure"),
+      pathname: "/api/metrics/context-pressure",
+      c: {},
+    });
+    expect(handled).toBe(true);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      ok: true,
+      present: false,
+      events: 0,
+      deferralReachRate: null,
+      compactionEffectiveness: null,
+    });
+  });
+
+  it("GET /api/metrics/context-pressure 有事件时给出计数与同源比率", async () => {
+    const { appendProductMetric } = await import(
+      "../../../src/lawmind/metrics/product-metrics.js"
+    );
+    for (const [kind, outcome] of [
+      ["context_pressure", "mid_turn_compact"],
+      ["context_pressure", "deferral_detected"],
+      ["context_pressure", "deferral_bounced"],
+      ["context_pressure", "fork_created"],
+    ] as const) {
+      appendProductMetric(workspaceDir, { kind, outcome, taskId: "t-route" });
+    }
+    const res = mockRes();
+    await handleMetricsRoutes({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res,
+      url: new URL("http://127.0.0.1/api/metrics/context-pressure"),
+      pathname: "/api/metrics/context-pressure",
+      c: {},
+    });
+    expect(res.body).toMatchObject({
+      ok: true,
+      present: true,
+      events: 4,
+      turnsWithPressure: 1,
+      deferralReachRate: 0,
+    });
+  });
+
   it("GET /api/metrics/team-growth returns dashboard", async () => {
     const res = mockRes();
     const handled = await handleMetricsRoutes({

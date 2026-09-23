@@ -28,6 +28,124 @@ export const LAWMIND_EGRESS_MODES: readonly LawMindEgressMode[] = [
 ] as const;
 
 /**
+ * `lawmind.policy.json` 的 `context` 段（高级设置）。全部可选。
+ *
+ * 校验与夹取由 `src/lawmind/agent/context-tuning.ts` 统一负责：
+ * 类型不对回落默认、越界夹到边界，**绝不抛错**。此处的注释只标默认值与边界。
+ *
+ * 比例类键的写法：`(0, max]` 表示只夹「明显非法」（非正 / NaN 回落默认，超大夹到
+ * max），**不设业务性下限**——合法的极小值（如把触发线压到 0.02 以强制触发）必须
+ * 原样生效。见 `context-tuning.ts` 的 `RATIO_MIN` 注释。
+ */
+export type LawMindContextPolicy = {
+  // ── 预算 ────────────────────────────────────────────────────────────
+  /** 模型窗口（tokens）。默认 128000，夹 [1000, 10_000_000]。 */
+  contextTokens?: number;
+  /** 摘要输出预留。默认 20000。 */
+  summaryOutputTokenReserve?: number;
+  /** 压缩缓冲。默认 13000。 */
+  autoCompactBufferTokens?: number;
+  /** 连续压缩失败上限。默认 3，夹 [1, 50]。 */
+  maxConsecutiveCompactFailures?: number;
+  /** 追加上下文注记 / warn 的起始填充比。默认 0.85，夹 (0, 1]；再夹到 ≤ 压缩触发线。 */
+  warnRatio?: number;
+  /** 回合内压缩触发线（占有效窗口比例）。默认 0.9，夹 (0, 1]。 */
+  midTurnCompactTriggerRatio?: number;
+  /** 小窗口预留上限（占窗口比例）。默认 0.25，夹 (0, 0.9]。 */
+  smallWindowReserveRatio?: number;
+  /** 有效窗口下限（tokens）。默认 8000。 */
+  minEffectiveLimitTokens?: number;
+  /** 模型窗口下限（tokens）。默认 8000。 */
+  minContextTokens?: number;
+
+  /** 回合内整理 / 反弹 / 就地省略 / 模型摘要。 */
+  midTurn?: {
+    /** 单回合最多整理几次。默认 3，夹 [1, 20]。 */
+    maxPerTurn?: number;
+    /** 退让反弹上限。默认 2，夹 [0, 10]。 */
+    deferralBounceMax?: number;
+    /** 就地省略保护的尾部条数。默认 2，夹 [0, 50]。 */
+    elideKeepTail?: number;
+    /** 就地省略门槛（占有效窗口比例）。默认 0.125，夹 (0, 1]。 */
+    elideThresholdRatio?: number;
+    /** 就地省略门槛下限（字符）。默认 4000。 */
+    elideThresholdMinChars?: number;
+    /** 回合内模型摘要起始素材量（字符）。默认 600。 */
+    llmDigestMinChars?: number;
+    /** 回合内模型摘要超时（毫秒）。默认 15000，夹 [500, 600000]。 */
+    llmDigestTimeoutMs?: number;
+  };
+
+  /** 提取式 / 模型摘要的额度与帽。 */
+  digest?: {
+    /** 摘要额度 = 窗口 × 该比例。默认 0.08，夹 (0, 0.5]。 */
+    charRatio?: number;
+    /** 摘要额度下限。默认 6000。 */
+    minChars?: number;
+    /** 摘要额度上限。默认 24000。 */
+    maxChars?: number;
+    /** 任务陈述段落额度。默认 0.25，夹 (0, 0.9]。 */
+    taskRatio?: number;
+    taskMinChars?: number;
+    taskMaxChars?: number;
+    /** 律师要点单行额度。默认 0.06，夹 (0, 0.5]。 */
+    lawyerLineRatio?: number;
+    lawyerLineMinChars?: number;
+    lawyerLineMaxChars?: number;
+    /** 上一轮整理稿接续额度。默认 0.35，夹 (0, 0.9]。 */
+    carriedRatio?: number;
+    /** 接续额度的绝对下限（字符）。默认 400，夹 [100, 100000]。 */
+    carriedMinChars?: number;
+    /** 任务陈述候选上限（条）。默认 2，夹 [1, 20]。 */
+    taskLineMax?: number;
+    /** 律师要点 / 助手结论各保留最近条数。默认 8，夹 [1, 50]。 */
+    recentLineKeep?: number;
+    /** 被丢弃区段的法条锚点召回上限。默认 24。 */
+    citationAnchorMax?: number;
+    /** LLM 摘要可用长度下限。默认 40。 */
+    llmMinSummaryChars?: number;
+    /** LLM 摘要头部占比。默认 0.45，夹 (0, 0.9]。 */
+    llmSummaryShare?: number;
+    /** LLM 摘要总开关（默认 true；env `LAWMIND_COMPACT_LLM` 仍可一刀切关掉）。 */
+    llmDigestEnabled?: boolean;
+  };
+
+  /** 任务锚点（钉子）与事实台账（律师原话钉住）。 */
+  pins?: {
+    /** 任务锚点字符上限。默认 600，夹 [50, 10000]。 */
+    taskCharCap?: number;
+    /** 事实台账总开关。默认 true。 */
+    factEnabled?: boolean;
+    /** 台账条数上限。默认 12，夹 [0, 100]。 */
+    factMaxItems?: number;
+    /** 台账单条字符上限。默认 160。 */
+    factItemCharCap?: number;
+    /** 台账总字符上限。默认 1200。 */
+    factTotalCharCap?: number;
+    /** 台账召回法条锚点上限。默认 8。 */
+    factCitationAnchorMax?: number;
+  };
+
+  /** 另起新对话（带上文）的续接种子。 */
+  carryover?: {
+    /** 种子额度 = 窗口 × 该比例。默认 0.1，夹 (0, 0.5]。 */
+    seedCharRatio?: number;
+    seedMinChars?: number;
+    seedMaxChars?: number;
+    /** 蒸馏正文占额度的比例。默认 0.6，夹 [0.05, 0.9]（过大会把状态头/指针挤没）。 */
+    digestShare?: number;
+    /** 蒸馏正文额度的绝对下限（字符）。默认 1000，夹 [100, 500000]。 */
+    digestMinChars?: number;
+    /** 状态头 + 指针的最低额度。默认 500。 */
+    frameMinChars?: number;
+    /** 「续接来源」卡片摘要预览长度。默认 400。 */
+    digestPreviewChars?: number;
+    /** 建议另起新对话的压缩次数门槛。默认 2。 */
+    suggestMinCompacts?: number;
+  };
+};
+
+/**
  * Parsed `lawmind.policy.json`.
  * `schemaVersion` >= 1 is required; other fields optional.
  */
@@ -77,14 +195,16 @@ export type LawMindWorkspacePolicy = {
    * Empty or omitted = no extra domain restriction (privilege sentinel still applies).
    */
   outboundAllowedDomains?: string[];
-  /** Context window / auto-compact tuning (Claude Code–style defaults). */
-  context?: {
-    autoCompactBufferTokens?: number;
-    maxConsecutiveCompactFailures?: number;
-    summaryOutputTokenReserve?: number;
-    /** Optional workspace override for context window (tokens). */
-    contextTokens?: number;
-  };
+  /**
+   * 上下文窗口 / 自动压缩 / 摘要 / 钉子 / 续接的调参（高级设置）。
+   *
+   * 全部可选；**每一项都做类型校验与夹取**，非法值回落默认、越界值夹到边界
+   * （绝不因为写错一个数就让采样路径炸）。解析入口是
+   * `src/lawmind/agent/context-tuning.ts` 的 `resolveContextTuning`；
+   * 生效值与「显式写过的键」可在体检页与 `GET /api/sessions/:id/context-budget`
+   * 的 `tuning` / `tuningOverrides` 里核对。
+   */
+  context?: LawMindContextPolicy;
   /**
    * 出站（egress）总模式——**私有化 / 律所内网部署的唯一权威开关**。
    *

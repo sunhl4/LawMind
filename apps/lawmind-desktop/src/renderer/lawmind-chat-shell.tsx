@@ -10,6 +10,7 @@ import {
 import type { LawmindComposeExtras } from "./useLawmindComposeExtras";
 import type { LawMindRequiresAction, LawMindRequiresActionDecision } from "./lawmind-requires-action";
 import { handleEnterSendShiftNewline, type ChatMsg } from "./lawmind-chat";
+import type { ChatContextForkProps } from "./LawmindContextForkSuggestion";
 import {
   LM_CHAT_COMPOSE_DEFAULT_HEIGHT_PX,
   LM_CHAT_COMPOSE_MAX_HEIGHT_PX,
@@ -167,6 +168,8 @@ export type LawmindChatWorkspaceProps = {
   onOpenMemoryInspector?: () => void;
   composeExtras: LawmindComposeExtras;
   streamCompactLabels?: string[];
+  /** 续接 UI（来源卡 + 一次性建议卡 + 另起新对话）——与消息列同一个对象。 */
+  contextFork?: ChatContextForkProps;
 };
 
 /** 底部输入区：始终显示在主工作区底栏（可拖高度） */
@@ -208,6 +211,7 @@ export function LawmindChatComposeFooter({
   onOpenNeedsDecisionDesk,
   onOpenActionHub,
   onOpenMemoryInspector,
+  contextFork,
   onOpenReview,
   composeExtras,
   fileChatPills,
@@ -266,6 +270,7 @@ export function LawmindChatComposeFooter({
   | "onOpenNeedsDecisionDesk"
   | "onOpenActionHub"
   | "onOpenMemoryInspector"
+  | "contextFork"
   | "onOpenReview"
   | "fileChatPills"
   | "onRemoveFileChatPill"
@@ -935,6 +940,8 @@ export function LawmindChatComposeFooter({
             onDistillLearning={() => void extras.distillSessionLearning()}
             onPreviewCompact={() => extras.previewCompact()}
             onOpenMemoryInspector={onOpenMemoryInspector}
+            onForkWithCarryover={contextFork?.onFork}
+            forkBusy={contextFork?.busy === true}
           />
         </div>
       </div>
