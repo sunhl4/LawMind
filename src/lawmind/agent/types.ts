@@ -454,6 +454,18 @@ export type AgentSession = {
     at: string;
   };
   /**
+   * 事实台账（钉子）：律师原话里的**期限 / 硬约束 / 引用 / 金额**，整句原样钉住。
+   *
+   * 为什么在任务钉子之外还要它：压缩保真度基准实测出，这四类事实会在第 1 轮
+   * 随要点窗口一起丢。对法律工作来说丢期限是事故（误期 = 执业风险），丢硬约束
+   * 会把交付做反。与 `taskPin` 同一存活机制（写进 `system[0]` 的 world-state 段，
+   * 不参与摘要、不随压缩层数衰减），有界（见 `FACT_PIN_*`）。
+   */
+  factPin?: {
+    items: import("./compact-fact-pin.js").FactPinItem[];
+    updatedAt: string;
+  };
+  /**
    * 本会话已「另起新对话并带上文」到了哪个会话（源会话侧指针）。
    * 侧栏显示「→ 由此续接」；同时作为 fork 的幂等键（`nonce`）。
    */

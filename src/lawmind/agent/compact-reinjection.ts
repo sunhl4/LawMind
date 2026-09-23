@@ -53,6 +53,8 @@ export function formatCompactReinjectionBlock(opts?: {
   taskStatement?: string;
   /** 仍生效的待澄清键：写清「未答齐前不得起草/渲染」，别写成裸键名。 */
   pendingClarificationKeys?: readonly string[];
+  /** 事实台账（律师原话钉住）：期限 / 硬约束 / 引用 / 金额。 */
+  factPin?: readonly import("./compact-fact-pin.js").FactPinItem[];
 }): string {
   const rulesHint = opts?.mandatoryRulesActive
     ? "工作区 RULES / 强制规则仍有效。"
@@ -78,6 +80,23 @@ export function formatCompactReinjectionBlock(opts?: {
   if (keys.length > 0) {
     lines.push(`- 待澄清键（仍生效，未答齐前不得起草/渲染）：${keys.join("、")}`);
   }
+  const facts = opts?.factPin ?? [];
+  if (facts.length > 0) {
+    const label: Record<string, string> = {
+      deadline: "期限",
+      constraint: "硬约束",
+      citation: "引用",
+      amount: "金额",
+    };
+    lines.push(
+      "",
+      "### 事实台账（律师原话，原样钉住、不因摘要改写）",
+      "下列为律师明确说过的期限 / 硬约束 / 引用 / 金额。**不得凭记忆改写或省略**；与律师最新指令冲突时以最新指令为准。",
+    );
+    for (const item of facts) {
+      lines.push(`- [${label[item.kind] ?? item.kind}] ${item.text}`);
+    }
+  }
   return lines.join("\n");
 }
 
@@ -99,6 +118,7 @@ export function applyCompactReinjectionToSession(
     ...opts,
     ...(pinned ? { taskStatement: pinned } : {}),
     pendingClarificationKeys: session.pendingClarificationKeys,
+    factPin: session.factPin?.items ?? [],
   });
   if (session.legacyUpdateDraftBodyWarning) {
     block = mergeLegacyUpdateDraftWarningIntoCraft(block);

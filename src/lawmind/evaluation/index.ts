@@ -72,3 +72,20 @@ export {
   buildReleaseReadinessReportMarkdown,
   type ReleaseReadinessInput,
 } from "./release-report.js";
+export {
+  buildFidelityReportMarkdown,
+  runAllCompactionFidelity,
+  runCompactionFidelity,
+  type CompactionFidelityOptions,
+  type FidelityKindStat,
+  type FidelityReport,
+  type FidelityRoundReport,
+} from "./compaction-fidelity.js";
+export {
+  FIDELITY_CASES,
+  LABOR_NONCOMPETE_CASE,
+  type FidelityCase,
+  type FidelityFact,
+  type FidelityFactKind,
+  type FidelityTurn,
+} from "./compaction-fidelity-cases.js";

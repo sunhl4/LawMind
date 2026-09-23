@@ -5,6 +5,7 @@
 import { randomUUID } from "node:crypto";
 import { attachEnabledMcpServers } from "../mcp/mcp-client-bridge.js";
 import { hiddenPolicyToolNames } from "../policy/analysis-scripts.js";
+import { accumulateFactPin } from "./compact-fact-pin.js";
 import { applyCompactReinjectionToSession, TASK_PIN_CHAR_CAP } from "./compact-reinjection.js";
 import { autoCompactSessionHistory } from "./compact.js";
 import { estimateTokenBudget } from "./context-budget.js";
@@ -243,6 +244,9 @@ export async function runTurn(opts: {
     if (shouldPin) {
       session.taskPin = { text: pinText.slice(0, TASK_PIN_CHAR_CAP), at: new Date().toISOString() };
     }
+    // 事实台账与任务钉子同处抽取：律师自己说的期限 / 硬约束 / 引用 / 金额，
+    // **收到即钉**，不必等到压缩那一刻（那一刻它可能已经离开要点窗口了）。
+    accumulateFactPin(session, [{ role: "user", content: instruction, timestamp: "" }]);
   }
 
   const ctx: AgentContext = {
