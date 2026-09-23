@@ -236,9 +236,14 @@ export function renderPackedFragments(fragments: PromptFragment[]): string[] {
   return extra;
 }
 
-export function shouldInjectRemainingTokensNote(used: number, limit: number): boolean {
+export function shouldInjectRemainingTokensNote(
+  used: number,
+  limit: number,
+  warnRatio: number = TOKEN_BUDGET_WARN_RATIO,
+): boolean {
   const safeLimit = Math.max(1, Math.floor(limit));
-  return Math.max(0, Math.floor(used)) / safeLimit >= TOKEN_BUDGET_WARN_RATIO;
+  const ratio = Number.isFinite(warnRatio) ? warnRatio : TOKEN_BUDGET_WARN_RATIO;
+  return Math.max(0, Math.floor(used)) / safeLimit >= ratio;
 }
 
 export function formatRemainingTokensNote(used: number, limit: number): string {

@@ -32,6 +32,7 @@ import {
   collectCompactAttachmentNotes,
   readSessionSummary,
 } from "./compact.js";
+import { type ContextTuning, resolveContextTuning } from "./context-tuning.js";
 import { createSession, loadSession, saveSession } from "./session.js";
 import { isSessionTurnLive } from "./turn-interrupt.js";
 import type { AgentTurnPlan } from "./turn-plan-model.js";
@@ -41,18 +42,22 @@ import type { AgentMessage, AgentSession } from "./types.js";
 export const CARRYOVER_SEED_MARKER = "【前序对话续接】";
 
 /**
- * 种子长度占模型窗口的比例。比原地压缩的 8% 略宽：新会话几乎空窗，多带一点更划算；
- * 上界仍收在 32k，避免把新会话一上来就顶到自动整理线。
+ * 种子额度（占模型窗口比例）与上下界；默认见 `context-tuning.ts`。
+ * 可调 `context.carryover.seedCharRatio` / `seedMinChars` / `seedMaxChars`。
  */
-export const CARRYOVER_SEED_CHAR_RATIO = 0.1;
+export { CARRYOVER_SEED_CHAR_RATIO, CARRYOVER_DIGEST_PREVIEW_CHARS } from "./context-tuning.js";
 
-export function resolveCarryoverSeedCharCap(contextTokens?: number): number {
-  const ctx = typeof contextTokens === "number" && contextTokens > 0 ? contextTokens : 128_000;
-  return Math.min(32_000, Math.max(8_000, Math.floor(ctx * CARRYOVER_SEED_CHAR_RATIO)));
+export function resolveCarryoverSeedCharCap(
+  contextTokens?: number,
+  tuning: ContextTuning = resolveContextTuning(null),
+): number {
+  const { seedCharRatio, seedMinChars, seedMaxChars } = tuning.carryover;
+  const ctx =
+    typeof contextTokens === "number" && contextTokens > 0
+      ? contextTokens
+      : tuning.budget.contextTokens;
+  return Math.min(seedMaxChars, Math.max(seedMinChars, Math.floor(ctx * seedCharRatio)));
 }
-
-/** 律师侧「续接来源」卡片的摘要预览长度。完整整理稿在会话上下文里，不在这里重复存。 */
-export const CARRYOVER_DIGEST_PREVIEW_CHARS = 400;
 
 /**
  * 可在会话间安全迁移的闸门状态。字段名与 `AgentSession` 一一对应，便于审计比对。
@@ -203,9 +208,12 @@ export function buildCarryoverDraft(opts: {
   contextTokens?: number;
   linkedTaskId?: string;
   charCap?: number;
+  /** 已解析的调参；不传则用默认值。 */
+  tuning?: ContextTuning;
 }): CarryoverDraft {
   const { session, workspaceDir } = opts;
-  const charCap = opts.charCap ?? resolveCarryoverSeedCharCap(opts.contextTokens);
+  const tuning = opts.tuning ?? resolveContextTuning(null);
+  const charCap = opts.charCap ?? resolveCarryoverSeedCharCap(opts.contextTokens, tuning);
   const dropped = session.conversationHistory.filter((msg) => msg.role !== "system");
   const linkedTaskId = opts.linkedTaskId ?? session.pendingRequiresAction?.[0]?.taskId;
   const migrated: CarryoverMigratedState = {
@@ -229,10 +237,13 @@ export function buildCarryoverDraft(opts: {
   };
 
   // 摘要额度：整体字符帽里给正文留大头，其余给状态头与指针。
-  const digestCap = Math.max(1_000, Math.floor(charCap * 0.6));
-  const frameCap = Math.max(500, charCap - digestCap);
+  const digestCap = Math.max(
+    tuning.carryover.digestMinChars,
+    Math.floor(charCap * tuning.carryover.digestShare),
+  );
+  const frameCap = Math.max(tuning.carryover.frameMinChars, charCap - digestCap);
   const dialogue = dialogueOf(session);
-  const extractiveDigest = buildDroppedSpanDigest(dialogue, digestCap);
+  const extractiveDigest = buildDroppedSpanDigest(dialogue, digestCap, tuning);
   const frameFull = [
     buildCarryoverFrame({ session, workspaceDir, linkedTaskId, migrated }),
     buildCarryoverPointers({ session, workspaceDir, migrated }),
@@ -317,6 +328,8 @@ export async function forkSessionWithCarryover(opts: {
   clientNonce?: string;
   contextTokens?: number;
   linkedTaskId?: string;
+  /** 已解析的调参；不传则用默认值。 */
+  tuning?: ContextTuning;
   /** 可选 LLM 摘要；抛错或返回空则回落提取式（fork 必须永远成功）。 */
   enhanceDigest?: (input: {
     draft: CarryoverDraft;
@@ -368,11 +381,13 @@ export async function forkSessionWithCarryover(opts: {
     };
   }
 
+  const tuning = opts.tuning ?? resolveContextTuning(null);
   const draft = buildCarryoverDraft({
     session: source,
     workspaceDir: opts.workspaceDir,
     contextTokens: opts.contextTokens,
     linkedTaskId: opts.linkedTaskId,
+    tuning,
   });
 
   let digest = draft.extractiveDigest;
@@ -425,7 +440,7 @@ export async function forkSessionWithCarryover(opts: {
     digestChars: digest.length,
     droppedMessageCount: draft.stats.droppedMessageCount,
     seedChars,
-    digestPreview: digest.slice(0, CARRYOVER_DIGEST_PREVIEW_CHARS),
+    digestPreview: digest.slice(0, tuning.carryover.digestPreviewChars),
   };
   saveSession(opts.workspaceDir, target);
 

@@ -1,7 +1,14 @@
 import type { LawMindWorkspacePolicy } from "../policy/workspace-policy.js";
 import { isCompactSyntheticUserMessage } from "./compact-insert.js";
+import { DEFAULT_CONTEXT_TUNING, resolveContextTuning } from "./context-tuning.js";
 import type { AgentMessage, AgentSession } from "./types.js";
 import { WORLD_STATE_SECTION_IDS } from "./world-state.js";
+
+export {
+  resolveContextPolicy,
+  SMALL_WINDOW_RESERVE_RATIO,
+  TOKEN_BUDGET_WARN_RATIO,
+} from "./context-tuning.js";
 
 export type TokenBudgetLevel = "ok" | "warn" | "compact";
 
@@ -9,24 +16,12 @@ export type TokenBudgetSnapshot = {
   used: number;
   effectiveLimit: number;
   level: TokenBudgetLevel;
+  /** 追加注记 / warn 的起始填充比（随 policy 变化；调用方不必再自己读 policy）。 */
+  warnRatio: number;
 };
 
-const DEFAULT_CONTEXT_TOKENS = 128_000;
+const DEFAULT_CONTEXT_TOKENS = DEFAULT_CONTEXT_TUNING.budget.contextTokens;
 const DEFAULT_CHARS_PER_TOKEN = 4;
-/** Inject remaining-token notes / compact-warn only past this fill ratio. */
-export const TOKEN_BUDGET_WARN_RATIO = 0.85;
-/**
- * 回合内（工具轮边界）自动压缩的触发线：有效窗口的比例（Codex 用 90%）。
- * 回合开始的压缩仍按 `level === "compact"` 触发；回合内提前一点压，
- * 免得模型先看到「先收口」而把活儿退回律师。
- */
-export const DEFAULT_MID_TURN_COMPACT_TRIGGER_RATIO = 0.9;
-
-/**
- * 小窗口的预留上限（占窗口比例）。有效窗口 = 窗口 − 摘要输出预留 − 压缩缓冲；
- * 两者写死 20k/13k 时，32k 窗口只剩 8k 可用，回合内压缩就腾不出空间了。
- */
-export const SMALL_WINDOW_RESERVE_RATIO = 0.25;
 
 /**
  * CJK 字符在主流分词器下接近 1 字 ≈ 1 token；chars/4 对中文系统性低估 3-4 倍，
@@ -228,64 +223,36 @@ export function estimateTokenBudgetBreakdown(
   return { buckets, total };
 }
 
-export function resolveContextPolicy(policy: LawMindWorkspacePolicy | null | undefined): {
-  autoCompactBufferTokens: number;
-  maxConsecutiveCompactFailures: number;
-  summaryOutputTokenReserve: number;
-  midTurnCompactTriggerRatio: number;
-} {
-  const ctx = policy?.context;
-  return {
-    autoCompactBufferTokens:
-      typeof ctx?.autoCompactBufferTokens === "number" ? ctx.autoCompactBufferTokens : 13_000,
-    maxConsecutiveCompactFailures:
-      typeof ctx?.maxConsecutiveCompactFailures === "number"
-        ? ctx.maxConsecutiveCompactFailures
-        : 3,
-    summaryOutputTokenReserve:
-      typeof ctx?.summaryOutputTokenReserve === "number" ? ctx.summaryOutputTokenReserve : 20_000,
-    midTurnCompactTriggerRatio:
-      typeof ctx?.midTurnCompactTriggerRatio === "number" &&
-      ctx.midTurnCompactTriggerRatio > 0 &&
-      ctx.midTurnCompactTriggerRatio <= 1
-        ? ctx.midTurnCompactTriggerRatio
-        : DEFAULT_MID_TURN_COMPACT_TRIGGER_RATIO,
-  };
-}
-
 export function estimateTokenBudget(
   session: AgentSession,
   policy?: LawMindWorkspacePolicy | null,
   opts?: EstimateTokenBudgetOptions,
 ): TokenBudgetSnapshot {
-  const { autoCompactBufferTokens, summaryOutputTokenReserve } = resolveContextPolicy(policy);
+  const tuning = resolveContextTuning(policy).budget;
   const charsPerToken = opts?.charsPerToken ?? DEFAULT_CHARS_PER_TOKEN;
   let used = estimateMessageTokens(session.conversationHistory, charsPerToken);
   if (session.samplingPromptTail?.trim()) {
     used += estimateTextTokens(session.samplingPromptTail, charsPerToken);
   }
   const contextTokens = Math.max(
-    8_000,
-    opts?.contextTokens ??
-      (typeof policy?.context?.contextTokens === "number"
-        ? policy.context.contextTokens
-        : DEFAULT_CONTEXT_TOKENS),
+    tuning.minContextTokens,
+    opts?.contextTokens ?? tuning.contextTokens ?? DEFAULT_CONTEXT_TOKENS,
   );
   // 预留随窗口缩放（Codex 的 effective window 教训 #40095）：写死 20k+13k 时，
   // 32k 窗口只剩 8k 可用——回合内压缩腾不出空间，模型只能把活儿退回律师。
   // 小窗口按窗口比例封顶预留，大窗口保持既有绝对值（行为不变）。
-  const configuredReserve = summaryOutputTokenReserve + autoCompactBufferTokens;
+  const configuredReserve = tuning.summaryOutputTokenReserve + tuning.autoCompactBufferTokens;
   const reserve = Math.min(
     configuredReserve,
-    Math.floor(contextTokens * SMALL_WINDOW_RESERVE_RATIO),
+    Math.floor(contextTokens * tuning.smallWindowReserveRatio),
   );
-  const effectiveLimit = Math.max(8_000, contextTokens - reserve);
+  const effectiveLimit = Math.max(tuning.minEffectiveLimitTokens, contextTokens - reserve);
   const ratio = used / effectiveLimit;
   let level: TokenBudgetLevel = "ok";
   if (ratio >= 1) {
     level = "compact";
-  } else if (ratio >= TOKEN_BUDGET_WARN_RATIO) {
+  } else if (ratio >= tuning.warnRatio) {
     level = "warn";
   }
-  return { used, effectiveLimit, level };
+  return { used, effectiveLimit, level, warnRatio: tuning.warnRatio };
 }

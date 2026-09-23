@@ -7,8 +7,8 @@ import { caseFilePath } from "../memory/index.js";
 import type { LawMindWorkspacePolicy } from "../policy/workspace-policy.js";
 import { accumulateFactPin } from "./compact-fact-pin.js";
 import { insertBeforeLastUserMessage, isCompactSyntheticUserMessage } from "./compact-insert.js";
-import { TASK_PIN_CHAR_CAP } from "./compact-reinjection.js";
 import { estimateTokenBudget, resolveContextPolicy } from "./context-budget.js";
+import { type ContextTuning, resolveContextTuning } from "./context-tuning.js";
 import {
   alignCutIndexToToolGroups,
   normalizeToolResultMessages,
@@ -36,9 +36,16 @@ export type CompactResult = {
 };
 
 /** Soft cap for reinjected dropped-span digest (chars). Scales with model window. */
-export function resolveCompactDigestCharCap(contextTokens?: number): number {
-  const ctx = typeof contextTokens === "number" && contextTokens > 0 ? contextTokens : 128_000;
-  return Math.min(24_000, Math.max(6_000, Math.floor(ctx * 0.08)));
+export function resolveCompactDigestCharCap(
+  contextTokens?: number,
+  tuning: ContextTuning = resolveContextTuning(null),
+): number {
+  const { charRatio, minChars, maxChars } = tuning.digest;
+  const ctx =
+    typeof contextTokens === "number" && contextTokens > 0
+      ? contextTokens
+      : tuning.budget.contextTokens;
+  return Math.min(maxChars, Math.max(minChars, Math.floor(ctx * charRatio)));
 }
 
 /**
@@ -83,7 +90,12 @@ export function collectDroppedCitationAnchors(dropped: AgentMessage[], maxItems 
   return found;
 }
 
-export function buildDroppedSpanDigest(dropped: AgentMessage[], maxChars: number): string {
+export function buildDroppedSpanDigest(
+  dropped: AgentMessage[],
+  maxChars: number,
+  tuning: ContextTuning = resolveContextTuning(null),
+): string {
+  const d = tuning.digest;
   if (dropped.length === 0 || maxChars < 80) {
     return "";
   }
@@ -124,9 +136,12 @@ export function buildDroppedSpanDigest(dropped: AgentMessage[], maxChars: number
       carriedDigests.push(text);
       continue;
     }
-    const lineCap = Math.min(1_200, Math.max(400, Math.floor(maxChars * 0.06)));
+    const lineCap = Math.min(
+      d.lawyerLineMaxChars,
+      Math.max(d.lawyerLineMinChars, Math.floor(maxChars * d.lawyerLineRatio)),
+    );
     if (msg.role === "user") {
-      if (taskLines.length < 2) {
+      if (taskLines.length < d.taskLineMax) {
         taskLines.push(text);
       }
       lawyerLines.push(text.slice(0, lineCap));
@@ -145,29 +160,32 @@ export function buildDroppedSpanDigest(dropped: AgentMessage[], maxChars: number
   if (taskLines.length > 0) {
     // 任务陈述按**原文**保留（不按行截断）：Codex 保最多 20k token 的原始用户消息，
     // 正是为了「目标不丢」。提取式要点里一句「请继续核对付款」替代不了「要做什么」。
-    const taskCap = Math.min(4_000, Math.max(800, Math.floor(maxChars * 0.25)));
+    const taskCap = Math.min(
+      d.taskMaxChars,
+      Math.max(d.taskMinChars, Math.floor(maxChars * d.taskRatio)),
+    );
     sections.push(
       `### 任务与目标（原文保留，最早一条律师发言）\n${taskLines
         .map((line) => `- ${line.slice(0, taskCap)}`)
         .join("\n")}`,
     );
   }
-  const citations = collectDroppedCitationAnchors(dropped);
+  const citations = collectDroppedCitationAnchors(dropped, d.citationAnchorMax);
   if (citations.length > 0) {
     sections.push(`### 压缩前引用\n${citations.join("；")}`);
   }
   if (carriedDigests.length > 0) {
-    const carriedCap = Math.max(400, Math.floor(maxChars * 0.35));
+    const carriedCap = Math.max(d.carriedMinChars, Math.floor(maxChars * d.carriedRatio));
     // 沿用原文（含它自己的分节），让模型看得出这是「上一轮整理稿」而不是律师新说的话。
     const carried = carriedDigests.join("\n\n");
     sections.push(`### 上一轮整理稿（接续保留，非律师新发言）\n${carried.slice(0, carriedCap)}`);
   }
   if (lawyerLines.length > 0) {
-    const keep = lawyerLines.slice(-8);
+    const keep = lawyerLines.slice(-d.recentLineKeep);
     sections.push(`### 律师要点\n${keep.map((l, i) => `${i + 1}. ${l}`).join("\n")}`);
   }
   if (assistantLines.length > 0) {
-    const keep = assistantLines.slice(-8);
+    const keep = assistantLines.slice(-d.recentLineKeep);
     sections.push(`### 助手结论/回复摘录\n${keep.map((l, i) => `${i + 1}. ${l}`).join("\n")}`);
   }
   if (toolNames.size > 0) {
@@ -328,8 +346,11 @@ export function autoCompactSessionHistory(
     contextTokens?: number;
     /** When false, skip writing compact-digest.md under the matter (dry-run preview). Default true. */
     writeDigestFile?: boolean;
+    /** 已解析的调参；不传则从 `policy` 现场解析（默认值 = 接入 policy 前的行为）。 */
+    tuning?: ContextTuning;
   },
 ): CompactResult {
+  const tuning = opts.tuning ?? resolveContextTuning(opts.policy);
   const budget = estimateTokenBudget(session, opts.policy, {
     contextTokens: opts.contextTokens,
   });
@@ -380,7 +401,11 @@ export function autoCompactSessionHistory(
   // 只补不改：runTurn 在首轮就已确定钉子（首选来源）；这里覆盖的是直接调用压缩的
   // 入口（手动整理、回合内整理、单测），让机制不依赖「必须先跑过一轮」。
   // 事实台账兜底：覆盖直接调用压缩的入口（手动整理、回合内整理、单测、基准）。
-  accumulateFactPin(session, droppedSpan.length > 0 ? droppedSpan : session.conversationHistory);
+  accumulateFactPin(
+    session,
+    droppedSpan.length > 0 ? droppedSpan : session.conversationHistory,
+    tuning.pins,
+  );
   if (!session.taskPin?.text) {
     const pool = droppedSpan.length > 0 ? droppedSpan : session.conversationHistory;
     for (const msg of pool) {
@@ -391,13 +416,16 @@ export function autoCompactSessionHistory(
       if (!text || isCompactSyntheticUserMessage(text)) {
         continue;
       }
-      session.taskPin = { text: text.slice(0, TASK_PIN_CHAR_CAP), at: new Date().toISOString() };
+      session.taskPin = {
+        text: text.slice(0, tuning.pins.taskCharCap),
+        at: new Date().toISOString(),
+      };
       break;
     }
   }
 
-  const digestCap = resolveCompactDigestCharCap(opts.contextTokens);
-  const droppedDigest = buildDroppedSpanDigest(droppedSpan, digestCap);
+  const digestCap = resolveCompactDigestCharCap(opts.contextTokens, tuning);
+  const droppedDigest = buildDroppedSpanDigest(droppedSpan, digestCap, tuning);
   if (droppedDigest && opts.writeDigestFile !== false) {
     writeCompactDigestFile(workspaceDir, session.matterId, droppedDigest);
   }

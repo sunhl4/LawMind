@@ -60,6 +60,37 @@ describe("estimateTokenBudget", () => {
     const large = estimateTokenBudget(session, null, { contextTokens: 200_000 });
     expect(large.effectiveLimit).toBe(200_000 - 33_000);
   });
+
+  it("快照带上 warnRatio，且可由 policy 调（旧默认 0.85）", () => {
+    const session = sessionWithChars(100);
+    expect(estimateTokenBudget(session, null, { contextTokens: 32_000 }).warnRatio).toBe(0.85);
+
+    const policy = {
+      schemaVersion: 1,
+      context: { warnRatio: 0.7, midTurnCompactTriggerRatio: 0.9 },
+    } as const;
+    const tuned = estimateTokenBudget(session, policy, { contextTokens: 32_000 });
+    expect(tuned.warnRatio).toBe(0.7);
+    // 68k 字符 ≈ 17k token / 24k 可用 = 0.708：过了 0.7 的线，但没过默认 0.85。
+    const nearLine = sessionWithChars(68_000);
+    expect(estimateTokenBudget(nearLine, policy, { contextTokens: 32_000 }).level).toBe("warn");
+    expect(estimateTokenBudget(nearLine, null, { contextTokens: 32_000 }).level).toBe("ok");
+  });
+
+  it("小窗口预留比例 / 有效窗口下限可由 policy 调", () => {
+    const session = sessionWithChars(100);
+    const policy = {
+      schemaVersion: 1,
+      context: {
+        smallWindowReserveRatio: 0.5,
+        minEffectiveLimitTokens: 2_000,
+      },
+    } as const;
+    // 32k 窗口、预留 = 32k*0.5 = 16k → 可用 16k（默认是 24k）。
+    expect(estimateTokenBudget(session, policy, { contextTokens: 32_000 }).effectiveLimit).toBe(
+      16_000,
+    );
+  });
 });
 
 describe("estimateTokenBudgetBreakdown", () => {

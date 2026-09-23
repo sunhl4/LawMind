@@ -27,6 +27,15 @@ describe("shouldSuggestContextFork", () => {
     expect(shouldSuggestContextFork(null)).toBe(false);
     expect(shouldSuggestContextFork(undefined)).toBe(false);
   });
+
+  it("门槛由服务端下发（policy context.carryover.suggestMinCompacts）", () => {
+    // 部署把门槛调到 1：压过一次就建议。
+    expect(shouldSuggestContextFork({ compactCount: 1, suggestMinCompacts: 1 })).toBe(true);
+    // 部署把门槛调到 5：压 2 次（默认门槛）时不该打扰。
+    expect(shouldSuggestContextFork({ compactCount: 2, suggestMinCompacts: 5 })).toBe(false);
+    // 非法值回落默认，不炸。
+    expect(shouldSuggestContextFork({ compactCount: 2, suggestMinCompacts: Number.NaN })).toBe(true);
+  });
 });
 
 describe("LawmindContextForkSuggestion", () => {

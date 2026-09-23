@@ -17,6 +17,8 @@ export const CONTEXT_FORK_SUGGEST_MIN_COMPACTS = 2;
 export type ContextForkSignal = {
   compactCount?: number;
   lastCompact?: { midTurn?: boolean } | null;
+  /** 服务端下发（policy `context.carryover.suggestMinCompacts`）；缺省用内置默认。 */
+  suggestMinCompacts?: number;
 };
 
 /** 聊天面板的续接 UI 入参（一个对象穿过 props 链，避免每层散 5 个 prop）。 */
@@ -38,7 +40,11 @@ export function shouldSuggestContextFork(signal: ContextForkSignal | null | unde
   if (signal.lastCompact?.midTurn === true) {
     return true;
   }
-  return (signal.compactCount ?? 0) >= CONTEXT_FORK_SUGGEST_MIN_COMPACTS;
+  const min =
+    typeof signal.suggestMinCompacts === "number" && Number.isFinite(signal.suggestMinCompacts)
+      ? Math.max(1, Math.trunc(signal.suggestMinCompacts))
+      : CONTEXT_FORK_SUGGEST_MIN_COMPACTS;
+  return (signal.compactCount ?? 0) >= min;
 }
 
 export function LawmindContextForkSuggestion({

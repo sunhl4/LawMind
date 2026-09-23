@@ -30,15 +30,19 @@ import {
   isCompactLlmDigestEnabled,
   replaceDroppedDigestInMessages,
 } from "./compact-llm-digest.js";
-import { estimateTokenBudget, resolveContextPolicy } from "./context-budget.js";
+import { estimateTokenBudget } from "./context-budget.js";
 import {
-  CONTEXT_DEFERRAL_BOUNCE_MAX,
   dropContextDeferralBounces,
   formatContextDeferralBounce,
   formatContextDeferralHandoff,
   isContextBudgetDeferralReply,
 } from "./context-deferral.js";
-import { applyMidTurnCompact, MID_TURN_COMPACT_MAX } from "./mid-turn-compact.js";
+import {
+  MID_TURN_LLM_DIGEST_MIN_CHARS,
+  MID_TURN_LLM_DIGEST_TIMEOUT_MS,
+  resolveContextTuning,
+} from "./context-tuning.js";
+import { applyMidTurnCompact } from "./mid-turn-compact.js";
 import { callModelWithRetry, ModelCallUserAbortError } from "./runtime-model-call.js";
 import { claimAndApplyPendingContextPins, appendContextPins } from "./session-context-inject.js";
 import { claimAndApplyPendingSteer } from "./session-context-steer.js";
@@ -93,15 +97,16 @@ export function shouldWarnToolBudget(used: number, maxToolCalls: number): boolea
 
 /**
  * 回合内模型摘要的下限：提取式摘要比这还短时已经够用，不值得在工具轮边界
- * 多花一次模型调用（延迟直接叠进律师的等待）。
+ * 多花一次模型调用（延迟直接叠进律师的等待）。默认见 `context-tuning.ts`。
  */
-export const MID_TURN_LLM_DIGEST_MIN_CHARS = 600;
+export { MID_TURN_LLM_DIGEST_MIN_CHARS };
 
 /**
  * 回合内模型摘要的超时上限。这是**同步等**的位置，所以显著短于手动整理的 sidecar 超时；
  * 超时即回落提取式，绝不拖住对话（Codex 在 loop boundary 也是同步做的，但它没设这个帽）。
+ * 默认见 `context-tuning.ts`（policy `context.midTurn.llmDigestTimeoutMs`）。
  */
-export const MID_TURN_LLM_DIGEST_TIMEOUT_MS = 15_000;
+export { MID_TURN_LLM_DIGEST_TIMEOUT_MS };
 
 export type ModelToolLoopResult = {
   finalReply: string;
@@ -183,12 +188,13 @@ export async function runModelToolLoop(opts: {
    * 返回 true 表示历史已被重写。
    */
   const compactMidTurn = async (roundIndex: number, force = false): Promise<boolean> => {
-    if (midTurnCompactions >= MID_TURN_COMPACT_MAX) {
+    const policy = policyForTurn();
+    const tuning = resolveContextTuning(policy);
+    const { midTurnCompactTriggerRatio } = tuning.budget;
+    if (midTurnCompactions >= tuning.midTurn.maxPerTurn) {
       return false;
     }
-    const policy = policyForTurn();
-    const { midTurnCompactTriggerRatio } = resolveContextPolicy(policy);
-    if (midTurnCompactions >= MID_TURN_COMPACT_MAX && force) {
+    if (midTurnCompactions >= tuning.midTurn.maxPerTurn && force) {
       // 只在「模型已证明没空间」时记 cap：那是真正触到上限的信号。
       recordContextPressure(opts.config.workspaceDir, "mid_turn_cap", {
         turnId: opts.turn.turnId,
@@ -208,7 +214,9 @@ export async function runModelToolLoop(opts: {
         compactionsDone: midTurnCompactions,
         force,
         triggerRatio: midTurnCompactTriggerRatio,
+        maxCompactions: tuning.midTurn.maxPerTurn,
         turnId: opts.turn.turnId,
+        tuning,
         // 估算器偏小时以真实占用为准（Codex：阈值/占用都要贴有效窗口）。
         ...(lastMeasuredPromptTokens > 0 ? { measuredUsed: lastMeasuredPromptTokens } : {}),
       });
@@ -263,11 +271,14 @@ export async function runModelToolLoop(opts: {
     // 提取式摘要在「因果与决策理由」上会丢东西，这正是长任务变笨的主因。
     // 但这里是在工具轮边界**同步等**，所以三条硬约束：
     //   1) **不重试**（attempts=1）——重试的延迟会直接叠进律师的等待；
-    //   2) **限时**（15s 上限）——超时即回落提取式；
-    //   3) **够大才做**——摘要太短时提取式已经够用，不值得多花一次调用。
+    //   2) **限时**（`context.midTurn.llmDigestTimeoutMs`，默认 15s）——超时即回落提取式；
+    //   3) **够大才做**（`context.midTurn.llmDigestMinChars`）——太短时提取式已够用。
     // 失败/超时/被中止一律回落，绝不因此中断回合（fork 与手动整理同一取向）。
-    if (outcome.droppedDigest && isCompactLlmDigestEnabled()) {
-      const worthIt = outcome.droppedDigest.length >= MID_TURN_LLM_DIGEST_MIN_CHARS;
+    if (
+      outcome.droppedDigest &&
+      isCompactLlmDigestEnabled(process.env, tuning.digest.llmDigestEnabled)
+    ) {
+      const worthIt = outcome.droppedDigest.length >= tuning.midTurn.llmDigestMinChars;
       const model = opts.config.model;
       if (worthIt && model.model) {
         const startedAt = Date.now();
@@ -280,7 +291,8 @@ export async function runModelToolLoop(opts: {
             contextTokens: model.contextTokens ?? policyForTurn()?.context?.contextTokens,
             abortSignal: opts.abortSignal,
             maxAttempts: 1,
-            timeoutCapMs: MID_TURN_LLM_DIGEST_TIMEOUT_MS,
+            timeoutCapMs: tuning.midTurn.llmDigestTimeoutMs,
+            tuning,
           });
           if (enhanced.usedLlm) {
             opts.session.conversationHistory = replaceDroppedDigestInMessages(
@@ -633,7 +645,7 @@ export async function runModelToolLoop(opts: {
           detail: deferralText.trim().slice(0, 200),
           meta: { bouncesSoFar: bounces, roundIndex },
         });
-        if (bounces < CONTEXT_DEFERRAL_BOUNCE_MAX) {
+        if (bounces < resolveContextTuning(policyForTurn()).midTurn.deferralBounceMax) {
           await compactMidTurn(roundIndex, true);
           opts.turn.contextDeferralBounces = bounces + 1;
           agentMsg.hiddenFromLawyer = true;

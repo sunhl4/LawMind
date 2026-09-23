@@ -19,8 +19,11 @@ import type { AgentMessage } from "./types.js";
 /** 反弹消息的前缀 / 断言标记。也进 `COMPACT_SYNTHETIC_USER_MARKERS`（压缩可整条丢弃）。 */
 export const CONTEXT_DEFERRAL_BOUNCE_MARKER = "【上下文预算】";
 
-/** 同一回合最多反弹几次；超出后如实收下模型的最终回复（fail-open）。 */
-export const CONTEXT_DEFERRAL_BOUNCE_MAX = 2;
+/**
+ * 同一回合最多反弹几次；超出后如实收下模型的最终回复（fail-open）。
+ * 默认见 `context-tuning.ts`（policy `context.midTurn.deferralBounceMax`）。
+ */
+export { CONTEXT_DEFERRAL_BOUNCE_MAX } from "./context-tuning.js";
 
 /**
  * 必须同时命中「上下文水位」与「把活儿推回给律师」两类词才算退让。

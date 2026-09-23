@@ -88,6 +88,7 @@ export function useLawmindComposeExtras(opts: {
         window?: ComposeContextWindow;
         compactCount?: number;
         lastCompact?: ComposeLastCompact | null;
+        tuning?: { carryover?: { suggestMinCompacts?: number } };
       }>(
         opts.apiBase,
         `/api/sessions/${encodeURIComponent(opts.sessionId)}/context-budget${query}`,
@@ -101,6 +102,10 @@ export function useLawmindComposeExtras(opts: {
         window: b.window,
         compactCount: typeof b.compactCount === "number" ? b.compactCount : undefined,
         lastCompact: b.lastCompact ?? null,
+        suggestMinCompacts:
+          typeof b.tuning?.carryover?.suggestMinCompacts === "number"
+            ? b.tuning.carryover.suggestMinCompacts
+            : undefined,
       });
     } catch {
       setContextBudget(null);

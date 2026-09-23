@@ -71,6 +71,8 @@ function freshContextBudgetMock() {
     level: "ok",
     compactCount: 0,
     lastCompact: null,
+    /** 缺省与 `context-tuning.ts` 的默认一致；spec 可经 E2E 开关调 `suggestMinCompacts`。 */
+    suggestMinCompacts: 2,
   };
 }
 
@@ -1218,6 +1220,10 @@ const server = http.createServer(async (req, res) => {
     if (Number.isFinite(compactCount) && compactCount >= 0) {
       current.compactCount = Math.floor(compactCount);
     }
+    const suggestMinCompacts = Number(body?.suggestMinCompacts);
+    if (Number.isFinite(suggestMinCompacts) && suggestMinCompacts >= 1) {
+      current.suggestMinCompacts = Math.floor(suggestMinCompacts);
+    }
     if (body?.midTurn === true) {
       current.lastCompact = {
         at: new Date().toISOString(),
@@ -1776,6 +1782,13 @@ const server = http.createServer(async (req, res) => {
       },
       compactCount: mock.compactCount,
       lastCompact: mock.lastCompact,
+      // 高级设置可见性（真实路由同款）：生效调参 + 显式 override。
+      tuning: {
+        budget: { warnRatio: 0.85, midTurnCompactTriggerRatio: 0.9 },
+        midTurn: { maxPerTurn: 3 },
+        carryover: { suggestMinCompacts: mock.suggestMinCompacts },
+      },
+      tuningOverrides: mock.suggestMinCompacts === 2 ? [] : ["context.carryover.suggestMinCompacts"],
     });
     return;
   }

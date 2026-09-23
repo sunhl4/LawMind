@@ -2,7 +2,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { LawMindWorkspacePolicy } from "../policy/workspace-policy.js";
 import { compactDigestPath } from "./compact.js";
+import { resolveContextTuning } from "./context-tuning.js";
 import {
   applyMidTurnCompact,
   elideOversizedMessages,
@@ -11,6 +13,10 @@ import {
   shouldCompactMidTurn,
 } from "./mid-turn-compact.js";
 import type { AgentMessage, AgentSession } from "./types.js";
+
+function policyWith(context: unknown): LawMindWorkspacePolicy {
+  return { schemaVersion: 1, context: context as LawMindWorkspacePolicy["context"] };
+}
 
 const tempDirs: string[] = [];
 
@@ -286,5 +292,96 @@ describe("applyMidTurnCompact", () => {
     expect(outcome).toEqual({ applied: false, reason: "no_reduction" });
     expect(session.conversationHistory.length).toBe(before);
     expect(session.needsCompactReinjection).toBeUndefined();
+  });
+});
+
+describe("applyMidTurnCompact — 调参（policy context.midTurn.*）真的生效", () => {
+  /** history = [system, ...texts]，与 elide 单测同一形状。 */
+  function elideSession(texts: string[]): AgentSession {
+    const now = "t";
+    return {
+      sessionId: "s-elide-tuning",
+      actorId: "lawyer",
+      turns: [],
+      conversationHistory: [
+        { role: "system", content: "sys", timestamp: now },
+        ...texts.map((text) => ({ role: "user" as const, content: text, timestamp: now })),
+      ],
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  it("maxPerTurn 由 policy 决定：调成 1 后第二/第三次不再整理", () => {
+    const workspaceDir = makeWorkspace();
+    const session = sessionWith(longHistory(40), "m-cap");
+    const tuning = resolveContextTuning(policyWith({ midTurn: { maxPerTurn: 1 } }));
+    expect(
+      shouldCompactMidTurn({
+        roundIndex: 2,
+        used: 20_000,
+        effectiveLimit: 16_000,
+        level: "compact",
+        compactionsDone: 1,
+        maxCompactions: tuning.midTurn.maxPerTurn,
+      }),
+    ).toBe(false);
+    // 默认（3）在同样 compactionsDone=1 时仍允许整理：证明读的是 policy 而不是常量。
+    expect(
+      shouldCompactMidTurn({
+        roundIndex: 2,
+        used: 20_000,
+        effectiveLimit: 16_000,
+        level: "compact",
+        compactionsDone: 1,
+      }),
+    ).toBe(true);
+
+    const outcome = applyMidTurnCompact(session, workspaceDir, {
+      maxHistoryMessages: 6,
+      roundIndex: 2,
+      compactionsDone: 0,
+      contextTokens: 16_000,
+      triggerRatio: 0.05,
+      tuning,
+    });
+    expect(outcome.applied).toBe(true);
+  });
+
+  it("elideKeepTail 由 policy 决定：调大后尾部消息不再被省略", () => {
+    const huge = "请".repeat(20_000);
+    const texts = () => Array.from({ length: 4 }, () => huge);
+    const session = elideSession(texts());
+    // 默认保护尾部 2 条 → history = [system, c0..c3]，只有 c0/c1 会被省略。
+    elideOversizedMessages(session, 16_000);
+    expect(session.conversationHistory[1]?.content).toContain("中间省略");
+    expect(session.conversationHistory[2]?.content).toContain("中间省略");
+    expect(session.conversationHistory[3]?.content).toBe(huge);
+    expect(session.conversationHistory[4]?.content).toBe(huge);
+
+    // 保护尾部 0 条 → 四条都可省。
+    const session2 = elideSession(texts());
+    const out = elideOversizedMessages(
+      session2,
+      16_000,
+      resolveContextTuning(policyWith({ midTurn: { elideKeepTail: 0 } })),
+    );
+    expect(out.elidedCount).toBe(4);
+    expect(session2.conversationHistory[4]?.content).toContain("中间省略");
+  });
+
+  it("elideThresholdRatio 由 policy 决定：门槛抬高后同一正文不再被省略", () => {
+    const huge = "请".repeat(5_000);
+    const texts = () => Array.from({ length: 4 }, () => huge);
+    // 默认门槛 = max(4000, 16000*0.125=2000) = 4000 < 5000 → 省略。
+    expect(elideOversizedMessages(elideSession(texts()), 16_000).elidedCount).toBeGreaterThan(0);
+
+    // 门槛抬到 16000*1 = 16000 > 5000 → 不省略。
+    const tuning = resolveContextTuning(
+      policyWith({ midTurn: { elideThresholdRatio: 1, elideThresholdMinChars: 200 } }),
+    );
+    const session = elideSession(texts());
+    expect(elideOversizedMessages(session, 16_000, tuning).elidedCount).toBe(0);
+    expect(session.conversationHistory[1]?.content).toBe(huge);
   });
 });

@@ -72,6 +72,8 @@ describe("mock-api: 上下文用量契约", () => {
       breakdown?: { buckets?: Array<{ id: string; tokens: number }>; total?: number };
       window?: { contextTokens?: number; usedAsLimit?: number; midTurnCompactLimit?: number };
       modelId?: string;
+      tuning?: { carryover?: { suggestMinCompacts?: number } };
+      tuningOverrides?: string[];
     };
     expect(body.level).toBe("ok");
     expect(body.used).toBe(12_000);
@@ -87,6 +89,9 @@ describe("mock-api: 上下文用量契约", () => {
     // 窗口三元组（面板那行文案的来源）。
     expect(body.window?.contextTokens).toBe(128_000);
     expect(body.window?.midTurnCompactLimit).toBe(90_000);
+    // 高级设置：默认门槛与引擎默认一致（2），且没有 override。
+    expect(body.tuning?.carryover?.suggestMinCompacts).toBe(2);
+    expect(body.tuningOverrides).toEqual([]);
   });
 
   it("控制路由能改成 warn + compactCount + midTurn，且按作用域隔离", async () => {
@@ -112,6 +117,21 @@ describe("mock-api: 上下文用量契约", () => {
     ).json()) as { level?: string; compactCount?: number };
     expect(other.level).toBe("ok");
     expect(other.compactCount).toBe(0);
+
+    // 门槛可被 E2E 开关改写 → 面板判定跟着变（policy `context.carryover.suggestMinCompacts`）。
+    await fetch(`${base}/__e2e__/context-budget`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ suggestMinCompacts: 5 }),
+    });
+    const tuned = (await (
+      await fetch(`${base}/api/sessions/e2e-session-1/context-budget`, { headers: headers() })
+    ).json()) as {
+      tuning?: { carryover?: { suggestMinCompacts?: number } };
+      tuningOverrides?: string[];
+    };
+    expect(tuned.tuning?.carryover?.suggestMinCompacts).toBe(5);
+    expect(tuned.tuningOverrides).toEqual(["context.carryover.suggestMinCompacts"]);
 
     await fetch(`${base}/__e2e__/context-budget`, {
       method: "POST",

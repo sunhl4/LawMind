@@ -43,6 +43,8 @@ export type ComposeContextBudget = {
   window?: ComposeContextWindow;
   compactCount?: number;
   lastCompact?: ComposeLastCompact | null;
+  /** 建议另起新对话的压缩次数门槛（服务端从 `context.carryover.suggestMinCompacts` 下发）。 */
+  suggestMinCompacts?: number;
 };
 
 export type CompactPreview = {

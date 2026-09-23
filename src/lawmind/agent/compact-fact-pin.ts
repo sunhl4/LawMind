@@ -26,6 +26,7 @@
  */
 
 import { collectDroppedCitationAnchors } from "./compact.js";
+import { type ContextPinsTuning, resolveContextTuning } from "./context-tuning.js";
 import type { AgentMessage } from "./types.js";
 
 export type FactPinKind = "deadline" | "constraint" | "citation" | "amount";
@@ -38,12 +39,19 @@ export type FactPinItem = {
   at: string;
 };
 
-/** 台账条数上限。 */
-export const FACT_PIN_MAX_ITEMS = 12;
-/** 单条上限：够一句完整的话，又不至于把一段论述整段搬进来。 */
-export const FACT_PIN_ITEM_CHAR_CAP = 160;
-/** 台账总字符上限：系统段是每轮都在的，必须封顶。 */
-export const FACT_PIN_TOTAL_CHAR_CAP = 1_200;
+/**
+ * 台账帽（条数 / 单条 / 总量）。默认值集中在 `context-tuning.ts`；
+ * 可调 `context.pins.factMaxItems` / `factItemCharCap` / `factTotalCharCap`。
+ */
+export {
+  FACT_PIN_MAX_ITEMS,
+  FACT_PIN_ITEM_CHAR_CAP,
+  FACT_PIN_TOTAL_CHAR_CAP,
+} from "./context-tuning.js";
+
+function capsOf(tuning?: ContextPinsTuning): ContextPinsTuning {
+  return tuning ?? resolveContextTuning(null).pins;
+}
 
 /**
  * 优先级：丢了哪一类最像事故。
@@ -110,8 +118,8 @@ function classifySentence(sentence: string): FactPinKind | undefined {
   return undefined;
 }
 
-function makeItem(kind: FactPinKind, text: string): FactPinItem {
-  const trimmed = text.trim().slice(0, FACT_PIN_ITEM_CHAR_CAP);
+function makeItem(kind: FactPinKind, text: string, caps: ContextPinsTuning): FactPinItem {
+  const trimmed = text.trim().slice(0, caps.factItemCharCap);
   return {
     // id 只用于去重与展示，不做语义：kind + 归一化正文。
     id: `${kind}:${normalizeForDedupe(trimmed).slice(0, 48)}`,
@@ -127,7 +135,8 @@ function makeItem(kind: FactPinKind, text: string): FactPinItem {
  * 只应传律师自己的发言（`role === "user"` 且非合成消息）——助手写的数字与期限
  * 是模型产物，钉它等于把模型的话升格成律师的话。
  */
-export function extractFactPinItems(text: string): FactPinItem[] {
+export function extractFactPinItems(text: string, tuning?: ContextPinsTuning): FactPinItem[] {
+  const caps = capsOf(tuning);
   const out: FactPinItem[] = [];
   const seen = new Set<string>();
   for (const sentence of splitSentences(text)) {
@@ -135,7 +144,7 @@ export function extractFactPinItems(text: string): FactPinItem[] {
     if (!kind) {
       continue;
     }
-    const item = makeItem(kind, sentence);
+    const item = makeItem(kind, sentence, caps);
     if (seen.has(item.id)) {
       continue;
     }
@@ -152,7 +161,9 @@ export function extractFactPinItems(text: string): FactPinItem[] {
 export function mergeFactPinItems(
   existing: readonly FactPinItem[],
   incoming: readonly FactPinItem[],
+  tuning?: ContextPinsTuning,
 ): FactPinItem[] {
+  const caps = capsOf(tuning);
   const merged = [...existing];
   const has = (item: FactPinItem): boolean =>
     merged.some((m) => {
@@ -179,10 +190,10 @@ export function mergeFactPinItems(
   const capped: FactPinItem[] = [];
   let used = 0;
   for (const item of sorted) {
-    if (capped.length >= FACT_PIN_MAX_ITEMS) {
+    if (capped.length >= caps.factMaxItems) {
       break;
     }
-    if (used + item.text.length > FACT_PIN_TOTAL_CHAR_CAP) {
+    if (used + item.text.length > caps.factTotalCharCap) {
       continue;
     }
     capped.push(item);
@@ -192,7 +203,10 @@ export function mergeFactPinItems(
 }
 
 /** 从一条消息里抽台账（跳过合成消息）。 */
-export function extractFactPinFromMessage(msg: AgentMessage): FactPinItem[] {
+export function extractFactPinFromMessage(
+  msg: AgentMessage,
+  tuning?: ContextPinsTuning,
+): FactPinItem[] {
   if (msg.role !== "user") {
     return [];
   }
@@ -200,7 +214,7 @@ export function extractFactPinFromMessage(msg: AgentMessage): FactPinItem[] {
   if (!text) {
     return [];
   }
-  return extractFactPinItems(text);
+  return extractFactPinItems(text, tuning);
 }
 
 /**
@@ -214,21 +228,26 @@ export function accumulateFactPin(
     factPin?: { items: FactPinItem[]; updatedAt: string };
   },
   pool: readonly AgentMessage[],
+  tuning?: ContextPinsTuning,
 ): { added: number; total: number } {
+  const caps = capsOf(tuning);
+  if (!caps.factEnabled) {
+    return { added: 0, total: session.factPin?.items.length ?? 0 };
+  }
   const incoming: FactPinItem[] = [];
   for (const msg of pool) {
-    incoming.push(...extractFactPinFromMessage(msg));
+    incoming.push(...extractFactPinFromMessage(msg, caps));
   }
   // 法条引用单独召回：它可能只出现在被丢弃的**工具回包**里（模型是那时读到的）。
-  const anchors = collectDroppedCitationAnchors(pool as AgentMessage[], 8);
+  const anchors = collectDroppedCitationAnchors(pool as AgentMessage[], caps.factCitationAnchorMax);
   for (const anchor of anchors) {
-    incoming.push(makeItem("citation", anchor));
+    incoming.push(makeItem("citation", anchor, caps));
   }
   if (incoming.length === 0) {
     return { added: 0, total: session.factPin?.items.length ?? 0 };
   }
   const before = session.factPin?.items.length ?? 0;
-  const merged = mergeFactPinItems(session.factPin?.items ?? [], incoming);
+  const merged = mergeFactPinItems(session.factPin?.items ?? [], incoming, caps);
   session.factPin = { items: merged, updatedAt: new Date().toISOString() };
   return { added: Math.max(0, merged.length - before), total: merged.length };
 }

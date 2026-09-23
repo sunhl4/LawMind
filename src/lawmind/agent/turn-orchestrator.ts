@@ -6,9 +6,10 @@ import { randomUUID } from "node:crypto";
 import { attachEnabledMcpServers } from "../mcp/mcp-client-bridge.js";
 import { hiddenPolicyToolNames } from "../policy/analysis-scripts.js";
 import { accumulateFactPin } from "./compact-fact-pin.js";
-import { applyCompactReinjectionToSession, TASK_PIN_CHAR_CAP } from "./compact-reinjection.js";
+import { applyCompactReinjectionToSession } from "./compact-reinjection.js";
 import { autoCompactSessionHistory } from "./compact.js";
 import { estimateTokenBudget } from "./context-budget.js";
+import { resolveContextTuning } from "./context-tuning.js";
 import { resolveToolSandboxEnabled } from "./dangerous-tool-policy.js";
 import {
   applyLiveTurnEvent,
@@ -185,6 +186,11 @@ export async function runTurn(opts: {
   }
   session.turnPlan = pruneTurnPlanForNewInstruction(session.turnPlan, instruction);
 
+  // 上下文调参（预算 / 压缩 / 摘要 / 钉子 / 续接）从 policy 解析一次，本回合复用；
+  // 非法或越界的值已在 `resolveContextTuning` 里被回落 / 夹取，这里拿到的一定可用。
+  const workspacePolicy = readWorkspacePolicyFile(config.workspaceDir);
+  const contextTuning = resolveContextTuning(workspacePolicy);
+
   try {
     ensureLawyerWorkForTurn({
       workspaceDir: config.workspaceDir,
@@ -242,11 +248,18 @@ export async function runTurn(opts: {
       !noTaskTurn &&
       (!session.taskPin?.text || isTaskSwitchUtterance(instruction));
     if (shouldPin) {
-      session.taskPin = { text: pinText.slice(0, TASK_PIN_CHAR_CAP), at: new Date().toISOString() };
+      session.taskPin = {
+        text: pinText.slice(0, contextTuning.pins.taskCharCap),
+        at: new Date().toISOString(),
+      };
     }
     // 事实台账与任务钉子同处抽取：律师自己说的期限 / 硬约束 / 引用 / 金额，
     // **收到即钉**，不必等到压缩那一刻（那一刻它可能已经离开要点窗口了）。
-    accumulateFactPin(session, [{ role: "user", content: instruction, timestamp: "" }]);
+    accumulateFactPin(
+      session,
+      [{ role: "user", content: instruction, timestamp: "" }],
+      contextTuning.pins,
+    );
   }
 
   const ctx: AgentContext = {
@@ -528,7 +541,7 @@ export async function runTurn(opts: {
       ...(compiledIntent.softAsk ? { softAsk: compiledIntent.softAsk } : {}),
     });
 
-    const policyForCompact = readWorkspacePolicyFile(config.workspaceDir);
+    const policyForCompact = workspacePolicy;
     const budgetOpts = {
       contextTokens: config.model.contextTokens ?? policyForCompact?.context?.contextTokens,
     };
@@ -544,13 +557,17 @@ export async function runTurn(opts: {
       policy: policyForCompact,
       linkedTaskId: linkedTaskIdForCtx,
       contextTokens: budgetOpts.contextTokens,
+      tuning: contextTuning,
     });
     session.conversationHistory = compactResult.messages;
     if (compactResult.compacted) {
       session.needsCompactReinjection = true;
       // Same-turn reinjection: prepare already ran; patch system message before model loop.
       const mandatory = resolveAgentMandatoryRulesForPrompt(config.workspaceDir, policyForCompact);
-      applyCompactReinjectionToSession(session, { mandatoryRulesActive: mandatory.active });
+      applyCompactReinjectionToSession(session, {
+        mandatoryRulesActive: mandatory.active,
+        tuning: contextTuning,
+      });
       const boundaryId =
         compactResult.boundaryId ??
         `${new Date().toISOString()}#${compactResult.droppedMessageCount ?? 0}`;

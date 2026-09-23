@@ -92,6 +92,12 @@ describe("lawmind-server-route-sessions extended", () => {
       window?: { contextTokens: number; usableLimit: number; midTurnCompactLimit: number };
       compactCount?: number;
       lastCompact?: unknown;
+      tuning?: {
+        budget: { warnRatio: number; midTurnCompactTriggerRatio: number };
+        midTurn: { maxPerTurn: number };
+        carryover: { suggestMinCompacts: number };
+      };
+      tuningOverrides?: string[];
     };
     expect(body.ok).toBe(true);
     expect(body.used).toBeGreaterThanOrEqual(0);
@@ -109,6 +115,70 @@ describe("lawmind-server-route-sessions extended", () => {
     // A7：新会话还没压过。
     expect(body.compactCount).toBe(0);
     expect(body.lastCompact).toBeNull();
+    // 高级设置可见性：生效调参 + 显式写过的键（没写策略文件 → 默认值、空 override）。
+    expect(body.tuning?.budget.warnRatio).toBe(0.85);
+    expect(body.tuning?.midTurn.maxPerTurn).toBe(3);
+    expect(body.tuning?.carryover.suggestMinCompacts).toBe(2);
+    expect(body.tuningOverrides).toEqual([]);
+  });
+
+  it("GET context-budget 报出生效调参与显式写过的策略键（tuning / tuningOverrides）", async () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-sess-budget-tuning-"));
+    fs.writeFileSync(
+      path.join(ws, "lawmind.policy.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        context: {
+          warnRatio: 0.7,
+          midTurnCompactTriggerRatio: 0.8,
+          midTurn: { maxPerTurn: 5 },
+          carryover: { suggestMinCompacts: 4 },
+        },
+      }),
+      "utf8",
+    );
+    const session = createSession({ workspaceDir: ws, actorId: "lawyer", assistantId: "default" });
+    saveSession(ws, session);
+
+    const { res, get } = mockRes();
+    const ctx: LawmindDispatchContext = {
+      workspaceDir: ws,
+      envFile: undefined,
+      userEnvPath: path.join(ws, ".env"),
+      policy: { loaded: false },
+    };
+    const handled = await handleSessionExtendedRoutes({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res,
+      url: new URL(`http://127.0.0.1/api/sessions/${session.sessionId}/context-budget`),
+      pathname: `/api/sessions/${session.sessionId}/context-budget`,
+      c: {},
+    });
+    expect(handled).toBe(true);
+    const { status, raw } = get();
+    expect(status).toBe(200);
+    const body = JSON.parse(raw) as {
+      tuning?: {
+        budget: { warnRatio: number; midTurnCompactTriggerRatio: number };
+        midTurn: { maxPerTurn: number };
+        carryover: { suggestMinCompacts: number };
+      };
+      tuningOverrides?: string[];
+    };
+    expect(body.tuning?.budget.warnRatio).toBe(0.7);
+    expect(body.tuning?.budget.midTurnCompactTriggerRatio).toBe(0.8);
+    expect(body.tuning?.midTurn.maxPerTurn).toBe(5);
+    expect(body.tuning?.carryover.suggestMinCompacts).toBe(4);
+    // 画面上因此能说清「按哪套数字在跑」，而不只是「按默认」。
+    expect(body.tuningOverrides).toEqual(
+      expect.arrayContaining([
+        "context.warnRatio",
+        "context.midTurnCompactTriggerRatio",
+        "context.midTurn.maxPerTurn",
+        "context.carryover.suggestMinCompacts",
+      ]),
+    );
   });
 
   it("GET context-budget 按 ?modelId 解析窗口，并报出该会话压过几次", async () => {

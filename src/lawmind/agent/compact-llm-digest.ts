@@ -15,15 +15,25 @@ import {
   shouldResampleSidecarJson,
 } from "./assistant-text.js";
 import { buildDroppedSpanDigest, resolveCompactDigestCharCap } from "./compact.js";
+import { type ContextTuning, resolveContextTuning } from "./context-tuning.js";
 import { callModelWithRetry, ModelCallUserAbortError } from "./runtime-model-call.js";
 import type { AgentMessage, AgentModelConfig } from "./types.js";
 
-export function isCompactLlmDigestEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+/**
+ * LLM 摘要总开关。优先级：env 显式值（运维一刀切）> policy `context.digest.llmDigestEnabled` > 默认开。
+ */
+export function isCompactLlmDigestEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+  policyEnabled?: boolean,
+): boolean {
   const raw = env.LAWMIND_COMPACT_LLM?.trim().toLowerCase();
   if (raw === "0" || raw === "false" || raw === "off" || raw === "no") {
     return false;
   }
-  return true;
+  if (raw === "1" || raw === "true" || raw === "on" || raw === "yes") {
+    return true;
+  }
+  return policyEnabled ?? true;
 }
 
 function dialogueSnippet(dropped: AgentMessage[], maxChars: number): string {
@@ -47,10 +57,15 @@ function dialogueSnippet(dropped: AgentMessage[], maxChars: number): string {
   return parts.join("\n");
 }
 
-const MIN_COMPACT_SUMMARY_CHARS = 40;
+const DEFAULT_MIN_COMPACT_SUMMARY_CHARS = 40;
 
-function mergeCompactDigest(summary: string, extractive: string, cap: number): string {
-  const header = `【压缩前对话蒸馏】摘要：\n${summary.slice(0, Math.floor(cap * 0.45))}`;
+function mergeCompactDigest(
+  summary: string,
+  extractive: string,
+  cap: number,
+  summaryShare = 0.45,
+): string {
+  const header = `【压缩前对话蒸馏】摘要：\n${summary.slice(0, Math.floor(cap * summaryShare))}`;
   const merged = `${header}\n\n---\n\n${extractive}`;
   return merged.length > cap ? `${merged.slice(0, Math.max(0, cap - 20))}\n…[蒸馏截断]` : merged;
 }
@@ -74,13 +89,17 @@ export async function enhanceCompactDigestWithLlm(opts: {
    * 回合内应显著更短——超时就回落提取式，绝不拖住对话。
    */
   timeoutCapMs?: number;
+  /** 已解析的调参；不传则用默认值（可用 `context.digest.llmDigestEnabled` 关掉本增强）。 */
+  tuning?: ContextTuning;
 }): Promise<{ digest: string; usedLlm: boolean }> {
+  const tuning = opts.tuning ?? resolveContextTuning(null);
+  const minSummaryChars = tuning.digest.llmMinSummaryChars ?? DEFAULT_MIN_COMPACT_SUMMARY_CHARS;
   const extractive = opts.extractiveDigest.trim();
-  if (!extractive || !isCompactLlmDigestEnabled()) {
+  if (!extractive || !isCompactLlmDigestEnabled(process.env, tuning.digest.llmDigestEnabled)) {
     return { digest: extractive, usedLlm: false };
   }
 
-  const cap = resolveCompactDigestCharCap(opts.contextTokens);
+  const cap = resolveCompactDigestCharCap(opts.contextTokens, tuning);
   const sidecar = resolveClassifySidecarLimits({
     contextTokens: opts.contextTokens ?? opts.model.contextTokens,
     timeoutMs: opts.model.timeoutMs,
@@ -107,7 +126,7 @@ export async function enhanceCompactDigestWithLlm(opts: {
   ].join("\n");
 
   const fallback = (): { digest: string; usedLlm: boolean } => ({
-    digest: extractive || buildDroppedSpanDigest(opts.dropped, cap),
+    digest: extractive || buildDroppedSpanDigest(opts.dropped, cap, tuning),
     usedLlm: false,
   });
 
@@ -139,7 +158,7 @@ export async function enhanceCompactDigestWithLlm(opts: {
       const view = extractAssistantText(response);
       const summary = view.text.replace(/\s+/g, " ").trim();
       lastSummary = summary;
-      const usable = summary.length >= MIN_COMPACT_SUMMARY_CHARS;
+      const usable = summary.length >= minSummaryChars;
       if (
         shouldResampleSidecarJson({
           parsed: usable,
@@ -154,7 +173,10 @@ export async function enhanceCompactDigestWithLlm(opts: {
       if (!usable) {
         return fallback();
       }
-      return { digest: mergeCompactDigest(summary, extractive, cap), usedLlm: true };
+      return {
+        digest: mergeCompactDigest(summary, extractive, cap, tuning.digest.llmSummaryShare),
+        usedLlm: true,
+      };
     } catch (err) {
       if (err instanceof ModelCallUserAbortError) {
         throw err;
@@ -169,8 +191,11 @@ export async function enhanceCompactDigestWithLlm(opts: {
       return fallback();
     }
   }
-  if (lastSummary.length >= MIN_COMPACT_SUMMARY_CHARS) {
-    return { digest: mergeCompactDigest(lastSummary, extractive, cap), usedLlm: true };
+  if (lastSummary.length >= minSummaryChars) {
+    return {
+      digest: mergeCompactDigest(lastSummary, extractive, cap, tuning.digest.llmSummaryShare),
+      usedLlm: true,
+    };
   }
   return fallback();
 }

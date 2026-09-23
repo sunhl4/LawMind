@@ -8,17 +8,22 @@ import {
   isCompactSyntheticUserMessage,
   COMPACT_REINJECTION_MARKER,
 } from "./compact-insert.js";
+import { type ContextTuning, resolveContextTuning, TASK_PIN_CHAR_CAP } from "./context-tuning.js";
 import { formatTurnPlanWorldState } from "./turn-plan.js";
 import type { AgentSession } from "./types.js";
 import { collectWorldStateHashes, upsertWorldStateSection } from "./world-state.js";
 
 export { COMPACT_REINJECTION_MARKER } from "./compact-insert.js";
 
-/** 任务锚点（钉子）的长度上限：够写清「要做什么」，又不至于把系统段撑胖。 */
-export const TASK_PIN_CHAR_CAP = 600;
+/** 任务锚点（钉子）的长度上限：默认 600，可调 `context.pins.taskCharCap`。 */
+export { TASK_PIN_CHAR_CAP };
 
 /** 从历史里取最早一条**真实**律师发言作为任务锚点（跳过合成消息）。 */
-export function extractTaskPin(session: AgentSession): string | undefined {
+export function extractTaskPin(session: AgentSession, charCap?: number): string | undefined {
+  const cap =
+    typeof charCap === "number" && Number.isFinite(charCap) && charCap > 0
+      ? charCap
+      : TASK_PIN_CHAR_CAP;
   for (const msg of session.conversationHistory) {
     if (msg.role !== "user") {
       continue;
@@ -30,7 +35,7 @@ export function extractTaskPin(session: AgentSession): string | undefined {
     if (isCompactSyntheticUserMessage(text)) {
       continue;
     }
-    return text.slice(0, TASK_PIN_CHAR_CAP);
+    return text.slice(0, cap);
   }
   return undefined;
 }
@@ -106,19 +111,20 @@ export function formatCompactReinjectionBlock(opts?: {
  */
 export function applyCompactReinjectionToSession(
   session: AgentSession,
-  opts?: { mandatoryRulesActive?: boolean },
+  opts?: { mandatoryRulesActive?: boolean; tuning?: ContextTuning },
 ): boolean {
   if (!session.needsCompactReinjection) {
     return false;
   }
+  const tuning = opts?.tuning ?? resolveContextTuning(null);
   // 钉子优先取**持久化**的那一句（`session.taskPin`，由 runTurn 首次确定）；
   // 老会话（该字段出现之前建的）才回落到「从历史里找最早一条真实律师发言」。
-  const pinned = session.taskPin?.text?.trim() || extractTaskPin(session);
+  const pinned = session.taskPin?.text?.trim() || extractTaskPin(session, tuning.pins.taskCharCap);
   let block = formatCompactReinjectionBlock({
     ...opts,
     ...(pinned ? { taskStatement: pinned } : {}),
     pendingClarificationKeys: session.pendingClarificationKeys,
-    factPin: session.factPin?.items ?? [],
+    factPin: tuning.pins.factEnabled ? (session.factPin?.items ?? []) : [],
   });
   if (session.legacyUpdateDraftBodyWarning) {
     block = mergeLegacyUpdateDraftWarningIntoCraft(block);

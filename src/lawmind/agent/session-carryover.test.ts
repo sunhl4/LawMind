@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readAllAuditLogs } from "../audit/index.js";
 import { isCompactSyntheticUserMessage } from "./compact-insert.js";
+import { resolveContextTuning } from "./context-tuning.js";
 import { beginLiveTurnProgress, resetLiveTurnProgressStore } from "./live-turn-progress.js";
 import {
   blockingActionsForFork,
@@ -160,6 +161,18 @@ describe("buildCarryoverDraft", () => {
     expect(resolveCarryoverSeedCharCap(128_000)).toBe(12_800);
     expect(resolveCarryoverSeedCharCap(1_000_000)).toBe(32_000);
     expect(resolveCarryoverSeedCharCap(undefined)).toBe(12_800);
+  });
+
+  it("种子额度可由 policy 调（比例 / 上下界）", () => {
+    const tuning = resolveContextTuning({
+      schemaVersion: 1,
+      context: { carryover: { seedCharRatio: 0.2, seedMinChars: 1_000, seedMaxChars: 10_000 } },
+    });
+    expect(resolveCarryoverSeedCharCap(128_000, tuning)).toBe(10_000);
+    expect(resolveCarryoverSeedCharCap(16_000, tuning)).toBe(3_200);
+    expect(resolveCarryoverSeedCharCap(1_000, tuning)).toBe(1_000);
+    // 默认不变。
+    expect(resolveCarryoverSeedCharCap(128_000)).toBe(12_800);
   });
 
   it("骨架超长时按额度截断，不无界膨胀", () => {

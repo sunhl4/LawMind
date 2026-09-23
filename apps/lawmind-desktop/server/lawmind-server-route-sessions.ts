@@ -18,8 +18,11 @@ import {
 import {
   estimateTokenBudget,
   estimateTokenBudgetBreakdown,
-  resolveContextPolicy,
 } from "../../../src/lawmind/agent/context-budget.js";
+import {
+  collectContextTuningKeys,
+  resolveContextTuning,
+} from "../../../src/lawmind/agent/context-tuning.js";
 import { readSessionEvents } from "../../../src/lawmind/agent/session-event-log.js";
 import { forkSessionWithCarryover } from "../../../src/lawmind/agent/session-carryover.js";
 import { getLiveTurnProgress } from "../../../src/lawmind/agent/live-turn-progress.js";
@@ -158,8 +161,9 @@ export async function handleSessionExtendedRoutes({
     const breakdown = estimateTokenBudgetBreakdown(session, {
       charsPerToken: envelope.charsPerToken,
     });
+    const budgetTuning = resolveContextTuning(policy);
     const { autoCompactBufferTokens, summaryOutputTokenReserve, midTurnCompactTriggerRatio } =
-      resolveContextPolicy(policy);
+      budgetTuning.budget;
     // A7：本会话压过几次、上次是什么时候——只给「已整理过」的事实，不还原摘要正文。
     const compactCount = readSessionEvents(workspaceDir, sessionId).filter(
       (record) => record.event.type === "compact_boundary",
@@ -188,6 +192,13 @@ export async function handleSessionExtendedRoutes({
             Math.floor(budget.effectiveLimit * midTurnCompactTriggerRatio),
           ),
         },
+        /**
+         * 高级设置可见性：当前**生效**的上下文调参（已校验 / 已夹取），
+         * 以及律师在 `lawmind.policy.json` 里**显式写过**的键。
+         * 没有这一段，体检页只能说「按默认在跑」，说不出「按哪套数字在跑」。
+         */
+        tuning: budgetTuning,
+        tuningOverrides: collectContextTuningKeys(policy),
         compactCount,
         lastCompact: session.lastCompactBoundary ?? null,
       },
@@ -211,14 +222,18 @@ export async function handleSessionExtendedRoutes({
       body = {};
     }
     const { resolved, envelope } = resolveSessionEnvelope(workspaceDir, ctx.envFile);
+    const forkTuning = resolveContextTuning(readWorkspacePolicyFile(workspaceDir));
     const result = await forkSessionWithCarryover({
       workspaceDir,
       sourceSessionId,
       title: body.title,
       clientNonce: body.clientNonce,
       contextTokens: envelope.contextTokens,
+      tuning: forkTuning,
       enhanceDigest:
-        body.useLlmDigest === false || !resolved.model || !isCompactLlmDigestEnabled()
+        body.useLlmDigest === false ||
+        !resolved.model ||
+        !isCompactLlmDigestEnabled(process.env, forkTuning.digest.llmDigestEnabled)
           ? undefined
           : async ({ draft }) => {
               if (!draft.extractiveDigest.trim()) {
@@ -229,6 +244,7 @@ export async function handleSessionExtendedRoutes({
                 extractiveDigest: draft.extractiveDigest,
                 dropped: draft.dropped,
                 contextTokens: envelope.contextTokens,
+                tuning: forkTuning,
               });
               return enhanced.usedLlm ? enhanced.digest : undefined;
             },
@@ -506,6 +522,11 @@ export async function handleSessionExtendedRoutes({
       distill = false;
     }
     const policy = readWorkspacePolicyFile(workspaceDir);
+    const compactTuning = resolveContextTuning(policy);
+    const llmDigestEnabled = isCompactLlmDigestEnabled(
+      process.env,
+      compactTuning.digest.llmDigestEnabled,
+    );
     const { resolved: resolvedModel, envelope } = resolveSessionEnvelope(
       workspaceDir,
       ctx.envFile,
@@ -520,6 +541,7 @@ export async function handleSessionExtendedRoutes({
       policy,
       contextTokens: envelope.contextTokens,
       writeDigestFile: !dryRun,
+      tuning: compactTuning,
     });
     let usedLlmDigest = false;
 
@@ -533,8 +555,8 @@ export async function handleSessionExtendedRoutes({
           compacted: result.compacted,
           droppedMessageCount: result.droppedMessageCount ?? 0,
           estimatedDroppedTokens: result.estimatedDroppedTokens ?? 0,
-          useLlmDigestAvailable: isCompactLlmDigestEnabled() && Boolean(resolvedModel.model),
-          useLlmDigest: useLlmDigest && isCompactLlmDigestEnabled(),
+          useLlmDigestAvailable: llmDigestEnabled && Boolean(resolvedModel.model),
+          useLlmDigest: useLlmDigest && llmDigestEnabled,
           messages: sessionHistoryToSimpleMessages(session),
         },
         c,
@@ -548,7 +570,7 @@ export async function handleSessionExtendedRoutes({
       result.droppedDigest &&
       result.droppedSpan?.length &&
       resolvedModel.model &&
-      isCompactLlmDigestEnabled()
+      llmDigestEnabled
     ) {
       try {
         const enhanced = await enhanceCompactDigestWithLlm({
@@ -556,6 +578,7 @@ export async function handleSessionExtendedRoutes({
           extractiveDigest: result.droppedDigest,
           dropped: result.droppedSpan,
           contextTokens: envelope.contextTokens,
+          tuning: compactTuning,
         });
         if (enhanced.usedLlm) {
           usedLlmDigest = true;

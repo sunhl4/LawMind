@@ -17,17 +17,19 @@ import type { LawMindWorkspacePolicy } from "../policy/workspace-policy.js";
 import { resolveAgentMandatoryRulesForPrompt } from "../policy/workspace-policy.js";
 import { applyCompactReinjectionToSession } from "./compact-reinjection.js";
 import { autoCompactSessionHistory } from "./compact.js";
+import { estimateTokenBudget, type TokenBudgetLevel } from "./context-budget.js";
 import {
-  estimateTokenBudget,
-  type TokenBudgetLevel,
+  type ContextTuning,
   DEFAULT_MID_TURN_COMPACT_TRIGGER_RATIO,
-} from "./context-budget.js";
+  MID_TURN_COMPACT_MAX,
+  resolveContextTuning,
+} from "./context-tuning.js";
 import { pruneSessionToolResults } from "./session-tool-result-prune.js";
 import { elideMiddle } from "./text-elide.js";
 import type { AgentMessage, AgentSession } from "./types.js";
 
-/** 一个回合里最多整理几次；超出后只做工具结果瘦身，避免压缩本身开始空转。 */
-export const MID_TURN_COMPACT_MAX = 3;
+/** 一个回合里最多整理几次；默认见 `context-tuning.ts`（policy `context.midTurn.maxPerTurn`）。 */
+export { MID_TURN_COMPACT_MAX };
 
 export type MidTurnCompactPrune = { prunedCount: number; charsRemoved: number };
 
@@ -80,12 +82,16 @@ export function midTurnBudgetOverTrigger(input: {
  *
  * 刻意只留 2 条（不是更大的数）：`no_reduction` 恰恰发生在**历史很短**的时候
  * （单条巨型消息占满窗口），保护太多就等于什么都不动，加固形同虚设 —— 这是实测出来的。
+ * 可调：`context.midTurn.elideKeepTail`。
  */
-const ELIDE_KEEP_TAIL = 2;
 
-/** 单条正文超过这个量（或有效窗口的 1/8）才值得省略。 */
-function elideThresholdChars(effectiveLimit: number): number {
-  return Math.max(4_000, Math.floor(effectiveLimit * 0.125));
+/** 单条正文超过这个量（或有效窗口的 1/8）才值得省略。可调：`context.midTurn.elideThreshold*`。 */
+function elideThresholdChars(effectiveLimit: number, tuning: ContextTuning): number {
+  const limit = Math.max(1, effectiveLimit);
+  return Math.max(
+    tuning.midTurn.elideThresholdMinChars,
+    Math.floor(limit * tuning.midTurn.elideThresholdRatio),
+  );
 }
 
 /**
@@ -100,10 +106,12 @@ function elideThresholdChars(effectiveLimit: number): number {
 export function elideOversizedMessages(
   session: AgentSession,
   effectiveLimit: number,
+  tuning: ContextTuning = resolveContextTuning(null),
 ): { elidedCount: number; charsRemoved: number } {
-  const threshold = elideThresholdChars(effectiveLimit);
+  const threshold = elideThresholdChars(effectiveLimit, tuning);
   const history = session.conversationHistory;
-  const lastEditable = Math.max(0, history.length - ELIDE_KEEP_TAIL);
+  const keepTail = Math.max(0, tuning.midTurn.elideKeepTail);
+  const lastEditable = Math.max(0, history.length - keepTail);
   let elidedCount = 0;
   let charsRemoved = 0;
   for (let i = 0; i < lastEditable; i += 1) {
@@ -179,9 +187,12 @@ export function applyMidTurnCompact(
     measuredUsed?: number;
     /** 观测归属：回合 id（用于「有压力的回合数」）。 */
     turnId?: string;
+    /** 已解析的调参；不传则从 `policy` 现场解析（默认值 = 接入 policy 前的行为）。 */
+    tuning?: ContextTuning;
   },
 ): MidTurnCompactOutcome {
   const policy = opts.policy ?? null;
+  const tuning = opts.tuning ?? resolveContextTuning(policy);
   const budgetOpts = { contextTokens: opts.contextTokens };
   const before = estimateTokenBudget(session, policy, budgetOpts);
   const record = (
@@ -245,7 +256,7 @@ export function applyMidTurnCompact(
   const dropped = compactResult.droppedMessageCount ?? 0;
   if (!compactResult.compacted || dropped <= 0) {
     // 尾巴自身就超窗口（单条巨型消息）：别把摘要再堆进去，改成就地中间省略。
-    const elided = elideOversizedMessages(session, before.effectiveLimit);
+    const elided = elideOversizedMessages(session, before.effectiveLimit, tuning);
     if (elided.elidedCount > 0) {
       record("mid_turn_elided", {
         roundIndex: opts.roundIndex,
