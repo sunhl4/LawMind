@@ -125,17 +125,17 @@
 
 `LawmindLawyerWorkbench.tsx`（全仓最大的渲染层文件，超过 2600 行）。结构是「今日一屏」：
 
-| 组件                                  | 作用                                           |
-| ------------------------------------- | ---------------------------------------------- |
-| `LawmindDeskDashboardSummary.tsx`     | 汇总条：待拍板总数、今日活动数、本周一次通过数 |
-| `LawmindRequiresActionCard.tsx`       | 需要我处理的卡                                 |
-| `LawmindJudgmentItemsPanel.tsx`       | 待定夺项面板                                   |
-| `LawmindJudgmentEscalationCard.tsx`   | 待定夺升级卡                                   |
-| `LawmindTaskDrawer.tsx`               | 任务抽屉                                       |
-| `LawmindTaskCheckpoints.tsx`          | 任务检查点                                     |
-| `LawmindVerificationChecklist.tsx`    | 必核清单                                       |
-| `LawmindAssignmentCommitmentCard.tsx` | 承诺卡（第 16 章的 assignment commitment）     |
-| `LawmindActionApprovalCard.tsx` 等    | 各种待办卡                                     |
+| 组件                                  | 作用                                                                            |
+| ------------------------------------- | ------------------------------------------------------------------------------- |
+| `LawmindDeskDashboardSummary.tsx`     | 汇总条：待拍板总数、今日活动数、本周一次通过数                                  |
+| `LawmindRequiresActionCard.tsx`       | 需要我处理的卡                                                                  |
+| `LawmindJudgmentItemsPanel.tsx`       | 待定夺项面板                                                                    |
+| `LawmindJudgmentEscalationCard.tsx`   | 待定夺升级卡                                                                    |
+| `LawmindTaskDrawer.tsx`               | 任务抽屉                                                                        |
+| `LawmindTaskCheckpoints.tsx`          | 任务检查点                                                                      |
+| `LawmindVerificationChecklist.tsx`    | 必核清单                                                                        |
+| `LawmindAssignmentCommitmentCard.tsx` | 承诺卡（第 16 章的 assignment commitment）                                      |
+| `MatterOverviewTodoCards.tsx` 等      | 各种待办卡（另有 `LawmindApprovalQueue.tsx`、`LawmindApprovalRequestHost.tsx`） |
 
 ### 案件驾舱（`matter/`）
 

@@ -492,7 +492,7 @@ LawMind 的索引是 SQLite 的 **FTS5 全文检索**，位置 `<工作区>/lawm
 
 ### 立案试检
 
-`autoStatuteTrial.ts` 是个确定性动作：在合适的交付物上自动跑一次法条试检。适用类型：`memo.research`、`memo.opinion`、`memo.internal`、`contract.review`，以及所有 `letter.*` 和 `litigation.*`。来源上限 20 条。
+`auto-statute-trial.ts` 是个确定性动作：在合适的交付物上自动跑一次法条试检。适用类型：`memo.research`、`memo.opinion`、`memo.internal`、`contract.review`，以及所有 `letter.*` 和 `litigation.*`。来源上限 20 条。
 
 ### 培训材料的脱敏门
 
